@@ -1,0 +1,26 @@
+[tool.poetry]
+name = "paibox"
+version = "0.0.1"
+description = "New toolbox of PAICORE 2.0."
+authors = [
+    "Bin Bai <>",
+    "Deming Zhang <>",
+    "Ziru Pan <zrpan@stu.pku.edu.cn>"
+]
+maintainers = [
+    "Bin Bai",
+    "Deming Zhang",
+    "Ziru Pan <zrpan@stu.pku.edu.cn>"
+]
+license = "GPL-3.0-or-later"
+readme = "README.md"
+repository = "https://github.com/PAICookers/PAIBox"
+packages = [{include = "paibox"}]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
