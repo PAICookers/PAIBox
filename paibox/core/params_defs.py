@@ -1,5 +1,5 @@
 """
-    This file defines parameter registers & RAM parameters of offline cores.
+    This file defines parameters of registers & RAM of offline cores.
 """
 
 
