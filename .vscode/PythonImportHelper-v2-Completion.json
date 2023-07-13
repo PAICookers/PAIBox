@@ -1,5 +1,93 @@
 [
     {
+        "label": "Enum",
+        "importPath": "enum",
+        "description": "enum",
+        "isExtraImport": true,
+        "detail": "enum",
+        "documentation": {}
+    },
+    {
+        "label": "Enum",
+        "importPath": "enum",
+        "description": "enum",
+        "isExtraImport": true,
+        "detail": "enum",
+        "documentation": {}
+    },
+    {
+        "label": "Flag",
+        "importPath": "enum",
+        "description": "enum",
+        "isExtraImport": true,
+        "detail": "enum",
+        "documentation": {}
+    },
+    {
+        "label": "unique",
+        "importPath": "enum",
+        "description": "enum",
+        "isExtraImport": true,
+        "detail": "enum",
+        "documentation": {}
+    },
+    {
+        "label": "Enum",
+        "importPath": "enum",
+        "description": "enum",
+        "isExtraImport": true,
+        "detail": "enum",
+        "documentation": {}
+    },
+    {
+        "label": "unique",
+        "importPath": "enum",
+        "description": "enum",
+        "isExtraImport": true,
+        "detail": "enum",
+        "documentation": {}
+    },
+    {
+        "label": "Enum",
+        "importPath": "enum",
+        "description": "enum",
+        "isExtraImport": true,
+        "detail": "enum",
+        "documentation": {}
+    },
+    {
+        "label": "unique",
+        "importPath": "enum",
+        "description": "enum",
+        "isExtraImport": true,
+        "detail": "enum",
+        "documentation": {}
+    },
+    {
+        "label": "unique",
+        "importPath": "enum",
+        "description": "enum",
+        "isExtraImport": true,
+        "detail": "enum",
+        "documentation": {}
+    },
+    {
+        "label": "Tuple",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Union",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
         "label": "Optional",
         "importPath": "typing",
         "description": "typing",
@@ -56,6 +144,86 @@
         "documentation": {}
     },
     {
+        "label": "sqrt",
+        "importPath": "math",
+        "description": "math",
+        "isExtraImport": true,
+        "detail": "math",
+        "documentation": {}
+    },
+    {
+        "label": "dataclass",
+        "importPath": "pydantic.dataclasses",
+        "description": "pydantic.dataclasses",
+        "isExtraImport": true,
+        "detail": "pydantic.dataclasses",
+        "documentation": {}
+    },
+    {
+        "label": "field_validator",
+        "importPath": "pydantic",
+        "description": "pydantic",
+        "isExtraImport": true,
+        "detail": "pydantic",
+        "documentation": {}
+    },
+    {
+        "label": "BaseModel",
+        "importPath": "pydantic",
+        "description": "pydantic",
+        "isExtraImport": true,
+        "detail": "pydantic",
+        "documentation": {}
+    },
+    {
+        "label": "PrivateAttr",
+        "importPath": "pydantic",
+        "description": "pydantic",
+        "isExtraImport": true,
+        "detail": "pydantic",
+        "documentation": {}
+    },
+    {
+        "label": "Field",
+        "importPath": "pydantic",
+        "description": "pydantic",
+        "isExtraImport": true,
+        "detail": "pydantic",
+        "documentation": {}
+    },
+    {
+        "label": "model_validator",
+        "importPath": "pydantic",
+        "description": "pydantic",
+        "isExtraImport": true,
+        "detail": "pydantic",
+        "documentation": {}
+    },
+    {
+        "label": "field_serializer",
+        "importPath": "pydantic",
+        "description": "pydantic",
+        "isExtraImport": true,
+        "detail": "pydantic",
+        "documentation": {}
+    },
+    {
+        "label": "*",
+        "importPath": "params_types",
+        "description": "params_types",
+        "isExtraImport": true,
+        "detail": "params_types",
+        "documentation": {}
+    },
+    {
+        "label": "CoreMode",
+        "importPath": "_core_mode",
+        "description": "_core_mode",
+        "isExtraImport": true,
+        "detail": "_core_mode",
+        "documentation": {}
+    },
+    {
         "label": "FrameMask",
         "importPath": "frame_params",
         "description": "frame_params",
@@ -80,35 +248,200 @@
         "documentation": {}
     },
     {
-        "label": "Enum",
-        "importPath": "enum",
-        "description": "enum",
-        "isExtraImport": true,
-        "detail": "enum",
-        "documentation": {}
-    },
-    {
-        "label": "unique",
-        "importPath": "enum",
-        "description": "enum",
-        "isExtraImport": true,
-        "detail": "enum",
-        "documentation": {}
-    },
-    {
-        "label": "unique",
-        "importPath": "enum",
-        "description": "enum",
-        "isExtraImport": true,
-        "detail": "enum",
-        "documentation": {}
-    },
-    {
         "label": "Coord",
         "importPath": "paibox.frame.coord",
         "description": "paibox.frame.coord",
         "isExtraImport": true,
         "detail": "paibox.frame.coord",
+        "documentation": {}
+    },
+    {
+        "label": "Coord",
+        "kind": 6,
+        "importPath": "paibox.core.coord",
+        "description": "paibox.core.coord",
+        "peekOfCode": "class Coord:\n    \"\"\"Coordinates of the cores.\n    NOTE: Set coordinates (x, y) for every cores. Left to right, +X, up to down, +Y.\n    \"\"\"\n    _COORD_MAX_LIMIT = 32\n    _COORD_LOW_LIMIT = 0\n    x: int\n    y: int\n    @field_validator(\"x\", \"y\", mode=\"before\")\n    def _coord_range_limit(cls, v: int) -> int:",
+        "detail": "paibox.core.coord",
+        "documentation": {}
+    },
+    {
+        "label": "CoordOffset",
+        "kind": 6,
+        "importPath": "paibox.core.coord",
+        "description": "paibox.core.coord",
+        "peekOfCode": "class CoordOffset(Coord):\n    \"\"\"Offset of coordinates\"\"\"\n    _COORDOFFSET_MAX_LIMIT = 32\n    _COORDOFFSET_LOW_LIMIT = -32\n    def __init__(self, _x: int, _y: int) -> None:\n        if not (\n            self._COORDOFFSET_LOW_LIMIT < _x < self._COORDOFFSET_MAX_LIMIT\n            and self._COORDOFFSET_LOW_LIMIT < _y < self._COORDOFFSET_MAX_LIMIT\n        ):\n            raise ValueError(",
+        "detail": "paibox.core.coord",
+        "documentation": {}
+    },
+    {
+        "label": "BitStatusType",
+        "kind": 6,
+        "importPath": "paibox.core.coord",
+        "description": "paibox.core.coord",
+        "peekOfCode": "class BitStatusType(Enum):\n    ZERO = 0\n    ONE = 1\n    ANY = 2\nclass ReplicationID(Coord):\n    status: BitStatusType\n    # TODO\nif __name__ == \"__main__\":\n    c = Coord.from_tuple((2, 31))\n    print(c)",
+        "detail": "paibox.core.coord",
+        "documentation": {}
+    },
+    {
+        "label": "ReplicationID",
+        "kind": 6,
+        "importPath": "paibox.core.coord",
+        "description": "paibox.core.coord",
+        "peekOfCode": "class ReplicationID(Coord):\n    status: BitStatusType\n    # TODO\nif __name__ == \"__main__\":\n    c = Coord.from_tuple((2, 31))\n    print(c)",
+        "detail": "paibox.core.coord",
+        "documentation": {}
+    },
+    {
+        "label": "ParamsReg",
+        "kind": 6,
+        "importPath": "paibox.core.core_defs",
+        "description": "paibox.core.core_defs",
+        "peekOfCode": "class ParamsReg(BaseModel, extra=\"ignore\", validate_assignment=True):\n    \"\"\"Parameter model of register parameters listed in Section 2.4.1\"\"\"\n    _WEIGHT_PRECISION_BIT_MAX = 2\n    _LCN_EXTENSION_BIT_MAX = 2\n    _INPUT_WIDTH_FORMAT_BIT_MAX = 2\n    _SPIKE_WIDTH_FORMAT_BIT_MAX = 2\n    _NEURON_NUM_BIT_MAX = 13\n    _POOL_MAX_EN_BIT_MAX = 1\n    _TICK_WAIT_START_BIT_MAX = 15\n    _TICK_WAIT_END_BIT_MAX = 15",
+        "detail": "paibox.core.core_defs",
+        "documentation": {}
+    },
+    {
+        "label": "ParamsRAM",
+        "kind": 6,
+        "importPath": "paibox.core.core_defs",
+        "description": "paibox.core.core_defs",
+        "peekOfCode": "class ParamsRAM(BaseModel, extra=\"ignore\", validate_assignment=True):\n    \"\"\"Parameter model of RAM parameters listed in Section 2.4.2\"\"\"\n    _TICK_RELATIVE_BIT_MAX = 8\n    _ADDR_AXON_BIT_MAX = 11\n    _ADDR_CORE_X_BIT_MAX = 5\n    _ADDR_CORE_Y_BIT_MAX = 5\n    _ADDR_CORE_X_EX_BIT_MAX = 5\n    _ADDR_CORE_Y_EX_BIT_MAX = 5\n    _ADDR_CHIP_X_BIT_MAX = 5\n    _ADDR_CHIP_Y_BIT_MAX = 5",
+        "detail": "paibox.core.core_defs",
+        "documentation": {}
+    },
+    {
+        "label": "get_core_mode",
+        "kind": 2,
+        "importPath": "paibox.core.core_defs",
+        "description": "paibox.core.core_defs",
+        "peekOfCode": "def get_core_mode(\n    iwidth_format: InputWidthFormatType,\n    swidth_format: SpikeWidthFormatType,\n    snn_en: SNNModeEnableType,\n) -> CoreMode:\n    if iwidth_format is InputWidthFormatType.INPUT_WIDTH_1BIT:\n        if swidth_format is SpikeWidthFormatType.SPIKE_WIDTH_1BIT:\n            if snn_en is SNNModeEnableType.SNN_MODE_DISABLE:\n                # 0 / 0 / 0\n                return CoreMode.MODE_BANN",
+        "detail": "paibox.core.core_defs",
+        "documentation": {}
+    },
+    {
+        "label": "WeightPrecisionType",
+        "kind": 6,
+        "importPath": "paibox.core.params_types",
+        "description": "paibox.core.params_types",
+        "peekOfCode": "class WeightPrecisionType(Enum):\n    \"\"\"Weight precision of crossbar. 2-bit.\n    `WEIGHT_WIDTH_XBIT` for X-bit.\n    \"\"\"\n    WEIGHT_WIDTH_1BIT = 0\n    WEIGHT_WIDTH_2BIT = 1\n    WEIGHT_WIDTH_4BIT = 2\n    WEIGHT_WIDTH_8BIT = 3  # Default value.\n@unique\nclass LCNExtensionType(Enum):",
+        "detail": "paibox.core.params_types",
+        "documentation": {}
+    },
+    {
+        "label": "LCNExtensionType",
+        "kind": 6,
+        "importPath": "paibox.core.params_types",
+        "description": "paibox.core.params_types",
+        "peekOfCode": "class LCNExtensionType(Enum):\n    \"\"\"Scale of Fan-in extension. 4-bit.\n    - For ANN mode, LCN_1X = 144x.\n    - For BANN/SNN mode, LCN_1X = 1152x.\n    \"\"\"\n    LCN_1X = 0  # Default value.\n    LCN_2X = 1\n    LCN_4X = 2\n    LCN_8X = 3\n    LCN_16X = 4",
+        "detail": "paibox.core.params_types",
+        "documentation": {}
+    },
+    {
+        "label": "InputWidthFormatType",
+        "kind": 6,
+        "importPath": "paibox.core.params_types",
+        "description": "paibox.core.params_types",
+        "peekOfCode": "class InputWidthFormatType(Enum):\n    \"\"\"Format of input spike. 1-bit.\n    - `INPUT_WIDTH_1BIT`: 1-bit spikes, 0.\n    - `INPUT_WIDTH_8BIT`: 8-bit activation.\n    \"\"\"\n    INPUT_WIDTH_1BIT = 0  # Default value.\n    INPUT_WIDTH_8BIT = 1\n@unique\nclass SpikeWidthFormatType(Enum):\n    \"\"\"Format of output spike. 1-bit.",
+        "detail": "paibox.core.params_types",
+        "documentation": {}
+    },
+    {
+        "label": "SpikeWidthFormatType",
+        "kind": 6,
+        "importPath": "paibox.core.params_types",
+        "description": "paibox.core.params_types",
+        "peekOfCode": "class SpikeWidthFormatType(Enum):\n    \"\"\"Format of output spike. 1-bit.\n    - `SPIKE_WIDTH_1BIT`: 1-bit spikes, 0.\n    - `SPIKE_WIDTH_8BIT`: 8-bit activation.\n    \"\"\"\n    SPIKE_WIDTH_1BIT = 0  # Default value.\n    SPIKE_WIDTH_8BIT = 1\n@unique\nclass PoolMaxEnableType(Enum):\n    \"\"\"Enable max pooling or not in 8-bit input format. 1-bit.",
+        "detail": "paibox.core.params_types",
+        "documentation": {}
+    },
+    {
+        "label": "PoolMaxEnableType",
+        "kind": 6,
+        "importPath": "paibox.core.params_types",
+        "description": "paibox.core.params_types",
+        "peekOfCode": "class PoolMaxEnableType(Enum):\n    \"\"\"Enable max pooling or not in 8-bit input format. 1-bit.\n    - `POOL_MAX_DISABLE`: pooling max disable, 0.\n    - `POOL_MAX_ENABLE`: pooling max enable.\n    \"\"\"\n    POOL_MAX_DISABLE = 0\n    POOL_MAX_ENABLE = 1  # Default value.\n@unique\nclass SNNModeEnableType(Enum):\n    \"\"\"Enable SNN mode or not. 1-bit.",
+        "detail": "paibox.core.params_types",
+        "documentation": {}
+    },
+    {
+        "label": "SNNModeEnableType",
+        "kind": 6,
+        "importPath": "paibox.core.params_types",
+        "description": "paibox.core.params_types",
+        "peekOfCode": "class SNNModeEnableType(Enum):\n    \"\"\"Enable SNN mode or not. 1-bit.\n    - `SNN_MODE_DISABLE`: SNN mode disable, 0.\n    - `SNN_MODE_ENABLE`: SNN mode enable.\n    \"\"\"\n    SNN_MODE_DISABLE = 0\n    SNN_MODE_ENABLE = 1  # Default value.\n\"\"\"\n    Type defines of RAM parameters.\n    See Section 2.4.2 in V2.1 Manual for details.",
+        "detail": "paibox.core.params_types",
+        "documentation": {}
+    },
+    {
+        "label": "CoreAddrX_EX_Type",
+        "kind": 6,
+        "importPath": "paibox.core.params_types",
+        "description": "paibox.core.params_types",
+        "peekOfCode": "class CoreAddrX_EX_Type(Flag):\n    \"\"\"\n    Broadcast address X of the destination code.\n    询问钟这个是否是核间路由\n    通过flag的或的方式，获得路由的规则，从而实现*通配符的等效替代\n    Usage:\n    NOTE: *addr_core_x_ex* in Section 2.4.2.\n    \"\"\"\n    pass\n@unique",
+        "detail": "paibox.core.params_types",
+        "documentation": {}
+    },
+    {
+        "label": "ResetModeType",
+        "kind": 6,
+        "importPath": "paibox.core.params_types",
+        "description": "paibox.core.params_types",
+        "peekOfCode": "class ResetModeType(Enum):\n    \"\"\"Reset modes of cores. 2-bit.\n    - MODE_NORMAL: normal mode.\n    - MODE_LINEAR: linear mode.\n    - MODE_NONRESET: non-reset mode.\n    NOTE: *reset_mode*\n    \"\"\"\n    MODE_NORMAL = 0  # Default value.\n    MODE_LINEAR = 1\n    MODE_NONRESET = 2",
+        "detail": "paibox.core.params_types",
+        "documentation": {}
+    },
+    {
+        "label": "LeakingComparisonType",
+        "kind": 6,
+        "importPath": "paibox.core.params_types",
+        "description": "paibox.core.params_types",
+        "peekOfCode": "class LeakingComparisonType(Enum):\n    \"\"\"Leak after comparison or before. 1-bit.\n    - LEAK_BEFORE_COMP: leak before comparison.\n    - LEAK_AFTER_COMP: leak after comparison.\n    NOTE: *leak_post*\n    \"\"\"\n    LEAK_BEFORE_COMP = 0\n    LEAK_AFTER_COMP = 1  # Default value.\n@unique\nclass NegativeThresModeType(Enum):",
+        "detail": "paibox.core.params_types",
+        "documentation": {}
+    },
+    {
+        "label": "NegativeThresModeType",
+        "kind": 6,
+        "importPath": "paibox.core.params_types",
+        "description": "paibox.core.params_types",
+        "peekOfCode": "class NegativeThresModeType(Enum):\n    \"\"\"Modes of negative threshold. 1-bit.\n    - MODE_RESET: reset mode.\n    - MODE_SATURATION: saturation mode.\n    NOTE: *threshold_neg_mode*\n    \"\"\"\n    MODE_RESET = 0  # Default value.\n    MODE_SATURATION = 1\n@unique\nclass LeakingDirectionType(Enum):",
+        "detail": "paibox.core.params_types",
+        "documentation": {}
+    },
+    {
+        "label": "LeakingDirectionType",
+        "kind": 6,
+        "importPath": "paibox.core.params_types",
+        "description": "paibox.core.params_types",
+        "peekOfCode": "class LeakingDirectionType(Enum):\n    \"\"\"Direction of leaking, forward or reversal.\n    - MODE_FORWARD: forward leaking.\n    - MODE_REVERSAL: reversal leaking.\n    NOTE: *leak_reversal_flag*\n    \"\"\"\n    MODE_FORWARD = 0  # Default value.\n    MODE_REVERSAL = 1\n@unique\nclass LeakingModeType(Enum):",
+        "detail": "paibox.core.params_types",
+        "documentation": {}
+    },
+    {
+        "label": "LeakingModeType",
+        "kind": 6,
+        "importPath": "paibox.core.params_types",
+        "description": "paibox.core.params_types",
+        "peekOfCode": "class LeakingModeType(Enum):\n    \"\"\"Modes of leaking, deterministic or stochastic.\n    - MODE_DETERMINISTIC: deterministic leaking.\n    - MODE_STOCHASTIC: stochastic leaking.\n    NOTE: *leak_det_stoch*\n    \"\"\"\n    MODE_DETERMINISTIC = 0  # Default value.\n    MODE_STOCHASTIC = 1\n@unique\nclass WeightModeType(Enum):",
+        "detail": "paibox.core.params_types",
+        "documentation": {}
+    },
+    {
+        "label": "WeightModeType",
+        "kind": 6,
+        "importPath": "paibox.core.params_types",
+        "description": "paibox.core.params_types",
+        "peekOfCode": "class WeightModeType(Enum):\n    \"\"\"Modes of weights, deterministic or stochastic.\n    - MODE_DETERMINISTIC: deterministic weights\n    - MODE_STOCHASTIC: stochastic weights\n    NOTE: *weight_det_stoch*\n    \"\"\"\n    MODE_DETERMINISTIC = 0  # Default value.\n    MODE_STOCHASTIC = 1\nif __name__ == \"__main__\":\n    a = LCNExtensionType.LCN_32X",
+        "detail": "paibox.core.params_types",
+        "documentation": {}
+    },
+    {
+        "label": "CoreMode",
+        "kind": 6,
+        "importPath": "paibox.core._core_mode",
+        "description": "paibox.core._core_mode",
+        "peekOfCode": "class CoreMode(Enum):\n    \"\"\"Working mode of core.\n    Decided by `input_width`, `spike_width` and `SNN_EN` of core parameters registers.\n    NOTE: See table below for details.\n    Mode            input_width    spike_width    SNN_EN\n    BANN                0               0           0\n    SNN                 0               0           1\n    BANN/SNN to ANN     0               1           0\n    BANN/SNN to SNN     0               1           1\n    ANN to BANN/SNN     1               0       Don't care",
+        "detail": "paibox.core._core_mode",
         "documentation": {}
     },
     {
