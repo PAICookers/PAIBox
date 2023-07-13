@@ -1,0 +1,303 @@
+[
+    {
+        "label": "Optional",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Tuple",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Union",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Optional",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Tuple",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Union",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "List",
+        "importPath": "typing",
+        "description": "typing",
+        "isExtraImport": true,
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "FrameMask",
+        "importPath": "frame_params",
+        "description": "frame_params",
+        "isExtraImport": true,
+        "detail": "frame_params",
+        "documentation": {}
+    },
+    {
+        "label": "*",
+        "importPath": "frame_params",
+        "description": "frame_params",
+        "isExtraImport": true,
+        "detail": "frame_params",
+        "documentation": {}
+    },
+    {
+        "label": "Coord",
+        "importPath": "coord",
+        "description": "coord",
+        "isExtraImport": true,
+        "detail": "coord",
+        "documentation": {}
+    },
+    {
+        "label": "Enum",
+        "importPath": "enum",
+        "description": "enum",
+        "isExtraImport": true,
+        "detail": "enum",
+        "documentation": {}
+    },
+    {
+        "label": "unique",
+        "importPath": "enum",
+        "description": "enum",
+        "isExtraImport": true,
+        "detail": "enum",
+        "documentation": {}
+    },
+    {
+        "label": "unique",
+        "importPath": "enum",
+        "description": "enum",
+        "isExtraImport": true,
+        "detail": "enum",
+        "documentation": {}
+    },
+    {
+        "label": "Coord",
+        "importPath": "paibox.frame.coord",
+        "description": "paibox.frame.coord",
+        "isExtraImport": true,
+        "detail": "paibox.frame.coord",
+        "documentation": {}
+    },
+    {
+        "label": "Coord",
+        "kind": 6,
+        "importPath": "paibox.frame.coord",
+        "description": "paibox.frame.coord",
+        "peekOfCode": "class Coord:\n    \"\"\"Coordinate class\"\"\"\n    def __init__(\n        self, _x: Union[Tuple[int, int], int], _y: Optional[int] = None\n    ) -> None:\n        if isinstance(_x, Tuple):\n            x, y = _x[0], _x[1]\n            if isinstance(_y, int):\n                raise ValueError(f\"Wrong Argument: {_y}\")\n        elif isinstance(_x, int):",
+        "detail": "paibox.frame.coord",
+        "documentation": {}
+    },
+    {
+        "label": "CoordOffset",
+        "kind": 6,
+        "importPath": "paibox.frame.coord",
+        "description": "paibox.frame.coord",
+        "peekOfCode": "class CoordOffset(Coord):\n    \"\"\"Coordinate offset class\"\"\"\n    def __init__(self, _x: int, _y: int) -> None:\n        if not (-32 < _x < 32 and -32 < _y < 32):\n            raise ValueError(f\"-32 < x < 32, -32 < y < 32: ({_x}, {_y})\")\n        self.x, self.y = _x, _y\n    def __add__(self, other):\n        if isinstance(other, CoordOffset):\n            return CoordOffset(self.x + other.x, self.y + other.y)\n        else:",
+        "detail": "paibox.frame.coord",
+        "documentation": {}
+    },
+    {
+        "label": "FrameGen",
+        "kind": 6,
+        "importPath": "paibox.frame.frame",
+        "description": "paibox.frame.frame",
+        "peekOfCode": "class FrameGen:\n    # 通用Frame生成函数\n    @staticmethod\n    def _GenFrame(\n        header: int, chip_addr: int, core_addr: int, core_ex_addr: int, payload: int\n    ) -> int:\n        header = header & FrameMask.GENERAL_HEADER_MASK\n        chip_addr = chip_addr & FrameMask.GENERAL_CHIP_ADDR_MASK\n        core_addr = core_addr & FrameMask.GENERAL_CORE_ADDR_MASK\n        core_ex_addr = core_ex_addr & FrameMask.GENERAL_CORE_EX_ADDR_MASK",
+        "detail": "paibox.frame.frame",
+        "documentation": {}
+    },
+    {
+        "label": "Coord2Addr",
+        "kind": 2,
+        "importPath": "paibox.frame.frame",
+        "description": "paibox.frame.frame",
+        "peekOfCode": "def Coord2Addr(coord: Coord) -> int:\n    return (coord.x << 5) | coord.y\ndef Addr2Coord(addr: int) -> Coord:\n    return Coord(addr >> 5, addr & ((1 << 5) - 1))\n# 用于配置帧2型配置各个寄存器参数，tick_wait_start、test_chip_addr进行了拆分\ndef config_frame2_split(x: int, high: int, low: int) -> Tuple[int, int]:\n    highbit = x >> (low)\n    lowbit_mask = (1 << (low)) - 1\n    lowbit = x & lowbit_mask\n    return highbit, lowbit",
+        "detail": "paibox.frame.frame",
+        "documentation": {}
+    },
+    {
+        "label": "Addr2Coord",
+        "kind": 2,
+        "importPath": "paibox.frame.frame",
+        "description": "paibox.frame.frame",
+        "peekOfCode": "def Addr2Coord(addr: int) -> Coord:\n    return Coord(addr >> 5, addr & ((1 << 5) - 1))\n# 用于配置帧2型配置各个寄存器参数，tick_wait_start、test_chip_addr进行了拆分\ndef config_frame2_split(x: int, high: int, low: int) -> Tuple[int, int]:\n    highbit = x >> (low)\n    lowbit_mask = (1 << (low)) - 1\n    lowbit = x & lowbit_mask\n    return highbit, lowbit\n# 配置帧2型 est_chip_addr拆分\ndef test_chip_coord_split(coord: Coord) -> Tuple[int, int]:",
+        "detail": "paibox.frame.frame",
+        "documentation": {}
+    },
+    {
+        "label": "config_frame2_split",
+        "kind": 2,
+        "importPath": "paibox.frame.frame",
+        "description": "paibox.frame.frame",
+        "peekOfCode": "def config_frame2_split(x: int, high: int, low: int) -> Tuple[int, int]:\n    highbit = x >> (low)\n    lowbit_mask = (1 << (low)) - 1\n    lowbit = x & lowbit_mask\n    return highbit, lowbit\n# 配置帧2型 est_chip_addr拆分\ndef test_chip_coord_split(coord: Coord) -> Tuple[int, int]:\n    addr = Coord2Addr(coord)\n    high3 = (\n        addr >> ConfigFrame2Mask.TEST_CHIP_ADDR_COMBINATION_OFFSET",
+        "detail": "paibox.frame.frame",
+        "documentation": {}
+    },
+    {
+        "label": "test_chip_coord_split",
+        "kind": 2,
+        "importPath": "paibox.frame.frame",
+        "description": "paibox.frame.frame",
+        "peekOfCode": "def test_chip_coord_split(coord: Coord) -> Tuple[int, int]:\n    addr = Coord2Addr(coord)\n    high3 = (\n        addr >> ConfigFrame2Mask.TEST_CHIP_ADDR_COMBINATION_OFFSET\n    ) & ConfigFrame2Mask.TEST_CHIP_ADDR_HIGH3_MASK\n    low7 = addr & ConfigFrame2Mask.TEST_CHIP_ADDR_LOW7_MASK\n    return high3, low7\n# 配置帧2型 est_chip_addr合并\ndef test_chip_addr_combine(high3: int, low7: int) -> Coord:\n    _high3 = high3 & ConfigFrame2Mask.TEST_CHIP_ADDR_HIGH3_MASK",
+        "detail": "paibox.frame.frame",
+        "documentation": {}
+    },
+    {
+        "label": "test_chip_addr_combine",
+        "kind": 2,
+        "importPath": "paibox.frame.frame",
+        "description": "paibox.frame.frame",
+        "peekOfCode": "def test_chip_addr_combine(high3: int, low7: int) -> Coord:\n    _high3 = high3 & ConfigFrame2Mask.TEST_CHIP_ADDR_HIGH3_MASK\n    _low7 = low7 & ConfigFrame2Mask.TEST_CHIP_ADDR_LOW7_MASK\n    addr = (_high3 << ConfigFrame2Mask.TEST_CHIP_ADDR_COMBINATION_OFFSET) | _low7\n    return Addr2Coord(addr)\nclass FrameGen:\n    # 通用Frame生成函数\n    @staticmethod\n    def _GenFrame(\n        header: int, chip_addr: int, core_addr: int, core_ex_addr: int, payload: int",
+        "detail": "paibox.frame.frame",
+        "documentation": {}
+    },
+    {
+        "label": "FrameType",
+        "kind": 6,
+        "importPath": "paibox.frame.frame_params",
+        "description": "paibox.frame.frame_params",
+        "peekOfCode": "class FrameType(Enum):\n    \"\"\"Types of Frames\"\"\"\n    FRAME_CONFIG = 0\n    FRAME_TEST = 0x1\n    FRAME_WORK = 0x2\n    FRAME_UNKNOWN = 0x3\n# 帧头\n@unique\nclass FrameHead(Enum):\n    \"配置帧帧头\"",
+        "detail": "paibox.frame.frame_params",
+        "documentation": {}
+    },
+    {
+        "label": "FrameHead",
+        "kind": 6,
+        "importPath": "paibox.frame.frame_params",
+        "description": "paibox.frame.frame_params",
+        "peekOfCode": "class FrameHead(Enum):\n    \"配置帧帧头\"\n    CONFIG_TYPE1 = 0b0000  # 配置帧 1型（RANDOM_SEED）\n    CONFIG_TYPE2 = 0b0001  # 配置帧 2型（PARAMETER_REG）\n    CONFIG_TYPE3 = 0b0010  # 配置帧 3型（Neuron RAM）\n    CONFIG_TYPE4 = 0b0011  # 配置帧 4型（Weight RAM）\n    \"测试帧帧头\"\n    TEST_TYPE1 = 0b0100  # 测试输入帧 1型（RANDOM_SEED_REG）\n    TEST_TYPE2 = 0b0101  # 测试输入帧 2型（PARAMETER_REG）\n    TEST_TYPE3 = 0b0110  # 测试输入帧 3型（Neuron RAM）",
+        "detail": "paibox.frame.frame_params",
+        "documentation": {}
+    },
+    {
+        "label": "FrameMask",
+        "kind": 6,
+        "importPath": "paibox.frame.frame_params",
+        "description": "paibox.frame.frame_params",
+        "peekOfCode": "class FrameMask:\n    \"\"\"FrameMask 通用数据帧掩码 和 数据包格式起始帧掩码\"\"\"\n    GENERAL_MASK = (1 << 64) - 1\n    \"通用\"\n    # Header\n    GENERAL_HEADER_OFFSET = 60\n    GENERAL_HEADER_MASK = (1 << 4) - 1\n    GENERAL_FRAME_TYPE_OFFSET = GENERAL_HEADER_OFFSET\n    GENERAL_FRAME_TYPE_MASK = GENERAL_HEADER_MASK\n    # Chip address",
+        "detail": "paibox.frame.frame_params",
+        "documentation": {}
+    },
+    {
+        "label": "ConfigFrame2Mask",
+        "kind": 6,
+        "importPath": "paibox.frame.frame_params",
+        "description": "paibox.frame.frame_params",
+        "peekOfCode": "class ConfigFrame2Mask(FrameMask):\n    \"\"\"Frame #1\"\"\"\n    WEIGHT_WIDTH_OFFSET = 28\n    WEIGHT_WIDTH_MASK = (1 << 2) - 1\n    LCN_OFFSET = 24\n    LCN_MASK = (1 << 4) - 1\n    INPUT_WIDTH_OFFSET = 23\n    INPUT_WIDTH_MASK = 1\n    SPIKE_WIDTH_OFFSET = 22\n    SPIKE_WIDTH_MASK = 1",
+        "detail": "paibox.frame.frame_params",
+        "documentation": {}
+    },
+    {
+        "label": "WorkFrame1Mask",
+        "kind": 6,
+        "importPath": "paibox.frame.frame_params",
+        "description": "paibox.frame.frame_params",
+        "peekOfCode": "class WorkFrame1Mask(FrameMask):\n    RESERVED_OFFSET = 27\n    RESERVED_MASK = (1 << 3) - 1\n    AXON_OFFSET = 16\n    AXON_MASK = (1 << 11) - 1\n    TIME_SLOT_OFFSET = 8\n    TIME_SLOT_MASK = (1 << 8) - 1\n    DATA_OFFSET = 0\n    DATA_MASK = (1 << 8) - 1\n# 工作帧2 型（同步帧）",
+        "detail": "paibox.frame.frame_params",
+        "documentation": {}
+    },
+    {
+        "label": "ConfigFrame1Mask",
+        "kind": 5,
+        "importPath": "paibox.frame.frame_params",
+        "description": "paibox.frame.frame_params",
+        "peekOfCode": "ConfigFrame1Mask = FrameMask\n# 配置帧 2型\nclass ConfigFrame2Mask(FrameMask):\n    \"\"\"Frame #1\"\"\"\n    WEIGHT_WIDTH_OFFSET = 28\n    WEIGHT_WIDTH_MASK = (1 << 2) - 1\n    LCN_OFFSET = 24\n    LCN_MASK = (1 << 4) - 1\n    INPUT_WIDTH_OFFSET = 23\n    INPUT_WIDTH_MASK = 1",
+        "detail": "paibox.frame.frame_params",
+        "documentation": {}
+    },
+    {
+        "label": "ConfigFrame3StartMask",
+        "kind": 5,
+        "importPath": "paibox.frame.frame_params",
+        "description": "paibox.frame.frame_params",
+        "peekOfCode": "ConfigFrame3StartMask = FrameMask\n# 配置帧4 型（Weight RAM） 数据包起始帧\nConfigFrame4StartMask = FrameMask\n\"\"\"\n测试帧使用 FrameMask\n\"\"\"\n\"\"\"工作帧\"\"\"\n# 工作帧1 型（Spike，脉冲帧）\nclass WorkFrame1Mask(FrameMask):\n    RESERVED_OFFSET = 27",
+        "detail": "paibox.frame.frame_params",
+        "documentation": {}
+    },
+    {
+        "label": "ConfigFrame4StartMask",
+        "kind": 5,
+        "importPath": "paibox.frame.frame_params",
+        "description": "paibox.frame.frame_params",
+        "peekOfCode": "ConfigFrame4StartMask = FrameMask\n\"\"\"\n测试帧使用 FrameMask\n\"\"\"\n\"\"\"工作帧\"\"\"\n# 工作帧1 型（Spike，脉冲帧）\nclass WorkFrame1Mask(FrameMask):\n    RESERVED_OFFSET = 27\n    RESERVED_MASK = (1 << 3) - 1\n    AXON_OFFSET = 16",
+        "detail": "paibox.frame.frame_params",
+        "documentation": {}
+    },
+    {
+        "label": "WorkFrame2Mask",
+        "kind": 5,
+        "importPath": "paibox.frame.frame_params",
+        "description": "paibox.frame.frame_params",
+        "peekOfCode": "WorkFrame2Mask = FrameMask\n# 工作帧3 型（清除帧）\nWorkFrame3Mask = FrameMask\n# 工作帧4 型（初始化帧）\nWorkFrame4Mask = FrameMask\n# TODO: 在线学习处理核数据帧格式",
+        "detail": "paibox.frame.frame_params",
+        "documentation": {}
+    },
+    {
+        "label": "WorkFrame3Mask",
+        "kind": 5,
+        "importPath": "paibox.frame.frame_params",
+        "description": "paibox.frame.frame_params",
+        "peekOfCode": "WorkFrame3Mask = FrameMask\n# 工作帧4 型（初始化帧）\nWorkFrame4Mask = FrameMask\n# TODO: 在线学习处理核数据帧格式",
+        "detail": "paibox.frame.frame_params",
+        "documentation": {}
+    },
+    {
+        "label": "WorkFrame4Mask",
+        "kind": 5,
+        "importPath": "paibox.frame.frame_params",
+        "description": "paibox.frame.frame_params",
+        "peekOfCode": "WorkFrame4Mask = FrameMask\n# TODO: 在线学习处理核数据帧格式",
+        "detail": "paibox.frame.frame_params",
+        "documentation": {}
+    },
+    {
+        "label": "FrameHead",
+        "kind": 6,
+        "importPath": "paibox.frames.frames",
+        "description": "paibox.frames.frames",
+        "peekOfCode": "class FrameHead:\n    \"配置帧帧头\"\n    CONFIG_TYPE1 = 0b0000 # 配置帧 1型\n    CONFIG_TYPE2 = 0b0001 # 配置帧 2型\n    CONFIG_TYPE3 = 0b0010 # 配置帧 3型\n    CONFIG_TYPE4 = 0b0011 # 配置帧 4型\n    \"测试帧帧头\"\n    TEST_TYPE1 = 0b0100 # 测试输入帧 1型\n    TEST_TYPE2 = 0b0101 # 测试输入帧 2型\n    TEST_TYPE3 = 0b0110 # 测试输入帧 3型",
+        "detail": "paibox.frames.frames",
+        "documentation": {}
+    },
+    {
+        "label": "x",
+        "kind": 5,
+        "importPath": "test.test_coord",
+        "description": "test.test_coord",
+        "peekOfCode": "x = Coord(1, 2)\nprint(x.x,x.y)",
+        "detail": "test.test_coord",
+        "documentation": {}
+    }
+]
