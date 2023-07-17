@@ -1,9 +1,11 @@
 from enum import Enum, unique
 
 
+__all__ = ["CoreMode"]
+
 @unique
 class CoreMode(Enum):
-    """Working mode of core.
+    """Working mode of cores.
 
     Decided by `input_width`, `spike_width` and `SNN_EN` of core parameters registers.
 
