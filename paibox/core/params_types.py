@@ -1,30 +1,34 @@
-from enum import Enum, Flag, unique
+from enum import Enum, IntEnum, unique
 
 """
-    Type defines of Parameter Registers.
+    Type defines of parameters of registers & parameters of neuron RAM.
     See Section 2.4.1 in V2.1 Manual for details.
 """
 
 
 @unique
-class WeightPrecisionType(Enum):
+class WeightPrecisionType(IntEnum):
     """Weight precision of crossbar. 2-bit.
 
-    `WEIGHT_WIDTH_XBIT` for X-bit.
+    - `WEIGHT_WIDTH_XBIT` for X-bit. Default value is `WEIGHT_WIDTH_8BIT`.
     """
 
     WEIGHT_WIDTH_1BIT = 0
     WEIGHT_WIDTH_2BIT = 1
     WEIGHT_WIDTH_4BIT = 2
     WEIGHT_WIDTH_8BIT = 3  # Default value.
+    WEIGHT_WIDTH_MAX = 4
 
 
 @unique
-class LCNExtensionType(Enum):
+class LCNExtensionType(IntEnum):
     """Scale of Fan-in extension. 4-bit.
 
-    - For ANN mode, LCN_1X = 144x.
-    - For BANN/SNN mode, LCN_1X = 1152x.
+    - X-time LCN extension. Default value is `LCN_1X`.
+
+    NOTE:
+    - For ANN mode, `LCN_1X` = 144x.
+    - For BANN/SNN mode, `LCN_1X` = 1152x.
     """
 
     LCN_1X = 0  # Default value.
@@ -34,55 +38,55 @@ class LCNExtensionType(Enum):
     LCN_16X = 4
     LCN_32X = 5
     LCN_64X = 6
+    LCN_MAX = 7
 
 
 @unique
 class InputWidthFormatType(Enum):
     """Format of input spike. 1-bit.
 
-    - `INPUT_WIDTH_1BIT`: 1-bit spikes, 0.
-    - `INPUT_WIDTH_8BIT`: 8-bit activation.
+    - `WIDTH_1BIT`: 1-bit spike. Default value.
+    - `WIDTH_8BIT`: 8-bit activation.
     """
 
-    INPUT_WIDTH_1BIT = 0  # Default value.
-    INPUT_WIDTH_8BIT = 1
+    WIDTH_1BIT = 0  # Default value.
+    WIDTH_8BIT = 1
 
 
 @unique
 class SpikeWidthFormatType(Enum):
     """Format of output spike. 1-bit.
 
-    - `SPIKE_WIDTH_1BIT`: 1-bit spikes, 0.
-    - `SPIKE_WIDTH_8BIT`: 8-bit activation.
+    - `WIDTH_1BIT`: 1-bit spike. Default value.
+    - `WIDTH_8BIT`: 8-bit activation.
     """
 
-    SPIKE_WIDTH_1BIT = 0  # Default value.
-    SPIKE_WIDTH_8BIT = 1
+    WIDTH_1BIT = 0  # Default value.
+    WIDTH_8BIT = 1
 
 
 @unique
-class PoolMaxEnableType(Enum):
+class MaxPoolingEnableType(Enum):
     """Enable max pooling or not in 8-bit input format. 1-bit.
 
-    - `POOL_MAX_DISABLE`: pooling max disable, 0.
-    - `POOL_MAX_ENABLE`: pooling max enable.
+    - `MAX_POOLING_DISABLE`: pooling max disable.
+    - `MAX_POOLING_ENABLE`: pooling max enable. Default value.
     """
 
-    POOL_MAX_DISABLE = 0
-    POOL_MAX_ENABLE = 1  # Default value.
+    DISABLE = 0
+    ENABLE = 1  # Default value.
 
 
 @unique
 class SNNModeEnableType(Enum):
     """Enable SNN mode or not. 1-bit.
 
-    - `SNN_MODE_DISABLE`: SNN mode disable, 0.
-    - `SNN_MODE_ENABLE`: SNN mode enable.
-
+    - `SNN_MODE_DISABLE`: SNN mode disable.
+    - `SNN_MODE_ENABLE`: SNN mode enable. Default value.
     """
 
-    SNN_MODE_DISABLE = 0
-    SNN_MODE_ENABLE = 1  # Default value.
+    DISABLE = 0
+    ENABLE = 1  # Default value.
 
 
 """
@@ -91,30 +95,15 @@ class SNNModeEnableType(Enum):
 """
 
 
-class CoreAddrX_EX_Type(Flag):
-    """
-    Broadcast address X of the destination code.
-    询问钟这个是否是核间路由
-
-    通过flag的或的方式，获得路由的规则，从而实现*通配符的等效替代
-
-    Usage:
-
-    NOTE: *addr_core_x_ex* in Section 2.4.2.
-    """
-
-    pass
-
-
 @unique
 class ResetModeType(Enum):
     """Reset modes of cores. 2-bit.
 
-    - MODE_NORMAL: normal mode.
-    - MODE_LINEAR: linear mode.
-    - MODE_NONRESET: non-reset mode.
+    - `MODE_NORMAL`: normal mode. Default value.
+    - `MODE_LINEAR`: linear mode.
+    - `MODE_NONRESET`: non-reset mode.
 
-    NOTE: *reset_mode*
+    NOTE: Types of `reset_mode`.
     """
 
     MODE_NORMAL = 0  # Default value.
@@ -126,10 +115,10 @@ class ResetModeType(Enum):
 class LeakingComparisonType(Enum):
     """Leak after comparison or before. 1-bit.
 
-    - LEAK_BEFORE_COMP: leak before comparison.
-    - LEAK_AFTER_COMP: leak after comparison.
+    - `LEAK_BEFORE_COMP`: leak before comparison.
+    - `LEAK_AFTER_COMP`: leak after comparison. Default value.
 
-    NOTE: *leak_post*
+    NOTE: Types of `leak_post`.
     """
 
     LEAK_BEFORE_COMP = 0
@@ -140,10 +129,10 @@ class LeakingComparisonType(Enum):
 class NegativeThresModeType(Enum):
     """Modes of negative threshold. 1-bit.
 
-    - MODE_RESET: reset mode.
-    - MODE_SATURATION: saturation mode.
+    - `MODE_RESET`: reset mode. Default value.
+    - `MODE_SATURATION`: saturation mode.
 
-    NOTE: *threshold_neg_mode*
+    NOTE: Types of `threshold_neg_mode`.
     """
 
     MODE_RESET = 0  # Default value.
@@ -154,24 +143,24 @@ class NegativeThresModeType(Enum):
 class LeakingDirectionType(Enum):
     """Direction of leaking, forward or reversal.
 
-    - MODE_FORWARD: forward leaking.
-    - MODE_REVERSAL: reversal leaking.
+    - `FORWARD`: forward leaking. Default value.
+    - `REVERSAL`: reversal leaking.
 
-    NOTE: *leak_reversal_flag*
+    NOTE: Types of `leak_reversal_flag`.
     """
 
-    MODE_FORWARD = 0  # Default value.
-    MODE_REVERSAL = 1
+    FORWARD = 0  # Default value.
+    REVERSAL = 1
 
 
 @unique
 class LeakingModeType(Enum):
     """Modes of leaking, deterministic or stochastic.
 
-    - MODE_DETERMINISTIC: deterministic leaking.
-    - MODE_STOCHASTIC: stochastic leaking.
+    - `MODE_DETERMINISTIC`: deterministic leaking. Default value.
+    - `MODE_STOCHASTIC`: stochastic leaking.
 
-    NOTE: *leak_det_stoch*
+    NOTE: Types of `leak_det_stoch`.
     """
 
     MODE_DETERMINISTIC = 0  # Default value.
@@ -182,10 +171,10 @@ class LeakingModeType(Enum):
 class WeightModeType(Enum):
     """Modes of weights, deterministic or stochastic.
 
-    - MODE_DETERMINISTIC: deterministic weights
-    - MODE_STOCHASTIC: stochastic weights
+    - `MODE_DETERMINISTIC`: deterministic weights. Default value.
+    - `MODE_STOCHASTIC`: stochastic weights.
 
-    NOTE: *weight_det_stoch*
+    NOTE: Types of `weight_det_stoch`.
     """
 
     MODE_DETERMINISTIC = 0  # Default value.
@@ -193,6 +182,14 @@ class WeightModeType(Enum):
 
 
 if __name__ == "__main__":
-    a = LCNExtensionType.LCN_32X
+    axonNums = [[1, 2, 3], [4, 0, 5], [10, 9, 8, 7]]
 
-    print(a == 5)
+    axonNums.sort(key=lambda x: x[1], reverse=True)
+
+    print(axonNums)
+
+    li = []
+    li.append([1, 2])
+    li.append([3, 2])
+
+    print(li)

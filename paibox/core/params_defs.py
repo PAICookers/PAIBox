@@ -1,45 +1,14 @@
 """
-    This file defines parameter registers & RAM parameters of offline cores.
+    This file defines parameters of registers & RAM of offline cores.
 """
 
 
-from pydantic import (
-    BaseModel,
-    PrivateAttr,
-    Field,
-    model_validator,
-    field_serializer,
-)
-from .params_types import *
-from ._core_mode import CoreMode
+from pydantic import BaseModel, Field, field_serializer, model_validator
+from params_types import *
+from _core_mode import CoreMode
 
 
-def get_core_mode(
-    iwidth_format: InputWidthFormatType,
-    swidth_format: SpikeWidthFormatType,
-    snn_en: SNNModeEnableType,
-) -> CoreMode:
-    if iwidth_format is InputWidthFormatType.INPUT_WIDTH_1BIT:
-        if swidth_format is SpikeWidthFormatType.SPIKE_WIDTH_1BIT:
-            if snn_en is SNNModeEnableType.SNN_MODE_DISABLE:
-                # 0 / 0 / 0
-                return CoreMode.MODE_BANN
-            else:
-                # 0 / 0 / 1
-                return CoreMode.MODE_SNN
-        else:
-            if snn_en is SNNModeEnableType.SNN_MODE_DISABLE:
-                # 0 / 1 / 0
-                return CoreMode.MODE_BANN_OR_SNN_TO_ANN
-            else:
-                # 0 / 1 / 1
-                return CoreMode.MODE_BANN_OR_SNN_TO_SNN
-    elif swidth_format is SpikeWidthFormatType.SPIKE_WIDTH_1BIT:
-        # 1 / 0 / *
-        return CoreMode.MODE_ANN_TO_BANN_OR_SNN
-    else:
-        # 1 / 1 / *
-        return CoreMode.MODE_ANN
+__all__ = ["ParamsReg", "ParamsRAM", "get_core_mode"]
 
 
 class ParamsReg(BaseModel, extra="ignore", validate_assignment=True):
@@ -59,24 +28,26 @@ class ParamsReg(BaseModel, extra="ignore", validate_assignment=True):
 
     weight_precision: WeightPrecisionType = Field(
         default=WeightPrecisionType.WEIGHT_WIDTH_8BIT,
+        lt=WeightPrecisionType.WEIGHT_WIDTH_MAX,
         serialization_alias="weight_width",
         description="Weight precision of crossbar.",
     )
 
     LCN_extension: LCNExtensionType = Field(
         default=LCNExtensionType.LCN_1X,
+        lt=LCNExtensionType.LCN_MAX,
         serialization_alias="LCN",
         description="Scale of Fan-in extension.",
     )
 
     input_width_format: InputWidthFormatType = Field(
-        default=InputWidthFormatType.INPUT_WIDTH_1BIT,
+        default=InputWidthFormatType.WIDTH_1BIT,
         serialization_alias="input_width",
         description="Format of input spike.",
     )
 
     spike_width_format: SpikeWidthFormatType = Field(
-        default=SpikeWidthFormatType.SPIKE_WIDTH_1BIT,
+        default=SpikeWidthFormatType.WIDTH_1BIT,
         serialization_alias="spike_width",
         description="Format of output spike.",
     )
@@ -88,8 +59,8 @@ class ParamsReg(BaseModel, extra="ignore", validate_assignment=True):
         description="Valid number of dendrites.",
     )
 
-    pool_max_en: PoolMaxEnableType = Field(
-        default=PoolMaxEnableType.POOL_MAX_DISABLE,
+    max_pooling_en: MaxPoolingEnableType = Field(
+        default=MaxPoolingEnableType.DISABLE,
         serialization_alias="pool_max",
         description="Enable max pooling or not in 8-bit input format.",
     )
@@ -109,7 +80,7 @@ class ParamsReg(BaseModel, extra="ignore", validate_assignment=True):
     )
 
     snn_mode_en: SNNModeEnableType = Field(
-        default=SNNModeEnableType.SNN_MODE_DISABLE,
+        default=SNNModeEnableType.DISABLE,
         serialization_alias="snn_en",
         description="Enable SNN mode or not.",
     )
@@ -129,47 +100,33 @@ class ParamsReg(BaseModel, extra="ignore", validate_assignment=True):
         description="Destination address of output test frames.",
     )
 
-    _core_mode: CoreMode = PrivateAttr(default=CoreMode.MODE_UNKNOWN)
-
-    @property
-    def core_mode(self) -> CoreMode:
-        return self._core_mode
-
     """Parameter checks"""
 
     @model_validator(mode="after")  # type: ignore
     def _neuron_num_range_limit(cls, m: "ParamsReg") -> "ParamsReg":
-        if m.input_width_format is InputWidthFormatType.INPUT_WIDTH_1BIT:
+        if m.input_width_format is InputWidthFormatType.WIDTH_1BIT:
             if m.neuron_num > 512:
                 raise ValueError(
-                    f"Param neuron_num out of range. When input_width_format is 1bit, neuron_num should be less than 512."
+                    f"Param neuron_num out of range. When input_width_format is 1-bit, neuron_num should be less than 512."
                 )
         else:
             if m.neuron_num > 4096:
                 raise ValueError(
-                    f"Param neuron_num out of range. When input_width_format is 8bit, neuron_num should be less than 4096."
+                    f"Param neuron_num out of range. When input_width_format is 8-bit, neuron_num should be less than 4096."
                 )
 
         return m
 
     @model_validator(mode="after")  # type: ignore
-    def _pool_max_check(cls, m: "ParamsReg") -> "ParamsReg":
+    def _max_pooling_en_check(cls, m: "ParamsReg") -> "ParamsReg":
         if (
-            m.input_width_format is InputWidthFormatType.INPUT_WIDTH_1BIT
-            and m.pool_max_en is PoolMaxEnableType.POOL_MAX_ENABLE
+            m.input_width_format is InputWidthFormatType.WIDTH_1BIT
+            and m.max_pooling_en is MaxPoolingEnableType.ENABLE
         ):
-            m.pool_max_en = PoolMaxEnableType.POOL_MAX_DISABLE
+            m.max_pooling_en = MaxPoolingEnableType.DISABLE
             print(
-                f"[Warning] Param pool_max_en is set to PoolMaxEnableType.POOL_MAX_DISABLE when input_width_format is 1-bit."
+                f"[Warning] Param max_pooling_en is set to MaxPoolingEnableType.DISABLE when input_width_format is 1-bit."
             )
-
-        return m
-
-    @model_validator(mode="after")  # type: ignore
-    def _get_core_mode(cls, m: "ParamsReg") -> "ParamsReg":
-        m._core_mode = get_core_mode(
-            m.input_width_format, m.spike_width_format, m.snn_mode_en
-        )
 
         return m
 
@@ -191,9 +148,9 @@ class ParamsReg(BaseModel, extra="ignore", validate_assignment=True):
     def _spike_width_format(self, spike_width_format: SpikeWidthFormatType) -> int:
         return spike_width_format.value
 
-    @field_serializer("pool_max_en")
-    def _pool_max_en(self, pool_max_en: PoolMaxEnableType) -> int:
-        return pool_max_en.value
+    @field_serializer("max_pooling_en")
+    def _max_pooling_en(self, max_pooling_en: MaxPoolingEnableType) -> int:
+        return max_pooling_en.value
 
     @field_serializer("snn_mode_en")
     def _snn_mode_en(self, snn_mode_en: SNNModeEnableType) -> int:
@@ -325,7 +282,7 @@ class ParamsRAM(BaseModel, extra="ignore", validate_assignment=True):
     )
 
     leaking_direction: LeakingDirectionType = Field(
-        default=LeakingDirectionType.MODE_FORWARD,
+        default=LeakingDirectionType.FORWARD,
         serialization_alias="leak_reversal_flag",
         description="Direction of leaking, forward or reversal.",
     )
@@ -390,26 +347,68 @@ class ParamsRAM(BaseModel, extra="ignore", validate_assignment=True):
         return weight_mode.value
 
 
+def get_core_mode(
+    iwidth_format: InputWidthFormatType,
+    swidth_format: SpikeWidthFormatType,
+    snn_en: SNNModeEnableType,
+) -> CoreMode:
+    """Get the working mode of the core.
+
+    Decided by `input_width`, `spike_width` and `SNN_EN` of core parameters registers.
+
+    NOTE: See table below for details.
+
+    Mode            input_width    spike_width    SNN_EN
+    BANN                0               0           0
+    SNN                 0               0           1
+    BANN/SNN to ANN     0               1           0
+    BANN/SNN to SNN     0               1           1
+    ANN to BANN/SNN     1               0       Don't care
+    ANN                 1               1       Don't care
+    """
+    if iwidth_format is InputWidthFormatType.WIDTH_1BIT:
+        if swidth_format is SpikeWidthFormatType.WIDTH_1BIT:
+            if snn_en is SNNModeEnableType.DISABLE:
+                # 0 / 0 / 0
+                return CoreMode.MODE_BANN
+            else:
+                # 0 / 0 / 1
+                return CoreMode.MODE_SNN
+        else:
+            if snn_en is SNNModeEnableType.DISABLE:
+                # 0 / 1 / 0
+                return CoreMode.MODE_BANN_OR_SNN_TO_ANN
+            else:
+                # 0 / 1 / 1
+                return CoreMode.MODE_BANN_OR_SNN_TO_SNN
+    elif swidth_format is SpikeWidthFormatType.WIDTH_1BIT:
+        # 1 / 0 / *
+        return CoreMode.MODE_ANN_TO_BANN_OR_SNN
+    else:
+        # 1 / 1 / *
+        return CoreMode.MODE_ANN
+
+
 if __name__ == "__main__":
     """Usages"""
 
-    model = ParamsReg(
+    model_reg = ParamsReg(
         weight_precision=WeightPrecisionType.WEIGHT_WIDTH_8BIT,
         LCN_extension=LCNExtensionType.LCN_16X,
-        input_width_format=InputWidthFormatType.INPUT_WIDTH_1BIT,
-        spike_width_format=SpikeWidthFormatType.SPIKE_WIDTH_8BIT,
+        input_width_format=InputWidthFormatType.WIDTH_1BIT,
+        spike_width_format=SpikeWidthFormatType.WIDTH_1BIT,
         neuron_num=511,
-        pool_max_en=PoolMaxEnableType.POOL_MAX_DISABLE,
+        max_pooling_en=MaxPoolingEnableType.DISABLE,
         tick_wait_start=1,
         tick_wait_end=0,
-        snn_mode_en=SNNModeEnableType.SNN_MODE_DISABLE,
+        snn_mode_en=SNNModeEnableType.DISABLE,
         target_LCN=1,
         test_chip_addr=0,
     )
-    a = model.model_dump(by_alias=True)
+    a = model_reg.model_dump(by_alias=True)
     print(a)
 
-    model2 = ParamsRAM(
+    model_ram = ParamsRAM(
         tick_relative=1,
         addr_axon=0,
         addr_core_x=0,
@@ -425,12 +424,12 @@ if __name__ == "__main__":
         neg_thres_mode=NegativeThresModeType.MODE_RESET,
         neg_thres_value=0,
         pos_thres_value=0,
-        leaking_direction=LeakingDirectionType.MODE_FORWARD,
+        leaking_direction=LeakingDirectionType.REVERSAL,
         leaking_mode=LeakingModeType.MODE_DETERMINISTIC,
         leak_v=0,
         weight_mode=WeightModeType.MODE_DETERMINISTIC,
         bit_truncate=8,
         vjt_pre=1,
     )
-    b = model2.model_dump(by_alias=True, warnings=True)
+    b = model_ram.model_dump(by_alias=True, warnings=True)
     print(b)
