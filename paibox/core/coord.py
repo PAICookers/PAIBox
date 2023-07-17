@@ -158,7 +158,12 @@ class Coord:
         if not isinstance(other, Coord):
             raise TypeError(f"Unsupported type: {type(other)}")
 
-        return self.x >= other.x and self.y >= other.y
+        # Except the `__eq__`
+        return (
+            (self.x > other.x and self.y > other.y)
+            or (self.x == other.x and self.y > other.y)
+            or (self.x > other.x and self.y == other.y)
+        )
 
     def __le__(self, other: "Coord") -> bool:
         return self.__lt__(other) or self.__eq__(other)
