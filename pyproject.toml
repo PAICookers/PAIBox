@@ -21,6 +21,7 @@ packages = [{include = "paibox"}]
 [tool.poetry.dependencies]
 python = "^3.9"
 pydantic = "^2.0"
+numpy = "^1.23.0"
 
 
 [build-system]
