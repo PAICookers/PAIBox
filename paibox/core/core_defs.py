@@ -10,8 +10,8 @@ from pydantic import (
     model_validator,
     field_serializer,
 )
-from params_types import *
-from _core_mode import CoreMode
+from .params_types import *
+from ._core_mode import CoreMode
 
 
 def get_core_mode(

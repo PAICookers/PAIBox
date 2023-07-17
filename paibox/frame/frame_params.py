@@ -82,7 +82,7 @@ class FrameMask:
     GENERAL_PAYLOAD_MASK = (1 << 30) - 1
     GENERAL_PAYLOAD_FILLED_MASK = (1 << 4) - 1
 
-    """数据包格式起始帧LOAD掩码"""
+    """配置帧3型 Neuron RAM 数据包格式起始帧LOAD掩码"""
     DATA_PACKAGE_OFFSET = 0
     DATA_PACKAGE_MASK = (1 << 30) - 1
 
@@ -92,8 +92,8 @@ class FrameMask:
     DATA_PACKAGE_TYPE_OFFSET = 19
     DATA_PACKAGE_TYPE_MASK = 0x1
 
-    DATA_PACKAGE_COUNT_OFFSET = DATA_PACKAGE_OFFSET
-    DATA_PACKAGE_COUNT_MASK = (1 << 19) - 1
+    DATA_PACKAGE_NUM_OFFSET = DATA_PACKAGE_OFFSET
+    DATA_PACKAGE_NUM_MASK = (1 << 19) - 1
 
 
 """配置帧"""
@@ -102,7 +102,7 @@ ConfigFrame1Mask = FrameMask
 
 
 # 配置帧 2型
-class ConfigFrame2Mask(FrameMask):
+class ParameterRegMask(FrameMask):
     """Frame #1"""
 
     WEIGHT_WIDTH_OFFSET = 28
@@ -140,7 +140,7 @@ class ConfigFrame2Mask(FrameMask):
     TARGET_LCN_OFFSET = 3
     TARGET_LCN_MASK = (1 << 4) - 1
     
-    #用于配置帧2 型test_chip_addr
+    #用于配置帧2型test_chip_addr
     TEST_CHIP_ADDR_HIGH3_OFFSET = 0
     TEST_CHIP_ADDR_COMBINATION_OFFSET = 7
     TEST_CHIP_ADDR_HIGH3_MASK = (1 << 3) - 1
@@ -150,9 +150,84 @@ class ConfigFrame2Mask(FrameMask):
     TEST_CHIP_ADDR_LOW7_MASK = (1 << 7) - 1
 
 
-# 配置帧3 型（Neuron RAM） 数据包起始帧
-ConfigFrame3StartMask = FrameMask
-
+# 配置帧3 型（Neuron RAM）
+class ParameterRAMMask(FrameMask):
+    #1
+    VJT_PRE_OFFSET = 0
+    VJT_PRE_MASK = (1 << 30) - 1
+    
+    BIT_TRUNCATE_OFFSET = 30
+    BIT_TRUNCATE_MASK = (1 << 5) - 1
+    
+    WEIGHT_DET_STOCH_OFFSET = 35
+    WEIGHT_DET_STOCH_MASK = (1 << 1) - 1
+    
+    LEAK_V_LOW28_OFFSET = 36
+    LEAK_V_LOW28_MASK = (1 << 28) - 1
+    
+    #2
+    LEAK_V_HIGH2_OFFSET = 0
+    LEAK_V_HIGH2_MASK = (1 << 2) - 1
+    
+    LEAK_DET_STOCH_OFFSET = 2
+    LEAK_DET_STOCH_MASK = (1 << 1) - 1
+    
+    LEAK_REVERSAL_FLAG_OFFSET = 3
+    LEAK_REVERSAL_FLAG_MASK = (1 << 1) - 1
+    
+    THRESHOLD_POS_OFFSET = 4
+    THRESHOLD_POS_MASK = (1 << 29) - 1
+    
+    THRESHOLD_NEG_OFFSET = 33
+    THRESHOLD_NEG_MASK = (1 << 29) - 1
+    
+    THRESHOLD_NEG_MODE_OFFSET = 62
+    THRESHOLD_NEG_MODE_MASK = (1 << 1) - 1
+    
+    THRESHOLD_MASK_CTRL_LOW1_OFFSET = 63
+    THRESHOLD_MASK_CTRL_LOW1_MASK = (1 << 1) - 1
+    
+    #3
+    THRESHOLD_MASK_CTRL_HIGH4_OFFSET = 0
+    THRESHOLD_MASK_CTRL_HIGH4_MASK = (1 << 4) - 1
+    
+    LEAK_POST_OFFSET = 4
+    LEAK_POST_MASK = (1 << 1) - 1
+    
+    RESET_V_OFFSET = 5
+    RESET_V_MASK = (1 << 30) - 1
+    
+    RESET_MODE_OFFSET = 35
+    RESET_MODE_MASK = (1 << 2) - 1
+    
+    ADDR_CHIP_Y_OFFSET = 37
+    ADDR_CHIP_Y_MASK = (1 << 5) - 1
+    
+    ADDR_CHIP_X_OFFSET = 42
+    ADDR_CHIP_X_MASK = (1 << 5) - 1
+    
+    ADDR_CORE_Y_EX_OFFSET = 47
+    ADDR_CORE_Y_EX_MASK = (1 << 5) - 1
+    
+    ADDR_CORE_X_EX_OFFSET = 52
+    ADDR_CORE_X_EX_MASK = (1 << 5) - 1
+    
+    ADDR_CORE_Y_OFFSET = 57
+    ADDR_CORE_Y_MASK = (1 << 5) - 1
+    
+    ADDR_CORE_X_LOW2_OFFSET = 62
+    ADDR_CORE_X_LOW2_MASK = (1 << 2) - 1
+    
+    #4
+    ADDR_CORE_X_HIGH3_OFFSET = 0
+    ADDR_CORE_X_HIGH3_MASK = (1 << 3) - 1
+    
+    ADDR_AXON_OFFSET = 3
+    ADDR_AXON_MASK = (1 << 11) - 1
+    
+    TICK_RELATIVE_OFFSET = 14
+    TICK_RELATIVE_MASK = (1 << 8) - 1
+    
 # 配置帧4 型（Weight RAM） 数据包起始帧
 ConfigFrame4StartMask = FrameMask
 
