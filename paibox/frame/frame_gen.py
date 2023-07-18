@@ -1,9 +1,8 @@
 import numpy as np
-from typing import Optional, Tuple, Union, List, Type
-
+from typing import Optional, Tuple, Union, List, Type, Union
 # from .frame_params import *
-from paibox.core.coord import Coord
-from paibox.frame.frame_params import *
+from core.coord import Coord
+from frame.frame_params import *
 
 def Coord2Addr(coord: Coord) -> int:
     return (coord.x << 5) | coord.y
@@ -13,7 +12,7 @@ def Addr2Coord(addr: int) -> Coord:
     return Coord(addr >> 5, addr & ((1 << 5) - 1))
 
 
-def bin_split(x: int, low: int) -> Tuple[int, int]:
+def _bin_split(x: int, high:int ,low: int) -> Tuple[int, int]:
     """用于配置帧2\3型配置各个参数，对需要拆分的配置进行拆分
 
     Args:
@@ -23,9 +22,9 @@ def bin_split(x: int, low: int) -> Tuple[int, int]:
     Returns:
         Tuple[int, int]: 返回拆分后的高位和低位
     """
-
-    highbit = x >> (low)
-    lowbit_mask = (1 << (low)) - 1
+    high_mask = (1 << high) -1
+    highbit = x >> (low) & high_mask
+    lowbit_mask = (1 << low) - 1
     lowbit = x & lowbit_mask
     return highbit, lowbit
 
@@ -93,7 +92,7 @@ class FrameGen:
             neuron_ram: Optional[dict] = None,
             # 配置帧4型
             weight_ram: Optional[np.ndarray] = None
-    ) -> Type[np.array]:
+    ) -> Union[None, np.ndarray]:
         """生成配置帧
 
         Args:
@@ -156,8 +155,8 @@ class FrameGen:
             if weight_ram is not None:
                 raise ValueError("weight_ram is not need")
 
-            tick_wait_start_high8, tick_wait_start_low7 = bin_split(parameter_reg["tick_wait_start"], 7)
-            test_chip_addr_high3, test_chip_addr_low7 = bin_split(parameter_reg["test_chip_addr"], 7)
+            tick_wait_start_high8, tick_wait_start_low7 = _bin_split(parameter_reg["tick_wait_start"], 8, 7)
+            test_chip_addr_high3, test_chip_addr_low7 = _bin_split(parameter_reg["test_chip_addr"], 3, 7)
 
             # frame 1
             reg_frame1 = (
@@ -222,9 +221,9 @@ class FrameGen:
             ConfigFrameGroup = np.append(ConfigFrameGroup , start_frame)
             #ConfigFrameGroup.append(start_frame)
 
-            leak_v_high2, leak_v_low28 = bin_split(neuron_ram["leak_v"], 28)
-            threshold_mask_ctrl_high4, threshold_mask_ctrl_low1 = bin_split(neuron_ram["threshold_mask_ctrl"], 1)
-            addr_core_x_high3, addr_core_x_low2 = bin_split(neuron_ram["addr_core_x"], 2)
+            leak_v_high2, leak_v_low28 = _bin_split(neuron_ram["leak_v"], 2, 28)
+            threshold_mask_ctrl_high4, threshold_mask_ctrl_low1 = _bin_split(neuron_ram["threshold_mask_ctrl"], 4, 1)
+            addr_core_x_high3, addr_core_x_low2 = _bin_split(neuron_ram["addr_core_x"],3 , 2)
             
             # 1
             ram_frame1 = int(
@@ -309,5 +308,5 @@ class FrameGen:
             return ConfigFrameGroup
 
 if __name__ == "__main__":
-    x = bin_split(0b1011, 2)
+    x = _bin_split(0b1011,2,2)
     print(x)
