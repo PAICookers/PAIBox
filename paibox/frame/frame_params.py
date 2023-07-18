@@ -153,6 +153,7 @@ class ParameterRegMask(FrameMask):
 
 class ParameterRAMMask(FrameMask):
     """配置帧3型（Neuron RAM）"""
+
     # 1
     VJT_PRE_OFFSET = 0
     VJT_PRE_MASK = (1 << 30) - 1

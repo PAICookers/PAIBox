@@ -1,7 +1,7 @@
 from enum import Enum, unique
 
-
 __all__ = ["CoreMode"]
+
 
 @unique
 class CoreMode(Enum):

@@ -1,8 +1,11 @@
-import numpy as np
 from typing import Optional, Tuple, Union
+
+import numpy as np
+
 from ..core.coord import Coord
+from .frame_params import ParameterRAMMask as RAMMask
+from .frame_params import ParameterRegMask as RegMask
 from .frame_params import *
-from .frame_params import ParameterRegMask as RegMask, ParameterRAMMask as RAMMask
 
 
 def Coord2Addr(coord: Coord) -> int:
