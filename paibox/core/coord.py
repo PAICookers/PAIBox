@@ -23,7 +23,7 @@ class Coord:
     y: int = Field(..., ge=_COORD_LOW_LIMIT, le=_COORD_MAX_LIMIT)
 
     @classmethod
-    def from_tuple(cls, pos):
+    def from_tuple(cls, pos) -> "Coord":
         return cls(*pos)
 
     @overload
@@ -326,20 +326,3 @@ class CoordOffset:
     def _chebyshev_distance(self) -> int:
         """Chebyshev distance"""
         return max(abs(self.delta_x), abs(self.delta_y))
-
-
-if __name__ == "__main__":
-    c1 = Coord(1, 1)
-    c2 = c1 + CoordOffset(1, 1)
-
-    print(Coord(5, 5) >= Coord(4, 5))
-    print(Coord(4, 6) >= Coord(4, 5))
-    print(Coord(5, 4) <= Coord(4, 5))
-
-    delta_c: CoordOffset = c2 - c1
-    delta_c2 = CoordOffset(2, 3)
-    delta_c3 = delta_c + delta_c2
-
-    print(delta_c.distance(DistanceType.DISTANCE_MANHATTAN))
-
-    print(delta_c3.distance(DistanceType.DISTANCE_MANHATTAN))
