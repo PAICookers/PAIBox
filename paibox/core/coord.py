@@ -1,9 +1,9 @@
-from typing import overload, Tuple, Union, final
 from enum import Enum
 from math import sqrt
-from pydantic.dataclasses import dataclass
-from pydantic import Field
+from typing import Tuple, Union, final, overload
 
+from pydantic import Field
+from pydantic.dataclasses import dataclass
 
 __all__ = ["Coord", "CoordOffset", "DistanceType"]
 

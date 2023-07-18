@@ -1,4 +1,4 @@
-from typing import overload, Tuple
+from typing import Tuple, overload
 
 class Coord:
     x: int = ...

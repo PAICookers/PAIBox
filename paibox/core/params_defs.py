@@ -4,9 +4,9 @@
 
 
 from pydantic import BaseModel, Field, field_serializer, model_validator
-from .params_types import *
-from ._core_mode import CoreMode
 
+from ._core_mode import CoreMode
+from .params_types import *
 
 __all__ = ["ParamsReg", "ParamsRAM", "get_core_mode"]
 
