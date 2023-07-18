@@ -28,29 +28,6 @@ def _bin_split(x: int, high:int ,low: int) -> Tuple[int, int]:
     lowbit = x & lowbit_mask
     return highbit, lowbit
 
-
-# 配置帧2型 test_chip_addr拆分
-
-
-def test_chip_coord_split(coord: Coord) -> Tuple[int, int]:
-    addr = Coord2Addr(coord)
-    high3 = (addr >> ParameterRegMask.TEST_CHIP_ADDR_COMBINATION_OFFSET
-                & ParameterRegMask.TEST_CHIP_ADDR_HIGH3_MASK)
-    low7 = addr & ParameterRegMask.TEST_CHIP_ADDR_LOW7_MASK
-
-    return high3, low7
-
-
-# 配置帧2型 est_chip_addr合并
-def test_chip_addr_combine(high3: int, low7: int) -> Coord:
-    _high3 = high3 & ParameterRegMask.TEST_CHIP_ADDR_HIGH3_MASK
-    _low7 = low7 & ParameterRegMask.TEST_CHIP_ADDR_LOW7_MASK
-
-    addr = (_high3 << ParameterRegMask.TEST_CHIP_ADDR_COMBINATION_OFFSET) | _low7
-
-    return Addr2Coord(addr)
-
-
 # 帧生成
 class FrameGen:
 
