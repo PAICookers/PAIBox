@@ -96,14 +96,14 @@ class SNNModeEnableType(Enum):
 
 
 @unique
-class ResetModeType(Enum):
-    """Reset modes of cores. 2-bit.
+class ResetMode(Enum):
+    """Reset modes of neurons. 2-bit.
 
     - `MODE_NORMAL`: normal mode. Default value.
     - `MODE_LINEAR`: linear mode.
     - `MODE_NONRESET`: non-reset mode.
 
-    NOTE: Types of `reset_mode`.
+    NOTE: Same as `reset_mode` in V2.1.
     """
 
     MODE_NORMAL = 0  # Default value.
@@ -112,13 +112,13 @@ class ResetModeType(Enum):
 
 
 @unique
-class LeakingComparisonType(Enum):
+class LeakingComparisonMode(Enum):
     """Leak after comparison or before. 1-bit.
 
     - `LEAK_BEFORE_COMP`: leak before comparison.
     - `LEAK_AFTER_COMP`: leak after comparison. Default value.
 
-    NOTE: Types of `leak_post`.
+    NOTE: Same as `leak_post` in V2.1.
     """
 
     LEAK_BEFORE_COMP = 0
@@ -126,13 +126,13 @@ class LeakingComparisonType(Enum):
 
 
 @unique
-class NegativeThresModeType(Enum):
+class NegativeThresholdMode(Enum):
     """Modes of negative threshold. 1-bit.
 
     - `MODE_RESET`: reset mode. Default value.
-    - `MODE_SATURATION`: saturation mode.
+    - `MODE_SATURATION`: saturation(floor) mode.
 
-    NOTE: Types of `threshold_neg_mode`.
+    NOTE: Same as `threshold_neg_mode` in V2.1.
     """
 
     MODE_RESET = 0  # Default value.
@@ -140,27 +140,27 @@ class NegativeThresModeType(Enum):
 
 
 @unique
-class LeakingDirectionType(Enum):
+class LeakingDirectionMode(Enum):
     """Direction of leaking, forward or reversal.
 
     - `FORWARD`: forward leaking. Default value.
     - `REVERSAL`: reversal leaking.
 
-    NOTE: Types of `leak_reversal_flag`.
+    NOTE: Same as `leak_reversal_flag` in V2.1.
     """
 
-    FORWARD = 0  # Default value.
-    REVERSAL = 1
+    MODE_FORWARD = 0  # Default value.
+    MODE_REVERSAL = 1
 
 
 @unique
-class LeakingModeType(Enum):
-    """Modes of leaking, deterministic or stochastic.
+class LeakingIntegrationMode(Enum):
+    """Mode of leaking integration, deterministic or stochastic.
 
     - `MODE_DETERMINISTIC`: deterministic leaking. Default value.
     - `MODE_STOCHASTIC`: stochastic leaking.
 
-    NOTE: Types of `leak_det_stoch`.
+    NOTE: Same as `leak_det_stoch` in V2.1.
     """
 
     MODE_DETERMINISTIC = 0  # Default value.
@@ -168,28 +168,14 @@ class LeakingModeType(Enum):
 
 
 @unique
-class WeightModeType(Enum):
-    """Modes of weights, deterministic or stochastic.
+class SynapticIntegrationMode(Enum):
+    """Modes of synaptic integration, deterministic or stochastic.
 
     - `MODE_DETERMINISTIC`: deterministic weights. Default value.
     - `MODE_STOCHASTIC`: stochastic weights.
 
-    NOTE: Types of `weight_det_stoch`.
+    NOTE: Same as `weight_det_stoch` in V2.1.
     """
 
     MODE_DETERMINISTIC = 0  # Default value.
     MODE_STOCHASTIC = 1
-
-
-if __name__ == "__main__":
-    axonNums = [[1, 2, 3], [4, 0, 5], [10, 9, 8, 7]]
-
-    axonNums.sort(key=lambda x: x[1], reverse=True)
-
-    print(axonNums)
-
-    li = []
-    li.append([1, 2])
-    li.append([3, 2])
-
-    print(li)

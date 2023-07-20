@@ -158,7 +158,18 @@ class ParamsReg(BaseModel, extra="ignore", validate_assignment=True):
 
 
 class ParamsRAM(BaseModel, extra="ignore", validate_assignment=True):
-    """Parameter model of RAM parameters listed in Section 2.4.2"""
+    """Parameter model of RAM parameters listed in Section 2.4.2
+
+    Example:
+        model_ram = ParamsRAM(...)
+
+        params_ram_dict = model_ram.model_dump(by_alias=True)
+
+    Return:
+        a dictionary of RAM parameters in which the keys are serialization alias if defined.
+
+    NOTE: The parameters input in the model are declared in `docs/Table-of-Terms.md`.
+    """
 
     _TICK_RELATIVE_BIT_MAX = 8
     _ADDR_AXON_BIT_MAX = 11
@@ -190,77 +201,78 @@ class ParamsRAM(BaseModel, extra="ignore", validate_assignment=True):
     )
 
     addr_axon: int = Field(
-        ..., ge=0, lt=(1 << _ADDR_AXON_BIT_MAX), description="Destination axon"
+        ..., ge=0, lt=(1 << _ADDR_AXON_BIT_MAX), description="Destination axon address."
     )
 
     addr_core_x: int = Field(
         ...,
         ge=0,
         lt=(1 << _ADDR_CORE_X_BIT_MAX),
-        description="X address of destination core",
+        description="Address X of destination core.",
     )
 
     addr_core_y: int = Field(
         ...,
         ge=0,
         lt=(1 << _ADDR_CORE_Y_BIT_MAX),
-        description="Y address of destination core",
+        description="Address Y of destination core.",
     )
 
     addr_core_x_ex: int = Field(
         ...,
         ge=0,
         lt=(1 << _ADDR_CORE_X_EX_BIT_MAX),
-        description="X broadcast address of destination core",
+        description="Broadcast address X of destination core.",
     )
 
     addr_core_y_ex: int = Field(
         ...,
         ge=0,
         lt=(1 << _ADDR_CORE_Y_EX_BIT_MAX),
-        description="Y broadcast address of destination core",
+        description="Broadcast address Y of destination core.",
     )
 
     addr_chip_x: int = Field(
         default=0,
         ge=0,
         lt=(1 << _ADDR_CHIP_X_BIT_MAX),
-        description="X address of destination chip",
+        description="Address X of destination chip.",
     )
     addr_chip_y: int = Field(
         default=0,
         ge=0,
         lt=(1 << _ADDR_CHIP_Y_BIT_MAX),
-        description="Y address of destination chip",
+        description="Address Y of destination chip.",
     )
 
-    reset_mode: ResetModeType = Field(
-        default=ResetModeType.MODE_NORMAL, description="Reset modes of cores."
+    reset_mode: ResetMode = Field(
+        default=ResetMode.MODE_NORMAL,
+        description="Reset modes of neurons.",
     )
 
     reset_v: int = Field(
         default=0,
         ge=-(1 << (_RESET_V_BIT_MAX - 1)),
         lt=(1 << (_RESET_V_BIT_MAX - 1)),
-        description="Reset signed value of membrane potential.",
+        description="Reset value of membrane potential, 30-bit signed.",
     )
 
-    leaking_comparison: LeakingComparisonType = Field(
-        default=LeakingComparisonType.LEAK_AFTER_COMP,
+    leaking_comparison: LeakingComparisonMode = Field(
+        default=LeakingComparisonMode.LEAK_AFTER_COMP,
         serialization_alias="leak_post",
         description="Leak after comparison or before.",
     )
 
-    thres_mask_ctrl: int = Field(
+    threshold_mask_bits: int = Field(
         default=0,
         ge=0,
         lt=(1 << _THRESHOLD_MASK_CTRL_BIT_MAX),
         serialization_alias="threshold_mask_ctrl",
-        description="Signed value of threshold mask.",
+        description="X-bits mask for random threshold.",
     )
 
-    neg_thres_mode: NegativeThresModeType = Field(
-        default=NegativeThresModeType.MODE_RESET,
+    neg_thres_mode: NegativeThresholdMode = Field(
+        default=NegativeThresholdMode.MODE_RESET,
         serialization_alias="threshold_neg_mode",
         description="Modes of negative threshold.",
     )
@@ -270,7 +282,7 @@ class ParamsRAM(BaseModel, extra="ignore", validate_assignment=True):
         ge=0,
         lt=(1 << _NEGATIVE_THRESHOLD_VALUE_BIT_MAX),
         serialization_alias="threshold_neg",
-        description="Negative threshold value.",
+        description="Negative threshold, 29-bit unsigned.",
     )
 
     pos_thres_value: int = Field(
@@ -278,73 +290,77 @@ class ParamsRAM(BaseModel, extra="ignore", validate_assignment=True):
         ge=0,
         lt=(1 << _POSITIVE_THRESHOLD_VALUE_BIT_MAX),
         serialization_alias="threshold_pos",
-        description="Positive threshold value.",
+        description="Positive threshold, 29-bit unsigned.",
     )
 
-    leaking_direction: LeakingDirectionType = Field(
-        default=LeakingDirectionType.FORWARD,
+    leaking_direction: LeakingDirectionMode = Field(
+        default=LeakingDirectionMode.MODE_FORWARD,
         serialization_alias="leak_reversal_flag",
         description="Direction of leaking, forward or reversal.",
     )
 
-    leaking_mode: LeakingModeType = Field(
-        default=LeakingModeType.MODE_DETERMINISTIC,
+    leaking_integration_mode: LeakingIntegrationMode = Field(
+        default=LeakingIntegrationMode.MODE_DETERMINISTIC,
         serialization_alias="leak_det_stoch",
-        description="Modes of leaking, deterministic or stochastic.",
+        description="Modes of leaking integration, deterministic or stochastic.",
     )
 
     leak_v: int = Field(
         default=0,
         ge=-(1 << (_LEAK_V_BIT_MAX - 1)),
         lt=(1 << (_LEAK_V_BIT_MAX - 1)),
-        description="Value of leaking potential.",
+        description="Leaking potential, 30-bit signed.",
     )
 
-    weight_mode: WeightModeType = Field(
-        default=WeightModeType.MODE_DETERMINISTIC,
+    synaptic_integration_mode: SynapticIntegrationMode = Field(
+        default=SynapticIntegrationMode.MODE_DETERMINISTIC,
         serialization_alias="weight_det_stoch",
-        description="Modes of weights, deterministic or stochastic.",
+        description="Modes of synaptic integration, deterministic or stochastic.",
     )
 
     bit_truncate: int = Field(
         default=8,  # TODO consider to judge based on *spike_width*
         ge=0,
         lt=(1 << _BIT_TRUNCATE_BIT_MAX),
-        description="Value of bit truncation.",
+        description="Position of truncation, unsigned int, 5-bits.",
     )
 
     vjt_pre: int = Field(
-        default=0,
+        default=0,  # TODO Good for a fixed value?
         ge=-(1 << (_VJT_PRE_BIT_MAX - 1)),
         lt=(1 << (_VJT_PRE_BIT_MAX - 1)),
-        description="Value of membrane potential of pre-synaptic neuron.",
+        description="Membrane potential of neuron at last time step, 30-bit signed. 0 at initialization.",
     )
 
     """Parameter serializers"""
 
     @field_serializer("reset_mode")
-    def _reset_mode(self, reset_mode: ResetModeType) -> int:
+    def _reset_mode(self, reset_mode: ResetMode) -> int:
         return reset_mode.value
 
     @field_serializer("leaking_comparison")
-    def _leaking_comparison(self, leaking_comparison: LeakingComparisonType) -> int:
+    def _leaking_comparison(self, leaking_comparison: LeakingComparisonMode) -> int:
         return leaking_comparison.value
 
     @field_serializer("neg_thres_mode")
-    def _neg_thres_mode(self, neg_thres_mode: NegativeThresModeType) -> int:
+    def _neg_thres_mode(self, neg_thres_mode: NegativeThresholdMode) -> int:
         return neg_thres_mode.value
 
     @field_serializer("leaking_direction")
-    def _leaking_direction(self, leaking_direction: LeakingDirectionType) -> int:
+    def _leaking_direction(self, leaking_direction: LeakingDirectionMode) -> int:
         return leaking_direction.value
 
-    @field_serializer("leaking_mode")
-    def _leaking_mode(self, leaking_mode: LeakingModeType) -> int:
-        return leaking_mode.value
+    @field_serializer("leaking_integration_mode")
+    def _leaking_integration_mode(
+        self, leaking_integration_mode: LeakingIntegrationMode
+    ) -> int:
+        return leaking_integration_mode.value
 
-    @field_serializer("weight_mode")
-    def _weight_mode(self, weight_mode: WeightModeType) -> int:
-        return weight_mode.value
+    @field_serializer("synaptic_integration_mode")
+    def _synaptic_integration_mode(
+        self, synaptic_integration_mode: SynapticIntegrationMode
+    ) -> int:
+        return synaptic_integration_mode.value
 
 
 def get_core_mode(
@@ -387,49 +403,3 @@ def get_core_mode(
     else:
         # 1 / 1 / *
         return CoreMode.MODE_ANN
-
-
-if __name__ == "__main__":
-    """Usages"""
-
-    model_reg = ParamsReg(
-        weight_precision=WeightPrecisionType.WEIGHT_WIDTH_8BIT,
-        LCN_extension=LCNExtensionType.LCN_16X,
-        input_width_format=InputWidthFormatType.WIDTH_1BIT,
-        spike_width_format=SpikeWidthFormatType.WIDTH_1BIT,
-        neuron_num=511,
-        max_pooling_en=MaxPoolingEnableType.DISABLE,
-        tick_wait_start=1,
-        tick_wait_end=0,
-        snn_mode_en=SNNModeEnableType.DISABLE,
-        target_LCN=1,
-        test_chip_addr=0,
-    )
-    a = model_reg.model_dump(by_alias=True)
-    print(a)
-
-    model_ram = ParamsRAM(
-        tick_relative=1,
-        addr_axon=0,
-        addr_core_x=0,
-        addr_core_y=0,
-        addr_core_x_ex=0,
-        addr_core_y_ex=0,
-        addr_chip_x=0,
-        addr_chip_y=0,
-        reset_mode=ResetModeType.MODE_NORMAL,
-        reset_v=0,
-        leaking_comparison=LeakingComparisonType.LEAK_AFTER_COMP,
-        thres_mask_ctrl=0,
-        neg_thres_mode=NegativeThresModeType.MODE_RESET,
-        neg_thres_value=0,
-        pos_thres_value=0,
-        leaking_direction=LeakingDirectionType.REVERSAL,
-        leaking_mode=LeakingModeType.MODE_DETERMINISTIC,
-        leak_v=0,
-        weight_mode=WeightModeType.MODE_DETERMINISTIC,
-        bit_truncate=8,
-        vjt_pre=1,
-    )
-    b = model_ram.model_dump(by_alias=True, warnings=True)
-    print(b)
