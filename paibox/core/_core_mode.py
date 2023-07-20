@@ -11,13 +11,13 @@ class CoreMode(Enum):
 
     NOTE: See table below for details.
 
-    Mode            input_width    spike_width    SNN_EN
-    BANN                0               0           0
-    SNN                 0               0           1
-    BANN/SNN to ANN     0               1           0
-    BANN/SNN to SNN     0               1           1
-    ANN to BANN/SNN     1               0       Don't care
-    ANN                 1               1       Don't care
+    Mode                        input_width    spike_width    SNN_EN
+    BANN                            0               0           0
+    SNN                             0               0           1
+    BANN/SNN to ANN                 0               1           0
+    BANN/SNN to SNN with values     0               1           1
+    ANN to BANN/SNN                 1               0       Don't care
+    ANN                             1               1       Don't care
     """
 
     MODE_UNKNOWN = 0
