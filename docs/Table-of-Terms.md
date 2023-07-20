@@ -10,4 +10,3 @@
 |       reset_v       |            膜电平常数复位的复位值            |        reset_v        |             reset_v              |    Same as V2.1    |
 | threshold_neg_mode  | 负阈值地板（饱和模式）或重置（复位）模式选择 | NegativeThresModeType |      NegativeThresholdMode       |    Same as V2.1    |
 | threshold_mask_ctrl |                阈值随机数掩码                |    thres_mask_ctrl    |                                  |    Same as V2.1    |
-
