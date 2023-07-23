@@ -17,7 +17,7 @@ def Addr2Coord(addr: int) -> Coord:
 
 
 def _bin_split(x: int, high: int, low: int) -> Tuple[int, int]:
-    """用于配置帧2\3型配置各个参数，对需要拆分的配置进行拆分
+    """用于配置帧2/3型配置各个参数，对需要拆分的配置进行拆分
 
     Args:
         x (int): 输入待拆分参数
@@ -28,13 +28,16 @@ def _bin_split(x: int, high: int, low: int) -> Tuple[int, int]:
     """
     high_mask = (1 << high) - 1
     highbit = x >> (low) & high_mask
+
     lowbit_mask = (1 << low) - 1
     lowbit = x & lowbit_mask
+
     return highbit, lowbit
 
 
-# 帧生成
 class FrameGen:
+    """Frame Generator"""
+
     @staticmethod
     def _GenFrame(
         header: int, chip_addr: int, core_addr: int, core_ex_addr: int, payload: int
@@ -104,7 +107,7 @@ class FrameGen:
         core_ex_addr = Coord2Addr(core_ex_coord)
 
         # 配置帧1型
-        if header == FrameHead.CONFIG_TYPE1:
+        if header is FrameHead.CONFIG_TYPE1:
             if payload is None:
                 raise ValueError("payload is None")
 
@@ -129,7 +132,7 @@ class FrameGen:
             )
 
         # 配置帧2型
-        elif header == FrameHead.CONFIG_TYPE2:
+        elif header is FrameHead.CONFIG_TYPE2:
             ConfigFrameGroup = np.array([], dtype=np.uint64)
 
             if parameter_reg is None:
@@ -236,7 +239,7 @@ class FrameGen:
             return ConfigFrameGroup
 
         # 配置帧3型
-        elif header == FrameHead.CONFIG_TYPE3:
+        elif header is FrameHead.CONFIG_TYPE3:
             if sram_start_addr is None:
                 raise ValueError("sram_start_addr is None")
             if data_package_num is None:
@@ -427,7 +430,7 @@ class FrameGen:
             return ConfigFrameGroup
 
         # 配置帧4型
-        elif header == FrameHead.CONFIG_TYPE4:
+        elif header is FrameHead.CONFIG_TYPE4:
             if sram_start_addr is None:
                 raise ValueError("sram_start_addr is None")
             if data_package_num is None:
@@ -469,8 +472,7 @@ class FrameGen:
             # ConfigFrameGroup.append(start_frame)
 
             return ConfigFrameGroup
+    
+        else:
+            raise ValueError(f"header is not defined: {header}")
 
-
-if __name__ == "__main__":
-    x = _bin_split(0b1011, 2, 2)
-    print(x)

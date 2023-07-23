@@ -277,7 +277,7 @@ class ParamsRAM(BaseModel, extra="ignore", validate_assignment=True):
         description="Modes of negative threshold.",
     )
 
-    neg_thres_value: int = Field(
+    neg_threshold: int = Field(
         default=0,
         ge=0,
         lt=(1 << _NEGATIVE_THRESHOLD_VALUE_BIT_MAX),
@@ -285,7 +285,7 @@ class ParamsRAM(BaseModel, extra="ignore", validate_assignment=True):
         description="Negative threshold, 29-bit unsigned.",
     )
 
-    pos_thres_value: int = Field(
+    pos_threshold: int = Field(
         default=0,
         ge=0,
         lt=(1 << _POSITIVE_THRESHOLD_VALUE_BIT_MAX),
