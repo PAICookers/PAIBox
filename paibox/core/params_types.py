@@ -143,8 +143,8 @@ class NegativeThresholdMode(Enum):
 class LeakingDirectionMode(Enum):
     """Direction of leaking, forward or reversal.
 
-    - `FORWARD`: forward leaking. Default value.
-    - `REVERSAL`: reversal leaking.
+    - `MODE_FORWARD`: forward leaking. Default value.
+    - `MODE_REVERSAL`: reversal leaking.
 
     NOTE: Same as `leak_reversal_flag` in V2.1.
     """
