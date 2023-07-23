@@ -19,7 +19,6 @@ def Addr2Coord(addr: int) -> Coord:
 
 def _bin_split(x: int, high: int, low: int) -> Tuple[int, int]:
     """用于配置帧2/3型配置各个参数，对需要拆分的配置进行拆分
-    """用于配置帧2/3型配置各个参数，对需要拆分的配置进行拆分
 
     Args:
         x (int): 输入待拆分参数
@@ -31,17 +30,13 @@ def _bin_split(x: int, high: int, low: int) -> Tuple[int, int]:
     high_mask = (1 << high) - 1
     highbit = x >> (low) & high_mask
 
-
     lowbit_mask = (1 << low) - 1
     lowbit = x & lowbit_mask
-
 
     return highbit, lowbit
 
 
 class FrameGen:
-    """Frame Generator"""
-
     """Frame Generator"""
 
     @staticmethod
@@ -455,6 +450,9 @@ class FrameGen:
                 (ConfigFrameGroup, start_frame, weight_ram)
             )
             return ConfigFrameGroup
+    
+        else:
+            raise ValueError(f"header is not defined: {header}")
 
         else:
             raise ValueError(f"header is not defined: {header}")
