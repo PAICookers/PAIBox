@@ -1,5 +1,4 @@
 from pydantic import BaseModel, Field, field_serializer, model_validator
-
 from .reg_types import *
 
 
