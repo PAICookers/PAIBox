@@ -1,5 +1,6 @@
 from .coord import Coord as Coord
-from .params_defs import ParamsRAM as ParamsRAM
-from .params_defs import ParamsReg as ParamsReg
+from .neuron import BasicFireNeuron as BasicFireNeuron, PeriodFireNeuron as PeriodFireNeuron
+from .neuron.ram_model import ParamsRAM as ParamsRAM
+from .reg_model import ParamsReg as ParamsReg
 
-__all__ = ["Coord", "ParamsRAM", "ParamsReg"]
+__all__ = ["Coord", "BasicFireNeuron", "PeriodFireNeuron", "ParamsReg", "ParamsRAM"]
