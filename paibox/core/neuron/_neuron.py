@@ -10,10 +10,15 @@ from .ram_types import (
 )
 from ..reg_types import *
 from .ram_model import ParamsRAM
-from typing import List, Dict, ClassVar
+from typing import List, Dict, ClassVar, TypeVar, Union
 
 
 __all__ = ["Neuron"]
+
+
+T = TypeVar("T")
+Spike = Union[int, List[int]]
+Spike_t = List[Spike]
 
 
 class _AbstractNeuron(ABC):
@@ -45,6 +50,7 @@ class _MetaNeuron(_AbstractNeuron):
 
     def __init__(
         self,
+        # TODO Maybe don't need so much parameters
         tick_relative: int,
         addr_axon: int,
         addr_core_x: int,
@@ -58,7 +64,7 @@ class _MetaNeuron(_AbstractNeuron):
         core_x: int,
         core_y: int,
         nid: int,
-        weight: int,
+        weights: List[int],
         reset_mode: RM,
         reset_v: int,
         leaking_comparison: LCM,
@@ -104,13 +110,13 @@ class _MetaNeuron(_AbstractNeuron):
         self._core_x: int = core_x
         self._core_y: int = core_y
         self._nid: int = nid
-        self._weight: int = weight
+        self._weights = weights
 
         # SNN
         self._timestep = 0  # As an global class variable?
         self._vjt_pre: int = vjt_init  # Membrane potential at Last time step.
         self._vjt: int = 0  # Membrane potential.
-        self._spike: int = 0
+        self._spike: int = 0  # TODO Related to `tick_relative` ans time slot.
 
         # ANN
         self._vj: int = vjt_init
@@ -138,35 +144,53 @@ class _MetaNeuron(_AbstractNeuron):
         """Auxiliary variables"""
         self._threshold_mode: TM = TM.MODE_UNSET
         self._v_th_rand = 0
+        self._input_axon_num = len(weights)
 
-    def neuronal_charge(self, input_spikes: List[int]) -> None:
+    def neuronal_charge(self, input_spikes: Spike) -> None:
         """1. Synaptic integration.
 
+        ## Arguments:
+        - `input_spikes`: one spike width of `N` axons.
+            | |
+        1 - x x
+        0 - x ·
+        1 - · x, here the width of x is 3.
+
+        NOTE: `N` axons correspond to `N` weights.
+
+        ## Description
         _rho_w_ij: Random synaptic integration enable, 0 or 1.
 
         If synaptic integration mode is deterministic, then
             `_vjt` = `_vjt_pre` + \sum^{N-1}_{i=0} * x_i(t) * w_{i,j}
         else (stochastic)
             `_vjt` = `_vjt_pre` + `_rho_w_ij` * \sum^{N-1}_{i=0} * x_i(t) * w_{i,j}
-
-        Arguments:
-        - `input_spikes`: a spiking train width of `N` axons.
-            | |
-        1 - x x
-        0 - x ·
-        1 - · x, here length of x is 3.
         """
         _rho_w_ij = 1  # Random synaptic integration enable, 0/1
         xt = 0
 
-        for i in range(len(input_spikes)):
-            _is = input_spikes[i]
-            if self._synaptic_integration_mode is SIM.MODE_DETERMINISTIC:
-                xt += _is * self._weight
-            else:
-                xt += _rho_w_ij * _is * self._weight
+        if isinstance(input_spikes, int):
+            if self._input_axon_num > 1:
+                raise ValueError(
+                    f"width of weights({self._input_axon_num}) > width of input axon(1)"
+                )
 
-            # print(f"xt = {_is} * {self._weight}")
+            _is = [input_spikes]
+
+        else:
+            if len(input_spikes) != self._input_axon_num:
+                raise ValueError(
+                    f"width of weights({self._input_axon_num}) != width of input axon({len(input_spikes)})"
+                )
+
+            _is = input_spikes
+
+        for i in range(self._input_axon_num):
+            # xt = xt + spikes[i_of_axon] * weights[i_of_axon]
+            if self._synaptic_integration_mode is SIM.MODE_DETERMINISTIC:
+                xt += _is[i] * self._weights[i]
+            else:
+                xt += _rho_w_ij * _is[i] * self._weights[i]
 
         self._vjt = self._vjt_pre + xt
 
@@ -384,12 +408,25 @@ class _MetaNeuron(_AbstractNeuron):
     def multi_step_forward(self, x: List[List[int]]):
         pass
 
+    """Properties"""
+
+    @property
+    def weights(self) -> List[int]:
+        """Weights"""
+        return self._weights
+
+    @property
+    def nid(self) -> int:
+        return self._nid
+
 
 class Neuron(_MetaNeuron):
     """Father class of wrapped neurons.
 
     The parameters are always legal.
     """
+
+    __neuron_num = 1
 
     def __init__(
         self,
@@ -406,7 +443,7 @@ class Neuron(_MetaNeuron):
         core_x: int,
         core_y: int,
         nid: int,
-        weight: int,
+        weights: List[int],
         reset_mode: RM,
         reset_v: int,
         leaking_comparison: LCM,
@@ -435,7 +472,7 @@ class Neuron(_MetaNeuron):
             core_x,
             core_y,
             nid,
-            weight,
+            weights,
             reset_mode,
             reset_v,
             leaking_comparison,
@@ -484,3 +521,43 @@ class Neuron(_MetaNeuron):
     def export_params_dict(self) -> Dict[str, int]:
         model = self.export_params_model()
         return model.model_dump(by_alias=True)
+
+
+class NeuronGroup(_MetaNeuron):
+    __neuron_num: int
+
+    def __init__(
+        self,
+        n: int,
+        tick_relative: int,
+        addr_axon: int,
+        addr_core_x: int,
+        addr_core_y: int,
+        addr_core_x_ex: int,
+        addr_core_y_ex: int,
+        addr_chip_x: int,
+        addr_chip_y: int,
+        chip_x: int,
+        chip_y: int,
+        core_x: int,
+        core_y: int,
+        nid: int,
+        weights: List[int],
+        reset_mode: RM,
+        reset_v: int,
+        leaking_comparison: LCM,
+        threshold_mask_bits: int,
+        neg_thres_mode: NTM,
+        neg_threshold: int,
+        pos_threshold: int,
+        leaking_direction: LDM,
+        leaking_integration_mode: LIM,
+        leak_v: int,
+        synaptic_integration_mode: SIM,
+        bit_truncate: int,
+        vjt_init: int,
+    ):
+        if n < 2:
+            raise ValueError("If number of neurons < 2, use subclass of Neuron please.")
+
+        self.__neuron_num = n
