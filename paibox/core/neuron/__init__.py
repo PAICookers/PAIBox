@@ -1,3 +1,5 @@
-from .neuron import BasicFireNeuron as BasicFireNeuron, PeriodFireNeuron as PeriodFireNeuron
-
-__all__ = ["BasicFireNeuron", "PeriodFireNeuron"]
+from .neuron import (
+    TonicSpikingNeuron as TonicSpikingNeuron,
+    PhasicSpikingNeuron as PhasicSpikingNeuron,
+    Class1ExcitableNeuron as Class1ExcitableNeuron,
+)
