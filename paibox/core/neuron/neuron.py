@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
+from typing import ClassVar, List
+
 from ..params_types import *
 from ._type import ThresholdMode
-from typing import List, ClassVar
 
 
 class _AbstractNeuron(ABC):

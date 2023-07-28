@@ -84,11 +84,15 @@ class FrameMask:
 
 
 """配置帧"""
+
+
 class ConfigFrame1Mask(FrameMask):
     pass
 
+
 class ConfigFrame2Mask(FrameMask):
     pass
+
 
 class ConfigFrame3Mask(FrameMask):
     DATA_PACKAGE_SRAM_NEURON_ADDR_OFFSET = 20
@@ -99,7 +103,8 @@ class ConfigFrame3Mask(FrameMask):
 
     DATA_PACKAGE_NUM_OFFSET = 0
     DATA_PACKAGE_NUM_MASK = (1 << 19) - 1
-    
+
+
 class ConfigFrame4Mask(FrameMask):
     DATA_PACKAGE_SRAM_NEURON_ADDR_OFFSET = 20
     DATA_PACKAGE_SRAM_NEURON_ADDR_MASK = (1 << 10) - 1
@@ -109,6 +114,7 @@ class ConfigFrame4Mask(FrameMask):
 
     DATA_PACKAGE_NUM_OFFSET = 0
     DATA_PACKAGE_NUM_MASK = (1 << 19) - 1
+
 
 class ParameterRegMask(FrameMask):
     """配置帧2型"""
@@ -240,16 +246,14 @@ class ParameterRAMMask(FrameMask):
     TICK_RELATIVE_MASK = (1 << 8) - 1
 
 
-
 # TODO: 测试帧
-
 
 
 """工作帧"""
 
+
 # 工作帧 1 型（Spike，脉冲帧）
 class WorkFrame1Mask(FrameMask):
-
     RESERVED_OFFSET = 27
     RESERVED_MASK = (1 << 3) - 1
 
@@ -262,6 +266,7 @@ class WorkFrame1Mask(FrameMask):
     DATA_OFFSET = 0
     DATA_MASK = (1 << 8) - 1
 
+
 # 工作帧 2 型（Spike，脉冲帧）
 class WorkFrame2Mask(FrameMask):
     RESERVED_OFFSET = 30
@@ -269,7 +274,8 @@ class WorkFrame2Mask(FrameMask):
 
     TIME_OFFSET = 0
     TIME_MASK = (1 << 30) - 1
-    
+
+
 # 工作帧 3 型（清除帧）
 class WorkFrame3Mask(FrameMask):
     RESERVED_OFFSET = 0
@@ -280,5 +286,6 @@ class WorkFrame3Mask(FrameMask):
 class WorkFrame4Mask(FrameMask):
     RESERVED_OFFSET = 0
     RESERVED_MASK = (1 << 50) - 1
+
 
 # TODO: 在线学习处理核数据帧格式
