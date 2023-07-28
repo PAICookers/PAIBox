@@ -84,7 +84,6 @@ class FrameGen:
         # 配置帧4型
         weight_ram: Optional[np.ndarray] = None,
     ) -> np.ndarray:
-        
         """生成配置帧
 
         Args:
@@ -123,13 +122,14 @@ class FrameGen:
             if weight_ram is not None:
                 raise ValueError("weight_ram is not need")
 
-            return FrameGen._GenFrame(header.value, chip_addr, core_addr, core_ex_addr, payload)
-
+            return FrameGen._GenFrame(
+                header.value, chip_addr, core_addr, core_ex_addr, payload
+            )
 
         # *配置帧2型
         elif header is FrameHead.CONFIG_TYPE2:
             ConfigFrameGroup = np.array([], dtype=np.uint64)
-            
+
             if parameter_reg is None:
                 raise ValueError("parameter_reg is None")
 
@@ -180,14 +180,14 @@ class FrameGen:
                     << RegMask.TICK_WAIT_START_HIGH8_OFFSET
                 )
             )
-            
+
             ConfigFrameGroup = np.append(
                 ConfigFrameGroup,
                 FrameGen._GenFrame(
                     header.value, chip_addr, core_addr, core_ex_addr, reg_frame1
-                )
+                ),
             )
-            
+
             # frame 2
             reg_frame2 = int(
                 (
@@ -216,20 +216,21 @@ class FrameGen:
                 ConfigFrameGroup,
                 FrameGen._GenFrame(
                     header.value, chip_addr, core_addr, core_ex_addr, reg_frame2
-                )
+                ),
             )
             # frame 3
-            reg_frame3 = int((
-                test_chip_addr_low7 & RegMask.TEST_CHIP_ADDR_LOW7_MASK
-            ) << RegMask.TEST_CHIP_ADDR_LOW7_OFFSET)
+            reg_frame3 = int(
+                (test_chip_addr_low7 & RegMask.TEST_CHIP_ADDR_LOW7_MASK)
+                << RegMask.TEST_CHIP_ADDR_LOW7_OFFSET
+            )
 
             ConfigFrameGroup = np.append(
                 ConfigFrameGroup,
                 FrameGen._GenFrame(
                     header.value, chip_addr, core_addr, core_ex_addr, reg_frame3
-                )
+                ),
             )
-            
+
             return ConfigFrameGroup
 
         # *配置帧3型
@@ -252,7 +253,10 @@ class FrameGen:
             ConfigFrameGroup = np.array([], dtype=np.uint64)
             neuron_ram_load = (
                 (
-                    (sram_start_addr & ConfigFrame3Mask.DATA_PACKAGE_SRAM_NEURON_ADDR_MASK)
+                    (
+                        sram_start_addr
+                        & ConfigFrame3Mask.DATA_PACKAGE_SRAM_NEURON_ADDR_MASK
+                    )
                     << ConfigFrame3Mask.DATA_PACKAGE_SRAM_NEURON_ADDR_OFFSET
                 )
                 | (
@@ -301,7 +305,7 @@ class FrameGen:
             )
 
             ConfigFrameGroup = np.append(ConfigFrameGroup, np.uint64(ram_frame1))
-            
+
             # 2
             ram_frame2 = int(
                 (
@@ -422,7 +426,10 @@ class FrameGen:
 
             weight_ram_load = (
                 (
-                    (sram_start_addr & ConfigFrame4Mask.DATA_PACKAGE_SRAM_NEURON_ADDR_MASK)
+                    (
+                        sram_start_addr
+                        & ConfigFrame4Mask.DATA_PACKAGE_SRAM_NEURON_ADDR_MASK
+                    )
                     << ConfigFrame4Mask.DATA_PACKAGE_SRAM_NEURON_ADDR_OFFSET
                 )
                 | (
@@ -442,14 +449,14 @@ class FrameGen:
                 (ConfigFrameGroup, start_frame, weight_ram)
             )
             return ConfigFrameGroup
-    
+
         else:
             raise ValueError(f"header is not defined: {header}")
 
     @staticmethod
     def GenTestFrame():
         pass
-    
+
     @staticmethod
     def GenWorkFrame(
         header: FrameHead,
@@ -459,9 +466,9 @@ class FrameGen:
         # 工作帧1型
         axon: Optional[int] = None,
         time_slot: Optional[int] = None,
-        data:Optional[int] = None,
+        data: Optional[int] = None,
         # 工作帧2型
-        time: Optional[int] = None
+        time: Optional[int] = None,
     ) -> np.ndarray:
         """工作帧
 
@@ -476,61 +483,72 @@ class FrameGen:
             time (Optional[int], optional): 工作帧2型参数. Defaults to None.
         """
         chip_addr = Coord2Addr(chip_coord)
-        
+
         if header is FrameHead.WORK_TYPE1:
-            
             if core_coord is None:
                 raise ValueError("core_coord is None")
             if core_ex_coord is None:
                 raise ValueError("core_ex_coord is None")
-            
+
             if axon is None:
                 raise ValueError("axon is None")
             if time_slot is None:
                 raise ValueError("time_slot is None")
             if data is None:
                 raise ValueError("data is None")
-            
+
             if time is not None:
                 raise ValueError("time is not need")
-            
+
             core_addr = Coord2Addr(core_coord)
             core_ex_addr = Coord2Addr(core_ex_coord)
-            
-            payload =  (
-                ((0x00 & WorkFrame1Mask.RESERVED_MASK) << WorkFrame1Mask.RESERVED_OFFSET)
-            |   ((axon & WorkFrame1Mask.AXON_MASK) << WorkFrame1Mask.AXON_OFFSET)
-            |   ((time_slot & WorkFrame1Mask.TIME_SLOT_MASK) << WorkFrame1Mask.TIME_SLOT_OFFSET)
-            |   ((data & WorkFrame1Mask.DATA_MASK) << WorkFrame1Mask.DATA_OFFSET)
+
+            payload = (
+                (
+                    (0x00 & WorkFrame1Mask.RESERVED_MASK)
+                    << WorkFrame1Mask.RESERVED_OFFSET
+                )
+                | ((axon & WorkFrame1Mask.AXON_MASK) << WorkFrame1Mask.AXON_OFFSET)
+                | (
+                    (time_slot & WorkFrame1Mask.TIME_SLOT_MASK)
+                    << WorkFrame1Mask.TIME_SLOT_OFFSET
+                )
+                | ((data & WorkFrame1Mask.DATA_MASK) << WorkFrame1Mask.DATA_OFFSET)
             )
-            
-            return FrameGen._GenFrame(header.value, chip_addr, core_addr, core_ex_addr, payload)
-            
+
+            return FrameGen._GenFrame(
+                header.value, chip_addr, core_addr, core_ex_addr, payload
+            )
+
         elif header is FrameHead.WORK_TYPE2:
-            
             if core_coord is not None:
                 raise ValueError("core_coord is not need")
             if core_ex_coord is not None:
                 raise ValueError("core_ex_coord is not need")
-            
+
             if time is None:
                 raise ValueError("time is None")
-            
+
             if axon is not None:
                 raise ValueError("axon is not need")
             if time_slot is not None:
                 raise ValueError("time_slot is not need")
             if data is not None:
                 raise ValueError("data is not need")
-            
-            payload = ((time & WorkFrame2Mask.TIME_MASK) << WorkFrame2Mask.TIME_OFFSET)
-            core_addr = ((0x000 & WorkFrame2Mask.GENERAL_CORE_ADDR_MASK) << WorkFrame2Mask.GENERAL_CORE_ADDR_OFFSET)
-            core_ex_addr = ((0x000 & WorkFrame2Mask.GENERAL_CORE_EX_ADDR_MASK) << WorkFrame2Mask.GENERAL_CORE_EX_ADDR_OFFSET)
-            
-            return FrameGen._GenFrame(header.value, chip_addr, core_addr, core_ex_addr, payload)
-            
+
+            payload = (time & WorkFrame2Mask.TIME_MASK) << WorkFrame2Mask.TIME_OFFSET
+            core_addr = (
+                0x000 & WorkFrame2Mask.GENERAL_CORE_ADDR_MASK
+            ) << WorkFrame2Mask.GENERAL_CORE_ADDR_OFFSET
+            core_ex_addr = (
+                0x000 & WorkFrame2Mask.GENERAL_CORE_EX_ADDR_MASK
+            ) << WorkFrame2Mask.GENERAL_CORE_EX_ADDR_OFFSET
+
+            return FrameGen._GenFrame(
+                header.value, chip_addr, core_addr, core_ex_addr, payload
+            )
+
         elif header is FrameHead.WORK_TYPE3:
-            
             if core_coord is not None:
                 raise ValueError("core_coord is not need")
             if core_ex_coord is not None:
@@ -543,15 +561,22 @@ class FrameGen:
                 raise ValueError("time_slot is not need")
             if data is not None:
                 raise ValueError("data is not need")
-            
-            core_addr = ((0x000 & WorkFrame3Mask.GENERAL_CORE_ADDR_MASK) << WorkFrame3Mask.GENERAL_CORE_ADDR_OFFSET)
-            core_ex_addr = ((0x000 & WorkFrame3Mask.GENERAL_CORE_EX_ADDR_MASK) << WorkFrame3Mask.GENERAL_CORE_EX_ADDR_OFFSET)
-            payload = (0x00000000 & WorkFrame3Mask.GENERAL_PAYLOAD_MASK) << WorkFrame3Mask.GENERAL_PAYLOAD_OFFSET
-            
-            return FrameGen._GenFrame(header.value, chip_addr, core_addr, core_ex_addr, payload)
-        
+
+            core_addr = (
+                0x000 & WorkFrame3Mask.GENERAL_CORE_ADDR_MASK
+            ) << WorkFrame3Mask.GENERAL_CORE_ADDR_OFFSET
+            core_ex_addr = (
+                0x000 & WorkFrame3Mask.GENERAL_CORE_EX_ADDR_MASK
+            ) << WorkFrame3Mask.GENERAL_CORE_EX_ADDR_OFFSET
+            payload = (
+                0x00000000 & WorkFrame3Mask.GENERAL_PAYLOAD_MASK
+            ) << WorkFrame3Mask.GENERAL_PAYLOAD_OFFSET
+
+            return FrameGen._GenFrame(
+                header.value, chip_addr, core_addr, core_ex_addr, payload
+            )
+
         elif header is FrameHead.WORK_TYPE4:
-            
             if core_coord is not None:
                 raise ValueError("core_coord is not need")
             if core_ex_coord is not None:
@@ -564,12 +589,20 @@ class FrameGen:
                 raise ValueError("time_slot is not need")
             if data is not None:
                 raise ValueError("data is not need")
-            
-            core_addr = ((0x000 & WorkFrame4Mask.GENERAL_CORE_ADDR_MASK) << WorkFrame4Mask.GENERAL_CORE_ADDR_OFFSET)
-            core_ex_addr = ((0x000 & WorkFrame4Mask.GENERAL_CORE_EX_ADDR_MASK) << WorkFrame4Mask.GENERAL_CORE_EX_ADDR_OFFSET)
-            payload = (0x00000000 & WorkFrame4Mask.GENERAL_PAYLOAD_MASK) << WorkFrame4Mask.GENERAL_PAYLOAD_OFFSET
-            
-            return FrameGen._GenFrame(header.value, chip_addr, core_addr, core_ex_addr, payload)
-        
+
+            core_addr = (
+                0x000 & WorkFrame4Mask.GENERAL_CORE_ADDR_MASK
+            ) << WorkFrame4Mask.GENERAL_CORE_ADDR_OFFSET
+            core_ex_addr = (
+                0x000 & WorkFrame4Mask.GENERAL_CORE_EX_ADDR_MASK
+            ) << WorkFrame4Mask.GENERAL_CORE_EX_ADDR_OFFSET
+            payload = (
+                0x00000000 & WorkFrame4Mask.GENERAL_PAYLOAD_MASK
+            ) << WorkFrame4Mask.GENERAL_PAYLOAD_OFFSET
+
+            return FrameGen._GenFrame(
+                header.value, chip_addr, core_addr, core_ex_addr, payload
+            )
+
         else:
             raise ValueError(f"header is not defined: {header}")
