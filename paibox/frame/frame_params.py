@@ -77,29 +77,38 @@ class FrameMask:
     GENERAL_CORE_GLOBAL_ADDR_OFFSET = GENERAL_CORE_ADDR_OFFSET
     GENERAL_CORE_GLOBAL_ADDR_MASK = (1 << 20) - 1
 
-    """通用数据帧LOAD掩码"""
+    # 通用数据帧LOAD掩码
     GENERAL_PAYLOAD_OFFSET = 0
     GENERAL_PAYLOAD_MASK = (1 << 30) - 1
     GENERAL_PAYLOAD_FILLED_MASK = (1 << 4) - 1
 
-    """配置帧3型 Neuron RAM 数据包格式起始帧LOAD掩码"""
-    DATA_PACKAGE_OFFSET = 0
-    DATA_PACKAGE_MASK = (1 << 30) - 1
 
+"""配置帧"""
+class ConfigFrame1Mask(FrameMask):
+    pass
+
+class ConfigFrame2Mask(FrameMask):
+    pass
+
+class ConfigFrame3Mask(FrameMask):
     DATA_PACKAGE_SRAM_NEURON_ADDR_OFFSET = 20
     DATA_PACKAGE_SRAM_NEURON_ADDR_MASK = (1 << 10) - 1
 
     DATA_PACKAGE_TYPE_OFFSET = 19
     DATA_PACKAGE_TYPE_MASK = 0x1
 
-    DATA_PACKAGE_NUM_OFFSET = DATA_PACKAGE_OFFSET
+    DATA_PACKAGE_NUM_OFFSET = 0
     DATA_PACKAGE_NUM_MASK = (1 << 19) - 1
+    
+class ConfigFrame4Mask(FrameMask):
+    DATA_PACKAGE_SRAM_NEURON_ADDR_OFFSET = 20
+    DATA_PACKAGE_SRAM_NEURON_ADDR_MASK = (1 << 10) - 1
 
+    DATA_PACKAGE_TYPE_OFFSET = 19
+    DATA_PACKAGE_TYPE_MASK = 0x1
 
-"""配置帧"""
-# 配置帧 1型
-ConfigFrame1Mask = FrameMask
-
+    DATA_PACKAGE_NUM_OFFSET = 0
+    DATA_PACKAGE_NUM_MASK = (1 << 19) - 1
 
 class ParameterRegMask(FrameMask):
     """配置帧2型"""
@@ -231,18 +240,16 @@ class ParameterRAMMask(FrameMask):
     TICK_RELATIVE_MASK = (1 << 8) - 1
 
 
-# 配置帧4 型（Weight RAM） 数据包起始帧
-ConfigFrame4StartMask = FrameMask
 
-"""
-测试帧使用 FrameMask
-"""
+# TODO: 测试帧
+
+
 
 """工作帧"""
 
-
-# 工作帧1 型（Spike，脉冲帧）
+# 工作帧 1 型（Spike，脉冲帧）
 class WorkFrame1Mask(FrameMask):
+
     RESERVED_OFFSET = 27
     RESERVED_MASK = (1 << 3) - 1
 
@@ -255,14 +262,23 @@ class WorkFrame1Mask(FrameMask):
     DATA_OFFSET = 0
     DATA_MASK = (1 << 8) - 1
 
+# 工作帧 2 型（Spike，脉冲帧）
+class WorkFrame2Mask(FrameMask):
+    RESERVED_OFFSET = 30
+    RESERVED_MASK = (1 << 20) - 1
 
-# 工作帧2 型（同步帧）
-WorkFrame2Mask = FrameMask
+    TIME_OFFSET = 0
+    TIME_MASK = (1 << 30) - 1
+    
+# 工作帧 3 型（清除帧）
+class WorkFrame3Mask(FrameMask):
+    RESERVED_OFFSET = 0
+    RESERVED_MASK = (1 << 50) - 1
 
-# 工作帧3 型（清除帧）
-WorkFrame3Mask = FrameMask
 
 # 工作帧4 型（初始化帧）
-WorkFrame4Mask = FrameMask
+class WorkFrame4Mask(FrameMask):
+    RESERVED_OFFSET = 0
+    RESERVED_MASK = (1 << 50) - 1
 
 # TODO: 在线学习处理核数据帧格式
