@@ -2,7 +2,10 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from math import sqrt
 from typing import Tuple, Union, final, overload
+<<<<<<< HEAD
 
+=======
+>>>>>>> 5025016 (🚚 rename `coord` to `identifier`)
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
