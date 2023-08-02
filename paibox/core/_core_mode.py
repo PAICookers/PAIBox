@@ -1,5 +1,6 @@
 from enum import Enum, unique
-from .reg_types import InputWidthFormatType, SpikeWidthFormatType, SNNModeEnableType
+
+from .reg_types import InputWidthFormatType, SNNModeEnableType, SpikeWidthFormatType
 
 __all__ = ["CoreMode"]
 

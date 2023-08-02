@@ -6,7 +6,7 @@ __all__ = [
     "InputWidthFormatType",
     "SpikeWidthFormatType",
     "MaxPoolingEnableType",
-    "SNNModeEnableType"
+    "SNNModeEnableType",
 ]
 
 """
