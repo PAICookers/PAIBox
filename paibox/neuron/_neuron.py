@@ -8,17 +8,12 @@ from .ram_types import (
     SynapticIntegrationMode as SIM,
     ThresholdMode as TM,
 )
-from ..reg_types import *
+from paibox.core.reg_types import LCNExtensionType, SpikeWidthFormatType, MaxPoolingEnableType
 from .ram_model import ParamsRAM
-from typing import List, Dict, ClassVar, TypeVar, Union
+from typing import Callable, List, Dict, Any, ClassVar, Optional
 
 
 __all__ = ["Neuron"]
-
-
-T = TypeVar("T")
-Spike = Union[int, List[int]]
-Spike_t = List[Spike]
 
 
 class _AbstractNeuron(ABC):
@@ -38,7 +33,7 @@ class _AbstractNeuron(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def single_step_forward(self, x):
+    def run(self, *x):
         raise NotImplementedError
 
 
@@ -78,6 +73,9 @@ class _MetaNeuron(_AbstractNeuron):
         synaptic_integration_mode: SIM,
         bit_truncate: int,
         vjt_init: int,
+        *,
+        pre_hook_func: Optional[Callable[..., None]] = None,
+        post_hook_func: Optional[Callable[..., None]] = None,
     ) -> None:
         # Common
         self._tick_relative: int = tick_relative
@@ -88,6 +86,9 @@ class _MetaNeuron(_AbstractNeuron):
         self._addr_core_y_ex: int = addr_core_y_ex
         self._addr_chip_x: int = addr_chip_x
         self._addr_chip_y: int = addr_chip_y
+
+        self._pre_hook_func = pre_hook_func
+        self._post_hook_func = post_hook_func
 
         # SNN
         self._reset_mode: RM = reset_mode
@@ -142,12 +143,12 @@ class _MetaNeuron(_AbstractNeuron):
         self._pool_max_en: MaxPoolingEnableType
 
         """Auxiliary variables"""
-        self._threshold_mode: TM = TM.MODE_UNSET
+        self._threshold_mode: TM = TM.NOT_EXCEEDED
         self._v_th_rand = 0
         self._input_axon_num = len(weights)
 
-    def neuronal_charge(self, input_spikes: Spike) -> None:
-        """1. Synaptic integration.
+    def neuronal_charge(self, *x) -> None:
+        r"""1. Synaptic integration.
 
         ## Arguments:
         - `input_spikes`: one spike width of `N` axons.
@@ -169,33 +170,22 @@ class _MetaNeuron(_AbstractNeuron):
         _rho_w_ij = 1  # Random synaptic integration enable, 0/1
         xt = 0
 
-        if isinstance(input_spikes, int):
-            if self._input_axon_num > 1:
-                raise ValueError(
-                    f"width of weights({self._input_axon_num}) > width of input axon(1)"
-                )
-
-            _is = [input_spikes]
-
-        else:
-            if len(input_spikes) != self._input_axon_num:
-                raise ValueError(
-                    f"width of weights({self._input_axon_num}) != width of input axon({len(input_spikes)})"
-                )
-
-            _is = input_spikes
+        if len(x) != self._input_axon_num:
+            raise ValueError(
+                f"width of weights({self._input_axon_num}) != width of input axon({len(x)})"
+            )
 
         for i in range(self._input_axon_num):
             # xt = xt + spikes[i_of_axon] * weights[i_of_axon]
             if self._synaptic_integration_mode is SIM.MODE_DETERMINISTIC:
-                xt += _is[i] * self._weights[i]
+                xt += x[i] * self._weights[i]
             else:
-                xt += _rho_w_ij * _is[i] * self._weights[i]
+                xt += _rho_w_ij * x[i] * self._weights[i]
 
         self._vjt = self._vjt_pre + xt
 
     def neuronal_leak(self) -> None:
-        """2. Leaking integration.
+        r"""2. Leaking integration.
 
         2.1 Leaking direction, forward or reversal.
             If leaking direction is `MODE_FORWARD`, the `_ld` is 1, else is \sgn{`_vjt`}.
@@ -239,7 +229,7 @@ class _MetaNeuron(_AbstractNeuron):
         # print(f"leak: vjt = {self._vjt}")
 
     def neuronal_fire(self) -> None:
-        """3. Threshold comparison
+        r"""3. Threshold comparison
 
         3.1 Random threshold
             `_v_th_rand` = `_rho_j_T` & `_threshold_mask`
@@ -269,23 +259,21 @@ class _MetaNeuron(_AbstractNeuron):
 
         """Fire"""
         if self._vjt >= self._pos_threshold + _v_th_rand:
-            self._threshold_mode = TM.MODE_POSITIVE
+            self._threshold_mode = TM.EXCEED_POSITIVE
             yt = 1
         elif self._vjt < -_v_th_neg:
-            self._threshold_mode = TM.MODE_NEGATIVE
+            self._threshold_mode = TM.EXCEED_NEGATIVE
             yt = 0
         else:
-            self._threshold_mode = TM.MODE_UNSET
+            self._threshold_mode = TM.NOT_EXCEEDED
             yt = 0
 
         self._spike = yt
 
-        # print(f"fire: vjt = {self._vjt}")
-
     def neuronal_reset(self) -> None:
-        """4. Reset
+        r"""4. Reset
 
-        If `_threshold_mode` is `MODE_POSITIVE`
+        If `_threshold_mode` is `EXCEED_POSITIVE`
             If reset mode is `MODE_NORMAL`, then
                 `_vjt` = `_reset_v`
             else if reset mode is `MODE_LINEAR`, then
@@ -293,7 +281,7 @@ class _MetaNeuron(_AbstractNeuron):
             else (`MODE_NONRESET`)
                 `_vjt` = `_vjt`
 
-        else if `_threshold_mode` is `MODE_NEGATIVE`
+        else if `_threshold_mode` is `EXCEED_NEGATIVE`
             If negative threshold mode is `MODE_RESET`, then
                 If reset mode is `MODE_NORMAL`, then
                     `_vjt` = -`_reset_v`
@@ -307,14 +295,14 @@ class _MetaNeuron(_AbstractNeuron):
         else (not beyond the threshold)
             `_vjt` = `_vjt`
         """
-        if self._threshold_mode is TM.MODE_POSITIVE:
+        if self._threshold_mode is TM.EXCEED_POSITIVE:
             if self._reset_mode is RM.MODE_NORMAL:
                 self._vjt = self._reset_v
             elif self._reset_mode is RM.MODE_LINEAR:
                 self._vjt = self._vjt - (self._pos_threshold + self._v_th_rand)
             else:
                 self._vjt = self._vjt
-        elif self._threshold_mode is TM.MODE_NEGATIVE:
+        elif self._threshold_mode is TM.EXCEED_NEGATIVE:
             if self._neg_thres_mode is NTM.MODE_RESET:
                 if self._reset_mode is RM.MODE_NORMAL:
                     self._vjt = -self._reset_v
@@ -327,10 +315,8 @@ class _MetaNeuron(_AbstractNeuron):
         else:
             self._vjt = self._vjt
 
-        # print(f"reset: vjt = {self._vjt}")
-
     def _relu(self) -> None:
-        """ReLU(ANN mode ONLY)
+        r"""ReLU(ANN mode ONLY)
 
         If spiking width format is `WIDTH_1BIT`, then
             if `_vj` >= `_pos_threshold`, then
@@ -377,16 +363,24 @@ class _MetaNeuron(_AbstractNeuron):
         return max(input_spikes)
 
     def _pre_hook(self):
+        """Pre-hook before the activation."""
+        if isinstance(self._pre_hook_func, Callable[..., None]):
+            self._pre_hook_func()
+
         pass
 
     def _post_hook(self):
-        print(f"{self._threshold_mode}")
+        """Post-hook after the entire activation."""
+        # Update the vjt_pre, and reset the threshold mode.
         self._vjt_pre = self._vjt
-        self._threshold_mode = TM.MODE_UNSET
+        self._threshold_mode = TM.NOT_EXCEEDED
 
         print(f"vjt = {self._vjt}, spike = {self._spike}")
 
-    def single_step_forward(self, x: List[int]):
+        if isinstance(self._post_hook_func, Callable[..., None]):
+            self._post_hook_func()
+
+    def run(self, *x):
         self._pre_hook()
 
         """1. Charge"""
@@ -405,8 +399,9 @@ class _MetaNeuron(_AbstractNeuron):
 
         self._post_hook()
 
-    def multi_step_forward(self, x: List[List[int]]):
-        pass
+    @abstractmethod
+    def export_params_dict(self) -> Dict[str, Any]:
+        raise NotImplementedError
 
     """Properties"""
 
