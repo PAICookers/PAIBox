@@ -1,4 +1,5 @@
 from pydantic import BaseModel, Field, field_serializer
+
 from .ram_types import *
 
 

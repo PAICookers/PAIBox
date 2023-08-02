@@ -1,6 +1,5 @@
 from enum import Enum, unique
 
-
 __all__ = [
     "ResetMode",
     "LeakingComparisonMode",
