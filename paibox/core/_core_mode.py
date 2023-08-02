@@ -1,8 +1,6 @@
 from enum import Enum, unique
 from .reg_types import InputWidthFormatType, SpikeWidthFormatType, SNNModeEnableType
 
-from .reg_types import InputWidthFormatType, SNNModeEnableType, SpikeWidthFormatType
-
 __all__ = ["CoreMode"]
 
 
@@ -71,8 +69,4 @@ def get_core_mode(
         return CoreMode.MODE_ANN_TO_BANN_OR_SNN
     else:
         # 1 / 1 / *
-<<<<<<< HEAD
         return CoreMode.MODE_ANN
-=======
-        return CoreMode.MODE_ANN
->>>>>>> 86a2555 (修改参数定义文件)
