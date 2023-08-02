@@ -2,7 +2,8 @@ from typing import Optional, Tuple, Union
 
 import numpy as np
 
-from ..core.coord import Coord
+from paibox.core.identifier import Coord
+
 from .frame_params import ParameterRAMMask as RAMMask
 from .frame_params import ParameterRegMask as RegMask
 from .frame_params import *
@@ -18,6 +19,7 @@ def Addr2Coord(addr: int) -> Coord:
 
 def _bin_split(x: int, high: int, low: int) -> Tuple[int, int]:
     """用于配置帧2/3型配置各个参数，对需要拆分的配置进行拆分
+    """用于配置帧2/3型配置各个参数，对需要拆分的配置进行拆分
 
     Args:
         x (int): 输入待拆分参数
@@ -29,13 +31,17 @@ def _bin_split(x: int, high: int, low: int) -> Tuple[int, int]:
     high_mask = (1 << high) - 1
     highbit = x >> (low) & high_mask
 
+
     lowbit_mask = (1 << low) - 1
     lowbit = x & lowbit_mask
+
 
     return highbit, lowbit
 
 
 class FrameGen:
+    """Frame Generator"""
+
     """Frame Generator"""
 
     @staticmethod
@@ -105,7 +111,7 @@ class FrameGen:
         core_addr = Coord2Addr(core_coord)
         core_ex_addr = Coord2Addr(core_ex_coord)
 
-        # *配置帧1型
+        # 配置帧1型
         if header is FrameHead.CONFIG_TYPE1:
             if payload is None:
                 raise ValueError("payload is None")
@@ -126,7 +132,7 @@ class FrameGen:
                 header.value, chip_addr, core_addr, core_ex_addr, payload
             )
 
-        # *配置帧2型
+        # 配置帧2型
         elif header is FrameHead.CONFIG_TYPE2:
             ConfigFrameGroup = np.array([], dtype=np.uint64)
 
@@ -233,7 +239,7 @@ class FrameGen:
 
             return ConfigFrameGroup
 
-        # *配置帧3型
+        # 配置帧3型
         elif header is FrameHead.CONFIG_TYPE3:
             if sram_start_addr is None:
                 raise ValueError("sram_start_addr is None")
@@ -406,7 +412,7 @@ class FrameGen:
 
             return ConfigFrameGroup
 
-        # *配置帧4型
+        # 配置帧4型
         elif header is FrameHead.CONFIG_TYPE4:
             if sram_start_addr is None:
                 raise ValueError("sram_start_addr is None")
