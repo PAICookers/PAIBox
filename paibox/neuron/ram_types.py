@@ -13,6 +13,20 @@ __all__ = [
 ========
 >>>>>>>> 86a2555 (修改参数定义文件):paibox/core/neuron/ram_types.py
 
+<<<<<<< HEAD
+=======
+
+__all__ = [
+    "ResetMode",
+    "LeakingComparisonMode",
+    "NegativeThresholdMode",
+    "LeakingDirectionMode",
+    "LeakingIntegrationMode",
+    "SynapticIntegrationMode",
+    "ThresholdMode",
+]
+
+>>>>>>> 787af05 (🚚 moved files)
 """
     Type defines of RAM parameters.
     See Section 2.4.2 in V2.1 Manual for details.
@@ -107,7 +121,14 @@ class SynapticIntegrationMode(Enum):
 
 @unique
 class ThresholdMode(Enum):
+<<<<<<< HEAD
 <<<<<<<< HEAD:paibox/neuron/ram_types.py
+=======
+<<<<<<<< HEAD:paibox/core/neuron/ram_types.py
+<<<<<<<< HEAD:paibox/neuron/ram_types.py
+========
+>>>>>>>> 787af05 (🚚 moved files):paibox/neuron/ram_types.py
+>>>>>>> 787af05 (🚚 moved files)
     """Indicates whether the neuron reaches the threshold or not.
 
     - `NOT_EXCEEDED`: dosen't exceed. Need reset to this mode after every reset.
@@ -120,8 +141,17 @@ class ThresholdMode(Enum):
     NOT_EXCEEDED = 0
     EXCEED_POSITIVE = 1
     EXCEED_NEGATIVE = 2
+<<<<<<< HEAD
+=======
+<<<<<<<< HEAD:paibox/core/neuron/ram_types.py
+>>>>>>> 787af05 (🚚 moved files)
 ========
     MODE_UNSET = 0
     MODE_POSITIVE = 1
     MODE_NEGATIVE = 2
 >>>>>>>> 86a2555 (修改参数定义文件):paibox/core/neuron/ram_types.py
+<<<<<<< HEAD
+=======
+========
+>>>>>>>> 787af05 (🚚 moved files):paibox/neuron/ram_types.py
+>>>>>>> 787af05 (🚚 moved files)
