@@ -28,7 +28,7 @@ class _Identifier(ABC):
         raise NotImplementedError
 
 
-@dataclass
+@dataclass(frozen=True)
 @final
 class Coord(_Identifier):
     """Coordinates of the cores. Set coordinates (x, y) for every cores.
@@ -74,21 +74,6 @@ class Coord(_Identifier):
 
         return Coord(self.x + __other.delta_x, self.y + __other.delta_y)
 
-    def __iadd__(self, __other: "CoordOffset") -> "Coord":
-        """
-        Example:
-        >>> c1 = Coord(1, 1)
-        >>> c1 += CoordOffset(1, 1)
-        Coord(2, 2)
-        """
-        if not isinstance(__other, CoordOffset):
-            raise TypeError(f"Unsupported type: {type(__other)}")
-
-        self.x += __other.delta_x
-        self.y += __other.delta_y
-
-        return self
-
     def __sub__(
         self, __other: Union["Coord", "CoordOffset"]
     ) -> Union["Coord", "CoordOffset"]:
@@ -105,21 +90,6 @@ class Coord(_Identifier):
             return Coord(self.x - __other.delta_x, self.y - __other.delta_y)
 
         raise TypeError(f"Unsupported type: {type(__other)}")
-
-    def __isub__(self, __other: "CoordOffset") -> "Coord":
-        """
-        Example:
-        >>> c1 = Coord(2, 2)
-        >>> c1 -= CoordOffset(1, 1)
-        Coord(1, 1)
-        """
-        if not isinstance(__other, CoordOffset):
-            raise TypeError(f"Unsupported type: {type(__other)}")
-
-        self.x -= __other.delta_x
-        self.y -= __other.delta_y
-
-        return self
 
     """Operations below are used only when comparing with a Cooord."""
 
@@ -354,7 +324,7 @@ class CoordOffset:
         return max(abs(self.delta_x), abs(self.delta_y))
 
 
-@dataclass
+@dataclass(frozen=True)
 class NeuronId(_Identifier):
     core_id: Coord
     id: int
@@ -379,7 +349,7 @@ class NeuronId(_Identifier):
         return f"Core ID: {self.core_id}, Neuron ID: {self.id}"
 
 
-@dataclass
+@dataclass(frozen=True)
 class AxonId(_Identifier):
     core_id: Coord
     id: int
@@ -404,7 +374,7 @@ class AxonId(_Identifier):
         return f"Core ID: {self.core_id}, Axon ID: {self.id}"
 
 
-@dataclass
+@dataclass(frozen=True)
 class PinId(_Identifier):
     conn_id: int
     id: int
