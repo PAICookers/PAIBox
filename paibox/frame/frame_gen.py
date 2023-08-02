@@ -1,9 +1,12 @@
 from typing import Optional, Tuple, Union
-
 import numpy as np
+<<<<<<< HEAD
 
 from paibox.core.identifier import Coord
 
+=======
+from paibox.core.identifier import Coord
+>>>>>>> 787af05 (🚚 moved files)
 from .frame_params import ParameterRAMMask as RAMMask
 from .frame_params import ParameterRegMask as RegMask
 from .frame_params import *
@@ -450,9 +453,10 @@ class FrameGen:
                 (ConfigFrameGroup, start_frame, weight_ram)
             )
             return ConfigFrameGroup
-    
+
         else:
             raise ValueError(f"header is not defined: {header}")
+<<<<<<< HEAD
 
         else:
             raise ValueError(f"header is not defined: {header}")
@@ -610,3 +614,5 @@ class FrameGen:
 
         else:
             raise ValueError(f"header is not defined: {header}")
+=======
+>>>>>>> 787af05 (🚚 moved files)
