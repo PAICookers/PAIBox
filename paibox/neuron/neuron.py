@@ -1,12 +1,4 @@
 from ._neuron import Neuron
-<<<<<<< HEAD
-from .ram_types import LeakingComparisonMode as LCM
-from .ram_types import LeakingDirectionMode as LDM
-from .ram_types import LeakingIntegrationMode as LIM
-from .ram_types import NegativeThresholdMode as NTM
-from .ram_types import ResetMode as RM
-from .ram_types import SynapticIntegrationMode as SIM
-=======
 from .ram_types import (
     ResetMode as RM,
     LeakingComparisonMode as LCM,
@@ -15,7 +7,6 @@ from .ram_types import (
     LeakingIntegrationMode as LIM,
     SynapticIntegrationMode as SIM,
 )
->>>>>>> 787af05 (🚚 moved files)
 
 
 class TonicSpikingNeuron(Neuron):

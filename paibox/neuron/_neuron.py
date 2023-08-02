@@ -1,22 +1,4 @@
 from abc import ABC, abstractmethod
-<<<<<<< HEAD
-from typing import Any, Callable, ClassVar, Dict, List, Optional
-
-from paibox.core.reg_types import (
-    LCNExtensionType,
-    MaxPoolingEnableType,
-    SpikeWidthFormatType,
-)
-
-from .ram_model import ParamsRAM
-from .ram_types import LeakingComparisonMode as LCM
-from .ram_types import LeakingDirectionMode as LDM
-from .ram_types import LeakingIntegrationMode as LIM
-from .ram_types import NegativeThresholdMode as NTM
-from .ram_types import ResetMode as RM
-from .ram_types import SynapticIntegrationMode as SIM
-from .ram_types import ThresholdMode as TM
-=======
 from .ram_types import (
     ResetMode as RM,
     LeakingComparisonMode as LCM,
@@ -30,7 +12,6 @@ from paibox.core.reg_types import LCNExtensionType, SpikeWidthFormatType, MaxPoo
 from .ram_model import ParamsRAM
 from typing import Callable, List, Dict, Any, ClassVar, Optional
 
->>>>>>> 787af05 (🚚 moved files)
 
 __all__ = ["Neuron"]
 

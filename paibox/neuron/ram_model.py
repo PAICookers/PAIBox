@@ -1,8 +1,4 @@
 from pydantic import BaseModel, Field, field_serializer
-<<<<<<< HEAD
-
-=======
->>>>>>> 787af05 (🚚 moved files)
 from .ram_types import *
 
 
