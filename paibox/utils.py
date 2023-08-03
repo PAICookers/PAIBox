@@ -1,5 +1,5 @@
-from typing import Any, Iterable
 from functools import wraps
+from typing import Any, Iterable
 
 """
     Some handful utilities.

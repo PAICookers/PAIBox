@@ -1,9 +1,11 @@
-from .identifier import AxonId, NeuronId
-from .connector import IndexConn, TwoEndConnector, MatConn
-from typing import Dict, List, Union, Type
-from paibox.utils import check_elem_unique, count_unique_elem, singleton
-from enum import Enum, unique
 from dataclasses import dataclass, field
+from enum import Enum, unique
+from typing import Dict, List, Type, Union
+
+from paibox.utils import check_elem_unique, count_unique_elem, singleton
+
+from .connector import IndexConn, MatConn, TwoEndConnector
+from .identifier import AxonId, NeuronId
 
 
 @unique
@@ -35,7 +37,6 @@ class DestPinPair(_PinPair):
 
     def __repr__(self) -> str:
         return super().__repr__()
-
 
 
 class SynapsesMap:
@@ -88,13 +89,15 @@ class SynapsesMap:
                 "The number of source and destination pins are not equal to the dimension of coordinates format."
             )
 
-    def _build_pin_map(self, conn_type: Type[TwoEndConnector]) -> Dict[NeuronId, List[AxonId]]:
+    def _build_pin_map(
+        self, conn_type: Type[TwoEndConnector]
+    ) -> Dict[NeuronId, List[AxonId]]:
         if conn_type is MatConn:
             return self._build_from_mat()
-        
+
         if conn_type is IndexConn:
             return self._build_from_coo()
-        
+
         raise TypeError(f"Unsupported type: {type(conn_type)}.")
 
     def _build_from_mat(self) -> Dict[NeuronId, List[AxonId]]:
@@ -113,7 +116,7 @@ class SynapsesMap:
                     pin_map[self._source_pins[i]] = []
 
                 pin_map[self._source_pins[i]].append(self._dest_pins[dest_pin])
-        
+
         return pin_map
 
     def _build_from_coo(self) -> Dict[NeuronId, List[AxonId]]:
