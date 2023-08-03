@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Tuple, overload
+from enum import Enum
 
 class _Identifier(ABC):
     @abstractmethod
@@ -34,6 +35,8 @@ class Coord(_Identifier):
     def _to_address(self) -> int: ...
     @property
     def address(self) -> int: ...
+
+class DistanceType(Enum): ...
 
 class CoordOffset:
     delta_x: int = ...

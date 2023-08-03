@@ -9,7 +9,6 @@ from pydantic.dataclasses import dataclass
 __all__ = [
     "Coord",
     "CoordOffset",
-    "DistanceType",
     "NeuronId",
     "AxonId",
     "PinId",
