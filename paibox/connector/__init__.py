@@ -4,3 +4,6 @@ from .identifier import (
     AxonId as AxonId,
     PinId as PinId,
 )
+
+from .connector import MatConn as MatConn, IndexConn as IndexConn
+from .synapses import SynapsesMap as SynapsesMap
