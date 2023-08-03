@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Tuple, overload
 from enum import Enum
+from typing import Tuple, overload
 
 class _Identifier(ABC):
     @abstractmethod
