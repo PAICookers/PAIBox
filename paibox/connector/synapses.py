@@ -1,11 +1,11 @@
-from dataclasses import dataclass, field
+from typing import Dict, List, Union, Type, TypeVar
 from enum import Enum, unique
-from typing import Dict, List, Type, Union
+from dataclasses import dataclass, field
 
-from paibox.utils import check_elem_unique, count_unique_elem, singleton
-
-from .connector import IndexConn, MatConn, TwoEndConnector
 from .identifier import AxonId, NeuronId
+from .connector import IndexConn, TwoEndConnector, MatConn
+from paibox.utils import check_elem_unique
+from paibox.mixin import singleton
 
 
 @unique
@@ -39,7 +39,37 @@ class DestPinPair(_PinPair):
         return super().__repr__()
 
 
+KT = TypeVar("KT")
+VT = TypeVar("VT")
+
+
+@singleton
+class SynapsesDict(Dict[KT, VT]):
+    """Dictionary of synapses maps.
+
+    Every `SynapsesMap` will be stored in this dictionary.
+    """
+
+    neurons_used = set()
+    axons_used = set()
+
+    def __init__(self, cls) -> None:
+        super().__init__()
+        self.cls = cls
+
+    def __setitem__(self, key: KT, value: VT) -> None:
+        return super().__setitem__(key, value)
+
+
 class SynapsesMap:
+    """A map connected between neurons of the previous `Node`, and axons of the following `Node`.
+
+    User can use connectivity matrix or COO to represent the connectivity of synapses.
+
+    NOTE: Be aware that every axon can only be connected once with a neuron,
+        while a neuron can connect with several axons.
+    """
+
     def __init__(
         self,
         source_pins: List[NeuronId],
@@ -47,6 +77,10 @@ class SynapsesMap:
         conn: TwoEndConnector,
         **kwargs,
     ) -> None:
+        """
+        Arguments:
+            - source_pins:
+        """
         try:
             assert check_elem_unique(source_pins)
             assert check_elem_unique(dest_pins)
@@ -61,10 +95,18 @@ class SynapsesMap:
             self._init_mat()
         elif isinstance(self.conn, IndexConn):
             self._init_coo()
+        else:
+            raise TypeError(f"Unsupported type: {type(self.conn)}.")
 
-        self.pin_map = self._build_pin_map(type(self.conn))
+        self._check_axons_connected_once(type(self.conn))
+        self.pin_map: Dict[NeuronId, List[AxonId]] = self._build_pin_map(
+            type(self.conn)
+        )
 
     def _init_mat(self) -> None:
+        """Build the connectivity representation and
+        check whether all axons are connected once only.
+        """
         self.conn_mat = self.conn.build()
         try:
             assert (
@@ -89,16 +131,27 @@ class SynapsesMap:
                 "The number of source and destination pins are not equal to the dimension of coordinates format."
             )
 
+    def _check_axons_connected_once(self, conn_type: Type[TwoEndConnector]) -> None:
+        """Check whether all axons are connected once only.
+
+        TODO Find the indices of axons connected more than one times and display.
+        """
+        try:
+            if conn_type is MatConn:
+                assert (self.conn_mat.sum(axis=0) <= 1).all()
+            else:
+                assert check_elem_unique(self.dest_ids)
+        except AssertionError:
+            raise ValueError("Axons must be connected once.")
+
     def _build_pin_map(
         self, conn_type: Type[TwoEndConnector]
     ) -> Dict[NeuronId, List[AxonId]]:
         if conn_type is MatConn:
             return self._build_from_mat()
 
-        if conn_type is IndexConn:
+        else:
             return self._build_from_coo()
-
-        raise TypeError(f"Unsupported type: {type(conn_type)}.")
 
     def _build_from_mat(self) -> Dict[NeuronId, List[AxonId]]:
         """Build pin map from the connectivity matrix."""
