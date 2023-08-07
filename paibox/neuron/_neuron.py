@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import List
 
 from paibox.core.reg_types import (
     LCNExtensionType,
@@ -23,26 +23,25 @@ class _AbstractNeuron(ABC):
     def neuronal_charge(self, x):
         raise NotImplementedError
 
+    @abstractmethod
     def neuronal_leak(self):
         raise NotImplementedError
 
+    @abstractmethod
     def neuronal_fire(self):
         raise NotImplementedError
 
+    @abstractmethod
     def neuronal_reset(self):
         raise NotImplementedError
-
-    @abstractmethod
-    def update(self, *x):
-        raise NotImplementedError
-
 
 class MetaNeuron(_AbstractNeuron):
     """Meta neuron"""
 
     def __init__(
         self,
-        weights: List[int],
+        # neurons_num: int,
+        axons_num: int,
         reset_mode: RM,
         reset_v: int,
         leaking_comparison: LCM,
@@ -73,7 +72,8 @@ class MetaNeuron(_AbstractNeuron):
         self._bit_truncate: int = bit_truncate
 
         """Inherent attributes"""
-        self._weights = weights
+        # self._neurons_num = neurons_num
+        self._axons_num = axons_num
 
         # SNN
         self._timestep = 0  # As an global class variable?
@@ -108,19 +108,18 @@ class MetaNeuron(_AbstractNeuron):
         """Auxiliary variables"""
         self._threshold_mode: TM = TM.NOT_EXCEEDED
         self._v_th_rand = 0
-        self._input_axon_num = len(weights)
 
     def neuronal_charge(self, *x) -> None:
         r"""1. Synaptic integration.
 
         ## Arguments:
-        - `input_spikes`: one spike width of `N` axons.
-            | |
-        1 - x x
-        0 - x ·
-        1 - · x, here the width of x is 3.
+        - `input_spikes`: one spike width of `N` connected axons.
+           | |
+        -> x x
+        -> x x
+        -> · x
 
-        NOTE: `N` axons correspond to `N` weights.
+            Here the width of x for N1 is 2. And the width of x for N2 is 3.
 
         ## Description
         _rho_w_ij: Random synaptic integration enable, 0 or 1.
@@ -133,17 +132,12 @@ class MetaNeuron(_AbstractNeuron):
         _rho_w_ij = 1  # Random synaptic integration enable, 0/1
         xt = 0
 
-        if len(x) != self._input_axon_num:
-            raise ValueError(
-                f"width of weights({self._input_axon_num}) != width of input axon({len(x)})"
-            )
-
-        for i in range(self._input_axon_num):
+        for i in range(self._axons_num):
             # xt = xt + spikes[i_of_axon] * weights[i_of_axon]
             if self._synaptic_integration_mode is SIM.MODE_DETERMINISTIC:
-                xt += x[i] * self._weights[i]
+                xt += x[i]
             else:
-                xt += _rho_w_ij * x[i] * self._weights[i]
+                xt += _rho_w_ij * x[i]
 
         self._vjt = self._vjt_pre + xt
 
@@ -333,6 +327,13 @@ class MetaNeuron(_AbstractNeuron):
         print(f"vjt = {self._vjt}, spike = {self._spike}")
 
     def update(self, *x) -> int:
+        try:
+            assert len(x) == self._axons_num
+        except AssertionError:
+            raise ValueError(
+                f"width of spikes({self._axons_num}) != width of input axon({len(x)})"
+            )
+
         """1. Charge"""
         self.neuronal_charge(*x)
 
@@ -346,21 +347,6 @@ class MetaNeuron(_AbstractNeuron):
 
         """3. Reset"""
         self.neuronal_reset()
+        self._post_hook()
 
         return self._spike
-
-    @abstractmethod
-    def export_params_dict(self) -> Dict[str, Any]:
-        raise NotImplementedError
-
-    """Properties"""
-
-    @property
-    def weights(self) -> List[int]:
-        """Weights"""
-        return self._weights
-
-    @property
-    def nid(self) -> int:
-        """Unique ID of this neuron"""
-        return id(self)
