@@ -1,12 +1,13 @@
 from typing import ClassVar, Dict, List
+
 from ._neuron import MetaNeuron
+from .ram_model import ParamsRAM
 from .ram_types import LeakingComparisonMode as LCM
 from .ram_types import LeakingDirectionMode as LDM
 from .ram_types import LeakingIntegrationMode as LIM
 from .ram_types import NegativeThresholdMode as NTM
 from .ram_types import ResetMode as RM
 from .ram_types import SynapticIntegrationMode as SIM
-from .ram_model import ParamsRAM
 
 
 class Neuron(MetaNeuron):
