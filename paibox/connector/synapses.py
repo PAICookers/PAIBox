@@ -1,11 +1,12 @@
-from typing import Dict, List, Union, Type, TypeVar
-from enum import Enum, unique
 from dataclasses import dataclass, field
+from enum import Enum, unique
+from typing import Dict, List, Type, TypeVar, Union
 
-from .identifier import AxonId, NeuronId
-from .connector import IndexConn, TwoEndConnector, MatConn
-from paibox.utils import check_elem_unique
 from paibox.mixin import singleton
+from paibox.utils import check_elem_unique
+
+from .connector import IndexConn, MatConn, TwoEndConnector
+from .identifier import AxonId, NeuronId
 
 
 @unique
