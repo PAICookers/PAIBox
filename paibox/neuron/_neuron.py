@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Callable, ClassVar, Dict, List, Optional
+from typing import Any, Dict, List
 
 from paibox.core.reg_types import (
     LCNExtensionType,
@@ -7,7 +7,6 @@ from paibox.core.reg_types import (
     SpikeWidthFormatType,
 )
 
-from .ram_model import ParamsRAM
 from .ram_types import LeakingComparisonMode as LCM
 from .ram_types import LeakingDirectionMode as LDM
 from .ram_types import LeakingIntegrationMode as LIM
@@ -15,8 +14,6 @@ from .ram_types import NegativeThresholdMode as NTM
 from .ram_types import ResetMode as RM
 from .ram_types import SynapticIntegrationMode as SIM
 from .ram_types import ThresholdMode as TM
-
-__all__ = ["Neuron"]
 
 
 class _AbstractNeuron(ABC):
@@ -36,32 +33,15 @@ class _AbstractNeuron(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def run(self, *x):
+    def update(self, *x):
         raise NotImplementedError
 
 
-class _MetaNeuron(_AbstractNeuron):
+class MetaNeuron(_AbstractNeuron):
     """Meta neuron"""
-
-    __runtime_mode: ClassVar[bool] = False
-    __snn_mode: ClassVar[bool] = True  # Default value
 
     def __init__(
         self,
-        # TODO Maybe don't need so much parameters
-        tick_relative: int,
-        addr_axon: int,
-        addr_core_x: int,
-        addr_core_y: int,
-        addr_core_x_ex: int,
-        addr_core_y_ex: int,
-        addr_chip_x: int,
-        addr_chip_y: int,
-        chip_x: int,
-        chip_y: int,
-        core_x: int,
-        core_y: int,
-        nid: int,
         weights: List[int],
         reset_mode: RM,
         reset_v: int,
@@ -76,23 +56,7 @@ class _MetaNeuron(_AbstractNeuron):
         synaptic_integration_mode: SIM,
         bit_truncate: int,
         vjt_init: int,
-        *,
-        pre_hook_func: Optional[Callable[..., None]] = None,
-        post_hook_func: Optional[Callable[..., None]] = None,
     ) -> None:
-        # Common
-        self._tick_relative: int = tick_relative
-        self._addr_axon: int = addr_axon
-        self._addr_core_x: int = addr_core_x
-        self._addr_core_y: int = addr_core_y
-        self._addr_core_x_ex: int = addr_core_x_ex
-        self._addr_core_y_ex: int = addr_core_y_ex
-        self._addr_chip_x: int = addr_chip_x
-        self._addr_chip_y: int = addr_chip_y
-
-        self._pre_hook_func = pre_hook_func
-        self._post_hook_func = post_hook_func
-
         # SNN
         self._reset_mode: RM = reset_mode
         self._leaking_comparison: LCM = leaking_comparison
@@ -100,6 +64,7 @@ class _MetaNeuron(_AbstractNeuron):
         self._leaking_direction: LDM = leaking_direction
         self._synaptic_integration_mode: SIM = synaptic_integration_mode
         self._leaking_integration_mode: LIM = leaking_integration_mode
+        self._threshold_mask_bits = threshold_mask_bits
         self._threshold_mask: int = (1 << threshold_mask_bits) - 1
         self._neg_threshold: int = neg_threshold  # Unsigned 29-bit
         self._pos_threshold: int = pos_threshold  # Unsigned 29-bit
@@ -108,19 +73,14 @@ class _MetaNeuron(_AbstractNeuron):
         self._bit_truncate: int = bit_truncate
 
         """Inherent attributes"""
-        # Common
-        self._chip_x: int = chip_x
-        self._chip_y: int = chip_y
-        self._core_x: int = core_x
-        self._core_y: int = core_y
-        self._nid: int = nid
         self._weights = weights
 
         # SNN
         self._timestep = 0  # As an global class variable?
+        self._vjt_init = vjt_init
         self._vjt_pre: int = vjt_init  # Membrane potential at Last time step.
         self._vjt: int = 0  # Membrane potential.
-        self._spike: int = 0  # TODO Related to `tick_relative` ans time slot.
+        self._spike: int = 0  # TODO Maybe need related to `tick_relative` & time slot?
 
         # ANN
         self._vj: int = vjt_init
@@ -229,8 +189,6 @@ class _MetaNeuron(_AbstractNeuron):
 
             self._vjt = self._vjt + _ld * _F * _sgn_leak_v
 
-        # print(f"leak: vjt = {self._vjt}")
-
     def neuronal_fire(self) -> None:
         r"""3. Threshold comparison
 
@@ -251,6 +209,7 @@ class _MetaNeuron(_AbstractNeuron):
                 `_spike` = 0
         """
         _rho_j_T = 3  # Random threshold, unsigned 29-bit.
+
         # TODO Is _rho_j_T permanent?
         _v_th_rand = _rho_j_T & self._threshold_mask
         self._v_th_rand = _v_th_rand
@@ -365,13 +324,6 @@ class _MetaNeuron(_AbstractNeuron):
     def _max_pooling(self, input_spikes: List[int]) -> int:
         return max(input_spikes)
 
-    def _pre_hook(self):
-        """Pre-hook before the activation."""
-        if isinstance(self._pre_hook_func, Callable[..., None]):
-            self._pre_hook_func()
-
-        pass
-
     def _post_hook(self):
         """Post-hook after the entire activation."""
         # Update the vjt_pre, and reset the threshold mode.
@@ -380,14 +332,9 @@ class _MetaNeuron(_AbstractNeuron):
 
         print(f"vjt = {self._vjt}, spike = {self._spike}")
 
-        if isinstance(self._post_hook_func, Callable[..., None]):
-            self._post_hook_func()
-
-    def run(self, *x):
-        self._pre_hook()
-
+    def update(self, *x) -> int:
         """1. Charge"""
-        self.neuronal_charge(x)
+        self.neuronal_charge(*x)
 
         """2. Leak & fire"""
         if self._leaking_comparison is LCM.LEAK_BEFORE_COMP:
@@ -400,7 +347,7 @@ class _MetaNeuron(_AbstractNeuron):
         """3. Reset"""
         self.neuronal_reset()
 
-        self._post_hook()
+        return self._spike
 
     @abstractmethod
     def export_params_dict(self) -> Dict[str, Any]:
@@ -415,147 +362,5 @@ class _MetaNeuron(_AbstractNeuron):
 
     @property
     def nid(self) -> int:
-        return self._nid
-
-
-class Neuron(_MetaNeuron):
-    """Father class of wrapped neurons.
-
-    The parameters are always legal.
-    """
-
-    __neuron_num = 1
-
-    def __init__(
-        self,
-        tick_relative: int,
-        addr_axon: int,
-        addr_core_x: int,
-        addr_core_y: int,
-        addr_core_x_ex: int,
-        addr_core_y_ex: int,
-        addr_chip_x: int,
-        addr_chip_y: int,
-        chip_x: int,
-        chip_y: int,
-        core_x: int,
-        core_y: int,
-        nid: int,
-        weights: List[int],
-        reset_mode: RM,
-        reset_v: int,
-        leaking_comparison: LCM,
-        threshold_mask_bits: int,
-        neg_thres_mode: NTM,
-        neg_threshold: int,
-        pos_threshold: int,
-        leaking_direction: LDM,
-        leaking_integration_mode: LIM,
-        leak_v: int,
-        synaptic_integration_mode: SIM,
-        bit_truncate: int,
-        vjt_init: int,
-    ):
-        super().__init__(
-            tick_relative,
-            addr_axon,
-            addr_core_x,
-            addr_core_y,
-            addr_core_x_ex,
-            addr_core_y_ex,
-            addr_chip_x,
-            addr_chip_y,
-            chip_x,
-            chip_y,
-            core_x,
-            core_y,
-            nid,
-            weights,
-            reset_mode,
-            reset_v,
-            leaking_comparison,
-            threshold_mask_bits,
-            neg_thres_mode,
-            neg_threshold,
-            pos_threshold,
-            leaking_direction,
-            leaking_integration_mode,
-            leak_v,
-            synaptic_integration_mode,
-            bit_truncate,
-            vjt_init,
-        )
-
-        self._threshold_mask_bits = threshold_mask_bits
-        self._vjt_init = vjt_init
-
-    def export_params_model(self) -> ParamsRAM:
-        model = ParamsRAM(
-            tick_relative=self._tick_relative,
-            addr_axon=self._addr_axon,
-            addr_core_x=self._addr_core_x,
-            addr_core_y=self._addr_core_y,
-            addr_core_x_ex=self._addr_core_x_ex,
-            addr_core_y_ex=self._addr_core_y_ex,
-            addr_chip_x=self._addr_chip_x,
-            addr_chip_y=self._addr_chip_y,
-            reset_mode=self._reset_mode,
-            reset_v=self._reset_v,
-            leaking_comparison=self._leaking_comparison,
-            threshold_mask_bits=self._threshold_mask_bits,
-            neg_thres_mode=self._neg_thres_mode,
-            neg_threshold=self._neg_threshold,
-            pos_threshold=self._pos_threshold,
-            leaking_direction=self._leaking_direction,
-            leaking_integration_mode=self._leaking_integration_mode,
-            leak_v=self._leak_v,
-            synaptic_integration_mode=self._synaptic_integration_mode,
-            bit_truncate=self._bit_truncate,
-            vjt_init=self._vjt_init,
-        )
-
-        return model
-
-    def export_params_dict(self) -> Dict[str, int]:
-        model = self.export_params_model()
-        return model.model_dump(by_alias=True)
-
-
-class NeuronGroup(_MetaNeuron):
-    __neuron_num: int
-
-    def __init__(
-        self,
-        n: int,
-        tick_relative: int,
-        addr_axon: int,
-        addr_core_x: int,
-        addr_core_y: int,
-        addr_core_x_ex: int,
-        addr_core_y_ex: int,
-        addr_chip_x: int,
-        addr_chip_y: int,
-        chip_x: int,
-        chip_y: int,
-        core_x: int,
-        core_y: int,
-        nid: int,
-        weights: List[int],
-        reset_mode: RM,
-        reset_v: int,
-        leaking_comparison: LCM,
-        threshold_mask_bits: int,
-        neg_thres_mode: NTM,
-        neg_threshold: int,
-        pos_threshold: int,
-        leaking_direction: LDM,
-        leaking_integration_mode: LIM,
-        leak_v: int,
-        synaptic_integration_mode: SIM,
-        bit_truncate: int,
-        vjt_init: int,
-    ):
-        if n < 2:
-            raise ValueError("If number of neurons < 2, use subclass of Neuron please.")
-
-        self.__neuron_num = n
+        """Unique ID of this neuron"""
+        return id(self)

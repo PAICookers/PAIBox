@@ -1,10 +1,86 @@
-from ._neuron import Neuron
+from typing import ClassVar, Dict, List
+from ._neuron import MetaNeuron
 from .ram_types import LeakingComparisonMode as LCM
 from .ram_types import LeakingDirectionMode as LDM
 from .ram_types import LeakingIntegrationMode as LIM
 from .ram_types import NegativeThresholdMode as NTM
 from .ram_types import ResetMode as RM
 from .ram_types import SynapticIntegrationMode as SIM
+from .ram_model import ParamsRAM
+
+
+class Neuron(MetaNeuron):
+    """Father class of wrapped neurons.
+
+    The parameters are always legal. This is public for user to define.
+    """
+
+    neuron_num: ClassVar[int] = 1
+
+    def __init__(
+        self,
+        weights: List[int],
+        reset_mode: RM,
+        reset_v: int,
+        leaking_comparison: LCM,
+        threshold_mask_bits: int,
+        neg_thres_mode: NTM,
+        neg_threshold: int,
+        pos_threshold: int,
+        leaking_direction: LDM,
+        leaking_integration_mode: LIM,
+        leak_v: int,
+        synaptic_integration_mode: SIM,
+        bit_truncate: int,
+        vjt_init: int,
+    ) -> None:
+        super().__init__(
+            weights,
+            reset_mode,
+            reset_v,
+            leaking_comparison,
+            threshold_mask_bits,
+            neg_thres_mode,
+            neg_threshold,
+            pos_threshold,
+            leaking_direction,
+            leaking_integration_mode,
+            leak_v,
+            synaptic_integration_mode,
+            bit_truncate,
+            vjt_init,
+        )
+
+    # def export_params_model(self) -> ParamsRAM:
+    #     model = ParamsRAM(
+    #         tick_relative=self._tick_relative,
+    #         addr_axon=self._addr_axon,
+    #         addr_core_x=self._addr_core_x,
+    #         addr_core_y=self._addr_core_y,
+    #         addr_core_x_ex=self._addr_core_x_ex,
+    #         addr_core_y_ex=self._addr_core_y_ex,
+    #         addr_chip_x=self._addr_chip_x,
+    #         addr_chip_y=self._addr_chip_y,
+    #         reset_mode=self._reset_mode,
+    #         reset_v=self._reset_v,
+    #         leaking_comparison=self._leaking_comparison,
+    #         threshold_mask_bits=self._threshold_mask_bits,
+    #         neg_thres_mode=self._neg_thres_mode,
+    #         neg_threshold=self._neg_threshold,
+    #         pos_threshold=self._pos_threshold,
+    #         leaking_direction=self._leaking_direction,
+    #         leaking_integration_mode=self._leaking_integration_mode,
+    #         leak_v=self._leak_v,
+    #         synaptic_integration_mode=self._synaptic_integration_mode,
+    #         bit_truncate=self._bit_truncate,
+    #         vjt_init=self._vjt_init,
+    #     )
+
+    #     return model
+
+    # def export_params_dict(self) -> Dict[str, int]:
+    #     model = self.export_params_model()
+    #     return model.model_dump(by_alias=True)
 
 
 class TonicSpikingNeuron(Neuron):
@@ -25,20 +101,6 @@ class TonicSpikingNeuron(Neuron):
         self,
         fire_step: int,
         vjt_init: int = 0,
-        *,
-        tick_relative: int,
-        addr_axon: int,
-        addr_core_x: int,
-        addr_core_y: int,
-        addr_core_x_ex: int,
-        addr_core_y_ex: int,
-        addr_chip_x: int,
-        addr_chip_y: int,
-        chip_x: int,
-        chip_y: int,
-        core_x: int,
-        core_y: int,
-        nid: int,
     ):
         _weights = [
             1,
@@ -57,19 +119,6 @@ class TonicSpikingNeuron(Neuron):
         _bt = 0
 
         super().__init__(
-            tick_relative,
-            addr_axon,
-            addr_core_x,
-            addr_core_y,
-            addr_core_x_ex,
-            addr_core_y_ex,
-            addr_chip_x,
-            addr_chip_y,
-            chip_x,
-            chip_y,
-            core_x,
-            core_y,
-            nid,
             _weights,
             _reset_mode,
             _reset_v,
@@ -110,20 +159,6 @@ class PhasicSpikingNeuron(Neuron):
         time_to_fire: int,
         neg_floor: int = 10,
         vjt_init: int = 0,
-        *,
-        tick_relative: int,
-        addr_axon: int,
-        addr_core_x: int,
-        addr_core_y: int,
-        addr_core_x_ex: int,
-        addr_core_y_ex: int,
-        addr_chip_x: int,
-        addr_chip_y: int,
-        chip_x: int,
-        chip_y: int,
-        core_x: int,
-        core_y: int,
-        nid: int,
     ):
         _weights = [
             1,
@@ -142,19 +177,6 @@ class PhasicSpikingNeuron(Neuron):
         _bt = 0
 
         super().__init__(
-            tick_relative,
-            addr_axon,
-            addr_core_x,
-            addr_core_y,
-            addr_core_x_ex,
-            addr_core_y_ex,
-            addr_chip_x,
-            addr_chip_y,
-            chip_x,
-            chip_y,
-            core_x,
-            core_y,
-            nid,
             _weights,
             _reset_mode,
             _reset_v,
@@ -186,20 +208,6 @@ class Class1ExcitableNeuron(Neuron):
         self,
         fire_step: int,
         vjt_init: int = 0,
-        *,
-        tick_relative: int,
-        addr_axon: int,
-        addr_core_x: int,
-        addr_core_y: int,
-        addr_core_x_ex: int,
-        addr_core_y_ex: int,
-        addr_chip_x: int,
-        addr_chip_y: int,
-        chip_x: int,
-        chip_y: int,
-        core_x: int,
-        core_y: int,
-        nid: int,
     ):
         _weights = [
             1,
@@ -218,19 +226,6 @@ class Class1ExcitableNeuron(Neuron):
         _bt = 0
 
         super().__init__(
-            tick_relative,
-            addr_axon,
-            addr_core_x,
-            addr_core_y,
-            addr_core_x_ex,
-            addr_core_y_ex,
-            addr_chip_x,
-            addr_chip_y,
-            chip_x,
-            chip_y,
-            core_x,
-            core_y,
-            nid,
             _weights,
             _reset_mode,
             _reset_v,
@@ -262,20 +257,6 @@ class SpikeLatencyNeuron(Neuron):
         self,
         fire_step: int,
         vjt_init: int = 0,
-        *,
-        tick_relative: int,
-        addr_axon: int,
-        addr_core_x: int,
-        addr_core_y: int,
-        addr_core_x_ex: int,
-        addr_core_y_ex: int,
-        addr_chip_x: int,
-        addr_chip_y: int,
-        chip_x: int,
-        chip_y: int,
-        core_x: int,
-        core_y: int,
-        nid: int,
     ):
         _weights = [
             1,
@@ -294,19 +275,6 @@ class SpikeLatencyNeuron(Neuron):
         _bt = 0
 
         super().__init__(
-            tick_relative,
-            addr_axon,
-            addr_core_x,
-            addr_core_y,
-            addr_core_x_ex,
-            addr_core_y_ex,
-            addr_chip_x,
-            addr_chip_y,
-            chip_x,
-            chip_y,
-            core_x,
-            core_y,
-            nid,
             _weights,
             _reset_mode,
             _reset_v,
