@@ -1,7 +1,8 @@
 from typing import Any, Iterable, List, Optional, Tuple
-import numpy as np
-from paibox._types import Shape
 
+import numpy as np
+
+from paibox._types import Shape
 
 """
     Some handful utilities.

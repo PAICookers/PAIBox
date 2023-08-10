@@ -1,15 +1,17 @@
 from typing import Dict, List, Optional, Union
+
 import numpy as np
+
 from paibox.base import PAIBoxObject
 from paibox.neuron.group import Group
 from paibox.synapses.connector import (
+    All2All,
     IndexConn,
-    TwoEndConnector,
     MatConn,
     One2One,
-    All2All,
+    TwoEndConnector,
 )
-from paibox.synapses.transforms import MaskedLinear, OneToOne, AllToAll
+from paibox.synapses.transforms import AllToAll, MaskedLinear, OneToOne
 
 
 class Synapses(PAIBoxObject):

@@ -1,5 +1,7 @@
 from typing import Any, Optional
+
 import numpy as np
+
 from paibox.mixin import MixIn
 
 global _id_dict, _type_names
