@@ -1,9 +1,12 @@
 from typing import Optional
+
 import numpy as np
-from .neurons import MetaNeuron
+
 from paibox._types import Shape
-from paibox.utils import shape2num
 from paibox.base import PAIBoxObject
+from paibox.utils import shape2num
+
+from .neurons import MetaNeuron
 
 
 class Group(PAIBoxObject):
@@ -35,7 +38,7 @@ class Group(PAIBoxObject):
     @property
     def shape_out(self):
         return self.shape
-    
+
     @property
     def num(self) -> int:
         return self.neurons_num
@@ -50,10 +53,10 @@ class Neurons:
 
     def __len__(self) -> int:
         return self.group.neurons_num
-    
+
     def __str__(self) -> str:
         return f"<Neurons of {self.group}>"
-    
+
     def __eq__(self, other: "Neurons") -> bool:
         return type(self) == type(other) and self.group is other.group
 

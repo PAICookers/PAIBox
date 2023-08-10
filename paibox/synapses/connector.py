@@ -1,9 +1,10 @@
 from abc import ABC
-import numpy as np
 from typing import List, Union
-from paibox.utils import shape2num
-from paibox._types import Shape
 
+import numpy as np
+
+from paibox._types import Shape
+from paibox.utils import shape2num
 
 __all__ = ["TwoEndConnector", "One2One", "MatConn", "IndexConn"]
 
