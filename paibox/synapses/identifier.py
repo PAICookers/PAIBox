@@ -325,12 +325,13 @@ class CoordOffset:
 
 @dataclass(frozen=True)
 class NeuronId(_Identifier):
+    uid: int
     core_id: Coord
     id: int
 
     @classmethod
     def default(cls) -> "NeuronId":
-        return cls(Coord(0, 0), 0)
+        return cls(0, Coord(0, 0), 0)
 
     def __eq__(self, __other: "NeuronId") -> bool:
         if not isinstance(__other, NeuronId):
@@ -350,12 +351,13 @@ class NeuronId(_Identifier):
 
 @dataclass(frozen=True)
 class AxonId(_Identifier):
+    uid: int
     core_id: Coord
     id: int
 
     @classmethod
     def default(cls) -> "AxonId":
-        return cls(Coord(0, 0), 0)
+        return cls(0, Coord(0, 0), 0)
 
     def __eq__(self, __other: "AxonId") -> bool:
         if not isinstance(__other, AxonId):
