@@ -1,21 +1,11 @@
-from functools import wraps
-from typing import Any, Iterable
+from typing import Any, Iterable, List, Optional, Tuple
+import numpy as np
+from paibox._types import Shape
+
 
 """
     Some handful utilities.
 """
-
-
-def singleton(cls):
-    instances = {}
-
-    @wraps(cls)
-    def wrapper(*args, **kwargs):
-        if cls not in instances:
-            instances[cls] = cls(*args, **kwargs)
-        return instances[cls]
-
-    return wrapper
 
 
 def check_elem_unique(obj: Any) -> bool:
@@ -56,11 +46,61 @@ def is_nested(obj_on_top: Any) -> bool:
     )
 
 
-if __name__ == "__main__":
-    tu = [(2, 3), (3, 4), (3, 4), (5, 6)]
+def shape2num(shape: Shape) -> int:
+    """Convert a shape to a number"""
+    if isinstance(shape, int):
+        return shape
 
-    print(check_elem_unique(tu))
+    if isinstance(shape, (Tuple, List)):
+        a = 1
+        for b in shape:
+            a *= b
 
-    a = [(1, 2, 3), (3, 4, 5)]
+        return a
 
-    print(is_nested(a))
+    raise ValueError(f"Type of {shape} is not supported: {type(shape)}")
+
+
+def to_shape(x, shape: Optional[Shape] = None):
+    if x is None:
+        return None
+
+    if shape is None:
+        return np.asarray(x)
+
+    if is_array(x):
+        return np.asarray(x).reshape(shape)
+
+    if is_number(x):
+        return np.broadcast_to(x, shape)
+
+    raise ValueError(f"Cannot make a shape for {x}, shape: {shape}")
+
+
+def is_shape(x, shape: Shape) -> bool:
+    if not is_array_like(x):
+        raise TypeError(f"Only support an array-like type: {x}")
+
+    _x = np.asarray(x)
+    return _x.shape == np.shape(shape)
+
+
+def is_integer(obj: Any) -> bool:
+    return isinstance(obj, (int, np.integer))
+
+
+def is_number(obj: Any) -> bool:
+    return is_integer(obj) or isinstance(obj, (float, np.number))
+
+
+def is_array(obj: Any) -> bool:
+    return isinstance(obj, (np.generic, np.ndarray))
+
+
+def is_array_like(obj: Any) -> bool:
+    return is_array(obj) or is_number(obj) or isinstance(obj, (List, Tuple))
+
+
+def fn_sgn(a, b) -> int:
+    """Signal function."""
+    return 1 if a > b else -1 if a < b else 0
