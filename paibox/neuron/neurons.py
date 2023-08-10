@@ -1,47 +1,26 @@
-from abc import ABC, abstractmethod
-from typing import List
-
+import numpy as np
 from paibox.core.reg_types import (
     LCNExtensionType,
     MaxPoolingEnableType,
     SpikeWidthFormatType,
 )
+from paibox.neuron.ram_types import (
+    LeakingComparisonMode as LCM,
+    LeakingDirectionMode as LDM,
+    LeakingIntegrationMode as LIM,
+    NegativeThresholdMode as NTM,
+    ResetMode as RM,
+    SynapticIntegrationMode as SIM,
+    ThresholdMode as TM,
+)
+from paibox.utils import fn_sgn
 
-from .ram_types import LeakingComparisonMode as LCM
-from .ram_types import LeakingDirectionMode as LDM
-from .ram_types import LeakingIntegrationMode as LIM
-from .ram_types import NegativeThresholdMode as NTM
-from .ram_types import ResetMode as RM
-from .ram_types import SynapticIntegrationMode as SIM
-from .ram_types import ThresholdMode as TM
 
-
-class _AbstractNeuron(ABC):
-    """Abstract neuron."""
-
-    @abstractmethod
-    def neuronal_charge(self, x):
-        raise NotImplementedError
-
-    @abstractmethod
-    def neuronal_leak(self):
-        raise NotImplementedError
-
-    @abstractmethod
-    def neuronal_fire(self):
-        raise NotImplementedError
-
-    @abstractmethod
-    def neuronal_reset(self):
-        raise NotImplementedError
-
-class MetaNeuron(_AbstractNeuron):
+class MetaNeuron:
     """Meta neuron"""
 
     def __init__(
         self,
-        # neurons_num: int,
-        axons_num: int,
         reset_mode: RM,
         reset_v: int,
         leaking_comparison: LCM,
@@ -63,7 +42,7 @@ class MetaNeuron(_AbstractNeuron):
         self._leaking_direction: LDM = leaking_direction
         self._synaptic_integration_mode: SIM = synaptic_integration_mode
         self._leaking_integration_mode: LIM = leaking_integration_mode
-        self._threshold_mask_bits = threshold_mask_bits
+        self._threshold_mask_bits: int = threshold_mask_bits
         self._threshold_mask: int = (1 << threshold_mask_bits) - 1
         self._neg_threshold: int = neg_threshold  # Unsigned 29-bit
         self._pos_threshold: int = pos_threshold  # Unsigned 29-bit
@@ -72,12 +51,9 @@ class MetaNeuron(_AbstractNeuron):
         self._bit_truncate: int = bit_truncate
 
         """Inherent attributes"""
-        # self._neurons_num = neurons_num
-        self._axons_num = axons_num
 
         # SNN
-        self._timestep = 0  # As an global class variable?
-        self._vjt_init = vjt_init
+        self._vjt_init: int = vjt_init
         self._vjt_pre: int = vjt_init  # Membrane potential at Last time step.
         self._vjt: int = 0  # Membrane potential.
         self._spike: int = 0  # TODO Maybe need related to `tick_relative` & time slot?
@@ -87,9 +63,6 @@ class MetaNeuron(_AbstractNeuron):
         self._y: int = 0
 
         """Attributes below FIXED once reigistered."""
-        # Indicate the neuron is registered into a core or not.
-        self._is_registered: bool = False
-
         # SNN
         self._reset_v: int = reset_v  # Signed 30-bit
         self._leak_v: int = leak_v  # Signed 30-bit
@@ -109,39 +82,31 @@ class MetaNeuron(_AbstractNeuron):
         self._threshold_mode: TM = TM.NOT_EXCEEDED
         self._v_th_rand = 0
 
-    def neuronal_charge(self, *x) -> None:
+    def _neuronal_charge(self, x: np.ndarray) -> None:
         r"""1. Synaptic integration.
 
-        ## Arguments:
-        - `input_spikes`: one spike width of `N` connected axons.
-           | |
-        -> x x
-        -> x x
-        -> · x
+        Argument:
+            - x: input to the neuron.
 
-            Here the width of x for N1 is 2. And the width of x for N2 is 3.
+        Description:
+            _rho_w_ij: Random synaptic integration enable, 0 or 1.
 
-        ## Description
-        _rho_w_ij: Random synaptic integration enable, 0 or 1.
-
-        If synaptic integration mode is deterministic, then
-            `_vjt` = `_vjt_pre` + \sum^{N-1}_{i=0} * x_i(t) * w_{i,j}
-        else (stochastic)
-            `_vjt` = `_vjt_pre` + `_rho_w_ij` * \sum^{N-1}_{i=0} * x_i(t) * w_{i,j}
+            If synaptic integration mode is deterministic, then
+                `_vjt` = `_vjt_pre` + \sum^{N-1}_{i=0} * x_i(t) * w_{i,j}
+            else (stochastic)
+                `_vjt` = `_vjt_pre` + `_rho_w_ij` * \sum^{N-1}_{i=0} * x_i(t) * w_{i,j}
         """
         _rho_w_ij = 1  # Random synaptic integration enable, 0/1
         xt = 0
 
-        for i in range(self._axons_num):
-            # xt = xt + spikes[i_of_axon] * weights[i_of_axon]
-            if self._synaptic_integration_mode is SIM.MODE_DETERMINISTIC:
-                xt += x[i]
-            else:
-                xt += _rho_w_ij * x[i]
+        if self._synaptic_integration_mode is SIM.MODE_STOCHASTIC:
+            xt = _rho_w_ij * x
+        else:
+            xt = x
 
-        self._vjt = self._vjt_pre + xt
+        self._vjt = self._vjt_pre + int(xt)
 
-    def neuronal_leak(self) -> None:
+    def _neuronal_leak(self) -> None:
         r"""2. Leaking integration.
 
         2.1 Leaking direction, forward or reversal.
@@ -164,7 +129,7 @@ class MetaNeuron(_AbstractNeuron):
         if self._leaking_direction is LDM.MODE_FORWARD:
             _ld = 1
         else:
-            _ld = 1 if self._vjt >= 0 else -1
+            _ld = fn_sgn(self._vjt, 0)
 
         if self._leaking_integration_mode is LIM.MODE_DETERMINISTIC:
             self._vjt = self._vjt + _ld * self._leak_v
@@ -174,16 +139,11 @@ class MetaNeuron(_AbstractNeuron):
             else:
                 _F = 0
 
-            if self._leak_v > 0:
-                _sgn_leak_v = 1
-            elif self._leak_v < 0:
-                _sgn_leak_v = -1
-            else:
-                _sgn_leak_v = 0
+            _sgn_leak_v = fn_sgn(self._leak_v, 0)
 
             self._vjt = self._vjt + _ld * _F * _sgn_leak_v
 
-    def neuronal_fire(self) -> None:
+    def _neuronal_fire(self) -> None:
         r"""3. Threshold comparison
 
         3.1 Random threshold
@@ -226,7 +186,7 @@ class MetaNeuron(_AbstractNeuron):
 
         self._spike = yt
 
-    def neuronal_reset(self) -> None:
+    def _neuronal_reset(self) -> None:
         r"""4. Reset
 
         If `_threshold_mode` is `EXCEED_POSITIVE`
@@ -315,38 +275,134 @@ class MetaNeuron(_AbstractNeuron):
 
         self._y = _yj
 
-    def _max_pooling(self, input_spikes: List[int]) -> int:
-        return max(input_spikes)
+    def _max_pooling(self, x: np.ndarray) -> int:
+        return int(x.max())
 
-    def _post_hook(self):
+    def _post_hook(self) -> None:
         """Post-hook after the entire activation."""
         # Update the vjt_pre, and reset the threshold mode.
         self._vjt_pre = self._vjt
         self._threshold_mode = TM.NOT_EXCEEDED
 
-        print(f"vjt = {self._vjt}, spike = {self._spike}")
-
-    def update(self, *x) -> int:
-        try:
-            assert len(x) == self._axons_num
-        except AssertionError:
-            raise ValueError(
-                f"width of spikes({self._axons_num}) != width of input axon({len(x)})"
-            )
+    def update(self, x: np.ndarray, output: np.ndarray) -> None:
+        """Single-step update.
+        
+        TODO type of x may be considered as np.integer.
+        """
 
         """1. Charge"""
-        self.neuronal_charge(*x)
+        self._neuronal_charge(x)
 
         """2. Leak & fire"""
         if self._leaking_comparison is LCM.LEAK_BEFORE_COMP:
-            self.neuronal_leak()
-            self.neuronal_fire()
+            self._neuronal_leak()
+            self._neuronal_fire()
         else:
-            self.neuronal_fire()
-            self.neuronal_leak()
+            self._neuronal_fire()
+            self._neuronal_leak()
 
         """3. Reset"""
-        self.neuronal_reset()
+        self._neuronal_reset()
+
+        # State update
         self._post_hook()
 
-        return self._spike
+        output[...] = self._spike
+
+
+class TonicSpikingNeuron(MetaNeuron):
+    """Tonic spiking neuron"""
+
+    def __init__(
+        self,
+        fire_step: int,
+        vjt_init: int = 0,
+    ):
+        """
+        Arguments:
+            - fire_step: every `N` spike, the neuron will fire positively.
+            - vjt_init: initial membrane potential. Default is 0.
+
+        Description:
+            The neuron receives `N` spikes and fires, then resets to 0.
+            `N` stands for firing steps.
+        """
+        _sim = SIM.MODE_DETERMINISTIC
+        _lim = LIM.MODE_DETERMINISTIC
+        _ld = LDM.MODE_FORWARD
+        _lc = LCM.LEAK_AFTER_COMP
+        _leak_v = 0
+        _pos_thres = fire_step
+        _neg_thres = 0
+        _mask = 0
+        _reset_v = 0
+        _ntm = NTM.MODE_SATURATION
+        _reset_mode = RM.MODE_NORMAL
+        _bt = 0
+
+        super().__init__(
+            _reset_mode,
+            _reset_v,
+            _lc,
+            _mask,
+            _ntm,
+            _neg_thres,
+            _pos_thres,
+            _ld,
+            _lim,
+            _leak_v,
+            _sim,
+            _bt,
+            vjt_init,
+        )
+
+
+class PhasicSpikingNeuron(MetaNeuron):
+    """Phasic spiking neuron"""
+
+    def __init__(
+        self,
+        time_to_fire: int,
+        neg_floor: int = 10,
+        vjt_init: int = 0,
+    ):
+        """
+        Arguments:
+            - time_to_fire: after `time_to_fire` spikes, the neuron will fire positively.
+            - neg_floor: the negative floor that the neuron stays once firing. Default is 10 (unsigned).
+            - vjt_init: initial membrane potential. Default is 0.
+
+        Description:
+            The neuron receives `N` spikes and fires, then resets the membrane potential to 0,
+            and never fires again.
+
+            `N` stands for `time_to_fire`.
+        """
+        _sim = SIM.MODE_DETERMINISTIC
+        _lim = LIM.MODE_DETERMINISTIC
+        _ld = LDM.MODE_REVERSAL
+        _lc = LCM.LEAK_BEFORE_COMP
+        _leak_v = 1
+        _pos_thres = (1 + _leak_v) * time_to_fire
+        _neg_thres = neg_floor
+        _mask = 0
+        _reset_v = -1 - _neg_thres
+        _ntm = NTM.MODE_SATURATION
+        _reset_mode = RM.MODE_NORMAL
+        _bt = 0
+
+        super().__init__(
+            _reset_mode,
+            _reset_v,
+            _lc,
+            _mask,
+            _ntm,
+            _neg_thres,
+            _pos_thres,
+            _ld,
+            _lim,
+            _leak_v,
+            _sim,
+            _bt,
+            vjt_init,
+        )
