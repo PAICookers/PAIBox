@@ -12,6 +12,8 @@ from .neurons import MetaNeuron
 class Group(PAIBoxObject):
     """A groups of neurons with the same parameters."""
 
+    detectable = ("input", "output")
+
     def __init__(
         self,
         neurons_num: Shape,
