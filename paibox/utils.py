@@ -1,4 +1,4 @@
-from typing import Any, Iterable, List, Optional, Tuple
+from typing import Any, Iterable, Optional
 
 import numpy as np
 
@@ -52,7 +52,7 @@ def shape2num(shape: Shape) -> int:
     if isinstance(shape, int):
         return shape
 
-    if isinstance(shape, (Tuple, List)):
+    if isinstance(shape, (list, tuple)):
         a = 1
         for b in shape:
             a *= b
@@ -62,20 +62,17 @@ def shape2num(shape: Shape) -> int:
     raise ValueError(f"Type of {shape} is not supported: {type(shape)}")
 
 
-def to_shape(x, shape: Optional[Shape] = None):
-    if x is None:
+def to_shape(shape: Shape):
+    if shape is None:
         return None
 
-    if shape is None:
-        return np.asarray(x)
+    if isinstance(shape, (list, tuple)):
+        return tuple(shape)
 
-    if is_array(x):
-        return np.asarray(x).reshape(shape)
+    if isinstance(shape, (int, np.integer)):
+        return (shape,)
 
-    if is_number(x):
-        return np.broadcast_to(x, shape)
-
-    raise ValueError(f"Cannot make a shape for {x}, shape: {shape}")
+    raise ValueError(f"Cannot make a shape for {shape}")
 
 
 def is_shape(x, shape: Shape) -> bool:
@@ -83,7 +80,7 @@ def is_shape(x, shape: Shape) -> bool:
         raise TypeError(f"Only support an array-like type: {x}")
 
     _x = np.asarray(x)
-    return _x.shape == np.shape(shape)
+    return _x.shape == to_shape(shape)
 
 
 def is_integer(obj: Any) -> bool:
@@ -99,7 +96,7 @@ def is_array(obj: Any) -> bool:
 
 
 def is_array_like(obj: Any) -> bool:
-    return is_array(obj) or is_number(obj) or isinstance(obj, (List, Tuple))
+    return is_array(obj) or is_number(obj) or isinstance(obj, (list, tuple))
 
 
 def fn_sgn(a, b) -> int:
