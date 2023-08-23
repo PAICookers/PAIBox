@@ -33,6 +33,3 @@ def get_unique_name(_type: str) -> str:
     _type_names[_type] += 1
 
     return name
-
-
-

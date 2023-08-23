@@ -1,5 +1,6 @@
 from collections.abc import Set
 from typing import Optional, TypeVar
+
 from paibox.base import PAIBoxObject
 
 
@@ -20,7 +21,6 @@ class NodeList(list):
 
 
 class NodeDict(dict):
-
     def __setitem__(self, key, value):
         super().__setitem__(key, value)
         return self

@@ -74,7 +74,7 @@ class Synapses(StatelessObject):
     @property
     def shape_out(self):
         return self.dest.shape_in
-    
+
     def update(self, spike):
         raise NotImplementedError
 

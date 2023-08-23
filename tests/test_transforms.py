@@ -1,7 +1,8 @@
-import pytest
 import numpy as np
-from paibox.synapses import OneToOne, AllToAll
-from paibox.synapses.connector import MatConn, All2All
+import pytest
+
+from paibox.synapses import AllToAll, OneToOne
+from paibox.synapses.connector import All2All, MatConn
 from paibox.synapses.transforms import MaskedLinear
 
 
@@ -73,17 +74,11 @@ def test_AllToAll_array(shape, weights, x):
             [1, 1, 1],
         ),
         (
-            MatConn(
-                10, 20, conn_mat=np.random.randint(0, 10, size=(10, 20))
-            ),
+            MatConn(10, 20, conn_mat=np.random.randint(0, 10, size=(10, 20))),
             np.random.randint(0, 10, size=(10, 20)),
-            np.random.randint(2, size=(10,))
+            np.random.randint(2, size=(10,)),
         ),
-        (
-            All2All(20, 10),
-            np.random.randint(2, size=(20, 10)),
-            np.ones((20,))
-        )
+        (All2All(20, 10), np.random.randint(2, size=(20, 10)), np.ones((20,))),
     ],
 )
 def test_MaskedLinear(conn, weights, x):
@@ -93,13 +88,12 @@ def test_MaskedLinear(conn, weights, x):
 
     assert y.shape == (conn.dest_num,)
     assert np.allclose(y, expected)
-    
+
     c1 = All2All(4, 3)
-    w1 = np.array([[4,3,2],[1,2,1],[1,1,3],[1,3,4]])
+    w1 = np.array([[4, 3, 2], [1, 2, 1], [1, 1, 3], [1, 3, 4]])
     f1 = MaskedLinear(c1, weights=w1)
-    x1 = np.array([1,0,1,1])
+    x1 = np.array([1, 0, 1, 1])
     y1 = f1(x1)
-    e1 = x1 @ (w1 * np.ones((4,3)))
-    
+    e1 = x1 @ (w1 * np.ones((4, 3)))
+
     assert np.allclose(y1, e1)
-    
