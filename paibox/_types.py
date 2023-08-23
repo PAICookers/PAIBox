@@ -6,5 +6,5 @@ Shape = TypeVar("Shape", int, Tuple[int, ...], List[int])
 Spike = TypeVar("Spike", List[int], np.ndarray)
 SpikeArray = TypeVar("SpikeArray", List[List[int]], np.ndarray)
 
-Array = TypeVar("Array", np.ndarray, List[int])
-Scalar = TypeVar("Scalar", int, float)
+ArrayType = TypeVar("ArrayType", List[int], Tuple[int, ...], np.ndarray)
+Scalar = TypeVar("Scalar", int, float, np.generic)

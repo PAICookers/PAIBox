@@ -95,10 +95,10 @@ class One2One(TwoEndConnector):
 
 
 class All2All(TwoEndConnector):
-    """Connect every source neuron with the destination neurons"""
+    """Connect every source neuron with every destination neuron."""
 
-    def __init__(self) -> None:
-        super(All2All, self).__init__()
+    def __init__(self, source_shape: Shape = 0, dest_shape: Shape = 0) -> None:
+        super(All2All, self).__init__(source_shape, dest_shape)
 
     def build_mat(self):
         return np.ones((self.source_num, self.dest_num), dtype=np.bool_)
@@ -122,9 +122,6 @@ class MatConn(TwoEndConnector):
 
         self.source_num, self.dest_num = conn_mat.shape
         self.conn_mat = np.asarray(conn_mat, dtype=np.bool_)
-
-        assert self.source_shape == self.source_num
-        assert self.dest_shape == self.dest_num
 
     def __call__(self, source_shape: Shape, dest_shape: Shape):
         assert self.source_num == shape2num(source_shape)

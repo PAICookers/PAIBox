@@ -2,8 +2,9 @@ from typing import Dict, List, Optional, Union
 
 import numpy as np
 
-from paibox.base import PAIBoxObject
+from paibox.base import StatelessObject
 from paibox.neuron.group import Group
+from paibox.neuron.neurons import TonicSpikingNeuron
 from paibox.synapses.connector import (
     All2All,
     IndexConn,
@@ -14,7 +15,7 @@ from paibox.synapses.connector import (
 from paibox.synapses.transforms import AllToAll, MaskedLinear, OneToOne
 
 
-class Synapses(PAIBoxObject):
+class Synapses(StatelessObject):
     """A map connected between neurons of the previous `Node`, and axons of the following `Node`.
 
     User can use connectivity matrix or COO to represent the connectivity of synapses.
@@ -25,8 +26,8 @@ class Synapses(PAIBoxObject):
 
     def __init__(
         self,
-        source: Group,
-        dest: Group,
+        source: TonicSpikingNeuron,
+        dest: TonicSpikingNeuron,
         conn: Union[
             TwoEndConnector, np.ndarray, Dict[str, Union[List[int], np.ndarray]]
         ],
@@ -74,12 +75,18 @@ class Synapses(PAIBoxObject):
     def shape_out(self):
         return self.dest.shape_in
 
+    def update(self, spike):
+        raise NotImplementedError
+
+    def reset(self):
+        raise NotImplementedError
+
 
 class NoDecay(Synapses):
     def __init__(
         self,
-        source: Group,
-        dest: Group,
+        source: TonicSpikingNeuron,
+        dest: TonicSpikingNeuron,
         conn: Union[
             TwoEndConnector, np.ndarray, Dict[str, Union[List[int], np.ndarray]]
         ],
@@ -89,13 +96,13 @@ class NoDecay(Synapses):
         super().__init__(source, dest, conn, name)
 
         if isinstance(conn, All2All):
-            self.comm = AllToAll(source.num, dest.num, weights)
+            self.comm = AllToAll(source.shape_out, dest.shape_in, weights)
         elif isinstance(conn, One2One):
-            self.comm = OneToOne(source.num, weights)
-        elif isinstance(conn, IndexConn):
+            self.comm = OneToOne(source.shape_out, weights)
+        elif isinstance(conn, MatConn):
             self.comm = MaskedLinear(conn, weights)
         else:
             raise ValueError
 
-    def update(self, spike, output) -> None:
-        output[...] = self.comm(spike)
+    def update(self, spike):
+        return self.comm(spike)

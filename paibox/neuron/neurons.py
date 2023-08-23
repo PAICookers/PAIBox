@@ -1,5 +1,8 @@
+from typing import Optional
+
 import numpy as np
 
+from paibox.base import DynamicSys
 from paibox.core.reg_types import (
     LCNExtensionType,
     MaxPoolingEnableType,
@@ -17,6 +20,8 @@ from paibox.utils import fn_sgn
 
 class MetaNeuron:
     """Meta neuron"""
+
+    state = {}
 
     def __init__(
         self,
@@ -283,7 +288,7 @@ class MetaNeuron:
         self._vjt_pre = self._vjt
         self._threshold_mode = TM.NOT_EXCEEDED
 
-    def update(self, x: np.ndarray, output: np.ndarray) -> None:
+    def update(self, x: np.ndarray) -> int:
         """Single-step update.
 
         TODO type of x may be considered as np.integer.
@@ -306,17 +311,33 @@ class MetaNeuron:
         # State update
         self._post_hook()
 
-        output[...] = self._spike
+        return self._spike
 
 
-class TonicSpikingNeuron(MetaNeuron):
+class BaseNeuron(MetaNeuron):
+    state = {}
+
+    @property
+    def shape_in(self) -> int:
+        return 1
+
+    @property
+    def shape_out(self) -> int:
+        return 1
+
+    @property
+    def detectable(self):
+        return ("output",) + tuple(self.state)
+
+    def reset(self):
+        self._vjt = self._vjt_init
+        self._vjt_pre = self._vjt
+
+
+class TonicSpikingNeuron(BaseNeuron, DynamicSys):
     """Tonic spiking neuron"""
 
-    def __init__(
-        self,
-        fire_step: int,
-        vjt_init: int = 0,
-    ):
+    def __init__(self, fire_step: int, vjt_init: int = 0, name: Optional[str] = None):
         """
         Arguments:
             - fire_step: every `N` spike, the neuron will fire positively.
@@ -354,6 +375,7 @@ class TonicSpikingNeuron(MetaNeuron):
             _bt,
             vjt_init,
         )
+        super(MetaNeuron, self).__init__(name)
 
 
 class PhasicSpikingNeuron(MetaNeuron):
