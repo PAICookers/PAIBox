@@ -8,13 +8,15 @@ from paibox.core.reg_types import (
     MaxPoolingEnableType,
     SpikeWidthFormatType,
 )
-from paibox.neuron.ram_types import LeakingComparisonMode as LCM
-from paibox.neuron.ram_types import LeakingDirectionMode as LDM
-from paibox.neuron.ram_types import LeakingIntegrationMode as LIM
-from paibox.neuron.ram_types import NegativeThresholdMode as NTM
-from paibox.neuron.ram_types import ResetMode as RM
-from paibox.neuron.ram_types import SynapticIntegrationMode as SIM
-from paibox.neuron.ram_types import ThresholdMode as TM
+from paibox.neuron.ram_types import (
+    LeakingComparisonMode as LCM,
+    LeakingDirectionMode as LDM,
+    LeakingIntegrationMode as LIM,
+    NegativeThresholdMode as NTM,
+    ResetMode as RM,
+    SynapticIntegrationMode as SIM,
+    ThresholdMode as TM,
+)
 from paibox.utils import fn_sgn
 
 
@@ -76,7 +78,6 @@ class MetaNeuron:
 
         """Inherited attributes from the core"""
         # SNN
-        self._lcn_extension: LCNExtensionType
         self._spike_width_format: SpikeWidthFormatType
 
         # ANN
@@ -314,8 +315,10 @@ class MetaNeuron:
         return self._spike
 
 
-class BaseNeuron(MetaNeuron):
-    state = {}
+class BaseNeuron(MetaNeuron, DynamicSys):
+    @property
+    def weight_width(self) -> int:
+        return 1
 
     @property
     def shape_in(self) -> int:
@@ -326,15 +329,15 @@ class BaseNeuron(MetaNeuron):
         return 1
 
     @property
-    def detectable(self):
-        return ("output",) + tuple(self.state)
+    def lcn_extension(self) -> LCNExtensionType:
+        return LCNExtensionType((self.shape_in - 1) // 1152)
 
     def reset(self):
         self._vjt = self._vjt_init
         self._vjt_pre = self._vjt
 
 
-class TonicSpikingNeuron(BaseNeuron, DynamicSys):
+class TonicSpikingNeuron(BaseNeuron):
     """Tonic spiking neuron"""
 
     def __init__(self, fire_step: int, vjt_init: int = 0, name: Optional[str] = None):

@@ -1,3 +1,6 @@
 from .group import Group as Group
-from .neurons import PhasicSpikingNeuron as PhasicSpikingNeuron
-from .neurons import TonicSpikingNeuron as TonicSpikingNeuron
+from .neurons import (
+    BaseNeuron as BaseNeuron,
+    PhasicSpikingNeuron as PhasicSpikingNeuron,
+    TonicSpikingNeuron as TonicSpikingNeuron
+)

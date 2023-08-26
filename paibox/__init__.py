@@ -4,3 +4,4 @@ from .network import Sequential as Sequential
 from .neuron import *
 from .simulator import Simulator as Simulator
 from .synapses import *
+from .implement import *

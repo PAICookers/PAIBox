@@ -78,12 +78,12 @@ class SpikeWidthFormatType(Enum):
 class MaxPoolingEnableType(Enum):
     """Enable max pooling or not in 8-bit input format. 1-bit.
 
-    - `MAX_POOLING_DISABLE`: pooling max disable.
-    - `MAX_POOLING_ENABLE`: pooling max enable. Default value.
+    - `MAX_POOLING_DISABLE`: pooling max disable. Default value.
+    - `MAX_POOLING_ENABLE`: pooling max enable.
     """
 
-    DISABLE = 0
-    ENABLE = 1  # Default value.
+    DISABLE = 0  # Default value.
+    ENABLE = 1
 
 
 @unique
