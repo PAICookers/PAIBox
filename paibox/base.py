@@ -7,8 +7,14 @@ class PAIBoxObject:
     def __init__(self, name: Optional[str] = None) -> None:
         self._name: str = self.unique_name(name)
 
-    def __eq__(self):
-        pass
+    def __eq__(self, other) -> bool:
+        if self is other:
+            return True
+
+        return type(self) == type(other) and self._name == other._name
+
+    def __hash__(self):
+        return hash((type(self), self._name))
 
     def unique_name(
         self, name: Optional[str] = None, _type: Optional[str] = None

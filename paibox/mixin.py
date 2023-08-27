@@ -1,5 +1,5 @@
 from functools import wraps
-
+from typing import Type
 from .base import PAIBoxObject
 from .generic import get_unique_name
 from .node import NodeDict
@@ -30,14 +30,15 @@ class Container(MixIn):
 
         raise KeyError
 
-    def _get_elem_name(self, elem):
+    def _get_elem_name(self, elem) -> str:
         if isinstance(elem, PAIBoxObject):
             return elem._name
         else:
             return get_unique_name("ContainerElem")
 
-    def elem_format(self, child_type: type, *children):
+    def elem_format(self, child_type: Type, *children):
         elems = dict()
+
         for child in children:
             if isinstance(child, child_type):
                 elems[self._get_elem_name(child)] = child

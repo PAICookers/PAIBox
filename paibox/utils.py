@@ -1,4 +1,4 @@
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Optional, Tuple
 
 import numpy as np
 
@@ -62,7 +62,7 @@ def shape2num(shape: Shape) -> int:
     raise ValueError(f"Type of {shape} is not supported: {type(shape)}")
 
 
-def to_shape(shape: Shape):
+def to_shape(shape: Shape) -> Optional[Tuple[int, ...]]:
     if shape is None:
         return None
 
