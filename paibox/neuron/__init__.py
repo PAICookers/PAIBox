@@ -1,6 +1,6 @@
-from .group import Group as Group
 from .neurons import (
-    BaseNeuron as BaseNeuron,
+    Neuron as Neuron,
+    NeuronGroup as NeuronGroup,
     PhasicSpikingNeuron as PhasicSpikingNeuron,
-    TonicSpikingNeuron as TonicSpikingNeuron
+    TonicSpikingNeuron as TonicSpikingNeuron,
 )
