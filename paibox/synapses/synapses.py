@@ -3,8 +3,7 @@ from typing import Dict, List, Optional, Union
 import numpy as np
 
 from paibox.base import StatelessObject
-from paibox.neuron.group import Group
-from paibox.neuron.neurons import TonicSpikingNeuron
+from paibox.neuron import Neuron, NeuronGroup
 from paibox.synapses.connector import (
     All2All,
     IndexConn,
@@ -26,8 +25,8 @@ class Synapses(StatelessObject):
 
     def __init__(
         self,
-        source: TonicSpikingNeuron,
-        dest: TonicSpikingNeuron,
+        source: Union[Neuron, NeuronGroup],
+        dest: Union[Neuron, NeuronGroup],
         conn: Union[
             TwoEndConnector, np.ndarray, Dict[str, Union[List[int], np.ndarray]]
         ],
@@ -54,7 +53,7 @@ class Synapses(StatelessObject):
     ) -> Union[TwoEndConnector, MatConn, IndexConn]:
         """Build a connector given the arrays or dictionary."""
         if isinstance(conn, TwoEndConnector):
-            return conn(self.source.shape_out, self.dest.shape_in)
+            return conn(self.num_in, self.num_out)
 
         if isinstance(conn, np.ndarray):
             conn = MatConn(conn_mat=conn)
@@ -69,11 +68,25 @@ class Synapses(StatelessObject):
 
     @property
     def shape_in(self):
-        return self.source.shape_out
+        return (
+            self.source.shape_out
+            if isinstance(self.source, NeuronGroup)
+            else self.source.num
+        )
 
     @property
     def shape_out(self):
-        return self.dest.shape_in
+        return (
+            self.dest.shape_in if isinstance(self.dest, NeuronGroup) else self.dest.num
+        )
+
+    @property
+    def num_in(self):
+        return self.source.num
+
+    @property
+    def num_out(self):
+        return self.dest.num
 
     def update(self, spike):
         raise NotImplementedError
@@ -85,8 +98,8 @@ class Synapses(StatelessObject):
 class NoDecay(Synapses):
     def __init__(
         self,
-        source: TonicSpikingNeuron,
-        dest: TonicSpikingNeuron,
+        source: Union[Neuron, NeuronGroup],
+        dest: Union[Neuron, NeuronGroup],
         conn: Union[
             TwoEndConnector, np.ndarray, Dict[str, Union[List[int], np.ndarray]]
         ],
@@ -96,9 +109,9 @@ class NoDecay(Synapses):
         super().__init__(source, dest, conn, name)
 
         if isinstance(conn, All2All):
-            self.comm = AllToAll(source.shape_out, dest.shape_in, weights)
+            self.comm = AllToAll(self.num_in, self.num_out, weights)
         elif isinstance(conn, One2One):
-            self.comm = OneToOne(source.shape_out, weights)
+            self.comm = OneToOne(self.num_in, weights)
         elif isinstance(conn, MatConn):
             self.comm = MaskedLinear(conn, weights)
         else:
