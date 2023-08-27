@@ -16,39 +16,21 @@ class Collector(dict):
         self.pop(key)
         self.update({key: new_value})
 
-    # def update(self, other, **kwargs):
-    #     assert isinstance(other, (dict, list, tuple))
-    #     if isinstance(other, dict):
-    #         for k, v in other.items():
-    #             self.update({k: v})
-    #     elif isinstance(other, (tuple, list)):
-    #         num = len(self)
-    #         for i, v in enumerate(other):
-    #             self[f'_var{i + num}'] = v
-    #     else:
-    #         raise ValueError(f'Only supports dict/list/tuple, but we got {type(other)}')
-
-    #     for k, v in kwargs.items():
-    #         self[k] = v
-
-    #     return self
-
-    @classmethod
-    def record(cls):
-        pass
-
     def __add__(self, other: Dict[Any, Any]):
-        r"""Merging two dicts.
+        """Merging two dicts.
 
         Arguments:
             - other: the other dictionary.
-
         Returns:
             - gather: the new collector.
         """
         gather = type(self)()
         gather.update(other)
+        
         return gather
+    
+    def __sub__(self, other):
+        pass
 
     def subset(self, _type: Type):
         gather = type(self)()
@@ -57,4 +39,42 @@ class Collector(dict):
             if isinstance(k, _type):
                 gather[k] = v
 
+        return gather
+
+    def not_subset(self, _type: Type):
+        gather = type(self)()
+
+        for k, v in self.items():
+            if not isinstance(k, _type):
+                gather[k] = v
+
+        return gather
+    
+    def include(self, *types: Type):
+        gather = type(self)()
+
+        for k, v in self.items():
+            if v.__class__ in types:
+                gather[k] = v
+
+        return gather
+    
+    def exclude(self, *types: Type):
+        gather = type(self)()
+
+        for k, v in self.items():
+            if v.__class__ not in types:
+                gather[k] = v
+        
+        return gather
+    
+    def unique(self):
+        gather = type(self)()
+        seen = set()
+
+        for k, v in self.items():
+            if id(v) not in seen:
+                seen.add(id(v))
+                gather[k] = v
+        
         return gather
