@@ -1,5 +1,6 @@
 from typing import Optional
-from .base import PAIBoxObject, DynamicSys
+
+from .base import DynamicSys, PAIBoxObject
 from .mixin import Container
 from .node import NodeDict
 

@@ -1,5 +1,6 @@
 from functools import wraps
 from typing import Type
+
 from .base import PAIBoxObject
 from .generic import get_unique_name
 from .node import NodeDict

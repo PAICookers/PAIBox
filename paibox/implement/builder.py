@@ -1,5 +1,6 @@
 from collections import defaultdict
 from typing import Any, Dict, Union
+
 import paibox as pb
 from paibox.base import DynamicSys
 from paibox.neuron import Neuron, NeuronGroup
@@ -38,7 +39,7 @@ class Builder:
                 N2: {S1},
                 N3: {S2, S3}
             }
-            
+
             _nodes: {
                 "n1": <n1>
             }
@@ -63,7 +64,7 @@ class Builder:
                 # Add edges
                 self._succ_dg[u][v] = proc
                 self._pred_dg[v][u] = proc
-        
+
         for k, v in self._nodes.items():
             print(k, v)
 

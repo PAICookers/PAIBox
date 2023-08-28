@@ -26,9 +26,9 @@ class Collector(dict):
         """
         gather = type(self)()
         gather.update(other)
-        
+
         return gather
-    
+
     def __sub__(self, other):
         pass
 
@@ -49,7 +49,7 @@ class Collector(dict):
                 gather[k] = v
 
         return gather
-    
+
     def include(self, *types: Type):
         gather = type(self)()
 
@@ -58,16 +58,16 @@ class Collector(dict):
                 gather[k] = v
 
         return gather
-    
+
     def exclude(self, *types: Type):
         gather = type(self)()
 
         for k, v in self.items():
             if v.__class__ not in types:
                 gather[k] = v
-        
+
         return gather
-    
+
     def unique(self):
         gather = type(self)()
         seen = set()
@@ -76,5 +76,5 @@ class Collector(dict):
             if id(v) not in seen:
                 seen.add(id(v))
                 gather[k] = v
-        
+
         return gather

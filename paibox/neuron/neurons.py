@@ -2,22 +2,17 @@ from typing import Optional, Tuple, Type
 
 import numpy as np
 
-from paibox.base import DynamicSys
-from paibox.core.reg_types import (
-    MaxPoolingEnableType,
-    SpikeWidthFormatType,
-)
-from paibox.neuron.ram_types import (
-    LeakingComparisonMode as LCM,
-    LeakingDirectionMode as LDM,
-    LeakingIntegrationMode as LIM,
-    NegativeThresholdMode as NTM,
-    ResetMode as RM,
-    SynapticIntegrationMode as SIM,
-    ThresholdMode as TM,
-)
-from paibox.utils import fn_sgn, shape2num
 from paibox._types import Shape
+from paibox.base import DynamicSys
+from paibox.core.reg_types import MaxPoolingEnableType, SpikeWidthFormatType
+from paibox.neuron.ram_types import LeakingComparisonMode as LCM
+from paibox.neuron.ram_types import LeakingDirectionMode as LDM
+from paibox.neuron.ram_types import LeakingIntegrationMode as LIM
+from paibox.neuron.ram_types import NegativeThresholdMode as NTM
+from paibox.neuron.ram_types import ResetMode as RM
+from paibox.neuron.ram_types import SynapticIntegrationMode as SIM
+from paibox.neuron.ram_types import ThresholdMode as TM
+from paibox.utils import fn_sgn, shape2num
 
 
 class MetaNeuron:
