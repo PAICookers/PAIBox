@@ -1,4 +1,4 @@
-from enum import Enum, unique
+from enum import Enum, IntEnum, unique
 
 __all__ = [
     "ResetMode",
@@ -103,7 +103,7 @@ class SynapticIntegrationMode(Enum):
 
 
 @unique
-class ThresholdMode(Enum):
+class ThresholdMode(IntEnum):
 
     """Indicates whether the neuron reaches the threshold or not.
 

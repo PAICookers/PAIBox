@@ -2,8 +2,8 @@ from typing import Dict, List, Optional, Union
 
 import numpy as np
 
-from paibox.base import StatelessObject
-from paibox.neuron import Neuron, NeuronGroup
+from paibox.base import DynamicSys
+from paibox.neuron import Neuron
 from paibox.synapses.connector import (
     All2All,
     IndexConn,
@@ -14,33 +14,27 @@ from paibox.synapses.connector import (
 from paibox.synapses.transforms import AllToAll, MaskedLinear, OneToOne
 
 
-class Synapses(StatelessObject):
+class Synapses:
     """A map connected between neurons of the previous `Node`, and axons of the following `Node`.
 
     User can use connectivity matrix or COO to represent the connectivity of synapses.
-
-    NOTE: Be aware that every axon can only be connected once with a neuron,
-        while a neuron is able to connect with several axons.
     """
 
     def __init__(
         self,
-        source: Union[Neuron, NeuronGroup],
-        dest: Union[Neuron, NeuronGroup],
+        source: Neuron,
+        dest: Neuron,
         conn: Union[
             TwoEndConnector, np.ndarray, Dict[str, Union[List[int], np.ndarray]]
         ],
-        name: Optional[str] = None,
     ) -> None:
         """
         Arguments:
-            - source: the source group of neurons
-            - dest: the destination group of neurons
-            - conn: the connectivity representation
-            - name: the name of the synapses.
+            - source: the source group of neurons.
+            - dest: the destination group of neurons.
+            - conn: the connectivity representation.
+            - name: the name of the synapses. Optional.
         """
-        super(Synapses, self).__init__(name=name)
-
         self.source = source
         self.dest = dest
         self.conn = self._init_conn(conn)
@@ -68,45 +62,42 @@ class Synapses(StatelessObject):
 
     @property
     def shape_in(self):
-        return (
-            self.source.shape_out
-            if isinstance(self.source, NeuronGroup)
-            else self.source.num
-        )
+        return self.source.shape_out
 
     @property
     def shape_out(self):
-        return (
-            self.dest.shape_in if isinstance(self.dest, NeuronGroup) else self.dest.num
-        )
+        return self.dest.shape_in
 
     @property
-    def num_in(self):
+    def num_in(self) -> int:
         return self.source.num
 
     @property
-    def num_out(self):
+    def num_out(self) -> int:
         return self.dest.num
 
-    def update(self, spike):
-        raise NotImplementedError
 
-    def reset(self):
-        raise NotImplementedError
-
-
-class NoDecay(Synapses):
+class NoDecay(Synapses, DynamicSys):
     def __init__(
         self,
-        source: Union[Neuron, NeuronGroup],
-        dest: Union[Neuron, NeuronGroup],
+        source: Neuron,
+        dest: Neuron,
         conn: Union[
             TwoEndConnector, np.ndarray, Dict[str, Union[List[int], np.ndarray]]
         ],
         weights: Union[int, np.integer, np.ndarray] = 1,
         name: Optional[str] = None,
-    ):
-        super().__init__(source, dest, conn, name)
+    ) -> None:
+        """
+        Arguments:
+            - source: the source group of neurons.
+            - dest: the destination group of neurons.
+            - conn: the connectivity representation.
+            - weights: the weights of this synapses. It can be an integer or `np.ndarray`.
+            - name: the name of this synapses. Optional.
+        """
+        super().__init__(source, dest, conn)
+        super(Synapses, self).__init__(name)
 
         if isinstance(conn, All2All):
             self.comm = AllToAll(self.num_in, self.num_out, weights)
@@ -116,6 +107,9 @@ class NoDecay(Synapses):
             self.comm = MaskedLinear(conn, weights)
         else:
             raise ValueError
+
+    def __call__(self, spike):
+        return self.update(spike)
 
     def update(self, spike):
         return self.comm(spike)

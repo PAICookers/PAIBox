@@ -9,11 +9,10 @@ class DynamicGroup(DynamicSys, Container):
     def __init__(
         self,
         *components,
-        component_type: type = PAIBoxObject,
+        component_type: type[PAIBoxObject] = PAIBoxObject,
         name: Optional[str] = None
-    ):
+    ) -> None:
         super().__init__(name)
-
         self.children = NodeDict(self.elem_format(component_type, *components))
 
 
@@ -28,9 +27,8 @@ class Sequential(DynamicSys, Container):
         component_type: type[PAIBoxObject] = PAIBoxObject,
         name: Optional[str] = None,
         **kwargs
-    ):
+    ) -> None:
         super().__init__(name)
-
         self.children = NodeDict(self.elem_format(component_type, *components))
 
     def update(self, x):

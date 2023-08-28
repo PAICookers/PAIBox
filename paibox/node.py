@@ -1,9 +1,3 @@
-from collections.abc import Set
-from typing import Optional, TypeVar
-
-from paibox.base import PAIBoxObject
-
-
 class NodeList(list):
     def __init__(self, seq) -> None:
         super().__init__()

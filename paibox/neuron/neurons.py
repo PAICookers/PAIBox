@@ -1,4 +1,4 @@
-from typing import Optional, Tuple, Type
+from typing import Optional, Tuple
 
 import numpy as np
 
@@ -12,16 +12,15 @@ from paibox.neuron.ram_types import NegativeThresholdMode as NTM
 from paibox.neuron.ram_types import ResetMode as RM
 from paibox.neuron.ram_types import SynapticIntegrationMode as SIM
 from paibox.neuron.ram_types import ThresholdMode as TM
-from paibox.utils import fn_sgn, shape2num
+from paibox.utils import fn_sgn, shape2num, to_shape
 
 
 class MetaNeuron:
     """Meta neuron"""
 
-    state = {}
-
     def __init__(
         self,
+        shape: Shape,
         reset_mode: RM,
         reset_v: int,
         leaking_comparison: LCM,
@@ -35,8 +34,17 @@ class MetaNeuron:
         synaptic_integration_mode: SIM,
         bit_truncate: int,
         vjt_init: int,
+        *,
+        keep_size: bool = False,
+        **kwargs,
     ) -> None:
-        # SNN
+        """Stateless attributes. Scalar."""
+        # Basic
+        self._shape = to_shape(shape)
+        self.n_neurons = shape2num(shape)
+        self.keep_size = keep_size
+
+        # Configurations in SNN mode
         self._reset_mode: RM = reset_mode
         self._leaking_comparison: LCM = leaking_comparison
         self._neg_thres_mode: NTM = neg_thres_mode
@@ -48,45 +56,39 @@ class MetaNeuron:
         self._neg_threshold: int = neg_threshold  # Unsigned 29-bit
         self._pos_threshold: int = pos_threshold  # Unsigned 29-bit
 
-        # ANN
-        self._bit_truncate: int = bit_truncate
-
-        """Inherent attributes"""
-
-        # SNN
-        self._vjt_init: int = vjt_init
-        self._vjt_pre: int = vjt_init  # Membrane potential at Last time step.
-        self._vjt: int = 0  # Membrane potential.
-        self._spike: int = 0  # TODO Maybe need related to `tick_relative` & time slot?
-
-        # ANN
-        self._vj: int = vjt_init
-        self._y: int = 0
-
-        """Attributes below FIXED once reigistered."""
-        # SNN
         self._reset_v: int = reset_v  # Signed 30-bit
         self._leak_v: int = leak_v  # Signed 30-bit
-
-        # ANN
         self._bias: int = leak_v  # Signed 30-bit(ANN mode ONLY)
 
-        """Inherited attributes from the core"""
-        # SNN
-        self._spike_width_format: SpikeWidthFormatType
+        # Configurations in ANN mode
+        self._bit_truncate: int = bit_truncate
 
-        # ANN
+        # TODO These two config below are parameters of CORE.
+        self._spike_width_format: SpikeWidthFormatType
         self._pool_max_en: MaxPoolingEnableType
 
-        """Auxiliary variables"""
-        self._threshold_mode: TM = TM.NOT_EXCEEDED
-        self._v_th_rand = 0
+        """Stateful attributes. Vector."""
+        # Attributes about SNN
+        self._vjt_init = self.init_param(vjt_init)
+        self._vjt_pre = self.init_param(
+            vjt_init
+        )  # Membrane potential at last timestep.
+        self._vjt = self.init_param(0)  # Membrane potential.
+        self._spike = self.init_param(0).astype(np.bool_)
+
+        # Attributes about ANN
+        self._vj = self.init_param(vjt_init)
+        self._y = self.init_param(0)
+
+        # Auxiliary attributes
+        self._threshold_mode = self.init_param(TM.NOT_EXCEEDED)
+        self._v_th_rand = self.init_param(0)
 
     def _neuronal_charge(self, x: np.ndarray) -> None:
         r"""1. Synaptic integration.
 
         Argument:
-            - x: input to the neuron.
+            - x: input to the neuron(s). [1*N]
 
         Description:
             _rho_w_ij: Random synaptic integration enable, 0 or 1.
@@ -97,14 +99,14 @@ class MetaNeuron:
                 `_vjt` = `_vjt_pre` + `_rho_w_ij` * \sum^{N-1}_{i=0} * x_i(t) * w_{i,j}
         """
         _rho_w_ij = 1  # Random synaptic integration enable, 0/1
-        xt = 0
+        xt = np.zeros(self.varshape)
 
         if self._synaptic_integration_mode is SIM.MODE_STOCHASTIC:
             xt = _rho_w_ij * x
         else:
             xt = x
 
-        self._vjt = self._vjt_pre + int(xt)
+        self._vjt = np.add(self._vjt_pre, xt)
 
     def _neuronal_leak(self) -> None:
         r"""2. Leaking integration.
@@ -124,24 +126,19 @@ class MetaNeuron:
                 `_vjt` = `_vjt` + `_ld` * `_F` * \sgn{`_leak_v`}
         """
         _rho_j_lambda = 2  # Random leaking, unsigned 29-bit.
-        _ld: int = 0
 
         if self._leaking_direction is LDM.MODE_FORWARD:
-            _ld = 1
+            _ld = np.ones(self.varshape)
         else:
-            _ld = fn_sgn(self._vjt, 0)
+            _ld = np.vectorize(fn_sgn)(self._vjt, 0)
 
         if self._leaking_integration_mode is LIM.MODE_DETERMINISTIC:
-            self._vjt = self._vjt + _ld * self._leak_v
+            self._vjt = np.add(self._vjt, _ld * self._leak_v)
         else:
-            if self._leak_v >= _rho_j_lambda or self._leak_v <= -_rho_j_lambda:
-                _F = 1
-            else:
-                _F = 0
+            _F = 1 if abs(self._leak_v) >= _rho_j_lambda else 0
+            _sgn_leak_v = np.vectorize(fn_sgn)(self._leak_v, 0)
 
-            _sgn_leak_v = fn_sgn(self._leak_v, 0)
-
-            self._vjt = self._vjt + _ld * _F * _sgn_leak_v
+            self._vjt = np.add(self._vjt, _F * _ld @ _sgn_leak_v)
 
     def _neuronal_fire(self) -> None:
         r"""3. Threshold comparison
@@ -166,7 +163,7 @@ class MetaNeuron:
 
         # TODO Is _rho_j_T permanent?
         _v_th_rand = _rho_j_T & self._threshold_mask
-        self._v_th_rand = _v_th_rand
+        self._v_th_rand = np.full(self.varshape, _v_th_rand)
 
         if self._neg_thres_mode is NTM.MODE_RESET:
             _v_th_neg = self._neg_threshold + _v_th_rand
@@ -174,17 +171,15 @@ class MetaNeuron:
             _v_th_neg = self._neg_threshold
 
         """Fire"""
-        if self._vjt >= self._pos_threshold + _v_th_rand:
-            self._threshold_mode = TM.EXCEED_POSITIVE
-            yt = 1
-        elif self._vjt < -_v_th_neg:
-            self._threshold_mode = TM.EXCEED_NEGATIVE
-            yt = 0
-        else:
-            self._threshold_mode = TM.NOT_EXCEEDED
-            yt = 0
+        self._threshold_mode = np.where(
+            self._vjt >= self._pos_threshold + _v_th_rand,
+            TM.EXCEED_POSITIVE,
+            np.where(self._vjt < -_v_th_neg, TM.EXCEED_NEGATIVE, TM.NOT_EXCEEDED),
+        )
 
-        self._spike = yt
+        self._spike = np.where(self._threshold_mode == TM.EXCEED_POSITIVE, 1, 0).astype(
+            np.bool_
+        )
 
     def _neuronal_reset(self) -> None:
         r"""4. Reset
@@ -211,25 +206,37 @@ class MetaNeuron:
         else (not beyond the threshold)
             `_vjt` = `_vjt`
         """
-        if self._threshold_mode is TM.EXCEED_POSITIVE:
+
+        def _when_exceed_pos():
             if self._reset_mode is RM.MODE_NORMAL:
-                self._vjt = self._reset_v
+                return np.full(self.varshape, self._reset_v)
+
             elif self._reset_mode is RM.MODE_LINEAR:
-                self._vjt = self._vjt - (self._pos_threshold + self._v_th_rand)
+                return np.subtract(self._vjt, (self._pos_threshold + self._v_th_rand))
             else:
-                self._vjt = self._vjt
-        elif self._threshold_mode is TM.EXCEED_NEGATIVE:
+                return self._vjt
+
+        def _when_exceed_neg():
             if self._neg_thres_mode is NTM.MODE_RESET:
                 if self._reset_mode is RM.MODE_NORMAL:
-                    self._vjt = -self._reset_v
+                    return np.full(self.varshape, -self._reset_v)
                 elif self._reset_mode is RM.MODE_LINEAR:
-                    self._vjt = self._vjt + (self._neg_threshold + self._v_th_rand)
+                    return np.add(self._vjt, (self._neg_threshold + self._v_th_rand))
                 else:
-                    self._vjt = self._vjt
+                    return self._vjt
+
             else:
-                self._vjt = -self._neg_threshold
-        else:
-            self._vjt = self._vjt
+                return np.full(self.varshape, -self._neg_threshold)
+
+        self._vjt = np.where(
+            self._threshold_mode == TM.EXCEED_POSITIVE,
+            _when_exceed_pos(),
+            np.where(
+                self._threshold_mode == TM.EXCEED_NEGATIVE,
+                _when_exceed_neg(),
+                self._vjt,
+            ),
+        )
 
     def _relu(self) -> None:
         r"""ReLU(ANN mode ONLY)
@@ -255,40 +262,39 @@ class MetaNeuron:
                 8                 [7:0]
                ...                 ...
                 X               [X-1:X-8]
+
+        TODO DO NOT use it until vectorized.
         """
-        _yj = 0
 
-        if self._vj < self._pos_threshold:
-            _yj = 0
-        else:
+        def _when_exceed_pos():
             if self._spike_width_format is SpikeWidthFormatType.WIDTH_1BIT:
-                _yj = 1
+                return np.ones(self.varshape)
+
+            if self._bit_truncate >= 8:
+                return ((self._vj >> self._bit_truncate) - 8) & ((1 << 8) - 1)
+            elif self._bit_truncate > 0:
+                _mask = (1 << self._bit_truncate) - 1
+                _truncated_vj = self._vj & _mask
+                return _truncated_vj << (8 - self._bit_truncate)
             else:
-                if self._bit_truncate == 0:
-                    _yj = 0
-                elif self._bit_truncate < 8:
-                    _mask = (1 << self._bit_truncate) - 1
-                    _truncated_vj: int = self._vj & _mask
-                    _yj = _truncated_vj << (8 - self._bit_truncate)
-                else:
-                    _yj = (self._vj >> self._bit_truncate - 8) & ((1 << 8) - 1)
+                return np.zeros(self.varshape)
 
-        self._y = _yj
+        self._y = np.where(
+            self._vj >= self._pos_threshold, _when_exceed_pos(), np.zeros(self.varshape)
+        )
 
-    def _max_pooling(self, x: np.ndarray) -> int:
-        return int(x.max())
+    def _max_pooling(self, x: np.ndarray):
+        # TODO
+        pass
 
     def _post_hook(self) -> None:
         """Post-hook after the entire activation."""
         # Update the vjt_pre, and reset the threshold mode.
         self._vjt_pre = self._vjt
-        self._threshold_mode = TM.NOT_EXCEEDED
+        self._threshold_mode = np.full(self.varshape, TM.NOT_EXCEEDED)
 
-    def update(self, x: np.ndarray) -> int:
-        """Single-step update.
-
-        TODO type of x may be considered as np.integer.
-        """
+    def update(self, x: np.ndarray) -> np.ndarray:
+        """Update at one time step."""
 
         """1. Charge"""
         self._neuronal_charge(x)
@@ -304,82 +310,58 @@ class MetaNeuron:
         """3. Reset"""
         self._neuronal_reset()
 
-        # State update
+        """4. State update"""
         self._post_hook()
 
         return self._spike
 
+    @property
+    def varshape(self) -> Tuple[int, ...]:
+        return self._shape if self.keep_size else (self.n_neurons,)
+
+    def init_param(self, param, shape: Optional[Shape] = None) -> np.ndarray:
+        _shape = self.varshape if shape is None else shape
+
+        return np.full(_shape, param)
+
 
 class Neuron(MetaNeuron, DynamicSys):
     @property
-    def weight_width(self) -> int:
-        return 1
+    def shape_in(self) -> Tuple[int, ...]:
+        return self._shape
 
     @property
-    def shape_in(self) -> Tuple[int]:
-        return (1,)
-
-    @property
-    def shape_out(self) -> Tuple[int]:
-        return (1,)
+    def shape_out(self) -> Tuple[int, ...]:
+        return self._shape
 
     @property
     def num(self) -> int:
-        return 1
+        return self.n_neurons
 
     def __len__(self) -> int:
-        return 1
+        return self.num
 
-    def reset(self):
+    def __call__(self, x: np.ndarray) -> np.ndarray:
+        return super().update(x)
+
+    def initial(self) -> None:
         self._vjt = self._vjt_init
         self._vjt_pre = self._vjt
-
-
-class NeuronGroup(DynamicSys):
-    """A groups of neurons with the **SAME** parameters."""
-
-    def __init__(
-        self,
-        n_neurons: Shape,
-        neuron_type: Type[Neuron],
-        group_name: Optional[str] = None,
-        **kwargs,
-    ) -> None:
-        """
-        Arguments:
-            - n_neurons: shape of the group of neruons.
-            - neuron_type: type of the group of neurons.
-            - group_name: name of the group of neurons. Optional.
-            - kwargs: the parameters of neuron in the group.
-        """
-        super().__init__(group_name)
-
-        self.shape = n_neurons
-        self.n_neurons = shape2num(n_neurons)
-        self.neuron = neuron_type(**kwargs)
-
-    @property
-    def shape_in(self):
-        return self.shape
-
-    @property
-    def shape_out(self):
-        return self.shape
-
-    @property
-    def num(self) -> int:
-        return self.n_neurons
-
-    def __len__(self) -> int:
-        return self.n_neurons
 
 
 class TonicSpikingNeuron(Neuron):
     """Tonic spiking neuron"""
 
-    def __init__(self, fire_step: int, vjt_init: int = 0, name: Optional[str] = None):
+    def __init__(
+        self,
+        shape: Shape,
+        fire_step: int,
+        vjt_init: int = 0,
+        name: Optional[str] = None,
+    ) -> None:
         """
         Arguments:
+            - shape: the shape of the neuron(s). It can be an integer, tuple or list.
             - fire_step: every `N` spike, the neuron will fire positively.
             - vjt_init: initial membrane potential. Default is 0.
 
@@ -401,6 +383,7 @@ class TonicSpikingNeuron(Neuron):
         _bt = 0
 
         super().__init__(
+            shape,
             _reset_mode,
             _reset_v,
             _lc,
@@ -423,13 +406,15 @@ class PhasicSpikingNeuron(Neuron):
 
     def __init__(
         self,
+        shape: Shape,
         time_to_fire: int,
         neg_floor: int = 10,
         vjt_init: int = 0,
         name: Optional[str] = None,
-    ):
+    ) -> None:
         """
         Arguments:
+            - shape: the shape of the neuron(s). It can be an integer, tuple or list.
             - time_to_fire: after `time_to_fire` spikes, the neuron will fire positively.
             - neg_floor: the negative floor that the neuron stays once firing. Default is 10 (unsigned).
             - vjt_init: initial membrane potential. Default is 0.
@@ -454,6 +439,7 @@ class PhasicSpikingNeuron(Neuron):
         _bt = 0
 
         super().__init__(
+            shape,
             _reset_mode,
             _reset_v,
             _lc,

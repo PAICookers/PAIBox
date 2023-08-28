@@ -1,21 +1,21 @@
 from collections import defaultdict
 from typing import Any, Dict, Union
 
-import paibox as pb
-from paibox.base import DynamicSys
-from paibox.neuron import Neuron, NeuronGroup
+from paibox.base import DynamicSys, PAIBoxObject
+from paibox.network import DynamicGroup
+from paibox.neuron import Neuron
 from paibox.synapses import Synapses
 
 
 class Builder:
     def __init__(self) -> None:
-        self._nodes: Dict[str, Union[Neuron, NeuronGroup]] = dict()
+        self._nodes: Dict[str, Neuron] = dict()
 
         self._graph: Dict[str, Dict[str, Union[Synapses, None]]] = defaultdict(dict)
         self._pred_dg: Dict[str, Dict[str, Synapses]] = defaultdict(dict)
         self._succ_dg: Dict[str, Dict[str, Synapses]] = defaultdict(dict)
 
-    def build_graph(self, network: pb.DynamicGroup) -> None:
+    def build_graph(self, network: DynamicGroup) -> None:
         """Build the directed graph given a network.
 
         Arguments:
@@ -92,7 +92,7 @@ class Builder:
 
         return neuron_attrs
 
-    def _find_name(self, component: pb.PAIBoxObject) -> str:
+    def _find_name(self, component: PAIBoxObject) -> str:
         for k, v in self.network.__dict__.items():
             if component is v:
                 return k
