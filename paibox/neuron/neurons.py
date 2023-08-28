@@ -1,13 +1,10 @@
-from typing import Optional
+from typing import Optional, Tuple, Type
 
 import numpy as np
 
+from paibox._types import Shape
 from paibox.base import DynamicSys
-from paibox.core.reg_types import (
-    LCNExtensionType,
-    MaxPoolingEnableType,
-    SpikeWidthFormatType,
-)
+from paibox.core.reg_types import MaxPoolingEnableType, SpikeWidthFormatType
 from paibox.neuron.ram_types import LeakingComparisonMode as LCM
 from paibox.neuron.ram_types import LeakingDirectionMode as LDM
 from paibox.neuron.ram_types import LeakingIntegrationMode as LIM
@@ -15,7 +12,7 @@ from paibox.neuron.ram_types import NegativeThresholdMode as NTM
 from paibox.neuron.ram_types import ResetMode as RM
 from paibox.neuron.ram_types import SynapticIntegrationMode as SIM
 from paibox.neuron.ram_types import ThresholdMode as TM
-from paibox.utils import fn_sgn
+from paibox.utils import fn_sgn, shape2num
 
 
 class MetaNeuron:
@@ -76,7 +73,6 @@ class MetaNeuron:
 
         """Inherited attributes from the core"""
         # SNN
-        self._lcn_extension: LCNExtensionType
         self._spike_width_format: SpikeWidthFormatType
 
         # ANN
@@ -314,27 +310,71 @@ class MetaNeuron:
         return self._spike
 
 
-class BaseNeuron(MetaNeuron):
-    state = {}
-
+class Neuron(MetaNeuron, DynamicSys):
     @property
-    def shape_in(self) -> int:
+    def weight_width(self) -> int:
         return 1
 
     @property
-    def shape_out(self) -> int:
-        return 1
+    def shape_in(self) -> Tuple[int]:
+        return (1,)
 
     @property
-    def detectable(self):
-        return ("output",) + tuple(self.state)
+    def shape_out(self) -> Tuple[int]:
+        return (1,)
+
+    @property
+    def num(self) -> int:
+        return 1
+
+    def __len__(self) -> int:
+        return 1
 
     def reset(self):
         self._vjt = self._vjt_init
         self._vjt_pre = self._vjt
 
 
-class TonicSpikingNeuron(BaseNeuron, DynamicSys):
+class NeuronGroup(DynamicSys):
+    """A groups of neurons with the **SAME** parameters."""
+
+    def __init__(
+        self,
+        n_neurons: Shape,
+        neuron_type: Type[Neuron],
+        group_name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        """
+        Arguments:
+            - n_neurons: shape of the group of neruons.
+            - neuron_type: type of the group of neurons.
+            - group_name: name of the group of neurons. Optional.
+            - kwargs: the parameters of neuron in the group.
+        """
+        super().__init__(group_name)
+
+        self.shape = n_neurons
+        self.n_neurons = shape2num(n_neurons)
+        self.neuron = neuron_type(**kwargs)
+
+    @property
+    def shape_in(self):
+        return self.shape
+
+    @property
+    def shape_out(self):
+        return self.shape
+
+    @property
+    def num(self) -> int:
+        return self.n_neurons
+
+    def __len__(self) -> int:
+        return self.n_neurons
+
+
+class TonicSpikingNeuron(Neuron):
     """Tonic spiking neuron"""
 
     def __init__(self, fire_step: int, vjt_init: int = 0, name: Optional[str] = None):
@@ -378,7 +418,7 @@ class TonicSpikingNeuron(BaseNeuron, DynamicSys):
         super(MetaNeuron, self).__init__(name)
 
 
-class PhasicSpikingNeuron(MetaNeuron):
+class PhasicSpikingNeuron(Neuron):
     """Phasic spiking neuron"""
 
     def __init__(
@@ -386,6 +426,7 @@ class PhasicSpikingNeuron(MetaNeuron):
         time_to_fire: int,
         neg_floor: int = 10,
         vjt_init: int = 0,
+        name: Optional[str] = None,
     ):
         """
         Arguments:
@@ -427,3 +468,4 @@ class PhasicSpikingNeuron(MetaNeuron):
             _bt,
             vjt_init,
         )
+        super(MetaNeuron, self).__init__(name)
