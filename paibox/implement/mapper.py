@@ -1,11 +1,12 @@
 from collections import defaultdict
-from typing import Any, List, Dict
+from typing import Any, Dict, List
 
-from paibox.core.reg_types import LCNExtensionType
-from paibox.neuron import Neuron
-from .builder import Builder
-from paibox.network import Network
 from paibox.collector import Collector
+from paibox.core.reg_types import LCNExtensionType
+from paibox.network import Network
+from paibox.neuron import Neuron
+
+from .builder import Builder
 
 
 class Mapper:
@@ -38,9 +39,11 @@ class Mapper:
         """3. Split based on number of axons"""
         self.group3 = self._group_by_axons(group2)
 
-    def _group_by_lcn(self, groups: Dict[Neuron, Dict[str, Any]]) -> Dict[LCNExtensionType, List[Neuron]]:
+    def _group_by_lcn(
+        self, groups: Dict[Neuron, Dict[str, Any]]
+    ) -> Dict[LCNExtensionType, List[Neuron]]:
         result = defaultdict(list)
-        
+
         for k, v in groups.items():
             result[v["lcn"]].append(k)
 

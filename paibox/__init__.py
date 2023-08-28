@@ -1,4 +1,5 @@
-from .base import PAIBoxObject as PAIBoxObject, DynamicSys as DynamicSys
+from .base import DynamicSys as DynamicSys
+from .base import PAIBoxObject as PAIBoxObject
 from .implement import Builder, Mapper
 from .network import DynamicGroup as DynamicGroup
 from .network import Network as Network

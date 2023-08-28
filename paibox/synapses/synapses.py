@@ -107,7 +107,7 @@ class NoDecay(Synapses, DynamicSys):
             self.comm = MaskedLinear(conn, weights)
         else:
             raise ValueError
-        
+
     def __call__(self, spike):
         return self.update(spike)
 

@@ -1,7 +1,7 @@
 from collections import defaultdict
 from typing import Any, Dict, Union
 
-from paibox.base import PAIBoxObject, DynamicSys
+from paibox.base import DynamicSys, PAIBoxObject
 from paibox.network import DynamicGroup
 from paibox.neuron import Neuron
 from paibox.synapses import Synapses

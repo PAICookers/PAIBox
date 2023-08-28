@@ -1,5 +1,6 @@
-import pytest
 import numpy as np
+import pytest
+
 import paibox as pb
 from paibox.utils import shape2num, to_shape
 

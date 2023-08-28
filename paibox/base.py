@@ -1,7 +1,7 @@
 from typing import List, Literal, Optional, Set
 
-from paibox.generic import get_unique_name, is_name_unique
 from paibox.collector import Collector
+from paibox.generic import get_unique_name, is_name_unique
 from paibox.node import NodeDict, NodeList
 
 

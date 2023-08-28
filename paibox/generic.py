@@ -1,5 +1,7 @@
-import numpy as np
 from typing import Any
+
+import numpy as np
+
 from ._types import Shape
 from .utils import shape2num
 
