@@ -1,49 +1,30 @@
+from abc import ABC, abstractmethod
 from typing import Union
 
 import numpy as np
 
-from paibox.synapses.connector import MatConn, TwoEndConnector
 from paibox.utils import is_shape
+from .connector import MatConn
 
 
-class Transform:
-    @property
-    def shape_in(self):
+class Transform(ABC):
+    @abstractmethod
+    def __call__(self, x) -> ...:
         raise NotImplementedError
-
-    @property
-    def shape_out(self):
-        raise NotImplementedError
-
-
-class ByPass(Transform):
-    def __init__(self, num: int):
-        self.num = num
-        self.weights = 1
-
-    def __call__(self, x: np.ndarray) -> np.ndarray:
-        return x
-
-    @property
-    def shape_in(self) -> int:
-        return self.num
-
-    @property
-    def shape_out(self) -> int:
-        return self.num
 
 
 class OneToOne(Transform):
     def __init__(self, num: int, weights: Union[int, np.integer, np.ndarray]) -> None:
         """
         Arguments:
-            - num: the number of neurons.
-            - weights: the synaptic weights.
+            - num: number of neurons.
+            - weights: synaptic weights. The shape must be a scalar or (num,).
         """
         self.num = num
 
-        if isinstance(weights, np.ndarray):
-            assert is_shape(weights, (num,))
+        if isinstance(weights, np.ndarray) and not is_shape(weights, (num,)):
+            # TODO Error description
+            raise ValueError
 
         self.weights = weights
 
@@ -51,23 +32,41 @@ class OneToOne(Transform):
         return x * self.weights
 
     @property
-    def shape_in(self) -> int:
-        return self.num
+    def connectivity(self) -> np.ndarray:
+        return (
+            self.weights
+            if isinstance(self.weights, np.ndarray)
+            else self.weights * np.eye(self.num)
+        )
 
-    @property
-    def shape_out(self) -> int:
-        return self.num
+
+class ByPass(OneToOne):
+    def __init__(self, num: int) -> None:
+        """
+        Arguments:
+            - num: number of neurons.
+
+        The synaptic weights are always 1.
+        """
+        super().__init__(num, 1)
 
 
 class AllToAll(Transform):
     def __init__(
         self, num_in: int, num_out: int, weights: Union[int, np.integer, np.ndarray]
     ) -> None:
+        """
+        Arguments:
+            - num_in: number of source neurons.
+            - num_out: number of destination neurons.
+            - weights: synaptic weights.
+        """
         self.num_in = num_in
         self.num_out = num_out
 
-        if isinstance(weights, np.ndarray):
-            assert is_shape(weights, (num_in, num_out))
+        if isinstance(weights, np.ndarray) and not is_shape(weights, (num_in, num_out)):
+            # TODO Error description
+            raise ValueError
 
         self.weights = np.asarray(weights)
 
@@ -92,41 +91,42 @@ class AllToAll(Transform):
         return output
 
     @property
-    def shape_in(self) -> int:
-        return self.num_in
-
-    @property
-    def shape_out(self) -> int:
-        return self.num_out
+    def connectivity(self) -> np.ndarray:
+        return (
+            self.weights
+            if self.weights.ndim == 2
+            else self.weights * np.ones((self.num_in, self.num_out))
+        )
 
 
 class MaskedLinear(Transform):
     def __init__(
         self,
-        conn: TwoEndConnector,
+        conn: MatConn,
         weights: Union[int, np.integer, np.ndarray],
     ) -> None:
         """
         Arguments:
-            - conn: only support `MatConn`.
+            - conn: connector. Only support `MatConn`.
             - weights: unmasked weights.
         """
         self.conn = conn
         self.mask = self.conn.build_mat()
+        self.num_in = self.conn.source_num
+        self.num_out = self.conn.dest_num
 
-        if isinstance(weights, np.ndarray):
-            assert is_shape(weights, (self.conn.source_num, self.conn.dest_num))
+        if isinstance(weights, np.ndarray) and not is_shape(
+            weights, (self.num_in, self.num_out)
+        ):
+            # TODO Error description
+            raise ValueError
 
-        # The weight is fake until with the mask
-        self.weights = np.asarray(weights) * self.mask
+        # Element-wise Multiplication
+        self.weights = np.asarray(weights) * self.mask.astype(np.int8)
 
     def __call__(self, x: np.ndarray) -> np.ndarray:
         return x @ self.weights
 
     @property
-    def shape_in(self) -> int:
-        return self.conn.source_num
-
-    @property
-    def shape_out(self) -> int:
-        return self.conn.dest_num
+    def connectivity(self) -> np.ndarray:
+        return self.weights

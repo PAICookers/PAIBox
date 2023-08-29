@@ -6,3 +6,4 @@ from .synapses import NoDecay as NoDecay
 from .synapses import Synapses as Synapses
 from .transforms import AllToAll as AllToAll
 from .transforms import OneToOne as OneToOne
+from .transforms import ByPass as ByPass
