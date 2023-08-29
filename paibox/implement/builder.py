@@ -1,5 +1,6 @@
 from collections import defaultdict
-from typing import Any, Dict, Union
+import numpy as np
+from typing import Any, Dict
 
 from paibox.base import DynamicSys, PAIBoxObject
 from paibox.network import DynamicGroup
@@ -11,7 +12,6 @@ class Builder:
     def __init__(self) -> None:
         self._nodes: Dict[str, Neuron] = dict()
 
-        self._graph: Dict[str, Dict[str, Union[Synapses, None]]] = defaultdict(dict)
         self._pred_dg: Dict[str, Dict[str, Synapses]] = defaultdict(dict)
         self._succ_dg: Dict[str, Dict[str, Synapses]] = defaultdict(dict)
 
@@ -67,11 +67,14 @@ class Builder:
 
         for k, v in self._nodes.items():
             print(k, v)
+            
+        for k, v in self._pred_dg.items():
+            print(k, v)
 
-    def usage_constraint(self) -> Dict[DynamicSys, Dict[str, Any]]:
+    def usage_constraint(self) -> Dict[str, Dict[str, Any]]:
         """Calculate the resource usages of the network, as a constraint for core mapping.
 
-            1. The number of synapses the neuron or group is connected with.
+            1. The number of pre-synapses the neuron or group is connected with.
             2. The LCN extension of each neuron or group.
             3. Weight width of the neuron or group(1-bit in global config NOW)
 
@@ -79,16 +82,34 @@ class Builder:
 
             4. Weight width of the neuron is not 8-bit.
             5. Input/Spike width is not 8-bit
+        
+        The `neuron_attrs` looks like:
+        {
+            'n1': {
+                'num': 3, 'axons_connected_each': 0, 'axons_connected_total': 0},
+            'n2':
+                {'num': 3, 'axons_connected_each': array([1, 1, 1]), 'axons_connected_total': 3},
+            'n3':
+                {'num': 3, 'axons_connected_each': array([4, 4, 4]), 'axons_connected_total': 12}
+        }
         """
         neuron_attrs = dict()
 
-        for node in self._nodes:
-            if node not in neuron_attrs:
-                neuron_attrs[node] = dict()
+        for name, node in self._nodes.items():
+            if name not in neuron_attrs:
+                neuron_attrs[name] = dict()
 
-            neuron_attrs[node]["connected"] = node.num
-
-        print(f"Usage: {neuron_attrs}")
+            neuron_attrs[name]["neuron_num"] = node.num
+            
+            # Count all the pre-synapses which a node is connected with.
+            axons_connected_each = 0
+            for syn in self._pred_dg[name].values():
+                axons_connected_each += np.count_nonzero(syn.connectivity, axis=0)
+                
+            axons_connected_total = np.sum(axons_connected_each)
+            
+            neuron_attrs[name]["axons_connected_each"] = axons_connected_each
+            neuron_attrs[name]["axons_connected_total"] = axons_connected_total
 
         return neuron_attrs
 
