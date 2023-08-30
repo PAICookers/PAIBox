@@ -161,7 +161,7 @@ class MetaNeuron:
         """
         _rho_j_T = 3  # Random threshold, unsigned 29-bit.
 
-        # TODO Is _rho_j_T permanent?
+        # TODO Is _rho_j_T and _v_th_rand for all neurons or for each neuron?
         _v_th_rand = _rho_j_T & self._threshold_mask
         self._v_th_rand = np.full(self.varshape, _v_th_rand)
 
@@ -228,7 +228,7 @@ class MetaNeuron:
             else:
                 return np.full(self.varshape, -self._neg_threshold)
 
-        self._vjt = np.where(
+        self._vjt_pre = self._vjt = np.where(
             self._threshold_mode == TM.EXCEED_POSITIVE,
             _when_exceed_pos(),
             np.where(
@@ -237,6 +237,8 @@ class MetaNeuron:
                 self._vjt,
             ),
         )
+
+        self._aux_post_hook()
 
     def _relu(self) -> None:
         r"""ReLU(ANN mode ONLY)
@@ -262,8 +264,6 @@ class MetaNeuron:
                 8                 [7:0]
                ...                 ...
                 X               [X-1:X-8]
-
-        TODO DO NOT use it until vectorized.
         """
 
         def _when_exceed_pos():
@@ -287,10 +287,13 @@ class MetaNeuron:
         # TODO
         pass
 
-    def _post_hook(self) -> None:
+    def _aux_pre_hook(self):
+        """Pre-hook before the entire activation."""
+        pass
+
+    def _aux_post_hook(self) -> None:
         """Post-hook after the entire activation."""
-        # Update the vjt_pre, and reset the threshold mode.
-        self._vjt_pre = self._vjt
+        # Reset the auxiliary threshold mode.
         self._threshold_mode = np.full(self.varshape, TM.NOT_EXCEEDED)
 
     def update(self, x: np.ndarray) -> np.ndarray:
@@ -310,9 +313,6 @@ class MetaNeuron:
         """3. Reset"""
         self._neuronal_reset()
 
-        """4. State update"""
-        self._post_hook()
-
         return self._spike
 
     @property
@@ -326,6 +326,7 @@ class MetaNeuron:
 
 
 class Neuron(MetaNeuron, DynamicSys):
+
     @property
     def shape_in(self) -> Tuple[int, ...]:
         return self._shape

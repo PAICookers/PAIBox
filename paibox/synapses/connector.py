@@ -47,10 +47,10 @@ class TwoEndConnector(Connector):
     def __repr__(self) -> str:
         return self.__class__.__name__
 
-    def build_coo(self):
+    def build_coo(self) -> ...:
         raise NotImplementedError
 
-    def build_mat(self):
+    def build_mat(self) -> np.ndarray:
         raise NotImplementedError
 
 

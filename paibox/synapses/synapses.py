@@ -4,14 +4,14 @@ import numpy as np
 
 from paibox.base import DynamicSys
 from paibox.neuron import Neuron
-from paibox.synapses.connector import (
+from .connector import (
     All2All,
     IndexConn,
     MatConn,
     One2One,
     TwoEndConnector,
 )
-from paibox.synapses.transforms import AllToAll, MaskedLinear, OneToOne
+from .transforms import AllToAll, MaskedLinear, OneToOne
 
 
 class Synapses:
@@ -19,7 +19,6 @@ class Synapses:
 
     User can use connectivity matrix or COO to represent the connectivity of synapses.
     """
-
     def __init__(
         self,
         source: Neuron,
@@ -37,6 +36,7 @@ class Synapses:
         """
         self.source = source
         self.dest = dest
+        # TODO conn, what for?
         self.conn = self._init_conn(conn)
 
     def _init_conn(
@@ -76,8 +76,20 @@ class Synapses:
     def num_out(self) -> int:
         return self.dest.num
 
+    @property
+    def connectivity(self) -> np.ndarray:
+        raise NotImplementedError
+
 
 class NoDecay(Synapses, DynamicSys):
+    """Synapses model with no decay.
+
+    Attributes:
+        - comm: the connectivity representation.
+
+    Properties:
+        - connectivity: the `np.ndarray` format of comm.
+    """
     def __init__(
         self,
         source: Neuron,
@@ -86,15 +98,16 @@ class NoDecay(Synapses, DynamicSys):
             TwoEndConnector, np.ndarray, Dict[str, Union[List[int], np.ndarray]]
         ],
         weights: Union[int, np.integer, np.ndarray] = 1,
+        *,
         name: Optional[str] = None,
     ) -> None:
         """
         Arguments:
-            - source: the source group of neurons.
-            - dest: the destination group of neurons.
-            - conn: the connectivity representation.
-            - weights: the weights of this synapses. It can be an integer or `np.ndarray`.
-            - name: the name of this synapses. Optional.
+            - source: source neuron(s).
+            - dest: destination neuron(s).
+            - conn: connectivity representation.
+            - weights: weights of the synapses. It can be an integer or `np.ndarray`.
+            - name: name of this synapses. Optional.
         """
         super().__init__(source, dest, conn)
         super(Synapses, self).__init__(name)
@@ -106,6 +119,7 @@ class NoDecay(Synapses, DynamicSys):
         elif isinstance(conn, MatConn):
             self.comm = MaskedLinear(conn, weights)
         else:
+            # TODO Error description
             raise ValueError
 
     def __call__(self, spike):
@@ -113,3 +127,7 @@ class NoDecay(Synapses, DynamicSys):
 
     def update(self, spike):
         return self.comm(spike)
+
+    @property
+    def connectivity(self) -> np.ndarray:
+        return self.comm.connectivity
