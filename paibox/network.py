@@ -5,7 +5,7 @@ from .mixin import Container
 from .node import NodeDict
 
 
-class DynamicGroup(DynamicSys, Container):
+class DynSysGroup(DynamicSys, Container):
     def __init__(
         self,
         *components,
@@ -16,7 +16,7 @@ class DynamicGroup(DynamicSys, Container):
         self.children = NodeDict(self.elem_format(component_type, *components))
 
 
-class Network(DynamicGroup):
+class Network(DynSysGroup):
     pass
 
 

@@ -1,8 +1,12 @@
-from typing import List, Literal, Optional, Set
+from typing import Callable, List, Literal, Optional, Set, Tuple, Union, overload
+import numpy as np
 
-from paibox.collector import Collector
-from paibox.generic import get_unique_name, is_name_unique
-from paibox.node import NodeDict, NodeList
+from .collector import Collector
+from .mixin import ReceiveInputProj
+from .generic import get_unique_name, is_name_unique
+from .utils import is_shape, shape2num, to_shape
+from .node import NodeDict, NodeList
+from ._types import Shape
 
 
 class PAIBoxObject:
@@ -107,13 +111,88 @@ def _add_node2(
         nodes.append(v)
 
 
-class StatelessObject(PAIBoxObject):
-    pass
+class DynamicSys(PAIBoxObject, ReceiveInputProj):
+    def __init__(self, name: Optional[str] = None) -> None:
+        super().__init__(name)
+        self.node_input = NodeDict()
 
-
-class DynamicSys(PAIBoxObject):
     def __call__(self, x):
         raise NotImplementedError
 
     def update(self, x):
         raise NotImplementedError
+
+    def reset(self, *args, **kwargs):
+        raise NotImplementedError
+
+
+class Projection(PAIBoxObject):
+    def __init__(self, shape: Shape, keep_size: bool = False, name: Optional[str] = None) -> None:
+        self.keep_size = keep_size
+        self.num = shape2num(shape)
+        self.shape = to_shape(shape) if keep_size else (self.num,)
+
+        super().__init__(name)
+
+    def __call__(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def update(self, *args, **kwargs):
+        raise NotImplementedError
+
+    @property
+    def shape_in(self):
+        raise NotImplementedError
+
+    @property
+    def shape_out(self) -> Tuple[int, ...]:
+        return self.shape
+
+
+class InputProj(Projection):
+    def __init__(
+        self,
+        shape: Shape,
+        val_or_func: Union[int, np.ndarray, Callable],
+        *,
+        keep_size: bool = False,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        """Input projection to define an output or a generation function.
+
+        Arguments:
+            - shape: the output shape.
+            - val_or_func: it can be an integer, `np.ndarray`, or a `Callable`.
+            - name: the name of the node. Optional.
+        """
+        super().__init__(shape, keep_size, name)
+        
+        if isinstance(val_or_func, int):
+            _val = np.full(self.shape, val_or_func)
+            _func = None
+        elif isinstance(val_or_func, np.ndarray):
+            if not is_shape(val_or_func, self.shape):
+                # TODO Error description
+                raise ValueError
+            _val = val_or_func
+            _func = None
+        else:
+            _val = np.zeros(self.shape)
+            _func = val_or_func
+
+        self.output = _val
+        self.output_func = _func
+
+    def __call__(self, *args, **kwargs):
+        return self.update(*args, **kwargs)
+
+    def update(self, *args, **kwargs) -> np.ndarray:
+        if isinstance(self.output_func, Callable):
+            self.output = self.output_func(*args, **kwargs)
+
+        return self.output
+
+
+class OutputNode(Projection):
+    pass
