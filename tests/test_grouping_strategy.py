@@ -1,8 +1,10 @@
-import pytest
-import numpy as np
-from dataclasses import dataclass
-from paibox.core.reg_types import LCNExtensionType as LCNX
 import time
+from dataclasses import dataclass
+
+import numpy as np
+import pytest
+
+from paibox.core.reg_types import LCNExtensionType as LCNX
 
 
 @dataclass

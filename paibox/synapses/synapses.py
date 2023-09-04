@@ -4,13 +4,8 @@ import numpy as np
 
 from paibox.base import DynamicSys
 from paibox.neuron import Neuron
-from .connector import (
-    All2All,
-    IndexConn,
-    MatConn,
-    One2One,
-    TwoEndConnector,
-)
+
+from .connector import All2All, IndexConn, MatConn, One2One, TwoEndConnector
 from .transforms import AllToAll, MaskedLinear, OneToOne
 
 
@@ -19,6 +14,7 @@ class Synapses:
 
     User can use connectivity matrix or COO to represent the connectivity of synapses.
     """
+
     def __init__(
         self,
         source: Neuron,
@@ -90,6 +86,7 @@ class NoDecay(Synapses, DynamicSys):
     Properties:
         - connectivity: the `np.ndarray` format of comm.
     """
+
     def __init__(
         self,
         source: Neuron,

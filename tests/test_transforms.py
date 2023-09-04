@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from paibox.synapses.transforms import AllToAll, OneToOne, MaskedLinear
 from paibox.synapses.connector import All2All, MatConn
+from paibox.synapses.transforms import AllToAll, MaskedLinear, OneToOne
 
 
 @pytest.mark.parametrize("weights", [np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1]), 1])
