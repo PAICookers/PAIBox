@@ -1,9 +1,8 @@
 import numpy as np
 import pytest
 
-from paibox.synapses import AllToAll, OneToOne
+from paibox.synapses.transforms import AllToAll, OneToOne, MaskedLinear
 from paibox.synapses.connector import All2All, MatConn
-from paibox.synapses.transforms import MaskedLinear
 
 
 @pytest.mark.parametrize("weights", [np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1]), 1])
@@ -17,7 +16,7 @@ def test_OneToOne(weights):
     )
     y = f(x)
     expected = x * weights
-    assert np.allclose(y, expected)
+    assert np.array_equal(y, expected)
 
 
 def test_AllToAll_weight_scalar():
@@ -27,7 +26,7 @@ def test_AllToAll_weight_scalar():
     y = f(x)
     expected = np.sum(x, keepdims=True) * weight
 
-    assert np.allclose(y, expected)
+    assert np.array_equal(y, expected)
 
     x = np.random.randint(2, size=(10, 1))
     with pytest.raises(ValueError):
@@ -60,7 +59,7 @@ def test_AllToAll_array(shape, weights, x):
     y = f(x)
     expected = np.dot(x, weights)
 
-    assert np.allclose(y, expected)
+    assert np.array_equal(y, expected)
 
 
 @pytest.mark.parametrize(
@@ -87,13 +86,13 @@ def test_MaskedLinear(conn, weights, x):
     expected = x @ (weights * conn.build_mat())
 
     assert y.shape == (conn.dest_num,)
-    assert np.allclose(y, expected)
+    assert np.array_equal(y, expected)
 
-    c1 = All2All(4, 3)
+    c1 = MatConn(4, 3, conn_mat=np.ones((4, 3)))
     w1 = np.array([[4, 3, 2], [1, 2, 1], [1, 1, 3], [1, 3, 4]])
     f1 = MaskedLinear(c1, weights=w1)
     x1 = np.array([1, 0, 1, 1])
     y1 = f1(x1)
     e1 = x1 @ (w1 * np.ones((4, 3)))
 
-    assert np.allclose(y1, e1)
+    assert np.array_equal(y1, e1)
