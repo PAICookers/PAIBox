@@ -73,7 +73,7 @@ class MetaNeuron:
         self._vjt_pre = self.init_param(
             vjt_init
         )  # Membrane potential at last timestep.
-        self._vjt = self.init_param(0)  # Membrane potential.
+        self._vjt = self.init_param(vjt_init)  # Membrane potential.
         self._spike = self.init_param(0).astype(np.bool_)
 
         # Attributes about ANN
@@ -299,7 +299,9 @@ class MetaNeuron:
     def update(self, x: np.ndarray) -> np.ndarray:
         """Update at one time step."""
 
-        """1. Charge"""
+        """1. Charge.
+            Sum the membrane potential from the previous synapses.
+        """
         self._neuronal_charge(x)
 
         """2. Leak & fire"""
@@ -326,7 +328,6 @@ class MetaNeuron:
 
 
 class Neuron(MetaNeuron, DynamicSys):
-
     @property
     def shape_in(self) -> Tuple[int, ...]:
         return self._shape
@@ -342,12 +343,12 @@ class Neuron(MetaNeuron, DynamicSys):
     def __len__(self) -> int:
         return self.num
 
-    def __call__(self, x: np.ndarray) -> np.ndarray:
-        return super().update(x)
+    def __call__(self, x) -> np.ndarray:
+        return self.update(x)
 
-    def initial(self) -> None:
-        self._vjt = self._vjt_init
-        self._vjt_pre = self._vjt
+    def reset(self) -> None:
+        """Initialization, not the neuronal reset."""
+        self._vjt = self._vjt_pre = self._vjt_init
 
 
 class TonicSpikingNeuron(Neuron):
@@ -358,6 +359,8 @@ class TonicSpikingNeuron(Neuron):
         shape: Shape,
         fire_step: int,
         vjt_init: int = 0,
+        *,
+        keep_size: bool = False,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -398,6 +401,7 @@ class TonicSpikingNeuron(Neuron):
             _sim,
             _bt,
             vjt_init,
+            keep_size=keep_size,
         )
         super(MetaNeuron, self).__init__(name)
 
@@ -411,6 +415,8 @@ class PhasicSpikingNeuron(Neuron):
         time_to_fire: int,
         neg_floor: int = 10,
         vjt_init: int = 0,
+        *,
+        keep_size: bool = False,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -454,5 +460,6 @@ class PhasicSpikingNeuron(Neuron):
             _sim,
             _bt,
             vjt_init,
+            keep_size=keep_size,
         )
         super(MetaNeuron, self).__init__(name)

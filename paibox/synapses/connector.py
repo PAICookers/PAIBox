@@ -6,8 +6,6 @@ import numpy as np
 from paibox._types import Shape
 from paibox.utils import shape2num
 
-__all__ = ["TwoEndConnector", "One2One", "MatConn", "IndexConn"]
-
 
 class Connector(ABC):
     """Connector"""
