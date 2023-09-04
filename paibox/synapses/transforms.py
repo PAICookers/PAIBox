@@ -4,6 +4,7 @@ from typing import Union
 import numpy as np
 
 from paibox.utils import is_shape
+
 from .connector import MatConn
 
 

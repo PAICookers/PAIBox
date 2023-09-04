@@ -2,17 +2,13 @@
 name = "paibox"
 version = "0.0.1"
 description = "New toolbox of PAICORE 2.0."
-authors = [
-    "Ziru Pan <zrpan@stu.pku.edu.cn>"
-]
-maintainers = [
-    "Ziru Pan <zrpan@stu.pku.edu.cn>"
-]
+authors = ["Ziru Pan <zrpan@stu.pku.edu.cn>"]
+maintainers = ["Ziru Pan <zrpan@stu.pku.edu.cn>"]
 license = "GPL-3.0-or-later"
 readme = "README.md"
 repository = "https://github.com/PAICookers/PAIBox"
 homepage = "https://github.com/PAICookers/PAIBox"
-packages = [{include = "paibox"}]
+packages = [{ include = "paibox" }]
 
 [tool.poetry.dependencies]
 python = "^3.9"
@@ -20,16 +16,10 @@ pydantic = "^2.0"
 numpy = "^1.23.0"
 
 
-[tool.poetry.group.dev.dependencies]
-pytest = "^7.4.0"
+[tool.poetry.group.test.dependencies]
+pytest = { version = "^7.4.0", python = "^3.7" }
 
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
-
-
-[tool.pytest.ini_options]
-minversion = "7.0"
-addopts = "-ra -q"
-testpaths = ["tests"]

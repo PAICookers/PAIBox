@@ -32,20 +32,20 @@ class Collector(dict):
     def __sub__(self, other):
         pass
 
-    def subset(self, _type: Type):
+    def subset(self, obj_type: Type):
         gather = type(self)()
 
         for k, v in self.items():
-            if isinstance(k, _type):
+            if isinstance(v, obj_type):
                 gather[k] = v
 
         return gather
 
-    def not_subset(self, _type: Type):
+    def not_subset(self, obj_type: Type):
         gather = type(self)()
 
         for k, v in self.items():
-            if not isinstance(k, _type):
+            if not isinstance(v, obj_type):
                 gather[k] = v
 
         return gather

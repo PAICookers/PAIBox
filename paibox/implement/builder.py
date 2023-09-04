@@ -1,6 +1,7 @@
 from collections import defaultdict
-import numpy as np
 from typing import Any, Dict
+
+import numpy as np
 
 from paibox.base import DynamicSys, PAIBoxObject
 from paibox.network import DynamicGroup
@@ -67,7 +68,7 @@ class Builder:
 
         for k, v in self._nodes.items():
             print(k, v)
-            
+
         for k, v in self._pred_dg.items():
             print(k, v)
 
@@ -82,7 +83,7 @@ class Builder:
 
             4. Weight width of the neuron is not 8-bit.
             5. Input/Spike width is not 8-bit
-        
+
         The `neuron_attrs` looks like:
         {
             'n1': {
@@ -100,14 +101,14 @@ class Builder:
                 neuron_attrs[name] = dict()
 
             neuron_attrs[name]["neuron_num"] = node.num
-            
+
             # Count all the pre-synapses which a node is connected with.
             axons_connected_each = 0
             for syn in self._pred_dg[name].values():
                 axons_connected_each += np.count_nonzero(syn.connectivity, axis=0)
-                
+
             axons_connected_total = np.sum(axons_connected_each)
-            
+
             neuron_attrs[name]["axons_connected_each"] = axons_connected_each
             neuron_attrs[name]["axons_connected_total"] = axons_connected_total
 

@@ -40,7 +40,7 @@ def count_unique_elem(obj: Iterable) -> int:
     return len(s)
 
 
-def is_nested(obj_on_top: Any) -> bool:
+def is_nested_obj(obj_on_top: Any) -> bool:
     """Check whether a object is nested"""
     return any(
         isinstance(item, Iterable) and not isinstance(item, str) for item in obj_on_top
