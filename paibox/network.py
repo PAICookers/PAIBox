@@ -1,6 +1,6 @@
 from typing import Optional
 
-from .base import DynamicSys, PAIBoxObject
+from .base import DynamicSys, PAIBoxObject, Projection
 from .mixin import Container
 from .node import NodeDict
 
@@ -14,6 +14,15 @@ class DynSysGroup(DynamicSys, Container):
     ) -> None:
         super().__init__(name)
         self.children = NodeDict(self.elem_format(component_type, *components))
+         
+    def update(self, *args, **kwargs):
+        nodes = self.nodes(level=1, include_self=False).subset(DynamicSys).unique()
+
+        for node in nodes.subset(Projection).values():
+            node(*args, **kwargs)
+
+        for node in nodes.subset(DynamicSys).values():
+            node()
 
 
 class Network(DynSysGroup):
