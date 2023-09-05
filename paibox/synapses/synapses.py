@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -19,6 +19,7 @@ class Synapses:
 
     User can use connectivity matrix or COO to represent the connectivity of synapses.
     """
+
     def __init__(
         self,
         source: Neuron,
@@ -61,12 +62,16 @@ class Synapses:
         return conn
 
     @property
-    def shape_in(self):
-        return self.source.shape_out
+    def connectivity(self) -> np.ndarray:
+        raise NotImplementedError
 
     @property
-    def shape_out(self):
-        return self.dest.shape_in
+    def shape_in(self) -> Tuple[int, ...]:
+        return self.source.shape
+
+    @property
+    def shape_out(self) -> Tuple[int, ...]:
+        return self.dest.shape
 
     @property
     def num_in(self) -> int:
@@ -75,10 +80,6 @@ class Synapses:
     @property
     def num_out(self) -> int:
         return self.dest.num
-
-    @property
-    def connectivity(self) -> np.ndarray:
-        raise NotImplementedError
 
 
 class NoDecay(Synapses, DynamicSys):
@@ -90,6 +91,7 @@ class NoDecay(Synapses, DynamicSys):
     Properties:
         - connectivity: the `np.ndarray` format of comm.
     """
+
     def __init__(
         self,
         source: Neuron,
@@ -122,11 +124,33 @@ class NoDecay(Synapses, DynamicSys):
             # TODO Error description
             raise ValueError
 
-    def __call__(self, spike):
+        self.reset()
+
+        # Register the synout for the destination neurons.
+        dest.register_master(f"{self.name}.output", self)
+
+    def __call__(self, spike: Optional[np.ndarray] = None):
         return self.update(spike)
 
-    def update(self, spike):
-        return self.comm(spike)
+    def update(self, spike: Optional[np.ndarray] = None):
+        if spike is None:
+            synin = self.source.spike
+        else:
+            synin = spike
+
+        self.synout = self.comm(synin)
+
+        # TODO Keep the return for a while.
+        return self.synout
+
+    def reset(self, init_val=0) -> None:
+        # TODO Add initialization methods
+        # Only constant initialization right now.
+        self.synout = np.zeros((self.num_in, self.num_out), dtype=np.int8)
+
+    @property
+    def output(self) -> np.ndarray:
+        return self.synout
 
     @property
     def connectivity(self) -> np.ndarray:

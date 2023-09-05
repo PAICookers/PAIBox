@@ -81,7 +81,6 @@ class AllToAll(Transform):
                 _x = np.sum(x)
             else:
                 raise ValueError
-
             output = self.weights * _x
         elif self.weights.ndim == 2:
             output = x @ self.weights  # same as np.dot(x, weights)
