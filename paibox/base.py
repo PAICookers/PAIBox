@@ -1,12 +1,12 @@
-from typing import Callable, List, Literal, Optional, Set, Tuple, Union, overload
+from typing import Callable, List, Literal, Optional, Set, Tuple, Union
 import numpy as np
 
+from ._types import Shape
 from .collector import Collector
 from .mixin import ReceiveInputProj
 from .generic import get_unique_name, is_name_unique
 from .utils import is_shape, shape2num, to_shape
 from .node import NodeDict, NodeList
-from ._types import Shape
 
 
 class PAIBoxObject:
@@ -111,42 +111,35 @@ def _add_node2(
         nodes.append(v)
 
 
-class DynamicSys(PAIBoxObject, ReceiveInputProj):
+class DynamicSys(PAIBoxObject):
+    def __call__(self, *args, **kwargs) -> ...:
+        raise NotImplementedError
+
+    def update(self, *args, **kwargs) -> ...:
+        raise NotImplementedError
+
+    def reset(self, *args, **kwargs) -> ...:
+        raise NotImplementedError
+
+
+class NeuDyn(DynamicSys, ReceiveInputProj):
     def __init__(self, name: Optional[str] = None) -> None:
         super().__init__(name)
-        self.node_input = NodeDict()
+        self.master_node = NodeDict()
 
-    def __call__(self, x):
-        raise NotImplementedError
-
-    def update(self, x):
-        raise NotImplementedError
-
-    def reset(self, *args, **kwargs):
+    @property
+    def spike(self) -> np.ndarray:
         raise NotImplementedError
 
 
 class Projection(PAIBoxObject):
-    def __init__(self, shape: Shape, keep_size: bool = False, name: Optional[str] = None) -> None:
-        self.keep_size = keep_size
-        self.num = shape2num(shape)
-        self.shape = to_shape(shape) if keep_size else (self.num,)
-
-        super().__init__(name)
-
-    def __call__(self, *args, **kwargs):
-        raise NotImplementedError
-
-    def update(self, *args, **kwargs):
+    @property
+    def shape_in(self) -> ...:
         raise NotImplementedError
 
     @property
-    def shape_in(self):
+    def shape_out(self) -> ...:
         raise NotImplementedError
-
-    @property
-    def shape_out(self) -> Tuple[int, ...]:
-        return self.shape
 
 
 class InputProj(Projection):
@@ -154,6 +147,7 @@ class InputProj(Projection):
         self,
         shape: Shape,
         val_or_func: Union[int, np.ndarray, Callable],
+        target: NeuDyn,
         *,
         keep_size: bool = False,
         name: Optional[str] = None,
@@ -166,8 +160,11 @@ class InputProj(Projection):
             - val_or_func: it can be an integer, `np.ndarray`, or a `Callable`.
             - name: the name of the node. Optional.
         """
-        super().__init__(shape, keep_size, name)
-        
+        super().__init__(name)
+        self.keep_size = keep_size
+        self.num = shape2num(shape)
+        self.shape = to_shape(shape) if keep_size else (self.num,)
+
         if isinstance(val_or_func, int):
             _val = np.full(self.shape, val_or_func)
             _func = None
@@ -181,18 +178,32 @@ class InputProj(Projection):
             _val = np.zeros(self.shape)
             _func = val_or_func
 
-        self.output = _val
-        self.output_func = _func
+        self.val = _val
+        self.func = _func
+
+        target.register_master(f"{self.name}.output", self)
 
     def __call__(self, *args, **kwargs):
         return self.update(*args, **kwargs)
 
     def update(self, *args, **kwargs) -> np.ndarray:
-        if isinstance(self.output_func, Callable):
-            self.output = self.output_func(*args, **kwargs)
+        if isinstance(self.func, Callable):
+            self.val = self.func(*args, **kwargs)
 
-        return self.output
+        return self.val
+
+    @property
+    def output(self) -> np.ndarray:
+        return self.val
+
+    @property
+    def shape_in(self) -> int:
+        return 0
+
+    @property
+    def shape_out(self) -> Tuple[int, ...]:
+        return self.shape
 
 
-class OutputNode(Projection):
+class OutputProj(Projection):
     pass
