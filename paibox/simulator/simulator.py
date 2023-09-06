@@ -1,19 +1,17 @@
-from typing import Any, List
+from typing import Dict, List
 import numpy as np
 
-from paibox.base import DynamicSys
+from paibox.base import DynamicSys, PAIBoxObject
 from paibox.collector import Collector
 from paibox.mixin import singleton
 from .probe import Probe
 
 
-@singleton
-class Simulator:
+class Simulator(PAIBoxObject):
     def __init__(
         self,
         target: DynamicSys,
         dt: int = 1,
-        t0: int = 0,
     ) -> None:
         """
         Arguments:
@@ -21,13 +19,14 @@ class Simulator:
             - dt: the time step.
             - t0: the initial time.
         """
-        self.target = target
+        super().__init__()
 
+        self.target = target
         # Timescale
         self.dt = dt
-        self.t0 = t0
         # Inner status of the simulator. Time scale unit.
         self._ts1 = 0
+        self._tick = 0
 
         self._sim_data = dict()
         self.data = SimulationData(self._sim_data)
@@ -42,7 +41,7 @@ class Simulator:
 
         self.reset()
 
-    def run(self, duration: int, *args, **kwargs) -> None:
+    def run(self, duration: int, **kwargs) -> None:
         """
         Arguments:
             - duration: duration of the simulation.
@@ -51,29 +50,32 @@ class Simulator:
             # TODO
             raise ValueError
 
-        steps = self._get_time_step(duration)
-        if steps == 0:
+        n_steps = self._get_nstep(duration)
+        if n_steps == 0:
             # TODO
             raise ValueError
 
-        indices = np.arange(self._ts1, self._ts1 + steps, self.dt, dtype=np.int16)
-        
-        self.run_step(steps, *args, **kwargs)
-        
-        self._sim_data["ts"] = indices * self.dt + self.t0
-        self._ts1 += steps
+        indices = np.arange(self._ts1, self._ts1 + n_steps, self.dt, dtype=np.int16)
 
-    def run_step(self, steps: int, *args, **kwargs) -> None:
-        for i in range(steps):
-            self.step(*args, **kwargs)
+        self.run_step(n_steps=n_steps, **kwargs)
 
-    def step(self, *args, **kwargs) -> None:
-        self.target.update(*args, **kwargs)
+        self._sim_data["ts"] = indices * self.dt
+        self._ts1 += n_steps
+        self._tick = self._ts1
+
+    def run_step(self, n_steps: int, **kwargs) -> None:
+        for i in range(n_steps):
+            self._tick += i
+            self.step(tick=self._tick, **kwargs)
+
+    def step(self, **kwargs) -> None:
+        self.target.update(**kwargs)
 
         self._update_probe()
 
     def reset(self) -> None:
         self._ts1 = 0
+        self._tick = 0
         self.clear_probes()
 
     def clear_probes(self):
@@ -82,7 +84,7 @@ class Simulator:
 
         self.data.reset()
 
-    def _get_time_step(self, duration: int) -> int:
+    def _get_nstep(self, duration: int) -> int:
         return int(duration / self.dt)
 
     def _update_probe(self) -> None:
@@ -111,7 +113,7 @@ class Simulator:
 class SimulationData(dict):
     """Data structure used to retrive and access the simulation data."""
 
-    def __init__(self, raw: Any) -> None:
+    def __init__(self, raw: Dict) -> None:
         super().__init__()
         self.raw = raw
         self._cache = {}
