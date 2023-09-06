@@ -1,11 +1,12 @@
-from typing import Callable, List, Literal, Optional, Set, Tuple, Union
+from typing import List, Literal, Optional, Set, Tuple
 import numpy as np
+
+from .utils import as_shape, shape2num
 
 from ._types import Shape
 from .collector import Collector
 from .mixin import ReceiveInputProj
 from .generic import get_unique_name, is_name_unique
-from .utils import is_shape, shape2num, to_shape
 from .node import NodeDict, NodeList
 
 
@@ -19,7 +20,7 @@ class PAIBoxObject:
 
         return type(self) == type(other) and self._name == other._name
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash((type(self), self._name))
 
     def unique_name(
@@ -112,13 +113,17 @@ def _add_node2(
 
 
 class DynamicSys(PAIBoxObject):
-    def __call__(self, *args, **kwargs) -> ...:
+    def __call__(self, *args, **kwargs):
         raise NotImplementedError
 
-    def update(self, *args, **kwargs) -> ...:
+    def update(self, *args, **kwargs):
         raise NotImplementedError
 
-    def reset(self, *args, **kwargs) -> ...:
+    def reset(self, *args, **kwargs):
+        raise NotImplementedError
+
+    @property
+    def state(self):
         raise NotImplementedError
 
 
@@ -132,7 +137,13 @@ class NeuDyn(DynamicSys, ReceiveInputProj):
         raise NotImplementedError
 
 
-class Projection(PAIBoxObject):
+class SynSys(DynamicSys):
+    @property
+    def connectivity(self) -> np.ndarray:
+        raise NotImplementedError
+
+
+class Projection(DynamicSys):
     @property
     def shape_in(self) -> ...:
         raise NotImplementedError
@@ -140,70 +151,52 @@ class Projection(PAIBoxObject):
     @property
     def shape_out(self) -> ...:
         raise NotImplementedError
+    
+    @property
+    def output(self):
+        raise NotImplementedError
 
 
-class InputProj(Projection):
+class Process(DynamicSys):
     def __init__(
         self,
-        shape: Shape,
-        val_or_func: Union[int, np.ndarray, Callable],
-        target: NeuDyn,
+        shape_out: Shape = 1,
         *,
         keep_size: bool = False,
         name: Optional[str] = None,
-        **kwargs,
     ) -> None:
-        """Input projection to define an output or a generation function.
-
-        Arguments:
-            - shape: the output shape.
-            - val_or_func: it can be an integer, `np.ndarray`, or a `Callable`.
-            - name: the name of the node. Optional.
-        """
         super().__init__(name)
+        self._shape_out = as_shape(shape_out)
+        self.num = shape2num(self.shape_out)
         self.keep_size = keep_size
-        self.num = shape2num(shape)
-        self.shape = to_shape(shape) if keep_size else (self.num,)
 
-        if isinstance(val_or_func, int):
-            _val = np.full(self.shape, val_or_func)
-            _func = None
-        elif isinstance(val_or_func, np.ndarray):
-            if not is_shape(val_or_func, self.shape):
-                # TODO Error description
-                raise ValueError
-            _val = val_or_func
-            _func = None
-        else:
-            _val = np.zeros(self.shape)
-            _func = val_or_func
+        self.output = np.zeros(self.varshape, dtype=np.bool_)
 
-        self.val = _val
-        self.func = _func
+    def run(self, duration: int, dt: int = 1) -> np.ndarray:
+        if duration < 0:
+            # TODO
+            raise ValueError
 
-        target.register_master(f"{self.name}.output", self)
+        n_steps = int(duration / dt)
+        return self.run_steps(n_steps)
 
-    def __call__(self, *args, **kwargs):
-        return self.update(*args, **kwargs)
+    def run_steps(self, n_steps: int) -> np.ndarray:
+        output = np.zeros((n_steps,) + self.varshape, dtype=np.bool_)
 
-    def update(self, *args, **kwargs) -> np.ndarray:
-        if isinstance(self.func, Callable):
-            self.val = self.func(*args, **kwargs)
+        for i in range(n_steps):
+            self.update()
+            output[i] = self.state
 
-        return self.val
+        return output
 
     @property
-    def output(self) -> np.ndarray:
-        return self.val
+    def state(self) -> np.ndarray:
+        return self.output
 
     @property
-    def shape_in(self) -> int:
-        return 0
+    def varshape(self) -> Tuple[int, ...]:
+        return self.shape_out if self.keep_size else (self.num,)
 
     @property
     def shape_out(self) -> Tuple[int, ...]:
-        return self.shape
-
-
-class OutputProj(Projection):
-    pass
+        return self._shape_out
