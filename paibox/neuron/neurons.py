@@ -12,7 +12,7 @@ from paibox.neuron.ram_types import NegativeThresholdMode as NTM
 from paibox.neuron.ram_types import ResetMode as RM
 from paibox.neuron.ram_types import SynapticIntegrationMode as SIM
 from paibox.neuron.ram_types import ThresholdMode as TM
-from paibox.utils import fn_sgn, shape2num, to_shape
+from paibox.utils import fn_sgn, shape2num, as_shape
 
 
 class MetaNeuron:
@@ -42,7 +42,7 @@ class MetaNeuron:
         # Basic
         self.keep_size = keep_size
         self.n_neurons = shape2num(shape)
-        self._shape = to_shape(shape) if keep_size else (self.n_neurons,)
+        self._shape = as_shape(shape)
 
         # Configurations in SNN mode
         self._reset_mode: RM = reset_mode
@@ -323,7 +323,7 @@ class MetaNeuron:
 
     @property
     def varshape(self) -> Tuple[int, ...]:
-        return self._shape if self.keep_size else (self.n_neurons,)
+        return as_shape(self._shape) if self.keep_size else (self.n_neurons,)
 
     def init_param(self, param, shape: Optional[Shape] = None) -> np.ndarray:
         _shape = self.varshape if shape is None else shape
@@ -347,6 +347,10 @@ class Neuron(MetaNeuron, NeuDyn):
 
     @property
     def spike(self) -> np.ndarray:
+        return self._spike
+    
+    @property
+    def state(self) -> np.ndarray:
         return self._spike
 
     def __len__(self) -> int:

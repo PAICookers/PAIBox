@@ -2,14 +2,14 @@ import numpy as np
 import pytest
 
 import paibox as pb
-from paibox.utils import shape2num, to_shape
+from paibox.utils import shape2num, as_shape
 
 
 @pytest.mark.parametrize("shape", [1, 10, (12,), (20, 20)])
 def test_neuron_instance(shape):
     n1 = pb.neuron.TonicSpikingNeuron(shape, 5)
 
-    assert n1.shape_in == to_shape(shape)
+    assert n1.shape == as_shape(shape)
     assert len(n1) == shape2num(shape)
 
 

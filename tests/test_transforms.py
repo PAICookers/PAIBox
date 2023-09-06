@@ -24,7 +24,7 @@ def test_AllToAll_weight_scalar():
     x = np.random.randint(2, size=(10,))
     f = AllToAll(num_in, num_out, weight)
     y = f(x)
-    expected = np.sum(x, keepdims=True) * weight
+    expected = np.sum(x) * weight
 
     assert np.array_equal(y, expected)
 

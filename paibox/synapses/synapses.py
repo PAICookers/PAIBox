@@ -2,7 +2,7 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
-from paibox.base import DynamicSys
+from paibox.base import SynSys
 from paibox.neuron import Neuron
 from .connector import (
     All2All,
@@ -62,10 +62,6 @@ class Synapses:
         return conn
 
     @property
-    def connectivity(self) -> np.ndarray:
-        raise NotImplementedError
-
-    @property
     def shape_in(self) -> Tuple[int, ...]:
         return self.source.shape
 
@@ -82,7 +78,7 @@ class Synapses:
         return self.dest.num
 
 
-class NoDecay(Synapses, DynamicSys):
+class NoDecay(Synapses, SynSys):
     """Synapses model with no decay.
 
     Attributes:
@@ -150,6 +146,10 @@ class NoDecay(Synapses, DynamicSys):
 
     @property
     def output(self) -> np.ndarray:
+        return self.synout
+    
+    @property
+    def state(self) -> np.ndarray:
         return self.synout
 
     @property
