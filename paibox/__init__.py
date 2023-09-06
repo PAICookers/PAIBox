@@ -7,3 +7,4 @@ from .network import Sequential as Sequential
 from .neuron import *
 from .synapses import *
 from .simulator import Simulator as Simulator
+from .processes import UniformGen as UniformGen
