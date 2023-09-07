@@ -3,7 +3,7 @@ import numpy as np
 from typing import Any, Dict
 
 from paibox.base import DynamicSys, PAIBoxObject
-from paibox.network import DynamicGroup
+from paibox.network import DynSysGroup
 from paibox.neuron import Neuron
 from paibox.synapses import Synapses
 
@@ -15,11 +15,11 @@ class Builder:
         self._pred_dg: Dict[str, Dict[str, Synapses]] = defaultdict(dict)
         self._succ_dg: Dict[str, Dict[str, Synapses]] = defaultdict(dict)
 
-    def build_graph(self, network: DynamicGroup) -> None:
+    def build_graph(self, network: DynSysGroup) -> None:
         """Build the directed graph given a network.
 
         Arguments:
-            - network: a DynamicGroup.
+            - network: a DynSysGroup.
 
         For a single-layer network:
             INPUT -> S0 -> N1 -> S1 -> N2
