@@ -62,15 +62,19 @@ def shape2num(shape: Shape) -> int:
     raise ValueError(f"Type of {shape} is not supported: {type(shape)}")
 
 
-def to_shape(shape: Shape) -> Tuple[int, ...]:
+def as_shape(shape, min_dim: int = 0) -> Tuple[int, ...]:
     """Convert a shape to a tuple, like (1,), (10,), or (10, 20)"""
-    if isinstance(shape, (list, tuple)):
-        return tuple(shape)
+    if is_integer(shape):
+        _shape = (shape,)
+    elif is_iterable(shape):
+        _shape = tuple(shape)
+    else:
+        raise ValueError(f"Cannot make a shape for {shape}")
 
-    if isinstance(shape, (int, np.integer)):
-        return (shape,)
+    if len(_shape) < min_dim:
+        _shape = tuple([1] * (min_dim - len(_shape))) + _shape
 
-    raise ValueError(f"Cannot make a shape for {shape}")
+    return _shape
 
 
 def is_shape(x, shape: Shape) -> bool:
@@ -78,7 +82,7 @@ def is_shape(x, shape: Shape) -> bool:
         raise TypeError(f"Only support an array-like type: {x}")
 
     _x = np.asarray(x)
-    return _x.shape == to_shape(shape)
+    return _x.shape == as_shape(shape)
 
 
 def is_integer(obj: Any) -> bool:
@@ -95,6 +99,14 @@ def is_array(obj: Any) -> bool:
 
 def is_array_like(obj: Any) -> bool:
     return is_array(obj) or is_number(obj) or isinstance(obj, (list, tuple))
+
+
+def is_iterable(obj: Any) -> bool:
+    """Check whether obj is an iterable."""
+    if isinstance(obj, np.ndarray):
+        return obj.ndim > 0
+
+    return isinstance(obj, Iterable)
 
 
 def fn_sgn(a, b) -> int:

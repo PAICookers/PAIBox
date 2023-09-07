@@ -1,8 +1,13 @@
-from typing import List, Literal, Optional, Set
+from typing import List, Literal, Optional, Set, Tuple
 
-from paibox.collector import Collector
-from paibox.generic import get_unique_name, is_name_unique
-from paibox.node import NodeDict, NodeList
+import numpy as np
+
+from ._types import Shape
+from .collector import Collector
+from .generic import get_unique_name, is_name_unique
+from .mixin import ReceiveInputProj
+from .node import NodeDict, NodeList
+from .utils import as_shape, shape2num
 
 
 class PAIBoxObject:
@@ -15,7 +20,7 @@ class PAIBoxObject:
 
         return type(self) == type(other) and self._name == other._name
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash((type(self), self._name))
 
     def unique_name(
@@ -107,13 +112,91 @@ def _add_node2(
         nodes.append(v)
 
 
-class StatelessObject(PAIBoxObject):
-    pass
-
-
 class DynamicSys(PAIBoxObject):
-    def __call__(self, x):
+    def __call__(self, *args, **kwargs):
         raise NotImplementedError
 
-    def update(self, x):
+    def update(self, *args, **kwargs):
         raise NotImplementedError
+
+    def reset(self, *args, **kwargs):
+        raise NotImplementedError
+
+    @property
+    def state(self):
+        raise NotImplementedError
+
+
+class NeuDyn(DynamicSys, ReceiveInputProj):
+    def __init__(self, name: Optional[str] = None) -> None:
+        super().__init__(name)
+        self.master_node = NodeDict()
+
+    @property
+    def spike(self) -> np.ndarray:
+        raise NotImplementedError
+
+
+class SynSys(DynamicSys):
+    @property
+    def connectivity(self) -> np.ndarray:
+        raise NotImplementedError
+
+
+class Projection(DynamicSys):
+    @property
+    def shape_in(self) -> ...:
+        raise NotImplementedError
+
+    @property
+    def shape_out(self) -> ...:
+        raise NotImplementedError
+
+    @property
+    def output(self):
+        raise NotImplementedError
+
+
+class Process(DynamicSys):
+    def __init__(
+        self,
+        shape_out: Shape = 1,
+        *,
+        keep_size: bool = False,
+        name: Optional[str] = None,
+    ) -> None:
+        super().__init__(name)
+        self._shape_out = as_shape(shape_out)
+        self.num = shape2num(self.shape_out)
+        self.keep_size = keep_size
+
+        self.output = np.zeros(self.varshape, dtype=np.bool_)
+
+    def run(self, duration: int, dt: int = 1) -> np.ndarray:
+        if duration < 0:
+            # TODO
+            raise ValueError
+
+        n_steps = int(duration / dt)
+        return self.run_steps(n_steps)
+
+    def run_steps(self, n_steps: int) -> np.ndarray:
+        output = np.zeros((n_steps,) + self.varshape, dtype=np.bool_)
+
+        for i in range(n_steps):
+            self.update()
+            output[i] = self.state
+
+        return output
+
+    @property
+    def state(self) -> np.ndarray:
+        return self.output
+
+    @property
+    def varshape(self) -> Tuple[int, ...]:
+        return self.shape_out if self.keep_size else (self.num,)
+
+    @property
+    def shape_out(self) -> Tuple[int, ...]:
+        return self._shape_out

@@ -3,7 +3,7 @@ from typing import Optional, Tuple
 import numpy as np
 
 from paibox._types import Shape
-from paibox.base import DynamicSys
+from paibox.base import NeuDyn
 from paibox.core.reg_types import MaxPoolingEnableType, SpikeWidthFormatType
 from paibox.neuron.ram_types import LeakingComparisonMode as LCM
 from paibox.neuron.ram_types import LeakingDirectionMode as LDM
@@ -12,7 +12,7 @@ from paibox.neuron.ram_types import NegativeThresholdMode as NTM
 from paibox.neuron.ram_types import ResetMode as RM
 from paibox.neuron.ram_types import SynapticIntegrationMode as SIM
 from paibox.neuron.ram_types import ThresholdMode as TM
-from paibox.utils import fn_sgn, shape2num, to_shape
+from paibox.utils import as_shape, fn_sgn, shape2num
 
 
 class MetaNeuron:
@@ -40,9 +40,9 @@ class MetaNeuron:
     ) -> None:
         """Stateless attributes. Scalar."""
         # Basic
-        self._shape = to_shape(shape)
-        self.n_neurons = shape2num(shape)
         self.keep_size = keep_size
+        self.n_neurons = shape2num(shape)
+        self._shape = as_shape(shape)
 
         # Configurations in SNN mode
         self._reset_mode: RM = reset_mode
@@ -102,9 +102,12 @@ class MetaNeuron:
         xt = np.zeros(self.varshape)
 
         if self._synaptic_integration_mode is SIM.MODE_STOCHASTIC:
-            xt = _rho_w_ij * x
+            raise NotImplementedError
         else:
-            xt = x
+            if x.ndim == 2:
+                xt = x.sum(axis=1)
+            else:
+                xt = x
 
         self._vjt = np.add(self._vjt_pre, xt)
 
@@ -301,6 +304,7 @@ class MetaNeuron:
 
         """1. Charge.
             Sum the membrane potential from the previous synapses.
+            Don't care the /rho right now.
         """
         self._neuronal_charge(x)
 
@@ -314,12 +318,12 @@ class MetaNeuron:
 
         """3. Reset"""
         self._neuronal_reset()
-
+        print(f"Output: {self._spike}")
         return self._spike
 
     @property
     def varshape(self) -> Tuple[int, ...]:
-        return self._shape if self.keep_size else (self.n_neurons,)
+        return as_shape(self._shape) if self.keep_size else (self.n_neurons,)
 
     def init_param(self, param, shape: Optional[Shape] = None) -> np.ndarray:
         _shape = self.varshape if shape is None else shape
@@ -327,24 +331,39 @@ class MetaNeuron:
         return np.full(_shape, param)
 
 
-class Neuron(MetaNeuron, DynamicSys):
+class Neuron(MetaNeuron, NeuDyn):
     @property
-    def shape_in(self) -> Tuple[int, ...]:
-        return self._shape
-
-    @property
-    def shape_out(self) -> Tuple[int, ...]:
+    def shape(self) -> Tuple[int, ...]:
         return self._shape
 
     @property
     def num(self) -> int:
         return self.n_neurons
 
-    def __len__(self) -> int:
-        return self.num
+    @property
+    def output(self) -> np.ndarray:
+        # TODO Keep the name of "output" for a while.
+        return self._spike
 
-    def __call__(self, x) -> np.ndarray:
+    @property
+    def spike(self) -> np.ndarray:
+        return self._spike
+
+    @property
+    def state(self) -> np.ndarray:
+        return self._spike
+
+    def __len__(self) -> int:
+        return self.n_neurons
+
+    def __call__(self, x: Optional[np.ndarray] = None) -> np.ndarray:
         return self.update(x)
+
+    def update(self, x: Optional[np.ndarray] = None):
+        if x is None:
+            x = self.sum_inputs()
+
+        return super().update(x)
 
     def reset(self) -> None:
         """Initialization, not the neuronal reset."""

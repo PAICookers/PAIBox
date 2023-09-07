@@ -1,7 +1,10 @@
 from functools import wraps
 from typing import Type
 
-from .base import PAIBoxObject
+import numpy as np
+
+import paibox as pb
+
 from .generic import get_unique_name
 from .node import NodeDict
 
@@ -32,7 +35,7 @@ class Container(MixIn):
         raise KeyError
 
     def _get_elem_name(self, elem) -> str:
-        if isinstance(elem, PAIBoxObject):
+        if isinstance(elem, pb.PAIBoxObject):
             return elem._name
         else:
             return get_unique_name("ContainerElem")
@@ -64,3 +67,25 @@ class Container(MixIn):
         """Add elements as a dictionary"""
 
         self.children.update(self.elem_format(object, **elems))
+
+
+class ReceiveInputProj(MixIn):
+    master_node: NodeDict
+
+    def register_master(self, key: str, master_target) -> None:
+        if key in self.master_node:
+            # TODO
+            raise ValueError
+
+        self.master_node[key] = master_target
+
+    def get_master_node(self, key: str):
+        return self.master_node.get(key, None)
+
+    def sum_inputs(self, *args, init=0, **kwargs) -> np.ndarray:
+        # TODO Out is a np.ndarray right now, but it may be more than one type.
+        output = init
+        for master in self.master_node.values():
+            output += master.output
+
+        return output
