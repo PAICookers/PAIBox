@@ -75,35 +75,78 @@ class PAIBoxObject:
         if (level > -1) and (lid >= level):
             return gather
 
-        nodes = []
-        for k, v in self.__dict__.items():
-            if isinstance(v, PAIBoxObject):
-                _add_node2(self, v, _paths, gather, nodes)
-            elif isinstance(v, NodeList):
-                for v2 in v:
-                    _add_node2(self, v2, _paths, gather, nodes)
-            elif isinstance(v, NodeDict):
-                for v2 in v.values():
-                    if isinstance(v2, PAIBoxObject):
+        def _find_nodes_absolute() -> None:
+            for k, v in self.__dict__.items():
+                if isinstance(v, PAIBoxObject):
+                    _add_node2(self, v, _paths, gather, nodes)
+                elif isinstance(v, NodeList):
+                    for v2 in v:
                         _add_node2(self, v2, _paths, gather, nodes)
+                elif isinstance(v, NodeDict):
+                    for v2 in v.values():
+                        if isinstance(v2, PAIBoxObject):
+                            _add_node2(self, v2, _paths, gather, nodes)
 
-        # finding nodes recursively
-        for v in nodes:
-            gather.update(
-                v._find_nodes(
+            # finding nodes recursively
+            for v in nodes:
+                gather.update(
+                    v._find_nodes(
+                        method=method,
+                        level=level,
+                        include_self=include_self,
+                        lid=lid + 1,
+                        _paths=_paths,
+                    )
+                )
+
+        def _find_nodes_relative() -> None:
+            for k, v in self.__dict__.items():
+                if isinstance(v, PAIBoxObject):
+                    _add_node1(self, k, v, _paths, gather, nodes)
+                elif isinstance(v, NodeList):
+                    for i, v2 in enumerate(v):
+                        _add_node1(self, k + "-" + str(i), v2, _paths, gather, nodes)
+                elif isinstance(v, NodeDict):
+                    for k2, v2 in v.items():
+                        if isinstance(v2, PAIBoxObject):
+                            _add_node1(self, k + "." + k2, v2, _paths, gather, nodes)
+
+            # finding nodes recursively
+            for k1, v1 in nodes:
+                for k2, v2 in v1._find_nodes(
+                    method=method,
                     level=level,
                     include_self=include_self,
                     lid=lid + 1,
                     _paths=_paths,
-                )
-            )
+                ).items():
+                    if k2:
+                        gather[f"{k1}.{k2}"] = v2
+
+        nodes = []
+
+        if method == "absolute":
+            _find_nodes_absolute()
+        else:
+            _find_nodes_relative()
 
         return gather
 
 
+def _add_node1(
+    obj: object, k: str, v: PAIBoxObject, _paths: Set, gather: Collector, nodes: List
+) -> None:
+    path = (id(obj), id(v))
+
+    if path not in _paths:
+        _paths.add(path)
+        gather[k] = v
+        nodes.append((k, v))
+
+
 def _add_node2(
     obj: object, v: PAIBoxObject, _paths: Set, gather: Collector, nodes: List
-):
+) -> None:
     path = (id(obj), id(v))
 
     if path not in _paths:

@@ -1,4 +1,4 @@
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 from .base import DynamicSys, NeuDyn, PAIBoxObject, Process, Projection, SynSys
 from .mixin import Container
@@ -48,11 +48,12 @@ class Sequential(DynamicSys, Container):
 
         return x
 
-    def __getitem__(self, item):
+    def __getitem__(self, item: Union[str, int, slice]):
         if isinstance(item, str):
             if item in self.children:
                 return self.children[item]
             else:
+                # TODO
                 raise KeyError
 
         if isinstance(item, int):
@@ -60,11 +61,6 @@ class Sequential(DynamicSys, Container):
 
         if isinstance(item, slice):
             return Sequential(**dict(tuple(self.children.items())[item]))
-
-        if isinstance(item, (tuple, list)):
-            # FIXME
-            _all_nodes = tuple(self.children.items())
-            return Sequential(**dict(_all_nodes[k] for k in item))
 
         raise KeyError
 
