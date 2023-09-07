@@ -37,40 +37,9 @@ def test_Sequential_getitem():
     seq = sequential[0:]
     seq = sequential[1:10]
 
-    seq = sequential["n1"]
+    seq = sequential[["n1", "n2"]]
 
     sequential[1:2]  # legal
-
-
-def test_Sequential_default_update():
-    expected = np.array([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1])
-
-    # Input is a constant array
-    inp1 = pb.base.InputProj((10, 10), 1)
-    n1 = pb.neuron.TonicSpikingNeuron((10, 10), fire_step=3)
-    s1 = pb.synapses.NoDecay(inp1, n1, pb.synapses.One2One())
-    seq = pb.network.Sequential(s1, n1, name="Sequential_1_3")
-
-    for i in range(9):
-        inp = inp1.update()
-        y = seq.update(inp)
-
-        assert np.array_equal(y, np.ones((100,)) * expected[i])
-
-    # Input is a function
-    def gen_inp_data(ts: int):
-        return np.ones((100,)) * ts
-
-    inp2 = pb.base.InputProj((10, 10), gen_inp_data)
-    n2 = pb.neuron.TonicSpikingNeuron((10, 10), fire_step=7)
-    s2 = pb.synapses.NoDecay(inp2, n2, pb.synapses.One2One())
-    seq = pb.network.Sequential(s2, n2, name="Sequential_1_4")
-
-    for i in range(9):
-        inp = inp2.update(i)
-        y = seq.update(inp)
-
-        assert np.array_equal(inp, np.ones((100,)) * i)
 
 
 class Net1_User_Update(pb.DynSysGroup):
@@ -150,6 +119,29 @@ def test_DynSysGroup_nodes():
     assert syn_nodes == [net.s1]
 
 
+def test_DynSysGroup_AutoUpdate_No_Nested():
+    net = Net1()
+    inp = pb.network.InputProj((2,), np.array([1, 1]), net.n1)
+
+    x = np.ones((10, 2))
+    expected_y_n1 = np.array(
+        [[0, 0], [1, 1], [0, 0], [1, 1], [0, 0], [1, 1], [0, 0], [1, 1], [0, 0], [1, 1]]
+    )
+    expected_y_n2 = np.array(
+        [[0, 0], [0, 0], [0, 0], [0, 0], [1, 1], [0, 0], [0, 0], [0, 0], [1, 1], [0, 0]]
+    )
+
+    y = []
+    for i in range(4):
+        net.update()
+
+        assert np.array_equal(net.n1.output, expected_y_n1[i])
+        assert np.array_equal(net.n2.output, expected_y_n2[i])
+
+    net.update()
+    assert np.array_equal(net.n2.output, expected_y_n2[4])
+
+
 @pytest.mark.parametrize("level", [1, 2], ids=["level_1", "level_2"])
 def test_SynSysGroup_nodes_nested(level):
     net = Net2()
@@ -177,6 +169,8 @@ def test_DynSysGroup_update():
         n1 -> s1 -> n2
 
     Use the default `update()` function.
+    
+    FIXME ERROR!
     """
 
     def sequential_structure_user_update():
@@ -213,3 +207,42 @@ def test_DynSysGroup_update():
             assert np.array_equal(y, np.ones((3,)) * y3[i])
 
     general_structure_user_update()
+
+
+def test_InputProj_func() -> None:
+
+    inp = pb.network.InputProj(pb.processes.UniformGen((5,)))
+    
+    sim = pb.Simulator(inp)
+    p1 = pb.simulator.Probe(inp, "state")
+    
+    sim.add_probe(p1)
+    sim.run(10)
+
+    assert sim.data[p1].shape == (10, 5)
+    
+    inp2 = pb.network.InputProj(pb.processes.Constant((3,), 1))
+    
+    sim2 = pb.Simulator(inp2)
+    p2 = pb.simulator.Probe(inp2, "state")
+    
+    sim2.add_probe(p2)
+    sim2.run(10)
+
+def test_InputProj_user_func():  
+    # 1. Define a process
+    class MyProcess(pb.base.Process):
+        def __init__(self, shape_out) -> None:
+            super().__init__(shape_out)
+
+        def update(self, tick, bias) -> None:
+            self.output = np.ones(self.shape_out) * tick + bias
+            
+    # 2. Define a input projection
+    my_inp = pb.network.InputProj(MyProcess((10, 10)))
+    
+    # 3. Simulate this input projection
+    my_sim = pb.Simulator(my_inp)
+    my_probe = pb.simulator.Probe(my_inp, "state")
+    my_sim.add_probe(my_probe)
+    my_sim.run(10, bias=1)
