@@ -70,7 +70,7 @@ def as_shape(shape, min_dim: int = 0) -> Tuple[int, ...]:
         _shape = tuple(shape)
     else:
         raise ValueError(f"Cannot make a shape for {shape}")
-    
+
     if len(_shape) < min_dim:
         _shape = tuple([1] * (min_dim - len(_shape))) + _shape
 

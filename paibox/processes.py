@@ -1,5 +1,6 @@
-import numpy as np
 from typing import Optional, Tuple
+
+import numpy as np
 
 from ._types import Shape
 from .base import PAIBoxObject, Process

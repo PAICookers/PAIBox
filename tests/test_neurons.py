@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 import paibox as pb
-from paibox.utils import shape2num, as_shape
+from paibox.utils import as_shape, shape2num
 
 
 @pytest.mark.parametrize("shape", [1, 10, (12,), (20, 20)])

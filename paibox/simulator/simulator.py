@@ -1,9 +1,11 @@
 from typing import Dict, List
+
 import numpy as np
 
 from paibox.base import DynamicSys, PAIBoxObject
 from paibox.collector import Collector
 from paibox.mixin import singleton
+
 from .probe import Probe
 
 

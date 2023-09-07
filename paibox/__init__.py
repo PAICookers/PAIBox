@@ -5,6 +5,6 @@ from .network import DynSysGroup as DynSysGroup
 from .network import Network as Network
 from .network import Sequential as Sequential
 from .neuron import *
-from .synapses import *
-from .simulator import Simulator as Simulator
 from .processes import UniformGen as UniformGen
+from .simulator import Simulator as Simulator
+from .synapses import *

@@ -1,5 +1,6 @@
-import pytest
 import numpy as np
+import pytest
+
 import paibox as pb
 from paibox.node import NodeDict
 

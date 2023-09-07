@@ -1,8 +1,10 @@
 from functools import wraps
-import numpy as np
 from typing import Type
 
+import numpy as np
+
 import paibox as pb
+
 from .generic import get_unique_name
 from .node import NodeDict
 

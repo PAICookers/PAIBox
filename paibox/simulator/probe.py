@@ -1,4 +1,5 @@
 from typing import Optional
+
 from paibox.base import PAIBoxObject
 
 

@@ -1,13 +1,13 @@
 from typing import List, Literal, Optional, Set, Tuple
-import numpy as np
 
-from .utils import as_shape, shape2num
+import numpy as np
 
 from ._types import Shape
 from .collector import Collector
-from .mixin import ReceiveInputProj
 from .generic import get_unique_name, is_name_unique
+from .mixin import ReceiveInputProj
 from .node import NodeDict, NodeList
+from .utils import as_shape, shape2num
 
 
 class PAIBoxObject:
@@ -151,7 +151,7 @@ class Projection(DynamicSys):
     @property
     def shape_out(self) -> ...:
         raise NotImplementedError
-    
+
     @property
     def output(self):
         raise NotImplementedError

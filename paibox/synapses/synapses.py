@@ -147,7 +147,7 @@ class NoDecay(Synapses, SynSys):
     @property
     def output(self) -> np.ndarray:
         return self.synout
-    
+
     @property
     def state(self) -> np.ndarray:
         return self.synout

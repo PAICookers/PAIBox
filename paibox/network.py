@@ -1,6 +1,6 @@
 from typing import Optional, Tuple
 
-from .base import DynamicSys, NeuDyn, PAIBoxObject, Projection, Process, SynSys
+from .base import DynamicSys, NeuDyn, PAIBoxObject, Process, Projection, SynSys
 from .mixin import Container
 from .node import NodeDict
 
@@ -97,7 +97,7 @@ class InputProj(Projection):
 
     def update(self, tick, **kwargs):
         self.process.update(tick, **kwargs)
-        
+
     @property
     def output(self):
         return self.process.state

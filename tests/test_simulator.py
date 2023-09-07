@@ -1,5 +1,6 @@
-import pytest
 import numpy as np
+import pytest
+
 import paibox as pb
 
 
@@ -15,6 +16,7 @@ class Net1(pb.DynSysGroup):
         class GenDataProcess(pb.base.Process):
             def __init__(self, shape_out):
                 super().__init__(shape_out)
+
             def update(self, ts: int):
                 return np.ones((2,)) * ts
 
