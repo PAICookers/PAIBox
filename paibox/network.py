@@ -36,12 +36,11 @@ class Sequential(DynamicSys, Container):
     def __init__(
         self,
         *components,
-        component_type: type[PAIBoxObject] = PAIBoxObject,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
         super().__init__(name)
-        self.children = NodeDict(self.elem_format(component_type, *components))
+        self.children = NodeDict(self.elem_format(object, *components))
 
     def update(self, x):
         for child in self.children.values():
@@ -63,6 +62,7 @@ class Sequential(DynamicSys, Container):
             return Sequential(**dict(tuple(self.children.items())[item]))
 
         if isinstance(item, (tuple, list)):
+            # FIXME
             _all_nodes = tuple(self.children.items())
             return Sequential(**dict(_all_nodes[k] for k in item))
 
@@ -96,7 +96,7 @@ class InputProj(Projection):
         return self.update(tick, **kwargs)
 
     def update(self, tick, **kwargs):
-        self.process.update(tick, **kwargs)
+        self.process.update(tick=tick, **kwargs)
 
     @property
     def output(self):
