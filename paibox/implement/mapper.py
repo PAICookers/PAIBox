@@ -1,6 +1,7 @@
 from collections import defaultdict
-import numpy as np
 from typing import Any, Dict
+
+import numpy as np
 
 from paibox.collector import Collector
 from paibox.core.reg_types import LCNExtensionType as LCN_EX
@@ -96,7 +97,7 @@ class Mapper:
                 AxonGroup(l, axons_in_layer[i_last : i + 1], indices[i_last : i + 1])
             )
             i += 1
-            
+
         return axons_grouped
 
     # def _group_by_axons(self, groups: Dict[LCN_EX, List[Neuron]]):
