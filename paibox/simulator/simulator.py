@@ -4,7 +4,6 @@ import numpy as np
 
 from paibox.base import DynamicSys, PAIBoxObject
 from paibox.collector import Collector
-from paibox.mixin import singleton
 
 from .probe import Probe
 
@@ -59,7 +58,7 @@ class Simulator(PAIBoxObject):
 
         indices = np.arange(self._ts1, self._ts1 + n_steps, self.dt, dtype=np.int16)
 
-        self.run_step(n_steps=n_steps, **kwargs)
+        self.run_step(n_steps, **kwargs)
 
         self._sim_data["ts"] = indices * self.dt
         self._ts1 += n_steps
