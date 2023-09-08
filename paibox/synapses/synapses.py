@@ -2,11 +2,13 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
-from paibox.base import SynSys
-from paibox.neuron import Neuron
+from paibox.base import NeuDyn, SynSys
 
 from .connector import All2All, IndexConn, MatConn, One2One, TwoEndConnector
 from .transforms import AllToAll, MaskedLinear, OneToOne
+
+
+__all__ = ["Synapses", "NoDecay"]
 
 
 class Synapses:
@@ -17,8 +19,8 @@ class Synapses:
 
     def __init__(
         self,
-        source: Neuron,
-        dest: Neuron,
+        source: NeuDyn,
+        dest: NeuDyn,
         conn: Union[
             TwoEndConnector, np.ndarray, Dict[str, Union[List[int], np.ndarray]]
         ],
@@ -58,19 +60,19 @@ class Synapses:
 
     @property
     def shape_in(self) -> Tuple[int, ...]:
-        return self.source.shape
+        return self.source.shape_out
 
     @property
     def shape_out(self) -> Tuple[int, ...]:
-        return self.dest.shape
+        return self.dest.shape_in
 
     @property
     def num_in(self) -> int:
-        return self.source.num
+        return self.source.num_out
 
     @property
     def num_out(self) -> int:
-        return self.dest.num
+        return self.dest.num_in
 
 
 class NoDecay(Synapses, SynSys):
@@ -85,8 +87,8 @@ class NoDecay(Synapses, SynSys):
 
     def __init__(
         self,
-        source: Neuron,
-        dest: Neuron,
+        source: NeuDyn,
+        dest: NeuDyn,
         conn: Union[
             TwoEndConnector, np.ndarray, Dict[str, Union[List[int], np.ndarray]]
         ],
@@ -117,7 +119,7 @@ class NoDecay(Synapses, SynSys):
 
         self.reset()
 
-        # Register the synout for the destination neurons.
+        # Register `self` for the destination NeuDyn.
         dest.register_master(f"{self.name}.output", self)
 
     def __call__(self, spike: Optional[np.ndarray] = None):
@@ -125,28 +127,36 @@ class NoDecay(Synapses, SynSys):
 
     def update(self, spike: Optional[np.ndarray] = None):
         if spike is None:
-            synin = self.source.spike
+            synin = self.source.output
         else:
             synin = spike
 
-        self.synout = self.comm(synin)
+        self._synout = self.comm(synin)
 
         # TODO Keep the return for a while.
-        return self.synout
+        return self._synout
 
     def reset(self, init_val=0) -> None:
         # TODO Add initialization methods
         # Only constant initialization right now.
-        self.synout = np.zeros((self.num_in, self.num_out), dtype=np.int8)
+        self._synout = np.zeros((self.num_in, self.num_out), dtype=np.int8)
 
     @property
     def output(self) -> np.ndarray:
-        return self.synout
+        return self._synout
 
     @property
     def state(self) -> np.ndarray:
-        return self.synout
+        return self._synout
 
     @property
     def connectivity(self) -> np.ndarray:
         return self.comm.connectivity
+
+    def __repr__(self) -> str:
+        name = self.__class__.__name__
+        return (
+            f"{name}(name={self.name}, \n"
+            f'{" " * len(name)} source={self.source}, \n'
+            f'{" " * len(name)} dest={self.dest})'
+        )

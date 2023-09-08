@@ -8,6 +8,9 @@ from paibox.utils import is_shape
 from .connector import MatConn
 
 
+__all__ = ["OneToOne", "ByPass", "AllToAll", "MaskedLinear"]
+
+
 class Transform(ABC):
     @abstractmethod
     def __call__(self, x) -> ...:
