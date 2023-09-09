@@ -318,31 +318,36 @@ class MetaNeuron:
 
         """3. Reset"""
         self._neuronal_reset()
-        print(f"Output: {self._spike}")
+
         return self._spike
 
     @property
     def varshape(self) -> Tuple[int, ...]:
-        return as_shape(self._shape) if self.keep_size else (self.n_neurons,)
+        return self._shape if self.keep_size else (self.n_neurons,)
 
-    def init_param(self, param, shape: Optional[Shape] = None) -> np.ndarray:
-        _shape = self.varshape if shape is None else shape
-
-        return np.full(_shape, param)
+    def init_param(self, param) -> np.ndarray:
+        return np.full(self.varshape, param)
 
 
 class Neuron(MetaNeuron, NeuDyn):
     @property
-    def shape(self) -> Tuple[int, ...]:
-        return self._shape
+    def shape_in(self) -> Tuple[int, ...]:
+        return self.varshape
 
     @property
-    def num(self) -> int:
+    def shape_out(self) -> Tuple[int, ...]:
+        return self.varshape
+
+    @property
+    def num_in(self) -> int:
+        return self.n_neurons
+
+    @property
+    def num_out(self) -> int:
         return self.n_neurons
 
     @property
     def output(self) -> np.ndarray:
-        # TODO Keep the name of "output" for a while.
         return self._spike
 
     @property

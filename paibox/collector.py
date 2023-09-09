@@ -1,4 +1,4 @@
-from typing import Any, Dict, Type
+from typing import Any, Dict, Sequence, Type, Union
 
 
 class Collector(dict):
@@ -6,17 +6,31 @@ class Collector(dict):
         if key in self:
             if id(self[key]) != id(value):
                 raise ValueError(
-                    f'Name "{key}" conflicts: same name for {value} and {self[key]}.'
+                    f"Name '{key}' conflicts: same name for {value} and {self[key]}."
                 )
 
         dict.__setitem__(self, key, value)
 
-    def replace(self, key: Any, new_value: Any) -> None:
-        """Replace the old value with a new value of a key."""
+    def replace(self, key, new_value) -> None:
         self.pop(key)
-        self.update({key: new_value})
+        self.key = new_value
 
-    def __add__(self, other: Dict[Any, Any]):
+    def update(self, other: Union[Dict[str, Any], Sequence]):
+        if not isinstance(other, (dict, list, tuple)):
+            # TODO
+            raise ValueError
+
+        if isinstance(other, dict):
+            for k, v in other.items():
+                self[k] = v
+        else:
+            l = len(self)
+            for i, v in enumerate(other):
+                self[f"_{l+i}"] = v
+
+        return self
+
+    def __add__(self, other: Union[Dict[str, Any], Sequence]):
         """Merging two dicts.
 
         Arguments:
@@ -24,13 +38,53 @@ class Collector(dict):
         Returns:
             - gather: the new collector.
         """
-        gather = type(self)()
+        gather = type(self)(self)
         gather.update(other)
 
         return gather
 
-    def __sub__(self, other):
-        pass
+    def __sub__(self, other: Union[Dict[str, Any], Sequence]):
+        if not isinstance(other, (dict, list, tuple)):
+            # TODO
+            raise ValueError
+
+        gather = type(self)(self)
+
+        if isinstance(other, dict):
+            for k, v in other.items():
+                if k not in gather.keys():
+                    raise ValueError(f"Cannot find {k} in {self.keys()}.")
+
+                if id(v) != id(gather[k]):
+                    raise ValueError(
+                        f"Cannot remove {k}, since there's two different values:"
+                        f"{v} != {gather[k]}"
+                    )
+
+                gather.pop(k)
+
+        else:
+            id_to_keys = {}
+            for k, v in self.items():
+                _id = id(v)
+                if _id not in id_to_keys:
+                    id_to_keys[_id] = []
+
+                id_to_keys[_id].append(k)
+
+            keys_to_remove = []
+            for k in other:
+                if isinstance(k, str):
+                    keys_to_remove.append(k)
+                else:
+                    keys_to_remove.extend(id_to_keys[id(k)])
+
+            for k in set(keys_to_remove):
+                if k not in gather:
+                    raise ValueError
+                gather.pop(k)
+
+        return gather
 
     def subset(self, obj_type: Type):
         gather = type(self)()
