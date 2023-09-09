@@ -8,6 +8,9 @@ from paibox.collector import Collector
 from .probe import Probe
 
 
+__all__ = ["Simulator"]
+
+
 class Simulator(PAIBoxObject):
     def __init__(
         self,
@@ -18,7 +21,6 @@ class Simulator(PAIBoxObject):
         Arguments:
             - target: the target network.
             - dt: the time step.
-            - t0: the initial time.
         """
         super().__init__()
 
@@ -67,10 +69,10 @@ class Simulator(PAIBoxObject):
     def run_step(self, n_steps: int, **kwargs) -> None:
         for i in range(n_steps):
             self._tick += i
-            self.step(tick=self._tick, **kwargs)
+            self.step(self._tick, **kwargs)
 
-    def step(self, **kwargs) -> None:
-        self.target.update(**kwargs)
+    def step(self, *args, **kwargs) -> None:
+        self.target.update(*args, **kwargs)
 
         self._update_probe()
 
