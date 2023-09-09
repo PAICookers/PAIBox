@@ -164,6 +164,26 @@ class DynamicSys(PAIBoxObject):
 
     def reset(self, *args, **kwargs):
         raise NotImplementedError
+    
+    @property
+    def shape_in(self) -> Tuple[int, ...]:
+        raise NotImplementedError
+
+    @property
+    def shape_out(self) -> Tuple[int, ...]:
+        raise NotImplementedError
+
+    @property
+    def num_in(self) -> int:
+        raise NotImplementedError
+    
+    @property
+    def num_out(self) -> int:
+        raise NotImplementedError
+    
+    @property
+    def output(self):
+        raise NotImplementedError
 
     @property
     def state(self):
@@ -188,15 +208,7 @@ class SynSys(DynamicSys):
 
 class Projection(DynamicSys):
     @property
-    def shape_in(self) -> ...:
-        raise NotImplementedError
-
-    @property
-    def shape_out(self) -> ...:
-        raise NotImplementedError
-
-    @property
-    def output(self):
+    def method(self):
         raise NotImplementedError
 
 
@@ -212,29 +224,35 @@ class Process(DynamicSys):
         self._shape_out = as_shape(shape_out)
         self.num = shape2num(self.shape_out)
         self.keep_size = keep_size
+        self._output = np.zeros(self.varshape, dtype=np.bool_)
 
-        self.output = np.zeros(self.varshape, dtype=np.bool_)
-
-    def run(self, duration: int, dt: int = 1) -> np.ndarray:
+    def run(self, duration: int, dt: int = 1, **kwargs) -> np.ndarray:
         if duration < 0:
             # TODO
             raise ValueError
 
         n_steps = int(duration / dt)
-        return self.run_steps(n_steps)
+        return self.run_steps(n_steps, **kwargs)
 
-    def run_steps(self, n_steps: int) -> np.ndarray:
+    def run_steps(self, n_steps: int, **kwargs) -> np.ndarray:
         output = np.zeros((n_steps,) + self.varshape, dtype=np.bool_)
 
         for i in range(n_steps):
-            self.update()
+            self(i, **kwargs) # Do `__call__`
             output[i] = self.state
 
         return output
+    
+    def __call__(self, *args, **kwargs):
+        return self.update(*args, **kwargs)
+    
+    @property
+    def output(self) -> np.ndarray:
+        return self._output
 
     @property
     def state(self) -> np.ndarray:
-        return self.output
+        return self._output
 
     @property
     def varshape(self) -> Tuple[int, ...]:
