@@ -122,10 +122,10 @@ class NoDecay(Synapses, SynSys):
         # Register `self` for the destination NeuDyn.
         dest.register_master(f"{self.name}.output", self)
 
-    def __call__(self, spike: Optional[np.ndarray] = None):
-        return self.update(spike)
+    def __call__(self, spike: Optional[np.ndarray] = None, **kwargs):
+        return self.update(spike, **kwargs)
 
-    def update(self, spike: Optional[np.ndarray] = None):
+    def update(self, spike: Optional[np.ndarray] = None, **kwargs):
         if spike is None:
             synin = self.source.output
         else:

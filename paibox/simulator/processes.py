@@ -7,6 +7,9 @@ from paibox.base import PAIBoxObject, Process
 from paibox.utils import as_shape
 
 
+__all__ = ["UniformGen", "Constant"]
+
+
 class Distribution(PAIBoxObject):
     def _sample_shape(
         self, n, shape: Optional[Tuple[int, ...]] = None
@@ -36,8 +39,10 @@ class UniformGen(Process):
         super().__init__(shape_out, keep_size=keep_size, **kwargs)
         self.dist = Uniform()
 
-    def update(self, *args, **kwargs) -> None:
-        self.output = self.dist.sample(1, as_shape(self.varshape))[0]
+    def update(self, *args, **kwargs) -> np.ndarray:
+        self._output = self.dist.sample(1, as_shape(self.varshape))[0]
+        
+        return self.state
 
 
 class Constant(Process):
@@ -53,12 +58,12 @@ class Constant(Process):
         Arguments:
             - shape_out: the shape of the output.
             - constant: the output value. It's always a constant.
-            
+
         TODO Only support bool constant now.
         """
         super().__init__(shape_out, keep_size=keep_size, **kwargs)
-        self.output = np.full(self.varshape, constant)
+        self._output = np.full(self.varshape, constant)
 
-    def update(self, *args, **kwargs) -> None:
+    def update(self, *args, **kwargs) -> np.ndarray:
         # Do nothing.
-        pass
+        return self.state
