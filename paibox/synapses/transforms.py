@@ -7,7 +7,6 @@ from paibox.utils import is_shape
 
 from .connector import MatConn
 
-
 __all__ = ["OneToOne", "ByPass", "AllToAll", "MaskedLinear"]
 
 

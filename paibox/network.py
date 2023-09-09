@@ -1,13 +1,12 @@
-import numpy as np
 from typing import Callable, Optional, Tuple, Type, Union
 
-from .utils import as_shape
+import numpy as np
 
 from ._types import Shape
-
 from .base import DynamicSys, NeuDyn, Process, Projection, SynSys
 from .mixin import Container
 from .node import NodeDict
+from .utils import as_shape
 
 
 class DynSysGroup(DynamicSys, Container):
@@ -131,7 +130,7 @@ class InputProj(Projection):
             self._state = self.val(*args, **kwargs)
         else:
             self._state = np.full(self.shape_out, self.val)
-        
+
         return self._state
 
     @property

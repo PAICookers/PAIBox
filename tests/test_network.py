@@ -169,7 +169,7 @@ def test_DynSysGroup_update():
         n1 -> s1 -> n2
 
     Use the default `update()` function.
-    
+
     FIXME ERROR!
     """
 
@@ -210,26 +210,26 @@ def test_DynSysGroup_update():
 
 
 def test_InputProj_func() -> None:
-
     inp = pb.network.InputProj(pb.processes.UniformGen((5,)))
-    
+
     sim = pb.Simulator(inp)
     p1 = pb.simulator.Probe(inp, "state")
-    
+
     sim.add_probe(p1)
     sim.run(10)
 
     assert sim.data[p1].shape == (10, 5)
-    
+
     inp2 = pb.network.InputProj(pb.processes.Constant((3,), 1))
-    
+
     sim2 = pb.Simulator(inp2)
     p2 = pb.simulator.Probe(inp2, "state")
-    
+
     sim2.add_probe(p2)
     sim2.run(10)
 
-def test_InputProj_user_func():  
+
+def test_InputProj_user_func():
     # 1. Define a process
     class MyProcess(pb.base.Process):
         def __init__(self, shape_out) -> None:
@@ -237,10 +237,10 @@ def test_InputProj_user_func():
 
         def update(self, tick, bias) -> None:
             self.output = np.ones(self.shape_out) * tick + bias
-            
+
     # 2. Define a input projection
     my_inp = pb.network.InputProj(MyProcess((10, 10)))
-    
+
     # 3. Simulate this input projection
     my_sim = pb.Simulator(my_inp)
     my_probe = pb.simulator.Probe(my_inp, "state")

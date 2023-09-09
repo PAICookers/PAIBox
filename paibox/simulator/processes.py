@@ -6,7 +6,6 @@ from paibox._types import Shape
 from paibox.base import PAIBoxObject, Process
 from paibox.utils import as_shape
 
-
 __all__ = ["UniformGen", "Constant"]
 
 
@@ -41,7 +40,7 @@ class UniformGen(Process):
 
     def update(self, *args, **kwargs) -> np.ndarray:
         self._output = self.dist.sample(1, as_shape(self.varshape))[0]
-        
+
         return self.state
 
 

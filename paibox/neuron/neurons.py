@@ -341,7 +341,7 @@ class Neuron(MetaNeuron, NeuDyn):
     @property
     def num_in(self) -> int:
         return self.n_neurons
-    
+
     @property
     def num_out(self) -> int:
         return self.n_neurons

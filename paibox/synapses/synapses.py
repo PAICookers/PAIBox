@@ -7,7 +7,6 @@ from paibox.base import NeuDyn, SynSys
 from .connector import All2All, IndexConn, MatConn, One2One, TwoEndConnector
 from .transforms import AllToAll, MaskedLinear, OneToOne
 
-
 __all__ = ["Synapses", "NoDecay"]
 
 

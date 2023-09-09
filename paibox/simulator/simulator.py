@@ -7,7 +7,6 @@ from paibox.collector import Collector
 
 from .probe import Probe
 
-
 __all__ = ["Simulator"]
 
 

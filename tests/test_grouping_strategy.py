@@ -24,7 +24,6 @@ greedy_grouping_lcnx_opt_data = [
             )
         ],
     ),
-    
     (
         np.array([100, 200, 300, 400]),
         3,
@@ -73,7 +72,6 @@ greedy_grouping_lcnx_opt_data = [
             AxonGroup(LCNX.LCN_2X, np.array([1600]), np.array([15])),
         ],
     ),
-    
     (
         # Length is 10
         np.array([512, 513, 1200, 2048, 2047, 200, 400]),
@@ -138,20 +136,20 @@ greedy_grouping_core_opt_data = [
 
 test_case = [
     (
-        np.array([100,200,300,400]),
+        np.array([100, 200, 300, 400]),
         1,
-        [   
+        [
             AxonGroup(LCNX.LCN_1X, np.array([100]), np.array([0])),
             AxonGroup(LCNX.LCN_1X, np.array([200]), np.array([1])),
             AxonGroup(LCNX.LCN_1X, np.array([300]), np.array([2])),
             AxonGroup(LCNX.LCN_1X, np.array([400]), np.array([3])),
-        ]
+        ],
     )
 ]
 
+
 @pytest.mark.parametrize(
-    "test_axons, n_neuron_in_core, expected_axons_grouped",
-    test_case
+    "test_axons, n_neuron_in_core, expected_axons_grouped", test_case
 )
 def test_greedy_grouping_lcnx_opt(test_axons, n_neuron_in_core, expected_axons_grouped):
     """LCN extension Optimization Strategy
@@ -169,7 +167,6 @@ def test_greedy_grouping_lcnx_opt(test_axons, n_neuron_in_core, expected_axons_g
 
     # 根据每个neuron的axon数，计算出对应的LCN
     for i in range(len(test_axons)):
-        
         if test_axons[i] <= 1152:
             lcn_x = LCNX.LCN_1X
         elif test_axons[i] <= 1152 * 2:
@@ -193,47 +190,48 @@ def test_greedy_grouping_lcnx_opt(test_axons, n_neuron_in_core, expected_axons_g
     # Traverse the lcn and put them in core
     def _get_limit(indice: int):
         """Get the limit when axon is [indice]"""
-        lcn_ex_max_in_core = lcn_each[indice] 
-        n_max_in_core = int(n_neuron_in_core / (2**lcn_ex_max_in_core))  # the number of neurons in a core
-        axons_max_in_core = 1152 * (lcn_ex_max_in_core - LCNX.LCN_1X + 1) #LCN下的最大axon数
+        lcn_ex_max_in_core = lcn_each[indice]
+        n_max_in_core = int(
+            n_neuron_in_core / (2**lcn_ex_max_in_core)
+        )  # the number of neurons in a core
+        axons_max_in_core = 1152 * (
+            lcn_ex_max_in_core - LCNX.LCN_1X + 1
+        )  # LCN下的最大axon数
 
         return lcn_ex_max_in_core, n_max_in_core, axons_max_in_core
 
-    i = i_start = 0 # i_start：当前core的第一个axon在排序后的axon数组中的index
+    i = i_start = 0  # i_start：当前core的第一个axon在排序后的axon数组中的index
     axons_grouped = []  # The length of it is the number of cores needed.
 
     t1 = time.time()  # Use for timing
 
     while i_start < len(test_axons):
-        
         axons_group_sum = test_axons[i_start]
         l, n, a = _get_limit(i_start)
-        
+
         if i != len(test_axons):
-            i += 1 
-            
+            i += 1
+
         while True:
-            
             if i == len(test_axons):
                 break
-            
+
             if not ((i - i_start) + 1 <= n and axons_group_sum + test_axons[i] <= a):
                 break
-            
+
             axons_group_sum += test_axons[i]
             l, n, a = _get_limit(i)
             i += 1
-            
+
         axons_grouped.append(
             # Slice the array [i_last: i+1], which means [i_last, i].
-            AxonGroup(l, test_axons[i_start : i], indices[i_start : i])
+            AxonGroup(l, test_axons[i_start:i], indices[i_start:i])
         )
         i_start = i
-        
-        
+
     print(time.time() - t1)
     print()
-    #print(axons_grouped)
+    # print(axons_grouped)
     for expected_group, group in zip(expected_axons_grouped, axons_grouped):
         assert group.lcnx == expected_group.lcnx
         assert np.array_equal(group.test_axons, expected_group.test_axons)

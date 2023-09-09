@@ -164,7 +164,7 @@ class DynamicSys(PAIBoxObject):
 
     def reset(self, *args, **kwargs):
         raise NotImplementedError
-    
+
     @property
     def shape_in(self) -> Tuple[int, ...]:
         raise NotImplementedError
@@ -176,11 +176,11 @@ class DynamicSys(PAIBoxObject):
     @property
     def num_in(self) -> int:
         raise NotImplementedError
-    
+
     @property
     def num_out(self) -> int:
         raise NotImplementedError
-    
+
     @property
     def output(self):
         raise NotImplementedError
@@ -238,14 +238,14 @@ class Process(DynamicSys):
         output = np.zeros((n_steps,) + self.varshape, dtype=np.bool_)
 
         for i in range(n_steps):
-            self(i, **kwargs) # Do `__call__`
+            self(i, **kwargs)  # Do `__call__`
             output[i] = self.state
 
         return output
-    
+
     def __call__(self, *args, **kwargs):
         return self.update(*args, **kwargs)
-    
+
     @property
     def output(self) -> np.ndarray:
         return self._output
