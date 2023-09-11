@@ -88,4 +88,4 @@ class ReceiveInputProj(MixIn):
         for master in self.master_node.values():
             output += master.output
 
-        return output
+        return np.array(output)
