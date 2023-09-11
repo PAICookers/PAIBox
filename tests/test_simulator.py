@@ -17,10 +17,10 @@ class Net1(pb.DynSysGroup):
             def __init__(self, shape_out):
                 super().__init__(shape_out)
 
-            def update(self, ts: int):
+            def update(self, ts: int, *args, **kwargs):
                 return np.ones((2,)) * ts
 
-        self.inp = pb.network.InputProj(GenDataProcess(2), self.n1)
+        self.inp = pb.network.InputProj(GenDataProcess(2), target=self.n1)
 
         # Probes inside
         self.n1_acti = pb.simulator.Probe(self.n1, "output")
