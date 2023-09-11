@@ -324,15 +324,15 @@ class MetaNeuron:
     @property
     def varshape(self) -> Tuple[int, ...]:
         return self._shape if self.keep_size else (self.n_neurons,)
-    
+
     @property
     def voltage(self):
         return self._vjt
-    
+
     @property
     def neg_threshold(self):
         return self._neg_thres
-    
+
     @property
     def pos_threshold(self):
         return self._pos_thres

@@ -392,7 +392,7 @@ def test_InputProj_user_func():
 
         def update(self, t):
             return np.ones(self.shape_out)
-        
+
     my_inp2 = pb.network.InputProj(MyProcess2((10,)))
 
     my_sim2 = pb.Simulator(my_inp2)

@@ -5,7 +5,11 @@ import paibox as pb
 from paibox.utils import as_shape, shape2num
 
 
-@pytest.mark.parametrize("shape", [5, (12,), (20, 20), (1, 2, 3)], ids=["scalar", "ndim=1", "ndim=2", "ndim=3"])
+@pytest.mark.parametrize(
+    "shape",
+    [5, (12,), (20, 20), (1, 2, 3)],
+    ids=["scalar", "ndim=1", "ndim=2", "ndim=3"],
+)
 def test_neuron_instance(shape):
     # keep_size = True
     n1 = pb.neuron.TonicSpikingNeuron(shape, 5, keep_size=True)
