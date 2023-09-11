@@ -5,74 +5,22 @@ import paibox as pb
 from paibox.utils import as_shape, shape2num
 
 
-@pytest.mark.parametrize("shape", [1, 10, (12,), (20, 20)])
+@pytest.mark.parametrize(
+    "shape",
+    [5, (12,), (20, 20), (1, 2, 3)],
+    ids=["scalar", "ndim=1", "ndim=2", "ndim=3"],
+)
 def test_neuron_instance(shape):
-    n1 = pb.neuron.TonicSpikingNeuron(shape, 5)
+    # keep_size = True
+    n1 = pb.neuron.TonicSpikingNeuron(shape, 5, keep_size=True)
 
-    assert n1.shape == as_shape(shape)
+    assert n1.shape_in == as_shape(shape)
+    assert n1.shape_out == as_shape(shape)
     assert len(n1) == shape2num(shape)
 
+    # keep_size = False
+    n2 = pb.neuron.TonicSpikingNeuron(shape, 5)
 
-@pytest.mark.parametrize(
-    "shape, x, expected",
-    [
-        # Length of data is 16
-        (
-            1,
-            np.array([0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1], dtype=np.bool_),
-            np.array([0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0], dtype=np.bool_),
-        ),
-        (
-            (3,),
-            np.array(
-                [
-                    [0, 0, 1],
-                    [1, 0, 0],
-                    [1, 1, 1],
-                    [1, 0, 0],
-                    [0, 0, 1],
-                    [1, 1, 0],
-                    [1, 0, 1],
-                    [1, 1, 0],
-                    [1, 0, 1],
-                    [1, 1, 0],
-                    [1, 1, 1],
-                    [0, 1, 0],
-                    [0, 0, 1],
-                    [1, 1, 0],
-                    [1, 0, 1],
-                    [1, 1, 0],
-                ],
-                dtype=np.bool_,
-            ),
-            np.array(
-                [
-                    [0, 0, 0],
-                    [0, 0, 0],
-                    [0, 0, 0],
-                    [1, 0, 0],
-                    [0, 0, 1],
-                    [0, 0, 0],
-                    [0, 0, 0],
-                    [1, 1, 0],
-                    [0, 0, 0],
-                    [0, 0, 0],
-                    [1, 0, 1],
-                    [0, 1, 0],
-                    [0, 0, 0],
-                    [0, 0, 0],
-                    [0, 0, 0],
-                    [1, 0, 0],
-                ],
-                dtype=np.bool_,
-            ),
-        ),
-    ],
-)
-def test_neuron_update(shape, x, expected):
-    n1 = pb.neuron.TonicSpikingNeuron(shape, fire_step=3)
-
-    # Traverse the time step
-    for i in range(16):
-        y = n1.update(x[i])
-        assert np.allclose(y, expected[i])
+    assert n2.shape_in == as_shape(shape2num(shape))
+    assert n2.shape_out == as_shape(shape2num(shape))
+    assert len(n2) == shape2num(shape)

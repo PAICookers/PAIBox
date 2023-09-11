@@ -5,30 +5,174 @@ import paibox as pb
 from paibox.node import NodeDict
 
 
-def test_Sequential_instance():
-    n1 = pb.neuron.TonicSpikingNeuron(1, fire_step=3)
-    n2 = pb.neuron.TonicSpikingNeuron(1, fire_step=5)
-    sequential = pb.network.Sequential(n1, n2, name="Sequential_1_1")
+def test_Collector_operations():
+    s1 = pb.DynamicSys(name="s1")
+    s2 = pb.base.Projection(name="s2")
+    s3 = pb.network.NeuDyn(name="s3")
+    s4 = pb.DynSysGroup(s1, s2, name="s4")
+
+    g1 = pb.DynSysGroup(s1, s2, s3, name="g1")
+    g2 = pb.DynSysGroup(s1, s2, s4, name="g2")
+    g3 = pb.DynSysGroup(s1, s2, name="g3")
+    g4 = pb.DynSysGroup(s1, s4, name="g4")
+
+    g1_nodes = g1.nodes(method="relative", level=1, include_self=False)
+    g2_nodes = g2.nodes(method="relative", level=1, include_self=False)
+    g3_nodes = g3.nodes(method="relative", level=1, include_self=False)
+    g4_nodes = g4.nodes(method="relative", level=1, include_self=False)
+
+    g_nodes_sum = g1_nodes + g2_nodes
+    assert len(g_nodes_sum) == 4
+
+    with pytest.raises(ValueError):
+        g_nodes_sub = g1_nodes - g2_nodes
+
+    g_nodes_sub = g1_nodes - g3_nodes
+
+    assert len(g_nodes_sub) == 1
+
+    assert len(g4_nodes.unique()) == 2
+
+    assert len(g3_nodes.exclude(pb.base.Projection)) == 1
+    assert len(g1_nodes.not_subset(pb.network.NeuDyn)) == 2
+    assert len(g1_nodes.include(pb.DynamicSys, pb.base.Projection)) == 2
+
+
+class Net(pb.DynSysGroup):
+    """Not nested network
+    n1->s1->n2, n3
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.n1 = pb.neuron.TonicSpikingNeuron(2, 3)
+        self.n2 = pb.neuron.TonicSpikingNeuron(2, 3)
+        self.s1 = pb.synapses.NoDecay(self.n1, self.n2, pb.synapses.All2All())
+        self.n3 = pb.neuron.TonicSpikingNeuron(2, 4)
+
+
+class Nested_Net_Level_1(pb.DynSysGroup):
+    """Nested network, level 1.
+    n1 -> s1 -> n2     n1 -> s1 -> n2
+    |                  |
+    subnet1 -> s2 -> subnet2
+    """
+
+    def __init__(self):
+        super().__init__()
+
+        class Subnet(pb.DynSysGroup):
+            def __init__(self):
+                super().__init__()
+                self.n1 = pb.neuron.TonicSpikingNeuron(2, 3)
+                self.n2 = pb.neuron.TonicSpikingNeuron(2, 3)
+                self.s1 = pb.synapses.NoDecay(self.n1, self.n2, pb.synapses.All2All())
+
+        self.subnet1 = Subnet()
+        self.subnet2 = Subnet()
+        self.s2 = pb.synapses.NoDecay(
+            self.subnet1.n2, self.subnet2.n1, pb.synapses.All2All()
+        )
+
+
+def test_DynSysGroup_flatten_nodes():
+    net = Net()
+
+    # 1. Relative + include_self == True
+    nodes1 = net.nodes(method="relative", level=1, include_self=True)
+    assert nodes1[""] == net
+    assert len(nodes1) == 5
+
+    # 2. Relative + include_self == False
+    nodes2 = net.nodes(method="relative", level=1, include_self=False)
+    assert len(nodes2) == 4
+
+    # 3. Absolute + include_self == True
+    nodes3 = net.nodes(method="absolute", level=1, include_self=True)
+    assert len(nodes3) == 5
+
+    # 4. Absolute + include_self == False
+    nodes4 = net.nodes(method="absolute", level=1, include_self=False)
+    assert len(nodes4) == 4
+
+
+def test_DynSysGroup_nodes_nested_level1():
+    net = Nested_Net_Level_1()
+
+    # 1. Relative + include_self == True
+    nodes1 = net.nodes(method="relative", level=1, include_self=True)
+    assert nodes1[""] == net
+    assert len(nodes1) == 4
+
+    # 2. Relative + include_self == False
+    nodes2 = net.nodes(method="relative", level=1, include_self=False)
+    assert len(nodes2) == 3
+
+    # 3. Absolute + include_self == True
+    nodes3 = net.nodes(method="absolute", level=1, include_self=True)
+    assert len(nodes3) == 4
+
+    # 4. Absolute + include_self == False
+    nodes4 = net.nodes(method="absolute", level=1, include_self=False)
+    assert len(nodes4) == 3
+
+    # 5. Find nodes from level 1 to level 2, relatively
+    nodes5 = net.nodes(method="relative", level=2, include_self=False)
+
+    # 6. Find nodes from level 1 to level 2, absolutely
+    nodes6 = net.nodes(method="absolute", level=2, include_self=False)
+    assert len(nodes6) == 9
+
+
+def test_Sequential_build():
+    n1 = pb.neuron.TonicSpikingNeuron(10, fire_step=3)
+    n2 = pb.neuron.TonicSpikingNeuron(10, fire_step=5)
+    s1 = pb.synapses.NoDecay(n1, n2, pb.synapses.All2All())
+    sequential = pb.network.Sequential(n1, s1, n2)
 
     assert isinstance(sequential, pb.network.Sequential)
+
+    nodes1 = sequential.nodes(method="absolute", level=1, include_self=False)
+    assert len(nodes1) == 3
+
+    class Seq(pb.Sequential):
+        def __init__(self):
+            super().__init__()
+            self.n1 = pb.neuron.TonicSpikingNeuron(5, fire_step=3)
+            self.n2 = pb.neuron.TonicSpikingNeuron(5, fire_step=5)
+            self.s1 = pb.synapses.NoDecay(self.n1, self.n2, pb.synapses.All2All())
+
+    seq = Seq()
+    nodes2 = seq.nodes(method="absolute", level=1, include_self=False)
+    assert len(nodes2) == 3
 
 
 def test_Sequential_getitem():
     n1 = pb.neuron.TonicSpikingNeuron(10, fire_step=3, name="n1")
     n2 = pb.neuron.TonicSpikingNeuron(10, fire_step=5, name="n2")
-    sequential = pb.network.Sequential(n1, n2, name="Sequential_1_2")
+    s1 = pb.synapses.NoDecay(n1, n2, pb.synapses.All2All())
+    n3 = pb.neuron.TonicSpikingNeuron(10, fire_step=5, name="n3")
+    s2 = pb.synapses.NoDecay(n2, n3, pb.synapses.All2All())
+    sequential = pb.network.Sequential(n1, s1, n2, s2, n3, name="Sequential_2")
 
     assert isinstance(sequential.children, NodeDict)
+    assert len(sequential) == 5
 
+    # str
     for str in ["n1", "n2"]:
         sequential[str]
 
     with pytest.raises(KeyError):
-        sequential["n3"]
+        sequential["n4"]
 
     for item in [0, 1]:
         sequential[item]
 
+    # Out of index
+    with pytest.raises(IndexError):
+        sequential[5]
+
+    # Slice
     seq = sequential[:1]
 
     assert seq != sequential
@@ -36,10 +180,7 @@ def test_Sequential_getitem():
     seq = sequential[1:]
     seq = sequential[0:]
     seq = sequential[1:10]
-
-    seq = sequential[["n1", "n2"]]
-
-    sequential[1:2]  # legal
+    sequential[1:2]
 
 
 class Net1_User_Update(pb.DynSysGroup):
@@ -96,6 +237,15 @@ class Net1(pb.DynSysGroup):
         self.n2 = pb.neuron.TonicSpikingNeuron(2, fire_step=2)
         self.s1 = pb.synapses.NoDecay(self.n1, self.n2, pb.synapses.One2One())
 
+        class MyProcess_Without_Shape(pb.base.Process):
+            def __init__(self):
+                super().__init__((2,))
+
+            def update(self, *args, **kwargs):
+                return np.ones((2,))
+
+        self.inp = pb.InputProj(MyProcess_Without_Shape(), target=self.n1)
+
 
 class Net2(pb.DynSysGroup):
     def __init__(self):
@@ -108,22 +258,9 @@ class Net2(pb.DynSysGroup):
         self.s1 = pb.synapses.NoDecay(self.n1, self.node1.n1, pb.synapses.One2One())
 
 
-def test_DynSysGroup_nodes():
-    net = Net1()
-
-    all_nodes = net.nodes("absolute", level=1, include_self=False)
-    neuron_nodes = list(all_nodes.subset(pb.neuron.Neuron).values())
-    syn_nodes = list(all_nodes.subset(pb.synapses.Synapses).values())
-
-    assert neuron_nodes == [net.n1, net.n2]
-    assert syn_nodes == [net.s1]
-
-
 def test_DynSysGroup_AutoUpdate_No_Nested():
     net = Net1()
-    inp = pb.network.InputProj((2,), np.array([1, 1]), net.n1)
 
-    x = np.ones((10, 2))
     expected_y_n1 = np.array(
         [[0, 0], [1, 1], [0, 0], [1, 1], [0, 0], [1, 1], [0, 0], [1, 1], [0, 0], [1, 1]]
     )
@@ -131,15 +268,16 @@ def test_DynSysGroup_AutoUpdate_No_Nested():
         [[0, 0], [0, 0], [0, 0], [0, 0], [1, 1], [0, 0], [0, 0], [0, 0], [1, 1], [0, 0]]
     )
 
-    y = []
-    for i in range(4):
-        net.update()
+    sim = pb.Simulator(net)
+    p1 = pb.simulator.Probe(net.n1, "output")
+    p2 = pb.simulator.Probe(net.n2, "output")
 
-        assert np.array_equal(net.n1.output, expected_y_n1[i])
-        assert np.array_equal(net.n2.output, expected_y_n2[i])
+    sim.add_probe(p1)
+    sim.add_probe(p2)
+    sim.run(10)
 
-    net.update()
-    assert np.array_equal(net.n2.output, expected_y_n2[4])
+    assert np.array_equal(sim.data[p1], expected_y_n1)
+    assert np.array_equal(sim.data[p2], expected_y_n2)
 
 
 @pytest.mark.parametrize("level", [1, 2], ids=["level_1", "level_2"])
@@ -210,7 +348,7 @@ def test_DynSysGroup_update():
 
 
 def test_InputProj_func() -> None:
-    inp = pb.network.InputProj(pb.processes.UniformGen((5,)))
+    inp = pb.network.InputProj(pb.simulator.UniformGen((5,)))
 
     sim = pb.Simulator(inp)
     p1 = pb.simulator.Probe(inp, "state")
@@ -220,7 +358,7 @@ def test_InputProj_func() -> None:
 
     assert sim.data[p1].shape == (10, 5)
 
-    inp2 = pb.network.InputProj(pb.processes.Constant((3,), 1))
+    inp2 = pb.network.InputProj(pb.simulator.Constant((3,), 1))
 
     sim2 = pb.Simulator(inp2)
     p2 = pb.simulator.Probe(inp2, "state")
@@ -232,11 +370,12 @@ def test_InputProj_func() -> None:
 def test_InputProj_user_func():
     # 1. Define a process
     class MyProcess(pb.base.Process):
-        def __init__(self, shape_out) -> None:
+        def __init__(self, shape_out):
             super().__init__(shape_out)
 
-        def update(self, tick, bias) -> None:
-            self.output = np.ones(self.shape_out) * tick + bias
+        def update(self, t, bias):
+            assert bias == 1
+            return np.ones(self.shape_out) * t + bias
 
     # 2. Define a input projection
     my_inp = pb.network.InputProj(MyProcess((10, 10)))
@@ -246,3 +385,17 @@ def test_InputProj_user_func():
     my_probe = pb.simulator.Probe(my_inp, "state")
     my_sim.add_probe(my_probe)
     my_sim.run(10, bias=1)
+
+    class MyProcess2(pb.base.Process):
+        def __init__(self, shape_out):
+            super().__init__(shape_out)
+
+        def update(self, t):
+            return np.ones(self.shape_out)
+
+    my_inp2 = pb.network.InputProj(MyProcess2((10,)))
+
+    my_sim2 = pb.Simulator(my_inp2)
+    my_probe2 = pb.simulator.Probe(my_inp2, "state")
+    my_sim2.add_probe(my_probe2)
+    my_sim2.run(10)

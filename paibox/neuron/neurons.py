@@ -51,14 +51,14 @@ class MetaNeuron:
         self._leaking_direction: LDM = leaking_direction
         self._synaptic_integration_mode: SIM = synaptic_integration_mode
         self._leaking_integration_mode: LIM = leaking_integration_mode
-        self._threshold_mask_bits: int = threshold_mask_bits
-        self._threshold_mask: int = (1 << threshold_mask_bits) - 1
-        self._neg_threshold: int = neg_threshold  # Unsigned 29-bit
-        self._pos_threshold: int = pos_threshold  # Unsigned 29-bit
+        self._thres_mask_bits: int = threshold_mask_bits
+        self._thres_mask: int = (1 << threshold_mask_bits) - 1
+        self._neg_thres: int = neg_threshold  # Unsigned 29-bit
+        self._pos_thres: int = pos_threshold  # Unsigned 29-bit
 
-        self._reset_v: int = reset_v  # Signed 30-bit
-        self._leak_v: int = leak_v  # Signed 30-bit
-        self._bias: int = leak_v  # Signed 30-bit(ANN mode ONLY)
+        self.reset_v: int = reset_v  # Signed 30-bit
+        self.leak_v: int = leak_v  # Signed 30-bit
+        self.bias: int = leak_v  # Signed 30-bit(ANN mode ONLY)
 
         # Configurations in ANN mode
         self._bit_truncate: int = bit_truncate
@@ -119,14 +119,14 @@ class MetaNeuron:
 
         2.2 Random leaking.
             If leaking integration is `MODE_DETERMINISTIC`, then
-                `_vjt` = `_vjt` + `_ld` * `_leak_v`
+                `_vjt` = `_vjt` + `_ld` * `leak_v`
             else (`MODE_STOCHASTIC`)
-                if abs(`_leak_v`) >= `_rho_j_lambda`, then
+                if abs(`leak_v`) >= `_rho_j_lambda`, then
                     `_F` = 1
                 else
                     `_F` = 0
 
-                `_vjt` = `_vjt` + `_ld` * `_F` * \sgn{`_leak_v`}
+                `_vjt` = `_vjt` + `_ld` * `_F` * \sgn{`leak_v`}
         """
         _rho_j_lambda = 2  # Random leaking, unsigned 29-bit.
 
@@ -136,10 +136,10 @@ class MetaNeuron:
             _ld = np.vectorize(fn_sgn)(self._vjt, 0)
 
         if self._leaking_integration_mode is LIM.MODE_DETERMINISTIC:
-            self._vjt = np.add(self._vjt, _ld * self._leak_v)
+            self._vjt = np.add(self._vjt, _ld * self.leak_v)
         else:
-            _F = 1 if abs(self._leak_v) >= _rho_j_lambda else 0
-            _sgn_leak_v = np.vectorize(fn_sgn)(self._leak_v, 0)
+            _F = 1 if abs(self.leak_v) >= _rho_j_lambda else 0
+            _sgn_leak_v = np.vectorize(fn_sgn)(self.leak_v, 0)
 
             self._vjt = np.add(self._vjt, _F * _ld @ _sgn_leak_v)
 
@@ -147,15 +147,15 @@ class MetaNeuron:
         r"""3. Threshold comparison
 
         3.1 Random threshold
-            `_v_th_rand` = `_rho_j_T` & `_threshold_mask`
+            `_v_th_rand` = `_rho_j_T` & `_thres_mask`
 
         3.2 Fire
             If negative threshold mode is `MODE_RESET`, then
-                `_v_th_neg` = `_neg_threshold` + `_v_th_rand`
+                `_v_th_neg` = `_neg_thres` + `_v_th_rand`
             else
-                `_v_th_neg` = `_neg_threshold`
+                `_v_th_neg` = `_neg_thres`
 
-            If `_vjt` >= `_pos_threshold` + `_v_th_rand`, then
+            If `_vjt` >= `_pos_thres` + `_v_th_rand`, then
                 `_spike` = 1
             else if `_vjt` < -`_v_th_neg`, then
                 `_spike` = 0
@@ -165,17 +165,17 @@ class MetaNeuron:
         _rho_j_T = 3  # Random threshold, unsigned 29-bit.
 
         # TODO Is _rho_j_T and _v_th_rand for all neurons or for each neuron?
-        _v_th_rand = _rho_j_T & self._threshold_mask
+        _v_th_rand = _rho_j_T & self._thres_mask
         self._v_th_rand = np.full(self.varshape, _v_th_rand)
 
         if self._neg_thres_mode is NTM.MODE_RESET:
-            _v_th_neg = self._neg_threshold + _v_th_rand
+            _v_th_neg = self._neg_thres + _v_th_rand
         else:
-            _v_th_neg = self._neg_threshold
+            _v_th_neg = self._neg_thres
 
         """Fire"""
         self._threshold_mode = np.where(
-            self._vjt >= self._pos_threshold + _v_th_rand,
+            self._vjt >= self._pos_thres + _v_th_rand,
             TM.EXCEED_POSITIVE,
             np.where(self._vjt < -_v_th_neg, TM.EXCEED_NEGATIVE, TM.NOT_EXCEEDED),
         )
@@ -189,22 +189,22 @@ class MetaNeuron:
 
         If `_threshold_mode` is `EXCEED_POSITIVE`
             If reset mode is `MODE_NORMAL`, then
-                `_vjt` = `_reset_v`
+                `_vjt` = `reset_v`
             else if reset mode is `MODE_LINEAR`, then
-                `_vjt` = `_vjt` - `_pos_threshold` - `_v_th_rand`
+                `_vjt` = `_vjt` - `_pos_thres` - `_v_th_rand`
             else (`MODE_NONRESET`)
                 `_vjt` = `_vjt`
 
         else if `_threshold_mode` is `EXCEED_NEGATIVE`
             If negative threshold mode is `MODE_RESET`, then
                 If reset mode is `MODE_NORMAL`, then
-                    `_vjt` = -`_reset_v`
+                    `_vjt` = -`reset_v`
                 else if reset mode is `MODE_LINEAR`, then
-                    `_vjt` = `_vjt` + (`_neg_threshold` + `_v_th_rand`)
+                    `_vjt` = `_vjt` + (`_neg_thres` + `_v_th_rand`)
                 else
                     `_vjt` = `_vjt`
             else (`MODE_SATURATION`)
-                `_vjt` = `_neg_threshold`
+                `_vjt` = `_neg_thres`
 
         else (not beyond the threshold)
             `_vjt` = `_vjt`
@@ -212,24 +212,24 @@ class MetaNeuron:
 
         def _when_exceed_pos():
             if self._reset_mode is RM.MODE_NORMAL:
-                return np.full(self.varshape, self._reset_v)
+                return np.full(self.varshape, self.reset_v)
 
             elif self._reset_mode is RM.MODE_LINEAR:
-                return np.subtract(self._vjt, (self._pos_threshold + self._v_th_rand))
+                return np.subtract(self._vjt, (self._pos_thres + self._v_th_rand))
             else:
                 return self._vjt
 
         def _when_exceed_neg():
             if self._neg_thres_mode is NTM.MODE_RESET:
                 if self._reset_mode is RM.MODE_NORMAL:
-                    return np.full(self.varshape, -self._reset_v)
+                    return np.full(self.varshape, -self.reset_v)
                 elif self._reset_mode is RM.MODE_LINEAR:
-                    return np.add(self._vjt, (self._neg_threshold + self._v_th_rand))
+                    return np.add(self._vjt, (self._neg_thres + self._v_th_rand))
                 else:
                     return self._vjt
 
             else:
-                return np.full(self.varshape, -self._neg_threshold)
+                return np.full(self.varshape, -self._neg_thres)
 
         self._vjt_pre = self._vjt = np.where(
             self._threshold_mode == TM.EXCEED_POSITIVE,
@@ -247,12 +247,12 @@ class MetaNeuron:
         r"""ReLU(ANN mode ONLY)
 
         If spiking width format is `WIDTH_1BIT`, then
-            if `_vj` >= `_pos_threshold`, then
+            if `_vj` >= `_pos_thres`, then
                 `_yj` = 1
             else
                 `_yj` = 0
         else (`WIDTH_8BIT`)
-            `_vj` >= `_pos_threshold`, then
+            `_vj` >= `_pos_thres`, then
                 `_yj` = `y_truncated`
             else
                 `_yj` = 0
@@ -283,7 +283,7 @@ class MetaNeuron:
                 return np.zeros(self.varshape)
 
         self._y = np.where(
-            self._vj >= self._pos_threshold, _when_exceed_pos(), np.zeros(self.varshape)
+            self._vj >= self._pos_thres, _when_exceed_pos(), np.zeros(self.varshape)
         )
 
     def _max_pooling(self, x: np.ndarray):
@@ -324,6 +324,18 @@ class MetaNeuron:
     @property
     def varshape(self) -> Tuple[int, ...]:
         return self._shape if self.keep_size else (self.n_neurons,)
+
+    @property
+    def voltage(self):
+        return self._vjt
+
+    @property
+    def neg_threshold(self):
+        return self._neg_thres
+
+    @property
+    def pos_threshold(self):
+        return self._pos_thres
 
     def init_param(self, param) -> np.ndarray:
         return np.full(self.varshape, param)
@@ -401,11 +413,11 @@ class TonicSpikingNeuron(Neuron):
         _lim = LIM.MODE_DETERMINISTIC
         _ld = LDM.MODE_FORWARD
         _lc = LCM.LEAK_AFTER_COMP
-        _leak_v = 0
+        leak_v = 0
         _pos_thres = fire_step
         _neg_thres = 0
         _mask = 0
-        _reset_v = 0
+        reset_v = 0
         _ntm = NTM.MODE_SATURATION
         _reset_mode = RM.MODE_NORMAL
         _bt = 0
@@ -413,7 +425,7 @@ class TonicSpikingNeuron(Neuron):
         super().__init__(
             shape,
             _reset_mode,
-            _reset_v,
+            reset_v,
             _lc,
             _mask,
             _ntm,
@@ -421,7 +433,7 @@ class TonicSpikingNeuron(Neuron):
             _pos_thres,
             _ld,
             _lim,
-            _leak_v,
+            leak_v,
             _sim,
             _bt,
             vjt_init,
@@ -460,11 +472,11 @@ class PhasicSpikingNeuron(Neuron):
         _lim = LIM.MODE_DETERMINISTIC
         _ld = LDM.MODE_REVERSAL
         _lc = LCM.LEAK_BEFORE_COMP
-        _leak_v = 1
-        _pos_thres = (1 + _leak_v) * time_to_fire
+        leak_v = 1
+        _pos_thres = (1 + leak_v) * time_to_fire
         _neg_thres = neg_floor
         _mask = 0
-        _reset_v = -1 - _neg_thres
+        reset_v = -1 - _neg_thres
         _ntm = NTM.MODE_SATURATION
         _reset_mode = RM.MODE_NORMAL
         _bt = 0
@@ -472,7 +484,7 @@ class PhasicSpikingNeuron(Neuron):
         super().__init__(
             shape,
             _reset_mode,
-            _reset_v,
+            reset_v,
             _lc,
             _mask,
             _ntm,
@@ -480,7 +492,7 @@ class PhasicSpikingNeuron(Neuron):
             _pos_thres,
             _ld,
             _lim,
-            _leak_v,
+            leak_v,
             _sim,
             _bt,
             vjt_init,
