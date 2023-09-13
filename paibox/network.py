@@ -3,9 +3,10 @@ from typing import Callable, Optional, Tuple, Type, Union
 import numpy as np
 
 from ._types import Shape
-from .base import DynamicSys, NeuDyn, Process, Projection, SynSys
+from .base import DynamicSys, NeuDyn, Projection
 from .mixin import Container
 from .node import NodeDict
+from .synapses import SynSys
 from .utils import as_shape
 
 
@@ -32,8 +33,7 @@ class DynSysGroup(DynamicSys, Container):
             node()
 
 
-class Network(DynSysGroup):
-    pass
+Network = DynSysGroup
 
 
 class Sequential(DynamicSys, Container):

@@ -15,7 +15,7 @@ class Collector(dict):
         self.pop(key)
         self.key = new_value
 
-    def update(self, other: Union[Dict[str, Any], Sequence]):
+    def update(self, other: Union[Dict, Sequence]):
         if not isinstance(other, (dict, list, tuple)):
             # TODO
             raise ValueError
