@@ -74,7 +74,7 @@ class GroupedSyn(PAIBoxObject):
         return self.obj.dest
 
     @property
-    def source(self) -> NeuDyn:
+    def source(self):
         return self.obj.source
 
 
@@ -97,8 +97,8 @@ class GroupedLayer(PAIBoxObject):
         """
         super().__init__(name)
         self.myself = myself
-        self.master_syns = master_syns
-        self.target_syns = target_syns
+        self._master_syns = master_syns
+        self._target_syns = target_syns
 
     @classmethod
     def build(
@@ -127,3 +127,15 @@ class GroupedLayer(PAIBoxObject):
                 target.append(syn)
 
         return master, target
+
+    @property
+    def obj(self) -> NeuDyn:
+        return self.myself
+
+    @property
+    def source(self) -> List[GroupedSyn]:
+        return self._master_syns
+
+    @property
+    def dest(self) -> List[GroupedSyn]:
+        return self._target_syns
