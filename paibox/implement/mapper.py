@@ -1,7 +1,7 @@
 from collections import defaultdict
 from typing import Dict, List
 
-from paibox.base import DynamicSys, PAIBoxObject, NeuDyn
+from paibox.base import DynamicSys, NeuDyn, PAIBoxObject
 from paibox.network import DynSysGroup
 from paibox.synapses import SynSys
 
@@ -118,10 +118,10 @@ class Mapper:
         Description:
             Find a minimum LCN extension for each synapses connecting this layer, \
             so that to deploy to core(s).
-        
+
         S1 -> N, the connectivity of S1 is [A1*N]
         S2 -> N, the connectivity of S2 is [A2*N]
-        
+
         Now consider A1 & A2 seperately.
         A1 -> C0 + C1
         A2 -> C2

@@ -1,4 +1,5 @@
 from typing import Optional, Type, Union
+
 from .base import DynamicSys, NeuDyn, Projection
 from .mixin import Container
 from .node import NodeDict

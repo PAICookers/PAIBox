@@ -2,7 +2,7 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
-from paibox.base import NeuDyn, DynamicSys
+from paibox.base import DynamicSys, NeuDyn
 from paibox.projection import InputProj
 
 from .connector import All2All, IndexConn, MatConn, One2One, TwoEndConnector
@@ -77,7 +77,7 @@ class Synapses:
     @property
     def num_axon(self) -> int:
         return self.num_in
-    
+
     @property
     def num_dentrite(self) -> int:
         return self.num_out
