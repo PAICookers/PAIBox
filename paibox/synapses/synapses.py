@@ -3,6 +3,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 
 from paibox.base import NeuDyn, DynamicSys
+from paibox.projection import InputProj
 
 from .connector import All2All, IndexConn, MatConn, One2One, TwoEndConnector
 from .transforms import AllToAll, MaskedLinear, OneToOne
@@ -18,7 +19,7 @@ class Synapses:
 
     def __init__(
         self,
-        source: NeuDyn,
+        source: Union[NeuDyn, InputProj],
         dest: NeuDyn,
         conn: Union[
             TwoEndConnector, np.ndarray, Dict[str, Union[List[int], np.ndarray]]
@@ -100,7 +101,7 @@ class NoDecay(SynSys):
 
     def __init__(
         self,
-        source: NeuDyn,
+        source: Union[NeuDyn, InputProj],
         dest: NeuDyn,
         conn: Union[
             TwoEndConnector, np.ndarray, Dict[str, Union[List[int], np.ndarray]]
