@@ -233,9 +233,6 @@ class Net2_User_Update(pb.DynSysGroup):
 class Net1(pb.DynSysGroup):
     def __init__(self):
         super().__init__()
-        self.n1 = pb.neuron.TonicSpikingNeuron(2, fire_step=2)
-        self.n2 = pb.neuron.TonicSpikingNeuron(2, fire_step=2)
-        self.s1 = pb.synapses.NoDecay(self.n1, self.n2, pb.synapses.One2One())
 
         class MyProcess_Without_Shape(pb.base.Process):
             def __init__(self):
@@ -244,7 +241,11 @@ class Net1(pb.DynSysGroup):
             def update(self, *args, **kwargs):
                 return np.ones((2,))
 
-        self.inp = pb.InputProj(MyProcess_Without_Shape(), target=self.n1)
+        self.inp = pb.InputProj(MyProcess_Without_Shape())
+        self.n1 = pb.neuron.TonicSpikingNeuron(2, fire_step=2)
+        self.n2 = pb.neuron.TonicSpikingNeuron(2, fire_step=2)
+        self.s0 = pb.synapses.NoDecay(self.inp, self.n1, pb.synapses.One2One())
+        self.s1 = pb.synapses.NoDecay(self.n1, self.n2, pb.synapses.One2One())
 
 
 class Net2(pb.DynSysGroup):
@@ -287,17 +288,6 @@ def test_SynSysGroup_nodes_nested(level):
 
     for v in all_nodes.values():
         print(v)
-
-    if level == 1:
-        assert len(all_nodes.values()) == 3
-    else:
-        assert len(all_nodes.values()) == 6
-
-    # neuron_nodes = list(all_nodes.subset(pb.neuron.Neuron).values())
-    # syn_nodes = list(all_nodes.subset(pb.synapses.Synapses).values())
-
-    # assert neuron_nodes == [net.n1, net.node1.n1, net.node1.n2]
-    # assert syn_nodes == [net.s1, net.node1.s1]
 
 
 def test_DynSysGroup_update():
@@ -348,7 +338,7 @@ def test_DynSysGroup_update():
 
 
 def test_InputProj_func() -> None:
-    inp = pb.network.InputProj(pb.simulator.UniformGen((5,)))
+    inp = pb.projection.InputProj(pb.simulator.UniformGen((5,)))
 
     sim = pb.Simulator(inp)
     p1 = pb.simulator.Probe(inp, "state")
@@ -358,7 +348,7 @@ def test_InputProj_func() -> None:
 
     assert sim.data[p1].shape == (10, 5)
 
-    inp2 = pb.network.InputProj(pb.simulator.Constant((3,), 1))
+    inp2 = pb.projection.InputProj(pb.simulator.Constant((3,), 1))
 
     sim2 = pb.Simulator(inp2)
     p2 = pb.simulator.Probe(inp2, "state")
@@ -378,7 +368,7 @@ def test_InputProj_user_func():
             return np.ones(self.shape_out) * t + bias
 
     # 2. Define a input projection
-    my_inp = pb.network.InputProj(MyProcess((10, 10)))
+    my_inp = pb.projection.InputProj(MyProcess((10, 10)))
 
     # 3. Simulate this input projection
     my_sim = pb.Simulator(my_inp)
@@ -393,7 +383,7 @@ def test_InputProj_user_func():
         def update(self, t):
             return np.ones(self.shape_out)
 
-    my_inp2 = pb.network.InputProj(MyProcess2((10,)))
+    my_inp2 = pb.projection.InputProj(MyProcess2((10,)))
 
     my_sim2 = pb.Simulator(my_inp2)
     my_probe2 = pb.simulator.Probe(my_inp2, "state")

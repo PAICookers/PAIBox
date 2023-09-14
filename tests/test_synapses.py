@@ -24,8 +24,8 @@ def test_NoDecay_One2One(
     s1 = pb.synapses.NoDecay(n1, n2, pb.synapses.One2One())
 
     assert s1.comm.weights == 1
-    assert (s1.num_in, s1.num_out) == (n1.num, n2.num)
-    assert np.allclose(s1.connectivity, np.eye(n1.num, n2.num))
+    assert (s1.num_in, s1.num_out) == (n1.num_out, n2.num_in)
+    assert np.array_equal(s1.connectivity, np.eye(n1.num_out, n2.num_in))
 
 
 @pytest.mark.parametrize(
@@ -76,8 +76,8 @@ def test_NoDecay_All2All(
     s1 = pb.synapses.NoDecay(n1, n2, pb.synapses.All2All())
 
     assert s1.comm.weights == 1
-    assert (s1.num_in, s1.num_out) == (n1.num, n2.num)
-    assert np.allclose(s1.connectivity, np.ones((n1.num, n2.num)))
+    assert (s1.num_in, s1.num_out) == (n1.num_out, n2.num_in)
+    assert np.array_equal(s1.connectivity, np.ones((n1.num_out, n2.num_in)))
 
 
 def test_NoDecay_All2All_with_weights():
@@ -89,14 +89,14 @@ def test_NoDecay_All2All_with_weights():
     s1 = pb.synapses.NoDecay(n1, n2, pb.synapses.All2All(), weights=weight)
 
     assert s1.comm.weights == weight
-    assert np.allclose(s1.connectivity, weight * np.ones((n1.num, n2.num)))
+    assert np.array_equal(s1.connectivity, weight * np.ones((n1.num_out, n2.num_in)))
 
     """2. Weights matrix."""
     weight = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
     s2 = pb.synapses.NoDecay(n1, n2, pb.synapses.All2All(), weights=weight)
 
-    assert np.allclose(s2.comm.weights, weight)
-    assert np.allclose(s2.connectivity, weight)
+    assert np.array_equal(s2.comm.weights, weight)
+    assert np.array_equal(s2.connectivity, weight)
 
     with pytest.raises(ValueError):
         # Wrong shape

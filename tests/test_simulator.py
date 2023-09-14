@@ -8,10 +8,6 @@ class Net1(pb.DynSysGroup):
     def __init__(self):
         super().__init__()
 
-        self.n1 = pb.neuron.TonicSpikingNeuron(2, fire_step=2)
-        self.n2 = pb.neuron.TonicSpikingNeuron(2, fire_step=2)
-        self.s1 = pb.synapses.NoDecay(self.n1, self.n2, pb.synapses.One2One())
-
         # Input inside
         class GenDataProcess(pb.base.Process):
             def __init__(self, shape_out):
@@ -20,7 +16,11 @@ class Net1(pb.DynSysGroup):
             def update(self, ts: int, *args, **kwargs):
                 return np.ones((2,)) * ts
 
-        self.inp = pb.network.InputProj(GenDataProcess(2), target=self.n1)
+        self.inp = pb.projection.InputProj(GenDataProcess(2))
+        self.n1 = pb.neuron.TonicSpikingNeuron(2, fire_step=2)
+        self.n2 = pb.neuron.TonicSpikingNeuron(2, fire_step=2)
+        self.s0 = pb.synapses.NoDecay(self.inp, self.n1, pb.synapses.One2One())
+        self.s1 = pb.synapses.NoDecay(self.n1, self.n2, pb.synapses.One2One())
 
         # Probes inside
         self.n1_acti = pb.simulator.Probe(self.n1, "output")
@@ -38,5 +38,3 @@ def test_probe():
     sim.run(6)
 
     print(sim.data[probe_outside])
-
-    print("OK")
