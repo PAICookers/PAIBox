@@ -1,12 +1,9 @@
-from typing import Callable, Optional, Tuple, Type, Union
+from typing import Optional, Type, Union
 
-import numpy as np
-
-from ._types import Shape
-from .base import DynamicSys, NeuDyn, Process, Projection, SynSys
+from .base import DynamicSys, NeuDyn, Projection
 from .mixin import Container
 from .node import NodeDict
-from .utils import as_shape
+from .synapses import SynSys
 
 
 class DynSysGroup(DynamicSys, Container):
@@ -32,8 +29,7 @@ class DynSysGroup(DynamicSys, Container):
             node()
 
 
-class Network(DynSysGroup):
-    pass
+Network = DynSysGroup
 
 
 class Sequential(DynamicSys, Container):
@@ -61,7 +57,7 @@ class Sequential(DynamicSys, Container):
                 raise KeyError
 
         if isinstance(item, int):
-            if item > self.__len__():
+            if item > len(self):
                 raise IndexError
 
             return tuple(self.children.values())[item]
@@ -73,82 +69,3 @@ class Sequential(DynamicSys, Container):
 
     def __len__(self) -> int:
         return len(self.children)
-
-
-class InputProj(Projection):
-    def __init__(
-        self,
-        val_or_func: Union[int, np.integer, np.ndarray, Callable],
-        *,
-        shape: Optional[Shape] = None,
-        target: Optional[Union[NeuDyn, SynSys]] = None,
-        keep_size: bool = False,
-        name: Optional[str] = None,
-    ) -> None:
-        """Input projection to define an output or a generation function.
-
-        Arguments:
-            - val_or_func: the output value(integer, np.ndarray) or a process.
-            - shape: the output shape. If not provided, try to use the shape_in of `target`. Otherwise raise error.
-            - target: the output target, `NeuDyn`. Optional.
-            - name: the name of the node. Optional.
-        """
-        super().__init__(name)
-
-        if isinstance(val_or_func, (int, np.integer)):
-            self.val = int(val_or_func)
-            if not target:
-                # TODO
-                raise ValueError
-            self._shape = target.shape_in
-        elif isinstance(val_or_func, np.ndarray):
-            if shape:
-                if as_shape(shape) != val_or_func.shape:
-                    # TODO
-                    raise ValueError
-
-                self._shape = as_shape(shape)
-            else:
-                if not target:
-                    # TODO
-                    raise ValueError
-                self._shape = target.shape_in
-        else:
-            self.val = val_or_func
-            self._shape = self.val.varshape
-
-        self._state = np.zeros(self._shape)
-
-        if isinstance(target, NeuDyn):
-            target.register_master(f"{self.name}.output", self)
-
-    def __call__(self, *args, **kwargs):
-        return self.update(*args, **kwargs)
-
-    def update(self, *args, **kwargs):
-        if isinstance(self.val, Callable):
-            self._state = self.val(*args, **kwargs)
-        else:
-            self._state = np.full(self.shape_out, self.val)
-
-        return self._state
-
-    @property
-    def output(self) -> np.ndarray:
-        return self._state
-
-    @property
-    def state(self) -> np.ndarray:
-        return self._state
-
-    @property
-    def shape_in(self) -> Tuple[int, ...]:
-        return (0,)
-
-    @property
-    def shape_out(self) -> Tuple[int, ...]:
-        return self._shape
-
-
-class OutputProj(Projection):
-    pass

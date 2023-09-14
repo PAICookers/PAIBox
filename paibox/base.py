@@ -200,12 +200,6 @@ class NeuDyn(DynamicSys, ReceiveInputProj):
         raise NotImplementedError
 
 
-class SynSys(DynamicSys):
-    @property
-    def connectivity(self) -> np.ndarray:
-        raise NotImplementedError
-
-
 class Projection(DynamicSys):
     @property
     def method(self):

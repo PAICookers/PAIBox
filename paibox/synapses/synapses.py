@@ -2,12 +2,13 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
-from paibox.base import NeuDyn, SynSys
+from paibox.base import DynamicSys, NeuDyn
+from paibox.projection import InputProj
 
 from .connector import All2All, IndexConn, MatConn, One2One, TwoEndConnector
 from .transforms import AllToAll, MaskedLinear, OneToOne
 
-__all__ = ["Synapses", "NoDecay"]
+__all__ = ["Synapses", "SynSys", "NoDecay"]
 
 
 class Synapses:
@@ -18,7 +19,7 @@ class Synapses:
 
     def __init__(
         self,
-        source: NeuDyn,
+        source: Union[NeuDyn, InputProj],
         dest: NeuDyn,
         conn: Union[
             TwoEndConnector, np.ndarray, Dict[str, Union[List[int], np.ndarray]]
@@ -73,8 +74,22 @@ class Synapses:
     def num_out(self) -> int:
         return self.dest.num_in
 
+    @property
+    def num_axon(self) -> int:
+        return self.num_in
 
-class NoDecay(Synapses, SynSys):
+    @property
+    def num_dentrite(self) -> int:
+        return self.num_out
+
+
+class SynSys(Synapses, DynamicSys):
+    @property
+    def connectivity(self) -> np.ndarray:
+        raise NotImplementedError
+
+
+class NoDecay(SynSys):
     """Synapses model with no decay.
 
     Attributes:
@@ -86,7 +101,7 @@ class NoDecay(Synapses, SynSys):
 
     def __init__(
         self,
-        source: NeuDyn,
+        source: Union[NeuDyn, InputProj],
         dest: NeuDyn,
         conn: Union[
             TwoEndConnector, np.ndarray, Dict[str, Union[List[int], np.ndarray]]
