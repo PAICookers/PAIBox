@@ -1,15 +1,18 @@
-import numpy as np
 from typing import List, Optional
+
+import numpy as np
+
 from paibox.base import PAIBoxObject
 from paibox.core.reg_model import ParamsReg
+from paibox.core.reg_types import InputWidthFormatType
+from paibox.core.reg_types import LCNExtensionType as LCN_EX
 from paibox.core.reg_types import (
-    WeightPrecisionType,
-    LCNExtensionType as LCN_EX,
-    InputWidthFormatType,
-    SpikeWidthFormatType,
     MaxPoolingEnableType,
     SNNModeEnableType,
+    SpikeWidthFormatType,
+    WeightPrecisionType,
 )
+
 from .grouping import GroupedLayer
 from .identifier import Coord
 
