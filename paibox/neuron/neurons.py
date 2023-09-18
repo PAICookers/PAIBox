@@ -616,6 +616,7 @@ class PhasicSpikingNeuron(Neuron):
         )
         super(MetaNeuron, self).__init__(name)
 
+
 class SpikeLatencyNeuron(Neuron):
     """Spike latency neuron"""
 
@@ -673,6 +674,7 @@ class SpikeLatencyNeuron(Neuron):
         )
         super(MetaNeuron, self).__init__(name)
 
+
 class SubthresholdOscillations(Neuron):
     """Subthreshold Oscillations"""
 
@@ -725,6 +727,7 @@ class SubthresholdOscillations(Neuron):
         )
         super(MetaNeuron, self).__init__(name)
 
+
 class ResonatorNeuron(Neuron):
     """Resonator Neuron"""
 
@@ -743,7 +746,7 @@ class ResonatorNeuron(Neuron):
 
         Description:
             After being stimulated, neurons emit pulses and the membrane potential oscillates
-            Implementation question: Continuous inputs with higher frequencies will cause neurons 
+            Implementation question: Continuous inputs with higher frequencies will cause neurons
                 to emit directly. How can we achieve the distribution of determined frequencies?
             NOTE: the weight is 2.
         """
@@ -832,8 +835,10 @@ class IntegratorNeuron(Neuron):
         )
         super(MetaNeuron, self).__init__(name)
 
+
 class InhibitionInducedSpiking(Neuron):
     """Inhibition Induced Spiking Neuron"""
+
     def __init__(
         self,
         shape: Shape,
