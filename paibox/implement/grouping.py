@@ -1,27 +1,23 @@
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+import numpy as np
+from typing import List, Optional, Tuple
 
 from paibox.base import NeuDyn, PAIBoxObject
 from paibox.core.reg_types import LCNExtensionType as LCN_EX
 from paibox.synapses import SynSys
 
 
-def _get_core_limit(n_axon: int) -> Tuple[LCN_EX, int]:
-    """Get the LCN extension limit & maximum number of neurons.
-    Argument:
-        - n_axon: the number of axons of the synapse.
-    """
-    assert n_axon > 0
-    lcn_ex_max_in_core = LCN_EX(int((n_axon - 1) / 1152))
-    if lcn_ex_max_in_core > LCN_EX.LCN_64X:
-        # TODO
-        raise ValueError
-    n_max_in_core = 512 >> lcn_ex_max_in_core
-    return lcn_ex_max_in_core, n_max_in_core
+class GroupedObj(PAIBoxObject):
+    @classmethod
+    def build(cls):
+        raise NotImplementedError
+
+    @property
+    def obj(self):
+        raise NotImplementedError
 
 
-class GroupedSyn(PAIBoxObject):
-    """Grouped synapse. A synapse will be split into core(s)."""
+class GroupedSyn(GroupedObj):
+    """Grouped synapse. A synapse will be divided into core(s)."""
 
     def __init__(
         self,
@@ -47,11 +43,15 @@ class GroupedSyn(PAIBoxObject):
 
     @classmethod
     def build(cls, synapse: SynSys, name: Optional[str] = None) -> "GroupedSyn":
-        n_axon = synapse.num_axon
+        """
+        Description: always find the minimum LCN extension \
+            that ALL the axons in this synapse satisfies.
+        """
+        n_axon_max = synapse.n_axon_each.max(axis=0)
         n_neuron = synapse.num_dentrite
 
         # Use the `n_axon` to limit the LCN extension
-        l_limit, n_limit = _get_core_limit(n_axon)
+        l_limit, n_limit = cls._get_core_limit(n_axon_max)
 
         # At this point, the LCN extension is satisfied. Calculate the #N cores needed.
         n_core = int(n_neuron / n_limit) + 1
@@ -65,6 +65,25 @@ class GroupedSyn(PAIBoxObject):
 
         return cls(synapse, n_core, l_limit, n_neuron_each, name)
 
+    @staticmethod
+    def _get_core_limit(n_axon: int) -> Tuple[LCN_EX, int]:
+        """Get the LCN extension limit & maximum number of neurons.
+        Argument:
+            - n_axon: the number of axons of the synapse.
+        """
+        if n_axon < 1:
+            # TODO
+            raise ValueError
+
+        lcn_ex_max_in_core = LCN_EX(int((n_axon - 1) / 1152))
+        if lcn_ex_max_in_core > LCN_EX.LCN_64X:
+            # TODO
+            raise ValueError
+
+        n_max_in_core = 512 >> lcn_ex_max_in_core
+
+        return lcn_ex_max_in_core, n_max_in_core
+
     @property
     def obj(self) -> SynSys:
         return self.myself
@@ -77,28 +96,41 @@ class GroupedSyn(PAIBoxObject):
     def source(self):
         return self.obj.source
 
+    @property
+    def weight_divided(self) -> List[np.ndarray]:
+        """Divide the connectivity matrix of `myself` based on `n_neuron_each`.
 
-@dataclass
-class GroupedLayer(PAIBoxObject):
+        For a `LCN_2X` grouped synapse, the matrix [N*M] will be divided like:
+            [N*(M1+M2)]
+        where 1152 < N <= 1152*LCN_2X in total and M1, M2 <= 256.
+
+        TODO However, the weight ram in CORE is 1152*512. So we need a further transform.
+        """
+        pos = []
+        for i in range(1, self.n_core):
+            pos.append(sum(self.n_neuron_each[:i]))
+
+        return np.split(self.obj.connectivity, pos, axis=1)
+
+
+class GroupedLayer(GroupedObj):
     """Grouped layer. A layer will be grouped and mapped to core(s)."""
 
     def __init__(
         self,
         myself: NeuDyn,
-        master_syns: List[GroupedSyn],
-        target_syns: List[GroupedSyn],
+        pre_syns: List[GroupedSyn],
         name: Optional[str] = None,
     ) -> None:
         """
         Arguments:
             - myself: the layer itself.
-            - master_syns: the grouped pre-synapses.
-            - target_syns: the grouped post-synapses.
+            - pre_syns: the grouped pre-synapses.
+            - name: the name of the grouped layer. Optional.
         """
         super().__init__(name)
         self.myself = myself
-        self._master_syns = master_syns
-        self._target_syns = target_syns
+        self._pre_syns = pre_syns
 
     @classmethod
     def build(
@@ -107,35 +139,60 @@ class GroupedLayer(PAIBoxObject):
         grouped_syns: List[GroupedSyn],
         name: Optional[str] = None,
     ) -> "GroupedLayer":
-        m, t = cls._find_grouped_syn(neurons, grouped_syns)
+        pre = cls._find_pre_syns(neurons, grouped_syns)
 
-        return cls(neurons, m, t, name)
+        return cls(neurons, pre, name)
 
     @staticmethod
-    def _find_grouped_syn(
+    def _find_pre_syns(
         node: NeuDyn, grouped_syns: List[GroupedSyn]
-    ) -> Tuple[List[GroupedSyn], List[GroupedSyn]]:
-        """Find the master & target grouped synapses of the given node."""
-        master = []
-        target = []
+    ) -> List[GroupedSyn]:
+        """Find the previous grouped synapses of the given node."""
+        pre = []
 
         for syn in grouped_syns:
             if node.name == syn.dest.name:
-                master.append(syn)
+                pre.append(syn)
+
+        return pre
+
+    @staticmethod
+    def _find_bi_syns(
+        node: NeuDyn, grouped_syns: List[GroupedSyn]
+    ) -> Tuple[List[GroupedSyn], List[GroupedSyn]]:
+        """Find the previous grouped synapses of the given node."""
+        pre = []
+        post = []
+
+        for syn in grouped_syns:
+            if node.name == syn.dest.name:
+                # S -> N
+                pre.append(syn)
 
             if node.name == syn.source.name:
-                target.append(syn)
+                # N -> S
+                post.append(syn)
 
-        return master, target
+        return pre, post
 
     @property
     def obj(self) -> NeuDyn:
         return self.myself
 
     @property
-    def source(self) -> List[GroupedSyn]:
-        return self._master_syns
+    def pre(self) -> List[GroupedSyn]:
+        return self._pre_syns
 
     @property
-    def dest(self) -> List[GroupedSyn]:
-        return self._target_syns
+    def source(self) -> List[GroupedSyn]:
+        return self.pre
+
+    @property
+    def n_axon(self) -> int:
+        # Get a list of axons in the previous synapses.
+        axons = [syn.myself.num_axon for syn in self.pre]
+        return sum(axons)
+
+    @property
+    def n_neuron(self) -> int:
+        return self.myself.num_in
