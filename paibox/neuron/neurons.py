@@ -387,6 +387,122 @@ class Neuron(MetaNeuron, NeuDyn):
         self._vjt = self._vjt_pre = self._vjt_init
 
 
+class IFNeuron(Neuron):
+    """IF neuron"""
+
+    def __init__(
+        self,
+        shape: Shape,
+        threshold: int,
+        reset_v: int = 0,
+        vjt_init: int = 0,
+        *,
+        keep_size: bool = False,
+        name: Optional[str] = None,
+    ) -> None:
+        """
+        Arguments:
+            - shape    : the shape of the neuron(s). It can be an integer, tuple or list.
+            - Threshold: When the membrane potential exceeds the threshold, neurons will fire
+            - reset_v  : Membrane potential after firing
+            - vjt_init : initial membrane potential. Default is 0.
+
+        Description:
+            IF neuron : intergration + firing
+        """
+        _sim = SIM.MODE_DETERMINISTIC
+        _lim = LIM.MODE_DETERMINISTIC
+        _ld = LDM.MODE_FORWARD
+        _lc = LCM.LEAK_AFTER_COMP
+        _leak_v = 0
+        _pos_thres = threshold
+        _neg_thres = 0
+        _mask = 0
+        _reset_v = reset_v
+        _ntm = NTM.MODE_SATURATION
+        _reset_mode = RM.MODE_NORMAL
+        _bt = 0
+
+        super().__init__(
+            shape,
+            _reset_mode,
+            _reset_v,
+            _lc,
+            _mask,
+            _ntm,
+            _neg_thres,
+            _pos_thres,
+            _ld,
+            _lim,
+            _leak_v,
+            _sim,
+            _bt,
+            vjt_init,
+            keep_size=keep_size,
+        )
+        super(MetaNeuron, self).__init__(name)
+
+
+class LIFNeuron(Neuron):
+    """LIF neuron"""
+
+    def __init__(
+        self,
+        shape: Shape,
+        threshold: int,
+        reset_v: int = 0,
+        leaky_v: int = 0,
+        vjt_init: int = 0,
+        *,
+        keep_size: bool = False,
+        name: Optional[str] = None,
+    ) -> None:
+        """
+        Arguments:
+            - shape    : the shape of the neuron(s). It can be an integer, tuple or list.
+            - Threshold: When the membrane potential exceeds the threshold, neurons will fire
+            - reset_v  : Membrane potential after firing
+            - leaky_v  : The leakage value will be directly added to the membrane potential.
+                        If it is positive, the membrane potential will increase.
+                        If is is negative, the membrane potential will decrease.
+            - vjt_init : initial membrane potential. Default is 0.
+
+        Description:
+            LIF neuron : leaky + intergration + firing
+        """
+        _sim = SIM.MODE_DETERMINISTIC
+        _lim = LIM.MODE_DETERMINISTIC
+        _ld = LDM.MODE_FORWARD
+        _lc = LCM.LEAK_AFTER_COMP
+        _leak_v = leaky_v
+        _pos_thres = threshold
+        _neg_thres = 0
+        _mask = 0
+        _reset_v = reset_v
+        _ntm = NTM.MODE_SATURATION
+        _reset_mode = RM.MODE_NORMAL
+        _bt = 0
+
+        super().__init__(
+            shape,
+            _reset_mode,
+            _reset_v,
+            _lc,
+            _mask,
+            _ntm,
+            _neg_thres,
+            _pos_thres,
+            _ld,
+            _lim,
+            _leak_v,
+            _sim,
+            _bt,
+            vjt_init,
+            keep_size=keep_size,
+        )
+        super(MetaNeuron, self).__init__(name)
+
+
 class TonicSpikingNeuron(Neuron):
     """Tonic spiking neuron"""
 
@@ -477,6 +593,275 @@ class PhasicSpikingNeuron(Neuron):
         _neg_thres = neg_floor
         _mask = 0
         reset_v = -1 - _neg_thres
+        _ntm = NTM.MODE_SATURATION
+        _reset_mode = RM.MODE_NORMAL
+        _bt = 0
+
+        super().__init__(
+            shape,
+            _reset_mode,
+            reset_v,
+            _lc,
+            _mask,
+            _ntm,
+            _neg_thres,
+            _pos_thres,
+            _ld,
+            _lim,
+            leak_v,
+            _sim,
+            _bt,
+            vjt_init,
+            keep_size=keep_size,
+        )
+        super(MetaNeuron, self).__init__(name)
+
+class SpikeLatencyNeuron(Neuron):
+    """Spike latency neuron"""
+
+    def __init__(
+        self,
+        shape: Shape,
+        fire_time: int,
+        vjt_init: int = 0,
+        *,
+        keep_size: bool = False,
+        name: Optional[str] = None,
+    ) -> None:
+        """
+        Arguments:
+            - shape: the shape of the neuron(s). It can be an integer, tuple or list.
+            - fire_time: When receiving a spike, the neuron will fire positively after `fire_time` timesteps,
+            - vjt_init: initial membrane potential. Default is 0.
+
+        Description:
+            The neuron receives a spike and fires after some timesteps, then resets the membrane potential to 0,
+            and never fires again.
+
+            `N` stands for `fire_time`.
+            NOTE: the weight is 10.
+        """
+        _sim = SIM.MODE_DETERMINISTIC
+        _lim = LIM.MODE_DETERMINISTIC
+        _ld = LDM.MODE_REVERSAL
+        _lc = LCM.LEAK_BEFORE_COMP
+        leak_v = 1
+        _pos_thres = 11 + fire_time
+        _neg_thres = 0
+        _mask = 0
+        reset_v = 0
+        _ntm = NTM.MODE_SATURATION
+        _reset_mode = RM.MODE_NORMAL
+        _bt = 0
+
+        super().__init__(
+            shape,
+            _reset_mode,
+            reset_v,
+            _lc,
+            _mask,
+            _ntm,
+            _neg_thres,
+            _pos_thres,
+            _ld,
+            _lim,
+            leak_v,
+            _sim,
+            _bt,
+            vjt_init,
+            keep_size=keep_size,
+        )
+        super(MetaNeuron, self).__init__(name)
+
+class SubthresholdOscillations(Neuron):
+    """Subthreshold Oscillations"""
+
+    def __init__(
+        self,
+        shape: Shape,
+        vjt_init: int = 0,
+        *,
+        keep_size: bool = False,
+        name: Optional[str] = None,
+    ) -> None:
+        """
+        Arguments:
+            - shape: the shape of the neuron(s). It can be an integer, tuple or list.
+            - vjt_init: initial membrane potential. Default is 0.
+
+        Description:
+            After receiving a spike, neurons emit pulses and the membrane potential oscillates
+            NOTE: the weight is 22.
+        """
+        _sim = SIM.MODE_DETERMINISTIC
+        _lim = LIM.MODE_DETERMINISTIC
+        _ld = LDM.MODE_REVERSAL
+        _lc = LCM.LEAK_BEFORE_COMP
+        leak_v = -2
+        _pos_thres = 16
+        _neg_thres = 30
+        _mask = 0
+        reset_v = 1
+        _ntm = NTM.MODE_SATURATION
+        _reset_mode = RM.MODE_NORMAL
+        _bt = 0
+
+        super().__init__(
+            shape,
+            _reset_mode,
+            reset_v,
+            _lc,
+            _mask,
+            _ntm,
+            _neg_thres,
+            _pos_thres,
+            _ld,
+            _lim,
+            leak_v,
+            _sim,
+            _bt,
+            vjt_init,
+            keep_size=keep_size,
+        )
+        super(MetaNeuron, self).__init__(name)
+
+class ResonatorNeuron(Neuron):
+    """Resonator Neuron"""
+
+    def __init__(
+        self,
+        shape: Shape,
+        vjt_init: int = 0,
+        *,
+        keep_size: bool = False,
+        name: Optional[str] = None,
+    ) -> None:
+        """
+        Arguments:
+            - shape: the shape of the neuron(s). It can be an integer, tuple or list.
+            - vjt_init: initial membrane potential. Default is 0.
+
+        Description:
+            After being stimulated, neurons emit pulses and the membrane potential oscillates
+            Implementation question: Continuous inputs with higher frequencies will cause neurons 
+                to emit directly. How can we achieve the distribution of determined frequencies?
+            NOTE: the weight is 2.
+        """
+        _sim = SIM.MODE_DETERMINISTIC
+        _lim = LIM.MODE_DETERMINISTIC
+        _ld = LDM.MODE_REVERSAL
+        _lc = LCM.LEAK_BEFORE_COMP
+        leak_v = -1
+        _pos_thres = 2
+        _neg_thres = 0
+        _mask = 0
+        reset_v = 0
+        _ntm = NTM.MODE_SATURATION
+        _reset_mode = RM.MODE_NORMAL
+        _bt = 0
+
+        super().__init__(
+            shape,
+            _reset_mode,
+            reset_v,
+            _lc,
+            _mask,
+            _ntm,
+            _neg_thres,
+            _pos_thres,
+            _ld,
+            _lim,
+            leak_v,
+            _sim,
+            _bt,
+            vjt_init,
+            keep_size=keep_size,
+        )
+        super(MetaNeuron, self).__init__(name)
+
+
+class IntegratorNeuron(Neuron):
+    """Integrator Neuron"""
+
+    def __init__(
+        self,
+        shape: Shape,
+        vjt_init: int = 0,
+        *,
+        keep_size: bool = False,
+        name: Optional[str] = None,
+    ) -> None:
+        """
+        Arguments:
+            - shape: the shape of the neuron(s). It can be an integer, tuple or list.
+            - vjt_init: initial membrane potential. Default is 0.
+
+        Description:
+            After being stimulated, neurons emit pulses and the membrane potential oscillates.
+            NOTE: the weight is 24.
+        """
+        _sim = SIM.MODE_DETERMINISTIC
+        _lim = LIM.MODE_DETERMINISTIC
+        _ld = LDM.MODE_REVERSAL
+        _lc = LCM.LEAK_BEFORE_COMP
+        leak_v = -1
+        _pos_thres = 32
+        _neg_thres = 0
+        _mask = 0
+        reset_v = 0
+        _ntm = NTM.MODE_SATURATION
+        _reset_mode = RM.MODE_NORMAL
+        _bt = 0
+
+        super().__init__(
+            shape,
+            _reset_mode,
+            reset_v,
+            _lc,
+            _mask,
+            _ntm,
+            _neg_thres,
+            _pos_thres,
+            _ld,
+            _lim,
+            leak_v,
+            _sim,
+            _bt,
+            vjt_init,
+            keep_size=keep_size,
+        )
+        super(MetaNeuron, self).__init__(name)
+
+class InhibitionInducedSpiking(Neuron):
+    """Inhibition Induced Spiking Neuron"""
+    def __init__(
+        self,
+        shape: Shape,
+        fire_step: int,
+        vjt_init: int = 0,
+        *,
+        keep_size: bool = False,
+        name: Optional[str] = None,
+    ) -> None:
+        """
+        Arguments:
+            - shape: the shape of the neuron(s). It can be an integer, tuple or list.
+            - fire_step: every `N` spike, the neuron will fire positively.
+            - vjt_init: initial membrane potential. Default is 0.
+
+        Description:
+            After receiving some inhibition induced spikes (-1), the neuron will fire.
+            NOTE: the weight is -10.
+        """
+        _sim = SIM.MODE_DETERMINISTIC
+        _lim = LIM.MODE_DETERMINISTIC
+        _ld = LDM.MODE_REVERSAL
+        _lc = LCM.LEAK_BEFORE_COMP
+        leak_v = -1
+        _pos_thres = 9 * fire_step
+        _neg_thres = 40
+        _mask = 0
+        reset_v = -10
         _ntm = NTM.MODE_SATURATION
         _reset_mode = RM.MODE_NORMAL
         _bt = 0
