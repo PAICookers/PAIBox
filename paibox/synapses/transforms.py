@@ -36,7 +36,7 @@ class OneToOne(Transform):
                 [[x, 0, 0]
                  [0, x, 0]
                  [0, 0, x]]
-                
+
                 Or `weights` is an array, [x, y, z] corresponding to the weights of \
                     the post-neurons respectively. The connectivity matrix will be:
                 [[x, 0, 0]
@@ -87,7 +87,7 @@ class AllToAll(Transform):
                 [[x, x, x]
                  [x, x, x]
                  [x, x, x]]
-                    
+
                 Or `weights` is a matrix, then the connectivity matrix will be:
                 [[a, b, c]
                  [d, e, f]
@@ -130,7 +130,9 @@ class AllToAll(Transform):
         return (
             self.weights
             if self.weights.ndim == 2
-            else (self.weights * np.ones((self.num_in, self.num_out), np.bool_)).astype(np.int8)
+            else (self.weights * np.ones((self.num_in, self.num_out), np.bool_)).astype(
+                np.int8
+            )
         )
 
 
@@ -144,7 +146,7 @@ class MaskedLinear(Transform):
         Arguments:
             - conn: connector. Only support `MatConn`.
             - weights: unmasked weights.
-        
+
         NOTE: not been fully validated.
         """
         self.conn = conn

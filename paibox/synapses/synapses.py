@@ -87,7 +87,7 @@ class SynSys(Synapses, DynamicSys):
     @property
     def connectivity(self) -> np.ndarray:
         raise NotImplementedError
-    
+
     @property
     def n_axon_each(self) -> np.ndarray:
         return np.count_nonzero(self.connectivity, axis=0)
@@ -166,7 +166,7 @@ class NoDecay(SynSys):
     @property
     def state(self) -> np.ndarray:
         return self._synout
-    
+
     @property
     def weights(self) -> np.ndarray:
         return self.comm.weights

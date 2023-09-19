@@ -1,5 +1,6 @@
-import numpy as np
 from typing import List, Optional, Tuple
+
+import numpy as np
 
 from paibox.base import NeuDyn, PAIBoxObject
 from paibox.core.reg_types import LCNExtensionType as LCN_EX
