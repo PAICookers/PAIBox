@@ -11,8 +11,18 @@ __all__ = ["OneToOne", "ByPass", "AllToAll", "MaskedLinear"]
 
 
 class Transform(ABC):
+    weights: np.ndarray
+
     @abstractmethod
-    def __call__(self, x) -> ...:
+    def __call__(self, x):
+        raise NotImplementedError
+
+    @property
+    def dtype(self) -> ...:
+        return self.weights.dtype
+
+    @property
+    def connectivity(self):
         raise NotImplementedError
 
 
@@ -21,7 +31,17 @@ class OneToOne(Transform):
         """
         Arguments:
             - num: number of neurons.
-            - weights: synaptic weights. The shape must be a scalar or (num,).
+            - weights: synaptic weights. The shape must be a scalar or array (num,).
+                If `weights` is a scalar, the connectivity matrix will be:
+                [[x, 0, 0]
+                 [0, x, 0]
+                 [0, 0, x]]
+                
+                Or `weights` is an array, [x, y, z] corresponding to the weights of \
+                    the post-neurons respectively. The connectivity matrix will be:
+                [[x, 0, 0]
+                 [0, y, 0]
+                 [0, 0, z]]
         """
         self.num = num
 
@@ -29,7 +49,7 @@ class OneToOne(Transform):
             # TODO Error description
             raise ValueError
 
-        self.weights = weights
+        self.weights = np.asarray(weights, dtype=np.int8)
 
     def __call__(self, x: np.ndarray) -> np.ndarray:
         return x * self.weights
@@ -38,8 +58,8 @@ class OneToOne(Transform):
     def connectivity(self) -> np.ndarray:
         return (
             self.weights
-            if isinstance(self.weights, np.ndarray)
-            else self.weights * np.eye(self.num)
+            if self.weights.ndim == 2
+            else (self.weights * np.eye(self.num, dtype=np.bool_)).astype(self.dtype)
         )
 
 
@@ -62,7 +82,16 @@ class AllToAll(Transform):
         Arguments:
             - num_in: number of source neurons.
             - num_out: number of destination neurons.
-            - weights: synaptic weights.
+            - weights: synaptic weights. The shape must be a scalar or a matrix.
+                If `weights` is a scalar, the connectivity matrix will be:
+                [[x, x, x]
+                 [x, x, x]
+                 [x, x, x]]
+                    
+                Or `weights` is a matrix, then the connectivity matrix will be:
+                [[a, b, c]
+                 [d, e, f]
+                 [g, h, i]]
         """
         self.num_in = num_in
         self.num_out = num_out
@@ -71,7 +100,7 @@ class AllToAll(Transform):
             # TODO Error description
             raise ValueError
 
-        self.weights = np.asarray(weights)
+        self.weights = np.asarray(weights, dtype=np.int8)
 
     def __call__(self, x: np.ndarray) -> np.ndarray:
         """
@@ -81,14 +110,16 @@ class AllToAll(Transform):
         if self.weights.ndim == 0:
             # weight is a scalar
             if x.ndim == 1:
-                _x = np.sum(x)
+                _x = np.sum(x).astype(np.int32)
             else:
                 # TODO
                 raise ValueError
-            # If the weight is all the same, the result is all the same.
+
             output = self.weights * _x
+
         elif self.weights.ndim == 2:
-            output = x @ self.weights  # same as np.dot(x, weights)
+            # np.matmul(np.asarray(x, np.int8), weights)
+            output = x @ self.weights
         else:
             raise ValueError(f"weights.ndim={self.weights.ndim}")
 
@@ -99,7 +130,7 @@ class AllToAll(Transform):
         return (
             self.weights
             if self.weights.ndim == 2
-            else self.weights * np.ones((self.num_in, self.num_out))
+            else (self.weights * np.ones((self.num_in, self.num_out), np.bool_)).astype(np.int8)
         )
 
 
@@ -113,6 +144,8 @@ class MaskedLinear(Transform):
         Arguments:
             - conn: connector. Only support `MatConn`.
             - weights: unmasked weights.
+        
+        NOTE: not been fully validated.
         """
         self.conn = conn
         self.mask = self.conn.build_mat()
@@ -126,7 +159,7 @@ class MaskedLinear(Transform):
             raise ValueError
 
         # Element-wise Multiplication
-        self.weights = np.asarray(weights) * self.mask.astype(np.int8)
+        self.weights = np.asarray(weights, dtype=np.int8) * self.mask
 
     def __call__(self, x: np.ndarray) -> np.ndarray:
         return x @ self.weights

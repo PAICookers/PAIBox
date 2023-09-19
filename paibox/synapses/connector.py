@@ -91,7 +91,7 @@ class One2One(TwoEndConnector):
         )
 
     def build_mat(self):
-        return np.eye(self.source_num, self.dest_num, dtype=np.bool_)
+        return np.eye(self.source_num, self.dest_num, dtype=np.int8)
 
 
 class All2All(TwoEndConnector):
@@ -101,7 +101,7 @@ class All2All(TwoEndConnector):
         super(All2All, self).__init__(source_shape, dest_shape)
 
     def build_mat(self):
-        return np.ones((self.source_num, self.dest_num), dtype=np.bool_)
+        return np.ones((self.source_num, self.dest_num), dtype=np.int8)
 
 
 class MatConn(TwoEndConnector):
