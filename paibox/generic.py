@@ -14,15 +14,17 @@ global_reg_data = dict()
 
 
 def is_name_unique(name: str, obj: object) -> None:
-    """If the name is unique, record it in the global dictionary. Otherwise raise ValueError."""
+    """If the name is unique, record it in the global dictionary.
+    Otherwise raise an error.
+    """
     if not name.isidentifier():
         raise ValueError(f"{name} is not a valid identifier")
 
     if name in _id_dict:
         if _id_dict[name] != id(obj):
-            # TODO Define a new type of error
+            # TODO Error description
             raise ValueError(
-                f"Nme of {obj}({name}) is already used by {_id_dict[name]}"
+                f"Name of {obj}({name}) is already used by {_id_dict[name]}"
             )
 
     else:
