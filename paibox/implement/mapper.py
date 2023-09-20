@@ -8,13 +8,15 @@ from paibox.synapses import SynSys
 from .grouping import GroupedLayer, GroupedSyn
 from .placement import Placement
 
+PredSynDictType = Dict[str, SynSys]
+SuccSynDictType = Dict[str, SynSys]
+
 
 class Mapper:
     def __init__(self) -> None:
         self._nodes: Dict[str, NeuDyn] = defaultdict()
-        self._pred_dg: Dict[str, Dict[str, SynSys]] = defaultdict(dict)
-        self._succ_dg: Dict[str, Dict[str, SynSys]] = defaultdict(dict)
-        self._syn_of_nodes: Dict[str, Dict[str, List[SynSys]]] = defaultdict(dict)
+        self._pred_dg: Dict[str, PredSynDictType] = defaultdict(dict)
+        self._succ_dg: Dict[str, SuccSynDictType] = defaultdict(dict)
 
         self.grouped_syns: List[GroupedSyn] = []
         self.grouped_layers: Dict[str, GroupedLayer] = dict()
@@ -29,6 +31,7 @@ class Mapper:
         self._nodes.clear()
         self.grouped_syns.clear()
         self.grouped_layers.clear()
+        self.placement_group.clear()
 
     def build_graph(self, network: DynSysGroup) -> None:
         """Build the directed graph given a network.
@@ -102,15 +105,14 @@ class Mapper:
             - The LCN extension of every layer is LCN_1X.
         """
 
-        """1. Group by layer"""
-        # Do nothing
-
-        """2. Group neurons into cores using LCN extension optimization."""
+        """1. Group neurons into cores using LCN extension optimization."""
         self._grouping_lcn_opt()
 
-        """3. Build placement for each layer."""
-        for name, layer in self.grouped_layers.items():
-            self.placement_group[name] = Placement.build(layer)
+        """2. Build placement for each layer."""
+        for name in self.nodes:
+            self.placement_group[name] = Placement.build(
+                self.nodes[name], self.grouped_syns
+            )
 
     def _grouping_lcn_opt(self) -> None:
         """LCN extension optimization for grouping a layer.

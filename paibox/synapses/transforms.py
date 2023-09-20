@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Union
+from typing import Type, Union
 
 import numpy as np
 
@@ -18,12 +18,26 @@ class Transform(ABC):
         raise NotImplementedError
 
     @property
-    def dtype(self) -> ...:
-        return self.weights.dtype
-
-    @property
     def connectivity(self):
         raise NotImplementedError
+
+    def _get_dtype(self) -> Union[Type[np.bool_], Type[np.int8]]:
+        """Get the actual dtype of weights.
+
+        Consider when the weight is a scalar:
+            - 1. `np.bool_`, 1-bit unsigned.
+            - 2. `np.int8`, 8-bit signed.s
+        """
+        _max = np.max(self.weights, axis=None).astype(np.int32)
+        _min = np.min(self.weights, axis=None).astype(np.int32)
+
+        if _max <= np.bool_(True) and _min >= np.bool_(False):
+            return np.bool_
+
+        if _max <= np.int8(127) and _min >= np.int8(-128):
+            raise NotImplementedError
+
+        raise OverflowError
 
 
 class OneToOne(Transform):
@@ -57,9 +71,11 @@ class OneToOne(Transform):
     @property
     def connectivity(self) -> np.ndarray:
         return (
-            self.weights
+            self.weights.astype(self._get_dtype())
             if self.weights.ndim == 2
-            else (self.weights * np.eye(self.num, dtype=np.bool_)).astype(self.dtype)
+            else (self.weights * np.eye(self.num, dtype=np.bool_)).astype(
+                self._get_dtype()
+            )
         )
 
 
@@ -128,10 +144,10 @@ class AllToAll(Transform):
     @property
     def connectivity(self) -> np.ndarray:
         return (
-            self.weights
+            self.weights.astype(self._get_dtype())
             if self.weights.ndim == 2
             else (self.weights * np.ones((self.num_in, self.num_out), np.bool_)).astype(
-                np.int8
+                self._get_dtype()
             )
         )
 
@@ -168,4 +184,4 @@ class MaskedLinear(Transform):
 
     @property
     def connectivity(self) -> np.ndarray:
-        return self.weights
+        return self.weights.astype(self._get_dtype())
