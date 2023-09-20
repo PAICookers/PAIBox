@@ -1,9 +1,9 @@
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Type
 
 import numpy as np
 
 from paibox.base import NeuDyn, PAIBoxObject
-from paibox.core.reg_types import LCNExtensionType as LCN_EX
+from paibox.libpaicore.v2 import LCN_EX
 from paibox.synapses import SynSys
 
 
@@ -39,7 +39,7 @@ class GroupedSyn(GroupedObj):
         super().__init__(name)
         self.myself = myself
         self.n_core = n_core
-        self.lcn_ex = lcn_ex
+        self._lcn_ex = lcn_ex
         self.n_neuron_each = n_neuron_each
 
     @classmethod
@@ -51,11 +51,13 @@ class GroupedSyn(GroupedObj):
         n_axon_max = synapse.n_axon_each.max(axis=0)
         n_neuron = synapse.num_dentrite
 
+        assert n_neuron > 0
+
         # Use the `n_axon` to limit the LCN extension
-        l_limit, n_limit = cls._get_core_limit(n_axon_max)
+        l_limit, n_limit = cls._get_core_limit(n_axon_max, synapse.connectivity.dtype)
 
         # At this point, the LCN extension is satisfied. Calculate the #N cores needed.
-        n_core = int(n_neuron / n_limit) + 1
+        n_core = (n_neuron - 1) // n_limit + 1
         # assert n_core == 1
 
         n_neuron_each = []
@@ -67,7 +69,7 @@ class GroupedSyn(GroupedObj):
         return cls(synapse, n_core, l_limit, n_neuron_each, name)
 
     @staticmethod
-    def _get_core_limit(n_axon: int) -> Tuple[LCN_EX, int]:
+    def _get_core_limit(n_axon: int, _dt: Type[np.dtype]) -> Tuple[LCN_EX, int]:
         """Get the LCN extension limit & maximum number of neurons.
         Argument:
             - n_axon: the number of axons of the synapse.
@@ -76,12 +78,14 @@ class GroupedSyn(GroupedObj):
             # TODO
             raise ValueError
 
-        lcn_ex_max_in_core = LCN_EX(int((n_axon - 1) / 1152))
+        lcn_ex_max_in_core = LCN_EX((n_axon - 1) // 1152)
         if lcn_ex_max_in_core > LCN_EX.LCN_64X:
             # TODO
             raise ValueError
 
-        n_max_in_core = 512 >> lcn_ex_max_in_core
+        n_core_combined = 1 if _dt == np.bool_ else 8
+
+        n_max_in_core = (512 // n_core_combined) >> lcn_ex_max_in_core
 
         return lcn_ex_max_in_core, n_max_in_core
 
@@ -96,6 +100,18 @@ class GroupedSyn(GroupedObj):
     @property
     def source(self):
         return self.obj.source
+
+    @property
+    def lcn_ex(self) -> LCN_EX:
+        return self._lcn_ex
+
+    @lcn_ex.setter
+    def lcn_ex(self, value: LCN_EX) -> None:
+        if value >= LCN_EX.LCN_MAX:
+            raise ValueError
+
+        print(f"LCN of {self.name} is been updated: {self.lcn_ex} -> {value}")
+        self._lcn_ex = value
 
     @property
     def weight_divided(self) -> List[np.ndarray]:
@@ -153,6 +169,7 @@ class GroupedLayer(GroupedObj):
 
         for syn in grouped_syns:
             if node.name == syn.dest.name:
+                # S -> N
                 pre.append(syn)
 
         return pre
@@ -161,7 +178,7 @@ class GroupedLayer(GroupedObj):
     def _find_bi_syns(
         node: NeuDyn, grouped_syns: List[GroupedSyn]
     ) -> Tuple[List[GroupedSyn], List[GroupedSyn]]:
-        """Find the previous grouped synapses of the given node."""
+        """Find bidirectional grouped synapses."""
         pre = []
         post = []
 
