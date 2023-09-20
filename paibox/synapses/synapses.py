@@ -135,6 +135,7 @@ class NoDecay(SynSys):
             # TODO Error description
             raise ValueError
 
+        self.weights.setflags(write=False)
         self.reset()
 
         # Register `self` for the destination NeuDyn.
@@ -155,8 +156,7 @@ class NoDecay(SynSys):
         return self._synout
 
     def reset(self, init_val=0) -> None:
-        # TODO Add initialization methods
-        # Only constant initialization right now.
+        # TODO Add other initialization methods
         self._synout = np.zeros((self.num_in, self.num_out), dtype=np.int32)
 
     @property
