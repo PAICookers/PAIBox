@@ -1,17 +1,19 @@
 from dataclasses import dataclass, field
-import numpy as np
 from typing import List, Optional
 
+import numpy as np
+
 from paibox.base import NeuDyn, PAIBoxObject
-from paibox.libpaicore.v2.reg_model import ParamsReg
-from paibox.libpaicore.v2 import InputWidthFormatType
-from paibox.libpaicore.v2 import LCN_EX
 from paibox.libpaicore.v2 import (
+    LCN_EX,
+    InputWidthFormatType,
     MaxPoolingEnableType,
     SNNModeEnableType,
     SpikeWidthFormatType,
     WeightPrecisionType,
 )
+from paibox.libpaicore.v2.reg_model import ParamsReg
+
 from .grouping import GroupedLayer, GroupedSyn
 from .identifier import Coord
 
@@ -173,7 +175,7 @@ class Placement(GroupedLayer):
             - grouped_layer: the grouped layer to be placed, \
                 including the pre & post grouped synapses.
             - name: the name of the object. Optional.
-        
+
         Description: The `Placement` includes both the pre & post grouped synapses. \
             It will be used to assign the parameters of CORES & NEURONS.
 

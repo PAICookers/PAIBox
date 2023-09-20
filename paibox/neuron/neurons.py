@@ -1,7 +1,8 @@
 from typing import Optional
 
 from paibox._types import Shape
-from paibox.libpaicore.v2 import RM, LCM, NTM, LDM, LIM, SIM
+from paibox.libpaicore.v2 import LCM, LDM, LIM, NTM, RM, SIM
+
 from .base import MetaNeuron, Neuron
 
 
@@ -238,7 +239,7 @@ class SpikeLatency(Neuron):
             then resets the membrane potential to 0, and never fires again.
 
             `N` stands for `fire_time`.
-        
+
         NOTE: the weight is 10.
         """
         pos_thres = 11 + fire_time

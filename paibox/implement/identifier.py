@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 from enum import Enum
-import numpy as np
 from typing import Tuple, Union, final, overload
 
+import numpy as np
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 

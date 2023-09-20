@@ -8,7 +8,6 @@ from paibox.synapses import SynSys
 from .grouping import GroupedLayer, GroupedSyn
 from .placement import Placement
 
-
 PredSynDictType = Dict[str, SynSys]
 SuccSynDictType = Dict[str, SynSys]
 

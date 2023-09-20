@@ -4,10 +4,18 @@ import numpy as np
 
 from paibox._types import Shape
 from paibox.base import NeuDyn
-from paibox.libpaicore.v2 import MaxPoolingEnableType, SpikeWidthFormatType
-from paibox.libpaicore.v2 import RM, LCM, NTM, LDM, LIM, SIM, TM
+from paibox.libpaicore.v2 import (
+    LCM,
+    LDM,
+    LIM,
+    NTM,
+    RM,
+    SIM,
+    TM,
+    MaxPoolingEnableType,
+    SpikeWidthFormatType,
+)
 from paibox.utils import as_shape, fn_sgn, shape2num
-
 
 __all__ = ["MetaNeuron", "Neuron"]
 
