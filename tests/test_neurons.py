@@ -1,4 +1,3 @@
-import numpy as np
 import pytest
 
 import paibox as pb
@@ -12,14 +11,14 @@ from paibox.utils import as_shape, shape2num
 )
 def test_neuron_instance(shape):
     # keep_size = True
-    n1 = pb.neuron.TonicSpikingNeuron(shape, 5, keep_size=True)
+    n1 = pb.neuron.TonicSpiking(shape, 5, keep_size=True)
 
     assert n1.shape_in == as_shape(shape)
     assert n1.shape_out == as_shape(shape)
     assert len(n1) == shape2num(shape)
 
     # keep_size = False
-    n2 = pb.neuron.TonicSpikingNeuron(shape, 5)
+    n2 = pb.neuron.TonicSpiking(shape, 5)
 
     assert n2.shape_in == as_shape(shape2num(shape))
     assert n2.shape_out == as_shape(shape2num(shape))

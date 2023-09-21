@@ -17,8 +17,8 @@ class Net1(pb.DynSysGroup):
                 return np.ones((2,)) * ts
 
         self.inp = pb.projection.InputProj(GenDataProcess(2))
-        self.n1 = pb.neuron.TonicSpikingNeuron(2, fire_step=2)
-        self.n2 = pb.neuron.TonicSpikingNeuron(2, fire_step=2)
+        self.n1 = pb.neuron.TonicSpiking(2, fire_step=2)
+        self.n2 = pb.neuron.TonicSpiking(2, fire_step=2)
         self.s0 = pb.synapses.NoDecay(self.inp, self.n1, pb.synapses.One2One())
         self.s1 = pb.synapses.NoDecay(self.n1, self.n2, pb.synapses.One2One())
 
