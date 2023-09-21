@@ -1,61 +1,54 @@
 from abc import ABC, abstractmethod
 from enum import Enum
-from math import sqrt
-from typing import Tuple, Union, final, overload
+from typing import List, final, overload, Tuple, Union
 
+import numpy as np
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
-__all__ = [
-    "Coord",
-    "CoordOffset",
-    "NeuronId",
-    "AxonId",
-    "PinId",
-]
+from ._types import CoordLike
+from paibox.utils import bin_split
+
+__all__ = ["Coord", "CoordOffset", "ReplicationId"]
 
 
-class _Identifier(ABC):
-    """_Identifier. At least the subclasses of identifier can `__eq__` and `__ne__`."""
+class Identifier(ABC):
+    """Identifier. At least the subclasses of identifier can `__eq__` and `__ne__`."""
 
     @abstractmethod
-    def __eq__(self, __other):
+    def __eq__(self, __other) -> ...:
         raise NotImplementedError
 
     @abstractmethod
-    def __ne__(self, __other):
+    def __ne__(self, __other) -> ...:
         raise NotImplementedError
 
 
-@dataclass(frozen=True)
-@final
-class Coord(_Identifier):
+_COORD_MAX_LIMIT = (1 << 5) - 1
+_COORD_LOW_LIMIT = 0
+
+
+@dataclass
+class Coord(Identifier):
     """Coordinates of the cores. Set coordinates (x, y) for every cores.
 
     Left to right, +X, up to down, +Y.
     """
 
-    _COORD_MAX_LIMIT = (1 << 5) - 1
-    _COORD_LOW_LIMIT = 0
-
     x: int = Field(..., ge=_COORD_LOW_LIMIT, le=_COORD_MAX_LIMIT)
     y: int = Field(..., ge=_COORD_LOW_LIMIT, le=_COORD_MAX_LIMIT)
 
     @classmethod
-    def from_tuple(cls, pos) -> "Coord":
+    def from_tuple(cls, pos):
         return cls(*pos)
 
     @classmethod
-    def default(cls) -> "Coord":
+    def from_addr(cls, addr):
+        return cls(addr >> 5, addr & _COORD_MAX_LIMIT)
+
+    @classmethod
+    def default(cls):
         return cls(0, 0)
-
-    @overload
-    def __sub__(self, __other: "Coord") -> "CoordOffset":
-        ...
-
-    @overload
-    def __sub__(self, __other: "CoordOffset") -> "Coord":
-        ...
 
     def __add__(self, __other: "CoordOffset") -> "Coord":
         """
@@ -73,6 +66,32 @@ class Coord(_Identifier):
 
         return Coord(self.x + __other.delta_x, self.y + __other.delta_y)
 
+    def __iadd__(self, __other: Union[int, "CoordOffset"]) -> "Coord":
+        """
+        Example:
+        >>> c1 = Coord(1, 1)
+        >>> c1 += CoordOffset(1, 1)
+        Coord(2, 2)
+        """
+        if not isinstance(__other, (int, CoordOffset)):
+            raise TypeError(f"Unsupported type: {type(__other)}")
+
+        _dx = __other if isinstance(__other, int) else __other.delta_x
+        _dy = __other if isinstance(__other, int) else __other.delta_y
+
+        self.x += _dx
+        self.y += _dy
+
+        return self
+
+    @overload
+    def __sub__(self, __other: "Coord") -> "CoordOffset":
+        ...
+
+    @overload
+    def __sub__(self, __other: "CoordOffset") -> "Coord":
+        ...
+
     def __sub__(
         self, __other: Union["Coord", "CoordOffset"]
     ) -> Union["Coord", "CoordOffset"]:
@@ -89,6 +108,24 @@ class Coord(_Identifier):
             return Coord(self.x - __other.delta_x, self.y - __other.delta_y)
 
         raise TypeError(f"Unsupported type: {type(__other)}")
+
+    def __isub__(self, __other: Union[int, "CoordOffset"]) -> "Coord":
+        """
+        Example:
+        >>> c1 = Coord(2, 2)
+        >>> c1 -= CoordOffset(1, 1)
+        Coord(1, 1)
+        """
+        if not isinstance(__other, (int, CoordOffset)):
+            raise TypeError(f"Unsupported type: {type(__other)}")
+
+        _dx = __other if isinstance(__other, int) else __other.delta_x
+        _dy = __other if isinstance(__other, int) else __other.delta_y
+
+        self.x -= _dx
+        self.y -= _dy
+
+        return self
 
     """Operations below are used only when comparing with a Cooord."""
 
@@ -164,6 +201,12 @@ class Coord(_Identifier):
     def __ge__(self, __other: "Coord") -> bool:
         return self.__gt__(__other) or self.__eq__(__other)
 
+    def __xor__(self, __other: Union["Coord", "ReplicationId"]) -> "ReplicationId":
+        return ReplicationId(self.x ^ __other.x, self.y ^ __other.y)
+
+    def __hash__(self) -> int:
+        return hash(self.address)
+
     def __str__(self) -> str:
         return f"({self.x}, {self.y})"
 
@@ -174,13 +217,10 @@ class Coord(_Identifier):
         """Convert to tuple"""
         return (self.x, self.y)
 
-    def _to_address(self) -> int:
-        """Convert to address, 10 bits"""
-        return (self.x << 5) | self.y
-
     @property
     def address(self) -> int:
-        return self._to_address()
+        """Convert to address, 10 bits"""
+        return (self.x << 5) | self.y
 
 
 class DistanceType(Enum):
@@ -189,15 +229,24 @@ class DistanceType(Enum):
     DISTANCE_CHEBYSHEV = 2
 
 
+_COORDOFFSET_MAX_LIMIT = (1 << 5) - 1
+_COORDOFFSET_LOW_LIMIT = -(1 << 5)
+
+
 @dataclass
 class CoordOffset:
     """Offset of coordinates"""
 
-    _COORDOFFSET_MAX_LIMIT = (1 << 5) - 1
-    _COORDOFFSET_LOW_LIMIT = -(1 << 5)
-
     delta_x: int = Field(..., ge=_COORDOFFSET_LOW_LIMIT, le=_COORDOFFSET_MAX_LIMIT)
     delta_y: int = Field(..., ge=_COORDOFFSET_LOW_LIMIT, le=_COORDOFFSET_MAX_LIMIT)
+
+    @classmethod
+    def from_tuple(cls, pos) -> "CoordOffset":
+        return cls(*pos)
+
+    @classmethod
+    def default(cls) -> "CoordOffset":
+        return cls(0, 0)
 
     @overload
     def __add__(self, __other: Coord) -> Coord:
@@ -312,89 +361,85 @@ class CoordOffset:
 
     def _euclidean_distance(self) -> float:
         """Euclidean distance"""
-        return sqrt((self.delta_x**2 + self.delta_y**2))
+        return np.sqrt(self.delta_x**2 + self.delta_y**2)
 
     def _manhattan_distance(self) -> int:
         """Manhattan distance"""
-        return abs(self.delta_x) + abs(self.delta_y)
+        return np.abs(self.delta_x) + np.abs(self.delta_y)
 
     def _chebyshev_distance(self) -> int:
         """Chebyshev distance"""
-        return max(abs(self.delta_x), abs(self.delta_y))
+        return np.maximum(np.abs(self.delta_x), np.abs(self.delta_y))
 
 
-@dataclass(frozen=True)
-class NeuronId(_Identifier):
-    uid: int
-    core_id: Coord
-    id: int
+@final
+class ReplicationId(Coord):
+    def __and__(self, __other: Union[Coord, "ReplicationId"]) -> "ReplicationId":
+        return ReplicationId(self.x & __other.x, self.y & __other.y)
 
-    @classmethod
-    def default(cls) -> "NeuronId":
-        return cls(0, Coord(0, 0), 0)
+    def __or__(self, __other: Union[Coord, "ReplicationId"]) -> "ReplicationId":
+        return ReplicationId(self.x | __other.x, self.y | __other.y)
 
-    def __eq__(self, __other: "NeuronId") -> bool:
-        if not isinstance(__other, NeuronId):
-            raise TypeError(f"Unsupported type: {type(__other)}")
+    def __xor__(self, __other: Union[Coord, "ReplicationId"]) -> "ReplicationId":
+        return ReplicationId(self.x ^ __other.x, self.y ^ __other.y)
 
-        return __other.core_id == self.core_id and __other.id == self.id
+    def __lshift__(self, __bit: int) -> int:
+        return self.address << __bit
 
-    def __ne__(self, __other: "NeuronId") -> bool:
-        if not isinstance(__other, NeuronId):
-            raise TypeError(f"Unsupported type: {type(__other)}")
-
-        return __other.core_id != self.core_id or __other.id != self.id
-
-    def __repr__(self) -> str:
-        return f"Core ID: {self.core_id}, Neuron ID: {self.id}"
+    def __rshift__(self, __bit: int) -> int:
+        return self.address >> __bit
 
 
-@dataclass(frozen=True)
-class AxonId(_Identifier):
-    uid: int
-    core_id: Coord
-    id: int
+def get_replication_id(dest_coords: List[Coord]) -> ReplicationId:
+    """
+    Arguments:
+        - dest_coords: the list of coordinates which are the destinations of a frame.
 
-    @classmethod
-    def default(cls) -> "AxonId":
-        return cls(0, Coord(0, 0), 0)
+    Return:
+        The replication ID.
+    """
+    baseCore = dest_coords[0]
+    rid = ReplicationId(0, 0)
 
-    def __eq__(self, __other: "AxonId") -> bool:
-        if not isinstance(__other, AxonId):
-            raise TypeError(f"Unsupported type: {type(__other)}")
+    for coord in dest_coords:
+        rid |= baseCore ^ coord
 
-        return __other.core_id == self.core_id and __other.id == self.id
-
-    def __ne__(self, __other: "AxonId") -> bool:
-        if not isinstance(__other, AxonId):
-            raise TypeError(f"Unsupported type: {type(__other)}")
-
-        return __other.core_id != self.core_id or __other.id != self.id
-
-    def __repr__(self) -> str:
-        return f"Core ID: {self.core_id}, Axon ID: {self.id}"
+    return rid
 
 
-@dataclass(frozen=True)
-class PinId(_Identifier):
-    conn_id: int
-    id: int
+def get_multicast_cores(
+    base_coord: Coord, repilication_id: ReplicationId
+) -> List[Coord]:
+    cores: List[Coord] = []
+    cores.append(base_coord)
 
-    @classmethod
-    def default(cls) -> "PinId":
-        return cls(0, 0)
+    for i in range(10):
+        if (repilication_id >> i) & 1:
+            temp = []
+            for core in cores:
+                temp.append(core ^ ReplicationId.from_tuple(bin_split(1 << i, 5)))
 
-    def __eq__(self, __other: "PinId") -> bool:
-        if not isinstance(__other, PinId):
-            raise TypeError(f"Unsupported type: {type(__other)}")
+            cores.extend(temp)
 
-        return __other.conn_id == self.conn_id and __other.id == self.id
+    return cores
 
-    def __ne__(self, __other: "PinId") -> bool:
-        if not isinstance(__other, PinId):
-            raise TypeError(f"Unsupported type: {type(__other)}")
 
-        return __other.conn_id != self.conn_id or __other.id != self.id
+def to_coord(coordlike: CoordLike) -> Coord:
+    if isinstance(coordlike, (list, tuple)):
+        if len(coordlike) != 2:
+            raise ValueError(
+                f"Must be a tuple or list of 2 elements to represent a coordinate: {len(coordlike)}"
+            )
 
-    def __repr__(self) -> str:
-        return f"Conn ID: {self.conn_id}, Pin ID: {self.id}"
+        return Coord.from_tuple(coordlike)
+
+    return coordlike
+
+
+def to_coords(coordlikes: Union[CoordLike, List[CoordLike]]) -> List[Coord]:
+    if isinstance(coordlikes, list):
+        coords = [to_coord(i) for i in coordlikes]
+    else:
+        coords = [to_coord(coordlikes)]
+
+    return coords
