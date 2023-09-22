@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field, field_serializer
 from .ram_types import *
 
 
-class ParamsRAM(BaseModel, extra="ignore", validate_assignment=True):
+class NeuronDestConfig(BaseModel, extra="ignore", validate_assignment=True):
     """Parameter model of RAM parameters listed in Section 2.4.2
 
     Example:
@@ -25,19 +25,6 @@ class ParamsRAM(BaseModel, extra="ignore", validate_assignment=True):
     _ADDR_CORE_Y_EX_BIT_MAX = 5
     _ADDR_CHIP_X_BIT_MAX = 5
     _ADDR_CHIP_Y_BIT_MAX = 5
-    _RESET_MODE_BIT_MAX = 2
-    _RESET_V_BIT_MAX = 30
-    _LEAKING_COMPARISON_BIT_MAX = 1
-    _THRESHOLD_MASK_CTRL_BIT_MAX = 5
-    _NEGATIVE_THRESHOLD_MODE_BIT_MAX = 1
-    _NEGATIVE_THRESHOLD_VALUE_BIT_MAX = 29
-    _POSITIVE_THRESHOLD_VALUE_BIT_MAX = 29
-    _LEAKING_DIRECTION_BIT_MAX = 1
-    _LEAKING_MODE_BIT_MAX = 1
-    _LEAK_V_BIT_MAX = 30
-    _WEIGHT_MODE_BIT_MAX = 1
-    _BIT_TRUNCATE_BIT_MAX = 5
-    _VJT_PRE_BIT_MAX = 30
 
     tick_relative: int = Field(
         ...,
@@ -90,6 +77,22 @@ class ParamsRAM(BaseModel, extra="ignore", validate_assignment=True):
         lt=(1 << _ADDR_CHIP_Y_BIT_MAX),
         description="Address Y of destination chip.",
     )
+
+
+class NeuronSelfConfig(BaseModel, extra="ignore", validate_assignment=True):
+    _RESET_MODE_BIT_MAX = 2
+    _RESET_V_BIT_MAX = 30
+    _LEAKING_COMPARISON_BIT_MAX = 1
+    _THRESHOLD_MASK_CTRL_BIT_MAX = 5
+    _NEGATIVE_THRESHOLD_MODE_BIT_MAX = 1
+    _NEGATIVE_THRESHOLD_VALUE_BIT_MAX = 29
+    _POSITIVE_THRESHOLD_VALUE_BIT_MAX = 29
+    _LEAKING_DIRECTION_BIT_MAX = 1
+    _LEAKING_MODE_BIT_MAX = 1
+    _LEAK_V_BIT_MAX = 30
+    _WEIGHT_MODE_BIT_MAX = 1
+    _BIT_TRUNCATE_BIT_MAX = 5
+    _VJT_PRE_BIT_MAX = 30
 
     reset_mode: ResetMode = Field(
         default=ResetMode.MODE_NORMAL,
@@ -208,3 +211,10 @@ class ParamsRAM(BaseModel, extra="ignore", validate_assignment=True):
         self, synaptic_integration_mode: SynapticIntegrationMode
     ) -> int:
         return synaptic_integration_mode.value
+
+
+class NeuronAttrs(NeuronDestConfig, NeuronSelfConfig):
+    pass
+
+
+ParamsRAM = NeuronAttrs

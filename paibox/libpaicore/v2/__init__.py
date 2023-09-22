@@ -1,3 +1,5 @@
+from .identifier import Coord as Coord
+from .identifier import ReplicationId as ReplicationId
 from .ram_types import LeakingComparisonMode as LCM
 from .ram_types import LeakingDirectionMode as LDM
 from .ram_types import LeakingIntegrationMode as LIM
@@ -11,3 +13,11 @@ from .reg_types import MaxPoolingEnableType as MaxPoolingEnableType
 from .reg_types import SNNModeEnableType as SNNModeEnableType
 from .reg_types import SpikeWidthFormatType as SpikeWidthFormatType
 from .reg_types import WeightPrecisionType as WeightPrecisionType
+from .reg_model import ParamsReg as ParamsReg
+from .ram_model import NeuronSelfConfig as NeuronSelfConfig
+
+
+v_major = 2
+v_minor = 0
+v_revision = 0
+version = f"{v_major}.{v_minor}.{v_revision}"

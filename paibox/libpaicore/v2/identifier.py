@@ -1,12 +1,11 @@
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import List, final, overload, Tuple, Union
+from typing import List, final, overload, Tuple, TypeVar, Union
 
 import numpy as np
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
-from ._types import CoordLike
 from paibox.utils import bin_split
 
 __all__ = ["Coord", "CoordOffset", "ReplicationId"]
@@ -221,6 +220,9 @@ class Coord(Identifier):
     def address(self) -> int:
         """Convert to address, 10 bits"""
         return (self.x << 5) | self.y
+
+
+CoordLike = TypeVar("CoordLike", Coord, Tuple[int, int])
 
 
 class DistanceType(Enum):

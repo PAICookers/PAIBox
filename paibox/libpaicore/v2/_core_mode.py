@@ -2,7 +2,13 @@ from enum import Enum, unique
 
 from .reg_types import InputWidthFormatType, SNNModeEnableType, SpikeWidthFormatType
 
-__all__ = ["CoreMode"]
+__all__ = ["CoreType", "CoreMode"]
+
+
+@unique
+class CoreType(Enum):
+    TYPE_OFFLINE = "OFFLINE"
+    TYPE_ONLINE = "ONLINE"
 
 
 @unique
