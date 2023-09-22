@@ -1,26 +1,48 @@
 from collections import defaultdict
-from typing import Dict, List
+from typing import Dict
 
 from paibox.base import DynamicSys, NeuDyn, PAIBoxObject
 from paibox.network import DynSysGroup
 from paibox.synapses import SynSys
 
 from .grouping import GroupedLayer, GroupedSyn
-from .placement import Placement
 
 PredSynDictType = Dict[str, SynSys]
 SuccSynDictType = Dict[str, SynSys]
+SuccGroupedSynDictType = Dict[str, GroupedSyn]
 
 
 class Mapper:
     def __init__(self) -> None:
+        """Mapper.
+        
+        Private attributes:
+        
+            - _pre_grouped_syns: a dictionary of previous \
+                grouped synapses.
+                {
+                    <N1.name>: the combined and grouped \
+                        pre-synapses of node `N1`.
+                }
+            - _succ_grouped_syns: a dictionary of following \
+                grouped synapses and nodes.
+                {
+                    <N1.name>: {
+                        <N2.name>: the combined and grouped \
+                            pre-synapses of node `N2`,
+                        <N3.name>: the combined and grouped \
+                            pre-synapses of node `N3`.
+                    }
+                }
+
+        """
         self._nodes: Dict[str, NeuDyn] = defaultdict()
         self._pred_dg: Dict[str, PredSynDictType] = defaultdict(dict)
         self._succ_dg: Dict[str, SuccSynDictType] = defaultdict(dict)
 
-        self.grouped_syns: List[GroupedSyn] = []
-        self.grouped_layers: Dict[str, GroupedLayer] = dict()
-        self.placement_group = dict()
+        self._pre_grouped_syns: Dict[str, GroupedSyn] = defaultdict()
+        self._succ_grouped_syns: Dict[str, SuccGroupedSynDictType] = defaultdict()
+        self.grouped_layers: Dict[str, GroupedLayer] = defaultdict()
 
         self.is_built = False
 
@@ -29,9 +51,9 @@ class Mapper:
         self._pred_dg.clear()
         self._succ_dg.clear()
         self._nodes.clear()
-        self.grouped_syns.clear()
+        self._pre_grouped_syns.clear()
+        self._succ_grouped_syns.clear()
         self.grouped_layers.clear()
-        self.placement_group.clear()
 
     def build_graph(self, network: DynSysGroup) -> None:
         """Build the directed graph given a network.
@@ -105,110 +127,30 @@ class Mapper:
             - The LCN extension of every layer is LCN_1X.
         """
 
-        """1. Group neurons into cores using LCN extension optimization."""
-        self._grouping_lcn_opt()
-
-        """2. Build placement for each layer."""
+        """1. Group every synapse at first."""
         for name in self.nodes:
-            self.placement_group[name] = Placement.build(
-                self.nodes[name], self.grouped_syns
-            )
-
-    def _grouping_lcn_opt(self) -> None:
-        """LCN extension optimization for grouping a layer.
-
-        Description:
-            Find a minimum LCN extension for each synapses connecting this layer, \
-            so that to deploy to core(s).
-
-        S1 -> N, the connectivity of S1 is [A1*N]
-        S2 -> N, the connectivity of S2 is [A2*N]
-
-        Now consider A1 & A2 seperately.
-        A1 -> C0 + C1
-        A2 -> C2
-        """
-        # 1. Group every synapse at first.
-        for name in self.nodes:
+            # Consider ALL the pre-synapses of a node.
             pre_syns = self.pred_dg[name]
+            if pre_syns:
+                self._pre_grouped_syns[name] = GroupedSyn.build(list(pre_syns.values()))
 
-            for pre_syn in pre_syns.values():
-                self.grouped_syns.append(GroupedSyn.build(pre_syn))
+        for name in self.nodes:
+            self._succ_grouped_syns[name] = {}
+            succ_nodes = self.succ_dg[name]
 
-        # 2. Generate the grouped layer for every node.
-        for name, node in self.nodes.items():
-            self.grouped_layers[name] = GroupedLayer.build(node, self.grouped_syns)
+            if succ_nodes:
+                for node, syn in succ_nodes.items():
+                    self._succ_grouped_syns[name][node] = self._in_grouped_syns(syn)
 
-    # def _grouping_greedy_lcn_opt(self, groups: Dict[str, Any]) -> List[GroupedNeuron]:
-    #     """LCN extension optimization strategy for grouping neurons.
+        """2. Re limit the LCN extension for target LCN."""
 
-    #     Description:
-    #         Always looking for the minimum LCN extension that the group of axons is **ALL** satisfied.
-
-    #     TODO Summary the constant in this function such as 1152, 512, etc.
-    #     """
-    #     axons_in_layer: np.ndarray = groups["axons_each"]
-    #     n_neuron: int = groups["neuron_num"]
-
-    #     indices = np.argsort(axons_in_layer, kind="heapsort")
-    #     axons_in_layer.sort(kind="heapsort")
-
-    #     lcn_each_in_layer = []
-    #     axons_grouped = []
-
-    #     for i in range(n_neuron):
-    #         lcn_ex = int((axons_in_layer[i] - 1) / 1152)
-    #         if lcn_ex > LCN_EX.LCN_64X:
-    #             # TODO
-    #             raise ValueError
-
-    #         lcn_each_in_layer.append(LCN_EX(lcn_ex))
-
-    #     # Traverse the lcn and put them in core
-    #     def _get_core_limit(idx: int) -> Tuple[LCN_EX, int, int]:
-    #         """Get the LCN extension limit, maximum number of neurons,
-    #         & maximum number of axons in a core.
-    #         """
-    #         lcn_ex_max_in_core = lcn_each_in_layer[idx]
-    #         n_max_in_core = int(512 >> lcn_ex_max_in_core)
-    #         axons_max_in_core = 1152 * (lcn_ex_max_in_core - LCN_EX.LCN_1X + 1)
-
-    #         return lcn_ex_max_in_core, n_max_in_core, axons_max_in_core
-
-    #     i = i_start = 0
-
-    #     while i_start < n_neuron:
-    #         axons_group_sum = axons_in_layer[i_start]
-    #         l_limit, n_limit, a_limit = _get_core_limit(i_start)
-
-    #         if i != n_neuron:
-    #             i += 1
-
-    #         while True:
-    #             if i == n_neuron:
-    #                 break
-
-    #             if not (
-    #                 (i - i_start) + 1 <= n_limit
-    #                 and axons_group_sum + axons_in_layer[i] <= a_limit
-    #             ):
-    #                 break
-
-    #             axons_group_sum += axons_in_layer[i]
-    #             l_limit, n_limit, a_limit = _get_core_limit(i)
-    #             i += 1
-
-    #         axons_grouped.append(
-    #             # Slice the array [i_last: i+1], which means [i_last, i].
-    #             GroupedNeuron(l_limit, axons_in_layer[i_start:i], indices[i_start:i])
-    #         )
-    #         i_start = i
-
-    #     return axons_grouped
+        """2. Build placement for each grouped layer."""
+        for name, syns in self._pre_grouped_syns.items():
+            self.grouped_layers[name] = GroupedLayer.build(self.nodes[name], syns)
 
     def _find_component(self, component: PAIBoxObject) -> str:
         """Return the name of the component if in the network."""
-        for k, v in self.network.__dict__.items():
+        for v in self.network.__dict__.values():
             if component is v:
                 return v.name
 
@@ -246,15 +188,22 @@ class Mapper:
         # TODO
         raise ValueError
 
-    def _find_src_syn(self, node: DynamicSys):
+    def _find_src_syns(self, node: DynamicSys):
         name = self._find_component(node)
 
         return self._pred_dg[name]
 
-    def _find_dest_syn(self, node: DynamicSys):
+    def _find_dest_syns(self, node: DynamicSys):
         name = self._find_component(node)
 
         return self._succ_dg[name]
+
+    def _in_grouped_syns(self, syn: SynSys) -> GroupedSyn:
+        for name in self._pre_grouped_syns:
+            if syn.dest.name == name:
+                return self._pre_grouped_syns[name]
+
+        raise ValueError
 
 
 def group_by(_dict: Dict, keyfunc=lambda item: item):
