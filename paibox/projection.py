@@ -44,8 +44,6 @@ class InputProj(Projection):
             self.val = val_or_func
             self._shape = self.val.varshape
 
-        self._state = np.zeros(self._shape)
-
     def __call__(self, *args, **kwargs):
         return self.update(*args, **kwargs)
 
@@ -56,6 +54,9 @@ class InputProj(Projection):
             self._state = np.full(self.shape_out, self.val)
 
         return self._state
+    
+    def reset_state(self) -> None:
+        self._state = np.zeros(self._shape, np.int32)
 
     @property
     def output(self) -> np.ndarray:

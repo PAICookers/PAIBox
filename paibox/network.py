@@ -27,6 +27,18 @@ class DynSysGroup(DynamicSys, Container):
 
         for node in nodes.subset(NeuDyn).values():
             node()
+            
+    def reset_state(self) -> None:
+        nodes = self.nodes(level=1, include_self=False).subset(DynamicSys).unique()
+
+        for node in nodes.subset(Projection).values():
+            node.reset_state()
+            
+        for node in nodes.subset(SynSys).values():
+            node.reset_state()
+            
+        for node in nodes.subset(NeuDyn).values():
+            node.reset_state()
 
 
 Network = DynSysGroup

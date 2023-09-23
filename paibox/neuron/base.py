@@ -14,6 +14,7 @@ from paibox.libpaicore.v2 import (
     TM,
     MaxPoolingEnableType,
     SpikeWidthFormatType,
+    NeuronSelfConfig,
 )
 from paibox.utils import as_shape, fn_sgn, shape2num
 
@@ -46,7 +47,7 @@ class MetaNeuron:
         """Stateless attributes. Scalar."""
         # Basic
         self.keep_size = keep_size
-        self.n_neurons = shape2num(shape)
+        self._n_neuron = shape2num(shape)
         self._shape = as_shape(shape)
 
         # Configurations in SNN mode
@@ -61,9 +62,8 @@ class MetaNeuron:
         self._neg_thres: int = neg_threshold  # Unsigned 29-bit
         self._pos_thres: int = pos_threshold  # Unsigned 29-bit
 
-        self.reset_v: int = reset_v  # Signed 30-bit
-        self.leak_v: int = leak_v  # Signed 30-bit
-        self.bias: int = leak_v  # Signed 30-bit(ANN mode ONLY)
+        self._reset_v: int = reset_v  # Signed 30-bit
+        self._leak_v: int = leak_v  # Signed 30-bit
 
         # Configurations in ANN mode
         self._bit_truncate: int = bit_truncate
@@ -343,7 +343,19 @@ class MetaNeuron:
 
     @property
     def varshape(self) -> Tuple[int, ...]:
-        return self._shape if self.keep_size else (self.n_neurons,)
+        return self._shape if self.keep_size else (self._n_neuron,)
+
+    @property
+    def reset_v(self) -> int:
+        return self._reset_v
+
+    @property
+    def leak_v(self) -> int:
+        return self._leak_v
+
+    @property
+    def bias(self) -> int:
+        return self._leak_v  # Signed 30-bit(ANN mode ONLY)
 
     @property
     def vjt_init(self) -> int:
@@ -376,11 +388,11 @@ class Neuron(MetaNeuron, NeuDyn):
 
     @property
     def num_in(self) -> int:
-        return self.n_neurons
+        return self._n_neuron
 
     @property
     def num_out(self) -> int:
-        return self.n_neurons
+        return self._n_neuron
 
     @property
     def output(self) -> np.ndarray:
@@ -395,23 +407,23 @@ class Neuron(MetaNeuron, NeuDyn):
         return self._spike
 
     def __len__(self) -> int:
-        return self.n_neurons
+        return self._n_neuron
 
     def __call__(self, x: Optional[np.ndarray] = None) -> np.ndarray:
         return self.update(x)
 
-    def update(self, x: Optional[np.ndarray] = None):
+    def update(self, x: Optional[np.ndarray] = None) -> np.ndarray:
         if x is None:
             x = self.sum_inputs()
 
         return super().update(x)
 
-    def reset(self) -> None:
+    def reset_reset(self) -> None:
         """Initialization, not the neuronal reset."""
         self._vjt = self._vjt_pre = self.init_param(self.vjt_init)
 
     def export_to_dict(self) -> Dict[str, Any]:
-        _dict = {
+        config_dict = {
             "reset_mode": self._reset_mode,
             "reset_v": self.reset_v,
             "leaking_comparison": self._leaking_comparison,
@@ -427,4 +439,4 @@ class Neuron(MetaNeuron, NeuDyn):
             "vjt_init": self._vjt_init,
         }
 
-        return _dict
+        return config_dict

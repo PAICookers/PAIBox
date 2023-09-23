@@ -162,7 +162,7 @@ class DynamicSys(PAIBoxObject):
     def update(self, *args, **kwargs):
         raise NotImplementedError
 
-    def reset(self, *args, **kwargs):
+    def reset_state(self, *args, **kwargs):
         raise NotImplementedError
 
     @property

@@ -35,7 +35,8 @@ class Transform(ABC):
             return np.bool_
 
         if _max <= np.int8(127) and _min >= np.int8(-128):
-            raise NotImplementedError
+            # raise NotImplementedError
+            return np.int8
 
         raise OverflowError
 
