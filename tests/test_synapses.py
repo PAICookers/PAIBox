@@ -57,7 +57,9 @@ def test_NoDecay_One2One_matrix():
 
     assert np.array_equal(s2.weights, weight)
     assert (s2.num_in, s2.num_out) == (3, 3)
-    assert np.array_equal(s2.connectivity, np.array([[2, 0, 0], [0, 3, 0], [0, 0, 4]], dtype=np.int8))
+    assert np.array_equal(
+        s2.connectivity, np.array([[2, 0, 0], [0, 3, 0], [0, 0, 4]], dtype=np.int8)
+    )
 
 
 @pytest.mark.parametrize(

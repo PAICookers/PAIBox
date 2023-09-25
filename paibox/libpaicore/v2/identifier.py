@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import List, final, overload, Tuple, TypeVar, Union
+from typing import List, Tuple, TypeVar, Union, final, overload
 
 import numpy as np
 from pydantic import Field

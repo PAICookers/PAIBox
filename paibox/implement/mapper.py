@@ -15,9 +15,9 @@ SuccGroupedSynDictType = Dict[str, GroupedSyn]
 class Mapper:
     def __init__(self) -> None:
         """Mapper.
-        
+
         Private attributes:
-        
+
             - _pre_grouped_syns: a dictionary of previous \
                 grouped synapses.
                 {

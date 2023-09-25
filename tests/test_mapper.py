@@ -22,7 +22,7 @@ def test_grouping():
             self.inp = pb.projection.InputProj(pb.simulator.processes.Constant(1200, 1))
             self.n1 = pb.neuron.TonicSpiking(400, 3)
             self.n2 = pb.neuron.TonicSpiking(800, 3)
-            
+
             self.s1 = pb.synapses.NoDecay(self.inp, self.n1, pb.synapses.All2All())
             self.s2 = pb.synapses.NoDecay(self.n1, self.n2, pb.synapses.All2All())
 

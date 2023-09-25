@@ -59,10 +59,10 @@ class Simulator(PAIBoxObject):
             raise ValueError
 
         indices = np.arange(self._ts1, self._ts1 + n_steps, self.dt, dtype=np.int16)
-        
+
         if reset:
             self.target.reset_state()
-        
+
         self.run_step(n_steps, **kwargs)
 
         self._sim_data["ts"] = indices * self.dt

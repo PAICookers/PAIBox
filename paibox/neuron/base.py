@@ -13,8 +13,8 @@ from paibox.libpaicore.v2 import (
     SIM,
     TM,
     MaxPoolingEnableType,
-    SpikeWidthFormatType,
     NeuronSelfConfig,
+    SpikeWidthFormatType,
 )
 from paibox.utils import as_shape, fn_sgn, shape2num
 

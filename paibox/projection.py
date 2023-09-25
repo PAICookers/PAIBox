@@ -54,7 +54,7 @@ class InputProj(Projection):
             self._state = np.full(self.shape_out, self.val)
 
         return self._state
-    
+
     def reset_state(self) -> None:
         self._state = np.zeros(self._shape, np.int32)
 
