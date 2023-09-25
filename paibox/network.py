@@ -28,6 +28,18 @@ class DynSysGroup(DynamicSys, Container):
         for node in nodes.subset(NeuDyn).values():
             node()
 
+    def reset_state(self) -> None:
+        nodes = self.nodes(level=1, include_self=False).subset(DynamicSys).unique()
+
+        for node in nodes.subset(Projection).values():
+            node.reset_state()
+
+        for node in nodes.subset(SynSys).values():
+            node.reset_state()
+
+        for node in nodes.subset(NeuDyn).values():
+            node.reset_state()
+
 
 Network = DynSysGroup
 
@@ -40,13 +52,17 @@ class Sequential(DynamicSys, Container):
         **kwargs,
     ) -> None:
         super().__init__(name)
-        self.children = NodeDict(self.elem_format(object, *components))
+        self.children = NodeDict(self.elem_format(DynamicSys, *components))
 
     def update(self, x):
         for child in self.children.values():
             x = child(x)
 
         return x
+
+    def reset_state(self) -> None:
+        for child in self.children.values():
+            child.reset_state()
 
     def __getitem__(self, item: Union[str, int, slice]):
         if isinstance(item, str):

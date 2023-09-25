@@ -43,10 +43,11 @@ class Simulator(PAIBoxObject):
 
         self.reset()
 
-    def run(self, duration: int, **kwargs) -> None:
+    def run(self, duration: int, reset: bool = True, **kwargs) -> None:
         """
         Arguments:
             - duration: duration of the simulation.
+            - reset: whether to reset the model state.
         """
         if duration < 0:
             # TODO
@@ -58,6 +59,9 @@ class Simulator(PAIBoxObject):
             raise ValueError
 
         indices = np.arange(self._ts1, self._ts1 + n_steps, self.dt, dtype=np.int16)
+
+        if reset:
+            self.target.reset_state()
 
         self.run_step(n_steps, **kwargs)
 

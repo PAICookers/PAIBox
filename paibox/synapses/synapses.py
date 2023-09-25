@@ -136,7 +136,6 @@ class NoDecay(SynSys):
             raise ValueError
 
         self.weights.setflags(write=False)
-        self.reset()
 
         # Register `self` for the destination NeuDyn.
         dest.register_master(f"{self.name}.output", self)
@@ -150,13 +149,13 @@ class NoDecay(SynSys):
         else:
             synin = spike
 
-        self._synout = self.comm(synin)
+        self._synout = self.comm(synin).astype(np.int32)
 
-        # TODO Keep the return for a while.
+        # Keep the return for `update` in `Sequential`.
         return self._synout
 
-    def reset(self, init_val=0) -> None:
-        # TODO Add other initialization methods
+    def reset_state(self) -> None:
+        # TODO Add other initialization methods in the future.
         self._synout = np.zeros((self.num_in, self.num_out), dtype=np.int32)
 
     @property

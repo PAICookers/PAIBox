@@ -45,10 +45,10 @@ class Net(pb.DynSysGroup):
 
     def __init__(self):
         super().__init__()
-        self.n1 = pb.neuron.TonicSpikingNeuron(2, 3)
-        self.n2 = pb.neuron.TonicSpikingNeuron(2, 3)
+        self.n1 = pb.neuron.TonicSpiking(2, 3)
+        self.n2 = pb.neuron.TonicSpiking(2, 3)
         self.s1 = pb.synapses.NoDecay(self.n1, self.n2, pb.synapses.All2All())
-        self.n3 = pb.neuron.TonicSpikingNeuron(2, 4)
+        self.n3 = pb.neuron.TonicSpiking(2, 4)
 
 
 class Nested_Net_Level_1(pb.DynSysGroup):
@@ -64,8 +64,8 @@ class Nested_Net_Level_1(pb.DynSysGroup):
         class Subnet(pb.DynSysGroup):
             def __init__(self):
                 super().__init__()
-                self.n1 = pb.neuron.TonicSpikingNeuron(2, 3)
-                self.n2 = pb.neuron.TonicSpikingNeuron(2, 3)
+                self.n1 = pb.neuron.TonicSpiking(2, 3)
+                self.n2 = pb.neuron.TonicSpiking(2, 3)
                 self.s1 = pb.synapses.NoDecay(self.n1, self.n2, pb.synapses.All2All())
 
         self.subnet1 = Subnet()
@@ -125,8 +125,8 @@ def test_DynSysGroup_nodes_nested_level1():
 
 
 def test_Sequential_build():
-    n1 = pb.neuron.TonicSpikingNeuron(10, fire_step=3)
-    n2 = pb.neuron.TonicSpikingNeuron(10, fire_step=5)
+    n1 = pb.neuron.TonicSpiking(10, fire_step=3)
+    n2 = pb.neuron.TonicSpiking(10, fire_step=5)
     s1 = pb.synapses.NoDecay(n1, n2, pb.synapses.All2All())
     sequential = pb.network.Sequential(n1, s1, n2)
 
@@ -138,8 +138,8 @@ def test_Sequential_build():
     class Seq(pb.Sequential):
         def __init__(self):
             super().__init__()
-            self.n1 = pb.neuron.TonicSpikingNeuron(5, fire_step=3)
-            self.n2 = pb.neuron.TonicSpikingNeuron(5, fire_step=5)
+            self.n1 = pb.neuron.TonicSpiking(5, fire_step=3)
+            self.n2 = pb.neuron.TonicSpiking(5, fire_step=5)
             self.s1 = pb.synapses.NoDecay(self.n1, self.n2, pb.synapses.All2All())
 
     seq = Seq()
@@ -148,10 +148,10 @@ def test_Sequential_build():
 
 
 def test_Sequential_getitem():
-    n1 = pb.neuron.TonicSpikingNeuron(10, fire_step=3, name="n1")
-    n2 = pb.neuron.TonicSpikingNeuron(10, fire_step=5, name="n2")
+    n1 = pb.neuron.TonicSpiking(10, fire_step=3, name="n1")
+    n2 = pb.neuron.TonicSpiking(10, fire_step=5, name="n2")
     s1 = pb.synapses.NoDecay(n1, n2, pb.synapses.All2All())
-    n3 = pb.neuron.TonicSpikingNeuron(10, fire_step=5, name="n3")
+    n3 = pb.neuron.TonicSpiking(10, fire_step=5, name="n3")
     s2 = pb.synapses.NoDecay(n2, n3, pb.synapses.All2All())
     sequential = pb.network.Sequential(n1, s1, n2, s2, n3, name="Sequential_2")
 
@@ -186,8 +186,8 @@ def test_Sequential_getitem():
 class Net1_User_Update(pb.DynSysGroup):
     def __init__(self):
         super().__init__()
-        self.n1 = pb.neuron.TonicSpikingNeuron(2, fire_step=2)
-        self.n2 = pb.neuron.TonicSpikingNeuron(2, fire_step=2)
+        self.n1 = pb.neuron.TonicSpiking(2, fire_step=2)
+        self.n2 = pb.neuron.TonicSpiking(2, fire_step=2)
         self.s1 = pb.synapses.NoDecay(self.n1, self.n2, pb.synapses.One2One())
 
     def update(self, x):
@@ -201,8 +201,8 @@ class Net1_User_Update(pb.DynSysGroup):
 class Net1_Default_Update(pb.DynSysGroup):
     def __init__(self):
         super().__init__()
-        self.n1 = pb.neuron.TonicSpikingNeuron(2, fire_step=2)
-        self.n2 = pb.neuron.TonicSpikingNeuron(2, fire_step=2)
+        self.n1 = pb.neuron.TonicSpiking(2, fire_step=2)
+        self.n2 = pb.neuron.TonicSpiking(2, fire_step=2)
         self.s1 = pb.synapses.NoDecay(self.n1, self.n2, pb.synapses.One2One())
 
 
@@ -214,9 +214,9 @@ class Net2_User_Update(pb.DynSysGroup):
         n2 -> s2
         """
         super().__init__()
-        self.n1 = pb.neuron.TonicSpikingNeuron(3, fire_step=2)
-        self.n2 = pb.neuron.TonicSpikingNeuron(3, fire_step=2)
-        self.n3 = pb.neuron.TonicSpikingNeuron(3, fire_step=2)
+        self.n1 = pb.neuron.TonicSpiking(3, fire_step=2)
+        self.n2 = pb.neuron.TonicSpiking(3, fire_step=2)
+        self.n3 = pb.neuron.TonicSpiking(3, fire_step=2)
         self.s1 = pb.synapses.NoDecay(self.n1, self.n3, pb.synapses.One2One())
         self.s2 = pb.synapses.NoDecay(self.n2, self.n3, pb.synapses.One2One())
 
@@ -242,8 +242,8 @@ class Net1(pb.DynSysGroup):
                 return np.ones((2,))
 
         self.inp = pb.InputProj(MyProcess_Without_Shape())
-        self.n1 = pb.neuron.TonicSpikingNeuron(2, fire_step=2)
-        self.n2 = pb.neuron.TonicSpikingNeuron(2, fire_step=2)
+        self.n1 = pb.neuron.TonicSpiking(2, fire_step=2)
+        self.n2 = pb.neuron.TonicSpiking(2, fire_step=2)
         self.s0 = pb.synapses.NoDecay(self.inp, self.n1, pb.synapses.One2One())
         self.s1 = pb.synapses.NoDecay(self.n1, self.n2, pb.synapses.One2One())
 
@@ -254,7 +254,7 @@ class Net2(pb.DynSysGroup):
         n1 -> s1 -> node1
         """
         super().__init__()
-        self.n1 = pb.neuron.TonicSpikingNeuron(2, fire_step=2)
+        self.n1 = pb.neuron.TonicSpiking(2, fire_step=2)
         self.node1 = Net1()
         self.s1 = pb.synapses.NoDecay(self.n1, self.node1.n1, pb.synapses.One2One())
 
