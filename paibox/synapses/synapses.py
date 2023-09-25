@@ -136,7 +136,6 @@ class NoDecay(SynSys):
             raise ValueError
 
         self.weights.setflags(write=False)
-        self.reset()
 
         # Register `self` for the destination NeuDyn.
         dest.register_master(f"{self.name}.output", self)

@@ -52,13 +52,17 @@ class Sequential(DynamicSys, Container):
         **kwargs,
     ) -> None:
         super().__init__(name)
-        self.children = NodeDict(self.elem_format(object, *components))
+        self.children = NodeDict(self.elem_format(DynamicSys, *components))
 
     def update(self, x):
         for child in self.children.values():
             x = child(x)
 
         return x
+    
+    def reset_state(self) -> None:
+        for child in self.children.values():
+            child.reset_state()
 
     def __getitem__(self, item: Union[str, int, slice]):
         if isinstance(item, str):

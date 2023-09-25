@@ -43,7 +43,7 @@ class Simulator(PAIBoxObject):
 
         self.reset()
 
-    def run(self, duration: int, reset: bool = False, **kwargs) -> None:
+    def run(self, duration: int, reset: bool = True, **kwargs) -> None:
         """
         Arguments:
             - duration: duration of the simulation.

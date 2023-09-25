@@ -1,5 +1,8 @@
+from typing import Sequence
+
+
 class NodeList(list):
-    def __init__(self, seq) -> None:
+    def __init__(self, seq: Sequence = ()) -> None:
         super().__init__()
         self.extend(seq)
 
