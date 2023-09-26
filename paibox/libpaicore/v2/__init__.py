@@ -1,5 +1,5 @@
-from .identifier import Coord as Coord
-from .identifier import ReplicationId as ReplicationId
+from .coordinate import Coord as Coord
+from .coordinate import ReplicationId as ReplicationId
 from .ram_model import NeuronSelfConfig as NeuronSelfConfig
 from .ram_types import LeakingComparisonMode as LCM
 from .ram_types import LeakingDirectionMode as LDM
@@ -16,7 +16,6 @@ from .reg_types import SNNModeEnableType as SNNModeEnableType
 from .reg_types import SpikeWidthFormatType as SpikeWidthFormatType
 from .reg_types import WeightPrecisionType as WeightPrecisionType
 
-from .broadcast import *
 from .router import *
 
 v_major = 2
