@@ -133,10 +133,10 @@ class Mapper:
                 self._pre_grouped_syns[name] = GroupedSyn.build(list(pre_syns.values()))
 
         """2. Re limit the LCN extension for target LCN.
-        
+
         the name of node A: {
             the following node name B : the grouped synapse of A to B.
-        } 
+        }
         """
         for name in self.nodes:
             self._succ_grouped_syns[name] = {}
@@ -209,11 +209,11 @@ class Mapper:
     def _find_same_lcn_syns(self, pre_node_name: str) -> Set[NeuDyn]:
         """Find the grouped synapses with the same LCN extension \
             given a previous node.
-        
+
         TODO
         Auto find the layers that have the same LCN in the network.
         Check whether all the layers are been traversed.
-        
+
         If the indegree of a grouped syn == 1:
             If outdegree of its previous node == 1:
                 just consider itself, lock its LCN.
