@@ -74,14 +74,6 @@ class Synapses:
     def num_out(self) -> int:
         return self.dest.num_in
 
-    @property
-    def num_axon(self) -> int:
-        return self.num_in
-
-    @property
-    def num_dentrite(self) -> int:
-        return self.num_out
-
 
 class SynSys(Synapses, DynamicSys):
     @property
@@ -90,7 +82,15 @@ class SynSys(Synapses, DynamicSys):
 
     @property
     def n_axon_each(self) -> np.ndarray:
-        return np.count_nonzero(self.connectivity, axis=0)
+        return np.count_nonzero(self.connectivity, axis=0, keepdims=True)
+
+    @property
+    def num_axon(self) -> int:
+        return np.count_nonzero(np.any(self.connectivity, axis=1))
+
+    @property
+    def num_dentrite(self) -> int:
+        return np.count_nonzero(np.any(self.connectivity, axis=0))
 
 
 class NoDecay(SynSys):
