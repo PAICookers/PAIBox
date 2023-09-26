@@ -1,12 +1,13 @@
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import List, Tuple, TypeVar, Union, final, overload
+from typing import List, Set, Tuple, TypeVar, Union, final, overload
 
 import numpy as np
 from pydantic import Field
 from pydantic.dataclasses import dataclass
-
 from paibox.utils import bin_split
+
+from .router import RouterLevel, ReplicationFlag as RFlag
 
 __all__ = ["Coord", "CoordOffset", "ReplicationId"]
 
@@ -200,8 +201,8 @@ class Coord(Identifier):
     def __ge__(self, __other: "Coord") -> bool:
         return self.__gt__(__other) or self.__eq__(__other)
 
-    def __xor__(self, __other: Union["Coord", "ReplicationId"]) -> "ReplicationId":
-        return ReplicationId(self.x ^ __other.x, self.y ^ __other.y)
+    def __xor__(self, __other: "ReplicationId") -> "Coord":
+        return Coord(self.x ^ __other.x, self.y ^ __other.y)
 
     def __hash__(self) -> int:
         return hash(self.address)
@@ -220,6 +221,22 @@ class Coord(Identifier):
     def address(self) -> int:
         """Convert to address, 10 bits"""
         return (self.x << 5) | self.y
+
+    @property
+    def router_level(self) -> RouterLevel:
+        x_high = y_high = RouterLevel.L1
+
+        for level in RouterLevel:
+            if (self.x >> level.value) == 0:
+                x_high = level
+                break
+
+        for level in RouterLevel:
+            if (self.y >> level.value) == 0:
+                y_high = level
+                break
+
+        return max(x_high, y_high, key=lambda x: x.value)
 
 
 CoordLike = TypeVar("CoordLike", Coord, Tuple[int, int])
@@ -385,43 +402,85 @@ class ReplicationId(Coord):
     def __xor__(self, __other: Union[Coord, "ReplicationId"]) -> "ReplicationId":
         return ReplicationId(self.x ^ __other.x, self.y ^ __other.y)
 
-    def __lshift__(self, __bit: int) -> int:
-        return self.address << __bit
+    # def __lshift__(self, __bit: int) -> int:
+    #     return self.address << __bit
 
-    def __rshift__(self, __bit: int) -> int:
-        return self.address >> __bit
+    # def __rshift__(self, __bit: int) -> int:
+    #     return self.address >> __bit
+
+    @property
+    def rflags(self) -> Tuple[RFlag, RFlag]:
+        fx, fy = RFlag.NONE, RFlag.NONE
+
+        for i in range(5):
+            if (self.x >> i) & 1:
+                fx |= RFlag(1 << i)
+
+        for i in range(5):
+            if (self.y >> i) & 1:
+                fy |= RFlag(1 << i)
+
+        return (fx, fy)
 
 
-def get_replication_id(dest_coords: List[Coord]) -> ReplicationId:
-    """
+def lx_need_copy(rflag: RFlag, lx: int) -> bool:
+    """Return the bit Lx wether needs do replication.
+
     Arguments:
-        - dest_coords: the list of coordinates which are the destinations of a frame.
-
-    Return:
-        The replication ID.
+        - rflag: the feplication flag of X or Y.
+        - lx: the bit of Lx.
     """
-    baseCore = dest_coords[0]
-    rid = ReplicationId(0, 0)
-
-    for coord in dest_coords:
-        rid |= baseCore ^ coord
-
-    return rid
+    return rflag & RFlag(1 << lx) == RFlag(1 << lx)
 
 
-def get_multicast_cores(
-    base_coord: Coord, repilication_id: ReplicationId
-) -> List[Coord]:
-    cores: List[Coord] = []
-    cores.append(base_coord)
+# def get_replication_id(dest_coords: List[Coord]) -> ReplicationId:
+#     """
+#     Arguments:
+#         - dest_coords: the list of coordinates which are the destinations of a frame.
 
-    for i in range(10):
-        if (repilication_id >> i) & 1:
-            temp = []
-            for core in cores:
-                temp.append(core ^ ReplicationId.from_tuple(bin_split(1 << i, 5)))
+#     Return:
+#         The replication ID.
+#     """
+#     baseCore = dest_coords[0]
+#     rid = ReplicationId(0, 0)
 
-            cores.extend(temp)
+#     for coord in dest_coords:
+#         rid |= baseCore ^ coord
+
+#     return rid
+
+
+def get_multicast_cores(base_coord: Coord, rid: ReplicationId) -> Set[Coord]:
+    cores: Set[Coord] = set()
+
+    # countx = 0
+    # county = 0
+
+    corex = set()
+    corex.add(base_coord.x)
+    corey = set()
+    corey.add(base_coord.y)
+
+    for lx in range(5):
+        if lx_need_copy(rid.rflags[0], lx):
+            temp = set()
+            for x in corex:
+                # countx += 1
+                temp.add(x ^ (1 << lx))
+
+            corex = corex.union(temp)
+
+        if lx_need_copy(rid.rflags[1], lx):
+            temp = set()
+            for y in corey:
+                # county += 1
+                temp.add(y ^ (1 << lx))
+
+            corey = corey.union(temp)
+
+    for x in corex:
+        for y in corey:
+            cores.add(Coord(x, y))
 
     return cores
 
@@ -445,3 +504,20 @@ def to_coords(coordlikes: Union[CoordLike, List[CoordLike]]) -> List[Coord]:
         coords = [to_coord(coordlikes)]
 
     return coords
+
+
+def get_router_level(rid: Coord) -> RouterLevel:
+    tmp = rid
+    x_high = y_high = RouterLevel.L1
+
+    for level in RouterLevel:
+        if (tmp.x >> level.value) == 0:
+            x_high = level
+            break
+
+    for level in RouterLevel:
+        if (tmp.y >> level.value) == 0:
+            y_high = level
+            break
+
+    return max(x_high, y_high, key=lambda x: x.value)
