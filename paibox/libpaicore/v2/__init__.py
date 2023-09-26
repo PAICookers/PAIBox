@@ -16,6 +16,9 @@ from .reg_types import SNNModeEnableType as SNNModeEnableType
 from .reg_types import SpikeWidthFormatType as SpikeWidthFormatType
 from .reg_types import WeightPrecisionType as WeightPrecisionType
 
+from .broadcast import *
+from .router import *
+
 v_major = 2
 v_minor = 0
 v_revision = 0
