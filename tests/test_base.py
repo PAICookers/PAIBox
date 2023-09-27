@@ -4,9 +4,9 @@ import paibox as pb
 
 
 def test_paiboxobject_eq():
-    obj1 = pb.PAIBoxObject(name="obj1")
-    obj2 = pb.PAIBoxObject(name="obj2")
-    obj3 = pb.PAIBoxObject()
+    obj1 = pb.base.PAIBoxObject(name="obj1")
+    obj2 = pb.base.PAIBoxObject(name="obj2")
+    obj3 = pb.base.PAIBoxObject()
 
     # eq
     assert obj1 != obj2
@@ -21,7 +21,7 @@ def test_paiboxobject_eq():
 
 
 def test_paiboxobject_nodes():
-    obj1 = pb.PAIBoxObject(name="obj111")
+    obj1 = pb.base.PAIBoxObject(name="obj111")
 
     nodes1 = obj1.nodes(method="absolute", level=1, include_self=True)
     assert nodes1["obj111"] == obj1

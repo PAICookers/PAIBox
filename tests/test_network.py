@@ -6,7 +6,7 @@ from paibox.node import NodeDict
 
 
 def test_Collector_operations():
-    s1 = pb.DynamicSys(name="s1")
+    s1 = pb.base.DynamicSys(name="s1")
     s2 = pb.base.Projection(name="s2")
     s3 = pb.network.NeuDyn(name="s3")
     s4 = pb.DynSysGroup(s1, s2, name="s4")
@@ -35,7 +35,7 @@ def test_Collector_operations():
 
     assert len(g3_nodes.exclude(pb.base.Projection)) == 1
     assert len(g1_nodes.not_subset(pb.network.NeuDyn)) == 2
-    assert len(g1_nodes.include(pb.DynamicSys, pb.base.Projection)) == 2
+    assert len(g1_nodes.include(pb.base.DynamicSys, pb.base.Projection)) == 2
 
 
 class Net(pb.DynSysGroup):
