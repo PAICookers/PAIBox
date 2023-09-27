@@ -10,7 +10,7 @@ class RouterOp(Enum):
 
 @unique
 class RouterLevel(IntEnum):
-    L0 = 0 # Leaves for storing the data. A L0-layer is a core.
+    L0 = 0  # Leaves for storing the data. A L0-layer is a core.
     L1 = 1
     L2 = 2
     L3 = 3

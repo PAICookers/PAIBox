@@ -15,7 +15,6 @@ from .reg_types import MaxPoolingEnableType as MaxPoolingEnableType
 from .reg_types import SNNModeEnableType as SNNModeEnableType
 from .reg_types import SpikeWidthFormatType as SpikeWidthFormatType
 from .reg_types import WeightPrecisionType as WeightPrecisionType
-
 from .router import *
 
 v_major = 2

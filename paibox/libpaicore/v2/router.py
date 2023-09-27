@@ -1,8 +1,9 @@
 from typing import Any, List, Optional, Sequence, Set, Union
 
-from .coordinate import Coord, CoordOffset, ReplicationId as RId
-from ._types import ReplicationFlag as RFlag, RouterOp, RouterLevel
-
+from ._types import ReplicationFlag as RFlag
+from ._types import RouterLevel, RouterOp
+from .coordinate import Coord, CoordOffset
+from .coordinate import ReplicationId as RId
 
 RouterRoad = List[RouterOp]
 RouterStatus = List[RouterLevel]

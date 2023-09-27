@@ -1,15 +1,13 @@
 from .base import Neuron as Neuron
-from .neurons import (
-    IF as IF,
-    LIF as LIF,
-    TonicSpiking as TonicSpiking,
-    PhasicSpiking as PhasicSpiking,
-    SpikeLatency as SpikeLatency,
-    SubthresholdOscillations as SubthresholdOscillations,
-    ResonatorNeuron as ResonatorNeuron,
-    Integrator as Integrator,
-    InhibitionInducedSpiking as InhibitionInducedSpiking,
-)
+from .neurons import IF as IF
+from .neurons import LIF as LIF
+from .neurons import InhibitionInducedSpiking as InhibitionInducedSpiking
+from .neurons import Integrator as Integrator
+from .neurons import PhasicSpiking as PhasicSpiking
+from .neurons import ResonatorNeuron as ResonatorNeuron
+from .neurons import SpikeLatency as SpikeLatency
+from .neurons import SubthresholdOscillations as SubthresholdOscillations
+from .neurons import TonicSpiking as TonicSpiking
 
 __all__ = [
     "IF",

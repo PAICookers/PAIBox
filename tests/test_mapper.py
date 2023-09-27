@@ -5,10 +5,12 @@ import paibox as pb
 
 def test_GroupedSyn_build():
     """Check until the building of `GroupedSyn`."""
+
     class Net1(pb.Network):
         """N1 -> S1 -> N3
-           N2 -> S2 -> N3
+        N2 -> S2 -> N3
         """
+
         def __init__(self):
             super().__init__()
             self.n1 = pb.neuron.TonicSpiking(400, 3)
@@ -20,6 +22,7 @@ def test_GroupedSyn_build():
 
     class Net2(pb.Network):
         """INP1 -> S1 -> N1 -> S2 -> N2"""
+
         def __init__(self):
             super().__init__()
             self.inp = pb.projection.InputProj(pb.simulator.processes.Constant(1200, 1))
@@ -28,11 +31,12 @@ def test_GroupedSyn_build():
 
             self.s1 = pb.synapses.NoDecay(self.inp, self.n1, pb.synapses.All2All())
             self.s2 = pb.synapses.NoDecay(self.n1, self.n2, pb.synapses.All2All())
-            
+
     class Net3(pb.Network):
         """N1 -> S1 -> N3
-           N2 -> S2 -> N3
+        N2 -> S2 -> N3
         """
+
         def __init__(self):
             super().__init__()
             self.n1 = pb.neuron.TonicSpiking(400, 3)
@@ -41,13 +45,14 @@ def test_GroupedSyn_build():
 
             self.s1 = pb.synapses.NoDecay(self.n1, self.n3, pb.synapses.One2One())
             self.s2 = pb.synapses.NoDecay(self.n2, self.n3, pb.synapses.All2All())
-            
+
     class Net4(pb.Network):
         """N1 -> S1 -> N2
-           N1 -> S2 -> N3
-           N4 -> S3 -> N3
-           N4 -> S4 -> N5
+        N1 -> S2 -> N3
+        N4 -> S3 -> N3
+        N4 -> S4 -> N5
         """
+
         def __init__(self):
             super().__init__()
             self.n1 = pb.neuron.TonicSpiking(400, 3)
@@ -65,7 +70,7 @@ def test_GroupedSyn_build():
     # net2 = Net2()
     # net3 = Net3()
     net4 = Net4()
-    
+
     mapper = pb.Mapper()
     mapper.clear()
     mapper.build_graph(net4)

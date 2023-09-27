@@ -8,5 +8,4 @@ from .projection import InputProj as InputProj
 from .simulator import Simulator as Simulator
 from .synapses import *
 
-
 __all__ = ["Process", "Mapper", "DynSysGroup", "Network", "Sequential", "Simulator"]

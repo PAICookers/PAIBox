@@ -43,7 +43,7 @@ class InputProj(Projection):
         else:
             self.val = val_or_func
             self._shape = self.val.varshape
-            
+
         self._state = np.zeros(self._shape, np.int32)
 
     def __call__(self, *args, **kwargs):

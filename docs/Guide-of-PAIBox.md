@@ -88,24 +88,24 @@ I1 = pb.projection.InputProj(val_or_func=Encoder_process, shape=784)
 
 如输入节点的示例所示，当传给输入节点的数据是已知的脉冲数据时，`val_or_func` 是对应的整数或numpy数组，**不会随timestep而变化**。如果想要输入数据是一些随时间变化的量，或者需要通过函数生成输入数据，则可以通过继承 `Process` 来实现。
 
-下面以泊松编码为例，完成一个自定义  `Process` 的构建。
+下面以泊松编码为例，完成一个自定义 `Process` 的构建。
 
 ```python
 # Process基本形式
 class NewProcess(pb.base.Process):
     def __init__(self, shape_out):
         super().__init__(shape_out)
-  
+
     def update(self):
         ...
-      
+
 #可对输入进行泊松编码的process
 class PoissonEncoder(pb.base.Process):
     def __init__(self, shape_out, input):
         super().__init__(shape_out)
         self.input = input
-  
-    def update(self, t):             
+
+    def update(self, t):
         out_spike = torch.rand_like(self.input).le(self.input)
         out_spike = out_spike.numpy().flatten()
         return out_spike
@@ -127,7 +127,7 @@ class PoissonEncoder(pb.base.Process):
 class fcnet(pb.DynSysGroup):
     def __init__(self, Encoder):
         super().__init__()
-        self.n1 = pb.projection.InputProj(Encoder) 
+        self.n1 = pb.projection.InputProj(Encoder)
         self.n2 = pb.neuron.IF(128, threshold=127, reset_v=0)
         self.n3 = pb.neuron.IF(10, threshold=127, reset_v=0)
         self.l1 = pb.synapses.NoDecay(self.n1, self.n2, pb.synapses.All2All(), weights=weight1)
@@ -206,7 +206,7 @@ print(sim.data[probe1]) # sim.data字典保存了所有仿真数据
 class fcnet(pb.DynSysGroup):
     def __init__(self, Encoder):
         super().__init__()
-        self.n1 = pb.projection.InputProj(Encoder) 
+        self.n1 = pb.projection.InputProj(Encoder)
         self.n2 = pb.neuron.IF(128, threshold=127, reset_v=0)
         self.n3 = pb.neuron.IF(10, threshold=127, reset_v=0)
         self.l1 = pb.synapses.NoDecay(self.n1, self.n2, pb.synapses.All2All(), weights=weight1)

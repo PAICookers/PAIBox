@@ -6,7 +6,8 @@ import numpy as np
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
-from ._types import RouterLevel, ReplicationFlag as RFlag
+from ._types import ReplicationFlag as RFlag
+from ._types import RouterLevel
 
 
 class Identifier(ABC):
@@ -415,7 +416,6 @@ class CoordOffset:
     def _chebyshev_distance(self) -> int:
         """Chebyshev distance"""
         return np.maximum(np.abs(self.delta_x), np.abs(self.delta_y))
-
 
 
 CoordLike = TypeVar("CoordLike", Coord, Tuple[int, int])
