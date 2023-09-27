@@ -74,6 +74,7 @@ def test_AllToAll_weight_scalar(weight, expected_dtype):
     ids=["weights_bool", "weights_int8_1", "weights_int8_2"],
 )
 def test_AllToAll_array(shape, weights, expected_dtype, x):
+    # FIXME weights_bool sometimes error
     num_in, num_out = shape
     f = AllToAll(num_in, num_out, weights)
     y = f(x)

@@ -35,7 +35,7 @@ class Container(MixIn):
         raise KeyError
 
     def _get_elem_name(self, elem) -> str:
-        if isinstance(elem, pb.PAIBoxObject):
+        if isinstance(elem, pb.base.PAIBoxObject):
             return elem._name
         else:
             return get_unique_name("ContainerElem")
