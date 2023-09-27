@@ -13,12 +13,9 @@ from paibox.libpaicore.v2 import (
     SIM,
     TM,
     MaxPoolingEnableType,
-    NeuronSelfConfig,
     SpikeWidthFormatType,
 )
 from paibox.utils import as_shape, fn_sgn, shape2num
-
-__all__ = ["MetaNeuron", "Neuron"]
 
 
 class MetaNeuron:

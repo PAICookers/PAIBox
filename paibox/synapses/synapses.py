@@ -8,7 +8,7 @@ from paibox.projection import InputProj
 from .connector import All2All, IndexConn, MatConn, One2One, TwoEndConnector
 from .transforms import AllToAll, MaskedLinear, OneToOne
 
-__all__ = ["Synapses", "SynSys", "NoDecay"]
+__all__ = ["Synapses", "NoDecay"]
 
 
 class Synapses:
