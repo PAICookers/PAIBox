@@ -1,4 +1,4 @@
-from typing import Sequence
+from typing import Iterable, Sequence
 
 
 class NodeList(list):
@@ -6,11 +6,11 @@ class NodeList(list):
         super().__init__()
         self.extend(seq)
 
-    def append(self, elem) -> "NodeList":
+    def append(self, elem: Sequence) -> "NodeList":
         super().append(elem)
         return self
 
-    def extend(self, iterable) -> "NodeList":
+    def extend(self, iterable: Iterable) -> "NodeList":
         for elem in iterable:
             self.append(elem)
 

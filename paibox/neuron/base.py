@@ -418,7 +418,7 @@ class Neuron(MetaNeuron, NeuDyn):
 
         return super().update(x)
 
-    def reset_reset(self) -> None:
+    def reset_state(self) -> None:
         """Initialization, not the neuronal reset."""
         self._vjt = self._vjt_pre = self.init_param(self.vjt_init)
 
