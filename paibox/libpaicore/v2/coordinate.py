@@ -5,11 +5,8 @@ from typing import List, Tuple, TypeVar, Union, final, overload
 import numpy as np
 from pydantic import Field
 from pydantic.dataclasses import dataclass
-from paibox.utils import bin_split
 
 from ._types import RouterLevel, ReplicationFlag as RFlag
-
-__all__ = ["Coord", "CoordOffset", "ReplicationId"]
 
 
 class Identifier(ABC):
@@ -258,7 +255,7 @@ class ReplicationId(Coord):
 
     @property
     def rflags(self) -> Tuple[RFlag, RFlag]:
-        fx, fy = RFlag.NONE, RFlag.NONE
+        fx = fy = RFlag.NONE
 
         for i in range(5):
             if (self.x >> i) & 1:
@@ -420,6 +417,7 @@ class CoordOffset:
         return np.maximum(np.abs(self.delta_x), np.abs(self.delta_y))
 
 
+
 CoordLike = TypeVar("CoordLike", Coord, Tuple[int, int])
 
 
@@ -442,20 +440,3 @@ def to_coords(coordlikes: Union[CoordLike, List[CoordLike]]) -> List[Coord]:
         coords = [to_coord(coordlikes)]
 
     return coords
-
-
-def get_router_level(rid: Coord) -> RouterLevel:
-    tmp = rid
-    x_high = y_high = RouterLevel.L1
-
-    for level in RouterLevel:
-        if (tmp.x >> level.value) == 0:
-            x_high = level
-            break
-
-    for level in RouterLevel:
-        if (tmp.y >> level.value) == 0:
-            y_high = level
-            break
-
-    return max(x_high, y_high, key=lambda x: x.value)

@@ -1,10 +1,9 @@
-from typing import Sequence, List, Set
+from typing import Any, List, Optional, Sequence, Set, Union
 
-from .coordinate import Coord, ReplicationId as RId
-from ._types import ReplicationFlag, RouterOp, RouterLevel
+from .coordinate import Coord, CoordOffset, ReplicationId as RId
+from ._types import ReplicationFlag as RFlag, RouterOp, RouterLevel
 
 
-RFlag = ReplicationFlag
 RouterRoad = List[RouterOp]
 RouterStatus = List[RouterLevel]
 
@@ -91,3 +90,19 @@ def get_router_road(cur_coord: Coord, dest_coord: Coord, rid: RId) -> RouterRoad
             pass
 
     return road
+
+
+def get_router_level(rid: Coord) -> RouterLevel:
+    x_high = y_high = RouterLevel.L1
+
+    for level in RouterLevel:
+        if (rid.x >> level.value) == 0:
+            x_high = level
+            break
+
+    for level in RouterLevel:
+        if (rid.y >> level.value) == 0:
+            y_high = level
+            break
+
+    return max(x_high, y_high, key=lambda x: x.value)

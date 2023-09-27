@@ -17,3 +17,5 @@ class HwConfig:
     N_AXON_DEFAULT = 1152
     N_NEURON_DEFAULT = 512
     N_TIMESLOT_MAX = 256
+
+    N_SUB_ROUTER_NODE = 4
