@@ -6,9 +6,8 @@ import numpy as np
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
-from paibox.utils import bin_split
-
-__all__ = ["Coord", "CoordOffset", "ReplicationId"]
+from ._types import ReplicationFlag as RFlag
+from ._types import RouterLevel
 
 
 class Identifier(ABC):
@@ -200,7 +199,7 @@ class Coord(Identifier):
     def __ge__(self, __other: "Coord") -> bool:
         return self.__gt__(__other) or self.__eq__(__other)
 
-    def __xor__(self, __other: Union["Coord", "ReplicationId"]) -> "ReplicationId":
+    def __xor__(self, __other: "Coord") -> "ReplicationId":
         return ReplicationId(self.x ^ __other.x, self.y ^ __other.y)
 
     def __hash__(self) -> int:
@@ -221,8 +220,53 @@ class Coord(Identifier):
         """Convert to address, 10 bits"""
         return (self.x << 5) | self.y
 
+    @property
+    def router_level(self) -> RouterLevel:
+        x_high = y_high = RouterLevel.L1
 
-CoordLike = TypeVar("CoordLike", Coord, Tuple[int, int])
+        for level in RouterLevel:
+            if (self.x >> level.value) == 0:
+                x_high = level
+                break
+
+        for level in RouterLevel:
+            if (self.y >> level.value) == 0:
+                y_high = level
+                break
+
+        return max(x_high, y_high, key=lambda x: x.value)
+
+
+@final
+class ReplicationId(Coord):
+    def __and__(self, __other: Union[Coord, "ReplicationId"]) -> "ReplicationId":
+        return ReplicationId(self.x & __other.x, self.y & __other.y)
+
+    def __or__(self, __other: Union[Coord, "ReplicationId"]) -> "ReplicationId":
+        return ReplicationId(self.x | __other.x, self.y | __other.y)
+
+    def __xor__(self, __other: Union[Coord, "ReplicationId"]) -> "ReplicationId":
+        return ReplicationId(self.x ^ __other.x, self.y ^ __other.y)
+
+    # def __lshift__(self, __bit: int) -> int:
+    #     return self.address << __bit
+
+    # def __rshift__(self, __bit: int) -> int:
+    #     return self.address >> __bit
+
+    @property
+    def rflags(self) -> Tuple[RFlag, RFlag]:
+        fx = fy = RFlag.NONE
+
+        for i in range(5):
+            if (self.x >> i) & 1:
+                fx |= RFlag(1 << i)
+
+        for i in range(5):
+            if (self.y >> i) & 1:
+                fy |= RFlag(1 << i)
+
+        return (fx, fy)
 
 
 class DistanceType(Enum):
@@ -374,56 +418,7 @@ class CoordOffset:
         return np.maximum(np.abs(self.delta_x), np.abs(self.delta_y))
 
 
-@final
-class ReplicationId(Coord):
-    def __and__(self, __other: Union[Coord, "ReplicationId"]) -> "ReplicationId":
-        return ReplicationId(self.x & __other.x, self.y & __other.y)
-
-    def __or__(self, __other: Union[Coord, "ReplicationId"]) -> "ReplicationId":
-        return ReplicationId(self.x | __other.x, self.y | __other.y)
-
-    def __xor__(self, __other: Union[Coord, "ReplicationId"]) -> "ReplicationId":
-        return ReplicationId(self.x ^ __other.x, self.y ^ __other.y)
-
-    def __lshift__(self, __bit: int) -> int:
-        return self.address << __bit
-
-    def __rshift__(self, __bit: int) -> int:
-        return self.address >> __bit
-
-
-def get_replication_id(dest_coords: List[Coord]) -> ReplicationId:
-    """
-    Arguments:
-        - dest_coords: the list of coordinates which are the destinations of a frame.
-
-    Return:
-        The replication ID.
-    """
-    baseCore = dest_coords[0]
-    rid = ReplicationId(0, 0)
-
-    for coord in dest_coords:
-        rid |= baseCore ^ coord
-
-    return rid
-
-
-def get_multicast_cores(
-    base_coord: Coord, repilication_id: ReplicationId
-) -> List[Coord]:
-    cores: List[Coord] = []
-    cores.append(base_coord)
-
-    for i in range(10):
-        if (repilication_id >> i) & 1:
-            temp = []
-            for core in cores:
-                temp.append(core ^ ReplicationId.from_tuple(bin_split(1 << i, 5)))
-
-            cores.extend(temp)
-
-    return cores
+CoordLike = TypeVar("CoordLike", Coord, Tuple[int, int])
 
 
 def to_coord(coordlike: CoordLike) -> Coord:

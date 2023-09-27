@@ -56,16 +56,16 @@ class GroupedSyn(GroupedObj):
     @classmethod
     def build(cls, synapses: List[SynSys], name: Optional[str] = None) -> "GroupedSyn":
         """Build the `GroupedSyn` for a node.
-        
+
         Use LCN extension optimization in grouping a synapse.
-        
+
         Description: always find the minimum LCN extension \
             that ALL the axons in this synapse satisfies.
-            
+
             For two pre-synapses, S1 [A1*M] & S2 [A2*M], combine then split.
-            
+
             The total number of axons = A1+A2 -> LCN -> n_neuron.
-            
+
             Now consider S1 & S2 are 1-bit weights.
             TODO If weights precision of S1 & S2 differ? Place on different cores.
         """

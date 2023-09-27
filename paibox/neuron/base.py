@@ -13,12 +13,9 @@ from paibox.libpaicore.v2 import (
     SIM,
     TM,
     MaxPoolingEnableType,
-    NeuronSelfConfig,
     SpikeWidthFormatType,
 )
 from paibox.utils import as_shape, fn_sgn, shape2num
-
-__all__ = ["MetaNeuron", "Neuron"]
 
 
 class MetaNeuron:
@@ -418,7 +415,7 @@ class Neuron(MetaNeuron, NeuDyn):
 
         return super().update(x)
 
-    def reset_reset(self) -> None:
+    def reset_state(self) -> None:
         """Initialization, not the neuronal reset."""
         self._vjt = self._vjt_pre = self.init_param(self.vjt_init)
 

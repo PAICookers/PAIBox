@@ -4,3 +4,5 @@ from .connector import One2One as One2One
 from .synapses import NoDecay as NoDecay
 from .synapses import Synapses as Synapses
 from .synapses import SynSys as SynSys
+
+__all__ = ["NoDecay"]
