@@ -1,255 +1,228 @@
-from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import final, List, Optional
 
-import numpy as np
+from .grouping import GroupedSyn, GroupedSynOnCore
 
-from paibox.base import NeuDyn, PAIBoxObject
-from paibox.libpaicore.v2 import (
-    LCN_EX,
-    InputWidthFormatType,
-    MaxPoolingEnableType,
-    SNNModeEnableType,
-    SpikeWidthFormatType,
-    WeightPrecisionType,
-)
-from paibox.libpaicore.v2.reg_model import ParamsReg
+from paibox.base import PAIBoxObject
+from paibox.libpaicore.v2.coordinate import CoordOffset
+from paibox.libpaicore.v2._types import RouterLevel
 
-from .grouping import GroupedLayer, GroupedSyn
-from .identifier import Coord
+GUESS_PLACE_LEVEL = RouterLevel.L2
+ROUTER_TREE_NODE_TAG = "Node_%d_%d"
 
 
-@dataclass
-class CoreAttrs:
-    """Parameters of registers."""
+class RouterTreeNode(PAIBoxObject):
+    _direction_table: List[CoordOffset] = [
+        CoordOffset(0, 0),
+        CoordOffset(0, 1),
+        CoordOffset(1, 0),
+        CoordOffset(1, 1),
+    ]
 
-    weight_width: WeightPrecisionType = field(
-        default=WeightPrecisionType.WEIGHT_WIDTH_1BIT
-    )
-    lcn_ex: LCN_EX = field(default=LCN_EX.LCN_1X)
-    input_width: InputWidthFormatType = field(default=InputWidthFormatType.WIDTH_1BIT)
-    spike_wdith: SpikeWidthFormatType = field(default=SpikeWidthFormatType.WIDTH_1BIT)
-    neuron_num: int = field(default=512)
-    pool_max: MaxPoolingEnableType = field(default=MaxPoolingEnableType.DISABLE)
-    tick_wait_start: int = field(default=0)
-    tick_wait_end: int = field(default=0)
-    snn_en: SNNModeEnableType = field(default=SNNModeEnableType.ENABLE)
-    target_lcn: LCN_EX = field(default=LCN_EX.LCN_1X)
-    test_chip_addr: Coord = field(default_factory=Coord.default)
-
-    def export_to_model(self) -> ParamsReg:
-        return ParamsReg(
-            weight_precision=self.weight_width,
-            LCN_extension=self.lcn_ex,
-            input_width_format=self.input_width,
-            spike_width_format=self.spike_wdith,
-            neuron_num=self.neuron_num,
-            max_pooling_en=self.pool_max,
-            tick_wait_start=self.tick_wait_start,
-            tick_wait_end=self.tick_wait_end,
-            snn_mode_en=self.snn_en,
-            target_LCN=self.target_lcn,
-            test_chip_addr=self.test_chip_addr.address,
-        )
-
-
-class Core(PAIBoxObject):
-    """
-    The object intends to describe the core of the chip.
-    The core attributes include:
-        1. core id.
-        2. weight ram.
-        3. the usages of axons & the usages of actual neurons.
-        4. LCN extension.
-        5. Target LCN extension, `target_lcn`.
-        6. Others are FIXED.
-    """
+    _node_capacity = len(_direction_table)
 
     def __init__(
         self,
-        core_id: Coord,
-        _weight_matrix: np.ndarray,
-        name: Optional[str] = None,
-        **kwargs,
+        level: RouterLevel,
+        data: Optional[GroupedSynOnCore] = None,
     ) -> None:
-        """
-        Args:
-            core_id: the core coordinate. Default is `(0, 0)`.
-            weight_matrix: the weight matrix. It's different from the binary connectivity.
-            use_default_attrs: whether to use the default attributes. Default is `False`.
-        """
-        super().__init__(name)
+        super().__init__()
 
-        self.core_id = core_id
-        self.attrs = CoreAttrs(**kwargs)
-        self._weight_matrix = _weight_matrix
+        self._level = level
+        self._children: List["RouterTreeNode"] = []
+        self.item = data
+
+    def add_child(self, child: "RouterTreeNode") -> bool:
+        if self.level == RouterLevel.L0 or self.level - child.level != 1:
+            raise ValueError
+
+        if len(self.children) == self._node_capacity:
+            return False
+
+        self._children.append(child)
+        return True
+
+    def find_child(self, _child: "RouterTreeNode") -> bool:
+        if _child.level == RouterLevel.L0:
+            raise ValueError
+
+        for child in self._children:
+            if child == _child:
+                return True
+
+        return False
+
+    # def get_node_by_tag(self, tag: str):
+    #     def dfs_preorder(root: RouterTreeNode, tag: str):
+    #         if root.level == RouterLevel.L0 and root.tag != tag:
+    #             return
+
+    #         if root.tag == tag:
+    #             return root
+
+    #         for child in root.children:
+    #             dfs_preorder(child, tag)
+
+    #     dfs_preorder(self, tag)
+
+    def get_lx_nodes(self, lx: RouterLevel) -> List["RouterTreeNode"]:
+        if lx > self.level:
+            raise ValueError
+
+        if lx == self.level:
+            return [self]
+
+        nodes = []
+
+        def dfs_preorder(root: RouterTreeNode, lx: RouterLevel) -> None:
+            if root.level == lx + 1:
+                nodes.extend(root.children)
+                return
+
+            for child in root.children:
+                dfs_preorder(child, lx)
+
+        dfs_preorder(self, lx)
+
+        return nodes
+
+    def is_full(self) -> bool:
+        return len(self.children) == self.capacity
+
+    def is_empty(self) -> bool:
+        return len(self.children) == 0
+
+    # def is_full(self) -> bool:
+    #     """All children are full, then full. \
+    #         One child is not full, then not full.
+    #     """
+    #     # L0 never has children.
+    #     if self.level == RouterLevel.L0:
+    #         if len(self.children) == self.capacity:
+    #             return True
+
+    #     for child in self.children:
+    #         if not child.is_full():
+    #             return False
+
+    #     return False
+
+    # def is_empty(self) -> bool:
+    #     """All children are empty, then empty. \
+    #         One child is not empty, then not empty.
+    #     """
+    #     # L0 never has children.
+    #     if self.level == RouterLevel.L0:
+    #         return False
+
+    #     for child in self.children:
+    #         if not child.is_empty():
+    #             return False
+
+    #     return True
 
     @classmethod
-    def build(
-        cls,
-        weight_matrix: Optional[np.ndarray] = None,
-        *,
-        lcn_ex: LCN_EX,
-        **kwargs,
-    ) -> "Core":
-        """Build the core called by `Placement.__init__()`."""
-        core_id = Coord.default()
+    def create_node(cls, gsyn: GroupedSyn):
+        level = cls._get_gsyn_level(gsyn.n_core)
 
-        # TODO Consider 1-bit weight.
-        if weight_matrix is None:
-            _weight_matrix = np.zeros((1152, 512), dtype=np.bool_)
+        syns_on_core = gsyn.build_syn_on_core()
+
+        # At least, create a L1 router node. (>=L1)
+        root = RouterTreeNode(level, data=None)
+        for syn in syns_on_core:
+            child = RouterTreeNode(level=RouterLevel.L0, data=syn)
+            root.add_child(child)
+
+        return root
+
+    @staticmethod
+    def _get_gsyn_level(n_core: int) -> RouterLevel:
+        if n_core <= 4**RouterLevel.L1:
+            return RouterLevel.L1
+        elif n_core <= 4**RouterLevel.L2:
+            return RouterLevel.L2
+        elif n_core <= 4**RouterLevel.L3:
+            return RouterLevel.L3
         else:
-            _weight_matrix = weight_matrix
-
-        return cls(core_id, _weight_matrix, lcn_ex=lcn_ex, **kwargs)
-
-    def set_attrs(self, **kwargs) -> None:
-        for k, v in kwargs.items():
-            setattr(self.attrs, k, v)
-
-    def set_core_id(self, _id: Coord) -> None:
-        self.core_id = _id
-
-    def set_target_lcn(self, target_lcn: LCN_EX) -> None:
-        self.attrs.target_lcn = target_lcn
-
-    def set_neuron_used(self) -> None:
-        self.attrs.neuron_num = self.n_neuron_used
+            raise NotImplementedError
 
     @property
-    def lcn_ex(self) -> LCN_EX:
-        return self.attrs.lcn_ex
+    def level(self) -> RouterLevel:
+        return self._level
 
     @property
-    def weights(self) -> np.ndarray:
-        return self._weight_matrix
+    def children(self) -> List["RouterTreeNode"]:
+        return self._children
 
     @property
-    def binary_conn(self) -> np.ndarray:
-        """ONLY for `np.bool_` now"""
-        assert self.n_neuron_used * self.lcn_ex * 1 <= 512
-        o_matrix = np.zeros((1152, 512), dtype=np.bool_)
-
-        for i in range(self.n_neuron_used):
-            o_matrix[:, 2 * i] = self.weights[:1152, i]
-            o_matrix[:, 2 * i + 1] = np.pad(
-                self.weights[1152:, i],
-                (0, 2 * 1152 - self.n_axon_used),
-                "constant",
-                constant_values=0,
-            )
-
-        return o_matrix
-
-    @property
-    def n_core_per_dentrite(self) -> int:
-        return 1 if self.weights.dtype == np.bool_ else 8
-
-    @property
-    def n_axon_used(self) -> int:
-        return self.weights.shape[0]
-
-    @property
-    def n_neuron_used(self) -> int:
-        return self.weights.shape[1]
-
-    @property
-    def uid(self) -> Coord:
-        return self.core_id
+    def capacity(self) -> int:
+        return self._node_capacity
 
 
-def _syns_max_lcn_ex(syns: List[GroupedSyn]) -> LCN_EX:
-    """Find the max LCN extenion of grouped post-synapses"""
-    return max(syns, key=lambda syn: syn.lcn_ex).lcn_ex
+@final
+class RouterTreeRoot(RouterTreeNode):
+    def __init__(self) -> None:
+        super().__init__(RouterLevel.L5)
+
+        for i in range(self.capacity):
+            L4_child = create_lx_full_tree(RouterLevel.L4)
+            self.add_child(L4_child)
+
+    def nearest_avail_L1(self):
+        """Whether L1 level nodes are all full"""
+        l1_nodes = self.get_lx_nodes(RouterLevel.L1)
+
+        for node in l1_nodes:
+            if not node.is_full():
+                return node
+
+        return None
+
+    def insert_gsyn_on_core(self, gsyn_on_core: GroupedSynOnCore) -> bool:
+        node = RouterTreeNode(RouterLevel.L0, gsyn_on_core)
+        l1_node = self.nearest_avail_L1()
+
+        if l1_node:
+            return l1_node.add_child(node)
+
+        return False
+
+    def get_L0_node_road(self):
+        road: List[CoordOffset] = []
+
+        def dfs_preorder(root: RouterTreeNode, lx: RouterLevel) -> None:
+            if root.level == RouterLevel.L0:
+                if root.item:
+                    root.item.road = road
+                road.pop(-1)
+                return
+
+            for i in range(root.capacity):
+                road.append(root._direction_table[i])
+                dfs_preorder(root.children[i], RouterLevel(lx - 1))
+
+            road.pop(-1)
+
+        dfs_preorder(self, RouterLevel.L5)
 
 
-class Placement(GroupedLayer):
-    def __init__(
-        self,
-        myself: NeuDyn,
-        pre_syns: List[GroupedSyn],
-        post_syns: List[GroupedSyn],
-        name: Optional[str] = None,
-    ) -> None:
-        """
-        Arguments:
-            - grouped_layer: the grouped layer to be placed, \
-                including the pre & post grouped synapses.
-            - name: the name of the object. Optional.
+def create_lx_full_tree(level: RouterLevel) -> RouterTreeNode:
+    """Create a full Lx-level router tree.
 
-        Description: The `Placement` includes both the pre & post grouped synapses. \
-            It will be used to assign the parameters of CORES & NEURONS.
+    If creating a L4 router tree, it will return:
+    L4 with 4 children
+        -> L3 with 4 children
+            -> L2 with 4 children
+                -> L1 with 4 children
+                    -> L0 with no child
+    """
+    root = RouterTreeNode(level)
 
-        NOTE: the grouped post-synapses of the placement is read-only. \
-            We can ONLY place the previous grouped synspses.
-        """
-        super().__init__(myself, pre_syns, name)
+    if level > RouterLevel.L0:
+        for i in range(root.capacity):
+            child = create_lx_full_tree(RouterLevel(level - 1))
+            root.add_child(child)
 
-        self._post_syns = post_syns
-        self.placed: List[Core] = []
+    return root
 
-        """A list of the number of cores that each synapse needs."""
-        self.n_core_placement = [s.n_core for s in self.pre]
-        self.weights_placed = self._weights_placement()
 
-        # For every synapse
-        for i_syn in range(len(self.pre)):
-            syn = self.pre[i_syn]
-            for i in range(self.n_core_placement[i_syn]):
-                self.placed.append(Core.build(syn.weight_divided[i], lcn_ex=syn.lcn_ex))
-
-        for core in self.placed:
-            if len(self.post) > 0:
-                core.set_target_lcn(self.post[0].lcn_ex)
-            else:
-                core.set_target_lcn(LCN_EX.LCN_1X)
-
-            core.set_neuron_used()
-
-    def _weights_placement(self) -> List[List[np.ndarray]]:
-        """Gather all the divided weights matrix in grouped synapses & place them.
-
-        [0]: divided of matrix of <Synsyn1>
-        [
-            On core [0]:...
-            On core [1]:...
-            On core [2]:...
-        ]
-        [1]: divided of matrix of <Synsyn2>
-        """
-        weights = []
-        for syn in self.pre:
-            weights.append(syn.weight_divided)
-
-        return weights
-
-    @classmethod
-    def build(
-        cls,
-        neurons: NeuDyn,
-        grouped_syns: List[GroupedSyn],
-        name: Optional[str] = None,
-    ) -> "Placement":
-        pre, post = cls._find_bi_syns(neurons, grouped_syns)
-
-        # If the post-synapses are more than 1,
-        # set the max LCN extension that satisfies all.
-        if len(post) > 1:
-            max_lcn_ex = _syns_max_lcn_ex(post)
-            for syn in post:
-                syn.lcn_ex = max_lcn_ex
-
-        return cls(neurons, pre, post, name)
-
-    def __repr__(self) -> str:
-        return f"<{self.name} at 0x{id(self):x} of target '{self.myself}'>"
-
-    def __str__(self) -> str:
-        return f"<{self.name} of target '{self.myself}'>"
-
-    @property
-    def post(self) -> List[GroupedSyn]:
-        return self._post_syns
-
-    @property
-    def dest(self) -> List[GroupedSyn]:
-        return self.post
+router_tree_root = RouterTreeRoot()
