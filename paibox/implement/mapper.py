@@ -1,11 +1,11 @@
 from collections import defaultdict
-from typing import Dict, Set
+from typing import Dict, List, Set
 
 from paibox.base import DynamicSys, NeuDyn, PAIBoxObject
 from paibox.network import DynSysGroup
 from paibox.synapses import SynSys
 
-from .grouping import GroupedSyn
+from .grouping import GroupedSyn, GroupedSynOnCore
 
 PredSynDictType = Dict[str, SynSys]
 SuccSynDictType = Dict[str, SynSys]
@@ -42,6 +42,7 @@ class Mapper:
 
         self._pre_grouped_syns: Dict[str, GroupedSyn] = defaultdict()
         self._succ_grouped_syns: Dict[str, SuccGroupedSynDictType] = defaultdict()
+        self._pre_gsyn_on_cores: Dict[str, List[GroupedSynOnCore]] = defaultdict()
 
         self.is_built = False
 
@@ -52,6 +53,7 @@ class Mapper:
         self._nodes.clear()
         self._pre_grouped_syns.clear()
         self._succ_grouped_syns.clear()
+        self._pre_gsyn_on_cores.clear()
 
     def build_graph(self, network: DynSysGroup) -> None:
         """Build the directed graph given a network.
@@ -147,6 +149,14 @@ class Mapper:
                     self._succ_grouped_syns[name][
                         succ_node_name
                     ] = self._in_grouped_syns(syn)
+        
+        for name, gsyn in self._pre_grouped_syns.items():
+            self._pre_gsyn_on_cores[name] = gsyn.build_syn_on_core()
+            
+        self.do_assigning()
+    
+    def do_assigning(self):
+        pass
 
     def _find_component(self, component: PAIBoxObject) -> str:
         """Return the name of the component if in the network."""
