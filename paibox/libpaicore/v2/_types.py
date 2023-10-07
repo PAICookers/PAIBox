@@ -40,6 +40,6 @@ class RouterDirection(Enum):
         x, y = self.value
 
         if method == "Y":
-            return x << 1 + y
+            return (x << 1) + y
         else:
-            return y << 1 + x
+            return (y << 1) + x

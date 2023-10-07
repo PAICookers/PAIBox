@@ -126,14 +126,12 @@ class AllToAll(Transform):
             # weight is a scalar
             if x.ndim == 1:
                 _x = np.sum(x).astype(np.int32)
+                output = self.weights * _x
             else:
                 # TODO
                 raise ValueError
 
-            output = self.weights * _x
-
         elif self.weights.ndim == 2:
-            # np.matmul(np.asarray(x, np.int8), weights)
             output = x @ self.weights
         else:
             raise ValueError(f"weights.ndim={self.weights.ndim}")
