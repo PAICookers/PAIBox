@@ -1,12 +1,14 @@
-from typing import Any, List, Optional, Sequence, Set, Union
+from dataclasses import dataclass
+from typing import List, Literal, Sequence, Set
 
-from ._types import ReplicationFlag as RFlag
-from ._types import RouterLevel, RouterOp
-from .coordinate import Coord, CoordOffset
-from .coordinate import ReplicationId as RId
+from ._types import ReplicationFlag as RFlag, RouterDirection, RouterLevel, RouterOp
+from .coordinate import Coord, ReplicationId as RId
 
 RouterRoad = List[RouterOp]
 RouterStatus = List[RouterLevel]
+
+
+__all__ = ["RouterCoordinate"]
 
 
 def lx_need_copy(rflag: RFlag, lx: int) -> bool:
@@ -93,7 +95,7 @@ def get_router_road(cur_coord: Coord, dest_coord: Coord, rid: RId) -> RouterRoad
     return road
 
 
-def get_router_level(rid: Coord) -> RouterLevel:
+def coord2level(rid: Coord) -> RouterLevel:
     x_high = y_high = RouterLevel.L1
 
     for level in RouterLevel:
@@ -107,3 +109,68 @@ def get_router_level(rid: Coord) -> RouterLevel:
             break
 
     return max(x_high, y_high, key=lambda x: x.value)
+
+
+def idx2router_direction(idx: int, method: Literal["X", "Y"] = "Y") -> RouterDirection:
+    """Get the router direction given an index of the node.
+    
+    Args:
+        - idx: the index of the node for its parent.
+        - method: use X/Y-priority method.
+    """
+    if idx > 3:
+        raise ValueError
+
+    if method == "Y":
+        directions = (
+            RouterDirection.X0Y0,
+            RouterDirection.X0Y1,
+            RouterDirection.X1Y0,
+            RouterDirection.X1Y1,
+        )
+    else:
+        directions = (
+            RouterDirection.X0Y0,
+            RouterDirection.X1Y0,
+            RouterDirection.X0Y1,
+            RouterDirection.X1Y1,
+        )
+
+    return directions[idx]
+
+
+@dataclass
+class RouterCoordinate:
+    L4: RouterDirection
+    L3: RouterDirection
+    L2: RouterDirection
+    L1: RouterDirection
+    L0: RouterDirection
+    
+    @classmethod
+    def build_from_road(cls, road: List[RouterDirection]):
+        if len(road) != 5:
+            # TODO
+            raise ValueError
+        
+        return cls(*road)
+
+    @property
+    def coordinate(self) -> Coord:
+        x = (
+            (self.L4.value[0] << 4)
+            + (self.L3.value[0] << 3)
+            + (self.L2.value[0] << 2)
+            + (self.L1.value[0] << 1)
+            + self.L0.value[0]
+        )
+
+        y = (
+            (self.L4.value[1] << 4)
+            + (self.L3.value[1] << 3)
+            + (self.L2.value[1] << 2)
+            + (self.L1.value[1] << 1)
+            + self.L0.value[1]
+        )
+
+        return Coord(x, y)
