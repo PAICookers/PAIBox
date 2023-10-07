@@ -1,4 +1,5 @@
 from enum import Enum, Flag, IntEnum, unique
+from typing import Literal
 
 
 @unique
@@ -26,3 +27,19 @@ class ReplicationFlag(Flag):
     L3 = 4
     L4 = 8
     L5 = 16
+
+
+@unique
+class RouterDirection(Enum):
+    X0Y0 = (0, 0)
+    X0Y1 = (0, 1)
+    X1Y0 = (1, 0)
+    X1Y1 = (1, 1)
+
+    def to_index(self, method: Literal["X", "Y"] = "Y") -> int:
+        x, y = self.value
+
+        if method == "Y":
+            return x << 1 + y
+        else:
+            return y << 1 + x
