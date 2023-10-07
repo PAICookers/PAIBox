@@ -55,14 +55,14 @@ def test_GroupedSyn_build():
 
         def __init__(self):
             super().__init__()
-            self.n1 = pb.neuron.TonicSpiking(400, 3)
+            self.inp1 = pb.projection.InputProj(pb.simulator.processes.Constant(400, 1))
             self.n2 = pb.neuron.TonicSpiking(1200, 3)
             self.n3 = pb.neuron.TonicSpiking(400, 4)
             self.n4 = pb.neuron.TonicSpiking(400, 4)
             self.n5 = pb.neuron.TonicSpiking(600, 4)
 
-            self.s1 = pb.synapses.NoDecay(self.n1, self.n2, pb.synapses.All2All())
-            self.s2 = pb.synapses.NoDecay(self.n1, self.n3, pb.synapses.One2One())
+            self.s1 = pb.synapses.NoDecay(self.inp1, self.n2, pb.synapses.All2All())
+            self.s2 = pb.synapses.NoDecay(self.inp1, self.n3, pb.synapses.One2One())
             self.s3 = pb.synapses.NoDecay(self.n4, self.n3, pb.synapses.All2All())
             self.s4 = pb.synapses.NoDecay(self.n4, self.n5, pb.synapses.All2All())
 
