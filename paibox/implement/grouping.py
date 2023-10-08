@@ -1,9 +1,9 @@
-from typing import List, Optional
+from typing import ClassVar, List, Optional
 
 import numpy as np
 
 from paibox.base import NeuDyn, PAIBoxObject
-from paibox.libpaicore.v2 import LCN_EX, Coord
+from paibox.libpaicore.v2 import LCN_EX, Coord, RouterCoordinate
 from paibox.synapses import SynSys
 
 
@@ -35,8 +35,6 @@ class GroupedSyn(GroupedObj):
 
     All the synapses will be grouped first. Then we get a list of `GroupedSyn`.
     """
-
-    coords: List[Coord] = []
 
     def __init__(
         self,
@@ -113,7 +111,7 @@ class GroupedSyn(GroupedObj):
         self._n_neuron_each = n_neuron_each
 
     def build_syn_on_core(self) -> List["GroupedSynOnCore"]:
-        syn_on_core: List[GroupedSynOnCore] = []
+        syn_on_core = []
 
         for i in range(self.n_core):
             syn_on_core.append(GroupedSynOnCore.build(self, i))
@@ -221,7 +219,7 @@ class GroupedSynOnCore(GroupedObj):
         400           100
     """
 
-    n_core: int = 1
+    n_core: ClassVar[int] = 1
 
     def __init__(
         self,
@@ -245,6 +243,7 @@ class GroupedSynOnCore(GroupedObj):
         self._pos = position
         self._n_neuron = n_neuron
         self._binary_conn = self._get_binary_conn(weights)
+        self._router_coord: RouterCoordinate
 
     def _get_binary_conn(self, weights) -> np.ndarray:
         """Reshape the divided weight into the binary connection.
@@ -308,3 +307,7 @@ class GroupedSynOnCore(GroupedObj):
     @property
     def crossbar(self) -> np.ndarray:
         return self._binary_conn
+
+    @property
+    def coordinate(self) -> Coord:
+        return self._router_coord.coordinate

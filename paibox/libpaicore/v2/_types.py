@@ -31,12 +31,25 @@ class ReplicationFlag(Flag):
 
 @unique
 class RouterDirection(Enum):
+    """Indicate the 4 children of a node.
+    
+    NOTE: There is an X/Y coordinate priority method \
+        to specify the order of the 4 children.
+        - For X-priority method:
+            X0Y0, X1Y0, X0Y1, X1Y1
+        - For Y-priority method:
+            X0Y0, X0Y1, X1Y0, X1Y1
+    """
+
     X0Y0 = (0, 0)
     X0Y1 = (0, 1)
     X1Y0 = (1, 0)
     X1Y1 = (1, 1)
 
     def to_index(self, method: Literal["X", "Y"] = "Y") -> int:
+        """Convert the direction to index in children list, \
+            using the X/Y coordinate priority method.
+        """
         x, y = self.value
 
         if method == "Y":

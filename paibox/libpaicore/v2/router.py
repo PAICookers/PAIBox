@@ -113,7 +113,7 @@ def coord2level(rid: Coord) -> RouterLevel:
 
 def idx2router_direction(idx: int, method: Literal["X", "Y"] = "Y") -> RouterDirection:
     """Get the router direction given an index of the node.
-    
+
     Args:
         - idx: the index of the node for its parent.
         - method: use X/Y-priority method.
@@ -146,14 +146,14 @@ class RouterCoordinate:
     L2: RouterDirection
     L1: RouterDirection
     L0: RouterDirection
-    
+
     @classmethod
-    def build_from_road(cls, road: List[RouterDirection]):
-        if len(road) != 5:
+    def build_from_path(cls, path: List[RouterDirection]):
+        if len(path) != 5:
             # TODO
             raise ValueError
-        
-        return cls(*road)
+
+        return cls(*path)
 
     @property
     def coordinate(self) -> Coord:
