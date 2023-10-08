@@ -1,68 +1,100 @@
-from typing import final, List, Optional
+from typing import ClassVar, final, Literal, List, Optional, Sequence
 
 from .grouping import GroupedSyn, GroupedSynOnCore
 
-from paibox.base import PAIBoxObject
-from paibox.libpaicore.v2.coordinate import CoordOffset
-from paibox.libpaicore.v2._types import RouterLevel
-
-GUESS_PLACE_LEVEL = RouterLevel.L2
-ROUTER_TREE_NODE_TAG = "Node_%d_%d"
+from paibox.libpaicore.v2._types import RouterLevel, RouterDirection
+from paibox.libpaicore.v2.router import RouterCoordinate, idx2router_direction
 
 
-class RouterTreeNode(PAIBoxObject):
-    _direction_table: List[CoordOffset] = [
-        CoordOffset(0, 0),
-        CoordOffset(0, 1),
-        CoordOffset(1, 0),
-        CoordOffset(1, 1),
-    ]
-
-    _node_capacity = len(_direction_table)
+class RouterTreeNode:
+    node_capacity: ClassVar[int] = 4
 
     def __init__(
         self,
         level: RouterLevel,
         data: Optional[GroupedSynOnCore] = None,
+        *,
+        tag: Optional[str] = None,
     ) -> None:
-        super().__init__()
-
         self._level = level
         self._children: List["RouterTreeNode"] = []
         self.item = data
+        self.tag = tag
 
     def add_child(self, child: "RouterTreeNode") -> bool:
-        if self.level == RouterLevel.L0 or self.level - child.level != 1:
+        if self.level == RouterLevel.L0:
+            # L0-level node cannot add child.
+            # TODO
             raise ValueError
 
-        if len(self.children) == self._node_capacity:
+        if self.level - child.level != 1:
+            raise ValueError
+
+        if len(self.children) == self.node_capacity:
             return False
 
+        # TODO append? method X/Y-priority?
         self._children.append(child)
+
         return True
 
     def find_child(self, _child: "RouterTreeNode") -> bool:
-        if _child.level == RouterLevel.L0:
-            raise ValueError
-
-        for child in self._children:
+        for child in self.children:
             if child == _child:
                 return True
 
         return False
 
-    # def get_node_by_tag(self, tag: str):
-    #     def dfs_preorder(root: RouterTreeNode, tag: str):
-    #         if root.level == RouterLevel.L0 and root.tag != tag:
-    #             return
+    def find_node_by_path(
+        self, path: Sequence[RouterDirection], method: Literal["X", "Y"] = "Y"
+    ) -> "RouterTreeNode":
+        """Find node by the path of `RouterDirection`.
+        
+        Description: Find by start at this level based on the path provided. \
+            Take `path[0]` each time and then do a recursive search.
+        
+        NOTE: The length of path <= the level of this node.
+        """
+        if len(path) == 0:
+            return self
 
-    #         if root.tag == tag:
-    #             return root
+        if len(path) > self.level:
+            # TODO
+            raise ValueError
 
-    #         for child in root.children:
-    #             dfs_preorder(child, tag)
+        idx = path[0].to_index(method)
+        if idx > len(self.children):
+            raise IndexError
 
-    #     dfs_preorder(self, tag)
+        sub_node = self.children[idx]
+
+        if len(path) > 1:
+            return sub_node.find_node_by_path(path[1:], method)
+        else:
+            return sub_node
+
+    def find_node_by_tag(self, tag: str) -> Optional["RouterTreeNode"]:
+        """Searches for nodes by tag using DFS.
+
+        Args:
+            - tag: the tag string.
+
+        Returns:
+            - the node if found. Otherwise return `None`.
+        """
+
+        def dfs_preorder(root: RouterTreeNode, tag: str) -> Optional[RouterTreeNode]:
+            if root.tag == tag:
+                return root
+            elif root.level == RouterLevel.L0:
+                return None
+            else:
+                for child in root.children:
+                    node = dfs_preorder(child, tag)
+                    if node:
+                        return node
+
+        return dfs_preorder(self, tag)
 
     def get_lx_nodes(self, lx: RouterLevel) -> List["RouterTreeNode"]:
         if lx > self.level:
@@ -86,39 +118,10 @@ class RouterTreeNode(PAIBoxObject):
         return nodes
 
     def is_full(self) -> bool:
-        return len(self.children) == self.capacity
+        return len(self.children) == self.node_capacity
 
     def is_empty(self) -> bool:
         return len(self.children) == 0
-
-    # def is_full(self) -> bool:
-    #     """All children are full, then full. \
-    #         One child is not full, then not full.
-    #     """
-    #     # L0 never has children.
-    #     if self.level == RouterLevel.L0:
-    #         if len(self.children) == self.capacity:
-    #             return True
-
-    #     for child in self.children:
-    #         if not child.is_full():
-    #             return False
-
-    #     return False
-
-    # def is_empty(self) -> bool:
-    #     """All children are empty, then empty. \
-    #         One child is not empty, then not empty.
-    #     """
-    #     # L0 never has children.
-    #     if self.level == RouterLevel.L0:
-    #         return False
-
-    #     for child in self.children:
-    #         if not child.is_empty():
-    #             return False
-
-    #     return True
 
     @classmethod
     def create_node(cls, gsyn: GroupedSyn):
@@ -153,76 +156,112 @@ class RouterTreeNode(PAIBoxObject):
     def children(self) -> List["RouterTreeNode"]:
         return self._children
 
-    @property
-    def capacity(self) -> int:
-        return self._node_capacity
-
 
 @final
 class RouterTreeRoot(RouterTreeNode):
-    def __init__(self) -> None:
-        super().__init__(RouterLevel.L5)
+    def __init__(self, empty_root: bool = False, **kwargs) -> None:
+        """Initialize a router tree root.
 
-        for i in range(self.capacity):
-            L4_child = create_lx_full_tree(RouterLevel.L4)
-            self.add_child(L4_child)
+        Args:
+            empty_root: whether to create a empty root. Default is false.
+        """
+        super().__init__(RouterLevel.L5, **kwargs)
 
-    def nearest_avail_L1(self):
-        """Whether L1 level nodes are all full"""
-        l1_nodes = self.get_lx_nodes(RouterLevel.L1)
+        if not empty_root:
+            for i in range(self.node_capacity):
+                L4_child = create_lx_full_tree(RouterLevel.L4)
+                self.add_child(L4_child)
 
-        for node in l1_nodes:
+    def nearest_avail_lx_node(self, lx: RouterLevel) -> Optional[RouterTreeNode]:
+        """Get the nearest available Lx node.
+        Search from the X0Y0 direction of every node.
+        """
+        nodes = self.get_lx_nodes(lx)
+
+        for node in nodes:
+            # Return an available Lx node.
             if not node.is_full():
                 return node
 
         return None
 
+    # def insert_gsyn(self, gsyn: GroupedSyn) -> bool:
+    #     gsyn_on_cores = gsyn.build_syn_on_core()
+
+    #     for gsyn_on_core in gsyn_on_cores:
+    #         if not self.insert_gsyn_on_core(gsyn_on_core):
+    #             raise ValueError
+
+    #     return True
+
     def insert_gsyn_on_core(self, gsyn_on_core: GroupedSynOnCore) -> bool:
+        l1_node = self.nearest_avail_lx_node(RouterLevel.L1)
+
+        if not l1_node:
+            return False
+
         node = RouterTreeNode(RouterLevel.L0, gsyn_on_core)
-        l1_node = self.nearest_avail_L1()
+        return l1_node.add_child(node)
 
-        if l1_node:
-            return l1_node.add_child(node)
+    def get_L0_node_path(
+        self, node: RouterTreeNode, method: Literal["X", "Y"] = "Y"
+    ) -> RouterCoordinate:
+        """Return a direction path from L4 to L0.
 
-        return False
+        Args:
+            - node: the L0 node.
+            - method: use X/Y-priority method.
 
-    def get_L0_node_road(self):
-        road: List[CoordOffset] = []
+        Return:
+            - A list of `RouterDirection` from L4 to L0.
+        """
+        assert node.level == RouterLevel.L0
 
-        def dfs_preorder(root: RouterTreeNode, lx: RouterLevel) -> None:
-            if root.level == RouterLevel.L0:
-                if root.item:
-                    root.item.road = road
-                road.pop(-1)
-                return
+        path = []
 
-            for i in range(root.capacity):
-                road.append(root._direction_table[i])
-                dfs_preorder(root.children[i], RouterLevel(lx - 1))
+        def dfs_preorder(root: RouterTreeNode) -> bool:
+            i = 0
+            if root.level == RouterLevel.L1:
+                for child in root.children:
+                    if child is node:
+                        path.append(idx2router_direction(i, method))
+                        return True
 
-            road.pop(-1)
+                    i += 1
+            else:
+                for child in root.children:
+                    path.append(idx2router_direction(i, method))
+                    if dfs_preorder(child):
+                        return True
 
-        dfs_preorder(self, RouterLevel.L5)
+                    i += 1
+
+            return False
+
+        if dfs_preorder(self):
+            return RouterCoordinate.build_from_path(path)
+
+        raise ValueError
 
 
-def create_lx_full_tree(level: RouterLevel) -> RouterTreeNode:
+def create_lx_nbranch(lx: RouterLevel, nbranch: int) -> RouterTreeNode:
+    root = RouterTreeNode(lx)
+
+    if lx > RouterLevel.L1:
+        for i in range(nbranch):
+            child = create_lx_nbranch(RouterLevel(lx - 1), nbranch)
+            root.add_child(child)
+
+    return root
+
+
+def create_lx_full_tree(lx: RouterLevel) -> RouterTreeNode:
     """Create a full Lx-level router tree.
 
     If creating a L4 router tree, it will return:
     L4 with 4 children
         -> L3 with 4 children
             -> L2 with 4 children
-                -> L1 with 4 children
-                    -> L0 with no child
+                -> L1 with no L0 child
     """
-    root = RouterTreeNode(level)
-
-    if level > RouterLevel.L0:
-        for i in range(root.capacity):
-            child = create_lx_full_tree(RouterLevel(level - 1))
-            root.add_child(child)
-
-    return root
-
-
-router_tree_root = RouterTreeRoot()
+    return create_lx_nbranch(lx, nbranch=RouterTreeNode.node_capacity)
