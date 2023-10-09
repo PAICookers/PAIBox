@@ -1,4 +1,4 @@
-from enum import auto, Enum, Flag, IntEnum, unique
+from enum import Enum, Flag, IntEnum, auto, unique
 
 
 @unique
@@ -31,7 +31,7 @@ class ReplicationFlag(Flag):
 @unique
 class RouterDirection(Enum):
     """Indicate the 4 children of a node.
-    
+
     NOTE: There is an X/Y coordinate priority method \
         to specify the order of the 4 children.
     """

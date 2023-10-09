@@ -1,4 +1,5 @@
 import pytest
+
 from paibox.implement.graphs import toposort
 
 

@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, TypeVar, Set
+from typing import Any, Dict, List, Set, TypeVar
 
 Node = TypeVar("Node")
 

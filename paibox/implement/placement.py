@@ -1,9 +1,9 @@
-from typing import ClassVar, final, List, Optional, Sequence
+from typing import ClassVar, List, Optional, Sequence, final
+
+from paibox.libpaicore.v2._types import RouterDirection, RouterLevel
+from paibox.libpaicore.v2.router import RouterCoordinate, RouterDirectionIdx
 
 from .grouping import GroupedSyn, GroupedSynOnCore
-
-from paibox.libpaicore.v2._types import RouterLevel, RouterDirection
-from paibox.libpaicore.v2.router import RouterCoordinate, RouterDirectionIdx
 
 
 class RouterTreeNode:
@@ -46,10 +46,10 @@ class RouterTreeNode:
 
     def find_node_by_path(self, path: Sequence[RouterDirection]) -> "RouterTreeNode":
         """Find node by the path of `RouterDirection`.
-        
+
         Description: Find by start at this level based on the path provided. \
             Take `path[0]` each time and then do a recursive search.
-        
+
         NOTE: The length of path <= the level of this node.
         """
         if len(path) == 0:

@@ -1,15 +1,10 @@
 import pytest
-import paibox as pb
 
-from paibox.libpaicore.v2.coordinate import (
-    ReplicationId as RId,
-    Coord,
-)
-from paibox.libpaicore.v2.router import (
-    get_multicast_cores,
-    get_replication_id,
-)
+import paibox as pb
 from paibox.libpaicore.v2._types import ReplicationFlag as RFlag
+from paibox.libpaicore.v2.coordinate import Coord
+from paibox.libpaicore.v2.coordinate import ReplicationId as RId
+from paibox.libpaicore.v2.router import get_multicast_cores, get_replication_id
 
 
 @pytest.mark.parametrize(

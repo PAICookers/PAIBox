@@ -1,8 +1,10 @@
 from dataclasses import dataclass, field
 from typing import List, Sequence, Set
 
-from ._types import ReplicationFlag as RFlag, RouterDirection, RouterLevel, RouterOp
-from .coordinate import Coord, ReplicationId as RId
+from ._types import ReplicationFlag as RFlag
+from ._types import RouterDirection, RouterLevel, RouterOp
+from .coordinate import Coord
+from .coordinate import ReplicationId as RId
 
 RouterRoad = List[RouterOp]
 RouterStatus = List[RouterLevel]
@@ -150,7 +152,7 @@ class RouterCoordinate:
         for level in self.level_table:
             if level[0].value == RouterDirection.ANY:
                 return level[1]
-        
+
         return RouterLevel.L0
 
     @property

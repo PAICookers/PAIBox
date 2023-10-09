@@ -24,7 +24,7 @@ class Mapper:
     def __init__(self) -> None:
         self._nodes: Dict[str, Union[NeuDyn, InputProj]] = defaultdict()
         """Nodes in the network.
-        
+
         Structure:
         {
             node1.name: node1,
@@ -34,7 +34,7 @@ class Mapper:
 
         self._pred_dg: Dict[str, PredSynDictType] = defaultdict(dict)
         """Pre-synapses of nodes.
-        
+
         Structure:
         {
             node.name: {
@@ -45,7 +45,7 @@ class Mapper:
         """
         self._succ_dg: Dict[str, SuccSynDictType] = defaultdict(dict)
         """Post-synapses of nodes.
-        
+
         Structure:
         {
             node.name: {
@@ -57,7 +57,7 @@ class Mapper:
 
         self._pred_gsyns: Dict[str, GroupedSyn] = defaultdict()
         """Grouped pre-synapses of nodes.
-        
+
         Structure:
         {
             node1.name: grouped pre-syn1,
@@ -67,7 +67,7 @@ class Mapper:
 
         self._succ_gsyns: Dict[str, SuccGroupedSynDictType] = defaultdict()
         """Grouped post-synapses of nodes.
-        
+
         Structure:
         {
             node1.name: {
@@ -79,7 +79,7 @@ class Mapper:
 
         self._pred_gsyn_on_core: Dict[str, List[GroupedSynOnCore]] = defaultdict()
         """Grouped pre-synapse on core of nodes.
-        
+
         Structure:
         {
             node1.name: list1 of grouped pre-synapses,

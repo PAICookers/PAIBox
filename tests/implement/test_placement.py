@@ -7,7 +7,8 @@ from paibox.implement.placement import (
     RouterTreeRoot,
     create_lx_full_tree,
 )
-from paibox.libpaicore.v2._types import RouterLevel, RouterDirection
+from paibox.libpaicore.v2._types import RouterDirection, RouterLevel
+
 from .data import *
 
 
