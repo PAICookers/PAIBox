@@ -3,8 +3,8 @@ from typing import Dict, List, Set, Union
 
 from paibox.base import NeuDyn, PAIBoxObject
 from paibox.network import DynSysGroup
-from paibox.synapses import SynSys
 from paibox.projection import InputProj
+from paibox.synapses import SynSys
 
 from .graphs import toposort
 from .grouping import GroupedSyn, GroupedSynOnCore
@@ -177,12 +177,7 @@ class Mapper:
         """1. Group every synapse at first."""
         self._group_syns()
 
-        """2. Adjust the LCN extension of each layer for target LCN.
-
-        the name of node A: {
-            the following node name B : the grouped synapse of A to B.
-        }
-        """
+        """2. Adjust the LCN extension of each layer for target LCN."""
         # self._lcn_ex_adjustment()
 
         """3. Build the grouped synapse on each core."""
@@ -193,26 +188,37 @@ class Mapper:
 
     def _group_syns(self) -> None:
         """Group every synapse in the DG."""
-        for name in self.nodes:
+        for node_name in self.nodes:
             # Consider ALL the pre-synapses of a node.
-            pre_syns = self.pred_dg[name]
+            pre_syns = self.pred_dg[node_name]
             if pre_syns:
-                self._pred_gsyns[name] = GroupedSyn.build(list(pre_syns.values()))
+                # Create `_pred_gsyns` dictionary
+                self._pred_gsyns[node_name] = GroupedSyn.build(list(pre_syns.values()))
+
+        # Create `_succ_gsyns` dictionary
+        for node_name in self.nodes:
+            self._succ_gsyns[node_name] = {}
+            succ_nodes = self.succ_dg[node_name]
+
+            for succ_node_name in succ_nodes:
+                gsyn = self._pred_gsyns[succ_node_name]
+                """Mark whether the `gsyn` needs to broadcast."""
+                if len(succ_nodes) > 1 or gsyn.n_core > 1:
+                    gsyn.need_broadcast = True
+
+                self._succ_gsyns[node_name][succ_node_name] = gsyn
 
     def _lcn_ex_adjustment(self) -> None:
-        """Adjust the LCN extension for each target LCN."""
-        for name in self.nodes:
-            self._succ_gsyns[name] = {}
-            succ_nodes = self.succ_dg[name]
+        """Adjust the LCN extension for each target LCN.
 
-            if succ_nodes:
-                for succ_node_name, syn in succ_nodes.items():
-                    self._succ_gsyns[name][succ_node_name] = self._in_grouped_syns(syn)
+        And indicate wether need to broadcast.
+        """
+        pass
 
     def _build_gsyn_on_core(self) -> None:
         """Build the grouped synapse on each core."""
-        for name, gsyn in self._pred_gsyns.items():
-            self._pred_gsyn_on_core[name] = gsyn.build_syn_on_core()
+        for node_name, gsyn in self._pred_gsyns.items():
+            self._pred_gsyn_on_core[node_name] = gsyn.build_syn_on_core()
 
     def _coord_assignment(self) -> None:
         ordered_nodes = toposort(self.succ_dg)
@@ -221,14 +227,14 @@ class Mapper:
             if isinstance(self.nodes[node_name], InputProj):
                 continue
 
-            # Traverse the grouped pre-synapse in order.
-            if node_name in self._pred_gsyns:
+            # Traverse all the grouped post-synapse of nodes in order.
+            if node_name in self._succ_gsyns:
                 gsyns_on_core = self._pred_gsyn_on_core[node_name]
 
                 for gsyn_on_core in gsyns_on_core:
                     if not self.router_tree.insert_gsyn_on_core(gsyn_on_core):
                         raise ValueError
-                    
+
         print("Coord aasignment OK.")
 
     """Utilities"""

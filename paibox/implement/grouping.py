@@ -51,6 +51,8 @@ class GroupedSyn(GroupedObj):
         self._lcn_ex = axon2lcn_ex(self.n_axons)
         self._get_limit_info()
 
+        self._need_broadcast: bool = False
+
     @classmethod
     def build(cls, synapses: List[SynSys], name: Optional[str] = None):
         """Build the `GroupedSyn` for a node.
@@ -114,7 +116,9 @@ class GroupedSyn(GroupedObj):
         syn_on_core = []
 
         for i in range(self.n_core):
-            syn_on_core.append(GroupedSynOnCore.build(self, i))
+            syn_on_core.append(
+                GroupedSynOnCore.build(self, i, need_broadcast=self.need_broadcast)
+            )
 
         return syn_on_core
 
@@ -166,6 +170,14 @@ class GroupedSyn(GroupedObj):
 
         print(f"LCN of {self.name} is been updated: {self.lcn_ex} -> {lcn_ex}")
         self._lcn_ex = lcn_ex
+
+    @property
+    def need_broadcast(self) -> bool:
+        return self._need_broadcast
+
+    @need_broadcast.setter
+    def need_broadcast(self, need_broadcast: bool) -> None:
+        self._need_broadcast = need_broadcast
 
     @property
     def weight_combined(self) -> np.ndarray:
@@ -227,6 +239,8 @@ class GroupedSynOnCore(GroupedObj):
         position: int,
         n_neuron: int,
         weights: np.ndarray,
+        *,
+        need_broadcast: bool = False,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -236,6 +250,7 @@ class GroupedSynOnCore(GroupedObj):
                 in the parent.
             - n_neuron: the number of neurons used in the CORE.
             - weights: the weights divided into the single CORE.
+            - need_broadcast: wether the syn on core need broadcast.
         """
         super().__init__(name)
 
@@ -243,7 +258,9 @@ class GroupedSynOnCore(GroupedObj):
         self._pos = position
         self._n_neuron = n_neuron
         self._binary_conn = self._get_binary_conn(weights)
-        self._router_coord: RouterCoordinate
+        self._router_coord = RouterCoordinate()
+
+        self.need_broadcast = need_broadcast
 
     def _get_binary_conn(self, weights) -> np.ndarray:
         """Reshape the divided weight into the binary connection.
@@ -269,12 +286,12 @@ class GroupedSynOnCore(GroupedObj):
         return bc.astype(np.bool_)
 
     @classmethod
-    def build(cls, parent: GroupedSyn, position: int):
+    def build(cls, parent: GroupedSyn, position: int, *, need_broadcast: bool = False):
         """Build the divided synapse placing on a single CORE."""
         n_neuron = parent.n_neuron_each[position]
         weights = parent.weight_divided[position]
 
-        return cls(parent, position, n_neuron, weights)
+        return cls(parent, position, n_neuron, weights, need_broadcast=need_broadcast)
 
     @property
     def obj(self) -> GroupedSyn:
