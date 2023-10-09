@@ -35,7 +35,7 @@ def test_Collector_operations():
 
     assert len(g3_nodes.exclude(pb.base.Projection)) == 1
     assert len(g1_nodes.not_subset(pb.network.NeuDyn)) == 2
-    assert len(g1_nodes.include(pb.base.DynamicSys, pb.base.Projection)) == 2
+    assert len(g1_nodes.include(pb.network.NeuDyn, pb.base.Projection)) == 2
 
 
 class Net(pb.DynSysGroup):
