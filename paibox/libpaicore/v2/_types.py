@@ -1,4 +1,4 @@
-from enum import Enum, Flag, IntEnum, unique
+from enum import Enum, Flag, IntEnum, auto, unique
 
 
 @unique
@@ -26,3 +26,28 @@ class ReplicationFlag(Flag):
     L3 = 4
     L4 = 8
     L5 = 16
+
+
+@unique
+class RouterDirection(Enum):
+    """Indicate the 4 children of a node.
+
+    NOTE: There is an X/Y coordinate priority method \
+        to specify the order of the 4 children.
+    """
+
+    X0Y0 = (0, 0)
+    X0Y1 = (0, 1)
+    X1Y0 = (1, 0)
+    X1Y1 = (1, 1)
+    ANY = (-1, -1)  # Don't care when a level direction is `ANY`.
+
+    def to_index(self) -> int:
+        """Convert the direction to index in children list."""
+        if self is RouterDirection.ANY:
+            # TODO
+            raise ValueError
+
+        x, y = self.value
+
+        return (x << 1) + y

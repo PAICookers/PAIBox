@@ -1,9 +1,9 @@
-from typing import List, Optional
+from typing import ClassVar, List, Optional
 
 import numpy as np
 
 from paibox.base import NeuDyn, PAIBoxObject
-from paibox.libpaicore.v2 import LCN_EX, Coord
+from paibox.libpaicore.v2 import LCN_EX, Coord, RouterCoordinate
 from paibox.synapses import SynSys
 
 
@@ -13,7 +13,7 @@ def axon2lcn_ex(n_axon: int) -> LCN_EX:
         raise ValueError
 
     lcn_ex = LCN_EX((n_axon - 1) // 1152)
-    if lcn_ex > LCN_EX.LCN_64X:
+    if lcn_ex >= LCN_EX.LCN_MAX:
         # TODO
         raise ValueError
 
@@ -36,8 +36,6 @@ class GroupedSyn(GroupedObj):
     All the synapses will be grouped first. Then we get a list of `GroupedSyn`.
     """
 
-    coords: List[Coord] = []
-
     def __init__(
         self,
         parent: List[SynSys],
@@ -53,8 +51,10 @@ class GroupedSyn(GroupedObj):
         self._lcn_ex = axon2lcn_ex(self.n_axons)
         self._get_limit_info()
 
+        self._need_broadcast: bool = False
+
     @classmethod
-    def build(cls, synapses: List[SynSys], name: Optional[str] = None) -> "GroupedSyn":
+    def build(cls, synapses: List[SynSys], name: Optional[str] = None):
         """Build the `GroupedSyn` for a node.
 
         Use LCN extension optimization in grouping a synapse.
@@ -112,6 +112,16 @@ class GroupedSyn(GroupedObj):
         self._n_core = n_core
         self._n_neuron_each = n_neuron_each
 
+    def build_syn_on_core(self) -> List["GroupedSynOnCore"]:
+        syn_on_core = []
+
+        for i in range(self.n_core):
+            syn_on_core.append(
+                GroupedSynOnCore.build(self, i, need_broadcast=self.need_broadcast)
+            )
+
+        return syn_on_core
+
     @property
     def obj(self) -> List[SynSys]:
         return self._parent
@@ -125,8 +135,12 @@ class GroupedSyn(GroupedObj):
         return [parent.dest for parent in self.obj]
 
     @property
+    def n_axons_each(self) -> List[int]:
+        return [parent.num_axon for parent in self.obj]
+
+    @property
     def n_axons(self) -> int:
-        return sum([parent.num_axon for parent in self.obj])
+        return sum(self.n_axons_each)
 
     @property
     def n_neuron(self) -> int:
@@ -158,9 +172,20 @@ class GroupedSyn(GroupedObj):
         self._lcn_ex = lcn_ex
 
     @property
+    def need_broadcast(self) -> bool:
+        return self._need_broadcast
+
+    @need_broadcast.setter
+    def need_broadcast(self, need_broadcast: bool) -> None:
+        self._need_broadcast = need_broadcast
+
+    @property
     def weight_combined(self) -> np.ndarray:
         """Combine all the matrices in one piece."""
-        return np.concatenate([syn.connectivity for syn in self.obj], axis=0)
+        w = np.concatenate([syn.connectivity for syn in self.obj], axis=0)
+        w.setflags(write=False)
+
+        return w
 
     @property
     def weight_divided(self) -> List[np.ndarray]:
@@ -191,8 +216,8 @@ class GroupedSynOnCore(GroupedObj):
     (Parent, Axons, Neurons, binary_conn):
         (S1, start-to-end <1>, start-to-end <1>, binary_conn <1>)
     e.g.:
-    D1: (SynSys1, 0-500,     0-100, [500*100, np.bool_])
-    D2: (SynSys2, 500-1000,100-500, [500*400, np.bool_])
+    D1: (SynSys1, 0-500,     0-400, [500*400, np.bool_])
+    D2: (SynSys2, 500-1000,400-500, [500*100, np.bool_])
 
     A = 1152*LCN_EX(1)
      _________     _________
@@ -203,69 +228,103 @@ class GroupedSynOnCore(GroupedObj):
     |   S2-1  |   |   S2-2  |
     |_________|   |_________|
     |_________|   |_________|
-        100           400
+        400           100
     """
 
-    n_core: int = 1
+    n_core: ClassVar[int] = 1
 
     def __init__(
         self,
-        parent: SynSys,
-        lcn_ex: LCN_EX,
+        parent: GroupedSyn,
+        position: int,
         n_neuron: int,
-        n_axon: int,
         weights: np.ndarray,
+        *,
+        need_broadcast: bool = False,
         name: Optional[str] = None,
     ) -> None:
         """
         Arguments:
-            - parent: the parent synapse(complete).
-            - lcn_ex: the LCN extension type.
+            - parent: the parent grouped synapse(complete).
+            - position: the position of the targeted `GroupedSynOnCore` \
+                in the parent.
             - n_neuron: the number of neurons used in the CORE.
-            - n_axon: the number of axons used in the CORE.
-            - weights: the weights divided into the CORE.
-            - coord: the coordinate assigning to the CORE.
+            - weights: the weights divided into the single CORE.
+            - need_broadcast: wether the syn on core need broadcast.
         """
         super().__init__(name)
 
         self._parent = parent
-        self._lcn_ex = lcn_ex
+        self._pos = position
         self._n_neuron = n_neuron
-        self._n_axon = n_axon
         self._binary_conn = self._get_binary_conn(weights)
+        self._router_coord = RouterCoordinate()
+
+        self.need_broadcast = need_broadcast
 
     def _get_binary_conn(self, weights) -> np.ndarray:
-        """Get the binary connection based on the divided weights matrix.
-
+        """Reshape the divided weight into the binary connection.
         TODO ONLY for `np.bool_` now.
         """
-        assert self._n_neuron * self._lcn_ex * 1 <= 512
+        assert self.n_neuron * self.lcn_ex * 1 <= 512
 
-        o_matrix = np.zeros((1152, 512), dtype=np.bool_)
+        bc = np.zeros((1152, 512), dtype=np.bool_)
 
-        for i in range(self._n_neuron):
-            o_matrix[:, 2 * i] = weights[:1152, i]
-            o_matrix[:, 2 * i + 1] = np.pad(
-                weights[1152:, i],
-                (0, 2 * 1152 - self._n_axon),
-                "constant",
-                constant_values=0,
-            )
+        if self.lcn_ex > LCN_EX.LCN_1X:
+            raise NotImplementedError
+            # for i in range(self.n_neuron):
+            #     bc[:, 2 * i] = weights[:1152, i]
+            #     bc[:, 2 * i + 1] = np.pad(
+            #         weights[1152:, i],
+            #         (0, 2 * 1152 - self.n_axons),
+            #         "constant",
+            #         constant_values=0,
+            #     )
+        else:
+            bc[: self.n_axons, : self.n_neuron] = weights
 
-        return o_matrix.astype(np.bool_)
+        return bc.astype(np.bool_)
+
+    @classmethod
+    def build(cls, parent: GroupedSyn, position: int, *, need_broadcast: bool = False):
+        """Build the divided synapse placing on a single CORE."""
+        n_neuron = parent.n_neuron_each[position]
+        weights = parent.weight_divided[position]
+
+        return cls(parent, position, n_neuron, weights, need_broadcast=need_broadcast)
 
     @property
-    def obj(self) -> SynSys:
+    def obj(self) -> GroupedSyn:
         return self._parent
+
+    @property
+    def position(self) -> int:
+        return self._pos
+
+    @property
+    def n_axons(self) -> int:
+        return self.obj.n_axons
+
+    @property
+    def lcn_ex(self) -> LCN_EX:
+        return self.obj.lcn_ex
+
+    @property
+    def n_neuron(self) -> int:
+        return self._n_neuron
 
     @property
     def source(self):
         return self.obj.source
 
     @property
-    def dest(self) -> NeuDyn:
+    def dest(self) -> List[NeuDyn]:
         return self.obj.dest
 
     @property
     def crossbar(self) -> np.ndarray:
         return self._binary_conn
+
+    @property
+    def coordinate(self) -> Coord:
+        return self._router_coord.coordinate

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 
-from paibox.core.reg_types import LCNExtensionType as LCNX
+from paibox.libpaicore.v2.reg_types import LCNExtensionType as LCNX
 
 
 @dataclass

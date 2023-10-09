@@ -1,11 +1,14 @@
 from collections import defaultdict
-from typing import Dict, Set
+from typing import Dict, List, Set, Union
 
-from paibox.base import DynamicSys, NeuDyn, PAIBoxObject
+from paibox.base import NeuDyn, PAIBoxObject
 from paibox.network import DynSysGroup
+from paibox.projection import InputProj
 from paibox.synapses import SynSys
 
-from .grouping import GroupedSyn
+from .graphs import toposort
+from .grouping import GroupedSyn, GroupedSynOnCore
+from .placement import RouterTreeRoot
 
 PredSynDictType = Dict[str, SynSys]
 SuccSynDictType = Dict[str, SynSys]
@@ -13,35 +16,76 @@ SuccGroupedSynDictType = Dict[str, GroupedSyn]
 
 
 class Mapper:
+    """Mapping the network in the cores."""
+
+    router_tree = RouterTreeRoot()
+    """The router tree."""
+
     def __init__(self) -> None:
-        """Mapper.
+        self._nodes: Dict[str, Union[NeuDyn, InputProj]] = defaultdict()
+        """Nodes in the network.
 
-        Private attributes:
-
-            - _pre_grouped_syns: a dictionary of previous \
-                grouped synapses.
-                {
-                    <N1.name>: the combined and grouped \
-                        pre-synapses of node `N1`.
-                }
-            - _succ_grouped_syns: a dictionary of following \
-                grouped synapses and nodes.
-                {
-                    <N1.name>: {
-                        <N2.name>: the combined and grouped \
-                            pre-synapses of node `N2`,
-                        <N3.name>: the combined and grouped \
-                            pre-synapses of node `N3`.
-                    }
-                }
-
+        Structure:
+        {
+            node1.name: node1,
+            node2.name: node2
+        }
         """
-        self._nodes: Dict[str, NeuDyn] = defaultdict()
-        self._pred_dg: Dict[str, PredSynDictType] = defaultdict(dict)
-        self._succ_dg: Dict[str, SuccSynDictType] = defaultdict(dict)
 
-        self._pre_grouped_syns: Dict[str, GroupedSyn] = defaultdict()
-        self._succ_grouped_syns: Dict[str, SuccGroupedSynDictType] = defaultdict()
+        self._pred_dg: Dict[str, PredSynDictType] = defaultdict(dict)
+        """Pre-synapses of nodes.
+
+        Structure:
+        {
+            node.name: {
+                pre-node1.name: pre-syn1,
+                pre-node2.name: pre-syn2
+            }
+        }
+        """
+        self._succ_dg: Dict[str, SuccSynDictType] = defaultdict(dict)
+        """Post-synapses of nodes.
+
+        Structure:
+        {
+            node.name: {
+                post-node1.name: post-syn1,
+                post-node2.name: post-syn2
+            }
+        }
+        """
+
+        self._pred_gsyns: Dict[str, GroupedSyn] = defaultdict()
+        """Grouped pre-synapses of nodes.
+
+        Structure:
+        {
+            node1.name: grouped pre-syn1,
+            node2.name: grouped pre-syn2
+        }
+        """
+
+        self._succ_gsyns: Dict[str, SuccGroupedSynDictType] = defaultdict()
+        """Grouped post-synapses of nodes.
+
+        Structure:
+        {
+            node1.name: {
+                post-node1.name: grouped post-syn1,
+                post-node2.name: grouped post-syn2
+            }
+        }
+        """
+
+        self._pred_gsyn_on_core: Dict[str, List[GroupedSynOnCore]] = defaultdict()
+        """Grouped pre-synapse on core of nodes.
+
+        Structure:
+        {
+            node1.name: list1 of grouped pre-synapses,
+            node2.name: list2 of grouped pre-synapses
+        }
+        """
 
         self.is_built = False
 
@@ -50,14 +94,15 @@ class Mapper:
         self._pred_dg.clear()
         self._succ_dg.clear()
         self._nodes.clear()
-        self._pre_grouped_syns.clear()
-        self._succ_grouped_syns.clear()
+        self._pred_gsyns.clear()
+        self._succ_gsyns.clear()
+        self._pred_gsyn_on_core.clear()
 
     def build_graph(self, network: DynSysGroup) -> None:
         """Build the directed graph given a network.
 
         Arguments:
-            - network: a DynSysGroup.
+            - network: a `DynSysGroup`.
 
         For a level-one layer network:
             INPUT -> S0 -> N1 -> S1 -> N2
@@ -89,7 +134,11 @@ class Mapper:
         self.clear()
 
         self.network = network
-        self._nodes = network.nodes(level=1, include_self=False).subset(NeuDyn).unique()
+        self._nodes = (
+            network.nodes(level=1, include_self=False)
+            .include(InputProj, NeuDyn)
+            .unique()
+        )
 
         # Add nodes
         for node in self._nodes:
@@ -126,43 +175,119 @@ class Mapper:
         """
 
         """1. Group every synapse at first."""
-        for name in self.nodes:
+        self._group_syns()
+
+        """2. Adjust the LCN extension of each layer for target LCN."""
+        # self._lcn_ex_adjustment()
+
+        """3. Build the grouped synapse on each core."""
+        self._build_gsyn_on_core()
+
+        """4. Do core coordinate assignment."""
+        self._coord_assignment()
+
+    def _group_syns(self) -> None:
+        """Group every synapse in the DG."""
+        for node_name in self.nodes:
             # Consider ALL the pre-synapses of a node.
-            pre_syns = self.pred_dg[name]
+            pre_syns = self.pred_dg[node_name]
             if pre_syns:
-                self._pre_grouped_syns[name] = GroupedSyn.build(list(pre_syns.values()))
+                # Create `_pred_gsyns` dictionary
+                self._pred_gsyns[node_name] = GroupedSyn.build(list(pre_syns.values()))
 
-        """2. Re limit the LCN extension for target LCN.
+        # Create `_succ_gsyns` dictionary
+        for node_name in self.nodes:
+            self._succ_gsyns[node_name] = {}
+            succ_nodes = self.succ_dg[node_name]
 
-        the name of node A: {
-            the following node name B : the grouped synapse of A to B.
-        }
+            for succ_node_name in succ_nodes:
+                gsyn = self._pred_gsyns[succ_node_name]
+                """Mark whether the `gsyn` needs to broadcast."""
+                if len(succ_nodes) > 1 or gsyn.n_core > 1:
+                    gsyn.need_broadcast = True
+
+                self._succ_gsyns[node_name][succ_node_name] = gsyn
+
+    def _lcn_ex_adjustment(self) -> None:
+        """Adjust the LCN extension for each target LCN.
+
+        And indicate wether need to broadcast.
         """
-        for name in self.nodes:
-            self._succ_grouped_syns[name] = {}
-            succ_nodes = self.succ_dg[name]
+        pass
 
-            if succ_nodes:
-                for succ_node_name, syn in succ_nodes.items():
-                    self._succ_grouped_syns[name][
-                        succ_node_name
-                    ] = self._in_grouped_syns(syn)
+    def _build_gsyn_on_core(self) -> None:
+        """Build the grouped synapse on each core."""
+        for node_name, gsyn in self._pred_gsyns.items():
+            self._pred_gsyn_on_core[node_name] = gsyn.build_syn_on_core()
 
-    def _find_component(self, component: PAIBoxObject) -> str:
-        """Return the name of the component if in the network."""
-        for v in self.network.__dict__.values():
-            if component is v:
-                return v.name
+    def _coord_assignment(self) -> None:
+        ordered_nodes = toposort(self.succ_dg)
 
-        raise ValueError(f"Component {component} not found in the network.")
+        for node_name in ordered_nodes:
+            if isinstance(self.nodes[node_name], InputProj):
+                continue
 
-    def _find_name(self, name: str) -> PAIBoxObject:
-        """Return the object of the name if in the network."""
-        for k, v in self.network.__dict__.items():
+            # Traverse all the grouped post-synapse of nodes in order.
+            if node_name in self._succ_gsyns:
+                gsyns_on_core = self._pred_gsyn_on_core[node_name]
+
+                for gsyn_on_core in gsyns_on_core:
+                    if not self.router_tree.insert_gsyn_on_core(gsyn_on_core):
+                        raise ValueError
+
+        print("Coord aasignment OK.")
+
+    """Utilities"""
+
+    def _find_obj_by_name(self, name: str) -> PAIBoxObject:
+        """Return the object in the network given the name of it."""
+        objs = (
+            self.network.nodes(level=1, include_self=False)
+            .subset(PAIBoxObject)
+            .unique()
+        )
+        for v in objs.values():
             if name is v.name:
                 return v
 
         raise ValueError(f"Name {name} not found in the network.")
+
+    def _in_grouped_syns(self, syn: SynSys) -> GroupedSyn:
+        """Find which the grouped synapses the synapse is in."""
+        for name in self._pred_gsyns:
+            if syn.dest.name == name:
+                return self._pred_gsyns[name]
+
+        raise ValueError
+
+    def _find_same_lcn_syns(self, pre_node_name: str) -> Set[NeuDyn]:
+        """Find the grouped synapses with the same LCN extension \
+            given a previous node.
+
+        TODO
+        Auto find the layers that have the same LCN in the network.
+        Check whether all the layers are been traversed.
+
+        If the indegree of a grouped syn == 1:
+            If outdegree of its previous node == 1:
+                just consider itself, lock its LCN.
+            Else, find all the children grouped syn of the previous node, \
+                then self._succ_gsyns[node]?
+        Else, ...
+        """
+        node_parents = []
+        grouped_syns = self._succ_gsyns[pre_node_name]
+
+        for syns in grouped_syns.values():
+            # The source is the parents of the synapse.
+            node_parents.extend(syns.source)
+
+        children = []
+
+        for node in set(node_parents):
+            children.extend(list(self._succ_gsyns[node.name].values()))
+
+        return set(children)
 
     @property
     def nodes(self):
@@ -187,53 +312,6 @@ class Mapper:
 
         # TODO
         raise ValueError
-
-    def _find_src_syns(self, node: DynamicSys):
-        name = self._find_component(node)
-
-        return self._pred_dg[name]
-
-    def _find_dest_syns(self, node: DynamicSys):
-        name = self._find_component(node)
-
-        return self._succ_dg[name]
-
-    def _in_grouped_syns(self, syn: SynSys) -> GroupedSyn:
-        """Find which the grouped synapses the synapse is in."""
-        for name in self._pre_grouped_syns:
-            if syn.dest.name == name:
-                return self._pre_grouped_syns[name]
-
-        raise ValueError
-
-    def _find_same_lcn_syns(self, pre_node_name: str) -> Set[NeuDyn]:
-        """Find the grouped synapses with the same LCN extension \
-            given a previous node.
-
-        TODO
-        Auto find the layers that have the same LCN in the network.
-        Check whether all the layers are been traversed.
-
-        If the indegree of a grouped syn == 1:
-            If outdegree of its previous node == 1:
-                just consider itself, lock its LCN.
-            Else, find all the children grouped syn of the previous node, \
-                then self._succ_grouped_syns[node]?
-        Else, ...
-        """
-        node_parents = []
-        grouped_syns = self._succ_grouped_syns[pre_node_name]
-
-        for syns in grouped_syns.values():
-            # The source is the parents of the synapse.
-            node_parents.extend(syns.source)
-
-        children = []
-
-        for node in set(node_parents):
-            children.extend(list(self._succ_grouped_syns[node.name].values()))
-
-        return set(children)
 
 
 def group_by(_dict: Dict, keyfunc=lambda item: item):

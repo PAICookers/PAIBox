@@ -108,7 +108,7 @@ class Collector(dict):
         gather = type(self)()
 
         for k, v in self.items():
-            if v.__class__ in types:
+            if isinstance(v, types):
                 gather[k] = v
 
         return gather
@@ -117,7 +117,7 @@ class Collector(dict):
         gather = type(self)()
 
         for k, v in self.items():
-            if v.__class__ not in types:
+            if not isinstance(v, types):
                 gather[k] = v
 
         return gather

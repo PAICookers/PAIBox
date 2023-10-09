@@ -1,12 +1,16 @@
-from typing import Any, List, Optional, Sequence, Set, Union
+from dataclasses import dataclass, field
+from typing import List, Sequence, Set
 
 from ._types import ReplicationFlag as RFlag
-from ._types import RouterLevel, RouterOp
-from .coordinate import Coord, CoordOffset
+from ._types import RouterDirection, RouterLevel, RouterOp
+from .coordinate import Coord
 from .coordinate import ReplicationId as RId
 
 RouterRoad = List[RouterOp]
 RouterStatus = List[RouterLevel]
+
+
+__all__ = ["RouterCoordinate"]
 
 
 def lx_need_copy(rflag: RFlag, lx: int) -> bool:
@@ -93,7 +97,7 @@ def get_router_road(cur_coord: Coord, dest_coord: Coord, rid: RId) -> RouterRoad
     return road
 
 
-def get_router_level(rid: Coord) -> RouterLevel:
+def coord2level(rid: Coord) -> RouterLevel:
     x_high = y_high = RouterLevel.L1
 
     for level in RouterLevel:
@@ -107,3 +111,66 @@ def get_router_level(rid: Coord) -> RouterLevel:
             break
 
     return max(x_high, y_high, key=lambda x: x.value)
+
+
+RouterDirectionIdx = (
+    RouterDirection.X0Y0,
+    RouterDirection.X0Y1,
+    RouterDirection.X1Y0,
+    RouterDirection.X1Y1,
+)
+
+
+@dataclass
+class RouterCoordinate:
+    """Use router directions to represent the coordinate of a node."""
+
+    L4: RouterDirection = field(default=RouterDirection.ANY)
+    L3: RouterDirection = field(default=RouterDirection.ANY)
+    L2: RouterDirection = field(default=RouterDirection.ANY)
+    L1: RouterDirection = field(default=RouterDirection.ANY)
+    L0: RouterDirection = field(default=RouterDirection.ANY)
+
+    level_table = [
+        (L4, RouterLevel.L5),
+        (L3, RouterLevel.L4),
+        (L2, RouterLevel.L3),
+        (L1, RouterLevel.L2),
+        (L0, RouterLevel.L1),
+    ]
+
+    @classmethod
+    def build_from_path(cls, path: List[RouterDirection]):
+        if len(path) > 5:
+            # TODO
+            raise ValueError
+
+        return cls(*path)
+
+    @property
+    def level(self) -> RouterLevel:
+        for level in self.level_table:
+            if level[0].value == RouterDirection.ANY:
+                return level[1]
+
+        return RouterLevel.L0
+
+    @property
+    def coordinate(self) -> Coord:
+        x = (
+            (self.L4.value[0] << 4)
+            + (self.L3.value[0] << 3)
+            + (self.L2.value[0] << 2)
+            + (self.L1.value[0] << 1)
+            + self.L0.value[0]
+        )
+
+        y = (
+            (self.L4.value[1] << 4)
+            + (self.L3.value[1] << 3)
+            + (self.L2.value[1] << 2)
+            + (self.L1.value[1] << 1)
+            + self.L0.value[1]
+        )
+
+        return Coord(x, y)
