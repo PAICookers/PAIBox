@@ -55,9 +55,15 @@ class NetForTest4(pb.Network):
         self.n1 = pb.neuron.TonicSpiking(1200, 3, name="n1")
         self.n2 = pb.neuron.TonicSpiking(400, 4, name="n2")
         self.n3 = pb.neuron.TonicSpiking(400, 4, name="n3")
-        self.s1 = pb.synapses.NoDecay(self.inp1, self.n1, pb.synapses.All2All(), name="s1")
-        self.s2 = pb.synapses.NoDecay(self.inp1, self.n2, pb.synapses.One2One(), name="s2")
-        self.s3 = pb.synapses.NoDecay(self.n3, self.n2, pb.synapses.All2All(), name="s3")
+        self.s1 = pb.synapses.NoDecay(
+            self.inp1, self.n1, pb.synapses.All2All(), name="s1"
+        )
+        self.s2 = pb.synapses.NoDecay(
+            self.inp1, self.n2, pb.synapses.One2One(), name="s2"
+        )
+        self.s3 = pb.synapses.NoDecay(
+            self.n3, self.n2, pb.synapses.All2All(), name="s3"
+        )
 
 
 def test_GroupedSyn_build():
