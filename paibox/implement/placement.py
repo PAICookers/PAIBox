@@ -1,9 +1,9 @@
-from typing import ClassVar, final, Literal, List, Optional, Sequence
+from typing import ClassVar, final, List, Optional, Sequence
 
 from .grouping import GroupedSyn, GroupedSynOnCore
 
 from paibox.libpaicore.v2._types import RouterLevel, RouterDirection
-from paibox.libpaicore.v2.router import RouterCoordinate, idx2router_direction
+from paibox.libpaicore.v2.router import RouterCoordinate, RouterDirectionIdx
 
 
 class RouterTreeNode:
@@ -33,7 +33,6 @@ class RouterTreeNode:
         if len(self.children) == self.node_capacity:
             return False
 
-        # TODO append? method X/Y-priority?
         self._children.append(child)
 
         return True
@@ -45,9 +44,7 @@ class RouterTreeNode:
 
         return False
 
-    def find_node_by_path(
-        self, path: Sequence[RouterDirection], method: Literal["X", "Y"] = "Y"
-    ) -> "RouterTreeNode":
+    def find_node_by_path(self, path: Sequence[RouterDirection]) -> "RouterTreeNode":
         """Find node by the path of `RouterDirection`.
         
         Description: Find by start at this level based on the path provided. \
@@ -62,14 +59,14 @@ class RouterTreeNode:
             # TODO
             raise ValueError
 
-        idx = path[0].to_index(method)
+        idx = path[0].to_index()
         if idx > len(self.children):
             raise IndexError
 
         sub_node = self.children[idx]
 
         if len(path) > 1:
-            return sub_node.find_node_by_path(path[1:], method)
+            return sub_node.find_node_by_path(path[1:])
         else:
             return sub_node
 
@@ -203,14 +200,11 @@ class RouterTreeRoot(RouterTreeNode):
         node = RouterTreeNode(RouterLevel.L0, gsyn_on_core)
         return l1_node.add_child(node)
 
-    def get_L0_node_path(
-        self, node: RouterTreeNode, method: Literal["X", "Y"] = "Y"
-    ) -> RouterCoordinate:
+    def get_L0_node_path(self, node: RouterTreeNode) -> RouterCoordinate:
         """Return a direction path from L4 to L0.
 
         Args:
             - node: the L0 node.
-            - method: use X/Y-priority method.
 
         Return:
             - A list of `RouterDirection` from L4 to L0.
@@ -224,13 +218,13 @@ class RouterTreeRoot(RouterTreeNode):
             if root.level == RouterLevel.L1:
                 for child in root.children:
                     if child is node:
-                        path.append(idx2router_direction(i, method))
+                        path.append(RouterDirectionIdx[i])
                         return True
 
                     i += 1
             else:
                 for child in root.children:
-                    path.append(idx2router_direction(i, method))
+                    path.append(RouterDirectionIdx[i])
                     if dfs_preorder(child):
                         return True
 

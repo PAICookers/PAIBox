@@ -1,5 +1,4 @@
-from enum import Enum, Flag, IntEnum, unique
-from typing import Literal
+from enum import auto, Enum, Flag, IntEnum, unique
 
 
 @unique
@@ -35,24 +34,20 @@ class RouterDirection(Enum):
     
     NOTE: There is an X/Y coordinate priority method \
         to specify the order of the 4 children.
-        - For X-priority method:
-            X0Y0, X1Y0, X0Y1, X1Y1
-        - For Y-priority method:
-            X0Y0, X0Y1, X1Y0, X1Y1
     """
 
     X0Y0 = (0, 0)
     X0Y1 = (0, 1)
     X1Y0 = (1, 0)
     X1Y1 = (1, 1)
+    ANY = (-1, -1)  # Don't care when a level direction is `ANY`.
 
-    def to_index(self, method: Literal["X", "Y"] = "Y") -> int:
-        """Convert the direction to index in children list, \
-            using the X/Y coordinate priority method.
-        """
+    def to_index(self) -> int:
+        """Convert the direction to index in children list."""
+        if self is RouterDirection.ANY:
+            # TODO
+            raise ValueError
+
         x, y = self.value
 
-        if method == "Y":
-            return (x << 1) + y
-        else:
-            return (y << 1) + x
+        return (x << 1) + y
