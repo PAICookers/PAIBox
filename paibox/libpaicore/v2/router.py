@@ -1,16 +1,67 @@
 from dataclasses import dataclass, field
+from enum import Enum, IntEnum, unique
 from typing import List, Sequence, Set
 
 from ._types import ReplicationFlag as RFlag
-from ._types import RouterDirection, RouterLevel, RouterOp
-from .coordinate import Coord
-from .coordinate import ReplicationId as RId
-
-RouterRoad = List[RouterOp]
-RouterStatus = List[RouterLevel]
+from .coordinate import Coord, ReplicationId as RId
 
 
 __all__ = ["RouterCoordinate"]
+
+
+@unique
+class RouterOp(Enum):
+    UP = 0
+    DOWN_UNICAST = 1
+    DOWN_MULTICAST = 2
+
+
+@unique
+class RouterLevel(IntEnum):
+    L0 = 0  # Leaves for storing the data. A L0-layer is a core.
+    L1 = 1
+    L2 = 2
+    L3 = 3
+    L4 = 4
+    L5 = 5
+
+
+@unique
+class RouterDirection(Enum):
+    """Indicate the 4 children of a node.
+
+    NOTE: There is an X/Y coordinate priority method \
+        to specify the order of the 4 children.
+    """
+
+    X0Y0 = (0, 0)
+    X0Y1 = (0, 1)
+    X1Y0 = (1, 0)
+    X1Y1 = (1, 1)
+    ANY = (-1, -1)  # Don't care when a level direction is `ANY`.
+
+    def to_index(self) -> int:
+        """Convert the direction to index in children list."""
+        if self is RouterDirection.ANY:
+            # TODO
+            raise ValueError
+
+        x, y = self.value
+
+        return (x << 1) + y
+
+
+@unique
+class RouterNodeStatus(Enum):
+    """Indicate the status of a Lx-level(Lx > L0) node."""
+
+    AVAILABLE = 0
+    """There is at least 1 child node which is `AVAILABLE`."""
+    OCCUPIED = 1
+    """Full."""
+
+    AVAILABLE_BUT_WASTED = 2
+    """Wasted because it's a destination for broadcasting."""
 
 
 def lx_need_copy(rflag: RFlag, lx: int) -> bool:
@@ -75,26 +126,26 @@ def get_multicast_cores(base_coord: Coord, rid: RId) -> Set[Coord]:
     return cores
 
 
-def get_router_road(cur_coord: Coord, dest_coord: Coord, rid: RId) -> RouterRoad:
-    """
-    TODO
-    """
-    road = []
+# def get_router_road(cur_coord: Coord, dest_coord: Coord, rid: RId) -> RouterRoad:
+#     """
+#     TODO
+#     """
+#     road = []
 
-    max_level = max(dest_coord.router_level, rid.router_level)
+#     max_level = max(dest_coord.router_level, rid.router_level)
 
-    cur_level = cur_coord.router_level
-    while cur_level != max_level:
-        if cur_level < max_level:
-            # Go up
-            road.append(RouterOp.UP)
-            cur_level += 1
-        elif cur_level > max_level:
-            road.append(RouterOp.DOWN_MULTICAST)
-        else:
-            pass
+#     cur_level = cur_coord.router_level
+#     while cur_level != max_level:
+#         if cur_level < max_level:
+#             # Go up
+#             road.append(RouterOp.UP)
+#             cur_level += 1
+#         elif cur_level > max_level:
+#             road.append(RouterOp.DOWN_MULTICAST)
+#         else:
+#             pass
 
-    return road
+#     return road
 
 
 def coord2level(rid: Coord) -> RouterLevel:
