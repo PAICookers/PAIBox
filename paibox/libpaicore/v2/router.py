@@ -1,12 +1,10 @@
 from dataclasses import dataclass, field
 from enum import Enum, IntEnum, unique
-from typing import List, Sequence, Set
+from typing import List, Sequence, Set, Tuple
 
 from ._types import ReplicationFlag as RFlag
 from .coordinate import Coord, ReplicationId as RId
-
-
-__all__ = ["RouterCoordinate"]
+from .hw_defs import HwConfig
 
 
 @unique
@@ -18,12 +16,14 @@ class RouterOp(Enum):
 
 @unique
 class RouterLevel(IntEnum):
-    L0 = 0  # Leaves for storing the data. A L0-layer is a core.
+    L0 = 0
+    """Leaves of tree to store the data. A L0-layer is a core."""
     L1 = 1
     L2 = 2
     L3 = 3
     L4 = 4
     L5 = 5
+    """The root."""
 
 
 @unique
@@ -38,7 +38,8 @@ class RouterDirection(Enum):
     X0Y1 = (0, 1)
     X1Y0 = (1, 0)
     X1Y1 = (1, 1)
-    ANY = (-1, -1)  # Don't care when a level direction is `ANY`.
+    ANY = (-1, -1)
+    """Don't care when a level direction is `ANY`."""
 
     def to_index(self) -> int:
         """Convert the direction to index in children list."""
@@ -62,6 +63,51 @@ class RouterNodeStatus(Enum):
 
     AVAILABLE_BUT_WASTED = 2
     """Wasted because it's a destination for broadcasting."""
+
+
+@dataclass
+class RouterNodeCost:
+    n_L0: int
+    n_L1: int
+    n_L2: int
+    n_L3: int
+    n_L4: int
+
+    def get_router_level(self) -> Tuple[RouterLevel, int]:
+        if self.n_L4 > 1:
+            raise NotImplementedError
+        elif self.n_L3 > 1:
+            return RouterLevel.L4, self.n_L3
+        elif self.n_L2 > 1:
+            return RouterLevel.L3, self.n_L2
+        elif self.n_L1 > 1:
+            return RouterLevel.L2, self.n_L1
+        else:
+            return RouterLevel.L1, self.n_L0
+
+
+def get_node_consumption(n_core: int) -> RouterNodeCost:
+    """Get the nodes consumption at different levels given the `n_core`."""
+
+    def min_n_L0_nodes(n_core: int) -> int:
+        """Find the nearest #N(=2^X) to accommodate \
+            `n_core` L0-level nodes.
+        """
+        n_L0_nodes = 1
+        while n_core > n_L0_nodes:
+            n_L0_nodes *= 2
+
+        return n_L0_nodes
+
+    n_sub_node = HwConfig.N_SUB_ROUTER_NODE
+
+    n_L0 = min_n_L0_nodes(n_core)
+    n_L1 = 1 if n_L0 < n_sub_node else (n_L0 // n_sub_node)
+    n_L2 = 1 if n_L1 < n_sub_node else (n_L1 // n_sub_node)
+    n_L3 = 1 if n_L2 < n_sub_node else (n_L2 // n_sub_node)
+    n_L4 = 1 if n_L3 < n_sub_node else (n_L3 // n_sub_node)
+
+    return RouterNodeCost(n_L0, n_L1, n_L2, n_L3, n_L4)
 
 
 def lx_need_copy(rflag: RFlag, lx: int) -> bool:
@@ -173,7 +219,7 @@ RouterDirectionIdx = (
 
 
 @dataclass
-class RouterCoordinate:
+class RouterCoord:
     """Use router directions to represent the coordinate of a node."""
 
     L4: RouterDirection = field(default=RouterDirection.ANY)
