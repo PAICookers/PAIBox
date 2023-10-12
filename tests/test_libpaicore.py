@@ -2,9 +2,13 @@ import pytest
 
 import paibox as pb
 from paibox.libpaicore.v2._types import ReplicationFlag as RFlag
-from paibox.libpaicore.v2.coordinate import Coord
-from paibox.libpaicore.v2.coordinate import ReplicationId as RId
-from paibox.libpaicore.v2.router import get_multicast_cores, get_replication_id
+from paibox.libpaicore.v2.coordinate import Coord, ReplicationId as RId
+from paibox.libpaicore.v2.route import (
+    get_multicast_cores,
+    get_replication_id,
+    RoutingNodeCost,
+    get_node_consumption,
+)
 
 
 @pytest.mark.parametrize(
@@ -68,3 +72,21 @@ def test_get_replication_id(coords, expected):
     rid = get_replication_id(coords)
 
     assert rid == expected
+
+
+@pytest.mark.parametrize(
+    "n_core, expected_cost",
+    [
+        (1, RoutingNodeCost(1, 1, 1, 1, 1)),
+        (2, RoutingNodeCost(2, 1, 1, 1, 1)),
+        (3, RoutingNodeCost(4, 1, 1, 1, 1)),
+        (4, RoutingNodeCost(4, 1, 1, 1, 1)),
+        (5, RoutingNodeCost(8, 2, 1, 1, 1)),
+        (12, RoutingNodeCost(16, 4, 1, 1, 1)),
+        (20, RoutingNodeCost(32, 8, 2, 1, 1)),
+    ],
+)
+def test_get_node_consumption(n_core, expected_cost):
+    cost = get_node_consumption(n_core)
+
+    assert cost == expected_cost
