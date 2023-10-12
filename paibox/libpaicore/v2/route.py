@@ -8,14 +8,14 @@ from .hw_defs import HwConfig
 
 
 @unique
-class RouterOp(Enum):
+class RoutingOP(Enum):
     UP = 0
     DOWN_UNICAST = 1
     DOWN_MULTICAST = 2
 
 
 @unique
-class RouterLevel(IntEnum):
+class RoutingNodeLevel(IntEnum):
     L0 = 0
     """Leaves of tree to store the data. A L0-layer is a core."""
     L1 = 1
@@ -27,7 +27,7 @@ class RouterLevel(IntEnum):
 
 
 @unique
-class RouterDirection(Enum):
+class RoutingDirection(Enum):
     """Indicate the 4 children of a node.
 
     NOTE: There is an X/Y coordinate priority method \
@@ -43,7 +43,7 @@ class RouterDirection(Enum):
 
     def to_index(self) -> int:
         """Convert the direction to index in children list."""
-        if self is RouterDirection.ANY:
+        if self is RoutingDirection.ANY:
             # TODO
             raise ValueError
 
@@ -53,7 +53,7 @@ class RouterDirection(Enum):
 
 
 @unique
-class RouterNodeStatus(IntEnum):
+class RoutingNodeStatus(IntEnum):
     """Indicate the status of a Lx-level(Lx > L0) node."""
 
     ALL_EMPTY = 0
@@ -67,27 +67,27 @@ class RouterNodeStatus(IntEnum):
 
 
 @dataclass
-class RouterNodeCost:
+class RoutingNodeCost:
     n_L0: int
     n_L1: int
     n_L2: int
     n_L3: int
     n_L4: int
 
-    def get_router_level(self) -> Tuple[RouterLevel, int]:
+    def get_routing_level(self) -> Tuple[RoutingNodeLevel, int]:
         if self.n_L4 > 1:
-            return RouterLevel.L5, self.n_L4
+            return RoutingNodeLevel.L5, self.n_L4
         elif self.n_L3 > 1:
-            return RouterLevel.L4, self.n_L3
+            return RoutingNodeLevel.L4, self.n_L3
         elif self.n_L2 > 1:
-            return RouterLevel.L3, self.n_L2
+            return RoutingNodeLevel.L3, self.n_L2
         elif self.n_L1 > 1:
-            return RouterLevel.L2, self.n_L1
+            return RoutingNodeLevel.L2, self.n_L1
         else:
-            return RouterLevel.L1, self.n_L0
+            return RoutingNodeLevel.L1, self.n_L0
 
 
-def get_node_consumption(n_core: int) -> RouterNodeCost:
+def get_node_consumption(n_core: int) -> RoutingNodeCost:
     """Get the nodes consumption at different levels given the `n_core`."""
 
     def min_n_L0_nodes(n_core: int) -> int:
@@ -110,7 +110,7 @@ def get_node_consumption(n_core: int) -> RouterNodeCost:
     n_L3 = 1 if n_L2 < n_sub_node else (n_L2 // n_sub_node)
     n_L4 = 1 if n_L3 < n_sub_node else (n_L3 // n_sub_node)
 
-    return RouterNodeCost(n_L0, n_L1, n_L2, n_L3, n_L4)
+    return RoutingNodeCost(n_L0, n_L1, n_L2, n_L3, n_L4)
 
 
 def lx_need_copy(rflag: RFlag, lx: int) -> bool:
@@ -187,25 +187,25 @@ def get_multicast_cores(base_coord: Coord, rid: RId) -> Set[Coord]:
 #     while cur_level != max_level:
 #         if cur_level < max_level:
 #             # Go up
-#             road.append(RouterOp.UP)
+#             road.append(RoutingOP.UP)
 #             cur_level += 1
 #         elif cur_level > max_level:
-#             road.append(RouterOp.DOWN_MULTICAST)
+#             road.append(RoutingOP.DOWN_MULTICAST)
 #         else:
 #             pass
 
 #     return road
 
 
-def coord2level(rid: Coord) -> RouterLevel:
-    x_high = y_high = RouterLevel.L1
+def coord2level(rid: Coord) -> RoutingNodeLevel:
+    x_high = y_high = RoutingNodeLevel.L1
 
-    for level in RouterLevel:
+    for level in RoutingNodeLevel:
         if (rid.x >> level.value) == 0:
             x_high = level
             break
 
-    for level in RouterLevel:
+    for level in RoutingNodeLevel:
         if (rid.y >> level.value) == 0:
             y_high = level
             break
@@ -213,34 +213,34 @@ def coord2level(rid: Coord) -> RouterLevel:
     return max(x_high, y_high, key=lambda x: x.value)
 
 
-RouterDirectionIdx = (
-    RouterDirection.X0Y0,
-    RouterDirection.X0Y1,
-    RouterDirection.X1Y0,
-    RouterDirection.X1Y1,
+RoutingDirectionIdx = (
+    RoutingDirection.X0Y0,
+    RoutingDirection.X0Y1,
+    RoutingDirection.X1Y0,
+    RoutingDirection.X1Y1,
 )
 
 
 @dataclass
-class RouterCoord:
+class RoutingNodeCoord:
     """Use router directions to represent the coordinate of a node."""
 
-    L4: RouterDirection = field(default=RouterDirection.ANY)
-    L3: RouterDirection = field(default=RouterDirection.ANY)
-    L2: RouterDirection = field(default=RouterDirection.ANY)
-    L1: RouterDirection = field(default=RouterDirection.ANY)
-    L0: RouterDirection = field(default=RouterDirection.ANY)
+    L4: RoutingDirection = field(default=RoutingDirection.ANY)
+    L3: RoutingDirection = field(default=RoutingDirection.ANY)
+    L2: RoutingDirection = field(default=RoutingDirection.ANY)
+    L1: RoutingDirection = field(default=RoutingDirection.ANY)
+    L0: RoutingDirection = field(default=RoutingDirection.ANY)
 
     level_table = [
-        (L4, RouterLevel.L5),
-        (L3, RouterLevel.L4),
-        (L2, RouterLevel.L3),
-        (L1, RouterLevel.L2),
-        (L0, RouterLevel.L1),
+        (L4, RoutingNodeLevel.L5),
+        (L3, RoutingNodeLevel.L4),
+        (L2, RoutingNodeLevel.L3),
+        (L1, RoutingNodeLevel.L2),
+        (L0, RoutingNodeLevel.L1),
     ]
 
     @classmethod
-    def build_from_path(cls, path: List[RouterDirection]):
+    def build_from_path(cls, path: List[RoutingDirection]):
         if len(path) > 5:
             # TODO
             raise ValueError
@@ -248,12 +248,12 @@ class RouterCoord:
         return cls(*path)
 
     @property
-    def level(self) -> RouterLevel:
+    def level(self) -> RoutingNodeLevel:
         for level in self.level_table:
-            if level[0].value == RouterDirection.ANY:
+            if level[0].value == RoutingDirection.ANY:
                 return level[1]
 
-        return RouterLevel.L0
+        return RoutingNodeLevel.L0
 
     @property
     def coordinate(self) -> Coord:
