@@ -53,16 +53,17 @@ class RouterDirection(Enum):
 
 
 @unique
-class RouterNodeStatus(Enum):
+class RouterNodeStatus(IntEnum):
     """Indicate the status of a Lx-level(Lx > L0) node."""
 
-    AVAILABLE = 0
-    """There is at least 1 child node which is `AVAILABLE`."""
-    OCCUPIED = 1
-    """Full."""
+    ALL_EMPTY = 0
+    """The children are ALL empty."""
 
-    AVAILABLE_BUT_WASTED = 2
-    """Wasted because it's a destination for broadcasting."""
+    AVAILABLE = 1
+    """1 <= N <= `node_capacity` child node(s) is/are `OCCUPIED`."""
+
+    OCCUPIED = 2
+    """The children are ALL occupied."""
 
 
 @dataclass
@@ -75,7 +76,7 @@ class RouterNodeCost:
 
     def get_router_level(self) -> Tuple[RouterLevel, int]:
         if self.n_L4 > 1:
-            raise NotImplementedError
+            return RouterLevel.L5, self.n_L4
         elif self.n_L3 > 1:
             return RouterLevel.L4, self.n_L3
         elif self.n_L2 > 1:
@@ -101,8 +102,10 @@ def get_node_consumption(n_core: int) -> RouterNodeCost:
 
     n_sub_node = HwConfig.N_SUB_ROUTER_NODE
 
-    n_L0 = min_n_L0_nodes(n_core)
-    n_L1 = 1 if n_L0 < n_sub_node else (n_L0 // n_sub_node)
+    n_L0 = n_core
+    n_L0_occupied = min_n_L0_nodes(n_core)
+
+    n_L1 = 1 if n_L0_occupied < n_sub_node else (n_L0_occupied // n_sub_node)
     n_L2 = 1 if n_L1 < n_sub_node else (n_L1 // n_sub_node)
     n_L3 = 1 if n_L2 < n_sub_node else (n_L2 // n_sub_node)
     n_L4 = 1 if n_L3 < n_sub_node else (n_L3 // n_sub_node)
