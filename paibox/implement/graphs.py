@@ -1,9 +1,10 @@
-from typing import Any, Dict, List, Set, TypeVar
+from typing import Dict, FrozenSet, List, Set, Tuple, TypeVar
 
 Node = TypeVar("Node")
+Edge = TypeVar("Edge")
 
 
-def toposort(edges: Dict[Node, Dict[Node, Any]]) -> List[Node]:
+def toposort(edges: Dict[Node, Set[Node]]) -> List[Node]:
     """
     Topological sort algorithm by Kahn [1]_.
 
@@ -60,7 +61,7 @@ def toposort(edges: Dict[Node, Dict[Node, Any]]) -> List[Node]:
     return ordered
 
 
-def reverse_edges(edges: Dict[Node, Dict[Node, Any]]) -> Dict[Node, Set[Node]]:
+def reverse_edges(edges: Dict[Node, Set[Node]]) -> Dict[Node, Set[Node]]:
     """
     Reverses direction of dependence dict.
 
@@ -80,3 +81,46 @@ def reverse_edges(edges: Dict[Node, Dict[Node, Any]]) -> Dict[Node, Set[Node]]:
             result[val].add(key)
 
     return result
+
+
+INDEGREE_IDX = 0
+OUTDEGREE_IDX = 1 - INDEGREE_IDX
+
+
+def group_edges(
+    succ_edges: Dict[Node, Dict[Node, Edge]],
+    pred_edges: Dict[Node, Dict[Node, Edge]],
+    degree: Dict[Node, Tuple[int, int]],
+) -> Set[FrozenSet[Edge]]:
+    gathered: Set[FrozenSet[Edge]] = set()
+    edges: Set[Edge] = set()
+
+    for v in succ_edges.values():
+        edges.update(k for k in v.values())
+
+    for node in degree:
+        if degree[node][OUTDEGREE_IDX] > 1:
+            # Out-degree of node > 1.
+            succ_nodes = list(succ_edges[node].keys())
+            edge_group = set(edge for edge in succ_edges[node].values())
+
+            for succ_node in succ_nodes:
+                if degree[succ_node][INDEGREE_IDX] > 1:
+                    edge_group.update(syn for syn in pred_edges[succ_node].values())
+
+            gathered.add(frozenset(edge_group))
+            edges -= edge_group
+
+        if degree[node][INDEGREE_IDX] > 1:
+            # In-degree of node > 1.
+            prev_nodes = list(pred_edges[node].keys())
+            edge_group = set(edge for edge in pred_edges[node].values())
+
+            for prev_node in prev_nodes:
+                if degree[prev_node][OUTDEGREE_IDX] > 1:
+                    edge_group.update(syn for syn in succ_edges[prev_node].values())
+
+            gathered.add(frozenset(edge_group))
+            edges -= edge_group
+
+    return gathered
