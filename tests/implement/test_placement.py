@@ -1,399 +1,315 @@
-import numpy as np
-import pytest
-
 import paibox as pb
+import pytest
 from paibox.implement.placement import (
-    RouterTreeNode,
-    RouterTreeRoot,
-    create_lx_full_tree,
+    RoutingNode,
+    RoutingRoot,
+    get_parent,
 )
-from paibox.libpaicore.v2._types import RouterDirection, RouterLevel
-
-from .data import *
-
-
-def test_weight2binary_connectivity():
-    """Test for weight matrix converting to binary connectivity."""
-    o = np.zeros((6, 4), np.int8)
-    # o = np.array(
-    #     [
-    #         [1, 2, 3, 4],
-    #         [5, 6, 7, 8],
-    #         [9, 10, 11, 12],
-    #         [13, 14, 15, 16],
-    #         [17, 18, 19, 20],
-    #         [21, 22, 23, 24],
-    #     ],
-    #     np.int8,
-    # )
-    # (8, 2)
-    a = np.array(
-        [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10], [11, 12], [13, 14], [15, 16]], np.int8
-    )
-
-    b = np.split(a, [6], axis=0)
-
-    assert len(b) == 2
-
-    a_old, a_new = b[0], b[1]
-
-    for i in range(0, 2):
-        o[:, 2 * i] = a_old[:, i]
-        o[:, 2 * i + 1] = np.pad(
-            a_new[:, i], (0, 6 - (8 - 6)), "constant", constant_values=0
-        )
-
-    expected = np.array(
-        [
-            [1, 13, 2, 14],
-            [3, 15, 4, 16],
-            [5, 0, 6, 0],
-            [7, 0, 8, 0],
-            [9, 0, 10, 0],
-            [11, 0, 12, 0],
-        ],
-        np.int8,
-    )
-
-    assert np.array_equal(o, expected)
-
-
-@pytest.mark.parametrize(
-    "cur_shape, expected_shape",
-    [((8, 2), (6, 4)), ((120, 20), (100, 50)), ((1200, 144), (1152, 512))],
+from paibox.libpaicore.v2.route import (
+    RoutingDirection,
+    RoutingNodeLevel,
+    RoutingNodeCost,
 )
-def test_w2bc_parameterized(cur_shape, expected_shape):
-    """When LCN_EX > 1X, do w2bc. Else don't need to do so."""
-    cur_total = cur_shape[0] * cur_shape[1]
 
-    cur_matrix = np.random.randint(-128, 128, size=cur_shape, dtype=np.int8)
+@pytest.fixture
+def build_example_root():
+    root = RoutingNode(RoutingNodeLevel.L3, tag="L3")
 
-    o_matrix = np.zeros(expected_shape, dtype=np.int8)
+    node_l2_1 = RoutingNode(RoutingNodeLevel.L2, tag="L2_1")
+    node_l2_2 = RoutingNode(RoutingNodeLevel.L2, tag="L2_2")
+    node_l2_3 = RoutingNode(RoutingNodeLevel.L2, tag="L2_3")
 
-    # Certainty
-    assert cur_shape[0] > expected_shape[0]
+    node_l1_1 = RoutingNode(RoutingNodeLevel.L1, tag="L1_1")
+    node_l1_2 = RoutingNode(RoutingNodeLevel.L1, tag="L1_2")
+    node_l1_3 = RoutingNode(RoutingNodeLevel.L1, tag="L1_3")
 
-    for i in range(cur_shape[1]):
-        o_matrix[:, 2 * i] = cur_matrix[: expected_shape[0], i]
-        o_matrix[:, 2 * i + 1] = np.pad(
-            cur_matrix[expected_shape[0] :, i],
-            (0, 2 * expected_shape[0] - cur_shape[0]),
-            "constant",
-            constant_values=0,
-        )
+    node_l2_1.add_child_to(node_l1_1, RoutingDirection.X0Y0)
+    node_l2_2.add_child_to(node_l1_2, RoutingDirection.X0Y1)
+    node_l2_3.add_child_to(node_l1_3, RoutingDirection.X1Y0)
 
-    # o_matrix[:, :cur_shape[1]] = cur_matrix[: expected_shape[0],:]
-    # o_matrix = np.insert(cur_matrix, slice(1, expected_shape[1], 1), 0, axis=1)
+    root.add_child_to(node_l2_1, RoutingDirection.X0Y0)
+    root.add_child_to(node_l2_2, RoutingDirection.X1Y1)
+    root.add_child_to(node_l2_3, RoutingDirection.X1Y0)
+    
+    return root
 
-    for i in range(cur_shape[1]):
-        assert np.array_equal(cur_matrix[: expected_shape[0], i], o_matrix[:, 2 * i])
-        assert np.array_equal(
-            cur_matrix[expected_shape[0] :, i],
-            o_matrix[: cur_shape[0] - expected_shape[0], 2 * i + 1],
-        )
+class TestRouterTree:
+    def test_basics(self):
+        root = RoutingNode(RoutingNodeLevel.L3, tag="L3")
 
+        node_l2_1 = RoutingNode(RoutingNodeLevel.L2, tag="L2_1")
+        node_l2_2 = RoutingNode(RoutingNodeLevel.L2, tag="L2_2")
+        node_l2_3 = RoutingNode(RoutingNodeLevel.L2, tag="L2_3")
 
-def create_example_tree():
-    tree = RouterTreeNode(RouterLevel.L4, tag="L4_1")
-    l3_child1 = RouterTreeNode(RouterLevel.L3, tag="L3_1")
-    l3_child2 = RouterTreeNode(RouterLevel.L3, tag="L3_2")
-    l2_child1 = RouterTreeNode(RouterLevel.L2, tag="L2_1")
-    l2_child2 = RouterTreeNode(RouterLevel.L2, tag="L2_2")
-    l1_child1 = RouterTreeNode(RouterLevel.L1, tag="L1_1")
-    l1_child2 = RouterTreeNode(RouterLevel.L1, tag="L1_2")
-    l1_child3 = RouterTreeNode(RouterLevel.L1, tag="L1_3")
-    l1_child4 = RouterTreeNode(RouterLevel.L1, tag="L1_4")
-    l0_child1 = RouterTreeNode(RouterLevel.L0, tag="L0_1")
-    l0_child2 = RouterTreeNode(RouterLevel.L0, tag="L0_2")
-    l0_child3 = RouterTreeNode(RouterLevel.L0, tag="L0_3")
-    l0_child4 = RouterTreeNode(RouterLevel.L0, tag="L0_4")
+        assert root.add_child(node_l2_1) == True
+        assert root.add_child_to(node_l2_2, RoutingDirection.X1Y1) == True
 
-    l1_child2.add_child(l0_child1)
-    l1_child3.add_child(l0_child2)
-    l1_child3.add_child(l0_child3)
-    l1_child3.add_child(l0_child4)
-    l2_child1.add_child(l1_child1)
-    l2_child1.add_child(l1_child2)
-    l2_child2.add_child(l1_child3)
-    l2_child2.add_child(l1_child4)
+        node1 = root.create_child(tag="L2_created")  # X0Y1
+        assert node1 is not None
+        assert root.n_child == 3
 
-    l3_child1.add_child(l2_child1)
-    l3_child2.add_child(l2_child2)
+        assert root.add_child_to(node_l2_3, RoutingDirection.X1Y1, False) == False
+        assert root.add_child_to(node_l2_3, RoutingDirection.X1Y1, True) == True
+        assert root.n_child == 3
+        assert root.children[RoutingDirection.X1Y1] == node_l2_3
 
-    tree.add_child(l3_child1)
-    tree.add_child(l3_child2)
+        node2 = root.create_child(False, tag="L2_created2")  # X1Y0
+        assert node2 is not None
+        assert root.n_child == 4
+        assert root.children[RoutingDirection.X1Y0] == node2
 
-    return tree
+        node3 = root.create_child(False, tag="L2_created3")
+        assert node3 is None
 
+    def test_find_node_by_path(self):
+        root = RoutingNode(RoutingNodeLevel.L3, tag="L3")
 
-class TestRouterTreeNode:
-    def test_RouterTreeNode(self):
-        root = RouterTreeNode(RouterLevel.L5)
+        node_l2_1 = RoutingNode(RoutingNodeLevel.L2, tag="L2_1")
+        node_l2_2 = RoutingNode(RoutingNodeLevel.L2, tag="L2_2")
+        node_l2_3 = RoutingNode(RoutingNodeLevel.L2, tag="L2_3")
 
-        assert root._children == []
+        node_l1_1 = RoutingNode(RoutingNodeLevel.L1, tag="L1_1")
+        node_l1_2 = RoutingNode(RoutingNodeLevel.L1, tag="L1_2")
+        node_l1_3 = RoutingNode(RoutingNodeLevel.L1, tag="L1_3")
 
-        l4_node1 = RouterTreeNode(RouterLevel.L4)
-        assert root.add_child(l4_node1) == True
+        assert node_l2_1.add_child_to(node_l1_1, RoutingDirection.X0Y0) == True
+        assert node_l2_2.add_child_to(node_l1_2, RoutingDirection.X0Y1) == True
+        assert node_l2_3.add_child_to(node_l1_3, RoutingDirection.X1Y0) == True
 
-        with pytest.raises(ValueError):
-            root.add_child(RouterTreeNode(RouterLevel.L3))
+        assert root.add_child_to(node_l2_1, RoutingDirection.X0Y0) == True
+        assert root.add_child_to(node_l2_2, RoutingDirection.X1Y1) == True
+        assert root.add_child_to(node_l2_3, RoutingDirection.X1Y0) == True
 
-        l4_node2 = RouterTreeNode(RouterLevel.L4)
-        l4_node3 = RouterTreeNode(RouterLevel.L4)
-        l4_node4 = RouterTreeNode(RouterLevel.L4)
-        root.add_child(l4_node2)
-        root.add_child(l4_node3)
+        find0 = root[RoutingDirection.X0Y0]
+        assert find0 == node_l2_1
 
-        assert len(root.children) == 3
+        find1 = root.find_node_by_path([RoutingDirection.X0Y0, RoutingDirection.X0Y0])
+        assert find1 == node_l1_1
 
-        assert root.find_child(l4_node2) == True
-        assert root.find_child(l4_node4) == False
-
-        l3_node1 = RouterTreeNode(RouterLevel.L3)
-
-    @pytest.mark.parametrize(
-        "level",
-        [
-            RouterLevel.L5,
-            RouterLevel.L4,
-            RouterLevel.L3,
-            RouterLevel.L2,
-            RouterLevel.L1,
-        ],
-    )
-    def test_create_lx_full_tree(self, level):
-        def _check_every_child_node(node: RouterTreeNode, level: RouterLevel) -> bool:
-            assert node.level == level
-
-            if node.level == RouterLevel.L1:
-                assert len(node.children) == 0
-                return True
-            else:
-                assert root.is_full() == True
-                assert root.is_empty() == False
-
-            assert len(node.children) == node.node_capacity
-            return _check_every_child_node(node.children[-1], RouterLevel(level - 1))
-
-        root = create_lx_full_tree(level)
-
-        assert _check_every_child_node(root, level)
-
-    def test_add_child(self):
-        node = RouterTreeNode(RouterLevel.L2)
-
-        for i in range(4):
-            child = RouterTreeNode(RouterLevel.L1)
-            assert node.add_child(child) == True
-
-        child = RouterTreeNode(RouterLevel.L1)
-
-        assert node.add_child(child) == False
-
-        child1 = RouterTreeNode(RouterLevel.L0)
-
-        with pytest.raises(ValueError):
-            node.add_child(child1)
-
-        child2 = RouterTreeNode(RouterLevel.L3)
-        with pytest.raises(ValueError):
-            node.add_child(child2)
-
-    def test_find_child(self):
-        """Example tree.
-
-        L4            L4_1
-        L3     L3_1            L3_2
-        L2     L2_1            L2_2
-        L1  L1_1  L1_2         L1_3      L1_4
-        L0        L0_1    L0_2 L0_3 L0_4
-        """
-        tree = RouterTreeNode(RouterLevel.L4, tag="L4_1")
-        l3_child1 = RouterTreeNode(RouterLevel.L3, tag="L3_1")
-        l3_child2 = RouterTreeNode(RouterLevel.L3, tag="L3_2")
-        l2_child1 = RouterTreeNode(RouterLevel.L2, tag="L2_1")
-        l2_child2 = RouterTreeNode(RouterLevel.L2, tag="L2_2")
-        l1_child1 = RouterTreeNode(RouterLevel.L1, tag="L1_1")
-        l1_child2 = RouterTreeNode(RouterLevel.L1, tag="L1_2")
-        l1_child3 = RouterTreeNode(RouterLevel.L1, tag="L1_3")
-        l1_child4 = RouterTreeNode(RouterLevel.L1, tag="L1_4")
-        l0_child1 = RouterTreeNode(RouterLevel.L0, tag="L0_1")
-        l0_child2 = RouterTreeNode(RouterLevel.L0, tag="L0_2")
-        l0_child3 = RouterTreeNode(RouterLevel.L0, tag="L0_3")
-        l0_child4 = RouterTreeNode(RouterLevel.L0, tag="L0_4")
-
-        assert l1_child2.add_child(l0_child1) == True
-        assert l1_child3.add_child(l0_child2) == True
-        assert l1_child3.add_child(l0_child3) == True
-        assert l1_child3.add_child(l0_child4) == True
-        assert l2_child1.add_child(l1_child1) == True
-        assert l2_child1.add_child(l1_child2) == True
-        assert l2_child2.add_child(l1_child3) == True
-        assert l2_child2.add_child(l1_child4) == True
-
-        assert l3_child1.add_child(l2_child1) == True
-        assert l3_child2.add_child(l2_child2) == True
-
-        assert tree.add_child(l3_child1) == True
-        assert tree.add_child(l3_child2) == True
-
-        assert l1_child1.find_child(l0_child1) == False
-        assert l1_child2.find_child(l0_child1) == True
-        assert l1_child3.find_child(l0_child2) == True
-        assert l2_child1.find_child(l1_child1) == True
-        assert l2_child1.find_child(l1_child2) == True
-        assert l2_child1.find_child(l1_child3) == False
-        assert l2_child2.find_child(l1_child1) == False
-        assert l2_child2.find_child(l1_child3) == True
-        assert l2_child2.find_child(l1_child4) == True
-        assert l3_child1.find_child(l2_child1) == True
-        assert l3_child1.find_child(l2_child2) == False
-        assert tree.find_child(l3_child1) == True
-        assert tree.find_child(l3_child2) == True
-        assert tree.find_child(l2_child1) == False
-
-    example_tree = create_example_tree()
-
-    @pytest.mark.parametrize(
-        "path, method, expected_tag",
-        data_find_node_by_path,
-        ids=[
-            "L0_1_Y",
-            "L1_4_Y",
-            "L0_2_Y",
-            "L4_1_Y",
-            "L4_1_X",
-            "L0_1_X",
-            "L0_2_X",
-            "L0_3_Y",
-            "L0_3_X",
-            "L0_4_Y",
-            "L0_4_X",
-        ],
-    )
-    def test_find_node_by_path(self, path, method, expected_tag):
-        find = self.example_tree.find_node_by_path(path, method)
-
-        assert find.tag == expected_tag
-
-    def test_find_node_by_path_illegal(self):
-        # Length of path > 4
-        path = 5 * [RouterDirection.X0Y0]
-        with pytest.raises(ValueError):
-            find = self.example_tree.find_node_by_path(path)
-
-        # X0Y1 is out of range on L2-level.
-        path = [RouterDirection.X0Y0, RouterDirection.X0Y1]
-        with pytest.raises(IndexError):
-            find = self.example_tree.find_node_by_path(path)
-
-        # X0Y1 is out of range on L0-level.
-        path = [
-            RouterDirection.X0Y0,
-            RouterDirection.X0Y0,
-            RouterDirection.X0Y0,
-            RouterDirection.X0Y1,
-        ]
-        with pytest.raises(IndexError):
-            find = self.example_tree.find_node_by_path(path)
-
-    def test_find_node_by_tag(self):
-        find1 = self.example_tree.find_node_by_tag("L2_1")
-        find2 = self.example_tree.find_node_by_tag("L1_5")
-        find3 = self.example_tree.find_node_by_tag("L0_1")
-        find4 = self.example_tree.find_node_by_tag("L0_3")
-
-        assert find1 is not None
+        find2 = root.find_node_by_path([RoutingDirection.X0Y0, RoutingDirection.X0Y1])
         assert find2 is None
-        assert find3 is not None
-        assert find4 is not None
 
-    def test_get_lx_nodes(self):
-        root = RouterTreeRoot(empty_root=False)
-        nodes_l5 = root.get_lx_nodes(RouterLevel.L5)
-        nodes_l4 = root.get_lx_nodes(RouterLevel.L4)
-        nodes_l3 = root.get_lx_nodes(RouterLevel.L3)
-        nodes_l2 = root.get_lx_nodes(RouterLevel.L2)
-        nodes_l1 = root.get_lx_nodes(RouterLevel.L1)
-        nodes_l0 = root.get_lx_nodes(RouterLevel.L0)
+        find3 = root.find_node_by_path([RoutingDirection.X1Y0, RoutingDirection.X1Y0])
+        assert find3 == node_l1_3
 
-        assert len(nodes_l5) == 1
-        assert len(nodes_l4) == 4
-        assert len(nodes_l3) == 16
-        assert len(nodes_l2) == 64
-        assert len(nodes_l1) == 256
-        assert len(nodes_l0) == 0
+        find4 = root.find_node_by_path([RoutingDirection.X1Y1, RoutingDirection.X1Y0])
+        assert find4 is None
 
-        root2 = RouterTreeRoot(empty_root=True)
-        nodes_l5 = root2.get_lx_nodes(RouterLevel.L5)
-        nodes_l4 = root2.get_lx_nodes(RouterLevel.L4)
-        nodes_l3 = root2.get_lx_nodes(RouterLevel.L3)
-        nodes_l2 = root2.get_lx_nodes(RouterLevel.L2)
-        nodes_l1 = root2.get_lx_nodes(RouterLevel.L1)
-        nodes_l0 = root.get_lx_nodes(RouterLevel.L0)
+    def test_create_lx_full_tree(self):
+        root = RoutingNode(RoutingNodeLevel.L3, tag="L3")
 
-        assert len(nodes_l5) == 1
-        assert len(nodes_l4) == 0
-        assert len(nodes_l3) == 0
-        assert len(nodes_l2) == 0
-        assert len(nodes_l1) == 0
-        assert len(nodes_l0) == 0
+        node_l2_1 = RoutingNode.create_lx_full_tree(RoutingNodeLevel.L2, "L2_1")
+        node_l2_2 = RoutingNode.create_lx_full_tree(RoutingNodeLevel.L2, "L2_2")
+        node_l2_3 = RoutingNode.create_lx_full_tree(RoutingNodeLevel.L2, "L2_3")
+
+        assert root.add_child(node_l2_1) == True
+        assert root.add_child(node_l2_2) == True
+
+        assert root.add_child_to(node_l2_3, RoutingDirection.X1Y1, False) == True
+
+        assert root.n_child == 3
+        assert RoutingDirection.X1Y0 not in root.children.keys()
+
+    def test_add_L0_for_placing(self):
+        subtree = RoutingNode.create_routing_tree(RoutingNodeLevel.L3, 2)
+
+        assert subtree.n_child == 2
+
+        n = 6
+        for i in range(n):
+            assert subtree.add_L0_for_placing(i) == True
+
+        find_l0_1 = subtree.find_empty_nodes_at_level(RoutingNodeLevel.L0)
+        find_l0_2 = subtree.find_nodes_at_level(RoutingNodeLevel.L0, 0)
+
+        find_l1_1 = subtree.find_nodes_at_level(RoutingNodeLevel.L1, 0)
+        find_l1_2 = subtree.find_nodes_at_level(RoutingNodeLevel.L1, 2)
+        find_l1_3 = subtree.find_nodes_at_level(RoutingNodeLevel.L1, 4)
+        find_l1_4 = subtree.find_empty_nodes_at_level(RoutingNodeLevel.L1)
+
+        find_l2 = subtree.find_nodes_at_level(RoutingNodeLevel.L2, 0)
+        find_l3 = subtree.find_nodes_at_level(RoutingNodeLevel.L3, 2)
+
+        assert len(find_l0_1) == 0
+        assert len(find_l0_2) == n
+        assert len(find_l1_1) == 8
+        assert len(find_l1_2) == 7
+        assert len(find_l1_3) == 6
+        assert len(find_l1_4) == 6
+        assert len(find_l2) == 2
+        assert len(find_l3) == 1
+
+        assert find_l1_1[0].n_child == find_l1_1[0].node_capacity
+        assert find_l1_1[1].n_child == n - find_l1_1[0].n_child
+
+    def test_create_routing_tree(self):
+        """Test for `create_routing_tree()` & `find_empty_lx_nodes()`."""
+        # A L3-level routing tree.
+        subtree = RoutingNode.create_routing_tree(RoutingNodeLevel.L3, 2)
+
+        find_l2 = subtree.find_empty_nodes_at_level(RoutingNodeLevel.L2)
+        find_l1 = subtree.find_empty_nodes_at_level(RoutingNodeLevel.L1)
+
+        assert len(find_l2) == 1 * 2
+        assert len(find_l1) == 1 * 2 * 4
+
+        # A L4-level routing tree.
+        subtree = RoutingNode.create_routing_tree(RoutingNodeLevel.L4, 1)
+
+        find_l3 = subtree.find_empty_nodes_at_level(RoutingNodeLevel.L3)
+        find_l2 = subtree.find_empty_nodes_at_level(RoutingNodeLevel.L2)
+        find_l1 = subtree.find_empty_nodes_at_level(RoutingNodeLevel.L1)
+
+        assert len(find_l3) == 1
+        assert len(find_l2) == 1 * 4
+        assert len(find_l1) == 1 * 4 * 4
+
+    def test_add_subtree(self):
+        root = RoutingNode(RoutingNodeLevel.L4, tag="L4")
+        subtree = RoutingNode.create_routing_tree(RoutingNodeLevel.L3, 2)
+
+        n = 6
+        for i in range(n):
+            assert subtree.add_L0_for_placing(i) == True
+
+        insert = root.add_subtree(subtree)
+
+        assert insert is not None
+
+        subtree2 = RoutingNode.create_routing_tree(RoutingNodeLevel.L3, 4)
+        insert = root.add_subtree(subtree2)
+
+        assert insert is not None
+
+        subtree3 = RoutingNode.create_routing_tree(RoutingNodeLevel.L3, 1)
+        l2_node = subtree3.find_empty_nodes_at_level(RoutingNodeLevel.L2)[0]
+        l2_node.tag = "L2_new"
+
+        insert = root.add_subtree(subtree3)
+
+        assert insert is not None
+
+    def test_get_parent(self):
+        root = RoutingNode(RoutingNodeLevel.L3, tag="L3")
+
+        node_l2_1 = RoutingNode(RoutingNodeLevel.L2, tag="L2_1")
+
+        node_l1_1 = RoutingNode(RoutingNodeLevel.L1, tag="L1_1")
+        node_l1_2 = RoutingNode(RoutingNodeLevel.L1, tag="L1_2")
+        node_l1_3 = RoutingNode(RoutingNodeLevel.L1, tag="L1_3")
+
+        assert node_l2_1.add_child_to(node_l1_1, RoutingDirection.X0Y0) == True
+        assert node_l2_1.add_child_to(node_l1_2, RoutingDirection.X0Y1) == True
+
+        assert root.add_child_to(node_l2_1, RoutingDirection.X0Y0) == True
+
+        parent1 = get_parent(root, node_l1_1)
+
+        assert parent1 == node_l2_1
+
+        parent2 = get_parent(root, node_l1_3)
+        assert parent2 is None
 
 
 class ExampleNet1(pb.Network):
     """Example net.
 
-    N1 -> S1 -> N3
-    N2 -> S2 -> N3
+    INP1- > S1 -> N1 -> S2 -> N2 -> S3 -> N3
     """
 
     def __init__(self):
         super().__init__()
-        self.n1 = pb.neuron.TonicSpiking(400, 3, name="n1")
-        self.n2 = pb.neuron.TonicSpiking(400, 3, name="n2")
-        self.n3 = pb.neuron.TonicSpiking(400, 4, name="n3")
+        self.inp1 = pb.projection.InputProj(
+            pb.simulator.processes.Constant(1200, 1), name="inp1"
+        )
+        self.n1 = pb.neuron.TonicSpiking(1200, 3, name="n1")
+        self.n2 = pb.neuron.TonicSpiking(400, 4, name="n2")
+        self.n3 = pb.neuron.TonicSpiking(800, 5, name="n3")
 
         self.s1 = pb.synapses.NoDecay(
-            self.n1, self.n2, pb.synapses.All2All(), name="s1"
+            self.inp1, self.n1, pb.synapses.All2All(), name="s1"
         )
         self.s2 = pb.synapses.NoDecay(
-            self.n2, self.n3, pb.synapses.All2All(), name="s2"
+            self.n1, self.n2, pb.synapses.All2All(), name="s2"
         )
+        self.s3 = pb.synapses.NoDecay(
+            self.n2, self.n3, pb.synapses.All2All(), name="s3"
+        )
+
+
+@pytest.fixture
+def build_example_net():
+    return ExampleNet1()
 
 
 class TestRouterTreeRoot:
-    root = RouterTreeRoot(empty_root=False, tag="root")
-    net1 = ExampleNet1()
+    
+    def test_breadth_of_lx_nodes(self, build_example_root):
+        root = RoutingRoot()
+        
+        assert root.add_subtree(build_example_root) == True
+        
+        nodes_l5 = root.breadth_of_lx_nodes(RoutingNodeLevel.L5)
+        nodes_l4 = root.breadth_of_lx_nodes(RoutingNodeLevel.L4)
+        nodes_l3 = root.breadth_of_lx_nodes(RoutingNodeLevel.L3)
+        nodes_l2 = root.breadth_of_lx_nodes(RoutingNodeLevel.L2)
+        nodes_l1 = root.breadth_of_lx_nodes(RoutingNodeLevel.L1)
+        nodes_l0 = root.breadth_of_lx_nodes(RoutingNodeLevel.L0)
+        
+        assert nodes_l5 == 1
+        assert nodes_l4 == 1
+        assert nodes_l3 == 1
+        assert nodes_l2 == 3
+        assert nodes_l1 == 3
+        assert nodes_l0 == 0
+        
+    def test_insert_gsyn_on_core_proto(self):
+        root = RoutingRoot()
 
-    def test_nearest_avail_lx_node(self):
-        l1_node = self.root.nearest_avail_lx_node(RouterLevel.L1)
+        def _gen_subtree(n_core: int, cost: RoutingNodeCost):
+            level, next_level_n = cost.get_routing_level()
 
-        L0_node1 = RouterTreeNode(RouterLevel.L0, tag="L0_1")
-        L0_node2 = RouterTreeNode(RouterLevel.L0, tag="L0_2")
-        L0_node3 = RouterTreeNode(RouterLevel.L0, tag="L0_3")
-        L0_node4 = RouterTreeNode(RouterLevel.L0, tag="L0_4")
+            routing_root = RoutingNode.create_routing_tree(level, next_level_n)
 
-        if l1_node:
-            l1_node.add_child(L0_node1)
-            l1_node.add_child(L0_node2)
-            l1_node.add_child(L0_node3)
-            l1_node.add_child(L0_node4)
+            for i in range(cost.n_L0):
+                if i < n_core:
+                    if not routing_root.add_L0_for_placing(data=i):
+                        raise RuntimeError
+                else:
+                    if not routing_root.add_L0_for_placing(data="occupied"):
+                        raise RuntimeError
 
-        l1_node_again = self.root.nearest_avail_lx_node(RouterLevel.L1)
-        l2_node = self.root.nearest_avail_lx_node(RouterLevel.L2)
+                i += 1
 
-        path1 = self.root.get_L0_node_path(L0_node3)
-        path2 = self.root.get_L0_node_path(L0_node2)
+            return routing_root
 
-    def test_insert_gsyn(self):
+        n_core1, cost1 = 5, RoutingNodeCost(8, 2, 1, 1, 1)
+        n_core2, cost2 = 3, RoutingNodeCost(4, 1, 1, 1, 1)
+        n_core3, cost3 = 20, RoutingNodeCost(32, 8, 2, 1, 1)
+
+        subtree1 = _gen_subtree(n_core1, cost1)
+        assert root.add_subtree(subtree1) is not None
+
+        subtree2 = _gen_subtree(n_core2, cost2)
+        assert root.add_subtree(subtree2) is not None
+
+        subtree3 = _gen_subtree(n_core3, cost3)
+        assert root.add_subtree(subtree3) is not None
+
+    def test_insert_gsyn_on_core(self, build_example_net):
+        net = build_example_net
+
         mapper = pb.implement.Mapper()
-        mapper.build_graph(self.net1)
+        mapper.build_graph(net)
 
         # Group every synapses
-        mapper._group_syns()
+        mapper._group_synapses()
         mapper._build_gsyn_on_core()
 
-        target_gsyns_on_core = mapper._pred_gsyn_on_core["n2"]
+        # Insert the first `gsyn_on_core`.
+        gsyns_on_core1 = mapper._succ_gsyn_on_core["inp1"]["n1"]
+        mapper.routing_tree.insert_gsyn_on_core(*gsyns_on_core1)
 
-        for gsyn_on_core in target_gsyns_on_core:
-            self.root.insert_gsyn_on_core(gsyn_on_core)
+        # Insert when there are leaves in router tree already.
+        gsyns_on_core2 = mapper._succ_gsyn_on_core["n1"]["n2"]
+        mapper.routing_tree.insert_gsyn_on_core(*gsyns_on_core2)
