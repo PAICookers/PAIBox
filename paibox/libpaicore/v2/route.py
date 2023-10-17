@@ -75,6 +75,11 @@ class RoutingNodeCost:
     n_L4: int
 
     def get_routing_level(self) -> Tuple[RoutingNodeLevel, int]:
+        """Return the routing level.
+
+        If the #N of Lx-level > 1, then we need A node with level Lx+1.
+            And we need the #N of routing sub-level nodes.
+        """
         if self.n_L4 > 1:
             return RoutingNodeLevel.L5, self.n_L4
         elif self.n_L3 > 1:
@@ -93,6 +98,9 @@ def get_node_consumption(n_core: int) -> RoutingNodeCost:
     def min_n_L0_nodes(n_core: int) -> int:
         """Find the nearest #N(=2^X) to accommodate \
             `n_core` L0-level nodes.
+        
+        If n_core = 5, return 8.
+        If n_core = 20, return 32.
         """
         n_L0_nodes = 1
         while n_core > n_L0_nodes:
@@ -102,10 +110,9 @@ def get_node_consumption(n_core: int) -> RoutingNodeCost:
 
     n_sub_node = HwConfig.N_SUB_ROUTER_NODE
 
-    n_L0 = n_core
-    n_L0_occupied = min_n_L0_nodes(n_core)
+    n_L0 = min_n_L0_nodes(n_core)
 
-    n_L1 = 1 if n_L0_occupied < n_sub_node else (n_L0_occupied // n_sub_node)
+    n_L1 = 1 if n_L0 < n_sub_node else (n_L0 // n_sub_node)
     n_L2 = 1 if n_L1 < n_sub_node else (n_L1 // n_sub_node)
     n_L3 = 1 if n_L2 < n_sub_node else (n_L2 // n_sub_node)
     n_L4 = 1 if n_L3 < n_sub_node else (n_L3 // n_sub_node)

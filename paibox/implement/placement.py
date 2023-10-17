@@ -1,15 +1,14 @@
-from typing import Any, List, Optional, Sequence, final
+from collections import defaultdict
+from typing import Any, Dict, List, Optional, Sequence, final
 
 from paibox.libpaicore.v2.route import (
     RoutingDirectionIdx as DirectionIdx,
     RoutingDirection as Direction,
     RoutingNodeLevel as Level,
-    RoutingNodeStatus as NodeStatus,
     get_node_consumption,
-    RoutingNodeCost as NodeCost,
 )
 
-from .grouping import GroupedSyn, GroupedSynOnCore
+from .grouping import GroupedSynOnCore
 
 
 class RoutingNode:
@@ -21,50 +20,63 @@ class RoutingNode:
         tag: Optional[str] = None,
     ) -> None:
         """Instance a tree node with `level`. \
-            After created, the length of children is `node_capacity`.
+            For a node with level Lx > 0, after created, \
+                the length of children is `node_capacity`.
+            
+            For a node with level L0, it is a leaf node.
         
         Args:
             - level: the node level.
             - data: the data hanging on the node. Optional.
-            - tag: a tag for user to identify. Optional.
+            - tag: a tag for user to identify.
         """
         self._level = level
-        self._children: List["RoutingNode"] = []
+        self._children: Dict[Direction, RoutingNode] = defaultdict()
         self.item = data
         self.tag = tag
 
-        self._status = NodeStatus.ALL_EMPTY
+    def create_child(self, force: bool = False, **kwargs) -> Optional["RoutingNode"]:
+        """Create a child. If full, return None."""
+        child = RoutingNode(Level(self.level - 1), **kwargs)
 
-    def add_item(self, data: Any) -> None:
-        """Add data to its item. Only used for L0-level node."""
-        self.item = data
-        self._status = NodeStatus.OCCUPIED
+        if not self.add_child(child, force=force):
+            return None
 
-    def add_child(self, child: "RoutingNode") -> bool:
+        return child
+
+    def add_child(
+        self, child: "RoutingNode", method: str = "nearest", force: bool = False
+    ) -> bool:
         if self.level == Level.L0:
             # L0-level node cannot add child.
             # TODO
             raise ValueError
 
-        if self.level - child.level != 1:
-            raise ValueError
-
         if self.is_full():
             return False
 
-        self._children.append(child)
+        # Traverse from X0Y0 to X1Y1.
+        for d in DirectionIdx:
+            if d not in self.children:
+                return self.add_child_to(child, d, force)
+
+        return False
+
+    def add_child_to(
+        self, child: "RoutingNode", direction: Direction, force: bool = False
+    ) -> bool:
+        if self.level - child.level != 1:
+            raise ValueError
+
+        if not force and direction in self.children:
+            return False
+
+        self._children[direction] = child
 
         return True
 
-    def get_avail_child(self, method: str = "nearest") -> Optional["RoutingNode"]:
-        for child in self.children:
-            if child.status != NodeStatus.OCCUPIED:
-                return child
-
-        return None
-
-    def find_node_by_path(self, path: Sequence[Direction]) -> "RoutingNode":
-        """Find node by the path of `Direction`.
+    def find_node_by_path(self, path: Sequence[Direction]) -> Optional["RoutingNode"]:
+        """Find the node by given a path of `Direction`.
 
         Description:
             Find by starting at this level based on the path provided. \
@@ -79,101 +91,24 @@ class RoutingNode:
             # TODO
             raise ValueError
 
-        idx = path[0].to_index()
-        if idx > len(self.children) - 1:
-            raise IndexError
+        if path[0] not in self.children:
+            return None
 
-        sub_node = self.children[idx]
+        sub_node = self[path[0]]
 
         if len(path) > 1:
             return sub_node.find_node_by_path(path[1:])
         else:
             return sub_node
 
-    def find_node_by_tag(self, tag: str) -> Optional["RoutingNode"]:
-        """Searches for nodes by tag using DFS.
+    def is_full(self) -> bool:
+        return self.n_child == self.node_capacity
 
-        Args:
-            - tag: the tag string.
+    def is_empty(self) -> bool:
+        return self.n_child == 0
 
-        Returns:
-            - the node if found. Otherwise return `None`.
-        """
-
-        def dfs_preorder(root: RoutingNode, tag: str) -> Optional[RoutingNode]:
-            if root.tag == tag:
-                return root
-            elif root.level == Level.L0:
-                return None
-            else:
-                for child in root.children:
-                    node = dfs_preorder(child, tag)
-                    if node:
-                        return node
-
-        return dfs_preorder(self, tag)
-
-    def get_node_path(self, node: "RoutingNode") -> List[Direction]:
-        """Return a direction path from L4 to the level of `node`.
-
-        Args:
-            - node: the node with level <= `self.level`.
-
-        Return:
-            - A list of `Direction` from L4 to L0.
-        """
-        if node.level > self.level:
-            raise ValueError
-
-        if node.level == self.level:
-            if node != self:
-                raise ValueError
-
-            return []
-
-        path = []
-
-        def dfs_preorder(root: RoutingNode) -> bool:
-            i = 0
-            for child in root.children:
-                path.append(DirectionIdx[i])
-                if child is node:
-                    return True
-                else:
-                    if dfs_preorder(child):
-                        return True
-                    else:
-                        path.pop(-1)
-
-                i += 1
-
-            return False
-
-        if dfs_preorder(self):
-            return path
-        else:
-            raise ValueError
-
-    def get_lx_nodes(self, lx: Level, method: str = "nearest") -> List["RoutingNode"]:
-        if lx > self.level:
-            raise ValueError
-
-        if lx == self.level:
-            return [self]
-
-        nodes = []
-
-        def dfs_preorder(root: RoutingNode, lx: Level, method: str = "nearest") -> None:
-            if root.level == lx + 1:
-                nodes.extend(root.children)
-                return
-
-            for child in root.children:
-                dfs_preorder(child, lx, method)
-
-        dfs_preorder(self, lx, method)
-
-        return nodes
+    def n_child_avail(self) -> int:
+        return self.node_capacity - self.n_child
 
     def _find_lx_node_with_n_child_avail(
         self, lx: Level, n_child_avail: int, method: str = "nearest"
@@ -185,149 +120,149 @@ class RoutingNode:
             raise ValueError
 
         if lx == self.level:
-            if self.n_child_not_occpuied() >= n_child_avail:
+            if self.n_child_avail() >= n_child_avail:
                 return self
             else:
                 return None
 
-        if lx < self.level:
-            for child in self.children:
-                node = child._find_lx_node_with_n_child_avail(lx, n_child_avail, method)
-                if node is not None:
-                    return node
+        if not self.is_empty():
+            for d in DirectionIdx:
+                if d in self.children:
+                    node = self[d]._find_lx_node_with_n_child_avail(
+                        lx, n_child_avail, method
+                    )
+                    if node is not None:
+                        return node
 
+        child = self.create_child()
+        if not child:
             return None
 
-    def _find_lx_node_all_empty(
-        self, lx: Level, method: str = "nearest"
-    ) -> Optional["RoutingNode"]:
-        if lx > self.level:
-            raise ValueError
+        return child._find_lx_node_with_n_child_avail(lx, n_child_avail, method)
 
-        if lx == self.level:
-            if self.status == NodeStatus.ALL_EMPTY:
-                return self
-            else:
-                return None
-
-        if lx < self.level:
-            for child in self.children:
-                node = child._find_lx_node_all_empty(lx, method)
-                if node is not None:
-                    return node
-
-            return None
-
-    def find_lx_node_for_routing(
+    def add_subtree(
         self,
-        lx: Level,
-        n_child_avail: int = 1,
+        subtree: "RoutingNode",
         method: str = "nearest",
-    ) -> List["RoutingNode"]:
-        """Find lx-level node of which the #N of child nodes \
-            are at least `n_child_avail` available.
-
-        Args:
-            - lx: the level of node to be found(lx > L0).
-            - n_child_avail: find the node with at least `N` free child left.
-            - method: nearest or by the path. The paremeter is reserved.
-        """
-
-        def _get_child_nodes(
-            routing_node: RoutingNode,
-        ) -> List["RoutingNode"]:
-            if n_child_avail == 4:
-                return routing_node.children
-            elif n_child_avail == 2:
-                not_empty = routing_node.n_child_not_empty()
-                if not_empty > 0:
-                    return routing_node.children[2:]
-                else:
-                    return routing_node.children[:2]
-            elif n_child_avail == 1:
-                avail_child = routing_node.get_avail_child(method)
-                if avail_child:
-                    return [avail_child]
-            else:
-                raise ValueError
-
-            return []
-
-        if lx > self.level:
+    ) -> bool:
+        """Add the subtree's children to itself. \
+            If successful, return the added parent node."""
+        if subtree.level > self.level:
             raise ValueError
 
-        if lx == self.level:
-            node = self._find_lx_node_with_n_child_avail(lx, n_child_avail, method)
-            if node is not None:
-                return _get_child_nodes(node)
-        else:
-            for child in self.children:
-                # Find the Lx-level node with `n_child_avail` Lx-1-level children.
-                lx_node = child._find_lx_node_with_n_child_avail(
-                    lx, n_child_avail, method
-                )
-                if lx_node is not None:
-                    return _get_child_nodes(lx_node)
-
-        return []
-
-    def add_item_to_L0_node(self, data: Any, method: str = "nearest") -> bool:
-        """Add item to the nearest available L0-level node."""
-        if self.level == Level.L0:
-            self.add_item(data)
-            return True
-
-        L1_node = self._find_lx_node_with_n_child_avail(Level.L1, 1)
-
-        if L1_node is None:
-            # All L1-level nodes are full.
-            return False
-
-        avail_L0_node = L1_node.get_avail_child()
-        if avail_L0_node is None:
-            return False
-
-        avail_L0_node.add_item(data)
-        return True
-
-    def n_child_occupied(self) -> int:
-        """Get #N of occpuied children."""
-        return sum(child.status == NodeStatus.OCCUPIED for child in self.children)
-
-    def n_child_not_occpuied(self) -> int:
-        return self.node_capacity - self.n_child_occupied()
-
-    def n_child_empty(self) -> int:
-        """Get #N of empty children."""
-        return sum(child.status == NodeStatus.ALL_EMPTY for child in self.children)
-
-    def n_child_not_empty(self) -> int:
-        return self.node_capacity - self.n_child_empty()
-
-    def is_full(self) -> bool:
-        return len(self.children) == self.node_capacity
-
-    def is_empty(self) -> bool:
-        return len(self.children) == 0
-
-    def is_children_all_status(self, status: NodeStatus) -> bool:
-        return all(child.status == status for child in self.children)
-
-    def is_sub_node_all_status(self, status: NodeStatus) -> bool:
-        if self.level == Level.L1:
-            return self.is_children_all_status(status)
-
-        for child in self.children:
-            if not child.is_sub_node_all_status(status):
+        if subtree.level == self.level:
+            # TODO Check if `sub_n_child` is legal.
+            # Only be 1, 2, or 4?
+            sub_n_child = len(subtree.children)
+            if self.n_child_avail() < sub_n_child:
                 return False
 
-        return True
+            if sub_n_child == 1:
+                self.add_child(subtree.children[Direction.X0Y0])
 
-    def __getitem__(self, index: int) -> "RoutingNode":
-        return self.children[index]
+            if sub_n_child == 2:
+                if self.n_child == 0:
+                    self.add_child_to(subtree.children[Direction.X0Y0], Direction.X0Y0)
+                    self.add_child_to(subtree.children[Direction.X0Y1], Direction.X0Y1)
+                else:
+                    self.add_child_to(subtree.children[Direction.X0Y0], Direction.X1Y0)
+                    self.add_child_to(subtree.children[Direction.X0Y1], Direction.X1Y1)
 
-    def __contains__(self, item: "RoutingNode") -> bool:
-        return item in self.children
+            else:
+                self._children = subtree.children
+
+            return True
+
+        if not self.is_empty():
+            for d in DirectionIdx:
+                if d in self.children:
+                    flag = self[d].add_subtree(subtree, method)
+                    if flag:
+                        return flag
+
+        child = self.create_child()
+        if not child:
+            return False
+
+        return child.add_subtree(subtree, method)
+
+    @classmethod
+    def create_lx_full_tree(
+        cls, lx: Level, root_tag: Optional[str] = None
+    ) -> "RoutingNode":
+        root = RoutingNode(lx, tag=root_tag)
+
+        if lx > Level.L1:
+            for i in range(root.node_capacity):
+                child = cls.create_lx_full_tree(Level(lx - 1), f"L{lx-1}_{i}")
+                if not root.add_child(child):
+                    raise ValueError
+
+        return root
+
+    @classmethod
+    def create_routing_tree(cls, lx: Level, n_branch: int) -> "RoutingNode":
+        """Create a routing tree with `n_branch` children. \
+        
+        NOTE: When lx == L1, do not create the L0-level children. \
+            WHen lx > L1, create the lx-1 level children.
+        """
+        if lx == Level.L0 or n_branch < 0:
+            raise ValueError
+
+        root = RoutingNode(lx)
+
+        # Create `n_branch` children when lx > L1.
+        if lx > Level.L1:
+            for _ in range(n_branch):
+                child = cls.create_lx_full_tree(Level(lx - 1))
+                if not root.add_child(child):
+                    raise ValueError
+
+        return root
+
+    def add_L0_for_placing(self, data: Any, **kwargs) -> bool:
+        node = RoutingNode(Level.L0, data, **kwargs)
+
+        L1_node = self._find_lx_node_with_n_child_avail(Level.L1, 1)
+        if not L1_node:
+            return False
+
+        return L1_node.add_child(node)
+
+    def find_nodes_at_level(
+        self, lx: Level, n_child_avail_low: int = 0
+    ) -> List["RoutingNode"]:
+        """Find all nodes at a `lx` level with \
+            at least `n_child_avail_low` child nodes.
+        """
+        if lx > self.level:
+            raise ValueError
+
+        nodes = []
+
+        def dfs_preorder(root: RoutingNode) -> None:
+            if root.level == lx:
+                if root.n_child_avail() >= n_child_avail_low:
+                    nodes.append(root)
+
+                return
+
+            for d in DirectionIdx:
+                if d in root.children:
+                    dfs_preorder(root[d])
+
+        dfs_preorder(self)
+        return nodes
+
+    def find_empty_nodes_at_level(self, lx: Level) -> List["RoutingNode"]:
+        if lx == Level.L0:
+            return []
+
+        return self.find_nodes_at_level(lx, self.node_capacity)
+
+    def __getitem__(self, key: Direction) -> "RoutingNode":
+        return self.children[key]
 
     @property
     def level(self) -> Level:
@@ -338,100 +273,70 @@ class RoutingNode:
         return 4 if self.level > Level.L0 else 0
 
     @property
-    def children(self) -> List["RoutingNode"]:
+    def children(self):
         return self._children
 
     @property
-    def status(self) -> NodeStatus:
-        return self._status
-
-    @status.setter
-    def status(self, new_status: NodeStatus) -> None:
-        self._status = new_status
-
-    def node_status_update(self, method: str = "nearest") -> None:
-        """Update the status of the node and its children \
-            of all levels(from `self.level` to L1).
-        """
-
-        def dfs_preorder(root: RoutingNode, method: str) -> None:
-            if root.level > Level.L1:
-                for child in root.children:
-                    dfs_preorder(child, method)
-
-            root._status_update()
-
-        if self.level > Level.L0:
-            dfs_preorder(self, method)
-
-    def _status_update(self) -> None:
-        """Update the status of the node."""
-        if self.is_sub_node_all_status(NodeStatus.OCCUPIED):
-            self._status = NodeStatus.OCCUPIED
-        elif self.is_sub_node_all_status(NodeStatus.ALL_EMPTY):
-            self._status = NodeStatus.ALL_EMPTY
-        else:
-            self._status = NodeStatus.AVAILABLE
+    def n_child(self) -> int:
+        return len(self._children)
 
 
 @final
 class RoutingRoot(RoutingNode):
-    def __init__(self, empty_root: bool = False, **kwargs) -> None:
-        """Initialize a routing tree root.
-
-        Args:
-            empty_root: whether to create a empty root. Default is false.
-        """
+    def __init__(self, **kwargs) -> None:
+        """Initialize a routing quadtree root(L5-level)."""
         super().__init__(Level.L5, **kwargs)
 
-        if not empty_root:
-            for i in range(self.node_capacity):
-                L4_child = create_lx_full_tree(Level.L4, f"L4_{i}")
-                self.add_child(L4_child)
+    def insert_gsyn_on_core(self, *gsyns_on_core: GroupedSynOnCore) -> bool:
+        """Insert a list of `gsyn_on_core` in the routing tree.
 
-    def insert_gsyn_on_core(self, *gsyns_on_core: GroupedSynOnCore) -> None:
-        """Insert the grouped synapse on core into the tree.
-
-        Steps:
-            - 1. Get the routing node consumption.
-            - 2. Based on the routing level, find the available node of the routing level.
-
+        TODO add error descriptions.
         """
-        n_core_total = len(gsyns_on_core)
+        n_core = len(gsyns_on_core)
 
-        cost = get_node_consumption(n_core_total)
+        cost = get_node_consumption(n_core)
         level, next_n = cost.get_routing_level()
 
-        # Find L2-level node with at least 2 L1 children available.
-        routing_node = self.find_lx_node_for_routing(Level(level), next_n)
-        if routing_node is None:
-            raise ValueError
+        routing_root = RoutingNode.create_routing_tree(level, next_n)
 
-        for gsyn_on_core in gsyns_on_core:
-            leaf = RoutingNode(
-                Level.L0, gsyn_on_core, tag=f"leaf of {gsyn_on_core.name}"
-            )
+        for i in range(cost.n_L0):
+            if i < n_core:
+                if not routing_root.add_L0_for_placing(
+                    data=gsyns_on_core[i], tag=f"leaf of {gsyns_on_core[i].name}"
+                ):
+                    raise RuntimeError(f"Cannot place {gsyns_on_core[i].name} on core")
+            else:
+                # Other L0 nodes are unused but occupied.
+                if not routing_root.add_L0_for_placing(
+                    data=None, tag=f"Occupied by {gsyns_on_core[0].obj.name}"
+                ):
+                    raise RuntimeError(f"Cannot place!")
+
+        return self.add_subtree(routing_root)
+
+    def breadth_of_lx_nodes(self, lx: Level) -> int:
+        """Get the number of nodes in the routing tree at the given level."""
+        nodes = self.find_nodes_at_level(lx, 0)
+
+        return len(nodes)
 
 
-def create_lx_nbranch(lx: Level, n: int, root_tag: Optional[str] = None) -> RoutingNode:
-    """Create a Lx-level node, and its child nodes all have `n` branch(es)."""
-    root = RoutingNode(lx, tag=root_tag)
-
-    if lx > Level.L0:
-        for i in range(n):
-            child = create_lx_nbranch(Level(lx - 1), n)
-            root.add_child(child)
-
-    return root
-
-
-def create_lx_full_tree(lx: Level, root_tag: Optional[str] = None) -> RoutingNode:
-    """Create a full Lx-level routing tree.
-
-    If creating a L4 routing tree, it will return:
-    L4 with 4 children
-        -> L3 with 4 children
-            -> L2 with 4 children
-                -> L1 with 4 children
+def get_parent(tree: RoutingNode, node: RoutingNode) -> Optional[RoutingNode]:
+    """Get the parent node of the given node. \
+        If not found, return None.
     """
-    return create_lx_nbranch(lx, 4, root_tag)
+    assert tree != node
+
+    def dfs_preorder(tree: RoutingNode, node: RoutingNode) -> Optional[RoutingNode]:
+        for d in DirectionIdx:
+            if d in tree.children:
+                if tree[d] is node:
+                    return tree
+                else:
+                    parent = dfs_preorder(tree[d], node)
+                    if parent:
+                        return parent
+
+        return None
+
+    return dfs_preorder(tree, node)
