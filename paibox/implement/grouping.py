@@ -1,9 +1,9 @@
-from typing import ClassVar, List, Optional
+from typing import ClassVar, List, Optional, Tuple
 
 import numpy as np
 
 from paibox.base import NeuDyn, PAIBoxObject
-from paibox.libpaicore.v2 import LCN_EX, Coord, RouterCoordinate
+from paibox.libpaicore.v2 import LCN_EX, Coord, RoutingNodeCoord
 from paibox.synapses import SynSys
 
 
@@ -38,7 +38,7 @@ class GroupedSyn(GroupedObj):
 
     def __init__(
         self,
-        parent: List[SynSys],
+        *parent: SynSys,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -48,13 +48,27 @@ class GroupedSyn(GroupedObj):
         super().__init__(name)
         self._parent = parent
 
+        self._n_axons_each = self._get_n_axons_each()
         self._lcn_ex = axon2lcn_ex(self.n_axons)
-        self._get_limit_info()
+        self._resource_consumption()
 
-        self._need_broadcast: bool = False
+        self._need_broadcast = False
+        self.is_assigned = False
+
+    def _get_n_axons_each(self) -> List[int]:
+        """Get the axons of each unique parents."""
+        seen = set()
+        n_axons_unique = []
+
+        for src_node in self.source:
+            if src_node not in seen:
+                seen.add(src_node)
+                n_axons_unique.append(src_node.num_out)
+
+        return n_axons_unique
 
     @classmethod
-    def build(cls, synapses: List[SynSys], name: Optional[str] = None):
+    def build(cls, *synapses: SynSys, name: Optional[str] = None):
         """Build the `GroupedSyn` for a node.
 
         Use LCN extension optimization in grouping a synapse.
@@ -69,15 +83,15 @@ class GroupedSyn(GroupedObj):
             Now consider S1 & S2 are 1-bit weights.
             TODO If weights precision of S1 & S2 differ? Place on different cores.
         """
-        if not cls.all_dtype_equal(synapses):
+        if not cls.all_dtype_equal(*synapses):
             raise NotImplementedError
 
         assert synapses[0].connectivity.dtype == np.bool_
 
-        return cls(synapses, name)
+        return cls(*synapses, name=name)
 
     @staticmethod
-    def all_dtype_equal(syns: List[SynSys]) -> bool:
+    def all_dtype_equal(*syns: SynSys) -> bool:
         _dtype = syns[0].connectivity.dtype
 
         for syn in syns:
@@ -92,10 +106,10 @@ class GroupedSyn(GroupedObj):
             raise ValueError
 
         self.lcn_ex = lcn_ex
-        self._get_limit_info()
+        self._resource_consumption()
 
-    def _get_limit_info(self) -> None:
-        """Limit the grouped synapses given a new LCN extension.
+    def _resource_consumption(self) -> None:
+        """Limit the grouped synapses by giving a new LCN extension.
 
         Re limit `lcn_ex`, `_n_core`, & `n_neuron_each`.
         """
@@ -123,28 +137,36 @@ class GroupedSyn(GroupedObj):
         return syn_on_core
 
     @property
-    def obj(self) -> List[SynSys]:
+    def obj(self) -> Tuple[SynSys, ...]:
         return self._parent
 
     @property
     def source(self):
-        return [parent.source for parent in self.obj]
+        """Ordered unique source nodes.
+
+        TODO Maybe consider to return `OrderedSet`.
+        """
+        # return OrderedSet([parent.source for parent in self.obj])
+        return list(set([parent.source for parent in self.obj]))
 
     @property
     def dest(self) -> List[NeuDyn]:
-        return [parent.dest for parent in self.obj]
+        """Ordered unique destination nodes."""
+        # return OrderedSet(set([parent.dest for parent in self.obj]))
+        return list(set([parent.dest for parent in self.obj]))
 
     @property
     def n_axons_each(self) -> List[int]:
-        return [parent.num_axon for parent in self.obj]
+        return self._n_axons_each
 
     @property
     def n_axons(self) -> int:
-        return sum(self.n_axons_each)
+        return sum(self._n_axons_each)
 
     @property
     def n_neuron(self) -> int:
-        return self.obj[0].num_out
+        """Accumulate the `num_in` for all unique destination nodes."""
+        return sum([node.num_in for node in self.dest])
 
     @property
     def n_core(self) -> int:
@@ -257,20 +279,19 @@ class GroupedSynOnCore(GroupedObj):
         self._parent = parent
         self._pos = position
         self._n_neuron = n_neuron
-        self._binary_conn = self._get_binary_conn(weights)
-        self._router_coord = RouterCoordinate()
+        # self._binary_conn = self._get_binary_conn(weights)
+        self._need_broadcast = need_broadcast
 
-        self.need_broadcast = need_broadcast
+        self._router_coord = RoutingNodeCoord()
 
-    def _get_binary_conn(self, weights) -> np.ndarray:
-        """Reshape the divided weight into the binary connection.
-        TODO ONLY for `np.bool_` now.
-        """
+    def _get_binary_conn(self, weights: np.ndarray) -> np.ndarray:
+        """Reshape the divided weight into the binary connection."""
         assert self.n_neuron * self.lcn_ex * 1 <= 512
 
         bc = np.zeros((1152, 512), dtype=np.bool_)
 
         if self.lcn_ex > LCN_EX.LCN_1X:
+            # TODO
             raise NotImplementedError
             # for i in range(self.n_neuron):
             #     bc[:, 2 * i] = weights[:1152, i]
@@ -328,3 +349,7 @@ class GroupedSynOnCore(GroupedObj):
     @property
     def coordinate(self) -> Coord:
         return self._router_coord.coordinate
+
+    @property
+    def need_broadcast(self) -> bool:
+        return self._need_broadcast
