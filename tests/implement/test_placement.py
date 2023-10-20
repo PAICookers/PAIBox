@@ -11,6 +11,7 @@ from paibox.libpaicore.v2.route import (
     RoutingNodeCost,
 )
 
+
 @pytest.fixture
 def build_example_root():
     root = RoutingNode(RoutingNodeLevel.L3, tag="L3")
@@ -30,8 +31,9 @@ def build_example_root():
     root.add_child_to(node_l2_1, RoutingDirection.X0Y0)
     root.add_child_to(node_l2_2, RoutingDirection.X1Y1)
     root.add_child_to(node_l2_3, RoutingDirection.X1Y0)
-    
+
     return root
+
 
 class TestRouterTree:
     def test_basics(self):
@@ -174,12 +176,12 @@ class TestRouterTree:
 
         insert = root.add_subtree(subtree)
 
-        assert insert is not None
+        assert insert == True
 
         subtree2 = RoutingNode.create_routing_tree(RoutingNodeLevel.L3, 4)
         insert = root.add_subtree(subtree2)
 
-        assert insert is not None
+        assert insert == True
 
         subtree3 = RoutingNode.create_routing_tree(RoutingNodeLevel.L3, 1)
         l2_node = subtree3.find_empty_nodes_at_level(RoutingNodeLevel.L2)[0]
@@ -187,7 +189,7 @@ class TestRouterTree:
 
         insert = root.add_subtree(subtree3)
 
-        assert insert is not None
+        assert insert == True
 
     def test_get_parent(self):
         root = RoutingNode(RoutingNodeLevel.L3, tag="L3")
@@ -243,30 +245,29 @@ def build_example_net():
 
 
 class TestRouterTreeRoot:
-    
     def test_breadth_of_lx_nodes(self, build_example_root):
         root = RoutingRoot()
-        
+
         assert root.add_subtree(build_example_root) == True
-        
+
         nodes_l5 = root.breadth_of_lx_nodes(RoutingNodeLevel.L5)
         nodes_l4 = root.breadth_of_lx_nodes(RoutingNodeLevel.L4)
         nodes_l3 = root.breadth_of_lx_nodes(RoutingNodeLevel.L3)
         nodes_l2 = root.breadth_of_lx_nodes(RoutingNodeLevel.L2)
         nodes_l1 = root.breadth_of_lx_nodes(RoutingNodeLevel.L1)
         nodes_l0 = root.breadth_of_lx_nodes(RoutingNodeLevel.L0)
-        
+
         assert nodes_l5 == 1
         assert nodes_l4 == 1
         assert nodes_l3 == 1
         assert nodes_l2 == 3
         assert nodes_l1 == 3
         assert nodes_l0 == 0
-        
+
     def test_insert_gsyn_on_core_proto(self):
         root = RoutingRoot()
 
-        def _gen_subtree(n_core: int, cost: RoutingNodeCost):
+        def _gen_routing_tree(n_core: int, cost: RoutingNodeCost):
             level, next_level_n = cost.get_routing_level()
 
             routing_root = RoutingNode.create_routing_tree(level, next_level_n)
@@ -279,22 +280,20 @@ class TestRouterTreeRoot:
                     if not routing_root.add_L0_for_placing(data="occupied"):
                         raise RuntimeError
 
-                i += 1
-
             return routing_root
 
         n_core1, cost1 = 5, RoutingNodeCost(8, 2, 1, 1, 1)
         n_core2, cost2 = 3, RoutingNodeCost(4, 1, 1, 1, 1)
         n_core3, cost3 = 20, RoutingNodeCost(32, 8, 2, 1, 1)
 
-        subtree1 = _gen_subtree(n_core1, cost1)
-        assert root.add_subtree(subtree1) is not None
+        subtree1 = _gen_routing_tree(n_core1, cost1)
+        assert root.add_subtree(subtree1) == True
 
-        subtree2 = _gen_subtree(n_core2, cost2)
-        assert root.add_subtree(subtree2) is not None
+        subtree2 = _gen_routing_tree(n_core2, cost2)
+        assert root.add_subtree(subtree2) == True
 
-        subtree3 = _gen_subtree(n_core3, cost3)
-        assert root.add_subtree(subtree3) is not None
+        subtree3 = _gen_routing_tree(n_core3, cost3)
+        assert root.add_subtree(subtree3) == True
 
     def test_insert_gsyn_on_core(self, build_example_net):
         net = build_example_net
@@ -306,10 +305,7 @@ class TestRouterTreeRoot:
         mapper._group_synapses()
         mapper._build_gsyn_on_core()
 
-        # Insert the first `gsyn_on_core`.
-        gsyns_on_core1 = mapper._succ_gsyn_on_core["inp1"]["n1"]
-        mapper.routing_tree.insert_gsyn_on_core(*gsyns_on_core1)
-
-        # Insert when there are leaves in router tree already.
-        gsyns_on_core2 = mapper._succ_gsyn_on_core["n1"]["n2"]
-        mapper.routing_tree.insert_gsyn_on_core(*gsyns_on_core2)
+        count = 0
+        for gsyns_on_core in mapper._gsyns_on_core:
+            mapper.routing_tree.insert_gsyn_on_core(*gsyns_on_core)
+            count += 1
