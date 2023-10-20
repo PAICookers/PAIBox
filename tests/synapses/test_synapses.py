@@ -21,9 +21,9 @@ import paibox as pb
 def test_NoDecay_One2One_scalar(n1: pb.neuron.TonicSpiking, n2: pb.neuron.TonicSpiking):
     s1 = pb.synapses.NoDecay(n1, n2, pb.synapses.One2One())
 
-    assert s1.weights == 1
+    assert np.array_equal(s1.weights, np.eye (n1.num_out, n2.num_in, dtype=np.int8))
     assert (s1.num_in, s1.num_out) == (n1.num_out, n2.num_in)
-    assert np.array_equal(s1.connectivity, np.eye(n1.num_out, n2.num_in, dtype=np.int8))
+    # assert np.array_equal(s1.connectivity, np.eye(n1.num_out, n2.num_in, dtype=np.int8))
 
 
 @pytest.mark.parametrize(
@@ -55,10 +55,9 @@ def test_NoDecay_One2One_matrix():
         weights=weight,
     )
 
-    assert np.array_equal(s2.weights, weight)
     assert (s2.num_in, s2.num_out) == (3, 3)
     assert np.array_equal(
-        s2.connectivity, np.array([[2, 0, 0], [0, 3, 0], [0, 0, 4]], dtype=np.int8)
+        s2.weights, np.array([[2, 0, 0], [0, 3, 0], [0, 0, 4]], dtype=np.int8)
     )
 
 
@@ -87,9 +86,8 @@ def test_NoDecay_One2One_matrix():
 def test_NoDecay_All2All(n1: pb.neuron.TonicSpiking, n2: pb.neuron.TonicSpiking):
     s1 = pb.synapses.NoDecay(n1, n2, pb.synapses.All2All())
 
-    assert s1.weights == 1
     assert (s1.num_in, s1.num_out) == (n1.num_out, n2.num_in)
-    assert np.array_equal(s1.connectivity, np.ones((n1.num_out, n2.num_in)))
+    assert np.array_equal(s1.weights, np.ones((n1.num_out, n2.num_in)))
 
 
 def test_NoDecay_All2All_with_weights():
@@ -100,15 +98,14 @@ def test_NoDecay_All2All_with_weights():
     weight = 2
     s1 = pb.synapses.NoDecay(n1, n2, pb.synapses.All2All(), weights=weight)
 
-    assert s1.weights == weight
-    assert np.array_equal(s1.connectivity, weight * np.ones((n1.num_out, n2.num_in)))
+    assert np.array_equal(s1.weights, weight * np.ones((n1.num_out, n2.num_in)))
 
     """2. Weights matrix."""
     weight = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
     s2 = pb.synapses.NoDecay(n1, n2, pb.synapses.All2All(), weights=weight)
 
     assert np.array_equal(s2.weights, weight)
-    assert np.array_equal(s2.connectivity, weight)
+    # assert np.array_equal(s2.connectivity, weight)
 
     with pytest.raises(ValueError):
         # Wrong shape

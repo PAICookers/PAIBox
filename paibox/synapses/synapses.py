@@ -6,7 +6,7 @@ from paibox.base import DynamicSys, NeuDyn
 from paibox.projection import InputProj
 
 from .connector import All2All, IndexConn, MatConn, One2One, TwoEndConnector
-from .transforms import AllToAll, MaskedLinear, OneToOne, Transform
+from .transforms import Transform
 
 __all__ = ["Synapses", "NoDecay"]
 

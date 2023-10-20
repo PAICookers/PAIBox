@@ -5,7 +5,7 @@ import numpy as np
 
 from paibox.utils import is_shape
 
-from .connector import MatConn, TwoEndConnector
+from .connector import One2One, TwoEndConnector
 
 
 class Transform(ABC):
@@ -15,7 +15,6 @@ class Transform(ABC):
     mask: np.ndarray
     conn: TwoEndConnector
 
-    @abstractmethod
     def __call__(self, x):
         return x @ self.weights
 
@@ -40,7 +39,7 @@ class Transform(ABC):
         if isinstance(weights, np.ndarray):
             if is_shape(weights, (self.num_in, self.num_out)):
                 self.weights = weights
-            elif is_shape(weights, (self.num_in,)) and self.num_in == self.num_out:
+            elif is_shape(weights, (self.num_in,)) and self.num_in == self.num_out and isinstance(self.conn, One2One):
                 # only one to one connection can use a vector as weights
                 self.weights = np.diag(weights)
             else:
