@@ -54,16 +54,16 @@ class RoutingDirection(Enum):
 
 @unique
 class RoutingNodeStatus(IntEnum):
-    """Indicate the status of a Lx-level(Lx > L0) node."""
+    """Indicate the status of L0-level nodes."""
 
-    ALL_EMPTY = 0
-    """The children are ALL empty."""
-
-    AVAILABLE = 1
-    """1 <= N <= `node_capacity` child node(s) is/are `OCCUPIED`."""
+    AVAILABLE = 0
+    """Available for item to attach."""
+    
+    USED = 1
+    """An item is attached to this node."""
 
     OCCUPIED = 2
-    """The children are ALL occupied."""
+    """Wasted. It will be an optimization goal."""
 
 
 @dataclass

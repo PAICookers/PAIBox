@@ -6,6 +6,7 @@ from paibox.libpaicore.v2.route import (
     RoutingDirection as Direction,
     RoutingNodeLevel as Level,
     get_node_consumption,
+    RoutingNodeStatus as Status,
 )
 
 from .grouping import GroupedSynOnCore
@@ -17,6 +18,7 @@ class RoutingNode:
         level: Level,
         data: Optional[Any] = None,
         *,
+        status: Optional[Status] = Status.AVAILABLE,
         tag: Optional[str] = None,
     ) -> None:
         """Instance a tree node with `level`. \
@@ -34,6 +36,10 @@ class RoutingNode:
         self._children: Dict[Direction, RoutingNode] = defaultdict()
         self.item = data
         self.tag = tag
+
+        # Only set the attribute for L0-level node.
+        if self.level == Level.L0:
+            setattr(self, "status", status)
 
     def create_child(self, force: bool = False, **kwargs) -> Optional["RoutingNode"]:
         """Create a child. If full, return None."""
@@ -202,7 +208,7 @@ class RoutingNode:
 
     @classmethod
     def create_routing_tree(cls, lx: Level, n_branch: int) -> "RoutingNode":
-        """Create a routing tree with `n_branch` children. \
+        """Create a routing tree with `n_branch` children.
         
         NOTE: When lx == L1, do not create the L0-level children. \
             WHen lx > L1, create the lx-1 level children.
@@ -222,6 +228,12 @@ class RoutingNode:
         return root
 
     def add_L0_for_placing(self, data: Any, **kwargs) -> bool:
+        """Add L0 node for placing in the routing tree.
+
+        Args:
+            - data: the data attached to the L0-level node.
+            - kwargs: other arguments of the L0-level node, status, tag...
+        """
         node = RoutingNode(Level.L0, data, **kwargs)
 
         L1_node = self._find_lx_node_with_n_child_avail(Level.L1, 1)
@@ -233,8 +245,8 @@ class RoutingNode:
     def find_nodes_at_level(
         self, lx: Level, n_child_avail_low: int = 0
     ) -> List["RoutingNode"]:
-        """Find all nodes at a `lx` level with \
-            at least `n_child_avail_low` child nodes.
+        """Find all nodes at a `lx` level with at least \
+            `n_child_avail_low` child nodes.
         """
         if lx > self.level:
             raise ValueError
@@ -268,6 +280,10 @@ class RoutingNode:
     def level(self) -> Level:
         return self._level
 
+    # @status.setter
+    # def status(self, new_status: Status):
+    #     self._status = new_status
+
     @property
     def node_capacity(self) -> int:
         return 4 if self.level > Level.L0 else 0
@@ -292,6 +308,7 @@ class RoutingRoot(RoutingNode):
 
         TODO add error descriptions.
         """
+        parent_name = gsyns_on_core[0].obj.name
         n_core = len(gsyns_on_core)
 
         cost = get_node_consumption(n_core)
@@ -302,13 +319,15 @@ class RoutingRoot(RoutingNode):
         for i in range(cost.n_L0):
             if i < n_core:
                 if not routing_root.add_L0_for_placing(
-                    data=gsyns_on_core[i], tag=f"leaf of {gsyns_on_core[i].name}"
+                    data=gsyns_on_core[i],
+                    status=Status.USED,
+                    tag=f"Used by {gsyns_on_core[i].name}",
                 ):
                     raise RuntimeError(f"Cannot place {gsyns_on_core[i].name} on core")
             else:
                 # Other L0 nodes are unused but occupied.
                 if not routing_root.add_L0_for_placing(
-                    data=None, tag=f"Occupied by {gsyns_on_core[0].obj.name}"
+                    data=None, status=Status.OCCUPIED, tag=f"Occupied by {parent_name}"
                 ):
                     raise RuntimeError(f"Cannot place!")
 
