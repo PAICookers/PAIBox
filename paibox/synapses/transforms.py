@@ -15,7 +15,6 @@ class Transform(ABC):
     mask: np.ndarray
     conn: TwoEndConnector
 
-    @abstractmethod
     def __call__(self, x):
         return x @ self.weights
 
