@@ -21,7 +21,7 @@ import paibox as pb
 def test_NoDecay_One2One_scalar(n1: pb.neuron.TonicSpiking, n2: pb.neuron.TonicSpiking):
     s1 = pb.synapses.NoDecay(n1, n2, pb.synapses.One2One())
 
-    assert np.array_equal(s1.weights, np.eye (n1.num_out, n2.num_in, dtype=np.int8))
+    assert np.array_equal(s1.weights, np.eye(n1.num_out, n2.num_in, dtype=np.int8))
     assert (s1.num_in, s1.num_out) == (n1.num_out, n2.num_in)
     # assert np.array_equal(s1.connectivity, np.eye(n1.num_out, n2.num_in, dtype=np.int8))
 

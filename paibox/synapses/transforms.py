@@ -39,7 +39,11 @@ class Transform(ABC):
         if isinstance(weights, np.ndarray):
             if is_shape(weights, (self.num_in, self.num_out)):
                 self.weights = weights
-            elif is_shape(weights, (self.num_in,)) and self.num_in == self.num_out and isinstance(self.conn, One2One):
+            elif (
+                is_shape(weights, (self.num_in,))
+                and self.num_in == self.num_out
+                and isinstance(self.conn, One2One)
+            ):
                 # only one to one connection can use a vector as weights
                 self.weights = np.diag(weights)
             else:
