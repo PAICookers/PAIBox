@@ -12,9 +12,11 @@ __all__ = ["Synapses", "NoDecay"]
 
 
 class Synapses:
-    """A map connected between neurons of the previous `Node`, and axons of the following `Node`.
+    """A map connected between neurons of the previous `Node`, \
+        and axons of the following `Node`.
 
-    User can use connectivity matrix or COO to represent the connectivity of synapses.
+    User can use connectivity matrix or COO to represent the \
+        connectivity of synapses.
     """
 
     def __init__(
@@ -94,14 +96,7 @@ class SynSys(Synapses, DynamicSys):
 
 
 class NoDecay(SynSys):
-    """Synapses model with no decay.
-
-    Attributes:
-        - comm: the connectivity representation.
-
-    Properties:
-        - connectivity: the `np.ndarray` format of comm.
-    """
+    """Synapses model with no decay."""
 
     def __init__(
         self,
@@ -172,6 +167,7 @@ class NoDecay(SynSys):
 
     @property
     def connectivity(self) -> np.ndarray:
+        """The connectivity matrix in `np.ndarray` format."""
         return self.comm.connectivity
 
     def __repr__(self) -> str:

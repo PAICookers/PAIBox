@@ -6,8 +6,6 @@ import numpy as np
 from paibox._types import Shape
 from paibox.utils import shape2num
 
-__all__ = ["One2One", "All2All", "MatConn", "IndexConn"]
-
 
 class Connector(ABC):
     """Connector"""
@@ -21,8 +19,8 @@ class TwoEndConnector(Connector):
     def __init__(self, source_shape: Shape = 0, dest_shape: Shape = 0) -> None:
         """
         Arguments:
-            - source_shape: shape of source neurons
-            - dest_shape: shape of destination neurons
+            - source_shape: shape of source neurons.
+            - dest_shape: shape of destination neurons.
         """
         if isinstance(source_shape, int):
             self.source_shape = (source_shape,)
@@ -60,8 +58,8 @@ class One2One(TwoEndConnector):
     def __init__(self) -> None:
         """
         Arguments:
-            - source_shape: shape of source neurons
-            - dest_shape: shape of destination neurons
+            - source_shape: shape of source neurons.
+            - dest_shape: shape of destination neurons.
 
         NOTE: The number of source and destination neurons must be equal.
         """
@@ -112,9 +110,9 @@ class MatConn(TwoEndConnector):
     ) -> None:
         """
         Arguments:
-            - source_shape: shape of source neurons
-            - dest_shape: shape of destination neurons
-            - conn_mat: dense connection matrix
+            - source_shape: shape of source neurons.
+            - dest_shape: shape of destination neurons.
+            - conn_mat: dense connection matrix.
         """
         super(MatConn, self).__init__(source_shape, dest_shape)
 
@@ -145,10 +143,10 @@ class IndexConn(TwoEndConnector):
     ) -> None:
         """
         Arguments:
-            - source_shape: shape of source neurons
-            - dest_shape: shape of destination neurons
-            - source_ids: indices of source neurons
-            - dest_ids: indices of destination neurons
+            - source_shape: shape of source neurons.
+            - dest_shape: shape of destination neurons.
+            - source_ids: indices of source neurons.
+            - dest_ids: indices of destination neurons.
         """
         super(IndexConn, self).__init__(source_shape, dest_shape)
 
@@ -179,10 +177,12 @@ class IndexConn(TwoEndConnector):
     def _check(self):
         if self.max_source_num >= self.source_num:
             raise ValueError(
-                f"Out of range: source_shape should be greater than the maximum id ({self.max_source_num}) of source_ids"
+                f"Out of range: source_shape should be greater than"
+                f"the maximum id ({self.max_source_num}) of source_ids"
             )
 
         if self.max_dest_num >= self.dest_num:
             raise ValueError(
-                f"Out of range: dest_shape should be greater than the maximum id ({self.max_dest_num}) of dest_ids"
+                f"Out of range: dest_shape should be greater than"
+                f"the maximum id ({self.max_dest_num}) of dest_ids"
             )

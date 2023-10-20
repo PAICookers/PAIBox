@@ -23,7 +23,7 @@ def test_OneToOne(weight, expected_dtype):
     y = f(x)
     expected = x * weight
 
-    assert f._get_dtype() == expected_dtype
+    assert f.dtype == expected_dtype
     assert y.dtype <= np.int32
     assert np.array_equal(y, expected)
 
@@ -40,7 +40,7 @@ def test_AllToAll_weight_scalar(weight, expected_dtype):
     y = f(x)
     expected = np.sum(x) * weight
 
-    assert f._get_dtype() == expected_dtype
+    assert f.dtype == expected_dtype
     assert np.array_equal(y, expected)
     assert y.dtype <= np.int32
 
@@ -79,7 +79,7 @@ def test_AllToAll_array(shape, weights, expected_dtype, x):
     y = f(x)
     expected = x @ weights.astype(np.int8)
 
-    assert f._get_dtype() == expected_dtype
+    assert f.dtype == expected_dtype
     assert y.dtype <= np.int32
     assert np.array_equal(y, expected)
 
@@ -121,7 +121,7 @@ def test_MaskedLinear_conn(conn, weights, expected_dtype, x):
     y = f(x)
     expected = x @ (weights * conn.build_mat())
 
-    assert f._get_dtype() == expected_dtype
+    assert f.dtype == expected_dtype
     assert y.shape == (conn.dest_num,)
     assert y.dtype <= np.int32
     assert np.array_equal(y, expected)
@@ -135,7 +135,7 @@ def test_MaskedLinear_MatConn():
     y = f1(x1)
     e1 = x1 @ (w1 * np.ones((4, 3)))
 
-    assert f1._get_dtype() == np.int8
+    assert f1.dtype == np.int8
     assert y.shape == (c1.dest_num,)
     assert y.dtype <= np.int32
     assert np.array_equal(y, e1)

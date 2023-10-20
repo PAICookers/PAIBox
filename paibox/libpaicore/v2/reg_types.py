@@ -1,15 +1,5 @@
 from enum import Enum, IntEnum, unique
 
-__all__ = [
-    "WeightPrecisionType",
-    "LCNExtensionType",
-    "InputWidthFormatType",
-    "SpikeWidthFormatType",
-    "MaxPoolingEnableType",
-    "SNNModeEnableType",
-    "CoreType",
-    "CoreMode",
-]
 
 """
     Type defines of parameters of registers & parameters of neuron RAM.
