@@ -1,6 +1,5 @@
 from enum import Enum, IntEnum, unique
 
-
 """
     Type defines of parameters of registers & parameters of neuron RAM.
     See Section 2.4.1 in V2.1 Manual for details.

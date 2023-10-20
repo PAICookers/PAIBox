@@ -1,5 +1,6 @@
 import pytest
-from paibox.implement.graphs import toposort, group_edges_proto
+
+from paibox.implement.graphs import group_edges_proto, toposort
 
 
 class TestTopoSort:

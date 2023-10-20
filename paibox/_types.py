@@ -15,10 +15,10 @@ T = TypeVar("T")
 class FrozenOrderedSet(Set[T]):
     """A set that preserves insertion order and is hashable."""
 
-    def __init__(self, data: Optional[Any] =None) -> None:
+    def __init__(self, data: Optional[Any] = None) -> None:
         if data is None:
             data = []
-        
+
         self.data = dict((d, None) for d in data)
 
     def __contains__(self, elem) -> bool:
@@ -32,7 +32,7 @@ class FrozenOrderedSet(Set[T]):
 
     def __hash__(self) -> int:
         return self._hash()
-    
+
     def clear(self) -> None:
         self.data.clear()
 

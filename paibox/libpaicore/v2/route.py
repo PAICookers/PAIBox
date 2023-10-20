@@ -3,7 +3,8 @@ from enum import Enum, IntEnum, unique
 from typing import List, Sequence, Set, Tuple
 
 from ._types import ReplicationFlag as RFlag
-from .coordinate import Coord, ReplicationId as RId
+from .coordinate import Coord
+from .coordinate import ReplicationId as RId
 from .hw_defs import HwConfig
 
 
@@ -58,7 +59,7 @@ class RoutingNodeStatus(IntEnum):
 
     AVAILABLE = 0
     """Available for item to attach."""
-    
+
     USED = 1
     """An item is attached to this node."""
 
@@ -98,7 +99,7 @@ def get_node_consumption(n_core: int) -> RoutingNodeCost:
     def min_n_L0_nodes(n_core: int) -> int:
         """Find the nearest #N(=2^X) to accommodate \
             `n_core` L0-level nodes.
-        
+
         If n_core = 5, return 8.
         If n_core = 20, return 32.
         """

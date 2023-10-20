@@ -7,6 +7,7 @@ from pydantic import Field
 from pydantic.dataclasses import dataclass
 
 from ._types import ReplicationFlag as RFlag
+
 # from .router import RouterLevel
 
 

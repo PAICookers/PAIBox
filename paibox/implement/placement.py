@@ -1,13 +1,11 @@
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Sequence, final
 
-from paibox.libpaicore.v2.route import (
-    RoutingDirectionIdx as DirectionIdx,
-    RoutingDirection as Direction,
-    RoutingNodeLevel as Level,
-    get_node_consumption,
-    RoutingNodeStatus as Status,
-)
+from paibox.libpaicore.v2.route import RoutingDirection as Direction
+from paibox.libpaicore.v2.route import RoutingDirectionIdx as DirectionIdx
+from paibox.libpaicore.v2.route import RoutingNodeLevel as Level
+from paibox.libpaicore.v2.route import RoutingNodeStatus as Status
+from paibox.libpaicore.v2.route import get_node_consumption
 
 from .grouping import GroupedSynOnCore
 
@@ -24,9 +22,9 @@ class RoutingNode:
         """Instance a tree node with `level`. \
             For a node with level Lx > 0, after created, \
                 the length of children is `node_capacity`.
-            
+
             For a node with level L0, it is a leaf node.
-        
+
         Args:
             - level: the node level.
             - data: the data hanging on the node. Optional.
@@ -209,7 +207,7 @@ class RoutingNode:
     @classmethod
     def create_routing_tree(cls, lx: Level, n_branch: int) -> "RoutingNode":
         """Create a routing tree with `n_branch` children.
-        
+
         NOTE: When lx == L1, do not create the L0-level children. \
             WHen lx > L1, create the lx-1 level children.
         """

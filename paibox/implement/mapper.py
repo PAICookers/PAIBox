@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import FrozenSet, Dict, List, Set, Union
+from typing import Dict, FrozenSet, List, Set, Union
 
 from paibox._types import FrozenOrderedSet
 from paibox.base import NeuDyn, PAIBoxObject
@@ -204,14 +204,14 @@ class Mapper:
 
     def _graph_preprocess(self) -> None:
         """Preprocess of the graph.
-        
+
         # Currently, we are unable to cope with arbitrary \
         #     network structures. Therefore, in this stage, the \
         #     input of specific network structures will be restricted.
-        
+
         # However, with development in progress, this limitation \
         #     can be solved.
-            
+
         # Limitation:
         #     For a node with in-degree > 1, the out-degree of \
         #         all its forward nodes = 1.
@@ -227,11 +227,11 @@ class Mapper:
 
     def _group_synapses(self) -> None:
         """Group synapses based on grouped edges.
-        
+
         Description:
             After combining all synapses into groups, iterate through \
             each combination synapses to build a `GroupedSyn`.
-            
+
             Then do sorting in ascending order.
         """
         for syns_set in self._edges_grouped:
@@ -277,11 +277,11 @@ class Mapper:
 
     def _coord_assignment(self) -> None:
         """Assign the coordinate of layer.
-        
+
         Steps:
             - 1. Sort all the nodes.
             - 2. Traverse all the post gsyns of nodes in order.
-        
+
         Problem: See Q23100901. Now, For a node with an in-degree > 1, \
             the out-degree of all its forward nodes = 1. -> Moved to grouping phase.
         """

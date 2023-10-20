@@ -1,5 +1,6 @@
 from collections import defaultdict
 from typing import Dict, FrozenSet, List, Set, Tuple, TypeVar
+
 from paibox._types import FrozenOrderedSet, OrderedSet
 
 Node = TypeVar("Node")
@@ -190,7 +191,7 @@ def group_edges(
             )
 
     for node in nodes:
-        # TODO 
+        # TODO
         # Do these two conditions both need to constrain the grouping?
         if degree[node][OUTDEGREE_IDX] > 1:
             # Out-degree of node > 1.

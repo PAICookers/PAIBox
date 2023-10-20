@@ -1,6 +1,7 @@
 import numpy as np
-import paibox as pb
 import pytest
+
+import paibox as pb
 
 
 def test_weight2binary_connectivity():

@@ -9,8 +9,8 @@ from paibox.implement.experimental.placement import (
 )
 from paibox.libpaicore.v2.route import (
     RoutingDirection,
-    RoutingNodeLevel,
     RoutingNodeCost,
+    RoutingNodeLevel,
     RoutingNodeStatus,
 )
 

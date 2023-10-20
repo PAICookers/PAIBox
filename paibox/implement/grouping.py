@@ -3,10 +3,9 @@ from typing import ClassVar, List, Optional, Tuple, Union
 import numpy as np
 
 from paibox.base import NeuDyn, PAIBoxObject
-from paibox.libpaicore.v2 import HwConfig, LCN_EX, Coord, RoutingNodeCoord
+from paibox.libpaicore.v2 import LCN_EX, Coord, HwConfig, RoutingNodeCoord
 from paibox.projection import InputProj
 from paibox.synapses import SynSys
-
 
 SourceNodeType = Union[NeuDyn, InputProj]
 DestNodeType = NeuDyn
@@ -329,7 +328,10 @@ class GroupedSynOnCore(GroupedObj):
         # self._need_broadcast = need_broadcast
 
     def _check(self) -> None:
-        assert self.n_neuron * self.obj.n_dendrite_per_neuron * 1 <= HwConfig.N_NEURON_DEFAULT
+        assert (
+            self.n_neuron * self.obj.n_dendrite_per_neuron * 1
+            <= HwConfig.N_NEURON_DEFAULT
+        )
 
     def _get_binary_conn(self, weights: np.ndarray) -> np.ndarray:
         """Reshape the divided weight into the binary connection."""
@@ -350,7 +352,7 @@ class GroupedSynOnCore(GroupedObj):
                         bc_shape[0] * col_group : bc_shape[0] * (col_group + 1)
                     ]
                     col_group += 1
-                
+
                 # Pad for the rest of axons.
                 bc[:, n_col_groups * i + col_group] = np.pad(
                     w_col[bc_shape[0] * col_group],

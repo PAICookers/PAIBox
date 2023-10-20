@@ -1,12 +1,10 @@
 from typing import Any, List, Optional, Sequence, final
 
-from paibox.libpaicore.v2.route import (
-    RoutingDirectionIdx as DirectionIdx,
-    RoutingDirection as Direction,
-    RoutingNodeLevel as Level,
-    RoutingNodeStatus as NodeStatus,
-    get_node_consumption,
-)
+from paibox.libpaicore.v2.route import RoutingDirection as Direction
+from paibox.libpaicore.v2.route import RoutingDirectionIdx as DirectionIdx
+from paibox.libpaicore.v2.route import RoutingNodeLevel as Level
+from paibox.libpaicore.v2.route import RoutingNodeStatus as NodeStatus
+from paibox.libpaicore.v2.route import get_node_consumption
 
 from ..grouping import GroupedSynOnCore
 
@@ -14,7 +12,7 @@ from ..grouping import GroupedSynOnCore
     This is an alternative to the routing tree that \
     does the same thing as the development version \
     but is more complex.
-    
+
     Some functions are still not implemented and \
     will not be developed until the solution is \
     reconsidered later.
@@ -32,9 +30,9 @@ class RoutingNode:
         """Instance a tree node with `level`. \
             For a node with level Lx > 0, after created, \
                 the length of children is `node_capacity`.
-            
+
             For a node with level L0, it is a leaf node.
-        
+
         Args:
             - level: the node level.
             - data: the data hanging on the node. Optional.
