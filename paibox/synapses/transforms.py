@@ -5,9 +5,7 @@ import numpy as np
 
 from paibox.utils import is_shape
 
-from .connector import MatConn
-
-from .connector import TwoEndConnector
+from .connector import MatConn, TwoEndConnector
 
 
 class Transform(ABC):
@@ -16,7 +14,7 @@ class Transform(ABC):
     num_out: int
     mask: np.ndarray
     conn: TwoEndConnector
-    
+
     @abstractmethod
     def __call__(self, x):
         return x @ self.weights
@@ -24,7 +22,7 @@ class Transform(ABC):
     @property
     def connectivity(self):
         raise NotImplementedError
-    
+
     def __init__(
         self,
         conn: TwoEndConnector,
@@ -37,14 +35,13 @@ class Transform(ABC):
         self._init_weights(weights)
         # Element-wise Multiplication
         self.weights = np.asarray(weights, dtype=np.int8) * self.mask
-        
-    
+
     def _init_weights(self, weights: Union[int, np.integer, np.ndarray]) -> None:
         if isinstance(weights, np.ndarray):
             if is_shape(weights, (self.num_in, self.num_out)):
                 self.weights = weights
             elif is_shape(weights, (self.num_in,)) and self.num_in == self.num_out:
-                #only one to one connection can use a vector as weights
+                # only one to one connection can use a vector as weights
                 self.weights = np.diag(weights)
             else:
                 raise ValueError
@@ -53,12 +50,11 @@ class Transform(ABC):
         else:
             raise ValueError
         self.weights = self.weights.astype(np.int8)
-        
-        if(self.weights.shape == self.mask.shape):
+
+        if self.weights.shape == self.mask.shape:
             self.weights = self.weights * self.mask
         else:
             raise ValueError
-            
 
     def _get_dtype(self) -> Union[Type[np.bool_], Type[np.int8]]:
         """Get the actual dtype of weights.
