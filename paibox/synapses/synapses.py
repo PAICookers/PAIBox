@@ -6,7 +6,7 @@ from paibox.base import DynamicSys, NeuDyn
 from paibox.projection import InputProj
 
 from .connector import All2All, IndexConn, MatConn, One2One, TwoEndConnector
-from .transforms import AllToAll, MaskedLinear, OneToOne
+from .transforms import AllToAll, MaskedLinear, OneToOne, Transform
 
 __all__ = ["Synapses", "NoDecay"]
 
@@ -125,15 +125,7 @@ class NoDecay(SynSys):
         super().__init__(source, dest, conn)
         super(Synapses, self).__init__(name)
 
-        if isinstance(conn, All2All):
-            self.comm = AllToAll(self.num_in, self.num_out, weights)
-        elif isinstance(conn, One2One):
-            self.comm = OneToOne(self.num_in, weights)
-        elif isinstance(conn, MatConn):
-            self.comm = MaskedLinear(conn, weights)
-        else:
-            # TODO Error description
-            raise ValueError
+        self.comm = Transform(conn, weights)
 
         self.weights.setflags(write=False)
 
