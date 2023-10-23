@@ -94,12 +94,50 @@ class TestRouterTree:
         find4 = root.find_node_by_path([RoutingDirection.X1Y1, RoutingDirection.X1Y0])
         assert find4 is None
 
+    def test_get_node_path(self):
+        root = RoutingNode(RoutingNodeLevel.L3, tag="L3")
+
+        node_l2_1 = RoutingNode(RoutingNodeLevel.L2, tag="L2_1")
+        node_l2_2 = RoutingNode(RoutingNodeLevel.L2, tag="L2_2")
+        node_l2_3 = RoutingNode(RoutingNodeLevel.L2, tag="L2_3")
+
+        node_l1_1 = RoutingNode(RoutingNodeLevel.L1, tag="L1_1")
+        node_l1_2 = RoutingNode(RoutingNodeLevel.L1, tag="L1_2")
+        node_l1_3 = RoutingNode(RoutingNodeLevel.L1, tag="L1_3")
+        node_l1_4 = RoutingNode(RoutingNodeLevel.L1, tag="L1_4")
+
+        assert node_l2_1.add_child_to(node_l1_1, RoutingDirection.X0Y0) == True
+        assert node_l2_2.add_child_to(node_l1_2, RoutingDirection.X0Y1) == True
+        assert node_l2_3.add_child_to(node_l1_3, RoutingDirection.X1Y0) == True
+
+        assert root.add_child_to(node_l2_1, RoutingDirection.X0Y0) == True
+        assert root.add_child_to(node_l2_2, RoutingDirection.X1Y1) == True
+        assert root.add_child_to(node_l2_3, RoutingDirection.X1Y0) == True
+
+        assert root.get_node_path(node_l2_1) == [RoutingDirection.X0Y0]
+        assert root.get_node_path(node_l1_3) == [
+            RoutingDirection.X1Y0,
+            RoutingDirection.X1Y0,
+        ]
+
+        assert root.get_node_path(node_l1_3) == [
+            RoutingDirection.X1Y0,
+            RoutingDirection.X1Y0,
+        ]
+        assert root.get_node_path(node_l1_4) == None
+
     def test_create_lx_full_tree(self):
         root = RoutingNode(RoutingNodeLevel.L3, tag="L3")
 
-        node_l2_1 = RoutingNode.create_lx_full_tree(RoutingNodeLevel.L2, "L2_1")
-        node_l2_2 = RoutingNode.create_lx_full_tree(RoutingNodeLevel.L2, "L2_2")
-        node_l2_3 = RoutingNode.create_lx_full_tree(RoutingNodeLevel.L2, "L2_3")
+        node_l2_1 = RoutingNode.create_lx_full_tree(
+            RoutingNodeLevel.L2, root_tag="L2_1"
+        )
+        node_l2_2 = RoutingNode.create_lx_full_tree(
+            RoutingNodeLevel.L2, root_tag="L2_2"
+        )
+        node_l2_3 = RoutingNode.create_lx_full_tree(
+            RoutingNodeLevel.L2, root_tag="L2_3"
+        )
 
         assert root.add_child(node_l2_1) == True
         assert root.add_child(node_l2_2) == True
@@ -116,15 +154,15 @@ class TestRouterTree:
 
         n = 6
         for i in range(n):
-            assert subtree.add_L0_for_placing(i) == True
+            subtree.add_L0_for_placing()
 
-        find_l0_1 = subtree.find_empty_nodes_at_level(RoutingNodeLevel.L0)
+        find_l0_1 = subtree.find_leaf_at_level(RoutingNodeLevel.L0)
         find_l0_2 = subtree.find_nodes_at_level(RoutingNodeLevel.L0, 0)
 
         find_l1_1 = subtree.find_nodes_at_level(RoutingNodeLevel.L1, 0)
         find_l1_2 = subtree.find_nodes_at_level(RoutingNodeLevel.L1, 2)
         find_l1_3 = subtree.find_nodes_at_level(RoutingNodeLevel.L1, 4)
-        find_l1_4 = subtree.find_empty_nodes_at_level(RoutingNodeLevel.L1)
+        find_l1_4 = subtree.find_leaf_at_level(RoutingNodeLevel.L1)
 
         find_l2 = subtree.find_nodes_at_level(RoutingNodeLevel.L2, 0)
         find_l3 = subtree.find_nodes_at_level(RoutingNodeLevel.L3, 2)
@@ -146,22 +184,22 @@ class TestRouterTree:
         # A L3-level routing tree.
         subtree = RoutingNode.create_routing_tree(RoutingNodeLevel.L3, 2)
 
-        find_l2 = subtree.find_empty_nodes_at_level(RoutingNodeLevel.L2)
-        find_l1 = subtree.find_empty_nodes_at_level(RoutingNodeLevel.L1)
+        find_l2 = subtree.find_leaf_at_level(RoutingNodeLevel.L2)
+        find_l1 = subtree.find_leaf_at_level(RoutingNodeLevel.L1)
 
-        assert len(find_l2) == 1 * 2
-        assert len(find_l1) == 1 * 2 * 4
+        assert len(find_l2) == 0
+        assert len(find_l1) == 8
 
         # A L4-level routing tree.
         subtree = RoutingNode.create_routing_tree(RoutingNodeLevel.L4, 1)
 
-        find_l3 = subtree.find_empty_nodes_at_level(RoutingNodeLevel.L3)
-        find_l2 = subtree.find_empty_nodes_at_level(RoutingNodeLevel.L2)
-        find_l1 = subtree.find_empty_nodes_at_level(RoutingNodeLevel.L1)
+        find_l3 = subtree.find_leaf_at_level(RoutingNodeLevel.L3)
+        find_l2 = subtree.find_leaf_at_level(RoutingNodeLevel.L2)
+        find_l1 = subtree.find_leaf_at_level(RoutingNodeLevel.L1)
 
-        assert len(find_l3) == 1
-        assert len(find_l2) == 1 * 4
-        assert len(find_l1) == 1 * 4 * 4
+        assert len(find_l3) == 0
+        assert len(find_l2) == 0
+        assert len(find_l1) == 4 * 4
 
     def test_add_subtree(self):
         root = RoutingNode(RoutingNodeLevel.L4, tag="L4")
@@ -169,7 +207,7 @@ class TestRouterTree:
 
         n = 6
         for i in range(n):
-            assert subtree.add_L0_for_placing(i) == True
+            subtree.add_L0_for_placing()
 
         insert = root.add_subtree(subtree)
 
@@ -181,7 +219,7 @@ class TestRouterTree:
         assert insert == True
 
         subtree3 = RoutingNode.create_routing_tree(RoutingNodeLevel.L3, 1)
-        l2_node = subtree3.find_empty_nodes_at_level(RoutingNodeLevel.L2)[0]
+        l2_node = subtree3.find_nodes_at_level(RoutingNodeLevel.L2)[0]
         l2_node.tag = "L2_new"
 
         insert = root.add_subtree(subtree3)
