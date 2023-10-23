@@ -32,7 +32,7 @@ class RoutingNode:
             - data: the data hanging on the node. Optional.
             - d: the direction of the node itself. Default is `Direction.ANY`.
             - tag: a tag for user to identify. Optional.
-            
+
         Attributes:
             - level: the node level.
             - children: the children of the node.
