@@ -1,3 +1,4 @@
+import random
 import pytest
 
 import paibox as pb
@@ -5,7 +6,10 @@ from paibox.libpaicore.v2._types import ReplicationFlag as RFlag
 from paibox.libpaicore.v2.coordinate import Coord
 from paibox.libpaicore.v2.coordinate import ReplicationId as RId
 from paibox.libpaicore.v2.route import (
+    RoutingDirection,
+    RoutingNodeCoord,
     RoutingNodeCost,
+    RoutingNodeLevel,
     get_multicast_cores,
     get_node_consumption,
     get_replication_id,
@@ -91,3 +95,49 @@ def test_get_node_consumption(n_core, expected_cost):
     cost = get_node_consumption(n_core)
 
     assert cost == expected_cost
+
+
+def test_routing_node_coord():
+    path = []
+    for i in range(5):
+        path.append(RoutingDirection.X0Y0)
+
+    coord = RoutingNodeCoord.build_from_path(path)
+
+    assert coord.level == RoutingNodeLevel.L0
+    assert coord.coordinate == Coord(0, 0)
+
+    path.clear()
+    for i in range(6):
+        path.append(RoutingDirection.X0Y0)
+
+    with pytest.raises(ValueError):
+        coord = RoutingNodeCoord.build_from_path(path)
+
+    path.clear()
+    path = [
+        RoutingDirection.X0Y1,
+        RoutingDirection.X1Y1,
+        RoutingDirection.X0Y0,
+        RoutingDirection.X0Y1,
+        RoutingDirection.X0Y1,
+    ]
+
+    coord = RoutingNodeCoord.build_from_path(path)
+    assert coord.level == RoutingNodeLevel.L0
+    assert coord.coordinate == Coord(0b01000, 0b11011)
+
+    path.clear()
+    path = [
+        RoutingDirection.X0Y0,
+        RoutingDirection.X1Y1,
+        RoutingDirection.X0Y0,
+        RoutingDirection.ANY,
+        RoutingDirection.X0Y1,
+    ]
+
+    coord = RoutingNodeCoord.build_from_path(path)
+    assert coord.level == RoutingNodeLevel.L2
+
+    with pytest.raises(AttributeError):
+        coord.coordinate
