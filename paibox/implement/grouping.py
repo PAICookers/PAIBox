@@ -63,9 +63,6 @@ class GroupedSyn(GroupedObj):
         self._lcn_ex = n_axon2lcn_ex(self.n_axon)
         self._resource_consumption()
 
-        # self._need_broadcast = False
-        self.is_assigned = False
-
     def _get_n_axon_each(self) -> List[int]:
         """Get the axons of each unique parents."""
         seen = set()
@@ -204,14 +201,6 @@ class GroupedSyn(GroupedObj):
         print(f"LCN of {self.name} is been updated: {self.lcn_ex} -> {lcn_ex}")
         self._lcn_ex = lcn_ex
 
-    # @property
-    # def need_broadcast(self) -> bool:
-    #     return self._need_broadcast
-
-    # @need_broadcast.setter
-    # def need_broadcast(self, need_broadcast: bool) -> None:
-    #     self._need_broadcast = need_broadcast
-
     @property
     def weight_divided(self) -> List[np.ndarray]:
         """Divide the combined weights based on `n_neuron_each`.
@@ -236,9 +225,9 @@ class GroupedSyn(GroupedObj):
         """Combine all the matrices in one piece.
 
         Combined weight:
-            [s1,d1]...[s1,dn]
+            [s1, d1], ..., [s1, dn]
             ...
-            [sn,d1]...[sn,dn]
+            [sn, d1], ..., [sn, dn]
         """
         w = []
 
@@ -303,7 +292,6 @@ class GroupedSynOnCore(GroupedObj):
         n_neuron: int,
         weights: np.ndarray,
         *,
-        need_broadcast: bool = False,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -313,14 +301,13 @@ class GroupedSynOnCore(GroupedObj):
                 in the parent.
             - n_neuron: the number of neurons used in the CORE.
             - weights: the weights divided into the single CORE.
-            - need_broadcast: wether the syn on core need broadcast.
         """
         super().__init__(name)
 
         self._parent = parent
         self._pos = position
         self._n_neuron = n_neuron
-        self._router_coord = RoutingNodeCoord()
+        self._routing_coord = RoutingNodeCoord()
 
         self._check()
 
@@ -408,8 +395,8 @@ class GroupedSynOnCore(GroupedObj):
 
     @property
     def coordinate(self) -> Coord:
-        return self._router_coord.coordinate
+        return self._routing_coord.coordinate
 
-    # @property
-    # def need_broadcast(self) -> bool:
-    #     return self._need_broadcast
+    @coordinate.setter
+    def coordinate(self, coord: RoutingNodeCoord) -> None:
+        self._routing_coord = coord

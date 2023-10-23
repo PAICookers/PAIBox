@@ -285,20 +285,8 @@ class Mapper:
         Problem: See Q23100901. Now, For a node with an in-degree > 1, \
             the out-degree of all its forward nodes = 1. -> Moved to grouping phase.
         """
-
-        # for node_name in self._ordered_nodes:
-        #     # Traverse all the grouped post-synapse of nodes in order.
-        #     if node_name in self._succ_gsyn_on_core:
-        #         gsyns_on_core = self._succ_gsyn_on_core[node_name]
-
-        #         # A `gsyn_on_core` is a list of grouped post-synapses on core of a node.
-        #         # Consider all the succ gsyn_on_core together:
-        #         # For every succ node:
-        #         for succ_node_name in gsyns_on_core:
-        #             gsyn = self._succ_gsyns[node_name][succ_node_name]
-        #             gsyn.is_assigned = True
-
-        print("Coord assignment OK.")
+        for gsyns_on_core in self._gsyns_on_core:
+            self.routing_tree.insert_gsyn_on_core(*gsyns_on_core)
 
     """Utilities"""
 

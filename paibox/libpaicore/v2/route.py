@@ -66,6 +66,9 @@ class RoutingNodeStatus(IntEnum):
     OCCUPIED = 2
     """Wasted. It will be an optimization goal."""
 
+    ALL_EMPTY = 3
+    """Not used."""
+
 
 @dataclass
 class RoutingNodeCost:
@@ -257,14 +260,28 @@ class RoutingNodeCoord:
 
     @property
     def level(self) -> RoutingNodeLevel:
-        for level in self.level_table:
-            if level[0].value == RoutingDirection.ANY:
-                return level[1]
+        if self.L4 == RoutingDirection.ANY:
+            return RoutingNodeLevel.L5
+
+        if self.L3 == RoutingDirection.ANY:
+            return RoutingNodeLevel.L4
+
+        if self.L2 == RoutingDirection.ANY:
+            return RoutingNodeLevel.L3
+
+        if self.L1 == RoutingDirection.ANY:
+            return RoutingNodeLevel.L2
+
+        if self.L0 == RoutingDirection.ANY:
+            return RoutingNodeLevel.L1
 
         return RoutingNodeLevel.L0
 
     @property
     def coordinate(self) -> Coord:
+        if self.level > RoutingNodeLevel.L0:
+            raise AttributeError("This property is only for L0 level.")
+
         x = (
             (self.L4.value[0] << 4)
             + (self.L3.value[0] << 3)
