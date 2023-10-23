@@ -1,104 +1,53 @@
-from paibox.libpaicore.v2._types import RouterDirection
+from paibox.libpaicore.v2.route import RoutingDirection
 
 # path, method, expected_tag
 data_find_node_by_path = [
     (
         [
-            RouterDirection.X0Y0,
-            RouterDirection.X0Y0,
-            RouterDirection.X0Y1,
-            RouterDirection.X0Y0,
+            RoutingDirection.X0Y0,
+            RoutingDirection.X0Y0,
+            RoutingDirection.X0Y1,
+            RoutingDirection.X0Y0,
         ],
-        "Y",
         "L0_1",
     ),
     (
         [
-            RouterDirection.X0Y1,
-            RouterDirection.X0Y0,
-            RouterDirection.X0Y1,
+            RoutingDirection.X0Y1,
+            RoutingDirection.X0Y0,
+            RoutingDirection.X0Y1,
         ],
-        "Y",
         "L1_4",
     ),
     (
         [
-            RouterDirection.X0Y1,
-            RouterDirection.X0Y0,
-            RouterDirection.X0Y0,
-            RouterDirection.X0Y0,
+            RoutingDirection.X0Y1,
+            RoutingDirection.X0Y0,
+            RoutingDirection.X0Y0,
+            RoutingDirection.X0Y0,
         ],
-        "Y",
         "L0_2",
     ),
     (
         [],
-        "Y",
-        "L4_1",
-    ),
-    (
-        [],
-        "X",
         "L4_1",
     ),
     (
         [
-            RouterDirection.X0Y0,
-            RouterDirection.X0Y0,
-            RouterDirection.X1Y0,
-            RouterDirection.X0Y0,
+            RoutingDirection.X0Y1,
+            RoutingDirection.X0Y0,
+            RoutingDirection.X0Y0,
+            RoutingDirection.X0Y1,
         ],
-        "X",
-        "L0_1",
-    ),
-    (
-        [
-            RouterDirection.X1Y0,
-            RouterDirection.X0Y0,
-            RouterDirection.X0Y0,
-            RouterDirection.X0Y0,
-        ],
-        "X",
-        "L0_2",
-    ),
-    (
-        [
-            RouterDirection.X0Y1,
-            RouterDirection.X0Y0,
-            RouterDirection.X0Y0,
-            RouterDirection.X0Y1,
-        ],
-        "Y",
         "L0_3",
     ),
     (
         [
-            RouterDirection.X1Y0,
-            RouterDirection.X0Y0,
-            RouterDirection.X0Y0,
-            RouterDirection.X1Y0,
+            RoutingDirection.X0Y1,
+            RoutingDirection.X0Y0,
+            RoutingDirection.X0Y0,
+            RoutingDirection.X1Y0,
         ],
-        "X",
-        "L0_3",
-    ),
-    (
-        [
-            RouterDirection.X0Y1,
-            RouterDirection.X0Y0,
-            RouterDirection.X0Y0,
-            RouterDirection.X1Y0,
-        ],
-        "Y",
-        "L0_4",
-    ),
-    (
-        [
-            RouterDirection.X1Y0,
-            RouterDirection.X0Y0,
-            RouterDirection.X0Y0,
-            RouterDirection.X0Y1,
-        ],
-        "X",
         "L0_4",
     ),
 ]

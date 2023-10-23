@@ -8,35 +8,40 @@ from paibox.utils import is_shape
 from .connector import MatConn
 
 
-class Transform(ABC):
-    weights: np.ndarray
+def _get_dtype(weight: np.ndarray) -> Union[Type[np.bool_], Type[np.int8]]:
+    """Get the actual dtype of the weight.
 
+    Consider when the weight is a scalar:
+        - 1. `np.bool_`, 1-bit unsigned.
+        - 2. `np.int8`, 8-bit signed. Not fully supported.
+    """
+    _max = np.max(weight, axis=None).astype(np.int32)
+    _min = np.min(weight, axis=None).astype(np.int32)
+
+    if _max <= np.bool_(True) and _min >= np.bool_(False):
+        return np.bool_
+
+    if _max <= np.int8(127) and _min >= np.int8(-128):
+        # raise NotImplementedError
+        return np.int8
+
+    raise OverflowError
+
+
+class Transform(ABC):
     @abstractmethod
     def __call__(self, x):
         raise NotImplementedError
 
     @property
-    def connectivity(self):
+    def dtype(self):
+        """The dtype of the weight."""
         raise NotImplementedError
 
-    def _get_dtype(self) -> Union[Type[np.bool_], Type[np.int8]]:
-        """Get the actual dtype of weights.
-
-        Consider when the weight is a scalar:
-            - 1. `np.bool_`, 1-bit unsigned.
-            - 2. `np.int8`, 8-bit signed.s
-        """
-        _max = np.max(self.weights, axis=None).astype(np.int32)
-        _min = np.min(self.weights, axis=None).astype(np.int32)
-
-        if _max <= np.bool_(True) and _min >= np.bool_(False):
-            return np.bool_
-
-        if _max <= np.int8(127) and _min >= np.int8(-128):
-            # raise NotImplementedError
-            return np.int8
-
-        raise OverflowError
+    @property
+    def connectivity(self) -> np.ndarray:
+        """The connectivity matrix in `np.ndarray` format."""
+        raise NotImplementedError
 
 
 class OneToOne(Transform):
@@ -68,13 +73,15 @@ class OneToOne(Transform):
         return x * self.weights
 
     @property
+    def dtype(self) -> Union[Type[np.bool_], Type[np.int8]]:
+        return _get_dtype(self.weights)
+
+    @property
     def connectivity(self) -> np.ndarray:
         return (
-            self.weights.astype(self._get_dtype())
+            self.weights.astype(self.dtype)
             if self.weights.ndim == 2
-            else (self.weights * np.eye(self.num, dtype=np.bool_)).astype(
-                self._get_dtype()
-            )
+            else (self.weights * np.eye(self.num, dtype=np.bool_)).astype(self.dtype)
         )
 
 
@@ -84,7 +91,7 @@ class ByPass(OneToOne):
         Arguments:
             - num: number of neurons.
 
-        The synaptic weights are always 1.
+        NOTE: The weights are always 1.
         """
         super().__init__(num, 1)
 
@@ -139,12 +146,16 @@ class AllToAll(Transform):
         return output
 
     @property
+    def dtype(self) -> Union[Type[np.bool_], Type[np.int8]]:
+        return _get_dtype(self.weights)
+
+    @property
     def connectivity(self) -> np.ndarray:
         return (
-            self.weights.astype(self._get_dtype())
+            self.weights.astype(self.dtype)
             if self.weights.ndim == 2
             else (self.weights * np.ones((self.num_in, self.num_out), np.bool_)).astype(
-                self._get_dtype()
+                self.dtype
             )
         )
 
@@ -160,7 +171,7 @@ class MaskedLinear(Transform):
             - conn: connector. Only support `MatConn`.
             - weights: unmasked weights.
 
-        NOTE: not been fully validated.
+        TODO to be varified.
         """
         self.conn = conn
         self.mask = self.conn.build_mat()
@@ -180,5 +191,9 @@ class MaskedLinear(Transform):
         return x @ self.weights
 
     @property
+    def dtype(self) -> Union[Type[np.bool_], Type[np.int8]]:
+        return _get_dtype(self.weights)
+
+    @property
     def connectivity(self) -> np.ndarray:
-        return self.weights.astype(self._get_dtype())
+        return self.weights.astype(self.dtype)

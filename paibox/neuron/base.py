@@ -129,7 +129,7 @@ class MetaNeuron:
                 else
                     `_F` = 0
 
-                `_vjt` = `_vjt` + `_ld` * `_F` * \sgn{`leak_v`}
+                `_vjt` = `_vjt` + \sgn{`leak_v`}* `_ld` * `_F`
         """
         _rho_j_lambda = 2  # Random leaking, unsigned 29-bit.
 
@@ -142,17 +142,17 @@ class MetaNeuron:
             self._vjt = np.add(self._vjt, _ld * self.leak_v).astype(np.int32)
         else:
             _F = 1 if abs(self.leak_v) >= _rho_j_lambda else 0
-            _sgn_leak_v = np.vectorize(fn_sgn, otypes=["bool"])(self.leak_v, 0)
+            sgn_leak_v = fn_sgn(self.leak_v, 0)
 
-            self._vjt = np.add(self._vjt, _F * _ld @ _sgn_leak_v).astype(np.int32)
+            self._vjt = np.add(self._vjt, sgn_leak_v * _F * _ld).astype(np.int32)
 
     def _neuronal_fire(self) -> None:
-        r"""3. Threshold comparison
+        r"""3. Threshold comparison.
 
-        3.1 Random threshold
+        3.1 Random threshold.
             `_v_th_rand` = `_rho_j_T` & `_thres_mask`
 
-        3.2 Fire
+        3.2 Fire.
             If negative threshold mode is `MODE_RESET`, then
                 `_v_th_neg` = `_neg_thres` + `_v_th_rand`
             else
@@ -188,7 +188,7 @@ class MetaNeuron:
         )
 
     def _neuronal_reset(self) -> None:
-        r"""4. Reset
+        r"""4. Reset.
 
         If `_threshold_mode` is `EXCEED_POSITIVE`
             If reset mode is `MODE_NORMAL`, then

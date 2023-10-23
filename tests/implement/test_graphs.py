@@ -1,6 +1,6 @@
 import pytest
 
-from paibox.implement.graphs import toposort
+from paibox.implement.graphs import group_edges_proto, toposort
 
 
 class TestTopoSort:
@@ -41,8 +41,17 @@ class TestTopoSort:
                     "n5": {"n3"},
                 }
             ),
+            (
+                {
+                    "inp1": {"n1"},
+                    "n1": {"n2", "n3"},
+                    "n2": {"n4"},
+                    "n3": {"n4"},
+                    "n4": {},
+                }
+            ),
         ],
-        ids=["one_input_1", "one_input_2", "multi_inputs_1"],
+        ids=["one_input_1", "one_input_2", "multi_inputs_1", "one_input_3_branches"],
     )
     def test_toposort_abstract(self, edges):
         """
@@ -94,3 +103,46 @@ class TestTopoSort:
         """
         with pytest.raises(ValueError):
             ordered = toposort(edges)
+
+
+class TestGroupEdges:
+    @pytest.mark.parametrize(
+        "nodes, edges, succ_edges",
+        [
+            (
+                ["inp1", "n1", "n2", "n3"],
+                ["s1", "s2", "s3", "s4"],
+                {
+                    "inp1": {"n1": "s1"},
+                    "n1": {"n2": "s2"},
+                    "n2": {"n1": "s3", "n3": "s4"},
+                    "n3": {},
+                },
+            ),
+            (
+                ["inp1", "n1", "n2", "n3", "n4", "n5", "n6"],
+                ["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8"],
+                {
+                    "inp1": {"n1": "s1"},
+                    "n1": {"n2": "s2", "n3": "s3"},
+                    "n2": {"n3": "s4"},
+                    "n3": {"n4": "s5", "n5": "s6"},
+                    "n4": {"n6": "s7"},
+                    "n5": {"n6": "s8"},
+                    "n6": {},
+                },
+            ),
+        ],
+    )
+    def test_group_edges_proto(self, nodes, edges, succ_edges):
+        """
+        Test #1:
+            INP1 -> S1 -> N1 -> S2 -> N2 -> S4 -> N3
+            N2 -> S3 -> S1
+
+        Test #2:
+        """
+
+        degree, gathered = group_edges_proto(nodes, edges, succ_edges)
+
+        print()
