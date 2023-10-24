@@ -213,8 +213,8 @@ class NeuronSelfConfig(BaseModel, extra="ignore", validate_assignment=True):
         return synaptic_integration_mode.value
 
 
-class NeuronAttrs(NeuronDestConfig, NeuronSelfConfig):
+class NeuronParams(NeuronDestConfig, NeuronSelfConfig):
     pass
 
 
-ParamsRAM = NeuronAttrs
+ParamsRAM = NeuronParams

@@ -10,12 +10,13 @@ from .ram_types import ResetMode as RM
 from .ram_types import SynapticIntegrationMode as SIM
 from .ram_types import ThresholdMode as TM
 from .reg_model import ParamsReg as ParamsReg
-from .reg_types import InputWidthFormatType as InputWidthFormatType
+from .reg_types import InputWidthFormatType as InputWidthFormat
 from .reg_types import LCNExtensionType as LCN_EX
-from .reg_types import MaxPoolingEnableType as MaxPoolingEnableType
-from .reg_types import SNNModeEnableType as SNNModeEnableType
-from .reg_types import SpikeWidthFormatType as SpikeWidthFormatType
-from .reg_types import WeightPrecisionType as WeightPrecisionType
+from .reg_types import WeightPrecisionType as WeightPrecision
+from .reg_types import MaxPoolingEnableType as MaxPoolingEnable
+from .reg_types import SNNModeEnableType as SNNModeEnable
+from .reg_types import SpikeWidthFormatType as SpikeWidthFormat
+from .reg_types import WeightPrecisionType as WeightPrecision
 from .route import RoutingNodeCoord as RoutingNodeCoord
 
 v_major = 2
