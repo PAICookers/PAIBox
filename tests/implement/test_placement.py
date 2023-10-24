@@ -60,6 +60,31 @@ class TestRouterTree:
         node3 = root.create_child(False, tag="L2_created3")
         assert node3 is None
 
+    def test_clear(self):
+        root = RoutingNode(RoutingNodeLevel.L3, tag="L3")
+
+        node_l2_1 = RoutingNode(RoutingNodeLevel.L2, tag="L2_1")
+        node_l2_2 = RoutingNode(RoutingNodeLevel.L2, tag="L2_2")
+        node_l2_3 = RoutingNode(RoutingNodeLevel.L2, tag="L2_3")
+
+        node_l1_1 = RoutingNode(RoutingNodeLevel.L1, tag="L1_1")
+        node_l1_2 = RoutingNode(RoutingNodeLevel.L1, tag="L1_2")
+        node_l1_3 = RoutingNode(RoutingNodeLevel.L1, tag="L1_3")
+
+        assert node_l2_1.add_child_to(node_l1_1, RoutingDirection.X0Y0) == True
+        assert node_l2_2.add_child_to(node_l1_2, RoutingDirection.X0Y1) == True
+        assert node_l2_3.add_child_to(node_l1_3, RoutingDirection.X1Y0) == True
+
+        assert root.add_child_to(node_l2_1, RoutingDirection.X0Y0) == True
+        assert root.add_child_to(node_l2_2, RoutingDirection.X1Y1) == True
+        assert root.add_child_to(node_l2_3, RoutingDirection.X1Y0) == True
+
+        node_l2_2.clear()
+        assert len(node_l2_2.children) == 0
+
+        root.clear()
+        assert len(root.children) == 0
+
     def test_find_node_by_path(self):
         root = RoutingNode(RoutingNodeLevel.L3, tag="L3")
 

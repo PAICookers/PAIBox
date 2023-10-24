@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field, field_serializer, model_validator
 from .reg_types import *
 
 
-class ParamsReg(BaseModel, extra="ignore", validate_assignment=True):
+class CoreParams(BaseModel, extra="ignore", validate_assignment=True):
     """Parameter model of register parameters listed in Section 2.4.1"""
 
     _WEIGHT_PRECISION_BIT_MAX = 2
@@ -147,3 +147,6 @@ class ParamsReg(BaseModel, extra="ignore", validate_assignment=True):
     @field_serializer("snn_mode_en")
     def _snn_mode_en(self, snn_mode_en: SNNModeEnableType) -> int:
         return snn_mode_en.value
+
+
+ParamsReg = CoreParams
