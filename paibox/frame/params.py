@@ -1,5 +1,5 @@
 from enum import Enum, unique
-
+from typing import TypeVar, List, Tuple
 
 # 帧类型标志位
 @unique
@@ -34,7 +34,7 @@ class FrameHead(Enum):
     WORK_TYPE4 = 0b1011  # 工作帧 4型（初始化帧）
 
 
-class FrameMask:
+class FrameFormat:
     """FrameMask 通用数据帧掩码 和 数据包格式起始帧掩码"""
 
     GENERAL_MASK = (1 << 64) - 1
@@ -50,28 +50,28 @@ class FrameMask:
     GENERAL_CHIP_ADDR_OFFSET = 50
     GENERAL_CHIP_ADDR_MASK = (1 << 10) - 1
     # Chip X/Y address
-    GENERAL_CHIP_ADDR_X_OFFSET = 55
-    GENERAL_CHIP_ADDR_X_MASK = (1 << 5) - 1
-    GENERAL_CHIP_ADDR_Y_OFFSET = GENERAL_CHIP_ADDR_OFFSET
-    GENERAL_CHIP_ADDR_Y_MASK = (1 << 5) - 1
+    GENERAL_CHIP_X_ADDR_OFFSET = 55
+    GENERAL_CHIP_X_ADDR_MASK = (1 << 5) - 1
+    GENERAL_CHIP_Y_ADDR_OFFSET = GENERAL_CHIP_ADDR_OFFSET
+    GENERAL_CHIP_Y_ADDR_MASK = (1 << 5) - 1
 
     # Core address
     GENERAL_CORE_ADDR_OFFSET = 40
     GENERAL_CORE_ADDR_MASK = (1 << 10) - 1
     # Core X/Y address
-    GENERAL_CORE_ADDR_X_OFFSET = 45
-    GENERAL_CORE_ADDR_X_MASK = (1 << 5) - 1
-    GENERAL_CORE_ADDR_Y_OFFSET = GENERAL_CORE_ADDR_OFFSET
-    GENERAL_CORE_ADDR_Y_MASK = (1 << 5) - 1
+    GENERAL_CORE_X_ADDR_OFFSET = 45
+    GENERAL_CORE_X_ADDR_MASK = (1 << 5) - 1
+    GENERAL_CORE_Y_ADDR_OFFSET = GENERAL_CORE_ADDR_OFFSET
+    GENERAL_CORE_Y_ADDR_MASK = (1 << 5) - 1
 
     # Core* address
-    GENERAL_CORE_EX_ADDR_OFFSET = 30
-    GENERAL_CORE_EX_ADDR_MASK = (1 << 10) - 1
+    GENERAL_CORE_E_ADDR_OFFSET = 30
+    GENERAL_CORE_E_ADDR_MASK = (1 << 10) - 1
     # Core* X/Y address
-    GENERAL_CORE_EX_ADDR_X_OFFSET = 35
-    GENERAL_CORE_EX_ADDR_X_MASK = (1 << 5) - 1
-    GENERAL_CORE_EX_ADDR_Y_OFFSET = GENERAL_CORE_EX_ADDR_OFFSET
-    GENERAL_CORE_EX_ADDR_Y_MASK = (1 << 5) - 1
+    GENERAL_CORE_EX_ADDR_OFFSET = 35
+    GENERAL_CORE_EX_ADDR_MASK = (1 << 5) - 1
+    GENERAL_CORE_EY_ADDR_OFFSET = GENERAL_CORE_E_ADDR_OFFSET
+    GENERAL_CORE_EY_ADDR_MASK = (1 << 5) - 1
 
     # Global core = Chip address + core address
     GENERAL_CORE_GLOBAL_ADDR_OFFSET = GENERAL_CORE_ADDR_OFFSET
@@ -81,42 +81,38 @@ class FrameMask:
     GENERAL_PAYLOAD_OFFSET = 0
     GENERAL_PAYLOAD_MASK = (1 << 30) - 1
     GENERAL_PAYLOAD_FILLED_MASK = (1 << 4) - 1
+    
+    # 通用数据包LOAD掩码
+    DATA_PACKAGE_SRAM_NEURON_OFFSET = 20
+    DATA_PACKAGE_SRAM_NEURON_MASK = (1 << 10) - 1
+    
+    DATA_PACKAGE_TYPE_OFFSET = 19
+    DATA_PACKAGE_TYPE_MASK = 1
+    
+    DATA_PACKAGE_NUM_OFFSET = 0
+    DATA_PACKAGE_NUM_MASK = (1 << 19) - 1
 
 
 """配置帧"""
 
 
-class ConfigFrame1Mask(FrameMask):
+class ConfigFrame1Format(FrameFormat):
     pass
 
 
-class ConfigFrame2Mask(FrameMask):
+class ConfigFrame2Format(FrameFormat):
     pass
 
 
-class ConfigFrame3Mask(FrameMask):
-    DATA_PACKAGE_SRAM_NEURON_ADDR_OFFSET = 20
-    DATA_PACKAGE_SRAM_NEURON_ADDR_MASK = (1 << 10) - 1
-
-    DATA_PACKAGE_TYPE_OFFSET = 19
-    DATA_PACKAGE_TYPE_MASK = 0x1
-
-    DATA_PACKAGE_NUM_OFFSET = 0
-    DATA_PACKAGE_NUM_MASK = (1 << 19) - 1
+class ConfigFrame3Format(FrameFormat):
+    pass
 
 
-class ConfigFrame4Mask(FrameMask):
-    DATA_PACKAGE_SRAM_NEURON_ADDR_OFFSET = 20
-    DATA_PACKAGE_SRAM_NEURON_ADDR_MASK = (1 << 10) - 1
-
-    DATA_PACKAGE_TYPE_OFFSET = 19
-    DATA_PACKAGE_TYPE_MASK = 0x1
-
-    DATA_PACKAGE_NUM_OFFSET = 0
-    DATA_PACKAGE_NUM_MASK = (1 << 19) - 1
+class ConfigFrame4Format(FrameFormat):
+    pass
 
 
-class ParameterRegMask(FrameMask):
+class ParameterRegFormat(FrameFormat):
     """配置帧2型"""
 
     """Frame #1"""
@@ -166,7 +162,7 @@ class ParameterRegMask(FrameMask):
     TEST_CHIP_ADDR_LOW7_MASK = (1 << 7) - 1
 
 
-class ParameterRAMMask(FrameMask):
+class ParameterRAMFormat(FrameFormat):
     """配置帧3型（Neuron RAM）"""
 
     # 1
@@ -252,8 +248,8 @@ class ParameterRAMMask(FrameMask):
 """工作帧"""
 
 
-# 工作帧 1 型（Spike，脉冲帧）
-class WorkFrame1Mask(FrameMask):
+class WorkFrame1Format(FrameFormat):
+    " 工作帧 1 型（Spike，脉冲帧） "
     RESERVED_OFFSET = 27
     RESERVED_MASK = (1 << 3) - 1
 
@@ -267,8 +263,8 @@ class WorkFrame1Mask(FrameMask):
     DATA_MASK = (1 << 8) - 1
 
 
-# 工作帧 2 型（Spike，脉冲帧）
-class WorkFrame2Mask(FrameMask):
+class WorkFrame2Format(FrameFormat):
+    "工作帧 2 型（同步帧）"
     RESERVED_OFFSET = 30
     RESERVED_MASK = (1 << 20) - 1
 
@@ -276,14 +272,14 @@ class WorkFrame2Mask(FrameMask):
     TIME_MASK = (1 << 30) - 1
 
 
-# 工作帧 3 型（清除帧）
-class WorkFrame3Mask(FrameMask):
+class WorkFrame3Format(FrameFormat):
+    "工作帧 3 型（清除帧）"
     RESERVED_OFFSET = 0
     RESERVED_MASK = (1 << 50) - 1
 
 
-# 工作帧4 型（初始化帧）
-class WorkFrame4Mask(FrameMask):
+class WorkFrame4Format(FrameFormat):
+    "工作帧4 型（初始化帧）"
     RESERVED_OFFSET = 0
     RESERVED_MASK = (1 << 50) - 1
 
