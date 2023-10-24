@@ -12,7 +12,6 @@ from .ram_types import ThresholdMode as TM
 from .reg_model import ParamsReg as ParamsReg
 from .reg_types import InputWidthFormatType as InputWidthFormat
 from .reg_types import LCNExtensionType as LCN_EX
-from .reg_types import WeightPrecisionType as WeightPrecision
 from .reg_types import MaxPoolingEnableType as MaxPoolingEnable
 from .reg_types import SNNModeEnableType as SNNModeEnable
 from .reg_types import SpikeWidthFormatType as SpikeWidthFormat
