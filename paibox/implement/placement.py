@@ -18,7 +18,7 @@ class RoutingNode:
         data: Optional[GroupedSynOnCore] = None,
         *,
         d: Direction = Direction.ANY,
-        status: Optional[Status] = Status.AVAILABLE,
+        status: Optional[Status] = None,
         tag: Optional[str] = None,
     ) -> None:
         """Instance a tree node with `level`. \
@@ -50,6 +50,22 @@ class RoutingNode:
         # Only set the attribute for L0-level node.
         if self.level == Level.L0:
             setattr(self, "status", status)
+
+    def clear(self) -> None:
+        """Clear the tree."""
+
+        def dfs(root: RoutingNode) -> None:
+            root.children.clear()
+            if root.level == Level.L1:
+                return
+
+            for child in root.children.values():
+                dfs(child)
+
+            return None
+
+        if self.level > Level.L0:
+            dfs(self)
 
     def create_child(self, force: bool = False, **kwargs) -> Optional["RoutingNode"]:
         """Create a child. If full, return None."""
