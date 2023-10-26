@@ -1,12 +1,12 @@
 from collections import defaultdict
 from typing import Any, ClassVar, Dict, List, Optional, Sequence, final
 
-from paibox.libpaicore.v2.route import RoutingDirection as Direction
-from paibox.libpaicore.v2.route import RoutingDirectionIdx as DirectionIdx
-from paibox.libpaicore.v2.route import RoutingNodeCoord as NodeCoord
-from paibox.libpaicore.v2.route import RoutingNodeLevel as Level
-from paibox.libpaicore.v2.route import RoutingNodeStatus as Status
-from paibox.libpaicore.v2.route import get_node_consumption
+from paibox.libpaicore.v2.routing_defs import RoutingDirection as Direction
+from paibox.libpaicore.v2.routing_defs import RoutingDirectionIdx as DirectionIdx
+from paibox.libpaicore.v2.routing_defs import RoutingNodeCoord as NodeCoord
+from paibox.libpaicore.v2.routing_defs import RoutingNodeLevel as Level
+from paibox.libpaicore.v2.routing_defs import RoutingNodeStatus as Status
+from paibox.libpaicore.v2.routing_defs import get_node_consumption
 
 from .grouping import GroupedSynOnCore
 
@@ -396,7 +396,7 @@ class RoutingRoot(RoutingNode):
 
         TODO add error descriptions.
         """
-        parent_name = gsyns_on_core[0].obj.name
+        parent_name = gsyns_on_core[0].parent.name
         n_core = len(gsyns_on_core)
 
         cost = get_node_consumption(n_core)

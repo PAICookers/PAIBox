@@ -1,13 +1,13 @@
 import pytest
 
 import paibox as pb
-from paibox.implement.experimental.placement import (
+from paibox.implement.experimental.routing import (
     RoutingNode,
     RoutingRoot,
     create_lx_full_tree,
     get_node_consumption,
 )
-from paibox.libpaicore.v2.route import (
+from paibox.libpaicore.v2.routing_defs import (
     RoutingDirection,
     RoutingNodeCost,
     RoutingNodeLevel,

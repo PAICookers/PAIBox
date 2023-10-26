@@ -1,8 +1,8 @@
 import pytest
 
 import paibox as pb
-from paibox.implement.placement import RoutingNode, RoutingRoot, get_parent
-from paibox.libpaicore.v2.route import (
+from paibox.implement.routing import RoutingNode, RoutingRoot, get_parent
+from paibox.libpaicore.v2.routing_defs import (
     RoutingDirection,
     RoutingNodeCost,
     RoutingNodeLevel,

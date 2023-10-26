@@ -1,4 +1,4 @@
-from paibox.libpaicore.v2.route import RoutingDirection
+from paibox.libpaicore.v2.routing_defs import RoutingDirection
 
 # path, method, expected_tag
 data_find_node_by_path = [
