@@ -1,18 +1,29 @@
-from typing import ClassVar, List, Optional
+from typing import ClassVar, List, Optional, Tuple, Union
 
 import numpy as np
 
 from paibox.base import NeuDyn, PAIBoxObject
-from paibox.libpaicore.v2 import LCN_EX, Coord, RouterCoordinate
+from paibox.libpaicore.v2 import LCN_EX, Coord, HwConfig, RoutingNodeCoord
+from paibox.projection import InputProj
 from paibox.synapses import SynSys
 
+SourceNodeType = Union[NeuDyn, InputProj]
+DestNodeType = NeuDyn
 
-def axon2lcn_ex(n_axon: int) -> LCN_EX:
+
+def n_axon2lcn_ex(n_axon: int) -> LCN_EX:
+    """Convert #N(of axons) to LCN_EX.
+
+    Description:
+        LCN_EX = log2[ceil(#N/1152)]
+
+    where, LCN_EX = 0 is `LCN_1X`.
+    """
     if n_axon < 1:
         # TODO
         raise ValueError
 
-    lcn_ex = LCN_EX((n_axon - 1) // 1152)
+    lcn_ex = LCN_EX(((n_axon - 1) // HwConfig.N_AXON_DEFAULT).bit_length())
     if lcn_ex >= LCN_EX.LCN_MAX:
         # TODO
         raise ValueError
@@ -38,7 +49,7 @@ class GroupedSyn(GroupedObj):
 
     def __init__(
         self,
-        parent: List[SynSys],
+        *parent: SynSys,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -48,13 +59,24 @@ class GroupedSyn(GroupedObj):
         super().__init__(name)
         self._parent = parent
 
-        self._lcn_ex = axon2lcn_ex(self.n_axons)
-        self._get_limit_info()
+        self._n_axon_each = self._get_n_axon_each()
+        self._lcn_ex = n_axon2lcn_ex(self.n_axon)
+        self._resource_consumption()
 
-        self._need_broadcast: bool = False
+    def _get_n_axon_each(self) -> List[int]:
+        """Get the axons of each unique parents."""
+        seen = set()
+        n_axon_unique = []
+
+        for src_node in self.source:
+            if src_node not in seen:
+                seen.add(src_node)
+                n_axon_unique.append(src_node.num_out)
+
+        return n_axon_unique
 
     @classmethod
-    def build(cls, synapses: List[SynSys], name: Optional[str] = None):
+    def build(cls, *synapses: SynSys, name: Optional[str] = None):
         """Build the `GroupedSyn` for a node.
 
         Use LCN extension optimization in grouping a synapse.
@@ -69,15 +91,15 @@ class GroupedSyn(GroupedObj):
             Now consider S1 & S2 are 1-bit weights.
             TODO If weights precision of S1 & S2 differ? Place on different cores.
         """
-        if not cls.all_dtype_equal(synapses):
+        if not cls.all_dtype_equal(*synapses):
             raise NotImplementedError
 
         assert synapses[0].connectivity.dtype == np.bool_
 
-        return cls(synapses, name)
+        return cls(*synapses, name=name)
 
     @staticmethod
-    def all_dtype_equal(syns: List[SynSys]) -> bool:
+    def all_dtype_equal(*syns: SynSys) -> bool:
         _dtype = syns[0].connectivity.dtype
 
         for syn in syns:
@@ -92,14 +114,16 @@ class GroupedSyn(GroupedObj):
             raise ValueError
 
         self.lcn_ex = lcn_ex
-        self._get_limit_info()
+        self._resource_consumption()
 
-    def _get_limit_info(self) -> None:
-        """Limit the grouped synapses given a new LCN extension.
+    def _resource_consumption(self) -> None:
+        """Limit the grouped synapses by giving a new LCN extension.
 
         Re limit `lcn_ex`, `_n_core`, & `n_neuron_each`.
         """
-        n_neuron_per_core = (512 // self.n_dendrite_per_neuron) >> self.lcn_ex
+        n_neuron_per_core = (
+            HwConfig.N_NEURON_DEFAULT // self.n_dendrite_per_neuron
+        ) >> self.lcn_ex
 
         n_core = (self.n_neuron - 1) // n_neuron_per_core + 1
         n_neuron_each = []
@@ -116,35 +140,41 @@ class GroupedSyn(GroupedObj):
         syn_on_core = []
 
         for i in range(self.n_core):
-            syn_on_core.append(
-                GroupedSynOnCore.build(self, i, need_broadcast=self.need_broadcast)
-            )
+            syn_on_core.append(GroupedSynOnCore.build(self, i))
 
         return syn_on_core
 
     @property
-    def obj(self) -> List[SynSys]:
+    def obj(self) -> Tuple[SynSys, ...]:
         return self._parent
 
     @property
-    def source(self):
-        return [parent.source for parent in self.obj]
+    def source(self) -> List[SourceNodeType]:
+        """Ordered unique source nodes.
+
+        TODO Maybe consider to return `OrderedSet`.
+        """
+        # return OrderedSet([parent.source for parent in self.obj])
+        return list(set([parent.source for parent in self.obj]))
 
     @property
-    def dest(self) -> List[NeuDyn]:
-        return [parent.dest for parent in self.obj]
+    def dest(self) -> List[DestNodeType]:
+        """Ordered unique destination nodes."""
+        # return OrderedSet(set([parent.dest for parent in self.obj]))
+        return list(set([parent.dest for parent in self.obj]))
 
     @property
-    def n_axons_each(self) -> List[int]:
-        return [parent.num_axon for parent in self.obj]
+    def n_axon_each(self) -> List[int]:
+        return self._n_axon_each
 
     @property
-    def n_axons(self) -> int:
-        return sum(self.n_axons_each)
+    def n_axon(self) -> int:
+        return sum(self.n_axon_each)
 
     @property
     def n_neuron(self) -> int:
-        return self.obj[0].num_out
+        """Accumulate the `num_in` for all unique destination nodes."""
+        return sum([node.num_in for node in self.dest])
 
     @property
     def n_core(self) -> int:
@@ -157,7 +187,7 @@ class GroupedSyn(GroupedObj):
     @property
     def n_dendrite_per_neuron(self) -> int:
         # TODO Now consider all the pre-synapses are 1-bit weights.
-        return 1
+        return 1 << self.lcn_ex
 
     @property
     def lcn_ex(self) -> LCN_EX:
@@ -172,31 +202,53 @@ class GroupedSyn(GroupedObj):
         self._lcn_ex = lcn_ex
 
     @property
-    def need_broadcast(self) -> bool:
-        return self._need_broadcast
-
-    @need_broadcast.setter
-    def need_broadcast(self, need_broadcast: bool) -> None:
-        self._need_broadcast = need_broadcast
-
-    @property
-    def weight_combined(self) -> np.ndarray:
-        """Combine all the matrices in one piece."""
-        w = np.concatenate([syn.connectivity for syn in self.obj], axis=0)
-        w.setflags(write=False)
-
-        return w
-
-    @property
     def weight_divided(self) -> List[np.ndarray]:
-        """Divide the connectivity matrix based on `n_neuron_each`.
-        Return a list of weights divided in cores.
+        """Divide the combined weights based on `n_neuron_each`.
+
+        Return:
+            - a list of weights divided in cores.
         """
         pos = []
         for i in range(1, self.n_core):
             pos.append(sum(self.n_neuron_each[:i]))
 
-        return np.split(self.weight_combined, pos, axis=1)
+        return np.split(self._get_weight_combined(), pos, axis=1)
+
+    def _get_syn(self, src: SourceNodeType, dest: DestNodeType) -> Optional[SynSys]:
+        for syn in self.obj:
+            if syn.source == src and syn.dest == dest:
+                return syn
+
+        return None
+
+    def _get_weight_combined(self) -> np.ndarray:
+        """Combine all the matrices in one piece.
+
+        Combined weight:
+            [s1, d1], ..., [s1, dn]
+            ...
+            [sn, d1], ..., [sn, dn]
+        """
+        w = []
+
+        for d in self.dest:
+            ws = []
+            for s in self.source:
+                if syn := self._get_syn(s, d):
+                    ws.append(syn.connectivity)
+                else:
+                    # Fill with 0.
+                    ws.append(np.zeros((s.num_out, d.num_in), dtype=np.bool_))
+
+            w.append(np.concatenate(ws, axis=0))
+
+        wc = np.concatenate(w, axis=1)
+        wc.setflags(write=False)
+
+        # Reserved for debug.
+        self.weight_combined = wc
+
+        return wc
 
     def __repr__(self) -> str:
         return f"<{self.name} at 0x{id(self):x} of target '{self.obj}'>"
@@ -240,7 +292,6 @@ class GroupedSynOnCore(GroupedObj):
         n_neuron: int,
         weights: np.ndarray,
         *,
-        need_broadcast: bool = False,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -250,48 +301,65 @@ class GroupedSynOnCore(GroupedObj):
                 in the parent.
             - n_neuron: the number of neurons used in the CORE.
             - weights: the weights divided into the single CORE.
-            - need_broadcast: wether the syn on core need broadcast.
         """
         super().__init__(name)
 
         self._parent = parent
         self._pos = position
         self._n_neuron = n_neuron
+        self._routing_coord = RoutingNodeCoord()
+
+        self._check()
+
         self._binary_conn = self._get_binary_conn(weights)
-        self._router_coord = RouterCoordinate()
+        # self._need_broadcast = need_broadcast
 
-        self.need_broadcast = need_broadcast
+    def _check(self) -> None:
+        assert (
+            self.n_neuron * self.obj.n_dendrite_per_neuron * 1
+            <= HwConfig.N_NEURON_DEFAULT
+        )
 
-    def _get_binary_conn(self, weights) -> np.ndarray:
-        """Reshape the divided weight into the binary connection.
-        TODO ONLY for `np.bool_` now.
-        """
-        assert self.n_neuron * self.lcn_ex * 1 <= 512
-
-        bc = np.zeros((1152, 512), dtype=np.bool_)
+    def _get_binary_conn(self, weights: np.ndarray) -> np.ndarray:
+        """Reshape the divided weight into the binary connection."""
+        bc_shape = (HwConfig.N_AXON_DEFAULT, HwConfig.N_NEURON_DEFAULT)
+        bc = np.zeros(bc_shape, dtype=np.bool_)
+        n_col_groups = self.obj.n_dendrite_per_neuron
 
         if self.lcn_ex > LCN_EX.LCN_1X:
-            raise NotImplementedError
-            # for i in range(self.n_neuron):
-            #     bc[:, 2 * i] = weights[:1152, i]
-            #     bc[:, 2 * i + 1] = np.pad(
-            #         weights[1152:, i],
-            #         (0, 2 * 1152 - self.n_axons),
-            #         "constant",
-            #         constant_values=0,
-            #     )
+            # TODO Verifiy the algorithm.
+            for i in range(self.n_neuron):
+                w_col = weights[:, i]
+
+                # Traverse every column.
+                col_group = 0
+                # Rest of axons >= 1152? Here cannot be >=!
+                while (r_axon := self.n_axon - bc_shape[0] * col_group) > bc_shape[0]:
+                    bc[:, n_col_groups * i + col_group] = w_col[
+                        bc_shape[0] * col_group : bc_shape[0] * (col_group + 1)
+                    ]
+                    col_group += 1
+
+                # Pad for the rest of axons.
+                bc[:, n_col_groups * i + col_group] = np.pad(
+                    w_col[bc_shape[0] * col_group],
+                    pad_width=(0, r_axon),
+                    mode="constant",
+                    constant_values=0,
+                )
         else:
-            bc[: self.n_axons, : self.n_neuron] = weights
+            # Other is filled with 0.
+            bc[: self.n_axon, : self.n_neuron] = weights
 
         return bc.astype(np.bool_)
 
     @classmethod
-    def build(cls, parent: GroupedSyn, position: int, *, need_broadcast: bool = False):
+    def build(cls, parent: GroupedSyn, position: int):
         """Build the divided synapse placing on a single CORE."""
         n_neuron = parent.n_neuron_each[position]
         weights = parent.weight_divided[position]
 
-        return cls(parent, position, n_neuron, weights, need_broadcast=need_broadcast)
+        return cls(parent, position, n_neuron, weights)
 
     @property
     def obj(self) -> GroupedSyn:
@@ -302,8 +370,8 @@ class GroupedSynOnCore(GroupedObj):
         return self._pos
 
     @property
-    def n_axons(self) -> int:
-        return self.obj.n_axons
+    def n_axon(self) -> int:
+        return self.obj.n_axon
 
     @property
     def lcn_ex(self) -> LCN_EX:
@@ -314,11 +382,11 @@ class GroupedSynOnCore(GroupedObj):
         return self._n_neuron
 
     @property
-    def source(self):
+    def source(self) -> List[SourceNodeType]:
         return self.obj.source
 
     @property
-    def dest(self) -> List[NeuDyn]:
+    def dest(self) -> List[DestNodeType]:
         return self.obj.dest
 
     @property
@@ -327,4 +395,8 @@ class GroupedSynOnCore(GroupedObj):
 
     @property
     def coordinate(self) -> Coord:
-        return self._router_coord.coordinate
+        return self._routing_coord.coordinate
+
+    @coordinate.setter
+    def coordinate(self, coord: RoutingNodeCoord) -> None:
+        self._routing_coord = coord

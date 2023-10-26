@@ -7,7 +7,8 @@ from pydantic import Field
 from pydantic.dataclasses import dataclass
 
 from ._types import ReplicationFlag as RFlag
-from ._types import RouterLevel
+
+# from .router import RouterLevel
 
 
 class Identifier(ABC):
@@ -220,21 +221,21 @@ class Coord(Identifier):
         """Convert to address, 10 bits"""
         return (self.x << 5) | self.y
 
-    @property
-    def router_level(self) -> RouterLevel:
-        x_high = y_high = RouterLevel.L1
+    # @property
+    # def router_level(self) -> RouterLevel:
+    #     x_high = y_high = RouterLevel.L1
 
-        for level in RouterLevel:
-            if (self.x >> level.value) == 0:
-                x_high = level
-                break
+    #     for level in RouterLevel:
+    #         if (self.x >> level.value) == 0:
+    #             x_high = level
+    #             break
 
-        for level in RouterLevel:
-            if (self.y >> level.value) == 0:
-                y_high = level
-                break
+    #     for level in RouterLevel:
+    #         if (self.y >> level.value) == 0:
+    #             y_high = level
+    #             break
 
-        return max(x_high, y_high, key=lambda x: x.value)
+    #     return max(x_high, y_high, key=lambda x: x.value)
 
 
 @final
