@@ -4,12 +4,20 @@ from .params import ParameterRAMFormat as RAMMask
 from .params import ParameterRegFormat as RegMask
 from .util import *
 from paibox.libpaicore.v2 import *
+from typing import Union, List
 
 
 class OfflineConfigFrame1(Frame):
-    def __init__(self, chip_coord: Coord, core_coord: Coord, core_e_coord: ReplicationId, random_seed: int):
-        header = FrameHead.CONFIG_TYPE1
+    def __init__(
+        self,
+        chip_coord: Union[List[Coord], Coord],
+        core_coord: Union[List[Coord], Coord],
+        core_e_coord: Union[List[ReplicationId], ReplicationId],
+        random_seed: Union[List[int], int, np.ndarray],
+    ):
+        header = [FrameHead.CONFIG_TYPE1]
         super().__init__(header, chip_coord, core_coord, core_e_coord, random_seed)
+
 
 class OfflineConfigFrame2(FrameGroup):
     def __init__(self, chip_coord: Coord, core_coord: Coord, core_e_coord: ReplicationId, parameter_reg: dict) -> None:
@@ -44,6 +52,7 @@ class OfflineConfigFrame2(FrameGroup):
     @property
     def parameter_reg(self):
         return self.reg_list
+
 
 class OfflineConfigFrame3(FramePackage):
     def __init__(
@@ -101,6 +110,7 @@ class OfflineConfigFrame3(FramePackage):
 
         super().__init__(header, chip_coord, core_coord, core_e_coord, neuron_ram_load, [ram_frame1, ram_frame2, ram_frame3, ram_frame4])
 
+
 class OfflineConfigFrame4(FramePackage):
     def __init__(
         self, chip_coord: Coord, core_coord: Coord, core_e_coord: ReplicationId, sram_start_addr: int, data_package_num: int, weight_ram: List
@@ -114,125 +124,177 @@ class OfflineConfigFrame4(FramePackage):
 
         super().__init__(header, chip_coord, core_coord, core_e_coord, weight_ram_load, weight_ram)
 
+    # def _frameinfo_decode(self):
+    #     self.header = [FrameHead.WORK_TYPE1]
+    #     self.chip_address = self.frameinfo & np.uint64(WorkFrame1Format.GENERAL_CHIP_ADDR_MASK) >> np.uint64(WorkFrame1Format.GENERAL_CHIP_ADDR_OFFSET)
+    #     self.chip_coord = [Coord.from_addr(add) for add in self.chip_address]
+    #     self.core_address = self.frameinfo & np.uint64(WorkFrame1Format.GENERAL_CORE_ADDR_MASK) >> np.uint64(WorkFrame1Format.GENERAL_CORE_ADDR_OFFSET)
+    #     self.core_coord = [Coord.from_addr(add) for add in self.core_address]
+    #     self.core_e_address = self.frameinfo & np.uint64(WorkFrame1Format.GENERAL_CORE_E_ADDR_MASK) >> np.uint64(WorkFrame1Format.GENERAL_CORE_E_ADDR_OFFSET)
+    #     self.core_e_coord = [Coord.from_addr(add) for add in self.core_e_address]
+    #     self.axon = self.frameinfo & np.uint64(WorkFrame1Format.AXON_MASK) >> np.uint64(WorkFrame1Format.AXON_OFFSET)
+    #     self.time_slot = self.frameinfo & np.uint64(WorkFrame1Format.TIME_SLOT_MASK) >> np.uint64(WorkFrame1Format.TIME_SLOT_OFFSET)
+    # # return self.header,self.chip_address,self.core_address,self.core_e_address,self.axon,self.time_slot
+
 
 # TODO:test frame
-
-
 class OfflineWorkFrame1(Frame):
-    def __init__(self, chip_coord: Coord, core_coord: Coord, core_e_coord: ReplicationId, axon: int, time_slot: int, data: int):
-        header = FrameHead.WORK_TYPE1
-        self.axon = axon
-        self.time_slot = time_slot
-        self.data = data
-        payload =(((0x00 & WorkFrame1Format.RESERVED_MASK) << WorkFrame1Format.RESERVED_OFFSET)
-            | ((axon & WorkFrame1Format.AXON_MASK) << WorkFrame1Format.AXON_OFFSET)
-            | ((time_slot & WorkFrame1Format.TIME_SLOT_MASK) << WorkFrame1Format.TIME_SLOT_OFFSET)
-            | ((data & WorkFrame1Format.DATA_MASK) << WorkFrame1Format.DATA_OFFSET))
-        
-        super().__init__(header, chip_coord, core_coord, core_e_coord, payload)
-        
-
-class OfflineWorkFrame1Muti:
     def __init__(
         self,
-        chip_coord_list : List[Coord],
-        core_coord_list : List[Coord],
-        core_e_coord_list : List[ReplicationId],
-        axon_list: List[int],
-        time_slot_list: List[int],
-        *args
+        chip_coord: Union[List[Coord], Coord],
+        core_coord: Union[List[Coord], Coord],
+        core_e_coord: Union[List[ReplicationId], ReplicationId],
+        axon: Union[List[int], int],
+        time_slot: Union[List[int], int],
+        data: np.ndarray,
     ):
-        self.chip_coord_list = chip_coord_list
-        self.core_coord_list = core_coord_list
-        self.core_e_coord_list = core_e_coord_list
-        self.axon_list = axon_list
-        self.time_slot_list = time_slot_list
-        
-        chip_address_array = np.array([coord.address for coord in chip_coord_list])
-        core_address_array = np.array([coord.address for coord in core_coord_list])
-        core_e_address_array = np.array([coord.address for coord in core_e_coord_list])
-        
-        header_array = np.tile(FrameHead.WORK_TYPE1.value,len(chip_address_array))
-        axon_array = np.array(axon_list)
-        time_slot_array = np.array(time_slot_list)
-        
-        temp_header_array = header_array & np.uint64(FrameFormat.GENERAL_HEADER_MASK)
-        temp_chip_coord_array = chip_address_array & np.uint64(FrameFormat.GENERAL_CHIP_ADDR_MASK)
-        temp_core_address_array = core_address_array & np.uint64(FrameFormat.GENERAL_CORE_ADDR_MASK)
-        temp_core_e_address_array = core_e_address_array & np.uint64(FrameFormat.GENERAL_CORE_E_ADDR_MASK)
-        temp_axon_array = axon_array & np.uint64(WorkFrame1Format.AXON_MASK)
-        temp_time_slot_array = time_slot_array & np.uint64(WorkFrame1Format.TIME_SLOT_MASK)
-        
-        self.frameinfo = (
-            (temp_header_array << np.uint64(FrameFormat.GENERAL_HEADER_OFFSET))
-            | (temp_chip_coord_array <<  np.uint64(FrameFormat.GENERAL_CHIP_ADDR_OFFSET))
-            | (temp_core_address_array << np.uint64(FrameFormat.GENERAL_CORE_ADDR_OFFSET))
-            | (temp_core_e_address_array << np.uint64(FrameFormat.GENERAL_CORE_E_ADDR_OFFSET))
-            | (temp_axon_array << np.uint64(WorkFrame1Format.AXON_OFFSET))
-            | (temp_time_slot_array << np.uint64(WorkFrame1Format.TIME_SLOT_OFFSET))
-        )
-        
-        if args:
-            self.add_data_remove_zero(args[0])
+        header = [FrameHead.WORK_TYPE1]
+        self.data = data.reshape(-1).astype(np.uint64)
 
-    @classmethod
-    def init_frameinfo(
-        cls,
-        chip_coord_list : List[Coord],
-        core_coord_list : List[Coord],
-        core_e_coord_list : List[ReplicationId],
-        axon_list: List[int],
-        time_slot_list: List[int]
-    ):
-        return cls(chip_coord_list,core_coord_list,core_e_coord_list,axon_list,time_slot_list)
-    
-    def add_data_remove_zero(
-        self,
-        origin_data : np.ndarray
-    ):
-        self.origin_data = origin_data
-        data = origin_data.reshape(-1)
-        indexes = np.nonzero(data)
-        spike_frame_info = self.frameinfo[indexes]
-        data = data[indexes]
-        self.data = data
-        self.frames = spike_frame_info << np.uint64(8) | data
-        
-    def __repr__(self) -> str:
-        return (
-            f"Frame info:\n"
-            f"Head:             {FrameHead.WORK_TYPE1}\n"
-            f"Chip address:     {self.chip_coord_list}\n"
-            f"Core address:     {self.core_coord_list}\n"
-            f"Core_E address:   {self.core_e_coord_list}\n"
-            f"axon:             {self.axon_list}\n"
-            f"time_slot:        {self.time_slot_list}\n"
-            f"origin data:      {self.origin_data}\n"
+        self.axon = np.array([axon], dtype=np.uint64) if isinstance(axon, int) else np.array(axon, dtype=np.uint64)
+        self.time_slot = np.array([time_slot], dtype=np.uint64) if isinstance(time_slot, int) else np.array(time_slot, dtype=np.uint64)
+
+        payload = (
+            (np.uint64((0x00 & WorkFrame1Format.RESERVED_MASK) << WorkFrame1Format.RESERVED_OFFSET))
+            | (self.axon & np.uint64(WorkFrame1Format.AXON_MASK) << np.uint64(WorkFrame1Format.AXON_OFFSET))
+            | (self.time_slot & np.uint64(WorkFrame1Format.TIME_SLOT_MASK) << np.uint64(WorkFrame1Format.TIME_SLOT_OFFSET))
+            | (self.data & np.uint64(WorkFrame1Format.DATA_MASK) << np.uint64(WorkFrame1Format.DATA_OFFSET))
         )
+        super().__init__(header, chip_coord, core_coord, core_e_coord, payload)  # type: ignore
+
+    @property
+    def value(self) -> np.ndarray:
+        return self.frame
+
+    def __repr__(self) -> str:
+        info = (
+            "Header:    FrameHead.WORK_TYPE1\n"
+            +"Chip address".ljust(16)
+            + "Core address".ljust(16)
+            + "Core_E address".ljust(16)
+            + "axon".ljust(16)
+            + "time_slot".ljust(16)
+            + "data".ljust(16)
+            + "\n"
+        )
+        content = [
+            f"{chip_coord}".ljust(16)
+            + f"{core_coord}".ljust(16)
+            + f"{core_e_coord}".ljust(16)
+            + f"{axon}".ljust(16)
+            + f"{time_slot}".ljust(16)
+            + f"{data}".ljust(16)
+            + "\n"
+            for chip_coord, core_coord, core_e_coord, axon, time_slot, data in zip(
+                self.chip_coord, self.core_coord, self.core_e_coord, self.axon, self.time_slot, self.data
+            )
+        ]
+
+        return info + "".join(content)
+
+    @staticmethod
+    def gen_frame_fast(frameinfo: np.ndarray, data: np.ndarray) -> np.ndarray:
+        indexes = np.nonzero(data)
+        spike_frame_info = frameinfo[indexes]
+        data = data[indexes]
+        frame = spike_frame_info | data
+
+        return frame
+
+
+# class OfflineWorkFrame1(Frame):
+#     def __init__(
+#         self,
+#         data: np.ndarray,
+#         chip_coord: Optional[Union[List[Coord], Coord]] = None,
+#         core_coord: Optional[Union[List[Coord], Coord]] = None,
+#         core_e_coord: Optional[Union[List[ReplicationId], ReplicationId]] = None,
+#         axon: Optional[Union[List[int], int]] = None,
+#         time_slot: Optional[Union[List[int], int]] = None,
+#         frameinfo: Optional[np.ndarray] = None,
+#     ):
+#         header = [FrameHead.WORK_TYPE1]
+#         self.data = np.array([data], dtype=np.uint64) if isinstance(data, int) else np.array(data, dtype=np.uint64)
+#         if frameinfo is not None:
+#             if any([chip_coord, core_coord, core_e_coord, axon, time_slot]):
+#                 raise ValueError("frameinfo和chip_coord、core_coord、core_e_coord、axon、time_slot不能同时输入")
+
+#             self.frameinfo = frameinfo
+#             data = data.reshape(-1)
+#             indexes = np.nonzero(data)
+#             spike_frame_info = self.frameinfo[indexes]
+#             data = data[indexes]
+#             self.frame = spike_frame_info | data
+
+#         else:
+#             if not all([chip_coord, core_coord, core_e_coord, axon, time_slot]):
+#                 raise ValueError("chip_coord、core_coord、core_e_coord、axon、time_slot必须同时输入")
+
+#             self.axon = np.array([axon], dtype=np.uint64) if isinstance(axon, int) else np.array(axon, dtype=np.uint64)
+#             self.time_slot = np.array([time_slot], dtype=np.uint64) if isinstance(time_slot, int) else np.array(time_slot, dtype=np.uint64)
+
+#             payload = (
+#                 (np.uint64((0x00 & WorkFrame1Format.RESERVED_MASK) << WorkFrame1Format.RESERVED_OFFSET))
+#                 | (self.axon & np.uint64(WorkFrame1Format.AXON_MASK) << np.uint64(WorkFrame1Format.AXON_OFFSET))
+#                 | (self.time_slot & np.uint64(WorkFrame1Format.TIME_SLOT_MASK) << np.uint64(WorkFrame1Format.TIME_SLOT_OFFSET))
+#                 | (self.data & np.uint64(WorkFrame1Format.DATA_MASK) << np.uint64(WorkFrame1Format.DATA_OFFSET))
+#             )
+#             super().__init__(header, chip_coord, core_coord, core_e_coord, payload)  # type: ignore
+
+#     @property
+#     def value(self) -> np.ndarray:
+#         return self.frame
+
+#     def __repr__(self) -> str:
+#         if self.frameinfo is not None:
+#             self._frameinfo_decode()
+
+#         return (
+#             f"Frame info:\n"
+#             f"Head:             {self.header}\n"
+#             f"Chip address:     {self.chip_coord}\n"
+#             f"Core address:     {self.core_coord}\n"
+#             f"Core_E address:   {self.core_e_coord}\n"
+#             f"axon:             {self.axon}\n"
+#             f"time_slot:        {self.time_slot}\n"
+#             f"data:             {self.data}\n")
+
+
+#     def _frameinfo_decode(self):
+#         self.header = [FrameHead.WORK_TYPE1]
+#         self.chip_address = self.frameinfo & np.uint64(WorkFrame1Format.GENERAL_CHIP_ADDR_MASK) >> np.uint64(WorkFrame1Format.GENERAL_CHIP_ADDR_OFFSET)
+#         self.chip_coord = [Coord.from_addr(add) for add in self.chip_address]
+#         self.core_address = self.frameinfo & np.uint64(WorkFrame1Format.GENERAL_CORE_ADDR_MASK) >> np.uint64(WorkFrame1Format.GENERAL_CORE_ADDR_OFFSET)
+#         self.core_coord = [Coord.from_addr(add) for add in self.core_address]
+#         self.core_e_address = self.frameinfo & np.uint64(WorkFrame1Format.GENERAL_CORE_E_ADDR_MASK) >> np.uint64(WorkFrame1Format.GENERAL_CORE_E_ADDR_OFFSET)
+#         self.core_e_coord = [Coord.from_addr(add) for add in self.core_e_address]
+#         self.axon = self.frameinfo & np.uint64(WorkFrame1Format.AXON_MASK) >> np.uint64(WorkFrame1Format.AXON_OFFSET)
+#         self.time_slot = self.frameinfo & np.uint64(WorkFrame1Format.TIME_SLOT_MASK) >> np.uint64(WorkFrame1Format.TIME_SLOT_OFFSET)
+#     # return self.header,self.chip_address,self.core_address,self.core_e_address,self.axon,self.time_slot
 
 
 class OfflineWorkFrame2(Frame):
-    def __init__(self, chip_coord: Coord, time: int):
-        header = FrameHead.WORK_TYPE2
-        core_coord = Coord(0, 0)
-        core_e_coord = ReplicationId(0, 0)
+    def __init__(self, chip_coord: Coord, time: Union[List[int], int, np.ndarray]):
+        header = [FrameHead.WORK_TYPE2]
+        core_coord = [Coord(0, 0)]
+        core_e_coord = [ReplicationId(0, 0)]
 
         super().__init__(header, chip_coord, core_coord, core_e_coord, time)
-        
+
 
 class OfflineWorkFrame3(Frame):
-    def __init__(self, chip_coord: Coord):
-        header = FrameHead.WORK_TYPE3
-        core_coord = Coord(0, 0)
-        core_e_coord = ReplicationId(0, 0)
-        payload = 0
+    def __init__(self, chip_coord: Union[List[Coord], Coord]):
+        header = [FrameHead.WORK_TYPE3]
+        core_coord = [Coord(0, 0)]
+        core_e_coord = [ReplicationId(0, 0)]
+        payload = [0]
         super().__init__(header, chip_coord, core_coord, core_e_coord, payload)
 
 
 class OfflineWorkFrame4(Frame):
-    def __init__(self, chip_coord: Coord):
-        header = FrameHead.WORK_TYPE4
-        core_coord = Coord(0, 0)
-        core_e_coord = ReplicationId(0, 0)
-        payload = 0
+    def __init__(self, chip_coord: Union[List[Coord], Coord]):
+        header = [FrameHead.WORK_TYPE4]
+        core_coord = [Coord(0, 0)]
+        core_e_coord = [ReplicationId(0, 0)]
+        payload = [0]
         super().__init__(header, chip_coord, core_coord, core_e_coord, payload)
