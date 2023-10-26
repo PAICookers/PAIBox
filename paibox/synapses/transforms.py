@@ -5,7 +5,7 @@ import numpy as np
 
 from paibox.utils import is_shape
 
-from .connector import One2One, TwoEndConnector, MatConn
+from .connector import MatConn, One2One, TwoEndConnector
 
 
 def _get_dtype(weight: np.ndarray) -> Union[Type[np.bool_], Type[np.int8]]:
@@ -34,6 +34,7 @@ class Transform(ABC):
     num_out: int
     mask: np.ndarray
     conn: TwoEndConnector
+
     def __call__(self, x):
         return x @ self.weights
 
@@ -78,7 +79,7 @@ class Transform(ABC):
             self.weights = self.weights * self.mask
         else:
             raise ValueError
-        
+
     @property
     def connectivity(self) -> np.ndarray:
         """The connectivity matrix in `np.ndarray` format."""
