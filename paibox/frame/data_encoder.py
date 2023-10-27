@@ -3,18 +3,43 @@ from paibox.frame.frame_gen import FrameGenOffline
 from paibox.frame.offline_frame import OfflineWorkFrame1
 from paibox.libpaicore.v2 import *
 from .params import *
-from typing import List, Union
+from typing import List, Union, Optional
 
 
 class DataEncoder:
-    def __init__(self, frameinfo, data):
-        self.frameinfo = frameinfo
-        self.data = data
+    def __init__(
+        self,
+        chip_coord: Optional[Coord] = None,
+        time_step: Optional[int] = None,
+        frameinfo: Optional[np.ndarray] = None,
+        data: Optional[np.ndarray] = None,
+    ):
+        if chip_coord is not None:
+            self.chip_coord = chip_coord
+        if time_step is not None:
+            self.time_step = time_step
+            
+        if frameinfo is not None:
+            self.frameinfo = frameinfo.astype(np.uint64)
+        if data is not None:
+            self.data = data.astype(np.uint64)
+
+    @classmethod
+    def get_encoder(
+        cls,
+        chip_coord: Coord,
+        time_step: int,
+        frameinfo: np.ndarray,
+        data: np.ndarray,
+    ):
+        return cls(chip_coord, time_step, frameinfo, data)
 
     @property
-    def frames_value(self):
+    def data_frames(self):
         frames = FrameGenOffline.gen_work_frame1(frameinfo=self.frameinfo, data=self.data)
-        return frames
+        work2 = FrameGenOffline.gen_work_frame2(self.chip_coord, self.time_step)
+        return np.concatenate((frames, work2.value), axis=0)  # type: ignore
+
 
     @staticmethod
     def gen_frameinfo(
@@ -23,7 +48,7 @@ class DataEncoder:
         core_e_coord: Union[List[ReplicationId], ReplicationId],
         axon: Union[List[int], int],
         time_slot: Union[List[int], int],
-    ):
+    ) -> np.ndarray:
         header = [FrameHead.WORK_TYPE1]
         if not isinstance(chip_coord, list):
             chip_coord = [chip_coord]

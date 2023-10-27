@@ -6,7 +6,7 @@ from .util import *
 from paibox.libpaicore.v2 import *
 from typing import Union, List
 
-
+"""Offline Config Frame"""
 class OfflineConfigFrame1(Frame):
     def __init__(
         self,
@@ -124,20 +124,11 @@ class OfflineConfigFrame4(FramePackage):
 
         super().__init__(header, chip_coord, core_coord, core_e_coord, weight_ram_load, weight_ram)
 
-    # def _frameinfo_decode(self):
-    #     self.header = [FrameHead.WORK_TYPE1]
-    #     self.chip_address = self.frameinfo & np.uint64(WorkFrame1Format.GENERAL_CHIP_ADDR_MASK) >> np.uint64(WorkFrame1Format.GENERAL_CHIP_ADDR_OFFSET)
-    #     self.chip_coord = [Coord.from_addr(add) for add in self.chip_address]
-    #     self.core_address = self.frameinfo & np.uint64(WorkFrame1Format.GENERAL_CORE_ADDR_MASK) >> np.uint64(WorkFrame1Format.GENERAL_CORE_ADDR_OFFSET)
-    #     self.core_coord = [Coord.from_addr(add) for add in self.core_address]
-    #     self.core_e_address = self.frameinfo & np.uint64(WorkFrame1Format.GENERAL_CORE_E_ADDR_MASK) >> np.uint64(WorkFrame1Format.GENERAL_CORE_E_ADDR_OFFSET)
-    #     self.core_e_coord = [Coord.from_addr(add) for add in self.core_e_address]
-    #     self.axon = self.frameinfo & np.uint64(WorkFrame1Format.AXON_MASK) >> np.uint64(WorkFrame1Format.AXON_OFFSET)
-    #     self.time_slot = self.frameinfo & np.uint64(WorkFrame1Format.TIME_SLOT_MASK) >> np.uint64(WorkFrame1Format.TIME_SLOT_OFFSET)
-    # # return self.header,self.chip_address,self.core_address,self.core_e_address,self.axon,self.time_slot
 
 
 # TODO:test frame
+
+"""Offline Work Frame"""
 class OfflineWorkFrame1(Frame):
     def __init__(
         self,
@@ -169,7 +160,7 @@ class OfflineWorkFrame1(Frame):
     def __repr__(self) -> str:
         info = (
             "Header:    FrameHead.WORK_TYPE1\n"
-            +"Chip address".ljust(16)
+            + "Chip address".ljust(16)
             + "Core address".ljust(16)
             + "Core_E address".ljust(16)
             + "axon".ljust(16)

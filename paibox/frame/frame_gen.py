@@ -47,7 +47,7 @@ class FrameGenOffline:
         axon: Optional[Union[List[int], int]] = None,
         time_slot: Optional[Union[List[int], int]] = None,
         frameinfo: Optional[np.ndarray] = None,
-    ) -> Union[OfflineWorkFrame1,np.ndarray]:
+    ) -> Union[OfflineWorkFrame1, np.ndarray]:
         if frameinfo is not None:
             if any([chip_coord, core_coord, core_e_coord, axon, time_slot]):
                 raise ValueError("frameinfo和chip_coord、core_coord、core_e_coord、axon、time_slot不能同时输入")
@@ -55,14 +55,16 @@ class FrameGenOffline:
         else:
             if not all([chip_coord, core_coord, core_e_coord, axon, time_slot]):
                 raise ValueError("chip_coord、core_coord、core_e_coord、axon、time_slot必须同时输入")
-            return OfflineWorkFrame1(chip_coord,core_coord,core_e_coord,axon,time_slot,data) # type: ignore
+            return OfflineWorkFrame1(chip_coord, core_coord, core_e_coord, axon, time_slot, data)  # type: ignore
 
     @staticmethod
-    def gen_work_frame2(chip_coord: Coord, time:Union[List[int], int, np.ndarray]) -> OfflineWorkFrame2:
+    def gen_work_frame2(chip_coord: Coord, time: Union[List[int], int, np.ndarray]) -> OfflineWorkFrame2:
         return OfflineWorkFrame2(chip_coord, time)
 
     @staticmethod
-    def gen_work_frame3(chip_coord: Union[List[Coord], Coord],) -> OfflineWorkFrame3:
+    def gen_work_frame3(
+        chip_coord: Union[List[Coord], Coord],
+    ) -> OfflineWorkFrame3:
         return OfflineWorkFrame3(chip_coord)
 
     @staticmethod
