@@ -1,12 +1,11 @@
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Optional, Tuple, Union
 
 import numpy as np
 
 from paibox.base import DynamicSys, NeuDyn
 from paibox.projection import InputProj
 
-from .connector import All2All, IndexConn, MatConn, One2One, TwoEndConnector
-from .transforms import Transform
+from .transforms import ConnType, OneToOne, AllToAll, MaskedLinear
 
 __all__ = ["Synapses", "NoDecay"]
 
@@ -23,9 +22,7 @@ class Synapses:
         self,
         source: Union[NeuDyn, InputProj],
         dest: NeuDyn,
-        conn: Union[
-            TwoEndConnector, np.ndarray, Dict[str, Union[List[int], np.ndarray]]
-        ],
+        conn_type: ConnType,
     ) -> None:
         """
         Arguments:
@@ -36,29 +33,15 @@ class Synapses:
         """
         self.source = source
         self.dest = dest
-        # TODO conn, what for?
-        self.conn = self._init_conn(conn)
 
-    def _init_conn(
-        self,
-        conn: Union[
-            TwoEndConnector, np.ndarray, Dict[str, Union[List[int], np.ndarray]]
-        ],
-    ) -> Union[TwoEndConnector, MatConn, IndexConn]:
-        """Build a connector given the arrays or dictionary."""
-        if isinstance(conn, TwoEndConnector):
-            return conn(self.num_in, self.num_out)
+        self._check(conn_type)
 
-        if isinstance(conn, np.ndarray):
-            conn = MatConn(conn_mat=conn)
-        elif isinstance(conn, Dict):
-            if not ("i" in conn and "j" in conn):
-                raise ValueError("The keys of the dictionary must include 'i' and 'j'.")
-            conn = IndexConn(source_ids=conn["i"], dest_ids=conn["j"])
-        else:
-            raise TypeError(f"Unsupported type: {type(self.conn)}.")
-
-        return conn
+    def _check(self, conn_type: ConnType) -> None:
+        if conn_type is ConnType.One2One:
+            if self.num_in != self.num_out:
+                raise ValueError(
+                    "The number of source and destination neurons must be equal."
+                )
 
     @property
     def shape_in(self) -> Tuple[int, ...]:
@@ -78,6 +61,9 @@ class Synapses:
 
 
 class SynSys(Synapses, DynamicSys):
+    def __call__(self, *args, **kwargs):
+        return self.update(*args, **kwargs)
+
     @property
     def connectivity(self) -> np.ndarray:
         raise NotImplementedError
@@ -102,34 +88,38 @@ class NoDecay(SynSys):
         self,
         source: Union[NeuDyn, InputProj],
         dest: NeuDyn,
-        conn: Union[
-            TwoEndConnector, np.ndarray, Dict[str, Union[List[int], np.ndarray]]
-        ],
         weights: Union[int, np.integer, np.ndarray] = 1,
         *,
+        conn_type: ConnType = ConnType.MatConn,
         name: Optional[str] = None,
     ) -> None:
         """
         Arguments:
             - source: source neuron(s).
             - dest: destination neuron(s).
-            - conn: connectivity representation.
-            - weights: weights of the synapses. It can be an integer or `np.ndarray`.
+            - weights: weights of the synapses. It can be a scalar, \
+                `np.ndarray`, or a distribution.
+            - conn_type: the type of connection.
             - name: name of this synapses. Optional.
         """
-        super().__init__(source, dest, conn)
+        super().__init__(source, dest, conn_type)
         super(Synapses, self).__init__(name)
 
-        self.comm = Transform(conn, weights)
+        if conn_type is ConnType.One2One:
+            self.comm = OneToOne(self.num_in, weights)
+        elif conn_type is ConnType.All2All:
+            self.comm = AllToAll((self.num_in, self.num_out), weights)
+        elif conn_type is ConnType.MatConn:
+            if not isinstance(weights, np.ndarray):
+                raise TypeError
+
+            self.comm = MaskedLinear((self.num_in, self.num_out), weights)
 
         self.weights.setflags(write=False)
         self._synout = np.zeros((self.num_in, self.num_out), dtype=np.int32)
 
         # Register `self` for the destination NeuDyn.
         dest.register_master(f"{self.name}.output", self)
-
-    def __call__(self, spike: Optional[np.ndarray] = None, **kwargs):
-        return self.update(spike, **kwargs)
 
     def update(self, spike: Optional[np.ndarray] = None, **kwargs):
         if spike is None:
