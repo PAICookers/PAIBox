@@ -19,8 +19,12 @@ class Net1(pb.DynSysGroup):
         self.inp = pb.projection.InputProj(GenDataProcess(2))
         self.n1 = pb.neuron.TonicSpiking(2, fire_step=2)
         self.n2 = pb.neuron.TonicSpiking(2, fire_step=2)
-        self.s0 = pb.synapses.NoDecay(self.inp, self.n1, pb.synapses.One2One())
-        self.s1 = pb.synapses.NoDecay(self.n1, self.n2, pb.synapses.One2One())
+        self.s0 = pb.synapses.NoDecay(
+            self.inp, self.n1, conn_type=pb.synapses.ConnType.One2One
+        )
+        self.s1 = pb.synapses.NoDecay(
+            self.n1, self.n2, conn_type=pb.synapses.ConnType.One2One
+        )
 
         # Probes inside
         self.n1_acti = pb.simulator.Probe(self.n1, "output")
@@ -35,6 +39,14 @@ def test_probe():
     sim = pb.Simulator(net)
     sim.add_probe(probe_outside)
 
-    sim.run(6)
+    sim.run(10)
 
-    print(sim.data[probe_outside])
+    inp_state = sim.data[probe_outside]
+    assert type(inp_state) == np.ndarray
+
+    inp_state2 = sim.get_raw(probe_outside)
+    assert type(inp_state2) == list
+    
+    # Get the data at time=1
+    inp_state_at_t = sim.get_raw_at_t(probe_outside, t=5)
+    assert type(inp_state_at_t) == np.ndarray

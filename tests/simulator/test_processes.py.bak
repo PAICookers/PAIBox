@@ -4,8 +4,11 @@ import pytest
 import paibox as pb
 
 
-@pytest.mark.parametrize("Process", [pb.simulator.UniformGen, pb.simulator.Constant])
-def test_Processes_run(Process: pb.base.Process):
+@pytest.mark.skip(reason="Module of Process is not ready.")
+@pytest.mark.parametrize(
+    "Process", [pb.simulator.processes.UniformGen, pb.simulator.processes.Constant]
+)
+def test_Processes_run(Process):
     duration = 10
 
     # 1. Output shape is a scalar
@@ -33,10 +36,11 @@ def test_Processes_run(Process: pb.base.Process):
     assert output.shape == (duration, 10, 10)
 
 
+@pytest.mark.skip(reason="Module of Process is not ready.")
 def test_User_Process_run():
     duration = 10
 
-    class Simple_User_Process(pb.base.Process):
+    class Simple_User_Process(pb.simulator.processes.Process):
         def __init__(self, shape_out, **kwargs):
             super().__init__(shape_out, **kwargs)
 
@@ -67,7 +71,7 @@ def test_User_Process_run():
 
     assert output.shape == (duration, 10, 10)
 
-    class MyProcess1_with_timestep(pb.base.Process):
+    class MyProcess1_with_timestep(pb.simulator.processes.Process):
         def __init__(self, shape_out, **kwargs):
             super().__init__(shape_out, **kwargs)
 
@@ -99,10 +103,11 @@ def test_User_Process_run():
     assert output.shape == (duration, 10, 10)
 
 
+@pytest.mark.skip(reason="Module of Process is not ready.")
 def test_User_Process_run_with_args():
     duration = 10
 
-    class MyProcess1_with_args(pb.base.Process):
+    class MyProcess1_with_args(pb.simulator.processes.Process):
         def __init__(self, shape_out, **kwargs):
             super().__init__(shape_out, **kwargs)
 

@@ -3,7 +3,7 @@ import paibox as pb
 import pytest
 
 
-class TestInputProjUpdate:
+class TestInputProj:
     def test_input_None(self):
         inp = pb.InputProj(input=None, shape_out=(4, 4))
         prob = pb.simulator.Probe(inp, "output")
@@ -13,6 +13,10 @@ class TestInputProjUpdate:
 
         with pytest.raises(RuntimeError):
             sim.run(10)
+
+        # when input is None, shape_out is required
+        with pytest.raises(ValueError):
+            inp2 = pb.InputProj(input=None, keep_shape=False)
 
     @pytest.mark.parametrize(
         "keep_shape, expected_shape", [(True, (4, 4)), (False, (16,))]
@@ -101,10 +105,6 @@ class TestInputProjUpdate:
         inp1.input = encoder(input_data2)
         sim.run(10)
         assert len(sim.data[prob]) == 10
-
-        with pytest.raises(ValueError):
-            # when input is None, shape_out is required
-            inp2 = pb.InputProj(input=None, keep_shape=False)
 
         inp3 = pb.InputProj(shape_out=(5, 5), keep_shape=False)
         with pytest.raises(ValueError):
