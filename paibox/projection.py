@@ -3,8 +3,13 @@ from typing import Callable, Optional, Tuple, Union
 import numpy as np
 
 from ._types import Shape
-from .base import Projection
+from .base import DynamicSys
 from .utils import as_shape, shape2num
+
+
+class Projection(DynamicSys):
+    def __call__(self, *args, **kwargs):
+        return self.update(*args, **kwargs)
 
 
 class InputProj(Projection):

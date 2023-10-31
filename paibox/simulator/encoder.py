@@ -13,11 +13,12 @@ class Encoder:
     def __init__(
         self,
         shape_out: Shape,
-        keep_shape: bool = True,
         seed: Optional[int] = None,
     ) -> None:
+        """
+        TODO Consider it as a `PAIBoxObject`? Is `run()` useful?
+        """
         self._shape_out = as_shape(shape_out)
-        self.keep_shape = keep_shape
         self.seed = seed
 
     def run(
@@ -35,7 +36,7 @@ class Encoder:
         return self.run_steps(n_steps, rng, **kwargs)
 
     def run_steps(self, n_steps: int, rng: Generator, **kwargs) -> np.ndarray:
-        output = np.zeros((n_steps,) + self.varshape, dtype=np.bool_)
+        output = np.zeros((n_steps,) + self.shape_out, dtype=np.bool_)
 
         for i in range(n_steps):
             output[i] = self(i, **kwargs)  # Do `__call__`
@@ -44,10 +45,6 @@ class Encoder:
 
     def __call__(self, *args, **kwargs):
         raise NotImplementedError
-
-    @property
-    def varshape(self) -> Tuple[int, ...]:
-        return self.shape_out if self.keep_shape else (self.num_out,)
 
     @property
     def num_out(self) -> int:
@@ -63,10 +60,8 @@ class Encoder:
 
 
 class PoissonEncoder(Encoder):
-    def __init__(
-        self, shape_out: Shape = 1, *, keep_shape: bool = False, **kwargs
-    ) -> None:
-        super().__init__(shape_out, keep_shape, **kwargs)
+    def __init__(self, shape_out: Shape, **kwargs) -> None:
+        super().__init__(shape_out, **kwargs)
 
     def __call__(self, input: np.ndarray) -> np.ndarray:
         return np.less_equal(input, np.random.rand(*input.shape)).astype(np.bool_)

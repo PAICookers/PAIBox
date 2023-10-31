@@ -1,8 +1,9 @@
 from typing import Optional, Type, Union
 
-from .base import DynamicSys, NeuDyn, Projection
+from .base import DynamicSys, NeuDyn
 from .mixin import Container
 from .node import NodeDict
+from .projection import Projection
 from .synapses import SynSys
 
 

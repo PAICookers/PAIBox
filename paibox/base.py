@@ -2,12 +2,10 @@ from typing import List, Literal, Optional, Set, Tuple
 
 import numpy as np
 
-from ._types import Shape
 from .collector import Collector
 from .generic import get_unique_name, is_name_unique
 from .mixin import ReceiveInputProj
 from .node import NodeDict, NodeList
-from .utils import as_shape, shape2num
 
 
 class PAIBoxObject:
@@ -184,7 +182,7 @@ class DynamicSys(PAIBoxObject):
     @property
     def output(self):
         raise NotImplementedError
-    
+
     @property
     def feature_map(self):
         raise NotImplementedError
@@ -202,8 +200,3 @@ class NeuDyn(DynamicSys, ReceiveInputProj):
     @property
     def spike(self) -> np.ndarray:
         raise NotImplementedError
-
-
-class Projection(DynamicSys):
-    def __call__(self, *args, **kwargs):
-        return self.update(*args, **kwargs)
