@@ -2,12 +2,10 @@ from typing import List, Literal, Optional, Set, Tuple
 
 import numpy as np
 
-from ._types import Shape
 from .collector import Collector
 from .generic import get_unique_name, is_name_unique
 from .mixin import ReceiveInputProj
 from .node import NodeDict, NodeList
-from .utils import as_shape, shape2num
 
 
 class PAIBoxObject:
@@ -186,6 +184,10 @@ class DynamicSys(PAIBoxObject):
         raise NotImplementedError
 
     @property
+    def feature_map(self):
+        raise NotImplementedError
+
+    @property
     def state(self):
         raise NotImplementedError
 
@@ -198,60 +200,3 @@ class NeuDyn(DynamicSys, ReceiveInputProj):
     @property
     def spike(self) -> np.ndarray:
         raise NotImplementedError
-
-
-class Projection(DynamicSys):
-    @property
-    def method(self):
-        raise NotImplementedError
-
-
-class Process(DynamicSys):
-    def __init__(
-        self,
-        shape_out: Shape = 1,
-        *,
-        keep_size: bool = False,
-        name: Optional[str] = None,
-    ) -> None:
-        super().__init__(name)
-        self._shape_out = as_shape(shape_out)
-        self.num = shape2num(self.shape_out)
-        self.keep_size = keep_size
-        self._output = np.zeros(self.varshape, dtype=np.bool_)
-
-    def run(self, duration: int, dt: int = 1, **kwargs) -> np.ndarray:
-        if duration < 0:
-            # TODO
-            raise ValueError
-
-        n_steps = int(duration / dt)
-        return self.run_steps(n_steps, **kwargs)
-
-    def run_steps(self, n_steps: int, **kwargs) -> np.ndarray:
-        output = np.zeros((n_steps,) + self.varshape, dtype=np.bool_)
-
-        for i in range(n_steps):
-            self(i, **kwargs)  # Do `__call__`
-            output[i] = self.state
-
-        return output
-
-    def __call__(self, *args, **kwargs):
-        return self.update(*args, **kwargs)
-
-    @property
-    def output(self) -> np.ndarray:
-        return self._output
-
-    @property
-    def state(self) -> np.ndarray:
-        return self._output
-
-    @property
-    def varshape(self) -> Tuple[int, ...]:
-        return self.shape_out if self.keep_size else (self.num,)
-
-    @property
-    def shape_out(self) -> Tuple[int, ...]:
-        return self._shape_out

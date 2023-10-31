@@ -1,4 +1,4 @@
-from collections import MutableSet, Set
+from collections.abc import MutableSet, Set
 from typing import Any, List, Optional, Tuple, TypeVar
 
 import numpy as np

@@ -1,9 +1,8 @@
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import numpy as np
 
 from paibox.base import DynamicSys, PAIBoxObject
-from paibox.collector import Collector
 
 from .probe import Probe
 
@@ -14,33 +13,24 @@ class Simulator(PAIBoxObject):
     def __init__(
         self,
         target: DynamicSys,
-        dt: int = 1,
     ) -> None:
         """
         Arguments:
             - target: the target network.
-            - dt: the time step.
         """
         super().__init__()
 
         self.target = target
-        # Timescale
-        self.dt = dt
-        # Inner status of the simulator. Time scale unit.
-        self._ts1 = 0
-        self._tick = 0
+        self.dt = 1
+        """Time scale."""
+        self._ts = 0
+        """Current time."""
 
         self._sim_data = dict()
         self.data = SimulationData(self._sim_data)
         self.probes: List[Probe] = []
 
-        probe_nodes = (
-            self.target.nodes(level=1, include_self=False).subset(Probe).unique()
-        )
-
-        if len(tuple(probe_nodes)) > 0:
-            self._build_probes(probe_nodes)
-
+        self._add_inner_probes()
         self.reset()
 
     def run(self, duration: int, reset: bool = True, **kwargs) -> None:
@@ -58,7 +48,7 @@ class Simulator(PAIBoxObject):
             # TODO
             raise ValueError
 
-        indices = np.arange(self._ts1, self._ts1 + n_steps, self.dt, dtype=np.int16)
+        indices = np.arange(self._ts, self._ts + n_steps, dtype=np.int16)
 
         if reset:
             self.target.reset_state()
@@ -66,25 +56,62 @@ class Simulator(PAIBoxObject):
         self.run_step(n_steps, **kwargs)
 
         self._sim_data["ts"] = indices * self.dt
-        self._ts1 += n_steps
-        self._tick = self._ts1
+        self._ts += n_steps
 
     def run_step(self, n_steps: int, **kwargs) -> None:
-        for i in range(n_steps):
-            self._tick += i
-            self.step(self._tick, **kwargs)
+        for step in range(n_steps):
+            self.step(step, **kwargs)
 
     def step(self, *args, **kwargs) -> None:
         self.target.update(*args, **kwargs)
-
         self._update_probe()
 
     def reset(self) -> None:
-        self._ts1 = 0
-        self._tick = 0
-        self.clear_probes()
+        self._ts = 0
+        self._clear_probes()
 
-    def clear_probes(self):
+    def add_probe(self, probe: Probe) -> None:
+        if probe not in self.probes:
+            self.probes.append(probe)
+            self._sim_data[probe] = []
+        else:
+            # TODO
+            raise ValueError(f"Probe {probe} already exists.")
+
+    def remove_probe(self, probe: Probe) -> None:
+        if probe in self.probes:
+            self.probes.remove(probe)
+            self._sim_data.pop(probe)
+        else:
+            # TODO Or do nothing.
+            raise ValueError(f"Probe {probe} does not exist.")
+
+    def get_raw(self, probe: Probe) -> List[Any]:
+        """Retrieve the raw data.
+
+        Argument:
+            - probe: the probe to retrieve.
+            - t: retrieve the data at time `t`.
+
+        NOTE: For faster access, use the `data` attribute.
+        """
+        return self._sim_data[probe]
+
+    def get_raw_at_t(self, probe: Probe, t: int) -> Any:
+        """Retrieve the raw data at time `t`.
+
+        Argument:
+            - probe: the probe to retrieve.
+            - t: retrieve the data at time `t`.
+
+        NOTE: For faster access, use the `data` attribute.
+        """
+        if t >= self.time:
+            raise ValueError
+
+        return self._sim_data[probe][t]
+
+    def _clear_probes(self) -> None:
         for probe in self.probes:
             self._sim_data[probe] = []
 
@@ -101,25 +128,25 @@ class Simulator(PAIBoxObject):
 
             self._sim_data[probe].append(data)
 
-    def _build_probes(self, c: Collector) -> None:
-        for probe in c.values():
+    def _add_inner_probes(self) -> None:
+        probe_nodes = (
+            self.target.nodes(level=1, include_self=False).subset(Probe).unique()
+        )
+
+        for probe in probe_nodes.values():
             # Store the probe instances
             self.probes.append(probe)
-            self._sim_data.update({probe: []})
+            self._sim_data[probe] = []
 
-    def add_probe(self, probe: Probe) -> None:
-        if probe not in self.probes:
-            self.probes.append(probe)
-            self._sim_data.update({probe: []})
-        else:
-            # TODO
-            raise ValueError(f"Probe {probe} already exists.")
+    @property
+    def time(self) -> int:
+        return self._ts
 
 
 class SimulationData(dict):
-    """Data structure used to retrive and access the simulation data."""
+    """Data structure used to retrieve and access the simulation data."""
 
-    def __init__(self, raw: Dict) -> None:
+    def __init__(self, raw: Dict[Probe, List[Any]]) -> None:
         super().__init__()
         self.raw = raw
         self._cache = {}
