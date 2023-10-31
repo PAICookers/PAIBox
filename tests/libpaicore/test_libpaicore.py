@@ -6,7 +6,7 @@ import paibox as pb
 from paibox.libpaicore.v2._types import ReplicationFlag as RFlag
 from paibox.libpaicore.v2.coordinate import Coord
 from paibox.libpaicore.v2.coordinate import ReplicationId as RId
-from paibox.libpaicore.v2.route import (
+from paibox.libpaicore.v2.routing_defs import (
     RoutingDirection,
     RoutingNodeCoord,
     RoutingNodeCost,

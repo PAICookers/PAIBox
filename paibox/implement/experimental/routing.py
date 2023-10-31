@@ -1,10 +1,10 @@
 from typing import Any, List, Optional, Sequence, final
 
-from paibox.libpaicore.v2.route import RoutingDirection as Direction
-from paibox.libpaicore.v2.route import RoutingDirectionIdx as DirectionIdx
-from paibox.libpaicore.v2.route import RoutingNodeLevel as Level
-from paibox.libpaicore.v2.route import RoutingNodeStatus as NodeStatus
-from paibox.libpaicore.v2.route import get_node_consumption
+from paibox.libpaicore.v2.routing_defs import RoutingDirection as Direction
+from paibox.libpaicore.v2.routing_defs import RoutingDirectionIdx as DirectionIdx
+from paibox.libpaicore.v2.routing_defs import RoutingNodeLevel as Level
+from paibox.libpaicore.v2.routing_defs import RoutingNodeStatus as NodeStatus
+from paibox.libpaicore.v2.routing_defs import get_node_consumption
 
 from ..grouping import GroupedSynOnCore
 

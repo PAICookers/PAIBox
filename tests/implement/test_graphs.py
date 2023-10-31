@@ -138,11 +138,12 @@ class TestGroupEdges:
         """
         Test #1:
             INP1 -> S1 -> N1 -> S2 -> N2 -> S4 -> N3
-            N2 -> S3 -> S1
+                          | <-- S3 <- |
 
         Test #2:
+            INP1 -> S1 -> N1 -> S2 -> N2 -> S4 -> N3 -> S5 -> N4 -> S7 -> N6
+                           | -> S3 --------------> | -> S6 -> N5 -> S8 -->|
         """
-
         degree, gathered = group_edges_proto(nodes, edges, succ_edges)
 
         print()

@@ -12,8 +12,8 @@ from paibox.libpaicore.v2 import (
     RM,
     SIM,
     TM,
-    MaxPoolingEnableType,
-    SpikeWidthFormatType,
+    MaxPoolingEnable,
+    SpikeWidthFormat,
 )
 from paibox.utils import as_shape, fn_sgn, shape2num
 
@@ -66,8 +66,8 @@ class MetaNeuron:
         self._bit_truncate: int = bit_truncate
 
         # TODO These two config below are parameters of CORE.
-        self._spike_width_format: SpikeWidthFormatType
-        self._pool_max_en: MaxPoolingEnableType
+        self._spike_width_format: SpikeWidthFormat
+        self._pool_max_en: MaxPoolingEnable
 
         """Stateful attributes. Vector."""
         # Attributes about SNN
@@ -277,7 +277,7 @@ class MetaNeuron:
         """
 
         def _when_exceed_pos():
-            if self._spike_width_format is SpikeWidthFormatType.WIDTH_1BIT:
+            if self._spike_width_format is SpikeWidthFormat.WIDTH_1BIT:
                 return np.ones(self.varshape, dtype=np.int32)
 
             if self._bit_truncate >= 8:
@@ -375,6 +375,42 @@ class MetaNeuron:
 
 
 class Neuron(MetaNeuron, NeuDyn):
+    def __len__(self) -> int:
+        return self._n_neuron
+
+    def __call__(self, x: Optional[np.ndarray] = None) -> np.ndarray:
+        return self.update(x)
+
+    def update(self, x: Optional[np.ndarray] = None) -> np.ndarray:
+        if x is None:
+            x = self.sum_inputs()
+
+        return super().update(x)
+
+    def reset_state(self) -> None:
+        """Initialization, not the neuronal reset."""
+        self._vjt = self._vjt_pre = self.init_param(self.vjt_init).astype(np.int32)
+        self._spike = self.init_param(0).astype(np.bool_)
+
+    def export_to_dict(self) -> Dict[str, Any]:
+        config_dict = {
+            "reset_mode": self._reset_mode,
+            "reset_v": self.reset_v,
+            "leaking_comparison": self._leaking_comparison,
+            "threshold_mask_bits": self._thres_mask_bits,
+            "neg_thres_mode": self._neg_thres_mode,
+            "threshold_neg": self.neg_threshold,
+            "threshold_pos": self.pos_threshold,
+            "leaking_direction": self._leaking_direction,
+            "leaking_integration_mode": self._leaking_integration_mode,
+            "leak_v": self.leak_v,
+            "synaptic_integration_mode": self._synaptic_integration_mode,
+            "bit_truncate": self._bit_truncate,
+            "vjt_init": self._vjt_init,
+        }
+
+        return config_dict
+
     @property
     def shape_in(self) -> Tuple[int, ...]:
         return self.varshape
@@ -402,38 +438,3 @@ class Neuron(MetaNeuron, NeuDyn):
     @property
     def state(self) -> np.ndarray:
         return self._spike
-
-    def __len__(self) -> int:
-        return self._n_neuron
-
-    def __call__(self, x: Optional[np.ndarray] = None) -> np.ndarray:
-        return self.update(x)
-
-    def update(self, x: Optional[np.ndarray] = None) -> np.ndarray:
-        if x is None:
-            x = self.sum_inputs()
-
-        return super().update(x)
-
-    def reset_state(self) -> None:
-        """Initialization, not the neuronal reset."""
-        self._vjt = self._vjt_pre = self.init_param(self.vjt_init)
-
-    def export_to_dict(self) -> Dict[str, Any]:
-        config_dict = {
-            "reset_mode": self._reset_mode,
-            "reset_v": self.reset_v,
-            "leaking_comparison": self._leaking_comparison,
-            "threshold_mask_bits": self._thres_mask_bits,
-            "neg_thres_mode": self._neg_thres_mode,
-            "threshold_neg": self.neg_threshold,
-            "threshold_pos": self.pos_threshold,
-            "leaking_direction": self._leaking_direction,
-            "leaking_integration_mode": self._leaking_integration_mode,
-            "leak_v": self.leak_v,
-            "synaptic_integration_mode": self._synaptic_integration_mode,
-            "bit_truncate": self._bit_truncate,
-            "vjt_init": self._vjt_init,
-        }
-
-        return config_dict

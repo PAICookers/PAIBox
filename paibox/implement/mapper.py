@@ -1,7 +1,6 @@
 from collections import defaultdict
-from typing import Dict, FrozenSet, List, Set, Union
+from typing import Dict, List, Set, Union
 
-from paibox._types import FrozenOrderedSet
 from paibox.base import NeuDyn, PAIBoxObject
 from paibox.network import DynSysGroup
 from paibox.projection import InputProj
@@ -45,7 +44,7 @@ class Mapper:
         }
         """
 
-        self._edges_grouped: FrozenOrderedSet[FrozenSet[str]] = FrozenOrderedSet()
+        self._edges_grouped: List[Set[str]] = []
         """Grouped edges in the network. Structure:
         {
             {edge1.name, edge2.name},

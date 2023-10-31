@@ -9,13 +9,6 @@ from .hw_defs import HwConfig
 
 
 @unique
-class RoutingOP(Enum):
-    UP = 0
-    DOWN_UNICAST = 1
-    DOWN_MULTICAST = 2
-
-
-@unique
 class RoutingNodeLevel(IntEnum):
     L0 = 0
     """Leaves of tree to store the data. A L0-layer is a core."""
@@ -24,7 +17,6 @@ class RoutingNodeLevel(IntEnum):
     L3 = 3
     L4 = 4
     L5 = 5
-    """The root."""
 
 
 @unique
@@ -112,7 +104,7 @@ def get_node_consumption(n_core: int) -> RoutingNodeCost:
 
         return n_L0_nodes
 
-    n_sub_node = HwConfig.N_SUB_ROUTER_NODE
+    n_sub_node = HwConfig.N_SUB_ROUTING_NODE
 
     n_L0 = min_n_L0_nodes(n_core)
 
