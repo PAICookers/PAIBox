@@ -18,7 +18,29 @@ numpy = "^1.23.0"
 
 [tool.poetry.group.test.dependencies]
 pytest = { version = "^7.4.0", python = "^3.7" }
+torch = { version = "^2.1.0+cpu", optional = true, source = "torch-cpu" }
+torchvision = { version = "^0.16.0+cpu", optional = true, source = "torch-cpu" }
+torchaudio = { version = "^2.1.0+cpu", optional = true, source = "torch-cpu" }
 
+[tool.poetry.extras]
+torch_env = ["torch", "torchvision", "torchaudio"]
+
+
+[[tool.poetry.source]]
+name = "torch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+priority = "explicit"
+
+
+[[tool.poetry.source]]
+name = "PyPI"
+priority = "primary"
+
+
+[[tool.poetry.source]]
+name = "tsinghua"
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+priority = "default"
 
 [build-system]
 requires = ["poetry-core"]
