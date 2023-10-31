@@ -1,8 +1,9 @@
 from typing import Optional, Tuple, Union
 
 import numpy as np
+
 from paibox._types import Shape
-from paibox.base import PAIBoxObject, DynamicSys
+from paibox.base import DynamicSys, PAIBoxObject
 from paibox.utils import as_shape, shape2num
 
 

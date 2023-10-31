@@ -3,6 +3,7 @@ from typing import Any, Dict, List
 import numpy as np
 
 from paibox.base import DynamicSys, PAIBoxObject
+
 from .probe import Probe
 
 __all__ = ["Simulator"]

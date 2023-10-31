@@ -46,7 +46,7 @@ def test_probe():
 
     inp_state2 = sim.get_raw(probe_outside)
     assert type(inp_state2) == list
-    
+
     # Get the data at time=1
     inp_state_at_t = sim.get_raw_at_t(probe_outside, t=5)
     assert type(inp_state_at_t) == np.ndarray
