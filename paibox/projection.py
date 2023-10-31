@@ -6,75 +6,84 @@ from ._types import Shape
 from .base import Projection
 from .utils import as_shape, shape2num
 
-__all__ = ["InputProj", "OutputProj"]
-
 
 class InputProj(Projection):
     def __init__(
         self,
-        val_or_func: Union[int, np.integer, np.ndarray, Callable],
+        input: Optional[
+            Union[int, np.integer, np.ndarray, Callable[..., np.ndarray]]
+        ] = None,
         *,
-        shape: Optional[Shape] = None,
-        keep_size: bool = False,
+        shape_out: Optional[Shape] = None,
+        keep_shape: bool = True,
         name: Optional[str] = None,
     ) -> None:
-        """Input projection to define an output or a generation function.
+        """The input node of the network.
 
         Arguments:
-            - val_or_func: the output value(integer, np.ndarray) or a process.
-            - shape: the output shape. If not provided, try to use the shape_in of `target`. Otherwise raise error.
+            - input: the output value(integer, np.ndarray), or a callable.
+            - shape_out: the shape of the output.
+            - keep_shape: wether to keep the shape when retieving the \
+                feature map.
             - name: the name of the node. Optional.
         """
         super().__init__(name)
-        self.keep_size = keep_size
 
-        if isinstance(val_or_func, (int, np.integer)):
-            self.val = int(val_or_func)
-            self._shape = (0,)
-        elif isinstance(val_or_func, np.ndarray):
-            if shape:
-                if as_shape(shape) != val_or_func.shape:
-                    # TODO
-                    raise ValueError
+        if isinstance(input, (int, np.integer)):
+            # A scalar
+            self._input = int(input)
+            self._shape_out = as_shape(shape_out)
 
-                self._shape = as_shape(shape)
+        elif isinstance(input, np.ndarray):
+            self._input = input
+            self._shape_out = input.shape
+
+        elif callable(input):
+            self._input = input
+            if shape_out is None:
+                if hasattr(input, "shape_out"):
+                    self._shape_out = input.shape_out
+                else:
+                    raise ValueError(
+                        "Shape of output is required when input is callable."
+                    )
             else:
-                self._shape = (0,)
+                self._shape_out = as_shape(shape_out)
         else:
-            self.val = val_or_func
-            self._shape = self.val.varshape
+            # when `input` is None, `shape_out` is required
+            if shape_out is None:
+                raise ValueError("Shape of output is required when input is None.")
 
-        self._state = np.zeros(self._shape, np.int32)
+            self._input = None
+            self._shape_out = as_shape(shape_out)
 
-    def __call__(self, *args, **kwargs):
-        return self.update(*args, **kwargs)
+        self.keep_shape = keep_shape
+        self._output = np.zeros((self.num_out,), dtype=np.bool_)
 
-    def update(self, *args, **kwargs):
-        if isinstance(self.val, Callable):
-            self._state = self.val(*args, **kwargs)
+    def update(self, *args, **kwargs) -> np.ndarray:
+        if self.input is None:
+            raise RuntimeError("The input is not set.")
+
+        if isinstance(self.input, np.ndarray):
+            self._output = self.input
+        elif isinstance(self.input, int):
+            self._output = np.full((self.num_out,), self.input, dtype=np.int32)
+        elif callable(self.input):
+            self._output = (
+                self.input(*args, **kwargs).astype(np.int32).reshape((self.num_out,))
+            )
         else:
-            self._state = np.full(self.shape_out, self.val)
+            # TODO
+            raise TypeError
 
-        return self._state
+        return self.output
 
     def reset_state(self) -> None:
-        self._state = np.zeros(self._shape, np.int32)
+        self._output = np.zeros((self.num_out,), dtype=np.bool_)
 
     @property
-    def output(self) -> np.ndarray:
-        return self._state
-
-    @property
-    def state(self) -> np.ndarray:
-        return self._state
-
-    @property
-    def shape_in(self) -> Tuple[int, ...]:
-        return (0,)
-
-    @property
-    def shape_out(self) -> Tuple[int, ...]:
-        return self._shape
+    def varshape(self) -> Tuple[int, ...]:
+        return self.shape_out if self.keep_shape else (self.num_out,)
 
     @property
     def num_in(self) -> int:
@@ -82,11 +91,39 @@ class InputProj(Projection):
 
     @property
     def num_out(self) -> int:
-        return shape2num(self.shape_out)
+        return shape2num(self._shape_out)
 
     @property
-    def method(self) -> str:
-        return "function" if isinstance(self.val, Callable) else "value"
+    def shape_in(self) -> Tuple[int, ...]:
+        return (0,)
+
+    @property
+    def shape_out(self) -> Tuple[int, ...]:
+        return self._shape_out
+
+    @property
+    def input(self):
+        return self._input
+
+    @input.setter
+    def input(self, new_input) -> None:
+        if isinstance(new_input, np.ndarray):
+            if new_input.shape != self.shape_out:
+                raise ValueError("The shape of input is not match.")
+
+        self._input = new_input
+
+    @property
+    def output(self) -> np.ndarray:
+        return self._output
+
+    @property
+    def feature_map(self) -> np.ndarray:
+        return self.output.reshape(self.varshape)
+
+    @property
+    def state(self) -> np.ndarray:
+        return self.output
 
 
 class OutputProj(Projection):
