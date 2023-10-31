@@ -16,7 +16,7 @@ class IF(Neuron):
         reset_v: int = 0,
         vjt_init: int = 0,
         *,
-        keep_size: bool = False,
+        keep_shape: bool = False,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -57,7 +57,7 @@ class IF(Neuron):
             _sim,
             _bt,
             vjt_init,
-            keep_size=keep_size,
+            keep_shape=keep_shape,
         )
         super(MetaNeuron, self).__init__(name)
 
@@ -73,7 +73,7 @@ class LIF(Neuron):
         leaky_v: int = 0,
         vjt_init: int = 0,
         *,
-        keep_size: bool = False,
+        keep_shape: bool = False,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -117,7 +117,7 @@ class LIF(Neuron):
             _sim,
             _bt,
             vjt_init,
-            keep_size=keep_size,
+            keep_shape=keep_shape,
         )
         super(MetaNeuron, self).__init__(name)
 
@@ -131,7 +131,7 @@ class TonicSpiking(Neuron):
         fire_step: int,
         vjt_init: int = 0,
         *,
-        keep_size: bool = False,
+        keep_shape: bool = False,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -159,7 +159,7 @@ class TonicSpiking(Neuron):
             SIM.MODE_DETERMINISTIC,
             0,
             vjt_init,
-            keep_size=keep_size,
+            keep_shape=keep_shape,
         )
         super(MetaNeuron, self).__init__(name)
 
@@ -174,7 +174,7 @@ class PhasicSpiking(Neuron):
         neg_floor: int = 10,
         vjt_init: int = 0,
         *,
-        keep_size: bool = False,
+        keep_shape: bool = False,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -210,7 +210,7 @@ class PhasicSpiking(Neuron):
             SIM.MODE_DETERMINISTIC,
             0,
             vjt_init,
-            keep_size=keep_size,
+            keep_shape=keep_shape,
         )
         super(MetaNeuron, self).__init__(name)
 
@@ -224,7 +224,7 @@ class SpikeLatency(Neuron):
         fire_time: int,
         vjt_init: int = 0,
         *,
-        keep_size: bool = False,
+        keep_shape: bool = False,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -259,7 +259,7 @@ class SpikeLatency(Neuron):
             SIM.MODE_DETERMINISTIC,
             0,
             vjt_init,
-            keep_size=keep_size,
+            keep_shape=keep_shape,
         )
         super(MetaNeuron, self).__init__(name)
 
@@ -272,7 +272,7 @@ class SubthresholdOscillations(Neuron):
         shape: Shape,
         vjt_init: int = 0,
         *,
-        keep_size: bool = False,
+        keep_shape: bool = False,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -304,7 +304,7 @@ class SubthresholdOscillations(Neuron):
             SIM.MODE_DETERMINISTIC,
             0,
             vjt_init,
-            keep_size=keep_size,
+            keep_shape=keep_shape,
         )
         super(MetaNeuron, self).__init__(name)
 
@@ -317,7 +317,7 @@ class ResonatorNeuron(Neuron):
         shape: Shape,
         vjt_init: int = 0,
         *,
-        keep_size: bool = False,
+        keep_shape: bool = False,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -351,7 +351,7 @@ class ResonatorNeuron(Neuron):
             SIM.MODE_DETERMINISTIC,
             0,
             vjt_init,
-            keep_size=keep_size,
+            keep_shape=keep_shape,
         )
         super(MetaNeuron, self).__init__(name)
 
@@ -364,7 +364,7 @@ class Integrator(Neuron):
         shape: Shape,
         vjt_init: int = 0,
         *,
-        keep_size: bool = False,
+        keep_shape: bool = False,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -395,7 +395,7 @@ class Integrator(Neuron):
             SIM.MODE_DETERMINISTIC,
             0,
             vjt_init,
-            keep_size=keep_size,
+            keep_shape=keep_shape,
         )
         super(MetaNeuron, self).__init__(name)
 
@@ -409,7 +409,7 @@ class InhibitionInducedSpiking(Neuron):
         fire_step: int,
         vjt_init: int = 0,
         *,
-        keep_size: bool = False,
+        keep_shape: bool = False,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -443,6 +443,6 @@ class InhibitionInducedSpiking(Neuron):
             SIM.MODE_DETERMINISTIC,
             0,
             vjt_init,
-            keep_size=keep_size,
+            keep_shape=keep_shape,
         )
         super(MetaNeuron, self).__init__(name)

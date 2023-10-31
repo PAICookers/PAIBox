@@ -34,10 +34,10 @@ class Process(DynamicSys):
 
 class UniformGen(Process):
     def __init__(
-        self, shape_out: Shape = 1, *, keep_size: bool = False, **kwargs
+        self, shape_out: Shape = 1, *, keep_shape: bool = False, **kwargs
     ) -> None:
         """Discrete uniform."""
-        # super().__init__(shape_out, keep_size=keep_size, **kwargs)
+        # super().__init__(shape_out, keep_shape=keep_shape, **kwargs)
         self.dist = Uniform()
 
     def update(self, *args, **kwargs) -> np.ndarray:
@@ -52,7 +52,7 @@ class Constant(Process):
         shape_out: Shape = 1,
         constant: Union[bool, int] = 0,
         *,
-        keep_size: bool = False,
+        keep_shape: bool = False,
         **kwargs
     ) -> None:
         """
@@ -62,7 +62,7 @@ class Constant(Process):
 
         TODO Only support bool constant now.
         """
-        # super().__init__(shape_out, keep_size=keep_size, **kwargs)
+        # super().__init__(shape_out, keep_shape=keep_shape, **kwargs)
         # self._output = np.full(self.varshape, constant, dtype=np.bool_)
 
     def update(self, *args, **kwargs) -> np.ndarray:

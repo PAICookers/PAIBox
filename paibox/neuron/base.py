@@ -38,12 +38,12 @@ class MetaNeuron:
         bit_truncate: int,
         vjt_init: int,
         *,
-        keep_size: bool = False,
+        keep_shape: bool = False,
         **kwargs,
     ) -> None:
         """Stateless attributes. Scalar."""
         # Basic
-        self.keep_size = keep_size
+        self.keep_shape = keep_shape
         self._n_neuron = shape2num(shape)
         self._shape = as_shape(shape)
 
@@ -136,7 +136,7 @@ class MetaNeuron:
         if self._leaking_direction is LDM.MODE_FORWARD:
             _ld = np.ones(self.varshape, dtype=np.bool_)
         else:
-            _ld = np.vectorize(fn_sgn, otypes=["bool"])(self._vjt, 0)
+            _ld = np.sign(self._vjt)
 
         if self._leaking_integration_mode is LIM.MODE_DETERMINISTIC:
             self._vjt = np.add(self._vjt, _ld * self.leak_v).astype(np.int32)
@@ -183,7 +183,7 @@ class MetaNeuron:
             np.where(self._vjt < -_v_th_neg, TM.EXCEED_NEGATIVE, TM.NOT_EXCEEDED),
         ).astype(np.int8)
 
-        self._spike = np.where(self._threshold_mode == TM.EXCEED_POSITIVE, 1, 0).astype(
+        self._spike = np.equal(self._threshold_mode, TM.EXCEED_POSITIVE).astype(
             np.bool_
         )
 
@@ -238,6 +238,7 @@ class MetaNeuron:
             else:
                 return np.full(self.varshape, -self._neg_thres, dtype=np.int32)
 
+        # USE "=="!
         self._vjt_pre = self._vjt = np.where(
             self._threshold_mode == TM.EXCEED_POSITIVE,
             _when_exceed_pos(),
@@ -340,7 +341,7 @@ class MetaNeuron:
 
     @property
     def varshape(self) -> Tuple[int, ...]:
-        return self._shape if self.keep_size else (self._n_neuron,)
+        return self._shape if self.keep_shape else (self._n_neuron,)
 
     @property
     def reset_v(self) -> int:
@@ -360,7 +361,7 @@ class MetaNeuron:
 
     @property
     def voltage(self) -> np.ndarray:
-        return self._vjt
+        return self._vjt.reshape(self.varshape)
 
     @property
     def neg_threshold(self) -> int:
@@ -393,7 +394,7 @@ class Neuron(MetaNeuron, NeuDyn):
         self._spike = self.init_param(0).astype(np.bool_)
 
     def export_to_dict(self) -> Dict[str, Any]:
-        config_dict = {
+        attr_dict = {
             "reset_mode": self._reset_mode,
             "reset_v": self.reset_v,
             "leaking_comparison": self._leaking_comparison,
@@ -409,7 +410,7 @@ class Neuron(MetaNeuron, NeuDyn):
             "vjt_init": self._vjt_init,
         }
 
-        return config_dict
+        return attr_dict
 
     @property
     def shape_in(self) -> Tuple[int, ...]:
@@ -434,6 +435,10 @@ class Neuron(MetaNeuron, NeuDyn):
     @property
     def spike(self) -> np.ndarray:
         return self._spike
+
+    @property
+    def feature_map(self) -> np.ndarray:
+        return self.output.reshape(self.varshape)
 
     @property
     def state(self) -> np.ndarray:
