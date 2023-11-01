@@ -35,7 +35,7 @@ PAIBox中神经元的调用方式（以**IF**神经元为例）：
 import paibox as pb
 
 # 实例化一个IF神经元组
-n1 = pb.neuron.IF(shape=128, threshold=127, reset_v=0, vjt_init=0, keep_size=False, name='n1')
+n1 = pb.neuron.IF(shape=128, threshold=127, reset_v=0, vjt_init=0, keep_shape=False, name='n1')
 ```
 
 其中：
@@ -44,7 +44,7 @@ n1 = pb.neuron.IF(shape=128, threshold=127, reset_v=0, vjt_init=0, keep_size=Fal
 - `threshold`：神经元阈值，其形式为整数。
 - `reset_v`：神经元的重置电位。
 - `vjt_init`：神经元的初始电位。
-- `keep_size`：布尔型变量，为 `True` 时，神经元组输出会严格保持尺寸。默认为 `False`，便于运算。
+- `keep_shape`：布尔型变量，为 `True` 时，神经元组输出会严格保持尺寸。默认为 `False`，便于运算。
 - `name`：给神经元命名。
 
 除IF神经元外，PAIBox还提供了**LIF**、**TonicSpiking**、**PhasicSpiking**等，可支持多样的神经元计算模型。
@@ -57,7 +57,7 @@ PAIBox中突触的调用方式（以**全连接**类型突触为例）：
 import paibox as pb
 
 # 实例化一个全连接类型突触
-s1= pb.synapses.NoDecay(source=n1, dest=n2, weights=1, conn_type=pb.ConnType.All2All, name='s1')
+s1= pb.synapses.NoDecay(source=n1, dest=n2, weights=weight1, conn_type=pb.ConnType.All2All, name='s1')
 ```
 
 其中：
@@ -85,7 +85,7 @@ I1 = pb.projection.InputProj(input=Encoder, shape_out=784)
 - `input`：该参数指定了传入输入节点的数据，它可以是整数，numpy数组，或者是 `Encoder` 的子类。
 - `shape_out`：输出尺寸。
 
-### Process
+### Encoder
 
 如输入节点的示例所示，当传给输入节点的数据是已知的脉冲数据时，`input` 是对应的整数或numpy数组，**不会随timestep而变化**。如果想要输入数据是一些随时间变化的量，或者需要通过函数生成输入数据，则可以通过继承 `Encoder` 来实现。
 
@@ -195,7 +195,7 @@ sim.run(5)
 
 ### 状态监测
 
-在仿真过程中，我们可能需要检测某一层神经元或突触的膜电位或输出，这时我们可以通过设置探针的形式，记录仿真过程中的数据变化。
+在仿真过程中，我们可能需要检测某一层神经元或突触的膜电位或输出，这时我们可以通过设置探针的形式，记录仿真过程中的数据变化。PAIBox提供了多种不同访问数据形式
 
 ```python
 # 监测仿真过程中的状态变化
@@ -203,6 +203,8 @@ probe1 = pb.simulator.Probe(fc_net1.n1, "output")
 sim.add_probe(probe1)
 sim.run(10)
 print(sim.data[probe1]) # sim.data字典保存了所有仿真数据
+print(sim.get_raw(probe1)) #访问原始数据
+print(sim.get_raw_at_t(probe1,t)) #访问t时刻的数据
 ```
 
 在上述代码中，首先设置了探针 `probe1`，它指向 `fc_net1` 网络的 `n1` 节点，并记录它的输出（脉冲）。监测 `voltage`，可以记录神经元膜电位信息。
