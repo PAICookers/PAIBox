@@ -35,7 +35,7 @@ PAIBox中神经元的调用方式（以**IF**神经元为例）：
 import paibox as pb
 
 # 实例化一个IF神经元组
-n1 = pb.neuron.IF(shape=128, threshold=127, reset_v=0, vjt_init=0, keep_size=False, name='n1')
+n1 = pb.neuron.IF(shape=128, threshold=127, reset_v=0, vjt_init=0, keep_shape=False, name='n1')
 ```
 
 其中：
@@ -44,7 +44,7 @@ n1 = pb.neuron.IF(shape=128, threshold=127, reset_v=0, vjt_init=0, keep_size=Fal
 - `threshold`：神经元阈值，其形式为整数。
 - `reset_v`：神经元的重置电位。
 - `vjt_init`：神经元的初始电位。
-- `keep_size`：布尔型变量，为 `True` 时，神经元组输出会严格保持尺寸。默认为 `False`，便于运算。
+- `keep_shape`：布尔型变量，为 `True` 时，神经元组输出会严格保持尺寸。默认为 `False`，便于运算。
 - `name`：给神经元命名。
 
 除IF神经元外，PAIBox还提供了**LIF**、**TonicSpiking**、**PhasicSpiking**等，可支持多样的神经元计算模型。
@@ -57,7 +57,7 @@ PAIBox中突触的调用方式（以**全连接**类型突触为例）：
 import paibox as pb
 
 # 实例化一个全连接类型突触
-s1 = pb.synapses.NoDecay(source=n1, dest=n2, conn=pb.synapses.All2All(), weights=weight1, name='s1')
+s1= pb.synapses.NoDecay(source=n1, dest=n2, weights=weight1, conn_type=pb.ConnType.All2All, name='s1')
 ```
 
 其中：
@@ -65,8 +65,8 @@ s1 = pb.synapses.NoDecay(source=n1, dest=n2, conn=pb.synapses.All2All(), weights
 - `NoDecay`：指在传递信息过程中没有衰减的突触类型。鉴于芯片并不支持其他类型的突触，因此仅有这一种类型。
 - `source`：表示突触所连接的前向神经元组，可以是神经元或者输入节点类型。
 - `dest`：表示突触所连接的后向神经元组，只可以是神经元类型。
-- `conn`：表示突触连接两个神经元组的形式，`All2All` 表示全连接。除此之外，PAIBox还提供了 `One2One` 单连接等其他连接形式，满足不同的神经元连接需求。
 - `weights`：可以通过设置此参数，将自定义权重配置到该突触中，形成全连接层。
+- `conn_type`：表示突触连接两个神经元组的形式，`All2All` 表示全连接。除此之外，PAIBox还提供了 `One2One` 单连接以及`MaskedLinear`，满足不同的神经元连接需求。
 
 ### 输入节点
 
@@ -76,47 +76,51 @@ s1 = pb.synapses.NoDecay(source=n1, dest=n2, conn=pb.synapses.All2All(), weights
 import paibox as pb
 
 # 实例化一个输入节点
-I1 = pb.projection.InputProj(val_or_func=Encoder_process, shape=784)
+I1 = pb.projection.InputProj(input=Encoder, shape_out=784)
 ```
 
 输入节点使用时与神经元类似，需要例化突触将其与其他神经元连接起来，构成网络。主要参数有两个：
 
-- `val_or_func`：该参数指定了传入输入节点的数据，它可以是整数，numpy数组，或者是 `Process` 的子类。
-- `shape`：输出尺寸。
+- `input`：该参数指定了传入输入节点的数据，它可以是整数，numpy数组，或者是 `Encoder` 的子类。
+- `shape_out`：输出尺寸。
 
-### Process
+### Encoder
 
-如输入节点的示例所示，当传给输入节点的数据是已知的脉冲数据时，`val_or_func` 是对应的整数或numpy数组，**不会随timestep而变化**。如果想要输入数据是一些随时间变化的量，或者需要通过函数生成输入数据，则可以通过继承 `Process` 来实现。
+如输入节点的示例所示，当传给输入节点的数据是已知的脉冲数据时，`input` 是对应的整数或numpy数组，**不会随timestep而变化**。如果想要输入数据是一些随时间变化的量，或者需要通过函数生成输入数据，则可以通过继承 `Encoder` 来实现。
 
-下面以泊松编码为例，完成一个自定义 `Process` 的构建。
+下面以泊松编码为例，完成一个自定义 `Encoder` 的构建。
 
 ```python
-# Process基本形式
-class NewProcess(pb.base.Process):
+# Encoder基本形式
+from paibox.simulator.encoder import Encoder
+class NewEncoder(Encoder):
     def __init__(self, shape_out):
         super().__init__(shape_out)
 
-    def update(self):
+    def __call__(self, *args, **kwargs):
         ...
 
 #可对输入进行泊松编码的process
-class PoissonEncoder(pb.base.Process):
-    def __init__(self, shape_out, input):
-        super().__init__(shape_out)
-        self.input = input
+class PoissonEncoder(Encoder):
+    def __init__(self, shape_out: Shape, **kwargs) -> None:
+        super().__init__(shape_out, **kwargs)
 
-    def update(self, t):
-        out_spike = torch.rand_like(self.input).le(self.input)
-        out_spike = out_spike.numpy().flatten()
-        return out_spike
+    def __call__(self, input: np.ndarray) -> np.ndarray:
+        return np.less_equal(input, np.random.rand(*input.shape)).astype(np.bool_)
 ```
 
-可以通过定义 `update` 方法来实现想要的函数式输出。
+可以通过定义 `__call__` 方法来实现想要的函数式输出。
 
-- 如果想要其根据时间变化而一直产生，可以在输入参数中**显式地接收timestep参数**（必须在第一参数位置）。由此，`Process` 会产生一个与timestep相关的输出。
+- 如果想要其根据时间变化而一直产生，可以在输入参数中**显式地接收timestep参数**（必须在第一参数位置）。由此，`Encoder` 会产生一个与timestep相关的输出。
 - 若输出与timestep无关，则无需接收该参数。由此，输出与timestep无关。
 
-上述 `Process` 示例可以实现对输入的NMIST图片进行泊松编码，并将其flatten后输出。
+上述 `Encoder` 示例可以实现对输入的NMIST图片进行泊松编码，并将其flatten后输出。
+
+paibox已提供泊松编码可直接调用
+
+```python
+PEncoder=pb.PoissonEncoder(shape_out=10)
+```
 
 ## 网络搭建
 
@@ -130,8 +134,9 @@ class fcnet(pb.DynSysGroup):
         self.n1 = pb.projection.InputProj(Encoder)
         self.n2 = pb.neuron.IF(128, threshold=127, reset_v=0)
         self.n3 = pb.neuron.IF(10, threshold=127, reset_v=0)
-        self.l1 = pb.synapses.NoDecay(self.n1, self.n2, pb.synapses.All2All(), weights=weight1)
-        self.l2 = pb.synapses.NoDecay(self.n2, self.n3, pb.synapses.All2All(), weights=weight2)
+        self.l1 = pb.synapses.NoDecay(self.n1, self.n2, weights=weight1, conn_type=pb.ConnType.All2All)
+        self.l2 = pb.synapses.NoDecay(self.n2, self.n3, weights=weight2, conn_type=pb.ConnType.All2All)
+
 ```
 
 首先根据网络需求实例化输入节点和神经元节点，然后实例化突触将其连接起来，即可构成网络。也可以使用 `Sequential` 构建 **线性网络**：
@@ -140,7 +145,7 @@ class fcnet(pb.DynSysGroup):
 # 使用Sequential搭建线性网络
 n1 = pb.neuron.TonicSpiking(10, fire_step=3)
 n2 = pb.neuron.TonicSpiking(10, fire_step=5)
-s1 = pb.synapses.NoDecay(n1, n2, pb.synapses.All2All())
+s1 = pb.synapses.NoDecay(n1, n2, weight1, pb.ConnType.All2All)
 sequential = pb.network.Sequential(n1, s1, n2)
 ```
 
@@ -159,8 +164,8 @@ class Net_User_Update(pb.DynSysGroup):
         self.n1 = pb.neuron.TonicSpiking(3, fire_step=2)
         self.n2 = pb.neuron.TonicSpiking(3, fire_step=2)
         self.n3 = pb.neuron.TonicSpiking(3, fire_step=2)
-        self.s1 = pb.synapses.NoDecay(self.n1, self.n3, pb.synapses.One2One())
-        self.s2 = pb.synapses.NoDecay(self.n2, self.n3, pb.synapses.One2One())
+        s1 = pb.synapses.NoDecay(self.n1, self.n3, weight1, pb.ConnType.All2All)
+        self.s2 = pb.synapses.NoDecay(self.n2, self.n3, weight2, pb.ConnType.One2One)
 
     def update(self, x1, x2):
         y1 = self.n1.update(x1)
@@ -178,7 +183,7 @@ class Net_User_Update(pb.DynSysGroup):
 
 ```python
 # 使用仿真器进行仿真
-fc_net1 = fcnet(PoissonEncoder(784, imgs))
+fc_net1 = fcnet(PEncoder(imgs))
 sim = pb.Simulator(fc_net1)
 sim.run(5)
 ```
@@ -187,7 +192,7 @@ sim.run(5)
 
 ### 状态监测
 
-在仿真过程中，我们可能需要检测某一层神经元或突触的膜电位或输出，这时我们可以通过设置探针的形式，记录仿真过程中的数据变化。
+在仿真过程中，我们可能需要检测某一层神经元或突触的膜电位或输出，这时我们可以通过设置探针的形式，记录仿真过程中的数据变化。PAIBox提供了多种不同访问数据形式。
 
 ```python
 # 监测仿真过程中的状态变化
@@ -195,6 +200,8 @@ probe1 = pb.simulator.Probe(fc_net1.n1, "output")
 sim.add_probe(probe1)
 sim.run(10)
 print(sim.data[probe1]) # sim.data字典保存了所有仿真数据
+print(sim.get_raw(probe1)) #访问原始数据
+print(sim.get_raw_at_t(probe1,t)) #访问t时刻的数据
 ```
 
 在上述代码中，首先设置了探针 `probe1`，它指向 `fc_net1` 网络的 `n1` 节点，并记录它的输出（脉冲）。监测 `voltage`，可以记录神经元膜电位信息。
@@ -209,8 +216,8 @@ class fcnet(pb.DynSysGroup):
         self.n1 = pb.projection.InputProj(Encoder)
         self.n2 = pb.neuron.IF(128, threshold=127, reset_v=0)
         self.n3 = pb.neuron.IF(10, threshold=127, reset_v=0)
-        self.l1 = pb.synapses.NoDecay(self.n1, self.n2, pb.synapses.All2All(), weights=weight1)
-        self.l2 = pb.synapses.NoDecay(self.n2, self.n3, pb.synapses.All2All(), weights=weight2)
+        self.l1 = pb.synapses.NoDecay(self.n1, self.n2, weights=weight1, conn_type=pb.ConnType.All2All)
+        self.l2 = pb.synapses.NoDecay(self.n2, self.n3, weights=weight2, conn_type=pb.ConnType.All2All)
         # 监测n2的膜电位
         self.n1_acti = pb.simulator.Probe(self.n2, "voltage")
 ```
