@@ -34,12 +34,10 @@ class DataEncoder:
     ):
         return cls(chip_coord, time_step, frameinfo, data)
 
-    @property
-    def data_frames(self):
+    def encode(self):
         frames = FrameGenOffline.gen_work_frame1(frameinfo=self.frameinfo, data=self.data)
         work2 = FrameGenOffline.gen_work_frame2(self.chip_coord, self.time_step)
         return np.concatenate((frames, work2.value), axis=0)  # type: ignore
-
 
     @staticmethod
     def gen_frameinfo(
