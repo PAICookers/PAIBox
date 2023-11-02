@@ -3,11 +3,9 @@
 """
 from typing import Union
 import numpy as np
-import torch
 
 from paibox.frame.offline_frame import OfflineWorkFrame1
-from .params import *
-from paibox.libpaicore.v2 import LCN_EX
+from .params import WorkFrame1Format
 
 class FrameDecoder:
     
@@ -15,7 +13,7 @@ class FrameDecoder:
         self,
         frames : Union[np.ndarray,OfflineWorkFrame1],
     ) -> dict:
-        """_summary_
+        """将输出数据帧解码，以字典形式返回，按照time_slot排序
 
         Args:
             frames (Union[np.ndarray,OfflineWorkFrame1]): _description_

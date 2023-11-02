@@ -1,5 +1,4 @@
 from enum import Enum, unique
-from typing import TypeVar, List, Tuple
 
 # 帧类型标志位
 @unique

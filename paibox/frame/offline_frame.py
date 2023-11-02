@@ -127,6 +127,29 @@ class OfflineConfigFrame4(FramePackage):
 
 
 # TODO:test frame
+class OfflineTestInFrame1(Frame):
+    pass
+
+class OfflineTestOutFrame1(Frame):
+    pass
+
+class OfflineTestInFrame2(Frame):
+    pass
+
+class OfflineTestOutFrame2(Frame):
+    pass
+
+class OfflineTestInFrame3(Frame):
+    pass
+
+class OfflineTestOutFrame3(Frame):
+    pass
+
+class OfflineTestInFrame4(Frame):
+    pass
+
+class OfflineTestOutFrame4(Frame):
+    pass
 
 """Offline Work Frame"""
 class OfflineWorkFrame1(Frame):

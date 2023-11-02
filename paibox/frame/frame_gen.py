@@ -1,11 +1,9 @@
-from typing import Optional, Tuple
+from typing import Optional
 from .base_frame import *
 import numpy as np
 
 from paibox.libpaicore.v2 import Coord
 from .util import *
-from .params import ParameterRAMFormat as RAMMask
-from .params import ParameterRegFormat as RegMask
 from .params import *
 from .offline_frame import *
 

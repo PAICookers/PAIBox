@@ -1,8 +1,8 @@
 import numpy as np
 from paibox.frame.frame_gen import FrameGenOffline
-from paibox.frame.offline_frame import OfflineWorkFrame1
-from paibox.libpaicore.v2 import *
-from .params import *
+from paibox.frame.params import FrameFormat
+from paibox.libpaicore.v2 import Coord, ReplicationId
+from .params import WorkFrame1Format, FrameHead
 from typing import List, Union, Optional
 
 
