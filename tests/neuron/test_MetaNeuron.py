@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+
 from paibox.neuron.base import *
 
 _sim = SIM.MODE_DETERMINISTIC
@@ -23,24 +24,26 @@ _bt = 0
         (1, np.array([[1, 0], [-1, -2]]), np.array([2, -2])),
         (0, np.array([1, 2]), np.array([1, 2])),
         (0, np.array(2), np.array([2, 2])),
-    ]
+    ],
 )
 def test_neuronal_charge(vjt_init, x, expected):
-    n1 = MetaNeuron(2,
-                    _reset_mode,
-                    _reset_v,
-                    _lc,
-                    _mask,
-                    _ntm,
-                    _neg_thres,
-                    _pos_thres,
-                    _ld,
-                    _lim,
-                    _leak_v,
-                    _sim,
-                    _bt,
-                    vjt_init,
-                    keep_shape=True, )
+    n1 = MetaNeuron(
+        2,
+        _reset_mode,
+        _reset_v,
+        _lc,
+        _mask,
+        _ntm,
+        _neg_thres,
+        _pos_thres,
+        _ld,
+        _lim,
+        _leak_v,
+        _sim,
+        _bt,
+        vjt_init,
+        keep_shape=True,
+    )
     n1._neuronal_charge(x)
     assert np.array_equal(n1._vjt, expected)
 
@@ -61,21 +64,23 @@ def test_neuronal_charge(vjt_init, x, expected):
     # ids="path_1, path_2, path_3,path_4,path_5,path_6,path_7,path_8,path_9"
 )
 def test__neuronal_leak(vjt, leak_v, _lim, _ld, expected):
-    n1 = MetaNeuron(2,
-                    _reset_mode,
-                    _reset_v,
-                    _lc,
-                    _mask,
-                    _ntm,
-                    _neg_thres,
-                    _pos_thres,
-                    _ld,
-                    _lim,
-                    leak_v,
-                    _sim,
-                    _bt,
-                    vjt_init=vjt,
-                    keep_shape=True, )
+    n1 = MetaNeuron(
+        2,
+        _reset_mode,
+        _reset_v,
+        _lc,
+        _mask,
+        _ntm,
+        _neg_thres,
+        _pos_thres,
+        _ld,
+        _lim,
+        leak_v,
+        _sim,
+        _bt,
+        vjt_init=vjt,
+        keep_shape=True,
+    )
     n1._neuronal_leak()
     assert np.array_equal(n1._vjt, expected)
 
@@ -87,27 +92,30 @@ def test__neuronal_leak(vjt, leak_v, _lim, _ld, expected):
         (NTM.MODE_SATURATION, 10, 10, 3, np.array([True])),
         (NTM.MODE_SATURATION, 5, 10, 3, np.array([False])),
         (NTM.MODE_SATURATION, -12, 10, 3, np.array([False])),
-    ]
+    ],
 )
 def test_neuronal_fire(vjt, neg_thres, pos_thres, ntm, expected):
     # mask=3
-    n1 = MetaNeuron(1,
-                    _reset_mode,
-                    _reset_v,
-                    _lc,
-                    3,
-                    ntm,
-                    neg_thres,
-                    pos_thres,
-                    _ld,
-                    _lim,
-                    2,
-                    _sim,
-                    _bt,
-                    vjt_init=vjt,
-                    keep_shape=True, )
+    n1 = MetaNeuron(
+        1,
+        _reset_mode,
+        _reset_v,
+        _lc,
+        3,
+        ntm,
+        neg_thres,
+        pos_thres,
+        _ld,
+        _lim,
+        2,
+        _sim,
+        _bt,
+        vjt_init=vjt,
+        keep_shape=True,
+    )
     n1._neuronal_fire()
     assert np.array_equal(n1._spike, expected)
+
 
 @pytest.mark.parametrize(
     "ntm, thr_mode, reset_mode, expected",
@@ -121,23 +129,24 @@ def test_neuronal_fire(vjt, neg_thres, pos_thres, ntm, expected):
         (NTM.MODE_SATURATION, TM.EXCEED_NEGATIVE, RM.MODE_NONRESET, np.array([-3])),
     ],
 )
-
-def test_neuronal_reset(ntm, thr_mode,reset_mode, expected):
-    n1 = MetaNeuron(1,
-                    reset_mode,
-                    5,
-                    _lc,
-                    _mask,
-                    ntm,
-                    3,
-                    -2,
-                    _ld,
-                    _lim,
-                    _leak_v,
-                    _sim,
-                    _bt,
-                    vjt_init=10,
-                    keep_shape=True, )
+def test_neuronal_reset(ntm, thr_mode, reset_mode, expected):
+    n1 = MetaNeuron(
+        1,
+        reset_mode,
+        5,
+        _lc,
+        _mask,
+        ntm,
+        3,
+        -2,
+        _ld,
+        _lim,
+        _leak_v,
+        _sim,
+        _bt,
+        vjt_init=10,
+        keep_shape=True,
+    )
     n1._threshold_mode = thr_mode
     n1._neuronal_reset()
     assert np.array_equal(n1._vjt, expected)
