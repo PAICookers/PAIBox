@@ -12,8 +12,10 @@ from paibox.synapses.transforms import AllToAll, MaskedLinear, OneToOne
         (np.array([1, 0, 1], dtype=np.int8), np.bool_),
         (10, np.int8),
         (-1, np.int8),
+        (np.array([127, 0, 1], dtype=np.int8), np.int8),
+        (np.array([-128, 1, 127], dtype=np.int8), np.int8)
     ],
-    ids=["array_1", "array_2", "array_3", "scalar_pos", "scalar_neg"],
+    ids=["array_1", "array_2", "array_3", "scalar_pos", "scalar_neg", "array_127", "array_-128"],
 )
 def test_OneToOne_dtype(weight, expected_dtype):
     num = 3
@@ -47,8 +49,8 @@ def test_OneToOne():
 
 @pytest.mark.parametrize(
     "weight, expected_dtype",
-    [(1, np.bool_), (-1, np.int8), (10, np.int8), (-100, np.int8)],
-    ids=["scalar_1", "scalar_-1", "scalar_10", "scalar_-100"],
+    [(1, np.bool_), (-1, np.int8), (10, np.int8), (-100, np.int8), (-128, np.int8), (127, np.int8),],
+    ids=["scalar_1", "scalar_-1", "scalar_10", "scalar_-100", "scalar_-128", "scalar_-127"],
 )
 def test_AllToAll_weight_scalar(weight, expected_dtype):
     """Test `AllToAll` when weight is a scalar"""
@@ -94,8 +96,14 @@ def test_AllToAll_weight_scalar(weight, expected_dtype):
             np.array([[1, 2], [3, 4]], dtype=np.int8),
             np.int8,
         ),
+        (
+            (2, 2),
+            np.array([1, 1], dtype=np.bool_),
+            np.array([[127, 0], [3, -128]], dtype=np.int8),
+            np.int8,
+        ),
     ],
-    ids=["weights_bool_1", "weights_int8_1", "weights_int8_2", "weights_int8_3"],
+    ids=["weights_bool_1", "weights_int8_1", "weights_int8_2", "weights_int8_3", "weights_int8_4"],
 )
 def test_AllToAll_array(shape, x, weights, expected_dtype):
     """Test `AllToAll` when weights is an array"""
@@ -131,8 +139,14 @@ def test_AllToAll_array(shape, x, weights, expected_dtype):
             np.random.randint(2, size=(20, 10), dtype=np.int8),
             np.bool_,
         ),
+        (
+                (2, 2),
+                np.array([1, 1], dtype=np.bool_),
+                np.array([[127, 0], [3, -128]], dtype=np.int8),
+                np.int8,
+        ),
     ],
-    ids=["weights_int8_1", "weights_int8_2", "weights_bool"],
+    ids=["weights_int8_1", "weights_int8_2", "weights_bool", "weights_int8_3"],
 )
 def test_MaskedLinear_conn(shape, x, weights, expected_dtype):
     f = MaskedLinear(shape, weights)
