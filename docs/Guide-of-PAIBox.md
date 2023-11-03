@@ -67,6 +67,10 @@ s1= pb.synapses.NoDecay(source=n1, dest=n2, weights=weight1, conn_type=pb.ConnTy
 - `dest`：表示突触所连接的后向神经元组，只可以是神经元类型。
 - `weights`：可以通过设置此参数，将自定义权重配置到该突触中，形成全连接层。
 - `conn_type`：表示突触连接两个神经元组的形式，`All2All` 表示全连接。除此之外，PAIBox还提供了 `One2One` 单连接以及`MaskedLinear`，满足不同的神经元连接需求。
+<<<<<<< HEAD
+=======
+
+>>>>>>> hzytest
 
 ### 输入节点
 
@@ -110,6 +114,10 @@ class PoissonEncoder(Encoder):
 ```
 
 可以通过定义 `__call__` 方法来实现想要的函数式输出。
+<<<<<<< HEAD
+=======
+
+>>>>>>> hzytest
 
 - 如果想要其根据时间变化而一直产生，可以在输入参数中**显式地接收timestep参数**（必须在第一参数位置）。由此，`Encoder` 会产生一个与timestep相关的输出。
 - 若输出与timestep无关，则无需接收该参数。由此，输出与timestep无关。
@@ -121,6 +129,10 @@ paibox已提供泊松编码可直接调用
 ```python
 PEncoder=pb.PoissonEncoder(shape_out=10)
 ```
+<<<<<<< HEAD
+=======
+
+>>>>>>> hzytest
 
 ## 网络搭建
 
@@ -192,7 +204,11 @@ sim.run(5)
 
 ### 状态监测
 
+<<<<<<< HEAD
 在仿真过程中，我们可能需要检测某一层神经元或突触的膜电位或输出，这时我们可以通过设置探针的形式，记录仿真过程中的数据变化。PAIBox提供了多种不同访问数据形式。
+=======
+在仿真过程中，我们可能需要检测某一层神经元或突触的膜电位或输出，这时我们可以通过设置探针的形式，记录仿真过程中的数据变化。PAIBox提供了多种不同访问数据形式
+>>>>>>> hzytest
 
 ```python
 # 监测仿真过程中的状态变化
