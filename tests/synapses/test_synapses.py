@@ -4,6 +4,21 @@ import pytest
 import paibox as pb
 
 
+def test_SynSys_Attrs():
+    n1 = pb.neuron.TonicSpiking(3, 3)
+    n2 = pb.neuron.TonicSpiking(3, 3)
+    s1 = pb.synapses.NoDecay(
+        n1,
+        n2,
+        weights=np.array([[1, 1, 0], [0, 1, 1], [0, 1, 1]]),
+        conn_type=pb.synapses.ConnType.MatConn,
+    )
+
+    assert np.array_equal(s1.n_axon_each, np.array([1, 3, 2]))
+    assert s1.num_axon == 3
+    assert s1.num_dentrite == 3
+
+
 @pytest.mark.parametrize(
     "n1, n2",
     [

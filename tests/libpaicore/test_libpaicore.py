@@ -71,6 +71,15 @@ def test_replicationId():
                 Coord(0b00001, 0b00001),
             ],
             RId(0b00001, 0b000001),
+        ),
+        (
+            [
+                Coord(0b00010, 0b00000),
+                Coord(0b00011, 0b00000),
+                Coord(0b00010, 0b00010),
+                Coord(0b00011, 0b00010),
+            ],
+            RId(0b00001, 0b000010),
         )
     ],
 )
@@ -103,7 +112,7 @@ def test_routing_node_coord():
     for i in range(5):
         path.append(RoutingDirection.X0Y0)
 
-    coord = RoutingNodeCoord.build_from_path(path)
+    coord = RoutingNodeCoord(*path)
 
     assert coord.level == RoutingNodeLevel.L0
     assert coord.coordinate == Coord(0, 0)
@@ -113,7 +122,7 @@ def test_routing_node_coord():
         path.append(RoutingDirection.X0Y0)
 
     with pytest.raises(ValueError):
-        coord = RoutingNodeCoord.build_from_path(path)
+        coord = RoutingNodeCoord(*path)
 
     path.clear()
     path = [
@@ -124,7 +133,7 @@ def test_routing_node_coord():
         RoutingDirection.X0Y1,
     ]
 
-    coord = RoutingNodeCoord.build_from_path(path)
+    coord = RoutingNodeCoord(*path)
     assert coord.level == RoutingNodeLevel.L0
     assert coord.coordinate == Coord(0b01000, 0b11011)
 
@@ -137,7 +146,7 @@ def test_routing_node_coord():
         RoutingDirection.X0Y1,
     ]
 
-    coord = RoutingNodeCoord.build_from_path(path)
+    coord = RoutingNodeCoord(*path)
     assert coord.level == RoutingNodeLevel.L2
 
     with pytest.raises(AttributeError):
