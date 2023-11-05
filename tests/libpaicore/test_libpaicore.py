@@ -102,6 +102,10 @@ def test_replicationId(rid, expected):
         ),
         (
             [
+<<<<<<< Updated upstream
+=======
+<<<<<<< .merge_file_8rOQjN
+>>>>>>> Stashed changes
                 Coord(0b00000, 0b00000),
                 Coord(0b11111, 0b11111),
             ],
@@ -115,6 +119,18 @@ def test_replicationId(rid, expected):
             ],
             RId(0b10001, 0b000000),
         ),
+<<<<<<< Updated upstream
+=======
+=======
+                Coord(0b00010, 0b00000),
+                Coord(0b00011, 0b00000),
+                Coord(0b00010, 0b00010),
+                Coord(0b00011, 0b00010),
+            ],
+            RId(0b00001, 0b000010),
+        )
+>>>>>>> .merge_file_V5s4dy
+>>>>>>> Stashed changes
     ],
 )
 def test_get_replication_id(coords, expected):
@@ -155,7 +171,7 @@ def test_routing_node_coord():
     for i in range(5):
         path.append(RoutingDirection.X0Y0)
 
-    coord = RoutingNodeCoord.build_from_path(path)
+    coord = RoutingNodeCoord(*path)
 
     assert coord.level == RoutingNodeLevel.L0
     assert coord.coordinate == Coord(0, 0)
@@ -165,7 +181,7 @@ def test_routing_node_coord():
         path.append(RoutingDirection.X0Y0)
 
     with pytest.raises(ValueError):
-        coord = RoutingNodeCoord.build_from_path(path)
+        coord = RoutingNodeCoord(*path)
 
     path.clear()
     path = [
@@ -176,7 +192,7 @@ def test_routing_node_coord():
         RoutingDirection.X0Y1,
     ]
 
-    coord = RoutingNodeCoord.build_from_path(path)
+    coord = RoutingNodeCoord(*path)
     assert coord.level == RoutingNodeLevel.L0
     assert coord.coordinate == Coord(0b01000, 0b11011)
 
@@ -189,7 +205,7 @@ def test_routing_node_coord():
         RoutingDirection.X0Y1,
     ]
 
-    coord = RoutingNodeCoord.build_from_path(path)
+    coord = RoutingNodeCoord(*path)
     assert coord.level == RoutingNodeLevel.L2
 
     with pytest.raises(AttributeError):

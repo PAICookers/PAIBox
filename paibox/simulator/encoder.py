@@ -64,4 +64,4 @@ class PoissonEncoder(Encoder):
         super().__init__(shape_out, **kwargs)
 
     def __call__(self, input: np.ndarray) -> np.ndarray:
-        return np.less_equal(input, np.random.rand(*input.shape)).astype(np.bool_)
+        return np.less_equal(np.random.rand(*input.shape), input).astype(np.bool_)
