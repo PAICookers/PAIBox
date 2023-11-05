@@ -87,6 +87,7 @@ class more_input_Net(pb.DynSysGroup):
 
     n3 -> s3 -> n4
     """
+
     def __init__(self):
         super().__init__()
         self.n1 = pb.neuron.TonicSpiking(2, 3)
@@ -100,8 +101,9 @@ class more_input_Net(pb.DynSysGroup):
             self.n2, self.n4, conn_type=pb.synapses.ConnType.All2All
         )
         self.s3 = pb.synapses.NoDecay(
-             self.n3, self.n4, conn_type=pb.synapses.ConnType.All2All
+            self.n3, self.n4, conn_type=pb.synapses.ConnType.All2All
         )
+
 
 def test_flatten_hzynet():
     net = more_input_Net()
@@ -172,7 +174,6 @@ def test_DynSysGroup_nodes_nested_level1():
     # 6. Find nodes from level 1 to level 2, absolutely
     nodes6 = net.nodes(method="absolute", level=2, include_self=False)
     assert len(nodes6) == 9
-
 
 
 def test_Sequential_build():

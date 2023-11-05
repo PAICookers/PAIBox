@@ -68,7 +68,6 @@ s1= pb.synapses.NoDecay(source=n1, dest=n2, weights=weight1, conn_type=pb.ConnTy
 - `weights`：可以通过设置此参数，将自定义权重配置到该突触中，形成全连接层。
 - `conn_type`：表示突触连接两个神经元组的形式，`All2All` 表示全连接。除此之外，PAIBox还提供了 `One2One` 单连接以及`MaskedLinear`，满足不同的神经元连接需求。
 
-
 ### 输入节点
 
 为了支持多样的数据输入形式，PAIBox设计了输入节点这一组件。输入节点通过如下方式构建：
