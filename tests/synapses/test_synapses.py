@@ -31,6 +31,7 @@ def test_SynSys_Attrs():
             pb.neuron.TonicSpiking((5,), 3),
             pb.neuron.TonicSpiking((5,), 3),
         ),
+        # TODO 3-dimension shape is correct for data flow?
         (
             pb.neuron.TonicSpiking((10, 2, 3), 3),
             pb.neuron.TonicSpiking((10, 2, 3), 3),
@@ -177,19 +178,7 @@ def test_NoDecay_All2All_with_weights():
         s3 = pb.synapses.NoDecay(
             n1,
             n2,
-            np.array(
-                [
-                    [
-                        1,
-                        2,
-                    ],
-                    [
-                        4,
-                        5,
-                    ],
-                    [6, 7],
-                ]
-            ),
+            np.array([[1, 2], [4, 5], [6, 7]]),
             conn_type=pb.synapses.ConnType.All2All,
         )
 
