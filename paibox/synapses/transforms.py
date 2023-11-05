@@ -76,12 +76,12 @@ class OneToOne(Transform):
         assert self.weights.ndim in (0, 1)
 
     def __call__(self, x: np.ndarray) -> np.ndarray:
-        return x * self.weights
+        return x * self.weights.copy().astype(np.int32)
 
     @property
     def connectivity(self) -> np.ndarray:
         return (
-            self.weights * np.eye(self.num, dtype=self.dtype)
+            (self.weights * np.eye(self.num, dtype=np.bool_)).astype(self.dtype)
             if self.weights.ndim == 0
             else np.diag(self.weights).astype(self.dtype)
         )
@@ -138,7 +138,7 @@ class AllToAll(Transform):
             # Risky
             # output = self.weights * sum_x
         else:
-            output = x @ self.weights
+            output = x @ self.weights.copy().astype(np.int32)
 
         return output
 
@@ -147,7 +147,9 @@ class AllToAll(Transform):
         return (
             self.weights.astype(self.dtype)
             if self.weights.ndim == 2
-            else (self.weights * np.ones(self.conn_size, np.bool_)).astype(self.dtype)
+            else (self.weights * np.ones(self.conn_size, dtype=np.bool_)).astype(
+                self.dtype
+            )
         )
 
 
@@ -174,7 +176,7 @@ class MaskedLinear(Transform):
         self.weights = np.asarray(weights, dtype=np.int8)
 
     def __call__(self, x: np.ndarray) -> np.ndarray:
-        return x @ self.weights
+        return x @ self.weights.copy().astype(np.int32)
 
     @property
     def connectivity(self) -> np.ndarray:
