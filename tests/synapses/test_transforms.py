@@ -7,7 +7,6 @@ from paibox.synapses.transforms import AllToAll, MaskedLinear, OneToOne
 @pytest.mark.parametrize(
     "weight",
     [
-
         (np.array([1, 2, 3], dtype=np.int8), np.int8),
         (np.array([1, 0, 1], dtype=np.bool_), np.bool_),
         (np.array([1, 0, 1], dtype=np.int8), np.bool_),
@@ -24,12 +23,6 @@ from paibox.synapses.transforms import AllToAll, MaskedLinear, OneToOne
         "scalar_neg",
         "array_127",
         "array_-128",
-
-        (np.array([1, 2, 3], dtype=np.int8)),
-        (np.array([1, 0, 1], dtype=np.bool_)),
-        (np.array([1, 0, 1], dtype=np.int8)),
-        (10),
-        (-1),
     ],
 )
 def test_OneToOne_dtype(weight):
@@ -62,7 +55,6 @@ def test_OneToOne():
 
 
 @pytest.mark.parametrize(
-
     "weight, expected_dtype",
     [
         (1, np.bool_),
