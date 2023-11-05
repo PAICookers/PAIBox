@@ -13,7 +13,7 @@ from paibox.libpaicore.v2.routing_defs import (
     RoutingNodeLevel,
     get_multicast_cores,
     get_node_consumption,
-    get_replication_id,
+    get_replication_id, coord2level,
 )
 
 
@@ -25,6 +25,9 @@ from paibox.libpaicore.v2.routing_defs import (
         (Coord(0b11111, 0b00000), RId(0b01001, 0b00011), 16),
         (Coord(0b00000, 0b00000), RId(0b00001, 0b00010), 4),
         (Coord(0b00010, 0b00111), RId(0b00000, 0b00000), 1),
+        (Coord(0b11111, 0b00111), RId(0b00001, 0b00000), 2),
+        (Coord(0b10010, 0b10011), RId(0b11111, 0b11111), 1024),
+        (Coord(0b11111, 0b11111), RId(0b00011, 0b11100), 32),
     ],
 )
 def test_get_multicast_cores_length(coord, rid, num):
@@ -37,16 +40,17 @@ def test_get_multicast_cores_length(coord, rid, num):
     "coord, rid, expected",
     [
         (
-            Coord(0b00000, 0b00000),
-            RId(0b00001, 0b00010),
-            {
                 Coord(0b00000, 0b00000),
-                Coord(0b00001, 0b00000),
-                Coord(0b00000, 0b00010),
-                Coord(0b00001, 0b00010),
-            },
+                RId(0b00001, 0b00010),
+                {
+                    Coord(0b00000, 0b00000),
+                    Coord(0b00001, 0b00000),
+                    Coord(0b00000, 0b00010),
+                    Coord(0b00001, 0b00010),
+                },
         ),
         (Coord(0b00010, 0b00111), RId(0b00000, 0b00000), {Coord(0b00010, 0b00111)}),
+        (Coord(0b11111, 0b00000), RId(0b10000, 0b00000), {Coord(0b11111, 0b00000), Coord(0b01111, 0b00000)})
     ],
 )
 def test_get_multicast_cores(coord, rid, expected):
@@ -55,31 +59,48 @@ def test_get_multicast_cores(coord, rid, expected):
     assert cores == expected
 
 
-def test_replicationId():
-    r = RId(0b00110, 0b01001)
-    assert r.rflags == (RFlag.L3 | RFlag.L2, RFlag.L4 | RFlag.L1)
-    assert r.rflags[0] & RFlag.L2 == RFlag.L2
+@pytest.mark.parametrize(
+    "rid, expected",
+    [
+        (RId(0b00110, 0b01001), (RFlag.L3 | RFlag.L2, RFlag.L4 | RFlag.L1)),
+        (RId(0b11111, 0b11111),
+         (RFlag.L5 | RFlag.L4 | RFlag.L3 | RFlag.L2 | RFlag.L1, RFlag.L5 | RFlag.L4 | RFlag.L3 | RFlag.L2 | RFlag.L1)),
+        (RId(0b00000, 0b11111), (RFlag.NONE, RFlag.L5 | RFlag.L4 | RFlag.L3 | RFlag.L2 | RFlag.L1))
+    ],
+)
+def test_replicationId(rid, expected):
+    # r = RId(0b00110, 0b01001)
+    # assert r.rflags == (RFlag.L3 | RFlag.L2, RFlag.L4 | RFlag.L1)
+    # assert r.rflags[0] & RFlag.L2 == RFlag.L2
+    # assert r.rflags[0] & RFlag.L3 == RFlag.L3
+    assert rid.rflags == expected
 
 
 @pytest.mark.parametrize(
     "coords, expected",
     [
         (
-            [
-                Coord(0b00000, 0b00000),
-                Coord(0b00001, 0b00000),
-                Coord(0b00001, 0b00001),
-            ],
-            RId(0b00001, 0b000001),
+                [
+                    Coord(0b00000, 0b00000),
+                    Coord(0b00001, 0b00000),
+                    Coord(0b00001, 0b00001),
+                ],
+                RId(0b00001, 0b000001),
         ),
         (
-            [
-                Coord(0b00010, 0b00000),
-                Coord(0b00011, 0b00000),
-                Coord(0b00010, 0b00010),
-                Coord(0b00011, 0b00010),
-            ],
-            RId(0b00001, 0b000010),
+                [
+                    Coord(0b11111, 0b11111),
+                    Coord(0b00000, 0b00000),
+                ],
+                RId(0b11111, 0b11111),
+        ),
+                [
+        (
+                    Coord(0b10000, 0b10000),
+                    Coord(0b00001, 0b10000),
+                    Coord(0b00001, 0b10000),
+                ],
+                RId(0b10001, 0b000000),
         )
     ],
 )
@@ -99,6 +120,15 @@ def test_get_replication_id(coords, expected):
         (5, RoutingNodeCost(8, 2, 1, 1, 1)),
         (12, RoutingNodeCost(16, 4, 1, 1, 1)),
         (20, RoutingNodeCost(32, 8, 2, 1, 1)),
+        (32, RoutingNodeCost(32, 8, 2, 1, 1)),
+        (33, RoutingNodeCost(64, 16, 4, 1, 1)),
+        (63, RoutingNodeCost(64, 16, 4, 1, 1)),
+        (64, RoutingNodeCost(64, 16, 4, 1, 1)),
+        (65, RoutingNodeCost(128, 32, 8, 2, 1)),
+        (127, RoutingNodeCost(128, 32, 8, 2, 1)),
+        (128, RoutingNodeCost(128, 32, 8, 2, 1)),
+        (1023, RoutingNodeCost(1024, 256, 64, 16, 4)),
+        (1024, RoutingNodeCost(1024, 256, 64, 16, 4))
     ],
 )
 def test_get_node_consumption(n_core, expected_cost):
@@ -151,3 +181,45 @@ def test_routing_node_coord():
 
     with pytest.raises(AttributeError):
         coord.coordinate
+
+    path.clear()
+    path = [
+        RoutingDirection.ANY,
+        RoutingDirection.X1Y1,
+        RoutingDirection.X0Y0,
+        RoutingDirection.ANY,
+        RoutingDirection.X0Y1,
+    ]
+
+    coord = RoutingNodeCoord.build_from_path(path)
+    assert coord.level == RoutingNodeLevel.L5
+
+    with pytest.raises(AttributeError):
+        coord.coordinate
+
+
+@pytest.mark.parametrize(
+    "RoutingDir,expected",
+    [
+        (RoutingDirection.X0Y0, 0),
+        (RoutingDirection.X0Y1, 1),
+        (RoutingDirection.X1Y1, 3),
+        (RoutingDirection.X1Y0, 2)
+    ],
+)
+def test_to_index(RoutingDir, expected):
+    assert RoutingDir.to_index() == expected
+
+
+@pytest.mark.parametrize(
+    "rid,expected",
+    [
+        (RId(0b10000, 0b00000), RoutingNodeLevel.L5),
+        (RId(0b00000, 0b00000), RoutingNodeLevel.L0),
+        (RId(0b00001, 0b00000), RoutingNodeLevel.L1),
+        (RId(0b00110, 0b01000), RoutingNodeLevel.L4),
+        (RId(0b00000, 0b11111), RoutingNodeLevel.L5),
+    ],
+)
+def test_coord2level(rid, expected):
+    assert expected == coord2level(rid)
