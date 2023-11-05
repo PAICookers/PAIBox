@@ -94,8 +94,8 @@ def test_replicationId(rid, expected):
                 ],
                 RId(0b11111, 0b11111),
         ),
-                [
         (
+                [
                     Coord(0b10000, 0b10000),
                     Coord(0b00001, 0b10000),
                     Coord(0b00001, 0b10000),
