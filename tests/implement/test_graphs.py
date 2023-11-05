@@ -86,6 +86,16 @@ class TestTopoSort:
                 "n4": {"n1"},
             },
             {"inp1": {"n1"}, "n1": {"n2"}, "n2": {"n3"}, "n3": {"n2", "n4"}, "n4": {}},
+            {"inp1": {"n1"}, "n1": {"n3"}, "inp2": {"n2"}, "n2": {"n1"}, "n3": {"n2"}},
+            {
+                "inp1": {"n1"},
+                "n1": {"n3"},
+                "n3": {"n4"},
+                "n4": {"n2"},
+                "inp2": {"n2"},
+                "n2": {"n1"},
+                "inp3": {"n2"},
+            },
         ],
     )
     def test_toposort_has_cycle(self, edges):
@@ -100,6 +110,14 @@ class TestTopoSort:
         N3 -> N2
 
         Test #3: more inputs
+        INP1 -> N1 -> N3 -> N2
+        INP2 -> N2
+
+        Test #4: more inputs
+        INP1 -> N1 -> N3 -> N4 -> N2
+        INP2 -> N2 -> N1
+        INP3 -> N2
+
         """
         with pytest.raises(ValueError):
             ordered = toposort(edges)

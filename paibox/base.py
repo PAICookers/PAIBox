@@ -1,4 +1,5 @@
 from typing import List, Literal, Optional, Set, Tuple
+
 import numpy as np
 
 from .collector import Collector

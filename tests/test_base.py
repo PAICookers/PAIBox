@@ -32,3 +32,7 @@ def test_paiboxobject_nodes():
 
     nodes3 = obj1.nodes(method="absolute", level=1, include_self=False)
     assert nodes3 == {}
+
+    nodes4 = obj1.nodes(method="absolute", level=-1, include_self=True)
+    print(nodes4)
+    assert nodes4["obj111"] == obj1
