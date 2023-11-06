@@ -5,25 +5,34 @@ from paibox.synapses.transforms import AllToAll, MaskedLinear, OneToOne
 
 
 @pytest.mark.parametrize(
-    "weight, expected_dtype",
+    "weight",
     [
-        (np.array([1, 2, 3], dtype=np.int8), np.int8),
-        (np.array([1, 0, 1], dtype=np.bool_), np.bool_),
-        (np.array([1, 0, 1], dtype=np.int8), np.bool_),
-        (10, np.int8),
-        (-1, np.int8),
+        (np.array([1, 2, 3], dtype=np.int8)),
+        (np.array([1, 0, 1], dtype=np.bool_)),
+        (np.array([1, 0, 1], dtype=np.int8)),
+        (10),
+        (np.int8(-1)),
+        (np.array([127, 0, 1], dtype=np.int8)),
+        (np.array([-128, 1, 127], dtype=np.int8)),
     ],
-    ids=["array_1", "array_2", "array_3", "scalar_pos", "scalar_neg"],
+    ids=[
+        "array_1",
+        "array_2",
+        "array_3",
+        "scalar_pos",
+        "scalar_neg",
+        "array_int8_1",
+        "array_int8_2",
+    ],
 )
-def test_OneToOne_dtype(weight, expected_dtype):
+def test_OneToOne_dtype(weight):
     num = 3
     f = OneToOne(num, weight)
     x = np.array([1, 0, 1], dtype=np.bool_)
     y = f(x)
     expected = x * weight
 
-    assert f.dtype == expected_dtype
-    assert y.dtype <= np.int32
+    assert y.dtype == np.int32
     assert y.shape == (num,)
     assert np.array_equal(y, expected)
     assert f.connectivity.shape == (num, num)
@@ -47,8 +56,22 @@ def test_OneToOne():
 
 @pytest.mark.parametrize(
     "weight, expected_dtype",
-    [(1, np.bool_), (-1, np.int8), (10, np.int8), (-100, np.int8)],
-    ids=["scalar_1", "scalar_-1", "scalar_10", "scalar_-100"],
+    [
+        (1, np.bool_),
+        (-1, np.int8),
+        (10, np.int8),
+        (-100, np.int8),
+        (-128, np.int8),
+        (127, np.int8),
+    ],
+    ids=[
+        "scalar_1",
+        "scalar_-1",
+        "scalar_10",
+        "scalar_-100",
+        "scalar_-128",
+        "scalar_-127",
+    ],
 )
 def test_AllToAll_weight_scalar(weight, expected_dtype):
     """Test `AllToAll` when weight is a scalar"""
@@ -60,7 +83,7 @@ def test_AllToAll_weight_scalar(weight, expected_dtype):
     expected = np.full((num_out,), np.sum(x, axis=None), dtype=np.int32) * weight
 
     assert f.dtype == expected_dtype
-    assert y.dtype <= np.int32
+    assert y.dtype == np.int32
     assert y.shape == (num_out,)
     assert y.ndim == 1
     assert np.array_equal(y, expected)
@@ -68,7 +91,7 @@ def test_AllToAll_weight_scalar(weight, expected_dtype):
 
 
 @pytest.mark.parametrize(
-    "shape, x, weights, expected_dtype, ",
+    "shape, x, weights, expected_dtype",
     [
         (
             (3, 4),
@@ -94,18 +117,29 @@ def test_AllToAll_weight_scalar(weight, expected_dtype):
             np.array([[1, 2], [3, 4]], dtype=np.int8),
             np.int8,
         ),
+        (
+            (2, 2),
+            np.array([1, 1], dtype=np.bool_),
+            np.array([[127, 0], [3, -128]], dtype=np.int8),
+            np.int8,
+        ),
     ],
-    ids=["weights_bool_1", "weights_int8_1", "weights_int8_2", "weights_int8_3"],
+    ids=[
+        "weights_bool_1",
+        "weights_int8_1",
+        "weights_int8_2",
+        "weights_int8_3",
+        "weights_int8_4",
+    ],
 )
 def test_AllToAll_array(shape, x, weights, expected_dtype):
     """Test `AllToAll` when weights is an array"""
 
     f = AllToAll(shape, weights)
     y = f(x)
-    expected = x @ weights.astype(np.int8)
+    expected = x @ weights.copy().astype(np.int32)
 
     assert f.dtype == expected_dtype
-    assert y.dtype <= np.int32
     assert np.array_equal(y, expected)
     assert f.connectivity.shape == shape
 
@@ -122,7 +156,7 @@ def test_AllToAll_array(shape, x, weights, expected_dtype):
         (
             (10, 20),
             np.random.randint(2, size=(10,), dtype=np.bool_),
-            np.random.randint(0, 10, size=(10, 20), dtype=np.int8),
+            np.random.randint(-10, 10, size=(10, 20), dtype=np.int8),
             np.int8,
         ),
         (
@@ -131,17 +165,23 @@ def test_AllToAll_array(shape, x, weights, expected_dtype):
             np.random.randint(2, size=(20, 10), dtype=np.int8),
             np.bool_,
         ),
+        (
+            (2, 2),
+            np.array([1, 1], dtype=np.bool_),
+            np.array([[127, 0], [3, -128]], dtype=np.int8),
+            np.int8,
+        ),
     ],
-    ids=["weights_int8_1", "weights_int8_2", "weights_bool"],
+    ids=["weights_int8_1", "weights_int8_2", "weights_bool", "weights_int8_3"],
 )
 def test_MaskedLinear_conn(shape, x, weights, expected_dtype):
     f = MaskedLinear(shape, weights)
     y = f(x)
-    expected = x @ weights
+    expected = x @ weights.copy().astype(np.int32)
 
     assert f.dtype == expected_dtype
     assert f.connectivity.dtype == expected_dtype
     assert y.shape == (shape[1],)
-    assert y.dtype <= np.int32
+    assert y.dtype == np.int32
     assert np.array_equal(y, expected)
     assert f.connectivity.shape == shape

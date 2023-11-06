@@ -81,6 +81,50 @@ class Nested_Net_Level_1(pb.DynSysGroup):
         )
 
 
+class more_input_Net(pb.DynSysGroup):
+    """Nested network, level 1.
+    n1 -> s1 -> n2 -> s2 -> n4
+
+    n3 -> s3 -> n4
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.n1 = pb.neuron.TonicSpiking(2, 3)
+        self.n2 = pb.neuron.TonicSpiking(2, 3)
+        self.s1 = pb.synapses.NoDecay(
+            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All
+        )
+        self.n3 = pb.neuron.TonicSpiking(2, 4)
+        self.n4 = pb.neuron.TonicSpiking(2, 3)
+        self.s2 = pb.synapses.NoDecay(
+            self.n2, self.n4, conn_type=pb.synapses.ConnType.All2All
+        )
+        self.s3 = pb.synapses.NoDecay(
+            self.n3, self.n4, conn_type=pb.synapses.ConnType.All2All
+        )
+
+
+def test_flatten_hzynet():
+    net = more_input_Net()
+
+    nodes1 = net.nodes(method="relative", level=1, include_self=True)
+    assert nodes1[""] == net
+    assert len(nodes1) == 8
+
+    # 2. Relative + include_self == False
+    nodes2 = net.nodes(method="relative", level=1, include_self=False)
+    assert len(nodes2) == 7
+
+    # 3. Absolute + include_self == True
+    nodes3 = net.nodes(method="absolute", level=1, include_self=True)
+    assert len(nodes3) == 8
+
+    # 4. Absolute + include_self == False
+    nodes4 = net.nodes(method="absolute", level=1, include_self=False)
+    assert len(nodes4) == 7
+
+
 def test_DynSysGroup_flatten_nodes():
     net = Net()
 
@@ -108,6 +152,8 @@ def test_DynSysGroup_nodes_nested_level1():
     # 1. Relative + include_self == True
     nodes1 = net.nodes(method="relative", level=1, include_self=True)
     assert nodes1[""] == net
+    # for k,v in nodes1.items():
+    #     print(k,v)
     assert len(nodes1) == 4
 
     # 2. Relative + include_self == False
@@ -124,7 +170,7 @@ def test_DynSysGroup_nodes_nested_level1():
 
     # 5. Find nodes from level 1 to level 2, relatively
     nodes5 = net.nodes(method="relative", level=2, include_self=False)
-
+    assert len(nodes5) == 11
     # 6. Find nodes from level 1 to level 2, absolutely
     nodes6 = net.nodes(method="absolute", level=2, include_self=False)
     assert len(nodes6) == 9
@@ -296,8 +342,9 @@ def test_DynSysGroup_AutoUpdate_No_Nested():
     sim.add_probe(p2)
     sim.run(10)
 
-    assert np.array_equal(sim.data[p1], expected_y_n1)
-    assert np.array_equal(sim.data[p2], expected_y_n2)
+    for i in range(10):
+        assert np.array_equal(sim.data[p1][i], expected_y_n1[i])
+        assert np.array_equal(sim.data[p2][i], expected_y_n2[i])
 
 
 @pytest.mark.parametrize("level", [1, 2], ids=["level_1", "level_2"])

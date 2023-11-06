@@ -1,5 +1,6 @@
+import copy
 from functools import wraps
-from typing import Type
+from typing import Any, Type
 
 import numpy as np
 
@@ -19,6 +20,41 @@ def singleton(cls):
         return instances[cls]
 
     return wrapper
+
+
+def prevent(func):
+    """
+    Decorate func with this to prevent raising an Exception when \
+    an error is encountered.
+    """
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except BaseException:
+            return
+
+    return wrapper
+
+
+def check(attr):
+    def decorator(method):
+        """
+        Decorate method with this to check whether the object \
+        has an attribute with the given name.
+        """
+
+        @wraps(method)
+        def wrapper(self, *args, **kwargs):
+            if hasattr(self, attr):
+                return method(self, *args, **kwargs)
+
+            return None
+
+        return wrapper
+
+    return decorator
 
 
 class MixIn:
@@ -70,22 +106,77 @@ class Container(MixIn):
 
 
 class ReceiveInputProj(MixIn):
-    master_node: NodeDict
+    master_nodes: NodeDict
 
     def register_master(self, key: str, master_target) -> None:
-        if key in self.master_node:
+        if key in self.master_nodes:
             # TODO
             raise ValueError
 
-        self.master_node[key] = master_target
+        self.master_nodes[key] = master_target
 
     def get_master_node(self, key: str):
-        return self.master_node.get(key, None)
+        return self.master_nodes.get(key, None)
 
     def sum_inputs(self, *args, init=0, **kwargs) -> np.ndarray:
         # TODO Out is a np.ndarray right now, but it may be more than one type.
         output = init
-        for master in self.master_node.values():
-            output += master.output
+        for node in self.master_nodes.values():
+            output += node.output
 
         return np.array(output)
+
+
+class StatusMemory(MixIn):
+    """Register memories for stateful variables."""
+
+    def __init__(self) -> None:
+        self._memories = NodeDict()
+        self._memories_rv = NodeDict()
+
+    def set_memory(self, name: str, value) -> None:
+        if hasattr(self, name):
+            raise ValueError(f"{name} has been set as a member variable!")
+
+        self._memories[name] = value
+        self.set_reset_value(name, value)
+
+    def reset(self) -> None:
+        for key in self._memories.keys():
+            self._memories[key] = copy.deepcopy(self._memories_rv[key])
+
+    def set_reset_value(self, name: str, value) -> None:
+        self._memories_rv[name] = copy.deepcopy(value)
+
+    def __getattr__(self, name: str):
+        if "_memories" in self.__dict__:
+            _memories = self.__dict__.get("_memories")
+            if _memories is not None and name in _memories:
+                return _memories[name]
+
+        raise AttributeError
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        _memories = self.__dict__.get("_memories")
+        if _memories is not None and name in _memories:
+            _memories[name] = value
+        else:
+            super().__setattr__(name, value)
+
+    def __delattr__(self, name) -> None:
+        if name in self._memories:
+            del self._memories[name]
+            del self._memories_rv[name]
+        else:
+            return super().__delattr__(name)
+
+    def memories(self):
+        for v in self._memories.values():
+            yield v
+
+    def named_memories(self):
+        for k, v in self._memories.items():
+            yield k, v
+
+    def copy(self) -> NodeDict:
+        return copy.deepcopy(self._memories)

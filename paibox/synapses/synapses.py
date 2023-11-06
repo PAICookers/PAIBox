@@ -70,7 +70,7 @@ class SynSys(Synapses, DynamicSys):
 
     @property
     def n_axon_each(self) -> np.ndarray:
-        return np.count_nonzero(self.connectivity, axis=0, keepdims=True)
+        return np.sum(self.connectivity, axis=0)
 
     @property
     def num_axon(self) -> int:
@@ -83,6 +83,8 @@ class SynSys(Synapses, DynamicSys):
 
 class NoDecay(SynSys):
     """Synapses model with no decay."""
+
+    _excluded_vars = "_synout"
 
     def __init__(
         self,
