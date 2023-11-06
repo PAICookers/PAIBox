@@ -4,7 +4,7 @@ import numpy as np
 
 from .collector import Collector
 from .generic import get_unique_name, is_name_unique
-from .mixin import ReceiveInputProj
+from .mixin import ReceiveInputProj, StatusMemory
 from .node import NodeDict, NodeList
 
 
@@ -169,7 +169,11 @@ def _add_node2(
         nodes.append(v)
 
 
-class DynamicSys(PAIBoxObject):
+class DynamicSys(PAIBoxObject, StatusMemory):
+    def __init__(self, name: Optional[str] = None) -> None:
+        super().__init__(name)
+        super(PAIBoxObject, self).__init__()
+
     def __call__(self, *args, **kwargs):
         raise NotImplementedError
 
