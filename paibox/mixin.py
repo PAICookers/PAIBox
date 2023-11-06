@@ -1,7 +1,7 @@
+import copy
 from functools import wraps
 from typing import Any, Type
 
-import copy
 import numpy as np
 
 import paibox as pb
@@ -149,11 +149,11 @@ class StatusMemory(MixIn):
         self._memories_rv[name] = copy.deepcopy(value)
 
     def __getattr__(self, name: str):
-        if '_memories' in self.__dict__:
+        if "_memories" in self.__dict__:
             _memories = self.__dict__.get("_memories")
             if _memories is not None and name in _memories:
                 return _memories[name]
-        
+
         raise AttributeError
 
     def __setattr__(self, name: str, value: Any) -> None:

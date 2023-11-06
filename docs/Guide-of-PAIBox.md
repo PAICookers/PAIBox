@@ -92,6 +92,7 @@ out = pe.run(duration=20, x=x)
 为了支持多样的数据输入形式，PAIBox设计了输入节点这一组件。输入节点通过如下方式构建：
 
 TODO
+
 <!-- ```python
 # 实例化一个输入节点
 I1 = pb.projection.InputProj(input=Encoder, shape_out=(784,))

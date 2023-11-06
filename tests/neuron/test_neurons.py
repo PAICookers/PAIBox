@@ -201,7 +201,7 @@ class Net1(pb.Network):
         self.probe1 = pb.simulator.Probe(self.inp1, "output")
         self.probe2 = pb.simulator.Probe(self.s1, "output")
         self.probe3 = pb.simulator.Probe(self.n1, "output")
-        
+
 
 class TonicSpikingNet(pb.Network):
     def __init__(self):
@@ -211,7 +211,7 @@ class TonicSpikingNet(pb.Network):
         self.s1 = pb.synapses.NoDecay(
             self.inp1, self.n1, conn_type=pb.synapses.ConnType.One2One
         )
-        
+
         self.probe1 = pb.simulator.Probe(self.s1, "output")
         self.probe2 = pb.simulator.Probe(self.n1, "output")
         self.probe3 = pb.simulator.Probe(self.n1, "voltage")
@@ -224,8 +224,8 @@ def test_neuron_behavior():
     sim.run(10)
 
     print(sim.data[net.probe1])
-    
-    
+
+
 def test_TonicSpiking_behavior():
     net = TonicSpikingNet()
     sim = pb.Simulator(net)
