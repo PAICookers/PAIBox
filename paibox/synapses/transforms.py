@@ -163,8 +163,6 @@ class MaskedLinear(Transform):
         Arguments:
             - conn: connector. Only support `MatConn`.
             - weights: unmasked weights.
-
-        TODO to be verified.
         """
         self.conn_size = conn_size
 
