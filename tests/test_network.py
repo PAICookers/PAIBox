@@ -342,8 +342,9 @@ def test_DynSysGroup_AutoUpdate_No_Nested():
     sim.add_probe(p2)
     sim.run(10)
 
-    assert np.array_equal(sim.data[p1], expected_y_n1)
-    assert np.array_equal(sim.data[p2], expected_y_n2)
+    for i in range(10):
+        assert np.array_equal(sim.data[p1][i], expected_y_n1[i])
+        assert np.array_equal(sim.data[p2][i], expected_y_n2[i])
 
 
 @pytest.mark.parametrize("level", [1, 2], ids=["level_1", "level_2"])
