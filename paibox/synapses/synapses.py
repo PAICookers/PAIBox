@@ -83,8 +83,8 @@ class SynSys(Synapses, DynamicSys):
 
 class NoDecay(SynSys):
     """Synapses model with no decay."""
-    
-    _excluded_vars = ("_synout")
+
+    _excluded_vars = "_synout"
 
     def __init__(
         self,

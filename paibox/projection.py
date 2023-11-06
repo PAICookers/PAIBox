@@ -70,7 +70,7 @@ class InputProj(Projection):
             raise RuntimeError("The input is not set.")
 
         if isinstance(self.input, np.ndarray):
-            self._output = self.input
+            self._output = self.input.reshape((self.num_out,))
         elif isinstance(self.input, int):
             self._output = np.full((self.num_out,), self.input, dtype=np.int32)
         elif callable(self.input):
