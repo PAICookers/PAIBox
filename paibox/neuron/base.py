@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 
@@ -38,12 +38,12 @@ class MetaNeuron:
         bit_truncate: int,
         vjt_init: int,
         *,
-        keep_size: bool = False,
+        keep_shape: bool = False,
         **kwargs,
     ) -> None:
         """Stateless attributes. Scalar."""
         # Basic
-        self.keep_size = keep_size
+        self.keep_shape = keep_shape
         self._n_neuron = shape2num(shape)
         self._shape = as_shape(shape)
 
@@ -136,15 +136,16 @@ class MetaNeuron:
         if self._leaking_direction is LDM.MODE_FORWARD:
             _ld = np.ones(self.varshape, dtype=np.bool_)
         else:
-            _ld = np.vectorize(fn_sgn, otypes=["bool"])(self._vjt, 0)
+            _ld = np.sign(self._vjt)
 
         if self._leaking_integration_mode is LIM.MODE_DETERMINISTIC:
             self._vjt = np.add(self._vjt, _ld * self.leak_v).astype(np.int32)
         else:
-            _F = 1 if abs(self.leak_v) >= _rho_j_lambda else 0
-            sgn_leak_v = fn_sgn(self.leak_v, 0)
+            raise NotImplementedError
+            # _F = 1 if abs(self.leak_v) >= _rho_j_lambda else 0
+            # sgn_leak_v = fn_sgn(self.leak_v, 0)
 
-            self._vjt = np.add(self._vjt, sgn_leak_v * _F * _ld).astype(np.int32)
+            # self._vjt = np.add(self._vjt, sgn_leak_v * _F * _ld).astype(np.int32)
 
     def _neuronal_fire(self) -> None:
         r"""3. Threshold comparison.
@@ -172,7 +173,8 @@ class MetaNeuron:
         self._v_th_rand = np.full(self.varshape, _v_th_rand, dtype=np.int32)
 
         if self._neg_thres_mode is NTM.MODE_RESET:
-            _v_th_neg = self._neg_thres + _v_th_rand
+            raise NotImplementedError
+            # _v_th_neg = self._neg_thres + _v_th_rand
         else:
             _v_th_neg = self._neg_thres
 
@@ -183,7 +185,7 @@ class MetaNeuron:
             np.where(self._vjt < -_v_th_neg, TM.EXCEED_NEGATIVE, TM.NOT_EXCEEDED),
         ).astype(np.int8)
 
-        self._spike = np.where(self._threshold_mode == TM.EXCEED_POSITIVE, 1, 0).astype(
+        self._spike = np.equal(self._threshold_mode, TM.EXCEED_POSITIVE).astype(
             np.bool_
         )
 
@@ -218,9 +220,10 @@ class MetaNeuron:
                 return np.full(self.varshape, self.reset_v, dtype=np.int32)
 
             elif self._reset_mode is RM.MODE_LINEAR:
-                return np.subtract(
-                    self._vjt, (self._pos_thres + self._v_th_rand), dtype=np.int32
-                )
+                raise NotImplementedError
+                # return np.subtract(
+                #     self._vjt, (self._pos_thres + self._v_th_rand), dtype=np.int32
+                # )
             else:
                 return self._vjt
 
@@ -229,15 +232,17 @@ class MetaNeuron:
                 if self._reset_mode is RM.MODE_NORMAL:
                     return np.full(self.varshape, -self.reset_v, dtype=np.int32)
                 elif self._reset_mode is RM.MODE_LINEAR:
-                    return np.add(
-                        self._vjt, (self._neg_thres + self._v_th_rand), dtype=np.int32
-                    )
+                    raise NotImplementedError
+                    # return np.add(
+                    #     self._vjt, (self._neg_thres + self._v_th_rand), dtype=np.int32
+                    # )
                 else:
                     return self._vjt
 
             else:
                 return np.full(self.varshape, -self._neg_thres, dtype=np.int32)
 
+        # USE "=="!
         self._vjt_pre = self._vjt = np.where(
             self._threshold_mode == TM.EXCEED_POSITIVE,
             _when_exceed_pos(),
@@ -340,7 +345,7 @@ class MetaNeuron:
 
     @property
     def varshape(self) -> Tuple[int, ...]:
-        return self._shape if self.keep_size else (self._n_neuron,)
+        return self._shape if self.keep_shape else (self._n_neuron,)
 
     @property
     def reset_v(self) -> int:
@@ -360,7 +365,7 @@ class MetaNeuron:
 
     @property
     def voltage(self) -> np.ndarray:
-        return self._vjt
+        return self._vjt.reshape(self.varshape)
 
     @property
     def neg_threshold(self) -> int:
@@ -375,6 +380,19 @@ class MetaNeuron:
 
 
 class Neuron(MetaNeuron, NeuDyn):
+    _excluded_vars = (
+        "_vjt_pre",
+        "_vjt",
+        "_vj",
+        "_y",
+        "_threshold_mode",
+        "_spike",
+        "_v_th_rand",
+        "_spike_width_format",
+        "_pool_max_en",
+        "master_nodes",
+    )
+
     def __len__(self) -> int:
         return self._n_neuron
 
@@ -391,25 +409,6 @@ class Neuron(MetaNeuron, NeuDyn):
         """Initialization, not the neuronal reset."""
         self._vjt = self._vjt_pre = self.init_param(self.vjt_init).astype(np.int32)
         self._spike = self.init_param(0).astype(np.bool_)
-
-    def export_to_dict(self) -> Dict[str, Any]:
-        config_dict = {
-            "reset_mode": self._reset_mode,
-            "reset_v": self.reset_v,
-            "leaking_comparison": self._leaking_comparison,
-            "threshold_mask_bits": self._thres_mask_bits,
-            "neg_thres_mode": self._neg_thres_mode,
-            "threshold_neg": self.neg_threshold,
-            "threshold_pos": self.pos_threshold,
-            "leaking_direction": self._leaking_direction,
-            "leaking_integration_mode": self._leaking_integration_mode,
-            "leak_v": self.leak_v,
-            "synaptic_integration_mode": self._synaptic_integration_mode,
-            "bit_truncate": self._bit_truncate,
-            "vjt_init": self._vjt_init,
-        }
-
-        return config_dict
 
     @property
     def shape_in(self) -> Tuple[int, ...]:
@@ -436,5 +435,21 @@ class Neuron(MetaNeuron, NeuDyn):
         return self._spike
 
     @property
+    def feature_map(self) -> np.ndarray:
+        return self.output.reshape(self.varshape)
+
+    @property
     def state(self) -> np.ndarray:
         return self._spike
+
+    def export_params(self):
+        """Export the parameters into dictionary."""
+        params = {}
+
+        for k, v in self.__dict__.items():
+            if k in self._excluded_vars:
+                continue
+
+            params.update({k.removeprefix("_"): v})
+
+        return params

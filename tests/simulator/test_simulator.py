@@ -4,19 +4,15 @@ import pytest
 import paibox as pb
 
 
+def update(ts: int, *args, **kwargs):
+    return np.ones((2,)) * ts
+
+
 class Net1(pb.DynSysGroup):
     def __init__(self):
         super().__init__()
 
-        # Input inside
-        class GenDataProcess(pb.base.Process):
-            def __init__(self, shape_out):
-                super().__init__(shape_out)
-
-            def update(self, ts: int, *args, **kwargs):
-                return np.ones((2,)) * ts
-
-        self.inp = pb.projection.InputProj(GenDataProcess(2))
+        self.inp = pb.projection.InputProj(update, shape_out=(2,))
         self.n1 = pb.neuron.TonicSpiking(2, fire_step=2)
         self.n2 = pb.neuron.TonicSpiking(2, fire_step=2)
         self.s0 = pb.synapses.NoDecay(

@@ -4,11 +4,13 @@ import numpy as np
 
 from .collector import Collector
 from .generic import get_unique_name, is_name_unique
-from .mixin import ReceiveInputProj
+from .mixin import ReceiveInputProj, StatusMemory
 from .node import NodeDict, NodeList
 
 
 class PAIBoxObject:
+    _excluded_vars = ()
+
     def __init__(self, name: Optional[str] = None) -> None:
         self._name: str = self.unique_name(name)
 
@@ -130,6 +132,20 @@ class PAIBoxObject:
 
         return gather
 
+    def __save_state__(self):
+        state = {}
+        for k, v in self.__dict__.items():
+            if k in self._excluded_vars:
+                continue
+
+            state.update({k.removeprefix("_"): v})
+
+        return state
+
+    def state_dict(self):
+        nodes = self.nodes(include_self=False)
+        return {k: node.__save_state__() for k, node in nodes.items()}
+
 
 def _add_node1(
     obj: object, k: str, v: PAIBoxObject, _paths: Set, gather: Collector, nodes: List
@@ -153,7 +169,11 @@ def _add_node2(
         nodes.append(v)
 
 
-class DynamicSys(PAIBoxObject):
+class DynamicSys(PAIBoxObject, StatusMemory):
+    def __init__(self, name: Optional[str] = None) -> None:
+        super().__init__(name)
+        super(PAIBoxObject, self).__init__()
+
     def __call__(self, *args, **kwargs):
         raise NotImplementedError
 
@@ -195,7 +215,7 @@ class DynamicSys(PAIBoxObject):
 class NeuDyn(DynamicSys, ReceiveInputProj):
     def __init__(self, name: Optional[str] = None) -> None:
         super().__init__(name)
-        self.master_node = NodeDict()
+        self.master_nodes = NodeDict()
 
     @property
     def spike(self) -> np.ndarray:
