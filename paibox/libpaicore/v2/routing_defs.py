@@ -1,6 +1,6 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from enum import Enum, IntEnum, unique
-from typing import List, Sequence, Set, Tuple
+from typing import NamedTuple, Sequence, Set
 
 from ._types import ReplicationFlag as RFlag
 from .coordinate import Coord
@@ -62,30 +62,24 @@ class RoutingNodeStatus(IntEnum):
     """Not used."""
 
 
-@dataclass
-class RoutingNodeCost:
+class RoutingNodeCost(NamedTuple):
     n_L0: int
     n_L1: int
     n_L2: int
     n_L3: int
     n_L4: int
 
-    def get_routing_level(self) -> Tuple[RoutingNodeLevel, int]:
+    def get_routing_level(self) -> RoutingNodeLevel:
         """Return the routing level.
 
-        If the #N of Lx-level > 1, then we need A node with level Lx+1.
+        If the #N of Lx-level > 1, then we need a node with level Lx+1.
             And we need the #N of routing sub-level nodes.
         """
-        if self.n_L4 > 1:
-            return RoutingNodeLevel.L5, self.n_L4
-        elif self.n_L3 > 1:
-            return RoutingNodeLevel.L4, self.n_L3
-        elif self.n_L2 > 1:
-            return RoutingNodeLevel.L3, self.n_L2
-        elif self.n_L1 > 1:
-            return RoutingNodeLevel.L2, self.n_L1
-        else:
-            return RoutingNodeLevel.L1, self.n_L0
+        for i in reversed(range(5)):
+            if self[i] > 1:
+                return RoutingNodeLevel(i + 1)
+
+        return RoutingNodeLevel.L1
 
 
 def get_node_consumption(n_core: int) -> RoutingNodeCost:
@@ -126,18 +120,19 @@ def lx_need_copy(rflag: RFlag, lx: int) -> bool:
     return rflag & RFlag(1 << lx) == RFlag(1 << lx)
 
 
-def get_replication_id(dest_coords: Sequence[Coord]) -> RId:
-    """
-    Arguments:
-        - dest_coords: the list of coordinates which are the destinations of a frame.
+def get_replication_id(coords: Sequence[Coord]) -> RId:
+    """Get the replication ID as core* address.
+
+    Args:
+        - coords: sequence of coordinates.
 
     Return:
         The replication ID.
     """
-    base_coord = dest_coords[0]
+    base_coord = coords[0]
     rid = RId(0, 0)
 
-    for coord in dest_coords[1:]:
+    for coord in coords[1:]:
         rid |= base_coord ^ coord
 
     return rid
@@ -178,44 +173,6 @@ def get_multicast_cores(base_coord: Coord, rid: RId) -> Set[Coord]:
     return cores
 
 
-# def get_router_road(cur_coord: Coord, dest_coord: Coord, rid: RId) -> RouterRoad:
-#     """
-#     TODO
-#     """
-#     road = []
-
-#     max_level = max(dest_coord.router_level, rid.router_level)
-
-#     cur_level = cur_coord.router_level
-#     while cur_level != max_level:
-#         if cur_level < max_level:
-#             # Go up
-#             road.append(RoutingOP.UP)
-#             cur_level += 1
-#         elif cur_level > max_level:
-#             road.append(RoutingOP.DOWN_MULTICAST)
-#         else:
-#             pass
-
-#     return road
-
-
-def coord2level(rid: Coord) -> RoutingNodeLevel:
-    x_high = y_high = RoutingNodeLevel.L1
-
-    for level in RoutingNodeLevel:
-        if (rid.x >> level.value) == 0:
-            x_high = level
-            break
-
-    for level in RoutingNodeLevel:
-        if (rid.y >> level.value) == 0:
-            y_high = level
-            break
-
-    return max(x_high, y_high, key=lambda x: x.value)
-
-
 RoutingDirectionIdx = (
     RoutingDirection.X0Y0,
     RoutingDirection.X0Y1,
@@ -224,8 +181,7 @@ RoutingDirectionIdx = (
 )
 
 
-@dataclass
-class RoutingNodeCoord:
+class RoutingNodeCoord(NamedTuple):
     """Use router directions to represent the coordinate of a node."""
 
     L4: RoutingDirection = field(default=RoutingDirection.ANY)
@@ -234,38 +190,11 @@ class RoutingNodeCoord:
     L1: RoutingDirection = field(default=RoutingDirection.ANY)
     L0: RoutingDirection = field(default=RoutingDirection.ANY)
 
-    level_table = [
-        (L4, RoutingNodeLevel.L5),
-        (L3, RoutingNodeLevel.L4),
-        (L2, RoutingNodeLevel.L3),
-        (L1, RoutingNodeLevel.L2),
-        (L0, RoutingNodeLevel.L1),
-    ]
-
-    @classmethod
-    def build_from_path(cls, path: List[RoutingDirection]):
-        if len(path) > 5:
-            # TODO
-            raise ValueError
-
-        return cls(*path)
-
     @property
     def level(self) -> RoutingNodeLevel:
-        if self.L4 == RoutingDirection.ANY:
-            return RoutingNodeLevel.L5
-
-        if self.L3 == RoutingDirection.ANY:
-            return RoutingNodeLevel.L4
-
-        if self.L2 == RoutingDirection.ANY:
-            return RoutingNodeLevel.L3
-
-        if self.L1 == RoutingDirection.ANY:
-            return RoutingNodeLevel.L2
-
-        if self.L0 == RoutingDirection.ANY:
-            return RoutingNodeLevel.L1
+        for i in range(len(self)):
+            if self[i] is RoutingDirection.ANY:
+                return RoutingNodeLevel(5 - i)
 
         return RoutingNodeLevel.L0
 

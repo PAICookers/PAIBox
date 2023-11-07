@@ -8,8 +8,6 @@ from pydantic.dataclasses import dataclass
 
 from ._types import ReplicationFlag as RFlag
 
-# from .router import RouterLevel
-
 
 class Identifier(ABC):
     """Identifier. At least the subclasses of identifier can `__eq__` and `__ne__`."""
@@ -42,7 +40,7 @@ class Coord(Identifier):
         return cls(*pos)
 
     @classmethod
-    def from_addr(cls, addr):
+    def from_addr(cls, addr: int):
         return cls(addr >> 5, addr & _COORD_MAX_LIMIT)
 
     @classmethod
@@ -220,22 +218,6 @@ class Coord(Identifier):
     def address(self) -> int:
         """Convert to address, 10 bits"""
         return (self.x << 5) | self.y
-
-    # @property
-    # def router_level(self) -> RouterLevel:
-    #     x_high = y_high = RouterLevel.L1
-
-    #     for level in RouterLevel:
-    #         if (self.x >> level.value) == 0:
-    #             x_high = level
-    #             break
-
-    #     for level in RouterLevel:
-    #         if (self.y >> level.value) == 0:
-    #             y_high = level
-    #             break
-
-    #     return max(x_high, y_high, key=lambda x: x.value)
 
 
 @final
@@ -419,17 +401,20 @@ class CoordOffset:
         return np.maximum(np.abs(self.delta_x), np.abs(self.delta_y))
 
 
-CoordLike = TypeVar("CoordLike", Coord, Tuple[int, int])
+CoordLike = TypeVar("CoordLike", Coord, int, List[int], Tuple[int, int])
 
 
 def to_coord(coordlike: CoordLike) -> Coord:
+    if isinstance(coordlike, int):
+        return Coord.from_addr(coordlike)
+
     if isinstance(coordlike, (list, tuple)):
         if len(coordlike) != 2:
             raise ValueError(
                 f"Must be a tuple or list of 2 elements to represent a coordinate: {len(coordlike)}"
             )
 
-        return Coord.from_tuple(coordlike)
+        return Coord(*coordlike)
 
     return coordlike
 

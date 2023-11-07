@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from .ram_types import *
 
@@ -12,7 +12,7 @@ ADDR_CHIP_X_BIT_MAX = 5
 ADDR_CHIP_Y_BIT_MAX = 5
 
 
-class NeuronDestInfo(BaseModel, extra="ignore", validate_assignment=True):
+class NeuronDestInfo(BaseModel, validate_assignment=True):
     """Parameter model of RAM parameters listed in Section 2.4.2
 
     Example:
@@ -25,6 +25,7 @@ class NeuronDestInfo(BaseModel, extra="ignore", validate_assignment=True):
 
     NOTE: The parameters input in the model are declared in `docs/Table-of-Terms.md`.
     """
+    model_config = ConfigDict(extra='ignore') 
 
     tick_relative: int = Field(
         ge=0,
@@ -194,8 +195,9 @@ class NeuronAttrs(BaseModel, extra="ignore", validate_assignment=True):
         return synaptic_integration_mode.value
 
 
-class NeuronParams(NeuronDestInfo, NeuronAttrs):
-    pass
+class NeuronParams(BaseModel):
+    attr: NeuronAttrs
+    dest_info: NeuronDestInfo
 
 
 ParamsRAM = NeuronParams

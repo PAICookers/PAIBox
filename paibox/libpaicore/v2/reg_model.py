@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_serializer, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
 from .reg_types import *
 
@@ -15,8 +15,10 @@ TARGET_LCN_BIT_MAX = 4
 TEST_CHIP_ADDR_BIT_MAX = 10
 
 
-class CoreParams(BaseModel, extra="ignore", validate_assignment=True):
+class CoreParams(BaseModel, validate_assignment=True):
     """Parameter model of register parameters listed in Section 2.4.1"""
+
+    model_config = ConfigDict(extra="ignore")
 
     weight_precision: WeightPrecisionType = Field(
         lt=WeightPrecisionType.WEIGHT_WIDTH_MAX,
@@ -24,7 +26,7 @@ class CoreParams(BaseModel, extra="ignore", validate_assignment=True):
         description="Weight precision of crossbar.",
     )
 
-    LCN_extension: LCNExtensionType = Field(
+    lcn_extension: LCNExtensionType = Field(
         lt=LCNExtensionType.LCN_MAX,
         serialization_alias="LCN",
         description="Scale of Fan-in extension.",
@@ -68,11 +70,10 @@ class CoreParams(BaseModel, extra="ignore", validate_assignment=True):
         description="Enable SNN mode or not.",
     )
 
-    target_LCN: int = Field(
-        ge=0,
-        lt=(1 << TARGET_LCN_BIT_MAX),
-        serialization_alias="targetLCN",
-        description="LCN of destination core.",
+    target_lcn: LCNExtensionType = Field(
+        lt=LCNExtensionType.LCN_MAX,
+        serialization_alias="target_LCN",
+        description="LCN of the target core.",
     )
 
     test_chip_addr: int = Field(
@@ -105,9 +106,6 @@ class CoreParams(BaseModel, extra="ignore", validate_assignment=True):
             and m.max_pooling_en is MaxPoolingEnableType.ENABLE
         ):
             m.max_pooling_en = MaxPoolingEnableType.DISABLE
-            print(
-                f"[Warning] Param max_pooling_en is set to MaxPoolingEnableType.DISABLE when input_width_format is 1-bit."
-            )
 
         return m
 
@@ -117,9 +115,9 @@ class CoreParams(BaseModel, extra="ignore", validate_assignment=True):
     def _weight_precision(self, weight_precision: WeightPrecisionType) -> int:
         return weight_precision.value
 
-    @field_serializer("LCN_extension")
-    def _LCN_extension(self, LCN_extension: LCNExtensionType) -> int:
-        return LCN_extension.value
+    @field_serializer("lcn_extension")
+    def _lcn_extension(self, lcn_extension: LCNExtensionType) -> int:
+        return lcn_extension.value
 
     @field_serializer("input_width_format")
     def _input_width_format(self, input_width_format: InputWidthFormatType) -> int:
@@ -136,6 +134,10 @@ class CoreParams(BaseModel, extra="ignore", validate_assignment=True):
     @field_serializer("snn_mode_en")
     def _snn_mode_en(self, snn_mode_en: SNNModeEnableType) -> int:
         return snn_mode_en.value
+
+    @field_serializer("target_lcn")
+    def _target_lcn(self, target_lcn: LCNExtensionType) -> int:
+        return target_lcn.value
 
 
 ParamsReg = CoreParams

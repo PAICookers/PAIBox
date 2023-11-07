@@ -2,6 +2,7 @@ from .coordinate import Coord as Coord
 from .coordinate import ReplicationId as ReplicationId
 from .hw_defs import HwConfig as HwConfig
 from .ram_model import NeuronAttrs as NeuronAttrs
+from .ram_model import NeuronDestInfo as NeuronDestInfo
 from .ram_types import LeakingComparisonMode as LCM
 from .ram_types import LeakingDirectionMode as LDM
 from .ram_types import LeakingIntegrationMode as LIM
