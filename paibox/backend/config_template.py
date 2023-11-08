@@ -1,24 +1,23 @@
-import numpy as np
 from dataclasses import dataclass
-
 from typing import ClassVar, List, NamedTuple
 
+import numpy as np
 
 from paibox.base import NeuDyn
 from paibox.frame.frame_params import FrameType
 from paibox.libpaicore import (
-    AxonCoord,
     LCN_EX,
+    AxonCoord,
     Coord,
-    WeightPrecision,
     InputWidthFormat,
-    SpikeWidthFormat,
     MaxPoolingEnable,
     NeuronAttrs,
     NeuronDestInfo,
-    SNNModeEnable,
-    get_replication_id,
     ParamsReg,
+    SNNModeEnable,
+    SpikeWidthFormat,
+    WeightPrecision,
+    get_replication_id,
 )
 from paibox.libpaicore.v2.coordinate import CoordLike, to_coord
 

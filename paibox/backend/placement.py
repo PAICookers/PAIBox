@@ -1,36 +1,30 @@
 from collections import defaultdict
-from typing import (
-    ClassVar,
-    Dict,
-    List,
-    NamedTuple,
-    Optional,
-    Sequence,
-    Tuple,
-    Union,
-)
+from typing import ClassVar, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
+
 import numpy as np
 
-from .config_template import GlobalConfig, NeuronConfig, CoreConfigDict
 from paibox.base import NeuDyn, PAIBoxObject
 from paibox.libpaicore import (
+    LCN_EX,
     AxonCoord,
     AxonSegment,
-    LCN_EX,
     Coord,
-    WeightPrecision,
+    HwConfig,
     InputWidthFormat,
-    SpikeWidthFormat,
     MaxPoolingEnable,
     NeuronSegment,
+)
+from paibox.libpaicore import ReplicationId as RId
+from paibox.libpaicore import (
     SNNModeEnable,
-    HwConfig,
+    SpikeWidthFormat,
     WeightPrecision,
-    ReplicationId as RId,
     get_replication_id,
 )
 from paibox.projection import InputProj
 from paibox.synapses import SynSys
+
+from .config_template import CoreConfigDict, GlobalConfig, NeuronConfig
 
 SourceNodeType = Union[NeuDyn, InputProj]
 DestNodeType = NeuDyn
@@ -85,7 +79,7 @@ class CoreBlock(PlacementObj):
 
         self.core_coords: List[Coord] = []
         """Core coordinates.
-        
+
         TODO Record the occuppied but unused coordinates here?
         """
 

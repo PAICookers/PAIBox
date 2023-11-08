@@ -220,7 +220,7 @@ class NeuDyn(DynamicSys, ReceiveInputProj):
     @property
     def spike(self) -> np.ndarray:
         raise NotImplementedError
-    
+
     def export_params(self):
         """Export the parameters into dictionary."""
         params = {}

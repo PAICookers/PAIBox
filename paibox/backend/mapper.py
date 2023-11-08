@@ -11,7 +11,6 @@ from .graphs import *
 from .placement import CoreBlock, max_lcn_of_cb
 from .routing import RoutingRoot
 
-
 NodeNameType = str
 NodeSynDictType = Dict[str, str]  # key-value for node & synapse.
 
@@ -105,7 +104,7 @@ class Mapper:
         self._axons_dest: Dict[str, List[CoreBlock]] = defaultdict(list)
         """A dictionary recording the destination of each axon. \
             It is to find which grouped synapse the axon(of a node) is in.
-        
+
         Structure:
         {
             node.name: [grouped synapse1, grouped synapse2]
@@ -282,11 +281,11 @@ class Mapper:
     def lcn_ex_adjustment(self) -> None:
         """Adjust the LCN extension for each grouped synapse. \
             Make sure that all destination LCNs are equal.
-        
+
         If the out-degree of a grouped synapse > 1, the LCN of \
         all its following grouped synapses needs to be adjusted. \
         So that the `target_LCN` can be set.
-        
+
         The LCN after adjustment = max(LCN_1, LCN_2, ..., LCN_N)
         """
         for cb in self.core_blocks:
@@ -323,7 +322,7 @@ class Mapper:
         """
         Traverse all the core placements in core blocks, then find \
             the following core blocks where the axons at.
-        
+
         If found, get the coordinate of the core placment, all the \
             coordinates of axons(for broadcasting).
         """

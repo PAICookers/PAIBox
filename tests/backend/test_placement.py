@@ -2,14 +2,8 @@ import numpy as np
 import pytest
 
 import paibox as pb
-
-
-from paibox.backend.placement import (
-    get_axon_segments,
-    get_neu_segments,
-    aligned_coords,
-)
-from paibox.libpaicore.v2 import AxonSegment, AxonCoord, LCN_EX
+from paibox.backend.placement import aligned_coords, get_axon_segments, get_neu_segments
+from paibox.libpaicore.v2 import LCN_EX, AxonCoord, AxonSegment
 
 
 @pytest.mark.parametrize(

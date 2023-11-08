@@ -25,7 +25,8 @@ class NeuronDestInfo(BaseModel, validate_assignment=True):
 
     NOTE: The parameters input in the model are declared in `docs/Table-of-Terms.md`.
     """
-    model_config = ConfigDict(extra='ignore') 
+
+    model_config = ConfigDict(extra="ignore")
 
     tick_relative: int = Field(
         ge=0,

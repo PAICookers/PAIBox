@@ -1,7 +1,6 @@
 import pytest
 
 import paibox as pb
-
 from paibox.backend.config_template import NeuronConfig
 from paibox.frame.frame_params import FrameType
 from paibox.libpaicore import AxonCoord, Coord

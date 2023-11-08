@@ -442,7 +442,7 @@ class RoutingRoot(RoutingNode):
 
         cost = get_node_consumption(n_core)
         level = cost.get_routing_level()
-        routing_node = RoutingNode.create_routing_tree(level, cost[level-1])
+        routing_node = RoutingNode.create_routing_tree(level, cost[level - 1])
 
         for i in range(cost.n_L0):
             if i < n_core:
@@ -471,7 +471,7 @@ class RoutingRoot(RoutingNode):
                 raise RuntimeError
 
             coords.append(coord.coordinate)
-            
+
         cb.core_coords = coords
 
         return True
@@ -481,7 +481,7 @@ class RoutingRoot(RoutingNode):
         nodes = self.find_nodes_at_level(lx, 0)
 
         return len(nodes)
-    
+
     @property
     def n_L0_nodes(self) -> int:
         return self.breadth_of_lx_nodes(Level.L0)

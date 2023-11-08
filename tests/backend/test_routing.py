@@ -364,4 +364,3 @@ class TestRouterTreeRoot:
         # Group every synapses
         mapper._group_synapses()
         mapper._build_gsyn_on_core()
-
