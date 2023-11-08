@@ -77,6 +77,7 @@ class CoreParams(BaseModel, validate_assignment=True):
     )
 
     test_chip_addr: int = Field(
+        default=0,
         ge=0,
         lt=(1 << TEST_CHIP_ADDR_BIT_MAX),
         description="Destination address of output test frames.",
