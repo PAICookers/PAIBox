@@ -1,0 +1,53 @@
+from paibox.libpaicore.v2.routing_defs import RoutingDirection
+
+# path, method, expected_tag
+data_find_node_by_path = [
+    (
+        [
+            RoutingDirection.X0Y0,
+            RoutingDirection.X0Y0,
+            RoutingDirection.X0Y1,
+            RoutingDirection.X0Y0,
+        ],
+        "L0_1",
+    ),
+    (
+        [
+            RoutingDirection.X0Y1,
+            RoutingDirection.X0Y0,
+            RoutingDirection.X0Y1,
+        ],
+        "L1_4",
+    ),
+    (
+        [
+            RoutingDirection.X0Y1,
+            RoutingDirection.X0Y0,
+            RoutingDirection.X0Y0,
+            RoutingDirection.X0Y0,
+        ],
+        "L0_2",
+    ),
+    (
+        [],
+        "L4_1",
+    ),
+    (
+        [
+            RoutingDirection.X0Y1,
+            RoutingDirection.X0Y0,
+            RoutingDirection.X0Y0,
+            RoutingDirection.X0Y1,
+        ],
+        "L0_3",
+    ),
+    (
+        [
+            RoutingDirection.X0Y1,
+            RoutingDirection.X0Y0,
+            RoutingDirection.X0Y0,
+            RoutingDirection.X1Y0,
+        ],
+        "L0_4",
+    ),
+]
