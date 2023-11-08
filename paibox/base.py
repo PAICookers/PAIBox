@@ -220,3 +220,15 @@ class NeuDyn(DynamicSys, ReceiveInputProj):
     @property
     def spike(self) -> np.ndarray:
         raise NotImplementedError
+    
+    def export_params(self):
+        """Export the parameters into dictionary."""
+        params = {}
+
+        for k, v in self.__dict__.items():
+            if k in self._excluded_vars:
+                continue
+
+            params.update({k.removeprefix("_"): v})
+
+        return params

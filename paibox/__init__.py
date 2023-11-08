@@ -1,5 +1,5 @@
 from .base import *
-from .implement import *
+from .backend import Mapper as Mapper
 from .network import DynSysGroup as DynSysGroup
 from .network import Network as Network
 from .network import Sequential as Sequential
