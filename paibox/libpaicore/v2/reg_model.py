@@ -1,5 +1,7 @@
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
+from .coordinate import Coord
+from .hw_defs import HwConfig
 from .reg_types import *
 
 WEIGHT_PRECISION_BIT_MAX = 2  # Not used
@@ -49,23 +51,27 @@ class CoreParams(BaseModel, validate_assignment=True):
     )
 
     max_pooling_en: MaxPoolingEnableType = Field(
+        default=MaxPoolingEnableType.DISABLE,
         serialization_alias="pool_max",
         description="Enable max pooling or not in 8-bit input format.",
     )
 
     tick_wait_start: int = Field(
+        default=0,
         ge=0,
         lt=(1 << TICK_WAIT_START_BIT_MAX),
         description="The core begins to work at #N sync_all. 0 for not starting.",
     )
 
     tick_wait_end: int = Field(
+        default=0,
         ge=0,
         lt=(1 << TICK_WAIT_END_BIT_MAX),
         description="The core keeps working within #N sync_all. 0 for  not stopping.",
     )
 
     snn_mode_en: SNNModeEnableType = Field(
+        default=SNNModeEnableType.ENABLE,
         serialization_alias="snn_en",
         description="Enable SNN mode or not.",
     )
@@ -76,39 +82,39 @@ class CoreParams(BaseModel, validate_assignment=True):
         description="LCN of the target core.",
     )
 
-    test_chip_addr: int = Field(
-        default=0,
-        ge=0,
-        lt=(1 << TEST_CHIP_ADDR_BIT_MAX),
+    test_chip_addr: Coord = Field(
+        default=Coord(0, 0),
         description="Destination address of output test frames.",
     )
 
     """Parameter checks"""
 
-    @model_validator(mode="after")  # type: ignore
-    def _neuron_num_range_limit(cls, m: "ParamsReg") -> "ParamsReg":
-        if m.input_width_format is InputWidthFormatType.WIDTH_1BIT:
-            if m.neuron_num > 512:
+    @model_validator(mode="after")
+    def _neuron_num_range_limit(self):
+        if self.input_width_format is InputWidthFormatType.WIDTH_1BIT:
+            if self.neuron_num > HwConfig.N_NEURON_ONE_CORE_DEFAULT:
                 raise ValueError(
-                    f"Param neuron_num out of range. When input_width_format is 1-bit, neuron_num should be less than 512."
+                    f"Param 'neuron_num' out of range. When input width is 1-bit,"
+                    f"The #N of neurons should be <= {HwConfig.N_NEURON_ONE_CORE_DEFAULT}."
                 )
         else:
-            if m.neuron_num > 4096:
+            if self.neuron_num > HwConfig.N_NEURON_ONE_CORE_DEFAULT / 8:
                 raise ValueError(
-                    f"Param neuron_num out of range. When input_width_format is 8-bit, neuron_num should be less than 4096."
+                    f"Param 'neuron_num' out of range. When input width is 8-bit,"
+                    f"The #N of neurons should be <= {HwConfig.N_NEURON_ONE_CORE_DEFAULT / 8}."
                 )
 
-        return m
+        return self
 
-    @model_validator(mode="after")  # type: ignore
-    def _max_pooling_en_check(cls, m: "ParamsReg") -> "ParamsReg":
+    @model_validator(mode="after")
+    def _max_pooling_en_check(self):
         if (
-            m.input_width_format is InputWidthFormatType.WIDTH_1BIT
-            and m.max_pooling_en is MaxPoolingEnableType.ENABLE
+            self.input_width_format is InputWidthFormatType.WIDTH_1BIT
+            and self.max_pooling_en is MaxPoolingEnableType.ENABLE
         ):
-            m.max_pooling_en = MaxPoolingEnableType.DISABLE
+            self.max_pooling_en = MaxPoolingEnableType.DISABLE
 
-        return m
+        return self
 
     """Parameter serializers"""
 
@@ -139,6 +145,10 @@ class CoreParams(BaseModel, validate_assignment=True):
     @field_serializer("target_lcn")
     def _target_lcn(self, target_lcn: LCNExtensionType) -> int:
         return target_lcn.value
+
+    @field_serializer("test_chip_addr")
+    def _test_chip_addr(self, test_chip_addr: Coord) -> int:
+        return test_chip_addr.address
 
 
 ParamsReg = CoreParams
