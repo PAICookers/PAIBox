@@ -22,6 +22,10 @@ torch = { version = "^2.1.0+cpu", optional = true, source = "torch-cpu" }
 torchvision = { version = "^0.16.0+cpu", optional = true, source = "torch-cpu" }
 torchaudio = { version = "^2.1.0+cpu", optional = true, source = "torch-cpu" }
 
+
+[tool.poetry.group.dev.dependencies]
+ujson = "^5.8.0"
+
 [tool.poetry.extras]
 torch_env = ["torch", "torchvision", "torchaudio"]
 

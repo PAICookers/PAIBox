@@ -42,7 +42,7 @@ class TestInputProj:
 
         inp1 = pb.InputProj(np.random.rand(*shape_out), keep_shape=True)
 
-        prob = pb.simulator.Probe(inp1, "output")
+        prob = pb.simulator.Probe(inp1, "feature_map")
         sim = pb.Simulator(inp1)
         sim.add_probe(prob)
         sim.run(10)
@@ -88,8 +88,9 @@ class TestInputProj:
     def test_input_Encoder(self):
         inp1 = pb.InputProj(shape_out=(10, 10), keep_shape=False)
 
-        encoder = pb.simulator.PoissonEncoder((10, 10))
-        input_data1 = np.random.randint(0, 2, (10, 10))
+        # Don't have to specify the output size here.
+        encoder = pb.simulator.PoissonEncoder()
+        input_data1 = np.random.randint(-128, 128, (10, 10), dtype=np.int8)
         input_data2 = np.random.rand(10, 10)
 
         inp1.input = encoder(input_data1)
@@ -109,5 +110,6 @@ class TestInputProj:
 
         inp3 = pb.InputProj(shape_out=(5, 5), keep_shape=False)
         with pytest.raises(ValueError):
-            # Different from the shape when you claimed.
+            # Raise exception when the input is different from
+            # the shape when you claimed.
             inp3.input = encoder(input_data1)

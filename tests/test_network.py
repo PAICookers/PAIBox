@@ -87,6 +87,7 @@ class more_input_Net(pb.DynSysGroup):
 
     n3 -> s3 -> n4
     """
+
     def __init__(self):
         super().__init__()
         self.n1 = pb.neuron.TonicSpiking(2, 3)
@@ -100,8 +101,9 @@ class more_input_Net(pb.DynSysGroup):
             self.n2, self.n4, conn_type=pb.synapses.ConnType.All2All
         )
         self.s3 = pb.synapses.NoDecay(
-             self.n3, self.n4, conn_type=pb.synapses.ConnType.All2All
+            self.n3, self.n4, conn_type=pb.synapses.ConnType.All2All
         )
+
 
 def test_flatten_hzynet():
     net = more_input_Net()
@@ -341,8 +343,9 @@ def test_DynSysGroup_AutoUpdate_No_Nested():
     sim.add_probe(p2)
     sim.run(10)
 
-    assert np.array_equal(sim.data[p1], expected_y_n1)
-    assert np.array_equal(sim.data[p2], expected_y_n2)
+    for i in range(10):
+        assert np.array_equal(sim.data[p1][i], expected_y_n1[i])
+        assert np.array_equal(sim.data[p2][i], expected_y_n2[i])
 
 
 @pytest.mark.parametrize("level", [1, 2], ids=["level_1", "level_2"])

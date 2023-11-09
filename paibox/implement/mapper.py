@@ -8,7 +8,7 @@ from paibox.synapses import SynSys
 
 from .graphs import *
 from .grouping import GroupedSyn, GroupedSynOnCore
-from .placement import RoutingRoot
+from .routing import RoutingRoot
 
 NodeNameType = str
 NodeSynDictType = Dict[str, str]  # key-value for node & synapse.
