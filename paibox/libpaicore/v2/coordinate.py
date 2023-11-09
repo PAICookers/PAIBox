@@ -1,12 +1,10 @@
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import List, Tuple, TypeVar, Union, final, overload
+from typing import List, Sequence, Tuple, TypeVar, Union, final, overload
 
 import numpy as np
 from pydantic import Field
 from pydantic.dataclasses import dataclass
-
-from ._types import ReplicationFlag as RFlag
 
 
 class Identifier(ABC):
@@ -237,20 +235,6 @@ class ReplicationId(Coord):
     # def __rshift__(self, __bit: int) -> int:
     #     return self.address >> __bit
 
-    @property
-    def rflags(self) -> Tuple[RFlag, RFlag]:
-        fx = fy = RFlag.NONE
-
-        for i in range(5):
-            if (self.x >> i) & 1:
-                fx |= RFlag(1 << i)
-
-        for i in range(5):
-            if (self.y >> i) & 1:
-                fy |= RFlag(1 << i)
-
-        return (fx, fy)
-
 
 class DistanceType(Enum):
     DISTANCE_ENCLIDEAN = 0
@@ -419,10 +403,5 @@ def to_coord(coordlike: CoordLike) -> Coord:
     return coordlike
 
 
-def to_coords(coordlikes: Union[CoordLike, List[CoordLike]]) -> List[Coord]:
-    if isinstance(coordlikes, list):
-        coords = [to_coord(i) for i in coordlikes]
-    else:
-        coords = [to_coord(coordlikes)]
-
-    return coords
+def to_coords(coordlikes: Sequence[CoordLike]) -> List[Coord]:
+    return [to_coord(coordlike) for coordlike in coordlikes]

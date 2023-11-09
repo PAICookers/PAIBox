@@ -2,7 +2,6 @@ from dataclasses import field
 from enum import Enum, IntEnum, unique
 from typing import NamedTuple, Sequence, Set
 
-from ._types import ReplicationFlag as RFlag
 from .coordinate import Coord
 from .coordinate import ReplicationId as RId
 from .hw_defs import HwConfig
@@ -110,16 +109,6 @@ def get_node_consumption(n_core: int) -> RoutingNodeCost:
     return RoutingNodeCost(n_L0, n_L1, n_L2, n_L3, n_L4)
 
 
-def lx_need_copy(rflag: RFlag, lx: int) -> bool:
-    """Return the bit Lx wether needs do replication.
-
-    Arguments:
-        - rflag: the feplication flag of X or Y.
-        - lx: the bit of Lx.
-    """
-    return rflag & RFlag(1 << lx) == RFlag(1 << lx)
-
-
 def get_replication_id(coords: Sequence[Coord]) -> RId:
     """Get the replication ID as core* address.
 
@@ -140,31 +129,27 @@ def get_replication_id(coords: Sequence[Coord]) -> RId:
 
 def get_multicast_cores(base_coord: Coord, rid: RId) -> Set[Coord]:
     cores: Set[Coord] = set()
-
-    # countx = 0
-    # county = 0
-
     corex = set()
-    corex.add(base_coord.x)
     corey = set()
+    temp = set()
+
+    corex.add(base_coord.x)
     corey.add(base_coord.y)
 
     for lx in range(5):
-        if lx_need_copy(rid.rflags[0], lx):
-            temp = set()
+        if (rid.x >> lx) & 1:
             for x in corex:
-                # countx += 1
                 temp.add(x ^ (1 << lx))
 
             corex = corex.union(temp)
+            temp.clear()
 
-        if lx_need_copy(rid.rflags[1], lx):
-            temp = set()
+        if (rid.y >> lx) & 1:
             for y in corey:
-                # county += 1
                 temp.add(y ^ (1 << lx))
 
             corey = corey.union(temp)
+            temp.clear()
 
     for x in corex:
         for y in corey:
