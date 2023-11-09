@@ -81,6 +81,55 @@ class RoutingNodeCost(NamedTuple):
         return RoutingNodeLevel.L1
 
 
+RoutingDirectionIdx = (
+    RoutingDirection.X0Y0,
+    RoutingDirection.X0Y1,
+    RoutingDirection.X1Y0,
+    RoutingDirection.X1Y1,
+)
+
+
+class RoutingNodeCoord(NamedTuple):
+    """Use router directions to represent the coordinate of a node."""
+
+    L4: RoutingDirection = field(default=RoutingDirection.ANY)
+    L3: RoutingDirection = field(default=RoutingDirection.ANY)
+    L2: RoutingDirection = field(default=RoutingDirection.ANY)
+    L1: RoutingDirection = field(default=RoutingDirection.ANY)
+    L0: RoutingDirection = field(default=RoutingDirection.ANY)
+
+    @property
+    def level(self) -> RoutingNodeLevel:
+        for i in range(len(self)):
+            if self[i] is RoutingDirection.ANY:
+                return RoutingNodeLevel(5 - i)
+
+        return RoutingNodeLevel.L0
+
+    @property
+    def coordinate(self) -> Coord:
+        if self.level > RoutingNodeLevel.L0:
+            raise AttributeError("This property is only for L0 level.")
+
+        x = (
+            (self.L4.value[0] << 4)
+            + (self.L3.value[0] << 3)
+            + (self.L2.value[0] << 2)
+            + (self.L1.value[0] << 1)
+            + self.L0.value[0]
+        )
+
+        y = (
+            (self.L4.value[1] << 4)
+            + (self.L3.value[1] << 3)
+            + (self.L2.value[1] << 2)
+            + (self.L1.value[1] << 1)
+            + self.L0.value[1]
+        )
+
+        return Coord(x, y)
+
+
 def get_node_consumption(n_core: int) -> RoutingNodeCost:
     """Get the nodes consumption at different levels given the `n_core`."""
 
@@ -156,52 +205,3 @@ def get_multicast_cores(base_coord: Coord, rid: RId) -> Set[Coord]:
             cores.add(Coord(x, y))
 
     return cores
-
-
-RoutingDirectionIdx = (
-    RoutingDirection.X0Y0,
-    RoutingDirection.X0Y1,
-    RoutingDirection.X1Y0,
-    RoutingDirection.X1Y1,
-)
-
-
-class RoutingNodeCoord(NamedTuple):
-    """Use router directions to represent the coordinate of a node."""
-
-    L4: RoutingDirection = field(default=RoutingDirection.ANY)
-    L3: RoutingDirection = field(default=RoutingDirection.ANY)
-    L2: RoutingDirection = field(default=RoutingDirection.ANY)
-    L1: RoutingDirection = field(default=RoutingDirection.ANY)
-    L0: RoutingDirection = field(default=RoutingDirection.ANY)
-
-    @property
-    def level(self) -> RoutingNodeLevel:
-        for i in range(len(self)):
-            if self[i] is RoutingDirection.ANY:
-                return RoutingNodeLevel(5 - i)
-
-        return RoutingNodeLevel.L0
-
-    @property
-    def coordinate(self) -> Coord:
-        if self.level > RoutingNodeLevel.L0:
-            raise AttributeError("This property is only for L0 level.")
-
-        x = (
-            (self.L4.value[0] << 4)
-            + (self.L3.value[0] << 3)
-            + (self.L2.value[0] << 2)
-            + (self.L1.value[0] << 1)
-            + self.L0.value[0]
-        )
-
-        y = (
-            (self.L4.value[1] << 4)
-            + (self.L3.value[1] << 3)
-            + (self.L2.value[1] << 2)
-            + (self.L1.value[1] << 1)
-            + self.L0.value[1]
-        )
-
-        return Coord(x, y)

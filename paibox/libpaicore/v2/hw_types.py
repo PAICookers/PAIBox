@@ -1,6 +1,9 @@
 from typing import NamedTuple
 
 
+__all__ = ["NeuronSegment", "AxonCoord", "AxonSegment"]
+
+
 class NeuronSegment(NamedTuple):
     index: slice
     """The original index of this segment of neurons."""

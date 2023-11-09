@@ -1,11 +1,7 @@
-from .coordinate import Coord as Coord
-from .coordinate import ReplicationId as ReplicationId
+from .coordinate import *
 from .hw_defs import HwConfig as HwConfig
-from .hw_types import AxonCoord as AxonCoord
-from .hw_types import AxonSegment as AxonSegment
-from .hw_types import NeuronSegment as NeuronSegment
-from .ram_model import NeuronAttrs as NeuronAttrs
-from .ram_model import NeuronDestInfo as NeuronDestInfo
+from .hw_types import *
+from .ram_model import *
 from .ram_types import LeakingComparisonMode as LCM
 from .ram_types import LeakingDirectionMode as LDM
 from .ram_types import LeakingIntegrationMode as LIM
