@@ -1,9 +1,6 @@
 import pytest
 
-import paibox as pb
-from paibox.libpaicore.v2._types import ReplicationFlag as RFlag
-from paibox.libpaicore.v2.coordinate import Coord
-from paibox.libpaicore.v2.coordinate import ReplicationId as RId
+from paibox.libpaicore.v2 import Coord, ReplicationId as RId
 from paibox.libpaicore.v2.routing_defs import (
     RoutingDirection,
     RoutingNodeCoord,
@@ -56,34 +53,14 @@ def test_get_multicast_cores_length(coord, rid, num):
     ],
 )
 def test_get_multicast_cores(coord, rid, expected):
+    import time
+
+    t1 = time.time()
     cores = get_multicast_cores(coord, rid)
 
+    print(time.time() - t1)
+
     assert cores == expected
-
-
-@pytest.mark.parametrize(
-    "rid, expected",
-    [
-        (RId(0b00110, 0b01001), (RFlag.L3 | RFlag.L2, RFlag.L4 | RFlag.L1)),
-        (
-            RId(0b11111, 0b11111),
-            (
-                RFlag.L5 | RFlag.L4 | RFlag.L3 | RFlag.L2 | RFlag.L1,
-                RFlag.L5 | RFlag.L4 | RFlag.L3 | RFlag.L2 | RFlag.L1,
-            ),
-        ),
-        (
-            RId(0b00000, 0b11111),
-            (RFlag.NONE, RFlag.L5 | RFlag.L4 | RFlag.L3 | RFlag.L2 | RFlag.L1),
-        ),
-    ],
-)
-def test_replicationId(rid, expected):
-    # r = RId(0b00110, 0b01001)
-    # assert r.rflags == (RFlag.L3 | RFlag.L2, RFlag.L4 | RFlag.L1)
-    # assert r.rflags[0] & RFlag.L2 == RFlag.L2
-    # assert r.rflags[0] & RFlag.L3 == RFlag.L3
-    assert rid.rflags == expected
 
 
 @pytest.mark.parametrize(

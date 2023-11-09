@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Any, ClassVar, Dict, List, Optional, Sequence, final
+from typing import Any, Dict, List, Optional, Sequence, final
 
 from paibox.libpaicore.v2.routing_defs import RoutingDirection as Direction
 from paibox.libpaicore.v2.routing_defs import RoutingDirectionIdx as DirectionIdx
@@ -8,14 +8,14 @@ from paibox.libpaicore.v2.routing_defs import RoutingNodeLevel as Level
 from paibox.libpaicore.v2.routing_defs import RoutingNodeStatus as Status
 from paibox.libpaicore.v2.routing_defs import get_node_consumption
 
-from .grouping import GroupedSynOnCore
+from .placement import CoreBlock, CorePlacement
 
 
 class RoutingNode:
     def __init__(
         self,
         level: Level,
-        data: Optional[GroupedSynOnCore] = None,
+        data: Optional[CorePlacement] = None,
         *,
         d: Direction = Direction.ANY,
         status: Optional[Status] = None,
@@ -379,8 +379,6 @@ class RoutingNode:
 
 @final
 class RoutingRoot(RoutingNode):
-    leaves: ClassVar[List[RoutingNode]] = []
-
     def __init__(self, **kwargs) -> None:
         """Initialize a routing quadtree root(L5-level)."""
         super().__init__(Level.L5, **kwargs)
@@ -389,28 +387,29 @@ class RoutingRoot(RoutingNode):
         """Return the routing coordinate of the node(must be a L0 leaf)."""
         path = self.get_node_path(node)
         if path:
-            return NodeCoord.build_from_path(path)
+            return NodeCoord(*path)
 
-    def insert_gsyn_on_core(self, *gsyns_on_core: GroupedSynOnCore) -> bool:
+    def insert_gsyn_on_core(self, *cb_on_core: CorePlacement) -> bool:
         """Insert a list of `gsyn_on_core` in the routing tree.
 
         TODO add error descriptions.
         """
-        parent_name = gsyns_on_core[0].parent.name
-        n_core = len(gsyns_on_core)
+        leaves = []
+        parent_name = cb_on_core[0].parent.name
+        n_core = len(cb_on_core)
 
         cost = get_node_consumption(n_core)
-        level, next_n_branch = cost.get_routing_level()
-        routing_node = RoutingNode.create_routing_tree(level, next_n_branch)
+        level = cost.get_routing_level()
+        routing_node = RoutingNode.create_routing_tree(level, cost[level.value])
 
         for i in range(cost.n_L0):
             if i < n_core:
                 node = routing_node.add_L0_for_placing(
-                    data=gsyns_on_core[i],
+                    data=cb_on_core[i],
                     status=Status.USED,
-                    tag=f"Used by {gsyns_on_core[i].name}",
+                    tag=f"Used by {cb_on_core[i].name}",
                 )
-                self.leaves.append(node)
+                leaves.append(node)
             else:
                 # Other L0 nodes are unused but occupied.
                 node = routing_node.add_L0_for_placing(
@@ -423,7 +422,7 @@ class RoutingRoot(RoutingNode):
         if not flag:
             return False
 
-        for node in self.leaves:
+        for node in leaves:
             coord = self.get_leaf_coord(node)
             if not coord:
                 raise RuntimeError
@@ -432,11 +431,60 @@ class RoutingRoot(RoutingNode):
 
         return True
 
+    def insert_gsyn(self, cb: CoreBlock) -> bool:
+        """Insert a list of `gsyn_on_core` in the routing tree.
+
+        TODO add error descriptions.
+        """
+        n_core = cb.n_core
+        leaves = []
+        coords = []
+
+        cost = get_node_consumption(n_core)
+        level = cost.get_routing_level()
+        routing_node = RoutingNode.create_routing_tree(level, cost[level - 1])
+
+        for i in range(cost.n_L0):
+            if i < n_core:
+                node = routing_node.add_L0_for_placing(
+                    data=f"{cb.name}_{i}",
+                    status=Status.USED,
+                    tag=f"Used",
+                )
+
+                leaves.append(node)
+            else:
+                # Other L0 nodes are unused but occupied.
+                node = routing_node.add_L0_for_placing(
+                    status=Status.OCCUPIED,
+                    tag=f"Occupied by {cb.name}",
+                )
+
+        # Add routing node to the root.
+        flag = self.add_subtree(routing_node)
+        if not flag:
+            return False
+
+        for node in leaves:
+            coord = self.get_leaf_coord(node)
+            if not coord:
+                raise RuntimeError
+
+            coords.append(coord.coordinate)
+
+        cb.core_coords = coords
+
+        return True
+
     def breadth_of_lx_nodes(self, lx: Level) -> int:
         """Get the number of nodes in the routing tree at the given level."""
         nodes = self.find_nodes_at_level(lx, 0)
 
         return len(nodes)
+
+    @property
+    def n_L0_nodes(self) -> int:
+        return self.breadth_of_lx_nodes(Level.L0)
 
 
 def get_parent(tree: RoutingNode, node: RoutingNode) -> Optional[RoutingNode]:

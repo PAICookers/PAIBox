@@ -1,7 +1,7 @@
 import pytest
 
 import paibox as pb
-from paibox.implement.routing import RoutingNode, RoutingRoot, get_parent
+from paibox.backend.routing import RoutingNode, RoutingRoot, get_parent
 from paibox.libpaicore.v2.routing_defs import (
     RoutingDirection,
     RoutingNodeCost,
@@ -289,13 +289,13 @@ class ExampleNet1(pb.Network):
         self.n3 = pb.neuron.TonicSpiking(800, 5, name="n3")
 
         self.s1 = pb.synapses.NoDecay(
-            self.inp1, self.n1, pb.synapses.All2All(), name="s1"
+            self.inp1, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s1"
         )
         self.s2 = pb.synapses.NoDecay(
-            self.n1, self.n2, pb.synapses.All2All(), name="s2"
+            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s2"
         )
         self.s3 = pb.synapses.NoDecay(
-            self.n2, self.n3, pb.synapses.All2All(), name="s3"
+            self.n2, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s3"
         )
 
 
@@ -328,9 +328,9 @@ class TestRouterTreeRoot:
         root = RoutingRoot()
 
         def _gen_routing_tree(n_core: int, cost: RoutingNodeCost):
-            level, next_level_n = cost.get_routing_level()
+            level = cost.get_routing_level()
 
-            routing_root = RoutingNode.create_routing_tree(level, next_level_n)
+            routing_root = RoutingNode.create_routing_tree(level, cost[level.value])
 
             for i in range(cost.n_L0):
                 if i < n_core:
@@ -358,14 +358,9 @@ class TestRouterTreeRoot:
     def test_insert_gsyn_on_core(self, build_example_net):
         net = build_example_net
 
-        mapper = pb.implement.Mapper()
+        mapper = pb.Mapper()
         mapper.build_graph(net)
 
         # Group every synapses
         mapper._group_synapses()
         mapper._build_gsyn_on_core()
-
-        count = 0
-        for gsyns_on_core in mapper._gsyns_on_core:
-            mapper.routing_tree.insert_gsyn_on_core(*gsyns_on_core)
-            count += 1

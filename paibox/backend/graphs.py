@@ -1,8 +1,9 @@
 from collections import defaultdict
-from typing import Dict, List, Set, Tuple, TypeVar
+from typing import Dict, List, NamedTuple, Set, Tuple, TypeVar
 
 Node = TypeVar("Node")
 Edge = TypeVar("Edge")
+Degree = NamedTuple("DegreeTupleType", in_degree=int, out_degree=int)
 
 
 def toposort(edges: Dict[Node, Set[Node]], cycle_strict: bool = True) -> List[Node]:
@@ -93,7 +94,7 @@ def group_edges_proto(
     nodes: List[Node],
     edges: List[Edge],
     succ_edges: Dict[Node, Dict[Node, Edge]],
-) -> Tuple[Dict[Node, Tuple[int, int]], List[Set[Edge]]]:
+) -> Tuple[Dict[Node, Degree], List[Set[Edge]]]:
     """Only for varification."""
 
     def _reverse_edges(
@@ -109,41 +110,35 @@ def group_edges_proto(
     pred_edges = _reverse_edges(succ_edges)
 
     # Calculate the in- & out-degree of each node.
-    degree: Dict[Node, Tuple[int, int]] = defaultdict(tuple)
+    degree = defaultdict(Degree)
     gathered: List[Set[Edge]] = []
     edges_set = set(edges)
 
     for node in nodes:
-        if INDEGREE_IDX == 0:
-            degree[node] = (
-                len(pred_edges[node]),
-                len(succ_edges[node]),
-            )
-        else:
-            degree[node] = (
-                len(succ_edges[node]),
-                len(pred_edges[node]),
-            )
+        degree[node] = Degree(
+            len(pred_edges[node]),
+            len(succ_edges[node]),
+        )
 
     for node in degree:
-        if degree[node][OUTDEGREE_IDX] > 1:
+        if degree[node].out_degree > 1:
             # Out-degree of node > 1.
             edge_group = list(succ_edges[node].values())
 
             for succ_node in succ_edges[node]:
-                if degree[succ_node][INDEGREE_IDX] > 1:
+                if degree[succ_node].in_degree > 1:
                     edge_group += list(pred_edges[succ_node].values())
 
             if set(edge_group) not in gathered:
                 gathered.append(set(edge_group))
                 edges_set.difference_update(edge_group)
 
-        if degree[node][INDEGREE_IDX] > 1:
+        if degree[node].in_degree > 1:
             # In-degree of node > 1.
             edge_group = list(pred_edges[node].values())
 
             for prev_node in pred_edges[node]:
-                if degree[prev_node][OUTDEGREE_IDX] > 1:
+                if degree[prev_node].out_degree > 1:
                     edge_group += list(succ_edges[prev_node].values())
 
             if set(edge_group) not in gathered:
@@ -161,7 +156,7 @@ def group_edges(
     edges: List[Edge],
     pred_edges: Dict[Node, Dict[Node, Edge]],
     succ_edges: Dict[Node, Dict[Node, Edge]],
-) -> Tuple[Dict[Node, Tuple[int, int]], List[Set[Edge]]]:
+) -> Tuple[Dict[Node, Degree], List[Set[Edge]]]:
     """Group all edges according to a certain rule.
 
     Args:
@@ -173,44 +168,38 @@ def group_edges(
         - A dictionary of in/out-degree of nodes.
         - A frozen ordered set of frozen set of edges.
     """
-    degree: Dict[Node, Tuple[int, int]] = defaultdict(tuple)
+    degree = defaultdict(Degree)
     gathered: List[Set[Edge]] = []
     edges_set = set(edges)
 
     # Calculate the in- & out-degree of each node.
     for node in nodes:
-        if INDEGREE_IDX == 0:
-            degree[node] = (
-                len(pred_edges[node]),
-                len(succ_edges[node]),
-            )
-        else:
-            degree[node] = (
-                len(succ_edges[node]),
-                len(pred_edges[node]),
-            )
+        degree[node] = Degree(
+            len(pred_edges[node]),
+            len(succ_edges[node]),
+        )
 
     for node in nodes:
         # TODO
         # Do these two conditions both need to constrain the grouping?
-        if degree[node][OUTDEGREE_IDX] > 1:
+        if degree[node].out_degree > 1:
             # Out-degree of node > 1.
             edge_group = list(succ_edges[node].values())
 
             for succ_node in succ_edges[node]:
-                if degree[succ_node][INDEGREE_IDX] > 1:
+                if degree[succ_node].in_degree > 1:
                     edge_group += list(pred_edges[succ_node].values())
 
             if set(edge_group) not in gathered:
                 gathered.append(set(edge_group))
                 edges_set.difference_update(edge_group)
 
-        if degree[node][INDEGREE_IDX] > 1:
+        if degree[node].in_degree > 1:
             # In-degree of node > 1.
             edge_group = list(pred_edges[node].values())
 
             for prev_node in pred_edges[node]:
-                if degree[prev_node][OUTDEGREE_IDX] > 1:
+                if degree[prev_node].out_degree > 1:
                     edge_group += list(succ_edges[prev_node].values())
 
             if set(edge_group) not in gathered:
