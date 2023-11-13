@@ -389,59 +389,15 @@ class RoutingRoot(RoutingNode):
         if path:
             return NodeCoord(*path)
 
-    def insert_gsyn_on_core(self, *cb_on_core: CorePlacement) -> bool:
-        """Insert a list of `gsyn_on_core` in the routing tree.
-
-        TODO add error descriptions.
-        """
-        leaves = []
-        parent_name = cb_on_core[0].parent.name
-        n_core = len(cb_on_core)
-
-        cost = get_node_consumption(n_core)
-        level = cost.get_routing_level()
-        routing_node = RoutingNode.create_routing_tree(level, cost[level.value])
-
-        for i in range(cost.n_L0):
-            if i < n_core:
-                node = routing_node.add_L0_for_placing(
-                    data=cb_on_core[i],
-                    status=Status.USED,
-                    tag=f"Used by {cb_on_core[i].name}",
-                )
-                leaves.append(node)
-            else:
-                # Other L0 nodes are unused but occupied.
-                node = routing_node.add_L0_for_placing(
-                    status=Status.OCCUPIED,
-                    tag=f"Occupied by {parent_name}",
-                )
-
-        # Add routing node to the root.
-        flag = self.add_subtree(routing_node)
-        if not flag:
-            return False
-
-        for node in leaves:
-            coord = self.get_leaf_coord(node)
-            if not coord:
-                raise RuntimeError
-
-            node.item.coordinate = coord  # type: ignore
-
-        return True
-
-    def insert_gsyn(self, cb: CoreBlock) -> bool:
-        """Insert a list of `gsyn_on_core` in the routing tree.
-
-        TODO add error descriptions.
-        """
+    def insert_coreblock(self, cb: CoreBlock) -> bool:
+        """Insert a `CoreBlock` in the routing tree."""
         n_core = cb.n_core
         leaves = []
         coords = []
 
         cost = get_node_consumption(n_core)
         level = cost.get_routing_level()
+        # Create a sub-tree node.
         routing_node = RoutingNode.create_routing_tree(level, cost[level - 1])
 
         for i in range(cost.n_L0):
@@ -460,7 +416,7 @@ class RoutingRoot(RoutingNode):
                     tag=f"Occupied by {cb.name}",
                 )
 
-        # Add routing node to the root.
+        # Add the sub-tree to the root.
         flag = self.add_subtree(routing_node)
         if not flag:
             return False
