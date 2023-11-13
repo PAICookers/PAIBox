@@ -2,8 +2,12 @@ import numpy as np
 import pytest
 
 import paibox as pb
-from paibox.backend.placement import aligned_coords, get_axon_segments, get_neu_segments
-from paibox.libpaicore.v2 import LCN_EX, AxonCoord, AxonSegment
+from paibox.backend.placement import (
+    aligned_coords,
+    get_axon_segments,
+    get_neu_segments,
+)
+from paibox.libpaicore.v2 import AxonCoord, AxonSegment
 
 
 @pytest.mark.parametrize(
@@ -77,452 +81,42 @@ def test_get_binary_conn(input, n_col_groups, expected):
     assert np.array_equal(o_matrix, expected)
 
 
-@pytest.mark.parametrize(
-    "n_neuron_each, n, method, expected",
-    [
-        (
-            [800, 400],
-            500,
-            "class",
-            [
-                [(0, slice(0, 500, 1))],
-                [(0, slice(500, 800, 1))],
-                [(1, slice(0, 400, 1))],
-            ],
-        ),
-        (
-            [400, 400],
-            256,
-            "class",
-            [
-                [(0, slice(0, 256, 1))],
-                [(0, slice(256, 400, 1))],
-                [(1, slice(0, 256, 1))],
-                [(1, slice(256, 400, 1))],
-            ],
-        ),
-        (
-            [800, 300],
-            512,
-            "class",
-            [
-                [(0, slice(0, 512, 1))],
-                [(0, slice(512, 800, 1))],
-                [(1, slice(0, 300, 1))],
-            ],
-        ),
-        (
-            [300, 800],
-            512,
-            "class",
-            [
-                [(0, slice(0, 300, 1))],
-                [(1, slice(0, 512, 1))],
-                [(1, slice(512, 800, 1))],
-            ],
-        ),
-        (
-            [800, 300],
-            512,
-            "dense",
-            [
-                [(0, slice(0, 512, 1))],
-                [(0, slice(512, 800, 1)), (1, slice(0, 224, 1))],
-                [(1, slice(224, 300, 1))],
-            ],
-        ),
-        (
-            [300, 800],
-            512,
-            "dense",
-            [
-                [(0, slice(0, 300, 1)), (1, slice(0, 212, 1))],
-                [(1, slice(212, 724, 1))],
-                [(1, slice(724, 800, 1))],
-            ],
-        ),
-        (
-            [200, 200, 300],
-            256,
-            "dense",
-            [
-                [(0, slice(0, 200, 1)), (1, slice(0, 56, 1))],
-                [(1, slice(56, 200, 1)), (2, slice(0, 112, 1))],
-                [(2, slice(112, 300, 1))],
-            ],
-        ),
-        (
-            [512, 512],
-            256,
-            "dense",
-            [
-                [(0, slice(0, 256, 1))],
-                [(0, slice(256, 512, 1))],
-                [(1, slice(0, 256, 1))],
-                [(1, slice(256, 512, 1))],
-            ],
-        ),
-        (
-            [400, 400, 400],
-            256,
-            "dense",
-            [
-                [(0, slice(0, 256, 1))],
-                [(0, slice(256, 400, 1)), (1, slice(0, 112, 1))],
-                [(1, slice(112, 368, 1))],
-                [(1, slice(368, 400, 1)), (2, slice(0, 224, 1))],
-                [(2, slice(224, 400, 1))],
-            ],
-        ),
-        (
-            [1200, 200],
-            256,
-            "dense",
-            [
-                [(0, slice(0, 256, 1))],
-                [(0, slice(256, 512, 1))],
-                [(0, slice(512, 768, 1))],
-                [(0, slice(768, 1024, 1))],
-                [(0, slice(1024, 1200, 1)), (1, slice(0, 80, 1))],
-                [(1, slice(80, 200, 1))],
-            ],
-        ),
-        (
-            [1024, 200, 600, 200],
-            256,
-            "dense",
-            [
-                [(0, slice(0, 256, 1))],
-                [(0, slice(256, 512, 1))],
-                [(0, slice(512, 768, 1))],
-                [(0, slice(768, 1024, 1))],
-                [(1, slice(0, 200, 1)), (2, slice(0, 56, 1))],
-                [(2, slice(56, 312, 1))],
-                [(2, slice(312, 568, 1))],
-                [(2, slice(568, 600, 1)), (3, slice(0, 200, 1))],
-            ],
-        ),
-        (
-            [800, 400, 400],
-            1152,
-            "dense",
-            [
-                [(0, slice(0, 800, 1)), (1, slice(0, 352, 1))],
-                [(1, slice(352, 400, 1)), (2, slice(0, 400, 1))],
-            ],
-        ),
-    ],
-)
-def test_group_by_combine(n_neuron_each, n, method, expected):
-    box = []
-    temp_box = []
-    rest_of_box = 0
+class TestGetNeuronSegments:
+    def test_get_neu_segments_catagory(
+        self,
+        neu_segs_test_data,
+        neu_segs_expected_catagory,
+    ):
+        for data, expected in zip(neu_segs_test_data, neu_segs_expected_catagory):
+            neu_ins, capacity, wp, lcn_ex = data
+            neu_segs = get_neu_segments(
+                neu_ins,
+                capacity,
+                weight_precision=wp,
+                lcn_ex=lcn_ex,
+                method="catagory",
+            )
 
-    for i, n_neuron in enumerate(n_neuron_each):
-        if method == "dense":
-            if rest_of_box == 0:
-                n_left = n_neuron
+            assert neu_segs == expected
+            assert neu_segs[0][0].segment.interval == (1 << wp) * (1 << lcn_ex)
 
-            elif rest_of_box < n_neuron:
-                temp_box.append((i, slice(0, rest_of_box, 1)))
-                box.append(temp_box)
-                n_left = n_neuron - rest_of_box
-                temp_box = []
+    def test_get_neu_segments_dense(
+        self,
+        neu_segs_test_data,
+        neu_segs_expected_dense,
+    ):
+        for data, expected in zip(neu_segs_test_data, neu_segs_expected_dense):
+            neu_ins, capacity, wp, lcn_ex = data
+            neu_segs = get_neu_segments(
+                neu_ins,
+                capacity,
+                weight_precision=wp,
+                lcn_ex=lcn_ex,
+                method="dense",
+            )
 
-            else:
-                # rest_of_box >= n_neuron
-                temp_box.append((i, slice(0, n_neuron, 1)))
-                rest_of_box -= n_neuron
-                continue  # Go on to place the next
-        else:
-            n_left = n_neuron
-
-        n_pos_start = rest_of_box
-        n_box = n_left // n
-        n_left_in_last_core = n_left % n
-
-        if n_box > 0:
-            for j in range(n_box):
-                box.append(
-                    [(i, slice(n_pos_start + j * n, n_pos_start + (j + 1) * n, 1))]
-                )
-
-        if n_left_in_last_core > 0:
-            if method == "dense":
-                temp_box.append((i, slice(n_pos_start + n_box * n, n_neuron, 1)))
-                rest_of_box = n - n_left_in_last_core
-            else:
-                box.append([(i, slice(n_pos_start + n_box * n, n_neuron, 1))])
-                rest_of_box = 0
-
-    if temp_box:
-        box.append(temp_box)
-
-    assert box == expected
-
-
-@pytest.mark.parametrize(
-    "n_neuron_each, n, method, expected",
-    [
-        (
-            [800, 400],
-            500,
-            "class",
-            [
-                [(0, slice(0, 500, 1))],
-                [(0, slice(0, 300, 1))],
-                [(1, slice(0, 400, 1))],
-            ],
-        ),
-        (
-            [400, 400],
-            256,
-            "class",
-            [
-                [(0, slice(0, 256, 1))],
-                [(0, slice(0, 144, 1))],
-                [(1, slice(0, 256, 1))],
-                [(1, slice(0, 144, 1))],
-            ],
-        ),
-        (
-            [800, 300],
-            512,
-            "class",
-            [
-                [(0, slice(0, 512, 1))],
-                [(0, slice(0, 288, 1))],
-                [(1, slice(0, 300, 1))],
-            ],
-        ),
-        # (
-        #     [300, 800],
-        #     512,
-        #     "class",
-        #     [
-        #         [(0, slice(0, 300, 1))],
-        #         [(1, slice(0, 512, 1))],
-        #         [(1, slice(512, 800, 1))],
-        #     ],
-        # ),
-        (
-            [800, 300],
-            512,
-            "dense",
-            [
-                [(0, slice(0, 512, 1))],
-                [(0, slice(0, 288, 1)), (1, slice(0, 224, 1))],
-                [(1, slice(0, 76, 1))],
-            ],
-        ),
-        # (
-        #     [300, 800],
-        #     512,
-        #     "dense",
-        #     [
-        #         [(0, slice(0, 300, 1)), (1, slice(0, 212, 1))],
-        #         [(1, slice(212, 724, 1))],
-        #         [(1, slice(724, 800, 1))],
-        #     ],
-        # ),
-        # (
-        #     [200, 200, 300],
-        #     256,
-        #     "dense",
-        #     [
-        #         [(0, slice(0, 200, 1)), (1, slice(0, 56, 1))],
-        #         [(1, slice(56, 200, 1)), (2, slice(0, 112, 1))],
-        #         [(2, slice(112, 300, 1))],
-        #     ],
-        # ),
-        # (
-        #     [512, 512],
-        #     256,
-        #     "dense",
-        #     [
-        #         [(0, slice(0, 256, 1))],
-        #         [(0, slice(256, 512, 1))],
-        #         [(1, slice(0, 256, 1))],
-        #         [(1, slice(256, 512, 1))],
-        #     ],
-        # ),
-        # (
-        #     [400, 400, 400],
-        #     256,
-        #     "dense",
-        #     [
-        #         [(0, slice(0, 256, 1))],
-        #         [(0, slice(256, 400, 1)), (1, slice(0, 112, 1))],
-        #         [(1, slice(112, 368, 1))],
-        #         [(1, slice(368, 400, 1)), (2, slice(0, 224, 1))],
-        #         [(2, slice(224, 400, 1))],
-        #     ],
-        # ),
-        # (
-        #     [1200, 200],
-        #     256,
-        #     "dense",
-        #     [
-        #         [(0, slice(0, 256, 1))],
-        #         [(0, slice(256, 512, 1))],
-        #         [(0, slice(512, 768, 1))],
-        #         [(0, slice(768, 1024, 1))],
-        #         [(0, slice(1024, 1200, 1)), (1, slice(0, 80, 1))],
-        #         [(1, slice(80, 200, 1))],
-        #     ],
-        # ),
-        # (
-        #     [1024, 200, 600, 200],
-        #     256,
-        #     "dense",
-        #     [
-        #         [(0, slice(0, 256, 1))],
-        #         [(0, slice(256, 512, 1))],
-        #         [(0, slice(512, 768, 1))],
-        #         [(0, slice(768, 1024, 1))],
-        #         [(1, slice(0, 200, 1)), (2, slice(0, 56, 1))],
-        #         [(2, slice(56, 312, 1))],
-        #         [(2, slice(312, 568, 1))],
-        #         [(2, slice(568, 600, 1)), (3, slice(0, 200, 1))],
-        #     ],
-        # ),
-        # (
-        #     [800, 400, 400],
-        #     1152,
-        #     "dense",
-        #     [
-        #         [(0, slice(0, 800, 1)), (1, slice(0, 352, 1))],
-        #         [(1, slice(352, 400, 1)), (2, slice(0, 400, 1))],
-        #     ],
-        # ),
-    ],
-)
-def test_group_by2(n_neuron_each, n, method, expected):
-    box = []
-    temp_box = []
-    rest_of_box = 0
-
-    for i, n_neuron in enumerate(n_neuron_each):
-        if method == "dense":
-            if rest_of_box == 0:
-                n_left = n_neuron
-
-            elif rest_of_box < n_neuron:
-                temp_box.append((i, slice(0, rest_of_box, 1)))
-                box.append(temp_box)
-                n_left = n_neuron - rest_of_box
-                temp_box = []
-
-            else:
-                # rest_of_box >= n_neuron
-                temp_box.append((i, slice(0, n_neuron, 1)))
-                rest_of_box -= n_neuron
-                continue  # Go on to place the next
-        else:
-            n_left = n_neuron
-
-        n_pos_start = rest_of_box
-        n_box = n_left // n
-        n_left_in_last_core = n_left % n
-
-        if n_box > 0:
-            for j in range(n_box):
-                box.append(
-                    [(i, slice(n_pos_start + j * n, n_pos_start + (j + 1) * n, 1))]
-                )
-
-        if n_left_in_last_core > 0:
-            p = (i, slice(0, n_left_in_last_core, 1))
-            if method == "dense":
-                temp_box.append(p)
-                rest_of_box = n - n_left_in_last_core
-            else:
-                box.append([p])
-                rest_of_box = 0
-
-    if temp_box:
-        box.append(temp_box)
-
-    assert box == expected
-
-
-# @pytest.mark.parametrize(
-#     "axons, lcn_ex, expected",
-#     [
-#         (
-#             [pb.neuron.TonicSpiking(600, 2), pb.neuron.TonicSpiking(800, 2)],
-#             LCN_EX.LCN_2X,
-#             (
-#                 [
-#                     AxonSegment(slice(0, 300, 1), 0, 0),
-#                     AxonSegment(slice(300, 600, 1), 1, 0),
-#                 ],
-#                 [
-#                     AxonSegment(slice(0, 400, 1), 0, 300),
-#                     AxonSegment(slice(400, 800, 1), 1, 300),
-#                 ],
-#             ),
-#         ),
-#         (
-#             [pb.neuron.TonicSpiking(2222, 2), pb.neuron.TonicSpiking(2378, 2)],
-#             LCN_EX.LCN_4X,
-#             (
-#                 [
-#                     AxonSegment(slice(0, 556, 1), 0, 0),
-#                     AxonSegment(slice(556, 556 * 2, 1), 1, 0),
-#                     AxonSegment(slice(556 * 2, 556 * 3, 1), 2, 0),
-#                     AxonSegment(slice(556 * 3, 2222, 1), 3, 0),
-#                 ],
-#                 [
-#                     AxonSegment(slice(0, 595, 1), 0, 556),
-#                     AxonSegment(slice(595, 595 * 2, 1), 1, 556),
-#                     AxonSegment(slice(595 * 2, 595 * 3, 1), 2, 556),
-#                     AxonSegment(slice(595 * 3, 2378, 1), 3, 556),
-#                 ],
-#             ),
-#         ),
-#         (
-#             [pb.neuron.TonicSpiking(1151, 2), pb.neuron.TonicSpiking(1152, 2)],
-#             LCN_EX.LCN_2X,
-#             (
-#                 [
-#                     AxonSegment(slice(0, 576, 1), 0, 0),
-#                     AxonSegment(slice(576, 1151, 1), 1, 0),
-#                 ],
-#                 [
-#                     AxonSegment(slice(0, 576, 1), 0, 576),
-#                     AxonSegment(slice(576, 1152, 1), 1, 576),
-#                 ],
-#             ),
-#         ),
-#     ],
-# )
-# def test_get_axon_segments_to_dict(axons, lcn_ex, expected):
-#     segments = defaultdict(list)
-
-#     pos = 0
-#     tr_max = 1 << lcn_ex
-
-#     for a in axons:
-#         segs, pos = get_axon_segments(a, tr_max, pos)
-#         segments[a] = segs
-
-#     assert len(segments) == len(axons)
-
-#     for i, v in enumerate(segments.values()):
-#         assert v == expected[i]
-
-
-def test_get_neuron_slices():
-    neurons = [
-        pb.neuron.TonicSpiking(300, 2),
-        pb.neuron.TonicSpiking(600, 2),
-        pb.neuron.TonicSpiking(800, 2),
-    ]
-
-    slices_of_neu = get_neu_segments(neurons, 512)
-
-    print()
+            assert neu_segs == expected
+            assert neu_segs[0][0].segment.interval == (1 << wp) * (1 << lcn_ex)
 
 
 @pytest.mark.parametrize(
@@ -584,5 +178,4 @@ def test_get_neuron_slices():
 )
 def test_aligned_segments(neu_index, axon_seg, expected):
     axon_coords = aligned_coords(neu_index, axon_seg)
-
     assert axon_coords == expected

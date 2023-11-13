@@ -99,22 +99,22 @@ class NetForTest4(pb.Network):
         )
 
 
-@pytest.fixture
+@pytest.fixture(scope="class")
 def build_example_net1():
     return NetForTest1()
 
 
-@pytest.fixture
+@pytest.fixture(scope="class")
 def build_example_net2():
     return NetForTest3()
 
 
-@pytest.fixture
+@pytest.fixture(scope="class")
 def build_example_net3():
     return NetForTest3()
 
 
-@pytest.fixture
+@pytest.fixture(scope="class")
 def build_example_net4():
     return NetForTest4()
 
