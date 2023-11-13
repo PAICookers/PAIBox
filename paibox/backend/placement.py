@@ -1,5 +1,15 @@
 from collections import defaultdict
-from typing import ClassVar, Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
+from typing import (
+    ClassVar,
+    Dict,
+    List,
+    Literal,
+    NamedTuple,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 
 import numpy as np
 
@@ -28,7 +38,17 @@ from .config_template import CoreConfigDict, GlobalConfig, NeuronConfig
 
 SourceNodeType = Union[NeuDyn, InputProj]
 DestNodeType = NeuDyn
-NeuSeg = NamedTuple("NeuSeg", [("parent", NeuDyn), ("segment", NeuronSegment)])
+NeuSeg = NamedTuple("NeuSeg", [("parent", DestNodeType), ("segment", NeuronSegment)])
+
+
+# class NeuSeg(NamedTuple):
+#     parent: NeuDyn
+#     segment: NeuronSegment
+#     @property
+#     def addr_ram(self) -> slice:
+#         return slice(
+#             self.addr_offset, self.addr_offset + self.index.stop - self.index.start
+#         )
 
 
 class PlacementObj(PAIBoxObject):
@@ -152,7 +172,13 @@ class CoreBlock(PlacementObj):
             raise Exception
 
         # First, get the placement of all gsyn_on_cores.
-        self.neuron_segs_of_cb = get_neu_segments(self.dest, self.neuron_capacity)
+        self.neuron_segs_of_cb = get_neu_segments(
+            self.dest,
+            self.neuron_capacity,
+            weight_precision=self.weight_precision,
+            lcn_ex=self.lcn_ex,
+            method="catagory",
+        )
 
         for i in range(self.n_core):
             n_neuron = self.n_neuron_of_cb[i]
@@ -213,7 +239,7 @@ class CoreBlock(PlacementObj):
     @property
     def neuron_capacity(self) -> int:
         return (
-            HwConfig.N_NEURON_ONE_CORE_MAX // self.n_dendrite_combined
+            HwConfig.N_NEURON_ONE_CORE_MAX >> self.n_dendrite_combined
         ) >> self.lcn_ex
 
     @property
@@ -384,7 +410,7 @@ class CorePlacement(PlacementObj):
         self.weights = weights
         self.neu_segs = neu_segs
 
-        self.neuron_config: Dict[NeuDyn, Dict] = defaultdict()
+        self.neu_config: Dict[NeuDyn, NeuronConfig] = defaultdict()
 
     def _get_binary_conn(self, weights: np.ndarray) -> np.ndarray:
         """Reshape the divided weight matrix into the shape 1152*512."""
@@ -419,7 +445,7 @@ class CorePlacement(PlacementObj):
 
         return binary_conn.astype(np.bool_)
 
-    def export_neu_config(self, neu_seg: NeuSeg, axon_dests: List[CoreBlock]):
+    def export_neu_config(self, neu_seg: NeuSeg, axon_dests: List[CoreBlock]) -> None:
         for axon_dest in axon_dests:
             axon_coords = aligned_coords(
                 neu_seg.segment.index, axon_dest.axon_segments[neu_seg.parent]
@@ -428,11 +454,12 @@ class CorePlacement(PlacementObj):
             config = NeuronConfig.build(
                 neu_seg.parent,
                 neu_seg.segment.addr_ram,
+                neu_seg.segment.addr_offset,
                 axon_coords,
                 axon_dest.core_coords,
             )
 
-            self.neuron_config[neu_seg.parent] = config
+            self.neu_config[neu_seg.parent] = config
 
     @property
     def weight_precision(self) -> WeightPrecision:
@@ -500,121 +527,109 @@ def max_lcn_of_cb(cb: List[CoreBlock]) -> LCN_EX:
     return max(cb, key=lambda cb: cb.lcn_ex).lcn_ex
 
 
-# def _get_neuron_placements(
-#     nodes: Union[List[DestNodeType], List[SourceNodeType]],
-#     n_each: List[int],
-#     capacity: int,
-#     method: Literal["dense", "class"] = "class",
-# ) -> List[NeuPlacement]:
-#     """Get the arrangement of each input axons/output neurons \
-#         group on the core.
-
-#     Args:
-#         - nodes: the input or output nodes.
-#         - n_each: list of #N input axons or #N output neurons.
-#         - capacity: the group capacity, 1152/or #N neurons in one core.
-#         - method: `dense` is densely arranging all groups of neurons. \
-#             `class` is arranging by category.
-
-#     Return:
-#         - A list, where each element represents how many groups \
-#             the input axons or output neurons are divided into, \
-#             and the slices of each node in each group.
-#     """
-#     plm: List[NeuPlacement] = []
-#     temp_plm: NeuPlacement = []
-
-#     rest_plm = 0
-
-#     for i, node in enumerate(nodes):
-#         n = n_each[i]
-
-#         if method == "dense":
-#             if rest_plm == 0:
-#                 # Go to place the #i node.
-#                 n_left = n
-#             elif rest_plm < n:
-#                 # If there is already a group that is not filled,
-#                 # continue to allocate axons/neurons to it.
-#                 temp_plm.append(NeuronSlice(node, slice(0, rest_plm, 1)))
-#                 plm.append(temp_plm)
-
-#                 n_left = n - rest_plm
-#                 temp_plm = []
-#             else:
-#                 # The #i node can all be placed in it.
-#                 temp_plm.append(NeuronSlice(node, slice(0, n, 1)))
-#                 # Maybe some rest_plm of axons/neurons can be placed in this group.
-#                 rest_plm -= n
-#                 continue
-#         else:
-#             n_left = n
-
-#         pos_start = rest_plm  # The start position to place `n_left`.
-#         n_full_group = n_left // capacity  # The #N of full groups required.
-#         n_in_last_group = (
-#             n_left % capacity
-#         )  # Rest of axons/neurons are left, and will place in the next group.
-
-#         if n_full_group > 0:
-#             for j in range(n_full_group):
-#                 p = NeuronSlice(
-#                     node,
-#                     slice(
-#                         pos_start + j * capacity,
-#                         pos_start + (j + 1) * capacity,
-#                         1,
-#                     ),
-#                 )
-#                 # Place it directly.
-#                 plm.append([p])
-
-#         if n_in_last_group > 0:
-#             # Place the rest_plm of axons/neurons in the next group.
-#             p = NeuronSlice(
-#                 node,
-#                 slice(pos_start + n_full_group * capacity, n, 1),
-#             )
-
-#             if method == "dense":
-#                 temp_plm.append(p)
-#                 rest_plm = capacity - n_in_last_group
-#             else:
-#                 plm.append([p])
-#                 rest_plm = 0
-
-#     if temp_plm:
-#         plm.append(temp_plm)
-
-#     return plm
-
-
 def get_neu_segments(
-    neurons: Sequence[NeuDyn], capacity: int, method="class"
+    neu_groups: Sequence[NeuDyn],
+    capacity: int,
+    *,
+    weight_precision: WeightPrecision,
+    lcn_ex: LCN_EX,
+    method: Literal["catagory", "dense"] = "catagory",
 ) -> List[List[NeuSeg]]:
-    """Slice the neuron by class."""
-    neu_segs = []
+    """
+    TODO Add description.
+    """
+    interval = (1 << weight_precision) * (1 << lcn_ex)
 
-    for neuron in neurons:
-        segs: List[NeuSeg] = []
-        n_core = neuron.num_in // capacity
-        n_neuron_rest = neuron.num_in % capacity
+    if method == "catagory":
+        return _get_neu_segments_catagory(neu_groups, capacity, interval)
+    elif method == "dense":
+        return _get_neu_segments_dense(neu_groups, capacity, interval)
 
-        if n_core > 0:
-            for i in range(n_core):
-                pos = i * capacity
-                segs.append(
-                    NeuSeg(neuron, NeuronSegment(slice(pos, pos + capacity, 1), pos))
-                )
+    # TODO
+    raise ValueError
 
-        if n_neuron_rest > 0:
-            segs.append(
+
+def _get_neu_segments_catagory(
+    neu_groups: Sequence[NeuDyn], capacity: int, interval: int = 1
+) -> List[List[NeuSeg]]:
+    """Group by category of neuron groups."""
+    neu_segs: List[List[NeuSeg]] = []  # The final result
+
+    for neuron in neu_groups:
+        i = 0
+        num = neuron.num_out
+
+        while i < (num - 1) // capacity:
+            seg = NeuronSegment(slice(i * capacity, capacity * (i + 1), 1), 0, interval)
+            neu_segs.append([NeuSeg(neuron, seg)])
+
+            i += 1
+
+        seg = NeuronSegment(slice(i * capacity, num, 1), 0, interval)
+        neu_segs.append([NeuSeg(neuron, seg)])
+
+    return neu_segs
+
+
+def _get_neu_segments_dense(
+    neu_groups: Sequence[NeuDyn], capacity: int, interval: int = 1
+) -> List[List[NeuSeg]]:
+    """Dense grouping. Based on method `catagory`, use the greedy algorithm to \
+        group the remaining neuron groups.
+    """
+    neu_segs: List[List[NeuSeg]] = []  # The final result
+    rest_segs: List[NeuSeg] = []
+
+    for neuron in neu_groups:
+        i = 0
+        num = neuron.num_out
+
+        while i < (num - 1) // capacity:
+            seg = NeuronSegment(slice(i * capacity, capacity * (i + 1), 1), 0, interval)
+            neu_segs.append([NeuSeg(neuron, seg)])
+            i += 1
+
+        seg = NeuronSegment(slice(i * capacity, num, 1), 0, interval)
+        rest_segs.append(NeuSeg(neuron, seg))
+
+    # In descending order
+    rest_segs.sort(key=lambda neu_seg: neu_seg.segment.n_neuron, reverse=True)
+
+    # The remaining neuron groups can then be grouped up to N cores
+    n_core_max = len(rest_segs)
+    n_cur_reg = 0
+
+    def backtrack(i: int, cur_addr_offset: int, taken: List[NeuSeg]) -> None:
+        nonlocal n_cur_reg
+
+        if i == n_core_max or n_cur_reg == n_core_max:
+            return
+
+        if cur_addr_offset + rest_segs[n_cur_reg].segment.n_neuron > capacity:
+            neu_segs.append(taken)
+            return
+        else:
+            taken.append(
                 NeuSeg(
-                    neuron, NeuronSegment(slice(n_core * capacity, neuron.num_in, 1), 0)
+                    rest_segs[n_cur_reg].parent,
+                    NeuronSegment(
+                        rest_segs[n_cur_reg].segment.index, cur_addr_offset, interval
+                    ),
                 )
             )
+            cur_addr_offset += rest_segs[n_cur_reg].segment.n_neuron
+            n_cur_reg += 1
 
-        neu_segs.append(segs)
+        if n_cur_reg == n_core_max:
+            neu_segs.append(taken)
+            return
+
+        # Continue to place
+        backtrack(i, cur_addr_offset, taken)
+        # Place to next physical core
+        backtrack(i + 1, 0, [])
+
+    backtrack(0, 0, [])
 
     return neu_segs
 
@@ -634,7 +649,10 @@ def get_axon_segments(
 
 
 def aligned_coords(neu_index: slice, axon_seg: AxonSegment) -> List[AxonCoord]:
-    """Find the axon segments aligned with the index of neuron segment."""
+    """Find the axon segments aligned with the index of neuron segment.
+    
+    The length of axon coordinates is the same as `neu_index`.
+    """
     axon_coords = []
 
     tr_start, tr_stop = (
@@ -645,8 +663,6 @@ def aligned_coords(neu_index: slice, axon_seg: AxonSegment) -> List[AxonCoord]:
         neu_index.start % axon_seg.addr_width,
         neu_index.stop % axon_seg.addr_width,
     )
-
-    assert tr_stop >= tr_start
 
     if tr_stop == tr_start:
         for addr in range(addr_start, addr_stop):
