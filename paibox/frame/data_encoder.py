@@ -66,21 +66,21 @@ class DataEncoder:
         axon_array = np.array(axon, dtype=np.uint64)
         time_slot_array = np.array(time_slot, dtype=np.uint64)
 
-        temp_header = header_value & np.uint64(FrameFormat.GENERAL_HEADER_MASK)
-        temp_chip_address = chip_address & np.uint64(FrameFormat.GENERAL_CHIP_ADDR_MASK)
-        temp_core_address = core_address & np.uint64(FrameFormat.GENERAL_CORE_ADDR_MASK)
-        temp_core_e_address = core_e_address & np.uint64(FrameFormat.GENERAL_CORE_E_ADDR_MASK)
-        temp_reserve = 0x00 & np.uint64(WorkFrame1Format.RESERVED_MASK)
-        temp_axon_array = axon_array & np.uint64(WorkFrame1Format.AXON_MASK)
-        temp_time_slot_array = time_slot_array & np.uint64(WorkFrame1Format.TIME_SLOT_MASK)
+        temp_header = header_value & FrameFormat.GENERAL_HEADER_MASK
+        temp_chip_address = chip_address & FrameFormat.GENERAL_CHIP_ADDR_MASK
+        temp_core_address = core_address & FrameFormat.GENERAL_CORE_ADDR_MASK
+        temp_core_e_address = core_e_address & FrameFormat.GENERAL_CORE_EX_ADDR_MASK
+        temp_reserve = 0x00 & WorkFrame1Format.RESERVED_MASK
+        temp_axon_array = axon_array & WorkFrame1Format.AXON_MASK
+        temp_time_slot_array = time_slot_array & WorkFrame1Format.TIME_SLOT_MASK
 
         frameinfo = (
-            (temp_header << np.uint64(FrameFormat.GENERAL_HEADER_OFFSET))
-            | (temp_chip_address << np.uint64(FrameFormat.GENERAL_CHIP_ADDR_OFFSET))
-            | (temp_core_address << np.uint64(FrameFormat.GENERAL_CORE_ADDR_OFFSET))
-            | (temp_core_e_address << np.uint64(FrameFormat.GENERAL_CORE_E_ADDR_OFFSET))
-            | (temp_reserve << np.uint64(WorkFrame1Format.RESERVED_OFFSET))
-            | (temp_axon_array << np.uint64(WorkFrame1Format.AXON_OFFSET))
-            | (temp_time_slot_array << np.uint64(WorkFrame1Format.TIME_SLOT_OFFSET))
+            (temp_header << FrameFormat.GENERAL_HEADER_OFFSET)
+            | (temp_chip_address << FrameFormat.GENERAL_CHIP_ADDR_OFFSET)
+            | (temp_core_address << FrameFormat.GENERAL_CORE_ADDR_OFFSET)
+            | (temp_core_e_address << FrameFormat.GENERAL_CORE_EX_ADDR_OFFSET)
+            | (temp_reserve << WorkFrame1Format.RESERVED_OFFSET)
+            | (temp_axon_array << WorkFrame1Format.AXON_OFFSET)
+            | (temp_time_slot_array << WorkFrame1Format.TIME_SLOT_OFFSET)
         )
         return frameinfo

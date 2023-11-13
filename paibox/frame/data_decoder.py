@@ -42,10 +42,10 @@ class FrameDecoder:
             
         frames = frames.astype(np.uint64)
         
-        axons = (frames >> np.uint64(WorkFrame1Format.AXON_OFFSET)) & np.uint64(WorkFrame1Format.AXON_MASK)
-        time_slots = (frames >> np.uint64(WorkFrame1Format.TIME_SLOT_OFFSET)) & np.uint64(WorkFrame1Format.TIME_SLOT_MASK)
-        data = (frames >> np.uint64(WorkFrame1Format.DATA_OFFSET)) & np.uint64(WorkFrame1Format.DATA_MASK)
-        core_addr = (frames >> np.uint64(WorkFrame1Format.GENERAL_CORE_ADDR_OFFSET)) & np.uint64(WorkFrame1Format.GENERAL_CORE_ADDR_MASK)
+        axons = (frames >> WorkFrame1Format.AXON_OFFSET) & WorkFrame1Format.AXON_MASK
+        time_slots = (frames >> WorkFrame1Format.TIME_SLOT_OFFSET) & WorkFrame1Format.TIME_SLOT_MASK
+        data = (frames >> WorkFrame1Format.DATA_OFFSET) & WorkFrame1Format.DATA_MASK
+        core_addr = (frames >> WorkFrame1Format.GENERAL_CORE_ADDR_OFFSET) & WorkFrame1Format.GENERAL_CORE_ADDR_MASK
         
         res = {}
         
