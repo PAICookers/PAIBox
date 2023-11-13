@@ -1,18 +1,6 @@
 import pytest
 import json
-from pathlib import Path
-
 from paibox.libpaicore import *
-
-
-@pytest.fixture(scope="module")
-def ensure_dump_dir() -> Path:
-    p = Path(__file__).parent / "debug"
-
-    if not p.is_dir():
-        p.mkdir(parents=True, exist_ok=True)
-
-    return p
 
 
 @pytest.mark.parametrize(
