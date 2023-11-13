@@ -1,5 +1,6 @@
-import pytest
 import json
+
+import pytest
 
 import paibox as pb
 from paibox.libpaicore import NeuronAttrs, NeuronDestInfo

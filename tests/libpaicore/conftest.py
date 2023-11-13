@@ -1,7 +1,9 @@
-import pytest
-from pathlib import Path
-import tempfile
 import os
+import tempfile
+from pathlib import Path
+
+import pytest
+
 from paibox.libpaicore import *
 
 
@@ -11,7 +13,7 @@ def ensure_dump_dir():
 
     if not p.is_dir():
         p.mkdir(parents=True, exist_ok=True)
-    
+
     yield p
     # Clean up
     # for f in p.iterdir():

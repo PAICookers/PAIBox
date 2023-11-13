@@ -650,7 +650,7 @@ def get_axon_segments(
 
 def aligned_coords(neu_index: slice, axon_seg: AxonSegment) -> List[AxonCoord]:
     """Find the axon segments aligned with the index of neuron segment.
-    
+
     The length of axon coordinates is the same as `neu_index`.
     """
     axon_coords = []

@@ -1,4 +1,5 @@
 from typing import List, NamedTuple, NewType, Sequence
+
 from paibox.base import NeuDyn
 
 

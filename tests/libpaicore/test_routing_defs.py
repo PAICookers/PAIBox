@@ -1,6 +1,7 @@
 import pytest
 
-from paibox.libpaicore.v2 import Coord, ReplicationId as RId
+from paibox.libpaicore.v2 import Coord
+from paibox.libpaicore.v2 import ReplicationId as RId
 from paibox.libpaicore.v2.routing_defs import (
     RoutingDirection,
     RoutingNodeCoord,

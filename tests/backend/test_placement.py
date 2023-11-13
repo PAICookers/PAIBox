@@ -2,11 +2,7 @@ import numpy as np
 import pytest
 
 import paibox as pb
-from paibox.backend.placement import (
-    aligned_coords,
-    get_axon_segments,
-    get_neu_segments,
-)
+from paibox.backend.placement import aligned_coords, get_axon_segments, get_neu_segments
 from paibox.libpaicore.v2 import AxonCoord, AxonSegment
 
 

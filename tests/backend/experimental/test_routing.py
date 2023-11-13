@@ -14,7 +14,6 @@ from paibox.libpaicore.v2.routing_defs import (
     RoutingNodeStatus,
 )
 
-
 pytestmark = pytest.mark.skip(reason="Not implemented")
 
 

@@ -1,11 +1,12 @@
 import pytest
+
 import paibox as pb
+from paibox.backend.experimental.coreblock import NeuronSegment
+from paibox.backend.experimental.coreblock import NeuronSegment as NS
 from paibox.backend.experimental.coreblock import (
     get_neuron_segments_1,
     get_neuron_segments_2,
-    NeuronSegment,
 )
-from paibox.backend.experimental.coreblock import NeuronSegment as NS
 
 n1 = pb.neuron.TonicSpiking(600, 2)
 n2 = pb.neuron.TonicSpiking(800, 2)

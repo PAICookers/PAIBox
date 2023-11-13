@@ -1,4 +1,5 @@
 from typing import List, NamedTuple
+
 from .hw_defs import HwConfig
 
 __all__ = ["NeuronSegment", "AxonCoord", "AxonSegment"]
