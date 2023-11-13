@@ -101,16 +101,6 @@ class Mapper:
         }
         """
 
-        self._axons_dest: Dict[str, List[CoreBlock]] = defaultdict(list)
-        """A dictionary recording the destination of each axon. \
-            It is to find which grouped synapse the axon(of a node) is in.
-
-        Structure:
-        {
-            node.name: [grouped synapse1, grouped synapse2]
-        }
-        """
-
         self.clear()
 
     def clear(self) -> None:
@@ -130,7 +120,6 @@ class Mapper:
         self.succ_core_blocks.clear()
 
         self.core_params.clear()
-        self._axons_dest.clear()
 
     def build_graph(self, network: DynSysGroup) -> None:
         """Build the directed graph based on a given network.
@@ -200,11 +189,8 @@ class Mapper:
         """4. Allocate the grouped synapses to the cores."""
         self.core_allocation()
 
-        """5. Gather the axons destinations."""
-        self.get_axons_dest()
-
-        """6. Export parameters."""
-        self.parameter_export()
+        """5. Export parameters."""
+        self.config_export()
 
         print("done")
 
@@ -276,8 +262,6 @@ class Mapper:
                 ]
                 self.succ_core_blocks[cb].extend(succ_cb)
 
-        self._axons_dest = self._get_axons_dest()
-
     def lcn_ex_adjustment(self) -> None:
         """Adjust the LCN extension for each grouped synapse. \
             Make sure that all destination LCNs are equal.
@@ -316,34 +300,13 @@ class Mapper:
             sort which is done in `graph_preprocess` phase.
         """
         for cb in self.core_blocks:
-            self.routing_tree.insert_gsyn(cb)
+            self.routing_tree.insert_coreblock(cb)
 
-    def get_axons_dest(self):
-        """
-        Traverse all the core placements in core blocks, then find \
-            the following core blocks where the axons at.
+    def config_export(self) -> None:
+        self._core_param_export()
+        self._neuron_param_export()
 
-        If found, get the coordinate of the core placment, all the \
-            coordinates of axons(for broadcasting).
-        """
-        neuron_axon_dest = dict()
-
-        for cb in self.core_blocks:
-            for core_plm in cb.core_placements:
-                for neu_seg in core_plm.neu_segs:
-                    # Find the axons dest
-                    dests = [
-                        cb for cb in self.core_blocks if neu_seg.parent in cb.source
-                    ]
-
-                    if len(dests) == 0:
-                        continue
-
-                    # TODO Necessary to make this condition a premise?
-                    assert len(dests) == 1  # ?
-                    core_plm.export_neu_config(neu_seg, dests)
-
-    def parameter_export(self) -> None:
+    def _core_param_export(self) -> None:
         """Export parameters of the CORE & neurons inside.
 
         Steps:
@@ -354,24 +317,28 @@ class Mapper:
         for cb in self.core_blocks:
             self.core_params |= cb.export_core_to_dict()
 
-    def _get_axons_dest(self) -> Dict[str, List[CoreBlock]]:
-        """Find the backward grouped synapse of the neuron, \
-            that is, find where the destination axons are.
-
-        FIXME Currently there is no way to handle the situation where \
-            there are nodes with out-degree > 1 in the `succ_core_blocks`.
+    def _neuron_param_export(self) -> None:
         """
-        for succ_cb in self.succ_core_blocks.values():
-            assert len(succ_cb) < 2
+        Traverse all the core placements in core blocks, then find \
+            the following core blocks where the axons at.
 
-        axons_dest = dict()
+        If found, get the coordinate of the core placment, all the \
+            coordinates of axons(for broadcasting).
+        """
+        for cb in self.core_blocks:
+            for core_plm in cb.core_placements:
+                for neu_seg in core_plm.neu_segs:
+                    # Find the axons dest
+                    dests = [
+                        cb for cb in self.core_blocks if neu_seg.parent in cb.source
+                    ]
 
-        for node in self.nodes:
-            axons_dest[node] = [
-                cb for cb in self.core_blocks if self.nodes[node] in cb.source
-            ]
+                    if not dests:
+                        continue
 
-        return axons_dest
+                    # TODO Necessary to make this condition a premise?
+                    assert len(dests) == 1  # ?
+                    core_plm.export_neu_config(neu_seg, dests)
 
     @property
     def nodes(self):
