@@ -1,4 +1,14 @@
-from pydantic import BaseModel, Field, field_serializer
+from typing import List
+
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    InstanceOf,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 from .ram_types import *
 
@@ -12,7 +22,7 @@ ADDR_CHIP_X_BIT_MAX = 5
 ADDR_CHIP_Y_BIT_MAX = 5
 
 
-class NeuronDestInfo(BaseModel, extra="ignore", validate_assignment=True):
+class NeuronDestInfo(BaseModel, validate_assignment=True):
     """Parameter model of RAM parameters listed in Section 2.4.2
 
     Example:
@@ -26,15 +36,13 @@ class NeuronDestInfo(BaseModel, extra="ignore", validate_assignment=True):
     NOTE: The parameters input in the model are declared in `docs/Table-of-Terms.md`.
     """
 
-    tick_relative: int = Field(
-        ge=0,
-        lt=(1 << TICK_RELATIVE_BIT_MAX),
+    model_config = ConfigDict(extra="ignore")
+
+    tick_relative: List[InstanceOf[int]] = Field(
         description="Information of relative ticks.",
     )
 
-    addr_axon: int = Field(
-        ge=0, lt=(1 << ADDR_AXON_BIT_MAX), description="Destination axon address."
-    )
+    addr_axon: List[InstanceOf[int]] = Field(description="Destination axon address.")
 
     addr_core_x: int = Field(
         ge=0,
@@ -71,6 +79,31 @@ class NeuronDestInfo(BaseModel, extra="ignore", validate_assignment=True):
         description="Address Y of destination chip.",
     )
 
+    @field_validator("tick_relative")
+    @classmethod
+    def _tick_relative_check(cls, v):
+        if any(tr >= (1 << TICK_RELATIVE_BIT_MAX) or tr < 0 for tr in v):
+            raise ValueError("Parameter 'tick relative' out of range.")
+
+        return v
+
+    @field_validator("addr_axon")
+    @classmethod
+    def _addr_axon_check(cls, v):
+        if any(addr >= (1 << ADDR_AXON_BIT_MAX) or addr < 0 for addr in v):
+            raise ValueError("Parameter 'addr_axon' out of range.")
+
+        return v
+
+    @model_validator(mode="after")
+    def _length_check(self):
+        if len(self.tick_relative) != len(self.addr_axon):
+            raise ValueError(
+                "Parameter 'tick relative' and 'addr_axon' must have the same length."
+            )
+
+        return self
+
 
 RESET_MODE_BIT_MAX = 2  # Not used
 RESET_V_BIT_MAX = 30
@@ -89,7 +122,7 @@ VJT_PRE_BIT_MAX = 30
 
 class NeuronAttrs(BaseModel, extra="ignore", validate_assignment=True):
     reset_mode: ResetMode = Field(
-        description="Reset modes of neurons.",
+        description="Reset mode of neuron.",
     )
 
     reset_v: int = Field(
@@ -100,7 +133,7 @@ class NeuronAttrs(BaseModel, extra="ignore", validate_assignment=True):
 
     leaking_comparison: LeakingComparisonMode = Field(
         serialization_alias="leak_post",
-        description="Leak after comparison or before.",
+        description="Leaking after threshold comparison or before.",
     )
 
     threshold_mask_bits: int = Field(
@@ -194,8 +227,9 @@ class NeuronAttrs(BaseModel, extra="ignore", validate_assignment=True):
         return synaptic_integration_mode.value
 
 
-class NeuronParams(NeuronDestInfo, NeuronAttrs):
-    pass
+class NeuronParams(BaseModel):
+    attrs: NeuronAttrs
+    dest_info: NeuronDestInfo
 
 
 ParamsRAM = NeuronParams

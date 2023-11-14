@@ -1,6 +1,6 @@
 import pytest
 
-from paibox.implement.graphs import group_edges_proto, toposort
+from paibox.backend.graphs import group_edges_proto, toposort
 
 
 class TestTopoSort:
@@ -86,38 +86,37 @@ class TestTopoSort:
                 "n4": {"n1"},
             },
             {"inp1": {"n1"}, "n1": {"n2"}, "n2": {"n3"}, "n3": {"n2", "n4"}, "n4": {}},
-            {"inp1": {"n1"}, "n1": {"n3"}, "inp2": {"n2"}, "n2": {"n1"}, "n3": {"n2"}},
+            {"inp1": {"n1"}, "inp2": {"n2"}, "n1": {"n3"}, "n2": {"n1"}, "n3": {"n2"}},
             {
                 "inp1": {"n1"},
+                "inp2": {"n2"},
+                "inp3": {"n2"},
                 "n1": {"n3"},
+                "n2": {"n1"},
                 "n3": {"n4"},
                 "n4": {"n2"},
-                "inp2": {"n2"},
-                "n2": {"n1"},
-                "inp3": {"n2"},
             },
         ],
     )
     def test_toposort_has_cycle(self, edges):
         """
-        Test #1: one input
+        Test #1: 1 input
         INP1 -> N1 -> N2 -> N3
         N4 -> N1
         N2 -> N4
 
-        Test #2: one input
+        Test #2: 1 input
         INP1 -> N1 -> N2 -> N3 -> N4
         N3 -> N2
 
-        Test #3: more inputs
+        Test #3: 2 inputs
         INP1 -> N1 -> N3 -> N2
         INP2 -> N2
 
-        Test #4: more inputs
+        Test #4: 3 inputs
         INP1 -> N1 -> N3 -> N4 -> N2
         INP2 -> N2 -> N1
         INP3 -> N2
-
         """
         with pytest.raises(ValueError):
             ordered = toposort(edges)
@@ -148,6 +147,17 @@ class TestGroupEdges:
                     "n4": {"n6": "s7"},
                     "n5": {"n6": "s8"},
                     "n6": {},
+                },
+            ),
+            (
+                ["n1", "n2", "n3", "n4", "n5"],
+                ["s1", "s2", "s3", "s4"],
+                {
+                    "n1": {"n3": "s1", "n4": "s2"},
+                    "n2": {"n4": "s3", "n5": "s4"},
+                    "n3": {},
+                    "n4": {},
+                    "n5": {},
                 },
             ),
         ],

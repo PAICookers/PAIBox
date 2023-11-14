@@ -1,18 +1,18 @@
 from collections import defaultdict
 from typing import Dict, List, Set, Union
 
-from paibox.base import NeuDyn, PAIBoxObject
+from paibox.base import NeuDyn
+from paibox.libpaicore import HwConfig
 from paibox.network import DynSysGroup
 from paibox.projection import InputProj
 from paibox.synapses import SynSys
 
 from .graphs import *
-from .grouping import GroupedSyn, GroupedSynOnCore
+from .placement import CoreBlock, max_lcn_of_cb
 from .routing import RoutingRoot
 
 NodeNameType = str
 NodeSynDictType = Dict[str, str]  # key-value for node & synapse.
-SuccGroupedSynOnCoreDictType = Dict[str, List[GroupedSynOnCore]]
 
 
 class Mapper:
@@ -46,10 +46,10 @@ class Mapper:
 
         self._edges_grouped: List[Set[str]] = []
         """Grouped edges in the network. Structure:
-        {
+        [
             {edge1.name, edge2.name},
             {edge3.name}
-        }
+        ]
         """
 
         self._pred_dg: Dict[str, NodeSynDictType] = defaultdict(dict)
@@ -72,24 +72,17 @@ class Mapper:
         }
         """
 
-        self._degree_of_nodes: Dict[str, Tuple[int, int]] = defaultdict(tuple)
+        self._degree_of_nodes: Dict[str, Degree] = defaultdict(Degree)
         """A dictionary of in/out-degree tuple of nodes. Structure:
         {
             node.name: (in-degree, out-degree)
         }
         """
 
-        self._gsyns: List[GroupedSyn] = []
-        """A list for grouped synapses in topological order."""
+        self.core_blocks: List[CoreBlock] = []
+        """A list for core blocks in topological order."""
 
-        # self._pred_gsyns: Dict[str, Dict[str, GroupedSyn]] = defaultdict(dict)
-        """Grouped synapses. Structure: {
-            node1.name: grouped pre-syn1,
-            node2.name: grouped pre-syn2
-        }
-        """
-
-        # self._succ_gsyns: Dict[str, Dict[str, GroupedSyn]] = defaultdict(dict)
+        self.succ_core_blocks: Dict[CoreBlock, List[CoreBlock]] = defaultdict(list)
         """Grouped post-synapses of nodes. Structure:
         {
             node1.name: {
@@ -99,24 +92,20 @@ class Mapper:
         }
         """
 
-        self._gsyns_on_core: List[List[GroupedSynOnCore]] = []
-
-        # self._pred_gsyn_on_core: Dict[str, List[GroupedSynOnCore]] = defaultdict(list)
-        """Grouped pre-synapse on core of nodes. Structure:
+        self.core_params = defaultdict(dict)
+        """The dictionary of core parameters. Structure:
         {
-            node1.name: list1 of grouped pre-synapses,
-            node2.name: list2 of grouped pre-synapses
+            address of core: {
+                parameters...
+            }
         }
         """
 
-        # self._succ_gsyn_on_core: Dict[
-        #     str, Dict[str, List[GroupedSynOnCore]]
-        # ] = defaultdict(dict)
-
-        self.is_built = False
+        self.clear()
 
     def clear(self) -> None:
-        self.is_built = False
+        self.has_built = False
+        self.routing_tree.clear()
 
         self._nodes.clear()
         self._ordered_nodes.clear()
@@ -127,11 +116,10 @@ class Mapper:
         self._succ_dg.clear()
 
         self._degree_of_nodes.clear()
-        self._gsyns.clear()
-        # self._pred_gsyns.clear()
-        # self._succ_gsyns.clear()
-        # self._pred_gsyn_on_core.clear()
-        # self._succ_gsyn_on_core.clear()
+        self.core_blocks.clear()
+        self.succ_core_blocks.clear()
+
+        self.core_params.clear()
 
     def build_graph(self, network: DynSysGroup) -> None:
         """Build the directed graph based on a given network.
@@ -163,9 +151,9 @@ class Mapper:
 
         self._pred_nodes = reverse_edges(self._succ_nodes)
 
-        self.is_built = True
+        self.has_built = True
 
-        self._graph_preprocess()
+        self.graph_preprocess()
 
     def do_grouping(self) -> None:
         """
@@ -185,24 +173,29 @@ class Mapper:
             - The number of a group of neurons may > 512.
             - The LCN extension of every layer is LCN_1X.
         """
-        if not self.is_built:
+        if not self.has_built:
             # TODO
             raise Exception
 
         """1. Group synapses."""
-        self._group_synapses()
+        self.group_synapses()
 
         """2. Adjust the LCN extension of each layer for target LCN."""
-        self._lcn_ex_adjustment()
+        self.lcn_ex_adjustment()
 
-        """3. Build the grouped synapse on each core."""
-        self._build_gsyn_on_core()
+        """3. Do core coordinate assignment."""
+        self.coord_assign()
 
-        """4. Do core coordinate assignment."""
-        self._coord_assignment()
+        """4. Allocate the grouped synapses to the cores."""
+        self.core_allocation()
 
-    def _graph_preprocess(self) -> None:
-        """Preprocess of the graph.
+        """5. Export parameters."""
+        self.config_export()
+
+        print("done")
+
+    def graph_preprocess(self, do_edges_grouping: bool = False) -> None:
+        """Preprocess of the directed graph.
 
         # Currently, we are unable to cope with arbitrary \
         #     network structures. Therefore, in this stage, the \
@@ -217,127 +210,139 @@ class Mapper:
         #     Or for a node with out-degree > 1, the in-degree of \
         #         all its backward node = 1.
         """
-        # TODO Only allow the graph with no cycle.
+        # FIXME Only allow the graph with no cycle.
         self._ordered_nodes = toposort(self._succ_nodes)
 
-        self._degree_of_nodes, self._edges_grouped = group_edges(
-            self._ordered_nodes, list(self.edges.keys()), self.pred_dg, self.succ_dg
-        )
+        if do_edges_grouping:
+            self._degree_of_nodes, self._edges_grouped = group_edges(
+                self._ordered_nodes, list(self.edges.keys()), self.pred_dg, self.succ_dg
+            )
+        else:
+            self._edges_grouped = list({e} for e in self.edges)
 
-    def _group_synapses(self) -> None:
+    def group_synapses(self) -> None:
         """Group synapses based on grouped edges.
 
         Description:
             After combining all synapses into groups, iterate through \
-            each combination synapses to build a `GroupedSyn`.
+            each combination synapses to build a `CoreBlock`.
 
             Then do sorting in ascending order.
         """
         for syns_set in self._edges_grouped:
             syns = [self.edges[syn] for syn in syns_set]
-            self._gsyns.append(GroupedSyn.build(*syns))
+            self.core_blocks.append(CoreBlock.build(*syns))
+
+        if (
+            n_core_total := sum(cb.n_core for cb in self.core_blocks)
+            > HwConfig.N_CORE_OFFLINE
+        ):
+            # TODO
+            raise ValueError
 
         """
-        Sort in ascending order according to the minimum value of the \
-        index of source nodes in the topological order.
+            Sort in ascending order according to the minimum value of \
+            the index of source nodes in the topological order.
         """
-        self._gsyns.sort(
-            key=lambda gsyn: min(
-                self._ordered_nodes.index(src.name) for src in gsyn.source
-            )
+        self.core_blocks.sort(
+            key=lambda cb: min(self._ordered_nodes.index(src.name) for src in cb.source)
         )
 
-        # Create `_succ_gsyns` dictionary
-        # for node_name in self.nodes:
-        #     self._succ_gsyns[node_name] = {}
-        #     succ_nodes = self.succ_dg[node_name]
-
-        #     for succ_node_name in succ_nodes:
-        #         gsyn = self._pred_gsyns[succ_node_name]
-        #         if len(succ_nodes) > 1 or gsyn.n_core > 1:
-        #             gsyn.need_broadcast = True
-
-        #         self._succ_gsyns[node_name][succ_node_name] = gsyn
-
-    def _lcn_ex_adjustment(self) -> None:
-        """Adjust the LCN extension for each target LCN.
-
-        And indicate wether need to broadcast.
         """
-        pass
-
-    def _build_gsyn_on_core(self) -> None:
-        """Build the grouped synapse on each core.
-
-        The order of `_gsyns_on_core` is the same as `grouped_syns`.
+            Traverse the destination node of each grouped synapse, \
+            and check if it is the source of other grouped synapses.\
         """
-        for gsyn in self.grouped_syns:
-            self._gsyns_on_core.append(gsyn.build_syn_on_core())
+        for cb in self.core_blocks:
+            other_cb = self.core_blocks.copy()
+            other_cb.remove(cb)
 
-    def _coord_assignment(self) -> None:
-        """Assign the coordinate of layer.
+            for dest_node in cb.dest:
+                succ_cb = [
+                    gs for gs in other_cb if self.nodes[dest_node.name] in gs.source
+                ]
+                self.succ_core_blocks[cb].extend(succ_cb)
+
+    def lcn_ex_adjustment(self) -> None:
+        """Adjust the LCN extension for each grouped synapse. \
+            Make sure that all destination LCNs are equal.
+
+        If the out-degree of a grouped synapse > 1, the LCN of \
+        all its following grouped synapses needs to be adjusted. \
+        So that the `target_LCN` can be set.
+
+        The LCN after adjustment = max(LCN_1, LCN_2, ..., LCN_N)
+        """
+        for cb in self.core_blocks:
+            succ_cb = self.succ_core_blocks[cb]
+
+            if len(succ_cb) > 1:
+                max_lcn_ex = max_lcn_of_cb(succ_cb)
+                for g in succ_cb:
+                    g.set_lcn_ex(max_lcn_ex)
+
+                cb.target_lcn = max_lcn_ex
+            elif len(succ_cb) > 0:
+                cb.target_lcn = succ_cb[0].lcn_ex
+                cb.lcn_locked = True
+            else:
+                cb.lcn_locked = True
+
+    def core_allocation(self) -> None:
+        """Allocate the grouped synapses to the cores.
+
+        The order of `core_plms` is the same as `core_blocks`.
+        """
+        for cb in self.core_blocks:
+            cb.core_alloc()
+
+    def coord_assign(self) -> None:
+        """Assign the coordinate for each `CorePlacement` in topological \
+            sort which is done in `graph_preprocess` phase.
+        """
+        for cb in self.core_blocks:
+            self.routing_tree.insert_coreblock(cb)
+
+    def config_export(self) -> None:
+        self._core_param_export()
+        self._neuron_param_export()
+
+    def _core_param_export(self) -> None:
+        """Export parameters of the CORE & neurons inside.
 
         Steps:
-            - 1. Sort all the nodes.
-            - 2. Traverse all the post gsyns of nodes in order.
-
-        Problem: See Q23100901. Now, For a node with an in-degree > 1, \
-            the out-degree of all its forward nodes = 1. -> Moved to grouping phase.
+            - 1. Export the parameters(PARAMETER_REG, including \
+                RANDOM_SEED & Weight RAM) of cores.
+            - 2. Export the parameters(Neuron RAM) of neurons inside.
         """
-        for gsyns_on_core in self._gsyns_on_core:
-            self.routing_tree.insert_gsyn_on_core(*gsyns_on_core)
+        for cb in self.core_blocks:
+            self.core_params |= cb.export_core_to_dict()
 
-    """Utilities"""
-
-    def _find_obj_by_name(self, name: str) -> PAIBoxObject:
-        """Return the object in the network given the name of it.
-
-        If not found, raise `ValueError`.
+    def _neuron_param_export(self) -> None:
         """
-        objs = (
-            self.network.nodes(level=1, include_self=False)
-            .subset(PAIBoxObject)
-            .unique()
-        )
-        for v in objs.values():
-            if name is v.name:
-                return v
+        Traverse all the core placements in core blocks, then find \
+            the following core blocks where the axons at.
 
-        raise ValueError(f"Name {name} not found in the network.")
-
-    def _find_same_lcn_syns(self, pre_node_name: str):
-        """Find the grouped synapses with the same LCN extension \
-            given a previous node.
-
-        TODO
-        Auto find the layers that have the same LCN in the network.
-        Check whether all the layers are been traversed.
-
-        If the indegree of a grouped syn == 1:
-            If outdegree of its previous node == 1:
-                just consider itself, lock its LCN.
-            Else, find all the children grouped syn of the previous node, \
-                then self._succ_gsyns[node]?
-        Else, ...
+        If found, get the coordinate of the core placment, all the \
+            coordinates of axons(for broadcasting).
         """
-        pass
-        # node_parents = []
-        # grouped_syns = self._succ_gsyns[pre_node_name]
+        for cb in self.core_blocks:
+            for core_plm in cb.core_placements:
+                for neu_seg in core_plm.neu_segs:
+                    # Find the axons dest
+                    dests = [
+                        cb for cb in self.core_blocks if neu_seg.parent in cb.source
+                    ]
 
-        # for syns in grouped_syns.values():
-        #     # The source is the parents of the synapse.
-        #     node_parents.extend(syns.source)
+                    if not dests:
+                        continue
 
-        # children = []
-
-        # for node in set(node_parents):
-        #     children.extend(list(self._succ_gsyns[node.name].values()))
-
-        # return set(children)
+                    # TODO Necessary to make this condition a premise?
+                    assert len(dests) == 1  # ?
+                    core_plm.export_neu_config(neu_seg, dests)
 
     @property
     def nodes(self):
-        if self.is_built:
+        if self.has_built:
             return self._nodes
 
         # TODO
@@ -345,14 +350,14 @@ class Mapper:
 
     @property
     def edges(self):
-        if self.is_built:
+        if self.has_built:
             return self._edges
 
         raise ValueError
 
     @property
     def pred_dg(self):
-        if self.is_built:
+        if self.has_built:
             return self._pred_dg
 
         # TODO
@@ -360,22 +365,18 @@ class Mapper:
 
     @property
     def succ_dg(self):
-        if self.is_built:
+        if self.has_built:
             return self._succ_dg
 
         # TODO
         raise ValueError
 
-    @property
-    def grouped_syns(self) -> List[GroupedSyn]:
-        return self._gsyns
 
-
-def group_by(_dict: Dict, keyfunc=lambda item: item):
+def group_by(dict_: Dict, keyfunc=lambda item: item):
     """Groups the given list or dictionary by the value returned by ``keyfunc``."""
     d = defaultdict(list)
 
-    for item in _dict.values():
+    for item in dict_.values():
         d[keyfunc(item)].append(item)
 
     return d

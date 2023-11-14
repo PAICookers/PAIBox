@@ -6,7 +6,7 @@ from paibox.libpaicore.v2.routing_defs import RoutingNodeLevel as Level
 from paibox.libpaicore.v2.routing_defs import RoutingNodeStatus as NodeStatus
 from paibox.libpaicore.v2.routing_defs import get_node_consumption
 
-from ..grouping import GroupedSynOnCore
+from ..placement import CorePlacement
 
 """
     This is an alternative to the routing tree that \
@@ -402,14 +402,14 @@ class RoutingRoot(RoutingNode):
                 L4_child = create_lx_full_tree(Level.L4, f"L4_{i}")
                 self.add_child(L4_child)
 
-    def insert_gsyn_on_core(self, *gsyns_on_core: GroupedSynOnCore) -> None:
+    def insert_gsyn_on_core(self, *cb_on_core: CorePlacement) -> None:
         """Insert the grouped synapse on core into the tree.
 
         Steps:
             - 1. Get the routing node consumption.
             - 2. Based on the routing level, find the available node of the routing level.
         """
-        n_core_total = len(gsyns_on_core)
+        n_core_total = len(cb_on_core)
 
         cost = get_node_consumption(n_core_total)
         level, next_n = cost.get_routing_level()
@@ -419,7 +419,7 @@ class RoutingRoot(RoutingNode):
         if routing_node is None:
             raise ValueError
 
-        for gsyn_on_core in gsyns_on_core:
+        for gsyn_on_core in cb_on_core:
             leaf = RoutingNode(
                 Level.L0, gsyn_on_core, tag=f"leaf of {gsyn_on_core.name}"
             )

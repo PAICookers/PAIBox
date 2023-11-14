@@ -1,14 +1,12 @@
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import List, Tuple, TypeVar, Union, final, overload
+from typing import List, Sequence, Tuple, TypeVar, Union, final, overload
 
 import numpy as np
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
-from ._types import ReplicationFlag as RFlag
-
-# from .router import RouterLevel
+__all__ = ["Coord", "ReplicationId", "CoordLike", "to_coord", "to_coords"]
 
 
 class Identifier(ABC):
@@ -42,7 +40,7 @@ class Coord(Identifier):
         return cls(*pos)
 
     @classmethod
-    def from_addr(cls, addr):
+    def from_addr(cls, addr: int):
         return cls(addr >> 5, addr & _COORD_MAX_LIMIT)
 
     @classmethod
@@ -221,22 +219,6 @@ class Coord(Identifier):
         """Convert to address, 10 bits"""
         return (self.x << 5) | self.y
 
-    # @property
-    # def router_level(self) -> RouterLevel:
-    #     x_high = y_high = RouterLevel.L1
-
-    #     for level in RouterLevel:
-    #         if (self.x >> level.value) == 0:
-    #             x_high = level
-    #             break
-
-    #     for level in RouterLevel:
-    #         if (self.y >> level.value) == 0:
-    #             y_high = level
-    #             break
-
-    #     return max(x_high, y_high, key=lambda x: x.value)
-
 
 @final
 class ReplicationId(Coord):
@@ -254,20 +236,6 @@ class ReplicationId(Coord):
 
     # def __rshift__(self, __bit: int) -> int:
     #     return self.address >> __bit
-
-    @property
-    def rflags(self) -> Tuple[RFlag, RFlag]:
-        fx = fy = RFlag.NONE
-
-        for i in range(5):
-            if (self.x >> i) & 1:
-                fx |= RFlag(1 << i)
-
-        for i in range(5):
-            if (self.y >> i) & 1:
-                fy |= RFlag(1 << i)
-
-        return (fx, fy)
 
 
 class DistanceType(Enum):
@@ -419,25 +387,23 @@ class CoordOffset:
         return np.maximum(np.abs(self.delta_x), np.abs(self.delta_y))
 
 
-CoordLike = TypeVar("CoordLike", Coord, Tuple[int, int])
+CoordLike = TypeVar("CoordLike", Coord, int, List[int], Tuple[int, int])
 
 
 def to_coord(coordlike: CoordLike) -> Coord:
+    if isinstance(coordlike, int):
+        return Coord.from_addr(coordlike)
+
     if isinstance(coordlike, (list, tuple)):
         if len(coordlike) != 2:
             raise ValueError(
                 f"Must be a tuple or list of 2 elements to represent a coordinate: {len(coordlike)}"
             )
 
-        return Coord.from_tuple(coordlike)
+        return Coord(*coordlike)
 
     return coordlike
 
 
-def to_coords(coordlikes: Union[CoordLike, List[CoordLike]]) -> List[Coord]:
-    if isinstance(coordlikes, list):
-        coords = [to_coord(i) for i in coordlikes]
-    else:
-        coords = [to_coord(coordlikes)]
-
-    return coords
+def to_coords(coordlikes: Sequence[CoordLike]) -> List[Coord]:
+    return [to_coord(coordlike) for coordlike in coordlikes]

@@ -1,7 +1,7 @@
 import pytest
 
 import paibox as pb
-from paibox.implement.experimental.routing import (
+from paibox.backend.experimental.routing import (
     RoutingNode,
     RoutingRoot,
     create_lx_full_tree,
@@ -14,7 +14,60 @@ from paibox.libpaicore.v2.routing_defs import (
     RoutingNodeStatus,
 )
 
-from ..data import *
+pytestmark = pytest.mark.skip(reason="Not implemented")
+
+
+# path, method, expected_tag
+data_find_node_by_path = [
+    (
+        [
+            RoutingDirection.X0Y0,
+            RoutingDirection.X0Y0,
+            RoutingDirection.X0Y1,
+            RoutingDirection.X0Y0,
+        ],
+        "L0_1",
+    ),
+    (
+        [
+            RoutingDirection.X0Y1,
+            RoutingDirection.X0Y0,
+            RoutingDirection.X0Y1,
+        ],
+        "L1_4",
+    ),
+    (
+        [
+            RoutingDirection.X0Y1,
+            RoutingDirection.X0Y0,
+            RoutingDirection.X0Y0,
+            RoutingDirection.X0Y0,
+        ],
+        "L0_2",
+    ),
+    (
+        [],
+        "L4_1",
+    ),
+    (
+        [
+            RoutingDirection.X0Y1,
+            RoutingDirection.X0Y0,
+            RoutingDirection.X0Y0,
+            RoutingDirection.X0Y1,
+        ],
+        "L0_3",
+    ),
+    (
+        [
+            RoutingDirection.X0Y1,
+            RoutingDirection.X0Y0,
+            RoutingDirection.X0Y0,
+            RoutingDirection.X1Y0,
+        ],
+        "L0_4",
+    ),
+]
 
 
 def create_example_tree():
@@ -477,7 +530,7 @@ class TestRouterTreeRoot:
 
         # TODO Debug tree, printing in good format!
 
-        # mapper = pb.implement.Mapper()
+        # mapper = pb.Mapper()
         # mapper.build_graph(self.net1)
 
         # # Group every synapses
@@ -485,9 +538,9 @@ class TestRouterTreeRoot:
         # mapper._build_gsyn_on_core()
 
         # # Insert the first `gsyn_on_core`.
-        # gsyns_on_core1 = mapper._succ_gsyn_on_core["inp1"]["n1"]
-        # mapper.router_tree.insert_gsyn_on_core(*gsyns_on_core1)
+        # cb_on_core1 = mapper._succ_gsyn_on_core["inp1"]["n1"]
+        # mapper.router_tree.insert_gsyn_on_core(*cb_on_core1)
 
         # # Insert when there are leaves in router tree already.
-        # gsyns_on_core2 = mapper._succ_gsyn_on_core["n1"]["n2"]
-        # mapper.router_tree.insert_gsyn_on_core(*gsyns_on_core2)
+        # cb_on_core2 = mapper._succ_gsyn_on_core["n1"]["n2"]
+        # mapper.router_tree.insert_gsyn_on_core(*cb_on_core2)

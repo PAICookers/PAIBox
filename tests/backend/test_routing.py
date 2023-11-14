@@ -1,35 +1,12 @@
 import pytest
 
 import paibox as pb
-from paibox.implement.routing import RoutingNode, RoutingRoot, get_parent
+from paibox.backend.routing import RoutingNode, RoutingRoot, get_parent
 from paibox.libpaicore.v2.routing_defs import (
     RoutingDirection,
     RoutingNodeCost,
     RoutingNodeLevel,
 )
-
-
-@pytest.fixture
-def build_example_root():
-    root = RoutingNode(RoutingNodeLevel.L3, tag="L3")
-
-    node_l2_1 = RoutingNode(RoutingNodeLevel.L2, tag="L2_1")
-    node_l2_2 = RoutingNode(RoutingNodeLevel.L2, tag="L2_2")
-    node_l2_3 = RoutingNode(RoutingNodeLevel.L2, tag="L2_3")
-
-    node_l1_1 = RoutingNode(RoutingNodeLevel.L1, tag="L1_1")
-    node_l1_2 = RoutingNode(RoutingNodeLevel.L1, tag="L1_2")
-    node_l1_3 = RoutingNode(RoutingNodeLevel.L1, tag="L1_3")
-
-    node_l2_1.add_child_to(node_l1_1, RoutingDirection.X0Y0)
-    node_l2_2.add_child_to(node_l1_2, RoutingDirection.X0Y1)
-    node_l2_3.add_child_to(node_l1_3, RoutingDirection.X1Y0)
-
-    root.add_child_to(node_l2_1, RoutingDirection.X0Y0)
-    root.add_child_to(node_l2_2, RoutingDirection.X1Y1)
-    root.add_child_to(node_l2_3, RoutingDirection.X1Y0)
-
-    return root
 
 
 class TestRouterTree:
@@ -289,13 +266,13 @@ class ExampleNet1(pb.Network):
         self.n3 = pb.neuron.TonicSpiking(800, 5, name="n3")
 
         self.s1 = pb.synapses.NoDecay(
-            self.inp1, self.n1, pb.synapses.All2All(), name="s1"
+            self.inp1, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s1"
         )
         self.s2 = pb.synapses.NoDecay(
-            self.n1, self.n2, pb.synapses.All2All(), name="s2"
+            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s2"
         )
         self.s3 = pb.synapses.NoDecay(
-            self.n2, self.n3, pb.synapses.All2All(), name="s3"
+            self.n2, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s3"
         )
 
 
@@ -324,13 +301,13 @@ class TestRouterTreeRoot:
         assert nodes_l1 == 3
         assert nodes_l0 == 0
 
-    def test_insert_gsyn_on_core_proto(self):
+    def test_insert_coreblock_proto(self):
         root = RoutingRoot()
 
         def _gen_routing_tree(n_core: int, cost: RoutingNodeCost):
-            level, next_level_n = cost.get_routing_level()
+            level = cost.get_routing_level()
 
-            routing_root = RoutingNode.create_routing_tree(level, next_level_n)
+            routing_root = RoutingNode.create_routing_tree(level, cost[level.value])
 
             for i in range(cost.n_L0):
                 if i < n_core:
@@ -354,18 +331,3 @@ class TestRouterTreeRoot:
 
         subtree3 = _gen_routing_tree(n_core3, cost3)
         assert root.add_subtree(subtree3) == True
-
-    def test_insert_gsyn_on_core(self, build_example_net):
-        net = build_example_net
-
-        mapper = pb.implement.Mapper()
-        mapper.build_graph(net)
-
-        # Group every synapses
-        mapper._group_synapses()
-        mapper._build_gsyn_on_core()
-
-        count = 0
-        for gsyns_on_core in mapper._gsyns_on_core:
-            mapper.routing_tree.insert_gsyn_on_core(*gsyns_on_core)
-            count += 1

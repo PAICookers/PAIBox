@@ -1,7 +1,7 @@
-from .coordinate import Coord as Coord
-from .coordinate import ReplicationId as ReplicationId
+from .coordinate import *
 from .hw_defs import HwConfig as HwConfig
-from .ram_model import NeuronAttrs as NeuronAttrs
+from .hw_types import *
+from .ram_model import *
 from .ram_types import LeakingComparisonMode as LCM
 from .ram_types import LeakingDirectionMode as LDM
 from .ram_types import LeakingIntegrationMode as LIM
@@ -17,6 +17,7 @@ from .reg_types import SNNModeEnableType as SNNModeEnable
 from .reg_types import SpikeWidthFormatType as SpikeWidthFormat
 from .reg_types import WeightPrecisionType as WeightPrecision
 from .routing_defs import RoutingNodeCoord as RoutingNodeCoord
+from .routing_defs import get_replication_id
 
 v_major = 2
 v_minor = 0
