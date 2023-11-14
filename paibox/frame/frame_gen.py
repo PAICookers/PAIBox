@@ -1,11 +1,13 @@
 from typing import Optional
-from .base_frame import *
+
 import numpy as np
 
 from paibox.libpaicore.v2 import Coord
-from .util import *
-from .params import *
+
+from .base_frame import *
 from .offline_frame import *
+from .params import *
+from .util import *
 
 
 class FrameGenOffline:
@@ -16,7 +18,7 @@ class FrameGenOffline:
         chip_coord: Coord,
         core_coord: Coord,
         core_ex_coord: ReplicationId,
-        random_seed: Union[int,np.uint64],
+        random_seed: Union[int, np.uint64],
     ) -> OfflineConfigFrame1:
         return OfflineConfigFrame1(chip_coord, core_coord, core_ex_coord, random_seed)
 
@@ -36,7 +38,7 @@ class FrameGenOffline:
         core_ex_coord: ReplicationId,
         sram_start_addr: np.uint64,
         neuron_ram: dict,
-        neuron_num:int
+        neuron_num: int,
     ) -> OfflineConfigFrame3:
         return OfflineConfigFrame3(
             chip_coord,
@@ -44,7 +46,7 @@ class FrameGenOffline:
             core_ex_coord,
             sram_start_addr,
             neuron_ram,
-            neuron_num
+            neuron_num,
         )
 
     @staticmethod

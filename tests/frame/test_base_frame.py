@@ -1,10 +1,10 @@
+import numpy as np
+import pytest
+
 from paibox.frame.base_frame import *
 from paibox.frame.params import *
 from paibox.frame.util import print_frame
 from paibox.libpaicore.v2 import Coord, ReplicationId
-
-import numpy as np
-import pytest
 
 
 @pytest.mark.parametrize(

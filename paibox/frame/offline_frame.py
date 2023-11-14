@@ -1,14 +1,16 @@
 import warnings
-import numpy as np
-from typing import Dict, Union, List
+from typing import Dict, List, Union
 
-from .base_frame import Frame, FramePackage
-from .params import ConfigFrame3Format, ConfigFrame4Format, FrameFormat, FrameHead, WorkFrame1Format
-from .params import ParameterRAMFormat as RAMF
-from .params import ParameterRegFormat as RegF
-from .util import bin_array_split, bin_split
+import numpy as np
+
 from paibox.libpaicore.v2 import Coord, ReplicationId
 
+from .base_frame import Frame, FramePackage
+from .params import ConfigFrame3Format, ConfigFrame4Format, FrameFormat, FrameHead
+from .params import ParameterRAMFormat as RAMF
+from .params import ParameterRegFormat as RegF
+from .params import WorkFrame1Format
+from .util import bin_array_split, bin_split
 
 """Offline Config Frame"""
 
@@ -19,18 +21,22 @@ class OfflineConfigFrame1(Frame):
         chip_coord: Coord,
         core_coord: Coord,
         core_ex_coord: ReplicationId,
-        random_seed: Union[int,np.uint64],
+        random_seed: Union[int, np.uint64],
     ):
         header = [FrameHead.CONFIG_TYPE1]
         if random_seed > FrameFormat.GENERAL_MASK:
-            warnings.warn(f"seed {random_seed} is too large, truncated into 64 bits!", UserWarning)
+            warnings.warn(
+                f"seed {random_seed} is too large, truncated into 64 bits!", UserWarning
+            )
         self.random_seed = np.uint64(random_seed) & FrameFormat.GENERAL_MASK
-        payload = np.array([
-            (self.random_seed >> np.uint64(34)) & FrameFormat.GENERAL_PAYLOAD_MASK,
-            (self.random_seed >> np.uint64(4)) & FrameFormat.GENERAL_PAYLOAD_MASK,
-            self.random_seed & np.uint64((1 << 4) - 1),
-        ])
-        
+        payload = np.array(
+            [
+                (self.random_seed >> np.uint64(34)) & FrameFormat.GENERAL_PAYLOAD_MASK,
+                (self.random_seed >> np.uint64(4)) & FrameFormat.GENERAL_PAYLOAD_MASK,
+                self.random_seed & np.uint64((1 << 4) - 1),
+            ]
+        )
+
         super().__init__(header, chip_coord, core_coord, core_ex_coord, payload)
 
     def __repr__(self) -> str:
@@ -42,6 +48,7 @@ class OfflineConfigFrame1(Frame):
             f"Core_EX address:  {self.core_ex_coord}\n"
             f"random_seed:      {self.random_seed}\n"
         )
+
 
 class OfflineConfigFrame2(Frame):
     def __init__(
@@ -95,10 +102,7 @@ class OfflineConfigFrame2(Frame):
                 (parameter_reg["neuron_num"] & RegF.NEURON_NUM_MASK)
                 << RegF.NEURON_NUM_OFFSET
             )
-            | (
-                (parameter_reg["pool_max"] & RegF.POOL_MAX_MASK)
-                << RegF.POOL_MAX_OFFSET
-            )
+            | ((parameter_reg["pool_max"] & RegF.POOL_MAX_MASK) << RegF.POOL_MAX_OFFSET)
             | (
                 (tick_wait_start_high8 & RegF.TICK_WAIT_START_HIGH8_MASK)
                 << RegF.TICK_WAIT_START_HIGH8_OFFSET
@@ -194,7 +198,10 @@ class OfflineConfigFrame3(FramePackage):
                 << ConfigFrame3Format.DATA_PACKAGE_TYPE_OFFSET
             )
             | (
-                (np.uint64(self.data_package_num) & ConfigFrame3Format.DATA_PACKAGE_NUM_MASK)
+                (
+                    np.uint64(self.data_package_num)
+                    & ConfigFrame3Format.DATA_PACKAGE_NUM_MASK
+                )
                 << ConfigFrame3Format.DATA_PACKAGE_NUM_OFFSET
             )
         )
@@ -217,10 +224,7 @@ class OfflineConfigFrame3(FramePackage):
                 (neuron_ram["weight_det_stoch"] & RAMF.WEIGHT_DET_STOCH_MASK)
                 << RAMF.WEIGHT_DET_STOCH_OFFSET
             )
-            | (
-                (leak_v_low28 & RAMF.LEAK_V_LOW28_MASK)
-                << RAMF.LEAK_V_LOW28_OFFSET
-            )
+            | ((leak_v_low28 & RAMF.LEAK_V_LOW28_MASK) << RAMF.LEAK_V_LOW28_OFFSET)
         )
 
         # 2
@@ -258,10 +262,7 @@ class OfflineConfigFrame3(FramePackage):
                 (threshold_mask_ctrl_high4 & RAMF.THRESHOLD_MASK_CTRL_HIGH4_MASK)
                 << RAMF.THRESHOLD_MASK_CTRL_HIGH4_OFFSET
             )
-            | (
-                (neuron_ram["leak_post"] & RAMF.LEAK_POST_MASK)
-                << RAMF.LEAK_POST_OFFSET
-            )
+            | ((neuron_ram["leak_post"] & RAMF.LEAK_POST_MASK) << RAMF.LEAK_POST_OFFSET)
             | ((neuron_ram["reset_v"] & RAMF.RESET_V_MASK) << RAMF.RESET_V_OFFSET)
             | (
                 (neuron_ram["reset_mode"] & RAMF.RESET_MODE_MASK)
@@ -299,10 +300,7 @@ class OfflineConfigFrame3(FramePackage):
                 (addr_core_x_high3 & RAMF.ADDR_CORE_X_HIGH3_MASK)
                 << RAMF.ADDR_CORE_X_HIGH3_OFFSET
             )
-            | (
-                (neuron_ram["addr_axon"] & RAMF.ADDR_AXON_MASK)
-                << RAMF.ADDR_AXON_OFFSET
-            )
+            | ((neuron_ram["addr_axon"] & RAMF.ADDR_AXON_MASK) << RAMF.ADDR_AXON_OFFSET)
             | (
                 (neuron_ram["tick_relative"] & RAMF.TICK_RELATIVE_MASK)
                 << RAMF.TICK_RELATIVE_OFFSET
@@ -323,8 +321,6 @@ class OfflineConfigFrame3(FramePackage):
             neuron_ram_load,
             ram,
         )
-        
-        
 
 
 class OfflineConfigFrame4(FramePackage):

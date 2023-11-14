@@ -1,10 +1,12 @@
-from paibox.frame.params import FrameHead
-from paibox.libpaicore.v2 import Coord, ReplicationId
-from .params import *
-from paibox.libpaicore.v2 import *
-
 from typing import List, Union
+
 import numpy as np
+
+from paibox.frame.params import FrameHead
+from paibox.libpaicore.v2 import *
+from paibox.libpaicore.v2 import Coord, ReplicationId
+
+from .params import *
 
 __all__ = ["Frame", "FramePackage"]
 

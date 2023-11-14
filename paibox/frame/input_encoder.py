@@ -1,9 +1,12 @@
+from typing import List, Optional, Union
+
 import numpy as np
+
 from paibox.frame.frame_gen import FrameGenOffline
 from paibox.frame.params import FrameFormat
 from paibox.libpaicore.v2 import Coord, ReplicationId
-from .params import WorkFrame1Format, FrameHead
-from typing import List, Union, Optional
+
+from .params import FrameHead, WorkFrame1Format
 
 
 class DataEncoder:
@@ -18,7 +21,7 @@ class DataEncoder:
             self.chip_coord = chip_coord
         if time_step is not None:
             self.time_step = time_step
-            
+
         if frameinfo is not None:
             self.frameinfo = frameinfo.astype(np.uint64)
         if data is not None:
@@ -35,7 +38,9 @@ class DataEncoder:
         return cls(chip_coord, time_step, frameinfo, data)
 
     def encode(self):
-        frames = FrameGenOffline.gen_work_frame1(frameinfo=self.frameinfo, data=self.data)
+        frames = FrameGenOffline.gen_work_frame1(
+            frameinfo=self.frameinfo, data=self.data
+        )
         work2 = FrameGenOffline.gen_work_frame2(self.chip_coord, self.time_step)
         return np.concatenate((frames, work2.value), axis=0)  # type: ignore
 
@@ -60,9 +65,15 @@ class DataEncoder:
             time_slot = [time_slot]
 
         header_value = np.array([head.value for head in header]).astype(np.uint64)
-        chip_address = np.array([coord.address for coord in core_coord]).astype(np.uint64)
-        core_address = np.array([coord.address for coord in core_coord]).astype(np.uint64)
-        core_e_address = np.array([coord.address for coord in core_e_coord]).astype(np.uint64)
+        chip_address = np.array([coord.address for coord in core_coord]).astype(
+            np.uint64
+        )
+        core_address = np.array([coord.address for coord in core_coord]).astype(
+            np.uint64
+        )
+        core_e_address = np.array([coord.address for coord in core_e_coord]).astype(
+            np.uint64
+        )
         axon_array = np.array(axon, dtype=np.uint64)
         time_slot_array = np.array(time_slot, dtype=np.uint64)
 
