@@ -1,1 +1,1 @@
-from .frame_gen import FrameGen as FrameGen
+from .frame_gen import FrameGenOffline as FrameGenOffline
