@@ -9,8 +9,6 @@ from paibox.libpaicore import (
     LCN_EX,
     AxonCoord,
     Coord,
-    CoordLike,
-    HwConfig,
     InputWidthFormat,
     MaxPoolingEnable,
     NeuronAttrs,
@@ -21,20 +19,7 @@ from paibox.libpaicore import (
     SpikeWidthFormat,
     WeightPrecision,
     get_replication_id,
-    to_coord,
 )
-
-
-class GlobalConfig:
-    TEST_CHIP_ADDR = Coord(0, 0)
-
-    @property
-    def test_chip_addr(self) -> Coord:
-        return self.TEST_CHIP_ADDR
-
-    @test_chip_addr.setter
-    def test_chip_addr(self, addr: CoordLike) -> None:
-        self.TEST_CHIP_ADDR = to_coord(addr)
 
 
 class CoreConfigDict(NamedTuple):
@@ -50,7 +35,7 @@ class CoreConfigDict(NamedTuple):
     tick_wait_end: int
     snn_mode_en: SNNModeEnable
     target_lcn: LCN_EX
-    test_chip_addr: int
+    test_chip_addr: Coord
 
 
 class ConfigTemplate:

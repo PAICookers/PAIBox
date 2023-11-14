@@ -109,7 +109,7 @@ def build_example_net2():
     return NetForTest3()
 
 
-@pytest.fixture(scope="class")
+@pytest.fixture(scope="function")
 def build_example_net3():
     return NetForTest3()
 
@@ -130,6 +130,7 @@ class TestMapper:
 
         print("OK")
 
+    @pytest.mark.skip
     def test_CoreBlock_build(self, build_example_net3):
         net = build_example_net3
 

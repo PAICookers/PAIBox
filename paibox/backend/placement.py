@@ -34,21 +34,12 @@ from paibox.libpaicore import (
 from paibox.projection import InputProj
 from paibox.synapses import SynSys
 
-from .config_template import CoreConfigDict, GlobalConfig, NeuronConfig
+from .config_template import CoreConfigDict, NeuronConfig
+from .context import _BACKEND_CONTEXT
 
 SourceNodeType = Union[NeuDyn, InputProj]
 DestNodeType = NeuDyn
 NeuSeg = NamedTuple("NeuSeg", [("parent", DestNodeType), ("segment", NeuronSegment)])
-
-
-# class NeuSeg(NamedTuple):
-#     parent: NeuDyn
-#     segment: NeuronSegment
-#     @property
-#     def addr_ram(self) -> slice:
-#         return slice(
-#             self.addr_offset, self.addr_offset + self.index.stop - self.index.start
-#         )
 
 
 class PlacementObj(PAIBoxObject):
@@ -364,7 +355,7 @@ class CoreBlock(PlacementObj):
                 0,                                      # tick_wait_end
                 SNNModeEnable.ENABLE,                   # snn_mode_en
                 self.target_lcn,                        # target_lcn
-                GlobalConfig.TEST_CHIP_ADDR.address,    # test_chip_addr
+                _BACKEND_CONTEXT["test_chip_addr"],      # test_chip_addr
             )
             # fmt: on
 
@@ -493,10 +484,6 @@ class CorePlacement(PlacementObj):
         """
         return [p.parent for p in self.neu_segs]
 
-    # @property
-    # def n_neuron_of_dest(self) -> List[int]:
-    #     return [p.addr.stop - p.addr.start for p in self.neuron_slices]
-
     @property
     def crossbar(self) -> np.ndarray:
         return self._get_binary_conn(self.weights)
@@ -592,7 +579,7 @@ def _get_neu_segments_dense(
         seg = NeuronSegment(slice(i * capacity, num, 1), 0, interval)
         rest_segs.append(NeuSeg(neuron, seg))
 
-    # In descending order
+    # Sort the rest of segments in descending order
     rest_segs.sort(key=lambda neu_seg: neu_seg.segment.n_neuron, reverse=True)
 
     # The remaining neuron groups can then be grouped up to N cores
