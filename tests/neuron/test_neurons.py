@@ -6,7 +6,7 @@ from paibox.neuron.base import *
 from paibox.utils import as_shape, shape2num
 
 
-class TestMetaNeuron:
+class TestMetaNeuronBehavior:
     sim = SIM.MODE_DETERMINISTIC
     lim = LIM.MODE_DETERMINISTIC
     ld = LDM.MODE_FORWARD
@@ -217,19 +217,44 @@ class TonicSpikingNet(pb.Network):
         self.probe3 = pb.simulator.Probe(self.n1, "voltage")
 
 
-def test_neuron_behavior():
-    net = Net1()
-    sim = pb.Simulator(net)
+class TestNeuronBehavior:
+    def test_TonicSpiking_simple_sim(self):
+        n1 = pb.neuron.TonicSpiking(shape=1, fire_step=3)
+        inp_data = np.ones((10,), dtype=np.bool_)
+        output = np.full((10,), 0, dtype=np.bool_)
+        voltage = np.full((10,), 0, dtype=np.int32)
 
-    sim.run(10)
+        for t in range(10):
+            output[t] = n1(inp_data[t])
+            voltage[t] = n1.voltage
 
-    print(sim.data[net.probe1])
+        print(output)
 
+    def test_PhasicSpiking_simple_sim(self):
+        n1 = pb.neuron.PhasicSpiking(shape=1, time_to_fire=3)
+        # [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+        inp_data = np.concatenate((np.zeros((2,), np.bool_), np.ones((10,), np.bool_)))
+        output = np.full((12,), 0, dtype=np.bool_)
+        voltage = np.full((12,), 0, dtype=np.int32)
 
-def test_TonicSpiking_behavior():
-    net = TonicSpikingNet()
-    sim = pb.Simulator(net)
+        for t in range(12):
+            output[t] = n1(inp_data[t])
+            voltage[t] = n1.voltage
 
-    sim.run(10)
+        print(output)
 
-    print(sim.data[net.probe1])
+    def test_neuron_behavior(self):
+        net = Net1()
+        sim = pb.Simulator(net)
+
+        sim.run(10)
+
+        print(sim.data[net.probe1])
+
+    def test_TonicSpiking_behavior(self):
+        net = TonicSpikingNet()
+        sim = pb.Simulator(net)
+
+        sim.run(10)
+
+        print(sim.data[net.probe1])
