@@ -11,7 +11,7 @@ class TestEncoder:
         spike[1, 0] = 1
         spike[4, 2] = 1
 
-        pe = pb.simulator.encoder.PeriodicEncoder(spike)
+        pe = pb.simulator.PeriodicEncoder(spike)
 
         out_spike = np.full((20, 3), 0)
 
@@ -24,8 +24,8 @@ class TestEncoder:
         assert np.array_equal(spike, out_spike[15:20])
 
     def test_PoissonEncoder(self):
-        pe = pb.simulator.encoder.PoissonEncoder(shape_out=(10, 10))
-        x = np.random.randint(-128, 128, (10, 10))
+        pe = pb.simulator.PoissonEncoder(shape_out=(10, 10))
+        x = np.random.randint(-128, 128, (10, 10), dtype=np.int8)
 
         # out_spike = np.full((20, 10, 10), 0)
 
