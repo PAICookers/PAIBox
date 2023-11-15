@@ -69,7 +69,7 @@ class CoreBlock(PlacementObj):
             - weight_precision: the precision of weight matrix.
 
         Axons ->                LCN    -> neuron_capacity -> n_core -> n_neuron_each
-        tweight_precision -> n_dendrite -------> |
+        weight_precision -> n_dendrite -------> |
         """
 
         super().__init__(name)
@@ -86,7 +86,7 @@ class CoreBlock(PlacementObj):
         self.lcn_locked = False
         """Used to indicate whether `lcn_ex` has been adjusted."""
 
-        self.axon_segments: Dict[SourceNodeType, AxonSegment] = defaultdict()
+        self.axon_segments: Dict[SourceNodeType, AxonSegment] = dict()
 
         self.core_coords: List[Coord] = []
         """Core coordinates.
@@ -98,14 +98,7 @@ class CoreBlock(PlacementObj):
         """Core placements."""
 
         # Segment the group of axons.
-        self._get_axon_segments()
-
-    def _get_axon_segments(self) -> None:
-        pos = 0
-
-        for axon in self.axons:
-            segments, pos = get_axon_segments(axon, self.timeslot, pos)
-            self.axon_segments[axon] = segments
+        self.axon_segments = get_axon_segments(self.axons, self.timeslot)
 
     @classmethod
     def build(cls, *synapses: SynSys, name: Optional[str] = None):
@@ -355,7 +348,7 @@ class CoreBlock(PlacementObj):
                 0,                                      # tick_wait_end
                 SNNModeEnable.ENABLE,                   # snn_mode_en
                 self.target_lcn,                        # target_lcn
-                _BACKEND_CONTEXT["test_chip_addr"],      # test_chip_addr
+                _BACKEND_CONTEXT["test_chip_addr"],     # test_chip_addr
             )
             # fmt: on
 
@@ -622,17 +615,41 @@ def _get_neu_segments_dense(
 
 
 def get_axon_segments(
-    axon: Union[NeuDyn, InputProj], tr_max: int, pos: int, method="class"
-) -> tuple[AxonSegment, int]:
-    # The width of assigned address
-    if axon.num_out % tr_max > 0:
-        addr_width = axon.num_out // tr_max + 1
-        # n_axon_rest = axon.num_out % addr_width
-    else:
-        addr_width = axon.num_out // tr_max
-        # n_axon_rest = 0
+    axons: Sequence[SourceNodeType], tr_max: int, method="class"
+) -> Dict[SourceNodeType, AxonSegment]:
+    """Segment the axons to fit the hardware constraints.
 
-    return AxonSegment(axon.num_out, addr_width, pos), pos + addr_width
+    Args:
+        - axons: The axons to be segmented.
+        - tr_max: The maximum value of the time slot(=timeslot).
+
+    TODO Provide an alternative when failed using this method.
+    """
+
+    def _seg_alloc(axon: SourceNodeType, offset: int) -> Tuple[AxonSegment, int]:
+        """Allocate an axon segment, return the next offset of axon address."""
+        # The width of assigned address
+        if axon.num_out % tr_max > 0:
+            addr_width = axon.num_out // tr_max + 1
+            # n_axon_rest = axon.num_out % addr_width
+        else:
+            addr_width = axon.num_out // tr_max
+            # n_axon_rest = 0
+
+        if offset + addr_width > HwConfig.N_AXON_DEFAULT:
+            # TODO
+            raise ValueError
+
+        return AxonSegment(axon.num_out, addr_width, offset), offset + addr_width
+
+    offset = 0
+    axon_segments = dict()
+
+    for axon in axons:
+        segment, offset = _seg_alloc(axon, offset)
+        axon_segments[axon] = segment
+
+    return axon_segments
 
 
 def aligned_coords(neu_index: slice, axon_seg: AxonSegment) -> List[AxonCoord]:
