@@ -268,7 +268,7 @@ s1= pb.synapses.NoDecay(source=n1, dest=n2, weights=weight1, conn_type=pb.synaps
   n1 = pb.neuron.IF(shape=5,threshold=1)
   n2 = pb.neuron.IF(shape=5,threshold=1)
   s1 = pb.synapses.NoDecay(source=n1, dest=n2, conn_type=pb.ConnType.One2One, weights=2, name='s1')
-  
+
   print(s1.weights)
   >>>
   2
@@ -282,7 +282,7 @@ s1= pb.synapses.NoDecay(source=n1, dest=n2, weights=weight1, conn_type=pb.synaps
   n1 = pb.neuron.IF(shape=5,threshold=1)
   n2 = pb.neuron.IF(shape=5,threshold=1)
   s1 = pb.synapses.NoDecay(source=n1, dest=n2, conn_type=pb.ConnType.One2One, weights=np.arange(1, 6, dtype=np.int8), name='s1')
-  
+
   print(s1.weights)
   >>>
   [[1, 0, 0, 0, 0],
@@ -403,10 +403,10 @@ inp = pb.InputProj(input=x, shape_out=(4, 4), keep_shape=True)
 prob = pb.simulator.Probe(inp, "feature_map")
 sim = pb.Simulator(inp)
 sim.add_probe(prob)
-sim.run(2)  
+sim.run(2)
 
 output = sim.data[prob][-1]
-print(output) 
+print(output)
 
 >>>
     [[4 4 4 0]
@@ -428,7 +428,7 @@ inp = pb.InputProj(input=fakeout, shape_out=(4, 4), keep_shape=True)
 prob = pb.simulator.Probe(inp, "feature_map")
 sim = pb.Simulator(inp)
 sim.add_probe(prob)
-sim.run(2)  
+sim.run(2)
 
 output = sim.data[prob][-1]
 print(output)
@@ -454,7 +454,7 @@ sim.add_probe(prob)
 sim.run(4, bias=0)
 
 output = sim.data[prob][-1]
-print(output) 
+print(output)
 
 >>>
     # t=3
@@ -522,7 +522,7 @@ class fcnet(pb.Network):
 
 ```
 
-<!-- 
+<!--
 #### **Sequential方法**
 
 也可以使用 `Sequential` 构建 **线性网络**：
@@ -555,13 +555,13 @@ class net_using_update(pb.DynSysGroup):
         self.s1 = pb.synapses.NoDecay(self.n1, self.n3, conn_type=pb.synapses.ConnType.All2All)
         self.s2 = pb.synapses.NoDecay(self.n2, self.n3, conn_type=pb.synapses.ConnType.All2All)
         self.p3 = pb.simulator.Probe(self.n3,'output')
-    def update(self,x1,x2): 
+    def update(self,x1,x2):
         y1 = self.n1.update(x1)
         y2 = self.n2.update(x2)
         y1_s1 = self.s1.update(y1)
         y2_s2 = self.s2.update(y2)
         y3 = self.n3.update(y1_s1 + y2_s2)
-        return y3 
+        return y3
 ``` -->
 
 <!-- ### **高级算子**
@@ -593,6 +593,7 @@ sim.run(5)                  # 仿真5个时间步
 3. 调用 `Simulator.remove_probe` 方法可移除探针及其仿真数据。
 
 例化探针时需指定：
+
 - `target`: 监测对象，必须是 `PAIBoxObject` 类。
 - `attr`：监测的属性，如 `spike`、`output` 等，字符串类型，这将监测 `target.attr` 属性。
 - `subtarget`: 监测对象的子对象。可选，若指定，最终将监测 `target.subtarget.attr` 属性。
@@ -618,6 +619,7 @@ n1_v_data = sim.data[net.probe2]
 ```
 
 仿真数据可通过 `sim.data` 取得。可监测的对象包括网络内部所有的属性。例如，神经元及突触的各类属性，常用的监测对象包括：
+
 - 输入节点的 `feature_map`。
 - 神经元：脉冲输出 `spike`、脉冲输出（特征图形式） `feature_map`、膜电位 `voltage`。
 - 突触：输出 `output`。
