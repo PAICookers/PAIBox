@@ -14,13 +14,13 @@ packages = [{ include = "paibox" }]
 python = "^3.9"
 pydantic = "^2.0"
 numpy = "^1.23.0"
-
-
-[tool.poetry.group.test.dependencies]
-pytest = { version = "^7.4.0", python = "^3.7" }
 torch = { version = "^2.1.0+cpu", optional = true, source = "torch-cpu" }
 torchvision = { version = "^0.16.0+cpu", optional = true, source = "torch-cpu" }
 torchaudio = { version = "^2.1.0+cpu", optional = true, source = "torch-cpu" }
+
+
+[tool.poetry.group.test.dependencies]
+pytest = { version = "^7.4.0", python = "^3.8" }
 
 
 [tool.poetry.group.dev.dependencies]
@@ -28,6 +28,10 @@ ujson = "^5.8.0"
 
 [tool.poetry.extras]
 torch_env = ["torch", "torchvision", "torchaudio"]
+
+[tool.pytest.ini_options]
+minversion = "7.0.0"
+testpaths = ["tests"]
 
 
 [[tool.poetry.source]]
