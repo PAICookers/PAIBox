@@ -1,10 +1,10 @@
-import numpy as np
 import random
+from pathlib import Path
+
+import numpy as np
 import pytest
 
 import paibox as pb
-from pathlib import Path
-from paibox.neuron.base import MetaNeuron
 from paibox.backend.config_template import (
     CoreConfigDict,
     CorePlacementConfig,
@@ -12,19 +12,19 @@ from paibox.backend.config_template import (
 )
 from paibox.backend.placement import NeuSeg
 from paibox.backend.routing import RoutingNode
-from paibox.libpaicore.v2.routing_defs import RoutingDirection, RoutingNodeLevel
-
 from paibox.libpaicore import (
-    AxonCoord,
     LCN_EX,
+    AxonCoord,
     Coord,
     InputWidthFormat,
     MaxPoolingEnable,
+    NeuronSegment,
     SNNModeEnable,
     SpikeWidthFormat,
-    WeightPrecision as WP,
-    NeuronSegment,
 )
+from paibox.libpaicore import WeightPrecision as WP
+from paibox.libpaicore.v2.routing_defs import RoutingDirection, RoutingNodeLevel
+from paibox.neuron.base import MetaNeuron
 
 
 @pytest.fixture

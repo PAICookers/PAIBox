@@ -9,6 +9,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+
 from .ram_types import *
 
 TICK_RELATIVE_BIT_MAX = 8

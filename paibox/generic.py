@@ -3,6 +3,7 @@ from typing import Any
 import numpy as np
 
 from ._types import Shape
+from .exceptions import RegisterError
 from .utils import shape2num
 
 global _id_dict, _type_names
@@ -23,7 +24,7 @@ def is_name_unique(name: str, obj: object) -> None:
     if name in _id_dict:
         if _id_dict[name] != id(obj):
             # TODO Error description
-            raise ValueError(
+            raise RegisterError(
                 f"Name of {obj}({name}) is already used by {_id_dict[name]}"
             )
 

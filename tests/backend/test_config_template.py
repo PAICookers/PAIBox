@@ -1,8 +1,8 @@
 import json
+
 import pytest
 
 import paibox as pb
-
 from paibox.libpaicore.v2.reg_types import *
 
 

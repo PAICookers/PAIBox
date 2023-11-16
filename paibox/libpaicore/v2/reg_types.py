@@ -113,7 +113,7 @@ class CoreMode(Enum):
     """
 
     MODE_SNN = 0
-    MODE_BANN = 1 # SNN mode like.
+    MODE_BANN = 1  # SNN mode like.
     MODE_ANN = 2
     MODE_BANN_OR_SNN_TO_ANN = 3
     MODE_BANN_OR_SNN_TO_SNN = 4

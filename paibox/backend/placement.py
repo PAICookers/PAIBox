@@ -14,20 +14,21 @@ from typing import (
 import numpy as np
 
 from paibox.base import NeuDyn, PAIBoxObject
+from paibox.exceptions import PAICoreError, StatusError
 from paibox.libpaicore import (
     LCN_EX,
     AxonCoord,
     AxonSegment,
     Coord,
+    CoreMode,
     HwConfig,
+    HwCore,
     InputWidthFormat,
     MaxPoolingEnable,
     NeuronSegment,
 )
 from paibox.libpaicore import ReplicationId as RId
 from paibox.libpaicore import (
-    CoreMode,
-    HwCore,
     SNNModeEnable,
     SpikeWidthFormat,
     WeightPrecision,
@@ -36,7 +37,7 @@ from paibox.libpaicore import (
 from paibox.projection import InputProj
 from paibox.synapses import SynSys
 
-from .config_template import CorePlacementConfig, CoreConfigDict, NeuronConfig
+from .config_template import CoreConfigDict, CorePlacementConfig, NeuronConfig
 from .context import _BACKEND_CONTEXT
 
 SourceNodeType = Union[NeuDyn, InputProj]
@@ -159,7 +160,7 @@ class CoreBlock(CoreAbstract):
         """
         if not self.lcn_locked:
             # TODO
-            raise Exception
+            raise StatusError(f"lcn_ex_adjustment incomplete")
 
         # First, get the neuron segments.
         neu_segs_of_cb = get_neu_segments(
@@ -237,7 +238,7 @@ class CoreBlock(CoreAbstract):
     def n_dendrite_per_neuron(self) -> int:
         """Multiple dendrites will be combined to achieve higher    \
             precision weights.
-        
+
         FIXME The limit on the number of dendrites in SNN/ANN modes \
             is different, which affects the capacity of neurons in  \
             the physical core.
@@ -555,13 +556,13 @@ def n_axon2lcn_ex(n_axon: int, fan_in_max: int) -> LCN_EX:
     """
     if n_axon < 1:
         # TODO
-        raise ValueError
+        raise ValueError(f"Expected argument >=1 ,but we got n_axon {n_axon}")
 
     lcn_ex = LCN_EX(((n_axon - 1) // fan_in_max).bit_length())
 
     if lcn_ex >= LCN_EX.LCN_MAX:
         # TODO
-        raise ValueError
+        raise PAICoreError(f"out of max LCN 7, but we got {lcn_ex}")
 
     return lcn_ex
 

@@ -71,7 +71,7 @@ class Sequential(DynamicSys, Container):
                 return self.children[item]
             else:
                 # TODO
-                raise KeyError
+                raise KeyError(f"Key {item} not found.")
 
         if isinstance(item, int):
             if item > len(self):

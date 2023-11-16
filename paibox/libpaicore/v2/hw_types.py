@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import ClassVar, List, NamedTuple
 
+from paibox.exceptions import PAICoreError
+
 from .hw_defs import HwConfig
 from .reg_types import CoreMode
 
@@ -41,7 +43,10 @@ class NeuronSegment(NamedTuple):
             > HwConfig.ADDR_RAM_MAX
         ):
             # TODO
-            raise AttributeError
+            raise PAICoreError(
+                f"Out of address, address limit is 512, "
+                f"but we got {self.addr_offset + self.interval * (self.index.stop - self.index.start)}"
+            )
 
         return list(
             range(
