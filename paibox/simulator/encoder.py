@@ -36,7 +36,7 @@ class Encoder(DynamicSys):
     ) -> np.ndarray:
         if duration < 0:
             # TODO
-            raise ValueError
+            raise ValueError(f"duration should be > 0, but yours is {duration}")
 
         n_steps = int(duration / dt)
         return self.run_steps(n_steps, rng, **kwargs)

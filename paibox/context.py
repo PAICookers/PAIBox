@@ -24,7 +24,7 @@ class _Context:
         """Save the context by the key-value pairs."""
         if len(args) % 2 > 0:
             # TODO
-            raise ValueError
+            raise TypeError(f"save() take even positional arguments but odd given")
 
         for i in range(0, len(args), 2):
             k = args[i]

@@ -33,6 +33,7 @@ from paibox.libpaicore import (
 )
 from paibox.projection import InputProj
 from paibox.synapses import SynSys
+from paibox.exceptions import StatusError, PAICoreError
 
 from .config_template import CoreConfigDict, NeuronConfig
 from .context import _BACKEND_CONTEXT
@@ -160,7 +161,8 @@ class CoreBlock(PlacementObj):
         """
         if not self.lcn_locked:
             # TODO
-            raise Exception
+            raise StatusError(f"lcn_ex_adjustment incomplete")
+
 
         # First, get the placement of all gsyn_on_cores.
         self.neuron_segs_of_cb = get_neu_segments(
@@ -499,12 +501,12 @@ def n_axon2lcn_ex(n_axon: int) -> LCN_EX:
     """
     if n_axon < 1:
         # TODO
-        raise ValueError
+        raise ValueError(f"Expected argument >=1 ,but we got n_axon {n_axon}")
 
     lcn_ex = LCN_EX(((n_axon - 1) // HwConfig.N_AXON_DEFAULT).bit_length())
     if lcn_ex >= LCN_EX.LCN_MAX:
         # TODO
-        raise ValueError
+        raise PAICoreError(f"out of max LCN 7, but we got {lcn_ex}")
 
     return lcn_ex
 

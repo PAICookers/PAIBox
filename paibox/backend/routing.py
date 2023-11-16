@@ -82,7 +82,7 @@ class RoutingNode:
         if self.level == Level.L0:
             # L0-level node cannot add child.
             # TODO
-            raise ValueError
+            raise AttributeError(f"L0-level node cannot add child")
 
         if self.is_full():
             return False
@@ -123,7 +123,7 @@ class RoutingNode:
 
         if len(path) > self.level:
             # TODO
-            raise ValueError
+            raise ValueError(f"The length of the {path} should be less than or equal to level, but yours is greater than")
 
         if path[0] not in self.children:
             return None

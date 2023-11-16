@@ -2,6 +2,8 @@ from typing import List, NamedTuple
 
 from .hw_defs import HwConfig
 
+from paibox.exceptions import PAICoreError
+
 __all__ = ["NeuronSegment", "AxonCoord", "AxonSegment"]
 
 
@@ -37,7 +39,8 @@ class NeuronSegment(NamedTuple):
             > HwConfig.N_NEURON_ONE_CORE_MAX
         ):
             # TODO
-            raise AttributeError
+            raise PAICoreError(f"Out of address, address limit is 512, "
+                               f"but we got {self.addr_offset + self.interval * (self.index.stop - self.index.start)}")
 
         return slice(
             self.addr_offset,

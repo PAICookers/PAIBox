@@ -3,6 +3,7 @@ from typing import Any, Dict, List
 import numpy as np
 
 from paibox.base import DynamicSys, PAIBoxObject
+from paibox.exceptions import IndexProbeError
 
 from .probe import Probe
 
@@ -41,12 +42,12 @@ class Simulator(PAIBoxObject):
         """
         if duration < 0:
             # TODO
-            raise ValueError
+            raise ValueError(f"duration should be > 0, but yours is {duration}")
 
         n_steps = self._get_nstep(duration)
         if n_steps == 0:
             # TODO
-            raise ValueError
+            raise ValueError(f"Please check your duration: {duration}")
 
         indices = np.arange(self._ts, self._ts + n_steps, dtype=np.int16)
 
@@ -76,7 +77,7 @@ class Simulator(PAIBoxObject):
             self._sim_data[probe] = []
         else:
             # TODO
-            raise ValueError(f"Probe {probe} already exists.")
+            raise IndexProbeError(f"Probe {probe} already exists.")
 
     def remove_probe(self, probe: Probe) -> None:
         if probe in self.probes:
@@ -84,7 +85,7 @@ class Simulator(PAIBoxObject):
             self._sim_data.pop(probe)
         else:
             # TODO Or do nothing.
-            raise ValueError(f"Probe {probe} does not exist.")
+            raise IndexProbeError(f"Probe {probe} does not exist.")
 
     def get_raw(self, probe: Probe) -> List[Any]:
         """Retrieve the raw data.

@@ -37,7 +37,7 @@ class RoutingDirection(Enum):
         """Convert the direction to index in children list."""
         if self is RoutingDirection.ANY:
             # TODO
-            raise ValueError
+            raise ValueError(f"Direction out of range")
 
         x, y = self.value
 

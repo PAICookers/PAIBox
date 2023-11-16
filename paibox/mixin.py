@@ -8,7 +8,7 @@ import paibox as pb
 
 from .generic import get_unique_name
 from .node import NodeDict
-
+from .exceptions import RegisterError
 
 def singleton(cls):
     instances = {}
@@ -111,7 +111,7 @@ class ReceiveInputProj(MixIn):
     def register_master(self, key: str, master_target) -> None:
         if key in self.master_nodes:
             # TODO
-            raise ValueError
+            raise RegisterError(f"Master node with key '{key}' already exists.")
 
         self.master_nodes[key] = master_target
 

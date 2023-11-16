@@ -54,7 +54,7 @@ class RoutingNode:
         if self.level == Level.L0:
             # L0-level node cannot add child.
             # TODO
-            raise ValueError
+            raise AttributeError(f"L0-level node cannot add child")
 
         if self.level - child.level != 1:
             raise ValueError

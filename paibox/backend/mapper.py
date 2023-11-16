@@ -6,6 +6,7 @@ from paibox.libpaicore import HwConfig
 from paibox.network import DynSysGroup
 from paibox.projection import InputProj
 from paibox.synapses import SynSys
+from paibox.exceptions import StatusError, PAICoreError
 
 from .graphs import *
 from .placement import CoreBlock, max_lcn_of_cb
@@ -175,7 +176,7 @@ class Mapper:
         """
         if not self.has_built:
             # TODO
-            raise Exception
+            raise StatusError(f"build_graph operation incomplete")
 
         """1. Group synapses."""
         self.group_synapses()
@@ -238,7 +239,7 @@ class Mapper:
             > HwConfig.N_CORE_OFFLINE
         ):
             # TODO
-            raise ValueError
+            raise PAICoreError(f"out of core num, the max num is 1008, but we got {n_core_total}")
 
         """
             Sort in ascending order according to the minimum value of \
@@ -346,7 +347,7 @@ class Mapper:
             return self._nodes
 
         # TODO
-        raise ValueError
+        raise StatusError(f"build_graph operation incomplete")
 
     @property
     def edges(self):
@@ -361,7 +362,7 @@ class Mapper:
             return self._pred_dg
 
         # TODO
-        raise ValueError
+        raise StatusError(f"build_graph operation incomplete")
 
     @property
     def succ_dg(self):
@@ -369,7 +370,7 @@ class Mapper:
             return self._succ_dg
 
         # TODO
-        raise ValueError
+        raise StatusError(f"build_graph operation incomplete")
 
 
 def group_by(dict_: Dict, keyfunc=lambda item: item):

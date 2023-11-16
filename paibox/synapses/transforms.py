@@ -4,7 +4,7 @@ from typing import Tuple, Type, Union
 import numpy as np
 
 from paibox.utils import is_shape
-
+from paibox.exceptions import *
 
 @unique
 class ConnType(Enum):
@@ -68,7 +68,7 @@ class OneToOne(Transform):
 
         if isinstance(weights, np.ndarray) and not is_shape(weights, (num,)):
             # TODO Error description
-            raise ValueError
+            raise ShapeError(f"Excepted shape is ({num},), but we got shape {weights.shape}")
 
         # The ndim of weights = 0 or 1.
         self.weights = np.asarray(weights, dtype=np.int8)
@@ -121,7 +121,7 @@ class AllToAll(Transform):
 
         if isinstance(weights, np.ndarray) and not is_shape(weights, conn_size):
             # TODO Error description
-            raise ValueError
+            raise ShapeError(f"Excepted shape is {conn_size}, but we got shape {weights.shape}")
 
         self.weights = np.asarray(weights, dtype=np.int8)
 
@@ -168,7 +168,7 @@ class MaskedLinear(Transform):
 
         if not is_shape(weights, self.conn_size):
             # TODO Error description
-            raise ValueError
+            raise ShapeError(f"Excepted shape is {conn_size}, but we got shape {weights.shape}")
 
         # Element-wise Multiplication
         self.weights = np.asarray(weights, dtype=np.int8)
