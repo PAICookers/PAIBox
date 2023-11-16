@@ -21,17 +21,31 @@ class HwConfig:
     """The #N of offline cores."""
     CORE_X_OFFLINE_MIN = CORE_X_MIN
     CORE_Y_OFFLINE_MIN = CORE_Y_MIN
-    CORE_X_OFFLINE_MAX = 28
-    CORE_Y_OFFLINE_MAX = 28
-    CORE_X_ONLINE_MIN = 29
-    CORE_Y_ONLINE_MIN = 29
+    CORE_X_OFFLINE_MAX = 0b11011
+    CORE_Y_OFFLINE_MAX = 0b11011
+    CORE_X_ONLINE_MIN = 0b11100
+    CORE_Y_ONLINE_MIN = 0b11100
     CORE_X_ONLINE_MAX = CORE_X_MAX
     CORE_Y_ONLINE_MAX = CORE_Y_MAX
 
-    N_AXON_DEFAULT = 1152
-    N_NEURON_ONE_CORE_DEFAULT = 512
-    N_NEURON_ONE_CORE_MAX = N_NEURON_ONE_CORE_DEFAULT
+    N_FANIN_PER_DENDRITE_MAX = 1152
+    N_FANIN_PER_DENDRITE_SNN = N_FANIN_PER_DENDRITE_MAX
+    N_FANIN_PER_DENDRITE_ANN = 144
+    """The #N of fan-in per dendrite."""
+
+    N_DENDRITE_MAX_SNN = 512
+    N_DENDRITE_MAX_ANN = 4096
+    """The maximum #N of dendrites in one core."""
+
+    N_NEURON_MAX_SNN = 512
+    N_NEURON_MAX_ANN = 1888
     """The maximum #N of neurons in one core."""
+
+    ADDR_RAM_MAX = 512
+    """The maximum address of RAM."""
+
+    ADDR_AXON_MAX = N_FANIN_PER_DENDRITE_MAX - 1
+    """The maximum address of axons."""
 
     N_TIMESLOT_MAX = 256
 

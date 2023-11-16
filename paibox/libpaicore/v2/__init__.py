@@ -1,7 +1,9 @@
 from .coordinate import *
+from .frame import *
 from .hw_defs import HwConfig as HwConfig
 from .hw_types import *
 from .ram_model import *
+from .reg_types import CoreMode as CoreMode
 from .ram_types import LeakingComparisonMode as LCM
 from .ram_types import LeakingDirectionMode as LDM
 from .ram_types import LeakingIntegrationMode as LIM
