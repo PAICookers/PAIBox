@@ -14,6 +14,7 @@ from typing import (
 import numpy as np
 
 from paibox.base import NeuDyn, PAIBoxObject
+from paibox.exceptions import PAICoreError, StatusError
 from paibox.libpaicore import (
     LCN_EX,
     AxonCoord,
@@ -33,7 +34,6 @@ from paibox.libpaicore import (
 )
 from paibox.projection import InputProj
 from paibox.synapses import SynSys
-from paibox.exceptions import StatusError, PAICoreError
 
 from .config_template import CoreConfigDict, NeuronConfig
 from .context import _BACKEND_CONTEXT
@@ -162,7 +162,6 @@ class CoreBlock(PlacementObj):
         if not self.lcn_locked:
             # TODO
             raise StatusError(f"lcn_ex_adjustment incomplete")
-
 
         # First, get the placement of all gsyn_on_cores.
         self.neuron_segs_of_cb = get_neu_segments(

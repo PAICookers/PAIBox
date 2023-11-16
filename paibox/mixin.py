@@ -6,9 +6,10 @@ import numpy as np
 
 import paibox as pb
 
+from .exceptions import RegisterError
 from .generic import get_unique_name
 from .node import NodeDict
-from .exceptions import RegisterError
+
 
 def singleton(cls):
     instances = {}

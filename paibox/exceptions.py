@@ -14,7 +14,7 @@ class IndexProbeError(IndexError):
 
 class RegisterError(LookupError):
     """When a mapping or sequence does not allow registering an already existing key or index, an exception is
-    raised. """
+    raised."""
 
     def __init__(self, *args, **kwargs):  # real signature unknown
         pass

@@ -2,11 +2,11 @@ from collections import defaultdict
 from typing import Dict, List, Set, Union
 
 from paibox.base import NeuDyn
+from paibox.exceptions import PAICoreError, StatusError
 from paibox.libpaicore import HwConfig
 from paibox.network import DynSysGroup
 from paibox.projection import InputProj
 from paibox.synapses import SynSys
-from paibox.exceptions import StatusError, PAICoreError
 
 from .graphs import *
 from .placement import CoreBlock, max_lcn_of_cb
@@ -239,7 +239,9 @@ class Mapper:
             > HwConfig.N_CORE_OFFLINE
         ):
             # TODO
-            raise PAICoreError(f"out of core num, the max num is 1008, but we got {n_core_total}")
+            raise PAICoreError(
+                f"out of core num, the max num is 1008, but we got {n_core_total}"
+            )
 
         """
             Sort in ascending order according to the minimum value of \
