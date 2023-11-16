@@ -1,8 +1,9 @@
 from collections import defaultdict
 from typing import Dict, List, Set, Union
+from .config_template import CoreConfigDict
 
 from paibox.base import NeuDyn
-from paibox.libpaicore import HwConfig
+from paibox.libpaicore import Coord, HwConfig
 from paibox.network import DynSysGroup
 from paibox.projection import InputProj
 from paibox.synapses import SynSys
@@ -92,7 +93,7 @@ class Mapper:
         }
         """
 
-        self.core_params = defaultdict(dict)
+        self.core_params: Dict[Coord, CoreConfigDict] = dict()
         """The dictionary of core parameters. Structure:
         {
             address of core: {
@@ -100,6 +101,8 @@ class Mapper:
             }
         }
         """
+
+        self.core_plm_config = dict()
 
         self.clear()
 
@@ -120,6 +123,7 @@ class Mapper:
         self.succ_core_blocks.clear()
 
         self.core_params.clear()
+        self.core_plm_config.clear()
 
     def build_graph(self, network: DynSysGroup) -> None:
         """Build the directed graph based on a given network.
@@ -244,7 +248,7 @@ class Mapper:
 
         # Check the total core consumption.
         if (
-            n_core_total := sum(cb.n_core for cb in self.core_blocks)
+            n_core_total := sum(cb.n_core_required for cb in self.core_blocks)
             > HwConfig.N_CORE_OFFLINE
         ):
             # TODO
@@ -297,24 +301,20 @@ class Mapper:
             else:
                 cb.lcn_locked = True
 
+    def coord_assign(self) -> None:
+        """Assign the coordinate for each `CorePlacement`."""
+        for cb in self.core_blocks:
+            self.routing_tree.insert_coreblock(cb)
+
     def core_allocation(self) -> None:
         """Allocate the core blocks to the physical cores.
 
         The order of `core_plms` is the same as `core_blocks`.
         """
         for cb in self.core_blocks:
-            cb.core_alloc()
-
-    def coord_assign(self) -> None:
-        """Assign the coordinate for each `CorePlacement`."""
-        for cb in self.core_blocks:
-            self.routing_tree.insert_coreblock(cb)
+            cb.core_plm_alloc()
 
     def config_export(self) -> None:
-        self._core_param_export()
-        self._neuron_param_export()
-
-    def _core_param_export(self) -> None:
         """Export parameters of cores & neurons inside.
 
         Steps:
@@ -323,18 +323,15 @@ class Mapper:
             - 2. Export the parameters(Neuron RAM) of neurons inside.
         """
         for cb in self.core_blocks:
-            self.core_params |= cb.export_core_to_dict()
+            self.core_params |= CoreBlock.export_core_plm_config(cb)
+            """
+            Traverse all the core placements in core blocks, then find \
+                the following core blocks where the axons at.
 
-    def _neuron_param_export(self) -> None:
-        """
-        Traverse all the core placements in core blocks, then find \
-            the following core blocks where the axons at.
-
-        If found, get the coordinate of the core placment, all the \
-            coordinates of axons(for broadcasting).
-        """
-        for cb in self.core_blocks:
-            for core_plm in cb.core_placements:
+            If found, get the coordinate of the core placment, all the \
+                coordinates of axons(for broadcasting).
+            """
+            for core_plm in cb.core_placements.values():
                 for neu_seg in core_plm.neu_segs:
                     # Find the axons dest
                     dests = [
@@ -347,6 +344,8 @@ class Mapper:
                     # TODO Necessary to make this condition a premise?
                     assert len(dests) == 1  # ?
                     core_plm.export_neu_config(neu_seg, dests)
+
+                self.core_plm_config[core_plm.coord] = core_plm.export_core_config()
 
     @property
     def nodes(self):
