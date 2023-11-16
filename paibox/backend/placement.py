@@ -20,15 +20,15 @@ from paibox.libpaicore import (
     AxonCoord,
     AxonSegment,
     Coord,
+    CoreMode,
     HwConfig,
+    HwCore,
     InputWidthFormat,
     MaxPoolingEnable,
     NeuronSegment,
 )
 from paibox.libpaicore import ReplicationId as RId
 from paibox.libpaicore import (
-    CoreMode,
-    HwCore,
     SNNModeEnable,
     SpikeWidthFormat,
     WeightPrecision,
@@ -37,7 +37,7 @@ from paibox.libpaicore import (
 from paibox.projection import InputProj
 from paibox.synapses import SynSys
 
-from .config_template import CorePlacementConfig, CoreConfigDict, NeuronConfig
+from .config_template import CoreConfigDict, CorePlacementConfig, NeuronConfig
 from .context import _BACKEND_CONTEXT
 
 SourceNodeType = Union[NeuDyn, InputProj]
@@ -238,7 +238,7 @@ class CoreBlock(CoreAbstract):
     def n_dendrite_per_neuron(self) -> int:
         """Multiple dendrites will be combined to achieve higher    \
             precision weights.
-        
+
         FIXME The limit on the number of dendrites in SNN/ANN modes \
             is different, which affects the capacity of neurons in  \
             the physical core.

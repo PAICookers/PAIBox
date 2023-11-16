@@ -1,6 +1,6 @@
 import pytest
 
-from paibox.backend.graphs import group_edges_proto, toposort, get_node_degrees
+from paibox.backend.graphs import get_node_degrees, group_edges_proto, toposort
 
 
 class TestTopoSort:

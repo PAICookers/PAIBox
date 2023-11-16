@@ -1,6 +1,5 @@
 from collections import defaultdict
 from typing import Dict, List, Set, Union
-from .config_template import CoreConfigDict
 
 from paibox.base import NeuDyn
 from paibox.exceptions import PAICoreError, StatusError
@@ -9,6 +8,7 @@ from paibox.network import DynSysGroup
 from paibox.projection import InputProj
 from paibox.synapses import SynSys
 
+from .config_template import CoreConfigDict
 from .graphs import *
 from .placement import CoreBlock, max_lcn_of_cb
 from .routing import RoutingRoot
