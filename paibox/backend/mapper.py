@@ -1,9 +1,10 @@
 from collections import defaultdict
 from typing import Dict, List, Set, Union
+from .config_template import CoreConfigDict
 
 from paibox.base import NeuDyn
 from paibox.exceptions import PAICoreError, StatusError
-from paibox.libpaicore import HwConfig
+from paibox.libpaicore import Coord, HwConfig
 from paibox.network import DynSysGroup
 from paibox.projection import InputProj
 from paibox.synapses import SynSys
@@ -31,7 +32,7 @@ class Mapper:
         }
         """
 
-        self._ordered_nodes: List[str] = []
+        # self._ordered_nodes: List[str] = []
         """Ordered topologically nodes."""
 
         self._succ_nodes: Dict[str, Set[str]] = defaultdict(set)
@@ -93,7 +94,7 @@ class Mapper:
         }
         """
 
-        self.core_params = defaultdict(dict)
+        self.core_params: Dict[Coord, CoreConfigDict] = dict()
         """The dictionary of core parameters. Structure:
         {
             address of core: {
@@ -102,6 +103,8 @@ class Mapper:
         }
         """
 
+        self.core_plm_config = dict()
+
         self.clear()
 
     def clear(self) -> None:
@@ -109,7 +112,7 @@ class Mapper:
         self.routing_tree.clear()
 
         self._nodes.clear()
-        self._ordered_nodes.clear()
+        # self._ordered_nodes.clear()
         self._edges.clear()
         self._edges_grouped.clear()
 
@@ -121,6 +124,7 @@ class Mapper:
         self.succ_core_blocks.clear()
 
         self.core_params.clear()
+        self.core_plm_config.clear()
 
     def build_graph(self, network: DynSysGroup) -> None:
         """Build the directed graph based on a given network.
@@ -154,7 +158,7 @@ class Mapper:
 
         self.has_built = True
 
-        self.graph_preprocess()
+        self._graph_check()
 
     def do_grouping(self) -> None:
         """
@@ -178,8 +182,8 @@ class Mapper:
             # TODO
             raise StatusError(f"build_graph operation incomplete")
 
-        """1. Group synapses."""
-        self.group_synapses()
+        """1. Build core blocks."""
+        self.build_core_blocks()
 
         """2. Adjust the LCN extension of each layer for target LCN."""
         self.lcn_ex_adjustment()
@@ -193,49 +197,59 @@ class Mapper:
         """5. Export parameters."""
         self.config_export()
 
-        print("done")
+    def _graph_check(self, do_edges_grouping: bool = False) -> None:
+        """Preprocess of the directed graph. Because there are currently    \
+            many limitations on the networks that can be processed, checks  \
+            are performed at this stage.
 
-    def graph_preprocess(self, do_edges_grouping: bool = False) -> None:
-        """Preprocess of the directed graph.
-
-        # Currently, we are unable to cope with arbitrary \
-        #     network structures. Therefore, in this stage, the \
-        #     input of specific network structures will be restricted.
-
-        # However, with development in progress, this limitation \
-        #     can be solved.
-
-        # Limitation:
-        #     For a node with in-degree > 1, the out-degree of \
-        #         all its forward nodes = 1.
-        #     Or for a node with out-degree > 1, the in-degree of \
-        #         all its backward node = 1.
+        Limitation:
+            # For a node with in-degree > 1, the out-degree of \
+            #     all its forward nodes = 1.
+            - For a node with out-degree > 1, the in-degree of \
+                all its backward node = 1.
         """
-        # FIXME Only allow the graph with no cycle.
-        self._ordered_nodes = toposort(self._succ_nodes)
+        # self._ordered_nodes = toposort(self._succ_nodes)
 
-        if do_edges_grouping:
-            self._degree_of_nodes, self._edges_grouped = group_edges(
-                self._ordered_nodes, list(self.edges.keys()), self.pred_dg, self.succ_dg
-            )
-        else:
-            self._edges_grouped = list({e} for e in self.edges)
+        self._degree_of_nodes = get_node_degrees(self.succ_dg)
 
-    def group_synapses(self) -> None:
-        """Group synapses based on grouped edges.
+        for node in self.nodes:
+            if self._degree_of_nodes[node].out_degree > 1:
+                succ_nodes = list(self.succ_dg[node].keys())
+
+                if any(
+                    self._degree_of_nodes[succ_node].in_degree > 1
+                    for succ_node in succ_nodes
+                ):
+                    raise NotImplementedError("Not support this structure of network.")
+
+        # Moved to `build_core_blocks`
+        # if do_edges_grouping:
+        #     self._degree_of_nodes, self._edges_grouped = group_edges(
+        #         self._ordered_nodes, list(self.edges.keys()), self.pred_dg, self.succ_dg
+        #     )
+        # else:
+        #     self._edges_grouped = list({e} for e in self.edges)
+
+    def build_core_blocks(self) -> None:
+        """Build core blocks based on grouped edges.
 
         Description:
             After combining all synapses into groups, iterate through \
-            each combination synapses to build a `CoreBlock`.
+            each combination synapses to build `CoreBlock`.
 
-            Then do sorting in ascending order.
+            # Then do sorting in ascending order.
         """
+        self._edges_grouped = group_edges(
+            self.succ_dg, list(self.edges.keys()), self._degree_of_nodes
+        )
+
         for syns_set in self._edges_grouped:
             syns = [self.edges[syn] for syn in syns_set]
             self.core_blocks.append(CoreBlock.build(*syns))
 
+        # Check the total core consumption.
         if (
-            n_core_total := sum(cb.n_core for cb in self.core_blocks)
+            n_core_total := sum(cb.n_core_required for cb in self.core_blocks)
             > HwConfig.N_CORE_OFFLINE
         ):
             # TODO
@@ -243,13 +257,13 @@ class Mapper:
                 f"out of core num, the max num is 1008, but we got {n_core_total}"
             )
 
-        """
-            Sort in ascending order according to the minimum value of \
-            the index of source nodes in the topological order.
-        """
-        self.core_blocks.sort(
-            key=lambda cb: min(self._ordered_nodes.index(src.name) for src in cb.source)
-        )
+        # """
+        #     Sort in ascending order according to the minimum value of \
+        #     the index of source nodes in the topological order.
+        # """
+        # self.core_blocks.sort(
+        #     key=lambda cb: min(self._ordered_nodes.index(src.name) for src in cb.source)
+        # )
 
         """
             Traverse the destination node of each grouped synapse, \
@@ -266,12 +280,12 @@ class Mapper:
                 self.succ_core_blocks[cb].extend(succ_cb)
 
     def lcn_ex_adjustment(self) -> None:
-        """Adjust the LCN extension for each grouped synapse. \
-            Make sure that all destination LCNs are equal.
+        """Adjust the LCN extension for each core block. Make sure  \
+            that all destination LCNs are equal.
 
-        If the out-degree of a grouped synapse > 1, the LCN of \
-        all its following grouped synapses needs to be adjusted. \
-        So that the `target_LCN` can be set.
+        If the out-degree of `CoreBlock` > 1, the LCN of all its    \
+        following core blocks needs to be adjusted. So that the     \
+        `target_LCN` can be set.
 
         The LCN after adjustment = max(LCN_1, LCN_2, ..., LCN_N)
         """
@@ -290,27 +304,21 @@ class Mapper:
             else:
                 cb.lcn_locked = True
 
+    def coord_assign(self) -> None:
+        """Assign the coordinate for each `CorePlacement`."""
+        for cb in self.core_blocks:
+            self.routing_tree.insert_coreblock(cb)
+
     def core_allocation(self) -> None:
-        """Allocate the grouped synapses to the cores.
+        """Allocate the core blocks to the physical cores.
 
         The order of `core_plms` is the same as `core_blocks`.
         """
         for cb in self.core_blocks:
-            cb.core_alloc()
-
-    def coord_assign(self) -> None:
-        """Assign the coordinate for each `CorePlacement` in topological \
-            sort which is done in `graph_preprocess` phase.
-        """
-        for cb in self.core_blocks:
-            self.routing_tree.insert_coreblock(cb)
+            cb.core_plm_alloc()
 
     def config_export(self) -> None:
-        self._core_param_export()
-        self._neuron_param_export()
-
-    def _core_param_export(self) -> None:
-        """Export parameters of the CORE & neurons inside.
+        """Export parameters of cores & neurons inside.
 
         Steps:
             - 1. Export the parameters(PARAMETER_REG, including \
@@ -318,18 +326,15 @@ class Mapper:
             - 2. Export the parameters(Neuron RAM) of neurons inside.
         """
         for cb in self.core_blocks:
-            self.core_params |= cb.export_core_to_dict()
+            self.core_params |= CoreBlock.export_core_plm_config(cb)
+            """
+            Traverse all the core placements in core blocks, then find \
+                the following core blocks where the axons at.
 
-    def _neuron_param_export(self) -> None:
-        """
-        Traverse all the core placements in core blocks, then find \
-            the following core blocks where the axons at.
-
-        If found, get the coordinate of the core placment, all the \
-            coordinates of axons(for broadcasting).
-        """
-        for cb in self.core_blocks:
-            for core_plm in cb.core_placements:
+            If found, get the coordinate of the core placment, all the \
+                coordinates of axons(for broadcasting).
+            """
+            for core_plm in cb.core_placements.values():
                 for neu_seg in core_plm.neu_segs:
                     # Find the axons dest
                     dests = [
@@ -342,6 +347,8 @@ class Mapper:
                     # TODO Necessary to make this condition a premise?
                     assert len(dests) == 1  # ?
                     core_plm.export_neu_config(neu_seg, dests)
+
+                self.core_plm_config[core_plm.coord] = core_plm.export_core_config()
 
     @property
     def nodes(self):

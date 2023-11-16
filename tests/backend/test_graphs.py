@@ -1,6 +1,6 @@
 import pytest
 
-from paibox.backend.graphs import group_edges_proto, toposort
+from paibox.backend.graphs import group_edges_proto, toposort, get_node_degrees
 
 
 class TestTopoSort:
@@ -174,4 +174,35 @@ class TestGroupEdges:
         """
         degree, gathered = group_edges_proto(nodes, edges, succ_edges)
 
+        print()
+
+    @pytest.mark.parametrize(
+        "succ_edges",
+        [
+            {
+                "inp1": {"n1": "s1"},
+                "n1": {"n2": "s2"},
+                "n2": {"n1": "s3", "n3": "s4"},
+                "n3": {},
+            },
+            {
+                "inp1": {"n1": "s1"},
+                "n1": {"n2": "s2", "n3": "s3"},
+                "n2": {"n3": "s4"},
+                "n3": {"n4": "s5", "n5": "s6"},
+                "n4": {"n6": "s7"},
+                "n5": {"n6": "s8"},
+                "n6": {},
+            },
+            {
+                "n1": {"n3": "s1", "n4": "s2"},
+                "n2": {"n4": "s3", "n5": "s4"},
+                "n3": {},
+                "n4": {},
+                "n5": {},
+            },
+        ],
+    )
+    def test_get_node_degrees(self, succ_edges):
+        degrees = get_node_degrees(succ_edges)
         print()

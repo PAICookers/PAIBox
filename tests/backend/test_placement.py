@@ -2,7 +2,12 @@ import numpy as np
 import pytest
 
 import paibox as pb
-from paibox.backend.placement import aligned_coords, get_axon_segments, get_neu_segments
+from paibox.backend.placement import (
+    aligned_coords,
+    get_axon_segments,
+    get_neu_segments,
+    n_axon2lcn_ex,
+)
 from paibox.libpaicore.v2 import AxonCoord, AxonSegment
 
 
@@ -113,6 +118,42 @@ class TestGetNeuronSegments:
 
             assert neu_segs == expected
             assert neu_segs[0][0].segment.interval == (1 << wp) * (1 << lcn_ex)
+
+
+@pytest.mark.parametrize(
+    "axons",
+    [
+        [pb.neuron.LIF(600, 2), pb.neuron.LIF(800, 2), pb.neuron.LIF(256, 2)],
+        [pb.neuron.LIF(384, 3), pb.neuron.LIF(383, 3), pb.neuron.LIF(385, 3)],
+        [pb.neuron.LIF(1153, 2)],
+    ],
+)
+def test_get_axon_segments(axons):
+    lcn_ex = n_axon2lcn_ex(sum(axon.num_out for axon in axons))
+
+    tr_max = 1 << lcn_ex
+
+    axon_segs = get_axon_segments(axons, tr_max)
+
+    for axon_seg in axon_segs.values():
+        assert axon_seg.addr_offset <= 1152
+
+
+@pytest.mark.parametrize(
+    "axons",
+    [
+        [pb.neuron.LIF(1151, 2), pb.neuron.LIF(1153, 2)],
+        [pb.neuron.LIF(1151 * 2, 2), pb.neuron.LIF(1153 * 2, 2)],
+        [pb.neuron.LIF(2222, 2), pb.neuron.LIF(2378, 2)],
+    ],
+)
+def test_get_axon_segments_boundary(axons):
+    """Illegal boundary cases."""
+    lcn_ex = n_axon2lcn_ex(sum(axon.num_out for axon in axons))
+    tr_max = 1 << lcn_ex
+
+    with pytest.raises(ValueError):
+        axon_segs = get_axon_segments(axons, tr_max)
 
 
 @pytest.mark.parametrize(

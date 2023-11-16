@@ -1,14 +1,14 @@
 from dataclasses import dataclass
-from typing import ClassVar, List, NamedTuple
+from typing import Any, ClassVar, Dict, List, NamedTuple
 
 import numpy as np
 
 from paibox.base import NeuDyn
-from paibox.frame.frame_params import FrameType
 from paibox.libpaicore import (
     LCN_EX,
     AxonCoord,
     Coord,
+    FrameType,
     InputWidthFormat,
     MaxPoolingEnable,
     NeuronAttrs,
@@ -23,19 +23,24 @@ from paibox.libpaicore import (
 
 
 class CoreConfigDict(NamedTuple):
-    random_seed: np.uint64
-    weight_ram: np.ndarray
+    """Configurations of core."""
+
     weight_precision: WeightPrecision
     lcn_extension: LCN_EX
     input_width_format: InputWidthFormat
     spike_width_format: SpikeWidthFormat
-    neuron_num: int
+    num_dentrite: int
     max_pooling_en: MaxPoolingEnable
     tick_wait_start: int
     tick_wait_end: int
     snn_mode_en: SNNModeEnable
     target_lcn: LCN_EX
     test_chip_addr: Coord
+
+    def export(self) -> Dict[str, Any]:
+        return ParamsReg.model_validate(self._asdict(), strict=True).model_dump(
+            by_alias=True
+        )
 
 
 class ConfigTemplate:
@@ -51,7 +56,7 @@ class NeuronConfig(ConfigTemplate):
     params_ram: ParamsRAM
 
     @classmethod
-    def build(
+    def encapsulate(
         cls,
         neuron: NeuDyn,
         addr_ram: List[int],
@@ -90,44 +95,44 @@ class NeuronConfig(ConfigTemplate):
             ParamsRAM(attrs=attrs, dest_info=neuron_dest_info),
         )
 
-    def export_params(self):
+    def export(self) -> Dict[str, Any]:
         dict_ = {"addr_ram": self.addr_ram, "addr_offset": self.addr_offset}
         dict_ |= self.params_ram.model_dump(by_alias=True)
 
         return dict_
 
+    def config_dump(self) -> Dict[str, Any]:
+        """Dump the configs for debugging."""
+        dict_ = {"addr_offset": self.addr_offset}
+        dict_ |= self.params_ram.model_dump(
+            by_alias=True,
+            exclude={"dest_info": self.params_ram.dest_info._exclude_vars},
+        )
+
+        return dict_
+
 
 @dataclass(eq=False)
-class CoreConfig(ConfigTemplate):
+class CorePlacementConfig(ConfigTemplate):
     coord: Coord
     random_seed: np.uint64
     weight_ram: np.ndarray
     params_reg: ParamsReg
-    neuron_ram: NeuronConfig
+    neuron_ram: Dict[NeuDyn, NeuronConfig]
 
     @classmethod
-    def from_dict(
+    def encapsulate(
         cls,
         coord: Coord,
+        random_seed: np.uint64,
+        weight_ram: np.ndarray,
         core_config: CoreConfigDict,
-        neuron_ram: NeuronConfig,
+        neuron_ram: Dict[NeuDyn, NeuronConfig],
     ):
         return cls(
             coord,
-            core_config.random_seed,
-            core_config.weight_ram,
-            ParamsReg.model_validate(**core_config._asdict(), strict=True),
+            random_seed,
+            weight_ram,
+            ParamsReg.model_validate(core_config._asdict(), strict=True),
             neuron_ram,
         )
-
-    def export_type1(self):
-        return self.random_seed
-
-    def export_type2(self):
-        return self.params_reg.model_dump(by_alias=True)
-
-    def export_type3(self):
-        raise NotImplementedError
-
-    def export_type4(self):
-        return self.weight_ram
