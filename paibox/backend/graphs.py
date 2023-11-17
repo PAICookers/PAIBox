@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Any, Dict, List, NamedTuple, Set, Tuple, TypeVar
+from typing import Any, Dict, List, NamedTuple, Optional, Set, TypeVar
 
 from paibox.exceptions import NotSupportedError
 
@@ -103,95 +103,36 @@ def get_node_degrees(succ_edges: Dict[Node, Dict[Node, Any]]) -> Dict[Node, Degr
         for succ_node in succ_nodes:
             in_degrees[succ_node] += 1
 
-    for node in in_degrees:
+    for node in succ_edges:
         degree[node] = Degree._make((in_degrees[node], out_degrees[node]))
 
     return degree
 
 
-def find_prev_nodes(
-    succ_edges: Dict[Node, Dict[Node, Any]], target_node: Node
-) -> List[Node]:
-    prev = []
+def _find_prev_edges(
+    succ_edges: Dict[Node, Dict[Node, Edge]], target_node: Node
+) -> Set[Edge]:
+    prev = set()
 
-    for node, succ_nodes in succ_edges.items():
+    for succ_nodes in succ_edges.values():
         if target_node in succ_nodes:
-            prev.append(node)
+            prev.add(succ_nodes[target_node])
 
     return prev
 
 
-def group_edges_proto(
-    nodes: List[Node],
-    edges: List[Edge],
-    succ_edges: Dict[Node, Dict[Node, Edge]],
-) -> Tuple[Dict[Node, Degree], List[Set[Edge]]]:
-    """Only for varification."""
-
-    def _reverse_edges(
-        edges: Dict[Node, Dict[Node, Edge]]
-    ) -> Dict[Node, Dict[Node, Edge]]:
-        result = {k: dict() for k in edges}
-        for key in edges:
-            for val in edges[key]:
-                result[val].update({key: edges[key][val]})
-
-        return result
-
-    pred_edges = _reverse_edges(succ_edges)
-
-    # Calculate the in- & out-degree of each node.
-    degree = defaultdict(Degree)
-    gathered: List[Set[Edge]] = []
-    edges_set = set(edges)
-
-    for node in nodes:
-        degree[node] = Degree(
-            len(pred_edges[node]),
-            len(succ_edges[node]),
-        )
-
-    for node in degree:
-        if degree[node].out_degree > 1:
-            # Out-degree of node > 1.
-            edge_group = list(succ_edges[node].values())
-
-            for succ_node in succ_edges[node]:
-                if degree[succ_node].in_degree > 1:
-                    edge_group += list(pred_edges[succ_node].values())
-
-            if set(edge_group) not in gathered:
-                gathered.append(set(edge_group))
-                edges_set.difference_update(edge_group)
-
-        if degree[node].in_degree > 1:
-            # In-degree of node > 1.
-            edge_group = list(pred_edges[node].values())
-
-            for prev_node in pred_edges[node]:
-                if degree[prev_node].out_degree > 1:
-                    edge_group += list(succ_edges[prev_node].values())
-
-            if set(edge_group) not in gathered:
-                gathered.append(set(edge_group))
-                edges_set.difference_update(edge_group)
-
-    for edge_remained in edges_set:
-        gathered.append({edge_remained})
-
-    return degree, gathered
-
-
 def group_edges(
-    succ_edges: Dict[Node, Dict[Node, Edge]],
     edges: List[Edge],
+    succ_edges: Dict[Node, Dict[Node, Edge]],
     degree: Dict[Node, Degree],
+    *,
+    ordered_nodes: Optional[List[Node]] = None,
 ) -> List[Set[Edge]]:
     """Group all edges according to a certain rule.
 
     Args:
-        - succ_edges: a dictionary recording previous nodes and edges.
         - edges: a list of edges.
+        - succ_edges: a dictionary recording previous nodes and edges.
         - degree: the in/out-degree of nodes.
 
     Returns:
@@ -200,23 +141,38 @@ def group_edges(
     gathered = []
     edges_set = set(edges)
 
-    for node in succ_edges:
-        if degree[node].in_degree > 1:
-            edge_group = find_prev_nodes(succ_edges, node)
+    if isinstance(ordered_nodes, list):
+        # In topological sorting
+        ordered = ordered_nodes
+    else:
+        ordered = list(succ_edges.keys())
 
-            if set(edge_group) not in gathered:
-                gathered.append(set(edge_group))
-                edges_set.difference_update(edge_group)
+    for node in ordered:
+        if degree[node].in_degree > 1:
+            edge_group = _find_prev_edges(succ_edges, node)
+            edge_group_copy = edge_group.copy()
+
+            for ed in edge_group:
+                if ed not in edges_set:
+                    edge_group_copy.remove(ed)
+
+            edges_set.difference_update(edge_group_copy)
+            gathered.append(edge_group_copy)
 
         if degree[node].out_degree > 1:
-            edge_group = list(succ_edges[node].values())
+            edge_group = set(succ_edges[node].values())
 
-            if set(edge_group) not in gathered:
-                gathered.append(set(edge_group))
+            if edge_group not in gathered:
                 edges_set.difference_update(edge_group)
+                gathered.append(edge_group)
 
-    # Break the topological order.
-    for edge_remained in edges_set:
-        gathered.append({edge_remained})
+        elif degree[node].out_degree > 0:
+            succ_node = list(succ_edges[node].keys())[0]
+            # Check the in-degree of the only following node.
+            if degree[succ_node].in_degree == 1:
+                gathered.append({succ_edges[node][succ_node]})
+        else:
+            # out-degree = 0, do nothing.
+            continue
 
     return gathered
