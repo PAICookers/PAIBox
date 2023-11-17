@@ -78,10 +78,9 @@ class InputProj(Projection):
                 self.input(*args, **kwargs).astype(np.int32).reshape((self.num_out,))
             )
         else:
-            # TODO
             raise TypeError(
-                f"Excepted input type is int, np.integer, np.ndarray or Callable[..., np.ndarray], "
-                f"but we got {input}, type {type(input)}"
+                f"Excepted type int, np.integer, np.ndarray or Callable[..., np.ndarray], "
+                f"but got {input}, type {type(input)}"
             )
 
         return self.output

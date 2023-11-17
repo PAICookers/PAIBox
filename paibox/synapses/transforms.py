@@ -68,7 +68,6 @@ class OneToOne(Transform):
         self.num = num
 
         if isinstance(weights, np.ndarray) and not is_shape(weights, (num,)):
-            # TODO Error description
             raise ShapeError(
                 f"Excepted shape is ({num},), but we got shape {weights.shape}"
             )
@@ -123,7 +122,6 @@ class AllToAll(Transform):
         self.conn_size = conn_size
 
         if isinstance(weights, np.ndarray) and not is_shape(weights, conn_size):
-            # TODO Error description
             raise ShapeError(
                 f"Excepted shape is {conn_size}, but we got shape {weights.shape}"
             )
@@ -172,7 +170,6 @@ class MaskedLinear(Transform):
         self.conn_size = conn_size
 
         if not is_shape(weights, self.conn_size):
-            # TODO Error description
             raise ShapeError(
                 f"Excepted shape is {conn_size}, but we got shape {weights.shape}"
             )

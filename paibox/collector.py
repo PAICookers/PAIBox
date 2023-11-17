@@ -17,9 +17,8 @@ class Collector(dict):
 
     def update(self, other: Union[Dict, Sequence]):
         if not isinstance(other, (dict, list, tuple)):
-            # TODO
             raise TypeError(
-                f"Excepted dict, list or sequence, but we got {other}, type {type(other)}"
+                f"Excepted a dict, list or sequence, but we got {other}, type {type(other)}"
             )
 
         if isinstance(other, dict):
@@ -47,9 +46,8 @@ class Collector(dict):
 
     def __sub__(self, other: Union[Dict[str, Any], Sequence]):
         if not isinstance(other, (dict, list, tuple)):
-            # TODO
             raise TypeError(
-                f"Excepted dict, list or sequence, but we got {other}, type {type(other)}"
+                f"Excepted a dict, list or sequence, but we got {other}, type {type(other)}"
             )
 
         gather = type(self)(self)

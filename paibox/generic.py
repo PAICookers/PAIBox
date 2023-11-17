@@ -23,7 +23,6 @@ def is_name_unique(name: str, obj: object) -> None:
 
     if name in _id_dict:
         if _id_dict[name] != id(obj):
-            # TODO Error description
             raise RegisterError(
                 f"Name of {obj}({name}) is already used by {_id_dict[name]}"
             )

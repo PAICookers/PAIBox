@@ -3,7 +3,7 @@ from typing import Any, Dict, List
 import numpy as np
 
 from paibox.base import DynamicSys, PAIBoxObject
-from paibox.exceptions import IndexProbeError
+from paibox.exceptions import SimulationError
 
 from .probe import Probe
 
@@ -41,13 +41,11 @@ class Simulator(PAIBoxObject):
             - reset: whether to reset the model state.
         """
         if duration < 0:
-            # TODO
-            raise ValueError(f"duration should be > 0, but yours is {duration}")
+            raise SimulationError(f"duration should be > 0, but got {duration}")
 
         n_steps = self._get_nstep(duration)
         if n_steps == 0:
-            # TODO
-            raise ValueError(f"Please check your duration: {duration}")
+            raise SimulationError(f"Step of simulation should be > 0, but got {n_steps}")
 
         indices = np.arange(self._ts, self._ts + n_steps, dtype=np.int16)
 
@@ -75,17 +73,13 @@ class Simulator(PAIBoxObject):
         if probe not in self.probes:
             self.probes.append(probe)
             self._sim_data[probe] = []
-        else:
-            # TODO
-            raise IndexProbeError(f"Probe {probe} already exists.")
 
     def remove_probe(self, probe: Probe) -> None:
         if probe in self.probes:
             self.probes.remove(probe)
             self._sim_data.pop(probe)
         else:
-            # TODO Or do nothing.
-            raise IndexProbeError(f"Probe {probe} does not exist.")
+            raise KeyError(f"Probe {probe.name} does not exist.")
 
     def get_raw(self, probe: Probe) -> List[Any]:
         """Retrieve the raw data.
@@ -108,7 +102,7 @@ class Simulator(PAIBoxObject):
         NOTE: For faster access, use the `data` attribute.
         """
         if t >= self.time:
-            raise ValueError
+            raise IndexError(f"Time {t} is out of range {self.time-1}.")
 
         return self._sim_data[probe][t]
 

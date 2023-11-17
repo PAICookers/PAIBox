@@ -6,6 +6,7 @@ from numpy.random import Generator
 
 from paibox._types import Shape
 from paibox.base import DynamicSys
+from paibox.exceptions import SimulationError
 from paibox.utils import as_shape, shape2num
 
 __all__ = ["PeriodicEncoder", "PoissonEncoder"]
@@ -35,8 +36,7 @@ class Encoder(DynamicSys):
         **kwargs,
     ) -> np.ndarray:
         if duration < 0:
-            # TODO
-            raise ValueError(f"duration should be > 0, but yours is {duration}")
+            raise SimulationError(f"duration should be > 0, but got {duration}")
 
         n_steps = int(duration / dt)
         return self.run_steps(n_steps, rng, **kwargs)
@@ -71,7 +71,7 @@ class StatefulEncoder(Encoder):
         super().__init__((1,))
 
         if T < 1:
-            raise ValueError
+            raise ValueError(f"T should be > 0, but got {T}")
 
         self.T = T
         self.set_memory("spike", None)
@@ -80,7 +80,7 @@ class StatefulEncoder(Encoder):
     def __call__(self, x: Optional[np.ndarray] = None):
         if self.spike is None:
             if x is None:
-                raise ValueError
+                raise ValueError("Input must be given if spike is None")
 
             self.single_step_encode(x)
 

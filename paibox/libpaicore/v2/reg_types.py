@@ -17,7 +17,6 @@ class WeightPrecisionType(IntEnum):
     WEIGHT_WIDTH_2BIT = 1
     WEIGHT_WIDTH_4BIT = 2
     WEIGHT_WIDTH_8BIT = 3  # Default value.
-    WEIGHT_WIDTH_MAX = 4
 
 
 @unique
@@ -38,7 +37,6 @@ class LCNExtensionType(IntEnum):
     LCN_16X = 4
     LCN_32X = 5
     LCN_64X = 6
-    LCN_MAX = 7
 
 
 @unique

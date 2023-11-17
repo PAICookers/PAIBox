@@ -23,13 +23,13 @@ class CoreParams(BaseModel, validate_assignment=True):
     model_config = ConfigDict(extra="ignore")
 
     weight_precision: WeightPrecisionType = Field(
-        lt=WeightPrecisionType.WEIGHT_WIDTH_MAX,
+        le=WeightPrecisionType.WEIGHT_WIDTH_8BIT,
         serialization_alias="weight_width",
         description="Weight precision of crossbar.",
     )
 
     lcn_extension: LCNExtensionType = Field(
-        lt=LCNExtensionType.LCN_MAX,
+        le=LCNExtensionType.LCN_64X,
         serialization_alias="LCN",
         description="Scale of fan-in extension.",
     )
@@ -78,7 +78,7 @@ class CoreParams(BaseModel, validate_assignment=True):
     )
 
     target_lcn: LCNExtensionType = Field(
-        lt=LCNExtensionType.LCN_MAX,
+        le=LCNExtensionType.LCN_64X,
         serialization_alias="target_LCN",
         description="LCN of the target core.",
     )

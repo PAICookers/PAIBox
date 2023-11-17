@@ -2,7 +2,7 @@ from collections import defaultdict
 from typing import Dict, List, Set, Union
 
 from paibox.base import NeuDyn
-from paibox.exceptions import PAICoreError, StatusError
+from paibox.exceptions import BuildError, PAICoreResourceError
 from paibox.libpaicore import Coord, HwConfig
 from paibox.network import DynSysGroup
 from paibox.projection import InputProj
@@ -32,7 +32,7 @@ class Mapper:
         }
         """
 
-        # self._ordered_nodes: List[str] = []
+        self._ordered_nodes: List[str] = []
         """Ordered topologically nodes."""
 
         self._succ_nodes: Dict[str, Set[str]] = defaultdict(set)
@@ -112,7 +112,7 @@ class Mapper:
         self.routing_tree.clear()
 
         self._nodes.clear()
-        # self._ordered_nodes.clear()
+        self._ordered_nodes.clear()
         self._edges.clear()
         self._edges_grouped.clear()
 
@@ -179,8 +179,7 @@ class Mapper:
             - The LCN extension of every layer is LCN_1X.
         """
         if not self.has_built:
-            # TODO
-            raise StatusError(f"build_graph operation incomplete")
+            raise BuildError(f"The graph hasn't been built yet")
 
         """1. Build core blocks."""
         self.build_core_blocks()
@@ -208,7 +207,7 @@ class Mapper:
             - For a node with out-degree > 1, the in-degree of \
                 all its backward node = 1.
         """
-        # self._ordered_nodes = toposort(self._succ_nodes)
+        self._ordered_nodes = toposort(self._succ_nodes, is_strict=True)
 
         self._degree_of_nodes = get_node_degrees(self.succ_dg)
 
@@ -220,7 +219,7 @@ class Mapper:
                     self._degree_of_nodes[succ_node].in_degree > 1
                     for succ_node in succ_nodes
                 ):
-                    raise NotImplementedError("Not support this structure of network.")
+                    raise NotSupportedError("Not support this structure of network.")
 
         # Moved to `build_core_blocks`
         # if do_edges_grouping:
@@ -249,12 +248,12 @@ class Mapper:
 
         # Check the total core consumption.
         if (
-            n_core_total := sum(cb.n_core_required for cb in self.core_blocks)
+            n_core_required_total := sum(cb.n_core_required for cb in self.core_blocks)
             > HwConfig.N_CORE_OFFLINE
         ):
             # TODO
-            raise PAICoreError(
-                f"out of core num, the max num is 1008, but we got {n_core_total}"
+            raise PAICoreResourceError(
+                f"#N of total core required out of {HwConfig.N_CORE_OFFLINE}: {n_core_required_total}"
             )
 
         # """
@@ -355,31 +354,28 @@ class Mapper:
         if self.has_built:
             return self._nodes
 
-        # TODO
-        raise StatusError(f"build_graph operation incomplete")
+        raise BuildError(f"The graph hasn't been built yet")
 
     @property
     def edges(self):
         if self.has_built:
             return self._edges
 
-        raise ValueError
+        raise BuildError(f"The graph hasn't been built yet")
 
     @property
     def pred_dg(self):
         if self.has_built:
             return self._pred_dg
 
-        # TODO
-        raise StatusError(f"build_graph operation incomplete")
+        raise BuildError(f"The graph hasn't been built yet")
 
     @property
     def succ_dg(self):
         if self.has_built:
             return self._succ_dg
 
-        # TODO
-        raise StatusError(f"build_graph operation incomplete")
+        raise BuildError(f"The graph hasn't been built yet")
 
 
 def group_by(dict_: Dict, keyfunc=lambda item: item):

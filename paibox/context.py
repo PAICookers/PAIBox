@@ -23,8 +23,9 @@ class _Context:
     def save(self, *args, **kwargs) -> None:
         """Save the context by the key-value pairs."""
         if len(args) % 2 > 0:
-            # TODO
-            raise TypeError(f"save() take even positional arguments but odd given")
+            raise TypeError(
+                f"Expected even positional arguments but odd given {len(args)}"
+            )
 
         for i in range(0, len(args), 2):
             k = args[i]

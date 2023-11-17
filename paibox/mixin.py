@@ -111,7 +111,6 @@ class ReceiveInputProj(MixIn):
 
     def register_master(self, key: str, master_target) -> None:
         if key in self.master_nodes:
-            # TODO
             raise RegisterError(f"Master node with key '{key}' already exists.")
 
         self.master_nodes[key] = master_target

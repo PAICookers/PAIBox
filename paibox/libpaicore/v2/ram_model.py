@@ -77,6 +77,7 @@ class NeuronDestInfo(BaseModel, validate_assignment=True):
     @classmethod
     def _tick_relative_check(cls, v):
         if any(tr >= (1 << TICK_RELATIVE_BIT_MAX) or tr < 0 for tr in v):
+            # DO NOT change the type of exception `ValueError` in the validators below.
             raise ValueError("Parameter 'tick relative' out of range.")
 
         return v

@@ -32,12 +32,14 @@ class Probe(PAIBoxObject):
         if not self.subtarget:
             self.target = target
             if not hasattr(self.target, self.attr):
-                raise ValueError(
+                raise AttributeError(
                     f"Attribute {self.attr} not found in target {self.target}."
                 )
         else:
             if self.subtarget not in target.__dict__.keys():
-                raise ValueError
+                raise AttributeError(
+                    f"Attribute {self.attr} not found in target {self.target}."
+                )
 
             self.target = target.__dict__[self.subtarget]
 
@@ -60,8 +62,7 @@ class Probe(PAIBoxObject):
 
     @property
     def shape_in(self):
-        # TODO
-        pass
+        raise NotImplementedError
 
     @property
     def shape_out(self):

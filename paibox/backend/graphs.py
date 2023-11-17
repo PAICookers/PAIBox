@@ -1,6 +1,8 @@
 from collections import defaultdict
 from typing import Any, Dict, List, NamedTuple, Set, Tuple, TypeVar
 
+from paibox.exceptions import NotSupportedError
+
 Node = TypeVar("Node")
 Edge = TypeVar("Edge")
 
@@ -10,7 +12,7 @@ class Degree(NamedTuple):
     out_degree: int = 0
 
 
-def toposort(edges: Dict[Node, Set[Node]], cycle_strict: bool = True) -> List[Node]:
+def toposort(edges: Dict[Node, Set[Node]], is_strict: bool = True) -> List[Node]:
     """
     Topological sort algorithm by Kahn [1]_.
 
@@ -62,8 +64,8 @@ def toposort(edges: Dict[Node, Set[Node]], cycle_strict: bool = True) -> List[No
                 vertices.add(m)
 
     if any(incoming_edges.get(v, None) for v in edges):
-        if cycle_strict:
-            raise ValueError("Input graph has cycles.")
+        if is_strict:
+            raise NotSupportedError("The graph with cycles is not supported yet.")
 
     return ordered
 

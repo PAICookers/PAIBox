@@ -81,7 +81,6 @@ class RoutingNode:
     ) -> bool:
         if self.level == Level.L0:
             # L0-level node cannot add child.
-            # TODO
             raise AttributeError(f"L0-level node cannot add child")
 
         if self.is_full():

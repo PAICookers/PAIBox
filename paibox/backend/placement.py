@@ -14,7 +14,7 @@ from typing import (
 import numpy as np
 
 from paibox.base import NeuDyn, PAIBoxObject
-from paibox.exceptions import PAICoreError, StatusError
+from paibox.exceptions import BuildError, NotSupportedError, PAICoreResourceError
 from paibox.libpaicore import (
     LCN_EX,
     AxonCoord,
@@ -125,7 +125,7 @@ class CoreBlock(CoreAbstract):
             Now consider S1 & S2 are 1-bit weights.
         """
         if not cls.all_dtype_equal(*synapses):
-            raise NotImplementedError
+            raise NotSupportedError(f"Mixed weight precision is not supported yet")
 
         if synapses[0].connectivity.dtype == np.bool_:
             wp = WeightPrecision.WEIGHT_WIDTH_1BIT
@@ -135,7 +135,7 @@ class CoreBlock(CoreAbstract):
             raise NotImplementedError
 
         if wp not in cls.supported_weight_precision:
-            raise ValueError(f"{wp} is not supported by {cls.__class__}")
+            raise NotSupportedError(f"{wp} is not supported yet by {cls.__class__}")
 
         return cls(*synapses, weight_precision=wp)
 
@@ -159,8 +159,7 @@ class CoreBlock(CoreAbstract):
         NOTE: Do it after `lcn_ex_adjustment`.
         """
         if not self.lcn_locked:
-            # TODO
-            raise StatusError(f"lcn_ex_adjustment incomplete")
+            raise BuildError(f"Allocate the core placements after lcn_ex is locked.")
 
         # First, get the neuron segments.
         neu_segs_of_cb = get_neu_segments(
@@ -251,10 +250,11 @@ class CoreBlock(CoreAbstract):
 
     @lcn_ex.setter
     def lcn_ex(self, lcn_ex: LCN_EX) -> None:
-        if lcn_ex >= LCN_EX.LCN_MAX:
-            raise ValueError
+        if lcn_ex > LCN_EX.LCN_64X:
+            raise PAICoreResourceError(
+                f"LCN extension required out of {LCN_EX.LCN_64X}: {lcn_ex}"
+            )
 
-        print(f"LCN of {self.name} is been updated: {self.lcn_ex} -> {lcn_ex}")
         self._lcn_ex = lcn_ex
 
     @property
@@ -292,7 +292,7 @@ class CoreBlock(CoreAbstract):
         FIXME Different in SNN/ANN mode.
         """
         if len(self.core_coords) == 0:
-            raise ValueError
+            raise BuildError(f"Do this after coordinates assignment.")
 
         n = [0] * (self.n_core_required)
 
@@ -556,13 +556,14 @@ def n_axon2lcn_ex(n_axon: int, fan_in_max: int) -> LCN_EX:
     """
     if n_axon < 1:
         # TODO
-        raise ValueError(f"Expected argument >=1 ,but we got n_axon {n_axon}")
+        raise ValueError(f"The #N of axons > 0, but got {n_axon}")
 
     lcn_ex = LCN_EX(((n_axon - 1) // fan_in_max).bit_length())
 
-    if lcn_ex >= LCN_EX.LCN_MAX:
-        # TODO
-        raise PAICoreError(f"out of max LCN 7, but we got {lcn_ex}")
+    if lcn_ex > LCN_EX.LCN_64X:
+        raise PAICoreResourceError(
+            f"LCN extension required out of {LCN_EX.LCN_64X}: {lcn_ex}"
+        )
 
     return lcn_ex
 
@@ -590,8 +591,7 @@ def get_neu_segments(
     elif method == "dense":
         return _get_neu_segments_dense(neu_groups, capacity, interval)
 
-    # TODO
-    raise ValueError
+    raise NotSupportedError(f"Method {method} is not supported yet")
 
 
 def _get_neu_segments_catagory(
@@ -702,8 +702,9 @@ def get_axon_segments(
             # n_axon_rest = 0
 
         if offset + addr_width > fan_in_max:
-            # TODO
-            raise ValueError
+            raise PAICoreResourceError(
+                f"Address of axons out of range{fan_in_max}: {offset + addr_width}"
+            )
 
         return AxonSegment(axon.num_out, addr_width, offset), offset + addr_width
 
