@@ -2,7 +2,7 @@ from collections import defaultdict
 from typing import Dict, List, Set, Union
 
 from paibox.base import NeuDyn
-from paibox.exceptions import BuildError, PAICoreResourceError
+from paibox.exceptions import BuildError, ResourceError
 from paibox.libpaicore import Coord, HwConfig
 from paibox.network import DynSysGroup
 from paibox.projection import InputProj
@@ -196,7 +196,7 @@ class Mapper:
         """5. Export parameters."""
         self.config_export()
 
-    def _graph_check(self, do_edges_grouping: bool = False) -> None:
+    def _graph_check(self) -> None:
         """Preprocess of the directed graph. Because there are currently    \
             many limitations on the networks that can be processed, checks  \
             are performed at this stage.
@@ -239,7 +239,10 @@ class Mapper:
             # Then do sorting in ascending order.
         """
         self._edges_grouped = group_edges(
-            self.succ_dg, list(self.edges.keys()), self._degree_of_nodes
+            list(self.edges.keys()),
+            self.succ_dg,
+            self._degree_of_nodes,
+            ordered_nodes=self._ordered_nodes,
         )
 
         for syns_set in self._edges_grouped:
@@ -252,7 +255,7 @@ class Mapper:
             > HwConfig.N_CORE_OFFLINE
         ):
             # TODO
-            raise PAICoreResourceError(
+            raise ResourceError(
                 f"#N of total core required out of {HwConfig.N_CORE_OFFLINE}: {n_core_required_total}"
             )
 

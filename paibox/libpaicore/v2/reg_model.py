@@ -44,7 +44,7 @@ class CoreParams(BaseModel, validate_assignment=True):
         description="Format of output spike.",
     )
 
-    num_dentrite: int = Field(
+    num_dendrite: int = Field(
         ge=0,
         lt=(1 << NUM_DENDRITE_BIT_MAX),
         serialization_alias="neuron_num",
@@ -93,16 +93,16 @@ class CoreParams(BaseModel, validate_assignment=True):
     @model_validator(mode="after")
     def _neuron_num_range_limit(self):
         if self.input_width_format is InputWidthFormatType.WIDTH_1BIT:
-            if self.num_dentrite > HwConfig.N_DENDRITE_MAX_ANN:
+            if self.num_dendrite > HwConfig.N_DENDRITE_MAX_ANN:
                 raise ValueError(
-                    f"Param 'num_dentrite' out of range. When input width is 1-bit,"
-                    f"The #N of dentrites should be <= {HwConfig.N_DENDRITE_MAX_ANN}."
+                    f"Param 'num_dendrite' out of range. When input width is 1-bit,"
+                    f"The #N of dendrites should be <= {HwConfig.N_DENDRITE_MAX_ANN}."
                 )
         else:
-            if self.num_dentrite > HwConfig.N_DENDRITE_MAX_SNN:
+            if self.num_dendrite > HwConfig.N_DENDRITE_MAX_SNN:
                 raise ValueError(
-                    f"Param 'num_dentrite' out of range. When input width is 8-bit,"
-                    f"The #N of dentrites should be <= {HwConfig.N_DENDRITE_MAX_SNN}."
+                    f"Param 'num_dendrite' out of range. When input width is 8-bit,"
+                    f"The #N of dendrite should be <= {HwConfig.N_DENDRITE_MAX_SNN}."
                 )
 
         return self

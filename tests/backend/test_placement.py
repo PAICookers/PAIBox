@@ -8,6 +8,7 @@ from paibox.backend.placement import (
     get_neu_segments,
     n_axon2lcn_ex,
 )
+from ...paibox.exceptions import ResourceError
 from paibox.libpaicore.v2 import AxonCoord, AxonSegment
 
 
@@ -129,11 +130,11 @@ class TestGetNeuronSegments:
     ],
 )
 def test_get_axon_segments(axons):
-    lcn_ex = n_axon2lcn_ex(sum(axon.num_out for axon in axons))
+    lcn_ex = n_axon2lcn_ex(sum(axon.num_out for axon in axons), 1152)
 
     tr_max = 1 << lcn_ex
 
-    axon_segs = get_axon_segments(axons, tr_max)
+    axon_segs = get_axon_segments(axons, tr_max, 1152)
 
     for axon_seg in axon_segs.values():
         assert axon_seg.addr_offset <= 1152
@@ -149,11 +150,11 @@ def test_get_axon_segments(axons):
 )
 def test_get_axon_segments_boundary(axons):
     """Illegal boundary cases."""
-    lcn_ex = n_axon2lcn_ex(sum(axon.num_out for axon in axons))
+    lcn_ex = n_axon2lcn_ex(sum(axon.num_out for axon in axons), 1152)
     tr_max = 1 << lcn_ex
 
-    with pytest.raises(ValueError):
-        axon_segs = get_axon_segments(axons, tr_max)
+    with pytest.raises(ResourceError):
+        axon_segs = get_axon_segments(axons, tr_max, 1152)
 
 
 @pytest.mark.parametrize(

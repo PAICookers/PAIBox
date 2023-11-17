@@ -29,7 +29,7 @@ class CoreConfigDict(NamedTuple):
     lcn_extension: LCN_EX
     input_width_format: InputWidthFormat
     spike_width_format: SpikeWidthFormat
-    num_dentrite: int
+    num_dendrite: int
     max_pooling_en: MaxPoolingEnable
     tick_wait_start: int
     tick_wait_end: int
@@ -136,3 +136,16 @@ class CorePlacementConfig(ConfigTemplate):
             ParamsReg.model_validate(core_config._asdict(), strict=True),
             neuron_ram,
         )
+
+    def config_dump(self) -> Dict[str, Any]:
+        dict_ = {
+            "coord": self.coord.address,
+            "random_seed": int(self.random_seed),
+            "neuron_ram": dict(),
+        }
+        dict_ |= self.params_reg.model_dump(by_alias=True)
+
+        for neu, neu_config in self.neuron_ram.items():
+            dict_["neuron_ram"][neu.name] = neu_config.config_dump()
+
+        return dict_

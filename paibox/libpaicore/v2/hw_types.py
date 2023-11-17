@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import ClassVar, List, NamedTuple
 
-from paibox.exceptions import PAICoreResourceError
+from paibox.exceptions import ResourceError
 
 from .hw_defs import HwConfig
 from .reg_types import CoreMode
@@ -42,7 +42,7 @@ class NeuronSegment(NamedTuple):
             self.addr_offset + self.interval * (self.index.stop - self.index.start)
             > HwConfig.ADDR_RAM_MAX
         ):
-            raise PAICoreResourceError(
+            raise ResourceError(
                 f"Address of RAM out of {HwConfig.ADDR_RAM_MAX}: "
                 f"{self.addr_offset + self.interval * (self.index.stop - self.index.start)}"
             )

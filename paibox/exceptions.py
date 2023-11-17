@@ -23,22 +23,23 @@ class RegisterError(PAIBoxError):
 
 
 class BuildError(PAIBoxError):
-    """Raise when building fails."""
+    """Raise when building fails"""
 
     pass
 
 
 class NotSupportedError(PAIBoxError, NotImplementedError):
-    """Exception for a certain function not supported."""
+    """Exception for a certain function not supported"""
 
     pass
 
 
 class SimulationError(PAIBoxError, RuntimeError):
-    """An error encountered during simulation."""
+    """An error encountered during simulation"""
 
     pass
 
 
-class PAICoreResourceError(PAIBoxError):
+class ResourceError(PAIBoxError):
+    """Resource usage exceeds hardware limit"""
     pass

@@ -182,7 +182,7 @@ def test_greedy_grouping_lcnx_opt(test_axons, n_neuron_in_core, expected_axons_g
         elif test_axons[i] <= 1152 * 64:
             lcn_x = LCNX.LCN_64X
         else:
-            lcn_x = LCNX.LCN_MAX
+            raise Exception
 
         lcn_each.append(lcn_x)
         # lcn_x = np.ceil(test_axons[i] / 1152) - 1

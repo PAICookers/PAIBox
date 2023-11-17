@@ -14,7 +14,7 @@ from typing import (
 import numpy as np
 
 from paibox.base import NeuDyn, PAIBoxObject
-from paibox.exceptions import BuildError, NotSupportedError, PAICoreResourceError
+from paibox.exceptions import BuildError, NotSupportedError, ResourceError
 from paibox.libpaicore import (
     LCN_EX,
     AxonCoord,
@@ -251,7 +251,7 @@ class CoreBlock(CoreAbstract):
     @lcn_ex.setter
     def lcn_ex(self, lcn_ex: LCN_EX) -> None:
         if lcn_ex > LCN_EX.LCN_64X:
-            raise PAICoreResourceError(
+            raise ResourceError(
                 f"LCN extension required out of {LCN_EX.LCN_64X}: {lcn_ex}"
             )
 
@@ -470,7 +470,7 @@ class CorePlacement(CoreAbstract):
             self.lcn_ex,                        # lcn_extension
             InputWidthFormat.WIDTH_1BIT,        # input_width_format
             SpikeWidthFormat.WIDTH_1BIT,        # spike_width_format
-            self.n_dendrite,                    # num_dentrite
+            self.n_dendrite,                    # num_dendrite
             MaxPoolingEnable.DISABLE,           # max_pooling_en
             0,                                  # tick_wait_start
             0,                                  # tick_wait_end
@@ -561,7 +561,7 @@ def n_axon2lcn_ex(n_axon: int, fan_in_max: int) -> LCN_EX:
     lcn_ex = LCN_EX(((n_axon - 1) // fan_in_max).bit_length())
 
     if lcn_ex > LCN_EX.LCN_64X:
-        raise PAICoreResourceError(
+        raise ResourceError(
             f"LCN extension required out of {LCN_EX.LCN_64X}: {lcn_ex}"
         )
 
@@ -702,7 +702,7 @@ def get_axon_segments(
             # n_axon_rest = 0
 
         if offset + addr_width > fan_in_max:
-            raise PAICoreResourceError(
+            raise ResourceError(
                 f"Address of axons out of range{fan_in_max}: {offset + addr_width}"
             )
 

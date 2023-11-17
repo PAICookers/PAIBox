@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 import paibox as pb
+from paibox.exceptions import ShapeError
 
 
 def test_SynSys_Attrs():
@@ -16,7 +17,7 @@ def test_SynSys_Attrs():
 
     assert np.array_equal(s1.n_axon_each, np.array([1, 3, 2]))
     assert s1.num_axon == 3
-    assert s1.num_dentrite == 3
+    assert s1.num_dendrite == 3
 
 
 class TestNoDecay:
@@ -159,13 +160,13 @@ class TestNoDecay:
         assert np.array_equal(s2.weights, weight)
         assert np.array_equal(s2.connectivity, weight)
 
-        with pytest.raises(ValueError):
-            # Wrong shape
+        # Mismatch shape
+        with pytest.raises(ShapeError):
             s3 = pb.synapses.NoDecay(
                 n1, n2, np.array([1, 2, 3]), conn_type=pb.synapses.ConnType.All2All
             )
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ShapeError):
             s3 = pb.synapses.NoDecay(
                 n1,
                 n2,
@@ -173,7 +174,7 @@ class TestNoDecay:
                 conn_type=pb.synapses.ConnType.All2All,
             )
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ShapeError):
             s3 = pb.synapses.NoDecay(
                 n1,
                 n2,
@@ -181,7 +182,7 @@ class TestNoDecay:
                 conn_type=pb.synapses.ConnType.All2All,
             )
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ShapeError):
             s3 = pb.synapses.NoDecay(
                 n1,
                 n2,
@@ -214,16 +215,18 @@ class TestNoDecay:
         assert (s.num_in, s.num_out) == (n1.num_out, n2.num_in)
         assert np.array_equal(s.connectivity, weight)
 
+        # Wrong weight type
         with pytest.raises(TypeError):
-            # Wrong weight type
             s = pb.synapses.NoDecay(n1, n2, 1, conn_type=pb.synapses.ConnType.MatConn)
 
-        with pytest.raises(ValueError):
+        # Mismatch shape
+        with pytest.raises(ShapeError):
             s = pb.synapses.NoDecay(
                 n1, n2, np.array([1, 2, 3]), conn_type=pb.synapses.ConnType.MatConn
             )
 
-        with pytest.raises(ValueError):
+        # Mismatch shape
+        with pytest.raises(ShapeError):
             s = pb.synapses.NoDecay(
                 n1,
                 n2,

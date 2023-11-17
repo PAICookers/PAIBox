@@ -24,7 +24,16 @@ from paibox.libpaicore import (
 )
 from paibox.libpaicore import WeightPrecision as WP
 from paibox.libpaicore.v2.routing_defs import RoutingDirection, RoutingNodeLevel
-from paibox.neuron.base import MetaNeuron
+
+
+@pytest.fixture(scope="session")
+def ensure_dump_dir():
+    p = Path(__file__).parent / "debug"
+
+    if not p.is_dir():
+        p.mkdir(parents=True, exist_ok=True)
+
+    yield p
 
 
 @pytest.fixture
@@ -178,16 +187,6 @@ def neu_segs_expected_dense(neu_ins):
     ]
 
     return expected
-
-
-@pytest.fixture(scope="session")
-def ensure_dump_dir():
-    p = Path(__file__).parent / "debug"
-
-    if not p.is_dir():
-        p.mkdir(parents=True, exist_ok=True)
-
-    yield p
 
 
 @pytest.fixture

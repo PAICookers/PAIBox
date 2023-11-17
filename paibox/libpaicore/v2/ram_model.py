@@ -115,7 +115,9 @@ BIT_TRUNCATE_BIT_MAX = 5
 VJT_PRE_BIT_MAX = 30
 
 
-class NeuronAttrs(BaseModel, extra="ignore", validate_assignment=True):
+class NeuronAttrs(BaseModel, validate_assignment=True):
+    model_config = ConfigDict(extra="ignore")
+
     reset_mode: ResetMode = Field(
         description="Reset mode of neuron.",
     )
