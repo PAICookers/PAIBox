@@ -134,3 +134,12 @@ class Collector(dict):
                 gather[k] = v
 
         return gather
+
+    def on_condition(self, condition=lambda node: node):
+        gather = type(self)()
+
+        for k, v in self.items():
+            if condition(k):
+                gather[k] = v
+
+        return gather

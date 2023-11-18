@@ -1,7 +1,8 @@
 from collections import defaultdict
-from typing import Dict, List, Set, Union
+from typing import Dict, List, Set
 
 from paibox.base import NeuDyn
+from paibox.collector import Collector
 from paibox.exceptions import BuildError, ResourceError
 from paibox.libpaicore import Coord, HwConfig
 from paibox.network import DynSysGroup
@@ -24,19 +25,21 @@ class Mapper:
     """The routing tree root."""
 
     def __init__(self) -> None:
-        self._nodes: Dict[str, Union[NeuDyn, InputProj]] = dict()
+        self._nodes = Collector()
         """Nodes in the network. Structure:
         {
             node1.name: node1,
             node2.name: node2
         }
         """
+        self.inodes = Collector()
+        self.onodes = Collector()
 
         self._ordered_nodes: List[str] = []
         """Ordered topologically nodes."""
 
         self._succ_nodes: Dict[str, Set[str]] = defaultdict(set)
-        self._pred_nodes: Dict[str, Set[str]] = defaultdict(set)
+        # self._pred_nodes: Dict[str, Set[str]] = defaultdict(set)
 
         self._edges: Dict[str, SynSys] = dict()
         """Edges in the network. Structure:
@@ -154,9 +157,14 @@ class Mapper:
             self._succ_dg[u][v] = syn.name
             self._succ_nodes[u].add(v)
 
-        self._pred_nodes = reverse_edges(self._succ_nodes)
+        # self._pred_nodes = reverse_edges(self._succ_nodes)
 
         self.has_built = True
+
+        # `InputProj` nodes are input nodes definitely.
+        self.inodes = self.nodes.subset(InputProj)
+        # By default, nodes with out-degree = 0 are considered output nodes.
+        self.onodes = self.nodes.on_condition(lambda node: len(self.succ_dg[node]) == 0)
 
         self._graph_check()
 
@@ -356,6 +364,22 @@ class Mapper:
     def nodes(self):
         if self.has_built:
             return self._nodes
+
+        raise BuildError(f"The graph hasn't been built yet")
+
+    @property
+    def n_inode(self) -> int:
+        """The #N of input nodes"""
+        if self.has_built:
+            return len(self.inodes)
+
+        raise BuildError(f"The graph hasn't been built yet")
+
+    @property
+    def n_onode(self) -> int:
+        """The #N of output nodes"""
+        if self.has_built:
+            return len(self.onodes)
 
         raise BuildError(f"The graph hasn't been built yet")
 
