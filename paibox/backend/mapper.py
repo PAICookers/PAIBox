@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Dict, List, Set, Union
+from typing import Dict, List, Set, Union, Tuple
 
 from paibox.base import NeuDyn
 from paibox.exceptions import BuildError, ResourceError
@@ -389,3 +389,43 @@ def group_by(dict_: Dict, keyfunc=lambda item: item):
         d[keyfunc(item)].append(item)
 
     return d
+
+def separate_network(nodes: Dict[str, Union[NeuDyn, InputProj]],
+                     edges: Dict[str, SynSys]) -> \
+                     List[Tuple[Dict[str, Union[NeuDyn, InputProj]], Dict[str, SynSys]]]:
+
+    def dfs(node, component_nodes):
+        component_nodes.append(node)
+        for edge_name, edge in edges.items():
+            if(edge_name in edges_visited):
+                continue
+            source = edge.source.name
+            dest = edge.dest.name
+            next = None
+            
+            if source == node and dest in nodes_remaining:
+                next = dest
+            elif dest == node and source in nodes_remaining:
+                next = source
+                
+            if next is not None:
+                nodes_remaining.remove(next)
+                edges_visited.add(edge_name)
+                dfs(next, component_nodes)
+            
+
+    components = []
+    nodes_remaining = set(nodes.keys())
+    edges_visited   = set()
+
+    while nodes_remaining:
+        current_node = nodes_remaining.pop()
+        component_nodes = []
+        dfs(current_node, component_nodes)
+        component_edges = {edge_name: edge for edge_name, edge in edges.items() if
+                           edge.source.name in component_nodes and edge.dest.name in component_nodes}
+        component = ({node_name: nodes[node_name] for node_name in component_nodes}, component_edges)
+        edges_visited |= set(component_edges.keys())
+        components.append(component)
+
+    return components
