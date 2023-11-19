@@ -42,4 +42,5 @@ class SimulationError(PAIBoxError, RuntimeError):
 
 class ResourceError(PAIBoxError):
     """Resource usage exceeds hardware limit"""
+
     pass

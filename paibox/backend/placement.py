@@ -561,9 +561,7 @@ def n_axon2lcn_ex(n_axon: int, fan_in_max: int) -> LCN_EX:
     lcn_ex = LCN_EX(((n_axon - 1) // fan_in_max).bit_length())
 
     if lcn_ex > LCN_EX.LCN_64X:
-        raise ResourceError(
-            f"LCN extension required out of {LCN_EX.LCN_64X}: {lcn_ex}"
-        )
+        raise ResourceError(f"LCN extension required out of {LCN_EX.LCN_64X}: {lcn_ex}")
 
     return lcn_ex
 

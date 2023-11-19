@@ -8,8 +8,9 @@ from paibox.backend.placement import (
     get_neu_segments,
     n_axon2lcn_ex,
 )
-from ...paibox.exceptions import ResourceError
 from paibox.libpaicore.v2 import AxonCoord, AxonSegment
+
+from ...paibox.exceptions import ResourceError
 
 
 @pytest.mark.parametrize(
