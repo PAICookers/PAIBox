@@ -10,7 +10,7 @@ __all__ = ["Coord", "ReplicationId", "CoordLike", "to_coord", "to_coords"]
 
 
 class Identifier(ABC):
-    """Identifier. At least the subclasses of identifier can `__eq__` and `__ne__`."""
+    """Identifier. The subclass of identifier must implement `__eq__` & `__ne__`."""
 
     @abstractmethod
     def __eq__(self, __other) -> ...:
@@ -27,13 +27,13 @@ _COORD_LOW_LIMIT = 0
 
 @dataclass
 class Coord(Identifier):
-    """Coordinates of the cores. Set coordinates (x, y) for every cores.
+    """Coordinates of the cores. Set coordinates (x, y) for every core.
 
     Left to right, +X, up to down, +Y.
     """
 
-    x: int = Field(..., ge=_COORD_LOW_LIMIT, le=_COORD_MAX_LIMIT)
-    y: int = Field(..., ge=_COORD_LOW_LIMIT, le=_COORD_MAX_LIMIT)
+    x: int = Field(ge=_COORD_LOW_LIMIT, le=_COORD_MAX_LIMIT, frozen=True)
+    y: int = Field(ge=_COORD_LOW_LIMIT, le=_COORD_MAX_LIMIT, frozen=True)
 
     @classmethod
     def from_tuple(cls, pos):
@@ -252,8 +252,12 @@ _COORDOFFSET_LOW_LIMIT = -(1 << 5)
 class CoordOffset:
     """Offset of coordinates"""
 
-    delta_x: int = Field(..., ge=_COORDOFFSET_LOW_LIMIT, le=_COORDOFFSET_MAX_LIMIT)
-    delta_y: int = Field(..., ge=_COORDOFFSET_LOW_LIMIT, le=_COORDOFFSET_MAX_LIMIT)
+    delta_x: int = Field(
+        ge=_COORDOFFSET_LOW_LIMIT, le=_COORDOFFSET_MAX_LIMIT, frozen=True
+    )
+    delta_y: int = Field(
+        ge=_COORDOFFSET_LOW_LIMIT, le=_COORDOFFSET_MAX_LIMIT, frozen=True
+    )
 
     @classmethod
     def from_tuple(cls, pos) -> "CoordOffset":

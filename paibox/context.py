@@ -5,20 +5,20 @@ class _Context:
     def __init__(self) -> None:
         self._context = dict()
 
-    def load(self, key, value: Any = None):
+    def load(self, key, default: Any = None):
         """Load the context by the `key`.
 
         Args:
             - key: the key to indicate the data.
-            - value: the default value when `key` is not defined.
+            - default: the default value when `key` is not defined.
         """
         if key in self._context:
             return self._context[key]
 
-        if value is None:
+        if default is None:
             raise KeyError("The context of {key} not found.")
-        else:
-            return value
+
+        return default
 
     def save(self, *args, **kwargs) -> None:
         """Save the context by the key-value pairs."""

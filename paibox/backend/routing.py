@@ -121,7 +121,6 @@ class RoutingNode:
             return self
 
         if len(path) > self.level:
-            # TODO
             raise ValueError(
                 f"The length of the {path} should be less than or equal to level, but yours is greater than"
             )

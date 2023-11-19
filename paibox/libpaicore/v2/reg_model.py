@@ -17,10 +17,13 @@ TARGET_LCN_BIT_MAX = 4
 TEST_CHIP_ADDR_BIT_MAX = 10
 
 
-class CoreParams(BaseModel, validate_assignment=True):
-    """Parameter model of register parameters listed in Section 2.4.1."""
+class CoreParams(BaseModel):
+    """Parameter model of register parameters listed in Section 2.4.1.
 
-    model_config = ConfigDict(extra="ignore")
+    NOTE: The parameters input in the model are declared in `docs/Table-of-Terms.md`.
+    """
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True)
 
     weight_precision: WeightPrecisionType = Field(
         le=WeightPrecisionType.WEIGHT_WIDTH_8BIT,
