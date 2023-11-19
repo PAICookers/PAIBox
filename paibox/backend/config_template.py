@@ -3,6 +3,7 @@ from typing import Any, ClassVar, Dict, List, NamedTuple
 
 import numpy as np
 
+from .context import _BACKEND_CONTEXT
 from paibox.base import NeuDyn
 from paibox.libpaicore import (
     LCN_EX,
@@ -22,9 +23,13 @@ from paibox.libpaicore import (
 )
 
 
-class CoreConfigDict(NamedTuple):
+class CoreConfig(NamedTuple):
     """Configurations of core."""
 
+    _extra_params = ("name",)
+    """Extra parameters for debugging."""
+
+    name: str
     weight_precision: WeightPrecision
     lcn_extension: LCN_EX
     input_width_format: InputWidthFormat
@@ -42,6 +47,31 @@ class CoreConfigDict(NamedTuple):
             by_alias=True
         )
 
+    def config_dump(self) -> Dict[str, Any]:
+        """Dump the configs for debugging."""
+        dict_ = dict()
+
+        for var in self._extra_params:
+            dict_[var] = getattr(self, var)
+
+        dict_ |= self.export()
+
+        return dict_
+
+
+class NeuronDest(NamedTuple):
+    """Information of neuron destination(Axon address information)."""
+
+    dest_coords: List[Coord]
+    tick_relative: List[int]
+    addr_axon: List[int]
+    addr_core_x: int
+    addr_core_y: int
+    addr_core_x_ex: int
+    addr_core_y_ex: int
+    addr_chip_x: int
+    addr_chip_y: int
+
 
 class ConfigTemplate:
     """A configuration template."""
@@ -51,6 +81,9 @@ class ConfigTemplate:
 
 @dataclass(eq=False)
 class NeuronConfig(ConfigTemplate):
+    _extra_params = ("addr_offset",)
+    """Extra parameters for debugging."""
+
     addr_ram: List[int]
     addr_offset: int
     params_ram: ParamsRAM
@@ -62,32 +95,38 @@ class NeuronConfig(ConfigTemplate):
         addr_ram: List[int],
         addr_offset: int,
         axon_coords: List[AxonCoord],
-        dest_coords: List[Coord],
+        dest_core_coords: List[Coord],
+        dest_chip_coord: Coord = _BACKEND_CONTEXT["output_chip_addr"],
     ):
         """Build the `NeuronConfig`.
 
         Args:
             - neuron: the target `NeuDyn`.
-            - addr_ram: the assigned RAM address of the target neuron.
-            - addr_offset: the offset of the RAM address.
+            - addr_ram: assigned RAM address of the target neuron.
+            - addr_offset: offset of the RAM address.
             - axon_segs: the destination axon segments.
-            - dest_coords: the coordinates of destination axons.
+            - dest_core_coords: coordinates of the core of the destination axons.
+            - dest_chip_coord: coordinate of the chip of the destination axons. \
+                The default is `output_chip_addr` in the backend context.
         """
         attrs = NeuronAttrs.model_validate(neuron.export_params(), strict=True)
-        axon_rid = get_replication_id(dest_coords)
+        dest_rid = get_replication_id(dest_core_coords)
 
-        dest_info_dict = {
-            "tick_relative": [coord.tick_relative for coord in axon_coords],
-            "addr_axon": [coord.addr_axon for coord in axon_coords],
-            "addr_core_x": dest_coords[0].x,
-            "addr_core_y": dest_coords[0].y,
-            "addr_core_x_ex": axon_rid.x,
-            "addr_core_y_ex": axon_rid.y,
-            "addr_chip_x": 0,
-            "addr_chip_y": 0,
-        }
+        dest_info = NeuronDest(
+            dest_core_coords,
+            [coord.tick_relative for coord in axon_coords],
+            [coord.addr_axon for coord in axon_coords],
+            dest_core_coords[0].x,
+            dest_core_coords[0].y,
+            dest_rid.x,
+            dest_rid.y,
+            dest_chip_coord.x,
+            dest_chip_coord.y,
+        )
 
-        neuron_dest_info = NeuronDestInfo.model_validate(dest_info_dict, strict=True)
+        neuron_dest_info = NeuronDestInfo.model_validate(
+            dest_info._asdict(), strict=True
+        )
 
         return cls(
             addr_ram,
@@ -103,7 +142,11 @@ class NeuronConfig(ConfigTemplate):
 
     def config_dump(self) -> Dict[str, Any]:
         """Dump the configs for debugging."""
-        dict_ = {"addr_offset": self.addr_offset}
+        dict_ = dict()
+
+        for var in self._extra_params:
+            dict_[var] = getattr(self, var)
+
         dict_ |= self.params_ram.model_dump(
             by_alias=True,
             exclude={"dest_info": self.params_ram.dest_info._exclude_vars},
@@ -126,7 +169,7 @@ class CorePlacementConfig(ConfigTemplate):
         coord: Coord,
         random_seed: np.uint64,
         weight_ram: np.ndarray,
-        core_config: CoreConfigDict,
+        core_config: CoreConfig,
         neuron_ram: Dict[NeuDyn, NeuronConfig],
     ):
         return cls(
