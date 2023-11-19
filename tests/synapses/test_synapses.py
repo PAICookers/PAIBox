@@ -160,7 +160,7 @@ class TestNoDecay:
         assert np.array_equal(s2.weights, weight)
         assert np.array_equal(s2.connectivity, weight)
 
-        # Mismatch shape
+        # Wrong shape
         with pytest.raises(ShapeError):
             s3 = pb.synapses.NoDecay(
                 n1, n2, np.array([1, 2, 3]), conn_type=pb.synapses.ConnType.All2All
@@ -219,13 +219,13 @@ class TestNoDecay:
         with pytest.raises(TypeError):
             s = pb.synapses.NoDecay(n1, n2, 1, conn_type=pb.synapses.ConnType.MatConn)
 
-        # Mismatch shape
+        # Wrong shape
         with pytest.raises(ShapeError):
             s = pb.synapses.NoDecay(
                 n1, n2, np.array([1, 2, 3]), conn_type=pb.synapses.ConnType.MatConn
             )
 
-        # Mismatch shape
+        # Wrong shape
         with pytest.raises(ShapeError):
             s = pb.synapses.NoDecay(
                 n1,

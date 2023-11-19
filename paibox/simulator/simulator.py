@@ -11,10 +11,7 @@ __all__ = ["Simulator"]
 
 
 class Simulator(PAIBoxObject):
-    def __init__(
-        self,
-        target: DynamicSys,
-    ) -> None:
+    def __init__(self, target: DynamicSys) -> None:
         """
         Arguments:
             - target: the target network.
@@ -40,12 +37,14 @@ class Simulator(PAIBoxObject):
             - duration: duration of the simulation.
             - reset: whether to reset the model state.
         """
-        if duration < 0:
+        if duration < 1:
             raise SimulationError(f"duration should be > 0, but got {duration}")
 
         n_steps = self._get_nstep(duration)
-        if n_steps == 0:
-            raise SimulationError(f"Step of simulation should be > 0, but got {n_steps}")
+        if n_steps < 1:
+            raise SimulationError(
+                f"Step of simulation should be > 0, but got {n_steps}"
+            )
 
         indices = np.arange(self._ts, self._ts + n_steps, dtype=np.int16)
 
