@@ -10,13 +10,16 @@ from paibox.utils import as_shape, shape2num
 
 __all__ = ["PeriodicEncoder", "PoissonEncoder"]
 
+MAXSEED = np.iinfo(np.uint32).max
+MAXINT = np.iinfo(np.int32).max
+
 
 class Encoder(DynamicSys):
     def __init__(
         self,
-        shape_out: Shape = (),
-        *,
+        shape_out: Shape = (0,),
         seed: Optional[int] = None,
+        *,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -27,27 +30,9 @@ class Encoder(DynamicSys):
 
         super().__init__(name)
 
-    def run(
-        self,
-        duration: int,
-        dt: int = 1,
-        rng: Generator = np.random.default_rng(),
-        **kwargs,
-    ) -> np.ndarray:
-        if duration < 0:
-            # TODO
-            raise ValueError
-
-        n_steps = int(duration / dt)
-        return self.run_steps(n_steps, rng, **kwargs)
-
-    def run_steps(self, n_steps: int, rng: Generator, **kwargs) -> np.ndarray:
-        output = np.zeros((n_steps,) + self.shape_out, dtype=np.bool_)
-
-        for i in range(n_steps):
-            output[i] = self(**kwargs)
-
-        return output
+    def get_rng(self) -> Generator:
+        seed = np.random.randint(MAXINT) if self.seed is None else self.seed
+        return np.random.default_rng(seed)
 
     @property
     def num_out(self) -> int:
@@ -67,20 +52,20 @@ class StatelessEncoder(Encoder):
 
 
 class StatefulEncoder(Encoder):
-    def __init__(self, T: int) -> None:
-        super().__init__((1,))
+    def __init__(self, T: int, shape_out: Shape, **kwargs) -> None:
+        super().__init__(shape_out, **kwargs)
 
         if T < 1:
-            raise ValueError
+            raise ValueError(f"T should be > 0, but got {T}")
 
         self.T = T
         self.set_memory("spike", None)
         self.set_memory("t", 0)
 
-    def __call__(self, x: Optional[np.ndarray] = None):
+    def __call__(self, x: Optional[np.ndarray] = None, **kwargs) -> np.ndarray:
         if self.spike is None:
             if x is None:
-                raise ValueError
+                raise ValueError("Input must be given if spike is None")
 
             self.single_step_encode(x)
 
@@ -90,8 +75,7 @@ class StatefulEncoder(Encoder):
         if self.t >= self.T:
             self.t = 0
 
-        if self.spike is not None:
-            return self.spike[t]
+        return self.spike[t]
 
     @abstractmethod
     def single_step_encode(self, x: np.ndarray):
@@ -99,22 +83,22 @@ class StatefulEncoder(Encoder):
 
 
 class PeriodicEncoder(StatefulEncoder):
-    def __init__(self, spike: np.ndarray) -> None:
+    def __init__(self, spike: np.ndarray, **kwargs) -> None:
         """Periodic encoder.
 
         Args:
-            - spike: the input spike.
+            - spike: the input spike. Encode when instantiate itself. \
+                T = `.shape[0]` & shape_out = `.shape[1]`.
         """
-        super().__init__(spike.shape[0])
-
-    def single_step_encode(self, spike: np.ndarray) -> None:
+        super().__init__(spike.shape[0], spike.shape[1], **kwargs)
         self.spike = spike
-        self.T = spike.shape[0]
 
 
 class PoissonEncoder(StatelessEncoder):
-    def __init__(self, shape_out: Shape = (), **kwargs) -> None:
-        super().__init__(shape_out, **kwargs)
+    def __init__(
+        self, shape_out: Shape = (0,), seed: Optional[int] = None, **kwargs
+    ) -> None:
+        super().__init__(shape_out, seed, **kwargs)
 
-    def __call__(self, x: np.ndarray) -> np.ndarray:
-        return np.less_equal(np.random.rand(*x.shape), x).astype(np.bool_)
+    def __call__(self, x: np.ndarray, **kwargs) -> np.ndarray:
+        return np.less_equal(self.get_rng().random(x.shape), x).astype(np.bool_)

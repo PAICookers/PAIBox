@@ -6,6 +6,7 @@ from paibox.libpaicore.v2.routing_defs import RoutingNodeLevel as Level
 from paibox.libpaicore.v2.routing_defs import RoutingNodeStatus as NodeStatus
 from paibox.libpaicore.v2.routing_defs import get_node_consumption
 
+from ...exceptions import NotSupportedError
 from ..placement import CorePlacement
 
 """
@@ -53,11 +54,12 @@ class RoutingNode:
     def add_child(self, child: "RoutingNode") -> bool:
         if self.level == Level.L0:
             # L0-level node cannot add child.
-            # TODO
-            raise ValueError
+            raise AttributeError(f"L0-level node cannot add child")
 
         if self.level - child.level != 1:
-            raise ValueError
+            raise AttributeError(
+                f"The node with level {child.level} can not be a child"
+            )
 
         if self.is_full():
             return False
@@ -87,12 +89,13 @@ class RoutingNode:
             return self
 
         if len(path) > self.level:
-            # TODO
-            raise ValueError
+            raise ValueError(
+                f"The length of path {len(path)} > level of node {self.level}"
+            )
 
         idx = path[0].to_index()
         if idx > len(self.children) - 1:
-            raise IndexError
+            raise IndexError(f"Index out of range: {idx} > {len(self.children) - 1}")
 
         sub_node = self.children[idx]
 
@@ -134,11 +137,11 @@ class RoutingNode:
             - A list of `Direction` from L4 to L0.
         """
         if node.level > self.level:
-            raise ValueError
+            raise ValueError(f"The node with level {node.level} is not in self")
 
         if node.level == self.level:
             if node != self:
-                raise ValueError
+                raise ValueError(f"The node with level {node.level} is not in self")
 
             return []
 
@@ -163,11 +166,11 @@ class RoutingNode:
         if dfs_preorder(self):
             return path
         else:
-            raise ValueError
+            raise ValueError(f"The node with level {node.level} is not in self")
 
     def get_lx_nodes(self, lx: Level, method: str = "nearest") -> List["RoutingNode"]:
         if lx > self.level:
-            raise ValueError
+            raise ValueError(f"The node with level {lx} is not in self")
 
         if lx == self.level:
             return [self]
@@ -193,7 +196,7 @@ class RoutingNode:
             `n_child_avail` children available.
         """
         if lx > self.level:
-            raise ValueError
+            raise ValueError(f"The node with level {lx} is not in self")
 
         if lx == self.level:
             if self.n_child_not_occpuied() >= n_child_avail:
@@ -213,7 +216,7 @@ class RoutingNode:
         self, lx: Level, method: str = "nearest"
     ) -> Optional["RoutingNode"]:
         if lx > self.level:
-            raise ValueError
+            raise ValueError(f"The node with level {lx} is not in self")
 
         if lx == self.level:
             if self.status == NodeStatus.ALL_EMPTY:
@@ -259,12 +262,13 @@ class RoutingNode:
                 if avail_child:
                     return [avail_child]
             else:
-                raise ValueError
+                # TODO Hard to describe
+                raise NotSupportedError
 
             return []
 
         if lx > self.level:
-            raise ValueError
+            raise ValueError(f"The node with level {lx} is not in self")
 
         if lx == self.level:
             node = self._find_lx_node_with_n_child_avail(lx, n_child_avail, method)

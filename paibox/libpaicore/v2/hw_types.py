@@ -1,28 +1,33 @@
-from typing import List, NamedTuple
+from abc import ABC, abstractmethod
+from typing import ClassVar, List, NamedTuple
+
+from paibox.exceptions import ResourceError
 
 from .hw_defs import HwConfig
+from .reg_types import CoreMode
 
-__all__ = ["NeuronSegment", "AxonCoord", "AxonSegment"]
+__all__ = ["NeuronSegment", "AxonCoord", "AxonSegment", "HwCore"]
 
 
 class NeuronSegment(NamedTuple):
     """Segment of neuron.
 
-    index =(0, 100, 1)
-    addr_offset = 0
-    interval = 2
+    Example:
+        index = (0, 100, 1)
+        addr_offset = 10
+        interval = 2
+        addr_ram = (10, 11, ..., 210)
 
-    The address of RAM will be: slice(0, 200, 2)
+        for addr in addr_ram:
+            write in addr with tick_relative and addr_axon at 'addr/interval'.
     """
 
     index: slice
     """The original index of this segment of neurons."""
     addr_offset: int
     """The offset of the RAM address."""
-
     interval: int = 1
     """The interval of address when mapping neuron attributes on the RAM."""
-
     weight_steps: int = 1
     """Reserved."""
 
@@ -31,29 +36,23 @@ class NeuronSegment(NamedTuple):
         return self.index.stop - self.index.start
 
     @property
-    def nrange(self) -> slice:
-        if (
-            self.addr_offset + self.interval * (self.index.stop - self.index.start)
-            > HwConfig.N_NEURON_ONE_CORE_MAX
-        ):
-            # TODO
-            raise AttributeError
-
-        return slice(
-            self.addr_offset,
-            self.addr_offset + (self.index.stop - self.index.start),
-            1,
-        )
-
-    @property
     def addr_ram(self) -> List[int]:
         """Convert index of neuron into address RAM."""
-        addr_ram = []
+        if (
+            self.addr_offset + self.interval * (self.index.stop - self.index.start)
+            > HwConfig.ADDR_RAM_MAX
+        ):
+            raise ResourceError(
+                f"Address of RAM out of {HwConfig.ADDR_RAM_MAX}: "
+                f"{self.addr_offset + self.interval * (self.index.stop - self.index.start)}"
+            )
 
-        for addr in range(HwConfig.N_NEURON_ONE_CORE_MAX)[self.nrange]:
-            addr_ram.extend([addr] * self.interval)
-
-        return addr_ram
+        return list(
+            range(
+                self.addr_offset,
+                self.addr_offset + self.interval * (self.index.stop - self.index.start),
+            )
+        )
 
 
 class AxonCoord(NamedTuple):
@@ -66,9 +65,28 @@ class AxonSegment(NamedTuple):
     """#N of axons."""
     addr_width: int
     """The range of axon address is [addr_offset, addr_offset+addr_width)."""
-
-    # index: slice
-    """The original index of this segment of axons."""
-
     addr_offset: int
     """The offset of the assigned address."""
+
+
+class HwCore(ABC):
+    """Hardware core abstraction."""
+
+    mode: ClassVar[CoreMode]
+
+    @property
+    @abstractmethod
+    def n_dendrite(self) -> int:
+        """#N of valid dendrites"""
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def n_core_required(self) -> int:
+        """#N of cores required to accommodate neurons inside self."""
+        raise NotImplementedError
+
+    @classmethod
+    @abstractmethod
+    def build(cls):
+        ...

@@ -10,6 +10,7 @@ from pydantic import (
     model_validator,
 )
 
+from .coordinate import Coord
 from .ram_types import *
 
 TICK_RELATIVE_BIT_MAX = 8
@@ -22,21 +23,19 @@ ADDR_CHIP_X_BIT_MAX = 5
 ADDR_CHIP_Y_BIT_MAX = 5
 
 
-class NeuronDestInfo(BaseModel, validate_assignment=True):
-    """Parameter model of RAM parameters listed in Section 2.4.2
-
-    Example:
-        model_ram = ParamsRAM(...)
-
-        params_ram_dict = model_ram.model_dump(by_alias=True)
-
-    Return:
-        a dictionary of RAM parameters in which the keys are serialization alias if defined.
+class NeuronDestInfo(BaseModel):
+    """Parameter model of RAM parameters listed in Section 2.4.2.
 
     NOTE: The parameters input in the model are declared in `docs/Table-of-Terms.md`.
     """
 
-    model_config = ConfigDict(extra="ignore")
+    _exclude_vars = ("tick_relative", "addr_axon")
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True)
+
+    dest_coords: List[InstanceOf[Coord]] = Field(
+        description="Coordinates of destination cores."
+    )
 
     tick_relative: List[InstanceOf[int]] = Field(
         description="Information of relative ticks.",
@@ -83,6 +82,7 @@ class NeuronDestInfo(BaseModel, validate_assignment=True):
     @classmethod
     def _tick_relative_check(cls, v):
         if any(tr >= (1 << TICK_RELATIVE_BIT_MAX) or tr < 0 for tr in v):
+            # DO NOT change the type of exception `ValueError` in the validators below.
             raise ValueError("Parameter 'tick relative' out of range.")
 
         return v
@@ -95,8 +95,12 @@ class NeuronDestInfo(BaseModel, validate_assignment=True):
 
         return v
 
+    @field_serializer("dest_coords")
+    def _dest_coords(self, dest_coords: List[Coord]) -> List[int]:
+        return [coord.address for coord in dest_coords]
+
     @model_validator(mode="after")
-    def _length_check(self):
+    def _length_match_check(self):
         if len(self.tick_relative) != len(self.addr_axon):
             raise ValueError(
                 "Parameter 'tick relative' and 'addr_axon' must have the same length."
@@ -120,7 +124,9 @@ BIT_TRUNCATE_BIT_MAX = 5
 VJT_PRE_BIT_MAX = 30
 
 
-class NeuronAttrs(BaseModel, extra="ignore", validate_assignment=True):
+class NeuronAttrs(BaseModel):
+    model_config = ConfigDict(extra="ignore", validate_assignment=True)
+
     reset_mode: ResetMode = Field(
         description="Reset mode of neuron.",
     )
@@ -193,7 +199,8 @@ class NeuronAttrs(BaseModel, extra="ignore", validate_assignment=True):
         ge=-(1 << (VJT_PRE_BIT_MAX - 1)),
         lt=(1 << (VJT_PRE_BIT_MAX - 1)),
         serialization_alias="vjt_pre",
-        description="Membrane potential of neuron at last time step, 30-bit signed. 0 at initialization.",
+        description="Membrane potential of neuron at last time step, 30-bit signed. \
+            0 at initialization.",
     )
 
     """Parameter serializers"""
@@ -215,16 +222,12 @@ class NeuronAttrs(BaseModel, extra="ignore", validate_assignment=True):
         return leaking_direction.value
 
     @field_serializer("leaking_integration_mode")
-    def _leaking_integration_mode(
-        self, leaking_integration_mode: LeakingIntegrationMode
-    ) -> int:
-        return leaking_integration_mode.value
+    def _lim(self, lim: LeakingIntegrationMode) -> int:
+        return lim.value
 
     @field_serializer("synaptic_integration_mode")
-    def _synaptic_integration_mode(
-        self, synaptic_integration_mode: SynapticIntegrationMode
-    ) -> int:
-        return synaptic_integration_mode.value
+    def _sim(self, sim: SynapticIntegrationMode) -> int:
+        return sim.value
 
 
 class NeuronParams(BaseModel):

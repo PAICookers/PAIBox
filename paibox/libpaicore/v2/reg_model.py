@@ -8,7 +8,7 @@ WEIGHT_PRECISION_BIT_MAX = 2  # Not used
 LCN_EXTENSION_BIT_MAX = 2  # Not used
 INPUT_WIDTH_FORMAT_BIT_MAX = 2  # Not used
 SPIKE_WIDTH_FORMAT_BIT_MAX = 2  # Not used
-NEURON_NUM_BIT_MAX = 13
+NUM_DENDRITE_BIT_MAX = 13
 POOL_MAX_EN_BIT_MAX = 1  # Not used
 TICK_WAIT_START_BIT_MAX = 15
 TICK_WAIT_END_BIT_MAX = 15
@@ -17,21 +17,24 @@ TARGET_LCN_BIT_MAX = 4
 TEST_CHIP_ADDR_BIT_MAX = 10
 
 
-class CoreParams(BaseModel, validate_assignment=True):
-    """Parameter model of register parameters listed in Section 2.4.1"""
+class CoreParams(BaseModel):
+    """Parameter model of register parameters listed in Section 2.4.1.
 
-    model_config = ConfigDict(extra="ignore")
+    NOTE: The parameters input in the model are declared in `docs/Table-of-Terms.md`.
+    """
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True)
 
     weight_precision: WeightPrecisionType = Field(
-        lt=WeightPrecisionType.WEIGHT_WIDTH_MAX,
+        le=WeightPrecisionType.WEIGHT_WIDTH_8BIT,
         serialization_alias="weight_width",
         description="Weight precision of crossbar.",
     )
 
     lcn_extension: LCNExtensionType = Field(
-        lt=LCNExtensionType.LCN_MAX,
+        le=LCNExtensionType.LCN_64X,
         serialization_alias="LCN",
-        description="Scale of Fan-in extension.",
+        description="Scale of fan-in extension.",
     )
 
     input_width_format: InputWidthFormatType = Field(
@@ -44,10 +47,11 @@ class CoreParams(BaseModel, validate_assignment=True):
         description="Format of output spike.",
     )
 
-    neuron_num: int = Field(
+    num_dendrite: int = Field(
         ge=0,
-        lt=(1 << NEURON_NUM_BIT_MAX),
-        description="Valid number of dendrites.",
+        lt=(1 << NUM_DENDRITE_BIT_MAX),
+        serialization_alias="neuron_num",
+        description="The number of valid dendrites.",
     )
 
     max_pooling_en: MaxPoolingEnableType = Field(
@@ -67,7 +71,7 @@ class CoreParams(BaseModel, validate_assignment=True):
         default=0,
         ge=0,
         lt=(1 << TICK_WAIT_END_BIT_MAX),
-        description="The core keeps working within #N sync_all. 0 for  not stopping.",
+        description="The core keeps working within #N sync_all. 0 for not stopping.",
     )
 
     snn_mode_en: SNNModeEnableType = Field(
@@ -77,7 +81,7 @@ class CoreParams(BaseModel, validate_assignment=True):
     )
 
     target_lcn: LCNExtensionType = Field(
-        lt=LCNExtensionType.LCN_MAX,
+        le=LCNExtensionType.LCN_64X,
         serialization_alias="target_LCN",
         description="LCN of the target core.",
     )
@@ -92,16 +96,16 @@ class CoreParams(BaseModel, validate_assignment=True):
     @model_validator(mode="after")
     def _neuron_num_range_limit(self):
         if self.input_width_format is InputWidthFormatType.WIDTH_1BIT:
-            if self.neuron_num > HwConfig.N_NEURON_ONE_CORE_DEFAULT:
+            if self.num_dendrite > HwConfig.N_DENDRITE_MAX_ANN:
                 raise ValueError(
-                    f"Param 'neuron_num' out of range. When input width is 1-bit,"
-                    f"The #N of neurons should be <= {HwConfig.N_NEURON_ONE_CORE_DEFAULT}."
+                    f"Param 'num_dendrite' out of range. When input width is 1-bit,"
+                    f"The #N of dendrites should be <= {HwConfig.N_DENDRITE_MAX_ANN}."
                 )
         else:
-            if self.neuron_num > HwConfig.N_NEURON_ONE_CORE_DEFAULT / 8:
+            if self.num_dendrite > HwConfig.N_DENDRITE_MAX_SNN:
                 raise ValueError(
-                    f"Param 'neuron_num' out of range. When input width is 8-bit,"
-                    f"The #N of neurons should be <= {HwConfig.N_NEURON_ONE_CORE_DEFAULT / 8}."
+                    f"Param 'num_dendrite' out of range. When input width is 8-bit,"
+                    f"The #N of dendrite should be <= {HwConfig.N_DENDRITE_MAX_SNN}."
                 )
 
         return self

@@ -77,7 +77,7 @@ class SynSys(Synapses, DynamicSys):
         return np.count_nonzero(np.any(self.connectivity, axis=1))
 
     @property
-    def num_dentrite(self) -> int:
+    def num_dendrite(self) -> int:
         return np.count_nonzero(np.any(self.connectivity, axis=0))
 
 

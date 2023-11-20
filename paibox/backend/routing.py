@@ -81,8 +81,7 @@ class RoutingNode:
     ) -> bool:
         if self.level == Level.L0:
             # L0-level node cannot add child.
-            # TODO
-            raise ValueError
+            raise AttributeError(f"L0-level node cannot add child")
 
         if self.is_full():
             return False
@@ -122,8 +121,9 @@ class RoutingNode:
             return self
 
         if len(path) > self.level:
-            # TODO
-            raise ValueError
+            raise ValueError(
+                f"The length of the {path} should be less than or equal to level, but yours is greater than"
+            )
 
         if path[0] not in self.children:
             return None
@@ -391,9 +391,9 @@ class RoutingRoot(RoutingNode):
 
     def insert_coreblock(self, cb: CoreBlock) -> bool:
         """Insert a `CoreBlock` in the routing tree."""
-        n_core = cb.n_core
         leaves = []
         coords = []
+        n_core = cb.n_core_required
 
         cost = get_node_consumption(n_core)
         level = cost.get_routing_level()

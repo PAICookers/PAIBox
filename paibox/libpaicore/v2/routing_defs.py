@@ -36,8 +36,7 @@ class RoutingDirection(Enum):
     def to_index(self) -> int:
         """Convert the direction to index in children list."""
         if self is RoutingDirection.ANY:
-            # TODO
-            raise ValueError
+            raise TypeError(f"The direction of routing is not specified")
 
         x, y = self.value
 
@@ -109,7 +108,7 @@ class RoutingNodeCoord(NamedTuple):
     @property
     def coordinate(self) -> Coord:
         if self.level > RoutingNodeLevel.L0:
-            raise AttributeError("This property is only for L0 level.")
+            raise AttributeError("This property is only for L0-level node.")
 
         x = (
             (self.L4.value[0] << 4)
