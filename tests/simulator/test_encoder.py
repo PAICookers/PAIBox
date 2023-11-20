@@ -33,4 +33,3 @@ class TestEncoder:
 
         for t in range(20):
             out_spike[t] = pe(x)
-

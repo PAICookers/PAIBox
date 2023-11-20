@@ -2,10 +2,9 @@ from typing import Callable, Optional, Tuple, Union
 
 import numpy as np
 
-from .exceptions import ShapeError, SimulationError
-
 from ._types import Shape
 from .base import DynamicSys
+from .exceptions import ShapeError, SimulationError
 from .utils import as_shape, shape2num
 
 

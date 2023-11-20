@@ -3,7 +3,6 @@ from typing import Any, ClassVar, Dict, List, NamedTuple
 
 import numpy as np
 
-from .context import _BACKEND_CONTEXT
 from paibox.base import NeuDyn
 from paibox.libpaicore import (
     LCN_EX,
@@ -21,6 +20,8 @@ from paibox.libpaicore import (
     WeightPrecision,
     get_replication_id,
 )
+
+from .context import _BACKEND_CONTEXT
 
 
 class CoreConfig(NamedTuple):

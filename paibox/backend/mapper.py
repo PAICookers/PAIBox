@@ -347,7 +347,7 @@ class Mapper:
             lambda cb: any(s for s in cb.source if s.name in self.inodes),
             self.core_blocks,
         )
-        
+
         self.input_cb_info: Dict[InputProj, Dict] = defaultdict(dict)
 
         for input_cb in input_core_blocks:
@@ -371,7 +371,7 @@ class Mapper:
                     _BACKEND_CONTEXT["local_chip_addr"].x,
                     _BACKEND_CONTEXT["local_chip_addr"].y,
                 )
-                
+
                 self.input_cb_info[inode.name] = nd.config_dump()
 
         _flag = False

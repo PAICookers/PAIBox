@@ -1,9 +1,11 @@
+import json
 from enum import Enum
 from json import JSONEncoder
 from typing import Any
+
 import numpy as np
 import pytest
-import json
+
 import paibox as pb
 from paibox.backend.config_template import CoreConfig
 from paibox.libpaicore.v2.coordinate import Coord

@@ -11,7 +11,6 @@ from pydantic import (
 )
 
 from .coordinate import Coord
-
 from .ram_types import *
 
 TICK_RELATIVE_BIT_MAX = 8

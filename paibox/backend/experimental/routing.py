@@ -1,5 +1,4 @@
 from typing import Any, List, Optional, Sequence, final
-from ...exceptions import NotSupportedError
 
 from paibox.libpaicore.v2.routing_defs import RoutingDirection as Direction
 from paibox.libpaicore.v2.routing_defs import RoutingDirectionIdx as DirectionIdx
@@ -7,6 +6,7 @@ from paibox.libpaicore.v2.routing_defs import RoutingNodeLevel as Level
 from paibox.libpaicore.v2.routing_defs import RoutingNodeStatus as NodeStatus
 from paibox.libpaicore.v2.routing_defs import get_node_consumption
 
+from ...exceptions import NotSupportedError
 from ..placement import CorePlacement
 
 """

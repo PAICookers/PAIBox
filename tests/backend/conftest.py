@@ -5,11 +5,7 @@ import numpy as np
 import pytest
 
 import paibox as pb
-from paibox.backend.config_template import (
-    CoreConfig,
-    CorePlacementConfig,
-    NeuronConfig,
-)
+from paibox.backend.config_template import CoreConfig, CorePlacementConfig, NeuronConfig
 from paibox.backend.placement import NeuSeg
 from paibox.backend.routing import RoutingNode
 from paibox.libpaicore import (

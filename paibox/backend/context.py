@@ -1,4 +1,5 @@
 from typing import TypedDict
+
 from paibox.context import _Context
 from paibox.libpaicore import Coord, CoordLike, to_coord
 
