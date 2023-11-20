@@ -1,6 +1,12 @@
+from enum import Enum
+from json import JSONEncoder
+from typing import Any
+import numpy as np
 import pytest
-
+import json
 import paibox as pb
+from paibox.backend.config_template import CoreConfig
+from paibox.libpaicore.v2.coordinate import Coord
 
 
 class NetForTest1(pb.Network):
@@ -119,24 +125,92 @@ def build_example_net4():
     return NetForTest4()
 
 
-class TestMapper:
-    def test_simple_net(self, build_example_net1):
+@pytest.fixture(scope="class")
+def get_mapper() -> pb.Mapper:
+    return pb.Mapper()
+
+
+class CustomJsonEncoder(JSONEncoder):
+    def default(self, o: Any) -> Any:
+        if isinstance(o, Coord):
+            return o.address
+        elif isinstance(o, Enum):
+            return o.value
+        elif isinstance(o, np.ndarray):
+            return int(o)
+        else:
+            return super().default(o)
+
+
+class TestMapperDebug:
+    @pytest.fixture
+    def test_simple_net(self, get_mapper, build_example_net1):
+        """Go throught the backend"""
         net = build_example_net1
 
-        mapper = pb.Mapper()
+        mapper = get_mapper
         mapper.clear()
         mapper.build_graph(net)
-        mapper.do_grouping()
+        mapper.main_phases()
+
+        print("OK")
+
+    @pytest.mark.usefixtures("test_simple_net")
+    def test_export_config_json(self, get_mapper, ensure_dump_dir):
+        """Export all the configs into json"""
+        mapper: pb.Mapper = get_mapper
+        assert mapper.has_built == True
+
+        assert len(mapper.core_blocks) == 3  # 3 layers
+
+        _json_core_configs = dict()
+        _json_core_plm_config = dict()
+
+        for coord, core_param in mapper.core_params.items():
+            _json_core_configs[coord.address] = core_param.config_dump()
+
+        for coord, cpc in mapper.core_plm_config.items():
+            _json_core_plm_config[coord.address] = cpc.config_dump()
+
+        # Export parameters of cores into json
+        with open(ensure_dump_dir / "core_configs.json", "w") as f:
+            json.dump(
+                _json_core_configs,
+                f,
+                ensure_ascii=True,
+                indent=4,
+                cls=CustomJsonEncoder,
+            )
+
+        # Export complete configurations of cores into json
+        with open(ensure_dump_dir / "core_plm_configs.json", "w") as f:
+            json.dump(
+                _json_core_plm_config,
+                f,
+                ensure_ascii=True,
+                indent=4,
+                cls=CustomJsonEncoder,
+            )
+
+        # Export the info of input projections into json
+        with open(ensure_dump_dir / "input_proj_info.json", "w") as f:
+            json.dump(
+                mapper.input_cb_info,
+                f,
+                ensure_ascii=True,
+                indent=4,
+                cls=CustomJsonEncoder,
+            )
 
         print("OK")
 
     @pytest.mark.skip
-    def test_CoreBlock_build(self, build_example_net3):
+    def test_CoreBlock_build(self, get_mapper, build_example_net3):
         net = build_example_net3
 
-        mapper = pb.Mapper()
+        mapper = get_mapper
         mapper.clear()
         mapper.build_graph(net)
-        mapper.do_grouping()
+        mapper.main_phases()
 
         print("OK")
