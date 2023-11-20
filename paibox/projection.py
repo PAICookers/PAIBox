@@ -4,6 +4,7 @@ import numpy as np
 
 from ._types import Shape
 from .base import DynamicSys
+from .exceptions import ShapeError, SimulationError
 from .utils import as_shape, shape2num
 
 
@@ -49,7 +50,7 @@ class InputProj(Projection):
                 if hasattr(input, "shape_out"):
                     self._shape_out = input.shape_out
                 else:
-                    raise ValueError(
+                    raise ShapeError(
                         "Shape of output is required when input is callable."
                     )
             else:
@@ -57,7 +58,7 @@ class InputProj(Projection):
         else:
             # when `input` is None, `shape_out` is required
             if shape_out is None:
-                raise ValueError("Shape of output is required when input is None.")
+                raise ShapeError("Shape of output is required when input is None.")
 
             self._input = None
             self._shape_out = as_shape(shape_out)
@@ -67,7 +68,7 @@ class InputProj(Projection):
 
     def update(self, *args, **kwargs) -> np.ndarray:
         if self.input is None:
-            raise RuntimeError("The input is not set.")
+            raise SimulationError("The input is not set.")
 
         if isinstance(self.input, np.ndarray):
             self._output = self.input.reshape((self.num_out,))
@@ -78,9 +79,10 @@ class InputProj(Projection):
                 self.input(*args, **kwargs).astype(np.int32).reshape((self.num_out,))
             )
         else:
-            # TODO
-            raise TypeError(f"Excepted input type is int, np.integer, np.ndarray or Callable[..., np.ndarray], "
-                            f"but we got {input}, type {type(input)}")
+            raise TypeError(
+                f"Excepted type int, np.integer, np.ndarray or Callable[..., np.ndarray], "
+                f"but got {input}, type {type(input)}"
+            )
 
         return self.output
 
@@ -115,7 +117,7 @@ class InputProj(Projection):
     def input(self, new_input) -> None:
         if isinstance(new_input, np.ndarray):
             if new_input.shape != self.shape_out:
-                raise ValueError("The shape of input is not match.")
+                raise ShapeError("The shape of input does not match.")
 
         self._input = new_input
 

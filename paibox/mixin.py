@@ -6,6 +6,7 @@ import numpy as np
 
 import paibox as pb
 
+from .exceptions import RegisterError
 from .generic import get_unique_name
 from .node import NodeDict
 from .exceptions import RegisterError
@@ -110,7 +111,6 @@ class ReceiveInputProj(MixIn):
 
     def register_master(self, key: str, master_target) -> None:
         if key in self.master_nodes:
-            # TODO
             raise RegisterError(f"Master node with key '{key}' already exists.")
 
         self.master_nodes[key] = master_target
@@ -134,7 +134,7 @@ class StatusMemory(MixIn):
         self._memories = NodeDict()
         self._memories_rv = NodeDict()
 
-    def set_memory(self, name: str, value) -> None:
+    def set_memory(self, name: str, value: Any) -> None:
         if hasattr(self, name):
             raise ValueError(f"{name} has been set as a member variable!")
 
@@ -148,13 +148,13 @@ class StatusMemory(MixIn):
     def set_reset_value(self, name: str, value) -> None:
         self._memories_rv[name] = copy.deepcopy(value)
 
-    def __getattr__(self, name: str):
+    def __getattr__(self, name: str) -> Any:
         if "_memories" in self.__dict__:
             _memories = self.__dict__.get("_memories")
             if _memories is not None and name in _memories:
                 return _memories[name]
 
-        raise AttributeError
+        raise AttributeError(f"Attribute {name} not found!")
 
     def __setattr__(self, name: str, value: Any) -> None:
         _memories = self.__dict__.get("_memories")

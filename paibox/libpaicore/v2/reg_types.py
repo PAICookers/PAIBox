@@ -17,7 +17,6 @@ class WeightPrecisionType(IntEnum):
     WEIGHT_WIDTH_2BIT = 1
     WEIGHT_WIDTH_4BIT = 2
     WEIGHT_WIDTH_8BIT = 3  # Default value.
-    WEIGHT_WIDTH_MAX = 4
 
 
 @unique
@@ -27,8 +26,8 @@ class LCNExtensionType(IntEnum):
     - X-time LCN extension. Default value is `LCN_1X`.
 
     NOTE:
-    - For ANN mode, `LCN_1X` = 144x.
-    - For BANN/SNN mode, `LCN_1X` = 1152x.
+    - For `MODE_ANN`, `LCN_1X` = 144x.
+    - For `MODE_SNN` or `MODE_BANN`, `LCN_1X` = 1152x.
     """
 
     LCN_1X = 0  # Default value.
@@ -38,7 +37,6 @@ class LCNExtensionType(IntEnum):
     LCN_16X = 4
     LCN_32X = 5
     LCN_64X = 6
-    LCN_MAX = 7
 
 
 @unique
@@ -112,13 +110,12 @@ class CoreMode(Enum):
     ANN                             1               1       Don't care
     """
 
-    MODE_UNKNOWN = 0
-    MODE_ANN = 1
-    MODE_SNN = 2
-    MODE_BANN = 3
-    MODE_BANN_OR_SNN_TO_ANN = 4
-    MODE_BANN_OR_SNN_TO_SNN = 5
-    MODE_ANN_TO_BANN_OR_SNN = 6
+    MODE_SNN = 0
+    MODE_BANN = 1  # SNN mode like.
+    MODE_ANN = 2
+    MODE_BANN_OR_SNN_TO_ANN = 3
+    MODE_BANN_OR_SNN_TO_SNN = 4
+    MODE_ANN_TO_BANN_OR_SNN = 5
 
 
 def get_core_mode(

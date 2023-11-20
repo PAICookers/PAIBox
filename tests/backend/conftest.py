@@ -1,11 +1,35 @@
+import random
+from pathlib import Path
+
+import numpy as np
 import pytest
 
 import paibox as pb
+from paibox.backend.config_template import CoreConfig, CorePlacementConfig, NeuronConfig
 from paibox.backend.placement import NeuSeg
 from paibox.backend.routing import RoutingNode
-from paibox.libpaicore.v2 import LCN_EX, NeuronSegment
-from paibox.libpaicore.v2.reg_types import WeightPrecisionType as WP
+from paibox.libpaicore import (
+    LCN_EX,
+    AxonCoord,
+    Coord,
+    InputWidthFormat,
+    MaxPoolingEnable,
+    NeuronSegment,
+    SNNModeEnable,
+    SpikeWidthFormat,
+)
+from paibox.libpaicore import WeightPrecision as WP
 from paibox.libpaicore.v2.routing_defs import RoutingDirection, RoutingNodeLevel
+
+
+@pytest.fixture(scope="session")
+def ensure_dump_dir():
+    p = Path(__file__).parent / "debug"
+
+    if not p.is_dir():
+        p.mkdir(parents=True, exist_ok=True)
+
+    yield p
 
 
 @pytest.fixture
@@ -159,3 +183,66 @@ def neu_segs_expected_dense(neu_ins):
     ]
 
     return expected
+
+
+@pytest.fixture
+def MockCoreConfigDict() -> CoreConfig:
+    wp = random.choice(list(WP))
+    lcn_ex = random.choice(list(LCN_EX))
+    iwf = random.choice(list(InputWidthFormat))
+    swf = random.choice(list(SpikeWidthFormat))
+    num_den = random.randint(1, 512)
+    mpe = random.choice(list(MaxPoolingEnable))
+    tws = random.randint(0, 100)
+    twe = random.randint(0, 100)
+    sme = random.choice(list(SNNModeEnable))
+    target_lcn = random.choice(list(LCN_EX))
+    test_chip_addr = Coord(random.randint(0, 31), random.randint(0, 31))
+
+    return CoreConfig(
+        "mock_core",
+        wp,
+        lcn_ex,
+        iwf,
+        swf,
+        num_den,
+        mpe,
+        tws,
+        twe,
+        sme,
+        target_lcn,
+        test_chip_addr,
+    )
+
+
+@pytest.fixture
+def MockNeuronConfig() -> NeuronConfig:
+    n = random.randint(1, 200)
+    offset = random.randint(1, 100)
+    interval = random.randint(1, 2)
+
+    neuron = pb.neuron.IF((n,), 3, reset_v=-1)
+    ns = NeuronSegment(slice(0, 0 + n, 1), offset, interval)
+
+    axon_coords = [AxonCoord(0, i) for i in range(0, n)]
+    dest_coords = [Coord(0, 0), Coord(0, 1)]
+
+    return NeuronConfig.encapsulate(
+        neuron, ns.addr_ram, ns.addr_offset, axon_coords, dest_coords
+    )
+
+
+@pytest.fixture
+def MockCorePlacementConfig(MockCoreConfigDict, MockNeuronConfig):
+    neuron = pb.neuron.IF((100,), 3, reset_v=-1)
+    coord = Coord(random.randint(0, 31), random.randint(0, 31))
+
+    cpc = CorePlacementConfig.encapsulate(
+        coord,
+        np.uint64(random.randint(1, 200)),
+        np.random.randint(0, 100, size=(1152, 512)),
+        MockCoreConfigDict,
+        {neuron: MockNeuronConfig},
+    )
+
+    return cpc

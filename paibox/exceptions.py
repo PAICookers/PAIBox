@@ -1,32 +1,46 @@
-class ShapeError(Exception):
+class PAIBoxError(Exception):
+    """General exception for PAIBox"""
+
+    pass
+
+
+class PAIBoxWarning(Warning):
+    """General warning for PAIBox"""
+
+    pass
+
+
+class ShapeError(PAIBoxError):
     """Exception for incorrect shape"""
 
-    def __init__(self, *args, **kwargs):  # real signature unknown
-        pass
+    pass
 
 
-class IndexProbeError(IndexError):
-    """Exception for incorrect Probe index"""
+class RegisterError(PAIBoxError):
+    """Raise when registering an object fails"""
 
-    def __init__(self, *args, **kwargs):  # real signature unknown
-        pass
-
-
-class RegisterError(LookupError):
-    """When a mapping or sequence does not allow registering an already existing key or index, an exception is
-    raised. """
-
-    def __init__(self, *args, **kwargs):  # real signature unknown
-        pass
+    pass
 
 
-class StatusError(Exception):
-    """Exception for not executing some prerequisites"""
+class BuildError(PAIBoxError):
+    """Raise when building fails"""
 
-    def __init__(self, *args, **kwargs):  # real signature unknown
-        pass
+    pass
 
 
-class PAICoreError(Exception):
-    def __init__(self, *args, **kwargs):  # real signature unknown
-        pass
+class NotSupportedError(PAIBoxError, NotImplementedError):
+    """Exception for a certain function not supported"""
+
+    pass
+
+
+class SimulationError(PAIBoxError, RuntimeError):
+    """An error encountered during simulation"""
+
+    pass
+
+
+class ResourceError(PAIBoxError):
+    """Resource usage exceeds hardware limit"""
+
+    pass

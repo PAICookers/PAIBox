@@ -1,28 +1,25 @@
-import time
+import json
 
-import pytest
 
-import paibox as pb
-from paibox.backend.config_template import NeuronConfig
-from paibox.libpaicore import AxonCoord, Coord, FrameType, NeuronSegment
+class TestCoreConfigDict:
+    def test_CoreConfigDict_instance(self, ensure_dump_dir, MockCoreConfigDict):
+        c = MockCoreConfigDict.export()
+
+        with open(ensure_dump_dir / "core_config.json", "w") as f:
+            json.dump(c, f, indent=4, ensure_ascii=True)
 
 
 class TestNeuronConfig:
-    def test_NeuronConfig_instance(self):
-        t1 = time.time()
-        n1 = pb.neuron.IF((100,), 3)
-        ns = NeuronSegment(slice(100, 200, 1), 100, 4)
+    def test_NeuronConfig_instance(self, ensure_dump_dir, MockNeuronConfig):
+        with open(ensure_dump_dir / "neu_config.json", "w") as f:
+            json.dump(MockNeuronConfig.config_dump(), f, indent=4, ensure_ascii=True)
 
-        axon_coords = [AxonCoord(0, i) for i in range(0, 1000)]
-        dest_coords = [Coord(0, 0)]
 
-        nc = NeuronConfig.build(
-            n1, ns.addr_ram, ns.addr_offset, axon_coords, dest_coords
-        )
-
-        assert nc.frame_type is FrameType.FRAME_CONFIG
-
-        params_dict = nc.export_params()
-
-        print(time.time() - t1)
-        print(params_dict["addr_ram"])
+class TestCorePlacementConfig:
+    def test_CorePlacementConfig_instance(
+        self, ensure_dump_dir, MockCorePlacementConfig
+    ):
+        with open(ensure_dump_dir / "core_placement.json", "w") as f:
+            json.dump(
+                MockCorePlacementConfig.config_dump(), f, indent=4, ensure_ascii=True
+            )

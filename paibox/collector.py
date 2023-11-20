@@ -1,4 +1,4 @@
-from typing import Any, Dict, Sequence, Type, Union
+from typing import Any, Callable, Dict, Sequence, Type, Union
 
 
 class Collector(dict):
@@ -11,14 +11,15 @@ class Collector(dict):
 
         dict.__setitem__(self, key, value)
 
-    def replace(self, key, new_value) -> None:
+    def replace(self, key: Any, new_value: Any) -> None:
         self.pop(key)
         self.key = new_value
 
     def update(self, other: Union[Dict, Sequence]):
         if not isinstance(other, (dict, list, tuple)):
-            # TODO
-            raise TypeError(f"Excepted dict, list or sequence, but we got {other}, type {type(other)}")
+            raise TypeError(
+                f"Excepted a dict, list or sequence, but we got {other}, type {type(other)}"
+            )
 
         if isinstance(other, dict):
             for k, v in other.items():
@@ -45,8 +46,9 @@ class Collector(dict):
 
     def __sub__(self, other: Union[Dict[str, Any], Sequence]):
         if not isinstance(other, (dict, list, tuple)):
-            # TODO
-            raise TypeError(f"Excepted dict, list or sequence, but we got {other}, type {type(other)}")
+            raise TypeError(
+                f"Excepted a dict, list or sequence, but we got {other}, type {type(other)}"
+            )
 
         gather = type(self)(self)
 
@@ -129,6 +131,24 @@ class Collector(dict):
         for k, v in self.items():
             if id(v) not in seen:
                 seen.add(id(v))
+                gather[k] = v
+
+        return gather
+
+    def key_on_condition(self, condition: Callable[..., bool]):
+        gather = type(self)()
+
+        for k, v in self.items():
+            if condition(k):
+                gather[k] = v
+
+        return gather
+
+    def value_on_condition(self, condition: Callable[..., bool]):
+        gather = type(self)()
+
+        for k, v in self.items():
+            if condition(v):
                 gather[k] = v
 
         return gather

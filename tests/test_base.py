@@ -1,6 +1,7 @@
 import pytest
 
 import paibox as pb
+from paibox.exceptions import RegisterError
 
 
 def test_paiboxobject_eq():
@@ -14,7 +15,7 @@ def test_paiboxobject_eq():
     assert obj2 != obj3
 
     # Rename
-    with pytest.raises(ValueError):
+    with pytest.raises(RegisterError):
         obj1.name = "obj2"
 
     obj1.name = "obj1_1"
