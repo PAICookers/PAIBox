@@ -9,6 +9,7 @@ from typing import (
     Sequence,
     Tuple,
     Union,
+    overload,
 )
 
 import numpy as np
@@ -37,7 +38,7 @@ from paibox.libpaicore import (
 from paibox.projection import InputProj
 from paibox.synapses import SynSys
 
-from .config_template import CoreConfigDict, CorePlacementConfig, NeuronConfig
+from .config_template import CoreConfig, CorePlacementConfig, NeuronConfig
 from .context import _BACKEND_CONTEXT
 
 SourceNodeType = Union[NeuDyn, InputProj]
@@ -141,13 +142,7 @@ class CoreBlock(CoreAbstract):
 
     @staticmethod
     def all_dtype_equal(*syns: SynSys) -> bool:
-        _dtype = syns[0].connectivity.dtype
-
-        for syn in syns:
-            if _dtype != syn.connectivity.dtype:
-                return False
-
-        return True
+        return all(syns[0].connectivity.dtype is syn.connectivity.dtype for syn in syns)
 
     def set_lcn_ex(self, lcn_ex: LCN_EX) -> None:
         self.lcn_ex = lcn_ex
@@ -205,10 +200,9 @@ class CoreBlock(CoreAbstract):
         """Ordered unique destination nodes."""
         return list(set([parent.dest for parent in self.obj]))
 
-    @property
-    def n_axon_of_source(self) -> List[int]:
-        """The #N of axons of each source neurons."""
-        return [s.num_out for s in self.source]
+    def n_axon_of(self, index: int) -> int:
+        """Get the #N of axons of `index`-th source neuron."""
+        return self.axons[index].num_out
 
     """Boundary limitations"""
 
@@ -265,7 +259,7 @@ class CoreBlock(CoreAbstract):
 
     @property
     def n_axon(self) -> int:
-        return sum(self.n_axon_of_source)
+        return sum(s.num_out for s in self.axons)
 
     @property
     def n_dendrite(self) -> int:
@@ -276,13 +270,12 @@ class CoreBlock(CoreAbstract):
         )
 
     @property
-    def n_neuron_of_dest(self) -> List[int]:
-        """The #N of neurons of each destination neurons."""
-        return [d.num_in for d in self.dest]
-
-    @property
     def n_neuron(self) -> int:
-        return sum(self.n_neuron_of_dest)
+        return sum(d.num_in for d in self.dest)
+
+    def n_neuron_of(self, index: int) -> int:
+        """Get the #N of neurons of `index`-th dest neurons."""
+        return self.source[index].num_in
 
     @property
     def n_neuron_of_cb(self) -> List[int]:
@@ -294,9 +287,9 @@ class CoreBlock(CoreAbstract):
         if len(self.core_coords) == 0:
             raise BuildError(f"Do this after coordinates assignment.")
 
-        n = [0] * (self.n_core_required)
+        n = [0] * len(self)
 
-        for i in range(self.n_core_required - 1):
+        for i in range(len(self) - 1):
             n[i] = self.neuron_capacity
 
         n[-1] = self.n_neuron % self.neuron_capacity
@@ -362,6 +355,15 @@ class CoreBlock(CoreAbstract):
 
         return rid
 
+    def __len__(self) -> int:
+        return self.n_core_required
+
+    def __getitem__(self, index: int) -> "CorePlacement":
+        if index >= len(self):
+            raise IndexError(f"Index {index} is out of range ({len(self)}).")
+
+        return self.core_placements[self.core_coords[index]]
+
     def __repr__(self) -> str:
         return f"<{self.name} at 0x{id(self):x} of target '{self.obj}'>"
 
@@ -372,7 +374,7 @@ class CoreBlock(CoreAbstract):
         raise NotImplementedError
 
     @classmethod
-    def export_core_plm_config(cls, cb: "CoreBlock") -> Dict[Coord, CoreConfigDict]:
+    def export_core_plm_config(cls, cb: "CoreBlock") -> Dict[Coord, CoreConfig]:
         """Export the parameters of the core into a dictionary."""
         cb_config = dict()
 
@@ -463,9 +465,10 @@ class CorePlacement(CoreAbstract):
 
         return binary_conn.astype(np.bool_)
 
-    def export_param_config(self) -> CoreConfigDict:
+    def export_param_config(self) -> CoreConfig:
         # fmt: off
-        cb_config = CoreConfigDict(
+        cb_config = CoreConfig(
+            self.name,                          # name of the core
             self.weight_precision,              # weight_precision
             self.lcn_ex,                        # lcn_extension
             InputWidthFormat.WIDTH_1BIT,        # input_width_format
@@ -476,29 +479,76 @@ class CorePlacement(CoreAbstract):
             0,                                  # tick_wait_end
             SNNModeEnable.ENABLE,               # snn_mode_en
             self.target_lcn,                    # target_lcn
-            _BACKEND_CONTEXT["test_chip_addr"], # test_chip_addr
+            _BACKEND_CONTEXT.test_chip_addr,    # test_chip_addr
         )
         # fmt: on
         return cb_config
 
+    @overload
     def export_neu_config(self, neu_seg: NeuSeg, axon_dests: List[CoreBlock]) -> None:
+        ...
+
+    @overload
+    def export_neu_config(
+        self,
+        neu_seg: NeuSeg,
+        *,
+        output_core_coord: Coord,
+        axon_addr_offset: int,
+    ) -> int:
+        ...
+
+    def export_neu_config(
+        self,
+        neu_seg: NeuSeg,
+        axon_dests: Optional[List[CoreBlock]] = None,
+        *,
+        output_core_coord: Optional[Coord] = None,
+        axon_addr_offset: Optional[int] = None,
+    ) -> Optional[int]:
+        """Export the neuron configuration.
+
+        TODO For the last layer, how to define its output destination to the outside?
         """
-        TODO Change the name of the method.
-        """
-        for axon_dest in axon_dests:
-            axon_coords = aligned_coords(
-                neu_seg.segment.index, axon_dest.axon_segments[neu_seg.parent]
-            )
+        if isinstance(axon_dests, list):
+            for axon_dest in axon_dests:
+                axon_coords = aligned_coords(
+                    neu_seg.segment.index, axon_dest.axon_segments[neu_seg.parent]
+                )
+
+                config = NeuronConfig.encapsulate(
+                    neu_seg.parent,
+                    neu_seg.segment.addr_ram,
+                    neu_seg.segment.addr_offset,
+                    axon_coords,
+                    axon_dest.core_coords,
+                    # Here is local chip coordinate!
+                    _BACKEND_CONTEXT["local_chip_addr"],
+                )
+
+                self.neu_config[neu_seg.parent] = config
+        else:
+            assert isinstance(output_core_coord, Coord)
+            assert isinstance(axon_addr_offset, int)
+
+            axon_coords = [
+                AxonCoord(0, i)
+                for i in range(
+                    axon_addr_offset, axon_addr_offset + neu_seg.segment.n_neuron
+                )
+            ]
 
             config = NeuronConfig.encapsulate(
                 neu_seg.parent,
                 neu_seg.segment.addr_ram,
                 neu_seg.segment.addr_offset,
                 axon_coords,
-                axon_dest.core_coords,
+                [output_core_coord],
             )
 
             self.neu_config[neu_seg.parent] = config
+
+            return axon_addr_offset + neu_seg.segment.n_neuron
 
     def export_core_config(self) -> CorePlacementConfig:
         return CorePlacementConfig.encapsulate(
@@ -545,6 +595,9 @@ class CorePlacement(CoreAbstract):
     def crossbar(self) -> np.ndarray:
         return self._get_binary_conn(self.weights)
 
+    def __len__(self) -> int:
+        return self.n_core_required
+
 
 def n_axon2lcn_ex(n_axon: int, fan_in_max: int) -> LCN_EX:
     """Convert #N(of axons) to `LCN_EX`.
@@ -555,15 +608,12 @@ def n_axon2lcn_ex(n_axon: int, fan_in_max: int) -> LCN_EX:
     where, LCN_EX = 0 is `LCN_1X`.
     """
     if n_axon < 1:
-        # TODO
         raise ValueError(f"The #N of axons > 0, but got {n_axon}")
 
     lcn_ex = LCN_EX(((n_axon - 1) // fan_in_max).bit_length())
 
     if lcn_ex > LCN_EX.LCN_64X:
-        raise ResourceError(
-            f"LCN extension required out of {LCN_EX.LCN_64X}: {lcn_ex}"
-        )
+        raise ResourceError(f"LCN extension required out of {LCN_EX.LCN_64X}: {lcn_ex}")
 
     return lcn_ex
 
@@ -591,7 +641,7 @@ def get_neu_segments(
     elif method == "dense":
         return _get_neu_segments_dense(neu_groups, capacity, interval)
 
-    raise NotSupportedError(f"Method {method} is not supported yet")
+    raise ValueError(f"Method {method} not defined!")
 
 
 def _get_neu_segments_catagory(

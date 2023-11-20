@@ -4,14 +4,15 @@ from typing import Dict, List, Set
 from paibox.base import NeuDyn
 from paibox.collector import Collector
 from paibox.exceptions import BuildError, ResourceError
-from paibox.libpaicore import Coord, HwConfig
+from paibox.libpaicore import Coord, CoordOffset, HwConfig, get_replication_id
 from paibox.network import DynSysGroup
 from paibox.projection import InputProj
 from paibox.synapses import SynSys
 
-from .config_template import CoreConfigDict
+from .config_template import CoreConfig, NeuronDest
+from .context import _BACKEND_CONTEXT
 from .graphs import *
-from .placement import CoreBlock, max_lcn_of_cb
+from .placement import CoreBlock, aligned_coords, max_lcn_of_cb
 from .routing import RoutingRoot
 
 NodeNameType = str
@@ -97,7 +98,7 @@ class Mapper:
         }
         """
 
-        self.core_params: Dict[Coord, CoreConfigDict] = dict()
+        self.core_params: Dict[Coord, CoreConfig] = dict()
         """The dictionary of core parameters. Structure:
         {
             address of core: {
@@ -107,8 +108,10 @@ class Mapper:
         """
 
         self.core_plm_config = dict()
-
         self.clear()
+
+        """Options"""
+        self._filter_cycle: bool = True
 
     def clear(self) -> None:
         self.has_built = False
@@ -129,13 +132,19 @@ class Mapper:
         self.core_params.clear()
         self.core_plm_config.clear()
 
-    def build_graph(self, network: DynSysGroup) -> None:
+    def build_graph(
+        self, network: DynSysGroup, *, filter_cycle: Optional[bool] = None
+    ) -> None:
         """Build the directed graph based on a given network.
 
         Arguments:
             - network: a `DynSysGroup`.
+            - filter_cycle: whether to filter network with cycles. Default is `True`.
         """
         self.clear()
+
+        if isinstance(filter_cycle, bool):
+            self._filter_cycle = filter_cycle
 
         self.network = network
         self._nodes = (
@@ -164,11 +173,13 @@ class Mapper:
         # `InputProj` nodes are input nodes definitely.
         self.inodes = self.nodes.subset(InputProj)
         # By default, nodes with out-degree = 0 are considered output nodes.
-        self.onodes = self.nodes.on_condition(lambda node: len(self.succ_dg[node]) == 0)
+        self.onodes = self.nodes.key_on_condition(
+            lambda node: len(self.succ_dg[node]) == 0
+        )
 
         self._graph_check()
 
-    def do_grouping(self) -> None:
+    def main_phases(self) -> None:
         """
         Prerequisites:
         0. Global config:
@@ -181,7 +192,7 @@ class Mapper:
             - The number of a group of neurons <= 512.
             - The LCN extension of every layer is LCN_1X.
 
-        2. TODO Level 1:pass
+        2. Level 1:pass
             - Every layer is considered seperately.
             - The number of a group of neurons may > 512.
             - The LCN extension of every layer is LCN_1X.
@@ -215,27 +226,21 @@ class Mapper:
             - For a node with out-degree > 1, the in-degree of \
                 all its backward node = 1.
         """
-        self._ordered_nodes = toposort(self._succ_nodes, is_strict=True)
+        # Filter the DG with cycles.
+        if self._filter_cycle:
+            self._ordered_nodes = toposort(self._succ_nodes, is_strict=True)
 
         self._degree_of_nodes = get_node_degrees(self.succ_dg)
 
-        for node in self.nodes:
-            if self._degree_of_nodes[node].out_degree > 1:
-                succ_nodes = list(self.succ_dg[node].keys())
-
-                if any(
-                    self._degree_of_nodes[succ_node].in_degree > 1
-                    for succ_node in succ_nodes
-                ):
-                    raise NotSupportedError("Not support this structure of network.")
-
-        # Moved to `build_core_blocks`
-        # if do_edges_grouping:
-        #     self._degree_of_nodes, self._edges_grouped = group_edges(
-        #         self._ordered_nodes, list(self.edges.keys()), self.pred_dg, self.succ_dg
-        #     )
-        # else:
-        #     self._edges_grouped = list({e} for e in self.edges)
+        branch_nodes = filter(
+            lambda node: self._degree_of_nodes[node].out_degree > 1, self.nodes
+        )
+        for node in branch_nodes:
+            if any(
+                self._degree_of_nodes[succ_node].in_degree > 1
+                for succ_node in self.succ_dg[node]
+            ):
+                raise NotSupportedError("Not support this structure of network.")
 
     def build_core_blocks(self) -> None:
         """Build core blocks based on grouped edges.
@@ -246,11 +251,16 @@ class Mapper:
 
             # Then do sorting in ascending order.
         """
+        if self._filter_cycle:
+            ordered_nodes = self._ordered_nodes
+        else:
+            ordered_nodes = None
+
         self._edges_grouped = group_edges(
             list(self.edges.keys()),
             self.succ_dg,
             self._degree_of_nodes,
-            ordered_nodes=self._ordered_nodes,
+            ordered_nodes=ordered_nodes,
         )
 
         for syns_set in self._edges_grouped:
@@ -262,7 +272,6 @@ class Mapper:
             n_core_required_total := sum(cb.n_core_required for cb in self.core_blocks)
             > HwConfig.N_CORE_OFFLINE
         ):
-            # TODO
             raise ResourceError(
                 f"#N of total core required out of {HwConfig.N_CORE_OFFLINE}: {n_core_required_total}"
             )
@@ -276,18 +285,16 @@ class Mapper:
         # )
 
         """
-            Traverse the destination node of each grouped synapse, \
-            and check if it is the source of other grouped synapses.\
+            Get the following core blocks for each core block.
         """
         for cb in self.core_blocks:
-            other_cb = self.core_blocks.copy()
-            other_cb.remove(cb)
-
-            for dest_node in cb.dest:
-                succ_cb = [
-                    gs for gs in other_cb if self.nodes[dest_node.name] in gs.source
-                ]
-                self.succ_core_blocks[cb].extend(succ_cb)
+            succ_cbs = list(
+                filter(
+                    lambda succ_cb: any(d for d in cb.dest if d in succ_cb.source),
+                    self.core_blocks,
+                )
+            )
+            self.succ_core_blocks[cb].extend(succ_cbs)
 
     def lcn_ex_adjustment(self) -> None:
         """Adjust the LCN extension for each core block. Make sure  \
@@ -308,7 +315,7 @@ class Mapper:
                     g.set_lcn_ex(max_lcn_ex)
 
                 cb.target_lcn = max_lcn_ex
-            elif len(succ_cb) > 0:
+            elif len(succ_cb) == 1:
                 cb.target_lcn = succ_cb[0].lcn_ex
                 cb.lcn_locked = True
             else:
@@ -335,6 +342,41 @@ class Mapper:
                 RANDOM_SEED & Weight RAM) of cores.
             - 2. Export the parameters(Neuron RAM) of neurons inside.
         """
+        # Get the input core blocks for all input nodes.
+        input_core_blocks = filter(
+            lambda cb: any(s for s in cb.source if s.name in self.inodes),
+            self.core_blocks,
+        )
+        
+        self.input_cb_info: Dict[InputProj, Dict] = defaultdict(dict)
+
+        for input_cb in input_core_blocks:
+            dest_coords = input_cb.core_coords
+            dest_rid = get_replication_id(dest_coords)
+
+            for inode in self.inodes.values():
+                axon_coords = aligned_coords(
+                    slice(0, input_cb.n_axon_of(input_cb.source.index(inode))),
+                    input_cb.axon_segments[inode],
+                )
+
+                nd = NeuronDest(
+                    dest_coords,
+                    [coord.tick_relative for coord in axon_coords],
+                    [coord.addr_axon for coord in axon_coords],
+                    dest_coords[0].x,
+                    dest_coords[0].y,
+                    dest_rid.x,
+                    dest_rid.y,
+                    _BACKEND_CONTEXT["local_chip_addr"].x,
+                    _BACKEND_CONTEXT["local_chip_addr"].y,
+                )
+                
+                self.input_cb_info[inode.name] = nd.config_dump()
+
+        _flag = False
+        output_core_coord = _BACKEND_CONTEXT["output_core_addr"]
+
         for cb in self.core_blocks:
             self.core_params |= CoreBlock.export_core_plm_config(cb)
             """
@@ -344,21 +386,33 @@ class Mapper:
             If found, get the coordinate of the core placment, all the \
                 coordinates of axons(for broadcasting).
             """
+            output_axon_offset = 0
+
             for core_plm in cb.core_placements.values():
                 for neu_seg in core_plm.neu_segs:
-                    # Find the axons dest
-                    dests = [
-                        cb for cb in self.core_blocks if neu_seg.parent in cb.source
-                    ]
+                    # Find the axon destinations
+                    dests = list(
+                        filter(lambda cb: neu_seg.parent in cb.source, self.core_blocks)
+                    )
 
-                    if not dests:
-                        continue
-
-                    # TODO Necessary to make this condition a premise?
-                    assert len(dests) == 1  # ?
-                    core_plm.export_neu_config(neu_seg, dests)
+                    if len(dests) > 0:
+                        # TODO Necessary to make this condition a premise?
+                        assert len(dests) == 1  # ?
+                        core_plm.export_neu_config(neu_seg, dests)
+                    else:
+                        # An output node
+                        output_axon_offset = core_plm.export_neu_config(
+                            neu_seg,
+                            output_core_coord=output_core_coord,
+                            axon_addr_offset=output_axon_offset,
+                        )
+                        _flag = True
 
                 self.core_plm_config[core_plm.coord] = core_plm.export_core_config()
+
+            if _flag:
+                output_core_coord += CoordOffset(1, 0)
+                _flag = False
 
     @property
     def nodes(self):
