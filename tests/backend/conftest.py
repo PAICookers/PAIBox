@@ -6,7 +6,7 @@ import pytest
 
 import paibox as pb
 from paibox.backend.config_template import (
-    CoreConfigDict,
+    CoreConfig,
     CorePlacementConfig,
     NeuronConfig,
 )
@@ -190,7 +190,7 @@ def neu_segs_expected_dense(neu_ins):
 
 
 @pytest.fixture
-def MockCoreConfigDict() -> CoreConfigDict:
+def MockCoreConfigDict() -> CoreConfig:
     wp = random.choice(list(WP))
     lcn_ex = random.choice(list(LCN_EX))
     iwf = random.choice(list(InputWidthFormat))
@@ -203,7 +203,8 @@ def MockCoreConfigDict() -> CoreConfigDict:
     target_lcn = random.choice(list(LCN_EX))
     test_chip_addr = Coord(random.randint(0, 31), random.randint(0, 31))
 
-    return CoreConfigDict(
+    return CoreConfig(
+        "mock_core",
         wp,
         lcn_ex,
         iwf,

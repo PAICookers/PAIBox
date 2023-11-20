@@ -6,7 +6,14 @@ import numpy as np
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
-__all__ = ["Coord", "ReplicationId", "CoordLike", "to_coord", "to_coords"]
+__all__ = [
+    "Coord",
+    "CoordOffset",
+    "ReplicationId",
+    "CoordLike",
+    "to_coord",
+    "to_coords",
+]
 
 
 class Identifier(ABC):

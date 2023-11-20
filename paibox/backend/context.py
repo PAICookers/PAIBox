@@ -1,7 +1,15 @@
+from typing import TypedDict
 from paibox.context import _Context
 from paibox.libpaicore import Coord, CoordLike, to_coord
 
 __all__ = ["BACKEND_CONFIG"]
+
+
+class _BackendContextDict(TypedDict, total=False):
+    output_chip_addr: Coord
+    output_core_addr: Coord
+    test_chip_addr: Coord
+    local_chip_addr: Coord
 
 
 class _BackendContext(_Context):
