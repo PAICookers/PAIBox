@@ -1,5 +1,4 @@
 from .coordinate import *
-from .frame import *
 from .hw_defs import HwConfig as HwConfig
 from .hw_types import *
 from .ram_model import *
@@ -18,6 +17,7 @@ from .reg_types import MaxPoolingEnableType as MaxPoolingEnable
 from .reg_types import SNNModeEnableType as SNNModeEnable
 from .reg_types import SpikeWidthFormatType as SpikeWidthFormat
 from .reg_types import WeightPrecisionType as WeightPrecision
+from .reg_types import CoreModeDict as CoreModeDict
 from .routing_defs import RoutingNodeCoord as RoutingNodeCoord
 from .routing_defs import get_replication_id
 
