@@ -18,6 +18,7 @@ import numpy as np
 from paibox.base import NeuDyn, PAIBoxObject
 from paibox.exceptions import BuildError, NotSupportedError, ResourceError
 from paibox.libpaicore import (
+    LCN_EX,
     AxonCoord,
     AxonSegment,
     Coord,
@@ -25,13 +26,11 @@ from paibox.libpaicore import (
     CoreModeDict,
     HwConfig,
     HwCore,
-    LCN_EX,
     MaxPoolingEnable,
     NeuronSegment,
-    WeightPrecision,
-    get_replication_id,
 )
 from paibox.libpaicore import ReplicationId as RId
+from paibox.libpaicore import WeightPrecision, get_replication_id
 from paibox.projection import InputProj
 from paibox.synapses import SynSys
 

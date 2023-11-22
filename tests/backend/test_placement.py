@@ -1,4 +1,5 @@
 from functools import partial
+
 import numpy as np
 import pytest
 
@@ -266,7 +267,7 @@ class TestWeightUnpack:
             w_unpacked = self._weight_ram_mapping_ref(w_folded, nbit)
         else:
             w_unpacked = w_folded.copy().astype(np.bool_)
-        
+
         w_unpacked.setflags(write=False)
 
         # 3. Check
