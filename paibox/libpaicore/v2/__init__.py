@@ -1,5 +1,4 @@
 from .coordinate import *
-from .frame import *
 from .hw_defs import HwConfig as HwConfig
 from .hw_types import *
 from .ram_model import *
@@ -12,6 +11,7 @@ from .ram_types import SynapticIntegrationMode as SIM
 from .ram_types import ThresholdMode as TM
 from .reg_model import ParamsReg as ParamsReg
 from .reg_types import CoreMode as CoreMode
+from .reg_types import CoreModeDict as CoreModeDict
 from .reg_types import InputWidthFormatType as InputWidthFormat
 from .reg_types import LCNExtensionType as LCN_EX
 from .reg_types import MaxPoolingEnableType as MaxPoolingEnable

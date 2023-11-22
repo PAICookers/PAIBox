@@ -10,7 +10,6 @@ from pydantic import (
     model_validator,
 )
 
-from .coordinate import Coord
 from .ram_types import *
 
 TICK_RELATIVE_BIT_MAX = 8
@@ -32,10 +31,6 @@ class NeuronDestInfo(BaseModel):
     _exclude_vars = ("tick_relative", "addr_axon")
 
     model_config = ConfigDict(extra="ignore", validate_assignment=True)
-
-    dest_coords: List[InstanceOf[Coord]] = Field(
-        description="Coordinates of destination cores."
-    )
 
     tick_relative: List[InstanceOf[int]] = Field(
         description="Information of relative ticks.",
@@ -94,10 +89,6 @@ class NeuronDestInfo(BaseModel):
             raise ValueError("Parameter 'addr_axon' out of range.")
 
         return v
-
-    @field_serializer("dest_coords")
-    def _dest_coords(self, dest_coords: List[Coord]) -> List[int]:
-        return [coord.address for coord in dest_coords]
 
     @model_validator(mode="after")
     def _length_match_check(self):

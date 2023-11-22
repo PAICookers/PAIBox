@@ -1,4 +1,5 @@
 from collections import defaultdict
+from functools import cached_property
 from typing import (
     ClassVar,
     Dict,
@@ -22,19 +23,14 @@ from paibox.libpaicore import (
     AxonSegment,
     Coord,
     CoreMode,
+    CoreModeDict,
     HwConfig,
     HwCore,
-    InputWidthFormat,
     MaxPoolingEnable,
     NeuronSegment,
 )
 from paibox.libpaicore import ReplicationId as RId
-from paibox.libpaicore import (
-    SNNModeEnable,
-    SpikeWidthFormat,
-    WeightPrecision,
-    get_replication_id,
-)
+from paibox.libpaicore import WeightPrecision, get_replication_id
 from paibox.projection import InputProj
 from paibox.synapses import SynSys
 
@@ -171,14 +167,21 @@ class CoreBlock(CoreAbstract):
             self.neuron_segs_of_cb[coord] = segs
 
         for i, coord in enumerate(self.core_coords):
-            n_neuron = self.n_neuron_of_cb[i]
-            nstart = sum(self.n_neuron_of_cb[:i])
-            nstop = nstart + n_neuron
+            assert self.get_raw_weight_of_coord(coord)[0].shape[0] == self.n_axon
 
-            # divide at axis=1
             self.core_placements[coord] = CorePlacement.build(
-                self, coord, i, self.weight_concat[:, nstart:nstop]
+                self, coord, i, self.get_raw_weight_of_coord(coord)
             )
+
+    def get_syn_of(self, src: SourceNodeType, dest: DestNodeType) -> Optional[SynSys]:
+        for syn in self.obj:
+            if syn.source == src and syn.dest == dest:
+                return syn
+
+        return None
+
+    def copy(self):
+        raise NotImplementedError
 
     """Interfaces"""
 
@@ -237,6 +240,10 @@ class CoreBlock(CoreAbstract):
             the physical core.
         """
         return 1 << self.weight_precision
+
+    @property
+    def n_weight_bits(self) -> int:
+        return self.n_dendrite_per_neuron
 
     @property
     def lcn_ex(self) -> LCN_EX:
@@ -302,26 +309,9 @@ class CoreBlock(CoreAbstract):
 
         return n
 
-    @property
-    def weight_concat(self) -> np.ndarray:
-        """The weight matrix concatenated by the synapses \
-            involved in the object.
-
-        Concatenated weight for each destination node:
-             For N1,  ...,  for Nn
-            [s1, d1], ..., [s1, dn]
-            ...
-            [sn, d1], ..., [sn, dn]
-
-        Then concatenate them in one piece.
-        """
-
-        def get_syn(src: SourceNodeType, dest: DestNodeType) -> Optional[SynSys]:
-            for syn in self.obj:
-                if syn.source == src and syn.dest == dest:
-                    return syn
-
-            return None
+    @cached_property
+    def raw_weight_of_dest(self) -> List[np.ndarray]:
+        """Merge and then split the weight matrix according to the grouping of neurons."""
 
         # The concatenated weight for each destination node.
         w_of_neurons: List[np.ndarray] = []
@@ -331,19 +321,34 @@ class CoreBlock(CoreAbstract):
             w_of_dest = []
 
             for s in self.source:
-                if syn := get_syn(s, d):
+                if syn := self.get_syn_of(s, d):
                     w_of_dest.append(syn.connectivity)
                 else:
                     # Fill with 0.
-                    w_of_dest.append(np.zeros((s.num_out, d.num_in), dtype=np.bool_))
+                    w_of_dest.append(np.zeros((s.num_out, d.num_in), dtype=np.int8))
 
-            w_dest = np.concatenate(w_of_dest, axis=0)
+            w_dest = np.vstack(w_of_dest, dtype=np.int8)
             w_of_neurons.append(w_dest)
 
-        w_in_gsyn = np.concatenate(w_of_neurons, axis=1)
-        w_in_gsyn.setflags(write=False)
+        # Check
+        assert all(
+            w_of_neurons[0].shape[0] == w_of_neuron.shape[0]
+            for w_of_neuron in w_of_neurons
+        )
 
-        return w_in_gsyn
+        return w_of_neurons
+
+    def get_raw_weight_of_coord(self, coord: Coord) -> List[np.ndarray]:
+        """Get the raw weight of a coordinate(on each `CorePlacement`)."""
+        w_of_neu_segs: List[np.ndarray] = []
+
+        for neu_seg in self.neuron_segs_of_cb[coord]:
+            w_of_dest = self.raw_weight_of_dest[self.dest.index(neu_seg.parent)]
+            w_of_neu_seg = w_of_dest[:, neu_seg.segment.index].copy()
+            w_of_neu_seg.setflags(write=False)
+            w_of_neu_segs.append(w_of_neu_seg)
+
+        return w_of_neu_segs
 
     @property
     def replicationId(self) -> RId:
@@ -370,9 +375,6 @@ class CoreBlock(CoreAbstract):
     def __str__(self) -> str:
         return f"<{self.name} of target '{self.obj}'>"
 
-    def copy(self):
-        raise NotImplementedError
-
     @classmethod
     def export_core_plm_config(cls, cb: "CoreBlock") -> Dict[Coord, CoreConfig]:
         """Export the parameters of the core into a dictionary."""
@@ -390,10 +392,11 @@ class CorePlacement(CoreAbstract):
     _excluded_vars = ()
 
     n_core_required: ClassVar[int] = 1
-    binary_conn_shape: ClassVar[Tuple[int, int]] = (
+    weight_ram_shape: ClassVar[Tuple[int, int]] = (
         HwConfig.N_FANIN_PER_DENDRITE_SNN,
         HwConfig.N_DENDRITE_MAX_SNN,
     )
+    """SNN mode ONLY."""
 
     def __init__(
         self,
@@ -401,7 +404,7 @@ class CorePlacement(CoreAbstract):
         routing_coord: Coord,
         n_neuron: int,
         *,
-        weights: np.ndarray,
+        raw_weights: List[np.ndarray],
         neu_segs: List[NeuSeg],
         name: Optional[str] = None,
     ) -> None:
@@ -410,7 +413,7 @@ class CorePlacement(CoreAbstract):
             - parent: the parent grouped synapse(complete).
             - idx: The index number where this object is located.
             - n_neuron: the number of neurons used in the CORE.
-            - weights: the weights in this single CORE.
+            - raw_weights: the raw weights in this single CORE.
             - neuron_segment: The placement of the destination neurons.
         """
         super().__init__(name)
@@ -420,66 +423,148 @@ class CorePlacement(CoreAbstract):
         """Routing coordinate"""
 
         self.n_neuron = n_neuron
-        self.weights = weights
+
+        assert len(raw_weights) == len(neu_segs)
+
+        self._weights_folded = self._fold_raw_weights(raw_weights)
 
         self.neu_segs = neu_segs
         self.neu_config: Dict[NeuDyn, NeuronConfig] = defaultdict()
 
     @classmethod
-    def build(cls, parent: CoreBlock, coord: Coord, idx: int, weights: np.ndarray):
+    def build(
+        cls, parent: CoreBlock, coord: Coord, idx: int, raw_weights: List[np.ndarray]
+    ):
         n_neuron = parent.n_neuron_of_cb[idx]
         neu_segs = parent.neuron_segs_of_cb[coord]
 
-        return cls(parent, coord, n_neuron, weights=weights, neu_segs=neu_segs)
+        return cls(parent, coord, n_neuron, raw_weights=raw_weights, neu_segs=neu_segs)
 
-    def _get_binary_conn(self, weights: np.ndarray) -> np.ndarray:
-        """Reshape the divided weight matrix into the shape 1152*512."""
-        binary_conn = np.zeros(self.binary_conn_shape, dtype=np.bool_)
-        row, _ = self.binary_conn_shape
+    def _fold_raw_weights(self, raw_weights: List[np.ndarray]) -> np.ndarray:
+        """Fold the weights into LCN-sized blocks."""
+        w_folded_list = []
+        w_folded_of_axon_segs = []
+        n_fold = self.timeslot
 
-        if self.lcn_ex > LCN_EX.LCN_1X:
-            n_col_groups = self.parent.n_dendrite_per_neuron
+        if self.lcn_ex == LCN_EX.LCN_1X:
+            w_folded = np.hstack(raw_weights, dtype=np.int8)
+            w_folded.setflags(write=False)
+            return w_folded
 
-            for i in range(self.n_neuron):
-                w_col = weights[:, i]
+        # LCN_EX > LCN_1X
+        for raw_weight in raw_weights:
+            w_folded_of_axon_segs.clear()
 
-                # Traverse every column.
-                col_group = 0
-                # Rest of axons >= 1152? Here cannot be >=!
-                while (n_rest_axon := self.n_axon - row * col_group) > row:
-                    binary_conn[:, n_col_groups * i + col_group] = w_col[
-                        row * col_group : row * (col_group + 1)
-                    ]
-                    col_group += 1
+            for s in self.source:
+                axon_seg = self.parent.axon_segments[s]
 
-                # Fill the remaining positions with 0.
-                binary_conn[:, n_col_groups * i + col_group] = np.pad(
-                    w_col[row * col_group],
-                    pad_width=(0, row - n_rest_axon),
-                    mode="constant",
-                    constant_values=0,
+                # Retrive the weight of the axon segment
+                w_of_axon_seg = raw_weight[: axon_seg.n_axon, :]
+
+                # Fold the weight of axon segment
+                w_folded_of_axon_seg = self._nfold_weight(
+                    w_of_axon_seg, axon_seg.addr_width, n_fold
                 )
-        else:
-            # Other places are filled with 0.
-            binary_conn[: self.n_axon, : self.n_neuron] = weights
+                w_folded_of_axon_segs.append(w_folded_of_axon_seg)
 
-        return binary_conn.astype(np.bool_)
+            w_folded = np.vstack(w_folded_of_axon_segs, dtype=np.int8)
+            w_folded_list.append(w_folded)
+
+        w_folded = np.hstack(w_folded_list, dtype=np.int8)
+        w_folded.setflags(write=False)
+
+        return w_folded
+
+    def _weight_ram_mapping(self) -> np.ndarray:
+        row, col = self._weights_folded.shape
+        # The final wright ram
+        weight_ram = np.zeros(self.weight_ram_shape, dtype=np.uint8)
+
+        if self.n_weight_bits == 1:
+            weight_ram[:row, :col] = self._weights_folded
+        else:
+            # [N*M] -> [M*N*1]
+            w_folded_3d = np.expand_dims(self._weights_folded.T, axis=2).astype(
+                np.uint8
+            )
+
+            for i in range(col):
+                # For every column, unpack the array [N*1] -> [N*n_weight_bits]
+                unpacked = np.unpackbits(
+                    w_folded_3d[i],
+                    axis=1,
+                    count=self.n_weight_bits,
+                    bitorder=HwConfig.WEIGHT_BITORDER,
+                )
+
+                weight_ram[
+                    :row, self.n_weight_bits * i : self.n_weight_bits * (i + 1)
+                ] = unpacked
+
+        weight_ram.setflags(write=False)
+
+        assert np.max(weight_ram, axis=None) <= 1
+        assert np.min(weight_ram, axis=None) >= 0
+
+        return weight_ram.astype(np.bool_)
+
+    @staticmethod
+    def _nfold_weight(
+        raw_weight: np.ndarray, expected_row: int, n_fold: int
+    ) -> np.ndarray:
+        """According to the folding ratio `n_fold`, fold the weight matrix.
+
+        Args:
+            - raw_weight: the raw weight matrix.
+            - expected_row: expected #N of row.
+            - n_fold: the folding ratio.
+        """
+        raw_row, raw_col = raw_weight.shape
+
+        if raw_row % n_fold > 0:
+            n_row_padding = n_fold - raw_row % n_fold
+
+            # Check #1
+            # assert expected_row * n_fold == raw_row + n_row_padding
+
+            _raw_weight = np.append(
+                raw_weight,
+                np.zeros((n_row_padding, raw_col), dtype=np.int8),
+                axis=0,
+            )
+        else:
+            _raw_weight = raw_weight.copy()
+
+        w_splited = np.vsplit(_raw_weight, n_fold)
+
+        # Check #2
+        # assert _raw_weight.shape[0] == expected_row * n_fold
+
+        w_folded = np.zeros((expected_row, raw_col * n_fold), dtype=np.int8)
+
+        for i, j in np.ndindex((n_fold, raw_col)):
+            w_col = w_splited[i][:, j]
+            w_folded[:, n_fold * j + i] = w_col
+
+        return w_folded
 
     def export_param_config(self) -> CoreConfig:
+        _mode_params = CoreModeDict[self.mode]
+
         # fmt: off
         cb_config = CoreConfig(
             self.name,                          # name of the core
             self.weight_precision,              # weight_precision
             self.lcn_ex,                        # lcn_extension
-            InputWidthFormat.WIDTH_1BIT,        # input_width_format
-            SpikeWidthFormat.WIDTH_1BIT,        # spike_width_format
+            _mode_params[0],                    # input_width_format
+            _mode_params[1],                    # spike_width_format
             self.n_dendrite,                    # num_dendrite
             MaxPoolingEnable.DISABLE,           # max_pooling_en
             0,                                  # tick_wait_start
             0,                                  # tick_wait_end
-            SNNModeEnable.ENABLE,               # snn_mode_en
+            _mode_params[2],                    # snn_mode_en
             self.target_lcn,                    # target_lcn
-            _BACKEND_CONTEXT.test_chip_addr,    # test_chip_addr
+            _BACKEND_CONTEXT["test_chip_addr"], # test_chip_addr
         )
         # fmt: on
         return cb_config
@@ -553,15 +638,27 @@ class CorePlacement(CoreAbstract):
     def export_core_config(self) -> CorePlacementConfig:
         return CorePlacementConfig.encapsulate(
             self.coord,
-            self.parent.seed,  # random_seed
-            self.crossbar,  # weight_ram
+            self.parent.seed,
+            self.weight_ram,
             self.export_param_config(),
             self.neu_config,
         )
 
     @property
+    def mode(self) -> CoreMode:
+        return self.parent.mode
+
+    @property
     def weight_precision(self) -> WeightPrecision:
         return self.parent.weight_precision
+
+    @property
+    def n_weight_bits(self) -> int:
+        return self.parent.n_weight_bits
+
+    @property
+    def timeslot(self) -> int:
+        return self.parent.timeslot
 
     @property
     def n_axon(self) -> int:
@@ -592,8 +689,8 @@ class CorePlacement(CoreAbstract):
         return [p.parent for p in self.neu_segs]
 
     @property
-    def crossbar(self) -> np.ndarray:
-        return self._get_binary_conn(self.weights)
+    def weight_ram(self) -> np.ndarray:
+        return self._weight_ram_mapping()
 
     def __len__(self) -> int:
         return self.n_core_required
