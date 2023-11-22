@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, ClassVar, Dict, List, NamedTuple
+from typing import Any, Dict, List, NamedTuple
 
 import numpy as np
 
@@ -8,7 +8,6 @@ from paibox.libpaicore import (
     LCN_EX,
     AxonCoord,
     Coord,
-    FrameType,
     InputWidthFormat,
     MaxPoolingEnable,
     NeuronAttrs,
@@ -61,6 +60,9 @@ class CoreConfig(NamedTuple):
 class NeuronDest(NamedTuple):
     """Information of neuron destination(Axon address information)."""
 
+    _extra_params = ("dest_coords",)
+    """Extra parameters for debugging."""
+
     dest_coords: List[Coord]
     tick_relative: List[int]
     addr_axon: List[int]
@@ -73,14 +75,18 @@ class NeuronDest(NamedTuple):
 
     def config_dump(self) -> Dict[str, Any]:
         dest_info = NeuronDestInfo.model_validate(self._asdict(), strict=True)
+        dict_ = dest_info.model_dump(by_alias=True, exclude={*dest_info._exclude_vars})
 
-        return dest_info.model_dump(by_alias=True, exclude={*dest_info._exclude_vars})
+        for var in self._extra_params:
+            dict_[var] = getattr(self, var)
+
+        return dict_
 
 
 class ConfigTemplate:
     """A configuration template."""
 
-    frame_type: ClassVar[FrameType] = FrameType.FRAME_CONFIG
+    pass
 
 
 @dataclass(eq=False)
