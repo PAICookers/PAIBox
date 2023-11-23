@@ -1,6 +1,5 @@
 import pytest
 
-import paibox as pb
 from paibox.backend.routing import RoutingNode, RoutingRoot, get_parent
 from paibox.libpaicore.v2.routing_defs import (
     RoutingDirection,
@@ -248,37 +247,6 @@ class TestRouterTree:
 
         parent2 = get_parent(root, node_l1_3)
         assert parent2 is None
-
-
-class ExampleNet1(pb.Network):
-    """Example net.
-
-    INP1- > S1 -> N1 -> S2 -> N2 -> S3 -> N3
-    """
-
-    def __init__(self):
-        super().__init__()
-        self.inp1 = pb.projection.InputProj(
-            pb.simulator.processes.Constant(1200, 1), name="inp1"
-        )
-        self.n1 = pb.neuron.TonicSpiking(1200, 3, name="n1")
-        self.n2 = pb.neuron.TonicSpiking(400, 4, name="n2")
-        self.n3 = pb.neuron.TonicSpiking(800, 5, name="n3")
-
-        self.s1 = pb.synapses.NoDecay(
-            self.inp1, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s1"
-        )
-        self.s2 = pb.synapses.NoDecay(
-            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s2"
-        )
-        self.s3 = pb.synapses.NoDecay(
-            self.n2, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s3"
-        )
-
-
-@pytest.fixture
-def build_example_net():
-    return ExampleNet1()
 
 
 class TestRouterTreeRoot:
