@@ -5,8 +5,6 @@ import numpy as np
 from ._types import Shape
 from .exceptions import RegisterError
 from .utils import shape2num
-from .exceptions import RegisterError
-from .utils import shape2num
 
 global _id_dict, _type_names
 _id_dict = dict()

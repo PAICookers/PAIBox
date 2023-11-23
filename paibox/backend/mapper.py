@@ -9,7 +9,6 @@ from paibox.network import DynSysGroup
 from paibox.projection import InputProj
 from paibox.synapses import SynSys
 
-
 from .config_template import CoreConfig, NeuronDest
 from .context import _BACKEND_CONTEXT
 from .graphs import *

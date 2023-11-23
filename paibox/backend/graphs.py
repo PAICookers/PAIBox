@@ -110,7 +110,7 @@ def get_node_degrees(succ_edges: Dict[Node, Dict[Node, Any]]) -> Dict[Node, Degr
 
 
 def _find_prev_edges(
-        succ_edges: Dict[Node, Dict[Node, Edge]], target_node: Node
+    succ_edges: Dict[Node, Dict[Node, Edge]], target_node: Node
 ) -> Set[Edge]:
     prev = set()
 
@@ -122,11 +122,11 @@ def _find_prev_edges(
 
 
 def group_edges(
-        edges: List[Edge],
-        succ_edges: Dict[Node, Dict[Node, Edge]],
-        degree: Dict[Node, Degree],
-        *,
-        ordered_nodes: Optional[List[Node]] = None,
+    edges: List[Edge],
+    succ_edges: Dict[Node, Dict[Node, Edge]],
+    degree: Dict[Node, Degree],
+    *,
+    ordered_nodes: Optional[List[Node]] = None,
 ) -> List[Set[Edge]]:
     """Group all edges according to a certain rule.
 
