@@ -20,6 +20,9 @@ NodeNameType = str
 NodeSynDictType = Dict[str, str]  # key-value for node & synapse.
 
 
+__all__ = ["Mapper"]
+
+
 class Mapper:
     """Mapping the network in the cores."""
 
@@ -274,7 +277,7 @@ class Mapper:
             > HwConfig.N_CORE_OFFLINE
         ):
             raise ResourceError(
-                f"#N of total core required out of {HwConfig.N_CORE_OFFLINE}: {n_core_required_total}"
+                f"#N of total cores required out of {HwConfig.N_CORE_OFFLINE}: {n_core_required_total}"
             )
 
         # """

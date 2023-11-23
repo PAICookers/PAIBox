@@ -142,7 +142,7 @@ class Coord(Identifier):
         if not isinstance(__other, Coord):
             raise TypeError(f"Unsupported type: {type(__other)}")
 
-        return self.x == __other.x and self.y == __other.y
+        return self.to_tuple() == __other.to_tuple()
 
     def __ne__(self, __other: "Coord") -> bool:
         """
@@ -156,54 +156,54 @@ class Coord(Identifier):
         if not isinstance(__other, Coord):
             raise TypeError(f"Unsupported type: {type(__other)}")
 
-        return self.x != __other.x or self.y != __other.y
+        return self.to_tuple() != __other.to_tuple()
 
-    def __lt__(self, __other: "Coord") -> bool:
-        """Whether the coord is on the left OR below of __other.
+    # def __lt__(self, __other: "Coord") -> bool:
+    #     """Whether the coord is on the left OR below of __other.
 
-        Examples:
-        >>> Coord(4, 5) < Coord(4, 6)
-        True
+    #     Examples:
+    #     >>> Coord(4, 5) < Coord(4, 6)
+    #     True
 
-        >>> Coord(4, 5) < Coord(5, 5)
-        True
+    #     >>> Coord(4, 5) < Coord(5, 5)
+    #     True
 
-        >>> Coord(4, 5) < Coord(5, 3)
-        True
-        """
-        if not isinstance(__other, Coord):
-            raise TypeError(f"Unsupported type: {type(__other)}")
+    #     >>> Coord(4, 5) < Coord(5, 3)
+    #     True
+    #     """
+    #     if not isinstance(__other, Coord):
+    #         raise TypeError(f"Unsupported type: {type(__other)}")
 
-        return self.x < __other.x or self.y < __other.y
+    #     return self.x < __other.x or self.y < __other.y
 
-    def __gt__(self, __other: "Coord") -> bool:
-        """Whether the coord is on the right AND above of __other.
+    # def __gt__(self, __other: "Coord") -> bool:
+    #     """Whether the coord is on the right AND above of __other.
 
-        Examples:
-        >>> Coord(5, 5) > Coord(4, 5)
-        True
+    #     Examples:
+    #     >>> Coord(5, 5) > Coord(4, 5)
+    #     True
 
-        >>> Coord(4, 6) > Coord(4, 5)
-        True
+    #     >>> Coord(4, 6) > Coord(4, 5)
+    #     True
 
-        >>> Coord(5, 4) > Coord(4, 5)
-        False
-        """
-        if not isinstance(__other, Coord):
-            raise TypeError(f"Unsupported type: {type(__other)}")
+    #     >>> Coord(5, 4) > Coord(4, 5)
+    #     False
+    #     """
+    #     if not isinstance(__other, Coord):
+    #         raise TypeError(f"Unsupported type: {type(__other)}")
 
-        # Except the `__eq__`
-        return (
-            (self.x > __other.x and self.y > __other.y)
-            or (self.x == __other.x and self.y > __other.y)
-            or (self.x > __other.x and self.y == __other.y)
-        )
+    #     # Except the `__eq__`
+    #     return (
+    #         (self.x > __other.x and self.y > __other.y)
+    #         or (self.x == __other.x and self.y > __other.y)
+    #         or (self.x > __other.x and self.y == __other.y)
+    #     )
 
-    def __le__(self, __other: "Coord") -> bool:
-        return self.__lt__(__other) or self.__eq__(__other)
+    # def __le__(self, __other: "Coord") -> bool:
+    #     return self.__lt__(__other) or self.__eq__(__other)
 
-    def __ge__(self, __other: "Coord") -> bool:
-        return self.__gt__(__other) or self.__eq__(__other)
+    # def __ge__(self, __other: "Coord") -> bool:
+    #     return self.__gt__(__other) or self.__eq__(__other)
 
     def __xor__(self, __other: "Coord") -> "ReplicationId":
         return ReplicationId(self.x ^ __other.x, self.y ^ __other.y)
@@ -361,7 +361,7 @@ class CoordOffset:
         if not isinstance(__other, CoordOffset):
             raise TypeError(f"Unsupported type: {type(__other)}")
 
-        return self.delta_x == __other.delta_x and self.delta_y == __other.delta_y
+        return (self.delta_x, self.delta_y) == (__other.delta_x, __other.delta_y)
 
     def __ne__(self, __other: "CoordOffset") -> bool:
         """
@@ -372,7 +372,7 @@ class CoordOffset:
         if not isinstance(__other, CoordOffset):
             raise TypeError(f"Unsupported type: {type(__other)}")
 
-        return self.delta_x != __other.delta_x or self.delta_y != __other.delta_y
+        return (self.delta_x, self.delta_y) != (__other.delta_x, __other.delta_y)
 
     def distance(
         self, distance_type: DistanceType = DistanceType.DISTANCE_ENCLIDEAN

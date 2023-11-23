@@ -7,8 +7,7 @@ import numpy as np
 import pytest
 
 import paibox as pb
-from paibox.backend.config_template import CoreConfig
-from paibox.libpaicore.v2.coordinate import Coord
+from paibox.libpaicore import Coord
 
 
 class NetForTest1(pb.Network):
@@ -16,8 +15,8 @@ class NetForTest1(pb.Network):
 
     def __init__(self):
         super().__init__()
-        self.inp1 = pb.projection.InputProj(input=None, shape_out=(400,), name="inp1")
-        self.n1 = pb.neuron.TonicSpiking(400, 3, name="n1")
+        self.inp1 = pb.projection.InputProj(input=1, shape_out=(2000,), name="inp1")
+        self.n1 = pb.neuron.TonicSpiking(2000, 3, name="n1")
         self.n2 = pb.neuron.TonicSpiking(1200, 3, name="n2")
         self.n3 = pb.neuron.TonicSpiking(800, 4, name="n3")
         self.s1 = pb.synapses.NoDecay(
@@ -36,7 +35,7 @@ class NetForTest2(pb.Network):
 
     def __init__(self):
         super().__init__()
-        self.inp = pb.projection.InputProj(input=None, shape_out=(400,), name="inp1")
+        self.inp = pb.projection.InputProj(input=1, shape_out=(400,), name="inp1")
         self.n1 = pb.neuron.TonicSpiking(400, 3, name="n1")
         self.n2 = pb.neuron.TonicSpiking(800, 3, name="n2")
         self.s1 = pb.synapses.NoDecay(
@@ -54,7 +53,7 @@ class NetForTest3(pb.Network):
 
     def __init__(self):
         super().__init__()
-        self.inp = pb.projection.InputProj(input=None, shape_out=(400,), name="inp1")
+        self.inp = pb.projection.InputProj(input=1, shape_out=(400,), name="inp1")
         self.n1 = pb.neuron.TonicSpiking(400, 3, name="n1")
         self.n2 = pb.neuron.TonicSpiking(800, 3, name="n2")
         self.n3 = pb.neuron.TonicSpiking(400, 4, name="n3")
@@ -85,7 +84,7 @@ class NetForTest4(pb.Network):
 
     def __init__(self):
         super().__init__()
-        self.inp1 = pb.projection.InputProj(input=None, shape_out=(400,), name="inp1")
+        self.inp1 = pb.projection.InputProj(input=1, shape_out=(400,), name="inp1")
         self.n1 = pb.neuron.TonicSpiking(800, 3, name="n1")
         self.n2 = pb.neuron.TonicSpiking(400, 4, name="n2")
         self.n3 = pb.neuron.TonicSpiking(400, 4, name="n3")
@@ -135,7 +134,7 @@ def get_mapper() -> pb.Mapper:
 class CustomJsonEncoder(JSONEncoder):
     def default(self, o: Any) -> Any:
         if isinstance(o, Coord):
-            return o.address
+            return o.to_tuple()
         elif isinstance(o, Enum):
             return o.value
         elif isinstance(o, np.ndarray):

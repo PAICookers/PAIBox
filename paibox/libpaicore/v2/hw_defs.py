@@ -1,8 +1,13 @@
+from typing import Literal
+
+
 class HwConfig:
     """Basic hardware configuration of PAICORE 2.0."""
 
-    Y_PRIORITY = True
+    COORD_Y_PRIORITY: bool = True
     """Coordinate priority"""
+
+    WEIGHT_BITORDER: Literal["little", "big"] = "little"
 
     CHIP_X_MIN = 0
     CHIP_X_MAX = 0

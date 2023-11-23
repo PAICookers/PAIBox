@@ -3,7 +3,7 @@ import json
 import pytest
 
 import paibox as pb
-from paibox.libpaicore import NeuronAttrs, NeuronDestInfo
+from paibox.libpaicore import Coord, NeuronAttrs, NeuronDestInfo
 
 
 def test_NeuronParams_instance(ensure_dump_dir):
@@ -21,6 +21,7 @@ def test_NeuronParams_instance(ensure_dump_dir):
     "params",
     [
         {
+            "dest_coords": [Coord(0, 0)],
             "tick_relative": [0] * 100 + [1] * 100,
             "addr_axon": list(range(0, 200)),
             "addr_core_x": 0,
@@ -31,6 +32,7 @@ def test_NeuronParams_instance(ensure_dump_dir):
             "addr_chip_y": 0,
         },
         {
+            "dest_coords": [Coord(0, 0), Coord(1, 0)],
             "tick_relative": [0] * 100,
             "addr_axon": list(range(0, 100)),
             "addr_core_x": 0,

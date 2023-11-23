@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import ClassVar, List, NamedTuple
+from typing import ClassVar, List, NamedTuple, Tuple
 
 from paibox.exceptions import ResourceError
 
@@ -73,6 +73,12 @@ class HwCore(ABC):
     """Hardware core abstraction."""
 
     mode: ClassVar[CoreMode]
+
+    @property
+    @abstractmethod
+    def shape(self) -> Tuple[int, int]:
+        """Shape of the core."""
+        raise NotImplementedError
 
     @property
     @abstractmethod

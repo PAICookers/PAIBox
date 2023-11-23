@@ -6,6 +6,18 @@ from .coordinate import Coord
 from .coordinate import ReplicationId as RId
 from .hw_defs import HwConfig
 
+__all__ = [
+    "RoutingNodeLevel",
+    "RoutingDirection",
+    "RoutingNodeStatus",
+    "RoutingNodeCost",
+    "RoutingDirectionIdx",
+    "RoutingNodeCoord",
+    "get_node_consumption",
+    "get_multicast_cores",
+    "get_replication_id",
+]
+
 
 @unique
 class RoutingNodeLevel(IntEnum):
