@@ -93,10 +93,10 @@ class PeriodicEncoder(StatefulEncoder):
 class PoissonEncoder(StatelessEncoder):
     def __init__(self, seed: Optional[int] = None, **kwargs) -> None:
         """Poisson encoder.
-        
+
         Args:
             - seed: the random seed.
-        
+
         NOTE: The output size of the poisson encoder depends on the \
             actual input size.
         """

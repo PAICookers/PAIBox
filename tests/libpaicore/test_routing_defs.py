@@ -1,8 +1,8 @@
 import pytest
 
+from paibox.libpaicore import Coord
 from paibox.libpaicore import ReplicationId as RId
 from paibox.libpaicore import (
-    Coord,
     RoutingDirection,
     RoutingNodeCoord,
     RoutingNodeCost,

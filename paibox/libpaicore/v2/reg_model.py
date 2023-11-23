@@ -4,7 +4,6 @@ from .coordinate import Coord
 from .hw_defs import HwConfig
 from .reg_types import *
 
-
 __all__ = ["CoreParams", "ParamsReg"]
 
 WEIGHT_PRECISION_BIT_MAX = 2  # Not used

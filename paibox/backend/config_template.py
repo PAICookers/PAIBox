@@ -5,10 +5,10 @@ import numpy as np
 
 from paibox.base import NeuDyn
 from paibox.libpaicore import (
+    LCN_EX,
     AxonCoord,
     Coord,
     InputWidthFormat,
-    LCN_EX,
     MaxPoolingEnable,
     NeuronAttrs,
     NeuronDestInfo,

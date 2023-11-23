@@ -73,7 +73,7 @@ class HwCore(ABC):
     """Hardware core abstraction."""
 
     mode: ClassVar[CoreMode]
-    
+
     @property
     @abstractmethod
     def shape(self) -> Tuple[int, int]:

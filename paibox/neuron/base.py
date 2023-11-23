@@ -17,7 +17,6 @@ from paibox.libpaicore.v2 import (
 )
 from paibox.utils import as_shape, shape2num
 
-
 __all__ = ["Neuron"]
 
 

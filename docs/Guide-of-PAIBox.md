@@ -275,6 +275,7 @@ s1= pb.synapses.NoDecay(source=n1, dest=n2, weights=weight1, conn_type=pb.synaps
   ```
 
   其权重以标量的形式储存。由于在运算时标量会随着矩阵进行广播，因此计算正确且节省了存储开销。
+
 - 数组：尺寸要求为 `(N2,)`，可以自定义每组对应神经元之间的连接权重。如下例所示，设置 `weights` 为 `[1, 2, 3, 4, 5]`，
 
   ```python
@@ -436,7 +437,7 @@ print(output)
 
 这可以实现，每个时间步上均产生随机的输出。
 
-当函数需要时间步信息，则可在函数参数中声明 `t` ，输入节点将在前端环境变量中获取当前时间步信息。当函数与时间步无关时，可使用  `*args` 作承接但不使用该参数。以下为一个简单实例：
+当函数需要时间步信息，则可在函数参数中声明 `t` ，输入节点将在前端环境变量中获取当前时间步信息。当函数与时间步无关时，可使用 `*args` 作承接但不使用该参数。以下为一个简单实例：
 
 ```python
 def fakeout_with_t(t, bias):
@@ -621,7 +622,7 @@ sim.add_probe(probe2)
 - 突触：输出 `output`。
 
 在设置完探针后，可输入数据并进行仿真，仿真结束后读取探针监测的数据：
- 
+
 ```python
 # 准备输入数据
 input_data = np.random.rand(28, 28).astype(np.float32)
@@ -632,4 +633,4 @@ n1_spike_data = sim.data[net.probe1]
 n1_v_data = sim.data[net.probe2]
 # 重置仿真器
 sim.reset()
-``````
+```

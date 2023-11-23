@@ -2,8 +2,8 @@ from typing import Any, Dict, List
 
 import numpy as np
 
-from paibox.context import _FRONTEND_CONTEXT
 from paibox.base import DynamicSys, PAIBoxObject
+from paibox.context import _FRONTEND_CONTEXT
 from paibox.exceptions import SimulationError
 
 from .probe import Probe

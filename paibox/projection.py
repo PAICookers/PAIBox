@@ -9,7 +9,6 @@ from .context import _FRONTEND_CONTEXT
 from .exceptions import SimulationError
 from .utils import as_shape, shape2num
 
-
 __all__ = ["InputProj"]
 
 T = TypeVar("T")
