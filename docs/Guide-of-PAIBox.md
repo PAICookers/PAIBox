@@ -309,22 +309,17 @@ PAIBox提供了有状态与无状态编码器。其中，有状态编码器是�
 泊松编码是一种常用的无状态编码。以下为一个简单实例：
 
 ```python
-pe = pb.simulator.PoissonEncoder(shape_out=(10, 10))
-x = np.random.randint(-128, 128, (10, 10))
+seed = 1
+rng = np.random.RandomState(seed=seed)
+x = rng.rand(10, 10).astype(np.float32)
+pe = pb.simulator.PoissonEncoder(seed=seed)
 out_spike = np.full((20, 10, 10), 0)
 
 for t in range(20):
     out_spike[t] = pe(x)
-
-# Or use an internal method
-# output = pe.run(duration=20, x=x)
 ```
 
-可直接调用该编码器，输入数据，并得到编码后结果。或者使用编码器的内部方法 `run`，接收如下几个参数：
-
-- `duration`: 仿真时间步。
-- `dt`：时间步长，默认为1。
-- `kwargs`：其他参数，需要显式地传入输入。
+通过调用该编码器，将需编码数据传入，即可得到编码后结果。
 
 #### 有状态编码器
 
@@ -342,11 +337,12 @@ spike[4, 2] = 1
 # 实例化周期性编码器
 pe = pb.simulator.PeriodicEncoder(spike)
 
-# 仿真20个时间步，周期性地获取输入的脉冲序列并将其输出。
 out_spike = np.full((20, 3), 0)
 for t in range(20):
-    out_spike[t] = pe(spike)
+    out_spike[t] = pe()
 ```
+
+这将仿真20个时间步，周期性地获取输入的脉冲序列并将其输出。
 
 ### 输入节点
 
@@ -362,13 +358,13 @@ inp = pb.InputProj(input=1, shape_out=(4, 4), keep_shape=True, name='inp1')
 其中，
 
 - `input`：输入节点的数据，可以是整数，数组或可调用对象（函数或者实现了 `__call__` 方法的对象，例如，编码器）。
-- `shape_out`：输出数据的形状。
+- `shape_out`：输出数据的尺寸。
 - `keep_shape`：在观测节点输出数据时，可以通过该参数确定输出是否保持原始的维度信息，从而更好地进行监测。默认为 `True`。
 - `name`：可选参数，为该节点命名。
 
 #### 数据类型输入
 
-当输入节点的数据是同一整数时，可以直接设置 `input` 为整数，并将 `shape_out` 设置为需要的输出尺寸，即可实现。以下为一个简单实例：
+当输入节点的输出为常量时，可以直接设置 `input` 为常量，并将 `shape_out` 设置为所需输出尺寸，即可实现。以下为一个简单实例：
 
 ```python
 # 实例化一个输入节点，使其一直输出2，设置输出尺寸为4*4，并保持其维度信息。
@@ -395,11 +391,11 @@ print(output)
 
 当启用 `keep_shape` 时，特征图数据将保持其维度信息。
 
-输入节点的参数也可以是参数矩阵，此时需满足维度匹配。以下为一个简单实例：
+输入节点的参数也可以是矩阵。以下为一个简单实例：
 
 ```python
 x = np.random.randint(0, 5, size=(4, 4))
-inp = pb.InputProj(input=x, shape_out=(4, 4), keep_shape=True)
+inp = pb.InputProj(x, shape_out=(4, 4), keep_shape=True)
 prob = pb.simulator.Probe(inp, "feature_map")
 sim = pb.Simulator(inp)
 sim.add_probe(prob)
@@ -417,14 +413,13 @@ print(output)
 
 #### 函数类型输入
 
-PAIBox支持使用自定义函数输入数据。以下为一个简单实例：
+PAIBox支持使用自定义函数作为输入节点的输入。以下为一个简单实例：
 
 ```python
-def fakeout(*args):
-    # 需要使用 *args 承接时间步参数 t
-    return np.ones((4, 4)) * 3
+def fakeout(*args, **kwargs):
+    return np.random.randint(-128, 128, size=(4, 4), dtype=np.int8)
 
-inp = pb.InputProj(input=fakeout, shape_out=(4, 4), keep_shape=True)
+inp = pb.InputProj(fakeout, shape_out=(4, 4), keep_shape=True)
 prob = pb.simulator.Probe(inp, "feature_map")
 sim = pb.Simulator(inp)
 sim.add_probe(prob)
@@ -440,7 +435,9 @@ print(output)
  [3 3 3 3]]
 ```
 
-当以函数作为输入时，在仿真中会自动地传入时间步参数 `t`，从而将函数输出与时间步关联起来。当该函数与时间无关时，可使用 `*args` 作承接但不使用该参数。以下为一个简单实例：
+这可以实现，每个时间步上均产生随机的输出。
+
+当函数需要时间步信息，则可在函数参数中声明 `t` ，输入节点将在前端环境变量中获取当前时间步信息。当函数与时间步无关时，可使用 `*args` 作承接但不使用该参数。以下为一个简单实例：
 
 ```python
 def fakeout_with_t(t, bias):
@@ -476,15 +473,14 @@ print(output)
 PAIBox支持数据编码。以泊松编码器为例：
 
 ```python
-inp = pb.InputProj(shape_out=(4, 4), keep_shape=True)
-encoder = pb.simulator.PoissonEncoder()               # 例化泊松编码器
-encoder_input = np.random.rand(4, 4)                  # 设置编码器的输入
-inp.input = encoder(encoder_input)                    # 将输入传入编码器
+pe = pb.simulator.PoissonEncoder()                          # 例化泊松编码器
+inp = pb.InputProj(pe, shape_out=(104 4), keep_shape=True)  # 例化输入节点
+input_data = np.random.rand(4, 4).astype(np.float32)        # 生成归一化数据
 
 sim = pb.Simulator(inp)
 prob = pb.simulator.Probe(inp, "feature_map")
 sim.add_probe(prob)
-sim.run(3)
+sim.run(3, input=input_data)    # 传入数据至输入节点
 
 output = sim.data[prob][-1]
 print(output)
@@ -496,17 +492,17 @@ print(output)
     [ True  True  True False]]
 ```
 
-## 网络搭建
+## 网络搭建DynSysGroup
 
 ### 基础模型搭建
 
-在PAIBox中，神经网络搭建可以通过继承 `Network` 来实现。以一个简单的全连接网络为例：
+在PAIBox中，神经网络搭建可以通过继承 `DynSysGroup` 或 `Network` 来实现。以一个简单的全连接网络为例：
 
 <p align="center">
-    <img src="images/Guide-基础网络搭建-全连接网络示例.png" alt="基础网络搭建-全连接网络示例" style="zoom:60%">
+    <img src="images/Guide-基础网络搭建-全连接网络示例.png" alt="基础网络搭建-全连接网络示例" style="zoom:50%">
 </p>
 
-要搭建上述网络，首先继承 `pb.Network` 并在子类 `fcnet` 中初始化网络。先例化输入节点 `i1` 与两个神经元组 `n1`、 `n2`，然后例化两个突触 `s1`、 `s2` 将三者连接起来。因此
+要搭建上述网络，首先继承 `pb.Network` 并在子类 `fcnet` 中初始化网络。先例化输入节点 `i1` 与两个神经元组 `n1`、 `n2`，然后例化两个突触 `s1`、 `s2` ，将三者连接起来：
 
 ```python
 import paibox as pb
@@ -514,11 +510,13 @@ import paibox as pb
 class fcnet(pb.Network):
     def __init__(self, weight1, weight2):
         super().__init__()
-        self.i1 = pb.InputProj(input=None, shape_out=784)
+        pe = pb.simulator.PoissonEncoder()
+
+        self.i1 = pb.InputProj(input=pe, shape_out=(784,))
         self.n1 = pb.neuron.IF(128, threshold=128, reset_v=0)
         self.n2 = pb.neuron.IF(10, threshold=128, reset_v=0)
-        self.s1 = pb.synapses.NoDecay(self.i1, self.n1, conn_type=pb.synapses.ConnType.All2All, weights=weight1)
-        self.s2 = pb.synapses.NoDecay(self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, weights=weight2)
+        self.s1 = pb.synapses.NoDecay(self.i1, self.n1, weights=weight1, conn_type=pb.synapses.ConnType.All2All)
+        self.s2 = pb.synapses.NoDecay(self.n1, self.n2, weights=weight2, conn_type=pb.synapses.ConnType.All2All)
 
 ```
 
@@ -576,12 +574,13 @@ TODO -->
 
 ### 仿真器
 
-完成网络搭建后，我们就可以输入数据进行仿真。首先，例化一个仿真器：
+例化网络后，即可构建仿真器：
 
 ```python
-fcnet = fcnet(w1, w2)       # 例化网络
-sim = pb.Simulator(fcnet)   # 例化一个仿真器
-sim.run(5)                  # 仿真5个时间步
+w1 = ...
+w2 = ...
+fcnet = fcnet(w1, w2)
+sim = pb.Simulator(fcnet)
 ```
 
 ### 探针
@@ -594,9 +593,11 @@ sim.run(5)                  # 仿真5个时间步
 
 例化探针时需指定：
 
-- `target`: 监测对象，必须是 `PAIBoxObject` 类。
+- `target`: 监测对象，必须是 `DynamicSys` 类。
 - `attr`：监测的属性，如 `spike`、`output` 等，字符串类型，这将监测 `target.attr` 属性。
 - `subtarget`: 监测对象的子对象。可选，若指定，最终将监测 `target.subtarget.attr` 属性。
+
+基于上述仿真示例，我们添加几个探针：
 
 ```python
 class fcnet(pb.Network):
@@ -612,10 +613,6 @@ sim = pb.Simulator(fcnet)
 # 外部探针，记录神经元n1的膜电位
 probe2 = pb.simulator.Probe(net.n1, "voltage")
 sim.add_probe(probe2)
-sim.run(10)
-
-n1_spike_data = sim.data[net.probe1]
-n1_v_data = sim.data[net.probe2]
 ```
 
 仿真数据可通过 `sim.data` 取得。可监测的对象包括网络内部所有的属性。例如，神经元及突触的各类属性，常用的监测对象包括：
@@ -623,3 +620,17 @@ n1_v_data = sim.data[net.probe2]
 - 输入节点的 `feature_map`。
 - 神经元：脉冲输出 `spike`、脉冲输出（特征图形式） `feature_map`、膜电位 `voltage`。
 - 突触：输出 `output`。
+
+在设置完探针后，可输入数据并进行仿真，仿真结束后读取探针监测的数据：
+
+```python
+# 准备输入数据
+input_data = np.random.rand(28, 28).astype(np.float32)
+sim.run(10, input=input_data)   # 仿真10个时间步
+
+# 读取仿真数据
+n1_spike_data = sim.data[net.probe1]
+n1_v_data = sim.data[net.probe2]
+# 重置仿真器
+sim.reset()
+```

@@ -8,6 +8,7 @@ from paibox.libpaicore import Coord, CoordOffset, HwConfig, get_replication_id
 from paibox.network import DynSysGroup
 from paibox.projection import InputProj
 from paibox.synapses import SynSys
+from paibox.exceptions import StatusError, PAICoreError
 
 from .config_template import CoreConfig, NeuronDest
 from .context import _BACKEND_CONTEXT
@@ -17,6 +18,9 @@ from .routing import RoutingRoot
 
 NodeNameType = str
 NodeSynDictType = Dict[str, str]  # key-value for node & synapse.
+
+
+__all__ = ["Mapper"]
 
 
 class Mapper:
@@ -273,7 +277,7 @@ class Mapper:
             > HwConfig.N_CORE_OFFLINE
         ):
             raise ResourceError(
-                f"#N of total core required out of {HwConfig.N_CORE_OFFLINE}: {n_core_required_total}"
+                f"#N of total cores required out of {HwConfig.N_CORE_OFFLINE}: {n_core_required_total}"
             )
 
         # """

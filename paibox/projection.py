@@ -1,11 +1,17 @@
-from typing import Callable, Optional, Tuple, Union
+import inspect
+from typing import Callable, Optional, Tuple, TypeVar, Union
 
 import numpy as np
 
-from ._types import Shape
+from ._types import DataType, Shape
 from .base import DynamicSys
-from .exceptions import ShapeError, SimulationError
+from .context import _FRONTEND_CONTEXT
+from .exceptions import SimulationError
 from .utils import as_shape, shape2num
+
+__all__ = ["InputProj"]
+
+T = TypeVar("T")
 
 
 class Projection(DynamicSys):
@@ -16,53 +22,25 @@ class Projection(DynamicSys):
 class InputProj(Projection):
     def __init__(
         self,
-        input: Optional[
-            Union[int, np.integer, np.ndarray, Callable[..., np.ndarray]]
-        ] = None,
+        input: Union[DataType, Callable[..., DataType]],
+        shape_out: Shape,
         *,
-        shape_out: Optional[Shape] = None,
         keep_shape: bool = True,
         name: Optional[str] = None,
     ) -> None:
-        """The input node of the network.
+        """The input node of network.
 
         Arguments:
-            - input: the output value(integer, np.ndarray), or a callable.
+            - input: the output value(int, np.integer, np.ndarray), or  \
+                a callable(function or `Encoder`).
             - shape_out: the shape of the output.
-            - keep_shape: wether to keep the shape when retieving the \
+            - keep_shape: wether to keep the shape when retieving the   \
                 feature map.
             - name: the name of the node. Optional.
         """
         super().__init__(name)
-
-        if isinstance(input, (int, np.integer)):
-            # A scalar
-            self._input = int(input)
-            self._shape_out = as_shape(shape_out)
-
-        elif isinstance(input, np.ndarray):
-            self._input = input
-            self._shape_out = input.shape
-
-        elif callable(input):
-            self._input = input
-            if shape_out is None:
-                if hasattr(input, "shape_out"):
-                    self._shape_out = input.shape_out
-                else:
-                    raise ShapeError(
-                        "Shape of output is required when input is callable."
-                    )
-            else:
-                self._shape_out = as_shape(shape_out)
-        else:
-            # when `input` is None, `shape_out` is required
-            if shape_out is None:
-                raise ShapeError("Shape of output is required when input is None.")
-
-            self._input = None
-            self._shape_out = as_shape(shape_out)
-
+        self._input = input
+        self._shape_out = as_shape(shape_out)
         self.keep_shape = keep_shape
         self._output = np.zeros((self.num_out,), dtype=np.bool_)
 
@@ -70,18 +48,19 @@ class InputProj(Projection):
         if self.input is None:
             raise SimulationError("The input is not set.")
 
-        if isinstance(self.input, np.ndarray):
-            self._output = self.input.reshape((self.num_out,))
-        elif isinstance(self.input, int):
-            self._output = np.full((self.num_out,), self.input, dtype=np.int32)
-        elif callable(self.input):
-            self._output = (
-                self.input(*args, **kwargs).astype(np.int32).reshape((self.num_out,))
-            )
+        if callable(self.input):
+            output = _call_with_ctx(self.input, *args, **kwargs)
+        else:
+            output = self.input
+
+        if isinstance(output, (int, np.integer)):
+            self._output = np.full((self.num_out,), output, dtype=np.int32)
+        elif isinstance(output, np.ndarray):
+            self._output = output.reshape((self.num_out,)).astype(np.int32)
         else:
             raise TypeError(
-                f"Excepted type int, np.integer, np.ndarray or Callable[..., np.ndarray], "
-                f"but got {input}, type {type(input)}"
+                f"Excepted type int, np.integer, np.ndarray, "
+                f"but got {output}, type {type(output)}"
             )
 
         return self.output
@@ -113,14 +92,6 @@ class InputProj(Projection):
     def input(self):
         return self._input
 
-    @input.setter
-    def input(self, new_input) -> None:
-        if isinstance(new_input, np.ndarray):
-            if new_input.shape != self.shape_out:
-                raise ShapeError("The shape of input does not match.")
-
-        self._input = new_input
-
     @property
     def output(self) -> np.ndarray:
         return self._output
@@ -134,5 +105,11 @@ class InputProj(Projection):
         return self.output
 
 
-class OutputProj(Projection):
-    pass
+def _call_with_ctx(f: Callable[..., T], *args, **kwargs) -> T:
+    try:
+        ctx = _FRONTEND_CONTEXT.get_ctx()
+        bound = inspect.signature(f).bind(*args, **ctx, **kwargs)
+        # warnings.warn(_input_deprecate_msg, UserWarning)
+        return f(*bound.args, **bound.kwargs)
+    except TypeError:
+        return f(*args, **kwargs)
