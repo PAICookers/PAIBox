@@ -110,7 +110,7 @@ def get_node_degrees(succ_edges: Dict[Node, Dict[Node, Any]]) -> Dict[Node, Degr
 
 
 def _find_prev_edges(
-    succ_edges: Dict[Node, Dict[Node, Edge]], target_node: Node
+        succ_edges: Dict[Node, Dict[Node, Edge]], target_node: Node
 ) -> Set[Edge]:
     prev = set()
 
@@ -122,11 +122,11 @@ def _find_prev_edges(
 
 
 def group_edges(
-    edges: List[Edge],
-    succ_edges: Dict[Node, Dict[Node, Edge]],
-    degree: Dict[Node, Degree],
-    *,
-    ordered_nodes: Optional[List[Node]] = None,
+        edges: List[Edge],
+        succ_edges: Dict[Node, Dict[Node, Edge]],
+        degree: Dict[Node, Degree],
+        *,
+        ordered_nodes: Optional[List[Node]] = None,
 ) -> List[Set[Edge]]:
     """Group all edges according to a certain rule.
 
@@ -176,3 +176,22 @@ def group_edges(
             continue
 
     return gathered
+
+
+def longest_path(edges: Dict[Node, Set[Node]]) -> List[Node]:
+    topological_order = toposort(edges)
+    longest_paths = {node: 0 for node in edges}
+    predecessors = {node: None for node in edges}
+    path = []
+    for node in topological_order:
+        for neighbor in edges[node]:
+            if longest_paths[node] + 1 > longest_paths[neighbor]:
+                longest_paths[neighbor] = longest_paths[node] + 1
+                predecessors[neighbor] = node
+    node = max(longest_paths, key=longest_paths.get)
+    while node is not None:
+        path.append(node)
+        node = predecessors[node]
+
+        # 反转最长路径列表并返回
+    return path[::-1]

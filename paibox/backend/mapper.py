@@ -8,7 +8,7 @@ from paibox.libpaicore import Coord, CoordOffset, HwConfig, get_replication_id
 from paibox.network import DynSysGroup
 from paibox.projection import InputProj
 from paibox.synapses import SynSys
-from paibox.exceptions import StatusError, PAICoreError
+
 
 from .config_template import CoreConfig, NeuronDest
 from .context import _BACKEND_CONTEXT
