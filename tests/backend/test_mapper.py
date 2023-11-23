@@ -151,10 +151,8 @@ class TestMapperDebug:
 
         mapper = get_mapper
         mapper.clear()
-        mapper.build_graph(net)
+        mapper.build_graph(net, filter_cycle=True)
         mapper.main_phases()
-
-        print("OK")
 
     @pytest.mark.usefixtures("test_simple_net")
     def test_export_config_json(self, get_mapper, ensure_dump_dir):
@@ -166,12 +164,16 @@ class TestMapperDebug:
 
         _json_core_configs = dict()
         _json_core_plm_config = dict()
+        _json_inp_proj_info = dict()
 
         for coord, core_param in mapper.core_params.items():
-            _json_core_configs[coord.address] = core_param.config_dump()
+            _json_core_configs[coord.address] = core_param.__json__()
 
         for coord, cpc in mapper.core_plm_config.items():
-            _json_core_plm_config[coord.address] = cpc.config_dump()
+            _json_core_plm_config[coord.address] = cpc.__json__()
+        
+        for inode, nd in mapper.input_cb_info.items():
+            _json_inp_proj_info[inode] = nd.__json__()
 
         # Export parameters of cores into json
         with open(ensure_dump_dir / "core_configs.json", "w") as f:
@@ -196,7 +198,17 @@ class TestMapperDebug:
         # Export the info of input projections into json
         with open(ensure_dump_dir / "input_proj_info.json", "w") as f:
             json.dump(
-                mapper.input_cb_info,
+                _json_inp_proj_info,
+                f,
+                ensure_ascii=True,
+                indent=4,
+                cls=CustomJsonEncoder,
+            )
+            
+        # Export the info of output destination into json
+        with open(ensure_dump_dir / "output_dest_info.json", "w") as f:
+            json.dump(
+                mapper.output_dest_info,
                 f,
                 ensure_ascii=True,
                 indent=4,

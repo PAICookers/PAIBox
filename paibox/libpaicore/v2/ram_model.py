@@ -10,6 +10,8 @@ from pydantic import (
     model_validator,
 )
 
+from .hw_defs import HwConfig
+
 from .ram_types import *
 
 __all__ = ["NeuronDestInfo", "NeuronAttrs", "NeuronParams", "ParamsRAM"]
@@ -96,7 +98,8 @@ class NeuronDestInfo(BaseModel):
     def _length_match_check(self):
         if len(self.tick_relative) != len(self.addr_axon):
             raise ValueError(
-                "Parameter 'tick relative' and 'addr_axon' must have the same length."
+                "Parameter 'tick relative' & 'addr_axon' must have the same "
+                f"length: {len(self.tick_relative)}, {len(self.addr_axon)}."
             )
 
         return self
@@ -226,6 +229,20 @@ class NeuronAttrs(BaseModel):
 class NeuronParams(BaseModel):
     attrs: NeuronAttrs
     dest_info: NeuronDestInfo
+
+    # Legal parameters below. No need to check again.
+    addr_ram: List[InstanceOf[int]] = Field(description="Addresses of RAM of neurons")
+    addr_offset: int = Field(description="Offset of starting address of RAM")
+
+    @field_validator("addr_ram")
+    @classmethod
+    def _addr_ram_check(cls, v):
+        if any(addr_ram > HwConfig.ADDR_RAM_MAX for addr_ram in v):
+            raise ValueError(
+                f"Parameter 'addr_axon' out of range: {HwConfig.ADDR_RAM_MAX}."
+            )
+
+        return v
 
 
 ParamsRAM = NeuronParams

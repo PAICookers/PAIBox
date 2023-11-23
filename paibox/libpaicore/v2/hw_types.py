@@ -39,20 +39,14 @@ class NeuronSegment(NamedTuple):
     def addr_ram(self) -> List[int]:
         """Convert index of neuron into address RAM."""
         if (
-            self.addr_offset + self.interval * (self.index.stop - self.index.start)
-            > HwConfig.ADDR_RAM_MAX
-        ):
+            _addr_max := self.addr_offset
+            + self.interval * (self.index.stop - self.index.start)
+        ) > HwConfig.ADDR_RAM_MAX:
             raise ResourceError(
-                f"Address of RAM out of {HwConfig.ADDR_RAM_MAX}: "
-                f"{self.addr_offset + self.interval * (self.index.stop - self.index.start)}"
+                f"Address of RAM out of {HwConfig.ADDR_RAM_MAX}: {_addr_max}"
             )
 
-        return list(
-            range(
-                self.addr_offset,
-                self.addr_offset + self.interval * (self.index.stop - self.index.start),
-            )
-        )
+        return list(range(self.addr_offset, _addr_max))
 
 
 class AxonCoord(NamedTuple):

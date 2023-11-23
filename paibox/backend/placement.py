@@ -151,7 +151,7 @@ class CoreBlock(CoreAbstract):
     def core_plm_alloc(self) -> None:
         """Allocate the `CoreBlock` to the cores.
 
-        NOTE: Do it after `lcn_ex_adjustment`.
+        NOTE: Do it after the adjustment of `LCN_EX`.
         """
         if not self.lcn_locked:
             raise BuildError(f"Allocate the core placements after lcn_ex is locked.")
@@ -160,8 +160,7 @@ class CoreBlock(CoreAbstract):
         neu_segs_of_cb = get_neu_segments(
             self.dest,
             self.neuron_capacity,
-            weight_precision=self.weight_precision,
-            lcn_ex=self.lcn_ex,
+            _addr_ram_interval(self.n_weight_bits, self.timeslot),
             method="catagory",
         )
 
@@ -732,19 +731,24 @@ def max_lcn_of_cb(cb: List[CoreBlock]) -> LCN_EX:
     return max(cb, key=lambda cb: cb.lcn_ex).lcn_ex
 
 
+def _addr_ram_interval(nbits: int, timeslot: int) -> int:
+    """Get the interval of address of RAM.
+
+    interval = nbits(1 << wp) * timeslot(1 << lcn_ex)
+    """
+    return nbits * timeslot
+
+
 def get_neu_segments(
     neu_groups: Sequence[NeuDyn],
     capacity: int,
+    interval: int,
     *,
-    weight_precision: WeightPrecision,
-    lcn_ex: LCN_EX,
     method: Literal["catagory", "dense"] = "catagory",
 ) -> List[List[NeuSeg]]:
     """
     TODO Add description.
     """
-    interval = (1 << weight_precision) * (1 << lcn_ex)
-
     if method == "catagory":
         return _get_neu_segments_catagory(neu_groups, capacity, interval)
     elif method == "dense":
@@ -766,7 +770,6 @@ def _get_neu_segments_catagory(
         while i < (num - 1) // capacity:
             seg = NeuronSegment(slice(i * capacity, capacity * (i + 1), 1), 0, interval)
             neu_segs.append([NeuSeg(neuron, seg)])
-
             i += 1
 
         seg = NeuronSegment(slice(i * capacity, num, 1), 0, interval)

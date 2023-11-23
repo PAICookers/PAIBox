@@ -390,7 +390,9 @@ class RoutingRoot(RoutingNode):
             return NodeCoord(*path)
 
     def insert_coreblock(self, cb: CoreBlock) -> bool:
-        """Insert a `CoreBlock` in the routing tree."""
+        """Insert a `CoreBlock` in the routing tree. Assign the core placements \
+            of it routing coordinates & make sure they are routable.
+        """
         leaves = []
         coords = []
         n_core = cb.n_core_required
