@@ -47,8 +47,8 @@ class CoreConfig(NamedTuple):
             by_alias=True
         )
 
-    def config_dump(self) -> Dict[str, Any]:
-        """Dump the configs for debugging."""
+    def __json__(self) -> Dict[str, Any]:
+        """Dump the configs into json for debugging."""
         dict_ = self.export()
 
         for var in self._extra_params:
@@ -73,9 +73,19 @@ class NeuronDest(NamedTuple):
     addr_chip_x: int
     addr_chip_y: int
 
-    def config_dump(self) -> Dict[str, Any]:
+    def export(self) -> Dict[str, Any]:
         dest_info = NeuronDestInfo.model_validate(self._asdict(), strict=True)
-        dict_ = dest_info.model_dump(by_alias=True, exclude={*dest_info._exclude_vars})
+        dict_ = dest_info.model_dump(by_alias=True)
+
+        return dict_
+
+    def __json__(self) -> Dict[str, Any]:
+        """Dump the configs into json for debugging."""
+        dest_info = NeuronDestInfo.model_validate(self._asdict(), strict=True)
+        dict_ = dest_info.model_dump(
+            by_alias=True,
+            exclude={*dest_info._exclude_vars},
+        )
 
         for var in self._extra_params:
             dict_[var] = getattr(self, var)
@@ -91,11 +101,9 @@ class ConfigTemplate:
 
 @dataclass(eq=False)
 class NeuronConfig(ConfigTemplate):
-    _extra_params = ("addr_offset",)
+    # _extra_params = ("addr_offset",)
     """Extra parameters for debugging."""
 
-    addr_ram: List[int]
-    addr_offset: int
     params_ram: ParamsRAM
 
     @classmethod
@@ -139,29 +147,42 @@ class NeuronConfig(ConfigTemplate):
         )
 
         return cls(
-            addr_ram,
-            addr_offset,
-            ParamsRAM(attrs=attrs, dest_info=neuron_dest_info),
+            ParamsRAM(
+                attrs=attrs,
+                dest_info=neuron_dest_info,
+                addr_ram=addr_ram,
+                addr_offset=addr_offset,
+            ),
         )
 
-    def export(self) -> Dict[str, Any]:
-        dict_ = {
-            "addr_ram": self.addr_ram,
-            "addr_offset": self.addr_offset,
-            **self.params_ram.model_dump(by_alias=True),
-        }
+    def export(self, dest_info_only: bool = False) -> Dict[str, Any]:
+        """Export the parameters model.
+
+        Args:
+            - dest_info_only: Whether to export the info of neuron destination only. \
+                Defaults to False.
+        """
+        if not dest_info_only:
+            dict_ = self.params_ram.model_dump(by_alias=True)
+        else:
+            dict_ = self.params_ram.dest_info.model_dump(by_alias=True)
 
         return dict_
 
-    def config_dump(self) -> Dict[str, Any]:
-        """Dump the configs for debugging."""
+    def __json__(self) -> Dict[str, Any]:
+        """Dump the configs into json for debugging."""
         dict_ = self.params_ram.model_dump(
             by_alias=True,
             exclude={"dest_info": self.params_ram.dest_info._exclude_vars},
         )
 
-        for var in self._extra_params:
-            dict_[var] = getattr(self, var)
+        return dict_
+
+    def dest_info_dump(self) -> Dict[str, Any]:
+        dict_ = self.params_ram.dest_info.model_dump(
+            by_alias=True,
+            exclude={"dest_info": self.params_ram.dest_info._exclude_vars},
+        )
 
         return dict_
 
@@ -191,7 +212,8 @@ class CorePlacementConfig(ConfigTemplate):
             neuron_ram,
         )
 
-    def config_dump(self) -> Dict[str, Any]:
+    def __json__(self) -> Dict[str, Any]:
+        """Dump the configs into json for debugging."""
         dict_ = {
             "coord": self.coord.address,
             "random_seed": int(self.random_seed),
@@ -200,6 +222,6 @@ class CorePlacementConfig(ConfigTemplate):
         }
 
         for neu, neu_config in self.neuron_ram.items():
-            dict_["neuron_ram"][neu.name] = neu_config.config_dump()
+            dict_["neuron_ram"][neu.name] = neu_config.__json__()
 
         return dict_

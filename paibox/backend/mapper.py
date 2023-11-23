@@ -183,23 +183,6 @@ class Mapper:
         self._graph_check()
 
     def main_phases(self) -> None:
-        """
-        Prerequisites:
-        0. Global config:
-            - All weights is 1-bit
-            - Pure SNN mode. SNN_EN enbales, input and spike width are 1-bit.
-
-        1. Simplified situation.
-            Level 0:
-            - Every layer is considered seperately.
-            - The number of a group of neurons <= 512.
-            - The LCN extension of every layer is LCN_1X.
-
-        2. Level 1:pass
-            - Every layer is considered seperately.
-            - The number of a group of neurons may > 512.
-            - The LCN extension of every layer is LCN_1X.
-        """
         if not self.has_built:
             raise BuildError(f"The graph hasn't been built yet")
 
@@ -224,10 +207,11 @@ class Mapper:
             are performed at this stage.
 
         Limitation:
-            # For a node with in-degree > 1, the out-degree of \
-            #     all its forward nodes = 1.
-            - For a node with out-degree > 1, the in-degree of \
-                all its backward node = 1.
+            # For a node with in-degree > 1, the out-degree of all its      \
+            #   forward nodes = 1.
+            - For a node with out-degree > 1, the in-degree of all its      \
+                backward node = 1.
+            - Only support the in-degree of backward node of input node is 1.
         """
         # Filter the DG with cycles.
         if self._filter_cycle:
@@ -243,7 +227,19 @@ class Mapper:
                 self._degree_of_nodes[succ_node].in_degree > 1
                 for succ_node in self.succ_dg[node]
             ):
-                raise NotSupportedError("Not support this structure of network.")
+                raise NotSupportedError(
+                    "This structure of network is not supported yet."
+                )
+
+        # Only support the in-degree of backward node of input node is 1.
+        for inode in self.inodes:
+            if any(
+                self._degree_of_nodes[succ_node].in_degree > 1
+                for succ_node in self.succ_dg[inode]
+            ):
+                raise NotSupportedError(
+                    "Only input nodes are supported as the only input of a node."
+                )
 
     def build_core_blocks(self) -> None:
         """Build core blocks based on grouped edges.
@@ -351,7 +347,7 @@ class Mapper:
             self.core_blocks,
         )
 
-        self.input_cb_info: Dict[InputProj, Dict] = defaultdict(dict)
+        self.input_cb_info: Dict[str, NeuronDest] = defaultdict()
 
         for input_cb in input_core_blocks:
             dest_coords = input_cb.core_coords
@@ -375,10 +371,12 @@ class Mapper:
                     _BACKEND_CONTEXT["local_chip_addr"].y,
                 )
 
-                self.input_cb_info[inode.name] = nd.config_dump()
+                self.input_cb_info[inode.name] = nd
 
-        _flag = False
-        output_core_coord = _BACKEND_CONTEXT["output_core_addr"]
+        self.output_dest_info: Dict[str, Dict[int, Dict[str, Any]]] = defaultdict(dict)
+
+        _ocoord_update_flag = False
+        ocoord = _BACKEND_CONTEXT["output_core_addr"]
 
         for cb in self.core_blocks:
             self.core_params |= CoreBlock.export_core_plm_config(cb)
@@ -393,29 +391,36 @@ class Mapper:
 
             for core_plm in cb.core_placements.values():
                 for neu_seg in core_plm.neu_segs:
-                    # Find the axon destinations
-                    dests = list(
-                        filter(lambda cb: neu_seg.parent in cb.source, self.core_blocks)
-                    )
-
-                    if len(dests) > 0:
-                        # TODO Necessary to make this condition a premise?
-                        assert len(dests) == 1  # ?
-                        core_plm.export_neu_config(neu_seg, dests)
-                    else:
-                        # An output node
+                    # neu_seg is an output
+                    if neu_seg.parent.name in self.onodes:
+                        # Update the offset of axon
                         output_axon_offset = core_plm.export_neu_config(
                             neu_seg,
-                            output_core_coord=output_core_coord,
+                            output_core_coord=ocoord,
                             axon_addr_offset=output_axon_offset,
                         )
-                        _flag = True
+                        self.output_dest_info[neu_seg.parent.name][
+                            core_plm.coord.address
+                        ] = core_plm.neu_config[neu_seg.parent].dest_info_dump()
+                        _ocoord_update_flag = True
+                    else:
+                        # Find the axon destinations
+                        dests = list(
+                            filter(
+                                lambda cb: neu_seg.parent in cb.source, self.core_blocks
+                            )
+                        )
+
+                        # TODO Necessary to make this condition a premise?
+                        assert len(dests) == 1
+                        core_plm.export_neu_config(neu_seg, dests)
 
                 self.core_plm_config[core_plm.coord] = core_plm.export_core_config()
 
-            if _flag:
-                output_core_coord += CoordOffset(1, 0)
-                _flag = False
+            if _ocoord_update_flag:
+                # Coord.x += 1
+                ocoord += CoordOffset(1, 0)
+                _ocoord_update_flag = False
 
     @property
     def nodes(self):
