@@ -1,5 +1,3 @@
-from re import L
-
 import numpy as np
 import pytest
 
@@ -9,7 +7,7 @@ from paibox.node import NodeDict
 
 def test_Collector_operations():
     s1 = pb.base.DynamicSys(name="s1")
-    s2 = pb.projection.InputProj(shape_out=1, name="s2")
+    s2 = pb.InputProj(1, shape_out=1, name="s2")
     s3 = pb.network.NeuDyn(name="s3")
     s4 = pb.DynSysGroup(s1, s2, name="s4")
 
@@ -187,7 +185,7 @@ def test_Sequential_build():
     nodes1 = sequential.nodes(method="absolute", level=1, include_self=False)
     assert len(nodes1) == 3
 
-    class Seq(pb.Sequential):
+    class Seq(pb.network.Sequential):
         def __init__(self):
             super().__init__()
             self.n1 = pb.neuron.TonicSpiking(5, fire_step=3)

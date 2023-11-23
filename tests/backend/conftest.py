@@ -15,11 +15,12 @@ from paibox.libpaicore import (
     InputWidthFormat,
     MaxPoolingEnable,
     NeuronSegment,
+    RoutingDirection,
+    RoutingNodeLevel,
     SNNModeEnable,
     SpikeWidthFormat,
 )
 from paibox.libpaicore import WeightPrecision as WP
-from paibox.libpaicore.v2.routing_defs import RoutingDirection, RoutingNodeLevel
 
 
 @pytest.fixture(scope="session")

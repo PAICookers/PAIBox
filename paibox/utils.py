@@ -4,9 +4,7 @@ import numpy as np
 
 from paibox._types import Shape
 
-"""
-    Some handful utilities.
-"""
+"""Handful utilities."""
 
 
 def check_elem_unique(obj: Any) -> bool:
@@ -29,15 +27,15 @@ def check_elem_unique(obj: Any) -> bool:
     if hasattr(obj, "__iter__"):
         return len(obj) == len(set(obj))
 
-    raise TypeError(f"Unsupported type to check: {type(obj)}")
+    raise TypeError(f"Unsupported type: {type(obj)}")
 
 
 def count_unique_elem(obj: Iterable) -> int:
-    s = set()
+    seen = set()
     for item in obj:
-        s.add(item)
+        seen.add(item)
 
-    return len(s)
+    return len(seen)
 
 
 def is_nested_obj(obj_on_top: Any) -> bool:
@@ -59,7 +57,7 @@ def shape2num(shape: Shape) -> int:
 
         return a
 
-    raise ValueError(f"Type of {shape} is not supported: {type(shape)}")
+    raise TypeError(f"Unsupported type: {type(shape)}")
 
 
 def as_shape(shape, min_dim: int = 0) -> Tuple[int, ...]:
@@ -93,12 +91,10 @@ def is_number(obj: Any) -> bool:
     return is_integer(obj) or isinstance(obj, (float, np.number))
 
 
-def is_array(obj: Any) -> bool:
-    return isinstance(obj, (np.generic, np.ndarray))
-
-
 def is_array_like(obj: Any) -> bool:
-    return is_array(obj) or is_number(obj) or isinstance(obj, (list, tuple))
+    return (
+        isinstance(obj, np.ndarray) or is_number(obj) or isinstance(obj, (list, tuple))
+    )
 
 
 def is_iterable(obj: Any) -> bool:

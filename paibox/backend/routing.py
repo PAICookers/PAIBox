@@ -1,12 +1,12 @@
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Sequence, final
 
-from paibox.libpaicore.v2.routing_defs import RoutingDirection as Direction
-from paibox.libpaicore.v2.routing_defs import RoutingDirectionIdx as DirectionIdx
-from paibox.libpaicore.v2.routing_defs import RoutingNodeCoord as NodeCoord
-from paibox.libpaicore.v2.routing_defs import RoutingNodeLevel as Level
-from paibox.libpaicore.v2.routing_defs import RoutingNodeStatus as Status
-from paibox.libpaicore.v2.routing_defs import get_node_consumption
+from paibox.libpaicore import RoutingDirection as Direction
+from paibox.libpaicore import RoutingDirectionIdx as DirectionIdx
+from paibox.libpaicore import RoutingNodeCoord as NodeCoord
+from paibox.libpaicore import RoutingNodeLevel as Level
+from paibox.libpaicore import RoutingNodeStatus as Status
+from paibox.libpaicore import get_node_consumption
 
 from .placement import CoreBlock, CorePlacement
 

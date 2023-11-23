@@ -4,17 +4,15 @@ import pytest
 import paibox as pb
 
 
-def update(ts: int, *args, **kwargs):
-    return np.ones((2,)) * ts
-
-
 class Net1(pb.DynSysGroup):
-    def __init__(self):
+    def __init__(self, n_neuron: int):
         super().__init__()
 
-        self.inp = pb.projection.InputProj(update, shape_out=(2,))
-        self.n1 = pb.neuron.TonicSpiking(2, fire_step=2)
-        self.n2 = pb.neuron.TonicSpiking(2, fire_step=2)
+        pe = pb.simulator.PoissonEncoder()
+
+        self.inp = pb.projection.InputProj(pe, shape_out=(n_neuron,), keep_shape=True)
+        self.n1 = pb.neuron.TonicSpiking(n_neuron, fire_step=2)
+        self.n2 = pb.neuron.TonicSpiking(n_neuron, fire_step=2)
         self.s0 = pb.synapses.NoDecay(
             self.inp, self.n1, conn_type=pb.synapses.ConnType.One2One
         )
@@ -28,14 +26,17 @@ class Net1(pb.DynSysGroup):
 
 
 def test_probe():
-    net = Net1()
+    net = Net1(100)
 
     probe_outside = pb.simulator.Probe(net.inp, "state")
 
     sim = pb.Simulator(net)
     sim.add_probe(probe_outside)
 
-    sim.run(10)
+    # Normalized data
+    input_data = np.random.rand(10, 10).astype(np.float32)
+
+    sim.run(10, input=input_data)
 
     inp_state = sim.data[probe_outside]
     assert type(inp_state) == np.ndarray
