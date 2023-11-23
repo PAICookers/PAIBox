@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 import paibox as pb
-from paibox.libpaicore.v2.coordinate import Coord
+from paibox.libpaicore import Coord
 
 
 class NetForTest1(pb.Network):

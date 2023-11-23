@@ -12,8 +12,12 @@ from paibox.backend.placement import (
     n_axon2lcn_ex,
 )
 from paibox.exceptions import ResourceError
-from paibox.libpaicore.v2 import AxonCoord, AxonSegment, NeuronSegment
-from paibox.libpaicore.v2.reg_types import WeightPrecisionType as WP
+from paibox.libpaicore import (
+    AxonCoord,
+    AxonSegment,
+    NeuronSegment,
+    WeightPrecision as WP,
+)
 
 
 def test_get_raw_weight_ref():
