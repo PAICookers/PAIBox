@@ -1,6 +1,6 @@
 import pytest
 
-from paibox.backend import BACKEND_CONFIG
+from paibox import BACKEND_CONFIG
 from paibox.libpaicore import Coord
 
 

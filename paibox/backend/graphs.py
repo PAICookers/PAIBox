@@ -176,3 +176,22 @@ def group_edges(
             continue
 
     return gathered
+
+
+def longest_path(edges: Dict[Node, Set[Node]]) -> List[Node]:
+    topological_order = toposort(edges)
+    longest_paths = {node: 0 for node in edges}
+    predecessors = {node: None for node in edges}
+    path = []
+    for node in topological_order:
+        for neighbor in edges[node]:
+            if longest_paths[node] + 1 > longest_paths[neighbor]:
+                longest_paths[neighbor] = longest_paths[node] + 1
+                predecessors[neighbor] = node
+    node = max(longest_paths, key=longest_paths.get)
+    while node is not None:
+        path.append(node)
+        node = predecessors[node]
+
+        # 反转最长路径列表并返回
+    return path[::-1]

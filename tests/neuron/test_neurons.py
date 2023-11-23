@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 import paibox as pb
-from paibox.neuron.base import *
+from paibox.libpaicore import *
 from paibox.utils import as_shape, shape2num
 
 
@@ -30,7 +30,7 @@ class TestMetaNeuronBehavior:
         ],
     )
     def test_neuronal_charge(self, vjt_init, x, expected):
-        n1 = MetaNeuron(
+        n1 = pb.neuron.base.MetaNeuron(
             2,
             self.reset_mode,
             self.reset_v,
@@ -61,7 +61,7 @@ class TestMetaNeuronBehavior:
         # ids="path_1, path_2, path_3,path_4,path_5,path_6,path_7,path_8,path_9"
     )
     def test_neuronal_leak(self, lim, ld, vjt, leak_v, expected):
-        n1 = MetaNeuron(
+        n1 = pb.neuron.base.MetaNeuron(
             2,
             self.reset_mode,
             self.reset_v,
@@ -92,7 +92,7 @@ class TestMetaNeuronBehavior:
     )
     def test_neuronal_fire(self, ntm, vjt, neg_thres, pos_thres, expected):
         # mask=3
-        n1 = MetaNeuron(
+        n1 = pb.neuron.base.MetaNeuron(
             1,
             self.reset_mode,
             self.reset_v,
@@ -124,7 +124,7 @@ class TestMetaNeuronBehavior:
         ],
     )
     def test_neuronal_reset(self, ntm, thr_mode, reset_mode, expected):
-        n1 = MetaNeuron(
+        n1 = pb.neuron.base.MetaNeuron(
             1,
             reset_mode,
             5,
@@ -221,8 +221,8 @@ class TestNeuronBehavior:
     def test_TonicSpiking_simple_sim(self):
         n1 = pb.neuron.TonicSpiking(shape=1, fire_step=3)
         inp_data = np.ones((10,), dtype=np.bool_)
-        output = np.full((10,), 0, dtype=np.bool_)
-        voltage = np.full((10,), 0, dtype=np.int32)
+        output = np.full((10, 1), 0, dtype=np.bool_)
+        voltage = np.full((10, 1), 0, dtype=np.int32)
 
         for t in range(10):
             output[t] = n1(inp_data[t])
@@ -234,8 +234,8 @@ class TestNeuronBehavior:
         n1 = pb.neuron.PhasicSpiking(shape=1, time_to_fire=3)
         # [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
         inp_data = np.concatenate((np.zeros((2,), np.bool_), np.ones((10,), np.bool_)))
-        output = np.full((12,), 0, dtype=np.bool_)
-        voltage = np.full((12,), 0, dtype=np.int32)
+        output = np.full((12, 1), 0, dtype=np.bool_)
+        voltage = np.full((12, 1), 0, dtype=np.int32)
 
         for t in range(12):
             output[t] = n1(inp_data[t])

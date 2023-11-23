@@ -1,5 +1,7 @@
 from typing import Any
 
+__all__ = ["FRONTEND_ENV"]
+
 
 class _Context:
     def __init__(self) -> None:
@@ -41,14 +43,28 @@ class _Context:
     def __getitem__(self, item):
         return self.load(item)
 
-    def get_contexts(self):
+    def get_ctx(self):
         """Get all contexts."""
         return self._context.copy()
 
-    def clear(self, *args) -> None:
-        """Clear contexts."""
+    def clear_ctx(self, *args) -> None:
+        """Clear one or some contexts."""
         if len(args) > 0:
             for arg in args:
                 self._context.pop(arg)
         else:
             self._context.clear()
+
+    def clear_all(self) -> None:
+        """Clear all contexts."""
+        return self._context.clear()
+
+
+class _FrontendContext(_Context):
+    def __init__(self, initial_t: int = 0) -> None:
+        super().__init__()
+        self._context["t"] = initial_t
+
+
+_FRONTEND_CONTEXT = _FrontendContext()
+FRONTEND_ENV = _FRONTEND_CONTEXT

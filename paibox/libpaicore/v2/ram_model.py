@@ -12,6 +12,8 @@ from pydantic import (
 
 from .ram_types import *
 
+__all__ = ["NeuronDestInfo", "NeuronAttrs", "NeuronParams", "ParamsRAM"]
+
 TICK_RELATIVE_BIT_MAX = 8
 ADDR_AXON_BIT_MAX = 11
 ADDR_CORE_X_BIT_MAX = 5
