@@ -34,6 +34,7 @@ from paibox.libpaicore import (
 )
 from paibox.projection import InputProj
 from paibox.synapses import SynSys
+from paibox.utils import count_unique_elem
 
 from .config_template import CoreConfig, CorePlacementConfig, NeuronConfig
 from .context import _BACKEND_CONTEXT
@@ -44,10 +45,13 @@ NeuSeg = NamedTuple("NeuSeg", [("parent", DestNodeType), ("segment", NeuronSegme
 
 
 class CoreAbstract(HwCore, PAIBoxObject):
-    supported_weight_precision: ClassVar[Tuple[WeightPrecision, ...]] = (
+    supported_wp: ClassVar[Tuple[WeightPrecision, ...]] = (
         WeightPrecision.WEIGHT_WIDTH_1BIT,
     )
+    """Supported weight precision."""
+
     supported_mode: ClassVar[Tuple[CoreMode, ...]] = (CoreMode.MODE_SNN,)
+    """Supported core modes."""
 
 
 class CoreBlock(CoreAbstract):
@@ -132,7 +136,7 @@ class CoreBlock(CoreAbstract):
         else:
             raise NotImplementedError
 
-        if wp not in cls.supported_weight_precision:
+        if wp not in cls.supported_wp:
             raise NotSupportedError(f"{wp} is not supported yet by {cls.__class__}")
 
         return cls(*synapses, weight_precision=wp)
@@ -189,6 +193,10 @@ class CoreBlock(CoreAbstract):
     @property
     def obj(self) -> Tuple[SynSys, ...]:
         return self._parent
+
+    @property
+    def shape(self) -> Tuple[int, int]:
+        return (count_unique_elem(self.source), count_unique_elem(self.dest))
 
     @property
     def source(self) -> List[SourceNodeType]:
@@ -648,6 +656,10 @@ class CorePlacement(CoreAbstract):
     @property
     def mode(self) -> CoreMode:
         return self.parent.mode
+
+    @property
+    def shape(self) -> Tuple[int, int]:
+        return (count_unique_elem(self.source), count_unique_elem(self.dest))
 
     @property
     def weight_precision(self) -> WeightPrecision:
