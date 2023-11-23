@@ -2,7 +2,6 @@ from abc import abstractmethod
 from typing import Optional, Tuple
 
 import numpy as np
-from numpy.random import Generator
 
 from paibox._types import Shape
 from paibox.base import DynamicSys
@@ -10,29 +9,26 @@ from paibox.utils import as_shape, shape2num
 
 __all__ = ["PeriodicEncoder", "PoissonEncoder"]
 
-MAXSEED = np.iinfo(np.uint32).max
-MAXINT = np.iinfo(np.int32).max
+_MAXSEED = np.iinfo(np.uint32).max
+_MAXINT = np.iinfo(np.int32).max
 
 
 class Encoder(DynamicSys):
     def __init__(
         self,
         shape_out: Shape = (0,),
-        seed: Optional[int] = None,
         *,
+        seed: Optional[int] = None,
         name: Optional[str] = None,
     ) -> None:
-        """
-        TODO Consider it as a `PAIBoxObject`? Is `run()` useful?
-        """
         self._shape_out = as_shape(shape_out)
-        self.seed = seed
 
         super().__init__(name)
+        self.rng = self._get_rng(seed)
 
-    def get_rng(self) -> Generator:
-        seed = np.random.randint(MAXINT) if self.seed is None else self.seed
-        return np.random.default_rng(seed)
+    def _get_rng(self, seed: Optional[int] = None) -> np.random.RandomState:
+        _seed = np.random.randint(_MAXINT) if seed is None else seed
+        return np.random.RandomState(_seed)
 
     @property
     def num_out(self) -> int:
@@ -95,10 +91,16 @@ class PeriodicEncoder(StatefulEncoder):
 
 
 class PoissonEncoder(StatelessEncoder):
-    def __init__(
-        self, shape_out: Shape = (0,), seed: Optional[int] = None, **kwargs
-    ) -> None:
-        super().__init__(shape_out, seed, **kwargs)
+    def __init__(self, seed: Optional[int] = None, **kwargs) -> None:
+        """Poisson encoder.
+        
+        Args:
+            - seed: the random seed.
+        
+        NOTE: The output size of the poisson encoder depends on the \
+            actual input size.
+        """
+        super().__init__(seed=seed, **kwargs)
 
-    def __call__(self, x: np.ndarray, **kwargs) -> np.ndarray:
-        return np.less_equal(self.get_rng().random(x.shape), x).astype(np.bool_)
+    def __call__(self, *args, input: np.ndarray, **kwargs) -> np.ndarray:
+        return np.less_equal(self.rng.random(input.shape), input).astype(np.bool_)

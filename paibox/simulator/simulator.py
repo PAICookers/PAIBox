@@ -2,6 +2,7 @@ from typing import Any, Dict, List
 
 import numpy as np
 
+from paibox.context import _FRONTEND_CONTEXT
 from paibox.base import DynamicSys, PAIBoxObject
 from paibox.exceptions import SimulationError
 
@@ -16,8 +17,13 @@ class Simulator(PAIBoxObject):
         Arguments:
             - target: the target network.
         """
-        super().__init__()
+        if not isinstance(target, DynamicSys):
+            raise SimulationError(
+                f"Target must be an instance of {DynamicSys.__name__}, "
+                f"but we got {target}: {type(target)}"
+            )
 
+        super().__init__()
         self.target = target
         self.dt = 1
         """Time scale."""
@@ -31,7 +37,7 @@ class Simulator(PAIBoxObject):
         self._add_inner_probes()
         self.reset()
 
-    def run(self, duration: int, reset: bool = True, **kwargs) -> None:
+    def run(self, duration: int, reset: bool = True, *args, **kwargs) -> None:
         """
         Arguments:
             - duration: duration of the simulation.
@@ -51,22 +57,24 @@ class Simulator(PAIBoxObject):
         if reset:
             self.target.reset_state()
 
-        self.run_step(n_steps, **kwargs)
+        self.run_step(n_steps, *args, **kwargs)
 
         self._sim_data["ts"] = indices * self.dt
         self._ts += n_steps
 
-    def run_step(self, n_steps: int, **kwargs) -> None:
+    def run_step(self, n_steps: int, *args, **kwargs) -> None:
         for step in range(n_steps):
-            self.step(step, **kwargs)
+            _FRONTEND_CONTEXT["t"] = step
+            self.step(*args, **kwargs)
 
     def step(self, *args, **kwargs) -> None:
         self.target.update(*args, **kwargs)
         self._update_probe()
 
     def reset(self) -> None:
+        _FRONTEND_CONTEXT["t"] = 0
         self._ts = 0
-        self._clear_probes()
+        self._reset_probes()
 
     def add_probe(self, probe: Probe) -> None:
         if probe not in self.probes:
@@ -79,6 +87,11 @@ class Simulator(PAIBoxObject):
             self._sim_data.pop(probe)
         else:
             raise KeyError(f"Probe {probe.name} does not exist.")
+
+    def _destroy_probes(self):
+        self.probes.clear()
+        self._sim_data.clear()
+        self.data.reset()
 
     def get_raw(self, probe: Probe) -> List[Any]:
         """Retrieve the raw data.
@@ -105,9 +118,9 @@ class Simulator(PAIBoxObject):
 
         return self._sim_data[probe][t]
 
-    def _clear_probes(self) -> None:
+    def _reset_probes(self) -> None:
         for probe in self.probes:
-            self._sim_data[probe] = []
+            self._sim_data[probe].clear()
 
         self.data.reset()
 
