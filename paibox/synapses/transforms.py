@@ -5,7 +5,7 @@ import numpy as np
 
 from paibox.exceptions import *
 from paibox.utils import is_shape
-from paibox.exceptions import *
+
 
 @unique
 class ConnType(Enum):
