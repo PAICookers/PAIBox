@@ -113,9 +113,6 @@ class Mapper:
         self.core_plm_config = dict()
         self.clear()
 
-        """Options"""
-        self._filter_cycle: bool = True
-
     def clear(self) -> None:
         self.has_built = False
         self.routing_tree.clear()
@@ -135,9 +132,7 @@ class Mapper:
         self.core_params.clear()
         self.core_plm_config.clear()
 
-    def build_graph(
-        self, network: DynSysGroup, *, filter_cycle: Optional[bool] = None
-    ) -> None:
+    def build_graph(self, network: DynSysGroup) -> None:
         """Build the directed graph based on a given network.
 
         Arguments:
@@ -145,9 +140,6 @@ class Mapper:
             - filter_cycle: whether to filter network with cycles. Default is `True`.
         """
         self.clear()
-
-        if isinstance(filter_cycle, bool):
-            self._filter_cycle = filter_cycle
 
         self.network = network
         self._nodes = (
@@ -214,8 +206,7 @@ class Mapper:
             - Only support the in-degree of backward node of input node is 1.
         """
         # Filter the DG with cycles.
-        if self._filter_cycle:
-            self._ordered_nodes = toposort(self._succ_nodes, is_strict=True)
+        self._ordered_nodes = toposort(self._succ_nodes)
 
         self._degree_of_nodes = get_node_degrees(self.succ_dg)
 
@@ -250,16 +241,11 @@ class Mapper:
 
             # Then do sorting in ascending order.
         """
-        if self._filter_cycle:
-            ordered_nodes = self._ordered_nodes
-        else:
-            ordered_nodes = None
-
         self._edges_grouped = group_edges(
             list(self.edges.keys()),
             self.succ_dg,
             self._degree_of_nodes,
-            ordered_nodes=ordered_nodes,
+            ordered_nodes=self._ordered_nodes,
         )
 
         for syns_set in self._edges_grouped:
@@ -323,7 +309,10 @@ class Mapper:
     def coord_assign(self) -> None:
         """Assign the coordinate for each `CorePlacement`."""
         for cb in self.core_blocks:
-            self.routing_tree.insert_coreblock(cb)
+            if not RoutingRoot.insert_coreblock(self.routing_tree, cb):
+                raise RuntimeError(
+                    f"Insert core block {cb.name} into routing tree failed."
+                )
 
     def core_allocation(self) -> None:
         """Allocate the core blocks to the physical cores.

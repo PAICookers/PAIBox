@@ -1,7 +1,7 @@
 import pytest
 
 from paibox.backend.routing import RoutingNode, RoutingRoot, get_parent
-from paibox.libpaicore.v2.routing_defs import (
+from paibox.libpaicore import (
     RoutingDirection,
     RoutingNodeCost,
     RoutingNodeLevel,
@@ -21,16 +21,16 @@ class TestRouterTree:
 
         node1 = root.create_child(tag="L2_created")  # X0Y1
         assert node1 is not None
-        assert root.n_child == 3
+        assert len(root.children) == 3
 
         assert root.add_child_to(node_l2_3, RoutingDirection.X1Y1, False) == False
         assert root.add_child_to(node_l2_3, RoutingDirection.X1Y1, True) == True
-        assert root.n_child == 3
+        assert len(root.children) == 3
         assert root.children[RoutingDirection.X1Y1] == node_l2_3
 
         node2 = root.create_child(False, tag="L2_created2")  # X1Y0
         assert node2 is not None
-        assert root.n_child == 4
+        assert len(root.children) == 4
         assert root.children[RoutingDirection.X1Y0] == node2
 
         node3 = root.create_child(False, tag="L2_created3")
@@ -145,13 +145,12 @@ class TestRouterTree:
 
         assert root.add_child_to(node_l2_3, RoutingDirection.X1Y1, False) == True
 
-        assert root.n_child == 3
+        assert len(root.children) == 3
         assert RoutingDirection.X1Y0 not in root.children.keys()
 
     def test_add_L0_for_placing(self):
         subtree = RoutingNode.create_routing_tree(RoutingNodeLevel.L3, 2)
-
-        assert subtree.n_child == 2
+        assert len(subtree.children) == 2
 
         n = 6
         for i in range(n):
@@ -177,8 +176,8 @@ class TestRouterTree:
         assert len(find_l2) == 2
         assert len(find_l3) == 1
 
-        assert find_l1_1[0].n_child == find_l1_1[0].node_capacity
-        assert find_l1_1[1].n_child == n - find_l1_1[0].n_child
+        assert len(find_l1_1[0].children) == find_l1_1[0].node_capacity
+        assert len(find_l1_1[1].children) == n - len(find_l1_1[0].children)
 
     def test_create_routing_tree(self):
         """Test for `create_routing_tree()` & `find_empty_lx_nodes()`."""
@@ -265,8 +264,8 @@ class TestRouterTreeRoot:
         assert nodes_l5 == 1
         assert nodes_l4 == 1
         assert nodes_l3 == 1
-        assert nodes_l2 == 3
-        assert nodes_l1 == 3
+        assert nodes_l2 == 2
+        assert nodes_l1 == 5
         assert nodes_l0 == 0
 
     def test_insert_coreblock_proto(self):
