@@ -171,7 +171,7 @@ class TestMapperDebug:
 
         for coord, cpc in mapper.core_plm_config.items():
             _json_core_plm_config[coord.address] = cpc.__json__()
-        
+
         for inode, nd in mapper.input_cb_info.items():
             _json_inp_proj_info[inode] = nd.__json__()
 
@@ -204,7 +204,7 @@ class TestMapperDebug:
                 indent=4,
                 cls=CustomJsonEncoder,
             )
-            
+
         # Export the info of output destination into json
         with open(ensure_dump_dir / "output_dest_info.json", "w") as f:
             json.dump(

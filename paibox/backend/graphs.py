@@ -200,7 +200,7 @@ def longest_path(edges: Dict[Node, Dict[Node, any]]) -> [List[Node], any]:
 
 def shortest_path(edges: Dict[Node, Dict[Node, any]]) -> [List[Node], any]:
     topological_order = toposort(edges)
-    shortest_paths = {node: float('inf') for node in edges}
+    shortest_paths = {node: float("inf") for node in edges}
     shortest_paths[topological_order[0]] = 0
     predecessors = {node: None for node in edges}
     path = []
@@ -209,7 +209,7 @@ def shortest_path(edges: Dict[Node, Dict[Node, any]]) -> [List[Node], any]:
             if shortest_paths[node] + edges[node][neighbor] < shortest_paths[neighbor]:
                 shortest_paths[neighbor] = shortest_paths[node] + edges[node][neighbor]
                 predecessors[neighbor] = node
-    #node = max(shortest_paths, key=shortest_paths.get)
+    # node = max(shortest_paths, key=shortest_paths.get)
     node = topological_order[-1]
     dist = shortest_paths[node]
     while node is not None:

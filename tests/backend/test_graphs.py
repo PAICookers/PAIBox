@@ -230,7 +230,8 @@ class TestLongestPath:
                     "n3": {},
                     "n4": {"n2": 2},
                 },
-                4, 8
+                4,
+                8,
             ),
             (
                 {
@@ -243,7 +244,8 @@ class TestLongestPath:
                     "n6": {"n7": 2},
                     "n7": {"n4": 3},
                 },
-                5, 22
+                5,
+                22,
             ),
             (
                 {
@@ -256,7 +258,8 @@ class TestLongestPath:
                     "n6": {"n7": 5},
                     "n7": {},
                 },
-                5, 12
+                5,
+                12,
             ),
             (
                 {
@@ -266,13 +269,14 @@ class TestLongestPath:
                     "n3": {"n4": 5},
                     "n4": {},
                 },
-                4, 8
+                4,
+                8,
             ),
         ],
         ids=["one_input_1", "one_input_2", "one_input_3", "one_input_4"],
     )
     def test_longestpath(self, edges, length, expected):
-        path,dist=longest_path(edges)
+        path, dist = longest_path(edges)
         print(path)
         assert len(path) == length
         assert dist == expected
@@ -290,7 +294,8 @@ class TestShortestPath:
                     "n3": {},
                     "n4": {"n2": 2},
                 },
-                5, 7
+                5,
+                7,
             ),
             (
                 {
@@ -303,7 +308,8 @@ class TestShortestPath:
                     "n6": {"n7": 2},
                     "n7": {"n4": 3},
                 },
-                7, 13
+                7,
+                13,
             ),
             (
                 {
@@ -316,7 +322,8 @@ class TestShortestPath:
                     "n6": {"n7": 5},
                     "n7": {},
                 },
-                5, 8
+                5,
+                8,
             ),
             (
                 {
@@ -326,14 +333,15 @@ class TestShortestPath:
                     "n3": {"n4": 5},
                     "n4": {},
                 },
-                4, 6
+                4,
+                6,
             ),
         ],
         ids=["one_input_1", "one_input_2", "one_input_3", "one_input_4"],
     )
     def test_shortestpath(self, edges, length, expected):
         path, dist = shortest_path(edges)
-        #print(path)
-        #print(dist)
+        # print(path)
+        # print(dist)
         assert len(path) == length
         assert dist == expected

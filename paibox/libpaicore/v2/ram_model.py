@@ -11,7 +11,6 @@ from pydantic import (
 )
 
 from .hw_defs import HwConfig
-
 from .ram_types import *
 
 __all__ = ["NeuronDestInfo", "NeuronAttrs", "NeuronParams", "ParamsRAM"]
