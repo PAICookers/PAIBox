@@ -12,7 +12,7 @@ class Degree(NamedTuple):
     out_degree: int = 0
 
 
-def toposort(edges: Dict[Node, Set[Node]], is_strict: bool = True) -> List[Node]:
+def toposort(edges: Dict[Node, Dict[Node, any]], is_strict: bool = True) -> List[Node]:
     """
     Topological sort algorithm by Kahn [1]_.
 
@@ -70,7 +70,7 @@ def toposort(edges: Dict[Node, Set[Node]], is_strict: bool = True) -> List[Node]
     return ordered
 
 
-def reverse_edges(edges: Dict[Node, Set[Node]]) -> Dict[Node, Set[Node]]:
+def reverse_edges(edges: Dict[Node, Dict[Node, any]]) -> Dict[Node, Set[Node]]:
     """
     Reverses direction of dependence dict.
 
@@ -178,20 +178,43 @@ def group_edges(
     return gathered
 
 
-def longest_path(edges: Dict[Node, Set[Node]]) -> List[Node]:
+def longest_path(edges: Dict[Node, Dict[Node, any]]) -> [List[Node], any]:
     topological_order = toposort(edges)
     longest_paths = {node: 0 for node in edges}
     predecessors = {node: None for node in edges}
     path = []
     for node in topological_order:
         for neighbor in edges[node]:
-            if longest_paths[node] + 1 > longest_paths[neighbor]:
-                longest_paths[neighbor] = longest_paths[node] + 1
+            if longest_paths[node] + edges[node][neighbor] > longest_paths[neighbor]:
+                longest_paths[neighbor] = longest_paths[node] + edges[node][neighbor]
                 predecessors[neighbor] = node
     node = max(longest_paths, key=longest_paths.get)
+    dist = max(longest_paths.values())
     while node is not None:
         path.append(node)
         node = predecessors[node]
 
         # 反转最长路径列表并返回
-    return path[::-1]
+    return path[::-1], dist
+
+
+def shortest_path(edges: Dict[Node, Dict[Node, any]]) -> [List[Node], any]:
+    topological_order = toposort(edges)
+    shortest_paths = {node: float('inf') for node in edges}
+    shortest_paths[topological_order[0]] = 0
+    predecessors = {node: None for node in edges}
+    path = []
+    for node in topological_order:
+        for neighbor in edges[node]:
+            if shortest_paths[node] + edges[node][neighbor] < shortest_paths[neighbor]:
+                shortest_paths[neighbor] = shortest_paths[node] + edges[node][neighbor]
+                predecessors[neighbor] = node
+    #node = max(shortest_paths, key=shortest_paths.get)
+    node = topological_order[-1]
+    dist = shortest_paths[node]
+    while node is not None:
+        path.append(node)
+        node = predecessors[node]
+
+        # 反转最长路径列表并返回
+    return path[::-1], dist
