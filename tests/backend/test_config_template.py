@@ -12,7 +12,7 @@ class TestCoreConfigDict:
 class TestNeuronConfig:
     def test_NeuronConfig_instance(self, ensure_dump_dir, MockNeuronConfig):
         with open(ensure_dump_dir / "neu_config.json", "w") as f:
-            json.dump(MockNeuronConfig.config_dump(), f, indent=4, ensure_ascii=True)
+            json.dump(MockNeuronConfig.__json__(), f, indent=4, ensure_ascii=True)
 
 
 class TestCorePlacementConfig:
@@ -21,5 +21,5 @@ class TestCorePlacementConfig:
     ):
         with open(ensure_dump_dir / "core_placement.json", "w") as f:
             json.dump(
-                MockCorePlacementConfig.config_dump(), f, indent=4, ensure_ascii=True
+                MockCorePlacementConfig.__json__(), f, indent=4, ensure_ascii=True
             )

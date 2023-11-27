@@ -90,6 +90,8 @@ class SNNModeEnableType(Enum):
 
 @unique
 class CoreType(Enum):
+    """Type of core. Reserved."""
+
     TYPE_OFFLINE = "OFFLINE"
     TYPE_ONLINE = "ONLINE"
 

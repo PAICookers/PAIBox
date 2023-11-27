@@ -398,6 +398,10 @@ class TestWeightUnpack:
 
 
 class TestGetNeuronSegments:
+    @staticmethod
+    def _get_interval(wp, lcn_ex) -> int:
+        return (1 << wp) * (1 << lcn_ex)
+
     def test_get_neu_segments_catagory(
         self,
         neu_segs_test_data,
@@ -405,11 +409,11 @@ class TestGetNeuronSegments:
     ):
         for data, expected in zip(neu_segs_test_data, neu_segs_expected_catagory):
             neu_ins, capacity, wp, lcn_ex = data
+
             neu_segs = get_neu_segments(
                 neu_ins,
                 capacity,
-                weight_precision=wp,
-                lcn_ex=lcn_ex,
+                self._get_interval(wp, lcn_ex),
                 method="catagory",
             )
 
@@ -426,8 +430,7 @@ class TestGetNeuronSegments:
             neu_segs = get_neu_segments(
                 neu_ins,
                 capacity,
-                weight_precision=wp,
-                lcn_ex=lcn_ex,
+                self._get_interval(wp, lcn_ex),
                 method="dense",
             )
 
