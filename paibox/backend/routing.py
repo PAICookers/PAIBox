@@ -40,7 +40,7 @@ class RoutingNode:
             - item: the data hanging on the node.
             - tag: a tag for user to identify.
             - status: the status of the node. It's only for L0-level leaves.
-            
+
         NOTE: Do not add methods `__len__` & `__contains__`.
         """
         self._level = level

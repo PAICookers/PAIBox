@@ -9,9 +9,9 @@ from typing import (
     NamedTuple,
     Optional,
     Set,
-    TypeVar,
     Tuple,
     TypedDict,
+    TypeVar,
 )
 
 from paibox.exceptions import NotSupportedError

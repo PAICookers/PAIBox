@@ -148,7 +148,7 @@ class Mapper:
 
         Args:
             - networks: one or many `DynSysGroup`.
-            
+
         TODO verify the following phases when more than one sub  \
             network is given.
         """
