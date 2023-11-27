@@ -270,15 +270,6 @@ class Mapper:
             syns = [self.edges[syn] for syn in syns_set]
             self.core_blocks.append(CoreBlock.build(*syns))
 
-        # Check the total core consumption.
-        if (
-            n_core_required_total := sum(cb.n_core_required for cb in self.core_blocks)
-            > HwConfig.N_CORE_OFFLINE
-        ):
-            raise ResourceError(
-                f"#N of total cores required out of {HwConfig.N_CORE_OFFLINE}: {n_core_required_total}"
-            )
-
         # """
         #     Sort in ascending order according to the minimum value of \
         #     the index of source nodes in the topological order.
@@ -326,6 +317,20 @@ class Mapper:
 
     def coord_assign(self) -> None:
         """Assign the coordinate for each `CorePlacement`."""
+        for cb in self.core_blocks:
+            # Group the neurons, get the #N of cores required.
+            cb.group_neurons()
+            
+        # Check the total core consumption.
+        if (
+            n_core_required := sum(cb.n_core_required for cb in self.core_blocks)
+        ) > HwConfig.N_CORE_OFFLINE:
+            raise ResourceError(
+                f"#N of total cores required out of {HwConfig.N_CORE_OFFLINE}: {n_core_required}"
+            )
+
+        self.n_core_required = n_core_required
+    
         for cb in self.core_blocks:
             if not RoutingRoot.insert_coreblock(self.routing_tree, cb):
                 raise RuntimeError(

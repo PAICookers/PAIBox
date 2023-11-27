@@ -3,8 +3,16 @@ from typing import Tuple, Type, Union
 
 import numpy as np
 
-from paibox.exceptions import ShapeError
+from paibox.exceptions import NotSupportedError, ShapeError
+from paibox.libpaicore import WeightPrecision as WP
 from paibox.utils import is_shape
+
+MAX_INT2 = np.int8(1)
+MIN_INT2 = np.int8(-2)
+MAX_INT4 = np.int8(7)
+MIN_INT4 = np.int8(-8)
+MAX_INT8 = np.int8(127)
+MIN_INT8 = np.int8(-128)
 
 
 @unique
@@ -14,33 +22,40 @@ class ConnType(Enum):
     All2All = auto()
 
 
-def _get_dtype(weight: np.ndarray) -> Union[Type[np.bool_], Type[np.int8]]:
-    """Get the actual dtype of the weight.
-
-    Consider when the weight is a scalar:
-        - 1. `np.bool_`, 1-bit unsigned.
-        - 2. `np.int8`, 8-bit signed. Not fully supported.
-    """
+def _get_weight_precision(weight: np.ndarray) -> WP:
+    """Get the actual weight_precision of the weight."""
     _max = np.max(weight, axis=None).astype(np.int32)
     _min = np.min(weight, axis=None).astype(np.int32)
 
-    if _max <= np.bool_(True) and _min >= np.bool_(False):
-        return np.bool_
+    if _max <= np.int8(1) and _min >= np.int8(0):
+        return WP.WEIGHT_WIDTH_1BIT
 
-    if _max <= np.int8(127) and _min >= np.int8(-128):
-        # raise NotImplementedError
-        return np.int8
+    elif _max <= MAX_INT2 and _min >= MIN_INT2:
+        return WP.WEIGHT_WIDTH_2BIT
 
-    raise OverflowError
+    elif _max <= MAX_INT4 and _min >= MIN_INT4:
+        return WP.WEIGHT_WIDTH_4BIT
+
+    elif _max <= MAX_INT8 and _min >= MIN_INT8:
+        return WP.WEIGHT_WIDTH_8BIT
+
+    raise NotSupportedError(f"Weight precision out of range.")
 
 
 class Transform:
     weights: np.ndarray
 
     @property
+    def weight_precision(self) -> WP:
+        """The weight_precision of the weight."""
+        return _get_weight_precision(self.weights)
+
+    @property
     def dtype(self) -> Union[Type[np.bool_], Type[np.int8]]:
-        """The dtype of the weight."""
-        return _get_dtype(self.weights)
+        if self.weight_precision is WP.WEIGHT_WIDTH_1BIT:
+            return np.bool_
+        else:
+            return np.int8
 
     @property
     def connectivity(self) -> np.ndarray:
