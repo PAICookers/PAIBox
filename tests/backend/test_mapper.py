@@ -15,18 +15,18 @@ class NetForTest1(pb.Network):
 
     def __init__(self):
         super().__init__()
-        self.inp1 = pb.projection.InputProj(input=1, shape_out=(2000,), name="inp1")
-        self.n1 = pb.neuron.TonicSpiking(2000, 3, name="n1")
-        self.n2 = pb.neuron.TonicSpiking(1200, 3, name="n2")
-        self.n3 = pb.neuron.TonicSpiking(800, 4, name="n3")
+        self.inp1 = pb.projection.InputProj(input=1, shape_out=(2000,), name="inp1_1")
+        self.n1 = pb.neuron.TonicSpiking(2000, 3, name="n1_1")
+        self.n2 = pb.neuron.TonicSpiking(1200, 3, name="n2_1")
+        self.n3 = pb.neuron.TonicSpiking(800, 4, name="n3_1")
         self.s1 = pb.synapses.NoDecay(
-            self.inp1, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s1"
+            self.inp1, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s1_1"
         )
         self.s2 = pb.synapses.NoDecay(
-            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s2"
+            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s2_1"
         )
         self.s3 = pb.synapses.NoDecay(
-            self.n2, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s3"
+            self.n2, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s3_1"
         )
 
 
@@ -35,14 +35,22 @@ class NetForTest2(pb.Network):
 
     def __init__(self):
         super().__init__()
-        self.inp = pb.projection.InputProj(input=1, shape_out=(400,), name="inp1")
-        self.n1 = pb.neuron.TonicSpiking(400, 3, name="n1")
-        self.n2 = pb.neuron.TonicSpiking(800, 3, name="n2")
+        self.inp1 = pb.projection.InputProj(input=1, shape_out=(400,), name="inp1_2")
+        self.inp2 = pb.projection.InputProj(input=1, shape_out=(400,), name="inp2_2")
+        self.n1 = pb.neuron.TonicSpiking(400, 3, name="n1_2")
+        self.n2 = pb.neuron.TonicSpiking(400, 3, name="n2_2")
+        self.n3 = pb.neuron.TonicSpiking(800, 3, name="n3_2")
         self.s1 = pb.synapses.NoDecay(
-            self.inp, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s1"
+            self.inp1, self.n1, conn_type=pb.synapses.ConnType.One2One, name="s1_2"
         )
         self.s2 = pb.synapses.NoDecay(
-            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s2"
+            self.inp2, self.n2, conn_type=pb.synapses.ConnType.One2One, name="s2_2"
+        )
+        self.s3 = pb.synapses.NoDecay(
+            self.n1, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s3_2"
+        )
+        self.s4 = pb.synapses.NoDecay(
+            self.n2, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s4_2"
         )
 
 
@@ -113,7 +121,7 @@ def build_example_net1():
 
 @pytest.fixture(scope="class")
 def build_example_net2():
-    return NetForTest3()
+    return NetForTest2()
 
 
 @pytest.fixture(scope="function")
@@ -143,7 +151,29 @@ class CustomJsonEncoder(JSONEncoder):
             return super().default(o)
 
 
+class TestGraphInfo:
+    def test_multi_inputproj(self, get_mapper, build_example_net2):
+        net = build_example_net2
+        mapper = get_mapper
+
+        mapper.build_graph(net)
+        mapper.main_phases()
+
+        assert len(mapper.graph_info["input"]) == 2
+
+
 class TestMapperDebug:
+    def test_build_graph(self, get_mapper, build_example_net1, build_example_net2):
+        """Build more than one networks."""
+        net1 = build_example_net1
+        net2 = build_example_net2
+
+        mapper = get_mapper
+        mapper.clear()
+        mapper.build_graph(net1, net2)
+
+        assert mapper.has_built == True
+
     @pytest.fixture
     def test_simple_net(self, get_mapper, build_example_net1):
         """Go throught the backend"""
@@ -151,7 +181,7 @@ class TestMapperDebug:
 
         mapper = get_mapper
         mapper.clear()
-        mapper.build_graph(net, filter_cycle=True)
+        mapper.build_graph(net)
         mapper.main_phases()
 
     @pytest.mark.usefixtures("test_simple_net")
@@ -161,10 +191,12 @@ class TestMapperDebug:
         assert mapper.has_built == True
 
         assert len(mapper.core_blocks) == 3  # 3 layers
+        assert mapper.inherent_timestep == 4
 
         _json_core_configs = dict()
         _json_core_plm_config = dict()
         _json_inp_proj_info = dict()
+        _json_out_proj_info = dict()
 
         for coord, core_param in mapper.core_params.items():
             _json_core_configs[coord.address] = core_param.__json__()
@@ -172,8 +204,13 @@ class TestMapperDebug:
         for coord, cpc in mapper.core_plm_config.items():
             _json_core_plm_config[coord.address] = cpc.__json__()
 
-        for inode, nd in mapper.input_cb_info.items():
+        for inode, nd in mapper.graph_info["input"].items():
             _json_inp_proj_info[inode] = nd.__json__()
+
+        for onode, nd_with_coord in mapper.graph_info["output"].items():
+            _json_out_proj_info[onode] = dict()
+            for coord, nd in nd_with_coord.items():
+                _json_out_proj_info[onode][coord] = nd.__json__()
 
         # Export parameters of cores into json
         with open(ensure_dump_dir / "core_configs.json", "w") as f:
@@ -208,7 +245,7 @@ class TestMapperDebug:
         # Export the info of output destination into json
         with open(ensure_dump_dir / "output_dest_info.json", "w") as f:
             json.dump(
-                mapper.output_dest_info,
+                _json_out_proj_info,
                 f,
                 ensure_ascii=True,
                 indent=4,
