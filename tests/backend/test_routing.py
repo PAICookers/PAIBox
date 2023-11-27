@@ -1,12 +1,7 @@
 import pytest
 
-import paibox as pb
 from paibox.backend.routing import RoutingNode, RoutingRoot, get_parent
-from paibox.libpaicore.v2.routing_defs import (
-    RoutingDirection,
-    RoutingNodeCost,
-    RoutingNodeLevel,
-)
+from paibox.libpaicore import RoutingDirection, RoutingNodeCost, RoutingNodeLevel
 
 
 class TestRouterTree:
@@ -22,16 +17,16 @@ class TestRouterTree:
 
         node1 = root.create_child(tag="L2_created")  # X0Y1
         assert node1 is not None
-        assert root.n_child == 3
+        assert len(root.children) == 3
 
         assert root.add_child_to(node_l2_3, RoutingDirection.X1Y1, False) == False
         assert root.add_child_to(node_l2_3, RoutingDirection.X1Y1, True) == True
-        assert root.n_child == 3
+        assert len(root.children) == 3
         assert root.children[RoutingDirection.X1Y1] == node_l2_3
 
         node2 = root.create_child(False, tag="L2_created2")  # X1Y0
         assert node2 is not None
-        assert root.n_child == 4
+        assert len(root.children) == 4
         assert root.children[RoutingDirection.X1Y0] == node2
 
         node3 = root.create_child(False, tag="L2_created3")
@@ -146,13 +141,12 @@ class TestRouterTree:
 
         assert root.add_child_to(node_l2_3, RoutingDirection.X1Y1, False) == True
 
-        assert root.n_child == 3
+        assert len(root.children) == 3
         assert RoutingDirection.X1Y0 not in root.children.keys()
 
     def test_add_L0_for_placing(self):
         subtree = RoutingNode.create_routing_tree(RoutingNodeLevel.L3, 2)
-
-        assert subtree.n_child == 2
+        assert len(subtree.children) == 2
 
         n = 6
         for i in range(n):
@@ -178,8 +172,8 @@ class TestRouterTree:
         assert len(find_l2) == 2
         assert len(find_l3) == 1
 
-        assert find_l1_1[0].n_child == find_l1_1[0].node_capacity
-        assert find_l1_1[1].n_child == n - find_l1_1[0].n_child
+        assert len(find_l1_1[0].children) == find_l1_1[0].node_capacity
+        assert len(find_l1_1[1].children) == n - len(find_l1_1[0].children)
 
     def test_create_routing_tree(self):
         """Test for `create_routing_tree()` & `find_empty_lx_nodes()`."""
@@ -250,37 +244,6 @@ class TestRouterTree:
         assert parent2 is None
 
 
-class ExampleNet1(pb.Network):
-    """Example net.
-
-    INP1- > S1 -> N1 -> S2 -> N2 -> S3 -> N3
-    """
-
-    def __init__(self):
-        super().__init__()
-        self.inp1 = pb.projection.InputProj(
-            pb.simulator.processes.Constant(1200, 1), name="inp1"
-        )
-        self.n1 = pb.neuron.TonicSpiking(1200, 3, name="n1")
-        self.n2 = pb.neuron.TonicSpiking(400, 4, name="n2")
-        self.n3 = pb.neuron.TonicSpiking(800, 5, name="n3")
-
-        self.s1 = pb.synapses.NoDecay(
-            self.inp1, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s1"
-        )
-        self.s2 = pb.synapses.NoDecay(
-            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s2"
-        )
-        self.s3 = pb.synapses.NoDecay(
-            self.n2, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s3"
-        )
-
-
-@pytest.fixture
-def build_example_net():
-    return ExampleNet1()
-
-
 class TestRouterTreeRoot:
     def test_breadth_of_lx_nodes(self, build_example_root):
         root = RoutingRoot()
@@ -297,8 +260,8 @@ class TestRouterTreeRoot:
         assert nodes_l5 == 1
         assert nodes_l4 == 1
         assert nodes_l3 == 1
-        assert nodes_l2 == 3
-        assert nodes_l1 == 3
+        assert nodes_l2 == 2
+        assert nodes_l1 == 5
         assert nodes_l0 == 0
 
     def test_insert_coreblock_proto(self):

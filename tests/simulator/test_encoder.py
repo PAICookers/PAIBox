@@ -16,7 +16,7 @@ class TestEncoder:
         out_spike = np.full((20, 3), 0)
 
         for t in range(20):
-            out_spike[t] = pe(spike)
+            out_spike[t] = pe()
 
         assert np.array_equal(spike, out_spike[:5])
         assert np.array_equal(spike, out_spike[5:10])
@@ -26,10 +26,13 @@ class TestEncoder:
     def test_PoissonEncoder(self):
         seed = 1
         rng = np.random.RandomState(seed=seed)
-        pe = pb.simulator.PoissonEncoder(shape_out=(10, 10), seed=seed)
-        x = rng.randint(-128, 128, size=(10, 10), dtype=np.int8)
+        x = rng.rand(10, 10).astype(np.float32)
+        pe = pb.simulator.PoissonEncoder(seed=seed)
 
         out_spike = np.full((20, 10, 10), 0)
 
         for t in range(20):
-            out_spike[t] = pe(x)
+            out_spike[t] = pe(input=x)
+
+        for t in range(1, 20):
+            assert not np.array_equal(out_spike[0], out_spike[t])

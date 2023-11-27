@@ -6,6 +6,8 @@ from .node import NodeDict
 from .projection import Projection
 from .synapses import SynSys
 
+__all__ = ["DynSysGroup", "Network"]
+
 
 class DynSysGroup(DynamicSys, Container):
     def __init__(

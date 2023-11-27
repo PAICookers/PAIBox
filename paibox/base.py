@@ -7,6 +7,8 @@ from .generic import get_unique_name, is_name_unique
 from .mixin import ReceiveInputProj, StatusMemory
 from .node import NodeDict, NodeList
 
+__all__ = []
+
 
 class PAIBoxObject:
     _excluded_vars = ()

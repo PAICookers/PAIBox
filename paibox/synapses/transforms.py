@@ -1,17 +1,17 @@
-from enum import Enum, unique
+from enum import Enum, auto, unique
 from typing import Tuple, Type, Union
 
 import numpy as np
 
-from paibox.exceptions import *
+from paibox.exceptions import ShapeError
 from paibox.utils import is_shape
 
 
 @unique
 class ConnType(Enum):
-    MatConn = 0
-    One2One = 1
-    All2All = 2
+    MatConn = auto()
+    One2One = auto()
+    All2All = auto()
 
 
 def _get_dtype(weight: np.ndarray) -> Union[Type[np.bool_], Type[np.int8]]:

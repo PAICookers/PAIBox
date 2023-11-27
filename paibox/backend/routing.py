@@ -1,12 +1,12 @@
-from collections import defaultdict
 from typing import Any, Dict, List, Optional, Sequence, final
 
-from paibox.libpaicore.v2.routing_defs import RoutingDirection as Direction
-from paibox.libpaicore.v2.routing_defs import RoutingDirectionIdx as DirectionIdx
-from paibox.libpaicore.v2.routing_defs import RoutingNodeCoord as NodeCoord
-from paibox.libpaicore.v2.routing_defs import RoutingNodeLevel as Level
-from paibox.libpaicore.v2.routing_defs import RoutingNodeStatus as Status
-from paibox.libpaicore.v2.routing_defs import get_node_consumption
+from paibox.exceptions import NotSupportedError
+from paibox.libpaicore import RoutingDirection as Direction
+from paibox.libpaicore import RoutingDirectionIdx as DirectionIdx
+from paibox.libpaicore import RoutingNodeCoord as NodeCoord
+from paibox.libpaicore import RoutingNodeLevel as Level
+from paibox.libpaicore import RoutingNodeStatus as Status
+from paibox.libpaicore import get_node_consumption
 
 from .placement import CoreBlock, CorePlacement
 
@@ -17,7 +17,7 @@ class RoutingNode:
         level: Level,
         data: Optional[CorePlacement] = None,
         *,
-        d: Direction = Direction.ANY,
+        direction: Direction = Direction.ANY,
         status: Optional[Status] = None,
         tag: Optional[str] = None,
     ) -> None:
@@ -30,7 +30,7 @@ class RoutingNode:
         Args:
             - level: the node level.
             - data: the data hanging on the node. Optional.
-            - d: the direction of the node itself. Default is `Direction.ANY`.
+            - direction: the direction of the node itself. Default is `Direction.ANY`.
             - tag: a tag for user to identify. Optional.
 
         Attributes:
@@ -40,10 +40,12 @@ class RoutingNode:
             - item: the data hanging on the node.
             - tag: a tag for user to identify.
             - status: the status of the node. It's only for L0-level leaves.
+
+        NOTE: Do not add methods `__len__` & `__contains__`.
         """
         self._level = level
-        self._children: Dict[Direction, RoutingNode] = defaultdict()
-        self._direction = d
+        self._children: Dict[Direction, RoutingNode] = dict()
+        self._direction = direction
         self.item = data
         self.tag = tag
 
@@ -172,13 +174,13 @@ class RoutingNode:
             return path
 
     def is_full(self) -> bool:
-        return self.n_child == self.node_capacity
+        return len(self.children) == self.node_capacity
 
     def is_empty(self) -> bool:
-        return self.n_child == 0
+        return len(self.children) == 0
 
     def n_child_avail(self) -> int:
-        return self.node_capacity - self.n_child
+        return self.node_capacity - len(self.children)
 
     def _find_lx_node_with_n_child_avail(
         self, lx: Level, n_child_avail: int, method: str = "nearest"
@@ -221,8 +223,6 @@ class RoutingNode:
             raise ValueError
 
         if subtree.level == self.level:
-            # TODO Check if `sub_n_child` is legal.
-            # Only be 1, 2, or 4?
             sub_n_child = len(subtree.children)
             if self.n_child_avail() < sub_n_child:
                 return False
@@ -231,15 +231,20 @@ class RoutingNode:
                 self.add_child(subtree.children[Direction.X0Y0])
 
             elif sub_n_child == 2:
-                if self.n_child == 0:
+                if len(self.children) == 0:
                     self.add_child_to(subtree.children[Direction.X0Y0], Direction.X0Y0)
                     self.add_child_to(subtree.children[Direction.X0Y1], Direction.X0Y1)
                 else:
                     self.add_child_to(subtree.children[Direction.X0Y0], Direction.X1Y0)
                     self.add_child_to(subtree.children[Direction.X0Y1], Direction.X1Y1)
 
-            else:
+            elif sub_n_child == 4:
                 self._children = subtree.children
+            else:
+                # Only support 1, 2, & 4.
+                raise NotSupportedError(
+                    f"#N of {sub_n_child} children not supported yet."
+                )
 
             return True
 
@@ -263,7 +268,7 @@ class RoutingNode:
         d: Direction = Direction.X0Y0,
         root_tag: Optional[str] = None,
     ) -> "RoutingNode":
-        root = RoutingNode(lx, d=d, tag=root_tag)
+        root = RoutingNode(lx, direction=d, tag=root_tag)
 
         if lx > Level.L1:
             for i in range(root.node_capacity):
@@ -285,7 +290,7 @@ class RoutingNode:
         if lx == Level.L0 or n_branch < 0:
             raise ValueError
 
-        root = RoutingNode(lx, d=Direction.X0Y0)
+        root = RoutingNode(lx, direction=Direction.X0Y0)
 
         # Create `n_branch` children when lx > L1.
         if lx > Level.L1:
@@ -346,6 +351,12 @@ class RoutingNode:
 
         return self.find_nodes_at_level(lx, self.node_capacity)
 
+    def breadth_of_lx_nodes(self, lx: Level) -> int:
+        """Get the number of nodes in the routing tree at the given level."""
+        nodes = self.find_nodes_at_level(lx, 0)
+
+        return len(nodes)
+
     def __getitem__(self, key: Direction) -> "RoutingNode":
         return self.children[key]
 
@@ -365,10 +376,6 @@ class RoutingNode:
         return self._children
 
     @property
-    def n_child(self) -> int:
-        return len(self._children)
-
-    @property
     def direction(self) -> Direction:
         return self._direction
 
@@ -383,18 +390,22 @@ class RoutingRoot(RoutingNode):
         """Initialize a routing quadtree root(L5-level)."""
         super().__init__(Level.L5, **kwargs)
 
-    def get_leaf_coord(self, node: "RoutingNode") -> Optional[NodeCoord]:
+    def get_leaf_coord(self, node: "RoutingNode") -> NodeCoord:
         """Return the routing coordinate of the node(must be a L0 leaf)."""
         path = self.get_node_path(node)
         if path:
             return NodeCoord(*path)
 
-    def insert_coreblock(self, cb: CoreBlock) -> bool:
-        """Insert a `CoreBlock` in the routing tree."""
+        raise RuntimeError(f"Get leaf node {node.tag} coordinate failed.")
+
+    @classmethod
+    def insert_coreblock(cls, root: "RoutingRoot", cb: CoreBlock) -> bool:
+        """Insert a `CoreBlock` in the routing tree. Assign the core placements \
+            of it routing coordinates & make sure they are routable.
+        """
         leaves = []
         coords = []
         n_core = cb.n_core_required
-
         cost = get_node_consumption(n_core)
         level = cost.get_routing_level()
         # Create a sub-tree node.
@@ -402,10 +413,11 @@ class RoutingRoot(RoutingNode):
 
         for i in range(cost.n_L0):
             if i < n_core:
+                # Valid L0 nodes
                 node = routing_node.add_L0_for_placing(
                     data=f"{cb.name}_{i}",
                     status=Status.USED,
-                    tag=f"Used",
+                    tag=f"{cb.name}_{i}",
                 )
 
                 leaves.append(node)
@@ -413,30 +425,21 @@ class RoutingRoot(RoutingNode):
                 # Other L0 nodes are unused but occupied.
                 node = routing_node.add_L0_for_placing(
                     status=Status.OCCUPIED,
-                    tag=f"Occupied by {cb.name}",
+                    tag=f"{cb.name}_{i}",
                 )
 
         # Add the sub-tree to the root.
-        flag = self.add_subtree(routing_node)
+        flag = root.add_subtree(routing_node)
         if not flag:
             return False
 
         for node in leaves:
-            coord = self.get_leaf_coord(node)
-            if not coord:
-                raise RuntimeError
-
+            coord = root.get_leaf_coord(node)
             coords.append(coord.coordinate)
 
         cb.core_coords = coords
 
         return True
-
-    def breadth_of_lx_nodes(self, lx: Level) -> int:
-        """Get the number of nodes in the routing tree at the given level."""
-        nodes = self.find_nodes_at_level(lx, 0)
-
-        return len(nodes)
 
     @property
     def n_L0_nodes(self) -> int:

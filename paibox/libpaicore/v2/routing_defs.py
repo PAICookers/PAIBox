@@ -1,10 +1,21 @@
-from dataclasses import field
 from enum import Enum, IntEnum, unique
 from typing import NamedTuple, Sequence, Set
 
 from .coordinate import Coord
 from .coordinate import ReplicationId as RId
 from .hw_defs import HwConfig
+
+__all__ = [
+    "RoutingNodeLevel",
+    "RoutingDirection",
+    "RoutingNodeStatus",
+    "RoutingNodeCost",
+    "RoutingDirectionIdx",
+    "RoutingNodeCoord",
+    "get_node_consumption",
+    "get_multicast_cores",
+    "get_replication_id",
+]
 
 
 @unique
@@ -81,21 +92,30 @@ class RoutingNodeCost(NamedTuple):
 
 
 RoutingDirectionIdx = (
-    RoutingDirection.X0Y0,
-    RoutingDirection.X0Y1,
-    RoutingDirection.X1Y0,
-    RoutingDirection.X1Y1,
+    (
+        RoutingDirection.X0Y0,
+        RoutingDirection.X0Y1,
+        RoutingDirection.X1Y0,
+        RoutingDirection.X1Y1,
+    )
+    if HwConfig.COORD_Y_PRIORITY
+    else (
+        RoutingDirection.X0Y0,
+        RoutingDirection.X1Y0,
+        RoutingDirection.X0Y1,
+        RoutingDirection.X1Y1,
+    )
 )
 
 
 class RoutingNodeCoord(NamedTuple):
     """Use router directions to represent the coordinate of a node."""
 
-    L4: RoutingDirection = field(default=RoutingDirection.ANY)
-    L3: RoutingDirection = field(default=RoutingDirection.ANY)
-    L2: RoutingDirection = field(default=RoutingDirection.ANY)
-    L1: RoutingDirection = field(default=RoutingDirection.ANY)
-    L0: RoutingDirection = field(default=RoutingDirection.ANY)
+    L4: RoutingDirection
+    L3: RoutingDirection
+    L2: RoutingDirection
+    L1: RoutingDirection
+    L0: RoutingDirection
 
     @property
     def level(self) -> RoutingNodeLevel:
@@ -132,7 +152,7 @@ class RoutingNodeCoord(NamedTuple):
 def get_node_consumption(n_core: int) -> RoutingNodeCost:
     """Get the nodes consumption at different levels given the `n_core`."""
 
-    def min_n_L0_nodes(n_core: int) -> int:
+    def n_L0_required(n_core: int) -> int:
         """Find the nearest #N(=2^X) to accommodate \
             `n_core` L0-level nodes.
 
@@ -140,15 +160,14 @@ def get_node_consumption(n_core: int) -> RoutingNodeCost:
         If n_core = 20, return 32.
         """
         n_L0_nodes = 1
-        while n_core > n_L0_nodes:
-            n_L0_nodes *= 2
+        while n_L0_nodes < n_core:
+            n_L0_nodes <<= 1
 
         return n_L0_nodes
 
     n_sub_node = HwConfig.N_SUB_ROUTING_NODE
 
-    n_L0 = min_n_L0_nodes(n_core)
-
+    n_L0 = n_L0_required(n_core)
     n_L1 = 1 if n_L0 < n_sub_node else (n_L0 // n_sub_node)
     n_L2 = 1 if n_L1 < n_sub_node else (n_L1 // n_sub_node)
     n_L3 = 1 if n_L2 < n_sub_node else (n_L2 // n_sub_node)

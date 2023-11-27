@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from enum import Enum
+from enum import Enum, auto
 from typing import List, Sequence, Tuple, TypeVar, Union, final, overload
 
 import numpy as np
@@ -246,9 +246,9 @@ class ReplicationId(Coord):
 
 
 class DistanceType(Enum):
-    DISTANCE_ENCLIDEAN = 0
-    DISTANCE_MANHATTAN = 1
-    DISTANCE_CHEBYSHEV = 2
+    DISTANCE_ENCLIDEAN = auto()
+    DISTANCE_MANHATTAN = auto()
+    DISTANCE_CHEBYSHEV = auto()
 
 
 _COORDOFFSET_MAX_LIMIT = (1 << 5) - 1
