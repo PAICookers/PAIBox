@@ -136,7 +136,7 @@ class StatusMemory(MixIn):
 
     def set_memory(self, name: str, value: Any) -> None:
         if hasattr(self, name):
-            raise ValueError(f"{name} has been set as a member variable!")
+            raise AttributeError(f"{name} has been set as a member variable!")
 
         self._memories[name] = value
         self.set_reset_value(name, value)

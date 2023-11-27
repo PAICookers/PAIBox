@@ -33,12 +33,12 @@ class Probe(PAIBoxObject):
             self.target = target
             if not hasattr(self.target, self.attr):
                 raise AttributeError(
-                    f"Attribute {self.attr} not found in target {self.target}."
+                    f"Attribute '{self.attr}' not found in target {self.target}."
                 )
         else:
             if self.subtarget not in target.__dict__.keys():
                 raise AttributeError(
-                    f"Attribute {self.attr} not found in target {self.target}."
+                    f"Attribute '{self.attr}' not found in target {self.target}."
                 )
 
             self.target = target.__dict__[self.subtarget]

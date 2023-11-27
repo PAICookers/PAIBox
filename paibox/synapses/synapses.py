@@ -3,6 +3,8 @@ from typing import Optional, Tuple, Union
 import numpy as np
 
 from paibox.base import DynamicSys, NeuDyn
+from paibox.exceptions import ShapeError
+from paibox.libpaicore import WeightPrecision as WP
 from paibox.projection import InputProj
 
 from .transforms import AllToAll, ConnType, MaskedLinear, OneToOne
@@ -22,14 +24,14 @@ class Synapses:
         self,
         source: Union[NeuDyn, InputProj],
         dest: NeuDyn,
+        /,
         conn_type: ConnType,
     ) -> None:
         """
-        Arguments:
+        Args:
             - source: the source group of neurons.
             - dest: the destination group of neurons.
-            - conn: the connectivity representation.
-            - name: the name of the synapses. Optional.
+            - conn_type: the type of connection.
         """
         self.source = source
         self.dest = dest
@@ -39,8 +41,9 @@ class Synapses:
     def _check(self, conn_type: ConnType) -> None:
         if conn_type is ConnType.One2One:
             if self.num_in != self.num_out:
-                raise ValueError(
-                    "The number of source and destination neurons must be equal."
+                raise ShapeError(
+                    f"The number of source and destination neurons"
+                    f"must be equal: {self.num_in} != {self.num_out}."
                 )
 
     @property
@@ -65,6 +68,14 @@ class SynSys(Synapses, DynamicSys):
         return self.update(*args, **kwargs)
 
     @property
+    def weights(self) -> np.ndarray:
+        raise NotImplementedError
+
+    @property
+    def weight_precision(self) -> WP:
+        raise NotImplementedError
+
+    @property
     def connectivity(self) -> np.ndarray:
         raise NotImplementedError
 
@@ -84,7 +95,7 @@ class SynSys(Synapses, DynamicSys):
 class NoDecay(SynSys):
     """Synapses model with no decay."""
 
-    _excluded_vars = "_synout"
+    _excluded_vars = "syn_out"
 
     def __init__(
         self,
@@ -118,37 +129,42 @@ class NoDecay(SynSys):
             self.comm = MaskedLinear((self.num_in, self.num_out), weights)
 
         self.weights.setflags(write=False)
-        self._synout = np.zeros((self.num_in, self.num_out), dtype=np.int32)
+        self.set_memory(
+            "syn_out", np.zeros((self.num_in, self.num_out), dtype=np.int32)
+        )
 
-        # Register `self` for the destination NeuDyn.
-        dest.register_master(f"{self.name}.output", self)
+        # Register `self` for the destination `NeuDyn`.
+        dest.register_master(f"{self.name}.spike", self)
 
     def update(self, spike: Optional[np.ndarray] = None, **kwargs):
         if spike is None:
-            synin = self.source.output
+            synin = self.source.spike
         else:
             synin = spike
 
-        self._synout = self.comm(synin).astype(np.int32)
+        self.syn_out = self.comm(synin).astype(np.int32)
 
-        # Keep the return for `update` in `Sequential`.
-        return self._synout
+        return self.syn_out
 
     def reset_state(self) -> None:
         # TODO Add other initialization methods in the future.
-        self._synout = np.zeros((self.num_in, self.num_out), dtype=np.int32)
+        self.reset()  # Call reset of `StatusMemory`.
 
     @property
     def output(self) -> np.ndarray:
-        return self._synout
+        return self.syn_out
 
     @property
     def state(self) -> np.ndarray:
-        return self._synout
+        return self.syn_out
 
     @property
     def weights(self) -> np.ndarray:
         return self.comm.weights
+
+    @property
+    def weight_precision(self) -> WP:
+        return self.comm.weight_precision
 
     @property
     def connectivity(self) -> np.ndarray:

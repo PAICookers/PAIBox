@@ -9,8 +9,8 @@ from paibox.utils import as_shape, shape2num
 
 __all__ = ["PeriodicEncoder", "PoissonEncoder"]
 
-_MAXSEED = np.iinfo(np.uint32).max
-_MAXINT = np.iinfo(np.int32).max
+MAXSEED = np.iinfo(np.uint32).max
+MAXINT = np.iinfo(np.int32).max
 
 
 class Encoder(DynamicSys):
@@ -27,7 +27,7 @@ class Encoder(DynamicSys):
         self.rng = self._get_rng(seed)
 
     def _get_rng(self, seed: Optional[int] = None) -> np.random.RandomState:
-        _seed = np.random.randint(_MAXINT) if seed is None else seed
+        _seed = np.random.randint(MAXINT) if seed is None else seed
         return np.random.RandomState(_seed)
 
     @property
