@@ -121,7 +121,7 @@ class TestTopoSort:
         INP3 -> N2
         """
         with pytest.raises(NotSupportedError):
-            ordered = toposort(edges, is_strict=True)
+            ordered = toposort(edges)
 
 
 class TestGroupEdges:
@@ -182,8 +182,6 @@ class TestGroupEdges:
         degrees = get_node_degrees(succ_edges)
         ordered_nodes = toposort(succ_edges)
         gathered = group_edges(edges, succ_edges, degrees, ordered_nodes=ordered_nodes)
-        # gathered = group_edges(edges, succ_edges, degrees, ordered_nodes=None)
-
         print()
 
     @pytest.mark.parametrize(
@@ -218,24 +216,112 @@ class TestGroupEdges:
         print()
 
 
-class TestLongestPath:
+class TestDAGPathDistance:
+    """Consider DAG only."""
+
     @pytest.mark.parametrize(
-        "edges, length, expected",
+        "edges, expected_path, expected_distance",
         [
             (
+                # inp1 -> n1 -> n4 -> n2 -> n3, 1+1+1+1+1=5
                 {
                     "inp1": {"n1": 1},
-                    "n1": {"n2": 5, "n4": 2},
-                    "n2": {"n3": 2},
+                    "n1": {"n2": 1, "n4": 1},
+                    "n2": {"n3": 1},
                     "n3": {},
-                    "n4": {"n2": 2},
+                    "n4": {"n2": 1},
                 },
-                4,
-                8,
+                ["inp1", "n1", "n4", "n2", "n3"],
+                4 + 1,
             ),
             (
+                # inp1 -> n1 -> n3 -> n4, 1+2+5+1=9
                 {
-                    "inp1": {"n1": 2},
+                    "inp1": {"n1": 1},
+                    "n1": {"n2": 3, "n3": 2},
+                    "n2": {"n4": 2},
+                    "n3": {"n4": 5},
+                    "n4": {},
+                },
+                ["inp1", "n1", "n3", "n4"],
+                8 + 1,
+            ),
+            (
+                # inp1 -> n1 -> n2 -> n3, 1+2+1+1=5
+                {
+                    "inp1": {"n1": 1},
+                    "inp2": {"n2": 1},
+                    "n1": {"n2": 2},
+                    "n2": {"n3": 1},
+                    "n3": {},
+                },
+                ["inp1", "n1", "n2", "n3"],
+                4 + 1,
+            ),
+            (
+                # inp1 -> n1 -> n3 -> n5, 1+2+1+1=5
+                {
+                    "inp1": {"n1": 1},
+                    "n1": {"n2": 1, "n3": 2},
+                    "n2": {"n4": 1, "n5": 1},
+                    "n3": {"n4": 1},
+                    "n4": {},
+                    "n5": {},
+                },
+                ["inp1", "n1", "n3", "n4"],
+                4 + 1,
+            ),
+            (
+                # inp2 -> n5 -> n4, 4+1+1=6
+                {
+                    "inp1": {"n1": 1},
+                    "inp2": {"n5": 4},
+                    "n1": {"n2": 1, "n3": 1},
+                    "n2": {"n5": 1},
+                    "n3": {"n4": 1},
+                    "n4": {},
+                    "n5": {"n4": 1},
+                },
+                ["inp2", "n5", "n4"],
+                5 + 1,
+            ),
+        ],
+        ids=[
+            "one_input_1",
+            "one_input_2",
+            "multi_inputs_1",
+            "multi_outputs_1",
+            "multi_inputs_outputs_1",
+        ],
+    )
+    def test_get_longest_path(self, edges, expected_path, expected_distance):
+        ordered = toposort(edges)
+        path, distance = get_longest_path(edges, ordered)
+
+        assert path == expected_path
+        assert distance == expected_distance
+
+    @pytest.mark.parametrize(
+        "edges, inodes, expected_path, expected_distance",
+        [
+            (
+                # inp1 -> n1 -> n2 -> n3, 1+1+1+1=4
+                {
+                    "inp1": {"n1": 1},
+                    "n1": {"n2": 1, "n4": 1},
+                    "n2": {"n3": 1},
+                    "n3": {},
+                    "n4": {"n2": 1},
+                },
+                ["inp1"],
+                ["inp1", "n1", "n2", "n3"],
+                3 + 1,
+            ),
+            (
+                # inp1 -> n1 -> n2 -> n3 -> n6 -> n7 -> n4 =
+                # 1+1+3+2+2+3+1=13
+                {
+                    "inp1": {"n1": 1},
                     "n1": {"n2": 1, "n5": 5},
                     "n2": {"n3": 3},
                     "n3": {"n4": 10, "n6": 2},
@@ -244,104 +330,62 @@ class TestLongestPath:
                     "n6": {"n7": 2},
                     "n7": {"n4": 3},
                 },
-                5,
-                22,
+                ["inp1"],
+                ["inp1", "n1", "n2", "n3", "n6", "n7", "n4"],
+                12 + 1,
             ),
             (
-                {
-                    "inp1": {"n1": 2, "n2": 3, "n3": 1},
-                    "n1": {"n4": 1},
-                    "n2": {"n1": 1, "n4": 4},
-                    "n3": {"n6": 5},
-                    "n4": {"n5": 2},
-                    "n5": {"n7": 3},
-                    "n6": {"n7": 5},
-                    "n7": {},
-                },
-                5,
-                12,
-            ),
-            (
+                # inp2 -> n2 -> n3, 1+1+1=3
                 {
                     "inp1": {"n1": 1},
-                    "n1": {"n2": 3, "n3": 2},
-                    "n2": {"n4": 2},
-                    "n3": {"n4": 5},
-                    "n4": {},
-                },
-                4,
-                8,
-            ),
-        ],
-        ids=["one_input_1", "one_input_2", "one_input_3", "one_input_4"],
-    )
-    def test_longestpath(self, edges, length, expected):
-        path, dist = longest_path(edges)
-        print(path)
-        assert len(path) == length
-        assert dist == expected
-
-
-class TestShortestPath:
-    @pytest.mark.parametrize(
-        "edges, length, expected",
-        [
-            (
-                {
-                    "inp1": {"n1": 1},
-                    "n1": {"n2": 5, "n4": 2},
-                    "n2": {"n3": 2},
+                    "inp2": {"n2": 1},
+                    "n1": {"n2": 2},
+                    "n2": {"n3": 1},
                     "n3": {},
-                    "n4": {"n2": 2},
                 },
-                5,
-                7,
+                ["inp1", "inp2"],
+                ["inp2", "n2", "n3"],
+                2 + 1,
             ),
             (
-                {
-                    "inp1": {"n1": 2},
-                    "n1": {"n2": 1, "n5": 5},
-                    "n2": {"n3": 3},
-                    "n3": {"n4": 10, "n6": 2},
-                    "n4": {},
-                    "n5": {"n3": 5, "n6": 7},
-                    "n6": {"n7": 2},
-                    "n7": {"n4": 3},
-                },
-                7,
-                13,
-            ),
-            (
-                {
-                    "inp1": {"n1": 2, "n2": 3, "n3": 1},
-                    "n1": {"n4": 1},
-                    "n2": {"n1": 1, "n4": 4},
-                    "n3": {"n6": 5},
-                    "n4": {"n5": 2},
-                    "n5": {"n7": 3},
-                    "n6": {"n7": 5},
-                    "n7": {},
-                },
-                5,
-                8,
-            ),
-            (
+                # inp1 -> n1 -> n2 -> n4, 1+1+1+1=4
                 {
                     "inp1": {"n1": 1},
-                    "n1": {"n2": 3, "n3": 2},
-                    "n2": {"n4": 2},
-                    "n3": {"n4": 5},
+                    "n1": {"n2": 1, "n3": 2},
+                    "n2": {"n4": 1},
+                    "n3": {"n4": 1},
                     "n4": {},
                 },
-                4,
-                6,
+                ["inp1"],
+                ["inp1", "n1", "n2", "n4"],
+                3 + 1,
+            ),
+            (
+                # inp1 -> n1 -> n2 -> n4, 1+1+1+1=4
+                {
+                    "inp1": {"n1": 1},
+                    "n1": {"n2": 1, "n3": 1},
+                    "n2": {"n4": 2},
+                    "n3": {"n5": 1},
+                    "n4": {},
+                    "n5": {},
+                },
+                ["inp1"],
+                ["inp1", "n1", "n3", "n5"],
+                3 + 1,
             ),
         ],
-        ids=["one_input_1", "one_input_2", "one_input_3", "one_input_4"],
+        ids=[
+            "one_input_1",
+            "one_input_2",
+            "multi_inputs_1",
+            "multi_outputs_1",
+            "multi_outputs_2",
+        ],
     )
-    def test_shortestpath(self, edges, length, expected):
-        path, dist = shortest_path(edges)
-        # print(path)
-        # print(dist)
-        assert len(path) == length
-        assert dist == expected
+    def test_get_shortest_path(self, edges, inodes, expected_path, expected_distance):
+        ordered = toposort(edges)
+        path, dist = get_shortest_path(edges, ordered, inodes)
+
+        assert path == expected_path
+        assert dist == expected_distance

@@ -1,5 +1,18 @@
 from collections import defaultdict
-from typing import Any, Dict, List, NamedTuple, Optional, Set, TypeVar
+from enum import Enum, auto
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    NamedTuple,
+    Optional,
+    Set,
+    TypeVar,
+    Tuple,
+    TypedDict,
+)
 
 from paibox.exceptions import NotSupportedError
 
@@ -7,12 +20,31 @@ Node = TypeVar("Node")
 Edge = TypeVar("Edge")
 
 
+class NodeCharacter(Enum):
+    """Charactor of a node in the directed graph."""
+
+    MEMBER = auto()
+    """As a member layer."""
+
+    INPUT = auto()
+    """As an input node."""
+
+    OUTPUT = auto()
+    """As an output node."""
+
+
+class GraphInfo(TypedDict):
+    input: Dict
+    output: Dict
+    members: Dict
+
+
 class Degree(NamedTuple):
     in_degree: int = 0
     out_degree: int = 0
 
 
-def toposort(edges: Dict[Node, Dict[Node, any]], is_strict: bool = True) -> List[Node]:
+def toposort(directed_edges: Mapping[Node, Iterable[Node]]) -> List[Node]:
     """
     Topological sort algorithm by Kahn [1]_.
 
@@ -50,33 +82,36 @@ def toposort(edges: Dict[Node, Dict[Node, any]], is_strict: bool = True) -> List
        Communications of the ACM
     .. [2] https://en.wikipedia.org/wiki/Toposort#Algorithms
     """
-    incoming_edges = reverse_edges(edges)
-    vertices = set(v for v in edges if v not in incoming_edges or not incoming_edges[v])
+    incoming_edges = reverse_edges(directed_edges)
+    vertices = set(
+        v for v in directed_edges if v not in incoming_edges or not incoming_edges[v]
+    )
     ordered = []
 
     while vertices:
         n = vertices.pop()
         ordered.append(n)
-        for m in edges.get(n, ()):
+        for m in directed_edges.get(n, ()):
             assert n in incoming_edges[m]
             incoming_edges[m].remove(n)
             if not incoming_edges[m]:
                 vertices.add(m)
 
-    if any(incoming_edges.get(v, None) for v in edges):
-        if is_strict:
-            raise NotSupportedError("The graph with cycles is not supported yet.")
+    if any(incoming_edges.get(v, None) for v in directed_edges):
+        raise NotSupportedError("The graph with cycles is not supported yet.")
 
     return ordered
 
 
-def reverse_edges(edges: Dict[Node, Dict[Node, any]]) -> Dict[Node, Set[Node]]:
+def reverse_edges(
+    directed_edges: Mapping[Node, Iterable[Node]]
+) -> Dict[Node, Set[Node]]:
     """
     Reverses direction of dependence dict.
 
     Parameters
     ----------
-    edges : dict
+    directed_edges : dict
         Dict of the form {a: {b, c}, b: set(), c: set()} where b and c depend
         on a.
 
@@ -84,12 +119,12 @@ def reverse_edges(edges: Dict[Node, Dict[Node, any]]) -> Dict[Node, Set[Node]]:
     -------
     Dict of the form {a: set(), b: {a}, c: {a}} where b and c depend on a.
     """
-    result = {k: set() for k in edges}
-    for key in edges:
-        for val in edges[key]:
-            result[val].add(key)
+    reversed = {k: set() for k in directed_edges}
+    for key in directed_edges:
+        for val in directed_edges[key]:
+            reversed[val].add(key)
 
-    return result
+    return reversed
 
 
 def get_node_degrees(succ_edges: Dict[Node, Dict[Node, Any]]) -> Dict[Node, Degree]:
@@ -109,16 +144,15 @@ def get_node_degrees(succ_edges: Dict[Node, Dict[Node, Any]]) -> Dict[Node, Degr
     return degree
 
 
-def _find_prev_edges(
+def _find_pred_edges(
     succ_edges: Dict[Node, Dict[Node, Edge]], target_node: Node
 ) -> Set[Edge]:
-    prev = set()
+    pred = set()
 
-    for succ_nodes in succ_edges.values():
-        if target_node in succ_nodes:
-            prev.add(succ_nodes[target_node])
+    for succ_node in filter(lambda node: target_node in node, succ_edges.values()):
+        pred.add(succ_node[target_node])
 
-    return prev
+    return pred
 
 
 def group_edges(
@@ -134,6 +168,7 @@ def group_edges(
         - edges: a list of edges.
         - succ_edges: a dictionary recording previous nodes and edges.
         - degree: the in/out-degree of nodes.
+        - ordered_nodes: nodes in topological sorting. Optional.
 
     Returns:
         - A list of set of grouped edges.
@@ -142,14 +177,15 @@ def group_edges(
     edges_set = set(edges)
 
     if isinstance(ordered_nodes, list):
-        # In topological sorting
+        # In topological sorting.
         ordered = ordered_nodes
     else:
+        # Without sorting.
         ordered = list(succ_edges.keys())
 
     for node in ordered:
         if degree[node].in_degree > 1:
-            edge_group = _find_prev_edges(succ_edges, node)
+            edge_group = _find_pred_edges(succ_edges, node)
             edge_group_copy = edge_group.copy()
 
             for ed in edge_group:
@@ -178,43 +214,89 @@ def group_edges(
     return gathered
 
 
-def longest_path(edges: Dict[Node, Dict[Node, any]]) -> [List[Node], any]:
-    topological_order = toposort(edges)
-    longest_paths = {node: 0 for node in edges}
-    predecessors = {node: None for node in edges}
-    path = []
-    for node in topological_order:
-        for neighbor in edges[node]:
-            if longest_paths[node] + edges[node][neighbor] > longest_paths[neighbor]:
-                longest_paths[neighbor] = longest_paths[node] + edges[node][neighbor]
-                predecessors[neighbor] = node
-    node = max(longest_paths, key=longest_paths.get)
-    dist = max(longest_paths.values())
-    while node is not None:
+def get_longest_path(
+    edges_with_d: Dict[Node, Dict[Node, int]], ordered_nodes: List[Node]
+) -> Tuple[List[Node], int]:
+    """Get the longest path in the DAG.
+
+    Args:
+        - edges_with_d: a list of directed edges with distance.
+        - ordered_nodes: nodes in topological sorting.
+
+    Return: the longest distance in the graph.
+    """
+    distances: Dict[Node, int] = defaultdict(int)  # init value = 0
+    pred_nodes: Dict[Node, Optional[Node]] = defaultdict()
+
+    for node in ordered_nodes:
+        for neighbor in edges_with_d[node]:
+            d = edges_with_d[node][neighbor]
+            if distances[node] + d > distances[neighbor]:
+                distances[neighbor] = distances[node] + d
+                pred_nodes[neighbor] = node
+
+    # When there are more than one output nodes
+    # with same distance, choose the first one.
+    node = max(
+        filter(lambda node: len(edges_with_d[node]) == 0, distances),
+        key=lambda node: distances.get(node, 0),
+    )
+
+    # Add the distance of last node to outside(1)
+    distance = distances[node] + 1
+
+    path = [node]
+    while node := pred_nodes.get(node, ()):
         path.append(node)
-        node = predecessors[node]
 
-        # 反转最长路径列表并返回
-    return path[::-1], dist
+    # Reverse the path and return
+    return path[::-1], distance
 
 
-def shortest_path(edges: Dict[Node, Dict[Node, any]]) -> [List[Node], any]:
-    topological_order = toposort(edges)
-    shortest_paths = {node: float("inf") for node in edges}
-    shortest_paths[topological_order[0]] = 0
-    predecessors = {node: None for node in edges}
-    path = []
-    for node in topological_order:
-        for neighbor in edges[node]:
-            if shortest_paths[node] + edges[node][neighbor] < shortest_paths[neighbor]:
-                shortest_paths[neighbor] = shortest_paths[node] + edges[node][neighbor]
-                predecessors[neighbor] = node
-    # node = max(shortest_paths, key=shortest_paths.get)
-    node = topological_order[-1]
-    dist = shortest_paths[node]
-    while node is not None:
+MAX_DISTANCE = 999  # I don't like float('inf')
+
+
+def get_shortest_path(
+    edges_with_d: Dict[Node, Dict[Node, int]],
+    ordered_nodes: List[Node],
+    input_nodes: List[Node],
+) -> Tuple[List[Node], int]:
+    """Get the shortest path in the DAG.
+
+    Args:
+        - edges_with_d: a list of directed edges with distance.
+        - ordered_nodes: nodes in topological sorting.
+        - input_nodes: input nodes.
+
+    Return: the shortest distance in the graph.
+    """
+    distances: Dict[Node, int] = defaultdict(lambda: MAX_DISTANCE)
+    pred_nodes: Dict[Node, Optional[Node]] = defaultdict()
+
+    # Set initial value for all inputs nodes.
+    for inode in input_nodes:
+        distances[inode] = 0
+
+    for node in ordered_nodes:
+        for neighbor in edges_with_d[node]:
+            d = edges_with_d[node][neighbor]
+            if distances[node] + d < distances[neighbor]:
+                distances[neighbor] = distances[node] + d
+                pred_nodes[neighbor] = node
+
+    # When there are more than one output nodes
+    # with same distance, choose the first one.
+    node = min(
+        filter(lambda node: len(edges_with_d[node]) == 0, distances),
+        key=lambda node: distances.get(node, 0),
+    )
+
+    # Add the distance of last node to outside(1)
+    distance = distances[node] + 1
+
+    path = [node]
+    while node := pred_nodes.get(node, ()):
         path.append(node)
-        node = predecessors[node]
 
-        # 反转最长路径列表并返回
-    return path[::-1], dist
+    # Reverse the path and return
+    return path[::-1], distance
