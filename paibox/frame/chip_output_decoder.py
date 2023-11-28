@@ -119,18 +119,26 @@ class ChipOutputDecoder:
 
         return res
 
-    def decode_spike_fast(self):
-        """decode spike by frame info
-        """
-        pass
-    
+    @staticmethod
+    def decode_spike_fast(out_frame, frame_info, axon_num, time_step):
+        frame_info = np.sort(frame_info)
+        out_frame = np.sort(out_frame)
+        out_frame_info = out_frame & ((1 << 64) - 1 - WorkFrame1Format.DATA_MASK)
+
+        same_frame_info = np.in1d(frame_info, out_frame_info)
+        idx = np.where(same_frame_info == True)
+        out_data = np.zeros((time_step * axon_num), dtype=np.uint64)
+        out_data[idx] = out_frame & WorkFrame1Format.DATA_MASK
+        out_data = out_data
+        return out_data.reshape(time_step,axon_num)
+
     @staticmethod
     def gen_frameinfo(
-        chip_coord: Union[List[Coord], Coord],
         core_coord: Union[List[Coord], Coord],
         core_ex_coord: Union[List[ReplicationId], ReplicationId],
         axon: Union[List[int], int],
         time_slot: Union[List[int], int],
+        chip_coord: Union[List[Coord], Coord] = Coord(0, 0),
         save_path: Optional[str] = None,
     ) -> np.ndarray:
         header = [FrameHead.WORK_TYPE1]
@@ -144,7 +152,7 @@ class ChipOutputDecoder:
             axon = [axon]
         if not isinstance(time_slot, list):
             time_slot = [time_slot]
-        
+
         header_value = np.array([head.value for head in header]).astype(np.uint64)
         chip_address = np.array([coord.address for coord in chip_coord]).astype(
             np.uint64
@@ -157,6 +165,25 @@ class ChipOutputDecoder:
         )
         axon_array = np.array(axon, dtype=np.uint64)
         time_slot_array = np.array(time_slot, dtype=np.uint64)
+
+        pack_list = zip(
+            header_value,
+            chip_address,
+            core_address,
+            core_e_address,
+            axon_array,
+            time_slot_array,
+        )
+        pack_list = sorted(pack_list, key=lambda x: (x[5], x[4]))
+
+        (
+            header_value,
+            chip_address,
+            core_address,
+            core_e_address,
+            axon_array,
+            time_slot_array,
+        ) = map(np.array, zip(*pack_list))
 
         temp_header = header_value & FrameFormat.GENERAL_HEADER_MASK
         temp_chip_address = chip_address & FrameFormat.GENERAL_CHIP_ADDR_MASK

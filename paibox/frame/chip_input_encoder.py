@@ -36,7 +36,7 @@ class ChipInputEncoder:
         return cls(chip_coord, time_step, frameinfo, data)
 
     def encode(self):
-        work1_frames = OfflineFrameGen.gen_work_frame1(
+        work1_frames = OfflineFrameGen.gen_work_frame1_fast(
             frameinfo=self.frameinfo, data=self.data
         )
         work2 = OfflineFrameGen.gen_work_frame2(self.chip_coord, self.time_step)

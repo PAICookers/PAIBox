@@ -27,7 +27,7 @@ class OfflineConfigFrame1(Frame):
         chip_coord: Coord,
         core_coord: Coord,
         random_seed: Union[int, np.uint64],
-        core_ex_coord: ReplicationId = ReplicationId(0, 0)
+        core_ex_coord: ReplicationId = ReplicationId(0, 0),
     ):
         header = FrameHead.CONFIG_TYPE1
         if random_seed > FrameFormat.GENERAL_MASK:
@@ -68,7 +68,7 @@ class OfflineConfigFrame2(Frame):
         chip_coord: Coord,
         core_coord: Coord,
         parameter_reg: dict,
-        core_ex_coord: ReplicationId = ReplicationId(0, 0)
+        core_ex_coord: ReplicationId = ReplicationId(0, 0),
     ) -> None:
         """_summary_
 
@@ -94,7 +94,7 @@ class OfflineConfigFrame2(Frame):
                 "target_LCN": 0,
                 "test_chip_addr": 32
             }
-            
+
         """
         header = FrameHead.CONFIG_TYPE2
         for key, value in parameter_reg.items():
@@ -176,9 +176,9 @@ class OfflineConfigFrame3(FramePackage):
         sram_start_addr: np.uint64,
         neuron_ram: dict,
         neuron_num: int,
-        core_ex_coord: ReplicationId =  ReplicationId(0, 0),
+        core_ex_coord: ReplicationId = ReplicationId(0, 0),
     ):
-        """Configuring one type of neuron in a core 
+        """Configuring one type of neuron in a core
 
         Args:
             chip_coord (Coord): _description_
@@ -258,7 +258,9 @@ class OfflineConfigFrame3(FramePackage):
         )
 
     def _get_ram(self, neuron_ram):
-        leak_v_high2, leak_v_low28 = bin_array_split(neuron_ram["attrs"]["leak_v"], 2, 28)
+        leak_v_high2, leak_v_low28 = bin_array_split(
+            neuron_ram["attrs"]["leak_v"], 2, 28
+        )
         threshold_mask_ctrl_high4, threshold_mask_ctrl_low1 = bin_array_split(
             neuron_ram["attrs"]["threshold_mask_ctrl"], 4, 1
         )
@@ -267,7 +269,10 @@ class OfflineConfigFrame3(FramePackage):
         )
         # 1
         ram_frame1 = (
-            ((neuron_ram["attrs"]["vjt_pre"] & RAMF.VJT_PRE_MASK) << RAMF.VJT_PRE_OFFSET)
+            (
+                (neuron_ram["attrs"]["vjt_pre"] & RAMF.VJT_PRE_MASK)
+                << RAMF.VJT_PRE_OFFSET
+            )
             | (
                 (neuron_ram["attrs"]["bit_truncate"] & RAMF.BIT_TRUNCATE_MASK)
                 << RAMF.BIT_TRUNCATE_OFFSET
@@ -287,7 +292,10 @@ class OfflineConfigFrame3(FramePackage):
                 << RAMF.LEAK_DET_STOCH_OFFSET
             )
             | (
-                (neuron_ram["attrs"]["leak_reversal_flag"] & RAMF.LEAK_REVERSAL_FLAG_MASK)
+                (
+                    neuron_ram["attrs"]["leak_reversal_flag"]
+                    & RAMF.LEAK_REVERSAL_FLAG_MASK
+                )
                 << RAMF.LEAK_REVERSAL_FLAG_OFFSET
             )
             | (
@@ -299,7 +307,10 @@ class OfflineConfigFrame3(FramePackage):
                 << RAMF.THRESHOLD_NEG_OFFSET
             )
             | (
-                (neuron_ram["attrs"]["threshold_neg_mode"] & RAMF.THRESHOLD_NEG_MODE_MASK)
+                (
+                    neuron_ram["attrs"]["threshold_neg_mode"]
+                    & RAMF.THRESHOLD_NEG_MODE_MASK
+                )
                 << RAMF.THRESHOLD_NEG_MODE_OFFSET
             )
             | (
@@ -314,8 +325,14 @@ class OfflineConfigFrame3(FramePackage):
                 (threshold_mask_ctrl_high4 & RAMF.THRESHOLD_MASK_CTRL_HIGH4_MASK)
                 << RAMF.THRESHOLD_MASK_CTRL_HIGH4_OFFSET
             )
-            | ((neuron_ram["attrs"]["leak_post"] & RAMF.LEAK_POST_MASK) << RAMF.LEAK_POST_OFFSET)
-            | ((neuron_ram["attrs"]["reset_v"] & RAMF.RESET_V_MASK) << RAMF.RESET_V_OFFSET)
+            | (
+                (neuron_ram["attrs"]["leak_post"] & RAMF.LEAK_POST_MASK)
+                << RAMF.LEAK_POST_OFFSET
+            )
+            | (
+                (neuron_ram["attrs"]["reset_v"] & RAMF.RESET_V_MASK)
+                << RAMF.RESET_V_OFFSET
+            )
             | (
                 (neuron_ram["attrs"]["reset_mode"] & RAMF.RESET_MODE_MASK)
                 << RAMF.RESET_MODE_OFFSET
@@ -352,7 +369,10 @@ class OfflineConfigFrame3(FramePackage):
                 (addr_core_x_high3 & RAMF.ADDR_CORE_X_HIGH3_MASK)
                 << RAMF.ADDR_CORE_X_HIGH3_OFFSET
             )
-            | ((neuron_ram["dest_info"]["addr_axon"] & RAMF.ADDR_AXON_MASK) << RAMF.ADDR_AXON_OFFSET)
+            | (
+                (neuron_ram["dest_info"]["addr_axon"] & RAMF.ADDR_AXON_MASK)
+                << RAMF.ADDR_AXON_OFFSET
+            )
             | (
                 (neuron_ram["dest_info"]["tick_relative"] & RAMF.TICK_RELATIVE_MASK)
                 << RAMF.TICK_RELATIVE_OFFSET
@@ -362,13 +382,15 @@ class OfflineConfigFrame3(FramePackage):
         ram = [ram_frame1, ram_frame2, ram_frame3, ram_frame4]
         return ram
 
+
 class OfflineConfigFrame3Group:
-    def __init__(self,
-                chip_coord: Coord,
-                core_coord: Coord,
-                core_neuron_ram: dict,
-                core_ex_coord: ReplicationId = ReplicationId(0, 0),
-                ):
+    def __init__(
+        self,
+        chip_coord: Coord,
+        core_coord: Coord,
+        core_neuron_ram: dict,
+        core_ex_coord: ReplicationId = ReplicationId(0, 0),
+    ):
         """Configuring multiple types of neurons in a core
 
         Args:
@@ -416,26 +438,36 @@ class OfflineConfigFrame3Group:
         self.core_coord = core_coord
         self.core_ex_coord = core_ex_coord
         self.frames = []
-        
-        for key,info in core_neuron_ram.items():
+
+        for key, info in core_neuron_ram.items():
             sram_start_addr = np.uint64(info["addr_offset"])
-            neuron_num = info["neuron_num"]
+            neuron_num = len(info["addr_ram"])
             neuron_ram = info
-            self.frames.append(OfflineConfigFrame3(chip_coord = self.chip_coord,core_coord=self.core_coord,core_ex_coord=self.core_ex_coord,sram_start_addr=sram_start_addr,neuron_ram=neuron_ram,neuron_num=neuron_num))
-        
+            self.frames.append(
+                OfflineConfigFrame3(
+                    chip_coord=self.chip_coord,
+                    core_coord=self.core_coord,
+                    core_ex_coord=self.core_ex_coord,
+                    sram_start_addr=sram_start_addr,
+                    neuron_ram=neuron_ram,
+                    neuron_num=neuron_num,
+                )
+            )
+
     @property
     def value(self) -> np.ndarray:
         return np.concatenate([frame.value for frame in self.frames])
+
 
 class OfflineConfigFrame4(FramePackage):
     def __init__(
         self,
         chip_coord: Coord,
         core_coord: Coord,
-        sram_start_addr: np.uint64,
-        data_package_num: np.uint64,
-        weight_ram: List,
-        core_ex_coord: ReplicationId = ReplicationId(0,0),
+        weight_ram: np.ndarray,
+        sram_start_addr: np.uint64 = np.uint64(0),
+        data_package_num: np.uint64 = np.uint64(18*512),
+        core_ex_coord: ReplicationId = ReplicationId(0, 0),
     ):
         header = FrameHead.CONFIG_TYPE4
         weight_ram_load = (
@@ -452,6 +484,9 @@ class OfflineConfigFrame4(FramePackage):
                 << ConfigFrame4Format.DATA_PACKAGE_NUM_OFFSET
             )
         )
+        weight_ram = np.reshape(weight_ram, (-1, 64))
+        weight_ram = np.packbits(weight_ram, axis=-1, bitorder="little")
+        weight_ram = weight_ram.view(np.uint64).reshape(-1)
 
         super().__init__(
             header=header,
@@ -525,7 +560,7 @@ class OfflineTestOutFrame2(Frame):
             raise ValueError("The header of the frame is not TEST_TYPE2")
 
         self.neuron_ram = {}
-        
+
 
 class OfflineTestInFrame3(Frame):
     def __init__(
@@ -569,16 +604,21 @@ class OfflineTestOutFrame3(FramePackage):
         if self.header != FrameHead.TEST_TYPE3:
             raise ValueError("The header of the frame is not TEST_TYPE3")
 
-        self.data_package_num = int((self.value[0] >> ConfigFrame3Format.DATA_PACKAGE_NUM_OFFSET) & ConfigFrame3Format.DATA_PACKAGE_NUM_MASK)
-        
+        self.data_package_num = int(
+            (self.value[0] >> ConfigFrame3Format.DATA_PACKAGE_NUM_OFFSET)
+            & ConfigFrame3Format.DATA_PACKAGE_NUM_MASK
+        )
+
         self.neuron_ram = {}
-        for i in range(1,len(self.value),4):
-            self.neuron_ram["vjt_pre"] = np.append(self.neuron_ram.get("vjt_pre",[]),((self.value[i] >> RAMF.VJT_PRE_OFFSET) & RAMF.VJT_PRE_MASK))
-        
-        for key,value in self.neuron_ram.items():
+        for i in range(1, len(self.value), 4):
+            self.neuron_ram["vjt_pre"] = np.append(
+                self.neuron_ram.get("vjt_pre", []),
+                ((self.value[i] >> RAMF.VJT_PRE_OFFSET) & RAMF.VJT_PRE_MASK),
+            )
+
+        for key, value in self.neuron_ram.items():
             self.neuron_ram[key] = self.neuron_ram[key].astype(np.int32)
-            
-        
+
 
 class OfflineTestInFrame4(Frame):
     def __init__(
@@ -635,7 +675,7 @@ class OfflineWorkFrame1(Frame):
         core_ex_coord: Union[List[ReplicationId], ReplicationId],
         axon: Union[List[int], int],
         time_slot: Union[List[int], int],
-        data: np.ndarray
+        data: np.ndarray,
     ):
         header = FrameHead.WORK_TYPE1
         self.data = data.reshape(-1).astype(np.uint64)
@@ -652,17 +692,15 @@ class OfflineWorkFrame1(Frame):
 
         payload = (
             (
-                np.uint64(
-                    (0x00 & WorkFrame1Format.RESERVED_MASK)
-                    << WorkFrame1Format.RESERVED_OFFSET
-                )
+                (np.uint64(0x00) & WorkFrame1Format.RESERVED_MASK)
+                << WorkFrame1Format.RESERVED_OFFSET
             )
-            | (self.axon & WorkFrame1Format.AXON_MASK << WorkFrame1Format.AXON_OFFSET)
+            | ((self.axon & WorkFrame1Format.AXON_MASK) << WorkFrame1Format.AXON_OFFSET)
             | (
-                self.time_slot
-                & WorkFrame1Format.TIME_SLOT_MASK << WorkFrame1Format.TIME_SLOT_OFFSET
+                (self.time_slot
+                & WorkFrame1Format.TIME_SLOT_MASK) << WorkFrame1Format.TIME_SLOT_OFFSET
             )
-            | (self.data & WorkFrame1Format.DATA_MASK << WorkFrame1Format.DATA_OFFSET)
+            | ((self.data & WorkFrame1Format.DATA_MASK) << WorkFrame1Format.DATA_OFFSET)
         )
         super().__init__(
             header=header,
@@ -678,34 +716,51 @@ class OfflineWorkFrame1(Frame):
 
     def __repr__(self) -> str:
         info = (
-            "Header:    FrameHead.WORK_TYPE1\n"
-            + "Chip address".ljust(16)
-            + "Core address".ljust(16)
-            + "Core_EX address".ljust(16)
-            + "axon".ljust(16)
-            + "time_slot".ljust(16)
-            + "data".ljust(16)
-            + "\n"
+            f"Frame info:\n"
+            f"Head:             {self.header}\n"
+            f"Chip address:     {self.chip_coord}\n"
+            f"Core address:     {self.core_coord}\n"
+            f"Core_EX address:  {self.core_ex_coord}\n"
+            f"axon:             {self.axon}\n"
+            f"time_slot:        {self.time_slot}\n"
+            f"data:             {self.data}\n"
         )
-        content = [
-            f"{chip_coord}".ljust(16)
-            + f"{core_coord}".ljust(16)
-            + f"{core_ex_coord}".ljust(16)
-            + f"{axon}".ljust(16)
-            + f"{time_slot}".ljust(16)
-            + f"{data}".ljust(16)
-            + "\n"
-            for chip_coord, core_coord, core_ex_coord, axon, time_slot, data in zip(
-                self.chip_coord,
-                self.core_coord,
-                self.core_ex_coord,
-                self.axon,
-                self.time_slot,
-                self.data,
-            )
-        ]
+        return info
+        # return (
+        #     f"Frame info:\n"
+        #     f"Head:             {self.header}\n"
+        #     f"Chip address:     {self.chip_coord}\n"
+        #     f"Core address:     {self.core_coord}\n"
+        #     f"Core_EX address:  {self.core_ex_coord}\n"
+        #     f"random_seed:      {self.random_seed}\n"
+        # )
+        
+        # info = (
+        #     "Header:    FrameHead.WORK_TYPE1\n"
+        #     + "Chip address".ljust(16)
+        #     + "Core address".ljust(16)
+        #     + "Core_EX address".ljust(16)
+        #     + "axon".ljust(16)
+        #     + "time_slot".ljust(16)
+        #     + "data".ljust(16)
+        #     + "\n"
+        # )
+        # content = [
+        #     f"".ljust(16)
+        #     + f"".ljust(16)
+        #     + f"".ljust(16)
+        #     + f"{axon}".ljust(16)
+        #     + f"{time_slot}".ljust(16)
+        #     + f"{data}".ljust(16)
+        #     + "\n"
+        #     for  axon, time_slot, data in zip(
+        #         self.axon,
+        #         self.time_slot,
+        #         self.data,
+        #     )
+        # ]
 
-        return info + "".join(content)
+        # return info + "".join(content)
 
     @staticmethod
     def gen_frame_fast(frameinfo: np.ndarray, data: np.ndarray) -> np.ndarray:
