@@ -136,17 +136,17 @@ class StatusMemory(MixIn):
 
     def set_memory(self, name: str, value: Any) -> None:
         if hasattr(self, name):
-            raise ValueError(f"{name} has been set as a member variable!")
+            raise AttributeError(f"{name} has been set as a member variable!")
 
         self._memories[name] = value
         self.set_reset_value(name, value)
 
     def reset(self) -> None:
-        for key in self._memories.keys():
-            self._memories[key] = copy.deepcopy(self._memories_rv[key])
+        for k in self._memories.keys():
+            self._memories[k] = copy.deepcopy(self._memories_rv[k])
 
-    def set_reset_value(self, name: str, value) -> None:
-        self._memories_rv[name] = copy.deepcopy(value)
+    def set_reset_value(self, name: str, init_value: Any) -> None:
+        self._memories_rv[name] = copy.deepcopy(init_value)
 
     def __getattr__(self, name: str) -> Any:
         if "_memories" in self.__dict__:

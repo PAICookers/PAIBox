@@ -42,31 +42,32 @@ class InputProj(Projection):
         self._input = input
         self._shape_out = as_shape(shape_out)
         self.keep_shape = keep_shape
-        self._output = np.zeros((self.num_out,), dtype=np.bool_)
+
+        self.set_memory("spike", np.zeros((self.num_out,), dtype=np.bool_))
 
     def update(self, *args, **kwargs) -> np.ndarray:
         if self.input is None:
             raise SimulationError("The input is not set.")
 
         if callable(self.input):
-            output = _call_with_ctx(self.input, *args, **kwargs)
+            _spike = _call_with_ctx(self.input, *args, **kwargs)
         else:
-            output = self.input
+            _spike = self.input
 
-        if isinstance(output, (int, np.integer)):
-            self._output = np.full((self.num_out,), output, dtype=np.int32)
-        elif isinstance(output, np.ndarray):
-            self._output = output.reshape((self.num_out,)).astype(np.int32)
+        if isinstance(_spike, (int, np.integer)):
+            self.spike = np.full((self.num_out,), _spike, dtype=np.int32)
+        elif isinstance(_spike, np.ndarray):
+            self.spike = _spike.reshape((self.num_out,)).astype(np.int32)
         else:
             raise TypeError(
-                f"Excepted type int, np.integer, np.ndarray, "
-                f"but got {output}, type {type(output)}"
+                f"Excepted type int, np.integer or np.ndarray, "
+                f"but got {_spike}, type {type(_spike)}"
             )
 
-        return self.output
+        return self.spike
 
     def reset_state(self) -> None:
-        self._output = np.zeros((self.num_out,), dtype=np.bool_)
+        self.reset()  # Call reset of `StatusMemory`.
 
     @property
     def varshape(self) -> Tuple[int, ...]:
@@ -94,7 +95,7 @@ class InputProj(Projection):
 
     @property
     def output(self) -> np.ndarray:
-        return self._output
+        return self.spike
 
     @property
     def feature_map(self) -> np.ndarray:
@@ -111,5 +112,6 @@ def _call_with_ctx(f: Callable[..., T], *args, **kwargs) -> T:
         bound = inspect.signature(f).bind(*args, **ctx, **kwargs)
         # warnings.warn(_input_deprecate_msg, UserWarning)
         return f(*bound.args, **bound.kwargs)
+
     except TypeError:
         return f(*args, **kwargs)

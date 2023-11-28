@@ -29,8 +29,7 @@ from paibox.libpaicore import (
     MaxPoolingEnable,
     NeuronSegment,
 )
-from paibox.libpaicore import ReplicationId as RId
-from paibox.libpaicore import WeightPrecision, get_replication_id
+from paibox.libpaicore import WeightPrecision as WP
 from paibox.projection import InputProj
 from paibox.synapses import SynSys
 from paibox.utils import count_unique_elem
@@ -44,8 +43,9 @@ NeuSeg = NamedTuple("NeuSeg", [("parent", DestNodeType), ("segment", NeuronSegme
 
 
 class CoreAbstract(HwCore, PAIBoxObject):
-    supported_wp: ClassVar[Tuple[WeightPrecision, ...]] = (
-        WeightPrecision.WEIGHT_WIDTH_1BIT,
+    supported_wp: ClassVar[Tuple[WP, ...]] = (
+        WP.WEIGHT_WIDTH_1BIT,
+        WP.WEIGHT_WIDTH_8BIT,
     )
     """Supported weight precision."""
 
@@ -64,14 +64,14 @@ class CoreBlock(CoreAbstract):
 
     def __init__(
         self,
-        *parent: SynSys,
-        weight_precision: WeightPrecision,
+        *parents: SynSys,
+        weight_precision: WP,
         seed: int = 0,
         name: Optional[str] = None,
     ) -> None:
         """
         Arguments:
-            - parent: the parent synapses.
+            - parents: the parent synapses.
             - weight_precision: the precision of weight matrix.
 
         Axons ->                LCN    -> dendrite_capacity -> n_core_required -> n_neuron_each
@@ -79,7 +79,7 @@ class CoreBlock(CoreAbstract):
         """
 
         super().__init__(name)
-        self._parent = parent
+        self._parents = parents
         self._lcn_ex = n_axon2lcn_ex(self.n_axon, self.n_fanin_max)
         self.weight_precision = weight_precision
 
@@ -107,46 +107,23 @@ class CoreBlock(CoreAbstract):
         )
         """A dictionary of segments of each axon(source node)."""
 
-        self.neuron_segs_of_cb: Dict[Coord, List[NeuSeg]] = defaultdict(list)
-        """"""
-
-    @classmethod
-    def build(cls, *synapses: SynSys):
-        """Combine the SAME weight precision synapses and build the `CoreBlock`.
-
-        Use LCN extension optimization in grouping a synapse.
-
-        Description: always find the minimum LCN extension \
-            that ALL the axons in this synapse satisfies.
-
-            For two pre-synapses, S1 [A1*M] & S2 [A2*M], combine then split.
-
-            The total number of axons = A1+A2 -> LCN -> n_neuron.
-
-            Now consider S1 & S2 are 1-bit weights.
-        """
-        if not cls.all_dtype_equal(*synapses):
-            raise NotSupportedError(f"Mixed weight precision is not supported yet")
-
-        if synapses[0].connectivity.dtype == np.bool_:
-            wp = WeightPrecision.WEIGHT_WIDTH_1BIT
-        elif synapses[0].connectivity.dtype == np.int8:
-            wp = WeightPrecision.WEIGHT_WIDTH_8BIT
-        else:
-            raise NotImplementedError
-
-        if wp not in cls.supported_wp:
-            raise NotSupportedError(f"{wp} is not supported yet by {cls.__class__}")
-
-        return cls(*synapses, weight_precision=wp)
-
-    @staticmethod
-    def all_dtype_equal(*syns: SynSys) -> bool:
-        return all(syns[0].connectivity.dtype is syn.connectivity.dtype for syn in syns)
+        self.neuron_segs_of_cb: List[List[NeuSeg]] = []
 
     def set_lcn_ex(self, lcn_ex: LCN_EX) -> None:
         self.lcn_ex = lcn_ex
         self.lcn_locked = True
+
+    def group_neurons(self) -> None:
+        if not self.lcn_locked:
+            raise BuildError("Allocate the core placements after lcn_ex is locked.")
+
+        # First, get the neuron segments.
+        self.neuron_segs_of_cb = get_neu_segments(
+            self.dest,
+            self.neuron_capacity,
+            _addr_ram_interval(self.n_weight_bits, self.timeslot),
+            method="catagory",
+        )
 
     def core_plm_alloc(self) -> None:
         """Allocate the `CoreBlock` to the cores.
@@ -154,26 +131,13 @@ class CoreBlock(CoreAbstract):
         NOTE: Do it after the adjustment of `LCN_EX`.
         """
         if not self.lcn_locked:
-            raise BuildError(f"Allocate the core placements after lcn_ex is locked.")
-
-        # First, get the neuron segments.
-        neu_segs_of_cb = get_neu_segments(
-            self.dest,
-            self.neuron_capacity,
-            _addr_ram_interval(self.n_weight_bits, self.timeslot),
-            method="catagory",
-        )
-
-        assert len(neu_segs_of_cb) == len(self.core_coords)
-
-        for coord, segs in zip(self.core_coords, neu_segs_of_cb):
-            self.neuron_segs_of_cb[coord] = segs
+            raise BuildError("Allocate the core placements after lcn_ex is locked.")
 
         for i, coord in enumerate(self.core_coords):
-            assert self.get_raw_weight_of_coord(coord)[0].shape[0] == self.n_axon
+            assert self.get_raw_weight_of_coord(i)[0].shape[0] == self.n_axon
 
             self.core_placements[coord] = CorePlacement.build(
-                self, coord, i, self.get_raw_weight_of_coord(coord)
+                self, i, self.get_raw_weight_of_coord(i)
             )
 
     def get_syn_of(self, src: SourceNodeType, dest: DestNodeType) -> Optional[SynSys]:
@@ -190,7 +154,7 @@ class CoreBlock(CoreAbstract):
 
     @property
     def obj(self) -> Tuple[SynSys, ...]:
-        return self._parent
+        return self._parents
 
     @property
     def shape(self) -> Tuple[int, int]:
@@ -235,7 +199,9 @@ class CoreBlock(CoreAbstract):
 
     @property
     def n_core_required(self) -> int:
-        return (self.n_neuron - 1) // self.neuron_capacity + 1
+        return len(self.neuron_segs_of_cb)
+
+    # (self.n_neuron - 1) // self.neuron_capacity + 1
 
     @property
     def n_dendrite_per_neuron(self) -> int:
@@ -301,18 +267,12 @@ class CoreBlock(CoreAbstract):
         if len(self.core_coords) == 0:
             raise BuildError(f"Do this after coordinates assignment.")
 
-        n = [0] * len(self)
+        n = [0] * self.n_core_required
 
-        for i in range(len(self) - 1):
+        for i in range(self.n_core_required - 1):
             n[i] = self.neuron_capacity
 
         n[-1] = self.n_neuron % self.neuron_capacity
-
-        # nd = defaultdict(int)
-        # for i in range(self.n_core_required - 1):
-        #     nd[self.core_coords[i]] = self.neuron_capacity
-
-        # nd[self.core_coords[-1]] = self.n_neuron % self.neuron_capacity
 
         return n
 
@@ -345,11 +305,11 @@ class CoreBlock(CoreAbstract):
 
         return w_of_neurons
 
-    def get_raw_weight_of_coord(self, coord: Coord) -> List[np.ndarray]:
+    def get_raw_weight_of_coord(self, idx: int) -> List[np.ndarray]:
         """Get the raw weight of a coordinate(on each `CorePlacement`)."""
         w_of_neu_segs: List[np.ndarray] = []
 
-        for neu_seg in self.neuron_segs_of_cb[coord]:
+        for neu_seg in self.neuron_segs_of_cb[idx]:
             w_of_dest = self.raw_weight_of_dest[self.dest.index(neu_seg.parent)]
             w_of_neu_seg = w_of_dest[:, neu_seg.segment.index].copy()
             w_of_neu_seg.setflags(write=False)
@@ -357,30 +317,37 @@ class CoreBlock(CoreAbstract):
 
         return w_of_neu_segs
 
-    @property
-    def replicationId(self) -> RId:
-        rid = get_replication_id(self.core_coords)
-
-        # Check
-        # if len(get_multicast_cores(self.core_coords[0], rid)) > self.n_core_required:
-        #     raise ValueError
-
-        return rid
-
-    def __len__(self) -> int:
-        return self.n_core_required
-
-    def __getitem__(self, index: int) -> "CorePlacement":
-        if index >= len(self):
-            raise IndexError(f"Index {index} is out of range ({len(self)}).")
-
-        return self.core_placements[self.core_coords[index]]
-
     def __repr__(self) -> str:
         return f"<{self.name} at 0x{id(self):x} of target '{self.obj}'>"
 
     def __str__(self) -> str:
         return f"<{self.name} of target '{self.obj}'>"
+
+    @staticmethod
+    def all_wp_equal(*syns: SynSys) -> bool:
+        """Check wether weight precision of all synapses equal."""
+        return all(syns[0].weight_precision is syn.weight_precision for syn in syns)
+
+    @classmethod
+    def build(cls, *synapses: SynSys):
+        """Combine the SAME weight precision synapses and build the `CoreBlock`.
+
+        Use LCN extension optimization in grouping a synapse.
+
+        Description: always find the minimum LCN extension \
+            that ALL the axons in this synapse satisfies.
+
+            For two pre-synapses, S1 [A1*M] & S2 [A2*M], combine then split.
+
+            The total number of axons = A1+A2 -> LCN -> n_neuron.
+        """
+        if not cls.all_wp_equal(*synapses):
+            raise NotSupportedError("Mixed weight precision is not supported yet")
+
+        if (wp := synapses[0].weight_precision) not in cls.supported_wp:
+            raise NotSupportedError(f"{wp.name} is not supported yet.")
+
+        return cls(*synapses, weight_precision=wp)
 
     @classmethod
     def export_core_plm_config(cls, cb: "CoreBlock") -> Dict[Coord, CoreConfig]:
@@ -439,11 +406,10 @@ class CorePlacement(CoreAbstract):
         self.neu_config: Dict[NeuDyn, NeuronConfig] = defaultdict()
 
     @classmethod
-    def build(
-        cls, parent: CoreBlock, coord: Coord, idx: int, raw_weights: List[np.ndarray]
-    ):
+    def build(cls, parent: CoreBlock, idx: int, raw_weights: List[np.ndarray]):
+        coord = parent.core_coords[idx]
         n_neuron = parent.n_neuron_of_cb[idx]
-        neu_segs = parent.neuron_segs_of_cb[coord]
+        neu_segs = parent.neuron_segs_of_cb[idx]
 
         return cls(parent, coord, n_neuron, raw_weights=raw_weights, neu_segs=neu_segs)
 
@@ -660,7 +626,7 @@ class CorePlacement(CoreAbstract):
         return (count_unique_elem(self.source), count_unique_elem(self.dest))
 
     @property
-    def weight_precision(self) -> WeightPrecision:
+    def weight_precision(self) -> WP:
         return self.parent.weight_precision
 
     @property
@@ -783,6 +749,8 @@ def _get_neu_segments_dense(
 ) -> List[List[NeuSeg]]:
     """Dense grouping. Based on method `catagory`, use the greedy algorithm to \
         group the remaining neuron groups.
+
+    FIXME Not fully verified.
     """
     neu_segs: List[List[NeuSeg]] = []  # The final result
     rest_segs: List[NeuSeg] = []
