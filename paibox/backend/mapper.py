@@ -320,7 +320,7 @@ class Mapper:
         for cb in self.core_blocks:
             # Group the neurons, get the #N of cores required.
             cb.group_neurons()
-            
+
         # Check the total core consumption.
         if (
             n_core_required := sum(cb.n_core_required for cb in self.core_blocks)
@@ -330,7 +330,7 @@ class Mapper:
             )
 
         self.n_core_required = n_core_required
-    
+
         for cb in self.core_blocks:
             if not RoutingRoot.insert_coreblock(self.routing_tree, cb):
                 raise RuntimeError(

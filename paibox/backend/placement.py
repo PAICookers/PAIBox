@@ -749,7 +749,7 @@ def _get_neu_segments_dense(
 ) -> List[List[NeuSeg]]:
     """Dense grouping. Based on method `catagory`, use the greedy algorithm to \
         group the remaining neuron groups.
-        
+
     FIXME Not fully verified.
     """
     neu_segs: List[List[NeuSeg]] = []  # The final result

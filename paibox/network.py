@@ -1,5 +1,6 @@
-import numpy as np
 from typing import Optional, Type, Union
+
+import numpy as np
 
 from .base import DynamicSys, NeuDyn
 from .mixin import Container
