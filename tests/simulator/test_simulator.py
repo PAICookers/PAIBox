@@ -10,25 +10,34 @@ class Net1(pb.DynSysGroup):
 
         pe = pb.simulator.PoissonEncoder()
 
-        self.inp = pb.projection.InputProj(pe, shape_out=(n_neuron,), keep_shape=True)
-        self.n1 = pb.neuron.TonicSpiking(n_neuron, fire_step=2)
-        self.n2 = pb.neuron.TonicSpiking(n_neuron, fire_step=2)
-        self.s0 = pb.synapses.NoDecay(
-            self.inp, self.n1, conn_type=pb.synapses.ConnType.One2One
+        self.inp = pb.InputProj(pe, shape_out=(n_neuron,), keep_shape=True)
+        self.n1 = pb.LIF(n_neuron, threshold=3, reset_v=0)
+        self.n2 = pb.IF(n_neuron, threshold=3, reset_v=1)
+        self.s0 = pb.NoDecay(
+            self.inp,
+            self.n1,
+            weights=np.random.randint(-128, 128, size=(n_neuron,), dtype=np.int8),
+            conn_type=pb.synapses.ConnType.One2One,
         )
-        self.s1 = pb.synapses.NoDecay(
-            self.n1, self.n2, conn_type=pb.synapses.ConnType.One2One
+        self.s1 = pb.NoDecay(
+            self.n1,
+            self.n2,
+            weights=np.random.randint(
+                -128, 128, size=(n_neuron, n_neuron), dtype=np.int8
+            ),
+            conn_type=pb.synapses.ConnType.All2All,
         )
 
         # Probes inside
-        self.n1_acti = pb.simulator.Probe(self.n1, "output")
-        self.n2_acti = pb.simulator.Probe(self.n2, "output")
+        self.n1_acti = pb.Probe(self.n1, "output", name="n1_acti")
+        self.s1_weight = pb.Probe(self.s1, "weights", name="s1_weight")
+        self.n2_acti = pb.Probe(self.n2, "output", name="n2_acti")
 
 
 def test_probe():
     net = Net1(100)
 
-    probe_outside = pb.simulator.Probe(net.inp, "state")
+    probe_outside = pb.Probe(net.inp, "state", name="inp_state")
 
     sim = pb.Simulator(net)
     sim.add_probe(probe_outside)

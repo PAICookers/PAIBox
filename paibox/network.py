@@ -1,3 +1,4 @@
+import numpy as np
 from typing import Optional, Type, Union
 
 from .base import DynamicSys, NeuDyn
@@ -57,7 +58,7 @@ class Sequential(DynamicSys, Container):
         super().__init__(name)
         self.children = NodeDict(self.elem_format(DynamicSys, *components))
 
-    def update(self, x):
+    def update(self, x: np.ndarray) -> np.ndarray:
         for child in self.children.values():
             x = child(x)
 
@@ -76,14 +77,16 @@ class Sequential(DynamicSys, Container):
 
         if isinstance(item, int):
             if item > len(self):
-                raise IndexError
+                raise IndexError(f"Index out of range: {item}")
 
             return tuple(self.children.values())[item]
 
         if isinstance(item, slice):
             return Sequential(**dict(tuple(self.children.items())[item]))
 
-        raise KeyError
+        raise TypeError(
+            f"Expected type str, int or slice, but got {item}, type {type(item)}"
+        )
 
     def __len__(self) -> int:
         return len(self.children)
