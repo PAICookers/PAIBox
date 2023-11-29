@@ -11,6 +11,7 @@ from paibox.libpaicore import *
         (
             Coord(0, 0),
             {
+                "name": "Core0",
                 "weight_precision": WeightPrecision.WEIGHT_WIDTH_1BIT,
                 "lcn_extension": LCN_EX.LCN_2X,
                 "input_width_format": InputWidthFormat.WIDTH_1BIT,
@@ -27,6 +28,7 @@ from paibox.libpaicore import *
         (
             Coord(0, 1),
             {
+                "name": "Core1",
                 "weight_precision": WeightPrecision.WEIGHT_WIDTH_1BIT,
                 "lcn_extension": LCN_EX.LCN_2X,
                 "input_width_format": InputWidthFormat.WIDTH_1BIT,
@@ -49,5 +51,5 @@ def test_CoreParams_instance(ensure_dump_dir, coord, params):
     params_dict = params_reg.model_dump(by_alias=True)
     assert isinstance(params_dict["test_chip_addr"], int)
 
-    with open(ensure_dump_dir / f"reg_model_{coord.address}.json", "w") as f:
+    with open(ensure_dump_dir / f"reg_model_{params_reg.name}.json", "w") as f:
         json.dump({coord.address: params_dict}, f, indent=4, ensure_ascii=True)
