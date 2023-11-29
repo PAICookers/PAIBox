@@ -52,11 +52,6 @@ def bin_split(
     return highbit, lowbit
 
 
-def bin_concate(high: int, low: int, highbit: int):
-    high_uint = np.array(high).astype(np.uint64)
-    low_uint = np.array(low).astype(np.uint64)
-
-
 def Coord2Addr(coord: Coord) -> int:
     return (coord.x << 5) | coord.y
 

@@ -1,5 +1,6 @@
 import re
 from typing import Optional
+from matplotlib.font_manager import weight_dict
 
 import numpy as np
 from paibox import frame
@@ -49,7 +50,7 @@ class OfflineFrameGen:
             else:
                 chip_coord = Coord(0, 0)
             core_coord = Coord.from_addr(value["coord"])
-            parameter_reg = value
+            parameter_reg = value.copy()
             frame = OfflineConfigFrame2(
                 chip_coord=chip_coord,
                 core_coord=core_coord,
@@ -63,8 +64,8 @@ class OfflineFrameGen:
     def gen_config_frame3(
         core_plm_config: dict,
     ) -> np.ndarray:
-        core_ex_coord = ReplicationId(0, 0)
         all_frames_value = np.array([]).astype(np.uint64)
+        core_ex_coord = ReplicationId(0, 0)
         for key, value in core_plm_config.items():
             if "chip_coord" in value:
                 chip_coord = Coord.from_addr(value["chip_coord"])
@@ -83,30 +84,39 @@ class OfflineFrameGen:
 
     @staticmethod
     def gen_config_frame4(
-        core_coord: Coord,
-        sram_start_addr: np.uint64,
-        data_package_num: np.uint64,
-        weight_ram: np.ndarray,
-        chip_coord: Coord = Coord(0, 0),
-        core_ex_coord: ReplicationId = ReplicationId(0, 0),
-    ) -> OfflineConfigFrame4:
-        return OfflineConfigFrame4(
-            chip_coord=chip_coord,
-            core_coord=core_coord,
-            core_ex_coord=core_ex_coord,
-            sram_start_addr=sram_start_addr,
-            data_package_num=data_package_num,
-            weight_ram=weight_ram,
-        )
+        core_plm_config: dict,
+    ) -> np.ndarray:
+        all_frames_value = np.array([]).astype(np.uint64)
+        core_ex_coord = ReplicationId(0, 0)
+        sram_start_addr = np.uint64(0)
+
+        for key, value in core_plm_config.items():
+            if "chip_coord" in value:
+                chip_coord = Coord.from_addr(value["chip_coord"])
+            else:
+                chip_coord = Coord(0, 0)
+            core_coord = Coord.from_addr(value["coord"])
+            data_package_num = np.uint64(18 * 512)
+            weight_ram = value["weight_ram"]
+
+            frame = OfflineConfigFrame4(
+                chip_coord=chip_coord,
+                core_coord=core_coord,
+                core_ex_coord=core_ex_coord,
+                sram_start_addr=sram_start_addr,
+                data_package_num=data_package_num,
+                weight_ram=weight_ram,
+            )
+            all_frames_value = np.append(all_frames_value, frame.value)
+        return all_frames_value
 
     @staticmethod
     def gen_config_frame(core_plm_config: dict) -> np.ndarray:
-        all_frame = np.array([]).astype(np.uint64)
         frame1 = OfflineFrameGen.gen_config_frame1(core_plm_config)
         frame2 = OfflineFrameGen.gen_config_frame2(core_plm_config)
         frame3 = OfflineFrameGen.gen_config_frame3(core_plm_config)
-
-        all_frame = np.append(all_frame, [frame1, frame2, frame3])
+        frame4 = OfflineFrameGen.gen_config_frame4(core_plm_config)
+        all_frame = np.concatenate((frame1, frame2, frame3, frame4), axis=0)
 
         return all_frame
 
@@ -186,15 +196,18 @@ class OfflineFrameGen:
 
     @staticmethod
     def gen_work_frame1(
-        input_proj_info: dict,
-        axon,
-        time_slot,
-        data
+        input_proj_info: dict, axon, time_slot, data
     ) -> OfflineWorkFrame1:
-        chip_coord = Coord(input_proj_info["addr_chip_x"], input_proj_info["addr_chip_y"])
-        core_coord = Coord(input_proj_info["addr_core_x"], input_proj_info["addr_core_y"])
-        core_ex_coord = ReplicationId(input_proj_info["addr_core_x_ex"], input_proj_info["addr_core_y_ex"])
-        
+        chip_coord = Coord(
+            input_proj_info["addr_chip_x"], input_proj_info["addr_chip_y"]
+        )
+        core_coord = Coord(
+            input_proj_info["addr_core_x"], input_proj_info["addr_core_y"]
+        )
+        core_ex_coord = ReplicationId(
+            input_proj_info["addr_core_x_ex"], input_proj_info["addr_core_y_ex"]
+        )
+
         return OfflineWorkFrame1(
             chip_coord=chip_coord,
             core_coord=core_coord,
@@ -209,7 +222,7 @@ class OfflineFrameGen:
         frameinfo: np.ndarray,
         data: np.ndarray,
     ) -> np.ndarray:
-        return OfflineWorkFrame1.gen_frame_fast(frameinfo = frameinfo, data = data)
+        return OfflineWorkFrame1.gen_frame_fast(frameinfo=frameinfo, data=data)
 
     @staticmethod
     def gen_frameinfo(
