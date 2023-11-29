@@ -1,4 +1,3 @@
-from collections import defaultdict
 from functools import cached_property
 from typing import (
     ClassVar,
@@ -58,10 +57,6 @@ class CoreBlock(CoreAbstract):
 
     mode: ClassVar[CoreMode] = CoreMode.MODE_SNN
 
-    # InputWidthFormat.WIDTH_1BIT
-    # SpikeWidthFormat.WIDTH_1BIT
-    # SNNModeEnable.ENABLE
-
     def __init__(
         self,
         *parents: SynSys,
@@ -73,9 +68,8 @@ class CoreBlock(CoreAbstract):
         Arguments:
             - parents: the parent synapses.
             - weight_precision: the precision of weight matrix.
-
-        Axons ->                LCN    -> dendrite_capacity -> n_core_required -> n_neuron_each
-        weight_precision -> n_dendrite -------> |
+            - seed: the random seed.
+            - name: the name of the core block. Optional.
         """
 
         super().__init__(name)
@@ -87,7 +81,7 @@ class CoreBlock(CoreAbstract):
         """Random seed, uint64."""
 
         self.target_lcn = LCN_EX.LCN_1X
-        """The target(destination) LCN."""
+        """The target(destination core block) LCN."""
 
         self.lcn_locked = False
         """Used to indicate whether `lcn_ex` has been adjusted."""
@@ -108,14 +102,18 @@ class CoreBlock(CoreAbstract):
         """A dictionary of segments of each axon(source node)."""
 
         self.neuron_segs_of_cb: List[List[NeuSeg]] = []
+        """Neuron segments in the core block. Each element in the list \
+            represents the Neuron segments in core placement(physical core).
+        """
 
     def set_lcn_ex(self, lcn_ex: LCN_EX) -> None:
         self.lcn_ex = lcn_ex
         self.lcn_locked = True
 
     def group_neurons(self) -> None:
+        """Group the neurons to determine the #N of cores required."""
         if not self.lcn_locked:
-            raise BuildError("Allocate the core placements after lcn_ex is locked.")
+            raise BuildError("Group the neurons after lcn_ex is locked.")
 
         # First, get the neuron segments.
         self.neuron_segs_of_cb = get_neu_segments(
@@ -126,21 +124,17 @@ class CoreBlock(CoreAbstract):
         )
 
     def core_plm_alloc(self) -> None:
-        """Allocate the `CoreBlock` to the cores.
-
-        NOTE: Do it after the adjustment of `LCN_EX`.
-        """
+        """Allocate the `CoreBlock` to the physical cores."""
         if not self.lcn_locked:
             raise BuildError("Allocate the core placements after lcn_ex is locked.")
 
         for i, coord in enumerate(self.core_coords):
-            assert self.get_raw_weight_of_coord(i)[0].shape[0] == self.n_axon
-
+            # assert self.get_raw_weight_of_coord(i)[0].shape[0] == self.n_axon
             self.core_placements[coord] = CorePlacement.build(
                 self, i, self.get_raw_weight_of_coord(i)
             )
 
-    def get_syn_of(self, src: SourceNodeType, dest: DestNodeType) -> Optional[SynSys]:
+    def _get_syn_of(self, src: SourceNodeType, dest: DestNodeType) -> Optional[SynSys]:
         for syn in self.obj:
             if syn.source == src and syn.dest == dest:
                 return syn
@@ -184,7 +178,7 @@ class CoreBlock(CoreAbstract):
     def neuron_capacity(self) -> int:
         """Neuron capacity. #N of valid dendrites/#N of dendrites required per neuron.
 
-        FIXME This method only works in SNN mode. For ANN mode, use table lookup.
+        FIXME This method ONLY works in SNN mode. For ANN mode, use table lookup.
         """
         return (self.n_dendrite >> self.lcn_ex) // self.n_dendrite_per_neuron
 
@@ -210,7 +204,7 @@ class CoreBlock(CoreAbstract):
 
         FIXME The limit on the number of dendrites in SNN/ANN modes \
             is different, which affects the capacity of neurons in  \
-            the physical core.
+            physical core.
         """
         return 1 << self.weight_precision
 
@@ -288,7 +282,7 @@ class CoreBlock(CoreAbstract):
             w_of_dest = []
 
             for s in self.source:
-                if syn := self.get_syn_of(s, d):
+                if syn := self._get_syn_of(s, d):
                     w_of_dest.append(syn.connectivity)
                 else:
                     # Fill with 0.
@@ -344,8 +338,12 @@ class CoreBlock(CoreAbstract):
         if not cls.all_wp_equal(*synapses):
             raise NotSupportedError("Mixed weight precision is not supported yet")
 
-        if (wp := synapses[0].weight_precision) not in cls.supported_wp:
+        if (wp := synapses[0].weight_precision) > max(cls.supported_wp):
             raise NotSupportedError(f"{wp.name} is not supported yet.")
+
+        elif wp not in cls.supported_wp:
+            # Treat 4-bit weights as 8-bit weights.
+            wp = cls.supported_wp[-1]
 
         return cls(*synapses, weight_precision=wp)
 
@@ -384,11 +382,11 @@ class CorePlacement(CoreAbstract):
     ) -> None:
         """
         Arguments:
-            - parent: the parent grouped synapse(complete).
+            - parent: the parent core block.
             - idx: The index number where this object is located.
-            - n_neuron: the number of neurons used in the CORE.
-            - raw_weights: the raw weights in this single CORE.
-            - neuron_segment: The placement of the destination neurons.
+            - n_neuron: the number of neurons used in the physical core.
+            - raw_weights: the raw weights in the physical core.
+            - neu_segs: The segment of the neurons in the physical core.
         """
         super().__init__(name)
 
@@ -398,12 +396,11 @@ class CorePlacement(CoreAbstract):
 
         self.n_neuron = n_neuron
 
-        assert len(raw_weights) == len(neu_segs)
-
         self._weights_folded = self._fold_raw_weights(raw_weights)
+        """The folded weights."""
 
         self.neu_segs = neu_segs
-        self.neu_config: Dict[NeuDyn, NeuronConfig] = defaultdict()
+        self.neu_config: Dict[NeuDyn, NeuronConfig] = dict()
 
     @classmethod
     def build(cls, parent: CoreBlock, idx: int, raw_weights: List[np.ndarray]):
@@ -422,6 +419,7 @@ class CorePlacement(CoreAbstract):
         if self.lcn_ex == LCN_EX.LCN_1X:
             w_folded = np.hstack(raw_weights, dtype=np.int8)
             w_folded.setflags(write=False)
+
             return w_folded
 
         # LCN_EX > LCN_1X
@@ -451,10 +449,10 @@ class CorePlacement(CoreAbstract):
     def _weight_ram_mapping(self) -> np.ndarray:
         row, col = self._weights_folded.shape
         # The final wright ram
-        weight_ram = np.zeros(self.weight_ram_shape, dtype=np.uint8)
+        _weight_ram = np.zeros(self.weight_ram_shape, dtype=np.uint8)
 
         if self.n_weight_bits == 1:
-            weight_ram[:row, :col] = self._weights_folded
+            _weight_ram[:row, :col] = self._weights_folded
         else:
             # [N*M] -> [M*N*1]
             w_folded_3d = np.expand_dims(self._weights_folded.T, axis=2).astype(
@@ -470,16 +468,17 @@ class CorePlacement(CoreAbstract):
                     bitorder=HwConfig.WEIGHT_BITORDER,
                 )
 
-                weight_ram[
+                _weight_ram[
                     :row, self.n_weight_bits * i : self.n_weight_bits * (i + 1)
                 ] = unpacked
 
+        # assert np.max(_weight_ram, axis=None) <= 1
+        # assert np.min(_weight_ram, axis=None) >= 0
+
+        weight_ram = _weight_ram.astype(np.bool_)
         weight_ram.setflags(write=False)
 
-        assert np.max(weight_ram, axis=None) <= 1
-        assert np.min(weight_ram, axis=None) >= 0
-
-        return weight_ram.astype(np.bool_)
+        return weight_ram
 
     @staticmethod
     def _nfold_weight(
@@ -608,12 +607,13 @@ class CorePlacement(CoreAbstract):
 
             return axon_addr_offset + neu_seg.segment.n_neuron
 
-    def export_core_config(self) -> CorePlacementConfig:
+    def export_core_plm_config(self) -> CorePlacementConfig:
+        core_param = self.export_param_config()
+
         return CorePlacementConfig.encapsulate(
-            self.coord,
             self.parent.seed,
             self.weight_ram,
-            self.export_param_config(),
+            core_param,
             self.neu_config,
         )
 

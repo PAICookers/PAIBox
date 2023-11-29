@@ -33,10 +33,11 @@ class NodeCharacter(Enum):
     """As an output node."""
 
 
-class GraphInfo(TypedDict):
-    input: Dict
-    output: Dict
-    members: Dict
+class GraphInfo(TypedDict, total=False):
+    input: Dict[str, Any]
+    output: Dict[str, Any]
+    members: Dict[str, Any]
+    extras: Dict[str, Any]
 
 
 class Degree(NamedTuple):

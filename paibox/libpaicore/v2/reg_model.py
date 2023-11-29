@@ -27,6 +27,8 @@ class CoreParams(BaseModel):
 
     model_config = ConfigDict(extra="ignore", validate_assignment=True)
 
+    name: str = Field(description="Name of the physical core.", exclude=True)
+
     weight_precision: WeightPrecisionType = Field(
         le=WeightPrecisionType.WEIGHT_WIDTH_8BIT,
         serialization_alias="weight_width",

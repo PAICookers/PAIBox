@@ -37,7 +37,7 @@ class NeuronSegment(NamedTuple):
 
     @property
     def addr_ram(self) -> List[int]:
-        """Convert index of neuron into address RAM."""
+        """Convert index of neuron into address of RAM."""
         if (
             _addr_max := self.addr_offset
             + self.interval * (self.index.stop - self.index.start)
@@ -47,6 +47,15 @@ class NeuronSegment(NamedTuple):
             )
 
         return list(range(self.addr_offset, _addr_max))
+
+    @property
+    def addr_slice(self) -> slice:
+        """Display the address of RAM in slice format."""
+        return slice(
+            self.addr_offset + self.index.start,
+            self.addr_offset + self.index.stop,
+            self.interval,
+        )
 
 
 class AxonCoord(NamedTuple):
@@ -58,7 +67,7 @@ class AxonSegment(NamedTuple):
     n_axon: int
     """#N of axons."""
     addr_width: int
-    """The range of axon address is [addr_offset, addr_offset+addr_width)."""
+    """The range of axon address is [addr_offset, addr_offset + addr_width)."""
     addr_offset: int
     """The offset of the assigned address."""
 
@@ -77,7 +86,7 @@ class HwCore(ABC):
     @property
     @abstractmethod
     def n_dendrite(self) -> int:
-        """#N of valid dendrites"""
+        """#N of valid dendrites."""
         raise NotImplementedError
 
     @property

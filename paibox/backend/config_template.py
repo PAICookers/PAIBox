@@ -101,7 +101,7 @@ class ConfigTemplate:
 
 @dataclass(eq=False)
 class NeuronConfig(ConfigTemplate):
-    # _extra_params = ("addr_offset",)
+    _extra_params = ()
     """Extra parameters for debugging."""
 
     params_ram: ParamsRAM
@@ -176,20 +176,17 @@ class NeuronConfig(ConfigTemplate):
             exclude={"dest_info": self.params_ram.dest_info._exclude_vars},
         )
 
-        return dict_
-
-    def dest_info_dump(self) -> Dict[str, Any]:
-        dict_ = self.params_ram.dest_info.model_dump(
-            by_alias=True,
-            exclude={"dest_info": self.params_ram.dest_info._exclude_vars},
-        )
+        for var in self._extra_params:
+            dict_[var] = getattr(self, var)
 
         return dict_
 
 
 @dataclass(eq=False)
 class CorePlacementConfig(ConfigTemplate):
-    coord: Coord
+    _extra_params = ()
+    """Extra parameters for debugging."""
+
     random_seed: np.uint64
     weight_ram: np.ndarray
     params_reg: ParamsReg
@@ -198,14 +195,12 @@ class CorePlacementConfig(ConfigTemplate):
     @classmethod
     def encapsulate(
         cls,
-        coord: Coord,
         random_seed: np.uint64,
         weight_ram: np.ndarray,
         core_config: CoreConfig,
         neuron_ram: Dict[NeuDyn, NeuronConfig],
     ):
         return cls(
-            coord,
             random_seed,
             weight_ram,
             ParamsReg.model_validate(core_config._asdict(), strict=True),
@@ -215,7 +210,7 @@ class CorePlacementConfig(ConfigTemplate):
     def __json__(self) -> Dict[str, Any]:
         """Dump the configs into json for debugging."""
         dict_ = {
-            "coord": self.coord.address,
+            "name": self.params_reg.name,
             "random_seed": int(self.random_seed),
             "neuron_ram": dict(),
             **self.params_reg.model_dump(by_alias=True),
@@ -223,5 +218,8 @@ class CorePlacementConfig(ConfigTemplate):
 
         for neu, neu_config in self.neuron_ram.items():
             dict_["neuron_ram"][neu.name] = neu_config.__json__()
+
+        for var in self._extra_params:
+            dict_[var] = getattr(self, var)
 
         return dict_
