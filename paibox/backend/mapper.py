@@ -46,7 +46,6 @@ class Mapper:
         """Ordered topologically nodes."""
 
         self._succ_nodes: Dict[NodeName, Set[NodeName]] = defaultdict(set)
-        # self._pred_nodes: Dict[str, Set[str]] = defaultdict(set)
 
         self._edges = Collector()
         """Edges in the network. Structure:
@@ -120,10 +119,16 @@ class Mapper:
         """Backend contexts"""
         self.env = _BACKEND_CONTEXT
 
+        """Local options"""
+        self.has_built: bool
+        self.has_compiled: bool
+
         self.clear()
 
     def clear(self) -> None:
         self.has_built = False
+        self.has_compiled = False
+
         self.routing_tree.clear()
 
         self._nodes.clear()
@@ -142,7 +147,7 @@ class Mapper:
         self.core_params.clear()
         self.core_plm_config.clear()
 
-    def build_graph(self, *networks: DynSysGroup) -> None:
+    def build(self, *networks: DynSysGroup) -> None:
         """Build the directed graph based on given networks.    \
             More than one networks in one graph is supported.
 
@@ -190,9 +195,9 @@ class Mapper:
 
         self._graph_check()
 
-    def main_phases(self) -> GraphInfo:
-        if not self.has_built:
-            raise BuildError(f"The graph hasn't been built yet")
+    def compile(self):
+        """Backend compilation."""
+        self._build_check()
 
         """1. Build core blocks."""
         self.build_core_blocks()
@@ -206,8 +211,12 @@ class Mapper:
         """4. Allocate the grouped synapses to the cores."""
         self.core_allocation()
 
+        self.has_compiled = True
+
         """5. Export parameters."""
         graph_info = self.config_export()
+
+        self.graph_info = graph_info
 
         return graph_info
 
@@ -228,10 +237,9 @@ class Mapper:
 
         self._degree_of_nodes = get_node_degrees(self.succ_dg)
 
-        branch_nodes = filter(
+        for node in filter(
             lambda node: self._degree_of_nodes[node].out_degree > 1, self.nodes
-        )
-        for node in branch_nodes:
+        ):
             if any(
                 self._degree_of_nodes[succ_node].in_degree > 1
                 for succ_node in self.succ_dg[node]
@@ -316,7 +324,12 @@ class Mapper:
                 cb.lcn_locked = True
 
     def coord_assign(self) -> None:
-        """Assign the coordinate for each `CorePlacement`."""
+        """Assign the coordinate for each `CorePlacement`.
+        
+        NOTE: The neurons in each core block must be grouped first  \
+            to determine the #N of cores required, and then the     \
+            routing coordinates can be assigned.
+        """
         for cb in self.core_blocks:
             # Group the neurons, get the #N of cores required.
             cb.group_neurons()
@@ -334,7 +347,7 @@ class Mapper:
         for cb in self.core_blocks:
             if not RoutingRoot.insert_coreblock(self.routing_tree, cb):
                 raise RuntimeError(
-                    f"Insert core block {cb.name} into routing tree failed."
+                    f"Insert core block {cb.name} into the routing tree failed."
                 )
 
     def core_allocation(self) -> None:
@@ -399,29 +412,31 @@ class Mapper:
                         assert len(dests) == 1
                         core_plm.export_neu_config(neu_seg, dests)
 
-                self.core_plm_config[core_plm.coord] = core_plm.export_core_config()
+                self.core_plm_config[core_plm.coord] = core_plm.export_core_plm_config()
 
             if _ocoord_update_flag:
                 # Coord.x += 1
                 ocoord += CoordOffset(1, 0)
                 _ocoord_update_flag = False
 
-        self.graph_info = GraphInfo(
-            input=input_nodes_info, output=output_dest_info, members={}
+        return GraphInfo(
+            input=input_nodes_info,
+            output=output_dest_info,
+            members=self.core_plm_config,
+            extras={
+                "name": self.graph_name_repr,
+                "timestep": self.get_inherent_timestep(),
+            },
         )
-
-        return self.graph_info
 
     def _inpproj_config_export(self) -> Dict[NodeName, NeuronDest]:
+        input_nodes_info: Dict[NodeName, NeuronDest] = dict()
+
         # Get the input core blocks for all input nodes.
-        input_core_blocks = filter(
+        for input_cb in filter(
             lambda cb: any(s for s in cb.source if s.name in self.inodes),
             self.core_blocks,
-        )
-
-        input_nodes_info: Dict[NodeName, NeuronDest] = defaultdict()
-
-        for input_cb in input_core_blocks:
+        ):
             dest_coords = input_cb.core_coords
             dest_rid = get_replication_id(dest_coords)
 
@@ -448,58 +463,100 @@ class Mapper:
 
         return input_nodes_info
 
-    @property
-    def inherent_timestep(self) -> int:
-        if not self.has_built:
-            raise BuildError(f"The graph hasn't been built yet")
+    def get_inherent_timestep(self) -> int:
+        self._build_check()
 
         _, distance = get_longest_path(self._succ_edges, self._ordered_nodes)
 
         return distance
 
-    @property
-    def nodes(self):
+    def find_neuron(self, neuron: NeuDyn, *, verbose: int = 0) -> None:
+        self._build_check()
+
+        for cb in self.core_blocks:
+            # Find neuron in one or more core blocks.
+            if neuron in cb.dest:
+                print(
+                    f"Neurons {neuron.name} placed in {cb.name}, LCN_{1 << cb.lcn_ex}X"
+                )
+                for core_plm in cb.core_placements.values():
+                    for neu_seg in core_plm.neu_segs:
+                        if neuron is neu_seg.parent:
+                            print(
+                                f"{neuron.name} placed in {core_plm.coord}\n"
+                                f"N:        {neu_seg.segment.n_neuron}\n"
+                                f"Address:  {neu_seg.segment.addr_slice}"
+                            )
+
+    def find_axon(self, neuron: NeuDyn, *, verbose: int = 0) -> None:
+        self._build_check()
+
+        for cb in self.core_blocks:
+            # Find neuron in one or more core blocks.
+            if neuron in cb.source:
+                print(f"Axons {neuron.name} placed in {cb.name}, LCN_{1 << cb.lcn_ex}X")
+                axon_segment = cb.axon_segments[neuron]
+                print(
+                    f"{neuron.name} placed in {cb.core_coords}\n"
+                    f"N:                {axon_segment.n_axon}\n"
+                    f"Address width:    {axon_segment.addr_width}\n"
+                    f"Address offset:   {axon_segment.addr_offset}"
+                )
+
+    def _build_check(self) -> None:
         if not self.has_built:
             raise BuildError(f"The graph hasn't been built yet")
+
+    def _compile_check(self) -> None:
+        if not self.has_compiled:
+            raise BuildError(f"The graph hasn't been compiled yet")
+
+    @property
+    def nodes(self):
+        self._build_check()
 
         return self._nodes
 
     @property
     def n_inode(self) -> int:
         """The #N of input nodes"""
-        if not self.has_built:
-            raise BuildError(f"The graph hasn't been built yet")
+        self._build_check()
 
         return len(self.inodes)
 
     @property
     def n_onode(self) -> int:
         """The #N of output nodes"""
-        if not self.has_built:
-            raise BuildError(f"The graph hasn't been built yet")
+        self._build_check()
 
         return len(self.onodes)
 
     @property
     def edges(self):
-        if not self.has_built:
-            raise BuildError(f"The graph hasn't been built yet")
+        self._build_check()
 
         return self._edges
 
     @property
     def pred_dg(self):
-        if not self.has_built:
-            raise BuildError(f"The graph hasn't been built yet")
+        self._build_check()
 
         return self._pred_dg
 
     @property
     def succ_dg(self):
-        if not self.has_built:
-            raise BuildError(f"The graph hasn't been built yet")
+        self._build_check()
 
         return self._succ_dg
+
+    @property
+    def graph_name_repr(self) -> str:
+        _str = f"GraphInfo_of_{self.networks[0].name}"
+
+        for network in self.networks[1:]:
+            _str += f"_and_{network.name}"
+
+        return _str
 
 
 def group_by(dict_: Dict, keyfunc=lambda item: item):
