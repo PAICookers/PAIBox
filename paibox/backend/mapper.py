@@ -4,6 +4,7 @@ from typing import Dict, List, Set
 from paibox.base import NeuDyn
 from paibox.collector import Collector
 from paibox.exceptions import BuildError, ResourceError
+from paibox.frame import OfflineFrameGen
 from paibox.libpaicore import Coord, CoordOffset, HwConfig, get_replication_id
 from paibox.network import DynSysGroup
 from paibox.projection import InputProj
@@ -496,6 +497,9 @@ class Mapper:
 
         return self._succ_dg
 
+    def gen_config_frame(self):
+        # TODO
+        return OfflineFrameGen.gen_config_frame(core_plm_config=self.core_plm_config)
 
 def group_by(dict_: Dict, keyfunc=lambda item: item):
     """Groups the given list or dictionary by the value returned by ``keyfunc``."""
