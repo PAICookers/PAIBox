@@ -4,6 +4,7 @@ from typing import Dict, List, Set
 from paibox.base import NeuDyn
 from paibox.collector import Collector
 from paibox.exceptions import BuildError, ResourceError
+from paibox.frame import OfflineFrameGen
 from paibox.libpaicore import Coord, CoordOffset, HwConfig, get_replication_id
 from paibox.network import DynSysGroup
 from paibox.projection import InputProj
@@ -325,7 +326,7 @@ class Mapper:
 
     def coord_assign(self) -> None:
         """Assign the coordinate for each `CorePlacement`.
-        
+
         NOTE: The neurons in each core block must be grouped first  \
             to determine the #N of cores required, and then the     \
             routing coordinates can be assigned.
@@ -462,6 +463,10 @@ class Mapper:
                 input_nodes_info[inode.name] = neuron_dest
 
         return input_nodes_info
+
+    def gen_config_frame(self):
+        # TODO
+        return OfflineFrameGen.gen_config_frame(core_plm_config=self.core_plm_config)
 
     def get_inherent_timestep(self) -> int:
         self._build_check()

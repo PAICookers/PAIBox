@@ -2,14 +2,12 @@ from typing import List, Optional, Union
 
 import numpy as np
 
-from paibox.frame.frame_gen import FrameGenOffline
-from paibox.frame.params import FrameFormat
+from paibox.frame.frame_gen_parse import OfflineFrameGen
+from paibox.frame.params import FrameFormat, FrameHead, WorkFrame1Format
 from paibox.libpaicore.v2 import Coord, ReplicationId
 
-from .params import FrameHead, WorkFrame1Format
 
-
-class DataEncoder:
+class ChipInputEncoder:
     def __init__(
         self,
         chip_coord: Optional[Coord] = None,
@@ -21,7 +19,6 @@ class DataEncoder:
             self.chip_coord = chip_coord
         if time_step is not None:
             self.time_step = time_step
-
         if frameinfo is not None:
             self.frameinfo = frameinfo.astype(np.uint64)
         if data is not None:
@@ -38,11 +35,23 @@ class DataEncoder:
         return cls(chip_coord, time_step, frameinfo, data)
 
     def encode(self):
-        frames = FrameGenOffline.gen_work_frame1(
+        work1_frames = OfflineFrameGen.gen_work_frame1_fast(
             frameinfo=self.frameinfo, data=self.data
         )
-        work2 = FrameGenOffline.gen_work_frame2(self.chip_coord, self.time_step)
-        return np.concatenate((frames, work2.value), axis=0)  # type: ignore
+        work2 = OfflineFrameGen.gen_work_frame2(self.chip_coord, self.time_step)
+        return np.concatenate((work1_frames, work2.value), axis=0)  # type: ignore
+
+    def __call__(
+        self,
+        chip_coord: Coord,
+        time_step: int,
+        frameinfo: np.ndarray,
+        data: np.ndarray,
+    ):
+        if frameinfo.shape[0] != data.shape[0]:
+            raise ValueError("frameinfo and data must have the same length")
+
+        return self.get_encoder(chip_coord, time_step, frameinfo, data).encode()
 
     @staticmethod
     def gen_frameinfo(
@@ -51,6 +60,7 @@ class DataEncoder:
         core_e_coord: Union[List[ReplicationId], ReplicationId],
         axon: Union[List[int], int],
         time_slot: Union[List[int], int],
+        save_path: Optional[str] = None,
     ) -> np.ndarray:
         header = [FrameHead.WORK_TYPE1]
         if not isinstance(chip_coord, list):
@@ -65,7 +75,7 @@ class DataEncoder:
             time_slot = [time_slot]
 
         header_value = np.array([head.value for head in header]).astype(np.uint64)
-        chip_address = np.array([coord.address for coord in core_coord]).astype(
+        chip_address = np.array([coord.address for coord in chip_coord]).astype(
             np.uint64
         )
         core_address = np.array([coord.address for coord in core_coord]).astype(
@@ -94,4 +104,8 @@ class DataEncoder:
             | (temp_axon_array << WorkFrame1Format.AXON_OFFSET)
             | (temp_time_slot_array << WorkFrame1Format.TIME_SLOT_OFFSET)
         )
+
+        if save_path is not None:
+            np.save(save_path, frameinfo)
+
         return frameinfo

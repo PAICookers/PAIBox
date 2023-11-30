@@ -79,10 +79,13 @@ class FrameFormat:
     GENERAL_CORE_GLOBAL_ADDR_OFFSET = GENERAL_CORE_ADDR_OFFSET
     GENERAL_CORE_GLOBAL_ADDR_MASK = np.uint64((1 << 20) - 1)
 
+    # Frame 前34位
+    GENERAL_FRAME_PRE_OFFSET = np.uint64(30)
+    GENERAL_FRAME_PRE_MASK = np.uint64((1 << 34) - 1)
+
     # 通用数据帧LOAD掩码
     GENERAL_PAYLOAD_OFFSET = np.uint64(0)
     GENERAL_PAYLOAD_MASK = np.uint64((1 << 30) - 1)
-    GENERAL_PAYLOAD_FILLED_MASK = np.uint64((1 << 4) - 1)
 
     # 通用数据包LOAD掩码
     DATA_PACKAGE_SRAM_NEURON_OFFSET = np.uint64(20)

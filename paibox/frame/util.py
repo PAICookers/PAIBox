@@ -39,14 +39,14 @@ def bin_split(
     Returns:
         Tuple[int, int]: 返回拆分后的高位和低位
     """
-    x = np.uint64(x)  # type: ignore
-    high = np.uint64(high)  # type: ignore
-    low = np.uint64(low)  # type: ignore
+    x = np.uint64(x)
+    high_uint = np.array(high).astype(np.uint64)
+    low_uint = np.array(low).astype(np.uint64)
 
-    high_mask = np.uint64((np.uint64(1) << high) - np.uint64(1))
-    highbit = np.uint64((x >> low) & high_mask)
+    high_mask = np.uint64((np.uint64(1) << high_uint) - np.uint64(1))
+    highbit = np.uint64((x >> low_uint) & high_mask)
 
-    lowbit_mask = np.uint64((np.uint64(1) << low) - np.uint64(1))
+    lowbit_mask = np.uint64((np.uint64(1) << low_uint) - np.uint64(1))
     lowbit = x & lowbit_mask
 
     return highbit, lowbit
@@ -96,3 +96,9 @@ def txtFrame2Bin(configTxtPath):
 def npFrame2bin(frame, framePath):
     frame.tofile(framePath)
     print(f"Generate frames as bin file at {framePath}")
+
+
+def save_frames(frames, path):
+    with open(path, "w") as f:
+        for frame in frames:
+            f.write(str(bin(frame))[2:].zfill(64) + "\n")
