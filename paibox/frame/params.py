@@ -82,7 +82,7 @@ class FrameFormat:
     # Frame 前34位
     GENERAL_FRAME_PRE_OFFSET = np.uint64(30)
     GENERAL_FRAME_PRE_MASK = np.uint64((1 << 34) - 1)
-    
+
     # 通用数据帧LOAD掩码
     GENERAL_PAYLOAD_OFFSET = np.uint64(0)
     GENERAL_PAYLOAD_MASK = np.uint64((1 << 30) - 1)

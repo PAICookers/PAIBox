@@ -2,8 +2,6 @@ import numpy as np
 import pytest
 
 import paibox as pb
-from .conftest import packbits_ref
-
 from paibox.backend.placement import (
     NeuSeg,
     aligned_coords,
@@ -14,6 +12,8 @@ from paibox.backend.placement import (
 from paibox.exceptions import ResourceError
 from paibox.libpaicore import AxonCoord, AxonSegment, NeuronSegment
 from paibox.libpaicore import WeightPrecision as WP
+
+from .conftest import packbits_ref
 
 
 def test_get_raw_weight_ref():

@@ -1,6 +1,5 @@
-from .params import *
+from typing import Any, List, Optional, Tuple, Union
 
-from typing import Any, List, Optional, Union, Tuple
 import numpy as np
 
 from paibox.frame.params import FrameHead
@@ -36,7 +35,6 @@ class Frame:
         payload: Optional[Union[List[int], int, np.ndarray]] = None,
         value: Optional[np.ndarray] = None,
     ) -> None:
-        
         info = [header, chip_coord, core_coord, core_ex_coord, payload]
 
         if value is not None and all(var is None for var in info):
@@ -113,7 +111,13 @@ class Frame:
         core_ex_coord: Union[List[ReplicationId], ReplicationId],
         payload: Union[List[int], int, np.ndarray],
     ) -> "Frame":
-        return cls(header = header, chip_coord = chip_coord, core_coord = core_coord, core_ex_coord= core_ex_coord, payload=payload)
+        return cls(
+            header=header,
+            chip_coord=chip_coord,
+            core_coord=core_coord,
+            core_ex_coord=core_ex_coord,
+            payload=payload,
+        )
 
     def _get_frame_by_value(self, value: np.ndarray):
         """从64位的frame中解析出各个字段的值"""
@@ -136,7 +140,7 @@ class Frame:
 
         header_list = header_list.tolist()
         if all(header == header_list[0] for header in header_list):
-            header = FrameHead(header_list[0]) # type: ignore
+            header = FrameHead(header_list[0])  # type: ignore
         else:
             raise ValueError(
                 "The header of the frame is not the same, please check the frames value."
@@ -196,6 +200,7 @@ class Frame:
             f"Core_EX address:  {self.core_ex_coord}\n"
             f"Payload:          {self.payload}\n"
         )
+
 
 class FramePackage:
     """Frame package for a length of `N` contents:
@@ -257,7 +262,7 @@ class FramePackage:
                 np.array(self.core_ex_coord.address).astype(np.uint64)  # type: ignore
                 & FrameFormat.GENERAL_CORE_EX_ADDR_MASK
             )
-            temp_payload = self.payload & FrameFormat.GENERAL_PAYLOAD_MASK # type: ignore
+            temp_payload = self.payload & FrameFormat.GENERAL_PAYLOAD_MASK  # type: ignore
 
             temp = np.uint64(
                 (
@@ -270,9 +275,9 @@ class FramePackage:
             )
 
             frame_package = np.array([]).astype(np.uint64)
-            frame_package = np.append(frame_package,temp)
-            if self.data_package.size != 0: # type: ignore
-                frame_package = np.append(frame_package,self.data_package) # type: ignore
+            frame_package = np.append(frame_package, temp)
+            if self.data_package.size != 0:  # type: ignore
+                frame_package = np.append(frame_package, self.data_package)  # type: ignore
 
             self._value = np.array(frame_package).astype(np.uint64)
 
@@ -311,12 +316,11 @@ class FramePackage:
 
     @property
     def n_package(self) -> int:
-        return self.data_package.size # type: ignore
+        return self.data_package.size  # type: ignore
 
     @property
     def value(self) -> np.ndarray:
         return self._value
-    
 
     def __len__(self) -> int:
         return self.length
@@ -334,7 +338,7 @@ class FramePackage:
             f"Data:\n"
         )
 
-        if len(self.data_package) != 0: # type: ignore
+        if len(self.data_package) != 0:  # type: ignore
             for i in range(self.length - 1):
-                _present += f"#{i}:{self.data_package[i]}\n" # type: ignore
+                _present += f"#{i}:{self.data_package[i]}\n"  # type: ignore
         return _present

@@ -1,10 +1,10 @@
 import re
 from typing import Optional
-from matplotlib.font_manager import weight_dict
 
 import numpy as np
-from paibox import frame
+from matplotlib.font_manager import weight_dict
 
+from paibox import frame
 from paibox.libpaicore.v2 import Coord
 
 from .base_frame import *

@@ -2,10 +2,12 @@
     将输出的帧解码为输出数据
 """
 from typing import List, Optional, Union
+
 import numpy as np
 
 from paibox.frame.offline_frame import OfflineWorkFrame1
 from paibox.libpaicore.v2.coordinate import Coord, ReplicationId
+
 from .params import FrameFormat, FrameHead, WorkFrame1Format
 
 
@@ -130,7 +132,7 @@ class ChipOutputDecoder:
         out_data = np.zeros((time_step * axon_num), dtype=np.uint64)
         out_data[idx] = out_frame & WorkFrame1Format.DATA_MASK
         out_data = out_data
-        return out_data.reshape(time_step,axon_num)
+        return out_data.reshape(time_step, axon_num)
 
     @staticmethod
     def gen_frameinfo(

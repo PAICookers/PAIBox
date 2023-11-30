@@ -326,7 +326,7 @@ class Mapper:
 
     def coord_assign(self) -> None:
         """Assign the coordinate for each `CorePlacement`.
-        
+
         NOTE: The neurons in each core block must be grouped first  \
             to determine the #N of cores required, and then the     \
             routing coordinates can be assigned.
@@ -463,7 +463,7 @@ class Mapper:
                 input_nodes_info[inode.name] = neuron_dest
 
         return input_nodes_info
-      
+
     def gen_config_frame(self):
         # TODO
         return OfflineFrameGen.gen_config_frame(core_plm_config=self.core_plm_config)
@@ -562,6 +562,7 @@ class Mapper:
             _str += f"_and_{network.name}"
 
         return _str
+
 
 def group_by(dict_: Dict, keyfunc=lambda item: item):
     """Groups the given list or dictionary by the value returned by ``keyfunc``."""

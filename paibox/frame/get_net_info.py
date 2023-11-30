@@ -1,8 +1,4 @@
+class OnChipNetInfo:
+    """读取片上网络信息"""
 
-
-
-class OnChipNetInfo():
-    """读取片上网络信息
-    """
     pass
-    

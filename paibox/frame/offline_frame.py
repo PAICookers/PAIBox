@@ -1,22 +1,17 @@
-from functools import reduce
 import warnings
+from functools import reduce
 from typing import Dict, List, Union
 
 import numpy as np
 
-from .base_frame import Frame, FramePackage
-from .params import (
-    ConfigFrame3Format,
-    ConfigFrame4Format,
-    FrameFormat,
-    FrameHead,
-    WorkFrame1Format,
-)
-from .params import ParameterRAMFormat as RAMF
-from .params import ParameterRegFormat as RegF
-from .util import bin_array_split, bin_split
 from paibox.libpaicore.v2 import Coord, ReplicationId
 
+from .base_frame import Frame, FramePackage
+from .params import ConfigFrame3Format, ConfigFrame4Format, FrameFormat, FrameHead
+from .params import ParameterRAMFormat as RAMF
+from .params import ParameterRegFormat as RegF
+from .params import WorkFrame1Format
+from .util import bin_array_split, bin_split
 
 """Offline Config Frame"""
 
@@ -466,7 +461,7 @@ class OfflineConfigFrame4(FramePackage):
         core_coord: Coord,
         weight_ram: np.ndarray,
         sram_start_addr: np.uint64 = np.uint64(0),
-        data_package_num: np.uint64 = np.uint64(18*512),
+        data_package_num: np.uint64 = np.uint64(18 * 512),
         core_ex_coord: ReplicationId = ReplicationId(0, 0),
     ):
         header = FrameHead.CONFIG_TYPE4
@@ -697,8 +692,8 @@ class OfflineWorkFrame1(Frame):
             )
             | ((self.axon & WorkFrame1Format.AXON_MASK) << WorkFrame1Format.AXON_OFFSET)
             | (
-                (self.time_slot
-                & WorkFrame1Format.TIME_SLOT_MASK) << WorkFrame1Format.TIME_SLOT_OFFSET
+                (self.time_slot & WorkFrame1Format.TIME_SLOT_MASK)
+                << WorkFrame1Format.TIME_SLOT_OFFSET
             )
             | ((self.data & WorkFrame1Format.DATA_MASK) << WorkFrame1Format.DATA_OFFSET)
         )
@@ -734,7 +729,7 @@ class OfflineWorkFrame1(Frame):
         #     f"Core_EX address:  {self.core_ex_coord}\n"
         #     f"random_seed:      {self.random_seed}\n"
         # )
-        
+
         # info = (
         #     "Header:    FrameHead.WORK_TYPE1\n"
         #     + "Chip address".ljust(16)
