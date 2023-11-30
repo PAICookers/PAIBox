@@ -1,4 +1,5 @@
 import random
+from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -63,6 +64,194 @@ def build_example_root():
     root.add_child_to(node_l2_2, RoutingDirection.X0Y1)
 
     return root
+
+
+class NetForTest1(pb.Network):
+    """INP1 -> S1 -> N1 -> S2 -> N2 -> S3 -> N3"""
+
+    def __init__(self):
+        super().__init__()
+        self.inp1 = pb.InputProj(input=1, shape_out=(2000,), name="inp1_1")
+        self.n1 = pb.TonicSpiking(2000, 3, name="n1_1")
+        self.n2 = pb.TonicSpiking(1200, 3, name="n2_1")
+        self.n3 = pb.TonicSpiking(800, 4, name="n3_1")
+        self.s1 = pb.NoDecay(
+            self.inp1, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s1_1"
+        )
+        self.s2 = pb.NoDecay(
+            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s2_1"
+        )
+        self.s3 = pb.NoDecay(
+            self.n2, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s3_1"
+        )
+
+
+class NetForTest2(pb.Network):
+    """INP1 -> S1 -> N1 -> S2 -> N2"""
+
+    def __init__(self):
+        super().__init__()
+        self.inp1 = pb.InputProj(input=1, shape_out=(400,), name="inp1_2")
+        self.inp2 = pb.InputProj(input=1, shape_out=(400,), name="inp2_2")
+        self.n1 = pb.TonicSpiking(400, 3, name="n1_2")
+        self.n2 = pb.TonicSpiking(400, 3, name="n2_2")
+        self.n3 = pb.TonicSpiking(800, 3, name="n3_2")
+        self.s1 = pb.NoDecay(
+            self.inp1, self.n1, conn_type=pb.synapses.ConnType.One2One, name="s1_2"
+        )
+        self.s2 = pb.NoDecay(
+            self.inp2, self.n2, conn_type=pb.synapses.ConnType.One2One, name="s2_2"
+        )
+        self.s3 = pb.NoDecay(
+            self.n1, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s3_2"
+        )
+        self.s4 = pb.NoDecay(
+            self.n2, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s4_2"
+        )
+
+
+class NetForTest3(pb.Network):
+    """INP1 -> S1 -> N1 -> S2 -> N2 -> S3 -> N3
+    N1 -> S4 -> N4 -> S5 -> N2
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.inp = pb.InputProj(input=1, shape_out=(400,), name="inp1")
+        self.n1 = pb.TonicSpiking(400, 3, name="n1")
+        self.n2 = pb.TonicSpiking(800, 3, name="n2")
+        self.n3 = pb.TonicSpiking(400, 4, name="n3")
+        self.n4 = pb.TonicSpiking(300, 4, name="n4")
+
+        self.s1 = pb.NoDecay(
+            self.inp, self.n1, conn_type=pb.synapses.ConnType.One2One, name="s1"
+        )
+        self.s2 = pb.NoDecay(
+            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s2"
+        )
+        self.s3 = pb.NoDecay(
+            self.n2, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s3"
+        )
+        self.s4 = pb.NoDecay(
+            self.n1, self.n4, conn_type=pb.synapses.ConnType.All2All, name="s4"
+        )
+        self.s5 = pb.NoDecay(
+            self.n4, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s5"
+        )
+
+
+class NetForTest4(pb.Network):
+    """INP1 -> S1 -> N1 -> S2 -> N2 -> S4 -> N4
+    N1 -> S3 -> N3
+    N3 -> S5 -> N4
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.inp1 = pb.InputProj(input=1, shape_out=(400,), name="inp1")
+        self.n1 = pb.TonicSpiking(800, 3, name="n1")
+        self.n2 = pb.TonicSpiking(400, 4, name="n2")
+        self.n3 = pb.TonicSpiking(400, 4, name="n3")
+        self.n4 = pb.TonicSpiking(400, 4, name="n4")
+        self.s1 = pb.NoDecay(
+            self.inp1, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s1"
+        )
+        self.s2 = pb.NoDecay(
+            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s2"
+        )
+        self.s3 = pb.NoDecay(
+            self.n1, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s3"
+        )
+        self.s4 = pb.NoDecay(
+            self.n2, self.n4, conn_type=pb.synapses.ConnType.One2One, name="s4"
+        )
+        self.s5 = pb.NoDecay(
+            self.n3, self.n4, conn_type=pb.synapses.ConnType.One2One, name="s5"
+        )
+
+
+class NetForTest5(pb.Network):
+    """Small 4-bits network #1.
+
+    INP1 -> N1 -> N2 ->
+               -> N3 -> N4
+    """
+
+    def __init__(self, seed: int):
+        super().__init__()
+        rng = np.random.RandomState(seed)
+        self.inp1 = pb.InputProj(input=1, shape_out=(10,), name="inp1")
+        self.n1 = pb.TonicSpiking(10, 3, name="n1")
+        self.n2 = pb.TonicSpiking(10, 4, name="n2")
+        self.n3 = pb.TonicSpiking(10, 4, name="n3")
+        self.n4 = pb.TonicSpiking(4, 4, name="n4")
+        self.s1 = pb.NoDecay(
+            self.inp1,
+            self.n1,
+            weights=rng.randint(-8, 8, size=(10, 10), dtype=np.int8),
+            conn_type=pb.synapses.ConnType.MatConn,
+            name="s1",
+        )
+        self.s2 = pb.NoDecay(
+            self.n1,
+            self.n2,
+            weights=rng.randint(-8, 8, size=(10, 10), dtype=np.int8),
+            conn_type=pb.synapses.ConnType.MatConn,
+            name="s2",
+        )
+        self.s3 = pb.NoDecay(
+            self.n1,
+            self.n3,
+            weights=rng.randint(-8, 8, size=(10, 10), dtype=np.int8),
+            conn_type=pb.synapses.ConnType.MatConn,
+            name="s3",
+        )
+        self.s4 = pb.NoDecay(
+            self.n2,
+            self.n4,
+            weights=rng.randint(-8, 8, size=(10, 4), dtype=np.int8),
+            conn_type=pb.synapses.ConnType.MatConn,
+            name="s4",
+        )
+        self.s5 = pb.NoDecay(
+            self.n3,
+            self.n4,
+            weights=rng.randint(-8, 8, size=(10, 4), dtype=np.int8),
+            conn_type=pb.synapses.ConnType.MatConn,
+            name="s5",
+        )
+
+
+@pytest.fixture(scope="class")
+def build_example_net1():
+    return NetForTest1()
+
+
+@pytest.fixture(scope="class")
+def build_example_net2():
+    return NetForTest2()
+
+
+@pytest.fixture(scope="function")
+def build_example_net3():
+    return NetForTest3()
+
+
+@pytest.fixture(scope="class")
+def build_example_net4():
+    return NetForTest4()
+
+
+@pytest.fixture(scope="class")
+def build_small_net1():
+    seed = 42
+
+    return NetForTest5(seed)
+
+
+@pytest.fixture(scope="class")
+def get_mapper() -> pb.Mapper:
+    return pb.Mapper()
 
 
 class NeuronInstances:
@@ -245,10 +434,8 @@ def MockNeuronConfig() -> NeuronConfig:
 @pytest.fixture
 def MockCorePlacementConfig(MockCoreConfigDict, MockNeuronConfig):
     neuron = pb.neuron.IF((100,), 3, reset_v=-1)
-    coord = Coord(random.randint(0, 31), random.randint(0, 31))
 
     cpc = CorePlacementConfig.encapsulate(
-        coord,
         np.uint64(random.randint(1, 200)),
         np.random.randint(0, 100, size=(1152, 512)),
         MockCoreConfigDict,
@@ -256,3 +443,36 @@ def MockCorePlacementConfig(MockCoreConfigDict, MockNeuronConfig):
     )
 
     return cpc
+
+
+def packbits_ref(bits: np.ndarray, count: int) -> int:
+    """Pack unsigned bits into a signed integer.
+
+    This is a test of the prototype of the original function.
+    """
+    _bits = np.append(bits[: count - 1], bits[-1])
+
+    result = sum(bit << i for i, bit in enumerate(_bits))
+    result -= _bits[-1] << count
+
+    return result
+
+
+@pytest.fixture
+def packbits8():
+    return partial(packbits_ref, count=8)
+
+
+@pytest.fixture
+def packbits4():
+    return partial(packbits_ref, count=4)
+
+
+@pytest.fixture
+def packbits2():
+    return partial(packbits_ref, count=2)
+
+
+@pytest.fixture
+def packbits1():
+    return partial(packbits_ref, count=1)

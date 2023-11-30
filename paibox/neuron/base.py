@@ -4,7 +4,7 @@ import numpy as np
 
 from paibox._types import Shape
 from paibox.base import NeuDyn
-from paibox.libpaicore.v2 import (
+from paibox.libpaicore import (
     LCM,
     LDM,
     LIM,
@@ -39,9 +39,7 @@ class MetaNeuron:
         synaptic_integration_mode: SIM,
         bit_truncate: int,
         vjt_init: int,
-        *,
         keep_shape: bool = False,
-        **kwargs,
     ) -> None:
         """Stateless attributes. Scalar."""
         # Basic attributes.
@@ -51,41 +49,30 @@ class MetaNeuron:
 
         # DO NOT modify the names of the following variables.
         # They will be exported to the parameter verification model.
-        self._reset_mode: RM = reset_mode
-        self._reset_v: int = reset_v  # Signed 30-bit
-        self._leaking_comparison: LCM = leaking_comparison
-        self._threshold_mask_bits: int = threshold_mask_bits
-        self._neg_thres_mode: NTM = neg_thres_mode
-        self._neg_threshold: int = neg_threshold  # Unsigned 29-bit
-        self._pos_threshold: int = pos_threshold  # Unsigned 29-bit
-        self._leaking_direction: LDM = leaking_direction
-        self._leaking_integration_mode: LIM = leaking_integration_mode
-        self._leak_v: int = leak_v  # Signed 30-bit
-        self._synaptic_integration_mode: SIM = synaptic_integration_mode
-        self._bit_truncate: int = bit_truncate
-        self._vjt_init = vjt_init
+        self.reset_mode: RM = reset_mode
+        self.reset_v: int = reset_v  # Signed 30-bit
+        self.leaking_comparison: LCM = leaking_comparison
+        self.threshold_mask_bits: int = threshold_mask_bits
+        self.neg_thres_mode: NTM = neg_thres_mode
+        self.neg_threshold: int = neg_threshold  # Unsigned 29-bit
+        self.pos_threshold: int = pos_threshold  # Unsigned 29-bit
+        self.leaking_direction: LDM = leaking_direction
+        self.leaking_integration_mode: LIM = leaking_integration_mode
+        self.leak_v: int = leak_v  # Signed 30-bit
+        self.synaptic_integration_mode: SIM = synaptic_integration_mode
+        self.bit_truncate: int = bit_truncate
+        self.vjt_init = vjt_init
 
         # TODO These two config below are parameters of CORE.
         self._spike_width_format: SpikeWidthFormat
         self._pool_max_en: MaxPoolingEnable
 
-        """Stateful attributes. Vector."""
-        # Membrane potential at last timestep.
-        self._vjt_pre = self.init_param(vjt_init).astype(np.int32)
-        # Membrane potential.
-        self._vjt = self.init_param(vjt_init).astype(np.int32)
-        self._spike = self.init_param(0).astype(np.bool_)
-
-        # Attributes about ANN.
-        self._vj = self.init_param(vjt_init).astype(np.int32)
-        self._y = self.init_param(0).astype(np.int32)
-
-        # Auxiliary attributes/variables.
+        # Auxiliary attributes or variables.
         self._thres_mask: int = (1 << threshold_mask_bits) - 1
         self._threshold_mode = self.init_param(TM.NOT_EXCEEDED).astype(np.int8)
         self._v_th_rand = self.init_param(0).astype(np.int32)
 
-    def _neuronal_charge(self, x: np.ndarray) -> None:
+    def _neuronal_charge(self, x: np.ndarray, vjt_pre: np.ndarray) -> np.ndarray:
         r"""1. Synaptic integration.
 
         Argument:
@@ -95,14 +82,14 @@ class MetaNeuron:
             _rho_w_ij: Random synaptic integration enable, 0 or 1.
 
             If synaptic integration mode is deterministic, then
-                `_vjt` = `_vjt_pre` + \sum^{N-1}_{i=0} * x_i(t) * w_{i,j}
+                `vjt` = `vjt_pre` + \sum^{N-1}_{i=0} * x_i(t) * w_{i,j}
             else (stochastic)
-                `_vjt` = `_vjt_pre` + `_rho_w_ij` * \sum^{N-1}_{i=0} * x_i(t) * w_{i,j}
+                `vjt` = `vjt_pre` + `_rho_w_ij` * \sum^{N-1}_{i=0} * x_i(t) * w_{i,j}
         """
         _rho_w_ij = 1  # Random synaptic integration enable, 0/1
-        xt = np.zeros(self.varshape, dtype=np.int32)
+        xt = self.init_param(0).astype(np.int32)
 
-        if self._synaptic_integration_mode is SIM.MODE_STOCHASTIC:
+        if self.synaptic_integration_mode is SIM.MODE_STOCHASTIC:
             raise NotImplementedError
         else:
             if x.ndim == 2:
@@ -110,42 +97,45 @@ class MetaNeuron:
             else:
                 xt = x
 
-        self._vjt = np.add(self._vjt_pre, xt).astype(np.int32)
+        v_charged = np.add(vjt_pre, xt).astype(np.int32)
 
-    def _neuronal_leak(self) -> None:
+        return v_charged
+
+    def _neuronal_leak(self, vjt: np.ndarray) -> np.ndarray:
         r"""2. Leaking integration.
 
         2.1 Leaking direction, forward or reversal.
-            If leaking direction is `MODE_FORWARD`, the `_ld` is 1, else is \sgn{`_vjt`}.
+            If leaking direction is `MODE_FORWARD`, the `_ld` is 1, else is \sgn{`vjt`}.
 
         2.2 Random leaking.
             If leaking integration is `MODE_DETERMINISTIC`, then
-                `_vjt` = `_vjt` + `_ld` * `leak_v`
+                `vjt` = `vjt` + `_ld` * `leak_v`
             else (`MODE_STOCHASTIC`)
                 if abs(`leak_v`) >= `_rho_j_lambda`, then
                     `_F` = 1
                 else
                     `_F` = 0
 
-                `_vjt` = `_vjt` + \sgn{`leak_v`}* `_ld` * `_F`
+                `vjt` = `vjt` + \sgn{`leak_v`}* `_ld` * `_F`
         """
         _rho_j_lambda = 2  # Random leaking, unsigned 29-bit.
 
-        if self._leaking_direction is LDM.MODE_FORWARD:
+        if self.leaking_direction is LDM.MODE_FORWARD:
             _ld = np.ones(self.varshape, dtype=np.bool_)
         else:
-            _ld = np.sign(self._vjt)
+            _ld = np.sign(vjt)
 
-        if self._leaking_integration_mode is LIM.MODE_DETERMINISTIC:
-            self._vjt = np.add(self._vjt, _ld * self.leak_v).astype(np.int32)
+        if self.leaking_integration_mode is LIM.MODE_DETERMINISTIC:
+            v_leaked = np.add(vjt, _ld * self.leak_v).astype(np.int32)
         else:
             raise NotImplementedError
             # _F = 1 if abs(self.leak_v) >= _rho_j_lambda else 0
             # sgn_leak_v = fn_sgn(self.leak_v, 0)
+            # self.vjt = np.add(self.vjt, sgn_leak_v * _F * _ld).astype(np.int32)
 
-            # self._vjt = np.add(self._vjt, sgn_leak_v * _F * _ld).astype(np.int32)
+        return v_leaked
 
-    def _neuronal_fire(self) -> None:
+    def _neuronal_fire(self, vjt: np.ndarray) -> np.ndarray:
         r"""3. Threshold comparison.
 
         3.1 Random threshold.
@@ -157,112 +147,114 @@ class MetaNeuron:
             else
                 `_v_th_neg` = `_neg_threshold`
 
-            If `_vjt` >= `_pos_threshold` + `_v_th_rand`, then
-                `_spike` = 1
-            else if `_vjt` < -`_v_th_neg`, then
-                `_spike` = 0
+            If `vjt` >= `_pos_threshold` + `_v_th_rand`, then
+                `spike` = 1
+            else if `vjt` < -`_v_th_neg`, then
+                `spike` = 0
             else
-                `_spike` = 0
+                `spike` = 0
         """
         _rho_j_T = 3  # Random threshold, unsigned 29-bit.
 
         # TODO Is _rho_j_T and _v_th_rand for all neurons or for each neuron?
         _v_th_rand = _rho_j_T & self._thres_mask
-        self._v_th_rand = np.full(self.varshape, _v_th_rand, dtype=np.int32)
+        self._v_th_rand = self.init_param(_v_th_rand).astype(np.int32)
 
-        if self._neg_thres_mode is NTM.MODE_RESET:
+        if self.neg_thres_mode is NTM.MODE_RESET:
             raise NotImplementedError
             # _v_th_neg = self._neg_threshold + _v_th_rand
         else:
-            _v_th_neg = self._neg_threshold
+            _v_th_neg = self.neg_threshold
 
         """Fire"""
         self._threshold_mode = np.where(
-            self._vjt >= self._pos_threshold + _v_th_rand,
+            vjt >= self.pos_threshold + _v_th_rand,
             TM.EXCEED_POSITIVE,
-            np.where(self._vjt < -_v_th_neg, TM.EXCEED_NEGATIVE, TM.NOT_EXCEEDED),
+            np.where(vjt < -_v_th_neg, TM.EXCEED_NEGATIVE, TM.NOT_EXCEEDED),
         ).astype(np.int8)
 
-        self._spike = np.equal(self._threshold_mode, TM.EXCEED_POSITIVE).astype(
-            np.bool_
-        )
+        spike = np.equal(self._threshold_mode, TM.EXCEED_POSITIVE)
 
-    def _neuronal_reset(self) -> None:
+        return spike
+
+    def _neuronal_reset(self, vjt: np.ndarray) -> np.ndarray:
         r"""4. Reset.
 
         If `_threshold_mode` is `EXCEED_POSITIVE`
             If reset mode is `MODE_NORMAL`, then
-                `_vjt` = `reset_v`
+                `vjt` = `reset_v`
             else if reset mode is `MODE_LINEAR`, then
-                `_vjt` = `_vjt` - `_pos_threshold` - `_v_th_rand`
+                `vjt` = `vjt` - `_pos_threshold` - `_v_th_rand`
             else (`MODE_NONRESET`)
-                `_vjt` = `_vjt`
+                `vjt` = `vjt`
 
         else if `_threshold_mode` is `EXCEED_NEGATIVE`
             If negative threshold mode is `MODE_RESET`, then
                 If reset mode is `MODE_NORMAL`, then
-                    `_vjt` = -`reset_v`
+                    `vjt` = -`reset_v`
                 else if reset mode is `MODE_LINEAR`, then
-                    `_vjt` = `_vjt` + (`_neg_threshold` + `_v_th_rand`)
+                    `vjt` = `vjt` + (`_neg_threshold` + `_v_th_rand`)
                 else
-                    `_vjt` = `_vjt`
+                    `vjt` = `vjt`
             else (`MODE_SATURATION`)
-                `_vjt` = `_neg_threshold`
+                `vjt` = `_neg_threshold`
 
         else (not beyond the threshold)
-            `_vjt` = `_vjt`
+            `vjt` = `vjt`
         """
 
         def _when_exceed_pos():
-            if self._reset_mode is RM.MODE_NORMAL:
+            if self.reset_mode is RM.MODE_NORMAL:
                 return np.full(self.varshape, self.reset_v, dtype=np.int32)
 
-            elif self._reset_mode is RM.MODE_LINEAR:
+            elif self.reset_mode is RM.MODE_LINEAR:
                 raise NotImplementedError
                 # return np.subtract(
-                #     self._vjt, (self._pos_threshold + self._v_th_rand), dtype=np.int32
+                #     self.vjt, (self._pos_threshold + self._v_th_rand), dtype=np.int32
                 # )
             else:
-                return self._vjt
+                return vjt
 
         def _when_exceed_neg():
-            if self._neg_thres_mode is NTM.MODE_RESET:
-                if self._reset_mode is RM.MODE_NORMAL:
+            if self.neg_thres_mode is NTM.MODE_RESET:
+                if self.reset_mode is RM.MODE_NORMAL:
                     return np.full(self.varshape, -self.reset_v, dtype=np.int32)
-                elif self._reset_mode is RM.MODE_LINEAR:
+                elif self.reset_mode is RM.MODE_LINEAR:
                     raise NotImplementedError
                     # return np.add(
-                    #     self._vjt, (self._neg_threshold + self._v_th_rand), dtype=np.int32
+                    #     self.vjt, (self._neg_threshold + self._v_th_rand), dtype=np.int32
                     # )
                 else:
-                    return self._vjt
+                    return vjt
 
             else:
-                return np.full(self.varshape, -self._neg_threshold, dtype=np.int32)
+                return np.full(self.varshape, -self.neg_threshold, dtype=np.int32)
 
         # USE "=="!
-        self._vjt_pre = self._vjt = np.where(
+        v_reseted = np.where(
             self._threshold_mode == TM.EXCEED_POSITIVE,
             _when_exceed_pos(),
             np.where(
                 self._threshold_mode == TM.EXCEED_NEGATIVE,
                 _when_exceed_neg(),
-                self._vjt,
+                vjt,
             ),
         ).astype(np.int32)
 
         self._aux_post_hook()
 
-    def _relu(self) -> None:
+        return v_reseted
+
+    def _relu(self, vj: np.ndarray) -> np.ndarray:
         r"""ReLU(ANN mode ONLY)
 
         If spiking width format is `WIDTH_1BIT`, then
-            if `_vj` >= `_pos_threshold`, then
+            if `vj` >= `_pos_threshold`, then
                 `_yj` = 1
             else
                 `_yj` = 0
         else (`WIDTH_8BIT`)
-            `_vj` >= `_pos_threshold`, then
+            `vj` >= `_pos_threshold`, then
                 `_yj` = `y_truncated`
             else
                 `_yj` = 0
@@ -283,28 +275,30 @@ class MetaNeuron:
             if self._spike_width_format is SpikeWidthFormat.WIDTH_1BIT:
                 return np.ones(self.varshape, dtype=np.int32)
 
-            if self._bit_truncate >= 8:
+            if self.bit_truncate >= 8:
                 return np.full(
                     self.varshape,
-                    ((self._vj >> self._bit_truncate) - 8) & ((1 << 8) - 1),
+                    ((vj >> self.bit_truncate) - 8) & ((1 << 8) - 1),
                     dtype=np.int32,
                 )
-            elif self._bit_truncate > 0:
-                _mask = (1 << self._bit_truncate) - 1
-                _truncated_vj = self._vj & _mask
+            elif self.bit_truncate > 0:
+                _mask = (1 << self.bit_truncate) - 1
+                _truncated_vj = vj & _mask
                 return np.full(
                     self.varshape,
-                    _truncated_vj << (8 - self._bit_truncate),
+                    _truncated_vj << (8 - self.bit_truncate),
                     dtype=np.int32,
                 )
             else:
                 return np.zeros(self.varshape, dtype=np.int32)
 
-        self._y = np.where(
-            self._vj >= self._pos_threshold,
+        y = np.where(
+            vj >= self.pos_threshold,
             _when_exceed_pos(),
             np.zeros(self.varshape, dtype=np.int32),
         ).astype(np.int32)
+
+        return y
 
     def _max_pooling(self, x: np.ndarray) -> None:
         # TODO
@@ -317,96 +311,125 @@ class MetaNeuron:
     def _aux_post_hook(self) -> None:
         """Post-hook after the entire activation."""
         # Reset the auxiliary threshold mode.
-        self._threshold_mode = np.full(self.varshape, TM.NOT_EXCEEDED, dtype=np.int8)
+        self._threshold_mode = self.init_param(TM.NOT_EXCEEDED).astype(np.int8)
 
-    def update(self, x: np.ndarray) -> np.ndarray:
+    def update(
+        self, x: np.ndarray, vjt_pre: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """Update at one time step."""
 
         """1. Charge.
             Sum the membrane potential from the previous synapses.
             Don't care the /rho right now.
         """
-        self._neuronal_charge(x)
+        v_charged = self._neuronal_charge(x, vjt_pre)
 
         """2. Leak & fire"""
-        if self._leaking_comparison is LCM.LEAK_BEFORE_COMP:
-            self._neuronal_leak()
-            self._neuronal_fire()
+        if self.leaking_comparison is LCM.LEAK_BEFORE_COMP:
+            v_leaked = self._neuronal_leak(v_charged)
+            spike = self._neuronal_fire(v_leaked)
         else:
-            self._neuronal_fire()
-            self._neuronal_leak()
+            spike = self._neuronal_fire(v_charged)
+            v_leaked = self._neuronal_leak(v_charged)
 
         """3. Reset"""
-        self._neuronal_reset()
+        v_reseted = self._neuronal_reset(v_leaked)
 
-        return self._spike
+        return spike, v_reseted
+
+    def init_param(self, param) -> np.ndarray:
+        return np.full(self.varshape, param)
 
     @property
     def varshape(self) -> Tuple[int, ...]:
         return self._shape if self.keep_shape else (self._n_neuron,)
 
     @property
-    def reset_v(self) -> int:
-        return self._reset_v
-
-    @property
-    def leak_v(self) -> int:
-        return self._leak_v
-
-    @property
     def bias(self) -> int:
-        return self._leak_v  # Signed 30-bit(ANN mode ONLY)
-
-    @property
-    def vjt_init(self) -> int:
-        return self._vjt_init
-
-    @property
-    def voltage(self) -> np.ndarray:
-        return self._vjt.reshape(self.varshape)
-
-    @property
-    def neg_threshold(self) -> int:
-        return self._neg_threshold
-
-    @property
-    def pos_threshold(self) -> int:
-        return self._pos_threshold
-
-    def init_param(self, param) -> np.ndarray:
-        return np.full(self.varshape, param)
+        """Signed 30-bit. ANN mode only."""
+        return self.leak_v
 
 
 class Neuron(MetaNeuron, NeuDyn):
     _excluded_vars = (
-        "_vjt_pre",
-        "_vjt",
-        "_vj",
-        "_y",
-        "_threshold_mode",
-        "_spike",
-        "_v_th_rand",
+        "vjt_pre",
+        "vjt",
+        "vj",
+        "y",
+        "threshold_mode",
+        "spike",
+        "v_th_rand",
         "_spike_width_format",
         "_pool_max_en",
         "master_nodes",
     )
 
+    def __init__(
+        self,
+        shape: Shape,
+        reset_mode: RM,
+        reset_v: int,
+        leaking_comparison: LCM,
+        threshold_mask_bits: int,
+        neg_thres_mode: NTM,
+        neg_threshold: int,
+        pos_threshold: int,
+        leaking_direction: LDM,
+        leaking_integration_mode: LIM,
+        leak_v: int,
+        synaptic_integration_mode: SIM,
+        bit_truncate: int,
+        vjt_init: int,
+        *,
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            shape,
+            reset_mode,
+            reset_v,
+            leaking_comparison,
+            threshold_mask_bits,
+            neg_thres_mode,
+            neg_threshold,
+            pos_threshold,
+            leaking_direction,
+            leaking_integration_mode,
+            leak_v,
+            synaptic_integration_mode,
+            bit_truncate,
+            vjt_init,
+            keep_shape,
+        )
+        super(MetaNeuron, self).__init__(name)
+
+        """Stateful attributes. Vector."""
+        self.set_memory("vjt", self.init_param(vjt_init).astype(np.int32))
+        self.set_memory("vjt_pre", self.init_param(vjt_init).astype(np.int32))
+        self.set_memory("spike", self.init_param(0).astype(np.bool_))
+
+        # Attributes about ANN
+        self.set_memory("vj", self.init_param(vjt_init).astype(np.int32))
+        self.set_memory("y", self.init_param(0).astype(np.int32))
+
     def __len__(self) -> int:
         return self._n_neuron
 
-    def __call__(self, x: Optional[np.ndarray] = None) -> np.ndarray:
-        return self.update(x)
+    def __call__(self, x: Optional[np.ndarray] = None, **kwargs) -> np.ndarray:
+        return self.update(x, **kwargs)
 
-    def update(self, x: Optional[np.ndarray] = None) -> np.ndarray:
+    def update(self, x: Optional[np.ndarray] = None, **kwargs) -> np.ndarray:
         if x is None:
             x = self.sum_inputs()
 
-        return super().update(x)
+        self.spike, self.vjt = super().update(x, self.vjt)
+
+        return self.spike
 
     def reset_state(self) -> None:
         """Initialization, not the neuronal reset."""
-        self._vjt = self._vjt_pre = self.init_param(self.vjt_init).astype(np.int32)
-        self._spike = self.init_param(0).astype(np.bool_)
+        self.reset()  # Call reset of `StatusMemory`.
 
     @property
     def shape_in(self) -> Tuple[int, ...]:
@@ -426,11 +449,7 @@ class Neuron(MetaNeuron, NeuDyn):
 
     @property
     def output(self) -> np.ndarray:
-        return self._spike
-
-    @property
-    def spike(self) -> np.ndarray:
-        return self._spike
+        return self.spike
 
     @property
     def feature_map(self) -> np.ndarray:
@@ -438,4 +457,8 @@ class Neuron(MetaNeuron, NeuDyn):
 
     @property
     def state(self) -> np.ndarray:
-        return self._spike
+        return self.spike
+
+    @property
+    def voltage(self) -> np.ndarray:
+        return self.vjt.reshape(self.varshape)

@@ -1,9 +1,9 @@
 from typing import Optional
 
 from paibox._types import Shape
-from paibox.libpaicore.v2 import LCM, LDM, LIM, NTM, RM, SIM
+from paibox.libpaicore import LCM, LDM, LIM, NTM, RM, SIM
 
-from .base import MetaNeuron, Neuron
+from .base import Neuron
 
 
 class IF(Neuron):
@@ -58,8 +58,8 @@ class IF(Neuron):
             _bt,
             vjt_init,
             keep_shape=keep_shape,
+            name=name,
         )
-        super(MetaNeuron, self).__init__(name)
 
 
 class LIF(Neuron):
@@ -118,8 +118,8 @@ class LIF(Neuron):
             _bt,
             vjt_init,
             keep_shape=keep_shape,
+            name=name,
         )
-        super(MetaNeuron, self).__init__(name)
 
 
 class TonicSpiking(Neuron):
@@ -160,8 +160,8 @@ class TonicSpiking(Neuron):
             0,
             vjt_init,
             keep_shape=keep_shape,
+            name=name,
         )
-        super(MetaNeuron, self).__init__(name)
 
 
 class PhasicSpiking(Neuron):
@@ -211,8 +211,8 @@ class PhasicSpiking(Neuron):
             0,
             vjt_init,
             keep_shape=keep_shape,
+            name=name,
         )
-        super(MetaNeuron, self).__init__(name)
 
 
 class SpikeLatency(Neuron):
@@ -260,8 +260,8 @@ class SpikeLatency(Neuron):
             0,
             vjt_init,
             keep_shape=keep_shape,
+            name=name,
         )
-        super(MetaNeuron, self).__init__(name)
 
 
 class SubthresholdOscillations(Neuron):
@@ -305,8 +305,8 @@ class SubthresholdOscillations(Neuron):
             0,
             vjt_init,
             keep_shape=keep_shape,
+            name=name,
         )
-        super(MetaNeuron, self).__init__(name)
 
 
 class ResonatorNeuron(Neuron):
@@ -352,8 +352,8 @@ class ResonatorNeuron(Neuron):
             0,
             vjt_init,
             keep_shape=keep_shape,
+            name=name,
         )
-        super(MetaNeuron, self).__init__(name)
 
 
 class Integrator(Neuron):
@@ -396,8 +396,8 @@ class Integrator(Neuron):
             0,
             vjt_init,
             keep_shape=keep_shape,
+            name=name,
         )
-        super(MetaNeuron, self).__init__(name)
 
 
 class InhibitionInducedSpiking(Neuron):
@@ -444,5 +444,5 @@ class InhibitionInducedSpiking(Neuron):
             0,
             vjt_init,
             keep_shape=keep_shape,
+            name=name,
         )
-        super(MetaNeuron, self).__init__(name)

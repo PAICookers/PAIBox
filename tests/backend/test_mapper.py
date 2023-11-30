@@ -10,135 +10,6 @@ import paibox as pb
 from paibox.libpaicore import Coord
 
 
-class NetForTest1(pb.Network):
-    """INP1 -> S1 -> N1 -> S2 -> N2 -> S3 -> N3"""
-
-    def __init__(self):
-        super().__init__()
-        self.inp1 = pb.projection.InputProj(input=1, shape_out=(2000,), name="inp1_1")
-        self.n1 = pb.neuron.TonicSpiking(2000, 3, name="n1_1")
-        self.n2 = pb.neuron.TonicSpiking(1200, 3, name="n2_1")
-        self.n3 = pb.neuron.TonicSpiking(800, 4, name="n3_1")
-        self.s1 = pb.synapses.NoDecay(
-            self.inp1, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s1_1"
-        )
-        self.s2 = pb.synapses.NoDecay(
-            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s2_1"
-        )
-        self.s3 = pb.synapses.NoDecay(
-            self.n2, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s3_1"
-        )
-
-
-class NetForTest2(pb.Network):
-    """INP1 -> S1 -> N1 -> S2 -> N2"""
-
-    def __init__(self):
-        super().__init__()
-        self.inp1 = pb.projection.InputProj(input=1, shape_out=(400,), name="inp1_2")
-        self.inp2 = pb.projection.InputProj(input=1, shape_out=(400,), name="inp2_2")
-        self.n1 = pb.neuron.TonicSpiking(400, 3, name="n1_2")
-        self.n2 = pb.neuron.TonicSpiking(400, 3, name="n2_2")
-        self.n3 = pb.neuron.TonicSpiking(800, 3, name="n3_2")
-        self.s1 = pb.synapses.NoDecay(
-            self.inp1, self.n1, conn_type=pb.synapses.ConnType.One2One, name="s1_2"
-        )
-        self.s2 = pb.synapses.NoDecay(
-            self.inp2, self.n2, conn_type=pb.synapses.ConnType.One2One, name="s2_2"
-        )
-        self.s3 = pb.synapses.NoDecay(
-            self.n1, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s3_2"
-        )
-        self.s4 = pb.synapses.NoDecay(
-            self.n2, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s4_2"
-        )
-
-
-class NetForTest3(pb.Network):
-    """INP1 -> S1 -> N1 -> S2 -> N2 -> S3 -> N3
-    N1 -> S4 -> N4 -> S5 -> N2
-    """
-
-    def __init__(self):
-        super().__init__()
-        self.inp = pb.projection.InputProj(input=1, shape_out=(400,), name="inp1")
-        self.n1 = pb.neuron.TonicSpiking(400, 3, name="n1")
-        self.n2 = pb.neuron.TonicSpiking(800, 3, name="n2")
-        self.n3 = pb.neuron.TonicSpiking(400, 4, name="n3")
-        self.n4 = pb.neuron.TonicSpiking(300, 4, name="n4")
-
-        self.s1 = pb.synapses.NoDecay(
-            self.inp, self.n1, conn_type=pb.synapses.ConnType.One2One, name="s1"
-        )
-        self.s2 = pb.synapses.NoDecay(
-            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s2"
-        )
-        self.s3 = pb.synapses.NoDecay(
-            self.n2, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s3"
-        )
-        self.s4 = pb.synapses.NoDecay(
-            self.n1, self.n4, conn_type=pb.synapses.ConnType.All2All, name="s4"
-        )
-        self.s5 = pb.synapses.NoDecay(
-            self.n4, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s5"
-        )
-
-
-class NetForTest4(pb.Network):
-    """INP1 -> S1 -> N1 -> S2 -> N2 -> S4 -> N4
-    N1 -> S3 -> N3
-    N3 -> S5 -> N4
-    """
-
-    def __init__(self):
-        super().__init__()
-        self.inp1 = pb.projection.InputProj(input=1, shape_out=(400,), name="inp1")
-        self.n1 = pb.neuron.TonicSpiking(800, 3, name="n1")
-        self.n2 = pb.neuron.TonicSpiking(400, 4, name="n2")
-        self.n3 = pb.neuron.TonicSpiking(400, 4, name="n3")
-        self.n4 = pb.neuron.TonicSpiking(400, 4, name="n4")
-        self.s1 = pb.synapses.NoDecay(
-            self.inp1, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s1"
-        )
-        self.s2 = pb.synapses.NoDecay(
-            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s2"
-        )
-        self.s3 = pb.synapses.NoDecay(
-            self.n1, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s3"
-        )
-        self.s4 = pb.synapses.NoDecay(
-            self.n2, self.n4, conn_type=pb.synapses.ConnType.One2One, name="s4"
-        )
-        self.s5 = pb.synapses.NoDecay(
-            self.n3, self.n4, conn_type=pb.synapses.ConnType.One2One, name="s5"
-        )
-
-
-@pytest.fixture(scope="class")
-def build_example_net1():
-    return NetForTest1()
-
-
-@pytest.fixture(scope="class")
-def build_example_net2():
-    return NetForTest2()
-
-
-@pytest.fixture(scope="function")
-def build_example_net3():
-    return NetForTest3()
-
-
-@pytest.fixture(scope="class")
-def build_example_net4():
-    return NetForTest4()
-
-
-@pytest.fixture(scope="class")
-def get_mapper() -> pb.Mapper:
-    return pb.Mapper()
-
-
 class CustomJsonEncoder(JSONEncoder):
     def default(self, o: Any) -> Any:
         if isinstance(o, Coord):
@@ -154,12 +25,14 @@ class CustomJsonEncoder(JSONEncoder):
 class TestGraphInfo:
     def test_multi_inputproj(self, get_mapper, build_example_net2):
         net = build_example_net2
-        mapper = get_mapper
+        mapper: pb.Mapper = get_mapper
 
-        mapper.build_graph(net)
-        mapper.main_phases()
+        mapper.build(net)
+        mapper.compile()
 
-        assert len(mapper.graph_info["input"]) == 2
+        assert mapper.graph_info.get("input") is not None
+
+        assert len(mapper.graph_info["input"]) == 2  # type: ignore
 
 
 class TestMapperDebug:
@@ -168,9 +41,9 @@ class TestMapperDebug:
         net1 = build_example_net1
         net2 = build_example_net2
 
-        mapper = get_mapper
+        mapper: pb.Mapper = get_mapper
         mapper.clear()
-        mapper.build_graph(net1, net2)
+        mapper.build(net1, net2)
 
         assert mapper.has_built == True
 
@@ -179,10 +52,10 @@ class TestMapperDebug:
         """Go throught the backend"""
         net = build_example_net1
 
-        mapper = get_mapper
+        mapper: pb.Mapper = get_mapper
         mapper.clear()
-        mapper.build_graph(net)
-        mapper.main_phases()
+        mapper.build(net)
+        mapper.compile()
 
     @pytest.mark.usefixtures("test_simple_net")
     def test_export_config_json(self, get_mapper, ensure_dump_dir):
@@ -191,7 +64,7 @@ class TestMapperDebug:
         assert mapper.has_built == True
 
         assert len(mapper.core_blocks) == 3  # 3 layers
-        assert mapper.inherent_timestep == 4
+        assert mapper.get_inherent_timestep() == 4
 
         _json_core_configs = dict()
         _json_core_plm_config = dict()
@@ -204,13 +77,15 @@ class TestMapperDebug:
         for coord, cpc in mapper.core_plm_config.items():
             _json_core_plm_config[coord.address] = cpc.__json__()
 
-        for inode, nd in mapper.graph_info["input"].items():
-            _json_inp_proj_info[inode] = nd.__json__()
+        if input_info := mapper.graph_info.get("input"):
+            for inode, nd in input_info.items():
+                _json_inp_proj_info[inode] = nd.__json__()
 
-        for onode, nd_with_coord in mapper.graph_info["output"].items():
-            _json_out_proj_info[onode] = dict()
-            for coord, nd in nd_with_coord.items():
-                _json_out_proj_info[onode][coord] = nd.__json__()
+        if output_info := mapper.graph_info.get("output"):
+            for onode, nd_with_coord in output_info.items():
+                _json_out_proj_info[onode] = dict()
+                for coord, nd in nd_with_coord.items():
+                    _json_out_proj_info[onode][coord] = nd.__json__()
 
         # Export parameters of cores into json
         with open(ensure_dump_dir / "core_configs.json", "w") as f:
@@ -254,13 +129,90 @@ class TestMapperDebug:
 
         print("OK")
 
-    @pytest.mark.skip
-    def test_CoreBlock_build(self, get_mapper, build_example_net3):
-        net = build_example_net3
+    @pytest.mark.usefixtures("test_simple_net")
+    def test_find_neuron(self, get_mapper, build_example_net1):
+        net: pb.Network = build_example_net1
+        mapper: pb.Mapper = get_mapper
+        assert mapper.has_built == True
 
-        mapper = get_mapper
+        mapper.find_neuron(net.n3)
+
+        print()
+
+    @pytest.mark.usefixtures("test_simple_net")
+    def test_find_axon(self, get_mapper, build_example_net1):
+        net: pb.Network = build_example_net1
+        mapper: pb.Mapper = get_mapper
+        assert mapper.has_built == True
+
+        mapper.find_axon(net.n2)
+
+        print()
+
+
+class TestMapper_Weight8:
+    def test_mapper_weight8(self, monkeypatch, build_small_net1, packbits8):
+        # Use monkey patch to change the settings of `HwConfig` when running the test.
+        monkeypatch.setattr(pb.HwConfig, "N_DENDRITE_MAX_SNN", 8 * 8)
+        monkeypatch.setattr(pb.HwConfig, "N_FANIN_PER_DENDRITE_SNN", 6)
+
+        net = build_small_net1
+
+        # Core required
+        # inp1 -> n1: 10*10, LCN_2X, 3
+        # n1 -> n2 & n1 -> n3: 10*20, LCN_2X, 6
+        # n2 -> n4 & n3 -> n4: 20*4, LCN_4X, 2
+
+        mapper = pb.Mapper()
         mapper.clear()
-        mapper.build_graph(net)
-        mapper.main_phases()
+        mapper.build(net)
+        mapper.compile()
+
+        assert mapper.n_core_required == 11
+
+        original_w1 = net.s1.connectivity
+        original_w2 = net.s2.connectivity
+        original_w3 = net.s3.connectivity
+        original_w4 = net.s4.connectivity
+        original_w5 = net.s5.connectivity
+
+        # Folded weight of s1
+        w11_folded = mapper.core_blocks[0].core_placements[Coord(0, 0)]._weights_folded
+        w12_folded = mapper.core_blocks[0].core_placements[Coord(0, 1)]._weights_folded
+        w13_folded = mapper.core_blocks[0].core_placements[Coord(1, 0)]._weights_folded
+
+        # Splited & folded weight of s2 & s3
+        w21_folded = mapper.core_blocks[1].core_placements[Coord(2, 0)]._weights_folded
+        w22_folded = mapper.core_blocks[1].core_placements[Coord(2, 1)]._weights_folded
+        w23_folded = mapper.core_blocks[1].core_placements[Coord(3, 0)]._weights_folded
+        w24_folded = mapper.core_blocks[1].core_placements[Coord(3, 1)]._weights_folded
+        w25_folded = mapper.core_blocks[1].core_placements[Coord(2, 2)]._weights_folded
+        w26_folded = mapper.core_blocks[1].core_placements[Coord(2, 3)]._weights_folded
+
+        # Splited & folded weight of s4 & 5
+        w31_folded = mapper.core_blocks[2].core_placements[Coord(0, 2)]._weights_folded
+        w32_folded = mapper.core_blocks[2].core_placements[Coord(0, 3)]._weights_folded
+
+        # Unpacked weight of s1
+        w11_unpacked = mapper.core_blocks[0].core_placements[Coord(0, 0)].weight_ram
+        w12_unpacked = mapper.core_blocks[0].core_placements[Coord(0, 1)].weight_ram
+        w13_unpacked = mapper.core_blocks[0].core_placements[Coord(1, 0)].weight_ram
+
+        for i in range(10):
+            for j in range(4):
+                n_in_col = w11_folded.shape[0]
+                now_i = i % n_in_col
+
+                offset_j = i // n_in_col
+                now_j = offset_j + j * 2
+
+                expected = original_w1[i, j]
+                wij = w11_folded[now_i, now_j]
+
+                assert expected == wij
+
+                # wij = w11_folded[now_i, now_j * 8 : (now_j + 1) * 8]
+                # packed = packbits8(wij)
+                # assert expected == packed
 
         print("OK")

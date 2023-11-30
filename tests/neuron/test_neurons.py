@@ -6,7 +6,7 @@ from paibox.libpaicore import *
 from paibox.utils import as_shape, shape2num
 
 
-class TestMetaNeuronBehavior:
+class TestNeuronBehavior:
     sim = SIM.MODE_DETERMINISTIC
     lim = LIM.MODE_DETERMINISTIC
     ld = LDM.MODE_FORWARD
@@ -21,16 +21,15 @@ class TestMetaNeuronBehavior:
     bt = 0
 
     @pytest.mark.parametrize(
-        "vjt_init, x, expected",
+        "vjt, x, expected",
         [
             (0, np.array([[1, 0, 1], [0, 1, 1]]), np.array([2, 2])),
-            (1, np.array([[1, 0], [1, 1]]), np.array([2, 3])),
             (0, np.array([1, 1]), np.array([1, 1])),
-            (0, np.array(2), np.array([2, 2])),
+            (0, np.array([2, 2]), np.array([2, 2])),
         ],
     )
-    def test_neuronal_charge(self, vjt_init, x, expected):
-        n1 = pb.neuron.base.MetaNeuron(
+    def test_neuronal_charge(self, vjt, x, expected):
+        n1 = pb.neuron.Neuron(
             2,
             self.reset_mode,
             self.reset_v,
@@ -44,24 +43,42 @@ class TestMetaNeuronBehavior:
             self.leak_v,
             self.sim,
             self.bt,
-            vjt_init,
+            0,
             keep_shape=True,
         )
-        n1._neuronal_charge(x)
+        vjt = n1._neuronal_charge(x, vjt)
 
-        assert np.array_equal(n1.voltage, expected)
+        assert np.array_equal(vjt, expected)
 
     @pytest.mark.parametrize(
         "lim, ld, vjt, leak_v, expected",
         [
-            (LIM.MODE_DETERMINISTIC, LDM.MODE_FORWARD, 1, 2, np.array([3, 3])),
-            (LIM.MODE_DETERMINISTIC, LDM.MODE_REVERSAL, 1, 2, np.array([3, 3])),
-            (LIM.MODE_DETERMINISTIC, LDM.MODE_REVERSAL, -2, 2, np.array([-4, -4])),
+            (
+                LIM.MODE_DETERMINISTIC,
+                LDM.MODE_FORWARD,
+                np.array([1, 1]),
+                2,
+                np.array([3, 3]),
+            ),
+            (
+                LIM.MODE_DETERMINISTIC,
+                LDM.MODE_REVERSAL,
+                np.array([1, 1]),
+                2,
+                np.array([3, 3]),
+            ),
+            (
+                LIM.MODE_DETERMINISTIC,
+                LDM.MODE_REVERSAL,
+                np.array([-2, -2]),
+                2,
+                np.array([-4, -4]),
+            ),
         ],
         # ids="path_1, path_2, path_3,path_4,path_5,path_6,path_7,path_8,path_9"
     )
     def test_neuronal_leak(self, lim, ld, vjt, leak_v, expected):
-        n1 = pb.neuron.base.MetaNeuron(
+        n1 = pb.neuron.Neuron(
             2,
             self.reset_mode,
             self.reset_v,
@@ -78,22 +95,22 @@ class TestMetaNeuronBehavior:
             vjt_init=vjt,
             keep_shape=True,
         )
-        n1._neuronal_leak()
+        leaked_vjt = n1._neuronal_leak(vjt)
 
-        assert np.array_equal(n1._vjt, expected)
+        assert np.array_equal(leaked_vjt, expected)
 
     @pytest.mark.parametrize(
         "ntm, vjt, neg_thres, pos_thres, expected",
         [
-            (NTM.MODE_SATURATION, 10, 10, 3, np.array([True])),
-            (NTM.MODE_SATURATION, 5, 10, 3, np.array([False])),
-            (NTM.MODE_SATURATION, -12, 10, 3, np.array([False])),
+            (NTM.MODE_SATURATION, np.array([10, 10]), 10, 3, np.array([True, True])),
+            (NTM.MODE_SATURATION, np.array([5, 10]), 10, 3, np.array([False, True])),
+            (NTM.MODE_SATURATION, np.array([-12, 10]), 10, 3, np.array([False, True])),
         ],
     )
     def test_neuronal_fire(self, ntm, vjt, neg_thres, pos_thres, expected):
         # mask=3
-        n1 = pb.neuron.base.MetaNeuron(
-            1,
+        n1 = pb.neuron.Neuron(
+            2,
             self.reset_mode,
             self.reset_v,
             self.lc,
@@ -109,9 +126,9 @@ class TestMetaNeuronBehavior:
             vjt_init=vjt,
             keep_shape=True,
         )
-        n1._neuronal_fire()
+        spike = n1._neuronal_fire(vjt)
 
-        assert np.array_equal(n1._spike, expected)
+        assert np.array_equal(spike, expected)
 
     @pytest.mark.parametrize(
         "ntm, thr_mode, reset_mode, expected",
@@ -124,7 +141,7 @@ class TestMetaNeuronBehavior:
         ],
     )
     def test_neuronal_reset(self, ntm, thr_mode, reset_mode, expected):
-        n1 = pb.neuron.base.MetaNeuron(
+        n1 = pb.neuron.Neuron(
             1,
             reset_mode,
             5,
@@ -142,9 +159,9 @@ class TestMetaNeuronBehavior:
             keep_shape=True,
         )
         n1._threshold_mode = thr_mode
-        n1._neuronal_reset()
+        vjt = n1._neuronal_reset(np.array((10,), dtype=np.int32))
 
-        assert np.array_equal(n1._vjt, expected)
+        assert np.array_equal(vjt, expected)
 
 
 @pytest.mark.parametrize(
@@ -193,7 +210,7 @@ class Net1(pb.Network):
     def __init__(self):
         super().__init__()
         self.inp1 = pb.InputProj(fakeout, shape_out=(2,))
-        self.n1 = pb.neuron.TonicSpiking((2,), 3)
+        self.n1 = pb.neuron.IF((2,), 3)
         self.s1 = pb.synapses.NoDecay(
             self.inp1, self.n1, conn_type=pb.synapses.ConnType.One2One
         )
@@ -201,6 +218,7 @@ class Net1(pb.Network):
         self.probe1 = pb.simulator.Probe(self.inp1, "output")
         self.probe2 = pb.simulator.Probe(self.s1, "output")
         self.probe3 = pb.simulator.Probe(self.n1, "output")
+        self.probe4 = pb.simulator.Probe(self.n1, "voltage")
 
 
 class TonicSpikingNet(pb.Network):
@@ -217,7 +235,7 @@ class TonicSpikingNet(pb.Network):
         self.probe3 = pb.simulator.Probe(self.n1, "voltage")
 
 
-class TestNeuronBehavior:
+class TestNeuronSim:
     def test_TonicSpiking_simple_sim(self):
         n1 = pb.neuron.TonicSpiking(shape=1, fire_step=3)
         inp_data = np.ones((10,), dtype=np.bool_)
@@ -234,6 +252,34 @@ class TestNeuronBehavior:
         n1 = pb.neuron.PhasicSpiking(shape=1, time_to_fire=3)
         # [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
         inp_data = np.concatenate((np.zeros((2,), np.bool_), np.ones((10,), np.bool_)))
+        output = np.full((12, 1), 0, dtype=np.bool_)
+        voltage = np.full((12, 1), 0, dtype=np.int32)
+
+        for t in range(12):
+            output[t] = n1(inp_data[t])
+            voltage[t] = n1.voltage
+
+        print(output)
+
+    def test_IF_simple_sim(self):
+        n1 = pb.neuron.IF(shape=1, threshold=5, reset_v=2)
+        # [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+        inp_data = np.concatenate((np.zeros((2,), np.bool_), np.ones((10,), np.bool_)))
+        # inp_data = np.ones((12,), dtype=np.bool_)
+        output = np.full((12, 1), 0, dtype=np.bool_)
+        voltage = np.full((12, 1), 0, dtype=np.int32)
+
+        for t in range(12):
+            output[t] = n1(inp_data[t])
+            voltage[t] = n1.voltage
+
+        print(output)
+
+    def test_LIF_simple_sim(self):
+        n1 = pb.neuron.LIF(shape=1, threshold=5, reset_v=2, leaky_v=1)  # leak + 1
+        # [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+        inp_data = np.concatenate((np.zeros((2,), np.bool_), np.ones((10,), np.bool_)))
+        # inp_data = np.ones((12,), dtype=np.bool_)
         output = np.full((12, 1), 0, dtype=np.bool_)
         voltage = np.full((12, 1), 0, dtype=np.int32)
 

@@ -1,9 +1,9 @@
-from functools import partial
-
 import numpy as np
 import pytest
 
 import paibox as pb
+from .conftest import packbits_ref
+
 from paibox.backend.placement import (
     NeuSeg,
     aligned_coords,
@@ -157,39 +157,6 @@ def test_nfold_weight_ref():
     )
 
 
-def packbits_ref(bits: np.ndarray, count: int) -> int:
-    """Pack unsigned bits into a signed integer.
-
-    This is a test of the prototype of the original function.
-    """
-    _bits = np.append(bits[: count - 1], bits[-1])
-
-    result = sum(bit << i for i, bit in enumerate(_bits))
-    result -= _bits[-1] << count
-
-    return result
-
-
-@pytest.fixture
-def packbits8():
-    return partial(packbits_ref, count=8)
-
-
-@pytest.fixture
-def packbits4():
-    return partial(packbits_ref, count=4)
-
-
-@pytest.fixture
-def packbits2():
-    return partial(packbits_ref, count=2)
-
-
-@pytest.fixture
-def packbits1():
-    return partial(packbits_ref, count=1)
-
-
 class TestWeightUnpack:
     @pytest.mark.parametrize(
         "wp",
@@ -274,8 +241,8 @@ class TestWeightUnpack:
         for i, j in np.ndindex(shape):
             n_in_col = w_folded.shape[0]
             now_i = i % n_in_col
-            offset_j = i // n_in_col
 
+            offset_j = i // n_in_col
             now_j = offset_j + j * nfold
 
             expected = array[i, j]

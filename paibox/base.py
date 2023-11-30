@@ -1,7 +1,5 @@
 from typing import List, Literal, Optional, Set, Tuple
 
-import numpy as np
-
 from .collector import Collector
 from .generic import get_unique_name, is_name_unique
 from .mixin import ReceiveInputProj, StatusMemory
@@ -78,7 +76,7 @@ class PAIBoxObject:
             return gather
 
         def _find_nodes_absolute() -> None:
-            for k, v in self.__dict__.items():
+            for v in self.__dict__.values():
                 if isinstance(v, PAIBoxObject):
                     _add_node2(self, v, _paths, gather, nodes)
                 elif isinstance(v, NodeList):
@@ -218,10 +216,6 @@ class NeuDyn(DynamicSys, ReceiveInputProj):
     def __init__(self, name: Optional[str] = None) -> None:
         super().__init__(name)
         self.master_nodes = NodeDict()
-
-    @property
-    def spike(self) -> np.ndarray:
-        raise NotImplementedError
 
     def export_params(self):
         """Export the parameters into dictionary."""
