@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, NamedTuple
 
 import numpy as np
+from numpy.typing import NDArray
 
 from paibox.base import NeuDyn
 from paibox.libpaicore import (
@@ -187,16 +188,16 @@ class CorePlacementConfig(ConfigTemplate):
     _extra_params = ()
     """Extra parameters for debugging."""
 
-    random_seed: np.uint64
-    weight_ram: np.ndarray
+    random_seed: int
+    weight_ram: NDArray[np.uint64]
     params_reg: ParamsReg
     neuron_ram: Dict[NeuDyn, NeuronConfig]
 
     @classmethod
     def encapsulate(
         cls,
-        random_seed: np.uint64,
-        weight_ram: np.ndarray,
+        random_seed: int,
+        weight_ram: NDArray[np.uint64],
         core_config: CoreConfig,
         neuron_ram: Dict[NeuDyn, NeuronConfig],
     ):
@@ -211,7 +212,7 @@ class CorePlacementConfig(ConfigTemplate):
         """Dump the configs into json for debugging."""
         dict_ = {
             "name": self.params_reg.name,
-            "random_seed": int(self.random_seed),
+            "random_seed": self.random_seed,
             "neuron_ram": dict(),
             **self.params_reg.model_dump(by_alias=True),
         }

@@ -13,6 +13,7 @@ from typing import (
 )
 
 import numpy as np
+from numpy.typing import NDArray
 
 from paibox.base import NeuDyn, PAIBoxObject
 from paibox.exceptions import BuildError, NotSupportedError, ResourceError
@@ -77,8 +78,8 @@ class CoreBlock(CoreAbstract):
         self._lcn_ex = n_axon2lcn_ex(self.n_axon, self.n_fanin_max)
         self.weight_precision = weight_precision
 
-        self.seed = np.uint64(seed)
-        """Random seed, uint64."""
+        self.seed = seed
+        """Random seed, legal integer, no more than uint64."""
 
         self.target_lcn = LCN_EX.LCN_1X
         """The target(destination core block) LCN."""
@@ -271,7 +272,7 @@ class CoreBlock(CoreAbstract):
         return n
 
     @cached_property
-    def raw_weight_of_dest(self) -> List[np.ndarray]:
+    def raw_weight_of_dest(self) -> List[NDArray[np.int8]]:
         """Merge and then split the weight matrix according to the grouping of neurons."""
 
         # The concatenated weight for each destination node.
@@ -299,7 +300,7 @@ class CoreBlock(CoreAbstract):
 
         return w_of_neurons
 
-    def get_raw_weight_of_coord(self, idx: int) -> List[np.ndarray]:
+    def get_raw_weight_of_coord(self, idx: int) -> List[NDArray[np.int8]]:
         """Get the raw weight of a coordinate(on each `CorePlacement`)."""
         w_of_neu_segs: List[np.ndarray] = []
 
@@ -410,7 +411,7 @@ class CorePlacement(CoreAbstract):
 
         return cls(parent, coord, n_neuron, raw_weights=raw_weights, neu_segs=neu_segs)
 
-    def _fold_raw_weights(self, raw_weights: List[np.ndarray]) -> np.ndarray:
+    def _fold_raw_weights(self, raw_weights: List[np.ndarray]) -> NDArray[np.int8]:
         """Fold the weights into LCN-sized blocks."""
         w_folded_list = []
         w_folded_of_axon_segs = []
@@ -446,13 +447,12 @@ class CorePlacement(CoreAbstract):
 
         return w_folded
 
-    def _weight_ram_mapping(self) -> np.ndarray:
+    def _weight_ram_mapping(self) -> NDArray[np.uint64]:
         row, col = self._weights_folded.shape
-        # The final wright ram
-        _weight_ram = np.zeros(self.weight_ram_shape, dtype=np.uint8)
+        w_unpacked = np.zeros(self.weight_ram_shape, dtype=np.uint8)
 
         if self.n_weight_bits == 1:
-            _weight_ram[:row, :col] = self._weights_folded
+            w_unpacked[:row, :col] = self._weights_folded
         else:
             # [N*M] -> [M*N*1]
             w_folded_3d = np.expand_dims(self._weights_folded.T, axis=2).astype(
@@ -468,17 +468,24 @@ class CorePlacement(CoreAbstract):
                     bitorder=HwConfig.WEIGHT_BITORDER,
                 )
 
-                _weight_ram[
+                w_unpacked[
                     :row, self.n_weight_bits * i : self.n_weight_bits * (i + 1)
                 ] = unpacked
 
-        # assert np.max(_weight_ram, axis=None) <= 1
-        # assert np.min(_weight_ram, axis=None) >= 0
+        assert np.max(w_unpacked, axis=None) <= 1
+        assert np.min(w_unpacked, axis=None) >= 0
 
-        weight_ram = _weight_ram.astype(np.bool_)
-        weight_ram.setflags(write=False)
+        # Convert the unpacked weights into a mapping form,
+        # corresponding to the RAM address, each address contains 18 uint64.
+        # [512 * 1152] -> [512 * 144](uint8)
+        w_packed_u8 = np.packbits(
+            w_unpacked.T, axis=1, bitorder=HwConfig.WEIGHT_BITORDER
+        )
+        # [512 * 144](uint8) -> [512 * 18](uint64)
+        w_packed_u64 = np.ascontiguousarray(w_packed_u8).view(np.uint64)
+        w_packed_u64.setflags(write=False)
 
-        return weight_ram
+        return w_packed_u64
 
     @staticmethod
     def _nfold_weight(
@@ -666,7 +673,7 @@ class CorePlacement(CoreAbstract):
         return [p.parent for p in self.neu_segs]
 
     @property
-    def weight_ram(self) -> np.ndarray:
+    def weight_ram(self) -> NDArray[np.uint64]:
         return self._weight_ram_mapping()
 
     def __len__(self) -> int:
@@ -698,7 +705,7 @@ def max_lcn_of_cb(cb: List[CoreBlock]) -> LCN_EX:
 
 
 def _addr_ram_interval(nbits: int, timeslot: int) -> int:
-    """Get the interval of address of RAM.
+    """Get the interval of RAM address.
 
     interval = nbits(1 << wp) * timeslot(1 << lcn_ex)
     """
@@ -833,7 +840,7 @@ def get_axon_segments(
 
         if offset + addr_width > fan_in_max:
             raise ResourceError(
-                f"Address of axons out of range{fan_in_max}: {offset + addr_width}"
+                f"Axons address out of range{fan_in_max}: {offset + addr_width}"
             )
 
         return AxonSegment(axon.num_out, addr_width, offset), offset + addr_width

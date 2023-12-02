@@ -24,9 +24,6 @@ def check_elem_unique(obj: Any) -> bool:
 
         return True
 
-    if hasattr(obj, "__iter__"):
-        return len(obj) == len(set(obj))
-
     raise TypeError(f"Unsupported type: {type(obj)}")
 
 
@@ -36,6 +33,16 @@ def count_unique_elem(obj: Iterable) -> int:
         seen.add(item)
 
     return len(seen)
+
+
+def check_elem_same(obj: Any) -> bool:
+    if hasattr(obj, "__iter__") or hasattr(obj, "__contains__"):
+        return len(set(obj)) == 1
+
+    if isinstance(obj, dict):
+        return len(set(obj.values())) == 1
+
+    raise TypeError(f"Unsupported type: {type(obj)}")
 
 
 def is_nested_obj(obj_on_top: Any) -> bool:

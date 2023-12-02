@@ -1,46 +1,52 @@
 class PAIBoxError(Exception):
-    """General exception for PAIBox"""
+    """General exception for PAIBox."""
 
     pass
 
 
 class PAIBoxWarning(Warning):
-    """General warning for PAIBox"""
+    """General warning for PAIBox."""
 
     pass
 
 
 class ShapeError(PAIBoxError):
-    """Exception for incorrect shape"""
+    """Exception for incorrect shape."""
 
     pass
 
 
 class RegisterError(PAIBoxError):
-    """Raise when registering an object fails"""
+    """Raise when registering an object fails."""
 
     pass
 
 
 class BuildError(PAIBoxError):
-    """Raise when building fails"""
+    """Raise when building fails."""
 
     pass
 
 
 class NotSupportedError(PAIBoxError, NotImplementedError):
-    """Exception for a certain function not supported"""
+    """Exception for a certain function not supported."""
 
     pass
 
 
 class SimulationError(PAIBoxError, RuntimeError):
-    """An error encountered during simulation"""
+    """An error encountered during simulation."""
 
     pass
 
 
 class ResourceError(PAIBoxError):
-    """Resource usage exceeds hardware limit"""
+    """Resource usage exceeds hardware limit."""
+
+    pass
+
+
+class FrameIllegalError(PAIBoxError, ValueError):
+    """Frame is illegal."""
 
     pass

@@ -4,8 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from paibox.libpaicore import *
-
 
 @pytest.fixture
 def ensure_dump_dir():

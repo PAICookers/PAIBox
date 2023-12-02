@@ -1,6 +1,7 @@
 from typing import Optional, Tuple, Union
 
 import numpy as np
+from numpy.typing import NDArray
 
 from paibox.base import DynamicSys, NeuDyn
 from paibox.exceptions import ShapeError
@@ -64,11 +65,11 @@ class Synapses:
 
 
 class SynSys(Synapses, DynamicSys):
-    def __call__(self, *args, **kwargs):
+    def __call__(self, *args, **kwargs) -> NDArray[np.int32]:
         return self.update(*args, **kwargs)
 
     @property
-    def weights(self) -> np.ndarray:
+    def weights(self) -> NDArray[np.int8]:
         raise NotImplementedError
 
     @property
@@ -76,7 +77,7 @@ class SynSys(Synapses, DynamicSys):
         raise NotImplementedError
 
     @property
-    def connectivity(self) -> np.ndarray:
+    def connectivity(self) -> NDArray[Union[np.bool_, np.int8]]:
         raise NotImplementedError
 
     @property
@@ -136,7 +137,7 @@ class NoDecay(SynSys):
         # Register `self` for the destination `NeuDyn`.
         dest.register_master(f"{self.name}.spike", self)
 
-    def update(self, spike: Optional[np.ndarray] = None, **kwargs):
+    def update(self, spike: Optional[np.ndarray] = None, **kwargs) -> NDArray[np.int32]:
         if spike is None:
             synin = self.source.spike
         else:
@@ -151,15 +152,15 @@ class NoDecay(SynSys):
         self.reset()  # Call reset of `StatusMemory`.
 
     @property
-    def output(self) -> np.ndarray:
+    def output(self) -> NDArray[np.int32]:
         return self.syn_out
 
     @property
-    def state(self) -> np.ndarray:
+    def state(self) -> NDArray[np.int32]:
         return self.syn_out
 
     @property
-    def weights(self) -> np.ndarray:
+    def weights(self):
         return self.comm.weights
 
     @property
@@ -167,7 +168,7 @@ class NoDecay(SynSys):
         return self.comm.weight_precision
 
     @property
-    def connectivity(self) -> np.ndarray:
+    def connectivity(self):
         """The connectivity matrix in `np.ndarray` format."""
         return self.comm.connectivity
 

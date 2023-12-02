@@ -3,6 +3,7 @@ from functools import wraps
 from typing import Any, Type
 
 import numpy as np
+from numpy.typing import NDArray
 
 import paibox as pb
 
@@ -118,13 +119,13 @@ class ReceiveInputProj(MixIn):
     def get_master_node(self, key: str):
         return self.master_nodes.get(key, None)
 
-    def sum_inputs(self, *args, init=0, **kwargs) -> np.ndarray:
+    def sum_inputs(self, *args, init=0, **kwargs) -> NDArray[np.int32]:
         # TODO Out is a np.ndarray right now, but it may be more than one type.
         output = init
         for node in self.master_nodes.values():
             output += node.output
 
-        return np.array(output)
+        return np.array(output).astype(np.int32)
 
 
 class StatusMemory(MixIn):
