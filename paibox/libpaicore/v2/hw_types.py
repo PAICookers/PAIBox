@@ -28,32 +28,42 @@ class NeuronSegment(NamedTuple):
     """The offset of the RAM address."""
     interval: int = 1
     """The interval of address when mapping neuron attributes on the RAM."""
-    weight_steps: int = 1
-    """Reserved."""
 
     @property
     def n_neuron(self) -> int:
         return self.index.stop - self.index.start
 
     @property
-    def addr_ram(self) -> List[int]:
-        """Convert index of neuron into address of RAM."""
+    def addr_max(self) -> int:
         if (
             _addr_max := self.addr_offset
             + self.interval * (self.index.stop - self.index.start)
         ) > HwConfig.ADDR_RAM_MAX:
             raise ResourceError(
-                f"Address of RAM out of {HwConfig.ADDR_RAM_MAX}: {_addr_max}"
+                f"RAM Address out of {HwConfig.ADDR_RAM_MAX}: {_addr_max}"
             )
 
-        return list(range(self.addr_offset, _addr_max))
+        return _addr_max
+
+    @property
+    def addr_ram(self) -> List[int]:
+        """Convert index of neuron into RAM address."""
+        return list(range(self.addr_offset, self.addr_max, 1))
 
     @property
     def addr_slice(self) -> slice:
-        """Display the address of RAM in slice format."""
+        """Display the RAM address in slice format."""
+        # if (
+        #     _addr_max := self.addr_offset
+        #     + self.interval * (self.index.stop - self.index.start)
+        # ) > HwConfig.ADDR_RAM_MAX:
+        #     raise ResourceError(
+        #         f"RAM Address out of {HwConfig.ADDR_RAM_MAX}: {_addr_max}"
+        #     )
+
         return slice(
-            self.addr_offset + self.index.start,
-            self.addr_offset + self.index.stop,
+            self.addr_offset,
+            self.addr_max,
             self.interval,
         )
 

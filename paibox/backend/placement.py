@@ -111,7 +111,7 @@ class CoreBlock(CoreAbstract):
         self.lcn_ex = lcn_ex
         self.lcn_locked = True
 
-    def group_neurons(self) -> None:
+    def group_neurons(self, method: Literal["catagory", "dense"] = "catagory") -> None:
         """Group the neurons to determine the #N of cores required."""
         if not self.lcn_locked:
             raise BuildError("Group the neurons after lcn_ex is locked.")
@@ -121,7 +121,7 @@ class CoreBlock(CoreAbstract):
             self.dest,
             self.neuron_capacity,
             _addr_ram_interval(self.n_weight_bits, self.timeslot),
-            method="catagory",
+            method=method,
         )
 
     def core_plm_alloc(self) -> None:
@@ -717,7 +717,7 @@ def get_neu_segments(
     capacity: int,
     interval: int,
     *,
-    method: Literal["catagory", "dense"] = "catagory",
+    method: Literal["catagory", "dense"],
 ) -> List[List[NeuSeg]]:
     """
     TODO Add description.
@@ -779,15 +779,17 @@ def _get_neu_segments_dense(
 
     # The remaining neuron groups can then be grouped up to N cores
     n_core_max = len(rest_segs)
+    n_cur_neuron = 0
     n_cur_reg = 0
 
     def backtrack(i: int, cur_addr_offset: int, taken: List[NeuSeg]) -> None:
         nonlocal n_cur_reg
+        nonlocal n_cur_neuron
 
         if i == n_core_max or n_cur_reg == n_core_max:
             return
 
-        if cur_addr_offset + rest_segs[n_cur_reg].segment.n_neuron > capacity:
+        if n_cur_neuron + rest_segs[n_cur_reg].segment.n_neuron > capacity:
             neu_segs.append(taken)
             return
         else:
@@ -799,7 +801,9 @@ def _get_neu_segments_dense(
                     ),
                 )
             )
-            cur_addr_offset += rest_segs[n_cur_reg].segment.n_neuron
+            # Offset = n_neuron * interval
+            cur_addr_offset += rest_segs[n_cur_reg].segment.n_neuron * interval
+            n_cur_neuron += rest_segs[n_cur_reg].segment.n_neuron
             n_cur_reg += 1
 
         if n_cur_reg == n_core_max:
@@ -828,8 +832,10 @@ def get_axon_segments(
     TODO Provide an alternative when failed using this method.
     """
 
-    def _seg_alloc(axon: SourceNodeType, offset: int) -> Tuple[AxonSegment, int]:
+    def _seg_alloc(axon: SourceNodeType) -> AxonSegment:
         """Allocate an axon segment, return the next offset of axon address."""
+        nonlocal offset
+
         # The width of assigned address
         if axon.num_out % tr_max > 0:
             addr_width = axon.num_out // tr_max + 1
@@ -843,13 +849,15 @@ def get_axon_segments(
                 f"Axons address out of range{fan_in_max}: {offset + addr_width}"
             )
 
-        return AxonSegment(axon.num_out, addr_width, offset), offset + addr_width
+        offset += addr_width
+
+        return AxonSegment(axon.num_out, addr_width, offset)
 
     offset = 0
     axon_segments = dict()
 
     for axon in axons:
-        segment, offset = _seg_alloc(axon, offset)
+        segment = _seg_alloc(axon)
         axon_segments[axon] = segment
 
     return axon_segments
