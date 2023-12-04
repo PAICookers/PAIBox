@@ -230,8 +230,8 @@ class NeuronParams(BaseModel):
     dest_info: NeuronDestInfo
 
     # Legal parameters below. No need to check again.
-    addr_ram: List[InstanceOf[int]] = Field(description="Addresses of RAM of neurons")
-    addr_offset: int = Field(description="Offset of starting address of RAM")
+    addr_ram: List[InstanceOf[int]] = Field(description="RAM Address of neurons")
+    addr_offset: int = Field(description="Offset of RAM starting address")
 
     @field_validator("addr_ram")
     @classmethod

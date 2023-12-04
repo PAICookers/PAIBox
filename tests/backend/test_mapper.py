@@ -150,13 +150,15 @@ class TestMapperDebug:
         print()
 
 
-class TestMapper_Weight8:
-    def test_mapper_weight8(self, monkeypatch, build_small_net1, packbits8):
+class TestMapper_Weight4:
+    def test_mapper_weight4(
+        self, monkeypatch, build_network_with_branches_4bit, packbits8
+    ):
         # Use monkey patch to change the settings of `HwConfig` when running the test.
         monkeypatch.setattr(pb.HwConfig, "N_DENDRITE_MAX_SNN", 8 * 8)
         monkeypatch.setattr(pb.HwConfig, "N_FANIN_PER_DENDRITE_SNN", 6)
 
-        net = build_small_net1
+        net = build_network_with_branches_4bit
 
         # Core required
         # inp1 -> n1: 10*10, LCN_2X, 3
@@ -164,7 +166,6 @@ class TestMapper_Weight8:
         # n2 -> n4 & n3 -> n4: 20*4, LCN_4X, 2
 
         mapper = pb.Mapper()
-        mapper.clear()
         mapper.build(net)
         mapper.compile()
 
@@ -216,3 +217,30 @@ class TestMapper_Weight8:
                 # assert expected == packed
 
         print("OK")
+
+
+class TestMapper_NeuronSeg_Dense:
+    def test_neuron_seg_dense(self, monkeypatch, build_Network_8bit_dense, ensure_dump_dir):
+        monkeypatch.setattr(pb.HwConfig, "N_DENDRITE_MAX_SNN", 8 * 8)
+        monkeypatch.setattr(pb.HwConfig, "N_FANIN_PER_DENDRITE_SNN", 6)
+
+        net = build_Network_8bit_dense
+
+        mapper = pb.Mapper()
+        mapper.build(net)
+        mapper.compile(method="dense")
+
+        _json_core_plm_config = dict()
+
+        for coord, cpc in mapper.core_plm_config.items():
+            _json_core_plm_config[coord.address] = cpc.__json__()
+
+        # Export complete configurations of cores into json
+        with open(ensure_dump_dir / "core_plm_configs_dense.json", "w") as f:
+            json.dump(
+                _json_core_plm_config,
+                f,
+                ensure_ascii=True,
+                indent=4,
+                cls=CustomJsonEncoder,
+            )

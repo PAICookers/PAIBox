@@ -170,11 +170,14 @@ class NetForTest4(pb.Network):
         )
 
 
-class NetForTest5(pb.Network):
-    """Small 4-bits network #1.
+class Network_with_Branches_4bit(pb.Network):
+    """Network with branches & 4-bit weights.
 
     INP1 -> N1 -> N2 ->
                -> N3 -> N4
+
+    Weights: 4-bit
+    Strategy of grouping neurons: catagory
     """
 
     def __init__(self, seed: int):
@@ -222,6 +225,58 @@ class NetForTest5(pb.Network):
         )
 
 
+class Network_with_Branches_8bit(pb.Network):
+    """Network with branches & 8-bit weights, using `dense`.
+
+    Weights: 8-bit
+    Strategy of grouping neurons: dense
+    """
+
+    def __init__(self, seed: int) -> None:
+        super().__init__()
+        rng = np.random.RandomState(seed)
+        self.inp1 = pb.InputProj(input=1, shape_out=(10,), name="inp1")
+        self.n1 = pb.TonicSpiking(10, 3, name="n1")
+        self.n2 = pb.TonicSpiking(10, 4, name="n2")
+        self.n3 = pb.TonicSpiking(10, 4, name="n3")
+        self.n4 = pb.TonicSpiking(4, 4, name="n4")
+        self.s1 = pb.NoDecay(
+            self.inp1,
+            self.n1,
+            weights=rng.randint(-128, 128, size=(10, 10), dtype=np.int8),
+            conn_type=pb.synapses.ConnType.MatConn,
+            name="s1",
+        )
+        self.s2 = pb.NoDecay(
+            self.n1,
+            self.n2,
+            weights=rng.randint(-128, 128, size=(10, 10), dtype=np.int8),
+            conn_type=pb.synapses.ConnType.MatConn,
+            name="s2",
+        )
+        self.s3 = pb.NoDecay(
+            self.n1,
+            self.n3,
+            weights=rng.randint(-128, 128, size=(10, 10), dtype=np.int8),
+            conn_type=pb.synapses.ConnType.MatConn,
+            name="s3",
+        )
+        self.s4 = pb.NoDecay(
+            self.n2,
+            self.n4,
+            weights=rng.randint(-128, 128, size=(10, 4), dtype=np.int8),
+            conn_type=pb.synapses.ConnType.MatConn,
+            name="s4",
+        )
+        self.s5 = pb.NoDecay(
+            self.n3,
+            self.n4,
+            weights=rng.randint(-128, 128, size=(10, 4), dtype=np.int8),
+            conn_type=pb.synapses.ConnType.MatConn,
+            name="s5",
+        )
+
+
 @pytest.fixture(scope="class")
 def build_example_net1():
     return NetForTest1()
@@ -243,10 +298,13 @@ def build_example_net4():
 
 
 @pytest.fixture(scope="class")
-def build_small_net1():
-    seed = 42
+def build_network_with_branches_4bit():
+    return Network_with_Branches_4bit(seed=42)
 
-    return NetForTest5(seed)
+
+@pytest.fixture(scope="class")
+def build_Network_8bit_dense():
+    return Network_with_Branches_8bit(seed=42)
 
 
 @pytest.fixture(scope="class")
@@ -436,7 +494,7 @@ def MockCorePlacementConfig(MockCoreConfigDict, MockNeuronConfig):
     neuron = pb.neuron.IF((100,), 3, reset_v=-1)
 
     cpc = CorePlacementConfig.encapsulate(
-        np.uint64(random.randint(1, 200)),
+        random.randint(1, 200),
         np.random.randint(0, 100, size=(1152, 512)),
         MockCoreConfigDict,
         {neuron: MockNeuronConfig},

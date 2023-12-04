@@ -4,7 +4,6 @@ from typing import Dict, List, Set
 from paibox.base import NeuDyn
 from paibox.collector import Collector
 from paibox.exceptions import BuildError, ResourceError
-from paibox.frame import OfflineFrameGen
 from paibox.libpaicore import Coord, CoordOffset, HwConfig, get_replication_id
 from paibox.network import DynSysGroup
 from paibox.projection import InputProj
@@ -196,7 +195,7 @@ class Mapper:
 
         self._graph_check()
 
-    def compile(self):
+    def compile(self, method: str = "catagory"):
         """Backend compilation."""
         self._build_check()
 
@@ -207,7 +206,7 @@ class Mapper:
         self.lcn_ex_adjustment()
 
         """3. Do core coordinate assignment."""
-        self.coord_assign()
+        self.coord_assign(method)
 
         """4. Allocate the grouped synapses to the cores."""
         self.core_allocation()
@@ -324,7 +323,7 @@ class Mapper:
             else:
                 cb.lcn_locked = True
 
-    def coord_assign(self) -> None:
+    def coord_assign(self, method) -> None:
         """Assign the coordinate for each `CorePlacement`.
 
         NOTE: The neurons in each core block must be grouped first  \
@@ -333,7 +332,7 @@ class Mapper:
         """
         for cb in self.core_blocks:
             # Group the neurons, get the #N of cores required.
-            cb.group_neurons()
+            cb.group_neurons(method)
 
         # Check the total core consumption.
         if (
@@ -464,9 +463,9 @@ class Mapper:
 
         return input_nodes_info
 
-    def gen_config_frame(self):
-        # TODO
-        return OfflineFrameGen.gen_config_frame(core_plm_config=self.core_plm_config)
+    def export(self):
+        pass
+        # return OfflineFrameGen.gen_config_frame(core_plm_config=self.core_plm_config)
 
     def get_inherent_timestep(self) -> int:
         self._build_check()
