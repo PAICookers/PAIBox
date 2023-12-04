@@ -270,7 +270,27 @@ class TestWeightUnpack:
         assert np.max(result, axis=None) <= 1
         assert np.min(result, axis=None) >= 0
 
-        return result.astype(np.bool_)
+        return result
+
+    def test_packbits_to_mapping_form(self):
+        def _weight_ram_T(weight_ram_mapped: np.ndarray):
+            _w = weight_ram_mapped.T.reshape(-1, 64)
+            w_packed_u8 = np.packbits(_w, axis=-1, bitorder="little")
+
+            return w_packed_u8
+
+        rng = np.random.RandomState(42)
+        w = rng.randint(-8, 8, size=(1152, 64), dtype=np.int8)
+
+        # 1152 * 512
+        w1 = self._weight_ram_mapping_ref(w, 8)
+
+        # -> 512 * 1152 -> 512 * 144 (uint8)
+        wT = _weight_ram_T(w1)
+
+        ww = wT.view(np.uint64).reshape(-1, 18)
+        ww.setflags(write=False)
+        print()
 
     @staticmethod
     def _fold_raw_weight_ref(raw_weight: np.ndarray, expected_row: int, nfold: int):

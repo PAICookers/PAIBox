@@ -475,14 +475,15 @@ class CorePlacement(CoreAbstract):
         assert np.max(w_unpacked, axis=None) <= 1
         assert np.min(w_unpacked, axis=None) >= 0
 
-        # Convert the unpacked weights into a mapping form,
+        # Convert the unpacked weights into a mapping format,
         # corresponding to the RAM address, each address contains 18 uint64.
-        # [512 * 1152] -> [512 * 144](uint8)
+        # [512 * 1152] -> [512 * 144](uint8). Reshape to 64 columns to avoid contiguous problem.
+        w_unpacked_T_rehaped = w_unpacked.T.reshape(-1, 64)
         w_packed_u8 = np.packbits(
-            w_unpacked.T, axis=1, bitorder=HwConfig.WEIGHT_BITORDER
+            w_unpacked_T_rehaped, axis=1, bitorder=HwConfig.WEIGHT_BITORDER
         )
         # [512 * 144](uint8) -> [512 * 18](uint64)
-        w_packed_u64 = np.ascontiguousarray(w_packed_u8).view(np.uint64)
+        w_packed_u64 = w_packed_u8.view(np.uint64).reshape(-1, 18)
         w_packed_u64.setflags(write=False)
 
         return w_packed_u64
