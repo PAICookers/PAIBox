@@ -61,7 +61,7 @@ class CoreConfig(NamedTuple):
 class NeuronDest(NamedTuple):
     """Information of neuron destination(Axon address information)."""
 
-    _extra_params = ("dest_coords",)
+    _extra_params = ("dest_coords", "tick_relative", "addr_axon")
     """Extra parameters for debugging."""
 
     dest_coords: List[Coord]
@@ -83,10 +83,7 @@ class NeuronDest(NamedTuple):
     def __json__(self) -> Dict[str, Any]:
         """Dump the configs into json for debugging."""
         dest_info = NeuronDestInfo.model_validate(self._asdict(), strict=True)
-        dict_ = dest_info.model_dump(
-            by_alias=True,
-            exclude={*dest_info._exclude_vars},
-        )
+        dict_ = dest_info.model_dump(by_alias=True)
 
         for var in self._extra_params:
             dict_[var] = getattr(self, var)
@@ -102,15 +99,25 @@ class ConfigTemplate:
 
 @dataclass(eq=False)
 class NeuronConfig(ConfigTemplate):
-    _extra_params = ()
+    _extra_params = ("n_neuron", "addr_ram", "addr_offset")
     """Extra parameters for debugging."""
 
-    params_ram: ParamsRAM
+    n_neuron: int
+    addr_ram: List[int]
+    """RAM Address of neurons"""
+    addr_offset: int
+    "RAM starting address(offset)"
+    neuron_attrs: NeuronAttrs
+    neuron_dest_info: NeuronDestInfo
+
+    tick_relative: List[int]
+    addr_axon: List[int]
 
     @classmethod
     def encapsulate(
         cls,
         neuron: NeuDyn,
+        n_neuron: int,
         addr_ram: List[int],
         addr_offset: int,
         axon_coords: List[AxonCoord],
@@ -148,34 +155,23 @@ class NeuronConfig(ConfigTemplate):
         )
 
         return cls(
-            ParamsRAM(
-                attrs=attrs,
-                dest_info=neuron_dest_info,
-                addr_ram=addr_ram,
-                addr_offset=addr_offset,
-            ),
+            n_neuron,
+            addr_ram,
+            addr_offset,
+            attrs,
+            neuron_dest_info,
+            dest_info.tick_relative,
+            dest_info.addr_axon,
         )
-
-    def export(self, dest_info_only: bool = False) -> Dict[str, Any]:
-        """Export the parameters model.
-
-        Args:
-            - dest_info_only: Whether to export the info of neuron destination only. \
-                Defaults to False.
-        """
-        if not dest_info_only:
-            dict_ = self.params_ram.model_dump(by_alias=True)
-        else:
-            dict_ = self.params_ram.dest_info.model_dump(by_alias=True)
-
-        return dict_
 
     def __json__(self) -> Dict[str, Any]:
         """Dump the configs into json for debugging."""
-        dict_ = self.params_ram.model_dump(
+        dict_ = self.neuron_attrs.model_dump(
             by_alias=True,
-            exclude={"dest_info": self.params_ram.dest_info._exclude_vars},
+            # exclude={"dest_info": self.params_ram.dest_info._exclude_vars},
         )
+
+        dict_ |= self.neuron_dest_info.model_dump(by_alias=True)
 
         for var in self._extra_params:
             dict_[var] = getattr(self, var)
@@ -191,7 +187,7 @@ class CorePlacementConfig(ConfigTemplate):
     random_seed: int
     weight_ram: NDArray[np.uint64]
     params_reg: ParamsReg
-    neuron_ram: Dict[NeuDyn, NeuronConfig]
+    neuron_configs: Dict[NeuDyn, NeuronConfig]
 
     @classmethod
     def encapsulate(
@@ -199,13 +195,13 @@ class CorePlacementConfig(ConfigTemplate):
         random_seed: int,
         weight_ram: NDArray[np.uint64],
         core_config: CoreConfig,
-        neuron_ram: Dict[NeuDyn, NeuronConfig],
+        neuron_configs: Dict[NeuDyn, NeuronConfig],
     ):
         return cls(
             random_seed,
             weight_ram,
             ParamsReg.model_validate(core_config._asdict(), strict=True),
-            neuron_ram,
+            neuron_configs,
         )
 
     def __json__(self) -> Dict[str, Any]:
@@ -213,12 +209,12 @@ class CorePlacementConfig(ConfigTemplate):
         dict_ = {
             "name": self.params_reg.name,
             "random_seed": self.random_seed,
-            "neuron_ram": dict(),
+            "neuron_rams": dict(),
             **self.params_reg.model_dump(by_alias=True),
         }
 
-        for neu, neu_config in self.neuron_ram.items():
-            dict_["neuron_ram"][neu.name] = neu_config.__json__()
+        for neu, neu_config in self.neuron_configs.items():
+            dict_["neuron_rams"][neu.name] = neu_config.__json__()
 
         for var in self._extra_params:
             dict_[var] = getattr(self, var)

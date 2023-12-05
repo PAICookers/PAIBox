@@ -1,4 +1,12 @@
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
+from typing_extensions import TypedDict
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    field_serializer,
+    model_validator,
+)
 
 from .coordinate import Coord
 from .hw_defs import HwConfig
@@ -160,3 +168,23 @@ class CoreParams(BaseModel):
 
 
 ParamsReg = CoreParams
+
+
+# Use `typing_extensions.TypedDict`.
+class _ParamsRegDict(TypedDict):
+    """Typed dictionary of `ParamsReg` for typing check."""
+
+    weight_width: int
+    LCN: int
+    input_width: int
+    spike_width: int
+    neuron_num: int
+    pool_max: int
+    tick_wait_start: int
+    tick_wait_end: int
+    snn_en: int
+    target_LCN: int
+    test_chip_addr: int
+
+
+ParamsRegDictChecker = TypeAdapter(_ParamsRegDict)

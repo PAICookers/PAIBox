@@ -1,16 +1,12 @@
-from typing import List
-
+from typing_extensions import TypedDict
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    InstanceOf,
+    TypeAdapter,
     field_serializer,
-    field_validator,
-    model_validator,
 )
 
-from .hw_defs import HwConfig
 from .ram_types import *
 
 __all__ = ["NeuronDestInfo", "NeuronAttrs", "NeuronParams", "ParamsRAM"]
@@ -31,15 +27,7 @@ class NeuronDestInfo(BaseModel):
     NOTE: The parameters input in the model are declared in `docs/Table-of-Terms.md`.
     """
 
-    _exclude_vars = ("tick_relative", "addr_axon")
-
     model_config = ConfigDict(extra="ignore", validate_assignment=True)
-
-    tick_relative: List[InstanceOf[int]] = Field(
-        description="Information of relative ticks.",
-    )
-
-    addr_axon: List[InstanceOf[int]] = Field(description="Destination axon address.")
 
     addr_core_x: int = Field(
         ge=0,
@@ -75,33 +63,6 @@ class NeuronDestInfo(BaseModel):
         lt=(1 << ADDR_CHIP_Y_BIT_MAX),
         description="Address Y of destination chip.",
     )
-
-    @field_validator("tick_relative")
-    @classmethod
-    def _tick_relative_check(cls, v):
-        if any(tr >= (1 << TICK_RELATIVE_BIT_MAX) or tr < 0 for tr in v):
-            # DO NOT change the type of exception `ValueError` in the validators below.
-            raise ValueError("Parameter 'tick relative' out of range.")
-
-        return v
-
-    @field_validator("addr_axon")
-    @classmethod
-    def _addr_axon_check(cls, v):
-        if any(addr >= (1 << ADDR_AXON_BIT_MAX) or addr < 0 for addr in v):
-            raise ValueError("Parameter 'addr_axon' out of range.")
-
-        return v
-
-    @model_validator(mode="after")
-    def _length_match_check(self):
-        if len(self.tick_relative) != len(self.addr_axon):
-            raise ValueError(
-                "Parameter 'tick relative' & 'addr_axon' must have the same "
-                f"length: {len(self.tick_relative)}, {len(self.addr_axon)}."
-            )
-
-        return self
 
 
 RESET_MODE_BIT_MAX = 2  # Not used
@@ -226,22 +187,75 @@ class NeuronAttrs(BaseModel):
 
 
 class NeuronParams(BaseModel):
+    # _exclude_vars = ("tick_relative", "addr_axon")
+
     attrs: NeuronAttrs
     dest_info: NeuronDestInfo
 
-    # Legal parameters below. No need to check again.
-    addr_ram: List[InstanceOf[int]] = Field(description="RAM Address of neurons")
-    addr_offset: int = Field(description="Offset of RAM starting address")
+    # tick_relative: List[InstanceOf[int]] = Field(
+    #     description="Information of relative ticks.",
+    # )
 
-    @field_validator("addr_ram")
-    @classmethod
-    def _addr_ram_check(cls, v):
-        if any(addr_ram > HwConfig.ADDR_RAM_MAX for addr_ram in v):
-            raise ValueError(
-                f"Parameter 'addr_axon' out of range: {HwConfig.ADDR_RAM_MAX}."
-            )
+    # addr_axon: List[InstanceOf[int]] = Field(description="Destination axon address.")
 
-        return v
+    # @field_validator("tick_relative")
+    # @classmethod
+    # def _tick_relative_check(cls, v):
+    #     if any(tr >= (1 << TICK_RELATIVE_BIT_MAX) or tr < 0 for tr in v):
+    #         # DO NOT change the type of exception `ValueError` in the validators below.
+    #         raise ValueError("Parameter 'tick relative' out of range.")
+
+    #     return v
+
+    # @field_validator("addr_axon")
+    # @classmethod
+    # def _addr_axon_check(cls, v):
+    #     if any(addr >= (1 << ADDR_AXON_BIT_MAX) or addr < 0 for addr in v):
+    #         raise ValueError("Parameter 'addr_axon' out of range.")
+
+    #     return v
+
+    # @model_validator(mode="after")
+    # def _length_match_check(self):
+    #     if len(self.tick_relative) != len(self.addr_axon):
+    #         raise ValueError(
+    #             "Parameter 'tick relative' & 'addr_axon' must have the same "
+    #             f"length: {len(self.tick_relative)}, {len(self.addr_axon)}."
+    #         )
+
+    #     return self
 
 
 ParamsRAM = NeuronParams
+
+
+class _NeuronAttrsDict(TypedDict):
+    """Typed dictionary of `NeuronAttrs` for typing check."""
+
+    reset_mode: int
+    reset_v: int
+    leak_post: int
+    threshold_mask_ctrl: int
+    threshold_neg_mode: int
+    threshold_neg: int
+    threshold_pos: int
+    leak_reversal_flag: int
+    leak_det_stoch: int
+    weight_det_stoch: int
+    bit_truncate: int
+    vjt_pre: int
+
+
+class _NeuronDestInfoDict(TypedDict):
+    """Typed dictionary of `NeuronDestInfo` for typing check."""
+
+    addr_core_x: int
+    addr_core_y: int
+    addr_core_x_ex: int
+    addr_core_y_ex: int
+    addr_chip_x: int
+    addr_chip_y: int
+
+
+NeuronAttrsDictChecker = TypeAdapter(_NeuronAttrsDict)
+NeuronDestInfoDictChecker = TypeAdapter(_NeuronDestInfoDict)
