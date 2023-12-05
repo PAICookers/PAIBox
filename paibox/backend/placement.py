@@ -181,7 +181,7 @@ class CoreBlock(CoreAbstract):
 
         FIXME This method ONLY works in SNN mode. For ANN mode, use table lookup.
         """
-        return (self.n_dendrite >> self.lcn_ex) // self.n_dendrite_per_neuron
+        return (self.n_dendrite_max >> self.lcn_ex) // self.n_dendrite_per_neuron
 
     @property
     def n_fanin_max(self) -> int:
@@ -195,8 +195,6 @@ class CoreBlock(CoreAbstract):
     @property
     def n_core_required(self) -> int:
         return len(self.neuron_segs_of_cb)
-
-    # (self.n_neuron - 1) // self.neuron_capacity + 1
 
     @property
     def n_dendrite_per_neuron(self) -> int:
@@ -237,7 +235,7 @@ class CoreBlock(CoreAbstract):
         return sum(s.num_out for s in self.axons)
 
     @property
-    def n_dendrite(self) -> int:
+    def n_dendrite_max(self) -> int:
         return (
             HwConfig.N_DENDRITE_MAX_ANN
             if self.mode is CoreMode.MODE_ANN
@@ -253,7 +251,7 @@ class CoreBlock(CoreAbstract):
         return self.source[index].num_in
 
     @property
-    def n_neuron_of_cb(self) -> List[int]:
+    def n_neuron_of_plm(self) -> List[int]:
         """A list of the #N of neurons on each `CorePlacement` \
             in descending order.
 
@@ -401,12 +399,12 @@ class CorePlacement(CoreAbstract):
         """The folded weights."""
 
         self.neu_segs = neu_segs
-        self.neu_config: Dict[NeuDyn, NeuronConfig] = dict()
+        self.neu_configs: Dict[NeuDyn, NeuronConfig] = dict()
 
     @classmethod
     def build(cls, parent: CoreBlock, idx: int, raw_weights: List[np.ndarray]):
         coord = parent.core_coords[idx]
-        n_neuron = parent.n_neuron_of_cb[idx]
+        n_neuron = parent.n_neuron_of_plm[idx]
         neu_segs = parent.neuron_segs_of_cb[idx]
 
         return cls(parent, coord, n_neuron, raw_weights=raw_weights, neu_segs=neu_segs)
@@ -477,12 +475,14 @@ class CorePlacement(CoreAbstract):
 
         # Convert the unpacked weights into a mapping format,
         # corresponding to the RAM address, each address contains 18 uint64.
-        # [512 * 1152] -> [512 * 144](uint8). Reshape to 64 columns to avoid contiguous problem.
+        # [512 * 1152] -> [(512*18) * 64](uint8). Reshape to 64 columns to avoid contiguous problem.
         w_unpacked_T_rehaped = w_unpacked.T.reshape(-1, 64)
+        
+        # [(512*18) * 64](uint8) -> [(512*18) * 8](uint8)
         w_packed_u8 = np.packbits(
             w_unpacked_T_rehaped, axis=1, bitorder=HwConfig.WEIGHT_BITORDER
         )
-        # [512 * 144](uint8) -> [512 * 18](uint64)
+        # [(512*18) * 8](uint8) -> [(512*18) * 1](uint64) -> [512 * 18](uint64)
         w_packed_u64 = w_packed_u8.view(np.uint64).reshape(-1, 18)
         w_packed_u64.setflags(write=False)
 
@@ -583,6 +583,7 @@ class CorePlacement(CoreAbstract):
 
                 config = NeuronConfig.encapsulate(
                     neu_seg.parent,
+                    neu_seg.segment.n_neuron,
                     neu_seg.segment.addr_ram,
                     neu_seg.segment.addr_offset,
                     axon_coords,
@@ -591,7 +592,7 @@ class CorePlacement(CoreAbstract):
                     _BACKEND_CONTEXT["local_chip_addr"],
                 )
 
-                self.neu_config[neu_seg.parent] = config
+                self.neu_configs[neu_seg.parent] = config
         else:
             assert isinstance(output_core_coord, Coord)
             assert isinstance(axon_addr_offset, int)
@@ -605,13 +606,14 @@ class CorePlacement(CoreAbstract):
 
             config = NeuronConfig.encapsulate(
                 neu_seg.parent,
+                neu_seg.segment.n_neuron,
                 neu_seg.segment.addr_ram,
                 neu_seg.segment.addr_offset,
                 axon_coords,
                 [output_core_coord],
             )
 
-            self.neu_config[neu_seg.parent] = config
+            self.neu_configs[neu_seg.parent] = config
 
             return axon_addr_offset + neu_seg.segment.n_neuron
 
@@ -622,7 +624,7 @@ class CorePlacement(CoreAbstract):
             self.parent.seed,
             self.weight_ram,
             core_param,
-            self.neu_config,
+            self.neu_configs,
         )
 
     @property
@@ -659,7 +661,7 @@ class CorePlacement(CoreAbstract):
 
     @property
     def n_dendrite(self) -> int:
-        return self.n_neuron * self.parent.n_dendrite_per_neuron
+        return self.n_neuron * self.n_weight_bits * self.timeslot
 
     @property
     def source(self) -> List[SourceNodeType]:

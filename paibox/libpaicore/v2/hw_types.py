@@ -95,12 +95,6 @@ class HwCore(ABC):
 
     @property
     @abstractmethod
-    def n_dendrite(self) -> int:
-        """#N of valid dendrites."""
-        raise NotImplementedError
-
-    @property
-    @abstractmethod
     def n_core_required(self) -> int:
         """#N of cores required to accommodate neurons inside self."""
         raise NotImplementedError
