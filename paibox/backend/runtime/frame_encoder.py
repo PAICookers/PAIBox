@@ -2,9 +2,14 @@ from typing import List, Optional, Union
 
 import numpy as np
 
-from paibox.frame.frame_gen_parse import OfflineFrameGen
-from paibox.frame.params import FrameFormat, FrameHead, WorkFrame1Format
-from paibox.libpaicore.v2 import Coord, ReplicationId
+from .frame_gen import OfflineFrameGen
+from paibox.libpaicore import (
+    Coord,
+    FrameFormat,
+    FrameHeader,
+    WorkFrame1Format,
+    ReplicationId as RId,
+)
 
 
 class ChipInputEncoder:
@@ -57,12 +62,12 @@ class ChipInputEncoder:
     def gen_frameinfo(
         chip_coord: Union[List[Coord], Coord],
         core_coord: Union[List[Coord], Coord],
-        core_e_coord: Union[List[ReplicationId], ReplicationId],
+        core_e_coord: Union[List[RId], RId],
         axon: Union[List[int], int],
         time_slot: Union[List[int], int],
         save_path: Optional[str] = None,
     ) -> np.ndarray:
-        header = [FrameHead.WORK_TYPE1]
+        header = [FrameHeader.WORK_TYPE1]
         if not isinstance(chip_coord, list):
             chip_coord = [chip_coord]
         if not isinstance(core_coord, list):

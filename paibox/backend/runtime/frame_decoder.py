@@ -5,10 +5,14 @@ from typing import List, Optional, Union
 
 import numpy as np
 
-from paibox.frame.offline_frame import OfflineWorkFrame1
-from paibox.libpaicore.v2.coordinate import Coord, ReplicationId
-
-from .params import FrameFormat, FrameHead, WorkFrame1Format
+from .frame.frames import OfflineWorkFrame1
+from paibox.libpaicore import (
+    Coord,
+    FrameFormat,
+    FrameHeader,
+    WorkFrame1Format,
+    ReplicationId as RId,
+)
 
 
 class ChipOutputDecoder:
@@ -43,13 +47,13 @@ class ChipOutputDecoder:
         header_list = []
         for frame in frames:
             header_list.append(
-                FrameHead(
+                FrameHeader(
                     (frame >> FrameFormat.GENERAL_HEADER_OFFSET)
                     & FrameFormat.GENERAL_HEADER_MASK
                 )
             )
 
-        if all(element == FrameHead.WORK_TYPE1 for element in header_list):
+        if all(element == FrameHeader.WORK_TYPE1 for element in header_list):
             return self.decode_spike(frames)
         else:
             return {}
@@ -63,12 +67,12 @@ class ChipOutputDecoder:
 
         frames = frames.astype(np.uint64)
         for frame in frames:
-            header = FrameHead(
+            header = FrameHeader(
                 (frame >> FrameFormat.GENERAL_HEADER_OFFSET)
                 & FrameFormat.GENERAL_HEADER_MASK
             )
 
-            if header != FrameHead.WORK_TYPE1:
+            if header != FrameHeader.WORK_TYPE1:
                 raise ValueError(
                     "The header of the frame is not WORK_TYPE1, please check the input frames."
                 )
@@ -137,13 +141,13 @@ class ChipOutputDecoder:
     @staticmethod
     def gen_frameinfo(
         core_coord: Union[List[Coord], Coord],
-        core_ex_coord: Union[List[ReplicationId], ReplicationId],
+        core_ex_coord: Union[List[RId], RId],
         axon: Union[List[int], int],
         time_slot: Union[List[int], int],
         chip_coord: Union[List[Coord], Coord] = Coord(0, 0),
         save_path: Optional[str] = None,
     ) -> np.ndarray:
-        header = [FrameHead.WORK_TYPE1]
+        header = [FrameHeader.WORK_TYPE1]
         if not isinstance(chip_coord, list):
             chip_coord = [chip_coord]
         if not isinstance(core_coord, list):

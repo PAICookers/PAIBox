@@ -1,4 +1,5 @@
 from .coordinate import *
+from .frame_defs import *
 from .hw_defs import HwConfig as HwConfig
 from .hw_types import *
 from .ram_model import *

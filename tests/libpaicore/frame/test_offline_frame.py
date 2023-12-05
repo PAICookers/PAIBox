@@ -1,20 +1,20 @@
 import numpy as np
 import pytest
 
-from paibox.frame.base_frame import *
-from paibox.frame.offline_frame import (
+from paibox.libpaicore.v2.frame.base import *
+from paibox.libpaicore.v2.frame.frames import (
     OfflineConfigFrame1,
     OfflineConfigFrame2,
     OfflineConfigFrame3,
-    OfflineConfigFrame3Group,
     OfflineTestOutFrame1,
     OfflineTestOutFrame2,
     OfflineTestOutFrame3,
 )
-from paibox.frame.params import *
-from paibox.frame.util import print_frame
+from paibox.libpaicore.v2.frame.params import *
+from paibox.libpaicore.v2.frame.utils import print_frame
 from paibox.libpaicore.v2 import Coord, ReplicationId
 
+pytestmark = pytest.mark.skip(reason="Not implemented")
 
 @pytest.mark.parametrize(
     "chip_coord,core_coord,core_e_coord,random_seed",

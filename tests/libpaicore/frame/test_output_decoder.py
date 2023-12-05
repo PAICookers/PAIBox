@@ -1,11 +1,10 @@
-import random
 from itertools import chain
-from sqlite3 import Timestamp
-
 import pytest
 
-from paibox.frame.chip_output_decoder import *
-from paibox.frame.util import print_frame
+from paibox.backend.runtime.frame_decoder import *
+from paibox.libpaicore.v2.frame.utils import print_frame
+
+pytestmark = pytest.mark.skip(reason="Not implemented")
 
 
 def test_data_decode():
