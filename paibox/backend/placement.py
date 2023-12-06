@@ -1,4 +1,7 @@
+import sys
+import numpy as np
 from functools import cached_property
+from numpy.typing import NDArray
 from typing import (
     ClassVar,
     Dict,
@@ -12,8 +15,10 @@ from typing import (
     overload,
 )
 
-import numpy as np
-from numpy.typing import NDArray
+if sys.version_info >= (3, 10):
+    from typing import TypeAlias
+else:
+    from typing_extensions import TypeAlias
 
 from paibox.base import NeuDyn, PAIBoxObject
 from paibox.exceptions import BuildError, NotSupportedError, ResourceError
@@ -37,15 +42,17 @@ from paibox.utils import count_unique_elem
 from .config_template import CoreConfig, CorePlacementConfig, NeuronConfig
 from .context import _BACKEND_CONTEXT
 
-SourceNodeType = Union[NeuDyn, InputProj]
-DestNodeType = NeuDyn
+SourceNodeType: TypeAlias = Union[NeuDyn, InputProj]
+DestNodeType: TypeAlias = NeuDyn
 NeuSeg = NamedTuple("NeuSeg", [("parent", DestNodeType), ("segment", NeuronSegment)])
 
 
 class CoreAbstract(HwCore, PAIBoxObject):
     supported_wp: ClassVar[Tuple[WP, ...]] = (
         WP.WEIGHT_WIDTH_1BIT,
-        WP.WEIGHT_WIDTH_8BIT,
+        # WP.WEIGHT_WIDTH_2BIT,  # Not verified
+        # WP.WEIGHT_WIDTH_4BIT,  # Not verified
+        WP.WEIGHT_WIDTH_8BIT,  # Not verified
     )
     """Supported weight precision."""
 
@@ -477,7 +484,7 @@ class CorePlacement(CoreAbstract):
         # corresponding to the RAM address, each address contains 18 uint64.
         # [512 * 1152] -> [(512*18) * 64](uint8). Reshape to 64 columns to avoid contiguous problem.
         w_unpacked_T_rehaped = w_unpacked.T.reshape(-1, 64)
-        
+
         # [(512*18) * 64](uint8) -> [(512*18) * 8](uint8)
         w_packed_u8 = np.packbits(
             w_unpacked_T_rehaped, axis=1, bitorder=HwConfig.WEIGHT_BITORDER
@@ -530,7 +537,6 @@ class CorePlacement(CoreAbstract):
 
     def export_param_config(self) -> CoreConfig:
         _mode_params = CoreModeDict[self.mode]
-
         # fmt: off
         cb_config = CoreConfig(
             self.name,                          # name of the core
@@ -571,10 +577,7 @@ class CorePlacement(CoreAbstract):
         output_core_coord: Optional[Coord] = None,
         axon_addr_offset: Optional[int] = None,
     ) -> Optional[int]:
-        """Export the neuron configuration.
-
-        TODO For the last layer, how to define its output destination to the outside?
-        """
+        """Export the neuron configuration."""
         if isinstance(axon_dests, list):
             for axon_dest in axon_dests:
                 axon_coords = aligned_coords(
@@ -588,7 +591,7 @@ class CorePlacement(CoreAbstract):
                     neu_seg.segment.addr_offset,
                     axon_coords,
                     axon_dest.core_coords,
-                    # Here is local chip coordinate!
+                    # Here is local chip coordinate.
                     _BACKEND_CONTEXT["local_chip_addr"],
                 )
 
@@ -891,10 +894,10 @@ def aligned_coords(neu_index: slice, axon_seg: AxonSegment) -> List[AxonCoord]:
 
         if tr_stop - tr_start > 1:
             for tr in range(tr_start + 1, tr_stop):
-                for addr in range(0, axon_seg.addr_width):
+                for addr in range(axon_seg.addr_width):
                     axon_coords.append(AxonCoord(tr, axon_seg.addr_offset + addr))
 
-        for addr in range(0, addr_stop):
+        for addr in range(addr_stop):
             axon_coords.append(AxonCoord(tr_stop, axon_seg.addr_offset + addr))
 
     return axon_coords

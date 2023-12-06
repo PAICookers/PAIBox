@@ -4,6 +4,7 @@ from typing import Tuple, Type, Union
 import numpy as np
 from numpy.typing import NDArray
 
+from paibox._types import DataArrayType
 from paibox.exceptions import ShapeError
 from paibox.libpaicore import WeightPrecision as WP
 from paibox.utils import is_shape
@@ -12,8 +13,8 @@ MAX_INT2 = np.int8(1)
 MIN_INT2 = np.int8(-2)
 MAX_INT4 = np.int8(7)
 MIN_INT4 = np.int8(-8)
-MAX_INT8 = np.int8(127)
-MIN_INT8 = np.int8(-128)
+MAX_INT8 = np.iinfo(np.int8).max
+MIN_INT8 = np.iinfo(np.int8).min
 
 
 @unique
@@ -70,7 +71,7 @@ class Transform:
 
 
 class OneToOne(Transform):
-    def __init__(self, num: int, weights: Union[int, np.integer, np.ndarray]) -> None:
+    def __init__(self, num: int, weights: DataArrayType) -> None:
         """
         Arguments:
             - num: number of neurons.
@@ -125,9 +126,7 @@ class ByPass(OneToOne):
 
 
 class AllToAll(Transform):
-    def __init__(
-        self, conn_size: Tuple[int, int], weights: Union[int, np.integer, np.ndarray]
-    ) -> None:
+    def __init__(self, conn_size: Tuple[int, int], weights: DataArrayType) -> None:
         """
         Arguments:
             - num_in: number of source neurons.

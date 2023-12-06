@@ -3,6 +3,7 @@ from typing import Optional, Tuple, Union
 import numpy as np
 from numpy.typing import NDArray
 
+from paibox._types import DataArrayType
 from paibox.base import DynamicSys, NeuDyn
 from paibox.exceptions import ShapeError
 from paibox.libpaicore import WeightPrecision as WP
@@ -102,7 +103,7 @@ class NoDecay(SynSys):
         self,
         source: Union[NeuDyn, InputProj],
         dest: NeuDyn,
-        weights: Union[int, np.integer, np.ndarray] = 1,
+        weights: DataArrayType = 1,
         *,
         conn_type: ConnType = ConnType.MatConn,
         name: Optional[str] = None,
@@ -125,7 +126,9 @@ class NoDecay(SynSys):
             self.comm = AllToAll((self.num_in, self.num_out), weights)
         elif conn_type is ConnType.MatConn:
             if not isinstance(weights, np.ndarray):
-                raise TypeError
+                raise TypeError(
+                    f"Expected type int, np.integer or np.ndarray, but got type {type(weights)}"
+                )
 
             self.comm = MaskedLinear((self.num_in, self.num_out), weights)
 

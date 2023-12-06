@@ -257,8 +257,8 @@ class WorkFrame1Format(FrameFormat):
     AXON_OFFSET = 16
     AXON_MASK = (1 << 11) - 1
 
-    TIME_SLOT_OFFSET = 8
-    TIME_SLOT_MASK = (1 << 8) - 1
+    TIMESLOT_OFFSET = 8
+    TIMESLOT_MASK = (1 << 8) - 1
 
     DATA_OFFSET = 0
     DATA_MASK = (1 << 8) - 1

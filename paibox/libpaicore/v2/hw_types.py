@@ -1,8 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import ClassVar, List, NamedTuple, Tuple
 
-from paibox.exceptions import ResourceError
-
 from .hw_defs import HwConfig
 from .reg_types import CoreMode
 
@@ -39,7 +37,7 @@ class NeuronSegment(NamedTuple):
             _addr_max := self.addr_offset
             + self.interval * (self.index.stop - self.index.start)
         ) > HwConfig.ADDR_RAM_MAX:
-            raise ResourceError(
+            raise ValueError(
                 f"RAM Address out of {HwConfig.ADDR_RAM_MAX}: {_addr_max}"
             )
 
@@ -53,14 +51,6 @@ class NeuronSegment(NamedTuple):
     @property
     def addr_slice(self) -> slice:
         """Display the RAM address in slice format."""
-        # if (
-        #     _addr_max := self.addr_offset
-        #     + self.interval * (self.index.stop - self.index.start)
-        # ) > HwConfig.ADDR_RAM_MAX:
-        #     raise ResourceError(
-        #         f"RAM Address out of {HwConfig.ADDR_RAM_MAX}: {_addr_max}"
-        #     )
-
         return slice(
             self.addr_offset,
             self.addr_max,

@@ -1,9 +1,10 @@
 import inspect
 from typing import Callable, Optional, Tuple, TypeVar, Union
+from typing_extensions import ParamSpec
 
 import numpy as np
 
-from ._types import DataType, Shape
+from ._types import Shape
 from .base import DynamicSys
 from .context import _FRONTEND_CONTEXT
 from .exceptions import SimulationError
@@ -12,6 +13,7 @@ from .utils import as_shape, shape2num
 __all__ = ["InputProj"]
 
 T = TypeVar("T")
+P = ParamSpec("P")
 
 
 class Projection(DynamicSys):
@@ -22,7 +24,7 @@ class Projection(DynamicSys):
 class InputProj(Projection):
     def __init__(
         self,
-        input: Union[DataType, Callable[..., DataType]],
+        input: Union[T, Callable[P, T]],
         shape_out: Shape,
         *,
         keep_shape: bool = True,
@@ -106,7 +108,7 @@ class InputProj(Projection):
         return self.output
 
 
-def _call_with_ctx(f: Callable[..., T], *args, **kwargs) -> T:
+def _call_with_ctx(f: Callable[P, T], *args, **kwargs) -> T:
     try:
         ctx = _FRONTEND_CONTEXT.get_ctx()
         bound = inspect.signature(f).bind(*args, **ctx, **kwargs)

@@ -11,8 +11,9 @@ __all__ = [
     "CoordOffset",
     "ReplicationId",
     "CoordLike",
+    "RIdLike",
     "to_coord",
-    "to_coords",
+    "to_rid",
 ]
 
 
@@ -399,6 +400,7 @@ class CoordOffset:
 
 
 CoordLike = TypeVar("CoordLike", Coord, int, List[int], Tuple[int, int])
+RIdLike = TypeVar("RIdLike", ReplicationId, int, List[int], Tuple[int, int])
 
 
 def to_coord(coordlike: CoordLike) -> Coord:
@@ -418,3 +420,18 @@ def to_coord(coordlike: CoordLike) -> Coord:
 
 def to_coords(coordlikes: Sequence[CoordLike]) -> List[Coord]:
     return [to_coord(coordlike) for coordlike in coordlikes]
+
+
+def to_rid(ridlike: RIdLike) -> ReplicationId:
+    if isinstance(ridlike, int):
+        return ReplicationId.from_addr(ridlike)
+
+    if isinstance(ridlike, (list, tuple)):
+        if len(ridlike) != 2:
+            raise ValueError(
+                f"Must be a tuple or list of 2 elements to represent a replication ID: {len(ridlike)}"
+            )
+
+        return ReplicationId(*ridlike)
+
+    return ridlike
