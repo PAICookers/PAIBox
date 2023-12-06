@@ -1,22 +1,25 @@
 from collections import defaultdict
-from typing import Dict, List, Set
+from typing import Dict, List, Literal, Union
+from pathlib import Path
 
 from paibox.base import NeuDyn
-from paibox.collector import Collector
 from paibox.exceptions import BuildError, ResourceError
-from paibox.libpaicore import Coord, CoordOffset, HwConfig, get_replication_id
+from paibox.libpaicore import (
+    Coord,
+    CoordLike,
+    CoordOffset,
+    HwConfig,
+    get_replication_id,
+    to_coord,
+)
 from paibox.network import DynSysGroup
-from paibox.projection import InputProj
-from paibox.synapses import SynSys
 
 from .config_template import CoreConfig, NeuronConfig, NeuronDest
 from .context import _BACKEND_CONTEXT
 from .graphs import *
 from .placement import CoreBlock, aligned_coords, max_lcn_of_cb
 from .routing import RoutingRoot
-
-NodeName = str
-EdgeName = str
+from .runtime import OfflineFrameGen
 
 
 __all__ = ["Mapper"]
@@ -27,70 +30,9 @@ class Mapper:
 
     routing_tree = RoutingRoot(tag="L5")
     """The routing tree root."""
+    graph = PAIGraph()
 
     def __init__(self) -> None:
-        self.networks = ()
-        """Sub networks in the graph."""
-
-        self._nodes = Collector()
-        """Nodes in the network. Structure:
-        {
-            node1.name: node1,
-            node2.name: node2
-        }
-        """
-        self.inodes = Collector()
-        self.onodes = Collector()
-
-        self._ordered_nodes: List[NodeName] = []
-        """Ordered topologically nodes."""
-
-        self._succ_nodes: Dict[NodeName, Set[NodeName]] = defaultdict(set)
-
-        self._edges = Collector()
-        """Edges in the network. Structure:
-        {
-            edge1.name: edge1,
-            edge2.name: edge2
-        }
-        """
-        self._succ_edges: Dict[NodeName, Dict[NodeName, int]] = defaultdict(dict)
-
-        self._edges_grouped: List[Set[EdgeName]] = []
-        """Grouped edges in the network. Structure:
-        [
-            {edge1.name, edge2.name},
-            {edge3.name}
-        ]
-        """
-
-        self._pred_dg: Dict[NodeName, Dict[NodeName, EdgeName]] = defaultdict(dict)
-        """Pre-synapses of nodes. Structure:
-        {
-            node.name: {
-                pre-node1.name: pre-syn1.name,
-                pre-node2.name: pre-syn2.name
-            }
-        }
-        """
-
-        self._succ_dg: Dict[NodeName, Dict[NodeName, EdgeName]] = defaultdict(dict)
-        """Post-synapses of nodes. Structure:
-        {
-            node.name: {
-                post-node1.name: post-syn1.name,
-                post-node2.name: post-syn2.name
-            }
-        }
-        """
-
-        self._degree_of_nodes: Dict[NodeName, Degree] = defaultdict(Degree)
-        """A dictionary of in/out-degree tuple of nodes. Structure:
-        {
-            node.name: (in-degree, out-degree)
-        }
-        """
-
         self.core_blocks: List[CoreBlock] = []
         """A list for core blocks in topological order."""
 
@@ -120,27 +62,14 @@ class Mapper:
         self.env = _BACKEND_CONTEXT
 
         """Local options"""
-        self.has_built: bool
         self.has_compiled: bool
 
         self.clear()
 
     def clear(self) -> None:
-        self.has_built = False
         self.has_compiled = False
 
         self.routing_tree.clear()
-
-        self._nodes.clear()
-        self._ordered_nodes.clear()
-        self._edges.clear()
-        self._succ_edges.clear()
-        self._edges_grouped.clear()
-
-        self._pred_dg.clear()
-        self._succ_dg.clear()
-
-        self._degree_of_nodes.clear()
         self.core_blocks.clear()
         self.succ_core_blocks.clear()
 
@@ -158,42 +87,7 @@ class Mapper:
             network is given.
         """
         self.clear()
-
-        self.networks = networks
-
-        for network in networks:
-            nodes = network.nodes(level=1, include_self=False)
-            sub_nodes = nodes.include(InputProj, NeuDyn).unique()
-            sub_edges = nodes.subset(SynSys).unique()
-            self._nodes += sub_nodes
-            self._edges += sub_edges
-
-        # Add all nodes in the graph. DO NOT REMOVE!
-        for node in self._nodes:
-            self._succ_edges[node] = dict()
-            self._pred_dg[node] = dict()
-            self._succ_dg[node] = dict()
-            self._succ_nodes[node] = set()
-
-        for syn in self._edges.values():
-            u, v = syn.source.name, syn.dest.name
-            self._succ_edges[u][v] = 1
-            self._pred_dg[v][u] = syn.name
-            self._succ_dg[u][v] = syn.name
-            self._succ_nodes[u].add(v)
-
-        # self._pred_nodes = reverse_edges(self._succ_nodes)
-
-        self.has_built = True
-
-        # `InputProj` nodes are input nodes definitely.
-        self.inodes = self.nodes.subset(InputProj)
-        # By default, nodes with out-degree = 0 are considered output nodes.
-        self.onodes = self.nodes.key_on_condition(
-            lambda node: len(self.succ_dg[node]) == 0
-        )
-
-        self._graph_check()
+        self.graph.build(*networks)
 
     def compile(self, method: str = "catagory"):
         """Backend compilation."""
@@ -220,44 +114,6 @@ class Mapper:
 
         return graph_info
 
-    def _graph_check(self) -> None:
-        """Preprocess of the directed graph. Because there are currently    \
-            many limitations on the networks that can be processed, checks  \
-            are performed at this stage.
-
-        Limitation:
-            # For a node with in-degree > 1, the out-degree of all its      \
-            #   forward nodes = 1.
-            - For a node with out-degree > 1, the in-degree of all its      \
-                backward node = 1.
-            - Only support the in-degree of backward node of input node is 1.
-        """
-        # Filter the DG with cycles.
-        self._ordered_nodes = toposort(self._succ_nodes)
-
-        self._degree_of_nodes = get_node_degrees(self.succ_dg)
-
-        for node in filter(
-            lambda node: self._degree_of_nodes[node].out_degree > 1, self.nodes
-        ):
-            if any(
-                self._degree_of_nodes[succ_node].in_degree > 1
-                for succ_node in self.succ_dg[node]
-            ):
-                raise NotSupportedError(
-                    "This structure of network is not supported yet."
-                )
-
-        # Only support the in-degree of backward node of input node is 1.
-        for inode in self.inodes:
-            if any(
-                self._degree_of_nodes[succ_node].in_degree > 1
-                for succ_node in self.succ_dg[inode]
-            ):
-                raise NotSupportedError(
-                    "Only input nodes are supported as the only input of a node."
-                )
-
     def build_core_blocks(self) -> None:
         """Build core blocks based on grouped edges.
 
@@ -267,15 +123,15 @@ class Mapper:
 
             # Then do sorting in ascending order.
         """
-        self._edges_grouped = group_edges(
-            list(self.edges.keys()),
-            self.succ_dg,
-            self._degree_of_nodes,
-            ordered_nodes=self._ordered_nodes,
+        grouped_edges = group_edges(
+            list(self.graph.edges),
+            self.graph.succ_dg,
+            self.graph.degree_of_nodes,
+            ordered_nodes=self.graph.ordered_nodes,
         )
 
-        for syns_set in self._edges_grouped:
-            syns = [self.edges[syn] for syn in syns_set]
+        for syns_set in grouped_edges:
+            syns = [self.graph.edges[syn] for syn in syns_set]
             self.core_blocks.append(CoreBlock.build(*syns))
 
         # """
@@ -389,7 +245,7 @@ class Mapper:
             for core_plm in cb.core_placements.values():
                 for neu_seg in core_plm.neu_segs:
                     # neu_seg is an output
-                    if neu_seg.parent.name in self.onodes:
+                    if neu_seg.parent.name in self.graph.onodes:
                         # Update the offset of axon
                         output_axon_offset = core_plm.export_neu_config(
                             neu_seg,
@@ -398,7 +254,7 @@ class Mapper:
                         )
                         output_dest_info[neu_seg.parent.name][
                             core_plm.coord.address
-                        ] = core_plm.neu_config[neu_seg.parent]
+                        ] = core_plm.neu_configs[neu_seg.parent]
                         _ocoord_update_flag = True
                     else:
                         # Find the axon destinations
@@ -424,7 +280,7 @@ class Mapper:
             output=output_dest_info,
             members=self.core_plm_config,
             extras={
-                "name": self.graph_name_repr,
+                "name": self.graph.graph_name_repr,
                 "timestep": self.get_inherent_timestep(),
             },
         )
@@ -434,14 +290,16 @@ class Mapper:
 
         # Get the input core blocks for all input nodes.
         for input_cb in filter(
-            lambda cb: any(s for s in cb.source if s.name in self.inodes),
+            lambda cb: any(s for s in cb.source if s.name in self.graph.inodes),
             self.core_blocks,
         ):
             dest_coords = input_cb.core_coords
             dest_rid = get_replication_id(dest_coords)
 
             # Only traverse input nodes in this core block.
-            for inode in filter(lambda s: s in self.inodes.values(), input_cb.source):
+            for inode in filter(
+                lambda s: s in self.graph.inodes.values(), input_cb.source
+            ):
                 axon_coords = aligned_coords(
                     slice(0, input_cb.n_axon_of(input_cb.source.index(inode)), 1),
                     input_cb.axon_segments[inode],
@@ -463,14 +321,38 @@ class Mapper:
 
         return input_nodes_info
 
-    def export(self):
-        pass
-        # return OfflineFrameGen.gen_config_frame(core_plm_config=self.core_plm_config)
+    def export(
+        self,
+        write_to_file: bool = False,
+        *,
+        fp: Union[str, Path] = Path.cwd(),
+        format: Literal["txt", "bin", "npy"] = "npy",
+        local_chip_addr: Optional[CoordLike] = None,
+    ) -> Dict[Coord, Any]:
+        p = Path(fp)
+
+        if not p.is_dir():
+            p.mkdir(parents=True, exist_ok=True)
+
+        if local_chip_addr is not None:
+            _local_chip_addr = to_coord(local_chip_addr)
+        else:
+            _local_chip_addr = _BACKEND_CONTEXT["local_chip_addr"]
+
+        config_dict = OfflineFrameGen.gen_config_frames(
+            _local_chip_addr,
+            self.core_plm_config,
+            write_to_file,
+            p,
+            format,
+        )
+
+        return config_dict
 
     def get_inherent_timestep(self) -> int:
         self._build_check()
 
-        _, distance = get_longest_path(self._succ_edges, self._ordered_nodes)
+        _, distance = get_longest_path(self.graph.succ_dg, self.graph.ordered_nodes)
 
         return distance
 
@@ -508,59 +390,11 @@ class Mapper:
                 )
 
     def _build_check(self) -> None:
-        if not self.has_built:
-            raise BuildError(f"The graph hasn't been built yet")
+        return self.graph.build_check()
 
     def _compile_check(self) -> None:
         if not self.has_compiled:
             raise BuildError(f"The graph hasn't been compiled yet")
-
-    @property
-    def nodes(self):
-        self._build_check()
-
-        return self._nodes
-
-    @property
-    def n_inode(self) -> int:
-        """The #N of input nodes"""
-        self._build_check()
-
-        return len(self.inodes)
-
-    @property
-    def n_onode(self) -> int:
-        """The #N of output nodes"""
-        self._build_check()
-
-        return len(self.onodes)
-
-    @property
-    def edges(self):
-        self._build_check()
-
-        return self._edges
-
-    @property
-    def pred_dg(self):
-        self._build_check()
-
-        return self._pred_dg
-
-    @property
-    def succ_dg(self):
-        self._build_check()
-
-        return self._succ_dg
-
-    @property
-    def graph_name_repr(self) -> str:
-        _str = f"GraphInfo_of_{self.networks[0].name}"
-
-        for network in self.networks[1:]:
-            _str += f"_and_{network.name}"
-
-        return _str
 
 
 def group_by(dict_: Dict, keyfunc=lambda item: item):
