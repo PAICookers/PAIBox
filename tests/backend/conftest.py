@@ -1,11 +1,14 @@
+import os
+import pytest
 import random
+import tempfile
+
+import numpy as np
+import paibox as pb
+
 from functools import partial
 from pathlib import Path
 
-import numpy as np
-import pytest
-
-import paibox as pb
 from paibox.backend.config_template import CoreConfig, CorePlacementConfig, NeuronConfig
 from paibox.backend.placement import NeuSeg
 from paibox.backend.routing import RoutingNode
@@ -32,6 +35,15 @@ def ensure_dump_dir():
         p.mkdir(parents=True, exist_ok=True)
 
     yield p
+
+
+@pytest.fixture
+def cleandir():
+    with tempfile.TemporaryDirectory() as newpath:
+        old_cwd = os.getcwd()
+        os.chdir(newpath)
+        yield
+        os.chdir(old_cwd)
 
 
 @pytest.fixture
@@ -485,7 +497,7 @@ def MockNeuronConfig() -> NeuronConfig:
     dest_coords = [Coord(0, 0), Coord(0, 1)]
 
     return NeuronConfig.encapsulate(
-        neuron, ns.addr_ram, ns.addr_offset, axon_coords, dest_coords
+        neuron, n, ns.addr_ram, ns.addr_offset, axon_coords, dest_coords
     )
 
 

@@ -1,6 +1,8 @@
 import numpy as np
 import pytest
 
+pexpect = pytest.importorskip("pexpect")
+
 from paibox.libpaicore.v2.frame.base import (
     Frame,
     FrameFactory,
@@ -9,6 +11,7 @@ from paibox.libpaicore.v2.frame.base import (
 from paibox.libpaicore.v2.frame.params import FrameFormat as FF, FrameHeader as FH
 from paibox.libpaicore.v2.frame.utils import print_frame
 from paibox.libpaicore import Coord, ReplicationId as RId
+
 
 
 class TestFrameBasicObj:

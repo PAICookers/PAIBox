@@ -6,9 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from paibox.libpaicore.v2.frame.base import Frame
-from paibox.libpaicore import Coord, ReplicationId as RId
-from paibox.libpaicore.v2.frame.params import FrameFormat as FF, FrameHeader as FH
+from paibox.backend.runtime.frame.frame_types import Frame
+from paibox.libpaicore import Coord, FrameFormat as FF, FrameHeader as FH, ReplicationId as RId
 
 
 @pytest.fixture

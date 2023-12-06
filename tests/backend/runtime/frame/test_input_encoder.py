@@ -5,13 +5,15 @@ from json import encoder
 import numpy as np
 import pytest
 
+pexpect = pytest.importorskip("pexpect")
+
 import paibox as pb
 from paibox.libpaicore.v2.frame import ChipInputEncoder
 from paibox.libpaicore.v2.frame.params import FrameFormat
 from paibox.libpaicore.v2.frame.utils import print_frame
 from paibox.libpaicore.v2.coordinate import Coord
 
-pexpect = pytest.importorskip("pexpect")
+
 
 @pytest.fixture
 def input_proj_info():

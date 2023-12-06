@@ -1,4 +1,5 @@
 import json
+import os
 from enum import Enum
 from json import JSONEncoder
 from typing import Any
@@ -45,7 +46,7 @@ class TestMapperDebug:
         mapper.clear()
         mapper.build(net1, net2)
 
-        assert mapper.has_built == True
+        assert mapper.graph.has_built == True
 
     @pytest.fixture
     def test_simple_net(self, get_mapper, build_example_net1):
@@ -61,7 +62,7 @@ class TestMapperDebug:
     def test_export_config_json(self, get_mapper, ensure_dump_dir):
         """Export all the configs into json"""
         mapper: pb.Mapper = get_mapper
-        assert mapper.has_built == True
+        assert mapper.graph.has_built == True
 
         assert len(mapper.core_blocks) == 3  # 3 layers
         assert mapper.get_inherent_timestep() == 4
@@ -133,7 +134,7 @@ class TestMapperDebug:
     def test_find_neuron(self, get_mapper, build_example_net1):
         net: pb.Network = build_example_net1
         mapper: pb.Mapper = get_mapper
-        assert mapper.has_built == True
+        assert mapper.graph.has_built == True
 
         mapper.find_neuron(net.n3)
 
@@ -143,7 +144,7 @@ class TestMapperDebug:
     def test_find_axon(self, get_mapper, build_example_net1):
         net: pb.Network = build_example_net1
         mapper: pb.Mapper = get_mapper
-        assert mapper.has_built == True
+        assert mapper.graph.has_built == True
 
         mapper.find_axon(net.n2)
 
@@ -151,8 +152,9 @@ class TestMapperDebug:
 
 
 class TestMapper_Weight4:
+
     def test_mapper_weight4(
-        self, monkeypatch, build_network_with_branches_4bit, packbits8
+        self, monkeypatch, ensure_dump_dir, build_network_with_branches_4bit, packbits8
     ):
         # Use monkey patch to change the settings of `HwConfig` when running the test.
         monkeypatch.setattr(pb.HwConfig, "N_DENDRITE_MAX_SNN", 8 * 8)
@@ -160,14 +162,11 @@ class TestMapper_Weight4:
 
         net = build_network_with_branches_4bit
 
-        # Core required
-        # inp1 -> n1: 10*10, LCN_2X, 3
-        # n1 -> n2 & n1 -> n3: 10*20, LCN_2X, 6
-        # n2 -> n4 & n3 -> n4: 20*4, LCN_4X, 2
-
         mapper = pb.Mapper()
         mapper.build(net)
         mapper.compile()
+        
+        configs = mapper.export(write_to_file=True, fp=ensure_dump_dir / "debug", format="npy")
 
         assert mapper.n_core_required == 11
 

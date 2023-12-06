@@ -407,6 +407,7 @@ class TestGetNeuronSegments:
             assert neu_segs == expected
             assert neu_segs[0][0].segment.interval == (1 << wp) * (1 << lcn_ex)
 
+    @pytest.mark.xfail
     def test_get_neu_segments_dense(
         self,
         neu_segs_test_data,

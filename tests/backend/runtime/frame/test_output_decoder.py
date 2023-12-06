@@ -1,10 +1,9 @@
 from itertools import chain
 import pytest
 
-from paibox.backend.runtime.frame_decoder import *
-from paibox.libpaicore.v2.frame.utils import print_frame
+from paibox.backend.runtime.runtime import *
 
-pytestmark = pytest.mark.skip(reason="Not implemented")
+pexpect = pytest.importorskip("pexpect")
 
 
 def test_data_decode():

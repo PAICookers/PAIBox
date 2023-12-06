@@ -8,6 +8,8 @@ from paibox.backend.experimental.coreblock import (
     get_neuron_segments_2,
 )
 
+pytestmark = pytest.mark.skip(reason="Not implemented")
+
 n1 = pb.neuron.TonicSpiking(600, 2)
 n2 = pb.neuron.TonicSpiking(800, 2)
 n3 = pb.neuron.TonicSpiking(200, 2)

@@ -1,6 +1,9 @@
 import numpy as np
 import pytest
 
+
+pexpect = pytest.importorskip("pexpect")
+
 from paibox.libpaicore.v2.frame.base import *
 from paibox.libpaicore.v2.frame.frames import (
     OfflineConfigFrame1,
@@ -14,7 +17,6 @@ from paibox.libpaicore.v2.frame.params import *
 from paibox.libpaicore.v2.frame.utils import print_frame
 from paibox.libpaicore.v2 import Coord, ReplicationId
 
-pytestmark = pytest.mark.skip(reason="Not implemented")
 
 @pytest.mark.parametrize(
     "chip_coord,core_coord,core_e_coord,random_seed",
