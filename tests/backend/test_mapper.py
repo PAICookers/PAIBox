@@ -152,7 +152,6 @@ class TestMapperDebug:
 
 
 class TestMapper_Weight4:
-
     def test_mapper_weight4(
         self, monkeypatch, ensure_dump_dir, build_network_with_branches_4bit, packbits8
     ):
@@ -165,10 +164,26 @@ class TestMapper_Weight4:
         mapper = pb.Mapper()
         mapper.build(net)
         mapper.compile()
-        
-        configs = mapper.export(write_to_file=True, fp=ensure_dump_dir / "debug", format="npy")
+
+        configs = mapper.export(write_to_file=False, fp=ensure_dump_dir, format="npy")
 
         assert mapper.n_core_required == 11
+        
+        from paibox.backend.checker import ConfigChecker
+        
+        cplm00 = mapper.core_blocks[0].core_placements[Coord(0, 0)]
+        cplm01 = mapper.core_blocks[0].core_placements[Coord(0, 1)]
+        cplm10 = mapper.core_blocks[0].core_placements[Coord(1, 0)]
+        
+        n_config_core00 = ConfigChecker.n_config_estimate(cplm00.n_neuron, cplm00.weight_precision, cplm00.lcn_ex)
+        n_config_core01 = ConfigChecker.n_config_estimate(cplm01.n_neuron, cplm01.weight_precision, cplm01.lcn_ex)
+        n_config_core10 = ConfigChecker.n_config_estimate(cplm10.n_neuron, cplm10.weight_precision, cplm10.lcn_ex)
+        
+        assert n_config_core00 == configs[Coord(0, 0)].size
+        assert n_config_core01 == configs[Coord(0, 1)].size
+        assert n_config_core10 == configs[Coord(1, 0)].size
+        
+        # The #N of config frames of each core.
 
         original_w1 = net.s1.connectivity
         original_w2 = net.s2.connectivity
@@ -219,7 +234,9 @@ class TestMapper_Weight4:
 
 
 class TestMapper_NeuronSeg_Dense:
-    def test_neuron_seg_dense(self, monkeypatch, build_Network_8bit_dense, ensure_dump_dir):
+    def test_neuron_seg_dense(
+        self, monkeypatch, build_Network_8bit_dense, ensure_dump_dir
+    ):
         monkeypatch.setattr(pb.HwConfig, "N_DENDRITE_MAX_SNN", 8 * 8)
         monkeypatch.setattr(pb.HwConfig, "N_FANIN_PER_DENDRITE_SNN", 6)
 

@@ -125,6 +125,76 @@ class TestTopoSort:
 
 
 class TestGroupEdges:
+    
+    @staticmethod
+    def group_edges_proto(
+        edges: List[EdgeName],
+        succ_edges: Dict[NodeName, Dict[NodeName, EdgeName]],
+        degree: Dict[NodeName, NodeDegree],
+        *,
+        ordered_nodes: Optional[List[NodeName]] = None,
+    ) -> List[Set[EdgeName]]:
+        """Group all edges according to a certain rule.
+
+        Args:
+            - edges: a list of edges.
+            - succ_edges: a dictionary recording previous nodes and edges.
+            - degree: the in/out-degree of nodes.
+            - ordered_nodes: nodes in topological sorting. Optional.
+
+        Returns:
+            - A list of set of grouped edges.
+        """
+        def _find_pred_edges_proto(
+            succ_edges: Dict[NodeName, Dict[NodeName, EdgeName]], target_node: NodeName
+        ) -> Set[EdgeName]:
+            pred = set()
+
+            for succ_node in filter(lambda node: target_node in node, succ_edges.values()):
+                pred.add(succ_node[target_node])
+
+            return pred
+
+        gathered = []
+        edges_set = set(edges)
+
+        if isinstance(ordered_nodes, list):
+            # In topological sorting.
+            ordered = ordered_nodes
+        else:
+            # Without sorting.
+            ordered = list(succ_edges.keys())
+
+        for node in ordered:
+            if degree[node].in_degree > 1:
+                edge_group = _find_pred_edges_proto(succ_edges, node)
+                edge_group_copy = edge_group.copy()
+
+                for ed in edge_group:
+                    if ed not in edges_set:
+                        edge_group_copy.remove(ed)
+
+                edges_set.difference_update(edge_group_copy)
+                gathered.append(edge_group_copy)
+
+            if degree[node].out_degree > 1:
+                edge_group = set(e for e in succ_edges[node].values())
+
+                if edge_group not in gathered:
+                    edges_set.difference_update(edge_group)
+                    gathered.append(edge_group)
+
+            elif degree[node].out_degree > 0:
+                succ_node = list(succ_edges[node].keys())[0]
+                # Check the in-degree of the only following node.
+                if degree[succ_node].in_degree == 1:
+                    gathered.append({succ_edges[node][succ_node]})
+            else:
+                # out-degree = 0, do nothing.
+                continue
+
+        return gathered
+    
     @pytest.mark.parametrize(
         "edges, succ_edges",
         [
@@ -181,7 +251,7 @@ class TestGroupEdges:
         """
         degrees = get_node_degrees(succ_edges)
         ordered_nodes = toposort(succ_edges)
-        gathered = group_edges(edges, succ_edges, degrees, ordered_nodes=ordered_nodes)
+        gathered = self.group_edges_proto(edges, succ_edges, degrees, ordered_nodes=ordered_nodes)
         print()
 
     @pytest.mark.parametrize(
