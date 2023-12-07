@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from typing import Union, Tuple
 import numpy as np
 
-from ._types import *
+from ._types import BasicFrameArray, FRAME_DTYPE, FrameArrayType
 from .utils import check_elem_same, header2type
 from paibox.libpaicore import (
     Coord,
@@ -146,7 +146,7 @@ class FramePackage(Frame):
         return value
 
     def __len__(self) -> int:
-        return 1 + self.packages.size
+        return 1 + self.n_package
 
     def __str__(self) -> str:
         _present = (
@@ -177,7 +177,7 @@ class FrameFactory:
         )
 
     @staticmethod
-    def framearray2np(frame_array: FrameArray) -> FrameArrayType:
+    def framearray2np(frame_array: BasicFrameArray) -> FrameArrayType:
         if isinstance(frame_array, int):
             nparray = np.asarray([frame_array], dtype=FRAME_DTYPE)
         elif isinstance(frame_array, np.ndarray):
@@ -236,7 +236,7 @@ class FrameFactory:
         )
 
     @classmethod
-    def decode(cls, value: FrameArray) -> Union[Frame, FramePackage]:
+    def decode(cls, value: BasicFrameArray) -> Union[Frame, FramePackage]:
         nparray = FrameFactory.framearray2np(value)
 
         header0 = FH(
@@ -271,8 +271,8 @@ class FrameFactory:
     #     chip_coord: CoordLike,
     #     core_coord: CoordLike,
     #     rid: CoordLike,
-    #     payload: FrameArray,
-    #     packages: Optional[FrameArray] = None,
+    #     payload: BasicFrameArray,
+    #     packages: Optional[BasicFrameArray] = None,
     # ) -> Union[Frame, FramePackage]:
     #     _chip_coord = to_coord(chip_coord)
     #     _core_coord = to_coord(core_coord)

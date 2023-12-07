@@ -1,12 +1,20 @@
 import os
 import numpy as np
+
 from functools import wraps
-from typing import Any, Dict, TypeVar
-from pydantic import TypeAdapter, ValidationError
+from pathlib import Path
+from pydantic import TypeAdapter
+from typing import Any, Dict, Optional, Tuple
 
 from ._types import FrameArrayType
 from paibox.libpaicore import FrameHeader as FH, FrameType as FT
-from paibox.exceptions import FrameIllegalError
+
+
+# Replace the one from paibox.excpetions
+class FrameIllegalError(ValueError):
+    """Frame is illegal."""
+
+    pass
 
 
 def check_elem_same(obj: Any) -> bool:
@@ -33,6 +41,20 @@ def header2type(header: FH) -> FT:
 def print_frame(frames: FrameArrayType) -> None:
     for frame in frames:
         print(bin(frame)[2:].zfill(64))
+
+
+def np2npy(fp: Path, d: np.ndarray) -> None:
+    np.save(fp, d)
+
+
+def np2bin(fp: Path, d: np.ndarray) -> None:
+    d.tofile(fp)
+
+
+def np2txt(fp: Path, d: np.ndarray) -> None:
+    with open(fp, "w") as f:
+        for i in range(d.size):
+            f.write("{:064b}\n".format(d[i]))
 
 
 def npFrame2txt(dataPath, inputFrames):
@@ -73,16 +95,35 @@ def npFrame2bin(frame, framePath):
     print(f"Generate frames as bin file at {framePath}")
 
 
+# Replace the one from paibox.utils
+def bin_split(x: int, pos: int, high_mask: Optional[int] = None) -> Tuple[int, int]:
+    """Split an integer, return the high and low part.
+
+    Argument:
+        - x: the integer
+        - pos: the position (LSB) to split the binary.
+        - high_mask: mask for the high part. Optional.
+
+    Example::
+
+        >>> bin_split(0b1100001001, 3)
+        97(0b1100001), 1
+    """
+    low = x & ((1 << pos) - 1)
+
+    if isinstance(high_mask, int):
+        high = (x >> pos) & high_mask
+    else:
+        high = x >> pos
+
+    return high, low
+
+
 def params_check(checker: TypeAdapter):
     def inner(func):
         @wraps(func)
         def wrapper(params: Dict[Any, Any], *args, **kwargs):
-            try:
-                checked = checker.validate_python(params)
-
-            except ValidationError:
-                raise KeyError(f"Missing necessary keys") from None
-
+            checked = checker.validate_python(params)
             return func(checked, *args, **kwargs)
 
         return wrapper
@@ -94,13 +135,8 @@ def params_check2(checker1: TypeAdapter, checker2: TypeAdapter):
     def inner(func):
         @wraps(func)
         def wrapper(params1: Dict[Any, Any], params2: Dict[Any, Any], *args, **kwargs):
-            try:
-                checked1 = checker1.validate_python(params1)
-                checked2 = checker2.validate_python(params2)
-
-            except ValidationError:
-                raise KeyError(f"Missing necessary keys") from None
-
+            checked1 = checker1.validate_python(params1)
+            checked2 = checker2.validate_python(params2)
             return func(checked1, checked2, *args, **kwargs)
 
         return wrapper
