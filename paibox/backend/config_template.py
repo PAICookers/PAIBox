@@ -13,7 +13,6 @@ from paibox.libpaicore import (
     MaxPoolingEnable,
     NeuronAttrs,
     NeuronDestInfo,
-    ParamsRAM,
     ParamsReg,
     SNNModeEnable,
     SpikeWidthFormat,
@@ -59,7 +58,7 @@ class CoreConfig(NamedTuple):
 
 
 class NeuronDest(NamedTuple):
-    """Information of neuron destination(Axon address information)."""
+    """Information of neuron destination (axon address information)."""
 
     _extra_params = ("dest_coords", "tick_relative", "addr_axon")
     """Extra parameters for debugging."""

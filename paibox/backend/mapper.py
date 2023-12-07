@@ -70,6 +70,8 @@ class Mapper:
         self.has_compiled = False
 
         self.routing_tree.clear()
+        self.graph.clear()
+
         self.core_blocks.clear()
         self.succ_core_blocks.clear()
 
@@ -323,7 +325,7 @@ class Mapper:
 
     def export(
         self,
-        write_to_file: bool = False,
+        write_to_file: bool = True,
         *,
         fp: Union[str, Path] = Path.cwd(),
         format: Literal["txt", "bin", "npy"] = "npy",

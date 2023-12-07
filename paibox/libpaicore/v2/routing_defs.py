@@ -1,8 +1,7 @@
 from enum import Enum, IntEnum, unique
 from typing import NamedTuple, Sequence, Set
 
-from .coordinate import Coord
-from .coordinate import ReplicationId as RId
+from .coordinate import Coord, ReplicationId as RId
 from .hw_defs import HwConfig
 
 __all__ = [

@@ -96,6 +96,7 @@ class PAIGraph:
     has_built: bool = field(default=False)
 
     def clear(self) -> None:
+        """Clear the PAIGraph."""
         self.has_built = False
 
         self.networks = ()

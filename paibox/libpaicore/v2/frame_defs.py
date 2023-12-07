@@ -12,34 +12,37 @@ class FrameType(IntEnum):
 
 
 class FrameHeader(IntEnum):
-    "配置帧帧头"
-    CONFIG_TYPE1 = 0b0000  # 配置帧 1型（RANDOM_SEED）
-    CONFIG_TYPE2 = 0b0001  # 配置帧 2型（PARAMETER_REG）
-    CONFIG_TYPE3 = 0b0010  # 配置帧 3型（Neuron RAM）
-    CONFIG_TYPE4 = 0b0011  # 配置帧 4型（Weight RAM）
+    """Frame headers"""
 
-    "测试帧帧头"
-    TEST_TYPE1 = 0b0100  # 测试输入帧 1型（RANDOM_SEED_REG）
-    TEST_TYPE2 = 0b0101  # 测试输入帧 2型（PARAMETER_REG）
-    TEST_TYPE3 = 0b0110  # 测试输入帧 3型（Neuron RAM）
-    TEST_TYPE4 = 0b0111  # 测试输入帧 4型（Weight RAM）
-    # TEST_OUT_TYPE1 = 0b0100
-    # TEST_OUT_TYPE2 = 0b0101
-    # TEST_OUT_TYPE3 = 0b0110
-    # TEST_OUT_TYPE4 = 0b0111
+    CONFIG_TYPE1 = 0b0000
+    """Type I, random seed"""
+    CONFIG_TYPE2 = 0b0001
+    """Type II, parameter REG"""
+    CONFIG_TYPE3 = 0b0010
+    """Type III, neuron RAM"""
+    CONFIG_TYPE4 = 0b0011
+    """Type IV, weight RAM"""
 
-    "工作帧帧头"
-    WORK_TYPE1 = 0b1000  # 工作帧 1型（Spike，脉冲帧）
-    WORK_TYPE2 = 0b1001  # 工作帧 2型（同步帧）
-    WORK_TYPE3 = 0b1010  # 工作帧 3型（清除帧）
-    WORK_TYPE4 = 0b1011  # 工作帧 4型（初始化帧）
+    TEST_TYPE1 = 0b0100
+    TEST_TYPE2 = 0b0101
+    TEST_TYPE3 = 0b0110
+    TEST_TYPE4 = 0b0111
+
+    WORK_TYPE1 = 0b1000
+    """Type I, spike"""
+    WORK_TYPE2 = 0b1001
+    """Type II, sync"""
+    WORK_TYPE3 = 0b1010
+    """Type III, clear"""
+    WORK_TYPE4 = 0b1011
+    """Type IV, init"""
 
 
 class FrameFormat:
-    """FrameMask 通用数据帧掩码 和 数据包格式起始帧掩码"""
+    """General frame mask & offset."""
 
     GENERAL_MASK = (1 << 64) - 1
-    "通用"
+
     # Header
     GENERAL_HEADER_OFFSET = 60
     GENERAL_HEADER_MASK = (1 << 4) - 1
@@ -97,30 +100,28 @@ class FrameFormat:
     DATA_PACKAGE_NUM_MASK = (1 << 19) - 1
 
 
-"""配置帧"""
+class OfflineFrameFormat(FrameFormat):
+    """Basic offline frame format"""
 
-
-class ConfigFrame1Format(FrameFormat):
     pass
 
 
-class ConfigFrame2Format(FrameFormat):
+class OnlineFrameFormat(FrameFormat):
+    """Basic online frame format"""
+
     pass
 
 
-class ConfigFrame3Format(FrameFormat):
+class OfflineConfigFrame1Format(OfflineFrameFormat):
+    """Offline config frame type I, random seed"""
+
     pass
 
 
-class ConfigFrame4Format(FrameFormat):
-    pass
+class OfflineConfigFrame2Format(OfflineFrameFormat):
+    """Offline config frame type II, parameter REG"""
 
-
-class ParameterRegFormat(FrameFormat):
-    """配置帧2型"""
-
-    """Frame #1"""
-
+    # Frame #1
     WEIGHT_WIDTH_OFFSET = 28
     WEIGHT_WIDTH_MASK = (1 << 2) - 1
 
@@ -143,7 +144,7 @@ class ParameterRegFormat(FrameFormat):
     TICK_WAIT_START_COMBINATION_OFFSET = 7
     TICK_WAIT_START_HIGH8_MASK = (1 << 8) - 1
 
-    """Frame #2"""
+    # Frame #2
     TICK_WAIT_START_LOW7_OFFSET = 23
     TICK_WAIT_START_LOW7_MASK = (1 << 7) - 1
 
@@ -158,18 +159,18 @@ class ParameterRegFormat(FrameFormat):
 
     # 用于配置帧2型test_chip_addr
     TEST_CHIP_ADDR_HIGH3_OFFSET = 0
-    TEST_CHIP_ADDR_COMBINATION_OFFSET = 7
+    TEST_CHIP_ADDR_LOW7_OFFSET = 7
     TEST_CHIP_ADDR_HIGH3_MASK = (1 << 3) - 1
 
-    """Frame #3"""
+    # Frame #3
     TEST_CHIP_ADDR_LOW7_OFFSET = 23
     TEST_CHIP_ADDR_LOW7_MASK = (1 << 7) - 1
 
 
-class ParameterRAMFormat(FrameFormat):
-    """配置帧3型（Neuron RAM）"""
+class OfflineConfigFrame3Format(OfflineFrameFormat):
+    """Offline config frame type III, param RAM"""
 
-    # 1
+    # Frame #1
     VJT_PRE_OFFSET = 0
     VJT_PRE_MASK = (1 << 30) - 1
 
@@ -177,12 +178,12 @@ class ParameterRAMFormat(FrameFormat):
     BIT_TRUNCATE_MASK = (1 << 5) - 1
 
     WEIGHT_DET_STOCH_OFFSET = 35
-    WEIGHT_DET_STOCH_MASK = 1 << 1 - 1
+    WEIGHT_DET_STOCH_MASK = (1 << 1) - 1
 
     LEAK_V_LOW28_OFFSET = 36
     LEAK_V_LOW28_MASK = (1 << 28) - 1
 
-    # 2
+    # Frame #2
     LEAK_V_HIGH2_OFFSET = 0
     LEAK_V_HIGH2_MASK = (1 << 2) - 1
 
@@ -204,7 +205,7 @@ class ParameterRAMFormat(FrameFormat):
     THRESHOLD_MASK_CTRL_LOW1_OFFSET = 63
     THRESHOLD_MASK_CTRL_LOW1_MASK = (1 << 1) - 1
 
-    # 3
+    # Frame #3
     THRESHOLD_MASK_CTRL_HIGH4_OFFSET = 0
     THRESHOLD_MASK_CTRL_HIGH4_MASK = (1 << 4) - 1
 
@@ -235,7 +236,7 @@ class ParameterRAMFormat(FrameFormat):
     ADDR_CORE_X_LOW2_OFFSET = 62
     ADDR_CORE_X_LOW2_MASK = (1 << 2) - 1
 
-    # 4
+    # Frame #4
     ADDR_CORE_X_HIGH3_OFFSET = 0
     ADDR_CORE_X_HIGH3_MASK = (1 << 3) - 1
 
@@ -246,11 +247,21 @@ class ParameterRAMFormat(FrameFormat):
     TICK_RELATIVE_MASK = (1 << 8) - 1
 
 
-# TODO: 测试帧
+class OfflineConfigFrame4Format(OfflineFrameFormat):
+    """Offline config frame type IV, weight RAM"""
+
+    pass
 
 
-class WorkFrame1Format(FrameFormat):
-    "工作帧 1 型（Spike，脉冲帧）"
+RandomSeedFormat = OfflineConfigFrame1Format
+ParameterRegFormat = OfflineConfigFrame2Format
+ParameterRAMFormat = OfflineConfigFrame3Format
+WeightRAMFormat = OfflineConfigFrame4Format
+
+
+class OfflineWorkFrame1Format(OfflineFrameFormat):
+    """Work frame type I"""
+
     RESERVED_OFFSET = 27
     RESERVED_MASK = (1 << 3) - 1
 
@@ -264,8 +275,9 @@ class WorkFrame1Format(FrameFormat):
     DATA_MASK = (1 << 8) - 1
 
 
-class WorkFrame2Format(FrameFormat):
-    "工作帧 2 型（同步帧）"
+class OfflineWorkFrame2Format(OfflineFrameFormat):
+    """Work frame type II"""
+
     RESERVED_OFFSET = 30
     RESERVED_MASK = (1 << 20) - 1
 
@@ -273,16 +285,24 @@ class WorkFrame2Format(FrameFormat):
     TIME_MASK = (1 << 30) - 1
 
 
-class WorkFrame3Format(FrameFormat):
-    "工作帧 3 型（清除帧）"
+class OfflineWorkFrame3Format(OfflineFrameFormat):
+    """Work frame type III"""
+
     RESERVED_OFFSET = 0
     RESERVED_MASK = (1 << 50) - 1
 
 
-class WorkFrame4Format(FrameFormat):
-    "工作帧4 型（初始化帧）"
+class OfflineWorkFrame4Format(OfflineFrameFormat):
+    """Work frame type IV"""
+
     RESERVED_OFFSET = 0
     RESERVED_MASK = (1 << 50) - 1
 
 
-# TODO: 在线学习处理核数据帧格式
+SpikeFrameFormat = OfflineWorkFrame1Format
+SyncFrameFormat = OfflineWorkFrame2Format
+ClearFrameFormat = OfflineWorkFrame3Format
+InitFrameFormat = OfflineWorkFrame4Format
+
+
+# TODO frame format for online frames

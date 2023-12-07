@@ -187,43 +187,8 @@ class NeuronAttrs(BaseModel):
 
 
 class NeuronParams(BaseModel):
-    # _exclude_vars = ("tick_relative", "addr_axon")
-
     attrs: NeuronAttrs
     dest_info: NeuronDestInfo
-
-    # tick_relative: List[InstanceOf[int]] = Field(
-    #     description="Information of relative ticks.",
-    # )
-
-    # addr_axon: List[InstanceOf[int]] = Field(description="Destination axon address.")
-
-    # @field_validator("tick_relative")
-    # @classmethod
-    # def _tick_relative_check(cls, v):
-    #     if any(tr >= (1 << TICK_RELATIVE_BIT_MAX) or tr < 0 for tr in v):
-    #         # DO NOT change the type of exception `ValueError` in the validators below.
-    #         raise ValueError("Parameter 'tick relative' out of range.")
-
-    #     return v
-
-    # @field_validator("addr_axon")
-    # @classmethod
-    # def _addr_axon_check(cls, v):
-    #     if any(addr >= (1 << ADDR_AXON_BIT_MAX) or addr < 0 for addr in v):
-    #         raise ValueError("Parameter 'addr_axon' out of range.")
-
-    #     return v
-
-    # @model_validator(mode="after")
-    # def _length_match_check(self):
-    #     if len(self.tick_relative) != len(self.addr_axon):
-    #         raise ValueError(
-    #             "Parameter 'tick relative' & 'addr_axon' must have the same "
-    #             f"length: {len(self.tick_relative)}, {len(self.addr_axon)}."
-    #         )
-
-    #     return self
 
 
 ParamsRAM = NeuronParams

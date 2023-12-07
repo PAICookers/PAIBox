@@ -1,6 +1,7 @@
+import warnings
+import numpy as np
 from dataclasses import dataclass, field
 from typing import Union, Tuple
-import numpy as np
 
 from ._types import BasicFrameArray, FRAME_DTYPE, FrameArrayType
 from .utils import check_elem_same, header2type
@@ -182,15 +183,19 @@ class FrameFactory:
             nparray = np.asarray([frame_array], dtype=FRAME_DTYPE)
         elif isinstance(frame_array, np.ndarray):
             if frame_array.ndim != 1:
-                # TODO
-                raise ValueError(f"Shape wrong")
+                warnings.warn(
+                    f"ndim of frame arrays must be 1, but got {frame_array.ndim}."
+                    f"Flatten it anyway.",
+                    UserWarning,
+                )
 
-            nparray = frame_array.astype(FRAME_DTYPE)
+            nparray = frame_array.flatten().astype(FRAME_DTYPE)
         elif isinstance(frame_array, (list, tuple)):
             nparray = np.asarray(frame_array, dtype=FRAME_DTYPE)
         else:
-            # TODO
-            raise TypeError
+            raise TypeError(
+                f"Expect int, list, tuple or np.ndarray, but got {type(frame_array)}"
+            )
 
         return nparray
 
@@ -237,7 +242,11 @@ class FrameFactory:
 
     @classmethod
     def decode(cls, value: BasicFrameArray) -> Union[Frame, FramePackage]:
-        nparray = FrameFactory.framearray2np(value)
+        """According to the given frame value, parse the corresponding      \
+            frame format. Otherwise, it means that the frame is incorrect   \
+            or incomplete, and an exception will be raised.
+        """
+        nparray = cls.framearray2np(value)
 
         header0 = FH(
             (int(nparray[0]) >> FF.GENERAL_HEADER_OFFSET) & FF.GENERAL_HEADER_MASK
@@ -247,6 +256,9 @@ class FrameFactory:
             int(nparray[0]) >> FF.DATA_PACKAGE_TYPE_OFFSET
         ) & FF.DATA_PACKAGE_TYPE_MASK
 
+        # We should decode the specific type of frame. But first:
+        # 1. Work I
+        # 2. Test out I/II/III/IV
         if FrameFactory._is_package_format(header0, bit19):
             chip_coord, core_coord, rid, payload = FrameFactory._extract_common(
                 nparray[0]
@@ -263,35 +275,3 @@ class FrameFactory:
             )
         else:
             return Frame._decode(header0, *FrameFactory._extract_common(nparray))
-
-    # @classmethod
-    # def encode(
-    #     cls,
-    #     header: FH,
-    #     chip_coord: CoordLike,
-    #     core_coord: CoordLike,
-    #     rid: CoordLike,
-    #     payload: BasicFrameArray,
-    #     packages: Optional[BasicFrameArray] = None,
-    # ) -> Union[Frame, FramePackage]:
-    #     _chip_coord = to_coord(chip_coord)
-    #     _core_coord = to_coord(core_coord)
-    #     _rid = RId(*to_coord(rid).to_tuple())
-    #     _payload = FrameFactory.framearray2np(payload)
-
-    #     bit19 = (
-    #         int(_payload[0]) >> FF.DATA_PACKAGE_TYPE_OFFSET
-    #     ) & FF.DATA_PACKAGE_TYPE_MASK
-
-    #     if FrameFactory._is_package_format(header, bit19):
-    #         if packages is None:
-    #             # TODO
-    #             raise ValueError
-
-    #         _packages = FrameFactory.framearray2np(packages)
-    #         return FramePackage._decode(
-    #             header, _chip_coord, _core_coord, _rid, _payload, _packages
-    #         )
-
-    #     else:
-    #         return Frame._decode(header, _chip_coord, _core_coord, _rid, _payload)
