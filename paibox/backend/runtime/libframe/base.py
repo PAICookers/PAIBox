@@ -14,9 +14,6 @@ from paibox.libpaicore import (
 )
 
 
-__all__ = ["FrameFactory"]
-
-
 @dataclass
 class Frame:
     """frames which contains information.
@@ -166,112 +163,129 @@ class FramePackage(Frame):
         return _present
 
 
-class FrameFactory:
-    @staticmethod
-    def _is_package_format(header: FH, bit19: int) -> bool:
-        """Check whether the frame array is in package format.
+# class FrameFactory:
+#     @staticmethod
+#     def _is_package_format(header: FH, bit19: int) -> bool:
+#         """Check whether the frame array is in package format.
 
-        Config type III & IV, or test out type III or IV (bit 19 is 0).
-        """
-        return (header is FH.CONFIG_TYPE3 or header is FH.CONFIG_TYPE4) or (
-            (header is FH.TEST_TYPE3 or header is FH.TEST_TYPE4) and bit19 == 0
+#         Config type III & IV, or test out type III or IV (bit 19 is 0).
+#         """
+#         return (header is FH.CONFIG_TYPE3 or header is FH.CONFIG_TYPE4) or (
+#             (header is FH.TEST_TYPE3 or header is FH.TEST_TYPE4) and bit19 == 0
+#         )
+
+#     @staticmethod
+#     def framearray2np(frame_array: BasicFrameArray) -> FrameArrayType:
+#         if isinstance(frame_array, int):
+#             nparray = np.asarray([frame_array], dtype=FRAME_DTYPE)
+#         elif isinstance(frame_array, np.ndarray):
+#             if frame_array.ndim != 1:
+#                 warnings.warn(
+#                     f"ndim of frame arrays must be 1, but got {frame_array.ndim}."
+#                     f"Flatten it anyway.",
+#                     UserWarning,
+#                 )
+
+#             nparray = frame_array.flatten().astype(FRAME_DTYPE)
+#         elif isinstance(frame_array, (list, tuple)):
+#             nparray = np.asarray(frame_array, dtype=FRAME_DTYPE)
+#         else:
+#             raise TypeError(
+#                 f"Expect int, list, tuple or np.ndarray, but got {type(frame_array)}"
+#             )
+
+#         return nparray
+
+#     @staticmethod
+#     def _extract_common(
+#         frame_array: FrameArrayType,
+#     ) -> Tuple[Coord, Coord, RId, FrameArrayType]:
+#         chip_coords = (
+#             frame_array >> FF.GENERAL_CHIP_ADDR_OFFSET
+#         ) & FF.GENERAL_CHIP_ADDR_MASK
+#         core_coords = (
+#             frame_array >> FF.GENERAL_CORE_ADDR_OFFSET
+#         ) & FF.GENERAL_CORE_ADDR_MASK
+#         rids = (
+#             frame_array >> FF.GENERAL_CORE_EX_ADDR_OFFSET
+#         ) & FF.GENERAL_CORE_EX_ADDR_MASK
+#         payload = (frame_array >> FF.GENERAL_PAYLOAD_OFFSET) & FF.GENERAL_PAYLOAD_MASK
+
+#         if not check_elem_same(chip_coords):
+#             raise ValueError(
+#                 "The header of the frame is not the same, please check the frames value."
+#             )
+
+#         if not check_elem_same(core_coords):
+#             raise ValueError(
+#                 "The header of the frame is not the same, please check the frames value."
+#             )
+
+#         if not check_elem_same(rids):
+#             raise ValueError(
+#                 "The header of the frame is not the same, please check the frames value."
+#             )
+
+#         chip_coord = chip_coords[0]
+#         core_coord = core_coords[0]
+#         rid = rids[0]
+
+#         return (
+#             Coord.from_addr(int(chip_coord)),
+#             Coord.from_addr(int(core_coord)),
+#             RId.from_addr(int(rid)),
+#             payload.astype(FRAME_DTYPE),
+#         )
+
+#     @classmethod
+#     def decode(cls, value: BasicFrameArray) -> Union[Frame, FramePackage]:
+#         """According to the given frame value, parse the corresponding      \
+#             frame format. Otherwise, it means that the frame is incorrect   \
+#             or incomplete, and an exception will be raised.
+#         """
+#         nparray = cls.framearray2np(value)
+
+#         header0 = FH(
+#             (int(nparray[0]) >> FF.GENERAL_HEADER_OFFSET) & FF.GENERAL_HEADER_MASK
+#         )
+
+#         bit19 = (
+#             int(nparray[0]) >> FF.DATA_PACKAGE_TYPE_OFFSET
+#         ) & FF.DATA_PACKAGE_TYPE_MASK
+
+#         # We should decode the specific type of frame. But first:
+#         # 1. Work I
+#         # 2. Test out I/II/III/IV
+#         if FrameFactory._is_package_format(header0, bit19):
+#             chip_coord, core_coord, rid, payload = FrameFactory._extract_common(
+#                 nparray[0]
+#             )
+#             return FramePackage._decode(
+#                 header0, chip_coord, core_coord, rid, FRAME_DTYPE(payload), nparray[1:]
+#             )
+
+#         headers = (nparray >> FF.GENERAL_HEADER_OFFSET) & FF.GENERAL_HEADER_MASK
+
+#         if not check_elem_same(headers):
+#             raise ValueError(
+#                 "The header of the frame is not the same, please check the frames value."
+#             )
+#         else:
+#             return Frame._decode(header0, *FrameFactory._extract_common(nparray))
+
+
+def header_check(frames: FrameArrayType, expected_type: FH) -> None:
+    """Check the header of frame arrays."""
+    header0 = FH((int(frames[0]) >> FF.GENERAL_HEADER_OFFSET) & FF.GENERAL_HEADER_MASK)
+
+    if header0 != expected_type:
+        raise ValueError(
+            f"Expected frame type {expected_type}, but got: {type(header0)}."
         )
 
-    @staticmethod
-    def framearray2np(frame_array: BasicFrameArray) -> FrameArrayType:
-        if isinstance(frame_array, int):
-            nparray = np.asarray([frame_array], dtype=FRAME_DTYPE)
-        elif isinstance(frame_array, np.ndarray):
-            if frame_array.ndim != 1:
-                warnings.warn(
-                    f"ndim of frame arrays must be 1, but got {frame_array.ndim}."
-                    f"Flatten it anyway.",
-                    UserWarning,
-                )
+    headers = (frames >> FF.GENERAL_HEADER_OFFSET) & FF.GENERAL_HEADER_MASK
 
-            nparray = frame_array.flatten().astype(FRAME_DTYPE)
-        elif isinstance(frame_array, (list, tuple)):
-            nparray = np.asarray(frame_array, dtype=FRAME_DTYPE)
-        else:
-            raise TypeError(
-                f"Expect int, list, tuple or np.ndarray, but got {type(frame_array)}"
-            )
-
-        return nparray
-
-    @staticmethod
-    def _extract_common(
-        frame_array: FrameArrayType,
-    ) -> Tuple[Coord, Coord, RId, FrameArrayType]:
-        chip_coords = (
-            frame_array >> FF.GENERAL_CHIP_ADDR_OFFSET
-        ) & FF.GENERAL_CHIP_ADDR_MASK
-        core_coords = (
-            frame_array >> FF.GENERAL_CORE_ADDR_OFFSET
-        ) & FF.GENERAL_CORE_ADDR_MASK
-        rids = (
-            frame_array >> FF.GENERAL_CORE_EX_ADDR_OFFSET
-        ) & FF.GENERAL_CORE_EX_ADDR_MASK
-        payload = (frame_array >> FF.GENERAL_PAYLOAD_OFFSET) & FF.GENERAL_PAYLOAD_MASK
-
-        if not check_elem_same(chip_coords):
-            raise ValueError(
-                "The header of the frame is not the same, please check the frames value."
-            )
-
-        if not check_elem_same(core_coords):
-            raise ValueError(
-                "The header of the frame is not the same, please check the frames value."
-            )
-
-        if not check_elem_same(rids):
-            raise ValueError(
-                "The header of the frame is not the same, please check the frames value."
-            )
-
-        chip_coord = chip_coords[0]
-        core_coord = core_coords[0]
-        rid = rids[0]
-
-        return (
-            Coord.from_addr(int(chip_coord)),
-            Coord.from_addr(int(core_coord)),
-            RId.from_addr(int(rid)),
-            payload.astype(FRAME_DTYPE),
+    if not check_elem_same(headers):
+        raise ValueError(
+            "The header of the frame is not the same, please check the frames value."
         )
-
-    @classmethod
-    def decode(cls, value: BasicFrameArray) -> Union[Frame, FramePackage]:
-        """According to the given frame value, parse the corresponding      \
-            frame format. Otherwise, it means that the frame is incorrect   \
-            or incomplete, and an exception will be raised.
-        """
-        nparray = cls.framearray2np(value)
-
-        header0 = FH(
-            (int(nparray[0]) >> FF.GENERAL_HEADER_OFFSET) & FF.GENERAL_HEADER_MASK
-        )
-
-        bit19 = (
-            int(nparray[0]) >> FF.DATA_PACKAGE_TYPE_OFFSET
-        ) & FF.DATA_PACKAGE_TYPE_MASK
-
-        # We should decode the specific type of frame. But first:
-        # 1. Work I
-        # 2. Test out I/II/III/IV
-        if FrameFactory._is_package_format(header0, bit19):
-            chip_coord, core_coord, rid, payload = FrameFactory._extract_common(
-                nparray[0]
-            )
-            return FramePackage._decode(
-                header0, chip_coord, core_coord, rid, FRAME_DTYPE(payload), nparray[1:]
-            )
-
-        headers = (nparray >> FF.GENERAL_HEADER_OFFSET) & FF.GENERAL_HEADER_MASK
-
-        if not check_elem_same(headers):
-            raise ValueError(
-                "The header of the frame is not the same, please check the frames value."
-            )
-        else:
-            return Frame._decode(header0, *FrameFactory._extract_common(nparray))
