@@ -1,4 +1,3 @@
-from typing_extensions import TypedDict
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -7,6 +6,7 @@ from pydantic import (
     field_serializer,
     model_validator,
 )
+from typing_extensions import TypedDict
 
 from .coordinate import Coord
 from .hw_defs import HwConfig

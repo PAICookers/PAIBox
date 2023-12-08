@@ -2,16 +2,12 @@ from typing import List, Optional, Union
 
 import numpy as np
 
+from paibox.libpaicore import Coord, FrameFormat, FrameHeader
+from paibox.libpaicore import ReplicationId as RId
+from paibox.libpaicore import SpikeFrameFormat as SFF
+
 from .frame_gen import OfflineFrameGen
 from .libframe.frames import OfflineWorkFrame1
-from paibox.libpaicore import (
-    Coord,
-    FrameFormat,
-    FrameHeader,
-    SpikeFrameFormat as SFF,
-    ReplicationId as RId,
-)
-
 
 __all__ = ["RuntimeEncoder", "RuntimeDecoder"]
 

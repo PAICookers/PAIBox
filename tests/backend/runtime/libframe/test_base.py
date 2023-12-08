@@ -1,18 +1,12 @@
 import numpy as np
 import pytest
 
-from paibox.backend.runtime.libframe.base import (
-    Frame,
-    FrameFactory,
-    FramePackage,
-)
+from paibox.backend.runtime.libframe.base import Frame, FrameFactory, FramePackage
 from paibox.backend.runtime.libframe.utils import print_frame
-from paibox.libpaicore import (
-    Coord,
-    FrameFormat as FF,
-    FrameHeader as FH,
-    ReplicationId as RId,
-)
+from paibox.libpaicore import Coord
+from paibox.libpaicore import FrameFormat as FF
+from paibox.libpaicore import FrameHeader as FH
+from paibox.libpaicore import ReplicationId as RId
 
 
 class TestFrameBasicObj:

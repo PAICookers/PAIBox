@@ -1,6 +1,6 @@
 from collections import defaultdict
-from typing import Dict, List, Literal, Union
 from pathlib import Path
+from typing import Dict, List, Literal, Union
 
 from paibox.base import NeuDyn
 from paibox.exceptions import BuildError, ResourceError
@@ -20,7 +20,6 @@ from .graphs import *
 from .placement import CoreBlock, aligned_coords, max_lcn_of_cb
 from .routing import RoutingRoot
 from .runtime import OfflineFrameGen
-
 
 __all__ = ["Mapper"]
 

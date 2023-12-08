@@ -1,8 +1,8 @@
 import inspect
 from typing import Callable, Optional, Tuple, TypeVar, Union
-from typing_extensions import ParamSpec
 
 import numpy as np
+from typing_extensions import ParamSpec
 
 from ._types import Shape
 from .base import DynamicSys

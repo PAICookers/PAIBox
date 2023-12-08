@@ -1,7 +1,5 @@
 import sys
-import numpy as np
 from functools import cached_property
-from numpy.typing import NDArray
 from typing import (
     ClassVar,
     Dict,
@@ -14,6 +12,9 @@ from typing import (
     Union,
     overload,
 )
+
+import numpy as np
+from numpy.typing import NDArray
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias

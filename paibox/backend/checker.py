@@ -1,4 +1,5 @@
-from paibox.libpaicore import LCN_EX, WeightPrecision as WP
+from paibox.libpaicore import LCN_EX
+from paibox.libpaicore import WeightPrecision as WP
 
 __all__ = ["ConfigChecker"]
 

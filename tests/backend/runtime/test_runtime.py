@@ -6,8 +6,8 @@ import pytest
 pexpect = pytest.importorskip("pexpect")
 
 import paibox as pb
-from paibox.backend.runtime.runtime import RuntimeEncoder, RuntimeDecoder
 from paibox.backend.runtime.libframe.utils import print_frame
+from paibox.backend.runtime.runtime import RuntimeDecoder, RuntimeEncoder
 from paibox.libpaicore import Coord, FrameFormat
 
 

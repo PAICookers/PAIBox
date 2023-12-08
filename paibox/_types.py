@@ -8,7 +8,9 @@ Spike = TypeVar("Spike", List[int], np.ndarray)
 ArrayType = TypeVar("ArrayType", List[int], Tuple[int, ...], np.ndarray)
 Scalar = TypeVar("Scalar", int, float, np.generic)
 IntScalarType = TypeVar("IntScalarType", int, np.integer)
-DataArrayType = TypeVar("DataArrayType", int, np.integer, List[int], Tuple[int, ...], np.ndarray)
+DataArrayType = TypeVar(
+    "DataArrayType", int, np.integer, List[int], Tuple[int, ...], np.ndarray
+)
 
 T = TypeVar("T")
 

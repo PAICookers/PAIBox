@@ -10,11 +10,11 @@ from paibox.backend.runtime.libframe.frames import (
     OfflineTestOutFrame2,
     OfflineTestOutFrame3,
 )
-
 from paibox.backend.runtime.libframe.utils import print_frame
 from paibox.libpaicore import Coord, ReplicationId
 
 pexpect = pytest.importorskip("pexpect")
+
 
 @pytest.mark.parametrize(
     "chip_coord,core_coord,core_e_coord,random_seed",

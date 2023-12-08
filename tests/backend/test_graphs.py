@@ -125,7 +125,6 @@ class TestTopoSort:
 
 
 class TestGroupEdges:
-    
     @staticmethod
     def group_edges_proto(
         edges: List[EdgeName],
@@ -145,12 +144,15 @@ class TestGroupEdges:
         Returns:
             - A list of set of grouped edges.
         """
+
         def _find_pred_edges_proto(
             succ_edges: Dict[NodeName, Dict[NodeName, EdgeName]], target_node: NodeName
         ) -> Set[EdgeName]:
             pred = set()
 
-            for succ_node in filter(lambda node: target_node in node, succ_edges.values()):
+            for succ_node in filter(
+                lambda node: target_node in node, succ_edges.values()
+            ):
                 pred.add(succ_node[target_node])
 
             return pred
@@ -194,7 +196,7 @@ class TestGroupEdges:
                 continue
 
         return gathered
-    
+
     @pytest.mark.parametrize(
         "edges, succ_edges",
         [
@@ -251,7 +253,9 @@ class TestGroupEdges:
         """
         degrees = get_node_degrees(succ_edges)
         ordered_nodes = toposort(succ_edges)
-        gathered = self.group_edges_proto(edges, succ_edges, degrees, ordered_nodes=ordered_nodes)
+        gathered = self.group_edges_proto(
+            edges, succ_edges, degrees, ordered_nodes=ordered_nodes
+        )
         print()
 
     @pytest.mark.parametrize(
@@ -288,7 +292,7 @@ class TestGroupEdges:
 
 class TestDAGPathDistance:
     """Consider DAG only."""
-    
+
     @staticmethod
     def get_longest_path_proto(
         edges_with_d: Dict[NodeName, Dict[NodeName, int]], ordered_nodes: List[NodeName]
@@ -409,7 +413,7 @@ class TestDAGPathDistance:
 
         assert path == expected_path
         assert distance == expected_distance
-        
+
     @staticmethod
     def get_shortest_path_proto(
         edges_with_d: Dict[NodeName, Dict[NodeName, int]],
@@ -538,7 +542,9 @@ class TestDAGPathDistance:
             "multi_outputs_2",
         ],
     )
-    def test_get_shortest_path_proto(self, edges, inodes, expected_path, expected_distance):
+    def test_get_shortest_path_proto(
+        self, edges, inodes, expected_path, expected_distance
+    ):
         ordered = toposort(edges)
         path, dist = self.get_shortest_path_proto(edges, ordered, inodes)
 

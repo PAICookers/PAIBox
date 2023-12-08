@@ -1,14 +1,13 @@
 import os
-import pytest
 import random
 import tempfile
-
-import numpy as np
-import paibox as pb
-
 from functools import partial
 from pathlib import Path
 
+import numpy as np
+import pytest
+
+import paibox as pb
 from paibox.backend.config_template import CoreConfig, CorePlacementConfig, NeuronConfig
 from paibox.backend.placement import NeuSeg
 from paibox.backend.routing import RoutingNode

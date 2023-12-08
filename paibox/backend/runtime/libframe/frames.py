@@ -1,31 +1,27 @@
 import warnings
+from typing import Any, ClassVar, Dict, List
+
 import numpy as np
 
-from typing import Any, ClassVar, Dict, List
-from ._types import ArrayType, DataType, FRAME_DTYPE, FrameArrayType, IntScalarType
-from .base import Frame, FramePackage
-from .utils import bin_split, params_check, params_check2
-
-from paibox.libpaicore import (
-    Coord,
-    CoordLike,
-    RIdLike,
-    FrameFormat as FF,
-    FrameHeader as FH,
-    SpikeFrameFormat as WF1F,
-    ParameterRegFormat as RegF,
-    ParameterRAMFormat as RAMF,
-    WeightRAMFormat as WRF,
-    ReplicationId as RId,
-    to_coord,
-    to_rid,
-)
-from paibox.libpaicore.v2.reg_model import ParamsRegDictChecker
+from paibox.libpaicore import Coord, CoordLike
+from paibox.libpaicore import FrameFormat as FF
+from paibox.libpaicore import FrameHeader as FH
+from paibox.libpaicore import ParameterRAMFormat as RAMF
+from paibox.libpaicore import ParameterRegFormat as RegF
+from paibox.libpaicore import ReplicationId as RId
+from paibox.libpaicore import RIdLike
+from paibox.libpaicore import SpikeFrameFormat as WF1F
+from paibox.libpaicore import WeightRAMFormat as WRF
+from paibox.libpaicore import to_coord, to_rid
 from paibox.libpaicore.v2.ram_model import (
     NeuronAttrsDictChecker,
     NeuronDestInfoDictChecker,
 )
+from paibox.libpaicore.v2.reg_model import ParamsRegDictChecker
 
+from ._types import FRAME_DTYPE, ArrayType, DataType, FrameArrayType, IntScalarType
+from .base import Frame, FramePackage
+from .utils import bin_split, params_check, params_check2
 
 __all__ = [
     "OfflineConfigFrame1",

@@ -1,7 +1,8 @@
 import sys
+from typing import List, Tuple, TypeVar
+
 import numpy as np
 from numpy.typing import NDArray
-from typing import List, Tuple, TypeVar
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias

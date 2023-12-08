@@ -1,11 +1,5 @@
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_serializer
 from typing_extensions import TypedDict
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    TypeAdapter,
-    field_serializer,
-)
 
 from .ram_types import *
 

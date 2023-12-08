@@ -10,6 +10,7 @@ from paibox.libpaicore import Coord, ReplicationId
 
 pexpect = pytest.importorskip("pexpect")
 
+
 @pytest.fixture
 def core_plm_config():
     core_plm_config = {

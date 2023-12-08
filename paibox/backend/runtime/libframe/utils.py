@@ -1,13 +1,15 @@
 import os
-import numpy as np
-
 from functools import wraps
 from pathlib import Path
-from pydantic import TypeAdapter
 from typing import Any, Dict, Optional, Tuple
 
+import numpy as np
+from pydantic import TypeAdapter
+
+from paibox.libpaicore import FrameHeader as FH
+from paibox.libpaicore import FrameType as FT
+
 from ._types import FrameArrayType
-from paibox.libpaicore import FrameHeader as FH, FrameType as FT
 
 
 # Replace the one from paibox.excpetions

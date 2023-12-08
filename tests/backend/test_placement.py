@@ -15,6 +15,7 @@ from paibox.libpaicore import WeightPrecision as WP
 
 from .conftest import packbits_ref
 
+
 def test_get_raw_weight_ref():
     rng = np.random.RandomState(seed=1)
     w1 = rng.randint(-128, 128, size=(10, 20), dtype=np.int8)

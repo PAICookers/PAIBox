@@ -1,21 +1,17 @@
 from collections import defaultdict
-from typing import Any, Dict, List, Literal, Union, overload
 from pathlib import Path
+from typing import Any, Dict, List, Literal, Union, overload
 
 import numpy as np
 
-from .libframe.utils import *
+from paibox.backend.config_template import CorePlacementConfig, NeuronConfig
+from paibox.libpaicore import LCN_EX, Coord, ParamsReg
+from paibox.libpaicore import ReplicationId as RId
+from paibox.libpaicore import WeightPrecision as WP
+
 from .libframe._types import *
 from .libframe.frames import *
-from paibox.backend.config_template import CorePlacementConfig, NeuronConfig
-from paibox.libpaicore import (
-    Coord,
-    LCN_EX,
-    ReplicationId as RId,
-    ParamsReg,
-    WeightPrecision as WP,
-)
-
+from .libframe.utils import *
 
 __all__ = ["OfflineFrameGen"]
 

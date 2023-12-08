@@ -1,17 +1,17 @@
 import warnings
-import numpy as np
 from dataclasses import dataclass, field
-from typing import Union, Tuple
+from typing import Tuple, Union
 
-from ._types import BasicFrameArray, FRAME_DTYPE, FrameArrayType
+import numpy as np
+
+from paibox.libpaicore import Coord
+from paibox.libpaicore import FrameFormat as FF
+from paibox.libpaicore import FrameHeader as FH
+from paibox.libpaicore import FrameType as FT
+from paibox.libpaicore import ReplicationId as RId
+
+from ._types import FRAME_DTYPE, BasicFrameArray, FrameArrayType
 from .utils import check_elem_same, header2type
-from paibox.libpaicore import (
-    Coord,
-    FrameFormat as FF,
-    FrameHeader as FH,
-    FrameType as FT,
-    ReplicationId as RId,
-)
 
 
 @dataclass
