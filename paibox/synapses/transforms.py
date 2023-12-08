@@ -2,8 +2,10 @@ from enum import Enum, auto, unique
 from typing import Tuple, Type, Union
 
 import numpy as np
+from numpy.typing import NDArray
 
-from paibox.exceptions import NotSupportedError, ShapeError
+from paibox._types import DataArrayType
+from paibox.exceptions import ShapeError
 from paibox.libpaicore import WeightPrecision as WP
 from paibox.utils import is_shape
 
@@ -11,8 +13,8 @@ MAX_INT2 = np.int8(1)
 MIN_INT2 = np.int8(-2)
 MAX_INT4 = np.int8(7)
 MIN_INT4 = np.int8(-8)
-MAX_INT8 = np.int8(127)
-MIN_INT8 = np.int8(-128)
+MAX_INT8 = np.iinfo(np.int8).max
+MIN_INT8 = np.iinfo(np.int8).min
 
 
 @unique
@@ -39,11 +41,16 @@ def _get_weight_precision(weight: np.ndarray) -> WP:
     elif _max <= MAX_INT8 and _min >= MIN_INT8:
         return WP.WEIGHT_WIDTH_8BIT
 
-    raise NotSupportedError(f"Weight precision out of range.")
+    else:
+        raise ValueError(f"Weight precision out of range.")
 
 
 class Transform:
-    weights: np.ndarray
+    weights: NDArray[np.int8]
+    """The actual weights in synapse. Always stored in `np.int8` format."""
+
+    def __call__(self, *args, **kwargs) -> NDArray[np.int32]:
+        raise NotImplementedError
 
     @property
     def weight_precision(self) -> WP:
@@ -58,13 +65,13 @@ class Transform:
             return np.int8
 
     @property
-    def connectivity(self) -> np.ndarray:
+    def connectivity(self) -> NDArray[Union[np.bool_, np.int8]]:
         """The connectivity matrix in `np.ndarray` format."""
         raise NotImplementedError
 
 
 class OneToOne(Transform):
-    def __init__(self, num: int, weights: Union[int, np.integer, np.ndarray]) -> None:
+    def __init__(self, num: int, weights: DataArrayType) -> None:
         """
         Arguments:
             - num: number of neurons.
@@ -90,13 +97,16 @@ class OneToOne(Transform):
         # The ndim of weights = 0 or 1.
         self.weights = np.asarray(weights, dtype=np.int8)
 
-        assert self.weights.ndim in (0, 1)
+        if not self.weights.ndim in (0, 1):
+            raise ShapeError(f"The ndim of weights must be 0 or 1.")
 
-    def __call__(self, x: np.ndarray) -> np.ndarray:
-        return x * self.weights.copy().astype(np.int32)
+    def __call__(self, x: np.ndarray):
+        output = x * self.weights.copy()
+
+        return output.astype(np.int32)
 
     @property
-    def connectivity(self) -> np.ndarray:
+    def connectivity(self):
         return (
             (self.weights * np.eye(self.num, dtype=np.bool_)).astype(self.dtype)
             if self.weights.ndim == 0
@@ -116,9 +126,7 @@ class ByPass(OneToOne):
 
 
 class AllToAll(Transform):
-    def __init__(
-        self, conn_size: Tuple[int, int], weights: Union[int, np.integer, np.ndarray]
-    ) -> None:
+    def __init__(self, conn_size: Tuple[int, int], weights: DataArrayType) -> None:
         """
         Arguments:
             - num_in: number of source neurons.
@@ -143,9 +151,10 @@ class AllToAll(Transform):
 
         self.weights = np.asarray(weights, dtype=np.int8)
 
-        assert self.weights.ndim in (0, 2)
+        if not self.weights.ndim in (0, 2):
+            raise ShapeError(f"The ndim of weights must be 0 or 2.")
 
-    def __call__(self, x: np.ndarray) -> np.ndarray:
+    def __call__(self, x: np.ndarray):
         """
         - When weights is a scalar, the output is a scalar. (Risky, DO NOT USE)
         - When weights is a matrix, the output is the dot product of `x` & `weights`.
@@ -158,10 +167,10 @@ class AllToAll(Transform):
         else:
             output = x @ self.weights.copy().astype(np.int32)
 
-        return output
+        return output.astype(np.int32)
 
     @property
-    def connectivity(self) -> np.ndarray:
+    def connectivity(self):
         return (
             self.weights.astype(self.dtype)
             if self.weights.ndim == 2
@@ -192,9 +201,11 @@ class MaskedLinear(Transform):
         # Element-wise Multiplication
         self.weights = np.asarray(weights, dtype=np.int8)
 
-    def __call__(self, x: np.ndarray) -> np.ndarray:
-        return x @ self.weights.copy().astype(np.int32)
+    def __call__(self, x: np.ndarray):
+        output = x @ self.weights.copy().astype(np.int32)
+
+        return output.astype(np.int32)
 
     @property
-    def connectivity(self) -> np.ndarray:
+    def connectivity(self):
         return self.weights.astype(self.dtype)

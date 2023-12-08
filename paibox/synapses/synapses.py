@@ -1,7 +1,9 @@
 from typing import Optional, Tuple, Union
 
 import numpy as np
+from numpy.typing import NDArray
 
+from paibox._types import DataArrayType
 from paibox.base import DynamicSys, NeuDyn
 from paibox.exceptions import ShapeError
 from paibox.libpaicore import WeightPrecision as WP
@@ -64,11 +66,11 @@ class Synapses:
 
 
 class SynSys(Synapses, DynamicSys):
-    def __call__(self, *args, **kwargs):
+    def __call__(self, *args, **kwargs) -> NDArray[np.int32]:
         return self.update(*args, **kwargs)
 
     @property
-    def weights(self) -> np.ndarray:
+    def weights(self) -> NDArray[np.int8]:
         raise NotImplementedError
 
     @property
@@ -76,7 +78,7 @@ class SynSys(Synapses, DynamicSys):
         raise NotImplementedError
 
     @property
-    def connectivity(self) -> np.ndarray:
+    def connectivity(self) -> NDArray[Union[np.bool_, np.int8]]:
         raise NotImplementedError
 
     @property
@@ -101,7 +103,7 @@ class NoDecay(SynSys):
         self,
         source: Union[NeuDyn, InputProj],
         dest: NeuDyn,
-        weights: Union[int, np.integer, np.ndarray] = 1,
+        weights: DataArrayType = 1,
         *,
         conn_type: ConnType = ConnType.MatConn,
         name: Optional[str] = None,
@@ -124,7 +126,9 @@ class NoDecay(SynSys):
             self.comm = AllToAll((self.num_in, self.num_out), weights)
         elif conn_type is ConnType.MatConn:
             if not isinstance(weights, np.ndarray):
-                raise TypeError
+                raise TypeError(
+                    f"Expected type int, np.integer or np.ndarray, but got type {type(weights)}"
+                )
 
             self.comm = MaskedLinear((self.num_in, self.num_out), weights)
 
@@ -136,7 +140,7 @@ class NoDecay(SynSys):
         # Register `self` for the destination `NeuDyn`.
         dest.register_master(f"{self.name}.spike", self)
 
-    def update(self, spike: Optional[np.ndarray] = None, **kwargs):
+    def update(self, spike: Optional[np.ndarray] = None, **kwargs) -> NDArray[np.int32]:
         if spike is None:
             synin = self.source.spike
         else:
@@ -151,15 +155,15 @@ class NoDecay(SynSys):
         self.reset()  # Call reset of `StatusMemory`.
 
     @property
-    def output(self) -> np.ndarray:
+    def output(self) -> NDArray[np.int32]:
         return self.syn_out
 
     @property
-    def state(self) -> np.ndarray:
+    def state(self) -> NDArray[np.int32]:
         return self.syn_out
 
     @property
-    def weights(self) -> np.ndarray:
+    def weights(self):
         return self.comm.weights
 
     @property
@@ -167,7 +171,7 @@ class NoDecay(SynSys):
         return self.comm.weight_precision
 
     @property
-    def connectivity(self) -> np.ndarray:
+    def connectivity(self):
         """The connectivity matrix in `np.ndarray` format."""
         return self.comm.connectivity
 

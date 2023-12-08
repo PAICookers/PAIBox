@@ -611,7 +611,7 @@ fcnet = fcnet(w1, w2)
 sim = pb.Simulator(fcnet)
 
 # 外部探针，记录神经元n1的膜电位
-probe2 = pb.simulator.Probe(net.n1, "voltage")
+probe2 = pb.simulator.Probe(fcnet.n1, "voltage")
 sim.add_probe(probe2)
 ```
 
@@ -629,8 +629,29 @@ input_data = np.random.rand(28, 28).astype(np.float32)
 sim.run(10, input=input_data)   # 仿真10个时间步
 
 # 读取仿真数据
-n1_spike_data = sim.data[net.probe1]
-n1_v_data = sim.data[net.probe2]
+n1_spike_data = sim.data[fcnet.probe1]
+n1_v_data = sim.data[fcnet.probe2]
 # 重置仿真器
 sim.reset()
 ```
+
+## 编译
+
+编译将完成网络拓扑解析、映射、分配路由坐标、生成帧数据，并最终导出为 `.bin` 或 `.npy` 格式交换文件等一系列工作。首先例化 `Mapper`，之后传入所构建的网络，进行编译与帧导出即可。
+
+``` python
+mapper = pb.Mapper()
+mapper.build(fcnet)
+mapper.compile()
+mapper.export(write_to_file=True, fp="./debug/", format="npy", local_chip_addr=(0, 0))
+
+# Clear all the results.
+mapper.clear()
+```
+
+其中，导出时有如下参数可指定：
+
+- `write_to_file`: 是否将配置帧导出为文件。默认为 `True`。
+- `fp`：导出目录。
+- `format`：导出交换文件格式，可以为 `bin`、`npy` 或 `txt`。
+- `local_chip_addr`：本地芯片地址，元组表示。默认为后端全局变量 `local_chip_addr` 所设置的默认值。

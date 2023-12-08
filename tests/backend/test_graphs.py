@@ -125,6 +125,78 @@ class TestTopoSort:
 
 
 class TestGroupEdges:
+    @staticmethod
+    def group_edges_proto(
+        edges: List[EdgeName],
+        succ_edges: Dict[NodeName, Dict[NodeName, EdgeName]],
+        degree: Dict[NodeName, NodeDegree],
+        *,
+        ordered_nodes: Optional[List[NodeName]] = None,
+    ) -> List[Set[EdgeName]]:
+        """Group all edges according to a certain rule.
+
+        Args:
+            - edges: a list of edges.
+            - succ_edges: a dictionary recording previous nodes and edges.
+            - degree: the in/out-degree of nodes.
+            - ordered_nodes: nodes in topological sorting. Optional.
+
+        Returns:
+            - A list of set of grouped edges.
+        """
+
+        def _find_pred_edges_proto(
+            succ_edges: Dict[NodeName, Dict[NodeName, EdgeName]], target_node: NodeName
+        ) -> Set[EdgeName]:
+            pred = set()
+
+            for succ_node in filter(
+                lambda node: target_node in node, succ_edges.values()
+            ):
+                pred.add(succ_node[target_node])
+
+            return pred
+
+        gathered = []
+        edges_set = set(edges)
+
+        if isinstance(ordered_nodes, list):
+            # In topological sorting.
+            ordered = ordered_nodes
+        else:
+            # Without sorting.
+            ordered = list(succ_edges.keys())
+
+        for node in ordered:
+            if degree[node].in_degree > 1:
+                edge_group = _find_pred_edges_proto(succ_edges, node)
+                edge_group_copy = edge_group.copy()
+
+                for ed in edge_group:
+                    if ed not in edges_set:
+                        edge_group_copy.remove(ed)
+
+                edges_set.difference_update(edge_group_copy)
+                gathered.append(edge_group_copy)
+
+            if degree[node].out_degree > 1:
+                edge_group = set(e for e in succ_edges[node].values())
+
+                if edge_group not in gathered:
+                    edges_set.difference_update(edge_group)
+                    gathered.append(edge_group)
+
+            elif degree[node].out_degree > 0:
+                succ_node = list(succ_edges[node].keys())[0]
+                # Check the in-degree of the only following node.
+                if degree[succ_node].in_degree == 1:
+                    gathered.append({succ_edges[node][succ_node]})
+            else:
+                # out-degree = 0, do nothing.
+                continue
+
+        return gathered
+
     @pytest.mark.parametrize(
         "edges, succ_edges",
         [
@@ -181,7 +253,9 @@ class TestGroupEdges:
         """
         degrees = get_node_degrees(succ_edges)
         ordered_nodes = toposort(succ_edges)
-        gathered = group_edges(edges, succ_edges, degrees, ordered_nodes=ordered_nodes)
+        gathered = self.group_edges_proto(
+            edges, succ_edges, degrees, ordered_nodes=ordered_nodes
+        )
         print()
 
     @pytest.mark.parametrize(
@@ -218,6 +292,45 @@ class TestGroupEdges:
 
 class TestDAGPathDistance:
     """Consider DAG only."""
+
+    @staticmethod
+    def get_longest_path_proto(
+        edges_with_d: Dict[NodeName, Dict[NodeName, int]], ordered_nodes: List[NodeName]
+    ) -> Tuple[List[NodeName], int]:
+        """Get the longest path in the DAG.
+
+        Args:
+            - edges_with_d: a list of directed edges with distance.
+            - ordered_nodes: nodes in topological sorting.
+
+        Return: the longest distance in the graph.
+        """
+        distances: Dict[NodeName, int] = defaultdict(int)  # init value = 0
+        pred_nodes: Dict[NodeName, Optional[NodeName]] = defaultdict()
+
+        for node in ordered_nodes:
+            for neighbor in edges_with_d[node]:
+                d = edges_with_d[node][neighbor]
+                if distances[node] + d > distances[neighbor]:
+                    distances[neighbor] = distances[node] + d
+                    pred_nodes[neighbor] = node
+
+        # When there are more than one output nodes
+        # with same distance, choose the first one.
+        node = max(
+            filter(lambda node: len(edges_with_d[node]) == 0, distances),
+            key=lambda node: distances.get(node, 0),
+        )
+
+        # Add the distance of last node to outside(1)
+        distance = distances[node] + 1
+
+        path = [node]
+        while node := pred_nodes.get(node, ()):
+            path.append(node)
+
+        # Reverse the path and return
+        return path[::-1], distance
 
     @pytest.mark.parametrize(
         "edges, expected_path, expected_distance",
@@ -294,12 +407,58 @@ class TestDAGPathDistance:
             "multi_inputs_outputs_1",
         ],
     )
-    def test_get_longest_path(self, edges, expected_path, expected_distance):
+    def test_get_longest_path_proto(self, edges, expected_path, expected_distance):
         ordered = toposort(edges)
-        path, distance = get_longest_path(edges, ordered)
+        path, distance = self.get_longest_path_proto(edges, ordered)
 
         assert path == expected_path
         assert distance == expected_distance
+
+    @staticmethod
+    def get_shortest_path_proto(
+        edges_with_d: Dict[NodeName, Dict[NodeName, int]],
+        ordered_nodes: List[NodeName],
+        input_nodes: List[NodeName],
+    ) -> Tuple[List[NodeName], int]:
+        """Get the shortest path in the DAG.
+
+        Args:
+            - edges_with_d: a list of directed edges with distance.
+            - ordered_nodes: nodes in topological sorting.
+            - input_nodes: input nodes.
+
+        Return: the shortest distance in the graph.
+        """
+        distances: Dict[NodeName, int] = defaultdict(lambda: 999)
+        pred_nodes: Dict[NodeName, Optional[NodeName]] = defaultdict()
+
+        # Set initial value for all inputs nodes.
+        for inode in input_nodes:
+            distances[inode] = 0
+
+        for node in ordered_nodes:
+            for neighbor in edges_with_d[node]:
+                d = edges_with_d[node][neighbor]
+                if distances[node] + d < distances[neighbor]:
+                    distances[neighbor] = distances[node] + d
+                    pred_nodes[neighbor] = node
+
+        # When there are more than one output nodes
+        # with same distance, choose the first one.
+        node = min(
+            filter(lambda node: len(edges_with_d[node]) == 0, distances),
+            key=lambda node: distances.get(node, 0),
+        )
+
+        # Add the distance of last node to outside(1)
+        distance = distances[node] + 1
+
+        path = [node]
+        while node := pred_nodes.get(node, ()):
+            path.append(node)
+
+        # Reverse the path and return
+        return path[::-1], distance
 
     @pytest.mark.parametrize(
         "edges, inodes, expected_path, expected_distance",
@@ -383,9 +542,11 @@ class TestDAGPathDistance:
             "multi_outputs_2",
         ],
     )
-    def test_get_shortest_path(self, edges, inodes, expected_path, expected_distance):
+    def test_get_shortest_path_proto(
+        self, edges, inodes, expected_path, expected_distance
+    ):
         ordered = toposort(edges)
-        path, dist = get_shortest_path(edges, ordered, inodes)
+        path, dist = self.get_shortest_path_proto(edges, ordered, inodes)
 
         assert path == expected_path
         assert dist == expected_distance

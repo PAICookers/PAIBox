@@ -1,4 +1,4 @@
-from collections import defaultdict
+import sys
 from functools import cached_property
 from typing import (
     ClassVar,
@@ -14,6 +14,12 @@ from typing import (
 )
 
 import numpy as np
+from numpy.typing import NDArray
+
+if sys.version_info >= (3, 10):
+    from typing import TypeAlias
+else:
+    from typing_extensions import TypeAlias
 
 from paibox.base import NeuDyn, PAIBoxObject
 from paibox.exceptions import BuildError, NotSupportedError, ResourceError
@@ -37,15 +43,17 @@ from paibox.utils import count_unique_elem
 from .config_template import CoreConfig, CorePlacementConfig, NeuronConfig
 from .context import _BACKEND_CONTEXT
 
-SourceNodeType = Union[NeuDyn, InputProj]
-DestNodeType = NeuDyn
+SourceNodeType: TypeAlias = Union[NeuDyn, InputProj]
+DestNodeType: TypeAlias = NeuDyn
 NeuSeg = NamedTuple("NeuSeg", [("parent", DestNodeType), ("segment", NeuronSegment)])
 
 
 class CoreAbstract(HwCore, PAIBoxObject):
     supported_wp: ClassVar[Tuple[WP, ...]] = (
         WP.WEIGHT_WIDTH_1BIT,
-        WP.WEIGHT_WIDTH_8BIT,
+        # WP.WEIGHT_WIDTH_2BIT,  # Not verified
+        # WP.WEIGHT_WIDTH_4BIT,  # Not verified
+        WP.WEIGHT_WIDTH_8BIT,  # Not verified
     )
     """Supported weight precision."""
 
@@ -58,10 +66,6 @@ class CoreBlock(CoreAbstract):
 
     mode: ClassVar[CoreMode] = CoreMode.MODE_SNN
 
-    # InputWidthFormat.WIDTH_1BIT
-    # SpikeWidthFormat.WIDTH_1BIT
-    # SNNModeEnable.ENABLE
-
     def __init__(
         self,
         *parents: SynSys,
@@ -73,9 +77,8 @@ class CoreBlock(CoreAbstract):
         Arguments:
             - parents: the parent synapses.
             - weight_precision: the precision of weight matrix.
-
-        Axons ->                LCN    -> dendrite_capacity -> n_core_required -> n_neuron_each
-        weight_precision -> n_dendrite -------> |
+            - seed: the random seed.
+            - name: the name of the core block. Optional.
         """
 
         super().__init__(name)
@@ -83,11 +86,11 @@ class CoreBlock(CoreAbstract):
         self._lcn_ex = n_axon2lcn_ex(self.n_axon, self.n_fanin_max)
         self.weight_precision = weight_precision
 
-        self.seed = np.uint64(seed)
-        """Random seed, uint64."""
+        self.seed = seed
+        """Random seed, legal integer, no more than uint64."""
 
         self.target_lcn = LCN_EX.LCN_1X
-        """The target(destination) LCN."""
+        """The target(destination core block) LCN."""
 
         self.lcn_locked = False
         """Used to indicate whether `lcn_ex` has been adjusted."""
@@ -108,39 +111,39 @@ class CoreBlock(CoreAbstract):
         """A dictionary of segments of each axon(source node)."""
 
         self.neuron_segs_of_cb: List[List[NeuSeg]] = []
+        """Neuron segments in the core block. Each element in the list \
+            represents the Neuron segments in core placement(physical core).
+        """
 
     def set_lcn_ex(self, lcn_ex: LCN_EX) -> None:
         self.lcn_ex = lcn_ex
         self.lcn_locked = True
 
-    def group_neurons(self) -> None:
+    def group_neurons(self, method: Literal["catagory", "dense"] = "catagory") -> None:
+        """Group the neurons to determine the #N of cores required."""
         if not self.lcn_locked:
-            raise BuildError("Allocate the core placements after lcn_ex is locked.")
+            raise BuildError("Group the neurons after lcn_ex is locked.")
 
         # First, get the neuron segments.
         self.neuron_segs_of_cb = get_neu_segments(
             self.dest,
             self.neuron_capacity,
             _addr_ram_interval(self.n_weight_bits, self.timeslot),
-            method="catagory",
+            method=method,
         )
 
     def core_plm_alloc(self) -> None:
-        """Allocate the `CoreBlock` to the cores.
-
-        NOTE: Do it after the adjustment of `LCN_EX`.
-        """
+        """Allocate the `CoreBlock` to the physical cores."""
         if not self.lcn_locked:
             raise BuildError("Allocate the core placements after lcn_ex is locked.")
 
         for i, coord in enumerate(self.core_coords):
-            assert self.get_raw_weight_of_coord(i)[0].shape[0] == self.n_axon
-
+            # assert self.get_raw_weight_of_coord(i)[0].shape[0] == self.n_axon
             self.core_placements[coord] = CorePlacement.build(
                 self, i, self.get_raw_weight_of_coord(i)
             )
 
-    def get_syn_of(self, src: SourceNodeType, dest: DestNodeType) -> Optional[SynSys]:
+    def _get_syn_of(self, src: SourceNodeType, dest: DestNodeType) -> Optional[SynSys]:
         for syn in self.obj:
             if syn.source == src and syn.dest == dest:
                 return syn
@@ -184,9 +187,9 @@ class CoreBlock(CoreAbstract):
     def neuron_capacity(self) -> int:
         """Neuron capacity. #N of valid dendrites/#N of dendrites required per neuron.
 
-        FIXME This method only works in SNN mode. For ANN mode, use table lookup.
+        FIXME This method ONLY works in SNN mode. For ANN mode, use table lookup.
         """
-        return (self.n_dendrite >> self.lcn_ex) // self.n_dendrite_per_neuron
+        return (self.n_dendrite_max >> self.lcn_ex) // self.n_dendrite_per_neuron
 
     @property
     def n_fanin_max(self) -> int:
@@ -201,8 +204,6 @@ class CoreBlock(CoreAbstract):
     def n_core_required(self) -> int:
         return len(self.neuron_segs_of_cb)
 
-    # (self.n_neuron - 1) // self.neuron_capacity + 1
-
     @property
     def n_dendrite_per_neuron(self) -> int:
         """Multiple dendrites will be combined to achieve higher    \
@@ -210,7 +211,7 @@ class CoreBlock(CoreAbstract):
 
         FIXME The limit on the number of dendrites in SNN/ANN modes \
             is different, which affects the capacity of neurons in  \
-            the physical core.
+            physical core.
         """
         return 1 << self.weight_precision
 
@@ -242,7 +243,7 @@ class CoreBlock(CoreAbstract):
         return sum(s.num_out for s in self.axons)
 
     @property
-    def n_dendrite(self) -> int:
+    def n_dendrite_max(self) -> int:
         return (
             HwConfig.N_DENDRITE_MAX_ANN
             if self.mode is CoreMode.MODE_ANN
@@ -258,7 +259,7 @@ class CoreBlock(CoreAbstract):
         return self.source[index].num_in
 
     @property
-    def n_neuron_of_cb(self) -> List[int]:
+    def n_neuron_of_plm(self) -> List[int]:
         """A list of the #N of neurons on each `CorePlacement` \
             in descending order.
 
@@ -277,7 +278,7 @@ class CoreBlock(CoreAbstract):
         return n
 
     @cached_property
-    def raw_weight_of_dest(self) -> List[np.ndarray]:
+    def raw_weight_of_dest(self) -> List[NDArray[np.int8]]:
         """Merge and then split the weight matrix according to the grouping of neurons."""
 
         # The concatenated weight for each destination node.
@@ -288,7 +289,7 @@ class CoreBlock(CoreAbstract):
             w_of_dest = []
 
             for s in self.source:
-                if syn := self.get_syn_of(s, d):
+                if syn := self._get_syn_of(s, d):
                     w_of_dest.append(syn.connectivity)
                 else:
                     # Fill with 0.
@@ -305,7 +306,7 @@ class CoreBlock(CoreAbstract):
 
         return w_of_neurons
 
-    def get_raw_weight_of_coord(self, idx: int) -> List[np.ndarray]:
+    def get_raw_weight_of_coord(self, idx: int) -> List[NDArray[np.int8]]:
         """Get the raw weight of a coordinate(on each `CorePlacement`)."""
         w_of_neu_segs: List[np.ndarray] = []
 
@@ -344,8 +345,12 @@ class CoreBlock(CoreAbstract):
         if not cls.all_wp_equal(*synapses):
             raise NotSupportedError("Mixed weight precision is not supported yet")
 
-        if (wp := synapses[0].weight_precision) not in cls.supported_wp:
+        if (wp := synapses[0].weight_precision) > max(cls.supported_wp):
             raise NotSupportedError(f"{wp.name} is not supported yet.")
+
+        elif wp not in cls.supported_wp:
+            # Treat 4-bit weights as 8-bit weights.
+            wp = cls.supported_wp[-1]
 
         return cls(*synapses, weight_precision=wp)
 
@@ -384,11 +389,11 @@ class CorePlacement(CoreAbstract):
     ) -> None:
         """
         Arguments:
-            - parent: the parent grouped synapse(complete).
+            - parent: the parent core block.
             - idx: The index number where this object is located.
-            - n_neuron: the number of neurons used in the CORE.
-            - raw_weights: the raw weights in this single CORE.
-            - neuron_segment: The placement of the destination neurons.
+            - n_neuron: the number of neurons used in the physical core.
+            - raw_weights: the raw weights in the physical core.
+            - neu_segs: The segment of the neurons in the physical core.
         """
         super().__init__(name)
 
@@ -398,22 +403,21 @@ class CorePlacement(CoreAbstract):
 
         self.n_neuron = n_neuron
 
-        assert len(raw_weights) == len(neu_segs)
-
         self._weights_folded = self._fold_raw_weights(raw_weights)
+        """The folded weights."""
 
         self.neu_segs = neu_segs
-        self.neu_config: Dict[NeuDyn, NeuronConfig] = defaultdict()
+        self.neu_configs: Dict[NeuDyn, NeuronConfig] = dict()
 
     @classmethod
     def build(cls, parent: CoreBlock, idx: int, raw_weights: List[np.ndarray]):
         coord = parent.core_coords[idx]
-        n_neuron = parent.n_neuron_of_cb[idx]
+        n_neuron = parent.n_neuron_of_plm[idx]
         neu_segs = parent.neuron_segs_of_cb[idx]
 
         return cls(parent, coord, n_neuron, raw_weights=raw_weights, neu_segs=neu_segs)
 
-    def _fold_raw_weights(self, raw_weights: List[np.ndarray]) -> np.ndarray:
+    def _fold_raw_weights(self, raw_weights: List[np.ndarray]) -> NDArray[np.int8]:
         """Fold the weights into LCN-sized blocks."""
         w_folded_list = []
         w_folded_of_axon_segs = []
@@ -422,6 +426,7 @@ class CorePlacement(CoreAbstract):
         if self.lcn_ex == LCN_EX.LCN_1X:
             w_folded = np.hstack(raw_weights, dtype=np.int8)
             w_folded.setflags(write=False)
+
             return w_folded
 
         # LCN_EX > LCN_1X
@@ -448,13 +453,12 @@ class CorePlacement(CoreAbstract):
 
         return w_folded
 
-    def _weight_ram_mapping(self) -> np.ndarray:
+    def _weight_ram_mapping(self) -> NDArray[np.uint64]:
         row, col = self._weights_folded.shape
-        # The final wright ram
-        weight_ram = np.zeros(self.weight_ram_shape, dtype=np.uint8)
+        w_unpacked = np.zeros(self.weight_ram_shape, dtype=np.uint8)
 
         if self.n_weight_bits == 1:
-            weight_ram[:row, :col] = self._weights_folded
+            w_unpacked[:row, :col] = self._weights_folded
         else:
             # [N*M] -> [M*N*1]
             w_folded_3d = np.expand_dims(self._weights_folded.T, axis=2).astype(
@@ -470,16 +474,27 @@ class CorePlacement(CoreAbstract):
                     bitorder=HwConfig.WEIGHT_BITORDER,
                 )
 
-                weight_ram[
+                w_unpacked[
                     :row, self.n_weight_bits * i : self.n_weight_bits * (i + 1)
                 ] = unpacked
 
-        weight_ram.setflags(write=False)
+        assert np.max(w_unpacked, axis=None) <= 1
+        assert np.min(w_unpacked, axis=None) >= 0
 
-        assert np.max(weight_ram, axis=None) <= 1
-        assert np.min(weight_ram, axis=None) >= 0
+        # Convert the unpacked weights into a mapping format,
+        # corresponding to the RAM address, each address contains 18 uint64.
+        # [512 * 1152] -> [(512*18) * 64](uint8). Reshape to 64 columns to avoid contiguous problem.
+        w_unpacked_T_rehaped = w_unpacked.T.reshape(-1, 64)
 
-        return weight_ram.astype(np.bool_)
+        # [(512*18) * 64](uint8) -> [(512*18) * 8](uint8)
+        w_packed_u8 = np.packbits(
+            w_unpacked_T_rehaped, axis=1, bitorder=HwConfig.WEIGHT_BITORDER
+        )
+        # [(512*18) * 8](uint8) -> [(512*18) * 1](uint64) -> [512 * 18](uint64)
+        w_packed_u64 = w_packed_u8.view(np.uint64).reshape(-1, 18)
+        w_packed_u64.setflags(write=False)
+
+        return w_packed_u64
 
     @staticmethod
     def _nfold_weight(
@@ -523,7 +538,6 @@ class CorePlacement(CoreAbstract):
 
     def export_param_config(self) -> CoreConfig:
         _mode_params = CoreModeDict[self.mode]
-
         # fmt: off
         cb_config = CoreConfig(
             self.name,                          # name of the core
@@ -564,10 +578,7 @@ class CorePlacement(CoreAbstract):
         output_core_coord: Optional[Coord] = None,
         axon_addr_offset: Optional[int] = None,
     ) -> Optional[int]:
-        """Export the neuron configuration.
-
-        TODO For the last layer, how to define its output destination to the outside?
-        """
+        """Export the neuron configuration."""
         if isinstance(axon_dests, list):
             for axon_dest in axon_dests:
                 axon_coords = aligned_coords(
@@ -576,15 +587,16 @@ class CorePlacement(CoreAbstract):
 
                 config = NeuronConfig.encapsulate(
                     neu_seg.parent,
+                    neu_seg.segment.n_neuron,
                     neu_seg.segment.addr_ram,
                     neu_seg.segment.addr_offset,
                     axon_coords,
                     axon_dest.core_coords,
-                    # Here is local chip coordinate!
+                    # Here is local chip coordinate.
                     _BACKEND_CONTEXT["local_chip_addr"],
                 )
 
-                self.neu_config[neu_seg.parent] = config
+                self.neu_configs[neu_seg.parent] = config
         else:
             assert isinstance(output_core_coord, Coord)
             assert isinstance(axon_addr_offset, int)
@@ -598,23 +610,25 @@ class CorePlacement(CoreAbstract):
 
             config = NeuronConfig.encapsulate(
                 neu_seg.parent,
+                neu_seg.segment.n_neuron,
                 neu_seg.segment.addr_ram,
                 neu_seg.segment.addr_offset,
                 axon_coords,
                 [output_core_coord],
             )
 
-            self.neu_config[neu_seg.parent] = config
+            self.neu_configs[neu_seg.parent] = config
 
             return axon_addr_offset + neu_seg.segment.n_neuron
 
-    def export_core_config(self) -> CorePlacementConfig:
+    def export_core_plm_config(self) -> CorePlacementConfig:
+        core_param = self.export_param_config()
+
         return CorePlacementConfig.encapsulate(
-            self.coord,
             self.parent.seed,
             self.weight_ram,
-            self.export_param_config(),
-            self.neu_config,
+            core_param,
+            self.neu_configs,
         )
 
     @property
@@ -651,7 +665,7 @@ class CorePlacement(CoreAbstract):
 
     @property
     def n_dendrite(self) -> int:
-        return self.n_neuron * self.parent.n_dendrite_per_neuron
+        return self.n_neuron * self.n_weight_bits * self.timeslot
 
     @property
     def source(self) -> List[SourceNodeType]:
@@ -666,7 +680,7 @@ class CorePlacement(CoreAbstract):
         return [p.parent for p in self.neu_segs]
 
     @property
-    def weight_ram(self) -> np.ndarray:
+    def weight_ram(self) -> NDArray[np.uint64]:
         return self._weight_ram_mapping()
 
     def __len__(self) -> int:
@@ -698,7 +712,7 @@ def max_lcn_of_cb(cb: List[CoreBlock]) -> LCN_EX:
 
 
 def _addr_ram_interval(nbits: int, timeslot: int) -> int:
-    """Get the interval of address of RAM.
+    """Get the interval of RAM address.
 
     interval = nbits(1 << wp) * timeslot(1 << lcn_ex)
     """
@@ -710,7 +724,7 @@ def get_neu_segments(
     capacity: int,
     interval: int,
     *,
-    method: Literal["catagory", "dense"] = "catagory",
+    method: Literal["catagory", "dense"],
 ) -> List[List[NeuSeg]]:
     """
     TODO Add description.
@@ -772,15 +786,17 @@ def _get_neu_segments_dense(
 
     # The remaining neuron groups can then be grouped up to N cores
     n_core_max = len(rest_segs)
+    n_cur_neuron = 0
     n_cur_reg = 0
 
     def backtrack(i: int, cur_addr_offset: int, taken: List[NeuSeg]) -> None:
         nonlocal n_cur_reg
+        nonlocal n_cur_neuron
 
         if i == n_core_max or n_cur_reg == n_core_max:
             return
 
-        if cur_addr_offset + rest_segs[n_cur_reg].segment.n_neuron > capacity:
+        if n_cur_neuron + rest_segs[n_cur_reg].segment.n_neuron > capacity:
             neu_segs.append(taken)
             return
         else:
@@ -792,7 +808,9 @@ def _get_neu_segments_dense(
                     ),
                 )
             )
-            cur_addr_offset += rest_segs[n_cur_reg].segment.n_neuron
+            # Offset = n_neuron * interval
+            cur_addr_offset += rest_segs[n_cur_reg].segment.n_neuron * interval
+            n_cur_neuron += rest_segs[n_cur_reg].segment.n_neuron
             n_cur_reg += 1
 
         if n_cur_reg == n_core_max:
@@ -821,8 +839,10 @@ def get_axon_segments(
     TODO Provide an alternative when failed using this method.
     """
 
-    def _seg_alloc(axon: SourceNodeType, offset: int) -> Tuple[AxonSegment, int]:
+    def _seg_alloc(axon: SourceNodeType) -> AxonSegment:
         """Allocate an axon segment, return the next offset of axon address."""
+        nonlocal offset
+
         # The width of assigned address
         if axon.num_out % tr_max > 0:
             addr_width = axon.num_out // tr_max + 1
@@ -833,16 +853,18 @@ def get_axon_segments(
 
         if offset + addr_width > fan_in_max:
             raise ResourceError(
-                f"Address of axons out of range{fan_in_max}: {offset + addr_width}"
+                f"Axons address out of range{fan_in_max}: {offset + addr_width}"
             )
 
-        return AxonSegment(axon.num_out, addr_width, offset), offset + addr_width
+        offset += addr_width
+
+        return AxonSegment(axon.num_out, addr_width, offset)
 
     offset = 0
     axon_segments = dict()
 
     for axon in axons:
-        segment, offset = _seg_alloc(axon, offset)
+        segment = _seg_alloc(axon)
         axon_segments[axon] = segment
 
     return axon_segments
@@ -873,10 +895,10 @@ def aligned_coords(neu_index: slice, axon_seg: AxonSegment) -> List[AxonCoord]:
 
         if tr_stop - tr_start > 1:
             for tr in range(tr_start + 1, tr_stop):
-                for addr in range(0, axon_seg.addr_width):
+                for addr in range(axon_seg.addr_width):
                     axon_coords.append(AxonCoord(tr, axon_seg.addr_offset + addr))
 
-        for addr in range(0, addr_stop):
+        for addr in range(addr_stop):
             axon_coords.append(AxonCoord(tr_stop, axon_seg.addr_offset + addr))
 
     return axon_coords

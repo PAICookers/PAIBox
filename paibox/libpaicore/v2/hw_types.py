@@ -1,8 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import ClassVar, List, NamedTuple, Tuple
 
-from paibox.exceptions import ResourceError
-
 from .hw_defs import HwConfig
 from .reg_types import CoreMode
 
@@ -28,25 +26,34 @@ class NeuronSegment(NamedTuple):
     """The offset of the RAM address."""
     interval: int = 1
     """The interval of address when mapping neuron attributes on the RAM."""
-    weight_steps: int = 1
-    """Reserved."""
 
     @property
     def n_neuron(self) -> int:
         return self.index.stop - self.index.start
 
     @property
-    def addr_ram(self) -> List[int]:
-        """Convert index of neuron into address RAM."""
+    def addr_max(self) -> int:
         if (
             _addr_max := self.addr_offset
             + self.interval * (self.index.stop - self.index.start)
         ) > HwConfig.ADDR_RAM_MAX:
-            raise ResourceError(
-                f"Address of RAM out of {HwConfig.ADDR_RAM_MAX}: {_addr_max}"
-            )
+            raise ValueError(f"RAM Address out of {HwConfig.ADDR_RAM_MAX}: {_addr_max}")
 
-        return list(range(self.addr_offset, _addr_max))
+        return _addr_max
+
+    @property
+    def addr_ram(self) -> List[int]:
+        """Convert index of neuron into RAM address."""
+        return list(range(self.addr_offset, self.addr_max, 1))
+
+    @property
+    def addr_slice(self) -> slice:
+        """Display the RAM address in slice format."""
+        return slice(
+            self.addr_offset,
+            self.addr_max,
+            self.interval,
+        )
 
 
 class AxonCoord(NamedTuple):
@@ -58,7 +65,7 @@ class AxonSegment(NamedTuple):
     n_axon: int
     """#N of axons."""
     addr_width: int
-    """The range of axon address is [addr_offset, addr_offset+addr_width)."""
+    """The range of axon address is [addr_offset, addr_offset + addr_width)."""
     addr_offset: int
     """The offset of the assigned address."""
 
@@ -72,12 +79,6 @@ class HwCore(ABC):
     @abstractmethod
     def shape(self) -> Tuple[int, int]:
         """Shape of the core."""
-        raise NotImplementedError
-
-    @property
-    @abstractmethod
-    def n_dendrite(self) -> int:
-        """#N of valid dendrites"""
         raise NotImplementedError
 
     @property

@@ -47,10 +47,10 @@ class HwConfig:
     """The maximum #N of neurons in one core."""
 
     ADDR_RAM_MAX = 512
-    """The maximum address of RAM."""
+    """The maximum RAM address."""
 
     ADDR_AXON_MAX = N_FANIN_PER_DENDRITE_MAX - 1
-    """The maximum address of axons."""
+    """The maximum axons address."""
 
     N_TIMESLOT_MAX = 256
 

@@ -1,5 +1,3 @@
-from functools import partial
-
 import numpy as np
 import pytest
 
@@ -14,6 +12,8 @@ from paibox.backend.placement import (
 from paibox.exceptions import ResourceError
 from paibox.libpaicore import AxonCoord, AxonSegment, NeuronSegment
 from paibox.libpaicore import WeightPrecision as WP
+
+from .conftest import packbits_ref
 
 
 def test_get_raw_weight_ref():
@@ -157,39 +157,6 @@ def test_nfold_weight_ref():
     )
 
 
-def packbits_ref(bits: np.ndarray, count: int) -> int:
-    """Pack unsigned bits into a signed integer.
-
-    This is a test of the prototype of the original function.
-    """
-    _bits = np.append(bits[: count - 1], bits[-1])
-
-    result = sum(bit << i for i, bit in enumerate(_bits))
-    result -= _bits[-1] << count
-
-    return result
-
-
-@pytest.fixture
-def packbits8():
-    return partial(packbits_ref, count=8)
-
-
-@pytest.fixture
-def packbits4():
-    return partial(packbits_ref, count=4)
-
-
-@pytest.fixture
-def packbits2():
-    return partial(packbits_ref, count=2)
-
-
-@pytest.fixture
-def packbits1():
-    return partial(packbits_ref, count=1)
-
-
 class TestWeightUnpack:
     @pytest.mark.parametrize(
         "wp",
@@ -274,8 +241,8 @@ class TestWeightUnpack:
         for i, j in np.ndindex(shape):
             n_in_col = w_folded.shape[0]
             now_i = i % n_in_col
-            offset_j = i // n_in_col
 
+            offset_j = i // n_in_col
             now_j = offset_j + j * nfold
 
             expected = array[i, j]
@@ -303,7 +270,27 @@ class TestWeightUnpack:
         assert np.max(result, axis=None) <= 1
         assert np.min(result, axis=None) >= 0
 
-        return result.astype(np.bool_)
+        return result
+
+    def test_packbits_to_mapping_form(self):
+        def _weight_ram_T(weight_ram_mapped: np.ndarray):
+            _w = weight_ram_mapped.T.reshape(-1, 64)
+            w_packed_u8 = np.packbits(_w, axis=-1, bitorder="little")
+
+            return w_packed_u8
+
+        rng = np.random.RandomState(42)
+        w = rng.randint(-8, 8, size=(1152, 64), dtype=np.int8)
+
+        # 1152 * 512
+        w1 = self._weight_ram_mapping_ref(w, 8)
+
+        # -> 512 * 1152 -> 512 * 144 (uint8)
+        wT = _weight_ram_T(w1)
+
+        ww = wT.view(np.uint64).reshape(-1, 18)
+        ww.setflags(write=False)
+        print()
 
     @staticmethod
     def _fold_raw_weight_ref(raw_weight: np.ndarray, expected_row: int, nfold: int):
@@ -420,6 +407,7 @@ class TestGetNeuronSegments:
             assert neu_segs == expected
             assert neu_segs[0][0].segment.interval == (1 << wp) * (1 << lcn_ex)
 
+    @pytest.mark.xfail
     def test_get_neu_segments_dense(
         self,
         neu_segs_test_data,

@@ -221,6 +221,32 @@ class Net1(pb.Network):
         self.probe4 = pb.simulator.Probe(self.n1, "voltage")
 
 
+class Net2(pb.Network):
+    """LIF neurons connected with more than one synapses.
+
+    `sum_inputs()` will be called.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.inp1 = pb.InputProj(1, shape_out=(2, 2))
+        self.n1 = pb.neuron.LIF((2, 2), 600, reset_v=1, leaky_v=-1)
+        self.s1 = pb.synapses.NoDecay(
+            self.inp1, self.n1, weights=127, conn_type=pb.synapses.ConnType.All2All
+        )
+        self.s2 = pb.synapses.NoDecay(
+            self.inp1, self.n1, weights=127, conn_type=pb.synapses.ConnType.All2All
+        )
+        self.s3 = pb.synapses.NoDecay(
+            self.inp1, self.n1, weights=127, conn_type=pb.synapses.ConnType.All2All
+        )
+
+        self.probe1 = pb.simulator.Probe(self.inp1, "output")
+        self.probe2 = pb.simulator.Probe(self.s1, "output")
+        self.probe3 = pb.simulator.Probe(self.n1, "output")
+        self.probe4 = pb.simulator.Probe(self.n1, "voltage")
+
+
 class TonicSpikingNet(pb.Network):
     def __init__(self):
         super().__init__()
@@ -304,3 +330,12 @@ class TestNeuronSim:
         sim.run(10)
 
         print(sim.data[net.probe1])
+
+    def test_sum_inputs_behavior(self):
+        net = Net2()
+        sim = pb.Simulator(net)
+
+        sim.run(10)
+
+        print(sim.data[net.probe1])
+        print(sim.data[net.probe2])

@@ -24,9 +24,6 @@ def check_elem_unique(obj: Any) -> bool:
 
         return True
 
-    if hasattr(obj, "__iter__"):
-        return len(obj) == len(set(obj))
-
     raise TypeError(f"Unsupported type: {type(obj)}")
 
 
@@ -36,6 +33,16 @@ def count_unique_elem(obj: Iterable) -> int:
         seen.add(item)
 
     return len(seen)
+
+
+def check_elem_same(obj: Any) -> bool:
+    if hasattr(obj, "__iter__") or hasattr(obj, "__contains__"):
+        return len(set(obj)) == 1
+
+    if isinstance(obj, dict):
+        return len(set(obj.values())) == 1
+
+    raise TypeError(f"Unsupported type: {type(obj)}")
 
 
 def is_nested_obj(obj_on_top: Any) -> bool:
@@ -115,12 +122,13 @@ def bin_split(x: int, pos: int, high_mask: Optional[int] = None) -> Tuple[int, i
 
     Argument:
         - x: the integer
-        - pos: the position(LSB) of splitting.
+        - pos: the position (LSB) to split the binary.
         - high_mask: mask for the high part. Optional.
 
-    Example: split 0b11000_01000 on the position of bit 3.
-    >>> bin_split(0b1100001001, 3)
-    97(0b1100001), 1
+    Example::
+
+        >>> bin_split(0b1100001001, 3)
+        97(0b1100001), 1
     """
     low = x & ((1 << pos) - 1)
 
@@ -140,9 +148,10 @@ def bin_combine(high: int, low: int, pos: int) -> int:
         - low: the integer on the low bit.
         - pos: the combination bit if provided. Must be equal or greater than `low.bit_length()`.
 
-    Example: combine 0b11000, 0b101
-    >>> bin_combine(0b11000, 0b101, 5)
-    773(0b11000_00101)
+    Example::
+
+        >>> bin_combine(0b11000, 0b101, 5)
+        773(0b11000_00101)
     """
     if pos < 0:
         raise ValueError("position must be greater than 0")
@@ -162,9 +171,10 @@ def bin_combine_x(*components: int, pos: Union[int, List[int], Tuple[int, ...]])
         - components: the list of integers to be combined.
         - pos: the combination bit(s) if provided. Every bit must be equal or greater than `low.bit_length()`.
 
-    Example: combine 0b11000, 0b101, 0b01011
-    >>> bin_combine_x(0b11000, 0b101, 0b1011, pos=[10, 5])
-    24747(0b11000_00101_01011)
+    Example::
+
+        >>> bin_combine_x(0b11000, 0b101, 0b1011, pos=[10, 5])
+        24747(0b11000_00101_01011)
     """
     if isinstance(pos, (list, tuple)):
         if len(components) != len(pos) + 1:

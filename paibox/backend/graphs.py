@@ -1,4 +1,6 @@
+import sys
 from collections import defaultdict
+from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import (
     Any,
@@ -11,40 +13,198 @@ from typing import (
     Set,
     Tuple,
     TypedDict,
-    TypeVar,
 )
 
-from paibox.exceptions import NotSupportedError
+if sys.version_info >= (3, 10):
+    from typing import TypeAlias
+else:
+    from typing_extensions import TypeAlias
 
-Node = TypeVar("Node")
-Edge = TypeVar("Edge")
+from paibox.base import NeuDyn
+from paibox.collector import Collector
+from paibox.exceptions import BuildError, NotSupportedError
+from paibox.network import DynSysGroup
+from paibox.projection import InputProj
+from paibox.synapses import SynSys
+
+NodeName: TypeAlias = str
+EdgeName: TypeAlias = str
 
 
-class NodeCharacter(Enum):
+class NodePosition(Enum):
     """Charactor of a node in the directed graph."""
 
     MEMBER = auto()
     """As a member layer."""
-
     INPUT = auto()
     """As an input node."""
-
     OUTPUT = auto()
     """As an output node."""
 
 
-class GraphInfo(TypedDict):
-    input: Dict
-    output: Dict
-    members: Dict
-
-
-class Degree(NamedTuple):
+class NodeDegree(NamedTuple):
     in_degree: int = 0
     out_degree: int = 0
 
 
-def toposort(directed_edges: Mapping[Node, Iterable[Node]]) -> List[Node]:
+class NodeAttr(NamedTuple):
+    obj: NeuDyn
+    position: NodePosition
+    degree: NodeDegree
+
+
+class EdgeAttr(NamedTuple):
+    edge: EdgeName
+    distance: int
+
+
+class GraphInfo(TypedDict, total=False):
+    input: Dict[str, Any]
+    output: Dict[str, Any]
+    members: Dict[str, Any]
+    extras: Dict[str, Any]
+
+
+@dataclass
+class PAIGraph:
+    """Directed graph of PAIBox. We treat networks as one whole graph. \
+        In the graph, synapses are edges while neurons are nodes.
+    """
+
+    networks: Tuple[DynSysGroup, ...] = field(default_factory=tuple)
+    """All networks are seen as one graph."""
+    nodes: Dict[NodeName, NodeAttr] = field(default_factory=dict)
+    """General nodes in the graph."""
+    edges: Collector = field(default_factory=Collector)
+    """General edges in the graph."""
+
+    inodes: Collector = field(default_factory=Collector)
+    """Input nodes in the graph."""
+    onodes: Collector = field(default_factory=Collector)
+    """Output nodes in the graph."""
+
+    ordered_nodes: List[NodeName] = field(default_factory=list)
+    """Ordered topologically nodes."""
+
+    succ_dg: Dict[NodeName, Dict[NodeName, EdgeAttr]] = field(default_factory=dict)
+    """Successor edges & nodes of every node in the graph."""
+
+    degree_of_nodes: Dict[NodeName, NodeDegree] = field(default_factory=dict)
+    """A dictionary of in/out-degree tuple of nodes."""
+
+    """Status options"""
+    has_built: bool = field(default=False)
+
+    def clear(self) -> None:
+        """Clear the PAIGraph."""
+        self.has_built = False
+
+        self.networks = ()
+        self.nodes.clear()
+        self.edges.clear()
+        self.inodes.clear()
+        self.onodes.clear()
+        self.ordered_nodes.clear()
+        self.succ_dg.clear()
+        self.degree_of_nodes.clear()
+
+    def build(self, *networks: DynSysGroup, **options) -> None:
+        self.clear()
+
+        self.networks = networks
+
+        _nodes = Collector()
+
+        for network in networks:
+            sub_nodes = network.nodes(level=1, include_self=False)
+            _nodes += sub_nodes.include(InputProj, NeuDyn).unique()
+            self.edges += sub_nodes.subset(SynSys).unique()
+
+        # Add all nodes in the graph. DO NOT REMOVE!
+        for node in _nodes:
+            self.succ_dg[node] = dict()
+
+        for syn in self.edges.values():
+            u, v = syn.source.name, syn.dest.name
+            self.succ_dg[u][v] = EdgeAttr(edge=syn.name, distance=1)
+
+        self.degree_of_nodes = get_node_degrees(self.succ_dg)
+
+        # `InputProj` nodes are input nodes definitely.
+        self.inodes = _nodes.subset(InputProj)
+
+        # By default, nodes with out-degree = 0 are considered as output nodes.
+        self.onodes = _nodes.key_on_condition(
+            lambda node: self.degree_of_nodes[node].out_degree == 0
+        )
+
+        for node in _nodes:
+            if node in self.inodes:
+                pos = NodePosition.INPUT
+            elif node in self.onodes:
+                pos = NodePosition.OUTPUT
+            else:
+                pos = NodePosition.MEMBER
+
+            self.nodes[node] = NodeAttr(
+                obj=_nodes[node], position=pos, degree=self.degree_of_nodes[node]
+            )
+
+        self.has_built = True
+
+        self._graph_check(**options)
+
+    def _graph_check(self, **options) -> None:
+        """Preprocess of the directed graph. Because there are currently    \
+            many limitations on the networks that can be processed, checks  \
+            are performed at this stage.
+
+        Limitation:
+            # For a node with in-degree > 1, the out-degree of all its      \
+            #   forward nodes = 1.
+            - For a node with out-degree > 1, the in-degree of all its      \
+                backward node = 1.
+            - Only support the in-degree of backward node of input node is 1.
+        """
+        # Filter the DG with cycles.
+        self.ordered_nodes = toposort(self.succ_dg)
+
+        for node in filter(
+            lambda node: self.degree_of_nodes[node].out_degree > 1, self.nodes
+        ):
+            if any(
+                self.degree_of_nodes[succ_node].in_degree > 1
+                for succ_node in self.succ_dg[node]
+            ):
+                raise NotSupportedError(
+                    "This structure of network is not supported yet."
+                )
+
+        # Only support the in-degree of backward node of input node is 1.
+        for inode in self.inodes:
+            if any(
+                self.degree_of_nodes[succ_node].in_degree > 1
+                for succ_node in self.succ_dg[inode]
+            ):
+                raise NotSupportedError(
+                    "Only input nodes are supported as the only input of a node."
+                )
+
+    def build_check(self) -> None:
+        if not self.has_built:
+            raise BuildError(f"The graph hasn't been built yet")
+
+    @property
+    def graph_name_repr(self) -> str:
+        _str = f"Graph_of_{self.networks[0].name}"
+
+        for network in self.networks[1:]:
+            _str += f"_and_{network.name}"
+
+        return _str
+
+
+def toposort(directed_edges: Mapping[NodeName, Iterable[NodeName]]) -> List[NodeName]:
     """
     Topological sort algorithm by Kahn [1]_.
 
@@ -104,8 +264,8 @@ def toposort(directed_edges: Mapping[Node, Iterable[Node]]) -> List[Node]:
 
 
 def reverse_edges(
-    directed_edges: Mapping[Node, Iterable[Node]]
-) -> Dict[Node, Set[Node]]:
+    directed_edges: Mapping[NodeName, Iterable[NodeName]]
+) -> Dict[NodeName, Set[NodeName]]:
     """
     Reverses direction of dependence dict.
 
@@ -127,8 +287,10 @@ def reverse_edges(
     return reversed
 
 
-def get_node_degrees(succ_edges: Dict[Node, Dict[Node, Any]]) -> Dict[Node, Degree]:
-    degree = defaultdict(Degree)
+def get_node_degrees(
+    succ_edges: Mapping[NodeName, Mapping[NodeName, Any]]
+) -> Dict[NodeName, NodeDegree]:
+    degree = defaultdict(NodeDegree)
     in_degrees = defaultdict(int)
     out_degrees = defaultdict(int)
 
@@ -139,29 +301,29 @@ def get_node_degrees(succ_edges: Dict[Node, Dict[Node, Any]]) -> Dict[Node, Degr
             in_degrees[succ_node] += 1
 
     for node in succ_edges:
-        degree[node] = Degree._make((in_degrees[node], out_degrees[node]))
+        degree[node] = NodeDegree(in_degrees[node], out_degrees[node])
 
     return degree
 
 
 def _find_pred_edges(
-    succ_edges: Dict[Node, Dict[Node, Edge]], target_node: Node
-) -> Set[Edge]:
+    succ_edges: Dict[NodeName, Dict[NodeName, EdgeAttr]], target_node: NodeName
+) -> Set[EdgeName]:
     pred = set()
 
     for succ_node in filter(lambda node: target_node in node, succ_edges.values()):
-        pred.add(succ_node[target_node])
+        pred.add(succ_node[target_node].edge)
 
     return pred
 
 
 def group_edges(
-    edges: List[Edge],
-    succ_edges: Dict[Node, Dict[Node, Edge]],
-    degree: Dict[Node, Degree],
+    edges: List[EdgeName],
+    succ_edges: Dict[NodeName, Dict[NodeName, EdgeAttr]],
+    degree: Dict[NodeName, NodeDegree],
     *,
-    ordered_nodes: Optional[List[Node]] = None,
-) -> List[Set[Edge]]:
+    ordered_nodes: Optional[List[NodeName]] = None,
+) -> List[Set[EdgeName]]:
     """Group all edges according to a certain rule.
 
     Args:
@@ -196,7 +358,7 @@ def group_edges(
             gathered.append(edge_group_copy)
 
         if degree[node].out_degree > 1:
-            edge_group = set(succ_edges[node].values())
+            edge_group = set(e.edge for e in succ_edges[node].values())
 
             if edge_group not in gathered:
                 edges_set.difference_update(edge_group)
@@ -206,7 +368,7 @@ def group_edges(
             succ_node = list(succ_edges[node].keys())[0]
             # Check the in-degree of the only following node.
             if degree[succ_node].in_degree == 1:
-                gathered.append({succ_edges[node][succ_node]})
+                gathered.append({succ_edges[node][succ_node].edge})
         else:
             # out-degree = 0, do nothing.
             continue
@@ -215,8 +377,9 @@ def group_edges(
 
 
 def get_longest_path(
-    edges_with_d: Dict[Node, Dict[Node, int]], ordered_nodes: List[Node]
-) -> Tuple[List[Node], int]:
+    edges_with_d: Dict[NodeName, Dict[NodeName, EdgeAttr]],
+    ordered_nodes: List[NodeName],
+) -> Tuple[List[NodeName], int]:
     """Get the longest path in the DAG.
 
     Args:
@@ -225,12 +388,12 @@ def get_longest_path(
 
     Return: the longest distance in the graph.
     """
-    distances: Dict[Node, int] = defaultdict(int)  # init value = 0
-    pred_nodes: Dict[Node, Optional[Node]] = defaultdict()
+    distances: Dict[NodeName, int] = defaultdict(int)  # init value = 0
+    pred_nodes: Dict[NodeName, Optional[NodeName]] = defaultdict()
 
     for node in ordered_nodes:
         for neighbor in edges_with_d[node]:
-            d = edges_with_d[node][neighbor]
+            d = edges_with_d[node][neighbor].distance
             if distances[node] + d > distances[neighbor]:
                 distances[neighbor] = distances[node] + d
                 pred_nodes[neighbor] = node
@@ -257,10 +420,10 @@ MAX_DISTANCE = 999  # I don't like float('inf')
 
 
 def get_shortest_path(
-    edges_with_d: Dict[Node, Dict[Node, int]],
-    ordered_nodes: List[Node],
-    input_nodes: List[Node],
-) -> Tuple[List[Node], int]:
+    edges_with_d: Dict[NodeName, Dict[NodeName, EdgeAttr]],
+    ordered_nodes: List[NodeName],
+    input_nodes: List[NodeName],
+) -> Tuple[List[NodeName], int]:
     """Get the shortest path in the DAG.
 
     Args:
@@ -270,8 +433,8 @@ def get_shortest_path(
 
     Return: the shortest distance in the graph.
     """
-    distances: Dict[Node, int] = defaultdict(lambda: MAX_DISTANCE)
-    pred_nodes: Dict[Node, Optional[Node]] = defaultdict()
+    distances: Dict[NodeName, int] = defaultdict(lambda: MAX_DISTANCE)
+    pred_nodes: Dict[NodeName, Optional[NodeName]] = defaultdict()
 
     # Set initial value for all inputs nodes.
     for inode in input_nodes:
@@ -279,7 +442,7 @@ def get_shortest_path(
 
     for node in ordered_nodes:
         for neighbor in edges_with_d[node]:
-            d = edges_with_d[node][neighbor]
+            d = edges_with_d[node][neighbor].distance
             if distances[node] + d < distances[neighbor]:
                 distances[neighbor] = distances[node] + d
                 pred_nodes[neighbor] = node

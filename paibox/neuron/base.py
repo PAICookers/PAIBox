@@ -1,6 +1,7 @@
 from typing import Optional, Tuple
 
 import numpy as np
+from numpy.typing import NDArray
 
 from paibox._types import Shape
 from paibox.base import NeuDyn
@@ -72,7 +73,9 @@ class MetaNeuron:
         self._threshold_mode = self.init_param(TM.NOT_EXCEEDED).astype(np.int8)
         self._v_th_rand = self.init_param(0).astype(np.int32)
 
-    def _neuronal_charge(self, x: np.ndarray, vjt_pre: np.ndarray) -> np.ndarray:
+    def _neuronal_charge(
+        self, x: NDArray[np.int32], vjt_pre: NDArray[np.int32]
+    ) -> NDArray[np.int32]:
         r"""1. Synaptic integration.
 
         Argument:
@@ -101,7 +104,7 @@ class MetaNeuron:
 
         return v_charged
 
-    def _neuronal_leak(self, vjt: np.ndarray) -> np.ndarray:
+    def _neuronal_leak(self, vjt: NDArray[np.int32]) -> NDArray[np.int32]:
         r"""2. Leaking integration.
 
         2.1 Leaking direction, forward or reversal.
@@ -135,7 +138,7 @@ class MetaNeuron:
 
         return v_leaked
 
-    def _neuronal_fire(self, vjt: np.ndarray) -> np.ndarray:
+    def _neuronal_fire(self, vjt: NDArray[np.int32]) -> NDArray[np.bool_]:
         r"""3. Threshold comparison.
 
         3.1 Random threshold.
@@ -177,7 +180,7 @@ class MetaNeuron:
 
         return spike
 
-    def _neuronal_reset(self, vjt: np.ndarray) -> np.ndarray:
+    def _neuronal_reset(self, vjt: NDArray[np.int32]) -> NDArray[np.int32]:
         r"""4. Reset.
 
         If `_threshold_mode` is `EXCEED_POSITIVE`
@@ -203,7 +206,7 @@ class MetaNeuron:
             `vjt` = `vjt`
         """
 
-        def _when_exceed_pos():
+        def _when_exceed_pos() -> NDArray[np.int32]:
             if self.reset_mode is RM.MODE_NORMAL:
                 return np.full(self.varshape, self.reset_v, dtype=np.int32)
 
@@ -215,7 +218,7 @@ class MetaNeuron:
             else:
                 return vjt
 
-        def _when_exceed_neg():
+        def _when_exceed_neg() -> NDArray[np.int32]:
             if self.neg_thres_mode is NTM.MODE_RESET:
                 if self.reset_mode is RM.MODE_NORMAL:
                     return np.full(self.varshape, -self.reset_v, dtype=np.int32)
@@ -245,7 +248,7 @@ class MetaNeuron:
 
         return v_reseted
 
-    def _relu(self, vj: np.ndarray) -> np.ndarray:
+    def _relu(self, vj: NDArray[np.int32]) -> NDArray[np.int32]:
         r"""ReLU(ANN mode ONLY)
 
         If spiking width format is `WIDTH_1BIT`, then
@@ -271,7 +274,7 @@ class MetaNeuron:
                 X               [X-1:X-8]
         """
 
-        def _when_exceed_pos():
+        def _when_exceed_pos() -> NDArray[np.int32]:
             if self._spike_width_format is SpikeWidthFormat.WIDTH_1BIT:
                 return np.ones(self.varshape, dtype=np.int32)
 
@@ -314,8 +317,8 @@ class MetaNeuron:
         self._threshold_mode = self.init_param(TM.NOT_EXCEEDED).astype(np.int8)
 
     def update(
-        self, x: np.ndarray, vjt_pre: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray]:
+        self, x: NDArray[np.int32], vjt_pre: NDArray[np.int32]
+    ) -> Tuple[NDArray[np.bool_], NDArray[np.int32]]:
         """Update at one time step."""
 
         """1. Charge.
@@ -416,10 +419,10 @@ class Neuron(MetaNeuron, NeuDyn):
     def __len__(self) -> int:
         return self._n_neuron
 
-    def __call__(self, x: Optional[np.ndarray] = None, **kwargs) -> np.ndarray:
+    def __call__(self, x: Optional[np.ndarray] = None, **kwargs) -> NDArray[np.bool_]:
         return self.update(x, **kwargs)
 
-    def update(self, x: Optional[np.ndarray] = None, **kwargs) -> np.ndarray:
+    def update(self, x: Optional[np.ndarray] = None, **kwargs) -> NDArray[np.bool_]:
         if x is None:
             x = self.sum_inputs()
 
@@ -448,17 +451,17 @@ class Neuron(MetaNeuron, NeuDyn):
         return self._n_neuron
 
     @property
-    def output(self) -> np.ndarray:
+    def output(self) -> NDArray[np.bool_]:
         return self.spike
 
     @property
-    def feature_map(self) -> np.ndarray:
+    def feature_map(self) -> NDArray[np.bool_]:
         return self.output.reshape(self.varshape)
 
     @property
-    def state(self) -> np.ndarray:
+    def state(self) -> NDArray[np.bool_]:
         return self.spike
 
     @property
-    def voltage(self) -> np.ndarray:
+    def voltage(self) -> NDArray[np.int32]:
         return self.vjt.reshape(self.varshape)
