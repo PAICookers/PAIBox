@@ -551,7 +551,7 @@ class CorePlacement(CoreAbstract):
             0,                                  # tick_wait_end
             _mode_params[2],                    # snn_mode_en
             self.target_lcn,                    # target_lcn
-            _BACKEND_CONTEXT["test_chip_addr"], # test_chip_addr
+            _BACKEND_CONTEXT.test_chip_addr,    # test_chip_addr
         )
         # fmt: on
         return cb_config
@@ -856,9 +856,10 @@ def get_axon_segments(
                 f"Axons address out of range{fan_in_max}: {offset + addr_width}"
             )
 
+        cur_offset = offset
         offset += addr_width
 
-        return AxonSegment(axon.num_out, addr_width, offset)
+        return AxonSegment(axon.num_out, addr_width, cur_offset)
 
     offset = 0
     axon_segments = dict()

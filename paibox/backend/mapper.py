@@ -9,12 +9,13 @@ from paibox.libpaicore import (
     CoordLike,
     CoordOffset,
     HwConfig,
+    NeuronDestInfo,
     get_replication_id,
     to_coord,
 )
 from paibox.network import DynSysGroup
 
-from .config_template import CoreConfig, NeuronConfig, NeuronDest
+from .config_template import CoreConfig, NeuronDest
 from .context import _BACKEND_CONTEXT
 from .graphs import *
 from .placement import CoreBlock, aligned_coords, max_lcn_of_cb
@@ -225,12 +226,12 @@ class Mapper:
         """
         input_nodes_info = self._inpproj_config_export()
 
-        # The destination info of the output nodes is
-        # a subset of the info of the network members.
-        output_dest_info: Dict[NodeName, Dict[int, NeuronConfig]] = defaultdict(dict)
+        # The destination info of the output nodes is a subset
+        # of the info of the network members.
+        output_dest_info: Dict[NodeName, Dict[int, NeuronDestInfo]] = defaultdict(dict)
 
         _ocoord_update_flag = False
-        ocoord = _BACKEND_CONTEXT["output_core_addr"]
+        ocoord = _BACKEND_CONTEXT["output_core_addr_start"]
 
         for cb in self.core_blocks:
             self.core_params |= CoreBlock.export_core_plm_config(cb)
@@ -255,7 +256,7 @@ class Mapper:
                         )
                         output_dest_info[neu_seg.parent.name][
                             core_plm.coord.address
-                        ] = core_plm.neu_configs[neu_seg.parent]
+                        ] = core_plm.neu_configs[neu_seg.parent].neuron_dest_info
                         _ocoord_update_flag = True
                     else:
                         # Find the axon destinations
@@ -307,7 +308,6 @@ class Mapper:
                 )
 
                 neuron_dest = NeuronDest(
-                    dest_coords,
                     [coord.tick_relative for coord in axon_coords],
                     [coord.addr_axon for coord in axon_coords],
                     dest_coords[0].x,
@@ -326,14 +326,17 @@ class Mapper:
         self,
         write_to_file: bool = True,
         *,
-        fp: Union[str, Path] = Path.cwd(),
+        fp: Optional[Union[str, Path]] = None,
         format: Literal["txt", "bin", "npy"] = "npy",
         local_chip_addr: Optional[CoordLike] = None,
     ) -> Dict[Coord, Any]:
-        p = Path(fp)
+        if fp is not None:
+            _fp = Path(fp)
+        else:
+            _fp = _BACKEND_CONTEXT["build_directory"]
 
-        if not p.is_dir():
-            p.mkdir(parents=True, exist_ok=True)
+        if not _fp.is_dir():
+            _fp.mkdir(parents=True, exist_ok=True)
 
         if local_chip_addr is not None:
             _local_chip_addr = to_coord(local_chip_addr)
@@ -344,7 +347,7 @@ class Mapper:
             _local_chip_addr,
             self.core_plm_config,
             write_to_file,
-            p,
+            _fp,
             format,
         )
 
