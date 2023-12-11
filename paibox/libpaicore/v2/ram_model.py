@@ -1,6 +1,19 @@
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_serializer
+from typing import List
 from typing_extensions import TypedDict
 
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    InstanceOf,
+    field_serializer,
+    field_validator,
+    model_validator,
+    TypeAdapter,
+)
+
+from .hw_defs import HwConfig
+from .hw_types import AxonCoord
 from .ram_types import *
 
 __all__ = ["NeuronDestInfo", "NeuronAttrs", "NeuronParams", "ParamsRAM"]
@@ -15,7 +28,7 @@ ADDR_CHIP_X_BIT_MAX = 5
 ADDR_CHIP_Y_BIT_MAX = 5
 
 
-class NeuronDestInfo(BaseModel):
+class _BasicNeuronDest(BaseModel):
     """Parameter model of RAM parameters listed in Section 2.4.2.
 
     NOTE: The parameters input in the model are declared in `docs/Table-of-Terms.md`.
@@ -57,6 +70,47 @@ class NeuronDestInfo(BaseModel):
         lt=(1 << ADDR_CHIP_Y_BIT_MAX),
         description="Address Y of destination chip.",
     )
+
+
+class NeuronDestInfo(_BasicNeuronDest):
+    tick_relative: List[InstanceOf[int]] = Field(
+        description="Information of relative ticks.",
+    )
+
+    addr_axon: List[InstanceOf[int]] = Field(description="Destination axon address.")
+
+    @field_validator("tick_relative")
+    @classmethod
+    def _tick_relative_check(cls, v):
+        if any(tr >= (1 << TICK_RELATIVE_BIT_MAX) or tr < 0 for tr in v):
+            # DO NOT change the type of exception `ValueError` in the validators below.
+            raise ValueError("Parameter 'tick relative' out of range.")
+
+        return v
+
+    @field_validator("addr_axon")
+    @classmethod
+    def _addr_axon_check(cls, v):
+        if any(addr > HwConfig.ADDR_AXON_MAX or addr < 0 for addr in v):
+            raise ValueError("Parameter 'addr_axon' out of range.")
+
+        return v
+
+    @model_validator(mode="after")
+    def _length_match_check(self):
+        if len(self.tick_relative) != len(self.addr_axon):
+            raise ValueError(
+                "Parameter 'tick relative' & 'addr_axon' must have the same "
+                f"length: {len(self.tick_relative)}, {len(self.addr_axon)}."
+            )
+
+        return self
+
+
+class OutpuNeuronDestInfo(_BasicNeuronDest):
+    # TODO
+    start_axon_coord: AxonCoord = Field(description="Address X of destination chip.")
+    end_axon_coord: AxonCoord = Field(description="Address X of destination chip.")
 
 
 RESET_MODE_BIT_MAX = 2  # Not used
@@ -214,6 +268,8 @@ class _NeuronDestInfoDict(TypedDict):
     addr_core_y_ex: int
     addr_chip_x: int
     addr_chip_y: int
+    tick_relative: List[int]
+    addr_axon: List[int]
 
 
 NeuronAttrsDictChecker = TypeAdapter(_NeuronAttrsDict)

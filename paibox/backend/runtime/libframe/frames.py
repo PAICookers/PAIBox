@@ -1,7 +1,8 @@
 import warnings
-from typing import Any, ClassVar, Dict, List
+from typing import Any, ClassVar, Dict
 
 import numpy as np
+from numpy.typing import NDArray
 
 from paibox.libpaicore import Coord, CoordLike
 from paibox.libpaicore import FrameFormat as FF
@@ -168,8 +169,6 @@ class _NeuronRAMFrame(FramePackage):
         neuron_num: int,
         neuron_attrs: Dict[str, Any],
         neuron_dest_info: Dict[str, Any],
-        tick_relative: List[int],
-        addr_axon: List[int],
         repeat: int,
     ) -> None:
         n_package = 4 * neuron_num * repeat
@@ -185,8 +184,6 @@ class _NeuronRAMFrame(FramePackage):
             neuron_attrs,
             neuron_dest_info,
             neuron_num,
-            tick_relative,
-            addr_axon,
             repeat,
         )
 
@@ -198,10 +195,11 @@ class _NeuronRAMFrame(FramePackage):
         attrs: Dict[str, Any],
         dest_info: Dict[str, Any],
         neuron_num: int,
-        tick_relative: List[int],
-        addr_axon: List[int],
         repeat: int,
     ) -> FrameArrayType:
+        tick_relative = dest_info["tick_relative"]
+        addr_axon = dest_info["addr_axon"]
+
         assert len(tick_relative) == len(addr_axon)
 
         _packages = np.zeros((neuron_num, 4), dtype=FRAME_DTYPE)
@@ -212,7 +210,8 @@ class _NeuronRAMFrame(FramePackage):
         )
         addr_core_x_high3, addr_core_x_low2 = bin_split(dest_info["addr_core_x"], 2, 3)
 
-        # Package #1
+        # LSB: [63:0], [127:64], [191:128], [213:192]
+        # Package #1, [63:0]
         ram_frame1 = (
             ((attrs["vjt_pre"] & RAMF.VJT_PRE_MASK) << RAMF.VJT_PRE_OFFSET)
             | (
@@ -226,7 +225,7 @@ class _NeuronRAMFrame(FramePackage):
             | ((leak_v_low28 & RAMF.LEAK_V_LOW28_MASK) << RAMF.LEAK_V_LOW28_OFFSET)
         )
 
-        # Package #2
+        # Package #2, [127:64]
         ram_frame2 = (
             ((leak_v_high2 & RAMF.LEAK_V_HIGH2_MASK) << RAMF.LEAK_V_HIGH2_OFFSET)
             | (
@@ -255,7 +254,7 @@ class _NeuronRAMFrame(FramePackage):
             )
         )
 
-        # Package #3
+        # Package #3, [191:128]
         ram_frame3 = (
             (
                 (threshold_mask_ctrl_high4 & RAMF.THRESHOLD_MASK_CTRL_HIGH4_MASK)
@@ -300,7 +299,7 @@ class _NeuronRAMFrame(FramePackage):
 
         # Iterate destination infomation of every neuron
         for i in range(neuron_num):
-            # Package #4
+            # Package #4, [213:192]
             ram_frame4 = (
                 (
                     (addr_core_x_high3 & RAMF.ADDR_CORE_X_HIGH3_MASK)
@@ -392,8 +391,6 @@ class OfflineConfigFrame3(_NeuronRAMFrame):
         neuron_num: int,
         neuron_attrs: Dict[str, Any],
         neuron_dest_info: Dict[str, Any],
-        tick_relative: List[int],
-        addr_axon: List[int],
         *,
         repeat: int,
     ) -> None:
@@ -406,8 +403,6 @@ class OfflineConfigFrame3(_NeuronRAMFrame):
             neuron_num,
             neuron_attrs,
             neuron_dest_info,
-            tick_relative,
-            addr_axon,
             repeat,
         )
 
@@ -523,8 +518,6 @@ class OfflineTestOutFrame3(_NeuronRAMFrame):
         neuron_num: int,
         neuron_attrs: Dict[str, Any],
         neuron_dest_info: Dict[str, Any],
-        tick_relative: List[int],
-        addr_axon: List[int],
         *,
         repeat: int = 1,
     ) -> None:
@@ -537,8 +530,6 @@ class OfflineTestOutFrame3(_NeuronRAMFrame):
             neuron_num,
             neuron_attrs,
             neuron_dest_info,
-            tick_relative,
-            addr_axon,
             repeat,
         )
 
@@ -604,11 +595,16 @@ class OfflineWorkFrame1(Frame):
         core_coord: Coord,
         rid: RId,
         /,
-        axon: int,
         timeslot: int,
+        axon: int,
         _data: DataType,
     ) -> None:
         if isinstance(_data, np.ndarray) and _data.size != 1:
+            # TODO
+            raise ValueError
+
+        if _data > np.iinfo(np.uint8).max or _data < np.iinfo(np.uint8).min:
+            # TODO
             raise ValueError
 
         self.data = np.uint8(_data)
@@ -635,23 +631,19 @@ class OfflineWorkFrame1(Frame):
     @staticmethod
     @params_check(NeuronDestInfoDictChecker)
     def _frame_dest_reorganized(dest_info: Dict[str, Any]) -> FrameArrayType:
-        chip_coord = Coord(dest_info["addr_chip_x"], dest_info["addr_chip_y"])
-        core_coord = Coord(dest_info["addr_core_x"], dest_info["addr_core_y"])
-        rid = RId(dest_info["addr_core_x_ex"], dest_info["addr_core_y_ex"])
-
         return OfflineWorkFrame1.concat_frame_dest(
-            chip_coord,
-            core_coord,
-            rid,
-            list(dest_info["addr_axon"]),
+            (dest_info["addr_chip_x"], dest_info["addr_chip_y"]),
+            (dest_info["addr_core_x"], dest_info["addr_core_y"]),
+            (dest_info["addr_core_x_ex"], dest_info["addr_core_y_ex"]),
             list(dest_info["tick_relative"]),
+            list(dest_info["addr_axon"]),
         )
 
     @staticmethod
     def _gen_frame_fast(
-        frame_dest_info: FrameArrayType, data: np.ndarray
+        frame_dest_info: FrameArrayType, data: NDArray[np.uint8]
     ) -> FrameArrayType:
-        """Don't call `OfflineWorkFrame1._gen_frame_fast()` directly."""
+        """Do not call `OfflineWorkFrame1._gen_frame_fast()` directly."""
         indexes = np.nonzero(data)
 
         return (frame_dest_info[indexes] + data[indexes]).astype(FRAME_DTYPE)
@@ -662,17 +654,20 @@ class OfflineWorkFrame1(Frame):
         chip_coord: CoordLike,
         core_coord: CoordLike,
         rid: RIdLike,
-        axons: ArrayType,
         timeslots: ArrayType,
+        axons: ArrayType,
     ) -> FrameArrayType:
         _axons = np.asarray(axons, dtype=FRAME_DTYPE).flatten()
         _timeslots = np.asarray(timeslots, dtype=FRAME_DTYPE).flatten()
 
+        if _axons.size != _timeslots.size:
+            raise ValueError(
+                f"The size of axons & timeslots are not equal ({_axons.size}, {_timeslots.size})"
+            )
+
         _chip_coord = to_coord(chip_coord)
         _core_coord = to_coord(core_coord)
         _rid = to_rid(rid)
-
-        assert _axons.size == _timeslots.size
 
         header = cls.header.value & FF.GENERAL_HEADER_MASK
         chip_addr = _chip_coord.address & FF.GENERAL_CHIP_ADDR_MASK

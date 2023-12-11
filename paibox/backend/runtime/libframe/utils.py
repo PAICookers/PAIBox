@@ -1,4 +1,5 @@
 import os
+import warnings
 from functools import wraps
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
@@ -8,8 +9,9 @@ from pydantic import TypeAdapter
 
 from paibox.libpaicore import FrameHeader as FH
 from paibox.libpaicore import FrameType as FT
+from paibox.libpaicore import FrameFormat as FF
 
-from ._types import FrameArrayType
+from ._types import BasicFrameArray, FRAME_DTYPE, FrameArrayType
 
 
 # Replace the one from paibox.excpetions
@@ -38,6 +40,49 @@ def header2type(header: FH) -> FT:
         return FT.FRAME_WORK
 
     raise FrameIllegalError(f"Unknown header: {header}")
+
+
+def header_check(frames: FrameArrayType, expected_type: FH) -> None:
+    """Check the header of frame arrays.
+
+    TODO Is it necessary to deal with the occurrence of illegal frames? Filter & return.
+    """
+    header0 = FH((int(frames[0]) >> FF.GENERAL_HEADER_OFFSET) & FF.GENERAL_HEADER_MASK)
+
+    if header0 is not expected_type:
+        raise ValueError(
+            f"Expected frame type {expected_type.name}, but got: {header0.name}."
+        )
+
+    headers = (frames >> FF.GENERAL_HEADER_OFFSET) & FF.GENERAL_HEADER_MASK
+
+    if not check_elem_same(headers):
+        raise ValueError(
+            "The header of the frame is not the same, please check the frames value."
+        )
+
+
+def frame_array2np(frame_array: BasicFrameArray) -> FrameArrayType:
+    if isinstance(frame_array, int):
+        nparray = np.asarray([frame_array], dtype=FRAME_DTYPE)
+
+    elif isinstance(frame_array, np.ndarray):
+        if frame_array.ndim != 1:
+            warnings.warn(
+                f"ndim of frame arrays must be 1, but got {frame_array.ndim}. Flatten anyway.",
+                UserWarning,
+            )
+        nparray = frame_array.flatten().astype(FRAME_DTYPE)
+
+    elif isinstance(frame_array, (list, tuple)):
+        nparray = np.asarray(frame_array, dtype=FRAME_DTYPE)
+
+    else:
+        raise TypeError(
+            f"Expect int, list, tuple or np.ndarray, but got {type(frame_array)}"
+        )
+
+    return nparray
 
 
 def print_frame(frames: FrameArrayType) -> None:
@@ -124,7 +169,7 @@ def bin_split(x: int, pos: int, high_mask: Optional[int] = None) -> Tuple[int, i
 def params_check(checker: TypeAdapter):
     def inner(func):
         @wraps(func)
-        def wrapper(params: Dict[Any, Any], *args, **kwargs):
+        def wrapper(params: Dict[str, Any], *args, **kwargs):
             checked = checker.validate_python(params)
             return func(checked, *args, **kwargs)
 
@@ -136,7 +181,7 @@ def params_check(checker: TypeAdapter):
 def params_check2(checker1: TypeAdapter, checker2: TypeAdapter):
     def inner(func):
         @wraps(func)
-        def wrapper(params1: Dict[Any, Any], params2: Dict[Any, Any], *args, **kwargs):
+        def wrapper(params1: Dict[str, Any], params2: Dict[str, Any], *args, **kwargs):
             checked1 = checker1.validate_python(params1)
             checked2 = checker2.validate_python(params2)
             return func(checked1, checked2, *args, **kwargs)
