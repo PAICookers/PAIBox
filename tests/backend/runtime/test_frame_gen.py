@@ -1,14 +1,15 @@
 import time
+import json
 
 import numpy as np
 import pytest
+
+from pathlib import Path
 
 from paibox.backend.runtime.frame_gen import OfflineFrameGen
 from paibox.backend.runtime.libframe.frames import OfflineWorkFrame1
 from paibox.backend.runtime.libframe.utils import print_frame
 from paibox.libpaicore import Coord, ReplicationId
-
-pexpect = pytest.importorskip("pexpect")
 
 
 @pytest.fixture
@@ -17996,3 +17997,25 @@ def core_plm_config2():
 #     with open("reset4.txt", "w") as f:
 #         for i in frame:
 #             f.write(str(bin(i))[2:].zfill(64) + "\n")
+
+
+class TestWorkFrameGen:
+    
+    def test_gen_work_frame1_by_input(self):
+        fp = Path(__file__).parent / "data"
+        
+        with open(fp / "input_proj_info1.json", "r") as f:
+            input_proj_info = json.load(f)
+        
+        n_input_node = len(input_proj_info.keys())
+        
+        assert n_input_node == 2
+        
+        for inode in input_proj_info.values():
+            inode_size = len(inode["addr_axon"])
+            
+            data = np.random.randint(0, 256, size=(inode_size,), dtype=np.uint8)
+            
+            work_frame1 = OfflineFrameGen.gen_work_frame1(inode, data)
+            
+            print()

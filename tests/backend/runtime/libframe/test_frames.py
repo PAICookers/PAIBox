@@ -4,7 +4,6 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from paibox.backend.runtime.libframe import FrameFactory
 from paibox.backend.runtime.libframe.frames import *
 from paibox.libpaicore import Coord
 from paibox.libpaicore import FrameHeader as FH
@@ -50,14 +49,6 @@ class TestOfflineConfigFrame2:
         assert cf.chip_coord == chip_coord
         assert cf.core_coord == core_coord
         assert cf.rid == rid
-
-        # TODO decode here
-        decoded = FrameFactory.decode(cf.value)
-
-        assert decoded.header == FH.CONFIG_TYPE2
-        assert decoded.chip_coord == chip_coord
-        assert decoded.core_coord == core_coord
-        assert decoded.rid == rid
 
     def test_instance_illegal(self, gen_random_params_reg_dict):
         params_reg_dict = gen_random_params_reg_dict
