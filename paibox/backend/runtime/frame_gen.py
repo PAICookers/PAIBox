@@ -3,13 +3,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Union, overload
 
 import numpy as np
+from numpy.typing import NDArray
 
 from paibox.backend.config_template import CorePlacementConfig, NeuronConfig
 from paibox.libpaicore import LCN_EX, Coord, ParamsReg
 from paibox.libpaicore import ReplicationId as RId
 from paibox.libpaicore import WeightPrecision as WP
 
-from .libframe._types import *
+from .libframe._types import DataArrayType, DataType, IntScalarType
 from .libframe.frames import *
 from .libframe.utils import *
 
@@ -80,8 +81,6 @@ class OfflineFrameGen:
                     neuron_config.n_neuron,
                     attrs,
                     dest_info,
-                    neuron_config.tick_relative,
-                    neuron_config.addr_axon,
                     repeat=(1 << lcn_ex) * (1 << weight_precision),
                 )
             )
@@ -312,21 +311,29 @@ class OfflineFrameGen:
 
     @staticmethod
     def gen_work_frame1(
-        input_proj_info: Dict[str, Any],
+        one_input_proj: Dict[str, Any],
         data: DataArrayType,
     ) -> FrameArrayType:
-        common_frame_dest = OfflineWorkFrame1._frame_dest_reorganized(input_proj_info)
-        _data = np.asarray(data, dtype=FRAME_DTYPE)
+        """Generate the common part of the input spike frames by given the dictionary  \
+            of input projections.
+        
+        Args:
+            - input_proj_info: the dictionary of input projections exported \
+                from `paibox.Mapper`.
+        """
+        common_frame_dest = OfflineWorkFrame1._frame_dest_reorganized(one_input_proj)
+        _data = np.asarray(data, dtype=np.uint8)
 
         return OfflineFrameGen.gen_work_frame1_fast(common_frame_dest, _data)
 
     @staticmethod
     def gen_work_frame1_fast(
-        frame_dest_info: FrameArrayType, data: np.ndarray
-    ) -> np.ndarray:
-        if any(d > np.iinfo(np.int8).max for d in data):
-            # TODO
-            raise ValueError
+        frame_dest_info: FrameArrayType, data: NDArray[np.uint8]
+    ) -> FrameArrayType:
+        _max, _min = np.max(data, axis=None), np.min(data, axis=None)
+
+        if _min < np.iinfo(np.uint8).min or _max > np.iinfo(np.uint8).max:
+            raise ValueError(f"Data out of range int8 ({_min}, {_max})")
 
         return OfflineWorkFrame1._gen_frame_fast(frame_dest_info, data)
 
