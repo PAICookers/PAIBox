@@ -1,18 +1,20 @@
-from collections import defaultdict
-from pathlib import Path
-from typing import Any, Dict, List, Literal, Union, overload
+from typing import Any, Dict, Union, overload
 
 import numpy as np
 from numpy.typing import NDArray
 
-from paibox.backend.config_template import CorePlacementConfig, NeuronConfig
 from paibox.libpaicore import LCN_EX, Coord, ParamsReg
 from paibox.libpaicore import ReplicationId as RId
 from paibox.libpaicore import WeightPrecision as WP
+from paibox.libpaicore import NeuronAttrs, NeuronDestInfo
 
-from .libframe._types import DataArrayType, DataType, IntScalarType
+from .libframe._types import (
+    DataArrayType,
+    DataType,
+    FrameArrayType,
+    IntScalarType,
+)
 from .libframe.frames import *
-from .libframe.utils import *
 
 __all__ = ["OfflineFrameGen"]
 
@@ -49,11 +51,45 @@ class OfflineFrameGen:
         params_reg: Union[ParamsReg, Dict[str, Any]],
     ) -> OfflineConfigFrame2:
         if isinstance(params_reg, ParamsReg):
-            pr = params_reg.model_dump(by_alias=True)
+            _params_reg = params_reg.model_dump(by_alias=True)
         else:
-            pr = params_reg
+            _params_reg = params_reg
 
-        return OfflineConfigFrame2(chip_coord, core_coord, rid, pr)
+        return OfflineConfigFrame2(chip_coord, core_coord, rid, _params_reg)
+
+    @overload
+    @staticmethod
+    def gen_config_frame3(
+        chip_coord: Coord,
+        core_coord: Coord,
+        rid: RId,
+        /,
+        sram_start_addr: int,
+        n_neuron: int,
+        attrs: NeuronAttrs,
+        dest_info: NeuronDestInfo,
+        *,
+        lcn_ex: LCN_EX = LCN_EX.LCN_1X,
+        weight_precision: WP = WP.WEIGHT_WIDTH_1BIT,
+    ) -> OfflineConfigFrame3:
+        ...
+
+    @overload
+    @staticmethod
+    def gen_config_frame3(
+        chip_coord: Coord,
+        core_coord: Coord,
+        rid: RId,
+        /,
+        sram_start_addr: int,
+        n_neuron: int,
+        attrs: Dict[str, Any],
+        dest_info: Dict[str, Any],
+        *,
+        lcn_ex: LCN_EX = LCN_EX.LCN_1X,
+        weight_precision: WP = WP.WEIGHT_WIDTH_1BIT,
+    ) -> OfflineConfigFrame3:
+        ...
 
     @staticmethod
     def gen_config_frame3(
@@ -61,31 +97,34 @@ class OfflineFrameGen:
         core_coord: Coord,
         rid: RId,
         /,
-        lcn_ex: LCN_EX,
-        weight_precision: WP,
-        neuron_configs: List[NeuronConfig],
-    ) -> List[OfflineConfigFrame3]:
-        frames = []
+        sram_start_addr: int,
+        n_neuron: int,
+        attrs: Union[NeuronAttrs, Dict[str, Any]],
+        dest_info: Union[NeuronDestInfo, Dict[str, Any]],
+        *,
+        lcn_ex: LCN_EX = LCN_EX.LCN_1X,
+        weight_precision: WP = WP.WEIGHT_WIDTH_1BIT,
+    ) -> OfflineConfigFrame3:
+        if isinstance(attrs, NeuronAttrs):
+            _attrs = attrs.model_dump(by_alias=True)
+        else:
+            _attrs = attrs
 
-        # Iterate every neuron group
-        for neuron_config in neuron_configs:
-            attrs = neuron_config.neuron_attrs.model_dump(by_alias=True)
-            dest_info = neuron_config.neuron_dest_info.model_dump(by_alias=True)
+        if isinstance(dest_info, NeuronDestInfo):
+            _dest_info = dest_info.model_dump(by_alias=True)
+        else:
+            _dest_info = dest_info
 
-            frames.append(
-                OfflineConfigFrame3(
-                    chip_coord,
-                    core_coord,
-                    rid,
-                    neuron_config.addr_offset,
-                    neuron_config.n_neuron,
-                    attrs,
-                    dest_info,
-                    repeat=(1 << lcn_ex) * (1 << weight_precision),
-                )
-            )
-
-        return frames
+        return OfflineConfigFrame3(
+            chip_coord,
+            core_coord,
+            rid,
+            sram_start_addr,
+            n_neuron,
+            _attrs,
+            _dest_info,
+            repeat=(1 << lcn_ex) * (1 << weight_precision),
+        )
 
     @staticmethod
     def gen_config_frame4(
@@ -94,7 +133,7 @@ class OfflineFrameGen:
         rid: RId,
         /,
         sram_start_addr: int,
-        data_package_num: int,
+        n_data_package: int,
         weight_ram: FrameArrayType,
     ) -> OfflineConfigFrame4:
         return OfflineConfigFrame4(
@@ -102,99 +141,9 @@ class OfflineFrameGen:
             core_coord,
             rid,
             sram_start_addr,
-            data_package_num,
+            n_data_package,
             weight_ram,
         )
-
-    @staticmethod
-    def gen_config_frames(
-        target_chip_coord: Coord,
-        config_dict: Dict[Coord, CorePlacementConfig],
-        write_to_file: bool,
-        fp: Path,
-        format: Literal["txt", "bin", "npy"],
-    ) -> Dict[Coord, FrameArrayType]:
-        """Generate all configuration frames.
-
-        Args:
-            - target_chip_coord: the local chip to configurate.
-            - config_dict: a dictionary of configurations.
-        """
-        _debug_dict: Dict[Coord, Dict[str, Any]] = defaultdict()
-        frame_arrays_on_core: Dict[Coord, FrameArrayType] = dict()
-
-        for core_coord, v in config_dict.items():
-            # 1. Only one config frame type I for each physical core.
-            config_frame_type1 = OfflineFrameGen.gen_config_frame1(
-                target_chip_coord,
-                core_coord,
-                RId(0, 0),
-                v.random_seed,
-            )
-
-            # 2. Only one config frame type II for each physical core.
-            config_frame_type2 = OfflineFrameGen.gen_config_frame2(
-                target_chip_coord,
-                core_coord,
-                RId(0, 0),
-                v.params_reg,
-            )
-
-            # Iterate all the neuron segments in the function inside
-            config_frame_type3 = OfflineFrameGen.gen_config_frame3(
-                target_chip_coord,
-                core_coord,
-                RId(0, 0),
-                v.params_reg.lcn_extension,
-                v.params_reg.weight_precision,
-                list(v.neuron_configs.values()),
-            )
-
-            # 4. Only one config frame type IV for each physical core.
-            n_addr_write = v.params_reg.num_dendrite  # The number of address to write
-            config_frame_type4 = OfflineFrameGen.gen_config_frame4(
-                target_chip_coord,
-                core_coord,
-                RId(0, 0),
-                0,
-                18 * n_addr_write,
-                v.weight_ram[:n_addr_write],
-            )
-
-            _debug_dict[core_coord] = {
-                "config1": config_frame_type1,
-                "config2": config_frame_type2,
-                "config3": config_frame_type3,
-                "config4": config_frame_type4,
-            }
-
-            frame3 = np.concatenate(
-                [f.value for f in config_frame_type3], dtype=FRAME_DTYPE
-            )
-
-            frame_arrays_on_core[core_coord] = np.concatenate(
-                [
-                    config_frame_type1.value,
-                    config_frame_type2.value,
-                    frame3,
-                    config_frame_type4.value,
-                ],
-                dtype=FRAME_DTYPE,
-            )
-
-        if write_to_file:
-            for core_coord, f in frame_arrays_on_core.items():
-                addr = core_coord.address
-                fn = f"config_core{addr}.{format}"
-
-                if format == "npy":
-                    np2npy(fp / fn, f)
-                elif format == "bin":
-                    np2bin(fp / fn, f)
-                else:
-                    np2txt(fp / fn, f)
-
-        return frame_arrays_on_core
 
     # @staticmethod
     # def gen_reset_frame(chip_coord, core_coord, core_ex_coord=RId(0, 0)):
@@ -314,11 +263,11 @@ class OfflineFrameGen:
         one_input_proj: Dict[str, Any],
         data: DataArrayType,
     ) -> FrameArrayType:
-        """Generate the common part of the input spike frames by given the dictionary  \
-            of input projections.
+        """Generate the common part of the input spike frames by given the      \
+            dictionary of input projections.
         
         Args:
-            - input_proj_info: the dictionary of input projections exported \
+            - one_input_proj: the dictionary of one input projection exported   \
                 from `paibox.Mapper`.
         """
         common_frame_dest = OfflineWorkFrame1._frame_dest_reorganized(one_input_proj)
@@ -337,63 +286,6 @@ class OfflineFrameGen:
 
         return OfflineWorkFrame1._gen_frame_fast(frame_dest_info, data)
 
-    #     @staticmethod
-    #     def gen_frameinfo(
-    #         chip_coord: Union[List[Coord], Coord],
-    #         core_coord: Union[List[Coord], Coord],
-    #         core_ex_coord: Union[List[RId], RId],
-    #         axon: Union[List[int], int],
-    #         time_slot: Union[List[int], int],
-    #         save_path: Optional[str] = None,
-    #     ) -> np.ndarray:
-    #         header = [FrameHeader.WORK_TYPE1]
-    #         if not isinstance(chip_coord, list):
-    #             chip_coord = [chip_coord]
-    #         if not isinstance(core_coord, list):
-    #             core_coord = [core_coord]
-    #         if not isinstance(core_ex_coord, list):
-    #             core_ex_coord = [core_ex_coord]
-    #         if not isinstance(axon, list):
-    #             axon = [axon]
-    #         if not isinstance(time_slot, list):
-    #             time_slot = [time_slot]
-
-    #         header_value = np.array([head.value for head in header]).astype(FRAME_DTYPE)
-    #         chip_address = np.array([coord.address for coord in chip_coord]).astype(
-    #             FRAME_DTYPE
-    #         )
-    #         core_address = np.array([coord.address for coord in core_coord]).astype(
-    #             FRAME_DTYPE
-    #         )
-    #         core_ex_address = np.array([coord.address for coord in core_ex_coord]).astype(
-    #             FRAME_DTYPE
-    #         )
-    #         axon_array = np.array(axon, dtype=FRAME_DTYPE)
-    #         time_slot_array = np.array(time_slot, dtype=FRAME_DTYPE)
-
-    #         temp_header = header_value & FrameFormat.GENERAL_HEADER_MASK
-    #         temp_chip_address = chip_address & FrameFormat.GENERAL_CHIP_ADDR_MASK
-    #         temp_core_address = core_address & FrameFormat.GENERAL_CORE_ADDR_MASK
-    #         temp_core_ex_address = core_ex_address & FrameFormat.GENERAL_CORE_EX_ADDR_MASK
-    #         temp_reserve = 0x00 & WorkFrame1Format.RESERVED_MASK
-    #         temp_axon_array = axon_array & WorkFrame1Format.AXON_MASK
-    #         temp_time_slot_array = time_slot_array & WorkFrame1Format.TIME_SLOT_MASK
-
-    #         frameinfo = (
-    #             (temp_header << FrameFormat.GENERAL_HEADER_OFFSET)
-    #             | (temp_chip_address << FrameFormat.GENERAL_CHIP_ADDR_OFFSET)
-    #             | (temp_core_address << FrameFormat.GENERAL_CORE_ADDR_OFFSET)
-    #             | (temp_core_ex_address << FrameFormat.GENERAL_CORE_EX_ADDR_OFFSET)
-    #             | (temp_reserve << WorkFrame1Format.RESERVED_OFFSET)
-    #             | (temp_axon_array << WorkFrame1Format.AXON_OFFSET)
-    #             | (temp_time_slot_array << WorkFrame1Format.TIME_SLOT_OFFSET)
-    #         )
-
-    #         if save_path is not None:
-    #             np.save(save_path, frameinfo)
-
-    #         return frameinfo
-
     @staticmethod
     def gen_work_frame2(chip_coord: Coord, n_sync: IntScalarType) -> OfflineWorkFrame2:
         return OfflineWorkFrame2(chip_coord, int(n_sync))
@@ -405,30 +297,3 @@ class OfflineFrameGen:
     @staticmethod
     def gen_work_frame4(chip_coord: Coord) -> OfflineWorkFrame4:
         return OfflineWorkFrame4(chip_coord)
-
-
-# class OfflineFrameParser:
-#     @staticmethod
-#     def parse(value):
-#         header = OfflineFrameParser.get_header(value)
-
-#         if header == FrameHeader.WORK_TYPE1:
-#             pass
-#         if header == FrameHeader.TEST_TYPE1:
-#             return OfflineTestOutFrame1(value=value)
-#         elif header == FrameHeader.TEST_TYPE2:
-#             return OfflineTestOutFrame2(value=value)
-#         elif header == FrameHeader.TEST_TYPE3:
-#             return OfflineTestOutFrame3(value=value)
-#         elif header == FrameHeader.TEST_TYPE4:
-#             pass
-
-#         else:
-#             raise ValueError("The header of the frame is not supported.")
-
-#     @staticmethod
-#     def get_header(value):
-#         return FrameHeader(
-#             (value[0] >> FrameFormat.GENERAL_HEADER_OFFSET)
-#             & FrameFormat.GENERAL_HEADER_MASK
-#         )
