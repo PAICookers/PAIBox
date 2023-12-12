@@ -15,12 +15,12 @@ from paibox.libpaicore import (
 )
 from paibox.network import DynSysGroup
 
-from .config_template import CoreConfig, NeuronDest
+from .conf_template import CoreConfig, NeuronDest
 from .context import _BACKEND_CONTEXT
 from .graphs import *
 from .placement import CoreBlock, aligned_coords, max_lcn_of_cb
 from .routing import RoutingRoot
-from .runtime import OfflineFrameGen
+from .runtime_compat import gen_config_frames_by_coreconf
 
 __all__ = ["Mapper"]
 
@@ -343,12 +343,8 @@ class Mapper:
         else:
             _local_chip_addr = _BACKEND_CONTEXT["local_chip_addr"]
 
-        config_dict = OfflineFrameGen.gen_config_frames(
-            _local_chip_addr,
-            self.core_plm_config,
-            write_to_file,
-            _fp,
-            format,
+        config_dict = gen_config_frames_by_coreconf(
+            _local_chip_addr, self.core_plm_config, write_to_file, _fp, format
         )
 
         return config_dict

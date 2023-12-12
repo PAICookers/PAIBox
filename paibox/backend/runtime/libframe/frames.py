@@ -392,7 +392,7 @@ class OfflineConfigFrame3(_NeuronRAMFrame):
         neuron_attrs: Dict[str, Any],
         neuron_dest_info: Dict[str, Any],
         *,
-        repeat: int,
+        repeat: int = 1,
     ) -> None:
         super().__init__(
             self.header,

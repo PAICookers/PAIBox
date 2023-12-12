@@ -14,7 +14,7 @@ from paibox.libpaicore import FrameFormat as FF
 from ._types import BasicFrameArray, FRAME_DTYPE, FrameArrayType
 
 
-# Replace the one from paibox.excpetions
+# Replace the one from `paibox.excpetions`
 class FrameIllegalError(ValueError):
     """Frame is illegal."""
 

@@ -6,7 +6,8 @@ from pydantic import (
     field_serializer,
     model_validator,
 )
-from typing_extensions import TypedDict
+
+from typing_extensions import TypedDict  # Use `typing_extensions.TypedDict`.
 
 from .coordinate import Coord
 from .hw_defs import HwConfig
@@ -170,7 +171,6 @@ class CoreParams(BaseModel):
 ParamsReg = CoreParams
 
 
-# Use `typing_extensions.TypedDict`.
 class _ParamsRegDict(TypedDict):
     """Typed dictionary of `ParamsReg` for typing check."""
 

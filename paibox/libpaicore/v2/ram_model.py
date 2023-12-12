@@ -1,5 +1,5 @@
 from typing import List
-from typing_extensions import TypedDict
+from typing_extensions import TypedDict  # Use `typing_extensions.TypedDict`.
 
 from pydantic import (
     BaseModel,
@@ -16,7 +16,7 @@ from .hw_defs import HwConfig
 from .hw_types import AxonCoord
 from .ram_types import *
 
-__all__ = ["NeuronDestInfo", "NeuronAttrs", "NeuronParams", "ParamsRAM"]
+__all__ = ["NeuronDestInfo", "NeuronAttrs"]
 
 TICK_RELATIVE_BIT_MAX = 8
 ADDR_AXON_BIT_MAX = 11
@@ -232,14 +232,6 @@ class NeuronAttrs(BaseModel):
     @field_serializer("synaptic_integration_mode")
     def _sim(self, sim: SynapticIntegrationMode) -> int:
         return sim.value
-
-
-class NeuronParams(BaseModel):
-    attrs: NeuronAttrs
-    dest_info: NeuronDestInfo
-
-
-ParamsRAM = NeuronParams
 
 
 class _NeuronAttrsDict(TypedDict):

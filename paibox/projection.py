@@ -1,8 +1,13 @@
 import inspect
+import sys
+import numpy as np
+
 from typing import Callable, Optional, Tuple, TypeVar, Union
 
-import numpy as np
-from typing_extensions import ParamSpec
+if sys.version_info >= (3, 10):
+    from typing import ParamSpec
+else:
+    from typing_extensions import ParamSpec
 
 from ._types import Shape
 from .base import DynamicSys
