@@ -10,7 +10,7 @@ def test_backend_context():
     assert BACKEND_CONFIG.local_chip_addr == Coord(0, 0)
 
     _BACKEND_CONTEXT.test_chip_addr = Coord(3, 4)
-    assert BACKEND_CONFIG["test_chip_addr"] == Coord(3, 4)
+    assert BACKEND_CONFIG["output_chip_addr"] == Coord(3, 4)
 
     BACKEND_CONFIG.local_chip_addr = Coord(10, 10)
     assert BACKEND_CONFIG.local_chip_addr == Coord(10, 10)

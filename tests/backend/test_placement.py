@@ -13,7 +13,18 @@ from paibox.exceptions import ResourceError
 from paibox.libpaicore import AxonCoord, AxonSegment, NeuronSegment
 from paibox.libpaicore import WeightPrecision as WP
 
-from .conftest import packbits_ref
+
+def packbits_ref(bits: np.ndarray, count: int) -> int:
+    """Pack unsigned bits into a signed integer.
+
+    This is a test of the prototype of the original function.
+    """
+    _bits = np.append(bits[: count - 1], bits[-1])
+
+    result = sum(bit << i for i, bit in enumerate(_bits))
+    result -= _bits[-1] << count
+
+    return result
 
 
 def test_get_raw_weight_ref():
