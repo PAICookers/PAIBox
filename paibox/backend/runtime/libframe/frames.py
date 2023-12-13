@@ -293,9 +293,7 @@ class _NeuronRAMFrame(FramePackage):
         )
 
         # Repeat the common part of packages.
-        _packages[:, :3] = np.repeat(
-            np.expand_dims(_package_common, axis=0), neuron_num, axis=0
-        )
+        _packages[:, :3] = np.tile(_package_common, (neuron_num, 1))
 
         # Iterate destination infomation of every neuron
         for i in range(neuron_num):
@@ -635,17 +633,6 @@ class OfflineWorkFrame1(Frame):
             (dest_info["addr_core_x_ex"], dest_info["addr_core_y_ex"]),
             dest_info["addr_axon"],
             dest_info["tick_relative"],
-        )
-        
-    @staticmethod
-    @params_check(NeuronDestInfoChecker)
-    def _frame_dest_reorganized2(dest_info: Dict[str, Any]) -> FrameArrayType:
-        return OfflineWorkFrame1.concat_frame_dest(
-            (dest_info["addr_chip_x"], dest_info["addr_chip_y"]),
-            (dest_info["addr_core_x"], dest_info["addr_core_y"]),
-            (dest_info["addr_core_x_ex"], dest_info["addr_core_y_ex"]),
-            dest_info["addr_axon"],
-            None,
         )
 
     @staticmethod

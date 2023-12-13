@@ -13,17 +13,21 @@ from paibox.libpaicore import (
 )
 
 from .libframe.frames import OfflineWorkFrame1
-from .libframe.utils import header_check, print_frame
+from .libframe.utils import header_check
 from .libframe._types import *
 from .frame_gen import OfflineFrameGen
 
 
 __all__ = ["RuntimeEncoder", "RuntimeDecoder"]
 
+MAX_TIMESLOTS = 255
+
 
 class RuntimeEncoder:
     @staticmethod
-    def encode(data: DataArrayType, iframe_info: FrameArrayType) -> FrameArrayType:
+    def encode(
+        data: DataArrayType, timestep: int, iframe_info: FrameArrayType
+    ) -> FrameArrayType:
         """Encode input data with common information of input frames.
 
         Args:
@@ -33,9 +37,9 @@ class RuntimeEncoder:
         Returns:
             Return the encoded arrays in spike frame format.
         """
-        return OfflineFrameGen.gen_work_frame1_fast(
-            iframe_info, np.asarray(data, dtype=np.uint8)
-        )
+        _data = np.tile(np.asarray(data, dtype=np.uint8), timestep)
+
+        return OfflineFrameGen.gen_work_frame1_fast(iframe_info, _data)
 
     @overload
     @staticmethod
@@ -83,9 +87,24 @@ class RuntimeEncoder:
         """
         if input_proj_info is not None:
             frames = []
+            ts = []
 
             # Traverse the input nodes
             for inode in input_proj_info.values():
+                raw_ts = inode["tick_relative"]
+                if timestep * max(raw_ts) > MAX_TIMESLOTS:
+                    raise ValueError
+
+                interval = max(raw_ts) - min(raw_ts) + 1
+
+                ts.clear()
+                for i in range(timestep):
+                    ts.extend([addr + (i * interval) for addr in inode["addr_axon"]])
+
+                inode["tick_relative"] = ts
+                # addr_axon: [0-X] -> [0-X]*timestep
+                inode["addr_axon"] *= timestep
+
                 frames_of_inp = OfflineWorkFrame1._frame_dest_reorganized(inode)
                 frames.append(frames_of_inp)
 
@@ -97,8 +116,22 @@ class RuntimeEncoder:
         assert timeslots is not None
         assert axons is not None
 
+        if timestep * max(timeslots) > MAX_TIMESLOTS:
+            raise ValueError
+
+        # For example:
+        # [0, 1, 1, 1, 2, 2] with T = 3 ->
+        # [0, 1, 1, 1, 2, 2,
+        #  3, 4, 4, 4, 5, 5,
+        #  6, 7, 7, 7, 8, 8]
+        interval = max(timeslots) - min(timeslots) + 1
+
+        ts = []
+        for i in range(timestep):
+            ts.extend([elem + i * interval for elem in axons])
+
         return OfflineWorkFrame1.concat_frame_dest(
-            chip_coord, core_coord, rid, axons, timeslots
+            chip_coord, core_coord, rid, axons * timestep, ts
         )
 
 
@@ -145,7 +178,6 @@ class RuntimeDecoder:
 
         if isinstance(oframe_infos, list):
             output = []
-
             # From (0, 0) -> (N, 0)
             seen_core_coords = (
                 oframes >> SFF.GENERAL_CORE_ADDR_OFFSET
@@ -171,7 +203,7 @@ class RuntimeDecoder:
                     )
                     data[valid_idx] = data_on_coord
 
-                d_with_shape = data.reshape(timestep, -1)
+                d_with_shape = data.reshape(-1, timestep).T
                 if flatten:
                     output.append(d_with_shape.flatten())
                 else:
@@ -189,26 +221,12 @@ class RuntimeDecoder:
                 oframe_infos, oframes & (SFF.GENERAL_MASK - SFF.DATA_MASK)
             )
             data[valid_idx] = data_on_coord
-            d_with_shape = data.reshape(timestep, -1)
-            #d_with_shape = data.reshape(-1, timestep).T
+            d_with_shape = data.reshape(-1, timestep).T
 
             if flatten:
                 return d_with_shape.flatten()
             else:
                 return d_with_shape
-
-    @staticmethod
-    def decode_spike_fast(out_frame, frame_info, axon_num, time_step):
-        frame_info = np.sort(frame_info)
-        out_frame = np.sort(out_frame)
-        out_frame_info = out_frame & ((1 << 64) - 1 - SFF.DATA_MASK)
-
-        same_frame_info = np.in1d(frame_info, out_frame_info)
-        idx = np.where(same_frame_info == True)
-        out_data = np.zeros((time_step * axon_num), dtype=np.uint64)
-        out_data[idx] = out_frame & SFF.DATA_MASK
-        out_data = out_data
-        return out_data.reshape(time_step, axon_num)
 
     @overload
     @staticmethod
@@ -258,12 +276,13 @@ class RuntimeDecoder:
             for onode in output_dest_info.values():
                 # Traverse output destinations of a node
                 for dest_on_coord in onode.values():
+                    # [i]*len(addr_axon) for i in [0, timestep)
                     ts.clear()
-
                     for i in range(timestep):
                         ts.extend([i] * len(dest_on_coord["addr_axon"]))
 
                     dest_on_coord["tick_relative"] = ts
+                    # addr_axon: [0-X] -> [0-X]*timestep
                     dest_on_coord["addr_axon"] *= timestep
 
                     frames_of_dest = OfflineWorkFrame1._frame_dest_reorganized(
@@ -279,8 +298,8 @@ class RuntimeDecoder:
         assert rid is not None
         assert axons is not None
 
+        # [i]*len(addr_axon) for i in [0, timestep)
         ts = []
-
         for i in range(timestep):
             ts.extend([i] * len(axons))
 
