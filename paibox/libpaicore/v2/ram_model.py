@@ -1,16 +1,16 @@
 from typing import List
-from typing_extensions import TypedDict  # Use `typing_extensions.TypedDict`.
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
     InstanceOf,
+    TypeAdapter,
     field_serializer,
     field_validator,
     model_validator,
-    TypeAdapter,
 )
+from typing_extensions import TypedDict  # Use `typing_extensions.TypedDict`.
 
 from .hw_defs import HwConfig
 from .hw_types import AxonCoord

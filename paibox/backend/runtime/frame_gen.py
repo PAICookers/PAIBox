@@ -3,17 +3,11 @@ from typing import Any, Dict, Union, overload
 import numpy as np
 from numpy.typing import NDArray
 
-from paibox.libpaicore import LCN_EX, Coord, ParamsReg
+from paibox.libpaicore import LCN_EX, Coord, NeuronAttrs, NeuronDestInfo, ParamsReg
 from paibox.libpaicore import ReplicationId as RId
 from paibox.libpaicore import WeightPrecision as WP
-from paibox.libpaicore import NeuronAttrs, NeuronDestInfo
 
-from .libframe._types import (
-    DataArrayType,
-    DataType,
-    FrameArrayType,
-    IntScalarType,
-)
+from .libframe._types import DataArrayType, DataType, FrameArrayType, IntScalarType
 from .libframe.frames import *
 
 __all__ = ["OfflineFrameGen"]
@@ -265,7 +259,7 @@ class OfflineFrameGen:
     ) -> FrameArrayType:
         """Generate the common part of the input spike frames by given the      \
             dictionary of input projections.
-        
+
         Args:
             - one_input_proj: the dictionary of one input projection exported   \
                 from `paibox.Mapper`.

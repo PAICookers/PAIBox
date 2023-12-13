@@ -7,11 +7,11 @@ from typing import Any, Dict, Optional, Tuple
 import numpy as np
 from pydantic import TypeAdapter
 
+from paibox.libpaicore import FrameFormat as FF
 from paibox.libpaicore import FrameHeader as FH
 from paibox.libpaicore import FrameType as FT
-from paibox.libpaicore import FrameFormat as FF
 
-from ._types import BasicFrameArray, FRAME_DTYPE, FrameArrayType
+from ._types import FRAME_DTYPE, BasicFrameArray, FrameArrayType
 
 
 # Replace the one from `paibox.excpetions`

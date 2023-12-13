@@ -1,22 +1,18 @@
+from typing import Any, Dict, List, Optional, Union, overload
+
 import numpy as np
-
 from numpy.typing import NDArray
-from typing import Any, Dict, List, Optional, overload, Union
 
-from paibox.libpaicore import (
-    Coord,
-    CoordLike,
-    to_coordoffset,
-    FrameHeader as FH,
-    SpikeFrameFormat as SFF,
-    RIdLike,
-)
+from paibox.libpaicore import Coord, CoordLike
+from paibox.libpaicore import FrameHeader as FH
+from paibox.libpaicore import RIdLike
+from paibox.libpaicore import SpikeFrameFormat as SFF
+from paibox.libpaicore import to_coordoffset
 
+from .frame_gen import OfflineFrameGen
+from .libframe._types import *
 from .libframe.frames import OfflineWorkFrame1
 from .libframe.utils import header_check
-from .libframe._types import *
-from .frame_gen import OfflineFrameGen
-
 
 __all__ = ["RuntimeEncoder", "RuntimeDecoder"]
 
@@ -73,7 +69,7 @@ class RuntimeEncoder:
     ) -> Union[FrameArrayType, List[FrameArrayType]]:
         """Generate the common information of input frames by given the dictionary  \
             of input projections.
-        
+
         Args:
             - input_proj_info: the dictionary of input projections exported from    \
                 `paibox.Mapper`.  Or you can specify the following parameters:
@@ -82,7 +78,7 @@ class RuntimeEncoder:
             - rid: Always `(0, 0)`.
             - timeslots: the range of timeslots from 0 to T.
             - axons: the range of destination address of axons, from 0 to N.
-        
+
         NOTE: If there are #C input nodes, the total shape of inputs will be: C*T*N.
         """
         if input_proj_info is not None:
@@ -258,7 +254,7 @@ class RuntimeDecoder:
     ) -> Union[FrameArrayType, List[FrameArrayType]]:
         """Generate the common information of output frames by given the dictionary \
             of output destinations.
-            
+
         Args:
             - output_dest_info: the dictionary of output destinations exported from \
                 `paibox.Mapper`. Or you can specify the following parameters:
@@ -266,7 +262,7 @@ class RuntimeDecoder:
             - core_coord: the destination coord coordinate of the output node.
             - rid: Always `(0, 0)`.
             - axons: the range of destination address of axons, from 0 to N.
-        
+
         NOTE: If there are #C output nodes, the total shape of outputs will be: C*N.
         """
         if output_dest_info is not None:

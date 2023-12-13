@@ -14,10 +14,7 @@ from paibox.libpaicore import RIdLike
 from paibox.libpaicore import SpikeFrameFormat as WF1F
 from paibox.libpaicore import WeightRAMFormat as WRF
 from paibox.libpaicore import to_coord, to_rid
-from paibox.libpaicore.v2.ram_model import (
-    NeuronAttrsChecker,
-    NeuronDestInfoChecker,
-)
+from paibox.libpaicore.v2.ram_model import NeuronAttrsChecker, NeuronDestInfoChecker
 from paibox.libpaicore.v2.reg_model import ParamsRegChecker
 
 from ._types import FRAME_DTYPE, ArrayType, DataType, FrameArrayType, IntScalarType

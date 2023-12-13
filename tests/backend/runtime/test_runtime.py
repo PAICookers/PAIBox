@@ -1,19 +1,16 @@
 import json
 import time
-import pytest
-
-import numpy as np
-
 from pathlib import Path
 
-from paibox.backend.runtime.libframe.utils import print_frame
+import numpy as np
+import pytest
+
 from paibox.backend import RuntimeDecoder, RuntimeEncoder
-from paibox.libpaicore import (
-    Coord,
-    FrameHeader as FH,
-    SpikeFrameFormat as SFF,
-    ReplicationId as RId,
-)
+from paibox.backend.runtime.libframe.utils import print_frame
+from paibox.libpaicore import Coord
+from paibox.libpaicore import FrameHeader as FH
+from paibox.libpaicore import ReplicationId as RId
+from paibox.libpaicore import SpikeFrameFormat as SFF
 
 
 class TestRuntimeEncoder:

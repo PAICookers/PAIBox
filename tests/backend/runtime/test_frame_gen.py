@@ -1,10 +1,9 @@
-import time
 import json
+import time
+from pathlib import Path
 
 import numpy as np
 import pytest
-
-from pathlib import Path
 
 from paibox.backend.runtime.frame_gen import OfflineFrameGen
 from paibox.backend.runtime.libframe.frames import OfflineWorkFrame1
@@ -18000,22 +17999,21 @@ def core_plm_config2():
 
 
 class TestWorkFrameGen:
-    
     def test_gen_work_frame1_by_input(self):
         fp = Path(__file__).parent / "data"
-        
+
         with open(fp / "input_proj_info1.json", "r") as f:
             input_proj_info = json.load(f)
-        
+
         n_input_node = len(input_proj_info.keys())
-        
+
         assert n_input_node == 2
-        
+
         for inode in input_proj_info.values():
             inode_size = len(inode["addr_axon"])
-            
+
             data = np.random.randint(0, 256, size=(inode_size,), dtype=np.uint8)
-            
+
             work_frame1 = OfflineFrameGen.gen_work_frame1(inode, data)
-            
+
             print()

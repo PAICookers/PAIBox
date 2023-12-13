@@ -1,8 +1,8 @@
 import inspect
 import sys
-import numpy as np
-
 from typing import Callable, Optional, Tuple, TypeVar, Union
+
+import numpy as np
 
 if sys.version_info >= (3, 10):
     from typing import ParamSpec
