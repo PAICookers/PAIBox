@@ -1,5 +1,5 @@
 import warnings
-from typing import Any, ClassVar, Dict
+from typing import Any, ClassVar, Dict, Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -15,10 +15,10 @@ from paibox.libpaicore import SpikeFrameFormat as WF1F
 from paibox.libpaicore import WeightRAMFormat as WRF
 from paibox.libpaicore import to_coord, to_rid
 from paibox.libpaicore.v2.ram_model import (
-    NeuronAttrsDictChecker,
-    NeuronDestInfoDictChecker,
+    NeuronAttrsChecker,
+    NeuronDestInfoChecker,
 )
-from paibox.libpaicore.v2.reg_model import ParamsRegDictChecker
+from paibox.libpaicore.v2.reg_model import ParamsRegChecker
 
 from ._types import FRAME_DTYPE, ArrayType, DataType, FrameArrayType, IntScalarType
 from .base import Frame, FramePackage
@@ -97,7 +97,7 @@ class _ParamRAMFrame(Frame):
         super().__init__(header, chip_coord, core_coord, rid, payload)
 
     @staticmethod
-    @params_check(ParamsRegDictChecker)
+    @params_check(ParamsRegChecker)
     def _payload_reorganized(reg_dict: Dict[str, Any]) -> FrameArrayType:
         # High 8 bits & low 7 bits of tick_wait_start
         tws_high8, tws_low7 = bin_split(reg_dict["tick_wait_start"], 7, 8)
@@ -190,7 +190,7 @@ class _NeuronRAMFrame(FramePackage):
         super().__init__(header, chip_coord, core_coord, rid, payload, packages)
 
     @staticmethod
-    @params_check2(NeuronAttrsDictChecker, NeuronDestInfoDictChecker)
+    @params_check2(NeuronAttrsChecker, NeuronDestInfoChecker)
     def _packages_reorganized(
         attrs: Dict[str, Any],
         dest_info: Dict[str, Any],
@@ -600,12 +600,10 @@ class OfflineWorkFrame1(Frame):
         _data: DataType,
     ) -> None:
         if isinstance(_data, np.ndarray) and _data.size != 1:
-            # TODO
-            raise ValueError
+            raise ValueError("Size of data must be 1.")
 
-        if _data > np.iinfo(np.uint8).max or _data < np.iinfo(np.uint8).min:
-            # TODO
-            raise ValueError
+        if _data < np.iinfo(np.uint8).min or _data > np.iinfo(np.uint8).max:
+            raise ValueError(f"Data out of range int8.")
 
         self.data = np.uint8(_data)
         self._axon = int(axon)
@@ -629,21 +627,32 @@ class OfflineWorkFrame1(Frame):
         return self._axon
 
     @staticmethod
-    @params_check(NeuronDestInfoDictChecker)
+    @params_check(NeuronDestInfoChecker)
     def _frame_dest_reorganized(dest_info: Dict[str, Any]) -> FrameArrayType:
         return OfflineWorkFrame1.concat_frame_dest(
             (dest_info["addr_chip_x"], dest_info["addr_chip_y"]),
             (dest_info["addr_core_x"], dest_info["addr_core_y"]),
             (dest_info["addr_core_x_ex"], dest_info["addr_core_y_ex"]),
-            list(dest_info["tick_relative"]),
-            list(dest_info["addr_axon"]),
+            dest_info["addr_axon"],
+            dest_info["tick_relative"],
+        )
+        
+    @staticmethod
+    @params_check(NeuronDestInfoChecker)
+    def _frame_dest_reorganized2(dest_info: Dict[str, Any]) -> FrameArrayType:
+        return OfflineWorkFrame1.concat_frame_dest(
+            (dest_info["addr_chip_x"], dest_info["addr_chip_y"]),
+            (dest_info["addr_core_x"], dest_info["addr_core_y"]),
+            (dest_info["addr_core_x_ex"], dest_info["addr_core_y_ex"]),
+            dest_info["addr_axon"],
+            None,
         )
 
     @staticmethod
     def _gen_frame_fast(
         frame_dest_info: FrameArrayType, data: NDArray[np.uint8]
     ) -> FrameArrayType:
-        """Do not call `OfflineWorkFrame1._gen_frame_fast()` directly."""
+        """DO NOT call `OfflineWorkFrame1._gen_frame_fast()` directly."""
         indexes = np.nonzero(data)
 
         return (frame_dest_info[indexes] + data[indexes]).astype(FRAME_DTYPE)
@@ -654,11 +663,16 @@ class OfflineWorkFrame1(Frame):
         chip_coord: CoordLike,
         core_coord: CoordLike,
         rid: RIdLike,
-        timeslots: ArrayType,
+        /,
         axons: ArrayType,
+        timeslots: Optional[ArrayType] = None,
     ) -> FrameArrayType:
         _axons = np.asarray(axons, dtype=FRAME_DTYPE).flatten()
-        _timeslots = np.asarray(timeslots, dtype=FRAME_DTYPE).flatten()
+
+        if timeslots is not None:
+            _timeslots = np.asarray(timeslots, dtype=FRAME_DTYPE).flatten()
+        else:
+            _timeslots = np.zeros_like(_axons)
 
         if _axons.size != _timeslots.size:
             raise ValueError(

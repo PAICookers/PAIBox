@@ -264,5 +264,5 @@ class _NeuronDestInfoDict(TypedDict):
     addr_axon: List[int]
 
 
-NeuronAttrsDictChecker = TypeAdapter(_NeuronAttrsDict)
-NeuronDestInfoDictChecker = TypeAdapter(_NeuronDestInfoDict)
+NeuronAttrsChecker = TypeAdapter(_NeuronAttrsDict)
+NeuronDestInfoChecker = TypeAdapter(_NeuronDestInfoDict)

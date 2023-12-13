@@ -28,7 +28,7 @@ class TestRuntimeEncoder:
         assert n_input_node == 2
 
         common_part = RuntimeEncoder.gen_input_frames_info(
-            input_proj_info=input_proj_info
+            1, input_proj_info=input_proj_info
         )
         assert len(common_part) == 2
 
@@ -42,7 +42,7 @@ class TestRuntimeEncoder:
     def test_encode(self):
         data = list(range(8))
         common_part = RuntimeEncoder.gen_input_frames_info(
-            Coord(0, 0), Coord(1, 0), RId(0, 0), [0] * 4 + [1] * 4, list(range(8))
+            1, Coord(0, 0), Coord(1, 0), RId(0, 0), [0] * 4 + [1] * 4, list(range(8))
         )
 
         input_spike = RuntimeEncoder.encode(data, common_part)
@@ -57,13 +57,13 @@ class TestRuntimeEncoder:
 
 
 class TestRuntimeDecoder:
-    def test_decode_spike_less1152_by_dict(self):
+    def test_decode_spike_by_dict(self):
         # oframe_info is `List[FrameArrayType]`, return `List[NDArray[np.uint8]]`
         output_dest_info = {
             "n2_1": {
                 "4": {
                     "addr_axon": [0, 1, 2, 3, 4, 5, 6, 7],
-                    "tick_relative": [0, 0, 0, 0, 0, 0, 0, 0],
+                    "tick_relative": [0] * 8,
                     "addr_core_x": 0,
                     "addr_core_y": 0,
                     "addr_core_x_ex": 0,
@@ -75,7 +75,7 @@ class TestRuntimeDecoder:
             "n3_1": {
                 "5": {
                     "addr_axon": [0, 1, 2, 3, 4, 5, 6, 7],
-                    "tick_relative": [0, 0, 0, 0, 0, 0, 0, 0],
+                    "tick_relative": [0] * 8,
                     "addr_core_x": 1,
                     "addr_core_y": 0,
                     "addr_core_x_ex": 0,
@@ -84,14 +84,28 @@ class TestRuntimeDecoder:
                     "addr_chip_y": 0,
                 }
             },
+            # Not occured
+            "n4_1": {
+                "6": {
+                    "addr_axon": [0, 1, 2, 3, 4, 5, 6, 7],
+                    "tick_relative": [0] * 8,
+                    "addr_core_x": 2,
+                    "addr_core_y": 0,
+                    "addr_core_x_ex": 0,
+                    "addr_core_y_ex": 0,
+                    "addr_chip_x": 1,
+                    "addr_chip_y": 0,
+                }
+            },
         }
+        n_ts = 2
         oframe_info = RuntimeDecoder.gen_output_frames_info(
-            output_dest_info=output_dest_info
+            n_ts, output_dest_info=output_dest_info
         )
 
         output_frames = np.array(
             [
-                0b1000_00001_00000_00000_00000_00000_00000_000_00000000000_00000000_00000001,
+                0b1000_00001_00000_00000_00000_00000_00000_000_00000000000_00000001_00000001,
                 0b1000_00001_00000_00001_00000_00000_00000_000_00000000001_00000000_00000010,
                 0b1000_00001_00000_00000_00000_00000_00000_000_00000000011_00000000_00000111,
                 0b1000_00001_00000_00000_00000_00000_00000_000_00000000101_00000000_00001000,
@@ -100,36 +114,135 @@ class TestRuntimeDecoder:
             ],
             dtype=np.uint64,
         )
-        data = RuntimeDecoder.decode_spike_less1152(output_frames, oframe_info)
+        data = RuntimeDecoder.decode_spike_less1152(
+            n_ts, output_frames, oframe_info, flatten=False
+        )
 
         expected = [
-            np.array([1, 0, 0, 7, 0, 8, 0, 0], dtype=np.uint8),
-            np.array([0, 2, 0, 0, 9, 0, 0, 10], dtype=np.uint8),
+            np.array(
+                [[0, 0, 0, 7, 0, 8, 0, 0], [1, 0, 0, 0, 0, 0, 0, 0]], dtype=np.uint8
+            ),
+            np.array(
+                [[0, 2, 0, 0, 9, 0, 0, 10], [0, 0, 0, 0, 0, 0, 0, 0]], dtype=np.uint8
+            ),
+            np.zeros((2, 8), dtype=np.uint8),
         ]
-
         assert np.array_equal(data, expected)
 
-    def test_decode_spike_less1152_by_kwds(self):
-        # oframe_info is `FrameArrayType`, return `NDArray[np.uint8]`
+    def test_decode_spike_by_dict1(self):
+        output_dest_info = {
+            "n2_1": {
+                "4": {
+                    "addr_axon": [0, 1, 2, 3, 4, 5, 6, 7],
+                    "tick_relative": [0] * 8,
+                    "addr_core_x": 0,
+                    "addr_core_y": 0,
+                    "addr_core_x_ex": 0,
+                    "addr_core_y_ex": 0,
+                    "addr_chip_x": 1,
+                    "addr_chip_y": 0,
+                }
+            }
+        }
+
+        n_ts = 2
+        # oframe_info = RuntimeDecoder.gen_output_frames_info(
+        #     n_ts, output_dest_info=output_dest_info
+        # )
         oframe_info = RuntimeDecoder.gen_output_frames_info(
-            Coord(1, 0), Coord(0, 0), RId(0, 0), [0] * 8, [0, 1, 2, 3, 4, 5, 6, 7]
+            n_ts, Coord(1, 0), Coord(0, 0), RId(0, 0), list(range(8))
         )
 
         output_frames = np.array(
             [
-                0b1000_00001_00000_00000_00000_00000_00000_000_00000000000_00000000_00000001,
+                0b1000_00001_00000_00000_00000_00000_00000_000_00000000000_00000001_00000001,
                 0b1000_00001_00000_00000_00000_00000_00000_000_00000000011_00000000_00000111,
                 0b1000_00001_00000_00000_00000_00000_00000_000_00000000101_00000000_00001000,
             ],
             dtype=np.uint64,
         )
-        data = RuntimeDecoder.decode_spike_less1152(output_frames, oframe_info)
+        data = RuntimeDecoder.decode_spike_less1152(
+            n_ts, output_frames, oframe_info, flatten=False
+        )
 
-        expected = np.array([1, 0, 0, 7, 0, 8, 0, 0], dtype=np.uint8)
+        expected = np.array(
+            [[0, 0, 0, 7, 0, 8, 0, 0], [1, 0, 0, 0, 0, 0, 0, 0]], dtype=np.uint8
+        )
+        
+        assert np.array_equal(data, expected)
+
+    def test_decode_spike_by_kwds(self):
+        # oframe_info is `FrameArrayType`, return `NDArray[np.uint8]`
+        # Timestep = 2
+        n_axon_max = 100
+        n_ts_max = 64
+        
+        n_ts = 2
+        n_axon = 8
+        oframe_info = RuntimeDecoder.gen_output_frames_info(
+            n_ts, Coord(1, 0), Coord(0, 0), RId(0, 0), list(range(n_axon))
+        )
+
+        n_chosen = 3#np.random.randint(1, n_axon * n_ts + 1)
+
+        # choice_idx = np.random.choice(
+        #     range(n_axon * n_ts), n_chosen, replace=False
+        # )
+
+        choice_idx = [1, 0, 2]
+        random = np.random.randint(0, 256, (n_axon * n_ts,), dtype=np.uint8)
+
+        output_frames = oframe_info + random
+        shuffle_frame = output_frames[choice_idx]
+        shuffle_frame = np.array(
+            [
+                0b1000_00001_00000_00000_00000_00000_00000_000_00000000000_00000001_00000001,
+                0b1000_00001_00000_00000_00000_00000_00000_000_00000000011_00000000_00000111,
+                0b1000_00001_00000_00000_00000_00000_00000_000_00000000101_00000000_00001000,
+            ],
+            dtype=np.uint64,
+        )
+        print_frame(shuffle_frame)
+
+        expected = np.zeros((n_axon * n_ts,), dtype=np.uint8)
+        expected[choice_idx] = random[choice_idx]
+        expected = np.array(
+            [[0, 0, 0, 7, 0, 8, 0, 0], [1, 0, 0, 0, 0, 0, 0, 0]], dtype=np.uint8
+        )
+        data = RuntimeDecoder.decode_spike_less1152(
+            n_ts, shuffle_frame, oframe_info, flatten=True
+        )
 
         assert np.array_equal(data, expected)
 
-    def test_decode_spike_less1152_perf(self):
+        # for n_axon in range(1, n_axon_max):
+        #     for n_ts in range(1, n_ts_max):
+        #         oframe_info = RuntimeDecoder.gen_output_frames_info(
+        #             n_ts, Coord(1, 0), Coord(0, 0), RId(0, 0), list(range(n_axon))
+        #         )
+
+        #         n_chosen = np.random.randint(1, n_axon * n_ts + 1)
+
+        #         choice_idx = np.random.choice(
+        #             range(n_axon * n_ts), n_chosen, replace=False
+        #         )
+
+        #         # choice_idx = [1, 0, 2]
+        #         random = np.random.randint(0, 256, (n_axon * n_ts,), dtype=np.uint8)
+
+        #         output_frames = oframe_info + random
+        #         shuffle_frame = output_frames[choice_idx]
+
+        #         expected = np.zeros((n_axon * n_ts,), dtype=np.uint8)
+        #         expected[choice_idx] = random[choice_idx]
+
+        #         data = RuntimeDecoder.decode_spike_less1152(
+        #             n_ts, shuffle_frame, oframe_info, flatten=True
+        #         )
+
+        #         assert np.array_equal(data, expected)
+
+    def test_decode_spike_perf(self):
         n_axons = 1152
 
         output_dest_info = {
@@ -147,7 +260,7 @@ class TestRuntimeDecoder:
             },
         }
         oframe_info = RuntimeDecoder.gen_output_frames_info(
-            output_dest_info=output_dest_info
+            1, output_dest_info=output_dest_info
         )
         test_frames = np.zeros((n_axons,), dtype=np.uint64)
 
@@ -176,7 +289,7 @@ class TestRuntimeDecoder:
         assert n_output_node == 1
 
         common_part = RuntimeDecoder.gen_output_frames_info(
-            output_dest_info=output_proj_info
+            1, output_dest_info=output_proj_info
         )
         assert sum(part.size for part in common_part) == 800
 
@@ -190,14 +303,14 @@ class TestRuntimeDecoder:
         assert n_output_node == 2
 
         common_part = RuntimeDecoder.gen_output_frames_info(
-            output_dest_info=output_proj_info
+            1, output_dest_info=output_proj_info
         )
         assert sum(part.size for part in common_part) == 104
 
     def test_gen_output_frames_info_by_kwds(self):
         # Overload type.
         oframe_info = RuntimeDecoder.gen_output_frames_info(
-            (1, 0), (0, 0), (0, 0), [0] * 8, [0, 1, 2, 3, 4, 5, 6, 7]
+            1, (1, 0), (0, 0), (0, 0), [0, 1, 2, 3, 4, 5, 6, 7]
         )
 
         assert oframe_info.size == 8
@@ -264,53 +377,53 @@ class TestRuntimeDecoder:
 #     work1 = data_frames[:-1]
 
 
-# @pytest.mark.parametrize(
-#     "timestep,axon_num",
-#     [
-#         (2, 3),
-#         (3, 2),
-#         (2, 2),
-#         (3, 3),
-#         (5, 8),
-#     ],
-# )
-# def test_data_output(timestep, axon_num):
-#     np.random.seed(1)
+@pytest.mark.parametrize(
+    "timestep,axon_num",
+    [
+        (2, 3),
+        (3, 2),
+        (2, 2),
+        (3, 3),
+        (5, 8),
+    ],
+)
+def test_data_output(timestep, axon_num):
+    np.random.seed(1)
 
-#     axon_inst = [[i] * timestep for i in range(axon_num)]
-#     axon_inst = list(chain.from_iterable(axon_inst))
+    axon_inst = [[i] * timestep for i in range(axon_num)]
+    axon_inst = list(chain.from_iterable(axon_inst))
 
-#     time_slot_inst = [i for i in range(timestep)] * axon_num
-#     time_slot_inst = time_slot_inst
+    time_slot_inst = [i for i in range(timestep)] * axon_num
+    time_slot_inst = time_slot_inst
 
-#     data_inst = np.random.randint(
-#         0, 2**8 - 1, timestep * axon_num, dtype=np.uint64
-#     ).reshape(timestep, axon_num)
+    data_inst = np.random.randint(
+        0, 2**8 - 1, timestep * axon_num, dtype=np.uint64
+    ).reshape(timestep, axon_num)
 
-#     frame = OfflineWorkFrame1(
-#         chip_coord=Coord(0, 0),
-#         core_coord=Coord(0, 0),
-#         core_ex_coord=ReplicationId(0, 0),
-#         axon=axon_inst,
-#         time_slot=time_slot_inst,
-#         data=data_inst.flatten(),
-#     )
-#     print(frame)
-#     frame_info = frame.value & ((1 << 64) - 1 - 0b11111111)
+    frame = OfflineWorkFrame1(
+        chip_coord=Coord(0, 0),
+        core_coord=Coord(0, 0),
+        core_ex_coord=ReplicationId(0, 0),
+        axon=axon_inst,
+        time_slot=time_slot_inst,
+        data=data_inst.flatten(),
+    )
+    print(frame)
+    frame_info = frame.value & ((1 << 64) - 1 - 0b11111111)
 
-#     choice_num = np.random.randint(1, timestep * axon_num)
-#     choice_idx = np.random.choice(range(timestep * axon_num), choice_num, replace=False)
-#     shuffle_frame = frame.value[choice_idx]
+    choice_num = np.random.randint(1, timestep * axon_num)
+    choice_idx = np.random.choice(range(timestep * axon_num), choice_num, replace=False)
+    shuffle_frame = frame.value[choice_idx]
 
-#     output = RuntimeDecoder.decode_spike_fast(
-#         shuffle_frame, frame_info, axon_num=axon_num, time_step=timestep
-#     )
+    output = RuntimeDecoder.decode_spike_fast(
+        shuffle_frame, frame_info, axon_num=axon_num, time_step=timestep
+    )
 
-#     print("data_decode\n", output)
-#     print("data_gold  \n", data_inst)
+    print("data_decode\n", output)
+    print("data_gold  \n", data_inst)
 
-#     output = output.flatten()
-#     data_inst = data_inst.flatten()
-#     for x, y in zip(output, data_inst):
-#         if x != 0:
-#             assert x == y
+    output = output.flatten()
+    data_inst = data_inst.flatten()
+    for x, y in zip(output, data_inst):
+        if x != 0:
+            assert x == y

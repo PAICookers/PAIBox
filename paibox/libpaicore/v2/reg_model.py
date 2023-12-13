@@ -187,4 +187,4 @@ class _ParamsRegDict(TypedDict):
     test_chip_addr: int
 
 
-ParamsRegDictChecker = TypeAdapter(_ParamsRegDict)
+ParamsRegChecker = TypeAdapter(_ParamsRegDict)

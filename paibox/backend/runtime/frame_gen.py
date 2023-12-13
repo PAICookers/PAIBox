@@ -284,7 +284,12 @@ class OfflineFrameGen:
         if _min < np.iinfo(np.uint8).min or _max > np.iinfo(np.uint8).max:
             raise ValueError(f"Data out of range int8 ({_min}, {_max})")
 
-        return OfflineWorkFrame1._gen_frame_fast(frame_dest_info, data)
+        if frame_dest_info.size != data.size:
+            raise ValueError(
+                "The size of frame dest info & data are not equal ({frame_dest_info.size}, {data.size})"
+            )
+
+        return OfflineWorkFrame1._gen_frame_fast(frame_dest_info, data.flatten())
 
     @staticmethod
     def gen_work_frame2(chip_coord: Coord, n_sync: IntScalarType) -> OfflineWorkFrame2:
