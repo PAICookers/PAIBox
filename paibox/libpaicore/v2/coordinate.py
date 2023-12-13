@@ -6,6 +6,8 @@ import numpy as np
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
+from .hw_defs import HwConfig
+
 __all__ = [
     "Coord",
     "CoordOffset",
@@ -13,6 +15,7 @@ __all__ = [
     "CoordLike",
     "RIdLike",
     "to_coord",
+    "to_coordoffset",
     "to_rid",
 ]
 
@@ -29,10 +32,6 @@ class Identifier(ABC):
         raise NotImplementedError
 
 
-_COORD_MAX_LIMIT = (1 << 5) - 1
-_COORD_LOW_LIMIT = 0
-
-
 @dataclass
 class Coord(Identifier):
     """Coordinates of the cores. Set coordinates (x, y) for every core.
@@ -40,8 +39,8 @@ class Coord(Identifier):
     Left to right, +X, up to down, +Y.
     """
 
-    x: int = Field(ge=_COORD_LOW_LIMIT, le=_COORD_MAX_LIMIT, frozen=True)
-    y: int = Field(ge=_COORD_LOW_LIMIT, le=_COORD_MAX_LIMIT, frozen=True)
+    x: int = Field(ge=HwConfig.CORE_X_MIN, le=HwConfig.CORE_X_MAX, frozen=True)
+    y: int = Field(ge=HwConfig.CORE_Y_MIN, le=HwConfig.CORE_Y_MAX, frozen=True)
 
     @classmethod
     def from_tuple(cls, pos):
@@ -49,11 +48,11 @@ class Coord(Identifier):
 
     @classmethod
     def from_addr(cls, addr: int):
-        return cls(addr >> 5, addr & _COORD_MAX_LIMIT)
+        return cls(addr >> HwConfig.N_BIT_CORE_X, addr & HwConfig.CORE_Y_MAX)
 
     @classmethod
     def default(cls):
-        return cls(0, 0)
+        return cls(HwConfig.CORE_X_MIN, HwConfig.CORE_Y_MIN)
 
     def __add__(self, __other: "CoordOffset") -> "Coord":
         """
@@ -252,19 +251,15 @@ class DistanceType(Enum):
     DISTANCE_CHEBYSHEV = auto()
 
 
-_COORDOFFSET_MAX_LIMIT = (1 << 5) - 1
-_COORDOFFSET_LOW_LIMIT = -(1 << 5)
-
-
 @dataclass
 class CoordOffset:
     """Offset of coordinates"""
 
     delta_x: int = Field(
-        ge=_COORDOFFSET_LOW_LIMIT, le=_COORDOFFSET_MAX_LIMIT, frozen=True
+        ge=-HwConfig.CORE_X_MAX - 1, le=HwConfig.CORE_X_MAX, frozen=True
     )
     delta_y: int = Field(
-        ge=_COORDOFFSET_LOW_LIMIT, le=_COORDOFFSET_MAX_LIMIT, frozen=True
+        ge=-HwConfig.CORE_Y_MAX - 1, le=HwConfig.CORE_Y_MAX, frozen=True
     )
 
     @classmethod
@@ -420,6 +415,12 @@ def to_coord(coordlike: CoordLike) -> Coord:
 
 def to_coords(coordlikes: Sequence[CoordLike]) -> List[Coord]:
     return [to_coord(coordlike) for coordlike in coordlikes]
+
+
+def to_coordoffset(offset: int) -> CoordOffset:
+    return CoordOffset(
+        offset % (HwConfig.CORE_X_MAX + 1), offset // (HwConfig.CORE_Y_MAX + 1)
+    )
 
 
 def to_rid(ridlike: RIdLike) -> ReplicationId:

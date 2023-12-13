@@ -86,7 +86,7 @@ class TestMapperDebug:
             for onode, nd_with_coord in output_info.items():
                 _json_out_proj_info[onode] = dict()
                 for coord, nd in nd_with_coord.items():
-                    _json_out_proj_info[onode][coord] = nd.__json__()
+                    _json_out_proj_info[onode][coord] = nd.model_dump(by_alias=True)
 
         # Export parameters of cores into json
         with open(ensure_dump_dir / "core_configs.json", "w") as f:

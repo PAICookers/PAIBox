@@ -1,313 +1,307 @@
-from typing import List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, overload
 
 import numpy as np
+from numpy.typing import NDArray
 
-from paibox.libpaicore import Coord, FrameFormat, FrameHeader
-from paibox.libpaicore import ReplicationId as RId
+from paibox.libpaicore import Coord, CoordLike
+from paibox.libpaicore import FrameHeader as FH
+from paibox.libpaicore import RIdLike
 from paibox.libpaicore import SpikeFrameFormat as SFF
+from paibox.libpaicore import to_coordoffset
 
 from .frame_gen import OfflineFrameGen
+from .libframe._types import *
 from .libframe.frames import OfflineWorkFrame1
+from .libframe.utils import header_check
 
 __all__ = ["RuntimeEncoder", "RuntimeDecoder"]
 
+MAX_TIMESLOTS = 255
+
 
 class RuntimeEncoder:
-    def __init__(
-        self,
-        chip_coord: Optional[Coord] = None,
-        time_step: Optional[int] = None,
-        frameinfo: Optional[np.ndarray] = None,
-        data: Optional[np.ndarray] = None,
-    ):
-        if chip_coord is not None:
-            self.chip_coord = chip_coord
-        if time_step is not None:
-            self.time_step = time_step
-        if frameinfo is not None:
-            self.frameinfo = frameinfo.astype(np.uint64)
-        if data is not None:
-            self.data = data.astype(np.uint64)
+    @staticmethod
+    def encode(
+        data: DataArrayType, timestep: int, iframe_info: FrameArrayType
+    ) -> FrameArrayType:
+        """Encode input data with common information of input frames.
 
-    @classmethod
-    def get_encoder(
-        cls,
-        chip_coord: Coord,
-        time_step: int,
-        frameinfo: np.ndarray,
-        data: np.ndarray,
-    ):
-        return cls(chip_coord, time_step, frameinfo, data)
+        Args:
+            - data: the raw data for one input node. It will be flatten after encoding.
+            - iframe_info: the common information of input frames for one input node.
 
-    def encode(self):
-        work1_frames = OfflineFrameGen.gen_work_frame1_fast(self.frameinfo, self.data)
-        work2 = OfflineFrameGen.gen_work_frame2(self.chip_coord, self.time_step)
+        Returns:
+            Return the encoded arrays in spike frame format.
+        """
+        _data = np.tile(np.asarray(data, dtype=np.uint8), timestep)
 
-        return np.concatenate((work1_frames, work2.value), axis=0)  # type: ignore
+        return OfflineFrameGen.gen_work_frame1_fast(iframe_info, _data)
 
-    def __call__(
-        self,
-        chip_coord: Coord,
-        time_step: int,
-        frameinfo: np.ndarray,
-        data: np.ndarray,
-    ):
-        if frameinfo.shape[0] != data.shape[0]:
-            raise ValueError("frameinfo and data must have the same length")
+    @overload
+    @staticmethod
+    def gen_input_frames_info(
+        timestep: int, *, input_proj_info: Dict[str, Any]
+    ) -> List[FrameArrayType]:
+        ...
 
-        return self.get_encoder(chip_coord, time_step, frameinfo, data).encode()
+    @overload
+    @staticmethod
+    def gen_input_frames_info(
+        timestep: int,
+        chip_coord: Optional[CoordLike] = None,
+        core_coord: Optional[CoordLike] = None,
+        rid: Optional[RIdLike] = None,
+        timeslots: Optional[ArrayType] = None,
+        axons: Optional[ArrayType] = None,
+    ) -> FrameArrayType:
+        ...
 
     @staticmethod
-    def gen_frameinfo(
-        chip_coord: Union[List[Coord], Coord],
-        core_coord: Union[List[Coord], Coord],
-        core_e_coord: Union[List[RId], RId],
-        axon: Union[List[int], int],
-        time_slot: Union[List[int], int],
-        save_path: Optional[str] = None,
-    ) -> np.ndarray:
-        header = [FrameHeader.WORK_TYPE1]
-        if not isinstance(chip_coord, list):
-            chip_coord = [chip_coord]
-        if not isinstance(core_coord, list):
-            core_coord = [core_coord]
-        if not isinstance(core_e_coord, list):
-            core_e_coord = [core_e_coord]
-        if not isinstance(axon, list):
-            axon = [axon]
-        if not isinstance(time_slot, list):
-            time_slot = [time_slot]
+    def gen_input_frames_info(
+        timestep: int,
+        chip_coord: Optional[CoordLike] = None,
+        core_coord: Optional[CoordLike] = None,
+        rid: Optional[RIdLike] = None,
+        timeslots: Optional[ArrayType] = None,
+        axons: Optional[ArrayType] = None,
+        *,
+        input_proj_info: Optional[Dict[str, Any]] = None,
+    ) -> Union[FrameArrayType, List[FrameArrayType]]:
+        """Generate the common information of input frames by given the dictionary  \
+            of input projections.
 
-        header_value = np.array([head.value for head in header]).astype(np.uint64)
-        chip_address = np.array([coord.address for coord in chip_coord]).astype(
-            np.uint64
+        Args:
+            - input_proj_info: the dictionary of input projections exported from    \
+                `paibox.Mapper`.  Or you can specify the following parameters:
+            - chip_coord: the destination chip coordinate of the output node.
+            - core_coord: the destination coord coordinate of the output node.
+            - rid: Always `(0, 0)`.
+            - timeslots: the range of timeslots from 0 to T.
+            - axons: the range of destination address of axons, from 0 to N.
+
+        NOTE: If there are #C input nodes, the total shape of inputs will be: C*T*N.
+        """
+        if input_proj_info is not None:
+            frames = []
+            ts = []
+
+            # Traverse the input nodes
+            for inode in input_proj_info.values():
+                raw_ts = inode["tick_relative"]
+                if timestep * max(raw_ts) > MAX_TIMESLOTS:
+                    raise ValueError
+
+                interval = max(raw_ts) - min(raw_ts) + 1
+
+                ts.clear()
+                for i in range(timestep):
+                    ts.extend([addr + (i * interval) for addr in inode["addr_axon"]])
+
+                inode["tick_relative"] = ts
+                # addr_axon: [0-X] -> [0-X]*timestep
+                inode["addr_axon"] *= timestep
+
+                frames_of_inp = OfflineWorkFrame1._frame_dest_reorganized(inode)
+                frames.append(frames_of_inp)
+
+            return frames
+
+        assert chip_coord is not None
+        assert core_coord is not None
+        assert rid is not None
+        assert timeslots is not None
+        assert axons is not None
+
+        if timestep * max(timeslots) > MAX_TIMESLOTS:
+            raise ValueError
+
+        # For example:
+        # [0, 1, 1, 1, 2, 2] with T = 3 ->
+        # [0, 1, 1, 1, 2, 2,
+        #  3, 4, 4, 4, 5, 5,
+        #  6, 7, 7, 7, 8, 8]
+        interval = max(timeslots) - min(timeslots) + 1
+
+        ts = []
+        for i in range(timestep):
+            ts.extend([elem + i * interval for elem in axons])
+
+        return OfflineWorkFrame1.concat_frame_dest(
+            chip_coord, core_coord, rid, axons * timestep, ts
         )
-        core_address = np.array([coord.address for coord in core_coord]).astype(
-            np.uint64
-        )
-        core_e_address = np.array([coord.address for coord in core_e_coord]).astype(
-            np.uint64
-        )
-        axon_array = np.array(axon, dtype=np.uint64)
-        time_slot_array = np.array(time_slot, dtype=np.uint64)
-
-        temp_header = header_value & FrameFormat.GENERAL_HEADER_MASK
-        temp_chip_address = chip_address & FrameFormat.GENERAL_CHIP_ADDR_MASK
-        temp_core_address = core_address & FrameFormat.GENERAL_CORE_ADDR_MASK
-        temp_core_e_address = core_e_address & FrameFormat.GENERAL_CORE_EX_ADDR_MASK
-        temp_reserve = 0x00 & SFF.RESERVED_MASK
-        temp_axon_array = axon_array & SFF.AXON_MASK
-        temp_time_slot_array = time_slot_array & SFF.TIMESLOT_MASK
-
-        frameinfo = (
-            (temp_header << FrameFormat.GENERAL_HEADER_OFFSET)
-            | (temp_chip_address << FrameFormat.GENERAL_CHIP_ADDR_OFFSET)
-            | (temp_core_address << FrameFormat.GENERAL_CORE_ADDR_OFFSET)
-            | (temp_core_e_address << FrameFormat.GENERAL_CORE_EX_ADDR_OFFSET)
-            | (temp_reserve << SFF.RESERVED_OFFSET)
-            | (temp_axon_array << SFF.AXON_OFFSET)
-            | (temp_time_slot_array << SFF.TIMESLOT_OFFSET)
-        )
-
-        if save_path is not None:
-            np.save(save_path, frameinfo)
-
-        return frameinfo
 
 
 class RuntimeDecoder:
-    def decode(
-        self,
-        frames: np.ndarray,
-    ) -> dict:
-        """将输出数据帧解码，以字典形式返回，按照time_slot排序
+    @overload
+    @staticmethod
+    def decode_spike_less1152(
+        timestep: int,
+        oframes: FrameArrayType,
+        oframe_infos: FrameArrayType,
+        flatten: bool = False,
+    ) -> NDArray[np.uint8]:
+        ...
+
+    @overload
+    @staticmethod
+    def decode_spike_less1152(
+        timestep: int,
+        oframes: FrameArrayType,
+        oframe_infos: List[FrameArrayType],
+        flatten: bool = False,
+    ) -> List[NDArray[np.uint8]]:
+        ...
+
+    @staticmethod
+    def decode_spike_less1152(
+        timestep: int,
+        oframes: FrameArrayType,
+        oframe_infos: Union[FrameArrayType, List[FrameArrayType]],
+        flatten: bool = False,
+    ) -> Union[NDArray[np.uint8], List[NDArray[np.uint8]]]:
+        """Decode output spike frames.
 
         Args:
-            frames (Union[np.ndarray,OfflineWorkFrame1]): _description_
+            - oframes: the output spike frames.
+            - oframe_infos: the expected common information of output frames.
+            - flatten: whether flatten the decoded data.
 
         Returns:
-            dict: {
-                core_addr: {
-                    axonid: {
-                        time_slot: np.ndarray,
-                        data: np.ndarray
-                    }
-                }
-            }
-
-            eg: {
-                1:{
-                    2: {
-                        time_slot : [1,3,9],
-                        data : [4,5,6]
-                    }
-                }
-            }
+            Return the decoded output data. If `oframe_infos` is a list, the output will    \
+            be a list where each element represents the decoded data for each output node.
         """
-        header_list = []
-        for frame in frames:
-            header_list.append(
-                FrameHeader(
-                    (frame >> FrameFormat.GENERAL_HEADER_OFFSET)
-                    & FrameFormat.GENERAL_HEADER_MASK
-                )
-            )
+        header_check(oframes, FH.WORK_TYPE1)
 
-        if all(element == FrameHeader.WORK_TYPE1 for element in header_list):
-            return self.decode_spike(frames)
+        if isinstance(oframe_infos, list):
+            output = []
+            # From (0, 0) -> (N, 0)
+            seen_core_coords = (
+                oframes >> SFF.GENERAL_CORE_ADDR_OFFSET
+            ) & SFF.GENERAL_CORE_ADDR_MASK
+
+            for i, oframe_info in enumerate(oframe_infos):
+                data = np.zeros_like(oframe_info, dtype=np.uint8)
+
+                _cur_coord = Coord(0, 0) + to_coordoffset(i)
+                indices = np.where(_cur_coord.address == seen_core_coords)[0]
+
+                if not np.array_equal(indices, []):
+                    # Part of frame on the core coordinate.
+                    oframes_on_coord = oframes[indices]
+                    oframes_on_coord.sort()
+                    data_on_coord = (
+                        oframes_on_coord >> SFF.DATA_OFFSET
+                    ) & SFF.DATA_MASK
+
+                    valid_idx = np.isin(
+                        oframe_info,
+                        oframes_on_coord & (SFF.GENERAL_MASK - SFF.DATA_MASK),
+                    )
+                    data[valid_idx] = data_on_coord
+
+                d_with_shape = data.reshape(-1, timestep).T
+                if flatten:
+                    output.append(d_with_shape.flatten())
+                else:
+                    output.append(d_with_shape)
+
+            return output
+
         else:
-            return {}
+            data = np.zeros_like(oframe_infos, dtype=np.uint8)
 
-    def decode_spike(
-        self,
-        frames: Union[np.ndarray, OfflineWorkFrame1],
-    ) -> dict:
-        if isinstance(frames, OfflineWorkFrame1):
-            frames = frames.value
+            oframes.sort()
+            data_on_coord = (oframes >> SFF.DATA_OFFSET) & SFF.DATA_MASK
 
-        frames = frames.astype(np.uint64)
-        for frame in frames:
-            header = FrameHeader(
-                (frame >> FrameFormat.GENERAL_HEADER_OFFSET)
-                & FrameFormat.GENERAL_HEADER_MASK
+            valid_idx = np.isin(
+                oframe_infos, oframes & (SFF.GENERAL_MASK - SFF.DATA_MASK)
             )
+            data[valid_idx] = data_on_coord
+            d_with_shape = data.reshape(-1, timestep).T
 
-            if header != FrameHeader.WORK_TYPE1:
-                raise ValueError(
-                    "The header of the frame is not WORK_TYPE1, please check the input frames."
-                )
+            if flatten:
+                return d_with_shape.flatten()
+            else:
+                return d_with_shape
 
-        axons = (frames >> SFF.AXON_OFFSET) & SFF.AXON_MASK
-        time_slots = (frames >> SFF.TIMESLOT_OFFSET) & SFF.TIMESLOT_MASK
-        data = (frames >> SFF.DATA_OFFSET) & SFF.DATA_MASK
-        core_addr = (
-            frames >> SFF.GENERAL_CORE_ADDR_OFFSET
-        ) & SFF.GENERAL_CORE_ADDR_MASK
+    @overload
+    @staticmethod
+    def gen_output_frames_info(
+        timestep: int, *, output_dest_info: Dict[str, Any]
+    ) -> List[FrameArrayType]:
+        ...
 
-        res = {}
-
-        unique_axon = np.unique(axons)
-        unique_core_addr = np.unique(core_addr)
-
-        for core_value in unique_core_addr:
-            axon_positions = {}  # 存储所有的axon在frames中的位置
-            res[core_value] = {}
-            core_addr_positions = np.where(core_addr == core_value)[
-                0
-            ]  # 获取value在原来的core_addr中的位置
-            core_axons = axons[core_addr_positions]  # 将当前core的frames信息筛选出来
-            core_time_slots = time_slots[core_addr_positions]
-            core_data = data[core_addr_positions]
-
-            for axon_value in unique_axon:
-                # print(np.where(axons == value)[0])
-                positions = np.where(core_axons == axon_value)[
-                    0
-                ]  # 获取当前core中的当前axon在筛选后的frames信息（core_axons）中的位置
-                if len(positions) > 0:
-                    axon_positions[axon_value] = positions
-
-            for axon_value, positions in axon_positions.items():
-                res[core_value][axon_value] = {}
-                res[core_value][axon_value]["time_slot"] = core_time_slots[positions]
-                res[core_value][axon_value]["data"] = core_data[positions]
-
-                sorted_indices = np.argsort(res[core_value][axon_value]["time_slot"])
-
-                res[core_value][axon_value]["time_slot"] = res[core_value][axon_value][
-                    "time_slot"
-                ][sorted_indices]
-                res[core_value][axon_value]["data"] = res[core_value][axon_value][
-                    "data"
-                ][sorted_indices]
-
-        return res
+    @overload
+    @staticmethod
+    def gen_output_frames_info(
+        timestep: int,
+        chip_coord: CoordLike,
+        core_coord: CoordLike,
+        rid: RIdLike,
+        axons: ArrayType,
+    ) -> FrameArrayType:
+        ...
 
     @staticmethod
-    def decode_spike_fast(out_frame, frame_info, axon_num, time_step):
-        frame_info = np.sort(frame_info)
-        out_frame = np.sort(out_frame)
-        out_frame_info = out_frame & ((1 << 64) - 1 - SFF.DATA_MASK)
+    def gen_output_frames_info(
+        timestep: int,
+        chip_coord: Optional[CoordLike] = None,
+        core_coord: Optional[CoordLike] = None,
+        rid: Optional[RIdLike] = None,
+        axons: Optional[ArrayType] = None,
+        *,
+        output_dest_info: Optional[Dict[str, Any]] = None,
+    ) -> Union[FrameArrayType, List[FrameArrayType]]:
+        """Generate the common information of output frames by given the dictionary \
+            of output destinations.
 
-        same_frame_info = np.in1d(frame_info, out_frame_info)
-        idx = np.where(same_frame_info == True)
-        out_data = np.zeros((time_step * axon_num), dtype=np.uint64)
-        out_data[idx] = out_frame & SFF.DATA_MASK
-        out_data = out_data
-        return out_data.reshape(time_step, axon_num)
+        Args:
+            - output_dest_info: the dictionary of output destinations exported from \
+                `paibox.Mapper`. Or you can specify the following parameters:
+            - chip_coord: the destination chip coordinate of the output node.
+            - core_coord: the destination coord coordinate of the output node.
+            - rid: Always `(0, 0)`.
+            - axons: the range of destination address of axons, from 0 to N.
 
-    @staticmethod
-    def gen_frameinfo(
-        core_coord: Union[List[Coord], Coord],
-        core_ex_coord: Union[List[RId], RId],
-        axon: Union[List[int], int],
-        time_slot: Union[List[int], int],
-        chip_coord: Union[List[Coord], Coord] = Coord(0, 0),
-        save_path: Optional[str] = None,
-    ) -> np.ndarray:
-        header = [FrameHeader.WORK_TYPE1]
-        if not isinstance(chip_coord, list):
-            chip_coord = [chip_coord]
-        if not isinstance(core_coord, list):
-            core_coord = [core_coord]
-        if not isinstance(core_ex_coord, list):
-            core_ex_coord = [core_ex_coord]
-        if not isinstance(axon, list):
-            axon = [axon]
-        if not isinstance(time_slot, list):
-            time_slot = [time_slot]
+        NOTE: If there are #C output nodes, the total shape of outputs will be: C*N.
+        """
+        if output_dest_info is not None:
+            frames = []
+            ts = []
 
-        header_value = np.array([head.value for head in header]).astype(np.uint64)
-        chip_address = np.array([coord.address for coord in chip_coord]).astype(
-            np.uint64
-        )
-        core_address = np.array([coord.address for coord in core_coord]).astype(
-            np.uint64
-        )
-        core_e_address = np.array([coord.address for coord in core_ex_coord]).astype(
-            np.uint64
-        )
-        axon_array = np.array(axon, dtype=np.uint64)
-        time_slot_array = np.array(time_slot, dtype=np.uint64)
+            for onode in output_dest_info.values():
+                # Traverse output destinations of a node
+                for dest_on_coord in onode.values():
+                    # [i]*len(addr_axon) for i in [0, timestep)
+                    ts.clear()
+                    for i in range(timestep):
+                        ts.extend([i] * len(dest_on_coord["addr_axon"]))
 
-        pack_list = zip(
-            header_value,
-            chip_address,
-            core_address,
-            core_e_address,
-            axon_array,
-            time_slot_array,
-        )
-        pack_list = sorted(pack_list, key=lambda x: (x[5], x[4]))
+                    dest_on_coord["tick_relative"] = ts
+                    # addr_axon: [0-X] -> [0-X]*timestep
+                    dest_on_coord["addr_axon"] *= timestep
 
-        (
-            header_value,
-            chip_address,
-            core_address,
-            core_e_address,
-            axon_array,
-            time_slot_array,
-        ) = map(np.array, zip(*pack_list))
+                    frames_of_dest = OfflineWorkFrame1._frame_dest_reorganized(
+                        dest_on_coord
+                    )
+                    frames_of_dest.sort()
+                    frames.append(frames_of_dest)
 
-        temp_header = header_value & FrameFormat.GENERAL_HEADER_MASK
-        temp_chip_address = chip_address & FrameFormat.GENERAL_CHIP_ADDR_MASK
-        temp_core_address = core_address & FrameFormat.GENERAL_CORE_ADDR_MASK
-        temp_core_e_address = core_e_address & FrameFormat.GENERAL_CORE_EX_ADDR_MASK
-        temp_reserve = 0x00 & SFF.RESERVED_MASK
-        temp_axon_array = axon_array & SFF.AXON_MASK
-        temp_time_slot_array = time_slot_array & SFF.TIMESLOT_MASK
+            return frames
 
-        frameinfo = (
-            (temp_header << FrameFormat.GENERAL_HEADER_OFFSET)
-            | (temp_chip_address << FrameFormat.GENERAL_CHIP_ADDR_OFFSET)
-            | (temp_core_address << FrameFormat.GENERAL_CORE_ADDR_OFFSET)
-            | (temp_core_e_address << FrameFormat.GENERAL_CORE_EX_ADDR_OFFSET)
-            | (temp_reserve << SFF.RESERVED_OFFSET)
-            | (temp_axon_array << SFF.AXON_OFFSET)
-            | (temp_time_slot_array << SFF.TIMESLOT_OFFSET)
+        assert chip_coord is not None
+        assert core_coord is not None
+        assert rid is not None
+        assert axons is not None
+
+        # [i]*len(addr_axon) for i in [0, timestep)
+        ts = []
+        for i in range(timestep):
+            ts.extend([i] * len(axons))
+
+        oframes_info = OfflineWorkFrame1.concat_frame_dest(
+            chip_coord, core_coord, rid, axons * timestep, ts
         )
 
-        if save_path is not None:
-            np.save(save_path, frameinfo)
-
-        return frameinfo
+        oframes_info.sort()
+        return oframes_info

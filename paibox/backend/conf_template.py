@@ -60,10 +60,9 @@ class CoreConfig(NamedTuple):
 class NeuronDest(NamedTuple):
     """Information of neuron destination (axon address information)."""
 
-    _extra_params = ("dest_coords", "tick_relative", "addr_axon")
+    _extra_params = ("tick_relative", "addr_axon")
     """Extra parameters for debugging."""
 
-    dest_coords: List[Coord]
     tick_relative: List[int]
     addr_axon: List[int]
     addr_core_x: int
@@ -90,6 +89,18 @@ class NeuronDest(NamedTuple):
         return dict_
 
 
+class OutputNeuronDest(NamedTuple):
+    # TODO
+    addr_core_x: int
+    addr_core_y: int
+    addr_core_x_ex: int
+    addr_core_y_ex: int
+    addr_chip_x: int
+    addr_chip_y: int
+    start: AxonCoord
+    end: AxonCoord
+
+
 class ConfigTemplate:
     """A configuration template."""
 
@@ -98,7 +109,11 @@ class ConfigTemplate:
 
 @dataclass(eq=False)
 class NeuronConfig(ConfigTemplate):
-    _extra_params = ("n_neuron", "addr_ram", "addr_offset")
+    _extra_params = (
+        "n_neuron",
+        "addr_ram",
+        "addr_offset",
+    )
     """Extra parameters for debugging."""
 
     n_neuron: int
@@ -108,9 +123,6 @@ class NeuronConfig(ConfigTemplate):
     "RAM starting address(offset)"
     neuron_attrs: NeuronAttrs
     neuron_dest_info: NeuronDestInfo
-
-    tick_relative: List[int]
-    addr_axon: List[int]
 
     @classmethod
     def encapsulate(
@@ -138,7 +150,6 @@ class NeuronConfig(ConfigTemplate):
         dest_rid = get_replication_id(dest_core_coords)
 
         dest_info = NeuronDest(
-            dest_core_coords,
             [coord.tick_relative for coord in axon_coords],
             [coord.addr_axon for coord in axon_coords],
             dest_core_coords[0].x,
@@ -159,8 +170,6 @@ class NeuronConfig(ConfigTemplate):
             addr_offset,
             attrs,
             neuron_dest_info,
-            dest_info.tick_relative,
-            dest_info.addr_axon,
         )
 
     def __json__(self) -> Dict[str, Any]:
