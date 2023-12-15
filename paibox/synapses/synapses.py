@@ -6,8 +6,8 @@ from numpy.typing import NDArray
 from paibox._types import DataArrayType
 from paibox.base import DynamicSys, NeuDyn
 from paibox.exceptions import ShapeError
-from paibox.libpaicore import WeightPrecision as WP
 from paibox.projection import InputProj
+from paicorelib import WeightPrecision as WP
 
 from .transforms import AllToAll, ConnType, MaskedLinear, OneToOne
 

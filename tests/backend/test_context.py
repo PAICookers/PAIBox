@@ -2,7 +2,7 @@ import pytest
 
 from paibox import BACKEND_CONFIG
 from paibox.backend.context import _BACKEND_CONTEXT
-from paibox.libpaicore import Coord
+from paicorelib import Coord
 
 
 def test_backend_context():

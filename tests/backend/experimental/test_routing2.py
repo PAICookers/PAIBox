@@ -7,7 +7,7 @@ from paibox.backend.experimental.routing import (
     create_lx_full_tree,
     get_node_consumption,
 )
-from paibox.libpaicore.v2.routing_defs import (
+from paicorelib.v2.routing_defs import (
     RoutingDirection,
     RoutingNodeCost,
     RoutingNodeLevel,

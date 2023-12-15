@@ -5,7 +5,8 @@ from numpy.typing import NDArray
 
 from paibox._types import Shape
 from paibox.base import NeuDyn
-from paibox.libpaicore import (
+from paibox.utils import as_shape, shape2num
+from paicorelib import (
     LCM,
     LDM,
     LIM,
@@ -16,7 +17,6 @@ from paibox.libpaicore import (
     MaxPoolingEnable,
     SpikeWidthFormat,
 )
-from paibox.utils import as_shape, shape2num
 
 __all__ = ["Neuron"]
 

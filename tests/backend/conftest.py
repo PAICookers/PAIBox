@@ -11,7 +11,7 @@ import paibox as pb
 from paibox.backend.conf_template import CoreConfig, CorePlacementConfig, NeuronConfig
 from paibox.backend.placement import NeuSeg
 from paibox.backend.routing import RoutingNode
-from paibox.libpaicore import (
+from paicorelib import (
     LCN_EX,
     AxonCoord,
     Coord,
@@ -23,7 +23,7 @@ from paibox.libpaicore import (
     SNNModeEnable,
     SpikeWidthFormat,
 )
-from paibox.libpaicore import WeightPrecision as WP
+from paicorelib import WeightPrecision as WP
 
 
 @pytest.fixture(scope="session")

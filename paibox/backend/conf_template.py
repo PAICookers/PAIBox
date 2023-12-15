@@ -5,7 +5,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from paibox.base import NeuDyn
-from paibox.libpaicore import (
+from paicorelib import (
     LCN_EX,
     AxonCoord,
     Coord,

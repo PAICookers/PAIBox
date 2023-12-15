@@ -23,7 +23,10 @@ else:
 
 from paibox.base import NeuDyn, PAIBoxObject
 from paibox.exceptions import BuildError, NotSupportedError, ResourceError
-from paibox.libpaicore import (
+from paibox.projection import InputProj
+from paibox.synapses import SynSys
+from paibox.utils import count_unique_elem
+from paicorelib import (
     LCN_EX,
     AxonCoord,
     AxonSegment,
@@ -34,11 +37,8 @@ from paibox.libpaicore import (
     HwCore,
     MaxPoolingEnable,
     NeuronSegment,
+    WeightPrecision as WP,
 )
-from paibox.libpaicore import WeightPrecision as WP
-from paibox.projection import InputProj
-from paibox.synapses import SynSys
-from paibox.utils import count_unique_elem
 
 from .conf_template import CoreConfig, CorePlacementConfig, NeuronConfig
 from .context import _BACKEND_CONTEXT
@@ -698,12 +698,12 @@ def n_axon2lcn_ex(n_axon: int, fan_in_max: int) -> LCN_EX:
     if n_axon < 1:
         raise ValueError(f"The #N of axons > 0, but got {n_axon}")
 
-    lcn_ex = LCN_EX(((n_axon - 1) // fan_in_max).bit_length())
+    if (lcn_bit := ((n_axon - 1) // fan_in_max).bit_length()) > LCN_EX.LCN_64X:
+        raise ResourceError(
+            f"LCN extension required out of {LCN_EX.LCN_64X}: {lcn_bit}"
+        )
 
-    if lcn_ex > LCN_EX.LCN_64X:
-        raise ResourceError(f"LCN extension required out of {LCN_EX.LCN_64X}: {lcn_ex}")
-
-    return lcn_ex
+    return LCN_EX(lcn_bit)
 
 
 def max_lcn_of_cb(cb: List[CoreBlock]) -> LCN_EX:

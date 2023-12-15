@@ -1,7 +1,7 @@
 import pytest
 
 from paibox.backend.routing import RoutingNode, RoutingRoot, get_parent
-from paibox.libpaicore import RoutingDirection, RoutingNodeCost, RoutingNodeLevel
+from paicorelib import RoutingDirection, RoutingNodeCost, RoutingNodeLevel
 
 
 class TestRouterTree:

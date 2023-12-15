@@ -3,7 +3,7 @@ import pytest
 
 import paibox as pb
 from paibox.exceptions import ShapeError
-from paibox.libpaicore import WeightPrecision as WP
+from paicorelib import WeightPrecision as WP
 
 
 def test_SynSys_Attrs():

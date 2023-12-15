@@ -323,7 +323,7 @@ class TestDAGPathDistance:
         )
 
         # Add the distance of last node to outside(1)
-        distance = distances[node] + 1
+        distance = distances[node]
 
         path = [node]
         while node := pred_nodes.get(node, ()):
@@ -336,7 +336,7 @@ class TestDAGPathDistance:
         "edges, expected_path, expected_distance",
         [
             (
-                # inp1 -> n1 -> n4 -> n2 -> n3, 1+1+1+1+1=5
+                # inp1 -> n1 -> n4 -> n2 -> n3, 1+1+1+1=4
                 {
                     "inp1": {"n1": 1},
                     "n1": {"n2": 1, "n4": 1},
@@ -345,10 +345,10 @@ class TestDAGPathDistance:
                     "n4": {"n2": 1},
                 },
                 ["inp1", "n1", "n4", "n2", "n3"],
-                4 + 1,
+                4,
             ),
             (
-                # inp1 -> n1 -> n3 -> n4, 1+2+5+1=9
+                # inp1 -> n1 -> n3 -> n4, 1+2+5=8
                 {
                     "inp1": {"n1": 1},
                     "n1": {"n2": 3, "n3": 2},
@@ -357,10 +357,10 @@ class TestDAGPathDistance:
                     "n4": {},
                 },
                 ["inp1", "n1", "n3", "n4"],
-                8 + 1,
+                8,
             ),
             (
-                # inp1 -> n1 -> n2 -> n3, 1+2+1+1=5
+                # inp1 -> n1 -> n2 -> n3, 1+2+1=4
                 {
                     "inp1": {"n1": 1},
                     "inp2": {"n2": 1},
@@ -369,10 +369,10 @@ class TestDAGPathDistance:
                     "n3": {},
                 },
                 ["inp1", "n1", "n2", "n3"],
-                4 + 1,
+                4,
             ),
             (
-                # inp1 -> n1 -> n3 -> n5, 1+2+1+1=5
+                # inp1 -> n1 -> n3 -> n5, 1+2+1=4
                 {
                     "inp1": {"n1": 1},
                     "n1": {"n2": 1, "n3": 2},
@@ -382,10 +382,10 @@ class TestDAGPathDistance:
                     "n5": {},
                 },
                 ["inp1", "n1", "n3", "n4"],
-                4 + 1,
+                4,
             ),
             (
-                # inp2 -> n5 -> n4, 4+1+1=6
+                # inp2 -> n5 -> n4, 4+1=5
                 {
                     "inp1": {"n1": 1},
                     "inp2": {"n5": 4},
@@ -396,7 +396,7 @@ class TestDAGPathDistance:
                     "n5": {"n4": 1},
                 },
                 ["inp2", "n5", "n4"],
-                5 + 1,
+                5,
             ),
         ],
         ids=[
@@ -451,7 +451,7 @@ class TestDAGPathDistance:
         )
 
         # Add the distance of last node to outside(1)
-        distance = distances[node] + 1
+        distance = distances[node]
 
         path = [node]
         while node := pred_nodes.get(node, ()):
@@ -464,7 +464,7 @@ class TestDAGPathDistance:
         "edges, inodes, expected_path, expected_distance",
         [
             (
-                # inp1 -> n1 -> n2 -> n3, 1+1+1+1=4
+                # inp1 -> n1 -> n2 -> n3, 1+1+1=3
                 {
                     "inp1": {"n1": 1},
                     "n1": {"n2": 1, "n4": 1},
@@ -474,11 +474,11 @@ class TestDAGPathDistance:
                 },
                 ["inp1"],
                 ["inp1", "n1", "n2", "n3"],
-                3 + 1,
+                3,
             ),
             (
                 # inp1 -> n1 -> n2 -> n3 -> n6 -> n7 -> n4 =
-                # 1+1+3+2+2+3+1=13
+                # 1+1+3+2+2+3=12
                 {
                     "inp1": {"n1": 1},
                     "n1": {"n2": 1, "n5": 5},
@@ -491,10 +491,10 @@ class TestDAGPathDistance:
                 },
                 ["inp1"],
                 ["inp1", "n1", "n2", "n3", "n6", "n7", "n4"],
-                12 + 1,
+                12,
             ),
             (
-                # inp2 -> n2 -> n3, 1+1+1=3
+                # inp2 -> n2 -> n3, 1+1=2
                 {
                     "inp1": {"n1": 1},
                     "inp2": {"n2": 1},
@@ -504,10 +504,10 @@ class TestDAGPathDistance:
                 },
                 ["inp1", "inp2"],
                 ["inp2", "n2", "n3"],
-                2 + 1,
+                2,
             ),
             (
-                # inp1 -> n1 -> n2 -> n4, 1+1+1+1=4
+                # inp1 -> n1 -> n2 -> n4, 1+1+1=3
                 {
                     "inp1": {"n1": 1},
                     "n1": {"n2": 1, "n3": 2},
@@ -517,10 +517,10 @@ class TestDAGPathDistance:
                 },
                 ["inp1"],
                 ["inp1", "n1", "n2", "n4"],
-                3 + 1,
+                3,
             ),
             (
-                # inp1 -> n1 -> n2 -> n4, 1+1+1+1=4
+                # inp1 -> n1 -> n2 -> n4, 1+1+1=3
                 {
                     "inp1": {"n1": 1},
                     "n1": {"n2": 1, "n3": 1},
@@ -531,7 +531,7 @@ class TestDAGPathDistance:
                 },
                 ["inp1"],
                 ["inp1", "n1", "n3", "n5"],
-                3 + 1,
+                3,
             ),
         ],
         ids=[

@@ -4,7 +4,8 @@ from typing import Dict, List, Literal, Union
 
 from paibox.base import NeuDyn
 from paibox.exceptions import BuildError, ResourceError
-from paibox.libpaicore import (
+from paibox.network import DynSysGroup
+from paicorelib import (
     Coord,
     CoordLike,
     CoordOffset,
@@ -13,7 +14,6 @@ from paibox.libpaicore import (
     get_replication_id,
     to_coord,
 )
-from paibox.network import DynSysGroup
 
 from .conf_template import CoreConfig, NeuronDest
 from .context import _BACKEND_CONTEXT

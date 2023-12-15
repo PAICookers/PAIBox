@@ -10,8 +10,8 @@ from paibox.backend.placement import (
     n_axon2lcn_ex,
 )
 from paibox.exceptions import ResourceError
-from paibox.libpaicore import AxonCoord, AxonSegment, NeuronSegment
-from paibox.libpaicore import WeightPrecision as WP
+from paicorelib import AxonCoord, AxonSegment, NeuronSegment
+from paicorelib import LCN_EX, WeightPrecision as WP
 
 
 def packbits_ref(bits: np.ndarray, count: int) -> int:
@@ -435,6 +435,14 @@ class TestGetNeuronSegments:
 
             assert neu_segs == expected
             assert neu_segs[0][0].segment.interval == (1 << wp) * (1 << lcn_ex)
+
+
+def test_n_axon2lcn_ex():
+    lcn_ex = n_axon2lcn_ex(1152 * 18 + 1, 1152)
+    assert lcn_ex == LCN_EX.LCN_32X
+    
+    with pytest.raises(ResourceError):
+        lcn_ex = n_axon2lcn_ex(1152 * 64 + 1, 1152)
 
 
 @pytest.mark.parametrize(

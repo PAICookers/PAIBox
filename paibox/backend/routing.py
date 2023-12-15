@@ -1,12 +1,12 @@
 from typing import Any, Dict, List, Optional, Sequence, final
 
 from paibox.exceptions import NotSupportedError
-from paibox.libpaicore import RoutingDirection as Direction
-from paibox.libpaicore import RoutingDirectionIdx as DirectionIdx
-from paibox.libpaicore import RoutingNodeCoord as NodeCoord
-from paibox.libpaicore import RoutingNodeLevel as Level
-from paibox.libpaicore import RoutingNodeStatus as Status
-from paibox.libpaicore import get_node_consumption
+from paicorelib import RoutingDirection as Direction
+from paicorelib import RoutingDirectionIdx as DirectionIdx
+from paicorelib import RoutingNodeCoord as NodeCoord
+from paicorelib import RoutingNodeLevel as Level
+from paicorelib import RoutingNodeStatus as Status
+from paicorelib import get_node_consumption
 
 from .placement import CoreBlock, CorePlacement
 

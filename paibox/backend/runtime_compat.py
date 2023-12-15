@@ -4,13 +4,11 @@ from typing import Any, Dict, Literal
 
 import numpy as np
 
-from paibox.libpaicore import Coord
-from paibox.libpaicore import ReplicationId as RId
-
 from .conf_template import CorePlacementConfig
-from .runtime import OfflineFrameGen
-from .runtime.libframe._types import FRAME_DTYPE, FrameArrayType
-from .runtime.libframe.utils import np2bin, np2npy, np2txt
+from paicorelib import Coord, ReplicationId as RId
+from paicorelib.framelib.frame_gen import OfflineFrameGen
+from paicorelib.framelib._types import FRAME_DTYPE, FrameArrayType
+from paicorelib.framelib.utils import np2bin, np2npy, np2txt
 
 # This file is mainly a compatible layer of PAIBox runtime library.
 

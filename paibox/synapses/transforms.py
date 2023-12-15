@@ -6,8 +6,8 @@ from numpy.typing import NDArray
 
 from paibox._types import DataArrayType
 from paibox.exceptions import ShapeError
-from paibox.libpaicore import WeightPrecision as WP
 from paibox.utils import is_shape
+from paicorelib import WeightPrecision as WP
 
 MAX_INT2 = np.int8(1)
 MIN_INT2 = np.int8(-2)

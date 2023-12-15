@@ -406,7 +406,7 @@ def get_longest_path(
     )
 
     # Add the distance of last node to outside(1)
-    distance = distances[node] + 1
+    distance = distances[node]
 
     path = [node]
     while node := pred_nodes.get(node, ()):
@@ -455,7 +455,7 @@ def get_shortest_path(
     )
 
     # Add the distance of last node to outside(1)
-    distance = distances[node] + 1
+    distance = distances[node]
 
     path = [node]
     while node := pred_nodes.get(node, ()):

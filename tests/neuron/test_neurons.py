@@ -1,9 +1,22 @@
-import numpy as np
+import json
 import pytest
 
+import numpy as np
 import paibox as pb
-from paibox.libpaicore import *
+
+from paicorelib import *
 from paibox.utils import as_shape, shape2num
+
+
+def test_NeuronParams_instance(ensure_dump_dir):
+    n1 = pb.neuron.LIF((100,), 3)
+
+    attrs = NeuronAttrs.model_validate(n1.export_params(), strict=True)
+
+    attrs_dict = attrs.model_dump(by_alias=True)
+
+    with open(ensure_dump_dir / f"ram_model_{n1.name}.json", "w") as f:
+        json.dump({n1.name: attrs_dict}, f, indent=4, ensure_ascii=True)
 
 
 class TestNeuronBehavior:
