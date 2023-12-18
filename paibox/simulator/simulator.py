@@ -44,7 +44,7 @@ class Simulator(PAIBoxObject):
             - reset: whether to reset the model state.
         """
         if duration < 1:
-            raise SimulationError(f"duration should be > 0, but got {duration}")
+            raise SimulationError(f"Duration should be > 0, but got {duration}")
 
         n_steps = self._get_nstep(duration)
         if n_steps < 1:
@@ -69,7 +69,7 @@ class Simulator(PAIBoxObject):
 
     def step(self, *args, **kwargs) -> None:
         self.target.update(*args, **kwargs)
-        self._update_probe()
+        self._update_probes()
 
     def reset(self) -> None:
         _FRONTEND_CONTEXT["t"] = 0
@@ -100,7 +100,7 @@ class Simulator(PAIBoxObject):
             - probe: the probe to retrieve.
             - t: retrieve the data at time `t`.
 
-        NOTE: For faster access, use the `data` attribute.
+        NOTE: For faster access, use the attribute of `data`.
         """
         return self._sim_data[probe]
 
@@ -111,7 +111,7 @@ class Simulator(PAIBoxObject):
             - probe: the probe to retrieve.
             - t: retrieve the data at time `t`.
 
-        NOTE: For faster access, use the `data` attribute.
+        NOTE: For faster access, use the attribute of `data`.
         """
         if t >= self.time:
             raise IndexError(f"Time {t} is out of range {self.time-1}.")
@@ -119,6 +119,7 @@ class Simulator(PAIBoxObject):
         return self._sim_data[probe][t]
 
     def _reset_probes(self) -> None:
+        """Reset the probes."""
         for probe in self.probes:
             self._sim_data[probe].clear()
 
@@ -127,10 +128,11 @@ class Simulator(PAIBoxObject):
     def _get_nstep(self, duration: int) -> int:
         return int(duration / self.dt)
 
-    def _update_probe(self) -> None:
+    def _update_probes(self) -> None:
+        """Update probes."""
         for probe in self.probes:
             # Shallow copy
-            t = getattr(probe.target, probe.attr)
+            t = getattr(probe.obj, probe.attr)
             data = t.copy() if hasattr(t, "copy") else t
 
             self._sim_data[probe].append(data)

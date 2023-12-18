@@ -16,6 +16,7 @@ from paicorelib import (
 
 from paibox._types import Shape
 from paibox.base import NeuDyn
+from paibox.context import _FRONTEND_CONTEXT
 from paibox.utils import as_shape, shape2num
 
 __all__ = ["Neuron"]
@@ -385,6 +386,8 @@ class Neuron(MetaNeuron, NeuDyn):
         vjt_init: int,
         *,
         keep_shape: bool = False,
+        tick_wait_start: int = 1,
+        tick_wait_end: int = 0,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -416,13 +419,29 @@ class Neuron(MetaNeuron, NeuDyn):
         self.set_memory("vj", self.init_param(vjt_init).astype(np.int32))
         self.set_memory("y", self.init_param(0).astype(np.int32))
 
+        # Attributes about physical cores.
+        self.tick_wait_start = tick_wait_start
+        self.tick_wait_end = tick_wait_end
+
     def __len__(self) -> int:
         return self._n_neuron
 
     def __call__(self, x: Optional[np.ndarray] = None, **kwargs) -> NDArray[np.bool_]:
         return self.update(x, **kwargs)
 
-    def update(self, x: Optional[np.ndarray] = None, **kwargs) -> NDArray[np.bool_]:
+    def update(
+        self, x: Optional[np.ndarray] = None, **kwargs
+    ) -> Optional[NDArray[np.bool_]]:
+        if _FRONTEND_CONTEXT["t"] < self.tick_wait_start:
+            # The neuron start working until `t >= tws`.
+            return None
+
+        # Priority order is a must.
+        if self.tick_wait_end > 0:
+            if _FRONTEND_CONTEXT["t"] > self.tick_wait_start + self.tick_wait_end:
+                # The neuron is done working until `t > tws + twe` under the condition `twe > 0`.
+                return None
+
         if x is None:
             x = self.sum_inputs()
 
