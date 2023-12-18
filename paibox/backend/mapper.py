@@ -2,9 +2,6 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Literal, Union
 
-from paibox.base import NeuDyn
-from paibox.exceptions import BuildError, ResourceError
-from paibox.network import DynSysGroup
 from paicorelib import (
     Coord,
     CoordLike,
@@ -14,6 +11,10 @@ from paicorelib import (
     get_replication_id,
     to_coord,
 )
+
+from paibox.base import NeuDyn
+from paibox.exceptions import BuildError, ResourceError
+from paibox.network import DynSysGroup
 
 from .conf_template import CoreConfig, NeuronDest, gen_config_frames_by_coreconf
 from .context import _BACKEND_CONTEXT

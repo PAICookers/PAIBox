@@ -1,7 +1,8 @@
 from typing import Optional
 
-from paibox._types import Shape
 from paicorelib import LCM, LDM, LIM, NTM, RM, SIM
+
+from paibox._types import Shape
 
 from .base import Neuron
 

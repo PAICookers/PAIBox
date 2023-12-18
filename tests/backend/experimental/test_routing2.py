@@ -1,4 +1,10 @@
 import pytest
+from paicorelib.v2.routing_defs import (
+    RoutingDirection,
+    RoutingNodeCost,
+    RoutingNodeLevel,
+    RoutingNodeStatus,
+)
 
 import paibox as pb
 from paibox.backend.experimental.routing import (
@@ -6,12 +12,6 @@ from paibox.backend.experimental.routing import (
     RoutingRoot,
     create_lx_full_tree,
     get_node_consumption,
-)
-from paicorelib.v2.routing_defs import (
-    RoutingDirection,
-    RoutingNodeCost,
-    RoutingNodeLevel,
-    RoutingNodeStatus,
 )
 
 pytestmark = pytest.mark.skip(reason="Not implemented")

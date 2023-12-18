@@ -22,11 +22,6 @@ if sys.version_info >= (3, 10):
 else:
     from typing_extensions import TypeAlias
 
-from paibox.base import NeuDyn, PAIBoxObject
-from paibox.exceptions import BuildError, NotSupportedError, ResourceError
-from paibox.projection import InputProj
-from paibox.synapses import SynSys
-from paibox.utils import count_unique_elem
 from paicorelib import (
     LCN_EX,
     AxonCoord,
@@ -38,8 +33,14 @@ from paicorelib import (
     HwCore,
     MaxPoolingEnable,
     NeuronSegment,
-    WeightPrecision as WP,
 )
+from paicorelib import WeightPrecision as WP
+
+from paibox.base import NeuDyn, PAIBoxObject
+from paibox.exceptions import BuildError, NotSupportedError, ResourceError
+from paibox.projection import InputProj
+from paibox.synapses import SynSys
+from paibox.utils import count_unique_elem
 
 from .conf_template import CoreConfig, CorePlacementConfig, NeuronConfig
 from .context import _BACKEND_CONTEXT

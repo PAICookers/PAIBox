@@ -5,9 +5,6 @@ from typing import Any, Dict, List, Literal, NamedTuple, Optional, Union
 
 import numpy as np
 from numpy.typing import NDArray
-
-from .context import _BACKEND_CONTEXT
-from paibox.base import NeuDyn
 from paicorelib import (
     LCN_EX,
     AxonCoord,
@@ -17,15 +14,21 @@ from paicorelib import (
     NeuronAttrs,
     NeuronDestInfo,
     ParamsReg,
-    ReplicationId as RId,
+)
+from paicorelib import ReplicationId as RId
+from paicorelib import (
     SNNModeEnable,
     SpikeWidthFormat,
     WeightPrecision,
     get_replication_id,
 )
-from paicorelib.framelib.frame_gen import OfflineFrameGen
 from paicorelib.framelib._types import FRAME_DTYPE, FrameArrayType
+from paicorelib.framelib.frame_gen import OfflineFrameGen
 from paicorelib.framelib.utils import np2bin, np2npy, np2txt
+
+from paibox.base import NeuDyn
+
+from .context import _BACKEND_CONTEXT
 
 
 class CoreConfig(NamedTuple):

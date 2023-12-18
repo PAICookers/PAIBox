@@ -6,9 +6,9 @@ from typing import Any
 
 import numpy as np
 import pytest
+from paicorelib import Coord, HwConfig
 
 import paibox as pb
-from paicorelib import Coord, HwConfig
 
 
 class CustomJsonEncoder(JSONEncoder):

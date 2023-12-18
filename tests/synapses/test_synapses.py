@@ -1,9 +1,9 @@
 import numpy as np
 import pytest
+from paicorelib import WeightPrecision as WP
 
 import paibox as pb
 from paibox.exceptions import ShapeError
-from paicorelib import WeightPrecision as WP
 
 
 def test_SynSys_Attrs():

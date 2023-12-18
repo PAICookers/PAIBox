@@ -1,10 +1,10 @@
 import json
-import pytest
 
 import numpy as np
-import paibox as pb
-
+import pytest
 from paicorelib import *
+
+import paibox as pb
 from paibox.utils import as_shape, shape2num
 
 
