@@ -15,12 +15,11 @@ from paicorelib import (
     to_coord,
 )
 
-from .conf_template import CoreConfig, NeuronDest
+from .conf_template import CoreConfig, NeuronDest, gen_config_frames_by_coreconf
 from .context import _BACKEND_CONTEXT
 from .graphs import *
 from .placement import CoreBlock, aligned_coords, max_lcn_of_cb
 from .routing import RoutingRoot
-from .runtime_compat import gen_config_frames_by_coreconf
 
 __all__ = ["Mapper"]
 
@@ -327,24 +326,16 @@ class Mapper:
         write_to_file: bool = True,
         *,
         fp: Optional[Union[str, Path]] = None,
-        format: Literal["txt", "bin", "npy"] = "npy",
+        format: Literal["txt", "bin", "npy"] = "bin",
         local_chip_addr: Optional[CoordLike] = None,
     ) -> Dict[Coord, Any]:
-        if fp is not None:
-            _fp = Path(fp)
-        else:
-            _fp = _BACKEND_CONTEXT["build_directory"]
-
-        if not _fp.is_dir():
-            _fp.mkdir(parents=True, exist_ok=True)
-
         if local_chip_addr is not None:
             _local_chip_addr = to_coord(local_chip_addr)
         else:
             _local_chip_addr = _BACKEND_CONTEXT["local_chip_addr"]
 
         config_dict = gen_config_frames_by_coreconf(
-            _local_chip_addr, self.core_plm_config, write_to_file, _fp, format
+            _local_chip_addr, self.core_plm_config, write_to_file, fp, format
         )
 
         return config_dict

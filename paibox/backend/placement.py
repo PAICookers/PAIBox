@@ -1,4 +1,5 @@
 import sys
+import warnings
 from functools import cached_property
 from typing import (
     ClassVar,
@@ -330,7 +331,7 @@ class CoreBlock(CoreAbstract):
         return all(syns[0].weight_precision is syn.weight_precision for syn in syns)
 
     @classmethod
-    def build(cls, *synapses: SynSys):
+    def build(cls, *synapses: SynSys, seed: int = 0):
         """Combine the SAME weight precision synapses and build the `CoreBlock`.
 
         Use LCN extension optimization in grouping a synapse.
@@ -352,7 +353,12 @@ class CoreBlock(CoreAbstract):
             # Treat 4-bit weights as 8-bit weights.
             wp = cls.supported_wp[-1]
 
-        return cls(*synapses, weight_precision=wp)
+        if seed > (1 << 64) - 1:
+            warnings.warn(
+                f"Random seed {seed} is too large, truncated into 64 bits!", UserWarning
+            )
+
+        return cls(*synapses, weight_precision=wp, seed=seed)
 
     @classmethod
     def export_core_plm_config(cls, cb: "CoreBlock") -> Dict[Coord, CoreConfig]:
@@ -415,7 +421,13 @@ class CorePlacement(CoreAbstract):
         n_neuron = parent.n_neuron_of_plm[idx]
         neu_segs = parent.neuron_segs_of_cb[idx]
 
-        return cls(parent, coord, n_neuron, raw_weights=raw_weights, neu_segs=neu_segs)
+        return cls(
+            parent,
+            coord,
+            n_neuron,
+            raw_weights=raw_weights,
+            neu_segs=neu_segs,
+        )
 
     def _fold_raw_weights(self, raw_weights: List[np.ndarray]) -> NDArray[np.int8]:
         """Fold the weights into LCN-sized blocks."""
