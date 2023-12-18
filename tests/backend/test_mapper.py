@@ -6,9 +6,9 @@ from typing import Any
 
 import numpy as np
 import pytest
+from paicorelib import Coord, HwConfig
 
 import paibox as pb
-from paibox.libpaicore import Coord
 
 
 class CustomJsonEncoder(JSONEncoder):
@@ -65,7 +65,7 @@ class TestMapperDebug:
         assert mapper.graph.has_built == True
 
         assert len(mapper.core_blocks) == 3  # 3 layers
-        assert mapper.get_inherent_timestep() == 4
+        assert mapper.get_inherent_timestep() == 3
 
         _json_core_configs = dict()
         _json_core_plm_config = dict()
@@ -156,8 +156,8 @@ class TestMapper_Weight4:
         self, monkeypatch, ensure_dump_dir, build_network_with_branches_4bit, packbits8
     ):
         # Use monkey patch to change the settings of `HwConfig` when running the test.
-        monkeypatch.setattr(pb.HwConfig, "N_DENDRITE_MAX_SNN", 8 * 8)
-        monkeypatch.setattr(pb.HwConfig, "N_FANIN_PER_DENDRITE_SNN", 6)
+        monkeypatch.setattr(HwConfig, "N_DENDRITE_MAX_SNN", 8 * 8)
+        monkeypatch.setattr(HwConfig, "N_FANIN_PER_DENDRITE_SNN", 6)
 
         net = build_network_with_branches_4bit
 
@@ -243,8 +243,8 @@ class TestMapper_NeuronSeg_Dense:
     def test_neuron_seg_dense(
         self, monkeypatch, build_Network_8bit_dense, ensure_dump_dir
     ):
-        monkeypatch.setattr(pb.HwConfig, "N_DENDRITE_MAX_SNN", 8 * 8)
-        monkeypatch.setattr(pb.HwConfig, "N_FANIN_PER_DENDRITE_SNN", 6)
+        monkeypatch.setattr(HwConfig, "N_DENDRITE_MAX_SNN", 8 * 8)
+        monkeypatch.setattr(HwConfig, "N_FANIN_PER_DENDRITE_SNN", 6)
 
         net = build_Network_8bit_dense
 

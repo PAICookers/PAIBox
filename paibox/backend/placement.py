@@ -1,4 +1,5 @@
 import sys
+import warnings
 from functools import cached_property
 from typing import (
     ClassVar,
@@ -21,9 +22,7 @@ if sys.version_info >= (3, 10):
 else:
     from typing_extensions import TypeAlias
 
-from paibox.base import NeuDyn, PAIBoxObject
-from paibox.exceptions import BuildError, NotSupportedError, ResourceError
-from paibox.libpaicore import (
+from paicorelib import (
     LCN_EX,
     AxonCoord,
     AxonSegment,
@@ -35,7 +34,10 @@ from paibox.libpaicore import (
     MaxPoolingEnable,
     NeuronSegment,
 )
-from paibox.libpaicore import WeightPrecision as WP
+from paicorelib import WeightPrecision as WP
+
+from paibox.base import NeuDyn, PAIBoxObject
+from paibox.exceptions import BuildError, NotSupportedError, ResourceError
 from paibox.projection import InputProj
 from paibox.synapses import SynSys
 from paibox.utils import count_unique_elem
@@ -330,7 +332,7 @@ class CoreBlock(CoreAbstract):
         return all(syns[0].weight_precision is syn.weight_precision for syn in syns)
 
     @classmethod
-    def build(cls, *synapses: SynSys):
+    def build(cls, *synapses: SynSys, seed: int = 0):
         """Combine the SAME weight precision synapses and build the `CoreBlock`.
 
         Use LCN extension optimization in grouping a synapse.
@@ -352,7 +354,12 @@ class CoreBlock(CoreAbstract):
             # Treat 4-bit weights as 8-bit weights.
             wp = cls.supported_wp[-1]
 
-        return cls(*synapses, weight_precision=wp)
+        if seed > (1 << 64) - 1:
+            warnings.warn(
+                f"Random seed {seed} is too large, truncated into 64 bits!", UserWarning
+            )
+
+        return cls(*synapses, weight_precision=wp, seed=seed)
 
     @classmethod
     def export_core_plm_config(cls, cb: "CoreBlock") -> Dict[Coord, CoreConfig]:
@@ -415,7 +422,13 @@ class CorePlacement(CoreAbstract):
         n_neuron = parent.n_neuron_of_plm[idx]
         neu_segs = parent.neuron_segs_of_cb[idx]
 
-        return cls(parent, coord, n_neuron, raw_weights=raw_weights, neu_segs=neu_segs)
+        return cls(
+            parent,
+            coord,
+            n_neuron,
+            raw_weights=raw_weights,
+            neu_segs=neu_segs,
+        )
 
     def _fold_raw_weights(self, raw_weights: List[np.ndarray]) -> NDArray[np.int8]:
         """Fold the weights into LCN-sized blocks."""
@@ -698,12 +711,12 @@ def n_axon2lcn_ex(n_axon: int, fan_in_max: int) -> LCN_EX:
     if n_axon < 1:
         raise ValueError(f"The #N of axons > 0, but got {n_axon}")
 
-    lcn_ex = LCN_EX(((n_axon - 1) // fan_in_max).bit_length())
+    if (lcn_bit := ((n_axon - 1) // fan_in_max).bit_length()) > LCN_EX.LCN_64X:
+        raise ResourceError(
+            f"LCN extension required out of {LCN_EX.LCN_64X}: {lcn_bit}"
+        )
 
-    if lcn_ex > LCN_EX.LCN_64X:
-        raise ResourceError(f"LCN extension required out of {LCN_EX.LCN_64X}: {lcn_ex}")
-
-    return lcn_ex
+    return LCN_EX(lcn_bit)
 
 
 def max_lcn_of_cb(cb: List[CoreBlock]) -> LCN_EX:

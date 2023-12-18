@@ -1,8 +1,9 @@
 from pathlib import Path
 from typing import Union
 
+from paicorelib import Coord, CoordLike, to_coord
+
 from paibox.context import _Context
-from paibox.libpaicore import Coord, CoordLike, to_coord
 
 __all__ = ["BACKEND_CONFIG"]
 

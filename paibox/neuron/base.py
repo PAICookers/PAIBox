@@ -2,10 +2,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
-
-from paibox._types import Shape
-from paibox.base import NeuDyn
-from paibox.libpaicore import (
+from paicorelib import (
     LCM,
     LDM,
     LIM,
@@ -16,6 +13,9 @@ from paibox.libpaicore import (
     MaxPoolingEnable,
     SpikeWidthFormat,
 )
+
+from paibox._types import Shape
+from paibox.base import NeuDyn
 from paibox.utils import as_shape, shape2num
 
 __all__ = ["Neuron"]

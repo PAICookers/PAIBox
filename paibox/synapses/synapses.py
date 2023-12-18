@@ -2,11 +2,11 @@ from typing import Optional, Tuple, Union
 
 import numpy as np
 from numpy.typing import NDArray
+from paicorelib import WeightPrecision as WP
 
 from paibox._types import DataArrayType
 from paibox.base import DynamicSys, NeuDyn
 from paibox.exceptions import ShapeError
-from paibox.libpaicore import WeightPrecision as WP
 from paibox.projection import InputProj
 
 from .transforms import AllToAll, ConnType, MaskedLinear, OneToOne
