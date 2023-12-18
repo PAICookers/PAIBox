@@ -44,7 +44,7 @@ IF神经元实现了经典的“积分发射”模型，其调用方式及参数
 ```python
 import paibox as pb
 
-n1 = pb.neuron.IF(shape=10, threshold=127, reset_v=0, vjt_init=0, keep_shape=False, name='n1')
+n1 = pb.neuron.IF(shape=10, threshold=127, reset_v=0, vjt_init=0, keep_shape=False, tick_wait_start=1, tick_wait_end=0, name='n1')
 ```
 
 其中：
@@ -54,6 +54,8 @@ n1 = pb.neuron.IF(shape=10, threshold=127, reset_v=0, vjt_init=0, keep_shape=Fal
 - `reset_v`：神经元的重置电位。
 - `vjt_init`：神经元的初始电位。
 - `keep_shape`：是否在仿真记录数据时保持尺寸信息，默认为 `False`。实际进行运算的尺寸仍视为一维。
+- `tick_wait_start`: 设定该神经元组在第 `N` 个时间步时启动，0表示不启动。默认为1。
+- `tick_wait_end`: 设定该神经元组持续工作 `M` 个时间步，0表示一直持续工作。默认为0。
 - `name`：可选，为该对象命名。
 
 #### LIF神经元
@@ -64,11 +66,11 @@ LIF神经元实现了“泄露-积分-发射”神经元模型，其调用方式
 n1 = pb.neuron.LIF(shape=128, threshold=127, reset_v=0, leaky_v=-1, vjt_init=0, keep_shape=False, name='n1')
 ```
 
-- `leaky_v`：LIF神经元的泄露值。需要注意的是，该值是直接加在神经元的输入上的，因此要实现一般的泄露功能应将其设为**负值**。其他参数含义与IF神经元相同。
+- `leaky_v`：LIF神经元的泄露值（有符号）。其他参数含义与IF神经元相同。
 
 #### Tonic Spiking神经元
 
-Tonic Spiking 神经元可以实现对持续脉冲刺激的周期性反应。
+Tonic Spiking神经元可以实现对持续脉冲刺激的周期性反应。
 
 ```python
 n1 = pb.neuron.TonicSpiking(shape=128, fire_step=3, vjt_init=0, keep_shape=False, name='n1')
@@ -153,78 +155,6 @@ print(output)
 
 当有持续性脉冲输入时，神经元会在 `time_to_step` 个时间步后发放脉冲，而后将一直保持静息状态。
 
-<!-- **Spike Latency神经元**
-
-`Spike Latency`神经元可以实现，在接受一个脉冲后，会在 `fire_time`个时间步后发放。
-
-```python
-# 实例化一个Spiking Latency神经元组
-n1 = pb.neuron.SpikingLatency(shape=128,fire_time = 3,vjt_init=0, keep_shape=False, name='n1')
-```
-
-- `fire_time`：延时时间。
-
-需要注意的是：首先，该神经元需要搭配权重使用，其输入权重应设置为10。在单独使用神经元时，可以在脉冲输入的对应时间步直接输入10，以达到相同的效果。其次，其在延时响应阶段不应有脉冲输入，否则会出现发放错误。
-
-以下为一个简单实例：
-
-```python
-import paibox as pb
-import numpy as np
-n1 = pb.neuron.SpikeLatency(shape=1,fire_time=3)
-input = np.array([0,10,0,0,0,10,0,0,0,0,0,0])
-output = []
-for i in range(12):
-    output.append(n1(input[i]))
-print(np.array(output))
-# 结果如下，可以看到实现了延时功能。
-[[False]
- [False]
- [False]
- [False]
- [ True]
- [False]
- [False]
- [False]
- [ True]
- [False]
- [False]
- [False]]
-```
-
-**Subthreshold Oscillations 神经元**
-
-`Subthreshold Oscillations` 神经元，即振荡神经元，当有脉冲输入后，神经元会进行发放，之后，其膜电位会一直处于±1的振荡状态。
-
-需要注意的是，该神经元需要搭配权重使用，其输入权重应设置为22。在单独使用神经元时，可以在脉冲输入的对应时间步直接输入22，以达到相同的效果。
-
-以下为一个简单实例：
-
-```python
-import paibox as pb
-import numpy as np
-n1 = pb.neuron.SubthresholdOscillations(shape=1)
-input = np.array([0,0,22,0,0,0,0,0,0,0,0,0])
-voltage = []
-for i in range(12):
-    n1(input[i])
-    voltage.append(n1.voltage)
-print(np.array(voltage))
-# 结果如下，通过记录膜电位值，可以看到振荡效果。
-[[ 0]
- [ 0]
- [ 1]  # 神经元输出会在这一时刻发放。
- [-1]
- [ 1]
- [-1]
- [ 1]
- [-1]
- [ 1]
- [-1]
- [ 1]
- [-1]]
-``` -->
-
 ### 突触
 
 PAIBox中，突触用于连接不同神经元组，并包含了连接关系以及权重信息。以全连接类型的突触为实例：
@@ -275,7 +205,6 @@ s1= pb.synapses.NoDecay(source=n1, dest=n2, weights=weight1, conn_type=pb.synaps
   ```
 
   其权重以标量的形式储存。由于在运算时标量会随着矩阵进行广播，因此计算正确且节省了存储开销。
-
 - 数组：尺寸要求为 `(N2,)`，可以自定义每组对应神经元之间的连接权重。如下例所示，设置 `weights` 为 `[1, 2, 3, 4, 5]`，
 
   ```python
@@ -513,62 +442,11 @@ class fcnet(pb.Network):
         pe = pb.simulator.PoissonEncoder()
 
         self.i1 = pb.InputProj(input=pe, shape_out=(784,))
-        self.n1 = pb.neuron.IF(128, threshold=128, reset_v=0)
-        self.n2 = pb.neuron.IF(10, threshold=128, reset_v=0)
+        self.n1 = pb.neuron.IF(128, threshold=128, reset_v=0, tick_wait_start=1)
+        self.n2 = pb.neuron.IF(10, threshold=128, reset_v=0, tick_wait_start=2)
         self.s1 = pb.synapses.NoDecay(self.i1, self.n1, weights=weight1, conn_type=pb.synapses.ConnType.All2All)
         self.s2 = pb.synapses.NoDecay(self.n1, self.n2, weights=weight2, conn_type=pb.synapses.ConnType.All2All)
-
 ```
-
-<!--
-#### **Sequential方法**
-
-也可以使用 `Sequential` 构建 **线性网络**：
-
-```python
-# 使用Sequential搭建线性网络
-n1 = pb.neuron.TonicSpiking(10, fire_step=3)
-n2 = pb.neuron.TonicSpiking(10, fire_step=5)
-s1 = pb.synapses.NoDecay(n1, n2, conn_type=pb.synapses.ConnType.All2All)
-sequential = pb.network.Sequential(n1, s1, n2)
-```
-
-当网络是顺序运行时，不必定义 `update` 方法也可以正确执行。如果网络存在分支，或者需要特别设置网络节点之间的数据更新过程时，则可以通过定义 `update` 方法实现。以下是一个存在分支网络的例子，可以通过定义 `update` 方法设置其数据更新过程。
-
-<img src="C:\Users\baibin\AppData\Roaming\Typora\typora-user-images\image-20230927173640154.png" alt="image-20230927173640154" style="zoom:67%;" />
-
-```python
-# 定义一个有分支的网络
-class net_using_update(pb.DynSysGroup):
-    def __init__(self):
-        """
-        n1 -> s1
-                -> n3
-        n2 -> s2
-        """
-        super().__init__()
-        self.n1 = pb.neuron.IF(3,threshold=1,reset_v=0)
-        self.n2 = pb.neuron.IF(3,threshold=1,reset_v=0)
-        self.n3 = pb.neuron.IF(3 ,threshold=1,reset_v=0)
-        self.s1 = pb.synapses.NoDecay(self.n1, self.n3, conn_type=pb.synapses.ConnType.All2All)
-        self.s2 = pb.synapses.NoDecay(self.n2, self.n3, conn_type=pb.synapses.ConnType.All2All)
-        self.p3 = pb.simulator.Probe(self.n3,'output')
-    def update(self,x1,x2):
-        y1 = self.n1.update(x1)
-        y2 = self.n2.update(x2)
-        y1_s1 = self.s1.update(y1)
-        y2_s2 = self.s2.update(y2)
-        y3 = self.n3.update(y1_s1 + y2_s2)
-        return y3
-``` -->
-
-<!-- ### **高级算子**
-
-PAIBox也支持在搭建网络中使用高级算子，如池化和卷积等，但首先与芯片结构，我们使用卷积和池化的方式有所变化。
-
-卷积与池化都可以看作是更为稀疏的全连接层。因此，我们可以提供了可以将卷积核展开为全连接层以及生成池化层参数的函数。我们可以将卷积层和池化层转换为突触，并通过调用函数生成对应的权重矩阵送入突触中，从而实现卷积与池化的功能。
-
-TODO -->
 
 ## 仿真
 
@@ -639,7 +517,7 @@ sim.reset()
 
 编译将完成网络拓扑解析、映射、分配路由坐标、生成帧数据，并最终导出为 `.bin` 或 `.npy` 格式交换文件等一系列工作。首先例化 `Mapper`，之后传入所构建的网络，进行编译与帧导出即可。
 
-``` python
+```python
 mapper = pb.Mapper()
 mapper.build(fcnet)
 mapper.compile()

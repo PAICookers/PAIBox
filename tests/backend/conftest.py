@@ -1,11 +1,14 @@
 import os
 import random
 import tempfile
-from functools import partial
-from pathlib import Path
 
 import numpy as np
 import pytest
+import paibox as pb
+
+from functools import partial
+from pathlib import Path
+
 from paicorelib import (
     LCN_EX,
     AxonCoord,
@@ -19,8 +22,6 @@ from paicorelib import (
     SpikeWidthFormat,
 )
 from paicorelib import WeightPrecision as WP
-
-import paibox as pb
 from paibox.backend.conf_template import CoreConfig, CorePlacementConfig, NeuronConfig
 from paibox.backend.placement import NeuSeg
 from paibox.backend.routing import RoutingNode

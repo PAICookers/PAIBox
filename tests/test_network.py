@@ -299,8 +299,8 @@ class Net1(pb.DynSysGroup):
         super().__init__()
 
         self.inp = pb.InputProj(output_without_shape, shape_out=(2,))
-        self.n1 = pb.neuron.TonicSpiking(2, fire_step=2)
-        self.n2 = pb.neuron.TonicSpiking(2, fire_step=2)
+        self.n1 = pb.neuron.TonicSpiking(2, fire_step=2, tick_wait_start=1)
+        self.n2 = pb.neuron.TonicSpiking(2, fire_step=2, tick_wait_start=2)
         self.s0 = pb.synapses.NoDecay(
             self.inp, self.n1, conn_type=pb.synapses.ConnType.One2One
         )
@@ -326,10 +326,10 @@ def test_DynSysGroup_AutoUpdate_No_Nested():
     net = Net1()
 
     expected_y_n1 = np.array(
-        [[0, 0], [1, 1], [0, 0], [1, 1], [0, 0], [1, 1], [0, 0], [1, 1], [0, 0], [1, 1]]
+        [[0, 0], [0, 0], [1, 1], [0, 0], [1, 1], [0, 0], [1, 1], [0, 0], [1, 1], [0, 0]]
     )
     expected_y_n2 = np.array(
-        [[0, 0], [0, 0], [0, 0], [0, 0], [1, 1], [0, 0], [0, 0], [0, 0], [1, 1], [0, 0]]
+        [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [1, 1], [0, 0], [0, 0], [0, 0], [1, 1]]
     )
 
     sim = pb.Simulator(net)

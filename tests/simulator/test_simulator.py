@@ -11,8 +11,8 @@ class Net1(pb.DynSysGroup):
         pe = pb.simulator.PoissonEncoder()
 
         self.inp = pb.InputProj(pe, shape_out=(n_neuron,), keep_shape=True)
-        self.n1 = pb.LIF(n_neuron, threshold=3, reset_v=0)
-        self.n2 = pb.IF(n_neuron, threshold=3, reset_v=1)
+        self.n1 = pb.LIF(n_neuron, threshold=3, reset_v=0, tick_wait_start=1)
+        self.n2 = pb.IF(n_neuron, threshold=3, reset_v=1, tick_wait_start=3) # tws = 3
         self.s0 = pb.NoDecay(
             self.inp,
             self.n1,
@@ -53,6 +53,6 @@ def test_probe():
     inp_state2 = sim.get_raw(probe_outside)
     assert type(inp_state2) == list
 
-    # Get the data at time=1
+    # Get the data at time=5
     inp_state_at_t = sim.get_raw_at_t(probe_outside, t=5)
     assert type(inp_state_at_t) == np.ndarray
