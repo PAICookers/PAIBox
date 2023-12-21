@@ -228,3 +228,11 @@ class NeuDyn(DynamicSys, ReceiveInputProj):
             params.update({k.removeprefix("_"): v})
 
         return params
+
+    @property
+    def tick_wait_start(self):
+        raise NotImplementedError
+
+    @property
+    def tick_wait_end(self):
+        raise NotImplementedError

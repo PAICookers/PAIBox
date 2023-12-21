@@ -12,10 +12,8 @@ DataArrayType = TypeVar(
     "DataArrayType", int, np.integer, List[int], Tuple[int, ...], np.ndarray
 )
 
-T = TypeVar("T")
 
-
-class FrozenOrderedSet(Set[T]):
+class FrozenOrderedSet(Set):
     """A set that preserves insertion order and is hashable."""
 
     def __init__(self, data: Optional[Any] = None) -> None:
@@ -40,7 +38,7 @@ class FrozenOrderedSet(Set[T]):
         self.data.clear()
 
 
-class OrderedSet(FrozenOrderedSet[T], MutableSet):
+class OrderedSet(FrozenOrderedSet, MutableSet):
     """A set that preserves insertion order and is mutable."""
 
     def add(self, value: Any) -> None:

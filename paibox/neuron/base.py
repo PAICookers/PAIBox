@@ -418,10 +418,9 @@ class Neuron(MetaNeuron, NeuDyn):
         # Attributes about ANN
         self.set_memory("vj", self.init_param(vjt_init).astype(np.int32))
         self.set_memory("y", self.init_param(0).astype(np.int32))
-
-        # Attributes about physical cores.
-        self.tick_wait_start = tick_wait_start
-        self.tick_wait_end = tick_wait_end
+        
+        self._tws = tick_wait_start
+        self._twe = tick_wait_end
 
     def __len__(self) -> int:
         return self._n_neuron
@@ -484,3 +483,11 @@ class Neuron(MetaNeuron, NeuDyn):
     @property
     def voltage(self) -> NDArray[np.int32]:
         return self.vjt.reshape(self.varshape)
+    
+    @property
+    def tick_wait_start(self) -> int:
+        return self._tws
+    
+    @property
+    def tick_wait_end(self) -> int:
+        return self._twe
