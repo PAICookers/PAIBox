@@ -11,9 +11,8 @@ from paicorelib import (
     get_replication_id,
     to_coord,
 )
-
 from paibox.base import NeuDyn
-from paibox.exceptions import BuildError, ResourceError
+from paibox.exceptions import ResourceError
 from paibox.network import DynSysGroup
 
 from .conf_template import CoreConfig, NeuronDest, gen_config_frames_by_coreconf
@@ -26,7 +25,11 @@ __all__ = ["Mapper"]
 
 
 class Mapper:
-    """Mapping the network in the cores."""
+    """
+        Responsible for integrating all backend operation processes & \
+        providing functions for debugging. 
+        TODO It doesn't collect information during the build process.
+    """
 
     routing_tree = RoutingRoot(tag="L5")
     """The routing tree root."""
@@ -56,19 +59,11 @@ class Mapper:
         """
 
         self.core_plm_config = dict()
-        self.graph_info: GraphInfo
-
-        """Backend contexts"""
-        self.env = _BACKEND_CONTEXT
-
-        """Local options"""
-        self.has_compiled: bool
+        self.graph_info: GraphInfo = GraphInfo()
 
         self.clear()
 
     def clear(self) -> None:
-        self.has_compiled = False
-
         self.routing_tree.clear()
         self.graph.clear()
 
@@ -77,8 +72,14 @@ class Mapper:
 
         self.core_params.clear()
         self.core_plm_config.clear()
+        self.graph_info.clear()
 
-    def build(self, *networks: DynSysGroup) -> None:
+    def build(
+        self,
+        *networks: DynSysGroup,
+        # bounded_nodes: Sequence[Sequence[NeuDyn]] = (),
+        # conflicted_nodes: Dict[NodeName, Sequence[NeuDyn]] = {},
+    ) -> None:
         """Build the directed graph based on given networks.    \
             More than one networks in one graph is supported.
 
@@ -89,6 +90,8 @@ class Mapper:
             network is given.
         """
         self.clear()
+
+        # Filter & check the constraints to nodes.
         self.graph.build(*networks)
 
     def compile(self, method: str = "catagory"):
@@ -107,8 +110,6 @@ class Mapper:
         """4. Allocate the grouped synapses to the cores."""
         self.core_allocation()
 
-        self.has_compiled = True
-
         """5. Export parameters."""
         graph_info = self.config_export()
 
@@ -125,16 +126,11 @@ class Mapper:
 
             # Then do sorting in ascending order.
         """
-        grouped_edges = group_edges(
-            list(self.graph.edges),
-            self.graph.succ_dg,
-            self.graph.degree_of_nodes,
-            ordered_nodes=self.graph.ordered_nodes,
-        )
+        grouped_edges = self.graph.group_edges()
 
-        for syns_set in grouped_edges:
-            syns = [self.graph.edges[syn] for syn in syns_set]
-            self.core_blocks.append(CoreBlock.build(*syns))
+        for syns_group in grouped_edges:
+            syns = [self.graph.edges[syn] for syn in syns_group]
+            self.core_blocks.append(CoreBlock.build(*syns, seed=0))
 
         # """
         #     Sort in ascending order according to the minimum value of \
@@ -145,6 +141,7 @@ class Mapper:
         # )
 
         """
+            Gather info of graph of core blocks.
             Get the following core blocks for each core block.
         """
         for cb in self.core_blocks:
@@ -175,10 +172,12 @@ class Mapper:
                     g.set_lcn_ex(max_lcn_ex)
 
                 cb.target_lcn = max_lcn_ex
+                cb.lcn_locked = True
             elif len(succ_cb) == 1:
                 cb.target_lcn = succ_cb[0].lcn_ex
                 cb.lcn_locked = True
             else:
+                # Doesn't have following core blocks
                 cb.lcn_locked = True
 
     def coord_assign(self, method) -> None:
@@ -202,16 +201,17 @@ class Mapper:
 
         self.n_core_required = n_core_required
 
-        for cb in self.core_blocks:
-            if not RoutingRoot.insert_coreblock(self.routing_tree, cb):
+        # Generate routing groups by given the list of core blocks.
+        routing_groups = convert2routing_groups(self.succ_core_blocks)
+        for rg in routing_groups:
+            if not self.routing_tree.insert_routing_group(rg):
                 raise RuntimeError(
-                    f"Insert core block {cb.name} into the routing tree failed."
+                    f"Insert routing group {rg} into the routing tree failed."
                 )
 
     def core_allocation(self) -> None:
         """Allocate the core blocks to the physical cores.
-
-        The order of `core_plms` is the same as `core_blocks`.
+            The order of `core_plms` is the same as `core_blocks`.
         """
         for cb in self.core_blocks:
             cb.core_plm_alloc()
@@ -383,10 +383,6 @@ class Mapper:
 
     def _build_check(self) -> None:
         return self.graph.build_check()
-
-    def _compile_check(self) -> None:
-        if not self.has_compiled:
-            raise BuildError(f"The graph hasn't been compiled yet")
 
 
 def group_by(dict_: Dict, keyfunc=lambda item: item):

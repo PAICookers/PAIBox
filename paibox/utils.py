@@ -35,6 +35,10 @@ def count_unique_elem(obj: Iterable) -> int:
     return len(seen)
 
 
+def check_attr_same(obj: Iterable, attr: str) -> bool:
+    return all(getattr(obj[0], attr) == getattr(item, attr) for item in obj)
+
+
 def check_elem_same(obj: Any) -> bool:
     if hasattr(obj, "__iter__") or hasattr(obj, "__contains__"):
         return len(set(obj)) == 1
