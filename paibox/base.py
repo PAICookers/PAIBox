@@ -230,9 +230,9 @@ class NeuDyn(DynamicSys, ReceiveInputProj):
         return params
 
     @property
-    def tick_wait_start(self):
+    def tick_wait_start(self) -> int:
         raise NotImplementedError
 
     @property
-    def tick_wait_end(self):
+    def tick_wait_end(self) -> int:
         raise NotImplementedError

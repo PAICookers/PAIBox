@@ -2,7 +2,8 @@ from collections import defaultdict
 import sys
 from typing import ClassVar, Dict, List, Sequence, Tuple
 
-from .graphs_types import NodeName, NodeAttr
+from paibox.base import NeuDyn
+from .graphs_types import NodeName
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias
@@ -41,7 +42,7 @@ class GraphNodeConstrs(Constraints):
                 cls.conflicted_constrs[k] = v
 
     @staticmethod
-    def tick_wait_attr_constr(raw_nodes: List[NodeAttr]) -> List[List[int]]:
+    def tick_wait_attr_constr(raw_nodes: List[NeuDyn]) -> List[List[int]]:
         """Check whether the neurons to be assigned to a group are "equal" after\
             automatic inference.
         
@@ -51,8 +52,7 @@ class GraphNodeConstrs(Constraints):
         Return: returen the group of indices.
         """
         tw_attrs = [
-            (raw_node.obj.tick_wait_start, raw_node.obj.tick_wait_end)
-            for raw_node in raw_nodes
+            (raw_node.tick_wait_start, raw_node.tick_wait_end) for raw_node in raw_nodes
         ]
 
         if len(tw_attrs_set := set(tw_attrs)) == 1:
