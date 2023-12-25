@@ -1,11 +1,6 @@
 import sys
 from enum import Enum, auto
-from typing import (
-    Any,
-    Dict,
-    NamedTuple,
-    TypedDict,
-)
+from typing import Any, Dict, NamedTuple, TypedDict
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias

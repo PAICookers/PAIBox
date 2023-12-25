@@ -1,22 +1,6 @@
 from collections import defaultdict
 from dataclasses import dataclass, field
-
-from typing import (
-    Any,
-    Dict,
-    List,
-    Mapping,
-    Optional,
-    Sequence,
-    Set,
-    Tuple,
-    TypeVar,
-)
-
-from .graphs_types import *
-from .constrs import GraphNodeConstrs
-from .placement import CoreBlock
-from .routing import RoutingGroup
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple, TypeVar
 
 from paibox.base import NeuDyn
 from paibox.collector import Collector
@@ -25,6 +9,10 @@ from paibox.network import DynSysGroup
 from paibox.projection import InputProj
 from paibox.synapses import SynSys
 
+from .constrs import GraphNodeConstrs
+from .graphs_types import *
+from .placement import CoreBlock
+from .routing import RoutingGroup
 
 T = TypeVar("T")
 

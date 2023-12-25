@@ -12,7 +12,7 @@ class Net1(pb.DynSysGroup):
 
         self.inp = pb.InputProj(pe, shape_out=(n_neuron,), keep_shape=True)
         self.n1 = pb.LIF(n_neuron, threshold=3, reset_v=0, tick_wait_start=1)
-        self.n2 = pb.IF(n_neuron, threshold=3, reset_v=1, tick_wait_start=3) # tws = 3
+        self.n2 = pb.IF(n_neuron, threshold=3, reset_v=1, tick_wait_start=3)  # tws = 3
         self.s0 = pb.NoDecay(
             self.inp,
             self.n1,

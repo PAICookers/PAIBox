@@ -1,14 +1,11 @@
 import os
 import random
 import tempfile
-
-import numpy as np
-import pytest
-import paibox as pb
-
 from functools import partial
 from pathlib import Path
 
+import numpy as np
+import pytest
 from paicorelib import (
     LCN_EX,
     AxonCoord,
@@ -22,6 +19,8 @@ from paicorelib import (
     SpikeWidthFormat,
 )
 from paicorelib import WeightPrecision as WP
+
+import paibox as pb
 from paibox.backend.conf_template import CoreConfig, CorePlacementConfig, NeuronConfig
 from paibox.backend.placement import NeuSeg
 from paibox.backend.routing import RoutingNode
@@ -100,7 +99,7 @@ class NetForTest1(pb.Network):
 
 class NetForTest2(pb.Network):
     """INP1 -> S1 -> N1 -> S3 -> N3
-       INP2 -> S2 -> N2 -> S4 -> N3
+    INP2 -> S2 -> N2 -> S4 -> N3
     """
 
     def __init__(self):
@@ -126,7 +125,7 @@ class NetForTest2(pb.Network):
 
 class NetForTest3(pb.Network):
     """INP1 -> S1 -> N1 -> S2 ->             N2 -> S3 -> N3
-                     N1 -> S4 -> N4 -> S5 -> N2
+    N1 -> S4 -> N4 -> S5 -> N2
     """
 
     def __init__(self):
@@ -156,7 +155,7 @@ class NetForTest3(pb.Network):
 
 class NetForTest4(pb.Network):
     """INP1 -> S1 -> N1 -> S2 -> N2 -> S4 -> N4
-                     N1 -> S3 -> N3 -> S5 -> N4
+    N1 -> S3 -> N3 -> S5 -> N4
     """
 
     def __init__(self):

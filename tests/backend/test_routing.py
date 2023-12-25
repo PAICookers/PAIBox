@@ -1,8 +1,8 @@
 import pytest
-import paibox as pb
-
 from paicorelib import RoutingDirection, RoutingNodeCost, RoutingNodeLevel
-from paibox.backend.routing import RoutingNode, RoutingRoot, get_parent, RoutingGroup
+
+import paibox as pb
+from paibox.backend.routing import RoutingGroup, RoutingNode, RoutingRoot, get_parent
 
 
 class TestRouterTree:

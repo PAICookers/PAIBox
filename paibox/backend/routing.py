@@ -431,7 +431,7 @@ class RoutingRoot(RoutingNode):
     def insert_coreblock(cls, root: "RoutingRoot", cb: CoreBlock) -> bool:
         """Insert a `CoreBlock` in the routing tree. Assign the core placements \
             of its routing coordinates & make sure they are routable.
-            
+
         TODO Will be deprecated.
         """
         leaves = []

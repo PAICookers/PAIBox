@@ -1,6 +1,6 @@
-from dataclasses import field
 import sys
 import warnings
+from dataclasses import field
 from functools import cached_property
 from typing import (
     ClassVar,

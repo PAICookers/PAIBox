@@ -11,6 +11,7 @@ from paicorelib import (
     get_replication_id,
     to_coord,
 )
+
 from paibox.base import NeuDyn
 from paibox.exceptions import ResourceError
 from paibox.network import DynSysGroup
@@ -27,7 +28,7 @@ __all__ = ["Mapper"]
 class Mapper:
     """
         Responsible for integrating all backend operation processes & \
-        providing functions for debugging. 
+        providing functions for debugging.
         TODO It doesn't collect information during the build process.
     """
 
@@ -211,7 +212,7 @@ class Mapper:
 
     def core_allocation(self) -> None:
         """Allocate the core blocks to the physical cores.
-            The order of `core_plms` is the same as `core_blocks`.
+        The order of `core_plms` is the same as `core_blocks`.
         """
         for cb in self.core_blocks:
             cb.core_plm_alloc()

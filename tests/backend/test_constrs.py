@@ -1,6 +1,6 @@
 import pytest
-import paibox as pb
 
+import paibox as pb
 from paibox.backend.constrs import GraphNodeConstrs
 from paibox.backend.graphs_types import NodeAttr, NodeDegree, NodePosition
 

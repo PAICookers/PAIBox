@@ -1,6 +1,6 @@
 import pytest
-import paibox as pb
 
+import paibox as pb
 from paibox.backend.graphs import *
 from paibox.backend.graphs import _degree_check
 from paibox.exceptions import NotSupportedError
