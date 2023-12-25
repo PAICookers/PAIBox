@@ -521,7 +521,7 @@ sim.reset()
 mapper = pb.Mapper()
 mapper.build(fcnet)
 mapper.compile()
-mapper.export(write_to_file=True, fp="./debug/", format="npy", local_chip_addr=(0, 0))
+mapper.export(write_to_file=True, fp="./debug/", format="npy", local_chip_addr=(0, 0), export_core_params=False)
 
 # Clear all the results.
 mapper.clear()
@@ -531,5 +531,6 @@ mapper.clear()
 
 - `write_to_file`: 是否将配置帧导出为文件。默认为 `True`。
 - `fp`：导出目录。
-- `format`：导出交换文件格式，可以为 `bin`、`npy` 或 `txt`。
+- `format`：导出交换文件格式，可以为 `bin`、`npy` 或 `txt`。默认为 `bin`。
 - `local_chip_addr`：本地芯片地址，元组表示。默认为后端全局变量 `local_chip_addr` 所设置的默认值。
+- `export_core_params`: 是否导出实际使用核参数至json文件，可直观显示实际使用核的配置信息。默认为 `False`。

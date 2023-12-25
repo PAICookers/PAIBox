@@ -454,7 +454,8 @@ class TestGroupEdges:
         mapper.coord_assign()
         mapper.core_allocation()
 
-        gi = mapper.config_export()
+        mapper.config_export()
+        print()
 
 
 class TestDAGPathDistance:

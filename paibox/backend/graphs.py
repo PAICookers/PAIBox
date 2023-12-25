@@ -14,7 +14,7 @@ from .graphs_types import *
 from .placement import CoreBlock
 from .routing import RoutingGroup
 
-T = TypeVar("T")
+T = TypeVar("T", CoreBlock, NodeName)
 
 
 @dataclass
@@ -255,14 +255,14 @@ def _degree_check(
 
 
 def convert2routing_groups(
-    succ_dg_of_cb: Dict[CoreBlock, List[CoreBlock]]
+    succ_dg_of_cb: Dict[CoreBlock, List[CoreBlock]],
+    degrees_of_cb: Dict[CoreBlock, NodeDegree],
 ) -> List[RoutingGroup]:
     ordered_core_blocks = toposort(succ_dg_of_cb)
-    degrees = get_node_degrees(succ_dg_of_cb)
     seen_cb = set()
     routing_groups = []
 
-    _degree_check(degrees, succ_dg_of_cb)
+    _degree_check(degrees_of_cb, succ_dg_of_cb)
 
     for cb in ordered_core_blocks:
         # Check whether it has been traversed
@@ -271,7 +271,7 @@ def convert2routing_groups(
             routing_groups.append(RoutingGroup(cb))
 
         # If the out-degree > 1, treat the following core blocks as one routing group.
-        if degrees[cb].out_degree > 1:
+        if degrees_of_cb[cb].out_degree > 1:
             succ_cbs = succ_dg_of_cb[cb]
             seen_cb.update(succ_cbs)
             routing_groups.append(RoutingGroup(*succ_cbs))
@@ -421,17 +421,18 @@ def get_longest_path(
     """Get the longest path in the DAG.
 
     Args:
-        - edges_with_d: a list of directed edges with distance.
-        - ordered_nodes: nodes in topological sorting.
+        - edges_with_d: a dictionary of directed edges with distance.
+        - ordered_nodes: nodes in topological sorting order.
 
-    Return: the longest distance in the graph.
+    Return:
+        A tuple containing the longest path in the graph and its distance.
     """
     distances: Dict[T, int] = defaultdict(int)  # init value = 0
     pred_nodes: Dict[T, Optional[T]] = defaultdict()
 
     for node in ordered_nodes:
-        for neighbor in edges_with_d[node]:
-            d = edges_with_d[node][neighbor].distance
+        for neighbor, edge_attr in edges_with_d[node].items():
+            d = edge_attr.distance
             if distances[node] + d > distances[neighbor]:
                 distances[neighbor] = distances[node] + d
                 pred_nodes[neighbor] = node
@@ -445,11 +446,12 @@ def get_longest_path(
 
     distance = distances[node]
     path = [node]
-    while node := pred_nodes.get(node, ()):
-        path.append(node)
+    # Construct the longest path by following the predecessors
+    while path[-1] in pred_nodes:
+        path.append(pred_nodes[path[-1]])
 
-    # Reverse the path and return
-    return path[::-1], distance
+    path.reverse()
+    return path, distance
 
 
 MAX_DISTANCE = 999  # I don't like float('inf')
@@ -477,8 +479,8 @@ def get_shortest_path(
         distances[inode] = 0
 
     for node in ordered_nodes:
-        for neighbor in edges_with_d[node]:
-            d = edges_with_d[node][neighbor].distance
+        for neighbor, edge_attr in edges_with_d[node].items():
+            d = edge_attr.distance
             if distances[node] + d < distances[neighbor]:
                 distances[neighbor] = distances[node] + d
                 pred_nodes[neighbor] = node
@@ -492,8 +494,9 @@ def get_shortest_path(
 
     distance = distances[node]
     path = [node]
-    while node := pred_nodes.get(node, ()):
-        path.append(node)
+    # Construct the shortest path by following the predecessors
+    while path[-1] in pred_nodes:
+        path.append(pred_nodes[path[-1]])
 
-    # Reverse the path and return
-    return path[::-1], distance
+    path.reverse()
+    return path, distance

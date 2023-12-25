@@ -389,7 +389,10 @@ class RoutingNode:
 
 
 class RoutingGroup(FrozenOrderedSet):
-    """Core blocks located within a routing group are routable."""
+    """Core blocks located within a routing group are routable.
+
+    NOTE: Ensure that axon groups within a routing group are the same.
+    """
 
     def __init__(self, *cb: CoreBlock):
         super().__init__(cb)

@@ -145,14 +145,14 @@ def test_nfold_weight_ref():
     else:
         w_padding = original_matrix
 
-    splited = np.vsplit(w_padding, nfold)
+    split = np.vsplit(w_padding, nfold)
 
     result = np.zeros(
         (w_padding.shape[0] // nfold, original_matrix.shape[1] * nfold), dtype=np.int8
     )
 
     for i, j in np.ndindex((nfold, original_matrix.shape[1])):
-        g = splited[i][:, j]
+        g = split[i][:, j]
         result[:, j * nfold + i] = g
 
     assert np.array_equal(
@@ -319,13 +319,13 @@ class TestWeightUnpack:
         else:
             w_padding = raw_weight.copy()
 
-        splited = np.vsplit(w_padding, nfold)
+        split = np.vsplit(w_padding, nfold)
         assert w_padding.shape[0] == expected_row * nfold
 
         w_folded = np.zeros((expected_row, raw_col * nfold), dtype=np.int8)
 
         for i, j in np.ndindex((nfold, raw_col)):
-            w_col = splited[i][:, j]
+            w_col = split[i][:, j]
             w_folded[:, j * nfold + i] = w_col
 
         return w_folded

@@ -3,7 +3,7 @@
 - [X] 帧导出与优化（已单独成包，参见：[PAIlib](https://github.com/PAICookers/PAIlib)）
 - [X] 神经元目的地突触寻找对齐地址算法（待验证）
 - [X] 多精度权重支持（待验证）
-- [ ] 与运行时交换文件格式约定
+- [X] 运行时交换文件格式约定与导出
 - [X] `tick_wait_start` 与 `tick_wait_end` 前/后端支持
 - [ ] 网络节点间自定义延迟( `tick_relative` )前后端支持
 - [ ] 混合精度权重支持
