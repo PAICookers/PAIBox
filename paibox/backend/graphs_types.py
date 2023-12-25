@@ -1,6 +1,6 @@
 import sys
 from enum import Enum, auto
-from typing import Any, Dict, NamedTuple, TypedDict
+from typing import NamedTuple
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias
@@ -40,10 +40,3 @@ class NodeAttr(NamedTuple):
 class EdgeAttr(NamedTuple):
     edge: EdgeName
     distance: int
-
-
-class GraphInfo(TypedDict, total=False):
-    input: Dict[str, Any]
-    output: Dict[str, Any]
-    members: Dict[str, Any]
-    extras: Dict[str, Any]

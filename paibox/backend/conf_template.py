@@ -1,9 +1,18 @@
+import sys
 from collections import defaultdict
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Literal, NamedTuple, Optional, Union
+from typing import Any, Dict, List, Literal, NamedTuple, TypedDict
+
+if sys.version_info >= (3, 10):
+    from typing import TypeAlias
+else:
+    from typing_extensions import TypeAlias
+
 
 import numpy as np
+import json
 from numpy.typing import NDArray
 from paicorelib import (
     LCN_EX,
@@ -27,8 +36,8 @@ from paicorelib.framelib.frame_gen import OfflineFrameGen
 from paicorelib.framelib.utils import np2bin, np2npy, np2txt
 
 from paibox.base import NeuDyn
-
 from .context import _BACKEND_CONTEXT
+from .graphs_types import NodeName
 
 
 class CoreConfig(NamedTuple):
@@ -238,11 +247,25 @@ class CorePlacementConfig(ConfigTemplate):
         return dict_
 
 
+InputNodeInfo: TypeAlias = Dict[NodeName, NeuronDest]
+OutputDestInfo: TypeAlias = Dict[NodeName, Dict[int, NeuronDestInfo]]
+CorePlacementInfo: TypeAlias = Dict[Coord, CorePlacementConfig]
+
+
+class GraphInfo(TypedDict):
+    input: InputNodeInfo
+    output: OutputDestInfo
+    members: CorePlacementInfo
+    extras: Dict[str, Any]
+    inherent_timestep: int
+    n_core_required: int
+
+
 def gen_config_frames_by_coreconf(
-    target_chip_coord: Coord,
     config_dict: Dict[Coord, CorePlacementConfig],
+    target_chip_coord: Coord,
     write_to_file: bool,
-    fp: Optional[Union[str, Path]] = None,
+    fp: Path,
     format: Literal["txt", "bin", "npy"] = "bin",
 ) -> Dict[Coord, FrameArrayType]:
     """Generate all configuration frames by given the `CorePlacementConfig`.
@@ -254,14 +277,6 @@ def gen_config_frames_by_coreconf(
         - fp: If `write_to_file` is `True`, specify the path.
         - format: it can be `txt`, `bin`, or `npy`. `bin` & `npy` are recommended.
     """
-    if fp is not None:
-        _fp = Path(fp)
-    else:
-        _fp = _BACKEND_CONTEXT["build_directory"]
-
-    if not _fp.is_dir():
-        _fp.mkdir(parents=True, exist_ok=True)
-
     _default_rid = RId(0, 0)
     _debug_dict: Dict[Coord, Dict[str, Any]] = defaultdict()
     frame_arrays_on_core: Dict[Coord, FrameArrayType] = dict()
@@ -337,10 +352,50 @@ def gen_config_frames_by_coreconf(
             addr = core_coord.address
             fn = f"config_core{addr}.{format}"
             if format == "npy":
-                np2npy(_fp / fn, f)
+                np2npy(fp / fn, f)
             elif format == "bin":
-                np2bin(_fp / fn, f)
+                np2bin(fp / fn, f)
             else:
-                np2txt(_fp / fn, f)
+                np2txt(fp / fn, f)
 
     return frame_arrays_on_core
+
+
+class PAIConfigJsonEncoder(json.JSONEncoder):
+    def default(self, o: Any) -> Any:
+        if isinstance(o, Coord):
+            return o.address
+        elif isinstance(o, Enum):
+            return o.value
+        elif isinstance(o, np.ndarray):
+            return o.tolist()
+        elif isinstance(o, NeuronDestInfo):
+            return o.model_dump(by_alias=True)
+        else:
+            return super().default(o)
+
+
+DEFAULT_CORE_PARAMS_CONF_JSON = "core_params.json"
+DEFAULT_INPUT_NODES_CONF_JSON = "input_proj_info.json"
+DEFAULT_OUTPUT_DESTS_CONF_JSON = "output_dest_info.json"
+
+
+def export_core_params_json(core_conf: Dict[Coord, CoreConfig], fp: Path) -> None:
+    _valid_conf = {k.address: v.__json__() for k, v in core_conf.items()}
+
+    with open(fp / DEFAULT_CORE_PARAMS_CONF_JSON, "w") as f:
+        json.dump(_valid_conf, f, ensure_ascii=True, indent=4, cls=PAIConfigJsonEncoder)
+
+
+def export_inp_nodes_conf_json(inp_nodes_info: InputNodeInfo, fp: Path) -> None:
+    _valid_conf = {k: v.__json__() for k, v in inp_nodes_info.items()}
+
+    with open(fp / DEFAULT_INPUT_NODES_CONF_JSON, "w") as f:
+        json.dump(_valid_conf, f, ensure_ascii=True, indent=4, cls=PAIConfigJsonEncoder)
+
+
+def export_outp_dests_conf_json(outp_dests_info: OutputDestInfo, fp: Path) -> None:
+    with open(fp / DEFAULT_OUTPUT_DESTS_CONF_JSON, "w") as f:
+        json.dump(
+            outp_dests_info, f, ensure_ascii=True, indent=4, cls=PAIConfigJsonEncoder
+        )
