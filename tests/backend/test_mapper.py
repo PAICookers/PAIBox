@@ -1,5 +1,4 @@
 import json
-import os
 from enum import Enum
 from json import JSONEncoder
 from typing import Any
@@ -9,16 +8,23 @@ import pytest
 from paicorelib import Coord, HwConfig
 
 import paibox as pb
+from paibox.backend.conf_template import CoreConfig, NeuronDest, NeuronDestInfo
 
 
 class CustomJsonEncoder(JSONEncoder):
     def default(self, o: Any) -> Any:
         if isinstance(o, Coord):
-            return o.to_tuple()
+            return o.address
         elif isinstance(o, Enum):
             return o.value
         elif isinstance(o, np.ndarray):
-            return int(o)
+            return o.tolist()
+        elif isinstance(o, CoreConfig):
+            return o.__json__()
+        elif isinstance(o, NeuronDest):
+            return o.__json__()
+        elif isinstance(o, NeuronDestInfo):
+            return o.model_dump(by_alias=True)
         else:
             return super().default(o)
 
@@ -67,68 +73,8 @@ class TestMapperDebug:
         assert len(mapper.core_blocks) == 3  # 3 layers
         assert mapper.get_inherent_timestep() == 3
 
-        _json_core_configs = dict()
-        _json_core_plm_config = dict()
-        _json_inp_proj_info = dict()
-        _json_out_proj_info = dict()
-
-        for coord, core_param in mapper.core_params.items():
-            _json_core_configs[coord.address] = core_param.__json__()
-
-        for coord, cpc in mapper.core_plm_config.items():
-            _json_core_plm_config[coord.address] = cpc.__json__()
-
-        if input_info := mapper.graph_info.get("input"):
-            for inode, nd in input_info.items():
-                _json_inp_proj_info[inode] = nd.__json__()
-
-        if output_info := mapper.graph_info.get("output"):
-            for onode, nd_with_coord in output_info.items():
-                _json_out_proj_info[onode] = dict()
-                for coord, nd in nd_with_coord.items():
-                    _json_out_proj_info[onode][coord] = nd.model_dump(by_alias=True)
-
-        # Export parameters of cores into json
-        with open(ensure_dump_dir / "core_configs.json", "w") as f:
-            json.dump(
-                _json_core_configs,
-                f,
-                ensure_ascii=True,
-                indent=4,
-                cls=CustomJsonEncoder,
-            )
-
-        # Export complete configurations of cores into json
-        with open(ensure_dump_dir / "core_plm_configs.json", "w") as f:
-            json.dump(
-                _json_core_plm_config,
-                f,
-                ensure_ascii=True,
-                indent=4,
-                cls=CustomJsonEncoder,
-            )
-
-        # Export the info of input projections into json
-        with open(ensure_dump_dir / "input_proj_info.json", "w") as f:
-            json.dump(
-                _json_inp_proj_info,
-                f,
-                ensure_ascii=True,
-                indent=4,
-                cls=CustomJsonEncoder,
-            )
-
-        # Export the info of output destination into json
-        with open(ensure_dump_dir / "output_dest_info.json", "w") as f:
-            json.dump(
-                _json_out_proj_info,
-                f,
-                ensure_ascii=True,
-                indent=4,
-                cls=CustomJsonEncoder,
-            )
-
-        print("OK")
+        mapper.export(fp=ensure_dump_dir, export_core_params=True)
+        print()
 
     @pytest.mark.usefixtures("test_simple_net")
     def test_find_neuron(self, get_mapper, build_example_net1):
