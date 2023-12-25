@@ -18,15 +18,17 @@ from paibox.network import DynSysGroup
 from .conf_template import (
     CoreConfig,
     CorePlacementConfig,
+    CorePlacementInfo,
     GraphInfo,
+    InputNodeInfo,
     NeuronDest,
-    gen_config_frames_by_coreconf,
+    OutputDestInfo,
     export_core_params_json,
     export_inp_nodes_conf_json,
     export_outp_dests_conf_json,
+    gen_config_frames_by_coreconf,
 )
 from .context import _BACKEND_CONTEXT
-from .conf_template import CorePlacementInfo, InputNodeInfo, OutputDestInfo
 from .graphs import *
 from .placement import CoreBlock, aligned_coords, max_lcn_of_cb
 from .routing import RoutingRoot
@@ -353,7 +355,7 @@ class Mapper:
 
     def _member_cb_config_export(self):
         """Export the configuration of member core blocks.
-        
+
         Description:
             Traverse all the core placements in core blocks, then find the  \
             following core blocks where the axons at. Get the coordinate of \

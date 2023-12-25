@@ -10,9 +10,9 @@ if sys.version_info >= (3, 10):
 else:
     from typing_extensions import TypeAlias
 
+import json
 
 import numpy as np
-import json
 from numpy.typing import NDArray
 from paicorelib import (
     LCN_EX,
@@ -36,6 +36,7 @@ from paicorelib.framelib.frame_gen import OfflineFrameGen
 from paicorelib.framelib.utils import np2bin, np2npy, np2txt
 
 from paibox.base import NeuDyn
+
 from .context import _BACKEND_CONTEXT
 from .graphs_types import NodeName
 
