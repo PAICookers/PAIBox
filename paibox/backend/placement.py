@@ -118,10 +118,6 @@ class CoreBlock(CoreAbstract):
             represents the Neuron segments in core placement(physical core).
         """
 
-    def set_lcn_ex(self, lcn_ex: LCN_EX) -> None:
-        self.lcn_ex = lcn_ex
-        self.lcn_locked = True
-
     def group_neurons(self, method: Literal["catagory", "dense"] = "catagory") -> None:
         """Group the neurons to determine the #N of cores required."""
         if not self.lcn_locked:
@@ -190,7 +186,7 @@ class CoreBlock(CoreAbstract):
     def neuron_capacity(self) -> int:
         """Neuron capacity. #N of valid dendrites/#N of dendrites required per neuron.
 
-        FIXME This method ONLY works in SNN mode. For ANN mode, use table lookup.
+        FIXME This method ONLY works in SNN mode. For ANN mode, use table lookup?
         """
         return (self.n_dendrite_max >> self.lcn_ex) // self.n_dendrite_per_neuron
 
@@ -228,12 +224,14 @@ class CoreBlock(CoreAbstract):
 
     @lcn_ex.setter
     def lcn_ex(self, lcn_ex: LCN_EX) -> None:
+        """Set or adjust the lcn_ex & lock."""
         if lcn_ex > LCN_EX.LCN_64X:
             raise ResourceError(
                 f"LCN extension required out of {LCN_EX.LCN_64X}: {lcn_ex}"
             )
 
         self._lcn_ex = lcn_ex
+        self.lcn_locked = True
 
     @property
     def timeslot(self) -> int:
@@ -598,23 +596,26 @@ class CorePlacement(CoreAbstract):
     ) -> Optional[int]:
         """Export the neuron configuration."""
         if isinstance(axon_dests, list):
+            axon_coords = aligned_coords(
+                neu_seg.segment.index, axon_dests[0].axon_segments[neu_seg.parent]
+            )
+
+            # Get all core coordinates then get the RID.
+            dest_core_coords = []
             for axon_dest in axon_dests:
-                axon_coords = aligned_coords(
-                    neu_seg.segment.index, axon_dest.axon_segments[neu_seg.parent]
-                )
+                dest_core_coords.extend(axon_dest.core_coords)
 
-                config = NeuronConfig.encapsulate(
-                    neu_seg.parent,
-                    neu_seg.segment.n_neuron,
-                    neu_seg.segment.addr_ram,
-                    neu_seg.segment.addr_offset,
-                    axon_coords,
-                    axon_dest.core_coords,
-                    # Here is local chip coordinate.
-                    _BACKEND_CONTEXT["local_chip_addr"],
-                )
+            config = NeuronConfig.encapsulate(
+                neu_seg.parent,
+                neu_seg.segment.n_neuron,
+                neu_seg.segment.addr_ram,
+                neu_seg.segment.addr_offset,
+                axon_coords,
+                dest_core_coords,
+                _BACKEND_CONTEXT["local_chip_addr"],  # Here is local chip coordinate
+            )
 
-                self.neu_configs[neu_seg.parent] = config
+            self.neu_configs[neu_seg.parent] = config
         else:
             assert isinstance(output_core_coord, Coord)
             assert isinstance(axon_addr_offset, int)
@@ -750,21 +751,20 @@ def get_neu_segments(
     *,
     method: Literal["catagory", "dense"],
 ) -> List[List[NeuSeg]]:
-    """
-    TODO Add description.
-    """
+    """Get the neuron segments by given a method, "catagory" or "dense"."""
+
     if method == "catagory":
         return _get_neu_segments_catagory(neu_groups, capacity, interval)
     elif method == "dense":
         return _get_neu_segments_dense(neu_groups, capacity, interval)
-
-    raise ValueError(f"Method {method} not defined!")
+    else:
+        raise ValueError(f"Method {method} not defined!")
 
 
 def _get_neu_segments_catagory(
     neu_groups: Sequence[NeuDyn], capacity: int, interval: int = 1
 ) -> List[List[NeuSeg]]:
-    """Group by category of neuron groups."""
+    """Group the neuron groups by category."""
     neu_segs: List[List[NeuSeg]] = []  # The final result
 
     for neuron in neu_groups:
@@ -901,30 +901,25 @@ def aligned_coords(neu_index: slice, axon_seg: AxonSegment) -> List[AxonCoord]:
     The length of axon coordinates is the same as `neu_index`.
     """
     axon_coords = []
+    addr_width = axon_seg.addr_width
+    addr_offset = axon_seg.addr_offset
 
-    tr_start, tr_stop = (
-        neu_index.start // axon_seg.addr_width,
-        neu_index.stop // axon_seg.addr_width,
-    )
-    addr_start, addr_stop = (
-        neu_index.start % axon_seg.addr_width,
-        neu_index.stop % axon_seg.addr_width,
-    )
+    tr_start, tr_stop = (neu_index.start // addr_width, neu_index.stop // addr_width)
+    addr_start, addr_stop = (neu_index.start % addr_width, neu_index.stop % addr_width)
 
     if tr_stop == tr_start:
         for addr in range(addr_start, addr_stop):
-            axon_coords.append(AxonCoord(tr_start, axon_seg.addr_offset + addr))
+            axon_coords.append(AxonCoord(tr_start, addr_offset + addr))
     else:
-        for addr in range(addr_start, axon_seg.addr_width):
-            axon_coords.append(AxonCoord(tr_start, axon_seg.addr_offset + addr))
+        for addr in range(addr_start, addr_width):
+            axon_coords.append(AxonCoord(tr_start, addr_offset + addr))
 
-        if tr_stop - tr_start > 1:
-            for tr in range(tr_start + 1, tr_stop):
-                for addr in range(axon_seg.addr_width):
-                    axon_coords.append(AxonCoord(tr, axon_seg.addr_offset + addr))
+        for tr in range(tr_start + 1, tr_stop):
+            for addr in range(addr_width):
+                axon_coords.append(AxonCoord(tr, addr_offset + addr))
 
         for addr in range(addr_stop):
-            axon_coords.append(AxonCoord(tr_stop, axon_seg.addr_offset + addr))
+            axon_coords.append(AxonCoord(tr_stop, addr_offset + addr))
 
     return axon_coords
 
