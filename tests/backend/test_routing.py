@@ -1,7 +1,8 @@
 import pytest
-from paicorelib import RoutingDirection, RoutingNodeCost, RoutingNodeLevel
+import paibox as pb
 
-from paibox.backend.routing import RoutingNode, RoutingRoot, get_parent
+from paicorelib import RoutingDirection, RoutingNodeCost, RoutingNodeLevel
+from paibox.backend.routing import RoutingNode, RoutingRoot, get_parent, RoutingGroup
 
 
 class TestRouterTree:
@@ -244,6 +245,70 @@ class TestRouterTree:
         assert parent2 is None
 
 
+class TestRoutingGroup:
+    def test_RoutingGroup_instance(self, build_example_net1):
+        net = build_example_net1
+
+        mapper = pb.Mapper()
+        mapper.build(net)
+
+        # Build the core blocks
+        mapper.build_core_blocks()
+        mapper.lcn_ex_adjustment()
+        mapper.coord_assign()
+
+        # 8+5+4, 8+8+4
+        assert mapper.routing_tree.n_L0_nodes >= mapper.n_core_required
+
+    def test_RoutingGroup_instance2(self, monkeypatch, build_example_net2):
+        net = build_example_net2
+
+        # N1 & N2 will be split
+        monkeypatch.setattr(net.n2, "_tws", 2)
+
+        mapper = pb.Mapper()
+        mapper.build(net)
+
+        # Build the core blocks
+        mapper.build_core_blocks()
+        mapper.lcn_ex_adjustment()
+        mapper.coord_assign()
+
+        assert mapper.routing_tree.n_L0_nodes >= mapper.n_core_required
+
+    def test_RoutingGroup_instance3(self, build_example_net4):
+        net = build_example_net4
+
+        # N1 & N2 will be together
+        mapper = pb.Mapper()
+        mapper.build(net)
+
+        # Build the core blocks
+        mapper.build_core_blocks()
+        mapper.lcn_ex_adjustment()
+        mapper.coord_assign()
+
+        assert len(mapper.core_blocks) == 3
+        assert mapper.routing_tree.n_L0_nodes >= mapper.n_core_required
+
+    def test_RoutingGroup_instance4(self, monkeypatch, build_example_net4):
+        net = build_example_net4
+
+        # N1 & N2 will be split
+        monkeypatch.setattr(net.n3, "_tws", 3)
+
+        mapper = pb.Mapper()
+        mapper.build(net)
+
+        # Build the core blocks
+        mapper.build_core_blocks()
+        mapper.lcn_ex_adjustment()
+        mapper.coord_assign()
+
+        assert len(mapper.core_blocks) == 4
+        assert mapper.routing_tree.n_L0_nodes >= mapper.n_core_required
+
+
 class TestRouterTreeRoot:
     def test_breadth_of_lx_nodes(self, build_example_root):
         root = RoutingRoot()
@@ -294,3 +359,25 @@ class TestRouterTreeRoot:
 
         subtree3 = _gen_routing_tree(n_core3, cost3)
         assert root.add_subtree(subtree3) == True
+
+    def test_insert_routing_group(self, build_example_net1):
+        net = build_example_net1
+
+        mapper = pb.Mapper()
+        mapper.build(net)
+
+        # Build the core blocks
+        mapper.build_core_blocks()
+        mapper.lcn_ex_adjustment()
+
+        for cb in mapper.core_blocks:
+            cb.group_neurons()
+
+        core_blocks = mapper.core_blocks
+        routing_group = RoutingGroup(*core_blocks)
+
+        assert len(routing_group) == len(core_blocks)
+
+        mapper.routing_tree.insert_routing_group(routing_group)
+
+        print()

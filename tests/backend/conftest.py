@@ -84,9 +84,9 @@ class NetForTest1(pb.Network):
     def __init__(self):
         super().__init__()
         self.inp1 = pb.InputProj(input=1, shape_out=(2000,), name="inp1_1")
-        self.n1 = pb.TonicSpiking(2000, 3, name="n1_1")
-        self.n2 = pb.TonicSpiking(1200, 3, name="n2_1")
-        self.n3 = pb.TonicSpiking(800, 4, name="n3_1")
+        self.n1 = pb.TonicSpiking(2000, 3, name="n1_1", tick_wait_start=1)
+        self.n2 = pb.TonicSpiking(1200, 3, name="n2_1", tick_wait_start=2)
+        self.n3 = pb.TonicSpiking(800, 4, name="n3_1", tick_wait_start=3)
         self.s1 = pb.NoDecay(
             self.inp1, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s1_1"
         )
@@ -99,15 +99,17 @@ class NetForTest1(pb.Network):
 
 
 class NetForTest2(pb.Network):
-    """INP1 -> S1 -> N1 -> S2 -> N2"""
+    """INP1 -> S1 -> N1 -> S3 -> N3
+       INP2 -> S2 -> N2 -> S4 -> N3
+    """
 
     def __init__(self):
         super().__init__()
         self.inp1 = pb.InputProj(input=1, shape_out=(400,), name="inp1_2")
         self.inp2 = pb.InputProj(input=1, shape_out=(400,), name="inp2_2")
-        self.n1 = pb.TonicSpiking(400, 3, name="n1_2")
-        self.n2 = pb.TonicSpiking(400, 3, name="n2_2")
-        self.n3 = pb.TonicSpiking(800, 3, name="n3_2")
+        self.n1 = pb.TonicSpiking(400, 3, name="n1_2", tick_wait_start=1)
+        self.n2 = pb.TonicSpiking(400, 3, name="n2_2", tick_wait_start=1)
+        self.n3 = pb.TonicSpiking(800, 3, name="n3_2", tick_wait_start=2)
         self.s1 = pb.NoDecay(
             self.inp1, self.n1, conn_type=pb.synapses.ConnType.One2One, name="s1_2"
         )
@@ -123,17 +125,17 @@ class NetForTest2(pb.Network):
 
 
 class NetForTest3(pb.Network):
-    """INP1 -> S1 -> N1 -> S2 -> N2 -> S3 -> N3
-    N1 -> S4 -> N4 -> S5 -> N2
+    """INP1 -> S1 -> N1 -> S2 ->             N2 -> S3 -> N3
+                     N1 -> S4 -> N4 -> S5 -> N2
     """
 
     def __init__(self):
         super().__init__()
         self.inp = pb.InputProj(input=1, shape_out=(400,), name="inp1")
-        self.n1 = pb.TonicSpiking(400, 3, name="n1")
-        self.n2 = pb.TonicSpiking(800, 3, name="n2")
-        self.n3 = pb.TonicSpiking(400, 4, name="n3")
-        self.n4 = pb.TonicSpiking(300, 4, name="n4")
+        self.n1 = pb.TonicSpiking(400, 3, name="n1", tick_wait_start=1)
+        self.n2 = pb.TonicSpiking(800, 3, name="n2", tick_wait_start=3)
+        self.n3 = pb.TonicSpiking(400, 4, name="n3", tick_wait_start=4)
+        self.n4 = pb.TonicSpiking(300, 4, name="n4", tick_wait_start=2)
 
         self.s1 = pb.NoDecay(
             self.inp, self.n1, conn_type=pb.synapses.ConnType.One2One, name="s1"
@@ -154,17 +156,16 @@ class NetForTest3(pb.Network):
 
 class NetForTest4(pb.Network):
     """INP1 -> S1 -> N1 -> S2 -> N2 -> S4 -> N4
-    N1 -> S3 -> N3
-    N3 -> S5 -> N4
+                     N1 -> S3 -> N3 -> S5 -> N4
     """
 
     def __init__(self):
         super().__init__()
         self.inp1 = pb.InputProj(input=1, shape_out=(400,), name="inp1")
-        self.n1 = pb.TonicSpiking(800, 3, name="n1")
-        self.n2 = pb.TonicSpiking(400, 4, name="n2")
-        self.n3 = pb.TonicSpiking(400, 4, name="n3")
-        self.n4 = pb.TonicSpiking(400, 4, name="n4")
+        self.n1 = pb.TonicSpiking(800, 3, name="n1", tick_wait_start=1)
+        self.n2 = pb.TonicSpiking(400, 4, name="n2", tick_wait_start=2)
+        self.n3 = pb.TonicSpiking(400, 4, name="n3", tick_wait_start=2)
+        self.n4 = pb.TonicSpiking(400, 4, name="n4", tick_wait_start=3)
         self.s1 = pb.NoDecay(
             self.inp1, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s1"
         )
@@ -185,7 +186,7 @@ class NetForTest4(pb.Network):
 class Network_with_Branches_4bit(pb.Network):
     """Network with branches & 4-bit weights.
 
-    INP1 -> N1 -> N2 ->
+    INP1 -> N1 -> N2 -> N4
                -> N3 -> N4
 
     Weights: 4-bit
@@ -196,10 +197,10 @@ class Network_with_Branches_4bit(pb.Network):
         super().__init__()
         rng = np.random.RandomState(seed)
         self.inp1 = pb.InputProj(input=1, shape_out=(10,), name="inp1")
-        self.n1 = pb.TonicSpiking(10, 3, name="n1")
-        self.n2 = pb.TonicSpiking(10, 4, name="n2")
-        self.n3 = pb.TonicSpiking(10, 4, name="n3")
-        self.n4 = pb.TonicSpiking(4, 4, name="n4")
+        self.n1 = pb.TonicSpiking(10, 3, name="n1", tick_wait_start=1)
+        self.n2 = pb.TonicSpiking(10, 4, name="n2", tick_wait_start=2)
+        self.n3 = pb.TonicSpiking(10, 4, name="n3", tick_wait_start=2)
+        self.n4 = pb.TonicSpiking(4, 4, name="n4", tick_wait_start=3)
         self.s1 = pb.NoDecay(
             self.inp1,
             self.n1,
