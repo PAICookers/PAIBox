@@ -1,5 +1,6 @@
 import sys
 import warnings
+from dataclasses import field
 from functools import cached_property
 from typing import (
     ClassVar,
@@ -40,7 +41,7 @@ from paibox.base import NeuDyn, PAIBoxObject
 from paibox.exceptions import BuildError, NotSupportedError, ResourceError
 from paibox.projection import InputProj
 from paibox.synapses import SynSys
-from paibox.utils import count_unique_elem
+from paibox.utils import check_attr_same, count_unique_elem
 
 from .conf_template import CoreConfig, CorePlacementConfig, NeuronConfig
 from .context import _BACKEND_CONTEXT
@@ -238,6 +239,24 @@ class CoreBlock(CoreAbstract):
     def timeslot(self) -> int:
         return 1 << self.lcn_ex
 
+    @property
+    def tick_wait_start(self) -> int:
+        if not check_attr_same(self.dest, "tick_wait_start"):
+            raise AttributeError(
+                "Attribute `tick_wait_start` of the core block are not equal!"
+            )
+
+        return self.dest[0].tick_wait_start
+
+    @property
+    def tick_wait_end(self) -> int:
+        if not check_attr_same(self.dest, "tick_wait_end"):
+            raise AttributeError(
+                "Attribute `tick_wait_end` of the core block are not equal!"
+            )
+
+        return self.dest[0].tick_wait_end
+
     """Resource attributes."""
 
     @property
@@ -326,25 +345,11 @@ class CoreBlock(CoreAbstract):
     def __str__(self) -> str:
         return f"<{self.name} of target '{self.obj}'>"
 
-    @staticmethod
-    def all_wp_equal(*syns: SynSys) -> bool:
-        """Check wether weight precision of all synapses equal."""
-        return all(syns[0].weight_precision is syn.weight_precision for syn in syns)
-
     @classmethod
     def build(cls, *synapses: SynSys, seed: int = 0):
-        """Combine the SAME weight precision synapses and build the `CoreBlock`.
-
-        Use LCN extension optimization in grouping a synapse.
-
-        Description: always find the minimum LCN extension \
-            that ALL the axons in this synapse satisfies.
-
-            For two pre-synapses, S1 [A1*M] & S2 [A2*M], combine then split.
-
-            The total number of axons = A1+A2 -> LCN -> n_neuron.
-        """
-        if not cls.all_wp_equal(*synapses):
+        """Combine the SAME weight precision synapses and build the `CoreBlock`."""
+        # Check wether weight precision of all synapses equal.
+        if not check_attr_same(synapses, "weight_precision"):
             raise NotSupportedError("Mixed weight precision is not supported yet")
 
         if (wp := synapses[0].weight_precision) > max(cls.supported_wp):
@@ -560,8 +565,8 @@ class CorePlacement(CoreAbstract):
             _mode_params[1],                    # spike_width_format
             self.n_dendrite,                    # num_dendrite
             MaxPoolingEnable.DISABLE,           # max_pooling_en
-            0,                                  # tick_wait_start
-            0,                                  # tick_wait_end
+            self.tick_wait_start,               # tick_wait_start
+            self.tick_wait_end,                 # tick_wait_end
             _mode_params[2],                    # snn_mode_en
             self.target_lcn,                    # target_lcn
             _BACKEND_CONTEXT.test_chip_addr,    # test_chip_addr
@@ -677,6 +682,14 @@ class CorePlacement(CoreAbstract):
         return self.parent.target_lcn
 
     @property
+    def tick_wait_start(self) -> int:
+        return self.parent.tick_wait_start
+
+    @property
+    def tick_wait_end(self) -> int:
+        return self.parent.tick_wait_end
+
+    @property
     def n_dendrite(self) -> int:
         return self.n_neuron * self.n_weight_bits * self.timeslot
 
@@ -704,9 +717,7 @@ def n_axon2lcn_ex(n_axon: int, fan_in_max: int) -> LCN_EX:
     """Convert #N(of axons) to `LCN_EX`.
 
     Description:
-        LCN_EX = log2[ceil(#N/fan-in per dendrite)]
-
-    where, LCN_EX = 0 is `LCN_1X`.
+        LCN_EX = log2[ceil(#N/fan-in per dendrite)], where LCN_EX = 0 is `LCN_1X`.
     """
     if n_axon < 1:
         raise ValueError(f"The #N of axons > 0, but got {n_axon}")
@@ -916,3 +927,12 @@ def aligned_coords(neu_index: slice, axon_seg: AxonSegment) -> List[AxonCoord]:
             axon_coords.append(AxonCoord(tr_stop, axon_seg.addr_offset + addr))
 
     return axon_coords
+
+
+class CoreMapper:
+    """Manage to group, combine & place the network into the chip.
+
+    TODO Integrate all the info of building the map.
+    """
+
+    core_blocks: List[CoreBlock] = field(default_factory=list)

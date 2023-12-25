@@ -1,12 +1,15 @@
 from typing import Any, Dict, List, Optional, Sequence, final
 
+from paicorelib import HwConfig
 from paicorelib import RoutingDirection as Direction
 from paicorelib import RoutingDirectionIdx as DirectionIdx
 from paicorelib import RoutingNodeCoord as NodeCoord
+from paicorelib import RoutingNodeCost as NodeCost
 from paicorelib import RoutingNodeLevel as Level
 from paicorelib import RoutingNodeStatus as Status
 from paicorelib import get_node_consumption
 
+from paibox._types import FrozenOrderedSet
 from paibox.exceptions import NotSupportedError
 
 from .placement import CoreBlock, CorePlacement
@@ -370,7 +373,7 @@ class RoutingNode:
 
     @property
     def node_capacity(self) -> int:
-        return 4 if self.level > Level.L0 else 0
+        return HwConfig.N_SUB_ROUTING_NODE if self.level > Level.L0 else 0
 
     @property
     def children(self):
@@ -383,6 +386,31 @@ class RoutingNode:
     @direction.setter
     def direction(self, d: Direction) -> None:
         self._direction = d
+
+
+class RoutingGroup(FrozenOrderedSet):
+    """Core blocks located within a routing group are routable."""
+
+    def __init__(self, *cb: CoreBlock):
+        super().__init__(cb)
+
+    def n_core_at(self, idx: int) -> int:
+        if idx >= len(self) or idx < 0:
+            raise IndexError
+
+        return self[idx].n_core_required
+
+    @property
+    def n_core_required(self) -> int:
+        return sum(cb.n_core_required for cb in self)
+
+    @property
+    def routing_cost(self) -> NodeCost:
+        return get_node_consumption(self.n_core_required)
+
+    @property
+    def routing_level(self) -> Level:
+        return self.routing_cost.get_routing_level()
 
 
 @final
@@ -402,31 +430,30 @@ class RoutingRoot(RoutingNode):
     @classmethod
     def insert_coreblock(cls, root: "RoutingRoot", cb: CoreBlock) -> bool:
         """Insert a `CoreBlock` in the routing tree. Assign the core placements \
-            of it routing coordinates & make sure they are routable.
+            of its routing coordinates & make sure they are routable.
+
+        TODO Will be deprecated.
         """
         leaves = []
         coords = []
         n_core = cb.n_core_required
         cost = get_node_consumption(n_core)
         level = cost.get_routing_level()
-        # Create a sub-tree node.
+        # Create a sub-tree node
         routing_node = RoutingNode.create_routing_tree(level, cost[level - 1])
 
         for i in range(cost.n_L0):
             if i < n_core:
                 # Valid L0 nodes
                 node = routing_node.add_L0_for_placing(
-                    data=f"{cb.name}_{i}",
-                    status=Status.USED,
-                    tag=f"{cb.name}_{i}",
+                    data=f"{cb.name}_{i}", status=Status.USED, tag=f"{cb.name}_{i}"
                 )
 
                 leaves.append(node)
             else:
                 # Other L0 nodes are unused but occupied.
                 node = routing_node.add_L0_for_placing(
-                    status=Status.OCCUPIED,
-                    tag=f"{cb.name}_{i}",
+                    status=Status.OCCUPIED, tag=f"{cb.name}_{i}"
                 )
 
         # Add the sub-tree to the root.
@@ -439,6 +466,51 @@ class RoutingRoot(RoutingNode):
             coords.append(coord.coordinate)
 
         cb.core_coords = coords
+
+        return True
+
+    def insert_routing_group(self, routing_group: RoutingGroup) -> bool:
+        """Insert a `RoutingGroup` in the routing tree. Assign each core blocks \
+            with routing coordinates & make sure they are routable.
+        """
+        leaves = []
+        coords = []
+        cost = routing_group.routing_cost
+        level = routing_group.routing_level
+        # Create a sub-tree node
+        routing_node = RoutingNode.create_routing_tree(level, cost[level - 1])
+
+        for i in range(cost.n_L0):
+            if i < routing_group.n_core_required:
+                # Valid L0 nodes
+                node = routing_node.add_L0_for_placing(
+                    data=f"{id(routing_group)}_{i}",
+                    status=Status.USED,
+                    tag=f"{id(routing_group)}_{i}",
+                )
+
+                leaves.append(node)
+            else:
+                # Other L0 nodes are unused but occupied.
+                node = routing_node.add_L0_for_placing(
+                    status=Status.OCCUPIED, tag=f"{id(routing_group)}_{i}"
+                )
+
+        # Add the sub-tree to the root.
+        flag = self.add_subtree(routing_node)
+        if not flag:
+            return False
+
+        for node in leaves:
+            coord = self.get_leaf_coord(node)
+            coords.append(coord.coordinate)
+
+        # Assign the coordinates to each core block inside the routing group.
+        cur_i = 0
+        for cb in routing_group:
+            n = cb.n_core_required
+            cb.core_coords = coords[cur_i : cur_i + n]
+            cur_i += n
 
         return True
 

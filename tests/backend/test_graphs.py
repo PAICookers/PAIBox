@@ -1,6 +1,8 @@
 import pytest
 
+import paibox as pb
 from paibox.backend.graphs import *
+from paibox.backend.graphs import _degree_check
 from paibox.exceptions import NotSupportedError
 
 
@@ -124,6 +126,119 @@ class TestTopoSort:
             ordered = toposort(edges)
 
 
+@pytest.mark.skip(reason="Not implemented")
+@pytest.mark.parametrize(
+    "constrs, expected",
+    [
+        ([{"1", "2", "3"}, {"4", "5"}], ["1", "2", "3"]),
+        ([{"1", "2"}, {"3", "4"}, {"5", "6"}], ["1", "2"]),
+    ],
+)
+def test_bounded_by(constrs, expected):
+    def _bounded_by_proto(node: str, constrs: Sequence[Sequence[str]]) -> List[str]:
+        for constr in constrs:
+            for bounded_node in constr:
+                if node == bounded_node:
+                    return list(set(constr))
+
+        return []
+
+    result = _bounded_by_proto("1", constrs)
+
+    assert set(result) == set(expected)
+
+
+@pytest.mark.skip(reason="Not implemented")
+@pytest.mark.parametrize(
+    "constrs, expected",
+    [
+        ({"1": {"2", "3", "4"}, "2": {"3", "4"}}, ["2", "3", "4"]),
+        ({"1": {"2", "3"}, "4": {"1"}}, ["2", "3", "4"]),
+        ({"2": {"1", "3"}, "4": {"1"}}, ["2", "4"]),
+    ],
+)
+def test_conflicted_by(constrs, expected):
+    def _conflicted_by_proto(node: str, constrs: Dict[str, Sequence[str]]) -> List[str]:
+        c = set(constrs.get(node, []))
+
+        for k, v in constrs.items():
+            for conf_node in v:
+                if node == conf_node:
+                    c.add(k)
+
+        return list(c)
+
+    result = _conflicted_by_proto("1", constrs)
+
+    assert set(result) == set(expected)
+
+
+@pytest.mark.skip(reason="Not implemented")
+@pytest.mark.parametrize(
+    "constrs, expected",
+    [
+        (
+            [{"1", "2", "3"}, {"4", "5"}, {"6", "7", "1"}, {"4", "8"}],
+            [frozenset(["1", "2", "3", "6", "7"]), frozenset(["4", "5", "8"])],
+        ),
+        (
+            [{"1", "2", "3"}, {"4", "5"}, {"6", "7"}, {"4", "8"}],
+            [
+                frozenset(["1", "2", "3"]),
+                frozenset(["6", "7"]),
+                frozenset(["4", "5", "8"]),
+            ],
+        ),
+        (
+            [{"1", "2", "3"}, {"4", "5"}, {"6", "7"}, {"4", "1", "8"}],
+            [
+                frozenset(["1", "2", "3", "4", "5", "8"]),
+                frozenset(["6", "7"]),
+            ],
+        ),
+    ],
+)
+def test_bounded_nodes_check(constrs, expected):
+    def _bounded_nodes_check_proto(
+        constrs: List[Sequence[str]],
+    ) -> List[frozenset[str]]:
+        seen = {}
+        need_update_nodes = []
+
+        for bounded_set in constrs:
+            for node in bounded_set:
+                if node in seen:
+                    need_update_nodes.append(node)
+                    seen[node].update(bounded_set)
+                else:
+                    seen[node] = bounded_set
+
+        _constr = []
+
+        for bounded in constrs:
+            for node in need_update_nodes:
+                flag = True
+                if node in bounded:
+                    flag = False
+                    break
+
+            if flag:
+                # Unique set
+                _constr.append(frozenset(bounded))
+
+        while need_update_nodes:
+            for node in need_update_nodes:
+                _constr.append(frozenset(seen[node]))
+                need_update_nodes.remove(node)
+
+        return _constr
+
+    result = _bounded_nodes_check_proto(constrs)
+
+    # Inconvenient to compare the elements in the list of sets.
+    assert len(result) == len(expected)
+
+
 class TestGroupEdges:
     @staticmethod
     def group_edges_proto(
@@ -158,7 +273,7 @@ class TestGroupEdges:
             return pred
 
         gathered = []
-        edges_set = set(edges)
+        seen_edges = set()
 
         if isinstance(ordered_nodes, list):
             # In topological sorting.
@@ -170,20 +285,22 @@ class TestGroupEdges:
         for node in ordered:
             if degree[node].in_degree > 1:
                 edge_group = _find_pred_edges_proto(succ_edges, node)
-                edge_group_copy = edge_group.copy()
+                # edge_group2 = edge_group.copy()
 
-                for ed in edge_group:
-                    if ed not in edges_set:
-                        edge_group_copy.remove(ed)
+                # # Remove edges if it is already traversed
+                # for e in edge_group:
+                #     if e in seen_edges:
+                #         edge_group2.remove(e)
+                comming_edges = edge_group.difference(seen_edges)
 
-                edges_set.difference_update(edge_group_copy)
-                gathered.append(edge_group_copy)
+                seen_edges.update(comming_edges)
+                gathered.append(comming_edges)
 
             if degree[node].out_degree > 1:
                 edge_group = set(e for e in succ_edges[node].values())
 
                 if edge_group not in gathered:
-                    edges_set.difference_update(edge_group)
+                    seen_edges.update(edge_group)
                     gathered.append(edge_group)
 
             elif degree[node].out_degree > 0:
@@ -200,16 +317,17 @@ class TestGroupEdges:
     @pytest.mark.parametrize(
         "edges, succ_edges",
         [
-            (
-                ["s1", "s2", "s3", "s4", "s5"],
-                {
-                    "inp1": {"n1": "s1"},
-                    "n1": {"n2": "s2", "n4": "s3"},
-                    "n2": {"n3": "s4"},
-                    "n3": {},
-                    "n4": {"n2": "s5"},
-                },
-            ),
+            # This structure is filtered.
+            # (
+            #     ["s1", "s2", "s3", "s4", "s5"],
+            #     {
+            #         "inp1": {"n1": "s1"},
+            #         "n1": {"n2": "s2", "n4": "s3"},
+            #         "n2": {"n3": "s4"},
+            #         "n3": {},
+            #         "n4": {"n2": "s5"},
+            #     },
+            # ),
             (
                 ["s1", "s2", "s3", "s4", "s5"],
                 {
@@ -233,14 +351,14 @@ class TestGroupEdges:
                 },
             ),
         ],
-        ids=["topo_1", "topo_2", "topo_3"],
+        ids=["topo_2", "topo_3"],
     )
     def test_group_edges_ordered(self, edges, succ_edges):
         """
         Test #1:
-            INP1 -> N1 -> N2 -> N3
-            N1 -> N4
-            N4 -> N2
+            INP1 -> N1    ->    N2 -> N3
+                    N1 -> N4 -> N2
+        FIXME Not supported
 
         Test #2:
             INP1 -> N1 -> N2 -> N4
@@ -253,6 +371,9 @@ class TestGroupEdges:
         """
         degrees = get_node_degrees(succ_edges)
         ordered_nodes = toposort(succ_edges)
+
+        _degree_check(degrees, succ_edges)
+
         gathered = self.group_edges_proto(
             edges, succ_edges, degrees, ordered_nodes=ordered_nodes
         )
@@ -289,6 +410,52 @@ class TestGroupEdges:
         degrees = get_node_degrees(succ_edges)
         print()
 
+    def test_group_edges_with_constrs(
+        self, monkeypatch, get_mapper, build_network_with_branches_4bit
+    ):
+        net = build_network_with_branches_4bit
+
+        mapper: pb.Mapper = get_mapper
+        mapper.clear()
+        mapper.build(net)
+        grouped_edges = mapper.graph.group_edges()
+
+        # In this case, N2 & N3 should be together.
+        pos_n2 = pos_n3 = 0
+        for i, g in enumerate(grouped_edges):
+            if "s2" in g:
+                pos_n2 = i
+            if "s3" in g:
+                pos_n3 = i
+
+        assert pos_n2 == pos_n3
+        assert pos_n2 != 0
+
+        # In this case, N2 & N3 should be split.
+        monkeypatch.setattr(net.n2, "_tws", 2)
+        monkeypatch.setattr(net.n3, "_tws", 3)
+
+        mapper.clear()
+        mapper.build(net)
+        grouped_edges = mapper.graph.group_edges()
+
+        pos_n2 = pos_n3 = 0
+        for i, g in enumerate(grouped_edges):
+            if "s2" in g:
+                pos_n2 = i
+            if "s3" in g:
+                pos_n3 = i
+
+        assert pos_n2 != pos_n3
+
+        # Continue
+        mapper.build_core_blocks()
+        mapper.lcn_ex_adjustment()
+        mapper.coord_assign()
+        mapper.core_allocation()
+
+        gi = mapper.config_export()
+
 
 class TestDAGPathDistance:
     """Consider DAG only."""
@@ -322,15 +489,14 @@ class TestDAGPathDistance:
             key=lambda node: distances.get(node, 0),
         )
 
-        # Add the distance of last node to outside(1)
         distance = distances[node]
-
         path = [node]
-        while node := pred_nodes.get(node, ()):
-            path.append(node)
 
-        # Reverse the path and return
-        return path[::-1], distance
+        while path[-1] in pred_nodes:
+            path.append(pred_nodes[path[-1]])
+
+        path.reverse()
+        return path, distance
 
     @pytest.mark.parametrize(
         "edges, expected_path, expected_distance",
@@ -450,15 +616,14 @@ class TestDAGPathDistance:
             key=lambda node: distances.get(node, 0),
         )
 
-        # Add the distance of last node to outside(1)
         distance = distances[node]
-
         path = [node]
-        while node := pred_nodes.get(node, ()):
-            path.append(node)
 
-        # Reverse the path and return
-        return path[::-1], distance
+        while path[-1] in pred_nodes:
+            path.append(pred_nodes[path[-1]])
+
+        path.reverse()
+        return path, distance
 
     @pytest.mark.parametrize(
         "edges, inodes, expected_path, expected_distance",

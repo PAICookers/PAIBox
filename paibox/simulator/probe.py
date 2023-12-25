@@ -29,7 +29,7 @@ class Probe(PAIBoxObject):
         self._check_attr_in_target(target)
 
     def _check_attr_in_target(self, target: PAIBoxObject) -> None:
-        if not self.subtarget:
+        if self.subtarget is None:
             self.target = target
             if not hasattr(self.target, self.attr):
                 raise AttributeError(

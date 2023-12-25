@@ -18,6 +18,8 @@ class IF(Neuron):
         vjt_init: int = 0,
         *,
         keep_shape: bool = False,
+        tick_wait_start: int = 1,
+        tick_wait_end: int = 0,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -59,6 +61,8 @@ class IF(Neuron):
             _bt,
             vjt_init,
             keep_shape=keep_shape,
+            tick_wait_start=tick_wait_start,
+            tick_wait_end=tick_wait_end,
             name=name,
         )
 
@@ -75,6 +79,8 @@ class LIF(Neuron):
         vjt_init: int = 0,
         *,
         keep_shape: bool = False,
+        tick_wait_start: int = 1,
+        tick_wait_end: int = 0,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -119,6 +125,8 @@ class LIF(Neuron):
             _bt,
             vjt_init,
             keep_shape=keep_shape,
+            tick_wait_start=tick_wait_start,
+            tick_wait_end=tick_wait_end,
             name=name,
         )
 
@@ -133,6 +141,8 @@ class TonicSpiking(Neuron):
         vjt_init: int = 0,
         *,
         keep_shape: bool = False,
+        tick_wait_start: int = 1,
+        tick_wait_end: int = 0,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -161,6 +171,8 @@ class TonicSpiking(Neuron):
             0,
             vjt_init,
             keep_shape=keep_shape,
+            tick_wait_start=tick_wait_start,
+            tick_wait_end=tick_wait_end,
             name=name,
         )
 
@@ -176,6 +188,8 @@ class PhasicSpiking(Neuron):
         vjt_init: int = 0,
         *,
         keep_shape: bool = False,
+        tick_wait_start: int = 1,
+        tick_wait_end: int = 0,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -212,238 +226,7 @@ class PhasicSpiking(Neuron):
             0,
             vjt_init,
             keep_shape=keep_shape,
-            name=name,
-        )
-
-
-class SpikeLatency(Neuron):
-    """Spike latency neuron"""
-
-    def __init__(
-        self,
-        shape: Shape,
-        fire_time: int,
-        vjt_init: int = 0,
-        *,
-        keep_shape: bool = False,
-        name: Optional[str] = None,
-    ) -> None:
-        """
-        Arguments:
-            - shape: the shape of the neuron(s). It can be an integer, tuple or list.
-            - fire_time: When receiving a spike, the neuron will fire positively \
-                after `fire_time` timesteps,
-            - vjt_init: initial membrane potential. Default is 0.
-
-        Description:
-            The neuron receives a spike and fires after some timesteps, \
-            then resets the membrane potential to 0, and never fires again.
-
-            `N` stands for `fire_time`.
-
-        NOTE: the weight is 10.
-        """
-        pos_thres = 11 + fire_time
-
-        super().__init__(
-            shape,
-            RM.MODE_NORMAL,
-            0,
-            LCM.LEAK_BEFORE_COMP,
-            0,
-            NTM.MODE_SATURATION,
-            0,
-            pos_thres,
-            LDM.MODE_REVERSAL,
-            LIM.MODE_DETERMINISTIC,
-            1,
-            SIM.MODE_DETERMINISTIC,
-            0,
-            vjt_init,
-            keep_shape=keep_shape,
-            name=name,
-        )
-
-
-class SubthresholdOscillations(Neuron):
-    """Subthreshold Oscillations"""
-
-    def __init__(
-        self,
-        shape: Shape,
-        vjt_init: int = 0,
-        *,
-        keep_shape: bool = False,
-        name: Optional[str] = None,
-    ) -> None:
-        """
-        Arguments:
-            - shape: the shape of the neuron(s). It can be an integer, tuple or list.
-            - vjt_init: initial membrane potential. Default is 0.
-
-        Description:
-            After receiving a spike, neurons emit pulses and the membrane potential oscillates
-
-        NOTE: the weight is 22.
-        """
-        leak_v = -2
-        pos_thres = 16
-        neg_thres = 30
-
-        super().__init__(
-            shape,
-            RM.MODE_NORMAL,
-            1,
-            LCM.LEAK_BEFORE_COMP,
-            0,
-            NTM.MODE_SATURATION,
-            neg_thres,
-            pos_thres,
-            LDM.MODE_REVERSAL,
-            LIM.MODE_DETERMINISTIC,
-            leak_v,
-            SIM.MODE_DETERMINISTIC,
-            0,
-            vjt_init,
-            keep_shape=keep_shape,
-            name=name,
-        )
-
-
-class ResonatorNeuron(Neuron):
-    """Resonator Neuron"""
-
-    def __init__(
-        self,
-        shape: Shape,
-        vjt_init: int = 0,
-        *,
-        keep_shape: bool = False,
-        name: Optional[str] = None,
-    ) -> None:
-        """
-        Arguments:
-            - shape: the shape of the neuron(s). It can be an integer, tuple or list.
-            - vjt_init: initial membrane potential. Default is 0.
-
-        Description:
-            After being stimulated, neurons emit pulses and the membrane potential oscillates
-            Implementation question: Continuous inputs with higher frequencies will cause neurons
-                to emit directly. How can we achieve the distribution of determined frequencies?
-
-        NOTE: the weight is 2.
-        """
-        leak_v = -1
-        pos_thres = 2
-        reset_v = 0
-
-        super().__init__(
-            shape,
-            RM.MODE_NORMAL,
-            reset_v,
-            LCM.LEAK_BEFORE_COMP,
-            0,
-            NTM.MODE_SATURATION,
-            0,
-            pos_thres,
-            LDM.MODE_REVERSAL,
-            LIM.MODE_DETERMINISTIC,
-            leak_v,
-            SIM.MODE_DETERMINISTIC,
-            0,
-            vjt_init,
-            keep_shape=keep_shape,
-            name=name,
-        )
-
-
-class Integrator(Neuron):
-    """Integrator Neuron"""
-
-    def __init__(
-        self,
-        shape: Shape,
-        vjt_init: int = 0,
-        *,
-        keep_shape: bool = False,
-        name: Optional[str] = None,
-    ) -> None:
-        """
-        Arguments:
-            - shape: the shape of the neuron(s). It can be an integer, tuple or list.
-            - vjt_init: initial membrane potential. Default is 0.
-
-        Description:
-            After being stimulated, neurons emit pulses and the membrane potential oscillates.
-
-        NOTE: the weight is 24.
-        """
-        leak_v = -1
-        pos_thres = 32
-
-        super().__init__(
-            shape,
-            RM.MODE_NORMAL,
-            0,
-            LCM.LEAK_BEFORE_COMP,
-            0,
-            NTM.MODE_SATURATION,
-            0,
-            pos_thres,
-            LDM.MODE_REVERSAL,
-            LIM.MODE_DETERMINISTIC,
-            leak_v,
-            SIM.MODE_DETERMINISTIC,
-            0,
-            vjt_init,
-            keep_shape=keep_shape,
-            name=name,
-        )
-
-
-class InhibitionInducedSpiking(Neuron):
-    """Inhibition Induced Spiking Neuron"""
-
-    def __init__(
-        self,
-        shape: Shape,
-        fire_step: int,
-        vjt_init: int = 0,
-        *,
-        keep_shape: bool = False,
-        name: Optional[str] = None,
-    ) -> None:
-        """
-        Arguments:
-            - shape: the shape of the neuron(s). It can be an integer, tuple or list.
-            - fire_step: every `N` spike, the neuron will fire positively.
-            - vjt_init: initial membrane potential. Default is 0.
-
-        Description:
-            After receiving some inhibition induced spikes (-1), the neuron will fire.
-
-        NOTE: the weight is -10.
-        """
-        leak_v = -1
-        pos_thres = 9 * fire_step
-        neg_thres = 40
-        reset_v = -10
-
-        super().__init__(
-            shape,
-            RM.MODE_NORMAL,
-            reset_v,
-            LCM.LEAK_BEFORE_COMP,
-            0,
-            NTM.MODE_SATURATION,
-            neg_thres,
-            pos_thres,
-            LDM.MODE_REVERSAL,
-            LIM.MODE_DETERMINISTIC,
-            leak_v,
-            SIM.MODE_DETERMINISTIC,
-            0,
-            vjt_init,
-            keep_shape=keep_shape,
+            tick_wait_start=tick_wait_start,
+            tick_wait_end=tick_wait_end,
             name=name,
         )
