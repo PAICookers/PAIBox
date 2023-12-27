@@ -387,9 +387,27 @@ class Mapper:
         *,
         fp: Optional[Union[str, Path]] = None,
         format: Literal["txt", "bin", "npy"] = "bin",
+        split_by_coordinate: bool = False,
         local_chip_addr: Optional[CoordLike] = None,
         export_core_params: bool = False,
     ) -> Dict[Coord, Any]:
+        """Generate configuration frames & export to file.
+
+        Args:
+            - write_to_file: whether to write frames into file.
+            - fp: If `write_to_file` is `True`, specify the output path.
+            - format: `txt`, `bin`, or `npy`.`bin` & `npy` are recommended.
+            - split_by_coordinate: whether to split the generated frames file by the    \
+                core coordinates.
+            - local_chip_addr: the address of the local chip. If not specified, the     \
+                default value in `_BACKEND_CONTEXT` will be used.
+            - export_core_params: whether to export the parameters of occupied cores.
+        
+        Return: a dictionary of configurations.
+        """
+        if format not in ("bin", "npy", "txt"):
+            raise ValueError(f"Format {format} is not supported.")
+
         _fp = _fp_check(fp)
 
         if local_chip_addr is not None:
@@ -398,7 +416,12 @@ class Mapper:
             _local_chip_addr = _BACKEND_CONTEXT["local_chip_addr"]
 
         config_dict = gen_config_frames_by_coreconf(
-            self.graph_info["members"], _local_chip_addr, write_to_file, _fp, format
+            self.graph_info["members"],
+            _local_chip_addr,
+            write_to_file,
+            _fp,
+            split_by_coordinate,
+            format,
         )
 
         if export_core_params:
