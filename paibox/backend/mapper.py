@@ -402,7 +402,7 @@ class Mapper:
             - local_chip_addr: the address of the local chip. If not specified, the     \
                 default value in `_BACKEND_CONTEXT` will be used.
             - export_core_params: whether to export the parameters of occupied cores.
-        
+
         Return: a dictionary of configurations.
         """
         if format not in ("bin", "npy", "txt"):

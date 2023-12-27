@@ -9,7 +9,6 @@ from paibox._types import DataArrayType
 from paibox.exceptions import ShapeError
 from paibox.utils import is_shape
 
-
 __all__ = ["ConnType", "AllToAll", "MaskedLinear", "OneToOne"]
 
 
