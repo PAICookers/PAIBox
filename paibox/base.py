@@ -1,4 +1,4 @@
-from typing import List, Literal, Optional, Set, Tuple
+from typing import Any, Dict, List, Literal, Optional, Set, Tuple
 
 from .collector import Collector
 from .generic import get_unique_name, is_name_unique
@@ -208,8 +208,9 @@ class DynamicSys(PAIBoxObject, StatusMemory):
         raise NotImplementedError
 
     @property
-    def state(self):
-        raise NotImplementedError
+    def state(self) -> NodeDict:
+        """Return the stateful attirbutes in the system."""
+        return self._memories
 
 
 class NeuDyn(DynamicSys, ReceiveInputProj):
@@ -217,7 +218,7 @@ class NeuDyn(DynamicSys, ReceiveInputProj):
         super().__init__(name)
         self.master_nodes = NodeDict()
 
-    def export_params(self):
+    def export_params(self) -> Dict[str, Any]:
         """Export the parameters into dictionary."""
         params = {}
 
@@ -228,6 +229,10 @@ class NeuDyn(DynamicSys, ReceiveInputProj):
             params.update({k.removeprefix("_"): v})
 
         return params
+
+    @property
+    def delay_relative(self) -> int:
+        raise NotImplementedError
 
     @property
     def tick_wait_start(self) -> int:

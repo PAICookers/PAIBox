@@ -257,9 +257,9 @@ class GraphInfo(TypedDict):
     input: InputNodeInfo
     output: OutputDestInfo
     members: CorePlacementInfo
-    extras: Dict[str, Any]
     inherent_timestep: int
     n_core_required: int
+    extras: Dict[str, Any]
 
 
 def gen_config_frames_by_coreconf(
@@ -267,17 +267,31 @@ def gen_config_frames_by_coreconf(
     target_chip_coord: Coord,
     write_to_file: bool,
     fp: Path,
+    split_by_coord: bool,
     format: Literal["txt", "bin", "npy"] = "bin",
 ) -> Dict[Coord, FrameArrayType]:
-    """Generate all configuration frames by given the `CorePlacementConfig`.
+    """Generate configuration frames by given the `CorePlacementConfig`.
 
     Args:
-        - target_chip_coord: the local chip to configurate.
-        - config_dict: a dictionary of configurations.
-        - write_to_file: whether to write frames into file.
+        - config_dict: the dictionary of configurations.
+        - target_chip_coord: local chip coordinate.
+        - write_to_file: whether to write frames to file.
         - fp: If `write_to_file` is `True`, specify the path.
+        - split_by_coord: whether to split the generated frames file by the core coordinates.
         - format: it can be `txt`, `bin`, or `npy`. `bin` & `npy` are recommended.
     """
+
+    def _write_to_f(name: str, array: np.ndarray) -> None:
+        nonlocal fp, format
+
+        _fp = fp / (name + f".{format}")
+        if format == "npy":
+            np2npy(_fp, array)
+        elif format == "bin":
+            np2bin(_fp, array)
+        else:
+            np2txt(_fp, array)
+
     _default_rid = RId(0, 0)
     _debug_dict: Dict[Coord, Dict[str, Any]] = defaultdict()
     frame_arrays_on_core: Dict[Coord, FrameArrayType] = dict()
@@ -349,15 +363,13 @@ def gen_config_frames_by_coreconf(
         )
 
     if write_to_file:
-        for core_coord, f in frame_arrays_on_core.items():
-            addr = core_coord.address
-            fn = f"config_core{addr}.{format}"
-            if format == "npy":
-                np2npy(fp / fn, f)
-            elif format == "bin":
-                np2bin(fp / fn, f)
-            else:
-                np2txt(fp / fn, f)
+        if split_by_coord:
+            for core_coord, f in frame_arrays_on_core.items():
+                addr = core_coord.address
+                _write_to_f(f"config_core{addr}", f)
+        else:
+            _f = np.concatenate(list(frame_arrays_on_core.values()), dtype=FRAME_DTYPE)
+            _write_to_f(f"config_cores_all", _f)
 
     return frame_arrays_on_core
 

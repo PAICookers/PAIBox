@@ -13,18 +13,19 @@ git clone -b dev https://github.com/PAICookers/PAIBox.git
 cd PAIBox
 ```
 
-PAIBox使用Poetry管理依赖，如果使用Poetry：
+PAIBox使用 `pyproject.toml` 管理依赖，如果使用Poetry：
 
 ```bash
 poetry install
 ```
 
-使用conda等，则手动安装如下依赖至你的Python虚拟环境：
+使用conda等，则手动安装如下依赖至Python虚拟环境：
 
 ```toml
 python = "^3.9"
 pydantic = "^2.0"
 numpy = "^1.23.0"
+paicorelib = "^0.0.3"
 ```
 
 ## 基本组件
@@ -44,7 +45,7 @@ IF神经元实现了经典的“积分发射”模型，其调用方式及参数
 ```python
 import paibox as pb
 
-n1 = pb.neuron.IF(shape=10, threshold=127, reset_v=0, vjt_init=0, keep_shape=False, tick_wait_start=1, tick_wait_end=0, name='n1')
+n1 = pb.neuron.IF(shape=10, threshold=127, reset_v=0, vjt_init=0, keep_shape=False, delay=1, tick_wait_start=1, tick_wait_end=0, name='n1')
 ```
 
 其中：
@@ -54,6 +55,7 @@ n1 = pb.neuron.IF(shape=10, threshold=127, reset_v=0, vjt_init=0, keep_shape=Fal
 - `reset_v`：神经元的重置电位。
 - `vjt_init`：神经元的初始电位。
 - `keep_shape`：是否在仿真记录数据时保持尺寸信息，默认为 `False`。实际进行运算的尺寸仍视为一维。
+- `delay`：设定该神经元组输出的延迟。默认为1，即本时间步的计算结果，下一时间步传递至后继神经元。
 - `tick_wait_start`: 设定该神经元组在第 `N` 个时间步时启动，0表示不启动。默认为1。
 - `tick_wait_end`: 设定该神经元组持续工作 `M` 个时间步，0表示一直持续工作。默认为0。
 - `name`：可选，为该对象命名。
@@ -496,7 +498,7 @@ sim.add_probe(probe2)
 仿真数据可通过 `sim.data` 取得。可监测的对象包括网络内部所有的属性。例如，神经元及突触的各类属性，常用的监测对象包括：
 
 - 输入节点的 `feature_map`。
-- 神经元：脉冲输出 `spike`、脉冲输出（特征图形式） `feature_map`、膜电位 `voltage`。
+- 神经元：脉冲输出 `spike` （本层神经元产生的脉冲，但不一定传递至后继神经元）、真实脉冲输出  `output `（真正传递到后继神经元的脉冲）、真实脉冲输出（特征图形式）`feature_map `、膜电位 `voltage`。
 - 突触：输出 `output`。
 
 在设置完探针后，可输入数据并进行仿真，仿真结束后读取探针监测的数据：
@@ -521,7 +523,7 @@ sim.reset()
 mapper = pb.Mapper()
 mapper.build(fcnet)
 mapper.compile()
-mapper.export(write_to_file=True, fp="./debug/", format="npy", local_chip_addr=(0, 0), export_core_params=False)
+mapper.export(write_to_file=True, fp="./debug/", format="npy", split_by_coordinate=False, local_chip_addr=(0, 0), export_core_params=False)
 
 # Clear all the results.
 mapper.clear()
@@ -532,5 +534,7 @@ mapper.clear()
 - `write_to_file`: 是否将配置帧导出为文件。默认为 `True`。
 - `fp`：导出目录。
 - `format`：导出交换文件格式，可以为 `bin`、`npy` 或 `txt`。默认为 `bin`。
+- `split_by_coordinate`：是否将配置帧以每个核坐标进行分割，由此生成的配置帧文件命名为 `config_core1`、`config_core2` 等。默认为   `False`。
 - `local_chip_addr`：本地芯片地址，元组表示。默认为后端全局变量 `local_chip_addr` 所设置的默认值。
 - `export_core_params`: 是否导出实际使用核参数至json文件，可直观显示实际使用核的配置信息。默认为 `False`。
+- 同时，该函数将返回网络的配置字典。
