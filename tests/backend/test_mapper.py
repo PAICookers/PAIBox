@@ -73,7 +73,9 @@ class TestMapperDebug:
         assert len(mapper.core_blocks) == 3  # 3 layers
         assert mapper.get_inherent_timestep() == 3
 
-        mapper.export(fp=ensure_dump_dir, export_core_params=True)
+        mapper.export(
+            fp=ensure_dump_dir, export_core_params=True, split_by_coordinate=False
+        )
         print()
 
     @pytest.mark.usefixtures("test_simple_net")

@@ -260,6 +260,29 @@ class Net2(pb.Network):
         self.probe4 = pb.simulator.Probe(self.n1, "voltage")
 
 
+class Net3(pb.Network):
+    """2-layer networks, for testing start & end principle."""
+
+    def __init__(self):
+        super().__init__()
+        self.inp1 = pb.InputProj(1, shape_out=(2, 2))
+        self.n1 = pb.neuron.LIF((2, 2), 100, reset_v=1, leaky_v=-1)
+        self.n2 = pb.neuron.LIF((2, 2), 100, reset_v=1, leaky_v=-1)
+        self.s1 = pb.synapses.NoDecay(
+            self.inp1, self.n1, weights=10, conn_type=pb.synapses.ConnType.All2All
+        )
+        self.s2 = pb.synapses.NoDecay(
+            self.n1, self.n2, weights=10, conn_type=pb.synapses.ConnType.All2All
+        )
+
+        self.probe1 = pb.simulator.Probe(self.n1, "voltage")
+        self.probe2 = pb.simulator.Probe(self.n2, "voltage")
+        self.probe3 = pb.simulator.Probe(self.n1, "_neustate")
+        self.probe4 = pb.simulator.Probe(self.n2, "_neustate")
+        self.probe5 = pb.simulator.Probe(self.n1, "output")
+        self.probe6 = pb.simulator.Probe(self.n2, "output")
+
+
 class TonicSpikingNet(pb.Network):
     def __init__(self):
         super().__init__()
@@ -352,3 +375,45 @@ class TestNeuronSim:
 
         print(sim.data[net.probe1])
         print(sim.data[net.probe2])
+
+    def test_tick_delay_attr_behavior(self, monkeypatch):
+        net = Net3()
+        sim = pb.Simulator(net)
+
+        # n1 works on 1 <= T <= 1+5-1 with delay 3
+        # n2 works on 2 <= T <= 2+6-1 with delay 1
+        monkeypatch.setattr(net.n1, "_tws", 1)
+        monkeypatch.setattr(net.n1, "_twe", 5)
+        monkeypatch.setattr(net.n1, "_delay", 3)
+        monkeypatch.setattr(net.n2, "_tws", 2)
+        monkeypatch.setattr(net.n2, "_twe", 6)
+        monkeypatch.setattr(net.n2, "_delay", 1)
+
+        sim.run(10)
+        sim.reset()
+
+        # n1 works on T >= 1 with delay 1
+        # n2 won't work
+        monkeypatch.setattr(net.n1, "_tws", 1)
+        monkeypatch.setattr(net.n1, "_twe", 0)
+        monkeypatch.setattr(net.n1, "_delay", 1)
+        monkeypatch.setattr(net.n2, "_tws", 0)
+        monkeypatch.setattr(net.n2, "_twe", 0)
+        monkeypatch.setattr(net.n2, "_delay", 1)
+
+        sim.run(10)
+        sim.reset()
+
+        # n1 works on T >= 5 with delay 3
+        # n2 works on T >= 1 with delay 1
+        monkeypatch.setattr(net.n1, "_tws", 5)
+        monkeypatch.setattr(net.n1, "_twe", 2)
+        monkeypatch.setattr(net.n1, "_delay", 3)
+        monkeypatch.setattr(net.n2, "_tws", 1)
+        monkeypatch.setattr(net.n2, "_twe", 0)
+        monkeypatch.setattr(net.n2, "_delay", 1)
+
+        sim.run(10)
+        sim.reset()
+
+        # TODO can add new test items here
