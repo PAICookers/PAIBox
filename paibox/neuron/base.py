@@ -1,3 +1,4 @@
+from enum import Enum, unique
 from typing import Optional, Tuple
 
 import numpy as np
@@ -20,6 +21,13 @@ from paibox.context import _FRONTEND_CONTEXT
 from paibox.utils import as_shape, shape2num
 
 __all__ = ["Neuron"]
+
+
+@unique
+class _NeuStatus(Enum):
+    NOT_WORKING = 0
+    WORKING_NO_OUTPUT = 1
+    WORKING_OUTPUT = 2
 
 
 class MetaNeuron:
@@ -386,6 +394,7 @@ class Neuron(MetaNeuron, NeuDyn):
         vjt_init: int,
         *,
         keep_shape: bool = False,
+        delay: int = 1,
         tick_wait_start: int = 1,
         tick_wait_end: int = 0,
         name: Optional[str] = None,
@@ -414,11 +423,28 @@ class Neuron(MetaNeuron, NeuDyn):
         self.set_memory("vjt", self.init_param(vjt_init).astype(np.int32))
         self.set_memory("vjt_pre", self.init_param(vjt_init).astype(np.int32))
         self.set_memory("spike", self.init_param(0).astype(np.bool_))
+        self.set_memory("spike_return", self.init_param(0).astype(np.bool_))
 
-        # Attributes about ANN
+        # Not supported for attributes in ANN mode
         self.set_memory("vj", self.init_param(vjt_init).astype(np.int32))
         self.set_memory("y", self.init_param(0).astype(np.int32))
+        self.set_memory("y_return", self.init_param(0).astype(np.int32))
 
+        """Internal stateful attributes"""
+        self.set_memory("_neustate", _NeuStatus.NOT_WORKING)  # For debugging
+
+        if tick_wait_start < 0:
+            raise ValueError(
+                f"tick_wait_start must be >= 0, but got {tick_wait_start}."
+            )
+
+        if tick_wait_end < 0:
+            raise ValueError(f"tick_wait_end must be >= 0, but got {tick_wait_end}.")
+
+        if delay < 1:
+            raise ValueError(f"delay must be >= 1, but got {delay}.")
+
+        self._delay = delay
         self._tws = tick_wait_start
         self._twe = tick_wait_end
 
@@ -431,22 +457,36 @@ class Neuron(MetaNeuron, NeuDyn):
     def update(
         self, x: Optional[np.ndarray] = None, **kwargs
     ) -> Optional[NDArray[np.bool_]]:
-        if _FRONTEND_CONTEXT["t"] < self.tick_wait_start:
-            # The neuron start working until `t >= tws`.
+        # Priority order is a must.
+        # The neuron doesn't work if `tws = 0` & done working
+        # until `t - tws + 1 > twe` under the condition `twe > 0`.
+        if (
+            self.tick_wait_start == 0 or _FRONTEND_CONTEXT["t"] < self.tick_wait_start
+        ) or (
+            self.tick_wait_end > 0
+            and _FRONTEND_CONTEXT["t"] > self.tick_wait_start + self.tick_wait_end - 1
+        ):
+            self._neustate = _NeuStatus.NOT_WORKING
+            self.spike_return = self.init_param(0).astype(np.bool_)
+
             return None
 
-        # Priority order is a must.
-        if self.tick_wait_end > 0:
-            if _FRONTEND_CONTEXT["t"] > self.tick_wait_start + self.tick_wait_end:
-                # The neuron is done working until `t > tws + twe` under the condition `twe > 0`.
-                return None
-
+        # The neuron is going to work.
         if x is None:
             x = self.sum_inputs()
 
         self.spike, self.vjt = super().update(x, self.vjt)
 
-        return self.spike
+        if _FRONTEND_CONTEXT["t"] - self.tick_wait_start + 1 < self.delay_relative:
+            # The neuron works but dosen't output when `t - tws + 1 < delay_relative`
+            self._neustate = _NeuStatus.WORKING_NO_OUTPUT
+            self.spike_return = self.init_param(0).astype(np.bool_)
+        else:
+            # The neuron works & outputs
+            self._neustate = _NeuStatus.WORKING_OUTPUT
+            self.spike_return = self.spike
+
+        return self.spike_return
 
     def reset_state(self) -> None:
         """Initialization, not the neuronal reset."""
@@ -470,19 +510,20 @@ class Neuron(MetaNeuron, NeuDyn):
 
     @property
     def output(self) -> NDArray[np.bool_]:
-        return self.spike
+        """The actual output passing to the successor neurons."""
+        return self.spike_return
 
     @property
     def feature_map(self) -> NDArray[np.bool_]:
         return self.output.reshape(self.varshape)
 
     @property
-    def state(self) -> NDArray[np.bool_]:
-        return self.spike
-
-    @property
     def voltage(self) -> NDArray[np.int32]:
         return self.vjt.reshape(self.varshape)
+
+    @property
+    def delay_relative(self) -> int:
+        return self._delay
 
     @property
     def tick_wait_start(self) -> int:

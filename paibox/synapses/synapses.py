@@ -9,7 +9,7 @@ from paibox.base import DynamicSys, NeuDyn
 from paibox.exceptions import ShapeError
 from paibox.projection import InputProj
 
-from .transforms import AllToAll, ConnType, MaskedLinear, OneToOne
+from .transforms import *
 
 __all__ = ["NoDecay"]
 
@@ -138,11 +138,11 @@ class NoDecay(SynSys):
         )
 
         # Register `self` for the destination `NeuDyn`.
-        dest.register_master(f"{self.name}.spike", self)
+        dest.register_master(f"{self.name}.output", self)
 
     def update(self, spike: Optional[np.ndarray] = None, **kwargs) -> NDArray[np.int32]:
         if spike is None:
-            synin = self.source.spike
+            synin = self.source.output
         else:
             synin = spike
 
@@ -156,10 +156,6 @@ class NoDecay(SynSys):
 
     @property
     def output(self) -> NDArray[np.int32]:
-        return self.syn_out
-
-    @property
-    def state(self) -> NDArray[np.int32]:
         return self.syn_out
 
     @property

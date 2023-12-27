@@ -285,6 +285,8 @@ class Mapper:
                 axon_coords = aligned_coords(
                     slice(0, input_cb.n_axon_of(input_cb.source.index(inode)), 1),
                     input_cb.axon_segments[inode],
+                    1,
+                    input_cb.n_timeslot,
                 )
 
                 neuron_dest = NeuronDest(

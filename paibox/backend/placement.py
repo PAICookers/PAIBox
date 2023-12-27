@@ -109,7 +109,7 @@ class CoreBlock(CoreAbstract):
 
         # Segment the group of axons.
         self.axon_segments: Dict[SourceNodeType, AxonSegment] = get_axon_segments(
-            self.axons, self.timeslot, self.n_fanin_max
+            self.axons, self.n_timeslot, self.n_fanin_max
         )
         """A dictionary of segments of each axon(source node)."""
 
@@ -127,7 +127,7 @@ class CoreBlock(CoreAbstract):
         self.neuron_segs_of_cb = get_neu_segments(
             self.dest,
             self.neuron_capacity,
-            _addr_ram_interval(self.n_weight_bits, self.timeslot),
+            _addr_ram_interval(self.n_weight_bits, self.n_timeslot),
             method=method,
         )
 
@@ -234,7 +234,7 @@ class CoreBlock(CoreAbstract):
         self.lcn_locked = True
 
     @property
-    def timeslot(self) -> int:
+    def n_timeslot(self) -> int:
         return 1 << self.lcn_ex
 
     @property
@@ -437,7 +437,7 @@ class CorePlacement(CoreAbstract):
         """Fold the weights into LCN-sized blocks."""
         w_folded_list = []
         w_folded_of_axon_segs = []
-        n_fold = self.timeslot
+        n_fold = self.n_timeslot
 
         if self.lcn_ex == LCN_EX.LCN_1X:
             w_folded = np.hstack(raw_weights, dtype=np.int8)
@@ -597,7 +597,10 @@ class CorePlacement(CoreAbstract):
         """Export the neuron configuration."""
         if isinstance(axon_dests, list):
             axon_coords = aligned_coords(
-                neu_seg.segment.index, axon_dests[0].axon_segments[neu_seg.parent]
+                neu_seg.segment.index,
+                axon_dests[0].axon_segments[neu_seg.parent],
+                neu_seg.parent.delay_relative,
+                axon_dests[0].n_timeslot,
             )
 
             # Get all core coordinates then get the RID.
@@ -667,8 +670,8 @@ class CorePlacement(CoreAbstract):
         return self.parent.n_weight_bits
 
     @property
-    def timeslot(self) -> int:
-        return self.parent.timeslot
+    def n_timeslot(self) -> int:
+        return self.parent.n_timeslot
 
     @property
     def n_axon(self) -> int:
@@ -692,7 +695,7 @@ class CorePlacement(CoreAbstract):
 
     @property
     def n_dendrite(self) -> int:
-        return self.n_neuron * self.n_weight_bits * self.timeslot
+        return self.n_neuron * self.n_weight_bits * self.n_timeslot
 
     @property
     def source(self) -> List[SourceNodeType]:
@@ -736,12 +739,12 @@ def max_lcn_of_cb(cb: List[CoreBlock]) -> LCN_EX:
     return max(cb, key=lambda cb: cb.lcn_ex).lcn_ex
 
 
-def _addr_ram_interval(nbits: int, timeslot: int) -> int:
+def _addr_ram_interval(nbits: int, ntimeslot: int) -> int:
     """Get the interval of RAM address.
 
-    interval = nbits(1 << wp) * timeslot(1 << lcn_ex)
+    interval = nbits(1 << wp) * n_timeslot(1 << lcn_ex)
     """
-    return nbits * timeslot
+    return nbits * ntimeslot
 
 
 def get_neu_segments(
@@ -858,7 +861,7 @@ def get_axon_segments(
 
     Args:
         - axons: The axons to be segmented.
-        - tr_max: The maximum value of the time slot(=timeslot).
+        - tr_max: The maximum value of the time slot(=n_timeslot).
 
     TODO Provide an alternative when failed using this method.
     """
@@ -895,7 +898,9 @@ def get_axon_segments(
     return axon_segments
 
 
-def aligned_coords(neu_index: slice, axon_seg: AxonSegment) -> List[AxonCoord]:
+def aligned_coords(
+    neu_index: slice, axon_seg: AxonSegment, delay: int, dest_n_timeslot: int
+) -> List[AxonCoord]:
     """Find the axon segments aligned with the index of neuron segment.
 
     The length of axon coordinates is the same as `neu_index`.
@@ -904,22 +909,30 @@ def aligned_coords(neu_index: slice, axon_seg: AxonSegment) -> List[AxonCoord]:
     addr_width = axon_seg.addr_width
     addr_offset = axon_seg.addr_offset
 
-    tr_start, tr_stop = (neu_index.start // addr_width, neu_index.stop // addr_width)
+    """
+        tick_relative = n_timeslot * (delay - 1) + tr_offset (start & end)
+    """
+    tr_base = dest_n_timeslot * (delay - 1)
+
+    tr_offset_start, tr_offset_stop = (
+        neu_index.start // addr_width,
+        neu_index.stop // addr_width,
+    )
     addr_start, addr_stop = (neu_index.start % addr_width, neu_index.stop % addr_width)
 
-    if tr_stop == tr_start:
+    if tr_offset_stop == tr_offset_start:
         for addr in range(addr_start, addr_stop):
-            axon_coords.append(AxonCoord(tr_start, addr_offset + addr))
+            axon_coords.append(AxonCoord(tr_base + tr_offset_start, addr_offset + addr))
     else:
         for addr in range(addr_start, addr_width):
-            axon_coords.append(AxonCoord(tr_start, addr_offset + addr))
+            axon_coords.append(AxonCoord(tr_base + tr_offset_start, addr_offset + addr))
 
-        for tr in range(tr_start + 1, tr_stop):
+        for tr in range(tr_offset_start + 1, tr_offset_stop):
             for addr in range(addr_width):
-                axon_coords.append(AxonCoord(tr, addr_offset + addr))
+                axon_coords.append(AxonCoord(tr_base + tr, addr_offset + addr))
 
         for addr in range(addr_stop):
-            axon_coords.append(AxonCoord(tr_stop, addr_offset + addr))
+            axon_coords.append(AxonCoord(tr_base + tr_offset_stop, addr_offset + addr))
 
     return axon_coords
 
