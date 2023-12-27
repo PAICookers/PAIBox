@@ -9,6 +9,12 @@ from paibox._types import DataArrayType
 from paibox.exceptions import ShapeError
 from paibox.utils import is_shape
 
+
+__all__ = ["ConnType", "AllToAll", "MaskedLinear", "OneToOne"]
+
+
+MAX_INT1 = np.int8(1)
+MIN_INT1 = np.int8(0)
 MAX_INT2 = np.int8(1)
 MIN_INT2 = np.int8(-2)
 MAX_INT4 = np.int8(7)
@@ -20,8 +26,13 @@ MIN_INT8 = np.iinfo(np.int8).min
 @unique
 class ConnType(Enum):
     MatConn = auto()
+    """General matrix connection."""
+
     One2One = auto()
+    """One-to-one connection."""
+
     All2All = auto()
+    """All-to-all connection."""
 
 
 def _get_weight_precision(weight: np.ndarray) -> WP:
@@ -29,25 +40,21 @@ def _get_weight_precision(weight: np.ndarray) -> WP:
     _max = np.max(weight, axis=None).astype(np.int32)
     _min = np.min(weight, axis=None).astype(np.int32)
 
-    if _max <= np.int8(1) and _min >= np.int8(0):
+    if _max <= MAX_INT1 and _min >= MIN_INT1:
         return WP.WEIGHT_WIDTH_1BIT
-
     elif _max <= MAX_INT2 and _min >= MIN_INT2:
         return WP.WEIGHT_WIDTH_2BIT
-
     elif _max <= MAX_INT4 and _min >= MIN_INT4:
         return WP.WEIGHT_WIDTH_4BIT
-
     elif _max <= MAX_INT8 and _min >= MIN_INT8:
         return WP.WEIGHT_WIDTH_8BIT
-
     else:
-        raise ValueError(f"Weight precision out of range.")
+        raise ValueError(f"Weight precision out of range, max: {_max}, min: {_min}.")
 
 
 class Transform:
     weights: NDArray[np.int8]
-    """The actual weights in synapse. Always stored in `np.int8` format."""
+    """The actual weights in synapse. Must stored in `np.int8` format."""
 
     def __call__(self, *args, **kwargs) -> NDArray[np.int32]:
         raise NotImplementedError

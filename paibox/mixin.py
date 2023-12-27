@@ -1,6 +1,6 @@
 import copy
 from functools import wraps
-from typing import Any, Type
+from typing import Any, Optional, Type
 
 import numpy as np
 from numpy.typing import NDArray
@@ -142,9 +142,15 @@ class StatusMemory(MixIn):
         self._memories[name] = value
         self.set_reset_value(name, value)
 
-    def reset(self) -> None:
-        for k in self._memories.keys():
-            self._memories[k] = copy.deepcopy(self._memories_rv[k])
+    def reset(self, name: Optional[str] = None) -> None:
+        if isinstance(name, str):
+            if name in self._memories:
+                self._memories[name] = copy.deepcopy(self._memories_rv[name])
+            else:
+                raise KeyError(f"Key {name} not found!")
+        else:
+            for k in self._memories.keys():
+                self._memories[k] = copy.deepcopy(self._memories_rv[k])
 
     def set_reset_value(self, name: str, init_value: Any) -> None:
         self._memories_rv[name] = copy.deepcopy(init_value)
@@ -179,5 +185,8 @@ class StatusMemory(MixIn):
         for k, v in self._memories.items():
             yield k, v
 
-    def copy(self) -> NodeDict:
+    def __copy__(self) -> NodeDict:
         return copy.deepcopy(self._memories)
+
+    def copy(self):
+        return self.__copy__()
