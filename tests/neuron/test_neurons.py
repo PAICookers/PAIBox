@@ -19,6 +19,17 @@ def test_NeuronParams_instance(ensure_dump_dir):
         json.dump({n1.name: attrs_dict}, f, indent=4, ensure_ascii=True)
 
 
+def test_NeuronParams_check():
+    with pytest.raises(ValueError):
+        n1 = pb.neuron.LIF((100,), threshold=-1)
+
+    with pytest.raises(ValueError):
+        n2 = pb.neuron.IF((100,), 1, delay=-1)
+
+    with pytest.raises(ValueError):
+        n3 = pb.neuron.IF((100,), 1, delay=1, tick_wait_start=-1, tick_wait_end=100)
+
+
 class TestNeuronBehavior:
     sim = SIM.MODE_DETERMINISTIC
     lim = LIM.MODE_DETERMINISTIC
@@ -88,7 +99,6 @@ class TestNeuronBehavior:
                 np.array([-4, -4]),
             ),
         ],
-        # ids="path_1, path_2, path_3,path_4,path_5,path_6,path_7,path_8,path_9"
     )
     def test_neuronal_leak(self, lim, ld, vjt, leak_v, expected):
         n1 = pb.neuron.Neuron(
