@@ -48,6 +48,8 @@ from .context import _BACKEND_CONTEXT
 
 SourceNodeType: TypeAlias = Union[NeuDyn, InputProj]
 DestNodeType: TypeAlias = NeuDyn
+WeightType: TypeAlias = NDArray[np.int8]  # raw int8 weights
+WeightRamType: TypeAlias = NDArray[np.uint64]  # uint64 weights mapped in weight RAM
 NeuSeg = NamedTuple("NeuSeg", [("parent", DestNodeType), ("segment", NeuronSegment)])
 
 
@@ -279,8 +281,7 @@ class CoreBlock(CoreAbstract):
 
     @property
     def n_neuron_of_plm(self) -> List[int]:
-        """A list of the #N of neurons on each `CorePlacement` \
-            in descending order.
+        """A list of the #N of neurons on each `CorePlacement` in descending order.
 
         FIXME Different in SNN/ANN mode.
         """
@@ -292,16 +293,16 @@ class CoreBlock(CoreAbstract):
         for i in range(self.n_core_required - 1):
             n[i] = self.neuron_capacity
 
-        n[-1] = self.n_neuron % self.neuron_capacity
+        # When n_neuron = N * neuron_capacity, the n[-1] must be `neuron_capacity`.
+        n[-1] = (self.n_neuron - 1) % self.neuron_capacity + 1
 
         return n
 
     @cached_property
-    def raw_weight_of_dest(self) -> List[NDArray[np.int8]]:
+    def raw_weight_of_dest(self) -> List[WeightType]:
         """Merge and then split the weight matrix according to the grouping of neurons."""
-
         # The concatenated weight for each destination node.
-        w_of_neurons: List[np.ndarray] = []
+        w_of_neurons: List[WeightType] = []
 
         for d in self.dest:
             # The weights for each destination node.
@@ -325,9 +326,9 @@ class CoreBlock(CoreAbstract):
 
         return w_of_neurons
 
-    def get_raw_weight_of_coord(self, idx: int) -> List[NDArray[np.int8]]:
+    def get_raw_weight_of_coord(self, idx: int) -> List[WeightType]:
         """Get the raw weight of a coordinate(on each `CorePlacement`)."""
-        w_of_neu_segs: List[np.ndarray] = []
+        w_of_neu_segs: List[WeightType] = []
 
         for neu_seg in self.neuron_segs_of_cb[idx]:
             w_of_dest = self.raw_weight_of_dest[self.dest.index(neu_seg.parent)]
@@ -393,7 +394,7 @@ class CorePlacement(CoreAbstract):
         routing_coord: Coord,
         n_neuron: int,
         *,
-        raw_weights: List[np.ndarray],
+        raw_weights: List[WeightType],
         neu_segs: List[NeuSeg],
         name: Optional[str] = None,
     ) -> None:
@@ -420,7 +421,7 @@ class CorePlacement(CoreAbstract):
         self.neu_configs: Dict[NeuDyn, NeuronConfig] = dict()
 
     @classmethod
-    def build(cls, parent: CoreBlock, idx: int, raw_weights: List[np.ndarray]):
+    def build(cls, parent: CoreBlock, idx: int, raw_weights: List[WeightType]):
         coord = parent.core_coords[idx]
         n_neuron = parent.n_neuron_of_plm[idx]
         neu_segs = parent.neuron_segs_of_cb[idx]
@@ -433,7 +434,7 @@ class CorePlacement(CoreAbstract):
             neu_segs=neu_segs,
         )
 
-    def _fold_raw_weights(self, raw_weights: List[np.ndarray]) -> NDArray[np.int8]:
+    def _fold_raw_weights(self, raw_weights: List[WeightType]) -> WeightType:
         """Fold the weights into LCN-sized blocks."""
         w_folded_list = []
         w_folded_of_axon_segs = []
@@ -469,7 +470,7 @@ class CorePlacement(CoreAbstract):
 
         return w_folded
 
-    def _weight_ram_mapping(self) -> NDArray[np.uint64]:
+    def _weight_ram_mapping(self) -> WeightRamType:
         row, col = self._weights_folded.shape
         w_unpacked = np.zeros(self.weight_ram_shape, dtype=np.uint8)
 
@@ -514,8 +515,8 @@ class CorePlacement(CoreAbstract):
 
     @staticmethod
     def _nfold_weight(
-        raw_weight: np.ndarray, expected_row: int, n_fold: int
-    ) -> np.ndarray:
+        raw_weight: WeightType, expected_row: int, n_fold: int
+    ) -> WeightType:
         """According to the folding ratio `n_fold`, fold the weight matrix.
 
         Args:
@@ -710,7 +711,7 @@ class CorePlacement(CoreAbstract):
         return [p.parent for p in self.neu_segs]
 
     @property
-    def weight_ram(self) -> NDArray[np.uint64]:
+    def weight_ram(self) -> WeightRamType:
         return self._weight_ram_mapping()
 
     def __len__(self) -> int:
