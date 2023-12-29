@@ -1,6 +1,6 @@
 import sys
 from collections import defaultdict
-from typing import ClassVar, Dict, List, Sequence, Tuple
+from typing import ClassVar, Dict, FrozenSet, List, Sequence, Tuple
 
 from paibox.base import NeuDyn
 
@@ -11,7 +11,7 @@ if sys.version_info >= (3, 10):
 else:
     from typing_extensions import TypeAlias
 
-BoundedConstrType: TypeAlias = List[frozenset[NodeName]]
+BoundedConstrType: TypeAlias = List[FrozenSet[NodeName]]
 
 
 class Constraints:

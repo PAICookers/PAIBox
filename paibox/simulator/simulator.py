@@ -53,11 +53,11 @@ class Simulator(PAIBoxObject):
             - reset: whether to reset the state of components in the model. Default is `False`.
         """
         if duration < 1:
-            raise SimulationError(f"Duration must be > 0, but got {duration}")
+            raise SimulationError(f"Duration must be positive, but got {duration}")
 
         n_steps = self._get_nstep(duration)
         if n_steps < 1:
-            raise SimulationError(f"Steps of simulation must be > 0, but got {n_steps}")
+            raise SimulationError(f"Steps of simulation must be positive, but got {n_steps}")
 
         indices = np.arange(self._ts, self._ts + n_steps, dtype=np.int16)
 
