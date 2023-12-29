@@ -239,6 +239,19 @@ def test_bounded_nodes_check(constrs, expected):
     assert len(result) == len(expected)
 
 
+class TestPAIGraph:
+    def test_output_nodes_with_more_than_1152(self, monkeypatch, build_example_net1):
+        net = build_example_net1
+
+        # Change the #N of neurons of the output node
+        monkeypatch.setattr(net.n3, "_n_neuron", 1200)
+
+        mapper = pb.Mapper()
+
+        with pytest.raises(NotSupportedError):
+            mapper.build(net)
+
+
 class TestGroupEdges:
     @staticmethod
     def group_edges_proto(
