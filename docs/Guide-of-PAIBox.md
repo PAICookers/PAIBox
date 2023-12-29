@@ -13,19 +13,19 @@ git clone -b dev https://github.com/PAICookers/PAIBox.git
 cd PAIBox
 ```
 
-PAIBox使用 `pyproject.toml` 管理依赖，如果使用Poetry：
+PAIBox使用 `pyproject.toml` 管理依赖。若使用Poetry：
 
 ```bash
 poetry install
 ```
 
-使用conda等，则手动安装如下依赖至Python虚拟环境：
+若使用conda等，则手动安装如下依赖至Python虚拟环境：
 
 ```toml
 python = "^3.9"
 pydantic = "^2.0"
 numpy = "^1.23.0"
-paicorelib = "^0.0.3"
+paicorelib = "^0.0.5"
 ```
 
 ## 基本组件
@@ -55,7 +55,7 @@ n1 = pb.neuron.IF(shape=10, threshold=127, reset_v=0, vjt_init=0, keep_shape=Fal
 - `reset_v`：神经元的重置电位。
 - `vjt_init`：神经元的初始电位。
 - `keep_shape`：是否在仿真记录数据时保持尺寸信息，默认为 `False`。实际进行运算的尺寸仍视为一维。
-- `delay`：设定该神经元组输出的延迟。默认为1，即本时间步的计算结果，下一时间步传递至后继神经元。
+- `delay`：设定该神经元组输出的延迟。默认为1，即本时间步的计算结果，**下一时间步**传递至后继神经元。
 - `tick_wait_start`: 设定该神经元组在第 `N` 个时间步时启动，0表示不启动。默认为1。
 - `tick_wait_end`: 设定该神经元组持续工作 `M` 个时间步，0表示一直持续工作。默认为0。
 - `name`：可选，为该对象命名。
@@ -460,8 +460,10 @@ class fcnet(pb.Network):
 w1 = ...
 w2 = ...
 fcnet = fcnet(w1, w2)
-sim = pb.Simulator(fcnet)
+sim = pb.Simulator(fcnet, start_time_zero=False)
 ```
+
+需要注意的是，为保持与实际硬件行为的一致性，仿真默认**从时间步1时刻**开始（时间步0时刻网络未开始工作），但仍保留了该配置选项。
 
 ### 探针
 
@@ -469,13 +471,13 @@ sim = pb.Simulator(fcnet)
 
 1. 在构建网络时，直接设置探针，即在网络内部例化探针对象；
 2. 在外部例化探针，并调用 `add_probe` 将其添加至仿真器内。仿真器内部将保存所有探针对象。
-3. 调用 `Simulator.remove_probe` 方法可移除探针及其仿真数据。
+3. 调用 `remove_probe` 方法可移除探针及其仿真数据。
 
 例化探针时需指定：
 
 - `target`: 监测对象，必须是 `DynamicSys` 类。
-- `attr`：监测的属性，如 `spike`、`output` 等，字符串类型，这将监测 `target.attr` 属性。
-- `subtarget`: 监测对象的子对象。可选，若指定，最终将监测 `target.subtarget.attr` 属性。
+- `attr`：监测的属性，如 `spike`、`output` 等，字符串类型，这将监测属性 `target.attr`。
+- `subtarget`: 监测对象的子对象。可选，若指定，则最终将监测属性 `target.subtarget.attr`。
 
 基于上述仿真示例，我们添加几个探针：
 
@@ -498,7 +500,7 @@ sim.add_probe(probe2)
 仿真数据可通过 `sim.data` 取得。可监测的对象包括网络内部所有的属性。例如，神经元及突触的各类属性，常用的监测对象包括：
 
 - 输入节点的 `feature_map`。
-- 神经元：脉冲输出 `spike` （本层神经元产生的脉冲，但不一定传递至后继神经元）、真实脉冲输出  `output `（真正传递到后继神经元的脉冲）、真实脉冲输出（特征图形式）`feature_map `、膜电位 `voltage`。
+- 神经元：脉冲输出 `spike` （本层神经元产生的脉冲，但不一定传递至后继神经元）、**真实脉冲输出**  `output`（真正传递到后继神经元的脉冲）、真实脉冲输出（特征图形式）`feature_map`、膜电位 `voltage`。
 - 突触：输出 `output`。
 
 在设置完探针后，可输入数据并进行仿真，仿真结束后读取探针监测的数据：
@@ -506,7 +508,8 @@ sim.add_probe(probe2)
 ```python
 # 准备输入数据
 input_data = np.random.rand(28, 28).astype(np.float32)
-sim.run(10, input=input_data)   # 仿真10个时间步
+sim.run(10, reset=True, input=input_data)   # 仿真10个时间步
+sim.run(5)                                  # 接着仿真5个时间步
 
 # 读取仿真数据
 n1_spike_data = sim.data[fcnet.probe1]
@@ -514,6 +517,12 @@ n1_v_data = sim.data[fcnet.probe2]
 # 重置仿真器
 sim.reset()
 ```
+
+调用 `run` 运行仿真，其中：
+
+- `duration`：指定仿真时间步长。
+- `reset`：是否对网络模型中组件进行复位。默认为 `False`。
+- `kwargs`：关键字参数。根据模型中输入节点的参数格式，传递输入数据。例如 `input=data`。
 
 ## 编译
 
@@ -534,7 +543,7 @@ mapper.clear()
 - `write_to_file`: 是否将配置帧导出为文件。默认为 `True`。
 - `fp`：导出目录。
 - `format`：导出交换文件格式，可以为 `bin`、`npy` 或 `txt`。默认为 `bin`。
-- `split_by_coordinate`：是否将配置帧以每个核坐标进行分割，由此生成的配置帧文件命名为 `config_core1`、`config_core2` 等。默认为   `False`。
-- `local_chip_addr`：本地芯片地址，元组表示。默认为后端全局变量 `local_chip_addr` 所设置的默认值。
+- `split_by_coordinate`：是否将配置帧以每个核坐标进行分割，由此生成的配置帧文件命名为 `config_core1`、`config_core2` 等。默认为 `False`。
+- `local_chip_addr`：本地芯片地址，元组格式表示。默认为后端全局变量 `local_chip_addr` 所设置的默认值。
 - `export_core_params`: 是否导出实际使用核参数至json文件，可直观显示实际使用核的配置信息。默认为 `False`。
-- 同时，该函数将返回网络的配置字典。
+- 同时，该函数同时将返回模型的配置字典。
