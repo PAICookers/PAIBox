@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
@@ -12,68 +12,71 @@ __all__ = ["Simulator"]
 
 
 class Simulator(PAIBoxObject):
-    def __init__(self, target: DynamicSys) -> None:
+    def __init__(
+        self,
+        target: DynamicSys,
+        start_time_zero: bool = False,
+        name: Optional[str] = None,
+    ) -> None:
         """
         Arguments:
             - target: the target network.
+            - start_time_zero: whether to start the simulation at time 0. If `False`, \
+                it will start & record at time 1. Default is `False`.
         """
         if not isinstance(target, DynamicSys):
             raise SimulationError(
-                f"Target must be an instance of {DynamicSys.__name__}, "
-                f"but we got {target}: {type(target)}"
+                f"Target must be an instance of {DynamicSys.__name__}, but we got {target}: {type(target)}"
             )
 
-        super().__init__()
+        super().__init__(name)
+
         self.target = target
         self.dt = 1
         """Time scale."""
         self._ts = 0
         """Current time."""
+        self._start_time_zero = start_time_zero
+        """Whether to start the simulation at time 0."""
 
         self._sim_data = dict()
-        self.data = SimulationData(self._sim_data)
+        self.data = _SimulationData(self._sim_data)
         self.probes: List[Probe] = []
 
         self._add_inner_probes()
         self.reset()
 
-    def run(self, duration: int, reset: bool = True, *args, **kwargs) -> None:
+    def run(self, duration: int, reset: bool = False, *args, **kwargs) -> None:
         """
         Arguments:
             - duration: duration of the simulation.
-            - reset: whether to reset the model state.
+            - reset: whether to reset the state of components in the model. Default is `False`.
         """
         if duration < 1:
-            raise SimulationError(f"Duration should be > 0, but got {duration}")
+            raise SimulationError(f"Duration must be > 0, but got {duration}")
 
         n_steps = self._get_nstep(duration)
         if n_steps < 1:
-            raise SimulationError(
-                f"Step of simulation should be > 0, but got {n_steps}"
-            )
+            raise SimulationError(f"Steps of simulation must be > 0, but got {n_steps}")
 
         indices = np.arange(self._ts, self._ts + n_steps, dtype=np.int16)
 
         if reset:
             self.target.reset_state()
 
-        self.run_step(n_steps, *args, **kwargs)
+        self._run_step(n_steps, *args, **kwargs)
 
         self._sim_data["ts"] = indices * self.dt
         self._ts += n_steps
 
-    def run_step(self, n_steps: int, *args, **kwargs) -> None:
-        for step in range(n_steps):
-            _FRONTEND_CONTEXT["t"] = step
-            self.step(*args, **kwargs)
-
-    def step(self, *args, **kwargs) -> None:
-        self.target.update(*args, **kwargs)
-        self._update_probes()
-
     def reset(self) -> None:
-        _FRONTEND_CONTEXT["t"] = 0
-        self._ts = 0
+        if self._start_time_zero:
+            _FRONTEND_CONTEXT["t"] = 0
+            self._ts = 0
+        else:
+            _FRONTEND_CONTEXT["t"] = 1
+            self._ts = 1
+
         self._reset_probes()
 
     def add_probe(self, probe: Probe) -> None:
@@ -87,6 +90,18 @@ class Simulator(PAIBoxObject):
             self._sim_data.pop(probe)
         else:
             raise KeyError(f"Probe {probe.name} does not exist.")
+
+    def _run_step(self, n_steps: int, *args, **kwargs) -> None:
+        # The global timestep start at 1 if excluding time 0.
+        if self._start_time_zero:
+            _zero_offset = 0
+        else:
+            _zero_offset = 1
+
+        for step in range(n_steps):
+            _FRONTEND_CONTEXT["t"] = step + _zero_offset
+            self.target.update(*args, **kwargs)
+            self._update_probes()
 
     def _destroy_probes(self):
         self.probes.clear()
@@ -149,10 +164,11 @@ class Simulator(PAIBoxObject):
 
     @property
     def time(self) -> int:
+        """Current simulation time."""
         return self._ts
 
 
-class SimulationData(dict):
+class _SimulationData(dict):
     """Data structure used to retrieve and access the simulation data."""
 
     def __init__(self, raw: Dict[Probe, List[Any]]) -> None:
