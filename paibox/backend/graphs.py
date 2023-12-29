@@ -1,6 +1,6 @@
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple, TypeVar
+from typing import Any, Dict, FrozenSet, List, Mapping, Optional, Sequence, Set, Tuple, TypeVar
 
 from paibox.base import NeuDyn
 from paibox.collector import Collector
@@ -158,7 +158,7 @@ class PAIGraph:
         if not self.has_built:
             raise BuildError(f"The graph hasn't been built yet")
 
-    def group_edges(self) -> List[frozenset[EdgeName]]:
+    def group_edges(self) -> List[FrozenSet[EdgeName]]:
         """Group all edges according to a certain rule.
 
         Args:

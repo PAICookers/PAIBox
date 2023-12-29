@@ -725,7 +725,7 @@ def n_axon2lcn_ex(n_axon: int, fan_in_max: int) -> LCN_EX:
         LCN_EX = log2[ceil(#N/fan-in per dendrite)], where LCN_EX = 0 is `LCN_1X`.
     """
     if n_axon < 1:
-        raise ValueError(f"The #N of axons > 0, but got {n_axon}")
+        raise ValueError(f"The #N of axons must be positive, but got {n_axon}")
 
     if (lcn_bit := ((n_axon - 1) // fan_in_max).bit_length()) > LCN_EX.LCN_64X:
         raise ResourceError(

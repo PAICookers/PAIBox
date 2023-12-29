@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional, Sequence, final
 
 from paicorelib import HwConfig
 from paicorelib.routing_defs import RoutingDirection as Direction
-from paicorelib.routing_defs import RoutingDirectionIdx as DirectionIdx
+from paicorelib.routing_defs import ROUTING_DIRECTIONS_IDX
 from paicorelib.routing_defs import RoutingCoord
 from paicorelib.routing_defs import RoutingCost
 from paicorelib.routing_defs import RoutingLevel as Level
@@ -96,7 +96,7 @@ class RoutingCluster:
             return False
 
         # Traverse from X0Y0 to X1Y1.
-        for d in DirectionIdx:
+        for d in ROUTING_DIRECTIONS_IDX:
             if d not in self.children:
                 return self.add_child_to(child, d, force)
 
@@ -205,7 +205,7 @@ class RoutingCluster:
                 return None
 
         if not self.is_empty():
-            for d in DirectionIdx:
+            for d in ROUTING_DIRECTIONS_IDX:
                 if d in self.children:
                     cluster = self[d]._find_lx_cluster_with_n_child_avail(
                         lx, n_child_avail, method
@@ -256,7 +256,7 @@ class RoutingCluster:
             return True
 
         if not self.is_empty():
-            for d in DirectionIdx:
+            for d in ROUTING_DIRECTIONS_IDX:
                 if d in self.children:
                     flag = self[d].add_subtree(subtree, method)
                     if flag:
@@ -280,7 +280,7 @@ class RoutingCluster:
         if lx > Level.L1:
             for i in range(root.node_capacity):
                 child = cls.create_lx_full_tree(
-                    Level(lx - 1), DirectionIdx[i], f"L{lx-1}_{i}"
+                    Level(lx - 1), ROUTING_DIRECTIONS_IDX[i], f"L{lx-1}_{i}"
                 )
                 if not root.add_child(child):
                     raise ValueError
@@ -302,7 +302,7 @@ class RoutingCluster:
         # Create `n_branch` children when lx > L1.
         if lx > Level.L1:
             for i in range(n_branch):
-                child = cls.create_lx_full_tree(Level(lx - 1), DirectionIdx[i])
+                child = cls.create_lx_full_tree(Level(lx - 1), ROUTING_DIRECTIONS_IDX[i])
                 if not root.add_child(child):
                     raise ValueError
 
@@ -342,7 +342,7 @@ class RoutingCluster:
 
                 return
 
-            for d in DirectionIdx:
+            for d in ROUTING_DIRECTIONS_IDX:
                 if d in root.children:
                     dfs_preorder(root[d])
 
@@ -492,7 +492,7 @@ def get_parent(
     def dfs_preorder(
         tree: RoutingCluster, cluster: RoutingCluster
     ) -> Optional[RoutingCluster]:
-        for d in DirectionIdx:
+        for d in ROUTING_DIRECTIONS_IDX:
             if d in tree.children:
                 if tree[d] is cluster:
                     return tree

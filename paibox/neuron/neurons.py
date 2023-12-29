@@ -17,10 +17,10 @@ class IF(Neuron):
         reset_v: int = 0,
         vjt_init: int = 0,
         *,
-        keep_shape: bool = False,
         delay: int = 1,
         tick_wait_start: int = 1,
         tick_wait_end: int = 0,
+        keep_shape: bool = False,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -80,10 +80,10 @@ class LIF(Neuron):
         leaky_v: int = 0,
         vjt_init: int = 0,
         *,
-        keep_shape: bool = False,
         delay: int = 1,
         tick_wait_start: int = 1,
         tick_wait_end: int = 0,
+        keep_shape: bool = False,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -144,10 +144,10 @@ class TonicSpiking(Neuron):
         fire_step: int,
         vjt_init: int = 0,
         *,
-        keep_shape: bool = False,
         delay: int = 1,
         tick_wait_start: int = 1,
         tick_wait_end: int = 0,
+        keep_shape: bool = False,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -193,10 +193,10 @@ class PhasicSpiking(Neuron):
         neg_floor: int = 10,
         vjt_init: int = 0,
         *,
-        keep_shape: bool = False,
         delay: int = 1,
         tick_wait_start: int = 1,
         tick_wait_end: int = 0,
+        keep_shape: bool = False,
         name: Optional[str] = None,
     ) -> None:
         """
