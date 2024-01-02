@@ -1,6 +1,7 @@
+import sys
 from enum import Enum, unique
 from typing import Optional, Tuple
-import sys
+
 import numpy as np
 from numpy.typing import NDArray
 from paicorelib import (

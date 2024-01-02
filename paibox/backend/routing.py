@@ -1,10 +1,8 @@
 from typing import Any, Dict, List, Optional, Sequence, final
 
 from paicorelib import HwConfig
+from paicorelib.routing_defs import ROUTING_DIRECTIONS_IDX, RoutingCoord, RoutingCost
 from paicorelib.routing_defs import RoutingDirection as Direction
-from paicorelib.routing_defs import ROUTING_DIRECTIONS_IDX
-from paicorelib.routing_defs import RoutingCoord
-from paicorelib.routing_defs import RoutingCost
 from paicorelib.routing_defs import RoutingLevel as Level
 from paicorelib.routing_defs import RoutingStatus as Status
 from paicorelib.routing_defs import get_routing_consumption
@@ -13,7 +11,6 @@ from paibox._types import FrozenOrderedSet
 from paibox.exceptions import NotSupportedError
 
 from .placement import CoreBlock, CorePlacement
-
 
 __all__ = ["RoutingGroup", "RoutingRoot"]
 
@@ -302,7 +299,9 @@ class RoutingCluster:
         # Create `n_branch` children when lx > L1.
         if lx > Level.L1:
             for i in range(n_branch):
-                child = cls.create_lx_full_tree(Level(lx - 1), ROUTING_DIRECTIONS_IDX[i])
+                child = cls.create_lx_full_tree(
+                    Level(lx - 1), ROUTING_DIRECTIONS_IDX[i]
+                )
                 if not root.add_child(child):
                     raise ValueError
 
