@@ -115,13 +115,13 @@ class Mapper:
         """1. Build core blocks."""
         self.build_core_blocks()
 
-        """2. Adjust the LCN extension of each layer for target LCN."""
+        """2. Adjust the LCN extension of each core block."""
         self.lcn_ex_adjustment()
 
-        """3. Do core coordinate assignment."""
+        """3. Core coordinate assignment."""
         self.coord_assign(method)
 
-        """4. Allocate the grouped synapses to the cores."""
+        """4. Allocate the core blocks to the `CorePlacement`."""
         self.core_allocation()
 
         """5. Export parameters."""
@@ -130,11 +130,7 @@ class Mapper:
     def build_core_blocks(self) -> None:
         """Build core blocks based on grouped edges.
 
-        Description:
-            After combining all synapses into groups, iterate through \
-            each combination synapses to build `CoreBlock`.
-
-            # Then do sorting in ascending order.
+        Description: Group all edges & build `CoreBlock` based on the grouped edges.
         """
         grouped_edges = self.graph.group_edges()
 
@@ -142,18 +138,6 @@ class Mapper:
             syns = [self.graph.edges[syn] for syn in syns_group]
             self.core_blocks.append(CoreBlock.build(*syns, seed=0))
 
-        # """
-        #     Sort in ascending order according to the minimum value of \
-        #     the index of source nodes in the topological order.
-        # """
-        # self.core_blocks.sort(
-        #     key=lambda cb: min(self._ordered_nodes.index(src.name) for src in cb.source)
-        # )
-
-        """
-            Gather info of graph of core blocks.
-            Get the following core blocks for each core block.
-        """
         for cb in self.core_blocks:
             succ_cbs = list(
                 filter(
@@ -166,7 +150,7 @@ class Mapper:
         self.degrees_of_cb = get_node_degrees(self.succ_core_blocks)
 
     def lcn_ex_adjustment(self) -> None:
-        """Adjust the LCN extension for each core block."""
+        """Adjust the LCN extension of each core block."""
         for cb in self.core_blocks:
             succ_cb = self.succ_core_blocks[cb]
 
@@ -188,7 +172,7 @@ class Mapper:
                 cb.lcn_locked = True
 
     def coord_assign(self, method: Literal["catagory", "dense"] = "catagory") -> None:
-        """Assign the coordinate for each `CorePlacement`.
+        """Assign the coordinate of each `CorePlacement`.
 
         NOTE: The neurons in each core block must be grouped first  \
             to determine the #N of cores required, and then the     \
@@ -231,8 +215,8 @@ class Mapper:
         """Export parameters of cores & neurons inside.
 
         Steps:
-            - 1. Export the parameters(PARAMETER_REG, including \
-                RANDOM_SEED & Weight RAM) of cores.
+            - 1. Export the parameters(PARAMETER_REG, including RANDOM_SEED \
+                & Weight RAM) of cores.
             - 2. Export the parameters(Neuron RAM) of neurons inside.
         """
         input_nodes_info = self._inpproj_config_export()
