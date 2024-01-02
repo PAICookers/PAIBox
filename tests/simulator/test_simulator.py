@@ -34,25 +34,38 @@ class Net1(pb.DynSysGroup):
         self.n2_acti = pb.Probe(self.n2, "output", name="n2_acti")
 
 
-def test_probe():
-    net = Net1(100)
+class TestSimulator:
+    def test_probe(self):
+        net = Net1(100)
 
-    probe_outside = pb.Probe(net.inp, "state", name="inp_state")
+        probe_outside = pb.Probe(net.inp, "state", name="inp_state")
 
-    sim = pb.Simulator(net)
-    sim.add_probe(probe_outside)
+        sim = pb.Simulator(net)
+        sim.add_probe(probe_outside)
 
-    # Normalized data
-    input_data = np.random.rand(10, 10).astype(np.float32)
+        # Normalized data
+        input_data = np.random.rand(10, 10).astype(np.float32)
 
-    sim.run(10, input=input_data)
+        sim.run(10, input=input_data)
 
-    inp_state = sim.data[probe_outside]
-    assert type(inp_state) == np.ndarray
+        inp_state = sim.data[probe_outside]
+        assert type(inp_state) == np.ndarray
 
-    inp_state2 = sim.get_raw(probe_outside)
-    assert type(inp_state2) == list
+        inp_state2 = sim.get_raw(probe_outside)
+        assert type(inp_state2) == list
 
-    # Get the data at time=5
-    inp_state_at_t = sim.get_raw_at_t(probe_outside, t=5)
-    assert type(inp_state_at_t) == np.ndarray
+        # Get the data at time=5
+        inp_state_at_t = sim.get_raw_at_t(probe_outside, t=5)
+        assert type(inp_state_at_t) == np.ndarray
+
+    def test_sim_behavior(self):
+        net = Net1(100)
+        sim = pb.Simulator(net, include_time_zero=True)
+        sim.run(10, input=np.zeros(100, dtype=np.int8))
+
+        assert sim.time == 10
+
+        sim2 = pb.Simulator(net, include_time_zero=False)
+        sim2.run(10, input=np.zeros(100, dtype=np.int8))
+
+        assert sim2.time == 11

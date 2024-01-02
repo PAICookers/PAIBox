@@ -14,7 +14,7 @@ from paicorelib import (
     MaxPoolingEnable,
     NeuronSegment,
     RoutingDirection,
-    RoutingNodeLevel,
+    RoutingLevel,
     SNNModeEnable,
     SpikeWidthFormat,
 )
@@ -23,7 +23,7 @@ from paicorelib import WeightPrecision as WP
 import paibox as pb
 from paibox.backend.conf_template import CoreConfig, CorePlacementConfig, NeuronConfig
 from paibox.backend.placement import NeuSeg
-from paibox.backend.routing import RoutingNode
+from paibox.backend.routing import RoutingCluster
 
 
 @pytest.fixture(scope="session")
@@ -54,16 +54,16 @@ def build_example_root():
         L2_1: L1_1
         L2_2: L1_2, L1_3, L1_4, L1_5
     """
-    root = RoutingNode(RoutingNodeLevel.L3, tag="L3")
+    root = RoutingCluster(RoutingLevel.L3, tag="L3")
 
-    node_l2_1 = RoutingNode(RoutingNodeLevel.L2, tag="L2_1")
-    node_l2_2 = RoutingNode(RoutingNodeLevel.L2, tag="L2_2")
+    node_l2_1 = RoutingCluster(RoutingLevel.L2, tag="L2_1")
+    node_l2_2 = RoutingCluster(RoutingLevel.L2, tag="L2_2")
 
-    node_l1_1 = RoutingNode(RoutingNodeLevel.L1, tag="L1_1")
-    node_l1_2 = RoutingNode(RoutingNodeLevel.L1, tag="L1_2")
-    node_l1_3 = RoutingNode(RoutingNodeLevel.L1, tag="L1_3")
-    node_l1_4 = RoutingNode(RoutingNodeLevel.L1, tag="L1_4")
-    node_l1_5 = RoutingNode(RoutingNodeLevel.L1, tag="L1_5")
+    node_l1_1 = RoutingCluster(RoutingLevel.L1, tag="L1_1")
+    node_l1_2 = RoutingCluster(RoutingLevel.L1, tag="L1_2")
+    node_l1_3 = RoutingCluster(RoutingLevel.L1, tag="L1_3")
+    node_l1_4 = RoutingCluster(RoutingLevel.L1, tag="L1_4")
+    node_l1_5 = RoutingCluster(RoutingLevel.L1, tag="L1_5")
 
     node_l2_1.add_child_to(node_l1_1, RoutingDirection.X0Y0)
     node_l2_2.add_child_to(node_l1_2, RoutingDirection.X0Y0)

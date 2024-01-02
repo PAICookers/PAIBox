@@ -1,6 +1,19 @@
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple, TypeVar
+from typing import (
+    Any,
+    Dict,
+    FrozenSet,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    TypeVar,
+)
+
+from paicorelib import HwConfig
 
 from paibox.base import NeuDyn
 from paibox.collector import Collector
@@ -143,8 +156,18 @@ class PAIGraph:
                 for succ_node in self.succ_dg[inode]
             ):
                 raise NotSupportedError(
-                    "Only input nodes are supported as the only input of a node."
+                    "Only input nodes as the only input of a node are supported."
                 )
+
+        # Only support output nodes with <= 1152 neurons.
+        if any(
+            onode.num_out > HwConfig.N_FANIN_PER_DENDRITE_MAX
+            for onode in self.onodes.values()
+        ):
+            raise NotSupportedError(
+                f"Only output nodes with no more than {HwConfig.N_FANIN_PER_DENDRITE_MAX}"
+                f" neurons are supported."
+            )
 
     def _node_pos(self, node: NodeName) -> NodePosition:
         if node in self.inodes:
@@ -158,7 +181,7 @@ class PAIGraph:
         if not self.has_built:
             raise BuildError(f"The graph hasn't been built yet")
 
-    def group_edges(self) -> List[frozenset[EdgeName]]:
+    def group_edges(self) -> List[FrozenSet[EdgeName]]:
         """Group all edges according to a certain rule.
 
         Args:

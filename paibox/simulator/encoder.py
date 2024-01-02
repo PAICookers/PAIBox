@@ -52,7 +52,7 @@ class StatefulEncoder(Encoder):
         super().__init__(shape_out, **kwargs)
 
         if T < 1:
-            raise ValueError(f"T should be > 0, but got {T}")
+            raise ValueError(f"T must be positive, but got {T}")
 
         self.T = T
         self.set_memory("spike", None)
