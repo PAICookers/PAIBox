@@ -21,11 +21,11 @@ class DynSysGroup(DynamicSys, Container):
         super().__init__(name)
         self.children = NodeDict(self.elem_format(component_type, *components))
 
-    def update(self, *args, **kwargs) -> None:
+    def update(self, **kwargs) -> None:
         nodes = self.nodes(level=1, include_self=False).subset(DynamicSys).unique()
 
         for node in nodes.subset(Projection).values():
-            node(*args, **kwargs)
+            node(**kwargs)
 
         for node in nodes.subset(SynSys).values():
             node()
