@@ -12,7 +12,9 @@ from typing import (
     Tuple,
     TypeVar,
 )
+
 from paicorelib import HwConfig
+
 from paibox.base import NeuDyn
 from paibox.collector import Collector
 from paibox.exceptions import BuildError, NotSupportedError

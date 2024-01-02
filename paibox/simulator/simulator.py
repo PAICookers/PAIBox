@@ -57,7 +57,9 @@ class Simulator(PAIBoxObject):
 
         n_steps = self._get_nstep(duration)
         if n_steps < 1:
-            raise SimulationError(f"Steps of simulation must be positive, but got {n_steps}")
+            raise SimulationError(
+                f"Steps of simulation must be positive, but got {n_steps}"
+            )
 
         indices = np.arange(self._ts, self._ts + n_steps, dtype=np.int16)
 

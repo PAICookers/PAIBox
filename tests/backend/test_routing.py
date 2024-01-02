@@ -1,8 +1,8 @@
 import pytest
-from paicorelib import RoutingDirection, RoutingCost, RoutingLevel
+from paicorelib import RoutingCost, RoutingDirection, RoutingLevel
 
 import paibox as pb
-from paibox.backend.routing import RoutingGroup, RoutingCluster, RoutingRoot, get_parent
+from paibox.backend.routing import RoutingCluster, RoutingGroup, RoutingRoot, get_parent
 
 
 class TestRouterTree:
@@ -80,16 +80,24 @@ class TestRouterTree:
         find0 = root[RoutingDirection.X0Y0]
         assert find0 == cluster_l2_1
 
-        find1 = root.find_cluster_by_path([RoutingDirection.X0Y0, RoutingDirection.X0Y0])
+        find1 = root.find_cluster_by_path(
+            [RoutingDirection.X0Y0, RoutingDirection.X0Y0]
+        )
         assert find1 == cluster_l1_1
 
-        find2 = root.find_cluster_by_path([RoutingDirection.X0Y0, RoutingDirection.X0Y1])
+        find2 = root.find_cluster_by_path(
+            [RoutingDirection.X0Y0, RoutingDirection.X0Y1]
+        )
         assert find2 is None
 
-        find3 = root.find_cluster_by_path([RoutingDirection.X1Y0, RoutingDirection.X1Y0])
+        find3 = root.find_cluster_by_path(
+            [RoutingDirection.X1Y0, RoutingDirection.X1Y0]
+        )
         assert find3 == cluster_l1_3
 
-        find4 = root.find_cluster_by_path([RoutingDirection.X1Y1, RoutingDirection.X1Y0])
+        find4 = root.find_cluster_by_path(
+            [RoutingDirection.X1Y1, RoutingDirection.X1Y0]
+        )
         assert find4 is None
 
     def test_get_routing_path(self):
