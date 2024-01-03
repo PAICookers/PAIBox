@@ -102,5 +102,5 @@ class PoissonEncoder(StatelessEncoder):
         """
         super().__init__(seed=seed, **kwargs)
 
-    def __call__(self, *args, input: np.ndarray, **kwargs) -> np.ndarray:
-        return np.less_equal(self.rng.random(input.shape), input).astype(np.bool_)
+    def __call__(self, x: np.ndarray, *args, **kwargs) -> np.ndarray:
+        return np.less_equal(self.rng.random(x.shape), x).astype(np.bool_)

@@ -55,11 +55,11 @@ class Collector(dict):
         if isinstance(other, dict):
             for k, v in other.items():
                 if k not in gather.keys():
-                    raise ValueError(f"Cannot find {k} in {self.keys()}.")
+                    raise ValueError(f"Cannot find '{k}' in {self.keys()}.")
 
                 if id(v) != id(gather[k]):
                     raise ValueError(
-                        f"Cannot remove {k}, since there's two different values:"
+                        f"Cannot remove '{k}', since there's two different values:"
                         f"{v} != {gather[k]}"
                     )
 

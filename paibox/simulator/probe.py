@@ -26,20 +26,15 @@ class Probe(PAIBoxObject):
     def _check_attr(self, target: PAIBoxObject) -> None:
         if not hasattr(target, self.attr):
             raise AttributeError(
-                f'Attribute "{self.attr}" not found in target {self.target}.'
+                f"Attribute '{self.attr}' not found in target {self.target}."
             )
 
         self.target = target
 
     def __str__(self) -> str:
-        label_txt = f' "{self.name}"'
+        label_txt = f" '{self.name}'"
         return f"<Probe{label_txt} of '{self.attr}' of {self.target}>"
 
     def __repr__(self) -> str:
-        label_txt = f' "{self.name}"'
+        label_txt = f" '{self.name}'"
         return f"<Probe{label_txt} at 0x{id(self):x} of '{self.attr}' of {self.target}>"
-
-    @property
-    def data(self) -> Any:
-        t = getattr(self.target, self.attr)
-        return t.copy() if hasattr(t, "copy") else t  # Shallow copy

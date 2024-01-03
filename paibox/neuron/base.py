@@ -416,9 +416,9 @@ class Neuron(MetaNeuron, NeuDyn):
         keep_shape: bool = False,
         name: Optional[str] = None,
     ) -> None:
-        if neg_threshold < 0:
+        if neg_threshold > 0:
             raise ValueError(
-                f"Negative threshold must be non-negative, but got {neg_threshold}."
+                f"Negative threshold must be non-positive, but got {neg_threshold}."
             )
 
         if pos_threshold < 0:
@@ -451,7 +451,7 @@ class Neuron(MetaNeuron, NeuDyn):
             leaking_comparison,
             threshold_mask_bits,
             neg_thres_mode,
-            neg_threshold,
+            (-neg_threshold),  # In `MetaNeuron`, it is unsgined.
             pos_threshold,
             leaking_direction,
             leaking_integration_mode,

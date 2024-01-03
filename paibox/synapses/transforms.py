@@ -48,7 +48,7 @@ def _get_weight_precision(weight: np.ndarray) -> WP:
     elif _max <= MAX_INT8 and _min >= MIN_INT8:
         return WP.WEIGHT_WIDTH_8BIT
     else:
-        raise ValueError(f"Weight precision out of range, max: {_max}, min: {_min}.")
+        raise ValueError(f"Weight precision out of range, [{_min}, {_max}]")
 
 
 class Transform:
@@ -201,7 +201,7 @@ class MaskedLinear(Transform):
 
         if not is_shape(weights, self.conn_size):
             raise ShapeError(
-                f"Excepted shape is {conn_size}, but we got shape {weights.shape}"
+                f"Excepted shape is {conn_size}, but we got {weights.shape}"
             )
 
         # Element-wise Multiplication

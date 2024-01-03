@@ -103,7 +103,6 @@ class Container(MixIn):
 
     def add_elem(self, **elems) -> None:
         """Add elements as a dictionary"""
-
         self.children.update(self.elem_format(object, **elems))
 
 
@@ -137,7 +136,7 @@ class StatusMemory(MixIn):
 
     def set_memory(self, name: str, value: Any) -> None:
         if hasattr(self, name):
-            raise AttributeError(f"{name} has been set as a member variable!")
+            raise AttributeError(f"'{name}' has been set as a member variable!")
 
         self._memories[name] = value
         self.set_reset_value(name, value)
@@ -147,7 +146,7 @@ class StatusMemory(MixIn):
             if name in self._memories:
                 self._memories[name] = copy.deepcopy(self._memories_rv[name])
             else:
-                raise KeyError(f"Key {name} not found!")
+                raise KeyError(f"Key '{name}' not found!")
         else:
             for k in self._memories.keys():
                 self._memories[k] = copy.deepcopy(self._memories_rv[k])
@@ -161,7 +160,7 @@ class StatusMemory(MixIn):
             if _memories is not None and name in _memories:
                 return _memories[name]
 
-        raise AttributeError(f"Attribute {name} not found!")
+        raise AttributeError(f"Attribute '{name}' not found!")
 
     def __setattr__(self, name: str, value: Any) -> None:
         _memories = self.__dict__.get("_memories")

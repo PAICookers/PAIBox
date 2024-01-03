@@ -18,7 +18,7 @@ class _Context:
             return self._context[key]
 
         if default is None:
-            raise KeyError("The context of {key} not found.")
+            raise KeyError(f"The context of '{key}' not found.")
 
         return default
 
