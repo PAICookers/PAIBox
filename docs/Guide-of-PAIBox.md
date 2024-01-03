@@ -277,25 +277,30 @@ for t in range(20):
 
 ### 输入节点
 
-为了支持多样的数据输入形式，同时标明网络的输入节点，PAIBox设计了输入节点这一组件。
+为了支持多样的数据输入形式，同时标明网络模型的输入节点，PAIBox设计了输入节点这一组件。
 
 输入节点可以使用以下方法定义：
 
 ```python
-# 实例化一个输入节点
 inp = pb.InputProj(input=1, shape_out=(4, 4), keep_shape=True, name='inp1')
 ```
 
 其中，
 
-- `input`：输入节点的数据，可以是整数，数组或可调用对象（函数或者实现了 `__call__` 方法的对象，例如，编码器）。
+- `input`：输入节点的数据，可以是**整型、数组或可调用对象**（函数或者实现了 `__call__` 的对象，例如，编码器等），也可以在例化节点时设置为 `None`。
 - `shape_out`：输出数据的尺寸。
 - `keep_shape`：在观测节点输出数据时，可以通过该参数确定输出是否保持原始的维度信息，从而更好地进行监测。默认为 `True`。
 - `name`：可选参数，为该节点命名。
 
+当在例化输入节点时设置 `input=None`，则可通过如下方式设置输入数据，但**仅限于设置为数值型数据**：
+
+```python
+inp.input = np.ones((4, 4), dtype=np.int8)
+```
+
 #### 数据类型输入
 
-当输入节点的输出为常量时，可以直接设置 `input` 为常量，并将 `shape_out` 设置为所需输出尺寸，即可实现。以下为一个简单实例：
+当输入节点的输出为常量时，可以直接设置 `input` 为常量，并将 `shape_out` 设置为所需输出尺寸。以下为一个简单实例：
 
 ```python
 # 实例化一个输入节点，使其一直输出2，设置输出尺寸为4*4，并保持其维度信息。
@@ -322,7 +327,7 @@ print(output)
 
 当启用 `keep_shape` 时，特征图数据将保持其维度信息。
 
-输入节点的参数也可以是矩阵。以下为一个简单实例：
+输入节点的参数也可以是 `np.ndarray` 。以下为一个简单实例：
 
 ```python
 x = np.random.randint(0, 5, size=(4, 4))
@@ -344,7 +349,7 @@ print(output)
 
 #### 函数类型输入
 
-PAIBox支持使用自定义函数作为输入节点的输入。以下为一个简单实例：
+输入节点支持使用自定义函数作为输入。以下为一个简单实例：
 
 ```python
 def fakeout(*args, **kwargs):
@@ -366,11 +371,11 @@ print(output)
  [3 3 3 3]]
 ```
 
-这可以实现，每个时间步上均产生随机的输出。
-
-当函数需要时间步信息，则可在函数参数中声明 `t` ，输入节点将在前端环境变量中获取当前时间步信息。当函数与时间步无关时，可使用 `*args` 作承接但不使用该参数。以下为一个简单实例：
+当函数需要时间步信息，则可在函数参数中声明 `t` ，输入节点将在前端环境变量 `FRONTEND_ENV` 中获取时间步信息。当需要传入额外的参数时，通过 `FRONTEND_ENV.save()` 前端环境变量中保存相关参数。当函数与时间步无关时，可使用 `*args` 作承接但不使用该参数。以下为一个简单实例：
 
 ```python
+from paibox import FRONTEND_ENV
+
 def fakeout_with_t(t, bias):
     return np.ones((4, 4)) * t + bias
 
@@ -379,7 +384,8 @@ prob = pb.simulator.Probe(inp, "feature_map")
 
 sim = pb.Simulator(inp)
 sim.add_probe(prob)
-sim.run(4, bias=0)
+FRONTEND_ENV.save(bias=3) # Passing `bias=3` to the function `fakeout_with_t`
+sim.run(4)
 
 output = sim.data[prob][-1]
 print(output)
@@ -401,17 +407,21 @@ print(output)
 
 #### 编码器类型输入
 
-PAIBox支持数据编码。以泊松编码器为例：
+PAIBox提供了一些常用编码器，编码器内部实现了 `__call__` 方法，因此可作为输入节点的输入使用。在作为输入节点的输入使用时，它与一般函数做为输入节点的输入使用存在差别。
+
+在例化 `InputProj` 时，输入节点的输入为编码器。在运行时，还需要通过设置 `inp.input`，向输入节点输入待编码数据，输入节点内部将自动完成泊松编码并输出。以泊松编码器为例：
 
 ```python
 pe = pb.simulator.PoissonEncoder()                          # 例化泊松编码器
-inp = pb.InputProj(pe, shape_out=(104 4), keep_shape=True)  # 例化输入节点
+inp = pb.InputProj(pe, shape_out=(4, 4), keep_shape=True)   # 例化输入节点
 input_data = np.random.rand(4, 4).astype(np.float32)        # 生成归一化数据
 
 sim = pb.Simulator(inp)
 prob = pb.simulator.Probe(inp, "feature_map")
 sim.add_probe(prob)
-sim.run(3, input=input_data)    # 传入数据至输入节点
+
+inp.input = input_data	# 传入数据至输入节点
+sim.run(3)
 
 output = sim.data[prob][-1]
 print(output)
@@ -478,7 +488,6 @@ sim = pb.Simulator(fcnet, start_time_zero=False)
 
 - `target`: 监测对象，必须是 `DynamicSys` 类。
 - `attr`：监测的属性，如 `spike`、`output` 等，字符串类型，这将监测属性 `target.attr`。
-- `subtarget`: 监测对象的子对象。可选，若指定，则最终将监测属性 `target.subtarget.attr`。
 
 基于上述仿真示例，我们添加几个探针：
 
@@ -506,15 +515,20 @@ sim.add_probe(probe2)
 
 ### 仿真机理
 
-在设置完探针后，可输入数据并进行仿真，仿真结束后读取探针监测的数据，可通过 `sim.data[...]` 取得。
+在设置完探针后，可为每个输入节点单独输入数据，并进行仿真。仿真结束后可通过 `sim.data[...]` 读取探针监测的数据。
 
 PAIBox仿真器的仿真行为与实际硬件保持一致，在全局时间步 `T>0` 时，网络模型才开始工作。即在例化仿真器时若指定 `start_time_zero=False`，得到的仿真数据 `sim.data[probe1][0]` 为 `T=1` 时刻的模型输出。若指定 `start_time_zero=True`，则仿真数据 `sim.data[probe1][0]` 为 `T=0` 时刻的模型输出（初态）。
 
 ```python
 # 准备输入数据
 input_data = np.random.rand(28, 28).astype(np.float32)
-sim.run(10, reset=True, input=input_data)   # 仿真10个时间步
-sim.run(5)                                  # 接着仿真5个时间步
+input_data2 = np.random.rand(28, 28).astype(np.float32)
+
+fcnet.inp.input = input_data
+sim.run(10, reset=True)
+
+fcnet.inp.input = input_data2
+sim.run(5)  # Change the input raw data & continue to simulate for 5 timesteps
 
 # 读取仿真数据
 n1_spike_data = sim.data[fcnet.probe1]
@@ -527,7 +541,6 @@ sim.reset()
 
 - `duration`：指定仿真时间步长。
 - `reset`：是否对网络模型中组件进行复位。默认为 `False`。这可实现为一次仿真的不同时间步输入不同的数据。
-- `kwargs`：关键字参数。根据模型中**输入节点的参数格式确定**。例如 `input=data`。
 
 ## 编译、映射与导出
 
