@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional
 import copy
+import warnings
 import numpy as np
 from numpy.typing import NDArray
 
@@ -54,8 +55,15 @@ class Simulator(PAIBoxObject):
         Arguments:
             - duration: duration of the simulation.
             - reset: whether to reset the state of components in the model. Default is `False`.
-            - kwargs：determined by the parameter format of the input node.
+            - kwargs：determined by the parameter format of the input node. Will be deprecated.
         """
+        if kwargs:
+            warnings.warn(
+                "Passing extra arguments through 'run()' will be deprecated."
+                "Use 'FRONTEND_ENV.save()' instead.",
+                DeprecationWarning,
+            )
+
         if duration < 1:
             raise SimulationError(f"Duration must be positive, but got {duration}")
 
@@ -92,7 +100,7 @@ class Simulator(PAIBoxObject):
             self.probes.remove(probe)
             self._sim_data.pop(probe)
         else:
-            raise KeyError(f"Probe {probe.name} does not exist.")
+            raise KeyError(f"Probe '{probe.name}' does not exist.")
 
     def _run_step(self, indices: NDArray[np.uint16], **kwargs) -> None:
         for i in range(indices.shape[0]):
