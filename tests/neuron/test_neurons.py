@@ -125,25 +125,27 @@ class TestNeuronBehavior:
     @pytest.mark.parametrize(
         "ntm, vjt, neg_thres, pos_thres, expected",
         [
-            (NTM.MODE_SATURATION, np.array([10, 10]), 10, 3, np.array([True, True])),
-            (NTM.MODE_SATURATION, np.array([5, 10]), 10, 3, np.array([False, True])),
-            (NTM.MODE_SATURATION, np.array([-12, 10]), 10, 3, np.array([False, True])),
+            (NTM.MODE_SATURATION, np.array([10, 10]), -10, 3, np.array([True, True])),
+            (NTM.MODE_SATURATION, np.array([5, 10]), -10, 3, np.array([True, True])),
+            (NTM.MODE_SATURATION, np.array([-12, 10]), -10, 3, np.array([False, True])),
         ],
     )
     def test_neuronal_fire(self, ntm, vjt, neg_thres, pos_thres, expected):
-        # mask=3
+        mask = 3
+        leak_v = 2
+
         n1 = pb.neuron.Neuron(
             2,
             self.reset_mode,
             self.reset_v,
             self.lc,
-            3,
+            mask,
             ntm,
             neg_thres,
             pos_thres,
             self.ld,
             self.lim,
-            2,
+            leak_v,
             self.sim,
             self.bt,
             vjt_init=vjt,
@@ -163,26 +165,34 @@ class TestNeuronBehavior:
             (NTM.MODE_SATURATION, TM.EXCEED_NEGATIVE, RM.MODE_NONRESET, np.array([-3])),
         ],
     )
-    def test_neuronal_reset(self, ntm, thr_mode, reset_mode, expected):
+    def test_neuronal_reset(self, monkeypatch, ntm, thr_mode, reset_mode, expected):
+        reset_v = 5
+        neg_thres = -3
+        pos_thres = 2
+        vjt_init = 0
+        incoming_v = 10
+
         n1 = pb.neuron.Neuron(
             1,
             reset_mode,
-            5,
+            reset_v,
             self.lc,
             self.mask,
             ntm,
-            3,
-            -2,
+            neg_thres,
+            pos_thres,
             self.ld,
             self.lim,
             self.leak_v,
             self.sim,
             self.bt,
-            vjt_init=10,
+            vjt_init=vjt_init,
             keep_shape=True,
         )
-        n1._threshold_mode = thr_mode
-        vjt = n1._neuronal_reset(np.array((10,), dtype=np.int32))
+
+        # Set the threshold mode manually
+        monkeypatch.setattr(n1, "thres_mode", thr_mode)
+        vjt = n1._neuronal_reset(np.array((incoming_v,), dtype=np.int32))
 
         assert np.array_equal(vjt, expected)
 

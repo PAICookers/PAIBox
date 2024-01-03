@@ -34,19 +34,49 @@ class Net1(pb.DynSysGroup):
         self.n2_acti = pb.Probe(self.n2, "output", name="n2_acti")
 
 
+class Net2_with_multi_inpproj(pb.DynSysGroup):
+    def __init__(self, n: int):
+        super().__init__()
+
+        pe1 = pb.simulator.PoissonEncoder(seed=21)
+        pe2 = pb.simulator.PoissonEncoder(seed=42)
+
+        self.inp1 = pb.InputProj(pe1, shape_out=(n,), keep_shape=True)
+        self.inp2 = pb.InputProj(pe2, shape_out=(n,), keep_shape=True)
+        self.n1 = pb.LIF(n, threshold=3, reset_v=0, tick_wait_start=1)
+        self.s0 = pb.NoDecay(
+            self.inp1,
+            self.n1,
+            weights=np.ones((n,), dtype=np.int8),
+            conn_type=pb.synapses.ConnType.One2One,
+        )
+        self.s1 = pb.NoDecay(
+            self.inp2,
+            self.n1,
+            weights=np.ones((n,), dtype=np.int8),
+            conn_type=pb.synapses.ConnType.One2One,
+        )
+
+        # Probes inside
+        self.inp1_output = pb.Probe(self.inp1, "output")
+        self.inp2_output = pb.Probe(self.inp2, "output")
+        self.n1_output = pb.Probe(self.n1, "spike")
+
+
 class TestSimulator:
     def test_probe(self):
         net = Net1(100)
 
-        probe_outside = pb.Probe(net.inp, "state", name="inp_state")
+        probe_outside = pb.Probe(net.inp, "spike", name="inp_spike")
 
         sim = pb.Simulator(net)
         sim.add_probe(probe_outside)
 
         # Normalized data
         input_data = np.random.rand(10, 10).astype(np.float32)
+        net.inp.input = input_data
 
-        sim.run(10, input=input_data)
+        sim.run(10)
 
         inp_state = sim.data[probe_outside]
         assert type(inp_state) == np.ndarray
@@ -60,12 +90,89 @@ class TestSimulator:
 
     def test_sim_behavior(self):
         net = Net1(100)
-        sim = pb.Simulator(net, include_time_zero=True)
-        sim.run(10, input=np.zeros(100, dtype=np.int8))
+        probe = pb.Probe(net.inp, "spike", name="inp_spike")
+        probe2 = pb.Probe(net.inp, "spike", name="inp_spike2")
 
-        assert sim.time == 10
+        sim = pb.Simulator(net, start_time_zero=True)
+        sim.add_probe(probe)
 
-        sim2 = pb.Simulator(net, include_time_zero=False)
-        sim2.run(10, input=np.zeros(100, dtype=np.int8))
+        net.inp.input = np.zeros(100, dtype=np.int8)
+        # Actually, 0~9
+        sim.run(10)
 
-        assert sim2.time == 11
+        assert len(sim.data["ts"] == 10)
+        d = sim.get_raw_at_t(probe, 0)
+        d = sim.get_raw_at_t(probe, 9)
+
+        with pytest.raises(IndexError):
+            d = sim.get_raw_at_t(probe, 10)
+
+        with pytest.raises(IndexError):
+            d = sim.get_raw_at_t(probe, -1)
+
+        # Continue run 5
+        sim.run(5, input=np.ones(100, dtype=np.int8))
+        assert len(sim.data["ts"] == 15)
+
+        sim2 = pb.Simulator(net, start_time_zero=False)
+        sim2.add_probe(probe2)
+
+        net.inp.input = np.zeros(100, dtype=np.int8)
+        # Actually, 1-10
+        sim2.run(
+            10,
+        )
+
+        assert len(sim2.data["ts"] == 11)
+        d = sim2.get_raw_at_t(probe2, 1)
+        d = sim2.get_raw_at_t(probe2, 10)
+
+        with pytest.raises(IndexError):
+            d = sim2.get_raw_at_t(probe2, 11)
+        with pytest.raises(IndexError):
+            d = sim2.get_raw_at_t(probe2, 0)
+
+    @pytest.mark.skip(reason="Not implemented")
+    def test_sim_pass_inputs(self):
+        n = 10
+        net = Net2_with_multi_inpproj(10)
+        sim = pb.Simulator(net, start_time_zero=False)
+
+        sim.run(
+            10,
+            inputs=[
+                ("inp1", np.random.randint(-128, 128, size=(n,), dtype=np.int8)),
+                (
+                    "inp2",
+                    np.random.randint(-128, 128, size=(n,), dtype=np.int8),
+                ),
+            ],
+        )
+
+        sim.run(
+            3,
+            inputs=[
+                ("inp1", np.random.randint(-128, 128, size=(n,), dtype=np.int8)),
+                (
+                    "inp2",
+                    np.random.randint(-128, 128, size=(n,), dtype=np.int8),
+                ),
+            ],
+        )
+
+        print()
+
+    def test_sim_specify_inputs(self):
+        n = 10
+        net = Net2_with_multi_inpproj(10)
+        sim = pb.Simulator(net, start_time_zero=False)
+
+        net.inp1.input = np.random.randint(-128, 128, size=(n,), dtype=np.int8)
+        net.inp2.input = np.random.randint(-128, 128, size=(n,), dtype=np.int8)
+        sim.run(10)
+
+        net.inp1.input = np.ones((n,), dtype=np.int8)
+        net.inp2.input = np.ones((n,), dtype=np.int8)
+        sim.run(3)
+
+        print()

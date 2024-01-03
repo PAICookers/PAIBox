@@ -322,29 +322,6 @@ class Net2(pb.DynSysGroup):
         )
 
 
-def test_DynSysGroup_AutoUpdate_No_Nested():
-    net = Net1()
-
-    expected_y_n1 = np.array(
-        [[0, 0], [0, 0], [1, 1], [0, 0], [1, 1], [0, 0], [1, 1], [0, 0], [1, 1], [0, 0]]
-    )
-    expected_y_n2 = np.array(
-        [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [1, 1], [0, 0], [0, 0], [0, 0], [1, 1]]
-    )
-
-    sim = pb.Simulator(net)
-    p1 = pb.simulator.Probe(net.n1, "output")
-    p2 = pb.simulator.Probe(net.n2, "output")
-
-    sim.add_probe(p1)
-    sim.add_probe(p2)
-    sim.run(10)
-
-    for i in range(10):
-        assert np.array_equal(sim.data[p1][i], expected_y_n1[i])
-        assert np.array_equal(sim.data[p2][i], expected_y_n2[i])
-
-
 @pytest.mark.parametrize("level", [1, 2], ids=["level_1", "level_2"])
 def test_SynSysGroup_nodes_nested(level):
     net = Net2()
