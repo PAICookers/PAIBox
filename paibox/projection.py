@@ -1,6 +1,6 @@
 import inspect
 import sys
-from typing import Callable, Optional, Tuple, TypeVar, Union
+from typing import Callable, Optional, Tuple, Union
 
 import numpy as np
 
@@ -9,15 +9,15 @@ if sys.version_info >= (3, 10):
 else:
     from typing_extensions import ParamSpec
 
-from ._types import DataType, Shape
+from ._types import DataType, Shape, SpikeType
 from .base import DynamicSys
 from .context import _FRONTEND_CONTEXT
 from .exceptions import ShapeError, SimulationError
+from .mixin import TimeRelatedNode
 from .utils import as_shape, shape2num
 
 __all__ = ["InputProj"]
 
-T = TypeVar("T")
 P = ParamSpec("P")
 
 
@@ -26,11 +26,11 @@ def _func_bypass(x: DataType) -> DataType:
 
 
 class Projection(DynamicSys):
-    def __call__(self, *args, **kwargs):
+    def __call__(self, *args, **kwargs) -> SpikeType:
         return self.update(*args, **kwargs)
 
 
-class InputProj(Projection):
+class InputProj(Projection, TimeRelatedNode):
     def __init__(
         self,
         input: Optional[Union[DataType, Callable[P, DataType]]],
@@ -63,16 +63,16 @@ class InputProj(Projection):
         self._shape_out = as_shape(shape_out)
         self.keep_shape = keep_shape
 
-        self.set_memory("spike", np.zeros((self.num_out,), dtype=np.bool_))
+        self.set_memory("_inner_spike", np.zeros((self.num_out,), dtype=np.bool_))
 
-    def update(self, **kwargs) -> np.ndarray:
+    def update(self, **kwargs) -> SpikeType:
         _spike = self._get_neumeric_input(**kwargs)
 
         if isinstance(_spike, (int, np.integer)):
-            self.spike = np.full((self.num_out,), _spike, dtype=np.int32)
+            self._inner_spike = np.full((self.num_out,), _spike, dtype=np.int32)
         elif isinstance(_spike, np.ndarray):
             try:
-                self.spike = _spike.reshape((self.num_out,)).astype(np.int32)
+                self._inner_spike = _spike.reshape((self.num_out,)).astype(np.int32)
             except ValueError:
                 raise ShapeError(
                     f"Cannot reshape input value from {_spike.shape} to ({self.num_out},)."
@@ -84,7 +84,7 @@ class InputProj(Projection):
                 f"but got {_spike}, type {type(_spike)}."
             )
 
-        return self.spike
+        return self._inner_spike
 
     def reset_state(self) -> None:
         self.reset()  # Call reset of `StatusMemory`.
@@ -140,15 +140,31 @@ class InputProj(Projection):
         self._num_input = value
 
     @property
-    def output(self) -> np.ndarray:
-        return self.spike
+    def output(self) -> SpikeType:
+        return self._inner_spike
 
     @property
-    def feature_map(self) -> np.ndarray:
+    def spike(self) -> SpikeType:
+        return self._inner_spike
+
+    @property
+    def feature_map(self) -> SpikeType:
         return self.output.reshape(self.varshape)
 
+    @property
+    def delay_relative(self) -> int:
+        return 1  # Fixed
 
-def _call_with_ctx(f: Callable[P, T], *args, **kwargs) -> T:
+    @property
+    def tick_wait_start(self) -> int:
+        return 1  # Fixed
+
+    @property
+    def tick_wait_end(self) -> int:
+        return 0  # Fixed
+
+
+def _call_with_ctx(f: Callable[P, DataType], *args, **kwargs) -> DataType:
     try:
         ctx = _FRONTEND_CONTEXT.get_ctx()
         bound = inspect.signature(f).bind(*args, **ctx, **kwargs)

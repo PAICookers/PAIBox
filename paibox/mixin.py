@@ -7,6 +7,7 @@ from numpy.typing import NDArray
 
 import paibox as pb
 
+from .context import _FRONTEND_CONTEXT
 from .exceptions import RegisterError
 from .generic import get_unique_name
 from .node import NodeDict
@@ -60,6 +61,8 @@ def check(attr):
 
 
 class MixIn:
+    """Mix-in class."""
+
     pass
 
 
@@ -118,13 +121,37 @@ class ReceiveInputProj(MixIn):
     def get_master_node(self, key: str):
         return self.master_nodes.get(key, None)
 
-    def sum_inputs(self, *args, init=0, **kwargs) -> NDArray[np.int32]:
+    def sum_inputs(self, **kwargs) -> NDArray[np.int32]:
         # TODO Out is a np.ndarray right now, but it may be more than one type.
-        output = init
+        output = 0
         for node in self.master_nodes.values():
             output += node.output
 
         return np.array(output).astype(np.int32)
+
+
+class TimeRelatedNode(MixIn):
+    """Add time-related properties for `NeuDyn` & `InputProj`."""
+
+    @property
+    def delay_relative(self) -> int:
+        """Relative delay, positive."""
+        raise NotImplementedError
+
+    @property
+    def tick_wait_start(self) -> int:
+        """The starting point of the local timeline, non-negative."""
+        raise NotImplementedError
+
+    @property
+    def tick_wait_end(self) -> int:
+        """Duration of the local timeline, non-negative."""
+        raise NotImplementedError
+
+    @property
+    def timestamp(self) -> int:
+        """Local timestamp."""
+        return _FRONTEND_CONTEXT["t"] - self.tick_wait_start
 
 
 class StatusMemory(MixIn):

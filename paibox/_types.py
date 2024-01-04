@@ -1,7 +1,13 @@
 from collections.abc import MutableSet, Set
 from typing import Any, List, Optional, Tuple, TypeVar
-
+import sys
 import numpy as np
+from numpy.typing import NDArray
+
+if sys.version_info >= (3, 10):
+    from typing import TypeAlias
+else:
+    from typing_extensions import TypeAlias
 
 Shape = TypeVar("Shape", int, Tuple[int, ...], List[int])
 ArrayType = TypeVar("ArrayType", List[int], Tuple[int, ...], np.ndarray)
@@ -11,6 +17,8 @@ DataType = TypeVar("DataType", int, np.integer, np.ndarray)
 DataArrayType = TypeVar(
     "DataArrayType", int, np.integer, List[int], Tuple[int, ...], np.ndarray
 )
+
+SpikeType: TypeAlias = NDArray[np.bool_]
 
 
 class FrozenOrderedSet(Set):
