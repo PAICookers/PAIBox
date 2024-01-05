@@ -97,8 +97,7 @@ class TestSimulator:
         sim.add_probe(probe)
 
         net.inp.input = np.zeros(100, dtype=np.int8)
-        # Actually, 0~9
-        sim.run(10)
+        sim.run(10)  # Actually, 0~9
 
         assert len(sim.data["ts"] == 10)
         d = sim.get_raw_at_t(probe, 0)
@@ -110,18 +109,16 @@ class TestSimulator:
         with pytest.raises(IndexError):
             d = sim.get_raw_at_t(probe, -1)
 
-        # Continue run 5
-        sim.run(5, input=np.ones(100, dtype=np.int8))
+        # Continue to run 5 timesteps
+        net.inp.input = np.ones(100, dtype=np.int8)
+        sim.run(5)
         assert len(sim.data["ts"] == 15)
 
         sim2 = pb.Simulator(net, start_time_zero=False)
         sim2.add_probe(probe2)
 
         net.inp.input = np.zeros(100, dtype=np.int8)
-        # Actually, 1-10
-        sim2.run(
-            10,
-        )
+        sim2.run(10)  # Actually, 1-10
 
         assert len(sim2.data["ts"] == 11)
         d = sim2.get_raw_at_t(probe2, 1)

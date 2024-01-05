@@ -218,103 +218,19 @@ def test_neuron_instance(shape):
     assert len(n2) == shape2num(shape)
 
 
-def fakeout(t):
-    data = np.array(
-        [
-            [1, 1],
-            [1, 1],
-            [1, 1],
-            [1, 1],
-            [1, 0],
-            [0, 1],
-            [1, 0],
-            [1, 1],
-            [0, 1],
-            [1, 0],
-            [1, 0],
-        ],
-        np.bool_,
-    )
+def test_neuron_keep_shape():
+    n1 = pb.neuron.TonicSpiking((4, 4), 5, keep_shape=True)
+    n2 = pb.neuron.TonicSpiking((4, 4), 5, keep_shape=False)
 
-    return data[t]
+    assert n1.spike.shape == (16,)
+    assert n1.voltage.shape == (4, 4)
+    assert n1.output.shape == (256,16)
+    assert n1.feature_map.shape == (4, 4)
 
-
-class Net1(pb.Network):
-    def __init__(self):
-        super().__init__()
-        self.inp1 = pb.InputProj(fakeout, shape_out=(2,))
-        self.n1 = pb.neuron.IF((2,), 3)
-        self.s1 = pb.synapses.NoDecay(
-            self.inp1, self.n1, conn_type=pb.synapses.ConnType.One2One
-        )
-
-        self.probe1 = pb.simulator.Probe(self.inp1, "output")
-        self.probe2 = pb.simulator.Probe(self.s1, "output")
-        self.probe3 = pb.simulator.Probe(self.n1, "output")
-        self.probe4 = pb.simulator.Probe(self.n1, "voltage")
-
-
-class Net2(pb.Network):
-    """LIF neurons connected with more than one synapses.
-
-    `sum_inputs()` will be called.
-    """
-
-    def __init__(self):
-        super().__init__()
-        self.inp1 = pb.InputProj(1, shape_out=(2, 2))
-        self.n1 = pb.neuron.LIF((2, 2), 600, reset_v=1, leaky_v=-1)
-        self.s1 = pb.synapses.NoDecay(
-            self.inp1, self.n1, weights=127, conn_type=pb.synapses.ConnType.All2All
-        )
-        self.s2 = pb.synapses.NoDecay(
-            self.inp1, self.n1, weights=127, conn_type=pb.synapses.ConnType.All2All
-        )
-        self.s3 = pb.synapses.NoDecay(
-            self.inp1, self.n1, weights=127, conn_type=pb.synapses.ConnType.All2All
-        )
-
-        self.probe1 = pb.simulator.Probe(self.inp1, "output")
-        self.probe2 = pb.simulator.Probe(self.s1, "output")
-        self.probe3 = pb.simulator.Probe(self.n1, "output")
-        self.probe4 = pb.simulator.Probe(self.n1, "voltage")
-
-
-class Net3(pb.Network):
-    """2-layer networks, for testing start & end principle."""
-
-    def __init__(self):
-        super().__init__()
-        self.inp1 = pb.InputProj(1, shape_out=(2, 2))
-        self.n1 = pb.neuron.LIF((2, 2), 100, reset_v=1, leaky_v=-1)
-        self.n2 = pb.neuron.LIF((2, 2), 100, reset_v=1, leaky_v=-1)
-        self.s1 = pb.synapses.NoDecay(
-            self.inp1, self.n1, weights=10, conn_type=pb.synapses.ConnType.All2All
-        )
-        self.s2 = pb.synapses.NoDecay(
-            self.n1, self.n2, weights=10, conn_type=pb.synapses.ConnType.All2All
-        )
-
-        self.probe1 = pb.simulator.Probe(self.n1, "voltage")
-        self.probe2 = pb.simulator.Probe(self.n2, "voltage")
-        self.probe3 = pb.simulator.Probe(self.n1, "_neustate")
-        self.probe4 = pb.simulator.Probe(self.n2, "_neustate")
-        self.probe5 = pb.simulator.Probe(self.n1, "output")
-        self.probe6 = pb.simulator.Probe(self.n2, "output")
-
-
-class TonicSpikingNet(pb.Network):
-    def __init__(self):
-        super().__init__()
-        self.inp1 = pb.InputProj(fakeout, shape_out=(2,))
-        self.n1 = pb.neuron.TonicSpiking((2,), 3)
-        self.s1 = pb.synapses.NoDecay(
-            self.inp1, self.n1, conn_type=pb.synapses.ConnType.One2One
-        )
-
-        self.probe1 = pb.simulator.Probe(self.s1, "output")
-        self.probe2 = pb.simulator.Probe(self.n1, "output")
-        self.probe3 = pb.simulator.Probe(self.n1, "voltage")
+    assert n2.spike.shape == (16,)
+    assert n2.voltage.shape == (16,)
+    assert n2.output.shape == (256,16)
+    assert n2.feature_map.shape == (16,)
 
 
 class TestNeuronSim:
@@ -371,24 +287,24 @@ class TestNeuronSim:
 
         print(output)
 
-    def test_neuron_behavior(self):
-        net = Net1()
+    def test_neuron_behavior(self, build_Net1):
+        net = build_Net1
         sim = pb.Simulator(net)
 
         sim.run(10)
 
         print(sim.data[net.probe1])
 
-    def test_TonicSpiking_behavior(self):
-        net = TonicSpikingNet()
+    def test_TonicSpiking_behavior(self, build_TonicSpikingNet):
+        net = build_TonicSpikingNet
         sim = pb.Simulator(net)
 
         sim.run(10)
 
         print(sim.data[net.probe1])
 
-    def test_sum_inputs_behavior(self):
-        net = Net2()
+    def test_sum_inputs_behavior(self, build_Net2):
+        net = build_Net2
         sim = pb.Simulator(net)
 
         sim.run(10)
@@ -396,42 +312,36 @@ class TestNeuronSim:
         print(sim.data[net.probe1])
         print(sim.data[net.probe2])
 
-    def test_tick_delay_attr_behavior(self, monkeypatch):
-        net = Net3()
+    def test_tick_attr_behavior(self, monkeypatch, build_Net3):
+        net = build_Net3
         sim = pb.Simulator(net)
 
-        # n1 works on 1 <= T <= 1+5-1 with delay 3
-        # n2 works on 2 <= T <= 2+6-1 with delay 1
+        # n1 works on 1 <= T <= 1+5-1
+        # n2 works on 2 <= T <= 2+6-1
         monkeypatch.setattr(net.n1, "_tws", 1)
         monkeypatch.setattr(net.n1, "_twe", 5)
-        monkeypatch.setattr(net.n1, "_delay", 3)
         monkeypatch.setattr(net.n2, "_tws", 2)
         monkeypatch.setattr(net.n2, "_twe", 6)
-        monkeypatch.setattr(net.n2, "_delay", 1)
 
         sim.run(10)
         sim.reset()
 
-        # n1 works on T >= 1 with delay 1
+        # n1 works on T >= 1
         # n2 won't work
         monkeypatch.setattr(net.n1, "_tws", 1)
         monkeypatch.setattr(net.n1, "_twe", 0)
-        monkeypatch.setattr(net.n1, "_delay", 1)
         monkeypatch.setattr(net.n2, "_tws", 0)
         monkeypatch.setattr(net.n2, "_twe", 0)
-        monkeypatch.setattr(net.n2, "_delay", 1)
 
         sim.run(10)
         sim.reset()
 
-        # n1 works on T >= 5 with delay 3
-        # n2 works on T >= 1 with delay 1
+        # n1 works on T >= 5
+        # n2 works on T >= 1
         monkeypatch.setattr(net.n1, "_tws", 5)
         monkeypatch.setattr(net.n1, "_twe", 2)
-        monkeypatch.setattr(net.n1, "_delay", 3)
         monkeypatch.setattr(net.n2, "_tws", 1)
         monkeypatch.setattr(net.n2, "_twe", 0)
-        monkeypatch.setattr(net.n2, "_delay", 1)
 
         sim.run(10)
         sim.reset()
