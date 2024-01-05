@@ -224,12 +224,12 @@ def test_neuron_keep_shape():
 
     assert n1.spike.shape == (16,)
     assert n1.voltage.shape == (4, 4)
-    assert n1.output.shape == (256,16)
+    assert n1.output.shape == (256, 16)
     assert n1.feature_map.shape == (4, 4)
 
     assert n2.spike.shape == (16,)
     assert n2.voltage.shape == (16,)
-    assert n2.output.shape == (256,16)
+    assert n2.output.shape == (256, 16)
     assert n2.feature_map.shape == (16,)
 
 

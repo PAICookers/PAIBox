@@ -2,7 +2,8 @@ from typing import Optional, Tuple, Union
 
 import numpy as np
 from numpy.typing import NDArray
-from paicorelib import HwConfig, WeightPrecision as WP
+from paicorelib import HwConfig
+from paicorelib import WeightPrecision as WP
 
 from paibox._types import DataArrayType
 from paibox.base import DynamicSys, NeuDyn

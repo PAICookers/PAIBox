@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Literal, Optional, Set, Tuple
 
 from .collector import Collector
 from .generic import get_unique_name, is_name_unique
-from .mixin import ReceiveInputProj, TimeRelatedNode, StatusMemory
+from .mixin import ReceiveInputProj, StatusMemory, TimeRelatedNode
 from .node import NodeDict, NodeList
 
 __all__ = []

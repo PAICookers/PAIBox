@@ -100,7 +100,7 @@ class TestInputProj:
     def test_passing_args_through_run(self):
         def fakeout_with_args(t, bias, *args, **kwargs):
             return np.ones((10, 10), dtype=np.int8) * bias
-        
+
         FRONTEND_ENV.clear_ctx("bias")
 
         inp = pb.InputProj(

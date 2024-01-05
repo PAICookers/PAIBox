@@ -1,6 +1,7 @@
+import sys
 from collections.abc import MutableSet, Set
 from typing import Any, List, Optional, Tuple, TypeVar
-import sys
+
 import numpy as np
 from numpy.typing import NDArray
 

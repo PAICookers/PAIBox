@@ -21,6 +21,7 @@ else:
     from typing_extensions import TypeAlias
 
 from paicorelib import HwConfig
+
 from paibox._types import Shape, SpikeType
 from paibox.base import NeuDyn
 from paibox.utils import as_shape, shape2num

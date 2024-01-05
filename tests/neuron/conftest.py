@@ -1,8 +1,9 @@
 from pathlib import Path
-from paicorelib import *
 
 import numpy as np
 import pytest
+from paicorelib import *
+
 import paibox as pb
 
 
