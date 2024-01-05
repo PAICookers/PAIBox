@@ -125,7 +125,7 @@ class ReceiveInputProj(MixIn):
         # TODO Out is a np.ndarray right now, but it may be more than one type.
         output = 0
         for node in self.master_nodes.values():
-            output += node.output
+            output += node.output.copy()
 
         return np.array(output).astype(np.int32)
 
