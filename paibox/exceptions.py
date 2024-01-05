@@ -16,13 +16,13 @@ class ShapeError(PAIBoxError):
     pass
 
 
-class RegisterError(PAIBoxError):
+class RegisterError(PAIBoxError, KeyError):
     """Raise when registering an object fails."""
 
     pass
 
 
-class BuildError(PAIBoxError):
+class BuildError(PAIBoxError, RuntimeError):
     """Raise when building fails."""
 
     pass

@@ -106,7 +106,7 @@ class OneToOne(Transform):
         if not self.weights.ndim in (0, 1):
             raise ShapeError(f"The ndim of weights must be 0 or 1.")
 
-    def __call__(self, x: np.ndarray):
+    def __call__(self, x: np.ndarray) -> NDArray[np.int32]:
         output = x * self.weights.copy()
 
         return output.astype(np.int32)
@@ -160,7 +160,7 @@ class AllToAll(Transform):
         if not self.weights.ndim in (0, 2):
             raise ShapeError(f"The ndim of weights must be 0 or 2.")
 
-    def __call__(self, x: np.ndarray):
+    def __call__(self, x: np.ndarray) -> NDArray[np.int32]:
         """
         - When weights is a scalar, the output is a scalar. (Risky, DO NOT USE)
         - When weights is a matrix, the output is the dot product of `x` & `weights`.
@@ -207,7 +207,7 @@ class MaskedLinear(Transform):
         # Element-wise Multiplication
         self.weights = np.asarray(weights, dtype=np.int8)
 
-    def __call__(self, x: np.ndarray):
+    def __call__(self, x: np.ndarray) -> NDArray[np.int32]:
         output = x @ self.weights.copy().astype(np.int32)
 
         return output.astype(np.int32)

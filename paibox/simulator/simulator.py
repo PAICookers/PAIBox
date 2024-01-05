@@ -84,18 +84,22 @@ class Simulator(PAIBoxObject):
         self._ts += n_steps
 
     def reset(self) -> None:
+        """Reset simulation data & network."""
         # The global timestep start at 1 if excluding time 0.
         self._ts = 0 if self._start_time_zero else 1
         _FRONTEND_CONTEXT["t"] = self.timestamp
 
+        self.target.reset_state()
         self._reset_probes()
 
     def add_probe(self, probe: Probe) -> None:
+        """Add an external probe into the simulator."""
         if probe not in self.probes:
             self.probes.append(probe)
             self._sim_data[probe] = []
 
     def remove_probe(self, probe: Probe) -> None:
+        """Remove a probe from the simulator."""
         if probe in self.probes:
             self.probes.remove(probe)
             self._sim_data.pop(probe)
@@ -171,7 +175,7 @@ class Simulator(PAIBoxObject):
 
     @property
     def timestamp(self) -> int:
-        """Current time stamp. Simulation at this time is not finished."""
+        """Timestamp of simulator. Simulation at this time is not finished."""
         return self._ts
 
 
