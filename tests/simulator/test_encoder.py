@@ -32,7 +32,7 @@ class TestEncoder:
         out_spike = np.full((20, 10, 10), 0)
 
         for t in range(20):
-            out_spike[t] = pe(input=x)
+            out_spike[t] = pe(x=x)
 
         for t in range(1, 20):
             assert not np.array_equal(out_spike[0], out_spike[t])

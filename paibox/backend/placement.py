@@ -762,7 +762,7 @@ def get_neu_segments(
     elif method == "dense":
         return _get_neu_segments_dense(neu_groups, capacity, interval)
     else:
-        raise ValueError(f"Method {method} not defined!")
+        raise ValueError(f"Method '{method}' not defined!")
 
 
 def _get_neu_segments_catagory(
@@ -881,7 +881,7 @@ def get_axon_segments(
 
         if offset + addr_width > fan_in_max:
             raise ResourceError(
-                f"Axons address out of range{fan_in_max}: {offset + addr_width}"
+                f"Axons address out of range {fan_in_max}: {offset + addr_width}"
             )
 
         cur_offset = offset

@@ -1,15 +1,25 @@
+import sys
 from collections.abc import MutableSet, Set
 from typing import Any, List, Optional, Tuple, TypeVar
 
 import numpy as np
+from numpy.typing import NDArray
+
+if sys.version_info >= (3, 10):
+    from typing import TypeAlias
+else:
+    from typing_extensions import TypeAlias
 
 Shape = TypeVar("Shape", int, Tuple[int, ...], List[int])
 ArrayType = TypeVar("ArrayType", List[int], Tuple[int, ...], np.ndarray)
 Scalar = TypeVar("Scalar", int, float, np.generic)
 IntScalarType = TypeVar("IntScalarType", int, np.integer)
+DataType = TypeVar("DataType", int, np.integer, np.ndarray)
 DataArrayType = TypeVar(
     "DataArrayType", int, np.integer, List[int], Tuple[int, ...], np.ndarray
 )
+
+SpikeType: TypeAlias = NDArray[np.bool_]
 
 
 class FrozenOrderedSet(Set):
@@ -57,4 +67,4 @@ class OrderedSet(FrozenOrderedSet, MutableSet):
         return self
 
     def __hash__(self):
-        raise TypeError("OrderedSet is not hashable (use FrozenOrderedSet)")
+        raise TypeError("OrderedSet is not hashable (use FrozenOrderedSet instead)")

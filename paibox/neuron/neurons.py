@@ -37,29 +37,25 @@ class IF(Neuron):
         _lim = LIM.MODE_DETERMINISTIC
         _ld = LDM.MODE_FORWARD
         _lc = LCM.LEAK_AFTER_COMP
-        _leak_v = 0
         _pos_thres = threshold
-        _neg_thres = 0
-        _mask = 0
         _reset_v = reset_v
         _ntm = NTM.MODE_SATURATION
         _reset_mode = RM.MODE_NORMAL
-        _bt = 0
 
         super().__init__(
             shape,
             _reset_mode,
             _reset_v,
             _lc,
-            _mask,
+            0,
             _ntm,
-            _neg_thres,
+            0,
             _pos_thres,
             _ld,
             _lim,
-            _leak_v,
+            0,
             _sim,
-            _bt,
+            0,
             vjt_init,
             keep_shape=keep_shape,
             delay=delay,
@@ -105,27 +101,24 @@ class LIF(Neuron):
         _lc = LCM.LEAK_AFTER_COMP
         _leak_v = leaky_v
         _pos_thres = threshold
-        _neg_thres = 0
-        _mask = 0
         _reset_v = reset_v
         _ntm = NTM.MODE_SATURATION
         _reset_mode = RM.MODE_NORMAL
-        _bt = 0
 
         super().__init__(
             shape,
             _reset_mode,
             _reset_v,
             _lc,
-            _mask,
+            0,
             _ntm,
-            _neg_thres,
+            0,
             _pos_thres,
             _ld,
             _lim,
             _leak_v,
             _sim,
-            _bt,
+            0,
             vjt_init,
             keep_shape=keep_shape,
             delay=delay,
@@ -190,7 +183,7 @@ class PhasicSpiking(Neuron):
         self,
         shape: Shape,
         time_to_fire: int,
-        neg_floor: int = 10,
+        neg_floor: int = -10,
         vjt_init: int = 0,
         *,
         delay: int = 1,
@@ -203,7 +196,7 @@ class PhasicSpiking(Neuron):
         Arguments:
             - shape: the shape of the neuron(s). It can be an integer, tuple or list.
             - time_to_fire: after `time_to_fire` spikes, the neuron will fire positively.
-            - neg_floor: the negative floor that the neuron stays once firing. Default is 10 (unsigned).
+            - neg_floor: the negative floor that the neuron stays once firing. Default is -10.
             - vjt_init: initial membrane potential. Default is 0.
 
         Description:

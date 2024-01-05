@@ -26,4 +26,4 @@ class NodeDict(dict):
         if key in self:
             return super().__getitem__(key)
 
-        raise KeyError(f"Key {key} not found.")
+        raise KeyError(f"Key '{key}' not found.")

@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Literal, Optional, Set, Tuple
 
 from .collector import Collector
 from .generic import get_unique_name, is_name_unique
-from .mixin import ReceiveInputProj, StatusMemory
+from .mixin import ReceiveInputProj, StatusMemory, TimeRelatedNode
 from .node import NodeDict, NodeList
 
 __all__ = []
@@ -201,6 +201,7 @@ class DynamicSys(PAIBoxObject, StatusMemory):
 
     @property
     def output(self):
+        """Actual output to the sucessors."""
         raise NotImplementedError
 
     @property
@@ -213,7 +214,7 @@ class DynamicSys(PAIBoxObject, StatusMemory):
         return self._memories
 
 
-class NeuDyn(DynamicSys, ReceiveInputProj):
+class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
     def __init__(self, name: Optional[str] = None) -> None:
         super().__init__(name)
         self.master_nodes = NodeDict()
@@ -229,15 +230,3 @@ class NeuDyn(DynamicSys, ReceiveInputProj):
             params.update({k.removeprefix("_"): v})
 
         return params
-
-    @property
-    def delay_relative(self) -> int:
-        raise NotImplementedError
-
-    @property
-    def tick_wait_start(self) -> int:
-        raise NotImplementedError
-
-    @property
-    def tick_wait_end(self) -> int:
-        raise NotImplementedError

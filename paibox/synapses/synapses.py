@@ -2,11 +2,12 @@ from typing import Optional, Tuple, Union
 
 import numpy as np
 from numpy.typing import NDArray
+from paicorelib import HwConfig
 from paicorelib import WeightPrecision as WP
 
 from paibox._types import DataArrayType
 from paibox.base import DynamicSys, NeuDyn
-from paibox.exceptions import ShapeError
+from paibox.exceptions import ShapeError, SimulationError
 from paibox.projection import InputProj
 
 from .transforms import *
@@ -124,7 +125,7 @@ class NoDecay(SynSys):
             self.comm = OneToOne(self.num_in, weights)
         elif conn_type is ConnType.All2All:
             self.comm = AllToAll((self.num_in, self.num_out), weights)
-        elif conn_type is ConnType.MatConn:
+        else:  # MatConn
             if not isinstance(weights, np.ndarray):
                 raise TypeError(
                     f"Expected type int, np.integer or np.ndarray, but got type {type(weights)}"
@@ -133,22 +134,25 @@ class NoDecay(SynSys):
             self.comm = MaskedLinear((self.num_in, self.num_out), weights)
 
         self.weights.setflags(write=False)
-        self.set_memory(
-            "syn_out", np.zeros((self.num_in, self.num_out), dtype=np.int32)
-        )
+        self.set_memory("_synout", np.zeros((self.num_out,), dtype=np.int32))
 
         # Register `self` for the destination `NeuDyn`.
         dest.register_master(f"{self.name}.output", self)
 
     def update(self, spike: Optional[np.ndarray] = None, **kwargs) -> NDArray[np.int32]:
-        if spike is None:
-            synin = self.source.output
+        # Retrieve the spike at index `timestamp` of the dest neurons
+        if self.dest._is_working():
+            if isinstance(self.source, InputProj):
+                synin = self.source.output.copy() if spike is None else spike
+            else:
+                idx = self.dest.timestamp % HwConfig.N_TIMESLOT_MAX
+                synin = self.source.output[idx].copy() if spike is None else spike
         else:
-            synin = spike
+            # Retrieve 0 to the dest neurons if it is not working
+            synin = np.zeros_like(self.source.spike)
 
-        self.syn_out = self.comm(synin).astype(np.int32)
-
-        return self.syn_out
+        self._synout = self.comm(synin).astype(np.int32)
+        return self._synout
 
     def reset_state(self) -> None:
         # TODO Add other initialization methods in the future.
@@ -156,7 +160,7 @@ class NoDecay(SynSys):
 
     @property
     def output(self) -> NDArray[np.int32]:
-        return self.syn_out
+        return self._synout
 
     @property
     def weights(self):
