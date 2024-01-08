@@ -287,8 +287,8 @@ class Network_with_Branches_8bit(pb.Network):
             conn_type=pb.synapses.ConnType.MatConn,
             name="s5",
         )
-        
-        
+
+
 class Network_with_container(pb.DynSysGroup):
     """Network with neurons in list."""
 
