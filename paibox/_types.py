@@ -1,6 +1,6 @@
 import sys
 from collections.abc import MutableSet, Set
-from typing import Any, List, Optional, Tuple, TypeVar
+from typing import Any, Generic, Iterable, List, Optional, Tuple, TypeVar
 
 import numpy as np
 from numpy.typing import NDArray
@@ -21,17 +21,19 @@ DataArrayType = TypeVar(
 
 SpikeType: TypeAlias = NDArray[np.bool_]
 
+_T = TypeVar("_T")
 
-class FrozenOrderedSet(Set):
+
+class FrozenOrderedSet(Set, Generic[_T]):
     """A set that preserves insertion order and is hashable."""
 
-    def __init__(self, data: Optional[Any] = None) -> None:
+    def __init__(self, data: Optional[Iterable[Any]] = None) -> None:
         if data is None:
             data = []
 
         self.data = dict((d, None) for d in data)
 
-    def __contains__(self, elem) -> bool:
+    def __contains__(self, elem: Any) -> bool:
         return elem in self.data
 
     def __iter__(self):
@@ -47,7 +49,7 @@ class FrozenOrderedSet(Set):
         self.data.clear()
 
 
-class OrderedSet(FrozenOrderedSet, MutableSet):
+class OrderedSet(FrozenOrderedSet[_T], MutableSet):
     """A set that preserves insertion order and is mutable."""
 
     def add(self, value: Any) -> None:
@@ -56,15 +58,15 @@ class OrderedSet(FrozenOrderedSet, MutableSet):
     def discard(self, value: Any) -> None:
         self.data.pop(value, None)
 
-    def update(self, other) -> None:
+    def update(self, other: Iterable[Any]) -> None:
         self.data.update((value, None) for value in other)
 
-    def difference_update(self, other) -> None:
+    def difference_update(self, other: Iterable[Any]) -> None:
         self -= other
 
-    def __ior__(self, other):
+    def __ior__(self, other: Iterable[Any]) -> "OrderedSet[_T]":
         self.update(other)
         return self
 
     def __hash__(self):
-        raise TypeError("OrderedSet is not hashable (use FrozenOrderedSet instead)")
+        raise TypeError("'OrderedSet' is not hashable (use 'FrozenOrderedSet' instead)")

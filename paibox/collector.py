@@ -1,8 +1,22 @@
-from typing import Any, Callable, Dict, Sequence, Type, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Generic,
+    Sequence,
+    Type,
+    TypeVar,
+    Union,
+    overload,
+)
+
+_T = TypeVar("_T")
+_KT = TypeVar("_KT")
+_VT = TypeVar("_VT")
 
 
-class Collector(dict):
-    def __setitem__(self, key: Any, value: Any) -> None:
+class Collector(dict, Generic[_KT, _VT]):
+    def __setitem__(self, key: _KT, value: _VT) -> None:
         if key in self:
             if id(self[key]) != id(value):
                 raise ValueError(
@@ -11,11 +25,21 @@ class Collector(dict):
 
         dict.__setitem__(self, key, value)
 
-    def replace(self, key: Any, new_value: Any) -> None:
+    def replace(self, key: _KT, new_value: _VT) -> None:
         self.pop(key)
         self.key = new_value
 
-    def update(self, other: Union[Dict, Sequence]):
+    @overload
+    def update(self, other: Dict[_KT, _VT]) -> "Collector[_KT, _VT]":
+        ...
+
+    @overload
+    def update(self, other: Sequence[_T]) -> "Collector[str, _VT]":
+        ...
+
+    def update(
+        self, other: Union[Dict[_KT, _VT], Sequence[_T]]
+    ) -> Union["Collector[_KT, _VT]", "Collector[str, _VT]"]:
         if not isinstance(other, (dict, list, tuple)):
             raise TypeError(
                 f"Excepted a dict, list or sequence, but we got {other}, type {type(other)}"
@@ -31,7 +55,17 @@ class Collector(dict):
 
         return self
 
-    def __add__(self, other: Union[Dict[str, Any], Sequence]):
+    @overload
+    def __add__(self, other: Dict[_KT, _VT]) -> "Collector[_KT, _VT]":
+        ...
+
+    @overload
+    def __add__(self, other: Sequence[_T]) -> "Collector[str, _VT]":
+        ...
+
+    def __add__(
+        self, other: Union[Dict[_KT, _VT], Sequence[_T]]
+    ) -> Union["Collector[_KT, _VT]", "Collector[str, _VT]"]:
         """Merging two dicts.
 
         Arguments:
@@ -44,7 +78,17 @@ class Collector(dict):
 
         return gather
 
-    def __sub__(self, other: Union[Dict[str, Any], Sequence]):
+    @overload
+    def __sub__(self, other: Dict[_KT, _VT]) -> "Collector[_KT, _VT]":
+        ...
+
+    @overload
+    def __sub__(self, other: Sequence[_T]) -> "Collector[str, _VT]":
+        ...
+
+    def __sub__(
+        self, other: Union[Dict[_KT, _VT], Sequence[_T]]
+    ) -> Union["Collector[_KT, _VT]", "Collector[str, _VT]"]:
         if not isinstance(other, (dict, list, tuple)):
             raise TypeError(
                 f"Excepted a dict, list or sequence, but we got {other}, type {type(other)}"
@@ -88,7 +132,7 @@ class Collector(dict):
 
         return gather
 
-    def subset(self, obj_type: Type):
+    def subset(self, obj_type: Type[_T]) -> "Collector[Any, _T]":
         gather = type(self)()
 
         for k, v in self.items():
@@ -97,7 +141,7 @@ class Collector(dict):
 
         return gather
 
-    def not_subset(self, obj_type: Type):
+    def not_subset(self, obj_type: Type[_T]) -> "Collector":
         gather = type(self)()
 
         for k, v in self.items():
@@ -106,7 +150,7 @@ class Collector(dict):
 
         return gather
 
-    def include(self, *types: Type):
+    def include(self, *types: Type[_T]) -> "Collector":
         gather = type(self)()
 
         for k, v in self.items():
@@ -115,7 +159,7 @@ class Collector(dict):
 
         return gather
 
-    def exclude(self, *types: Type):
+    def exclude(self, *types: Type[_T]) -> "Collector":
         gather = type(self)()
 
         for k, v in self.items():
@@ -124,7 +168,7 @@ class Collector(dict):
 
         return gather
 
-    def unique(self):
+    def unique(self) -> "Collector":
         gather = type(self)()
         seen = set()
 
@@ -135,7 +179,7 @@ class Collector(dict):
 
         return gather
 
-    def key_on_condition(self, condition: Callable[..., bool]):
+    def key_on_condition(self, condition: Callable[..., bool]) -> "Collector":
         gather = type(self)()
 
         for k, v in self.items():
@@ -144,7 +188,7 @@ class Collector(dict):
 
         return gather
 
-    def value_on_condition(self, condition: Callable[..., bool]):
+    def value_on_condition(self, condition: Callable[..., bool]) -> "Collector":
         gather = type(self)()
 
         for k, v in self.items():

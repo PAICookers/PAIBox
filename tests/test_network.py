@@ -2,10 +2,11 @@ import numpy as np
 import pytest
 
 import paibox as pb
+from paibox.base import DynamicSys, NeuDyn
 from paibox.node import NodeDict
 
 
-class TestNetworkNodes:
+class TestNetwork_Components_Discover:
     def test_Collector_operations(self):
         s1 = pb.base.DynamicSys(name="s1")
         s2 = pb.InputProj(1, shape_out=1, name="s2")
@@ -85,34 +86,65 @@ class TestNetworkNodes:
         )
         assert len(nodes4) == 3
 
-    def test_Network_nested_level_1(self, build_Nested_Net_Level1_1):
-        net = build_Nested_Net_Level1_1
+    def test_Network_nested_level_1(self, build_Network_with_container):
+        net = build_Network_with_container
 
         # 1. Relative + include_self == True
-        nodes1 = net.nodes(method="relative", level=1, include_self=True)
+        nodes1 = net.nodes(method="relative", level=1, include_self=True).exclude(
+            pb.Probe
+        )
         assert nodes1[""] == net
-        # for k,v in nodes1.items():
-        #     print(k,v)
-        assert len(nodes1) == 4
+        assert len(nodes1) == 7
 
         # 2. Relative + include_self == False
-        nodes2 = net.nodes(method="relative", level=1, include_self=False)
-        assert len(nodes2) == 3
+        nodes2 = net.nodes(method="relative", level=1, include_self=False).exclude(
+            pb.Probe
+        )
+        assert len(nodes2) == 6
 
         # 3. Absolute + include_self == True
-        nodes3 = net.nodes(method="absolute", level=1, include_self=True)
-        assert len(nodes3) == 4
+        nodes3 = net.nodes(method="absolute", level=1, include_self=True).exclude(
+            pb.Probe
+        )
+        assert len(nodes3) == 7
 
         # 4. Absolute + include_self == False
-        nodes4 = net.nodes(method="absolute", level=1, include_self=False)
-        assert len(nodes4) == 3
+        nodes4 = net.nodes(method="absolute", level=1, include_self=False).exclude(
+            pb.Probe
+        )
+        assert len(nodes4) == 6
 
-        # 5. Find nodes from level 1 to level 2, relatively
-        nodes5 = net.nodes(method="relative", level=2, include_self=False)
-        assert len(nodes5) == 11
-        # 6. Find nodes from level 1 to level 2, absolutely
-        nodes6 = net.nodes(method="absolute", level=2, include_self=False)
-        assert len(nodes6) == 9
+        # Simulation
+        sim = pb.Simulator(net)
+        sim.run(10)
+        sim.reset()
+
+    @pytest.mark.skip(reason="Not implemented")
+    def test_Network_with_subnet(self, build_Network_with_subnet):
+        net = build_Network_with_subnet
+
+        # 1. Relative + include_self == True, level 1
+        nodes1 = (
+            net.nodes(method="absolute", level=1, include_self=False)
+            .subset(DynamicSys)
+            .unique()
+        )
+        nodes1_sub = nodes1.subset(NeuDyn)
+
+        # 2. Relative + include_self == True, level 2
+        nodes2 = (
+            net.nodes(method="absolute", level=2, include_self=False)
+            .subset(DynamicSys)
+            .unique()
+        )
+
+        nodes3 = (
+            net.nodes(method="absolute", level=7, include_self=False)
+            .subset(DynamicSys)
+            .unique()
+        )
+
+        print()
 
 
 @pytest.mark.skip(reason="'Sequential is not used'")

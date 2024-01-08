@@ -98,6 +98,16 @@ class TestMapperDebug:
 
         print()
 
+    def test_network_with_container(self, get_mapper, build_Network_with_container):
+        net: pb.Network = build_Network_with_container
+
+        mapper: pb.Mapper = get_mapper
+        mapper.clear()
+        mapper.build(net)
+        mapper.compile()
+
+        print()
+
 
 class TestMapper_Weight4:
     def test_mapper_weight4(

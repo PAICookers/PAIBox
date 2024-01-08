@@ -1,6 +1,6 @@
 import sys
 from enum import Enum, auto
-from typing import NamedTuple
+from typing import NamedTuple, Union
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias
@@ -8,9 +8,15 @@ else:
     from typing_extensions import TypeAlias
 
 from paibox.base import NeuDyn
+from paibox.projection import InputProj
+from paibox.synapses import SynSys
 
 NodeName: TypeAlias = str
 EdgeName: TypeAlias = str
+NodeType: TypeAlias = Union[InputProj, NeuDyn]
+EdgeType: TypeAlias = SynSys
+SourceNodeType: TypeAlias = NodeType
+DestNodeType: TypeAlias = NeuDyn
 
 
 class NodePosition(Enum):
@@ -32,11 +38,11 @@ class NodeDegree(NamedTuple):
 
 
 class NodeAttr(NamedTuple):
-    obj: NeuDyn
+    node: NodeType
     position: NodePosition
     degree: NodeDegree
 
 
 class EdgeAttr(NamedTuple):
-    edge: EdgeName
+    edge: EdgeType
     distance: int

@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 import paibox as pb
+from paibox.context import FRONTEND_ENV
 
 
 class Net1(pb.DynSysGroup):
@@ -34,7 +35,41 @@ class Net1(pb.DynSysGroup):
         self.n2_acti = pb.Probe(self.n2, "output", name="n2_acti")
 
 
-class Net2_with_multi_inpproj(pb.DynSysGroup):
+def fake_out_1(t, a, **kwargs):
+    return t + a
+
+
+def fake_out_2(t, b, **kwargs):
+    return t + b
+
+
+class Net2_with_multi_inpproj_func(pb.DynSysGroup):
+    def __init__(self, n: int):
+        super().__init__()
+
+        self.inp1 = pb.InputProj(fake_out_1, shape_out=(n,), keep_shape=True)
+        self.inp2 = pb.InputProj(fake_out_2, shape_out=(n,), keep_shape=True)
+        self.n1 = pb.LIF(n, threshold=3, reset_v=0, tick_wait_start=1)
+        self.s0 = pb.NoDecay(
+            self.inp1,
+            self.n1,
+            weights=np.ones((n,), dtype=np.int8),
+            conn_type=pb.synapses.ConnType.One2One,
+        )
+        self.s1 = pb.NoDecay(
+            self.inp2,
+            self.n1,
+            weights=np.ones((n,), dtype=np.int8),
+            conn_type=pb.synapses.ConnType.One2One,
+        )
+
+        # Probes inside
+        self.inp1_output = pb.Probe(self.inp1, "output")
+        self.inp2_output = pb.Probe(self.inp2, "output")
+        self.n1_output = pb.Probe(self.n1, "spike")
+
+
+class Net2_with_multi_inpproj_encoder(pb.DynSysGroup):
     def __init__(self, n: int):
         super().__init__()
 
@@ -129,39 +164,21 @@ class TestSimulator:
         with pytest.raises(IndexError):
             d = sim2.get_raw_at_t(probe2, 0)
 
-    @pytest.mark.skip(reason="Not implemented")
-    def test_sim_pass_inputs(self):
-        n = 10
-        net = Net2_with_multi_inpproj(10)
+    def test_sim_specify_inputs_1(self):
+        net = Net2_with_multi_inpproj_func(10)
         sim = pb.Simulator(net, start_time_zero=False)
 
-        sim.run(
-            10,
-            inputs=[
-                ("inp1", np.random.randint(-128, 128, size=(n,), dtype=np.int8)),
-                (
-                    "inp2",
-                    np.random.randint(-128, 128, size=(n,), dtype=np.int8),
-                ),
-            ],
-        )
+        FRONTEND_ENV.save(a=1, b=2)
+        sim.run(10)
 
-        sim.run(
-            3,
-            inputs=[
-                ("inp1", np.random.randint(-128, 128, size=(n,), dtype=np.int8)),
-                (
-                    "inp2",
-                    np.random.randint(-128, 128, size=(n,), dtype=np.int8),
-                ),
-            ],
-        )
+        FRONTEND_ENV.save("a", -1, "b", -2)
+        sim.run(3)
 
-        print()
+        sim.reset()
 
-    def test_sim_specify_inputs(self):
+    def test_sim_specify_inputs_2(self):
         n = 10
-        net = Net2_with_multi_inpproj(10)
+        net = Net2_with_multi_inpproj_encoder(10)
         sim = pb.Simulator(net, start_time_zero=False)
 
         net.inp1.input = np.random.randint(-128, 128, size=(n,), dtype=np.int8)
@@ -172,4 +189,4 @@ class TestSimulator:
         net.inp2.input = np.ones((n,), dtype=np.int8)
         sim.run(3)
 
-        print()
+        sim.reset()

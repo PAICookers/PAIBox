@@ -27,7 +27,7 @@ from .graphs_types import *
 from .placement import CoreBlock
 from .routing import RoutingGroup
 
-T = TypeVar("T", CoreBlock, NodeName)
+_NT = TypeVar("_NT", CoreBlock, NodeName)
 
 
 @dataclass
@@ -38,17 +38,14 @@ class PAIGraph:
 
     networks: Tuple[DynSysGroup, ...] = field(default_factory=tuple)
     """All networks are seen as one graph."""
-    raw_nodes: Collector = field(default_factory=Collector)
-    """Raw nodes in the networks."""
-
     nodes: Dict[NodeName, NodeAttr] = field(default_factory=dict)
     """General nodes in the graph."""
-    edges: Collector = field(default_factory=Collector)
+    edges: Dict[EdgeName, EdgeAttr] = field(default_factory=dict)
     """General edges in the graph."""
 
-    inodes: Collector = field(default_factory=Collector)
+    inodes: Collector[NodeName, SourceNodeType] = field(default_factory=Collector)
     """Input nodes in the graph."""
-    onodes: Collector = field(default_factory=Collector)
+    onodes: Collector[NodeName, DestNodeType] = field(default_factory=Collector)
     """Output nodes in the graph."""
 
     ordered_nodes: List[NodeName] = field(default_factory=list)
@@ -60,6 +57,11 @@ class PAIGraph:
     degree_of_nodes: Dict[NodeName, NodeDegree] = field(default_factory=dict)
     """A dictionary of in/out-degree tuple of nodes."""
 
+    _raw_nodes: Collector[NodeName, NodeType] = field(default_factory=Collector)
+    """Raw nodes in the networks."""
+    _raw_edges: Collector[EdgeName, EdgeType] = field(default_factory=Collector)
+    """Raw edges in the graph."""
+
     """Status options"""
     has_built: bool = field(default=False)
 
@@ -70,7 +72,6 @@ class PAIGraph:
         self.has_built = False
 
         self.networks = ()
-        self.raw_nodes.clear()
         self.nodes.clear()
         self.edges.clear()
         self.inodes.clear()
@@ -78,6 +79,9 @@ class PAIGraph:
         self.ordered_nodes.clear()
         self.succ_dg.clear()
         self.degree_of_nodes.clear()
+
+        self._raw_nodes.clear()
+        self._raw_edges.clear()
 
         # self.node_constrs.clear()
 
@@ -90,20 +94,22 @@ class PAIGraph:
         self.clear()
         self.networks = networks
 
-        _nodes = Collector()
+        _nodes: Collector[NodeName, NodeType] = Collector()
+        _edges: Collector[EdgeName, EdgeType] = Collector()
 
         for network in networks:
             sub_nodes = network.nodes(level=1, include_self=False)
             _nodes += sub_nodes.include(InputProj, NeuDyn).unique()
-            self.edges += sub_nodes.subset(SynSys).unique()
+            _edges += sub_nodes.subset(SynSys).unique()
 
-        self.raw_nodes = _nodes
+        self._raw_nodes = _nodes
+        self._raw_edges = _edges
 
         # Add all nodes in the graph.
         for node in _nodes:
             self.succ_dg[node] = dict()
 
-        for syn in self.edges.values():
+        for syn in self._raw_edges.values():
             u, v = syn.source.name, syn.dest.name
             # TODO tick_relative = 1 in default here.
             self.succ_dg[u][v] = EdgeAttr(edge=syn.name, distance=1)
@@ -120,12 +126,15 @@ class PAIGraph:
 
         # _bounded_nodes_check(bounded_nodes)
 
-        for node in _nodes:
-            self.nodes[node] = NodeAttr(
-                obj=_nodes[node],
-                position=self._node_pos(node),
-                degree=self.degree_of_nodes[node],
+        for name, node in _nodes.items():
+            self.nodes[name] = NodeAttr(
+                node=node,
+                position=self._node_pos(name),
+                degree=self.degree_of_nodes[name],
             )
+
+        for name, syn in _edges.items():
+            self.edges[name] = EdgeAttr(edge=syn, distance=syn.source.delay_relative)
 
         self.has_built = True
 
@@ -150,14 +159,15 @@ class PAIGraph:
         _degree_check(self.degree_of_nodes, self.succ_dg)
 
         # Only support the in-degree of backward node of input node is 1.
-        for inode in self.inodes:
-            if any(
-                self.degree_of_nodes[succ_node].in_degree > 1
-                for succ_node in self.succ_dg[inode]
-            ):
-                raise NotSupportedError(
-                    "Only input nodes as the only input of a node are supported."
-                )
+        # FIXME Is it necessary?
+        # for inode in self.inodes:
+        #     if any(
+        #         self.degree_of_nodes[succ_node].in_degree > 1
+        #         for succ_node in self.succ_dg[inode]
+        #     ):
+        #         raise NotSupportedError(
+        #             "Only input nodes as the only input of a node are supported."
+        #         )
 
         # Only support output nodes with <= 1152 neurons.
         if any(
@@ -165,8 +175,8 @@ class PAIGraph:
             for onode in self.onodes.values()
         ):
             raise NotSupportedError(
-                f"Only output nodes with no more than {HwConfig.N_FANIN_PER_DENDRITE_MAX}"
-                f" neurons are supported."
+                f"Only output nodes with no more than {HwConfig.N_FANIN_PER_DENDRITE_MAX} "
+                f"neurons are supported."
             )
 
     def _node_pos(self, node: NodeName) -> NodePosition:
@@ -179,7 +189,7 @@ class PAIGraph:
 
     def build_check(self) -> None:
         if not self.has_built:
-            raise BuildError(f"The graph hasn't been built yet")
+            raise BuildError(f"The graph hasn't been built yet.")
 
     def group_edges(self) -> List[FrozenSet[EdgeName]]:
         """Group all edges according to a certain rule.
@@ -210,7 +220,7 @@ class PAIGraph:
             if self.degree_of_nodes[node].out_degree > 1:
                 """Consider the constraints to the nodes."""
                 succ_edges = [e.edge for e in self.succ_dg[node].values()]
-                succ_nodes = [self.raw_nodes[n] for n in self.succ_dg[node]]
+                succ_nodes = [self.nodes[n].node for n in self.succ_dg[node]]
 
                 # Get the subgroup of indices, like [[0, 1], [2], [3, 4]]
                 idx_of_sg = GraphNodeConstrs.tick_wait_attr_constr(succ_nodes)
@@ -269,7 +279,7 @@ class PAIGraph:
 
 
 def _degree_check(
-    degree_of_nodes: Mapping[T, NodeDegree], succ_dg: Mapping[T, NodeName]
+    degree_of_nodes: Mapping[_NT, NodeDegree], succ_dg: Mapping[_NT, NodeName]
 ) -> None:
     """Filter out such network structure, which is currently not supported."""
     for node in filter(lambda node: degree_of_nodes[node].out_degree > 1, succ_dg):
@@ -302,7 +312,7 @@ def convert2routing_groups(
     return routing_groups
 
 
-def toposort(directed_edges: Mapping[T, Sequence[T]]) -> List[T]:
+def toposort(directed_edges: Mapping[_NT, Sequence[_NT]]) -> List[_NT]:
     """
     Topological sort algorithm by Kahn [1]_.
 
@@ -361,7 +371,7 @@ def toposort(directed_edges: Mapping[T, Sequence[T]]) -> List[T]:
     return ordered
 
 
-def reverse_edges(directed_edges: Mapping[T, Sequence[T]]) -> Dict[T, Set[T]]:
+def reverse_edges(directed_edges: Mapping[_NT, Sequence[_NT]]) -> Dict[_NT, Set[_NT]]:
     """
     Reverses direction of dependence dict.
 
@@ -420,7 +430,9 @@ def reverse_edges(directed_edges: Mapping[T, Sequence[T]]) -> Dict[T, Set[T]]:
 #     return list(n.name for n in c)
 
 
-def get_node_degrees(succ_edges: Mapping[T, Mapping[T, Any]]) -> Dict[T, NodeDegree]:
+def get_node_degrees(
+    succ_edges: Mapping[_NT, Mapping[_NT, Any]]
+) -> Dict[_NT, NodeDegree]:
     degree = defaultdict(NodeDegree)
     in_degrees = defaultdict(int)
     out_degrees = defaultdict(int)
@@ -438,9 +450,9 @@ def get_node_degrees(succ_edges: Mapping[T, Mapping[T, Any]]) -> Dict[T, NodeDeg
 
 
 def get_longest_path(
-    edges_with_d: Dict[T, Dict[T, EdgeAttr]],
-    ordered_nodes: List[T],
-) -> Tuple[List[T], int]:
+    edges_with_d: Dict[_NT, Dict[_NT, EdgeAttr]],
+    ordered_nodes: List[_NT],
+) -> Tuple[List[_NT], int]:
     """Get the longest path in the DAG.
 
     Args:
@@ -450,8 +462,8 @@ def get_longest_path(
     Return:
         A tuple containing the longest path in the graph and its distance.
     """
-    distances: Dict[T, int] = defaultdict(int)  # init value = 0
-    pred_nodes: Dict[T, Optional[T]] = defaultdict()
+    distances: Dict[_NT, int] = defaultdict(int)  # init value = 0
+    pred_nodes: Dict[_NT, Optional[_NT]] = defaultdict()
 
     for node in ordered_nodes:
         for neighbor, edge_attr in edges_with_d[node].items():
@@ -481,10 +493,10 @@ MAX_DISTANCE = 999  # I don't like float('inf')
 
 
 def get_shortest_path(
-    edges_with_d: Dict[T, Dict[T, EdgeAttr]],
-    ordered_nodes: List[T],
-    input_nodes: List[T],
-) -> Tuple[List[T], int]:
+    edges_with_d: Dict[_NT, Dict[_NT, EdgeAttr]],
+    ordered_nodes: List[_NT],
+    input_nodes: List[_NT],
+) -> Tuple[List[_NT], int]:
     """Get the shortest path in the DAG.
 
     Args:
@@ -494,8 +506,8 @@ def get_shortest_path(
 
     Return: the shortest distance in the graph.
     """
-    distances: Dict[T, int] = defaultdict(lambda: MAX_DISTANCE)
-    pred_nodes: Dict[T, Optional[T]] = defaultdict()
+    distances: Dict[_NT, int] = defaultdict(lambda: MAX_DISTANCE)
+    pred_nodes: Dict[_NT, Optional[_NT]] = defaultdict()
 
     # Set initial value for all inputs nodes.
     for inode in input_nodes:

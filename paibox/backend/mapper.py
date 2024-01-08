@@ -135,7 +135,7 @@ class Mapper:
         grouped_edges = self.graph.group_edges()
 
         for syns_group in grouped_edges:
-            syns = [self.graph.edges[syn] for syn in syns_group]
+            syns = [self.graph.edges[syn].edge for syn in syns_group]
             self.core_blocks.append(CoreBlock.build(*syns, seed=0))
 
         for cb in self.core_blocks:

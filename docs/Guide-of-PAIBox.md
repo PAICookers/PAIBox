@@ -371,12 +371,12 @@ print(output)
  [3 3 3 3]]
 ```
 
-当函数需要时间步信息，则可在函数参数中声明 `t` ，输入节点将在前端环境变量 `FRONTEND_ENV` 中获取时间步信息。当需要传入额外的参数时，通过 `FRONTEND_ENV.save()` 前端环境变量中保存相关参数。当函数与时间步无关时，可使用 `*args` 作承接但不使用该参数。以下为一个简单实例：
+当函数需要时间步信息，则可在函数参数中声明 `t` ，输入节点将在前端环境变量 `FRONTEND_ENV` 中获取时间步信息。当需要传入额外的参数时，通过 `FRONTEND_ENV.save()` 保存相关参数至前端环境变量。当函数与时间步或其他参数无关时，可使用 `**kwargs` 代替。以下为一个简单实例：
 
 ```python
 from paibox import FRONTEND_ENV
 
-def fakeout_with_t(t, bias):
+def fakeout_with_t(t, bias, **kwargs): # ignore other arguments except `t` & `bias`
     return np.ones((4, 4)) * t + bias
 
 inp = pb.InputProj(input=fakeout_with_t, shape_out=(4, 4), keep_shape=True)
@@ -384,7 +384,7 @@ prob = pb.simulator.Probe(inp, "feature_map")
 
 sim = pb.Simulator(inp)
 sim.add_probe(prob)
-FRONTEND_ENV.save(bias=3) # Passing `bias=3` to the function `fakeout_with_t`
+FRONTEND_ENV.save(bias=3) # Passing `bias` to function `fakeout_with_t`
 sim.run(4)
 
 output = sim.data[prob][-1]
@@ -433,13 +433,15 @@ print(output)
     [ True  True  True False]]
 ```
 
-### 网络模型搭建
+### 网络模型
 
 在PAIBox中，神经网络搭建可以通过继承 `DynSysGroup`（或 `Network`，`DynSysGroup` 别名）来实现，并在其中例化神经元与突触组件，完成网络模型的搭建。以一个简单的全连接网络为例：
 
 <p align="center">
     <img src="images/Guide-基础网络搭建-全连接网络示例.png" alt="基础网络搭建-全连接网络示例" style="zoom:50%">
 </p>
+
+#### 定义网络模型
 
 要搭建上述网络，首先继承 `pb.Network` 并在子类 `fcnet` 中初始化网络。先例化输入节点 `i1` 与两个神经元组 `n1`、 `n2`，然后例化两个突触 `s1`、 `s2` ，将三者连接起来。其中，输入节点为泊松编码器。
 
@@ -457,6 +459,23 @@ class fcnet(pb.Network):
         self.s1 = pb.synapses.NoDecay(self.i1, self.n1, weights=weight1, conn_type=pb.synapses.ConnType.All2All)
         self.s2 = pb.synapses.NoDecay(self.n1, self.n2, weights=weight2, conn_type=pb.synapses.ConnType.All2All)
 ```
+
+#### 容器类型
+
+PAIBox提供 `NodeList`、`NodeDict` 容器类型，可批量化操作网络基本组件。例如，
+
+```python
+import paibox as pb
+l1 = pb.NodeList()
+
+for i in range(5):
+    l1.append(pb.neuron.IF(10, threshold=5, reset_v=0))
+
+for i in range(5):
+    l1.append(pb.neuron.LIF(10, threshold=5, reset_v=0))
+```
+
+如此，我们共例化了10个神经元，包括5个IF神经元、5个LIF神经元。在容器内的基本组件可通过下标进行访问、与其他基本组件进行连接等。这与一般容器类型的用法相同。
 
 ## 仿真
 
@@ -495,7 +514,6 @@ sim = pb.Simulator(fcnet, start_time_zero=False)
 class fcnet(pb.Network):
     def __init__(self, weight1, weight2):
         ...
-
         # 内部探针，记录神经元n1的输出脉冲
         self.probe1 = pb.simulator.Probe(target=self.n1, attr="spike")
 
