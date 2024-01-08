@@ -46,7 +46,7 @@ from paibox.utils import check_attr_same, count_unique_elem
 from .conf_template import CoreConfig, CorePlacementConfig, NeuronConfig
 from .context import _BACKEND_CONTEXT
 
-SourceNodeType: TypeAlias = Union[NeuDyn, InputProj]
+SourceNodeType: TypeAlias = Union[InputProj, NeuDyn]
 DestNodeType: TypeAlias = NeuDyn
 WeightType: TypeAlias = NDArray[np.int8]  # raw int8 weights
 WeightRamType: TypeAlias = NDArray[np.uint64]  # uint64 weights mapped in weight RAM
@@ -243,7 +243,7 @@ class CoreBlock(CoreAbstract):
     def tick_wait_start(self) -> int:
         if not check_attr_same(self.dest, "tick_wait_start"):
             raise AttributeError(
-                "Attribute `tick_wait_start` of the core block are not equal!"
+                "Attribute 'tick_wait_start' of the core block are not equal."
             )
 
         return self.dest[0].tick_wait_start
@@ -252,12 +252,10 @@ class CoreBlock(CoreAbstract):
     def tick_wait_end(self) -> int:
         if not check_attr_same(self.dest, "tick_wait_end"):
             raise AttributeError(
-                "Attribute `tick_wait_end` of the core block are not equal!"
+                "Attribute 'tick_wait_end' of the core block are not equal."
             )
 
         return self.dest[0].tick_wait_end
-
-    """Resource attributes."""
 
     @property
     def n_axon(self) -> int:
@@ -275,27 +273,25 @@ class CoreBlock(CoreAbstract):
     def n_neuron(self) -> int:
         return sum(d.num_in for d in self.dest)
 
-    def n_neuron_of(self, index: int) -> int:
-        """Get the #N of neurons of `index`-th dest neurons."""
-        return self.source[index].num_in
+    def n_neuron_of(self, idx: int) -> int:
+        """Get the #N of neurons of `idx`-th dest neurons."""
+        return self.dest[idx].num_in
 
     @property
     def n_neuron_of_plm(self) -> List[int]:
-        """A list of the #N of neurons on each `CorePlacement` in descending order.
+        """A list of the #N of neurons on each `CorePlacement`.
 
         FIXME Different in SNN/ANN mode.
         """
         if len(self.core_coords) == 0:
             raise BuildError(f"Do this after coordinates assignment.")
 
-        n = [0] * self.n_core_required
-
-        for i in range(self.n_core_required - 1):
-            n[i] = self.neuron_capacity
-
-        # When n_neuron = N * neuron_capacity, the n[-1] must be `neuron_capacity`.
-        n[-1] = (self.n_neuron - 1) % self.neuron_capacity + 1
-
+        # Get #N of neurons on each `CorePlacement` according to the
+        # maximum address required of neuron segments on each core placement.
+        n = [
+            self.neuron_segs_of_cb[i][-1].segment.addr_max
+            for i in range(self.n_core_required)
+        ]
         return n
 
     @cached_property
@@ -749,7 +745,7 @@ def _addr_ram_interval(nbits: int, ntimeslot: int) -> int:
 
 
 def get_neu_segments(
-    neu_groups: Sequence[NeuDyn],
+    neu_groups: List[NeuDyn],
     capacity: int,
     interval: int,
     *,
@@ -766,7 +762,7 @@ def get_neu_segments(
 
 
 def _get_neu_segments_catagory(
-    neu_groups: Sequence[NeuDyn], capacity: int, interval: int = 1
+    neu_groups: List[NeuDyn], capacity: int, interval: int = 1
 ) -> List[List[NeuSeg]]:
     """Group the neuron groups by category."""
     neu_segs: List[List[NeuSeg]] = []  # The final result
@@ -787,7 +783,7 @@ def _get_neu_segments_catagory(
 
 
 def _get_neu_segments_dense(
-    neu_groups: Sequence[NeuDyn], capacity: int, interval: int = 1
+    neu_groups: List[NeuDyn], capacity: int, interval: int = 1
 ) -> List[List[NeuSeg]]:
     """Dense grouping. Based on method `catagory`, use the greedy algorithm to \
         group the remaining neuron groups.
