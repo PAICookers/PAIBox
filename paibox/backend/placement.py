@@ -39,15 +39,13 @@ from paicorelib import WeightPrecision as WP
 
 from paibox.base import NeuDyn, PAIBoxObject
 from paibox.exceptions import BuildError, NotSupportedError, ResourceError
-from paibox.projection import InputProj
 from paibox.synapses import SynSys
 from paibox.utils import check_attr_same, count_unique_elem
 
 from .conf_template import CoreConfig, CorePlacementConfig, NeuronConfig
 from .context import _BACKEND_CONTEXT
+from .graphs_types import *
 
-SourceNodeType: TypeAlias = Union[InputProj, NeuDyn]
-DestNodeType: TypeAlias = NeuDyn
 WeightType: TypeAlias = NDArray[np.int8]  # raw int8 weights
 WeightRamType: TypeAlias = NDArray[np.uint64]  # uint64 weights mapped in weight RAM
 NeuSeg = NamedTuple("NeuSeg", [("parent", DestNodeType), ("segment", NeuronSegment)])

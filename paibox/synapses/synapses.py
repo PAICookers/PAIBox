@@ -7,7 +7,7 @@ from paicorelib import WeightPrecision as WP
 
 from paibox._types import DataArrayType
 from paibox.base import DynamicSys, NeuDyn
-from paibox.exceptions import ShapeError, SimulationError
+from paibox.exceptions import ShapeError
 from paibox.projection import InputProj
 
 from .transforms import *

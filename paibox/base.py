@@ -1,4 +1,10 @@
+import sys
 from typing import Any, Dict, List, Literal, Optional, Set, Tuple
+
+if sys.version_info >= (3, 10):
+    from typing import TypeAlias
+else:
+    from typing_extensions import TypeAlias
 
 from .collector import Collector
 from .generic import get_unique_name, is_name_unique
@@ -6,6 +12,9 @@ from .mixin import ReceiveInputProj, StatusMemory, TimeRelatedNode
 from .node import NodeDict, NodeList
 
 __all__ = []
+
+
+_IdPathType: TypeAlias = Tuple[int, int]
 
 
 class PAIBoxObject:
@@ -50,7 +59,7 @@ class PAIBoxObject:
         method: Literal["absolute", "relative"] = "absolute",
         level: int = -1,
         include_self: bool = True,
-    ) -> Collector:
+    ) -> Collector[str, "PAIBoxObject"]:
         """Collect all the children nodes."""
         return self._find_nodes(method, level, include_self)
 
@@ -60,8 +69,8 @@ class PAIBoxObject:
         level: int = -1,
         include_self: bool = True,
         lid: int = 0,
-        _paths: Optional[Set] = None,
-    ) -> Collector:
+        _paths: Optional[Set[_IdPathType]] = None,
+    ) -> Collector[str, "PAIBoxObject"]:
         if _paths is None:
             _paths = set()
 
@@ -76,12 +85,15 @@ class PAIBoxObject:
             return gather
 
         def _find_nodes_absolute() -> None:
+            nonlocal gather, nodes
+
             for v in self.__dict__.values():
                 if isinstance(v, PAIBoxObject):
                     _add_node2(self, v, _paths, gather, nodes)
                 elif isinstance(v, NodeList):
                     for v2 in v:
-                        _add_node2(self, v2, _paths, gather, nodes)
+                        if isinstance(v2, PAIBoxObject):
+                            _add_node2(self, v2, _paths, gather, nodes)
                 elif isinstance(v, NodeDict):
                     for v2 in v.values():
                         if isinstance(v2, PAIBoxObject):
@@ -100,16 +112,19 @@ class PAIBoxObject:
                 )
 
         def _find_nodes_relative() -> None:
+            nonlocal gather, nodes
+
             for k, v in self.__dict__.items():
                 if isinstance(v, PAIBoxObject):
                     _add_node1(self, k, v, _paths, gather, nodes)
                 elif isinstance(v, NodeList):
                     for i, v2 in enumerate(v):
-                        _add_node1(self, k + "-" + str(i), v2, _paths, gather, nodes)
+                        if isinstance(v2, PAIBoxObject):
+                            _add_node1(self, f"{k}-{str(i)}", v2, _paths, gather, nodes)
                 elif isinstance(v, NodeDict):
                     for k2, v2 in v.items():
                         if isinstance(v2, PAIBoxObject):
-                            _add_node1(self, k + "." + k2, v2, _paths, gather, nodes)
+                            _add_node1(self, f"{k}.{k2}", v2, _paths, gather, nodes)
 
             # finding nodes recursively
             for k1, v1 in nodes:
@@ -132,23 +147,14 @@ class PAIBoxObject:
 
         return gather
 
-    def __save_state__(self):
-        state = {}
-        for k, v in self.__dict__.items():
-            if k in self._excluded_vars:
-                continue
-
-            state.update({k.removeprefix("_"): v})
-
-        return state
-
-    def state_dict(self):
-        nodes = self.nodes(include_self=False)
-        return {k: node.__save_state__() for k, node in nodes.items()}
-
 
 def _add_node1(
-    obj: object, k: str, v: PAIBoxObject, _paths: Set, gather: Collector, nodes: List
+    obj: object,
+    k: str,
+    v: PAIBoxObject,
+    _paths: Set[_IdPathType],
+    gather: Collector[str, PAIBoxObject],
+    nodes: List[Tuple[str, PAIBoxObject]],
 ) -> None:
     path = (id(obj), id(v))
 
@@ -159,7 +165,11 @@ def _add_node1(
 
 
 def _add_node2(
-    obj: object, v: PAIBoxObject, _paths: Set, gather: Collector, nodes: List
+    obj: object,
+    v: PAIBoxObject,
+    _paths: Set[_IdPathType],
+    gather: Collector[str, PAIBoxObject],
+    nodes: List[PAIBoxObject],
 ) -> None:
     path = (id(obj), id(v))
 
