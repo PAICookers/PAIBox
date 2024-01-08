@@ -287,6 +287,34 @@ class Network_with_Branches_8bit(pb.Network):
             conn_type=pb.synapses.ConnType.MatConn,
             name="s5",
         )
+        
+        
+class Network_with_container(pb.DynSysGroup):
+    """Network with neurons in list."""
+
+    def __init__(self):
+        super().__init__()
+
+        self.inp = pb.InputProj(1, shape_out=(3,))
+
+        n1 = pb.neuron.TonicSpiking((3,), 2)
+        n2 = pb.neuron.TonicSpiking((3,), 3)
+        n3 = pb.neuron.TonicSpiking((3,), 4)
+
+        n_list = pb.NodeList()
+        n_list.append(n1)
+        n_list.append(n2)
+        n_list.append(n3)
+        self.n_list = n_list
+
+        self.s1 = pb.synapses.NoDecay(
+            n_list[0], n_list[1], conn_type=pb.synapses.ConnType.All2All
+        )
+        self.s2 = pb.synapses.NoDecay(
+            n_list[1], n_list[2], conn_type=pb.synapses.ConnType.All2All
+        )
+
+        self.probe1 = pb.Probe(self.n_list[1], "output", name="n2_out")
 
 
 @pytest.fixture(scope="class")
@@ -317,6 +345,11 @@ def build_network_with_branches_4bit():
 @pytest.fixture(scope="class")
 def build_Network_8bit_dense():
     return Network_with_Branches_8bit(seed=42)
+
+
+@pytest.fixture(scope="class")
+def build_Network_with_container():
+    return Network_with_container()
 
 
 @pytest.fixture(scope="class")

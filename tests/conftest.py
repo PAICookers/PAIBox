@@ -50,30 +50,32 @@ class NotNested_Net_Exp(pb.DynSysGroup):
         self.probe6 = pb.Probe(self.n2, "voltage", name="n2_v")
 
 
-class Nested_Net_Level1_1(pb.DynSysGroup):
-    """Nested network, level 1.
-    n1 -> s1 -> n2     n1 -> s1 -> n2
-    |                  |
-    subnet1 -> s2 -> subnet2
-    """
+class Network_with_container(pb.DynSysGroup):
+    """Network with neurons in list."""
 
     def __init__(self):
         super().__init__()
 
-        class Subnet(pb.DynSysGroup):
-            def __init__(self):
-                super().__init__()
-                self.n1 = pb.neuron.TonicSpiking(2, 3)
-                self.n2 = pb.neuron.TonicSpiking(2, 3)
-                self.s1 = pb.synapses.NoDecay(
-                    self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All
-                )
+        self.inp = pb.InputProj(1, shape_out=(3,))
 
-        self.subnet1 = Subnet()
-        self.subnet2 = Subnet()
-        self.s2 = pb.synapses.NoDecay(
-            self.subnet1.n2, self.subnet2.n1, conn_type=pb.synapses.ConnType.All2All
+        n1 = pb.neuron.TonicSpiking((3,), 2)
+        n2 = pb.neuron.TonicSpiking((3,), 3)
+        n3 = pb.neuron.TonicSpiking((3,), 4)
+
+        n_list: pb.NodeList[pb.Neuron] = pb.NodeList()
+        n_list.append(n1)
+        n_list.append(n2)
+        n_list.append(n3)
+        self.n_list = n_list
+
+        self.s1 = pb.synapses.NoDecay(
+            n_list[0], n_list[1], conn_type=pb.synapses.ConnType.All2All
         )
+        self.s2 = pb.synapses.NoDecay(
+            n_list[1], n_list[2], conn_type=pb.synapses.ConnType.All2All
+        )
+
+        self.probe1 = pb.Probe(self.n_list[1], "output", name="n2_out")
 
 
 class MoreInput_Net(pb.DynSysGroup):
@@ -100,34 +102,34 @@ class MoreInput_Net(pb.DynSysGroup):
         )
 
 
-def output_without_shape(*args):
+def output_without_shape(**kwargs):
     return np.ones((2,), np.int8)
 
 
 class _SubNet(pb.DynSysGroup):
-    def __init__(self):
+    def __init__(self, scale: int):
         super().__init__()
-        self.inp = pb.InputProj(output_without_shape, shape_out=(2,))
-        self.n1 = pb.neuron.TonicSpiking(2, fire_step=2, tick_wait_start=1)
-        self.n2 = pb.neuron.TonicSpiking(2, fire_step=2, tick_wait_start=2)
+        self.n1 = pb.neuron.TonicSpiking(scale, fire_step=2, tick_wait_start=1)
+        self.n2 = pb.neuron.TonicSpiking(scale, fire_step=2, tick_wait_start=2)
         self.s0 = pb.synapses.NoDecay(
-            self.inp, self.n1, conn_type=pb.synapses.ConnType.One2One
-        )
-        self.s1 = pb.synapses.NoDecay(
             self.n1, self.n2, conn_type=pb.synapses.ConnType.One2One
         )
 
 
-class Nested_Net_Level1_2(pb.DynSysGroup):
+class Network_with_subnet(pb.DynSysGroup):
     def __init__(self):
-        """
-        n1 -> s1 -> node1
-        """
         super().__init__()
-        self.n1 = pb.neuron.TonicSpiking(2, fire_step=2)
-        self.node1 = _SubNet()
-        self.s1 = pb.synapses.NoDecay(
-            self.n1, self.node1.n1, conn_type=pb.synapses.ConnType.One2One
+        self.inp = pb.InputProj(output_without_shape, shape_out=(10,))
+        self.subnet1 = _SubNet(10)
+        self.subnet2 = _SubNet(20)
+
+        # 10*10
+        self.s_inp_2_subnet1 = pb.synapses.NoDecay(
+            self.inp, self.subnet1.n1, conn_type=pb.synapses.ConnType.One2One
+        )
+        # 10*20
+        self.s_subnet1_2_subnet2 = pb.synapses.NoDecay(
+            self.subnet1.n2, self.subnet2.n1, conn_type=pb.synapses.ConnType.All2All
         )
 
 
@@ -147,13 +149,13 @@ def build_NotNested_Net_Exp():
 
 
 @pytest.fixture(scope="class")
-def build_Nested_Net_Level1_1():
-    return Nested_Net_Level1_1()
+def build_Network_with_container():
+    return Network_with_container()
 
 
 @pytest.fixture(scope="class")
-def build_Nested_Net_Level1_2():
-    return Nested_Net_Level1_2()
+def build_Network_with_subnet():
+    return Network_with_subnet()
 
 
 @pytest.fixture(scope="class")
