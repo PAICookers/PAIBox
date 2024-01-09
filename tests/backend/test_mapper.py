@@ -5,10 +5,11 @@ from typing import Any
 
 import numpy as np
 import pytest
-from paicorelib import Coord, HwConfig
+from paicorelib import Coord, HwConfig, WeightPrecision
 
 import paibox as pb
 from paibox.backend.conf_template import CoreConfig, NeuronDest, NeuronDestInfo
+from paibox.synapses import SynSys
 
 
 class CustomJsonEncoder(JSONEncoder):
@@ -110,6 +111,9 @@ class TestMapperDebug:
 
 
 class TestMapper_Weight4:
+    @pytest.mark.skipif(
+        hasattr(SynSys, "CFLAG_ENABLE_WP_OPTIMIZATION"), reason="Breaking change"
+    )
     def test_mapper_weight4(
         self, monkeypatch, ensure_dump_dir, build_network_with_branches_4bit, packbits8
     ):
@@ -208,7 +212,7 @@ class TestMapper_NeuronSeg_Dense:
 
         mapper = pb.Mapper()
         mapper.build(net)
-        mapper.compile(method="dense")
+        mapper.compile()
 
         _json_core_plm_config = dict()
 
@@ -224,3 +228,21 @@ class TestMapper_NeuronSeg_Dense:
                 indent=4,
                 cls=CustomJsonEncoder,
             )
+
+
+class TestMapper_compile_options:
+    def test_cflags_weight_bit_optimization(self, build_network_with_branches_4bit):
+        net = build_network_with_branches_4bit
+        mapper = pb.Mapper()
+        mapper.build(net)
+        mapper.compile(weight_bit_optimization=True)
+        assert (
+            mapper.core_blocks[0].weight_precision == WeightPrecision.WEIGHT_WIDTH_4BIT
+        )
+
+        mapper.clear()
+        mapper.build(net)
+        mapper.compile(weight_bit_optimization=False)
+        assert (
+            mapper.core_blocks[0].weight_precision == WeightPrecision.WEIGHT_WIDTH_8BIT
+        )
