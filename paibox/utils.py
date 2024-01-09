@@ -27,7 +27,7 @@ def check_elem_unique(obj: Any) -> bool:
     raise TypeError(f"Unsupported type: {type(obj)}")
 
 
-def count_unique_elem(obj: Iterable) -> int:
+def count_unique_elem(obj: Iterable[Any]) -> int:
     seen = set()
     for item in obj:
         seen.add(item)
@@ -35,7 +35,7 @@ def count_unique_elem(obj: Iterable) -> int:
     return len(seen)
 
 
-def check_attr_same(obj: Iterable, attr: str) -> bool:
+def check_attr_same(obj: Iterable[Any], attr: str) -> bool:
     return all(getattr(obj[0], attr) == getattr(item, attr) for item in obj)
 
 

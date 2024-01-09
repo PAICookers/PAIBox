@@ -194,7 +194,7 @@ s1= pb.synapses.NoDecay(source=n1, dest=n2, weights=weight1, conn_type=pb.synaps
 
 两组神经元之间依次单对单连接，这要求**前向与后向神经元数目相同**。其权重 `weights` 主要有以下几种输入类型：
 
-- 标量：默认为1。这表示前层的各个神经元输出线性地输入到后层神经元。
+- 标量：默认为1。这表示前层的各个神经元输出线性地输入到后层神经元。这种情况等同于 `ConnType.BYPASS` 旁路连接。
 
   ```python
   n1 = pb.neuron.IF(shape=5,threshold=1)
@@ -567,19 +567,42 @@ sim.reset()
 ```python
 mapper = pb.Mapper()
 mapper.build(fcnet)
-mapper.compile()
+mapper.compile(weight_bit_optimization=True)
 mapper.export(write_to_file=True, fp="./debug/", format="npy", split_by_coordinate=False, local_chip_addr=(0, 0), export_core_params=False)
 
-# Clear all the results.
+# Clear all the results
 mapper.clear()
 ```
 
-其中，导出时有如下参数可指定：
+其中，编译时有如下参数可指定：
+
+- `weight_bit_optimization`: 是否对权重精度进行优化处理。例如，将声明时为 INT8 的权重根据实际值当作更小的精度处理（当权重的值均在 [-8, 7] 之间，则可当作 INT4 进行处理）。默认由后端配置项内对应**编译选项**指定（默认开启）。
+
+导出时有如下参数可指定：
 
 - `write_to_file`: 是否将配置帧导出为文件。默认为 `True`。
-- `fp`：导出目录。
+- `fp`：导出目录。若未指定，则默认为后端配置选项 `build_directory` 所设置的目录（当前工作目录）。
 - `format`：导出交换文件格式，可以为 `bin`、`npy` 或 `txt`。默认为 `bin`。
 - `split_by_coordinate`：是否将配置帧以每个核坐标进行分割，由此生成的配置帧文件命名为 `config_core1`、`config_core2` 等。默认为 `False`。
-- `local_chip_addr`：本地芯片地址，元组格式表示。默认为后端全局变量 `local_chip_addr` 所设置的默认值。
+- `local_chip_addr`：本地芯片地址，元组格式表示。默认为后端配置项 `local_chip_addr` 所设置的默认值。
 - `export_core_params`: 是否导出实际使用核参数至json文件，可直观显示实际使用核的配置信息。默认为 `False`。
 - 同时，将返回模型的配置项字典。
+
+### 后端配置项
+
+与后端相关的配置项由 `BACKEND_CONFIG` 统一保存与访问，例如上述**编译选项**、`build_directory`、`local_chip_addr` 等。常用的配置项有如下：
+
+```python
+BACKEND_CONFIG.local_chip_addr
+>>> Coord(0, 0)
+
+BACKEND_CONFIG.test_chip_addr
+>>> Coord(1, 0)
+
+# Set output directory
+BACKEND_CONFIG.output_dir = "./output"
+
+# Set cflag for enabling weight precision optimization
+set_cflag(enable_wp_opt=True, cflag="This is a cflag.")
+>>> BACKEND_CONFIG.cflag = {"enable_wp_opt": True, "cflag": "This is a cflag."}
+```

@@ -82,7 +82,7 @@ def test_AllToAll_weight_scalar(weight, expected_dtype):
     y = f(x)
     expected = np.full((num_out,), np.sum(x, axis=None), dtype=np.int32) * weight
 
-    assert f.dtype == expected_dtype
+    assert f.conn_dtype == expected_dtype
     assert y.dtype == np.int32
     assert y.shape == (num_out,)
     assert y.ndim == 1
@@ -139,7 +139,7 @@ def test_AllToAll_array(shape, x, weights, expected_dtype):
     y = f(x)
     expected = x @ weights.copy().astype(np.int32)
 
-    assert f.dtype == expected_dtype
+    assert f.conn_dtype == expected_dtype
     assert np.array_equal(y, expected)
     assert f.connectivity.shape == shape
 
@@ -179,7 +179,7 @@ def test_MaskedLinear_conn(shape, x, weights, expected_dtype):
     y = f(x)
     expected = x @ weights.copy().astype(np.int32)
 
-    assert f.dtype == expected_dtype
+    assert f.conn_dtype == expected_dtype
     assert f.connectivity.dtype == expected_dtype
     assert y.shape == (shape[1],)
     assert y.dtype == np.int32

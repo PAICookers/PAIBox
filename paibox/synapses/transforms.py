@@ -5,11 +5,11 @@ import numpy as np
 from numpy.typing import NDArray
 from paicorelib import WeightPrecision as WP
 
-from paibox._types import DataArrayType
+from paibox._types import DataArrayType, WeightType
 from paibox.exceptions import ShapeError
 from paibox.utils import is_shape
 
-__all__ = ["ConnType", "AllToAll", "MaskedLinear", "OneToOne"]
+__all__ = ["ConnType", "OneToOne", "ByPass", "AllToAll", "MaskedLinear"]
 
 
 MAX_INT1 = np.int8(1)
@@ -30,42 +30,48 @@ class ConnType(Enum):
     One2One = auto()
     """One-to-one connection."""
 
+    BYPASS = auto()
+
     All2All = auto()
     """All-to-all connection."""
 
 
-def _get_weight_precision(weight: np.ndarray) -> WP:
+def _get_weight_precision(weight: np.ndarray, enable_wp_opt: bool) -> WP:
     """Get the actual weight_precision of the weight."""
     _max = np.max(weight, axis=None).astype(np.int32)
     _min = np.min(weight, axis=None).astype(np.int32)
 
+    if _max > MAX_INT8 or _min < MIN_INT8:
+        raise ValueError(f"Weight precision out of range, [{_min}, {_max}]")
+
     if _max <= MAX_INT1 and _min >= MIN_INT1:
         return WP.WEIGHT_WIDTH_1BIT
-    elif _max <= MAX_INT2 and _min >= MIN_INT2:
-        return WP.WEIGHT_WIDTH_2BIT
-    elif _max <= MAX_INT4 and _min >= MIN_INT4:
-        return WP.WEIGHT_WIDTH_4BIT
-    elif _max <= MAX_INT8 and _min >= MIN_INT8:
-        return WP.WEIGHT_WIDTH_8BIT
+    elif enable_wp_opt:
+        if _max <= MAX_INT2 and _min >= MIN_INT2:
+            return WP.WEIGHT_WIDTH_2BIT
+        elif _max <= MAX_INT4 and _min >= MIN_INT4:
+            return WP.WEIGHT_WIDTH_4BIT
+        else:
+            return WP.WEIGHT_WIDTH_8BIT
     else:
-        raise ValueError(f"Weight precision out of range, [{_min}, {_max}]")
+        return WP.WEIGHT_WIDTH_8BIT
 
 
 class Transform:
-    weights: NDArray[np.int8]
+    weights: WeightType
     """The actual weights in synapse. Must stored in `np.int8` format."""
 
     def __call__(self, *args, **kwargs) -> NDArray[np.int32]:
         raise NotImplementedError
 
-    @property
-    def weight_precision(self) -> WP:
-        """The weight_precision of the weight."""
-        return _get_weight_precision(self.weights)
+    def _get_wp(self, enable_wp_opt: bool) -> WP:
+        """Precision of weights."""
+        return _get_weight_precision(self.weights, enable_wp_opt)
 
     @property
-    def dtype(self) -> Union[Type[np.bool_], Type[np.int8]]:
-        if self.weight_precision is WP.WEIGHT_WIDTH_1BIT:
+    def conn_dtype(self) -> Union[Type[np.bool_], Type[np.int8]]:
+        # The value of `enable_wp_opt` dosen't effect the dtype of `connectivity`.
+        if self._get_wp(enable_wp_opt=False) is WP.WEIGHT_WIDTH_1BIT:
             return np.bool_
         else:
             return np.int8
@@ -114,9 +120,9 @@ class OneToOne(Transform):
     @property
     def connectivity(self):
         return (
-            (self.weights * np.eye(self.num, dtype=np.bool_)).astype(self.dtype)
+            (self.weights * np.eye(self.num, dtype=np.bool_)).astype(self.conn_dtype)
             if self.weights.ndim == 0
-            else np.diag(self.weights).astype(self.dtype)
+            else np.diag(self.weights).astype(self.conn_dtype)
         )
 
 
@@ -178,10 +184,10 @@ class AllToAll(Transform):
     @property
     def connectivity(self):
         return (
-            self.weights.astype(self.dtype)
+            self.weights.astype(self.conn_dtype)
             if self.weights.ndim == 2
             else (self.weights * np.ones(self.conn_size, dtype=np.bool_)).astype(
-                self.dtype
+                self.conn_dtype
             )
         )
 
@@ -214,4 +220,4 @@ class MaskedLinear(Transform):
 
     @property
     def connectivity(self):
-        return self.weights.astype(self.dtype)
+        return self.weights.astype(self.conn_dtype)

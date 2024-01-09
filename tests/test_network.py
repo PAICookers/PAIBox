@@ -210,15 +210,6 @@ def test_Sequential_getitem():
     sequential[1:2]
 
 
-@pytest.mark.parametrize("level", [1, 2], ids=["level_1", "level_2"])
-def test_SynSysGroup_nodes_nested(level, build_Nested_Net_Level1_2):
-    net = build_Nested_Net_Level1_2
-    all_nodes = net.nodes("absolute", level=level, include_self=False)
-
-    for v in all_nodes.values():
-        print(v)
-
-
 class TestNetwork_Principles:
     def test_control_group(self, monkeypatch, build_Input_to_N1):
         net = build_Input_to_N1

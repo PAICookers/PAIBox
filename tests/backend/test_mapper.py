@@ -5,10 +5,11 @@ from typing import Any
 
 import numpy as np
 import pytest
-from paicorelib import Coord, HwConfig
+from paicorelib import Coord, HwConfig, WeightPrecision
 
 import paibox as pb
 from paibox.backend.conf_template import CoreConfig, NeuronDest, NeuronDestInfo
+from paibox.synapses import SynSys
 
 
 class CustomJsonEncoder(JSONEncoder):
@@ -30,16 +31,74 @@ class CustomJsonEncoder(JSONEncoder):
 
 
 class TestGraphInfo:
-    def test_multi_inputproj(self, get_mapper, build_example_net2):
-        net = build_example_net2
+    def test_multi_inputproj(
+        self, get_mapper, ensure_dump_dir, build_multi_inputproj_net
+    ):
+        net = build_multi_inputproj_net
+        mapper: pb.Mapper = get_mapper
+
+        mapper.build(net)
+        mapper.compile()
+        mapper.export(
+            fp=ensure_dump_dir,
+            format="txt",
+            split_by_coordinate=True,
+            export_core_params=True,
+        )
+
+        assert len(mapper.graph_info["input"]) == 2
+
+    def test_multi_inputproj2(
+        self, get_mapper, ensure_dump_dir, build_multi_inputproj_net2
+    ):
+        net = build_multi_inputproj_net2
+        mapper: pb.Mapper = get_mapper
+
+        mapper.build(net)
+        mapper.compile()
+        mapper.export(
+            fp=ensure_dump_dir,
+            format="txt",
+            split_by_coordinate=True,
+            export_core_params=True,
+        )
+
+        assert len(mapper.graph_info["input"]) == 2
+
+    def test_multi_output_nodes(
+        self, get_mapper, ensure_dump_dir, build_multi_onodes_net
+    ):
+        net = build_multi_onodes_net
+        mapper: pb.Mapper = get_mapper
+
+        mapper.build(net)
+        mapper.compile()
+        assert len(mapper.graph_info["output"]) == 2
+
+        mapper.export(
+            fp=ensure_dump_dir,
+            format="txt",
+            split_by_coordinate=True,
+            export_core_params=True,
+        )
+
+    def test_multi_output_nodes2(
+        self, get_mapper, ensure_dump_dir, build_multi_onodes_net2
+    ):
+        net = build_multi_onodes_net2
         mapper: pb.Mapper = get_mapper
 
         mapper.build(net)
         mapper.compile()
 
-        assert mapper.graph_info.get("input") is not None
+        assert len(mapper.graph_info["output"]) == 2
 
-        assert len(mapper.graph_info["input"]) == 2  # type: ignore
+        mapper.export(
+            fp=ensure_dump_dir,
+            format="txt",
+            split_by_coordinate=True,
+            export_core_params=True,
+        )
 
 
 class TestMapperDebug:
@@ -110,6 +169,9 @@ class TestMapperDebug:
 
 
 class TestMapper_Weight4:
+    @pytest.mark.skipif(
+        hasattr(SynSys, "CFLAG_ENABLE_WP_OPTIMIZATION"), reason="Breaking change"
+    )
     def test_mapper_weight4(
         self, monkeypatch, ensure_dump_dir, build_network_with_branches_4bit, packbits8
     ):
@@ -208,7 +270,7 @@ class TestMapper_NeuronSeg_Dense:
 
         mapper = pb.Mapper()
         mapper.build(net)
-        mapper.compile(method="dense")
+        mapper.compile()
 
         _json_core_plm_config = dict()
 
@@ -224,3 +286,21 @@ class TestMapper_NeuronSeg_Dense:
                 indent=4,
                 cls=CustomJsonEncoder,
             )
+
+
+class TestMapper_cflags:
+    def test_cflags_weight_bit_optimization(self, build_network_with_branches_4bit):
+        net = build_network_with_branches_4bit
+        mapper = pb.Mapper()
+        mapper.build(net)
+        mapper.compile(weight_bit_optimization=True)
+        assert (
+            mapper.core_blocks[0].weight_precision == WeightPrecision.WEIGHT_WIDTH_4BIT
+        )
+
+        mapper.clear()
+        mapper.build(net)
+        mapper.compile(weight_bit_optimization=False)
+        assert (
+            mapper.core_blocks[0].weight_precision == WeightPrecision.WEIGHT_WIDTH_8BIT
+        )

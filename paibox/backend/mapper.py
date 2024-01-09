@@ -28,7 +28,7 @@ from .conf_template import (
     export_outp_dests_conf_json,
     gen_config_frames_by_coreconf,
 )
-from .context import _BACKEND_CONTEXT
+from .context import _BACKEND_CONTEXT, set_cflag
 from .graphs import *
 from .placement import CoreBlock, aligned_coords, max_lcn_of_cb
 from .routing import RoutingRoot
@@ -88,6 +88,10 @@ class Mapper:
         self.core_plm_config.clear()
         self.graph_info.clear()
 
+        # Set default cflags
+        _BACKEND_CONTEXT.cflags.clear()
+        set_cflag(enable_wp_opt=True)
+
     def build(
         self,
         *networks: DynSysGroup,
@@ -108,7 +112,10 @@ class Mapper:
         # Filter & check the constraints to nodes.
         self.graph.build(*networks)
 
-    def compile(self, method: Literal["catagory", "dense"] = "catagory") -> None:
+    def compile(self, *, weight_bit_optimization: Optional[bool] = None) -> None:
+        if weight_bit_optimization is not None:
+            set_cflag(enable_wp_opt=weight_bit_optimization)
+
         """Backend compilation."""
         self._build_check()
 
@@ -119,7 +126,7 @@ class Mapper:
         self.lcn_ex_adjustment()
 
         """3. Core coordinate assignment."""
-        self.coord_assign(method)
+        self.coord_assign()
 
         """4. Allocate the core blocks to the `CorePlacement`."""
         self.core_allocation()
@@ -136,7 +143,13 @@ class Mapper:
 
         for syns_group in grouped_edges:
             syns = [self.graph.edges[syn].edge for syn in syns_group]
-            self.core_blocks.append(CoreBlock.build(*syns, seed=0))
+            self.core_blocks.append(
+                CoreBlock.build(
+                    *syns,
+                    seed=0,
+                    enable_wp_opt=_BACKEND_CONTEXT.cflags["enable_wp_opt"],
+                )
+            )
 
         for cb in self.core_blocks:
             succ_cbs = list(
@@ -220,9 +233,7 @@ class Mapper:
             - 2. Export the parameters(Neuron RAM) of neurons inside.
         """
         input_nodes_info = self._inpproj_config_export()
-        output_dest_info = self._outdest_config_export()
-
-        self._member_cb_config_export()
+        output_dest_info = self._member_cb_config_export()
 
         self.graph_info = GraphInfo(
             input=input_nodes_info,
@@ -236,9 +247,9 @@ class Mapper:
     def _inpproj_config_export(self) -> InputNodeInfo:
         """Export the configuration of input projections.
 
-        Json exchange file format:
+        Json exchange file format for input nodes:
         {
-            "inp1_1": { # as input node #1
+            "inp1_1": { # as input node #1 without destination information
                 "addr_core_x": 0,
                 "addr_core_y": 0,
                 "addr_core_x_ex": 1,
@@ -253,7 +264,7 @@ class Mapper:
         """
         input_nodes_info = dict()
 
-        # Traverse input core blocks where the input nodes are
+        # Traverse input core blocks where input nodes are
         for input_cb in filter(
             lambda cb: any(s for s in cb.source if s in self.graph.inodes.values()),
             self.core_blocks,
@@ -288,12 +299,17 @@ class Mapper:
 
         return input_nodes_info
 
-    def _outdest_config_export(self) -> OutputDestInfo:
-        """Export the configuration of output destinations.
+    def _member_cb_config_export(self) -> OutputDestInfo:
+        """Export the configuration of member core blocks & output destinations.
 
-        Json exchange file format:
+        Description:
+            Traverse core placements in core blocks, find the following core    \
+            blocks where the axons at. Get the coordinate of the core placement \
+            & coordinates of axons(for broadcasting).
+
+        Json exchange file format for output nodes:
         {
-            "n3": { # as output node #1
+            "n3": { # as output node #1 & required two physical cores
                 "4": { # as output core #1 of node #1
                     "tick_relative": [0, 0, 0, 0, 0],
                     "addr_axon": [0, 1, 2, 3, 4, 5],
@@ -312,46 +328,10 @@ class Mapper:
         output_dest_info = defaultdict(dict)
         ocoord = _BACKEND_CONTEXT["output_core_addr_start"]
 
-        # Traverse the output core blocks(out-degree == 0)
-        for output_cb in filter(
-            lambda cb: self.degrees_of_cb[cb].out_degree == 0, self.core_blocks
-        ):
-            # Record the core parameters
-            self.core_params |= CoreBlock.export_core_plm_config(output_cb)
-
-            output_axon_offset = 0
-            for core_plm in output_cb.core_placements.values():
-                for neu_seg in core_plm.neu_segs:
-                    # Update the offset of axon
-                    output_axon_offset = core_plm.export_neu_config(
-                        neu_seg,
-                        output_core_coord=ocoord,
-                        axon_addr_offset=output_axon_offset,
-                    )
-                    output_dest_info[neu_seg.parent.name][
-                        core_plm.coord.address
-                    ] = core_plm.neu_configs[neu_seg.parent].neuron_dest_info
-
-                self.core_plm_config[core_plm.coord] = core_plm.export_core_plm_config()
-
-            # Coord.x += 1 for the destination of the next output node
-            ocoord += CoordOffset(1, 0)
-
-        return output_dest_info
-
-    def _member_cb_config_export(self):
-        """Export the configuration of member core blocks.
-
-        Description:
-            Traverse all the core placements in core blocks, then find the  \
-            following core blocks where the axons at. Get the coordinate of \
-            the core placement & coordinates of axons(for broadcasting).
-        """
-        for member_cb in filter(
-            lambda cb: self.degrees_of_cb[cb].out_degree > 0, self.core_blocks
-        ):
+        for member_cb in self.core_blocks:
             self.core_params |= CoreBlock.export_core_plm_config(member_cb)
 
+            output_axon_offset = 0
             for core_plm in member_cb.core_placements.values():
                 for neu_seg in core_plm.neu_segs:
                     # Find the axon destinations
@@ -359,11 +339,30 @@ class Mapper:
                         cb for cb in self.core_blocks if neu_seg.parent in cb.source
                     ]
 
-                    # TODO Check it like this temperarily. Will improve it later.
-                    assert _cb_in_same_routing_group(self.routing_groups, *dest_cb)
-                    core_plm.export_neu_config(neu_seg, dest_cb)
+                    # FIXME It is necessary to ensure that when there are both output nodes
+                    # & member nodes in the same `CoreBlock`, they need to be allocated on
+                    # different physical cores, otherwise routing problem will occur.
+                    if dest_cb:  # `neu_seg` is memeber neurons
+                        assert _cb_in_same_routing_group(self.routing_groups, *dest_cb)
+                        core_plm.export_neu_config(neu_seg, dest_cb)
+                    else:
+                        # `neu_seg` is output neurons. Every neuron segment is a output node.
+                        # Update the offset of axon
+                        output_axon_offset = core_plm.export_neu_config(
+                            neu_seg,
+                            output_core_coord=ocoord,
+                            axon_addr_offset=output_axon_offset,
+                        )
+                        output_dest_info[neu_seg.parent.name][
+                            core_plm.coord.address
+                        ] = core_plm.neu_configs[neu_seg.parent].neuron_dest_info
+
+                        # Coord.x += 1 for the destination of the next output node
+                        ocoord += CoordOffset(1, 0)
 
                 self.core_plm_config[core_plm.coord] = core_plm.export_core_plm_config()
+
+        return output_dest_info
 
     def export(
         self,
@@ -474,7 +473,7 @@ def group_by(dict_: Dict, keyfunc=lambda item: item):
 
 
 def _cb_in_same_routing_group(
-    routing_group: List[RoutingGroup], *core_blocks: CoreBlock
+    routing_group: List[RoutingGroup], core_blocks: List[CoreBlock]
 ) -> bool:
     if len(core_blocks) == 1:
         return True

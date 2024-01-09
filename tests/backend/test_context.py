@@ -17,3 +17,15 @@ def test_backend_context():
 
     BACKEND_CONFIG["local_chip_addr"] = (10, 10)
     assert not isinstance(BACKEND_CONFIG.local_chip_addr, Coord)
+
+    BACKEND_CONFIG.save("strkey", False, 12345, "ABC", a=1, b=2, c=3)
+    assert BACKEND_CONFIG["b"] == 2
+    assert BACKEND_CONFIG.load("strkey") == False
+
+    cflags = BACKEND_CONFIG.cflags
+    cflags["op1"] = True
+
+    assert BACKEND_CONFIG.cflags["op1"] == True
+
+    BACKEND_CONFIG.cflags["op2"] = 999
+    assert BACKEND_CONFIG.cflags["op2"] == 999

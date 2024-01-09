@@ -1,13 +1,17 @@
-from typing import Any
+from typing import Any, TypeVar
 
 __all__ = ["FRONTEND_ENV"]
+
+
+_KT = TypeVar("_KT")
+_VT = TypeVar("_VT")
 
 
 class _Context:
     def __init__(self) -> None:
         self._context = dict()
 
-    def load(self, key, default: Any = None):
+    def load(self, key: _KT, default: _VT = None) -> Any:
         """Load the context by the `key`.
 
         Args:
@@ -26,7 +30,7 @@ class _Context:
         """Save the context by the key-value pairs."""
         if len(args) % 2 > 0:
             raise TypeError(
-                f"Expected even positional arguments but odd given {len(args)}"
+                f"Expected even positional arguments but odd given ({len(args)})"
             )
 
         for i in range(0, len(args), 2):
@@ -34,14 +38,13 @@ class _Context:
             v = args[i + 1]
             self._context[k] = v
 
-        for k, v in kwargs.items():
-            self._context[k] = v
+        self._context |= kwargs
 
-    def __setitem__(self, key, value) -> None:
+    def __setitem__(self, key: _KT, value: _VT) -> None:
         self.save(key, value)
 
-    def __getitem__(self, item):
-        return self.load(item)
+    def __getitem__(self, key: Any) -> Any:
+        return self.load(key)
 
     def get_ctx(self):
         """Get all contexts."""

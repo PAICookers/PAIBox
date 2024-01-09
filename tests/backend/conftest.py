@@ -32,6 +32,9 @@ def ensure_dump_dir():
 
     if not p.is_dir():
         p.mkdir(parents=True, exist_ok=True)
+    else:
+        for f in p.iterdir():
+            f.unlink()
 
     yield p
 
@@ -98,34 +101,32 @@ class NetForTest1(pb.Network):
 
 
 class NetForTest2(pb.Network):
-    """INP1 -> S1 -> N1 -> S3 -> N3
-    INP2 -> S2 -> N2 -> S4 -> N3
+    """
+    INP1 -> S1 -> N1 -> S3 -> N2
+    INP2 -> S2 -> N1
     """
 
     def __init__(self):
         super().__init__()
-        self.inp1 = pb.InputProj(input=1, shape_out=(400,), name="inp1_2")
-        self.inp2 = pb.InputProj(input=1, shape_out=(400,), name="inp2_2")
-        self.n1 = pb.TonicSpiking(400, 3, name="n1_2", tick_wait_start=1)
-        self.n2 = pb.TonicSpiking(400, 3, name="n2_2", tick_wait_start=1)
-        self.n3 = pb.TonicSpiking(800, 3, name="n3_2", tick_wait_start=2)
+        self.inp1 = pb.InputProj(input=1, shape_out=(40,), name="inp1_2")
+        self.inp2 = pb.InputProj(input=1, shape_out=(50,), name="inp2_2")
+        self.n1 = pb.TonicSpiking(30, 3, name="n1_2", tick_wait_start=1)
+        self.n2 = pb.TonicSpiking(20, 3, name="n2_2", tick_wait_start=2)
         self.s1 = pb.NoDecay(
-            self.inp1, self.n1, conn_type=pb.synapses.ConnType.One2One, name="s1_2"
+            self.inp1, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s1_2"
         )
         self.s2 = pb.NoDecay(
-            self.inp2, self.n2, conn_type=pb.synapses.ConnType.One2One, name="s2_2"
+            self.inp2, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s2_2"
         )
         self.s3 = pb.NoDecay(
-            self.n1, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s3_2"
-        )
-        self.s4 = pb.NoDecay(
-            self.n2, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s4_2"
+            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s3_2"
         )
 
 
 class NetForTest3(pb.Network):
-    """INP1 -> S1 -> N1 -> S2 ->             N2 -> S3 -> N3
-    N1 -> S4 -> N4 -> S5 -> N2
+    """
+    INP1 -> S1 -> N1 -> S2 -> N2 -> S3 -> N3
+                  N1 -> S4 -> N4 -> S5 -> N2
     """
 
     def __init__(self):
@@ -154,8 +155,9 @@ class NetForTest3(pb.Network):
 
 
 class NetForTest4(pb.Network):
-    """INP1 -> S1 -> N1 -> S2 -> N2 -> S4 -> N4
-    N1 -> S3 -> N3 -> S5 -> N4
+    """
+    INP1 -> S1 -> N1 -> S2 -> N2 -> S4 -> N4
+                  N1 -> S3 -> N3 -> S5 -> N4
     """
 
     def __init__(self):
@@ -180,6 +182,60 @@ class NetForTest4(pb.Network):
         self.s5 = pb.NoDecay(
             self.n3, self.n4, conn_type=pb.synapses.ConnType.One2One, name="s5"
         )
+
+
+class Network_with_multi_inodes(pb.Network):
+    """
+    INP1 -> S1 -> N1 -> S2 -> N2
+    INP2 -> S3 -> N2
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.inp1 = pb.InputProj(input=1, shape_out=(40,), name="inp1")
+        self.inp2 = pb.InputProj(input=1, shape_out=(50,), name="inp2")
+        self.n1 = pb.TonicSpiking(80, 2, name="n1", tick_wait_start=1)
+        self.n2 = pb.TonicSpiking(20, 3, name="n2", tick_wait_start=2)
+
+        self.s1 = pb.NoDecay(
+            self.inp1, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s1"
+        )
+        self.s2 = pb.NoDecay(
+            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s2"
+        )
+        self.s3 = pb.NoDecay(
+            self.inp2, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s3"
+        )
+
+
+class Network_with_multi_onodes(pb.Network):
+    """
+    INP1 -> S1 -> N1 -> S2 -> N2
+                  N1 -> S3 -> N3 (-> N4)
+    """
+
+    def __init__(self, connect_n4: bool = False):
+        super().__init__()
+        self.inp1 = pb.InputProj(input=1, shape_out=(40,), name="inp1")
+        self.n1 = pb.TonicSpiking(80, 2, name="n1", tick_wait_start=1)
+        self.n2 = pb.TonicSpiking(20, 3, name="n2", tick_wait_start=2)
+        self.n3 = pb.TonicSpiking(30, 4, name="n3", tick_wait_start=2)
+
+        self.s1 = pb.NoDecay(
+            self.inp1, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s1"
+        )
+        self.s2 = pb.NoDecay(
+            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s2"
+        )
+        self.s3 = pb.NoDecay(
+            self.n1, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s3"
+        )
+
+        if connect_n4:
+            self.n4 = pb.TonicSpiking(50, 4, name="n4", tick_wait_start=3)
+            self.s4 = pb.NoDecay(
+                self.n3, self.n4, conn_type=pb.synapses.ConnType.All2All, name="s4"
+            )
 
 
 class Network_with_Branches_4bit(pb.Network):
@@ -327,6 +383,16 @@ def build_example_net2():
     return NetForTest2()
 
 
+@pytest.fixture(scope="class")
+def build_multi_inputproj_net():
+    return NetForTest2()
+
+
+@pytest.fixture(scope="class")
+def build_multi_inputproj_net2():
+    return Network_with_multi_inodes()
+
+
 @pytest.fixture(scope="function")
 def build_example_net3():
     return NetForTest3()
@@ -335,6 +401,16 @@ def build_example_net3():
 @pytest.fixture(scope="class")
 def build_example_net4():
     return NetForTest4()
+
+
+@pytest.fixture(scope="class")
+def build_multi_onodes_net():
+    return Network_with_multi_onodes()
+
+
+@pytest.fixture(scope="class")
+def build_multi_onodes_net2():
+    return Network_with_multi_onodes(connect_n4=True)
 
 
 @pytest.fixture(scope="class")

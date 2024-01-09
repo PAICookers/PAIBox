@@ -19,13 +19,15 @@ class Constraints:
 
 
 class GraphNodeConstrs(Constraints):
-    bound_constrs: ClassVar[List[List[NodeName]]] = []
-    conflicted_constrs: Dict[NodeName, Tuple[NodeName, ...]] = defaultdict(tuple)
+    BOUNDED_CONSTRS: ClassVar[List[List[NodeName]]] = []
+    CONFLICTED_CONSTRS: ClassVar[Dict[NodeName, Tuple[NodeName, ...]]] = defaultdict(
+        tuple
+    )
 
     @classmethod
     def clear(cls):
-        cls.bound_constrs = []
-        cls.conflicted_constrs = {}
+        cls.BOUNDED_CONSTRS = []
+        cls.CONFLICTED_CONSTRS = {}
 
     @classmethod
     def add_node_constr(
@@ -36,11 +38,11 @@ class GraphNodeConstrs(Constraints):
     ):
         """Add constraints to a node."""
         if len(bounded) > 0:
-            cls.bound_constrs.extend(list(bounded))
+            cls.BOUNDED_CONSTRS.extend(list(bounded))
 
         if conflicted:
             for k, v in conflicted.items():
-                cls.conflicted_constrs[k] = v
+                cls.CONFLICTED_CONSTRS[k] = v
 
     @staticmethod
     def tick_wait_attr_constr(raw_nodes: List[NeuDyn]) -> List[List[int]]:
