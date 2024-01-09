@@ -1,4 +1,4 @@
-from typing import Optional, Tuple, Union
+from typing import ClassVar, Optional, Tuple, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -38,15 +38,14 @@ class Synapses:
         """
         self.source = source
         self.dest = dest
-
         self._check(conn_type)
 
     def _check(self, conn_type: ConnType) -> None:
-        if conn_type is ConnType.One2One:
+        if conn_type is ConnType.One2One or conn_type is ConnType.BYPASS:
             if self.num_in != self.num_out:
                 raise ShapeError(
-                    f"The number of source and destination neurons"
-                    f"must be equal: {self.num_in} != {self.num_out}."
+                    f"The number of source & destination neurons must "
+                    f"be equal, but {self.num_in} != {self.num_out}."
                 )
 
     @property
@@ -67,6 +66,9 @@ class Synapses:
 
 
 class SynSys(Synapses, DynamicSys):
+    CFLAG_ENABLE_WP_OPTIMIZATION: ClassVar[bool] = True
+    """Compilation flag for weight precision optimization."""
+
     def __call__(self, *args, **kwargs) -> NDArray[np.int32]:
         return self.update(*args, **kwargs)
 
@@ -113,8 +115,7 @@ class NoDecay(SynSys):
         Arguments:
             - source: source neuron(s).
             - dest: destination neuron(s).
-            - weights: weights of the synapses. It can be a scalar, \
-                `np.ndarray`, or a distribution.
+            - weights: weights of the synapses. It can be a scalar or `np.ndarray`.
             - conn_type: the type of connection.
             - name: name of this synapses. Optional.
         """
@@ -123,6 +124,8 @@ class NoDecay(SynSys):
 
         if conn_type is ConnType.One2One:
             self.comm = OneToOne(self.num_in, weights)
+        elif conn_type is ConnType.BYPASS:
+            self.comm = ByPass(self.num_in)
         elif conn_type is ConnType.All2All:
             self.comm = AllToAll((self.num_in, self.num_out), weights)
         else:  # MatConn
@@ -168,7 +171,7 @@ class NoDecay(SynSys):
 
     @property
     def weight_precision(self) -> WP:
-        return self.comm.weight_precision
+        return self.comm._get_wp(self.CFLAG_ENABLE_WP_OPTIMIZATION)
 
     @property
     def connectivity(self):
