@@ -28,7 +28,7 @@ from .conf_template import (
     export_outp_dests_conf_json,
     gen_config_frames_by_coreconf,
 )
-from .context import _BACKEND_CONTEXT
+from .context import _BACKEND_CONTEXT, set_cflag
 from .graphs import *
 from .placement import CoreBlock, aligned_coords, max_lcn_of_cb
 from .routing import RoutingRoot
@@ -88,6 +88,10 @@ class Mapper:
         self.core_plm_config.clear()
         self.graph_info.clear()
 
+        # Set default cflags
+        _BACKEND_CONTEXT.cflags.clear()
+        set_cflag(enable_wp_opt=True)
+
     def build(
         self,
         *networks: DynSysGroup,
@@ -108,7 +112,10 @@ class Mapper:
         # Filter & check the constraints to nodes.
         self.graph.build(*networks)
 
-    def compile(self, method: Literal["catagory", "dense"] = "catagory") -> None:
+    def compile(self, *, weight_bit_optimization: Optional[bool] = None) -> None:
+        if weight_bit_optimization is not None:
+            set_cflag(enable_wp_opt=weight_bit_optimization)
+
         """Backend compilation."""
         self._build_check()
 
@@ -119,7 +126,7 @@ class Mapper:
         self.lcn_ex_adjustment()
 
         """3. Core coordinate assignment."""
-        self.coord_assign(method)
+        self.coord_assign()
 
         """4. Allocate the core blocks to the `CorePlacement`."""
         self.core_allocation()
@@ -136,7 +143,13 @@ class Mapper:
 
         for syns_group in grouped_edges:
             syns = [self.graph.edges[syn].edge for syn in syns_group]
-            self.core_blocks.append(CoreBlock.build(*syns, seed=0))
+            self.core_blocks.append(
+                CoreBlock.build(
+                    *syns,
+                    seed=0,
+                    enable_wp_opt=_BACKEND_CONTEXT.cflags["enable_wp_opt"],
+                )
+            )
 
         for cb in self.core_blocks:
             succ_cbs = list(

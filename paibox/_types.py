@@ -20,6 +20,7 @@ DataArrayType = TypeVar(
 )
 
 SpikeType: TypeAlias = NDArray[np.bool_]
+WeightType: TypeAlias = NDArray[np.int8]  # raw int8 weights
 
 _T = TypeVar("_T")
 

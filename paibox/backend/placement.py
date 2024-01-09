@@ -11,7 +11,6 @@ from typing import (
     Optional,
     Sequence,
     Tuple,
-    Union,
     overload,
 )
 
@@ -37,6 +36,7 @@ from paicorelib import (
 )
 from paicorelib import WeightPrecision as WP
 
+from paibox._types import WeightType
 from paibox.base import NeuDyn, PAIBoxObject
 from paibox.exceptions import BuildError, NotSupportedError, ResourceError
 from paibox.synapses import SynSys
@@ -46,28 +46,27 @@ from .conf_template import CoreConfig, CorePlacementConfig, NeuronConfig
 from .context import _BACKEND_CONTEXT
 from .graphs_types import *
 
-WeightType: TypeAlias = NDArray[np.int8]  # raw int8 weights
 WeightRamType: TypeAlias = NDArray[np.uint64]  # uint64 weights mapped in weight RAM
 NeuSeg = NamedTuple("NeuSeg", [("parent", DestNodeType), ("segment", NeuronSegment)])
 
 
 class CoreAbstract(HwCore, PAIBoxObject):
-    supported_wp: ClassVar[Tuple[WP, ...]] = (
+    SUPPORTED_WP: ClassVar[Tuple[WP, ...]] = (
         WP.WEIGHT_WIDTH_1BIT,
-        # WP.WEIGHT_WIDTH_2BIT,  # Not verified
-        # WP.WEIGHT_WIDTH_4BIT,  # Not verified
-        WP.WEIGHT_WIDTH_8BIT,  # Not verified
+        WP.WEIGHT_WIDTH_2BIT,  # Not verified
+        WP.WEIGHT_WIDTH_4BIT,  # Not verified
+        WP.WEIGHT_WIDTH_8BIT,
     )
     """Supported weight precision."""
 
-    supported_mode: ClassVar[Tuple[CoreMode, ...]] = (CoreMode.MODE_SNN,)
+    SUPPORTED_MODE: ClassVar[Tuple[CoreMode, ...]] = (CoreMode.MODE_SNN,)
     """Supported core modes."""
 
 
 class CoreBlock(CoreAbstract):
     """Core Block for `MODE_SNN` ONLY."""
 
-    mode: ClassVar[CoreMode] = CoreMode.MODE_SNN
+    RUNTIME_MODE: ClassVar[CoreMode] = CoreMode.MODE_SNN
 
     def __init__(
         self,
@@ -115,7 +114,7 @@ class CoreBlock(CoreAbstract):
 
         self.neuron_segs_of_cb: List[List[NeuSeg]] = []
         """Neuron segments in the core block. Each element in the list \
-            represents the Neuron segments in core placement(physical core).
+            represents the neuron segments in core placement(physical core).
         """
 
     def group_neurons(self, method: Literal["catagory", "dense"] = "catagory") -> None:
@@ -127,7 +126,7 @@ class CoreBlock(CoreAbstract):
         self.neuron_segs_of_cb = get_neu_segments(
             self.dest,
             self.neuron_capacity,
-            _addr_ram_interval(self.n_weight_bits, self.n_timeslot),
+            _neuron_repl_prop(self.n_weight_bits, self.n_timeslot),
             method=method,
         )
 
@@ -186,7 +185,7 @@ class CoreBlock(CoreAbstract):
     def neuron_capacity(self) -> int:
         """Neuron capacity. #N of valid dendrites/#N of dendrites required per neuron.
 
-        FIXME This method ONLY works in SNN mode. For ANN mode, use table lookup?
+        FIXME This method ONLY works in SNN RUNTIME_MODE. For ANN RUNTIME_MODE, use table lookup?
         """
         return (self.n_dendrite_max >> self.lcn_ex) // self.n_dendrite_per_neuron
 
@@ -195,7 +194,7 @@ class CoreBlock(CoreAbstract):
         """Maximum #N of fan-in per dendrite."""
         return (
             HwConfig.N_FANIN_PER_DENDRITE_ANN
-            if self.mode is CoreMode.MODE_ANN
+            if self.RUNTIME_MODE is CoreMode.MODE_ANN
             else HwConfig.N_FANIN_PER_DENDRITE_SNN
         )
 
@@ -263,7 +262,7 @@ class CoreBlock(CoreAbstract):
     def n_dendrite_max(self) -> int:
         return (
             HwConfig.N_DENDRITE_MAX_ANN
-            if self.mode is CoreMode.MODE_ANN
+            if self.RUNTIME_MODE is CoreMode.MODE_ANN
             else HwConfig.N_DENDRITE_MAX_SNN
         )
 
@@ -279,7 +278,7 @@ class CoreBlock(CoreAbstract):
     def n_neuron_of_plm(self) -> List[int]:
         """A list of the #N of neurons on each `CorePlacement`.
 
-        FIXME Different in SNN/ANN mode.
+        FIXME Different in SNN/ANN RUNTIME_MODE.
         """
         if len(self.core_coords) == 0:
             raise BuildError(f"Do this after coordinates assignment.")
@@ -287,7 +286,7 @@ class CoreBlock(CoreAbstract):
         # Get #N of neurons on each `CorePlacement` according to the
         # maximum address required of neuron segments on each core placement.
         n = [
-            self.neuron_segs_of_cb[i][-1].segment.addr_max
+            self.neuron_segs_of_cb[i][-1].segment.n_neuron
             for i in range(self.n_core_required)
         ]
         return n
@@ -332,6 +331,9 @@ class CoreBlock(CoreAbstract):
 
         return w_of_neu_segs
 
+    def __len__(self) -> int:
+        return self.n_core_required
+
     def __repr__(self) -> str:
         return f"<{self.name} at 0x{id(self):x} of target '{self.obj}'>"
 
@@ -339,25 +341,28 @@ class CoreBlock(CoreAbstract):
         return f"<{self.name} of target '{self.obj}'>"
 
     @classmethod
-    def build(cls, *synapses: SynSys, seed: int = 0):
+    def build(cls, *synapses: SynSys, seed: int = 0, enable_wp_opt: bool):
         """Combine the SAME weight precision synapses and build the `CoreBlock`."""
+        SynSys.CFLAG_ENABLE_WP_OPTIMIZATION = enable_wp_opt  # TODO OK but ugly
+
+        wp0 = synapses[0].weight_precision
         # Check wether weight precision of all synapses equal.
-        if not check_attr_same(synapses, "weight_precision"):
+        if not all(wp0 == s.weight_precision for s in synapses):
             raise NotSupportedError("Mixed weight precision is not supported yet")
 
-        if (wp := synapses[0].weight_precision) > max(cls.supported_wp):
-            raise NotSupportedError(f"{wp.name} is not supported yet.")
+        if wp0 > max(cls.SUPPORTED_WP):
+            raise NotSupportedError(f"{wp0.name} is not supported yet.")
 
-        elif wp not in cls.supported_wp:
-            # Treat 4-bit weights as 8-bit weights.
-            wp = cls.supported_wp[-1]
+        elif wp0 not in cls.SUPPORTED_WP:
+            # Treat lower bit weights as 8-bit weights.
+            wp0 = cls.SUPPORTED_WP[-1]
 
         if seed > (1 << 64) - 1:
             warnings.warn(
                 f"Random seed {seed} is too large, truncated into 64 bits!", UserWarning
             )
 
-        return cls(*synapses, weight_precision=wp, seed=seed)
+        return cls(*synapses, weight_precision=wp0, seed=seed)
 
     @classmethod
     def export_core_plm_config(cls, cb: "CoreBlock") -> Dict[Coord, CoreConfig]:
@@ -373,10 +378,7 @@ class CoreBlock(CoreAbstract):
 class CorePlacement(CoreAbstract):
     """The divided synapse placed on a single CORE."""
 
-    _excluded_vars = ()
-
-    n_core_required: ClassVar[int] = 1
-    weight_ram_shape: ClassVar[Tuple[int, int]] = (
+    WEIGHT_RAM_SHAPE: ClassVar[Tuple[int, int]] = (
         HwConfig.N_FANIN_PER_DENDRITE_SNN,
         HwConfig.N_DENDRITE_MAX_SNN,
     )
@@ -466,7 +468,7 @@ class CorePlacement(CoreAbstract):
 
     def _weight_ram_mapping(self) -> WeightRamType:
         row, col = self._weights_folded.shape
-        w_unpacked = np.zeros(self.weight_ram_shape, dtype=np.uint8)
+        w_unpacked = np.zeros(self.WEIGHT_RAM_SHAPE, dtype=np.uint8)
 
         if self.n_weight_bits == 1:
             w_unpacked[:row, :col] = self._weights_folded
@@ -650,7 +652,7 @@ class CorePlacement(CoreAbstract):
 
     @property
     def mode(self) -> CoreMode:
-        return self.parent.mode
+        return self.parent.RUNTIME_MODE
 
     @property
     def shape(self) -> Tuple[int, int]:
@@ -690,7 +692,7 @@ class CorePlacement(CoreAbstract):
 
     @property
     def n_dendrite(self) -> int:
-        return self.n_neuron * self.n_weight_bits * self.n_timeslot
+        return self.n_neuron * _neuron_repl_prop(self.n_weight_bits, self.n_timeslot)
 
     @property
     def source(self) -> List[SourceNodeType]:
@@ -707,6 +709,10 @@ class CorePlacement(CoreAbstract):
     @property
     def weight_ram(self) -> WeightRamType:
         return self._weight_ram_mapping()
+
+    @property
+    def n_core_required(self):
+        return 1
 
     def __len__(self) -> int:
         return self.n_core_required
@@ -734,10 +740,10 @@ def max_lcn_of_cb(cb: List[CoreBlock]) -> LCN_EX:
     return max(cb, key=lambda cb: cb.lcn_ex).lcn_ex
 
 
-def _addr_ram_interval(nbits: int, ntimeslot: int) -> int:
-    """Get the interval of RAM address.
+def _neuron_repl_prop(nbits: int, ntimeslot: int) -> int:
+    """Get the proportion of neuron replication.
 
-    interval = nbits(1 << wp) * n_timeslot(1 << lcn_ex)
+    scale = nbits(1 << wp) * n_timeslot(1 << lcn_ex)
     """
     return nbits * ntimeslot
 
@@ -745,22 +751,22 @@ def _addr_ram_interval(nbits: int, ntimeslot: int) -> int:
 def get_neu_segments(
     neu_groups: List[NeuDyn],
     capacity: int,
-    interval: int,
+    replication_prop: int,
     *,
     method: Literal["catagory", "dense"],
 ) -> List[List[NeuSeg]]:
     """Get the neuron segments by given a method, "catagory" or "dense"."""
 
     if method == "catagory":
-        return _get_neu_segments_catagory(neu_groups, capacity, interval)
+        return _get_neu_segments_catagory(neu_groups, capacity, replication_prop)
     elif method == "dense":
-        return _get_neu_segments_dense(neu_groups, capacity, interval)
+        return _get_neu_segments_dense(neu_groups, capacity, replication_prop)
     else:
         raise ValueError(f"Method '{method}' not defined!")
 
 
 def _get_neu_segments_catagory(
-    neu_groups: List[NeuDyn], capacity: int, interval: int = 1
+    neu_groups: List[NeuDyn], capacity: int, replication_prop: int
 ) -> List[List[NeuSeg]]:
     """Group the neuron groups by category."""
     neu_segs: List[List[NeuSeg]] = []  # The final result
@@ -770,18 +776,20 @@ def _get_neu_segments_catagory(
         num = neuron.num_out
 
         while i < (num - 1) // capacity:
-            seg = NeuronSegment(slice(i * capacity, capacity * (i + 1), 1), 0, interval)
+            seg = NeuronSegment(
+                slice(i * capacity, capacity * (i + 1), 1), 0, replication_prop
+            )
             neu_segs.append([NeuSeg(neuron, seg)])
             i += 1
 
-        seg = NeuronSegment(slice(i * capacity, num, 1), 0, interval)
+        seg = NeuronSegment(slice(i * capacity, num, 1), 0, replication_prop)
         neu_segs.append([NeuSeg(neuron, seg)])
 
     return neu_segs
 
 
 def _get_neu_segments_dense(
-    neu_groups: List[NeuDyn], capacity: int, interval: int = 1
+    neu_groups: List[NeuDyn], capacity: int, replication_prop: int
 ) -> List[List[NeuSeg]]:
     """Dense grouping. Based on method `catagory`, use the greedy algorithm to \
         group the remaining neuron groups.
@@ -796,11 +804,13 @@ def _get_neu_segments_dense(
         num = neuron.num_out
 
         while i < (num - 1) // capacity:
-            seg = NeuronSegment(slice(i * capacity, capacity * (i + 1), 1), 0, interval)
+            seg = NeuronSegment(
+                slice(i * capacity, capacity * (i + 1), 1), 0, replication_prop
+            )
             neu_segs.append([NeuSeg(neuron, seg)])
             i += 1
 
-        seg = NeuronSegment(slice(i * capacity, num, 1), 0, interval)
+        seg = NeuronSegment(slice(i * capacity, num, 1), 0, replication_prop)
         rest_segs.append(NeuSeg(neuron, seg))
 
     # Sort the rest of segments in descending order
@@ -826,12 +836,14 @@ def _get_neu_segments_dense(
                 NeuSeg(
                     rest_segs[n_cur_reg].parent,
                     NeuronSegment(
-                        rest_segs[n_cur_reg].segment.index, cur_addr_offset, interval
+                        rest_segs[n_cur_reg].segment.index,
+                        cur_addr_offset,
+                        replication_prop,
                     ),
                 )
             )
-            # Offset = n_neuron * interval
-            cur_addr_offset += rest_segs[n_cur_reg].segment.n_neuron * interval
+            # Offset = n_neuron * replication_prop
+            cur_addr_offset += rest_segs[n_cur_reg].segment.n_neuron * replication_prop
             n_cur_neuron += rest_segs[n_cur_reg].segment.n_neuron
             n_cur_reg += 1
 
