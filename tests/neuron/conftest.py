@@ -13,6 +13,9 @@ def ensure_dump_dir():
 
     if not p.is_dir():
         p.mkdir(parents=True, exist_ok=True)
+    else:
+        for f in p.iterdir():
+            f.unlink()
 
     yield p
 
