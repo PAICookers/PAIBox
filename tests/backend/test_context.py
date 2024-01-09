@@ -26,6 +26,6 @@ def test_backend_context():
     cflags["op1"] = True
 
     assert BACKEND_CONFIG.cflags["op1"] == True
-    
+
     BACKEND_CONFIG.cflags["op2"] = 999
     assert BACKEND_CONFIG.cflags["op2"] == 999

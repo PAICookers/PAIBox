@@ -20,7 +20,9 @@ class Constraints:
 
 class GraphNodeConstrs(Constraints):
     BOUNDED_CONSTRS: ClassVar[List[List[NodeName]]] = []
-    CONFLICTED_CONSTRS: ClassVar[Dict[NodeName, Tuple[NodeName, ...]]] = defaultdict(tuple)
+    CONFLICTED_CONSTRS: ClassVar[Dict[NodeName, Tuple[NodeName, ...]]] = defaultdict(
+        tuple
+    )
 
     @classmethod
     def clear(cls):
