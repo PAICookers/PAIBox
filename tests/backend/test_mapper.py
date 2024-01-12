@@ -100,6 +100,17 @@ class TestGraphInfo:
             export_core_params=True,
         )
 
+    def test_multi_inodes_onodes(
+        self, get_mapper, ensure_dump_dir, build_multi_inodes_onodes
+    ):
+        net = build_multi_inodes_onodes
+        mapper: pb.Mapper = get_mapper
+
+        mapper.build(net)
+        mapper.compile()
+        assert len(mapper.graph_info["input"]) == 2
+        assert len(mapper.graph_info["output"]) == 2
+
 
 class TestMapperDebug:
     def test_build_graph(self, get_mapper, build_example_net1, build_example_net2):

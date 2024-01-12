@@ -238,6 +238,34 @@ class Network_with_multi_onodes(pb.Network):
             )
 
 
+class Network_with_multi_inodes_onodes(pb.Network):
+    """
+    INP1 -> S1 -> N1 -> S2 -> N2
+    INP2 -> S3 -> N1 -> S4 -> N3
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.inp1 = pb.InputProj(input=1, shape_out=(40,), name="inp1")
+        self.inp2 = pb.InputProj(input=1, shape_out=(50,), name="inp2")
+        self.n1 = pb.TonicSpiking(80, 2, name="n1", tick_wait_start=1)
+        self.n2 = pb.TonicSpiking(20, 3, name="n2", tick_wait_start=2)
+        self.n3 = pb.TonicSpiking(30, 3, name="n3", tick_wait_start=2)
+
+        self.s1 = pb.NoDecay(
+            self.inp1, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s1"
+        )
+        self.s2 = pb.NoDecay(
+            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s2"
+        )
+        self.s3 = pb.NoDecay(
+            self.inp2, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s3"
+        )
+        self.s4 = pb.NoDecay(
+            self.n1, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s4"
+        )
+
+
 class Network_with_Branches_4bit(pb.Network):
     """Network with branches & 4-bit weights.
 
@@ -411,6 +439,11 @@ def build_multi_onodes_net():
 @pytest.fixture(scope="class")
 def build_multi_onodes_net2():
     return Network_with_multi_onodes(connect_n4=True)
+
+
+@pytest.fixture(scope="class")
+def build_multi_inodes_onodes():
+    return Network_with_multi_inodes_onodes()
 
 
 @pytest.fixture(scope="class")

@@ -1,5 +1,6 @@
+import copy
 import pytest
-from paicorelib import Coord
+from paicorelib import Coord, CoordOffset
 
 from paibox import BACKEND_CONFIG
 from paibox.backend.context import _BACKEND_CONTEXT
@@ -29,3 +30,8 @@ def test_backend_context():
 
     BACKEND_CONFIG.cflags["op2"] = 999
     assert BACKEND_CONFIG.cflags["op2"] == 999
+
+    ocoord = copy.copy(_BACKEND_CONTEXT["output_core_addr_start"])
+    ocoord += CoordOffset(1, 0)
+
+    assert _BACKEND_CONTEXT["output_core_addr_start"] == Coord(0, 0)
