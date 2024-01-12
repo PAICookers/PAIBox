@@ -15,11 +15,11 @@ DEFAULT_OUTPUT_CORE_ADDR_START = Coord(0, 0)
 class _BackendContext(_Context):
     def __init__(self) -> None:
         super().__init__()
-        self._context["output_chip_addr"] = DEFAULT_OUTPUT_CHIP_ADDR
-        self._context["local_chip_addr"] = DEFAULT_LOCAL_CHIP_ADDR
-        self._context["build_directory"] = Path.cwd()
-        self._context["output_core_addr_start"] = DEFAULT_OUTPUT_CORE_ADDR_START
-        self._context["cflags"] = dict()
+        self._context["output_chip_addr"] = DEFAULT_OUTPUT_CHIP_ADDR  # RO mostly
+        self._context["local_chip_addr"] = DEFAULT_LOCAL_CHIP_ADDR  # RO mostly
+        self._context["build_directory"] = Path.cwd()  # R/W
+        self._context["output_core_addr_start"] = DEFAULT_OUTPUT_CORE_ADDR_START  # RO
+        self._context["cflags"] = dict()  # R/W
 
     @property
     def local_chip_addr(self) -> Coord:

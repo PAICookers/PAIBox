@@ -1,6 +1,7 @@
 from collections import defaultdict
+from copy import copy
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from paicorelib import (
     Coord,
@@ -29,9 +30,10 @@ from .conf_template import (
     gen_config_frames_by_coreconf,
 )
 from .context import _BACKEND_CONTEXT, set_cflag
-from .graphs import *
+from .graphs import PAIGraph, convert2routing_groups, get_node_degrees
+from .graphs_types import NodeDegree
 from .placement import CoreBlock, aligned_coords, max_lcn_of_cb
-from .routing import RoutingRoot
+from .routing import RoutingGroup, RoutingRoot
 
 __all__ = ["Mapper"]
 
@@ -200,7 +202,7 @@ class Mapper:
             n_core_required := sum(cb.n_core_required for cb in self.core_blocks)
         ) > HwConfig.N_CORE_OFFLINE:
             raise ResourceError(
-                f"#N of total cores required out of {HwConfig.N_CORE_OFFLINE}: {n_core_required}"
+                f"#N of total cores required out of {HwConfig.N_CORE_OFFLINE} ({n_core_required})."
             )
 
         self.n_core_required = n_core_required
@@ -218,8 +220,8 @@ class Mapper:
         self.routing_groups = routing_groups
 
     def core_allocation(self) -> None:
-        """Allocate the core blocks to the physical cores.
-        The order of `core_plms` is the same as `core_blocks`.
+        """Allocate the core blocks to the physical cores. \
+            The order of `core_plms` is the same as `core_blocks`.
         """
         for cb in self.core_blocks:
             cb.core_plm_alloc()
@@ -233,13 +235,13 @@ class Mapper:
             - 2. Export the parameters(Neuron RAM) of neurons inside.
         """
         input_nodes_info = self._inpproj_config_export()
-        output_dest_info = self._member_cb_config_export()
+        output_dest_info = self._member_cb_and_onode_config_export()
 
         self.graph_info = GraphInfo(
             input=input_nodes_info,
             output=output_dest_info,
             members=self.core_plm_config,  # The configuration of physical cores is in `core_plm_config`
-            inherent_timestep=self.get_inherent_timestep(),
+            inherent_timestep=self.graph.inherent_timestep,
             n_core_required=self.n_core_required,
             extras={"name": self.graph.graph_name_repr},
         )
@@ -249,7 +251,7 @@ class Mapper:
 
         Json exchange file format for input nodes:
         {
-            "inp1_1": { # as input node #1 without destination information
+            "inp1_1": { # as input node #1 without dest info
                 "addr_core_x": 0,
                 "addr_core_y": 0,
                 "addr_core_x_ex": 1,
@@ -299,7 +301,7 @@ class Mapper:
 
         return input_nodes_info
 
-    def _member_cb_config_export(self) -> OutputDestInfo:
+    def _member_cb_and_onode_config_export(self) -> OutputDestInfo:
         """Export the configuration of member core blocks & output destinations.
 
         Description:
@@ -326,7 +328,8 @@ class Mapper:
         }
         """
         output_dest_info = defaultdict(dict)
-        ocoord = _BACKEND_CONTEXT["output_core_addr_start"]
+        # Shallow copy
+        ocoord = copy(_BACKEND_CONTEXT["output_core_addr_start"])
 
         for member_cb in self.core_blocks:
             self.core_params |= CoreBlock.export_core_plm_config(member_cb)
@@ -343,7 +346,9 @@ class Mapper:
                     # & member nodes in the same `CoreBlock`, they need to be allocated on
                     # different physical cores, otherwise routing problem will occur.
                     if dest_cb:  # `neu_seg` is memeber neurons
-                        assert _cb_in_same_routing_group(self.routing_groups, *dest_cb)
+                        # Should not happen
+                        assert _cb_routable(self.routing_groups, dest_cb)
+
                         core_plm.export_neu_config(neu_seg, dest_cb)
                     else:
                         # `neu_seg` is output neurons. Every neuron segment is a output node.
@@ -418,13 +423,6 @@ class Mapper:
 
         return config_dict
 
-    def get_inherent_timestep(self) -> int:
-        self._build_check()
-
-        _, distance = get_longest_path(self.graph.succ_dg, self.graph.ordered_nodes)
-
-        return distance
-
     def find_neuron(self, neuron: NeuDyn, *, verbose: int = 0) -> None:
         self._build_check()
 
@@ -472,7 +470,7 @@ def group_by(dict_: Dict, keyfunc=lambda item: item):
     return d
 
 
-def _cb_in_same_routing_group(
+def _cb_routable(
     routing_group: List[RoutingGroup], core_blocks: List[CoreBlock]
 ) -> bool:
     if len(core_blocks) == 1:

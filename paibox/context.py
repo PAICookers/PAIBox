@@ -66,7 +66,7 @@ class _Context:
 class _FrontendContext(_Context):
     def __init__(self, initial_t: int = 0) -> None:
         super().__init__()
-        self._context["t"] = initial_t
+        self._context["t"] = initial_t  # RO. Changed by simulator.
 
 
 _FRONTEND_CONTEXT = _FrontendContext()

@@ -131,9 +131,9 @@ class CoreBlock(CoreAbstract):
         )
 
     def core_plm_alloc(self) -> None:
-        """Allocate the `CoreBlock` to the physical cores."""
+        """Allocate `CoreBlock` to physical cores."""
         if not self.lcn_locked:
-            raise BuildError("Allocate the core placements after lcn_ex is locked.")
+            raise BuildError("Allocate core placements after lcn_ex is locked.")
 
         for i, coord in enumerate(self.core_coords):
             # assert self.get_raw_weight_of_coord(i)[0].shape[0] == self.n_axon

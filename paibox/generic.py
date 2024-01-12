@@ -1,10 +1,4 @@
-from typing import Any
-
-import numpy as np
-
-from ._types import Shape
 from .exceptions import RegisterError
-from .utils import shape2num
 
 global _id_dict, _type_names
 _id_dict = dict()
@@ -40,14 +34,3 @@ def get_unique_name(_type: str) -> str:
     _type_names[_type] += 1
 
     return name
-
-
-def param_alloc(param: Any, shape: Shape):
-    if isinstance(param, np.ndarray):
-        _param = np.full(shape, param)
-    elif np.isscalar(param):
-        _param = [param] * shape2num(shape)
-    else:
-        raise TypeError
-
-    return _param
