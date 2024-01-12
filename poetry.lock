@@ -269,13 +269,13 @@ reference = "tsinghua"
 
 [[package]]
 name = "jinja2"
-version = "3.1.2"
+version = "3.1.3"
 description = "A very fast and expressive template engine."
 optional = true
 python-versions = ">=3.7"
 files = [
-    {file = "Jinja2-3.1.2-py3-none-any.whl", hash = "sha256:6088930bfe239f0e6710546ab9c19c9ef35e29792895fed6e6e31a023a182a61"},
-    {file = "Jinja2-3.1.2.tar.gz", hash = "sha256:31351a702a408a9e7595a8fc6150fc3f43bb6bf7e319770cbc0db9df9437e852"},
+    {file = "Jinja2-3.1.3-py3-none-any.whl", hash = "sha256:7d6d50dd97d52cbc355597bd845fabfbac3f551e1f99619e39a35ce8c370b5fa"},
+    {file = "Jinja2-3.1.3.tar.gz", hash = "sha256:ac8bd6544d4bb2c9792bf3a159e80bba8fda7f07e81bc3aed565432d5925ba90"},
 ]
 
 [package.dependencies]
@@ -468,13 +468,13 @@ reference = "tsinghua"
 
 [[package]]
 name = "paicorelib"
-version = "0.0.7"
+version = "0.0.8"
 description = "Library of PAICORE 2.0 in Python."
 optional = false
 python-versions = ">=3.8,<4.0"
 files = [
-    {file = "paicorelib-0.0.7-py3-none-any.whl", hash = "sha256:4c3d285b92de8584983e1dcb0690076e4acfb16386d253d3673de875ffc49e63"},
-    {file = "paicorelib-0.0.7.tar.gz", hash = "sha256:f4353a670bb738573332a8bb549684043ee645f58fc09b5f42d2fb3d799d33eb"},
+    {file = "paicorelib-0.0.8-py3-none-any.whl", hash = "sha256:35682ffe48832e4c62d3efa85f229ae363d6f6ef779231358dd4516fccaf4215"},
+    {file = "paicorelib-0.0.8.tar.gz", hash = "sha256:84679a698437616658f2130b9825e12f17d4b7cf900fb315726af334627d6409"},
 ]
 
 [package.dependencies]
@@ -1042,4 +1042,4 @@ torch-env = ["torch", "torchaudio", "torchvision"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.8"
-content-hash = "c21cb58f68c4d5dcf776dcafb427be7a9fa2e575ae00abde6fdf97c2e4c4322b"
+content-hash = "8cc501b12bfaed6e3e6e98e9c2b7617952eb381672993bc02bc8ba7d38125273"
