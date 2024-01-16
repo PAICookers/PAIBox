@@ -50,3 +50,9 @@ class FrameIllegalError(PAIBoxError, ValueError):
     """Frame is illegal."""
 
     pass
+
+
+class TruncationWarning(PAIBoxWarning, UserWarning):
+    """Value out of range & will be truncated."""
+
+    pass

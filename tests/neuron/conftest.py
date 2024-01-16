@@ -7,7 +7,7 @@ from paicorelib import *
 import paibox as pb
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def ensure_dump_dir():
     p = Path(__file__).parent / "debug"
 

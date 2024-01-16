@@ -1,11 +1,9 @@
-from .exceptions import RegisterError
+import warnings
+from .exceptions import PAIBoxWarning, RegisterError
 
 global _id_dict, _type_names
 _id_dict = dict()
 _type_names = dict()
-
-global global_reg_data
-global_reg_data = dict()
 
 
 def is_name_unique(name: str, obj: object) -> None:
@@ -34,3 +32,12 @@ def get_unique_name(_type: str) -> str:
     _type_names[_type] += 1
 
     return name
+
+
+def clear_name_cache(ignore_warn: bool = False):
+    """Clear the name dictionary."""
+    _id_dict.clear()
+    _type_names.clear()
+
+    if not ignore_warn:
+        warnings.warn(f"All named models & ids are cleared.", PAIBoxWarning)
