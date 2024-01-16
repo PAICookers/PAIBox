@@ -348,7 +348,6 @@ class Mapper:
                     if dest_cb:  # `neu_seg` is memeber neurons
                         # Should not happen
                         assert _cb_routable(self.routing_groups, dest_cb)
-
                         core_plm.export_neu_config(neu_seg, dest_cb)
                     else:
                         # `neu_seg` is output neurons. Every neuron segment is a output node.

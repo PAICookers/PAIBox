@@ -135,13 +135,13 @@ class TestMapperDebug:
         mapper.compile()
 
     @pytest.mark.usefixtures("test_simple_net")
-    def test_export_config_json(self, get_mapper, ensure_dump_dir):
+    def test_export_config_json(self, ensure_dump_dir, get_mapper):
         """Export all the configs into json"""
         mapper: pb.Mapper = get_mapper
         assert mapper.graph.has_built == True
 
         assert len(mapper.core_blocks) == 3  # 3 layers
-        assert mapper.get_inherent_timestep() == 3
+        assert mapper.graph_info["inherent_timestep"] == 3
 
         mapper.export(
             fp=ensure_dump_dir, export_core_params=True, split_by_coordinate=False
@@ -177,6 +177,16 @@ class TestMapperDebug:
         mapper.compile()
 
         print()
+
+
+class TestMapper_Export:
+    def test_export_multi_nodes_more_than_32(self, build_Network_with_N_onodes):
+        net = build_Network_with_N_onodes
+        mapper = pb.Mapper()
+        mapper.build(net)
+        mapper.compile()
+
+        assert len(mapper.graph_info["output"].keys()) == net.n_onodes
 
 
 class TestMapper_Weight4:

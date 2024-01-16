@@ -1,11 +1,12 @@
 import os
 import random
 import tempfile
+import paibox as pb
+import pytest
+import numpy as np
+
 from functools import partial
 from pathlib import Path
-
-import numpy as np
-import pytest
 from paicorelib import (
     LCN_EX,
     AxonCoord,
@@ -20,13 +21,14 @@ from paicorelib import (
 )
 from paicorelib import WeightPrecision as WP
 
-import paibox as pb
 from paibox.backend.conf_template import CoreConfig, CorePlacementConfig, NeuronConfig
 from paibox.backend.placement import NeuSeg
 from paibox.backend.routing import RoutingCluster
+from paibox.node import NodeList
+from paibox.generic import clear_name_cache
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def ensure_dump_dir():
     p = Path(__file__).parent / "debug"
 
@@ -46,6 +48,13 @@ def cleandir():
         os.chdir(newpath)
         yield
         os.chdir(old_cwd)
+
+
+@pytest.fixture(autouse=True)
+def clean_name_dict():
+    """Clean the global name dictionary after each test automatically."""
+    yield
+    clear_name_cache()
 
 
 @pytest.fixture
@@ -266,6 +275,31 @@ class Network_with_multi_inodes_onodes(pb.Network):
         )
 
 
+class Network_with_N_onodes(pb.Network):
+    def __init__(self, n_onodes: int):
+        super().__init__()
+        self.n_onodes = n_onodes  # for check
+
+        self.inp1 = pb.InputProj(input=1, shape_out=(40,), name="inp1")
+        self.s_list = NodeList()
+        self.n_list = NodeList()
+
+        for i in range(n_onodes):
+            self.n_list.append(
+                pb.IF(10, threshold=10, reset_v=2, name=f"n_{i}", tick_wait_start=1)
+            )
+
+        for i in range(n_onodes):
+            self.s_list.append(
+                pb.NoDecay(
+                    self.inp1,
+                    self.n_list[i],
+                    conn_type=pb.synapses.ConnType.All2All,
+                    name=f"s_{i}",
+                )
+            )
+
+
 class Network_with_Branches_4bit(pb.Network):
     """Network with branches & 4-bit weights.
 
@@ -444,6 +478,11 @@ def build_multi_onodes_net2():
 @pytest.fixture(scope="class")
 def build_multi_inodes_onodes():
     return Network_with_multi_inodes_onodes()
+
+
+@pytest.fixture(scope="function", params=[30, 32, 60, 100])
+def build_Network_with_N_onodes(request):
+    return Network_with_N_onodes(n_onodes=request.param)
 
 
 @pytest.fixture(scope="class")
