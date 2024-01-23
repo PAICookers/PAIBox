@@ -45,14 +45,14 @@ class TestNeuronBehavior:
     bt = 0
 
     @pytest.mark.parametrize(
-        "vjt, x, expected",
+        "incoming_v, x, expected",
         [
             (0, np.array([[1, 0, 1], [0, 1, 1]]), np.array([2, 2])),
             (0, np.array([1, 1]), np.array([1, 1])),
             (0, np.array([2, 2]), np.array([2, 2])),
         ],
     )
-    def test_neuronal_charge(self, vjt, x, expected):
+    def test_neuronal_charge(self, incoming_v, x, expected):
         n1 = pb.neuron.Neuron(
             2,
             self.reset_mode,
@@ -67,15 +67,14 @@ class TestNeuronBehavior:
             self.leak_v,
             self.sim,
             self.bt,
-            0,
             keep_shape=True,
         )
-        vjt = n1._neuronal_charge(x, vjt)
+        v_charged = n1._neuronal_charge(x, incoming_v)
 
-        assert np.array_equal(vjt, expected)
+        assert np.array_equal(v_charged, expected)
 
     @pytest.mark.parametrize(
-        "lim, ld, vjt, leak_v, expected",
+        "lim, ld, incoming_v, leak_v, expected",
         [
             (
                 LIM.MODE_DETERMINISTIC,
@@ -100,7 +99,7 @@ class TestNeuronBehavior:
             ),
         ],
     )
-    def test_neuronal_leak(self, lim, ld, vjt, leak_v, expected):
+    def test_neuronal_leak(self, lim, ld, incoming_v, leak_v, expected):
         n1 = pb.neuron.Neuron(
             2,
             self.reset_mode,
@@ -115,22 +114,21 @@ class TestNeuronBehavior:
             leak_v,
             self.sim,
             self.bt,
-            vjt_init=vjt,
             keep_shape=True,
         )
-        leaked_vjt = n1._neuronal_leak(vjt)
+        v_leaked = n1._neuronal_leak(incoming_v)
 
-        assert np.array_equal(leaked_vjt, expected)
+        assert np.array_equal(v_leaked, expected)
 
     @pytest.mark.parametrize(
-        "ntm, vjt, neg_thres, pos_thres, expected",
+        "ntm, incoming_v, neg_thres, pos_thres, expected",
         [
             (NTM.MODE_SATURATION, np.array([10, 10]), -10, 3, np.array([True, True])),
             (NTM.MODE_SATURATION, np.array([5, 10]), -10, 3, np.array([True, True])),
             (NTM.MODE_SATURATION, np.array([-12, 10]), -10, 3, np.array([False, True])),
         ],
     )
-    def test_neuronal_fire(self, ntm, vjt, neg_thres, pos_thres, expected):
+    def test_neuronal_fire(self, ntm, incoming_v, neg_thres, pos_thres, expected):
         mask = 3
         leak_v = 2
 
@@ -148,10 +146,9 @@ class TestNeuronBehavior:
             leak_v,
             self.sim,
             self.bt,
-            vjt_init=vjt,
             keep_shape=True,
         )
-        spike = n1._neuronal_fire(vjt)
+        spike = n1._neuronal_fire(incoming_v)
 
         assert np.array_equal(spike, expected)
 
@@ -169,7 +166,6 @@ class TestNeuronBehavior:
         reset_v = 5
         neg_thres = -3
         pos_thres = 2
-        vjt_init = 0
         incoming_v = 10
 
         n1 = pb.neuron.Neuron(
@@ -186,15 +182,14 @@ class TestNeuronBehavior:
             self.leak_v,
             self.sim,
             self.bt,
-            vjt_init=vjt_init,
             keep_shape=True,
         )
 
         # Set the threshold mode manually
         monkeypatch.setattr(n1, "thres_mode", thr_mode)
-        vjt = n1._neuronal_reset(np.array((incoming_v,), dtype=np.int32))
+        v_reset = n1._neuronal_reset(np.array((incoming_v,), dtype=np.int32))
 
-        assert np.array_equal(vjt, expected)
+        assert np.array_equal(v_reset, expected)
 
 
 @pytest.mark.parametrize(
