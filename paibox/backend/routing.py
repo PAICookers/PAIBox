@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional, Sequence, final
 
-from paicorelib import HwConfig
+from paicorelib import Coord, HwConfig
 from paicorelib.routing_defs import ROUTING_DIRECTIONS_IDX, RoutingCoord, RoutingCost
 from paicorelib.routing_defs import RoutingDirection as Direction
 from paicorelib.routing_defs import RoutingLevel as Level
@@ -236,11 +236,35 @@ class RoutingCluster:
 
             elif sub_n_child == 2:
                 if len(self.children) == 0:
-                    self.add_child_to(subtree.children[Direction.X0Y0], Direction.X0Y0)
-                    self.add_child_to(subtree.children[Direction.X0Y1], Direction.X0Y1)
+                    if HwConfig.COORD_Y_PRIORITY:
+                        self.add_child_to(
+                            subtree.children[Direction.X0Y0], Direction.X0Y0
+                        )
+                        self.add_child_to(
+                            subtree.children[Direction.X0Y1], Direction.X0Y1
+                        )
+                    else:
+                        self.add_child_to(
+                            subtree.children[Direction.X0Y0], Direction.X0Y0
+                        )
+                        self.add_child_to(
+                            subtree.children[Direction.X0Y1], Direction.X1Y0
+                        )
                 else:
-                    self.add_child_to(subtree.children[Direction.X0Y0], Direction.X1Y0)
-                    self.add_child_to(subtree.children[Direction.X0Y1], Direction.X1Y1)
+                    if HwConfig.COORD_Y_PRIORITY:
+                        self.add_child_to(
+                            subtree.children[Direction.X0Y0], Direction.X1Y0
+                        )
+                        self.add_child_to(
+                            subtree.children[Direction.X0Y1], Direction.X1Y1
+                        )
+                    else:
+                        self.add_child_to(
+                            subtree.children[Direction.X0Y0], Direction.X0Y1
+                        )
+                        self.add_child_to(
+                            subtree.children[Direction.X0Y1], Direction.X1Y1
+                        )
 
             elif sub_n_child == 4:
                 self._children = subtree.children
@@ -388,18 +412,34 @@ class RoutingCluster:
         self._direction = d
 
 
-class RoutingGroup(FrozenOrderedSet):
+class RoutingGroup(FrozenOrderedSet[CoreBlock]):
     """Core blocks located within a routing group are routable.
 
-    NOTE: Ensure that axon groups within a routing group are the same.
+    NOTE: Axon groups within a routing group are the same.
     """
 
     def __init__(self, *cb: CoreBlock):
         super().__init__(cb)
 
+        self.assigned_coords: List[Coord] = []
+        """Assigned core coordinates for the routing group."""
+        self.wasted_coords: List[Coord] = []
+        """Wasted core coordinates for the routing group."""
+
+    def assign(self, assigned: List[Coord], wasted: List[Coord]) -> None:
+        self.assigned_coords = assigned
+        self.wasted_coords = wasted
+
+        # Assign the coordinates to each core block inside the routing group.
+        cur_i = 0
+        for cb in self:
+            n = cb.n_core_required
+            cb.core_coords = assigned[cur_i : cur_i + n]
+            cur_i += n
+
     def n_core_at(self, idx: int) -> int:
         if idx >= len(self) or idx < 0:
-            raise IndexError
+            raise IndexError(f"Index out of range [0, {len(self)}), {idx}.")
 
         return self[idx].n_core_required
 
@@ -434,44 +474,49 @@ class RoutingRoot(RoutingCluster):
         """Insert a `RoutingGroup` in the routing tree. Assign each core blocks \
             with routing coordinates & make sure they are routable.
         """
-        leaves = []
-        coords = []
         cost = routing_group.routing_cost
         level = routing_group.routing_level
-        # Create a sub-tree cluster
+        # Create a routing cluster
         routing_cluster = RoutingCluster.create_routing_tree(level, cost[level - 1])
 
+        # `n_L0` physical cores will be occupied.
+        #   - For the first `n_core_required` cores, they are used for placement.
+        #   - For the rest, they are unused.
+        # Make sure the routing cluster is successfully inserted to the root
+        # then assign coordinates & status.
+        leaves = []
+        wasted = []
         for i in range(cost.n_L0):
             if i < routing_group.n_core_required:
-                # Valid L0 clusters
                 cluster = routing_cluster.add_L0_for_placing(
                     data=f"{id(routing_group)}_{i}",
                     status=Status.USED,
                     tag=f"{id(routing_group)}_{i}",
                 )
-
                 leaves.append(cluster)
+
             else:
-                # Other L0 clusters are unused but occupied.
                 cluster = routing_cluster.add_L0_for_placing(
                     status=Status.OCCUPIED, tag=f"{id(routing_group)}_{i}"
                 )
+                wasted.append(cluster)
 
         # Add the sub-tree to the root.
         flag = self.add_subtree(routing_cluster)
         if not flag:
             return False
 
+        valid_coords = []
+        wasted_coords = []
         for cluster in leaves:
             coord = self.get_leaf_coord(cluster)
-            coords.append(coord.coordinate)
+            valid_coords.append(coord.coordinate)
 
-        # Assign the coordinates to each core block inside the routing group.
-        cur_i = 0
-        for cb in routing_group:
-            n = cb.n_core_required
-            cb.core_coords = coords[cur_i : cur_i + n]
-            cur_i += n
+        for cluster in wasted:
+            coord = self.get_leaf_coord(cluster)
+            wasted_coords.append(coord.coordinate)
+
+        routing_group.assign(valid_coords, wasted_coords)
 
         return True
 
