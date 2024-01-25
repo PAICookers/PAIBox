@@ -403,6 +403,7 @@ class Neuron(MetaNeuron, NeuDyn):
         delay: int = 1,
         tick_wait_start: int = 1,
         tick_wait_end: int = 0,
+        unrolling_factor: int = 1,
         keep_shape: bool = False,
         name: Optional[str] = None,
     ) -> None:
@@ -477,6 +478,7 @@ class Neuron(MetaNeuron, NeuDyn):
         self._delay = delay
         self._tws = tick_wait_start
         self._twe = tick_wait_end
+        self._unrolling_factor = unrolling_factor
 
     def __len__(self) -> int:
         return self._n_neuron

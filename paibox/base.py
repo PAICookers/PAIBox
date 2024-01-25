@@ -240,3 +240,14 @@ class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
             params.update({k.removeprefix("_"): v})
 
         return params
+
+    @property
+    def unrolling_factor(self) -> int:
+        return self._unrolling_factor
+
+    @unrolling_factor.setter
+    def unrolling_factor(self, factor: int) -> None:
+        if factor < 1:
+            raise ValueError("Unroll factor must be greater than 0.")
+
+        self._unrolling_factor = factor

@@ -19,6 +19,7 @@ class IF(Neuron):
         delay: int = 1,
         tick_wait_start: int = 1,
         tick_wait_end: int = 0,
+        unrolling_factor: int = 1,
         keep_shape: bool = False,
         name: Optional[str] = None,
     ) -> None:
@@ -54,10 +55,11 @@ class IF(Neuron):
             0,
             _sim,
             0,
-            keep_shape=keep_shape,
             delay=delay,
             tick_wait_start=tick_wait_start,
             tick_wait_end=tick_wait_end,
+            unrolling_factor=unrolling_factor,
+            keep_shape=keep_shape,
             name=name,
         )
 
@@ -75,6 +77,7 @@ class LIF(Neuron):
         delay: int = 1,
         tick_wait_start: int = 1,
         tick_wait_end: int = 0,
+        unrolling_factor: int = 1,
         keep_shape: bool = False,
         name: Optional[str] = None,
     ) -> None:
@@ -114,10 +117,11 @@ class LIF(Neuron):
             _leak_v,
             _sim,
             0,
-            keep_shape=keep_shape,
             delay=delay,
             tick_wait_start=tick_wait_start,
             tick_wait_end=tick_wait_end,
+            unrolling_factor=unrolling_factor,
+            keep_shape=keep_shape,
             name=name,
         )
 
@@ -133,6 +137,7 @@ class TonicSpiking(Neuron):
         delay: int = 1,
         tick_wait_start: int = 1,
         tick_wait_end: int = 0,
+        unrolling_factor: int = 1,
         keep_shape: bool = False,
         name: Optional[str] = None,
     ) -> None:
@@ -159,10 +164,11 @@ class TonicSpiking(Neuron):
             0,
             SIM.MODE_DETERMINISTIC,
             0,
-            keep_shape=keep_shape,
             delay=delay,
             tick_wait_start=tick_wait_start,
             tick_wait_end=tick_wait_end,
+            unrolling_factor=unrolling_factor,
+            keep_shape=keep_shape,
             name=name,
         )
 
@@ -179,6 +185,7 @@ class PhasicSpiking(Neuron):
         delay: int = 1,
         tick_wait_start: int = 1,
         tick_wait_end: int = 0,
+        unrolling_factor: int = 1,
         keep_shape: bool = False,
         name: Optional[str] = None,
     ) -> None:
@@ -213,9 +220,10 @@ class PhasicSpiking(Neuron):
             leak_v,
             SIM.MODE_DETERMINISTIC,
             0,
-            keep_shape=keep_shape,
             delay=delay,
             tick_wait_start=tick_wait_start,
             tick_wait_end=tick_wait_end,
+            unrolling_factor=unrolling_factor,
+            keep_shape=keep_shape,
             name=name,
         )
