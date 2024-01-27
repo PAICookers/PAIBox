@@ -25,59 +25,57 @@ pytest = "^7.4.0"
 
 1. 指定测试项目的文件输出目录，例如，输出调试日志等信息。该夹具确保创建一个目录，并返回。若目录已存在，则清空目录（可选）。
 
-    ```python
-    import pytest
-    from pathlib import Path
+   ```python
+   import pytest
+   from pathlib import Path
 
-    @pytest.fixture(scope="module")
-    def ensure_dump_dir():
-        p = Path(__file__).parent / "debug"
+   @pytest.fixture(scope="module")
+   def ensure_dump_dir():
+       p = Path(__file__).parent / "debug"
 
-        if not p.is_dir():
-            p.mkdir(parents=True, exist_ok=True)
-        else: # Optional if you want to clean up the directory
-            for f in p.iterdir():
-                f.unlink()
+       if not p.is_dir():
+           p.mkdir(parents=True, exist_ok=True)
+       else: # Optional if you want to clean up the directory
+           for f in p.iterdir():
+               f.unlink()
 
-        yield p
+       yield p
 
-    # In your test function at `test_items.py`, use it as follows:
-    def test_foo(ensure_dump_dir):
-        ...
-    ```
-
+   # In your test function at `test_items.py`, use it as follows:
+   def test_foo(ensure_dump_dir):
+       ...
+   ```
 2. 清除全局 `PAIBoxObject` 对象名字字典。该夹具在每次测试后，清除全局名字字典，从而避免命名冲突。需要注意的是，`autouse=True` 表示该夹具在每个测试函数执行前自动执行，无论测试函数是否需要。
 
-    ```python
-    import pytest
-    from paibox.generic import clear_name_cache
+   ```python
+   import pytest
+   from paibox.generic import clear_name_cache
 
-    @pytest.fixture(autouse=True)
-    def clean_name_dict():
-        yield
-        clear_name_cache()
-    ```
-
+   @pytest.fixture(autouse=True)
+   def clean_name_dict():
+       yield
+       clear_name_cache(ignore_warn=True)
+   ```
 3. 需要测试文件写入，但不关心具体的目录与文件内容。该夹具将创建与系统无关的临时目录，且整个测试将在该目录下进行，测试后，临时目录自动被销毁，切回原来的目录。
 
-    ```python
-    import pytest
-    import os
-    import tempfile
+   ```python
+   import pytest
+   import os
+   import tempfile
 
-    @pytest.fixture
-    def cleandir():
-        with tempfile.TemporaryDirectory() as newpath:
-            old_cwd = os.getcwd()
-            os.chdir(newpath)
-            yield
-            os.chdir(old_cwd)
+   @pytest.fixture
+   def cleandir():
+       with tempfile.TemporaryDirectory() as newpath:
+           old_cwd = os.getcwd()
+           os.chdir(newpath)
+           yield
+           os.chdir(old_cwd)
 
-    # In your test function at `test_items.py`, use it as follows:
-    @pytest.mark.usefixtures("cleandir")
-    def test_foo():
-        ...
-    ```
+   # In your test function at `test_items.py`, use it as follows:
+   @pytest.mark.usefixtures("cleandir")
+   def test_foo():
+       ...
+   ```
 
 ## 更多
 
