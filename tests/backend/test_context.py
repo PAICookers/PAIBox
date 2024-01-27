@@ -1,4 +1,5 @@
 import copy
+
 import pytest
 from paicorelib import Coord, CoordOffset
 

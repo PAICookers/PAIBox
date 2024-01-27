@@ -12,6 +12,7 @@ class PAIBoxWarning(Warning):
 
 class ParameterInvalidWarning(PAIBoxWarning):
     """Parameter is invalid due to some reason."""
+
     pass
 
 

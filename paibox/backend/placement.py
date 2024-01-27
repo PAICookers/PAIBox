@@ -39,8 +39,8 @@ from .segment_utils import (
     NeuSegOfCoreBlock,
     NeuSegOfCorePlm,
     aligned_coords,
-    get_neu_segments,
     get_axon_segments,
+    get_neu_segments,
 )
 
 WeightRamType: TypeAlias = NDArray[np.uint64]  # uint64 weights mapped in weight RAM

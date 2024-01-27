@@ -1,5 +1,4 @@
 import sys
-
 from collections.abc import Set  # Use `collections.abc` instead of `typing`
 from typing import (
     Any,

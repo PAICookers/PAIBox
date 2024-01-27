@@ -1,4 +1,5 @@
 import warnings
+
 from .exceptions import PAIBoxWarning, RegisterError
 
 global _id_dict, _type_names

@@ -1,8 +1,8 @@
+import sys
+import warnings
 from functools import partial
 from math import ceil
-import sys
 from typing import Dict, List, Literal, NamedTuple, Sequence
-import warnings
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias
@@ -13,6 +13,7 @@ from paicorelib import AxonCoord, AxonSegment, NeuronSegment
 
 from paibox.base import NeuDyn
 from paibox.exceptions import ParameterInvalidWarning, ResourceError
+
 from .graphs_types import DestNodeType, SourceNodeType
 
 
@@ -60,7 +61,7 @@ def _coarse_group(
     NOTE: Group neuron seperately, like [N1], [N2], ..., [Nn]. For each neuron, \
         take unrolling factor into consideration, then distribute the neuron to \
         the cores evently.
-        
+
         #N of cores required of nx = ceil(Ni / capacity) * uf
         Average load of nx = ceil(nx / (#N of cores required of nx))
     """
@@ -199,15 +200,15 @@ def _dense_reorganized(
 ) -> NeuSegOfCoreBlock:
     """Reorganize densely. Based on grouping result with 'catagory' method, use greedy \
         algorithm to reorganize the neuron segments for saving physical cores.
-    
+
     Example:
         capa = 200
         n1: 300, uf = 2 -> 75 + 75 + 75 + 75
         n2: 200, uf = 3 -> 67 + 67 + 66
         Expected: [75 + 67], [75 + 67], [75 + 66], [75]
-        
+
         Add n3: 220, uf = 1 -> 110 + 110
-    
+
     Expected: [75 + 67], [75 + 67], [75 + 66], [75 + 110], [110]
     """
 
@@ -267,7 +268,7 @@ def get_neu_segments(
     optim_target: Literal["latency", "core", "both"],
 ) -> NeuSegOfCoreBlock:
     """Get the neuron segments by given a optimization strategy.
-    
+
     Args:
         - optim_target: Target of optimization. 'catagory' strategy intends to optimize the throuhput of nodes. \
             While 'dense' strategy intends to optimize the consumption of cores.

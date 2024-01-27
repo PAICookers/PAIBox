@@ -1,18 +1,18 @@
-import pytest
 from math import ceil
 from typing import List
-from paicorelib import AxonCoord, AxonSegment, LCN_EX, NeuronSegment
+
+import pytest
+from paicorelib import LCN_EX, AxonCoord, AxonSegment, NeuronSegment
 from paicorelib import WeightPrecision as WP
 
 import paibox as pb
-from paibox.backend.placement import n_axon2lcn_ex, NeuSeg
+from paibox.backend.placement import NeuSeg, n_axon2lcn_ex
 from paibox.backend.segment_utils import (
     aligned_coords,
     get_axon_segments,
     get_neu_segments,
 )
 from paibox.exceptions import ResourceError
-
 
 n1 = pb.LIF(600, 2, unrolling_factor=1)
 n2 = pb.LIF(800, 2, unrolling_factor=1)
