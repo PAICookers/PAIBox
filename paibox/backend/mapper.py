@@ -93,6 +93,7 @@ class Mapper:
         # Set default cflags
         _BACKEND_CONTEXT.cflags.clear()
         set_cflag(enable_wp_opt=True)
+        set_cflag(grouping_optim_target="both")
 
     def build(
         self,
@@ -114,9 +115,17 @@ class Mapper:
         # Filter & check the constraints to nodes.
         self.graph.build(*networks)
 
-    def compile(self, *, weight_bit_optimization: Optional[bool] = None) -> None:
+    def compile(
+        self,
+        *,
+        weight_bit_optimization: Optional[bool] = None,
+        grouping_optim_target: Optional[Literal["latency", "core", "both"]] = None,
+    ) -> None:
         if weight_bit_optimization is not None:
             set_cflag(enable_wp_opt=weight_bit_optimization)
+
+        if grouping_optim_target is not None:
+            set_cflag(grouping_optim_target=grouping_optim_target)
 
         """Backend compilation."""
         self._build_check()
@@ -186,7 +195,7 @@ class Mapper:
                 # Doesn't have following core blocks
                 cb.lcn_locked = True
 
-    def coord_assign(self, method: Literal["catagory", "dense"] = "catagory") -> None:
+    def coord_assign(self) -> None:
         """Assign the coordinate of each `CorePlacement`.
 
         NOTE: The neurons in each core block must be grouped first  \
@@ -195,7 +204,9 @@ class Mapper:
         """
         for cb in self.core_blocks:
             # Group the neurons, get the #N of cores required.
-            cb.group_neurons(method)
+            cb.group_neurons(
+                optim_target=_BACKEND_CONTEXT.cflags["grouping_optim_target"]
+            )
 
         # Calculate the consumption of physical cores required.
         if (
@@ -336,7 +347,7 @@ class Mapper:
 
             output_axon_offset = 0
             for core_plm in member_cb.core_placements.values():
-                for neu_seg in core_plm.neu_segs:
+                for neu_seg in core_plm.neu_segs_of_cplm:
                     # Find the axon destinations
                     dest_cb = [
                         cb for cb in self.core_blocks if neu_seg.parent in cb.source
@@ -432,7 +443,7 @@ class Mapper:
                     f"Neurons {neuron.name} placed in {cb.name}, LCN_{1 << cb.lcn_ex}X"
                 )
                 for core_plm in cb.core_placements.values():
-                    for neu_seg in core_plm.neu_segs:
+                    for neu_seg in core_plm.neu_segs_of_cplm:
                         if neuron is neu_seg.parent:
                             print(
                                 f"{neuron.name} placed in {core_plm.coord}\n"
