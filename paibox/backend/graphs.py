@@ -269,6 +269,13 @@ class PAIGraph:
         return pred
 
     @property
+    def inherent_timestep(self) -> int:
+        self.build_check()
+        _, distance = get_longest_path(self.succ_dg, self.ordered_nodes)
+
+        return distance
+
+    @property
     def graph_name_repr(self) -> str:
         _str = f"Graph_of_{self.networks[0].name}"
 
@@ -284,7 +291,10 @@ def _degree_check(
     """Filter out such network structure, which is currently not supported."""
     for node in filter(lambda node: degree_of_nodes[node].out_degree > 1, succ_dg):
         if any(degree_of_nodes[succ_node].in_degree > 1 for succ_node in succ_dg[node]):
-            raise NotSupportedError("This structure of network is not supported yet.")
+            raise NotSupportedError(
+                "If out-degree of a node is greater than 1, "
+                "the in-degree of its sucessors must be 1."
+            )
 
 
 def convert2routing_groups(

@@ -10,6 +10,12 @@ class PAIBoxWarning(Warning):
     pass
 
 
+class ParameterInvalidWarning(PAIBoxWarning):
+    """Parameter is invalid due to some reason."""
+
+    pass
+
+
 class ShapeError(PAIBoxError):
     """Exception for incorrect shape."""
 
@@ -48,5 +54,11 @@ class ResourceError(PAIBoxError):
 
 class FrameIllegalError(PAIBoxError, ValueError):
     """Frame is illegal."""
+
+    pass
+
+
+class TruncationWarning(PAIBoxWarning, UserWarning):
+    """Value out of range & will be truncated."""
 
     pass

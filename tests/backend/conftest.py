@@ -24,9 +24,11 @@ import paibox as pb
 from paibox.backend.conf_template import CoreConfig, CorePlacementConfig, NeuronConfig
 from paibox.backend.placement import NeuSeg
 from paibox.backend.routing import RoutingCluster
+from paibox.generic import clear_name_cache
+from paibox.node import NodeList
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def ensure_dump_dir():
     p = Path(__file__).parent / "debug"
 
@@ -46,6 +48,13 @@ def cleandir():
         os.chdir(newpath)
         yield
         os.chdir(old_cwd)
+
+
+@pytest.fixture(autouse=True)
+def clean_name_dict():
+    """Clean the global name dictionary after each test automatically."""
+    yield
+    clear_name_cache(ignore_warn=True)
 
 
 @pytest.fixture
@@ -125,7 +134,7 @@ class NetForTest2(pb.Network):
 
 class NetForTest3(pb.Network):
     """
-    INP1 -> S1 -> N1 -> S2 -> N2 -> S3 -> N3
+    INP1 -> S1 -> N1 -> S2       ->       N2 -> S3 -> N3
                   N1 -> S4 -> N4 -> S5 -> N2
     """
 
@@ -235,6 +244,59 @@ class Network_with_multi_onodes(pb.Network):
             self.n4 = pb.TonicSpiking(50, 4, name="n4", tick_wait_start=3)
             self.s4 = pb.NoDecay(
                 self.n3, self.n4, conn_type=pb.synapses.ConnType.All2All, name="s4"
+            )
+
+
+class Network_with_multi_inodes_onodes(pb.Network):
+    """
+    INP1 -> S1 -> N1 -> S2 -> N2
+    INP2 -> S3 -> N1 -> S4 -> N3
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.inp1 = pb.InputProj(input=1, shape_out=(40,), name="inp1")
+        self.inp2 = pb.InputProj(input=1, shape_out=(50,), name="inp2")
+        self.n1 = pb.TonicSpiking(80, 2, name="n1", tick_wait_start=1)
+        self.n2 = pb.TonicSpiking(20, 3, name="n2", tick_wait_start=2)
+        self.n3 = pb.TonicSpiking(30, 3, name="n3", tick_wait_start=2)
+
+        self.s1 = pb.NoDecay(
+            self.inp1, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s1"
+        )
+        self.s2 = pb.NoDecay(
+            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s2"
+        )
+        self.s3 = pb.NoDecay(
+            self.inp2, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s3"
+        )
+        self.s4 = pb.NoDecay(
+            self.n1, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s4"
+        )
+
+
+class Network_with_N_onodes(pb.Network):
+    def __init__(self, n_onodes: int):
+        super().__init__()
+        self.n_onodes = n_onodes  # for check
+
+        self.inp1 = pb.InputProj(input=1, shape_out=(40,), name="inp1")
+        self.s_list = NodeList()
+        self.n_list = NodeList()
+
+        for i in range(n_onodes):
+            self.n_list.append(
+                pb.IF(10, threshold=10, reset_v=2, name=f"n_{i}", tick_wait_start=1)
+            )
+
+        for i in range(n_onodes):
+            self.s_list.append(
+                pb.NoDecay(
+                    self.inp1,
+                    self.n_list[i],
+                    conn_type=pb.synapses.ConnType.All2All,
+                    name=f"s_{i}",
+                )
             )
 
 
@@ -393,7 +455,7 @@ def build_multi_inputproj_net2():
     return Network_with_multi_inodes()
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="class")
 def build_example_net3():
     return NetForTest3()
 
@@ -414,6 +476,16 @@ def build_multi_onodes_net2():
 
 
 @pytest.fixture(scope="class")
+def build_multi_inodes_onodes():
+    return Network_with_multi_inodes_onodes()
+
+
+@pytest.fixture(scope="class", params=[30, 32, 60, 100])
+def build_Network_with_N_onodes(request):
+    return Network_with_N_onodes(n_onodes=request.param)
+
+
+@pytest.fixture(scope="class")
 def build_network_with_branches_4bit():
     return Network_with_Branches_4bit(seed=42)
 
@@ -431,136 +503,6 @@ def build_Network_with_container():
 @pytest.fixture(scope="class")
 def get_mapper() -> pb.Mapper:
     return pb.Mapper()
-
-
-class NeuronInstances:
-    def __init__(self):
-        self.n1 = pb.neuron.LIF(600, 2)
-        self.n2 = pb.neuron.LIF(800, 2)
-        self.n3 = pb.neuron.LIF(256, 2)
-        self.n4 = pb.neuron.LIF(300, 2)
-
-
-@pytest.fixture(scope="session")
-def neu_ins():
-    return NeuronInstances()
-
-
-@pytest.fixture(scope="class")
-def neu_segs_test_data(neu_ins):
-    data = [
-        # Neurons, capacity, wp, lcn_ex
-        # Make sure capacity * (1 << wp) * (1 << lcn_ex) <= 512
-        (
-            [neu_ins.n1, neu_ins.n2],
-            512,
-            WP.WEIGHT_WIDTH_1BIT,
-            LCN_EX.LCN_1X,
-        ),
-        (
-            [neu_ins.n1, neu_ins.n2],
-            256,
-            WP.WEIGHT_WIDTH_1BIT,
-            LCN_EX.LCN_2X,
-        ),
-        (
-            [neu_ins.n3],
-            64,
-            WP.WEIGHT_WIDTH_8BIT,
-            LCN_EX.LCN_1X,
-        ),
-        (
-            [neu_ins.n1, neu_ins.n2, neu_ins.n3, neu_ins.n4],
-            512,
-            WP.WEIGHT_WIDTH_1BIT,
-            LCN_EX.LCN_1X,
-        ),
-    ]
-
-    return data
-
-
-@pytest.fixture(scope="class")
-def neu_segs_expected_catagory(neu_ins):
-    expected = [
-        [
-            [NeuSeg(neu_ins.n1, NeuronSegment(slice(0, 512, 1), 0))],
-            [NeuSeg(neu_ins.n1, NeuronSegment(slice(512, 600, 1), 0))],
-            [NeuSeg(neu_ins.n2, NeuronSegment(slice(0, 512, 1), 0))],
-            [NeuSeg(neu_ins.n2, NeuronSegment(slice(512, 800, 1), 0))],
-        ],
-        [
-            [NeuSeg(neu_ins.n1, NeuronSegment(slice(0, 256, 1), 0, 2))],
-            [NeuSeg(neu_ins.n1, NeuronSegment(slice(256, 512, 1), 0, 2))],
-            [NeuSeg(neu_ins.n1, NeuronSegment(slice(512, 600, 1), 0, 2))],
-            [NeuSeg(neu_ins.n2, NeuronSegment(slice(0, 256, 1), 0, 2))],
-            [NeuSeg(neu_ins.n2, NeuronSegment(slice(256, 512, 1), 0, 2))],
-            [NeuSeg(neu_ins.n2, NeuronSegment(slice(512, 768, 1), 0, 2))],
-            [NeuSeg(neu_ins.n2, NeuronSegment(slice(768, 800, 1), 0, 2))],
-        ],
-        [
-            [NeuSeg(neu_ins.n3, NeuronSegment(slice(0, 64, 1), 0, 8))],
-            [NeuSeg(neu_ins.n3, NeuronSegment(slice(64 * 1, 64 * 2, 1), 0, 8))],
-            [NeuSeg(neu_ins.n3, NeuronSegment(slice(64 * 2, 64 * 3, 1), 0, 8))],
-            [NeuSeg(neu_ins.n3, NeuronSegment(slice(64 * 3, 64 * 4, 1), 0, 8))],
-        ],
-        [
-            [NeuSeg(neu_ins.n1, NeuronSegment(slice(0, 512, 1), 0))],
-            [NeuSeg(neu_ins.n1, NeuronSegment(slice(512, 600, 1), 0))],
-            [NeuSeg(neu_ins.n2, NeuronSegment(slice(0, 512, 1), 0))],
-            [NeuSeg(neu_ins.n2, NeuronSegment(slice(512, 800, 1), 0))],
-            [NeuSeg(neu_ins.n3, NeuronSegment(slice(0, 256, 1), 0))],
-            [NeuSeg(neu_ins.n4, NeuronSegment(slice(0, 300, 1), 0))],
-        ],
-    ]
-
-    return expected
-
-
-@pytest.fixture(scope="class")
-def neu_segs_expected_dense(neu_ins):
-    expected = [
-        [
-            [NeuSeg(neu_ins.n1, NeuronSegment(slice(0, 512, 1), 0))],
-            [NeuSeg(neu_ins.n2, NeuronSegment(slice(0, 512, 1), 0))],
-            [
-                NeuSeg(neu_ins.n2, NeuronSegment(slice(512, 800, 1), 0)),
-                NeuSeg(neu_ins.n1, NeuronSegment(slice(512, 600, 1), 288)),
-            ],
-        ],
-        [
-            [NeuSeg(neu_ins.n1, NeuronSegment(slice(0, 256, 1), 0, 2))],
-            [NeuSeg(neu_ins.n1, NeuronSegment(slice(256, 512, 1), 0, 2))],
-            [NeuSeg(neu_ins.n2, NeuronSegment(slice(0, 256, 1), 0, 2))],
-            [NeuSeg(neu_ins.n2, NeuronSegment(slice(256, 512, 1), 0, 2))],
-            [NeuSeg(neu_ins.n2, NeuronSegment(slice(512, 768, 1), 0, 2))],
-            [
-                NeuSeg(neu_ins.n1, NeuronSegment(slice(512, 600, 1), 0, 2)),
-                NeuSeg(neu_ins.n2, NeuronSegment(slice(768, 800, 1), 88, 2)),
-            ],
-        ],
-        [
-            [NeuSeg(neu_ins.n3, NeuronSegment(slice(0, 64 * 1, 1), 0, 8))],
-            [NeuSeg(neu_ins.n3, NeuronSegment(slice(64 * 1, 64 * 2, 1), 0, 8))],
-            [NeuSeg(neu_ins.n3, NeuronSegment(slice(64 * 2, 64 * 3, 1), 0, 8))],
-            [NeuSeg(neu_ins.n3, NeuronSegment(slice(64 * 3, 64 * 4, 1), 0, 8))],
-        ],
-        [
-            [NeuSeg(neu_ins.n1, NeuronSegment(slice(0, 512, 1), 0))],
-            [NeuSeg(neu_ins.n2, NeuronSegment(slice(0, 512, 1), 0))],
-            # 300
-            [NeuSeg(neu_ins.n4, NeuronSegment(slice(0, 300, 1), 0))],
-            # 288
-            [NeuSeg(neu_ins.n2, NeuronSegment(slice(512, 800, 1), 0))],
-            # 256 + 88
-            [
-                NeuSeg(neu_ins.n3, NeuronSegment(slice(0, 256, 1), 0)),
-                NeuSeg(neu_ins.n1, NeuronSegment(slice(512, 600, 1), 256)),
-            ],
-        ],
-    ]
-
-    return expected
 
 
 @pytest.fixture

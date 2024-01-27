@@ -49,7 +49,6 @@ class MetaNeuron:
         leak_v: int,
         synaptic_integration_mode: SIM,
         bit_truncation: int,
-        vjt_init: int,
         keep_shape: bool = False,
     ) -> None:
         """Stateless attributes. Scalar."""
@@ -72,7 +71,7 @@ class MetaNeuron:
         self.leak_v: int = leak_v  # Signed 30-bit
         self.synaptic_integration_mode: SIM = synaptic_integration_mode
         self.bit_truncation: int = bit_truncation  # Unsigned 5-bit
-        self.vjt_init = vjt_init  # Signed 30-bit
+        self._vjt_init = 0  # Signed 30-bit. Fixed.
 
         # TODO These two config below are parameters of CORE.
         self._spike_width_format: SpikeWidthFormat
@@ -250,7 +249,7 @@ class MetaNeuron:
                 return np.full(self.varshape, -self.neg_threshold, dtype=np.int32)
 
         # USE "=="!
-        v_reseted = np.where(
+        v_reset = np.where(
             self.thres_mode == TM.EXCEED_POSITIVE,
             _when_exceed_pos(),
             np.where(
@@ -262,7 +261,7 @@ class MetaNeuron:
 
         self._aux_post_hook()
 
-        return v_reseted
+        return v_reset
 
     def _relu(self, vj: VoltageType) -> VoltageType:
         r"""ReLU(ANN mode ONLY)
@@ -353,9 +352,9 @@ class MetaNeuron:
         _debug_thres_mode = self.thres_mode
 
         # 3. Reset
-        v_reseted = self._neuronal_reset(v_leaked)
+        v_reset = self._neuronal_reset(v_leaked)
 
-        return spike, v_reseted, _debug_thres_mode
+        return spike, v_reset, _debug_thres_mode
 
     def init_param(self, param: Any) -> np.ndarray:
         return np.full((self._n_neuron,), param)
@@ -372,6 +371,7 @@ class MetaNeuron:
 
 class Neuron(MetaNeuron, NeuDyn):
     _excluded_vars = (
+        "_vjt_init",
         "vjt_pre",
         "vjt",
         "vj",
@@ -399,11 +399,11 @@ class Neuron(MetaNeuron, NeuDyn):
         leak_v: int,
         synaptic_integration_mode: SIM,
         bit_truncation: int,
-        vjt_init: int,
         *,
         delay: int = 1,
         tick_wait_start: int = 1,
         tick_wait_end: int = 0,
+        unrolling_factor: int = 1,
         keep_shape: bool = False,
         name: Optional[str] = None,
     ) -> None:
@@ -422,6 +422,9 @@ class Neuron(MetaNeuron, NeuDyn):
                 f"Bit of tuncation must be non-negative, but got {bit_truncation}."
             )
 
+        if delay < 1:
+            raise ValueError(f"'delay' must be positive, but got {delay}.")
+
         if tick_wait_start < 0:
             raise ValueError(
                 f"'tick_wait_start' must be non-negative, but got {tick_wait_start}."
@@ -432,8 +435,10 @@ class Neuron(MetaNeuron, NeuDyn):
                 f"'tick_wait_end' must be non-negative, but got {tick_wait_end}."
             )
 
-        if delay < 1:
-            raise ValueError(f"'delay' must be positive, but got {delay}.")
+        if unrolling_factor < 1:
+            raise ValueError(
+                f"'unrolling_factor' must be positive, but got {unrolling_factor}."
+            )
 
         super().__init__(
             shape,
@@ -449,18 +454,17 @@ class Neuron(MetaNeuron, NeuDyn):
             leak_v,
             synaptic_integration_mode,
             bit_truncation,
-            vjt_init,
             keep_shape,
         )
         super(MetaNeuron, self).__init__(name)
 
         """Stateful attributes. Vector."""
-        self.set_memory("_vjt", self.init_param(vjt_init).astype(np.int32))
-        self.set_memory("vjt_pre", self.init_param(vjt_init).astype(np.int32))
+        self.set_memory("_vjt", self.init_param(self._vjt_init).astype(np.int32))
+        self.set_memory("vjt_pre", self.init_param(self._vjt_init).astype(np.int32))
         self.set_memory("_inner_spike", self.init_param(0).astype(np.bool_))
 
         # Not supported for attributes in ANN mode
-        self.set_memory("vj", self.init_param(vjt_init).astype(np.int32))
+        self.set_memory("vj", self.init_param(self._vjt_init).astype(np.int32))
         self.set_memory("y", self.init_param(0).astype(np.int32))
 
         """Auxiliary internal stateful attributes for debugging"""
@@ -479,6 +483,7 @@ class Neuron(MetaNeuron, NeuDyn):
         self._delay = delay
         self._tws = tick_wait_start
         self._twe = tick_wait_end
+        self._unrolling_factor = unrolling_factor
 
     def __len__(self) -> int:
         return self._n_neuron
@@ -547,15 +552,3 @@ class Neuron(MetaNeuron, NeuDyn):
     @property
     def voltage(self) -> VoltageType:
         return self._vjt.reshape(self.varshape)
-
-    @property
-    def delay_relative(self) -> int:
-        return self._delay
-
-    @property
-    def tick_wait_start(self) -> int:
-        return self._tws
-
-    @property
-    def tick_wait_end(self) -> int:
-        return self._twe

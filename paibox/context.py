@@ -38,7 +38,7 @@ class _Context:
             v = args[i + 1]
             self._context[k] = v
 
-        self._context |= kwargs
+        self._context.update(kwargs)  # compatible for py3.8
 
     def __setitem__(self, key: _KT, value: _VT) -> None:
         self.save(key, value)
@@ -66,7 +66,7 @@ class _Context:
 class _FrontendContext(_Context):
     def __init__(self, initial_t: int = 0) -> None:
         super().__init__()
-        self._context["t"] = initial_t
+        self._context["t"] = initial_t  # RO. Changed by simulator.
 
 
 _FRONTEND_CONTEXT = _FrontendContext()

@@ -1,16 +1,10 @@
 import numpy as np
 import pytest
-from paicorelib import LCN_EX, AxonCoord, AxonSegment, NeuronSegment
+from paicorelib import LCN_EX, NeuronSegment
 from paicorelib import WeightPrecision as WP
 
 import paibox as pb
-from paibox.backend.placement import (
-    NeuSeg,
-    aligned_coords,
-    get_axon_segments,
-    get_neu_segments,
-    n_axon2lcn_ex,
-)
+from paibox.backend.placement import NeuSeg, n_axon2lcn_ex
 from paibox.exceptions import ResourceError
 
 
@@ -395,159 +389,9 @@ class TestWeightUnpack:
             assert expected == r
 
 
-class TestGetNeuronSegments:
-    @staticmethod
-    def _get_interval(wp, lcn_ex) -> int:
-        return (1 << wp) * (1 << lcn_ex)
-
-    def test_get_neu_segments_catagory(
-        self,
-        neu_segs_test_data,
-        neu_segs_expected_catagory,
-    ):
-        for data, expected in zip(neu_segs_test_data, neu_segs_expected_catagory):
-            neu_ins, capacity, wp, lcn_ex = data
-
-            neu_segs = get_neu_segments(
-                neu_ins,
-                capacity,
-                self._get_interval(wp, lcn_ex),
-                method="catagory",
-            )
-
-            assert neu_segs == expected
-            assert neu_segs[0][0].segment.interval == (1 << wp) * (1 << lcn_ex)
-
-    @pytest.mark.xfail
-    def test_get_neu_segments_dense(
-        self,
-        neu_segs_test_data,
-        neu_segs_expected_dense,
-    ):
-        for data, expected in zip(neu_segs_test_data, neu_segs_expected_dense):
-            neu_ins, capacity, wp, lcn_ex = data
-            neu_segs = get_neu_segments(
-                neu_ins,
-                capacity,
-                self._get_interval(wp, lcn_ex),
-                method="dense",
-            )
-
-            assert neu_segs == expected
-            assert neu_segs[0][0].segment.interval == (1 << wp) * (1 << lcn_ex)
-
-
 def test_n_axon2lcn_ex():
     lcn_ex = n_axon2lcn_ex(1152 * 18 + 1, 1152)
     assert lcn_ex == LCN_EX.LCN_32X
 
     with pytest.raises(ResourceError):
         lcn_ex = n_axon2lcn_ex(1152 * 64 + 1, 1152)
-
-
-@pytest.mark.parametrize(
-    "axons",
-    [
-        [pb.neuron.LIF(600, 2), pb.neuron.LIF(800, 2), pb.neuron.LIF(256, 2)],
-        [pb.neuron.LIF(384, 3), pb.neuron.LIF(383, 3), pb.neuron.LIF(385, 3)],
-        [pb.neuron.LIF(1153, 2)],
-        [pb.neuron.LIF(2222, 1), pb.neuron.LIF(2378, 1)],
-    ],
-)
-def test_get_axon_segments(axons):
-    lcn_ex = n_axon2lcn_ex(sum(axon.num_out for axon in axons), 1152)
-
-    tr_max = 1 << lcn_ex
-
-    axon_segs = get_axon_segments(axons, tr_max, 1152)
-
-    for axon_seg in axon_segs.values():
-        assert axon_seg.addr_offset <= 1152
-
-
-@pytest.mark.parametrize(
-    "axons",
-    [
-        [pb.neuron.LIF(1151, 2), pb.neuron.LIF(1153, 2)],
-        [pb.neuron.LIF(1151 * 2, 2), pb.neuron.LIF(1153 * 2, 2)],
-    ],
-)
-def test_get_axon_segments_boundary(axons):
-    """Illegal boundary cases."""
-    lcn_ex = n_axon2lcn_ex(sum(axon.num_out for axon in axons), 1152)
-    tr_max = 1 << lcn_ex
-
-    with pytest.raises(ResourceError):
-        axon_segs = get_axon_segments(axons, tr_max, 1152)
-
-
-@pytest.mark.parametrize(
-    "neu_index, axon_seg, delay, n_timeslot, expected",
-    [
-        (
-            slice(5, 8),
-            AxonSegment(12, 3, 0),
-            1,
-            1 << 1,
-            [
-                AxonCoord(1, 2),
-                AxonCoord(2, 0),
-                AxonCoord(2, 1),
-            ],
-        ),
-        (
-            slice(0, 3),
-            AxonSegment(12, 3, 0),
-            2,
-            1 << 1,
-            [
-                AxonCoord(2 + 0, 0),
-                AxonCoord(2 + 0, 1),
-                AxonCoord(2 + 0, 2),
-            ],
-        ),
-        (
-            slice(1, 5),
-            AxonSegment(12, 3, 0),
-            2,
-            1 << 2,
-            [
-                AxonCoord(4 + 0, 1),
-                AxonCoord(4 + 0, 2),
-                AxonCoord(4 + 1, 0),
-                AxonCoord(4 + 1, 1),
-            ],
-        ),
-        (
-            slice(1, 6),
-            AxonSegment(12, 3, 0),
-            4,
-            1 << 3,
-            [
-                AxonCoord(24 + 0, 1),
-                AxonCoord(24 + 0, 2),
-                AxonCoord(24 + 1, 0),
-                AxonCoord(24 + 1, 1),
-                AxonCoord(24 + 1, 2),
-            ],
-        ),
-        (
-            slice(3, 10),
-            AxonSegment(16, 4, 4),
-            4,
-            1 << 4,
-            [
-                AxonCoord(48 + 0, 4 + 3),
-                AxonCoord(48 + 1, 4 + 0),
-                AxonCoord(48 + 1, 4 + 1),
-                AxonCoord(48 + 1, 4 + 2),
-                AxonCoord(48 + 1, 4 + 3),
-                AxonCoord(48 + 2, 4 + 0),
-                AxonCoord(48 + 2, 4 + 1),
-            ],
-        ),
-    ],
-)
-def test_aligned_coords(neu_index, axon_seg, delay, n_timeslot, expected):
-    axon_coords = aligned_coords(neu_index, axon_seg, delay, n_timeslot)
-    assert axon_coords == expected

@@ -197,7 +197,9 @@ class NeuronConfig(ConfigTemplate):
             # exclude={"dest_info": self.params_ram.dest_info._exclude_vars},
         )
 
-        dict_ |= self.neuron_dest_info.model_dump(by_alias=True)
+        dict_.update(
+            self.neuron_dest_info.model_dump(by_alias=True)
+        )  # compatible for py3.8
 
         for var in self._extra_params:
             dict_[var] = getattr(self, var)

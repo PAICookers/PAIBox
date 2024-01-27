@@ -1,17 +1,10 @@
-from typing import Any
+import warnings
 
-import numpy as np
-
-from ._types import Shape
-from .exceptions import RegisterError
-from .utils import shape2num
+from .exceptions import PAIBoxWarning, RegisterError
 
 global _id_dict, _type_names
 _id_dict = dict()
 _type_names = dict()
-
-global global_reg_data
-global_reg_data = dict()
 
 
 def is_name_unique(name: str, obj: object) -> None:
@@ -42,12 +35,10 @@ def get_unique_name(_type: str) -> str:
     return name
 
 
-def param_alloc(param: Any, shape: Shape):
-    if isinstance(param, np.ndarray):
-        _param = np.full(shape, param)
-    elif np.isscalar(param):
-        _param = [param] * shape2num(shape)
-    else:
-        raise TypeError
+def clear_name_cache(ignore_warn: bool = False):
+    """Clear the name dictionary."""
+    _id_dict.clear()
+    _type_names.clear()
 
-    return _param
+    if not ignore_warn:
+        warnings.warn(f"All named models & ids are cleared.", PAIBoxWarning)

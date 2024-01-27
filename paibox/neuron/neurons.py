@@ -15,11 +15,11 @@ class IF(Neuron):
         shape: Shape,
         threshold: int,
         reset_v: int = 0,
-        vjt_init: int = 0,
         *,
         delay: int = 1,
         tick_wait_start: int = 1,
         tick_wait_end: int = 0,
+        unrolling_factor: int = 1,
         keep_shape: bool = False,
         name: Optional[str] = None,
     ) -> None:
@@ -28,7 +28,6 @@ class IF(Neuron):
             - shape    : the shape of the neuron(s). It can be an integer, tuple or list.
             - Threshold: When the membrane potential exceeds the threshold, neurons will fire
             - reset_v  : Membrane potential after firing
-            - vjt_init : initial membrane potential. Default is 0.
 
         Description:
             IF neuron : intergration + firing
@@ -56,11 +55,11 @@ class IF(Neuron):
             0,
             _sim,
             0,
-            vjt_init,
-            keep_shape=keep_shape,
             delay=delay,
             tick_wait_start=tick_wait_start,
             tick_wait_end=tick_wait_end,
+            unrolling_factor=unrolling_factor,
+            keep_shape=keep_shape,
             name=name,
         )
 
@@ -74,11 +73,11 @@ class LIF(Neuron):
         threshold: int,
         reset_v: int = 0,
         leaky_v: int = 0,
-        vjt_init: int = 0,
         *,
         delay: int = 1,
         tick_wait_start: int = 1,
         tick_wait_end: int = 0,
+        unrolling_factor: int = 1,
         keep_shape: bool = False,
         name: Optional[str] = None,
     ) -> None:
@@ -90,7 +89,6 @@ class LIF(Neuron):
             - leaky_v: The leakage value will be directly added to the membrane potential.
                 If it is positive, the membrane potential will increase.
                 If is is negative, the membrane potential will decrease.
-            - vjt_init: initial membrane potential. Default is 0.
 
         Description:
             LIF: leaky + intergration + firing
@@ -119,11 +117,11 @@ class LIF(Neuron):
             _leak_v,
             _sim,
             0,
-            vjt_init,
-            keep_shape=keep_shape,
             delay=delay,
             tick_wait_start=tick_wait_start,
             tick_wait_end=tick_wait_end,
+            unrolling_factor=unrolling_factor,
+            keep_shape=keep_shape,
             name=name,
         )
 
@@ -135,11 +133,11 @@ class TonicSpiking(Neuron):
         self,
         shape: Shape,
         fire_step: int,
-        vjt_init: int = 0,
         *,
         delay: int = 1,
         tick_wait_start: int = 1,
         tick_wait_end: int = 0,
+        unrolling_factor: int = 1,
         keep_shape: bool = False,
         name: Optional[str] = None,
     ) -> None:
@@ -147,7 +145,6 @@ class TonicSpiking(Neuron):
         Arguments:
             - shape: the shape of the neuron(s). It can be an integer, tuple or list.
             - fire_step: every `N` spike, the neuron will fire positively.
-            - vjt_init: initial membrane potential. Default is 0.
 
         Description:
             The neuron receives `N` spikes and fires, then resets to 0.
@@ -167,11 +164,11 @@ class TonicSpiking(Neuron):
             0,
             SIM.MODE_DETERMINISTIC,
             0,
-            vjt_init,
-            keep_shape=keep_shape,
             delay=delay,
             tick_wait_start=tick_wait_start,
             tick_wait_end=tick_wait_end,
+            unrolling_factor=unrolling_factor,
+            keep_shape=keep_shape,
             name=name,
         )
 
@@ -184,11 +181,11 @@ class PhasicSpiking(Neuron):
         shape: Shape,
         time_to_fire: int,
         neg_floor: int = -10,
-        vjt_init: int = 0,
         *,
         delay: int = 1,
         tick_wait_start: int = 1,
         tick_wait_end: int = 0,
+        unrolling_factor: int = 1,
         keep_shape: bool = False,
         name: Optional[str] = None,
     ) -> None:
@@ -197,7 +194,6 @@ class PhasicSpiking(Neuron):
             - shape: the shape of the neuron(s). It can be an integer, tuple or list.
             - time_to_fire: after `time_to_fire` spikes, the neuron will fire positively.
             - neg_floor: the negative floor that the neuron stays once firing. Default is -10.
-            - vjt_init: initial membrane potential. Default is 0.
 
         Description:
             The neuron receives `N` spikes and fires, then resets the membrane potential to 0,
@@ -224,10 +220,10 @@ class PhasicSpiking(Neuron):
             leak_v,
             SIM.MODE_DETERMINISTIC,
             0,
-            vjt_init,
-            keep_shape=keep_shape,
             delay=delay,
             tick_wait_start=tick_wait_start,
             tick_wait_end=tick_wait_end,
+            unrolling_factor=unrolling_factor,
+            keep_shape=keep_shape,
             name=name,
         )

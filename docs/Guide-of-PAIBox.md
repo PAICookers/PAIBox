@@ -22,10 +22,10 @@ poetry install
 若使用conda等，则手动安装如下依赖至Python虚拟环境：
 
 ```toml
-python = "^3.9"
+python = "^3.8"
 pydantic = "^2.0"
 numpy = "^1.23.0"
-paicorelib = "^0.0.5"
+paicorelib = "^0.0.11"
 ```
 
 ## 基本组件
@@ -38,6 +38,8 @@ PAIBox提供**神经元**与**突触**作为基本组件，用于搭建神经网
 
 PAIBox提供了多种类型的神经元模型，能够实现各种特殊的功能。
 
+⚠️ 请注意，神经元初始膜电位为0。
+
 #### IF神经元
 
 IF神经元实现了经典的“积分发射”模型，其调用方式及参数如下：
@@ -45,15 +47,14 @@ IF神经元实现了经典的“积分发射”模型，其调用方式及参数
 ```python
 import paibox as pb
 
-n1 = pb.neuron.IF(shape=10, threshold=127, reset_v=0, vjt_init=0, keep_shape=False, delay=1, tick_wait_start=1, tick_wait_end=0, name='n1')
+n1 = pb.neuron.IF(shape=10, threshold=127, reset_v=0, keep_shape=False, delay=1, tick_wait_start=1, tick_wait_end=0, name='n1')
 ```
 
 其中：
 
 - `shape`：代表神经元组的尺寸，其形式可以是整形标量、元组或列表。
 - `threshold`：神经元阈值，其形式为整数。
-- `reset_v`：神经元的重置电位。
-- `vjt_init`：神经元的初始电位。
+- `reset_v`：神经元的重置膜电位。
 - `keep_shape`：是否在仿真记录数据时保持尺寸信息，默认为 `False`。实际进行运算的尺寸仍视为一维。
 - `delay`：设定该神经元组输出的延迟。默认为1，即本时间步的计算结果，**下一时间步**传递至后继神经元。
 - `tick_wait_start`: 设定该神经元组在第 `N` 个时间步时启动，0表示不启动。默认为1。
@@ -65,7 +66,7 @@ n1 = pb.neuron.IF(shape=10, threshold=127, reset_v=0, vjt_init=0, keep_shape=Fal
 LIF神经元实现了“泄露-积分-发射”神经元模型，其调用方式及参数如下：
 
 ```python
-n1 = pb.neuron.LIF(shape=128, threshold=127, reset_v=0, leaky_v=-1, vjt_init=0, keep_shape=False, name='n1')
+n1 = pb.neuron.LIF(shape=128, threshold=127, reset_v=0, leaky_v=-1, keep_shape=False, name='n1')
 ```
 
 - `leaky_v`：LIF神经元的泄露值（有符号）。其他参数含义与IF神经元相同。
@@ -75,7 +76,7 @@ n1 = pb.neuron.LIF(shape=128, threshold=127, reset_v=0, leaky_v=-1, vjt_init=0, 
 Tonic Spiking神经元可以实现对持续脉冲刺激的周期性反应。
 
 ```python
-n1 = pb.neuron.TonicSpiking(shape=128, fire_step=3, vjt_init=0, keep_shape=False, name='n1')
+n1 = pb.neuron.TonicSpiking(shape=128, fire_step=3, keep_shape=False, name='n1')
 ```
 
 - `fire_step`：发放周期，每接收到 `N` 次刺激后发放脉冲。
@@ -116,7 +117,7 @@ print(output)
 Phasic Spiking神经元可以实现，在接受一定数量脉冲后发放，然后保持静息状态，不再发放。
 
 ```python
-n1 = pb.neuron.PhasicSpiking(shape=128, time_to_fire=3, neg_floor=10, vjt_init=0, keep_shape=False, name='n1')
+n1 = pb.neuron.PhasicSpiking(shape=128, time_to_fire=3, neg_floor=10, keep_shape=False, name='n1')
 ```
 
 - `time_to_fire`：发放时间。
@@ -475,7 +476,7 @@ for i in range(5):
     l1.append(pb.neuron.LIF(10, threshold=5, reset_v=0))
 ```
 
-如此，我们共例化了10个神经元，包括5个IF神经元、5个LIF神经元。在容器内的基本组件可通过下标进行访问、与其他基本组件进行连接等。这与一般容器类型的用法相同。
+如此，我们共例化了10个神经元，包括5个IF神经元、5个LIF神经元。在容器内的基本组件可通过下标进行访问、与其他基本组件连接。这与一般容器类型的用法相同。
 
 ## 仿真
 
@@ -567,7 +568,7 @@ sim.reset()
 ```python
 mapper = pb.Mapper()
 mapper.build(fcnet)
-mapper.compile(weight_bit_optimization=True)
+mapper.compile(weight_bit_optimization=True, grouping_optim_target="both")
 mapper.export(write_to_file=True, fp="./debug/", format="npy", split_by_coordinate=False, local_chip_addr=(0, 0), export_core_params=False)
 
 # Clear all the results
@@ -577,6 +578,7 @@ mapper.clear()
 其中，编译时有如下参数可指定：
 
 - `weight_bit_optimization`: 是否对权重精度进行优化处理。例如，将声明时为 INT8 的权重根据实际值当作更小的精度处理（当权重的值均在 [-8, 7] 之间，则可当作 INT4 进行处理）。默认由后端配置项内对应**编译选项**指定（默认开启）。
+- `grouping_optim_target`：指定神经元分组的优化目标，可以为 `"latency"`，`"core"` 或 `"both"`，分别代表以延时/吞吐率、占用核资源为优化目标、或二者兼顾。默认由后端配置项内对应**编译选项**指定（默认为 `both`）。
 
 导出时有如下参数可指定：
 

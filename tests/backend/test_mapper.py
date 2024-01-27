@@ -1,6 +1,7 @@
 import json
 from enum import Enum
 from json import JSONEncoder
+from math import ceil
 from typing import Any
 
 import numpy as np
@@ -100,6 +101,17 @@ class TestGraphInfo:
             export_core_params=True,
         )
 
+    def test_multi_inodes_onodes(
+        self, get_mapper, ensure_dump_dir, build_multi_inodes_onodes
+    ):
+        net = build_multi_inodes_onodes
+        mapper: pb.Mapper = get_mapper
+
+        mapper.build(net)
+        mapper.compile()
+        assert len(mapper.graph_info["input"]) == 2
+        assert len(mapper.graph_info["output"]) == 2
+
 
 class TestMapperDebug:
     def test_build_graph(self, get_mapper, build_example_net1, build_example_net2):
@@ -124,13 +136,13 @@ class TestMapperDebug:
         mapper.compile()
 
     @pytest.mark.usefixtures("test_simple_net")
-    def test_export_config_json(self, get_mapper, ensure_dump_dir):
+    def test_export_config_json(self, ensure_dump_dir, get_mapper):
         """Export all the configs into json"""
         mapper: pb.Mapper = get_mapper
         assert mapper.graph.has_built == True
 
         assert len(mapper.core_blocks) == 3  # 3 layers
-        assert mapper.get_inherent_timestep() == 3
+        assert mapper.graph_info["inherent_timestep"] == 3
 
         mapper.export(
             fp=ensure_dump_dir, export_core_params=True, split_by_coordinate=False
@@ -166,6 +178,16 @@ class TestMapperDebug:
         mapper.compile()
 
         print()
+
+
+class TestMapper_Export:
+    def test_export_multi_nodes_more_than_32(self, build_Network_with_N_onodes):
+        net = build_Network_with_N_onodes
+        mapper = pb.Mapper()
+        mapper.build(net)
+        mapper.compile()
+
+        assert len(mapper.graph_info["output"].keys()) == net.n_onodes
 
 
 class TestMapper_Weight4:
@@ -259,8 +281,8 @@ class TestMapper_Weight4:
         print("OK")
 
 
-class TestMapper_NeuronSeg_Dense:
-    def test_neuron_seg_dense(
+class TestMapper_Grouping_Optim:
+    def test_grouping_optim_latency(
         self, monkeypatch, build_Network_8bit_dense, ensure_dump_dir
     ):
         monkeypatch.setattr(HwConfig, "N_DENDRITE_MAX_SNN", 8 * 8)
@@ -270,7 +292,7 @@ class TestMapper_NeuronSeg_Dense:
 
         mapper = pb.Mapper()
         mapper.build(net)
-        mapper.compile()
+        mapper.compile(grouping_optim_target="latency")
 
         _json_core_plm_config = dict()
 
@@ -286,6 +308,52 @@ class TestMapper_NeuronSeg_Dense:
                 indent=4,
                 cls=CustomJsonEncoder,
             )
+
+    def test_grouping_optim_core(self, monkeypatch, build_example_net4):
+        net = build_example_net4
+
+        monkeypatch.setattr(net.n1, "unrolling_factor", 2)
+        monkeypatch.setattr(net.n2, "unrolling_factor", 3)
+        monkeypatch.setattr(net.n4, "unrolling_factor", 4)
+
+        mapper = pb.Mapper()
+        mapper.build(net)
+        mapper.compile(grouping_optim_target="core")
+
+        assert mapper.core_blocks[0].n_core_required == ceil(
+            net.n1.num_out / HwConfig.N_DENDRITE_MAX_SNN
+        )
+
+        assert mapper.core_blocks[1].n_core_required == 1 + 1
+
+        assert mapper.core_blocks[2].n_core_required == ceil(
+            net.n4.num_out / HwConfig.N_DENDRITE_MAX_SNN
+        )
+
+    def test_grouping_optim_both(self, monkeypatch, build_example_net4):
+        net = build_example_net4
+
+        monkeypatch.setattr(net.n1, "unrolling_factor", 2)
+        monkeypatch.setattr(net.n2, "unrolling_factor", 3)
+        monkeypatch.setattr(net.n4, "unrolling_factor", 4)
+
+        mapper = pb.Mapper()
+        mapper.build(net)
+        mapper.compile(grouping_optim_target="both")
+
+        assert (
+            mapper.core_blocks[0].n_core_required
+            == ceil(net.n1.num_out / HwConfig.N_DENDRITE_MAX_SNN) * 2
+        )
+
+        assert mapper.core_blocks[1].n_core_required == ceil(
+            net.n2.num_out / HwConfig.N_DENDRITE_MAX_SNN
+        ) * 3 + ceil(net.n3.num_out / HwConfig.N_DENDRITE_MAX_SNN)
+
+        assert (
+            mapper.core_blocks[2].n_core_required
+            == ceil(net.n4.num_out / HwConfig.N_DENDRITE_MAX_SNN) * 4
+        )
 
 
 class TestMapper_cflags:

@@ -1,6 +1,6 @@
 import copy
 from functools import wraps
-from typing import Any, Optional, Type
+from typing import Any, Dict, Optional, Sequence, TypeVar
 
 import numpy as np
 from numpy.typing import NDArray
@@ -11,6 +11,8 @@ from .context import _FRONTEND_CONTEXT
 from .exceptions import RegisterError
 from .generic import get_unique_name
 from .node import NodeDict
+
+_T = TypeVar("_T")
 
 
 def singleton(cls):
@@ -69,11 +71,11 @@ class MixIn:
 class Container(MixIn):
     children: NodeDict
 
-    def __getitem__(self, item):
+    def __getitem__(self, item) -> Any:
         if item in self.children:
             return self.children[item]
 
-        raise KeyError
+        raise KeyError(f"Key '{item}' not found.")
 
     def _get_elem_name(self, elem) -> str:
         if isinstance(elem, pb.base.PAIBoxObject):
@@ -81,7 +83,7 @@ class Container(MixIn):
         else:
             return get_unique_name("ContainerElem")
 
-    def elem_format(self, child_type: Type, *children):
+    def elem_format(self, child_type: _T, *children: Sequence[_T]) -> Dict[str, _T]:
         elems = dict()
 
         for child in children:
@@ -91,16 +93,18 @@ class Container(MixIn):
             elif isinstance(child, (list, tuple)):
                 for c in child:
                     if not isinstance(c, child_type):
-                        raise ValueError
+                        raise TypeError(f"Expect type {child_type}, but got {type(c)}.")
                     elems[self._get_elem_name((c))] = c
 
             elif isinstance(child, dict):
                 for k, v in child.items():
                     if not isinstance(v, child_type):
-                        raise ValueError
+                        raise TypeError(f"Expect type {child_type}, but got {type(c)}.")
                     elems[k] = v
             else:
-                raise ValueError
+                raise TypeError(
+                    f"Expect elements in type dict, list or tuple, but got {type(child)}."
+                )
 
         return elems
 
@@ -118,7 +122,7 @@ class ReceiveInputProj(MixIn):
 
         self.master_nodes[key] = master_target
 
-    def get_master_node(self, key: str):
+    def get_master_node(self, key: str) -> Optional[Any]:
         return self.master_nodes.get(key, None)
 
     def sum_inputs(self, **kwargs) -> NDArray[np.int32]:

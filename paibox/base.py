@@ -237,6 +237,32 @@ class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
             if k in self._excluded_vars:
                 continue
 
-            params.update({k.removeprefix("_"): v})
+            if sys.version_info >= (3, 9):
+                params.update({k.removeprefix("_"): v})
+            else:
+                params.update({k.lstrip("_"): v})
 
         return params
+
+    @property
+    def delay_relative(self) -> int:
+        return self._delay
+
+    @property
+    def tick_wait_start(self) -> int:
+        return self._tws
+
+    @property
+    def tick_wait_end(self) -> int:
+        return self._twe
+
+    @property
+    def unrolling_factor(self) -> int:
+        return self._unrolling_factor
+
+    @unrolling_factor.setter
+    def unrolling_factor(self, factor: int) -> None:
+        if factor < 1:
+            raise ValueError(f"'unrolling_factor' must be positive, but got {factor}.")
+
+        self._unrolling_factor = factor

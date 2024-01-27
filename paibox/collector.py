@@ -106,9 +106,7 @@ class Collector(dict, Generic[_KT, _VT]):
                         f"Cannot remove '{k}', since there's two different values:"
                         f"{v} != {gather[k]}"
                     )
-
                 gather.pop(k)
-
         else:
             id_to_keys = {}
             for k, v in self.items():
@@ -127,7 +125,8 @@ class Collector(dict, Generic[_KT, _VT]):
 
             for k in set(keys_to_remove):
                 if k not in gather:
-                    raise ValueError
+                    raise KeyError(f"Key '{k}' not found. Removed failed.")
+
                 gather.pop(k)
 
         return gather
