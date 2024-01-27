@@ -1,6 +1,18 @@
 import sys
-from collections.abc import Iterator, MutableSet, Set
-from typing import Any, Generic, Iterable, List, NoReturn, Optional, Tuple, TypeVar
+
+from collections.abc import Set  # Use `collections.abc` instead of `typing`
+from typing import (
+    Any,
+    Generic,
+    Iterable,
+    Iterator,
+    List,
+    MutableSet,
+    NoReturn,
+    Optional,
+    Tuple,
+    TypeVar,
+)
 
 import numpy as np
 from numpy.typing import NDArray
@@ -25,7 +37,7 @@ WeightType: TypeAlias = NDArray[np.int8]  # raw int8 weights
 _T = TypeVar("_T")
 
 
-class FrozenOrderedSet(Set[_T]):
+class FrozenOrderedSet(Set, Generic[_T]):
     """A set that preserves insertion order and is hashable."""
 
     def __init__(self, data: Optional[Iterable[Any]] = None) -> None:

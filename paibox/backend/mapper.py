@@ -343,7 +343,7 @@ class Mapper:
         ocoord = copy(_BACKEND_CONTEXT["output_core_addr_start"])
 
         for member_cb in self.core_blocks:
-            self.core_params |= CoreBlock.export_core_plm_config(member_cb)
+            self.core_params.update(CoreBlock.export_core_plm_config(member_cb)) # compatible for py3.8
 
             output_axon_offset = 0
             for core_plm in member_cb.core_placements.values():

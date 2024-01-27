@@ -38,7 +38,7 @@ class _Context:
             v = args[i + 1]
             self._context[k] = v
 
-        self._context |= kwargs
+        self._context.update(kwargs)  # compatible for py3.8
 
     def __setitem__(self, key: _KT, value: _VT) -> None:
         self.save(key, value)

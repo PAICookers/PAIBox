@@ -237,7 +237,10 @@ class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
             if k in self._excluded_vars:
                 continue
 
-            params.update({k.removeprefix("_"): v})
+            if sys.version_info >= (3, 9):
+                params.update({k.removeprefix("_"): v})
+            else:
+                params.update({k.lstrip("_"): v})
 
         return params
 
