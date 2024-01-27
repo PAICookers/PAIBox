@@ -75,7 +75,7 @@ class Container(MixIn):
         if item in self.children:
             return self.children[item]
 
-        raise KeyError(f"Key 'item' not found.")
+        raise KeyError(f"Key '{item}' not found.")
 
     def _get_elem_name(self, elem) -> str:
         if isinstance(elem, pb.base.PAIBoxObject):

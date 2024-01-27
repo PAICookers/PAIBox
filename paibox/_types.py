@@ -1,6 +1,6 @@
 import sys
-from collections.abc import MutableSet, Set
-from typing import Any, Generic, Iterable, List, Optional, Tuple, TypeVar
+from collections.abc import Iterator, MutableSet, Set
+from typing import Any, Generic, Iterable, List, NoReturn, Optional, Tuple, TypeVar
 
 import numpy as np
 from numpy.typing import NDArray
@@ -25,19 +25,19 @@ WeightType: TypeAlias = NDArray[np.int8]  # raw int8 weights
 _T = TypeVar("_T")
 
 
-class FrozenOrderedSet(Set, Generic[_T]):
+class FrozenOrderedSet(Set[_T]):
     """A set that preserves insertion order and is hashable."""
 
     def __init__(self, data: Optional[Iterable[Any]] = None) -> None:
         if data is None:
             data = []
 
-        self.data = dict((d, None) for d in data)
+        self.data = dict.fromkeys(data)
 
     def __contains__(self, elem: Any) -> bool:
         return elem in self.data
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[_T]:
         return iter(self.data)
 
     def __len__(self) -> int:
@@ -69,5 +69,5 @@ class OrderedSet(FrozenOrderedSet[_T], MutableSet):
         self.update(other)
         return self
 
-    def __hash__(self):
+    def __hash__(self) -> NoReturn:
         raise TypeError("'OrderedSet' is not hashable (use 'FrozenOrderedSet' instead)")

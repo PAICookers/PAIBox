@@ -10,6 +10,11 @@ class PAIBoxWarning(Warning):
     pass
 
 
+class ParameterInvalidWarning(PAIBoxWarning):
+    """Parameter is invalid due to some reason."""
+    pass
+
+
 class ShapeError(PAIBoxError):
     """Exception for incorrect shape."""
 

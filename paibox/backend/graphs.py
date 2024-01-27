@@ -292,7 +292,8 @@ def _degree_check(
     for node in filter(lambda node: degree_of_nodes[node].out_degree > 1, succ_dg):
         if any(degree_of_nodes[succ_node].in_degree > 1 for succ_node in succ_dg[node]):
             raise NotSupportedError(
-                "If out-degree of a node is > 1, the in-degree of its sucessors must be 1."
+                "If out-degree of a node is greater than 1, "
+                "the in-degree of its sucessors must be 1."
             )
 
 

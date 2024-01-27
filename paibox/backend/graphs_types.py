@@ -1,5 +1,5 @@
 import sys
-from enum import Enum, auto
+from enum import Enum, auto, unique
 from typing import NamedTuple, Union
 
 if sys.version_info >= (3, 10):
@@ -19,6 +19,7 @@ SourceNodeType: TypeAlias = NodeType
 DestNodeType: TypeAlias = NeuDyn
 
 
+@unique
 class NodePosition(Enum):
     """Charactor of a node in the directed graph."""
 

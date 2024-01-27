@@ -242,12 +242,24 @@ class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
         return params
 
     @property
+    def delay_relative(self) -> int:
+        return self._delay
+
+    @property
+    def tick_wait_start(self) -> int:
+        return self._tws
+
+    @property
+    def tick_wait_end(self) -> int:
+        return self._twe
+
+    @property
     def unrolling_factor(self) -> int:
         return self._unrolling_factor
 
     @unrolling_factor.setter
     def unrolling_factor(self, factor: int) -> None:
         if factor < 1:
-            raise ValueError("Unroll factor must be greater than 0.")
+            raise ValueError(f"'unrolling_factor' must be positive, but got {factor}.")
 
         self._unrolling_factor = factor

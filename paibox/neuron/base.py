@@ -422,6 +422,9 @@ class Neuron(MetaNeuron, NeuDyn):
                 f"Bit of tuncation must be non-negative, but got {bit_truncation}."
             )
 
+        if delay < 1:
+            raise ValueError(f"'delay' must be positive, but got {delay}.")
+
         if tick_wait_start < 0:
             raise ValueError(
                 f"'tick_wait_start' must be non-negative, but got {tick_wait_start}."
@@ -432,8 +435,10 @@ class Neuron(MetaNeuron, NeuDyn):
                 f"'tick_wait_end' must be non-negative, but got {tick_wait_end}."
             )
 
-        if delay < 1:
-            raise ValueError(f"'delay' must be positive, but got {delay}.")
+        if unrolling_factor < 1:
+            raise ValueError(
+                f"'unrolling_factor' must be positive, but got {unrolling_factor}."
+            )
 
         super().__init__(
             shape,
@@ -547,15 +552,3 @@ class Neuron(MetaNeuron, NeuDyn):
     @property
     def voltage(self) -> VoltageType:
         return self._vjt.reshape(self.varshape)
-
-    @property
-    def delay_relative(self) -> int:
-        return self._delay
-
-    @property
-    def tick_wait_start(self) -> int:
-        return self._tws
-
-    @property
-    def tick_wait_end(self) -> int:
-        return self._twe
