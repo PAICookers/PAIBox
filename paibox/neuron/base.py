@@ -29,6 +29,9 @@ from paibox.utils import as_shape, shape2num
 __all__ = ["Neuron"]
 
 VoltageType: TypeAlias = NDArray[np.int32]
+VJT_MAX_LIMIT: int = 2**29 - 1
+VJT_MIN_LIMIT: int = -(2**29)
+VJT_LIMIT: int = 2**30
 
 
 class MetaNeuron:
@@ -504,6 +507,18 @@ class Neuron(MetaNeuron, NeuDyn):
         self._inner_spike, self._vjt, self._debug_thres_mode = super()._meta_update(
             x, self._vjt
         )
+
+        # If the membrane potential (30-bit signed) overflows, the chip will automatically handle it.
+        # This behavior needs to be implemented during simulation.
+        self._vjt = np.where(
+            self._vjt > VJT_MAX_LIMIT,
+            self._vjt - VJT_LIMIT,
+            np.where(
+                self._vjt < VJT_MIN_LIMIT,
+                self._vjt + VJT_LIMIT,
+                self._vjt,
+            ),
+        ).astype(np.int32)
 
         idx = (self.timestamp + self.delay_relative - 1) % HwConfig.N_TIMESLOT_MAX
         self.delay_registers[idx] = self._inner_spike.copy()
