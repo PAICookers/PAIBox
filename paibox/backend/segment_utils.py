@@ -198,18 +198,8 @@ _get_neu_slices_opt_latency = partial(_get_neu_slices, load_type="average")
 def _dense_reorganized(
     seg_slices_dict: Dict[NeuDyn, List[NeuSlice]], capacity: int, repl_prop: int
 ) -> NeuSegOfCoreBlock:
-    """Reorganize densely. Based on grouping result with 'catagory' method, use greedy \
-        algorithm to reorganize the neuron segments for saving physical cores.
-
-    Example:
-        capa = 200
-        n1: 300, uf = 2 -> 75 + 75 + 75 + 75
-        n2: 200, uf = 3 -> 67 + 67 + 66
-        Expected: [75 + 67], [75 + 67], [75 + 66], [75]
-
-        Add n3: 220, uf = 1 -> 110 + 110
-
-    Expected: [75 + 67], [75 + 67], [75 + 66], [75 + 110], [110]
+    """Reorganize densely. Based on the result of 'latency' method, use greedy \
+        algorithm to reorganize the incomplete neuron segments for saving cores.
     """
 
     def _find_neu_in_segs_of_cplm(neu: NeuDyn, seg_of_cplm: NeuSegOfCorePlm) -> bool:
@@ -294,8 +284,9 @@ def get_axon_segments(
     Args:
         - axons: The axons to be segmented.
         - tr_max: The maximum value of the time slot(=n_timeslot).
+        - fan_in_max: The value of fan-in per dendrite(=N_FANIN_PER_DENDRITE_XNN).
 
-    TODO Provide an alternative when failed using this method.
+    TODO Provide an alternative when failed.
     """
 
     def _seg_alloc(axon: SourceNodeType) -> AxonSegment:

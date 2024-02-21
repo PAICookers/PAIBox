@@ -22,7 +22,7 @@ else:
 
 from paicorelib import HwConfig
 
-from paibox._types import Shape, SpikeType
+from paibox.types import Shape, SpikeType
 from paibox.base import NeuDyn
 from paibox.utils import as_shape, shape2num
 
@@ -218,28 +218,24 @@ class MetaNeuron:
         """
 
         def _when_exceed_pos() -> VoltageType:
-            nonlocal vjt
-
             if self.reset_mode is RM.MODE_NORMAL:
                 return np.full(self.varshape, self.reset_v, dtype=np.int32)
 
             elif self.reset_mode is RM.MODE_LINEAR:
                 return np.subtract(
-                    self.vjt, (self._pos_threshold + self._v_th_rand), dtype=np.int32
+                    vjt, self.pos_threshold + self._v_th_rand, dtype=np.int32
                 )
             else:
                 return vjt
 
         def _when_exceed_neg() -> VoltageType:
-            nonlocal vjt
-
             if self.neg_thres_mode is NTM.MODE_RESET:
                 if self.reset_mode is RM.MODE_NORMAL:
                     return np.full(self.varshape, -self.reset_v, dtype=np.int32)
                 elif self.reset_mode is RM.MODE_LINEAR:
                     return np.add(
-                        self.vjt,
-                        (self.neg_threshold + self._v_th_rand),
+                        vjt,
+                        self.neg_threshold + self._v_th_rand,
                         dtype=np.int32,
                     )
                 else:
@@ -290,7 +286,6 @@ class MetaNeuron:
         """
 
         def _when_exceed_pos() -> VoltageType:
-            nonlocal vj
             if self._spike_width_format is SpikeWidthFormat.WIDTH_1BIT:
                 return np.ones(self.varshape, dtype=np.int32)
 
@@ -332,11 +327,10 @@ class MetaNeuron:
         # Reset the auxiliary threshold mode.
         self.thres_mode = self.init_param(TM.NOT_EXCEEDED).astype(np.uint8)
 
-    def update(
+    def _meta_update(
         self, x: NDArray[np.int32], vjt_pre: VoltageType
     ) -> Tuple[SpikeType, VoltageType, NDArray[np.uint8]]:
         """Update at one time step."""
-
         # 1. Charge
         v_charged = self._neuronal_charge(x, vjt_pre)
 
@@ -488,10 +482,14 @@ class Neuron(MetaNeuron, NeuDyn):
     def __len__(self) -> int:
         return self._n_neuron
 
-    def __call__(self, x: Optional[np.ndarray] = None, **kwargs) -> SpikeType:
-        return self.update(x, **kwargs)
+    def __call__(
+        self, x: Optional[np.ndarray] = None, *args, **kwargs
+    ) -> Optional[SpikeType]:
+        return self.update(x, *args, **kwargs)
 
-    def update(self, x: Optional[np.ndarray] = None, **kwargs) -> Optional[SpikeType]:
+    def update(
+        self, x: Optional[np.ndarray] = None, *args, **kwargs
+    ) -> Optional[SpikeType]:
         # Priority order is a must.
         # The neuron doesn't work if `tws = 0` & done working
         # until `t - tws + 1 > twe` under the condition `twe > 0`.
@@ -503,7 +501,7 @@ class Neuron(MetaNeuron, NeuDyn):
         if x is None:
             x = self.sum_inputs()
 
-        self._inner_spike, self._vjt, self._debug_thres_mode = super().update(
+        self._inner_spike, self._vjt, self._debug_thres_mode = super()._meta_update(
             x, self._vjt
         )
 
@@ -512,7 +510,7 @@ class Neuron(MetaNeuron, NeuDyn):
 
         return self._inner_spike
 
-    def reset_state(self) -> None:
+    def reset_state(self, *args, **kwargs) -> None:
         """Initialization, not the neuronal reset."""
         self.reset()  # Call reset of `StatusMemory`.
 

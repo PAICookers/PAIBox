@@ -1,6 +1,6 @@
 import sys
-from collections.abc import Set  # Use `collections.abc` instead of `typing`
 from typing import (
+    AbstractSet,
     Any,
     Generic,
     Iterable,
@@ -29,14 +29,13 @@ DataType = TypeVar("DataType", int, np.integer, np.ndarray)
 DataArrayType = TypeVar(
     "DataArrayType", int, np.integer, List[int], Tuple[int, ...], np.ndarray
 )
-
 SpikeType: TypeAlias = NDArray[np.bool_]
 WeightType: TypeAlias = NDArray[np.int8]  # raw int8 weights
 
 _T = TypeVar("_T")
 
 
-class FrozenOrderedSet(Set, Generic[_T]):
+class FrozenOrderedSet(AbstractSet, Generic[_T]):
     """A set that preserves insertion order and is hashable."""
 
     def __init__(self, data: Optional[Iterable[Any]] = None) -> None:
@@ -74,7 +73,7 @@ class OrderedSet(FrozenOrderedSet[_T], MutableSet):
         self.data.update((value, None) for value in other)
 
     def difference_update(self, other: Iterable[Any]) -> None:
-        self -= other
+        self -= set(other)
 
     def __ior__(self, other: Iterable[Any]) -> "OrderedSet[_T]":
         self.update(other)

@@ -1,4 +1,4 @@
-from typing import Any, TypeVar
+from typing import Any, Generic, TypeVar
 
 __all__ = ["FRONTEND_ENV"]
 
@@ -6,20 +6,17 @@ __all__ = ["FRONTEND_ENV"]
 _KT = TypeVar("_KT")
 _VT = TypeVar("_VT")
 
+class _Context(dict, Generic[_KT, _VT]):
 
-class _Context:
-    def __init__(self) -> None:
-        self._context = dict()
-
-    def load(self, key: _KT, default: _VT = None) -> Any:
+    def load(self, key: Any, default: Any = None) -> Any:
         """Load the context by the `key`.
 
         Args:
             - key: the key to indicate the data.
             - default: the default value when `key` is not defined.
         """
-        if key in self._context:
-            return self._context[key]
+        if key in self:
+            return super().__getitem__(key)
 
         if default is None:
             raise KeyError(f"The context of '{key}' not found.")
@@ -36,11 +33,11 @@ class _Context:
         for i in range(0, len(args), 2):
             k = args[i]
             v = args[i + 1]
-            self._context[k] = v
+            super().__setitem__(k, v)
 
-        self._context.update(kwargs)  # compatible for py3.8
+        self.update(kwargs)  # compatible for py3.8
 
-    def __setitem__(self, key: _KT, value: _VT) -> None:
+    def __setitem__(self, key: Any, value: Any) -> None:
         self.save(key, value)
 
     def __getitem__(self, key: Any) -> Any:
@@ -48,25 +45,25 @@ class _Context:
 
     def get_ctx(self):
         """Get all contexts."""
-        return self._context.copy()
+        return self.copy()
 
     def clear_ctx(self, *args) -> None:
         """Clear one or some contexts."""
         if len(args) > 0:
             for arg in args:
-                self._context.pop(arg)
+                self.pop(arg)
         else:
-            self._context.clear()
+            self.clear()
 
     def clear_all(self) -> None:
         """Clear all contexts."""
-        return self._context.clear()
+        return self.clear()
 
 
 class _FrontendContext(_Context):
     def __init__(self, initial_t: int = 0) -> None:
         super().__init__()
-        self._context["t"] = initial_t  # RO. Changed by simulator.
+        self["t"] = initial_t  # RO. Changed by simulator.
 
 
 _FRONTEND_CONTEXT = _FrontendContext()

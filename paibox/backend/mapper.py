@@ -18,7 +18,6 @@ from paibox.network import DynSysGroup
 
 from .conf_template import (
     CoreConfig,
-    CorePlacementConfig,
     CorePlacementInfo,
     GraphInfo,
     InputNodeInfo,
@@ -74,8 +73,8 @@ class Mapper:
         """
         self.routing_groups: List[RoutingGroup] = []
 
-        self.core_plm_config: CorePlacementInfo = defaultdict(CorePlacementConfig)
-        self.graph_info = dict()
+        self.core_plm_config: CorePlacementInfo = dict()
+        self.graph_info: GraphInfo
 
         self.clear()
 
@@ -88,7 +87,6 @@ class Mapper:
 
         self.core_params.clear()
         self.core_plm_config.clear()
-        self.graph_info.clear()
 
         # Set default cflags
         _BACKEND_CONTEXT.cflags.clear()
@@ -152,8 +150,7 @@ class Mapper:
         """
         grouped_edges = self.graph.group_edges()
 
-        for syns_group in grouped_edges:
-            syns = [self.graph.edges[syn].edge for syn in syns_group]
+        for syns in grouped_edges:
             self.core_blocks.append(
                 CoreBlock.build(
                     *syns,
@@ -248,7 +245,7 @@ class Mapper:
         input_nodes_info = self._inpproj_config_export()
         output_dest_info = self._member_cb_and_onode_config_export()
 
-        self.graph_info = GraphInfo(
+        _graph_info = GraphInfo(
             input=input_nodes_info,
             output=output_dest_info,
             members=self.core_plm_config,  # The configuration of physical cores is in `core_plm_config`
@@ -256,6 +253,10 @@ class Mapper:
             n_core_required=self.n_core_required,
             extras={"name": self.graph.graph_name_repr},
         )
+
+        self.graph_info = _graph_info
+
+        return _graph_info
 
     def _inpproj_config_export(self) -> InputNodeInfo:
         """Export the configuration of input projections.
@@ -490,10 +491,9 @@ def _cb_routable(
 
     for rg in routing_group:
         if core_blocks[0] in rg:
-            target_rg = rg
-            break
+            return all(cb in rg for cb in core_blocks)
 
-    return all(cb in target_rg for cb in core_blocks)
+    return False
 
 
 def _fp_check(fp: Optional[Union[str, Path]] = None) -> Path:

@@ -9,7 +9,7 @@ if sys.version_info >= (3, 10):
 else:
     from typing_extensions import ParamSpec
 
-from ._types import DataType, Shape, SpikeType
+from .types import DataType, Shape, SpikeType
 from .base import DynamicSys
 from .context import _FRONTEND_CONTEXT
 from .exceptions import ShapeError, SimulationError
@@ -69,10 +69,10 @@ class InputProj(Projection, TimeRelatedNode):
         _spike = self._get_neumeric_input(**kwargs)
 
         if isinstance(_spike, (int, np.integer)):
-            self._inner_spike = np.full((self.num_out,), _spike, dtype=np.int32)
+            self._inner_spike = np.full((self.num_out,), _spike, dtype=np.bool_)
         elif isinstance(_spike, np.ndarray):
             try:
-                self._inner_spike = _spike.reshape((self.num_out,)).astype(np.int32)
+                self._inner_spike = _spike.reshape((self.num_out,)).astype(np.bool_)
             except ValueError:
                 raise ShapeError(
                     f"Cannot reshape input value from {_spike.shape} to ({self.num_out},)."
@@ -89,10 +89,9 @@ class InputProj(Projection, TimeRelatedNode):
     def reset_state(self) -> None:
         self.reset()  # Call reset of `StatusMemory`.
 
-    def _get_neumeric_input(self, **kwargs) -> DataType:
-        # If `_func_input` is `None`, but `input` is numeric,
-        # use `input` as input to the projection.
-        # Otherwise, use the output of function `_func_input`.
+    def _get_neumeric_input(self, **kwargs):
+        # If `_func_input` is `None` while `input` is numeric, use `input` as input to the projection.
+        # Otherwise, use the output of `_func_input`.
         if self._num_input is None:
             if self._func_input is None:
                 raise SimulationError(f"Both numeric & functional input are not set.")
@@ -125,7 +124,7 @@ class InputProj(Projection, TimeRelatedNode):
         return self._shape_out
 
     @property
-    def input(self) -> DataType:
+    def input(self):
         return self._get_neumeric_input()
 
     @input.setter
@@ -164,7 +163,7 @@ class InputProj(Projection, TimeRelatedNode):
         return 0  # Fixed
 
 
-def _call_with_ctx(f: Callable[P, DataType], *args, **kwargs) -> DataType:
+def _call_with_ctx(f: Callable[..., DataType], *args, **kwargs) -> DataType:
     try:
         ctx = _FRONTEND_CONTEXT.get_ctx()
         bound = inspect.signature(f).bind(*args, **ctx, **kwargs)

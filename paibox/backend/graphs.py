@@ -4,9 +4,9 @@ from typing import (
     Any,
     Dict,
     FrozenSet,
+    Iterable,
     List,
     Mapping,
-    Optional,
     Sequence,
     Set,
     Tuple,
@@ -112,7 +112,7 @@ class PAIGraph:
         for syn in self._raw_edges.values():
             u, v = syn.source.name, syn.dest.name
             # TODO tick_relative = 1 in default here.
-            self.succ_dg[u][v] = EdgeAttr(edge=syn.name, distance=1)
+            self.succ_dg[u][v] = EdgeAttr(edge=syn, distance=1)
 
         self.degree_of_nodes = get_node_degrees(self.succ_dg)
 
@@ -191,22 +191,15 @@ class PAIGraph:
         if not self.has_built:
             raise BuildError(f"The graph hasn't been built yet.")
 
-    def group_edges(self) -> List[FrozenSet[EdgeName]]:
+    def group_edges(self) -> List[FrozenSet[EdgeType]]:
         """Group all edges according to a certain rule.
 
-        Args:
-            - edges: a list of edges.
-            - succ_edges: a dictionary recording previous nodes and edges.
-            - degree: the in/out-degree of nodes.
-            - ordered_nodes: nodes in topological sorting. Optional.
-
-        Returns:
-            - A list of set of grouped edges.
+        Return: a list of set of grouped edges.
         """
         self.build_check()
 
-        gathered: List[frozenset[EdgeName]] = []
-        seen_edges: Set[EdgeName] = set()  # Check if all edges are traversed
+        gathered: List[FrozenSet[EdgeType]] = []
+        seen_edges: Set[EdgeType] = set()  # Check if all edges are traversed
 
         for node in self.ordered_nodes:
             if self.degree_of_nodes[node].in_degree > 1:
@@ -261,10 +254,12 @@ class PAIGraph:
     @staticmethod
     def _find_pred_edges(
         succ_edges: Dict[NodeName, Dict[NodeName, EdgeAttr]], target_node: NodeName
-    ) -> Set[EdgeName]:
+    ) -> Set[EdgeType]:
         pred = set()
-        for succ_node in filter(lambda node: target_node in node, succ_edges.values()):
-            pred.add(succ_node[target_node].edge)
+
+        for succ_node in succ_edges.values():
+            if target_node in succ_node:
+                pred.add(succ_node[target_node].edge)
 
         return pred
 
@@ -286,7 +281,7 @@ class PAIGraph:
 
 
 def _degree_check(
-    degree_of_nodes: Mapping[_NT, NodeDegree], succ_dg: Mapping[_NT, NodeName]
+    degree_of_nodes: Mapping[_NT, NodeDegree], succ_dg: Mapping[_NT, Iterable[_NT]]
 ) -> None:
     """Filter out such network structure, which is currently not supported."""
     for node in filter(lambda node: degree_of_nodes[node].out_degree > 1, succ_dg):
@@ -322,7 +317,7 @@ def convert2routing_groups(
     return routing_groups
 
 
-def toposort(directed_edges: Mapping[_NT, Sequence[_NT]]) -> List[_NT]:
+def toposort(directed_edges: Mapping[_NT, Iterable[_NT]]) -> List[_NT]:
     """
     Topological sort algorithm by Kahn [1]_.
 
@@ -381,7 +376,7 @@ def toposort(directed_edges: Mapping[_NT, Sequence[_NT]]) -> List[_NT]:
     return ordered
 
 
-def reverse_edges(directed_edges: Mapping[_NT, Sequence[_NT]]) -> Dict[_NT, Set[_NT]]:
+def reverse_edges(directed_edges: Mapping[_NT, Iterable[_NT]]) -> Dict[_NT, Set[_NT]]:
     """
     Reverses direction of dependence dict.
 
@@ -441,7 +436,7 @@ def reverse_edges(directed_edges: Mapping[_NT, Sequence[_NT]]) -> Dict[_NT, Set[
 
 
 def get_node_degrees(
-    succ_edges: Mapping[_NT, Mapping[_NT, Any]]
+    succ_edges: Mapping[_NT, Union[Sequence[_NT], Mapping[_NT, Any]]]
 ) -> Dict[_NT, NodeDegree]:
     degree = defaultdict(NodeDegree)
     in_degrees = defaultdict(int)
@@ -473,7 +468,7 @@ def get_longest_path(
         A tuple containing the longest path in the graph and its distance.
     """
     distances: Dict[_NT, int] = defaultdict(int)  # init value = 0
-    pred_nodes: Dict[_NT, Optional[_NT]] = defaultdict()
+    pred_nodes: Dict[_NT, _NT] = dict()
 
     for node in ordered_nodes:
         for neighbor, edge_attr in edges_with_d[node].items():
@@ -517,7 +512,7 @@ def get_shortest_path(
     Return: the shortest distance in the graph.
     """
     distances: Dict[_NT, int] = defaultdict(lambda: MAX_DISTANCE)
-    pred_nodes: Dict[_NT, Optional[_NT]] = defaultdict()
+    pred_nodes: Dict[_NT, _NT] = dict()
 
     # Set initial value for all inputs nodes.
     for inode in input_nodes:

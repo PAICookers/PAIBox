@@ -22,7 +22,6 @@ from paicorelib import WeightPrecision as WP
 
 import paibox as pb
 from paibox.backend.conf_template import CoreConfig, CorePlacementConfig, NeuronConfig
-from paibox.backend.placement import NeuSeg
 from paibox.backend.routing import RoutingCluster
 from paibox.generic import clear_name_cache
 from paibox.node import NodeList
@@ -558,7 +557,7 @@ def MockCorePlacementConfig(MockCoreConfigDict, MockNeuronConfig):
 
     cpc = CorePlacementConfig.encapsulate(
         random.randint(1, 200),
-        np.random.randint(0, 100, size=(1152, 512)),
+        np.random.randint(0, 100, size=(1152, 512), dtype=np.uint64),
         MockCoreConfigDict,
         {neuron: MockNeuronConfig},
     )

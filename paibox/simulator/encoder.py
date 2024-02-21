@@ -3,7 +3,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-from paibox._types import Shape
+from paibox.types import Shape
 from paibox.base import DynamicSys
 from paibox.utils import as_shape, shape2num
 
@@ -58,7 +58,7 @@ class StatefulEncoder(Encoder):
         self.set_memory("spike", None)
         self.set_memory("t", 0)
 
-    def __call__(self, x: Optional[np.ndarray] = None, **kwargs) -> np.ndarray:
+    def __call__(self, x: Optional[np.ndarray] = None, *args, **kwargs) -> np.ndarray:
         if self.spike is None:
             if x is None:
                 raise ValueError("Input must be given if spike is None")

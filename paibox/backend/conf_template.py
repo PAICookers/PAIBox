@@ -256,6 +256,11 @@ CorePlacementInfo: TypeAlias = Dict[Coord, CorePlacementConfig]
 
 
 class GraphInfo(TypedDict):
+    """Information of compiled graph.
+
+    TODO Optimize the data structure
+    """
+
     input: InputNodeInfo
     output: OutputDestInfo
     members: CorePlacementInfo

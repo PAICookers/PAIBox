@@ -1,6 +1,6 @@
 from typing import Set, Tuple
 
-from paibox._types import FrozenOrderedSet, OrderedSet
+from paibox.types import FrozenOrderedSet, OrderedSet
 from paibox.collector import Collector
 
 
