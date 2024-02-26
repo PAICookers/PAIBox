@@ -5,8 +5,8 @@ import numpy as np
 from numpy.typing import NDArray
 from paicorelib import WeightPrecision as WP
 
-from paibox.types import DataArrayType, WeightType
 from paibox.exceptions import ShapeError
+from paibox.types import DataArrayType, WeightType
 from paibox.utils import is_shape
 
 __all__ = ["ConnType", "OneToOne", "ByPass", "AllToAll", "MaskedLinear"]

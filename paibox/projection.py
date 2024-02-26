@@ -9,11 +9,11 @@ if sys.version_info >= (3, 10):
 else:
     from typing_extensions import ParamSpec
 
-from .types import DataType, Shape, SpikeType
 from .base import DynamicSys
 from .context import _FRONTEND_CONTEXT
 from .exceptions import ShapeError, SimulationError
 from .mixin import TimeRelatedNode
+from .types import DataType, Shape, SpikeType
 from .utils import as_shape, shape2num
 
 __all__ = ["InputProj"]

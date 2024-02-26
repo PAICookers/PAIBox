@@ -83,7 +83,9 @@ class Container(MixIn):
         else:
             return get_unique_name("ContainerElem")
 
-    def elem_format(self, child_type: Type[_T], *children: Sequence[_T]) -> Dict[str, _T]:
+    def elem_format(
+        self, child_type: Type[_T], *children: Sequence[_T]
+    ) -> Dict[str, _T]:
         elems = dict()
 
         for child in children:

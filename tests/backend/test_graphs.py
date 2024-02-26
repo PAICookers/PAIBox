@@ -1,5 +1,7 @@
-import pytest
 from typing import Optional
+
+import pytest
+
 import paibox as pb
 from paibox.backend.graphs import *
 from paibox.backend.graphs import _degree_check

@@ -3,8 +3,8 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-from paibox.types import Shape
 from paibox.base import DynamicSys
+from paibox.types import Shape
 from paibox.utils import as_shape, shape2num
 
 __all__ = ["PeriodicEncoder", "PoissonEncoder"]

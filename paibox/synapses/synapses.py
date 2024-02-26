@@ -5,10 +5,10 @@ from numpy.typing import NDArray
 from paicorelib import HwConfig
 from paicorelib import WeightPrecision as WP
 
-from paibox.types import DataArrayType
 from paibox.base import DynamicSys, NeuDyn
 from paibox.exceptions import ShapeError
 from paibox.projection import InputProj
+from paibox.types import DataArrayType
 
 from .transforms import *
 
@@ -142,7 +142,9 @@ class NoDecay(SynSys):
         # Register `self` for the destination `NeuDyn`.
         dest.register_master(f"{self.name}.output", self)
 
-    def update(self, spike: Optional[np.ndarray] = None, *args, **kwargs) -> NDArray[np.int32]:
+    def update(
+        self, spike: Optional[np.ndarray] = None, *args, **kwargs
+    ) -> NDArray[np.int32]:
         # Retrieve the spike at index `timestamp` of the dest neurons
         if self.dest._is_working():
             if isinstance(self.source, InputProj):

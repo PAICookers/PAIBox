@@ -6,8 +6,8 @@ __all__ = ["FRONTEND_ENV"]
 _KT = TypeVar("_KT")
 _VT = TypeVar("_VT")
 
-class _Context(dict, Generic[_KT, _VT]):
 
+class _Context(dict, Generic[_KT, _VT]):
     def load(self, key: Any, default: Any = None) -> Any:
         """Load the context by the `key`.
 

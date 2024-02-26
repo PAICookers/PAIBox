@@ -22,8 +22,8 @@ else:
 
 from paicorelib import HwConfig
 
-from paibox.types import Shape, SpikeType
 from paibox.base import NeuDyn
+from paibox.types import Shape, SpikeType
 from paibox.utils import as_shape, shape2num
 
 __all__ = ["Neuron"]
