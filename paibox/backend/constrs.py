@@ -2,9 +2,7 @@ import sys
 from collections import defaultdict
 from typing import ClassVar, Dict, FrozenSet, List, Sequence, Tuple
 
-from paibox.base import NeuDyn
-
-from .graphs_types import NodeName
+from .graphs_types import NodeName, NodeType
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias
@@ -25,7 +23,7 @@ class GraphNodeConstrs(Constraints):
     )
 
     @classmethod
-    def clear(cls):
+    def clear(cls) -> None:
         cls.BOUNDED_CONSTRS = []
         cls.CONFLICTED_CONSTRS = {}
 
@@ -38,14 +36,14 @@ class GraphNodeConstrs(Constraints):
     ):
         """Add constraints to a node."""
         if len(bounded) > 0:
-            cls.BOUNDED_CONSTRS.extend(list(bounded))
+            cls.BOUNDED_CONSTRS.append(list(bounded))
 
         if conflicted:
             for k, v in conflicted.items():
-                cls.CONFLICTED_CONSTRS[k] = v
+                cls.CONFLICTED_CONSTRS[k] = tuple(v)
 
     @staticmethod
-    def tick_wait_attr_constr(raw_nodes: List[NeuDyn]) -> List[List[int]]:
+    def tick_wait_attr_constr(raw_nodes: List[NodeType]) -> List[List[int]]:
         """Check whether the neurons to be assigned to a group are "equal" after\
             automatic inference.
 

@@ -1,3 +1,5 @@
+from typing import Optional
+
 import pytest
 
 import paibox as pb
@@ -201,7 +203,7 @@ def test_conflicted_by(constrs, expected):
 def test_bounded_nodes_check(constrs, expected):
     def _bounded_nodes_check_proto(
         constrs: List[Sequence[str]],
-    ) -> List[frozenset[str]]:
+    ) -> List[FrozenSet[str]]:
         seen = {}
         need_update_nodes = []
 
@@ -255,7 +257,6 @@ class TestPAIGraph:
 class TestGroupEdges:
     @staticmethod
     def group_edges_proto(
-        edges: List[EdgeName],
         succ_edges: Dict[NodeName, Dict[NodeName, EdgeName]],
         degree: Dict[NodeName, NodeDegree],
         *,
@@ -328,11 +329,10 @@ class TestGroupEdges:
         return gathered
 
     @pytest.mark.parametrize(
-        "edges, succ_edges",
+        "succ_edges",
         [
             # This structure is filtered.
             # (
-            #     ["s1", "s2", "s3", "s4", "s5"],
             #     {
             #         "inp1": {"n1": "s1"},
             #         "n1": {"n2": "s2", "n4": "s3"},
@@ -341,32 +341,26 @@ class TestGroupEdges:
             #         "n4": {"n2": "s5"},
             #     },
             # ),
-            (
-                ["s1", "s2", "s3", "s4", "s5"],
-                {
-                    "inp1": {"n1": "s1"},
-                    "n1": {"n2": "s2", "n3": "s3"},
-                    "n2": {"n4": "s4"},
-                    "n3": {"n4": "s5"},
-                    "n4": {},
-                },
-            ),
-            (
-                ["s1", "s2", "s3", "s4", "s5", "s6"],
-                {
-                    "inp1": {"n1": "s1"},
-                    "inp2": {"n4": "s2"},
-                    "n1": {"n2": "s3"},
-                    "n2": {"n3": "s4"},
-                    "n3": {},
-                    "n4": {"n5": "s5"},
-                    "n5": {"n3": "s6"},
-                },
-            ),
+            {
+                "inp1": {"n1": "s1"},
+                "n1": {"n2": "s2", "n3": "s3"},
+                "n2": {"n4": "s4"},
+                "n3": {"n4": "s5"},
+                "n4": {},
+            },
+            {
+                "inp1": {"n1": "s1"},
+                "inp2": {"n4": "s2"},
+                "n1": {"n2": "s3"},
+                "n2": {"n3": "s4"},
+                "n3": {},
+                "n4": {"n5": "s5"},
+                "n5": {"n3": "s6"},
+            },
         ],
         ids=["topo_2", "topo_3"],
     )
-    def test_group_edges_ordered(self, edges, succ_edges):
+    def test_group_edges_ordered(self, succ_edges):
         """
         Test #1:
             INP1 -> N1    ->    N2 -> N3
@@ -380,7 +374,6 @@ class TestGroupEdges:
         Test #3:
             INP1 -> N1 -> N2 -> N3
             INP2 -> N4 -> N5 -> N3
-            N2 -> N3
         """
         degrees = get_node_degrees(succ_edges)
         ordered_nodes = toposort(succ_edges)
@@ -388,7 +381,7 @@ class TestGroupEdges:
         _degree_check(degrees, succ_edges)
 
         gathered = self.group_edges_proto(
-            edges, succ_edges, degrees, ordered_nodes=ordered_nodes
+            succ_edges, degrees, ordered_nodes=ordered_nodes
         )
         print()
 
@@ -436,9 +429,10 @@ class TestGroupEdges:
         # In this case, N2 & N3 should be together.
         pos_n2 = pos_n3 = 0
         for i, g in enumerate(grouped_edges):
-            if "s2" in g:
+            _g_with_name = [e.name for e in g]
+            if "s2" in _g_with_name:
                 pos_n2 = i
-            if "s3" in g:
+            if "s3" in _g_with_name:
                 pos_n3 = i
 
         assert pos_n2 == pos_n3
@@ -454,9 +448,10 @@ class TestGroupEdges:
 
         pos_n2 = pos_n3 = 0
         for i, g in enumerate(grouped_edges):
-            if "s2" in g:
+            _g_with_name = [e.name for e in g]
+            if "s2" in _g_with_name:
                 pos_n2 = i
-            if "s3" in g:
+            if "s3" in _g_with_name:
                 pos_n3 = i
 
         assert pos_n2 != pos_n3
@@ -487,7 +482,7 @@ class TestDAGPathDistance:
         Return: the longest distance in the graph.
         """
         distances: Dict[NodeName, int] = defaultdict(int)  # init value = 0
-        pred_nodes: Dict[NodeName, Optional[NodeName]] = defaultdict()
+        pred_nodes: Dict[NodeName, NodeName] = defaultdict()
 
         for node in ordered_nodes:
             for neighbor in edges_with_d[node]:
@@ -610,7 +605,7 @@ class TestDAGPathDistance:
         Return: the shortest distance in the graph.
         """
         distances: Dict[NodeName, int] = defaultdict(lambda: 999)
-        pred_nodes: Dict[NodeName, Optional[NodeName]] = defaultdict()
+        pred_nodes: Dict[NodeName, NodeName] = defaultdict()
 
         # Set initial value for all inputs nodes.
         for inode in input_nodes:

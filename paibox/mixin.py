@@ -1,6 +1,6 @@
 import copy
 from functools import wraps
-from typing import Any, Dict, Optional, Sequence, TypeVar
+from typing import Any, Dict, Optional, Sequence, Type, TypeVar
 
 import numpy as np
 from numpy.typing import NDArray
@@ -83,7 +83,9 @@ class Container(MixIn):
         else:
             return get_unique_name("ContainerElem")
 
-    def elem_format(self, child_type: _T, *children: Sequence[_T]) -> Dict[str, _T]:
+    def elem_format(
+        self, child_type: Type[_T], *children: Sequence[_T]
+    ) -> Dict[str, _T]:
         elems = dict()
 
         for child in children:

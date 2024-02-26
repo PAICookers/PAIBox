@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Sequence, final
+from typing import Any, Dict, Iterator, List, Optional, Sequence, final
 
 from paicorelib import Coord, HwConfig
 from paicorelib.routing_defs import ROUTING_DIRECTIONS_IDX, RoutingCoord, RoutingCost
@@ -7,7 +7,6 @@ from paicorelib.routing_defs import RoutingLevel as Level
 from paicorelib.routing_defs import RoutingStatus as Status
 from paicorelib.routing_defs import get_routing_consumption
 
-from paibox._types import FrozenOrderedSet
 from paibox.exceptions import NotSupportedError
 
 from .placement import CoreBlock, CorePlacement
@@ -412,14 +411,14 @@ class RoutingCluster:
         self._direction = d
 
 
-class RoutingGroup(FrozenOrderedSet[CoreBlock]):
+class RoutingGroup(List[CoreBlock]):
     """Core blocks located within a routing group are routable.
 
     NOTE: Axon groups within a routing group are the same.
     """
 
-    def __init__(self, *cb: CoreBlock):
-        super().__init__(cb)
+    def __init__(self, *cb: CoreBlock) -> None:
+        self.cb = list(cb)
 
         self.assigned_coords: List[Coord] = []
         """Assigned core coordinates for the routing group."""
@@ -437,11 +436,20 @@ class RoutingGroup(FrozenOrderedSet[CoreBlock]):
             cb.core_coords = assigned[cur_i : cur_i + n]
             cur_i += n
 
-    def n_core_at(self, idx: int) -> int:
-        if idx >= len(self) or idx < 0:
-            raise IndexError(f"Index out of range [0, {len(self)}), {idx}.")
+    def __getitem__(self, idx: int) -> CoreBlock:
+        if idx >= len(self.cb) or idx < 0:
+            raise IndexError(f"Index out of range [0, {len(self.cb)}), {idx}.")
 
-        return self[idx].n_core_required
+        return self.cb[idx]
+
+    def __len__(self) -> int:
+        return len(self.cb)
+
+    def __iter__(self) -> Iterator[CoreBlock]:
+        return self.cb.__iter__()
+
+    def __contains__(self, __key: CoreBlock) -> bool:
+        return __key in self.cb
 
     @property
     def n_core_required(self) -> int:

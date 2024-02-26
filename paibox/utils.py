@@ -1,8 +1,8 @@
-from typing import Any, Iterable, List, Optional, Tuple, Union
+from typing import Any, Iterable, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
-from paibox._types import Shape
+from paibox.types import Shape
 
 """Handful utilities."""
 
@@ -35,7 +35,7 @@ def count_unique_elem(obj: Iterable[Any]) -> int:
     return len(seen)
 
 
-def check_attr_same(obj: Iterable[Any], attr: str) -> bool:
+def check_attr_same(obj: Sequence[Any], attr: str) -> bool:
     return all(getattr(obj[0], attr) == getattr(item, attr) for item in obj)
 
 

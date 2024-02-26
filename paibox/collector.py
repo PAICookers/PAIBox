@@ -1,14 +1,4 @@
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    Generic,
-    Sequence,
-    Type,
-    TypeVar,
-    Union,
-    overload,
-)
+from typing import Callable, Dict, Generic, Sequence, Type, TypeVar, Union, overload
 
 _T = TypeVar("_T")
 _KT = TypeVar("_KT")
@@ -23,7 +13,7 @@ class Collector(dict, Generic[_KT, _VT]):
                     f"Name '{key}' conflicts: same name for {value} and {self[key]}."
                 )
 
-        dict.__setitem__(self, key, value)
+        super().__setitem__(key, value)
 
     def replace(self, key: _KT, new_value: _VT) -> None:
         self.pop(key)
@@ -34,12 +24,12 @@ class Collector(dict, Generic[_KT, _VT]):
         ...
 
     @overload
-    def update(self, other: Sequence[_T]) -> "Collector[str, _VT]":
+    def update(self, other: Sequence[_T]) -> "Collector[_KT, _T]":
         ...
 
     def update(
         self, other: Union[Dict[_KT, _VT], Sequence[_T]]
-    ) -> Union["Collector[_KT, _VT]", "Collector[str, _VT]"]:
+    ) -> Union["Collector[_KT, _VT]", "Collector[_KT, _T]"]:
         if not isinstance(other, (dict, list, tuple)):
             raise TypeError(
                 f"Excepted a dict, list or sequence, but we got {other}, type {type(other)}"
@@ -51,7 +41,7 @@ class Collector(dict, Generic[_KT, _VT]):
         else:
             l = len(self)
             for i, v in enumerate(other):
-                self[f"_{l+i}"] = v
+                self[f"_{l+i}"] = v  # type: ignore
 
         return self
 
@@ -60,12 +50,12 @@ class Collector(dict, Generic[_KT, _VT]):
         ...
 
     @overload
-    def __add__(self, other: Sequence[_T]) -> "Collector[str, _VT]":
+    def __add__(self, other: Sequence[_T]) -> "Collector[_KT, _T]":
         ...
 
     def __add__(
         self, other: Union[Dict[_KT, _VT], Sequence[_T]]
-    ) -> Union["Collector[_KT, _VT]", "Collector[str, _VT]"]:
+    ) -> Union["Collector[_KT, _VT]", "Collector[_KT, _T]"]:
         """Merging two dicts.
 
         Arguments:
@@ -83,12 +73,12 @@ class Collector(dict, Generic[_KT, _VT]):
         ...
 
     @overload
-    def __sub__(self, other: Sequence[_T]) -> "Collector[str, _VT]":
+    def __sub__(self, other: Sequence[_T]) -> "Collector[str, _T]":
         ...
 
     def __sub__(
         self, other: Union[Dict[_KT, _VT], Sequence[_T]]
-    ) -> Union["Collector[_KT, _VT]", "Collector[str, _VT]"]:
+    ) -> Union["Collector[_KT, _VT]", "Collector[str, _T]"]:
         if not isinstance(other, (dict, list, tuple)):
             raise TypeError(
                 f"Excepted a dict, list or sequence, but we got {other}, type {type(other)}"
@@ -131,12 +121,12 @@ class Collector(dict, Generic[_KT, _VT]):
 
         return gather
 
-    def subset(self, obj_type: Type[_T]) -> "Collector[Any, _T]":
+    def subset(self, obj_type: Type[_T]) -> "Collector":
         gather = type(self)()
 
         for k, v in self.items():
             if isinstance(v, obj_type):
-                gather[k] = v
+                gather[k] = v  # type: ignore
 
         return gather
 
@@ -154,7 +144,7 @@ class Collector(dict, Generic[_KT, _VT]):
 
         for k, v in self.items():
             if isinstance(v, types):
-                gather[k] = v
+                gather[k] = v  # type: ignore
 
         return gather
 
