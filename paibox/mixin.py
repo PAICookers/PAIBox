@@ -116,13 +116,19 @@ class Container(MixIn):
 
 
 class ReceiveInputProj(MixIn):
-    master_nodes: NodeDict
+    master_nodes: NodeDict[str, Any]
 
     def register_master(self, key: str, master_target) -> None:
         if key in self.master_nodes:
             raise RegisterError(f"Master node with key '{key}' already exists.")
 
         self.master_nodes[key] = master_target
+
+    def unregister_master(self, key: str, strict: bool = True) -> Optional[Any]:
+        if key in self.master_nodes:
+            return self.master_nodes.pop(key, None)
+        elif strict:
+            raise KeyError(f"Key '{key}' not found in master nodes.")
 
     def get_master_node(self, key: str) -> Optional[Any]:
         return self.master_nodes.get(key, None)
@@ -202,7 +208,7 @@ class StatusMemory(MixIn):
         else:
             super().__setattr__(name, value)
 
-    def __delattr__(self, name) -> None:
+    def __delattr__(self, name: str) -> None:
         if name in self._memories:
             del self._memories[name]
             del self._memories_rv[name]
