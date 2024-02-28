@@ -25,7 +25,7 @@ class Input_to_N1(pb.DynSysGroup):
 
 class NotNested_Net_Exp(pb.DynSysGroup):
     """Not nested network
-    inp1 -> n1 -> s1 -> n2, n3
+    inp1 -> n1 -> s1 -> n2
     """
 
     def __init__(self):
@@ -40,7 +40,6 @@ class NotNested_Net_Exp(pb.DynSysGroup):
         self.s2 = pb.NoDecay(
             self.n1, self.n2, weights=1, conn_type=pb.synapses.ConnType.All2All
         )
-        self.n3 = pb.TonicSpiking(2, 4)  # Not used
 
         self.probe1 = pb.Probe(self.s2, "output", name="s2_out")
         self.probe2 = pb.Probe(self.n1, "delay_registers", name="n1_reg")
@@ -51,7 +50,10 @@ class NotNested_Net_Exp(pb.DynSysGroup):
 
 
 class Network_with_container(pb.DynSysGroup):
-    """Network with neurons in list."""
+    """Network with neurons in list.
+
+    n_list[0] -> s1 -> n_list[1] -> s2 -> n_list[2]
+    """
 
     def __init__(self):
         super().__init__()
@@ -99,6 +101,34 @@ class MoreInput_Net(pb.DynSysGroup):
         )
         self.s3 = pb.synapses.NoDecay(
             self.n3, self.n4, conn_type=pb.synapses.ConnType.All2All
+        )
+
+
+class Network_with_multi_inodes_onodes(pb.Network):
+    """
+    INP1 -> S1 -> N1 -> S2 -> N2
+    INP2 -> S3 -> N1 -> S4 -> N3
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.inp1 = pb.InputProj(input=1, shape_out=(40,), name="inp1")
+        self.inp2 = pb.InputProj(input=1, shape_out=(50,), name="inp2")
+        self.n1 = pb.TonicSpiking(80, 2, name="n1", tick_wait_start=1)
+        self.n2 = pb.TonicSpiking(20, 3, name="n2", tick_wait_start=2)
+        self.n3 = pb.TonicSpiking(30, 3, name="n3", tick_wait_start=2)
+
+        self.s1 = pb.NoDecay(
+            self.inp1, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s1"
+        )
+        self.s2 = pb.NoDecay(
+            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s2"
+        )
+        self.s3 = pb.NoDecay(
+            self.inp2, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s3"
+        )
+        self.s4 = pb.NoDecay(
+            self.n1, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s4"
         )
 
 
@@ -151,6 +181,11 @@ def build_NotNested_Net_Exp():
 @pytest.fixture(scope="class")
 def build_Network_with_container():
     return Network_with_container()
+
+
+@pytest.fixture(scope="class")
+def build_multi_inodes_onodes():
+    return Network_with_multi_inodes_onodes()
 
 
 @pytest.fixture(scope="class")
