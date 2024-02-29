@@ -146,7 +146,7 @@ class NoDecay(SynSys):
         self, spike: Optional[np.ndarray] = None, *args, **kwargs
     ) -> NDArray[np.int32]:
         # Retrieve the spike at index `timestamp` of the dest neurons
-        if self.dest._is_working():
+        if self.dest.is_working:
             if isinstance(self.source, InputProj):
                 synin = self.source.output.copy() if spike is None else spike
             else:
@@ -154,7 +154,7 @@ class NoDecay(SynSys):
                 synin = self.source.output[idx].copy() if spike is None else spike
         else:
             # Retrieve 0 to the dest neurons if it is not working
-            synin = np.zeros_like(self.source.spike)
+            synin = np.zeros_like(self.source.spike, dtype=np.bool_)
 
         self._synout = self.comm(synin).astype(np.int32)
         return self._synout

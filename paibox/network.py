@@ -1,6 +1,6 @@
 from typing import Callable, List, Optional, Tuple, Type, Union
+from typing_extensions import TypeAlias
 import warnings
-import sys
 import numpy as np
 from .exceptions import PAIBoxWarning, RegisterError
 
@@ -10,11 +10,6 @@ from .mixin import Container
 from .node import NodeDict
 from .projection import InputProj, Projection
 from .synapses import SynSys, RIGISTER_MASTER_KEY_FORMAT
-
-if sys.version_info >= (3, 10):
-    from typing import TypeAlias
-else:
-    from typing_extensions import TypeAlias
 
 __all__ = ["DynSysGroup", "Network"]
 

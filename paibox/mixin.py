@@ -1,4 +1,4 @@
-import copy
+from copy import deepcopy
 from functools import wraps
 from typing import Any, Dict, Optional, Sequence, Type, TypeVar
 
@@ -170,8 +170,8 @@ class StatusMemory(MixIn):
     """Register memories for stateful variables."""
 
     def __init__(self) -> None:
-        self._memories = NodeDict()
-        self._memories_rv = NodeDict()
+        self._memories: NodeDict[str, Any] = NodeDict()
+        self._memories_rv: NodeDict[str, Any] = NodeDict()
 
     def set_memory(self, name: str, value: Any) -> None:
         if hasattr(self, name):
@@ -183,15 +183,15 @@ class StatusMemory(MixIn):
     def reset(self, name: Optional[str] = None) -> None:
         if isinstance(name, str):
             if name in self._memories:
-                self._memories[name] = copy.deepcopy(self._memories_rv[name])
+                self._memories[name] = deepcopy(self._memories_rv[name])
             else:
                 raise KeyError(f"Key '{name}' not found!")
         else:
             for k in self._memories.keys():
-                self._memories[k] = copy.deepcopy(self._memories_rv[k])
+                self._memories[k] = deepcopy(self._memories_rv[k])
 
     def set_reset_value(self, name: str, init_value: Any) -> None:
-        self._memories_rv[name] = copy.deepcopy(init_value)
+        self._memories_rv[name] = deepcopy(init_value)
 
     def __getattr__(self, name: str) -> Any:
         if "_memories" in self.__dict__:
@@ -223,8 +223,5 @@ class StatusMemory(MixIn):
         for k, v in self._memories.items():
             yield k, v
 
-    def __copy__(self) -> NodeDict:
-        return copy.deepcopy(self._memories)
-
-    def copy(self):
-        return self.__copy__()
+    def __copy__(self) -> NodeDict[str, Any]:
+        return deepcopy(self._memories)
