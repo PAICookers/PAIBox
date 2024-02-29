@@ -1,10 +1,9 @@
 import json
-
 import numpy as np
 import pytest
-from paicorelib import *
-
 import paibox as pb
+from copy import copy
+from paicorelib import NeuronAttrs, SIM, LIM, LCM, LDM, NTM, RM, TM
 from paibox.utils import as_shape, shape2num
 
 
@@ -226,6 +225,30 @@ def test_neuron_keep_shape():
     assert n2.voltage.shape == (16,)
     assert n2.output.shape == (256, 16)
     assert n2.feature_map.shape == (16,)
+
+
+def test_neuron_copy():
+    # Deepcopy is the same
+    n1 = pb.LIF(
+        (4, 4),
+        5,
+        keep_shape=True,
+        delay=1,
+        tick_wait_start=0,
+        tick_wait_end=3,
+        unrolling_factor=4,
+        name="n1",
+    )
+    n2 = copy(n1)
+
+    n2.unrolling_factor = 2
+    n2._tws = 10
+
+    assert isinstance(n2, pb.neuron.Neuron)
+    assert n1.name != n2.name
+    assert n1.unrolling_factor != n2.unrolling_factor
+    assert n1._tws != n2._tws
+    assert id(n1.voltage) != id(n2.voltage)
 
 
 class TestNeuronSim:

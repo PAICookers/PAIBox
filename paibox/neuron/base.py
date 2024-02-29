@@ -1,6 +1,5 @@
-import sys
 from typing import Any, Optional, Tuple
-
+from typing_extensions import TypeAlias
 import numpy as np
 from numpy.typing import NDArray
 from paicorelib import (
@@ -14,11 +13,6 @@ from paicorelib import (
     MaxPoolingEnable,
     SpikeWidthFormat,
 )
-
-if sys.version_info >= (3, 10):
-    from typing import TypeAlias
-else:
-    from typing_extensions import TypeAlias
 
 from paicorelib import HwConfig
 
@@ -482,6 +476,9 @@ class Neuron(MetaNeuron, NeuDyn):
         self._twe = tick_wait_end
         self._unrolling_factor = unrolling_factor
 
+        """Counter of copies."""
+        self._n_copied = 0
+
     def __len__(self) -> int:
         return self._n_neuron
 
@@ -496,7 +493,7 @@ class Neuron(MetaNeuron, NeuDyn):
         # Priority order is a must.
         # The neuron doesn't work if `tws = 0` & done working
         # until `t - tws + 1 > twe` under the condition `twe > 0`.
-        if not self._is_working():
+        if not self.is_working:
             self._inner_spike = self.init_param(0).astype(np.bool_)
             return None
 
@@ -529,7 +526,45 @@ class Neuron(MetaNeuron, NeuDyn):
         """Initialization, not the neuronal reset."""
         self.reset()  # Call reset of `StatusMemory`.
 
-    def _is_working(self) -> bool:
+    def __copy__(self) -> "Neuron":
+        """Same as `__deepcopy__`."""
+        return self.__deepcopy__()
+
+    def __deepcopy__(self) -> "Neuron":
+        """Deepcopy a neuron.
+
+        NOTE: It simply reinitializes a neuron with the parameters of the original neuron.
+            Two neurons are not related.
+        """
+        self._n_copied += 1
+
+        return Neuron(
+            self._shape,
+            self.reset_mode,
+            self.reset_v,
+            self.leaking_comparison,
+            self.threshold_mask_bits,
+            self.neg_thres_mode,
+            self.neg_threshold,
+            self.pos_threshold,
+            self.leaking_direction,
+            self.leaking_integration_mode,
+            self.leak_v,
+            self.synaptic_integration_mode,
+            self.bit_truncation,
+            delay=self.delay_relative,
+            tick_wait_start=self.tick_wait_start,
+            tick_wait_end=self.tick_wait_end,
+            unrolling_factor=self.unrolling_factor,
+            keep_shape=self.keep_shape,
+            name=f"{self.name}_copied_{self._n_copied}",
+        )
+
+    def copy(self) -> "Neuron":
+        return self.__deepcopy__()
+
+    @property
+    def is_working(self) -> bool:
         return (self.tick_wait_start > 0 and self.timestamp >= 0) and (
             self.tick_wait_end == 0 or self.timestamp + 1 <= self.tick_wait_end
         )
