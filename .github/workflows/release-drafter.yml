@@ -1,0 +1,42 @@
+name: Release Drafter
+
+on:
+  push:
+    tags:
+      - v*
+  pull_request_target:
+    branches:
+      - master
+    types:
+      - closed
+
+permissions:
+  contents: read
+
+jobs:
+  update_release_draft:
+    permissions:
+      # write permission is required to create a github release
+      contents: write
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Setup Poetry
+        uses: Gr1N/setup-poetry@v9
+
+      - name: Update poetry.lock
+        run: poetry update --lock
+
+      - run: echo "TAG_NAME=v$(poetry version -s)" >> $GITHUB_ENV
+
+      - uses: release-drafter/release-drafter@v6
+        with:
+          name: ${{ env.TAG_NAME }}
+          tag: ${{ env.TAG_NAME }}
+          publish: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.ORG_TOKEN }}
