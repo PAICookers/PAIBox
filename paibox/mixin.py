@@ -69,50 +69,64 @@ class MixIn:
 
 
 class Container(MixIn):
-    children: NodeDict
+    children: NodeDict[str, Any]
 
-    def __getitem__(self, item) -> Any:
+    def __getitem__(self, item: str) -> Any:
         if item in self.children:
             return self.children[item]
 
         raise KeyError(f"Key '{item}' not found.")
 
-    def _get_elem_name(self, elem) -> str:
+    def _get_elem_name(self, elem: object) -> str:
         if isinstance(elem, pb.base.PAIBoxObject):
             return elem._name
         else:
             return get_unique_name("ContainerElem")
 
     def elem_format(
-        self, child_type: Type[_T], *children: Sequence[_T]
+        self,
+        child_type: Type[_T],
+        *children_as_tuple: Sequence[_T],
+        **children_as_dict: Dict[Any, _T],
     ) -> Dict[str, _T]:
         elems = dict()
 
-        for child in children:
+        for child in children_as_tuple:
             if isinstance(child, child_type):
                 elems[self._get_elem_name(child)] = child
 
             elif isinstance(child, (list, tuple)):
                 for c in child:
                     if not isinstance(c, child_type):
-                        raise TypeError(f"Expect type {child_type}, but got {type(c)}.")
+                        raise ValueError(
+                            f"Expect type {child_type.__name__}, but got {type(c)}."
+                        )
                     elems[self._get_elem_name((c))] = c
 
             elif isinstance(child, dict):
                 for k, v in child.items():
                     if not isinstance(v, child_type):
-                        raise TypeError(f"Expect type {child_type}, but got {type(c)}.")
+                        raise ValueError(
+                            f"Expect type {child_type.__name__}, but got {type(c)}."
+                        )
                     elems[k] = v
             else:
                 raise TypeError(
-                    f"Expect elements in type dict, list or tuple, but got {type(child)}."
+                    f"Expect elements in dict, list or tuple, but got {type(child)}."
                 )
+
+        for k, v in children_as_dict.items():
+            if not isinstance(v, child_type):
+                raise ValueError(
+                    f"Expect type {child_type.__name__}, but got {type(v)}."
+                )
+            elems[k] = v
 
         return elems
 
-    def add_elem(self, **elems) -> None:
+    def add_elem(self, *elems, **elements) -> None:
         """Add elements as a dictionary"""
-        self.children.update(self.elem_format(object, **elems))
+        self.children.update(self.elem_format(object, *elems, **elements))
 
 
 class ReceiveInputProj(MixIn):

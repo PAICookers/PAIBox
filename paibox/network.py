@@ -19,14 +19,24 @@ ComponentsType: TypeAlias = Union[InputProj, NeuDyn, SynSys]
 class DynSysGroup(DynamicSys, Container):
     def __init__(
         self,
-        *components,
-        component_type: Type[DynamicSys] = DynamicSys,
+        *components_as_tuple,
+        component_type: Type = DynamicSys,
         name: Optional[str] = None,
+        **components_as_dict,
     ) -> None:
         super().__init__(name)
-        self.children = NodeDict(self.elem_format(component_type, *components))
+        self.children = NodeDict(
+            self.elem_format(component_type, *components_as_tuple, **components_as_dict)
+        )
 
     def update(self, **kwargs) -> None:
+        """For a network, the operating nodes within it will be distributed according to the network level  \
+            where they are located. For I, S & N, if the network is a two-level nested network, it can be   \
+            divided into Ix, Sx, Nx and Iy, Sy, Ny, where x & y are two parts containing many operations.   \
+        
+        TODO Prove that the operation sequence I->S->N can be divided into Ix->Sx->Nx->Iy->Sy->Ny & it has  \
+            nothing to do with the network topology.
+        """
         nodes = self.nodes(level=1, include_self=False).subset(DynamicSys).unique()
 
         for node in nodes.subset(Projection).values():
@@ -36,6 +46,11 @@ class DynSysGroup(DynamicSys, Container):
             node()
 
         for node in nodes.subset(NeuDyn).values():
+            node()
+
+        for node in (
+            nodes.not_subset(Projection).not_subset(SynSys).not_subset(NeuDyn).values()
+        ):
             node()
 
     def reset_state(self) -> None:
@@ -49,6 +64,14 @@ class DynSysGroup(DynamicSys, Container):
 
         for node in nodes.subset(NeuDyn).values():
             node.reset_state()
+
+        for node in (
+            nodes.not_subset(Projection).not_subset(SynSys).not_subset(NeuDyn).values()
+        ):
+            node.reset_state()
+
+    def __call__(self, **kwargs) -> None:
+        return self.update(**kwargs)
 
     def add_components(self, *implicit: DynamicSys, **explicit: DynamicSys) -> None:
         """Add new components. When a component is passed in explicitly, its tag name \
