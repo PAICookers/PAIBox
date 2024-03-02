@@ -7,6 +7,21 @@ from paibox.exceptions import PAIBoxWarning
 from paibox.node import NodeDict
 
 
+class Nested_Net_level_1(pb.DynSysGroup):
+    """Level 1 nested network: pre_n -> syn -> post_n"""
+
+    def __init__(self):
+        super().__init__()
+
+        self.pre_n = pb.LIF((10,), 10)
+        self.post_n = pb.LIF((10,), 10)
+
+        w = np.random.randint(-128, 127, (10, 10), dtype=np.int8)
+        self.syn = pb.NoDecay(
+            self.pre_n, self.post_n, conn_type=pb.synapses.ConnType.All2All, weights=w
+        )
+
+
 class TestNetwork_Components_Discover:
     def test_flatten_hzynet(self, build_MoreInput_Net):
         net = build_MoreInput_Net
@@ -55,7 +70,7 @@ class TestNetwork_Components_Discover:
         )
         assert len(nodes4) == 3
 
-    def test_nested_level_1(self, build_Network_with_container):
+    def test_nested_net_level_1(self, build_Network_with_container):
         net = build_Network_with_container
 
         # 1. Relative + include_self == True
@@ -87,6 +102,107 @@ class TestNetwork_Components_Discover:
         sim = pb.Simulator(net)
         sim.run(10)
         sim.reset()
+
+    def test_nested_net_level_2(self):
+        class Nested_Net_level_2(pb.DynSysGroup):
+            """Level 2 nested network: inp1 -> s1 -> Nested_Net_level_1 -> s2 -> Nested_Net_level_1"""
+
+            def __init__(self):
+                self.inp1 = pb.InputProj(1, shape_out=(10,))
+                subnet1 = Nested_Net_level_1()
+                subnet2 = Nested_Net_level_1()
+                self.s1 = pb.NoDecay(
+                    self.inp1,
+                    subnet1.pre_n,
+                    conn_type=pb.synapses.ConnType.One2One,
+                )
+                self.s2 = pb.NoDecay(
+                    subnet1.post_n,
+                    subnet2.pre_n,
+                    conn_type=pb.synapses.ConnType.One2One,
+                )
+
+                super().__init__(subnet1, subnet2)
+
+        net = Nested_Net_level_2()
+        nodes = net.nodes(level=1, include_self=False).subset(DynamicSys).unique()
+        nodes_excluded = (
+            net.nodes(level=1, include_self=False)
+            .subset(DynamicSys)
+            .unique()
+            .not_subset(pb.DynSysGroup)
+        )
+        nodes2 = (
+            net.nodes(level=2, include_self=False)
+            .subset(DynamicSys)
+            .unique()
+            .not_subset(pb.DynSysGroup)
+        )
+        nodes9 = (
+            net.nodes(level=9, include_self=False)
+            .subset(DynamicSys)
+            .unique()
+            .not_subset(pb.DynSysGroup)
+        )
+
+        assert len(nodes) == 5
+        assert len(nodes_excluded) == 3
+        assert len(nodes2) == 3 + 3 * 2
+        assert len(nodes9) == len(nodes2)
+
+    def test_nested_net_level_3(self):
+        class Nested_Net_level_2(pb.DynSysGroup):
+            """Level 2 nested network: -> s1 -> Nested_Net_level_1"""
+
+            def __init__(self, n: pb.neuron.Neuron):
+                subnet = Nested_Net_level_1()
+                self.s1 = pb.NoDecay(
+                    n,
+                    subnet.pre_n,
+                    conn_type=pb.synapses.ConnType.One2One,
+                )
+
+                super().__init__(subnet)
+
+        class Nested_Net_level_3(pb.DynSysGroup):
+            """Level 3 nested network: inp1 -> s1 -> n1 -> Nested_Net_level_2 -> s1 -> Nested_Net_level_1"""
+
+            def __init__(self):
+                self.inp1 = pb.InputProj(1, shape_out=(10,))
+                self.n1 = pb.LIF((10,), 10)
+
+                net_level2 = Nested_Net_level_2(self.n1)
+                self.s1 = pb.NoDecay(
+                    self.inp1,
+                    self.n1,
+                    conn_type=pb.synapses.ConnType.One2One,
+                )
+
+                super().__init__(net_level2)
+
+        net = Nested_Net_level_3()
+        nodes_excluded = (
+            net.nodes(level=1, include_self=False)
+            .subset(DynamicSys)
+            .unique()
+            .not_subset(pb.DynSysGroup)
+        )
+        nodes2 = (
+            net.nodes(level=2, include_self=False)
+            .subset(DynamicSys)
+            .unique()
+            .not_subset(pb.DynSysGroup)
+        )
+        nodes3 = (
+            net.nodes(level=3, include_self=False)
+            .subset(DynamicSys)
+            .unique()
+            .not_subset(pb.DynSysGroup)
+        )
+
+        assert len(nodes_excluded) == 3
+        assert len(nodes2) == 3 + 1
+        assert len(nodes3) == 3 + 1 + 3
 
 
 class TestNetwork_Components_Oprations:

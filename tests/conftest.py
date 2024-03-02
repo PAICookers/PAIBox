@@ -1,4 +1,3 @@
-import numpy as np
 import pytest
 
 import paibox as pb
@@ -64,7 +63,7 @@ class Network_with_container(pb.DynSysGroup):
         n2 = pb.neuron.TonicSpiking((3,), 3)
         n3 = pb.neuron.TonicSpiking((3,), 4)
 
-        n_list: pb.NodeList[pb.Neuron] = pb.NodeList()
+        n_list: pb.NodeList[pb.neuron.Neuron] = pb.NodeList()
         n_list.append(n1)
         n_list.append(n2)
         n_list.append(n3)
@@ -132,37 +131,6 @@ class Network_with_multi_inodes_onodes(pb.Network):
         )
 
 
-def output_without_shape(**kwargs):
-    return np.ones((2,), np.int8)
-
-
-class _SubNet(pb.DynSysGroup):
-    def __init__(self, scale: int):
-        super().__init__()
-        self.n1 = pb.neuron.TonicSpiking(scale, fire_step=2, tick_wait_start=1)
-        self.n2 = pb.neuron.TonicSpiking(scale, fire_step=2, tick_wait_start=2)
-        self.s0 = pb.synapses.NoDecay(
-            self.n1, self.n2, conn_type=pb.synapses.ConnType.One2One
-        )
-
-
-class Network_with_subnet(pb.DynSysGroup):
-    def __init__(self):
-        super().__init__()
-        self.inp = pb.InputProj(output_without_shape, shape_out=(10,))
-        self.subnet1 = _SubNet(10)
-        self.subnet2 = _SubNet(20)
-
-        # 10*10
-        self.s_inp_2_subnet1 = pb.synapses.NoDecay(
-            self.inp, self.subnet1.n1, conn_type=pb.synapses.ConnType.One2One
-        )
-        # 10*20
-        self.s_subnet1_2_subnet2 = pb.synapses.NoDecay(
-            self.subnet1.n2, self.subnet2.n1, conn_type=pb.synapses.ConnType.All2All
-        )
-
-
 @pytest.fixture(scope="class")
 def build_Input_to_N1():
     return Input_to_N1()
@@ -186,11 +154,6 @@ def build_Network_with_container():
 @pytest.fixture(scope="class")
 def build_multi_inodes_onodes():
     return Network_with_multi_inodes_onodes()
-
-
-@pytest.fixture(scope="class")
-def build_Network_with_subnet():
-    return Network_with_subnet()
 
 
 @pytest.fixture(scope="class")
