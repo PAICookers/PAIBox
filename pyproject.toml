@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "paibox"
-version = "1.0.0a1"
+version = "1.0.0a2"
 description = "New toolbox of PAICORE 2.0."
 authors = ["Ziru Pan <zrpan@stu.pku.edu.cn>"]
 maintainers = ["Ziru Pan <zrpan@stu.pku.edu.cn>"]
@@ -12,26 +12,21 @@ documentation = "https://github.com/PAICookers/PAIBox#readme"
 keywords = ["PAICORE 2.0", "PAIBox", "Toolbox"]
 packages = [{ include = "paibox" }]
 
+# Includes the document
+include = ["docs", "CHANGELOG.md"]
+# Excludes the experimental code
+exclude = ["paibox/backend/experimental"]
+
 [tool.poetry.dependencies]
 python = "^3.8"
 pydantic = "^2.0"
 numpy = "^1.23.0"
-torch = { version = "^2.1.0+cpu", optional = true, source = "torch-cpu" }
-torchvision = { version = "^0.16.0+cpu", optional = true, source = "torch-cpu" }
-torchaudio = { version = "^2.1.0+cpu", optional = true, source = "torch-cpu" }
-paicorelib = ">=0.0.11"
+paicorelib = "0.0.12"
 
 
 [tool.poetry.group.test.dependencies]
 pytest = { version = "^7.4.0", python = "^3.8" }
 
-
-[tool.poetry.group.dev.dependencies]
-paicorelib = { git = "https://github.com/PAICookers/PAIlib.git", rev = "dev" }
-pytest = { version = "^7.4.0", python = "^3.8" }
-
-[tool.poetry.extras]
-torch_env = ["torch", "torchvision", "torchaudio"]
 
 [tool.pytest.ini_options]
 minversion = "7.0.0"
