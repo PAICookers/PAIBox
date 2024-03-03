@@ -45,6 +45,7 @@ pytest = "^7.4.0"
    def test_foo(ensure_dump_dir):
        ...
    ```
+
 2. 清除全局 `PAIBoxObject` 对象名字字典。该夹具在每次测试后，清除全局名字字典，从而避免命名冲突。需要注意的是，`autouse=True` 表示该夹具在每个测试函数执行前自动执行，无论测试函数是否需要。
 
    ```python
@@ -56,6 +57,7 @@ pytest = "^7.4.0"
        yield
        clear_name_cache(ignore_warn=True)
    ```
+
 3. 需要测试文件写入，但不关心具体的目录与文件内容。该夹具将创建与系统无关的临时目录，且整个测试将在该目录下进行，测试后，临时目录自动被销毁，切回原来的目录。
 
    ```python

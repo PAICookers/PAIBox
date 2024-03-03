@@ -568,8 +568,9 @@ class CorePlacement(CoreAbstract):
         return cb_config
 
     @overload
-    def export_neu_config(self, neu_seg: NeuSeg, axon_dests: List[CoreBlock]) -> None:
-        ...
+    def export_neu_config(
+        self, neu_seg: NeuSeg, axon_dests: List[CoreBlock]
+    ) -> None: ...
 
     @overload
     def export_neu_config(
@@ -578,8 +579,7 @@ class CorePlacement(CoreAbstract):
         *,
         output_core_coord: Coord,
         axon_addr_offset: int,
-    ) -> int:
-        ...
+    ) -> int: ...
 
     def export_neu_config(
         self,

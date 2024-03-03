@@ -479,7 +479,7 @@ class RoutingRoot(RoutingCluster):
     def insert_routing_group(self, routing_group: RoutingGroup) -> bool:
         """Insert a `RoutingGroup` in the routing tree. Assign each core blocks with \
             routing coordinates & make sure they are routable.
-            
+
         NOTE: Use depth-first search to insert each core block into the routing tree \
             to ensure that no routing deadlock occurs between core blocks.
         """

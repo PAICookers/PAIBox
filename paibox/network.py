@@ -1,15 +1,16 @@
-from typing import Callable, List, Optional, Tuple, Type, Union
-from typing_extensions import TypeAlias
 import warnings
+from typing import Callable, List, Optional, Tuple, Type, Union
+
 import numpy as np
-from .exceptions import PAIBoxWarning, RegisterError
+from typing_extensions import TypeAlias
 
 from .base import DynamicSys, NeuDyn
 from .collector import Collector
+from .exceptions import PAIBoxWarning, RegisterError
 from .mixin import Container
 from .node import NodeDict
 from .projection import InputProj, Projection
-from .synapses import SynSys, RIGISTER_MASTER_KEY_FORMAT
+from .synapses import RIGISTER_MASTER_KEY_FORMAT, SynSys
 
 __all__ = ["DynSysGroup", "Network"]
 
@@ -33,7 +34,7 @@ class DynSysGroup(DynamicSys, Container):
         """For a network, the operating nodes within it will be distributed according to the network level  \
             where they are located. For I, S & N, if the network is a two-level nested network, it can be   \
             divided into Ix, Sx, Nx and Iy, Sy, Ny, where x & y are two parts containing many operations.   \
-        
+
         TODO Prove that the operation sequence I->S->N can be divided into Ix->Sx->Nx->Iy->Sy->Ny & it has  \
             nothing to do with the network topology.
         """
@@ -76,7 +77,7 @@ class DynSysGroup(DynamicSys, Container):
     def add_components(self, *implicit: DynamicSys, **explicit: DynamicSys) -> None:
         """Add new components. When a component is passed in explicitly, its tag name \
             can be specified. Otherwise `.name` will be used.
-        
+
         NOTE: After instantiated the components outside the `DynSysGroup`, you should \
             call `add_components()` to actually add the new components to itself.
         """

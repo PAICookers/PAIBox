@@ -1,9 +1,11 @@
 import json
+from copy import copy
+
 import numpy as np
 import pytest
+from paicorelib import LCM, LDM, LIM, NTM, RM, SIM, TM, NeuronAttrs
+
 import paibox as pb
-from copy import copy
-from paicorelib import NeuronAttrs, SIM, LIM, LCM, LDM, NTM, RM, TM
 from paibox.utils import as_shape, shape2num
 
 

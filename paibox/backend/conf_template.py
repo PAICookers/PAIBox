@@ -1,10 +1,8 @@
+import json
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Literal, NamedTuple, TypedDict
-from typing_extensions import NotRequired, TypeAlias
-
-import json
 
 import numpy as np
 from numpy.typing import NDArray
@@ -28,6 +26,7 @@ from paicorelib import (
 from paicorelib.framelib._types import FRAME_DTYPE, FrameArrayType
 from paicorelib.framelib.frame_gen import OfflineFrameGen
 from paicorelib.framelib.utils import np2bin, np2npy, np2txt
+from typing_extensions import NotRequired, TypeAlias
 
 from paibox.base import NeuDyn
 

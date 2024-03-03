@@ -1,5 +1,5 @@
 from typing import Any, Optional, Tuple
-from typing_extensions import TypeAlias
+
 import numpy as np
 from numpy.typing import NDArray
 from paicorelib import (
@@ -10,11 +10,11 @@ from paicorelib import (
     RM,
     SIM,
     TM,
+    HwConfig,
     MaxPoolingEnable,
     SpikeWidthFormat,
 )
-
-from paicorelib import HwConfig
+from typing_extensions import TypeAlias
 
 from paibox.base import NeuDyn
 from paibox.types import Shape, SpikeType
