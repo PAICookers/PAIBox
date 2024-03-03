@@ -6,13 +6,6 @@
 
 ## 快速上手
 
-目前PAIBox处于快速迭代的开发阶段，通过 `git clone` 指定 `dev` 分支以体验PAIBox。
-
-```bash
-git clone -b dev https://github.com/PAICookers/PAIBox.git
-cd PAIBox
-```
-
 PAIBox使用 `pyproject.toml` 管理依赖。若使用Poetry：
 
 ```bash
@@ -26,6 +19,28 @@ python = "^3.8"
 pydantic = "^2.0"
 numpy = "^1.23.0"
 paicorelib = "^0.0.11"
+```
+
+通过pip安装PAIBox：
+
+```bash
+pip install paibox
+```
+
+或克隆 `dev` 分支以体验开发版。
+
+```bash
+git clone -b dev https://github.com/PAICookers/PAIBox.git
+cd PAIBox
+```
+
+可查看版本号以确认安装：
+
+```python
+import paibox as pb
+
+print(pb.__version__)
+>>> x.y.z
 ```
 
 ## 基本组件
@@ -478,6 +493,49 @@ for i in range(5):
 
 如此，我们共例化了10个神经元，包括5个IF神经元、5个LIF神经元。在容器内的基本组件可通过下标进行访问、与其他基本组件连接。这与一般容器类型的用法相同。
 
+#### 构建子网络
+
+有时网络中会重复出现类似的结构，这时先构建子网络，再多次例化复用是个不错的选择。
+
+```python
+import paibox as pb
+
+class ReusedStructure(pb.Network):
+    def __init__(self, weight):
+        super().__init__()
+        self.pre_n = pb.LIF((10,), 10)
+        self.post_n = pb.LIF((10,), 10)
+        self.syn = pb.NoDecay(
+            self.pre_n, self.post_n, conn_type=pb.synapses.ConnType.All2All, weights=weight
+        )
+
+class Net(pb.Network):
+    def __init__(self, w1, w2):
+        self.inp1 = pb.InputProj(1, shape_out=(10,))
+        subnet1 = ReusedStructure(w1)
+        subnet2 = ReusedStructure(w2)
+        self.s1 = pb.NoDecay(
+            self.inp1,
+            subnet1.pre_n,
+            conn_type=pb.synapses.ConnType.One2One,
+        )
+        self.s2 = pb.NoDecay(
+            subnet1.post_n,
+            subnet2.pre_n,
+            conn_type=pb.synapses.ConnType.One2One,
+        )
+
+        super().__init__(subnet1, subnet2) # Necessary!
+
+w1 = ...
+w2 = ...
+net = Net(w1, w2)
+```
+
+上述示例代码中，我们先创建需复用的子网络 `ReusedStructure`，其结构为 `pre_n` -> `syn` -> `post_n`。而后，在父网络 `Net` 中实例化两个子网络 `subnet1`、 `subnet2`，并与父网络其他部分连接，此时网络结构为：`inp1` -> `s1` -> `subnet1` -> `s2` -> `subnet2`。最后，在为 `pb.Network` 初始化时，传入子网络 `subnet1`、 `subnet2`。由此，父网络 `Net` 才能发现子网络组件。
+
+上述示例为一个二级嵌套网络，对于三级嵌套网络或更高（不常用），可参考上述方式构建。
+
 ## 仿真
 
 ### 仿真器
@@ -503,6 +561,7 @@ sim = pb.Simulator(fcnet, start_time_zero=False)
 1. 在构建网络时，直接设置探针，即在网络内部例化探针对象。
 2. 在外部例化探针，并调用 `add_probe` 将其添加至仿真器内。仿真器内部将保存所有探针对象。
 3. 调用 `remove_probe` 方法可移除探针及其仿真数据。
+4. 请注意，目前探针仅能在最外层父网络内例化，子网络内的探针无法被发现。
 
 例化探针时需指定：
 
@@ -529,7 +588,7 @@ sim.add_probe(probe2)
 可监测的对象包括网络内部所有的属性。例如，神经元及突触的各类属性，常用的监测对象包括：
 
 - 输入节点的 `feature_map`。
-- 神经元：脉冲输出 `spike` （本层神经元产生的脉冲，但不一定传递至后继神经元）、**真实脉冲输出**  `output`（真正传递到后继神经元的脉冲）、真实脉冲输出（特征图形式）`feature_map`、膜电位 `voltage`。
+- 神经元：脉冲输出 `spike` （本层神经元产生的脉冲，但不一定传递至后继神经元）、基于硬件寄存器的**输出**  `output`（大小为 `256*N` ）、特征图形式的脉冲输出 `feature_map `、膜电位 `voltage`。
 - 突触：输出 `output`。
 
 ### 仿真机理
