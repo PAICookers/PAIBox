@@ -13,7 +13,7 @@ class Net1(pb.DynSysGroup):
 
         self.inp = pb.InputProj(pe, shape_out=(n_neuron,), keep_shape=True)
         self.n1 = pb.LIF(n_neuron, threshold=3, reset_v=0, tick_wait_start=1)
-        self.n2 = pb.IF(n_neuron, threshold=3, reset_v=1, tick_wait_start=3)  # tws = 3
+        self.n2 = pb.IF(n_neuron, threshold=3, reset_v=1, tick_wait_start=2)
         self.s0 = pb.NoDecay(
             self.inp,
             self.n1,
@@ -30,9 +30,9 @@ class Net1(pb.DynSysGroup):
         )
 
         # Probes inside
-        self.n1_acti = pb.Probe(self.n1, "output", name="n1_acti")
+        self.n1_acti = pb.Probe(self.n1, "spike", name="n1_acti")
         self.s1_weight = pb.Probe(self.s1, "weights", name="s1_weight")
-        self.n2_acti = pb.Probe(self.n2, "output", name="n2_acti")
+        self.n2_acti = pb.Probe(self.n2, "spike", name="n2_acti")
 
 
 def fake_out_1(t, a, **kwargs):
@@ -96,6 +96,52 @@ class Net2_with_multi_inpproj_encoder(pb.DynSysGroup):
         self.inp1_output = pb.Probe(self.inp1, "output")
         self.inp2_output = pb.Probe(self.inp2, "output")
         self.n1_output = pb.Probe(self.n1, "spike")
+
+
+class Nested_Net_level_1(pb.DynSysGroup):
+    """Level 1 nested network: pre_n -> syn -> post_n"""
+
+    def __init__(self):
+        super().__init__()
+
+        self.pre_n = pb.LIF((10,), 2, tick_wait_start=2)
+        self.post_n = pb.LIF((10,), 10, tick_wait_start=3)
+
+        w = np.ones((10, 10), dtype=np.int8)
+        self.syn = pb.NoDecay(
+            self.pre_n, self.post_n, conn_type=pb.synapses.ConnType.All2All, weights=w
+        )
+
+        self.probe_in_subnet = pb.Probe(self.pre_n, "spike")
+
+
+class Nested_Net_level_2(pb.DynSysGroup):
+    """Level 2 nested network: -> s1 -> Nested_Net_level_1"""
+
+    def __init__(self):
+        self.inp1 = pb.InputProj(None, shape_out=(10,))
+        self.n1 = pb.LIF((10,), 2, tick_wait_start=1)
+
+        subnet = Nested_Net_level_1()
+
+        self.s1 = pb.NoDecay(
+            self.inp1,
+            self.n1,
+            conn_type=pb.synapses.ConnType.One2One,
+        )
+        self.s2 = pb.NoDecay(
+            self.n1,
+            subnet.pre_n,
+            conn_type=pb.synapses.ConnType.One2One,
+        )
+
+        self.probe1 = pb.Probe(self.inp1, "spike")
+        self.probe2 = pb.Probe(self.n1, "spike")
+        self.probe3 = pb.Probe(self.n1, "voltage")
+        self.probe4 = pb.Probe(subnet.pre_n, "spike")
+        self.probe5 = pb.Probe(subnet.post_n, "spike")
+
+        super().__init__(subnet)
 
 
 class TestSimulator:
@@ -188,5 +234,17 @@ class TestSimulator:
         net.inp1.input = np.ones((n,), dtype=np.int8)
         net.inp2.input = np.ones((n,), dtype=np.int8)
         sim.run(3)
+
+        sim.reset()
+
+    def test_sim_nested_net(self):
+        net = Nested_Net_level_2()
+        sim = pb.Simulator(net, start_time_zero=False)
+
+        # The probes defined in the subnets cannot be discovered.
+        assert len(sim.probes) == 5
+
+        net.inp1.input = np.ones((10,), dtype=np.int8)
+        sim.run(20)
 
         sim.reset()

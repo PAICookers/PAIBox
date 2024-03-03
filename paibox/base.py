@@ -245,6 +245,12 @@ class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
         return params
 
     @property
+    def is_working(self) -> bool:
+        return (self.tick_wait_start > 0 and self.timestamp >= 0) and (
+            self.tick_wait_end == 0 or self.timestamp + 1 <= self.tick_wait_end
+        )
+
+    @property
     def delay_relative(self) -> int:
         return self._delay
 

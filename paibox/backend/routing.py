@@ -24,11 +24,9 @@ class RoutingCluster:
         status: Optional[Status] = None,
         tag: Optional[str] = None,
     ) -> None:
-        """Instance a tree cluster with `level`. \
-            For a cluster with level Lx > 0, after created, \
-                the length of children is `node_capacity`.
-
-            For a cluster with level L0, it is a leaf cluster.
+        """Instance a tree cluster with `level`.
+        - For a Lx(>0)-level cluster, after created, the length of children is `node_capacity`.
+        - For a L0-level cluster, it's a leaf.
 
         Args:
             - level: the cluster level.
@@ -448,8 +446,8 @@ class RoutingGroup(List[CoreBlock]):
     def __iter__(self) -> Iterator[CoreBlock]:
         return self.cb.__iter__()
 
-    def __contains__(self, __key: CoreBlock) -> bool:
-        return __key in self.cb
+    def __contains__(self, key: CoreBlock) -> bool:
+        return key in self.cb
 
     @property
     def n_core_required(self) -> int:
@@ -479,8 +477,11 @@ class RoutingRoot(RoutingCluster):
         raise RuntimeError(f"Get leaf cluster {cluster.tag} coordinate failed.")
 
     def insert_routing_group(self, routing_group: RoutingGroup) -> bool:
-        """Insert a `RoutingGroup` in the routing tree. Assign each core blocks \
-            with routing coordinates & make sure they are routable.
+        """Insert a `RoutingGroup` in the routing tree. Assign each core blocks with \
+            routing coordinates & make sure they are routable.
+
+        NOTE: Use depth-first search to insert each core block into the routing tree \
+            to ensure that no routing deadlock occurs between core blocks.
         """
         cost = routing_group.routing_cost
         level = routing_group.routing_level
@@ -536,9 +537,7 @@ class RoutingRoot(RoutingCluster):
 def get_parent(
     tree: RoutingCluster, cluster: RoutingCluster
 ) -> Optional[RoutingCluster]:
-    """Get the parent cluster of the given cluster. \
-        If not found, return None.
-    """
+    """Get the parent cluster of the given cluster. If not found, return None."""
     assert tree != cluster
 
     def dfs_preorder(

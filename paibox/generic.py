@@ -35,7 +35,7 @@ def get_unique_name(_type: str) -> str:
     return name
 
 
-def clear_name_cache(ignore_warn: bool = False):
+def clear_name_cache(ignore_warn: bool = False) -> None:
     """Clear the name dictionary."""
     _id_dict.clear()
     _type_names.clear()

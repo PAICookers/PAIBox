@@ -8,11 +8,13 @@ from paicorelib import WeightPrecision as WP
 from paibox.base import DynamicSys, NeuDyn
 from paibox.exceptions import ShapeError
 from paibox.projection import InputProj
-from paibox.types import DataArrayType
+from paibox.types import DataArrayType, WeightType
 
 from .transforms import *
 
 __all__ = ["NoDecay"]
+
+RIGISTER_MASTER_KEY_FORMAT = "{0}.output"
 
 
 class Synapses:
@@ -73,7 +75,7 @@ class SynSys(Synapses, DynamicSys):
         return self.update(*args, **kwargs)
 
     @property
-    def weights(self) -> NDArray[np.int8]:
+    def weights(self) -> WeightType:
         raise NotImplementedError
 
     @property
@@ -99,8 +101,6 @@ class SynSys(Synapses, DynamicSys):
 
 class NoDecay(SynSys):
     """Synapses model with no decay."""
-
-    _excluded_vars = "syn_out"
 
     def __init__(
         self,
@@ -140,13 +140,13 @@ class NoDecay(SynSys):
         self.set_memory("_synout", np.zeros((self.num_out,), dtype=np.int32))
 
         # Register `self` for the destination `NeuDyn`.
-        dest.register_master(f"{self.name}.output", self)
+        dest.register_master(RIGISTER_MASTER_KEY_FORMAT.format(self.name), self)
 
     def update(
         self, spike: Optional[np.ndarray] = None, *args, **kwargs
     ) -> NDArray[np.int32]:
         # Retrieve the spike at index `timestamp` of the dest neurons
-        if self.dest._is_working():
+        if self.dest.is_working:
             if isinstance(self.source, InputProj):
                 synin = self.source.output.copy() if spike is None else spike
             else:
@@ -154,7 +154,7 @@ class NoDecay(SynSys):
                 synin = self.source.output[idx].copy() if spike is None else spike
         else:
             # Retrieve 0 to the dest neurons if it is not working
-            synin = np.zeros_like(self.source.spike)
+            synin = np.zeros_like(self.source.spike, dtype=np.bool_)
 
         self._synout = self.comm(synin).astype(np.int32)
         return self._synout

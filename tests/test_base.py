@@ -4,6 +4,10 @@ import paibox as pb
 from paibox.exceptions import RegisterError
 
 
+def test_paibox_version():
+    assert isinstance(pb.__version__, str) and pb.__version__ >= "0.0.1"
+
+
 def test_paiboxobject_eq():
     obj1 = pb.base.PAIBoxObject(name="obj1")
     obj2 = pb.base.PAIBoxObject(name="obj2")

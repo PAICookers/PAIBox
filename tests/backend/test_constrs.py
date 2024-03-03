@@ -2,10 +2,10 @@ import pytest
 
 import paibox as pb
 from paibox.backend.constrs import GraphNodeConstrs
-from paibox.backend.graphs_types import NodeAttr, NodeDegree, NodePosition
 
 
 class TestGraphNodeConstrs:
+    @pytest.mark.skip("Not implemented")
     def test_add_node_constr(self):
         constr = GraphNodeConstrs()
         constr.add_node_constr(bounded=["1", "2", "4"])

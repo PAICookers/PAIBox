@@ -1,16 +1,8 @@
-import sys
-from collections import defaultdict
+import json
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Literal, NamedTuple, TypedDict
-
-if sys.version_info >= (3, 10):
-    from typing import TypeAlias
-else:
-    from typing_extensions import TypeAlias
-
-import json
 
 import numpy as np
 from numpy.typing import NDArray
@@ -34,6 +26,7 @@ from paicorelib import (
 from paicorelib.framelib._types import FRAME_DTYPE, FrameArrayType
 from paicorelib.framelib.frame_gen import OfflineFrameGen
 from paicorelib.framelib.utils import np2bin, np2npy, np2txt
+from typing_extensions import NotRequired, TypeAlias
 
 from paibox.base import NeuDyn
 
@@ -266,7 +259,10 @@ class GraphInfo(TypedDict):
     members: CorePlacementInfo
     inherent_timestep: int
     n_core_required: int
-    extras: Dict[str, Any]
+    """The actual used cores."""
+    n_core_occupied: int
+    """The occupied cores, including used & wasted."""
+    extras: NotRequired[Dict[str, Any]]
 
 
 def gen_config_frames_by_coreconf(
@@ -300,7 +296,7 @@ def gen_config_frames_by_coreconf(
             np2txt(_fp, array)
 
     _default_rid = RId(0, 0)
-    _debug_dict: Dict[Coord, Dict[str, Any]] = defaultdict()
+    _debug_dict: Dict[Coord, Dict[str, Any]] = dict()
     frame_arrays_on_core: Dict[Coord, FrameArrayType] = dict()
 
     for core_coord, v in config_dict.items():

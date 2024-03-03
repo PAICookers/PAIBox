@@ -7,7 +7,6 @@ from .neurons import TonicSpiking as TonicSpiking
 __all__ = [
     "IF",
     "LIF",
-    "Neuron",
     "TonicSpiking",
     "PhasicSpiking",
 ]

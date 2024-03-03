@@ -24,3 +24,10 @@ __all__ = [
     "BACKEND_CONFIG",
     "FRONTEND_ENV",
 ]
+
+from importlib.metadata import version
+
+try:
+    __version__ = version("paibox")
+except Exception:
+    __version__ = None

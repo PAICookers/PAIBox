@@ -20,12 +20,10 @@ class Collector(dict, Generic[_KT, _VT]):
         self.key = new_value
 
     @overload
-    def update(self, other: Dict[_KT, _VT]) -> "Collector[_KT, _VT]":
-        ...
+    def update(self, other: Dict[_KT, _VT]) -> "Collector[_KT, _VT]": ...
 
     @overload
-    def update(self, other: Sequence[_T]) -> "Collector[_KT, _T]":
-        ...
+    def update(self, other: Sequence[_T]) -> "Collector[_KT, _T]": ...
 
     def update(
         self, other: Union[Dict[_KT, _VT], Sequence[_T]]
@@ -46,12 +44,10 @@ class Collector(dict, Generic[_KT, _VT]):
         return self
 
     @overload
-    def __add__(self, other: Dict[_KT, _VT]) -> "Collector[_KT, _VT]":
-        ...
+    def __add__(self, other: Dict[_KT, _VT]) -> "Collector[_KT, _VT]": ...
 
     @overload
-    def __add__(self, other: Sequence[_T]) -> "Collector[_KT, _T]":
-        ...
+    def __add__(self, other: Sequence[_T]) -> "Collector[_KT, _T]": ...
 
     def __add__(
         self, other: Union[Dict[_KT, _VT], Sequence[_T]]
@@ -69,12 +65,10 @@ class Collector(dict, Generic[_KT, _VT]):
         return gather
 
     @overload
-    def __sub__(self, other: Dict[_KT, _VT]) -> "Collector[_KT, _VT]":
-        ...
+    def __sub__(self, other: Dict[_KT, _VT]) -> "Collector[_KT, _VT]": ...
 
     @overload
-    def __sub__(self, other: Sequence[_T]) -> "Collector[str, _T]":
-        ...
+    def __sub__(self, other: Sequence[_T]) -> "Collector[str, _T]": ...
 
     def __sub__(
         self, other: Union[Dict[_KT, _VT], Sequence[_T]]
