@@ -23,8 +23,8 @@ from paicorelib import (
     WeightPrecision,
     get_replication_id,
 )
-from paicorelib.framelib._types import FRAME_DTYPE, FrameArrayType
 from paicorelib.framelib.frame_gen import OfflineFrameGen
+from paicorelib.framelib.types import FRAME_DTYPE, FrameArrayType
 from paicorelib.framelib.utils import np2bin, np2npy, np2txt
 from typing_extensions import NotRequired, TypeAlias
 
