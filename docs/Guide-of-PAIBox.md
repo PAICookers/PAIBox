@@ -18,7 +18,7 @@ poetry install
 python = "^3.8"
 pydantic = "^2.0"
 numpy = "^1.23.0"
-paicorelib = "^0.0.11"
+paicorelib = "0.0.12"
 ```
 
 通过pip安装PAIBox：
@@ -73,7 +73,7 @@ n1 = pb.neuron.IF(shape=10, threshold=127, reset_v=0, keep_shape=False, delay=1,
 - `keep_shape`：是否在仿真记录数据时保持尺寸信息，默认为 `False`。实际进行运算的尺寸仍视为一维。
 - `delay`：设定该神经元组输出的延迟。默认为1，即本时间步的计算结果，**下一时间步**传递至后继神经元。
 - `tick_wait_start`: 设定该神经元组在第 `N` 个时间步时启动，0表示不启动。默认为1。
-- `tick_wait_end`: 设定该神经元组持续工作 `M` 个时间步，0表示一直持续工作。默认为0。
+- `tick_wait_end`: 设定该神经元组持续工作 `M` 个时间步，0表示**永远持续工作**。默认为0。
 - `name`：可选，为该对象命名。
 
 #### LIF神经元
@@ -223,7 +223,6 @@ s1= pb.synapses.NoDecay(source=n1, dest=n2, weights=weight1, conn_type=pb.synaps
   ```
 
   其权重以标量的形式储存。由于在运算时标量会随着矩阵进行广播，因此计算正确且节省了存储开销。
-
 - 数组：尺寸要求为 `(N2,)`，可以自定义每组对应神经元之间的连接权重。如下例所示，设置 `weights` 为 `[1, 2, 3, 4, 5]`，
 
   ```python
@@ -535,7 +534,7 @@ net = Net(w1, w2)
 
 上述示例代码中，我们先创建需复用的子网络 `ReusedStructure`，其结构为 `pre_n` -> `syn` -> `post_n`。而后，在父网络 `Net` 中实例化两个子网络 `subnet1`、 `subnet2`，并与父网络其他部分连接，此时网络结构为：`inp1` -> `s1` -> `subnet1` -> `s2` -> `subnet2`。最后，在为 `pb.Network` 初始化时，传入子网络 `subnet1`、 `subnet2`。由此，父网络 `Net` 才能发现子网络组件。
 
-上述示例为一个二级嵌套网络，对于三级嵌套网络或更高（不常用），可参考上述方式构建。
+上述示例为一个二级嵌套网络，对于三级嵌套网络或更高（不推荐使用），可参考上述方式构建。
 
 ## 仿真
 
@@ -618,17 +617,19 @@ sim.reset()
 
 调用 `run` 运行仿真，其中：
 
-- `duration`：指定仿真时间步长。
-- `reset`：是否对网络模型中组件进行复位。默认为 `False`。这可实现为一次仿真的不同时间步输入不同的数据。
+- `duration`：指定仿真时间步长。请注意，仿真时需要计算网络的最长路径(delay)，并计入仿真步长中以获取有效的输出。 
+- `reset`：是否对网络模型中组件进行复位。默认为 `False`。这可实现在一次仿真的不同时间步，输入不同的数据。
 
 ## 编译、映射与导出
 
-模型映射将完成网络拓扑解析、映射、分配路由坐标、生成配置文件或帧数据，并最终导出为 `.bin` 或 `.npy` 格式交换文件等一系列工作。首先，例化 `Mapper`，然后传入所构建的网络模型，进行编译与帧导出即可。
+模型映射将完成网络拓扑解析、映射、分配路由坐标、生成配置文件或帧数据，并最终导出为 `.bin` 或 `.npy` 格式交换文件等一系列工作。
+
+例化 `Mapper`，传入所构建的网络模型，进行编译，最后导出帧即可。
 
 ```python
 mapper = pb.Mapper()
 mapper.build(fcnet)
-mapper.compile(weight_bit_optimization=True, grouping_optim_target="both")
+graph_info = mapper.compile(weight_bit_optimization=True, grouping_optim_target="both")
 mapper.export(write_to_file=True, fp="./debug/", format="npy", split_by_coordinate=False, local_chip_addr=(0, 0), export_core_params=False)
 
 # Clear all the results
@@ -639,16 +640,17 @@ mapper.clear()
 
 - `weight_bit_optimization`: 是否对权重精度进行优化处理。例如，将声明时为 INT8 的权重根据实际值当作更小的精度处理（当权重的值均在 [-8, 7] 之间，则可当作 INT4 进行处理）。默认由后端配置项内对应**编译选项**指定（默认开启）。
 - `grouping_optim_target`：指定神经元分组的优化目标，可以为 `"latency"`，`"core"` 或 `"both"`，分别代表以延时/吞吐率、占用核资源为优化目标、或二者兼顾。默认由后端配置项内对应**编译选项**指定（默认为 `both`）。
+- 同时，该方法将返回字典形式的编译后网络的信息。
 
 导出时有如下参数可指定：
 
 - `write_to_file`: 是否将配置帧导出为文件。默认为 `True`。
 - `fp`：导出目录。若未指定，则默认为后端配置选项 `build_directory` 所设置的目录（当前工作目录）。
 - `format`：导出交换文件格式，可以为 `bin`、`npy` 或 `txt`。默认为 `bin`。
-- `split_by_coordinate`：是否将配置帧以每个核坐标进行分割，由此生成的配置帧文件命名为 `config_core1`、`config_core2` 等。默认为 `False`。
+- `split_by_coordinate`：是否将配置帧以每个核坐标进行分割，由此生成的配置帧文件命名为"config_core1"、"config_core2"等。默认为 `False`。
 - `local_chip_addr`：本地芯片地址，元组格式表示。默认为后端配置项 `local_chip_addr` 所设置的默认值。
-- `export_core_params`: 是否导出实际使用核参数至json文件，可直观显示实际使用核的配置信息。默认为 `False`。
-- 同时，将返回模型的配置项字典。
+- `export_core_params`: 是否导出实际使用核参数至json文件，以直观显示实际使用核的配置信息。默认为 `False`。
+- 同时，该方法将返回模型的配置项字典。
 
 ### 后端配置项
 
@@ -666,5 +668,6 @@ BACKEND_CONFIG.output_dir = "./output"
 
 # Set cflag for enabling weight precision optimization
 set_cflag(enable_wp_opt=True, cflag="This is a cflag.")
->>> BACKEND_CONFIG.cflag = {"enable_wp_opt": True, "cflag": "This is a cflag."}
+BACKEND_CONFIG.cflag
+>>> {"enable_wp_opt": True, "cflag": "This is a cflag."}
 ```
