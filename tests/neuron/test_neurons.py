@@ -163,7 +163,7 @@ class TestNeuronBehavior:
             (NTM.MODE_SATURATION, TM.EXCEED_NEGATIVE, RM.MODE_NONRESET, np.array([-3])),
         ],
     )
-    def test_neuronal_reset(self, monkeypatch, ntm, thr_mode, reset_mode, expected):
+    def test_neuronal_reset(self, ntm, thr_mode, reset_mode, expected):
         reset_v = 5
         neg_thres = -3
         pos_thres = 2
@@ -187,10 +187,55 @@ class TestNeuronBehavior:
         )
 
         # Set the threshold mode manually
-        monkeypatch.setattr(n1, "thres_mode", thr_mode)
+        setattr(n1, "thres_mode", thr_mode)
         v_reset = n1._neuronal_reset(np.array((incoming_v,), dtype=np.int32))
 
         assert np.array_equal(v_reset, expected)
+
+    @pytest.mark.parametrize(
+        "incoming_v, expected_v, expected_spike",
+        [
+            (
+                np.array([2**30], dtype=np.int32),
+                np.array([2**30 - 2**30], dtype=np.int32),
+                np.array([False], dtype=np.bool_),
+            ),
+            (
+                np.array([-(2**31)], dtype=np.int32),
+                np.array([0]),  # Reset
+                # Exceeded the negative threshold but no spike
+                np.array([False], dtype=np.bool_),
+            ),
+        ],
+        ids=["positive overflow", "negative overflow"],
+    )
+    def test_vjt_overflow(self, incoming_v, expected_v, expected_spike):
+        pb.FRONTEND_ENV["t"] = 0
+        reset_v = 0
+        neg_thres = -(1 << 29)
+        pos_thres = 1 << 29
+
+        n1 = pb.neuron.Neuron(
+            1,
+            RM.MODE_NORMAL,
+            reset_v,
+            self.lc,
+            self.mask,
+            NTM.MODE_RESET,
+            neg_thres,
+            pos_thres,
+            self.ld,
+            self.lim,
+            self.leak_v,
+            self.sim,
+            self.bt,
+        )
+
+        pb.FRONTEND_ENV["t"] += 1  # Only update when n1 starts working
+        n1.update(incoming_v)
+
+        assert np.array_equal(n1.voltage, expected_v)
+        assert np.array_equal(n1.spike, expected_spike)
 
 
 @pytest.mark.parametrize(

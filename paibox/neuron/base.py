@@ -80,18 +80,15 @@ class MetaNeuron:
         self._v_th_rand = self.init_param(0).astype(np.int32)
 
     def _neuronal_charge(
-        self, x: NDArray[np.int32], vjt_pre: NDArray[np.int32]
-    ) -> NDArray[np.int32]:
+        self, incoming_v: VoltageType, vjt_pre: VoltageType
+    ) -> VoltageType:
         r"""1. Synaptic integration.
-
-        Argument:
-            - x: input to the neuron(s). [1*N]
 
         Description:
             _rho_w_ij: Random synaptic integration enable, 0 or 1.
 
             If synaptic integration mode is deterministic, then
-                `vjt` = `vjt_pre` + \sum^{N-1}_{i=0} * x_i(t) * w_{i,j}
+                `vjt` = `vjt_pre` + \sum^{N-1}_{i=0} * x_i(t) * w_{i,j} (incoming_v)
             else (stochastic)
                 `vjt` = `vjt_pre` + `_rho_w_ij` * \sum^{N-1}_{i=0} * x_i(t) * w_{i,j}
         """
@@ -103,12 +100,12 @@ class MetaNeuron:
                 f"Mode {SIM.MODE_STOCHASTIC.name} not implemented."
             )
         else:
-            if x.ndim == 2:
-                xt = x.sum(axis=1).astype(np.int32)
+            if incoming_v.ndim == 2:
+                _v = incoming_v.sum(axis=1).astype(np.int32)
             else:
-                xt = x
+                _v = incoming_v
 
-        v_charged = np.add(vjt_pre, xt).astype(np.int32)
+        v_charged = np.add(vjt_pre, _v).astype(np.int32)
 
         return v_charged
 
@@ -324,12 +321,12 @@ class MetaNeuron:
         # Reset the auxiliary threshold mode.
         self.thres_mode = self.init_param(TM.NOT_EXCEEDED).astype(np.uint8)
 
-    def _meta_update(
-        self, x: NDArray[np.int32], vjt_pre: VoltageType
+    def update(
+        self, incoming_v: VoltageType, vjt_pre: VoltageType
     ) -> Tuple[SpikeType, VoltageType, NDArray[np.uint8]]:
         """Update at one time step."""
         # 1. Charge
-        v_charged = self._neuronal_charge(x, vjt_pre)
+        v_charged = self._neuronal_charge(incoming_v, vjt_pre)
 
         # 2. Leak & fire
         if self.leaking_comparison is LCM.LEAK_BEFORE_COMP:
@@ -501,21 +498,21 @@ class Neuron(MetaNeuron, NeuDyn):
         if x is None:
             x = self.sum_inputs()
 
-        self._inner_spike, self._vjt, self._debug_thres_mode = super()._meta_update(
-            x, self._vjt
-        )
-
-        # If the membrane potential (30-bit signed) overflows, the chip will automatically handle it.
+        # If the incoming membrane potential (30-bit signed) overflows, the chip will automatically handle it.
         # This behavior needs to be implemented during simulation.
-        self._vjt = np.where(
-            self._vjt > VJT_MAX_LIMIT,
-            self._vjt - VJT_LIMIT,
+        incoming_v = np.where(
+            x > VJT_MAX_LIMIT,
+            x - VJT_LIMIT,
             np.where(
-                self._vjt < VJT_MIN_LIMIT,
-                self._vjt + VJT_LIMIT,
-                self._vjt,
+                x < VJT_MIN_LIMIT,
+                x + VJT_LIMIT,
+                x,
             ),
         ).astype(np.int32)
+
+        self._inner_spike, self._vjt, self._debug_thres_mode = super().update(
+            incoming_v, self._vjt
+        )
 
         idx = (self.timestamp + self.delay_relative - 1) % HwConfig.N_TIMESLOT_MAX
         self.delay_registers[idx] = self._inner_spike.copy()
