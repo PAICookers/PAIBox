@@ -260,8 +260,8 @@ def get_neu_segments(
     """Get the neuron segments by given a optimization strategy.
 
     Args:
-        - optim_target: Target of optimization. 'catagory' strategy intends to optimize the throuhput of nodes. \
-            While 'dense' strategy intends to optimize the consumption of cores.
+        - optim_target: Target of optimization. 'catagory' strategy intends to optimize the throughput of nodes. \
+            The 'dense' strategy intends to optimize the consumption of cores.
     """
     if optim_target == "core":
         seg_slices_dict = _get_neu_slices_opt_core(neu_groups, capacity)

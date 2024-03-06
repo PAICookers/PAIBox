@@ -152,6 +152,7 @@ class PAIGraph:
                 backward node = 1.
             - Only support the in-degree of backward node of input node is 1.
         """
+        # TODO Add pre-check: check whether all neuron nodes are connected by synapses
         # Filter the DG with cycles.
         self.ordered_nodes = toposort(self.succ_dg)
 
