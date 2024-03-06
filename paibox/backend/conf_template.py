@@ -260,8 +260,8 @@ class GraphInfo(TypedDict):
     inherent_timestep: int
     n_core_required: int
     """The actual used cores."""
-    n_core_occupied: int
-    """The occupied cores, including used & wasted."""
+    # n_core_occupied: int
+    # """The occupied cores, including used & wasted."""
     extras: NotRequired[Dict[str, Any]]
 
 

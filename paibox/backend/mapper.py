@@ -75,6 +75,7 @@ class Mapper:
 
         self.core_plm_config: CorePlacementInfo = dict()
         self.graph_info: GraphInfo
+        self.n_core_required = 0
 
         self.clear()
 
@@ -118,7 +119,21 @@ class Mapper:
         *,
         weight_bit_optimization: Optional[bool] = None,
         grouping_optim_target: Optional[Literal["latency", "core", "both"]] = None,
-    ) -> None:
+    ) -> GraphInfo:
+        """Compile the network with optimization options.
+
+        Args:
+            - weight_bit_optimization: whether to optimize weight precision. For example, weights declared as   \
+                INT8 are treated as smaller precision based on their actual values (when the weight are all     \
+                between [-8, 7], they can be treated as INT4). By default, it is specified by the corresponding \
+                compile option in the backend configuration item (enabled by default).
+            - grouping_optim_target: specify the optimization goal of neuron grouping, which can be `latency`,  \
+                `core` or `both`, which respectively represent the optimization goal of delay/throughput,       \
+                occupied cores, or both. The default is specified by the corresponding compilation option in the\
+                backend configuration item (`both` by default).
+
+        Return: compiled network information in dictionary form.
+        """
         if weight_bit_optimization is not None:
             set_cflag(enable_wp_opt=weight_bit_optimization)
 
@@ -141,7 +156,7 @@ class Mapper:
         self.core_allocation()
 
         """5. Export parameters."""
-        self.config_export()
+        return self.config_export()
 
     def build_core_blocks(self) -> None:
         """Build core blocks based on grouped edges.
@@ -251,6 +266,7 @@ class Mapper:
             members=self.core_plm_config,  # The configuration of physical cores is in `core_plm_config`
             inherent_timestep=self.graph.inherent_timestep,
             n_core_required=self.n_core_required,
+            # n_core_occupied=self.n_core_occupied,
             extras={"name": self.graph.graph_name_repr},
         )
 
