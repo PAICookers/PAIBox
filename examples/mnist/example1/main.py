@@ -1,9 +1,10 @@
-from pathlib import Path
 import argparse
-import paibox as pb
-import numpy as np
+from pathlib import Path
 
+import numpy as np
 from model import fcnet_2layer_dual_port
+
+import paibox as pb
 
 
 def getNetParam():

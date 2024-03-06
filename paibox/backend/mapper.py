@@ -121,7 +121,7 @@ class Mapper:
         grouping_optim_target: Optional[Literal["latency", "core", "both"]] = None,
     ) -> GraphInfo:
         """Compile the network with optimization options.
-        
+
         Args:
             - weight_bit_optimization: whether to optimize weight precision. For example, weights declared as   \
                 INT8 are treated as smaller precision based on their actual values (when the weight are all     \
@@ -131,7 +131,7 @@ class Mapper:
                 `core` or `both`, which respectively represent the optimization goal of delay/throughput,       \
                 occupied cores, or both. The default is specified by the corresponding compilation option in the\
                 backend configuration item (`both` by default).
-        
+
         Return: compiled network information in dictionary form.
         """
         if weight_bit_optimization is not None:
