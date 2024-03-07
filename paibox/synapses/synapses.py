@@ -18,18 +18,10 @@ RIGISTER_MASTER_KEY_FORMAT = "{0}.output"
 
 
 class Synapses:
-    """A map connected between neurons of the previous `Node`, \
-        and axons of the following `Node`.
-
-    User can use connectivity matrix or COO to represent the \
-        connectivity of synapses.
-    """
-
     def __init__(
         self,
         source: Union[NeuDyn, InputProj],
         dest: NeuDyn,
-        /,
         conn_type: ConnType,
     ) -> None:
         """
@@ -43,7 +35,7 @@ class Synapses:
         self._check(conn_type)
 
     def _check(self, conn_type: ConnType) -> None:
-        if conn_type is ConnType.One2One or conn_type is ConnType.BYPASS:
+        if conn_type is ConnType.One2One or conn_type is ConnType.Identity:
             if self.num_in != self.num_out:
                 raise ShapeError(
                     f"The number of source & destination neurons must "
@@ -124,8 +116,13 @@ class NoDecay(SynSys):
 
         if conn_type is ConnType.One2One:
             self.comm = OneToOne(self.num_in, weights)
-        elif conn_type is ConnType.BYPASS:
-            self.comm = ByPass(self.num_in)
+        elif conn_type is ConnType.Identity:
+            if not isinstance(weights, (int, np.integer)):
+                raise TypeError(
+                    f"Expected type int, np.integer, but got type {type(weights)}"
+                )
+
+            self.comm = Identity(self.num_in, weights)
         elif conn_type is ConnType.All2All:
             self.comm = AllToAll((self.num_in, self.num_out), weights)
         else:  # MatConn
@@ -161,7 +158,7 @@ class NoDecay(SynSys):
 
     def reset_state(self, *args, **kwargs) -> None:
         # TODO Add other initialization methods in the future.
-        self.reset()  # Call reset of `StatusMemory`.
+        self.reset_memory()  # Call reset of `StatusMemory`.
 
     @property
     def output(self) -> NDArray[np.int32]:
@@ -179,11 +176,3 @@ class NoDecay(SynSys):
     def connectivity(self):
         """The connectivity matrix in `np.ndarray` format."""
         return self.comm.connectivity
-
-    def __repr__(self) -> str:
-        name = self.__class__.__name__
-        return (
-            f"{name}(name={self.name}, \n"
-            f'{" " * len(name)} source={self.source}, \n'
-            f'{" " * len(name)} dest={self.dest})'
-        )
