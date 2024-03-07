@@ -18,7 +18,7 @@ class Nested_Net_level_1(pb.DynSysGroup):
 
         w = np.random.randint(-128, 127, (10, 10), dtype=np.int8)
         self.syn = pb.NoDecay(
-            self.pre_n, self.post_n, conn_type=pb.synapses.ConnType.All2All, weights=w
+            self.pre_n, self.post_n, conn_type=pb.SynConnType.All2All, weights=w
         )
 
 
@@ -114,12 +114,12 @@ class TestNetwork_Components_Discover:
                 self.s1 = pb.NoDecay(
                     self.inp1,
                     subnet1.pre_n,
-                    conn_type=pb.synapses.ConnType.One2One,
+                    conn_type=pb.SynConnType.One2One,
                 )
                 self.s2 = pb.NoDecay(
                     subnet1.post_n,
                     subnet2.pre_n,
-                    conn_type=pb.synapses.ConnType.One2One,
+                    conn_type=pb.SynConnType.One2One,
                 )
 
                 super().__init__(subnet1, subnet2)
@@ -159,7 +159,7 @@ class TestNetwork_Components_Discover:
                 self.s1 = pb.NoDecay(
                     n,
                     subnet.pre_n,
-                    conn_type=pb.synapses.ConnType.One2One,
+                    conn_type=pb.SynConnType.One2One,
                 )
 
                 super().__init__(subnet)
@@ -175,7 +175,7 @@ class TestNetwork_Components_Discover:
                 self.s1 = pb.NoDecay(
                     self.inp1,
                     self.n1,
-                    conn_type=pb.synapses.ConnType.One2One,
+                    conn_type=pb.SynConnType.One2One,
                 )
 
                 super().__init__(net_level2)
@@ -241,8 +241,8 @@ class TestNetwork_Components_Oprations:
     def test_add_components(self, build_NotNested_Net_Exp):
         net: pb.Network = build_NotNested_Net_Exp
         n3 = pb.LIF((3,), 10)
-        s1 = pb.synapses.NoDecay(net.n1, n3, conn_type=pb.synapses.ConnType.All2All)
-        s2 = pb.synapses.NoDecay(net.n2, n3, conn_type=pb.synapses.ConnType.All2All)
+        s1 = pb.synapses.NoDecay(net.n1, n3, conn_type=pb.SynConnType.All2All)
+        s2 = pb.synapses.NoDecay(net.n2, n3, conn_type=pb.SynConnType.All2All)
 
         with pytest.raises(ValueError):
             net.diconnect_neudyn_succ(n3)
@@ -307,10 +307,10 @@ class TestNetwork_Components_Oprations:
         # Insert n3 between n_list[0] & n_list[1]
         n_insert = pb.LIF((3,), 10)
         s_insert1 = pb.synapses.NoDecay(
-            net.n_list[0], n_insert, conn_type=pb.synapses.ConnType.All2All
+            net.n_list[0], n_insert, conn_type=pb.SynConnType.All2All
         )
         s_insert2 = pb.synapses.NoDecay(
-            n_insert, net.n_list[1], conn_type=pb.synapses.ConnType.All2All
+            n_insert, net.n_list[1], conn_type=pb.SynConnType.All2All
         )
 
         # Replace s1 with s_insert1->n_insert->s_insert2
@@ -367,7 +367,7 @@ class TestNetwork_Components_Oprations:
 def test_Sequential_build():
     n1 = pb.neuron.TonicSpiking(10, fire_step=3)
     n2 = pb.neuron.TonicSpiking(10, fire_step=5)
-    s1 = pb.synapses.NoDecay(n1, n2, conn_type=pb.synapses.ConnType.All2All)
+    s1 = pb.synapses.NoDecay(n1, n2, conn_type=pb.SynConnType.All2All)
     sequential = pb.network.Sequential(n1, s1, n2)
 
     assert isinstance(sequential, pb.network.Sequential)
@@ -381,7 +381,7 @@ def test_Sequential_build():
             self.n1 = pb.neuron.TonicSpiking(5, fire_step=3)
             self.n2 = pb.neuron.TonicSpiking(5, fire_step=5)
             self.s1 = pb.synapses.NoDecay(
-                self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All
+                self.n1, self.n2, conn_type=pb.SynConnType.All2All
             )
 
     seq = Seq()
@@ -393,9 +393,9 @@ def test_Sequential_build():
 def test_Sequential_getitem():
     n1 = pb.neuron.TonicSpiking(10, fire_step=3, name="n1")
     n2 = pb.neuron.TonicSpiking(10, fire_step=5, name="n2")
-    s1 = pb.synapses.NoDecay(n1, n2, conn_type=pb.synapses.ConnType.All2All)
+    s1 = pb.synapses.NoDecay(n1, n2, conn_type=pb.SynConnType.All2All)
     n3 = pb.neuron.TonicSpiking(10, fire_step=5, name="n3")
-    s2 = pb.synapses.NoDecay(n2, n3, conn_type=pb.synapses.ConnType.All2All)
+    s2 = pb.synapses.NoDecay(n2, n3, conn_type=pb.SynConnType.All2All)
     sequential = pb.network.Sequential(n1, s1, n2, s2, n3, name="Sequential_2")
 
     assert isinstance(sequential.children, NodeDict)

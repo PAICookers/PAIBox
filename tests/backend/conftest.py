@@ -98,13 +98,13 @@ class NetForTest1(pb.Network):
         self.n2 = pb.TonicSpiking(1200, 3, name="n2_1", tick_wait_start=2)
         self.n3 = pb.TonicSpiking(800, 4, name="n3_1", tick_wait_start=3)
         self.s1 = pb.NoDecay(
-            self.inp1, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s1_1"
+            self.inp1, self.n1, conn_type=pb.SynConnType.All2All, name="s1_1"
         )
         self.s2 = pb.NoDecay(
-            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s2_1"
+            self.n1, self.n2, conn_type=pb.SynConnType.All2All, name="s2_1"
         )
         self.s3 = pb.NoDecay(
-            self.n2, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s3_1"
+            self.n2, self.n3, conn_type=pb.SynConnType.All2All, name="s3_1"
         )
 
 
@@ -121,13 +121,13 @@ class NetForTest2(pb.Network):
         self.n1 = pb.TonicSpiking(30, 3, name="n1_2", tick_wait_start=1)
         self.n2 = pb.TonicSpiking(20, 3, name="n2_2", tick_wait_start=2)
         self.s1 = pb.NoDecay(
-            self.inp1, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s1_2"
+            self.inp1, self.n1, conn_type=pb.SynConnType.All2All, name="s1_2"
         )
         self.s2 = pb.NoDecay(
-            self.inp2, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s2_2"
+            self.inp2, self.n1, conn_type=pb.SynConnType.All2All, name="s2_2"
         )
         self.s3 = pb.NoDecay(
-            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s3_2"
+            self.n1, self.n2, conn_type=pb.SynConnType.All2All, name="s3_2"
         )
 
 
@@ -146,19 +146,19 @@ class NetForTest3(pb.Network):
         self.n4 = pb.TonicSpiking(300, 4, name="n4", tick_wait_start=2)
 
         self.s1 = pb.NoDecay(
-            self.inp, self.n1, conn_type=pb.synapses.ConnType.One2One, name="s1"
+            self.inp, self.n1, conn_type=pb.SynConnType.One2One, name="s1"
         )
         self.s2 = pb.NoDecay(
-            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s2"
+            self.n1, self.n2, conn_type=pb.SynConnType.All2All, name="s2"
         )
         self.s3 = pb.NoDecay(
-            self.n2, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s3"
+            self.n2, self.n3, conn_type=pb.SynConnType.All2All, name="s3"
         )
         self.s4 = pb.NoDecay(
-            self.n1, self.n4, conn_type=pb.synapses.ConnType.All2All, name="s4"
+            self.n1, self.n4, conn_type=pb.SynConnType.All2All, name="s4"
         )
         self.s5 = pb.NoDecay(
-            self.n4, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s5"
+            self.n4, self.n2, conn_type=pb.SynConnType.All2All, name="s5"
         )
 
 
@@ -176,19 +176,19 @@ class NetForTest4(pb.Network):
         self.n3 = pb.TonicSpiking(400, 4, name="n3", tick_wait_start=2)
         self.n4 = pb.TonicSpiking(400, 4, name="n4", tick_wait_start=3)
         self.s1 = pb.NoDecay(
-            self.inp1, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s1"
+            self.inp1, self.n1, conn_type=pb.SynConnType.All2All, name="s1"
         )
         self.s2 = pb.NoDecay(
-            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s2"
+            self.n1, self.n2, conn_type=pb.SynConnType.All2All, name="s2"
         )
         self.s3 = pb.NoDecay(
-            self.n1, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s3"
+            self.n1, self.n3, conn_type=pb.SynConnType.All2All, name="s3"
         )
         self.s4 = pb.NoDecay(
-            self.n2, self.n4, conn_type=pb.synapses.ConnType.One2One, name="s4"
+            self.n2, self.n4, conn_type=pb.SynConnType.One2One, name="s4"
         )
         self.s5 = pb.NoDecay(
-            self.n3, self.n4, conn_type=pb.synapses.ConnType.One2One, name="s5"
+            self.n3, self.n4, conn_type=pb.SynConnType.One2One, name="s5"
         )
 
 
@@ -206,13 +206,13 @@ class Network_with_multi_inodes(pb.Network):
         self.n2 = pb.TonicSpiking(20, 3, name="n2", tick_wait_start=2)
 
         self.s1 = pb.NoDecay(
-            self.inp1, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s1"
+            self.inp1, self.n1, conn_type=pb.SynConnType.All2All, name="s1"
         )
         self.s2 = pb.NoDecay(
-            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s2"
+            self.n1, self.n2, conn_type=pb.SynConnType.All2All, name="s2"
         )
         self.s3 = pb.NoDecay(
-            self.inp2, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s3"
+            self.inp2, self.n2, conn_type=pb.SynConnType.All2All, name="s3"
         )
 
 
@@ -230,19 +230,19 @@ class Network_with_multi_onodes(pb.Network):
         self.n3 = pb.TonicSpiking(30, 4, name="n3", tick_wait_start=2)
 
         self.s1 = pb.NoDecay(
-            self.inp1, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s1"
+            self.inp1, self.n1, conn_type=pb.SynConnType.All2All, name="s1"
         )
         self.s2 = pb.NoDecay(
-            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s2"
+            self.n1, self.n2, conn_type=pb.SynConnType.All2All, name="s2"
         )
         self.s3 = pb.NoDecay(
-            self.n1, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s3"
+            self.n1, self.n3, conn_type=pb.SynConnType.All2All, name="s3"
         )
 
         if connect_n4:
             self.n4 = pb.TonicSpiking(50, 4, name="n4", tick_wait_start=3)
             self.s4 = pb.NoDecay(
-                self.n3, self.n4, conn_type=pb.synapses.ConnType.All2All, name="s4"
+                self.n3, self.n4, conn_type=pb.SynConnType.All2All, name="s4"
             )
 
 
@@ -261,16 +261,16 @@ class Network_with_multi_inodes_onodes(pb.Network):
         self.n3 = pb.TonicSpiking(30, 3, name="n3", tick_wait_start=2)
 
         self.s1 = pb.NoDecay(
-            self.inp1, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s1"
+            self.inp1, self.n1, conn_type=pb.SynConnType.All2All, name="s1"
         )
         self.s2 = pb.NoDecay(
-            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s2"
+            self.n1, self.n2, conn_type=pb.SynConnType.All2All, name="s2"
         )
         self.s3 = pb.NoDecay(
-            self.inp2, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s3"
+            self.inp2, self.n1, conn_type=pb.SynConnType.All2All, name="s3"
         )
         self.s4 = pb.NoDecay(
-            self.n1, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s4"
+            self.n1, self.n3, conn_type=pb.SynConnType.All2All, name="s4"
         )
 
 
@@ -293,7 +293,7 @@ class Network_with_N_onodes(pb.Network):
                 pb.NoDecay(
                     self.inp1,
                     self.n_list[i],
-                    conn_type=pb.synapses.ConnType.All2All,
+                    conn_type=pb.SynConnType.All2All,
                     name=f"s_{i}",
                 )
             )
@@ -321,35 +321,35 @@ class Network_with_Branches_4bit(pb.Network):
             self.inp1,
             self.n1,
             weights=rng.randint(-8, 8, size=(10, 10), dtype=np.int8),
-            conn_type=pb.synapses.ConnType.MatConn,
+            conn_type=pb.SynConnType.MatConn,
             name="s1",
         )
         self.s2 = pb.NoDecay(
             self.n1,
             self.n2,
             weights=rng.randint(-8, 8, size=(10, 10), dtype=np.int8),
-            conn_type=pb.synapses.ConnType.MatConn,
+            conn_type=pb.SynConnType.MatConn,
             name="s2",
         )
         self.s3 = pb.NoDecay(
             self.n1,
             self.n3,
             weights=rng.randint(-8, 8, size=(10, 10), dtype=np.int8),
-            conn_type=pb.synapses.ConnType.MatConn,
+            conn_type=pb.SynConnType.MatConn,
             name="s3",
         )
         self.s4 = pb.NoDecay(
             self.n2,
             self.n4,
             weights=rng.randint(-8, 8, size=(10, 4), dtype=np.int8),
-            conn_type=pb.synapses.ConnType.MatConn,
+            conn_type=pb.SynConnType.MatConn,
             name="s4",
         )
         self.s5 = pb.NoDecay(
             self.n3,
             self.n4,
             weights=rng.randint(-8, 8, size=(10, 4), dtype=np.int8),
-            conn_type=pb.synapses.ConnType.MatConn,
+            conn_type=pb.SynConnType.MatConn,
             name="s5",
         )
 
@@ -373,35 +373,35 @@ class Network_with_Branches_8bit(pb.Network):
             self.inp1,
             self.n1,
             weights=rng.randint(-128, 128, size=(10, 10), dtype=np.int8),
-            conn_type=pb.synapses.ConnType.MatConn,
+            conn_type=pb.SynConnType.MatConn,
             name="s1",
         )
         self.s2 = pb.NoDecay(
             self.n1,
             self.n2,
             weights=rng.randint(-128, 128, size=(10, 10), dtype=np.int8),
-            conn_type=pb.synapses.ConnType.MatConn,
+            conn_type=pb.SynConnType.MatConn,
             name="s2",
         )
         self.s3 = pb.NoDecay(
             self.n1,
             self.n3,
             weights=rng.randint(-128, 128, size=(10, 10), dtype=np.int8),
-            conn_type=pb.synapses.ConnType.MatConn,
+            conn_type=pb.SynConnType.MatConn,
             name="s3",
         )
         self.s4 = pb.NoDecay(
             self.n2,
             self.n4,
             weights=rng.randint(-128, 128, size=(10, 4), dtype=np.int8),
-            conn_type=pb.synapses.ConnType.MatConn,
+            conn_type=pb.SynConnType.MatConn,
             name="s4",
         )
         self.s5 = pb.NoDecay(
             self.n3,
             self.n4,
             weights=rng.randint(-128, 128, size=(10, 4), dtype=np.int8),
-            conn_type=pb.synapses.ConnType.MatConn,
+            conn_type=pb.SynConnType.MatConn,
             name="s5",
         )
 
@@ -425,10 +425,10 @@ class Network_with_container(pb.DynSysGroup):
         self.n_list = n_list
 
         self.s1 = pb.synapses.NoDecay(
-            n_list[0], n_list[1], conn_type=pb.synapses.ConnType.All2All
+            n_list[0], n_list[1], conn_type=pb.SynConnType.All2All
         )
         self.s2 = pb.synapses.NoDecay(
-            n_list[1], n_list[2], conn_type=pb.synapses.ConnType.All2All
+            n_list[1], n_list[2], conn_type=pb.SynConnType.All2All
         )
 
         self.probe1 = pb.Probe(self.n_list[1], "output", name="n2_out")

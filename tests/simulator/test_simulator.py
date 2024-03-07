@@ -18,7 +18,7 @@ class Net1(pb.DynSysGroup):
             self.inp,
             self.n1,
             weights=np.random.randint(-128, 128, size=(n_neuron,), dtype=np.int8),
-            conn_type=pb.synapses.ConnType.One2One,
+            conn_type=pb.SynConnType.One2One,
         )
         self.s1 = pb.NoDecay(
             self.n1,
@@ -26,7 +26,7 @@ class Net1(pb.DynSysGroup):
             weights=np.random.randint(
                 -128, 128, size=(n_neuron, n_neuron), dtype=np.int8
             ),
-            conn_type=pb.synapses.ConnType.All2All,
+            conn_type=pb.SynConnType.All2All,
         )
 
         # Probes inside
@@ -54,13 +54,13 @@ class Net2_with_multi_inpproj_func(pb.DynSysGroup):
             self.inp1,
             self.n1,
             weights=np.ones((n,), dtype=np.int8),
-            conn_type=pb.synapses.ConnType.One2One,
+            conn_type=pb.SynConnType.One2One,
         )
         self.s1 = pb.NoDecay(
             self.inp2,
             self.n1,
             weights=np.ones((n,), dtype=np.int8),
-            conn_type=pb.synapses.ConnType.One2One,
+            conn_type=pb.SynConnType.One2One,
         )
 
         # Probes inside
@@ -83,13 +83,13 @@ class Net2_with_multi_inpproj_encoder(pb.DynSysGroup):
             self.inp1,
             self.n1,
             weights=np.ones((n,), dtype=np.int8),
-            conn_type=pb.synapses.ConnType.One2One,
+            conn_type=pb.SynConnType.One2One,
         )
         self.s1 = pb.NoDecay(
             self.inp2,
             self.n1,
             weights=np.ones((n,), dtype=np.int8),
-            conn_type=pb.synapses.ConnType.One2One,
+            conn_type=pb.SynConnType.One2One,
         )
 
         # Probes inside
@@ -109,7 +109,7 @@ class Nested_Net_level_1(pb.DynSysGroup):
 
         w = np.ones((10, 10), dtype=np.int8)
         self.syn = pb.NoDecay(
-            self.pre_n, self.post_n, conn_type=pb.synapses.ConnType.All2All, weights=w
+            self.pre_n, self.post_n, conn_type=pb.SynConnType.All2All, weights=w
         )
 
         self.probe_in_subnet = pb.Probe(self.pre_n, "spike")
@@ -127,12 +127,12 @@ class Nested_Net_level_2(pb.DynSysGroup):
         self.s1 = pb.NoDecay(
             self.inp1,
             self.n1,
-            conn_type=pb.synapses.ConnType.One2One,
+            conn_type=pb.SynConnType.One2One,
         )
         self.s2 = pb.NoDecay(
             self.n1,
             subnet.pre_n,
-            conn_type=pb.synapses.ConnType.One2One,
+            conn_type=pb.SynConnType.One2One,
         )
 
         self.probe1 = pb.Probe(self.inp1, "spike")

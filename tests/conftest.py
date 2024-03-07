@@ -13,7 +13,7 @@ class Input_to_N1(pb.DynSysGroup):
         self.inp1 = pb.InputProj(1, shape_out=(1,))
         self.n1 = pb.TonicSpiking(1, 3, tick_wait_start=2, delay=1)
         self.s1 = pb.NoDecay(
-            self.inp1, self.n1, weights=1, conn_type=pb.synapses.ConnType.One2One
+            self.inp1, self.n1, weights=1, conn_type=pb.SynConnType.One2One
         )
 
         self.probe1 = pb.Probe(self.s1, "output", name="s2_out")
@@ -34,10 +34,10 @@ class NotNested_Net_Exp(pb.DynSysGroup):
         self.n2 = pb.TonicSpiking(1, 2, tick_wait_start=3)
 
         self.s1 = pb.NoDecay(
-            self.inp1, self.n1, weights=1, conn_type=pb.synapses.ConnType.One2One
+            self.inp1, self.n1, weights=1, conn_type=pb.SynConnType.One2One
         )
         self.s2 = pb.NoDecay(
-            self.n1, self.n2, weights=1, conn_type=pb.synapses.ConnType.All2All
+            self.n1, self.n2, weights=1, conn_type=pb.SynConnType.All2All
         )
 
         self.probe1 = pb.Probe(self.s2, "output", name="s2_out")
@@ -70,10 +70,10 @@ class Network_with_container(pb.DynSysGroup):
         self.n_list = n_list
 
         self.s1 = pb.synapses.NoDecay(
-            n_list[0], n_list[1], conn_type=pb.synapses.ConnType.All2All
+            n_list[0], n_list[1], conn_type=pb.SynConnType.All2All
         )
         self.s2 = pb.synapses.NoDecay(
-            n_list[1], n_list[2], conn_type=pb.synapses.ConnType.All2All
+            n_list[1], n_list[2], conn_type=pb.SynConnType.All2All
         )
 
         self.probe1 = pb.Probe(self.n_list[1], "output", name="n2_out")
@@ -91,15 +91,15 @@ class MoreInput_Net(pb.DynSysGroup):
         self.n1 = pb.neuron.TonicSpiking(2, 3)
         self.n2 = pb.neuron.TonicSpiking(2, 3)
         self.s1 = pb.synapses.NoDecay(
-            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All
+            self.n1, self.n2, conn_type=pb.SynConnType.All2All
         )
         self.n3 = pb.neuron.TonicSpiking(2, 4)
         self.n4 = pb.neuron.TonicSpiking(2, 3)
         self.s2 = pb.synapses.NoDecay(
-            self.n2, self.n4, conn_type=pb.synapses.ConnType.All2All
+            self.n2, self.n4, conn_type=pb.SynConnType.All2All
         )
         self.s3 = pb.synapses.NoDecay(
-            self.n3, self.n4, conn_type=pb.synapses.ConnType.All2All
+            self.n3, self.n4, conn_type=pb.SynConnType.All2All
         )
 
 
@@ -118,16 +118,16 @@ class Network_with_multi_inodes_onodes(pb.Network):
         self.n3 = pb.TonicSpiking(30, 3, name="n3", tick_wait_start=2)
 
         self.s1 = pb.NoDecay(
-            self.inp1, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s1"
+            self.inp1, self.n1, conn_type=pb.SynConnType.All2All, name="s1"
         )
         self.s2 = pb.NoDecay(
-            self.n1, self.n2, conn_type=pb.synapses.ConnType.All2All, name="s2"
+            self.n1, self.n2, conn_type=pb.SynConnType.All2All, name="s2"
         )
         self.s3 = pb.NoDecay(
-            self.inp2, self.n1, conn_type=pb.synapses.ConnType.All2All, name="s3"
+            self.inp2, self.n1, conn_type=pb.SynConnType.All2All, name="s3"
         )
         self.s4 = pb.NoDecay(
-            self.n1, self.n3, conn_type=pb.synapses.ConnType.All2All, name="s4"
+            self.n1, self.n3, conn_type=pb.SynConnType.All2All, name="s4"
         )
 
 
