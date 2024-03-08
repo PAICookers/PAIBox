@@ -8,7 +8,7 @@
     <a href="https://github.com/PAICookers/PAIBox/blob/master/pyproject.toml">
         <img src="https://img.shields.io/pypi/pyversions/paibox">
     </a>
-    <a href="https://github.com/PAICookers/PAIBox/releases/tag/v1.0.0a3">
+    <a href="https://github.com/PAICookers/PAIBox/releases/tag/v1.0.0a4">
         <img src="https://img.shields.io/github/v/release/PAICookers/PAIBox?include_prereleases&color=orange">
     </a>
     <a href="https://www.codefactor.io/repository/github/PAICookers/PAIBox">

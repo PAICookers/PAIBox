@@ -194,7 +194,7 @@ class StatusMemory(MixIn):
         self._memories[name] = value
         self.set_reset_value(name, value)
 
-    def reset(self, name: Optional[str] = None) -> None:
+    def reset_memory(self, name: Optional[str] = None) -> None:
         if isinstance(name, str):
             if name in self._memories:
                 self._memories[name] = deepcopy(self._memories_rv[name])

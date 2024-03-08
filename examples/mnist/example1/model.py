@@ -13,13 +13,13 @@ class fcnet_2layer_dual_port(pb.Network):
             self.i1,
             self.n1,
             weights=weight1[:392],
-            conn_type=pb.synapses.ConnType.All2All,
+            conn_type=pb.SynConnType.All2All,
         )
         self.s2 = pb.synapses.NoDecay(
             self.i2,
             self.n1,
             weights=weight1[392:],
-            conn_type=pb.synapses.ConnType.All2All,
+            conn_type=pb.SynConnType.All2All,
         )
 
         # tick_wait_start = 2 for second layer
@@ -33,13 +33,13 @@ class fcnet_2layer_dual_port(pb.Network):
             self.n1,
             self.n2,
             weights=weight2[:, :5],
-            conn_type=pb.synapses.ConnType.All2All,
+            conn_type=pb.SynConnType.All2All,
         )
         self.s4 = pb.synapses.NoDecay(
             self.n1,
             self.n3,
             weights=weight2[:, 5:],
-            conn_type=pb.synapses.ConnType.All2All,
+            conn_type=pb.SynConnType.All2All,
         )
 
         self.probe1 = pb.simulator.Probe(target=self.n2, attr="spike")

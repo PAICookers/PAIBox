@@ -11,6 +11,7 @@ from .projection import InputProj as InputProj
 from .simulator import Probe as Probe
 from .simulator import Simulator as Simulator
 from .synapses import NoDecay as NoDecay
+from .synapses import SynConnType as SynConnType
 
 __all__ = [
     "Mapper",
@@ -20,6 +21,7 @@ __all__ = [
     "NodeList",
     "InputProj",
     "Simulator",
+    "SynConnType",
     "Probe",
     "BACKEND_CONFIG",
     "FRONTEND_ENV",

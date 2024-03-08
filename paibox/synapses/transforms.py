@@ -6,10 +6,10 @@ from numpy.typing import NDArray
 from paicorelib import WeightPrecision as WP
 
 from paibox.exceptions import ShapeError
-from paibox.types import DataArrayType, WeightType
+from paibox.types import DataArrayType, IntScalarType, WeightType
 from paibox.utils import is_shape
 
-__all__ = ["ConnType", "OneToOne", "ByPass", "AllToAll", "MaskedLinear"]
+__all__ = ["ConnType", "OneToOne", "AllToAll", "Identity", "MaskedLinear"]
 
 
 MAX_INT1 = np.int8(1)
@@ -30,7 +30,8 @@ class ConnType(Enum):
     One2One = auto()
     """One-to-one connection."""
 
-    BYPASS = auto()
+    Identity = auto()
+    """Identity connection with scaling factor."""
 
     All2All = auto()
     """All-to-all connection."""
@@ -126,15 +127,14 @@ class OneToOne(Transform):
         )
 
 
-class ByPass(OneToOne):
-    def __init__(self, num: int) -> None:
+class Identity(OneToOne):
+    def __init__(self, num: int, scaling_factor: IntScalarType = 1) -> None:
         """
         Arguments:
             - num: number of neurons.
-
-        NOTE: The weights are always 1.
+            - scaling_factor: scaling factor.
         """
-        super().__init__(num, 1)
+        super().__init__(num, scaling_factor)
 
 
 class AllToAll(Transform):

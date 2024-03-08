@@ -68,7 +68,7 @@ class InputProj(Projection, TimeRelatedNode):
     def update(self, **kwargs) -> SpikeType:
         _spike = self._get_neumeric_input(**kwargs)
 
-        if isinstance(_spike, (int, np.integer)):
+        if isinstance(_spike, (int, np.bool_, np.integer)):
             self._inner_spike = np.full((self.num_out,), _spike, dtype=np.bool_)
         elif isinstance(_spike, np.ndarray):
             try:
@@ -80,14 +80,14 @@ class InputProj(Projection, TimeRelatedNode):
         else:
             # Should be never
             raise TypeError(
-                f"Excepted type int, np.integer or np.ndarray, "
+                f"Excepted type int, np.bool_, np.integer or np.ndarray, "
                 f"but got {_spike}, type {type(_spike)}."
             )
 
         return self._inner_spike
 
     def reset_state(self) -> None:
-        self.reset()  # Call reset of `StatusMemory`.
+        self.reset_memory()  # Call reset of `StatusMemory`.
 
     def _get_neumeric_input(self, **kwargs):
         # If `_func_input` is `None` while `input` is numeric, use `input` as input to the projection.
@@ -130,9 +130,9 @@ class InputProj(Projection, TimeRelatedNode):
     @input.setter
     def input(self, value: DataType) -> None:
         """Set the input at the beginning of running the simulation."""
-        if not isinstance(value, (int, np.integer, np.ndarray)):
+        if not isinstance(value, (int, np.bool_, np.integer, np.ndarray)):
             raise TypeError(
-                f"Excepted type int, np.integer or np.ndarray, "
+                f"Excepted type int, np.bool_, np.integer or np.ndarray, "
                 f"but got {value}, type {type(value)}"
             )
 

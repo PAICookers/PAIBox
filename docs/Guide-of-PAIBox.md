@@ -18,7 +18,7 @@ poetry install
 python = "^3.8"
 pydantic = "^2.0"
 numpy = "^1.23.0"
-paicorelib = "0.0.12"
+paicorelib = "0.0.13"
 ```
 
 通过pip安装PAIBox：
@@ -72,8 +72,9 @@ n1 = pb.neuron.IF(shape=10, threshold=127, reset_v=0, keep_shape=False, delay=1,
 - `reset_v`：神经元的重置膜电位。
 - `keep_shape`：是否在仿真记录数据时保持尺寸信息，默认为 `False`。实际进行运算的尺寸仍视为一维。
 - `delay`：设定该神经元组输出的延迟。默认为1，即本时间步的计算结果，**下一时间步**传递至后继神经元。
-- `tick_wait_start`: 设定该神经元组在第 `N` 个时间步时启动，0表示不启动。默认为1。
-- `tick_wait_end`: 设定该神经元组持续工作 `M` 个时间步，0表示**永远持续工作**。默认为0。
+- `tick_wait_start`：设定该神经元组在第 `N` 个时间步时启动，0表示不启动。默认为1。
+- `tick_wait_end`：设定该神经元组持续工作 `M` 个时间步，0表示**永远持续工作**。默认为0。
+- `unrolling_factor`：该参数与后端相关。展开因子表示神经元将被展开，部署至更多的物理核上，以降低延迟，并提高吞吐率。
 - `name`：可选，为该对象命名。
 
 #### LIF神经元
@@ -81,10 +82,10 @@ n1 = pb.neuron.IF(shape=10, threshold=127, reset_v=0, keep_shape=False, delay=1,
 LIF神经元实现了“泄露-积分-发射”神经元模型，其调用方式及参数如下：
 
 ```python
-n1 = pb.neuron.LIF(shape=128, threshold=127, reset_v=0, leaky_v=-1, keep_shape=False, name='n1')
+n1 = pb.neuron.LIF(shape=128, threshold=127, reset_v=0, leak_v=-1, keep_shape=False, name='n1')
 ```
 
-- `leaky_v`：LIF神经元的泄露值（有符号）。其他参数含义与IF神经元相同。
+- `leak_v`：LIF神经元的泄露值（有符号）。其他参数含义与IF神经元相同。
 
 #### Tonic Spiking神经元
 
@@ -178,7 +179,7 @@ print(output)
 PAIBox中，突触用于连接不同神经元组，并包含了连接关系以及权重信息。以全连接类型的突触为实例：
 
 ```python
-s1= pb.synapses.NoDecay(source=n1, dest=n2, weights=weight1, conn_type=pb.synapses.ConnType.All2All, name='s1')
+s1= pb.synapses.NoDecay(source=n1, dest=n2, weights=weight1, conn_type=pb.SynConnType.All2All, name='s1')
 ```
 
 其中：
@@ -210,7 +211,7 @@ s1= pb.synapses.NoDecay(source=n1, dest=n2, weights=weight1, conn_type=pb.synaps
 
 两组神经元之间依次单对单连接，这要求**前向与后向神经元数目相同**。其权重 `weights` 主要有以下几种输入类型：
 
-- 标量：默认为1。这表示前层的各个神经元输出线性地输入到后层神经元。这种情况等同于 `ConnType.BYPASS` 旁路连接。
+- 标量：默认为1。这表示前层的各个神经元输出线性地输入到后层神经元，即 $\lambda\cdot\mathbf{I}$
 
   ```python
   n1 = pb.neuron.IF(shape=5,threshold=1)
@@ -241,6 +242,10 @@ s1= pb.synapses.NoDecay(source=n1, dest=n2, weights=weight1, conn_type=pb.synaps
   ```
 
   其权重实际上为 `N*N` 矩阵，其中 `N` 为前向/后向神经元组数目。
+
+#### Identity 恒等映射
+
+具有缩放因子的单对单连接，即 `One2One` 中权重项为标量的特殊情况。
 
 #### MatConn 一般连接
 
@@ -473,8 +478,8 @@ class fcnet(pb.Network):
         self.i1 = pb.InputProj(input=pe, shape_out=(784,))
         self.n1 = pb.neuron.IF(128, threshold=128, reset_v=0, tick_wait_start=1)
         self.n2 = pb.neuron.IF(10, threshold=128, reset_v=0, tick_wait_start=2)
-        self.s1 = pb.synapses.NoDecay(self.i1, self.n1, weights=weight1, conn_type=pb.synapses.ConnType.All2All)
-        self.s2 = pb.synapses.NoDecay(self.n1, self.n2, weights=weight2, conn_type=pb.synapses.ConnType.All2All)
+        self.s1 = pb.synapses.NoDecay(self.i1, self.n1, weights=weight1, conn_type=pb.SynConnType.All2All)
+        self.s2 = pb.synapses.NoDecay(self.n1, self.n2, weights=weight2, conn_type=pb.SynConnType.All2All)
 ```
 
 #### 容器类型
@@ -507,7 +512,7 @@ class ReusedStructure(pb.Network):
         self.pre_n = pb.LIF((10,), 10)
         self.post_n = pb.LIF((10,), 10)
         self.syn = pb.NoDecay(
-            self.pre_n, self.post_n, conn_type=pb.synapses.ConnType.All2All, weights=weight
+            self.pre_n, self.post_n, conn_type=pb.SynConnType.All2All, weights=weight
         )
 
 class Net(pb.Network):
@@ -518,12 +523,12 @@ class Net(pb.Network):
         self.s1 = pb.NoDecay(
             self.inp1,
             subnet1.pre_n,
-            conn_type=pb.synapses.ConnType.One2One,
+            conn_type=pb.SynConnType.One2One,
         )
         self.s2 = pb.NoDecay(
             subnet1.post_n,
             subnet2.pre_n,
-            conn_type=pb.synapses.ConnType.One2One,
+            conn_type=pb.SynConnType.One2One,
         )
 
         super().__init__(subnet1, subnet2) # Necessary!

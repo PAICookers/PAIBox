@@ -203,6 +203,7 @@ class PAIGraph:
         seen_edges: Set[EdgeType] = set()  # Check if all edges are traversed
 
         for node in self.ordered_nodes:
+            """Process the predecessor nodes of nodes first, then process the successor nodes."""
             if self.degree_of_nodes[node].in_degree > 1:
                 edge_group = self._find_pred_edges(self.succ_dg, node)
                 # Get the edges traversed for the first time
@@ -468,7 +469,7 @@ def get_longest_path(
     Return:
         A tuple containing the longest path in the graph and its distance.
     """
-    distances: Dict[_NT, int] = defaultdict(int)  # init value = 0
+    distances: Dict[_NT, int] = {node: 0 for node in ordered_nodes}
     pred_nodes: Dict[_NT, _NT] = dict()
 
     for node in ordered_nodes:
@@ -487,6 +488,7 @@ def get_longest_path(
 
     distance = distances[node]
     path = [node]
+
     # Construct the longest path by following the predecessors
     while path[-1] in pred_nodes:
         path.append(pred_nodes[path[-1]])
@@ -515,9 +517,13 @@ def get_shortest_path(
     distances: Dict[_NT, int] = defaultdict(lambda: MAX_DISTANCE)
     pred_nodes: Dict[_NT, _NT] = dict()
 
-    # Set initial value for all inputs nodes.
-    for inode in input_nodes:
-        distances[inode] = 0
+    # Set initial value for all inputs nodes. If there is no input node,
+    # the first node after topological sorting will be used as the starting node.
+    if input_nodes:
+        for inode in input_nodes:
+            distances[inode] = 0
+    else:
+        distances[ordered_nodes[0]] = 0
 
     for node in ordered_nodes:
         for neighbor, edge_attr in edges_with_d[node].items():
@@ -535,6 +541,7 @@ def get_shortest_path(
 
     distance = distances[node]
     path = [node]
+
     # Construct the shortest path by following the predecessors
     while path[-1] in pred_nodes:
         path.append(pred_nodes[path[-1]])

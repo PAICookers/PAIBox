@@ -240,7 +240,7 @@ class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
             if sys.version_info >= (3, 9):
                 params.update({k.removeprefix("_"): v})
             else:
-                params.update({k.lstrip("_"): v})
+                params.update({k.lstrip("_"): v})  # compatible for py3.8
 
         return params
 

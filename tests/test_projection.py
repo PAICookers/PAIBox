@@ -164,12 +164,12 @@ class TestInputProj:
         assert len(sim.data[prob]) == 10
 
     def test_illegal_input(self):
-        def fakeout_with_t(t):
+        def fakeout_with_t(t, **kwargs):
             return np.ones((10, 10), dtype=np.int8) * t
 
         inp1 = pb.InputProj(None, shape_out=(4, 4), keep_shape=True)
         with pytest.raises(TypeError):
-            inp1.input = fakeout_with_t
+            inp1.input = fakeout_with_t  # type: ignore
 
         sim = pb.Simulator(inp1)
 

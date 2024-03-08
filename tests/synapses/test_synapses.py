@@ -13,7 +13,7 @@ def test_SynSys_Attrs():
         n1,
         n2,
         weights=np.array([[1, 1, 0], [0, 1, 1], [0, 1, 1]], dtype=np.int8),
-        conn_type=pb.synapses.ConnType.MatConn,
+        conn_type=pb.SynConnType.MatConn,
     )
 
     assert np.array_equal(s1.n_axon_each, np.array([1, 3, 2]))
@@ -68,7 +68,7 @@ class TestNoDecay:
     )
     def test_NoDecay_One2One_scalar(self, n1, n2, scalar_weight, expected_wp):
         s1 = pb.synapses.NoDecay(
-            n1, n2, scalar_weight, conn_type=pb.synapses.ConnType.One2One
+            n1, n2, scalar_weight, conn_type=pb.SynConnType.One2One
         )
 
         assert np.array_equal(s1.weights, scalar_weight)
@@ -102,7 +102,7 @@ class TestNoDecay:
     )
     def test_NoDecay_One2One_scalar_illegal(self, n1, n2):
         with pytest.raises(ShapeError):
-            s1 = pb.synapses.NoDecay(n1, n2, conn_type=pb.synapses.ConnType.One2One)
+            s1 = pb.synapses.NoDecay(n1, n2, conn_type=pb.SynConnType.One2One)
 
     def test_NoDecay_One2One_matrix(self):
         weight = np.array([2, 3, 4], np.int8)
@@ -110,7 +110,7 @@ class TestNoDecay:
             pb.neuron.TonicSpiking((3,), 3),
             pb.neuron.TonicSpiking((3,), 3),
             weight,
-            conn_type=pb.synapses.ConnType.One2One,
+            conn_type=pb.SynConnType.One2One,
         )
 
         assert (s1.num_in, s1.num_out) == (3, 3)
@@ -125,7 +125,7 @@ class TestNoDecay:
             pb.neuron.TonicSpiking((2, 2), 3),
             pb.neuron.TonicSpiking((2, 2), 3),
             weight,
-            conn_type=pb.synapses.ConnType.One2One,
+            conn_type=pb.SynConnType.One2One,
         )
 
         assert (s2.num_in, s2.num_out) == (4, 4)
@@ -161,7 +161,7 @@ class TestNoDecay:
         ],
     )
     def test_NoDecay_All2All(self, n1, n2):
-        s1 = pb.synapses.NoDecay(n1, n2, conn_type=pb.synapses.ConnType.All2All)
+        s1 = pb.synapses.NoDecay(n1, n2, conn_type=pb.SynConnType.All2All)
 
         assert (s1.num_in, s1.num_out) == (n1.num_out, n2.num_in)
         assert np.array_equal(s1.weights, 1)
@@ -173,14 +173,14 @@ class TestNoDecay:
 
         """1. Single weight."""
         weight = 2
-        s1 = pb.synapses.NoDecay(n1, n2, weight, conn_type=pb.synapses.ConnType.All2All)
+        s1 = pb.synapses.NoDecay(n1, n2, weight, conn_type=pb.SynConnType.All2All)
 
         assert np.array_equal(s1.weights, weight)
         assert s1.weight_precision is WP.WEIGHT_WIDTH_4BIT
 
         """2. Weights matrix."""
         weight = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
-        s2 = pb.synapses.NoDecay(n1, n2, weight, conn_type=pb.synapses.ConnType.All2All)
+        s2 = pb.synapses.NoDecay(n1, n2, weight, conn_type=pb.SynConnType.All2All)
 
         assert np.array_equal(s2.weights, weight)
         assert np.array_equal(s2.connectivity, weight)
@@ -188,7 +188,7 @@ class TestNoDecay:
         # Wrong shape
         with pytest.raises(ShapeError):
             s3 = pb.synapses.NoDecay(
-                n1, n2, np.array([1, 2, 3]), conn_type=pb.synapses.ConnType.All2All
+                n1, n2, np.array([1, 2, 3]), conn_type=pb.SynConnType.All2All
             )
 
         with pytest.raises(ShapeError):
@@ -196,7 +196,7 @@ class TestNoDecay:
                 n1,
                 n2,
                 np.array([[1, 2, 3], [4, 5, 6]]),
-                conn_type=pb.synapses.ConnType.All2All,
+                conn_type=pb.SynConnType.All2All,
             )
 
         with pytest.raises(ShapeError):
@@ -204,7 +204,7 @@ class TestNoDecay:
                 n1,
                 n2,
                 np.array([[1, 2], [4, 5], [6, 7]]),
-                conn_type=pb.synapses.ConnType.All2All,
+                conn_type=pb.SynConnType.All2All,
             )
 
         with pytest.raises(ShapeError):
@@ -212,7 +212,7 @@ class TestNoDecay:
                 n1,
                 n2,
                 np.array([[1, 2, 3], [4, 5, 6], [6, 7, 8], [1, 2, 3]]),
-                conn_type=pb.synapses.ConnType.All2All,
+                conn_type=pb.SynConnType.All2All,
             )
 
     @pytest.mark.parametrize(
@@ -234,7 +234,7 @@ class TestNoDecay:
             -128, 128, size=(n1.num_out, n2.num_in), dtype=np.int8
         )
 
-        s = pb.synapses.NoDecay(n1, n2, weight, conn_type=pb.synapses.ConnType.MatConn)
+        s = pb.synapses.NoDecay(n1, n2, weight, conn_type=pb.SynConnType.MatConn)
 
         assert np.array_equal(s.weights, weight)
         assert (s.num_in, s.num_out) == (n1.num_out, n2.num_in)
@@ -242,12 +242,12 @@ class TestNoDecay:
 
         # Wrong weight type
         with pytest.raises(TypeError):
-            s = pb.synapses.NoDecay(n1, n2, 1, conn_type=pb.synapses.ConnType.MatConn)
+            s = pb.synapses.NoDecay(n1, n2, 1, conn_type=pb.SynConnType.MatConn)
 
         # Wrong shape
         with pytest.raises(ShapeError):
             s = pb.synapses.NoDecay(
-                n1, n2, np.array([1, 2, 3]), conn_type=pb.synapses.ConnType.MatConn
+                n1, n2, np.array([1, 2, 3]), conn_type=pb.SynConnType.MatConn
             )
 
         # Wrong shape
@@ -256,5 +256,5 @@ class TestNoDecay:
                 n1,
                 n2,
                 np.array([[1, 2, 3], [4, 5, 6]]),
-                conn_type=pb.synapses.ConnType.MatConn,
+                conn_type=pb.SynConnType.MatConn,
             )
