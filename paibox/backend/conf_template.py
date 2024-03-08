@@ -154,8 +154,8 @@ class NeuronConfig(ConfigTemplate):
             - addr_offset: offset of the RAM address.
             - axon_segs: the destination axon segments.
             - dest_core_coords: coordinates of the core of the destination axons.
-            - dest_chip_coord: coordinate of the chip of the destination axons. \
-                The default is `output_chip_addr` in the backend context.
+            - dest_chip_coord: coordinate of the chip of the destination axons. Default is \
+                `output_chip_addr` in the backend context.
         """
         attrs = NeuronAttrs.model_validate(neuron.export_params(), strict=True)
         dest_rid = get_replication_id(dest_core_coords)
@@ -271,7 +271,7 @@ def gen_config_frames_by_coreconf(
     write_to_file: bool,
     fp: Path,
     split_by_coord: bool,
-    format: Literal["txt", "bin", "npy"] = "bin",
+    format: Literal["txt", "bin", "npy"],
 ) -> Dict[Coord, FrameArrayType]:
     """Generate configuration frames by given the `CorePlacementConfig`.
 
@@ -281,7 +281,7 @@ def gen_config_frames_by_coreconf(
         - write_to_file: whether to write frames to file.
         - fp: If `write_to_file` is `True`, specify the path.
         - split_by_coord: whether to split the generated frames file by the core coordinates.
-        - format: it can be `txt`, `bin`, or `npy`. `bin` & `npy` are recommended.
+        - format: `txt`, `bin`, or `npy`. `bin` & `npy` are recommended.
     """
 
     def _write_to_f(name: str, array: np.ndarray) -> None:

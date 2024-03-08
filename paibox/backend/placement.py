@@ -281,13 +281,12 @@ class CoreBlock(CoreAbstract):
 
         # Get #N of neurons on each `CorePlacement` according to the
         # maximum address required of neuron segments on each `CorePlacement`.
-        assert [] not in self.neuron_segs_of_cb  # FIXME if it never happens, remove it.
+        assert [] not in self.neuron_segs_of_cb  # TODO if it never happens, remove it.
 
-        n = [
+        return [
             sum(seg.n_neuron for seg in neuron_segs)
             for neuron_segs in self.neuron_segs_of_cb
         ]
-        return n
 
     @cached_property
     def raw_weight_of_dest(self) -> List[WeightType]:
