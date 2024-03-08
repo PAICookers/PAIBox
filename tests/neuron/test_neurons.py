@@ -339,7 +339,7 @@ class TestNeuronSim:
         print(output)
 
     def test_LIF_simple_sim(self):
-        n1 = pb.neuron.LIF(shape=1, threshold=5, reset_v=2, leaky_v=1)  # leak + 1
+        n1 = pb.neuron.LIF(shape=1, threshold=5, reset_v=2, leak_v=1)  # leak + 1
         # [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
         inp_data = np.concatenate((np.zeros((2,), np.bool_), np.ones((10,), np.bool_)))
         # inp_data = np.ones((12,), dtype=np.bool_)

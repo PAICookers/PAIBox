@@ -64,7 +64,7 @@ class Net2(pb.Network):
     def __init__(self):
         super().__init__()
         self.inp1 = pb.InputProj(1, shape_out=(2, 2))
-        self.n1 = pb.neuron.LIF((2, 2), 600, reset_v=1, leaky_v=-1)
+        self.n1 = pb.neuron.LIF((2, 2), 600, reset_v=1, leak_v=-1)
         self.s1 = pb.synapses.NoDecay(
             self.inp1, self.n1, weights=127, conn_type=pb.SynConnType.All2All
         )
@@ -87,8 +87,8 @@ class Net3(pb.Network):
     def __init__(self):
         super().__init__()
         self.inp1 = pb.InputProj(1, shape_out=(2, 2))
-        self.n1 = pb.neuron.LIF((2, 2), 100, reset_v=1, leaky_v=-1)
-        self.n2 = pb.neuron.LIF((2, 2), 100, reset_v=1, leaky_v=-1)
+        self.n1 = pb.neuron.LIF((2, 2), 100, reset_v=1, leak_v=-1)
+        self.n2 = pb.neuron.LIF((2, 2), 100, reset_v=1, leak_v=-1)
         self.s1 = pb.synapses.NoDecay(
             self.inp1, self.n1, weights=10, conn_type=pb.SynConnType.All2All
         )
