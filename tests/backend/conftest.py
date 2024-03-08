@@ -26,6 +26,8 @@ from paibox.backend.routing import RoutingCluster
 from paibox.generic import clear_name_cache
 from paibox.node import NodeList
 
+from tests.conftest import ParametrizedTestData
+
 
 @pytest.fixture(scope="module")
 def ensure_dump_dir():
@@ -596,3 +598,254 @@ def packbits2():
 @pytest.fixture
 def packbits1():
     return partial(packbits_ref, count=1)
+
+
+class TestData:
+
+    toposort_data = ParametrizedTestData(
+        args="nodes",
+        data=[
+            (
+                {
+                    "inp1": {"n1"},
+                    "n1": {"n2", "n4"},
+                    "n2": {"n3"},
+                    "n3": {},
+                    "n4": {"n2"},
+                }
+            ),
+            (
+                {
+                    "inp1": {"n1"},
+                    "n1": {"n2", "n5"},
+                    "n2": {"n3"},
+                    "n3": {"n4", "n6"},
+                    "n4": {},
+                    "n5": {"n3", "n6"},
+                    "n6": {"n7"},
+                    "n7": {"n4"},
+                }
+            ),
+            (
+                {
+                    "inp1": {"n1"},
+                    "inp2": {"n4"},
+                    "n1": {"n2"},
+                    "n2": {"n3"},
+                    "n3": {},
+                    "n4": {"n5"},
+                    "n5": {"n3"},
+                }
+            ),
+            (
+                {
+                    "inp1": {"n1"},
+                    "n1": {"n2", "n3"},
+                    "n2": {"n4"},
+                    "n3": {"n4"},
+                    "n4": {},
+                }
+            ),
+            (
+                {
+                    "inp1": {"n1"},
+                    "n1": {"n2"},
+                    "n2": {"n4"},
+                    "n3": {"n2"},  # Headless neuron N3
+                    "n4": {},
+                }
+            ),
+        ],
+        ids=[
+            "one_input_1",
+            "one_input_2",
+            "multi_inputs_1",
+            "one_input_3",
+            "headless_neuron_1",
+        ],
+    )
+
+    get_longest_path_data = ParametrizedTestData(
+        args="edges, expected_path, expected_distance",
+        data=[
+            (
+                # inp1 -> n1 -> n4 -> n2 -> n3, 1+1+1+1=4
+                {
+                    "inp1": {"n1": 1},
+                    "n1": {"n2": 1, "n4": 1},
+                    "n2": {"n3": 1},
+                    "n3": {},
+                    "n4": {"n2": 1},
+                },
+                ["inp1", "n1", "n4", "n2", "n3"],
+                4,
+            ),
+            (
+                # inp1 -> n1 -> n3 -> n4, 1+2+5=8
+                {
+                    "inp1": {"n1": 1},
+                    "n1": {"n2": 3, "n3": 2},
+                    "n2": {"n4": 2},
+                    "n3": {"n4": 5},
+                    "n4": {},
+                },
+                ["inp1", "n1", "n3", "n4"],
+                8,
+            ),
+            (
+                # inp1 -> n1 -> n2 -> n3, 1+2+1=4
+                {
+                    "inp1": {"n1": 1},
+                    "inp2": {"n2": 1},
+                    "n1": {"n2": 2},
+                    "n2": {"n3": 1},
+                    "n3": {},
+                },
+                ["inp1", "n1", "n2", "n3"],
+                4,
+            ),
+            (
+                # inp1 -> n1 -> n3 -> n5, 1+2+1=4
+                {
+                    "inp1": {"n1": 1},
+                    "n1": {"n2": 1, "n3": 2},
+                    "n2": {"n4": 1, "n5": 1},
+                    "n3": {"n4": 1},
+                    "n4": {},
+                    "n5": {},
+                },
+                ["inp1", "n1", "n3", "n4"],
+                4,
+            ),
+            (
+                # inp2 -> n5 -> n4, 4+1=5
+                {
+                    "inp1": {"n1": 1},
+                    "inp2": {"n5": 4},
+                    "n1": {"n2": 1, "n3": 1},
+                    "n2": {"n5": 1},
+                    "n3": {"n4": 1},
+                    "n4": {},
+                    "n5": {"n4": 1},
+                },
+                ["inp2", "n5", "n4"],
+                5,
+            ),
+            (
+                {"n1": {"n2": 1}, "n2": {}},
+                ["n1", "n2"],
+                1,
+            ),
+            (
+                {"n1": {}},
+                ["n1"],
+                0,
+            ),
+        ],
+        ids=[
+            "one_input_1",
+            "one_input_2",
+            "multi_inputs_1",
+            "multi_outputs_1",
+            "multi_inputs_outputs_1",
+            "headless_neuron_1",
+            "headless_neuron_2",
+        ],
+    )
+
+    get_shortest_path_data = ParametrizedTestData(
+        args="edges, inodes, expected_path, expected_distance",
+        data=[
+            (
+                # inp1 -> n1 -> n2 -> n3, 1+1+1=3
+                {
+                    "inp1": {"n1": 1},
+                    "n1": {"n2": 1, "n4": 1},
+                    "n2": {"n3": 1},
+                    "n3": {},
+                    "n4": {"n2": 1},
+                },
+                ["inp1"],
+                ["inp1", "n1", "n2", "n3"],
+                3,
+            ),
+            (
+                # inp1 -> n1 -> n2 -> n3 -> n6 -> n7 -> n4 =
+                # 1+1+3+2+2+3=12
+                {
+                    "inp1": {"n1": 1},
+                    "n1": {"n2": 1, "n5": 5},
+                    "n2": {"n3": 3},
+                    "n3": {"n4": 10, "n6": 2},
+                    "n4": {},
+                    "n5": {"n3": 5, "n6": 7},
+                    "n6": {"n7": 2},
+                    "n7": {"n4": 3},
+                },
+                ["inp1"],
+                ["inp1", "n1", "n2", "n3", "n6", "n7", "n4"],
+                12,
+            ),
+            (
+                # inp2 -> n2 -> n3, 1+1=2
+                {
+                    "inp1": {"n1": 1},
+                    "inp2": {"n2": 1},
+                    "n1": {"n2": 2},
+                    "n2": {"n3": 1},
+                    "n3": {},
+                },
+                ["inp1", "inp2"],
+                ["inp2", "n2", "n3"],
+                2,
+            ),
+            (
+                # inp1 -> n1 -> n2 -> n4, 1+1+1=3
+                {
+                    "inp1": {"n1": 1},
+                    "n1": {"n2": 1, "n3": 2},
+                    "n2": {"n4": 1},
+                    "n3": {"n4": 1},
+                    "n4": {},
+                },
+                ["inp1"],
+                ["inp1", "n1", "n2", "n4"],
+                3,
+            ),
+            (
+                # inp1 -> n1 -> n2 -> n4, 1+1+1=3
+                {
+                    "inp1": {"n1": 1},
+                    "n1": {"n2": 1, "n3": 1},
+                    "n2": {"n4": 2},
+                    "n3": {"n5": 1},
+                    "n4": {},
+                    "n5": {},
+                },
+                ["inp1"],
+                ["inp1", "n1", "n3", "n5"],
+                3,
+            ),
+            (
+                {"n1": {"n2": 1}, "n2": {}},
+                [],
+                ["n1", "n2"],
+                1,
+            ),
+            (
+                {"n1": {}},
+                [],
+                ["n1"],
+                0,
+            ),
+        ],
+        ids=[
+            "one_input_1",
+            "one_input_2",
+            "multi_inputs_1",
+            "multi_outputs_1",
+            "multi_outputs_2",
+            "headless_neuron_1",
+            "headless_neuron_2",
+        ],
+    )

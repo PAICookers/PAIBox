@@ -1,6 +1,15 @@
+from typing import Any, List, NotRequired, TypedDict
 import pytest
 
 import paibox as pb
+
+
+class ParametrizedTestData(TypedDict):
+    """Parametrized test data in dictionary format."""
+
+    args: str
+    data: List[Any]
+    ids: NotRequired[List[str]]
 
 
 class Input_to_N1(pb.DynSysGroup):
