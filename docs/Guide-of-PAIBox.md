@@ -18,7 +18,7 @@ poetry install
 python = "^3.8"
 pydantic = "^2.0"
 numpy = "^1.23.0"
-paicorelib = "0.0.12"
+paicorelib = "0.0.13"
 ```
 
 通过pip安装PAIBox：
@@ -72,8 +72,9 @@ n1 = pb.neuron.IF(shape=10, threshold=127, reset_v=0, keep_shape=False, delay=1,
 - `reset_v`：神经元的重置膜电位。
 - `keep_shape`：是否在仿真记录数据时保持尺寸信息，默认为 `False`。实际进行运算的尺寸仍视为一维。
 - `delay`：设定该神经元组输出的延迟。默认为1，即本时间步的计算结果，**下一时间步**传递至后继神经元。
-- `tick_wait_start`: 设定该神经元组在第 `N` 个时间步时启动，0表示不启动。默认为1。
-- `tick_wait_end`: 设定该神经元组持续工作 `M` 个时间步，0表示**永远持续工作**。默认为0。
+- `tick_wait_start`：设定该神经元组在第 `N` 个时间步时启动，0表示不启动。默认为1。
+- `tick_wait_end`：设定该神经元组持续工作 `M` 个时间步，0表示**永远持续工作**。默认为0。
+- `unrolling_factor`：该参数与后端相关。展开因子表示神经元将被展开，部署至更多的物理核上，以降低延迟，并提高吞吐率。
 - `name`：可选，为该对象命名。
 
 #### LIF神经元
@@ -81,10 +82,10 @@ n1 = pb.neuron.IF(shape=10, threshold=127, reset_v=0, keep_shape=False, delay=1,
 LIF神经元实现了“泄露-积分-发射”神经元模型，其调用方式及参数如下：
 
 ```python
-n1 = pb.neuron.LIF(shape=128, threshold=127, reset_v=0, leaky_v=-1, keep_shape=False, name='n1')
+n1 = pb.neuron.LIF(shape=128, threshold=127, reset_v=0, leak_v=-1, keep_shape=False, name='n1')
 ```
 
-- `leaky_v`：LIF神经元的泄露值（有符号）。其他参数含义与IF神经元相同。
+- `leak_v`：LIF神经元的泄露值（有符号）。其他参数含义与IF神经元相同。
 
 #### Tonic Spiking神经元
 
@@ -223,7 +224,6 @@ s1= pb.synapses.NoDecay(source=n1, dest=n2, weights=weight1, conn_type=pb.SynCon
   ```
 
   其权重以标量的形式储存。由于在运算时标量会随着矩阵进行广播，因此计算正确且节省了存储开销。
-
 - 数组：尺寸要求为 `(N2,)`，可以自定义每组对应神经元之间的连接权重。如下例所示，设置 `weights` 为 `[1, 2, 3, 4, 5]`，
 
   ```python

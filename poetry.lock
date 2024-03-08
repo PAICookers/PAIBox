@@ -130,13 +130,13 @@ reference = "tsinghua"
 
 [[package]]
 name = "paicorelib"
-version = "0.0.12"
+version = "0.0.13"
 description = "Library of PAICORE 2.0 in Python."
 optional = false
 python-versions = ">=3.8,<4.0"
 files = [
-    {file = "paicorelib-0.0.12-py3-none-any.whl", hash = "sha256:182de7dd543fdbffb2b59cec61982028210d7cc4a7caf7d932085055ddaf7505"},
-    {file = "paicorelib-0.0.12.tar.gz", hash = "sha256:d84910710e3c634d4316c50f071224dfa1763f8438d49b2ce986601add83bf07"},
+    {file = "paicorelib-0.0.13-py3-none-any.whl", hash = "sha256:0e6f56b55d59cffe0ced7920396c096e4024aa9774b71fab57a6ec02ebc25f8a"},
+    {file = "paicorelib-0.0.13.tar.gz", hash = "sha256:0112a5097ecd3899409f6d51930d88071922a576bd780038f84fa30120d90286"},
 ]
 
 [package.dependencies]
@@ -350,4 +350,4 @@ reference = "tsinghua"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.8"
-content-hash = "e4c053aefe29f7d01e3bda3d670b36a95b8834fa54e999ac239a04d0e2dbaf65"
+content-hash = "295f008b50237c89eb3f089a3ee5300773b140e93e4d879f87ba469b20e6ac36"
