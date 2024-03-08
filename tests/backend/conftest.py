@@ -25,7 +25,6 @@ from paibox.backend.conf_template import CoreConfig, CorePlacementConfig, Neuron
 from paibox.backend.routing import RoutingCluster
 from paibox.generic import clear_name_cache
 from paibox.node import NodeList
-
 from tests.conftest import ParametrizedTestData
 
 

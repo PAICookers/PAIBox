@@ -1,4 +1,5 @@
 from typing import Any, List, NotRequired, TypedDict
+
 import pytest
 
 import paibox as pb
