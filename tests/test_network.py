@@ -1,3 +1,5 @@
+from typing import Optional
+
 import numpy as np
 import pytest
 
@@ -10,8 +12,8 @@ from paibox.node import NodeDict
 class Nested_Net_level_1(pb.DynSysGroup):
     """Level 1 nested network: pre_n -> syn -> post_n"""
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, name: Optional[str] = None):
+        super().__init__(name=name)
 
         self.pre_n = pb.LIF((10,), 10)
         self.post_n = pb.LIF((10,), 10)
@@ -110,7 +112,7 @@ class TestNetwork_Components_Discover:
             def __init__(self):
                 self.inp1 = pb.InputProj(1, shape_out=(10,))
                 subnet1 = Nested_Net_level_1()
-                subnet2 = Nested_Net_level_1()
+                subnet2 = Nested_Net_level_1(name="Named_SubNet")
                 self.s1 = pb.NoDecay(
                     self.inp1,
                     subnet1.pre_n,
@@ -144,6 +146,9 @@ class TestNetwork_Components_Discover:
             .unique()
             .not_subset(pb.DynSysGroup)
         )
+
+        assert isinstance(net[f"{Nested_Net_level_1.__name__}_0"], pb.Network)
+        assert isinstance(net["Named_SubNet"], pb.Network)
 
         assert len(nodes) == 5
         assert len(nodes_excluded) == 3

@@ -37,7 +37,6 @@ class TestGraphInfo:
     ):
         net = build_multi_inputproj_net
         mapper: pb.Mapper = get_mapper
-
         mapper.build(net)
         mapper.compile()
         mapper.export(
@@ -54,7 +53,6 @@ class TestGraphInfo:
     ):
         net = build_multi_inputproj_net2
         mapper: pb.Mapper = get_mapper
-
         mapper.build(net)
         mapper.compile()
         mapper.export(
@@ -71,9 +69,9 @@ class TestGraphInfo:
     ):
         net = build_multi_onodes_net
         mapper: pb.Mapper = get_mapper
-
         mapper.build(net)
         mapper.compile()
+
         assert len(mapper.graph_info["output"]) == 2
 
         mapper.export(
@@ -88,7 +86,6 @@ class TestGraphInfo:
     ):
         net = build_multi_onodes_net2
         mapper: pb.Mapper = get_mapper
-
         mapper.build(net)
         mapper.compile()
 
@@ -106,11 +103,31 @@ class TestGraphInfo:
     ):
         net = build_multi_inodes_onodes
         mapper: pb.Mapper = get_mapper
-
         mapper.build(net)
         mapper.compile()
+
         assert len(mapper.graph_info["input"]) == 2
         assert len(mapper.graph_info["output"]) == 2
+
+    def test_nested_net_L2_compile(self, get_mapper, build_Nested_Net_level_2):
+        net = build_Nested_Net_level_2
+        mapper: pb.Mapper = get_mapper
+        mapper.build(net)
+        mapper.compile()
+
+        assert len(mapper.graph.nodes.keys()) == 5
+        assert len(mapper.graph_info["input"]) == 1
+        assert len(mapper.graph_info["output"]) == 1
+
+    def test_nested_net_L3_compile(self, get_mapper, build_Nested_Net_level_3):
+        net2 = build_Nested_Net_level_3
+        mapper: pb.Mapper = get_mapper
+        mapper.build(net2)
+        mapper.compile()
+
+        assert len(mapper.graph.edges.keys()) == 5
+        assert len(mapper.graph_info["input"]) == 2
+        assert len(mapper.graph_info["output"]) == 1
 
 
 class TestMapperDebug:
@@ -120,22 +137,23 @@ class TestMapperDebug:
         net2 = build_example_net2
 
         mapper: pb.Mapper = get_mapper
-        mapper.clear()
         mapper.build(net1, net2)
+        mapper.compile()
 
-        assert mapper.graph.has_built == True
+        assert len(mapper.graph.nodes.keys()) == 8
+        assert len(mapper.graph_info["input"]) == 3
+        assert len(mapper.graph_info["output"]) == 2
 
     @pytest.fixture
-    def test_simple_net(self, get_mapper, build_example_net1):
-        """Go throught the backend"""
+    def compile_simple_net(self, get_mapper, build_example_net1):
+        """Reused fixture."""
         net = build_example_net1
 
         mapper: pb.Mapper = get_mapper
-        mapper.clear()
         mapper.build(net)
         mapper.compile()
 
-    @pytest.mark.usefixtures("test_simple_net")
+    @pytest.mark.usefixtures("compile_simple_net")
     def test_export_config_json(self, ensure_dump_dir, get_mapper):
         """Export all the configs into json"""
         mapper: pb.Mapper = get_mapper
@@ -149,7 +167,7 @@ class TestMapperDebug:
         )
         print()
 
-    @pytest.mark.usefixtures("test_simple_net")
+    @pytest.mark.usefixtures("compile_simple_net")
     def test_find_neuron(self, get_mapper, build_example_net1):
         net: pb.Network = build_example_net1
         mapper: pb.Mapper = get_mapper
@@ -159,7 +177,7 @@ class TestMapperDebug:
 
         print()
 
-    @pytest.mark.usefixtures("test_simple_net")
+    @pytest.mark.usefixtures("compile_simple_net")
     def test_find_axon(self, get_mapper, build_example_net1):
         net: pb.Network = build_example_net1
         mapper: pb.Mapper = get_mapper
@@ -171,13 +189,14 @@ class TestMapperDebug:
 
     def test_network_with_container(self, get_mapper, build_Network_with_container):
         net: pb.Network = build_Network_with_container
-
         mapper: pb.Mapper = get_mapper
-        mapper.clear()
         mapper.build(net)
         mapper.compile()
 
-        print()
+        assert len(mapper.graph.nodes.keys()) == 4
+        # Input projectioon is discnnected!
+        assert len(mapper.graph_info["input"]) == 0
+        assert len(mapper.graph_info["output"]) == 1
 
 
 class TestMapper_Export:

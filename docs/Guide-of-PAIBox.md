@@ -504,13 +504,15 @@ for i in range(5):
 有时网络中会重复出现类似的结构，这时先构建子网络，再多次例化复用是个不错的选择。
 
 ```python
+froom typing import Optional
 import paibox as pb
 
 class ReusedStructure(pb.Network):
-    def __init__(self, weight):
-        super().__init__()
-        self.pre_n = pb.LIF((10,), 10)
-        self.post_n = pb.LIF((10,), 10)
+    def __init__(self, weight, tws, name: Optional[str] = None):
+        super().__init__(name=name)
+
+        self.pre_n = pb.LIF((10,), 10, tick_wait_start=tws)
+        self.post_n = pb.LIF((10,), 10, tick_wait_start=tws+1)
         self.syn = pb.NoDecay(
             self.pre_n, self.post_n, conn_type=pb.SynConnType.All2All, weights=weight
         )
@@ -518,8 +520,8 @@ class ReusedStructure(pb.Network):
 class Net(pb.Network):
     def __init__(self, w1, w2):
         self.inp1 = pb.InputProj(1, shape_out=(10,))
-        subnet1 = ReusedStructure(w1)
-        subnet2 = ReusedStructure(w2)
+        subnet1 = ReusedStructure(w1, tws=1, name="Reused_Struct_0")
+        subnet2 = ReusedStructure(w2, tws=3, name="Reused_Struct_1")
         self.s1 = pb.NoDecay(
             self.inp1,
             subnet1.pre_n,
@@ -538,7 +540,7 @@ w2 = ...
 net = Net(w1, w2)
 ```
 
-上述示例代码中，我们先创建需复用的子网络 `ReusedStructure`，其结构为 `pre_n` -> `syn` -> `post_n`。而后，在父网络 `Net` 中实例化两个子网络 `subnet1`、 `subnet2`，并与父网络其他部分连接，此时网络结构为：`inp1` -> `s1` -> `subnet1` -> `s2` -> `subnet2`。最后，在为 `pb.Network` 初始化时，传入子网络 `subnet1`、 `subnet2`。由此，父网络 `Net` 才能发现子网络组件。
+上述示例代码中，我们先创建需复用的子网络 `ReusedStructure`，其结构为 `pre_n` -> `syn` -> `post_n`。而后，在父网络 `Net` 中实例化两个子网络 `subnet1`、 `subnet2`，并与父网络其他部分连接，此时网络结构为：`inp1` -> `s1` -> `subnet1` -> `s2` -> `subnet2`。最后，在为 `pb.Network` 初始化时，传入子网络 `subnet1`、 `subnet2`。由此，父网络 `Net` 才能发现子网络组件。如果想取到 `Net` 内的 `subnet1` 对象，可通过索引其名字 `Net["Reused_Struct_0"]` 取到。
 
 上述示例为一个二级嵌套网络，对于三级嵌套网络或更高（不推荐使用），可参考上述方式构建。
 
