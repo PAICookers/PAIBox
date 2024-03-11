@@ -3,6 +3,7 @@ import random
 import tempfile
 from functools import partial
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import pytest
@@ -435,6 +436,59 @@ class Network_with_container(pb.DynSysGroup):
         self.probe1 = pb.Probe(self.n_list[1], "output", name="n2_out")
 
 
+class ReusedStruct(pb.Network):
+    """Reused structure: pre_n -> syn -> post_n, 8-bit"""
+
+    def __init__(self, tws: int = 1, name: Optional[str] = None):
+        super().__init__(name=name)
+
+        self.pre_n = pb.LIF((10,), 10, 2, tick_wait_start=tws)
+        self.post_n = pb.LIF((10,), 10, 2, tick_wait_start=tws + 1)
+
+        w = np.random.randint(-128, 127, (10, 10), dtype=np.int8)
+        self.syn = pb.NoDecay(
+            self.pre_n, self.post_n, conn_type=pb.SynConnType.All2All, weights=w
+        )
+
+
+class Nested_Net_level_2(pb.DynSysGroup):
+    """Level 2 nested network: inp1 -> s1 -> ReusedStruct -> s2 -> ReusedStruct"""
+
+    def __init__(self, tws: int = 1, name: Optional[str] = None):
+        self.inp1 = pb.InputProj(1, shape_out=(10,))
+        subnet1 = ReusedStruct(tws=tws, name="Named_Reused_0")
+        subnet2 = ReusedStruct(tws=tws + 2, name="Named_Reused_1")
+
+        self.s1 = pb.NoDecay(
+            self.inp1,
+            subnet1.pre_n,
+            conn_type=pb.SynConnType.One2One,
+        )
+        self.s2 = pb.NoDecay(
+            subnet1.post_n,
+            subnet2.pre_n,
+            conn_type=pb.SynConnType.One2One,
+        )
+
+        super().__init__(subnet1, subnet2, name=name)
+
+
+class Nested_Net_level_3(pb.DynSysGroup):
+    """Level 3 nested network: inp1 -> s1 -> Nested_Net_level_2"""
+
+    def __init__(self):
+        self.inp1 = pb.InputProj(1, shape_out=(10,))
+        subnet1 = Nested_Net_level_2(name="Named_Nested_Net_level_2")
+
+        self.s1 = pb.NoDecay(
+            self.inp1,
+            subnet1["Named_Reused_0"].pre_n,
+            conn_type=pb.SynConnType.One2One,
+        )
+
+        super().__init__(subnet1)
+
+
 @pytest.fixture(scope="class")
 def build_example_net1():
     return NetForTest1()
@@ -498,6 +552,16 @@ def build_Network_8bit_dense():
 @pytest.fixture(scope="class")
 def build_Network_with_container():
     return Network_with_container()
+
+
+@pytest.fixture(scope="class")
+def build_Nested_Net_level_2():
+    return Nested_Net_level_2()
+
+
+@pytest.fixture(scope="class")
+def build_Nested_Net_level_3():
+    return Nested_Net_level_3()
 
 
 @pytest.fixture(scope="class")
