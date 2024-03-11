@@ -39,7 +39,7 @@ class DynSysGroup(DynamicSys, Container):
 
         TODO Prove that the operation sequence I->S->N can be divided into Ix->Sx->Nx->Iy->Sy->Ny & it has  \
             nothing to do with the network topology.
-            
+
             The above expression cannot be completely established, and the condition needs to be met: the   \
             dependent synapses of the neuron are in the same subgraph.
         """

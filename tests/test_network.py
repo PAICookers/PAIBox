@@ -1,4 +1,5 @@
 from typing import Optional
+
 import numpy as np
 import pytest
 
@@ -145,7 +146,7 @@ class TestNetwork_Components_Discover:
             .unique()
             .not_subset(pb.DynSysGroup)
         )
-        
+
         assert isinstance(net[f"{Nested_Net_level_1.__name__}_0"], pb.Network)
         assert isinstance(net["Named_SubNet"], pb.Network)
 
