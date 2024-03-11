@@ -1,5 +1,5 @@
 import warnings
-from typing import Callable, List, Optional, Tuple, Type, Union
+from typing import Callable, ClassVar, List, Optional, Tuple, Type, Union
 
 import numpy as np
 from typing_extensions import TypeAlias
@@ -18,6 +18,8 @@ ComponentsType: TypeAlias = Union[InputProj, NeuDyn, SynSys]
 
 
 class DynSysGroup(DynamicSys, Container):
+    MAX_NESTED_LEVEL: ClassVar[int] = 9
+
     def __init__(
         self,
         *components_as_tuple,
@@ -37,6 +39,9 @@ class DynSysGroup(DynamicSys, Container):
 
         TODO Prove that the operation sequence I->S->N can be divided into Ix->Sx->Nx->Iy->Sy->Ny & it has  \
             nothing to do with the network topology.
+            
+            The above expression cannot be completely established, and the condition needs to be met: the   \
+            dependent synapses of the neuron are in the same subgraph.
         """
         nodes = self.nodes(level=1, include_self=False).subset(DynamicSys).unique()
 
