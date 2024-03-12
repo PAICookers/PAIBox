@@ -98,52 +98,6 @@ class Net2_with_multi_inpproj_encoder(pb.DynSysGroup):
         self.n1_output = pb.Probe(self.n1, "spike")
 
 
-class Nested_Net_level_1(pb.DynSysGroup):
-    """Level 1 nested network: pre_n -> syn -> post_n"""
-
-    def __init__(self):
-        super().__init__()
-
-        self.pre_n = pb.LIF((10,), 2, tick_wait_start=2)
-        self.post_n = pb.LIF((10,), 10, tick_wait_start=3)
-
-        w = np.ones((10, 10), dtype=np.int8)
-        self.syn = pb.NoDecay(
-            self.pre_n, self.post_n, conn_type=pb.SynConnType.All2All, weights=w
-        )
-
-        self.probe_in_subnet = pb.Probe(self.pre_n, "spike")
-
-
-class Nested_Net_level_2(pb.DynSysGroup):
-    """Level 2 nested network: -> s1 -> Nested_Net_level_1"""
-
-    def __init__(self):
-        self.inp1 = pb.InputProj(None, shape_out=(10,))
-        self.n1 = pb.LIF((10,), 2, tick_wait_start=1)
-
-        subnet = Nested_Net_level_1()
-
-        self.s1 = pb.NoDecay(
-            self.inp1,
-            self.n1,
-            conn_type=pb.SynConnType.One2One,
-        )
-        self.s2 = pb.NoDecay(
-            self.n1,
-            subnet.pre_n,
-            conn_type=pb.SynConnType.One2One,
-        )
-
-        self.probe1 = pb.Probe(self.inp1, "spike")
-        self.probe2 = pb.Probe(self.n1, "spike")
-        self.probe3 = pb.Probe(self.n1, "voltage")
-        self.probe4 = pb.Probe(subnet.pre_n, "spike")
-        self.probe5 = pb.Probe(subnet.post_n, "spike")
-
-        super().__init__(subnet)
-
-
 class TestSimulator:
     def test_probe(self):
         net = Net1(100)
@@ -237,12 +191,12 @@ class TestSimulator:
 
         sim.reset()
 
-    def test_sim_nested_net(self):
-        net = Nested_Net_level_2()
+    def test_sim_nested_net(self, build_Nested_Net_L3):
+        net = build_Nested_Net_L3
         sim = pb.Simulator(net, start_time_zero=False)
 
         # The probes defined in the subnets cannot be discovered.
-        assert len(sim.probes) == 5
+        assert len(sim.probes) == 4
 
         net.inp1.input = np.ones((10,), dtype=np.int8)
         sim.run(20)

@@ -1,5 +1,3 @@
-from typing import Optional
-
 import numpy as np
 import pytest
 
@@ -9,41 +7,7 @@ from paibox.exceptions import PAIBoxWarning
 from paibox.node import NodeDict
 
 
-class Nested_Net_level_1(pb.DynSysGroup):
-    """Level 1 nested network: pre_n -> syn -> post_n"""
-
-    def __init__(self, name: Optional[str] = None):
-        super().__init__(name=name)
-
-        self.pre_n = pb.LIF((10,), 10)
-        self.post_n = pb.LIF((10,), 10)
-
-        w = np.random.randint(-128, 127, (10, 10), dtype=np.int8)
-        self.syn = pb.NoDecay(
-            self.pre_n, self.post_n, conn_type=pb.SynConnType.All2All, weights=w
-        )
-
-
 class TestNetwork_Components_Discover:
-    def test_flatten_hzynet(self, build_MoreInput_Net):
-        net = build_MoreInput_Net
-
-        nodes1 = net.nodes(method="relative", level=1, include_self=True)
-        assert nodes1[""] == net
-        assert len(nodes1) == 8
-
-        # 2. Relative + include_self == False
-        nodes2 = net.nodes(method="relative", level=1, include_self=False)
-        assert len(nodes2) == 7
-
-        # 3. Absolute + include_self == True
-        nodes3 = net.nodes(method="absolute", level=1, include_self=True)
-        assert len(nodes3) == 8
-
-        # 4. Absolute + include_self == False
-        nodes4 = net.nodes(method="absolute", level=1, include_self=False)
-        assert len(nodes4) == 7
-
     def test_flatten_nodes(self, build_NotNested_Net):
         net = build_NotNested_Net
 
@@ -72,7 +36,7 @@ class TestNetwork_Components_Discover:
         )
         assert len(nodes4) == 3
 
-    def test_nested_net_level_1(self, build_Network_with_container):
+    def test_nested_net_L1(self, build_Network_with_container):
         net = build_Network_with_container
 
         # 1. Relative + include_self == True
@@ -105,28 +69,9 @@ class TestNetwork_Components_Discover:
         sim.run(10)
         sim.reset()
 
-    def test_nested_net_level_2(self):
-        class Nested_Net_level_2(pb.DynSysGroup):
-            """Level 2 nested network: inp1 -> s1 -> Nested_Net_level_1 -> s2 -> Nested_Net_level_1"""
+    def test_nested_net_L2(self, build_Nested_Net_L2):
+        net: pb.Network = build_Nested_Net_L2
 
-            def __init__(self):
-                self.inp1 = pb.InputProj(1, shape_out=(10,))
-                subnet1 = Nested_Net_level_1()
-                subnet2 = Nested_Net_level_1(name="Named_SubNet")
-                self.s1 = pb.NoDecay(
-                    self.inp1,
-                    subnet1.pre_n,
-                    conn_type=pb.SynConnType.One2One,
-                )
-                self.s2 = pb.NoDecay(
-                    subnet1.post_n,
-                    subnet2.pre_n,
-                    conn_type=pb.SynConnType.One2One,
-                )
-
-                super().__init__(subnet1, subnet2)
-
-        net = Nested_Net_level_2()
         nodes = net.nodes(level=1, include_self=False).subset(DynamicSys).unique()
         nodes_excluded = (
             net.nodes(level=1, include_self=False)
@@ -147,67 +92,41 @@ class TestNetwork_Components_Discover:
             .not_subset(pb.DynSysGroup)
         )
 
-        assert isinstance(net[f"{Nested_Net_level_1.__name__}_0"], pb.Network)
-        assert isinstance(net["Named_SubNet"], pb.Network)
+        from .conftest import Nested_Net_L1
+
+        assert isinstance(net[f"{Nested_Net_L1.__name__}_0"], pb.Network)
+        assert isinstance(net["Named_SubNet_L1_1"], pb.Network)
 
         assert len(nodes) == 5
         assert len(nodes_excluded) == 3
         assert len(nodes2) == 3 + 3 * 2
         assert len(nodes9) == len(nodes2)
 
-    def test_nested_net_level_3(self):
-        class Nested_Net_level_2(pb.DynSysGroup):
-            """Level 2 nested network: -> s1 -> Nested_Net_level_1"""
+        del Nested_Net_L1
 
-            def __init__(self, n: pb.neuron.Neuron):
-                subnet = Nested_Net_level_1()
-                self.s1 = pb.NoDecay(
-                    n,
-                    subnet.pre_n,
-                    conn_type=pb.SynConnType.One2One,
-                )
+    def test_nested_net_L2_find_nodes_recursively(self, build_Nested_Net_L2):
+        net: pb.Network = build_Nested_Net_L2
 
-                super().__init__(subnet)
-
-        class Nested_Net_level_3(pb.DynSysGroup):
-            """Level 3 nested network: inp1 -> s1 -> n1 -> Nested_Net_level_2 -> s1 -> Nested_Net_level_1"""
-
-            def __init__(self):
-                self.inp1 = pb.InputProj(1, shape_out=(10,))
-                self.n1 = pb.LIF((10,), 10)
-
-                net_level2 = Nested_Net_level_2(self.n1)
-                self.s1 = pb.NoDecay(
-                    self.inp1,
-                    self.n1,
-                    conn_type=pb.SynConnType.One2One,
-                )
-
-                super().__init__(net_level2)
-
-        net = Nested_Net_level_3()
-        nodes_excluded = (
-            net.nodes(level=1, include_self=False)
-            .subset(DynamicSys)
-            .unique()
-            .not_subset(pb.DynSysGroup)
-        )
-        nodes2 = (
-            net.nodes(level=2, include_self=False)
-            .subset(DynamicSys)
-            .unique()
-            .not_subset(pb.DynSysGroup)
-        )
-        nodes3 = (
-            net.nodes(level=3, include_self=False)
+        nodes = (
+            net.nodes(level=-1, include_self=False, find_recursive=True)
             .subset(DynamicSys)
             .unique()
             .not_subset(pb.DynSysGroup)
         )
 
-        assert len(nodes_excluded) == 3
-        assert len(nodes2) == 3 + 1
-        assert len(nodes3) == 3 + 1 + 3
+        assert len(nodes) == 3 + 3 * 2
+
+    def test_nested_net_L3_find_nodes_recursively(self, build_Nested_Net_L3):
+        net: pb.Network = build_Nested_Net_L3
+
+        nodes = (
+            net.nodes(level=-1, include_self=False, find_recursive=True)
+            .subset(DynamicSys)
+            .unique()
+            .not_subset(pb.DynSysGroup)
+        )
+
+        assert len(nodes) == 2 + 3 + 2 * 3
 
 
 class TestNetwork_Components_Oprations:
