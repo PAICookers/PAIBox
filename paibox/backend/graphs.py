@@ -98,11 +98,7 @@ class PAIGraph:
         _edges: Collector[EdgeName, EdgeType] = Collector()
 
         for network in networks:
-            # FIXME MAX_NESTED_LEVEL is set manually in DynSysGroup.
-            # Do we need to take precautions in advance?
-            sub_nodes = network.nodes(
-                level=network.MAX_NESTED_LEVEL, include_self=False
-            )
+            sub_nodes = network.nodes(include_self=False, find_recursive=True)
             _nodes += sub_nodes.include(InputProj, NeuDyn).unique()
             _edges += sub_nodes.subset(SynSys).unique()
 
