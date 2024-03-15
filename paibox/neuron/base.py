@@ -23,9 +23,6 @@ from paibox.utils import as_shape, shape2num
 __all__ = ["Neuron"]
 
 VoltageType: TypeAlias = NDArray[np.int32]
-VJT_MAX_LIMIT: int = 2**29 - 1
-VJT_MIN_LIMIT: int = -(2**29)
-VJT_LIMIT: int = 2**30
 
 
 class MetaNeuron:
@@ -129,7 +126,7 @@ class MetaNeuron:
         _rho_j_lambda = 2  # Random leak, unsigned 29-bit.
 
         if self.leak_direction is LDM.MODE_FORWARD:
-            _ld = np.ones(self.varshape, dtype=np.bool_)
+            _ld = np.ones((self._n_neuron,), dtype=np.bool_)
         else:
             _ld = np.sign(vjt)
 
@@ -213,7 +210,7 @@ class MetaNeuron:
 
         def _when_exceed_pos() -> VoltageType:
             if self.reset_mode is RM.MODE_NORMAL:
-                return np.full(self.varshape, self.reset_v, dtype=np.int32)
+                return np.full((self._n_neuron,), self.reset_v, dtype=np.int32)
 
             elif self.reset_mode is RM.MODE_LINEAR:
                 return np.subtract(
@@ -225,7 +222,7 @@ class MetaNeuron:
         def _when_exceed_neg() -> VoltageType:
             if self.neg_thres_mode is NTM.MODE_RESET:
                 if self.reset_mode is RM.MODE_NORMAL:
-                    return np.full(self.varshape, -self.reset_v, dtype=np.int32)
+                    return np.full((self._n_neuron,), -self.reset_v, dtype=np.int32)
                 elif self.reset_mode is RM.MODE_LINEAR:
                     return np.add(
                         vjt,
@@ -236,7 +233,7 @@ class MetaNeuron:
                     return vjt
 
             else:
-                return np.full(self.varshape, -self.neg_threshold, dtype=np.int32)
+                return np.full((self._n_neuron,), -self.neg_threshold, dtype=np.int32)
 
         # USE "=="!
         v_reset = np.where(
@@ -281,11 +278,11 @@ class MetaNeuron:
 
         def _when_exceed_pos() -> VoltageType:
             if self._spike_width_format is SpikeWidthFormat.WIDTH_1BIT:
-                return np.ones(self.varshape, dtype=np.int32)
+                return np.ones((self._n_neuron,), dtype=np.int32)
 
             if self.bit_truncation >= 8:
                 return np.full(
-                    self.varshape,
+                    (self._n_neuron,),
                     ((vj >> self.bit_truncation) - 8) & ((1 << 8) - 1),
                     dtype=np.int32,
                 )
@@ -293,17 +290,17 @@ class MetaNeuron:
                 _mask = (1 << self.bit_truncation) - 1
                 _truncated_vj = vj & _mask
                 return np.full(
-                    self.varshape,
+                    (self._n_neuron,),
                     _truncated_vj << (8 - self.bit_truncation),
                     dtype=np.int32,
                 )
             else:
-                return np.zeros(self.varshape, dtype=np.int32)
+                return np.zeros((self._n_neuron,), dtype=np.int32)
 
         y = np.where(
             vj >= self.pos_threshold,
             _when_exceed_pos(),
-            np.zeros(self.varshape, dtype=np.int32),
+            np.zeros((self._n_neuron,), dtype=np.int32),
         ).astype(np.int32)
 
         return y
@@ -498,17 +495,7 @@ class Neuron(MetaNeuron, NeuDyn):
         if x is None:
             x = self.sum_inputs()
 
-        # If the incoming membrane potential (30-bit signed) overflows, the chip will automatically handle it.
-        # This behavior needs to be implemented during simulation.
-        incoming_v = np.where(
-            x > VJT_MAX_LIMIT,
-            x - VJT_LIMIT,
-            np.where(
-                x < VJT_MIN_LIMIT,
-                x + VJT_LIMIT,
-                x,
-            ),
-        ).astype(np.int32)
+        incoming_v = _vjt_overflow(x)
 
         self._inner_spike, self._vjt, self._debug_thres_mode = super().update(
             incoming_v, self._vjt
@@ -590,3 +577,26 @@ class Neuron(MetaNeuron, NeuDyn):
     @property
     def voltage(self) -> VoltageType:
         return self._vjt.reshape(self.varshape)
+
+
+VJT_MAX_LIMIT: int = 2**29 - 1
+VJT_MIN_LIMIT: int = -(2**29)
+VJT_LIMIT: int = 2**30
+
+
+def _vjt_overflow(x: np.ndarray) -> VoltageType:
+    """Handle the overflow of the membrane potential.
+
+    NOTE: If the incoming membrane potential (30-bit signed) overflows, the chip\
+        will automatically handle it. This behavior needs to be implemented in  \
+        simulation.
+    """
+    return np.where(
+        x > VJT_MAX_LIMIT,
+        x - VJT_LIMIT,
+        np.where(
+            x < VJT_MIN_LIMIT,
+            x + VJT_LIMIT,
+            x,
+        ),
+    ).astype(np.int32)
