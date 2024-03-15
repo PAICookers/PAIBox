@@ -98,6 +98,30 @@ class Net2_with_multi_inpproj_encoder(pb.DynSysGroup):
         self.n1_output = pb.Probe(self.n1, "spike")
 
 
+class Conv2d_Net(pb.Network):
+    def __init__(self):
+        super().__init__()
+
+        pe1 = pb.simulator.PoissonEncoder()
+
+        self.inp1 = pb.InputProj(pe1, shape_out=(8, 24, 24))
+        self.n1 = pb.IF((16, 22, 22), threshold=10, reset_v=0, keep_shape=True)
+
+        kernel = np.random.randint(-128, 128, size=(8, 16, 3, 3), dtype=np.int8)
+        stride = 1
+
+        self.conv1 = pb.Conv2d(
+            self.inp1,
+            self.n1,
+            kernel,
+            stride=stride,
+            kernel_order="IOHW",
+        )
+
+        self.prob1 = pb.Probe(self.n1, "spike")
+        self.prob2 = pb.Probe(self.n1, "feature_map")
+
+
 class TestSimulator:
     def test_probe(self):
         net = Net1(100)
@@ -200,5 +224,14 @@ class TestSimulator:
 
         net.inp1.input = np.ones((10,), dtype=np.int8)
         sim.run(20)
+
+        sim.reset()
+
+    def test_sim_conv2d_net(self):
+        net = Conv2d_Net()
+        sim = pb.Simulator(net, start_time_zero=False)
+
+        net.inp1.input = np.random.rand(8, 24, 24)
+        sim.run(10)
 
         sim.reset()
