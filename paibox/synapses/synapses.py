@@ -1,106 +1,28 @@
-from typing import ClassVar, Optional, Tuple, Union
-
+import warnings
 import numpy as np
-from numpy.typing import NDArray
-from paicorelib import HwConfig
-from paicorelib import WeightPrecision as WP
 
-from paibox.base import DynamicSys, NeuDyn
-from paibox.exceptions import ShapeError
+from typing import Literal, Optional, Union
+
+from paibox.base import NeuDyn
+from paibox.neuron import Neuron
 from paibox.projection import InputProj
-from paibox.types import DataArrayType, WeightType
+from paibox.types import DataArrayType
 
-from .transforms import *
+from .base import Conv2dSyn, FullConnSyn
+from .conv_utils import _pair, _Size2Type
+from .transforms import GeneralConnType as GConnType
 
-__all__ = ["NoDecay"]
-
-RIGISTER_MASTER_KEY_FORMAT = "{0}.output"
-
-
-class Synapses:
-    def __init__(
-        self,
-        source: Union[NeuDyn, InputProj],
-        dest: NeuDyn,
-        conn_type: ConnType,
-    ) -> None:
-        """
-        Args:
-            - source: the source group of neurons.
-            - dest: the destination group of neurons.
-            - conn_type: the type of connection.
-        """
-        self.source = source
-        self.dest = dest
-        self._check(conn_type)
-
-    def _check(self, conn_type: ConnType) -> None:
-        if conn_type is ConnType.One2One or conn_type is ConnType.Identity:
-            if self.num_in != self.num_out:
-                raise ShapeError(
-                    f"The number of source & destination neurons must "
-                    f"be equal, but {self.num_in} != {self.num_out}."
-                )
-
-    @property
-    def shape_in(self) -> Tuple[int, ...]:
-        return self.source.shape_out
-
-    @property
-    def shape_out(self) -> Tuple[int, ...]:
-        return self.dest.shape_in
-
-    @property
-    def num_in(self) -> int:
-        return self.source.num_out
-
-    @property
-    def num_out(self) -> int:
-        return self.dest.num_in
+__all__ = ["FullConn", "Conv2d"]
 
 
-class SynSys(Synapses, DynamicSys):
-    CFLAG_ENABLE_WP_OPTIMIZATION: ClassVar[bool] = True
-    """Compilation flag for weight precision optimization."""
-
-    def __call__(self, *args, **kwargs) -> NDArray[np.int32]:
-        return self.update(*args, **kwargs)
-
-    @property
-    def weights(self) -> WeightType:
-        raise NotImplementedError
-
-    @property
-    def weight_precision(self) -> WP:
-        raise NotImplementedError
-
-    @property
-    def connectivity(self) -> NDArray[Union[np.bool_, np.int8]]:
-        raise NotImplementedError
-
-    @property
-    def n_axon_each(self) -> np.ndarray:
-        return np.sum(self.connectivity, axis=0)
-
-    @property
-    def num_axon(self) -> int:
-        return np.count_nonzero(np.any(self.connectivity, axis=1))
-
-    @property
-    def num_dendrite(self) -> int:
-        return np.count_nonzero(np.any(self.connectivity, axis=0))
-
-
-class NoDecay(SynSys):
-    """Synapses model with no decay."""
-
+class FullConn(FullConnSyn):
     def __init__(
         self,
         source: Union[NeuDyn, InputProj],
         dest: NeuDyn,
         weights: DataArrayType = 1,
         *,
-        conn_type: ConnType = ConnType.MatConn,
+        conn_type: GConnType = GConnType.MatConn,
         name: Optional[str] = None,
     ) -> None:
         """
@@ -111,68 +33,69 @@ class NoDecay(SynSys):
             - conn_type: the type of connection.
             - name: name of this synapses. Optional.
         """
-        super().__init__(source, dest, conn_type)
-        super(Synapses, self).__init__(name)
+        super().__init__(source, dest, weights, conn_type, name)
 
-        if conn_type is ConnType.One2One:
-            self.comm = OneToOne(self.num_in, weights)
-        elif conn_type is ConnType.Identity:
-            if not isinstance(weights, (int, np.integer)):
-                raise TypeError(
-                    f"Expected type int, np.integer, but got type {type(weights)}"
-                )
 
-            self.comm = Identity(self.num_in, weights)
-        elif conn_type is ConnType.All2All:
-            self.comm = AllToAll((self.num_in, self.num_out), weights)
-        else:  # MatConn
-            if not isinstance(weights, np.ndarray):
-                raise TypeError(
-                    f"Expected type int, np.integer or np.ndarray, but got type {type(weights)}"
-                )
+class NoDecay(FullConn):
+    def __init__(
+        self,
+        source: Union[NeuDyn, InputProj],
+        dest: NeuDyn,
+        weights: DataArrayType = 1,
+        *,
+        conn_type: GConnType = GConnType.MatConn,
+        name: Optional[str] = None,
+    ) -> None:
+        warnings.warn(
+            "The `NoDecay` class will be deprecated in future versions, "
+            "use `FullConn` instead.",
+            DeprecationWarning,
+        )
 
-            self.comm = MaskedLinear((self.num_in, self.num_out), weights)
+        super().__init__(source, dest, weights, conn_type=conn_type, name=name)
 
-        self.weights.setflags(write=False)
-        self.set_memory("_synout", np.zeros((self.num_out,), dtype=np.int32))
 
-        # Register `self` for the destination `NeuDyn`.
-        dest.register_master(RIGISTER_MASTER_KEY_FORMAT.format(self.name), self)
+class Conv2d(Conv2dSyn):
+    def __init__(
+        self,
+        source: Union[Neuron, InputProj],
+        dest: Neuron,
+        kernel: np.ndarray,
+        *,
+        stride: _Size2Type = 1,
+        # padding: _Size2Type = 0,
+        fm_order: Literal["CHW", "HWC"] = "CHW",
+        kernel_order: Literal["OIHW", "IOHW"] = "OIHW",
+        name: Optional[str] = None,
+    ) -> None:
+        """2d convolution synapses in fully-unrolled format.
 
-    def update(
-        self, spike: Optional[np.ndarray] = None, *args, **kwargs
-    ) -> NDArray[np.int32]:
-        # Retrieve the spike at index `timestamp` of the dest neurons
-        if self.dest.is_working:
-            if isinstance(self.source, InputProj):
-                synin = self.source.output.copy() if spike is None else spike
-            else:
-                idx = self.dest.timestamp % HwConfig.N_TIMESLOT_MAX
-                synin = self.source.output[idx].copy() if spike is None else spike
-        else:
-            # Retrieve 0 to the dest neurons if it is not working
-            synin = np.zeros_like(self.source.spike, dtype=np.bool_)
+        Arguments:
+            - source: source neuron(s). The dimensions need to be expressed explicitly as (C, H, W) or  \
+                (H, W, C). The feature map dimension order is specified by `fm_order`.
+            - dest: destination neuron(s).
+            - kernel: convolution kernel. Its dimension order must be (O,I,H,W) or (I,O,H,W), depending \
+                on the argument `kernel_order`.
+            - stride: the step size of the kernel sliding. It can be a scalar or a tuple of 2 integers.
+            - fm_order: dimension order of feature map. The order of input & output feature maps must be\
+                consistent, (C, H, W) or (H, W, C).
+            - kernel_order: dimension order of kernel, (O, I, H, W) or (I, O, H, W). (O, I, H, W) stands\
+                for (output channels, input channels, height, width).
+            - name: name of the 2d convolution. Optional.
+        """
+        if fm_order not in ("CHW", "HWC"):
+            raise ValueError(f"Unknown feature map order '{fm_order}'.")
 
-        self._synout = self.comm(synin).astype(np.int32)
-        return self._synout
+        if kernel_order not in ("OIHW", "IOHW"):
+            raise ValueError(f"Unknown kernel order '{kernel_order}'.")
 
-    def reset_state(self, *args, **kwargs) -> None:
-        # TODO Add other initialization methods in the future.
-        self.reset_memory()  # Call reset of `StatusMemory`.
-
-    @property
-    def output(self) -> NDArray[np.int32]:
-        return self._synout
-
-    @property
-    def weights(self):
-        return self.comm.weights
-
-    @property
-    def weight_precision(self) -> WP:
-        return self.comm._get_wp(self.CFLAG_ENABLE_WP_OPTIMIZATION)
-
-    @property
-    def connectivity(self):
-        """The connectivity matrix in `np.ndarray` format."""
-        return self.comm.connectivity
+        super().__init__(
+            source,
+            dest,
+            kernel,
+            _pair(stride),
+            # _pair(padding),
+            fm_order,
+            kernel_order,
+            name=name,
+        )

@@ -1,5 +1,7 @@
 import sys
-from typing import Any, Dict, List, Literal, Optional, Set, Tuple
+import numpy as np
+from typing import Any, ClassVar, Dict, List, Literal, Optional, Set, Tuple, Union
+from numpy.typing import NDArray
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias
@@ -10,6 +12,8 @@ from .collector import Collector
 from .generic import get_unique_name, is_name_unique
 from .mixin import ReceiveInputProj, StatusMemory, TimeRelatedNode
 from .node import NodeDict, NodeList
+from .types import WeightType
+
 
 __all__ = []
 
@@ -306,3 +310,32 @@ class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
             raise ValueError(f"'unrolling_factor' must be positive, but got {factor}.")
 
         self._unrolling_factor = factor
+
+
+class SynSys(DynamicSys):
+    CFLAG_ENABLE_WP_OPTIMIZATION: ClassVar[bool] = True
+    """Compilation flag for weight precision optimization."""
+
+    @property
+    def weights(self) -> WeightType:
+        raise NotImplementedError
+
+    @property
+    def weight_precision(self):
+        raise NotImplementedError
+
+    @property
+    def connectivity(self) -> NDArray[Union[np.bool_, np.int8]]:
+        raise NotImplementedError
+
+    @property
+    def n_axon_each(self) -> np.ndarray:
+        return np.sum(self.connectivity, axis=0)
+
+    @property
+    def num_axon(self) -> int:
+        return np.count_nonzero(np.any(self.connectivity, axis=1))
+
+    @property
+    def num_dendrite(self) -> int:
+        return np.count_nonzero(np.any(self.connectivity, axis=0))

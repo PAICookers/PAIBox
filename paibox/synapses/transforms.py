@@ -1,15 +1,23 @@
 from enum import Enum, auto, unique
-from typing import Tuple, Type, Union
+from typing import Literal, Type, Union
 
 import numpy as np
 from numpy.typing import NDArray
 from paicorelib import WeightPrecision as WP
 
+from .conv_utils import _conv2d_faster, _conv2d_unroll, Size2Type
 from paibox.exceptions import ShapeError
-from paibox.types import DataArrayType, IntScalarType, WeightType
+from paibox.types import DataArrayType, IntScalarType, SynOutType, WeightType
 from paibox.utils import is_shape
 
-__all__ = ["ConnType", "OneToOne", "AllToAll", "Identity", "MaskedLinear"]
+__all__ = [
+    "GeneralConnType",
+    "OneToOne",
+    "AllToAll",
+    "Identity",
+    "MaskedLinear",
+    "Conv2dForward",
+]
 
 
 MAX_INT1 = np.int8(1)
@@ -22,8 +30,14 @@ MAX_INT8 = np.iinfo(np.int8).max
 MIN_INT8 = np.iinfo(np.int8).min
 
 
-@unique
 class ConnType(Enum):
+    """Basic connection enum type."""
+
+    pass
+
+
+@unique
+class GeneralConnType(ConnType):
     MatConn = auto()
     """General matrix connection."""
 
@@ -59,10 +73,13 @@ def _get_weight_precision(weight: np.ndarray, enable_wp_opt: bool) -> WP:
 
 
 class Transform:
-    weights: WeightType
-    """The actual weights in synapse. Must stored in `np.int8` format."""
+    def __init__(self, weights: WeightType) -> None:
+        self.weights = weights
+        """The actual weights in synapse. Must stored in `np.int8` format."""
+        self.weights.setflags(write=False)
 
-    def __call__(self, *args, **kwargs) -> NDArray[np.int32]:
+    def __call__(self, *args, **kwargs) -> SynOutType:
+        """Ensure that in all subclasses, the output dimensions are (M,)."""
         raise NotImplementedError
 
     def _get_wp(self, enable_wp_opt: bool) -> WP:
@@ -89,31 +106,33 @@ class OneToOne(Transform):
         Arguments:
             - num: number of neurons.
             - weights: synaptic weights. The shape must be a scalar or array (num,).
-                If `weights` is a scalar(ndim = 0), the connectivity matrix will be:
-                [[x, 0, 0]
-                 [0, x, 0]
-                 [0, 0, x]]
-
-                Or `weights` is an array(ndim = 1), [x, y, z] corresponding to the weights of \
-                    the post-neurons respectively. The connectivity matrix will be:
-                [[x, 0, 0]
-                 [0, y, 0]
-                 [0, 0, z]]
+                - weights is a scalar(ndim = 0), the connectivity matrix will be:
+                    [[x, 0, 0]
+                     [0, x, 0]
+                     [0, 0, x]]
+                - weights is an array(ndim = 1), [x, y, z] corresponding to the weights \
+                    of the post-neurons respectively. The connectivity matrix will be:
+                    [[x, 0, 0]
+                     [0, y, 0]
+                     [0, 0, z]]
         """
         self.num = num
 
         if isinstance(weights, np.ndarray) and not is_shape(weights, (num,)):
             raise ShapeError(
-                f"Excepted shape is ({num},), but we got shape {weights.shape}"
+                f"Expected shape is ({num},), but we got shape {weights.shape}"
             )
 
         # The ndim of weights = 0 or 1.
-        self.weights = np.asarray(weights, dtype=np.int8)
+        _w = np.asarray(weights, dtype=np.int8)
 
-        if not self.weights.ndim in (0, 1):
-            raise ShapeError(f"The ndim of weights must be 0 or 1.")
+        if _w.ndim not in (0, 1):
+            raise ShapeError(f"The ndim of weights must be 0 or 1, but got {_w.ndim}.")
 
-    def __call__(self, x: np.ndarray, *args, **kwargs) -> NDArray[np.int32]:
+        super().__init__(_w)
+
+    def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
+        # (N,) * (N,) -> (N,)
         output = x * self.weights.copy()
 
         return output.astype(np.int32)
@@ -138,48 +157,48 @@ class Identity(OneToOne):
 
 
 class AllToAll(Transform):
-    def __init__(self, conn_size: Tuple[int, int], weights: DataArrayType) -> None:
+    def __init__(self, conn_size: Size2Type, weights: DataArrayType) -> None:
         """
         Arguments:
-            - num_in: number of source neurons.
-            - num_out: number of destination neurons.
+            - conn_size: size of connections.
             - weights: synaptic weights. The shape must be a scalar or a matrix.
-                If `weights` is a scalar(ndim = 0), the connectivity matrix will be:
-                [[x, x, x]
-                 [x, x, x]
-                 [x, x, x]]
-
-                Or `weights` is a matrix(ndim = 2), then the connectivity matrix will be:
-                [[a, b, c]
-                 [d, e, f]
-                 [g, h, i]]
+                - when weights is a scalar(ndim = 0), the connectivity matrix will be:  \
+                    x * I
+                - when weights is a matrix(ndim = 2), the connectivity matrix will be:  \
+                    [[a, b, c]
+                     [d, e, f]
+                     [g, h, i]]
         """
         self.conn_size = conn_size
 
         if isinstance(weights, np.ndarray) and not is_shape(weights, conn_size):
             raise ShapeError(
-                f"Excepted shape is {conn_size}, but we got shape {weights.shape}"
+                f"Expected shape is {conn_size}, but we got shape {weights.shape}"
             )
 
-        self.weights = np.asarray(weights, dtype=np.int8)
+        _w = np.asarray(weights, dtype=np.int8)
 
-        if not self.weights.ndim in (0, 2):
-            raise ShapeError(f"The ndim of weights must be 0 or 2.")
+        if _w.ndim not in (0, 2):
+            raise ShapeError(f"The ndim of weights must be 0 or 2, but got {_w.ndim}.")
 
-    def __call__(self, x: np.ndarray, *args, **kwargs) -> NDArray[np.int32]:
+        super().__init__(_w)
+
+    def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
         """
-        - When weights is a scalar, the output is a scalar. (Risky, DO NOT USE)
-        - When weights is a matrix, the output is the dot product of `x` & `weights`.
+        NOTE: 
+            - When weights is a scalar, the output is a scalar (sum * w) & repeated     \
+                `conn_size[1]` times.
+            - When weights is a matrix, the output is the dot product of `x` & weights.
         """
         if self.weights.ndim == 0:
             sum_x = np.sum(x, axis=None, dtype=np.int32)
-            output = self.weights * np.full((self.conn_size[1],), sum_x, dtype=np.int32)
-            # Risky
-            # output = self.weights * sum_x
+            # (M,)
+            output = np.full((self.conn_size[1],), self.weights * sum_x, dtype=np.int32)
         else:
+            # (N,) @ (N, M) -> (M,)
             output = x @ self.weights.copy().astype(np.int32)
 
-        return output.astype(np.int32)
+        return output
 
     @property
     def connectivity(self):
@@ -195,25 +214,19 @@ class AllToAll(Transform):
 class MaskedLinear(Transform):
     def __init__(
         self,
-        conn_size: Tuple[int, int],
+        conn_size: Size2Type,
         weights: np.ndarray,
     ) -> None:
-        """
-        Arguments:
-            - conn: connector. Only support `MatConn`.
-            - weights: unmasked weights.
-        """
-        self.conn_size = conn_size
-
-        if not is_shape(weights, self.conn_size):
+        if not is_shape(weights, conn_size):
             raise ShapeError(
-                f"Excepted shape is {conn_size}, but we got {weights.shape}"
+                f"Expected shape is {conn_size}, but we got {weights.shape}"
             )
 
-        # Element-wise Multiplication
-        self.weights = np.asarray(weights, dtype=np.int8)
+        _w = np.asarray(weights, dtype=np.int8)
+        super().__init__(_w)
 
-    def __call__(self, x: np.ndarray, *args, **kwargs) -> NDArray[np.int32]:
+    def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
+        # (N,) @ (N, M) -> (M,)
         output = x @ self.weights.copy().astype(np.int32)
 
         return output.astype(np.int32)
@@ -221,3 +234,49 @@ class MaskedLinear(Transform):
     @property
     def connectivity(self):
         return self.weights.astype(self.conn_dtype)
+
+
+class Conv2dForward(Transform):
+    def __init__(
+        self,
+        in_shape: Size2Type,
+        out_shape: Size2Type,
+        kernel: np.ndarray,
+        stride: Size2Type,
+        padding: Size2Type,
+        fm_order: Literal["CHW", "HWC"],
+    ) -> None:
+        self.in_shape = in_shape
+        self.out_shape = out_shape
+        self.stride = stride
+        self.padding = padding
+        self.fm_order = fm_order
+
+        _w = kernel.astype(np.int8)
+        super().__init__(_w)
+
+    def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
+        cin = self.weights.shape[1]
+
+        if self.fm_order == "HWC":
+            # (N,) -> (H, W, C) -> (C, H, W)
+            _x = x.reshape(self.in_shape + (cin,))
+            _x = _x.transpose(2, 0, 1)
+        else:
+            _x = x.reshape((cin,) + self.in_shape)
+
+        o_conv2d = _conv2d_faster(
+            _x,
+            self.out_shape,
+            self.weights,
+            self.stride,
+            self.padding,
+        )
+
+        return o_conv2d.flatten()
+
+    @property
+    def connectivity(self):
+        return _conv2d_unroll(
+            self.in_shape, self.out_shape, self.weights, self.stride
+        ).astype(self.conn_dtype)
