@@ -1,7 +1,7 @@
 import warnings
-import numpy as np
-
 from typing import Literal, Optional, Union
+
+import numpy as np
 
 from paibox.base import NeuDyn
 from paibox.neuron import Neuron

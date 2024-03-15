@@ -426,12 +426,8 @@ class Network_with_container(pb.DynSysGroup):
         n_list.append(n3)
         self.n_list = n_list
 
-        self.s1 = pb.FullConn(
-            n_list[0], n_list[1], conn_type=pb.SynConnType.All2All
-        )
-        self.s2 = pb.FullConn(
-            n_list[1], n_list[2], conn_type=pb.SynConnType.All2All
-        )
+        self.s1 = pb.FullConn(n_list[0], n_list[1], conn_type=pb.SynConnType.All2All)
+        self.s2 = pb.FullConn(n_list[1], n_list[2], conn_type=pb.SynConnType.All2All)
 
         self.probe1 = pb.Probe(self.n_list[1], "output", name="n2_out")
 

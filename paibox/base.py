@@ -1,6 +1,7 @@
 import sys
-import numpy as np
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Set, Tuple, Union
+
+import numpy as np
 from numpy.typing import NDArray
 
 if sys.version_info >= (3, 10):
@@ -13,7 +14,6 @@ from .generic import get_unique_name, is_name_unique
 from .mixin import ReceiveInputProj, StatusMemory, TimeRelatedNode
 from .node import NodeDict, NodeList
 from .types import WeightType
-
 
 __all__ = []
 

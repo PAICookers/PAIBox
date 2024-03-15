@@ -1,12 +1,12 @@
-from itertools import repeat
 from functools import partial
+from itertools import repeat
 from typing import Any, Iterable, Literal, Tuple, TypeVar, Union
 
 import numpy as np
 from numpy.typing import NDArray
+
 from paibox.exceptions import ShapeError
 from paibox.types import SynOutType, WeightType
-
 
 T = TypeVar("T")
 

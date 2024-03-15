@@ -5,10 +5,11 @@ import numpy as np
 from numpy.typing import NDArray
 from paicorelib import WeightPrecision as WP
 
-from .conv_utils import _conv2d_faster, _conv2d_unroll, Size2Type
 from paibox.exceptions import ShapeError
 from paibox.types import DataArrayType, IntScalarType, SynOutType, WeightType
 from paibox.utils import is_shape
+
+from .conv_utils import Size2Type, _conv2d_faster, _conv2d_unroll
 
 __all__ = [
     "GeneralConnType",
@@ -185,7 +186,7 @@ class AllToAll(Transform):
 
     def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
         """
-        NOTE: 
+        NOTE:
             - When weights is a scalar, the output is a scalar (sum * w) & repeated     \
                 `conn_size[1]` times.
             - When weights is a matrix, the output is the dot product of `x` & weights.

@@ -1,3 +1,5 @@
+from importlib.metadata import version
+
 from .backend import BACKEND_CONFIG as BACKEND_CONFIG
 from .backend import Mapper as Mapper
 from .base import *
@@ -12,10 +14,8 @@ from .simulator import Probe as Probe
 from .simulator import Simulator as Simulator
 from .synapses import Conv2d as Conv2d
 from .synapses import FullConn as FullConn
-from .synapses import NoDecay as NoDecay
 from .synapses import GeneralConnType as SynConnType
-
-from importlib.metadata import version
+from .synapses import NoDecay as NoDecay
 
 try:
     __version__ = version("paibox")

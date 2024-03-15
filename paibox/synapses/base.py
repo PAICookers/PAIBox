@@ -1,7 +1,8 @@
-import numpy as np
-
 from typing import ClassVar, Literal, Optional, Tuple, Union
-from paicorelib import HwConfig, WeightPrecision as WP
+
+import numpy as np
+from paicorelib import HwConfig
+from paicorelib import WeightPrecision as WP
 
 from paibox.base import NeuDyn, SynSys
 from paibox.exceptions import ShapeError
@@ -10,15 +11,9 @@ from paibox.projection import InputProj
 from paibox.types import DataArrayType, SynOutType, WeightType
 
 from .conv_utils import _fm_ndim2_check
-from .transforms import (
-    Conv2dForward,
-    GeneralConnType as GConnType,
-    OneToOne,
-    AllToAll,
-    Identity,
-    MaskedLinear,
-    Transform,
-)
+from .transforms import AllToAll, Conv2dForward
+from .transforms import GeneralConnType as GConnType
+from .transforms import Identity, MaskedLinear, OneToOne, Transform
 
 RIGISTER_MASTER_KEY_FORMAT = "{0}.output"
 

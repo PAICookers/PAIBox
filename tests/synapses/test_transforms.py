@@ -1,7 +1,7 @@
+from typing import Tuple
+
 import numpy as np
 import pytest
-
-from typing import Tuple
 
 from paibox.synapses.transforms import *
 from paibox.utils import shape2num
