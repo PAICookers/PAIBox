@@ -154,3 +154,4 @@ cython_debug/
 
 .vscode
 debug
+*.drawio
