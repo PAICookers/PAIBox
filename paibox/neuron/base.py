@@ -97,7 +97,7 @@ class MetaNeuron:
 
         if self.synaptic_integration_mode is SIM.MODE_STOCHASTIC:
             raise NotImplementedError(
-                f"Mode {SIM.MODE_STOCHASTIC.name} not implemented."
+                f"Mode {SIM.MODE_STOCHASTIC.name} is not implemented."
             )
         else:
             if incoming_v.ndim == 2:

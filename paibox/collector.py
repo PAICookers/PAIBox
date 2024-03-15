@@ -30,7 +30,7 @@ class Collector(dict, Generic[_KT, _VT]):
     ) -> Union["Collector[_KT, _VT]", "Collector[_KT, _T]"]:
         if not isinstance(other, (dict, list, tuple)):
             raise TypeError(
-                f"Excepted a dict, list or sequence, but we got {other}, type {type(other)}"
+                f"Expected a dict, list or sequence, but we got {other}, type {type(other)}"
             )
 
         if isinstance(other, dict):
@@ -75,7 +75,7 @@ class Collector(dict, Generic[_KT, _VT]):
     ) -> Union["Collector[_KT, _VT]", "Collector[str, _T]"]:
         if not isinstance(other, (dict, list, tuple)):
             raise TypeError(
-                f"Excepted a dict, list or sequence, but we got {other}, type {type(other)}"
+                f"Expected a dict, list or sequence, but we got {other}, type {type(other)}"
             )
 
         gather = type(self)(self)

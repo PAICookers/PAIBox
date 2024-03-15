@@ -60,7 +60,7 @@ class InputProj(Projection, TimeRelatedNode):
             self._num_input = input
             self._func_input = _func_bypass
 
-        self._shape_out = as_shape(shape_out)
+        self._shape = as_shape(shape_out)
         self.keep_shape = keep_shape
 
         self.set_memory("_inner_spike", np.zeros((self.num_out,), dtype=np.bool_))
@@ -71,16 +71,15 @@ class InputProj(Projection, TimeRelatedNode):
         if isinstance(_spike, (int, np.bool_, np.integer)):
             self._inner_spike = np.full((self.num_out,), _spike, dtype=np.bool_)
         elif isinstance(_spike, np.ndarray):
-            try:
-                self._inner_spike = _spike.reshape((self.num_out,)).astype(np.bool_)
-            except ValueError:
+            if shape2num(_spike.shape) != self.num_out:
                 raise ShapeError(
-                    f"Cannot reshape input value from {_spike.shape} to ({self.num_out},)."
+                    f"Cannot reshape output value from {_spike.shape} to ({self.num_out},)."
                 )
+            self._inner_spike = _spike.flatten().astype(np.bool_)
         else:
-            # Should be never
+            # should never be reached
             raise TypeError(
-                f"Excepted type int, np.bool_, np.integer or np.ndarray, "
+                f"Expected type int, np.bool_, np.integer or np.ndarray, "
                 f"but got {_spike}, type {type(_spike)}."
             )
 
@@ -113,7 +112,7 @@ class InputProj(Projection, TimeRelatedNode):
 
     @property
     def num_out(self) -> int:
-        return shape2num(self._shape_out)
+        return shape2num(self._shape)
 
     @property
     def shape_in(self) -> Tuple[int, ...]:
@@ -121,7 +120,7 @@ class InputProj(Projection, TimeRelatedNode):
 
     @property
     def shape_out(self) -> Tuple[int, ...]:
-        return self._shape_out
+        return self._shape
 
     @property
     def input(self):
@@ -132,7 +131,7 @@ class InputProj(Projection, TimeRelatedNode):
         """Set the input at the beginning of running the simulation."""
         if not isinstance(value, (int, np.bool_, np.integer, np.ndarray)):
             raise TypeError(
-                f"Excepted type int, np.bool_, np.integer or np.ndarray, "
+                f"Expected type int, np.bool_, np.integer or np.ndarray, "
                 f"but got {value}, type {type(value)}"
             )
 
@@ -167,8 +166,6 @@ def _call_with_ctx(f: Callable[..., DataType], *args, **kwargs) -> DataType:
     try:
         ctx = _FRONTEND_CONTEXT.get_ctx()
         bound = inspect.signature(f).bind(*args, **ctx, **kwargs)
-        # warnings.warn(_input_deprecate_msg, UserWarning)
         return f(*bound.args, **bound.kwargs)
-
     except TypeError:
         return f(*args, **kwargs)

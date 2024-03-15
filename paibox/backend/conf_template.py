@@ -23,8 +23,9 @@ from paicorelib import (
     WeightPrecision,
     get_replication_id,
 )
+
+from paicorelib.framelib import types
 from paicorelib.framelib.frame_gen import OfflineFrameGen
-from paicorelib.framelib.types import FRAME_DTYPE, FrameArrayType
 from paicorelib.framelib.utils import np2bin, np2npy, np2txt
 from typing_extensions import NotRequired, TypeAlias
 
@@ -32,6 +33,17 @@ from paibox.base import NeuDyn
 
 from .context import _BACKEND_CONTEXT
 from .graphs_types import NodeName
+
+# Prevent import errors caused by changes in type definitions in paicorelib.
+if hasattr(types, "FRAME_DTYPE"):
+    FRAME_DTYPE = types.FRAME_DTYPE
+else:
+    FRAME_DTYPE = np.uint64
+
+if hasattr(types, "FrameArrayType"):
+    FrameArrayType = types.FrameArrayType
+else:
+    FrameArrayType = NDArray[FRAME_DTYPE]
 
 
 class CoreConfig(NamedTuple):
@@ -284,7 +296,7 @@ def gen_config_frames_by_coreconf(
         - format: `txt`, `bin`, or `npy`. `bin` & `npy` are recommended.
     """
 
-    def _write_to_f(name: str, array: np.ndarray) -> None:
+    def _write_to_f(name: str, array: FrameArrayType) -> None:
         nonlocal fp, format
 
         _fp = fp / (name + f".{format}")

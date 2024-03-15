@@ -1,4 +1,4 @@
-from .base import Neuron as Neuron
+from .base import Neuron
 from .neurons import IF as IF
 from .neurons import LIF as LIF
 from .neurons import PhasicSpiking as PhasicSpiking

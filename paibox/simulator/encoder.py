@@ -21,7 +21,7 @@ class Encoder(DynamicSys):
         seed: Optional[int] = None,
         name: Optional[str] = None,
     ) -> None:
-        self._shape_out = as_shape(shape_out)
+        self._shape = as_shape(shape_out)
 
         super().__init__(name)
         self.rng = self._get_rng(seed)
@@ -32,7 +32,7 @@ class Encoder(DynamicSys):
 
     @property
     def num_out(self) -> int:
-        return shape2num(self._shape_out)
+        return shape2num(self._shape)
 
     @property
     def shape_in(self) -> Tuple[int, ...]:
@@ -40,7 +40,7 @@ class Encoder(DynamicSys):
 
     @property
     def shape_out(self) -> Tuple[int, ...]:
-        return self._shape_out
+        return self._shape
 
 
 class StatelessEncoder(Encoder):
