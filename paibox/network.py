@@ -1,5 +1,5 @@
 import warnings
-from typing import Callable, ClassVar, List, Optional, Tuple, Type, Union
+from typing import Callable, List, Optional, Tuple, Type, Union
 
 import numpy as np
 from typing_extensions import TypeAlias
@@ -18,7 +18,6 @@ ComponentsType: TypeAlias = Union[InputProj, NeuDyn, SynSys]
 
 
 class DynSysGroup(DynamicSys, Container):
-    MAX_NESTED_LEVEL: ClassVar[int] = 9
 
     def __init__(
         self,
@@ -43,7 +42,11 @@ class DynSysGroup(DynamicSys, Container):
             The above expression cannot be completely established, and the condition needs to be met: the   \
             dependent synapses of the neuron are in the same subgraph.
         """
-        nodes = self.nodes(level=1, include_self=False).subset(DynamicSys).unique()
+        nodes = (
+            self.nodes(include_self=False, find_recursive=True)
+            .subset(DynamicSys)
+            .unique()
+        )
 
         for node in nodes.subset(Projection).values():
             node(**kwargs)
@@ -54,13 +57,12 @@ class DynSysGroup(DynamicSys, Container):
         for node in nodes.subset(NeuDyn).values():
             node()
 
-        for node in (
-            nodes.not_subset(Projection).not_subset(SynSys).not_subset(NeuDyn).values()
-        ):
-            node()
-
     def reset_state(self) -> None:
-        nodes = self.nodes(level=1, include_self=False).subset(DynamicSys).unique()
+        nodes = (
+            self.nodes(include_self=False, find_recursive=True)
+            .subset(DynamicSys)
+            .unique()
+        )
 
         for node in nodes.subset(Projection).values():
             node.reset_state()
@@ -69,11 +71,6 @@ class DynSysGroup(DynamicSys, Container):
             node.reset_state()
 
         for node in nodes.subset(NeuDyn).values():
-            node.reset_state()
-
-        for node in (
-            nodes.not_subset(Projection).not_subset(SynSys).not_subset(NeuDyn).values()
-        ):
             node.reset_state()
 
     def __call__(self, **kwargs) -> None:

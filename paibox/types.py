@@ -1,4 +1,3 @@
-import sys
 from typing import (
     AbstractSet,
     Any,
@@ -16,21 +15,17 @@ from typing import (
 import numpy as np
 from numpy.typing import NDArray
 
-if sys.version_info >= (3, 10):
-    from typing import TypeAlias
-else:
-    from typing_extensions import TypeAlias
-
 Shape = TypeVar("Shape", int, Tuple[int, ...], List[int])
 ArrayType = TypeVar("ArrayType", List[int], Tuple[int, ...], np.ndarray)
 Scalar = TypeVar("Scalar", int, float, np.generic)
-IntScalarType = TypeVar("IntScalarType", int, np.integer)
+IntScalarType = TypeVar("IntScalarType", int, np.bool_, np.integer)
 DataType = TypeVar("DataType", int, np.bool_, np.integer, np.ndarray)
 DataArrayType = TypeVar(
     "DataArrayType", int, np.bool_, np.integer, List[int], Tuple[int, ...], np.ndarray
 )
-SpikeType: TypeAlias = NDArray[np.bool_]
-WeightType: TypeAlias = NDArray[np.int8]  # raw int8 weights
+SpikeType = NDArray[np.bool_]
+SynOutType = NDArray[np.int32]
+WeightType = NDArray[np.int8]  # raw int8 weights
 
 _T = TypeVar("_T")
 

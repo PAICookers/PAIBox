@@ -53,7 +53,7 @@ PAIBox提供**神经元**与**突触**作为基本组件，用于搭建神经网
 
 PAIBox提供了多种类型的神经元模型，能够实现各种特殊的功能。
 
-⚠️ 请注意，神经元初始膜电位为0。
+⚠️ 神经元初始膜电位为0。
 
 #### IF神经元
 
@@ -62,7 +62,7 @@ IF神经元实现了经典的“积分发射”模型，其调用方式及参数
 ```python
 import paibox as pb
 
-n1 = pb.neuron.IF(shape=10, threshold=127, reset_v=0, keep_shape=False, delay=1, tick_wait_start=1, tick_wait_end=0, name='n1')
+n1 = pb.IF(shape=10, threshold=127, reset_v=0, keep_shape=False, delay=1, tick_wait_start=1, tick_wait_end=0, name='n1')
 ```
 
 其中：
@@ -74,7 +74,7 @@ n1 = pb.neuron.IF(shape=10, threshold=127, reset_v=0, keep_shape=False, delay=1,
 - `delay`：设定该神经元组输出的延迟。默认为1，即本时间步的计算结果，**下一时间步**传递至后继神经元。
 - `tick_wait_start`：设定该神经元组在第 `N` 个时间步时启动，0表示不启动。默认为1。
 - `tick_wait_end`：设定该神经元组持续工作 `M` 个时间步，0表示**永远持续工作**。默认为0。
-- `unrolling_factor`：该参数与后端相关。展开因子表示神经元将被展开，部署至更多的物理核上，以降低延迟，并提高吞吐率。
+- `unrolling_factor`：该参数与后端流程相关。展开因子表示神经元将被展开，部署至更多的物理核上，以降低延迟，并提高吞吐率。
 - `name`：可选，为该对象命名。
 
 #### LIF神经元
@@ -82,7 +82,7 @@ n1 = pb.neuron.IF(shape=10, threshold=127, reset_v=0, keep_shape=False, delay=1,
 LIF神经元实现了“泄露-积分-发射”神经元模型，其调用方式及参数如下：
 
 ```python
-n1 = pb.neuron.LIF(shape=128, threshold=127, reset_v=0, leak_v=-1, keep_shape=False, name='n1')
+n1 = pb.LIF(shape=128, threshold=127, reset_v=0, leak_v=-1, keep_shape=False, name='n1')
 ```
 
 - `leak_v`：LIF神经元的泄露值（有符号）。其他参数含义与IF神经元相同。
@@ -92,7 +92,7 @@ n1 = pb.neuron.LIF(shape=128, threshold=127, reset_v=0, leak_v=-1, keep_shape=Fa
 Tonic Spiking神经元可以实现对持续脉冲刺激的周期性反应。
 
 ```python
-n1 = pb.neuron.TonicSpiking(shape=128, fire_step=3, keep_shape=False, name='n1')
+n1 = pb.TonicSpiking(shape=128, fire_step=3, keep_shape=False, name='n1')
 ```
 
 - `fire_step`：发放周期，每接收到 `N` 次刺激后发放脉冲。
@@ -103,7 +103,7 @@ n1 = pb.neuron.TonicSpiking(shape=128, fire_step=3, keep_shape=False, name='n1')
 import paibox as pb
 import numpy as np
 
-n1 = pb.neuron.TonicSpiking(shape=1, fire_step=3)
+n1 = pb.TonicSpiking(shape=1, fire_step=3)
 inp_data = np.ones((10,), dtype=np.bool_)
 output = np.full((10,), 0, dtype=np.bool_)
 voltage = np.full((10,), 0, dtype=np.int32)
@@ -133,7 +133,7 @@ print(output)
 Phasic Spiking神经元可以实现，在接受一定数量脉冲后发放，然后保持静息状态，不再发放。
 
 ```python
-n1 = pb.neuron.PhasicSpiking(shape=128, time_to_fire=3, neg_floor=10, keep_shape=False, name='n1')
+n1 = pb.PhasicSpiking(shape=128, time_to_fire=3, neg_floor=10, keep_shape=False, name='n1')
 ```
 
 - `time_to_fire`：发放时间。
@@ -145,7 +145,7 @@ n1 = pb.neuron.PhasicSpiking(shape=128, time_to_fire=3, neg_floor=10, keep_shape
 import paibox as pb
 import numpy as np
 
-n1 = pb.neuron.PhasicSpiking(shape=1, time_to_fire=3)
+n1 = pb.PhasicSpiking(shape=1, time_to_fire=3)
 # [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
 inp_data = np.concatenate((np.zeros((2,), np.bool_), np.ones((10,), np.bool_)))
 output = np.full((12,), 0, dtype=np.bool_)
@@ -176,10 +176,12 @@ print(output)
 
 ### 突触
 
+#### 全连接
+
 PAIBox中，突触用于连接不同神经元组，并包含了连接关系以及权重信息。以全连接类型的突触为实例：
 
 ```python
-s1= pb.synapses.NoDecay(source=n1, dest=n2, weights=weight1, conn_type=pb.SynConnType.All2All, name='s1')
+s1= pb.FullConn(source=n1, dest=n2, weights=weight1, conn_type=pb.SynConnType.All2All, name='s1')
 ```
 
 其中：
@@ -187,18 +189,19 @@ s1= pb.synapses.NoDecay(source=n1, dest=n2, weights=weight1, conn_type=pb.SynCon
 - `source`：前向神经元组，可以是**神经元或者输入节点**类型。
 - `dest`：后向神经元组，只能为**神经元**类型。
 - `weights`：突触的权重。
-- `conn_type`：连接形式，默认为 `MatConn` 矩阵连接。当设置为 `All2All` 或 `One2One` 时，`weights` 有更简洁的表达。
+- `conn_type`：连接形式，默认为 `MatConn` 矩阵连接。当设置为 `All2All`、`One2One` 或 `Identity` 时，`weights` 有更简洁的表达。
 - `name`：可选，为该对象命名。
 
 突触表达的是两个神经元组之间的连接关系。PAIBox提供了三种主要的连接关系表达：
 
 - `All2All`：全连接
 - `One2One`：单对单连接
+- `Identity`：恒等映射，同单对单连接，权重为缩放因子标量
 - `MatConn`：普通的矩阵连接
 
 通常情况下，`MatConn` 适合所有的连接关系，而 `All2All`、`One2One` 则提供了对于特殊连接更为方便的表达。
 
-#### All2All 全连接
+##### All2All 全连接
 
 对于全连接，其权重 `weights` 有两种输入类型：
 
@@ -207,30 +210,30 @@ s1= pb.synapses.NoDecay(source=n1, dest=n2, weights=weight1, conn_type=pb.SynCon
 
 其中，`N1` 为前向神经元组数目，`N2` 为后向神经元组数目。
 
-#### One2One 单对单连接
+##### One2One 单对单连接
 
 两组神经元之间依次单对单连接，这要求**前向与后向神经元数目相同**。其权重 `weights` 主要有以下几种输入类型：
 
 - 标量：默认为1。这表示前层的各个神经元输出线性地输入到后层神经元，即 $\lambda\cdot\mathbf{I}$
 
   ```python
-  n1 = pb.neuron.IF(shape=5,threshold=1)
-  n2 = pb.neuron.IF(shape=5,threshold=1)
-  s1 = pb.synapses.NoDecay(source=n1, dest=n2, conn_type=pb.ConnType.One2One, weights=2, name='s1')
+  n1 = pb.IF(shape=5, threshold=1)
+  n2 = pb.IF(shape=5, threshold=1)
+  s1 = pb.FullConn(source=n1, dest=n2, conn_type=pb.SynConnType.One2One, weights=2, name='s1')
 
   print(s1.weights)
   >>>
   2
   ```
 
-  其权重以标量的形式储存。由于在运算时标量会随着矩阵进行广播，因此计算正确且节省了存储开销。
+  其权重以标量的形式储存。
 
 - 数组：尺寸要求为 `(N2,)`，可以自定义每组对应神经元之间的连接权重。如下例所示，设置 `weights` 为 `[1, 2, 3, 4, 5]`，
 
   ```python
-  n1 = pb.neuron.IF(shape=5,threshold=1)
-  n2 = pb.neuron.IF(shape=5,threshold=1)
-  s1 = pb.synapses.NoDecay(source=n1, dest=n2, conn_type=pb.ConnType.One2One, weights=np.arange(1, 6, dtype=np.int8), name='s1')
+  n1 = pb.IF(shape=5, threshold=1)
+  n2 = pb.IF(shape=5, threshold=1)
+  s1 = pb.FullConn(source=n1, dest=n2, conn_type=pb.SynConnType.One2One, weights=np.arange(1, 6, dtype=np.int8), name='s1')
 
   print(s1.weights)
   >>>
@@ -243,13 +246,32 @@ s1= pb.synapses.NoDecay(source=n1, dest=n2, weights=weight1, conn_type=pb.SynCon
 
   其权重实际上为 `N*N` 矩阵，其中 `N` 为前向/后向神经元组数目。
 
-#### Identity 恒等映射
+##### Identity 恒等映射
 
 具有缩放因子的单对单连接，即 `One2One` 中权重项为标量的特殊情况。
 
-#### MatConn 一般连接
+##### MatConn 一般连接
 
 普通的神经元连接类型，仅可以通过矩阵设置其权重 `weights`。
+
+#### 2D卷积
+
+全展开形式2D卷积可用突触进行表示。对于一个卷积连接，需要严格指定前后神经元的尺寸、神经元维度顺序、卷积核全权重、卷积核维度顺序与步长信息。
+
+- `kernel`：卷积核权重。
+- `stride`：步长，可以为标量或元组。当为标量时，对应为 `(x, x)`；当为元组时，则对应为 `(x, y)`。
+- `fm_order` 指定神经元维度顺序为 `CHW` 或 `HWC` 排列。
+- `kernel_order`：指定卷积核维度顺序为 `OIHW` 或 `HWIO` 排列。
+
+```python
+n1 = pb.IF(shape=(8, 28, 28), threshold=1)      # Input feature map: (8, 28, 28)
+n2 = pb.IF(shape=(16, 26, 26), threshold=1)     # Output feature map: (16, 26, 26)
+kernel = np.random.randint(-128, 128, size=(16, 8, 3, 3), dtype=np.int8) # OIHW
+
+conv2d = pb.Conv2d(n1, n2, kernel=kernel, stride=1, fm_order="CHW", kernel_order="OIHW", name="conv_1")
+```
+
+⚠️ `padding` 不支持，默认为0。
 
 ### 编码器
 
@@ -349,7 +371,7 @@ print(output)
 
 当启用 `keep_shape` 时，特征图数据将保持其维度信息。
 
-输入节点的参数也可以是 `np.ndarray` 。以下为一个简单实例：
+输入节点的参数也可以是数组。以下为一个简单实例：
 
 ```python
 x = np.random.randint(0, 5, size=(4, 4))
@@ -371,7 +393,7 @@ print(output)
 
 #### 函数类型输入
 
-输入节点支持使用自定义函数作为输入。以下为一个简单实例：
+输入节点支持使用函数作为输入。以下为一个简单实例：
 
 ```python
 def fakeout(*args, **kwargs):
@@ -393,7 +415,7 @@ print(output)
  [3 3 3 3]]
 ```
 
-当函数需要时间步信息，则可在函数参数中声明 `t` ，输入节点将在前端环境变量 `FRONTEND_ENV` 中获取时间步信息。当需要传入额外的参数时，通过 `FRONTEND_ENV.save()` 保存相关参数至前端环境变量。当函数与时间步或其他参数无关时，可使用 `**kwargs` 代替。以下为一个简单实例：
+当函数需要时间步信息，则可在函数中声明传入参数 `t` ，输入节点则在前端环境变量 `FRONTEND_ENV` 中获取时间步信息。当需要传入额外的参数时，通过 `FRONTEND_ENV.save()` 保存相关参数至前端环境变量。当函数与时间步或其他参数无关时，可使用 `**kwargs` 代替。以下为一个简单实例：
 
 ```python
 from paibox import FRONTEND_ENV
@@ -431,7 +453,7 @@ print(output)
 
 PAIBox提供了一些常用编码器，编码器内部实现了 `__call__` 方法，因此可作为输入节点的输入使用。在作为输入节点的输入使用时，它与一般函数做为输入节点的输入使用存在差别。
 
-在例化 `InputProj` 时，输入节点的输入为编码器。在运行时，还需要通过设置 `inp.input`，向输入节点输入待编码数据，输入节点内部将自动完成泊松编码并输出。以泊松编码器为例：
+在例化 `InputProj` 时，输入节点的输入为编码器。在运行时，还需要通过设置 `inp.input`，**向输入节点输入待编码数据**，节点内部将完成泊松编码并输出。以泊松编码器为例：
 
 ```python
 pe = pb.simulator.PoissonEncoder()                          # 例化泊松编码器
@@ -457,7 +479,7 @@ print(output)
 
 ### 网络模型
 
-在PAIBox中，神经网络搭建可以通过继承 `DynSysGroup`（或 `Network`，`DynSysGroup` 别名）来实现，并在其中例化神经元与突触组件，完成网络模型的搭建。以一个简单的全连接网络为例：
+在PAIBox中，可以通过继承 `DynSysGroup`（或 `Network`）来实现，并在其中例化神经元与突触组件，完成网络模型的构建。以一个简单的两层全连接网络为例：
 
 <p align="center">
     <img src="images/Guide-基础网络搭建-全连接网络示例.png" alt="基础网络搭建-全连接网络示例" style="zoom:50%">
@@ -476,10 +498,10 @@ class fcnet(pb.Network):
         pe = pb.simulator.PoissonEncoder()
 
         self.i1 = pb.InputProj(input=pe, shape_out=(784,))
-        self.n1 = pb.neuron.IF(128, threshold=128, reset_v=0, tick_wait_start=1)
-        self.n2 = pb.neuron.IF(10, threshold=128, reset_v=0, tick_wait_start=2)
-        self.s1 = pb.synapses.NoDecay(self.i1, self.n1, weights=weight1, conn_type=pb.SynConnType.All2All)
-        self.s2 = pb.synapses.NoDecay(self.n1, self.n2, weights=weight2, conn_type=pb.SynConnType.All2All)
+        self.n1 = pb.IF(128, threshold=128, reset_v=0, tick_wait_start=1)
+        self.n2 = pb.IF(10, threshold=128, reset_v=0, tick_wait_start=2)
+        self.fc1 = pb.FullConn(self.i1, self.n1, weights=weight1, conn_type=pb.SynConnType.All2All)
+        self.fc2 = pb.FullConn(self.n1, self.n2, weights=weight2, conn_type=pb.SynConnType.All2All)
 ```
 
 #### 容器类型
@@ -491,15 +513,15 @@ import paibox as pb
 l1 = pb.NodeList()
 
 for i in range(5):
-    l1.append(pb.neuron.IF(10, threshold=5, reset_v=0))
+    l1.append(pb.IF(10, threshold=5, reset_v=0))
 
 for i in range(5):
-    l1.append(pb.neuron.LIF(10, threshold=5, reset_v=0))
+    l1.append(pb.LIF(10, threshold=5, reset_v=0))
 ```
 
 如此，我们共例化了10个神经元，包括5个IF神经元、5个LIF神经元。在容器内的基本组件可通过下标进行访问、与其他基本组件连接。这与一般容器类型的用法相同。
 
-#### 构建子网络
+#### 嵌套网络
 
 有时网络中会重复出现类似的结构，这时先构建子网络，再多次例化复用是个不错的选择。
 
@@ -513,7 +535,7 @@ class ReusedStructure(pb.Network):
 
         self.pre_n = pb.LIF((10,), 10, tick_wait_start=tws)
         self.post_n = pb.LIF((10,), 10, tick_wait_start=tws+1)
-        self.syn = pb.NoDecay(
+        self.fc = pb.FullConn(
             self.pre_n, self.post_n, conn_type=pb.SynConnType.All2All, weights=weight
         )
 
@@ -522,12 +544,12 @@ class Net(pb.Network):
         self.inp1 = pb.InputProj(1, shape_out=(10,))
         subnet1 = ReusedStructure(w1, tws=1, name="Reused_Struct_0")
         subnet2 = ReusedStructure(w2, tws=3, name="Reused_Struct_1")
-        self.s1 = pb.NoDecay(
+        self.fc1 = pb.FullConn(
             self.inp1,
             subnet1.pre_n,
             conn_type=pb.SynConnType.One2One,
         )
-        self.s2 = pb.NoDecay(
+        self.fc2 = pb.FullConn(
             subnet1.post_n,
             subnet2.pre_n,
             conn_type=pb.SynConnType.One2One,
@@ -540,7 +562,7 @@ w2 = ...
 net = Net(w1, w2)
 ```
 
-上述示例代码中，我们先创建需复用的子网络 `ReusedStructure`，其结构为 `pre_n` -> `syn` -> `post_n`。而后，在父网络 `Net` 中实例化两个子网络 `subnet1`、 `subnet2`，并与父网络其他部分连接，此时网络结构为：`inp1` -> `s1` -> `subnet1` -> `s2` -> `subnet2`。最后，在为 `pb.Network` 初始化时，传入子网络 `subnet1`、 `subnet2`。由此，父网络 `Net` 才能发现子网络组件。如果想取到 `Net` 内的 `subnet1` 对象，可通过索引其名字 `Net["Reused_Struct_0"]` 取到。
+上述示例代码中，我们先创建需复用的子网络 `ReusedStructure`，其结构为 `pre_n` -> `fc` -> `post_n`。而后，在父网络 `Net` 中实例化两个子网络 `subnet1`、 `subnet2`，并与父网络其他部分连接，此时网络结构为：`inp1` -> `fc1` -> `subnet1` -> `fc22` -> `subnet2`。最后，在为 `pb.Network` 初始化时，传入子网络 `subnet1`、 `subnet2`。由此，父网络 `Net` 才能发现子网络组件。如果想取到 `Net` 内的 `subnet1` 对象，可通过索引其名字 `Net["Reused_Struct_0"]` 取到。
 
 上述示例为一个二级嵌套网络，对于三级嵌套网络或更高（不推荐使用），可参考上述方式构建。
 
@@ -596,7 +618,7 @@ sim.add_probe(probe2)
 可监测的对象包括网络内部所有的属性。例如，神经元及突触的各类属性，常用的监测对象包括：
 
 - 输入节点的 `feature_map`。
-- 神经元：脉冲输出 `spike` （本层神经元产生的脉冲，但不一定传递至后继神经元）、基于硬件寄存器的**输出** `output`（大小为 `256*N` ）、特征图形式的脉冲输出 `feature_map `、膜电位 `voltage`。
+- 神经元：脉冲输出 `spike` 、基于硬件寄存器的**输出** `output`（大小为 `256*N` ）、特征图形式的脉冲输出 `feature_map `、膜电位 `voltage`。
 - 突触：输出 `output`。
 
 ### 仿真机理
@@ -658,7 +680,15 @@ mapper.clear()
 - `split_by_coordinate`：是否将配置帧以每个核坐标进行分割，由此生成的配置帧文件命名为"config_core1"、"config_core2"等。默认为 `False`。
 - `local_chip_addr`：本地芯片地址，元组格式表示。默认为后端配置项 `local_chip_addr` 所设置的默认值。
 - `export_core_params`: 是否导出实际使用核参数至json文件，以直观显示实际使用核的配置信息。默认为 `False`。
-- 同时，该方法将返回模型的配置项字典。
+
+同时，该方法将返回模型的配置项字典 `GraphInfo`，包括：
+
+- `input`：输入节点信息字典。
+- `output`：输出目的地信息字典。
+- `memebers`：中间层所在物理核的配置项字典。
+- `inherent_timestep`：网络模型的最长时间步。
+- `n_core_required`：网络模型需要的物理核数目。
+- `extras`：其他额外的网络信息字典，例如，编译后网络名称。
 
 ### 后端配置项
 

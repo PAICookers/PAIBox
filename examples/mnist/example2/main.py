@@ -6,64 +6,41 @@ import numpy as np
 import paibox as pb
 
 
-class fcnet_2layer_dual_port(pb.Network):
-    def __init__(self, weight1, Vthr1, weight2, Vthr2):
+class Conv2d_Net(pb.Network):
+    def __init__(self, weight1, Vthr1, weight2, Vthr2, weight3, Vthr3):
         super().__init__()
 
         pe = pb.simulator.PoissonEncoder()
-        self.i1 = pb.InputProj(input=pe, shape_out=(392,))
-        self.i2 = pb.InputProj(input=pe, shape_out=(392,))
-        self.n1 = pb.IF(128, threshold=Vthr1, reset_v=0)
-        self.s1 = pb.FullConn(
-            self.i1,
-            self.n1,
-            weights=weight1[:392],
-            conn_type=pb.SynConnType.All2All,
-        )
-        self.s2 = pb.FullConn(
-            self.i2,
-            self.n1,
-            weights=weight1[392:],
-            conn_type=pb.SynConnType.All2All,
+        self.i1 = pb.InputProj(input=pe, shape_out=(1, 28, 28))
+        self.n1 = pb.IF((2, 26, 26), threshold=Vthr1, reset_v=0)
+        self.conv2d_1 = pb.Conv2d(self.i1, self.n1, kernel=weight1, stride=1)
+
+        self.n2 = pb.IF((4, 24, 24), threshold=Vthr2, reset_v=0, tick_wait_start=2)
+        self.conv2d_2 = pb.Conv2d(self.n1, self.n2, kernel=weight2, stride=1)
+
+        self.n3 = pb.IF(10, threshold=Vthr3, reset_v=0, tick_wait_start=3)
+        self.fc1 = pb.FullConn(
+            self.n2, self.n3, weights=weight3, conn_type=pb.SynConnType.All2All
         )
 
-        # tick_wait_start = 2 for second layer
-        self.n2 = pb.IF(
-            5, threshold=Vthr2, reset_v=0, tick_wait_start=2, name="batch_dual_port_o1"
-        )
-        self.n3 = pb.IF(
-            5, threshold=Vthr2, reset_v=0, tick_wait_start=2, name="batch_dual_port_o2"
-        )
-        self.s3 = pb.FullConn(
-            self.n1,
-            self.n2,
-            weights=weight2[:, :5],
-            conn_type=pb.SynConnType.All2All,
-        )
-        self.s4 = pb.FullConn(
-            self.n1,
-            self.n3,
-            weights=weight2[:, 5:],
-            conn_type=pb.SynConnType.All2All,
-        )
-
-        self.probe1 = pb.Probe(target=self.n2, attr="spike")
-        self.probe2 = pb.Probe(target=self.n3, attr="spike")
+        self.probe1 = pb.Probe(self.n3, "spike")
 
 
 param_dict = {}
 
 
 def getNetParam():
-    timestep = 4
-    layer_num = 2
+    timestep = 8
+    layer_num = 3
     delay = layer_num - 1
 
     weights_dir = Path("./weights")
-    w1 = np.load(weights_dir / "fc1_weight_np.npy").astype(np.int8).T
-    vthr1 = int(np.load(weights_dir / "Vthr1.npy") / 1.0)
-    w2 = np.load(weights_dir / "fc2_weight_np.npy").astype(np.int8).T
-    vthr2 = int(np.load(weights_dir / "Vthr2.npy") / 1.0)
+    w1 = np.load(weights_dir / "weight_conv1.npy").astype(np.int8)
+    vthr1 = int(np.load(weights_dir / "Vthr_conv1.npy") / 1.0)
+    w2 = np.load(weights_dir / "weight_conv2.npy").astype(np.int8)
+    vthr2 = int(np.load(weights_dir / "Vthr_conv2.npy") / 1.0)
+    w3 = np.load(weights_dir / "weight_fc1.npy").astype(np.int8).T
+    vthr3 = int(np.load(weights_dir / "Vthr_fc1.npy") / 1.0)
 
     param_dict["timestep"] = timestep
     param_dict["layer_num"] = layer_num
@@ -72,6 +49,8 @@ def getNetParam():
     param_dict["vthr1"] = vthr1
     param_dict["w2"] = w2
     param_dict["vthr2"] = vthr2
+    param_dict["w3"] = w3
+    param_dict["vthr3"] = vthr3
 
 
 if __name__ == "__main__":
@@ -82,11 +61,13 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     getNetParam()
-    pb_net = fcnet_2layer_dual_port(
+    pb_net = Conv2d_Net(
         param_dict["w1"],
         param_dict["vthr1"],
         param_dict["w2"],
         param_dict["vthr2"],
+        param_dict["w3"],
+        param_dict["vthr3"],
     )
 
     # Network simulation
@@ -100,17 +81,15 @@ if __name__ == "__main__":
         print(data_to_see)
 
     # Input
-    pb_net.i1.input = input_data[:392]
-    pb_net.i2.input = input_data[392:]
+    pb_net.i1.input = input_data
 
     # Simulation, duration=timestep + delay
     sim = pb.Simulator(pb_net)
     sim.run(param_dict["timestep"] + param_dict["delay"], reset=False)
 
     # Decode the output
-    spike_out1 = sim.data[pb_net.probe1].astype(np.int8)
-    spike_out2 = sim.data[pb_net.probe2].astype(np.int8)
-    spike_out = np.concatenate((spike_out1, spike_out2), axis=1)
+    spike_out = sim.data[pb_net.probe1].astype(np.int8)
+    spike_out = spike_out[param_dict["delay"] :]
     spike_sum = spike_out.sum(axis=0)
     pred = np.argmax(spike_sum)
 

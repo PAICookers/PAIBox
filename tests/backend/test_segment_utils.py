@@ -342,10 +342,10 @@ class TestGetNeuronSegments:
 @pytest.mark.parametrize(
     "axons",
     [
-        [pb.neuron.LIF(600, 2), pb.neuron.LIF(800, 2), pb.neuron.LIF(256, 2)],
-        [pb.neuron.LIF(384, 3), pb.neuron.LIF(383, 3), pb.neuron.LIF(385, 3)],
-        [pb.neuron.LIF(1153, 2)],
-        [pb.neuron.LIF(2222, 1), pb.neuron.LIF(2378, 1)],
+        [pb.LIF(600, 2), pb.LIF(800, 2), pb.LIF(256, 2)],
+        [pb.LIF(384, 3), pb.LIF(383, 3), pb.LIF(385, 3)],
+        [pb.LIF(1153, 2)],
+        [pb.LIF(2222, 1), pb.LIF(2378, 1)],
     ],
 )
 def test_get_axon_segments(axons):
@@ -362,8 +362,8 @@ def test_get_axon_segments(axons):
 @pytest.mark.parametrize(
     "axons",
     [
-        [pb.neuron.LIF(1151, 2), pb.neuron.LIF(1153, 2)],
-        [pb.neuron.LIF(1151 * 2, 2), pb.neuron.LIF(1153 * 2, 2)],
+        [pb.LIF(1151, 2), pb.LIF(1153, 2)],
+        [pb.LIF(1151 * 2, 2), pb.LIF(1153 * 2, 2)],
     ],
 )
 def test_get_axon_segments_boundary(axons):

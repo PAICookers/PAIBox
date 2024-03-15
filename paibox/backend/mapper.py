@@ -132,7 +132,7 @@ class Mapper:
                 occupied cores, or both. The default is specified by the corresponding compilation option in the\
                 backend configuration item (`both` by default).
 
-        Return: compiled network information in dictionary form.
+        Return: network information after compilation in dictionary format.
         """
         if weight_bit_optimization is not None:
             set_cflag(enable_wp_opt=weight_bit_optimization)

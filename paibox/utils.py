@@ -60,15 +60,12 @@ def shape2num(shape: Shape) -> int:
     """Convert a shape to a number"""
     if isinstance(shape, int):
         return shape
-
-    if isinstance(shape, (list, tuple)):
+    else:
         a = 1
         for b in shape:
             a *= b
 
         return a
-
-    raise TypeError(f"Unsupported type: {type(shape)}")
 
 
 def as_shape(shape, min_dim: int = 0) -> Tuple[int, ...]:
