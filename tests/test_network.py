@@ -165,8 +165,8 @@ class TestNetwork_Components_Oprations:
     def test_add_components(self, build_NotNested_Net_Exp):
         net: pb.Network = build_NotNested_Net_Exp
         n3 = pb.LIF((3,), 10)
-        s1 = pb.synapses.NoDecay(net.n1, n3, conn_type=pb.SynConnType.All2All)
-        s2 = pb.synapses.NoDecay(net.n2, n3, conn_type=pb.SynConnType.All2All)
+        s1 = pb.FullConn(net.n1, n3, conn_type=pb.SynConnType.All2All)
+        s2 = pb.FullConn(net.n2, n3, conn_type=pb.SynConnType.All2All)
 
         with pytest.raises(ValueError):
             net.diconnect_neudyn_succ(n3)
@@ -230,10 +230,10 @@ class TestNetwork_Components_Oprations:
 
         # Insert n3 between n_list[0] & n_list[1]
         n_insert = pb.LIF((3,), 10)
-        s_insert1 = pb.synapses.NoDecay(
+        s_insert1 = pb.FullConn(
             net.n_list[0], n_insert, conn_type=pb.SynConnType.All2All
         )
-        s_insert2 = pb.synapses.NoDecay(
+        s_insert2 = pb.FullConn(
             n_insert, net.n_list[1], conn_type=pb.SynConnType.All2All
         )
 
@@ -289,9 +289,9 @@ class TestNetwork_Components_Oprations:
 
 @pytest.mark.skip(reason="'Sequential is not used'")
 def test_Sequential_build():
-    n1 = pb.neuron.TonicSpiking(10, fire_step=3)
-    n2 = pb.neuron.TonicSpiking(10, fire_step=5)
-    s1 = pb.synapses.NoDecay(n1, n2, conn_type=pb.SynConnType.All2All)
+    n1 = pb.TonicSpiking(10, fire_step=3)
+    n2 = pb.TonicSpiking(10, fire_step=5)
+    s1 = pb.FullConn(n1, n2, conn_type=pb.SynConnType.All2All)
     sequential = pb.network.Sequential(n1, s1, n2)
 
     assert isinstance(sequential, pb.network.Sequential)
@@ -302,11 +302,9 @@ def test_Sequential_build():
     class Seq(pb.network.Sequential):
         def __init__(self):
             super().__init__()
-            self.n1 = pb.neuron.TonicSpiking(5, fire_step=3)
-            self.n2 = pb.neuron.TonicSpiking(5, fire_step=5)
-            self.s1 = pb.synapses.NoDecay(
-                self.n1, self.n2, conn_type=pb.SynConnType.All2All
-            )
+            self.n1 = pb.TonicSpiking(5, fire_step=3)
+            self.n2 = pb.TonicSpiking(5, fire_step=5)
+            self.s1 = pb.FullConn(self.n1, self.n2, conn_type=pb.SynConnType.All2All)
 
     seq = Seq()
     nodes2 = seq.nodes(method="absolute", level=1, include_self=False)
@@ -315,11 +313,11 @@ def test_Sequential_build():
 
 @pytest.mark.skip(reason="'Sequential is not used'")
 def test_Sequential_getitem():
-    n1 = pb.neuron.TonicSpiking(10, fire_step=3, name="n1")
-    n2 = pb.neuron.TonicSpiking(10, fire_step=5, name="n2")
-    s1 = pb.synapses.NoDecay(n1, n2, conn_type=pb.SynConnType.All2All)
-    n3 = pb.neuron.TonicSpiking(10, fire_step=5, name="n3")
-    s2 = pb.synapses.NoDecay(n2, n3, conn_type=pb.SynConnType.All2All)
+    n1 = pb.TonicSpiking(10, fire_step=3, name="n1")
+    n2 = pb.TonicSpiking(10, fire_step=5, name="n2")
+    s1 = pb.FullConn(n1, n2, conn_type=pb.SynConnType.All2All)
+    n3 = pb.TonicSpiking(10, fire_step=5, name="n3")
+    s2 = pb.FullConn(n2, n3, conn_type=pb.SynConnType.All2All)
     sequential = pb.network.Sequential(n1, s1, n2, s2, n3, name="Sequential_2")
 
     assert isinstance(sequential.children, NodeDict)

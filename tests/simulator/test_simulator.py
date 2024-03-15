@@ -14,13 +14,13 @@ class Net1(pb.DynSysGroup):
         self.inp = pb.InputProj(pe, shape_out=(n_neuron,), keep_shape=True)
         self.n1 = pb.LIF(n_neuron, threshold=3, reset_v=0, tick_wait_start=1)
         self.n2 = pb.IF(n_neuron, threshold=3, reset_v=1, tick_wait_start=2)
-        self.s0 = pb.NoDecay(
+        self.s0 = pb.FullConn(
             self.inp,
             self.n1,
             weights=np.random.randint(-128, 128, size=(n_neuron,), dtype=np.int8),
             conn_type=pb.SynConnType.One2One,
         )
-        self.s1 = pb.NoDecay(
+        self.s1 = pb.FullConn(
             self.n1,
             self.n2,
             weights=np.random.randint(
@@ -50,13 +50,13 @@ class Net2_with_multi_inpproj_func(pb.DynSysGroup):
         self.inp1 = pb.InputProj(fake_out_1, shape_out=(n,), keep_shape=True)
         self.inp2 = pb.InputProj(fake_out_2, shape_out=(n,), keep_shape=True)
         self.n1 = pb.LIF(n, threshold=3, reset_v=0, tick_wait_start=1)
-        self.s0 = pb.NoDecay(
+        self.s0 = pb.FullConn(
             self.inp1,
             self.n1,
             weights=np.ones((n,), dtype=np.int8),
             conn_type=pb.SynConnType.One2One,
         )
-        self.s1 = pb.NoDecay(
+        self.s1 = pb.FullConn(
             self.inp2,
             self.n1,
             weights=np.ones((n,), dtype=np.int8),
@@ -79,13 +79,13 @@ class Net2_with_multi_inpproj_encoder(pb.DynSysGroup):
         self.inp1 = pb.InputProj(pe1, shape_out=(n,), keep_shape=True)
         self.inp2 = pb.InputProj(pe2, shape_out=(n,), keep_shape=True)
         self.n1 = pb.LIF(n, threshold=3, reset_v=0, tick_wait_start=1)
-        self.s0 = pb.NoDecay(
+        self.s0 = pb.FullConn(
             self.inp1,
             self.n1,
             weights=np.ones((n,), dtype=np.int8),
             conn_type=pb.SynConnType.One2One,
         )
-        self.s1 = pb.NoDecay(
+        self.s1 = pb.FullConn(
             self.inp2,
             self.n1,
             weights=np.ones((n,), dtype=np.int8),

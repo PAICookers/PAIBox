@@ -200,11 +200,14 @@ class TestMapperDebug:
 
 
 class TestMapper_Export:
-    def test_export_multi_nodes_more_than_32(self, build_Network_with_N_onodes):
+    def test_export_multi_nodes_more_than_32(
+        self, build_Network_with_N_onodes, ensure_dump_dir
+    ):
         net = build_Network_with_N_onodes
         mapper = pb.Mapper()
         mapper.build(net)
         mapper.compile()
+        mapper.export(fp=ensure_dump_dir)
 
         assert len(mapper.graph_info["output"].keys()) == net.n_onodes
 

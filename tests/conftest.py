@@ -23,7 +23,7 @@ class Input_to_N1(pb.DynSysGroup):
         super().__init__()
         self.inp1 = pb.InputProj(1, shape_out=(1,))
         self.n1 = pb.TonicSpiking(1, 3, tick_wait_start=2, delay=1)
-        self.s1 = pb.NoDecay(
+        self.s1 = pb.FullConn(
             self.inp1, self.n1, weights=1, conn_type=pb.SynConnType.One2One
         )
 
@@ -44,10 +44,10 @@ class NotNested_Net_Exp(pb.DynSysGroup):
         self.n1 = pb.TonicSpiking(1, 2, tick_wait_start=2, delay=3)
         self.n2 = pb.TonicSpiking(1, 2, tick_wait_start=3)
 
-        self.s1 = pb.NoDecay(
+        self.s1 = pb.FullConn(
             self.inp1, self.n1, weights=1, conn_type=pb.SynConnType.One2One
         )
-        self.s2 = pb.NoDecay(
+        self.s2 = pb.FullConn(
             self.n1, self.n2, weights=1, conn_type=pb.SynConnType.All2All
         )
 
@@ -70,9 +70,9 @@ class Network_with_container(pb.DynSysGroup):
 
         self.inp = pb.InputProj(1, shape_out=(3,))
 
-        n1 = pb.neuron.TonicSpiking((3,), 2)
-        n2 = pb.neuron.TonicSpiking((3,), 3)
-        n3 = pb.neuron.TonicSpiking((3,), 4)
+        n1 = pb.TonicSpiking((3,), 2)
+        n2 = pb.TonicSpiking((3,), 3)
+        n3 = pb.TonicSpiking((3,), 4)
 
         n_list: pb.NodeList[pb.neuron.Neuron] = pb.NodeList()
         n_list.append(n1)
@@ -80,12 +80,8 @@ class Network_with_container(pb.DynSysGroup):
         n_list.append(n3)
         self.n_list = n_list
 
-        self.s1 = pb.synapses.NoDecay(
-            n_list[0], n_list[1], conn_type=pb.SynConnType.All2All
-        )
-        self.s2 = pb.synapses.NoDecay(
-            n_list[1], n_list[2], conn_type=pb.SynConnType.All2All
-        )
+        self.s1 = pb.FullConn(n_list[0], n_list[1], conn_type=pb.SynConnType.All2All)
+        self.s2 = pb.FullConn(n_list[1], n_list[2], conn_type=pb.SynConnType.All2All)
 
         self.probe1 = pb.Probe(self.n_list[1], "output", name="n2_out")
 
@@ -104,16 +100,16 @@ class Network_with_multi_inodes_onodes(pb.Network):
         self.n2 = pb.TonicSpiking(20, 3, name="n2", tick_wait_start=2)
         self.n3 = pb.TonicSpiking(30, 3, name="n3", tick_wait_start=2)
 
-        self.s1 = pb.NoDecay(
+        self.s1 = pb.FullConn(
             self.inp1, self.n1, conn_type=pb.SynConnType.All2All, name="s1"
         )
-        self.s2 = pb.NoDecay(
+        self.s2 = pb.FullConn(
             self.n1, self.n2, conn_type=pb.SynConnType.All2All, name="s2"
         )
-        self.s3 = pb.NoDecay(
+        self.s3 = pb.FullConn(
             self.inp2, self.n1, conn_type=pb.SynConnType.All2All, name="s3"
         )
-        self.s4 = pb.NoDecay(
+        self.s4 = pb.FullConn(
             self.n1, self.n3, conn_type=pb.SynConnType.All2All, name="s4"
         )
 
@@ -128,7 +124,7 @@ class Nested_Net_L1(pb.DynSysGroup):
         self.post_n = pb.LIF((10,), 10)
 
         w = np.random.randint(-128, 127, (10, 10), dtype=np.int8)
-        self.syn = pb.NoDecay(
+        self.syn = pb.FullConn(
             self.pre_n, self.post_n, conn_type=pb.SynConnType.All2All, weights=w
         )
 
@@ -140,12 +136,12 @@ class Nested_Net_L2(pb.DynSysGroup):
         self.inp1 = pb.InputProj(1, shape_out=(10,))
         subnet1 = Nested_Net_L1()
         subnet2 = Nested_Net_L1(name="Named_SubNet_L1_1")
-        self.s1 = pb.NoDecay(
+        self.s1 = pb.FullConn(
             self.inp1,
             subnet1.pre_n,
             conn_type=pb.SynConnType.One2One,
         )
-        self.s2 = pb.NoDecay(
+        self.s2 = pb.FullConn(
             subnet1.post_n,
             subnet2.pre_n,
             conn_type=pb.SynConnType.One2One,
@@ -164,7 +160,7 @@ class Nested_Net_L3(pb.DynSysGroup):
 
         subnet1_of_subnet1 = subnet1[f"{Nested_Net_L1.__name__}_0"]
 
-        self.s1 = pb.NoDecay(
+        self.s1 = pb.FullConn(
             self.inp1,
             subnet1_of_subnet1.pre_n,
             conn_type=pb.SynConnType.One2One,

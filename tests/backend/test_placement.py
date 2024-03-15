@@ -28,8 +28,8 @@ def test_get_raw_weight_ref():
 
     w_of_neurons = [w1, w2]
 
-    n1 = pb.neuron.LIF((20,), 1)
-    n2 = pb.neuron.LIF((30,), 1)
+    n1 = pb.LIF((20,), 1)
+    n2 = pb.LIF((30,), 1)
 
     dest = [n1, n2]
 
