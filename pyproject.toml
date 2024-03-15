@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "paibox"
-version = "1.0.0a4"
+version = "1.0.0a5"
 description = "New toolbox of PAICORE 2.0."
 authors = ["Ziru Pan <zrpan@stu.pku.edu.cn>"]
 maintainers = ["Ziru Pan <zrpan@stu.pku.edu.cn>"]
@@ -15,7 +15,7 @@ packages = [{ include = "paibox" }]
 # Includes the document
 include = ["docs", "CHANGELOG.md"]
 # Excludes the experimental code
-exclude = ["paibox/backend/experimental"]
+exclude = ["paibox/experimental"]
 
 [tool.poetry.dependencies]
 python = "^3.8"
@@ -23,9 +23,13 @@ pydantic = "^2.0"
 numpy = "^1.23.0"
 paicorelib = "0.0.13"
 
+[tool.poetry.group.test]
+optional = true
+
 
 [tool.poetry.group.test.dependencies]
 pytest = { version = "^7.4.0", python = "^3.8" }
+torch = { version = "^2.2.1+cpu", optional = true, source = "torch-cpu" }
 
 
 [tool.pytest.ini_options]
