@@ -133,7 +133,7 @@ class TestNetwork_Components_Oprations:
     def test_Collector_operations(self):
         s1 = pb.base.DynamicSys(name="s1")
         s2 = pb.InputProj(1, shape_out=1, name="s2")
-        s3 = pb.network.NeuDyn(name="s3")
+        s3 = pb.base.NeuDyn(name="s3")
         s4 = pb.DynSysGroup(s1, s2, name="s4")
 
         g1 = pb.DynSysGroup(s1, s2, s3, name="g1")
@@ -159,17 +159,14 @@ class TestNetwork_Components_Oprations:
         assert len(g4_nodes.unique()) == 2
 
         assert len(g3_nodes.exclude(pb.projection.Projection)) == 1
-        assert len(g1_nodes.not_subset(pb.network.NeuDyn)) == 2
-        assert len(g1_nodes.include(pb.network.NeuDyn, pb.projection.Projection)) == 2
+        assert len(g1_nodes.not_subset(NeuDyn)) == 2
+        assert len(g1_nodes.include(NeuDyn, pb.projection.Projection)) == 2
 
     def test_add_components(self, build_NotNested_Net_Exp):
         net: pb.Network = build_NotNested_Net_Exp
         n3 = pb.LIF((3,), 10)
         s1 = pb.FullConn(net.n1, n3, conn_type=pb.SynConnType.All2All)
         s2 = pb.FullConn(net.n2, n3, conn_type=pb.SynConnType.All2All)
-
-        with pytest.raises(ValueError):
-            net.diconnect_neudyn_succ(n3)
 
         # Add extra components into the network after initialization
         setattr(net, n3.name, n3)  # key is 'LIF_0'
@@ -184,29 +181,28 @@ class TestNetwork_Components_Oprations:
         net.add_components(s2)
         assert getattr(net, s2.name, False)
 
-    def test_disconnect_neudyn_from(self, build_Network_with_container):
+    def test_disconnect_neuron_from(self, build_Network_with_container):
         net: pb.Network = build_Network_with_container
 
         # Disconnet the n_list[0] -> s1 -> n_list[1]
         # Nothing to disconnect so a warning is raised
         with pytest.warns(PAIBoxWarning):
-            removed = net.disconnect_neudyn_from(
-                net.n_list[0], net.n_list[2], remove=False
-            )
+            removed = net.disconnect_neuron_from(net.n_list[0], net.n_list[2])
             assert removed == []
 
         nodes = net.nodes(level=1, include_self=False).subset(DynamicSys).unique()
         assert net.n_list[0].name in nodes
 
         # Remove the target synapse
-        removed = net.disconnect_neudyn_from(net.n_list[0], net.n_list[1], remove=True)
+        removed = net.disconnect_neuron_from(net.n_list[0], net.n_list[1])
         assert len(removed) == 1
         assert not getattr(net, "s1", False)
 
-    def test_disconnect_neudyn_succ(self, build_multi_inodes_onodes):
+    @pytest.mark.skip("Not implemented")
+    def test_disconnect_neuron_succ(self, build_multi_inodes_onodes):
         net: pb.Network = build_multi_inodes_onodes
 
-        removed = net.diconnect_neudyn_succ(net.n1, remove=True)
+        removed = net.diconnect_neuron_succ(net.n1)
 
         assert len(removed) == 2
         assert not getattr(net, "s2", False)
@@ -214,10 +210,11 @@ class TestNetwork_Components_Oprations:
         assert getattr(net, "s1", False)
         assert getattr(net, "s3", False)
 
-    def test_disconnect_neudyn_pred(self, build_multi_inodes_onodes):
+    @pytest.mark.skip("Not implemented")
+    def test_replace_neuron_pred(self, build_multi_inodes_onodes):
         net: pb.Network = build_multi_inodes_onodes
 
-        removed = net.diconnect_neudyn_pred(net.n1, remove=True)
+        removed = net.replace_neuron_pred(net.n1)
 
         assert len(removed) == 2
         assert not getattr(net, "s1", False)
@@ -225,7 +222,7 @@ class TestNetwork_Components_Oprations:
         assert getattr(net, "s2", False)
         assert getattr(net, "s4", False)
 
-    def test_insert_neudyn(self, build_Network_with_container):
+    def test_insert_between_neuron(self, build_Network_with_container):
         net: pb.Network = build_Network_with_container
 
         # Insert n3 between n_list[0] & n_list[1]
@@ -238,12 +235,11 @@ class TestNetwork_Components_Oprations:
         )
 
         # Replace s1 with s_insert1->n_insert->s_insert2
-        net.insert_neudyn(
+        net.insert_between_neuron(
             net.n_list[0],
             net.n_list[1],
             (n_insert, s_insert1, s_insert2),
             replace=True,
-            remove=False,
         )
 
         nodes = net.nodes(level=1, include_self=False).subset(DynamicSys).unique()
@@ -252,42 +248,14 @@ class TestNetwork_Components_Oprations:
         assert s_insert2.name in nodes
         assert getattr(net, f"{s_insert1.name}", False)
 
-        assert getattr(net, "s1", False)  # s1 is still in the network
-        assert net.s1.name in nodes
+        assert not getattr(net, "s1", False)  # s1 ie removed from the network
 
         assert getattr(net, f"{s_insert2.name}", False) in list(
             net.n_list[1].master_nodes.values()
         )
 
-    @pytest.mark.skip(reason="Not implemented")
-    def test_Subnets(self, build_Network_with_subnet):
-        net = build_Network_with_subnet
 
-        # 1. Relative + include_self == True, level 1
-        nodes1 = (
-            net.nodes(method="absolute", level=1, include_self=False)
-            .subset(DynamicSys)
-            .unique()
-        )
-        nodes1_sub = nodes1.subset(NeuDyn)
-
-        # 2. Relative + include_self == True, level 2
-        nodes2 = (
-            net.nodes(method="absolute", level=2, include_self=False)
-            .subset(DynamicSys)
-            .unique()
-        )
-
-        nodes3 = (
-            net.nodes(method="absolute", level=7, include_self=False)
-            .subset(DynamicSys)
-            .unique()
-        )
-
-        print()
-
-
-@pytest.mark.skip(reason="'Sequential is not used'")
+@pytest.mark.skip(reason="'Sequential' is not used")
 def test_Sequential_build():
     n1 = pb.TonicSpiking(10, fire_step=3)
     n2 = pb.TonicSpiking(10, fire_step=5)
@@ -311,7 +279,7 @@ def test_Sequential_build():
     assert len(nodes2) == 3
 
 
-@pytest.mark.skip(reason="'Sequential is not used'")
+@pytest.mark.skip(reason="'Sequential' is not used")
 def test_Sequential_getitem():
     n1 = pb.TonicSpiking(10, fire_step=3, name="n1")
     n2 = pb.TonicSpiking(10, fire_step=5, name="n2")

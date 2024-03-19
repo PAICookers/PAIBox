@@ -254,8 +254,8 @@ def test_neuron_instance(shape):
     # keep_shape = False
     n2 = pb.TonicSpiking(shape, 5)
 
-    assert n2.shape_in == as_shape(shape2num(shape))
-    assert n2.shape_out == as_shape(shape2num(shape))
+    assert n2.shape_in == as_shape(shape)
+    assert n2.shape_out == as_shape(shape)
     assert len(n2) == shape2num(shape)
 
 
@@ -412,3 +412,27 @@ class TestNeuronSim:
         sim.reset()
 
         # TODO can add new test items here
+
+    def test_Always1Neuron_behavior(self):
+        class Net(pb.Network):
+            def __init__(self):
+                super().__init__()
+                self.inp1 = pb.InputProj(input=None, shape_out=(1,))
+
+                self.n1 = pb.Always1Neuron(shape=(1,), tick_wait_start=1)
+                self.s1 = pb.FullConn(
+                    self.inp1, self.n1, weights=0, conn_type=pb.SynConnType.One2One
+                )
+
+                self.probe1 = pb.Probe(self.n1, "spike")
+
+        net = Net()
+        sim = pb.Simulator(net)
+
+        for i in range(20):
+            net.inp1.input = np.random.randint(0, 2, size=(1,), dtype=np.bool_)
+            sim.run(1)
+
+        assert np.array_equal(
+            sim.data[net.probe1], 20 * [np.ones((1,), dtype=np.bool_)]
+        )

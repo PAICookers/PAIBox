@@ -284,3 +284,28 @@ class TestConv2d:
             in_channels * shape2num(in_shape),
             out_channels * shape2num(out_shape),
         )
+
+    def test_Conv2d_inchannel_omitted(self):
+        in_shape = (32, 32)
+        kernel_size = (5, 5)
+        stride = 2
+        out_shape = ((32 - 5) // 2 + 1, (32 - 5) // 2 + 1)
+        in_channels = 1  # omit it
+        out_channels = 4
+        korder = "IOHW"
+
+        n1 = pb.IF(in_shape, 3)  # HW, (in_channels=1)
+        n2 = pb.IF((out_channels,) + out_shape, 3)
+
+        weight = np.random.randint(
+            -128, 128, size=(in_channels, out_channels) + kernel_size, dtype=np.int8
+        )
+        s1 = pb.Conv2d(
+            n1, n2, weight, stride=stride, fm_order="CHW", kernel_order=korder
+        )
+
+        assert s1.num_in == in_channels * shape2num(in_shape)
+        assert s1.connectivity.shape == (
+            in_channels * shape2num(in_shape),
+            out_channels * shape2num(out_shape),
+        )

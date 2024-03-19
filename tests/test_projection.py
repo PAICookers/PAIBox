@@ -101,8 +101,6 @@ class TestInputProj:
         def fakeout_with_args(t, bias, *args, **kwargs):
             return np.ones((10, 10), dtype=np.int8) * bias
 
-        FRONTEND_ENV.clear_ctx("bias")
-
         inp = pb.InputProj(
             input=fakeout_with_args, shape_out=(10, 10), keep_shape=False
         )
