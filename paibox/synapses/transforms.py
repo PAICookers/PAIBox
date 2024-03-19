@@ -1,5 +1,5 @@
 from enum import Enum, auto, unique
-from typing import Literal, Type, Union
+from typing import Type, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -9,7 +9,7 @@ from paibox.exceptions import ShapeError
 from paibox.types import DataArrayType, IntScalarType, SynOutType, WeightType
 from paibox.utils import is_shape
 
-from .conv_utils import Size2Type, _conv2d_faster, _conv2d_unroll
+from .conv_utils import Size2Type, _conv2d_faster, _conv2d_unroll, _Order3d
 
 __all__ = [
     "GeneralConnType",
@@ -245,7 +245,7 @@ class Conv2dForward(Transform):
         kernel: np.ndarray,
         stride: Size2Type,
         padding: Size2Type,
-        fm_order: Literal["CHW", "HWC"],
+        fm_order: _Order3d,
     ) -> None:
         self.in_shape = in_shape
         self.out_shape = out_shape

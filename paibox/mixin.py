@@ -209,8 +209,8 @@ class StatusMemory(MixIn):
 
     def __getattr__(self, name: str) -> Any:
         if "_memories" in self.__dict__:
-            _memories = self.__dict__.get("_memories")
-            if _memories is not None and name in _memories:
+            _memories = self.__dict__["_memories"]
+            if name in _memories:
                 return _memories[name]
 
         raise AttributeError(f"Attribute '{name}' not found!")
