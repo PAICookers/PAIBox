@@ -357,7 +357,6 @@ class MetaNeuron:
 class Neuron(MetaNeuron, NeuDyn):
     _excluded_vars = (
         "_vjt_init",
-        "vjt_pre",
         "vjt",
         "vj",
         "y",
@@ -445,7 +444,6 @@ class Neuron(MetaNeuron, NeuDyn):
 
         """Stateful attributes. Vector."""
         self.set_memory("_vjt", self.init_param(self._vjt_init).astype(np.int32))
-        self.set_memory("vjt_pre", self.init_param(self._vjt_init).astype(np.int32))
         self.set_memory("_inner_spike", self.init_param(0).astype(np.bool_))
 
         # Not supported for attributes in ANN mode
@@ -548,11 +546,11 @@ class Neuron(MetaNeuron, NeuDyn):
 
     @property
     def shape_in(self) -> Tuple[int, ...]:
-        return self.varshape
+        return self._shape
 
     @property
     def shape_out(self) -> Tuple[int, ...]:
-        return self.varshape
+        return self._shape
 
     @property
     def num_in(self) -> int:

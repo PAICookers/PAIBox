@@ -233,10 +233,12 @@ class DynamicSys(PAIBoxObject, StatusMemory):
 
     @property
     def shape_in(self) -> Tuple[int, ...]:
+        """Actual shape of input."""
         raise NotImplementedError
 
     @property
     def shape_out(self) -> Tuple[int, ...]:
+        """Actual shape of output."""
         raise NotImplementedError
 
     @property

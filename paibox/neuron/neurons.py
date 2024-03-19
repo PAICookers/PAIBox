@@ -153,3 +153,32 @@ class PhasicSpiking(Neuron):
             name=name,
             **kwargs,
         )
+
+
+class Always1Neuron(Neuron):
+    """This neuron will always output 1 as long as it starts working.
+
+    FIXME There must be a forward synapse connected to it, otherwise    \
+        the backend will go wrong.
+    """
+
+    def __init__(
+        self,
+        shape: Shape,
+        *,
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            shape,
+            reset_v=1,
+            leak_comparison=LCM.LEAK_BEFORE_COMP,
+            neg_thres_mode=NTM.MODE_SATURATION,
+            neg_threshold=0,
+            pos_threshold=0,
+            leak_v=(1 << 29) - 1,
+            keep_shape=keep_shape,
+            name=name,
+            **kwargs,
+        )

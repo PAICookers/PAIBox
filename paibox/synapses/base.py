@@ -1,4 +1,4 @@
-from typing import ClassVar, Literal, Optional, Tuple, Union
+from typing import ClassVar, Optional, Tuple, Union
 
 import numpy as np
 from paicorelib import HwConfig
@@ -10,7 +10,7 @@ from paibox.neuron import Neuron
 from paibox.projection import InputProj
 from paibox.types import DataArrayType, SynOutType, WeightType
 
-from .conv_utils import _fm_ndim2_check
+from .conv_utils import _fm_ndim2_check, _KOrder4d, _Order3d
 from .transforms import AllToAll, Conv2dForward
 from .transforms import GeneralConnType as GConnType
 from .transforms import Identity, MaskedLinear, OneToOne, Transform
@@ -34,24 +34,32 @@ class Synapses:
         source: Union[NeuDyn, InputProj],
         dest: NeuDyn,
     ) -> None:
-        self.source = source
-        self.dest = dest
+        self._source = source
+        self._dest = dest
+
+    @property
+    def source(self) -> Union[NeuDyn, InputProj]:
+        return self._source
+
+    @property
+    def dest(self) -> NeuDyn:
+        return self._dest
 
     @property
     def shape_in(self) -> Tuple[int, ...]:
-        return self.source.shape_out
+        return self._source.shape_out
 
     @property
     def shape_out(self) -> Tuple[int, ...]:
-        return self.dest.shape_in
+        return self._dest.shape_in
 
     @property
     def num_in(self) -> int:
-        return self.source.num_out
+        return self._source.num_out
 
     @property
     def num_out(self) -> int:
-        return self.dest.num_in
+        return self._dest.num_in
 
 
 class FullConnectedSyn(Synapses, SynSys):
@@ -61,8 +69,8 @@ class FullConnectedSyn(Synapses, SynSys):
         dest: NeuDyn,
         name: Optional[str] = None,
     ) -> None:
-        super().__init__(source, dest)
         super(Synapses, self).__init__(name)
+        super().__init__(source, dest)
 
         self.set_memory("_synout", np.zeros((self.num_out,), dtype=np.int32))
 
@@ -148,13 +156,13 @@ class Conv2dSyn(FullConnectedSyn):
 
     def __init__(
         self,
-        source: Union[Neuron, InputProj],
+        source: Union[NeuDyn, InputProj],
         dest: Neuron,
         kernel: np.ndarray,
         stride: Tuple[int, int],
         # padding: Tuple[int, int],
-        fm_order: Literal["CHW", "HWC"],
-        order: Literal["OIHW", "IOHW"],
+        fm_order: _Order3d,
+        order: _KOrder4d,
         name: Optional[str] = None,
     ) -> None:
         super().__init__(source, dest, name)
@@ -173,8 +181,8 @@ class Conv2dSyn(FullConnectedSyn):
         out_channels, in_channels, kernel_h, kernel_w = _kernel.shape
 
         # C,H,W
-        in_ch, in_h, in_w = _fm_ndim2_check(source._shape, fm_order)
-        out_ch, out_h, out_w = _fm_ndim2_check(dest._shape, fm_order)
+        in_ch, in_h, in_w = _fm_ndim2_check(source.shape_out, fm_order)
+        out_ch, out_h, out_w = _fm_ndim2_check(dest.shape_out, fm_order)
 
         if in_ch != in_channels:
             raise ShapeError(f"Input channels mismatch: {in_ch} != {in_channels}")

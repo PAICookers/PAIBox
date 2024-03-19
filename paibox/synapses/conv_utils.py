@@ -14,15 +14,19 @@ _TupleAnyType = Union[T, Tuple[T, ...]]
 _Tuple1Type = Union[T, Tuple[T]]
 _Tuple2Type = Union[T, Tuple[T, T]]
 _Tuple3Type = Union[T, Tuple[T, T, T]]
-_Tuple4Type = Union[T, Tuple[T, T, T, T]]
 
 _SizeAnyType = _TupleAnyType[int]
 _Size1Type = _Tuple1Type[int]
 _Size2Type = _Tuple2Type[int]
 _Size3Type = _Tuple3Type[int]
-_Size4Type = _Tuple4Type[int]
 
+SizeAnyType = Tuple[int, ...]
 Size2Type = Tuple[int, int]
+Size3Type = Tuple[int, int, int]
+
+_Order2d = Literal["HW", "HW"]  # Feature map order in 2d
+_Order3d = Literal["CHW", "HWC"]  # Feature map order in 3d
+_KOrder4d = Literal["OIHW", "IOHW"]  # Kernel order
 
 
 def _ntuple(x, n: int) -> Tuple[Any, ...]:
@@ -38,16 +42,14 @@ _triple = partial(_ntuple, n=3)
 _quadruple = partial(_ntuple, n=4)
 
 
-def _fm_ndim1_check(
-    fm_shape: _TupleAnyType, fm_order: Literal["CHW", "HWC"]
-) -> Size2Type:
+def _fm_ndim1_check(fm_shape: SizeAnyType, fm_order: _Order2d) -> Size2Type:
     if len(fm_shape) < 1 or len(fm_shape) > 2:
-        raise ShapeError()
+        raise ShapeError(f"Expected shape of 1 or 2, but got {len(fm_shape)}")
 
     if len(fm_shape) == 1:
-        channels, l = (1, *fm_shape)
+        channels, l = (1,) + fm_shape
     else:
-        if fm_order is "CHW":
+        if fm_order is "HW":
             channels, l = fm_shape
         else:
             l, channels = fm_shape
@@ -55,14 +57,12 @@ def _fm_ndim1_check(
     return channels, l
 
 
-def _fm_ndim2_check(
-    fm_shape: _TupleAnyType, fm_order: Literal["CHW", "HWC"]
-) -> Tuple[int, int, int]:
+def _fm_ndim2_check(fm_shape: SizeAnyType, fm_order: _Order3d) -> Size3Type:
     if len(fm_shape) < 2 or len(fm_shape) > 3:
-        raise ShapeError()
+        raise ShapeError(f"Expected shape of 2 or 3, but got {len(fm_shape)}")
 
     if len(fm_shape) == 2:
-        channels, h, w = (1, *fm_shape)
+        channels, h, w = (1,) + fm_shape
     else:
         if fm_order is "CHW":
             channels, h, w = fm_shape

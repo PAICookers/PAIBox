@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "paibox"
-version = "1.0.0a5"
+version = "1.0.0a6"
 description = "New toolbox of PAICORE 2.0."
 authors = ["Ziru Pan <zrpan@stu.pku.edu.cn>"]
 maintainers = ["Ziru Pan <zrpan@stu.pku.edu.cn>"]
@@ -10,6 +10,20 @@ repository = "https://github.com/PAICookers/PAIBox"
 homepage = "https://github.com/PAICookers/PAIBox"
 documentation = "https://github.com/PAICookers/PAIBox#readme"
 keywords = ["PAICORE 2.0", "PAIBox", "Toolbox"]
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Software Development :: Libraries",
+]
 packages = [{ include = "paibox" }]
 
 # Includes the document
