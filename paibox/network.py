@@ -90,7 +90,7 @@ class DynSysGroup(DynamicSys, Container):
             - target_syn: target synapse.
             - exclude_source: whether to disconnect the source. If so, remove the synapse   \
                 from the network
-            
+
         Returns: the disconnected synapse.
         """
         ret = target_syn.dest.unregister_master(

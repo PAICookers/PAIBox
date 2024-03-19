@@ -10,7 +10,7 @@ from paibox.neuron import Neuron
 from paibox.projection import InputProj
 from paibox.types import DataArrayType, SynOutType, WeightType
 
-from .conv_utils import _fm_ndim2_check, _Order3d, _KOrder4d
+from .conv_utils import _fm_ndim2_check, _KOrder4d, _Order3d
 from .transforms import AllToAll, Conv2dForward
 from .transforms import GeneralConnType as GConnType
 from .transforms import Identity, MaskedLinear, OneToOne, Transform

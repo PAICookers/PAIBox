@@ -9,7 +9,7 @@ from paibox.projection import InputProj
 from paibox.types import DataArrayType
 
 from .base import Conv2dSyn, FullConnSyn
-from .conv_utils import _pair, _Size2Type, _Order3d, _KOrder4d
+from .conv_utils import _KOrder4d, _Order3d, _pair, _Size2Type
 from .transforms import GeneralConnType as GConnType
 
 __all__ = ["FullConn", "Conv2d"]

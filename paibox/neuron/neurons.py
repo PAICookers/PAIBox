@@ -157,7 +157,7 @@ class PhasicSpiking(Neuron):
 
 class Always1Neuron(Neuron):
     """This neuron will always output 1 as long as it starts working.
-    
+
     FIXME There must be a forward synapse connected to it, otherwise    \
         the backend will go wrong.
     """
