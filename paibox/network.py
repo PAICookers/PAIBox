@@ -8,13 +8,14 @@ from .base import DynamicSys, NeuDyn
 from .collector import Collector
 from .exceptions import PAIBoxWarning, RegisterError
 from .mixin import Container
+from .neuron import Neuron
 from .node import NodeDict
 from .projection import InputProj, Projection
 from .synapses import RIGISTER_MASTER_KEY_FORMAT, SynSys
 
 __all__ = ["DynSysGroup", "Network"]
 
-ComponentsType: TypeAlias = Union[InputProj, NeuDyn, SynSys]
+ComponentsType: TypeAlias = Union[InputProj, Neuron, SynSys]
 
 
 class DynSysGroup(DynamicSys, Container):
@@ -32,16 +33,7 @@ class DynSysGroup(DynamicSys, Container):
         )
 
     def update(self, **kwargs) -> None:
-        """For a network, the operating nodes within it will be distributed according to the network level  \
-            where they are located. For I, S & N, if the network is a two-level nested network, it can be   \
-            divided into Ix, Sx, Nx and Iy, Sy, Ny, where x & y are two parts containing many operations.   \
-
-        TODO Prove that the operation sequence I->S->N can be divided into Ix->Sx->Nx->Iy->Sy->Ny & it has  \
-            nothing to do with the network topology.
-
-            The above expression cannot be completely established, and the condition needs to be met: the   \
-            dependent synapses of the neuron are in the same subgraph.
-        """
+        """Find nodes of the network recursively."""
         nodes = (
             self.nodes(include_self=False, find_recursive=True)
             .subset(DynamicSys)
@@ -77,17 +69,128 @@ class DynSysGroup(DynamicSys, Container):
         return self.update(**kwargs)
 
     def add_components(self, *implicit: DynamicSys, **explicit: DynamicSys) -> None:
-        """Add new components. When a component is passed in explicitly, its tag name \
-            can be specified. Otherwise `.name` will be used.
+        """Add new components. When a component is passed in explicitly, its tag name can   \
+            be specified. Otherwise `.name` will be used.
 
-        NOTE: After instantiated the components outside the `DynSysGroup`, you should \
-            call `add_components()` to actually add the new components to itself.
+        NOTE: After instantiated the components outside the `DynSysGroup`, you should call  \
+            `add_components()` to actually add the new components to itself.
         """
         for comp in implicit:
             setattr(self, comp.name, comp)
 
         for tag, comp in explicit.items():
             setattr(self, tag, comp)
+
+    def disconnect_syn(
+        self, target_syn: SynSys, exclude_source: bool = False
+    ) -> SynSys:
+        """Disconnect a synapse in the nwtwork.
+
+        Args:
+            - target_syn: target synapse.
+            - exclude_source: whether to disconnect the source. If so, remove the synapse   \
+                from the network
+            
+        Returns: the disconnected synapse.
+        """
+        ret = target_syn.dest.unregister_master(
+            RIGISTER_MASTER_KEY_FORMAT.format(target_syn.name)
+        )
+        if ret is not target_syn:
+            raise RegisterError("unregister failed!")
+
+        if not exclude_source:
+            self._remove_component(target_syn)
+
+        return target_syn
+
+    def disconnect_neuron_from(
+        self, neuron_a: Neuron, neuron_b: Neuron
+    ) -> List[SynSys]:
+        """Disconnect synapses between `Neuron` A & B and remove the synapses from the network.
+
+        Args:
+            - neuron_a: target neuron A.
+            - neuron_b: target neuron B.
+
+        Returns: the disconnected synapses in list.
+        """
+        return self._disconn_neuron(
+            neuron_a,
+            lambda syn: syn.source is neuron_a and syn.dest is neuron_b,
+            neuron_b,
+            remove_syn=True,
+        )
+
+    # Not sure about specific needs
+    # def diconnect_neuron_succ(self, neuron: Neuron) -> List[SynSys]:
+    #     """Disconnect successor synapses of `neuron`.
+
+    #     Args:
+    #         - neuron: target neuron.
+    #         - remove: whether to remove the original synapses from the network.
+    #         - new_source: only valid when `remove` is false.
+
+    #     Returns: the disconnected synapses.
+    #     """
+    #     return self._disconn_neuron(
+    #         neuron, lambda syn: syn.source is neuron, remove_syn=True
+    #     )
+
+    # def replace_neuron_succ(self, neuron: Neuron, new_source: Neuron) -> List[SynSys]:
+    #     """Replace the source of successor synapses of `neuron` with new one."""
+    #     disconn_syns = self._disconn_neuron(
+    #         neuron, lambda syn: syn.source is neuron, remove_syn=False
+    #     )
+
+    #     for syn in disconn_syns:
+    #         syn.source = new_source
+
+    #     return disconn_syns
+
+    # def replace_neuron_pred(self, neuron: Neuron, new_source: Neuron) -> List[SynSys]:
+    #     """Replace the destination of predecessor synapses of `neuron` with new one.
+
+    #     Args:
+    #         - neuron: target neuron.
+    #         - remove: whether to remove the original synapses from the network.
+
+    #     Returns: the disconnected synapses.
+    #     """
+    #     disconn_syns = self._disconn_neuron(
+    #         neuron, lambda syn: syn.dest is neuron, remove_syn=False
+    #     )
+
+    #     for syn in disconn_syns:
+    #         syn.dest = new_source
+
+    #     return disconn_syns
+
+    def insert_between_neuron(
+        self,
+        neuron_a: Neuron,
+        neuron_b: Neuron,
+        cpn_to_insert: Tuple[ComponentsType, ...],
+        replace: bool = True,
+    ) -> List[SynSys]:
+        """Insert new components between `Neuron` A & B.
+
+        Args:
+            - neuron_a: target neuron A.
+            - neuron_b: target neuron B.
+            - cpn_to_insert: components to insert between `neuron_a` & `neuron_b`.
+            - replace: whether to disconnect the original synapses. Default is `True`.
+
+        Returns: the disconnected synapses in list.
+        """
+        if replace:
+            removed_syn = self.disconnect_neuron_from(neuron_a, neuron_b)
+        else:
+            removed_syn = []
+
+        self.add_components(*cpn_to_insert)
+
+        return removed_syn
 
     def _remove_component(self, remove: DynamicSys) -> None:
         """Remove a component in the network."""
@@ -98,115 +201,45 @@ class DynSysGroup(DynamicSys, Container):
 
         return None
 
-    def _disconnect_neudyn(
+    def _disconn_neuron(
         self,
-        neudyn_a: NeuDyn,
+        neuron_a: Neuron,
         condition: Callable[[SynSys], bool],
-        neudyn_b: Optional[NeuDyn] = None,
+        neuron_b: Optional[Neuron] = None,
         remove_syn: bool = True,
     ) -> List[SynSys]:
-        nodes = self.nodes(level=1, include_self=False).subset(DynamicSys).unique()
+        nodes = (
+            self.nodes(include_self=False, find_recursive=True)
+            .subset(DynamicSys)
+            .unique()
+        )
 
-        if neudyn_b is None:
-            self._assert_neudyn(nodes, neudyn_a)
+        if neuron_b is None:
+            self._assert_neuron(nodes, neuron_a)
         else:
-            self._assert_neudyn(nodes, neudyn_a, neudyn_b)
+            self._assert_neuron(nodes, neuron_a, neuron_b)
 
-        target_syns = self._find_syn_to_unregi(nodes, condition)
+        target_syns = self._find_syn_to_disconn(nodes, condition)
 
         if target_syns:
             for syn in target_syns:
-                self._disconnect_syn(syn)
+                self._disconn_syn(syn)
 
-                # FIXME The disconnected synapses will not effect the simulation.
-                # However, it will effect the placement in the backend.
+                # The disconnected synapses will not effect the simulation, but will
+                # effect the placement in the backend.
+                # If the disconnected synapses aren't removed from the network, do cleaning
+                # before the compilation in the backend.
+                # TODO Add a pre-processing step before the compilation.
                 if remove_syn:
                     self._remove_component(syn)
 
             return target_syns
         else:
-            warnings.warn("There is no synapse to unregister.", PAIBoxWarning)
+            warnings.warn("there is no synapses to disconnect.", PAIBoxWarning)
             return []
 
-    def disconnect_neudyn_from(
-        self, neudyn_a: NeuDyn, neudyn_b: NeuDyn, remove: bool = True
-    ) -> List[SynSys]:
-        """Disconnect synapses between `NeuDyn` A & B.
-
-        Args:
-            - neudyn_a: target `NeuDyn` A.
-            - neudyn_b: target `NeuDyn` B.
-            - remove: whether to remove the original synapses from the network.
-
-        Returns: the disconnected synapses.
-        """
-        return self._disconnect_neudyn(
-            neudyn_a,
-            lambda syn: syn.source is neudyn_a and syn.dest is neudyn_b,
-            neudyn_b,
-            remove,
-        )
-
-    def diconnect_neudyn_succ(
-        self, neudyn: NeuDyn, remove: bool = True
-    ) -> List[SynSys]:
-        """Disconnect successor synapses of `neudyn`.
-
-        Args:
-            - neudyn: target `NeuDyn`.
-            - remove: whether to remove the original synapses from the network.
-
-        Returns: the disconnected synapses.
-        """
-        return self._disconnect_neudyn(
-            neudyn, lambda syn: syn.source is neudyn, remove_syn=remove
-        )
-
-    def diconnect_neudyn_pred(
-        self, neudyn: NeuDyn, remove: bool = True
-    ) -> List[SynSys]:
-        """Disconnect predecessor synapses of `neudyn`.
-
-        Args:
-            - neudyn: target `NeuDyn`.
-            - remove: whether to remove the original synapses from the network.
-
-        Returns: the disconnected synapses.
-        """
-        return self._disconnect_neudyn(
-            neudyn, lambda syn: syn.dest is neudyn, remove_syn=remove
-        )
-
-    def insert_neudyn(
-        self,
-        neudyn_a: NeuDyn,
-        neudyn_b: NeuDyn,
-        components_to_insert: Tuple[ComponentsType, ...],
-        replace: bool = True,
-        remove: bool = True,
-    ) -> List[SynSys]:
-        """Insert new components between `NeuDyn` A & B.
-
-        Args:
-            - neudyn_a: target `NeuDyn` A.
-            - neudyn_b: target `NeuDyn` B.
-            - components_to_insert: new components to insert between `neudyn_a` & `neudyn_b`.
-            - replace: whether to disconnect the original synapses. Default is `True`.
-            - remove: whether to remove the original synapses from the network. Valid only when `replace` is `True`.
-
-        Returns: the disconnected synapses.
-        """
-        if replace:
-            removed_syn = self.disconnect_neudyn_from(neudyn_a, neudyn_b, remove=remove)
-        else:
-            removed_syn = []
-
-        self.add_components(*components_to_insert)
-
-        return removed_syn
-
     @staticmethod
-    def _find_syn_to_unregi(
+    def _find_syn_to_disconn(
         nodes: Collector, condition: Callable[[SynSys], bool]
     ) -> List[SynSys]:
         syns = []
@@ -218,19 +251,27 @@ class DynSysGroup(DynamicSys, Container):
         return syns
 
     @staticmethod
-    def _disconnect_syn(target_syn: SynSys) -> None:
+    def _disconn_syn(target_syn: SynSys) -> None:
         ret = target_syn.dest.unregister_master(
             RIGISTER_MASTER_KEY_FORMAT.format(target_syn.name)
         )
         if ret is not target_syn:
-            raise RegisterError("Unregister failed!")
+            raise RegisterError("unregister failed!")
 
     @staticmethod
-    def _assert_neudyn(nodes: Collector, *neudyns: NeuDyn) -> None:
-        neu_dyns = nodes.subset(NeuDyn)
+    def _disconn_succ_syn(target_syn: SynSys) -> None:
+        ret = target_syn.dest.unregister_master(
+            RIGISTER_MASTER_KEY_FORMAT.format(target_syn.name)
+        )
+        if ret is not target_syn:
+            raise RegisterError("unregister failed!")
 
-        if any(neudyn not in neu_dyns.values() for neudyn in neudyns):
-            raise ValueError("Not all NeuDyn found in the network.")
+    @staticmethod
+    def _assert_neuron(nodes: Collector, *neurons: Neuron) -> None:
+        neu_dyns = nodes.subset(Neuron)
+
+        if any(neuron not in neu_dyns.values() for neuron in neurons):
+            raise ValueError("not all neurons found in the network.")
 
 
 Network: TypeAlias = DynSysGroup
