@@ -254,21 +254,38 @@ s1= pb.FullConn(source=n1, dest=n2, weights=weight1, conn_type=pb.SynConnType.Al
 
 普通的神经元连接类型，仅可以通过矩阵设置其权重 `weights`。
 
+#### 1D卷积
+
+全展开形式1D卷积为全连接突触的一种特殊表达。对于卷积形式的突触，需**严格指定**前后神经元的尺寸、神经元维度顺序、卷积核权重、卷积核维度顺序与步长。
+
+- `kernel`：卷积核权重。
+- `stride`：步长，标量。
+- `fm_order` 指定神经元维度顺序为 `CL` 或 `LC` 排列。
+- `kernel_order`：指定卷积核维度顺序为 `OIL` 或 `IOL` 排列。
+
+```python
+n1 = pb.IF(shape=(8, 28), threshold=1)      # Input feature map: (8, 28)
+n2 = pb.IF(shape=(16, 26), threshold=1)     # Output feature map: (16, 26)
+kernel = np.random.randint(-128, 128, size=(16, 8, 3), dtype=np.int8) # OIl
+
+conv2d = pb.Conv1d(n1, n2, kernel=kernel, stride=1, fm_order="CL", kernel_order="OIL", name="conv1d_1")
+```
+
 #### 2D卷积
 
-全展开形式2D卷积可用突触进行表示。对于一个卷积连接，需要严格指定前后神经元的尺寸、神经元维度顺序、卷积核全权重、卷积核维度顺序与步长信息。
+全展开形式2D卷积为全连接突触的一种特殊表达。对于卷积形式的突触，需**严格指定**前后神经元的尺寸、神经元维度顺序、卷积核权重、卷积核维度顺序与步长。
 
 - `kernel`：卷积核权重。
 - `stride`：步长，可以为标量或元组。当为标量时，对应为 `(x, x)`；当为元组时，则对应为 `(x, y)`。
 - `fm_order` 指定神经元维度顺序为 `CHW` 或 `HWC` 排列。
-- `kernel_order`：指定卷积核维度顺序为 `OIHW` 或 `HWIO` 排列。
+- `kernel_order`：指定卷积核维度顺序为 `OIHW` 或 `IOHW` 排列。
 
 ```python
 n1 = pb.IF(shape=(8, 28, 28), threshold=1)      # Input feature map: (8, 28, 28)
 n2 = pb.IF(shape=(16, 26, 26), threshold=1)     # Output feature map: (16, 26, 26)
 kernel = np.random.randint(-128, 128, size=(16, 8, 3, 3), dtype=np.int8) # OIHW
 
-conv2d = pb.Conv2d(n1, n2, kernel=kernel, stride=1, fm_order="CHW", kernel_order="OIHW", name="conv_1")
+conv2d = pb.Conv2d(n1, n2, kernel=kernel, stride=1, fm_order="CHW", kernel_order="OIHW", name="conv2d_1")
 ```
 
 ⚠️ `padding` 不支持，默认为0。
@@ -277,7 +294,7 @@ conv2d = pb.Conv2d(n1, n2, kernel=kernel, stride=1, fm_order="CHW", kernel_order
 
 对于非脉冲数据，我们需要将其进行脉冲编码，然后输入网络中进行计算。
 
-PAIBox提供了有状态与无状态编码器。其中，有状态编码器是指编码过程与时间有关，将输入数据编码到一段时间窗口内。而无状态编码器是指编码过程与时间无关。每个时间步，都可以根据输入直接进行编码。
+PAIBox提供了有状态与无状态编码器。其中，有状态编码器是指编码过程与时间有关，将输入数据编码到一段时间窗口内。而无状态编码器是指编码过程与时间无关，每个时间步，都可以根据输入数据进行编码。
 
 #### 无状态编码器
 
@@ -298,9 +315,11 @@ for t in range(20):
 
 #### 有状态编码器
 
-有状态编码器类别较多。但目前来看，使用传统思路进行训练的SNN网络不能使用与时间有关的有状态编码器进行训练。
+有状态编码器类别较多。PAIBox提供了几种有状态编码器：周期编码器 `PeriodicEncoder`、延迟编码器 `LatencyEncoder` 。
 
-PAIBox提供了一种有状态编码器，周期性编码器 `PeriodicEncoder`。它以一段脉冲序列为输入，将其循环地在每一个时间步输出。以下为一个简单实例：
+##### 周期编码器
+
+它以一段脉冲序列为输入，将其循环地在每一个时间步输出。以下为一个简单实例：
 
 ```python
 # 定义一段脉冲序列
@@ -318,6 +337,24 @@ for t in range(20):
 ```
 
 这将仿真20个时间步，周期性地获取输入的脉冲序列并将其输出。
+
+##### 延迟编码器
+
+根据输入数据 `x` 延迟发放脉冲的编码器。当刺激强度越大，发放时间越早，且存在最大脉冲发放时间 `T`。因此对于每一个输入数据，都能得到一段时间步长为 `T` 的脉冲序列，每段序列有且仅有一个脉冲发放。编码类型可为：`linear` 或 `log`。以下为一个简单实例：
+
+```python
+N = 6
+x = np.random.rand(N)
+T = 20
+
+le = pb.simulator.LatencyEncoder(T, "linear")
+
+out_spike = np.zeros((T, N), dtype=np.bool_)
+for t in range(T):
+    out_spike[t] = le(x)
+```
+
+具体编码原理参见：[SpikingJelly/延迟编码器](https://spikingjelly.readthedocs.io/zh-cn/latest/activation_based/2_encoding.html#id5)
 
 ### 输入节点
 
@@ -453,7 +490,7 @@ print(output)
 
 PAIBox提供了一些常用编码器，编码器内部实现了 `__call__` 方法，因此可作为输入节点的输入使用。在作为输入节点的输入使用时，它与一般函数做为输入节点的输入使用存在差别。
 
-在例化 `InputProj` 时，输入节点的输入为编码器。在运行时，还需要通过设置 `inp.input`，**向输入节点输入待编码数据**，节点内部将完成泊松编码并输出。以泊松编码器为例：
+在例化 `InputProj` 时，输入节点的输入为编码器。在运行时，还需要通过设置 `inp.input`，**向输入节点输入待编码数据**，节点内部将完成编码并输出。以泊松编码器为例：
 
 ```python
 pe = pb.simulator.PoissonEncoder()                          # 例化泊松编码器
