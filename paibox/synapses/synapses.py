@@ -47,8 +47,7 @@ class NoDecay(FullConn):
         name: Optional[str] = None,
     ) -> None:
         warnings.warn(
-            "The `NoDecay` class will be deprecated in future versions, "
-            "use `FullConn` instead.",
+            "'NoDecay' class will be deprecated in future versions. Use 'FullConn' instead.",
             DeprecationWarning,
         )
 
@@ -84,10 +83,10 @@ class Conv2d(Conv2dSyn):
             - name: name of the 2d convolution. Optional.
         """
         if fm_order not in ("CHW", "HWC"):
-            raise ValueError(f"Unknown feature map order '{fm_order}'.")
+            raise ValueError(f"feature map order must be 'CHW or 'HWC'.")
 
         if kernel_order not in ("OIHW", "IOHW"):
-            raise ValueError(f"Unknown kernel order '{kernel_order}'.")
+            raise ValueError(f"kernel order must be 'OIHW' or 'IOHW'.")
 
         super().__init__(
             source,

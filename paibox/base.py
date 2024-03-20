@@ -30,7 +30,7 @@ class PAIBoxObject:
     def __eq__(self, other: "PAIBoxObject") -> bool:
         if not isinstance(other, PAIBoxObject):
             raise TypeError(
-                f"Cannot compare {type(self).__name__} with {type(other).__name__}."
+                f"cannot compare {type(self).__name__} with {type(other).__name__}."
             )
 
         if self is other:

@@ -42,8 +42,8 @@ class InputProj(Projection, TimeRelatedNode):
         """The input node of network.
 
         Arguments:
-            - input: the input value of the projection node. It can be numeric value \
-                or callable function(function or `Encoder`).
+            - input: the input value of the projection node. It can be numeric value or callable\
+                function(function or `Encoder`).
             - shape_out: the shape of the output.
             - keep_shape: wether to keep the shape when retieving the feature map.
             - name: the name of the node. Optional.
@@ -73,13 +73,13 @@ class InputProj(Projection, TimeRelatedNode):
         elif isinstance(_spike, np.ndarray):
             if shape2num(_spike.shape) != self.num_out:
                 raise ShapeError(
-                    f"Cannot reshape output value from {_spike.shape} to ({self.num_out},)."
+                    f"cannot reshape output value from {_spike.shape} to ({self.num_out},)."
                 )
             self._inner_spike = _spike.flatten().astype(np.bool_)
         else:
             # should never be reached
             raise TypeError(
-                f"Expected type int, np.bool_, np.integer or np.ndarray, "
+                f"expected type int, np.bool_, np.integer or np.ndarray, "
                 f"but got {_spike}, type {type(_spike)}."
             )
 
@@ -93,7 +93,7 @@ class InputProj(Projection, TimeRelatedNode):
         # Otherwise, use the output of `_func_input`.
         if self._num_input is None:
             if self._func_input is None:
-                raise SimulationError(f"Both numeric & functional input are not set.")
+                raise SimulationError(f"both numeric & functional input are not set.")
             else:
                 return _call_with_ctx(self._func_input, **kwargs)
 
@@ -131,8 +131,8 @@ class InputProj(Projection, TimeRelatedNode):
         """Set the input at the beginning of running the simulation."""
         if not isinstance(value, (int, np.bool_, np.integer, np.ndarray)):
             raise TypeError(
-                f"Expected type int, np.bool_, np.integer or np.ndarray, "
-                f"but got {value}, type {type(value)}"
+                f"expected type int, np.bool_, np.integer or np.ndarray, "
+                f"but got {value}, type {type(value)}."
             )
 
         self._num_input = value

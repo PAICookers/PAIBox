@@ -33,7 +33,7 @@ class StatefulEncoder(Encoder, StatusMemory):
         super(Encoder, self).__init__()
 
         if T < 1:
-            raise ValueError(f"'T' must be positive, but got {T}")
+            raise ValueError(f"'T' must be positive, but got {T}.")
 
         self.T = T
         self.set_memory("spike", None)
@@ -43,7 +43,7 @@ class StatefulEncoder(Encoder, StatusMemory):
         # If there is no encoded spike but there is an input, encode the input
         if self.spike is None:
             if x is None:
-                raise ValueError("input must be given if spike is None")
+                raise ValueError("input must be given if 'spike' is None.")
 
             self.encode(x)
 
@@ -90,7 +90,7 @@ class LatencyEncoder(StatefulEncoder):
         if encoding_func == "log":
             self.alpha = math.exp(T - 1) - 1
         elif encoding_func != "linear":  # `alpha` is not used in method 'linear'.
-            raise ValueError("encoding function must be 'log' or 'linear'")
+            raise ValueError("encoding function must be 'linear' or 'log'.")
 
         self.enc_func = encoding_func
 

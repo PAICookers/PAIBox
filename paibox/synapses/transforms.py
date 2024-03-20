@@ -58,7 +58,7 @@ def _get_weight_precision(weight: np.ndarray, enable_wp_opt: bool) -> WP:
     _min = np.min(weight, axis=None).astype(np.int32)
 
     if _max > MAX_INT8 or _min < MIN_INT8:
-        raise ValueError(f"Weight precision out of range, [{_min}, {_max}]")
+        raise ValueError(f"weight precision out of range [{_min}, {_max}].")
 
     if _max <= MAX_INT1 and _min >= MIN_INT1:
         return WP.WEIGHT_WIDTH_1BIT
@@ -120,15 +120,13 @@ class OneToOne(Transform):
         self.num = num
 
         if isinstance(weights, np.ndarray) and not is_shape(weights, (num,)):
-            raise ShapeError(
-                f"Expected shape is ({num},), but we got shape {weights.shape}"
-            )
+            raise ShapeError(f"expected shape is ({num},), but got {weights.shape}.")
 
         # The ndim of weights = 0 or 1.
         _w = np.asarray(weights, dtype=np.int8)
 
         if _w.ndim not in (0, 1):
-            raise ShapeError(f"The ndim of weights must be 0 or 1, but got {_w.ndim}.")
+            raise ShapeError(f"the ndim of weights must be 0 or 1, but got {_w.ndim}.")
 
         super().__init__(_w)
 
@@ -173,14 +171,12 @@ class AllToAll(Transform):
         self.conn_size = conn_size
 
         if isinstance(weights, np.ndarray) and not is_shape(weights, conn_size):
-            raise ShapeError(
-                f"Expected shape is {conn_size}, but we got shape {weights.shape}"
-            )
+            raise ShapeError(f"expected shape is {conn_size}, but got {weights.shape}.")
 
         _w = np.asarray(weights, dtype=np.int8)
 
         if _w.ndim not in (0, 2):
-            raise ShapeError(f"The ndim of weights must be 0 or 2, but got {_w.ndim}.")
+            raise ShapeError(f"the ndim of weights must be 0 or 2, but got {_w.ndim}.")
 
         super().__init__(_w)
 
@@ -219,9 +215,7 @@ class MaskedLinear(Transform):
         weights: np.ndarray,
     ) -> None:
         if not is_shape(weights, conn_size):
-            raise ShapeError(
-                f"Expected shape is {conn_size}, but we got {weights.shape}"
-            )
+            raise ShapeError(f"expected shape is {conn_size}, but got {weights.shape}.")
 
         _w = np.asarray(weights, dtype=np.int8)
         super().__init__(_w)

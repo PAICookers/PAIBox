@@ -26,7 +26,7 @@ class Probe(PAIBoxObject):
     def _check_attr(self, target: PAIBoxObject) -> None:
         if not hasattr(target, self.attr):
             raise AttributeError(
-                f"Attribute '{self.attr}' not found in target {self.target}."
+                f"attribute '{self.attr}' not found in target {self.target}."
             )
 
         self.target = target

@@ -33,7 +33,7 @@ try:
     if hasattr(plib, "get_version"):  # For plib <= 0.0.12
         raise ImportError(
             tools.PLIB_UPDATE_INTRO.format(
-                __plib_minimum_version__, ".".join(map(str, plib.get_version()))
+                __plib_minimum_version__, ".".join(map(str, plib.get_version()))  # type: ignore
             )
         ) from None
 

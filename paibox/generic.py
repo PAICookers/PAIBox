@@ -12,12 +12,12 @@ def is_name_unique(name: str, obj: object) -> None:
     Otherwise raise an error.
     """
     if not name.isidentifier():
-        raise ValueError(f"{name} is not a valid identifier")
+        raise ValueError(f"'{name}' is not a valid identifier.")
 
     if name in _id_dict:
         if _id_dict[name] != id(obj):
             raise RegisterError(
-                f"Name of {obj}({name}) is already used by {_id_dict[name]}"
+                f"name of {obj}({name}) is already used by {_id_dict[name]}."
             )
 
     else:
@@ -41,4 +41,4 @@ def clear_name_cache(ignore_warn: bool = False) -> None:
     _type_names.clear()
 
     if not ignore_warn:
-        warnings.warn(f"All named models & ids are cleared.", PAIBoxWarning)
+        warnings.warn(f"all named models & ids are cleared.", PAIBoxWarning)

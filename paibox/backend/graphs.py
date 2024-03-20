@@ -176,7 +176,7 @@ class PAIGraph:
             for onode in self.onodes.values()
         ):
             raise NotSupportedError(
-                f"Only output nodes with no more than {HwConfig.N_FANIN_PER_DENDRITE_MAX} "
+                f"only output nodes with no more than {HwConfig.N_FANIN_PER_DENDRITE_MAX} "
                 f"neurons are supported."
             )
 
@@ -190,7 +190,7 @@ class PAIGraph:
 
     def build_check(self) -> None:
         if not self.has_built:
-            raise BuildError(f"The graph hasn't been built yet.")
+            raise BuildError(f"the graph hasn't been built yet.")
 
     def group_edges(self) -> List[FrozenSet[EdgeType]]:
         """Group all edges according to a certain rule.
@@ -274,7 +274,7 @@ class PAIGraph:
 
     @property
     def graph_name_repr(self) -> str:
-        _str = f"Graph_of_{self.networks[0].name}"
+        _str = f"graph_of_{self.networks[0].name}"
 
         for network in self.networks[1:]:
             _str += f"_and_{network.name}"
@@ -289,8 +289,7 @@ def _degree_check(
     for node in filter(lambda node: degree_of_nodes[node].out_degree > 1, succ_dg):
         if any(degree_of_nodes[succ_node].in_degree > 1 for succ_node in succ_dg[node]):
             raise NotSupportedError(
-                "If out-degree of a node is greater than 1, "
-                "the in-degree of its sucessors must be 1."
+                "If out-degree of a node is greater than 1, the in-degree of its sucessors must be 1."
             )
 
 
@@ -373,7 +372,7 @@ def toposort(directed_edges: Mapping[_NT, Iterable[_NT]]) -> List[_NT]:
                 vertices.add(m)
 
     if any(incoming_edges.get(v, None) for v in directed_edges):
-        raise NotSupportedError("The graph with cycles is not supported yet.")
+        raise NotSupportedError("the graph with cycles is not supported.")
 
     return ordered
 

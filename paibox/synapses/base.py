@@ -21,8 +21,7 @@ RIGISTER_MASTER_KEY_FORMAT = "{0}.output"
 def _check_equal(num_in: int, num_out: int) -> int:
     if num_in != num_out:
         raise ShapeError(
-            f"The number of source & destination neurons must "
-            f"be equal, but {num_in} != {num_out}."
+            f"the number of source & destination neurons must be equal: {num_in} != {num_out}."
         )
 
     return num_in
@@ -136,7 +135,7 @@ class FullConnSyn(FullConnectedSyn):
         elif conn_type is GConnType.Identity:
             if not isinstance(weights, (int, np.bool_, np.integer)):
                 raise TypeError(
-                    f"Expected type int, np.bool_, np.integer, but got type {type(weights)}"
+                    f"expected type int, np.bool_, np.integer, but got type {type(weights)}."
                 )
             comm = Identity(_check_equal(self.num_in, self.num_out), weights)
         elif conn_type is GConnType.All2All:
@@ -144,7 +143,7 @@ class FullConnSyn(FullConnectedSyn):
         else:  # MatConn
             if not isinstance(weights, np.ndarray):
                 raise TypeError(
-                    f"Expected type np.ndarray, but got type {type(weights)}"
+                    f"expected type np.ndarray, but got type {type(weights)}."
                 )
             comm = MaskedLinear((self.num_in, self.num_out), weights)
 
@@ -169,7 +168,7 @@ class Conv2dSyn(FullConnectedSyn):
 
         if kernel.ndim != self._spatial_ndim + 2:
             raise ShapeError(
-                f"The convolution kernel dimension must be {self._spatial_ndim + 2}, but got {kernel.ndim}."
+                f"convolution kernel dimension must be {self._spatial_ndim + 2}, but got {kernel.ndim}."
             )
 
         if order == "IOHW":
@@ -185,10 +184,10 @@ class Conv2dSyn(FullConnectedSyn):
         out_ch, out_h, out_w = _fm_ndim2_check(dest.shape_out, fm_order)
 
         if in_ch != in_channels:
-            raise ShapeError(f"Input channels mismatch: {in_ch} != {in_channels}")
+            raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
 
         if out_ch != out_channels:
-            raise ShapeError(f"Output channels mismatch: {out_ch} != {out_channels}")
+            raise ShapeError(f"output channels mismatch: {out_ch} != {out_channels}.")
 
         # If padding is considered, the implementation of convolution unrolling
         # is extremely complex, so fix it.

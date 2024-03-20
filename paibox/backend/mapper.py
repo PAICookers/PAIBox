@@ -225,7 +225,7 @@ class Mapper:
             n_core_required := sum(cb.n_core_required for cb in self.core_blocks)
         ) > HwConfig.N_CORE_OFFLINE:
             raise ResourceError(
-                f"#N of total cores required out of {HwConfig.N_CORE_OFFLINE} ({n_core_required})."
+                f"the number of required cores is out of range {HwConfig.N_CORE_OFFLINE} ({n_core_required})."
             )
 
         self.n_core_required = n_core_required
@@ -237,7 +237,7 @@ class Mapper:
         for rg in routing_groups:
             if not self.routing_tree.insert_routing_group(rg):
                 raise RuntimeError(
-                    f"Insert routing group {rg} into the routing tree failed."
+                    f"insert routing group {rg} into the routing tree failed."
                 )
 
         self.routing_groups = routing_groups
@@ -423,7 +423,7 @@ class Mapper:
         Return: a dictionary of configurations.
         """
         if format not in ("bin", "npy", "txt"):
-            raise ValueError(f"Format {format} is not supported.")
+            raise ValueError(f"format {format} is not supported.")
 
         _fp = _fp_check(fp)
 
@@ -459,7 +459,7 @@ class Mapper:
             # Find neuron in one or more core blocks.
             if neuron in cb.dest:
                 print(
-                    f"Neurons {neuron.name} placed in {cb.name}, LCN_{1 << cb.lcn_ex}X"
+                    f"neurons {neuron.name} placed in {cb.name}, LCN_{1 << cb.lcn_ex}X"
                 )
                 for core_plm in cb.core_placements.values():
                     for neu_seg in core_plm.neu_segs_of_cplm:
@@ -476,7 +476,7 @@ class Mapper:
         for cb in self.core_blocks:
             # Find neuron in one or more core blocks.
             if neuron in cb.source:
-                print(f"Axons {neuron.name} placed in {cb.name}, LCN_{1 << cb.lcn_ex}X")
+                print(f"axons {neuron.name} placed in {cb.name}, LCN_{1 << cb.lcn_ex}X")
                 axon_segment = cb.axon_segments[neuron]
                 print(
                     f"{neuron.name} placed in {cb.core_coords}\n"

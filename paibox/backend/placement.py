@@ -277,7 +277,7 @@ class CoreBlock(CoreAbstract):
         FIXME Different in SNN/ANN RUNTIME_MODE.
         """
         if len(self.core_coords) == 0:
-            raise BuildError(f"Do this after coordinates assignment.")
+            raise BuildError(f"do this after coordinates assignment.")
 
         # Get #N of neurons on each `CorePlacement` according to the
         # maximum address required of neuron segments on each `CorePlacement`.
@@ -345,7 +345,7 @@ class CoreBlock(CoreAbstract):
         wp0 = synapses[0].weight_precision
         # Check wether weight precision of all synapses equal.
         if not all(wp0 == s.weight_precision for s in synapses):
-            raise NotSupportedError("Mixed weight precision is not supported yet")
+            raise NotSupportedError("mixed weight precision is not supported yet.")
 
         if wp0 > max(cls.SUPPORTED_WP):
             raise NotSupportedError(f"{wp0.name} is not supported yet.")
@@ -357,7 +357,7 @@ class CoreBlock(CoreAbstract):
         # FIXME where does the parameter check do?
         if seed > (1 << 64) - 1:
             warnings.warn(
-                f"Random seed {seed} is too large, truncated into 64 bits!", UserWarning
+                f"random seed {seed} is too large, truncated into 64 bits.", UserWarning
             )
 
         return cls(*synapses, weight_precision=wp0, seed=seed)
@@ -721,11 +721,11 @@ def n_axon2lcn_ex(n_axon: int, fan_in_max: int) -> LCN_EX:
         LCN_EX = log2[ceil(#N/fan-in per dendrite)], where LCN_EX = 0 is `LCN_1X`.
     """
     if n_axon < 1:
-        raise ValueError(f"The #N of axons must be positive, but got {n_axon}")
+        raise ValueError(f"the number of axons must be positive, but got {n_axon}.")
 
     if (lcn_bit := ((n_axon - 1) // fan_in_max).bit_length()) > LCN_EX.LCN_64X:
         raise ResourceError(
-            f"LCN extension required out of {LCN_EX.LCN_64X}: {lcn_bit}"
+            f"LCN extension required out of range {LCN_EX.LCN_64X} ({lcn_bit})."
         )
 
     return LCN_EX(lcn_bit)

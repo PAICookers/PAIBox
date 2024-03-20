@@ -44,7 +44,7 @@ _quadruple = partial(_ntuple, n=4)
 
 def _fm_ndim1_check(fm_shape: SizeAnyType, fm_order: _Order2d) -> Size2Type:
     if len(fm_shape) < 1 or len(fm_shape) > 2:
-        raise ShapeError(f"Expected shape of 1 or 2, but got {len(fm_shape)}")
+        raise ShapeError(f"expected shape of 1 or 2, but got {len(fm_shape)}.")
 
     if len(fm_shape) == 1:
         channels, l = (1,) + fm_shape
@@ -59,7 +59,7 @@ def _fm_ndim1_check(fm_shape: SizeAnyType, fm_order: _Order2d) -> Size2Type:
 
 def _fm_ndim2_check(fm_shape: SizeAnyType, fm_order: _Order3d) -> Size3Type:
     if len(fm_shape) < 2 or len(fm_shape) > 3:
-        raise ShapeError(f"Expected shape of 2 or 3, but got {len(fm_shape)}")
+        raise ShapeError(f"expected shape of 2 or 3, but got {len(fm_shape)}.")
 
     if len(fm_shape) == 2:
         channels, h, w = (1,) + fm_shape

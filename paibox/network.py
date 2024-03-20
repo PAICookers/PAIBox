@@ -97,7 +97,7 @@ class DynSysGroup(DynamicSys, Container):
             RIGISTER_MASTER_KEY_FORMAT.format(target_syn.name)
         )
         if ret is not target_syn:
-            raise RegisterError("unregister failed!")
+            raise RegisterError("unregister failed.")
 
         if not exclude_source:
             self._remove_component(target_syn)
@@ -256,7 +256,7 @@ class DynSysGroup(DynamicSys, Container):
             RIGISTER_MASTER_KEY_FORMAT.format(target_syn.name)
         )
         if ret is not target_syn:
-            raise RegisterError("unregister failed!")
+            raise RegisterError("unregister failed.")
 
     @staticmethod
     def _disconn_succ_syn(target_syn: SynSys) -> None:
@@ -264,7 +264,7 @@ class DynSysGroup(DynamicSys, Container):
             RIGISTER_MASTER_KEY_FORMAT.format(target_syn.name)
         )
         if ret is not target_syn:
-            raise RegisterError("unregister failed!")
+            raise RegisterError("unregister failed.")
 
     @staticmethod
     def _assert_neuron(nodes: Collector, *neurons: Neuron) -> None:
@@ -302,11 +302,11 @@ class Sequential(DynamicSys, Container):
             if item in self.children:
                 return self.children[item]
             else:
-                raise KeyError(f"Key {item} not found.")
+                raise KeyError(f"key '{item}' not found.")
 
         if isinstance(item, int):
             if item > len(self):
-                raise IndexError(f"Index out of range: {item}")
+                raise IndexError(f"index out of range {item}.")
 
             return tuple(self.children.values())[item]
 
@@ -314,7 +314,7 @@ class Sequential(DynamicSys, Container):
             return Sequential(**dict(tuple(self.children.items())[item]))
 
         raise TypeError(
-            f"Expected type str, int or slice, but got {item}, type {type(item)}"
+            f"expected type str, int or slice, but got {item}, type {type(item)}."
         )
 
     def __len__(self) -> int:
