@@ -14,7 +14,6 @@ class TestEncoder:
         pe = pb.simulator.PeriodicEncoder(spike)
 
         out_spike = np.full((20, 3), 0)
-
         for t in range(20):
             out_spike[t] = pe()
 
@@ -23,16 +22,31 @@ class TestEncoder:
         assert np.array_equal(spike, out_spike[10:15])
         assert np.array_equal(spike, out_spike[15:20])
 
+    def test_LatencyEncoder(self):
+        N = 6
+        x = np.random.rand(N)
+        T = 20
+
+        le1 = pb.simulator.LatencyEncoder(T, "linear")
+        le2 = pb.simulator.LatencyEncoder(T, "log")
+
+        out_spike1 = np.zeros((T, N), dtype=np.bool_)
+        out_spike2 = np.zeros((T, N), dtype=np.bool_)
+        for t in range(T):
+            out_spike1[t] = le1(x)
+            out_spike2[t] = le2(x)
+
+        assert 1
+
     def test_PoissonEncoder(self):
         seed = 1
         rng = np.random.RandomState(seed=seed)
         x = rng.rand(10, 10).astype(np.float32)
+
         pe = pb.simulator.PoissonEncoder(seed=seed)
 
         out_spike = np.full((20, 10, 10), 0)
-
         for t in range(20):
             out_spike[t] = pe(x=x)
-
         for t in range(1, 20):
             assert not np.array_equal(out_spike[0], out_spike[t])

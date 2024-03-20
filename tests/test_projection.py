@@ -160,6 +160,25 @@ class TestInputProj:
 
         sim.run(10)
         assert len(sim.data[prob]) == 10
+        assert sim.data[prob][-1].size == 3
+
+    @pytest.mark.parametrize("encoding_func", ["linear", "log"])
+    def test_input_LatencyEncoder(self, encoding_func):
+        N = 6
+        x = np.random.rand(N)
+        T = 20
+
+        le = pb.simulator.LatencyEncoder(T, encoding_func)
+        inp = pb.InputProj(le, shape_out=(N,), keep_shape=False)
+
+        sim = pb.Simulator(inp)
+        prob = pb.simulator.Probe(inp, "output")
+        sim.add_probe(prob)
+
+        inp.input = x
+        sim.run(T)
+        assert len(sim.data[prob]) == T
+        assert sim.data[prob][-1].size == N
 
     def test_illegal_input(self):
         def fakeout_with_t(t, **kwargs):
