@@ -9,12 +9,12 @@ if sys.version_info >= (3, 10):
 else:
     from typing_extensions import ParamSpec
 
-from .base import DynamicSys
-from .context import _FRONTEND_CONTEXT
-from .exceptions import ShapeError, SimulationError
-from .mixin import TimeRelatedNode
-from .types import DataType, Shape, SpikeType
-from .utils import as_shape, shape2num
+from paibox.base import DynamicSys
+from paibox.context import _FRONTEND_CONTEXT
+from paibox.exceptions import ShapeError, SimulationError
+from paibox.mixin import TimeRelatedNode
+from paibox.types import DataType, Shape, SpikeType
+from paibox.utils import as_shape, shape2num
 
 __all__ = ["InputProj"]
 
