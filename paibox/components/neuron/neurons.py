@@ -6,10 +6,10 @@ from paibox.types import Shape
 
 from .base import Neuron
 
+__all__ = ["IF", "LIF", "TonicSpiking", "PhasicSpiking", "Always1Neuron", "SpikingRelu"]
+
 
 class IF(Neuron):
-    """IF neuron"""
-
     def __init__(
         self,
         shape: Shape,
@@ -20,7 +20,8 @@ class IF(Neuron):
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
-        """
+        """IF neuron.
+        
         Arguments:
             - shape: shape of neurons.
             - threshold: when the membrane potential exceeds the threshold, neurons will fire.
@@ -50,8 +51,6 @@ class IF(Neuron):
 
 
 class LIF(Neuron):
-    """LIF neuron"""
-
     def __init__(
         self,
         shape: Shape,
@@ -63,7 +62,8 @@ class LIF(Neuron):
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
-        """
+        """LIF neuron.
+
         Arguments:
             - shape: shape of neurons.
             - threshold: when the membrane potential exceeds the threshold, neurons will fire.
@@ -87,8 +87,6 @@ class LIF(Neuron):
 
 
 class TonicSpiking(Neuron):
-    """Tonic spiking neuron"""
-
     def __init__(
         self,
         shape: Shape,
@@ -98,7 +96,8 @@ class TonicSpiking(Neuron):
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
-        """
+        """Tonic spiking neuron.
+
         Arguments:
             - shape: shape of neurons.
             - fire_step: every `N` spike, the neuron will fire positively.
@@ -117,8 +116,6 @@ class TonicSpiking(Neuron):
 
 
 class PhasicSpiking(Neuron):
-    """Phasic spiking neuron"""
-
     def __init__(
         self,
         shape: Shape,
@@ -129,7 +126,8 @@ class PhasicSpiking(Neuron):
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
-        """
+        """Phasic spiking neuron.
+        
         Arguments:
             - shape: shape of neurons.
             - time_to_fire: after `N` spikes, the neuron will fire positively.
@@ -156,11 +154,6 @@ class PhasicSpiking(Neuron):
 
 
 class Always1Neuron(Neuron):
-    """This neuron will always output 1 as long as it starts working.
-
-    FIXME There must be a forward synapse connected to it, otherwise    \
-        the backend will go wrong.
-    """
 
     def __init__(
         self,
@@ -170,6 +163,10 @@ class Always1Neuron(Neuron):
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
+        """A neuron that always outputs 1 as long as it starts working.
+
+        FIXME There must be a forward synapse connected to it, otherwise the backend will go wrong.
+        """
         super().__init__(
             shape,
             reset_v=1,
@@ -178,6 +175,25 @@ class Always1Neuron(Neuron):
             neg_threshold=0,
             pos_threshold=0,
             leak_v=(1 << 29) - 1,
+            keep_shape=keep_shape,
+            name=name,
+            **kwargs,
+        )
+
+
+class SpikingRelu(Neuron):
+    def __init__(
+        self,
+        shape: Shape,
+        *,
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        """Spiking relu neuron."""
+        super().__init__(
+            shape,
+            neg_threshold=0,
             keep_shape=keep_shape,
             name=name,
             **kwargs,
