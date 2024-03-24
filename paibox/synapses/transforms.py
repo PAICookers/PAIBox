@@ -10,14 +10,14 @@ from paibox.types import DataArrayType, IntScalarType, SynOutType, WeightType
 from paibox.utils import is_shape
 
 from .conv_utils import (
+    Size1Type,
+    Size2Type,
     _conv1d_faster,
     _conv1d_unroll,
     _conv2d_faster,
     _conv2d_unroll,
     _Order2d,
     _Order3d,
-    Size1Type,
-    Size2Type,
 )
 
 __all__ = [

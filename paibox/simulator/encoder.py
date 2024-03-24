@@ -2,6 +2,7 @@ import math
 from typing import Literal, Optional
 
 import numpy as np
+
 from paibox.mixin import StatusMemory
 from paibox.types import SpikeType
 

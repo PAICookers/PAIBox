@@ -75,4 +75,6 @@ class OrderedSet(FrozenOrderedSet[_T], MutableSet):
         return self
 
     def __hash__(self) -> NoReturn:
-        raise TypeError("'OrderedSet' is not hashable (use 'FrozenOrderedSet' instead).")
+        raise TypeError(
+            "'OrderedSet' is not hashable (use 'FrozenOrderedSet' instead)."
+        )
