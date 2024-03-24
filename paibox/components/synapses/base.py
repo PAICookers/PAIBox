@@ -5,23 +5,27 @@ from paicorelib import HwConfig
 from paicorelib import WeightPrecision as WP
 
 from paibox.base import NeuDyn, SynSys
-from paibox.exceptions import ShapeError
-from paibox.neuron import Neuron
-from paibox.projection import InputProj
+from paibox.exceptions import RegisterError, ShapeError
 from paibox.types import DataArrayType, SynOutType, WeightType
 
-from .conv_utils import _fm_ndim1_check, _fm_ndim2_check, _KOrder3d, _KOrder4d
+from .conv_utils import _fm_ndim1_check, _fm_ndim2_check
 from .transforms import (
     AllToAll,
     Conv1dForward,
     Conv2dForward,
     ConvTranspose1dForward,
     ConvTranspose2dForward,
+    GeneralConnType as GConnType,
+    Identity,
+    MaskedLinear,
+    OneToOne,
+    Transform,
 )
-from .transforms import GeneralConnType as GConnType
-from .transforms import Identity, MaskedLinear, OneToOne, Transform
-
-RIGISTER_MASTER_KEY_FORMAT = "{0}.output"
+from ..neuron import Neuron
+from ..modules import BuildingModule
+from ..projection import InputProj
+from ..types import _KOrder3d, _KOrder4d
+from ..utils import RIGISTER_MASTER_KEY_FORMAT
 
 
 def _check_equal(num_in: int, num_out: int) -> int:
@@ -38,17 +42,49 @@ class Synapses:
         self,
         source: Union[NeuDyn, InputProj],
         dest: NeuDyn,
+        subclass_syn_name: str,
     ) -> None:
         self._source = source
         self._dest = dest
+        self._child_syn_name = subclass_syn_name
+        """The name of subclass `FullConnectedSyn`."""
 
     @property
     def source(self) -> Union[NeuDyn, InputProj]:
         return self._source
 
+    @source.setter
+    def source(self, source: Union[NeuDyn, InputProj]) -> None:
+        """Set a new source neuron."""
+        if source.num_out != self.num_in:
+            raise RegisterError(
+                f"the number of source neurons before and after the change"
+                f"is not equal: {source.num_out} != {self.num_in}."
+            )
+
+        self._source = source
+
     @property
     def dest(self) -> NeuDyn:
         return self._dest
+
+    @dest.setter
+    def dest(self, dest: NeuDyn) -> None:
+        """Set a new destination neuron."""
+        if dest.num_in != self.num_out:
+            raise RegisterError(
+                f"the number of source neurons before and after the change"
+                f"is not equal: {dest.num_in} != {self.num_out}."
+            )
+
+        self._dest = dest
+        # FIXME Because the modification of the synapse destination neuron occurs in the backend,
+        # there's no need to register new dest again because simulation will not be done again (maybe).
+        # But does it mean that we need to make a copy of the original network and then pass it to
+        # the backend?
+        dest.register_master(
+            RIGISTER_MASTER_KEY_FORMAT.format(self._child_syn_name), self
+        )
 
     @property
     def shape_in(self) -> Tuple[int, ...]:
@@ -68,6 +104,9 @@ class Synapses:
 
 
 class FullConnectedSyn(Synapses, SynSys):
+
+    comm: Transform
+
     def __init__(
         self,
         source: Union[NeuDyn, InputProj],
@@ -75,12 +114,16 @@ class FullConnectedSyn(Synapses, SynSys):
         name: Optional[str] = None,
     ) -> None:
         super(Synapses, self).__init__(name)
-        super().__init__(source, dest)
+        super().__init__(source, dest, self.name)
 
         self.set_memory("_synout", np.zeros((self.num_out,), dtype=np.int32))
 
-        # Register `self` for the destination `NeuDyn`.
+        # Register itself with the master nodes of destination.
         dest.register_master(RIGISTER_MASTER_KEY_FORMAT.format(self.name), self)
+
+        # If the source is `BuildingModule`, register itself with its module interface.
+        if isinstance(source, BuildingModule):
+            source.register_output(self)
 
     def __call__(self, *args, **kwargs) -> SynOutType:
         return self.update(*args, **kwargs)
@@ -95,7 +138,7 @@ class FullConnectedSyn(Synapses, SynSys):
                 synin = self.source.output[idx].copy() if spike is None else spike
         else:
             # Retrieve 0 to the dest neurons if it is not working
-            synin = np.zeros_like(self.source.spike, dtype=np.bool_)
+            synin = np.zeros_like(self.source.spike)
 
         self._synout = self.comm(synin).ravel().astype(np.int32)
         return self._synout
@@ -103,9 +146,6 @@ class FullConnectedSyn(Synapses, SynSys):
     def reset_state(self, *args, **kwargs) -> None:
         # TODO Add other initialization methods in the future.
         self.reset_memory()  # Call reset of `StatusMemory`.
-
-    def _set_comm(self, comm: Transform) -> None:
-        self.comm = comm
 
     @property
     def output(self) -> SynOutType:
@@ -153,7 +193,7 @@ class FullConnSyn(FullConnectedSyn):
                 )
             comm = MaskedLinear((self.num_in, self.num_out), weights)
 
-        self._set_comm(comm)
+        self.comm = comm
 
 
 class Conv1dSyn(FullConnectedSyn):
