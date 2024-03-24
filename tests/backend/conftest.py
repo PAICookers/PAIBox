@@ -24,7 +24,7 @@ from paicorelib import WeightPrecision as WP
 import paibox as pb
 from paibox.backend.conf_template import CoreConfig, CorePlacementConfig, NeuronConfig
 from paibox.backend.routing import RoutingCluster
-from paibox.generic import clear_name_cache
+from paibox.naming import clear_name_cache
 from paibox.node import NodeList
 from tests.conftest import ParametrizedTestData
 

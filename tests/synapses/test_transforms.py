@@ -187,6 +187,98 @@ class TestTransforms:
         assert f.connectivity.shape == shape
 
     @staticmethod
+    def _conv1d_golden(
+        x: np.ndarray,
+        out_shape: Tuple[int],
+        kernel: np.ndarray,
+        stride: Tuple[int],
+        padding: Tuple[int],
+        fm_order: str,
+    ):
+        cout, cin, kl = kernel.shape
+
+        if fm_order == "LC":
+            _x = x.T
+        else:
+            _x = x.copy()
+
+        xcin, il = _x.shape
+
+        assert cin == xcin
+
+        ol = (il - kl + 2 * padding[0]) // stride[0] + 1
+
+        assert ol == out_shape[0]
+
+        out = np.zeros((cout,) + out_shape, dtype=np.int64)
+
+        x_padded = np.pad(_x, (0, padding[0]), mode="constant")
+
+        for o in range(cout):
+            for i in range(cin):
+                conv_result = np.zeros((ol,), dtype=np.int64)
+                for l in range(ol):
+                    window = x_padded[i, l * stride[0] : l * stride[0] + kl]
+                    conv_result[l] = np.sum(window * kernel[o, i, :])
+
+                out[o] += conv_result
+
+        return out
+
+    @pytest.mark.parametrize(
+        "in_shape, in_channels, out_channels, kernel_size, stride, padding, fm_order",
+        # Padding is fixed at (0, 0)
+        [
+            ((28,), 16, 8, (3,), (1,), (0,), "CL"),
+            ((28,), 24, 12, (3,), (2,), (0,), "CL"),
+            ((28,), 24, 12, (5,), (2,), (0,), "CL"),
+            ((16,), 8, 16, (3,), (2,), (0,), "CL"),
+            ((28,), 16, 8, (3,), (1,), (0,), "LC"),
+            ((24,), 8, 8, (3,), (2,), (0,), "LC"),
+            ((24,), 8, 16, (7,), (2,), (0,), "LC"),
+            ((32,), 4, 12, (5,), (1,), (0,), "LC"),
+        ],
+    )
+    def test_Conv1dForward(
+        self,
+        in_shape,
+        in_channels,
+        out_channels,
+        kernel_size,
+        stride,
+        padding,
+        fm_order,
+    ):
+        kernel = np.random.randint(
+            -128, 127, size=(out_channels, in_channels) + kernel_size, dtype=np.int8
+        )
+
+        out_shape = ((in_shape[0] + 2 * padding[0] - kernel_size[0]) // stride[0] + 1,)
+
+        f = Conv1dForward(in_shape, out_shape, kernel, stride, padding, fm_order)
+
+        if fm_order == "CL":
+            fm_shape = (in_channels,) + in_shape
+        else:
+            fm_shape = in_shape + (in_channels,)
+
+        x = np.random.randint(0, 2, size=fm_shape, dtype=np.bool_)
+        xf = x.copy().flatten()
+
+        y = f(xf)
+        expected = self._conv1d_golden(x, out_shape, kernel, stride, padding, fm_order)
+
+        # Flattened output
+        y = y.reshape((out_channels,) + out_shape)
+
+        assert y.shape == expected.shape
+        assert np.array_equal(y, expected)
+        assert f.connectivity.shape == (
+            shape2num((kernel.shape[1],) + in_shape),
+            shape2num((kernel.shape[0],) + out_shape),
+        )
+
+    @staticmethod
     def _conv2d_golden(
         x: np.ndarray,
         out_shape: Tuple[int, int],

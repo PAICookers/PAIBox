@@ -10,8 +10,15 @@ from paibox.neuron import Neuron
 from paibox.projection import InputProj
 from paibox.types import DataArrayType, SynOutType, WeightType
 
-from .conv_utils import _fm_ndim2_check, _KOrder4d, _Order3d
-from .transforms import AllToAll, Conv2dForward
+from .conv_utils import (
+    _fm_ndim1_check,
+    _fm_ndim2_check,
+    _KOrder3d,
+    _KOrder4d,
+    _Order2d,
+    _Order3d,
+)
+from .transforms import AllToAll, Conv1dForward, Conv2dForward
 from .transforms import GeneralConnType as GConnType
 from .transforms import Identity, MaskedLinear, OneToOne, Transform
 
@@ -21,8 +28,7 @@ RIGISTER_MASTER_KEY_FORMAT = "{0}.output"
 def _check_equal(num_in: int, num_out: int) -> int:
     if num_in != num_out:
         raise ShapeError(
-            f"The number of source & destination neurons must "
-            f"be equal, but {num_in} != {num_out}."
+            f"the number of source & destination neurons must be equal: {num_in} != {num_out}."
         )
 
     return num_in
@@ -136,7 +142,7 @@ class FullConnSyn(FullConnectedSyn):
         elif conn_type is GConnType.Identity:
             if not isinstance(weights, (int, np.bool_, np.integer)):
                 raise TypeError(
-                    f"Expected type int, np.bool_, np.integer, but got type {type(weights)}"
+                    f"expected type int, np.bool_, np.integer, but got type {type(weights)}."
                 )
             comm = Identity(_check_equal(self.num_in, self.num_out), weights)
         elif conn_type is GConnType.All2All:
@@ -144,11 +150,61 @@ class FullConnSyn(FullConnectedSyn):
         else:  # MatConn
             if not isinstance(weights, np.ndarray):
                 raise TypeError(
-                    f"Expected type np.ndarray, but got type {type(weights)}"
+                    f"expected type np.ndarray, but got type {type(weights)}."
                 )
             comm = MaskedLinear((self.num_in, self.num_out), weights)
 
         self._set_comm(comm)
+
+
+class Conv1dSyn(FullConnectedSyn):
+    _spatial_ndim: ClassVar[int] = 1
+
+    def __init__(
+        self,
+        source: Union[NeuDyn, InputProj],
+        dest: Neuron,
+        kernel: np.ndarray,
+        stride: Tuple[int],
+        # padding: Tuple[int],
+        fm_order: _Order2d,
+        order: _KOrder3d,
+        name: Optional[str] = None,
+    ) -> None:
+        super().__init__(source, dest, name)
+
+        if kernel.ndim != self._spatial_ndim + 2:
+            raise ShapeError(
+                f"convolution kernel dimension must be {self._spatial_ndim + 2}, but got {kernel.ndim}."
+            )
+
+        if order == "IOL":
+            _kernel = kernel.transpose(1, 0, 2)
+        else:
+            _kernel = kernel.copy()
+
+        # O,I,L
+        out_channels, in_channels, kernel_l = _kernel.shape
+
+        # C,L
+        in_ch, in_l = _fm_ndim1_check(source.shape_out, fm_order)
+        out_ch, out_l = _fm_ndim1_check(dest.shape_out, fm_order)
+
+        if in_ch != in_channels:
+            raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
+
+        if out_ch != out_channels:
+            raise ShapeError(f"output channels mismatch: {out_ch} != {out_channels}.")
+
+        # If padding is considered, the implementation of convolution unrolling
+        # is extremely complex, so fix it.
+        padding = (0,)
+
+        assert (in_l + 2 * padding[0] - kernel_l) // stride[0] + 1 == out_l
+
+        comm = Conv1dForward((in_l,), (out_l,), _kernel, stride, padding, fm_order)
+
+        self.comm = comm
 
 
 class Conv2dSyn(FullConnectedSyn):
@@ -169,7 +225,7 @@ class Conv2dSyn(FullConnectedSyn):
 
         if kernel.ndim != self._spatial_ndim + 2:
             raise ShapeError(
-                f"The convolution kernel dimension must be {self._spatial_ndim + 2}, but got {kernel.ndim}."
+                f"convolution kernel dimension must be {self._spatial_ndim + 2}, but got {kernel.ndim}."
             )
 
         if order == "IOHW":
@@ -185,10 +241,10 @@ class Conv2dSyn(FullConnectedSyn):
         out_ch, out_h, out_w = _fm_ndim2_check(dest.shape_out, fm_order)
 
         if in_ch != in_channels:
-            raise ShapeError(f"Input channels mismatch: {in_ch} != {in_channels}")
+            raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
 
         if out_ch != out_channels:
-            raise ShapeError(f"Output channels mismatch: {out_ch} != {out_channels}")
+            raise ShapeError(f"output channels mismatch: {out_ch} != {out_channels}.")
 
         # If padding is considered, the implementation of convolution unrolling
         # is extremely complex, so fix it.

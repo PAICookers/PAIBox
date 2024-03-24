@@ -10,8 +10,8 @@ else:
     from typing_extensions import TypeAlias
 
 from .collector import Collector
-from .generic import get_unique_name, is_name_unique
 from .mixin import ReceiveInputProj, StatusMemory, TimeRelatedNode
+from .naming import get_unique_name, is_name_unique
 from .node import NodeDict, NodeList
 from .types import WeightType
 
@@ -30,7 +30,7 @@ class PAIBoxObject:
     def __eq__(self, other: "PAIBoxObject") -> bool:
         if not isinstance(other, PAIBoxObject):
             raise TypeError(
-                f"Cannot compare {type(self).__name__} with {type(other).__name__}."
+                f"cannot compare {type(self).__name__} with {type(other).__name__}."
             )
 
         if self is other:

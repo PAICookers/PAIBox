@@ -94,7 +94,7 @@ class MetaNeuron:
 
         if self.synaptic_integration_mode is SIM.MODE_STOCHASTIC:
             raise NotImplementedError(
-                f"Mode {SIM.MODE_STOCHASTIC.name} is not implemented."
+                f"mode {SIM.MODE_STOCHASTIC.name} is not implemented."
             )
         else:
             if incoming_v.ndim == 2:
@@ -134,7 +134,7 @@ class MetaNeuron:
             v_leaked = np.add(vjt, _ld * self.leak_v).astype(np.int32)
         else:
             raise NotImplementedError(
-                f"Mode {LIM.MODE_STOCHASTIC.name} is not implemented."
+                f"mode {LIM.MODE_STOCHASTIC.name} is not implemented."
             )
             # _F = 1 if abs(self.leak_v) >= _rho_j_lambda else 0
             # sgn_leak_v = fn_sgn(self.leak_v, 0)
@@ -393,17 +393,17 @@ class Neuron(MetaNeuron, NeuDyn):
     ) -> None:
         if neg_threshold > 0:
             raise ValueError(
-                f"Negative threshold must be non-positive, but got {neg_threshold}."
+                f"negative threshold must be non-positive, but got {neg_threshold}."
             )
 
         if pos_threshold < 0:
             raise ValueError(
-                f"Positive threshold must be non-negative, but got {pos_threshold}."
+                f"positive threshold must be non-negative, but got {pos_threshold}."
             )
 
         if bit_truncation < 0:
             raise ValueError(
-                f"Bit of tuncation must be non-negative, but got {bit_truncation}."
+                f"bit of tuncation must be non-negative, but got {bit_truncation}."
             )
 
         if delay < 1:

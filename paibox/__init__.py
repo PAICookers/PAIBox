@@ -12,6 +12,7 @@ from .node import NodeList as NodeList
 from .projection import InputProj as InputProj
 from .simulator import Probe as Probe
 from .simulator import Simulator as Simulator
+from .synapses import Conv1d as Conv1d
 from .synapses import Conv2d as Conv2d
 from .synapses import FullConn as FullConn
 from .synapses import GeneralConnType as SynConnType
@@ -33,7 +34,7 @@ try:
     if hasattr(plib, "get_version"):  # For plib <= 0.0.12
         raise ImportError(
             tools.PLIB_UPDATE_INTRO.format(
-                __plib_minimum_version__, ".".join(map(str, plib.get_version()))
+                __plib_minimum_version__, ".".join(map(str, plib.get_version()))  # type: ignore
             )
         ) from None
 

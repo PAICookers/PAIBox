@@ -9,7 +9,16 @@ from paibox.exceptions import ShapeError
 from paibox.types import DataArrayType, IntScalarType, SynOutType, WeightType
 from paibox.utils import is_shape
 
-from .conv_utils import Size2Type, _conv2d_faster, _conv2d_unroll, _Order3d
+from .conv_utils import (
+    Size1Type,
+    Size2Type,
+    _conv1d_faster,
+    _conv1d_unroll,
+    _conv2d_faster,
+    _conv2d_unroll,
+    _Order2d,
+    _Order3d,
+)
 
 __all__ = [
     "GeneralConnType",
@@ -17,6 +26,7 @@ __all__ = [
     "AllToAll",
     "Identity",
     "MaskedLinear",
+    "Conv1dForward",
     "Conv2dForward",
 ]
 
@@ -58,7 +68,7 @@ def _get_weight_precision(weight: np.ndarray, enable_wp_opt: bool) -> WP:
     _min = np.min(weight, axis=None).astype(np.int32)
 
     if _max > MAX_INT8 or _min < MIN_INT8:
-        raise ValueError(f"Weight precision out of range, [{_min}, {_max}]")
+        raise ValueError(f"weight precision out of range [{_min}, {_max}].")
 
     if _max <= MAX_INT1 and _min >= MIN_INT1:
         return WP.WEIGHT_WIDTH_1BIT
@@ -120,15 +130,13 @@ class OneToOne(Transform):
         self.num = num
 
         if isinstance(weights, np.ndarray) and not is_shape(weights, (num,)):
-            raise ShapeError(
-                f"Expected shape is ({num},), but we got shape {weights.shape}"
-            )
+            raise ShapeError(f"expected shape is ({num},), but got {weights.shape}.")
 
         # The ndim of weights = 0 or 1.
         _w = np.asarray(weights, dtype=np.int8)
 
         if _w.ndim not in (0, 1):
-            raise ShapeError(f"The ndim of weights must be 0 or 1, but got {_w.ndim}.")
+            raise ShapeError(f"the ndim of weights must be 0 or 1, but got {_w.ndim}.")
 
         super().__init__(_w)
 
@@ -173,14 +181,12 @@ class AllToAll(Transform):
         self.conn_size = conn_size
 
         if isinstance(weights, np.ndarray) and not is_shape(weights, conn_size):
-            raise ShapeError(
-                f"Expected shape is {conn_size}, but we got shape {weights.shape}"
-            )
+            raise ShapeError(f"expected shape is {conn_size}, but got {weights.shape}.")
 
         _w = np.asarray(weights, dtype=np.int8)
 
         if _w.ndim not in (0, 2):
-            raise ShapeError(f"The ndim of weights must be 0 or 2, but got {_w.ndim}.")
+            raise ShapeError(f"the ndim of weights must be 0 or 2, but got {_w.ndim}.")
 
         super().__init__(_w)
 
@@ -219,9 +225,7 @@ class MaskedLinear(Transform):
         weights: np.ndarray,
     ) -> None:
         if not is_shape(weights, conn_size):
-            raise ShapeError(
-                f"Expected shape is {conn_size}, but we got {weights.shape}"
-            )
+            raise ShapeError(f"expected shape is {conn_size}, but got {weights.shape}.")
 
         _w = np.asarray(weights, dtype=np.int8)
         super().__init__(_w)
@@ -235,6 +239,51 @@ class MaskedLinear(Transform):
     @property
     def connectivity(self):
         return self.weights.astype(self.conn_dtype)
+
+
+class Conv1dForward(Transform):
+    def __init__(
+        self,
+        in_shape: Size1Type,
+        out_shape: Size1Type,
+        kernel: np.ndarray,
+        stride: Size1Type,
+        padding: Size1Type,
+        fm_order: _Order2d,
+    ) -> None:
+        self.in_shape = in_shape
+        self.out_shape = out_shape
+        self.stride = stride
+        self.padding = padding
+        self.fm_order = fm_order
+
+        _w = kernel.astype(np.int8)
+        super().__init__(_w)
+
+    def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
+        cin = self.weights.shape[1]
+
+        if self.fm_order == "LC":
+            # (N,) -> (L, C) -> (C, L)
+            _x = x.reshape(self.in_shape + (cin,)).T
+        else:
+            _x = x.reshape((cin,) + self.in_shape)
+
+        o_conv1d = _conv1d_faster(
+            _x,
+            self.out_shape,
+            self.weights,
+            self.stride,
+            self.padding,
+        )
+
+        return o_conv1d.flatten()
+
+    @property
+    def connectivity(self):
+        return _conv1d_unroll(
+            self.in_shape, self.out_shape, self.weights, self.stride
+        ).astype(self.conn_dtype)
 
 
 class Conv2dForward(Transform):
@@ -261,8 +310,7 @@ class Conv2dForward(Transform):
 
         if self.fm_order == "HWC":
             # (N,) -> (H, W, C) -> (C, H, W)
-            _x = x.reshape(self.in_shape + (cin,))
-            _x = _x.transpose(2, 0, 1)
+            _x = x.reshape(self.in_shape + (cin,)).transpose(2, 0, 1)
         else:
             _x = x.reshape((cin,) + self.in_shape)
 
