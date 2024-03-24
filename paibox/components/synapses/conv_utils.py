@@ -1,34 +1,13 @@
+import numpy as np
 from functools import partial
 from itertools import repeat
-from typing import Any, Iterable, Literal, Tuple, TypeVar, Union
-
-import numpy as np
+from typing import Any, Iterable, Tuple
 from numpy.typing import NDArray
 
 from paibox.exceptions import ShapeError
 from paibox.types import SynOutType, WeightType
 
-T = TypeVar("T")
-
-_TupleAnyType = Union[T, Tuple[T, ...]]
-_Tuple1Type = Union[T, Tuple[T]]
-_Tuple2Type = Union[T, Tuple[T, T]]
-_Tuple3Type = Union[T, Tuple[T, T, T]]
-
-_SizeAnyType = _TupleAnyType[int]
-_Size1Type = _Tuple1Type[int]
-_Size2Type = _Tuple2Type[int]
-_Size3Type = _Tuple3Type[int]
-
-SizeAnyType = Tuple[int, ...]
-Size1Type = Tuple[int]
-Size2Type = Tuple[int, int]
-Size3Type = Tuple[int, int, int]
-
-_Order2d = Literal["CL", "LC"]  # Feature map order in 2d
-_Order3d = Literal["CHW", "HWC"]  # Feature map order in 3d
-_KOrder3d = Literal["OIL", "IOL"]  # Kernel order in 3d
-_KOrder4d = Literal["OIHW", "IOHW"]  # Kernel order in 4d
+from ..types import SizeAnyType, Size1Type, Size2Type, Size3Type, _Order2d, _Order3d
 
 
 def _ntuple(x, n: int) -> Tuple[Any, ...]:
@@ -99,7 +78,7 @@ def _conv1d_unroll(
                 i,
             ] = kernel[ch_idx[0], ch_idx[1], :]
 
-        t = zeros_image[:, :, i].T
+        t = zeros_image[:, :, i].T  # (cout, cin*il)
         for o_ch in range(cout):
             w_unrolled_np[:, i + o_ch * ol] = t[o_ch].ravel()
 

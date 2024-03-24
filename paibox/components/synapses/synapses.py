@@ -4,8 +4,6 @@ from typing import Optional, Union
 import numpy as np
 
 from paibox.base import NeuDyn
-from paibox.neuron import Neuron
-from paibox.projection import InputProj
 from paibox.types import DataArrayType
 
 from .base import (
@@ -15,8 +13,11 @@ from .base import (
     ConvTranspose2dSyn,
     FullConnSyn,
 )
-from .conv_utils import _KOrder3d, _KOrder4d, _pair, _single, _Size1Type, _Size2Type
+from .conv_utils import _pair, _single
 from .transforms import GeneralConnType as GConnType
+from ..neuron import Neuron
+from ..projection import InputProj
+from ..types import _KOrder3d, _KOrder4d, _Size1Type, _Size2Type
 
 __all__ = ["FullConn", "Conv1d", "Conv2d", "ConvTranspose1d", "ConvTranspose2d"]
 

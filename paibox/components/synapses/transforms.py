@@ -22,12 +22,10 @@ from .conv_utils import (
 )
 
 __all__ = [
-    "GeneralConnType",
     "OneToOne",
     "AllToAll",
     "Identity",
     "MaskedLinear",
-    "Conv1dForward",
     "Conv2dForward",
     "ConvTranspose1dForward",
     "ConvTranspose2dForward",
@@ -198,7 +196,7 @@ class OneToOne(Transform):
     @property
     def connectivity(self):
         return (
-            (self.weights * np.eye(self.num, dtype=np.bool_))
+            (self.weights * np.identity(self.num, dtype=np.bool_))
             if self.weights.ndim == 0
             else np.diag(self.weights)
         )
