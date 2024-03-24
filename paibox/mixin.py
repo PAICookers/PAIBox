@@ -9,7 +9,7 @@ import paibox as pb
 
 from .context import _FRONTEND_CONTEXT
 from .exceptions import RegisterError
-from .generic import get_unique_name
+from .naming import get_unique_name
 from .node import NodeDict
 
 _T = TypeVar("_T")

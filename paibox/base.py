@@ -10,7 +10,7 @@ else:
     from typing_extensions import TypeAlias
 
 from .collector import Collector
-from .generic import get_unique_name, is_name_unique
+from .naming import get_unique_name, is_name_unique
 from .mixin import ReceiveInputProj, StatusMemory, TimeRelatedNode
 from .node import NodeDict, NodeList
 from .types import WeightType
