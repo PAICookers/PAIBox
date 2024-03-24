@@ -9,7 +9,16 @@ from paibox.exceptions import ShapeError
 from paibox.types import DataArrayType, IntScalarType, SynOutType, WeightType
 from paibox.utils import is_shape
 
-from .conv_utils import Size2Type, _conv2d_faster, _conv2d_unroll, _Order3d
+from .conv_utils import (
+    _conv1d_faster,
+    _conv1d_unroll,
+    _conv2d_faster,
+    _conv2d_unroll,
+    _Order2d,
+    _Order3d,
+    Size1Type,
+    Size2Type,
+)
 
 __all__ = [
     "GeneralConnType",
@@ -17,6 +26,7 @@ __all__ = [
     "AllToAll",
     "Identity",
     "MaskedLinear",
+    "Conv1dForward",
     "Conv2dForward",
 ]
 
@@ -231,6 +241,51 @@ class MaskedLinear(Transform):
         return self.weights.astype(self.conn_dtype)
 
 
+class Conv1dForward(Transform):
+    def __init__(
+        self,
+        in_shape: Size1Type,
+        out_shape: Size1Type,
+        kernel: np.ndarray,
+        stride: Size1Type,
+        padding: Size1Type,
+        fm_order: _Order2d,
+    ) -> None:
+        self.in_shape = in_shape
+        self.out_shape = out_shape
+        self.stride = stride
+        self.padding = padding
+        self.fm_order = fm_order
+
+        _w = kernel.astype(np.int8)
+        super().__init__(_w)
+
+    def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
+        cin = self.weights.shape[1]
+
+        if self.fm_order == "LC":
+            # (N,) -> (L, C) -> (C, L)
+            _x = x.reshape(self.in_shape + (cin,)).T
+        else:
+            _x = x.reshape((cin,) + self.in_shape)
+
+        o_conv1d = _conv1d_faster(
+            _x,
+            self.out_shape,
+            self.weights,
+            self.stride,
+            self.padding,
+        )
+
+        return o_conv1d.flatten()
+
+    @property
+    def connectivity(self):
+        return _conv1d_unroll(
+            self.in_shape, self.out_shape, self.weights, self.stride
+        ).astype(self.conn_dtype)
+
+
 class Conv2dForward(Transform):
     def __init__(
         self,
@@ -255,8 +310,7 @@ class Conv2dForward(Transform):
 
         if self.fm_order == "HWC":
             # (N,) -> (H, W, C) -> (C, H, W)
-            _x = x.reshape(self.in_shape + (cin,))
-            _x = _x.transpose(2, 0, 1)
+            _x = x.reshape(self.in_shape + (cin,)).transpose(2, 0, 1)
         else:
             _x = x.reshape((cin,) + self.in_shape)
 
