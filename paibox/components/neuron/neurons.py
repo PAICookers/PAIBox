@@ -27,16 +27,14 @@ class IF(Neuron):
             - threshold: when the membrane potential exceeds the threshold, neurons will fire.
             - reset_v: reset membrane potential after firing
             - delay: delay between neurons. Default is 1.
-            - tick_wait_start: set the neuron group to start at the `N`-th timestep. 0 means not to     \
-                start. Default is 1.
-            - tick_wait_end: set the neuron group to continue working for `M` timesteps, 0 means working\
-                forever. Default is 0.
-            - unrolling_factor: the argument is related to the backend. It means that neurons will be   \
-                unrolled & deployed to more physical cores to reduce latency and increase throughput.   \
-                Default is 1.
-            - keep_shape: whether to maintain size information when recording data in the simulation.   \
+            - tick_wait_start: set the moodule to start at timestep `T`. 0 means not working. Default is 1.
+            - tick_wait_end: set the module to turn off at time `T`. 0 means always working. Default is 0.
+            - unrolling_factor: argument related to the backend. It represents the degree to which modules  \
+                are expanded. The larger the value, the more cores required for deployment, but the lower   \
+                the latency & the higher the throughput. Default is 1.
+            - keep_shape: whether to maintain size information when recording data in the simulation.       \
                 Default is `False`.
-            - name: name of the object.
+            - name: name of the neuron. Optional.
         """
         super().__init__(
             shape,

@@ -7,9 +7,8 @@ if sys.version_info >= (3, 10):
 else:
     from typing_extensions import TypeAlias
 
-from paibox.base import NeuDyn
-from paibox.projection import InputProj
-from paibox.synapses import SynSys
+from paibox.base import NeuDyn, SynSys
+from paibox.components.projection import InputProj
 
 NodeName: TypeAlias = str
 EdgeName: TypeAlias = str

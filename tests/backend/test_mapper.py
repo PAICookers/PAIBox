@@ -9,9 +9,9 @@ import pytest
 from paicorelib import Coord, HwConfig
 
 import paibox as pb
+from paibox.base import SynSys
 from paibox.backend.conf_template import CoreConfig, NeuronDest, NeuronDestInfo
 from paibox.exceptions import ResourceError
-from paibox.synapses import SynSys
 
 
 class CustomJsonEncoder(JSONEncoder):

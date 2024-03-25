@@ -8,6 +8,7 @@ import pytest
 from typing_extensions import NotRequired
 
 import paibox as pb
+from paibox.components import Neuron
 from paibox.naming import clear_name_cache
 
 
@@ -111,7 +112,7 @@ class Network_with_container(pb.DynSysGroup):
         n2 = pb.TonicSpiking((3,), 3)
         n3 = pb.TonicSpiking((3,), 4)
 
-        n_list: pb.NodeList[pb.neuron.Neuron] = pb.NodeList()
+        n_list: pb.NodeList[Neuron] = pb.NodeList()
         n_list.append(n1)
         n_list.append(n2)
         n_list.append(n3)

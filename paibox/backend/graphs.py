@@ -15,12 +15,11 @@ from typing import (
 
 from paicorelib import HwConfig
 
-from paibox.base import NeuDyn
+from paibox.base import NeuDyn, SynSys
 from paibox.collector import Collector
+from paibox.components import InputProj
 from paibox.exceptions import BuildError, NotSupportedError
 from paibox.network import DynSysGroup
-from paibox.projection import InputProj
-from paibox.synapses import SynSys
 
 from .constrs import GraphNodeConstrs
 from .graphs_types import *

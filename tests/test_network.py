@@ -3,6 +3,7 @@ import pytest
 
 import paibox as pb
 from paibox.base import DynamicSys, NeuDyn
+from paibox.components import Projection
 from paibox.exceptions import PAIBoxWarning
 from paibox.node import NodeDict
 
@@ -160,9 +161,9 @@ class TestNetwork_Components_Oprations:
 
         assert len(g4_nodes.unique()) == 2
 
-        assert len(g3_nodes.exclude(pb.projection.Projection)) == 1
+        assert len(g3_nodes.exclude(Projection)) == 1
         assert len(g1_nodes.not_subset(NeuDyn)) == 2
-        assert len(g1_nodes.include(NeuDyn, pb.projection.Projection)) == 2
+        assert len(g1_nodes.include(NeuDyn, Projection)) == 2
 
     def test_add_components(self, build_NotNested_Net_Exp):
         net: pb.Network = build_NotNested_Net_Exp
