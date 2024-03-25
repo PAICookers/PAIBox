@@ -3,16 +3,37 @@ from importlib.metadata import version
 from .backend import BACKEND_CONFIG as BACKEND_CONFIG
 from .backend import Mapper as Mapper
 from .base import *
+from .components.functional import (
+    BitwiseAND as BitwiseAND,
+    BitwiseNOT as BitwiseNOT,
+    BitwiseOR as BitwiseOR,
+    BitwiseXOR as BitwiseXOR,
+    Transpose2d as Transpose2d,
+    Transpose3d as Transpose3d,
+)
+from .components.neuron.neurons import (
+    IF as IF,
+    LIF as LIF,
+    TonicSpiking as TonicSpiking,
+    PhasicSpiking as PhasicSpiking,
+    Always1Neuron as Always1Neuron,
+    SpikingRelu as SpikingRelu,
+)
+from .components.projection import InputProj as InputProj
+from .components.synapses.synapses import (
+    Conv1d as Conv1d,
+    Conv2d as Conv2d,
+    FullConn as FullConn,
+    NoDecay as NoDecay,
+    GConnType as SynConnType,
+)
 from .context import FRONTEND_ENV as FRONTEND_ENV
 from .network import DynSysGroup as DynSysGroup
 from .network import Network as Network
-from .neuron import *
 from .node import NodeDict as NodeDict
 from .node import NodeList as NodeList
-from .projection import InputProj as InputProj
 from .simulator import Probe as Probe
 from .simulator import Simulator as Simulator
-from .synapses import *
 
 try:
     __version__ = version("paibox")
