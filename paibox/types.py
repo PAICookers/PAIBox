@@ -25,6 +25,7 @@ DataArrayType = TypeVar(
 )
 SpikeType = NDArray[np.bool_]
 SynOutType = NDArray[np.int32]
+VoltageType = NDArray[np.int32]
 WeightType = NDArray[np.int8]  # raw int8 weights
 
 _T = TypeVar("_T")
