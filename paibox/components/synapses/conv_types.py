@@ -1,6 +1,5 @@
 from typing import Literal, Tuple, TypeVar, Union
 
-
 T = TypeVar("T")
 
 _TupleAnyType = Union[T, Tuple[T, ...]]

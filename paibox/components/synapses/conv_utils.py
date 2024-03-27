@@ -7,7 +7,7 @@ from numpy.typing import NDArray
 from paibox.exceptions import ShapeError
 from paibox.types import SynOutType, WeightType
 
-from ..types import SizeAnyType, Size1Type, Size2Type, Size3Type, _Order2d, _Order3d
+from .conv_types import SizeAnyType, Size1Type, Size2Type, Size3Type, _Order2d, _Order3d
 
 
 def _ntuple(x, n: int) -> Tuple[Any, ...]:

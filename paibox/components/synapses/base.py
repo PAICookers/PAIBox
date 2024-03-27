@@ -8,6 +8,7 @@ from paibox.base import NeuDyn, SynSys
 from paibox.exceptions import RegisterError, ShapeError
 from paibox.types import DataArrayType, SynOutType, WeightType
 
+from .conv_types import _KOrder3d, _KOrder4d, _Order2d, _Order3d
 from .conv_utils import _fm_ndim1_check, _fm_ndim2_check
 from .transforms import (
     AllToAll,
@@ -24,7 +25,6 @@ from .transforms import (
 from ..neuron import Neuron
 from ..modules import BuildingModule
 from ..projection import InputProj
-from ..types import _KOrder3d, _KOrder4d
 
 RIGISTER_MASTER_KEY_FORMAT = "{0}.output"
 
