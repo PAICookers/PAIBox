@@ -3,13 +3,12 @@ from dataclasses import dataclass, field
 import numpy as np
 from typing import ClassVar, List, Optional, Sequence, Tuple, Union
 
-from paicorelib import HwConfig
+from paicorelib import HwConfig, TM
 
 from paibox.base import NeuDyn, SynSys
-from paibox.exceptions import NotSupportedError, ShapeError
-from paibox.types import SpikeType
+from paibox.exceptions import NotSupportedError, RegisterError, ShapeError
+from paibox.types import SpikeType, VoltageType
 from paibox.utils import check_elem_unique, shape2num
-
 from .projection import InputProj
 
 __all__ = ["BuildingModule"]
@@ -17,10 +16,8 @@ __all__ = ["BuildingModule"]
 
 @dataclass
 class ModuleIntf:
-    """Module interface. The interface of a module always records the output that   \
-        the module gets from the neuron and the synapses that receives the output   \
-        of the module. When building the backend, the component information recorded\
-        inside will be used.
+    """Module interface. The interface of the module stores the information about where the module  \
+        gets input and where it outputs. This information will be used when building the module.
     """
 
     operands: List[Union[NeuDyn, InputProj]] = field(default_factory=list)
@@ -40,14 +37,12 @@ class ModuleIntf:
 class BuildingModule:
     module_intf: ModuleIntf
 
-    def build(self, *args, **kwargs) -> None:
-        """Build the actual basic components and add to the network. \
-            Only called in the backend.
-        """
+    def build(self, *args, **build_options) -> None:
+        """Construct the actual basic components and add to the network. Called in the backend ONLY."""
         raise NotImplementedError
 
     def register_operands(self, *op: Union[NeuDyn, InputProj]) -> None:
-        """Register a operand to the interface."""
+        """Register operands to the interface."""
         self.module_intf.operands.extend(op)
 
     def unregister_operand(self, op: Union[NeuDyn, InputProj]) -> None:
@@ -76,21 +71,21 @@ class NeuModule(NeuDyn, BuildingModule):
     """#N of arguments."""
     n_return: ClassVar[int]
     """#N of outputs."""
-    inherent_delay: ClassVar[int] = 0
+    inherent_delay: int = 0
     """Internal delay of the module, relative to the external."""
 
     def __init__(
         self,
-        module_delay: int,
-        module_base_tws: int,
-        module_base_twe: int,
+        delay: int,
+        tick_wait_start: int,
+        tick_wait_end: int,
         name: Optional[str] = None,
     ) -> None:
         super().__init__(name)
         self.module_intf = ModuleIntf()
-        self._delay = module_delay
-        self._tws = module_base_tws
-        self._twe = module_base_twe
+        self._delay = delay
+        self._tws = tick_wait_start
+        self._twe = tick_wait_end
 
     def __call__(self, *args, **kwargs):
         return self.update(*args, **kwargs)
@@ -99,12 +94,24 @@ class NeuModule(NeuDyn, BuildingModule):
         return self.reset_memory()
 
     def get_inputs(self, *args, **kwargs):
-        """Gather inputs from operands in the interface."""
+        """Function used to describe getting inputs of the module."""
         raise NotImplementedError
 
-    def op_func(self, *args, **kwargs):
-        """Specified function of module."""
+    def spike_func(self, *args, **kwargs):
+        """Function used to describe generating output spike of the module."""
         raise NotImplementedError
+
+    @property
+    def source(self) -> List[Union[NeuDyn, InputProj]]:
+        return self.module_intf.operands
+
+    @property
+    def dest(self):
+        return self  # will be deprecated at anytime in the future.
+
+    @property
+    def target(self):
+        return self
 
     @property
     def external_delay(self) -> int:
@@ -113,7 +120,7 @@ class NeuModule(NeuDyn, BuildingModule):
 
 
 class FunctionalModule(NeuModule):
-    """Functional module. Only used in SNN mode."""
+    """Basic functional module. Only used in SNN mode."""
 
     n_return = 1
 
@@ -128,7 +135,13 @@ class FunctionalModule(NeuModule):
         kwargs.setdefault("delay", 1)
         kwargs.setdefault("tick_wait_start", 1)
         kwargs.setdefault("tick_wait_end", 0)
-        kwargs.setdefault("unrolling_factor", 1)
+        # kwargs.setdefault("unrolling_factor", 1)
+
+        # Unique operands only. Otherwise, multiedge will be created.
+        if not check_elem_unique(operands):
+            raise RegisterError(
+                "duplicate input nodes are not allowed to be connected to modules."
+            )
 
         for op in operands:
             if isinstance(op, FunctionalModule) and op.n_output > 1:
@@ -138,12 +151,7 @@ class FunctionalModule(NeuModule):
                     "greater than 1 is not supported yet."
                 )
 
-        super().__init__(
-            module_delay=kwargs["delay"],
-            module_base_tws=kwargs["tick_wait_start"],
-            module_base_twe=kwargs["tick_wait_end"],
-            name=name,
-        )
+        super().__init__(**kwargs, name=name)
 
         self.keep_shape = keep_shape
         self._shape_out = shape_out
@@ -172,7 +180,7 @@ class FunctionalModule(NeuModule):
             "synin_deque", deque(_init_synin, maxlen=1 + self.inherent_delay)
         )
 
-    def _get_inputs(self) -> List[SpikeType]:
+    def get_inputs(self) -> List[SpikeType]:
         synin = []
 
         for op in self.module_intf.operands:
@@ -187,10 +195,6 @@ class FunctionalModule(NeuModule):
                 # Retrieve 0 to the dest neurons if it is not working
                 synin.append(np.zeros_like(op.spike))
 
-        return synin
-
-    def get_input_and_delay(self) -> List[SpikeType]:
-        synin = self._get_inputs()
         self.synin_deque.append(synin)  # Append to the right of the deque.
 
         return self.synin_deque.popleft()  # Pop the left of the deque.
@@ -200,8 +204,8 @@ class FunctionalModule(NeuModule):
             self._inner_spike = np.zeros((self.num_out,), dtype=np.bool_)
             return None
 
-        synin = self.get_input_and_delay()
-        self._inner_spike = self.op_func(*synin)
+        synin = self.get_inputs()
+        self._inner_spike = self.spike_func(*synin)
 
         idx = (self.timestamp + self.delay_relative - 1) % HwConfig.N_TIMESLOT_MAX
         self.delay_registers[idx] = self._inner_spike.copy()
@@ -235,11 +239,11 @@ class FunctionalModule(NeuModule):
 
     @property
     def feature_map(self) -> SpikeType:
-        return self._inner_spike.reshape(self._shape_out)
+        return self._inner_spike.reshape(self.varshape)
 
 
 class FunctionalModule2to1(FunctionalModule):
-    """Functional module with two arguments."""
+    """Functional module with two operands."""
 
     def __init__(
         self,
@@ -274,6 +278,10 @@ class FunctionalModule2to1(FunctionalModule):
             name=name,
             **kwargs,
         )
+
+    @property
+    def varshape(self) -> Tuple[int, ...]:
+        return self.shape_out if self.keep_shape else (self.num_out,)
 
 
 class TransposeModule(FunctionalModule):
@@ -313,3 +321,46 @@ class TransposeModule(FunctionalModule):
     @property
     def shape_in(self) -> Tuple[int, ...]:
         return self._shape_in
+
+
+class FunctionalModule2to1WithV(FunctionalModule2to1):
+    """Functional module with two operands.
+    
+    NOTE: Compared to `FunctionalModule2to1`, The difference is that we also take the \
+        membrane potential voltage(vjt) into consideration.
+    """
+
+    def __init__(
+        self,
+        neuron_a: Union[NeuDyn, InputProj],
+        neuron_b: Union[NeuDyn, InputProj],
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        super().__init__(neuron_a, neuron_b, keep_shape, name, **kwargs)
+
+        self.set_memory("_vjt", np.zeros((self.num_out,), dtype=np.int32))
+        self.thres_mode = np.full((self.num_out,), TM.NOT_EXCEEDED, dtype=np.uint8)
+
+    def synaptic_integr(self, *args, **kwargs):
+        """Functions used to describe synaptic integration of the module."""
+        raise NotImplementedError
+
+    def update(self, *args, **kwargs) -> Optional[SpikeType]:
+        if not self.is_working:
+            self._inner_spike = np.zeros((self.num_out,), dtype=np.bool_)
+            return None
+
+        synin = self.get_inputs()
+        incoming_v = self.synaptic_integr(*synin, self._vjt)
+        self._inner_spike, self._vjt = self.spike_func(incoming_v)
+
+        idx = (self.timestamp + self.delay_relative - 1) % HwConfig.N_TIMESLOT_MAX
+        self.delay_registers[idx] = self._inner_spike.copy()
+
+        return self._inner_spike
+
+    @property
+    def voltage(self) -> VoltageType:
+        return self._vjt.reshape(self.varshape)
