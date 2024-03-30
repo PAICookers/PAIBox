@@ -5,7 +5,7 @@ import numpy as np
 from paicorelib import WeightPrecision as WP
 
 from paibox.exceptions import AutoOptimizationWarning, ShapeError
-from paibox.types import DataArrayType, IntScalarType, SynOutType, WeightType
+from paibox.types import DataArrayType, IntScalarType, SpikeType, SynOutType, WeightType
 from paibox.utils import is_shape
 
 from .conv_utils import (
@@ -189,7 +189,7 @@ class OneToOne(Transform):
                 f"the ndim of weights must be 0 or 1, but got {self.weights.ndim}."
             )
 
-    def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
+    def __call__(self, x: SpikeType, *args, **kwargs) -> SynOutType:
         # (N,) * (N,) -> (N,)
         return x * self.weights.astype(np.int32)
 
@@ -237,7 +237,7 @@ class AllToAll(Transform):
                 f"the ndim of weights must be 0 or 2, but got {self.weights.ndim}."
             )
 
-    def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
+    def __call__(self, x: SpikeType, *args, **kwargs) -> SynOutType:
         """
         NOTE:
             - When weights is a scalar, the output is a scalar (sum * w) & repeated     \
@@ -270,7 +270,7 @@ class MaskedLinear(Transform):
 
         super().__init__(weights)
 
-    def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
+    def __call__(self, x: SpikeType, *args, **kwargs) -> SynOutType:
         # (N,) @ (N, M) -> (M,)
         return x @ self.weights.astype(np.int32)
 
@@ -297,7 +297,7 @@ class Conv1dForward(Transform):
 
         super().__init__(kernel)
 
-    def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
+    def __call__(self, x: SpikeType, *args, **kwargs) -> SynOutType:
         cin = self.weights.shape[1]
 
         # if self.fm_order == "LC":
@@ -335,7 +335,7 @@ class Conv2dForward(Transform):
 
         super().__init__(kernel)
 
-    def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
+    def __call__(self, x: SpikeType, *args, **kwargs) -> SynOutType:
         cin = self.weights.shape[1]
 
         # if self.fm_order == "HWC":

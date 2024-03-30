@@ -1,7 +1,7 @@
 import numpy as np
 from functools import partial
 from itertools import repeat
-from typing import Any, Iterable, Tuple
+from typing import Iterable
 from numpy.typing import NDArray
 
 from paibox.exceptions import ShapeError
@@ -10,7 +10,7 @@ from paibox.types import SynOutType, WeightType
 from .conv_types import SizeAnyType, Size1Type, Size2Type, Size3Type, _Order2d, _Order3d
 
 
-def _ntuple(x, n: int) -> Tuple[Any, ...]:
+def _ntuple(x, n: int):
     if isinstance(x, Iterable):
         return tuple(x)
 
@@ -159,6 +159,75 @@ def _conv2d_unroll(
             )
 
     return w_unrolled
+
+
+def _mp2d_kernel_unroll(
+    channels: int,
+    in_shape: Size2Type,
+    out_shape: Size2Type,
+    ksize: Size2Type,
+    stride: Size2Type,
+    # padding: Size2Type,
+) -> WeightType:
+    kh, kw = ksize
+    ih, iw = in_shape
+    oh, ow = out_shape
+    in_size = ih * iw
+    out_size = oh * ow
+
+    w_unrolled = np.zeros((channels * in_size, channels * out_size), dtype=np.int8)
+
+    for i in range(oh):
+        for j in range(ow):
+            zeros_image = np.zeros((channels * ih, iw * channels), dtype=np.bool_)
+            for i_ch in range(channels):
+                zeros_image[
+                    (i * stride[0] + i_ch * ih) : (i * stride[0] + i_ch * ih) + kh,
+                    (j * stride[1] + i_ch * iw) : (j * stride[1] + i_ch * iw) + kw,
+                ] = 1
+
+            t = zeros_image.reshape((channels * ih, channels, iw)).transpose(1, 0, 2)
+            for o_ch in range(channels):
+                w_unrolled[:, i * ow + j + o_ch * ow * oh] = t[o_ch].flatten()
+
+    return w_unrolled
+
+
+def _func_maxpool2d(
+    x_chw: np.ndarray,
+    out_shape: Size2Type,
+    ksize: Size2Type,
+    stride: Size2Type,
+    padding: Size2Type,
+) -> SynOutType:
+    xcin, xh, xw = x_chw.shape
+    kh, kw = ksize
+    oh = (xh - kh + 2 * padding[0]) // stride[0] + 1
+    ow = (xw - kw + 2 * padding[1]) // stride[1] + 1
+    cout = xcin
+
+    assert (xh + padding[0] * 2 - kh) // stride[0] + 1 == out_shape[0]
+    assert (xw + padding[1] * 2 - kw) // stride[1] + 1 == out_shape[1]
+
+    out = np.zeros((cout, oh, ow), dtype=np.int32)
+    x_padded = np.pad(
+        x_chw,
+        ((0, 0), (padding[0], padding[0]), (padding[1], padding[1])),
+        mode="constant",
+    )
+
+    for c in range(cout):
+        for i in range(oh):
+            for j in range(ow):
+                out[c, i, j] = np.max(
+                    x_padded[
+                        c,
+                        stride[0] * i : stride[0] * i + kh,
+                        stride[1] * j : stride[1] * j + kw,
+                    ]
+                )
+
+    return out
 
 
 def _conv1d_faster(
