@@ -70,15 +70,16 @@ def _get_weight_precision(weight: np.ndarray, enable_wp_opt: bool) -> WP:
     if _max > MAX_INT8 or _min < MIN_INT8:
         raise ValueError(f"weight precision out of range [{_min}, {_max}].")
 
+    # If weight precision opt is disabled, return WP8 directly.
+    if not enable_wp_opt:
+        return WP.WEIGHT_WIDTH_8BIT
+
     if _max <= MAX_INT1 and _min >= MIN_INT1:
         return WP.WEIGHT_WIDTH_1BIT
-    elif enable_wp_opt:
-        if _max <= MAX_INT2 and _min >= MIN_INT2:
-            return WP.WEIGHT_WIDTH_2BIT
-        elif _max <= MAX_INT4 and _min >= MIN_INT4:
-            return WP.WEIGHT_WIDTH_4BIT
-        else:
-            return WP.WEIGHT_WIDTH_8BIT
+    elif _max <= MAX_INT2 and _min >= MIN_INT2:
+        return WP.WEIGHT_WIDTH_2BIT
+    elif _max <= MAX_INT4 and _min >= MIN_INT4:
+        return WP.WEIGHT_WIDTH_4BIT
     else:
         return WP.WEIGHT_WIDTH_8BIT
 
