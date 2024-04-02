@@ -76,6 +76,11 @@ class TestFullConn:
             s1.connectivity,
             scalar_weight * np.eye(n1.num_out, n2.num_in, dtype=np.int8),
         )
+        assert (
+            s1.connectivity.dtype == np.int8
+            if expected_wp > WP.WEIGHT_WIDTH_1BIT
+            else np.bool_
+        )
         assert s1.weight_precision is expected_wp
 
     @pytest.mark.parametrize(
@@ -117,6 +122,7 @@ class TestFullConn:
         assert np.array_equal(
             s1.connectivity, np.array([[2, 0, 0], [0, 3, 0], [0, 0, 4]], dtype=np.int8)
         )
+        assert s1.connectivity.dtype == np.int8
         assert s1.weight_precision is WP.WEIGHT_WIDTH_4BIT
 
         weight = np.array([1, 0, 1, 0], np.int8)
@@ -135,6 +141,7 @@ class TestFullConn:
                 [[1, 0, 0, 0], [0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 0]], dtype=np.bool_
             ),
         )
+        assert s2.connectivity.dtype == np.int8
         assert s2.weight_precision is WP.WEIGHT_WIDTH_1BIT
 
     @pytest.mark.parametrize(
@@ -163,6 +170,7 @@ class TestFullConn:
         s1 = pb.FullConn(n1, n2, conn_type=pb.SynConnType.All2All)
 
         assert (s1.num_in, s1.num_out) == (n1.num_out, n2.num_in)
+        assert s1.connectivity.dtype == np.bool_
         assert np.array_equal(s1.weights, 1)
         assert np.array_equal(s1.connectivity, np.ones((n1.num_out, n2.num_in)))
 
@@ -175,12 +183,14 @@ class TestFullConn:
         s1 = pb.FullConn(n1, n2, weight, conn_type=pb.SynConnType.All2All)
 
         assert np.array_equal(s1.weights, weight)
+        assert s1.connectivity.dtype == np.int8
         assert s1.weight_precision is WP.WEIGHT_WIDTH_4BIT
 
         """2. Weights matrix."""
         weight = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
         s2 = pb.FullConn(n1, n2, weight, conn_type=pb.SynConnType.All2All)
 
+        assert s2.connectivity.dtype == np.int8
         assert np.array_equal(s2.weights, weight)
         assert np.array_equal(s2.connectivity, weight)
 
@@ -235,8 +245,9 @@ class TestFullConn:
 
         s = pb.FullConn(n1, n2, weight, conn_type=pb.SynConnType.MatConn)
 
-        assert np.array_equal(s.weights, weight)
         assert (s.num_in, s.num_out) == (n1.num_out, n2.num_in)
+        assert s.connectivity.dtype == np.int8
+        assert np.array_equal(s.weights, weight)
         assert np.array_equal(s.connectivity, weight)
 
         # Wrong weight type
@@ -280,6 +291,7 @@ class TestConv2d:
         )
 
         assert s1.num_in == in_channels * shape2num(in_shape)
+        assert s1.connectivity.dtype == np.int8
         assert s1.connectivity.shape == (
             in_channels * shape2num(in_shape),
             out_channels * shape2num(out_shape),
@@ -298,13 +310,14 @@ class TestConv2d:
         n2 = pb.IF((out_channels,) + out_shape, 3)
 
         weight = np.random.randint(
-            -128, 128, size=(in_channels, out_channels) + kernel_size, dtype=np.int8
+            -8, 8, size=(in_channels, out_channels) + kernel_size, dtype=np.int32
         )
         s1 = pb.Conv2d(
             n1, n2, weight, stride=stride, fm_order="CHW", kernel_order=korder
         )
 
         assert s1.num_in == in_channels * shape2num(in_shape)
+        assert s1.connectivity.dtype == np.int8
         assert s1.connectivity.shape == (
             in_channels * shape2num(in_shape),
             out_channels * shape2num(out_shape),
@@ -323,13 +336,14 @@ class TestConv2d:
         n2 = pb.IF((out_channels,) + out_shape, 3)
 
         weight = np.random.randint(
-            -128, 128, size=(in_channels, out_channels) + kernel_size, dtype=np.int8
+            -128, 128, size=(in_channels, out_channels) + kernel_size, dtype=np.int64
         )
         s1 = pb.Conv1d(
             n1, n2, weight, stride=stride, fm_order="CL", kernel_order=korder
         )
 
         assert s1.num_in == in_channels * shape2num(in_shape)
+        assert s1.connectivity.dtype == np.int8
         assert s1.connectivity.shape == (
             in_channels * shape2num(in_shape),
             out_channels * shape2num(out_shape),
