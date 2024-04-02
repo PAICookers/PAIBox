@@ -26,7 +26,12 @@ from paicorelib import (
 from paicorelib import WeightPrecision as WP
 
 from paibox.base import NeuDyn, PAIBoxObject
-from paibox.exceptions import BuildError, NotSupportedError, ResourceError
+from paibox.exceptions import (
+    BuildError,
+    NotSupportedError,
+    ResourceError,
+    TruncationWarning,
+)
 from paibox.synapses import SynSys
 from paibox.types import WeightType
 from paibox.utils import check_attr_same, count_unique_elem
@@ -78,10 +83,9 @@ class CoreBlock(CoreAbstract):
             - seed: the random seed.
             - name: the name of the core block. Optional.
         """
-
         super().__init__(name)
         self._parents = parents
-        self._lcn_ex = n_axon2lcn_ex(self.n_axon, self.n_fanin_max)
+        self._lcn_ex = self._n_axon2lcn_ex()
         self.weight_precision = weight_precision
 
         self.seed = seed
@@ -141,6 +145,28 @@ class CoreBlock(CoreAbstract):
                 return syn
 
         return None
+
+    def _n_axon2lcn_ex(self) -> LCN_EX:
+        """Convert #N(of axons) to `LCN_EX` & check.
+
+        NOTE: LCN_EX = log2[ceil(#N/fan-in per dendrite)], where `LCN_1X` = 0.
+        """
+        if self.n_axon < 1:
+            raise ValueError(
+                f"the number of axons must be positive, but got {self.n_axon}."
+            )
+
+        if (
+            lcn := ((self.n_axon - 1) // self.n_fanin_max).bit_length()
+        ) > LCN_EX.LCN_64X:
+            _max_n_axons = self.n_fanin_max * (1 << LCN_EX.LCN_64X)
+            raise ResourceError(
+                f"required LCN extension out of range {LCN_EX.LCN_64X} ({lcn}). "
+                f"The number of axons must be <= {_max_n_axons}. "
+                f"But synapses {self._obj_repr()} have a total of {self.n_axon} axons."
+            )
+
+        return LCN_EX(lcn)
 
     def copy(self):
         raise NotImplementedError
@@ -220,7 +246,7 @@ class CoreBlock(CoreAbstract):
         """Set or adjust the `lcn_ex` & lock."""
         if lcn_ex > LCN_EX.LCN_64X:
             raise ResourceError(
-                f"LCN extension required out of {LCN_EX.LCN_64X}: {lcn_ex}"
+                f"required LCN extension out of range {LCN_EX.LCN_64X} ({lcn_ex})."
             )
 
         self._lcn_ex = lcn_ex
@@ -337,6 +363,10 @@ class CoreBlock(CoreAbstract):
     def __str__(self) -> str:
         return f"<{self.name} of target '{self.obj}'>"
 
+    def _obj_repr(self) -> str:
+        """The representation of the names of target objects."""
+        return ", ".join(n.name for n in self.obj)
+
     @classmethod
     def build(cls, *synapses: SynSys, seed: int = 0, enable_wp_opt: bool):
         """Combine the SAME weight precision synapses and build the `CoreBlock`."""
@@ -357,7 +387,8 @@ class CoreBlock(CoreAbstract):
         # FIXME where does the parameter check do?
         if seed > (1 << 64) - 1:
             warnings.warn(
-                f"random seed {seed} is too large, truncated into 64 bits.", UserWarning
+                f"random seed {seed} is too large, truncated into 64 bits.",
+                TruncationWarning,
             )
 
         return cls(*synapses, weight_precision=wp0, seed=seed)
@@ -712,23 +743,6 @@ class CorePlacement(CoreAbstract):
 
     def __len__(self) -> int:
         return self.n_core_required
-
-
-def n_axon2lcn_ex(n_axon: int, fan_in_max: int) -> LCN_EX:
-    """Convert #N(of axons) to `LCN_EX`.
-
-    Description:
-        LCN_EX = log2[ceil(#N/fan-in per dendrite)], where LCN_EX = 0 is `LCN_1X`.
-    """
-    if n_axon < 1:
-        raise ValueError(f"the number of axons must be positive, but got {n_axon}.")
-
-    if (lcn_bit := ((n_axon - 1) // fan_in_max).bit_length()) > LCN_EX.LCN_64X:
-        raise ResourceError(
-            f"LCN extension required out of range {LCN_EX.LCN_64X} ({lcn_bit})."
-        )
-
-    return LCN_EX(lcn_bit)
 
 
 def max_lcn_of_cb(cb: List[CoreBlock]) -> LCN_EX:

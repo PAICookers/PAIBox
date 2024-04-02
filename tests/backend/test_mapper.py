@@ -10,6 +10,7 @@ from paicorelib import Coord, HwConfig, WeightPrecision
 
 import paibox as pb
 from paibox.backend.conf_template import CoreConfig, NeuronDest, NeuronDestInfo
+from paibox.exceptions import ResourceError
 from paibox.synapses import SynSys
 
 
@@ -197,6 +198,28 @@ class TestMapperDebug:
         # Input projectioon is discnnected!
         assert len(mapper.graph_info["input"]) == 0
         assert len(mapper.graph_info["output"]) == 1
+
+    def test_network_axons_outrange(self):
+        class Net(pb.Network):
+            def __init__(self):
+                super().__init__()
+                self.inp = pb.InputProj(1, shape_out=(300, 300))
+                self.n1 = pb.IF((300, 300), 1, name="n1")
+                self.n2 = pb.IF((300,), 1, name="n2")
+
+                self.s1 = pb.FullConn(
+                    self.inp, self.n1, conn_type=pb.SynConnType.All2All
+                )
+                self.s2 = pb.FullConn(
+                    self.n1, self.n2, conn_type=pb.SynConnType.All2All
+                )
+
+        net = Net()
+        mapper = pb.Mapper()
+        mapper.build(net)
+
+        with pytest.raises(ResourceError):
+            mapper.compile()  # 300*300 > 1152*64
 
 
 class TestMapper_Export:
