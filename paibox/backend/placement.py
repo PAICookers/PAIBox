@@ -28,7 +28,6 @@ from paicorelib import WeightPrecision as WP
 from paibox.base import NeuDyn, PAIBoxObject
 from paibox.exceptions import (
     BuildError,
-    NotSupportedError,
     ResourceError,
     TruncationWarning,
 )
@@ -52,14 +51,6 @@ WeightRamType: TypeAlias = NDArray[np.uint64]  # uint64 weights mapped in weight
 
 
 class CoreAbstract(HwCore, PAIBoxObject):
-    SUPPORTED_WP: ClassVar[Tuple[WP, ...]] = (
-        WP.WEIGHT_WIDTH_1BIT,
-        WP.WEIGHT_WIDTH_2BIT,  # Not verified
-        WP.WEIGHT_WIDTH_4BIT,  # Not verified
-        WP.WEIGHT_WIDTH_8BIT,
-    )
-    """Supported weight precision."""
-
     SUPPORTED_MODE: ClassVar[Tuple[CoreMode, ...]] = (CoreMode.MODE_SNN,)
     """Supported core modes."""
 
@@ -69,24 +60,18 @@ class CoreBlock(CoreAbstract):
 
     RUNTIME_MODE: ClassVar[CoreMode] = CoreMode.MODE_SNN
 
-    def __init__(
-        self,
-        *parents: SynSys,
-        weight_precision: WP,
-        seed: int = 0,
-        name: Optional[str] = None,
-    ) -> None:
-        """
-        Arguments:
+    def __init__(self, *parents: SynSys, seed: int, name: Optional[str] = None) -> None:
+        """Core blocks in SNN mode.
+
+        Args:
             - parents: the parent synapses.
-            - weight_precision: the precision of weight matrix.
-            - seed: the random seed.
-            - name: the name of the core block. Optional.
+            - seed: random seed. Default value is 0.
+            - name: name of the core block. Optional.
         """
         super().__init__(name)
         self._parents = parents
         self._lcn_ex = self._n_axon2lcn_ex()
-        self.weight_precision = weight_precision
+        self._wp = WP.WEIGHT_WIDTH_8BIT  # Default value
 
         self.seed = seed
         """Random seed, legal integer, no more than uint64."""
@@ -223,13 +208,16 @@ class CoreBlock(CoreAbstract):
         return len(self.neuron_segs_of_cb)
 
     @property
-    def n_dendrite_per_neuron(self) -> int:
-        """Multiple dendrites will be combined to achieve higher    \
-            precision weights.
+    def weight_precision(self) -> WP:
+        # Optimized in `s.weight_precision`.
+        return max(s.weight_precision for s in self.obj)
 
-        FIXME The limit on the number of dendrites in SNN/ANN modes \
-            is different, which affects the capacity of neurons in  \
-            physical core.
+    @property
+    def n_dendrite_per_neuron(self) -> int:
+        """Multiple dendrites will be combined to achieve higher precision weights.
+
+        FIXME The limit on the number of dendrites in SNN/ANN modes is different, which affects \
+            the capacity of neurons in physical core.
         """
         return 1 << self.weight_precision
 
@@ -368,22 +356,8 @@ class CoreBlock(CoreAbstract):
         return ", ".join(n.name for n in self.obj)
 
     @classmethod
-    def build(cls, *synapses: SynSys, seed: int = 0, enable_wp_opt: bool):
-        """Combine the SAME weight precision synapses and build the `CoreBlock`."""
-        SynSys.CFLAG_ENABLE_WP_OPTIMIZATION = enable_wp_opt  # TODO OK but ugly
-
-        wp0 = synapses[0].weight_precision
-        # Check wether weight precision of all synapses equal.
-        if not all(wp0 == s.weight_precision for s in synapses):
-            raise NotSupportedError("mixed weight precision is not supported yet.")
-
-        if wp0 > max(cls.SUPPORTED_WP):
-            raise NotSupportedError(f"{wp0.name} is not supported yet.")
-
-        elif wp0 not in cls.SUPPORTED_WP:
-            # Treat lower bit weights as 8-bit weights.
-            wp0 = cls.SUPPORTED_WP[-1]
-
+    def build(cls, *synapses: SynSys, seed: int = 0):
+        """Group synapses & build `CoreBlock`."""
         # FIXME where does the parameter check do?
         if seed > (1 << 64) - 1:
             warnings.warn(
@@ -391,7 +365,7 @@ class CoreBlock(CoreAbstract):
                 TruncationWarning,
             )
 
-        return cls(*synapses, weight_precision=wp0, seed=seed)
+        return cls(*synapses, seed=seed)
 
     @classmethod
     def export_core_plm_config(cls, cb: "CoreBlock") -> Dict[Coord, CoreConfig]:

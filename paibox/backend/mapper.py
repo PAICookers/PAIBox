@@ -12,7 +12,7 @@ from paicorelib import (
     to_coord,
 )
 
-from paibox.base import NeuDyn
+from paibox.base import NeuDyn, SynSys
 from paibox.exceptions import ResourceError
 from paibox.network import DynSysGroup
 
@@ -140,22 +140,25 @@ class Mapper:
         if grouping_optim_target is not None:
             set_cflag(grouping_optim_target=grouping_optim_target)
 
-        """Backend compilation."""
+        """1. Check whether the PAIGraph has built."""
         self._build_check()
 
-        """1. Build core blocks."""
+        """2. Set global compilation flags."""
+        self._set_global_cflags()
+
+        """3. Build core blocks."""
         self.build_core_blocks()
 
-        """2. Adjust the LCN extension of each core block."""
+        """4. Adjust the LCN extension of each core block."""
         self.lcn_ex_adjustment()
 
-        """3. Core coordinate assignment."""
+        """5. Core coordinate assignment."""
         self.coord_assign()
 
-        """4. Allocate the core blocks to the `CorePlacement`."""
+        """6. Allocate the core blocks to the `CorePlacement`."""
         self.core_allocation()
 
-        """5. Export parameters."""
+        """7. Export parameters."""
         return self.config_export()
 
     def build_core_blocks(self) -> None:
@@ -166,13 +169,7 @@ class Mapper:
         grouped_edges = self.graph.group_edges()
 
         for syns in grouped_edges:
-            self.core_blocks.append(
-                CoreBlock.build(
-                    *syns,
-                    seed=0,
-                    enable_wp_opt=_BACKEND_CONTEXT.cflags["enable_wp_opt"],
-                )
-            )
+            self.core_blocks.append(CoreBlock.build(*syns, seed=0))
 
         for cb in self.core_blocks:
             succ_cbs = list(
@@ -210,9 +207,8 @@ class Mapper:
     def coord_assign(self) -> None:
         """Assign the coordinate of each `CorePlacement`.
 
-        NOTE: The neurons in each core block must be grouped first  \
-            to determine the #N of cores required, and then the     \
-            routing coordinates can be assigned.
+        NOTE: The neurons in each core block must be grouped first to determine the #N of cores required,   \
+            and then the routing coordinates can be assigned.
         """
         for cb in self.core_blocks:
             # Group the neurons, get the #N of cores required.
@@ -273,6 +269,9 @@ class Mapper:
         self.graph_info = _graph_info
 
         return _graph_info
+
+    def _set_global_cflags(self) -> None:
+        SynSys.CFLAG_ENABLE_WP_OPTIMIZATION = _BACKEND_CONTEXT.cflags["enable_wp_opt"]
 
     def _inpproj_config_export(self) -> InputNodeInfo:
         """Export the configuration of input projections.
