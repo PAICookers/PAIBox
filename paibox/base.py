@@ -1,13 +1,14 @@
 import sys
-from typing import Any, ClassVar, Dict, List, Literal, Optional, Set, Tuple, Union
+from typing import Any, ClassVar, Dict, List, Literal, Optional, Set, Tuple
 
 import numpy as np
-from numpy.typing import NDArray
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias
 else:
     from typing_extensions import TypeAlias
+
+from paicorelib import WeightPrecision as WP
 
 from .collector import Collector
 from .mixin import ReceiveInputProj, StatusMemory, TimeRelatedNode
@@ -323,11 +324,11 @@ class SynSys(DynamicSys):
         raise NotImplementedError
 
     @property
-    def weight_precision(self):
+    def weight_precision(self) -> WP:
         raise NotImplementedError
 
     @property
-    def connectivity(self) -> NDArray[Union[np.bool_, np.int8]]:
+    def connectivity(self) -> WeightType:
         raise NotImplementedError
 
     @property

@@ -18,9 +18,16 @@ from .conv_utils import (
     _Order2d,
     _Order3d,
 )
-from .transforms import AllToAll, Conv1dForward, Conv2dForward
-from .transforms import GeneralConnType as GConnType
-from .transforms import Identity, MaskedLinear, OneToOne, Transform
+from .transforms import (
+    AllToAll,
+    Conv1dForward,
+    Conv2dForward,
+    GeneralConnType as GConnType,
+    Identity,
+    MaskedLinear,
+    OneToOne,
+    Transform,
+)
 
 RIGISTER_MASTER_KEY_FORMAT = "{0}.output"
 
@@ -121,8 +128,8 @@ class FullConnectedSyn(Synapses, SynSys):
         return self.comm._get_wp(self.CFLAG_ENABLE_WP_OPTIMIZATION)
 
     @property
-    def connectivity(self):
-        """The connectivity matrix in `np.ndarray` format."""
+    def connectivity(self) -> WeightType:
+        """The connectivity matrix in `np.bool_` or `np.int8` format."""
         return self.comm.connectivity
 
 

@@ -1,4 +1,5 @@
 import numpy as np
+
 from paibox.types import VoltageType
 
 VJT_MAX_LIMIT: int = 2**29 - 1

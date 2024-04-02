@@ -10,6 +10,7 @@ from typing import (
     Optional,
     Tuple,
     TypeVar,
+    Union,
 )
 
 import numpy as np
@@ -26,7 +27,7 @@ DataArrayType = TypeVar(
 SpikeType = NDArray[np.bool_]
 SynOutType = NDArray[np.int32]
 VoltageType = NDArray[np.int32]
-WeightType = NDArray[np.int8]  # raw int8 weights
+WeightType = NDArray[Union[np.bool_, np.int8]]
 
 _T = TypeVar("_T")
 
