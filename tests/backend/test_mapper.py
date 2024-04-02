@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 import pytest
-from paicorelib import Coord, HwConfig, WeightPrecision
+from paicorelib import Coord, HwConfig
 
 import paibox as pb
 from paibox.backend.conf_template import CoreConfig, NeuronDest, NeuronDestInfo
@@ -402,18 +402,54 @@ class TestMapper_Grouping_Optim:
 
 
 class TestMapper_cflags:
-    def test_cflags_weight_bit_optimization(self, build_network_with_branches_4bit):
-        net = build_network_with_branches_4bit
+    from .conftest import TestData
+
+    @pytest.mark.parametrize(
+        TestData.cflags_weight_bit_opt_data["args"],
+        TestData.cflags_weight_bit_opt_data["data"],
+    )
+    def test_cflags_weight_bit_opt(
+        self, range, scalar, dtype, expected_wp_noopt, expected_wp_opt
+    ):
+        # s1, s2, s3 will be grouped in one core block.
+        class Net(pb.Network):
+            def __init__(self):
+                super().__init__()
+                self.n1 = pb.TonicSpiking(10, 3, name="n1", tick_wait_start=1)
+                self.n2 = pb.TonicSpiking(10, 4, name="n2", tick_wait_start=2)
+                self.n3 = pb.TonicSpiking(10, 4, name="n3", tick_wait_start=2)
+                self.n4 = pb.TonicSpiking(10, 4, name="n4", tick_wait_start=2)
+                self.s1 = pb.FullConn(
+                    self.n1,
+                    self.n2,
+                    weights=np.random.randint(*range[0], size=(10,), dtype=dtype[0]),
+                    conn_type=pb.SynConnType.One2One,
+                    name="s1",
+                )
+                self.s2 = pb.FullConn(
+                    self.n1,
+                    self.n3,
+                    weights=np.random.randint(*range[1], size=(10, 10), dtype=dtype[1]),
+                    name="s2",
+                )
+                self.s3 = pb.FullConn(
+                    self.n1,
+                    self.n4,
+                    weights=scalar,
+                    conn_type=pb.SynConnType.All2All,
+                    name="s3",
+                )
+
+        net = Net()
         mapper = pb.Mapper()
         mapper.build(net)
-        mapper.compile(weight_bit_optimization=True)
-        assert (
-            mapper.core_blocks[0].weight_precision == WeightPrecision.WEIGHT_WIDTH_4BIT
-        )
+        mapper.compile(weight_bit_optimization=False)
+        assert mapper.core_blocks[0].weight_precision == expected_wp_noopt
 
         mapper.clear()
         mapper.build(net)
-        mapper.compile(weight_bit_optimization=False)
-        assert (
-            mapper.core_blocks[0].weight_precision == WeightPrecision.WEIGHT_WIDTH_8BIT
+        mapper.compile(weight_bit_optimization=True)
+        assert mapper.core_blocks[0].weight_precision == max(
+            s.weight_precision for s in (net.s1, net.s2, net.s3)
         )
+        assert mapper.core_blocks[0].weight_precision == expected_wp_opt
