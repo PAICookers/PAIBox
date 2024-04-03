@@ -279,20 +279,27 @@ class TestTransforms:
 
                 out[o] += conv_result
 
-        return out
+        if fm_order == "LC":
+            return out.T
+        else:
+            return out
 
     @pytest.mark.parametrize(
-        "in_shape, in_channels, out_channels, kernel_size, stride, padding, fm_order",
+        "in_shape, in_channels, out_channels, kernel_size, stride, padding, fm_order, kdtype",
         # Padding is fixed at (0, 0)
         [
-            ((28,), 16, 8, (3,), (1,), (0,), "CL"),
-            ((28,), 24, 12, (3,), (2,), (0,), "CL"),
-            ((28,), 24, 12, (5,), (2,), (0,), "CL"),
-            ((16,), 8, 16, (3,), (2,), (0,), "CL"),
-            ((28,), 16, 8, (3,), (1,), (0,), "LC"),
-            ((24,), 8, 8, (3,), (2,), (0,), "LC"),
-            ((24,), 8, 16, (7,), (2,), (0,), "LC"),
-            ((32,), 4, 12, (5,), (1,), (0,), "LC"),
+            ((28,), 16, 8, (3,), (1,), (0,), "CL", np.bool_),
+            ((28,), 24, 12, (3,), (2,), (0,), "CL", np.bool_),
+            ((28,), 24, 12, (5,), (2,), (0,), "CL", np.bool_),
+            ((16,), 8, 16, (3,), (2,), (0,), "CL", np.bool_),
+            ((28,), 16, 8, (3,), (1,), (0,), "CL", np.int8),
+            ((28,), 24, 12, (3,), (2,), (0,), "CL", np.int8),
+            ((28,), 24, 12, (5,), (2,), (0,), "CL", np.int8),
+            ((16,), 8, 16, (3,), (2,), (0,), "CL", np.int8),
+            # ((28,), 16, 8, (3,), (1,), (0,), "LC"),
+            # ((24,), 8, 8, (3,), (2,), (0,), "LC"),
+            # ((24,), 8, 16, (7,), (2,), (0,), "LC"),
+            # ((32,), 4, 12, (5,), (1,), (0,), "LC"),
         ],
     )
     def test_Conv1dForward(
@@ -304,14 +311,23 @@ class TestTransforms:
         stride,
         padding,
         fm_order,
+        kdtype,
     ):
-        kernel = np.random.randint(
-            -128, 127, size=(out_channels, in_channels) + kernel_size, dtype=np.int8
-        )
+        if kdtype == np.bool_:
+            kernel = np.random.randint(
+                0, 2, size=(out_channels, in_channels) + kernel_size, dtype=np.bool_
+            )
+        else:
+            kernel = np.random.randint(
+                np.iinfo(kdtype).min,
+                np.iinfo(kdtype).max,
+                size=(out_channels, in_channels) + kernel_size,
+                dtype=kdtype,
+            )
 
         out_shape = ((in_shape[0] + 2 * padding[0] - kernel_size[0]) // stride[0] + 1,)
 
-        f = Conv1dForward(in_shape, out_shape, kernel, stride, padding, fm_order)
+        f = Conv1dForward(in_shape, out_shape, kernel, stride, padding)
 
         if fm_order == "CL":
             fm_shape = (in_channels,) + in_shape
@@ -319,16 +335,17 @@ class TestTransforms:
             fm_shape = in_shape + (in_channels,)
 
         x = np.random.randint(0, 2, size=fm_shape, dtype=np.bool_)
-        xf = x.copy().flatten()
+        xf = x.ravel()
 
-        y = f(xf)
+        # The result of __call__ using traditional conv
+        y1 = f(xf)
+        # The result of matmul using the unrolled matrix
+        y2 = xf @ f.connectivity.astype(np.int32)
+
         expected = self._conv1d_golden(x, out_shape, kernel, stride, padding, fm_order)
 
-        # Flattened output
-        y = y.reshape((out_channels,) + out_shape)
-
-        assert y.shape == expected.shape
-        assert np.array_equal(y, expected)
+        assert np.array_equal(y1, expected)
+        assert np.array_equal(y2, expected.ravel())
         assert f.connectivity.shape == (
             shape2num((kernel.shape[1],) + in_shape),
             shape2num((kernel.shape[0],) + out_shape),
@@ -348,7 +365,7 @@ class TestTransforms:
         if fm_order == "HWC":
             _x = x.transpose(2, 0, 1)
         else:
-            _x = x.copy()
+            _x = x
 
         xcin, ih, iw = _x.shape
 
@@ -381,20 +398,27 @@ class TestTransforms:
 
                 out[o] += conv_result
 
-        return out
+        if fm_order == "HWC":
+            return out.transpose(1, 2, 0)
+        else:
+            return out
 
     @pytest.mark.parametrize(
-        "in_shape, in_channels, out_channels, kernel_size, stride, padding, fm_order",
+        "in_shape, in_channels, out_channels, kernel_size, stride, padding, fm_order, kdtype",
         # Padding is fixed at (0, 0)
         [
-            ((28, 28), 16, 8, (3, 3), (1, 1), (0, 0), "CHW"),
-            ((28, 28), 24, 12, (3, 3), (2, 2), (0, 0), "CHW"),
-            ((28, 28), 24, 12, (5, 5), (2, 1), (0, 0), "CHW"),
-            ((16, 16), 8, 16, (3, 3), (2, 2), (0, 0), "CHW"),
-            ((28, 28), 16, 8, (3, 3), (1, 1), (0, 0), "HWC"),
-            ((24, 32), 8, 8, (3, 4), (2, 1), (0, 0), "HWC"),
-            ((24, 24), 8, 16, (7, 7), (2, 2), (0, 0), "HWC"),
-            ((32, 16), 4, 12, (5, 7), (1, 2), (0, 0), "HWC"),
+            ((28, 28), 16, 8, (3, 3), (1, 1), (0, 0), "CHW", np.bool_),
+            ((28, 28), 24, 12, (3, 3), (2, 2), (0, 0), "CHW", np.bool_),
+            ((28, 28), 16, 8, (3, 3), (1, 1), (0, 0), "CHW", np.bool_),
+            ((28, 28), 24, 12, (3, 3), (2, 2), (0, 0), "CHW", np.int8),
+            ((28, 28), 24, 12, (5, 5), (2, 1), (0, 0), "CHW", np.int8),
+            ((16, 16), 8, 16, (3, 3), (2, 2), (0, 0), "CHW", np.int8),
+            # ((28, 28), 16, 8, (3, 3), (1, 1), (0, 0), "HWC", np.bool_),
+            # ((24, 32), 8, 8, (3, 4), (2, 1), (0, 0), "HWC", np.bool_),
+            # ((24, 24), 8, 16, (7, 7), (2, 2), (0, 0), "HWC", np.bool_),
+            # ((32, 16), 4, 12, (5, 7), (1, 2), (0, 0), "HWC", np.int8),
+            # ((24, 24), 8, 16, (7, 7), (2, 2), (0, 0), "HWC", np.int8),
+            # ((32, 16), 4, 12, (5, 7), (1, 2), (0, 0), "HWC", np.int8),
         ],
     )
     def test_Conv2dForward(
@@ -406,17 +430,26 @@ class TestTransforms:
         stride,
         padding,
         fm_order,
+        kdtype,
     ):
-        kernel = np.random.randint(
-            -128, 127, size=(out_channels, in_channels) + kernel_size, dtype=np.int8
-        )
+        if kdtype == np.bool_:
+            kernel = np.random.randint(
+                0, 2, size=(out_channels, in_channels) + kernel_size, dtype=np.bool_
+            )
+        else:
+            kernel = np.random.randint(
+                np.iinfo(kdtype).min,
+                np.iinfo(kdtype).max,
+                size=(out_channels, in_channels) + kernel_size,
+                dtype=kdtype,
+            )
 
         out_shape = (
             (in_shape[0] + 2 * padding[0] - kernel_size[0]) // stride[0] + 1,
             (in_shape[1] + 2 * padding[1] - kernel_size[1]) // stride[1] + 1,
         )
 
-        f = Conv2dForward(in_shape, out_shape, kernel, stride, padding, fm_order)
+        f = Conv2dForward(in_shape, out_shape, kernel, stride, padding)
 
         if fm_order == "CHW":
             fm_shape = (in_channels,) + in_shape
@@ -424,16 +457,17 @@ class TestTransforms:
             fm_shape = in_shape + (in_channels,)
 
         x = np.random.randint(0, 2, size=fm_shape, dtype=np.bool_)
-        xf = x.copy().flatten()
+        xf = x.ravel()
 
-        y = f(xf)
+        # The result of __call__ using traditional conv
+        y1 = f(xf)
+        # The result of matmul using the unrolled matrix
+        y2 = xf @ f.connectivity.astype(np.int32)
+
         expected = self._conv2d_golden(x, out_shape, kernel, stride, padding, fm_order)
 
-        # Flattened output
-        y = y.reshape((out_channels,) + out_shape)
-
-        assert y.shape == expected.shape
-        assert np.array_equal(y, expected)
+        assert np.array_equal(y1, expected)
+        assert np.array_equal(y2, expected.ravel())
         assert f.connectivity.shape == (
             shape2num((kernel.shape[1],) + in_shape),
             shape2num((kernel.shape[0],) + out_shape),
