@@ -101,7 +101,7 @@ class LatencyEncoder(StatefulEncoder):
         else:
             t_f = ((self.T - 1.0) * (1.0 - x)).round().astype(np.int64)
 
-        indices = t_f.flatten()
+        indices = t_f.ravel()
         spike = np.eye(self.T, dtype=np.bool_)[indices]
         # [*, T] -> [T, *]
         self.spike = np.moveaxis(spike, -1, 0)

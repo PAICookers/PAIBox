@@ -81,7 +81,10 @@ def _conv1d_unroll(
     stride: Size1Type,
     # padding: Size1Type,
 ) -> WeightType:
-    """Unroll the convolution kernel of 1d convolution into a matrix."""
+    """Unroll the convolution kernel of 1d convolution into a matrix.
+
+    XXX: The case where the input feature map is in 'LC' order is not considered for the time being.
+    """
     cout, cin, kl = kernel.shape
     il = in_shape[0]
     ol = out_shape[0]
@@ -100,7 +103,7 @@ def _conv1d_unroll(
 
         t = zeros_image[:, :, i].T
         for o_ch in range(cout):
-            w_unrolled[:, i + o_ch * ol] = t[o_ch].flatten()
+            w_unrolled[:, i + o_ch * ol] = t[o_ch].ravel()
 
     return w_unrolled
 
@@ -112,7 +115,10 @@ def _conv2d_unroll(
     stride: Size2Type,
     # padding: Size2Type,
 ) -> WeightType:
-    """Unroll the convolution kernel of 2d convolution into a matrix."""
+    """Unroll the convolution kernel of 2d convolution into a matrix.
+
+    XXX: The case where the input feature map is in 'HWC' order is not considered for the time being.
+    """
     cout, cin, kh, kw = kernel.shape
 
     ih, iw = in_shape
@@ -139,13 +145,14 @@ def _conv2d_unroll(
                     i * ow + j,
                 ] = kernel[ch_idx[0], ch_idx[1], :, :]
 
-            t = (
-                zeros_image[:, :, i * ow + j]
-                .reshape(cin * ih, cout, iw)
-                .transpose(1, 0, 2)
+            t = np.swapaxes(
+                zeros_image[:, :, i * ow + j].reshape(cin * ih, cout, iw),
+                0,
+                1,
+                # .transpose(1, 0, 2)
             )
             for o_ch in range(cout):
-                w_unrolled[:, i * ow + j + o_ch * out_size] = t[o_ch].flatten()
+                w_unrolled[:, i * ow + j + o_ch * out_size] = t[o_ch].ravel()
 
     return w_unrolled
 
@@ -167,20 +174,18 @@ def _conv1d_faster(
 
     assert (xl + padding[0] * 2 - kl) // stride[0] + 1 == out_shape[0]
 
-    # kernel: (cout, cin, kl) -> (cin*kl, cout)
-    col_kernel = kernel.transpose(1, 2, 0).reshape(-1, cout)
+    # kernel: (cout, cin, kl) -> (cout, cin*kl)
+    col_kernel = kernel.reshape(cout, -1)
 
     # padded: (cin, xl+2*p[0]-kl) -> (ol, cin*kl)
     col_fm = _1d_im2col(x_padded, out_shape[0], kl, stride)
 
     # out = np.zeros((cout,) + out_shape, dtype=np.int64)
-    # (ol, cin*kl) * (cin*kl, cout) = (ol, cout)
-    out = col_fm @ col_kernel  # + self.bias
+    # (ol, cin*kl) * (cout, cin*kl)^T = (ol, cout)
+    out = col_fm @ col_kernel.T  # + self.bias
 
-    # (ol, cout) -> (ol, cout) -> (cout, ol)
-    out = out.reshape(out_shape + (cout,)).T
-
-    return out.astype(np.int32)
+    # (ol, cout) -> (cout, ol)
+    return out.astype(np.int32).T
 
 
 def _conv2d_faster(
@@ -205,20 +210,20 @@ def _conv2d_faster(
     assert (xh + padding[0] * 2 - kh) // stride[0] + 1 == out_shape[0]
     assert (xw + padding[1] * 2 - kw) // stride[1] + 1 == out_shape[1]
 
-    # kernel: (cout, cin, kh, kw) -> (cin*kh*kw, cout)
-    col_kernel = kernel.transpose(1, 2, 3, 0).reshape(-1, cout)
+    # kernel: (cout, cin, kh, kw) -> (cout, cin*kh*kw)
+    col_kernel = kernel.reshape(cout, -1)
 
     # padded: (cin, xh+2*p[0]-kh, xw+2*p[1]-kw) -> (oh*ow, cin*kh*kw)
     col_fm = _2d_im2col(x_padded, out_shape[0], out_shape[1], kh, kw, stride)
 
     # out = np.zeros((cout,) + out_shape, dtype=np.int64)
-    # (oh*ow, cin*kh*kw) * (cin*kh*kw, cout) = (oh*ow, cout)
-    out = col_fm @ col_kernel  # + self.bias
+    # (oh*ow, cin*kh*kw) * (cout, cin*kh*kw)^T = (oh*ow, cout)
+    out = col_fm @ col_kernel.T  # + self.bias
 
-    # (oh*ow, cout) -> (oh, ow, cout) -> (cout, oh, ow)
-    out = out.reshape(out_shape + (cout,)).transpose(2, 0, 1)
+    # (oh*ow, cout) -> (cout, oh*ow) -> (cout, oh, ow)
+    out = out.astype(np.int32).T.reshape((cout,) + out_shape)
 
-    return out.astype(np.int32)
+    return out
 
 
 def _1d_im2col(
@@ -230,7 +235,7 @@ def _1d_im2col(
 
     idx = 0
     for i in range(0, pl - kl + 1, stride[0]):
-        cols[idx] = x_padded[:, i : i + kl].reshape(-1)
+        cols[idx] = x_padded[:, i : i + kl].ravel()
         idx += 1
 
     return cols
@@ -246,7 +251,7 @@ def _2d_im2col(
     idx = 0
     for i in range(0, ph - kh + 1, stride[0]):
         for j in range(0, pw - kw + 1, stride[1]):
-            cols[idx] = x_padded[:, i : i + kh, j : j + kw].reshape(-1)
+            cols[idx] = x_padded[:, i : i + kh, j : j + kw].ravel()
             idx += 1
 
     return cols

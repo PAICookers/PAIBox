@@ -75,7 +75,7 @@ class InputProj(Projection, TimeRelatedNode):
                 raise ShapeError(
                     f"cannot reshape output value from {_spike.shape} to ({self.num_out},)."
                 )
-            self._inner_spike = _spike.flatten().astype(np.bool_)
+            self._inner_spike = _spike.ravel().astype(np.bool_)
         else:
             # should never be reached
             raise TypeError(
