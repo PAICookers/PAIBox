@@ -227,7 +227,6 @@ s1= pb.FullConn(source=n1, dest=n2, weights=weight1, conn_type=pb.SynConnType.Al
   ```
 
   其权重以标量的形式储存。
-
 - 数组：尺寸要求为 `(N2,)`，可以自定义每组对应神经元之间的连接权重。如下例所示，设置 `weights` 为 `[1, 2, 3, 4, 5]`，
 
   ```python
@@ -256,36 +255,36 @@ s1= pb.FullConn(source=n1, dest=n2, weights=weight1, conn_type=pb.SynConnType.Al
 
 #### 1D卷积
 
-全展开形式1D卷积为全连接突触的一种特殊表达。对于卷积形式的突触，需**严格指定**前后神经元的尺寸、神经元维度顺序、卷积核权重、卷积核维度顺序与步长。
+全展开形式1D卷积为全连接突触的一种特殊表达。对于卷积形式的突触，需**严格指定**前后神经元的维度、卷积核权重、卷积核维度顺序与步长。
 
 - `kernel`：卷积核权重。
 - `stride`：步长，标量。
-- `fm_order` 指定神经元维度顺序为 `CL` 或 `LC` 排列。
 - `kernel_order`：指定卷积核维度顺序为 `OIL` 或 `IOL` 排列。
+- 神经元维度顺序仅支持 `CL`。
 
 ```python
 n1 = pb.IF(shape=(8, 28), threshold=1)      # Input feature map: (8, 28)
 n2 = pb.IF(shape=(16, 26), threshold=1)     # Output feature map: (16, 26)
 kernel = np.random.randint(-128, 128, size=(16, 8, 3), dtype=np.int8) # OIl
 
-conv2d = pb.Conv1d(n1, n2, kernel=kernel, stride=1, fm_order="CL", kernel_order="OIL", name="conv1d_1")
+conv2d = pb.Conv1d(n1, n2, kernel=kernel, stride=1, kernel_order="OIL", name="conv1d_1")
 ```
 
 #### 2D卷积
 
-全展开形式2D卷积为全连接突触的一种特殊表达。对于卷积形式的突触，需**严格指定**前后神经元的尺寸、神经元维度顺序、卷积核权重、卷积核维度顺序与步长。
+全展开形式2D卷积为全连接突触的一种特殊表达。对于卷积形式的突触，需**严格指定**前后神经元的维度、神经元维度顺序、卷积核权重、卷积核维度顺序与步长。
 
 - `kernel`：卷积核权重。
 - `stride`：步长，可以为标量或元组。当为标量时，对应为 `(x, x)`；当为元组时，则对应为 `(x, y)`。
-- `fm_order` 指定神经元维度顺序为 `CHW` 或 `HWC` 排列。
 - `kernel_order`：指定卷积核维度顺序为 `OIHW` 或 `IOHW` 排列。
+- 神经元维度顺序仅支持 `CHW`。
 
 ```python
 n1 = pb.IF(shape=(8, 28, 28), threshold=1)      # Input feature map: (8, 28, 28)
 n2 = pb.IF(shape=(16, 26, 26), threshold=1)     # Output feature map: (16, 26, 26)
 kernel = np.random.randint(-128, 128, size=(16, 8, 3, 3), dtype=np.int8) # OIHW
 
-conv2d = pb.Conv2d(n1, n2, kernel=kernel, stride=1, fm_order="CHW", kernel_order="OIHW", name="conv2d_1")
+conv2d = pb.Conv2d(n1, n2, kernel=kernel, stride=1, kernel_order="OIHW", name="conv2d_1")
 ```
 
 ⚠️ `padding` 不支持，默认为0。
@@ -697,7 +696,7 @@ sim.reset()
 mapper = pb.Mapper()
 mapper.build(fcnet)
 graph_info = mapper.compile(weight_bit_optimization=True, grouping_optim_target="both")
-mapper.export(write_to_file=True, fp="./debug/", format="npy", split_by_coordinate=False, local_chip_addr=(0, 0), export_core_params=False)
+mapper.export(write_to_file=True, fp="./debug/", format="bin", split_by_coordinate=False, local_chip_addr=(0, 0), export_core_params=False)
 
 # Clear all the results
 mapper.clear()
