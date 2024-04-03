@@ -3,11 +3,68 @@ from typing import Tuple
 import numpy as np
 import pytest
 
+from paibox.exceptions import AutoOptimizationWarning
 from paibox.synapses.transforms import *
+from paibox.synapses.transforms import Transform
 from paibox.utils import shape2num
 
 
 class TestTransforms:
+    @pytest.mark.parametrize(
+        "weight, expected_dtype",
+        [
+            (np.array([1, 2, 3], dtype=np.int8), np.int8),
+            (np.array([1, 0, 1], dtype=np.bool_), np.bool_),
+            (np.array([True, False]), np.bool_),
+            (np.array([True, False], dtype=np.int8), np.int8),
+            (10, np.int8),
+            (1, np.bool_),
+            (True, np.bool_),
+            (np.int8(1), np.bool_),  # automatically optimizated
+            (np.uint8(99), np.int8),
+            (np.array([-128, 1, 127], dtype=np.int8), np.int8),
+            ([1, 2, 3], np.int8),
+            ((0, 1, 0, 1), np.int8),
+        ],
+    )
+    def test_weight_dtype_convert(self, weight, expected_dtype):
+        tfm = Transform(weight)
+        assert tfm.weights.dtype == expected_dtype
+
+    @pytest.mark.parametrize(
+        "weight, expected_dtype",
+        [
+            (np.array([1, 2, 3]), np.int8),
+            # Only automatically optimized to int8 unless specified as bool
+            (np.array([True, False], dtype=np.int16), np.int8),
+            (np.array([1, 0, 1], dtype=np.int16), np.int8),  # Same as above
+            (np.array([-128, 1, 127], dtype=np.int32), np.int8),
+            (np.array([-8, 4, 7]), np.int8),
+            ([-100, 0, 100], np.int8),
+        ],
+    )
+    def test_weight_dtype_convert_warning(self, weight, expected_dtype):
+        with pytest.warns(AutoOptimizationWarning):
+            tfm = Transform(weight)
+
+        assert tfm.weights.dtype == expected_dtype
+
+    @pytest.mark.parametrize(
+        "weight",
+        [
+            (np.array([1.0, 2.1, 3.2])),  # float is forbidden
+            (np.array([1, 2, 3], dtype=np.float32)),
+            (np.array([111, 222, -333], dtype=np.int16)),  # out of range int8
+            (999),
+            (3.14),
+            ([-100, 200, 0]),
+            ((1.1, 0.5)),
+        ],
+    )
+    def test_weight_dtype_convert_illegal(self, weight):
+        with pytest.raises((TypeError, ValueError)):
+            tfm = Transform(weight)
+
     @pytest.mark.parametrize(
         "weight",
         [
@@ -84,7 +141,7 @@ class TestTransforms:
         y = f(x)
         expected = np.full((num_out,), np.sum(x, axis=None), dtype=np.int32) * weight
 
-        assert f.conn_dtype == expected_dtype
+        assert f.connectivity.dtype == expected_dtype
         assert y.dtype == np.int32
         assert y.shape == (num_out,)
         assert y.ndim == 1
@@ -109,7 +166,7 @@ class TestTransforms:
             (
                 (20, 10),
                 np.random.randint(2, size=(20,), dtype=np.bool_),
-                np.random.randint(2, size=(20, 10), dtype=np.int8),
+                np.random.randint(2, size=(20, 10), dtype=np.bool_),
                 np.bool_,
             ),
             (
@@ -140,7 +197,7 @@ class TestTransforms:
         y = f(x)
         expected = x @ weights.copy().astype(np.int32)
 
-        assert f.conn_dtype == expected_dtype
+        assert f.connectivity.dtype == expected_dtype
         assert np.array_equal(y, expected)
         assert f.connectivity.shape == shape
 
@@ -162,7 +219,7 @@ class TestTransforms:
             (
                 (20, 10),
                 np.ones((20,), dtype=np.bool_),
-                np.random.randint(2, size=(20, 10), dtype=np.int8),
+                np.random.randint(2, size=(20, 10), dtype=np.bool_),
                 np.bool_,
             ),
             (
@@ -179,7 +236,6 @@ class TestTransforms:
         y = f(x)
         expected = x @ weights.copy().astype(np.int32)
 
-        assert f.conn_dtype == expected_dtype
         assert f.connectivity.dtype == expected_dtype
         assert y.shape == (shape[1],)
         assert y.dtype == np.int32

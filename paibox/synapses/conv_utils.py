@@ -80,7 +80,7 @@ def _conv1d_unroll(
     kernel: WeightType,
     stride: Size1Type,
     # padding: Size1Type,
-):
+) -> WeightType:
     """Unroll the convolution kernel of 1d convolution into a matrix."""
     cout, cin, kl = kernel.shape
     il = in_shape[0]

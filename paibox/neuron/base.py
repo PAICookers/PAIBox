@@ -14,15 +14,14 @@ from paicorelib import (
     MaxPoolingEnable,
     SpikeWidthFormat,
 )
-from typing_extensions import TypeAlias
 
 from paibox.base import NeuDyn
-from paibox.types import Shape, SpikeType
+from paibox.types import Shape, SpikeType, VoltageType
 from paibox.utils import as_shape, shape2num
 
-__all__ = ["Neuron"]
+from .utils import _vjt_overflow
 
-VoltageType: TypeAlias = NDArray[np.int32]
+__all__ = ["Neuron"]
 
 
 class MetaNeuron:
@@ -65,7 +64,6 @@ class MetaNeuron:
         self.leak_v: int = leak_v  # Signed 30-bit
         self.synaptic_integration_mode: SIM = synaptic_integration_mode
         self.bit_truncation: int = bit_truncation  # Unsigned 5-bit
-        self._vjt_init = 0  # Signed 30-bit. Fixed.
 
         # TODO These two config below are parameters of CORE.
         self._spike_width_format: SpikeWidthFormat
@@ -90,7 +88,6 @@ class MetaNeuron:
                 `vjt` = `vjt_pre` + `_rho_w_ij` * \sum^{N-1}_{i=0} * x_i(t) * w_{i,j}
         """
         _rho_w_ij = 1  # Random synaptic integration enable, 0/1
-        xt = self.init_param(0).astype(np.int32)
 
         if self.synaptic_integration_mode is SIM.MODE_STOCHASTIC:
             raise NotImplementedError(
@@ -104,7 +101,7 @@ class MetaNeuron:
 
         v_charged = np.add(vjt_pre, _v).astype(np.int32)
 
-        return v_charged
+        return _vjt_overflow(v_charged)  # Handle with overflow here
 
     def _neuronal_leak(self, vjt: VoltageType) -> VoltageType:
         r"""2. Leak integration.
@@ -356,7 +353,6 @@ class MetaNeuron:
 
 class Neuron(MetaNeuron, NeuDyn):
     _excluded_vars = (
-        "_vjt_init",
         "vjt",
         "vj",
         "y",
@@ -443,11 +439,12 @@ class Neuron(MetaNeuron, NeuDyn):
         super(MetaNeuron, self).__init__(name)
 
         """Stateful attributes. Vector."""
-        self.set_memory("_vjt", self.init_param(self._vjt_init).astype(np.int32))
+        # Initial vjt is fixed at 0.
+        self.set_memory("_vjt", self.init_param(0).astype(np.int32))
         self.set_memory("_inner_spike", self.init_param(0).astype(np.bool_))
 
         # Not supported for attributes in ANN mode
-        self.set_memory("vj", self.init_param(self._vjt_init).astype(np.int32))
+        self.set_memory("vj", self.init_param(0).astype(np.int32))
         self.set_memory("y", self.init_param(0).astype(np.int32))
 
         """Auxiliary internal stateful attributes for debugging"""
@@ -493,10 +490,8 @@ class Neuron(MetaNeuron, NeuDyn):
         if x is None:
             x = self.sum_inputs()
 
-        incoming_v = _vjt_overflow(x)
-
         self._inner_spike, self._vjt, self._debug_thres_mode = super().update(
-            incoming_v, self._vjt
+            x, self._vjt
         )
 
         idx = (self.timestamp + self.delay_relative - 1) % HwConfig.N_TIMESLOT_MAX
@@ -575,26 +570,3 @@ class Neuron(MetaNeuron, NeuDyn):
     @property
     def voltage(self) -> VoltageType:
         return self._vjt.reshape(self.varshape)
-
-
-VJT_MAX_LIMIT: int = 2**29 - 1
-VJT_MIN_LIMIT: int = -(2**29)
-VJT_LIMIT: int = 2**30
-
-
-def _vjt_overflow(x: np.ndarray) -> VoltageType:
-    """Handle the overflow of the membrane potential.
-
-    NOTE: If the incoming membrane potential (30-bit signed) overflows, the chip\
-        will automatically handle it. This behavior needs to be implemented in  \
-        simulation.
-    """
-    return np.where(
-        x > VJT_MAX_LIMIT,
-        x - VJT_LIMIT,
-        np.where(
-            x < VJT_MIN_LIMIT,
-            x + VJT_LIMIT,
-            x,
-        ),
-    ).astype(np.int32)

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "paibox"
-version = "1.0.0a7"
+version = "1.0.0b1"
 description = "New toolbox of PAICORE 2.0."
 authors = ["Ziru Pan <zrpan@stu.pku.edu.cn>"]
 maintainers = ["Ziru Pan <zrpan@stu.pku.edu.cn>"]
@@ -34,7 +34,7 @@ exclude = ["paibox/experimental"]
 [tool.poetry.dependencies]
 python = "^3.8"
 pydantic = "^2.0"
-numpy = "^1.23.0"
+numpy = "^1.24.0"
 paicorelib = "0.0.13"
 
 [tool.poetry.group.test]

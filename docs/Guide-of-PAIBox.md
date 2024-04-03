@@ -17,7 +17,7 @@ poetry install
 ```toml
 python = "^3.8"
 pydantic = "^2.0"
-numpy = "^1.23.0"
+numpy = "^1.24.0"
 paicorelib = "0.0.13"
 ```
 
@@ -705,7 +705,7 @@ mapper.clear()
 
 其中，编译时有如下参数可指定：
 
-- `weight_bit_optimization`: 是否对权重精度进行优化处理。例如，将声明时为 INT8 的权重根据实际值当作更小的精度处理（当权重的值均在 [-8, 7] 之间，则可当作 INT4 进行处理）。默认由后端配置项内对应**编译选项**指定（默认开启）。
+- `weight_bit_optimization`: 是否对权重精度进行优化处理。这将使得声明时为 INT8 的权重根据实际值当作更小的精度处理（当权重的值均在 [-8, 7] 之间，则可当作 INT4 进行处理）。默认由后端配置项内对应**编译选项**指定（默认开启）。
 - `grouping_optim_target`：指定神经元分组的优化目标，可以为 `"latency"`，`"core"` 或 `"both"`，分别代表以延时/吞吐率、占用核资源为优化目标、或二者兼顾。默认由后端配置项内对应**编译选项**指定（默认为 `both`）。
 - 同时，该方法将返回字典形式的编译后网络的信息。
 
@@ -714,8 +714,8 @@ mapper.clear()
 - `write_to_file`: 是否将配置帧导出为文件。默认为 `True`。
 - `fp`：导出目录。若未指定，则默认为后端配置选项 `build_directory` 所设置的目录（当前工作目录）。
 - `format`：导出交换文件格式，可以为 `bin`、`npy` 或 `txt`。默认为 `bin`。
-- `split_by_coordinate`：是否将配置帧以每个核坐标进行分割，由此生成的配置帧文件命名为"config_core1"、"config_core2"等。默认为 `False`。
-- `local_chip_addr`：本地芯片地址，元组格式表示。默认为后端配置项 `local_chip_addr` 所设置的默认值。
+- `split_by_coordinate`：是否将配置帧以每个核坐标进行分割，由此生成的配置帧文件命名为"config_core1"、"config_core2"等。默认为 `False`，即最终导出为一个文件。
+- `local_chip_addr`：本地芯片坐标，元组格式表示。默认为后端配置项 `local_chip_addr` 所设置的默认值。
 - `export_core_params`: 是否导出实际使用核参数至json文件，以直观显示实际使用核的配置信息。默认为 `False`。
 
 同时，该方法将返回模型的配置项字典 `GraphInfo`，包括：
@@ -725,17 +725,17 @@ mapper.clear()
 - `memebers`：中间层所在物理核的配置项字典。
 - `inherent_timestep`：网络模型的最长时间步。
 - `n_core_required`：网络模型需要的物理核数目。
-- `extras`：其他额外的网络信息字典，例如，编译后网络名称。
+- `extras`：其他额外的网络信息字典，例如，编译后的网络名称。
 
 ### 后端配置项
 
 与后端相关的配置项由 `BACKEND_CONFIG` 统一保存与访问，例如上述**编译选项**、`build_directory`、`local_chip_addr` 等。常用的配置项有如下：
 
 ```python
-BACKEND_CONFIG.local_chip_addr
+BACKEND_CONFIG.local_chip_addr # 本地芯片坐标
 >>> Coord(0, 0)
 
-BACKEND_CONFIG.test_chip_addr
+BACKEND_CONFIG.test_chip_addr # 测试芯片坐标（一般是FPGA）
 >>> Coord(1, 0)
 
 # Set output directory

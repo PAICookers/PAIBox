@@ -1,11 +1,10 @@
+import warnings
 from enum import Enum, auto, unique
-from typing import Type, Union
 
 import numpy as np
-from numpy.typing import NDArray
 from paicorelib import WeightPrecision as WP
 
-from paibox.exceptions import ShapeError
+from paibox.exceptions import AutoOptimizationWarning, ShapeError
 from paibox.types import DataArrayType, IntScalarType, SynOutType, WeightType
 from paibox.utils import is_shape
 
@@ -62,31 +61,88 @@ class GeneralConnType(ConnType):
     """All-to-all connection."""
 
 
-def _get_weight_precision(weight: np.ndarray, enable_wp_opt: bool) -> WP:
-    """Get the actual weight_precision of the weight."""
-    _max = np.max(weight, axis=None).astype(np.int32)
-    _min = np.min(weight, axis=None).astype(np.int32)
+def _set_coarse_dtype(raw_w: DataArrayType) -> WeightType:
+    """Convert raw weights to `np.ndarray` coarsely (without optimization).
+
+    Description:
+        - For weights of type `bool` or `np.bool_`, set `np.bool_` as the dtype.
+        - For integer scalar weight, set the dtype according to its value.
+        - For array weights, set the dtype according to its minimum & maximum values. For weights in the\
+            range of int8, the dtype when declared will be followed (i.e. not optimized).
+
+    NOTE: Only when the weight is input in integer scalar form, the weight precision will be optimized  \
+        automatically. 0/1 is treated as bool_ while others are treated as int8. The weights must not   \
+        exceed the range of int8.
+    """
+    if isinstance(raw_w, (bool, np.bool_, int, np.integer)):
+        if raw_w > MAX_INT8 or raw_w < MIN_INT8:
+            raise ValueError(f"weight out of range int8, got {raw_w}.")
+
+        if raw_w <= MAX_INT1 and raw_w >= MIN_INT1:
+            _dtype = np.bool_
+        else:
+            _dtype = np.int8
+
+        return np.asarray(raw_w, dtype=_dtype)
+
+    # Convert list or tuple to np.ndarray
+    _array = np.asarray(raw_w)
+    _max = np.max(_array, axis=None)
+    _min = np.min(_array, axis=None)
 
     if _max > MAX_INT8 or _min < MIN_INT8:
-        raise ValueError(f"weight precision out of range [{_min}, {_max}].")
+        raise ValueError(f"weight out of range int8, got [{_min}, {_max}].")
 
-    if _max <= MAX_INT1 and _min >= MIN_INT1:
-        return WP.WEIGHT_WIDTH_1BIT
-    elif enable_wp_opt:
-        if _max <= MAX_INT2 and _min >= MIN_INT2:
+    if _array.dtype > np.int8:
+        # XXX If it is automatically optimized to int8, it cannot be converted using the 'same_kind' rule.
+        # if _max <= MAX_INT1 and _min >= MIN_INT1:
+        #     warnings.warn(
+        #         f"dtype of weight is optimized automatically, {_array.dtype} -> bool.",
+        #         AutoOptimizationWarning,
+        #     )
+        #     _dtype = np.bool_
+        # else:
+        warnings.warn(
+            f"dtype of weight is optimized automatically, {_array.dtype} -> int8.",
+            AutoOptimizationWarning,
+        )
+        _dtype = np.int8
+
+    elif _array.dtype == np.bool_ or _array.dtype == np.int8:
+        _dtype = _array.dtype
+    else:
+        raise TypeError(f"weights must be bool or int8, but got {_array.dtype}.")
+
+    return _array.astype(_dtype, casting="same_kind")
+
+
+def _get_weight_precision(weight: WeightType, enable_wp_opt: bool) -> WP:
+    """Get the actual weight_precision of the weight."""
+    _max = np.max(weight, axis=None)
+    _min = np.min(weight, axis=None)
+
+    if enable_wp_opt:
+        if _max <= MAX_INT1 and _min >= MIN_INT1:
+            return WP.WEIGHT_WIDTH_1BIT
+        elif _max <= MAX_INT2 and _min >= MIN_INT2:
             return WP.WEIGHT_WIDTH_2BIT
         elif _max <= MAX_INT4 and _min >= MIN_INT4:
             return WP.WEIGHT_WIDTH_4BIT
         else:
             return WP.WEIGHT_WIDTH_8BIT
     else:
-        return WP.WEIGHT_WIDTH_8BIT
+        # If weight precision opt is disabled, return WP1 if dtype is np.bool_ else WP8.
+        if weight.dtype == np.bool_:
+            return WP.WEIGHT_WIDTH_1BIT
+        else:
+            return WP.WEIGHT_WIDTH_8BIT
 
 
 class Transform:
-    def __init__(self, weights: WeightType) -> None:
-        self.weights = weights
-        """The actual weights in synapse. Must stored in `np.int8` format."""
+    def __init__(self, weights: DataArrayType) -> None:
+        self.weights = _set_coarse_dtype(weights)
+
+        """The actual weights in synapses. Stored in `np.bool_` or `np.int8` format."""
         self.weights.setflags(write=False)
 
     def __call__(self, *args, **kwargs) -> SynOutType:
@@ -94,19 +150,10 @@ class Transform:
         raise NotImplementedError
 
     def _get_wp(self, enable_wp_opt: bool) -> WP:
-        """Precision of weights."""
         return _get_weight_precision(self.weights, enable_wp_opt)
 
     @property
-    def conn_dtype(self) -> Union[Type[np.bool_], Type[np.int8]]:
-        # The value of `enable_wp_opt` dosen't effect the dtype of `connectivity`.
-        if self._get_wp(enable_wp_opt=False) is WP.WEIGHT_WIDTH_1BIT:
-            return np.bool_
-        else:
-            return np.int8
-
-    @property
-    def connectivity(self) -> NDArray[Union[np.bool_, np.int8]]:
+    def connectivity(self) -> WeightType:
         """The connectivity matrix in `np.ndarray` format."""
         raise NotImplementedError
 
@@ -132,13 +179,13 @@ class OneToOne(Transform):
         if isinstance(weights, np.ndarray) and not is_shape(weights, (num,)):
             raise ShapeError(f"expected shape is ({num},), but got {weights.shape}.")
 
+        super().__init__(weights)
+
         # The ndim of weights = 0 or 1.
-        _w = np.asarray(weights, dtype=np.int8)
-
-        if _w.ndim not in (0, 1):
-            raise ShapeError(f"the ndim of weights must be 0 or 1, but got {_w.ndim}.")
-
-        super().__init__(_w)
+        if self.weights.ndim not in (0, 1):
+            raise ShapeError(
+                f"the ndim of weights must be 0 or 1, but got {self.weights.ndim}."
+            )
 
     def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
         # (N,) * (N,) -> (N,)
@@ -149,9 +196,9 @@ class OneToOne(Transform):
     @property
     def connectivity(self):
         return (
-            (self.weights * np.eye(self.num, dtype=np.bool_)).astype(self.conn_dtype)
+            (self.weights * np.eye(self.num, dtype=np.bool_))
             if self.weights.ndim == 0
-            else np.diag(self.weights).astype(self.conn_dtype)
+            else np.diag(self.weights)
         )
 
 
@@ -183,12 +230,12 @@ class AllToAll(Transform):
         if isinstance(weights, np.ndarray) and not is_shape(weights, conn_size):
             raise ShapeError(f"expected shape is {conn_size}, but got {weights.shape}.")
 
-        _w = np.asarray(weights, dtype=np.int8)
+        super().__init__(weights)
 
-        if _w.ndim not in (0, 2):
-            raise ShapeError(f"the ndim of weights must be 0 or 2, but got {_w.ndim}.")
-
-        super().__init__(_w)
+        if self.weights.ndim not in (0, 2):
+            raise ShapeError(
+                f"the ndim of weights must be 0 or 2, but got {self.weights.ndim}."
+            )
 
     def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
         """
@@ -210,25 +257,18 @@ class AllToAll(Transform):
     @property
     def connectivity(self):
         return (
-            self.weights.astype(self.conn_dtype)
+            self.weights
             if self.weights.ndim == 2
-            else (self.weights * np.ones(self.conn_size, dtype=np.bool_)).astype(
-                self.conn_dtype
-            )
+            else (self.weights * np.ones(self.conn_size, dtype=np.bool_))
         )
 
 
 class MaskedLinear(Transform):
-    def __init__(
-        self,
-        conn_size: Size2Type,
-        weights: np.ndarray,
-    ) -> None:
+    def __init__(self, conn_size: Size2Type, weights: np.ndarray) -> None:
         if not is_shape(weights, conn_size):
             raise ShapeError(f"expected shape is {conn_size}, but got {weights.shape}.")
 
-        _w = np.asarray(weights, dtype=np.int8)
-        super().__init__(_w)
+        super().__init__(weights)
 
     def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
         # (N,) @ (N, M) -> (M,)
@@ -238,7 +278,7 @@ class MaskedLinear(Transform):
 
     @property
     def connectivity(self):
-        return self.weights.astype(self.conn_dtype)
+        return self.weights
 
 
 class Conv1dForward(Transform):
@@ -257,8 +297,7 @@ class Conv1dForward(Transform):
         self.padding = padding
         self.fm_order = fm_order
 
-        _w = kernel.astype(np.int8)
-        super().__init__(_w)
+        super().__init__(kernel)
 
     def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
         cin = self.weights.shape[1]
@@ -281,9 +320,7 @@ class Conv1dForward(Transform):
 
     @property
     def connectivity(self):
-        return _conv1d_unroll(
-            self.in_shape, self.out_shape, self.weights, self.stride
-        ).astype(self.conn_dtype)
+        return _conv1d_unroll(self.in_shape, self.out_shape, self.weights, self.stride)
 
 
 class Conv2dForward(Transform):
@@ -302,8 +339,7 @@ class Conv2dForward(Transform):
         self.padding = padding
         self.fm_order = fm_order
 
-        _w = kernel.astype(np.int8)
-        super().__init__(_w)
+        super().__init__(kernel)
 
     def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
         cin = self.weights.shape[1]
@@ -326,6 +362,4 @@ class Conv2dForward(Transform):
 
     @property
     def connectivity(self):
-        return _conv2d_unroll(
-            self.in_shape, self.out_shape, self.weights, self.stride
-        ).astype(self.conn_dtype)
+        return _conv2d_unroll(self.in_shape, self.out_shape, self.weights, self.stride)

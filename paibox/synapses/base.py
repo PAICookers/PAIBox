@@ -121,8 +121,8 @@ class FullConnectedSyn(Synapses, SynSys):
         return self.comm._get_wp(self.CFLAG_ENABLE_WP_OPTIMIZATION)
 
     @property
-    def connectivity(self):
-        """The connectivity matrix in `np.ndarray` format."""
+    def connectivity(self) -> WeightType:
+        """The connectivity matrix in `np.bool_` or `np.int8` format."""
         return self.comm.connectivity
 
 
