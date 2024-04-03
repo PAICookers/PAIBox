@@ -1,8 +1,7 @@
-from enum import Enum, auto, unique
 import warnings
+from enum import Enum, auto, unique
 
 import numpy as np
-
 from paicorelib import WeightPrecision as WP
 
 from paibox.exceptions import AutoOptimizationWarning, ShapeError
@@ -70,7 +69,7 @@ def _set_coarse_dtype(raw_w: DataArrayType) -> WeightType:
         - For integer scalar weight, set the dtype according to its value.
         - For array weights, set the dtype according to its minimum & maximum values. For weights in the\
             range of int8, the dtype when declared will be followed (i.e. not optimized).
-    
+
     NOTE: Only when the weight is input in integer scalar form, the weight precision will be optimized  \
         automatically. 0/1 is treated as bool_ while others are treated as int8. The weights must not   \
         exceed the range of int8.

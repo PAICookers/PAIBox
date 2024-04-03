@@ -18,16 +18,9 @@ from .conv_utils import (
     _Order2d,
     _Order3d,
 )
-from .transforms import (
-    AllToAll,
-    Conv1dForward,
-    Conv2dForward,
-    GeneralConnType as GConnType,
-    Identity,
-    MaskedLinear,
-    OneToOne,
-    Transform,
-)
+from .transforms import AllToAll, Conv1dForward, Conv2dForward
+from .transforms import GeneralConnType as GConnType
+from .transforms import Identity, MaskedLinear, OneToOne, Transform
 
 RIGISTER_MASTER_KEY_FORMAT = "{0}.output"
 
