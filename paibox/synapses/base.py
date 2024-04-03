@@ -10,14 +10,7 @@ from paibox.neuron import Neuron
 from paibox.projection import InputProj
 from paibox.types import DataArrayType, SynOutType, WeightType
 
-from .conv_utils import (
-    _fm_ndim1_check,
-    _fm_ndim2_check,
-    _KOrder3d,
-    _KOrder4d,
-    _Order2d,
-    _Order3d,
-)
+from .conv_utils import _fm_ndim1_check, _fm_ndim2_check, _KOrder3d, _KOrder4d
 from .transforms import AllToAll, Conv1dForward, Conv2dForward
 from .transforms import GeneralConnType as GConnType
 from .transforms import Identity, MaskedLinear, OneToOne, Transform
@@ -98,7 +91,7 @@ class FullConnectedSyn(Synapses, SynSys):
             # Retrieve 0 to the dest neurons if it is not working
             synin = np.zeros_like(self.source.spike, dtype=np.bool_)
 
-        self._synout = self.comm(synin).astype(np.int32)
+        self._synout = self.comm(synin).ravel().astype(np.int32)
         return self._synout
 
     def reset_state(self, *args, **kwargs) -> None:
@@ -167,7 +160,7 @@ class Conv1dSyn(FullConnectedSyn):
         kernel: np.ndarray,
         stride: Tuple[int],
         # padding: Tuple[int],
-        fm_order: _Order2d,
+        # fm_order: _Order2d,
         order: _KOrder3d,
         name: Optional[str] = None,
     ) -> None:
@@ -187,8 +180,8 @@ class Conv1dSyn(FullConnectedSyn):
         out_channels, in_channels, kernel_l = _kernel.shape
 
         # C,L
-        in_ch, in_l = _fm_ndim1_check(source.shape_out, fm_order)
-        out_ch, out_l = _fm_ndim1_check(dest.shape_out, fm_order)
+        in_ch, in_l = _fm_ndim1_check(source.shape_out, "CL")
+        out_ch, out_l = _fm_ndim1_check(dest.shape_out, "CL")
 
         if in_ch != in_channels:
             raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
@@ -202,7 +195,7 @@ class Conv1dSyn(FullConnectedSyn):
 
         assert (in_l + 2 * padding[0] - kernel_l) // stride[0] + 1 == out_l
 
-        comm = Conv1dForward((in_l,), (out_l,), _kernel, stride, padding, fm_order)
+        comm = Conv1dForward((in_l,), (out_l,), _kernel, stride, padding)
 
         self.comm = comm
 
@@ -217,7 +210,7 @@ class Conv2dSyn(FullConnectedSyn):
         kernel: np.ndarray,
         stride: Tuple[int, int],
         # padding: Tuple[int, int],
-        fm_order: _Order3d,
+        # fm_order: _Order3d,
         order: _KOrder4d,
         name: Optional[str] = None,
     ) -> None:
@@ -237,8 +230,8 @@ class Conv2dSyn(FullConnectedSyn):
         out_channels, in_channels, kernel_h, kernel_w = _kernel.shape
 
         # C,H,W
-        in_ch, in_h, in_w = _fm_ndim2_check(source.shape_out, fm_order)
-        out_ch, out_h, out_w = _fm_ndim2_check(dest.shape_out, fm_order)
+        in_ch, in_h, in_w = _fm_ndim2_check(source.shape_out, "CHW")
+        out_ch, out_h, out_w = _fm_ndim2_check(dest.shape_out, "CHW")
 
         if in_ch != in_channels:
             raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
@@ -253,8 +246,6 @@ class Conv2dSyn(FullConnectedSyn):
         assert (in_h + 2 * padding[0] - kernel_h) // stride[0] + 1 == out_h
         assert (in_w + 2 * padding[1] - kernel_w) // stride[1] + 1 == out_w
 
-        comm = Conv2dForward(
-            (in_h, in_w), (out_h, out_w), _kernel, stride, padding, fm_order
-        )
+        comm = Conv2dForward((in_h, in_w), (out_h, out_w), _kernel, stride, padding)
 
         self._set_comm(comm)

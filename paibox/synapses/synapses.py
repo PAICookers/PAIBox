@@ -9,16 +9,7 @@ from paibox.projection import InputProj
 from paibox.types import DataArrayType
 
 from .base import Conv1dSyn, Conv2dSyn, FullConnSyn
-from .conv_utils import (
-    _KOrder3d,
-    _KOrder4d,
-    _Order2d,
-    _Order3d,
-    _pair,
-    _single,
-    _Size1Type,
-    _Size2Type,
-)
+from .conv_utils import _KOrder3d, _KOrder4d, _pair, _single, _Size1Type, _Size2Type
 from .transforms import GeneralConnType as GConnType
 
 __all__ = ["FullConn", "Conv1d", "Conv2d"]
@@ -72,12 +63,24 @@ class Conv1d(Conv1dSyn):
         *,
         stride: _Size1Type = 1,
         # padding: _Size1Type = 0,
-        fm_order: _Order2d = "CL",
+        # fm_order: _Order2d = "CL",
         kernel_order: _KOrder3d = "OIL",
         name: Optional[str] = None,
     ) -> None:
-        if fm_order not in ("CL", "LC"):
-            raise ValueError(f"feature map order must be 'CL' or 'LC'.")
+        """1d convolution synapses in fully-unrolled format.
+
+        Arguments:
+            - source: source neuron(s). The dimensions need to be expressed explicitly as (C,L).
+            - dest: destination neuron(s).
+            - kernel: convolution kernel. Its dimension order is either (O,I,L) or (I,O,L), depending on \
+                the argument `kernel_order`.
+            - stride: the step size of the kernel sliding. It can be a scalar or a tuple of 2 integers.
+            - kernel_order: dimension order of kernel, (O,I,L) or (I,O,L). (O,I,L) stands for (output   \
+                channels, input channels, length).
+            - name: name of the 1d convolution. Optional.
+        """
+        # if fm_order not in ("CL", "LC"):
+        #     raise ValueError(f"feature map order must be 'CL' or 'LC'.")
 
         if kernel_order not in ("OIL", "IOL"):
             raise ValueError(f"kernel order must be 'OIL' or 'IOL'.")
@@ -88,7 +91,7 @@ class Conv1d(Conv1dSyn):
             kernel,
             _single(stride),
             # _single(padding),
-            fm_order,
+            # fm_order,
             kernel_order,
             name=name,
         )
@@ -103,27 +106,24 @@ class Conv2d(Conv2dSyn):
         *,
         stride: _Size2Type = 1,
         # padding: _Size2Type = 0,
-        fm_order: _Order3d = "CHW",
+        # fm_order: _Order3d = "CHW",
         kernel_order: _KOrder4d = "OIHW",
         name: Optional[str] = None,
     ) -> None:
         """2d convolution synapses in fully-unrolled format.
 
         Arguments:
-            - source: source neuron(s). The dimensions need to be expressed explicitly as (C,H,W) or    \
-                (H,W,C). The feature map dimension order is specified by `fm_order`.
+            - source: source neuron(s). The dimensions need to be expressed explicitly as (C,H,W).
             - dest: destination neuron(s).
-            - kernel: convolution kernel. Its dimension order must be (O,I,H,W) or (I,O,H,W), depending \
-                on the argument `kernel_order`.
+            - kernel: convolution kernel. Its dimension order is either (O,I,H,W) or (I,O,H,W),         \
+                depending on the argument `kernel_order`.
             - stride: the step size of the kernel sliding. It can be a scalar or a tuple of 2 integers.
-            - fm_order: dimension order of feature map. The order of input & output feature maps must be\
-                consistent, (C,H,W) or (H,W,C).
             - kernel_order: dimension order of kernel, (O,I,H,W) or (I,O,H,W). (O,I,H,W) stands for     \
                 (output channels, input channels, height, width).
             - name: name of the 2d convolution. Optional.
         """
-        if fm_order not in ("CHW", "HWC"):
-            raise ValueError(f"feature map order must be 'CHW or 'HWC'.")
+        # if fm_order not in ("CHW", "HWC"):
+        #     raise ValueError(f"feature map order must be 'CHW or 'HWC'.")
 
         if kernel_order not in ("OIHW", "IOHW"):
             raise ValueError(f"kernel order must be 'OIHW' or 'IOHW'.")
@@ -134,7 +134,7 @@ class Conv2d(Conv2dSyn):
             kernel,
             _pair(stride),
             # _pair(padding),
-            fm_order,
+            # fm_order,
             kernel_order,
             name=name,
         )
