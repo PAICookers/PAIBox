@@ -7,13 +7,13 @@ if sys.version_info >= (3, 10):
 else:
     from typing_extensions import TypeAlias
 
-from paibox.base import NeuDyn, SynSys
-from paibox.components.projection import InputProj
+from paibox.base import NeuDyn
+from paibox.components import FullConnectedSyn, InputProj
 
 NodeName: TypeAlias = str
 EdgeName: TypeAlias = str
 NodeType: TypeAlias = Union[InputProj, NeuDyn]
-EdgeType: TypeAlias = SynSys
+EdgeType: TypeAlias = FullConnectedSyn
 SourceNodeType: TypeAlias = NodeType
 DestNodeType: TypeAlias = NeuDyn
 

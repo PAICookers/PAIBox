@@ -90,25 +90,18 @@ class Mapper:
         set_cflag(enable_wp_opt=True)
         set_cflag(grouping_optim_target="both")
 
-    def build(
-        self,
-        *networks: DynSysGroup,
-        # bounded_nodes: Sequence[Sequence[NeuDyn]] = (),
-        # conflicted_nodes: Dict[NodeName, Sequence[NeuDyn]] = {},
-    ) -> None:
-        """Build the directed graph based on given networks.    \
-            More than one networks in one graph is supported.
+    def build(self, *networks: DynSysGroup, **build_options) -> None:
+        """Build the directed graph based on given networks. More than one networks in one graph is supported.
 
         Args:
             - networks: one or many `DynSysGroup`.
 
-        TODO verify the following phases when more than one sub  \
-            network is given.
+        TODO verify the following phases when more than one sub network is given.
         """
         self.clear()
 
         # Filter & check the constraints to nodes.
-        self.graph.build(*networks)
+        self.graph.build(*networks, **build_options)
 
     def compile(
         self,

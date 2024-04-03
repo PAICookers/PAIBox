@@ -15,9 +15,9 @@ from typing import (
 
 from paicorelib import HwConfig
 
-from paibox.base import NeuDyn, SynSys
+from paibox.base import NeuDyn
 from paibox.collector import Collector
-from paibox.components import InputProj
+from paibox.components import FullConnectedSyn, InputProj
 from paibox.exceptions import BuildError, NotSupportedError
 from paibox.network import DynSysGroup
 
@@ -84,22 +84,18 @@ class PAIGraph:
 
         # self.node_constrs.clear()
 
-    def build(
-        self,
-        *networks: DynSysGroup,
-        # bounded_nodes: Sequence[Sequence[NeuDyn]] = (),
-        # conflicted_nodes: Dict[NodeName, Sequence[NeuDyn]] = {},
-    ) -> None:
+    def build(self, *networks: DynSysGroup, **build_options) -> None:
         self.clear()
         self.networks = networks
 
         _nodes: Collector[NodeName, NodeType] = Collector()
         _edges: Collector[EdgeName, EdgeType] = Collector()
 
+        self._pre_build(**build_options)
+
         for network in networks:
-            sub_nodes = network.nodes(include_self=False, find_recursive=True)
-            _nodes += sub_nodes.include(InputProj, NeuDyn).unique()
-            _edges += sub_nodes.subset(SynSys).unique()
+            _nodes += network.components.include(InputProj, NeuDyn).unique()
+            _edges += network.components.subset(FullConnectedSyn).unique()
 
         self._raw_nodes = _nodes
         self._raw_edges = _edges
@@ -110,8 +106,7 @@ class PAIGraph:
 
         for syn in self._raw_edges.values():
             u, v = syn.source.name, syn.dest.name
-            # TODO tick_relative = 1 in default here.
-            self.succ_dg[u][v] = EdgeAttr(edge=syn, distance=1)
+            self.succ_dg[u][v] = EdgeAttr(edge=syn, distance=syn.source.delay_relative)
 
         self.degree_of_nodes = get_node_degrees(self.succ_dg)
 
@@ -138,6 +133,12 @@ class PAIGraph:
         self.has_built = True
 
         self._graph_supported_check()
+
+    def _pre_build(self, **build_options) -> None:
+        """Preprocessing before obtaining the topology."""
+        for network in self.networks:
+            # destroy the building modules & construct
+            network.module_construct(**build_options)
 
     def _graph_supported_check(self) -> None:
         """Preprocess of the directed graph. Because there are currently    \

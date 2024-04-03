@@ -4,27 +4,27 @@ from typing import Callable, List, Optional, Tuple, Type, Union
 import numpy as np
 from typing_extensions import TypeAlias
 
-from .base import DynamicSys, NeuDyn, SynSys
+from .base import DynamicSys, PAIBoxObject, SynSys
 from .collector import Collector
 from .components import (
-    BuildingModule,
+    FullConnectedSyn,
+    NeuModule,
     InputProj,
     Neuron,
     Projection,
-    RIGISTER_MASTER_KEY_FORMAT,
 )
+from .components.synapses.base import RIGISTER_MASTER_KEY_FORMAT
 from .exceptions import PAIBoxWarning, RegisterError
 from .mixin import Container
 from .node import NodeDict
 
 __all__ = ["DynSysGroup", "Network"]
 
-ComponentsType: TypeAlias = Union[InputProj, Neuron, SynSys]
+ComponentsType: TypeAlias = Union[InputProj, Neuron, FullConnectedSyn]
 # TODO replace `Neuron` with `NeuDyn`. Need tests.
 
 
 class DynSysGroup(DynamicSys, Container):
-
     def __init__(
         self,
         *components_as_tuple,
@@ -38,12 +38,17 @@ class DynSysGroup(DynamicSys, Container):
         )
 
     def update(self, **kwargs) -> None:
-        """Find nodes in the network recursively."""
-        nodes = (
-            self.nodes(include_self=False, find_recursive=True)
-            .subset(DynamicSys)
-            .unique()
-        )
+        """Network update.
+        
+        XXX: The hierarchy of `NeuModule` requires that its update order is after synapses & before neurons.   \
+            For example, a network with topology I1 -> M1 -> S1 -> N1, where the M1 consists of S2, S3 & N2. The\
+            right update order is I1 -> S1, S2, S3 -> N1, N2. So the update order inside M1 is S2, S3 -> N2, of \
+            which the update order is exactly between the synapses & neurons outside the module.
+            
+            It requires that the computing mechanism described inside modules can only be the computing process \
+            from synapses (as inputs) to neurons (as outputs).
+        """
+        nodes = self.components.subset(DynamicSys).unique()
 
         for node in nodes.subset(Projection).values():
             node(**kwargs)
@@ -51,15 +56,14 @@ class DynSysGroup(DynamicSys, Container):
         for node in nodes.subset(SynSys).values():
             node()
 
-        for node in nodes.subset(NeuDyn).values():
+        for node in nodes.subset(NeuModule).values():
+            node()
+
+        for node in nodes.subset(Neuron).values():
             node()
 
     def reset_state(self) -> None:
-        nodes = (
-            self.nodes(include_self=False, find_recursive=True)
-            .subset(DynamicSys)
-            .unique()
-        )
+        nodes = self.components.subset(DynamicSys).unique()
 
         for node in nodes.subset(Projection).values():
             node.reset_state()
@@ -67,18 +71,17 @@ class DynSysGroup(DynamicSys, Container):
         for node in nodes.subset(SynSys).values():
             node.reset_state()
 
-        for node in nodes.subset(NeuDyn).values():
+        for node in nodes.subset(NeuModule).values():
+            node.reset_state()
+
+        for node in nodes.subset(Neuron).values():
             node.reset_state()
 
     def __call__(self, **kwargs) -> None:
         return self.update(**kwargs)
 
-    def build(self, **build_options) -> None:
-        modules = (
-            self.nodes(include_self=False, find_recursive=True)
-            .subset(BuildingModule)
-            .unique()
-        )
+    def module_construct(self, **build_options) -> None:
+        modules = self.components.subset(NeuModule).unique()
 
         for module in modules.values():
             module.build(self, **build_options)
@@ -287,6 +290,11 @@ class DynSysGroup(DynamicSys, Container):
 
         if any(neuron not in neu_dyns.values() for neuron in neurons):
             raise ValueError("not all neurons found in the network.")
+
+    @property
+    def components(self) -> Collector[str, PAIBoxObject]:
+        """Recursively search for all components within the network."""
+        return self.nodes(include_self=False, find_recursive=True)
 
 
 Network: TypeAlias = DynSysGroup
