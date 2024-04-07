@@ -24,9 +24,9 @@ from .neuron.neurons import *
 from .neuron.utils import VJT_MIN_LIMIT, _is_vjt_overflow
 from .projection import InputProj
 from .synapses import FullConnSyn, GeneralConnType as GConnType
-from .synapses.conv_types import _Size2Type, _Order3d
+from .synapses.conv_types import _Size2Type
 from .synapses.conv_utils import _pair, _fm_ndim2_check
-from .synapses.transforms import _MaxPool2dForward
+from .synapses.transforms import _Pool2dForward
 
 __all__ = [
     "BitwiseAND",
@@ -35,6 +35,7 @@ __all__ = [
     "BitwiseXOR",
     "DelayChain",
     "SpikingAdd",
+    "SpikingAvgPool2d",
     "SpikingMaxPool2d",
     "SpikingSub",
     "Transpose2d",
@@ -486,44 +487,41 @@ class SpikingAdd(FunctionalModule2to1WithV):
         network.remove_component(self)
 
 
-class SpikingMaxPool2d(FunctionalModule):
-    """
-    NOTE: By enabling `MaxPoolingEnable` in neurons, the max pooling function can also be implemented.      \
-        However, since the second-level cache of the input buffer before the physical core is in 144*8bit   \
-        format, it is extremely wasteful when the input data is 1bit (i.e., spike). Therefore, we still     \
-        under SNN mode when implementing max pooling of 1-bit input data.
-    """
-
+class _SpikingPool2d(FunctionalModule):
     inherent_delay = 0
 
     def __init__(
         self,
         neuron: Union[NeuDyn, InputProj],
         kernel_size: _Size2Type,
+        pool_type: Literal["avg", "max"],
         stride: Optional[_Size2Type] = None,
         # padding: _Size2Type = 0,
-        fm_order: _Order3d = "CHW",
-        *,
+        # fm_order: _Order3d = "CHW",
         keep_shape: bool = False,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
-        """Max pooling for spike.
+        """2d pooling for spike.
 
         Args:
-            - neuron: the target neuron to be delayed.
+            - neuron: of which the pooling will be performed.
             - kernel_size: the size of the window to take a max over.
+            - pool_type: type of pooling, "avg" or "max".
             - stride: the stride of the window. Default value is `kernel_size`.
             - fm_order: dimension order of feature map. The order of input & output feature maps must be    \
                 consistent, (C,H,W) or (H,W,C).
 
         NOTE: the inherent delay of the module is 0.
         """
-        if fm_order not in ("CHW", "HWC"):
-            raise ValueError(f"feature map order must be 'CHW' or 'HWC'.")
+        if pool_type not in ("avg", "max"):
+            raise ValueError("type of pooling must be 'avg' or 'max'.")
+
+        # if fm_order not in ("CHW", "HWC"):
+        #     raise ValueError("feature map order must be 'CHW' or 'HWC'.")
 
         # C,H,W
-        cin, ih, iw = _fm_ndim2_check(neuron.shape_out, fm_order)
+        cin, ih, iw = _fm_ndim2_check(neuron.shape_out, "CHW")
 
         _ksize = _pair(kernel_size)
         _stride = _pair(stride) if stride is not None else _ksize
@@ -537,14 +535,8 @@ class SpikingMaxPool2d(FunctionalModule):
         else:
             shape_out = (cin * oh * ow,)
 
-        self.tfm = _MaxPool2dForward(
-            cin,
-            (ih, iw),
-            (oh, ow),
-            _ksize,
-            _stride,
-            _padding,
-            fm_order,
+        self.tfm = _Pool2dForward(
+            cin, (ih, iw), (oh, ow), _ksize, _stride, _padding, pool_type
         )
 
         super().__init__(
@@ -556,17 +548,29 @@ class SpikingMaxPool2d(FunctionalModule):
         )
 
     def spike_func(self, x1: SpikeType, **kwargs) -> SpikeType:
-        return self.tfm(x1) > 0
+        return self.tfm(x1)
 
     def build(self, network: DynSysGroup, **build_options) -> None:
-        n1_mp = SpikingRelu(
-            self.shape_out,
-            delay=self.delay_relative,
-            tick_wait_start=self.tick_wait_start,
-            tick_wait_end=self.tick_wait_end,
-            keep_shape=self.keep_shape,
-            name=f"n0_{self.name}",
-        )
+        if self.tfm.pool_type == "avg":
+            n1_mp = Neuron(
+                self.shape_out,
+                leak_comparison=LCM.LEAK_BEFORE_COMP,
+                leak_v=-(shape2num(self.tfm.ksize) // 2),
+                neg_threshold=0,
+                delay=self.delay_relative,
+                tick_wait_start=self.tick_wait_start,
+                tick_wait_end=self.tick_wait_end,
+                keep_shape=self.keep_shape,
+            )
+        else:  # "max"
+            n1_mp = SpikingRelu(
+                self.shape_out,
+                delay=self.delay_relative,
+                tick_wait_start=self.tick_wait_start,
+                tick_wait_end=self.tick_wait_end,
+                keep_shape=self.keep_shape,
+                name=f"n0_{self.name}",
+            )
 
         syn1 = FullConnSyn(
             self.module_intf.operands[0],
@@ -581,6 +585,63 @@ class SpikingMaxPool2d(FunctionalModule):
 
         network.add_components(n1_mp, syn1)
         network.remove_component(self)
+
+
+class SpikingAvgPool2d(_SpikingPool2d):
+    def __init__(
+        self,
+        neuron: Union[NeuDyn, InputProj],
+        kernel_size: _Size2Type,
+        stride: Optional[_Size2Type] = None,
+        # padding: _Size2Type = 0,
+        # fm_order: _Order3d = "CHW",
+        *,
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        """2d average pooling for spike. The input feature map is in 'CHW' order by default.
+
+        Args:
+            - neuron: the target neuron to be pooled.
+            - kernel_size: the size of the window to take a max over.
+            - stride: the stride of the window. Default value is `kernel_size`.
+
+        NOTE: the inherent delay of the module is 0.
+        """
+        super().__init__(neuron, kernel_size, "avg", stride, keep_shape, name, **kwargs)
+
+
+class SpikingMaxPool2d(_SpikingPool2d):
+    """
+    XXX: By enabling `MaxPoolingEnable` in neurons, the max pooling function can also be implemented.      \
+        However, since the second-level cache of the input buffer before the physical core is in 144*8bit   \
+        format, it is extremely wasteful when the input data is 1bit (i.e., spike). Therefore, we still     \
+        under SNN mode when implementing max pooling of 1-bit input data.
+    """
+
+    def __init__(
+        self,
+        neuron: Union[NeuDyn, InputProj],
+        kernel_size: _Size2Type,
+        stride: Optional[_Size2Type] = None,
+        # padding: _Size2Type = 0,
+        # fm_order: _Order3d = "CHW",
+        *,
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        """2d max pooling for spike.
+
+        Args:
+            - neuron: the target neuron to be pooled.
+            - kernel_size: the size of the window to take a max over.
+            - stride: the stride of the window. Default value is `kernel_size`.
+
+        NOTE: the inherent delay of the module is 0.
+        """
+        super().__init__(neuron, kernel_size, "max", stride, keep_shape, name, **kwargs)
 
 
 class SpikingSub(FunctionalModule2to1WithV):
@@ -683,7 +744,7 @@ class Transpose2d(TransposeModule):
     def spike_func(self, x1: SpikeType, **kwargs) -> SpikeType:
         _x1 = x1.reshape(self.shape_in)
 
-        return _x1.T.flatten()
+        return _x1.T
 
     def build(self, network: DynSysGroup, **build_options) -> None:
         n1_t2d = Neuron(
@@ -745,7 +806,7 @@ class Transpose3d(TransposeModule):
     def spike_func(self, x1: SpikeType, **kwargs) -> SpikeType:
         _x1 = x1.reshape(self.shape_in)
 
-        return _x1.transpose(self.axes).flatten()
+        return _x1.transpose(self.axes)
 
     def build(self, network: DynSysGroup, **build_options) -> None:
         n1_t3d = Neuron(
