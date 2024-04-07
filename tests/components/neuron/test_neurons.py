@@ -461,3 +461,43 @@ class TestNeuronSim:
 
         for t in range(20):
             assert np.array_equal(sim.data[net.probe1][t], inp[t])
+
+    @pytest.mark.parametrize("n_window", [4, 6, 8, 9, 12, 16, 25, 32, 36, 49])
+    def test_AvgPoolNeuron_behavior(self, n_window):
+        """
+        NOTE: This neuron is used in `functional.SpikingAvgPool2d` & its basic functions need   \
+            to be verified here.
+        """
+        from paibox.components import Neuron
+
+        # ksize[0] * ksize[1]
+        class Net(pb.Network):
+            def __init__(self):
+                super().__init__()
+                self.inp1 = pb.InputProj(input=None, shape_out=(n_window,))
+
+                self.n1 = Neuron(
+                    shape=(1,),
+                    leak_comparison=LCM.LEAK_BEFORE_COMP,
+                    leak_v=-(n_window // 2),
+                    neg_threshold=0,
+                    tick_wait_start=1,
+                )
+                self.s1 = pb.FullConn(
+                    self.inp1, self.n1, conn_type=pb.SynConnType.All2All
+                )
+
+                self.probe1 = pb.Probe(self.n1, "spike")
+
+        net = Net()
+        sim = pb.Simulator(net)
+
+        # Generate upper triangular matrix where the number of 1's increases in sequence.
+        inp = np.tril(np.ones((1 + n_window, n_window), dtype=np.bool_))
+
+        for t in range(1 + n_window):
+            net.inp1.input = inp[t]
+            sim.run(1)
+
+            expected = t >= (n_window // 2)
+            assert sim.data[net.probe1][t][0] == expected
