@@ -216,7 +216,7 @@ class Mapper:
                 optim_target=_BACKEND_CONTEXT.cflags["grouping_optim_target"]
             )
 
-        # Calculate the consumption of physical cores required.
+        # Calculate the consumption of required physical cores.
         if (
             n_core_required := sum(cb.n_core_required for cb in self.core_blocks)
         ) > HwConfig.N_CORE_OFFLINE:
@@ -238,12 +238,20 @@ class Mapper:
 
         self.routing_groups = routing_groups
 
+        # Calculate the consumption of occupied physical cores.
+        if (
+            n_core_occupied := sum(rg.get_n_core_occupied() for rg in routing_groups)
+        ) > HwConfig.N_CORE_OFFLINE:
+            raise ResourceError(
+                f"the number of occupied cores is out of range {HwConfig.N_CORE_OFFLINE} ({n_core_occupied})."
+            )
+
+        self.n_core_occupied = n_core_occupied
+
     def core_allocation(self) -> None:
-        """Allocate the core blocks to the physical cores. \
-            The order of `core_plms` is the same as `core_blocks`.
-        """
-        for cb in self.core_blocks:
-            cb.core_plm_alloc()
+        """Allocate the routing groups to core placements level."""
+        for rg in self.routing_groups:
+            rg.core_block_alloc()
 
     def config_export(self) -> GraphInfo:
         """Export parameters of cores & neurons inside.
@@ -262,7 +270,7 @@ class Mapper:
             members=self.core_plm_config,  # The configuration of physical cores is in `core_plm_config`
             inherent_timestep=self.graph.inherent_timestep,
             n_core_required=self.n_core_required,
-            # n_core_occupied=self.n_core_occupied,
+            n_core_occupied=self.n_core_occupied,
             extras={"name": self.graph.graph_name_repr},
         )
 
@@ -329,12 +337,7 @@ class Mapper:
         return input_nodes_info
 
     def _member_cb_and_onode_config_export(self) -> OutputDestInfo:
-        """Export the configuration of member core blocks & output destinations.
-
-        Description:
-            Traverse core placements in core blocks, find the following core    \
-            blocks where the axons at. Get the coordinate of the core placement \
-            & coordinates of axons(for broadcasting).
+        """Export configuration & output destinations inormation for core blocks.
 
         Json exchange file format for output nodes:
         {
@@ -358,42 +361,48 @@ class Mapper:
         # Shallow copy
         ocoord = copy(_BACKEND_CONTEXT["output_core_addr_start"])
 
-        for member_cb in self.core_blocks:
-            self.core_params.update(
-                CoreBlock.export_core_plm_config(member_cb)
-            )  # compatible for py3.8
+        for rg in self.routing_groups:
+            for member_cb in rg:
+                self.core_params.update(
+                    CoreBlock.export_core_plm_config(member_cb)
+                )  # compatible for py3.8
 
-            output_axon_offset = 0
-            for core_plm in member_cb.core_placements.values():
-                for neu_seg in core_plm.neu_segs_of_cplm:
-                    # Find the axon destinations
-                    dest_cb = [
-                        cb for cb in self.core_blocks if neu_seg.parent in cb.source
-                    ]
+                output_axon_offset = 0
+                for core_plm in member_cb.core_placements.values():
+                    for neu_seg in core_plm.neu_segs_of_cplm:
+                        # Find the axon destinations
+                        dest_cb = [
+                            cb for cb in self.core_blocks if neu_seg.parent in cb.source
+                        ]
+                        # TODO When obtaining core blocks, we should determine which core block
+                        # is used as a pure member core block, which one is used as both a member
+                        # & an output core block. This constrains the grouping of neurons.
+                        if dest_cb:
+                            # `neu_seg` is member neurons
+                            # Should not happen
+                            assert _cb_routable(self.routing_groups, dest_cb)
+                            core_plm.export_neu_config(neu_seg, dest_cb)
+                        else:
+                            # `neu_seg` is output neurons. Every neuron segment is a output node.
+                            # Update the offset of axon
+                            output_axon_offset = core_plm.export_neu_config(
+                                neu_seg,
+                                output_core_coord=ocoord,
+                                axon_addr_offset=output_axon_offset,
+                            )
+                            output_dest_info[neu_seg.parent.name][
+                                core_plm.coord.address
+                            ] = core_plm.neu_configs[neu_seg.parent].neuron_dest_info
 
-                    # FIXME It is necessary to ensure that when there are both output nodes
-                    # & member nodes in the same `CoreBlock`, they need to be allocated on
-                    # different physical cores, otherwise routing problem will occur.
-                    if dest_cb:  # `neu_seg` is memeber neurons
-                        # Should not happen
-                        assert _cb_routable(self.routing_groups, dest_cb)
-                        core_plm.export_neu_config(neu_seg, dest_cb)
-                    else:
-                        # `neu_seg` is output neurons. Every neuron segment is a output node.
-                        # Update the offset of axon
-                        output_axon_offset = core_plm.export_neu_config(
-                            neu_seg,
-                            output_core_coord=ocoord,
-                            axon_addr_offset=output_axon_offset,
-                        )
-                        output_dest_info[neu_seg.parent.name][
-                            core_plm.coord.address
-                        ] = core_plm.neu_configs[neu_seg.parent].neuron_dest_info
+                            # Coord.x += 1 for the destination of the next output node
+                            ocoord += CoordOffset(1, 0)
 
-                        # Coord.x += 1 for the destination of the next output node
-                        ocoord += CoordOffset(1, 0)
+                    self.core_plm_config[core_plm.coord] = (
+                        core_plm.export_core_plm_config()
+                    )
 
-                self.core_plm_config[core_plm.coord] = core_plm.export_core_plm_config()
+            # Generate default configurations for wasted core placements
+            self.core_plm_config.update(rg.get_wasted_cplm_config())
 
         return output_dest_info
 
@@ -412,11 +421,10 @@ class Mapper:
         Args:
             - write_to_file: whether to write frames into file.
             - fp: If `write_to_file` is `True`, specify the output path.
-            - format: `txt`, `bin`, or `npy`.`bin` & `npy` are recommended.
-            - split_by_coordinate: whether to split the generated frames file by the    \
-                core coordinates.
-            - local_chip_addr: the address of the local chip. If not specified, the     \
-                default value in `_BACKEND_CONTEXT` will be used.
+            - format: `txt`, `bin`, or `npy`. `bin` is recommended.
+            - split_by_coordinate: whether to split the generated frames file by the core coordinates.
+            - local_chip_addr: the address of the local chip. If not specified, the default value in    \
+                `_BACKEND_CONTEXT` will be used.
             - export_core_params: whether to export the parameters of occupied cores.
 
         Return: a dictionary of configurations.

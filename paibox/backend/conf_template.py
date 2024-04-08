@@ -2,7 +2,7 @@ import json
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Literal, NamedTuple, TypedDict
+from typing import Any, ClassVar, Dict, List, Literal, NamedTuple, TypedDict
 
 import numpy as np
 from numpy.typing import NDArray
@@ -10,6 +10,7 @@ from paicorelib import (
     LCN_EX,
     AxonCoord,
     Coord,
+    HwConfig,
     InputWidthFormat,
     MaxPoolingEnable,
     NeuronAttrs,
@@ -254,6 +255,22 @@ class CorePlacementConfig(ConfigTemplate):
         return dict_
 
 
+class EmptyCorePlacementConfig(CorePlacementConfig):
+    _default_seed: ClassVar[int] = 0
+    _default_zero_wram: ClassVar[NDArray[np.uint64]] = np.zeros(
+        (HwConfig.ADDR_RAM_MAX, 18), dtype=np.uint64
+    )
+
+    @classmethod
+    def encapsulate(cls, core_config: CoreConfig):
+        return cls(
+            cls._default_seed,
+            cls._default_zero_wram,
+            ParamsReg.model_validate(core_config._asdict(), strict=True),
+            {},
+        )
+
+
 InputNodeInfo: TypeAlias = Dict[NodeName, NeuronDest]
 OutputDestInfo: TypeAlias = Dict[NodeName, Dict[int, NeuronDestInfo]]
 CorePlacementInfo: TypeAlias = Dict[Coord, CorePlacementConfig]
@@ -271,8 +288,8 @@ class GraphInfo(TypedDict):
     inherent_timestep: int
     n_core_required: int
     """The actual used cores."""
-    # n_core_occupied: int
-    # """The occupied cores, including used & wasted."""
+    n_core_occupied: int
+    """The occupied cores, including used & wasted."""
     extras: NotRequired[Dict[str, Any]]
 
 
@@ -292,7 +309,7 @@ def gen_config_frames_by_coreconf(
         - write_to_file: whether to write frames to file.
         - fp: If `write_to_file` is `True`, specify the path.
         - split_by_coord: whether to split the generated frames file by the core coordinates.
-        - format: `txt`, `bin`, or `npy`. `bin` & `npy` are recommended.
+        - format: `txt`, `bin`, or `npy`.
     """
 
     def _write_to_f(name: str, array: FrameArrayType) -> None:
@@ -327,7 +344,7 @@ def gen_config_frames_by_coreconf(
             v.params_reg,
         )
 
-        # 3. Iterate all the neuron segments in the function inside
+        # 3. Iterate all the neuron segments inside the physical core.
         config_frame_type3 = []
         for neu_conf in v.neuron_configs.values():
             config_frame_type3.append(
@@ -344,20 +361,26 @@ def gen_config_frames_by_coreconf(
                 )
             )
 
-        frame3 = np.concatenate(
-            [f.value for f in config_frame_type3], dtype=FRAME_DTYPE
-        )
+        if config_frame_type3:
+            frame3 = np.concatenate(
+                [f.value for f in config_frame_type3], dtype=FRAME_DTYPE, casting="no"
+            )
+        else:
+            frame3 = np.asarray([], dtype=FRAME_DTYPE)
 
         # 4. Only one config frame type IV for each physical core.
         n_addr_write = v.params_reg.num_dendrite  # The number of address to write
-        config_frame_type4 = OfflineFrameGen.gen_config_frame4(
-            target_chip_coord,
-            core_coord,
-            _default_rid,
-            0,
-            18 * n_addr_write,
-            v.weight_ram[:n_addr_write],
-        )
+        if n_addr_write > 0:
+            config_frame_type4 = OfflineFrameGen.gen_config_frame4(
+                target_chip_coord,
+                core_coord,
+                _default_rid,
+                0,
+                18 * n_addr_write,
+                v.weight_ram[:n_addr_write],
+            )
+        else:
+            config_frame_type4 = None
 
         _debug_dict[core_coord] = {
             "config1": config_frame_type1,
@@ -366,15 +389,23 @@ def gen_config_frames_by_coreconf(
             "config4": config_frame_type4,
         }
 
-        frame_arrays_on_core[core_coord] = np.concatenate(
-            [
-                config_frame_type1.value,
-                config_frame_type2.value,
-                frame3,
-                config_frame_type4.value,
-            ],
-            dtype=FRAME_DTYPE,
-        )
+        if config_frame_type4:
+            frame_arrays_on_core[core_coord] = np.concatenate(
+                [
+                    config_frame_type1.value,
+                    config_frame_type2.value,
+                    frame3,
+                    config_frame_type4.value,
+                ],
+                dtype=FRAME_DTYPE,
+                casting="no",
+            )
+        else:
+            frame_arrays_on_core[core_coord] = np.concatenate(
+                [config_frame_type1.value, config_frame_type2.value, frame3],
+                dtype=FRAME_DTYPE,
+                casting="no",
+            )
 
     if write_to_file:
         if split_by_coord:
@@ -382,7 +413,9 @@ def gen_config_frames_by_coreconf(
                 addr = core_coord.address
                 _write_to_f(f"config_core{addr}", f)
         else:
-            _f = np.concatenate(list(frame_arrays_on_core.values()), dtype=FRAME_DTYPE)
+            _f = np.concatenate(
+                list(frame_arrays_on_core.values()), dtype=FRAME_DTYPE, casting="no"
+            )
             _write_to_f(f"config_cores_all", _f)
 
     return frame_arrays_on_core
