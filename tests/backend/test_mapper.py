@@ -234,6 +234,15 @@ class TestMapper_Export:
 
         assert len(mapper.graph_info["output"].keys()) == net.n_onodes
 
+    def test_export_empty_cplm(self, build_example_net4_large_scale, ensure_dump_dir):
+        net = build_example_net4_large_scale
+        mapper = pb.Mapper()
+        mapper.build(net)
+        mapper.compile()
+        mapper.export(fp=ensure_dump_dir)
+
+        assert len(mapper.routing_groups[1].wasted_coords) == 2
+
 
 class TestMapper_Weight4:
     @pytest.mark.skipif(

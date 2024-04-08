@@ -22,8 +22,14 @@ from paicorelib import (
 from paicorelib import WeightPrecision as WP
 
 import paibox as pb
-from paibox.backend.conf_template import CoreConfig, CorePlacementConfig, NeuronConfig
+from paibox.backend.conf_template import (
+    EmptyCorePlacementConfig,
+    CoreConfig,
+    CorePlacementConfig,
+    NeuronConfig,
+)
 from paibox.backend.routing import RoutingCluster
+from paibox.exceptions import ResourceError
 from paibox.naming import clear_name_cache
 from paibox.node import NodeList
 from tests.conftest import ParametrizedTestData
@@ -40,6 +46,9 @@ def ensure_dump_dir():
             f.unlink()
 
     yield p
+    # Clean up
+    # for f in p.iterdir():
+    #     f.unlink()
 
 
 @pytest.fixture
@@ -170,12 +179,19 @@ class NetForTest4(pb.Network):
                   N1 -> S3 -> N3 -> S5 -> N4
     """
 
-    def __init__(self):
+    def __init__(self, large_scale: bool = False):
         super().__init__()
+
         self.inp1 = pb.InputProj(input=1, shape_out=(400,), name="inp1")
         self.n1 = pb.TonicSpiking(800, 3, name="n1", tick_wait_start=1)
-        self.n2 = pb.TonicSpiking(400, 4, name="n2", tick_wait_start=2)
-        self.n3 = pb.TonicSpiking(400, 4, name="n3", tick_wait_start=2)
+
+        if large_scale:
+            self.n2 = pb.TonicSpiking(1500, 4, name="n2", tick_wait_start=2)
+            self.n3 = pb.TonicSpiking(1500, 4, name="n3", tick_wait_start=2)
+        else:
+            self.n2 = pb.TonicSpiking(400, 4, name="n2", tick_wait_start=2)
+            self.n3 = pb.TonicSpiking(400, 4, name="n3", tick_wait_start=2)
+
         self.n4 = pb.TonicSpiking(400, 4, name="n4", tick_wait_start=3)
         self.s1 = pb.FullConn(
             self.inp1, self.n1, conn_type=pb.SynConnType.All2All, name="s1"
@@ -187,10 +203,10 @@ class NetForTest4(pb.Network):
             self.n1, self.n3, conn_type=pb.SynConnType.All2All, name="s3"
         )
         self.s4 = pb.FullConn(
-            self.n2, self.n4, conn_type=pb.SynConnType.One2One, name="s4"
+            self.n2, self.n4, conn_type=pb.SynConnType.All2All, name="s4"
         )
         self.s5 = pb.FullConn(
-            self.n3, self.n4, conn_type=pb.SynConnType.One2One, name="s5"
+            self.n3, self.n4, conn_type=pb.SynConnType.All2All, name="s5"
         )
 
 
@@ -516,6 +532,10 @@ def build_example_net4():
 
 
 @pytest.fixture(scope="class")
+def build_example_net4_large_scale():
+    return NetForTest4(large_scale=True)
+
+@pytest.fixture(scope="class")
 def build_multi_onodes_net():
     return Network_with_multi_onodes()
 
@@ -626,6 +646,11 @@ def MockCorePlacementConfig(MockCoreConfigDict, MockNeuronConfig):
     return cpc
 
 
+@pytest.fixture
+def MockEmptyCorePlacementConfig(MockCoreConfigDict):
+    return EmptyCorePlacementConfig.encapsulate(MockCoreConfigDict)
+
+
 def packbits_ref(bits: np.ndarray, count: int) -> int:
     """Pack unsigned bits into a signed integer.
 
@@ -657,6 +682,23 @@ def packbits2():
 @pytest.fixture
 def packbits1():
     return partial(packbits_ref, count=1)
+
+
+
+def n_axon2lcn_ex_proto(n_axon, n_fanin_max) -> LCN_EX:
+    """Convert #N(of axons) to `LCN_EX` & check.
+
+    NOTE: LCN_EX = log2[ceil(#N/fan-in per dendrite)], where `LCN_1X` = 0.
+    """
+    if n_axon < 1:
+        raise ValueError(f"the number of axons must be positive, but got {n_axon}.")
+
+    if (lcn := ((n_axon - 1) // n_fanin_max).bit_length()) > LCN_EX.LCN_64X:
+        raise ResourceError(
+            f"required LCN extension out of range {LCN_EX.LCN_64X} ({lcn}). "
+        )
+
+    return LCN_EX(lcn)
 
 
 class TestData:

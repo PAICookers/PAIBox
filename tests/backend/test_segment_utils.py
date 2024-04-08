@@ -6,7 +6,7 @@ from paicorelib import LCN_EX, AxonCoord, AxonSegment, NeuronSegment
 from paicorelib import WeightPrecision as WP
 
 import paibox as pb
-from paibox.backend.placement import NeuSeg, n_axon2lcn_ex
+from paibox.backend.placement import NeuSeg
 from paibox.backend.segment_utils import (
     aligned_coords,
     get_axon_segments,
@@ -349,7 +349,9 @@ class TestGetNeuronSegments:
     ],
 )
 def test_get_axon_segments(axons):
-    lcn_ex = n_axon2lcn_ex(sum(axon.num_out for axon in axons), 1152)
+    from .conftest import n_axon2lcn_ex_proto
+    
+    lcn_ex = n_axon2lcn_ex_proto(sum(axon.num_out for axon in axons), 1152)
 
     tr_max = 1 << lcn_ex
 
@@ -368,7 +370,9 @@ def test_get_axon_segments(axons):
 )
 def test_get_axon_segments_boundary(axons):
     """Illegal boundary cases."""
-    lcn_ex = n_axon2lcn_ex(sum(axon.num_out for axon in axons), 1152)
+    from .conftest import n_axon2lcn_ex_proto
+    
+    lcn_ex = n_axon2lcn_ex_proto(sum(axon.num_out for axon in axons), 1152)
     tr_max = 1 << lcn_ex
 
     with pytest.raises(ResourceError):
