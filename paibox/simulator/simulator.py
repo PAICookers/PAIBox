@@ -56,7 +56,8 @@ class Simulator(PAIBoxObject):
         Arguments:
             - duration: duration of the simulation.
             - reset: whether to reset the state of components in the model. Default is `False`.
-            - kwargs：determined by the parameter format of the input node. Will be deprecated.
+            - kwargs：determined by the parameter format of the input node. It will be deprecated, \
+                please use 'FRONTEND_ENV.save()' instead.
         """
         if kwargs:
             warnings.warn(

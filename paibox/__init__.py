@@ -8,16 +8,21 @@ from .components.functional import (
     BitwiseNOT as BitwiseNOT,
     BitwiseOR as BitwiseOR,
     BitwiseXOR as BitwiseXOR,
+    DelayChain as DelayChain,
+    SpikingAdd as SpikingAdd,
+    SpikingAvgPool2d as SpikingAvgPool2d,
+    SpikingMaxPool2d as SpikingMaxPool2d,
+    SpikingSub as SpikingSub,
     Transpose2d as Transpose2d,
     Transpose3d as Transpose3d,
 )
 from .components.neuron.neurons import (
+    Always1Neuron as Always1Neuron,
     IF as IF,
     LIF as LIF,
-    TonicSpiking as TonicSpiking,
     PhasicSpiking as PhasicSpiking,
-    Always1Neuron as Always1Neuron,
     SpikingRelu as SpikingRelu,
+    TonicSpiking as TonicSpiking,
 )
 from .components.projection import InputProj as InputProj
 from .components.synapses.synapses import (

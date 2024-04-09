@@ -3,14 +3,13 @@ from functools import wraps
 from typing import Any, Dict, Optional, Sequence, Type, TypeVar
 
 import numpy as np
-from numpy.typing import NDArray
-
 import paibox as pb
 
 from .context import _FRONTEND_CONTEXT
 from .exceptions import RegisterError
 from .naming import get_unique_name
 from .node import NodeDict
+from .types import VoltageType
 
 _T = TypeVar("_T")
 
@@ -142,9 +141,9 @@ class ReceiveInputProj(MixIn):
     def get_master_node(self, key: str) -> Optional[Any]:
         return self.master_nodes.get(key, None)
 
-    def sum_inputs(self, **kwargs) -> NDArray[np.int32]:
+    def sum_inputs(self, *, init: VoltageType = 0, **kwargs) -> VoltageType:  # type: ignore
         # TODO Out is a np.ndarray right now, but it may be more than one type.
-        output = 0
+        output = init
         for node in self.master_nodes.values():
             output += node.output.copy()
 

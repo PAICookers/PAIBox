@@ -509,8 +509,6 @@ class _SpikingPool2d(FunctionalModule):
             - kernel_size: the size of the window to take a max over.
             - pool_type: type of pooling, "avg" or "max".
             - stride: the stride of the window. Default value is `kernel_size`.
-            - fm_order: dimension order of feature map. The order of input & output feature maps must be    \
-                consistent, (C,H,W) or (H,W,C).
 
         NOTE: the inherent delay of the module is 0.
         """
@@ -614,7 +612,7 @@ class SpikingAvgPool2d(_SpikingPool2d):
 
 class SpikingMaxPool2d(_SpikingPool2d):
     """
-    XXX: By enabling `MaxPoolingEnable` in neurons, the max pooling function can also be implemented.      \
+    XXX: By enabling `MaxPoolingEnable` in neurons, the max pooling function can also be implemented.       \
         However, since the second-level cache of the input buffer before the physical core is in 144*8bit   \
         format, it is extremely wasteful when the input data is 1bit (i.e., spike). Therefore, we still     \
         under SNN mode when implementing max pooling of 1-bit input data.

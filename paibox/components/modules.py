@@ -2,6 +2,7 @@ from collections import deque
 from dataclasses import dataclass, field
 import numpy as np
 from typing import ClassVar, List, Optional, Sequence, Tuple, Union
+from typing_extensions import TypeAlias
 
 from paicorelib import HwConfig, TM
 
@@ -12,6 +13,8 @@ from paibox.utils import check_elem_unique, shape2num
 from .projection import InputProj
 
 __all__ = ["BuildingModule"]
+
+MultiInputsType: TypeAlias = List[SpikeType]  # Type of inputs of `NeuModule`.
 
 
 @dataclass
@@ -67,8 +70,6 @@ class BuildingModule:
 
 
 class NeuModule(NeuDyn, BuildingModule):
-    # n_arg: ClassVar[int]
-    """#N of arguments."""
     n_return: ClassVar[int]
     """#N of outputs."""
     inherent_delay: int = 0
@@ -79,6 +80,7 @@ class NeuModule(NeuDyn, BuildingModule):
         delay: int,
         tick_wait_start: int,
         tick_wait_end: int,
+        unrolling_factor: int,
         name: Optional[str] = None,
     ) -> None:
         super().__init__(name)
@@ -86,6 +88,7 @@ class NeuModule(NeuDyn, BuildingModule):
         self._delay = delay
         self._tws = tick_wait_start
         self._twe = tick_wait_end
+        self._uf = unrolling_factor
 
     def __call__(self, *args, **kwargs):
         return self.update(*args, **kwargs)
@@ -93,7 +96,7 @@ class NeuModule(NeuDyn, BuildingModule):
     def reset_state(self, *args, **kwargs) -> None:
         return self.reset_memory()
 
-    def get_inputs(self, *args, **kwargs):
+    def get_inputs(self, *args, **kwargs) -> MultiInputsType:
         """Function used to describe getting inputs of the module."""
         raise NotImplementedError
 
@@ -135,7 +138,7 @@ class FunctionalModule(NeuModule):
         kwargs.setdefault("delay", 1)
         kwargs.setdefault("tick_wait_start", 1)
         kwargs.setdefault("tick_wait_end", 0)
-        # kwargs.setdefault("unrolling_factor", 1)
+        kwargs.setdefault("unrolling_factor", 1)  # TODO Currently, fixed.
 
         # Unique operands only. Otherwise, multiedge will be created.
         if not check_elem_unique(operands):
@@ -180,12 +183,12 @@ class FunctionalModule(NeuModule):
             "synin_deque", deque(_init_synin, maxlen=1 + self.inherent_delay)
         )
 
-    def get_inputs(self) -> List[SpikeType]:
+    def get_inputs(self) -> MultiInputsType:
         synin = []
 
         for op in self.module_intf.operands:
             # Retrieve the spike at index `timestamp` of the dest neurons
-            if self.is_working:
+            if self.is_working():
                 if isinstance(op, InputProj):
                     synin.append(op.output.copy())
                 else:
@@ -200,12 +203,12 @@ class FunctionalModule(NeuModule):
         return self.synin_deque.popleft()  # Pop the left of the deque.
 
     def update(self, *args, **kwargs) -> Optional[SpikeType]:
-        if not self.is_working:
+        if not self.is_working():
             self._inner_spike = np.zeros((self.num_out,), dtype=np.bool_)
             return None
 
         synin = self.get_inputs()
-        self._inner_spike = self.spike_func(*synin)
+        self._inner_spike = self.spike_func(*synin).ravel()
 
         idx = (self.timestamp + self.delay_relative - 1) % HwConfig.N_TIMESLOT_MAX
         self.delay_registers[idx] = self._inner_spike.copy()
@@ -343,18 +346,19 @@ class FunctionalModule2to1WithV(FunctionalModule2to1):
         self.set_memory("_vjt", np.zeros((self.num_out,), dtype=np.int32))
         self.thres_mode = np.full((self.num_out,), TM.NOT_EXCEEDED, dtype=np.uint8)
 
-    def synaptic_integr(self, *args, **kwargs):
+    def synaptic_integr(self, *args, **kwargs) -> VoltageType:
         """Functions used to describe synaptic integration of the module."""
         raise NotImplementedError
 
     def update(self, *args, **kwargs) -> Optional[SpikeType]:
-        if not self.is_working:
+        if not self.is_working():
             self._inner_spike = np.zeros((self.num_out,), dtype=np.bool_)
             return None
 
         synin = self.get_inputs()
         incoming_v = self.synaptic_integr(*synin, self._vjt)
-        self._inner_spike, self._vjt = self.spike_func(incoming_v)
+        _is, self._vjt = self.spike_func(incoming_v)
+        self._inner_spike = _is.ravel()
 
         idx = (self.timestamp + self.delay_relative - 1) % HwConfig.N_TIMESLOT_MAX
         self.delay_registers[idx] = self._inner_spike.copy()

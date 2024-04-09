@@ -12,7 +12,7 @@ from typing import (
     TypeVar,
     Union,
 )
-
+from typing_extensions import TypeAlias
 import numpy as np
 from numpy.typing import NDArray
 
@@ -24,10 +24,10 @@ DataType = TypeVar("DataType", int, np.bool_, np.integer, np.ndarray)
 DataArrayType = TypeVar(
     "DataArrayType", int, np.bool_, np.integer, List[int], Tuple[int, ...], np.ndarray
 )
-SpikeType = NDArray[np.bool_]
-SynOutType = NDArray[np.int32]
-VoltageType = NDArray[np.int32]
-WeightType = NDArray[Union[np.bool_, np.int8]]
+SpikeType: TypeAlias = NDArray[np.bool_]
+SynOutType: TypeAlias = NDArray[np.int32]
+VoltageType: TypeAlias = NDArray[np.int32]
+WeightType: TypeAlias = NDArray[Union[np.bool_, np.int8]]
 
 _T = TypeVar("_T")
 

@@ -104,7 +104,6 @@ class TonicSpiking(Neuron):
         """
         super().__init__(
             shape,
-            neg_thres_mode=NTM.MODE_SATURATION,
             neg_threshold=0,
             pos_threshold=fire_step,
             keep_shape=keep_shape,
@@ -188,7 +187,7 @@ class SpikingRelu(Neuron):
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
-        """Spiking relu neuron."""
+        """Spiking relu neuron. Act exactly the way you think."""
         super().__init__(
             shape,
             neg_threshold=0,

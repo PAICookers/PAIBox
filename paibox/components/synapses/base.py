@@ -8,7 +8,7 @@ from paibox.base import NeuDyn, SynSys
 from paibox.exceptions import RegisterError, ShapeError
 from paibox.types import DataArrayType, SynOutType, WeightType
 
-from .conv_types import _KOrder3d, _KOrder4d, _Order2d, _Order3d
+from .conv_types import _KOrder3d, _KOrder4d
 from .conv_utils import _fm_ndim1_check, _fm_ndim2_check
 from .transforms import (
     AllToAll,
@@ -46,7 +46,7 @@ class Synapses:
         subclass_syn_name: str,
     ) -> None:
         self._source = source
-        self._dest = dest
+        self._target = dest
         self._child_syn_name = subclass_syn_name
         """The name of subclass `FullConnectedSyn`."""
 
@@ -67,7 +67,7 @@ class Synapses:
 
     @property
     def dest(self) -> NeuDyn:
-        return self._dest
+        return self._target
 
     @dest.setter
     def dest(self, dest: NeuDyn) -> None:
@@ -78,7 +78,7 @@ class Synapses:
                 f"is not equal: {dest.num_in} != {self.num_out}."
             )
 
-        self._dest = dest
+        self._target = dest
         # FIXME Because the modification of the synapse destination neuron occurs in the backend,
         # there's no need to register new dest again because simulation will not be done again (maybe).
         # But does it mean that we need to make a copy of the original network and then pass it to
@@ -88,12 +88,16 @@ class Synapses:
         )
 
     @property
+    def target(self) -> NeuDyn:
+        return self._target
+
+    @property
     def shape_in(self) -> Tuple[int, ...]:
         return self._source.shape_out
 
     @property
     def shape_out(self) -> Tuple[int, ...]:
-        return self._dest.shape_in
+        return self._target.shape_in
 
     @property
     def num_in(self) -> int:
@@ -101,7 +105,7 @@ class Synapses:
 
     @property
     def num_out(self) -> int:
-        return self._dest.num_in
+        return self._target.num_in
 
 
 class FullConnectedSyn(Synapses, SynSys):
@@ -131,7 +135,7 @@ class FullConnectedSyn(Synapses, SynSys):
 
     def update(self, spike: Optional[np.ndarray] = None, *args, **kwargs) -> SynOutType:
         # Retrieve the spike at index `timestamp` of the dest neurons
-        if self.dest.is_working:
+        if self.dest.is_working():
             if isinstance(self.source, InputProj):
                 synin = self.source.output.copy() if spike is None else spike
             else:

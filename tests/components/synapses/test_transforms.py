@@ -103,12 +103,12 @@ class TestTransforms:
         assert f.connectivity.shape == (4, 4)
 
         # The last spike is an array.
-        x1 = np.array([1, 2, 3, 4], dtype=np.int8)
+        x1 = np.array([0, 1, 1, 0], dtype=np.bool_)
         y = f(x1)
         assert y.shape == (4,)
 
         # The last spike is a scalar.
-        x2 = np.array(2, dtype=np.int8)
+        x2 = np.array(1, dtype=np.bool_)
         y = f(x2)
         assert y.shape == (4,)
 
@@ -135,7 +135,7 @@ class TestTransforms:
         """Test `AllToAll` when weight is a scalar"""
 
         num_in, num_out = 10, 20
-        x = np.random.randint(2, size=(10,))
+        x = np.random.randint(2, size=(10,), dtype=np.bool_)
         f = tfm.AllToAll((num_in, num_out), weight)
         y = f(x)
         expected = np.full((num_out,), np.sum(x, axis=None), dtype=np.int32) * weight

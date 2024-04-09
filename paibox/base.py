@@ -286,7 +286,6 @@ class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
 
         return params
 
-    @property
     def is_working(self) -> bool:
         return (self.tick_wait_start > 0 and self.timestamp >= 0) and (
             self.tick_wait_end == 0 or self.timestamp + 1 <= self.tick_wait_end
@@ -306,14 +305,14 @@ class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
 
     @property
     def unrolling_factor(self) -> int:
-        return self._unrolling_factor
+        return self._uf
 
     @unrolling_factor.setter
     def unrolling_factor(self, factor: int) -> None:
         if factor < 1:
             raise ValueError(f"'unrolling_factor' must be positive, but got {factor}.")
 
-        self._unrolling_factor = factor
+        self._uf = factor
 
 
 class SynSys(DynamicSys):
