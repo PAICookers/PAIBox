@@ -120,9 +120,12 @@ class NetForTest1(pb.Network):
 
 
 class NetForTest2(pb.Network):
-    """
-    INP1 -> S1 -> N1 -> S3 -> N2
-    INP2 -> S2 -> N1
+    """Test the following situations with multiple input nodes:
+        1. Two input nodes assigned within one core block.
+
+    Structure:
+        INP1 -> S1 -> N1 -> S3 -> N2
+        INP2 -> S2 -> N1
     """
 
     def __init__(self):
@@ -210,10 +213,16 @@ class NetForTest4(pb.Network):
         )
 
 
-class Network_with_multi_inodes(pb.Network):
-    """
-    INP1 -> S1 -> N1 -> S2 -> N2
-    INP2 -> S3 -> N2
+class Network_with_multi_inodes1(pb.Network):
+    """Test the following situations with multiple input nodes:
+        1. Two input nodes with their own core blocks.
+        2. An input node assigned within one core block.
+        TODO 3. The input node is input to the middle layer.
+
+    Structure:
+        INP1 -> S1 -> N1 -> S2 -> N2
+             -> S3 -> N3 -> S4 -> N4 -> S5 -> N5
+        INP2 -> S6 -> N6 -> S7 -> N7 -> S8 -> N5
     """
 
     def __init__(self):
@@ -222,6 +231,11 @@ class Network_with_multi_inodes(pb.Network):
         self.inp2 = pb.InputProj(input=1, shape_out=(50,), name="inp2")
         self.n1 = pb.TonicSpiking(80, 2, name="n1", tick_wait_start=1)
         self.n2 = pb.TonicSpiking(20, 3, name="n2", tick_wait_start=2)
+        self.n3 = pb.TonicSpiking(20, 3, name="n3", tick_wait_start=1)
+        self.n4 = pb.TonicSpiking(20, 3, name="n4", tick_wait_start=2)
+        self.n5 = pb.TonicSpiking(40, 3, name="n5", tick_wait_start=3)
+        self.n6 = pb.TonicSpiking(40, 3, name="n6", tick_wait_start=1)
+        self.n7 = pb.TonicSpiking(40, 3, name="n7", tick_wait_start=2)
 
         self.s1 = pb.FullConn(
             self.inp1, self.n1, conn_type=pb.SynConnType.All2All, name="s1"
@@ -230,7 +244,52 @@ class Network_with_multi_inodes(pb.Network):
             self.n1, self.n2, conn_type=pb.SynConnType.All2All, name="s2"
         )
         self.s3 = pb.FullConn(
-            self.inp2, self.n2, conn_type=pb.SynConnType.All2All, name="s3"
+            self.inp1, self.n3, conn_type=pb.SynConnType.All2All, name="s3"
+        )
+        self.s4 = pb.FullConn(
+            self.n3, self.n4, conn_type=pb.SynConnType.All2All, name="s4"
+        )
+        self.s5 = pb.FullConn(
+            self.n4, self.n5, conn_type=pb.SynConnType.All2All, name="s5"
+        )
+        self.s6 = pb.FullConn(
+            self.inp2, self.n6, conn_type=pb.SynConnType.All2All, name="s6"
+        )
+        self.s7 = pb.FullConn(
+            self.n6, self.n7, conn_type=pb.SynConnType.All2All, name="s7"
+        )
+        self.s8 = pb.FullConn(
+            self.n7, self.n5, conn_type=pb.SynConnType.All2All, name="s8"
+        )
+
+
+class Network_with_multi_inodes2(pb.Network):
+    """Test the following situations with multiple input nodes:
+        1. One input node assigned within more than one core block.
+
+    Structure:
+        INP1 -> S1 -> N1(tws=1) -> S2 -> N2
+             -> S3 -> N3(tws=2) -> S4 -> N2
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.inp1 = pb.InputProj(input=1, shape_out=(40,), name="inp1")
+        self.n1 = pb.TonicSpiking(80, 2, name="n1", tick_wait_start=1)
+        self.n2 = pb.TonicSpiking(20, 3, name="n2", tick_wait_start=3)
+        self.n3 = pb.TonicSpiking(20, 3, name="n3", tick_wait_start=2)
+
+        self.s1 = pb.FullConn(
+            self.inp1, self.n1, conn_type=pb.SynConnType.All2All, name="s1"
+        )
+        self.s2 = pb.FullConn(
+            self.n1, self.n2, conn_type=pb.SynConnType.All2All, name="s2"
+        )
+        self.s3 = pb.FullConn(
+            self.inp1, self.n3, conn_type=pb.SynConnType.All2All, name="s3"
+        )
+        self.s4 = pb.FullConn(
+            self.n3, self.n2, conn_type=pb.SynConnType.All2All, name="s4"
         )
 
 
@@ -512,13 +571,18 @@ def build_example_net2():
 
 
 @pytest.fixture(scope="class")
-def build_multi_inputproj_net():
+def build_multi_inputproj_net1():
     return NetForTest2()
 
 
 @pytest.fixture(scope="class")
 def build_multi_inputproj_net2():
-    return Network_with_multi_inodes()
+    return Network_with_multi_inodes1()
+
+
+@pytest.fixture(scope="class")
+def build_multi_inputproj_net3():
+    return Network_with_multi_inodes2()
 
 
 @pytest.fixture(scope="class")
@@ -534,6 +598,7 @@ def build_example_net4():
 @pytest.fixture(scope="class")
 def build_example_net4_large_scale():
     return NetForTest4(large_scale=True)
+
 
 @pytest.fixture(scope="class")
 def build_multi_onodes_net():
@@ -682,7 +747,6 @@ def packbits2():
 @pytest.fixture
 def packbits1():
     return partial(packbits_ref, count=1)
-
 
 
 def n_axon2lcn_ex_proto(n_axon, n_fanin_max) -> LCN_EX:
