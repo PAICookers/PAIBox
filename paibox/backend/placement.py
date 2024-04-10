@@ -32,9 +32,9 @@ from paibox.types import WeightType
 from paibox.utils import check_attr_same, count_unique_elem
 
 from .conf_template import (
-    EmptyCorePlacementConfig,
     CoreConfig,
     CorePlacementConfig,
+    EmptyCorePlacementConfig,
     NeuronConfig,
 )
 from .context import _BACKEND_CONTEXT
@@ -61,7 +61,9 @@ class CoreBlock(CoreAbstract):
 
     RUNTIME_MODE: ClassVar[CoreMode] = CoreMode.MODE_SNN
 
-    def __init__(self, *parents: SynSys, seed: int, routing_id: int, name: Optional[str] = None) -> None:
+    def __init__(
+        self, *parents: SynSys, seed: int, routing_id: int, name: Optional[str] = None
+    ) -> None:
         """Core blocks in SNN mode.
 
         Args:
@@ -75,7 +77,7 @@ class CoreBlock(CoreAbstract):
         self._lcn_ex = self._n_axon2lcn_ex()
         self._wp = WP.WEIGHT_WIDTH_8BIT  # Default value
         self._routing_id = routing_id
-        
+
         self.seed = seed
         """Random seed, legal integer, no more than uint64."""
 
@@ -717,6 +719,7 @@ class CorePlacement(CoreAbstract):
 
 class EmptyCorePlacement(CoreAbstract):
     """Empty core placement."""
+
     _default_wp: ClassVar[WP] = WP.WEIGHT_WIDTH_1BIT
     _default_lcn_ex: ClassVar[LCN_EX] = LCN_EX.LCN_1X
     _default_n_dendrite: ClassVar[int] = 0

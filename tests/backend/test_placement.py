@@ -391,7 +391,7 @@ class TestWeightUnpack:
 
 def test_n_axon2lcn_ex():
     from .conftest import n_axon2lcn_ex_proto
-    
+
     lcn_ex = n_axon2lcn_ex_proto(1152 * 18 + 1, 1152)
     assert lcn_ex == LCN_EX.LCN_32X
 

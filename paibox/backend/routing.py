@@ -8,8 +8,9 @@ from paicorelib.routing_defs import RoutingStatus as Status
 from paicorelib.routing_defs import get_routing_consumption
 
 from paibox.exceptions import NotSupportedError
+
 from .conf_template import CorePlacementInfo
-from .placement import EmptyCorePlacement, CoreBlock, CorePlacement
+from .placement import CoreBlock, CorePlacement, EmptyCorePlacement
 
 __all__ = ["RoutingGroup", "RoutingRoot"]
 
