@@ -30,7 +30,7 @@ from .conf_template import (
 )
 from .context import _BACKEND_CONTEXT, set_cflag
 from .graphs import PAIGraph, convert2routing_groups, get_node_degrees
-from .graphs_types import NodeDegree
+from .graphs_types import NodeDegree, SourceNodeType
 from .placement import CoreBlock, aligned_coords, max_lcn_of_cb
 from .routing import RoutingGroup, RoutingRoot
 
@@ -50,32 +50,23 @@ class Mapper:
 
     def __init__(self) -> None:
         self.core_blocks: List[CoreBlock] = []
-        """A list for core blocks in topological order."""
-
+        """List for core blocks in the network."""
         self.succ_core_blocks: Dict[CoreBlock, List[CoreBlock]] = defaultdict(list)
-        """Grouped post-synapses of nodes. Structure:
-        {
-            node1.name: {
-                post-node1.name: grouped post-syn1,
-                post-node2.name: grouped post-syn2
-            }
-        }
-        """
-        self.degrees_of_cb: Dict[CoreBlock, NodeDegree] = defaultdict(NodeDegree)
+        self.input_core_blocks: Dict[SourceNodeType, List[CoreBlock]] = defaultdict(
+            list
+        )
+        """List of input core blocks for each input node."""
 
-        self.core_params: Dict[Coord, CoreConfig] = dict()
-        """The dictionary of core parameters. Structure:
-        {
-            address of core: {
-                parameters...
-            }
-        }
-        """
+        self.degrees_of_cb: Dict[CoreBlock, NodeDegree] = defaultdict(NodeDegree)
         self.routing_groups: List[RoutingGroup] = []
 
         self.core_plm_config: CorePlacementInfo = dict()
+        self.core_params: Dict[Coord, CoreConfig] = dict()
+        """The dictionary of core parameters."""
+
         self.graph_info: GraphInfo
         self.n_core_required = 0
+        self.n_core_occupied = 0
 
         self.clear()
 
@@ -85,9 +76,13 @@ class Mapper:
 
         self.core_blocks.clear()
         self.succ_core_blocks.clear()
+        self.input_core_blocks.clear()
 
         self.core_params.clear()
         self.core_plm_config.clear()
+
+        self.n_core_required = 0
+        self.n_core_occupied = 0
 
         # Set default cflags
         _BACKEND_CONTEXT.cflags.clear()
@@ -180,10 +175,28 @@ class Mapper:
             )
             self.succ_core_blocks[cb].extend(succ_cbs)
 
+        for inode in self.graph.inodes.values():
+            # TODO How to prevent this situation: there is input node & predecessor nodes
+            # in a certain core blocks.
+
+            # Disconnected input nodes will not be recorded.
+            succ_cb = [cb for cb in self.core_blocks if inode in cb.source]
+            if len(succ_cb) > 0:
+                self.input_core_blocks[inode] = succ_cb
+
         self.degrees_of_cb = get_node_degrees(self.succ_core_blocks)
 
     def lcn_ex_adjustment(self) -> None:
         """Adjust the LCN extension of each core block."""
+        # In the absence of the above complex situations, the following judgment is useless.
+        # But it'd be better to add this lcn adjustment.
+        for input_cbs in self.input_core_blocks.values():
+            if len(input_cbs) > 1:
+                max_lcn_ex = max_lcn_of_cb(input_cbs)
+                # Adjust the `lcn_ex` of the input core blocks for each input node
+                for g in input_cbs:
+                    g.lcn_ex = max_lcn_ex
+
         for cb in self.core_blocks:
             succ_cb = self.succ_core_blocks[cb]
 
@@ -228,7 +241,7 @@ class Mapper:
 
         # Generate routing groups by given the list of core blocks.
         routing_groups = convert2routing_groups(
-            self.succ_core_blocks, self.degrees_of_cb
+            self.succ_core_blocks, self.degrees_of_cb, self.input_core_blocks
         )
         for rg in routing_groups:
             if not self.routing_tree.insert_routing_group(rg):
@@ -301,38 +314,36 @@ class Mapper:
         """
         input_nodes_info = dict()
 
-        # Traverse input core blocks where input nodes are
-        for input_cb in filter(
-            lambda cb: any(s for s in cb.source if s in self.graph.inodes.values()),
-            self.core_blocks,
-        ):
-            dest_coords = input_cb.core_coords
+        # Traverse input core blocks
+        for inode, input_cbs in self.input_core_blocks.items():
+            dest_coords: List[Coord] = []
+            for cb in input_cbs:  # Do not use iterative generation.
+                dest_coords.extend(cb.core_coords)
+
             dest_rid = get_replication_id(dest_coords)
 
-            # Traverse input nodes in the input core block only, in case that
-            # "other source nodes" are grouped with the input nodes.
-            for inode in filter(
-                lambda s: s in self.graph.inodes.values(), input_cb.source
-            ):
-                axon_coords = aligned_coords(
-                    slice(0, input_cb.n_axon_of(input_cb.source.index(inode)), 1),
-                    input_cb.axon_segments[inode],
-                    1,
-                    input_cb.n_timeslot,
-                )
+            # The arrangement of axons is the same for the rest of `input_cbs`.
+            # LCN of `input_cbs` are the same.
+            input_cb = input_cbs[0]
+            axon_coords = aligned_coords(
+                slice(0, input_cb.n_axon_of(input_cb.source.index(inode)), 1),
+                input_cb.axon_segments[inode],
+                1,
+                input_cb.n_timeslot,
+            )
 
-                neuron_dest = NeuronDest(
-                    [coord.tick_relative for coord in axon_coords],
-                    [coord.addr_axon for coord in axon_coords],
-                    dest_coords[0].x,
-                    dest_coords[0].y,
-                    dest_rid.x,
-                    dest_rid.y,
-                    _BACKEND_CONTEXT["local_chip_addr"].x,
-                    _BACKEND_CONTEXT["local_chip_addr"].y,
-                )
+            neuron_dest = NeuronDest(
+                [coord.tick_relative for coord in axon_coords],
+                [coord.addr_axon for coord in axon_coords],
+                dest_coords[0].x,
+                dest_coords[0].y,
+                dest_rid.x,
+                dest_rid.y,
+                _BACKEND_CONTEXT["local_chip_addr"].x,
+                _BACKEND_CONTEXT["local_chip_addr"].y,
+            )
 
-                input_nodes_info[inode.name] = neuron_dest
+            input_nodes_info[inode.name] = neuron_dest
 
         return input_nodes_info
 
@@ -367,44 +378,112 @@ class Mapper:
                     CoreBlock.export_core_plm_config(member_cb)
                 )  # compatible for py3.8
 
-                output_axon_offset = 0
-                for core_plm in member_cb.core_placements.values():
-                    for neu_seg in core_plm.neu_segs_of_cplm:
-                        # Find the axon destinations
-                        dest_cb = [
-                            cb for cb in self.core_blocks if neu_seg.parent in cb.source
-                        ]
-                        # TODO When obtaining core blocks, we should determine which core block
-                        # is used as a pure member core block, which one is used as both a member
-                        # & an output core block. This constrains the grouping of neurons.
-                        if dest_cb:
-                            # `neu_seg` is member neurons
-                            # Should not happen
-                            assert _cb_routable(self.routing_groups, dest_cb)
-                            core_plm.export_neu_config(neu_seg, dest_cb)
-                        else:
-                            # `neu_seg` is output neurons. Every neuron segment is a output node.
-                            # Update the offset of axon
-                            output_axon_offset = core_plm.export_neu_config(
-                                neu_seg,
-                                output_core_coord=ocoord,
-                                axon_addr_offset=output_axon_offset,
-                            )
-                            output_dest_info[neu_seg.parent.name][
-                                core_plm.coord.address
-                            ] = core_plm.neu_configs[neu_seg.parent].neuron_dest_info
-
-                            # Coord.x += 1 for the destination of the next output node
-                            ocoord += CoordOffset(1, 0)
-
-                    self.core_plm_config[core_plm.coord] = (
-                        core_plm.export_core_plm_config()
+                if self.degrees_of_cb[member_cb].out_degree == 0:
+                    # member_cb is a pure output core block. All neu_segs inside are output neurons.
+                    ocoord = self._onode_cb_config_export(
+                        member_cb, output_dest_info, ocoord
                     )
+                elif any(d in self.graph.onodes.values() for d in member_cb.dest):
+                    # member_cb is both a member & output core block.
+                    ocoord = self._member_onode_cb_config_export(
+                        member_cb, output_dest_info, ocoord
+                    )
+                else:
+                    # member_cb is a pure member.
+                    self._member_cb_config_export(member_cb)
 
-            # Generate default configurations for wasted core placements
+                for coord, core_plm in member_cb.core_placements.items():
+                    self.core_plm_config[coord] = core_plm.export_core_plm_config()
+
+            # Generate default configurations for wasted core placements of the routing group
             self.core_plm_config.update(rg.get_wasted_cplm_config())
 
         return output_dest_info
+
+    def _member_cb_config_export(self, member_cb: CoreBlock) -> None:
+        """Export configuration information for core blocks that are pure members."""
+        succ_cbs = self.succ_core_blocks[member_cb]
+
+        for core_plm in member_cb.core_placements.values():
+            for neu_seg in core_plm.neu_segs_of_cplm:
+                # Find the axon destinations of neu_seg, not the successor core blocks.
+                dest_cb_of_nseg = [cb for cb in succ_cbs if neu_seg.parent in cb.source]
+
+                assert _cb_routable(self.routing_groups, dest_cb_of_nseg)
+                core_plm.export_neu_config(neu_seg, dest_cb_of_nseg)
+
+    def _member_onode_cb_config_export(
+        self,
+        member_onode_cb: CoreBlock,
+        output_dest_info: OutputDestInfo,
+        ocoord: Coord,
+    ) -> Coord:
+        """Export configuration information for core blocks that are both members & output."""
+        cur_ocoord = ocoord
+        output_axon_offset = 0
+        o_nodes = [d for d in member_onode_cb.dest if d in self.graph.onodes.values()]
+        succ_cbs = self.succ_core_blocks[member_onode_cb]
+
+        for core_plm in member_onode_cb.core_placements.values():
+            for neu_seg in core_plm.neu_segs_of_cplm:
+                dest_cb_of_nseg = [cb for cb in succ_cbs if neu_seg.parent in cb.source]
+
+                if len(dest_cb_of_nseg) > 0:
+                    assert _cb_routable(self.routing_groups, dest_cb_of_nseg)
+                    core_plm.export_neu_config(neu_seg, dest_cb_of_nseg)
+                else:
+                    offset_idx = o_nodes.index(neu_seg.parent)
+
+                    if hasattr(CoordOffset, "from_offset"):
+                        # For paicorelib > 0.0.13
+                        raise NotImplementedError
+                    else:
+                        # For paicorelib <= 0.0.13
+                        cur_ocoord = ocoord + CoordOffset(
+                            offset_idx % 32, offset_idx // 32
+                        )
+
+                    output_axon_offset = core_plm.export_neu_config(
+                        neu_seg,
+                        output_core_coord=cur_ocoord,
+                        axon_addr_offset=output_axon_offset,
+                    )
+                    output_dest_info[neu_seg.parent.name][core_plm.coord.address] = (
+                        core_plm.neu_configs[neu_seg.parent].neuron_dest_info
+                    )
+
+        return cur_ocoord
+
+    def _onode_cb_config_export(
+        self, onode_cb: CoreBlock, output_dest_info: OutputDestInfo, ocoord: Coord
+    ) -> Coord:
+        """Export configuration information for core blocks that are pure output."""
+        cur_ocoord = ocoord
+        output_axon_offset = 0
+        o_nodes = [d for d in onode_cb.dest if d in self.graph.onodes.values()]
+
+        for core_plm in onode_cb.core_placements.values():
+            for neu_seg in core_plm.neu_segs_of_cplm:
+                # Get the output coordinate of this neu_seg
+                offset_idx = o_nodes.index(neu_seg.parent)
+
+                if hasattr(CoordOffset, "from_offset"):
+                    # For paicorelib > 0.0.13
+                    raise NotImplementedError
+                else:
+                    # For paicorelib <= 0.0.13
+                    cur_ocoord = ocoord + CoordOffset(offset_idx % 32, offset_idx // 32)
+
+                output_axon_offset = core_plm.export_neu_config(
+                    neu_seg,
+                    output_core_coord=cur_ocoord,
+                    axon_addr_offset=output_axon_offset,
+                )
+                output_dest_info[neu_seg.parent.name][core_plm.coord.address] = (
+                    core_plm.neu_configs[neu_seg.parent].neuron_dest_info
+                )
+
+        return cur_ocoord
 
     def export(
         self,
