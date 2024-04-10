@@ -296,6 +296,7 @@ def _degree_check(
 def convert2routing_groups(
     succ_dg_of_cb: Dict[CoreBlock, List[CoreBlock]],
     degrees_of_cb: Dict[CoreBlock, NodeDegree],
+    input_core_blocks: Dict[SourceNodeType, List[CoreBlock]],
 ) -> List[RoutingGroup]:
     ordered_core_blocks = toposort(succ_dg_of_cb)
     seen_cb = set()
@@ -303,13 +304,20 @@ def convert2routing_groups(
 
     _degree_check(degrees_of_cb, succ_dg_of_cb)
 
+    # After that, all input core blocks have been traversed.
+    for input_cbs in input_core_blocks.values():
+        seen_cb.update(input_cbs)
+        routing_groups.append(RoutingGroup(*input_cbs))
+
     for cb in ordered_core_blocks:
-        # Check whether it has been traversed
+        # Check whether it has been traversed. This judgment condition is for core blocks
+        # with out-degree = 1 & output core blocks (out-degree = 0).
         if cb not in seen_cb:
             seen_cb.add(cb)
             routing_groups.append(RoutingGroup(cb))
 
         # If the out-degree > 1, treat the following core blocks as one routing group.
+        # FIXME
         if degrees_of_cb[cb].out_degree > 1:
             succ_cbs = succ_dg_of_cb[cb]
             seen_cb.update(succ_cbs)
