@@ -198,8 +198,9 @@ class PAIGraph:
         Return: a list of set of grouped edges.
         """
         self.build_check()
-
+        routing_group_id = 0
         gathered: List[FrozenSet[EdgeType]] = []
+        routing_groups_id: List[int] = []
         seen_edges: Set[EdgeType] = set()  # Check if all edges are traversed
 
         for node in self.ordered_nodes:
@@ -210,6 +211,8 @@ class PAIGraph:
                 comming_edges = edge_group.difference(seen_edges)
 
                 seen_edges.update(comming_edges)
+                routing_groups_id.append(routing_group_id)
+                routing_group_id += 1
                 gathered.append(frozenset(comming_edges))
 
             if self.degree_of_nodes[node].out_degree > 1:
@@ -225,6 +228,7 @@ class PAIGraph:
                         succ_edges_sg = frozenset([succ_edges[i] for i in idx])
                         if succ_edges_sg not in gathered:
                             seen_edges.update(succ_edges_sg)
+                            routing_groups_id.append(routing_group_id)
                             gathered.append(succ_edges_sg)
                         else:
                             # FIXME Will this happen?
@@ -233,16 +237,21 @@ class PAIGraph:
                     succ_edges_sg = frozenset(succ_edges)
                     if succ_edges_sg not in gathered:
                         seen_edges.update(succ_edges_sg)
+                        routing_groups_id.append(routing_group_id)
                         gathered.append(succ_edges_sg)
                     else:
                         # FIXME Will this happen?
                         raise NotSupportedError
+
+                routing_group_id += 1
 
             elif self.degree_of_nodes[node].out_degree == 1:
                 succ_node = list(self.succ_dg[node].keys())[0]
                 # Check the in-degree of the only following node.
                 if self.degree_of_nodes[succ_node].in_degree == 1:
                     gathered.append(frozenset({self.succ_dg[node][succ_node].edge}))
+                    routing_groups_id.append(routing_group_id)
+                    routing_group_id += 1
                 else:
                     # This edge is waiting to be processed when
                     # traversing the following node `succ_node`.
@@ -251,7 +260,7 @@ class PAIGraph:
                 # out-degree = 0, do nothing.
                 continue
 
-        return gathered
+        return gathered, routing_groups_id
 
     @staticmethod
     def _find_pred_edges(
@@ -326,7 +335,14 @@ def convert2routing_groups(
         if degrees_of_cb[cb].out_degree > 1:
             succ_cbs = succ_dg_of_cb[cb]
             seen_cb.update(succ_cbs)
-            routing_groups.append(RoutingGroup(*succ_cbs))
+            core_block_dict: Dict[int, List[CoreBlock]] = {}
+            for succ_cb in succ_cbs:
+                if succ_cb in core_block_dict.keys():
+                    core_block_dict[succ_cb._routing_id].append(succ_cb)
+                else:
+                    core_block_dict[succ_cb._routing_id] = [succ_cb]
+            for _, succ_cb in core_block_dict.items():
+                routing_groups.append(RoutingGroup(*succ_cb))
 
     return routing_groups
 
