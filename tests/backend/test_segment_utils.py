@@ -350,7 +350,7 @@ class TestGetNeuronSegments:
 )
 def test_get_axon_segments(axons):
     from .conftest import n_axon2lcn_ex_proto
-    
+
     lcn_ex = n_axon2lcn_ex_proto(sum(axon.num_out for axon in axons), 1152)
 
     tr_max = 1 << lcn_ex
@@ -371,7 +371,7 @@ def test_get_axon_segments(axons):
 def test_get_axon_segments_boundary(axons):
     """Illegal boundary cases."""
     from .conftest import n_axon2lcn_ex_proto
-    
+
     lcn_ex = n_axon2lcn_ex_proto(sum(axon.num_out for axon in axons), 1152)
     tr_max = 1 << lcn_ex
 

@@ -164,7 +164,9 @@ class Mapper:
         grouped_edges, routing_groups_id = self.graph.group_edges()
 
         for syns, routing_id in zip(grouped_edges, routing_groups_id):
-            self.core_blocks.append(CoreBlock.build(*syns, seed=0, routing_id=routing_id))
+            self.core_blocks.append(
+                CoreBlock.build(*syns, seed=0, routing_id=routing_id)
+            )
 
         for cb in self.core_blocks:
             succ_cbs = list(
