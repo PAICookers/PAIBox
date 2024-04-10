@@ -33,10 +33,10 @@ class CustomJsonEncoder(JSONEncoder):
 
 
 class TestGraphInfo:
-    def test_multi_inputproj(
-        self, get_mapper, ensure_dump_dir, build_multi_inputproj_net
+    def test_multi_inputproj1(
+        self, get_mapper, ensure_dump_dir, build_multi_inputproj_net1
     ):
-        net = build_multi_inputproj_net
+        net = build_multi_inputproj_net1
         mapper: pb.Mapper = get_mapper
         mapper.build(net)
         mapper.compile()
@@ -64,6 +64,22 @@ class TestGraphInfo:
         )
 
         assert len(mapper.graph_info["input"]) == 2
+
+    def test_multi_inputproj3(
+        self, get_mapper, ensure_dump_dir, build_multi_inputproj_net3
+    ):
+        net = build_multi_inputproj_net3
+        mapper: pb.Mapper = get_mapper
+        mapper.build(net)
+        mapper.compile()
+        mapper.export(
+            fp=ensure_dump_dir,
+            format="txt",
+            split_by_coordinate=True,
+            export_core_params=True,
+        )
+
+        assert len(mapper.graph_info["input"]) == 1
 
     def test_multi_output_nodes(
         self, get_mapper, ensure_dump_dir, build_multi_onodes_net
