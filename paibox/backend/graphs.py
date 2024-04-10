@@ -287,10 +287,15 @@ def _degree_check(
 ) -> None:
     """Filter out such network structure, which is currently not supported."""
     for node in filter(lambda node: degree_of_nodes[node].out_degree > 1, succ_dg):
-        if any(degree_of_nodes[succ_node].in_degree > 1 for succ_node in succ_dg[node]):
-            raise NotSupportedError(
-                "If out-degree of a node is greater than 1, the in-degree of its sucessors must be 1."
-            )
+        for succ_node in succ_dg[node]:
+            if degree_of_nodes[succ_node].in_degree > 1:
+                _node_repr = (
+                    succ_node.name if isinstance(succ_node, CoreBlock) else succ_node
+                )
+                raise NotSupportedError(
+                    f"If out-degree of a node is greater than 1, the in-degree of its sucessors must be 1. "
+                    f"However, in-degree of {_node_repr} is {degree_of_nodes[succ_node].in_degree}."
+                )
 
 
 def convert2routing_groups(
