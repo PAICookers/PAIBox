@@ -388,7 +388,9 @@ class TestConv2d_transpose:
         assert s1.num_in == in_channels * shape2num(in_shape)
         assert s1.connectivity.dtype == np.int8
         # the transpose array length l = in_shape + (in_shape - 1) * (stride - 1) + 2 * (kernel_size - 1)
-        in_shape_transpose = (in_shape[0] + (in_shape[0] - 1) * (stride - 1) + 2 * (kernel_size[0] - 1),)
+        in_shape_transpose = (
+            in_shape[0] + (in_shape[0] - 1) * (stride - 1) + 2 * (kernel_size[0] - 1),
+        )
         assert s1.connectivity.shape == (
             in_channels * shape2num(in_shape_transpose),
             out_channels * shape2num(out_shape),
@@ -413,8 +415,10 @@ class TestConv2d_transpose:
 
         assert s1.num_in == in_channels * shape2num(in_shape)
         assert s1.connectivity.dtype == np.int8
-        in_shape_transpose = (in_shape[0] + (in_shape[0] - 1) * (stride - 1) + 2 * (kernel_size[0] - 1),
-                              in_shape[0] + (in_shape[0] - 1) * (stride - 1) + 2 * (kernel_size[0] - 1))
+        in_shape_transpose = (
+            in_shape[0] + (in_shape[0] - 1) * (stride - 1) + 2 * (kernel_size[0] - 1),
+            in_shape[0] + (in_shape[0] - 1) * (stride - 1) + 2 * (kernel_size[0] - 1),
+        )
         assert s1.connectivity.shape == (
             in_channels * shape2num(in_shape_transpose),
             out_channels * shape2num(out_shape),
@@ -439,7 +443,9 @@ class TestConv2d_transpose:
 
         assert s1.num_in == in_channels * shape2num(in_shape)
         assert s1.connectivity.dtype == np.int8
-        in_shape_transpose = (in_shape[0] + (in_shape[0] - 1) * (stride - 1) + 2 * (kernel_size[0] - 1),)
+        in_shape_transpose = (
+            in_shape[0] + (in_shape[0] - 1) * (stride - 1) + 2 * (kernel_size[0] - 1),
+        )
         assert s1.connectivity.shape == (
             in_channels * shape2num(in_shape_transpose),
             out_channels * shape2num(out_shape),
@@ -464,8 +470,10 @@ class TestConv2d_transpose:
 
         assert s1.num_in == in_channels * shape2num(in_shape)
         assert s1.connectivity.dtype == np.int8
-        in_shape_transpose = (in_shape[0] + (in_shape[0] - 1) * (stride - 1) + 2 * (kernel_size[0] - 1),
-                              in_shape[0] + (in_shape[0] - 1) * (stride - 1) + 2 * (kernel_size[0] - 1))
+        in_shape_transpose = (
+            in_shape[0] + (in_shape[0] - 1) * (stride - 1) + 2 * (kernel_size[0] - 1),
+            in_shape[0] + (in_shape[0] - 1) * (stride - 1) + 2 * (kernel_size[0] - 1),
+        )
         assert s1.connectivity.shape == (
             in_channels * shape2num(in_shape_transpose),
             out_channels * shape2num(out_shape),

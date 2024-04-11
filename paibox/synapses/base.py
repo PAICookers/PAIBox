@@ -11,7 +11,13 @@ from paibox.projection import InputProj
 from paibox.types import DataArrayType, SynOutType, WeightType
 
 from .conv_utils import _fm_ndim1_check, _fm_ndim2_check, _KOrder3d, _KOrder4d
-from .transforms import AllToAll, Conv1dForward, Conv2dForward, Conv1dTransposeForward, Conv2dTransposeForward
+from .transforms import (
+    AllToAll,
+    Conv1dForward,
+    Conv1dTransposeForward,
+    Conv2dForward,
+    Conv2dTransposeForward,
+)
 from .transforms import GeneralConnType as GConnType
 from .transforms import Identity, MaskedLinear, OneToOne, Transform
 
@@ -249,6 +255,7 @@ class Conv2dSyn(FullConnectedSyn):
         comm = Conv2dForward((in_h, in_w), (out_h, out_w), _kernel, stride, padding)
 
         self._set_comm(comm)
+
 
 class Conv1dSyn_transpose(FullConnectedSyn):
     _spatial_ndim: ClassVar[int] = 1

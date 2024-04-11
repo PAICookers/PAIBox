@@ -12,13 +12,13 @@ from .conv_utils import (
     Size1Type,
     Size2Type,
     _conv1d_faster,
-    _conv1d_unroll,
-    _conv2d_faster,
-    _conv2d_unroll,
     _conv1d_transpose_faster,
     _conv1d_transpose_unroll,
+    _conv1d_unroll,
+    _conv2d_faster,
     _conv2d_transpose_faster,
     _conv2d_transpose_unroll,
+    _conv2d_unroll,
 )
 
 __all__ = [
@@ -31,7 +31,6 @@ __all__ = [
     "Conv2dForward",
     "Conv1dTransposeForward",
     "Conv2dTransposeForward",
-
 ]
 
 
@@ -400,7 +399,9 @@ class Conv1dTransposeForward(Transform):
 
     @property
     def connectivity(self):
-        return _conv1d_transpose_unroll(self.in_shape, self.out_shape, self.weights, self.stride)
+        return _conv1d_transpose_unroll(
+            self.in_shape, self.out_shape, self.weights, self.stride
+        )
 
 
 class Conv2dTransposeForward(Transform):
@@ -441,4 +442,6 @@ class Conv2dTransposeForward(Transform):
 
     @property
     def connectivity(self):
-        return _conv2d_transpose_unroll(self.in_shape, self.out_shape, self.weights, self.stride)
+        return _conv2d_transpose_unroll(
+            self.in_shape, self.out_shape, self.weights, self.stride
+        )

@@ -281,7 +281,10 @@ def _conv1d_transpose_unroll(
         for ch_idx in np.ndindex(kernel_rot.shape[:2]):
             # [0] -> o_ch, [1] -> i_ch
             zeros_image[
-                i * stride_transpose + ch_idx[1] * il : i * stride_transpose + ch_idx[1] * il + kl,
+                i * stride_transpose
+                + ch_idx[1] * il : i * stride_transpose
+                + ch_idx[1] * il
+                + kl,
                 ch_idx[0],
                 i,
             ] = kernel_rot[ch_idx[0], ch_idx[1], :]
@@ -344,6 +347,7 @@ def _conv2d_transpose_unroll(
 
     return w_unrolled
 
+
 def _conv1d_transpose_faster(
     x_cl: np.ndarray,
     out_shape: Size1Type,
@@ -364,12 +368,16 @@ def _conv1d_transpose_faster(
     xc_t = xc
     xl_t = xl + (xl - 1) * (stride[0] - 1)
     x_transpose = np.zeros((xc_t, xl_t), dtype=x_cl.dtype)
-    x_transpose[::1, ::stride[0]] = x_cl
+    x_transpose[::1, :: stride[0]] = x_cl
     # padding 0 for transpose not for parameter padding, get new input array x_transpose
     x_transpose = np.pad(x_transpose, ((0, 0), (kl - 1, kl - 1)), mode="constant")
-    x_transpose = x_transpose[:, padding[0]:(-1 * padding[0])] if padding[0] > 0 else x_transpose
+    x_transpose = (
+        x_transpose[:, padding[0] : (-1 * padding[0])]
+        if padding[0] > 0
+        else x_transpose
+    )
 
-    assert (xl-1) * stride[0] - 2 * padding[0] + kl == out_shape[0]
+    assert (xl - 1) * stride[0] - 2 * padding[0] + kl == out_shape[0]
 
     # convolution kernel rotated 180 degrees
     kernel_rot = np.flip(kernel, axis=2)
@@ -418,16 +426,22 @@ def _conv2d_transpose_faster(
     xh_t = xh + (xh - 1) * (stride[0] - 1)
     xw_t = xw + (xw - 1) * (stride[1] - 1)
     x_transpose = np.zeros((xc_t, xh_t, xw_t), dtype=x_chw.dtype)
-    x_transpose[::1, ::stride[0], ::stride[1]] = x_chw
+    x_transpose[::1, :: stride[0], :: stride[1]] = x_chw
     # padding 0 for transpose not for parameter padding, get new input array x_transpose
-    x_transpose = np.pad(x_transpose, ((0, 0), (kh - 1, kh - 1), (kw - 1, kw - 1)), mode="constant")
+    x_transpose = np.pad(
+        x_transpose, ((0, 0), (kh - 1, kh - 1), (kw - 1, kw - 1)), mode="constant"
+    )
     # inverse real parameter padding
-    x_transpose = x_transpose[:,
-                  padding[0]:(-1*padding[0]) if padding[0] > 0 else None,
-                  padding[1]:(-1*padding[1]) if padding[1] > 0 else None]
+    x_transpose = x_transpose[
+        :,
+        padding[0] : (-1 * padding[0]) if padding[0] > 0 else None,
+        padding[1] : (-1 * padding[1]) if padding[1] > 0 else None,
+    ]
 
     # kernel: (cout, cin, kh, kw) -> (cout, cin*kh*kw)
-    kernel_rot = np.rot90(kernel, 2, axes=(2, 3))  # convolution kernel rotated 180 degrees
+    kernel_rot = np.rot90(
+        kernel, 2, axes=(2, 3)
+    )  # convolution kernel rotated 180 degrees
     kernel_col = kernel_rot.reshape(cout, -1)
 
     # padded: (cin, xh+2*p[0]-kh, xw+2*p[1]-kw) -> (oh*ow, cin*kh*kw)

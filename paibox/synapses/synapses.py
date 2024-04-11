@@ -8,7 +8,13 @@ from paibox.neuron import Neuron
 from paibox.projection import InputProj
 from paibox.types import DataArrayType
 
-from .base import Conv1dSyn, Conv2dSyn, FullConnSyn, Conv1dSyn_transpose, Conv2dSyn_transpose
+from .base import (
+    Conv1dSyn,
+    Conv1dSyn_transpose,
+    Conv2dSyn,
+    Conv2dSyn_transpose,
+    FullConnSyn,
+)
 from .conv_utils import _KOrder3d, _KOrder4d, _pair, _single, _Size1Type, _Size2Type
 from .transforms import GeneralConnType as GConnType
 
@@ -215,4 +221,3 @@ class Conv2d_transpose(Conv2dSyn_transpose):
             kernel_order,
             name=name,
         )
-
