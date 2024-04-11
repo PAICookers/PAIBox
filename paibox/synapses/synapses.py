@@ -18,7 +18,7 @@ from .base import (
 from .conv_utils import _KOrder3d, _KOrder4d, _pair, _single, _Size1Type, _Size2Type
 from .transforms import GeneralConnType as GConnType
 
-__all__ = ["FullConn", "Conv1d", "Conv2d", "Conv1d_transpose", "Conv2dSyn_transpose"]
+__all__ = ["FullConn", "Conv1d", "Conv2d", "Conv1d_transpose", "Conv2d_transpose"]
 
 
 class FullConn(FullConnSyn):
