@@ -480,8 +480,6 @@ class TestTransforms:
             shape2num((kernel.shape[0],) + out_shape),
         )
 
-
-
     @staticmethod
     def _conv1d_transpose_golden(
         x: np.ndarray,
@@ -513,10 +511,14 @@ class TestTransforms:
         xc_t = xcin
         xl_t = il + (il - 1) * (stride[0] - 1)
         x_transpose = np.zeros((xc_t, xl_t), dtype=x.dtype)
-        x_transpose[::1, ::stride[0]] = x
+        x_transpose[::1, :: stride[0]] = x
         # padding 0 for transpose not for parameter padding, get new input array x_transpose
         x_transpose = np.pad(x_transpose, ((0, 0), (kl - 1, kl - 1)), mode="constant")
-        x_transpose = x_transpose[:, padding[0]:(-1 * padding[0])] if padding[0] > 0 else x_transpose
+        x_transpose = (
+            x_transpose[:, padding[0] : (-1 * padding[0])]
+            if padding[0] > 0
+            else x_transpose
+        )
 
         kernel_rot = np.flip(kernel, axis=2)
         stride_transpose = 1
@@ -524,7 +526,9 @@ class TestTransforms:
             for i in range(cin):
                 conv_result = np.zeros((ol,), dtype=np.int64)
                 for l in range(ol):
-                    window = x_transpose[i, l * stride_transpose : l * stride_transpose + kl]
+                    window = x_transpose[
+                        i, l * stride_transpose : l * stride_transpose + kl
+                    ]
                     conv_result[l] = np.sum(window * kernel_rot[o, i, :])
 
                 out[o] += conv_result
@@ -593,10 +597,18 @@ class TestTransforms:
         xc_t = in_channels
         xl_t = in_shape[0] + (in_shape[0] - 1) * (stride[0] - 1)
         x_transpose = np.zeros((xc_t, xl_t), dtype=x.dtype)
-        x_transpose[::1, ::stride[0]] = x
+        x_transpose[::1, :: stride[0]] = x
         # padding 0 for transpose not for parameter padding, get new input array x_transpose
-        x_transpose = np.pad(x_transpose, ((0, 0), (kernel_size[0] - 1, kernel_size[0] - 1)), mode="constant")
-        x_transpose = x_transpose[:, padding[0]:(-1 * padding[0])] if padding[0] > 0 else x_transpose
+        x_transpose = np.pad(
+            x_transpose,
+            ((0, 0), (kernel_size[0] - 1, kernel_size[0] - 1)),
+            mode="constant",
+        )
+        x_transpose = (
+            x_transpose[:, padding[0] : (-1 * padding[0])]
+            if padding[0] > 0
+            else x_transpose
+        )
 
         xf_transpose = x_transpose.ravel()
 
@@ -610,7 +622,11 @@ class TestTransforms:
         # y4 = expected.ravel()
         assert np.array_equal(y1, expected)
         assert np.array_equal(y2, expected.ravel())
-        in_shape_transpose = (in_shape[0] + (in_shape[0] - 1) * (stride[0] - 1) + 2 * (kernel_size[0] - 1),)
+        in_shape_transpose = (
+            in_shape[0]
+            + (in_shape[0] - 1) * (stride[0] - 1)
+            + 2 * (kernel_size[0] - 1),
+        )
         assert f.connectivity.shape == (
             shape2num((kernel.shape[1],) + in_shape_transpose),
             shape2num((kernel.shape[0],) + out_shape),
@@ -648,13 +664,17 @@ class TestTransforms:
         xh_t = ih + (ih - 1) * (stride[0] - 1)
         xw_t = iw + (iw - 1) * (stride[1] - 1)
         x_transpose = np.zeros((xc_t, xh_t, xw_t), dtype=x.dtype)
-        x_transpose[::1, ::stride[0], ::stride[1]] = x
+        x_transpose[::1, :: stride[0], :: stride[1]] = x
         # padding 0 for transpose not for parameter padding, get new input array x_transpose
-        x_transpose = np.pad(x_transpose, ((0, 0), (kh - 1, kh - 1), (kw - 1, kw - 1)), mode="constant")
+        x_transpose = np.pad(
+            x_transpose, ((0, 0), (kh - 1, kh - 1), (kw - 1, kw - 1)), mode="constant"
+        )
         # inverse real parameter padding
-        x_transpose = x_transpose[:,
-                      padding[0]:(-1 * padding[0]) if padding[0] > 0 else None,
-                      padding[1]:(-1 * padding[1]) if padding[1] > 0 else None]
+        x_transpose = x_transpose[
+            :,
+            padding[0] : (-1 * padding[0]) if padding[0] > 0 else None,
+            padding[1] : (-1 * padding[1]) if padding[1] > 0 else None,
+        ]
 
         kernel_rot = np.rot90(kernel, 2, axes=(2, 3))
 
@@ -742,13 +762,23 @@ class TestTransforms:
         xh_t = in_shape[0] + (in_shape[0] - 1) * (stride[0] - 1)
         xw_t = in_shape[1] + (in_shape[1] - 1) * (stride[1] - 1)
         x_transpose = np.zeros((xc_t, xh_t, xw_t), dtype=x.dtype)
-        x_transpose[::1, ::stride[0], ::stride[1]] = x
+        x_transpose[::1, :: stride[0], :: stride[1]] = x
         # padding 0 for transpose not for parameter padding, get new input array x_transpose
-        x_transpose = np.pad(x_transpose, ((0, 0), (kernel_size[0] - 1, kernel_size[0] - 1), (kernel_size[1] - 1, kernel_size[1] - 1)), mode="constant")
+        x_transpose = np.pad(
+            x_transpose,
+            (
+                (0, 0),
+                (kernel_size[0] - 1, kernel_size[0] - 1),
+                (kernel_size[1] - 1, kernel_size[1] - 1),
+            ),
+            mode="constant",
+        )
         # inverse real parameter padding
-        x_transpose = x_transpose[:,
-                      padding[0]:(-1 * padding[0]) if padding[0] > 0 else None,
-                      padding[1]:(-1 * padding[1]) if padding[1] > 0 else None]
+        x_transpose = x_transpose[
+            :,
+            padding[0] : (-1 * padding[0]) if padding[0] > 0 else None,
+            padding[1] : (-1 * padding[1]) if padding[1] > 0 else None,
+        ]
         xf_transpose = x_transpose.ravel()
 
         # The result of __call__ using traditional conv
@@ -761,8 +791,14 @@ class TestTransforms:
 
         assert np.array_equal(y1, expected)
         assert np.array_equal(y2, expected.ravel())
-        in_shape_transpose = (in_shape[0] + (in_shape[0] - 1) * (stride[0] - 1) + 2 * (kernel_size[0] - 1),
-                              in_shape[1] + (in_shape[1] - 1) * (stride[1] - 1) + 2 * (kernel_size[1] - 1))
+        in_shape_transpose = (
+            in_shape[0]
+            + (in_shape[0] - 1) * (stride[0] - 1)
+            + 2 * (kernel_size[0] - 1),
+            in_shape[1]
+            + (in_shape[1] - 1) * (stride[1] - 1)
+            + 2 * (kernel_size[1] - 1),
+        )
         assert f.connectivity.shape == (
             shape2num((kernel.shape[1],) + in_shape_transpose),
             shape2num((kernel.shape[0],) + out_shape),
