@@ -365,3 +365,108 @@ class TestConv2d:
             in_channels * shape2num(in_shape),
             out_channels * shape2num(out_shape),
         )
+
+
+class TestConv2d_transpose:
+    def test_Conv1d_transpose_instance(self):
+        in_shape = (14,)
+        kernel_size = (5,)
+        stride = 2
+        out_shape = ((14 - 1) * 2 + (5 - 1) + 1,)
+        in_channels = 16
+        out_channels = 8
+        korder = "IOL"
+
+        n1 = pb.IF((in_channels,) + in_shape, 3)  # CL
+        n2 = pb.IF((out_channels,) + out_shape, 3)
+
+        weight = np.random.randint(
+            -128, 128, size=(in_channels, out_channels) + kernel_size, dtype=np.int8
+        )
+        s1 = pb.Conv1d_transpose(n1, n2, weight, stride=stride, kernel_order=korder)
+
+        assert s1.num_in == in_channels * shape2num(in_shape)
+        assert s1.connectivity.dtype == np.int8
+        # the transpose array length l = in_shape + (in_shape - 1) * (stride - 1) + 2 * (kernel_size - 1)
+        in_shape_transpose = (in_shape[0] + (in_shape[0] - 1) * (stride - 1) + 2 * (kernel_size[0] - 1),)
+        assert s1.connectivity.shape == (
+            in_channels * shape2num(in_shape_transpose),
+            out_channels * shape2num(out_shape),
+        )
+
+    def test_Conv2d_transpose_instance(self):
+        in_shape = (14, 14)
+        kernel_size = (5, 5)
+        stride = 2
+        out_shape = ((14 - 1) * 2 + 5, (14 - 1) * 2 + 5)
+        in_channels = 8
+        out_channels = 16
+        korder = "IOHW"
+
+        n1 = pb.IF((in_channels,) + in_shape, 3)  # CHW
+        n2 = pb.IF((out_channels,) + out_shape, 3)
+
+        weight = np.random.randint(
+            -8, 8, size=(in_channels, out_channels) + kernel_size, dtype=np.int32
+        )
+        s1 = pb.Conv2d_transpose(n1, n2, weight, stride=stride, kernel_order=korder)
+
+        assert s1.num_in == in_channels * shape2num(in_shape)
+        assert s1.connectivity.dtype == np.int8
+        in_shape_transpose = (in_shape[0] + (in_shape[0] - 1) * (stride - 1) + 2 * (kernel_size[0] - 1),
+                              in_shape[0] + (in_shape[0] - 1) * (stride - 1) + 2 * (kernel_size[0] - 1))
+        assert s1.connectivity.shape == (
+            in_channels * shape2num(in_shape_transpose),
+            out_channels * shape2num(out_shape),
+        )
+
+    def test_Conv1d_transpose_inchannel_omitted(self):
+        in_shape = (14,)
+        kernel_size = (5,)
+        stride = 2
+        out_shape = ((14 - 1) * 2 + (5 - 1) + 1,)
+        in_channels = 1  # omit it
+        out_channels = 4
+        korder = "IOL"
+
+        n1 = pb.IF(in_shape, 3)  # L, (in_channels=1)
+        n2 = pb.IF((out_channels,) + out_shape, 3)
+
+        weight = np.random.randint(
+            -128, 128, size=(in_channels, out_channels) + kernel_size, dtype=np.int64
+        )
+        s1 = pb.Conv1d_transpose(n1, n2, weight, stride=stride, kernel_order=korder)
+
+        assert s1.num_in == in_channels * shape2num(in_shape)
+        assert s1.connectivity.dtype == np.int8
+        in_shape_transpose = (in_shape[0] + (in_shape[0] - 1) * (stride - 1) + 2 * (kernel_size[0] - 1),)
+        assert s1.connectivity.shape == (
+            in_channels * shape2num(in_shape_transpose),
+            out_channels * shape2num(out_shape),
+        )
+
+    def test_Conv2d_transpose_inchannel_omitted(self):
+        in_shape = (14, 14)
+        kernel_size = (5, 5)
+        stride = 2
+        out_shape = ((14 - 1) * 2 + 5, (14 - 1) * 2 + 5)
+        in_channels = 1  # omit it
+        out_channels = 4
+        korder = "IOHW"
+
+        n1 = pb.IF(in_shape, 3)  # HW, (in_channels=1)
+        n2 = pb.IF((out_channels,) + out_shape, 3)
+
+        weight = np.random.randint(
+            -128, 128, size=(in_channels, out_channels) + kernel_size, dtype=np.int8
+        )
+        s1 = pb.Conv2d_transpose(n1, n2, weight, stride=stride, kernel_order=korder)
+
+        assert s1.num_in == in_channels * shape2num(in_shape)
+        assert s1.connectivity.dtype == np.int8
+        in_shape_transpose = (in_shape[0] + (in_shape[0] - 1) * (stride - 1) + 2 * (kernel_size[0] - 1),
+                              in_shape[0] + (in_shape[0] - 1) * (stride - 1) + 2 * (kernel_size[0] - 1))
+        assert s1.connectivity.shape == (
+            in_channels * shape2num(in_shape_transpose),
+            out_channels * shape2num(out_shape),
+        )

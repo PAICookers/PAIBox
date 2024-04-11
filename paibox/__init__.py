@@ -14,6 +14,8 @@ from .simulator import Probe as Probe
 from .simulator import Simulator as Simulator
 from .synapses import Conv1d as Conv1d
 from .synapses import Conv2d as Conv2d
+from .synapses import Conv1d_transpose as Conv1d_transpose
+from .synapses import Conv2d_transpose as Conv2d_transpose
 from .synapses import FullConn as FullConn
 from .synapses import GeneralConnType as SynConnType
 from .synapses import NoDecay as NoDecay
