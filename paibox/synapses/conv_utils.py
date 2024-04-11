@@ -194,6 +194,7 @@ def _conv2d_faster(
     kernel: WeightType,
     stride: Size2Type,
     padding: Size2Type,
+    dtype: np.dtype = np.int32
 ) -> SynOutType:
     xc, xh, xw = x_chw.shape
 
@@ -214,14 +215,14 @@ def _conv2d_faster(
     col_kernel = kernel.reshape(cout, -1)
 
     # padded: (cin, xh+2*p[0]-kh, xw+2*p[1]-kw) -> (oh*ow, cin*kh*kw)
-    col_fm = _2d_im2col(x_padded, out_shape[0], out_shape[1], kh, kw, stride)
+    col_fm = _2d_im2col(x_padded, out_shape[0], out_shape[1], kh, kw, stride, dtype)
 
     # out = np.zeros((cout,) + out_shape, dtype=np.int64)
     # (oh*ow, cin*kh*kw) * (cout, cin*kh*kw)^T = (oh*ow, cout)
     out = col_fm @ col_kernel.T  # + self.bias
 
     # (oh*ow, cout) -> (cout, oh*ow) -> (cout, oh, ow)
-    out = out.astype(np.int32).T.reshape((cout,) + out_shape)
+    out = out.astype(dtype).T.reshape((cout,) + out_shape)
 
     return out
 
@@ -242,9 +243,9 @@ def _1d_im2col(
 
 
 def _2d_im2col(
-    x_padded: np.ndarray, oh: int, ow: int, kh: int, kw: int, stride: Size2Type
-) -> NDArray[np.int64]:
-    cols = np.zeros((oh * ow, x_padded.shape[0] * kh * kw), dtype=np.int64)
+    x_padded: np.ndarray, oh: int, ow: int, kh: int, kw: int, stride: Size2Type, dtype: np.dtype = np.int64
+) -> NDArray[Union[np.int64, np.float32]]:
+    cols = np.zeros((oh * ow, x_padded.shape[0] * kh * kw), dtype=dtype)
 
     _, ph, pw = x_padded.shape
 
