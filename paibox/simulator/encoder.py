@@ -6,7 +6,8 @@ import numpy as np
 from paibox.mixin import StatusMemory
 from paibox.types import SpikeType, WeightType
 from paibox.synapses.conv_utils import _conv2d_faster, Size2Type
-__all__ = ["LatencyEncoder", "PeriodicEncoder", "PoissonEncoder", "DirectEncoder"]
+from paibox.exceptions import ShapeError
+__all__ = ["LatencyEncoder", "PeriodicEncoder", "PoissonEncoder", "DirectConvEncoder", "DirectMLPEncoder"]
 
 MAXSEED = np.iinfo(np.uint32).max
 MAXINT = np.iinfo(np.int32).max
@@ -119,22 +120,37 @@ class PoissonEncoder(StatelessEncoder):
         return np.less_equal(self.rng.random(x.shape), x).astype(np.bool_)
 
 
-class DirectEncoder(StatelessEncoder):
-    def __init__(self, ksize: WeightType, stride: Size2Type, padding: Size2Type, leak_mem=0.95) -> None:
+class DirectConvEncoder(StatelessEncoder):
+    def __init__(self, x: np.ndarray, ksize: WeightType, stride: Size2Type, padding: Size2Type, leak_mem=0.95) -> None:
         super().__init__()
-        self.shape = []
-        self.ksize = ksize
+        xc, xh, xw = x.shape
+        cout, cin, kh, kw = ksize.shape
         self.stride = stride
         self.padding = padding
         self.leak_mem = leak_mem
+        self.outshape = ((xh + self.padding[0] * 2 - kh) // self.stride[0] + 1, (xw + self.padding[1] * 2 - kw) // self.stride[1] + 1)
+        self.static_input = _conv2d_faster(x, out_shape=self.outshape, kernel=ksize, stride=self.stride, padding=self.padding, dtype=np.float32)
+        self.mem_conv1 = np.zeros_like(self.static_input)
 
-    def __call__(self, x: np.ndarray, *args, **kwargs):
-        xc, xh, xw = x.shape
-        cout, cin, kh, kw = self.ksize.shape
-        shape = ((xh + self.padding[0] * 2 - kh) // self.stride[0] + 1, (xw + self.padding[1] * 2 - kw) // self.stride[1] + 1)
-        static_input = _conv2d_faster(x, out_shape=shape, kernel=self.ksize, stride=self.stride, padding=self.padding, dtype=np.float32)
-        mem_conv1 = np.zeros_like(static_input)
-        mem_conv1 = (1 - self.leak_mem) * mem_conv1 + self.leak_mem * static_input
-        mem_thr = (mem_conv1 / 1.0) - 1.0
+    def __call__(self, *args, **kwargs):
+        self.mem_conv1 = (1 - self.leak_mem) * self.mem_conv1 + self.leak_mem * self.static_input
+        mem_thr = (self.mem_conv1 / 1.0) - 1.0
+        out = np.where(mem_thr > 0, 1, 0).astype(np.bool_)
+        return out
+
+
+class DirectMLPEncoder(StatelessEncoder):
+    def __init__(self, x: np.ndarray, weight: np.ndarray, leak_mem=0.95) -> None:
+        super().__init__()
+        self.leak_mem = leak_mem
+        x = x.reshape(1, -1)
+        if x.shape[1] != weight.shape[0]:
+            raise ShapeError(f"please check weight's dim")
+        self.static_input = x@weight
+        self.mem_conv1 = np.zeros_like(self.static_input)
+
+    def __call__(self, *args, **kwargs):
+        self.mem_conv1 = (1 - self.leak_mem) * self.mem_conv1 + self.leak_mem * self.static_input
+        mem_thr = (self.mem_conv1 / 1.0) - 1.0
         out = np.where(mem_thr > 0, 1, 0).astype(np.bool_)
         return out
