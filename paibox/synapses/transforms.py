@@ -15,6 +15,10 @@ from .conv_utils import (
     _conv1d_unroll,
     _conv2d_faster,
     _conv2d_unroll,
+    _conv1d_transpose_faster,
+    _conv1d_transpose_unroll,
+    _conv2d_transpose_faster,
+    _conv2d_transpose_unroll,
 )
 
 __all__ = [
@@ -25,6 +29,9 @@ __all__ = [
     "MaskedLinear",
     "Conv1dForward",
     "Conv2dForward",
+    "Conv1dTransposeForward",
+    "Conv2dTransposeForward",
+
 ]
 
 
@@ -353,3 +360,85 @@ class Conv2dForward(Transform):
     @property
     def connectivity(self):
         return _conv2d_unroll(self.in_shape, self.out_shape, self.weights, self.stride)
+
+
+class Conv1dTransposeForward(Transform):
+    def __init__(
+        self,
+        in_shape: Size1Type,
+        out_shape: Size1Type,
+        kernel: np.ndarray,
+        stride: Size1Type,
+        padding: Size1Type,
+        # fm_order: _Order2d,
+    ) -> None:
+        self.in_shape = in_shape
+        self.out_shape = out_shape
+        self.stride = stride
+        self.padding = padding
+        # self.fm_order = fm_order
+
+        _w = kernel.astype(np.int8)
+        super().__init__(_w)
+
+    def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
+        cin = self.weights.shape[1]
+
+        # if self.fm_order == "LC":
+        #     # (N,) -> (L, C) -> (C, L)
+        #     _x = x.reshape(self.in_shape + (cin,)).T
+        # else:
+        _x = x.reshape((cin,) + self.in_shape)
+
+        return _conv1d_transpose_faster(
+            _x,
+            self.out_shape,
+            self.weights,
+            self.stride,
+            self.padding,
+        )
+
+    @property
+    def connectivity(self):
+        return _conv1d_transpose_unroll(self.in_shape, self.out_shape, self.weights, self.stride)
+
+
+class Conv2dTransposeForward(Transform):
+    def __init__(
+        self,
+        in_shape: Size2Type,
+        out_shape: Size2Type,
+        kernel: np.ndarray,
+        stride: Size2Type,
+        padding: Size2Type,
+        # fm_order: _Order3d,
+    ) -> None:
+        self.in_shape = in_shape
+        self.out_shape = out_shape
+        self.stride = stride
+        self.padding = padding
+        # self.fm_order = fm_order
+
+        _w = kernel.astype(np.int8)
+        super().__init__(_w)
+
+    def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
+        cin = self.weights.shape[1]
+
+        # if self.fm_order == "HWC":
+        #     # (N,) -> (H, W, C) -> (C, H, W)
+        #     _x = x.reshape(self.in_shape + (cin,)).transpose(2, 0, 1)
+        # else:
+        _x = x.reshape((cin,) + self.in_shape)
+
+        return _conv2d_transpose_faster(
+            _x,
+            self.out_shape,
+            self.weights,
+            self.stride,
+            self.padding,
+        )
+
+    @property
+    def connectivity(self):
+        return _conv2d_transpose_unroll(self.in_shape, self.out_shape, self.weights, self.stride)

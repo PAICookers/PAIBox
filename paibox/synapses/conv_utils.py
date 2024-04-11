@@ -66,7 +66,7 @@ def _fm_ndim2_check(fm_shape: SizeAnyType, fm_order: _Order3d) -> Size3Type:
     if len(fm_shape) == 2:
         channels, h, w = (1,) + fm_shape
     else:
-        if fm_order is "CHW":
+        if fm_order == "CHW":
             channels, h, w = fm_shape
         else:
             h, w, channels = fm_shape
@@ -145,11 +145,10 @@ def _conv2d_unroll(
                     i * ow + j,
                 ] = kernel[ch_idx[0], ch_idx[1], :, :]
 
-            t = np.swapaxes(
-                zeros_image[:, :, i * ow + j].reshape(cin * ih, cout, iw),
-                0,
-                1,
-                # .transpose(1, 0, 2)
+            t = (
+                zeros_image[:, :, i * ow + j]
+                .reshape(cin * ih, cout, iw)
+                .transpose(1, 0, 2)
             )
             for o_ch in range(cout):
                 w_unrolled[:, i * ow + j + o_ch * out_size] = t[o_ch].ravel()
@@ -252,3 +251,190 @@ def _2d_im2col(
             idx += 1
 
     return cols
+
+
+def _conv1d_transpose_unroll(
+    in_shape: Size1Type,
+    out_shape: Size1Type,
+    kernel: WeightType,
+    stride: Size1Type,
+    # padding: Size1Type,
+) -> WeightType:
+    """Unroll the convolution kernel of 1d convolution into a matrix.
+
+    XXX: The case where the input feature map is in 'LC' order is not considered for the time being.
+    """
+    kernel_rot = np.flip(kernel, axis=2)
+    cout, cin, kl = kernel_rot.shape
+    il = in_shape[0] + (in_shape[0] - 1) * (stride[0] - 1) + (kl - 1) * 2
+    ol = out_shape[0]
+
+    w_unrolled = np.zeros((cin * il, cout * ol), dtype=kernel_rot.dtype)
+    zeros_image = np.zeros((cin * il, cout, ol), dtype=kernel_rot.dtype)
+
+    # stride has been processed in the input matrix
+    stride_transpose = 1
+    for i in range(ol):
+        for ch_idx in np.ndindex(kernel_rot.shape[:2]):
+            # [0] -> o_ch, [1] -> i_ch
+            zeros_image[
+                i * stride_transpose + ch_idx[1] * il : i * stride_transpose + ch_idx[1] * il + kl,
+                ch_idx[0],
+                i,
+            ] = kernel_rot[ch_idx[0], ch_idx[1], :]
+
+        t = zeros_image[:, :, i].T
+        for o_ch in range(cout):
+            w_unrolled[:, i + o_ch * ol] = t[o_ch].ravel()
+
+    return w_unrolled
+
+
+def _conv2d_transpose_unroll(
+    in_shape: Size2Type,
+    out_shape: Size2Type,
+    kernel: WeightType,
+    stride: Size2Type,
+    # padding: Size2Type,
+) -> WeightType:
+    """Unroll the convolution kernel of 2d convolution into a matrix.
+
+    XXX: The case where the input feature map is in 'HWC' order is not considered for the time being.
+    """
+    kernel_rot = np.rot90(kernel, 2, axes=(2, 3))
+    cout, cin, kh, kw = kernel_rot.shape
+
+    ih = in_shape[0] + (in_shape[0] - 1) * (stride[0] - 1) + (kh - 1) * 2
+    iw = in_shape[1] + (in_shape[1] - 1) * (stride[1] - 1) + (kw - 1) * 2
+    # ih, iw = in_shape
+    oh, ow = out_shape
+    in_size = ih * iw
+    out_size = oh * ow
+
+    w_unrolled = np.zeros((cin * in_size, cout * out_size), dtype=kernel_rot.dtype)
+    zeros_image = np.zeros((cin * ih, iw * cout, out_size), dtype=kernel_rot.dtype)
+
+    stride_transpose = (1, 1)
+    for i in range(oh):
+        for j in range(ow):
+            for ch_idx in np.ndindex(kernel_rot.shape[:2]):
+                # [0] -> o_ch, [1] -> i_ch
+                zeros_image[
+                    i * stride_transpose[0]
+                    + ch_idx[1] * ih : i * stride_transpose[0]
+                    + ch_idx[1] * ih
+                    + kh,
+                    j * stride_transpose[1]
+                    + ch_idx[0] * iw : j * stride_transpose[1]
+                    + ch_idx[0] * iw
+                    + kw,
+                    i * ow + j,
+                ] = kernel_rot[ch_idx[0], ch_idx[1], :, :]
+
+            t = (
+                zeros_image[:, :, i * ow + j]
+                .reshape(cin * ih, cout, iw)
+                .transpose(1, 0, 2)
+            )
+            for o_ch in range(cout):
+                w_unrolled[:, i * ow + j + o_ch * out_size] = t[o_ch].ravel()
+
+    return w_unrolled
+
+def _conv1d_transpose_faster(
+    x_cl: np.ndarray,
+    out_shape: Size1Type,
+    kernel: WeightType,
+    stride: Size1Type,
+    padding: Size1Type,
+) -> SynOutType:
+
+    # (C, L)
+    xc, xl = x_cl.shape
+
+    # (O, I, L)
+    cout, cin, kl = kernel.shape
+    assert xc == cin, "Input channels must match kernel channels."
+
+    # generate new input array : transpose padding 0 & stride 0
+    # Insert 0 between rows and columns (for stride)
+    xc_t = xc
+    xl_t = xl + (xl - 1) * (stride[0] - 1)
+    x_transpose = np.zeros((xc_t, xl_t), dtype=x_cl.dtype)
+    x_transpose[::1, ::stride[0]] = x_cl
+    # padding 0 for transpose not for parameter padding, get new input array x_transpose
+    x_transpose = np.pad(x_transpose, ((0, 0), (kl - 1, kl - 1)), mode="constant")
+    x_transpose = x_transpose[:, padding[0]:(-1 * padding[0])] if padding[0] > 0 else x_transpose
+
+    assert (xl-1) * stride[0] - 2 * padding[0] + kl == out_shape[0]
+
+    # convolution kernel rotated 180 degrees
+    kernel_rot = np.flip(kernel, axis=2)
+    # kernel: (cout, cin, kl) -> (cin*kl, cout)
+    kernel_col = kernel_rot.reshape(cout, -1)
+
+    # padded: (cin, xl+2*p[0]-kl) -> (ol, cin*kl)
+    stride_transpose = (1,)
+    col_fm = _1d_im2col(x_transpose, out_shape[0], kl, stride_transpose)
+
+    # out = np.zeros((cout,) + out_shape, dtype=np.int64)
+    # (ol, cin*kl) * (cin*kl, cout) = (ol, cout)
+    out = col_fm @ kernel_col.T  # + self.bias
+
+    # (ol, cout) -> (ol, cout) -> (cout, ol)
+    out = out.reshape(out_shape + (cout,)).T
+
+    return out.astype(np.int32)
+
+
+def _conv2d_transpose_faster(
+    x_chw: np.ndarray,
+    out_shape: Size2Type,
+    kernel: WeightType,
+    stride: Size2Type,
+    padding: Size2Type,
+) -> SynOutType:
+
+    # (C, H, W)
+    xc, xh, xw = x_chw.shape
+
+    # (O, I, H, W)
+    cout, cin, kh, kw = kernel.shape
+    assert xc == cin, "Input channels must match kernel channels."
+
+    # Calculate the shape of the padded input (considering stride)
+    oh, ow = out_shape
+    assert (xh - 1) * stride[0] - 2 * padding[0] + kh == oh
+    assert (xw - 1) * stride[1] - 2 * padding[1] + kw == ow
+
+    # By modifying the input matrix and convolution kernel
+    # we can change the transpose convolution to the form of an ordinary convolution
+
+    # Generate the transpose input array : transpose padding 0 & stride 0
+    xc_t = xc
+    xh_t = xh + (xh - 1) * (stride[0] - 1)
+    xw_t = xw + (xw - 1) * (stride[1] - 1)
+    x_transpose = np.zeros((xc_t, xh_t, xw_t), dtype=x_chw.dtype)
+    x_transpose[::1, ::stride[0], ::stride[1]] = x_chw
+    # padding 0 for transpose not for parameter padding, get new input array x_transpose
+    x_transpose = np.pad(x_transpose, ((0, 0), (kh - 1, kh - 1), (kw - 1, kw - 1)), mode="constant")
+    # inverse real parameter padding
+    x_transpose = x_transpose[:,
+                  padding[0]:(-1*padding[0]) if padding[0] > 0 else None,
+                  padding[1]:(-1*padding[1]) if padding[1] > 0 else None]
+
+    # kernel: (cout, cin, kh, kw) -> (cout, cin*kh*kw)
+    kernel_rot = np.rot90(kernel, 2, axes=(2, 3))  # convolution kernel rotated 180 degrees
+    kernel_col = kernel_rot.reshape(cout, -1)
+
+    # padded: (cin, xh+2*p[0]-kh, xw+2*p[1]-kw) -> (oh*ow, cin*kh*kw)
+    stride_transpose = (1, 1)
+    col_fm = _2d_im2col(x_transpose, oh, ow, kh, kw, stride_transpose)
+
+    # (oh*ow, cin*kh*kw) * (cin*kh*kw, cout) = (oh*ow, cout)n
+    out_col = col_fm @ kernel_col.T
+
+    # (oh*ow, cout) -> (oh, ow, cout) -> (cout, oh, ow)
+    out = out_col.astype(np.int32).T.reshape((cout,) + out_shape)
+
+    return out
