@@ -23,9 +23,9 @@ from paicorelib import WeightPrecision as WP
 
 import paibox as pb
 from paibox.backend.conf_template import (
-    EmptyCorePlacementConfig,
     CoreConfig,
     CorePlacementConfig,
+    EmptyCorePlacementConfig,
     NeuronConfig,
 )
 from paibox.backend.routing import RoutingCluster

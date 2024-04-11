@@ -161,10 +161,12 @@ class Mapper:
 
         Description: Group all edges & build `CoreBlock` based on the grouped edges.
         """
-        grouped_edges = self.graph.group_edges()
+        grouped_edges, routing_groups_id = self.graph.group_edges()
 
-        for syns in grouped_edges:
-            self.core_blocks.append(CoreBlock.build(*syns, seed=0))
+        for syns, routing_id in zip(grouped_edges, routing_groups_id):
+            self.core_blocks.append(
+                CoreBlock.build(*syns, seed=0, routing_id=routing_id)
+            )
 
         for cb in self.core_blocks:
             succ_cbs = list(

@@ -32,9 +32,9 @@ from paibox.types import WeightType
 from paibox.utils import check_attr_same, count_unique_elem
 
 from .conf_template import (
-    EmptyCorePlacementConfig,
     CoreConfig,
     CorePlacementConfig,
+    EmptyCorePlacementConfig,
     NeuronConfig,
 )
 from .context import _BACKEND_CONTEXT
@@ -61,18 +61,22 @@ class CoreBlock(CoreAbstract):
 
     RUNTIME_MODE: ClassVar[CoreMode] = CoreMode.MODE_SNN
 
-    def __init__(self, *parents: SynSys, seed: int, name: Optional[str] = None) -> None:
+    def __init__(
+        self, *parents: SynSys, seed: int, routing_id: int, name: Optional[str] = None
+    ) -> None:
         """Core blocks in SNN mode.
 
         Args:
             - parents: the parent synapses.
             - seed: random seed. Default value is 0.
+            - routing_id: id of routing group.
             - name: name of the core block. Optional.
         """
         super().__init__(name)
         self._parents = parents
         self._lcn_ex = self._n_axon2lcn_ex()
         self._wp = WP.WEIGHT_WIDTH_8BIT  # Default value
+        self._routing_id = routing_id
 
         self.seed = seed
         """Random seed, legal integer, no more than uint64."""
@@ -355,7 +359,7 @@ class CoreBlock(CoreAbstract):
         return ", ".join(n.name for n in self.obj)
 
     @classmethod
-    def build(cls, *synapses: SynSys, seed: int = 0):
+    def build(cls, *synapses: SynSys, seed: int = 0, routing_id: int = 0):
         """Group synapses & build `CoreBlock`."""
         # FIXME where does the parameter check do?
         if seed > (1 << 64) - 1:
@@ -364,7 +368,7 @@ class CoreBlock(CoreAbstract):
                 TruncationWarning,
             )
 
-        return cls(*synapses, seed=seed)
+        return cls(*synapses, seed=seed, routing_id=routing_id)
 
     @classmethod
     def export_core_plm_config(cls, cb: "CoreBlock") -> Dict[Coord, CoreConfig]:
@@ -715,6 +719,7 @@ class CorePlacement(CoreAbstract):
 
 class EmptyCorePlacement(CoreAbstract):
     """Empty core placement."""
+
     _default_wp: ClassVar[WP] = WP.WEIGHT_WIDTH_1BIT
     _default_lcn_ex: ClassVar[LCN_EX] = LCN_EX.LCN_1X
     _default_n_dendrite: ClassVar[int] = 0
