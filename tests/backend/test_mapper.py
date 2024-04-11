@@ -66,7 +66,7 @@ class TestGraphInfo:
         assert len(mapper.graph_info["input"]) == 2
 
     def test_multi_inputproj3(
-        self, get_mapper, ensure_dump_dir, build_multi_inputproj_net3
+        self, monkeypatch, get_mapper, ensure_dump_dir, build_multi_inputproj_net3
     ):
         net = build_multi_inputproj_net3
         mapper: pb.Mapper = get_mapper
@@ -80,6 +80,14 @@ class TestGraphInfo:
         )
 
         assert len(mapper.graph_info["input"]) == 1
+        assert len(mapper.core_blocks) == 6
+
+        monkeypatch.setattr(net.n7, "_tws", 3)  # n7.tws: 2 -> 3
+        mapper.clear()
+        mapper.build(net)
+        mapper.compile()
+
+        assert len(mapper.core_blocks) == 5  # n6 & n7 grouped in one core block.
 
     def test_multi_output_nodes(
         self, get_mapper, ensure_dump_dir, build_multi_onodes_net

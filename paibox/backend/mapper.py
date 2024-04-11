@@ -1,3 +1,4 @@
+import sys
 from collections import defaultdict
 from copy import copy
 from pathlib import Path
@@ -163,10 +164,20 @@ class Mapper:
         """
         grouped_edges, routing_groups_id = self.graph.group_edges()
 
-        for syns, routing_id in zip(grouped_edges, routing_groups_id):
-            self.core_blocks.append(
-                CoreBlock.build(*syns, seed=0, routing_id=routing_id)
-            )
+        if sys.version_info >= (3, 10):
+            for syns, routing_id in zip(grouped_edges, routing_groups_id, strict=True):
+                self.core_blocks.append(
+                    CoreBlock.build(*syns, seed=0, routing_id=routing_id)
+                )
+        else:
+            if len(grouped_edges) != len(routing_groups_id):
+                raise ValueError(
+                    f"the length of grouped edges & routing groups id are not equal, "
+                    f"{len(grouped_edges)} != {len(routing_groups_id)}"
+                )
+
+            for syns, routing_id in zip(grouped_edges, routing_groups_id):
+                self.core_blocks.append(CoreBlock.build(*syns, routing_id=routing_id))
 
         for cb in self.core_blocks:
             succ_cbs = list(
@@ -351,6 +362,11 @@ class Mapper:
 
     def _member_cb_and_onode_config_export(self) -> OutputDestInfo:
         """Export configuration & output destinations inormation for core blocks.
+
+        Description:
+            Traverse core placements in core blocks, find the following core    \
+            blocks where the axons at. Get the coordinate of the core placement \
+            & coordinates of axons(for multicasting).
 
         Json exchange file format for output nodes:
         {

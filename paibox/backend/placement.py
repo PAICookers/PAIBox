@@ -62,14 +62,14 @@ class CoreBlock(CoreAbstract):
     RUNTIME_MODE: ClassVar[CoreMode] = CoreMode.MODE_SNN
 
     def __init__(
-        self, *parents: SynSys, seed: int, routing_id: int, name: Optional[str] = None
+        self, *parents: SynSys, routing_id: int, seed: int, name: Optional[str] = None
     ) -> None:
         """Core blocks in SNN mode.
 
         Args:
             - parents: the parent synapses.
-            - seed: random seed. Default value is 0.
             - routing_id: id of routing group.
+            - seed: random seed. Default value is 0.
             - name: name of the core block. Optional.
         """
         super().__init__(name)
@@ -359,7 +359,7 @@ class CoreBlock(CoreAbstract):
         return ", ".join(n.name for n in self.obj)
 
     @classmethod
-    def build(cls, *synapses: SynSys, seed: int = 0, routing_id: int = 0):
+    def build(cls, *synapses: SynSys, routing_id: int, seed: int = 0):
         """Group synapses & build `CoreBlock`."""
         # FIXME where does the parameter check do?
         if seed > (1 << 64) - 1:
@@ -368,7 +368,7 @@ class CoreBlock(CoreAbstract):
                 TruncationWarning,
             )
 
-        return cls(*synapses, seed=seed, routing_id=routing_id)
+        return cls(*synapses, routing_id=routing_id, seed=seed)
 
     @classmethod
     def export_core_plm_config(cls, cb: "CoreBlock") -> Dict[Coord, CoreConfig]:
