@@ -268,8 +268,10 @@ class Network_with_multi_inodes2(pb.Network):
         1. One input node assigned within more than one core block.
 
     Structure:
-        INP1 -> S1 -> N1(tws=1) -> S2 -> N2
-             -> S3 -> N3(tws=2) -> S4 -> N2
+        INP1 -> S1 -> N1(tws=1) -> S2 -> N2(tws=2)
+             -> S3 -> N3(tws=2) -> S4 -> N4(tws=3)
+             -> S5 -> N5(tws=2) -> S6 -> N6(tws=3)
+                                -> S7 -> N7(tws=2/3)
     """
 
     def __init__(self):
@@ -278,6 +280,10 @@ class Network_with_multi_inodes2(pb.Network):
         self.n1 = pb.TonicSpiking(80, 2, name="n1", tick_wait_start=1)
         self.n2 = pb.TonicSpiking(20, 3, name="n2", tick_wait_start=3)
         self.n3 = pb.TonicSpiking(20, 3, name="n3", tick_wait_start=2)
+        self.n4 = pb.TonicSpiking(20, 3, name="n4", tick_wait_start=3)
+        self.n5 = pb.TonicSpiking(20, 3, name="n5", tick_wait_start=2)
+        self.n6 = pb.TonicSpiking(20, 3, name="n6", tick_wait_start=3)
+        self.n7 = pb.TonicSpiking(20, 3, name="n7", tick_wait_start=2)
 
         self.s1 = pb.FullConn(
             self.inp1, self.n1, conn_type=pb.SynConnType.All2All, name="s1"
@@ -289,7 +295,16 @@ class Network_with_multi_inodes2(pb.Network):
             self.inp1, self.n3, conn_type=pb.SynConnType.All2All, name="s3"
         )
         self.s4 = pb.FullConn(
-            self.n3, self.n2, conn_type=pb.SynConnType.All2All, name="s4"
+            self.n3, self.n4, conn_type=pb.SynConnType.All2All, name="s4"
+        )
+        self.s5 = pb.FullConn(
+            self.inp1, self.n5, conn_type=pb.SynConnType.All2All, name="s5"
+        )
+        self.s6 = pb.FullConn(
+            self.n5, self.n6, conn_type=pb.SynConnType.All2All, name="s6"
+        )
+        self.s7 = pb.FullConn(
+            self.n5, self.n7, conn_type=pb.SynConnType.All2All, name="s7"
         )
 
 
