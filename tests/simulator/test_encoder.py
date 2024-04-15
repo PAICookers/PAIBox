@@ -51,11 +51,11 @@ class TestEncoder:
     def test_DirectConvEncoder(self):
         seed = 1
         rng = np.random.RandomState(seed=seed)
-        ksize = np.random.uniform(-1, 1, size=(64, 3, 3, 3)).astype(np.float32)
+        ksize = np.random.uniform(-10, 10, size=(1, 3, 3, 3)).astype(np.float32)
         stride = (1, 1)
-        padding = (1,1)
-        outshape = (64, 10, 10)
-        x = rng.rand(3, 10, 10).astype(np.float32)
+        padding = (1, 1)
+        outshape = (1, 5, 5)
+        x = rng.rand(3, 5, 5).astype(np.float32)
         de = pb.simulator.DirectConvEncoder(x, ksize=ksize, stride=stride, padding=padding)
         for t in range(20):
             out_spike = de()

@@ -5,8 +5,10 @@ import numpy as np
 
 from paibox.mixin import StatusMemory
 from paibox.types import SpikeType, WeightType
-from paibox.synapses.conv_utils import _conv2d_faster, Size2Type
+from paibox.synapses.conv_utils import Size2Type
 from paibox.exceptions import ShapeError
+
+from .utils import _conv2d_faster_fp32
 __all__ = ["LatencyEncoder", "PeriodicEncoder", "PoissonEncoder", "DirectConvEncoder", "DirectMLPEncoder"]
 
 MAXSEED = np.iinfo(np.uint32).max
@@ -129,7 +131,7 @@ class DirectConvEncoder(StatelessEncoder):
         self.padding = padding
         self.leak_mem = leak_mem
         self.outshape = ((xh + self.padding[0] * 2 - kh) // self.stride[0] + 1, (xw + self.padding[1] * 2 - kw) // self.stride[1] + 1)
-        self.static_input = _conv2d_faster(x, out_shape=self.outshape, kernel=ksize, stride=self.stride, padding=self.padding, dtype=np.float32)
+        self.static_input = _conv2d_faster_fp32(x, out_shape=self.outshape, kernel=ksize, stride=self.stride, padding=self.padding)
         self.mem_conv1 = np.zeros_like(self.static_input)
 
     def __call__(self, *args, **kwargs):
