@@ -1,6 +1,6 @@
 from functools import partial
 from itertools import repeat
-from typing import Any, Iterable, Literal, Tuple, TypeVar, Union
+from typing import Any, Iterable, Literal, Tuple, TypeVar, Union, overload
 
 import numpy as np
 from numpy.typing import NDArray
@@ -187,44 +187,97 @@ def _conv1d_faster(
     # (ol, cout) -> (cout, ol)
     return out.astype(np.int32).T
 
+@overload
+def _conv2d_faster(
+    x_chw: np.ndarray,
+    out_shape: Size2Type,
+    kernel: NDArray[np.float32],
+    stride: Size2Type,
+    padding: Size2Type,
+    dtype: np.dtype = np.int32) -> np.float32: ...
 
+
+@overload
 def _conv2d_faster(
     x_chw: np.ndarray,
     out_shape: Size2Type,
     kernel: WeightType,
     stride: Size2Type,
     padding: Size2Type,
+    dtype: np.dtype = np.float32
+) -> SynOutType: ...
+
+
+def _conv2d_faster(
+    x_chw: np.ndarray,
+    out_shape: Size2Type,
+    kernel: Union[WeightType, NDArray[np.float32]],
+    stride: Size2Type,
+    padding: Size2Type,
     dtype: np.dtype = np.int32
-) -> SynOutType:
-    xc, xh, xw = x_chw.shape
+) -> Union[SynOutType, np.float32]:
+    if dtype == np.int32:
+        xc, xh, xw = x_chw.shape
+        if kernel.dtype != np.bool_ and kernel.dtype != np.int8:
+            raise TypeError(
+                f"expected type np.bool_, np.int8, but got type {kernel.dtype}."
+            )
+        # (O, I, H, W)
+        cout, cin, kh, kw = kernel.shape
+        assert xc == cin
 
-    # (O, I, H, W)
-    cout, cin, kh, kw = kernel.shape
-    assert xc == cin
+        x_padded = np.pad(
+            x_chw,
+            ((0, 0), (padding[0], padding[0]), (padding[1], padding[1])),
+            mode="constant",
+        )
 
-    x_padded = np.pad(
-        x_chw,
-        ((0, 0), (padding[0], padding[0]), (padding[1], padding[1])),
-        mode="constant",
-    )
+        assert (xh + padding[0] * 2 - kh) // stride[0] + 1 == out_shape[0]
+        assert (xw + padding[1] * 2 - kw) // stride[1] + 1 == out_shape[1]
 
-    assert (xh + padding[0] * 2 - kh) // stride[0] + 1 == out_shape[0]
-    assert (xw + padding[1] * 2 - kw) // stride[1] + 1 == out_shape[1]
+        # kernel: (cout, cin, kh, kw) -> (cout, cin*kh*kw)
+        col_kernel = kernel.reshape(cout, -1)
 
-    # kernel: (cout, cin, kh, kw) -> (cout, cin*kh*kw)
-    col_kernel = kernel.reshape(cout, -1)
+        # padded: (cin, xh+2*p[0]-kh, xw+2*p[1]-kw) -> (oh*ow, cin*kh*kw)
+        col_fm = _2d_im2col(x_padded, out_shape[0], out_shape[1], kh, kw, stride, dtype)
+        # out = np.zeros((cout,) + out_shape, dtype=np.int64)
+        # (oh*ow, cin*kh*kw) * (cout, cin*kh*kw)^T = (oh*ow, cout)
+        out = col_fm @ col_kernel.T  # + self.bias
+        # (oh*ow, cout) -> (cout, oh*ow) -> (cout, oh, ow)
+        out = out.astype(dtype).T.reshape((cout,) + out_shape)
 
-    # padded: (cin, xh+2*p[0]-kh, xw+2*p[1]-kw) -> (oh*ow, cin*kh*kw)
-    col_fm = _2d_im2col(x_padded, out_shape[0], out_shape[1], kh, kw, stride, dtype)
+        return out
+    else:
+        xc, xh, xw = x_chw.shape
+        if kernel.dtype != np.float32:
+            raise TypeError(
+                f"expected type np.float32, but got type {kernel.dtype}."
+            )
+        # (O, I, H, W)
+        cout, cin, kh, kw = kernel.shape
+        assert xc == cin
 
-    # out = np.zeros((cout,) + out_shape, dtype=np.int64)
-    # (oh*ow, cin*kh*kw) * (cout, cin*kh*kw)^T = (oh*ow, cout)
-    out = col_fm @ col_kernel.T  # + self.bias
+        x_padded = np.pad(
+            x_chw,
+            ((0, 0), (padding[0], padding[0]), (padding[1], padding[1])),
+            mode="constant",
+        )
 
-    # (oh*ow, cout) -> (cout, oh*ow) -> (cout, oh, ow)
-    out = out.astype(dtype).T.reshape((cout,) + out_shape)
+        assert (xh + padding[0] * 2 - kh) // stride[0] + 1 == out_shape[0]
+        assert (xw + padding[1] * 2 - kw) // stride[1] + 1 == out_shape[1]
 
-    return out
+        # kernel: (cout, cin, kh, kw) -> (cout, cin*kh*kw)
+        col_kernel = kernel.reshape(cout, -1)
+
+        # padded: (cin, xh+2*p[0]-kh, xw+2*p[1]-kw) -> (oh*ow, cin*kh*kw)
+        col_fm = _2d_im2col(x_padded, out_shape[0], out_shape[1], kh, kw, stride, dtype)
+        # out = np.zeros((cout,) + out_shape, dtype=np.int64)
+        # (oh*ow, cin*kh*kw) * (cout, cin*kh*kw)^T = (oh*ow, cout)
+        out = col_fm @ col_kernel.T  # + self.bias
+        # (oh*ow, cout) -> (cout, oh*ow) -> (cout, oh, ow)
+        out = out.astype(dtype).T.reshape((cout,) + out_shape)
+
+        return out
 
 
 def _1d_im2col(

@@ -25,9 +25,9 @@ DataArrayType = TypeVar(
     "DataArrayType", int, np.bool_, np.integer, List[int], Tuple[int, ...], np.ndarray
 )
 SpikeType = NDArray[np.bool_]
-SynOutType = NDArray[Union[np.int32, np.float32]]
+SynOutType = NDArray[np.int32]
 VoltageType = NDArray[np.int32]
-WeightType = NDArray[Union[np.bool_, np.int8, np.float32]]
+WeightType = NDArray[Union[np.bool_, np.int8]]
 
 _T = TypeVar("_T")
 
