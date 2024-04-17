@@ -11,7 +11,8 @@ def _conv2d_faster_fp32(
     out_shape: Size2Type,
     kernel: NDArray[np.float32],
     stride: Size2Type,
-    padding: Size2Type) -> np.float32:
+    padding: Size2Type,
+) -> np.float32:
     xc, xh, xw = x_chw.shape
     # (O, I, H, W)
     cout, cin, kh, kw = kernel.shape
@@ -38,6 +39,7 @@ def _conv2d_faster_fp32(
     out = out.astype(np.float32).T.reshape((cout,) + out_shape)
 
     return out
+
 
 def _2d_im2col_fp32(
     x_padded: np.ndarray, oh: int, ow: int, kh: int, kw: int, stride: Size2Type

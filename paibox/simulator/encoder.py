@@ -3,13 +3,20 @@ from typing import Literal, Optional
 
 import numpy as np
 
-from paibox.mixin import StatusMemory
-from paibox.types import SpikeType, WeightType
-from paibox.synapses.conv_utils import Size2Type
 from paibox.exceptions import ShapeError
+from paibox.mixin import StatusMemory
+from paibox.synapses.conv_utils import Size2Type
+from paibox.types import SpikeType, WeightType
 
 from .utils import _conv2d_faster_fp32
-__all__ = ["LatencyEncoder", "PeriodicEncoder", "PoissonEncoder", "DirectConvEncoder", "DirectMLPEncoder"]
+
+__all__ = [
+    "LatencyEncoder",
+    "PeriodicEncoder",
+    "PoissonEncoder",
+    "DirectConvEncoder",
+    "DirectMLPEncoder",
+]
 
 MAXSEED = np.iinfo(np.uint32).max
 MAXINT = np.iinfo(np.int32).max
@@ -123,7 +130,9 @@ class PoissonEncoder(StatelessEncoder):
 
 
 class DirectConvEncoder(StatelessEncoder):
-    def __init__(self, ksize: WeightType, stride: Size2Type, padding: Size2Type, leak_mem=0.95) -> None:
+    def __init__(
+        self, ksize: WeightType, stride: Size2Type, padding: Size2Type, leak_mem=0.95
+    ) -> None:
         super().__init__()
         self.ksize = ksize
         self.stride = stride
@@ -136,12 +145,22 @@ class DirectConvEncoder(StatelessEncoder):
         if self.static_input is None:
             xc, xh, xw = x.shape
             cout, cin, kh, kw = self.ksize.shape
-            outshape = ((xh + self.padding[0] * 2 - kh) // self.stride[0] + 1, (xw + self.padding[1] * 2 - kw) // self.stride[1] + 1)
-            self.static_input = _conv2d_faster_fp32(x, out_shape=outshape, kernel=self.ksize, stride=self.stride,
-                                                padding=self.padding)
+            outshape = (
+                (xh + self.padding[0] * 2 - kh) // self.stride[0] + 1,
+                (xw + self.padding[1] * 2 - kw) // self.stride[1] + 1,
+            )
+            self.static_input = _conv2d_faster_fp32(
+                x,
+                out_shape=outshape,
+                kernel=self.ksize,
+                stride=self.stride,
+                padding=self.padding,
+            )
         if self.mem_conv1 is None:
             self.mem_conv1 = np.zeros_like(self.static_input)
-        self.mem_conv1 = (1 - self.leak_mem) * self.mem_conv1 + self.leak_mem * self.static_input
+        self.mem_conv1 = (
+            1 - self.leak_mem
+        ) * self.mem_conv1 + self.leak_mem * self.static_input
         mem_thr = (self.mem_conv1 / 1.0) - 1.0
         out = mem_thr > 0
 
@@ -166,7 +185,9 @@ class DirectMLPEncoder(StatelessEncoder):
         if self.mem_conv1 is None:
             self.mem_conv1 = np.zeros_like(self.static_input)
 
-        self.mem_conv1 = (1 - self.leak_mem) * self.mem_conv1 + self.leak_mem * self.static_input
+        self.mem_conv1 = (
+            1 - self.leak_mem
+        ) * self.mem_conv1 + self.leak_mem * self.static_input
         mem_thr = (self.mem_conv1 / 1.0) - 1.0
         out = mem_thr > 0
 

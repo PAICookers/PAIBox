@@ -75,11 +75,11 @@ def _fm_ndim2_check(fm_shape: SizeAnyType, fm_order: _Order3d) -> Size3Type:
 
 
 def _conv1d_unroll(
-        in_shape: Size1Type,
-        out_shape: Size1Type,
-        kernel: WeightType,
-        stride: Size1Type,
-        # padding: Size1Type,
+    in_shape: Size1Type,
+    out_shape: Size1Type,
+    kernel: WeightType,
+    stride: Size1Type,
+    # padding: Size1Type,
 ) -> WeightType:
     """Unroll the convolution kernel of 1d convolution into a matrix.
 
@@ -96,9 +96,9 @@ def _conv1d_unroll(
         for ch_idx in np.ndindex(kernel.shape[:2]):
             # [0] -> o_ch, [1] -> i_ch
             zeros_image[
-            i * stride[0] + ch_idx[1] * il: i * stride[0] + ch_idx[1] * il + kl,
-            ch_idx[0],
-            i,
+                i * stride[0] + ch_idx[1] * il : i * stride[0] + ch_idx[1] * il + kl,
+                ch_idx[0],
+                i,
             ] = kernel[ch_idx[0], ch_idx[1], :]
 
         t = zeros_image[:, :, i].T
@@ -109,11 +109,11 @@ def _conv1d_unroll(
 
 
 def _conv2d_unroll(
-        in_shape: Size2Type,
-        out_shape: Size2Type,
-        kernel: WeightType,
-        stride: Size2Type,
-        # padding: Size2Type,
+    in_shape: Size2Type,
+    out_shape: Size2Type,
+    kernel: WeightType,
+    stride: Size2Type,
+    # padding: Size2Type,
 ) -> WeightType:
     """Unroll the convolution kernel of 2d convolution into a matrix.
 
@@ -134,15 +134,15 @@ def _conv2d_unroll(
             for ch_idx in np.ndindex(kernel.shape[:2]):
                 # [0] -> o_ch, [1] -> i_ch
                 zeros_image[
-                i * stride[0]
-                + ch_idx[1] * ih: i * stride[0]
-                                  + ch_idx[1] * ih
-                                  + kh,
-                j * stride[1]
-                + ch_idx[0] * iw: j * stride[1]
-                                  + ch_idx[0] * iw
-                                  + kw,
-                i * ow + j,
+                    i * stride[0]
+                    + ch_idx[1] * ih : i * stride[0]
+                    + ch_idx[1] * ih
+                    + kh,
+                    j * stride[1]
+                    + ch_idx[0] * iw : j * stride[1]
+                    + ch_idx[0] * iw
+                    + kw,
+                    i * ow + j,
                 ] = kernel[ch_idx[0], ch_idx[1], :, :]
 
             t = np.swapaxes(
@@ -158,11 +158,11 @@ def _conv2d_unroll(
 
 
 def _conv1d_faster(
-        x_cl: np.ndarray,
-        out_shape: Size1Type,
-        kernel: WeightType,
-        stride: Size1Type,
-        padding: Size1Type,
+    x_cl: np.ndarray,
+    out_shape: Size1Type,
+    kernel: WeightType,
+    stride: Size1Type,
+    padding: Size1Type,
 ) -> SynOutType:
     xc, xl = x_cl.shape
 
@@ -189,11 +189,11 @@ def _conv1d_faster(
 
 
 def _conv2d_faster(
-        x_chw: np.ndarray,
-        out_shape: Size2Type,
-        kernel: WeightType,
-        stride: Size2Type,
-        padding: Size2Type,
+    x_chw: np.ndarray,
+    out_shape: Size2Type,
+    kernel: WeightType,
+    stride: Size2Type,
+    padding: Size2Type,
 ) -> SynOutType:
     xc, xh, xw = x_chw.shape
     # (O, I, H, W)
@@ -224,7 +224,7 @@ def _conv2d_faster(
 
 
 def _1d_im2col(
-        x_padded: np.ndarray, ol: int, kl: int, stride: Size1Type
+    x_padded: np.ndarray, ol: int, kl: int, stride: Size1Type
 ) -> NDArray[np.int64]:
     cols = np.zeros((ol, x_padded.shape[0] * kl), dtype=np.int64)
 
@@ -232,14 +232,14 @@ def _1d_im2col(
 
     idx = 0
     for i in range(0, pl - kl + 1, stride[0]):
-        cols[idx] = x_padded[:, i: i + kl].ravel()
+        cols[idx] = x_padded[:, i : i + kl].ravel()
         idx += 1
 
     return cols
 
 
 def _2d_im2col(
-        x_padded: np.ndarray, oh: int, ow: int, kh: int, kw: int, stride: Size2Type
+    x_padded: np.ndarray, oh: int, ow: int, kh: int, kw: int, stride: Size2Type
 ) -> NDArray[np.int64]:
     cols = np.zeros((oh * ow, x_padded.shape[0] * kh * kw), dtype=np.int64)
 
@@ -248,7 +248,7 @@ def _2d_im2col(
     idx = 0
     for i in range(0, ph - kh + 1, stride[0]):
         for j in range(0, pw - kw + 1, stride[1]):
-            cols[idx] = x_padded[:, i: i + kh, j: j + kw].ravel()
+            cols[idx] = x_padded[:, i : i + kh, j : j + kw].ravel()
             idx += 1
 
     return cols
