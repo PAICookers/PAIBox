@@ -196,7 +196,6 @@ def _conv2d_faster(
     padding: Size2Type,
 ) -> SynOutType:
     xc, xh, xw = x_chw.shape
-
     # (O, I, H, W)
     cout, cin, kh, kw = kernel.shape
     assert xc == cin
@@ -215,11 +214,9 @@ def _conv2d_faster(
 
     # padded: (cin, xh+2*p[0]-kh, xw+2*p[1]-kw) -> (oh*ow, cin*kh*kw)
     col_fm = _2d_im2col(x_padded, out_shape[0], out_shape[1], kh, kw, stride)
-
     # out = np.zeros((cout,) + out_shape, dtype=np.int64)
     # (oh*ow, cin*kh*kw) * (cout, cin*kh*kw)^T = (oh*ow, cout)
     out = col_fm @ col_kernel.T  # + self.bias
-
     # (oh*ow, cout) -> (cout, oh*ow) -> (cout, oh, ow)
     out = out.astype(np.int32).T.reshape((cout,) + out_shape)
 

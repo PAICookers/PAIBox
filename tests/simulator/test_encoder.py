@@ -12,7 +12,6 @@ class TestEncoder:
         spike[4, 2] = 1
 
         pe = pb.simulator.PeriodicEncoder(spike)
-
         out_spike = np.full((20, 3), 0)
         for t in range(20):
             out_spike[t] = pe()
@@ -35,18 +34,51 @@ class TestEncoder:
         for t in range(T):
             out_spike1[t] = le1(x)
             out_spike2[t] = le2(x)
-
         assert 1
 
     def test_PoissonEncoder(self):
         seed = 1
         rng = np.random.RandomState(seed=seed)
         x = rng.rand(10, 10).astype(np.float32)
-
         pe = pb.simulator.PoissonEncoder(seed=seed)
-
         out_spike = np.full((20, 10, 10), 0)
         for t in range(20):
             out_spike[t] = pe(x=x)
         for t in range(1, 20):
             assert not np.array_equal(out_spike[0], out_spike[t])
+
+    def test_DirectConvEncoder(self):
+        seed = 1
+        rng = np.random.RandomState(seed=seed)
+        ksize = np.random.uniform(-1, 1, size=(1, 3, 3, 3)).astype(np.float32)
+        stride = (1, 1)
+        padding = (1, 1)
+        outshape = (1, 5, 5)
+        x = np.random.uniform(-1, 1, size=(3, 5, 5)).astype(np.float32)
+        de = pb.simulator.DirectConvEncoder(
+            ksize=ksize, stride=stride, padding=padding, leak_mem=0.5
+        )
+        for t in range(20):
+            out_spike = de(x)
+            assert out_spike.shape == outshape
+            assert out_spike.dtype == np.bool_
+
+    @pytest.mark.parametrize(
+        "x, weight, outshape",
+        [
+            (np.random.randn(3, 64, 64), np.random.randn(3 * 64 * 64, 100), (1, 100)),
+            (
+                np.random.randn(1, 3, 64, 64),
+                np.random.randn(1 * 3 * 64 * 64, 10),
+                (1, 10),
+            ),
+            (np.random.randn(64, 64), np.random.randn(64 * 64, 100), (1, 100)),
+            (np.array([2, 3]), np.random.randn(2, 10), (1, 10)),
+        ],
+    )
+    def test_DirectMLPEncoder(self, x, weight, outshape):
+        de = pb.simulator.DirectMLPEncoder(weight)
+        for t in range(20):
+            out_spike = de(x=x)
+            assert out_spike.shape == outshape
+            print(out_spike)
