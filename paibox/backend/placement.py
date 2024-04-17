@@ -613,7 +613,8 @@ class CorePlacement(CoreAbstract):
                 neu_seg.segment.addr_offset,
                 axon_coords,
                 dest_core_coords,
-                _BACKEND_CONTEXT["local_chip_addr"],  # Here is local chip coordinate
+                # local chip coordinate for member nodes
+                _BACKEND_CONTEXT["local_chip_addr"],
             )
 
             self.neu_configs[neu_seg.parent] = config
@@ -633,6 +634,8 @@ class CorePlacement(CoreAbstract):
                 neu_seg.segment.addr_offset,
                 axon_coords,
                 [output_core_coord],
+                # output chip coordinate for output node
+                _BACKEND_CONTEXT["output_chip_addr"],
             )
 
             self.neu_configs[neu_seg.parent] = config

@@ -31,7 +31,6 @@ from typing_extensions import NotRequired, TypeAlias
 
 from paibox.base import NeuDyn
 
-from .context import _BACKEND_CONTEXT
 from .graphs_types import NodeName
 
 # Prevent import errors caused by changes in type definitions in paicorelib.
@@ -156,7 +155,7 @@ class NeuronConfig(ConfigTemplate):
         addr_offset: int,
         axon_coords: List[AxonCoord],
         dest_core_coords: List[Coord],
-        dest_chip_coord: Coord = _BACKEND_CONTEXT["output_chip_addr"],
+        dest_chip_coord: Coord,
     ):
         """Build the `NeuronConfig`.
 
@@ -166,8 +165,7 @@ class NeuronConfig(ConfigTemplate):
             - addr_offset: offset of the RAM address.
             - axon_segs: the destination axon segments.
             - dest_core_coords: coordinates of the core of the destination axons.
-            - dest_chip_coord: coordinate of the chip of the destination axons. Default is \
-                `output_chip_addr` in the backend context.
+            - dest_chip_coord: coordinate of the chip of the destination axons.
         """
         attrs = NeuronAttrs.model_validate(neuron.export_params(), strict=True)
         dest_rid = get_replication_id(dest_core_coords)
