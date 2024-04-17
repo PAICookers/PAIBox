@@ -123,36 +123,51 @@ class PoissonEncoder(StatelessEncoder):
 
 
 class DirectConvEncoder(StatelessEncoder):
-    def __init__(self, x: np.ndarray, ksize: WeightType, stride: Size2Type, padding: Size2Type, leak_mem=0.95) -> None:
+    def __init__(self, ksize: WeightType, stride: Size2Type, padding: Size2Type, leak_mem=0.95) -> None:
         super().__init__()
-        xc, xh, xw = x.shape
-        cout, cin, kh, kw = ksize.shape
+        self.ksize = ksize
         self.stride = stride
         self.padding = padding
         self.leak_mem = leak_mem
-        self.outshape = ((xh + self.padding[0] * 2 - kh) // self.stride[0] + 1, (xw + self.padding[1] * 2 - kw) // self.stride[1] + 1)
-        self.static_input = _conv2d_faster_fp32(x, out_shape=self.outshape, kernel=ksize, stride=self.stride, padding=self.padding)
-        self.mem_conv1 = np.zeros_like(self.static_input)
+        self.static_input = None
+        self.mem_conv1 = None
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, x: np.ndarray, *args, **kwargs):
+        if self.static_input is None:
+            xc, xh, xw = x.shape
+            cout, cin, kh, kw = self.ksize.shape
+            outshape = ((xh + self.padding[0] * 2 - kh) // self.stride[0] + 1, (xw + self.padding[1] * 2 - kw) // self.stride[1] + 1)
+            self.static_input = _conv2d_faster_fp32(x, out_shape=outshape, kernel=self.ksize, stride=self.stride,
+                                                padding=self.padding)
+        if self.mem_conv1 is None:
+            self.mem_conv1 = np.zeros_like(self.static_input)
         self.mem_conv1 = (1 - self.leak_mem) * self.mem_conv1 + self.leak_mem * self.static_input
         mem_thr = (self.mem_conv1 / 1.0) - 1.0
-        out = np.where(mem_thr > 0, 1, 0).astype(np.bool_)
+        out = mem_thr > 0
+
         return out
 
 
 class DirectMLPEncoder(StatelessEncoder):
-    def __init__(self, x: np.ndarray, weight: np.ndarray, leak_mem=0.95) -> None:
+    def __init__(self, weight: np.ndarray, leak_mem=0.95) -> None:
         super().__init__()
         self.leak_mem = leak_mem
-        x = x.reshape(1, -1)
-        if x.shape[1] != weight.shape[0]:
-            raise ShapeError(f"please check weight's dim")
-        self.static_input = x@weight
-        self.mem_conv1 = np.zeros_like(self.static_input)
+        self.weight = weight
+        self.static_input = None
+        self.mem_conv1 = None
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, x: np.ndarray, *args, **kwargs):
+        x = x.reshape(1, -1)
+        if x.shape[1] != self.weight.shape[0]:
+            raise ShapeError("Please check weight's dim")
+        if self.static_input is None:
+            self.static_input = x @ self.weight
+
+        if self.mem_conv1 is None:
+            self.mem_conv1 = np.zeros_like(self.static_input)
+
         self.mem_conv1 = (1 - self.leak_mem) * self.mem_conv1 + self.leak_mem * self.static_input
         mem_thr = (self.mem_conv1 / 1.0) - 1.0
-        out = np.where(mem_thr > 0, 1, 0).astype(np.bool_)
+        out = mem_thr > 0
+
         return out

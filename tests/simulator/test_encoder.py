@@ -51,16 +51,16 @@ class TestEncoder:
     def test_DirectConvEncoder(self):
         seed = 1
         rng = np.random.RandomState(seed=seed)
-        ksize = np.random.uniform(-10, 10, size=(1, 3, 3, 3)).astype(np.float32)
+        ksize = np.random.uniform(-1, 1, size=(1, 3, 3, 3)).astype(np.float32)
         stride = (1, 1)
         padding = (1, 1)
         outshape = (1, 5, 5)
-        x = rng.rand(3, 5, 5).astype(np.float32)
-        de = pb.simulator.DirectConvEncoder(x, ksize=ksize, stride=stride, padding=padding)
+        x = np.random.uniform(-1, 1, size=(3, 5, 5)).astype(np.float32)
+        de = pb.simulator.DirectConvEncoder(ksize=ksize, stride=stride, padding=padding, leak_mem=0.5)
         for t in range(20):
-            out_spike = de()
+            out_spike = de(x)
             assert out_spike.shape == outshape
-            assert out_spike.dtype
+            assert  out_spike.dtype == np.bool_
 
     @pytest.mark.parametrize(
         "x, weight, outshape",
@@ -72,8 +72,8 @@ class TestEncoder:
         ],
     )
     def test_DirectMLPEncoder(self, x, weight, outshape):
-        de = pb.simulator.DirectMLPEncoder(x, weight)
+        de = pb.simulator.DirectMLPEncoder(weight)
         for t in range(20):
             out_spike = de(x=x)
             assert out_spike.shape == outshape
-            assert out_spike.dtype
+            print(out_spike)
