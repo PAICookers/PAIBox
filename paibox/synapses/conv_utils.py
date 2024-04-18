@@ -122,6 +122,8 @@ def _conv2d_unroll(
     cout, cin, kh, kw = kernel.shape
 
     ih, iw = in_shape
+    # ih = in_shape[0] + 2 * padding[0]
+    # iw = in_shape[1] + 2 * padding[1]
     oh, ow = out_shape
     in_size = ih * iw
     out_size = oh * ow
@@ -253,7 +255,7 @@ def _2d_im2col(
     return cols
 
 
-def _conv1d_transpose_unroll(
+def _convtranspose1d_unroll(
     in_shape: Size1Type,
     out_shape: Size1Type,
     kernel: WeightType,
@@ -264,18 +266,18 @@ def _conv1d_transpose_unroll(
 
     XXX: The case where the input feature map is in 'LC' order is not considered for the time being.
     """
-    kernel_rot = np.flip(kernel, axis=2)
-    cout, cin, kl = kernel_rot.shape
+    kernel_flip = np.flip(kernel, axis=2)
+    cout, cin, kl = kernel_flip.shape
     il = in_shape[0] + (in_shape[0] - 1) * (stride[0] - 1) + (kl - 1) * 2
     ol = out_shape[0]
 
-    w_unrolled = np.zeros((cin * il, cout * ol), dtype=kernel_rot.dtype)
-    zeros_image = np.zeros((cin * il, cout, ol), dtype=kernel_rot.dtype)
+    w_unrolled = np.zeros((cin * il, cout * ol), dtype=kernel_flip.dtype)
+    zeros_image = np.zeros((cin * il, cout, ol), dtype=kernel_flip.dtype)
 
     # stride has been processed in the input matrix
     stride_transpose = 1
     for i in range(ol):
-        for ch_idx in np.ndindex(kernel_rot.shape[:2]):
+        for ch_idx in np.ndindex(kernel_flip.shape[:2]):
             # [0] -> o_ch, [1] -> i_ch
             zeros_image[
                 i * stride_transpose
@@ -284,7 +286,7 @@ def _conv1d_transpose_unroll(
                 + kl,
                 ch_idx[0],
                 i,
-            ] = kernel_rot[ch_idx[0], ch_idx[1], :]
+            ] = kernel_flip[ch_idx[0], ch_idx[1], :]
 
         t = zeros_image[:, :, i].T
         for o_ch in range(cout):
@@ -293,19 +295,20 @@ def _conv1d_transpose_unroll(
     return w_unrolled
 
 
-def _conv2d_transpose_unroll(
+def _convtranspose2d_unroll(
     in_shape: Size2Type,
     out_shape: Size2Type,
     kernel: WeightType,
     stride: Size2Type,
     # padding: Size2Type,
+    # output_padding: Size2Type
 ) -> WeightType:
     """Unroll the convolution kernel of 2d convolution into a matrix.
 
     XXX: The case where the input feature map is in 'HWC' order is not considered for the time being.
     """
-    kernel_rot = np.rot90(kernel, 2, axes=(2, 3))
-    cout, cin, kh, kw = kernel_rot.shape
+    kernel_flip = np.flip(kernel, axis=(2, 3))
+    cout, cin, kh, kw = kernel_flip.shape
 
     ih = in_shape[0] + (in_shape[0] - 1) * (stride[0] - 1) + (kh - 1) * 2
     iw = in_shape[1] + (in_shape[1] - 1) * (stride[1] - 1) + (kw - 1) * 2
@@ -314,13 +317,13 @@ def _conv2d_transpose_unroll(
     in_size = ih * iw
     out_size = oh * ow
 
-    w_unrolled = np.zeros((cin * in_size, cout * out_size), dtype=kernel_rot.dtype)
-    zeros_image = np.zeros((cin * ih, iw * cout, out_size), dtype=kernel_rot.dtype)
+    w_unrolled = np.zeros((cin * in_size, cout * out_size), dtype=kernel_flip.dtype)
+    zeros_image = np.zeros((cin * ih, iw * cout, out_size), dtype=kernel_flip.dtype)
 
     stride_transpose = (1, 1)
     for i in range(oh):
         for j in range(ow):
-            for ch_idx in np.ndindex(kernel_rot.shape[:2]):
+            for ch_idx in np.ndindex(kernel_flip.shape[:2]):
                 # [0] -> o_ch, [1] -> i_ch
                 zeros_image[
                     i * stride_transpose[0]
@@ -332,7 +335,7 @@ def _conv2d_transpose_unroll(
                     + ch_idx[0] * iw
                     + kw,
                     i * ow + j,
-                ] = kernel_rot[ch_idx[0], ch_idx[1], :, :]
+                ] = kernel_flip[ch_idx[0], ch_idx[1], :, :]
 
             t = (
                 zeros_image[:, :, i * ow + j]
@@ -345,7 +348,7 @@ def _conv2d_transpose_unroll(
     return w_unrolled
 
 
-def _conv1d_transpose_faster(
+def _convtranspose1d_faster(
     x_cl: np.ndarray,
     out_shape: Size1Type,
     kernel: WeightType,
@@ -377,9 +380,9 @@ def _conv1d_transpose_faster(
     assert (xl - 1) * stride[0] - 2 * padding[0] + kl == out_shape[0]
 
     # convolution kernel rotated 180 degrees
-    kernel_rot = np.flip(kernel, axis=2)
+    kernel_flip = np.flip(kernel, axis=2)
     # kernel: (cout, cin, kl) -> (cin*kl, cout)
-    kernel_col = kernel_rot.reshape(cout, -1)
+    kernel_col = kernel_flip.reshape(cout, -1)
 
     # padded: (cin, xl+2*p[0]-kl) -> (ol, cin*kl)
     stride_transpose = (1,)
@@ -395,12 +398,13 @@ def _conv1d_transpose_faster(
     return out.astype(np.int32)
 
 
-def _conv2d_transpose_faster(
+def _convtranspose2d_faster(
     x_chw: np.ndarray,
     out_shape: Size2Type,
     kernel: WeightType,
     stride: Size2Type,
     padding: Size2Type,
+    output_padding : Size2Type
 ) -> SynOutType:
 
     # (C, H, W)
@@ -429,26 +433,33 @@ def _conv2d_transpose_faster(
         x_transpose, ((0, 0), (kh - 1, kh - 1), (kw - 1, kw - 1)), mode="constant"
     )
     # inverse real parameter padding
-    x_transpose = x_transpose[
-        :,
-        padding[0] : (-1 * padding[0]) if padding[0] > 0 else None,
-        padding[1] : (-1 * padding[1]) if padding[1] > 0 else None,
-    ]
+    # x_transpose = x_transpose[
+    #     :,
+    #     padding[0] : (-1 * padding[0]) if padding[0] > 0 else None,
+    #     padding[1] : (-1 * padding[1]) if padding[1] > 0 else None,
+    # ]
 
     # kernel: (cout, cin, kh, kw) -> (cout, cin*kh*kw)
-    kernel_rot = np.rot90(
-        kernel, 2, axes=(2, 3)
-    )  # convolution kernel rotated 180 degrees
-    kernel_col = kernel_rot.reshape(cout, -1)
-
-    # padded: (cin, xh+2*p[0]-kh, xw+2*p[1]-kw) -> (oh*ow, cin*kh*kw)
+    kernel_flip = np.flip(kernel, axis=(2, 3)) # convolution kernel rotated 180 degrees
+    kernel_col = kernel_flip.reshape(cout, -1)
+    # normal conv
     stride_transpose = (1, 1)
     col_fm = _2d_im2col(x_transpose, oh, ow, kh, kw, stride_transpose)
-
-    # (oh*ow, cin*kh*kw) * (cin*kh*kw, cout) = (oh*ow, cout)n
+    # (oh*ow, cin*kh*kw) * (cin*kh*kw, cout) = (oh*ow, cout)
     out_col = col_fm @ kernel_col.T
-
     # (oh*ow, cout) -> (oh, ow, cout) -> (cout, oh, ow)
     out = out_col.astype(np.int32).T.reshape((cout,) + out_shape)
+
+    # padding & output_padding
+    # inverse padding
+    out = out[
+                :,
+                padding[0]: (-1 * padding[0]) if padding[0] > 0 else None,
+                padding[1]: (-1 * padding[1]) if padding[1] > 0 else None,
+    ]
+    # output_padding
+    out = np.pad(
+        out, ((0, 0), (output_padding[0], output_padding[0]), (output_padding[1], output_padding[1])), mode="constant"
+    )
 
     return out

@@ -10,15 +10,15 @@ from paibox.types import DataArrayType
 
 from .base import (
     Conv1dSyn,
-    Conv1dSyn_transpose,
+    ConvTranspose1dSyn,
     Conv2dSyn,
-    Conv2dSyn_transpose,
+    ConvTranspose2dSyn,
     FullConnSyn,
 )
 from .conv_utils import _KOrder3d, _KOrder4d, _pair, _single, _Size1Type, _Size2Type
 from .transforms import GeneralConnType as GConnType
 
-__all__ = ["FullConn", "Conv1d", "Conv2d", "Conv1d_transpose", "Conv2d_transpose"]
+__all__ = ["FullConn", "Conv1d", "Conv2d", "ConvTranspose1d", "ConvTranspose2d"]
 
 
 class FullConn(FullConnSyn):
@@ -146,7 +146,7 @@ class Conv2d(Conv2dSyn):
         )
 
 
-class Conv1d_transpose(Conv1dSyn_transpose):
+class ConvTranspose1d(ConvTranspose1dSyn):
     def __init__(
         self,
         source: Union[Neuron, InputProj],
@@ -177,7 +177,7 @@ class Conv1d_transpose(Conv1dSyn_transpose):
         )
 
 
-class Conv2d_transpose(Conv2dSyn_transpose):
+class ConvTranspose2d(ConvTranspose2dSyn):
     def __init__(
         self,
         source: Union[Neuron, InputProj],

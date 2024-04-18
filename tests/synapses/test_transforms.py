@@ -469,7 +469,9 @@ class TestTransforms:
         # The result of __call__ using traditional conv
         y1 = f(xf)
         # The result of matmul using the unrolled matrix
+        y3 = f.connectivity.astype(np.int32)
         y2 = xf @ f.connectivity.astype(np.int32)
+
 
         expected = self._conv2d_golden(x, out_shape, kernel, stride, padding, fm_order)
 
@@ -481,7 +483,7 @@ class TestTransforms:
         )
 
     @staticmethod
-    def _conv1d_transpose_golden(
+    def _convtranspose1d_golden(
         x: np.ndarray,
         out_shape: Tuple[int],
         kernel: np.ndarray,
@@ -520,7 +522,7 @@ class TestTransforms:
             else x_transpose
         )
 
-        kernel_rot = np.flip(kernel, axis=2)
+        kernel_flip = np.flip(kernel, axis=2)
         stride_transpose = 1
         for o in range(cout):
             for i in range(cin):
@@ -529,7 +531,7 @@ class TestTransforms:
                     window = x_transpose[
                         i, l * stride_transpose : l * stride_transpose + kl
                     ]
-                    conv_result[l] = np.sum(window * kernel_rot[o, i, :])
+                    conv_result[l] = np.sum(window * kernel_flip[o, i, :])
 
                 out[o] += conv_result
 
@@ -556,7 +558,7 @@ class TestTransforms:
             # ((32,), 4, 12, (5,), (1,), (0,), "LC"),
         ],
     )
-    def test_Conv1dTransposeForward(
+    def test_ConvTranspose1dForward(
         self,
         in_shape,
         in_channels,
@@ -581,7 +583,7 @@ class TestTransforms:
 
         # out_shape = ((in_shape[0] + 2 * padding[0] - kernel_size[0]) // stride[0] + 1,)
         out_shape = ((in_shape[0] - 1) * stride[0] - 2 * padding[0] + kernel_size[0],)
-        f = Conv1dTransposeForward(in_shape, out_shape, kernel, stride, padding)
+        f = ConvTranspose1dForward(in_shape, out_shape, kernel, stride, padding)
 
         # if fm_order == "CL":
         #     fm_shape = (in_channels,) + in_shape
@@ -618,7 +620,7 @@ class TestTransforms:
         # y3 = f.connectivity.astype(np.int32)
         y2 = xf_transpose @ f.connectivity.astype(np.int32)
 
-        expected = self._conv1d_transpose_golden(x, out_shape, kernel, stride, padding)
+        expected = self._convtranspose1d_golden(x, out_shape, kernel, stride, padding)
         # y4 = expected.ravel()
         assert np.array_equal(y1, expected)
         assert np.array_equal(y2, expected.ravel())
@@ -633,7 +635,7 @@ class TestTransforms:
         )
 
     @staticmethod
-    def _conv2d_transpose_golden(
+    def _convtranspose2d_golden(
         x: np.ndarray,
         out_shape: Tuple[int, int],
         kernel: np.ndarray,
@@ -676,7 +678,7 @@ class TestTransforms:
             padding[1] : (-1 * padding[1]) if padding[1] > 0 else None,
         ]
 
-        kernel_rot = np.rot90(kernel, 2, axes=(2, 3))
+        kernel_flip = np.flip(kernel, axes=(2, 3))
 
         stride_transpose = (1, 1)
 
@@ -690,7 +692,7 @@ class TestTransforms:
                             h * stride_transpose[0] : h * stride_transpose[0] + kh,
                             w * stride_transpose[1] : w * stride_transpose[1] + kw,
                         ]
-                        conv_result[h, w] = np.sum(window * kernel_rot[o, i, :, :])
+                        conv_result[h, w] = np.sum(window * kernel_flip[o, i, :, :])
 
                 out[o] += conv_result
 
@@ -718,7 +720,7 @@ class TestTransforms:
             # ((32, 16), 4, 12, (5, 7), (1, 2), (0, 0), "HWC", np.int8),
         ],
     )
-    def test_Conv2dTransposeForward(
+    def test_ConvTranspose2dForward(
         self,
         in_shape,
         in_channels,
@@ -746,7 +748,7 @@ class TestTransforms:
             (in_shape[1] - 1) * stride[1] - 2 * padding[1] + kernel_size[1],
         )
 
-        f = Conv2dTransposeForward(in_shape, out_shape, kernel, stride, padding)
+        f = ConvTranspose2dForward(in_shape, out_shape, kernel, stride, padding)
 
         # if fm_order == "CHW":
         #     fm_shape = (in_channels,) + in_shape
@@ -786,7 +788,7 @@ class TestTransforms:
         # The result of matmul using the unrolled matrix
         y2 = xf_transpose @ f.connectivity.astype(np.int32)
         # y3 = f.connectivity.astype(np.int32)
-        expected = self._conv2d_transpose_golden(x, out_shape, kernel, stride, padding)
+        expected = self._convtranspose2d_golden(x, out_shape, kernel, stride, padding)
         # y4 = expected.ravel()
 
         assert np.array_equal(y1, expected)

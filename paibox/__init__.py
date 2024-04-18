@@ -13,9 +13,9 @@ from .projection import InputProj as InputProj
 from .simulator import Probe as Probe
 from .simulator import Simulator as Simulator
 from .synapses import Conv1d as Conv1d
-from .synapses import Conv1d_transpose as Conv1d_transpose
 from .synapses import Conv2d as Conv2d
-from .synapses import Conv2d_transpose as Conv2d_transpose
+from .synapses import ConvTranspose1d as ConvTranspose1d
+from .synapses import ConvTranspose2d as ConvTranspose2d
 from .synapses import FullConn as FullConn
 from .synapses import GeneralConnType as SynConnType
 from .synapses import NoDecay as NoDecay

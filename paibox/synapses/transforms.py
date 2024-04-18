@@ -12,13 +12,13 @@ from .conv_utils import (
     Size1Type,
     Size2Type,
     _conv1d_faster,
-    _conv1d_transpose_faster,
-    _conv1d_transpose_unroll,
     _conv1d_unroll,
     _conv2d_faster,
-    _conv2d_transpose_faster,
-    _conv2d_transpose_unroll,
     _conv2d_unroll,
+    _convtranspose1d_faster,
+    _convtranspose1d_unroll,
+    _convtranspose2d_faster,
+    _convtranspose2d_unroll,
 )
 
 __all__ = [
@@ -29,8 +29,8 @@ __all__ = [
     "MaskedLinear",
     "Conv1dForward",
     "Conv2dForward",
-    "Conv1dTransposeForward",
-    "Conv2dTransposeForward",
+    "ConvTranspose1dForward",
+    "ConvTranspose2dForward",
 ]
 
 
@@ -361,7 +361,7 @@ class Conv2dForward(Transform):
         return _conv2d_unroll(self.in_shape, self.out_shape, self.weights, self.stride)
 
 
-class Conv1dTransposeForward(Transform):
+class ConvTranspose1dForward(Transform):
     def __init__(
         self,
         in_shape: Size1Type,
@@ -389,7 +389,7 @@ class Conv1dTransposeForward(Transform):
         # else:
         _x = x.reshape((cin,) + self.in_shape)
 
-        return _conv1d_transpose_faster(
+        return _convtranspose1d_faster(
             _x,
             self.out_shape,
             self.weights,
@@ -399,12 +399,12 @@ class Conv1dTransposeForward(Transform):
 
     @property
     def connectivity(self):
-        return _conv1d_transpose_unroll(
+        return _convtranspose1d_unroll(
             self.in_shape, self.out_shape, self.weights, self.stride
         )
 
 
-class Conv2dTransposeForward(Transform):
+class ConvTranspose2dForward(Transform):
     def __init__(
         self,
         in_shape: Size2Type,
@@ -432,7 +432,7 @@ class Conv2dTransposeForward(Transform):
         # else:
         _x = x.reshape((cin,) + self.in_shape)
 
-        return _conv2d_transpose_faster(
+        return _convtranspose2d_faster(
             _x,
             self.out_shape,
             self.weights,
@@ -442,6 +442,6 @@ class Conv2dTransposeForward(Transform):
 
     @property
     def connectivity(self):
-        return _conv2d_transpose_unroll(
+        return _convtranspose2d_unroll(
             self.in_shape, self.out_shape, self.weights, self.stride
         )

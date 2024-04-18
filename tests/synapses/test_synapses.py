@@ -367,8 +367,8 @@ class TestConv2d:
         )
 
 
-class TestConv2d_transpose:
-    def test_Conv1d_transpose_instance(self):
+class TestConvTranspose2d:
+    def test_ConvTranspose1d_instance(self):
         in_shape = (14,)
         kernel_size = (5,)
         stride = 2
@@ -383,7 +383,7 @@ class TestConv2d_transpose:
         weight = np.random.randint(
             -128, 128, size=(in_channels, out_channels) + kernel_size, dtype=np.int8
         )
-        s1 = pb.Conv1d_transpose(n1, n2, weight, stride=stride, kernel_order=korder)
+        s1 = pb.ConvTranspose1d(n1, n2, weight, stride=stride, kernel_order=korder)
 
         assert s1.num_in == in_channels * shape2num(in_shape)
         assert s1.connectivity.dtype == np.int8
@@ -396,7 +396,7 @@ class TestConv2d_transpose:
             out_channels * shape2num(out_shape),
         )
 
-    def test_Conv2d_transpose_instance(self):
+    def test_ConvTranspose2d_instance(self):
         in_shape = (14, 14)
         kernel_size = (5, 5)
         stride = 2
@@ -411,7 +411,7 @@ class TestConv2d_transpose:
         weight = np.random.randint(
             -8, 8, size=(in_channels, out_channels) + kernel_size, dtype=np.int32
         )
-        s1 = pb.Conv2d_transpose(n1, n2, weight, stride=stride, kernel_order=korder)
+        s1 = pb.ConvTranspose2d(n1, n2, weight, stride=stride, kernel_order=korder)
 
         assert s1.num_in == in_channels * shape2num(in_shape)
         assert s1.connectivity.dtype == np.int8
@@ -424,7 +424,7 @@ class TestConv2d_transpose:
             out_channels * shape2num(out_shape),
         )
 
-    def test_Conv1d_transpose_inchannel_omitted(self):
+    def test_ConvTranspose1d_inchannel_omitted(self):
         in_shape = (14,)
         kernel_size = (5,)
         stride = 2
@@ -439,7 +439,7 @@ class TestConv2d_transpose:
         weight = np.random.randint(
             -128, 128, size=(in_channels, out_channels) + kernel_size, dtype=np.int64
         )
-        s1 = pb.Conv1d_transpose(n1, n2, weight, stride=stride, kernel_order=korder)
+        s1 = pb.ConvTranspose1d(n1, n2, weight, stride=stride, kernel_order=korder)
 
         assert s1.num_in == in_channels * shape2num(in_shape)
         assert s1.connectivity.dtype == np.int8
@@ -451,7 +451,7 @@ class TestConv2d_transpose:
             out_channels * shape2num(out_shape),
         )
 
-    def test_Conv2d_transpose_inchannel_omitted(self):
+    def test_ConvTranspose2d_inchannel_omitted(self):
         in_shape = (14, 14)
         kernel_size = (5, 5)
         stride = 2
@@ -466,7 +466,7 @@ class TestConv2d_transpose:
         weight = np.random.randint(
             -128, 128, size=(in_channels, out_channels) + kernel_size, dtype=np.int8
         )
-        s1 = pb.Conv2d_transpose(n1, n2, weight, stride=stride, kernel_order=korder)
+        s1 = pb.ConvTranspose2d(n1, n2, weight, stride=stride, kernel_order=korder)
 
         assert s1.num_in == in_channels * shape2num(in_shape)
         assert s1.connectivity.dtype == np.int8

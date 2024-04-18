@@ -14,9 +14,9 @@ from .conv_utils import _fm_ndim1_check, _fm_ndim2_check, _KOrder3d, _KOrder4d
 from .transforms import (
     AllToAll,
     Conv1dForward,
-    Conv1dTransposeForward,
+    ConvTranspose1dForward,
     Conv2dForward,
-    Conv2dTransposeForward,
+    ConvTranspose2dForward,
 )
 from .transforms import GeneralConnType as GConnType
 from .transforms import Identity, MaskedLinear, OneToOne, Transform
@@ -257,7 +257,7 @@ class Conv2dSyn(FullConnectedSyn):
         self._set_comm(comm)
 
 
-class Conv1dSyn_transpose(FullConnectedSyn):
+class ConvTranspose1dSyn(FullConnectedSyn):
     _spatial_ndim: ClassVar[int] = 1
 
     def __init__(
@@ -302,12 +302,12 @@ class Conv1dSyn_transpose(FullConnectedSyn):
 
         assert (in_l - 1) * stride[0] - 2 * padding[0] + kernel_l == out_l
 
-        comm = Conv1dTransposeForward((in_l,), (out_l,), _kernel, stride, padding)
+        comm = ConvTranspose1dForward((in_l,), (out_l,), _kernel, stride, padding)
 
         self.comm = comm
 
 
-class Conv2dSyn_transpose(FullConnectedSyn):
+class ConvTranspose2dSyn(FullConnectedSyn):
     _spatial_ndim: ClassVar[int] = 2
 
     def __init__(
@@ -353,7 +353,7 @@ class Conv2dSyn_transpose(FullConnectedSyn):
         assert (in_h - 1) * stride[0] - 2 * padding[0] + kernel_h == out_h
         assert (in_w - 1) * stride[1] - 2 * padding[1] + kernel_w == out_w
 
-        comm = Conv2dTransposeForward(
+        comm = ConvTranspose2dForward(
             (in_h, in_w), (out_h, out_w), _kernel, stride, padding
         )
 
