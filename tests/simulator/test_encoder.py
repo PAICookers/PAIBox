@@ -47,38 +47,41 @@ class TestEncoder:
         for t in range(1, 20):
             assert not np.array_equal(out_spike[0], out_spike[t])
 
-    def test_DirectConvEncoder(self):
-        seed = 1
-        rng = np.random.RandomState(seed=seed)
-        ksize = np.random.uniform(-1, 1, size=(1, 3, 3, 3)).astype(np.float32)
-        stride = (1, 1)
-        padding = (1, 1)
-        outshape = (1, 5, 5)
-        x = np.random.uniform(-1, 1, size=(3, 5, 5)).astype(np.float32)
-        de = pb.simulator.DirectConvEncoder(
-            ksize=ksize, stride=stride, padding=padding, leak_mem=0.5
-        )
-        for t in range(20):
-            out_spike = de(x)
-            assert out_spike.shape == outshape
-            assert out_spike.dtype == np.bool_
-
     @pytest.mark.parametrize(
-        "x, weight, outshape",
+        "in_shape, in_channels, out_channels, kernel_size, stride, padding",
+        # Padding is fixed at (0, 0)
         [
-            (np.random.randn(3, 64, 64), np.random.randn(3 * 64 * 64, 100), (1, 100)),
-            (
-                np.random.randn(1, 3, 64, 64),
-                np.random.randn(1 * 3 * 64 * 64, 10),
-                (1, 10),
-            ),
-            (np.random.randn(64, 64), np.random.randn(64 * 64, 100), (1, 100)),
-            (np.array([2, 3]), np.random.randn(2, 10), (1, 10)),
+            ((28, 28), 16, 8, (3, 3), (1, 1), (0, 0)),
+            ((28, 28), 24, 12, (3, 3), (2, 2), (1, 1)),
+            ((28, 28), 16, 8, (3, 3), (1, 1), (2, 2)),
+            ((28, 28), 24, 12, (3, 3), (2, 2), (1, 2)),
+            ((16, 16), 8, 16, (3, 3), (2, 2), (0, 0)),
+            ((28, 28), 16, 8, (3, 3), (1, 1), (0, 0)),
+            ((24, 32), 8, 8, (3, 4), (2, 1), (1, 1)),
+            ((24, 24), 8, 16, (7, 7), (2, 2), (2, 2)),
+            ((32, 16), 4, 12, (5, 7), (1, 2), (2, 1)),
+            ((24, 24), 8, 16, (7, 7), (2, 2), (0, 0)),
         ],
     )
-    def test_DirectMLPEncoder(self, x, weight, outshape):
-        de = pb.simulator.DirectMLPEncoder(weight)
+    def test_Conv2dEncoder(
+        self, in_shape, in_channels, out_channels, kernel_size, stride, padding
+    ):
+        kernel = np.random.uniform(
+            -1, 1, size=(out_channels, in_channels, *kernel_size)
+        ).astype(np.float32)
+
+        out_shape = (
+            out_channels,
+            (in_shape[0] + 2 * padding[0] - kernel_size[0]) // stride[0] + 1,
+            (in_shape[1] + 2 * padding[1] - kernel_size[1]) // stride[1] + 1,
+        )
+
+        de = pb.simulator.Conv2dEncoder(
+            kernel, stride, padding, tau=2, decay_input=True, v_reset=0.2
+        )
+        x = np.random.uniform(-1, 1, size=(in_channels, *in_shape)).astype(np.float32)
+
         for t in range(20):
-            out_spike = de(x=x)
-            assert out_spike.shape == outshape
-            print(out_spike)
+            out_spike = de(x)
+            assert out_spike.shape == out_shape
+            assert out_spike.dtype == np.bool_

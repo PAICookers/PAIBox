@@ -706,9 +706,16 @@ def MockNeuronConfig() -> NeuronConfig:
 
     axon_coords = [AxonCoord(0, i) for i in range(0, n)]
     dest_coords = [Coord(0, 0), Coord(0, 1)]
+    pb.BACKEND_CONFIG.test_chip_addr = (10, 0)
 
     return NeuronConfig.encapsulate(
-        neuron, n, ns.addr_ram, ns.addr_offset, axon_coords, dest_coords
+        neuron,
+        n,
+        ns.addr_ram,
+        ns.addr_offset,
+        axon_coords,
+        dest_coords,
+        pb.BACKEND_CONFIG.test_chip_addr,
     )
 
 
