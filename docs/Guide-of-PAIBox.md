@@ -227,7 +227,6 @@ s1= pb.FullConn(source=n1, dest=n2, weights=weight1, conn_type=pb.SynConnType.Al
   ```
 
   其权重以标量的形式储存。
-
 - 数组：尺寸要求为 `(N2,)`，可以自定义每组对应神经元之间的连接权重。如下例所示，设置 `weights` 为 `[1, 2, 3, 4, 5]`，
 
   ```python
@@ -296,7 +295,11 @@ conv2d = pb.Conv2d(n1, n2, kernel=kernel, stride=1, kernel_order="OIHW", name="c
 
 PAIBox提供了有状态与无状态编码器。其中，有状态编码器是指编码过程与时间有关，将输入数据编码到一段时间窗口内。而无状态编码器是指编码过程与时间无关，每个时间步，都可以根据输入数据进行编码。
 
+⚠️ 请注意，我们只提供较为简单的编码器，以便用户在不依赖外部库的条件下实现基本编码操作；如果需要更复杂的编码，请直接使用它们。
+
 #### 无状态编码器
+
+##### 泊松编码
 
 泊松编码是一种常用的无状态编码。以下为一个简单实例：
 
@@ -312,6 +315,43 @@ for t in range(20):
 ```
 
 通过调用该编码器，将需编码数据传入，即可得到编码后结果。
+
+##### 直接编码
+
+直接编码使用2D卷积进行特征提取，经过LIF神经元进行编码 。`Conv2dEncoder` 使用示例如下：
+
+```python
+kernel = np.random.uniform(-1, 1, size=(1, 3, 3, 3)).astype(np.float32) # OIHW
+stride = (1, 1)
+padding = (1, 1)
+de = pb.simulator.Conv2dEncoder(
+    kernel,
+    stride,
+    padding,
+    "OIHW",
+    tau=2,
+    decay_input=True,
+    v_threshold=1,
+    v_reset=0.2,
+)
+x = np.random.uniform(-1, 1, size=(3, 28, 28)).astype(np.float32) # CHW
+
+for t in range(20):
+    out_spike = de(x)
+```
+
+其中，
+- `kernel`：卷积核权重。
+- `stride`：步长，可以为标量或元组。当为标量时，对应为 `(x, x)`；当为元组时，则对应为 `(x, y)`。
+- `padding`：对输入进行填充，可以为标量或元组。当为标量时，对应为 `(x, x)`；当为元组时，则对应为 `(x, y)`。
+- `kernel_order`：指定卷积核维度顺序为 `OIHW` 或 `IOHW` 排列。
+- `tau`：膜电位时间常数。
+- `decay_input`：输入是否也会参与衰减。
+- `v_threshold`：阈值电平。
+- `v_reset`：复位电平。
+- 待编码数据维度顺序仅支持 `CHW`。
+
+其中，所使用的LIF为SpikingJelly内的 `SimpleLIFNode`。具体原理参见：[SpikingJelly/SimpleLIFNode](https://spikingjelly.readthedocs.io/zh-cn/latest/sub_module/spikingjelly.activation_based.neuron.html#spikingjelly.activation_based.neuron.SimpleLIFNode)。如果需要使用更复杂的编码，请直接使用它们。
 
 #### 有状态编码器
 
