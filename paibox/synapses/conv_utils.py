@@ -158,7 +158,7 @@ def _conv2d_unroll(
 
 
 def _conv1d_faster(
-    x_cl: np.ndarray,
+    x_cl: NDArray[Any],
     out_shape: Size1Type,
     kernel: WeightType,
     stride: Size1Type,
@@ -189,7 +189,7 @@ def _conv1d_faster(
 
 
 def _conv2d_faster(
-    x_chw: np.ndarray,
+    x_chw: NDArray[Any],
     out_shape: Size2Type,
     kernel: WeightType,
     stride: Size2Type,
@@ -224,7 +224,7 @@ def _conv2d_faster(
 
 
 def _1d_im2col(
-    x_padded: np.ndarray, ol: int, kl: int, stride: Size1Type
+    x_padded: NDArray[Any], ol: int, kl: int, stride: Size1Type
 ) -> NDArray[np.int64]:
     cols = np.zeros((ol, x_padded.shape[0] * kl), dtype=np.int64)
 
@@ -239,7 +239,7 @@ def _1d_im2col(
 
 
 def _2d_im2col(
-    x_padded: np.ndarray, oh: int, ow: int, kh: int, kw: int, stride: Size2Type
+    x_padded: NDArray[Any], oh: int, ow: int, kh: int, kw: int, stride: Size2Type
 ) -> NDArray[np.int64]:
     cols = np.zeros((oh * ow, x_padded.shape[0] * kh * kw), dtype=np.int64)
 
