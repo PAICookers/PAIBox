@@ -269,7 +269,7 @@ class TestTransforms:
 
         out = np.zeros((cout,) + out_shape, dtype=np.int64)
 
-        x_padded = np.pad(_x, (0, padding[0]), mode="constant")
+        x_padded = np.pad(_x, ((0, 0), (padding[0], padding[0])), mode="constant")
 
         for o in range(cout):
             for i in range(cin):
@@ -290,10 +290,10 @@ class TestTransforms:
         "in_shape, in_channels, out_channels, kernel_size, stride, padding, fm_order, kdtype",
         # Padding is fixed at (0, 0)
         [
-            ((8,), 16, 8, (3,), (1,), (0,), "CL", np.int8),
-            ((28,), 16, 8, (3,), (1,), (0,), "CL", np.bool_),
-            ((28,), 24, 12, (3,), (2,), (0,), "CL", np.bool_),
-            ((28,), 24, 12, (5,), (2,), (0,), "CL", np.bool_),
+            ((8,), 16, 8, (3,), (1,), (1,), "CL", np.int8),
+            ((28,), 16, 8, (3,), (1,), (1,), "CL", np.bool_),
+            ((28,), 24, 12, (3,), (2,), (2,), "CL", np.bool_),
+            ((28,), 24, 12, (5,), (2,), (2,), "CL", np.bool_),
             ((16,), 8, 16, (3,), (2,), (0,), "CL", np.bool_),
             ((28,), 16, 8, (3,), (1,), (0,), "CL", np.int8),
             ((28,), 24, 12, (3,), (2,), (0,), "CL", np.int8),
@@ -404,21 +404,22 @@ class TestTransforms:
 
                 out[o] += conv_result
 
-        if fm_order == "HWC":
-            return out.transpose(1, 2, 0)
-        else:
-            return out
+        # if fm_order == "HWC":
+        #     return out.transpose(1, 2, 0)
+        # else:
+        #     return out
+        return out
 
     @pytest.mark.parametrize(
         "in_shape, in_channels, out_channels, kernel_size, stride, padding, fm_order, kdtype",
         # Padding is fixed at (0, 0)
         [
-            ((28, 28), 16, 8, (3, 3), (1, 1), (0, 0), "CHW", np.bool_),
-            ((28, 28), 24, 12, (3, 3), (2, 2), (0, 0), "CHW", np.bool_),
-            ((28, 28), 16, 8, (3, 3), (1, 1), (0, 0), "CHW", np.bool_),
+            ((28, 28), 16, 8, (3, 3), (1, 1), (1, 1), "CHW", np.bool_),
+            ((28, 28), 24, 12, (3, 3), (2, 2), (2, 1), "CHW", np.bool_),
+            ((28, 28), 16, 8, (3, 3), (1, 1), (2, 3), "CHW", np.bool_),
             ((28, 28), 24, 12, (3, 3), (2, 2), (0, 0), "CHW", np.int8),
             ((28, 28), 24, 12, (5, 5), (2, 1), (0, 0), "CHW", np.int8),
-            ((16, 16), 8, 16, (3, 3), (2, 2), (0, 0), "CHW", np.int8),
+            ((8, 8), 8, 16, (3, 3), (2, 2), (1, 1), "CHW", np.int8),
             # ((28, 28), 16, 8, (3, 3), (1, 1), (0, 0), "HWC", np.bool_),
             # ((24, 32), 8, 8, (3, 4), (2, 1), (0, 0), "HWC", np.bool_),
             # ((24, 24), 8, 16, (7, 7), (2, 2), (0, 0), "HWC", np.bool_),
@@ -469,7 +470,7 @@ class TestTransforms:
         # The result of __call__ using traditional conv
         y1 = f(xf)
         # The result of matmul using the unrolled matrix
-        y3 = f.connectivity.astype(np.int32)
+        # y3 = f.connectivity.astype(np.int32)
         y2 = xf @ f.connectivity.astype(np.int32)
 
 
@@ -489,6 +490,7 @@ class TestTransforms:
         kernel: np.ndarray,
         stride: Tuple[int],
         padding: Tuple[int],
+        output_padding: Tuple[int],
         # fm_order: str,
     ):
         cout, cin, kl = kernel.shape
@@ -502,11 +504,13 @@ class TestTransforms:
 
         assert cin == xcin
 
-        ol = (il - 1) * stride[0] - 2 * padding[0] + kl
+        ol = (il - 1) * stride[0] - 2 * padding[0] + kl + output_padding[0]
 
         assert ol == out_shape[0]
 
-        out = np.zeros((cout,) + out_shape, dtype=np.int64)
+        nol = ol - output_padding[0] + 2 * padding[0]
+
+        out = np.zeros((cout,) + (nol,), dtype=np.int64)
 
         # generate new input array : transpose padding 0 & stride 0
         # Insert 0 between rows and columns (for stride)
@@ -516,18 +520,13 @@ class TestTransforms:
         x_transpose[::1, :: stride[0]] = x
         # padding 0 for transpose not for parameter padding, get new input array x_transpose
         x_transpose = np.pad(x_transpose, ((0, 0), (kl - 1, kl - 1)), mode="constant")
-        x_transpose = (
-            x_transpose[:, padding[0] : (-1 * padding[0])]
-            if padding[0] > 0
-            else x_transpose
-        )
 
         kernel_flip = np.flip(kernel, axis=2)
         stride_transpose = 1
         for o in range(cout):
             for i in range(cin):
-                conv_result = np.zeros((ol,), dtype=np.int64)
-                for l in range(ol):
+                conv_result = np.zeros((nol,), dtype=np.int64)
+                for l in range(nol):
                     window = x_transpose[
                         i, l * stride_transpose : l * stride_transpose + kl
                     ]
@@ -535,23 +534,33 @@ class TestTransforms:
 
                 out[o] += conv_result
 
+        # inverse padding : (cout, (xl-1)*stride+kernel) -> (cout, (xl-1)*stride+kernel-2*padding)
+        out = (
+            out[:, padding[0]: (-1 * padding[0])]
+            if padding[0] > 0
+            else out
+        )
+
+        # output_padding
+        out = np.pad(out, ((0, 0), (0, output_padding[0])), mode="constant")
+
         # if fm_order == "LC":
         #     return out.T
         # else:
         return out
 
     @pytest.mark.parametrize(
-        "in_shape, in_channels, out_channels, kernel_size, stride, padding, fm_order, kdtype",
+        "in_shape, in_channels, out_channels, kernel_size, stride, padding, output_padding, fm_order, kdtype",
         # Padding is fixed at (0, 0)
         [
-            ((28,), 16, 8, (3,), (1,), (0,), "CL", np.bool_),
-            ((28,), 24, 12, (3,), (2,), (0,), "CL", np.bool_),
-            ((28,), 24, 12, (5,), (2,), (0,), "CL", np.bool_),
-            ((16,), 8, 16, (3,), (2,), (0,), "CL", np.bool_),
-            ((28,), 16, 8, (3,), (1,), (0,), "CL", np.int8),
-            ((28,), 24, 12, (3,), (2,), (0,), "CL", np.int8),
-            ((28,), 24, 12, (5,), (2,), (0,), "CL", np.int8),
-            ((16,), 8, 16, (3,), (2,), (0,), "CL", np.int8),
+            ((28,), 16, 8, (3,), (1,), (0,), (0,), "CL", np.bool_),
+            ((28,), 24, 12, (3,), (2,), (2,), (2,), "CL", np.bool_),
+            ((28,), 24, 12, (5,), (2,), (0,), (1,), "CL", np.bool_),
+            ((16,), 8, 16, (3,), (2,), (1,), (0,), "CL", np.bool_),
+            ((28,), 16, 8, (3,), (3,), (0,), (0,), "CL", np.int8),
+            ((28,), 24, 12, (3,), (2,), (3,), (0,), "CL", np.int8),
+            ((28,), 24, 12, (5,), (2,), (0,), (0,), "CL", np.int8),
+            ((16,), 8, 16, (3,), (2,), (1,), (1,), "CL", np.int8),
             # ((28,), 16, 8, (3,), (1,), (0,), "LC"),
             # ((24,), 8, 8, (3,), (2,), (0,), "LC"),
             # ((24,), 8, 16, (7,), (2,), (0,), "LC"),
@@ -566,6 +575,7 @@ class TestTransforms:
         kernel_size,
         stride,
         padding,
+        output_padding,
         fm_order,
         kdtype,
     ):
@@ -582,8 +592,8 @@ class TestTransforms:
             )
 
         # out_shape = ((in_shape[0] + 2 * padding[0] - kernel_size[0]) // stride[0] + 1,)
-        out_shape = ((in_shape[0] - 1) * stride[0] - 2 * padding[0] + kernel_size[0],)
-        f = ConvTranspose1dForward(in_shape, out_shape, kernel, stride, padding)
+        out_shape = ((in_shape[0] - 1) * stride[0] - 2 * padding[0] + kernel_size[0] + output_padding[0],)
+        f = ConvTranspose1dForward(in_shape, out_shape, kernel, stride, padding, output_padding)
 
         # if fm_order == "CL":
         #     fm_shape = (in_channels,) + in_shape
@@ -594,43 +604,17 @@ class TestTransforms:
         x = np.random.randint(0, 2, size=fm_shape, dtype=np.bool_)
         xf = x.ravel()
 
-        # generate new input array : transpose padding 0 & stride 0
-        # Insert 0 between rows and columns (for stride)
-        xc_t = in_channels
-        xl_t = in_shape[0] + (in_shape[0] - 1) * (stride[0] - 1)
-        x_transpose = np.zeros((xc_t, xl_t), dtype=x.dtype)
-        x_transpose[::1, :: stride[0]] = x
-        # padding 0 for transpose not for parameter padding, get new input array x_transpose
-        x_transpose = np.pad(
-            x_transpose,
-            ((0, 0), (kernel_size[0] - 1, kernel_size[0] - 1)),
-            mode="constant",
-        )
-        x_transpose = (
-            x_transpose[:, padding[0] : (-1 * padding[0])]
-            if padding[0] > 0
-            else x_transpose
-        )
-
-        xf_transpose = x_transpose.ravel()
-
         # The result of __call__ using traditional conv
         y1 = f(xf)
         # The result of matmul using the unrolled matrix
-        # y3 = f.connectivity.astype(np.int32)
-        y2 = xf_transpose @ f.connectivity.astype(np.int32)
+        y2 = xf @ f.connectivity.astype(np.int32)
 
-        expected = self._convtranspose1d_golden(x, out_shape, kernel, stride, padding)
-        # y4 = expected.ravel()
+        expected = self._convtranspose1d_golden(x, out_shape, kernel, stride, padding, output_padding)
+
         assert np.array_equal(y1, expected)
         assert np.array_equal(y2, expected.ravel())
-        in_shape_transpose = (
-            in_shape[0]
-            + (in_shape[0] - 1) * (stride[0] - 1)
-            + 2 * (kernel_size[0] - 1),
-        )
         assert f.connectivity.shape == (
-            shape2num((kernel.shape[1],) + in_shape_transpose),
+            shape2num((kernel.shape[1],) + in_shape),
             shape2num((kernel.shape[0],) + out_shape),
         )
 
@@ -641,6 +625,7 @@ class TestTransforms:
         kernel: np.ndarray,
         stride: Tuple[int, int],
         padding: Tuple[int, int],
+        output_padding: Tuple[int, int]
         # fm_order: str,
     ):
         cout, cin, kh, kw = kernel.shape
@@ -654,12 +639,15 @@ class TestTransforms:
 
         assert cin == xcin
 
-        oh = (ih - 1) * stride[0] - 2 * padding[0] + kh
-        ow = (iw - 1) * stride[1] - 2 * padding[1] + kw
+        oh = (ih - 1) * stride[0] - 2 * padding[0] + kh + output_padding[0]
+        ow = (iw - 1) * stride[1] - 2 * padding[1] + kw + output_padding[1]
 
         assert oh, ow == out_shape
 
-        out = np.zeros((cout,) + out_shape, dtype=np.int64)
+        noh = oh - output_padding[0] + 2 * padding[0]
+        now = ow - output_padding[1] + 2 * padding[1]
+
+        out = np.zeros((cout,) + (noh, now), dtype=np.int64)
 
         # Generate the transpose input arrary : transpose padding 0 & stride 0
         xc_t = xcin
@@ -671,22 +659,16 @@ class TestTransforms:
         x_transpose = np.pad(
             x_transpose, ((0, 0), (kh - 1, kh - 1), (kw - 1, kw - 1)), mode="constant"
         )
-        # inverse real parameter padding
-        x_transpose = x_transpose[
-            :,
-            padding[0] : (-1 * padding[0]) if padding[0] > 0 else None,
-            padding[1] : (-1 * padding[1]) if padding[1] > 0 else None,
-        ]
 
-        kernel_flip = np.flip(kernel, axes=(2, 3))
+        kernel_flip = np.flip(kernel, axis=(2, 3))
 
         stride_transpose = (1, 1)
 
         for o in range(cout):
             for i in range(cin):
-                conv_result = np.zeros((oh, ow), dtype=np.int64)
-                for h in range(oh):
-                    for w in range(ow):
+                conv_result = np.zeros((noh, now), dtype=np.int64)
+                for h in range(noh):
+                    for w in range(now):
                         window = x_transpose[
                             i,
                             h * stride_transpose[0] : h * stride_transpose[0] + kh,
@@ -696,6 +678,16 @@ class TestTransforms:
 
                 out[o] += conv_result
 
+        # inverse padding
+        ph_start = padding[0] if padding[0] > 0 else None
+        ph_end = (-1 * padding[0]) if padding[0] > 0 else None
+        pw_start = padding[1] if padding[1] > 0 else None
+        pw_end = (-1 * padding[1]) if padding[1] > 0 else None
+        out = out[:, ph_start:ph_end, pw_start:pw_end]
+
+        # output_padding
+        out = np.pad(out, ((0, 0), (0, output_padding[0]), (0, output_padding[1])), mode="constant")
+
         # if fm_order == "HWC":
         #     return out.transpose(1, 2, 0)
         # else:
@@ -703,15 +695,15 @@ class TestTransforms:
         return out
 
     @pytest.mark.parametrize(
-        "in_shape, in_channels, out_channels, kernel_size, stride, padding, fm_order, kdtype",
+        "in_shape, in_channels, out_channels, kernel_size, stride, padding, output_padding, fm_order, kdtype",
         # Padding is fixed at (0, 0)
         [
-            ((12, 12), 16, 8, (3, 3), (1, 1), (0, 0), "CHW", np.bool_),
-            ((12, 12), 24, 12, (3, 3), (2, 2), (0, 0), "CHW", np.bool_),
-            ((12, 12), 16, 8, (3, 3), (1, 1), (0, 0), "CHW", np.bool_),
-            ((12, 12), 24, 12, (3, 3), (2, 2), (0, 0), "CHW", np.int8),
-            ((10, 10), 24, 12, (5, 5), (2, 1), (0, 0), "CHW", np.int8),
-            ((16, 16), 8, 16, (3, 3), (2, 2), (0, 0), "CHW", np.int8),
+            ((12, 12), 16, 8, (3, 3), (1, 1), (1, 1), (1, 1), "CHW", np.bool_),
+            ((12, 12), 24, 12, (3, 3), (2, 2), (2, 2), (1, 0), "CHW", np.bool_),
+            ((12, 12), 16, 8, (3, 3), (1, 1), (0, 0), (0, 0), "CHW", np.bool_),
+            ((12, 12), 24, 12, (3, 3), (2, 2), (1, 2), (0, 1), "CHW", np.int8),
+            ((10, 10), 24, 12, (5, 5), (2, 1), (1, 1), (2, 2), "CHW", np.int8),
+            ((16, 16), 8, 16, (3, 3), (2, 2), (1, 3), (2, 0), "CHW", np.int8),
             # ((28, 28), 16, 8, (3, 3), (1, 1), (0, 0), "HWC", np.bool_),
             # ((24, 32), 8, 8, (3, 4), (2, 1), (0, 0), "HWC", np.bool_),
             # ((24, 24), 8, 16, (7, 7), (2, 2), (0, 0), "HWC", np.bool_),
@@ -728,6 +720,7 @@ class TestTransforms:
         kernel_size,
         stride,
         padding,
+        output_padding,
         fm_order,
         kdtype,
     ):
@@ -744,11 +737,11 @@ class TestTransforms:
             )
 
         out_shape = (
-            (in_shape[0] - 1) * stride[0] - 2 * padding[0] + kernel_size[0],
-            (in_shape[1] - 1) * stride[1] - 2 * padding[1] + kernel_size[1],
+            (in_shape[0] - 1) * stride[0] - 2 * padding[0] + kernel_size[0] + output_padding[0],
+            (in_shape[1] - 1) * stride[1] - 2 * padding[1] + kernel_size[1] + output_padding[1],
         )
 
-        f = ConvTranspose2dForward(in_shape, out_shape, kernel, stride, padding)
+        f = ConvTranspose2dForward(in_shape, out_shape, kernel, stride, padding, output_padding)
 
         # if fm_order == "CHW":
         #     fm_shape = (in_channels,) + in_shape
@@ -759,49 +752,17 @@ class TestTransforms:
         x = np.random.randint(0, 2, size=fm_shape, dtype=np.bool_)
         xf = x.ravel()
 
-        # Generate the transpose input arrary : transpose padding 0 & stride 0
-        xc_t = in_channels
-        xh_t = in_shape[0] + (in_shape[0] - 1) * (stride[0] - 1)
-        xw_t = in_shape[1] + (in_shape[1] - 1) * (stride[1] - 1)
-        x_transpose = np.zeros((xc_t, xh_t, xw_t), dtype=x.dtype)
-        x_transpose[::1, :: stride[0], :: stride[1]] = x
-        # padding 0 for transpose not for parameter padding, get new input array x_transpose
-        x_transpose = np.pad(
-            x_transpose,
-            (
-                (0, 0),
-                (kernel_size[0] - 1, kernel_size[0] - 1),
-                (kernel_size[1] - 1, kernel_size[1] - 1),
-            ),
-            mode="constant",
-        )
-        # inverse real parameter padding
-        x_transpose = x_transpose[
-            :,
-            padding[0] : (-1 * padding[0]) if padding[0] > 0 else None,
-            padding[1] : (-1 * padding[1]) if padding[1] > 0 else None,
-        ]
-        xf_transpose = x_transpose.ravel()
-
         # The result of __call__ using traditional conv
         y1 = f(xf)
         # The result of matmul using the unrolled matrix
-        y2 = xf_transpose @ f.connectivity.astype(np.int32)
-        # y3 = f.connectivity.astype(np.int32)
-        expected = self._convtranspose2d_golden(x, out_shape, kernel, stride, padding)
-        # y4 = expected.ravel()
+        y2 = xf @ f.connectivity.astype(np.int32)
+        y3 = f.connectivity.astype(np.int32)
+        expected = self._convtranspose2d_golden(x, out_shape, kernel, stride, padding, output_padding)
+        y4 = expected.ravel()
 
         assert np.array_equal(y1, expected)
         assert np.array_equal(y2, expected.ravel())
-        in_shape_transpose = (
-            in_shape[0]
-            + (in_shape[0] - 1) * (stride[0] - 1)
-            + 2 * (kernel_size[0] - 1),
-            in_shape[1]
-            + (in_shape[1] - 1) * (stride[1] - 1)
-            + 2 * (kernel_size[1] - 1),
-        )
         assert f.connectivity.shape == (
-            shape2num((kernel.shape[1],) + in_shape_transpose),
+            shape2num((kernel.shape[1],) + in_shape),
             shape2num((kernel.shape[0],) + out_shape),
         )

@@ -318,7 +318,7 @@ class Conv1dForward(Transform):
 
     @property
     def connectivity(self):
-        return _conv1d_unroll(self.in_shape, self.out_shape, self.weights, self.stride)
+        return _conv1d_unroll(self.in_shape, self.out_shape, self.weights, self.stride, self.padding)
 
 
 class Conv2dForward(Transform):
@@ -358,7 +358,7 @@ class Conv2dForward(Transform):
 
     @property
     def connectivity(self):
-        return _conv2d_unroll(self.in_shape, self.out_shape, self.weights, self.stride)
+        return _conv2d_unroll(self.in_shape, self.out_shape, self.weights, self.stride, self.padding)
 
 
 class ConvTranspose1dForward(Transform):
@@ -369,12 +369,14 @@ class ConvTranspose1dForward(Transform):
         kernel: np.ndarray,
         stride: Size1Type,
         padding: Size1Type,
+        output_padding: Size1Type,
         # fm_order: _Order2d,
     ) -> None:
         self.in_shape = in_shape
         self.out_shape = out_shape
         self.stride = stride
         self.padding = padding
+        self.output_padding = output_padding
         # self.fm_order = fm_order
 
         _w = kernel.astype(np.int8)
@@ -395,12 +397,13 @@ class ConvTranspose1dForward(Transform):
             self.weights,
             self.stride,
             self.padding,
+            self.output_padding,
         )
 
     @property
     def connectivity(self):
         return _convtranspose1d_unroll(
-            self.in_shape, self.out_shape, self.weights, self.stride
+            self.in_shape, self.out_shape, self.weights, self.stride, self.padding, self.output_padding
         )
 
 
@@ -412,12 +415,14 @@ class ConvTranspose2dForward(Transform):
         kernel: np.ndarray,
         stride: Size2Type,
         padding: Size2Type,
+        output_padding: Size2Type
         # fm_order: _Order3d,
     ) -> None:
         self.in_shape = in_shape
         self.out_shape = out_shape
         self.stride = stride
         self.padding = padding
+        self.output_padding = output_padding
         # self.fm_order = fm_order
 
         _w = kernel.astype(np.int8)
@@ -438,10 +443,11 @@ class ConvTranspose2dForward(Transform):
             self.weights,
             self.stride,
             self.padding,
+            self.output_padding,
         )
 
     @property
     def connectivity(self):
         return _convtranspose2d_unroll(
-            self.in_shape, self.out_shape, self.weights, self.stride
+            self.in_shape, self.out_shape, self.weights, self.stride, self.padding, self.output_padding,
         )

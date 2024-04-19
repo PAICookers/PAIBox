@@ -165,7 +165,7 @@ class Conv1dSyn(FullConnectedSyn):
         dest: Neuron,
         kernel: np.ndarray,
         stride: Tuple[int],
-        # padding: Tuple[int],
+        padding: Tuple[int],
         # fm_order: _Order2d,
         order: _KOrder3d,
         name: Optional[str] = None,
@@ -197,7 +197,7 @@ class Conv1dSyn(FullConnectedSyn):
 
         # If padding is considered, the implementation of convolution unrolling
         # is extremely complex, so fix it.
-        padding = (0,)
+        # padding = (0,)
 
         assert (in_l + 2 * padding[0] - kernel_l) // stride[0] + 1 == out_l
 
@@ -215,7 +215,7 @@ class Conv2dSyn(FullConnectedSyn):
         dest: Neuron,
         kernel: np.ndarray,
         stride: Tuple[int, int],
-        # padding: Tuple[int, int],
+        padding: Tuple[int, int],
         # fm_order: _Order3d,
         order: _KOrder4d,
         name: Optional[str] = None,
@@ -247,7 +247,7 @@ class Conv2dSyn(FullConnectedSyn):
 
         # If padding is considered, the implementation of convolution unrolling
         # is extremely complex, so fix it.
-        padding = (0, 0)
+        # padding = (0, 0)
 
         assert (in_h + 2 * padding[0] - kernel_h) // stride[0] + 1 == out_h
         assert (in_w + 2 * padding[1] - kernel_w) // stride[1] + 1 == out_w
@@ -266,7 +266,8 @@ class ConvTranspose1dSyn(FullConnectedSyn):
         dest: Neuron,
         kernel: np.ndarray,
         stride: Tuple[int],
-        # padding: Tuple[int],
+        padding: Tuple[int],
+        output_padding: Tuple[int],
         # fm_order: _Order2d,
         order: _KOrder3d,
         name: Optional[str] = None,
@@ -298,11 +299,11 @@ class ConvTranspose1dSyn(FullConnectedSyn):
 
         # If padding is considered, the implementation of convolution unrolling
         # is extremely complex, so fix it.
-        padding = (0,)
+        # padding = (0,)
 
-        assert (in_l - 1) * stride[0] - 2 * padding[0] + kernel_l == out_l
+        assert (in_l - 1) * stride[0] - 2 * padding[0] + kernel_l + output_padding[0] == out_l
 
-        comm = ConvTranspose1dForward((in_l,), (out_l,), _kernel, stride, padding)
+        comm = ConvTranspose1dForward((in_l,), (out_l,), _kernel, stride, padding, output_padding)
 
         self.comm = comm
 
@@ -316,7 +317,8 @@ class ConvTranspose2dSyn(FullConnectedSyn):
         dest: Neuron,
         kernel: np.ndarray,
         stride: Tuple[int, int],
-        # padding: Tuple[int, int],
+        padding: Tuple[int, int],
+        output_padding : Tuple[int, int],
         # fm_order: _Order3d,
         order: _KOrder4d,
         name: Optional[str] = None,
@@ -348,13 +350,13 @@ class ConvTranspose2dSyn(FullConnectedSyn):
 
         # If padding is considered, the implementation of convolution unrolling
         # is extremely complex, so fix it.
-        padding = (0, 0)
+        # padding = (0, 0)
 
-        assert (in_h - 1) * stride[0] - 2 * padding[0] + kernel_h == out_h
-        assert (in_w - 1) * stride[1] - 2 * padding[1] + kernel_w == out_w
+        assert (in_h - 1) * stride[0] - 2 * padding[0] + kernel_h + output_padding[0] == out_h
+        assert (in_w - 1) * stride[1] - 2 * padding[1] + kernel_w + output_padding[1] == out_w
 
         comm = ConvTranspose2dForward(
-            (in_h, in_w), (out_h, out_w), _kernel, stride, padding
+            (in_h, in_w), (out_h, out_w), _kernel, stride, padding, output_padding
         )
 
         self._set_comm(comm)
