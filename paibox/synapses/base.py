@@ -228,7 +228,7 @@ class Conv2dSyn(FullConnectedSyn):
             )
 
         if order == "IOHW":
-            _kernel = kernel.transpose(1, 0, 2, 3)
+            _kernel = np.swapaxes(kernel, 0, 1)
         else:
             _kernel = kernel.copy()
 
