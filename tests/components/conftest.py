@@ -2,11 +2,6 @@ from typing import Literal
 import pytest
 import paibox as pb
 
-from paibox.components import Neuron
-from paibox.components.synapses.conv_utils import _pool2d_kernel_unroll
-
-from paicorelib import LCM, NTM
-
 
 def _out_bypass1(t, data1, *args, **kwargs):
     return data1
@@ -148,71 +143,27 @@ class FunctionalModule_1to1_Net(pb.DynSysGroup):
 
 class SpikingPool2d_Net(pb.DynSysGroup):
     def __init__(
-        self, fm_shape, ksize, stride, padding, use_basic_struct, fm_order, pool_type
+        self, fm_shape, ksize, stride, pool_type
     ):
         super().__init__()
         self.inp1 = pb.InputProj(input=_out_bypass1, shape_out=fm_shape)
         self.n1 = pb.SpikingRelu(fm_shape, tick_wait_start=1)
         self.s1 = pb.FullConn(self.inp1, self.n1, conn_type=pb.SynConnType.One2One)
 
-        if use_basic_struct:
-            if fm_order == "CHW":
-                xcin, xh, xw = fm_shape
-            else:
-                xh, xw, xcin = fm_shape
-
-            cout = xcin
-            _stride = stride if stride is not None else ksize
-            oh = (xh + padding[0] * 2 - ksize[0]) // _stride[0] + 1
-            ow = (xw + padding[1] * 2 - ksize[1]) // _stride[1] + 1
-
-            if fm_order == "CHW":
-                ofm_shape = (cout, oh, ow)
-            else:
-                ofm_shape = (oh, ow, cout)
-
-            if pool_type == "avg":
-                self.n_pool2d = Neuron(
-                    ofm_shape,
-                    leak_comparison=LCM.LEAK_BEFORE_COMP,
-                    leak_v=-(ksize[0] * ksize[1] // 2),
-                    neg_threshold=0,
-                    delay=1,
-                    tick_wait_start=2,
-                )
-            else:  # "max"
-                self.n_pool2d = pb.SpikingRelu(ofm_shape, delay=1, tick_wait_start=2)
-
-            self.s_pool2d = pb.FullConn(
-                self.n1,
-                self.n_pool2d,
-                # Unrolled 2d pooling kernel
-                weights=_pool2d_kernel_unroll(cout, (xh, xw), (oh, ow), ksize, _stride),
+        if pool_type == "avg":
+            self.pool2d = pb.SpikingAvgPool2d(
+                self.n1, ksize, stride, delay=1, tick_wait_start=2
             )
-            self.n2 = pb.SpikingRelu(
-                self.n_pool2d.shape_out, delay=1, tick_wait_start=3
+        else:  # "max"
+            self.pool2d = pb.SpikingMaxPool2d(
+                self.n1, ksize, stride, delay=1, tick_wait_start=2
             )
-            self.s3 = pb.FullConn(
-                self.n_pool2d, self.n2, conn_type=pb.SynConnType.One2One
-            )
-            self.probe2 = pb.Probe(self.n_pool2d, "spike")
-        else:
-            if pool_type == "avg":
-                self.pool2d = pb.SpikingAvgPool2d(
-                    self.n1, ksize, stride, delay=1, tick_wait_start=2
-                )
-            else:  # "max"
-                self.pool2d = pb.SpikingMaxPool2d(
-                    self.n1, ksize, stride, delay=1, tick_wait_start=2
-                )
 
-            self.n2 = pb.SpikingRelu(self.pool2d.shape_out, delay=1, tick_wait_start=3)
-            self.s3 = pb.FullConn(
-                self.pool2d, self.n2, conn_type=pb.SynConnType.One2One
-            )
-            self.probe2 = pb.Probe(self.pool2d, "spike")
+        self.n2 = pb.SpikingRelu(self.pool2d.shape_out, delay=1, tick_wait_start=3)
+        self.s3 = pb.FullConn(self.pool2d, self.n2, conn_type=pb.SynConnType.One2One)
 
         self.probe1 = pb.Probe(self.n1, "spike")
+        self.probe2 = pb.Probe(self.pool2d, "spike")
         self.probe3 = pb.Probe(self.n2, "spike")
 
 
@@ -227,7 +178,7 @@ class TransposeModule_T2d_Net(pb.DynSysGroup):
         self.n2 = pb.SpikingRelu(
             shape, tick_wait_start=self.t2d.tick_wait_start + self.t2d.external_delay
         )
-        self.s1 = pb.FullConn(self.t2d, self.n2, conn_type=pb.SynConnType.One2One)
+        self.s2 = pb.FullConn(self.t2d, self.n2, conn_type=pb.SynConnType.One2One)
 
         self.probe1 = pb.Probe(self.t2d, "spike")
         self.probe2 = pb.Probe(self.n2, "spike")
@@ -244,7 +195,7 @@ class TransposeModule_T3d_Net(pb.DynSysGroup):
         self.n2 = pb.SpikingRelu(
             shape, tick_wait_start=self.t3d.tick_wait_start + self.t3d.external_delay
         )
-        self.s1 = pb.FullConn(self.t3d, self.n2, conn_type=pb.SynConnType.One2One)
+        self.s2 = pb.FullConn(self.t3d, self.n2, conn_type=pb.SynConnType.One2One)
 
         self.probe1 = pb.Probe(self.t3d, "spike")
         self.probe2 = pb.Probe(self.n2, "spike")

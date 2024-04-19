@@ -241,12 +241,9 @@ class TestFunctionalModules:
         else:
             fm_shape = shape + (channels,)
 
-        net1 = SpikingPool2d_Net(
-            fm_shape, ksize, stride, (0, 0), True, fm_order, pool_type
-        )
-        net2 = SpikingPool2d_Net(
-            fm_shape, ksize, stride, (0, 0), False, fm_order, pool_type
-        )
+        net1 = SpikingPool2d_Net(fm_shape, ksize, stride, pool_type)
+        net2 = SpikingPool2d_Net(fm_shape, ksize, stride, pool_type)
+        net2.module_construct()
         sim1 = pb.Simulator(net1, start_time_zero=False)
         sim2 = pb.Simulator(net2, start_time_zero=False)
 
@@ -275,6 +272,12 @@ class TestFunctionalModules:
     def test_Transpose2d(self, shape):
         from .conftest import TransposeModule_T2d_Net
 
+        net1 = TransposeModule_T2d_Net(shape)
+        net2 = TransposeModule_T2d_Net(shape)
+        net2.module_construct()
+        sim1 = pb.Simulator(net1, start_time_zero=False)
+        sim2 = pb.Simulator(net2, start_time_zero=False)
+
         net = TransposeModule_T2d_Net(shape)
         sim = pb.Simulator(net, start_time_zero=False)
 
@@ -282,11 +285,13 @@ class TestFunctionalModules:
 
         for i in range(20):
             pb.FRONTEND_ENV.save(data1=inpa[i])
-            sim.run(1)
+            sim1.run(1)
+            sim2.run(1)
 
         for i in range(2, 20):
             expected = inpa[i - 2].T.ravel()
-            assert np.array_equal(sim.data[net.probe2][i], expected)
+            assert np.array_equal(sim1.data[net1.probe2][i], expected)
+            assert np.array_equal(sim2.data[net2.probe2][i], expected)
 
     @pytest.mark.parametrize(
         "shape, axes",
@@ -300,8 +305,11 @@ class TestFunctionalModules:
     def test_Transpose3d(self, shape, axes):
         from .conftest import TransposeModule_T3d_Net
 
-        net = TransposeModule_T3d_Net(shape, axes)
-        sim = pb.Simulator(net, start_time_zero=False)
+        net1 = TransposeModule_T3d_Net(shape, axes)
+        net2 = TransposeModule_T3d_Net(shape, axes)
+        net2.module_construct()
+        sim1 = pb.Simulator(net1, start_time_zero=False)
+        sim2 = pb.Simulator(net2, start_time_zero=False)
 
         if len(shape) == 2:
             shape = (1,) + shape
@@ -310,8 +318,10 @@ class TestFunctionalModules:
 
         for i in range(20):
             pb.FRONTEND_ENV.save(data1=inpa[i])
-            sim.run(1)
+            sim1.run(1)
+            sim2.run(1)
 
         for i in range(2, 20):
             expected = inpa[i - 2].transpose(axes).ravel()
-            assert np.array_equal(sim.data[net.probe2][i], expected)
+            assert np.array_equal(sim1.data[net1.probe2][i], expected)
+            assert np.array_equal(sim2.data[net2.probe2][i], expected)
