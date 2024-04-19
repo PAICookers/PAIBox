@@ -743,10 +743,6 @@ class TestTransforms:
 
         f = ConvTranspose2dForward(in_shape, out_shape, kernel, stride, padding, output_padding)
 
-        # if fm_order == "CHW":
-        #     fm_shape = (in_channels,) + in_shape
-        # else:
-        #     fm_shape = in_shape + (in_channels,)
         fm_shape = (in_channels,) + in_shape
 
         x = np.random.randint(0, 2, size=fm_shape, dtype=np.bool_)
