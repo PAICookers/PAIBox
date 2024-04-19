@@ -473,7 +473,6 @@ class TestTransforms:
         # y3 = f.connectivity.astype(np.int32)
         y2 = xf @ f.connectivity.astype(np.int32)
 
-
         expected = self._conv2d_golden(x, out_shape, kernel, stride, padding, fm_order)
 
         assert np.array_equal(y1, expected)
@@ -535,11 +534,7 @@ class TestTransforms:
                 out[o] += conv_result
 
         # inverse padding : (cout, (xl-1)*stride+kernel) -> (cout, (xl-1)*stride+kernel-2*padding)
-        out = (
-            out[:, padding[0]: (-1 * padding[0])]
-            if padding[0] > 0
-            else out
-        )
+        out = out[:, padding[0] : (-1 * padding[0])] if padding[0] > 0 else out
 
         # output_padding
         out = np.pad(out, ((0, 0), (0, output_padding[0])), mode="constant")
@@ -592,8 +587,15 @@ class TestTransforms:
             )
 
         # out_shape = ((in_shape[0] + 2 * padding[0] - kernel_size[0]) // stride[0] + 1,)
-        out_shape = ((in_shape[0] - 1) * stride[0] - 2 * padding[0] + kernel_size[0] + output_padding[0],)
-        f = ConvTranspose1dForward(in_shape, out_shape, kernel, stride, padding, output_padding)
+        out_shape = (
+            (in_shape[0] - 1) * stride[0]
+            - 2 * padding[0]
+            + kernel_size[0]
+            + output_padding[0],
+        )
+        f = ConvTranspose1dForward(
+            in_shape, out_shape, kernel, stride, padding, output_padding
+        )
 
         # if fm_order == "CL":
         #     fm_shape = (in_channels,) + in_shape
@@ -609,7 +611,9 @@ class TestTransforms:
         # The result of matmul using the unrolled matrix
         y2 = xf @ f.connectivity.astype(np.int32)
 
-        expected = self._convtranspose1d_golden(x, out_shape, kernel, stride, padding, output_padding)
+        expected = self._convtranspose1d_golden(
+            x, out_shape, kernel, stride, padding, output_padding
+        )
 
         assert np.array_equal(y1, expected)
         assert np.array_equal(y2, expected.ravel())
@@ -625,7 +629,7 @@ class TestTransforms:
         kernel: np.ndarray,
         stride: Tuple[int, int],
         padding: Tuple[int, int],
-        output_padding: Tuple[int, int]
+        output_padding: Tuple[int, int],
         # fm_order: str,
     ):
         cout, cin, kh, kw = kernel.shape
@@ -686,7 +690,11 @@ class TestTransforms:
         out = out[:, ph_start:ph_end, pw_start:pw_end]
 
         # output_padding
-        out = np.pad(out, ((0, 0), (0, output_padding[0]), (0, output_padding[1])), mode="constant")
+        out = np.pad(
+            out,
+            ((0, 0), (0, output_padding[0]), (0, output_padding[1])),
+            mode="constant",
+        )
 
         # if fm_order == "HWC":
         #     return out.transpose(1, 2, 0)
@@ -737,11 +745,19 @@ class TestTransforms:
             )
 
         out_shape = (
-            (in_shape[0] - 1) * stride[0] - 2 * padding[0] + kernel_size[0] + output_padding[0],
-            (in_shape[1] - 1) * stride[1] - 2 * padding[1] + kernel_size[1] + output_padding[1],
+            (in_shape[0] - 1) * stride[0]
+            - 2 * padding[0]
+            + kernel_size[0]
+            + output_padding[0],
+            (in_shape[1] - 1) * stride[1]
+            - 2 * padding[1]
+            + kernel_size[1]
+            + output_padding[1],
         )
 
-        f = ConvTranspose2dForward(in_shape, out_shape, kernel, stride, padding, output_padding)
+        f = ConvTranspose2dForward(
+            in_shape, out_shape, kernel, stride, padding, output_padding
+        )
 
         fm_shape = (in_channels,) + in_shape
 
@@ -753,8 +769,9 @@ class TestTransforms:
         # The result of matmul using the unrolled matrix
         y2 = xf @ f.connectivity.astype(np.int32)
         # y3 = f.connectivity.astype(np.int32)
-        expected = self._convtranspose2d_golden(x, out_shape, kernel, stride, padding, output_padding)
-
+        expected = self._convtranspose2d_golden(
+            x, out_shape, kernel, stride, padding, output_padding
+        )
 
         assert np.array_equal(y1, expected)
         assert np.array_equal(y2, expected.ravel())

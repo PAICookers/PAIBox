@@ -318,7 +318,9 @@ class Conv1dForward(Transform):
 
     @property
     def connectivity(self):
-        return _conv1d_unroll(self.in_shape, self.out_shape, self.weights, self.stride, self.padding)
+        return _conv1d_unroll(
+            self.in_shape, self.out_shape, self.weights, self.stride, self.padding
+        )
 
 
 class Conv2dForward(Transform):
@@ -358,7 +360,9 @@ class Conv2dForward(Transform):
 
     @property
     def connectivity(self):
-        return _conv2d_unroll(self.in_shape, self.out_shape, self.weights, self.stride, self.padding)
+        return _conv2d_unroll(
+            self.in_shape, self.out_shape, self.weights, self.stride, self.padding
+        )
 
 
 class ConvTranspose1dForward(Transform):
@@ -403,7 +407,12 @@ class ConvTranspose1dForward(Transform):
     @property
     def connectivity(self):
         return _convtranspose1d_unroll(
-            self.in_shape, self.out_shape, self.weights, self.stride, self.padding, self.output_padding
+            self.in_shape,
+            self.out_shape,
+            self.weights,
+            self.stride,
+            self.padding,
+            self.output_padding,
         )
 
 
@@ -415,7 +424,7 @@ class ConvTranspose2dForward(Transform):
         kernel: np.ndarray,
         stride: Size2Type,
         padding: Size2Type,
-        output_padding: Size2Type
+        output_padding: Size2Type,
         # fm_order: _Order3d,
     ) -> None:
         self.in_shape = in_shape
@@ -449,5 +458,10 @@ class ConvTranspose2dForward(Transform):
     @property
     def connectivity(self):
         return _convtranspose2d_unroll(
-            self.in_shape, self.out_shape, self.weights, self.stride, self.padding, self.output_padding,
+            self.in_shape,
+            self.out_shape,
+            self.weights,
+            self.stride,
+            self.padding,
+            self.output_padding,
         )

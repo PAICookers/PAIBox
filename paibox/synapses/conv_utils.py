@@ -111,7 +111,9 @@ def _conv1d_unroll(
     nil = in_shape[0]
     w_unrolled = np.zeros((cin * nil, cout * ol), dtype=kernel.dtype)
     for i in range(cin):
-        w_unrolled[i * nil:i * nil + nil, :] = w_unrolled_np[i * il + padding[0]:i * il + il - padding[0], :]
+        w_unrolled[i * nil : i * nil + nil, :] = w_unrolled_np[
+            i * il + padding[0] : i * il + il - padding[0], :
+        ]
 
     return w_unrolled
 
@@ -171,13 +173,17 @@ def _conv2d_unroll(
     w_unrolled = np.zeros((cin * nin_size, cout * out_size), dtype=kernel.dtype)
     for i in range(cin):
         for j in range(nih):
-            w_unrolled[
-                i * nin_size + j * niw:
-                i * nin_size + j * niw + niw,
-                :
-            ] = w_unrolled_np[
-                     i * in_size + (padding[0] + j) * iw + padding[1]:
-                     i * in_size + (padding[0] + j) * iw + padding[1] + niw, :]
+            w_unrolled[i * nin_size + j * niw : i * nin_size + j * niw + niw, :] = (
+                w_unrolled_np[
+                    i * in_size
+                    + (padding[0] + j) * iw
+                    + padding[1] : i * in_size
+                    + (padding[0] + j) * iw
+                    + padding[1]
+                    + niw,
+                    :,
+                ]
+            )
 
     return w_unrolled
 
@@ -323,21 +329,29 @@ def _convtranspose1d_unroll(
     nil = in_shape[0] + (in_shape[0] - 1) * (stride[0] - 1)
     w_unrolled_nk = np.zeros((cin * nil, cout * ol), dtype=kernel.dtype)
     for i in range(cin):
-        w_unrolled_nk[i * nil:i * nil + nil, :] = w_unrolled_np[i * il + kl - 1:i * il + kl - 1 + nil, :]
+        w_unrolled_nk[i * nil : i * nil + nil, :] = w_unrolled_np[
+            i * il + kl - 1 : i * il + kl - 1 + nil, :
+        ]
 
     # stripe
     w_reshaped = w_unrolled_nk.reshape((cin, nil, cout, ol))
     # w_unrolled_ns = np.zeros((cin, nil, cout, ol), dtype=w_unrolled_np.dtype)
     # w_unrolled_ns : (cin, in_shape[0], cout ,ol)
-    w_unrolled_ns = w_reshaped[::1, ::stride[0], ::1, ::1]
+    w_unrolled_ns = w_reshaped[::1, :: stride[0], ::1, ::1]
 
     # padding
     # w_unrolled : (cin, in_shape[0], cout, ol - output_padding[0])
-    w_unrolled = (w_unrolled_ns[:, :, :, padding[0]:(-1*padding[0])] if padding[0] > 0 else w_unrolled_ns)
+    w_unrolled = (
+        w_unrolled_ns[:, :, :, padding[0] : (-1 * padding[0])]
+        if padding[0] > 0
+        else w_unrolled_ns
+    )
 
     # output_padding
-    w_unrolled = np.pad(w_unrolled, ((0, 0), (0, 0), (0, 0), (0, output_padding[0])), mode="constant")
-    w_unrolled = w_unrolled.reshape(cin*in_shape[0],cout*out_shape[0])
+    w_unrolled = np.pad(
+        w_unrolled, ((0, 0), (0, 0), (0, 0), (0, output_padding[0])), mode="constant"
+    )
+    w_unrolled = w_unrolled.reshape(cin * in_shape[0], cout * out_shape[0])
 
     return w_unrolled
 
@@ -348,7 +362,7 @@ def _convtranspose2d_unroll(
     kernel: WeightType,
     stride: Size2Type,
     padding: Size2Type,
-    output_padding: Size2Type
+    output_padding: Size2Type,
 ) -> WeightType:
     """Unroll the convolution kernel of 2d convolution into a matrix.
 
@@ -412,7 +426,7 @@ def _convtranspose2d_unroll(
     w_unrolled = w_unrolled_np[:, kh_start:kh_end, kw_start:kw_end, :, :, :]
 
     # stripe
-    w_unrolled = w_unrolled[::1, ::stride[0], ::stride[1], ::1, ::1, ::1]
+    w_unrolled = w_unrolled[::1, :: stride[0], :: stride[1], ::1, ::1, ::1]
 
     # padding
     ph_start = padding[0] if padding[0] > 0 else None
@@ -422,8 +436,21 @@ def _convtranspose2d_unroll(
     w_unrolled = w_unrolled[:, :, :, :, ph_start:ph_end, pw_start:pw_end]
 
     # output_padding
-    w_unrolled = np.pad(w_unrolled, ((0, 0), (0, 0), (0, 0), (0, 0), (0, output_padding[0]), (0, output_padding[1])), mode="constant")
-    w_unrolled = w_unrolled.reshape(cin * in_shape[0] * in_shape[1], cout * out_shape[0] * out_shape[1])
+    w_unrolled = np.pad(
+        w_unrolled,
+        (
+            (0, 0),
+            (0, 0),
+            (0, 0),
+            (0, 0),
+            (0, output_padding[0]),
+            (0, output_padding[1]),
+        ),
+        mode="constant",
+    )
+    w_unrolled = w_unrolled.reshape(
+        cin * in_shape[0] * in_shape[1], cout * out_shape[0] * out_shape[1]
+    )
 
     return w_unrolled
 
@@ -443,7 +470,9 @@ def _convtranspose1d_faster(
     # (O, I, L)
     cout, cin, kl = kernel.shape
     assert xc == cin, "Input channels must match kernel channels."
-    assert (xl - 1) * stride[0] - 2 * padding[0] + kl + output_padding[0] == out_shape[0]
+    assert (xl - 1) * stride[0] - 2 * padding[0] + kl + output_padding[0] == out_shape[
+        0
+    ]
 
     # generate new input array
     # inverse stride : Insert 0 between rows and columns
@@ -472,11 +501,7 @@ def _convtranspose1d_faster(
     out = out.T
 
     # inverse padding : (cout, (xl-1)*stride+kernel) -> (cout, (xl-1)*stride+kernel-2*padding)
-    out = (
-        out[:, padding[0]: (-1 * padding[0])]
-        if padding[0] > 0
-        else out
-    )
+    out = out[:, padding[0] : (-1 * padding[0])] if padding[0] > 0 else out
 
     # output_padding
     out = np.pad(out, ((0, 0), (0, output_padding[0])), mode="constant")
@@ -490,7 +515,7 @@ def _convtranspose2d_faster(
     kernel: WeightType,
     stride: Size2Type,
     padding: Size2Type,
-    output_padding : Size2Type
+    output_padding: Size2Type,
 ) -> SynOutType:
 
     # (C, H, W)
@@ -520,7 +545,7 @@ def _convtranspose2d_faster(
     )
 
     # kernel: (cout, cin, kh, kw) -> (cout, cin*kh*kw)
-    kernel_flip = np.flip(kernel, axis=(2, 3)) # convolution kernel rotated 180 degrees
+    kernel_flip = np.flip(kernel, axis=(2, 3))  # convolution kernel rotated 180 degrees
     kernel_col = kernel_flip.reshape(cout, -1)
 
     # conv
@@ -537,9 +562,9 @@ def _convtranspose2d_faster(
     # padding & output_padding
     # inverse padding
     out = out[
-                :,
-                padding[0]: (-1 * padding[0]) if padding[0] > 0 else None,
-                padding[1]: (-1 * padding[1]) if padding[1] > 0 else None,
+        :,
+        padding[0] : (-1 * padding[0]) if padding[0] > 0 else None,
+        padding[1] : (-1 * padding[1]) if padding[1] > 0 else None,
     ]
     # output_padding
     out = np.pad(

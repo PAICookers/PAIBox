@@ -10,8 +10,8 @@ from paibox.types import DataArrayType
 
 from .base import (
     Conv1dSyn,
-    ConvTranspose1dSyn,
     Conv2dSyn,
+    ConvTranspose1dSyn,
     ConvTranspose2dSyn,
     FullConnSyn,
 )
@@ -188,7 +188,7 @@ class ConvTranspose2d(ConvTranspose2dSyn):
         *,
         stride: _Size2Type = 1,
         padding: _Size2Type = 0,
-        output_padding : _Size2Type = 0,
+        output_padding: _Size2Type = 0,
         # fm_order: _Order3d = "CHW",
         kernel_order: _KOrder4d = "OIHW",
         name: Optional[str] = None,
