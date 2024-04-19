@@ -754,7 +754,7 @@ class TestTransforms:
         y2 = xf @ f.connectivity.astype(np.int32)
         # y3 = f.connectivity.astype(np.int32)
         expected = self._convtranspose2d_golden(x, out_shape, kernel, stride, padding, output_padding)
-        # y4 = expected.ravel()
+
 
         assert np.array_equal(y1, expected)
         assert np.array_equal(y2, expected.ravel())
