@@ -309,7 +309,8 @@ class TestConv2d:
         korder = "IOHW"
 
         n1 = pb.IF((in_channels,) + in_shape, 3)  # CHW
-        n2 = pb.IF((out_channels,) + out_shape, 3)
+        # Strict output shape is no need
+        n2 = pb.IF((out_channels * out_shape[0] * out_shape[1],), 3)
 
         weight = np.random.randint(
             -8, 8, size=(in_channels, out_channels) + kernel_size, dtype=np.int32
@@ -386,7 +387,7 @@ class TestConvTranspose2d:
         korder = "IOL"
 
         n1 = pb.IF((in_channels,) + in_shape, 3)  # CL
-        n2 = pb.IF((out_channels,) + out_shape, 3)
+        n2 = pb.IF((out_channels * out_shape[0],), 3)
 
         weight = np.random.randint(
             -128, 128, size=(in_channels, out_channels) + kernel_size, dtype=np.int8
