@@ -1,15 +1,20 @@
 [tool.poetry]
 name = "paibox"
-version = "1.0.0b1"
-description = "New toolbox of PAICORE 2.0."
+version = "1.0.0rc1"
+description = "Toolchain of PAICORE 2.0."
 authors = ["Ziru Pan <zrpan@stu.pku.edu.cn>"]
-maintainers = ["Ziru Pan <zrpan@stu.pku.edu.cn>"]
+maintainers = [
+    "Hongtu Xia <hongtux@pku.edu.cn>",
+    "Siyuan Gao <siyuan-gao@outlook.com>",
+    "Zhaoyang Hao <hzyang2218@gmail.com>",
+    "Ziru Pan <zrpan@stu.pku.edu.cn>",
+]
 license = "GPL-3.0-or-later"
 readme = "README.md"
 repository = "https://github.com/PAICookers/PAIBox"
 homepage = "https://github.com/PAICookers/PAIBox"
 documentation = "https://github.com/PAICookers/PAIBox#readme"
-keywords = ["PAICORE 2.0", "PAIBox", "Toolbox"]
+keywords = ["PAICORE 2.0", "PAIBox", "SNN", "Toolchain"]
 classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
@@ -35,7 +40,7 @@ exclude = ["paibox/experimental"]
 python = "^3.8"
 pydantic = "^2.0"
 numpy = "^1.24.0"
-paicorelib = "0.0.13"
+paicorelib = "^0.0.13"
 
 [tool.poetry.group.test]
 optional = true
