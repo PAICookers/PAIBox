@@ -385,7 +385,7 @@ class TestTransforms:
             mode="constant",
         )
         conv_result = np.zeros((oh, ow), dtype=np.int64)
-        
+
         for o in range(cout):
             for i in range(cin):
                 conv_result.fill(0)
@@ -516,7 +516,7 @@ class TestTransforms:
         kernel_flip = np.flip(kernel, axis=2)
         stride_transpose = 1
         conv_result = np.zeros((nol,), dtype=np.int64)
-        
+
         for o in range(cout):
             for i in range(cin):
                 conv_result.fill(0)
@@ -663,7 +663,7 @@ class TestTransforms:
         kernel_flip = np.flip(kernel, axis=(2, 3))
         stride_transpose = (1, 1)
         conv_result = np.zeros((noh, now), dtype=np.int64)
-        
+
         for o in range(cout):
             for i in range(cin):
                 conv_result.fill(0)

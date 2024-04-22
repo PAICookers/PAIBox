@@ -85,7 +85,7 @@ class Conv1d(Conv1dSyn):
             - kernel_order: dimension order of kernel, (O,I,L) or (I,O,L). (O,I,L) stands for (output channels, \
                 input channels, length).
             - name: name of the 1d convolution. Optional.
-        
+
         NOTE: See https://pytorch.org/docs/stable/generated/torch.nn.Conv1d.html#torch.nn.Conv1d for details.
         """
         if kernel_order not in ("OIL", "IOL"):
@@ -120,7 +120,7 @@ class Conv2d(Conv2dSyn):
             - kernel_order: dimension order of kernel, (O,I,H,W) or (I,O,H,W). (O,I,H,W) stands for (output     \
                 channels, input channels, height, width).
             - name: name of the 2d convolution. Optional.
-        
+
         NOTE: See https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html#torch.nn.Conv2d for details.
         """
         if kernel_order not in ("OIHW", "IOHW"):
@@ -158,7 +158,7 @@ class ConvTranspose1d(ConvTranspose1dSyn):
             - kernel_order: dimension order of kernel, (O,I,L) or (I,O,L). (O,I,L) stands for (output channels, \
                 input channels, length).
             - name: name of the 1d transposed convolution. Optional.
-            
+
         NOTE: See https://pytorch.org/docs/stable/generated/torch.nn.ConvTranspose1d.html#torch.nn.ConvTranspose1d  \
             for details.
         """
@@ -207,7 +207,7 @@ class ConvTranspose2d(ConvTranspose2dSyn):
             - kernel_order: dimension order of kernel, (O,I,H,W) or (I,O,H,W). (O,I,H,W) stands for (output     \
                 channels, input channels, height, width).
             - name: name of the 2d transposed convolution. Optional.
-            
+
         NOTE: See https://pytorch.org/docs/stable/generated/torch.nn.ConvTranspose2d.html#torch.nn.ConvTranspose2d  \
             for details.
         """

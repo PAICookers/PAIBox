@@ -823,6 +823,7 @@ mapper.clear()
    # Modify
    BACKEND_CONFIG.local_chip_addr = (1, 1)
    ```
+
 2. 输出芯片地址（测试芯片地址） `output_chip_addr`
 
    ```python
@@ -835,8 +836,9 @@ mapper.clear()
    # Modify
    BACKEND_CONFIG.output_chip_addr = (2, 0)
    # or
-   BACKEND_CONFIG.test_chip_addr = (2, 0) 
+   BACKEND_CONFIG.test_chip_addr = (2, 0)
    ```
+
 3. 编译后配置信息等文件输出目录路径 `output_dir`，默认为用户当前工作目录
 
    ```python
@@ -847,6 +849,7 @@ mapper.clear()
    # Modify
    BACKEND_CONFIG.output_dir = "path/to/myoutput"
    ```
+
 4. 编译选项
 
    ```python
