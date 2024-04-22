@@ -11,7 +11,13 @@ from paibox.projection import InputProj
 from paibox.types import DataArrayType, SynOutType, WeightType
 
 from .conv_utils import _fm_ndim1_check, _fm_ndim2_check, _KOrder3d, _KOrder4d
-from .transforms import AllToAll, Conv1dForward, Conv2dForward
+from .transforms import (
+    AllToAll,
+    Conv1dForward,
+    Conv2dForward,
+    ConvTranspose1dForward,
+    ConvTranspose2dForward,
+)
 from .transforms import GeneralConnType as GConnType
 from .transforms import Identity, MaskedLinear, OneToOne, Transform
 
@@ -159,7 +165,7 @@ class Conv1dSyn(FullConnectedSyn):
         dest: Neuron,
         kernel: np.ndarray,
         stride: Tuple[int],
-        # padding: Tuple[int],
+        padding: Tuple[int],
         # fm_order: _Order2d,
         order: _KOrder3d,
         name: Optional[str] = None,
@@ -191,7 +197,7 @@ class Conv1dSyn(FullConnectedSyn):
 
         # If padding is considered, the implementation of convolution unrolling
         # is extremely complex, so fix it.
-        padding = (0,)
+        # padding = (0,)
 
         assert (in_l + 2 * padding[0] - kernel_l) // stride[0] + 1 == out_l
 
@@ -209,7 +215,7 @@ class Conv2dSyn(FullConnectedSyn):
         dest: Neuron,
         kernel: np.ndarray,
         stride: Tuple[int, int],
-        # padding: Tuple[int, int],
+        padding: Tuple[int, int],
         # fm_order: _Order3d,
         order: _KOrder4d,
         name: Optional[str] = None,
@@ -241,11 +247,124 @@ class Conv2dSyn(FullConnectedSyn):
 
         # If padding is considered, the implementation of convolution unrolling
         # is extremely complex, so fix it.
-        padding = (0, 0)
+        # padding = (0, 0)
 
         assert (in_h + 2 * padding[0] - kernel_h) // stride[0] + 1 == out_h
         assert (in_w + 2 * padding[1] - kernel_w) // stride[1] + 1 == out_w
 
         comm = Conv2dForward((in_h, in_w), (out_h, out_w), _kernel, stride, padding)
+
+        self._set_comm(comm)
+
+
+class ConvTranspose1dSyn(FullConnectedSyn):
+    _spatial_ndim: ClassVar[int] = 1
+
+    def __init__(
+        self,
+        source: Union[NeuDyn, InputProj],
+        dest: Neuron,
+        kernel: np.ndarray,
+        stride: Tuple[int],
+        padding: Tuple[int],
+        output_padding: Tuple[int],
+        # fm_order: _Order2d,
+        order: _KOrder3d,
+        name: Optional[str] = None,
+    ) -> None:
+        super().__init__(source, dest, name)
+
+        if kernel.ndim != self._spatial_ndim + 2:
+            raise ShapeError(
+                f"convolution kernel dimension must be {self._spatial_ndim + 2}, but got {kernel.ndim}."
+            )
+
+        if order == "IOL":
+            _kernel = kernel.transpose(1, 0, 2)
+        else:
+            _kernel = kernel.copy()
+
+        # O,I,L
+        out_channels, in_channels, kernel_l = _kernel.shape
+
+        # C,L
+        in_ch, in_l = _fm_ndim1_check(source.shape_out, "CL")
+        out_ch, out_l = _fm_ndim1_check(dest.shape_out, "CL")
+
+        if in_ch != in_channels:
+            raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
+
+        if out_ch != out_channels:
+            raise ShapeError(f"output channels mismatch: {out_ch} != {out_channels}.")
+
+        # If padding is considered, the implementation of convolution unrolling
+        # is extremely complex, so fix it.
+        # padding = (0,)
+
+        assert (in_l - 1) * stride[0] - 2 * padding[0] + kernel_l + output_padding[
+            0
+        ] == out_l
+
+        comm = ConvTranspose1dForward(
+            (in_l,), (out_l,), _kernel, stride, padding, output_padding
+        )
+
+        self.comm = comm
+
+
+class ConvTranspose2dSyn(FullConnectedSyn):
+    _spatial_ndim: ClassVar[int] = 2
+
+    def __init__(
+        self,
+        source: Union[NeuDyn, InputProj],
+        dest: Neuron,
+        kernel: np.ndarray,
+        stride: Tuple[int, int],
+        padding: Tuple[int, int],
+        output_padding: Tuple[int, int],
+        # fm_order: _Order3d,
+        order: _KOrder4d,
+        name: Optional[str] = None,
+    ) -> None:
+        super().__init__(source, dest, name)
+
+        if kernel.ndim != self._spatial_ndim + 2:
+            raise ShapeError(
+                f"convolution kernel dimension must be {self._spatial_ndim + 2}, but got {kernel.ndim}."
+            )
+
+        if order == "IOHW":
+            _kernel = kernel.transpose(1, 0, 2, 3)
+        else:
+            _kernel = kernel.copy()
+
+        # O,I,H,W
+        out_channels, in_channels, kernel_h, kernel_w = _kernel.shape
+
+        # C,H,W
+        in_ch, in_h, in_w = _fm_ndim2_check(source.shape_out, "CHW")
+        out_ch, out_h, out_w = _fm_ndim2_check(dest.shape_out, "CHW")
+
+        if in_ch != in_channels:
+            raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
+
+        if out_ch != out_channels:
+            raise ShapeError(f"output channels mismatch: {out_ch} != {out_channels}.")
+
+        # If padding is considered, the implementation of convolution unrolling
+        # is extremely complex, so fix it.
+        # padding = (0, 0)
+
+        assert (in_h - 1) * stride[0] - 2 * padding[0] + kernel_h + output_padding[
+            0
+        ] == out_h
+        assert (in_w - 1) * stride[1] - 2 * padding[1] + kernel_w + output_padding[
+            1
+        ] == out_w
+
+        comm = ConvTranspose2dForward(
+            (in_h, in_w), (out_h, out_w), _kernel, stride, padding, output_padding
+        )
 
         self._set_comm(comm)

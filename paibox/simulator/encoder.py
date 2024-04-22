@@ -10,7 +10,6 @@ from paibox.types import SpikeType
 
 from .utils import _conv2d_faster_fp32
 
-
 __all__ = ["LatencyEncoder", "PeriodicEncoder", "PoissonEncoder", "Conv2dEncoder"]
 
 """

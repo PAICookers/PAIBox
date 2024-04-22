@@ -275,7 +275,8 @@ class TestConv2d:
         in_shape = (32,)
         kernel_size = (5,)
         stride = 2
-        out_shape = ((32 - 5) // 2 + 1,)
+        padding = 1
+        out_shape = ((32 + 2 - 5) // 2 + 1,)
         in_channels = 8
         out_channels = 16
         korder = "IOL"
@@ -286,7 +287,9 @@ class TestConv2d:
         weight = np.random.randint(
             -128, 128, size=(in_channels, out_channels) + kernel_size, dtype=np.int8
         )
-        s1 = pb.Conv1d(n1, n2, weight, stride=stride, kernel_order=korder)
+        s1 = pb.Conv1d(
+            n1, n2, weight, stride=stride, padding=padding, kernel_order=korder
+        )
 
         assert s1.num_in == in_channels * shape2num(in_shape)
         assert s1.connectivity.dtype == np.int8
@@ -298,8 +301,9 @@ class TestConv2d:
     def test_Conv2d_instance(self):
         in_shape = (32, 32)
         kernel_size = (5, 5)
+        padding = (1, 1)
         stride = 2
-        out_shape = ((32 - 5) // 2 + 1, (32 - 5) // 2 + 1)
+        out_shape = ((32 + 2 - 5) // 2 + 1, (32 + 2 - 5) // 2 + 1)
         in_channels = 8
         out_channels = 16
         korder = "IOHW"
@@ -310,7 +314,9 @@ class TestConv2d:
         weight = np.random.randint(
             -8, 8, size=(in_channels, out_channels) + kernel_size, dtype=np.int32
         )
-        s1 = pb.Conv2d(n1, n2, weight, stride=stride, kernel_order=korder)
+        s1 = pb.Conv2d(
+            n1, n2, weight, stride=stride, padding=padding, kernel_order=korder
+        )
 
         assert s1.num_in == in_channels * shape2num(in_shape)
         assert s1.connectivity.dtype == np.int8
@@ -361,6 +367,144 @@ class TestConv2d:
         s1 = pb.Conv2d(n1, n2, weight, stride=stride, kernel_order=korder)
 
         assert s1.num_in == in_channels * shape2num(in_shape)
+        assert s1.connectivity.shape == (
+            in_channels * shape2num(in_shape),
+            out_channels * shape2num(out_shape),
+        )
+
+
+class TestConvTranspose2d:
+    def test_ConvTranspose1d_instance(self):
+        in_shape = (14,)
+        kernel_size = (5,)
+        stride = 2
+        padding = 1
+        output_padding = 1
+        out_shape = ((14 - 1) * 2 + 5 - 2 * 1 + 1,)
+        in_channels = 16
+        out_channels = 8
+        korder = "IOL"
+
+        n1 = pb.IF((in_channels,) + in_shape, 3)  # CL
+        n2 = pb.IF((out_channels,) + out_shape, 3)
+
+        weight = np.random.randint(
+            -128, 128, size=(in_channels, out_channels) + kernel_size, dtype=np.int8
+        )
+        s1 = pb.ConvTranspose1d(
+            n1,
+            n2,
+            weight,
+            stride=stride,
+            padding=padding,
+            output_padding=output_padding,
+            kernel_order=korder,
+        )
+
+        assert s1.num_in == in_channels * shape2num(in_shape)
+        assert s1.connectivity.dtype == np.int8
+        assert s1.connectivity.shape == (
+            in_channels * shape2num(in_shape),
+            out_channels * shape2num(out_shape),
+        )
+
+    def test_ConvTranspose2d_instance(self):
+        in_shape = (14, 14)
+        kernel_size = (5, 5)
+        stride = 2
+        padding = 1
+        output_padding = 1
+        out_shape = ((14 - 1) * 2 + 5 - 2 + 1, (14 - 1) * 2 + 5 - 2 + 1)
+        in_channels = 8
+        out_channels = 16
+        korder = "IOHW"
+
+        n1 = pb.IF((in_channels,) + in_shape, 3)  # CHW
+        n2 = pb.IF((out_channels,) + out_shape, 3)
+
+        weight = np.random.randint(
+            -8, 8, size=(in_channels, out_channels) + kernel_size, dtype=np.int32
+        )
+        s1 = pb.ConvTranspose2d(
+            n1,
+            n2,
+            weight,
+            stride=stride,
+            padding=padding,
+            output_padding=output_padding,
+            kernel_order=korder,
+        )
+
+        assert s1.num_in == in_channels * shape2num(in_shape)
+        assert s1.connectivity.dtype == np.int8
+        assert s1.connectivity.shape == (
+            in_channels * shape2num(in_shape),
+            out_channels * shape2num(out_shape),
+        )
+
+    def test_ConvTranspose1d_inchannel_omitted(self):
+        in_shape = (14,)
+        kernel_size = (5,)
+        stride = 2
+        padding = 1
+        output_padding = 1
+        out_shape = ((14 - 1) * 2 + 5 - 2 * 1 + 1,)
+        in_channels = 1  # omit it
+        out_channels = 4
+        korder = "IOL"
+
+        n1 = pb.IF(in_shape, 3)  # L, (in_channels=1)
+        n2 = pb.IF((out_channels,) + out_shape, 3)
+
+        weight = np.random.randint(
+            -128, 128, size=(in_channels, out_channels) + kernel_size, dtype=np.int64
+        )
+        s1 = pb.ConvTranspose1d(
+            n1,
+            n2,
+            weight,
+            stride=stride,
+            padding=padding,
+            output_padding=output_padding,
+            kernel_order=korder,
+        )
+
+        assert s1.num_in == in_channels * shape2num(in_shape)
+        assert s1.connectivity.dtype == np.int8
+        assert s1.connectivity.shape == (
+            in_channels * shape2num(in_shape),
+            out_channels * shape2num(out_shape),
+        )
+
+    def test_ConvTranspose2d_inchannel_omitted(self):
+        in_shape = (14, 14)
+        kernel_size = (5, 5)
+        stride = 2
+        padding = 1
+        output_padding = 1
+        out_shape = ((14 - 1) * 2 + 5 - 2 + 1, (14 - 1) * 2 + 5 - 2 + 1)
+        in_channels = 1  # omit it
+        out_channels = 4
+        korder = "IOHW"
+
+        n1 = pb.IF(in_shape, 3)  # HW, (in_channels=1)
+        n2 = pb.IF((out_channels,) + out_shape, 3)
+
+        weight = np.random.randint(
+            -128, 128, size=(in_channels, out_channels) + kernel_size, dtype=np.int8
+        )
+        s1 = pb.ConvTranspose2d(
+            n1,
+            n2,
+            weight,
+            stride=stride,
+            padding=padding,
+            output_padding=output_padding,
+            kernel_order=korder,
+        )
+
+        assert s1.num_in == in_channels * shape2num(in_shape)
+        assert s1.connectivity.dtype == np.int8
         assert s1.connectivity.shape == (
             in_channels * shape2num(in_shape),
             out_channels * shape2num(out_shape),
