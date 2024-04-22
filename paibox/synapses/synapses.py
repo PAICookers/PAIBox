@@ -31,13 +31,14 @@ class FullConn(FullConnSyn):
         conn_type: GConnType = GConnType.MatConn,
         name: Optional[str] = None,
     ) -> None:
-        """
-        Arguments:
-            - source: source neuron(s).
-            - dest: destination neuron(s).
+        """Full-connected synapses.
+
+        Args:
+            - source: source neuron.
+            - dest: destination neuron.
             - weights: weights of the synapses. It can be a scalar or `np.ndarray`.
             - conn_type: the type of connection.
-            - name: name of this synapses. Optional.
+            - name: name of the full-connected synapses. Optional.
         """
         super().__init__(source, dest, weights, conn_type, name)
 
@@ -69,37 +70,29 @@ class Conv1d(Conv1dSyn):
         *,
         stride: _Size1Type = 1,
         padding: _Size1Type = 0,
-        # fm_order: _Order2d = "CL",
         kernel_order: _KOrder3d = "OIL",
         name: Optional[str] = None,
     ) -> None:
         """1d convolution synapses in fully-unrolled format.
 
-        Arguments:
-            - source: source neuron(s). The dimensions need to be expressed explicitly as (C,L).
-            - dest: destination neuron(s).
-            - kernel: convolution kernel. Its dimension order is either (O,I,L) or (I,O,L), depending on \
-                the argument `kernel_order`.
-            - stride: the step size of the kernel sliding. It can be a scalar or a tuple of 2 integers.
-            - kernel_order: dimension order of kernel, (O,I,L) or (I,O,L). (O,I,L) stands for (output   \
-                channels, input channels, length).
+        Args:
+            - source: source neuron. The dimensions need to be expressed explicitly as (C,L).
+            - dest: destination neuron.
+            - kernel: convolution kernel. Its dimension order is either (O,I,L) or (I,O,L), depending on the    \
+                argument `kernel_order`.
+            - stride: the step size of the kernel sliding. It can be a scalar or an integer.
+            - padding: the amount of zero-padding applied to the input. It can be a scalar or an integer.
+            - kernel_order: dimension order of kernel, (O,I,L) or (I,O,L). (O,I,L) stands for (output channels, \
+                input channels, length).
             - name: name of the 1d convolution. Optional.
+        
+        NOTE: See https://pytorch.org/docs/stable/generated/torch.nn.Conv1d.html#torch.nn.Conv1d for details.
         """
-        # if fm_order not in ("CL", "LC"):
-        #     raise ValueError(f"feature map order must be 'CL' or 'LC'.")
-
         if kernel_order not in ("OIL", "IOL"):
             raise ValueError(f"kernel order must be 'OIL' or 'IOL'.")
 
         super().__init__(
-            source,
-            dest,
-            kernel,
-            _single(stride),
-            _single(padding),
-            # fm_order,
-            kernel_order,
-            name=name,
+            source, dest, kernel, _single(stride), _single(padding), kernel_order, name
         )
 
 
@@ -112,37 +105,29 @@ class Conv2d(Conv2dSyn):
         *,
         stride: _Size2Type = 1,
         padding: _Size2Type = 0,
-        # fm_order: _Order3d = "CHW",
         kernel_order: _KOrder4d = "OIHW",
         name: Optional[str] = None,
     ) -> None:
         """2d convolution synapses in fully-unrolled format.
 
-        Arguments:
-            - source: source neuron(s). The dimensions need to be expressed explicitly as (C,H,W).
-            - dest: destination neuron(s).
-            - kernel: convolution kernel. Its dimension order is either (O,I,H,W) or (I,O,H,W),         \
-                depending on the argument `kernel_order`.
+        Args:
+            - source: source neuron. The dimensions need to be expressed explicitly as (C,H,W).
+            - dest: destination neuron.
+            - kernel: convolution kernel. Its dimension order is either (O,I,H,W) or (I,O,H,W), depending on the\
+                argument `kernel_order`.
             - stride: the step size of the kernel sliding. It can be a scalar or a tuple of 2 integers.
-            - kernel_order: dimension order of kernel, (O,I,H,W) or (I,O,H,W). (O,I,H,W) stands for     \
-                (output channels, input channels, height, width).
+            - padding: the amount of zero-padding applied to the input. It can be a scalar or a tuple of 2 integers.
+            - kernel_order: dimension order of kernel, (O,I,H,W) or (I,O,H,W). (O,I,H,W) stands for (output     \
+                channels, input channels, height, width).
             - name: name of the 2d convolution. Optional.
+        
+        NOTE: See https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html#torch.nn.Conv2d for details.
         """
-        # if fm_order not in ("CHW", "HWC"):
-        #     raise ValueError(f"feature map order must be 'CHW or 'HWC'.")
-
         if kernel_order not in ("OIHW", "IOHW"):
             raise ValueError(f"kernel order must be 'OIHW' or 'IOHW'.")
 
         super().__init__(
-            source,
-            dest,
-            kernel,
-            _pair(stride),
-            _pair(padding),
-            # fm_order,
-            kernel_order,
-            name=name,
+            source, dest, kernel, _pair(stride), _pair(padding), kernel_order, name
         )
 
 
@@ -156,13 +141,27 @@ class ConvTranspose1d(ConvTranspose1dSyn):
         stride: _Size1Type = 1,
         padding: _Size1Type = 0,
         output_padding: _Size1Type = 0,
-        # fm_order: _Order2d = "CL",
         kernel_order: _KOrder3d = "OIL",
         name: Optional[str] = None,
     ) -> None:
-        # if fm_order not in ("CL", "LC"):
-        #     raise ValueError(f"feature map order must be 'CL' or 'LC'.")
+        """1d transposed convolution synapses in fully-unrolled format.
 
+        Args:
+            - source: source neuron. The dimensions need to be expressed explicitly as (C,L).
+            - dest: destination neuron.
+            - kernel: convolution kernel. Its dimension order is either (O,I,L) or (I,O,L), depending on the    \
+                argument `kernel_order`.
+            - stride: stride of the convolution. It can be a scalar or an integer.
+            - padding: the amount of zero-padding applied to the input. It can be a scalar or an integer.
+            - output_padding: the additional size added to one side of the output shape. It can be a scalar or  \
+                an integer.
+            - kernel_order: dimension order of kernel, (O,I,L) or (I,O,L). (O,I,L) stands for (output channels, \
+                input channels, length).
+            - name: name of the 1d transposed convolution. Optional.
+            
+        NOTE: See https://pytorch.org/docs/stable/generated/torch.nn.ConvTranspose1d.html#torch.nn.ConvTranspose1d  \
+            for details.
+        """
         if kernel_order not in ("OIL", "IOL"):
             raise ValueError(f"kernel order must be 'OIL' or 'IOL'.")
 
@@ -173,9 +172,8 @@ class ConvTranspose1d(ConvTranspose1dSyn):
             _single(stride),
             _single(padding),
             _single(output_padding),
-            # fm_order,
             kernel_order,
-            name=name,
+            name,
         )
 
 
@@ -189,28 +187,30 @@ class ConvTranspose2d(ConvTranspose2dSyn):
         stride: _Size2Type = 1,
         padding: _Size2Type = 0,
         output_padding: _Size2Type = 0,
-        # fm_order: _Order3d = "CHW",
         kernel_order: _KOrder4d = "OIHW",
         name: Optional[str] = None,
     ) -> None:
-        """2d convolution synapses in fully-unrolled format.
+        """2d transposed convolution synapses in fully-unrolled format.
 
-        Arguments:
-            - source: source neuron(s). The dimensions need to be expressed explicitly as (C,H,W) or    \
-                (H,W,C). The feature map dimension order is specified by `fm_order`.
-            - dest: destination neuron(s).
-            - kernel: convolution kernel. Its dimension order must be (O,I,H,W) or (I,O,H,W), depending \
-                on the argument `kernel_order`.
-            - stride: the step size of the kernel sliding. It can be a scalar or a tuple of 2 integers.
-            - fm_order: dimension order of feature map. The order of input & output feature maps must be\
+        Args:
+            - source: source neuron. The dimensions need to be expressed explicitly as (C,H,W) or (H,W,C). The  \
+                feature map dimension order is specified by `fm_order`.
+            - dest: destination neuron.
+            - kernel: convolution kernel. Its dimension order must be (O,I,H,W) or (I,O,H,W), depending on the  \
+                argument `kernel_order`.
+            - stride: stride of the convolution. It can be a scalar or a tuple of 2 integers.
+            - padding: the amount of zero-padding applied to the input. It can be a scalar or a tuple of 2 integers.
+            - output_padding: the additional size added to one side of the output shape. It can be a scalar or  \
+                a tuple of 2 integers.
+            - fm_order: dimension order of feature map. The order of input & output feature maps must be        \
                 consistent, (C,H,W) or (H,W,C).
-            - kernel_order: dimension order of kernel, (O,I,H,W) or (I,O,H,W). (O,I,H,W) stands for     \
-                (output channels, input channels, height, width).
-            - name: name of the 2d convolution. Optional.
+            - kernel_order: dimension order of kernel, (O,I,H,W) or (I,O,H,W). (O,I,H,W) stands for (output     \
+                channels, input channels, height, width).
+            - name: name of the 2d transposed convolution. Optional.
+            
+        NOTE: See https://pytorch.org/docs/stable/generated/torch.nn.ConvTranspose2d.html#torch.nn.ConvTranspose2d  \
+            for details.
         """
-        # if fm_order not in ("CHW", "HWC"):
-        #     raise ValueError(f"feature map order must be 'CHW or 'HWC'.")
-
         if kernel_order not in ("OIHW", "IOHW"):
             raise ValueError(f"kernel order must be 'OIHW' or 'IOHW'.")
 
@@ -221,7 +221,6 @@ class ConvTranspose2d(ConvTranspose2dSyn):
             _pair(stride),
             _pair(padding),
             _pair(output_padding),
-            # fm_order,
             kernel_order,
-            name=name,
+            name,
         )

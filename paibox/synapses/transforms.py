@@ -309,11 +309,7 @@ class Conv1dForward(Transform):
         _x = x.reshape((cin,) + self.in_shape)
 
         return _conv1d_faster(
-            _x,
-            self.out_shape,
-            self.weights,
-            self.stride,
-            self.padding,
+            _x, self.out_shape, self.weights, self.stride, self.padding
         )
 
     @property
@@ -351,11 +347,7 @@ class Conv2dForward(Transform):
         _x = x.reshape((cin,) + self.in_shape)
 
         return _conv2d_faster(
-            _x,
-            self.out_shape,
-            self.weights,
-            self.stride,
-            self.padding,
+            _x, self.out_shape, self.weights, self.stride, self.padding
         )
 
     @property
@@ -383,8 +375,7 @@ class ConvTranspose1dForward(Transform):
         self.output_padding = output_padding
         # self.fm_order = fm_order
 
-        _w = kernel.astype(np.int8)
-        super().__init__(_w)
+        super().__init__(kernel)
 
     def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
         cin = self.weights.shape[1]
@@ -434,8 +425,7 @@ class ConvTranspose2dForward(Transform):
         self.output_padding = output_padding
         # self.fm_order = fm_order
 
-        _w = kernel.astype(np.int8)
-        super().__init__(_w)
+        super().__init__(kernel)
 
     def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
         cin = self.weights.shape[1]

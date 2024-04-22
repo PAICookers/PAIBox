@@ -81,10 +81,7 @@ def _conv1d_unroll(
     stride: Size1Type,
     padding: Size1Type,
 ) -> WeightType:
-    """Unroll the convolution kernel of 1d convolution into a matrix.
-
-    XXX: The case where the input feature map is in 'LC' order is not considered for the time being.
-    """
+    """Unroll the kernel of 1d convolution into a matrix."""
     cout, cin, kl = kernel.shape
     il = in_shape[0] + 2 * padding[0]
     ol = out_shape[0]
@@ -125,10 +122,7 @@ def _conv2d_unroll(
     stride: Size2Type,
     padding: Size2Type,
 ) -> WeightType:
-    """Unroll the convolution kernel of 2d convolution into a matrix.
-
-    XXX: The case where the input feature map is in 'HWC' order is not considered for the time being.
-    """
+    """Unroll the kernel of 2d convolution into a matrix."""
     cout, cin, kh, kw = kernel.shape
 
     # ih, iw = in_shape
@@ -196,14 +190,10 @@ def _conv1d_faster(
     padding: Size1Type,
 ) -> SynOutType:
     xc, xl = x_cl.shape
-
     # (O, I, L)
     cout, cin, kl = kernel.shape
-    assert xc == cin
 
     x_padded = np.pad(x_cl, ((0, 0), (padding[0], padding[0])), mode="constant")
-
-    assert (xl + padding[0] * 2 - kl) // stride[0] + 1 == out_shape[0]
 
     # kernel: (cout, cin, kl) -> (cout, cin*kl)
     col_kernel = kernel.reshape(cout, -1)
@@ -229,16 +219,12 @@ def _conv2d_faster(
     xc, xh, xw = x_chw.shape
     # (O, I, H, W)
     cout, cin, kh, kw = kernel.shape
-    assert xc == cin
 
     x_padded = np.pad(
         x_chw,
         ((0, 0), (padding[0], padding[0]), (padding[1], padding[1])),
         mode="constant",
     )
-
-    assert (xh + padding[0] * 2 - kh) // stride[0] + 1 == out_shape[0]
-    assert (xw + padding[1] * 2 - kw) // stride[1] + 1 == out_shape[1]
 
     # kernel: (cout, cin, kh, kw) -> (cout, cin*kh*kw)
     col_kernel = kernel.reshape(cout, -1)
@@ -254,37 +240,6 @@ def _conv2d_faster(
     return out
 
 
-def _1d_im2col(
-    x_padded: NDArray[Any], ol: int, kl: int, stride: Size1Type
-) -> NDArray[np.int64]:
-    cols = np.zeros((ol, x_padded.shape[0] * kl), dtype=np.int64)
-
-    _, pl = x_padded.shape
-
-    idx = 0
-    for i in range(0, pl - kl + 1, stride[0]):
-        cols[idx] = x_padded[:, i : i + kl].ravel()
-        idx += 1
-
-    return cols
-
-
-def _2d_im2col(
-    x_padded: NDArray[Any], oh: int, ow: int, kh: int, kw: int, stride: Size2Type
-) -> NDArray[np.int64]:
-    cols = np.zeros((oh * ow, x_padded.shape[0] * kh * kw), dtype=np.int64)
-
-    _, ph, pw = x_padded.shape
-
-    idx = 0
-    for i in range(0, ph - kh + 1, stride[0]):
-        for j in range(0, pw - kw + 1, stride[1]):
-            cols[idx] = x_padded[:, i : i + kh, j : j + kw].ravel()
-            idx += 1
-
-    return cols
-
-
 def _convtranspose1d_unroll(
     in_shape: Size1Type,
     out_shape: Size1Type,
@@ -293,7 +248,7 @@ def _convtranspose1d_unroll(
     padding: Size1Type,
     output_padding: Size1Type,
 ) -> WeightType:
-    """Unroll the convolution kernel of 1d convolution into a matrix.
+    """Unroll the kernel of 1d transposed convolution into a matrix.
 
     XXX: The case where the input feature map is in 'LC' order is not considered for the time being.
     """
@@ -364,10 +319,7 @@ def _convtranspose2d_unroll(
     padding: Size2Type,
     output_padding: Size2Type,
 ) -> WeightType:
-    """Unroll the convolution kernel of 2d convolution into a matrix.
-
-    XXX: The case where the input feature map is in 'HWC' order is not considered for the time being.
-    """
+    """Unroll the kernel of 2d transposed convolution into a matrix."""
     kernel_flip = np.flip(kernel, axis=(2, 3))
     cout, cin, kh, kw = kernel_flip.shape
 
@@ -456,14 +408,13 @@ def _convtranspose2d_unroll(
 
 
 def _convtranspose1d_faster(
-    x_cl: np.ndarray,
+    x_cl: NDArray[Any],
     out_shape: Size1Type,
     kernel: WeightType,
     stride: Size1Type,
     padding: Size1Type,
     output_padding: Size1Type,
 ) -> SynOutType:
-
     # (C, L)
     xc, xl = x_cl.shape
 
@@ -510,14 +461,13 @@ def _convtranspose1d_faster(
 
 
 def _convtranspose2d_faster(
-    x_chw: np.ndarray,
+    x_chw: NDArray[Any],
     out_shape: Size2Type,
     kernel: WeightType,
     stride: Size2Type,
     padding: Size2Type,
     output_padding: Size2Type,
 ) -> SynOutType:
-
     # (C, H, W)
     xc, xh, xw = x_chw.shape
 
@@ -572,3 +522,34 @@ def _convtranspose2d_faster(
     )
 
     return out
+
+
+def _1d_im2col(
+    x_padded: NDArray[Any], ol: int, kl: int, stride: Size1Type
+) -> NDArray[np.int64]:
+    cols = np.zeros((ol, x_padded.shape[0] * kl), dtype=np.int64)
+
+    _, pl = x_padded.shape
+
+    idx = 0
+    for i in range(0, pl - kl + 1, stride[0]):
+        cols[idx] = x_padded[:, i : i + kl].ravel()
+        idx += 1
+
+    return cols
+
+
+def _2d_im2col(
+    x_padded: NDArray[Any], oh: int, ow: int, kh: int, kw: int, stride: Size2Type
+) -> NDArray[np.int64]:
+    cols = np.zeros((oh * ow, x_padded.shape[0] * kh * kw), dtype=np.int64)
+
+    _, ph, pw = x_padded.shape
+
+    idx = 0
+    for i in range(0, ph - kh + 1, stride[0]):
+        for j in range(0, pw - kw + 1, stride[1]):
+            cols[idx] = x_padded[:, i : i + kh, j : j + kw].ravel()
+            idx += 1
+
+    return cols
