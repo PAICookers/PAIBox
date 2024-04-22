@@ -33,10 +33,10 @@ class CustomJsonEncoder(JSONEncoder):
 
 
 class TestGraphInfo:
-    def test_multi_inputproj(
-        self, get_mapper, ensure_dump_dir, build_multi_inputproj_net
+    def test_multi_inputproj1(
+        self, get_mapper, ensure_dump_dir, build_multi_inputproj_net1
     ):
-        net = build_multi_inputproj_net
+        net = build_multi_inputproj_net1
         mapper: pb.Mapper = get_mapper
         mapper.build(net)
         mapper.compile()
@@ -64,6 +64,30 @@ class TestGraphInfo:
         )
 
         assert len(mapper.graph_info["input"]) == 2
+
+    def test_multi_inputproj3(
+        self, monkeypatch, get_mapper, ensure_dump_dir, build_multi_inputproj_net3
+    ):
+        net = build_multi_inputproj_net3
+        mapper: pb.Mapper = get_mapper
+        mapper.build(net)
+        mapper.compile()
+        mapper.export(
+            fp=ensure_dump_dir,
+            format="txt",
+            split_by_coordinate=True,
+            export_core_params=True,
+        )
+
+        assert len(mapper.graph_info["input"]) == 1
+        assert len(mapper.core_blocks) == 6
+
+        monkeypatch.setattr(net.n7, "_tws", 3)  # n7.tws: 2 -> 3
+        mapper.clear()
+        mapper.build(net)
+        mapper.compile()
+
+        assert len(mapper.core_blocks) == 5  # n6 & n7 grouped in one core block.
 
     def test_multi_output_nodes(
         self, get_mapper, ensure_dump_dir, build_multi_onodes_net
@@ -233,6 +257,15 @@ class TestMapper_Export:
         mapper.export(fp=ensure_dump_dir)
 
         assert len(mapper.graph_info["output"].keys()) == net.n_onodes
+
+    def test_export_empty_cplm(self, build_example_net4_large_scale, ensure_dump_dir):
+        net = build_example_net4_large_scale
+        mapper = pb.Mapper()
+        mapper.build(net)
+        mapper.compile()
+        mapper.export(fp=ensure_dump_dir)
+
+        assert len(mapper.routing_groups[1].wasted_coords) == 2
 
 
 class TestMapper_Weight4:

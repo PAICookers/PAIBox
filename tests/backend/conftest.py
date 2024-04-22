@@ -22,8 +22,14 @@ from paicorelib import (
 from paicorelib import WeightPrecision as WP
 
 import paibox as pb
-from paibox.backend.conf_template import CoreConfig, CorePlacementConfig, NeuronConfig
+from paibox.backend.conf_template import (
+    CoreConfig,
+    CorePlacementConfig,
+    EmptyCorePlacementConfig,
+    NeuronConfig,
+)
 from paibox.backend.routing import RoutingCluster
+from paibox.exceptions import ResourceError
 from paibox.naming import clear_name_cache
 from paibox.node import NodeList
 from tests.conftest import ParametrizedTestData
@@ -40,6 +46,9 @@ def ensure_dump_dir():
             f.unlink()
 
     yield p
+    # Clean up
+    # for f in p.iterdir():
+    #     f.unlink()
 
 
 @pytest.fixture
@@ -111,9 +120,12 @@ class NetForTest1(pb.Network):
 
 
 class NetForTest2(pb.Network):
-    """
-    INP1 -> S1 -> N1 -> S3 -> N2
-    INP2 -> S2 -> N1
+    """Test the following situations with multiple input nodes:
+        1. Two input nodes assigned within one core block.
+
+    Structure:
+        INP1 -> S1 -> N1 -> S3 -> N2
+        INP2 -> S2 -> N1
     """
 
     def __init__(self):
@@ -170,12 +182,19 @@ class NetForTest4(pb.Network):
                   N1 -> S3 -> N3 -> S5 -> N4
     """
 
-    def __init__(self):
+    def __init__(self, large_scale: bool = False):
         super().__init__()
+
         self.inp1 = pb.InputProj(input=1, shape_out=(400,), name="inp1")
         self.n1 = pb.TonicSpiking(800, 3, name="n1", tick_wait_start=1)
-        self.n2 = pb.TonicSpiking(400, 4, name="n2", tick_wait_start=2)
-        self.n3 = pb.TonicSpiking(400, 4, name="n3", tick_wait_start=2)
+
+        if large_scale:
+            self.n2 = pb.TonicSpiking(1500, 4, name="n2", tick_wait_start=2)
+            self.n3 = pb.TonicSpiking(1500, 4, name="n3", tick_wait_start=2)
+        else:
+            self.n2 = pb.TonicSpiking(400, 4, name="n2", tick_wait_start=2)
+            self.n3 = pb.TonicSpiking(400, 4, name="n3", tick_wait_start=2)
+
         self.n4 = pb.TonicSpiking(400, 4, name="n4", tick_wait_start=3)
         self.s1 = pb.FullConn(
             self.inp1, self.n1, conn_type=pb.SynConnType.All2All, name="s1"
@@ -187,17 +206,23 @@ class NetForTest4(pb.Network):
             self.n1, self.n3, conn_type=pb.SynConnType.All2All, name="s3"
         )
         self.s4 = pb.FullConn(
-            self.n2, self.n4, conn_type=pb.SynConnType.One2One, name="s4"
+            self.n2, self.n4, conn_type=pb.SynConnType.All2All, name="s4"
         )
         self.s5 = pb.FullConn(
-            self.n3, self.n4, conn_type=pb.SynConnType.One2One, name="s5"
+            self.n3, self.n4, conn_type=pb.SynConnType.All2All, name="s5"
         )
 
 
-class Network_with_multi_inodes(pb.Network):
-    """
-    INP1 -> S1 -> N1 -> S2 -> N2
-    INP2 -> S3 -> N2
+class Network_with_multi_inodes1(pb.Network):
+    """Test the following situations with multiple input nodes:
+        1. Two input nodes with their own core blocks.
+        2. An input node assigned within one core block.
+        TODO 3. The input node is input to the middle layer.
+
+    Structure:
+        INP1 -> S1 -> N1 -> S2 -> N2
+             -> S3 -> N3 -> S4 -> N4 -> S5 -> N5
+        INP2 -> S6 -> N6 -> S7 -> N7 -> S8 -> N5
     """
 
     def __init__(self):
@@ -206,6 +231,11 @@ class Network_with_multi_inodes(pb.Network):
         self.inp2 = pb.InputProj(input=1, shape_out=(50,), name="inp2")
         self.n1 = pb.TonicSpiking(80, 2, name="n1", tick_wait_start=1)
         self.n2 = pb.TonicSpiking(20, 3, name="n2", tick_wait_start=2)
+        self.n3 = pb.TonicSpiking(20, 3, name="n3", tick_wait_start=1)
+        self.n4 = pb.TonicSpiking(20, 3, name="n4", tick_wait_start=2)
+        self.n5 = pb.TonicSpiking(40, 3, name="n5", tick_wait_start=3)
+        self.n6 = pb.TonicSpiking(40, 3, name="n6", tick_wait_start=1)
+        self.n7 = pb.TonicSpiking(40, 3, name="n7", tick_wait_start=2)
 
         self.s1 = pb.FullConn(
             self.inp1, self.n1, conn_type=pb.SynConnType.All2All, name="s1"
@@ -214,7 +244,67 @@ class Network_with_multi_inodes(pb.Network):
             self.n1, self.n2, conn_type=pb.SynConnType.All2All, name="s2"
         )
         self.s3 = pb.FullConn(
-            self.inp2, self.n2, conn_type=pb.SynConnType.All2All, name="s3"
+            self.inp1, self.n3, conn_type=pb.SynConnType.All2All, name="s3"
+        )
+        self.s4 = pb.FullConn(
+            self.n3, self.n4, conn_type=pb.SynConnType.All2All, name="s4"
+        )
+        self.s5 = pb.FullConn(
+            self.n4, self.n5, conn_type=pb.SynConnType.All2All, name="s5"
+        )
+        self.s6 = pb.FullConn(
+            self.inp2, self.n6, conn_type=pb.SynConnType.All2All, name="s6"
+        )
+        self.s7 = pb.FullConn(
+            self.n6, self.n7, conn_type=pb.SynConnType.All2All, name="s7"
+        )
+        self.s8 = pb.FullConn(
+            self.n7, self.n5, conn_type=pb.SynConnType.All2All, name="s8"
+        )
+
+
+class Network_with_multi_inodes2(pb.Network):
+    """Test the following situations with multiple input nodes:
+        1. One input node assigned within more than one core block.
+
+    Structure:
+        INP1 -> S1 -> N1(tws=1) -> S2 -> N2(tws=2)
+             -> S3 -> N3(tws=2) -> S4 -> N4(tws=3)
+             -> S5 -> N5(tws=2) -> S6 -> N6(tws=3)
+                                -> S7 -> N7(tws=2/3)
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.inp1 = pb.InputProj(input=1, shape_out=(40,), name="inp1")
+        self.n1 = pb.TonicSpiking(80, 2, name="n1", tick_wait_start=1)
+        self.n2 = pb.TonicSpiking(20, 3, name="n2", tick_wait_start=3)
+        self.n3 = pb.TonicSpiking(20, 3, name="n3", tick_wait_start=2)
+        self.n4 = pb.TonicSpiking(20, 3, name="n4", tick_wait_start=3)
+        self.n5 = pb.TonicSpiking(20, 3, name="n5", tick_wait_start=2)
+        self.n6 = pb.TonicSpiking(20, 3, name="n6", tick_wait_start=3)
+        self.n7 = pb.TonicSpiking(20, 3, name="n7", tick_wait_start=2)
+
+        self.s1 = pb.FullConn(
+            self.inp1, self.n1, conn_type=pb.SynConnType.All2All, name="s1"
+        )
+        self.s2 = pb.FullConn(
+            self.n1, self.n2, conn_type=pb.SynConnType.All2All, name="s2"
+        )
+        self.s3 = pb.FullConn(
+            self.inp1, self.n3, conn_type=pb.SynConnType.All2All, name="s3"
+        )
+        self.s4 = pb.FullConn(
+            self.n3, self.n4, conn_type=pb.SynConnType.All2All, name="s4"
+        )
+        self.s5 = pb.FullConn(
+            self.inp1, self.n5, conn_type=pb.SynConnType.All2All, name="s5"
+        )
+        self.s6 = pb.FullConn(
+            self.n5, self.n6, conn_type=pb.SynConnType.All2All, name="s6"
+        )
+        self.s7 = pb.FullConn(
+            self.n5, self.n7, conn_type=pb.SynConnType.All2All, name="s7"
         )
 
 
@@ -496,13 +586,18 @@ def build_example_net2():
 
 
 @pytest.fixture(scope="class")
-def build_multi_inputproj_net():
+def build_multi_inputproj_net1():
     return NetForTest2()
 
 
 @pytest.fixture(scope="class")
 def build_multi_inputproj_net2():
-    return Network_with_multi_inodes()
+    return Network_with_multi_inodes1()
+
+
+@pytest.fixture(scope="class")
+def build_multi_inputproj_net3():
+    return Network_with_multi_inodes2()
 
 
 @pytest.fixture(scope="class")
@@ -513,6 +608,11 @@ def build_example_net3():
 @pytest.fixture(scope="class")
 def build_example_net4():
     return NetForTest4()
+
+
+@pytest.fixture(scope="class")
+def build_example_net4_large_scale():
+    return NetForTest4(large_scale=True)
 
 
 @pytest.fixture(scope="class")
@@ -606,9 +706,16 @@ def MockNeuronConfig() -> NeuronConfig:
 
     axon_coords = [AxonCoord(0, i) for i in range(0, n)]
     dest_coords = [Coord(0, 0), Coord(0, 1)]
+    pb.BACKEND_CONFIG.test_chip_addr = (10, 0)
 
     return NeuronConfig.encapsulate(
-        neuron, n, ns.addr_ram, ns.addr_offset, axon_coords, dest_coords
+        neuron,
+        n,
+        ns.addr_ram,
+        ns.addr_offset,
+        axon_coords,
+        dest_coords,
+        pb.BACKEND_CONFIG.test_chip_addr,
     )
 
 
@@ -624,6 +731,11 @@ def MockCorePlacementConfig(MockCoreConfigDict, MockNeuronConfig):
     )
 
     return cpc
+
+
+@pytest.fixture
+def MockEmptyCorePlacementConfig(MockCoreConfigDict):
+    return EmptyCorePlacementConfig.encapsulate(MockCoreConfigDict)
 
 
 def packbits_ref(bits: np.ndarray, count: int) -> int:
@@ -657,6 +769,22 @@ def packbits2():
 @pytest.fixture
 def packbits1():
     return partial(packbits_ref, count=1)
+
+
+def n_axon2lcn_ex_proto(n_axon, n_fanin_max) -> LCN_EX:
+    """Convert #N(of axons) to `LCN_EX` & check.
+
+    NOTE: LCN_EX = log2[ceil(#N/fan-in per dendrite)], where `LCN_1X` = 0.
+    """
+    if n_axon < 1:
+        raise ValueError(f"the number of axons must be positive, but got {n_axon}.")
+
+    if (lcn := ((n_axon - 1) // n_fanin_max).bit_length()) > LCN_EX.LCN_64X:
+        raise ResourceError(
+            f"required LCN extension out of range {LCN_EX.LCN_64X} ({lcn}). "
+        )
+
+    return LCN_EX(lcn)
 
 
 class TestData:

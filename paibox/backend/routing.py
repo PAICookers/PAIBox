@@ -9,7 +9,8 @@ from paicorelib.routing_defs import get_routing_consumption
 
 from paibox.exceptions import NotSupportedError
 
-from .placement import CoreBlock, CorePlacement
+from .conf_template import CorePlacementInfo
+from .placement import CoreBlock, CorePlacement, EmptyCorePlacement
 
 __all__ = ["RoutingGroup", "RoutingRoot"]
 
@@ -417,12 +418,13 @@ class RoutingGroup(List[CoreBlock]):
     """
 
     def __init__(self, *cb: CoreBlock) -> None:
-        self.cb = list(cb)
-
+        self.core_blocks = list(cb)
         self.assigned_coords: List[Coord] = []
-        """Assigned core coordinates for the routing group."""
+        """Assigned core coordinates in the routing group"""
         self.wasted_coords: List[Coord] = []
-        """Wasted core coordinates for the routing group."""
+        """Wasted core coordinates in routing group"""
+        self.wasted_core_plm: Dict[Coord, EmptyCorePlacement] = {}
+        """Wasted core placements"""
 
     def assign(self, assigned: List[Coord], wasted: List[Coord]) -> None:
         self.assigned_coords = assigned
@@ -435,20 +437,40 @@ class RoutingGroup(List[CoreBlock]):
             cb.core_coords = assigned[cur_i : cur_i + n]
             cur_i += n
 
-    def __getitem__(self, idx: int) -> CoreBlock:
-        if idx >= len(self.cb) or idx < 0:
-            raise IndexError(f"index out of range [0, {len(self.cb)}) ({idx}).")
+    def core_block_alloc(self) -> None:
+        for cb in self:
+            cb.core_plm_alloc()
 
-        return self.cb[idx]
+        # Allocate blank core placements for the wasted coordinates.
+        for coord in self.wasted_coords:
+            self.wasted_core_plm[coord] = EmptyCorePlacement.build(coord)
+
+    def get_wasted_cplm_config(self) -> CorePlacementInfo:
+        return {
+            coord: core_plm.export_core_plm_config()
+            for coord, core_plm in self.wasted_core_plm.items()
+        }
+
+    def get_n_core_occupied(self) -> int:
+        """Get the #N of cores occupied by the routing group."""
+        return len(self.assigned_coords) + len(self.wasted_coords)
+
+    def __getitem__(self, idx: int) -> CoreBlock:
+        if idx >= len(self.core_blocks) or idx < 0:
+            raise IndexError(
+                f"index out of range [0, {len(self.core_blocks)}), ({idx})."
+            )
+
+        return self.core_blocks[idx]
 
     def __len__(self) -> int:
-        return len(self.cb)
+        return len(self.core_blocks)
 
     def __iter__(self) -> Iterator[CoreBlock]:
-        return self.cb.__iter__()
+        return self.core_blocks.__iter__()
 
     def __contains__(self, key: CoreBlock) -> bool:
-        return key in self.cb
+        return key in self.core_blocks
 
     @property
     def n_core_required(self) -> int:

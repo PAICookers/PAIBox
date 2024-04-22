@@ -388,7 +388,7 @@ class TestGroupEdges:
         mapper: pb.Mapper = get_mapper
         mapper.clear()
         mapper.build(net)
-        grouped_edges = mapper.graph.group_edges()
+        grouped_edges, _ = mapper.graph.group_edges()
 
         # In this case, N2 & N3 should be together.
         pos_n2 = pos_n3 = 0
@@ -408,7 +408,7 @@ class TestGroupEdges:
 
         mapper.clear()
         mapper.build(net)
-        grouped_edges = mapper.graph.group_edges()
+        grouped_edges, _ = mapper.graph.group_edges()
 
         pos_n2 = pos_n3 = 0
         for i, g in enumerate(grouped_edges):

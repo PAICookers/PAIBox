@@ -256,47 +256,91 @@ s1= pb.FullConn(source=n1, dest=n2, weights=weight1, conn_type=pb.SynConnType.Al
 
 #### 1D卷积
 
-全展开形式1D卷积为全连接突触的一种特殊表达。对于卷积形式的突触，需**严格指定**前后神经元的尺寸、神经元维度顺序、卷积核权重、卷积核维度顺序与步长。
+全展开形式1D卷积为全连接突触的一种特殊表达。需**严格指定**输入神经元的尺寸与维度、卷积核权重、卷积核维度顺序与步长。对于输出神经元的具体尺寸不做严格要求。
 
 - `kernel`：卷积核权重。
 - `stride`：步长，标量。
-- `fm_order` 指定神经元维度顺序为 `CL` 或 `LC` 排列。
+- `padding`：填充，标量。
 - `kernel_order`：指定卷积核维度顺序为 `OIL` 或 `IOL` 排列。
+- 神经元维度顺序仅支持 `CL`。
 
 ```python
 n1 = pb.IF(shape=(8, 28), threshold=1)      # Input feature map: (8, 28)
 n2 = pb.IF(shape=(16, 26), threshold=1)     # Output feature map: (16, 26)
 kernel = np.random.randint(-128, 128, size=(16, 8, 3), dtype=np.int8) # OIl
 
-conv2d = pb.Conv1d(n1, n2, kernel=kernel, stride=1, fm_order="CL", kernel_order="OIL", name="conv1d_1")
+conv1d = pb.Conv1d(n1, n2, kernel=kernel, stride=1, padding=0, kernel_order="OIL", name="conv1d_1")
 ```
 
 #### 2D卷积
 
-全展开形式2D卷积为全连接突触的一种特殊表达。对于卷积形式的突触，需**严格指定**前后神经元的尺寸、神经元维度顺序、卷积核权重、卷积核维度顺序与步长。
+全展开形式2D卷积为全连接突触的一种特殊表达。需**严格指定**输入神经元的尺寸与维度、卷积核权重、卷积核维度顺序与步长。对于输出神经元的具体尺寸不做严格要求。
 
 - `kernel`：卷积核权重。
 - `stride`：步长，可以为标量或元组。当为标量时，对应为 `(x, x)`；当为元组时，则对应为 `(x, y)`。
-- `fm_order` 指定神经元维度顺序为 `CHW` 或 `HWC` 排列。
+- `padding`：填充，可以为标量或元组。当为标量时，对应为 `(x, x)`；当为元组时，则对应为 `(x, y)`。
 - `kernel_order`：指定卷积核维度顺序为 `OIHW` 或 `IOHW` 排列。
+- 神经元维度顺序仅支持 `CHW`。
 
 ```python
 n1 = pb.IF(shape=(8, 28, 28), threshold=1)      # Input feature map: (8, 28, 28)
 n2 = pb.IF(shape=(16, 26, 26), threshold=1)     # Output feature map: (16, 26, 26)
 kernel = np.random.randint(-128, 128, size=(16, 8, 3, 3), dtype=np.int8) # OIHW
 
-conv2d = pb.Conv2d(n1, n2, kernel=kernel, stride=1, fm_order="CHW", kernel_order="OIHW", name="conv2d_1")
+conv2d = pb.Conv2d(n1, n2, kernel=kernel, stride=(1, 2), padding=1, kernel_order="OIHW", name="conv2d_1")
 ```
 
-⚠️ `padding` 不支持，默认为0。
+#### 1D转置卷积
+
+全展开形式1D转置卷积为全连接突触的一种特殊表达。需**严格指定**输入神经元的尺寸与维度、卷积核权重、卷积核维度顺序与步长。对于输出神经元的具体尺寸不做严格要求。
+
+对于 `Conv1d`：
+
+- `kernel`：卷积核权重。
+- `stride`：步长，标量。
+- `padding`：填充，标量。
+- `output_padding`：对输出特征图的一侧进行额外的填充，标量。
+- `kernel_order`：指定卷积核维度顺序为 `OIL` 或 `IOL` 排列。
+- 神经元维度顺序仅支持 `CL`。
+- 参数详细含义参见：[pytorch/ConvTranspose1d](https://pytorch.org/docs/stable/generated/torch.nn.ConvTranspose1d.html#torch.nn.ConvTranspose1d)
+
+```python
+n1 = pb.IF(shape=(8, 28), threshold=1)      # Input feature map: (8, 28)
+n2 = pb.IF(shape=(16, 26), threshold=1)     # Output feature map: (16, 26)
+kernel = np.random.randint(-128, 128, size=(16, 8, 3), dtype=np.int8) # OIl
+
+convt1d = pb.ConvTranspose1d(n1, n2, kernel=kernel, stride=1, padding=0, output_padding=1, kernel_order="OIL", name="convt1d_1")
+```
+
+#### 2D转置卷积
+
+全展开形式2D转置卷积为全连接突触的一种特殊表达。需**严格指定**输入神经元的尺寸与维度、卷积核权重、卷积核维度顺序与步长。对于输出神经元的具体尺寸不做严格要求。
+
+- `kernel`：卷积核权重。
+- `stride`：步长，可以为标量或元组。当为标量时，对应为 `(x, x)`；当为元组时，则对应为 `(x, y)`。
+- `padding`：填充，可以为标量或元组。当为标量时，对应为 `(x, x)`；当为元组时，则对应为 `(x, y)`。
+- `output_padding`：对输出特征图的一侧进行额外的填充，可以为标量或元组。当为标量时，对应为 `(x, x)`；当为元组时，则对应为 `(x, y)`。
+- `kernel_order`：指定卷积核维度顺序为 `OIHW` 或 `IOHW` 排列。
+- 神经元维度顺序仅支持 `CHW`。
+- 参数详细含义参见：[pytorch/ConvTranspose2d](https://pytorch.org/docs/stable/generated/torch.nn.ConvTranspose2d.html#torch.nn.ConvTranspose2d)
+
+```python
+n1 = pb.IF(shape=(8, 28, 28), threshold=1)      # Input feature map: (8, 28, 28)
+n2 = pb.IF(shape=(16, 26, 26), threshold=1)     # Output feature map: (16, 26, 26)
+kernel = np.random.randint(-128, 128, size=(16, 8, 3, 3), dtype=np.int8) # OIHW
+
+convt2d = pb.ConvTranspose2d(n1, n2, kernel=kernel, stride=2, padding=1, output_padding=0, kernel_order="OIHW", name="convt2d_1")
+```
 
 ### 编码器
 
-对于非脉冲数据，我们需要将其进行脉冲编码，然后输入网络中进行计算。
-
 PAIBox提供了有状态与无状态编码器。其中，有状态编码器是指编码过程与时间有关，将输入数据编码到一段时间窗口内。而无状态编码器是指编码过程与时间无关，每个时间步，都可以根据输入数据进行编码。
 
+⚠️ 请注意，我们只提供较为简单的编码器，以便用户在不依赖外部库的条件下实现基本编码操作；如果需要更复杂的编码，请直接使用它们。
+
 #### 无状态编码器
+
+##### 泊松编码
 
 泊松编码是一种常用的无状态编码。以下为一个简单实例：
 
@@ -312,6 +356,44 @@ for t in range(20):
 ```
 
 通过调用该编码器，将需编码数据传入，即可得到编码后结果。
+
+##### 直接编码
+
+直接编码使用2D卷积进行特征提取，经过LIF神经元进行编码 。`Conv2dEncoder` 使用示例如下：
+
+```python
+kernel = np.random.uniform(-1, 1, size=(1, 3, 3, 3)).astype(np.float32) # OIHW
+stride = (1, 1)
+padding = (1, 1)
+de = pb.simulator.Conv2dEncoder(
+    kernel,
+    stride,
+    padding,
+    "OIHW",
+    tau=2,
+    decay_input=True,
+    v_threshold=1,
+    v_reset=0.2,
+)
+x = np.random.uniform(-1, 1, size=(3, 28, 28)).astype(np.float32) # CHW
+
+for t in range(20):
+    out_spike = de(x)
+```
+
+其中，
+
+- `kernel`：卷积核权重。
+- `stride`：步长，可以为标量或元组。当为标量时，对应为 `(x, x)`；当为元组时，则对应为 `(x, y)`。
+- `padding`：对输入进行填充，可以为标量或元组。当为标量时，对应为 `(x, x)`；当为元组时，则对应为 `(x, y)`。
+- `kernel_order`：指定卷积核维度顺序为 `OIHW` 或 `IOHW` 排列。
+- `tau`：膜电位时间常数。
+- `decay_input`：输入是否也会参与衰减。
+- `v_threshold`：阈值电平。
+- `v_reset`：复位电平。
+- 待编码数据维度顺序仅支持 `CHW`。
+
+其中，所使用的LIF为SpikingJelly内的 `SimpleLIFNode`。具体原理参见：[SpikingJelly/SimpleLIFNode](https://spikingjelly.readthedocs.io/zh-cn/latest/sub_module/spikingjelly.activation_based.neuron.html#spikingjelly.activation_based.neuron.SimpleLIFNode)。如果需要使用更复杂的编码，请直接使用它们。
 
 #### 有状态编码器
 
@@ -697,7 +779,7 @@ sim.reset()
 mapper = pb.Mapper()
 mapper.build(fcnet)
 graph_info = mapper.compile(weight_bit_optimization=True, grouping_optim_target="both")
-mapper.export(write_to_file=True, fp="./debug/", format="npy", split_by_coordinate=False, local_chip_addr=(0, 0), export_core_params=False)
+mapper.export(write_to_file=True, fp="./debug/", format="bin", split_by_coordinate=False, local_chip_addr=(0, 0), export_core_params=False)
 
 # Clear all the results
 mapper.clear()
@@ -729,20 +811,52 @@ mapper.clear()
 
 ### 后端配置项
 
-与后端相关的配置项由 `BACKEND_CONFIG` 统一保存与访问，例如上述**编译选项**、`build_directory`、`local_chip_addr` 等。常用的配置项有如下：
+与后端相关的配置项由 `BACKEND_CONFIG` 统一保存与访问，例如上述**编译选项**、`build_directory`、`local_chip_addr` 等。如下所示，对常用的配置项进行读取与修改：
 
-```python
-BACKEND_CONFIG.local_chip_addr # 本地芯片坐标
->>> Coord(0, 0)
+1. 本地芯片地址 `local_chip_addr`
 
-BACKEND_CONFIG.test_chip_addr # 测试芯片坐标（一般是FPGA）
->>> Coord(1, 0)
+   ```python
+   # Read
+   BACKEND_CONFIG.local_chip_addr
+   >>> Coord(0, 0)
 
-# Set output directory
-BACKEND_CONFIG.output_dir = "./output"
+   # Modify
+   BACKEND_CONFIG.local_chip_addr = (1, 1)
+   ```
 
-# Set cflag for enabling weight precision optimization
-set_cflag(enable_wp_opt=True, cflag="This is a cflag.")
-BACKEND_CONFIG.cflag
->>> {"enable_wp_opt": True, "cflag": "This is a cflag."}
-```
+2. 输出芯片地址（测试芯片地址） `output_chip_addr`
+
+   ```python
+   # Read
+   BACKEND_CONFIG.output_chip_addr
+   # or
+   BACKEND_CONFIG.test_chip_addr
+   >>> Coord(1, 0)
+
+   # Modify
+   BACKEND_CONFIG.output_chip_addr = (2, 0)
+   # or
+   BACKEND_CONFIG.test_chip_addr = (2, 0)
+   ```
+
+3. 编译后配置信息等文件输出目录路径 `output_dir`，默认为用户当前工作目录
+
+   ```python
+   # Read
+   BACKEND_CONFIG.output_dir
+   >>> Path.cwd() # Default is your current working directory
+
+   # Modify
+   BACKEND_CONFIG.output_dir = "path/to/myoutput"
+   ```
+
+4. 编译选项
+
+   ```python
+   # Set cflag for enabling weight precision optimization
+   set_cflag(enable_wp_opt=True, cflag="This is a cflag.")
+
+   # Read
+   BACKEND_CONFIG.cflag
+   >>> {"enable_wp_opt": True, "cflag": "This is a cflag."}
+   ```

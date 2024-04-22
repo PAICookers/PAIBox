@@ -91,7 +91,7 @@ if __name__ == "__main__":
 
     # Network simulation
     raw_data = np.load(Path(__file__).parent.parent / "data" / "mnist_input_data7.npy")
-    input_data = raw_data.flatten()
+    input_data = raw_data.ravel()
 
     # Visualize
     if args.verbose:
