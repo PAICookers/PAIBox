@@ -47,7 +47,8 @@ optional = true
 
 
 [tool.poetry.group.test.dependencies]
-pytest = { version = "^7.4.0", python = "^3.8" }
+pytest = { version = "^8.0.0", python = "^3.8" }
+pytest-emoji = "^0.2.0" # For pytest ci
 torch = { version = "^2.2.1+cpu", optional = true, source = "torch-cpu" }
 
 
