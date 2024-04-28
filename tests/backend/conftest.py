@@ -28,6 +28,7 @@ from paibox.backend.conf_template import (
     EmptyCorePlacementConfig,
     NeuronConfig,
 )
+from paibox.backend.placement import NeuSeg
 from paibox.backend.routing import RoutingCluster
 from paibox.exceptions import ResourceError
 from paibox.naming import clear_name_cache
@@ -787,7 +788,30 @@ def n_axon2lcn_ex_proto(n_axon, n_fanin_max) -> LCN_EX:
     return LCN_EX(lcn)
 
 
+_neu_params = [
+    # n1~n7
+    (600, 2, 1),
+    (800, 2, 1),
+    (320, 2, 2),
+    (200, 2, 3),
+    (300, 2, 2),
+    (400, 2, 1),
+    (500, 2, 1),
+]
+
+
+def _gen_neurons_for_neu_segs():
+    return [pb.LIF(p[0], p[1], unrolling_factor=p[2]) for p in _neu_params]
+
+
+_nl = _gen_neurons_for_neu_segs()
+_nc = _gen_neurons_for_neu_segs()
+_nb = _gen_neurons_for_neu_segs()
+
+
 class TestData:
+    
+    __test__ = False
 
     toposort_data = ParametrizedTestData(
         args="nodes",
@@ -1109,6 +1133,278 @@ class TestData:
                 (np.int8, np.int8),
                 WP.WEIGHT_WIDTH_8BIT,
                 WP.WEIGHT_WIDTH_8BIT,
+            ),
+        ],
+    )
+
+    neu_segs_latency_test_data = ParametrizedTestData(
+        args="neurons, capacity, wp, lcn_ex, expected",
+        data=[
+            # Make sure capacity * (1 << wp) * (1 << lcn_ex) <= 512
+            (
+                [_nl[0], _nl[1]],
+                512,
+                WP.WEIGHT_WIDTH_1BIT,
+                LCN_EX.LCN_1X,
+                [
+                    [NeuSeg(_nl[0], NeuronSegment(slice(0, 300, 1), 0))],
+                    [NeuSeg(_nl[0], NeuronSegment(slice(300, 600, 1), 0))],
+                    [NeuSeg(_nl[1], NeuronSegment(slice(0, 400, 1), 0))],
+                    [NeuSeg(_nl[1], NeuronSegment(slice(400, 800, 1), 0))],
+                ],
+            ),
+            (
+                [_nl[0], _nl[1]],
+                256,
+                WP.WEIGHT_WIDTH_1BIT,
+                LCN_EX.LCN_2X,
+                [
+                    [NeuSeg(_nl[0], NeuronSegment(slice(0, 200, 1), 0, 2))],
+                    [NeuSeg(_nl[0], NeuronSegment(slice(200, 400, 1), 0, 2))],
+                    [NeuSeg(_nl[0], NeuronSegment(slice(400, 600, 1), 0, 2))],
+                    [NeuSeg(_nl[1], NeuronSegment(slice(0, 200, 1), 0, 2))],
+                    [NeuSeg(_nl[1], NeuronSegment(slice(200, 400, 1), 0, 2))],
+                    [NeuSeg(_nl[1], NeuronSegment(slice(400, 600, 1), 0, 2))],
+                    [NeuSeg(_nl[1], NeuronSegment(slice(600, 800, 1), 0, 2))],
+                ],
+            ),
+            (
+                [_nl[2]],
+                200,
+                WP.WEIGHT_WIDTH_1BIT,
+                LCN_EX.LCN_2X,
+                [
+                    [NeuSeg(_nl[2], NeuronSegment(slice(80 * 0, 80 * 1, 1), 0, 2))],
+                    [NeuSeg(_nl[2], NeuronSegment(slice(80 * 1, 80 * 2, 1), 0, 2))],
+                    [NeuSeg(_nl[2], NeuronSegment(slice(80 * 2, 80 * 3, 1), 0, 2))],
+                    [NeuSeg(_nl[2], NeuronSegment(slice(80 * 3, 80 * 4, 1), 0, 2))],
+                ],
+            ),
+            (
+                [_nl[0], _nl[2]],
+                400,
+                WP.WEIGHT_WIDTH_1BIT,
+                LCN_EX.LCN_1X,
+                [
+                    [NeuSeg(_nl[0], NeuronSegment(slice(0, 300, 1), 0))],
+                    [NeuSeg(_nl[0], NeuronSegment(slice(300, 600, 1), 0))],
+                    [NeuSeg(_nl[2], NeuronSegment(slice(160 * 0, 160 * 1, 1), 0))],
+                    [NeuSeg(_nl[2], NeuronSegment(slice(160 * 1, 160 * 2, 1), 0))],
+                ],
+            ),
+            (
+                [_nl[3], _nl[4]],
+                240,
+                WP.WEIGHT_WIDTH_1BIT,
+                LCN_EX.LCN_2X,
+                [
+                    [NeuSeg(_nl[3], NeuronSegment(slice(67 * 0, 67 * 1, 1), 0, 2))],
+                    [NeuSeg(_nl[3], NeuronSegment(slice(67 * 1, 67 * 2, 1), 0, 2))],
+                    [NeuSeg(_nl[3], NeuronSegment(slice(67 * 2, 200, 1), 0, 2))],
+                    [NeuSeg(_nl[4], NeuronSegment(slice(75 * 0, 75 * 1, 1), 0, 2))],
+                    [NeuSeg(_nl[4], NeuronSegment(slice(75 * 1, 75 * 2, 1), 0, 2))],
+                    [NeuSeg(_nl[4], NeuronSegment(slice(75 * 2, 75 * 3, 1), 0, 2))],
+                    [NeuSeg(_nl[4], NeuronSegment(slice(75 * 3, 75 * 4, 1), 0, 2))],
+                ],
+            ),
+        ],
+    )
+
+    neu_segs_core_test_data = ParametrizedTestData(
+        args="neurons, capacity, wp, lcn_ex, expected",
+        data=[
+            # Make sure capacity * (1 << wp) * (1 << lcn_ex) <= 512
+            (
+                [_nc[0], _nc[1]],
+                512,
+                WP.WEIGHT_WIDTH_1BIT,
+                LCN_EX.LCN_1X,
+                [
+                    [NeuSeg(_nc[0], NeuronSegment(slice(0, 512, 1), 0))],
+                    [NeuSeg(_nc[1], NeuronSegment(slice(0, 512, 1), 0))],
+                    [
+                        NeuSeg(_nc[1], NeuronSegment(slice(512, 800, 1), 0)),
+                        NeuSeg(_nc[0], NeuronSegment(slice(512, 600, 1), 288)),
+                    ],
+                ],
+            ),
+            (
+                [_nc[0], _nc[1]],
+                256,
+                WP.WEIGHT_WIDTH_1BIT,
+                LCN_EX.LCN_2X,
+                [
+                    [NeuSeg(_nc[0], NeuronSegment(slice(256 * 0, 256 * 1, 1), 0, 2))],
+                    [NeuSeg(_nc[0], NeuronSegment(slice(256 * 1, 256 * 2, 1), 0, 2))],
+                    [NeuSeg(_nc[1], NeuronSegment(slice(256 * 0, 256 * 1, 1), 0, 2))],
+                    [NeuSeg(_nc[1], NeuronSegment(slice(256 * 1, 256 * 2, 1), 0, 2))],
+                    [NeuSeg(_nc[1], NeuronSegment(slice(256 * 2, 256 * 3, 1), 0, 2))],
+                    [
+                        NeuSeg(_nc[0], NeuronSegment(slice(256 * 2, 600, 1), 0, 2)),
+                        NeuSeg(
+                            _nc[1], NeuronSegment(slice(256 * 3, 800, 1), 88 * 2, 2)
+                        ),
+                    ],
+                ],
+            ),
+            (
+                [_nc[3], _nc[4]],
+                256,
+                WP.WEIGHT_WIDTH_1BIT,
+                LCN_EX.LCN_2X,
+                [
+                    # Place the neuron segments with full capacity first
+                    [NeuSeg(_nc[4], NeuronSegment(slice(0, 256, 1), 0, 2))],
+                    [
+                        NeuSeg(_nc[3], NeuronSegment(slice(0, 200, 1), 0, 2)),
+                        NeuSeg(_nc[4], NeuronSegment(slice(256, 300, 1), 200 * 2, 2)),
+                    ],
+                ],
+            ),
+            (
+                [_nc[5], _nc[6]],
+                512,
+                WP.WEIGHT_WIDTH_1BIT,
+                LCN_EX.LCN_1X,
+                [
+                    [NeuSeg(_nc[6], NeuronSegment(slice(0, 500, 1), 0, 1))],
+                    [NeuSeg(_nc[5], NeuronSegment(slice(0, 400, 1), 0, 1))],
+                ],
+            ),
+        ],
+    )
+
+    neu_segs_both_test_data = ParametrizedTestData(
+        args="neurons, capacity, wp, lcn_ex, expected",
+        data=[
+            # Make sure capacity * (1 << wp) * (1 << lcn_ex) <= 512
+            (
+                [_nb[0], _nb[1]],
+                512,
+                WP.WEIGHT_WIDTH_1BIT,
+                LCN_EX.LCN_1X,
+                [
+                    [NeuSeg(_nb[0], NeuronSegment(slice(0, 300, 1), 0))],
+                    [NeuSeg(_nb[0], NeuronSegment(slice(300, 600, 1), 0))],
+                    [NeuSeg(_nb[1], NeuronSegment(slice(0, 400, 1), 0))],
+                    [NeuSeg(_nb[1], NeuronSegment(slice(400, 800, 1), 0))],
+                ],
+            ),
+            (
+                [_nb[0], _nb[1]],
+                256,
+                WP.WEIGHT_WIDTH_1BIT,
+                LCN_EX.LCN_2X,
+                [
+                    [NeuSeg(_nb[1], NeuronSegment(slice(0, 200, 1), 0, 2))],
+                    [NeuSeg(_nb[1], NeuronSegment(slice(200, 400, 1), 0, 2))],
+                    [NeuSeg(_nb[1], NeuronSegment(slice(400, 600, 1), 0, 2))],
+                    [NeuSeg(_nb[1], NeuronSegment(slice(600, 800, 1), 0, 2))],
+                    [NeuSeg(_nb[0], NeuronSegment(slice(0, 200, 1), 0, 2))],
+                    [NeuSeg(_nb[0], NeuronSegment(slice(200, 400, 1), 0, 2))],
+                    [NeuSeg(_nb[0], NeuronSegment(slice(400, 600, 1), 0, 2))],
+                ],
+            ),
+            (
+                [_nb[2]],
+                200,
+                WP.WEIGHT_WIDTH_1BIT,
+                LCN_EX.LCN_2X,
+                [
+                    [NeuSeg(_nb[2], NeuronSegment(slice(80 * 0, 80 * 1, 1), 0, 2))],
+                    [NeuSeg(_nb[2], NeuronSegment(slice(80 * 1, 80 * 2, 1), 0, 2))],
+                    [NeuSeg(_nb[2], NeuronSegment(slice(80 * 2, 80 * 3, 1), 0, 2))],
+                    [NeuSeg(_nb[2], NeuronSegment(slice(80 * 3, 80 * 4, 1), 0, 2))],
+                ],
+            ),
+            (
+                [_nb[2], _nb[3]],
+                200,
+                WP.WEIGHT_WIDTH_1BIT,
+                LCN_EX.LCN_2X,
+                [
+                    [
+                        NeuSeg(_nb[2], NeuronSegment(slice(80 * 0, 80 * 1, 1), 0, 2)),
+                        # offset = 160
+                        NeuSeg(_nb[3], NeuronSegment(slice(67 * 0, 67 * 1, 1), 160, 2)),
+                    ],
+                    [
+                        NeuSeg(_nb[2], NeuronSegment(slice(80 * 1, 80 * 2, 1), 0, 2)),
+                        # offset = 160
+                        NeuSeg(_nb[3], NeuronSegment(slice(67 * 1, 67 * 2, 1), 160, 2)),
+                    ],
+                    [
+                        NeuSeg(_nb[2], NeuronSegment(slice(80 * 2, 80 * 3, 1), 0, 2)),
+                        # offset = 160
+                        NeuSeg(_nb[3], NeuronSegment(slice(67 * 2, 200, 1), 160, 2)),
+                    ],
+                    [
+                        NeuSeg(_nb[2], NeuronSegment(slice(80 * 3, 80 * 4, 1), 0, 2)),
+                    ],
+                ],
+            ),
+            (
+                [_nb[2], _nb[3], _nb[4]],
+                256,
+                WP.WEIGHT_WIDTH_1BIT,
+                LCN_EX.LCN_2X,
+                [
+                    [
+                        NeuSeg(_nb[2], NeuronSegment(slice(80 * 0, 80 * 1, 1), 0, 2)),
+                        # offset = 160
+                        NeuSeg(_nb[4], NeuronSegment(slice(75 * 0, 75 * 1, 1), 160, 2)),
+                        # offset = 160 + 150
+                        NeuSeg(
+                            _nb[3],
+                            NeuronSegment(slice(67 * 0, 67 * 1, 1), 160 + 150, 2),
+                        ),
+                    ],
+                    [
+                        NeuSeg(_nb[2], NeuronSegment(slice(80 * 1, 80 * 2, 1), 0, 2)),
+                        # offset = 160
+                        NeuSeg(_nb[4], NeuronSegment(slice(75 * 1, 75 * 2, 1), 160, 2)),
+                        # offset = 160 + 150
+                        NeuSeg(
+                            _nb[3],
+                            NeuronSegment(slice(67 * 1, 67 * 2, 1), 160 + 150, 2),
+                        ),
+                    ],
+                    [
+                        NeuSeg(_nb[2], NeuronSegment(slice(80 * 2, 80 * 3, 1), 0, 2)),
+                        # offset = 160
+                        NeuSeg(_nb[4], NeuronSegment(slice(75 * 2, 75 * 3, 1), 160, 2)),
+                        # offset = 160 + 150
+                        NeuSeg(
+                            _nb[3], NeuronSegment(slice(67 * 2, 200, 1), 160 + 150, 2)
+                        ),
+                    ],
+                    [
+                        NeuSeg(_nb[2], NeuronSegment(slice(80 * 3, 80 * 4, 1), 0, 2)),
+                        # offset = 160
+                        NeuSeg(_nb[4], NeuronSegment(slice(75 * 3, 75 * 4, 1), 160, 2)),
+                    ],
+                ],
+            ),
+            (
+                [_nb[3], _nb[4]],
+                240,
+                WP.WEIGHT_WIDTH_1BIT,
+                LCN_EX.LCN_2X,
+                [
+                    [
+                        NeuSeg(_nb[4], NeuronSegment(slice(75 * 0, 75 * 1, 1), 0, 2)),
+                        NeuSeg(_nb[3], NeuronSegment(slice(67 * 0, 67 * 1, 1), 150, 2)),
+                    ],
+                    [
+                        NeuSeg(_nb[4], NeuronSegment(slice(75 * 1, 75 * 2, 1), 0, 2)),
+                        NeuSeg(_nb[3], NeuronSegment(slice(67 * 1, 67 * 2, 1), 150, 2)),
+                    ],
+                    [
+                        NeuSeg(_nb[4], NeuronSegment(slice(75 * 2, 75 * 3, 1), 0, 2)),
+                        NeuSeg(_nb[3], NeuronSegment(slice(67 * 2, 200, 1), 150, 2)),
+                    ],
+                    [NeuSeg(_nb[4], NeuronSegment(slice(75 * 3, 75 * 4, 1), 0, 2))],
+                ],
             ),
         ],
     )

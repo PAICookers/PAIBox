@@ -105,6 +105,7 @@ class TestNetwork_Components_Discover:
         del Nested_Net_L1
 
     def test_nested_net_L2_find_nodes_recursively(self, build_Nested_Net_L2):
+
         net: pb.Network = build_Nested_Net_L2
 
         nodes = (
@@ -116,6 +117,7 @@ class TestNetwork_Components_Discover:
 
         assert len(nodes) == 3 + 3 * 2
 
+    # @pytest.mark.xfail(raises=RegisterError)
     def test_nested_net_L3_find_nodes_recursively(self, build_Nested_Net_L3):
         net: pb.Network = build_Nested_Net_L3
 
@@ -228,10 +230,10 @@ class TestNetwork_Components_Oprations:
         # Insert n3 between n_list[0] & n_list[1]
         n_insert = pb.LIF((3,), 10)
         s_insert1 = pb.FullConn(
-            net.n_list[0], n_insert, conn_type=pb.SynConnType.All2All
+            net.n_list[0], n_insert, conn_type=pb.SynConnType.All2All, name="s_insert1"
         )
         s_insert2 = pb.FullConn(
-            n_insert, net.n_list[1], conn_type=pb.SynConnType.All2All
+            n_insert, net.n_list[1], conn_type=pb.SynConnType.All2All, name="s_insert2"
         )
 
         # Replace s1 with s_insert1->n_insert->s_insert2

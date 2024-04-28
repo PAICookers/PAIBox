@@ -43,6 +43,11 @@ def fake_out_2(t, b, **kwargs):
     return t + b
 
 
+@pytest.fixture(scope="class")
+def build_Net1():
+    return Net1(n_neuron=100)
+
+
 class Net2_with_multi_inpproj_func(pb.DynSysGroup):
     def __init__(self, n: int):
         super().__init__()
@@ -123,10 +128,10 @@ class Conv2d_Net(pb.Network):
 
 
 class TestSimulator:
-    def test_probe(self):
-        net = Net1(100)
+    def test_probe(self, build_Net1):
+        net = build_Net1
 
-        probe_outside = pb.Probe(net.inp, "spike", name="inp_spike")
+        probe_outside = pb.Probe(net.inp, "spike", name="out_probe")
 
         sim = pb.Simulator(net)
         sim.add_probe(probe_outside)
@@ -147,9 +152,9 @@ class TestSimulator:
         inp_state_at_t = sim.get_raw_at_t(probe_outside, t=5)
         assert type(inp_state_at_t) == np.ndarray
 
-    def test_sim_behavior(self):
-        net = Net1(100)
-        probe = pb.Probe(net.inp, "spike", name="inp_spike")
+    def test_sim_behavior(self, build_Net1):
+        net = build_Net1
+        probe = pb.Probe(net.inp, "spike", name="inp_spike1")
         probe2 = pb.Probe(net.inp, "spike", name="inp_spike2")
 
         sim = pb.Simulator(net, start_time_zero=True)
