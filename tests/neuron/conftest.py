@@ -19,7 +19,7 @@ def ensure_dump_dir():
     yield p
 
 
-def fakeout(t):
+def fakeout(t, **kwargs):
     data = np.array(
         [
             [1, 1],
