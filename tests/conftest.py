@@ -1,7 +1,8 @@
 from typing import Any, List, Optional, TypedDict
-from typing_extensions import NotRequired
+
 import numpy as np
 import pytest
+from typing_extensions import NotRequired
 
 import paibox as pb
 from paibox.naming import clear_name_cache

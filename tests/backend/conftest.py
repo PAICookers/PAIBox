@@ -810,7 +810,7 @@ _nb = _gen_neurons_for_neu_segs()
 
 
 class TestData:
-    
+
     __test__ = False
 
     toposort_data = ParametrizedTestData(

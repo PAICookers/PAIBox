@@ -11,6 +11,7 @@ from paibox.backend.segment_utils import (
     get_neu_segments,
 )
 from paibox.exceptions import ResourceError
+
 from .conftest import TestData
 
 
