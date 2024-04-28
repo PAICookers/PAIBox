@@ -7,18 +7,25 @@ _id_dict = dict()
 _type_names = dict()
 
 
-def is_name_unique(name: str, obj: object) -> None:
-    """If the name is unique, record it in the global dictionary.
-    Otherwise raise an error.
-    """
+def is_name_unique(name: str, obj: object, avoid: bool) -> None:
+    """If the name is unique, record it in the global dictionary."""
     if not name.isidentifier():
         raise ValueError(f"'{name}' is not a valid identifier.")
 
     if name in _id_dict:
         if _id_dict[name] != id(obj):
-            raise RegisterError(
-                f"name of {obj}({name}) is already used by {_id_dict[name]}."
-            )
+            if avoid:
+                new_name = name + "_1"
+                warnings.warn(
+                    f"name of {obj}({name}) is already used by {_id_dict[name]}, "
+                    f"change name to avoid: {name} -> {new_name}.",
+                    PAIBoxWarning,
+                )
+                return is_name_unique(new_name, obj, avoid=True)
+            else:
+                raise RegisterError(
+                    f"name of {obj}({name}) is already used by {_id_dict[name]}."
+                )
 
     else:
         _id_dict[name] = id(obj)
