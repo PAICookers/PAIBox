@@ -13,7 +13,7 @@ repos:
         stages: [commit]
 
   - repo: https://github.com/psf/black
-    rev: 24.2.0
+    rev: 24.4.0
     hooks:
       - id: black
         stages: [commit]
@@ -26,7 +26,7 @@ repos:
         stages: [commit]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.5.0
+    rev: v4.6.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
@@ -35,15 +35,16 @@ repos:
       - id: check-json
       - id: check-toml
       - id: check-symlinks
+      - id: check-merge-conflict
       - id: mixed-line-ending
       - id: name-tests-test
+      - id: requirements-txt-fixer
         args: [--pytest-test-first]
 
   - repo: https://github.com/python-poetry/poetry
-    rev: 1.7.1
+    rev: 1.8.0
     hooks:
       - id: poetry-check
-      - id: poetry-lock
       - id: poetry-export
         args: ["-f", "requirements.txt"]
       - id: poetry-install

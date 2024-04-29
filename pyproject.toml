@@ -1,31 +1,55 @@
 [tool.poetry]
 name = "paibox"
-version = "1.0.0a3"
-description = "New toolbox of PAICORE 2.0."
+version = "1.0.0rc1"
+description = "Toolchain of PAICORE 2.0."
 authors = ["Ziru Pan <zrpan@stu.pku.edu.cn>"]
-maintainers = ["Ziru Pan <zrpan@stu.pku.edu.cn>"]
+maintainers = [
+    "Hongtu Xia <hongtux@pku.edu.cn>",
+    "Siyuan Gao <siyuan-gao@outlook.com>",
+    "Zhaoyang Hao <hzyang2218@gmail.com>",
+    "Ziru Pan <zrpan@stu.pku.edu.cn>",
+]
 license = "GPL-3.0-or-later"
 readme = "README.md"
 repository = "https://github.com/PAICookers/PAIBox"
 homepage = "https://github.com/PAICookers/PAIBox"
 documentation = "https://github.com/PAICookers/PAIBox#readme"
-keywords = ["PAICORE 2.0", "PAIBox", "Toolbox"]
+keywords = ["PAICORE 2.0", "PAIBox", "SNN", "Toolchain"]
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Software Development :: Libraries",
+]
 packages = [{ include = "paibox" }]
 
 # Includes the document
 include = ["docs", "CHANGELOG.md"]
 # Excludes the experimental code
-exclude = ["paibox/backend/experimental"]
+exclude = ["paibox/experimental"]
 
 [tool.poetry.dependencies]
 python = "^3.8"
 pydantic = "^2.0"
-numpy = "^1.23.0"
-paicorelib = "0.0.12"
+numpy = "^1.24.0"
+paicorelib = "^1.0.0"
+
+[tool.poetry.group.test]
+optional = true
 
 
 [tool.poetry.group.test.dependencies]
-pytest = { version = "^7.4.0", python = "^3.8" }
+pytest = { version = "^8.0.0", python = "^3.8" }
+pytest-md = "^0.2.0"
+torch = { version = "^2.2.1+cpu", optional = true, source = "torch-cpu" }
 
 
 [tool.pytest.ini_options]

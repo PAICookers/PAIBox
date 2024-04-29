@@ -55,13 +55,13 @@ class TestInputProj:
         assert sim.data[prob][0].shape == shape_out
 
     def test_functional_input(self):
-        def fakeout_without_t(*args, **kwargs):
+        def fakeout_without_t(**kwargs):
             return np.ones((10, 10), dtype=np.int8)
 
-        def fakeout_with_t(t):
+        def fakeout_with_t(t, **kwargs):
             return np.ones((10, 10), dtype=np.int8) * t
 
-        def fakeout_with_args(t, bias, *args, **kwargs):
+        def fakeout_with_args(t, bias, **kwargs):
             return np.ones((10, 10), dtype=np.int8) * bias
 
         inp1 = pb.InputProj(
@@ -91,6 +91,7 @@ class TestInputProj:
         sim3 = pb.Simulator(inp3)
         sim3.add_probe(prob3)
 
+        FRONTEND_ENV.clear_all()
         FRONTEND_ENV.save(bias=3)  # Pass the extra arguments
         sim3.run(10)
 
@@ -101,8 +102,6 @@ class TestInputProj:
         def fakeout_with_args(t, bias, *args, **kwargs):
             return np.ones((10, 10), dtype=np.int8) * bias
 
-        FRONTEND_ENV.clear_ctx("bias")
-
         inp = pb.InputProj(
             input=fakeout_with_args, shape_out=(10, 10), keep_shape=False
         )
@@ -110,6 +109,7 @@ class TestInputProj:
         sim = pb.Simulator(inp)
         sim.add_probe(prob)
 
+        FRONTEND_ENV.clear_all()
         with pytest.warns(DeprecationWarning):
             sim.run(10, bias=3)
 
@@ -162,14 +162,33 @@ class TestInputProj:
 
         sim.run(10)
         assert len(sim.data[prob]) == 10
+        assert sim.data[prob][-1].size == 3
+
+    @pytest.mark.parametrize("encoding_func", ["linear", "log"])
+    def test_input_LatencyEncoder(self, encoding_func):
+        N = 6
+        x = np.random.rand(N)
+        T = 20
+
+        le = pb.simulator.LatencyEncoder(T, encoding_func)
+        inp = pb.InputProj(le, shape_out=(N,), keep_shape=False)
+
+        sim = pb.Simulator(inp)
+        prob = pb.simulator.Probe(inp, "output")
+        sim.add_probe(prob)
+
+        inp.input = x
+        sim.run(T)
+        assert len(sim.data[prob]) == T
+        assert sim.data[prob][-1].size == N
 
     def test_illegal_input(self):
-        def fakeout_with_t(t):
+        def fakeout_with_t(t, **kwargs):
             return np.ones((10, 10), dtype=np.int8) * t
 
         inp1 = pb.InputProj(None, shape_out=(4, 4), keep_shape=True)
         with pytest.raises(TypeError):
-            inp1.input = fakeout_with_t
+            inp1.input = fakeout_with_t  # type: ignore
 
         sim = pb.Simulator(inp1)
 

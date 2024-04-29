@@ -1,4 +1,3 @@
-import sys
 from typing import (
     AbstractSet,
     Any,
@@ -11,26 +10,24 @@ from typing import (
     Optional,
     Tuple,
     TypeVar,
+    Union,
 )
 
 import numpy as np
 from numpy.typing import NDArray
 
-if sys.version_info >= (3, 10):
-    from typing import TypeAlias
-else:
-    from typing_extensions import TypeAlias
-
 Shape = TypeVar("Shape", int, Tuple[int, ...], List[int])
 ArrayType = TypeVar("ArrayType", List[int], Tuple[int, ...], np.ndarray)
 Scalar = TypeVar("Scalar", int, float, np.generic)
-IntScalarType = TypeVar("IntScalarType", int, np.integer)
-DataType = TypeVar("DataType", int, np.integer, np.ndarray)
+IntScalarType = TypeVar("IntScalarType", int, np.bool_, np.integer)
+DataType = TypeVar("DataType", int, np.bool_, np.integer, np.ndarray)
 DataArrayType = TypeVar(
-    "DataArrayType", int, np.integer, List[int], Tuple[int, ...], np.ndarray
+    "DataArrayType", int, np.bool_, np.integer, List[int], Tuple[int, ...], np.ndarray
 )
-SpikeType: TypeAlias = NDArray[np.bool_]
-WeightType: TypeAlias = NDArray[np.int8]  # raw int8 weights
+SpikeType = NDArray[np.bool_]
+SynOutType = NDArray[np.int32]
+VoltageType = NDArray[np.int32]
+WeightType = NDArray[Union[np.bool_, np.int8]]
 
 _T = TypeVar("_T")
 
@@ -80,4 +77,6 @@ class OrderedSet(FrozenOrderedSet[_T], MutableSet):
         return self
 
     def __hash__(self) -> NoReturn:
-        raise TypeError("'OrderedSet' is not hashable (use 'FrozenOrderedSet' instead)")
+        raise TypeError(
+            "'OrderedSet' is not hashable (use 'FrozenOrderedSet' instead)."
+        )

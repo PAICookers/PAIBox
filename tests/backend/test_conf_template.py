@@ -23,3 +23,11 @@ class TestCorePlacementConfig:
             json.dump(
                 MockCorePlacementConfig.__json__(), f, indent=4, ensure_ascii=True
             )
+
+    def test_EmptyCorePlacementConfig_instance(
+        self, ensure_dump_dir, MockEmptyCorePlacementConfig
+    ):
+        with open(ensure_dump_dir / "empty_core_placement.json", "w") as f:
+            json.dump(
+                MockEmptyCorePlacementConfig.__json__(), f, indent=4, ensure_ascii=True
+            )

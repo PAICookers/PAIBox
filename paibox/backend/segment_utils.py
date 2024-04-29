@@ -110,8 +110,8 @@ def _get_nsg_opt_core(
 
     if raise_warning:
         warnings.warn(
-            "When grouping neurons with 'core' optimization, unrolling "
-            "factor greater than 1 will be invalid. Modified to 1.",
+            "when grouping neurons with 'core' optimization, unrolling "
+            "factor greater than 1 is invalid. Modified to 1.",
             ParameterInvalidWarning,
         )
 
@@ -198,8 +198,8 @@ _get_neu_slices_opt_latency = partial(_get_neu_slices, load_type="average")
 def _dense_reorganized(
     seg_slices_dict: Dict[NeuDyn, List[NeuSlice]], capacity: int, repl_prop: int
 ) -> NeuSegOfCoreBlock:
-    """Reorganize densely. Based on the result of 'latency' method, use greedy \
-        algorithm to reorganize the incomplete neuron segments for saving cores.
+    """Reorganize densely. Based on the result of 'latency' method, use greedy algorithm to \
+        reorganize the incomplete neuron segments for saving cores.
     """
 
     def _find_neu_in_segs_of_cplm(neu: NeuDyn, seg_of_cplm: NeuSegOfCorePlm) -> bool:
@@ -257,11 +257,14 @@ def get_neu_segments(
     repl_prop: int,
     optim_target: Literal["latency", "core", "both"],
 ) -> NeuSegOfCoreBlock:
-    """Get the neuron segments by given a optimization strategy.
+    """Get the neuron segments with a optimization strategy.
 
     Args:
-        - optim_target: Target of optimization. 'catagory' strategy intends to optimize the throughput of nodes. \
-            The 'dense' strategy intends to optimize the consumption of cores.
+        - neu_groups: group of neurons in the core block.
+        - capacity: #N of neurons that can be accommodated in a core.
+        - repl_prop: the proportion of neuron replication.
+        - optim_target: optimization target. 'latency' strategy intends to optimize the latency of nodes. \
+            'core' strategy intends to optimize the consumption of cores.
     """
     if optim_target == "core":
         seg_slices_dict = _get_neu_slices_opt_core(neu_groups, capacity)
@@ -303,7 +306,7 @@ def get_axon_segments(
 
         if offset + addr_width > fan_in_max:
             raise ResourceError(
-                f"Axons address out of range [0, {fan_in_max}), {offset + addr_width}."
+                f"axons address out of range [0, {fan_in_max}) ({offset + addr_width})."
             )
 
         cur_offset = offset

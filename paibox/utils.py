@@ -24,7 +24,7 @@ def check_elem_unique(obj: Any) -> bool:
 
         return True
 
-    raise TypeError(f"Unsupported type: {type(obj)}")
+    raise TypeError(f"unsupported type: {type(obj)}.")
 
 
 def count_unique_elem(obj: Iterable[Any]) -> int:
@@ -46,7 +46,7 @@ def check_elem_same(obj: Any) -> bool:
     if isinstance(obj, dict):
         return len(set(obj.values())) == 1
 
-    raise TypeError(f"Unsupported type: {type(obj)}")
+    raise TypeError(f"unsupported type: {type(obj)}.")
 
 
 def is_nested_obj(obj_on_top: Any) -> bool:
@@ -60,15 +60,12 @@ def shape2num(shape: Shape) -> int:
     """Convert a shape to a number"""
     if isinstance(shape, int):
         return shape
-
-    if isinstance(shape, (list, tuple)):
+    else:
         a = 1
         for b in shape:
             a *= b
 
         return a
-
-    raise TypeError(f"Unsupported type: {type(shape)}")
 
 
 def as_shape(shape, min_dim: int = 0) -> Tuple[int, ...]:
@@ -78,7 +75,7 @@ def as_shape(shape, min_dim: int = 0) -> Tuple[int, ...]:
     elif is_iterable(shape):
         _shape = tuple(shape)
     else:
-        raise ValueError(f"Cannot make a shape for {shape}")
+        raise ValueError(f"cannot make a shape for {shape}.")
 
     if len(_shape) < min_dim:
         _shape = tuple([1] * (min_dim - len(_shape))) + _shape
@@ -88,7 +85,7 @@ def as_shape(shape, min_dim: int = 0) -> Tuple[int, ...]:
 
 def is_shape(x, shape: Shape) -> bool:
     if not is_array_like(x):
-        raise TypeError(f"Only support an array-like type: {x}")
+        raise TypeError(f"only support an array-like type: {x}.")
 
     _x = np.asarray(x)
     return _x.shape == as_shape(shape)

@@ -33,4 +33,4 @@ class NodeDict(dict, Generic[_KT, _VT]):
         if key in self:
             return super().__getitem__(key)
 
-        raise KeyError(f"Key '{key}' not found.")
+        raise KeyError(f"key '{key}' not found.")

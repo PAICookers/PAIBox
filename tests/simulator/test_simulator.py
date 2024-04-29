@@ -14,19 +14,19 @@ class Net1(pb.DynSysGroup):
         self.inp = pb.InputProj(pe, shape_out=(n_neuron,), keep_shape=True)
         self.n1 = pb.LIF(n_neuron, threshold=3, reset_v=0, tick_wait_start=1)
         self.n2 = pb.IF(n_neuron, threshold=3, reset_v=1, tick_wait_start=2)
-        self.s0 = pb.NoDecay(
+        self.s0 = pb.FullConn(
             self.inp,
             self.n1,
             weights=np.random.randint(-128, 128, size=(n_neuron,), dtype=np.int8),
-            conn_type=pb.synapses.ConnType.One2One,
+            conn_type=pb.SynConnType.One2One,
         )
-        self.s1 = pb.NoDecay(
+        self.s1 = pb.FullConn(
             self.n1,
             self.n2,
             weights=np.random.randint(
                 -128, 128, size=(n_neuron, n_neuron), dtype=np.int8
             ),
-            conn_type=pb.synapses.ConnType.All2All,
+            conn_type=pb.SynConnType.All2All,
         )
 
         # Probes inside
@@ -43,6 +43,11 @@ def fake_out_2(t, b, **kwargs):
     return t + b
 
 
+@pytest.fixture(scope="class")
+def build_Net1():
+    return Net1(n_neuron=100)
+
+
 class Net2_with_multi_inpproj_func(pb.DynSysGroup):
     def __init__(self, n: int):
         super().__init__()
@@ -50,17 +55,17 @@ class Net2_with_multi_inpproj_func(pb.DynSysGroup):
         self.inp1 = pb.InputProj(fake_out_1, shape_out=(n,), keep_shape=True)
         self.inp2 = pb.InputProj(fake_out_2, shape_out=(n,), keep_shape=True)
         self.n1 = pb.LIF(n, threshold=3, reset_v=0, tick_wait_start=1)
-        self.s0 = pb.NoDecay(
+        self.s0 = pb.FullConn(
             self.inp1,
             self.n1,
             weights=np.ones((n,), dtype=np.int8),
-            conn_type=pb.synapses.ConnType.One2One,
+            conn_type=pb.SynConnType.One2One,
         )
-        self.s1 = pb.NoDecay(
+        self.s1 = pb.FullConn(
             self.inp2,
             self.n1,
             weights=np.ones((n,), dtype=np.int8),
-            conn_type=pb.synapses.ConnType.One2One,
+            conn_type=pb.SynConnType.One2One,
         )
 
         # Probes inside
@@ -79,17 +84,17 @@ class Net2_with_multi_inpproj_encoder(pb.DynSysGroup):
         self.inp1 = pb.InputProj(pe1, shape_out=(n,), keep_shape=True)
         self.inp2 = pb.InputProj(pe2, shape_out=(n,), keep_shape=True)
         self.n1 = pb.LIF(n, threshold=3, reset_v=0, tick_wait_start=1)
-        self.s0 = pb.NoDecay(
+        self.s0 = pb.FullConn(
             self.inp1,
             self.n1,
             weights=np.ones((n,), dtype=np.int8),
-            conn_type=pb.synapses.ConnType.One2One,
+            conn_type=pb.SynConnType.One2One,
         )
-        self.s1 = pb.NoDecay(
+        self.s1 = pb.FullConn(
             self.inp2,
             self.n1,
             weights=np.ones((n,), dtype=np.int8),
-            conn_type=pb.synapses.ConnType.One2One,
+            conn_type=pb.SynConnType.One2One,
         )
 
         # Probes inside
@@ -98,57 +103,35 @@ class Net2_with_multi_inpproj_encoder(pb.DynSysGroup):
         self.n1_output = pb.Probe(self.n1, "spike")
 
 
-class Nested_Net_level_1(pb.DynSysGroup):
-    """Level 1 nested network: pre_n -> syn -> post_n"""
-
+class Conv2d_Net(pb.Network):
     def __init__(self):
         super().__init__()
 
-        self.pre_n = pb.LIF((10,), 2, tick_wait_start=2)
-        self.post_n = pb.LIF((10,), 10, tick_wait_start=3)
+        pe1 = pb.simulator.PoissonEncoder()
 
-        w = np.ones((10, 10), dtype=np.int8)
-        self.syn = pb.NoDecay(
-            self.pre_n, self.post_n, conn_type=pb.synapses.ConnType.All2All, weights=w
-        )
+        self.inp1 = pb.InputProj(pe1, shape_out=(8, 24, 24))
+        self.n1 = pb.IF((16, 22, 22), threshold=10, reset_v=0, keep_shape=True)
 
-        self.probe_in_subnet = pb.Probe(self.pre_n, "spike")
+        kernel = np.random.randint(-128, 128, size=(8, 16, 3, 3), dtype=np.int8)
+        stride = 1
 
-
-class Nested_Net_level_2(pb.DynSysGroup):
-    """Level 2 nested network: -> s1 -> Nested_Net_level_1"""
-
-    def __init__(self):
-        self.inp1 = pb.InputProj(None, shape_out=(10,))
-        self.n1 = pb.LIF((10,), 2, tick_wait_start=1)
-
-        subnet = Nested_Net_level_1()
-
-        self.s1 = pb.NoDecay(
+        self.conv1 = pb.Conv2d(
             self.inp1,
             self.n1,
-            conn_type=pb.synapses.ConnType.One2One,
-        )
-        self.s2 = pb.NoDecay(
-            self.n1,
-            subnet.pre_n,
-            conn_type=pb.synapses.ConnType.One2One,
+            kernel,
+            stride=stride,
+            kernel_order="IOHW",
         )
 
-        self.probe1 = pb.Probe(self.inp1, "spike")
-        self.probe2 = pb.Probe(self.n1, "spike")
-        self.probe3 = pb.Probe(self.n1, "voltage")
-        self.probe4 = pb.Probe(subnet.pre_n, "spike")
-        self.probe5 = pb.Probe(subnet.post_n, "spike")
-
-        super().__init__(subnet)
+        self.prob1 = pb.Probe(self.n1, "spike")
+        self.prob2 = pb.Probe(self.n1, "feature_map")
 
 
 class TestSimulator:
-    def test_probe(self):
-        net = Net1(100)
+    def test_probe(self, build_Net1):
+        net = build_Net1
 
-        probe_outside = pb.Probe(net.inp, "spike", name="inp_spike")
+        probe_outside = pb.Probe(net.inp, "spike", name="out_probe")
 
         sim = pb.Simulator(net)
         sim.add_probe(probe_outside)
@@ -169,9 +152,9 @@ class TestSimulator:
         inp_state_at_t = sim.get_raw_at_t(probe_outside, t=5)
         assert type(inp_state_at_t) == np.ndarray
 
-    def test_sim_behavior(self):
-        net = Net1(100)
-        probe = pb.Probe(net.inp, "spike", name="inp_spike")
+    def test_sim_behavior(self, build_Net1):
+        net = build_Net1
+        probe = pb.Probe(net.inp, "spike", name="inp_spike1")
         probe2 = pb.Probe(net.inp, "spike", name="inp_spike2")
 
         sim = pb.Simulator(net, start_time_zero=True)
@@ -237,14 +220,23 @@ class TestSimulator:
 
         sim.reset()
 
-    def test_sim_nested_net(self):
-        net = Nested_Net_level_2()
+    def test_sim_nested_net(self, build_Nested_Net_L3):
+        net = build_Nested_Net_L3
         sim = pb.Simulator(net, start_time_zero=False)
 
         # The probes defined in the subnets cannot be discovered.
-        assert len(sim.probes) == 5
+        assert len(sim.probes) == 4
 
         net.inp1.input = np.ones((10,), dtype=np.int8)
         sim.run(20)
+
+        sim.reset()
+
+    def test_sim_conv2d_net(self):
+        net = Conv2d_Net()
+        sim = pb.Simulator(net, start_time_zero=False)
+
+        net.inp1.input = np.random.rand(8, 24, 24)
+        sim.run(10)
 
         sim.reset()

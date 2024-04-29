@@ -6,10 +6,11 @@ from typing import Any
 
 import numpy as np
 import pytest
-from paicorelib import Coord, HwConfig, WeightPrecision
+from paicorelib import Coord, HwConfig
 
 import paibox as pb
 from paibox.backend.conf_template import CoreConfig, NeuronDest, NeuronDestInfo
+from paibox.exceptions import ResourceError
 from paibox.synapses import SynSys
 
 
@@ -32,12 +33,11 @@ class CustomJsonEncoder(JSONEncoder):
 
 
 class TestGraphInfo:
-    def test_multi_inputproj(
-        self, get_mapper, ensure_dump_dir, build_multi_inputproj_net
+    def test_multi_inputproj1(
+        self, get_mapper, ensure_dump_dir, build_multi_inputproj_net1
     ):
-        net = build_multi_inputproj_net
+        net = build_multi_inputproj_net1
         mapper: pb.Mapper = get_mapper
-
         mapper.build(net)
         mapper.compile()
         mapper.export(
@@ -54,7 +54,6 @@ class TestGraphInfo:
     ):
         net = build_multi_inputproj_net2
         mapper: pb.Mapper = get_mapper
-
         mapper.build(net)
         mapper.compile()
         mapper.export(
@@ -66,14 +65,38 @@ class TestGraphInfo:
 
         assert len(mapper.graph_info["input"]) == 2
 
+    def test_multi_inputproj3(
+        self, monkeypatch, get_mapper, ensure_dump_dir, build_multi_inputproj_net3
+    ):
+        net = build_multi_inputproj_net3
+        mapper: pb.Mapper = get_mapper
+        mapper.build(net)
+        mapper.compile()
+        mapper.export(
+            fp=ensure_dump_dir,
+            format="txt",
+            split_by_coordinate=True,
+            export_core_params=True,
+        )
+
+        assert len(mapper.graph_info["input"]) == 1
+        assert len(mapper.core_blocks) == 6
+
+        monkeypatch.setattr(net.n7, "_tws", 3)  # n7.tws: 2 -> 3
+        mapper.clear()
+        mapper.build(net)
+        mapper.compile()
+
+        assert len(mapper.core_blocks) == 5  # n6 & n7 grouped in one core block.
+
     def test_multi_output_nodes(
         self, get_mapper, ensure_dump_dir, build_multi_onodes_net
     ):
         net = build_multi_onodes_net
         mapper: pb.Mapper = get_mapper
-
         mapper.build(net)
         mapper.compile()
+
         assert len(mapper.graph_info["output"]) == 2
 
         mapper.export(
@@ -88,7 +111,6 @@ class TestGraphInfo:
     ):
         net = build_multi_onodes_net2
         mapper: pb.Mapper = get_mapper
-
         mapper.build(net)
         mapper.compile()
 
@@ -106,11 +128,31 @@ class TestGraphInfo:
     ):
         net = build_multi_inodes_onodes
         mapper: pb.Mapper = get_mapper
-
         mapper.build(net)
         mapper.compile()
+
         assert len(mapper.graph_info["input"]) == 2
         assert len(mapper.graph_info["output"]) == 2
+
+    def test_nested_net_L2_compile(self, get_mapper, build_Nested_Net_level_2):
+        net = build_Nested_Net_level_2
+        mapper: pb.Mapper = get_mapper
+        mapper.build(net)
+        mapper.compile()
+
+        assert len(mapper.graph.nodes.keys()) == 5
+        assert len(mapper.graph_info["input"]) == 1
+        assert len(mapper.graph_info["output"]) == 1
+
+    def test_nested_net_L3_compile(self, get_mapper, build_Nested_Net_level_3):
+        net2 = build_Nested_Net_level_3
+        mapper: pb.Mapper = get_mapper
+        mapper.build(net2)
+        mapper.compile()
+
+        assert len(mapper.graph.edges.keys()) == 5
+        assert len(mapper.graph_info["input"]) == 2
+        assert len(mapper.graph_info["output"]) == 1
 
 
 class TestMapperDebug:
@@ -120,22 +162,23 @@ class TestMapperDebug:
         net2 = build_example_net2
 
         mapper: pb.Mapper = get_mapper
-        mapper.clear()
         mapper.build(net1, net2)
+        mapper.compile()
 
-        assert mapper.graph.has_built == True
+        assert len(mapper.graph.nodes.keys()) == 8
+        assert len(mapper.graph_info["input"]) == 3
+        assert len(mapper.graph_info["output"]) == 2
 
     @pytest.fixture
-    def test_simple_net(self, get_mapper, build_example_net1):
-        """Go throught the backend"""
+    def compile_simple_net(self, get_mapper, build_example_net1):
+        """Reused fixture."""
         net = build_example_net1
 
         mapper: pb.Mapper = get_mapper
-        mapper.clear()
         mapper.build(net)
         mapper.compile()
 
-    @pytest.mark.usefixtures("test_simple_net")
+    @pytest.mark.usefixtures("compile_simple_net")
     def test_export_config_json(self, ensure_dump_dir, get_mapper):
         """Export all the configs into json"""
         mapper: pb.Mapper = get_mapper
@@ -149,7 +192,7 @@ class TestMapperDebug:
         )
         print()
 
-    @pytest.mark.usefixtures("test_simple_net")
+    @pytest.mark.usefixtures("compile_simple_net")
     def test_find_neuron(self, get_mapper, build_example_net1):
         net: pb.Network = build_example_net1
         mapper: pb.Mapper = get_mapper
@@ -159,7 +202,7 @@ class TestMapperDebug:
 
         print()
 
-    @pytest.mark.usefixtures("test_simple_net")
+    @pytest.mark.usefixtures("compile_simple_net")
     def test_find_axon(self, get_mapper, build_example_net1):
         net: pb.Network = build_example_net1
         mapper: pb.Mapper = get_mapper
@@ -171,23 +214,58 @@ class TestMapperDebug:
 
     def test_network_with_container(self, get_mapper, build_Network_with_container):
         net: pb.Network = build_Network_with_container
-
         mapper: pb.Mapper = get_mapper
-        mapper.clear()
         mapper.build(net)
         mapper.compile()
 
-        print()
+        assert len(mapper.graph.nodes.keys()) == 4
+        # Input projectioon is discnnected!
+        assert len(mapper.graph_info["input"]) == 0
+        assert len(mapper.graph_info["output"]) == 1
+
+    def test_network_axons_outrange(self):
+        class Net(pb.Network):
+            def __init__(self):
+                super().__init__()
+                self.inp = pb.InputProj(1, shape_out=(300, 300))
+                self.n1 = pb.IF((300, 300), 1, name="n1")
+                self.n2 = pb.IF((300,), 1, name="n2")
+
+                self.s1 = pb.FullConn(
+                    self.inp, self.n1, conn_type=pb.SynConnType.All2All
+                )
+                self.s2 = pb.FullConn(
+                    self.n1, self.n2, conn_type=pb.SynConnType.All2All
+                )
+
+        net = Net()
+        mapper = pb.Mapper()
+        mapper.build(net)
+
+        with pytest.raises(ResourceError):
+            mapper.compile()  # 300*300 > 1152*64
 
 
 class TestMapper_Export:
-    def test_export_multi_nodes_more_than_32(self, build_Network_with_N_onodes):
+    def test_export_multi_nodes_more_than_32(
+        self, build_Network_with_N_onodes, ensure_dump_dir
+    ):
         net = build_Network_with_N_onodes
         mapper = pb.Mapper()
         mapper.build(net)
         mapper.compile()
+        mapper.export(fp=ensure_dump_dir)
 
         assert len(mapper.graph_info["output"].keys()) == net.n_onodes
+
+    def test_export_empty_cplm(self, build_example_net4_large_scale, ensure_dump_dir):
+        net = build_example_net4_large_scale
+        mapper = pb.Mapper()
+        mapper.build(net)
+        mapper.compile()
+        mapper.export(fp=ensure_dump_dir)
+
+        assert len(mapper.routing_groups[1].wasted_coords) == 2
 
 
 class TestMapper_Weight4:
@@ -357,18 +435,54 @@ class TestMapper_Grouping_Optim:
 
 
 class TestMapper_cflags:
-    def test_cflags_weight_bit_optimization(self, build_network_with_branches_4bit):
-        net = build_network_with_branches_4bit
+    from .conftest import TestData
+
+    @pytest.mark.parametrize(
+        TestData.cflags_weight_bit_opt_data["args"],
+        TestData.cflags_weight_bit_opt_data["data"],
+    )
+    def test_cflags_weight_bit_opt(
+        self, range, scalar, dtype, expected_wp_noopt, expected_wp_opt
+    ):
+        # s1, s2, s3 will be grouped in one core block.
+        class Net(pb.Network):
+            def __init__(self):
+                super().__init__()
+                self.n1 = pb.TonicSpiking(10, 3, name="n1", tick_wait_start=1)
+                self.n2 = pb.TonicSpiking(10, 4, name="n2", tick_wait_start=2)
+                self.n3 = pb.TonicSpiking(10, 4, name="n3", tick_wait_start=2)
+                self.n4 = pb.TonicSpiking(10, 4, name="n4", tick_wait_start=2)
+                self.s1 = pb.FullConn(
+                    self.n1,
+                    self.n2,
+                    weights=np.random.randint(*range[0], size=(10,), dtype=dtype[0]),
+                    conn_type=pb.SynConnType.One2One,
+                    name="s1",
+                )
+                self.s2 = pb.FullConn(
+                    self.n1,
+                    self.n3,
+                    weights=np.random.randint(*range[1], size=(10, 10), dtype=dtype[1]),
+                    name="s2",
+                )
+                self.s3 = pb.FullConn(
+                    self.n1,
+                    self.n4,
+                    weights=scalar,
+                    conn_type=pb.SynConnType.All2All,
+                    name="s3",
+                )
+
+        net = Net()
         mapper = pb.Mapper()
         mapper.build(net)
-        mapper.compile(weight_bit_optimization=True)
-        assert (
-            mapper.core_blocks[0].weight_precision == WeightPrecision.WEIGHT_WIDTH_4BIT
-        )
+        mapper.compile(weight_bit_optimization=False)
+        assert mapper.core_blocks[0].weight_precision == expected_wp_noopt
 
         mapper.clear()
         mapper.build(net)
-        mapper.compile(weight_bit_optimization=False)
-        assert (
-            mapper.core_blocks[0].weight_precision == WeightPrecision.WEIGHT_WIDTH_8BIT
+        mapper.compile(weight_bit_optimization=True)
+        assert mapper.core_blocks[0].weight_precision == max(
+            s.weight_precision for s in (net.s1, net.s2, net.s3)
         )
+        assert mapper.core_blocks[0].weight_precision == expected_wp_opt

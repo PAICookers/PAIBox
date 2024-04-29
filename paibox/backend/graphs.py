@@ -98,7 +98,7 @@ class PAIGraph:
         _edges: Collector[EdgeName, EdgeType] = Collector()
 
         for network in networks:
-            sub_nodes = network.nodes(level=1, include_self=False)
+            sub_nodes = network.nodes(include_self=False, find_recursive=True)
             _nodes += sub_nodes.include(InputProj, NeuDyn).unique()
             _edges += sub_nodes.subset(SynSys).unique()
 
@@ -176,7 +176,7 @@ class PAIGraph:
             for onode in self.onodes.values()
         ):
             raise NotSupportedError(
-                f"Only output nodes with no more than {HwConfig.N_FANIN_PER_DENDRITE_MAX} "
+                f"only output nodes with no more than {HwConfig.N_FANIN_PER_DENDRITE_MAX} "
                 f"neurons are supported."
             )
 
@@ -190,25 +190,30 @@ class PAIGraph:
 
     def build_check(self) -> None:
         if not self.has_built:
-            raise BuildError(f"The graph hasn't been built yet.")
+            raise BuildError(f"the graph hasn't been built yet.")
 
-    def group_edges(self) -> List[FrozenSet[EdgeType]]:
+    def group_edges(self) -> Tuple[List[FrozenSet[EdgeType]], List[int]]:
         """Group all edges according to a certain rule.
 
-        Return: a list of set of grouped edges.
+        Return: a list of set of grouped edges and a list of routing groups id.
         """
         self.build_check()
 
+        rgid = 0  # routing group id
+        routing_groups_id: List[int] = []
         gathered: List[FrozenSet[EdgeType]] = []
         seen_edges: Set[EdgeType] = set()  # Check if all edges are traversed
 
         for node in self.ordered_nodes:
+            """Process the predecessor nodes of nodes first, then process the successor nodes."""
             if self.degree_of_nodes[node].in_degree > 1:
                 edge_group = self._find_pred_edges(self.succ_dg, node)
                 # Get the edges traversed for the first time
                 comming_edges = edge_group.difference(seen_edges)
 
                 seen_edges.update(comming_edges)
+                routing_groups_id.append(rgid)
+                rgid += 1
                 gathered.append(frozenset(comming_edges))
 
             if self.degree_of_nodes[node].out_degree > 1:
@@ -224,6 +229,7 @@ class PAIGraph:
                         succ_edges_sg = frozenset([succ_edges[i] for i in idx])
                         if succ_edges_sg not in gathered:
                             seen_edges.update(succ_edges_sg)
+                            routing_groups_id.append(rgid)
                             gathered.append(succ_edges_sg)
                         else:
                             # FIXME Will this happen?
@@ -232,16 +238,21 @@ class PAIGraph:
                     succ_edges_sg = frozenset(succ_edges)
                     if succ_edges_sg not in gathered:
                         seen_edges.update(succ_edges_sg)
+                        routing_groups_id.append(rgid)
                         gathered.append(succ_edges_sg)
                     else:
                         # FIXME Will this happen?
                         raise NotSupportedError
+
+                rgid += 1
 
             elif self.degree_of_nodes[node].out_degree == 1:
                 succ_node = list(self.succ_dg[node].keys())[0]
                 # Check the in-degree of the only following node.
                 if self.degree_of_nodes[succ_node].in_degree == 1:
                     gathered.append(frozenset({self.succ_dg[node][succ_node].edge}))
+                    routing_groups_id.append(rgid)
+                    rgid += 1
                 else:
                     # This edge is waiting to be processed when
                     # traversing the following node `succ_node`.
@@ -250,7 +261,7 @@ class PAIGraph:
                 # out-degree = 0, do nothing.
                 continue
 
-        return gathered
+        return gathered, routing_groups_id
 
     @staticmethod
     def _find_pred_edges(
@@ -273,7 +284,7 @@ class PAIGraph:
 
     @property
     def graph_name_repr(self) -> str:
-        _str = f"Graph_of_{self.networks[0].name}"
+        _str = f"graph_of_{self.networks[0].name}"
 
         for network in self.networks[1:]:
             _str += f"_and_{network.name}"
@@ -286,34 +297,55 @@ def _degree_check(
 ) -> None:
     """Filter out such network structure, which is currently not supported."""
     for node in filter(lambda node: degree_of_nodes[node].out_degree > 1, succ_dg):
-        if any(degree_of_nodes[succ_node].in_degree > 1 for succ_node in succ_dg[node]):
-            raise NotSupportedError(
-                "If out-degree of a node is greater than 1, "
-                "the in-degree of its sucessors must be 1."
-            )
+        for succ_node in succ_dg[node]:
+            if degree_of_nodes[succ_node].in_degree > 1:
+                _node_repr = (
+                    succ_node.name if isinstance(succ_node, CoreBlock) else succ_node
+                )
+                raise NotSupportedError(
+                    f"If out-degree of a node is greater than 1, the in-degree of its sucessors must be 1. "
+                    f"However, in-degree of {_node_repr} is {degree_of_nodes[succ_node].in_degree}."
+                )
 
 
 def convert2routing_groups(
     succ_dg_of_cb: Dict[CoreBlock, List[CoreBlock]],
     degrees_of_cb: Dict[CoreBlock, NodeDegree],
+    input_core_blocks: Dict[SourceNodeType, List[CoreBlock]],
 ) -> List[RoutingGroup]:
     ordered_core_blocks = toposort(succ_dg_of_cb)
     seen_cb = set()
     routing_groups = []
+    succ_cb_gid_dict = defaultdict(list)
 
     _degree_check(degrees_of_cb, succ_dg_of_cb)
 
+    # After that, all input core blocks have been traversed.
+    for input_cbs in input_core_blocks.values():
+        seen_cb.update(input_cbs)
+        routing_groups.append(RoutingGroup(*input_cbs))
+
     for cb in ordered_core_blocks:
-        # Check whether it has been traversed
+        # Check whether the core block has been traversed. This judgment condition is for
+        # core blocks with out-degree = 1 & output core blocks (out-degree = 0).
         if cb not in seen_cb:
             seen_cb.add(cb)
             routing_groups.append(RoutingGroup(cb))
 
-        # If the out-degree > 1, treat the following core blocks as one routing group.
+        # If out-degree > 1, group successor core blocks according to their routing id.
         if degrees_of_cb[cb].out_degree > 1:
             succ_cbs = succ_dg_of_cb[cb]
             seen_cb.update(succ_cbs)
-            routing_groups.append(RoutingGroup(*succ_cbs))
+
+            succ_cb_gid_dict.clear()
+            for succ_cb in succ_cbs:
+                if succ_cb._routing_id in succ_cb_gid_dict:
+                    succ_cb_gid_dict[succ_cb._routing_id].append(succ_cb)
+                else:
+                    succ_cb_gid_dict[succ_cb._routing_id] = [succ_cb]
+
+            for succ_cb in succ_cb_gid_dict.values():
+                routing_groups.append(RoutingGroup(*succ_cb))
 
     return routing_groups
 
@@ -372,7 +404,7 @@ def toposort(directed_edges: Mapping[_NT, Iterable[_NT]]) -> List[_NT]:
                 vertices.add(m)
 
     if any(incoming_edges.get(v, None) for v in directed_edges):
-        raise NotSupportedError("The graph with cycles is not supported yet.")
+        raise NotSupportedError("the graph with cycles is not supported.")
 
     return ordered
 
@@ -468,7 +500,7 @@ def get_longest_path(
     Return:
         A tuple containing the longest path in the graph and its distance.
     """
-    distances: Dict[_NT, int] = defaultdict(int)  # init value = 0
+    distances: Dict[_NT, int] = {node: 0 for node in ordered_nodes}
     pred_nodes: Dict[_NT, _NT] = dict()
 
     for node in ordered_nodes:
@@ -487,6 +519,7 @@ def get_longest_path(
 
     distance = distances[node]
     path = [node]
+
     # Construct the longest path by following the predecessors
     while path[-1] in pred_nodes:
         path.append(pred_nodes[path[-1]])
@@ -515,9 +548,13 @@ def get_shortest_path(
     distances: Dict[_NT, int] = defaultdict(lambda: MAX_DISTANCE)
     pred_nodes: Dict[_NT, _NT] = dict()
 
-    # Set initial value for all inputs nodes.
-    for inode in input_nodes:
-        distances[inode] = 0
+    # Set initial value for all inputs nodes. If there is no input node,
+    # the first node after topological sorting will be used as the starting node.
+    if input_nodes:
+        for inode in input_nodes:
+            distances[inode] = 0
+    else:
+        distances[ordered_nodes[0]] = 0
 
     for node in ordered_nodes:
         for neighbor, edge_attr in edges_with_d[node].items():
@@ -535,6 +572,7 @@ def get_shortest_path(
 
     distance = distances[node]
     path = [node]
+
     # Construct the shortest path by following the predecessors
     while path[-1] in pred_nodes:
         path.append(pred_nodes[path[-1]])

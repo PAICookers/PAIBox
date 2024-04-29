@@ -4,7 +4,7 @@ from paicorelib import LCN_EX, NeuronSegment
 from paicorelib import WeightPrecision as WP
 
 import paibox as pb
-from paibox.backend.placement import NeuSeg, n_axon2lcn_ex
+from paibox.backend.placement import NeuSeg
 from paibox.exceptions import ResourceError
 
 
@@ -28,8 +28,8 @@ def test_get_raw_weight_ref():
 
     w_of_neurons = [w1, w2]
 
-    n1 = pb.neuron.LIF((20,), 1)
-    n2 = pb.neuron.LIF((30,), 1)
+    n1 = pb.LIF((20,), 1)
+    n2 = pb.LIF((30,), 1)
 
     dest = [n1, n2]
 
@@ -238,7 +238,7 @@ class TestWeightUnpack:
         if nbit > 1:
             w_unpacked = self._weight_ram_mapping_ref(w_folded, nbit)
         else:
-            w_unpacked = w_folded.copy().astype(np.bool_)
+            w_unpacked = w_folded.astype(np.bool_)
 
         w_unpacked.setflags(write=False)
 
@@ -390,8 +390,10 @@ class TestWeightUnpack:
 
 
 def test_n_axon2lcn_ex():
-    lcn_ex = n_axon2lcn_ex(1152 * 18 + 1, 1152)
+    from .conftest import n_axon2lcn_ex_proto
+
+    lcn_ex = n_axon2lcn_ex_proto(1152 * 18 + 1, 1152)
     assert lcn_ex == LCN_EX.LCN_32X
 
     with pytest.raises(ResourceError):
-        lcn_ex = n_axon2lcn_ex(1152 * 64 + 1, 1152)
+        lcn_ex = n_axon2lcn_ex_proto(1152 * 64 + 1, 1152)

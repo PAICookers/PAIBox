@@ -1,6 +1,6 @@
 from typing import Optional
 
-from paicorelib import LCM, LDM, LIM, NTM, RM, SIM
+from paicorelib import LCM, LDM, NTM, RM
 
 from paibox.types import Shape
 
@@ -16,51 +16,36 @@ class IF(Neuron):
         threshold: int,
         reset_v: int = 0,
         *,
-        delay: int = 1,
-        tick_wait_start: int = 1,
-        tick_wait_end: int = 0,
-        unrolling_factor: int = 1,
         keep_shape: bool = False,
         name: Optional[str] = None,
+        **kwargs,
     ) -> None:
         """
         Arguments:
-            - shape    : the shape of the neuron(s). It can be an integer, tuple or list.
-            - Threshold: When the membrane potential exceeds the threshold, neurons will fire
-            - reset_v  : Membrane potential after firing
-
-        Description:
-            IF neuron : intergration + firing
+            - shape: shape of neurons.
+            - threshold: when the membrane potential exceeds the threshold, neurons will fire.
+            - reset_v: reset membrane potential after firing
+            - delay: delay between neurons. Default is 1.
+            - tick_wait_start: set the neuron group to start at the `N`-th timestep. 0 means not to     \
+                start. Default is 1.
+            - tick_wait_end: set the neuron group to continue working for `M` timesteps, 0 means working\
+                forever. Default is 0.
+            - unrolling_factor: the argument is related to the backend. It means that neurons will be   \
+                unrolled & deployed to more physical cores to reduce latency and increase throughput.   \
+                Default is 1.
+            - keep_shape: whether to maintain size information when recording data in the simulation.   \
+                Default is `False`.
+            - name: name of the object.
         """
-        _sim = SIM.MODE_DETERMINISTIC
-        _lim = LIM.MODE_DETERMINISTIC
-        _ld = LDM.MODE_FORWARD
-        _lc = LCM.LEAK_AFTER_COMP
-        _pos_thres = threshold
-        _reset_v = reset_v
-        _ntm = NTM.MODE_SATURATION
-        _reset_mode = RM.MODE_NORMAL
-
         super().__init__(
             shape,
-            _reset_mode,
-            _reset_v,
-            _lc,
-            0,
-            _ntm,
-            0,
-            _pos_thres,
-            _ld,
-            _lim,
-            0,
-            _sim,
-            0,
-            delay=delay,
-            tick_wait_start=tick_wait_start,
-            tick_wait_end=tick_wait_end,
-            unrolling_factor=unrolling_factor,
+            reset_v=reset_v,
+            neg_thres_mode=NTM.MODE_SATURATION,
+            neg_threshold=0,
+            pos_threshold=threshold,
             keep_shape=keep_shape,
             name=name,
+            **kwargs,
         )
 
 
@@ -72,57 +57,32 @@ class LIF(Neuron):
         shape: Shape,
         threshold: int,
         reset_v: int = 0,
-        leaky_v: int = 0,
+        leak_v: int = 0,
         *,
-        delay: int = 1,
-        tick_wait_start: int = 1,
-        tick_wait_end: int = 0,
-        unrolling_factor: int = 1,
         keep_shape: bool = False,
         name: Optional[str] = None,
+        **kwargs,
     ) -> None:
         """
         Arguments:
-            - shape: the shape of the neuron(s). It can be an integer, tuple or list.
-            - threshold: When the membrane potential exceeds the threshold, neurons will fire
-            - reset_v: Membrane potential after firing
-            - leaky_v: The leakage value will be directly added to the membrane potential.
-                If it is positive, the membrane potential will increase.
-                If is is negative, the membrane potential will decrease.
-
-        Description:
-            LIF: leaky + intergration + firing
+            - shape: shape of neurons.
+            - threshold: when the membrane potential exceeds the threshold, neurons will fire.
+            - reset_v: reset membrane potential after firing
+            - leak_v: the signed leak voltage will be added directly to the membrane potential.
+                - If it is positive, the membrane potential will increase.
+                - If is is negative, the membrane potential will decrease.
         """
-        _sim = SIM.MODE_DETERMINISTIC
-        _lim = LIM.MODE_DETERMINISTIC
-        _ld = LDM.MODE_FORWARD
-        _lc = LCM.LEAK_AFTER_COMP
-        _leak_v = leaky_v
-        _pos_thres = threshold
-        _reset_v = reset_v
-        _ntm = NTM.MODE_SATURATION
-        _reset_mode = RM.MODE_NORMAL
-
         super().__init__(
             shape,
-            _reset_mode,
-            _reset_v,
-            _lc,
-            0,
-            _ntm,
-            0,
-            _pos_thres,
-            _ld,
-            _lim,
-            _leak_v,
-            _sim,
-            0,
-            delay=delay,
-            tick_wait_start=tick_wait_start,
-            tick_wait_end=tick_wait_end,
-            unrolling_factor=unrolling_factor,
+            reset_mode=RM.MODE_NORMAL,
+            reset_v=reset_v,
+            neg_thres_mode=NTM.MODE_SATURATION,
+            neg_threshold=0,
+            pos_threshold=threshold,
+            leak_v=leak_v,
             keep_shape=keep_shape,
             name=name,
+            **kwargs,
         )
 
 
@@ -134,42 +94,25 @@ class TonicSpiking(Neuron):
         shape: Shape,
         fire_step: int,
         *,
-        delay: int = 1,
-        tick_wait_start: int = 1,
-        tick_wait_end: int = 0,
-        unrolling_factor: int = 1,
         keep_shape: bool = False,
         name: Optional[str] = None,
+        **kwargs,
     ) -> None:
         """
         Arguments:
-            - shape: the shape of the neuron(s). It can be an integer, tuple or list.
+            - shape: shape of neurons.
             - fire_step: every `N` spike, the neuron will fire positively.
 
-        Description:
-            The neuron receives `N` spikes and fires, then resets to 0.
-            `N` stands for firing steps.
+        NOTE: The neuron receives `N` spikes and fires, then it will reset to 0.
         """
         super().__init__(
             shape,
-            RM.MODE_NORMAL,
-            0,
-            LCM.LEAK_AFTER_COMP,
-            0,
-            NTM.MODE_SATURATION,
-            0,
-            fire_step,
-            LDM.MODE_FORWARD,
-            LIM.MODE_DETERMINISTIC,
-            0,
-            SIM.MODE_DETERMINISTIC,
-            0,
-            delay=delay,
-            tick_wait_start=tick_wait_start,
-            tick_wait_end=tick_wait_end,
-            unrolling_factor=unrolling_factor,
+            neg_thres_mode=NTM.MODE_SATURATION,
+            neg_threshold=0,
+            pos_threshold=fire_step,
             keep_shape=keep_shape,
             name=name,
+            **kwargs,
         )
 
 
@@ -182,48 +125,60 @@ class PhasicSpiking(Neuron):
         time_to_fire: int,
         neg_floor: int = -10,
         *,
-        delay: int = 1,
-        tick_wait_start: int = 1,
-        tick_wait_end: int = 0,
-        unrolling_factor: int = 1,
         keep_shape: bool = False,
         name: Optional[str] = None,
+        **kwargs,
     ) -> None:
         """
         Arguments:
-            - shape: the shape of the neuron(s). It can be an integer, tuple or list.
-            - time_to_fire: after `time_to_fire` spikes, the neuron will fire positively.
-            - neg_floor: the negative floor that the neuron stays once firing. Default is -10.
+            - shape: shape of neurons.
+            - time_to_fire: after `N` spikes, the neuron will fire positively.
+            - neg_floor: once fired, the neurons will remain at this negative membrane potential.   \
+                Default is -10.
 
-        Description:
-            The neuron receives `N` spikes and fires, then resets the membrane potential to 0,
-            and never fires again.
-
-            `N` stands for `time_to_fire`.
+        NOTE: Once the neuron receives `N` spikes and fires, it will reset to the negative floor &  \
+            never fires again. `N` stands for `time_to_fire`.
         """
         leak_v = 1
-        pos_thres = (1 + leak_v) * time_to_fire
-        _neg_thres = neg_floor
-        reset_v = -1 - _neg_thres
-
         super().__init__(
             shape,
-            RM.MODE_NORMAL,
-            reset_v,
-            LCM.LEAK_BEFORE_COMP,
-            0,
-            NTM.MODE_SATURATION,
-            neg_floor,
-            pos_thres,
-            LDM.MODE_REVERSAL,
-            LIM.MODE_DETERMINISTIC,
-            leak_v,
-            SIM.MODE_DETERMINISTIC,
-            0,
-            delay=delay,
-            tick_wait_start=tick_wait_start,
-            tick_wait_end=tick_wait_end,
-            unrolling_factor=unrolling_factor,
+            reset_v=(-1 - neg_floor),
+            leak_comparison=LCM.LEAK_BEFORE_COMP,
+            neg_thres_mode=NTM.MODE_SATURATION,
+            neg_threshold=neg_floor,
+            pos_threshold=(1 + leak_v) * time_to_fire,
+            leak_direction=LDM.MODE_REVERSAL,
+            leak_v=leak_v,
             keep_shape=keep_shape,
             name=name,
+            **kwargs,
+        )
+
+
+class Always1Neuron(Neuron):
+    """This neuron will always output 1 as long as it starts working.
+
+    FIXME There must be a forward synapse connected to it, otherwise    \
+        the backend will go wrong.
+    """
+
+    def __init__(
+        self,
+        shape: Shape,
+        *,
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            shape,
+            reset_v=1,
+            leak_comparison=LCM.LEAK_BEFORE_COMP,
+            neg_thres_mode=NTM.MODE_SATURATION,
+            neg_threshold=0,
+            pos_threshold=0,
+            leak_v=(1 << 29) - 1,
+            keep_shape=keep_shape,
+            name=name,
+            **kwargs,
         )
