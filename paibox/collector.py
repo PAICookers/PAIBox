@@ -10,7 +10,7 @@ class Collector(dict, Generic[_KT, _VT]):
         if key in self:
             if id(self[key]) != id(value):
                 raise ValueError(
-                    f"Name '{key}' conflicts: same name for {value} and {self[key]}."
+                    f"mame '{key}' conflicts: same name for {value} & {self[key]}."
                 )
 
         super().__setitem__(key, value)
@@ -30,7 +30,7 @@ class Collector(dict, Generic[_KT, _VT]):
     ) -> Union["Collector[_KT, _VT]", "Collector[_KT, _T]"]:
         if not isinstance(other, (dict, list, tuple)):
             raise TypeError(
-                f"Excepted a dict, list or sequence, but we got {other}, type {type(other)}"
+                f"expected a dict, list or sequence, but got {other}, type {type(other)}."
             )
 
         if isinstance(other, dict):
@@ -56,6 +56,7 @@ class Collector(dict, Generic[_KT, _VT]):
 
         Arguments:
             - other: the other dictionary.
+
         Returns:
             - gather: the new collector.
         """
@@ -75,7 +76,7 @@ class Collector(dict, Generic[_KT, _VT]):
     ) -> Union["Collector[_KT, _VT]", "Collector[str, _T]"]:
         if not isinstance(other, (dict, list, tuple)):
             raise TypeError(
-                f"Excepted a dict, list or sequence, but we got {other}, type {type(other)}"
+                f"expected a dict, list or sequence, but got {other}, type {type(other)}."
             )
 
         gather = type(self)(self)
@@ -83,11 +84,11 @@ class Collector(dict, Generic[_KT, _VT]):
         if isinstance(other, dict):
             for k, v in other.items():
                 if k not in gather.keys():
-                    raise ValueError(f"Cannot find '{k}' in {self.keys()}.")
+                    raise ValueError(f"cannot find '{k}' in {self.keys()}.")
 
                 if id(v) != id(gather[k]):
                     raise ValueError(
-                        f"Cannot remove '{k}', since there's two different values:"
+                        f"cannot remove '{k}', since there are two different values: "
                         f"{v} != {gather[k]}"
                     )
                 gather.pop(k)
@@ -109,7 +110,7 @@ class Collector(dict, Generic[_KT, _VT]):
 
             for k in set(keys_to_remove):
                 if k not in gather:
-                    raise KeyError(f"Key '{k}' not found. Removed failed.")
+                    raise KeyError(f"key '{k}' not found. Removed failed.")
 
                 gather.pop(k)
 

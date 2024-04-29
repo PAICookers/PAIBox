@@ -10,7 +10,7 @@ from paibox.utils import as_shape, shape2num
 
 
 def test_NeuronParams_instance(ensure_dump_dir):
-    n1 = pb.neuron.LIF((100,), 3)
+    n1 = pb.LIF((100,), 3)
 
     attrs = NeuronAttrs.model_validate(n1.export_params(), strict=True)
 
@@ -22,13 +22,13 @@ def test_NeuronParams_instance(ensure_dump_dir):
 
 def test_NeuronParams_check():
     with pytest.raises(ValueError):
-        n1 = pb.neuron.LIF((100,), threshold=-1)
+        n1 = pb.LIF((100,), threshold=-1)
 
     with pytest.raises(ValueError):
-        n2 = pb.neuron.IF((100,), 1, delay=-1)
+        n2 = pb.IF((100,), 1, delay=-1)
 
     with pytest.raises(ValueError):
-        n3 = pb.neuron.IF((100,), 1, delay=1, tick_wait_start=-1, tick_wait_end=100)
+        n3 = pb.IF((100,), 1, delay=1, tick_wait_start=-1, tick_wait_end=100)
 
 
 class TestNeuronBehavior:
@@ -163,7 +163,7 @@ class TestNeuronBehavior:
             (NTM.MODE_SATURATION, TM.EXCEED_NEGATIVE, RM.MODE_NONRESET, np.array([-3])),
         ],
     )
-    def test_neuronal_reset(self, monkeypatch, ntm, thr_mode, reset_mode, expected):
+    def test_neuronal_reset(self, ntm, thr_mode, reset_mode, expected):
         reset_v = 5
         neg_thres = -3
         pos_thres = 2
@@ -187,10 +187,55 @@ class TestNeuronBehavior:
         )
 
         # Set the threshold mode manually
-        monkeypatch.setattr(n1, "thres_mode", thr_mode)
+        setattr(n1, "thres_mode", thr_mode)
         v_reset = n1._neuronal_reset(np.array((incoming_v,), dtype=np.int32))
 
         assert np.array_equal(v_reset, expected)
+
+    @pytest.mark.parametrize(
+        "incoming_v, expected_v, expected_spike",
+        [
+            (
+                np.array([2**30], dtype=np.int32),
+                np.array([2**30 - 2**30], dtype=np.int32),
+                np.array([False], dtype=np.bool_),
+            ),
+            (
+                np.array([-(2**31)], dtype=np.int32),
+                np.array([0]),  # Reset
+                # Exceeded the negative threshold but no spike
+                np.array([False], dtype=np.bool_),
+            ),
+        ],
+        ids=["positive overflow", "negative overflow"],
+    )
+    def test_vjt_overflow(self, incoming_v, expected_v, expected_spike):
+        pb.FRONTEND_ENV["t"] = 0
+        reset_v = 0
+        neg_thres = -(1 << 29)
+        pos_thres = 1 << 29
+
+        n1 = pb.neuron.Neuron(
+            1,
+            RM.MODE_NORMAL,
+            reset_v,
+            self.lc,
+            self.mask,
+            NTM.MODE_RESET,
+            neg_thres,
+            pos_thres,
+            self.ld,
+            self.lim,
+            self.leak_v,
+            self.sim,
+            self.bt,
+        )
+
+        pb.FRONTEND_ENV["t"] += 1  # Only update when n1 starts working
+        n1.update(incoming_v)
+
+        assert np.array_equal(n1.voltage, expected_v)
+        assert np.array_equal(n1.spike, expected_spike)
 
 
 @pytest.mark.parametrize(
@@ -200,23 +245,23 @@ class TestNeuronBehavior:
 )
 def test_neuron_instance(shape):
     # keep_shape = True
-    n1 = pb.neuron.TonicSpiking(shape, 5, keep_shape=True)
+    n1 = pb.TonicSpiking(shape, 5, keep_shape=True)
 
     assert n1.shape_in == as_shape(shape)
     assert n1.shape_out == as_shape(shape)
     assert len(n1) == shape2num(shape)
 
     # keep_shape = False
-    n2 = pb.neuron.TonicSpiking(shape, 5)
+    n2 = pb.TonicSpiking(shape, 5)
 
-    assert n2.shape_in == as_shape(shape2num(shape))
-    assert n2.shape_out == as_shape(shape2num(shape))
+    assert n2.shape_in == as_shape(shape)
+    assert n2.shape_out == as_shape(shape)
     assert len(n2) == shape2num(shape)
 
 
 def test_neuron_keep_shape():
-    n1 = pb.neuron.TonicSpiking((4, 4), 5, keep_shape=True)
-    n2 = pb.neuron.TonicSpiking((4, 4), 5, keep_shape=False)
+    n1 = pb.TonicSpiking((4, 4), 5, keep_shape=True)
+    n2 = pb.TonicSpiking((4, 4), 5, keep_shape=False)
 
     assert n1.spike.shape == (16,)
     assert n1.voltage.shape == (4, 4)
@@ -255,7 +300,7 @@ def test_neuron_copy():
 
 class TestNeuronSim:
     def test_TonicSpiking_simple_sim(self):
-        n1 = pb.neuron.TonicSpiking(shape=1, fire_step=3)
+        n1 = pb.TonicSpiking(shape=1, fire_step=3)
         inp_data = np.ones((10,), dtype=np.bool_)
         output = np.full((10, 1), 0, dtype=np.bool_)
         voltage = np.full((10, 1), 0, dtype=np.int32)
@@ -267,7 +312,7 @@ class TestNeuronSim:
         print(output)
 
     def test_PhasicSpiking_simple_sim(self):
-        n1 = pb.neuron.PhasicSpiking(shape=1, time_to_fire=3)
+        n1 = pb.PhasicSpiking(shape=1, time_to_fire=3)
         # [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
         inp_data = np.concatenate((np.zeros((2,), np.bool_), np.ones((10,), np.bool_)))
         output = np.full((12, 1), 0, dtype=np.bool_)
@@ -280,7 +325,7 @@ class TestNeuronSim:
         print(output)
 
     def test_IF_simple_sim(self):
-        n1 = pb.neuron.IF(shape=1, threshold=5, reset_v=2)
+        n1 = pb.IF(shape=1, threshold=5, reset_v=2)
         # [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
         inp_data = np.concatenate((np.zeros((2,), np.bool_), np.ones((10,), np.bool_)))
         # inp_data = np.ones((12,), dtype=np.bool_)
@@ -294,7 +339,7 @@ class TestNeuronSim:
         print(output)
 
     def test_LIF_simple_sim(self):
-        n1 = pb.neuron.LIF(shape=1, threshold=5, reset_v=2, leaky_v=1)  # leak + 1
+        n1 = pb.LIF(shape=1, threshold=5, reset_v=2, leak_v=1)  # leak + 1
         # [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
         inp_data = np.concatenate((np.zeros((2,), np.bool_), np.ones((10,), np.bool_)))
         # inp_data = np.ones((12,), dtype=np.bool_)
@@ -367,3 +412,27 @@ class TestNeuronSim:
         sim.reset()
 
         # TODO can add new test items here
+
+    def test_Always1Neuron_behavior(self):
+        class Net(pb.Network):
+            def __init__(self):
+                super().__init__()
+                self.inp1 = pb.InputProj(input=None, shape_out=(1,))
+
+                self.n1 = pb.Always1Neuron(shape=(1,), tick_wait_start=1)
+                self.s1 = pb.FullConn(
+                    self.inp1, self.n1, weights=0, conn_type=pb.SynConnType.One2One
+                )
+
+                self.probe1 = pb.Probe(self.n1, "spike")
+
+        net = Net()
+        sim = pb.Simulator(net)
+
+        for i in range(20):
+            net.inp1.input = np.random.randint(0, 2, size=(1,), dtype=np.bool_)
+            sim.run(1)
+
+        assert np.array_equal(
+            sim.data[net.probe1], 20 * [np.ones((1,), dtype=np.bool_)]
+        )

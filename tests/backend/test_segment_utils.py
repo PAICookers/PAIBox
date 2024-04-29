@@ -2,11 +2,9 @@ from math import ceil
 from typing import List
 
 import pytest
-from paicorelib import LCN_EX, AxonCoord, AxonSegment, NeuronSegment
-from paicorelib import WeightPrecision as WP
+from paicorelib import AxonCoord, AxonSegment
 
 import paibox as pb
-from paibox.backend.placement import NeuSeg, n_axon2lcn_ex
 from paibox.backend.segment_utils import (
     aligned_coords,
     get_axon_segments,
@@ -14,270 +12,7 @@ from paibox.backend.segment_utils import (
 )
 from paibox.exceptions import ResourceError
 
-n1 = pb.LIF(600, 2, unrolling_factor=1)
-n2 = pb.LIF(800, 2, unrolling_factor=1)
-n3 = pb.LIF(320, 2, unrolling_factor=2)
-n4 = pb.LIF(200, 2, unrolling_factor=3)
-n5 = pb.LIF(300, 2, unrolling_factor=2)
-n6 = pb.LIF(400, 2, unrolling_factor=1)
-n7 = pb.LIF(500, 2, unrolling_factor=1)
-
-neu_segs_latency_test_data = [
-    # Neurons, capacity, wp, lcn_ex, expected
-    # Make sure capacity * (1 << wp) * (1 << lcn_ex) <= 512
-    (
-        [n1, n2],
-        512,
-        WP.WEIGHT_WIDTH_1BIT,
-        LCN_EX.LCN_1X,
-        [
-            [NeuSeg(n1, NeuronSegment(slice(0, 300, 1), 0))],
-            [NeuSeg(n1, NeuronSegment(slice(300, 600, 1), 0))],
-            [NeuSeg(n2, NeuronSegment(slice(0, 400, 1), 0))],
-            [NeuSeg(n2, NeuronSegment(slice(400, 800, 1), 0))],
-        ],
-    ),
-    (
-        [n1, n2],
-        256,
-        WP.WEIGHT_WIDTH_1BIT,
-        LCN_EX.LCN_2X,
-        [
-            [NeuSeg(n1, NeuronSegment(slice(0, 200, 1), 0, 2))],
-            [NeuSeg(n1, NeuronSegment(slice(200, 400, 1), 0, 2))],
-            [NeuSeg(n1, NeuronSegment(slice(400, 600, 1), 0, 2))],
-            [NeuSeg(n2, NeuronSegment(slice(0, 200, 1), 0, 2))],
-            [NeuSeg(n2, NeuronSegment(slice(200, 400, 1), 0, 2))],
-            [NeuSeg(n2, NeuronSegment(slice(400, 600, 1), 0, 2))],
-            [NeuSeg(n2, NeuronSegment(slice(600, 800, 1), 0, 2))],
-        ],
-    ),
-    (
-        [n3],
-        200,
-        WP.WEIGHT_WIDTH_1BIT,
-        LCN_EX.LCN_2X,
-        [
-            [NeuSeg(n3, NeuronSegment(slice(80 * 0, 80 * 1, 1), 0, 2))],
-            [NeuSeg(n3, NeuronSegment(slice(80 * 1, 80 * 2, 1), 0, 2))],
-            [NeuSeg(n3, NeuronSegment(slice(80 * 2, 80 * 3, 1), 0, 2))],
-            [NeuSeg(n3, NeuronSegment(slice(80 * 3, 80 * 4, 1), 0, 2))],
-        ],
-    ),
-    (
-        [n1, n3],
-        400,
-        WP.WEIGHT_WIDTH_1BIT,
-        LCN_EX.LCN_1X,
-        [
-            [NeuSeg(n1, NeuronSegment(slice(0, 300, 1), 0))],
-            [NeuSeg(n1, NeuronSegment(slice(300, 600, 1), 0))],
-            [NeuSeg(n3, NeuronSegment(slice(160 * 0, 160 * 1, 1), 0))],
-            [NeuSeg(n3, NeuronSegment(slice(160 * 1, 160 * 2, 1), 0))],
-        ],
-    ),
-    (
-        [n4, n5],
-        240,
-        WP.WEIGHT_WIDTH_1BIT,
-        LCN_EX.LCN_2X,
-        [
-            [NeuSeg(n4, NeuronSegment(slice(67 * 0, 67 * 1, 1), 0, 2))],
-            [NeuSeg(n4, NeuronSegment(slice(67 * 1, 67 * 2, 1), 0, 2))],
-            [NeuSeg(n4, NeuronSegment(slice(67 * 2, 200, 1), 0, 2))],
-            [NeuSeg(n5, NeuronSegment(slice(75 * 0, 75 * 1, 1), 0, 2))],
-            [NeuSeg(n5, NeuronSegment(slice(75 * 1, 75 * 2, 1), 0, 2))],
-            [NeuSeg(n5, NeuronSegment(slice(75 * 2, 75 * 3, 1), 0, 2))],
-            [NeuSeg(n5, NeuronSegment(slice(75 * 3, 75 * 4, 1), 0, 2))],
-        ],
-    ),
-]
-
-neu_segs_core_test_data = [
-    # Neurons, capacity, wp, lcn_ex, expected
-    # Make sure capacity * (1 << wp) * (1 << lcn_ex) <= 512
-    (
-        [n1, n2],
-        512,
-        WP.WEIGHT_WIDTH_1BIT,
-        LCN_EX.LCN_1X,
-        [
-            [NeuSeg(n1, NeuronSegment(slice(0, 512, 1), 0))],
-            [NeuSeg(n2, NeuronSegment(slice(0, 512, 1), 0))],
-            [
-                NeuSeg(n2, NeuronSegment(slice(512, 800, 1), 0)),
-                NeuSeg(n1, NeuronSegment(slice(512, 600, 1), 288)),
-            ],
-        ],
-    ),
-    (
-        [n1, n2],
-        256,
-        WP.WEIGHT_WIDTH_1BIT,
-        LCN_EX.LCN_2X,
-        [
-            [NeuSeg(n1, NeuronSegment(slice(256 * 0, 256 * 1, 1), 0, 2))],
-            [NeuSeg(n1, NeuronSegment(slice(256 * 1, 256 * 2, 1), 0, 2))],
-            [NeuSeg(n2, NeuronSegment(slice(256 * 0, 256 * 1, 1), 0, 2))],
-            [NeuSeg(n2, NeuronSegment(slice(256 * 1, 256 * 2, 1), 0, 2))],
-            [NeuSeg(n2, NeuronSegment(slice(256 * 2, 256 * 3, 1), 0, 2))],
-            [
-                NeuSeg(n1, NeuronSegment(slice(256 * 2, 600, 1), 0, 2)),
-                NeuSeg(n2, NeuronSegment(slice(256 * 3, 800, 1), 88 * 2, 2)),
-            ],
-        ],
-    ),
-    (
-        [n4, n5],
-        256,
-        WP.WEIGHT_WIDTH_1BIT,
-        LCN_EX.LCN_2X,
-        [
-            # Place the neuron segments with full capacity first
-            [NeuSeg(n5, NeuronSegment(slice(0, 256, 1), 0, 2))],
-            [
-                NeuSeg(n4, NeuronSegment(slice(0, 200, 1), 0, 2)),
-                NeuSeg(n5, NeuronSegment(slice(256, 300, 1), 200 * 2, 2)),
-            ],
-        ],
-    ),
-    (
-        [n6, n7],
-        512,
-        WP.WEIGHT_WIDTH_1BIT,
-        LCN_EX.LCN_1X,
-        [
-            [NeuSeg(n7, NeuronSegment(slice(0, 500, 1), 0, 1))],
-            [NeuSeg(n6, NeuronSegment(slice(0, 400, 1), 0, 1))],
-        ],
-    ),
-]
-
-
-neu_segs_both_test_data = [
-    # Neurons, capacity, wp, lcn_ex, expected
-    # Make sure capacity * (1 << wp) * (1 << lcn_ex) <= 512
-    (
-        [n1, n2],
-        512,
-        WP.WEIGHT_WIDTH_1BIT,
-        LCN_EX.LCN_1X,
-        [
-            [NeuSeg(n1, NeuronSegment(slice(0, 300, 1), 0))],
-            [NeuSeg(n1, NeuronSegment(slice(300, 600, 1), 0))],
-            [NeuSeg(n2, NeuronSegment(slice(0, 400, 1), 0))],
-            [NeuSeg(n2, NeuronSegment(slice(400, 800, 1), 0))],
-        ],
-    ),
-    (
-        [n1, n2],
-        256,
-        WP.WEIGHT_WIDTH_1BIT,
-        LCN_EX.LCN_2X,
-        [
-            [NeuSeg(n2, NeuronSegment(slice(0, 200, 1), 0, 2))],
-            [NeuSeg(n2, NeuronSegment(slice(200, 400, 1), 0, 2))],
-            [NeuSeg(n2, NeuronSegment(slice(400, 600, 1), 0, 2))],
-            [NeuSeg(n2, NeuronSegment(slice(600, 800, 1), 0, 2))],
-            [NeuSeg(n1, NeuronSegment(slice(0, 200, 1), 0, 2))],
-            [NeuSeg(n1, NeuronSegment(slice(200, 400, 1), 0, 2))],
-            [NeuSeg(n1, NeuronSegment(slice(400, 600, 1), 0, 2))],
-        ],
-    ),
-    (
-        [n3],
-        200,
-        WP.WEIGHT_WIDTH_1BIT,
-        LCN_EX.LCN_2X,
-        [
-            [NeuSeg(n3, NeuronSegment(slice(80 * 0, 80 * 1, 1), 0, 2))],
-            [NeuSeg(n3, NeuronSegment(slice(80 * 1, 80 * 2, 1), 0, 2))],
-            [NeuSeg(n3, NeuronSegment(slice(80 * 2, 80 * 3, 1), 0, 2))],
-            [NeuSeg(n3, NeuronSegment(slice(80 * 3, 80 * 4, 1), 0, 2))],
-        ],
-    ),
-    (
-        [n3, n4],
-        200,
-        WP.WEIGHT_WIDTH_1BIT,
-        LCN_EX.LCN_2X,
-        [
-            [
-                NeuSeg(n3, NeuronSegment(slice(80 * 0, 80 * 1, 1), 0, 2)),
-                # offset = 160
-                NeuSeg(n4, NeuronSegment(slice(67 * 0, 67 * 1, 1), 160, 2)),
-            ],
-            [
-                NeuSeg(n3, NeuronSegment(slice(80 * 1, 80 * 2, 1), 0, 2)),
-                # offset = 160
-                NeuSeg(n4, NeuronSegment(slice(67 * 1, 67 * 2, 1), 160, 2)),
-            ],
-            [
-                NeuSeg(n3, NeuronSegment(slice(80 * 2, 80 * 3, 1), 0, 2)),
-                # offset = 160
-                NeuSeg(n4, NeuronSegment(slice(67 * 2, 200, 1), 160, 2)),
-            ],
-            [
-                NeuSeg(n3, NeuronSegment(slice(80 * 3, 80 * 4, 1), 0, 2)),
-            ],
-        ],
-    ),
-    (
-        [n3, n4, n5],
-        256,
-        WP.WEIGHT_WIDTH_1BIT,
-        LCN_EX.LCN_2X,
-        [
-            [
-                NeuSeg(n3, NeuronSegment(slice(80 * 0, 80 * 1, 1), 0, 2)),
-                # offset = 160
-                NeuSeg(n5, NeuronSegment(slice(75 * 0, 75 * 1, 1), 160, 2)),
-                # offset = 160 + 150
-                NeuSeg(n4, NeuronSegment(slice(67 * 0, 67 * 1, 1), 160 + 150, 2)),
-            ],
-            [
-                NeuSeg(n3, NeuronSegment(slice(80 * 1, 80 * 2, 1), 0, 2)),
-                # offset = 160
-                NeuSeg(n5, NeuronSegment(slice(75 * 1, 75 * 2, 1), 160, 2)),
-                # offset = 160 + 150
-                NeuSeg(n4, NeuronSegment(slice(67 * 1, 67 * 2, 1), 160 + 150, 2)),
-            ],
-            [
-                NeuSeg(n3, NeuronSegment(slice(80 * 2, 80 * 3, 1), 0, 2)),
-                # offset = 160
-                NeuSeg(n5, NeuronSegment(slice(75 * 2, 75 * 3, 1), 160, 2)),
-                # offset = 160 + 150
-                NeuSeg(n4, NeuronSegment(slice(67 * 2, 200, 1), 160 + 150, 2)),
-            ],
-            [
-                NeuSeg(n3, NeuronSegment(slice(80 * 3, 80 * 4, 1), 0, 2)),
-                # offset = 160
-                NeuSeg(n5, NeuronSegment(slice(75 * 3, 75 * 4, 1), 160, 2)),
-            ],
-        ],
-    ),
-    (
-        [n4, n5],
-        240,
-        WP.WEIGHT_WIDTH_1BIT,
-        LCN_EX.LCN_2X,
-        [
-            [
-                NeuSeg(n5, NeuronSegment(slice(75 * 0, 75 * 1, 1), 0, 2)),
-                NeuSeg(n4, NeuronSegment(slice(67 * 0, 67 * 1, 1), 150, 2)),
-            ],
-            [
-                NeuSeg(n5, NeuronSegment(slice(75 * 1, 75 * 2, 1), 0, 2)),
-                NeuSeg(n4, NeuronSegment(slice(67 * 1, 67 * 2, 1), 150, 2)),
-            ],
-            [
-                NeuSeg(n5, NeuronSegment(slice(75 * 2, 75 * 3, 1), 0, 2)),
-                NeuSeg(n4, NeuronSegment(slice(67 * 2, 200, 1), 150, 2)),
-            ],
-            [NeuSeg(n5, NeuronSegment(slice(75 * 3, 75 * 4, 1), 0, 2))],
-        ],
-    ),
-]
+from .conftest import TestData
 
 
 class TestGetNeuronSegments:
@@ -312,7 +47,8 @@ class TestGetNeuronSegments:
         return (1 << wp) * (1 << lcn_ex)
 
     @pytest.mark.parametrize(
-        "neurons, capacity, wp, lcn_ex, expected", neu_segs_latency_test_data
+        TestData.neu_segs_latency_test_data["args"],
+        TestData.neu_segs_latency_test_data["data"],
     )
     def test_get_neu_segments_latency(self, neurons, capacity, wp, lcn_ex, expected):
         neu_segs = get_neu_segments(
@@ -321,7 +57,8 @@ class TestGetNeuronSegments:
         assert neu_segs == expected
 
     @pytest.mark.parametrize(
-        "neurons, capacity, wp, lcn_ex, expected", neu_segs_core_test_data
+        TestData.neu_segs_core_test_data["args"],
+        TestData.neu_segs_core_test_data["data"],
     )
     def test_get_neu_segments_core(self, neurons, capacity, wp, lcn_ex, expected):
         neu_segs = get_neu_segments(
@@ -330,7 +67,8 @@ class TestGetNeuronSegments:
         assert neu_segs == expected
 
     @pytest.mark.parametrize(
-        "neurons, capacity, wp, lcn_ex, expected", neu_segs_both_test_data
+        TestData.neu_segs_both_test_data["args"],
+        TestData.neu_segs_both_test_data["data"],
     )
     def test_get_neu_segments_both(self, neurons, capacity, wp, lcn_ex, expected):
         neu_segs = get_neu_segments(
@@ -342,14 +80,16 @@ class TestGetNeuronSegments:
 @pytest.mark.parametrize(
     "axons",
     [
-        [pb.neuron.LIF(600, 2), pb.neuron.LIF(800, 2), pb.neuron.LIF(256, 2)],
-        [pb.neuron.LIF(384, 3), pb.neuron.LIF(383, 3), pb.neuron.LIF(385, 3)],
-        [pb.neuron.LIF(1153, 2)],
-        [pb.neuron.LIF(2222, 1), pb.neuron.LIF(2378, 1)],
+        [pb.LIF(600, 2), pb.LIF(800, 2), pb.LIF(256, 2)],
+        [pb.LIF(384, 3), pb.LIF(383, 3), pb.LIF(385, 3)],
+        [pb.LIF(1153, 2)],
+        [pb.LIF(2222, 1), pb.LIF(2378, 1)],
     ],
 )
 def test_get_axon_segments(axons):
-    lcn_ex = n_axon2lcn_ex(sum(axon.num_out for axon in axons), 1152)
+    from .conftest import n_axon2lcn_ex_proto
+
+    lcn_ex = n_axon2lcn_ex_proto(sum(axon.num_out for axon in axons), 1152)
 
     tr_max = 1 << lcn_ex
 
@@ -362,13 +102,15 @@ def test_get_axon_segments(axons):
 @pytest.mark.parametrize(
     "axons",
     [
-        [pb.neuron.LIF(1151, 2), pb.neuron.LIF(1153, 2)],
-        [pb.neuron.LIF(1151 * 2, 2), pb.neuron.LIF(1153 * 2, 2)],
+        [pb.LIF(1151, 2), pb.LIF(1153, 2)],
+        [pb.LIF(1151 * 2, 2), pb.LIF(1153 * 2, 2)],
     ],
 )
 def test_get_axon_segments_boundary(axons):
     """Illegal boundary cases."""
-    lcn_ex = n_axon2lcn_ex(sum(axon.num_out for axon in axons), 1152)
+    from .conftest import n_axon2lcn_ex_proto
+
+    lcn_ex = n_axon2lcn_ex_proto(sum(axon.num_out for axon in axons), 1152)
     tr_max = 1 << lcn_ex
 
     with pytest.raises(ResourceError):

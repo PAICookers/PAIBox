@@ -62,3 +62,9 @@ class TruncationWarning(PAIBoxWarning, UserWarning):
     """Value out of range & will be truncated."""
 
     pass
+
+
+class AutoOptimizationWarning(PAIBoxWarning):
+    """Parameters are optimized automatically by PAIBox."""
+
+    pass
