@@ -224,8 +224,8 @@ class TestSimulator:
         net = build_Nested_Net_L3
         sim = pb.Simulator(net, start_time_zero=False)
 
-        # The probes defined in the subnets cannot be discovered.
-        assert len(sim.probes) == 4
+        # The probes defined in the subnets will be discovered.
+        assert len(sim.probes) == 5
 
         net.inp1.input = np.ones((10,), dtype=np.int8)
         sim.run(20)

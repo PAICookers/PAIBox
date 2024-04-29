@@ -463,7 +463,7 @@ class Neuron(MetaNeuron, NeuDyn):
         self._delay = delay
         self._tws = tick_wait_start
         self._twe = tick_wait_end
-        self._unrolling_factor = unrolling_factor
+        self._uf = unrolling_factor
 
         """Counter of copies."""
         self._n_copied = 0
@@ -482,7 +482,7 @@ class Neuron(MetaNeuron, NeuDyn):
         # Priority order is a must.
         # The neuron doesn't work if `tws = 0` & done working
         # until `t - tws + 1 > twe` under the condition `twe > 0`.
-        if not self.is_working:
+        if not self.is_working():
             self._inner_spike = self.init_param(0).astype(np.bool_)
             return None
 

@@ -55,7 +55,7 @@ PAIBox提供了多种类型的神经元模型，能够实现各种特殊的功�
 
 ⚠️ 神经元初始膜电位为0。
 
-#### IF神经元
+#### IF
 
 IF神经元实现了经典的“积分发射”模型，其调用方式及参数如下：
 
@@ -70,14 +70,14 @@ n1 = pb.IF(shape=10, threshold=127, reset_v=0, keep_shape=False, delay=1, tick_w
 - `shape`：代表神经元组的尺寸，其形式可以是整形标量、元组或列表。
 - `threshold`：神经元阈值，其形式为整数。
 - `reset_v`：神经元的重置膜电位。
+- `delay`：设定神经元输出的延迟。默认为1，即本时间步的计算结果，**下一时间步**传递至后继节点。
+- `tick_wait_start`：设定神经元启动时间。神经元将在第 `T` 个时间步时启动。0表示不启动。默认为1。
+- `tick_wait_end`：设定神经元持续工作时长。神经元将持续工作 `T` 个时间步。0表示**持续工作**。默认为0。
+- `unrolling_factor`：该参数与后端流程相关。展开因子表示神经元将被展开，部署至更多的物理核上，以降低延迟并提高吞吐率。
 - `keep_shape`：是否在仿真记录数据时保持尺寸信息，默认为 `False`。实际进行运算的尺寸仍视为一维。
-- `delay`：设定该神经元组输出的延迟。默认为1，即本时间步的计算结果，**下一时间步**传递至后继神经元。
-- `tick_wait_start`：设定该神经元组在第 `N` 个时间步时启动，0表示不启动。默认为1。
-- `tick_wait_end`：设定该神经元组持续工作 `M` 个时间步，0表示**永远持续工作**。默认为0。
-- `unrolling_factor`：该参数与后端流程相关。展开因子表示神经元将被展开，部署至更多的物理核上，以降低延迟，并提高吞吐率。
-- `name`：可选，为该对象命名。
+- `name`：神经元的名称。可选参数。
 
-#### LIF神经元
+#### LIF
 
 LIF神经元实现了“泄露-积分-发射”神经元模型，其调用方式及参数如下：
 
@@ -87,7 +87,7 @@ n1 = pb.LIF(shape=128, threshold=127, reset_v=0, leak_v=-1, keep_shape=False, na
 
 - `leak_v`：LIF神经元的泄露值（有符号）。其他参数含义与IF神经元相同。
 
-#### Tonic Spiking神经元
+#### Tonic Spiking
 
 Tonic Spiking神经元可以实现对持续脉冲刺激的周期性反应。
 
@@ -128,7 +128,7 @@ print(output)
 
 在持续的脉冲输入下，神经元进行周期性的脉冲发放。
 
-#### Phasic Spiking神经元
+#### Phasic Spiking
 
 Phasic Spiking神经元可以实现，在接受一定数量脉冲后发放，然后保持静息状态，不再发放。
 
@@ -173,6 +173,14 @@ print(output)
 ```
 
 当有持续性脉冲输入时，神经元会在 `time_to_step` 个时间步后发放脉冲，而后将一直保持静息状态。
+
+#### Always1Neuron
+
+Always1神经元在工作期间持续输出1。
+
+#### Spiking Relu
+
+SNN模式下，具有Relu功能的神经元。当输入为1，则输出为1；输入为0，则输出为0。
 
 ### 突触
 
@@ -259,27 +267,29 @@ s1= pb.FullConn(source=n1, dest=n2, weights=weight1, conn_type=pb.SynConnType.Al
 全展开形式1D卷积为全连接突触的一种特殊表达。需**严格指定**输入神经元的尺寸与维度、卷积核权重、卷积核维度顺序与步长。对于输出神经元的具体尺寸不做严格要求。
 
 - `kernel`：卷积核权重。
-- `stride`：步长，标量。
+- `stride`：步长，标量。默认为1。
 - `padding`：填充，标量。
-- `kernel_order`：指定卷积核维度顺序为 `OIL` 或 `IOL` 排列。
+- `kernel_order`：指定卷积核维度顺序为 `OIL` 或 `IOL` 排列。默认为 `OIL`。
 - 神经元维度顺序仅支持 `CL`。
 
 ```python
 n1 = pb.IF(shape=(8, 28), threshold=1)      # Input feature map: (8, 28)
 n2 = pb.IF(shape=(16, 26), threshold=1)     # Output feature map: (16, 26)
-kernel = np.random.randint(-128, 128, size=(16, 8, 3), dtype=np.int8) # OIl
+kernel = np.random.randint(-128, 128, size=(16, 8, 3), dtype=np.int8) # OIL
 
 conv1d = pb.Conv1d(n1, n2, kernel=kernel, stride=1, padding=0, kernel_order="OIL", name="conv1d_1")
 ```
+
+⚠️ `padding` 目前不支持，默认为0。
 
 #### 2D卷积
 
 全展开形式2D卷积为全连接突触的一种特殊表达。需**严格指定**输入神经元的尺寸与维度、卷积核权重、卷积核维度顺序与步长。对于输出神经元的具体尺寸不做严格要求。
 
 - `kernel`：卷积核权重。
-- `stride`：步长，可以为标量或元组。当为标量时，对应为 `(x, x)`；当为元组时，则对应为 `(x, y)`。
+- `stride`：步长，标量或元组格式。当为标量时，对应为 `(x, x)`；当为元组时，则对应为 `(x, y)`。默认为1。
 - `padding`：填充，可以为标量或元组。当为标量时，对应为 `(x, x)`；当为元组时，则对应为 `(x, y)`。
-- `kernel_order`：指定卷积核维度顺序为 `OIHW` 或 `IOHW` 排列。
+- `kernel_order`：指定卷积核维度顺序为 `OIHW` 或 `IOHW` 排列。默认为 `OIHW`。
 - 神经元维度顺序仅支持 `CHW`。
 
 ```python
@@ -596,17 +606,135 @@ print(output)
     [ True  True  True False]]
 ```
 
-### 网络模型
+## 功能模块
 
-在PAIBox中，可以通过继承 `DynSysGroup`（或 `Network`）来实现，并在其中例化神经元与突触组件，完成网络模型的构建。以一个简单的两层全连接网络为例：
+多个基础组件可以组成具有特定功能的模块(module)。在实例化与仿真中，它们作为一个整体，而在后端中则会被拆解，并由多个基础组件构建。不同于基本的神经网络组件——神经元与突触的常规使用模式：
+
+- 在实例化时，其运作机制借鉴了“突触”的连接特性，要求在初始化阶段指定与其相连的前级神经元作为输入源，这些神经元的输出信号将作为进行逻辑运算的操作数。
+- 该模块完成运算后的输出效果，则表现为一个具有独立输出能力的“神经元”，其输出接口的设计完全符合神经元的标准形式。这意味着其输出脉冲可作为后继突触的输入。
+- 后端构建时，模块将拆分成一或多个神经元节点与突触。所构建的基础组件尺寸由模块连接的操作数尺寸决定。
+
+### 逻辑运算
+
+逻辑运算模块实现了 `numpy` 中的位逻辑运算操作（例如 `&` 与 `numpy.bitwise_and` 等），可对接收到的一或多个输出脉冲进行逻辑运算，并产生脉冲输出。PAIBox提供了逻辑与、或、非、异或：`BitwiseAND`，`BitwiseOR`，`BitwiseNOT`，`BitwiseXOR`。以位与为例：
+
+```python
+import paibox as pb
+
+class Net(pb.DynSysGroup):
+    def __init__(self):
+        super().__init__()
+        self.n1 = pb.IF((10,), 1, 0, delay=1, tick_wait_start=1)
+        self.n2 = pb.IF((10,), 1, 0, delay=1, tick_wait_start=1)
+        self.and1 = pb.BitwiseAND(self.n1, self.n2, delay=1, tick_wait_start=2)
+        self.n3 = pb.IF((10,), 1, 0, delay=1, tick_wait_start=self.and1.tick_wait_start + self.and1.external_delay + 1)
+        self.s3 = pb.FullConn(self.and1, self.n3, conn_type=pb.SynConnType.All2All)
+```
+
+其中：
+
+- `neuron_a`：第一个操作数。
+- `neuron_b`：第二个操作数。
+- `delay`：设定模块输出的延迟。默认为1，即本时间步的计算结果，**下一时间步**传递至后继节点。
+- `tick_wait_start`：设定模块启动时间。模块将在第 `T` 个时间步时启动。0表示不启动。默认为1。
+- `tick_wait_end`：设定模块持续工作时长。模块将持续工作 `T` 个时间步。0表示**持续工作**。默认为0。
+- `keep_shape`：是否在仿真记录数据时保持尺寸信息，默认为 `False`。实际进行运算的尺寸仍视为一维。
+- `name`：模块的名称。可选参数。
+
+⚠️ 模块的属性 `external_delay` 用于表示其相对于外部的内部固有延迟。这是由具体的后端构建形式决定的，不可更改。上述示例中，位与计算结果将输出至 `n3` 中。默认情况下，`n3` 将在位与计算结果输出后启动，因此其启动时间为 `and1` 的启动时间+固有延迟+1。
+
+### 延迟链
+
+用于实现神经元延迟输出。使用方式如下：
+
+```python
+n1 = pb.IF((10,), 1, 0, delay=1, tick_wait_start=1)
+n1_delay_out = pb.DelayChain(n1, chain_level=5, delay=1, tick_wait_start=2)
+n2 = pb.SpikingRelu((10,), delay=1, tick_wait_start=n1_delay_out.tick_wait_start + n1_delay_out.external_delay)
+```
+
+其中：
+
+- `neuron`：进行延迟输出的神经元。
+- `chain_level`：延迟链的级数，即延迟的时间步。注意，这与 `delay` 含义不同：延迟链内部会建立多级神经元（类似buffer），以实现数据的延迟传递，而 `delay` 会使得神经元输出寄存的位置延后，后继节点的启动时间需要提前，这将导致其在前级**有效输出**前就进行了计算。
+
+### 平均/最大池化
+
+目前仅提供2D池化：`SpikingAvgPool2d`、`SpikingMaxPool2d`。以平均池化为例：
+
+```python
+ksize = (3, 3)
+stride = None # default is ksize
+n1 = pb.SpikingRelu(shape, tick_wait_start=1)
+pool2d = pb.SpikingAvgPool2d(n1, ksize, None, tick_wait_start=2)
+n2 = pb.SpikingRelu(pool2d.shape_out, delay=1, tick_wait_start=3)
+s3 = pb.FullConn(pool2d, n2, conn_type=pb.SynConnType.One2One)
+```
+
+其中：
+
+- `neuron`：待池化的神经元。
+- `kernel_size`：池化窗口的尺寸，标量或元组格式。当为标量时，对应为 `(x, x)`；当为元组时，则对应为 `(x, y)`。
+- `stride`：步长，可选参数，标量或元组格式，默认为 `None`，即池化窗口的尺寸。
+- 神经元维度顺序仅支持 `CHW`。
+
+### 脉冲加、减
+
+脉冲加减法与数的加减法存在差异。对脉冲进行加减，运算结果将在较长时间步上体现。例如，在 `T=1` 时刻两神经元均输出1，则将在 `T=2,3` 时刻产生输出脉冲。以下为脉冲加减法运算示例。其中，输入为 `T=12` 脉冲序列，输出为 `T=20` 脉冲序列。
+
+```python
+inpa = np.array([1, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1, 1], np.bool_)
+inpb = np.array([0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0], np.bool_)
+
+# 脉冲加结果
+>>> np.array([0, 1, 0, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0], np.bool_)
+# 脉冲减结果
+>>> np.array([0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0], np.bool_)
+```
+
+`SpikingAdd`，`SpikingSub` 的使用方式与逻辑运算模块相同：
+
+```python
+n1 = pb.IF((10,), 1, 0, delay=1, tick_wait_start=1)
+n2 = pb.IF((10,), 1, 0, delay=1, tick_wait_start=1)
+add1 = pb.SpikingAdd(n1, n2, overflow_strict=False, delay=1, tick_wait_start=2) # n1 + n2
+sub1 = pb.SpikingSub(n1, n2, overflow_strict=False, delay=1, tick_wait_start=2) # n1 - n2
+```
+
+其中：
+
+- `neuron_a`：第一个操作数。
+- `neuron_b`：第二个操作数。在减法中作被减数。
+- `overflow_strict`：是否严格检查运算结果溢出。如果启用，则在仿真中，当脉冲加、减运算结果溢出时将报错。默认为 `False`。
+
+### 转置
+
+PAIBox提供了转置模块 `Transpose2d`，`Transpose3d`，用于实现二维、三维矩阵的转置。对于转置，需要**指定**输入神经元的尺寸、转置顺序（仅三维转置需要）。使用方法与逻辑运算模块相同：
+
+```python
+n1 = pb.IF((32, 16), 1, 0, delay=1, tick_wait_start=1)
+t2d = pb.Transpose2d(n1, tick_wait_start=2)
+
+n2 = pb.IF((32, 16, 24), 1, 0, delay=1, tick_wait_start=1)
+t3d = pb.Transpose3d(n2, axes=(1, 2, 0), tick_wait_start=2)
+```
+
+其中：
+
+- `neuron`：待转置其输出脉冲的神经元。对于二维转置，支持输入尺寸为1或2维；对于三维转置，支持输入尺寸为2或3维。尺寸不足时，自动补1。
+- `axes`：（仅三维转置）如果指定，则必须是包含 `[0,1,…,N-1]` 排列的元组或列表，其中 `N` 是矩阵的轴（维度）数。返回数组的第 `i` 轴将对应于输入的编号为 `axes[i]` 的轴。若未指定，则默认为 `range(N)[::-1]`，这将反转轴的顺序。具体参数含义参见：[numpy.transpose](https://numpy.org/doc/1.26/reference/generated/numpy.transpose.html#numpy.transpose)
+
+## 网络模型
+
+在PAIBox中，可以通过继承 `DynSysGroup`（或 `Network`）来实现，并在其中例化基础组件与功能模块，完成网络模型的构建。以一个简单的两层全连接网络为例：
 
 <p align="center">
     <img src="images/Guide-基础网络搭建-全连接网络示例.png" alt="基础网络搭建-全连接网络示例" style="zoom:50%">
 </p>
 
-#### 定义网络模型
+### 网络构建
 
-要搭建上述网络，首先继承 `pb.Network` 并在子类 `fcnet` 中初始化网络。先例化输入节点 `i1` 与两个神经元组 `n1`、 `n2`，然后例化两个突触 `s1`、 `s2` ，将三者连接起来。其中，输入节点为泊松编码器。
+要构建上述网络，首先继承 `pb.Network` 并在子类 `fcnet` 中初始化网络。先例化输入节点 `i1` 与两个神经元组 `n1`、 `n2`，然后例化两个突触 `s1`、 `s2` ，将三者连接起来。其中，输入节点为泊松编码器。
 
 ```python
 import paibox as pb
@@ -623,7 +751,7 @@ class fcnet(pb.Network):
         self.fc2 = pb.FullConn(self.n1, self.n2, weights=weight2, conn_type=pb.SynConnType.All2All)
 ```
 
-#### 容器类型
+### 容器类型
 
 PAIBox提供 `NodeList`、`NodeDict` 容器类型，可批量化操作网络基本组件。例如，
 
@@ -640,7 +768,7 @@ for i in range(5):
 
 如此，我们共例化了10个神经元，包括5个IF神经元、5个LIF神经元。在容器内的基本组件可通过下标进行访问、与其他基本组件连接。这与一般容器类型的用法相同。
 
-#### 嵌套网络
+### 嵌套网络
 
 有时网络中会重复出现类似的结构，这时先构建子网络，再多次例化复用是个不错的选择。
 
@@ -710,7 +838,6 @@ sim = pb.Simulator(fcnet, start_time_zero=False)
 1. 在构建网络时，直接设置探针，即在网络内部例化探针对象。
 2. 在外部例化探针，并调用 `add_probe` 将其添加至仿真器内。仿真器内部将保存所有探针对象。
 3. 调用 `remove_probe` 方法可移除探针及其仿真数据。
-4. 请注意，目前探针仅能在最外层父网络内例化，子网络内的探针无法被发现。
 
 例化探针时需指定：
 

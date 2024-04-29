@@ -4,22 +4,21 @@ from typing import Callable, List, Optional, Tuple, Type, Union
 import numpy as np
 from typing_extensions import TypeAlias
 
-from .base import DynamicSys, NeuDyn
+from .base import DynamicSys, PAIBoxObject, SynSys
 from .collector import Collector
+from .components import FullConnectedSyn, InputProj, NeuModule, Neuron, Projection
+from .components.synapses.base import RIGISTER_MASTER_KEY_FORMAT
 from .exceptions import PAIBoxWarning, RegisterError
 from .mixin import Container
-from .neuron import Neuron
 from .node import NodeDict
-from .projection import InputProj, Projection
-from .synapses.base import RIGISTER_MASTER_KEY_FORMAT, SynSys
 
 __all__ = ["DynSysGroup", "Network"]
 
-ComponentsType: TypeAlias = Union[InputProj, Neuron, SynSys]
+ComponentsType: TypeAlias = Union[InputProj, Neuron, FullConnectedSyn]
+# TODO replace `Neuron` with `NeuDyn`. Need tests.
 
 
 class DynSysGroup(DynamicSys, Container):
-
     def __init__(
         self,
         *components_as_tuple,
@@ -33,12 +32,17 @@ class DynSysGroup(DynamicSys, Container):
         )
 
     def update(self, **kwargs) -> None:
-        """Find nodes of the network recursively."""
-        nodes = (
-            self.nodes(include_self=False, find_recursive=True)
-            .subset(DynamicSys)
-            .unique()
-        )
+        """Network update.
+
+        XXX: The hierarchy of `NeuModule` requires that its update order is after synapses & before neurons.   \
+            For example, a network with topology I1 -> M1 -> S1 -> N1, where the M1 consists of S2, S3 & N2. The\
+            right update order is I1 -> S1, S2, S3 -> N1, N2. So the update order inside M1 is S2, S3 -> N2, of \
+            which the update order is exactly between the synapses & neurons outside the module.
+
+            It requires that the computing mechanism described inside modules can only be the computing process \
+            from synapses (as inputs) to neurons (as outputs).
+        """
+        nodes = self.components.subset(DynamicSys).unique()
 
         for node in nodes.subset(Projection).values():
             node(**kwargs)
@@ -46,15 +50,14 @@ class DynSysGroup(DynamicSys, Container):
         for node in nodes.subset(SynSys).values():
             node()
 
-        for node in nodes.subset(NeuDyn).values():
+        for node in nodes.subset(NeuModule).values():
+            node()
+
+        for node in nodes.subset(Neuron).values():
             node()
 
     def reset_state(self) -> None:
-        nodes = (
-            self.nodes(include_self=False, find_recursive=True)
-            .subset(DynamicSys)
-            .unique()
-        )
+        nodes = self.components.subset(DynamicSys).unique()
 
         for node in nodes.subset(Projection).values():
             node.reset_state()
@@ -62,18 +65,27 @@ class DynSysGroup(DynamicSys, Container):
         for node in nodes.subset(SynSys).values():
             node.reset_state()
 
-        for node in nodes.subset(NeuDyn).values():
+        for node in nodes.subset(NeuModule).values():
+            node.reset_state()
+
+        for node in nodes.subset(Neuron).values():
             node.reset_state()
 
     def __call__(self, **kwargs) -> None:
         return self.update(**kwargs)
 
-    def add_components(self, *implicit: DynamicSys, **explicit: DynamicSys) -> None:
-        """Add new components. When a component is passed in explicitly, its tag name can   \
-            be specified. Otherwise `.name` will be used.
+    def module_construct(self, **build_options) -> None:
+        modules = self.components.subset(NeuModule).unique()
 
-        NOTE: After instantiated the components outside the `DynSysGroup`, you should call  \
-            `add_components()` to actually add the new components to itself.
+        for module in modules.values():
+            module.build(self, **build_options)
+
+    def add_components(self, *implicit: DynamicSys, **explicit: DynamicSys) -> None:
+        """Add new components. When the component is passed in explicitly, its tag name can \
+            be specified. When passing in implicitly, its attribute `.name` will be used.
+
+        NOTE: After instantiating components outside `DynSysGroup`, you need to call it to  \
+            actually add them to the network.
         """
         for comp in implicit:
             setattr(self, comp.name, comp)
@@ -100,7 +112,7 @@ class DynSysGroup(DynamicSys, Container):
             raise RegisterError("unregister failed.")
 
         if not exclude_source:
-            self._remove_component(target_syn)
+            self.remove_component(target_syn)
 
         return target_syn
 
@@ -192,8 +204,8 @@ class DynSysGroup(DynamicSys, Container):
 
         return removed_syn
 
-    def _remove_component(self, remove: DynamicSys) -> None:
-        """Remove a component in the network."""
+    def remove_component(self, remove: DynamicSys) -> None:
+        """Remove a component from the network."""
         for tag, obj in self.__dict__.items():
             if obj is remove:
                 delattr(self, tag)
@@ -231,7 +243,7 @@ class DynSysGroup(DynamicSys, Container):
                 # before the compilation in the backend.
                 # TODO Add a pre-processing step before the compilation.
                 if remove_syn:
-                    self._remove_component(syn)
+                    self.remove_component(syn)
 
             return target_syns
         else:
@@ -272,6 +284,11 @@ class DynSysGroup(DynamicSys, Container):
 
         if any(neuron not in neu_dyns.values() for neuron in neurons):
             raise ValueError("not all neurons found in the network.")
+
+    @property
+    def components(self) -> Collector[str, PAIBoxObject]:
+        """Recursively search for all components within the network."""
+        return self.nodes(include_self=False, find_recursive=True)
 
 
 Network: TypeAlias = DynSysGroup

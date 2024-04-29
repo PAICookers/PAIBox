@@ -4,10 +4,10 @@ from typing import Optional, Union
 import numpy as np
 
 from paibox.base import NeuDyn
-from paibox.neuron import Neuron
-from paibox.projection import InputProj
 from paibox.types import DataArrayType
 
+from ..neuron import Neuron
+from ..projection import InputProj
 from .base import (
     Conv1dSyn,
     Conv2dSyn,
@@ -15,7 +15,8 @@ from .base import (
     ConvTranspose2dSyn,
     FullConnSyn,
 )
-from .conv_utils import _KOrder3d, _KOrder4d, _pair, _single, _Size1Type, _Size2Type
+from .conv_types import _KOrder3d, _KOrder4d, _Size1Type, _Size2Type
+from .conv_utils import _pair, _single
 from .transforms import GeneralConnType as GConnType
 
 __all__ = ["FullConn", "Conv1d", "Conv2d", "ConvTranspose1d", "ConvTranspose2d"]
@@ -54,7 +55,7 @@ class NoDecay(FullConn):
         name: Optional[str] = None,
     ) -> None:
         warnings.warn(
-            "'NoDecay' class will be deprecated in future versions. Use 'FullConn' instead.",
+            "'NoDecay' will be deprecated in future versions. Use 'FullConn' instead.",
             DeprecationWarning,
         )
 

@@ -2,6 +2,8 @@ from typing import Optional
 
 from paibox.base import PAIBoxObject
 
+__all__ = ["Probe"]
+
 
 class Probe(PAIBoxObject):
     _avoid_name_conflict = True

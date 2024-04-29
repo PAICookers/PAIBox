@@ -3,9 +3,8 @@ from typing import Tuple
 import numpy as np
 import pytest
 
+from paibox.components.synapses import transforms as tfm
 from paibox.exceptions import AutoOptimizationWarning
-from paibox.synapses.transforms import *
-from paibox.synapses.transforms import Transform
 from paibox.utils import shape2num
 
 
@@ -28,8 +27,8 @@ class TestTransforms:
         ],
     )
     def test_weight_dtype_convert(self, weight, expected_dtype):
-        tfm = Transform(weight)
-        assert tfm.weights.dtype == expected_dtype
+        t = tfm.Transform(weight)
+        assert t.weights.dtype == expected_dtype
 
     @pytest.mark.parametrize(
         "weight, expected_dtype",
@@ -45,9 +44,9 @@ class TestTransforms:
     )
     def test_weight_dtype_convert_warning(self, weight, expected_dtype):
         with pytest.warns(AutoOptimizationWarning):
-            tfm = Transform(weight)
+            t = tfm.Transform(weight)
 
-        assert tfm.weights.dtype == expected_dtype
+        assert t.weights.dtype == expected_dtype
 
     @pytest.mark.parametrize(
         "weight",
@@ -63,7 +62,7 @@ class TestTransforms:
     )
     def test_weight_dtype_convert_illegal(self, weight):
         with pytest.raises((TypeError, ValueError)):
-            tfm = Transform(weight)
+            t = tfm.Transform(weight)
 
     @pytest.mark.parametrize(
         "weight",
@@ -88,7 +87,7 @@ class TestTransforms:
     )
     def test_OneToOne_dtype(self, weight):
         num = 3
-        f = OneToOne(num, weight)
+        f = tfm.OneToOne(num, weight)
         x = np.array([1, 0, 1], dtype=np.bool_)
         y = f(x)
         expected = x * weight
@@ -100,16 +99,16 @@ class TestTransforms:
 
     def test_OneToOne(self):
         weight = np.array([1, 2, 3, 4], dtype=np.int8)
-        f = OneToOne(4, weight)
+        f = tfm.OneToOne(4, weight)
         assert f.connectivity.shape == (4, 4)
 
         # The last spike is an array.
-        x1 = np.array([1, 2, 3, 4], dtype=np.int8)
+        x1 = np.array([0, 1, 1, 0], dtype=np.bool_)
         y = f(x1)
         assert y.shape == (4,)
 
         # The last spike is a scalar.
-        x2 = np.array(2, dtype=np.int8)
+        x2 = np.array(1, dtype=np.bool_)
         y = f(x2)
         assert y.shape == (4,)
 
@@ -136,8 +135,8 @@ class TestTransforms:
         """Test `AllToAll` when weight is a scalar"""
 
         num_in, num_out = 10, 20
-        x = np.random.randint(2, size=(10,))
-        f = AllToAll((num_in, num_out), weight)
+        x = np.random.randint(2, size=(10,), dtype=np.bool_)
+        f = tfm.AllToAll((num_in, num_out), weight)
         y = f(x)
         expected = np.full((num_out,), np.sum(x, axis=None), dtype=np.int32) * weight
 
@@ -193,7 +192,7 @@ class TestTransforms:
     def test_AllToAll_array(self, shape, x, weights, expected_dtype):
         """Test `AllToAll` when weights is an array"""
 
-        f = AllToAll(shape, weights)
+        f = tfm.AllToAll(shape, weights)
         y = f(x)
         expected = x @ weights.copy().astype(np.int32)
 
@@ -232,7 +231,7 @@ class TestTransforms:
         ids=["weights_int8_1", "weights_int8_2", "weights_bool", "weights_int8_3"],
     )
     def test_MaskedLinear_conn(self, shape, x, weights, expected_dtype):
-        f = MaskedLinear(shape, weights)
+        f = tfm.MaskedLinear(shape, weights)
         y = f(x)
         expected = x @ weights.copy().astype(np.int32)
 
@@ -340,7 +339,7 @@ class TestTransforms:
 
         out_shape = ((in_shape[0] + 2 * padding[0] - kernel_size[0]) // stride[0] + 1,)
 
-        f = Conv1dForward(in_shape, out_shape, kernel, stride, padding)
+        f = tfm.Conv1dForward(in_shape, out_shape, kernel, stride, padding)
 
         x = np.random.randint(0, 2, size=fm_shape, dtype=np.bool_)
         xf = x.ravel()
@@ -464,7 +463,7 @@ class TestTransforms:
             (in_shape[1] + 2 * padding[1] - kernel_size[1]) // stride[1] + 1,
         )
 
-        f = Conv2dForward(in_shape, out_shape, kernel, stride, padding)
+        f = tfm.Conv2dForward(in_shape, out_shape, kernel, stride, padding)
 
         xf = x.ravel()
 
@@ -603,7 +602,7 @@ class TestTransforms:
             + kernel_size[0]
             + output_padding[0],
         )
-        f = ConvTranspose1dForward(
+        f = tfm.ConvTranspose1dForward(
             in_shape, out_shape, kernel, stride, padding, output_padding
         )
 
@@ -763,7 +762,7 @@ class TestTransforms:
             + output_padding[1],
         )
 
-        f = ConvTranspose2dForward(
+        f = tfm.ConvTranspose2dForward(
             in_shape, out_shape, kernel, stride, padding, output_padding
         )
 

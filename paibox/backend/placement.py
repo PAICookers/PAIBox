@@ -25,9 +25,8 @@ from paicorelib import (
 )
 from paicorelib import WeightPrecision as WP
 
-from paibox.base import NeuDyn, PAIBoxObject
+from paibox.base import NeuDyn, PAIBoxObject, SynSys
 from paibox.exceptions import BuildError, ResourceError, TruncationWarning
-from paibox.synapses import SynSys
 from paibox.types import WeightType
 from paibox.utils import check_attr_same, count_unique_elem
 

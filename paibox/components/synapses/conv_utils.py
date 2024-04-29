@@ -1,37 +1,17 @@
 from functools import partial
 from itertools import repeat
-from typing import Any, Iterable, Literal, Tuple, TypeVar, Union
+from typing import Any, Iterable
 
 import numpy as np
 from numpy.typing import NDArray
 
 from paibox.exceptions import ShapeError
-from paibox.types import SynOutType, WeightType
+from paibox.types import SpikeType, SynOutType, WeightType
 
-T = TypeVar("T")
-
-_TupleAnyType = Union[T, Tuple[T, ...]]
-_Tuple1Type = Union[T, Tuple[T]]
-_Tuple2Type = Union[T, Tuple[T, T]]
-_Tuple3Type = Union[T, Tuple[T, T, T]]
-
-_SizeAnyType = _TupleAnyType[int]
-_Size1Type = _Tuple1Type[int]
-_Size2Type = _Tuple2Type[int]
-_Size3Type = _Tuple3Type[int]
-
-SizeAnyType = Tuple[int, ...]
-Size1Type = Tuple[int]
-Size2Type = Tuple[int, int]
-Size3Type = Tuple[int, int, int]
-
-_Order2d = Literal["CL", "LC"]  # Feature map order in 2d
-_Order3d = Literal["CHW", "HWC"]  # Feature map order in 3d
-_KOrder3d = Literal["OIL", "IOL"]  # Kernel order in 3d
-_KOrder4d = Literal["OIHW", "IOHW"]  # Kernel order in 4d
+from .conv_types import Size1Type, Size2Type, Size3Type, SizeAnyType, _Order2d, _Order3d
 
 
-def _ntuple(x, n: int) -> Tuple[Any, ...]:
+def _ntuple(x, n: int):
     if isinstance(x, Iterable):
         return tuple(x)
 
@@ -99,9 +79,15 @@ def _conv1d_unroll(
                 i,
             ] = kernel[ch_idx[0], ch_idx[1], :]
 
-        t = zeros_image[:, :, i].T
+        # if fm_order == "CL":
+        # (cin*il, cout) -> (cout, cin*il)
+        temp = zeros_image[:, :, i].T
+        # else:
+        #     # (cin*il, cout) -> (cout, il, cin)
+        #     temp = zeros_image[:, :, i].reshape(cin, il, cout).transpose()
+
         for o_ch in range(cout):
-            w_unrolled_np[:, i + o_ch * ol] = t[o_ch].ravel()
+            w_unrolled_np[:, i + o_ch * ol] = temp[o_ch].ravel()
 
     # Remove the part of the padding in the w_unrolled_no_padding
     # That is, remove useless weight in the w_unrolled_no_padding
@@ -157,6 +143,14 @@ def _conv2d_unroll(
                 .reshape(cin * ih, cout, iw)
                 .transpose(1, 0, 2)
             )
+            # else:
+            #     # (cin*ih, cout, iw) -> (cout, cin, ih, iw)
+            #     temp = (
+            #         zeros_image[:, :, i * ow + j]
+            #         .reshape(cin, ih, cout, iw)
+            #         .transpose(2, 1, 3, 0)
+            #     )
+
             for o_ch in range(cout):
                 w_unrolled_np[:, i * ow + j + o_ch * out_size] = t[o_ch].ravel()
 
@@ -182,6 +176,90 @@ def _conv2d_unroll(
     return w_unrolled
 
 
+def _pool2d_kernel_unroll(
+    channels: int,
+    in_shape: Size2Type,
+    out_shape: Size2Type,
+    ksize: Size2Type,
+    stride: Size2Type,
+    # padding: Size2Type,
+    # fm_order: str,
+) -> WeightType:
+    kh, kw = ksize
+    ih, iw = in_shape
+    oh, ow = out_shape
+    in_size = ih * iw
+    out_size = oh * ow
+
+    w_unrolled = np.zeros((channels * in_size, channels * out_size), dtype=np.bool_)
+
+    for i in range(oh):
+        for j in range(ow):
+            zeros_image = np.zeros((channels * ih, iw * channels), dtype=np.bool_)
+            for i_ch in range(channels):
+                zeros_image[
+                    (i * stride[0] + i_ch * ih) : (i * stride[0] + i_ch * ih) + kh,
+                    (j * stride[1] + i_ch * iw) : (j * stride[1] + i_ch * iw) + kw,
+                ] = 1
+
+            temp = zeros_image.reshape((channels * ih, channels, iw)).transpose(1, 0, 2)
+
+            for o_ch in range(channels):
+                w_unrolled[:, i * ow + j + o_ch * oh * ow] = temp[o_ch].ravel()
+
+    return w_unrolled
+
+
+def _func_pool2d(
+    x_chw: SpikeType,
+    out_shape: Size2Type,
+    ksize: Size2Type,
+    stride: Size2Type,
+    padding: Size2Type,
+    type: str,
+) -> SpikeType:
+    xcin, xh, xw = x_chw.shape
+    kh, kw = ksize
+    oh, ow = out_shape
+    cout = xcin
+
+    assert (xh + padding[0] * 2 - kh) // stride[0] + 1 == oh
+    assert (xw + padding[1] * 2 - kw) // stride[1] + 1 == ow
+
+    out = np.zeros((cout, oh, ow), dtype=np.int32)
+    x_padded = np.pad(
+        x_chw,
+        ((0, 0), (padding[0], padding[0]), (padding[1], padding[1])),
+        mode="constant",
+    )
+
+    for c in range(cout):
+        for i in range(oh):
+            for j in range(ow):
+                if type == "avg":
+                    out[c, i, j] = np.sum(
+                        x_padded[
+                            c,
+                            stride[0] * i : stride[0] * i + kh,
+                            stride[1] * j : stride[1] * j + kw,
+                        ]
+                    )
+                else:
+                    out[c, i, j] = np.max(
+                        x_padded[
+                            c,
+                            stride[0] * i : stride[0] * i + kh,
+                            stride[1] * j : stride[1] * j + kw,
+                        ]
+                    )
+
+    if type == "avg":
+        thres = kh * kw // 2 + 1
+        return out >= thres
+    else:
+        return out.astype(np.bool_)
+
+
 def _conv1d_faster(
     x_cl: NDArray[Any],
     out_shape: Size1Type,
@@ -189,6 +267,10 @@ def _conv1d_faster(
     stride: Size1Type,
     padding: Size1Type,
 ) -> SynOutType:
+    """Faster 1d convolution.
+
+    XXX: The case where the input feature map is in 'LC' order is not considered for the time being.
+    """
     xc, xl = x_cl.shape
     # (O, I, L)
     cout, cin, kl = kernel.shape
@@ -215,7 +297,12 @@ def _conv2d_faster(
     kernel: WeightType,
     stride: Size2Type,
     padding: Size2Type,
+    # fm_order: str,
 ) -> SynOutType:
+    """Faster 2d convolution.
+
+    XXX: The case where the input feature map is in 'HWC' order is not considered for the time being.
+    """
     xc, xh, xw = x_chw.shape
     # (O, I, H, W)
     cout, cin, kh, kw = kernel.shape

@@ -46,6 +46,12 @@ class SimulationError(PAIBoxError, RuntimeError):
     pass
 
 
+class FunctionalError(PAIBoxError, RuntimeError):
+    """Functional errors, usually hardware related register."""
+
+    pass
+
+
 class ResourceError(PAIBoxError):
     """Resource usage exceeds hardware limit."""
 

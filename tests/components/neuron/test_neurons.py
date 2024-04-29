@@ -6,6 +6,7 @@ import pytest
 from paicorelib import LCM, LDM, LIM, NTM, RM, SIM, TM, NeuronAttrs
 
 import paibox as pb
+from paibox.components import Neuron
 from paibox.utils import as_shape, shape2num
 
 
@@ -54,7 +55,7 @@ class TestNeuronBehavior:
         ],
     )
     def test_neuronal_charge(self, incoming_v, x, expected):
-        n1 = pb.neuron.Neuron(
+        n1 = Neuron(
             2,
             self.reset_mode,
             self.reset_v,
@@ -101,7 +102,7 @@ class TestNeuronBehavior:
         ],
     )
     def test_neuronal_leak(self, lim, ld, incoming_v, leak_v, expected):
-        n1 = pb.neuron.Neuron(
+        n1 = Neuron(
             2,
             self.reset_mode,
             self.reset_v,
@@ -133,7 +134,7 @@ class TestNeuronBehavior:
         mask = 3
         leak_v = 2
 
-        n1 = pb.neuron.Neuron(
+        n1 = Neuron(
             2,
             self.reset_mode,
             self.reset_v,
@@ -169,7 +170,7 @@ class TestNeuronBehavior:
         pos_thres = 2
         incoming_v = 10
 
-        n1 = pb.neuron.Neuron(
+        n1 = Neuron(
             1,
             reset_mode,
             reset_v,
@@ -215,7 +216,7 @@ class TestNeuronBehavior:
         neg_thres = -(1 << 29)
         pos_thres = 1 << 29
 
-        n1 = pb.neuron.Neuron(
+        n1 = Neuron(
             1,
             RM.MODE_NORMAL,
             reset_v,
@@ -291,7 +292,7 @@ def test_neuron_copy():
     n2.unrolling_factor = 2
     n2._tws = 10
 
-    assert isinstance(n2, pb.neuron.Neuron)
+    assert isinstance(n2, Neuron)
     assert n1.name != n2.name
     assert n1.unrolling_factor != n2.unrolling_factor
     assert n1._tws != n2._tws
@@ -381,8 +382,8 @@ class TestNeuronSim:
         net = build_Net3
         sim = pb.Simulator(net)
 
-        # n1 works on 1 <= T <= 1+5-1
-        # n2 works on 2 <= T <= 2+6-1
+        # n1 works on T in [1, 1+5-1]
+        # n2 works on T in [2, 2+6-1]
         monkeypatch.setattr(net.n1, "_tws", 1)
         monkeypatch.setattr(net.n1, "_twe", 5)
         monkeypatch.setattr(net.n2, "_tws", 2)
@@ -418,7 +419,6 @@ class TestNeuronSim:
             def __init__(self):
                 super().__init__()
                 self.inp1 = pb.InputProj(input=None, shape_out=(1,))
-
                 self.n1 = pb.Always1Neuron(shape=(1,), tick_wait_start=1)
                 self.s1 = pb.FullConn(
                     self.inp1, self.n1, weights=0, conn_type=pb.SynConnType.One2One
@@ -436,3 +436,67 @@ class TestNeuronSim:
         assert np.array_equal(
             sim.data[net.probe1], 20 * [np.ones((1,), dtype=np.bool_)]
         )
+
+    def test_SpikingRelu_behavior(self):
+        class Net(pb.Network):
+            def __init__(self):
+                super().__init__()
+                self.inp1 = pb.InputProj(input=None, shape_out=(1,))
+                self.n1 = pb.SpikingRelu(shape=(1,), tick_wait_start=1)
+                self.s1 = pb.FullConn(
+                    self.inp1, self.n1, conn_type=pb.SynConnType.One2One
+                )
+
+                self.probe1 = pb.Probe(self.n1, "spike")
+
+        net = Net()
+        sim = pb.Simulator(net)
+
+        inp = np.random.randint(0, 2, size=(20, 1), dtype=np.bool_)
+
+        for t in range(20):
+            net.inp1.input = inp[t]
+            sim.run(1)
+
+        for t in range(20):
+            assert np.array_equal(sim.data[net.probe1][t], inp[t])
+
+    @pytest.mark.parametrize("n_window", [4, 6, 8, 9, 12, 16, 25, 32, 36, 49])
+    def test_AvgPoolNeuron_behavior(self, n_window):
+        """
+        NOTE: This neuron is used in `functional.SpikingAvgPool2d` & its basic functions need   \
+            to be verified here.
+        """
+        from paibox.components import Neuron
+
+        # ksize[0] * ksize[1]
+        class Net(pb.Network):
+            def __init__(self):
+                super().__init__()
+                self.inp1 = pb.InputProj(input=None, shape_out=(n_window,))
+
+                self.n1 = Neuron(
+                    shape=(1,),
+                    leak_comparison=LCM.LEAK_BEFORE_COMP,
+                    leak_v=-(n_window // 2),
+                    neg_threshold=0,
+                    tick_wait_start=1,
+                )
+                self.s1 = pb.FullConn(
+                    self.inp1, self.n1, conn_type=pb.SynConnType.All2All
+                )
+
+                self.probe1 = pb.Probe(self.n1, "spike")
+
+        net = Net()
+        sim = pb.Simulator(net)
+
+        # Generate upper triangular matrix where the number of 1's increases in sequence.
+        inp = np.tril(np.ones((1 + n_window, n_window), dtype=np.bool_))
+
+        for t in range(1 + n_window):
+            net.inp1.input = inp[t]
+            sim.run(1)
+
+            expected = t >= (n_window // 2)
+            assert sim.data[net.probe1][t][0] == expected

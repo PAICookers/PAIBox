@@ -116,16 +116,16 @@ class Collector(dict, Generic[_KT, _VT]):
 
         return gather
 
-    def subset(self, obj_type: Type[_T]) -> "Collector":
-        gather = type(self)()
+    def subset(self, obj_type: Type[_T]) -> "Collector[_KT, _T]":
+        gather = Collector()
 
         for k, v in self.items():
             if isinstance(v, obj_type):
-                gather[k] = v  # type: ignore
+                gather[k] = v
 
         return gather
 
-    def not_subset(self, obj_type: Type[_T]) -> "Collector":
+    def not_subset(self, obj_type: Type[_T]) -> "Collector[_KT, _VT]":
         gather = type(self)()
 
         for k, v in self.items():
@@ -134,16 +134,16 @@ class Collector(dict, Generic[_KT, _VT]):
 
         return gather
 
-    def include(self, *types: Type[_T]) -> "Collector":
-        gather = type(self)()
+    def include(self, *types: Type[_T]) -> "Collector[_KT, _T]":
+        gather = Collector()
 
         for k, v in self.items():
             if isinstance(v, types):
-                gather[k] = v  # type: ignore
+                gather[k] = v
 
         return gather
 
-    def exclude(self, *types: Type[_T]) -> "Collector":
+    def exclude(self, *types: Type[_T]) -> "Collector[_KT, _VT]":
         gather = type(self)()
 
         for k, v in self.items():
@@ -152,7 +152,7 @@ class Collector(dict, Generic[_KT, _VT]):
 
         return gather
 
-    def unique(self) -> "Collector":
+    def unique(self) -> "Collector[_KT, _VT]":
         gather = type(self)()
         seen = set()
 

@@ -68,17 +68,17 @@ def shape2num(shape: Shape) -> int:
         return a
 
 
-def as_shape(shape, min_dim: int = 0) -> Tuple[int, ...]:
-    """Convert a shape to a tuple, like (1,), (10,), or (10, 20)"""
-    if is_integer(shape):
-        _shape = (shape,)
-    elif is_iterable(shape):
-        _shape = tuple(shape)
+def as_shape(x, min_dim: int = 0) -> Tuple[int, ...]:
+    """Return a tuple if `x` is iterable or `(x,)` if `x` is integer."""
+    if is_integer(x):
+        _shape = (x,)
+    elif is_iterable(x):
+        _shape = tuple(x)
     else:
-        raise ValueError(f"cannot make a shape for {shape}.")
+        raise ValueError(f"{x} cannot be safely converted to a shape.")
 
     if len(_shape) < min_dim:
-        _shape = tuple([1] * (min_dim - len(_shape))) + _shape
+        _shape = (1,) * (min_dim - len(_shape)) + _shape
 
     return _shape
 

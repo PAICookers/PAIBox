@@ -1,16 +1,16 @@
 import warnings
 from enum import Enum, auto, unique
+from typing import Literal
 
 import numpy as np
 from paicorelib import WeightPrecision as WP
 
 from paibox.exceptions import AutoOptimizationWarning, ShapeError
-from paibox.types import DataArrayType, IntScalarType, SynOutType, WeightType
+from paibox.types import DataArrayType, IntScalarType, SpikeType, SynOutType, WeightType
 from paibox.utils import is_shape
 
+from .conv_types import Size1Type, Size2Type
 from .conv_utils import (
-    Size1Type,
-    Size2Type,
     _conv1d_faster,
     _conv1d_unroll,
     _conv2d_faster,
@@ -19,15 +19,15 @@ from .conv_utils import (
     _convtranspose1d_unroll,
     _convtranspose2d_faster,
     _convtranspose2d_unroll,
+    _func_pool2d,
+    _pool2d_kernel_unroll,
 )
 
 __all__ = [
-    "GeneralConnType",
     "OneToOne",
     "AllToAll",
     "Identity",
     "MaskedLinear",
-    "Conv1dForward",
     "Conv2dForward",
     "ConvTranspose1dForward",
     "ConvTranspose2dForward",
@@ -191,14 +191,14 @@ class OneToOne(Transform):
                 f"the ndim of weights must be 0 or 1, but got {self.weights.ndim}."
             )
 
-    def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
+    def __call__(self, x: SpikeType, *args, **kwargs) -> SynOutType:
         # (N,) * (N,) -> (N,)
         return x * self.weights.astype(np.int32)
 
     @property
     def connectivity(self):
         return (
-            (self.weights * np.eye(self.num, dtype=np.bool_))
+            (self.weights * np.identity(self.num, dtype=np.bool_))
             if self.weights.ndim == 0
             else np.diag(self.weights)
         )
@@ -239,7 +239,7 @@ class AllToAll(Transform):
                 f"the ndim of weights must be 0 or 2, but got {self.weights.ndim}."
             )
 
-    def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
+    def __call__(self, x: SpikeType, *args, **kwargs) -> SynOutType:
         """
         NOTE:
             - When weights is a scalar, the output is a scalar (sum * w) & repeated     \
@@ -272,7 +272,7 @@ class MaskedLinear(Transform):
 
         super().__init__(weights)
 
-    def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
+    def __call__(self, x: SpikeType, *args, **kwargs) -> SynOutType:
         # (N,) @ (N, M) -> (M,)
         return x @ self.weights.astype(np.int32)
 
@@ -299,7 +299,7 @@ class Conv1dForward(Transform):
 
         super().__init__(kernel)
 
-    def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
+    def __call__(self, x: SpikeType, *args, **kwargs) -> SynOutType:
         cin = self.weights.shape[1]
 
         # if self.fm_order == "LC":
@@ -337,7 +337,7 @@ class Conv2dForward(Transform):
 
         super().__init__(kernel)
 
-    def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
+    def __call__(self, x: SpikeType, *args, **kwargs) -> SynOutType:
         cin = self.weights.shape[1]
 
         # if self.fm_order == "HWC":
@@ -454,4 +454,50 @@ class ConvTranspose2dForward(Transform):
             self.stride,
             self.padding,
             self.output_padding,
+        )
+
+
+class _Pool2dForward(Transform):
+    # DO NOT use in the `FullConnectedSyn`
+    def __init__(
+        self,
+        channels: int,
+        in_shape: Size2Type,
+        out_shape: Size2Type,
+        kernel_size: Size2Type,
+        stride: Size2Type,
+        padding: Size2Type,
+        # fm_order: _Order3d,
+        pool_type: Literal["avg", "max"],
+    ) -> None:
+        self.channels = channels
+        self.in_shape = in_shape
+        self.out_shape = out_shape
+        self.ksize = kernel_size
+        self.stride = stride
+        self.padding = padding
+        # self.fm_order = fm_order
+        self.pool_type = pool_type
+
+        super().__init__(np.asarray(1, dtype=np.int8))
+
+    def __call__(self, x: SpikeType, *args, **kwargs) -> SpikeType:
+        # if self.fm_order == "HWC":
+        #     # (N,) -> (H, W, C) -> (C, H, W)
+        #     _x = x.reshape(self.in_shape + (self.channels,)).transpose(2, 0, 1)
+        # else:
+        _x = x.reshape((self.channels,) + self.in_shape)
+
+        return _func_pool2d(
+            _x, self.out_shape, self.ksize, self.stride, self.padding, self.pool_type
+        )
+
+    @property
+    def connectivity(self):
+        return _pool2d_kernel_unroll(
+            self.channels,
+            self.in_shape,
+            self.out_shape,
+            self.ksize,
+            self.stride,
         )

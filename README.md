@@ -19,7 +19,7 @@
     </a>
 </p>
 
-PAIBox使用指南：[Guide-of-PAIBox](docs/Guide-of-PAIBox.md)
+👉 用户使用指南：[Guide-of-PAIBox](docs/Guide-of-PAIBox.md)
 
 高效编写测试项目指南：[Guide-of-Test](docs/Guide-of-Test.md)
 

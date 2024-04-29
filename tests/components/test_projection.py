@@ -99,7 +99,7 @@ class TestInputProj:
         assert sim3.data[prob3][0].shape == (100,)
 
     def test_passing_args_through_run(self):
-        def fakeout_with_args(t, bias, *args, **kwargs):
+        def fakeout_with_args(*args, bias, **kwargs):
             return np.ones((10, 10), dtype=np.int8) * bias
 
         inp = pb.InputProj(

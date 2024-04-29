@@ -74,7 +74,7 @@ class TestFullConn:
         assert (s1.num_in, s1.num_out) == (n1.num_out, n2.num_in)
         assert np.array_equal(
             s1.connectivity,
-            scalar_weight * np.eye(n1.num_out, n2.num_in, dtype=np.int8),
+            scalar_weight * np.identity(n1.num_out, dtype=np.int8),
         )
         assert (
             s1.connectivity.dtype == np.int8
@@ -270,7 +270,7 @@ class TestFullConn:
             )
 
 
-class TestConv2d:
+class TestConv:
     def test_Conv1d_instance(self):
         in_shape = (32,)
         kernel_size = (5,)
@@ -335,7 +335,7 @@ class TestConv2d:
         out_channels = 4
         korder = "IOL"
 
-        n1 = pb.IF(in_shape, 3)  # L, (in_channels=1)
+        n1 = pb.IF(in_shape, 3)  # HW, (in_channels=1)
         n2 = pb.IF((out_channels,) + out_shape, 3)
 
         weight = np.random.randint(

@@ -32,9 +32,7 @@ classifiers = [
 packages = [{ include = "paibox" }]
 
 # Includes the document
-include = ["docs", "CHANGELOG.md"]
-# Excludes the experimental code
-exclude = ["paibox/experimental"]
+include = ["docs/Guide-of-PAIBox.md", "CHANGELOG.md"]
 
 [tool.poetry.dependencies]
 python = "^3.8"
