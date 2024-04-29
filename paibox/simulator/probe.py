@@ -35,10 +35,7 @@ class Probe(PAIBoxObject):
 
     @property
     def _label_txt(self) -> str:
-        if hasattr(self, "name"):
-            return f" '{self.name}'"
-        else:
-            return ""
+        return f" '{self.name}'" if hasattr(self, "name") else ""
 
     def __str__(self) -> str:
         return f"<Probe{self._label_txt} of '{self.attr}' of {self.target}>"
