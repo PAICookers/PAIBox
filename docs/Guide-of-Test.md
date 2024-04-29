@@ -16,7 +16,7 @@ poetry install --with test
 
 ```toml
 python = "^3.8"
-pytest = "^7.4.0"
+pytest = "^8.0.0"
 ```
 
 ## 常用测试夹具
