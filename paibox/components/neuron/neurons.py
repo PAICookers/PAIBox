@@ -21,7 +21,7 @@ class IF(Neuron):
         **kwargs,
     ) -> None:
         """IF neuron.
-        
+
         Arguments:
             - shape: shape of neurons.
             - threshold: when the membrane potential exceeds the threshold, neurons will fire.
@@ -124,7 +124,7 @@ class PhasicSpiking(Neuron):
         **kwargs,
     ) -> None:
         """Phasic spiking neuron.
-        
+
         Arguments:
             - shape: shape of neurons.
             - time_to_fire: after `N` spikes, the neuron will fire positively.

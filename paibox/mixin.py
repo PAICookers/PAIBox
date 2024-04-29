@@ -3,6 +3,7 @@ from functools import wraps
 from typing import Any, Dict, Optional, Sequence, Type, TypeVar
 
 import numpy as np
+
 import paibox as pb
 
 from .context import _FRONTEND_CONTEXT

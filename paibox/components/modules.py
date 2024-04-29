@@ -1,15 +1,16 @@
 from collections import deque
 from dataclasses import dataclass, field
-import numpy as np
 from typing import ClassVar, List, Optional, Sequence, Tuple, Union
-from typing_extensions import TypeAlias
 
-from paicorelib import HwConfig, TM
+import numpy as np
+from paicorelib import TM, HwConfig
+from typing_extensions import TypeAlias
 
 from paibox.base import NeuDyn, SynSys
 from paibox.exceptions import NotSupportedError, RegisterError, ShapeError
 from paibox.types import SpikeType, VoltageType
 from paibox.utils import check_elem_unique, shape2num
+
 from .projection import InputProj
 
 __all__ = ["BuildingModule"]
@@ -328,7 +329,7 @@ class TransposeModule(FunctionalModule):
 
 class FunctionalModule2to1WithV(FunctionalModule2to1):
     """Functional module with two operands.
-    
+
     NOTE: Compared to `FunctionalModule2to1`, The difference is that we also take the \
         membrane potential voltage(vjt) into consideration.
     """

@@ -6,13 +6,7 @@ from typing_extensions import TypeAlias
 
 from .base import DynamicSys, PAIBoxObject, SynSys
 from .collector import Collector
-from .components import (
-    FullConnectedSyn,
-    NeuModule,
-    InputProj,
-    Neuron,
-    Projection,
-)
+from .components import FullConnectedSyn, InputProj, NeuModule, Neuron, Projection
 from .components.synapses.base import RIGISTER_MASTER_KEY_FORMAT
 from .exceptions import PAIBoxWarning, RegisterError
 from .mixin import Container
@@ -39,12 +33,12 @@ class DynSysGroup(DynamicSys, Container):
 
     def update(self, **kwargs) -> None:
         """Network update.
-        
+
         XXX: The hierarchy of `NeuModule` requires that its update order is after synapses & before neurons.   \
             For example, a network with topology I1 -> M1 -> S1 -> N1, where the M1 consists of S2, S3 & N2. The\
             right update order is I1 -> S1, S2, S3 -> N1, N2. So the update order inside M1 is S2, S3 -> N2, of \
             which the update order is exactly between the synapses & neurons outside the module.
-            
+
             It requires that the computing mechanism described inside modules can only be the computing process \
             from synapses (as inputs) to neurons (as outputs).
         """

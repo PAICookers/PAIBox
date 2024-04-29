@@ -6,7 +6,6 @@ import pytest
 from paicorelib import LCM, LDM, LIM, NTM, RM, SIM, TM, NeuronAttrs
 
 import paibox as pb
-
 from paibox.components import Neuron
 from paibox.utils import as_shape, shape2num
 

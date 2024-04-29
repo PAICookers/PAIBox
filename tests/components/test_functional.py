@@ -1,6 +1,5 @@
-import pytest
-import paibox as pb
 import numpy as np
+import pytest
 
 import paibox as pb
 from paibox.base import DynamicSys

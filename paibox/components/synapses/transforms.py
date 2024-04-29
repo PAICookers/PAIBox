@@ -11,10 +11,10 @@ from paibox.utils import is_shape
 
 from .conv_types import Size1Type, Size2Type
 from .conv_utils import (
-    _conv1d_unroll,
-    _conv2d_unroll,
     _conv1d_faster,
+    _conv1d_unroll,
     _conv2d_faster,
+    _conv2d_unroll,
     _convtranspose1d_faster,
     _convtranspose1d_unroll,
     _convtranspose2d_faster,

@@ -1,13 +1,14 @@
-import numpy as np
 from functools import partial
 from itertools import repeat
 from typing import Any, Iterable
+
+import numpy as np
 from numpy.typing import NDArray
 
 from paibox.exceptions import ShapeError
 from paibox.types import SpikeType, SynOutType, WeightType
 
-from .conv_types import SizeAnyType, Size1Type, Size2Type, Size3Type, _Order2d, _Order3d
+from .conv_types import Size1Type, Size2Type, Size3Type, SizeAnyType, _Order2d, _Order3d
 
 
 def _ntuple(x, n: int):

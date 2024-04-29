@@ -8,6 +8,9 @@ from paibox.base import NeuDyn, SynSys
 from paibox.exceptions import RegisterError, ShapeError
 from paibox.types import DataArrayType, SynOutType, WeightType
 
+from ..modules import BuildingModule
+from ..neuron import Neuron
+from ..projection import InputProj
 from .conv_types import _KOrder3d, _KOrder4d
 from .conv_utils import _fm_ndim1_check, _fm_ndim2_check
 from .transforms import (
@@ -16,15 +19,9 @@ from .transforms import (
     Conv2dForward,
     ConvTranspose1dForward,
     ConvTranspose2dForward,
-    GeneralConnType as GConnType,
-    Identity,
-    MaskedLinear,
-    OneToOne,
-    Transform,
 )
-from ..neuron import Neuron
-from ..modules import BuildingModule
-from ..projection import InputProj
+from .transforms import GeneralConnType as GConnType
+from .transforms import Identity, MaskedLinear, OneToOne, Transform
 
 RIGISTER_MASTER_KEY_FORMAT = "{0}.output"
 

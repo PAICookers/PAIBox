@@ -12,9 +12,10 @@ from typing import (
     TypeVar,
     Union,
 )
-from typing_extensions import TypeAlias
+
 import numpy as np
 from numpy.typing import NDArray
+from typing_extensions import TypeAlias
 
 Shape = TypeVar("Shape", int, Tuple[int, ...], List[int])
 ArrayType = TypeVar("ArrayType", List[int], Tuple[int, ...], np.ndarray)

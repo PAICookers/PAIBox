@@ -1,5 +1,7 @@
 from typing import Literal
+
 import pytest
+
 import paibox as pb
 
 
@@ -142,9 +144,7 @@ class FunctionalModule_1to1_Net(pb.DynSysGroup):
 
 
 class SpikingPool2d_Net(pb.DynSysGroup):
-    def __init__(
-        self, fm_shape, ksize, stride, pool_type
-    ):
+    def __init__(self, fm_shape, ksize, stride, pool_type):
         super().__init__()
         self.inp1 = pb.InputProj(input=_out_bypass1, shape_out=fm_shape)
         self.n1 = pb.SpikingRelu(fm_shape, tick_wait_start=1)

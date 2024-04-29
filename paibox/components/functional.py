@@ -1,10 +1,10 @@
+import warnings
 from functools import partial
 from typing import Literal, Optional, Sequence, Tuple, Union
-import warnings
 
 import numpy as np
 from numpy.typing import NDArray
-from paicorelib import LCM, TM, RM, NTM
+from paicorelib import LCM, NTM, RM, TM
 
 from paibox.base import NeuDyn
 from paibox.exceptions import FunctionalError, PAIBoxWarning, ShapeError
@@ -23,9 +23,10 @@ from .neuron import Neuron
 from .neuron.neurons import *
 from .neuron.utils import VJT_MIN_LIMIT, _is_vjt_overflow
 from .projection import InputProj
-from .synapses import FullConnSyn, GeneralConnType as GConnType
+from .synapses import FullConnSyn
+from .synapses import GeneralConnType as GConnType
 from .synapses.conv_types import _Size2Type
-from .synapses.conv_utils import _pair, _fm_ndim2_check
+from .synapses.conv_utils import _fm_ndim2_check, _pair
 from .synapses.transforms import _Pool2dForward
 
 __all__ = [
@@ -61,7 +62,7 @@ class BitwiseAND(FunctionalModule2to1):
         **kwargs,
     ) -> None:
         """Bitwise AND module. Do a bitwise AND of the output spike of two neurons & output.
-        
+
         Args:
             - neuron_a: the first operand.
             - neuron_b: the second operand.
@@ -74,7 +75,7 @@ class BitwiseAND(FunctionalModule2to1):
             - keep_shape: whether to maintain size information when recording data in the simulation.       \
                 Default is `False`.
             - name: name of the module. Optional.
-        
+
         NOTE: the inherent delay of the module is 0. It means that under the default delay(=1) setting, the \
             input data is input at time T, and the result output at time T+1.
         """
