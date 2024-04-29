@@ -454,11 +454,11 @@ class Mapper:
 
                     if hasattr(CoordOffset, "from_offset"):
                         # For paicorelib > 0.0.13
-                        raise NotImplementedError
+                        cur_ocoord = ocoord + CoordOffset.from_offset(offset_idx)
                     else:
                         # For paicorelib <= 0.0.13
                         cur_ocoord = ocoord + CoordOffset(
-                            offset_idx % 32, offset_idx // 32
+                            offset_idx // 32, offset_idx % 32
                         )
 
                     output_axon_offset = core_plm.export_neu_config(
@@ -488,10 +488,10 @@ class Mapper:
 
                 if hasattr(CoordOffset, "from_offset"):
                     # For paicorelib > 0.0.13
-                    raise NotImplementedError
+                    cur_ocoord = ocoord + CoordOffset.from_offset(offset_idx)
                 else:
                     # For paicorelib <= 0.0.13
-                    cur_ocoord = ocoord + CoordOffset(offset_idx % 32, offset_idx // 32)
+                    cur_ocoord = ocoord + CoordOffset(offset_idx // 32, offset_idx % 32)
 
                 output_axon_offset = core_plm.export_neu_config(
                     neu_seg,

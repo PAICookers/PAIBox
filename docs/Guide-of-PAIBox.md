@@ -18,7 +18,7 @@ poetry install
 python = "^3.8"
 pydantic = "^2.0"
 numpy = "^1.24.0"
-paicorelib = "0.0.13"
+paicorelib = "^1.0.0"
 ```
 
 通过pip安装PAIBox：
@@ -534,7 +534,7 @@ print(output)
  [3 3 3 3]]
 ```
 
-当函数需要时间步信息，则可在函数中声明传入参数 `t` ，输入节点则在前端环境变量 `FRONTEND_ENV` 中获取时间步信息。当需要传入额外的参数时，通过 `FRONTEND_ENV.save()` 保存相关参数至前端环境变量。当函数与时间步或其他参数无关时，可使用 `**kwargs` 代替。以下为一个简单实例：
+当函数需要时间步信息，则可在函数中声明传入参数 `t` ，输入节点则在前端环境变量 `FRONTEND_ENV` 中获取时间步信息。当需要传入额外的参数时，通过 `FRONTEND_ENV.save()` 保存相关参数至前端环境变量。当函数与时间步或其他参数无关时，需使用 `**kwargs` 代替。以下为一个简单实例：
 
 ```python
 from paibox import FRONTEND_ENV

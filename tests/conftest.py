@@ -1,3 +1,6 @@
+import os
+import tempfile
+from pathlib import Path
 from typing import Any, List, Optional, TypedDict
 
 import numpy as np
@@ -5,6 +8,39 @@ import pytest
 from typing_extensions import NotRequired
 
 import paibox as pb
+from paibox.naming import clear_name_cache
+
+
+@pytest.fixture(scope="module")
+def ensure_dump_dir():
+    p = Path(__file__).parent / "debug"
+
+    if not p.is_dir():
+        p.mkdir(parents=True, exist_ok=True)
+    else:
+        for f in p.iterdir():
+            f.unlink()
+
+    yield p
+    # Clean up
+    # for f in p.iterdir():
+    #     f.unlink()
+
+
+@pytest.fixture
+def cleandir():
+    with tempfile.TemporaryDirectory() as newpath:
+        old_cwd = os.getcwd()
+        os.chdir(newpath)
+        yield
+        os.chdir(old_cwd)
+
+
+@pytest.fixture(autouse=True)
+def clean_name_dict():
+    """Clean the global name dictionary after each test automatically."""
+    yield
+    clear_name_cache(ignore_warn=True)
 
 
 class ParametrizedTestData(TypedDict):
@@ -198,6 +234,11 @@ def build_Network_with_container():
 @pytest.fixture(scope="class")
 def build_multi_inodes_onodes():
     return Network_with_multi_inodes_onodes()
+
+
+@pytest.fixture(scope="class")
+def build_Nested_Net_L1():
+    return Nested_Net_L1()
 
 
 @pytest.fixture(scope="class")

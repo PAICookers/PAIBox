@@ -24,6 +24,7 @@ _IdPathType: TypeAlias = Tuple[int, int]
 
 class PAIBoxObject:
     _excluded_vars = ()
+    _avoid_name_conflict: ClassVar[bool] = False
 
     def __init__(self, name: Optional[str] = None) -> None:
         self._name: str = self.unique_name(name)
@@ -53,7 +54,7 @@ class PAIBoxObject:
 
             return get_unique_name(__type)
 
-        is_name_unique(name, self)
+        is_name_unique(name, self, self._avoid_name_conflict)
         return name
 
     @property

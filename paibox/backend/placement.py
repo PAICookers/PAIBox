@@ -766,10 +766,6 @@ class EmptyCorePlacement(CoreAbstract):
     def n_core_required(self):
         return 1
 
-    @property
-    def shape(self) -> Tuple[int, int]:
-        return (0, 0)
-
 
 def max_lcn_of_cb(cb: List[CoreBlock]) -> LCN_EX:
     """Find the max LCN extenion of previous grouped synapses"""

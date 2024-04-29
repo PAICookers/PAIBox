@@ -35,8 +35,10 @@ repos:
       - id: check-json
       - id: check-toml
       - id: check-symlinks
+      - id: check-merge-conflict
       - id: mixed-line-ending
       - id: name-tests-test
+      - id: requirements-txt-fixer
         args: [--pytest-test-first]
 
   - repo: https://github.com/python-poetry/poetry

@@ -257,11 +257,14 @@ def get_neu_segments(
     repl_prop: int,
     optim_target: Literal["latency", "core", "both"],
 ) -> NeuSegOfCoreBlock:
-    """Get the neuron segments by given a optimization strategy.
+    """Get the neuron segments with a optimization strategy.
 
     Args:
-        - optim_target: Target of optimization. 'catagory' strategy intends to optimize the throughput  \
-            of nodes. The 'dense' strategy intends to optimize the consumption of cores.
+        - neu_groups: group of neurons in the core block.
+        - capacity: #N of neurons that can be accommodated in a core.
+        - repl_prop: the proportion of neuron replication.
+        - optim_target: optimization target. 'latency' strategy intends to optimize the latency of nodes. \
+            'core' strategy intends to optimize the consumption of cores.
     """
     if optim_target == "core":
         seg_slices_dict = _get_neu_slices_opt_core(neu_groups, capacity)

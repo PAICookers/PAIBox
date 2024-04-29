@@ -11,7 +11,7 @@ from .mixin import Container
 from .neuron import Neuron
 from .node import NodeDict
 from .projection import InputProj, Projection
-from .synapses import RIGISTER_MASTER_KEY_FORMAT, SynSys
+from .synapses.base import RIGISTER_MASTER_KEY_FORMAT, SynSys
 
 __all__ = ["DynSysGroup", "Network"]
 

@@ -12,13 +12,7 @@ from .node import NodeList as NodeList
 from .projection import InputProj as InputProj
 from .simulator import Probe as Probe
 from .simulator import Simulator as Simulator
-from .synapses import Conv1d as Conv1d
-from .synapses import Conv2d as Conv2d
-from .synapses import ConvTranspose1d as ConvTranspose1d
-from .synapses import ConvTranspose2d as ConvTranspose2d
-from .synapses import FullConn as FullConn
-from .synapses import GeneralConnType as SynConnType
-from .synapses import NoDecay as NoDecay
+from .synapses import *
 
 try:
     __version__ = version("paibox")
@@ -28,7 +22,7 @@ except Exception:
 from paibox import tools
 
 # Minimum required version of paicorelib
-__plib_minimum_version__ = "0.0.13"
+__plib_minimum_version__ = "1.0.0"
 
 try:
     import paicorelib as plib
