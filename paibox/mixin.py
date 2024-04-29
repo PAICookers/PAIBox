@@ -9,7 +9,7 @@ import paibox as pb
 
 from .context import _FRONTEND_CONTEXT
 from .exceptions import RegisterError
-from .naming import get_unique_name
+from .generic import get_unique_name
 from .node import NodeDict
 
 _T = TypeVar("_T")
@@ -28,7 +28,10 @@ def singleton(cls):
 
 
 def prevent(func):
-    """Decorate function with this to prevent raising an Exception when an error is encountered."""
+    """
+    Decorate func with this to prevent raising an Exception when \
+    an error is encountered.
+    """
 
     @wraps(func)
     def wrapper(*args, **kwargs):
@@ -41,9 +44,11 @@ def prevent(func):
 
 
 def check(attr):
-    """Decorate function with this to check whether the object has an attribute with the given name."""
-
     def decorator(method):
+        """
+        Decorate method with this to check whether the object \
+        has an attribute with the given name.
+        """
 
         @wraps(method)
         def wrapper(self, *args, **kwargs):
@@ -70,7 +75,7 @@ class Container(MixIn):
         if item in self.children:
             return self.children[item]
 
-        raise KeyError(f"key '{item}' not found.")
+        raise KeyError(f"Key '{item}' not found.")
 
     def _get_elem_name(self, elem: object) -> str:
         if isinstance(elem, pb.base.PAIBoxObject):
@@ -94,7 +99,7 @@ class Container(MixIn):
                 for c in child:
                     if not isinstance(c, child_type):
                         raise ValueError(
-                            f"expect type {child_type.__name__}, but got {type(c)}."
+                            f"Expect type {child_type.__name__}, but got {type(c)}."
                         )
                     elems[self._get_elem_name((c))] = c
 
@@ -102,18 +107,18 @@ class Container(MixIn):
                 for k, v in child.items():
                     if not isinstance(v, child_type):
                         raise ValueError(
-                            f"expect type {child_type.__name__}, but got {type(c)}."
+                            f"Expect type {child_type.__name__}, but got {type(c)}."
                         )
                     elems[k] = v
             else:
                 raise TypeError(
-                    f"expect elements in dict, list or tuple, but got {type(child)}."
+                    f"Expect elements in dict, list or tuple, but got {type(child)}."
                 )
 
         for k, v in children_as_dict.items():
             if not isinstance(v, child_type):
                 raise ValueError(
-                    f"expect type {child_type.__name__}, but got {type(v)}."
+                    f"Expect type {child_type.__name__}, but got {type(v)}."
                 )
             elems[k] = v
 
@@ -129,7 +134,7 @@ class ReceiveInputProj(MixIn):
 
     def register_master(self, key: str, master_target) -> None:
         if key in self.master_nodes:
-            raise RegisterError(f"master node with key '{key}' already exists.")
+            raise RegisterError(f"Master node with key '{key}' already exists.")
 
         self.master_nodes[key] = master_target
 
@@ -137,7 +142,7 @@ class ReceiveInputProj(MixIn):
         if key in self.master_nodes:
             return self.master_nodes.pop(key, None)
         elif strict:
-            raise KeyError(f"key '{key}' not found in master nodes.")
+            raise KeyError(f"Key '{key}' not found in master nodes.")
 
     def get_master_node(self, key: str) -> Optional[Any]:
         return self.master_nodes.get(key, None)
@@ -184,17 +189,17 @@ class StatusMemory(MixIn):
 
     def set_memory(self, name: str, value: Any) -> None:
         if hasattr(self, name):
-            raise AttributeError(f"'{name}' has been set as a member variable.")
+            raise AttributeError(f"'{name}' has been set as a member variable!")
 
         self._memories[name] = value
         self.set_reset_value(name, value)
 
-    def reset_memory(self, name: Optional[str] = None) -> None:
+    def reset(self, name: Optional[str] = None) -> None:
         if isinstance(name, str):
             if name in self._memories:
                 self._memories[name] = deepcopy(self._memories_rv[name])
             else:
-                raise KeyError(f"key '{name}' not found.")
+                raise KeyError(f"Key '{name}' not found!")
         else:
             for k in self._memories.keys():
                 self._memories[k] = deepcopy(self._memories_rv[k])
@@ -204,11 +209,11 @@ class StatusMemory(MixIn):
 
     def __getattr__(self, name: str) -> Any:
         if "_memories" in self.__dict__:
-            _memories = self.__dict__["_memories"]
-            if name in _memories:
+            _memories = self.__dict__.get("_memories")
+            if _memories is not None and name in _memories:
                 return _memories[name]
 
-        raise AttributeError(f"attribute '{name}' not found.")
+        raise AttributeError(f"Attribute '{name}' not found!")
 
     def __setattr__(self, name: str, value: Any) -> None:
         _memories = self.__dict__.get("_memories")

@@ -30,20 +30,12 @@ class _BackendContext(_Context):
         self["local_chip_addr"] = to_coord(addr)
 
     @property
-    def output_chip_addr(self) -> Coord:
-        return self["output_chip_addr"]
-
-    @output_chip_addr.setter
-    def output_chip_addr(self, addr: CoordLike) -> None:
-        self["output_chip_addr"] = to_coord(addr)
-
-    @property
     def test_chip_addr(self) -> Coord:
-        return self.output_chip_addr
+        return self["output_chip_addr"]
 
     @test_chip_addr.setter
     def test_chip_addr(self, addr: CoordLike) -> None:
-        self.output_chip_addr = to_coord(addr)
+        self["output_chip_addr"] = to_coord(addr)
 
     @property
     def output_dir(self) -> Path:

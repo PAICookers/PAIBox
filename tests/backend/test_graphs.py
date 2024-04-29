@@ -7,16 +7,56 @@ from paibox.backend.graphs import *
 from paibox.backend.graphs import _degree_check
 from paibox.exceptions import NotSupportedError
 
-from .conftest import TestData
-
 
 class TestTopoSort:
     @pytest.mark.parametrize(
-        TestData.toposort_data["args"],
-        TestData.toposort_data["data"],
-        ids=TestData.toposort_data["ids"],
+        "edges",
+        [
+            (
+                {
+                    "inp1": {"n1"},
+                    "n1": {"n2", "n4"},
+                    "n2": {"n3"},
+                    "n3": {},
+                    "n4": {"n2"},
+                }
+            ),
+            (
+                {
+                    "inp1": {"n1"},
+                    "n1": {"n2", "n5"},
+                    "n2": {"n3"},
+                    "n3": {"n4", "n6"},
+                    "n4": {},
+                    "n5": {"n3", "n6"},
+                    "n6": {"n7"},
+                    "n7": {"n4"},
+                }
+            ),
+            (
+                {
+                    "inp1": {"n1"},
+                    "inp2": {"n4"},
+                    "n1": {"n2"},
+                    "n2": {"n3"},
+                    "n3": {},
+                    "n4": {"n5"},
+                    "n5": {"n3"},
+                }
+            ),
+            (
+                {
+                    "inp1": {"n1"},
+                    "n1": {"n2", "n3"},
+                    "n2": {"n4"},
+                    "n3": {"n4"},
+                    "n4": {},
+                }
+            ),
+        ],
+        ids=["one_input_1", "one_input_2", "multi_inputs_1", "one_input_3"],
     )
-    def test_toposort(self, nodes):
+    def test_toposort(self, edges):
         """
         Test #1: one input 1
             INP1 -> N1 -> N2 -> N3
@@ -37,13 +77,9 @@ class TestTopoSort:
         Test #4: one input 3
             INP1 -> N1 -> N2 -> N4
             N1 -> N3 -> N4
-
-        Test #5: headless neuron 1
-            INP1 -> N1 -> N2 -> N4
-            N3 -> N2
         """
-        ordered = toposort(nodes)
-        assert len(ordered) == len(nodes)
+        ordered = toposort(edges)
+        assert len(ordered) == len(edges)
 
     @pytest.mark.parametrize(
         "edges",
@@ -388,7 +424,7 @@ class TestGroupEdges:
         mapper: pb.Mapper = get_mapper
         mapper.clear()
         mapper.build(net)
-        grouped_edges, _ = mapper.graph.group_edges()
+        grouped_edges = mapper.graph.group_edges()
 
         # In this case, N2 & N3 should be together.
         pos_n2 = pos_n3 = 0
@@ -408,7 +444,7 @@ class TestGroupEdges:
 
         mapper.clear()
         mapper.build(net)
-        grouped_edges, _ = mapper.graph.group_edges()
+        grouped_edges = mapper.graph.group_edges()
 
         pos_n2 = pos_n3 = 0
         for i, g in enumerate(grouped_edges):
@@ -445,7 +481,7 @@ class TestDAGPathDistance:
 
         Return: the longest distance in the graph.
         """
-        distances: Dict[NodeName, int] = {node: 0 for node in ordered_nodes}
+        distances: Dict[NodeName, int] = defaultdict(int)  # init value = 0
         pred_nodes: Dict[NodeName, NodeName] = defaultdict()
 
         for node in ordered_nodes:
@@ -472,9 +508,79 @@ class TestDAGPathDistance:
         return path, distance
 
     @pytest.mark.parametrize(
-        TestData.get_longest_path_data["args"],
-        TestData.get_longest_path_data["data"],
-        ids=TestData.get_longest_path_data["ids"],
+        "edges, expected_path, expected_distance",
+        [
+            (
+                # inp1 -> n1 -> n4 -> n2 -> n3, 1+1+1+1=4
+                {
+                    "inp1": {"n1": 1},
+                    "n1": {"n2": 1, "n4": 1},
+                    "n2": {"n3": 1},
+                    "n3": {},
+                    "n4": {"n2": 1},
+                },
+                ["inp1", "n1", "n4", "n2", "n3"],
+                4,
+            ),
+            (
+                # inp1 -> n1 -> n3 -> n4, 1+2+5=8
+                {
+                    "inp1": {"n1": 1},
+                    "n1": {"n2": 3, "n3": 2},
+                    "n2": {"n4": 2},
+                    "n3": {"n4": 5},
+                    "n4": {},
+                },
+                ["inp1", "n1", "n3", "n4"],
+                8,
+            ),
+            (
+                # inp1 -> n1 -> n2 -> n3, 1+2+1=4
+                {
+                    "inp1": {"n1": 1},
+                    "inp2": {"n2": 1},
+                    "n1": {"n2": 2},
+                    "n2": {"n3": 1},
+                    "n3": {},
+                },
+                ["inp1", "n1", "n2", "n3"],
+                4,
+            ),
+            (
+                # inp1 -> n1 -> n3 -> n5, 1+2+1=4
+                {
+                    "inp1": {"n1": 1},
+                    "n1": {"n2": 1, "n3": 2},
+                    "n2": {"n4": 1, "n5": 1},
+                    "n3": {"n4": 1},
+                    "n4": {},
+                    "n5": {},
+                },
+                ["inp1", "n1", "n3", "n4"],
+                4,
+            ),
+            (
+                # inp2 -> n5 -> n4, 4+1=5
+                {
+                    "inp1": {"n1": 1},
+                    "inp2": {"n5": 4},
+                    "n1": {"n2": 1, "n3": 1},
+                    "n2": {"n5": 1},
+                    "n3": {"n4": 1},
+                    "n4": {},
+                    "n5": {"n4": 1},
+                },
+                ["inp2", "n5", "n4"],
+                5,
+            ),
+        ],
+        ids=[
+            "one_input_1",
+            "one_input_2",
+            "multi_inputs_1",
+            "multi_outputs_1",
+            "multi_inputs_outputs_1",
+        ],
     )
     def test_get_longest_path_proto(self, edges, expected_path, expected_distance):
         ordered = toposort(edges)
@@ -502,11 +608,8 @@ class TestDAGPathDistance:
         pred_nodes: Dict[NodeName, NodeName] = defaultdict()
 
         # Set initial value for all inputs nodes.
-        if input_nodes:
-            for inode in input_nodes:
-                distances[inode] = 0
-        else:
-            distances[ordered_nodes[0]] = 0
+        for inode in input_nodes:
+            distances[inode] = 0
 
         for node in ordered_nodes:
             for neighbor in edges_with_d[node]:
@@ -532,9 +635,86 @@ class TestDAGPathDistance:
         return path, distance
 
     @pytest.mark.parametrize(
-        TestData.get_shortest_path_data["args"],
-        TestData.get_shortest_path_data["data"],
-        ids=TestData.get_shortest_path_data["ids"],
+        "edges, inodes, expected_path, expected_distance",
+        [
+            (
+                # inp1 -> n1 -> n2 -> n3, 1+1+1=3
+                {
+                    "inp1": {"n1": 1},
+                    "n1": {"n2": 1, "n4": 1},
+                    "n2": {"n3": 1},
+                    "n3": {},
+                    "n4": {"n2": 1},
+                },
+                ["inp1"],
+                ["inp1", "n1", "n2", "n3"],
+                3,
+            ),
+            (
+                # inp1 -> n1 -> n2 -> n3 -> n6 -> n7 -> n4 =
+                # 1+1+3+2+2+3=12
+                {
+                    "inp1": {"n1": 1},
+                    "n1": {"n2": 1, "n5": 5},
+                    "n2": {"n3": 3},
+                    "n3": {"n4": 10, "n6": 2},
+                    "n4": {},
+                    "n5": {"n3": 5, "n6": 7},
+                    "n6": {"n7": 2},
+                    "n7": {"n4": 3},
+                },
+                ["inp1"],
+                ["inp1", "n1", "n2", "n3", "n6", "n7", "n4"],
+                12,
+            ),
+            (
+                # inp2 -> n2 -> n3, 1+1=2
+                {
+                    "inp1": {"n1": 1},
+                    "inp2": {"n2": 1},
+                    "n1": {"n2": 2},
+                    "n2": {"n3": 1},
+                    "n3": {},
+                },
+                ["inp1", "inp2"],
+                ["inp2", "n2", "n3"],
+                2,
+            ),
+            (
+                # inp1 -> n1 -> n2 -> n4, 1+1+1=3
+                {
+                    "inp1": {"n1": 1},
+                    "n1": {"n2": 1, "n3": 2},
+                    "n2": {"n4": 1},
+                    "n3": {"n4": 1},
+                    "n4": {},
+                },
+                ["inp1"],
+                ["inp1", "n1", "n2", "n4"],
+                3,
+            ),
+            (
+                # inp1 -> n1 -> n2 -> n4, 1+1+1=3
+                {
+                    "inp1": {"n1": 1},
+                    "n1": {"n2": 1, "n3": 1},
+                    "n2": {"n4": 2},
+                    "n3": {"n5": 1},
+                    "n4": {},
+                    "n5": {},
+                },
+                ["inp1"],
+                ["inp1", "n1", "n3", "n5"],
+                3,
+            ),
+        ],
+        ids=[
+            "one_input_1",
+            "one_input_2",
+            "multi_inputs_1",
+            "multi_outputs_1",
+            "multi_outputs_2",
+        ],
     )
     def test_get_shortest_path_proto(
         self, edges, inodes, expected_path, expected_distance

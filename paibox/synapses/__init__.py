@@ -1,18 +1,6 @@
-from .base import SynSys
-from .synapses import Conv1d as Conv1d
-from .synapses import Conv2d as Conv2d
-from .synapses import ConvTranspose1d as ConvTranspose1d
-from .synapses import ConvTranspose2d as ConvTranspose2d
-from .synapses import FullConn as FullConn
+from .synapses import RIGISTER_MASTER_KEY_FORMAT
 from .synapses import NoDecay as NoDecay
-from .transforms import GeneralConnType as SynConnType
+from .synapses import SynSys as SynSys
+from .transforms import ConnType as ConnType
 
-__all__ = [
-    "Conv1d",
-    "Conv2d",
-    "ConvTranspose1d",
-    "ConvTranspose2d",
-    "FullConn",
-    "NoDecay",
-    "SynConnType",
-]
+__all__ = ["NoDecay", "SynSys"]

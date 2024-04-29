@@ -9,8 +9,7 @@ from paicorelib.routing_defs import get_routing_consumption
 
 from paibox.exceptions import NotSupportedError
 
-from .conf_template import CorePlacementInfo
-from .placement import CoreBlock, CorePlacement, EmptyCorePlacement
+from .placement import CoreBlock, CorePlacement
 
 __all__ = ["RoutingGroup", "RoutingRoot"]
 
@@ -85,7 +84,7 @@ class RoutingCluster:
     ) -> bool:
         if self.level == Level.L0:
             # L0-level cluster cannot add child.
-            raise AttributeError(f"L0-level cluster cannot add child.")
+            raise AttributeError(f"L0-level cluster cannot add child")
 
         if self.is_full():
             return False
@@ -102,7 +101,7 @@ class RoutingCluster:
     ) -> bool:
         """Add a child cluster to a certain `direction`."""
         if self.level - child.level != 1:
-            raise ValueError(f"Cannot skip more than 1 level.")
+            raise ValueError
 
         if not force and d in self.children:
             return False
@@ -128,7 +127,7 @@ class RoutingCluster:
 
         if len(path) > self.level:
             raise ValueError(
-                f"the length of the {path} should be less than or equal to level."
+                f"The length of the {path} should be less than or equal to level, but yours is greater than"
             )
 
         if path[0] not in self.children:
@@ -151,9 +150,7 @@ class RoutingCluster:
             - A list of `Direction` from L4 to L0.
         """
         if cluster.level > self.level:
-            raise ValueError(
-                f"Cannot get routing path because the level cluster is higher."
-            )
+            raise ValueError
 
         if cluster.level == self.level:
             if cluster != self:
@@ -191,7 +188,7 @@ class RoutingCluster:
     def _find_lx_cluster_with_n_child_avail(
         self, lx: Level, n_child_avail: int, method: str = "nearest"
     ) -> Optional["RoutingCluster"]:
-        """Find the child of level `lx` with at least `n_child_avail` child available."""
+        """Find the child of level `lx` with at least `n_child_avail` children available."""
         if lx > self.level:
             raise ValueError
 
@@ -221,7 +218,8 @@ class RoutingCluster:
         subtree: "RoutingCluster",
         method: str = "nearest",
     ) -> bool:
-        """Add the subtree's children to itself. If successful, return the added parent cluster."""
+        """Add the subtree's children to itself. \
+            If successful, return the added parent cluster."""
         if subtree.level > self.level:
             raise ValueError
 
@@ -270,7 +268,7 @@ class RoutingCluster:
             else:
                 # Only support 1, 2, & 4.
                 raise NotSupportedError(
-                    f"the number of {sub_n_child} child is not supported."
+                    f"#N of {sub_n_child} children not supported yet."
                 )
 
             return True
@@ -309,10 +307,10 @@ class RoutingCluster:
 
     @classmethod
     def create_routing_tree(cls, lx: Level, n_branch: int) -> "RoutingCluster":
-        """Create a routing tree with `n_branch` child.
+        """Create a routing tree with `n_branch` children.
 
-        NOTE: When lx == L1, do not create the L0-level child. \
-            WHen lx > L1, create the lx-1 level child.
+        NOTE: When lx == L1, do not create the L0-level children. \
+            WHen lx > L1, create the lx-1 level children.
         """
         if lx == Level.L0 or n_branch < 0:
             raise ValueError
@@ -341,10 +339,10 @@ class RoutingCluster:
 
         L1_cluster = self._find_lx_cluster_with_n_child_avail(Level.L1, 1)
         if not L1_cluster:
-            raise RuntimeError("available L1 cluster not found.")
+            raise RuntimeError("Available L1 cluster not found!")
 
         if not L1_cluster.add_child(cluster):
-            raise RuntimeError(f"add child to L1 cluster failed.")
+            raise RuntimeError(f"Add child into L1 cluster failed!")
 
         return cluster
 
@@ -418,13 +416,12 @@ class RoutingGroup(List[CoreBlock]):
     """
 
     def __init__(self, *cb: CoreBlock) -> None:
-        self.core_blocks = list(cb)
+        self.cb = list(cb)
+
         self.assigned_coords: List[Coord] = []
-        """Assigned core coordinates in the routing group"""
+        """Assigned core coordinates for the routing group."""
         self.wasted_coords: List[Coord] = []
-        """Wasted core coordinates in routing group"""
-        self.wasted_core_plm: Dict[Coord, EmptyCorePlacement] = {}
-        """Wasted core placements"""
+        """Wasted core coordinates for the routing group."""
 
     def assign(self, assigned: List[Coord], wasted: List[Coord]) -> None:
         self.assigned_coords = assigned
@@ -437,40 +434,20 @@ class RoutingGroup(List[CoreBlock]):
             cb.core_coords = assigned[cur_i : cur_i + n]
             cur_i += n
 
-    def core_block_alloc(self) -> None:
-        for cb in self:
-            cb.core_plm_alloc()
-
-        # Allocate blank core placements for the wasted coordinates.
-        for coord in self.wasted_coords:
-            self.wasted_core_plm[coord] = EmptyCorePlacement.build(coord)
-
-    def get_wasted_cplm_config(self) -> CorePlacementInfo:
-        return {
-            coord: core_plm.export_core_plm_config()
-            for coord, core_plm in self.wasted_core_plm.items()
-        }
-
-    def get_n_core_occupied(self) -> int:
-        """Get the #N of cores occupied by the routing group."""
-        return len(self.assigned_coords) + len(self.wasted_coords)
-
     def __getitem__(self, idx: int) -> CoreBlock:
-        if idx >= len(self.core_blocks) or idx < 0:
-            raise IndexError(
-                f"index out of range [0, {len(self.core_blocks)}), ({idx})."
-            )
+        if idx >= len(self.cb) or idx < 0:
+            raise IndexError(f"Index out of range [0, {len(self.cb)}), {idx}.")
 
-        return self.core_blocks[idx]
+        return self.cb[idx]
 
     def __len__(self) -> int:
-        return len(self.core_blocks)
+        return len(self.cb)
 
     def __iter__(self) -> Iterator[CoreBlock]:
-        return self.core_blocks.__iter__()
+        return self.cb.__iter__()
 
     def __contains__(self, key: CoreBlock) -> bool:
-        return key in self.core_blocks
+        return key in self.cb
 
     @property
     def n_core_required(self) -> int:
@@ -497,7 +474,7 @@ class RoutingRoot(RoutingCluster):
         if path:
             return RoutingCoord(*path)
 
-        raise RuntimeError(f"get leaf cluster {cluster.tag} coordinate failed.")
+        raise RuntimeError(f"Get leaf cluster {cluster.tag} coordinate failed.")
 
     def insert_routing_group(self, routing_group: RoutingGroup) -> bool:
         """Insert a `RoutingGroup` in the routing tree. Assign each core blocks with \

@@ -42,8 +42,8 @@ class InputProj(Projection, TimeRelatedNode):
         """The input node of network.
 
         Arguments:
-            - input: the input value of the projection node. It can be numeric value or callable\
-                function(function or `Encoder`).
+            - input: the input value of the projection node. It can be numeric value \
+                or callable function(function or `Encoder`).
             - shape_out: the shape of the output.
             - keep_shape: wether to keep the shape when retieving the feature map.
             - name: the name of the node. Optional.
@@ -60,7 +60,7 @@ class InputProj(Projection, TimeRelatedNode):
             self._num_input = input
             self._func_input = _func_bypass
 
-        self._shape = as_shape(shape_out)
+        self._shape_out = as_shape(shape_out)
         self.keep_shape = keep_shape
 
         self.set_memory("_inner_spike", np.zeros((self.num_out,), dtype=np.bool_))
@@ -68,32 +68,33 @@ class InputProj(Projection, TimeRelatedNode):
     def update(self, **kwargs) -> SpikeType:
         _spike = self._get_neumeric_input(**kwargs)
 
-        if isinstance(_spike, (int, np.bool_, np.integer)):
+        if isinstance(_spike, (int, np.integer)):
             self._inner_spike = np.full((self.num_out,), _spike, dtype=np.bool_)
         elif isinstance(_spike, np.ndarray):
-            if shape2num(_spike.shape) != self.num_out:
+            try:
+                self._inner_spike = _spike.reshape((self.num_out,)).astype(np.bool_)
+            except ValueError:
                 raise ShapeError(
-                    f"cannot reshape output value from {_spike.shape} to ({self.num_out},)."
+                    f"Cannot reshape input value from {_spike.shape} to ({self.num_out},)."
                 )
-            self._inner_spike = _spike.ravel().astype(np.bool_)
         else:
-            # should never be reached
+            # Should be never
             raise TypeError(
-                f"expected type int, np.bool_, np.integer or np.ndarray, "
+                f"Excepted type int, np.integer or np.ndarray, "
                 f"but got {_spike}, type {type(_spike)}."
             )
 
         return self._inner_spike
 
     def reset_state(self) -> None:
-        self.reset_memory()  # Call reset of `StatusMemory`.
+        self.reset()  # Call reset of `StatusMemory`.
 
     def _get_neumeric_input(self, **kwargs):
         # If `_func_input` is `None` while `input` is numeric, use `input` as input to the projection.
         # Otherwise, use the output of `_func_input`.
         if self._num_input is None:
             if self._func_input is None:
-                raise SimulationError(f"both numeric & functional input are not set.")
+                raise SimulationError(f"Both numeric & functional input are not set.")
             else:
                 return _call_with_ctx(self._func_input, **kwargs)
 
@@ -112,7 +113,7 @@ class InputProj(Projection, TimeRelatedNode):
 
     @property
     def num_out(self) -> int:
-        return shape2num(self._shape)
+        return shape2num(self._shape_out)
 
     @property
     def shape_in(self) -> Tuple[int, ...]:
@@ -120,7 +121,7 @@ class InputProj(Projection, TimeRelatedNode):
 
     @property
     def shape_out(self) -> Tuple[int, ...]:
-        return self._shape
+        return self._shape_out
 
     @property
     def input(self):
@@ -129,10 +130,10 @@ class InputProj(Projection, TimeRelatedNode):
     @input.setter
     def input(self, value: DataType) -> None:
         """Set the input at the beginning of running the simulation."""
-        if not isinstance(value, (int, np.bool_, np.integer, np.ndarray)):
+        if not isinstance(value, (int, np.integer, np.ndarray)):
             raise TypeError(
-                f"expected type int, np.bool_, np.integer or np.ndarray, "
-                f"but got {value}, type {type(value)}."
+                f"Excepted type int, np.integer or np.ndarray, "
+                f"but got {value}, type {type(value)}"
             )
 
         self._num_input = value
@@ -166,6 +167,8 @@ def _call_with_ctx(f: Callable[..., DataType], *args, **kwargs) -> DataType:
     try:
         ctx = _FRONTEND_CONTEXT.get_ctx()
         bound = inspect.signature(f).bind(*args, **ctx, **kwargs)
+        # warnings.warn(_input_deprecate_msg, UserWarning)
         return f(*bound.args, **bound.kwargs)
+
     except TypeError:
         return f(*args, **kwargs)

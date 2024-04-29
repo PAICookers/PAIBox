@@ -29,7 +29,7 @@ class Simulator(PAIBoxObject):
         """
         if not isinstance(target, DynamicSys):
             raise SimulationError(
-                f"target must be an instance of {DynamicSys.__name__}, but got {target}, {type(target)}."
+                f"Target must be an instance of {DynamicSys.__name__}, but we got {target}: {type(target)}"
             )
 
         super().__init__(name)
@@ -60,18 +60,18 @@ class Simulator(PAIBoxObject):
         """
         if kwargs:
             warnings.warn(
-                "passing extra arguments through 'run()' will be deprecated. "
+                "Passing extra arguments through 'run()' will be deprecated."
                 "Use 'FRONTEND_ENV.save()' instead.",
                 DeprecationWarning,
             )
 
         if duration < 1:
-            raise SimulationError(f"duration must be positive, but got {duration}.")
+            raise SimulationError(f"Duration must be positive, but got {duration}")
 
         n_steps = self._get_nstep(duration)
         if n_steps < 1:
             raise SimulationError(
-                f"the number of simulation steps must be positive, but got {n_steps}."
+                f"Steps of simulation must be positive, but got {n_steps}"
             )
 
         indices = np.arange(self._ts, self._ts + n_steps, dtype=np.uint16)
@@ -105,7 +105,7 @@ class Simulator(PAIBoxObject):
             self.probes.remove(probe)
             self._sim_data.pop(probe)
         else:
-            raise KeyError(f"probe '{probe.name}' does not exist.")
+            raise KeyError(f"Probe '{probe.name}' does not exist.")
 
     def _run_step(self, indices: NDArray[np.uint16], **kwargs) -> None:
         for i in range(indices.shape[0]):
@@ -142,7 +142,7 @@ class Simulator(PAIBoxObject):
         t_index = t if self._start_time_zero else t - 1
 
         if not t_start <= t < self.timestamp:  # [t_start, timestamp)
-            raise IndexError(f"time {t} is out of range [{t_start}, {self.timestamp}).")
+            raise IndexError(f"Time {t} is out of range [{t_start}, {self.timestamp}).")
 
         return self._sim_data[probe][t_index]
 

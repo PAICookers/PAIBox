@@ -1,226 +1,189 @@
-import warnings
-from typing import Optional, Union
+from typing import ClassVar, Optional, Tuple, Union
 
 import numpy as np
+from numpy.typing import NDArray
+from paicorelib import HwConfig
+from paicorelib import WeightPrecision as WP
 
-from paibox.base import NeuDyn
-from paibox.neuron import Neuron
+from paibox.base import DynamicSys, NeuDyn
+from paibox.exceptions import ShapeError
 from paibox.projection import InputProj
-from paibox.types import DataArrayType
+from paibox.types import DataArrayType, WeightType
 
-from .base import (
-    Conv1dSyn,
-    Conv2dSyn,
-    ConvTranspose1dSyn,
-    ConvTranspose2dSyn,
-    FullConnSyn,
-)
-from .conv_utils import _KOrder3d, _KOrder4d, _pair, _single, _Size1Type, _Size2Type
-from .transforms import GeneralConnType as GConnType
+from .transforms import *
 
-__all__ = ["FullConn", "Conv1d", "Conv2d", "ConvTranspose1d", "ConvTranspose2d"]
+__all__ = ["NoDecay"]
+
+RIGISTER_MASTER_KEY_FORMAT = "{0}.output"
 
 
-class FullConn(FullConnSyn):
+class Synapses:
+    """A map connected between neurons of the previous `Node`, \
+        and axons of the following `Node`.
+
+    User can use connectivity matrix or COO to represent the \
+        connectivity of synapses.
+    """
+
+    def __init__(
+        self,
+        source: Union[NeuDyn, InputProj],
+        dest: NeuDyn,
+        /,
+        conn_type: ConnType,
+    ) -> None:
+        """
+        Args:
+            - source: the source group of neurons.
+            - dest: the destination group of neurons.
+            - conn_type: the type of connection.
+        """
+        self.source = source
+        self.dest = dest
+        self._check(conn_type)
+
+    def _check(self, conn_type: ConnType) -> None:
+        if conn_type is ConnType.One2One or conn_type is ConnType.BYPASS:
+            if self.num_in != self.num_out:
+                raise ShapeError(
+                    f"The number of source & destination neurons must "
+                    f"be equal, but {self.num_in} != {self.num_out}."
+                )
+
+    @property
+    def shape_in(self) -> Tuple[int, ...]:
+        return self.source.shape_out
+
+    @property
+    def shape_out(self) -> Tuple[int, ...]:
+        return self.dest.shape_in
+
+    @property
+    def num_in(self) -> int:
+        return self.source.num_out
+
+    @property
+    def num_out(self) -> int:
+        return self.dest.num_in
+
+
+class SynSys(Synapses, DynamicSys):
+    CFLAG_ENABLE_WP_OPTIMIZATION: ClassVar[bool] = True
+    """Compilation flag for weight precision optimization."""
+
+    def __call__(self, *args, **kwargs) -> NDArray[np.int32]:
+        return self.update(*args, **kwargs)
+
+    @property
+    def weights(self) -> WeightType:
+        raise NotImplementedError
+
+    @property
+    def weight_precision(self) -> WP:
+        raise NotImplementedError
+
+    @property
+    def connectivity(self) -> NDArray[Union[np.bool_, np.int8]]:
+        raise NotImplementedError
+
+    @property
+    def n_axon_each(self) -> np.ndarray:
+        return np.sum(self.connectivity, axis=0)
+
+    @property
+    def num_axon(self) -> int:
+        return np.count_nonzero(np.any(self.connectivity, axis=1))
+
+    @property
+    def num_dendrite(self) -> int:
+        return np.count_nonzero(np.any(self.connectivity, axis=0))
+
+
+class NoDecay(SynSys):
+    """Synapses model with no decay."""
+
     def __init__(
         self,
         source: Union[NeuDyn, InputProj],
         dest: NeuDyn,
         weights: DataArrayType = 1,
         *,
-        conn_type: GConnType = GConnType.MatConn,
+        conn_type: ConnType = ConnType.MatConn,
         name: Optional[str] = None,
     ) -> None:
-        """Full-connected synapses.
-
-        Args:
-            - source: source neuron.
-            - dest: destination neuron.
+        """
+        Arguments:
+            - source: source neuron(s).
+            - dest: destination neuron(s).
             - weights: weights of the synapses. It can be a scalar or `np.ndarray`.
             - conn_type: the type of connection.
-            - name: name of the full-connected synapses. Optional.
+            - name: name of this synapses. Optional.
         """
-        super().__init__(source, dest, weights, conn_type, name)
+        super().__init__(source, dest, conn_type)
+        super(Synapses, self).__init__(name)
 
+        if conn_type is ConnType.One2One:
+            self.comm = OneToOne(self.num_in, weights)
+        elif conn_type is ConnType.BYPASS:
+            self.comm = ByPass(self.num_in)
+        elif conn_type is ConnType.All2All:
+            self.comm = AllToAll((self.num_in, self.num_out), weights)
+        else:  # MatConn
+            if not isinstance(weights, np.ndarray):
+                raise TypeError(
+                    f"Expected type int, np.integer or np.ndarray, but got type {type(weights)}"
+                )
 
-class NoDecay(FullConn):
-    def __init__(
-        self,
-        source: Union[NeuDyn, InputProj],
-        dest: NeuDyn,
-        weights: DataArrayType = 1,
-        *,
-        conn_type: GConnType = GConnType.MatConn,
-        name: Optional[str] = None,
-    ) -> None:
-        warnings.warn(
-            "'NoDecay' class will be deprecated in future versions. Use 'FullConn' instead.",
-            DeprecationWarning,
-        )
+            self.comm = MaskedLinear((self.num_in, self.num_out), weights)
 
-        super().__init__(source, dest, weights, conn_type=conn_type, name=name)
+        self.weights.setflags(write=False)
+        self.set_memory("_synout", np.zeros((self.num_out,), dtype=np.int32))
 
+        # Register `self` for the destination `NeuDyn`.
+        dest.register_master(RIGISTER_MASTER_KEY_FORMAT.format(self.name), self)
 
-class Conv1d(Conv1dSyn):
-    def __init__(
-        self,
-        source: Union[Neuron, InputProj],
-        dest: Neuron,
-        kernel: np.ndarray,
-        *,
-        stride: _Size1Type = 1,
-        padding: _Size1Type = 0,
-        kernel_order: _KOrder3d = "OIL",
-        name: Optional[str] = None,
-    ) -> None:
-        """1d convolution synapses in fully-unrolled format.
+    def update(
+        self, spike: Optional[np.ndarray] = None, *args, **kwargs
+    ) -> NDArray[np.int32]:
+        # Retrieve the spike at index `timestamp` of the dest neurons
+        if self.dest.is_working:
+            if isinstance(self.source, InputProj):
+                synin = self.source.output.copy() if spike is None else spike
+            else:
+                idx = self.dest.timestamp % HwConfig.N_TIMESLOT_MAX
+                synin = self.source.output[idx].copy() if spike is None else spike
+        else:
+            # Retrieve 0 to the dest neurons if it is not working
+            synin = np.zeros_like(self.source.spike, dtype=np.bool_)
 
-        Args:
-            - source: source neuron. The dimensions need to be expressed explicitly as (C,L).
-            - dest: destination neuron.
-            - kernel: convolution kernel. Its dimension order is either (O,I,L) or (I,O,L), depending on the    \
-                argument `kernel_order`.
-            - stride: the step size of the kernel sliding. It can be a scalar or an integer.
-            - padding: the amount of zero-padding applied to the input. It can be a scalar or an integer.
-            - kernel_order: dimension order of kernel, (O,I,L) or (I,O,L). (O,I,L) stands for (output channels, \
-                input channels, length).
-            - name: name of the 1d convolution. Optional.
+        self._synout = self.comm(synin).astype(np.int32)
+        return self._synout
 
-        NOTE: See https://pytorch.org/docs/stable/generated/torch.nn.Conv1d.html#torch.nn.Conv1d for details.
-        """
-        if kernel_order not in ("OIL", "IOL"):
-            raise ValueError(f"kernel order must be 'OIL' or 'IOL'.")
+    def reset_state(self, *args, **kwargs) -> None:
+        # TODO Add other initialization methods in the future.
+        self.reset()  # Call reset of `StatusMemory`.
 
-        super().__init__(
-            source, dest, kernel, _single(stride), _single(padding), kernel_order, name
-        )
+    @property
+    def output(self) -> NDArray[np.int32]:
+        return self._synout
 
+    @property
+    def weights(self):
+        return self.comm.weights
 
-class Conv2d(Conv2dSyn):
-    def __init__(
-        self,
-        source: Union[Neuron, InputProj],
-        dest: Neuron,
-        kernel: np.ndarray,
-        *,
-        stride: _Size2Type = 1,
-        padding: _Size2Type = 0,
-        kernel_order: _KOrder4d = "OIHW",
-        name: Optional[str] = None,
-    ) -> None:
-        """2d convolution synapses in fully-unrolled format.
+    @property
+    def weight_precision(self) -> WP:
+        return self.comm._get_wp(self.CFLAG_ENABLE_WP_OPTIMIZATION)
 
-        Args:
-            - source: source neuron. The dimensions need to be expressed explicitly as (C,H,W).
-            - dest: destination neuron.
-            - kernel: convolution kernel. Its dimension order is either (O,I,H,W) or (I,O,H,W), depending on the\
-                argument `kernel_order`.
-            - stride: the step size of the kernel sliding. It can be a scalar or a tuple of 2 integers.
-            - padding: the amount of zero-padding applied to the input. It can be a scalar or a tuple of 2 integers.
-            - kernel_order: dimension order of kernel, (O,I,H,W) or (I,O,H,W). (O,I,H,W) stands for (output     \
-                channels, input channels, height, width).
-            - name: name of the 2d convolution. Optional.
+    @property
+    def connectivity(self):
+        """The connectivity matrix in `np.ndarray` format."""
+        return self.comm.connectivity
 
-        NOTE: See https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html#torch.nn.Conv2d for details.
-        """
-        if kernel_order not in ("OIHW", "IOHW"):
-            raise ValueError(f"kernel order must be 'OIHW' or 'IOHW'.")
-
-        super().__init__(
-            source, dest, kernel, _pair(stride), _pair(padding), kernel_order, name
-        )
-
-
-class ConvTranspose1d(ConvTranspose1dSyn):
-    def __init__(
-        self,
-        source: Union[Neuron, InputProj],
-        dest: Neuron,
-        kernel: np.ndarray,
-        *,
-        stride: _Size1Type = 1,
-        padding: _Size1Type = 0,
-        output_padding: _Size1Type = 0,
-        kernel_order: _KOrder3d = "OIL",
-        name: Optional[str] = None,
-    ) -> None:
-        """1d transposed convolution synapses in fully-unrolled format.
-
-        Args:
-            - source: source neuron. The dimensions need to be expressed explicitly as (C,L).
-            - dest: destination neuron.
-            - kernel: convolution kernel. Its dimension order is either (O,I,L) or (I,O,L), depending on the    \
-                argument `kernel_order`.
-            - stride: stride of the convolution. It can be a scalar or an integer.
-            - padding: the amount of zero-padding applied to the input. It can be a scalar or an integer.
-            - output_padding: the additional size added to one side of the output shape. It can be a scalar or  \
-                an integer.
-            - kernel_order: dimension order of kernel, (O,I,L) or (I,O,L). (O,I,L) stands for (output channels, \
-                input channels, length).
-            - name: name of the 1d transposed convolution. Optional.
-
-        NOTE: See https://pytorch.org/docs/stable/generated/torch.nn.ConvTranspose1d.html#torch.nn.ConvTranspose1d  \
-            for details.
-        """
-        if kernel_order not in ("OIL", "IOL"):
-            raise ValueError(f"kernel order must be 'OIL' or 'IOL'.")
-
-        super().__init__(
-            source,
-            dest,
-            kernel,
-            _single(stride),
-            _single(padding),
-            _single(output_padding),
-            kernel_order,
-            name,
-        )
-
-
-class ConvTranspose2d(ConvTranspose2dSyn):
-    def __init__(
-        self,
-        source: Union[Neuron, InputProj],
-        dest: Neuron,
-        kernel: np.ndarray,
-        *,
-        stride: _Size2Type = 1,
-        padding: _Size2Type = 0,
-        output_padding: _Size2Type = 0,
-        kernel_order: _KOrder4d = "OIHW",
-        name: Optional[str] = None,
-    ) -> None:
-        """2d transposed convolution synapses in fully-unrolled format.
-
-        Args:
-            - source: source neuron. The dimensions need to be expressed explicitly as (C,H,W) or (H,W,C). The  \
-                feature map dimension order is specified by `fm_order`.
-            - dest: destination neuron.
-            - kernel: convolution kernel. Its dimension order must be (O,I,H,W) or (I,O,H,W), depending on the  \
-                argument `kernel_order`.
-            - stride: stride of the convolution. It can be a scalar or a tuple of 2 integers.
-            - padding: the amount of zero-padding applied to the input. It can be a scalar or a tuple of 2 integers.
-            - output_padding: the additional size added to one side of the output shape. It can be a scalar or  \
-                a tuple of 2 integers.
-            - fm_order: dimension order of feature map. The order of input & output feature maps must be        \
-                consistent, (C,H,W) or (H,W,C).
-            - kernel_order: dimension order of kernel, (O,I,H,W) or (I,O,H,W). (O,I,H,W) stands for (output     \
-                channels, input channels, height, width).
-            - name: name of the 2d transposed convolution. Optional.
-
-        NOTE: See https://pytorch.org/docs/stable/generated/torch.nn.ConvTranspose2d.html#torch.nn.ConvTranspose2d  \
-            for details.
-        """
-        if kernel_order not in ("OIHW", "IOHW"):
-            raise ValueError(f"kernel order must be 'OIHW' or 'IOHW'.")
-
-        super().__init__(
-            source,
-            dest,
-            kernel,
-            _pair(stride),
-            _pair(padding),
-            _pair(output_padding),
-            kernel_order,
-            name,
+    def __repr__(self) -> str:
+        name = self.__class__.__name__
+        return (
+            f"{name}(name={self.name}, \n"
+            f'{" " * len(name)} source={self.source}, \n'
+            f'{" " * len(name)} dest={self.dest})'
         )

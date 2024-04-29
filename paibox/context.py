@@ -19,7 +19,7 @@ class _Context(dict, Generic[_KT, _VT]):
             return super().__getitem__(key)
 
         if default is None:
-            raise KeyError(f"the context of '{key}' not found.")
+            raise KeyError(f"The context of '{key}' not found.")
 
         return default
 
@@ -27,7 +27,7 @@ class _Context(dict, Generic[_KT, _VT]):
         """Save the context by the key-value pairs."""
         if len(args) % 2 > 0:
             raise TypeError(
-                f"expected even positional arguments, but odd given ({len(args)})."
+                f"Expected even positional arguments but odd given ({len(args)})"
             )
 
         for i in range(0, len(args), 2):
