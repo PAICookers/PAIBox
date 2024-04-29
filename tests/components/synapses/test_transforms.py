@@ -602,7 +602,7 @@ class TestTransforms:
             + kernel_size[0]
             + output_padding[0],
         )
-        f = ConvTranspose1dForward(
+        f = tfm.ConvTranspose1dForward(
             in_shape, out_shape, kernel, stride, padding, output_padding
         )
 
@@ -762,7 +762,7 @@ class TestTransforms:
             + output_padding[1],
         )
 
-        f = ConvTranspose2dForward(
+        f = tfm.ConvTranspose2dForward(
             in_shape, out_shape, kernel, stride, padding, output_padding
         )
 

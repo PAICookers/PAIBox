@@ -152,6 +152,9 @@ class FullConnectedSyn(Synapses, SynSys):
         # TODO Add other initialization methods in the future.
         self.reset_memory()  # Call reset of `StatusMemory`.
 
+    def _set_comm(self, comm: Transform) -> None:
+        self.comm = comm
+
     @property
     def output(self) -> SynOutType:
         return self._synout
@@ -198,7 +201,7 @@ class FullConnSyn(FullConnectedSyn):
                 )
             comm = MaskedLinear((self.num_in, self.num_out), weights)
 
-        self.comm = comm
+        self._set_comm(comm)
 
 
 class Conv1dSyn(FullConnectedSyn):
@@ -240,7 +243,7 @@ class Conv1dSyn(FullConnectedSyn):
 
         comm = Conv1dForward((in_l,), (out_l,), _kernel, stride, padding)
 
-        self.comm = comm
+        self._set_comm(comm)
 
 
 class Conv2dSyn(FullConnectedSyn):
@@ -328,7 +331,7 @@ class ConvTranspose1dSyn(FullConnectedSyn):
             (in_l,), (out_l,), _kernel, stride, padding, output_padding
         )
 
-        self.comm = comm
+        self._set_comm(comm)
 
 
 class ConvTranspose2dSyn(FullConnectedSyn):

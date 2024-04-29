@@ -56,7 +56,7 @@ class NoDecay(FullConn):
         name: Optional[str] = None,
     ) -> None:
         warnings.warn(
-            "'NoDecay' class will be deprecated in future versions. Use 'FullConn' instead.",
+            "'NoDecay' will be deprecated in future versions. Use 'FullConn' instead.",
             DeprecationWarning,
         )
 

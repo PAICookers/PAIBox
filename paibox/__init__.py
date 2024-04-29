@@ -25,12 +25,14 @@ from .components.neuron.neurons import (
     TonicSpiking as TonicSpiking,
 )
 from .components.projection import InputProj as InputProj
+from .components.synapses import GeneralConnType as SynConnType
 from .components.synapses.synapses import (
     Conv1d as Conv1d,
     Conv2d as Conv2d,
+    ConvTranspose1d as ConvTranspose1d,
+    ConvTranspose2d as ConvTranspose2d,
     FullConn as FullConn,
-    NoDecay as NoDecay,
-    GConnType as SynConnType,
+    NoDecay as NoDecay,  # will be deprecated
 )
 from .context import FRONTEND_ENV as FRONTEND_ENV
 from .network import DynSysGroup as DynSysGroup

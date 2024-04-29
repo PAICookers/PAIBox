@@ -1,5 +1,6 @@
 import warnings
 from enum import Enum, auto, unique
+from typing import Literal
 
 import numpy as np
 from paicorelib import WeightPrecision as WP
@@ -8,17 +9,18 @@ from paibox.exceptions import AutoOptimizationWarning, ShapeError
 from paibox.types import DataArrayType, IntScalarType, SpikeType, SynOutType, WeightType
 from paibox.utils import is_shape
 
+from .conv_types import Size1Type, Size2Type
 from .conv_utils import (
-    Size1Type,
-    Size2Type,
-    _conv1d_faster,
     _conv1d_unroll,
-    _conv2d_faster,
     _conv2d_unroll,
+    _conv1d_faster,
+    _conv2d_faster,
     _convtranspose1d_faster,
     _convtranspose1d_unroll,
     _convtranspose2d_faster,
     _convtranspose2d_unroll,
+    _func_pool2d,
+    _pool2d_kernel_unroll,
 )
 
 __all__ = [
@@ -452,4 +454,50 @@ class ConvTranspose2dForward(Transform):
             self.stride,
             self.padding,
             self.output_padding,
+        )
+
+
+class _Pool2dForward(Transform):
+    # DO NOT use in the `FullConnectedSyn`
+    def __init__(
+        self,
+        channels: int,
+        in_shape: Size2Type,
+        out_shape: Size2Type,
+        kernel_size: Size2Type,
+        stride: Size2Type,
+        padding: Size2Type,
+        # fm_order: _Order3d,
+        pool_type: Literal["avg", "max"],
+    ) -> None:
+        self.channels = channels
+        self.in_shape = in_shape
+        self.out_shape = out_shape
+        self.ksize = kernel_size
+        self.stride = stride
+        self.padding = padding
+        # self.fm_order = fm_order
+        self.pool_type = pool_type
+
+        super().__init__(np.asarray(1, dtype=np.int8))
+
+    def __call__(self, x: SpikeType, *args, **kwargs) -> SpikeType:
+        # if self.fm_order == "HWC":
+        #     # (N,) -> (H, W, C) -> (C, H, W)
+        #     _x = x.reshape(self.in_shape + (self.channels,)).transpose(2, 0, 1)
+        # else:
+        _x = x.reshape((self.channels,) + self.in_shape)
+
+        return _func_pool2d(
+            _x, self.out_shape, self.ksize, self.stride, self.padding, self.pool_type
+        )
+
+    @property
+    def connectivity(self):
+        return _pool2d_kernel_unroll(
+            self.channels,
+            self.in_shape,
+            self.out_shape,
+            self.ksize,
+            self.stride,
         )

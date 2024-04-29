@@ -809,9 +809,8 @@ class Transpose3d(TransposeModule):
     def build(self, network: DynSysGroup, **build_options) -> None:
         n1_t3d = Neuron(
             self.shape_out,
-            leak_comparison=LCM.LEAK_BEFORE_COMP,
             neg_threshold=0,
-            leak_v=-1,
+            leak_v=0,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
             tick_wait_end=self.tick_wait_end,
