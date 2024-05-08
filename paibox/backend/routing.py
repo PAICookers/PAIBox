@@ -84,7 +84,11 @@ class RoutingCluster:
         return child
 
     def add_child(
-        self, child: "RoutingCluster", method: str = "nearest", check_online: bool = False, force: bool = False
+        self,
+        child: "RoutingCluster",
+        method: str = "nearest",
+        check_online: bool = False,
+        force: bool = False,
     ) -> bool:
         if self.level == Level.L0:
             # L0-level cluster cannot add child.
@@ -101,7 +105,11 @@ class RoutingCluster:
         return False
 
     def add_child_to(
-        self, child: "RoutingCluster", d: Direction, check_online: bool = False, force: bool = False
+        self,
+        child: "RoutingCluster",
+        d: Direction,
+        check_online: bool = False,
+        force: bool = False,
     ) -> bool:
         """Add a child cluster to a certain `direction`."""
         if self.level - child.level != 1:
@@ -115,7 +123,7 @@ class RoutingCluster:
                 return False
             else:
                 child.include_online = True
-        #each L5 cluster contains online cores    
+        # each L5 cluster contains online cores
         if self.level == Level.L6:
             child.include_online = True
         child.direction = d
@@ -123,12 +131,12 @@ class RoutingCluster:
         self[d] = child
 
         return True
-    
+
     def remove_child(self, d: Direction) -> bool:
         if d in self.children:
             del self.children[d]
         return True
-    
+
     def get_routing_coord(self) -> RoutingCoord:
         current_cluster = self
         path = [self.direction]
@@ -262,7 +270,9 @@ class RoutingCluster:
                 return False
 
             if sub_n_child == 1:
-                self.add_child(subtree.children[Direction.X0Y0], check_online = check_online)
+                self.add_child(
+                    subtree.children[Direction.X0Y0], check_online=check_online
+                )
 
             elif sub_n_child == 2:
                 order = ROUTING_DIRECTIONS_IDX
@@ -270,16 +280,22 @@ class RoutingCluster:
                 hit_online = False
                 for i in range(child_num, child_num + 2):
                     subtree_direction = order[i - child_num]
-                    success = self.add_child_to(subtree.children[subtree_direction], order[i], check_online = check_online)
+                    success = self.add_child_to(
+                        subtree.children[subtree_direction],
+                        order[i],
+                        check_online=check_online,
+                    )
                     hit_online = hit_online or (not success)
-                
+
                 if hit_online:
                     # 如果有一个子树插入失败，需要将已经插入的子树删除
                     for i in range(child_num, child_num + 2):
                         subtree_direction = order[i - child_num]
                         self.remove_child(order[i])
                         subtree.children[subtree_direction].include_online = False
-                        subtree.children[subtree_direction].direction = subtree_direction
+                        subtree.children[subtree_direction].direction = (
+                            subtree_direction
+                        )
                         subtree.children[subtree_direction]._parent = subtree
                     return False
 
@@ -449,7 +465,9 @@ class RoutingGroup(List[CoreBlock]):
         self.wasted_core_plm: Dict[Coord, EmptyCorePlacement] = {}
         """Wasted core placements"""
 
-    def assign(self, assigned: List[Coord], wasted: List[Coord], chip_coord: Coord) -> None:
+    def assign(
+        self, assigned: List[Coord], wasted: List[Coord], chip_coord: Coord
+    ) -> None:
         self.assigned_coords = assigned
         self.wasted_coords = wasted
 
@@ -511,18 +529,18 @@ class RoutingGroup(List[CoreBlock]):
 
 @final
 class RoutingRoot(RoutingCluster):
-    def __init__(self, tag = "L5",**kwargs) -> None:
+    def __init__(self, tag="L5", **kwargs) -> None:
         """Initialize a routing quadtree root(L5-level)."""
         if tag == "L5":
-            super().__init__(Level.L5, include_online = True, **kwargs)
+            super().__init__(Level.L5, include_online=True, **kwargs)
         elif tag == "L6":
-            super().__init__(Level.L6, include_online = True, **kwargs)
+            super().__init__(Level.L6, include_online=True, **kwargs)
 
     def get_leaf_coord(self, cluster: "RoutingCluster") -> RoutingCoord:
         """Return the routing coordinate of the cluster(must be a L0 leaf)."""
         path = self.get_routing_path(cluster)
         for i in range(self.level, Level.L6):
-            path.insert(0, Direction.X0Y0)            
+            path.insert(0, Direction.X0Y0)
         if path:
             return RoutingCoord(*path)
 
@@ -564,7 +582,7 @@ class RoutingRoot(RoutingCluster):
                 )
                 wasted.append(cluster)
         wasted_num = len(wasted)
-        #Need check means this routing group may use the online cores on chip
+        # Need check means this routing group may use the online cores on chip
         check_online = wasted_num < (HwConfig.N_CHIP_MAX - HwConfig.N_CORE_OFFLINE)
         # Add the sub-tree to the root.
         flag = self.add_subtree(routing_cluster, check_online)

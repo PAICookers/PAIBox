@@ -49,7 +49,7 @@ class Mapper:
     """The routing tree root."""
     graph = PAIGraph()
 
-    def __init__(self, tag:str = "SingleChip") -> None:
+    def __init__(self, tag: str = "SingleChip") -> None:
         self.core_blocks: List[CoreBlock] = []
         """List for core blocks in the network."""
         self.succ_core_blocks: Dict[CoreBlock, List[CoreBlock]] = defaultdict(list)
@@ -68,7 +68,7 @@ class Mapper:
         self.graph_info: GraphInfo
         self.n_core_required = 0
         self.n_core_occupied = 0
-        if(tag == "SingleChip"):
+        if tag == "SingleChip":
             self.routing_tree = RoutingRoot(tag="L5")
             self.multi_chip = False
         elif tag == "MultiChip":
