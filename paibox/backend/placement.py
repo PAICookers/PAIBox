@@ -89,6 +89,9 @@ class CoreBlock(CoreAbstract):
         self.core_coords: List[Coord] = list()
         """Assigned core coordinates."""
 
+        self.chip_coord: Coord = _BACKEND_CONTEXT["local_chip_addr"]
+        """A core block must be placed on a chip."""
+
         self.core_placements: Dict[Coord, CorePlacement] = dict()
         """Core placements."""
 

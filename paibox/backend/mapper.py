@@ -49,7 +49,7 @@ class Mapper:
     """The routing tree root."""
     graph = PAIGraph()
 
-    def __init__(self) -> None:
+    def __init__(self, tag: str = "SingleChip") -> None:
         self.core_blocks: List[CoreBlock] = []
         """List for core blocks in the network."""
         self.succ_core_blocks: Dict[CoreBlock, List[CoreBlock]] = defaultdict(list)
@@ -68,6 +68,14 @@ class Mapper:
         self.graph_info: GraphInfo
         self.n_core_required = 0
         self.n_core_occupied = 0
+        if tag == "SingleChip":
+            self.routing_tree = RoutingRoot(tag="L5")
+            self.multi_chip = False
+        elif tag == "MultiChip":
+            self.routing_tree = RoutingRoot(tag="L6")
+            self.multi_chip = True
+        else:
+            raise ValueError(f"tag {tag} is not supported.")
 
         self.clear()
 
@@ -238,7 +246,7 @@ class Mapper:
         # Calculate the consumption of required physical cores.
         if (
             n_core_required := sum(cb.n_core_required for cb in self.core_blocks)
-        ) > HwConfig.N_CORE_OFFLINE:
+        ) > HwConfig.N_CORE_OFFLINE and not self.multi_chip:
             raise ResourceError(
                 f"the number of required cores is out of range {HwConfig.N_CORE_OFFLINE} ({n_core_required})."
             )
@@ -260,7 +268,7 @@ class Mapper:
         # Calculate the consumption of occupied physical cores.
         if (
             n_core_occupied := sum(rg.get_n_core_occupied() for rg in routing_groups)
-        ) > HwConfig.N_CORE_OFFLINE:
+        ) > HwConfig.N_CORE_OFFLINE and not self.multi_chip:
             raise ResourceError(
                 f"the number of occupied cores is out of range {HwConfig.N_CORE_OFFLINE} ({n_core_occupied})."
             )
