@@ -45,11 +45,9 @@ class Mapper:
         TODO It doesn't collect information during the build process.
     """
 
-    routing_tree = RoutingRoot(tag="L5")
-    """The routing tree root."""
     graph = PAIGraph()
 
-    def __init__(self, tag: str = "SingleChip") -> None:
+    def __init__(self, num_chip: int = 1) -> None:
         self.core_blocks: List[CoreBlock] = []
         """List for core blocks in the network."""
         self.succ_core_blocks: Dict[CoreBlock, List[CoreBlock]] = defaultdict(list)
@@ -68,15 +66,8 @@ class Mapper:
         self.graph_info: GraphInfo
         self.n_core_required = 0
         self.n_core_occupied = 0
-        if tag == "SingleChip":
-            self.routing_tree = RoutingRoot(tag="L5")
-            self.multi_chip = False
-        elif tag == "MultiChip":
-            self.routing_tree = RoutingRoot(tag="L6")
-            self.multi_chip = True
-        else:
-            raise ValueError(f"tag {tag} is not supported.")
-
+        self.routing_tree = RoutingRoot(num_chip=num_chip)
+        self.multi_chip = num_chip > 1
         self.clear()
 
     def clear(self) -> None:

@@ -123,9 +123,6 @@ class RoutingCluster:
                 return False
             else:
                 child.include_online = True
-        # each L5 cluster contains online cores
-        if self.level == Level.L6:
-            child.include_online = True
         child.direction = d
         child._parent = self
         self[d] = child
@@ -144,7 +141,7 @@ class RoutingCluster:
             path.insert(0, current_cluster._parent.direction)
             current_cluster = current_cluster._parent
         path = path[1:]
-        for i in range(current_cluster.level, Level.L6):
+        for i in range(current_cluster.level, Level.L5):
             path.insert(0, Direction.X0Y0)
         for i in range(self.level):
             path.append(Direction.ANY)
@@ -528,19 +525,20 @@ class RoutingGroup(List[CoreBlock]):
 
 
 @final
-class RoutingRoot(RoutingCluster):
-    def __init__(self, tag="L5", **kwargs) -> None:
+class RoutingRoot:
+    def __init__(self, num_chip, **kwargs) -> None:
         """Initialize a routing quadtree root(L5-level)."""
-        if tag == "L5":
-            super().__init__(Level.L5, include_online=True, **kwargs)
-        elif tag == "L6":
-            super().__init__(Level.L6, include_online=True, **kwargs)
+        self.num_chip = num_chip
+        self.chip_roots = [
+            RoutingCluster(Level.L5, include_online=True) for i in range(num_chip)
+        ]
+        self.chip_coords = [Coord(i, 0) for i in range(num_chip)]
 
-    def get_leaf_coord(self, cluster: "RoutingCluster") -> RoutingCoord:
+    def get_leaf_coord(
+        self, root: "RoutingCluster", cluster: "RoutingCluster"
+    ) -> RoutingCoord:
         """Return the routing coordinate of the cluster(must be a L0 leaf)."""
-        path = self.get_routing_path(cluster)
-        for i in range(self.level, Level.L6):
-            path.insert(0, Direction.X0Y0)
+        path = root.get_routing_path(cluster)
         if path:
             return RoutingCoord(*path)
 
@@ -585,24 +583,35 @@ class RoutingRoot(RoutingCluster):
         # Need check means this routing group may use the online cores on chip
         check_online = wasted_num < (HwConfig.N_CHIP_MAX - HwConfig.N_CORE_OFFLINE)
         # Add the sub-tree to the root.
-        flag = self.add_subtree(routing_cluster, check_online)
+        flag = False
+        chip_coord = None
+        chip_root = None
+        for index, root_cluster in enumerate(self.chip_roots):
+            flag = root_cluster.add_subtree(routing_cluster, check_online)
+            if flag:
+                chip_coord = self.chip_coords[index]
+                chip_root = root_cluster
+                break
         if not flag:
             return False
 
         valid_coords = []
         wasted_coords = []
-        chip_coord: Coord = leaves[0].get_routing_coord().chip_coordinate
         for cluster in leaves:
-            coord = self.get_leaf_coord(cluster)
+            coord = self.get_leaf_coord(chip_root, cluster)
             valid_coords.append(coord.coordinate)
 
         for cluster in wasted:
-            coord = self.get_leaf_coord(cluster)
+            coord = self.get_leaf_coord(chip_root, cluster)
             wasted_coords.append(coord.coordinate)
 
         routing_group.assign(valid_coords, wasted_coords, chip_coord)
 
         return True
+
+    def clear(self):
+        for root in self.chip_roots:
+            root.clear()
 
     @property
     def n_L0_clusters(self) -> int:
