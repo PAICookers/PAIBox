@@ -47,7 +47,7 @@ class Mapper:
 
     graph = PAIGraph()
 
-    def __init__(self, num_chip:int = 1) -> None:
+    def __init__(self, num_chip: int = 1) -> None:
         self.core_blocks: List[CoreBlock] = []
         """List for core blocks in the network."""
         self.succ_core_blocks: Dict[CoreBlock, List[CoreBlock]] = defaultdict(list)
@@ -67,7 +67,7 @@ class Mapper:
         self.n_core_required = 0
         self.n_core_occupied = 0
         self.routing_tree = RoutingRoot(num_chip=num_chip)
-        self.multi_chip = (num_chip > 1)
+        self.multi_chip = num_chip > 1
         self.clear()
 
     def clear(self) -> None:

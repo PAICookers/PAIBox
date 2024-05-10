@@ -529,12 +529,16 @@ class RoutingRoot:
     def __init__(self, num_chip, **kwargs) -> None:
         """Initialize a routing quadtree root(L5-level)."""
         self.num_chip = num_chip
-        self.chip_roots = [RoutingCluster(Level.L5, include_online=True) for i in range(num_chip)]
+        self.chip_roots = [
+            RoutingCluster(Level.L5, include_online=True) for i in range(num_chip)
+        ]
         self.chip_coords = [Coord(i, 0) for i in range(num_chip)]
 
-    def get_leaf_coord(self, root:"RoutingCluster", cluster: "RoutingCluster") -> RoutingCoord:
+    def get_leaf_coord(
+        self, root: "RoutingCluster", cluster: "RoutingCluster"
+    ) -> RoutingCoord:
         """Return the routing coordinate of the cluster(must be a L0 leaf)."""
-        path = root.get_routing_path(cluster)           
+        path = root.get_routing_path(cluster)
         if path:
             return RoutingCoord(*path)
 
@@ -586,7 +590,7 @@ class RoutingRoot:
             flag = root_cluster.add_subtree(routing_cluster, check_online)
             if flag:
                 chip_coord = self.chip_coords[index]
-                chip_root  = root_cluster
+                chip_root = root_cluster
                 break
         if not flag:
             return False
@@ -608,7 +612,7 @@ class RoutingRoot:
     def clear(self):
         for root in self.chip_roots:
             root.clear()
-            
+
     @property
     def n_L0_clusters(self) -> int:
         return self.breadth_of_lx_clusters(Level.L0)
