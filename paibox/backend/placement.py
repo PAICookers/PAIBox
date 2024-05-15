@@ -16,6 +16,7 @@ from paicorelib import (
     LCN_EX,
     AxonCoord,
     AxonSegment,
+    ChipCoord,
     Coord,
     CoreMode,
     CoreModeDict,
@@ -30,12 +31,7 @@ from paibox.exceptions import BuildError, ResourceError, TruncationWarning
 from paibox.types import WeightType
 from paibox.utils import check_attr_same, count_unique_elem
 
-from .conf_template import (
-    CoreConfig,
-    CorePlacementConfig,
-    EmptyCorePlacementConfig,
-    NeuronConfig,
-)
+from .conf_template import CoreConfig, CorePlmConfig, EmptyCorePlmConfig, NeuronConfig
 from .context import _BACKEND_CONTEXT
 from .graphs_types import DestNodeType, SourceNodeType
 from .segment_utils import (
@@ -74,7 +70,7 @@ class CoreBlock(CoreAbstract):
         super().__init__(name)
         self._parents = parents
         self._lcn_ex = self._n_axon2lcn_ex()
-        self._wp = WP.WEIGHT_WIDTH_8BIT  # Default value
+        self._wp = WP.WEIGHT_WIDTH_8BIT  # default value
         self._routing_id = routing_id
 
         self.seed = seed
@@ -89,7 +85,7 @@ class CoreBlock(CoreAbstract):
         self.core_coords: List[Coord] = list()
         """Assigned core coordinates."""
 
-        self.chip_coord: Coord = _BACKEND_CONTEXT["local_chip_addr"]
+        self.chip_coord: ChipCoord = Coord(0, 0)  # default
         """A core block must be placed on a chip."""
 
         self.core_placements: Dict[Coord, CorePlacement] = dict()
@@ -590,7 +586,6 @@ class CorePlacement(CoreAbstract):
         self,
         neu_seg: NeuSeg,
         axon_dests: Optional[List[CoreBlock]] = None,
-        *,
         output_core_coord: Optional[Coord] = None,
         axon_addr_offset: Optional[int] = None,
     ) -> Optional[int]:
@@ -603,10 +598,12 @@ class CorePlacement(CoreAbstract):
                 axon_dests[0].n_timeslot,
             )
 
-            # Get all core coordinates then get the RID.
+            # Get all core coordinates and replication ids.
+            assert all(axon_dests[0].chip_coord == ad.chip_coord for ad in axon_dests)
+
             dest_core_coords = []
-            for axon_dest in axon_dests:
-                dest_core_coords.extend(axon_dest.core_coords)
+            for ad in axon_dests:
+                dest_core_coords.extend(ad.core_coords)
 
             config = NeuronConfig.encapsulate(
                 neu_seg.parent,
@@ -615,12 +612,12 @@ class CorePlacement(CoreAbstract):
                 neu_seg.segment.addr_offset,
                 axon_coords,
                 dest_core_coords,
-                # local chip coordinate for member nodes
-                _BACKEND_CONTEXT["local_chip_addr"],
+                axon_dests[0].chip_coord,
             )
 
             self.neu_configs[neu_seg.parent] = config
         else:
+            # neu_seg is a part of an output node
             assert isinstance(output_core_coord, Coord)
             assert isinstance(axon_addr_offset, int)
 
@@ -644,10 +641,10 @@ class CorePlacement(CoreAbstract):
 
             return axon_addr_offset + neu_seg.n_neuron
 
-    def export_core_plm_config(self) -> CorePlacementConfig:
+    def export_core_plm_config(self) -> CorePlmConfig:
         core_param = self.export_param_config()
 
-        return CorePlacementConfig.encapsulate(
+        return CorePlmConfig.encapsulate(
             self.parent.seed,
             self.weight_ram,
             core_param,
@@ -756,9 +753,9 @@ class EmptyCorePlacement(CoreAbstract):
         # fmt: on
         return cb_config
 
-    def export_core_plm_config(self) -> EmptyCorePlacementConfig:
+    def export_core_plm_config(self) -> EmptyCorePlmConfig:
         core_param = self.export_param_config()
-        return EmptyCorePlacementConfig.encapsulate(core_param)
+        return EmptyCorePlmConfig.encapsulate(core_param)
 
     @classmethod
     def build(cls, coord: Coord):

@@ -35,6 +35,18 @@ def count_unique_elem(obj: Iterable[Any]) -> int:
     return len(seen)
 
 
+def merge_unique_ordered(list1: List[Any], list2: List[Any]) -> List[Any]:
+    seen = set()
+    result = []
+
+    for item in list1 + list2:
+        if item not in seen:
+            seen.add(item)
+            result.append(item)
+
+    return result
+
+
 def check_attr_same(obj: Sequence[Any], attr: str) -> bool:
     return all(getattr(obj[0], attr) == getattr(item, attr) for item in obj)
 

@@ -1,15 +1,19 @@
 from typing import Any, Dict, Iterator, List, Optional, Sequence, final
 
-from paicorelib import Coord, HwConfig
-from paicorelib.routing_defs import ROUTING_DIRECTIONS_IDX, RoutingCoord, RoutingCost
+from paicorelib import ChipCoord, Coord, HwConfig
+from paicorelib.routing_defs import (
+    ROUTING_DIRECTIONS_IDX as DIREC_IDX,
+    RoutingCoord,
+    RoutingCost,
+)
 from paicorelib.routing_defs import RoutingDirection as Direction
 from paicorelib.routing_defs import RoutingLevel as Level
 from paicorelib.routing_defs import RoutingStatus as Status
 from paicorelib.routing_defs import get_routing_consumption
 
-from paibox.exceptions import NotSupportedError, ResourceError
+from paibox.exceptions import ResourceError, RoutingError
 
-from .conf_template import CorePlacementInfo
+from .conf_template import CorePlmConfInChip
 from .placement import CoreBlock, CorePlacement, EmptyCorePlacement
 
 __all__ = ["RoutingGroup", "RoutingRoot"]
@@ -19,14 +23,14 @@ class RoutingCluster:
     def __init__(
         self,
         level: Level,
-        data: Optional[CorePlacement] = None,
-        *,
         direction: Direction = Direction.ANY,
+        *,
+        data: Optional[CorePlacement] = None,
         status: Optional[Status] = None,
         tag: Optional[str] = None,
         include_online: bool = False,
     ) -> None:
-        """Instance a tree cluster with `level`.
+        """Instance a tree cluster with `level` and `direction`.
         - For a Lx(>0)-level cluster, after created, the length of children is `node_capacity`.
         - For a L0-level cluster, it's a leaf.
 
@@ -39,20 +43,17 @@ class RoutingCluster:
         Attributes:
             - level: the cluster level.
             - children: the children of the cluster.
-            - direction: the direction of the cluster iteself.
+            - d: the direction of the cluster, relative to its parent.
             - item: the data hanging on the cluster.
             - tag: a tag for user to identify.
-            - status: the status of the cluster. It's only for L0-level leaves.
-
-        NOTE: Do not add methods `__len__` & `__contains__`.
+            - status: the status of the cluster. Only for L0-level leaves.
         """
-        self._level = level
-        self._children: Dict[Direction, RoutingCluster] = dict()
-        self._direction = direction
+        self.level = level
+        self.children: Dict[Direction, RoutingCluster] = dict()
+        self.d = direction
         self.item = data
         self.tag = tag
         self.include_online = include_online
-        self._parent: RoutingCluster = None
 
         # Only set the attribute for L0-level cluster.
         if self.level == Level.L0:
@@ -69,26 +70,20 @@ class RoutingCluster:
             for child in root.children.values():
                 dfs(child)
 
-            return None
-
         if self.level > Level.L0:
             dfs(self)
 
-    def create_child(self, force: bool = False, **kwargs) -> Optional["RoutingCluster"]:
+    def create_child(self, **kwargs) -> Optional["RoutingCluster"]:
         """Create a child. If full, return None."""
         child = RoutingCluster(Level(self.level - 1), **kwargs)
 
-        if not self.add_child(child, force=force):
+        if not self.add_child(child):
             return None
 
         return child
 
     def add_child(
-        self,
-        child: "RoutingCluster",
-        method: str = "nearest",
-        check_online: bool = False,
-        force: bool = False,
+        self, child: "RoutingCluster", check_hit_online: bool = False
     ) -> bool:
         if self.level == Level.L0:
             # L0-level cluster cannot add child.
@@ -97,76 +92,71 @@ class RoutingCluster:
         if self.is_full():
             return False
 
-        # Traverse from X0Y0 to X1Y1.
-        for d in ROUTING_DIRECTIONS_IDX:
-            if d not in self.children:
-                return self.add_child_to(child, d, check_online, force)
+        for d in DIREC_IDX:
+            if d not in self:
+                return self.add_child_to(child, d, check_hit_online)
 
         return False
 
     def add_child_to(
-        self,
-        child: "RoutingCluster",
-        d: Direction,
-        check_online: bool = False,
-        force: bool = False,
+        self, child: "RoutingCluster", d: Direction, check_hit_online: bool = False
     ) -> bool:
         """Add a child cluster to a certain `direction`."""
         if self.level - child.level != 1:
             raise ValueError(f"Cannot skip more than 1 level.")
 
-        if not force and d in self.children:
+        if d in self:
             return False
 
         if d == Direction.X1Y1:
-            if self.include_online and check_online:
+            if self.include_online and check_hit_online:
                 return False
             else:
                 child.include_online = True
-        child.direction = d
-        child._parent = self
+
+        # child.direction = d. Already done in `self[d]`(__setitem__).
         self[d] = child
 
         return True
 
-    def remove_child(self, d: Direction) -> bool:
-        if d in self.children:
-            del self.children[d]
-        return True
+    def remove_child(
+        self,
+        d: Direction,
+        revert_direc: Direction = Direction.ANY,
+        strict: bool = False,
+    ) -> Optional["RoutingCluster"]:
+        child = self.children.pop(d, None)
 
-    def get_routing_coord(self) -> RoutingCoord:
-        current_cluster = self
-        path = [self.direction]
-        while current_cluster._parent is not None:
-            path.insert(0, current_cluster._parent.direction)
-            current_cluster = current_cluster._parent
-        path = path[1:]
-        for i in range(current_cluster.level, Level.L5):
-            path.insert(0, Direction.X0Y0)
-        for i in range(self.level):
-            path.append(Direction.ANY)
-        return RoutingCoord(*path)
+        if child is None:
+            if strict:
+                raise RoutingError(f"Removed child of {d} from {self} failed.")
+            else:
+                return None
+
+        # Revert the properties that were modified in the previous insertion.
+        child.include_online = False
+        child.d = revert_direc
+
+        return child
 
     def find_cluster_by_path(
         self, path: Sequence[Direction]
     ) -> Optional["RoutingCluster"]:
-        """Find the cluster by given a path of `Direction`.
+        """Find the cluster by given a routing path.
 
         Description:
-            Find by starting at this level based on the path provided. \
-            Take `path[0]` each time and then do a recursive search.
-
-        NOTE: The length of path <= the level of this cluster.
+            Find by starting at this level based on the routing path provided.
+            Take `path[0]` each time and do a recursive search.
         """
         if len(path) == 0:
             return self
 
         if len(path) > self.level:
             raise ValueError(
-                f"the length of the {path} should be less than or equal to level."
+                f"the length of path must be no more than {self.level}, but got {len(path)}."
             )
 
-        if path[0] not in self.children:
+        if path[0] not in self:
             return None
 
         sub_cluster = self[path[0]]
@@ -237,8 +227,8 @@ class RoutingCluster:
                 return None
 
         if not self.is_empty():
-            for d in ROUTING_DIRECTIONS_IDX:
-                if d in self.children:
+            for d in DIREC_IDX:
+                if d in self:
                     cluster = self[d]._find_lx_cluster_with_n_child_avail(
                         lx, n_child_avail, method
                     )
@@ -254,12 +244,13 @@ class RoutingCluster:
     def add_subtree(
         self,
         subtree: "RoutingCluster",
-        check_online: bool = False,
-        method: str = "nearest",
+        check_hit_online: bool,
     ) -> bool:
         """Add the subtree's children to itself. If successful, return the added parent cluster."""
         if subtree.level > self.level:
-            raise ValueError
+            raise ValueError(
+                f"subtree's level {subtree.level} must be no more than the current level {self.level}."
+            )
 
         if subtree.level == self.level:
             sub_n_child = len(subtree.children)
@@ -267,62 +258,55 @@ class RoutingCluster:
                 return False
 
             if sub_n_child == 1:
-                self.add_child(
-                    subtree.children[Direction.X0Y0], check_online=check_online
-                )
+                self.add_child(subtree[Direction.X0Y0], check_hit_online)
 
             elif sub_n_child == 2:
-                order = ROUTING_DIRECTIONS_IDX
-                child_num = len(self.children)
+                n_cur_child = len(self.children)
                 hit_online = False
-                for i in range(child_num, child_num + 2):
-                    subtree_direction = order[i - child_num]
+
+                for i in range(sub_n_child):
                     success = self.add_child_to(
-                        subtree.children[subtree_direction],
-                        order[i],
-                        check_online=check_online,
+                        subtree[DIREC_IDX[i]],
+                        DIREC_IDX[n_cur_child + i],
+                        check_hit_online,
                     )
-                    hit_online = hit_online or (not success)
+                    hit_online |= not success
 
                 if hit_online:
-                    # 如果有一个子树插入失败，需要将已经插入的子树删除
-                    for i in range(child_num, child_num + 2):
-                        subtree_direction = order[i - child_num]
-                        self.remove_child(order[i])
-                        subtree.children[subtree_direction].include_online = False
-                        subtree.children[subtree_direction].direction = (
-                            subtree_direction
+                    # If any of the subtrees fail to insert, the inserted subtrees are removed.
+                    for i in range(sub_n_child):
+                        removed = self.remove_child(
+                            DIREC_IDX[n_cur_child + i], DIREC_IDX[i], strict=False
                         )
-                        subtree.children[subtree_direction]._parent = subtree
+
                     return False
 
             elif sub_n_child == 4:
-                if self.include_online and check_online:
+                if self.include_online and check_hit_online:
                     return False
-                self._children = subtree.children
-                self._children[Direction.X1Y1].include_online = True
-                for child in self._children.values():
-                    child._parent = self
+
+                self.children = subtree.children
+                # Because the tree is inserted using depth-first order, when a node is
+                # encountered with no child, it must be on the far right.
+                self[Direction.X1Y1].include_online = True
+
             else:
-                # Only support 1, 2, & 4.
-                raise NotSupportedError(
-                    f"the number of {sub_n_child} child is not supported."
-                )
+                raise ValueError(f"the number of {sub_n_child} child is invalid.")
 
             return True
 
         if not self.is_empty():
-            for d in ROUTING_DIRECTIONS_IDX:
-                if d in self.children:
-                    flag = self[d].add_subtree(subtree, check_online, method)
+            for d in DIREC_IDX:
+                if d in self:
+                    flag = self[d].add_subtree(subtree, check_hit_online)
                     if flag:
-                        return flag
+                        return True
 
         child = self.create_child()
         if not child:
             return False
 
-        return child.add_subtree(subtree, check_online, method)
+        return child.add_subtree(subtree, check_hit_online)
 
     @classmethod
     def create_lx_full_tree(
@@ -331,12 +315,12 @@ class RoutingCluster:
         d: Direction = Direction.X0Y0,
         root_tag: Optional[str] = None,
     ) -> "RoutingCluster":
-        root = RoutingCluster(lx, direction=d, tag=root_tag)
+        root = RoutingCluster(lx, d, tag=root_tag)
 
         if lx > Level.L1:
             for i in range(root.node_capacity):
                 child = cls.create_lx_full_tree(
-                    Level(lx - 1), ROUTING_DIRECTIONS_IDX[i], f"L{lx-1}_{i}"
+                    Level(lx - 1), DIREC_IDX[i], f"L{lx-1}_{i}"
                 )
                 if not root.add_child(child):
                     raise ValueError
@@ -350,19 +334,20 @@ class RoutingCluster:
         NOTE: When lx == L1, do not create the L0-level child. \
             WHen lx > L1, create the lx-1 level child.
         """
-        if lx == Level.L0 or n_branch < 0:
-            raise ValueError
+        if n_branch < 0 or n_branch > HwConfig.N_SUB_ROUTING_NODE:
+            raise ValueError(f"#N of branches out of range, got {n_branch}.")
 
-        root = RoutingCluster(lx, direction=Direction.X0Y0)
+        if lx == Level.L0:
+            raise ValueError(f"do not create L0-level node directly.")
+
+        root = RoutingCluster(lx, Direction.X0Y0)
 
         # Create `n_branch` children when lx > L1.
         if lx > Level.L1:
             for i in range(n_branch):
-                child = cls.create_lx_full_tree(
-                    Level(lx - 1), ROUTING_DIRECTIONS_IDX[i]
-                )
+                child = cls.create_lx_full_tree(Level(lx - 1), DIREC_IDX[i])
                 if not root.add_child(child):
-                    raise ValueError
+                    raise ValueError(f"add child {child} failed.")
 
         return root
 
@@ -373,23 +358,23 @@ class RoutingCluster:
             - data: the data attached to the L0-level cluster.
             - kwargs: other arguments of the L0-level cluster, status, tag, etc.
         """
-        cluster = RoutingCluster(Level.L0, data, **kwargs)
+        cluster = RoutingCluster(Level.L0, data=data, **kwargs)
 
         L1_cluster = self._find_lx_cluster_with_n_child_avail(Level.L1, 1)
         if not L1_cluster:
-            raise RuntimeError("available L1 cluster not found.")
+            raise RoutingError("available L1 cluster not found.")
 
         if not L1_cluster.add_child(cluster):
-            raise RuntimeError(f"add child to L1 cluster failed.")
+            raise RoutingError(f"add child to L1 cluster failed.")
 
         return cluster
 
-    def find_clusters_at_level(
+    def find_lx_clusters(
         self, lx: Level, n_child_avail_low: int = 0
     ) -> List["RoutingCluster"]:
         """Find all clusters at a `lx` level with at least `n_child_avail_low` child clusters."""
         if lx > self.level:
-            raise ValueError
+            return []
 
         clusters = []
 
@@ -398,10 +383,10 @@ class RoutingCluster:
                 if root.n_child_avail() >= n_child_avail_low:
                     clusters.append(root)
 
-                return
+                return None
 
-            for d in ROUTING_DIRECTIONS_IDX:
-                if d in root.children:
+            for d in DIREC_IDX:
+                if d in root:
                     dfs_preorder(root[d])
 
         dfs_preorder(self)
@@ -412,39 +397,34 @@ class RoutingCluster:
         if lx == Level.L0:
             return []
 
-        return self.find_clusters_at_level(lx, self.node_capacity)
+        return self.find_lx_clusters(lx, self.node_capacity)
 
-    def breadth_of_lx_clusters(self, lx: Level) -> int:
+    def breadth_of_lx(self, lx: Level) -> int:
         """Get the number of clusters in the routing tree at the given level."""
-        clusters = self.find_clusters_at_level(lx, 0)
+        clusters = self.find_lx_clusters(lx, 0)
 
         return len(clusters)
 
-    def __getitem__(self, key: Direction) -> "RoutingCluster":
-        return self.children[key]
+    def __getitem__(self, d: Direction) -> "RoutingCluster":
+        return self.children[d]
 
-    def __setitem__(self, key: Direction, value: "RoutingCluster") -> None:
-        self._children[key] = value
+    def __setitem__(self, d: Direction, child: "RoutingCluster") -> None:
+        self.children[d] = child
+        child.d = d  # Set the direction of the child.
 
-    @property
-    def level(self) -> Level:
-        return self._level
+    def __str__(self) -> str:
+        _name = id(self) if self.tag is None else self.tag
+        return f"tree {_name} at {self.d.name} at level {self.level}"
+
+    def __iter__(self) -> Iterator[Direction]:
+        return self.children.__iter__()
+
+    def __contains__(self, d: Direction) -> bool:
+        return d in self.children
 
     @property
     def node_capacity(self) -> int:
         return HwConfig.N_SUB_ROUTING_NODE if self.level > Level.L0 else 0
-
-    @property
-    def children(self):
-        return self._children
-
-    @property
-    def direction(self) -> Direction:
-        return self._direction
-
-    @direction.setter
-    def direction(self, d: Direction) -> None:
-        self._direction = d
 
 
 class RoutingGroup(List[CoreBlock]):
@@ -484,7 +464,7 @@ class RoutingGroup(List[CoreBlock]):
         for coord in self.wasted_coords:
             self.wasted_core_plm[coord] = EmptyCorePlacement.build(coord)
 
-    def get_wasted_cplm_config(self) -> CorePlacementInfo:
+    def get_wasted_cplm_config(self) -> CorePlmConfInChip:
         return {
             coord: core_plm.export_core_plm_config()
             for coord, core_plm in self.wasted_core_plm.items()
@@ -523,26 +503,35 @@ class RoutingGroup(List[CoreBlock]):
     def routing_level(self) -> Level:
         return self.routing_cost.get_routing_level()
 
+    @property
+    def chip_coord(self) -> ChipCoord:
+        if not all(cb.chip_coord == self[0].chip_coord for cb in self):
+            raise RoutingError(
+                "Chip coordinates in the routing group is not consistent."
+            )
+
+        return self[0].chip_coord
+
 
 @final
 class RoutingRoot:
-    def __init__(self, num_chip, **kwargs) -> None:
-        """Initialize a routing quadtree root(L5-level)."""
-        self.num_chip = num_chip
+    def __init__(self, chip_list: List[ChipCoord], **kwargs) -> None:
+        """Initialize a routing quadtree root."""
+        self.chip_list = chip_list
+        # Every L5 routing cluster is unique in each chip root.
         self.chip_roots = [
-            RoutingCluster(Level.L5, include_online=True) for i in range(num_chip)
+            RoutingCluster(Level.L5, include_online=True) for _ in range(len(chip_list))
         ]
-        self.chip_coords = [Coord(i, 0) for i in range(num_chip)]
 
     def get_leaf_coord(
-        self, root: "RoutingCluster", cluster: "RoutingCluster"
+        self, root: RoutingCluster, leaf: RoutingCluster
     ) -> RoutingCoord:
-        """Return the routing coordinate of the cluster(must be a L0 leaf)."""
-        path = root.get_routing_path(cluster)
+        """Return the routing coordinate of the L0 leaf."""
+        path = root.get_routing_path(leaf)
         if path:
             return RoutingCoord(*path)
 
-        raise RuntimeError(f"get leaf cluster {cluster.tag} coordinate failed.")
+        raise RoutingError(f"get leaf {leaf.tag} coordinate failed.")
 
     def insert_routing_group(self, routing_group: RoutingGroup) -> bool:
         """Insert a `RoutingGroup` in the routing tree. Assign each core blocks with \
@@ -554,7 +543,10 @@ class RoutingRoot:
         cost = routing_group.routing_cost
         level = routing_group.routing_level
         if cost.n_L0 > HwConfig.N_CORE_OFFLINE:
-            raise ResourceError("The number of cores exceeds the hardware limit.")
+            raise ResourceError(
+                f"the number of cores required exceeds the hardware limit, {cost.n_L0} > {HwConfig.N_CORE_OFFLINE}."
+            )
+
         # Create a routing cluster
         routing_cluster = RoutingCluster.create_routing_tree(level, cost[level - 1])
 
@@ -567,55 +559,68 @@ class RoutingRoot:
         wasted = []
         for i in range(cost.n_L0):
             if i < routing_group.n_core_required:
-                cluster = routing_cluster.add_L0_for_placing(
+                l0 = routing_cluster.add_L0_for_placing(
                     data=f"{id(routing_group)}_{i}",
                     status=Status.USED,
                     tag=f"{id(routing_group)}_{i}",
                 )
-                leaves.append(cluster)
+                leaves.append(l0)
 
             else:
-                cluster = routing_cluster.add_L0_for_placing(
+                l0 = routing_cluster.add_L0_for_placing(
                     status=Status.OCCUPIED, tag=f"{id(routing_group)}_{i}"
                 )
-                wasted.append(cluster)
-        wasted_num = len(wasted)
-        # Need check means this routing group may use the online cores on chip
-        check_online = wasted_num < (HwConfig.N_CHIP_MAX - HwConfig.N_CORE_OFFLINE)
+                wasted.append(l0)
+
+        # If #N of wasted cores > 16, it won't hit online L2 cluster.
+        check_hit_online = len(wasted) <= HwConfig.N_CORE_ONLINE
+
         # Add the sub-tree to the root.
         flag = False
-        chip_coord = None
-        chip_root = None
-        for index, root_cluster in enumerate(self.chip_roots):
-            flag = root_cluster.add_subtree(routing_cluster, check_online)
+        # TODO For now, use sequential attempt.
+        for chip_coord, chip_root in zip(self.chip_list, self.chip_roots):
+            flag = chip_root.add_subtree(routing_cluster, check_hit_online)
             if flag:
-                chip_coord = self.chip_coords[index]
-                chip_root = root_cluster
                 break
-        if not flag:
-            return False
 
+        if not flag:
+            raise RoutingError(
+                f"insert routing group {routing_group} into the routing tree failed, "
+                f"cannot insert to any chip."
+            )
+
+        # TODO Consider obtaining the root coord of the `routing_cluster` applied for when inserting,
+        # and calculate all leaf coords according to the size of the routing group. Instead of
+        # recording all the leaves and then looking up their coordinates in the tree.
         valid_coords = []
         wasted_coords = []
         for cluster in leaves:
             coord = self.get_leaf_coord(chip_root, cluster)
-            valid_coords.append(coord.coordinate)
+            valid_coords.append(coord.to_coord())
 
         for cluster in wasted:
             coord = self.get_leaf_coord(chip_root, cluster)
-            wasted_coords.append(coord.coordinate)
+            wasted_coords.append(coord.to_coord())
 
         routing_group.assign(valid_coords, wasted_coords, chip_coord)
 
         return True
 
-    def clear(self):
-        for root in self.chip_roots:
+    def clear(self) -> None:
+        for root in self:
             root.clear()
 
-    @property
-    def n_L0_clusters(self) -> int:
-        return self.breadth_of_lx_clusters(Level.L0)
+    def breadth_of_lx_at(self, lx: Level, chip_idx: int) -> int:
+        return self[chip_idx].breadth_of_lx(lx)
+
+    def breadth_of_lx(self, lx: Level) -> int:
+        return sum(chip_root.breadth_of_lx(lx) for chip_root in self)
+
+    def __getitem__(self, index: int) -> RoutingCluster:
+        return self.chip_roots[index]
+
+    def __iter__(self) -> Iterator[RoutingCluster]:
+        return self.chip_roots.__iter__()
 
 
 def get_parent(
@@ -627,8 +632,8 @@ def get_parent(
     def dfs_preorder(
         tree: RoutingCluster, cluster: RoutingCluster
     ) -> Optional[RoutingCluster]:
-        for d in ROUTING_DIRECTIONS_IDX:
-            if d in tree.children:
+        for d in DIREC_IDX:
+            if d in tree:
                 if tree[d] is cluster:
                     return tree
                 else:
