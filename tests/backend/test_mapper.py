@@ -1,4 +1,3 @@
-import json
 from enum import Enum
 from json import JSONEncoder
 from math import ceil
@@ -43,7 +42,7 @@ class TestGraphInfo:
         mapper.export(
             fp=ensure_dump_dir,
             format="txt",
-            split_by_coordinate=True,
+            split_by_coord=True,
             export_core_params=True,
         )
 
@@ -59,7 +58,7 @@ class TestGraphInfo:
         mapper.export(
             fp=ensure_dump_dir,
             format="txt",
-            split_by_coordinate=True,
+            split_by_coord=True,
             export_core_params=True,
         )
 
@@ -75,7 +74,7 @@ class TestGraphInfo:
         mapper.export(
             fp=ensure_dump_dir,
             format="txt",
-            split_by_coordinate=True,
+            split_by_coord=True,
             export_core_params=True,
         )
 
@@ -102,7 +101,7 @@ class TestGraphInfo:
         mapper.export(
             fp=ensure_dump_dir,
             format="txt",
-            split_by_coordinate=True,
+            split_by_coord=True,
             export_core_params=True,
         )
 
@@ -119,7 +118,7 @@ class TestGraphInfo:
         mapper.export(
             fp=ensure_dump_dir,
             format="txt",
-            split_by_coordinate=True,
+            split_by_coord=True,
             export_core_params=True,
         )
 
@@ -187,9 +186,7 @@ class TestMapperDebug:
         assert len(mapper.core_blocks) == 3  # 3 layers
         assert mapper.graph_info["inherent_timestep"] == 3
 
-        mapper.export(
-            fp=ensure_dump_dir, export_core_params=True, split_by_coordinate=False
-        )
+        mapper.export(fp=ensure_dump_dir, export_core_params=True, split_by_coord=False)
         print()
 
     @pytest.mark.usefixtures("compile_simple_net")
@@ -363,6 +360,8 @@ class TestMapper_Grouping_Optim:
     def test_grouping_optim_latency(
         self, monkeypatch, build_Network_8bit_dense, ensure_dump_dir
     ):
+        from paibox.backend.conf_template import export_core_plm_conf_json
+
         monkeypatch.setattr(HwConfig, "N_DENDRITE_MAX_SNN", 8 * 8)
         monkeypatch.setattr(HwConfig, "N_FANIN_PER_DENDRITE_SNN", 6)
 
@@ -372,20 +371,10 @@ class TestMapper_Grouping_Optim:
         mapper.build(net)
         mapper.compile(grouping_optim_target="latency")
 
-        _json_core_plm_config = dict()
-
-        for coord, cpc in mapper.core_plm_config.items():
-            _json_core_plm_config[coord.address] = cpc.__json__()
-
         # Export complete configurations of cores into json
-        with open(ensure_dump_dir / "core_plm_configs_dense.json", "w") as f:
-            json.dump(
-                _json_core_plm_config,
-                f,
-                ensure_ascii=True,
-                indent=4,
-                cls=CustomJsonEncoder,
-            )
+        export_core_plm_conf_json(
+            mapper.core_plm_config, ensure_dump_dir / "core_plm_configs_dense.json"
+        )
 
     def test_grouping_optim_core(self, monkeypatch, build_example_net4):
         net = build_example_net4
@@ -486,3 +475,55 @@ class TestMapper_cflags:
             s.weight_precision for s in (net.s1, net.s2, net.s3)
         )
         assert mapper.core_blocks[0].weight_precision == expected_wp_opt
+
+
+class TestMapper_Multichip:
+    @pytest.mark.xfail(reason="Network may too large.")
+    def test_multichip_1(self, ensure_dump_dir, build_MultichipNet1_s1, monkeypatch):
+        """Multichip network of scale 1"""
+        from paibox.backend.context import _BACKEND_CONTEXT
+        import time
+
+        clist = [Coord(0, 0), Coord(0, 1)]
+        monkeypatch.setattr(pb.BACKEND_CONFIG, "target_chip_addr", clist)
+        assert _BACKEND_CONTEXT.n_target_chips == len(clist)
+
+        net = build_MultichipNet1_s1
+        mapper = pb.Mapper()
+        mapper.build(net)
+
+        t_start = time.time()
+        mapper.compile(weight_bit_optimization=False)
+        t_end = time.time()
+        print(f"Used {t_end - t_start}")
+
+        mapper.export(fp=ensure_dump_dir, export_core_params=True, split_by_coord=False)
+
+        print("Total cores occupied:", mapper.n_core_occupied)
+
+        assert 1
+
+    @pytest.mark.xfail(reason="Network may too large.")
+    def test_multichip_2(self, ensure_dump_dir, build_MultichipNet1_s2, monkeypatch):
+        """Multichip network of scale 2"""
+        from paibox.backend.context import _BACKEND_CONTEXT
+        import time
+
+        clist = [Coord(0, 0), Coord(0, 1), Coord(1, 0)]
+        monkeypatch.setattr(pb.BACKEND_CONFIG, "target_chip_addr", clist)
+        assert _BACKEND_CONTEXT.n_target_chips == len(clist)
+
+        net = build_MultichipNet1_s2
+        mapper = pb.Mapper()
+        mapper.build(net)
+
+        t_start = time.time()
+        mapper.compile(weight_bit_optimization=False)
+        t_end = time.time()
+        print(f"Used {t_end - t_start}")
+
+        mapper.export(fp=ensure_dump_dir, export_core_params=True, split_by_coord=False)
+
+        print("Total cores occupied:", mapper.n_core_occupied)
+
+        assert 1

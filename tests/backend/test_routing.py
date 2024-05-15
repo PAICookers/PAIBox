@@ -1,8 +1,10 @@
 import pytest
-from paicorelib import RoutingCost, RoutingDirection, RoutingLevel
-
+import numpy as np
 import paibox as pb
-from paibox.backend.routing import RoutingCluster, RoutingGroup, RoutingRoot, get_parent
+from contextlib import nullcontext
+from paicorelib import Coord, RoutingDirection, RoutingLevel
+from paibox.backend.routing import RoutingCluster, RoutingRoot, get_parent
+from paibox.exceptions import RoutingError
 
 
 class TestRouterTree:
@@ -20,17 +22,15 @@ class TestRouterTree:
         assert cluster1 is not None
         assert len(root.children) == 3
 
-        assert root.add_child_to(cluster_l2_3, RoutingDirection.X1Y1, False) == False
-        assert root.add_child_to(cluster_l2_3, RoutingDirection.X1Y1, True) == True
+        assert root.add_child_to(cluster_l2_3, RoutingDirection.X1Y1) == False
         assert len(root.children) == 3
-        assert root.children[RoutingDirection.X1Y1] == cluster_l2_3
 
-        cluster2 = root.create_child(False, tag="L2_created2")  # X1Y0
+        cluster2 = root.create_child(tag="L2_created2")  # X1Y0
         assert cluster2 is not None
         assert len(root.children) == 4
         assert root.children[RoutingDirection.X1Y0] == cluster2
 
-        cluster3 = root.create_child(False, tag="L2_created3")
+        cluster3 = root.create_child(tag="L2_created3")
         assert cluster3 is None
 
     def test_clear(self):
@@ -57,6 +57,15 @@ class TestRouterTree:
 
         root.clear()
         assert len(root.children) == 0
+
+    def test_remove_child(self, build_example_root):
+        root = build_example_root
+
+        assert root.remove_child(RoutingDirection.X0Y1, strict=True)
+        assert RoutingDirection.X0Y1 not in root
+
+        with pytest.raises(RoutingError):
+            root.remove_child(RoutingDirection.X1Y1, strict=True)
 
     def test_find_cluster_by_path(self):
         root = RoutingCluster(RoutingLevel.L3, tag="L3")
@@ -158,19 +167,19 @@ class TestRouterTree:
         assert len(subtree.children) == 2
 
         n = 6
-        for i in range(n):
+        for _ in range(n):
             subtree.add_L0_for_placing()
 
         find_l0_1 = subtree.find_leaf_at_level(RoutingLevel.L0)
-        find_l0_2 = subtree.find_clusters_at_level(RoutingLevel.L0, 0)
+        find_l0_2 = subtree.find_lx_clusters(RoutingLevel.L0, 0)
 
-        find_l1_1 = subtree.find_clusters_at_level(RoutingLevel.L1, 0)
-        find_l1_2 = subtree.find_clusters_at_level(RoutingLevel.L1, 2)
-        find_l1_3 = subtree.find_clusters_at_level(RoutingLevel.L1, 4)
+        find_l1_1 = subtree.find_lx_clusters(RoutingLevel.L1, 0)
+        find_l1_2 = subtree.find_lx_clusters(RoutingLevel.L1, 2)
+        find_l1_3 = subtree.find_lx_clusters(RoutingLevel.L1, 4)
         find_l1_4 = subtree.find_leaf_at_level(RoutingLevel.L1)
 
-        find_l2 = subtree.find_clusters_at_level(RoutingLevel.L2, 0)
-        find_l3 = subtree.find_clusters_at_level(RoutingLevel.L3, 2)
+        find_l2 = subtree.find_lx_clusters(RoutingLevel.L2, 0)
+        find_l3 = subtree.find_lx_clusters(RoutingLevel.L3, 2)
 
         assert len(find_l0_1) == 0
         assert len(find_l0_2) == n
@@ -211,23 +220,23 @@ class TestRouterTree:
         subtree = RoutingCluster.create_routing_tree(RoutingLevel.L3, 2)
 
         n = 6
-        for i in range(n):
+        for _ in range(n):
             subtree.add_L0_for_placing()
 
-        insert = root.add_subtree(subtree)
+        insert = root.add_subtree(subtree, False)
 
         assert insert == True
 
         subtree2 = RoutingCluster.create_routing_tree(RoutingLevel.L3, 4)
-        insert = root.add_subtree(subtree2)
+        insert = root.add_subtree(subtree2, False)
 
         assert insert == True
 
         subtree3 = RoutingCluster.create_routing_tree(RoutingLevel.L3, 1)
-        l2_cluster = subtree3.find_clusters_at_level(RoutingLevel.L2)[0]
+        l2_cluster = subtree3.find_lx_clusters(RoutingLevel.L2)[0]
         l2_cluster.tag = "L2_new"
 
-        insert = root.add_subtree(subtree3)
+        insert = root.add_subtree(subtree3, False)
 
         assert insert == True
 
@@ -266,7 +275,9 @@ class TestRoutingGroup:
         mapper.coord_assign()
 
         # 8+5+4, 8+8+4
-        assert mapper.routing_tree.n_L0_clusters >= mapper.n_core_required
+        assert (
+            mapper.routing_tree.breadth_of_lx(RoutingLevel.L0) >= mapper.n_core_required
+        )
 
     def test_RoutingGroup_instance2(self, monkeypatch, build_example_net2):
         net = build_example_net2
@@ -282,7 +293,9 @@ class TestRoutingGroup:
         mapper.lcn_ex_adjustment()
         mapper.coord_assign()
 
-        assert mapper.routing_tree.n_L0_clusters >= mapper.n_core_required
+        assert (
+            mapper.routing_tree.breadth_of_lx(RoutingLevel.L0) >= mapper.n_core_required
+        )
 
     def test_RoutingGroup_instance3(self, build_example_net4):
         net = build_example_net4
@@ -297,7 +310,9 @@ class TestRoutingGroup:
         mapper.coord_assign()
 
         assert len(mapper.core_blocks) == 3
-        assert mapper.routing_tree.n_L0_clusters >= mapper.n_core_required
+        assert (
+            mapper.routing_tree.breadth_of_lx(RoutingLevel.L0) >= mapper.n_core_required
+        )
 
     def test_RoutingGroup_instance4(self, monkeypatch, build_example_net4):
         net = build_example_net4
@@ -314,21 +329,30 @@ class TestRoutingGroup:
         mapper.coord_assign()
 
         assert len(mapper.core_blocks) == 4
-        assert mapper.routing_tree.n_L0_clusters >= mapper.n_core_required
+        assert (
+            mapper.routing_tree.breadth_of_lx(RoutingLevel.L0) >= mapper.n_core_required
+        )
 
 
-class TestRouterTreeRoot:
-    def test_breadth_of_lx_clusters(self, build_example_root):
-        root = RoutingRoot()
+class TestRoutingRoot:
+    def test_get_n_lxcluster(self, build_example_root, monkeypatch):
+        monkeypatch.setattr(
+            pb.BACKEND_CONFIG, "target_chip_addr", [Coord(0, 0), Coord(1, 0)]
+        )
 
-        assert root.add_subtree(build_example_root) == True
+        root = RoutingRoot(pb.BACKEND_CONFIG.target_chip_addr)
 
-        clusters_l5 = root.breadth_of_lx_clusters(RoutingLevel.L5)
-        clusters_l4 = root.breadth_of_lx_clusters(RoutingLevel.L4)
-        clusters_l3 = root.breadth_of_lx_clusters(RoutingLevel.L3)
-        clusters_l2 = root.breadth_of_lx_clusters(RoutingLevel.L2)
-        clusters_l1 = root.breadth_of_lx_clusters(RoutingLevel.L1)
-        clusters_l0 = root.breadth_of_lx_clusters(RoutingLevel.L0)
+        assert root[0].include_online == True
+        assert root[1].include_online == True
+        assert root[0].add_subtree(build_example_root, False) == True
+        assert root[1].add_subtree(build_example_root, False) == True
+
+        clusters_l5 = root[0].breadth_of_lx(RoutingLevel.L5)
+        clusters_l4 = root[0].breadth_of_lx(RoutingLevel.L4)
+        clusters_l3 = root[0].breadth_of_lx(RoutingLevel.L3)
+        clusters_l2 = root[1].breadth_of_lx(RoutingLevel.L2)
+        clusters_l1 = root[1].breadth_of_lx(RoutingLevel.L1)
+        clusters_l0 = root[1].breadth_of_lx(RoutingLevel.L0)
 
         assert clusters_l5 == 1
         assert clusters_l4 == 1
@@ -337,55 +361,87 @@ class TestRouterTreeRoot:
         assert clusters_l1 == 5
         assert clusters_l0 == 0
 
-    def test_insert_coreblock_proto(self):
-        root = RoutingRoot()
+        assert root.breadth_of_lx(RoutingLevel.L1) == 5 * 2
+        assert root.breadth_of_lx(RoutingLevel.L2) == 2 * 2
 
-        def _gen_routing_tree(n_core: int, cost: RoutingCost):
-            level = cost.get_routing_level()
+    @staticmethod
+    def _gen_routing_cluster(n_core: int):
+        from paicorelib import get_routing_consumption
 
-            routing_root = RoutingCluster.create_routing_tree(level, cost[level.value])
+        cost = get_routing_consumption(n_core)
+        level = cost.get_routing_level()
 
-            for i in range(cost.n_L0):
-                if i < n_core:
-                    if not routing_root.add_L0_for_placing(data=i):
-                        raise RuntimeError
-                else:
-                    if not routing_root.add_L0_for_placing(data="occupied"):
-                        raise RuntimeError
+        routing_root = RoutingCluster.create_routing_tree(level, cost[level.value])
 
-            return routing_root
+        for i in range(cost.n_L0):
+            if i < n_core:
+                if not routing_root.add_L0_for_placing(data=i):
+                    raise RuntimeError
+            else:
+                if not routing_root.add_L0_for_placing(data="occupied"):
+                    raise RuntimeError
 
-        n_core1, cost1 = 5, RoutingCost(8, 2, 1, 1, 1)
-        n_core2, cost2 = 3, RoutingCost(4, 1, 1, 1, 1)
-        n_core3, cost3 = 20, RoutingCost(32, 8, 2, 1, 1)
+        return routing_root
 
-        subtree1 = _gen_routing_tree(n_core1, cost1)
-        assert root.add_subtree(subtree1) == True
+    @staticmethod
+    def _gen_random_cores(n_core: int):
+        n_core_half = n_core // 2
+        cores = []
 
-        subtree2 = _gen_routing_tree(n_core2, cost2)
-        assert root.add_subtree(subtree2) == True
+        for _ in range(n_core_half):
+            cores.append(np.random.randint(1, 300, dtype=int))
 
-        subtree3 = _gen_routing_tree(n_core3, cost3)
-        assert root.add_subtree(subtree3) == True
+        for _ in range(n_core - n_core_half):
+            cores.append(np.random.randint(100, 600, dtype=int))
 
-    def test_insert_routing_group(self, build_example_net1):
-        net = build_example_net1
+        return cores
 
-        mapper = pb.Mapper()
-        mapper.build(net)
+    @pytest.mark.parametrize(
+        "cores", ([5, 10, 20, 100, 500], [10, 20, 30, 40, 100, 200])
+    )
+    def test_insert_routing_group_1chip(self, cores):
+        root = RoutingRoot(pb.BACKEND_CONFIG.target_chip_addr)
 
-        # Build the core blocks
-        mapper.build_core_blocks()
-        mapper.lcn_ex_adjustment()
+        for core in cores:
+            subtree = self._gen_routing_cluster(core)
+            assert root[0].add_subtree(subtree, True) == True
 
-        for cb in mapper.core_blocks:
-            cb.group_neurons()
+        huge_core = 500
+        subtree = self._gen_routing_cluster(huge_core)
+        assert root[0].add_subtree(subtree, True) == False  # Out of resources
 
-        core_blocks = mapper.core_blocks
-        routing_group = RoutingGroup(*core_blocks)
+    @pytest.mark.parametrize(
+        "cores, expectation",
+        (
+            ([200, 400, 600, 800, 1000], nullcontext()),
+            ([80, 100, 240, 490, 500, 490, 1000, 1000], nullcontext()),
+            ([512, 128, 128, 128, 32, 32, 32, 16, 1000, 1000, 1000], nullcontext()),
+            ([200, 400, 600, 800, 1020], pytest.raises(RoutingError)),
+            ([80, 100, 240, 490, 490, 500, 1000, 1000], pytest.raises(RoutingError)),
+            ([200, 400, 600, 800, 200, 400, 200, 300], pytest.raises(RoutingError)),
+        ),
+    )
+    def test_insert_routing_group_multichip4(self, cores, expectation):
+        from paicorelib import Coord, HwConfig
 
-        assert len(routing_group) == len(core_blocks)
+        chip_list = [Coord(1, 1), Coord(1, 2), Coord(2, 1), Coord(2, 2)]
+        root = RoutingRoot(chip_list)
 
-        mapper.routing_tree.insert_routing_group(routing_group)
+        subtrees = []
+        for core in cores:
+            subtrees.append(self._gen_routing_cluster(core))
 
-        print()
+        n_wasted = [int(np.power(2, np.ceil(np.log2(core))) - core) for core in cores]
+
+        with expectation as e:
+            for i, subtree in enumerate(subtrees):
+                check_hit_online = n_wasted[i] <= HwConfig.N_CORE_ONLINE
+                flag = False
+
+                for chip_root in root.chip_roots:
+                    flag = chip_root.add_subtree(subtree, check_hit_online)
+                    if flag:
+                        break
+
+                if not flag:
+                    raise RoutingError("Insert failed.")

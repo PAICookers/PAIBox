@@ -8,6 +8,7 @@ from paicorelib import (
     LCN_EX,
     AxonCoord,
     Coord,
+    CoordOffset,
     InputWidthFormat,
     MaxPoolingEnable,
     NeuronSegment,
@@ -21,9 +22,11 @@ from paicorelib import WeightPrecision as WP
 import paibox as pb
 from paibox.backend.conf_template import (
     CoreConfig,
-    CorePlacementConfig,
-    EmptyCorePlacementConfig,
+    CorePlmConfig,
+    EmptyCorePlmConfig,
     NeuronConfig,
+    NeuronDest,
+    NeuronDestInfo,
 )
 from paibox.backend.placement import NeuSeg
 from paibox.backend.routing import RoutingCluster
@@ -540,6 +543,72 @@ class Nested_Net_level_3(pb.DynSysGroup):
         super().__init__(subnet1)
 
 
+class MultichipNet1(pb.DynSysGroup):
+    def __init__(self, scale: int):
+        super().__init__()
+        self.inp1 = pb.InputProj(1, shape_out=(1000,))
+
+        self.n = NodeList()
+
+        for _ in range(5):
+            n = random.randint(800, 1500)
+            thres = random.randint(3, 6)
+            resetv = random.randint(-1, 1)
+
+            self.n.append(pb.IF((n,), thres, resetv))
+
+        for _ in range(3):
+            n = random.randint(3000, 5000)
+            leakv = random.randint(-1, 1)
+            thres = random.randint(3, 6)
+            resetv = random.randint(-1, 1)
+
+            self.n.append(pb.LIF((n,), thres, resetv, leakv))
+
+        for _ in range(4 * scale):
+            n = random.randint(1500, 3000)
+            thres = random.randint(3, 6)
+            resetv = random.randint(-1, 1)
+
+            self.n.append(pb.IF((n,), thres, resetv))
+
+        self.n_out = pb.SpikingRelu(1000)
+
+        self.s = NodeList()
+
+        self.s.append(
+            pb.FullConn(
+                self.inp1,
+                self.n[0],
+                np.random.randint(
+                    -127, 128, size=(self.inp1.num_out, self.n[0].num_in), dtype=np.int8
+                ),
+            )
+        )
+
+        for i in range(7 + 4 * scale):
+            self.s.append(
+                pb.FullConn(
+                    self.n[i],
+                    self.n[i + 1],
+                    np.random.randint(
+                        -127,
+                        128,
+                        size=(self.n[i].num_out, self.n[i + 1].num_in),
+                        dtype=np.int8,
+                    ),
+                )
+            )
+
+        self.s_out = pb.FullConn(
+            self.n[-1],
+            self.n_out,
+            np.random.randint(
+                -127, 128, size=(self.n[-1].num_out, self.n_out.num_in), dtype=np.int8
+            ),
+        )
+
+
 @pytest.fixture(scope="class")
 def build_example_net1():
     return NetForTest1()
@@ -626,6 +695,15 @@ def build_Nested_Net_level_3():
 
 
 @pytest.fixture(scope="class")
+def build_MultichipNet1_s1():
+    return MultichipNet1(scale=1)
+
+@pytest.fixture(scope="class")
+def build_MultichipNet1_s2():
+    return MultichipNet1(scale=2)
+
+
+@pytest.fixture(scope="class")
 def get_mapper() -> pb.Mapper:
     return pb.Mapper()
 
@@ -638,8 +716,8 @@ def MockCoreConfigDict() -> CoreConfig:
     swf = random.choice(list(SpikeWidthFormat))
     num_den = random.randint(1, 512)
     mpe = random.choice(list(MaxPoolingEnable))
-    tws = random.randint(0, 100)
-    twe = random.randint(0, 100)
+    tws = random.randint(0, 10)
+    twe = random.randint(10, 20)
     sme = random.choice(list(SNNModeEnable))
     target_lcn = random.choice(list(LCN_EX))
     test_chip_addr = Coord(random.randint(0, 31), random.randint(0, 31))
@@ -662,16 +740,20 @@ def MockCoreConfigDict() -> CoreConfig:
 
 @pytest.fixture
 def MockNeuronConfig() -> NeuronConfig:
-    n = random.randint(1, 200)
+    n = random.randint(10, 200)
     offset = random.randint(1, 100)
     interval = random.randint(1, 2)
+    thres = random.randint(1, 5)
+    reset_v = random.randint(-5, 5)
+    neuron = pb.IF((n,), thres, reset_v)
+    dest_coord_start = Coord(random.randint(0, 10), random.randint(0, 10))
+    test_chip_addr = Coord(random.randint(0, 31), random.randint(0, 31))
 
-    neuron = pb.IF((n,), 3, reset_v=-1)
     ns = NeuronSegment(slice(0, 0 + n, 1), offset, interval)
 
-    axon_coords = [AxonCoord(0, i) for i in range(0, n)]
-    dest_coords = [Coord(0, 0), Coord(0, 1)]
-    pb.BACKEND_CONFIG.test_chip_addr = (10, 0)
+    axon_coords = [AxonCoord(0, i) for i in range(n)]
+    dest_coords = [dest_coord_start, dest_coord_start + CoordOffset(0, 1)]
+    pb.BACKEND_CONFIG.test_chip_addr = test_chip_addr
 
     return NeuronConfig.encapsulate(
         neuron,
@@ -685,11 +767,44 @@ def MockNeuronConfig() -> NeuronConfig:
 
 
 @pytest.fixture
-def MockCorePlacementConfig(MockCoreConfigDict, MockNeuronConfig):
-    neuron = pb.IF((100,), 3, reset_v=-1)
+def MockNeuronDestInfo(MockNeuronConfig) -> NeuronDestInfo:
+    return MockNeuronConfig.neuron_dest_info
 
-    cpc = CorePlacementConfig.encapsulate(
-        random.randint(1, 200),
+
+@pytest.fixture
+def MockNeuronDest() -> NeuronDest:
+    n = random.randint(100, 1000)
+    tick_relative = [0 for _ in range(n)]
+    addr_axon = [i for i in range(n)]
+
+    addr_core_x = random.randint(0, 31)
+    addr_core_y = random.randint(0, 31)
+    addr_core_x_ex = random.randint(0, 31)
+    addr_core_y_ex = random.randint(0, 31)
+    addr_chip_x = random.randint(0, 31)
+    addr_chip_y = random.randint(0, 31)
+
+    return NeuronDest(
+        tick_relative,
+        addr_axon,
+        addr_core_x,
+        addr_core_y,
+        addr_core_x_ex,
+        addr_core_y_ex,
+        addr_chip_x,
+        addr_chip_y,
+    )
+
+
+@pytest.fixture
+def MockCorePlmConfig(MockCoreConfigDict, MockNeuronConfig):
+    n = random.randint(100, 400)
+    thres = random.randint(1, 5)
+    reset_v = random.randint(-5, 5)
+    neuron = pb.IF((n,), thres, reset_v)
+
+    cpc = CorePlmConfig.encapsulate(
+        random.randint(0, 1000),
         np.random.randint(0, 100, size=(1152, 512), dtype=np.uint64),
         MockCoreConfigDict,
         {neuron: MockNeuronConfig},
@@ -699,8 +814,8 @@ def MockCorePlacementConfig(MockCoreConfigDict, MockNeuronConfig):
 
 
 @pytest.fixture
-def MockEmptyCorePlacementConfig(MockCoreConfigDict):
-    return EmptyCorePlacementConfig.encapsulate(MockCoreConfigDict)
+def MockEmptyCorePlmConfig(MockCoreConfigDict):
+    return EmptyCorePlmConfig.encapsulate(MockCoreConfigDict)
 
 
 def packbits_ref(bits: np.ndarray, count: int) -> int:
