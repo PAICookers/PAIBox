@@ -1,9 +1,9 @@
 import copy
-import paibox as pb
 from pathlib import Path
 
 from paicorelib import Coord, CoordOffset
 
+import paibox as pb
 from paibox.backend.context import _BACKEND_CONTEXT
 
 

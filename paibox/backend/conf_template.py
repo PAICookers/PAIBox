@@ -1,7 +1,6 @@
 from enum import Enum
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Literal, NamedTuple, TypedDict
-from typing_extensions import NotRequired, TypeAlias
 
 import numpy as np
 from numpy.typing import NDArray
@@ -28,8 +27,10 @@ from paicorelib import (
 from paicorelib.framelib import types
 from paicorelib.framelib.frame_gen import OfflineFrameGen
 from paicorelib.framelib.utils import np2bin, np2npy, np2txt
+from typing_extensions import NotRequired, TypeAlias
 
 from paibox.base import NeuDyn
+
 from .context import _BACKEND_CONTEXT
 from .graphs_types import NodeName
 

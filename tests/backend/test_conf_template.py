@@ -1,5 +1,8 @@
 import json
+
 import pytest
+from paicorelib import Coord
+
 from paibox.backend.conf_template import (
     export_core_params_json,
     export_core_plm_conf_json,
@@ -7,7 +10,6 @@ from paibox.backend.conf_template import (
     export_neuconf_json,
     export_output_conf_json,
 )
-from paicorelib import Coord
 
 
 class TestConfExport:

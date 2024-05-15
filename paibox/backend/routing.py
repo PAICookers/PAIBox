@@ -1,11 +1,8 @@
 from typing import Any, Dict, Iterator, List, Optional, Sequence, final
 
 from paicorelib import ChipCoord, Coord, HwConfig
-from paicorelib.routing_defs import (
-    ROUTING_DIRECTIONS_IDX as DIREC_IDX,
-    RoutingCoord,
-    RoutingCost,
-)
+from paicorelib.routing_defs import ROUTING_DIRECTIONS_IDX as DIREC_IDX
+from paicorelib.routing_defs import RoutingCoord, RoutingCost
 from paicorelib.routing_defs import RoutingDirection as Direction
 from paicorelib.routing_defs import RoutingLevel as Level
 from paicorelib.routing_defs import RoutingStatus as Status

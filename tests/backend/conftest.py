@@ -698,6 +698,7 @@ def build_Nested_Net_level_3():
 def build_MultichipNet1_s1():
     return MultichipNet1(scale=1)
 
+
 @pytest.fixture(scope="class")
 def build_MultichipNet1_s2():
     return MultichipNet1(scale=2)

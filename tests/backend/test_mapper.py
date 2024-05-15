@@ -488,8 +488,9 @@ class TestMapper_Multichip:
     @pytest.mark.xfail(reason="Network may too large.")
     def test_multichip_1(self, ensure_dump_dir, monkeypatch, build_MultichipNet1_s1):
         """Multichip network of scale 1"""
-        from paibox.backend.context import _BACKEND_CONTEXT
         import time
+
+        from paibox.backend.context import _BACKEND_CONTEXT
 
         clist = [Coord(0, 0), Coord(0, 1)]
         monkeypatch.setattr(pb.BACKEND_CONFIG, "target_chip_addr", clist)
@@ -514,8 +515,9 @@ class TestMapper_Multichip:
     @pytest.mark.xfail(reason="Network may too large.")
     def test_multichip_2(self, ensure_dump_dir, monkeypatch, build_MultichipNet1_s2):
         """Multichip network of scale 2"""
-        from paibox.backend.context import _BACKEND_CONTEXT
         import time
+
+        from paibox.backend.context import _BACKEND_CONTEXT
 
         clist = [Coord(0, 0), Coord(0, 1), Coord(1, 0)]
         monkeypatch.setattr(pb.BACKEND_CONFIG, "target_chip_addr", clist)

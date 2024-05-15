@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
 from paicorelib import Coord, CoordOffset, HwConfig, get_replication_id
+
 from paibox.base import NeuDyn, SynSys
 from paibox.exceptions import ConfigInvalidError, ResourceError
 from paibox.network import DynSysGroup

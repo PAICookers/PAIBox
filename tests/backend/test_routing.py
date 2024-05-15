@@ -1,8 +1,10 @@
-import pytest
-import numpy as np
-import paibox as pb
 from contextlib import nullcontext
+
+import numpy as np
+import pytest
 from paicorelib import Coord, RoutingDirection, RoutingLevel
+
+import paibox as pb
 from paibox.backend.routing import RoutingCluster, RoutingRoot, get_parent
 from paibox.exceptions import RoutingError
 
