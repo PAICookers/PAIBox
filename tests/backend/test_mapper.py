@@ -369,7 +369,10 @@ class TestMapper_Grouping_Optim:
 
         mapper = pb.Mapper()
         mapper.build(net)
-        mapper.compile(grouping_optim_target="latency")
+        monkeypatch.setitem(
+            pb.BACKEND_CONFIG.cflags, "grouping_optim_target", "latency"
+        )
+        mapper.compile()
 
         # Export complete configurations of cores into json
         export_core_plm_conf_json(
@@ -385,7 +388,8 @@ class TestMapper_Grouping_Optim:
 
         mapper = pb.Mapper()
         mapper.build(net)
-        mapper.compile(grouping_optim_target="core")
+        monkeypatch.setitem(pb.BACKEND_CONFIG.cflags, "grouping_optim_target", "core")
+        mapper.compile()
 
         assert mapper.core_blocks[0].n_core_required == ceil(
             net.n1.num_out / HwConfig.N_DENDRITE_MAX_SNN
@@ -406,7 +410,8 @@ class TestMapper_Grouping_Optim:
 
         mapper = pb.Mapper()
         mapper.build(net)
-        mapper.compile(grouping_optim_target="both")
+        monkeypatch.setitem(pb.BACKEND_CONFIG.cflags, "grouping_optim_target", "both")
+        mapper.compile()
 
         assert (
             mapper.core_blocks[0].n_core_required
@@ -431,7 +436,7 @@ class TestMapper_cflags:
         TestData.cflags_weight_bit_opt_data["data"],
     )
     def test_cflags_weight_bit_opt(
-        self, range, scalar, dtype, expected_wp_noopt, expected_wp_opt
+        self, monkeypatch, range, scalar, dtype, expected_wp_noopt, expected_wp_opt
     ):
         # s1, s2, s3 will be grouped in one core block.
         class Net(pb.Network):
@@ -465,12 +470,14 @@ class TestMapper_cflags:
         net = Net()
         mapper = pb.Mapper()
         mapper.build(net)
-        mapper.compile(weight_bit_optimization=False)
+        monkeypatch.setitem(pb.BACKEND_CONFIG.cflags, "enable_wp_opt", False)
+        mapper.compile()
         assert mapper.core_blocks[0].weight_precision == expected_wp_noopt
 
         mapper.clear()
         mapper.build(net)
-        mapper.compile(weight_bit_optimization=True)
+        monkeypatch.setitem(pb.BACKEND_CONFIG.cflags, "enable_wp_opt", True)
+        mapper.compile()
         assert mapper.core_blocks[0].weight_precision == max(
             s.weight_precision for s in (net.s1, net.s2, net.s3)
         )
@@ -479,7 +486,7 @@ class TestMapper_cflags:
 
 class TestMapper_Multichip:
     @pytest.mark.xfail(reason="Network may too large.")
-    def test_multichip_1(self, ensure_dump_dir, build_MultichipNet1_s1, monkeypatch):
+    def test_multichip_1(self, ensure_dump_dir, monkeypatch, build_MultichipNet1_s1):
         """Multichip network of scale 1"""
         from paibox.backend.context import _BACKEND_CONTEXT
         import time
@@ -492,8 +499,9 @@ class TestMapper_Multichip:
         mapper = pb.Mapper()
         mapper.build(net)
 
+        monkeypatch.setitem(pb.BACKEND_CONFIG.cflags, "enable_wp_opt", False)
         t_start = time.time()
-        mapper.compile(weight_bit_optimization=False)
+        mapper.compile()
         t_end = time.time()
         print(f"Used {t_end - t_start}")
 
@@ -504,7 +512,7 @@ class TestMapper_Multichip:
         assert 1
 
     @pytest.mark.xfail(reason="Network may too large.")
-    def test_multichip_2(self, ensure_dump_dir, build_MultichipNet1_s2, monkeypatch):
+    def test_multichip_2(self, ensure_dump_dir, monkeypatch, build_MultichipNet1_s2):
         """Multichip network of scale 2"""
         from paibox.backend.context import _BACKEND_CONTEXT
         import time
@@ -517,8 +525,9 @@ class TestMapper_Multichip:
         mapper = pb.Mapper()
         mapper.build(net)
 
+        monkeypatch.setitem(pb.BACKEND_CONFIG.cflags, "enable_wp_opt", False)
         t_start = time.time()
-        mapper.compile(weight_bit_optimization=False)
+        mapper.compile()
         t_end = time.time()
         print(f"Used {t_end - t_start}")
 
