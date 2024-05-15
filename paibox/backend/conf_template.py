@@ -1,15 +1,16 @@
-import json
-from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Literal, NamedTuple, TypedDict
+from typing_extensions import NotRequired, TypeAlias
 
 import numpy as np
 from numpy.typing import NDArray
 from paicorelib import (
     LCN_EX,
     AxonCoord,
+    ChipCoord,
     Coord,
+    CoordAddr,
     HwConfig,
     InputWidthFormat,
     MaxPoolingEnable,
@@ -27,11 +28,42 @@ from paicorelib import (
 from paicorelib.framelib import types
 from paicorelib.framelib.frame_gen import OfflineFrameGen
 from paicorelib.framelib.utils import np2bin, np2npy, np2txt
-from typing_extensions import NotRequired, TypeAlias
 
 from paibox.base import NeuDyn
-
+from .context import _BACKEND_CONTEXT
 from .graphs_types import NodeName
+
+try:
+    import orjson  # type: ignore
+
+    _use_orjson = True
+
+    def PAIConfigJsonDefault(o: Any):
+        if isinstance(o, Coord):
+            return o.address
+        elif isinstance(o, NeuronDestInfo):
+            return o.model_dump(by_alias=True)
+
+        raise TypeError
+
+except ModuleNotFoundError:
+    import json
+
+    _use_orjson = False
+
+    class PAIConfigJsonEncoder(json.JSONEncoder):
+        def default(self, o: Any) -> Any:
+            if isinstance(o, Coord):
+                return o.address
+            elif isinstance(o, Enum):
+                return o.value
+            elif isinstance(o, np.ndarray):
+                return o.tolist()
+            elif isinstance(o, NeuronDestInfo):
+                return o.model_dump(by_alias=True)
+            else:
+                return super().default(o)
+
 
 # Prevent import errors caused by changes in type definitions in paicorelib.
 if hasattr(types, "FRAME_DTYPE"):
@@ -102,8 +134,7 @@ class NeuronDest(NamedTuple):
 
     def __json__(self) -> Dict[str, Any]:
         """Dump the configs into json for debugging."""
-        dest_info = NeuronDestInfo.model_validate(self._asdict(), strict=True)
-        dict_ = dest_info.model_dump(by_alias=True)
+        dict_ = self.export()
 
         for var in self._extra_params:
             dict_[var] = getattr(self, var)
@@ -129,8 +160,7 @@ class ConfigTemplate:
     pass
 
 
-@dataclass(eq=False)
-class NeuronConfig(ConfigTemplate):
+class NeuronConfig(NamedTuple):
     _extra_params = (
         "n_neuron",
         "addr_ram",
@@ -193,16 +223,18 @@ class NeuronConfig(ConfigTemplate):
             neuron_dest_info,
         )
 
-    def __json__(self) -> Dict[str, Any]:
-        """Dump the configs into json for debugging."""
+    def export(self) -> Dict[str, Any]:
         dict_ = self.neuron_attrs.model_dump(
             by_alias=True,
             # exclude={"dest_info": self.params_ram.dest_info._exclude_vars},
         )
+        dict_.update(self.neuron_dest_info.model_dump(by_alias=True))
 
-        dict_.update(
-            self.neuron_dest_info.model_dump(by_alias=True)
-        )  # compatible for py3.8
+        return dict_
+
+    def __json__(self) -> Dict[str, Any]:
+        """Dump the configs into json for debugging."""
+        dict_ = self.export()
 
         for var in self._extra_params:
             dict_[var] = getattr(self, var)
@@ -210,8 +242,7 @@ class NeuronConfig(ConfigTemplate):
         return dict_
 
 
-@dataclass(eq=False)
-class CorePlacementConfig(ConfigTemplate):
+class CorePlmConfig(NamedTuple):
     _extra_params = ()
     """Extra parameters for debugging."""
 
@@ -235,8 +266,7 @@ class CorePlacementConfig(ConfigTemplate):
             neuron_configs,
         )
 
-    def __json__(self) -> Dict[str, Any]:
-        """Dump the configs into json for debugging."""
+    def export(self) -> Dict[str, Any]:
         dict_ = {
             "name": self.params_reg.name,
             "random_seed": self.random_seed,
@@ -245,7 +275,13 @@ class CorePlacementConfig(ConfigTemplate):
         }
 
         for neu, neu_config in self.neuron_configs.items():
-            dict_["neuron_rams"][neu.name] = neu_config.__json__()
+            dict_["neuron_rams"][neu.name] = neu_config.export()
+
+        return dict_
+
+    def __json__(self) -> Dict[str, Any]:
+        """Dump the configs into json for debugging."""
+        dict_ = self.export()
 
         for var in self._extra_params:
             dict_[var] = getattr(self, var)
@@ -253,11 +289,12 @@ class CorePlacementConfig(ConfigTemplate):
         return dict_
 
 
-class EmptyCorePlacementConfig(CorePlacementConfig):
+class EmptyCorePlmConfig(CorePlmConfig):
     _default_seed: ClassVar[int] = 0
     _default_zero_wram: ClassVar[NDArray[np.uint64]] = np.zeros(
         (HwConfig.ADDR_RAM_MAX, 18), dtype=np.uint64
     )
+    _default_neuron_conf = {}  # don't care
 
     @classmethod
     def encapsulate(cls, core_config: CoreConfig):
@@ -265,13 +302,14 @@ class EmptyCorePlacementConfig(CorePlacementConfig):
             cls._default_seed,
             cls._default_zero_wram,
             ParamsReg.model_validate(core_config._asdict(), strict=True),
-            {},
+            cls._default_neuron_conf,
         )
 
 
-InputNodeInfo: TypeAlias = Dict[NodeName, NeuronDest]
-OutputDestInfo: TypeAlias = Dict[NodeName, Dict[int, NeuronDestInfo]]
-CorePlacementInfo: TypeAlias = Dict[Coord, CorePlacementConfig]
+InputNodeConf: TypeAlias = Dict[NodeName, NeuronDest]
+OutputDestConf: TypeAlias = Dict[NodeName, Dict[CoordAddr, NeuronDestInfo]]
+CorePlmConfInChip: TypeAlias = Dict[Coord, CorePlmConfig]
+CorePlmConf: TypeAlias = Dict[ChipCoord, CorePlmConfInChip]
 
 
 class GraphInfo(TypedDict):
@@ -280,9 +318,9 @@ class GraphInfo(TypedDict):
     TODO Optimize the data structure
     """
 
-    input: InputNodeInfo
-    output: OutputDestInfo
-    members: CorePlacementInfo
+    input: InputNodeConf
+    output: OutputDestConf
+    members: CorePlmConf
     inherent_timestep: int
     n_core_required: int
     """The actual used cores."""
@@ -292,18 +330,16 @@ class GraphInfo(TypedDict):
 
 
 def gen_config_frames_by_coreconf(
-    config_dict: Dict[Coord, CorePlacementConfig],
-    target_chip_coord: Coord,
+    config_dict: CorePlmConf,
     write_to_file: bool,
     fp: Path,
     split_by_coord: bool,
     format: Literal["txt", "bin", "npy"],
 ) -> Dict[Coord, FrameArrayType]:
-    """Generate configuration frames by given the `CorePlacementConfig`.
+    """Generate configuration frames by given the `CorePlmConfig`.
 
     Args:
         - config_dict: the dictionary of configurations.
-        - target_chip_coord: local chip coordinate.
         - write_to_file: whether to write frames to file.
         - fp: If `write_to_file` is `True`, specify the path.
         - split_by_coord: whether to split the generated frames file by the core coordinates.
@@ -311,8 +347,6 @@ def gen_config_frames_by_coreconf(
     """
 
     def _write_to_f(name: str, array: FrameArrayType) -> None:
-        nonlocal fp, format
-
         _fp = fp / (name + f".{format}")
         if format == "npy":
             np2npy(_fp, array)
@@ -325,85 +359,82 @@ def gen_config_frames_by_coreconf(
     _debug_dict: Dict[Coord, Dict[str, Any]] = dict()
     frame_arrays_on_core: Dict[Coord, FrameArrayType] = dict()
 
-    for core_coord, v in config_dict.items():
-        # 1. Only one config frame type I for each physical core.
-        config_frame_type1 = OfflineFrameGen.gen_config_frame1(
-            target_chip_coord,
-            core_coord,
-            _default_rid,
-            v.random_seed,
-        )
+    for chip_coord, conf_in_chip in config_dict.items():
+        for core_coord, v in conf_in_chip.items():
+            # 1. Only one config frame type I for each physical core.
+            config_frame_type1 = OfflineFrameGen.gen_config_frame1(
+                chip_coord, core_coord, _default_rid, v.random_seed
+            )
 
-        # 2. Only one config frame type II for each physical core.
-        config_frame_type2 = OfflineFrameGen.gen_config_frame2(
-            target_chip_coord,
-            core_coord,
-            _default_rid,
-            v.params_reg,
-        )
+            # 2. Only one config frame type II for each physical core.
+            config_frame_type2 = OfflineFrameGen.gen_config_frame2(
+                chip_coord, core_coord, _default_rid, v.params_reg
+            )
 
-        # 3. Iterate all the neuron segments inside the physical core.
-        config_frame_type3 = []
-        for neu_conf in v.neuron_configs.values():
-            config_frame_type3.append(
-                OfflineFrameGen.gen_config_frame3(
-                    target_chip_coord,
+            # 3. Iterate all the neuron segments inside the physical core.
+            config_frame_type3 = []
+            for neu_conf in v.neuron_configs.values():
+                config_frame_type3.append(
+                    OfflineFrameGen.gen_config_frame3(
+                        chip_coord,
+                        core_coord,
+                        _default_rid,
+                        neu_conf.addr_offset,
+                        neu_conf.n_neuron,
+                        neu_conf.neuron_attrs,
+                        neu_conf.neuron_dest_info,
+                        lcn_ex=v.params_reg.lcn_extension,
+                        weight_precision=v.params_reg.weight_precision,
+                    )
+                )
+
+            if config_frame_type3:
+                frame3 = np.concatenate(
+                    [f.value for f in config_frame_type3],
+                    dtype=FRAME_DTYPE,
+                    casting="no",
+                )
+            else:
+                frame3 = np.asarray([], dtype=FRAME_DTYPE)
+
+            # 4. Only one config frame type IV for each physical core.
+            n_addr_write = v.params_reg.num_dendrite  # The number of address to write
+            if n_addr_write > 0:
+                config_frame_type4 = OfflineFrameGen.gen_config_frame4(
+                    chip_coord,
                     core_coord,
                     _default_rid,
-                    neu_conf.addr_offset,
-                    neu_conf.n_neuron,
-                    neu_conf.neuron_attrs,
-                    neu_conf.neuron_dest_info,
-                    lcn_ex=v.params_reg.lcn_extension,
-                    weight_precision=v.params_reg.weight_precision,
+                    0,
+                    18 * n_addr_write,
+                    v.weight_ram[:n_addr_write],
                 )
-            )
+            else:
+                config_frame_type4 = None
 
-        if config_frame_type3:
-            frame3 = np.concatenate(
-                [f.value for f in config_frame_type3], dtype=FRAME_DTYPE, casting="no"
-            )
-        else:
-            frame3 = np.asarray([], dtype=FRAME_DTYPE)
+            _debug_dict[core_coord] = {
+                "config1": config_frame_type1,
+                "config2": config_frame_type2,
+                "config3": config_frame_type3,
+                "config4": config_frame_type4,
+            }
 
-        # 4. Only one config frame type IV for each physical core.
-        n_addr_write = v.params_reg.num_dendrite  # The number of address to write
-        if n_addr_write > 0:
-            config_frame_type4 = OfflineFrameGen.gen_config_frame4(
-                target_chip_coord,
-                core_coord,
-                _default_rid,
-                0,
-                18 * n_addr_write,
-                v.weight_ram[:n_addr_write],
-            )
-        else:
-            config_frame_type4 = None
-
-        _debug_dict[core_coord] = {
-            "config1": config_frame_type1,
-            "config2": config_frame_type2,
-            "config3": config_frame_type3,
-            "config4": config_frame_type4,
-        }
-
-        if config_frame_type4:
-            frame_arrays_on_core[core_coord] = np.concatenate(
-                [
-                    config_frame_type1.value,
-                    config_frame_type2.value,
-                    frame3,
-                    config_frame_type4.value,
-                ],
-                dtype=FRAME_DTYPE,
-                casting="no",
-            )
-        else:
-            frame_arrays_on_core[core_coord] = np.concatenate(
-                [config_frame_type1.value, config_frame_type2.value, frame3],
-                dtype=FRAME_DTYPE,
-                casting="no",
-            )
+            if config_frame_type4:
+                frame_arrays_on_core[core_coord] = np.concatenate(
+                    [
+                        config_frame_type1.value,
+                        config_frame_type2.value,
+                        frame3,
+                        config_frame_type4.value,
+                    ],
+                    dtype=FRAME_DTYPE,
+                    casting="no",
+                )
+            else:
+                frame_arrays_on_core[core_coord] = np.concatenate(
+                    [config_frame_type1.value, config_frame_type2.value, frame3],
+                    dtype=FRAME_DTYPE,
+                    casting="no",
+                )
 
     if write_to_file:
         if split_by_coord:
@@ -419,41 +450,76 @@ def gen_config_frames_by_coreconf(
     return frame_arrays_on_core
 
 
-class PAIConfigJsonEncoder(json.JSONEncoder):
-    def default(self, o: Any) -> Any:
-        if isinstance(o, Coord):
-            return o.address
-        elif isinstance(o, Enum):
-            return o.value
-        elif isinstance(o, np.ndarray):
-            return o.tolist()
-        elif isinstance(o, NeuronDestInfo):
-            return o.model_dump(by_alias=True)
-        else:
-            return super().default(o)
-
-
-DEFAULT_CORE_PARAMS_CONF_JSON = "core_params.json"
-DEFAULT_INPUT_NODES_CONF_JSON = "input_proj_info.json"
-DEFAULT_OUTPUT_DESTS_CONF_JSON = "output_dest_info.json"
-
-
 def export_core_params_json(core_conf: Dict[Coord, CoreConfig], fp: Path) -> None:
-    _valid_conf = {k.address: v.__json__() for k, v in core_conf.items()}
+    _valid_conf = {str(k): v.export() for k, v in core_conf.items()}
 
-    with open(fp / DEFAULT_CORE_PARAMS_CONF_JSON, "w") as f:
-        json.dump(_valid_conf, f, ensure_ascii=True, indent=4, cls=PAIConfigJsonEncoder)
+    if _use_orjson:
+        with open(fp / _BACKEND_CONTEXT["core_conf_json"], "wb") as f:
+            f.write(
+                orjson.dumps(
+                    _valid_conf,
+                    option=orjson.OPT_NON_STR_KEYS | orjson.OPT_INDENT_2,
+                )
+            )
+    else:
+        with open(fp / _BACKEND_CONTEXT["core_conf_json"], "w") as f:
+            json.dump(
+                _valid_conf, f, ensure_ascii=True, indent=2, cls=PAIConfigJsonEncoder
+            )
 
 
-def export_inp_nodes_conf_json(inp_nodes_info: InputNodeInfo, fp: Path) -> None:
-    _valid_conf = {k: v.__json__() for k, v in inp_nodes_info.items()}
+def export_input_conf_json(input_conf_info: InputNodeConf, fp: Path) -> None:
+    _valid_conf = {k: v.export() for k, v in input_conf_info.items()}
 
-    with open(fp / DEFAULT_INPUT_NODES_CONF_JSON, "w") as f:
-        json.dump(_valid_conf, f, ensure_ascii=True, indent=4, cls=PAIConfigJsonEncoder)
+    if _use_orjson:
+        with open(fp / _BACKEND_CONTEXT["input_conf_json"], "wb") as f:
+            f.write(orjson.dumps(_valid_conf, option=orjson.OPT_INDENT_2))
+    else:
+        with open(fp / _BACKEND_CONTEXT["input_conf_json"], "w") as f:
+            json.dump(_valid_conf, f, indent=2, cls=PAIConfigJsonEncoder)
 
 
-def export_outp_dests_conf_json(outp_dests_info: OutputDestInfo, fp: Path) -> None:
-    with open(fp / DEFAULT_OUTPUT_DESTS_CONF_JSON, "w") as f:
-        json.dump(
-            outp_dests_info, f, ensure_ascii=True, indent=4, cls=PAIConfigJsonEncoder
-        )
+def export_output_conf_json(output_conf_info: OutputDestConf, fp: Path) -> None:
+    if _use_orjson:
+        with open(fp / _BACKEND_CONTEXT["output_conf_json"], "wb") as f:
+            f.write(
+                orjson.dumps(
+                    output_conf_info,
+                    default=PAIConfigJsonDefault,
+                    option=orjson.OPT_NON_STR_KEYS | orjson.OPT_INDENT_2,
+                )
+            )
+    else:
+        with open(fp / _BACKEND_CONTEXT["output_conf_json"], "w") as f:
+            json.dump(output_conf_info, f, indent=2, cls=PAIConfigJsonEncoder)
+
+
+def export_neuconf_json(neuron_conf: Dict[NeuDyn, NeuronConfig], full_fp: Path) -> None:
+    _valid_conf = {k.name: v.export() for k, v in neuron_conf.items()}
+
+    if _use_orjson:
+        with open(full_fp, "wb") as f:
+            f.write(orjson.dumps(_valid_conf, option=orjson.OPT_INDENT_2))
+    else:
+        with open(full_fp, "w") as f:
+            json.dump(_valid_conf, f, indent=2, cls=PAIConfigJsonEncoder)
+
+
+def export_core_plm_conf_json(core_plm_conf: CorePlmConf, full_fp: Path) -> None:
+    _valid_conf = {}
+
+    for chip_coord, cconf in core_plm_conf.items():
+        _valid_conf[str(chip_coord)] = {}
+        for core_coord, conf in cconf.items():
+            _valid_conf[str(chip_coord)][str(core_coord)] = conf.export()
+
+    if _use_orjson:
+        with open(full_fp, "wb") as f:
+            f.write(
+                orjson.dumps(
+                    _valid_conf, option=orjson.OPT_NON_STR_KEYS | orjson.OPT_INDENT_2
+                )
+            )
+    else:
+        with open(full_fp, "w") as f:
+            json.dump(_valid_conf, f, indent=2, cls=PAIConfigJsonEncoder)
