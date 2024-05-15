@@ -1,11 +1,26 @@
+from typing import final
+
+
 class PAIBoxError(Exception):
     """General exception for PAIBox."""
 
     pass
 
 
-class PAIBoxWarning(Warning):
+class PAIBoxWarning(UserWarning):
     """General warning for PAIBox."""
+
+    pass
+
+
+class PAIBoxDeprecationWarning(PAIBoxWarning, DeprecationWarning):
+    """Warning class for features which will be deprecatedin a future version."""
+
+    pass
+
+
+class ConfigInvalidError(PAIBoxError, ValueError):
+    """Configuration is invalid."""
 
     pass
 
@@ -16,6 +31,7 @@ class ParameterInvalidWarning(PAIBoxWarning):
     pass
 
 
+@final
 class ShapeError(PAIBoxError):
     """Exception for incorrect shape."""
 
@@ -52,6 +68,12 @@ class FunctionalError(PAIBoxError, RuntimeError):
     pass
 
 
+class RoutingError(PAIBoxError):
+    """Exception for routing tree."""
+
+    pass
+
+
 class ResourceError(PAIBoxError):
     """Resource usage exceeds hardware limit."""
 
@@ -64,7 +86,7 @@ class FrameIllegalError(PAIBoxError, ValueError):
     pass
 
 
-class TruncationWarning(PAIBoxWarning, UserWarning):
+class TruncationWarning(PAIBoxWarning):
     """Value out of range & will be truncated."""
 
     pass

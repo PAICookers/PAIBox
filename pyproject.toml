@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "paibox"
 version = "1.0.0"
-description = "Toolchain of PAICORE 2.0."
+description = "Toolchain of PAICORE 2.0"
 authors = ["Ziru Pan <zrpan@stu.pku.edu.cn>"]
 maintainers = [
     "Hongtu Xia <hongtux@pku.edu.cn>",
@@ -43,11 +43,19 @@ paicorelib = "^1.0.0"
 [tool.poetry.group.test]
 optional = true
 
+[tool.poetry.group.dev]
+optional = true
 
 [tool.poetry.group.test.dependencies]
 pytest = { version = "^8.0.0", python = "^3.8" }
 pytest-md = "^0.2.0"
 torch = { version = "^2.2.1+cpu", optional = true, source = "torch-cpu" }
+paicorelib = {git = "https://github.com/PAICookers/PAIlib.git", rev = "dev"}
+orjson = "^3.10.1"
+
+
+[tool.poetry.group.dev.dependencies]
+orjson = "^3.10.1"
 
 
 [tool.pytest.ini_options]

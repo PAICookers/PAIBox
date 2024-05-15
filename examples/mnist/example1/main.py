@@ -117,6 +117,7 @@ if __name__ == "__main__":
     assert pred == 7, print("failed")  # Correct result is 7
 
     out_dir = Path(__file__).parent
+    pb.BACKEND_CONFIG.target_chip_addr = (0, 0)
 
     mapper = pb.Mapper()
     mapper.build(pb_net)
@@ -131,8 +132,7 @@ if __name__ == "__main__":
         write_to_file=True,
         fp=out_dir / "debug",
         format="npy",
-        split_by_coordinate=True,
-        local_chip_addr=(0, 0),
+        split_by_coord=True,
         export_core_params=False,
     )
 

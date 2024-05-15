@@ -1,32 +1,26 @@
 import sys
+import typing
 from collections import defaultdict
 from copy import copy
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from paicorelib import (
-    Coord,
-    CoordLike,
-    CoordOffset,
-    HwConfig,
-    get_replication_id,
-    to_coord,
-)
+from paicorelib import Coord, CoordOffset, HwConfig, get_replication_id
 
 from paibox.base import NeuDyn, SynSys
-from paibox.exceptions import ResourceError
+from paibox.exceptions import ConfigInvalidError, ResourceError
 from paibox.network import DynSysGroup
 
 from .conf_template import (
     CoreConfig,
-    CorePlacementInfo,
+    CorePlmConf,
     GraphInfo,
-    InputNodeInfo,
+    InputNodeConf,
     NeuronDest,
-    OutputDestInfo,
+    OutputDestConf,
     export_core_params_json,
-    export_inp_nodes_conf_json,
-    export_outp_dests_conf_json,
+    export_input_conf_json,
+    export_output_conf_json,
     gen_config_frames_by_coreconf,
 )
 from .context import _BACKEND_CONTEXT, set_cflag
@@ -34,20 +28,16 @@ from .graphs import PAIGraph, convert2routing_groups, get_node_degrees
 from .graphs_types import NodeDegree, SourceNodeType
 from .placement import CoreBlock, aligned_coords, max_lcn_of_cb
 from .routing import RoutingGroup, RoutingRoot
+from .segment_utils import NeuSeg
 
 __all__ = ["Mapper"]
 
 
 class Mapper:
-    """
-        Responsible for integrating all backend operation processes & \
-        providing functions for debugging.
-        TODO It doesn't collect information during the build process.
-    """
-
-    routing_tree = RoutingRoot(tag="L5")
-    """The routing tree root."""
     graph = PAIGraph()
+
+    if typing.TYPE_CHECKING:
+        graph_info: GraphInfo
 
     def __init__(self) -> None:
         self.core_blocks: List[CoreBlock] = []
@@ -61,13 +51,13 @@ class Mapper:
         self.degrees_of_cb: Dict[CoreBlock, NodeDegree] = defaultdict(NodeDegree)
         self.routing_groups: List[RoutingGroup] = []
 
-        self.core_plm_config: CorePlacementInfo = dict()
+        self.core_plm_config: CorePlmConf = defaultdict(dict)
         self.core_params: Dict[Coord, CoreConfig] = dict()
         """The dictionary of core parameters."""
 
-        self.graph_info: GraphInfo
         self.n_core_required = 0
         self.n_core_occupied = 0
+        self.routing_tree = RoutingRoot(chip_list=_BACKEND_CONTEXT["target_chip_addr"])
 
         self.clear()
 
@@ -226,8 +216,8 @@ class Mapper:
     def coord_assign(self) -> None:
         """Assign the coordinate of each `CorePlacement`.
 
-        NOTE: The neurons in each core block must be grouped first to determine the #N of cores required,   \
-            and then the routing coordinates can be assigned.
+        NOTE: The neurons in each core block must be grouped first to determine the \
+            #N of cores required, and then the routing coordinates can be assigned.
         """
         for cb in self.core_blocks:
             # Group the neurons, get the #N of cores required.
@@ -236,11 +226,12 @@ class Mapper:
             )
 
         # Calculate the consumption of required physical cores.
+        n_avail_cores = HwConfig.N_CORE_OFFLINE * _BACKEND_CONTEXT.n_target_chips
         if (
             n_core_required := sum(cb.n_core_required for cb in self.core_blocks)
-        ) > HwConfig.N_CORE_OFFLINE:
+        ) > n_avail_cores:
             raise ResourceError(
-                f"the number of required cores is out of range {HwConfig.N_CORE_OFFLINE} ({n_core_required})."
+                CORE_RESOURCE_OUT_OF_RANGE_TEXT.format(n_avail_cores, n_core_required)
             )
 
         self.n_core_required = n_core_required
@@ -250,19 +241,16 @@ class Mapper:
             self.succ_core_blocks, self.degrees_of_cb, self.input_core_blocks
         )
         for rg in routing_groups:
-            if not self.routing_tree.insert_routing_group(rg):
-                raise RuntimeError(
-                    f"insert routing group {rg} into the routing tree failed."
-                )
+            self.routing_tree.insert_routing_group(rg)
 
         self.routing_groups = routing_groups
 
         # Calculate the consumption of occupied physical cores.
         if (
             n_core_occupied := sum(rg.get_n_core_occupied() for rg in routing_groups)
-        ) > HwConfig.N_CORE_OFFLINE:
+        ) > n_avail_cores:
             raise ResourceError(
-                f"the number of occupied cores is out of range {HwConfig.N_CORE_OFFLINE} ({n_core_occupied})."
+                CORE_RESOURCE_OUT_OF_RANGE_TEXT.format(n_avail_cores, n_core_occupied)
             )
 
         self.n_core_occupied = n_core_occupied
@@ -280,6 +268,14 @@ class Mapper:
                 & Weight RAM) of cores.
             - 2. Export the parameters(Neuron RAM) of neurons inside.
         """
+        if (ochip_coord := _BACKEND_CONTEXT["output_chip_addr"]) in _BACKEND_CONTEXT[
+            "target_chip_addr"
+        ]:
+            raise ConfigInvalidError(
+                f"The output chip address  {ochip_coord} should not overlap with the "
+                f"chip addresses, but got {_BACKEND_CONTEXT._target_chip_addr_repr()}."
+            )
+
         input_nodes_info = self._inpproj_config_export()
         output_dest_info = self._member_cb_and_onode_config_export()
 
@@ -300,7 +296,7 @@ class Mapper:
     def _set_global_cflags(self) -> None:
         SynSys.CFLAG_ENABLE_WP_OPTIMIZATION = _BACKEND_CONTEXT.cflags["enable_wp_opt"]
 
-    def _inpproj_config_export(self) -> InputNodeInfo:
+    def _inpproj_config_export(self) -> InputNodeConf:
         """Export the configuration of input projections.
 
         Json exchange file format for input nodes:
@@ -323,6 +319,8 @@ class Mapper:
         # Traverse input core blocks
         for inode, input_cbs in self.input_core_blocks.items():
             dest_coords: List[Coord] = []
+
+            assert all(input_cbs[0].chip_coord == cb.chip_coord for cb in input_cbs)
             for cb in input_cbs:  # Do not use iterative generation.
                 dest_coords.extend(cb.core_coords)
 
@@ -345,15 +343,15 @@ class Mapper:
                 dest_coords[0].y,
                 dest_rid.x,
                 dest_rid.y,
-                _BACKEND_CONTEXT["local_chip_addr"].x,
-                _BACKEND_CONTEXT["local_chip_addr"].y,
+                input_cb.chip_coord.x,
+                input_cb.chip_coord.y,
             )
 
             input_nodes_info[inode.name] = neuron_dest
 
         return input_nodes_info
 
-    def _member_cb_and_onode_config_export(self) -> OutputDestInfo:
+    def _member_cb_and_onode_config_export(self) -> OutputDestConf:
         """Export configuration & output destinations inormation for core blocks.
 
         Description:
@@ -404,40 +402,42 @@ class Mapper:
                     self._member_cb_config_export(member_cb)
 
                 for coord, core_plm in member_cb.core_placements.items():
-                    self.core_plm_config[coord] = core_plm.export_core_plm_config()
+                    self.core_plm_config[rg.chip_coord][
+                        coord
+                    ] = core_plm.export_core_plm_config()
 
             # Generate default configurations for wasted core placements of the routing group
-            self.core_plm_config.update(rg.get_wasted_cplm_config())
+            self.core_plm_config[rg.chip_coord].update(rg.get_wasted_cplm_config())
 
         return output_dest_info
 
     def _member_cb_config_export(self, member_cb: CoreBlock) -> None:
         """Export configuration information for core blocks that are pure members."""
-        succ_cbs = self.succ_core_blocks[member_cb]
-
         for core_plm in member_cb.core_placements.values():
             for neu_seg in core_plm.neu_segs_of_cplm:
                 # Find the axon destinations of neu_seg, not the successor core blocks.
-                dest_cb_of_nseg = [cb for cb in succ_cbs if neu_seg.parent in cb.source]
+                dest_cb_of_nseg = self._find_dest_cb_by_nseg(neu_seg, member_cb)
 
-                assert _cb_routable(self.routing_groups, dest_cb_of_nseg)
-                core_plm.export_neu_config(neu_seg, dest_cb_of_nseg)
+                if len(dest_cb_of_nseg) > 0:
+                    assert _cb_routable(self.routing_groups, dest_cb_of_nseg)
+                    core_plm.export_neu_config(neu_seg, dest_cb_of_nseg)
+                else:
+                    raise ValueError(f"find destination of member {neu_seg} failed.")
 
     def _member_onode_cb_config_export(
         self,
         member_onode_cb: CoreBlock,
-        output_dest_info: OutputDestInfo,
+        output_dest_info: OutputDestConf,
         ocoord: Coord,
     ) -> Coord:
         """Export configuration information for core blocks that are both members & output."""
         cur_ocoord = ocoord
         output_axon_offset = 0
         o_nodes = [d for d in member_onode_cb.dest if d in self.graph.onodes.values()]
-        succ_cbs = self.succ_core_blocks[member_onode_cb]
 
         for core_plm in member_onode_cb.core_placements.values():
             for neu_seg in core_plm.neu_segs_of_cplm:
-                dest_cb_of_nseg = [cb for cb in succ_cbs if neu_seg.parent in cb.source]
+                dest_cb_of_nseg = self._find_dest_cb_by_nseg(neu_seg, member_onode_cb)
 
                 if len(dest_cb_of_nseg) > 0:
                     assert _cb_routable(self.routing_groups, dest_cb_of_nseg)
@@ -467,7 +467,7 @@ class Mapper:
         return cur_ocoord + CoordOffset(1, 0)
 
     def _onode_cb_config_export(
-        self, onode_cb: CoreBlock, output_dest_info: OutputDestInfo, ocoord: Coord
+        self, onode_cb: CoreBlock, output_dest_info: OutputDestConf, ocoord: Coord
     ) -> Coord:
         """Export configuration information for core blocks that are pure output."""
         cur_ocoord = ocoord
@@ -503,8 +503,7 @@ class Mapper:
         *,
         fp: Optional[Union[str, Path]] = None,
         format: Literal["txt", "bin", "npy"] = "bin",
-        split_by_coordinate: bool = False,
-        local_chip_addr: Optional[CoordLike] = None,
+        split_by_coord: bool = False,
         export_core_params: bool = False,
     ) -> Dict[Coord, Any]:
         """Generate configuration frames & export to file.
@@ -513,9 +512,7 @@ class Mapper:
             - write_to_file: whether to write frames into file.
             - fp: If `write_to_file` is `True`, specify the output path.
             - format: `txt`, `bin`, or `npy`. `bin` is recommended.
-            - split_by_coordinate: whether to split the generated frames file by the core coordinates.
-            - local_chip_addr: the address of the local chip. If not specified, the default value in    \
-                `_BACKEND_CONTEXT` will be used.
+            - split_by_coord: whether to split the generated frames file by the core coordinates.
             - export_core_params: whether to export the parameters of occupied cores.
 
         Return: a dictionary of configurations.
@@ -524,29 +521,18 @@ class Mapper:
             raise ValueError(f"format {format} is not supported.")
 
         _fp = _fp_check(fp)
-
-        if local_chip_addr is not None:
-            _local_chip_addr = to_coord(local_chip_addr)
-        else:
-            _local_chip_addr = _BACKEND_CONTEXT["local_chip_addr"]
-
         config_dict = gen_config_frames_by_coreconf(
-            self.graph_info["members"],
-            _local_chip_addr,
-            write_to_file,
-            _fp,
-            split_by_coordinate,
-            format,
+            self.graph_info["members"], write_to_file, _fp, split_by_coord, format
         )
 
         if export_core_params:
             # Export the parameters of occupied cores
             export_core_params_json(self.core_params, _fp)
 
-        # Export the info of input nodes
-        export_inp_nodes_conf_json(self.graph_info["input"], _fp)
-        # Export the info of output destinations
-        export_outp_dests_conf_json(self.graph_info["output"], _fp)
+        # Export the configurations of input nodes
+        export_input_conf_json(self.graph_info["input"], _fp)
+        # Export the configurations of output destinations
+        export_output_conf_json(self.graph_info["output"], _fp)
 
         return config_dict
 
@@ -586,6 +572,12 @@ class Mapper:
     def _build_check(self) -> None:
         return self.graph.build_check()
 
+    def _find_dest_cb_by_nseg(self, neu_seg: NeuSeg, cb: CoreBlock) -> List[CoreBlock]:
+        succ_cbs = self.succ_core_blocks[cb]
+        dest_cb_of_nseg = [cb for cb in succ_cbs if neu_seg.parent in cb.source]
+
+        return dest_cb_of_nseg
+
 
 def group_by(dict_: Dict, keyfunc=lambda item: item):
     """Groups the given list or dictionary by the value returned by ``keyfunc``."""
@@ -620,3 +612,8 @@ def _fp_check(fp: Optional[Union[str, Path]] = None) -> Path:
         _fp.mkdir(parents=True, exist_ok=True)
 
     return _fp
+
+
+CORE_RESOURCE_OUT_OF_RANGE_TEXT = (
+    "the number of required cores is out of range {0} ({1})."
+)

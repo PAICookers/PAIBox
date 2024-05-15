@@ -1,36 +1,65 @@
 from pathlib import Path
-from typing import Any, Dict, Union
+from typing import Any, Dict, List, Union
 
-from paicorelib import Coord, CoordLike, to_coord
+from paicorelib import ChipCoord, Coord, CoordLike, to_coord
+from paicorelib.coordinate import to_coords
 
 from paibox.context import _Context
+from paibox.utils import merge_unique_ordered
 
-__all__ = ["BACKEND_CONFIG"]
+__all__ = []
 
 DEFAULT_OUTPUT_CHIP_ADDR = Coord(1, 0)
-DEFAULT_LOCAL_CHIP_ADDR = Coord(0, 0)
+DEFAULT_LOCAL_CHIP_ADDR = [Coord(0, 0)]  # Support multi-chip.
 DEFAULT_OUTPUT_CORE_ADDR_START = Coord(0, 0)
+DEFAULT_CORE_PARAMS_CONF_JSON = "core_params.json"
+DEFAULT_INPUT_CONF_JSON = "input_proj_info.json"
+DEFAULT_OUTPUT_CONF_JSON = "output_dest_info.json"
 
 
 class _BackendContext(_Context):
+    _DefaultContext = {
+        "output_chip_addr": DEFAULT_OUTPUT_CHIP_ADDR,  # RO mostly
+        "target_chip_addr": DEFAULT_LOCAL_CHIP_ADDR,  # RO mostly
+        "build_directory": Path.cwd(),  # R/W
+        "output_core_addr_start": DEFAULT_OUTPUT_CORE_ADDR_START,  # RO
+        "core_conf_json": DEFAULT_CORE_PARAMS_CONF_JSON,  # RO mostly
+        "input_conf_json": DEFAULT_INPUT_CONF_JSON,  # RO mostly
+        "output_conf_json": DEFAULT_OUTPUT_CONF_JSON,  # RO mostly
+        "cflags": dict(),  # R/W
+    }
+
     def __init__(self) -> None:
         super().__init__()
-        self["output_chip_addr"] = DEFAULT_OUTPUT_CHIP_ADDR  # RO mostly
-        self["local_chip_addr"] = DEFAULT_LOCAL_CHIP_ADDR  # RO mostly
-        self["build_directory"] = Path.cwd()  # R/W
-        self["output_core_addr_start"] = DEFAULT_OUTPUT_CORE_ADDR_START  # RO
-        self["cflags"] = dict()  # R/W
+        self.update(self._DefaultContext)
 
     @property
-    def local_chip_addr(self) -> Coord:
-        return self["local_chip_addr"]
+    def target_chip_addr(self) -> List[ChipCoord]:
+        return self["target_chip_addr"]
 
-    @local_chip_addr.setter
-    def local_chip_addr(self, addr: CoordLike) -> None:
-        self["local_chip_addr"] = to_coord(addr)
+    @target_chip_addr.setter
+    def target_chip_addr(self, addr: Union[CoordLike, List[CoordLike]]) -> None:
+        if isinstance(addr, list):
+            self["target_chip_addr"] = to_coords(addr)
+        else:
+            self["target_chip_addr"] = [to_coord(addr)]
+
+    def add_chip_addr(self, *chip_addrs: CoordLike) -> None:
+        # Maintain the order. We may take advantage of the priority
+        # of the chip coordinates later.
+        self["target_chip_addr"] = merge_unique_ordered(
+            self.target_chip_addr, to_coords(chip_addrs)
+        )
 
     @property
-    def output_chip_addr(self) -> Coord:
+    def n_target_chips(self) -> int:
+        return len(self.target_chip_addr)
+
+    def _target_chip_addr_repr(self) -> str:
+        return ", ".join(str(a) for a in self.target_chip_addr)
+
+    @property
+    def output_chip_addr(self) -> ChipCoord:
         return self["output_chip_addr"]
 
     @output_chip_addr.setter
@@ -60,7 +89,6 @@ class _BackendContext(_Context):
 
 
 _BACKEND_CONTEXT = _BackendContext()
-BACKEND_CONFIG = _BACKEND_CONTEXT
 
 
 def set_cflag(**kwargs) -> None:
