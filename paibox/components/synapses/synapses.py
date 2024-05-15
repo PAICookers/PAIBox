@@ -4,6 +4,7 @@ from typing import Optional, Union
 import numpy as np
 
 from paibox.base import NeuDyn
+from paibox.exceptions import PAIBoxDeprecationWarning
 from paibox.types import DataArrayType
 
 from ..neuron import Neuron
@@ -55,8 +56,8 @@ class NoDecay(FullConn):
         name: Optional[str] = None,
     ) -> None:
         warnings.warn(
-            "'NoDecay' will be deprecated in future versions. Use 'FullConn' instead.",
-            DeprecationWarning,
+            "'NoDecay' will be removed in a future version. Use 'FullConn' instead.",
+            PAIBoxDeprecationWarning,
         )
 
         super().__init__(source, dest, weights, conn_type=conn_type, name=name)

@@ -29,6 +29,9 @@ class NeuSeg(NamedTuple):
     def n_addr(self) -> int:
         return self.segment.n_addr
 
+    def __str__(self) -> str:
+        return f"NeuSeg {self.parent.name} at offset {self.segment.addr_offset}"
+
 
 NeuSlice: TypeAlias = slice
 NeuSegOfCorePlm: TypeAlias = List[NeuSeg]
