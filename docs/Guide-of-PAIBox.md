@@ -97,37 +97,6 @@ n1 = pb.TonicSpiking(shape=128, fire_step=3, keep_shape=False, name='n1')
 
 - `fire_step`：发放周期，每接收到 `N` 次刺激后发放脉冲。
 
-以下为一个简单实例：
-
-```python
-import paibox as pb
-import numpy as np
-
-n1 = pb.TonicSpiking(shape=1, fire_step=3)
-inp_data = np.ones((10,), dtype=np.bool_)
-output = np.full((10,), 0, dtype=np.bool_)
-voltage = np.full((10,), 0, dtype=np.int32)
-
-for t in range(10):
-    output[t] = n1(inp_data[t])
-    voltage[t] = n1.voltage
-
-print(output)
-
->>> [[False]
-    [False]
-    [ True]
-    [False]
-    [False]
-    [ True]
-    [False]
-    [False]
-    [ True]
-    [False]]
-```
-
-在持续的脉冲输入下，神经元进行周期性的脉冲发放。
-
 #### Phasic Spiking
 
 Phasic Spiking神经元可以实现，在接受一定数量脉冲后发放，然后保持静息状态，不再发放。
@@ -138,41 +107,6 @@ n1 = pb.PhasicSpiking(shape=128, time_to_fire=3, neg_floor=10, keep_shape=False,
 
 - `time_to_fire`：发放时间。
 - `neg_floor`：地板阈值，静息时的膜电位为其负值。
-
-以下为一个简单实例：
-
-```python
-import paibox as pb
-import numpy as np
-
-n1 = pb.PhasicSpiking(shape=1, time_to_fire=3)
-# [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
-inp_data = np.concatenate((np.zeros((2,), np.bool_), np.ones((10,), np.bool_)))
-output = np.full((12,), 0, dtype=np.bool_)
-voltage = np.full((12,), 0, dtype=np.int32)
-
-for t in range(12):
-    output[t] = n1(inp_data[t])
-    voltage[t] = n1.voltage
-
-print(output)
-
->>>
-    [[False]
-    [False]
-    [False]
-    [False]
-    [ True]
-    [False]
-    [False]
-    [False]
-    [False]
-    [False]
-    [False]
-    [False]]
-```
-
-当有持续性脉冲输入时，神经元会在 `time_to_step` 个时间步后发放脉冲，而后将一直保持静息状态。
 
 #### Always1Neuron
 
@@ -235,7 +169,6 @@ s1= pb.FullConn(source=n1, dest=n2, weights=weight1, conn_type=pb.SynConnType.Al
   ```
 
   其权重以标量的形式储存。
-
 - 数组：尺寸要求为 `(N2,)`，可以自定义每组对应神经元之间的连接权重。如下例所示，设置 `weights` 为 `[1, 2, 3, 4, 5]`，
 
   ```python
@@ -403,7 +336,7 @@ for t in range(20):
 - `v_reset`：复位电平。
 - 待编码数据维度顺序仅支持 `CHW`。
 
-其中，所使用的LIF为SpikingJelly内的 `SimpleLIFNode`。具体原理参见：[SpikingJelly/SimpleLIFNode](https://spikingjelly.readthedocs.io/zh-cn/latest/sub_module/spikingjelly.activation_based.neuron.html#spikingjelly.activation_based.neuron.SimpleLIFNode)。如果需要使用更复杂的编码，请直接使用它们。
+其中，所使用的LIF为SpikingJelly内的 `SimpleLIFNode`。具体原理参见：[SpikingJelly/SimpleLIFNode](https://spikingjelly.readthedocs.io/zh-cn/latest/sub_module/spikingjelly.activation_based.neuron.html#spikingjelly.activation_based.neuron.SimpleLIFNode)。如果需要使用更复杂的编码，请直接使用。
 
 #### 有状态编码器
 
@@ -906,7 +839,7 @@ sim.reset()
 mapper = pb.Mapper()
 mapper.build(fcnet)
 graph_info = mapper.compile(weight_bit_optimization=True, grouping_optim_target="both")
-mapper.export(write_to_file=True, fp="./debug/", format="bin", split_by_coordinate=False, local_chip_addr=(0, 0), export_core_params=False)
+mapper.export(write_to_file=True, fp="./debug/", format="bin", split_by_coord=False, export_core_params=False)
 
 # Clear all the results
 mapper.clear()
@@ -923,8 +856,7 @@ mapper.clear()
 - `write_to_file`: 是否将配置帧导出为文件。默认为 `True`。
 - `fp`：导出目录。若未指定，则默认为后端配置选项 `build_directory` 所设置的目录（当前工作目录）。
 - `format`：导出交换文件格式，可以为 `bin`、`npy` 或 `txt`。默认为 `bin`。
-- `split_by_coordinate`：是否将配置帧以每个核坐标进行分割，由此生成的配置帧文件命名为"config_core1"、"config_core2"等。默认为 `False`，即最终导出为一个文件。
-- `local_chip_addr`：本地芯片坐标，元组格式表示。默认为后端配置项 `local_chip_addr` 所设置的默认值。
+- `split_by_coord`：是否将配置帧以每个核坐标进行分割，由此生成的配置帧文件命名形如"config_core1"、"config_core2"。默认为 `False`，即最终导出为一个文件。
 - `export_core_params`: 是否导出实际使用核参数至json文件，以直观显示实际使用核的配置信息。默认为 `False`。
 
 同时，该方法将返回模型的配置项字典 `GraphInfo`，包括：
@@ -938,19 +870,20 @@ mapper.clear()
 
 ### 后端配置项
 
-与后端相关的配置项由 `BACKEND_CONFIG` 统一保存与访问，例如上述**编译选项**、`build_directory`、`local_chip_addr` 等。如下所示，对常用的配置项进行读取与修改：
+与后端相关的配置项由 `BACKEND_CONFIG` 统一保存与访问，例如上述**编译选项**、`build_directory`、`target_chip_addr` 等。如下所示，对常用的配置项进行读取与修改：
 
-1. 本地芯片地址 `local_chip_addr`
+1. 本地芯片地址 `target_chip_addr`，支持**多芯片配置**。
 
    ```python
    # Read
-   BACKEND_CONFIG.local_chip_addr
-   >>> Coord(0, 0)
+   BACKEND_CONFIG.target_chip_addr
+   >>> [Coord(0, 0)]
 
-   # Modify
-   BACKEND_CONFIG.local_chip_addr = (1, 1)
+   # Single chip
+   BACKEND_CONFIG.target_chip_addr = (1, 1)
+   # Multiple chips
+   BACKEND_CONFIG.target_chip_addr = [(0, 0), (0, 1), (1, 0)]
    ```
-
 2. 输出芯片地址（测试芯片地址） `output_chip_addr`
 
    ```python
@@ -965,7 +898,7 @@ mapper.clear()
    # or
    BACKEND_CONFIG.test_chip_addr = (2, 0)
    ```
-
+   ⚠️ 请确保输出芯片地址不与本地芯片地址重叠。
 3. 编译后配置信息等文件输出目录路径 `output_dir`，默认为用户当前工作目录
 
    ```python
@@ -976,7 +909,6 @@ mapper.clear()
    # Modify
    BACKEND_CONFIG.output_dir = "path/to/myoutput"
    ```
-
 4. 编译选项
 
    ```python
