@@ -1,11 +1,11 @@
-from typing import Callable, Dict, Generic, Sequence, Type, TypeVar, Union, overload
+from typing import Callable, Dict, Sequence, Type, TypeVar, Union, overload
 
 _T = TypeVar("_T")
 _KT = TypeVar("_KT")
 _VT = TypeVar("_VT")
 
 
-class Collector(dict, Generic[_KT, _VT]):
+class Collector(dict[_KT, _VT]):
     def __setitem__(self, key: _KT, value: _VT) -> None:
         if key in self:
             if id(self[key]) != id(value):
@@ -16,7 +16,7 @@ class Collector(dict, Generic[_KT, _VT]):
         super().__setitem__(key, value)
 
     def replace(self, key: _KT, new_value: _VT) -> None:
-        self.pop(key)
+        super().pop(key)
         self.key = new_value
 
     @overload
@@ -163,20 +163,8 @@ class Collector(dict, Generic[_KT, _VT]):
 
         return gather
 
-    def key_on_condition(self, condition: Callable[..., bool]) -> "Collector":
-        gather = type(self)()
+    def key_on_condition(self, condition: Callable[[_KT], bool]) -> "Collector":
+        return type(self)({k: v for k, v in self.items() if condition(k)})
 
-        for k, v in self.items():
-            if condition(k):
-                gather[k] = v
-
-        return gather
-
-    def value_on_condition(self, condition: Callable[..., bool]) -> "Collector":
-        gather = type(self)()
-
-        for k, v in self.items():
-            if condition(v):
-                gather[k] = v
-
-        return gather
+    def val_on_condition(self, condition: Callable[[_VT], bool]) -> "Collector":
+        return type(self)({k: v for k, v in self.items() if condition(v)})

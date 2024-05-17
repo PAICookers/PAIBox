@@ -499,7 +499,7 @@ class _SpikingPool2d(FunctionalModule):
         stride: Optional[_Size2Type] = None,
         # padding: _Size2Type = 0,
         # fm_order: _Order3d = "CHW",
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -595,7 +595,7 @@ class SpikingAvgPool2d(_SpikingPool2d):
         # padding: _Size2Type = 0,
         # fm_order: _Order3d = "CHW",
         *,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -627,7 +627,7 @@ class SpikingMaxPool2d(_SpikingPool2d):
         # padding: _Size2Type = 0,
         # fm_order: _Order3d = "CHW",
         *,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:

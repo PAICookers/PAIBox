@@ -1,3 +1,4 @@
+import typing
 import warnings
 
 from .exceptions import PAIBoxWarning, RegisterError
@@ -7,11 +8,14 @@ _id_dict = dict()
 _type_names = dict()
 
 
-def is_name_unique(name: str, obj: object, avoid: bool) -> None:
+if typing.TYPE_CHECKING:
+    from .base import PAIBoxObject
+
+
+def is_name_unique(name: str, obj: "PAIBoxObject", avoid: bool) -> None:
     """If the name is unique, record it in the global dictionary."""
     if not name.isidentifier():
         raise ValueError(f"'{name}' is not a valid identifier.")
-
     if name in _id_dict:
         if _id_dict[name] != id(obj):
             if avoid:
@@ -26,7 +30,6 @@ def is_name_unique(name: str, obj: object, avoid: bool) -> None:
                 raise RegisterError(
                     f"name of {obj}({name}) is already used by {_id_dict[name]}."
                 )
-
     else:
         _id_dict[name] = id(obj)
 

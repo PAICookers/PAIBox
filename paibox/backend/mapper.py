@@ -1,5 +1,4 @@
 import sys
-import typing
 from collections import defaultdict
 from copy import copy
 from pathlib import Path
@@ -35,9 +34,7 @@ __all__ = ["Mapper"]
 
 class Mapper:
     graph = PAIGraph()
-
-    if typing.TYPE_CHECKING:
-        graph_info: GraphInfo
+    graph_info: GraphInfo
 
     def __init__(self) -> None:
         self.core_blocks: List[CoreBlock] = []

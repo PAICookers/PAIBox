@@ -1,7 +1,6 @@
 from typing import (
     AbstractSet,
     Any,
-    Generic,
     Iterable,
     Iterator,
     List,
@@ -33,7 +32,7 @@ WeightType: TypeAlias = NDArray[Union[np.bool_, np.int8]]
 _T = TypeVar("_T")
 
 
-class FrozenOrderedSet(AbstractSet, Generic[_T]):
+class FrozenOrderedSet(AbstractSet[_T]):
     """A set that preserves insertion order and is hashable."""
 
     def __init__(self, data: Optional[Iterable[Any]] = None) -> None:

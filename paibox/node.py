@@ -1,4 +1,4 @@
-from typing import Any, Generic, Iterable, Sequence, TypeVar
+from typing import Any, Iterable, TypeVar
 
 __all__ = ["NodeDict", "NodeList"]
 
@@ -8,23 +8,23 @@ _KT = TypeVar("_KT")
 _VT = TypeVar("_VT")
 
 
-class NodeList(list, Generic[_T]):
-    def __init__(self, seq: Sequence[Any] = ()) -> None:
+class NodeList(list[_T]):
+    def __init__(self, iterable: Iterable[Any] = ()) -> None:
         super().__init__()
-        self.extend(seq)
+        self.extend(iterable)
 
-    def append(self, elem: Any) -> "NodeList[_T]":
+    def append(self, elem: _T) -> "NodeList[_T]":
         super().append(elem)
         return self
 
-    def extend(self, iterable: Iterable[Any]) -> "NodeList[_T]":
+    def extend(self, iterable: Iterable[_T]) -> "NodeList[_T]":
         for elem in iterable:
             self.append(elem)
 
         return self
 
 
-class NodeDict(dict, Generic[_KT, _VT]):
+class NodeDict(dict[_KT, _VT]):
     def __setitem__(self, key: _KT, value: _VT) -> "NodeDict[_KT, _VT]":
         super().__setitem__(key, value)
         return self

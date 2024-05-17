@@ -1,4 +1,4 @@
-from typing import Any, Generic, TypeVar
+from typing import Any, TypeVar
 
 __all__ = ["FRONTEND_ENV"]
 
@@ -7,7 +7,7 @@ _KT = TypeVar("_KT")
 _VT = TypeVar("_VT")
 
 
-class _Context(dict, Generic[_KT, _VT]):
+class _Context(dict[_KT, _VT]):
     def load(self, key: Any, default: Any = None) -> Any:
         """Load the context by the `key`.
 
@@ -35,7 +35,7 @@ class _Context(dict, Generic[_KT, _VT]):
             v = args[i + 1]
             super().__setitem__(k, v)
 
-        self.update(kwargs)  # compatible for py3.8
+        self.update(**kwargs)  # compatible for py3.8
 
     def __setitem__(self, key: Any, value: Any) -> None:
         self.save(key, value)

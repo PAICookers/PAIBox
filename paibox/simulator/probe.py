@@ -6,7 +6,8 @@ __all__ = ["Probe"]
 
 
 class Probe(PAIBoxObject):
-    _avoid_name_conflict = True
+    __avoid_name_conflict__ = True
+    target: PAIBoxObject
 
     def __init__(
         self,
@@ -17,11 +18,10 @@ class Probe(PAIBoxObject):
     ) -> None:
         """
         Arguments:
-            - target: the main target.
-            - attr: the attribute to probe.
+            - target: the target that needs to be monitored.
+            - attr: the attribute that needs to be monitored.
             - name: the name of the probe. Optional.
         """
-        self.target: PAIBoxObject
         self.attr = attr
         self._check_attr(target)
 
@@ -30,7 +30,7 @@ class Probe(PAIBoxObject):
     def _check_attr(self, target: PAIBoxObject) -> None:
         if not hasattr(target, self.attr):
             raise AttributeError(
-                f"attribute '{self.attr}' not found in target {self.target}."
+                f"attribute '{self.attr}' not found in target {target}."
             )
 
         self.target = target
