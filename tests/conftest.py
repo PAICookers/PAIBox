@@ -1,15 +1,22 @@
 import os
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any, List, Optional, TypedDict
 
 import numpy as np
 import pytest
-from typing_extensions import NotRequired
 
 import paibox as pb
 from paibox.components import Neuron
 from paibox.naming import clear_name_cache
+
+from .shared_networks import *
+
+if sys.version_info >= (3, 11):
+    from typing import NotRequired
+else:
+    from typing_extensions import NotRequired
 
 
 @pytest.fixture(scope="module")
@@ -23,9 +30,23 @@ def ensure_dump_dir():
             f.unlink()
 
     yield p
+
+
+@pytest.fixture(scope="module")
+def ensure_dump_dir_and_clean():
+    p = Path(__file__).parent / "debug"
+
+    if not p.is_dir():
+        p.mkdir(parents=True, exist_ok=True)
+    else:
+        for f in p.iterdir():
+            f.unlink()
+
+    yield p
+
     # Clean up
-    # for f in p.iterdir():
-    #     f.unlink()
+    for f in p.iterdir():
+        f.unlink()
 
 
 @pytest.fixture

@@ -1,22 +1,7 @@
-from pathlib import Path
-
 import numpy as np
 import pytest
 
 import paibox as pb
-
-
-@pytest.fixture(scope="module")
-def ensure_dump_dir():
-    p = Path(__file__).parent / "debug"
-
-    if not p.is_dir():
-        p.mkdir(parents=True, exist_ok=True)
-    else:
-        for f in p.iterdir():
-            f.unlink()
-
-    yield p
 
 
 def fakeout(t, **kwargs):
