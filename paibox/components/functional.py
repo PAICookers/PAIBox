@@ -89,7 +89,6 @@ class BitwiseAND(FunctionalModule2to1):
         n1_and = Neuron(
             self.shape_out,
             leak_comparison=LCM.LEAK_BEFORE_COMP,
-            neg_threshold=0,
             leak_v=-1,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
@@ -164,7 +163,6 @@ class BitwiseNOT(FunctionalModule):
         n1_not = Neuron(
             self.shape_out,
             leak_comparison=LCM.LEAK_BEFORE_COMP,
-            neg_threshold=0,
             leak_v=-1,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
@@ -476,7 +474,6 @@ class SpikingAdd(FunctionalModule2to1WithV):
     def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
         n1_sadd = Neuron(
             self.shape_out,
-            neg_threshold=0,
             reset_mode=RM.MODE_LINEAR,
             neg_thres_mode=NTM.MODE_SATURATION,
             delay=self.delay_relative,
@@ -579,7 +576,6 @@ class _SpikingPool2d(FunctionalModule):
                 self.shape_out,
                 leak_comparison=LCM.LEAK_BEFORE_COMP,
                 leak_v=-(shape2num(self.tfm.ksize) // 2),
-                neg_threshold=0,
                 delay=self.delay_relative,
                 tick_wait_start=self.tick_wait_start,
                 tick_wait_end=self.tick_wait_end,
@@ -780,8 +776,6 @@ class Transpose2d(TransposeModule):
     def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
         n1_t2d = Neuron(
             self.shape_out,
-            neg_threshold=0,
-            leak_v=0,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
             tick_wait_end=self.tick_wait_end,
@@ -846,8 +840,6 @@ class Transpose3d(TransposeModule):
     def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
         n1_t3d = Neuron(
             self.shape_out,
-            neg_threshold=0,
-            leak_v=0,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
             tick_wait_end=self.tick_wait_end,

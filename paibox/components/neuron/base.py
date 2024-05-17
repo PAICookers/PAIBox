@@ -213,7 +213,7 @@ class MetaNeuron:
                 return np.subtract(
                     vjt, self.pos_threshold + self._v_th_rand, dtype=np.int32
                 )
-            else:
+            else:  # RM.MODE_NONRESET
                 return vjt
 
         def _when_exceed_neg() -> VoltageType:
@@ -226,7 +226,7 @@ class MetaNeuron:
                         self.neg_threshold + self._v_th_rand,
                         dtype=np.int32,
                     )
-                else:
+                else:  # RM.MODE_NONRESET
                     return vjt
 
             else:
@@ -372,7 +372,7 @@ class Neuron(MetaNeuron, NeuDyn):
         leak_comparison: LCM = LCM.LEAK_AFTER_COMP,
         threshold_mask_bits: int = 0,
         neg_thres_mode: NTM = NTM.MODE_RESET,
-        neg_threshold: int = -1,
+        neg_threshold: int = 0,
         pos_threshold: int = 1,
         leak_direction: LDM = LDM.MODE_FORWARD,
         leak_integration_mode: LIM = LIM.MODE_DETERMINISTIC,

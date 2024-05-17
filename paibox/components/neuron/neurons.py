@@ -40,7 +40,6 @@ class IF(Neuron):
             shape,
             reset_v=reset_v,
             neg_thres_mode=NTM.MODE_SATURATION,
-            neg_threshold=0,
             pos_threshold=threshold,
             keep_shape=keep_shape,
             name=name,
@@ -75,7 +74,6 @@ class LIF(Neuron):
             reset_mode=RM.MODE_NORMAL,
             reset_v=reset_v,
             neg_thres_mode=NTM.MODE_SATURATION,
-            neg_threshold=0,
             pos_threshold=threshold,
             leak_v=leak_v,
             keep_shape=keep_shape,
@@ -103,12 +101,7 @@ class TonicSpiking(Neuron):
         NOTE: The neuron receives `N` spikes and fires, then it will reset to 0.
         """
         super().__init__(
-            shape,
-            neg_threshold=0,
-            pos_threshold=fire_step,
-            keep_shape=keep_shape,
-            name=name,
-            **kwargs,
+            shape, pos_threshold=fire_step, keep_shape=keep_shape, name=name, **kwargs
         )
 
 
@@ -169,7 +162,6 @@ class Always1Neuron(Neuron):
             reset_v=1,
             leak_comparison=LCM.LEAK_BEFORE_COMP,
             neg_thres_mode=NTM.MODE_SATURATION,
-            neg_threshold=0,
             pos_threshold=0,
             leak_v=(1 << 29) - 1,
             keep_shape=keep_shape,
@@ -188,10 +180,4 @@ class SpikingRelu(Neuron):
         **kwargs,
     ) -> None:
         """Spiking relu neuron. Act exactly the way you think."""
-        super().__init__(
-            shape,
-            neg_threshold=0,
-            keep_shape=keep_shape,
-            name=name,
-            **kwargs,
-        )
+        super().__init__(shape, keep_shape=keep_shape, name=name, **kwargs)
