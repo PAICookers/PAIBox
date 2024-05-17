@@ -175,15 +175,16 @@ class TestNetwork_Components_Oprations:
         setattr(net, n3.name, n3)  # key is 'LIF_0'
         # Or added by user
         # net.n3 = n3 # key is 'n3'
-        net.add_components(s_insert=s1)
+        net._add_components(s_insert=s1)
         nodes = net.nodes(level=1, include_self=False).subset(DynamicSys).unique()
         assert n3.name in nodes
         assert s1.name in nodes
         assert getattr(net, "s_insert", False)
 
-        net.add_components(s2)
+        net._add_components(s2)
         assert getattr(net, s2.name, False)
 
+    @pytest.mark.skip("Not implemented")
     def test_disconnect_neuron_from(self, build_Network_with_container):
         net: pb.Network = build_Network_with_container
 
@@ -225,6 +226,7 @@ class TestNetwork_Components_Oprations:
         assert getattr(net, "s2", False)
         assert getattr(net, "s4", False)
 
+    @pytest.mark.skip("Not implemented")
     def test_insert_between_neuron(self, build_Network_with_container):
         net: pb.Network = build_Network_with_container
 

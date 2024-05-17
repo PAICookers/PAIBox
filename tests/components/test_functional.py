@@ -8,14 +8,14 @@ from paibox.network import DynSysGroup
 from paibox.utils import as_shape
 
 
-def assert_built_nodes(
+def _assert_build_fmodule(
     network: DynSysGroup, n_node_bef_build: int, n_node_aft_buld: int
 ):
     nodes = network.components.subset(DynamicSys).unique()
     assert len(nodes) == n_node_bef_build
 
     # Construct the functional modules
-    network.module_construct()
+    DynSysGroup.build_fmodule(network, dry_run=False)
 
     nodes.clear()
     # Must exclude `FunctionalModule`s, because it may be in the probe's `__dict__`.
@@ -40,7 +40,7 @@ class TestFunctionalModules:
         for i in range(1, 20):
             assert np.array_equal(sim.data[net.probe2][i], inpa[i - 1] & inpb[i])
 
-        assert_built_nodes(net, 4 + 1 + 2, 4 + 3 + 2)
+        _assert_build_fmodule(net, 4 + 1 + 2, 4 + 3 + 2)
 
     def test_FModule_ConnWithModule(self, build_FModule_ConnWithModule_Net):
         net = build_FModule_ConnWithModule_Net
@@ -65,7 +65,7 @@ class TestFunctionalModules:
                 sim.data[net.probe3][t], (inpa[t - 2] & inpb[t - 2]) | inpc[t - 1]
             )
 
-        assert_built_nodes(net, 9 + 2 + 2, 9 + 2 * 3 + 2)
+        _assert_build_fmodule(net, 9 + 2 + 2, 9 + 2 * 3 + 2)
 
     def test_BitwiseAND(self, build_BitwiseAND_Net):
         net: pb.Network = build_BitwiseAND_Net
@@ -82,7 +82,7 @@ class TestFunctionalModules:
         for i in range(1, 20):
             assert np.array_equal(sim.data[net.probe3][i], inpa[i - 1] & inpb[i - 1])
 
-        assert_built_nodes(net, 6 + 1 + 2, 6 + 3 + 2)
+        _assert_build_fmodule(net, 6 + 1 + 2, 6 + 3 + 2)
 
     def test_BitwiseNOT(self, build_BitwiseNOT_Net):
         net: pb.Network = build_BitwiseNOT_Net
@@ -98,7 +98,7 @@ class TestFunctionalModules:
         for i in range(1, 20):
             assert np.array_equal(sim.data[net.probe2][i], ~inpa[i - 1])
 
-        assert_built_nodes(net, 3 + 1 + 2, 3 + 2 + 2)
+        _assert_build_fmodule(net, 3 + 1 + 2, 3 + 2 + 2)
 
     def test_BitwiseOR(self, build_BitwiseOR_Net):
         net: pb.Network = build_BitwiseOR_Net
@@ -115,7 +115,7 @@ class TestFunctionalModules:
         for i in range(1, 20):
             assert np.array_equal(sim.data[net.probe3][i], inpa[i - 1] | inpb[i - 1])
 
-        assert_built_nodes(net, 6 + 1 + 2, 6 + 3 + 2)
+        _assert_build_fmodule(net, 6 + 1 + 2, 6 + 3 + 2)
 
     def test_BitwiseXOR(self, build_BitwiseXOR_Net):
         net: pb.Network = build_BitwiseXOR_Net
@@ -135,7 +135,7 @@ class TestFunctionalModules:
         for i in range(6, 20):
             assert np.array_equal(sim.data[net.probe4][i], sim.data[net.probe3][i - 4])
 
-        assert_built_nodes(net, 6 + 1 + 2, 6 + 5 + 2)
+        _assert_build_fmodule(net, 6 + 1 + 2, 6 + 5 + 2)
 
     def test_DelayChain(self, build_DelayChain_Net):
         net = build_DelayChain_Net
@@ -152,7 +152,7 @@ class TestFunctionalModules:
         for i in range(2 + delay, 20):
             assert np.array_equal(sim.data[net.probe3][i], inpa[i - 2 - delay])
 
-        assert_built_nodes(net, 3 + 1 + 2, 3 + 2 * net.func_node.inherent_delay + 2)
+        _assert_build_fmodule(net, 3 + 1 + 2, 3 + 2 * net.func_node.inherent_delay + 2)
 
     def test_SpikingAdd(self, build_SpikingAdd_Net):
         net = build_SpikingAdd_Net
@@ -179,7 +179,7 @@ class TestFunctionalModules:
         for i in range(1, 20):
             assert np.array_equal(sim.data[net.probe3][i], expected[i])
 
-        assert_built_nodes(net, 6 + 1 + 2, 6 + 3 + 2)
+        _assert_build_fmodule(net, 6 + 1 + 2, 6 + 3 + 2)
 
     def test_SpikingSub(self, build_SpikingSub_Net):
         net = build_SpikingSub_Net
@@ -206,7 +206,7 @@ class TestFunctionalModules:
         for i in range(1, 20):
             assert np.array_equal(sim.data[net.probe3][i], expected[i])
 
-        assert_built_nodes(net, 6 + 1 + 2, 6 + 3 + 2)
+        _assert_build_fmodule(net, 6 + 1 + 2, 6 + 3 + 2)
 
     @pytest.mark.parametrize(
         "shape, channels, ksize, stride, fm_order, pool_type, p_binomial",
@@ -232,7 +232,7 @@ class TestFunctionalModules:
     def test_SpikingPool2d(
         self, shape, channels, ksize, stride, fm_order, pool_type, p_binomial
     ):
-        from .conftest import SpikingPool2d_Net
+        from tests.shared_networks import SpikingPool2d_Net
         from .utils import avgpool2d_golden, maxpool2d_golden
 
         if fm_order == "CHW":
@@ -242,7 +242,7 @@ class TestFunctionalModules:
 
         net1 = SpikingPool2d_Net(fm_shape, ksize, stride, pool_type)
         net2 = SpikingPool2d_Net(fm_shape, ksize, stride, pool_type)
-        net2.module_construct()
+        DynSysGroup.build_fmodule(net2, dry_run=False)
         sim1 = pb.Simulator(net1, start_time_zero=False)
         sim2 = pb.Simulator(net2, start_time_zero=False)
 
@@ -269,11 +269,11 @@ class TestFunctionalModules:
 
     @pytest.mark.parametrize("shape", [(32, 16), (1, 32), (64,), (128, 1), 48])
     def test_Transpose2d(self, shape):
-        from .conftest import TransposeModule_T2d_Net
+        from tests.shared_networks import TransposeModule_T2d_Net
 
         net1 = TransposeModule_T2d_Net(shape)
         net2 = TransposeModule_T2d_Net(shape)
-        net2.module_construct()
+        DynSysGroup.build_fmodule(net2, dry_run=False)
         sim1 = pb.Simulator(net1, start_time_zero=False)
         sim2 = pb.Simulator(net2, start_time_zero=False)
 
@@ -302,11 +302,11 @@ class TestFunctionalModules:
         ],
     )
     def test_Transpose3d(self, shape, axes):
-        from .conftest import TransposeModule_T3d_Net
+        from tests.shared_networks import TransposeModule_T3d_Net
 
         net1 = TransposeModule_T3d_Net(shape, axes)
         net2 = TransposeModule_T3d_Net(shape, axes)
-        net2.module_construct()
+        DynSysGroup.build_fmodule(net2, dry_run=False)
         sim1 = pb.Simulator(net1, start_time_zero=False)
         sim2 = pb.Simulator(net2, start_time_zero=False)
 
