@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "paibox"
-version = "1.0.0"
+version = "1.1.0a1"
 description = "Toolchain of PAICORE 2.0"
 authors = ["Ziru Pan <zrpan@stu.pku.edu.cn>"]
 maintainers = [
@@ -38,7 +38,7 @@ include = ["docs/Guide-of-PAIBox.md", "CHANGELOG.md"]
 python = "^3.8"
 pydantic = "^2.0"
 numpy = "^1.24.0"
-paicorelib = "^1.0.0"
+paicorelib = "^1.1.1"
 
 [tool.poetry.group.test]
 optional = true
