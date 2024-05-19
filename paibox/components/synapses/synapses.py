@@ -98,7 +98,14 @@ class Conv1d(Conv1dSyn):
             raise ValueError(f"kernel order must be 'OIL' or 'IOL'.")
 
         super().__init__(
-            source, dest, kernel, _single(stride), _single(padding), kernel_order, name
+            source,
+            dest,
+            kernel,
+            _single(stride),
+            _single(padding),
+            _single(1),
+            kernel_order,
+            name,
         )
 
 
@@ -133,7 +140,14 @@ class Conv2d(Conv2dSyn):
             raise ValueError(f"kernel order must be 'OIHW' or 'IOHW'.")
 
         super().__init__(
-            source, dest, kernel, _pair(stride), _pair(padding), kernel_order, name
+            source,
+            dest,
+            kernel,
+            _pair(stride),
+            _pair(padding),
+            _pair(1),
+            kernel_order,
+            name,
         )
 
 
@@ -178,6 +192,7 @@ class ConvTranspose1d(ConvTranspose1dSyn):
             _single(stride),
             _single(padding),
             _single(output_padding),
+            _single(1),
             kernel_order,
             name,
         )
@@ -227,6 +242,7 @@ class ConvTranspose2d(ConvTranspose2dSyn):
             _pair(stride),
             _pair(padding),
             _pair(output_padding),
+            _pair(1),
             kernel_order,
             name,
         )

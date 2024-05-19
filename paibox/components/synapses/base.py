@@ -211,6 +211,7 @@ class Conv1dSyn(FullConnectedSyn):
         kernel: np.ndarray,
         stride: Tuple[int],
         padding: Tuple[int],
+        dilation: Tuple[int],
         order: _KOrder3d,
         name: Optional[str] = None,
     ) -> None:
@@ -230,7 +231,9 @@ class Conv1dSyn(FullConnectedSyn):
         out_channels, in_channels, kernel_l = _kernel.shape
         # C,L
         in_ch, in_l = _fm_ndim1_check(source.shape_out, "CL")
-        out_l = (in_l + 2 * padding[0] - kernel_l) // stride[0] + 1
+        out_l = (in_l + 2 * padding[0] - dilation[0] * (kernel_l - 1) - 1) // stride[
+            0
+        ] + 1
 
         if in_ch != in_channels:
             raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
@@ -253,6 +256,7 @@ class Conv2dSyn(FullConnectedSyn):
         kernel: np.ndarray,
         stride: Tuple[int, int],
         padding: Tuple[int, int],
+        dilation: Tuple[int, int],
         order: _KOrder4d,
         name: Optional[str] = None,
     ) -> None:
@@ -272,8 +276,12 @@ class Conv2dSyn(FullConnectedSyn):
         out_channels, in_channels, kernel_h, kernel_w = _kernel.shape
         # C,H,W
         in_ch, in_h, in_w = _fm_ndim2_check(source.shape_out, "CHW")
-        out_h = (in_h + 2 * padding[0] - kernel_h) // stride[0] + 1
-        out_w = (in_w + 2 * padding[1] - kernel_w) // stride[1] + 1
+        out_h = (in_h + 2 * padding[0] - dilation[0] * (kernel_h - 1) - 1) // stride[
+            0
+        ] + 1
+        out_w = (in_w + 2 * padding[1] - dilation[1] * (kernel_w - 1) - 1) // stride[
+            1
+        ] + 1
 
         if in_ch != in_channels:
             raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
@@ -296,6 +304,7 @@ class ConvTranspose1dSyn(FullConnectedSyn):
         kernel: np.ndarray,
         stride: Tuple[int],
         padding: Tuple[int],
+        dilation: Tuple[int],
         output_padding: Tuple[int],
         order: _KOrder3d,
         name: Optional[str] = None,
@@ -316,7 +325,13 @@ class ConvTranspose1dSyn(FullConnectedSyn):
         out_channels, in_channels, kernel_l = _kernel.shape
         # C,L
         in_ch, in_l = _fm_ndim1_check(source.shape_out, "CL")
-        out_l = (in_l - 1) * stride[0] - 2 * padding[0] + kernel_l + output_padding[0]
+        out_l = (
+            (in_l - 1) * stride[0]
+            - 2 * padding[0]
+            + dilation[0] * (kernel_l - 1)
+            + output_padding[0]
+            + 1
+        )
 
         if in_ch != in_channels:
             raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
@@ -341,6 +356,7 @@ class ConvTranspose2dSyn(FullConnectedSyn):
         kernel: np.ndarray,
         stride: Tuple[int, int],
         padding: Tuple[int, int],
+        dilation: Tuple[int, int],
         output_padding: Tuple[int, int],
         order: _KOrder4d,
         name: Optional[str] = None,
@@ -361,8 +377,20 @@ class ConvTranspose2dSyn(FullConnectedSyn):
         out_channels, in_channels, kernel_h, kernel_w = _kernel.shape
         # C,H,W
         in_ch, in_h, in_w = _fm_ndim2_check(source.shape_out, "CHW")
-        out_h = (in_h - 1) * stride[0] - 2 * padding[0] + kernel_h + output_padding[0]
-        out_w = (in_w - 1) * stride[1] - 2 * padding[1] + kernel_w + output_padding[1]
+        out_h = (
+            (in_h - 1) * stride[0]
+            - 2 * padding[0]
+            + dilation[0] * (kernel_h - 1)
+            + output_padding[0]
+            + 1
+        )
+        out_w = (
+            (in_w - 1) * stride[1]
+            - 2 * padding[1]
+            + dilation[1] * (kernel_w - 1)
+            + output_padding[1]
+            + 1
+        )
 
         if in_ch != in_channels:
             raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
