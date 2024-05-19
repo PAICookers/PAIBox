@@ -27,7 +27,7 @@ from paicorelib import (
 from paicorelib import WeightPrecision as WP
 
 from paibox.base import NeuDyn, PAIBoxObject, SynSys
-from paibox.exceptions import BuildError, ResourceError, TruncationWarning
+from paibox.exceptions import GraphBuildError, ResourceError, TruncationWarning
 from paibox.types import WeightType
 from paibox.utils import check_attr_same, count_unique_elem
 
@@ -107,7 +107,7 @@ class CoreBlock(CoreAbstract):
     ) -> None:
         """Group the neurons to determine the #N of cores required."""
         if not self.lcn_locked:
-            raise BuildError("Group the neurons after lcn_ex is locked.")
+            raise GraphBuildError("Group the neurons after lcn_ex is locked.")
 
         self.neuron_segs_of_cb = get_neu_segments(
             self.dest,
@@ -119,7 +119,7 @@ class CoreBlock(CoreAbstract):
     def core_plm_alloc(self) -> None:
         """Allocate `CoreBlock` to physical cores."""
         if not self.lcn_locked:
-            raise BuildError("Allocate core placements after lcn_ex is locked.")
+            raise GraphBuildError("Allocate core placements after lcn_ex is locked.")
 
         for i, coord in enumerate(self.core_coords):
             # assert self.get_raw_weight_of_coord(i)[0].shape[0] == self.n_axon
@@ -143,7 +143,7 @@ class CoreBlock(CoreAbstract):
             )
 
         if (
-            lcn := ((self.n_axon - 1) // self.n_fanin_max).bit_length()
+            lcn := int((self.n_axon - 1) // self.n_fanin_max).bit_length()
         ) > LCN_EX.LCN_64X:
             _max_n_axons = self.n_fanin_max * (1 << LCN_EX.LCN_64X)
             raise ResourceError(
@@ -292,7 +292,7 @@ class CoreBlock(CoreAbstract):
         FIXME Different in SNN/ANN RUNTIME_MODE.
         """
         if len(self.core_coords) == 0:
-            raise BuildError(f"do this after coordinates assignment.")
+            raise GraphBuildError(f"do this after coordinates assignment.")
 
         # Get #N of neurons on each `CorePlacement` according to the
         # maximum address required of neuron segments on each `CorePlacement`.

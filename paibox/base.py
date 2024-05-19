@@ -24,7 +24,7 @@ _IdPathType: TypeAlias = Tuple[int, int]
 
 class PAIBoxObject:
     _excluded_vars = ()
-    _avoid_name_conflict: ClassVar[bool] = False
+    __avoid_name_conflict__: ClassVar[bool] = False
 
     def __init__(self, name: Optional[str] = None) -> None:
         self._name: str = self.unique_name(name)
@@ -54,7 +54,7 @@ class PAIBoxObject:
 
             return get_unique_name(__type)
 
-        is_name_unique(name, self, self._avoid_name_conflict)
+        is_name_unique(name, self, self.__avoid_name_conflict__)
         return name
 
     @property
@@ -220,6 +220,10 @@ def _add_node2(
 
 
 class DynamicSys(PAIBoxObject, StatusMemory):
+    __gh_build_ignore__: bool = False
+    """To indicate whether the backend will take the object into account
+        when the network topology information is first constructed"""
+
     def __init__(self, name: Optional[str] = None) -> None:
         super().__init__(name)
         super(PAIBoxObject, self).__init__()

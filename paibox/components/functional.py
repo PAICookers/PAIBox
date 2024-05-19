@@ -6,14 +6,14 @@ import numpy as np
 from numpy.typing import NDArray
 from paicorelib import LCM, NTM, RM, TM
 
-from paibox.base import NeuDyn
+from paibox.base import NeuDyn, NodeList
 from paibox.exceptions import FunctionalError, PAIBoxWarning, ShapeError
 from paibox.network import DynSysGroup
-from paibox.node import NodeList
 from paibox.types import SpikeType, VoltageType
 from paibox.utils import as_shape, shape2num
 
 from .modules import (
+    BuiltComponentType,
     FunctionalModule,
     FunctionalModule2to1,
     FunctionalModule2to1WithV,
@@ -45,7 +45,7 @@ __all__ = [
 
 
 _L_SADD = 1  # Literal value for spiking addition.
-_L_SSUB = -1  # Literal value for spiking substraction.
+_L_SSUB = -1  # Literal value for spiking subtraction.
 VJT_OVERFLOW_ERROR_TEXT = "Membrane potential overflow causes spiking addition errors."
 
 
@@ -84,12 +84,11 @@ class BitwiseAND(FunctionalModule2to1):
     def spike_func(self, x1: SpikeType, x2: SpikeType, **kwargs) -> SpikeType:
         return x1 & x2
 
-    def build(self, network: DynSysGroup, **build_options) -> None:
+    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
         # 1. Instantiate neurons & synapses & connect the source
         n1_and = Neuron(
             self.shape_out,
             leak_comparison=LCM.LEAK_BEFORE_COMP,
-            neg_threshold=0,
             leak_v=-1,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
@@ -113,13 +112,17 @@ class BitwiseAND(FunctionalModule2to1):
             name=f"s1_{self.name}",
         )
 
+        generated = [n1_and, syn1, syn2]
+
         # 2. Connect the source of all backward synapses to output neuron.
         for syn in self.module_intf.output:
             syn.source = n1_and
 
         # 3. Add the components to the network & remove the module itself.
-        network.add_components(n1_and, syn1, syn2)
-        network.remove_component(self)
+        network._add_components(*generated)
+        # network._remove_components(self)
+
+        return generated
 
 
 class BitwiseNOT(FunctionalModule):
@@ -156,11 +159,10 @@ class BitwiseNOT(FunctionalModule):
     def spike_func(self, x1: SpikeType, **kwargs) -> SpikeType:
         return ~x1
 
-    def build(self, network: DynSysGroup, **build_options) -> None:
+    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
         n1_not = Neuron(
             self.shape_out,
             leak_comparison=LCM.LEAK_BEFORE_COMP,
-            neg_threshold=0,
             leak_v=-1,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
@@ -177,11 +179,15 @@ class BitwiseNOT(FunctionalModule):
             name=f"s0_{self.name}",
         )
 
+        generated = [n1_not, syn1]
+
         for syns in self.module_intf.output:
             syns.source = n1_not
 
-        network.add_components(n1_not, syn1)
-        network.remove_component(self)
+        network._add_components(*generated)
+        # network._remove_components(self)
+
+        return generated
 
 
 class BitwiseOR(FunctionalModule2to1):
@@ -209,7 +215,7 @@ class BitwiseOR(FunctionalModule2to1):
     def spike_func(self, x1: SpikeType, x2: SpikeType, **kwargs) -> SpikeType:
         return x1 | x2
 
-    def build(self, network: DynSysGroup, **build_options) -> None:
+    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
         n1_or = SpikingRelu(
             self.shape_out,
             delay=self.delay_relative,
@@ -234,11 +240,15 @@ class BitwiseOR(FunctionalModule2to1):
             name=f"s1_{self.name}",
         )
 
+        generated = [n1_or, syn1, syn2]
+
         for syns in self.module_intf.output:
             syns.source = n1_or
 
-        network.add_components(n1_or, syn1, syn2)
-        network.remove_component(self)
+        network._add_components(*generated)
+        # network._remove_components(self)
+
+        return generated
 
 
 class BitwiseXOR(FunctionalModule2to1):
@@ -267,7 +277,7 @@ class BitwiseXOR(FunctionalModule2to1):
     def spike_func(self, x1: SpikeType, x2: SpikeType, **kwargs) -> SpikeType:
         return x1 ^ x2
 
-    def build(self, network: DynSysGroup, **build_options) -> None:
+    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
         # If neuron_a is of shape (h1, w1) = N, and neuron_b is of shape (h2, w2) = N.
         # The output shape of the module is (N,) or (h1, w1)(if h1 == h2).
         # The shape of n1 is (2N,) or (2, h1, w1).
@@ -317,11 +327,15 @@ class BitwiseXOR(FunctionalModule2to1):
             name=f"s2_{self.name}",
         )
 
+        generated = [n1_aux, n2_xor, syn1, syn2, syn3]
+
         for syns in self.module_intf.output:
             syns.source = n2_xor
 
-        network.add_components(n1_aux, n2_xor, syn1, syn2, syn3)
-        network.remove_component(self)
+        network._add_components(*generated)
+        # network._remove_components(self)
+
+        return generated
 
 
 class DelayChain(FunctionalModule):
@@ -365,7 +379,7 @@ class DelayChain(FunctionalModule):
     def spike_func(self, x1: SpikeType, **kwargs) -> SpikeType:
         return x1
 
-    def build(self, network: DynSysGroup, **build_options) -> None:
+    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
         n_delaychain = NodeList()
         s_delaychain = NodeList()
 
@@ -409,11 +423,15 @@ class DelayChain(FunctionalModule):
 
             s_delaychain.append(s_delay)
 
+        generated = [*n_delaychain, syn_in, *s_delaychain]
+
         for syns in self.module_intf.output:
             syns.source = n_out
 
-        network.add_components(*n_delaychain, syn_in, *s_delaychain)
-        network.remove_component(self)
+        network._add_components(*generated)
+        # network._remove_components(self)
+
+        return generated
 
 
 class SpikingAdd(FunctionalModule2to1WithV):
@@ -453,10 +471,9 @@ class SpikingAdd(FunctionalModule2to1WithV):
             x1, x2, vjt_pre, _L_SADD, strict=self.overflow_strict
         )
 
-    def build(self, network: DynSysGroup, **build_options) -> None:
+    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
         n1_sadd = Neuron(
             self.shape_out,
-            neg_threshold=0,
             reset_mode=RM.MODE_LINEAR,
             neg_thres_mode=NTM.MODE_SATURATION,
             delay=self.delay_relative,
@@ -481,11 +498,15 @@ class SpikingAdd(FunctionalModule2to1WithV):
             name=f"s1_{self.name}",
         )
 
+        generated = [n1_sadd, syn1, syn2]
+
         for syns in self.module_intf.output:
             syns.source = n1_sadd
 
-        network.add_components(n1_sadd, syn1, syn2)
-        network.remove_component(self)
+        network._add_components(*generated)
+        # network._remove_components(self)
+
+        return generated
 
 
 class _SpikingPool2d(FunctionalModule):
@@ -499,7 +520,7 @@ class _SpikingPool2d(FunctionalModule):
         stride: Optional[_Size2Type] = None,
         # padding: _Size2Type = 0,
         # fm_order: _Order3d = "CHW",
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -549,13 +570,12 @@ class _SpikingPool2d(FunctionalModule):
     def spike_func(self, x1: SpikeType, **kwargs) -> SpikeType:
         return self.tfm(x1)
 
-    def build(self, network: DynSysGroup, **build_options) -> None:
+    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
         if self.tfm.pool_type == "avg":
             n1_mp = Neuron(
                 self.shape_out,
                 leak_comparison=LCM.LEAK_BEFORE_COMP,
                 leak_v=-(shape2num(self.tfm.ksize) // 2),
-                neg_threshold=0,
                 delay=self.delay_relative,
                 tick_wait_start=self.tick_wait_start,
                 tick_wait_end=self.tick_wait_end,
@@ -579,11 +599,15 @@ class _SpikingPool2d(FunctionalModule):
             name=f"s0_{self.name}",
         )
 
+        generated = [n1_mp, syn1]
+
         for syns in self.module_intf.output:
             syns.source = n1_mp
 
-        network.add_components(n1_mp, syn1)
-        network.remove_component(self)
+        network._add_components(*generated)
+        # network._remove_components(self)
+
+        return generated
 
 
 class SpikingAvgPool2d(_SpikingPool2d):
@@ -595,7 +619,7 @@ class SpikingAvgPool2d(_SpikingPool2d):
         # padding: _Size2Type = 0,
         # fm_order: _Order3d = "CHW",
         *,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -627,7 +651,7 @@ class SpikingMaxPool2d(_SpikingPool2d):
         # padding: _Size2Type = 0,
         # fm_order: _Order3d = "CHW",
         *,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -656,7 +680,7 @@ class SpikingSub(FunctionalModule2to1WithV):
         overflow_strict: bool = False,
         **kwargs,
     ) -> None:
-        """Spiking substraction module. The result will be reflected in time dimension.
+        """Spiking subtraction module. The result will be reflected in time dimension.
 
         Args:
             - neuron_a: the first operand. It is the minuend.
@@ -680,7 +704,7 @@ class SpikingSub(FunctionalModule2to1WithV):
             x1, x2, vjt_pre, _L_SSUB, strict=self.overflow_strict
         )
 
-    def build(self, network: DynSysGroup, **build_options) -> None:
+    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
         n1_ssub = Neuron(
             self.shape_out,
             neg_threshold=VJT_MIN_LIMIT,
@@ -708,11 +732,15 @@ class SpikingSub(FunctionalModule2to1WithV):
             name=f"s1_{self.name}",
         )
 
+        generated = [n1_ssub, syn1, syn2]
+
         for syns in self.module_intf.output:
             syns.source = n1_ssub
 
-        network.add_components(n1_ssub, syn1, syn2)
-        network.remove_component(self)
+        network._add_components(*generated)
+        # network._remove_components(self)
+
+        return generated
 
 
 class Transpose2d(TransposeModule):
@@ -745,11 +773,9 @@ class Transpose2d(TransposeModule):
 
         return _x1.T
 
-    def build(self, network: DynSysGroup, **build_options) -> None:
+    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
         n1_t2d = Neuron(
             self.shape_out,
-            neg_threshold=0,
-            leak_v=0,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
             tick_wait_end=self.tick_wait_end,
@@ -765,11 +791,15 @@ class Transpose2d(TransposeModule):
             name=f"s0_{self.name}",
         )
 
+        generated = [n1_t2d, syn1]
+
         for syns in self.module_intf.output:
             syns.source = n1_t2d
 
-        network.add_components(n1_t2d, syn1)
-        network.remove_component(self)
+        network._add_components(*generated)
+        # network._remove_components(self)
+
+        return generated
 
 
 class Transpose3d(TransposeModule):
@@ -807,11 +837,9 @@ class Transpose3d(TransposeModule):
 
         return _x1.transpose(self.axes)
 
-    def build(self, network: DynSysGroup, **build_options) -> None:
+    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
         n1_t3d = Neuron(
             self.shape_out,
-            neg_threshold=0,
-            leak_v=0,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
             tick_wait_end=self.tick_wait_end,
@@ -827,15 +855,19 @@ class Transpose3d(TransposeModule):
             name=f"s0_{self.name}",
         )
 
+        generated = [n1_t3d, syn1]
+
         for syns in self.module_intf.output:
             syns.source = n1_t3d
 
-        network.add_components(n1_t3d, syn1)
-        network.remove_component(self)
+        network._add_components(*generated)
+        # network._remove_components(self)
+
+        return generated
 
 
 def _spike_func_sadd_ssub(vjt: VoltageType) -> Tuple[SpikeType, VoltageType]:
-    """Function `spike_func()` for spiking addition & substraction."""
+    """Function `spike_func()` in spiking addition & subtraction."""
     # Fire
     thres_mode = np.where(
         vjt >= 1,
@@ -856,7 +888,7 @@ def _sum_inputs_sadd_ssub(
     add_or_sub: Literal[1, -1],
     strict: bool,
 ) -> VoltageType:
-    """Function `sum_input()` for spiking addition & substraction."""
+    """Function `sum_input()` for spiking addition & subtraction."""
     # Charge
     incoming_v = (vjt_pre + x1 * 1 + x2 * add_or_sub).astype(np.int32)
 

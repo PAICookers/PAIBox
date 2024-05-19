@@ -44,8 +44,14 @@ class RegisterError(PAIBoxError, KeyError):
     pass
 
 
-class BuildError(PAIBoxError, RuntimeError):
-    """Raise when building fails."""
+class GraphBuildError(PAIBoxError):
+    """Raise when building PAIGraph fails."""
+
+    pass
+
+
+class GraphConnectionError(GraphBuildError):
+    """Connection error."""
 
     pass
 

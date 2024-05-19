@@ -1,10 +1,11 @@
+import sys
+import typing
 from collections import deque
 from dataclasses import dataclass, field
 from typing import ClassVar, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from paicorelib import TM, HwConfig
-from typing_extensions import TypeAlias
 
 from paibox.base import NeuDyn, SynSys
 from paibox.exceptions import NotSupportedError, RegisterError, ShapeError
@@ -13,9 +14,18 @@ from paibox.utils import check_elem_unique, shape2num
 
 from .projection import InputProj
 
+if sys.version_info >= (3, 10):
+    from typing import TypeAlias
+else:
+    from typing_extensions import TypeAlias
+
+if typing.TYPE_CHECKING:
+    from paibox.network import DynSysGroup
+
 __all__ = ["BuildingModule"]
 
 MultiInputsType: TypeAlias = List[SpikeType]  # Type of inputs of `NeuModule`.
+BuiltComponentType: TypeAlias = List[Union[SynSys, NeuDyn]]
 
 
 @dataclass
@@ -41,7 +51,7 @@ class ModuleIntf:
 class BuildingModule:
     module_intf: ModuleIntf
 
-    def build(self, *args, **build_options) -> None:
+    def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
         """Construct the actual basic components and add to the network. Called in the backend ONLY."""
         raise NotImplementedError
 
@@ -71,6 +81,8 @@ class BuildingModule:
 
 
 class NeuModule(NeuDyn, BuildingModule):
+    __gh_build_ignore__ = True
+
     n_return: ClassVar[int]
     """#N of outputs."""
     inherent_delay: int = 0

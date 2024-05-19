@@ -11,22 +11,21 @@ from typing import (
     Set,
     Tuple,
     TypeVar,
+    Union,
 )
 
 from paicorelib import HwConfig
 
 from paibox.base import NeuDyn
 from paibox.collector import Collector
-from paibox.components import FullConnectedSyn, InputProj
-from paibox.exceptions import BuildError, NotSupportedError
+from paibox.components import FullConnectedSyn, InputProj, NeuModule
+from paibox.exceptions import GraphBuildError, GraphConnectionError, NotSupportedError
 from paibox.network import DynSysGroup
 
 from .constrs import GraphNodeConstrs
 from .graphs_types import *
 from .placement import CoreBlock
 from .routing import RoutingGroup
-
-_NT = TypeVar("_NT", CoreBlock, NodeName)
 
 
 @dataclass
@@ -35,8 +34,15 @@ class PAIGraph:
         In the graph, synapses are edges while neurons are nodes.
     """
 
-    networks: Tuple[DynSysGroup, ...] = field(default_factory=tuple)
+    _raw_networks: Tuple[DynSysGroup, ...] = field(default_factory=tuple)
     """All networks are seen as one graph."""
+    _raw_nodes: Collector[NodeName, NodeType] = field(default_factory=Collector)
+    """Raw nodes in the networks."""
+    _raw_edges: Collector[EdgeName, EdgeType] = field(default_factory=Collector)
+    """Raw edges in the graph."""
+    _raw_fmodules: Collector[NodeName, NeuModule] = field(default_factory=Collector)
+    """Raw functional modules in the graph."""
+
     nodes: Dict[NodeName, NodeAttr] = field(default_factory=dict)
     """General nodes in the graph."""
     edges: Dict[EdgeName, EdgeAttr] = field(default_factory=dict)
@@ -48,7 +54,7 @@ class PAIGraph:
     """Output nodes in the graph."""
 
     ordered_nodes: List[NodeName] = field(default_factory=list)
-    """Ordered topologically nodes."""
+    """Nodes in topological sort order."""
 
     succ_dg: Dict[NodeName, Dict[NodeName, EdgeAttr]] = field(default_factory=dict)
     """Successor edges & nodes of every node in the graph."""
@@ -56,21 +62,15 @@ class PAIGraph:
     degree_of_nodes: Dict[NodeName, NodeDegree] = field(default_factory=dict)
     """A dictionary of in/out-degree tuple of nodes."""
 
-    _raw_nodes: Collector[NodeName, NodeType] = field(default_factory=Collector)
-    """Raw nodes in the networks."""
-    _raw_edges: Collector[EdgeName, EdgeType] = field(default_factory=Collector)
-    """Raw edges in the graph."""
-
     """Status options"""
     has_built: bool = field(default=False)
 
     # node_constrs: GraphNodeConstrs = field(default_factory=GraphNodeConstrs)
 
-    def clear(self) -> None:
+    def clear(self, total: bool = True) -> None:
         """Clear the PAIGraph."""
         self.has_built = False
 
-        self.networks = ()
         self.nodes.clear()
         self.edges.clear()
         self.inodes.clear()
@@ -79,68 +79,90 @@ class PAIGraph:
         self.succ_dg.clear()
         self.degree_of_nodes.clear()
 
-        self._raw_nodes.clear()
-        self._raw_edges.clear()
-
-        # self.node_constrs.clear()
+        if total:
+            self._raw_networks = ()
+            self._raw_nodes.clear()
+            self._raw_edges.clear()
 
     def build(self, *networks: DynSysGroup, **build_options) -> None:
         self.clear()
-        self.networks = networks
 
-        _nodes: Collector[NodeName, NodeType] = Collector()
-        _edges: Collector[EdgeName, EdgeType] = Collector()
-
+        self._raw_networks = networks
         self._pre_build(**build_options)
 
-        for network in networks:
-            _nodes += network.components.include(InputProj, NeuDyn).unique()
-            _edges += network.components.subset(FullConnectedSyn).unique()
+        nodes: Collector[NodeName, NodeType] = Collector()
+        edges: Collector[EdgeName, EdgeType] = Collector()
+        fm: Collector[NodeName, NeuModule] = Collector()
 
-        self._raw_nodes = _nodes
-        self._raw_edges = _edges
+        for subnet in self._raw_networks:
+            fm += subnet.components.subset(NeuModule).unique()
+            nodes += (
+                subnet.components.include(InputProj, NeuDyn).exclude(NeuModule).unique()
+            )
+            edges += subnet.components.subset(FullConnectedSyn).unique()
 
-        # Add all nodes in the graph.
-        for node in _nodes:
+        self._raw_nodes += nodes.val_on_condition(
+            lambda node: not node.__gh_build_ignore__
+        )
+        self._raw_edges += edges.val_on_condition(
+            lambda edge: not edge.__gh_build_ignore__
+        )
+        self._raw_fmodules = fm
+
+        self._update_graph(**build_options)
+
+    def _pre_build(self, **build_options) -> None:
+        """Preprocessing before obtaining the topology."""
+        # Build functional modules in the subnets
+        for subnet in self._raw_networks:
+            DynSysGroup.build_fmodule(subnet, **build_options)
+
+    def _update_graph(self, **build_options) -> None:
+        self.clear(total=False)
+
+        # TODO Check isolated nodes in _raw_nodes
+        for node in self._raw_nodes:
             self.succ_dg[node] = dict()
 
         for syn in self._raw_edges.values():
             u, v = syn.source.name, syn.dest.name
+            if u not in self._raw_nodes:
+                raise GraphConnectionError(
+                    f"the source neuron {u} of {syn.name} is not included in the graph."
+                )
+
+            if v not in self._raw_nodes:
+                raise GraphConnectionError(
+                    f"the dest neuron {v} of {syn.name} is not included in the graph."
+                )
+
             self.succ_dg[u][v] = EdgeAttr(edge=syn, distance=syn.source.delay_relative)
 
         self.degree_of_nodes = get_node_degrees(self.succ_dg)
 
         # `InputProj` nodes are input nodes definitely.
-        self.inodes = _nodes.subset(InputProj)
+        self.inodes = self._raw_nodes.subset(InputProj)
 
         # By default, nodes with out-degree = 0 are considered as output nodes.
-        self.onodes = _nodes.key_on_condition(
+        self.onodes = self._raw_nodes.key_on_condition(
             lambda node: self.degree_of_nodes[node].out_degree == 0
-        )
+        )  # type: ignore
 
-        # _bounded_nodes_check(bounded_nodes)
-
-        for name, node in _nodes.items():
+        for name, node in self._raw_nodes.items():
             self.nodes[name] = NodeAttr(
                 node=node,
                 position=self._node_pos(name),
                 degree=self.degree_of_nodes[name],
             )
 
-        for name, syn in _edges.items():
+        for name, syn in self._raw_edges.items():
             self.edges[name] = EdgeAttr(edge=syn, distance=syn.source.delay_relative)
 
         self.has_built = True
 
-        self._graph_supported_check()
+        self._gh_support_check()
 
-    def _pre_build(self, **build_options) -> None:
-        """Preprocessing before obtaining the topology."""
-        for network in self.networks:
-            # destroy the building modules & construct
-            network.module_construct(**build_options)
-
-    def _graph_supported_check(self) -> None:
+    def _gh_support_check(self) -> None:
         """Preprocess of the directed graph. Because there are currently    \
             many limitations on the networks that can be processed, checks  \
             are performed at this stage.
@@ -190,7 +212,7 @@ class PAIGraph:
 
     def build_check(self) -> None:
         if not self.has_built:
-            raise BuildError(f"the graph hasn't been built yet.")
+            raise GraphBuildError(f"the graph hasn't been built yet.")
 
     def group_edges(self) -> Tuple[List[FrozenSet[EdgeType]], List[int]]:
         """Group all edges according to a certain rule.
@@ -284,12 +306,11 @@ class PAIGraph:
 
     @property
     def graph_name_repr(self) -> str:
-        _str = f"graph_of_{self.networks[0].name}"
+        _prefix = "graph_of_"
+        return _prefix + "_and_".join(network.name for network in self._raw_networks)
 
-        for network in self.networks[1:]:
-            _str += f"_and_{network.name}"
 
-        return _str
+_NT = TypeVar("_NT", CoreBlock, NodeName)
 
 
 def _degree_check(

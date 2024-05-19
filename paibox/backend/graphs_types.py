@@ -10,6 +10,19 @@ else:
 from paibox.base import NeuDyn
 from paibox.components import FullConnectedSyn, InputProj
 
+__all__ = [
+    "NodeName",
+    "EdgeName",
+    "NodeType",
+    "EdgeType",
+    "SourceNodeType",
+    "DestNodeType",
+    "NodePosition",
+    "NodeDegree",
+    "NodeAttr",
+    "EdgeAttr",
+]
+
 NodeName: TypeAlias = str
 EdgeName: TypeAlias = str
 NodeType: TypeAlias = Union[InputProj, NeuDyn]

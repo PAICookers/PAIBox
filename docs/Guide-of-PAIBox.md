@@ -12,13 +12,20 @@ PAIBox使用 `pyproject.toml` 管理依赖。若使用Poetry：
 poetry install
 ```
 
+或者采用开发版环境
+
+```bash
+poetry install --with dev
+```
+
 若使用conda等，则手动安装如下依赖至Python虚拟环境：
 
 ```toml
 python = "^3.8"
 pydantic = "^2.0"
 numpy = "^1.24.0"
-paicorelib = "^1.0.0"
+paicorelib = "^1.1.1"
+orjson = "^3.10.1" # Optional
 ```
 
 通过pip安装PAIBox：
@@ -27,7 +34,7 @@ paicorelib = "^1.0.0"
 pip install paibox
 ```
 
-或克隆 `dev` 分支以体验开发版。
+添加 `--pre` 或克隆 `dev` 分支以使用开发版
 
 ```bash
 git clone -b dev https://github.com/PAICookers/PAIBox.git
@@ -52,6 +59,8 @@ PAIBox提供**神经元**与**突触**作为基本组件，用于搭建神经网
 ### 神经元
 
 PAIBox提供了多种类型的神经元模型，能够实现各种特殊的功能。
+
+神经元均支持 `delay`，`tick_wait_start`，`tick_wait_end`，`keep_shape`，`unrolling_factor` 参数。
 
 ⚠️ 神经元初始膜电位为0。
 
@@ -250,8 +259,8 @@ conv2d = pb.Conv2d(n1, n2, kernel=kernel, stride=(1, 2), padding=1, kernel_order
 
 ```python
 n1 = pb.IF(shape=(8, 28), threshold=1)      # Input feature map: (8, 28)
-n2 = pb.IF(shape=(16, 26), threshold=1)     # Output feature map: (16, 26)
-kernel = np.random.randint(-128, 128, size=(16, 8, 3), dtype=np.int8) # OIl
+n2 = pb.IF(shape=(16, 29), threshold=1)     # Output feature map: (16, 29)
+kernel = np.random.randint(-128, 128, size=(16, 8, 3), dtype=np.int8) # OIL
 
 convt1d = pb.ConvTranspose1d(n1, n2, kernel=kernel, stride=1, padding=0, output_padding=1, kernel_order="OIL", name="convt1d_1")
 ```
@@ -270,7 +279,7 @@ convt1d = pb.ConvTranspose1d(n1, n2, kernel=kernel, stride=1, padding=0, output_
 
 ```python
 n1 = pb.IF(shape=(8, 28, 28), threshold=1)      # Input feature map: (8, 28, 28)
-n2 = pb.IF(shape=(16, 26, 26), threshold=1)     # Output feature map: (16, 26, 26)
+n2 = pb.IF(shape=(16, 55, 55), threshold=1)     # Output feature map: (16, 55, 55)
 kernel = np.random.randint(-128, 128, size=(16, 8, 3, 3), dtype=np.int8) # OIHW
 
 convt2d = pb.ConvTranspose2d(n1, n2, kernel=kernel, stride=2, padding=1, output_padding=0, kernel_order="OIHW", name="convt2d_1")
@@ -280,7 +289,7 @@ convt2d = pb.ConvTranspose2d(n1, n2, kernel=kernel, stride=2, padding=1, output_
 
 PAIBox提供了有状态与无状态编码器。其中，有状态编码器是指编码过程与时间有关，将输入数据编码到一段时间窗口内。而无状态编码器是指编码过程与时间无关，每个时间步，都可以根据输入数据进行编码。
 
-⚠️ 请注意，我们只提供较为简单的编码器，以便用户在不依赖外部库的条件下实现基本编码操作；如果需要更复杂的编码，请直接使用它们。
+⚠️ 请注意，我们只提供较为简单的编码器，以便用户在不依赖外部库的条件下实现基本编码操作；如果需要更复杂的编码，请直接使用。
 
 #### 无状态编码器
 
@@ -548,6 +557,8 @@ print(output)
 - 该模块完成运算后的输出效果，则表现为一个具有独立输出能力的“神经元”，其输出接口的设计完全符合神经元的标准形式。这意味着其输出脉冲可作为后继突触的输入。
 - 后端构建时，模块将拆分成一或多个神经元节点与突触。所构建的基础组件尺寸由模块连接的操作数尺寸决定。
 
+功能模块均支持 `delay`，`tick_wait_start`，`tick_wait_end`，`keep_shape` 参数。
+
 ### 逻辑运算
 
 逻辑运算模块实现了 `numpy` 中的位逻辑运算操作（例如 `&` 与 `numpy.bitwise_and` 等），可对接收到的一或多个输出脉冲进行逻辑运算，并产生脉冲输出。PAIBox提供了逻辑与、或、非、异或：`BitwiseAND`，`BitwiseOR`，`BitwiseNOT`，`BitwiseXOR`。以位与为例：
@@ -707,7 +718,7 @@ for i in range(5):
 有时网络中会重复出现类似的结构，这时先构建子网络，再多次例化复用是个不错的选择。
 
 ```python
-froom typing import Optional
+from typing import Optional
 import paibox as pb
 
 class ReusedStructure(pb.Network):
@@ -722,30 +733,28 @@ class ReusedStructure(pb.Network):
 
 class Net(pb.Network):
     def __init__(self, w1, w2):
+        super().__init__()
+
         self.inp1 = pb.InputProj(1, shape_out=(10,))
-        subnet1 = ReusedStructure(w1, tws=1, name="Reused_Struct_0")
-        subnet2 = ReusedStructure(w2, tws=3, name="Reused_Struct_1")
+        self.subnet1 = ReusedStructure(w1, tws=1, name="Reused_Struct_0")
+        self.subnet2 = ReusedStructure(w2, tws=3, name="Reused_Struct_1")
         self.fc1 = pb.FullConn(
             self.inp1,
-            subnet1.pre_n,
+            self.subnet1.pre_n,
             conn_type=pb.SynConnType.One2One,
         )
         self.fc2 = pb.FullConn(
-            subnet1.post_n,
-            subnet2.pre_n,
+            self.subnet1.post_n,
+            self.subnet2.pre_n,
             conn_type=pb.SynConnType.One2One,
         )
-
-        super().__init__(subnet1, subnet2) # Necessary!
 
 w1 = ...
 w2 = ...
 net = Net(w1, w2)
 ```
 
-上述示例代码中，我们先创建需复用的子网络 `ReusedStructure`，其结构为 `pre_n` -> `fc` -> `post_n`。而后，在父网络 `Net` 中实例化两个子网络 `subnet1`、 `subnet2`，并与父网络其他部分连接，此时网络结构为：`inp1` -> `fc1` -> `subnet1` -> `fc22` -> `subnet2`。最后，在为 `pb.Network` 初始化时，传入子网络 `subnet1`、 `subnet2`。由此，父网络 `Net` 才能发现子网络组件。如果想取到 `Net` 内的 `subnet1` 对象，可通过索引其名字 `Net["Reused_Struct_0"]` 取到。
-
-上述示例为一个二级嵌套网络，对于三级嵌套网络或更高（不推荐使用），可参考上述方式构建。
+上述示例代码中，我们先创建需复用的子网络 `ReusedStructure`，其结构为 `pre_n` -> `fc` -> `post_n`。而后，在父网络 `Net` 中实例化两个子网络 `subnet1`、 `subnet2`，并与父网络其他部分连接，此时网络结构为：`inp1` -> `fc1` -> `subnet1` -> `fc22` -> `subnet2`。上述示例为一个二级嵌套网络，对于三级或更高级嵌套网络，可参考上述方式构建。
 
 ## 仿真
 
@@ -842,6 +851,9 @@ mapper.build(fcnet)
 graph_info = mapper.compile(weight_bit_optimization=True, grouping_optim_target="both")
 mapper.export(write_to_file=True, fp="./debug/", format="bin", split_by_coord=False, export_core_params=False)
 
+graph_info.n_core_required
+>>> 999
+
 # Clear all the results
 mapper.clear()
 ```
@@ -865,8 +877,9 @@ mapper.clear()
 - `input`：输入节点信息字典。
 - `output`：输出目的地信息字典。
 - `memebers`：中间层所在物理核的配置项字典。
-- `inherent_timestep`：网络模型的最长时间步。
-- `n_core_required`：网络模型需要的物理核数目。
+- `inherent_timestep`：网络的最长时间步。
+- `n_core_required`：网络**需要**的物理核数目。
+- `n_core_occupied`：网络**实际占用**的物理核数目。
 - `extras`：其他额外的网络信息字典，例如，编译后的网络名称。
 
 ### 后端配置项

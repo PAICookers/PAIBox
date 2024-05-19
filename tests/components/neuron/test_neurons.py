@@ -479,7 +479,6 @@ class TestNeuronSim:
                     shape=(1,),
                     leak_comparison=LCM.LEAK_BEFORE_COMP,
                     leak_v=-(n_window // 2),
-                    neg_threshold=0,
                     tick_wait_start=1,
                 )
                 self.s1 = pb.FullConn(

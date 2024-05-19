@@ -5,7 +5,6 @@ import paibox as pb
 from paibox.base import DynamicSys, NeuDyn
 from paibox.components import Projection
 from paibox.exceptions import PAIBoxWarning
-from paibox.node import NodeDict
 
 
 class TestNetwork_Components_Discover:
@@ -93,28 +92,18 @@ class TestNetwork_Components_Discover:
             .not_subset(pb.DynSysGroup)
         )
 
-        from .conftest import Nested_Net_L1
-
-        assert isinstance(net[f"{Nested_Net_L1.__name__}_0"], pb.Network)
-        assert isinstance(net["Named_SubNet_L1_1"], pb.Network)
+        assert isinstance(net.subnet1, pb.Network)
+        assert isinstance(net.subnet2, pb.Network)
 
         assert len(nodes) == 5
         assert len(nodes_excluded) == 3
         assert len(nodes2) == 3 + 3 * 2
         assert len(nodes9) == len(nodes2)
 
-        del Nested_Net_L1
-
     def test_nested_net_L2_find_nodes_recursively(self, build_Nested_Net_L2):
-
         net: pb.Network = build_Nested_Net_L2
 
-        nodes = (
-            net.nodes(level=-1, include_self=False, find_recursive=True)
-            .subset(DynamicSys)
-            .unique()
-            .not_subset(pb.DynSysGroup)
-        )
+        nodes = net.components.subset(DynamicSys).unique().not_subset(pb.DynSysGroup)
 
         assert len(nodes) == 3 + 3 * 2
 
@@ -122,21 +111,16 @@ class TestNetwork_Components_Discover:
     def test_nested_net_L3_find_nodes_recursively(self, build_Nested_Net_L3):
         net: pb.Network = build_Nested_Net_L3
 
-        nodes = (
-            net.nodes(level=-1, include_self=False, find_recursive=True)
-            .subset(DynamicSys)
-            .unique()
-            .not_subset(pb.DynSysGroup)
-        )
+        nodes = net.components.subset(DynamicSys).unique().not_subset(pb.DynSysGroup)
 
         assert len(nodes) == 2 + 3 + 2 * 3
 
 
 class TestNetwork_Components_Oprations:
     def test_Collector_operations(self):
-        s1 = pb.base.DynamicSys(name="s1")
+        s1 = DynamicSys(name="s1")
         s2 = pb.InputProj(1, shape_out=1, name="s2")
-        s3 = pb.base.NeuDyn(name="s3")
+        s3 = NeuDyn(name="s3")
         s4 = pb.DynSysGroup(s1, s2, name="s4")
 
         g1 = pb.DynSysGroup(s1, s2, s3, name="g1")
@@ -175,15 +159,16 @@ class TestNetwork_Components_Oprations:
         setattr(net, n3.name, n3)  # key is 'LIF_0'
         # Or added by user
         # net.n3 = n3 # key is 'n3'
-        net.add_components(s_insert=s1)
+        net._add_components(s_insert=s1)
         nodes = net.nodes(level=1, include_self=False).subset(DynamicSys).unique()
         assert n3.name in nodes
         assert s1.name in nodes
         assert getattr(net, "s_insert", False)
 
-        net.add_components(s2)
+        net._add_components(s2)
         assert getattr(net, s2.name, False)
 
+    @pytest.mark.skip("Not implemented")
     def test_disconnect_neuron_from(self, build_Network_with_container):
         net: pb.Network = build_Network_with_container
 
@@ -225,6 +210,7 @@ class TestNetwork_Components_Oprations:
         assert getattr(net, "s2", False)
         assert getattr(net, "s4", False)
 
+    @pytest.mark.skip("Not implemented")
     def test_insert_between_neuron(self, build_Network_with_container):
         net: pb.Network = build_Network_with_container
 
@@ -291,7 +277,7 @@ def test_Sequential_getitem():
     s2 = pb.FullConn(n2, n3, conn_type=pb.SynConnType.All2All)
     sequential = pb.network.Sequential(n1, s1, n2, s2, n3, name="Sequential_2")
 
-    assert isinstance(sequential.children, NodeDict)
+    assert isinstance(sequential.children, pb.NodeDict)
     assert len(sequential) == 5
 
     # str

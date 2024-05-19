@@ -4,8 +4,6 @@ from typing import Any, Dict, Optional, Sequence, Type, TypeVar
 
 import numpy as np
 
-import paibox as pb
-
 from .context import _FRONTEND_CONTEXT
 from .exceptions import RegisterError
 from .naming import get_unique_name
@@ -63,6 +61,7 @@ class MixIn:
     pass
 
 
+# XXX this class seems useless
 class Container(MixIn):
     children: NodeDict[str, Any]
 
@@ -72,8 +71,10 @@ class Container(MixIn):
 
         raise KeyError(f"key '{item}' not found.")
 
-    def _get_elem_name(self, elem: object) -> str:
-        if isinstance(elem, pb.base.PAIBoxObject):
+    def _get_elem_name(self, elem: Any) -> str:
+        from .base import PAIBoxObject
+
+        if isinstance(elem, PAIBoxObject):
             return elem._name
         else:
             return get_unique_name("ContainerElem")
