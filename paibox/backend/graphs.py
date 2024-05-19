@@ -146,7 +146,7 @@ class PAIGraph:
         # By default, nodes with out-degree = 0 are considered as output nodes.
         self.onodes = self._raw_nodes.key_on_condition(
             lambda node: self.degree_of_nodes[node].out_degree == 0
-        )
+        )  # type: ignore
 
         for name, node in self._raw_nodes.items():
             self.nodes[name] = NodeAttr(

@@ -1,36 +1,25 @@
-from typing import Any, Iterable, TypeVar
-
-__all__ = ["NodeDict", "NodeList"]
-
+import sys
+from typing import TypeVar
 
 _T = TypeVar("_T")
 _KT = TypeVar("_KT")
 _VT = TypeVar("_VT")
 
 
-class NodeList(list[_T]):
-    def __init__(self, iterable: Iterable[Any] = ()) -> None:
-        super().__init__()
-        self.extend(iterable)
+if sys.version_info >= (3, 9):
+    from collections import UserDict, UserList
 
-    def append(self, elem: _T) -> "NodeList[_T]":
-        super().append(elem)
-        return self
+    class NodeList(UserList[_T]):
+        pass
 
-    def extend(self, iterable: Iterable[_T]) -> "NodeList[_T]":
-        for elem in iterable:
-            self.append(elem)
+    class NodeDict(UserDict[_KT, _VT]):
+        pass
 
-        return self
+else:
+    from typing import Dict, List
 
+    class NodeList(List[_T]):
+        pass
 
-class NodeDict(dict[_KT, _VT]):
-    def __setitem__(self, key: _KT, value: _VT) -> "NodeDict[_KT, _VT]":
-        super().__setitem__(key, value)
-        return self
-
-    def __getitem__(self, key: _KT) -> _VT:
-        if key in self:
-            return super().__getitem__(key)
-
-        raise KeyError(f"key '{key}' not found.")
+    class NodeDict(Dict[_KT, _VT]):
+        pass

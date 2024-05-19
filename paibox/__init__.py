@@ -2,7 +2,6 @@ from importlib.metadata import version
 
 from .backend import BACKEND_CONFIG as BACKEND_CONFIG
 from .backend import Mapper as Mapper
-from .base import *
 from .components.functional import BitwiseAND as BitwiseAND
 from .components.functional import BitwiseNOT as BitwiseNOT
 from .components.functional import BitwiseOR as BitwiseOR

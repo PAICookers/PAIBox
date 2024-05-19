@@ -85,7 +85,10 @@ def as_shape(x, min_dim: int = 0) -> Tuple[int, ...]:
     if is_integer(x):
         _shape = (x,)
     elif is_iterable(x):
-        _shape = tuple(x)
+        if isinstance(x, np.ndarray):
+            _shape = tuple(x.astype(int))
+        else:
+            _shape = tuple(x)
     else:
         raise ValueError(f"{x} cannot be safely converted to a shape.")
 

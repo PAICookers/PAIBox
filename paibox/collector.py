@@ -1,12 +1,23 @@
-from typing import Callable, Dict, Sequence, Type, TypeVar, Union, overload
+from typing import (
+    Callable,
+    Dict,
+    MutableMapping,
+    Sequence,
+    Type,
+    TypeVar,
+    Union,
+    overload,
+)
 
 _T = TypeVar("_T")
 _KT = TypeVar("_KT")
 _VT = TypeVar("_VT")
 
+# XXX: use collections.UserDict[_KT, _VT] in 3.9+
 
-class Collector(dict[_KT, _VT]):
-    def __setitem__(self, key: _KT, value: _VT) -> None:
+
+class Collector(Dict[_KT, _VT]):
+    def __setitem__(self, key, value) -> None:
         if key in self:
             if id(self[key]) != id(value):
                 raise ValueError(
@@ -15,27 +26,22 @@ class Collector(dict[_KT, _VT]):
 
         super().__setitem__(key, value)
 
-    def replace(self, key: _KT, new_value: _VT) -> None:
-        super().pop(key)
-        self.key = new_value
-
     @overload
-    def update(self, other: Dict[_KT, _VT]) -> "Collector[_KT, _VT]": ...
+    def update(self, other: MutableMapping[_KT, _VT]) -> "Collector[_KT, _VT]": ...
 
     @overload
     def update(self, other: Sequence[_T]) -> "Collector[_KT, _T]": ...
 
     def update(
-        self, other: Union[Dict[_KT, _VT], Sequence[_T]]
+        self, other: Union[MutableMapping[_KT, _VT], Sequence[_T]]
     ) -> Union["Collector[_KT, _VT]", "Collector[_KT, _T]"]:
-        if not isinstance(other, (dict, list, tuple)):
+        if not isinstance(other, (MutableMapping, list, tuple)):
             raise TypeError(
-                f"expected a dict, list or sequence, but got {other}, type {type(other)}."
+                f"expected a collector, dict, list or sequence, but got {other}, type {type(other)}."
             )
 
-        if isinstance(other, dict):
-            for k, v in other.items():
-                self[k] = v
+        if isinstance(other, MutableMapping):
+            super().update(other)
         else:
             l = len(self)
             for i, v in enumerate(other):
@@ -44,13 +50,13 @@ class Collector(dict[_KT, _VT]):
         return self
 
     @overload
-    def __add__(self, other: Dict[_KT, _VT]) -> "Collector[_KT, _VT]": ...
+    def __add__(self, other: MutableMapping[_KT, _VT]) -> "Collector[_KT, _VT]": ...
 
     @overload
     def __add__(self, other: Sequence[_T]) -> "Collector[_KT, _T]": ...
 
     def __add__(
-        self, other: Union[Dict[_KT, _VT], Sequence[_T]]
+        self, other: Union[MutableMapping[_KT, _VT], Sequence[_T]]
     ) -> Union["Collector[_KT, _VT]", "Collector[_KT, _T]"]:
         """Merging two dicts.
 
@@ -66,22 +72,22 @@ class Collector(dict[_KT, _VT]):
         return gather
 
     @overload
-    def __sub__(self, other: Dict[_KT, _VT]) -> "Collector[_KT, _VT]": ...
+    def __sub__(self, other: MutableMapping[_KT, _VT]) -> "Collector[_KT, _VT]": ...
 
     @overload
     def __sub__(self, other: Sequence[_T]) -> "Collector[str, _T]": ...
 
     def __sub__(
-        self, other: Union[Dict[_KT, _VT], Sequence[_T]]
+        self, other: Union[MutableMapping[_KT, _VT], Sequence[_T]]
     ) -> Union["Collector[_KT, _VT]", "Collector[str, _T]"]:
-        if not isinstance(other, (dict, list, tuple)):
+        if not isinstance(other, (MutableMapping, list, tuple)):
             raise TypeError(
-                f"expected a dict, list or sequence, but got {other}, type {type(other)}."
+                f"expected a collector, dict, list or sequence, but got {other}, type {type(other)}."
             )
 
         gather = type(self)(self)
 
-        if isinstance(other, dict):
+        if isinstance(other, MutableMapping):
             for k, v in other.items():
                 if k not in gather.keys():
                     raise ValueError(f"cannot find '{k}' in {self.keys()}.")
@@ -163,8 +169,12 @@ class Collector(dict[_KT, _VT]):
 
         return gather
 
-    def key_on_condition(self, condition: Callable[[_KT], bool]) -> "Collector":
+    def key_on_condition(
+        self, condition: Callable[[_KT], bool]
+    ) -> "Collector[_KT, _VT]":
         return type(self)({k: v for k, v in self.items() if condition(k)})
 
-    def val_on_condition(self, condition: Callable[[_VT], bool]) -> "Collector":
+    def val_on_condition(
+        self, condition: Callable[[_VT], bool]
+    ) -> "Collector[_KT, _VT]":
         return type(self)({k: v for k, v in self.items() if condition(v)})

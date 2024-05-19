@@ -143,7 +143,7 @@ class CoreBlock(CoreAbstract):
             )
 
         if (
-            lcn := ((self.n_axon - 1) // self.n_fanin_max).bit_length()
+            lcn := int((self.n_axon - 1) // self.n_fanin_max).bit_length()
         ) > LCN_EX.LCN_64X:
             _max_n_axons = self.n_fanin_max * (1 << LCN_EX.LCN_64X)
             raise ResourceError(

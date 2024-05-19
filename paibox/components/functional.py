@@ -5,10 +5,9 @@ import numpy as np
 from numpy.typing import NDArray
 from paicorelib import LCM, NTM, RM, TM
 
-from paibox.base import NeuDyn
+from paibox.base import NeuDyn, NodeList
 from paibox.exceptions import FunctionalError, PAIBoxWarning, ShapeError
 from paibox.network import DynSysGroup
-from paibox.node import NodeList
 from paibox.types import SpikeType, VoltageType
 from paibox.utils import as_shape, shape2num
 

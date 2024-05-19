@@ -5,7 +5,6 @@ import paibox as pb
 from paibox.base import DynamicSys, NeuDyn
 from paibox.components import Projection
 from paibox.exceptions import PAIBoxWarning
-from paibox.node import NodeDict
 
 
 class TestNetwork_Components_Discover:
@@ -134,9 +133,9 @@ class TestNetwork_Components_Discover:
 
 class TestNetwork_Components_Oprations:
     def test_Collector_operations(self):
-        s1 = pb.base.DynamicSys(name="s1")
+        s1 = DynamicSys(name="s1")
         s2 = pb.InputProj(1, shape_out=1, name="s2")
-        s3 = pb.base.NeuDyn(name="s3")
+        s3 = NeuDyn(name="s3")
         s4 = pb.DynSysGroup(s1, s2, name="s4")
 
         g1 = pb.DynSysGroup(s1, s2, s3, name="g1")
@@ -293,7 +292,7 @@ def test_Sequential_getitem():
     s2 = pb.FullConn(n2, n3, conn_type=pb.SynConnType.All2All)
     sequential = pb.network.Sequential(n1, s1, n2, s2, n3, name="Sequential_2")
 
-    assert isinstance(sequential.children, NodeDict)
+    assert isinstance(sequential.children, pb.NodeDict)
     assert len(sequential) == 5
 
     # str
