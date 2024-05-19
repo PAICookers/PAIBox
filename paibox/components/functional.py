@@ -1,6 +1,7 @@
 import warnings
 from functools import partial
 from typing import Literal, Optional, Sequence, Tuple, Union
+
 import numpy as np
 from numpy.typing import NDArray
 from paicorelib import LCM, NTM, RM, TM

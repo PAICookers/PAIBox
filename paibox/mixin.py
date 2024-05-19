@@ -1,7 +1,8 @@
-import numpy as np
 from copy import deepcopy
 from functools import wraps
 from typing import Any, Dict, Optional, Sequence, Type, TypeVar
+
+import numpy as np
 
 from .context import _FRONTEND_CONTEXT
 from .exceptions import RegisterError

@@ -233,6 +233,7 @@ class TestFunctionalModules:
         self, shape, channels, ksize, stride, fm_order, pool_type, p_binomial
     ):
         from tests.shared_networks import SpikingPool2d_Net
+
         from .utils import avgpool2d_golden, maxpool2d_golden
 
         if fm_order == "CHW":

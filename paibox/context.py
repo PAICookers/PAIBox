@@ -1,6 +1,5 @@
 from typing import Any, Dict, TypeVar
 
-
 __all__ = ["FRONTEND_ENV"]
 
 

@@ -34,7 +34,7 @@ orjson = "^3.10.1" # Optional
 pip install paibox
 ```
 
-添加 `--pre` 或克隆  `dev` 分支以使用开发版
+添加 `--pre` 或克隆 `dev` 分支以使用开发版
 
 ```bash
 git clone -b dev https://github.com/PAICookers/PAIBox.git
@@ -178,6 +178,7 @@ s1= pb.FullConn(source=n1, dest=n2, weights=weight1, conn_type=pb.SynConnType.Al
   ```
 
   其权重以标量的形式储存。
+
 - 数组：尺寸要求为 `(N2,)`，可以自定义每组对应神经元之间的连接权重。如下例所示，设置 `weights` 为 `[1, 2, 3, 4, 5]`，
 
   ```python
@@ -897,6 +898,7 @@ mapper.clear()
    # Multiple chips
    BACKEND_CONFIG.target_chip_addr = [(0, 0), (0, 1), (1, 0)]
    ```
+
 2. 输出芯片地址（测试芯片地址） `output_chip_addr`
 
    ```python
@@ -911,7 +913,9 @@ mapper.clear()
    # or
    BACKEND_CONFIG.test_chip_addr = (2, 0)
    ```
+
    ⚠️ 请确保输出芯片地址不与本地芯片地址重叠。
+
 3. 编译后配置信息等文件输出目录路径 `output_dir`，默认为用户当前工作目录
 
    ```python
@@ -922,6 +926,7 @@ mapper.clear()
    # Modify
    BACKEND_CONFIG.output_dir = "path/to/myoutput"
    ```
+
 4. 编译选项
 
    ```python

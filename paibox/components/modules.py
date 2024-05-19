@@ -1,8 +1,8 @@
 import sys
+import typing
 from collections import deque
 from dataclasses import dataclass, field
 from typing import ClassVar, List, Optional, Sequence, Tuple, Union
-import typing
 
 import numpy as np
 from paicorelib import TM, HwConfig

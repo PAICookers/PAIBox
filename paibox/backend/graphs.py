@@ -18,7 +18,7 @@ from paicorelib import HwConfig
 
 from paibox.base import NeuDyn
 from paibox.collector import Collector
-from paibox.components import NeuModule, FullConnectedSyn, InputProj
+from paibox.components import FullConnectedSyn, InputProj, NeuModule
 from paibox.exceptions import GraphBuildError, GraphConnectionError, NotSupportedError
 from paibox.network import DynSysGroup
 
