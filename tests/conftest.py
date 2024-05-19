@@ -182,9 +182,10 @@ class Nested_Net_L1(pb.DynSysGroup):
         self.pre_n = pb.LIF((10,), 10)
         self.post_n = pb.LIF((10,), 10)
 
-        w = np.random.randint(-128, 127, (10, 10), dtype=np.int8)
         self.syn = pb.FullConn(
-            self.pre_n, self.post_n, conn_type=pb.SynConnType.All2All, weights=w
+            self.pre_n,
+            self.post_n,
+            weights=np.random.randint(-128, 127, (10, 10), dtype=np.int8),
         )
 
 
@@ -192,21 +193,22 @@ class Nested_Net_L2(pb.DynSysGroup):
     """Level 2 nested network: inp1 -> s1 -> Nested_Net_L1 -> s2 -> Nested_Net_L1"""
 
     def __init__(self, name: Optional[str] = None):
+        super().__init__(name=name)
+
         self.inp1 = pb.InputProj(1, shape_out=(10,))
-        subnet1 = Nested_Net_L1()
-        subnet2 = Nested_Net_L1(name="Named_SubNet_L1_1")
+        self.subnet1 = Nested_Net_L1()
+        self.subnet2 = Nested_Net_L1(name="Named_SubNet_L1_1")
         self.s1 = pb.FullConn(
             self.inp1,
-            subnet1.pre_n,
+            self.subnet1.pre_n,
             conn_type=pb.SynConnType.One2One,
         )
         self.s2 = pb.FullConn(
-            subnet1.post_n,
-            subnet2.pre_n,
+            self.subnet1.post_n,
+            self.subnet2.pre_n,
             conn_type=pb.SynConnType.One2One,
         )
 
-        super().__init__(subnet1, subnet2, name=name)
         self.probe1 = pb.Probe(self.inp1, "spike")  # won't be discovered in level 3
 
 
@@ -217,19 +219,19 @@ class Nested_Net_L3(pb.DynSysGroup):
         self.inp1 = pb.InputProj(1, shape_out=(10,))
         subnet1 = Nested_Net_L2(name="Named_Nested_Net_L2")
 
-        subnet1_of_subnet1 = subnet1[f"{Nested_Net_L1.__name__}_0"]
+        self.subnet1_of_subnet1 = subnet1.subnet1
 
         self.s1 = pb.FullConn(
             self.inp1,
-            subnet1_of_subnet1.pre_n,
+            self.subnet1_of_subnet1.pre_n,
             conn_type=pb.SynConnType.One2One,
         )
 
         super().__init__(subnet1)
 
         self.probe1 = pb.Probe(self.inp1, "spike")
-        self.probe2 = pb.Probe(subnet1_of_subnet1.pre_n, "spike")
-        self.probe3 = pb.Probe(subnet1_of_subnet1.pre_n, "voltage")
+        self.probe2 = pb.Probe(self.subnet1_of_subnet1.pre_n, "spike")
+        self.probe3 = pb.Probe(self.subnet1_of_subnet1.pre_n, "voltage")
         self.probe4 = pb.Probe(subnet1.s1, "output")
 
 

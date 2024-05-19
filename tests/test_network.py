@@ -92,28 +92,18 @@ class TestNetwork_Components_Discover:
             .not_subset(pb.DynSysGroup)
         )
 
-        from .conftest import Nested_Net_L1
-
-        assert isinstance(net[f"{Nested_Net_L1.__name__}_0"], pb.Network)
-        assert isinstance(net["Named_SubNet_L1_1"], pb.Network)
+        assert isinstance(net.subnet1, pb.Network)
+        assert isinstance(net.subnet2, pb.Network)
 
         assert len(nodes) == 5
         assert len(nodes_excluded) == 3
         assert len(nodes2) == 3 + 3 * 2
         assert len(nodes9) == len(nodes2)
 
-        del Nested_Net_L1
-
     def test_nested_net_L2_find_nodes_recursively(self, build_Nested_Net_L2):
-
         net: pb.Network = build_Nested_Net_L2
 
-        nodes = (
-            net.nodes(level=-1, include_self=False, find_recursive=True)
-            .subset(DynamicSys)
-            .unique()
-            .not_subset(pb.DynSysGroup)
-        )
+        nodes = net.components.subset(DynamicSys).unique().not_subset(pb.DynSysGroup)
 
         assert len(nodes) == 3 + 3 * 2
 
@@ -121,12 +111,7 @@ class TestNetwork_Components_Discover:
     def test_nested_net_L3_find_nodes_recursively(self, build_Nested_Net_L3):
         net: pb.Network = build_Nested_Net_L3
 
-        nodes = (
-            net.nodes(level=-1, include_self=False, find_recursive=True)
-            .subset(DynamicSys)
-            .unique()
-            .not_subset(pb.DynSysGroup)
-        )
+        nodes = net.components.subset(DynamicSys).unique().not_subset(pb.DynSysGroup)
 
         assert len(nodes) == 2 + 3 + 2 * 3
 
