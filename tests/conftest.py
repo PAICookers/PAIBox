@@ -12,6 +12,7 @@ from paibox.components import Neuron
 from paibox.naming import clear_name_cache
 
 from .shared_networks import *
+from .utils import *
 
 if sys.version_info >= (3, 11):
     from typing import NotRequired
@@ -63,6 +64,18 @@ def clean_name_dict():
     """Clean the global name dictionary after each test automatically."""
     yield
     clear_name_cache(ignore_warn=True)
+
+
+@pytest.fixture
+def perf_fixture(request):
+    with measure_time(f"{request.node.name}"):
+        yield
+
+
+@pytest.fixture
+def random_fixture():
+    with fixed_random_seed(42):
+        yield
 
 
 class ParametrizedTestData(TypedDict):
