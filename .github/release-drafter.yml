@@ -34,4 +34,4 @@ template: |
 
   $CHANGES
 
-  Changelog: https://github.com/PAICookers/PAIBox/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
+  **Full Changelog**: https://github.com/PAICookers/PAIBox/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
