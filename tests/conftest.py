@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 import paibox as pb
+from paibox.base import SynSys
 from paibox.components import Neuron
 from paibox.naming import clear_name_cache
 
@@ -64,6 +65,14 @@ def clean_name_dict():
     """Clean the global name dictionary after each test automatically."""
     yield
     clear_name_cache(ignore_warn=True)
+
+
+@pytest.fixture(autouse=True)
+def backend_context_setdefault():
+    """Set the default backend context after each test automatically."""
+    yield
+    SynSys.CFLAG_ENABLE_WP_OPTIMIZATION = True
+    pb.BACKEND_CONFIG.set_default()
 
 
 @pytest.fixture
