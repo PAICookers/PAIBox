@@ -434,7 +434,7 @@ reference = "tsinghua"
 
 [[package]]
 name = "paicorelib"
-version = "1.1.1"
+version = "1.1.2"
 description = "Library of PAICORE 2.0"
 optional = false
 python-versions = "^3.8"
@@ -449,7 +449,7 @@ pydantic = "^2.0"
 type = "git"
 url = "https://github.com/PAICookers/PAIlib.git"
 reference = "dev"
-resolved_reference = "27f8ffba9ce717fbf43d945805ae2c0199724880"
+resolved_reference = "6caecbc017654a9aba495749cd1efa6f791a69c2"
 
 [[package]]
 name = "pluggy"
@@ -746,4 +746,4 @@ reference = "tsinghua"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.8"
-content-hash = "1f509a9a743d277a9625cd2255835b12ddb47e17842ebf52e1d81b4805192b3e"
+content-hash = "a7752c7014de56276fed6b5b2911582453facdb20604aef44e64bfcf31a8a4e5"
