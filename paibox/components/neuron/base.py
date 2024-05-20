@@ -47,8 +47,8 @@ class MetaNeuron:
         """Stateless attributes. Scalar."""
         # Basic attributes.
         self.keep_shape = keep_shape
-        self._n_neuron = shape2num(shape)
         self._shape = as_shape(shape)
+        self._n_neuron = shape2num(self._shape)
 
         # DO NOT modify the names of the following variables.
         # They will be exported to the parameter verification model.

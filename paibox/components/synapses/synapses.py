@@ -191,8 +191,8 @@ class ConvTranspose1d(ConvTranspose1dSyn):
             kernel,
             _single(stride),
             _single(padding),
-            _single(output_padding),
             _single(1),
+            _single(output_padding),
             kernel_order,
             name,
         )
@@ -241,8 +241,8 @@ class ConvTranspose2d(ConvTranspose2dSyn):
             kernel,
             _pair(stride),
             _pair(padding),
-            _pair(output_padding),
             _pair(1),
+            _pair(output_padding),
             kernel_order,
             name,
         )

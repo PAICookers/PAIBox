@@ -72,6 +72,8 @@ def shape2num(shape: Shape) -> int:
     """Convert a shape to a number"""
     if isinstance(shape, int):
         return shape
+    elif isinstance(shape, np.ndarray):
+        return int(np.prod(shape))
     else:
         a = 1
         for b in shape:
@@ -83,12 +85,9 @@ def shape2num(shape: Shape) -> int:
 def as_shape(x, min_dim: int = 0) -> Tuple[int, ...]:
     """Return a tuple if `x` is iterable or `(x,)` if `x` is integer."""
     if is_integer(x):
-        _shape = (x,)
+        _shape = (int(x),)
     elif is_iterable(x):
-        if isinstance(x, np.ndarray):
-            _shape = tuple(x.astype(int))
-        else:
-            _shape = tuple(x)
+        _shape = tuple(int(e) for e in x)
     else:
         raise ValueError(f"{x} cannot be safely converted to a shape.")
 
