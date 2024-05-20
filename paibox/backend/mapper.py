@@ -502,6 +502,7 @@ class Mapper:
         format: Literal["txt", "bin", "npy"] = "bin",
         split_by_coord: bool = False,
         export_core_params: bool = False,
+        use_hw_sim: bool = True,
     ) -> Dict[Coord, Any]:
         """Generate configuration frames & export to file.
 
@@ -511,15 +512,26 @@ class Mapper:
             - format: `txt`, `bin`, or `npy`. `bin` is recommended.
             - split_by_coord: whether to split the generated frames file by the core coordinates.
             - export_core_params: whether to export the parameters of occupied cores.
+            - use_hw_sim: whether to use hardware simulator. If use, '.txt' will be exported.
 
         Return: a dictionary of configurations.
         """
         if format not in ("bin", "npy", "txt"):
             raise ValueError(f"format {format} is not supported.")
 
+        formats = [format]
+        if use_hw_sim:
+            formats.append("txt")
+
+        formats = list(set(formats))
+
         _fp = _fp_check(fp)
         config_dict = gen_config_frames_by_coreconf(
-            self.graph_info["members"], write_to_file, _fp, split_by_coord, format
+            self.graph_info["members"],
+            write_to_file,
+            _fp,
+            split_by_coord,
+            formats,
         )
 
         if export_core_params:
