@@ -20,8 +20,7 @@ from .transforms import (
     ConvTranspose1dForward,
     ConvTranspose2dForward,
 )
-from .transforms import GeneralConnType as GConnType
-from .transforms import Identity, MaskedLinear, OneToOne, Transform
+from .transforms import ConnType, Identity, MaskedLinear, OneToOne, Transform
 
 RIGISTER_MASTER_KEY_FORMAT = "{0}.output"
 
@@ -176,29 +175,35 @@ class FullConnSyn(FullConnectedSyn):
         source: Union[NeuDyn, InputProj],
         dest: NeuDyn,
         weights: DataArrayType,
-        conn_type: GConnType,
+        conn_type: ConnType,
         name: Optional[str] = None,
     ) -> None:
         super().__init__(source, dest, name)
 
-        if conn_type is GConnType.One2One:
+        if conn_type is ConnType.One2One:
             comm = OneToOne(_check_equal(self.num_in, self.num_out), weights)
-        elif conn_type is GConnType.Identity:
+        elif conn_type is ConnType.Identity:
             if not isinstance(weights, (int, np.bool_, np.integer)):
                 raise TypeError(
                     f"expected type int, np.bool_, np.integer, but got type {type(weights)}."
                 )
             comm = Identity(_check_equal(self.num_in, self.num_out), weights)
-        elif conn_type is GConnType.All2All:
+        elif conn_type is ConnType.All2All:
             comm = AllToAll((self.num_in, self.num_out), weights)
         else:  # MatConn
             if not isinstance(weights, np.ndarray):
                 raise TypeError(
                     f"expected type np.ndarray, but got type {type(weights)}."
                 )
-            comm = MaskedLinear((self.num_in, self.num_out), weights)
+            if len(self.shape_in) > 2:
+                raise ShapeError(
+                    f"Expect the shape of source to have no more than 2 dimensions, "
+                    f"but got {len(self.shape_in)}."
+                )
 
-        self._set_comm(comm)
+            comm = MaskedLinear(self.shape_in, self.shape_out, weights)
+
+        self.comm = comm
 
 
 class Conv1dSyn(FullConnectedSyn):

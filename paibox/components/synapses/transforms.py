@@ -1,15 +1,15 @@
 import warnings
 from enum import Enum, auto, unique
-from typing import Literal
+from typing import Literal, Tuple
 
 import numpy as np
 from paicorelib import WeightPrecision as WP
 
 from paibox.exceptions import AutoOptimizationWarning, ShapeError
 from paibox.types import DataArrayType, IntScalarType, SpikeType, SynOutType, WeightType
-from paibox.utils import is_shape
+from paibox.utils import is_shape, shape2num
 
-from .conv_types import Size1Type, Size2Type
+from .conv_types import Size1Type, Size2Type, SizeAnyType
 from .conv_utils import (
     _conv1d_faster,
     _conv1d_unroll,
@@ -44,14 +44,8 @@ MAX_INT8 = np.iinfo(np.int8).max
 MIN_INT8 = np.iinfo(np.int8).min
 
 
-class ConnType(Enum):
-    """Basic connection enum type."""
-
-    pass
-
-
 @unique
-class GeneralConnType(ConnType):
+class ConnType(Enum):
     MatConn = auto()
     """General matrix connection."""
 
@@ -266,19 +260,65 @@ class AllToAll(Transform):
 
 
 class MaskedLinear(Transform):
-    def __init__(self, conn_size: Size2Type, weights: np.ndarray) -> None:
-        if not is_shape(weights, conn_size):
-            raise ShapeError(f"expected shape is {conn_size}, but got {weights.shape}.")
+    def __init__(
+        self, in_shape: SizeAnyType, out_shape: SizeAnyType, weights: np.ndarray
+    ) -> None:
+        self.in_shape = (1,) * (2 - len(in_shape)) + in_shape
+        self.out_shape = (1,) * (2 - len(out_shape)) + out_shape
+
+        if self.in_shape[0] == weights.shape[0]:
+            self.axes = (1, 0)
+        elif self.in_shape[1] == weights.shape[0]:
+            self.axes = (0, 1)
+        else:
+            raise ShapeError(
+                f"cannot do matmul between shape {in_shape} & {weights.shape}."
+            )
+
+        _in_shape = tuple(self.in_shape[i] for i in self.axes)
+
+        if (expected_oshape := _in_shape[:-1] + weights.shape[1:]) != self.out_shape:
+            raise ShapeError(
+                f"wrong output shape, expected {expected_oshape}, but got {self.out_shape}."
+            )
 
         super().__init__(weights)
 
     def __call__(self, x: SpikeType, *args, **kwargs) -> SynOutType:
-        # (N,) @ (N, M) -> (M,)
-        return x @ self.weights.astype(np.int32)
+        # (n?, k) @ (k, m?) -> (n?, m?)
+        _x = x.reshape(self.in_shape).transpose(self.axes)
+
+        return _x @ self.weights.astype(np.int32)
+
+    @staticmethod
+    def _matmul_unroll(
+        in_shape: SizeAnyType,
+        out_shape: SizeAnyType,
+        weights: WeightType,
+        axes: Tuple[int, ...],
+    ) -> WeightType:
+        n_ishape = shape2num(in_shape)
+        n_oshape = shape2num(out_shape)
+        in_shape_t = tuple(in_shape[i] for i in axes)
+
+        w_unrolled = np.zeros((n_ishape, n_oshape), dtype=weights.dtype)
+
+        orig_idx = np.arange(n_ishape).reshape(in_shape_t)
+        mapping_tbl = orig_idx.transpose(np.argsort(axes)).ravel()
+
+        for i in range(in_shape_t[0]):
+            w_unrolled[
+                i * weights.shape[0] : (i + 1) * weights.shape[0],
+                i * weights.shape[1] : (i + 1) * weights.shape[1],
+            ] = weights
+
+        return w_unrolled[mapping_tbl]
 
     @property
     def connectivity(self):
-        return self.weights
+        return self._matmul_unroll(
+            self.in_shape, self.out_shape, self.weights, self.axes
+        )
 
 
 class Conv1dForward(Transform):

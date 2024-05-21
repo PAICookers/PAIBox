@@ -18,14 +18,21 @@ from .base import (
 )
 from .conv_types import _KOrder3d, _KOrder4d, _Size1Type, _Size2Type
 from .conv_utils import _pair, _single
-from .transforms import GeneralConnType as GConnType
+from .transforms import ConnType
 
 if sys.version_info >= (3, 13):
     from warnings import deprecated
 else:
     from typing_extensions import deprecated
 
-__all__ = ["FullConn", "Conv1d", "Conv2d", "ConvTranspose1d", "ConvTranspose2d"]
+__all__ = [
+    "FullConn",
+    "MatMul2d",
+    "Conv1d",
+    "Conv2d",
+    "ConvTranspose1d",
+    "ConvTranspose2d",
+]
 
 
 class FullConn(FullConnSyn):
@@ -35,7 +42,7 @@ class FullConn(FullConnSyn):
         dest: NeuDyn,
         weights: DataArrayType = 1,
         *,
-        conn_type: GConnType = GConnType.MatConn,
+        conn_type: ConnType = ConnType.All2All,
         name: Optional[str] = None,
     ) -> None:
         """Full-connected synapses.
@@ -47,24 +54,43 @@ class FullConn(FullConnSyn):
             - conn_type: the type of connection.
             - name: name of the full-connected synapses. Optional.
         """
-        super().__init__(source, dest, weights, conn_type, name)
+        super().__init__(source, dest, weights, conn_type, name=name)
 
 
 @deprecated(
     "'NoDecay' will be removed in a future version. Use 'FullConn' instead.",
     category=PAIBoxDeprecationWarning,
 )
-class NoDecay(FullConn):
+class NoDecay(FullConnSyn):
     def __init__(
         self,
         source: Union[NeuDyn, InputProj],
         dest: NeuDyn,
         weights: DataArrayType = 1,
         *,
-        conn_type: GConnType = GConnType.MatConn,
+        conn_type: ConnType = ConnType.All2All,
         name: Optional[str] = None,
     ) -> None:
-        super().__init__(source, dest, weights, conn_type=conn_type, name=name)
+        super().__init__(source, dest, weights, conn_type, name=name)
+
+
+class MatMul2d(FullConnSyn):
+    def __init__(
+        self,
+        source: Union[NeuDyn, InputProj],
+        dest: NeuDyn,
+        weights: np.ndarray,
+        name: Optional[str] = None,
+    ) -> None:
+        """MatMul2d synapses.
+
+        Args:
+            - source: source neuron.
+            - dest: destination neuron.
+            - weights: weights of the synapses.
+            - name: name of the matmul2d. Optional.
+        """
+        super().__init__(source, dest, weights, ConnType.MatConn, name)
 
 
 class Conv1d(Conv1dSyn):
