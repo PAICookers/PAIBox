@@ -1,7 +1,8 @@
-from contextlib import contextmanager
 import time
-import numpy as np
+from contextlib import contextmanager
 from typing import Any, Generator, Optional
+
+import numpy as np
 
 
 @contextmanager

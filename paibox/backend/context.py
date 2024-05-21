@@ -86,7 +86,7 @@ class _BackendContext(_Context):
     def cflags(self) -> Dict[str, Any]:
         """Compilation options."""
         return self["cflags"]
-    
+
     def set_default(self) -> None:
         self.clear_all()
         self.update(self._default)

@@ -1,4 +1,5 @@
 import pytest
+
 import paibox as pb
 from paibox.base import PAIBoxObject
 from paibox.exceptions import RegisterError
