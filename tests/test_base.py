@@ -1,6 +1,7 @@
 import pytest
 
 import paibox as pb
+from paibox.base import PAIBoxObject
 from paibox.exceptions import RegisterError
 
 
@@ -9,9 +10,9 @@ def test_paibox_version():
 
 
 def test_paiboxobject_eq():
-    obj1 = pb.base.PAIBoxObject(name="obj1")
-    obj2 = pb.base.PAIBoxObject(name="obj2")
-    obj3 = pb.base.PAIBoxObject()
+    obj1 = PAIBoxObject(name="obj1")
+    obj2 = PAIBoxObject(name="obj2")
+    obj3 = PAIBoxObject()
 
     # eq
     assert obj1 != obj2
@@ -26,7 +27,7 @@ def test_paiboxobject_eq():
 
 
 def test_paiboxobject_nodes():
-    obj1 = pb.base.PAIBoxObject(name="obj111")
+    obj1 = PAIBoxObject(name="obj111")
 
     nodes1 = obj1.nodes(method="absolute", level=1, include_self=True)
     assert nodes1["obj111"] == obj1

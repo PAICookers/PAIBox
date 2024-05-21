@@ -1,11 +1,12 @@
 import pytest
 
 import paibox as pb
+from paibox.base import PAIBoxObject
 from paibox.exceptions import PAIBoxWarning
 
 
 def test_probe_instanece():
-    pbobj = pb.base.PAIBoxObject()
+    pbobj = PAIBoxObject()
     pb1 = pb.Probe(pbobj, "name", name="pb1")
     pb2 = pb.Probe(pbobj, "name", name="pb2")
 

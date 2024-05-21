@@ -16,7 +16,7 @@ import numpy as np
 from numpy.typing import NDArray
 from typing_extensions import TypeAlias
 
-Shape = TypeVar("Shape", int, Tuple[int, ...], List[int])
+Shape = TypeVar("Shape", int, Tuple[int, ...], List[int], np.ndarray)
 ArrayType = TypeVar("ArrayType", List[int], Tuple[int, ...], np.ndarray)
 Scalar = TypeVar("Scalar", int, float, np.generic)
 IntScalarType = TypeVar("IntScalarType", int, np.bool_, np.integer)

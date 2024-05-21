@@ -1,6 +1,6 @@
 from enum import Enum
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Literal, NamedTuple, TypedDict
+from typing import Any, ClassVar, Dict, List, NamedTuple, TypedDict
 
 import numpy as np
 from numpy.typing import NDArray
@@ -335,7 +335,7 @@ def gen_config_frames_by_coreconf(
     write_to_file: bool,
     fp: Path,
     split_by_coord: bool,
-    format: Literal["txt", "bin", "npy"],
+    formats: List[str],
 ) -> Dict[Coord, FrameArrayType]:
     """Generate configuration frames by given the `CorePlmConfig`.
 
@@ -344,17 +344,18 @@ def gen_config_frames_by_coreconf(
         - write_to_file: whether to write frames to file.
         - fp: If `write_to_file` is `True`, specify the path.
         - split_by_coord: whether to split the generated frames file by the core coordinates.
-        - format: `txt`, `bin`, or `npy`.
+        - format: a list of formats to export.
     """
 
     def _write_to_f(name: str, array: FrameArrayType) -> None:
-        _fp = fp / (name + f".{format}")
-        if format == "npy":
-            np2npy(_fp, array)
-        elif format == "bin":
-            np2bin(_fp, array)
-        else:
-            np2txt(_fp, array)
+        for format in formats:
+            _fp = fp / (name + f".{format}")
+            if format == "npy":
+                np2npy(_fp, array)
+            elif format == "bin":
+                np2bin(_fp, array)
+            else:
+                np2txt(_fp, array)
 
     _default_rid = RId(0, 0)
     _debug_dict: Dict[Coord, Dict[str, Any]] = dict()
@@ -443,10 +444,10 @@ def gen_config_frames_by_coreconf(
                 addr = core_coord.address
                 _write_to_f(f"config_core{addr}", f)
         else:
-            _f = np.concatenate(
+            f = np.concatenate(
                 list(frame_arrays_on_core.values()), dtype=FRAME_DTYPE, casting="no"
             )
-            _write_to_f(f"config_cores_all", _f)
+            _write_to_f(f"config_cores_all", f)
 
     return frame_arrays_on_core
 

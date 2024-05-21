@@ -18,7 +18,7 @@ DEFAULT_OUTPUT_CONF_JSON = "output_dest_info.json"
 
 
 class _BackendContext(_Context):
-    _DefaultContext = {
+    _default = {
         "output_chip_addr": DEFAULT_OUTPUT_CHIP_ADDR,  # RO mostly
         "target_chip_addr": DEFAULT_LOCAL_CHIP_ADDR,  # RO mostly
         "build_directory": Path.cwd(),  # R/W
@@ -31,7 +31,7 @@ class _BackendContext(_Context):
 
     def __init__(self) -> None:
         super().__init__()
-        self.update(self._DefaultContext)
+        self.update(self._default)
 
     @property
     def target_chip_addr(self) -> List[ChipCoord]:
@@ -86,6 +86,10 @@ class _BackendContext(_Context):
     def cflags(self) -> Dict[str, Any]:
         """Compilation options."""
         return self["cflags"]
+
+    def set_default(self) -> None:
+        self.clear_all()
+        self.update(self._default)
 
 
 _BACKEND_CONTEXT = _BackendContext()
