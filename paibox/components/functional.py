@@ -23,8 +23,7 @@ from .neuron import Neuron
 from .neuron.neurons import *
 from .neuron.utils import VJT_MIN_LIMIT, _is_vjt_overflow
 from .projection import InputProj
-from .synapses import FullConnSyn
-from .synapses import GeneralConnType as GConnType
+from .synapses import ConnType, FullConnSyn
 from .synapses.conv_types import _Size2Type
 from .synapses.conv_utils import _fm_ndim2_check, _pair
 from .synapses.transforms import _Pool2dForward
@@ -46,7 +45,7 @@ __all__ = [
 
 _L_SADD = 1  # Literal value for spiking addition.
 _L_SSUB = -1  # Literal value for spiking subtraction.
-VJT_OVERFLOW_ERROR_TEXT = "Membrane potential overflow causes spiking addition errors."
+VJT_OVERFLOW_ERROR_TEXT = "Membrane potential overflow causes spiking addition or subtraction errors."
 
 
 class BitwiseAND(FunctionalModule2to1):
@@ -101,14 +100,14 @@ class BitwiseAND(FunctionalModule2to1):
             self.module_intf.operands[0],
             n1_and,
             1,
-            conn_type=GConnType.One2One,
+            conn_type=ConnType.One2One,
             name=f"s0_{self.name}",
         )
         syn2 = FullConnSyn(
             self.module_intf.operands[1],
             n1_and,
             1,
-            conn_type=GConnType.One2One,
+            conn_type=ConnType.One2One,
             name=f"s1_{self.name}",
         )
 
@@ -175,7 +174,7 @@ class BitwiseNOT(FunctionalModule):
             self.module_intf.operands[0],
             n1_not,
             weights=-1,
-            conn_type=GConnType.One2One,
+            conn_type=ConnType.One2One,
             name=f"s0_{self.name}",
         )
 
@@ -229,14 +228,14 @@ class BitwiseOR(FunctionalModule2to1):
             self.module_intf.operands[0],
             n1_or,
             1,
-            conn_type=GConnType.One2One,
+            conn_type=ConnType.One2One,
             name=f"s0_{self.name}",
         )
         syn2 = FullConnSyn(
             self.module_intf.operands[1],
             n1_or,
             1,
-            conn_type=GConnType.One2One,
+            conn_type=ConnType.One2One,
             name=f"s1_{self.name}",
         )
 
@@ -296,7 +295,7 @@ class BitwiseXOR(FunctionalModule2to1):
             self.module_intf.operands[0],
             n1_aux,
             weights=np.hstack([-1 * identity, identity], casting="safe", dtype=np.int8),
-            conn_type=GConnType.MatConn,
+            conn_type=ConnType.All2All,
             name=f"s0_{self.name}",
         )
         # weight of syn2, (1*(N,), -1*(N,))
@@ -304,7 +303,7 @@ class BitwiseXOR(FunctionalModule2to1):
             self.module_intf.operands[1],
             n1_aux,
             weights=np.hstack([identity, -1 * identity], casting="safe", dtype=np.int8),
-            conn_type=GConnType.MatConn,
+            conn_type=ConnType.All2All,
             name=f"s1_{self.name}",
         )
 
@@ -323,7 +322,7 @@ class BitwiseXOR(FunctionalModule2to1):
             n1_aux,
             n2_xor,
             weights=np.vstack([identity, -1 * identity], casting="safe", dtype=np.int8),
-            conn_type=GConnType.MatConn,
+            conn_type=ConnType.All2All,
             name=f"s2_{self.name}",
         )
 
@@ -408,7 +407,7 @@ class DelayChain(FunctionalModule):
             self.module_intf.operands[0],
             n_delaychain[0],
             1,
-            conn_type=GConnType.One2One,
+            conn_type=ConnType.One2One,
             name=f"s0_{self.name}",
         )
 
@@ -417,7 +416,7 @@ class DelayChain(FunctionalModule):
                 n_delaychain[i],
                 n_delaychain[i + 1],
                 1,
-                conn_type=GConnType.One2One,
+                conn_type=ConnType.One2One,
                 name=f"s{i+1}_{self.name}",
             )
 
@@ -487,14 +486,14 @@ class SpikingAdd(FunctionalModule2to1WithV):
             self.module_intf.operands[0],
             n1_sadd,
             1,
-            conn_type=GConnType.One2One,
+            conn_type=ConnType.One2One,
             name=f"s0_{self.name}",
         )
         syn2 = FullConnSyn(
             self.module_intf.operands[1],
             n1_sadd,
             1,
-            conn_type=GConnType.One2One,
+            conn_type=ConnType.One2One,
             name=f"s1_{self.name}",
         )
 
@@ -595,7 +594,7 @@ class _SpikingPool2d(FunctionalModule):
             self.module_intf.operands[0],
             n1_mp,
             weights=self.tfm.connectivity.astype(np.bool_),
-            conn_type=GConnType.MatConn,
+            conn_type=ConnType.All2All,
             name=f"s0_{self.name}",
         )
 
@@ -721,14 +720,14 @@ class SpikingSub(FunctionalModule2to1WithV):
             self.module_intf.operands[0],
             n1_ssub,
             1,
-            conn_type=GConnType.One2One,
+            conn_type=ConnType.One2One,
             name=f"s0_{self.name}",
         )
         syn2 = FullConnSyn(
             self.module_intf.operands[1],
             n1_ssub,
             weights=-1,
-            conn_type=GConnType.One2One,
+            conn_type=ConnType.One2One,
             name=f"s1_{self.name}",
         )
 
@@ -787,7 +786,7 @@ class Transpose2d(TransposeModule):
             self.module_intf.operands[0],
             n1_t2d,
             weights=_transpose2d_mapping(self.shape_in),
-            conn_type=GConnType.MatConn,
+            conn_type=ConnType.All2All,
             name=f"s0_{self.name}",
         )
 
@@ -851,7 +850,7 @@ class Transpose3d(TransposeModule):
             self.module_intf.operands[0],
             n1_t3d,
             weights=_transpose3d_mapping(self.shape_in, self.axes),
-            conn_type=GConnType.MatConn,
+            conn_type=ConnType.All2All,
             name=f"s0_{self.name}",
         )
 

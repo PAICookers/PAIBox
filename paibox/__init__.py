@@ -20,12 +20,13 @@ from .components.neuron.neurons import PhasicSpiking as PhasicSpiking
 from .components.neuron.neurons import SpikingRelu as SpikingRelu
 from .components.neuron.neurons import TonicSpiking as TonicSpiking
 from .components.projection import InputProj as InputProj
-from .components.synapses import GeneralConnType as SynConnType
+from .components.synapses import ConnType as SynConnType
 from .components.synapses.synapses import Conv1d as Conv1d
 from .components.synapses.synapses import Conv2d as Conv2d
 from .components.synapses.synapses import ConvTranspose1d as ConvTranspose1d
 from .components.synapses.synapses import ConvTranspose2d as ConvTranspose2d
 from .components.synapses.synapses import FullConn as FullConn
+from .components.synapses.synapses import MatMul2d as MatMul2d
 from .components.synapses.synapses import NoDecay as NoDecay
 from .context import FRONTEND_ENV as FRONTEND_ENV
 from .network import DynSysGroup as DynSysGroup
