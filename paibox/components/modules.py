@@ -7,7 +7,7 @@ from typing import ClassVar, List, Optional, Sequence, Tuple, Union
 import numpy as np
 from paicorelib import TM, HwConfig
 
-from paibox.base import NeuDyn, SynSys
+from paibox.base import NeuDyn
 from paibox.exceptions import NotSupportedError, RegisterError, ShapeError
 from paibox.types import SpikeType, VoltageType
 from paibox.utils import check_elem_unique, shape2num
@@ -20,12 +20,13 @@ else:
     from typing_extensions import TypeAlias
 
 if typing.TYPE_CHECKING:
+    from .synapses import FullConnectedSyn
     from paibox.network import DynSysGroup
 
 __all__ = ["BuildingModule"]
 
 MultiInputsType: TypeAlias = List[SpikeType]  # Type of inputs of `NeuModule`.
-BuiltComponentType: TypeAlias = List[Union[SynSys, NeuDyn]]
+BuiltComponentType: TypeAlias = List[Union["FullConnectedSyn", NeuDyn]]
 
 
 @dataclass
@@ -36,7 +37,7 @@ class ModuleIntf:
 
     operands: List[Union[NeuDyn, InputProj]] = field(default_factory=list)
     """TODO can operands be a `NeuModule`?"""
-    output: List[SynSys] = field(default_factory=list)
+    output: List["FullConnectedSyn"] = field(default_factory=list)
     """A list of synapses."""
 
     @property
@@ -63,11 +64,11 @@ class BuildingModule:
         """Remove a operand from the interface."""
         self.module_intf.operands.remove(op)
 
-    def register_output(self, syn: SynSys) -> None:
+    def register_output(self, syn: "FullConnectedSyn") -> None:
         """Register the output synapses."""
         self.module_intf.output.append(syn)
 
-    def unregister_output(self, syn: SynSys) -> None:
+    def unregister_output(self, syn: "FullConnectedSyn") -> None:
         """Remove an output synapses."""
         self.module_intf.output.remove(syn)
 

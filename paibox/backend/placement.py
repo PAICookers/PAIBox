@@ -26,7 +26,8 @@ from paicorelib import (
 )
 from paicorelib import WeightPrecision as WP
 
-from paibox.base import NeuDyn, PAIBoxObject, SynSys
+from paibox.base import NeuDyn, PAIBoxObject
+from paibox.components import FullConnectedSyn
 from paibox.exceptions import GraphBuildError, ResourceError, TruncationWarning
 from paibox.types import WeightType
 from paibox.utils import check_attr_same, count_unique_elem
@@ -57,7 +58,11 @@ class CoreBlock(CoreAbstract):
     RUNTIME_MODE: ClassVar[CoreMode] = CoreMode.MODE_SNN
 
     def __init__(
-        self, *parents: SynSys, routing_id: int, seed: int, name: Optional[str] = None
+        self,
+        *parents: FullConnectedSyn,
+        routing_id: int,
+        seed: int,
+        name: Optional[str] = None,
     ) -> None:
         """Core blocks in SNN mode.
 
@@ -125,7 +130,9 @@ class CoreBlock(CoreAbstract):
             # assert self.get_raw_weight_of_coord(i)[0].shape[0] == self.n_axon
             self.core_placements[coord] = CorePlacement.build(self, i)
 
-    def _get_syn_of(self, src: SourceNodeType, dest: DestNodeType) -> Optional[SynSys]:
+    def _get_syn_of(
+        self, src: SourceNodeType, dest: DestNodeType
+    ) -> Optional[FullConnectedSyn]:
         for syn in self.obj:
             if syn.source == src and syn.dest == dest:
                 return syn
@@ -160,7 +167,7 @@ class CoreBlock(CoreAbstract):
     """Interfaces"""
 
     @property
-    def obj(self) -> Tuple[SynSys, ...]:
+    def obj(self) -> Tuple[FullConnectedSyn, ...]:
         return self._parents
 
     @property
@@ -357,7 +364,7 @@ class CoreBlock(CoreAbstract):
         return ", ".join(n.name for n in self.obj)
 
     @classmethod
-    def build(cls, *synapses: SynSys, routing_id: int, seed: int = 0):
+    def build(cls, *synapses: FullConnectedSyn, routing_id: int, seed: int = 0):
         """Group synapses & build `CoreBlock`."""
         # FIXME where does the parameter check do?
         if seed > (1 << 64) - 1:

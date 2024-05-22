@@ -34,93 +34,26 @@ def _check_equal(num_in: int, num_out: int) -> int:
     return num_in
 
 
-class Synapses:
-    def __init__(
-        self,
-        source: Union[NeuDyn, InputProj],
-        dest: NeuDyn,
-        subclass_syn_name: str,
-    ) -> None:
-        self._source = source
-        self._target = dest
-        self._child_syn_name = subclass_syn_name
-        """The name of subclass `FullConnectedSyn`."""
-
-    @property
-    def source(self) -> Union[NeuDyn, InputProj]:
-        return self._source
-
-    @source.setter
-    def source(self, source: Union[NeuDyn, InputProj]) -> None:
-        """Set a new source neuron."""
-        if source.num_out != self.num_in:
-            raise RegisterError(
-                f"the number of source neurons before and after the change"
-                f"is not equal: {source.num_out} != {self.num_in}."
-            )
-
-        self._source = source
-
-    @property
-    def dest(self) -> NeuDyn:
-        return self._target
-
-    @dest.setter
-    def dest(self, dest: NeuDyn) -> None:
-        """Set a new destination neuron."""
-        if dest.num_in != self.num_out:
-            raise RegisterError(
-                f"the number of source neurons before and after the change"
-                f"is not equal: {dest.num_in} != {self.num_out}."
-            )
-
-        self._target = dest
-        # FIXME Because the modification of the synapse destination neuron occurs in the backend,
-        # there's no need to register new dest again because simulation will not be done again (maybe).
-        # But does it mean that we need to make a copy of the original network and then pass it to
-        # the backend?
-        dest.register_master(
-            RIGISTER_MASTER_KEY_FORMAT.format(self._child_syn_name), self
-        )
-
-    @property
-    def target(self) -> NeuDyn:
-        return self._target
-
-    @property
-    def shape_in(self) -> Tuple[int, ...]:
-        return self._source.shape_out
-
-    @property
-    def shape_out(self) -> Tuple[int, ...]:
-        return self._target.shape_in
-
-    @property
-    def num_in(self) -> int:
-        return self._source.num_out
-
-    @property
-    def num_out(self) -> int:
-        return self._target.num_in
-
-
-class FullConnectedSyn(Synapses, SynSys):
-
+class FullConnectedSyn(SynSys):
     comm: Transform
+    _n_copied: int = 0
+    """Counter of copies."""
 
     def __init__(
         self,
         source: Union[NeuDyn, InputProj],
-        dest: NeuDyn,
+        target: NeuDyn,
         name: Optional[str] = None,
     ) -> None:
-        super(Synapses, self).__init__(name)
-        super().__init__(source, dest, self.name)
+        super().__init__(name)
+
+        self._source = source
+        self._target = target
 
         self.set_memory("_synout", np.zeros((self.num_out,), dtype=np.int32))
 
-        # Register itself with the master nodes of destination.
-        dest.register_master(RIGISTER_MASTER_KEY_FORMAT.format(self.name), self)
+        # Register itself with the master nodes of target.
+        target.register_master(RIGISTER_MASTER_KEY_FORMAT.format(self.name), self)
 
         # If the source is `BuildingModule`, register itself with its module interface.
         if isinstance(source, BuildingModule):
@@ -148,8 +81,92 @@ class FullConnectedSyn(Synapses, SynSys):
         # TODO Add other initialization methods in the future.
         self.reset_memory()  # Call reset of `StatusMemory`.
 
-    def _set_comm(self, comm: Transform) -> None:
-        self.comm = comm
+    def __copy__(self) -> "FullConnSyn":
+        return self.__deepcopy__()
+
+    def __deepcopy__(self, memo=None, _nil=[]) -> "FullConnSyn":
+        self._n_copied += 1
+
+        return FullConnSyn(
+            self.source,
+            self.dest,
+            self.weights,
+            ConnType.All2All,
+            f"{self.name}_copied_{self._n_copied}",
+        )
+
+    def copy(
+        self,
+        source: Optional[Union[NeuDyn, InputProj]] = None,
+        target: Optional[NeuDyn] = None,
+    ) -> "FullConnSyn":
+        copied = self.__copy__()
+        if isinstance(source, (NeuDyn, InputProj)):
+            copied.source = source
+
+        if isinstance(target, NeuDyn):
+            copied.target = target
+
+        return copied
+
+    @property
+    def source(self) -> Union[NeuDyn, InputProj]:
+        return self._source
+
+    @source.setter
+    def source(self, source: Union[NeuDyn, InputProj]) -> None:
+        """Set a new source neuron."""
+        if source.num_out != self.num_in:
+            raise RegisterError(
+                f"the number of source neurons before and after the change "
+                f"is not equal, {source.num_out} != {self.num_in}."
+            )
+
+        self._source = source
+
+    @property
+    def target(self) -> NeuDyn:
+        return self._target
+
+    @target.setter
+    def target(self, target: NeuDyn) -> None:
+        """Set a new target neuron."""
+        if target.num_in != self.num_out:
+            raise RegisterError(
+                f"the number of source neurons before and after the change "
+                f"is not equal, {target.num_in} != {self.num_out}."
+            )
+
+        self._target.unregister_master(self.name)
+
+        self._target = target
+        target.register_master(RIGISTER_MASTER_KEY_FORMAT.format(self.name), self)
+
+    @property
+    def dest(self) -> NeuDyn:
+        # TODO To maintain compatibility, the dest attribute is preserved.
+        # Will be removed in a future version.
+        return self._target
+
+    @dest.setter
+    def dest(self, target: NeuDyn) -> None:
+        self.target = target
+
+    @property
+    def shape_in(self) -> Tuple[int, ...]:
+        return self._source.shape_out
+
+    @property
+    def shape_out(self) -> Tuple[int, ...]:
+        return self._target.shape_in
+
+    @property
+    def num_in(self) -> int:
+        return self._source.num_out
+
+    @property
+    def num_out(self) -> int:
+        return self._target.num_in
 
     @property
     def output(self) -> SynOutType:
@@ -173,12 +190,12 @@ class FullConnSyn(FullConnectedSyn):
     def __init__(
         self,
         source: Union[NeuDyn, InputProj],
-        dest: NeuDyn,
+        target: NeuDyn,
         weights: DataArrayType,
         conn_type: ConnType,
         name: Optional[str] = None,
     ) -> None:
-        super().__init__(source, dest, name)
+        super().__init__(source, target, name)
 
         if conn_type is ConnType.One2One:
             comm = OneToOne(_check_equal(self.num_in, self.num_out), weights)
@@ -246,9 +263,7 @@ class Conv1dSyn(FullConnectedSyn):
         if (_output_size := out_channels * out_l) != dest.num_in:
             raise ShapeError(f"Output size mismatch: {_output_size} != {dest.num_in}.")
 
-        comm = Conv1dForward((in_l,), (out_l,), _kernel, stride, padding)
-
-        self._set_comm(comm)
+        self.comm = Conv1dForward((in_l,), (out_l,), _kernel, stride, padding)
 
 
 class Conv2dSyn(FullConnectedSyn):
@@ -292,11 +307,14 @@ class Conv2dSyn(FullConnectedSyn):
             raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
 
         if (_output_size := out_channels * out_h * out_w) != dest.num_in:
-            raise ShapeError(f"Output size mismatch: {_output_size} != {dest.num_in}.")
+            raise ShapeError(
+                f"Output size mismatch: {_output_size} ({out_channels}*{out_h}*{out_w}) "
+                f"!= {dest.num_in}."
+            )
 
-        comm = Conv2dForward((in_h, in_w), (out_h, out_w), _kernel, stride, padding)
-
-        self._set_comm(comm)
+        self.comm = Conv2dForward(
+            (in_h, in_w), (out_h, out_w), _kernel, stride, padding
+        )
 
 
 class ConvTranspose1dSyn(FullConnectedSyn):
@@ -344,11 +362,9 @@ class ConvTranspose1dSyn(FullConnectedSyn):
         if (_output_size := out_channels * out_l) != dest.num_in:
             raise ShapeError(f"Output size mismatch: {_output_size} != {dest.num_in}.")
 
-        comm = ConvTranspose1dForward(
+        self.comm = ConvTranspose1dForward(
             (in_l,), (out_l,), _kernel, stride, padding, output_padding
         )
-
-        self._set_comm(comm)
 
 
 class ConvTranspose2dSyn(FullConnectedSyn):
@@ -403,8 +419,6 @@ class ConvTranspose2dSyn(FullConnectedSyn):
         if (_output_size := out_channels * out_h * out_w) != dest.num_in:
             raise ShapeError(f"Output size mismatch: {_output_size} != {dest.num_in}.")
 
-        comm = ConvTranspose2dForward(
+        self.comm = ConvTranspose2dForward(
             (in_h, in_w), (out_h, out_w), _kernel, stride, padding, output_padding
         )
-
-        self._set_comm(comm)
