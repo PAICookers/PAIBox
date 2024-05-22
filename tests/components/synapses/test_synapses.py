@@ -4,22 +4,52 @@ import pytest
 from paicorelib import WeightPrecision as WP
 
 import paibox as pb
-from paibox.exceptions import ShapeError
+from paibox.components import FullConnectedSyn
+from paibox.exceptions import RegisterError, ShapeError
 from paibox.utils import shape2num
 
 
-def test_SynSys_Attrs():
-    n1 = pb.IF(3, 3)
-    n2 = pb.IF(3, 3)
-    s1 = pb.MatMul2d(
-        n1, n2, weights=np.array([[1, 1, 0], [0, 1, 1], [0, 1, 1]], dtype=np.int8)
-    )
+class TestFullConnectedSyn:
+    def test_FullConnectedSyn_properties(self):
+        n1 = pb.IF((10, 10), 10)
+        n2 = pb.IF((20, 10), 10)
+        s1 = pb.FullConn(
+            n1, n2, np.random.randint(-128, 128, (100, 200), dtype=np.int8)
+        )
 
-    assert np.array_equal(s1.n_axon_each, np.array([1, 3, 2]))
-    assert s1.num_axon == 3
-    assert s1.num_dendrite == 3
-    assert s1.weight_precision is WP.WEIGHT_WIDTH_1BIT
-    assert s1.weights.dtype == np.int8
+        new_source1 = pb.LIF((100,), 3)
+        new_source2 = pb.LIF((10,), 5)
+        new_target1 = pb.LIF((10, 20), 7)
+        new_target2 = pb.LIF(100, 9)
+
+        s1.source = new_source1
+        with pytest.raises(RegisterError):
+            s1.source = new_source2
+
+        s1.target = new_target1
+        with pytest.raises(RegisterError):
+            s1.target = new_target2
+
+    def test_FullConnectedSyn_copy(self):
+        n1 = pb.IF((10, 10), 10)
+        n2 = pb.IF((20, 10), 10)
+        s1 = pb.FullConn(
+            n1, n2, np.random.randint(-128, 128, (100, 200), dtype=np.int8)
+        )
+        s2 = s1.copy()
+
+        assert isinstance(s2, FullConnectedSyn)
+        assert id(s1) != id(s2)
+        assert s1 != s2
+        assert s1.source == s2.source
+        assert s1.target == s2.target
+        assert s1.weights is not s2.weights
+        assert np.array_equal(s1.weights, s2.weights)
+
+        new_target1 = pb.LIF((10, 20), 7)
+        s2.target = new_target1
+
+        assert s1.target != s2.target
 
 
 class TestFullConn:
