@@ -144,7 +144,7 @@ class FunctionalModule_1to1_Net(pb.DynSysGroup):
 
 
 class SpikingPool2d_Net(pb.DynSysGroup):
-    def __init__(self, fm_shape, ksize, stride, pool_type):
+    def __init__(self, fm_shape, ksize, stride, padding, pool_type):
         super().__init__()
         self.inp1 = pb.InputProj(input=_out_bypass1, shape_out=fm_shape)
         self.n1 = pb.SpikingRelu(fm_shape, tick_wait_start=1)
@@ -152,11 +152,11 @@ class SpikingPool2d_Net(pb.DynSysGroup):
 
         if pool_type == "avg":
             self.pool2d = pb.SpikingAvgPool2d(
-                self.n1, ksize, stride, delay=1, tick_wait_start=2
+                self.n1, ksize, stride, padding, delay=1, tick_wait_start=2
             )
         else:  # "max"
             self.pool2d = pb.SpikingMaxPool2d(
-                self.n1, ksize, stride, delay=1, tick_wait_start=2
+                self.n1, ksize, stride, padding, delay=1, tick_wait_start=2
             )
 
         self.n2 = pb.SpikingRelu(self.pool2d.shape_out, delay=1, tick_wait_start=3)

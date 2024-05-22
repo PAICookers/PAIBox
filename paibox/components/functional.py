@@ -45,7 +45,9 @@ __all__ = [
 
 _L_SADD = 1  # Literal value for spiking addition.
 _L_SSUB = -1  # Literal value for spiking subtraction.
-VJT_OVERFLOW_ERROR_TEXT = "Membrane potential overflow causes spiking addition or subtraction errors."
+VJT_OVERFLOW_ERROR_TEXT = (
+    "Membrane potential overflow causes spiking addition or subtraction errors."
+)
 
 
 class BitwiseAND(FunctionalModule2to1):
@@ -517,22 +519,13 @@ class _SpikingPool2d(FunctionalModule):
         kernel_size: _Size2Type,
         pool_type: Literal["avg", "max"],
         stride: Optional[_Size2Type] = None,
-        # padding: _Size2Type = 0,
+        padding: _Size2Type = 0,
         # fm_order: _Order3d = "CHW",
         keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
-        """2d pooling for spike.
-
-        Args:
-            - neuron: of which the pooling will be performed.
-            - kernel_size: the size of the window to take a max over.
-            - pool_type: type of pooling, "avg" or "max".
-            - stride: the stride of the window. Default value is `kernel_size`.
-
-        NOTE: the inherent delay of the module is 0.
-        """
+        """Basic 2d spiking pooling."""
         if pool_type not in ("avg", "max"):
             raise ValueError("type of pooling must be 'avg' or 'max'.")
 
@@ -544,7 +537,7 @@ class _SpikingPool2d(FunctionalModule):
 
         _ksize = _pair(kernel_size)
         _stride = _pair(stride) if stride is not None else _ksize
-        _padding = _pair(0)
+        _padding = _pair(padding)
 
         oh = (ih + 2 * _padding[0] - _ksize[0]) // _stride[0] + 1
         ow = (iw + 2 * _padding[1] - _ksize[1]) // _stride[1] + 1
@@ -615,7 +608,7 @@ class SpikingAvgPool2d(_SpikingPool2d):
         neuron: Union[NeuDyn, InputProj],
         kernel_size: _Size2Type,
         stride: Optional[_Size2Type] = None,
-        # padding: _Size2Type = 0,
+        padding: _Size2Type = 0,
         # fm_order: _Order3d = "CHW",
         *,
         keep_shape: bool = True,
@@ -628,10 +621,14 @@ class SpikingAvgPool2d(_SpikingPool2d):
             - neuron: the target neuron to be pooled.
             - kernel_size: the size of the window to take a max over.
             - stride: the stride of the window. Default value is `kernel_size`.
+            - padding: the amount of zero-padding applied to the input. It can be a scalar or a tuple of 2  \
+                integers.
 
         NOTE: the inherent delay of the module is 0.
         """
-        super().__init__(neuron, kernel_size, "avg", stride, keep_shape, name, **kwargs)
+        super().__init__(
+            neuron, kernel_size, "avg", stride, padding, keep_shape, name, **kwargs
+        )
 
 
 class SpikingMaxPool2d(_SpikingPool2d):
@@ -647,7 +644,7 @@ class SpikingMaxPool2d(_SpikingPool2d):
         neuron: Union[NeuDyn, InputProj],
         kernel_size: _Size2Type,
         stride: Optional[_Size2Type] = None,
-        # padding: _Size2Type = 0,
+        padding: _Size2Type = 0,
         # fm_order: _Order3d = "CHW",
         *,
         keep_shape: bool = True,
@@ -660,10 +657,14 @@ class SpikingMaxPool2d(_SpikingPool2d):
             - neuron: the target neuron to be pooled.
             - kernel_size: the size of the window to take a max over.
             - stride: the stride of the window. Default value is `kernel_size`.
+            - padding: the amount of zero-padding applied to the input. It can be a scalar or a tuple of 2  \
+                integers.
 
         NOTE: the inherent delay of the module is 0.
         """
-        super().__init__(neuron, kernel_size, "max", stride, keep_shape, name, **kwargs)
+        super().__init__(
+            neuron, kernel_size, "max", stride, padding, keep_shape, name, **kwargs
+        )
 
 
 class SpikingSub(FunctionalModule2to1WithV):

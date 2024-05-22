@@ -320,6 +320,10 @@ class MaskedLinear(Transform):
             self.in_shape, self.out_shape, self.weights, self.axes
         )
 
+    @property
+    def is_T(self) -> bool:
+        return self.axes == (1, 0)
+
 
 class Conv1dForward(Transform):
     def __init__(
@@ -498,7 +502,6 @@ class ConvTranspose2dForward(Transform):
 
 
 class _Pool2dForward(Transform):
-    # DO NOT use in the `FullConnectedSyn`
     def __init__(
         self,
         channels: int,
@@ -540,4 +543,5 @@ class _Pool2dForward(Transform):
             self.out_shape,
             self.ksize,
             self.stride,
+            self.padding,
         )
