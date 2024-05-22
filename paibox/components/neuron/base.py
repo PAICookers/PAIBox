@@ -347,7 +347,6 @@ class MetaNeuron:
 
     @property
     def bias(self) -> int:
-        """Signed 30-bit. ANN mode only."""
         return self.leak_v
 
 

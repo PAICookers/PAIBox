@@ -54,6 +54,7 @@ class LIF(Neuron):
         threshold: int,
         reset_v: int = 0,
         leak_v: int = 0,
+        bias: Optional[int] = None,
         *,
         keep_shape: bool = False,
         name: Optional[str] = None,
@@ -68,14 +69,24 @@ class LIF(Neuron):
             - leak_v: the signed leak voltage will be added directly to the membrane potential.
                 - If it is positive, the membrane potential will increase.
                 - If is is negative, the membrane potential will decrease.
+            - bias: if signed bias is given, it will be used as leak_v and neuron will do leak \
+                before threshold comparison. The leak_v will be ignored.
         """
+        if isinstance(bias, int):
+            _leak_v = bias
+            _lcm = LCM.LEAK_BEFORE_COMP
+        else:
+            _leak_v = leak_v
+            _lcm = LCM.LEAK_AFTER_COMP
+
         super().__init__(
             shape,
             reset_mode=RM.MODE_NORMAL,
             reset_v=reset_v,
+            leak_comparison=_lcm,
             neg_thres_mode=NTM.MODE_SATURATION,
             pos_threshold=threshold,
-            leak_v=leak_v,
+            leak_v=_leak_v,
             keep_shape=keep_shape,
             name=name,
             **kwargs,
@@ -144,7 +155,6 @@ class PhasicSpiking(Neuron):
 
 
 class Always1Neuron(Neuron):
-
     def __init__(
         self,
         shape: Shape,
