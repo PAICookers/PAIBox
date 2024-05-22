@@ -4,7 +4,7 @@ from typing import Literal, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from numpy.typing import NDArray
-from paicorelib import LCM, NTM, RM, TM
+from paicorelib import NTM, RM, TM
 
 from paibox.base import NeuDyn, NodeList
 from paibox.exceptions import FunctionalError, PAIBoxWarning, ShapeError
@@ -89,7 +89,6 @@ class BitwiseAND(FunctionalModule2to1):
         # 1. Instantiate neurons & synapses & connect the source
         n1_and = Neuron(
             self.shape_out,
-            leak_comparison=LCM.LEAK_BEFORE_COMP,
             leak_v=-1,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
@@ -163,7 +162,6 @@ class BitwiseNOT(FunctionalModule):
     def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
         n1_not = Neuron(
             self.shape_out,
-            leak_comparison=LCM.LEAK_BEFORE_COMP,
             leak_v=-1,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
@@ -566,7 +564,6 @@ class _SpikingPool2d(FunctionalModule):
         if self.tfm.pool_type == "avg":
             n1_mp = Neuron(
                 self.shape_out,
-                leak_comparison=LCM.LEAK_BEFORE_COMP,
                 leak_v=-(shape2num(self.tfm.ksize) // 2),
                 delay=self.delay_relative,
                 tick_wait_start=self.tick_wait_start,

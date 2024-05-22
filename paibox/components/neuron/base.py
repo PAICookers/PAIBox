@@ -363,12 +363,15 @@ class Neuron(MetaNeuron, NeuDyn):
         "master_nodes",
     )
 
+    _n_copied = 0
+    """Counter of copies."""
+
     def __init__(
         self,
         shape: Shape,
         reset_mode: RM = RM.MODE_NORMAL,
         reset_v: int = 0,
-        leak_comparison: LCM = LCM.LEAK_AFTER_COMP,
+        leak_comparison: LCM = LCM.LEAK_BEFORE_COMP,
         threshold_mask_bits: int = 0,
         neg_thres_mode: NTM = NTM.MODE_RESET,
         neg_threshold: int = 0,
@@ -463,9 +466,6 @@ class Neuron(MetaNeuron, NeuDyn):
         self._tws = tick_wait_start
         self._twe = tick_wait_end
         self._uf = unrolling_factor
-
-        """Counter of copies."""
-        self._n_copied = 0
 
     def __len__(self) -> int:
         return self._n_neuron
