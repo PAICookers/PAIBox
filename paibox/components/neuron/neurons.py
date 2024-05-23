@@ -129,6 +129,8 @@ class TonicSpiking(Neuron):
         Args:
             - shape: shape of neurons.
             - fire_step: every `N` spike, the neuron will fire positively.
+            - keep_shape: whether to maintain shape in the simulation. Default is `False`.
+            - name: name of the neuron. Optional.
 
         NOTE: The neuron receives `N` spikes and fires, then it will reset to 0.
         """
@@ -148,21 +150,21 @@ class PhasicSpiking(Neuron):
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
-        """Phasic spiking neuron.
+        """Phasic spiking neuron. Once the neuron receives `N` spikes and fires, it will reset to   \
+            the negative floor and never fires again. `N` is `time_to_fire`.
 
         Args:
             - shape: shape of neurons.
             - time_to_fire: after `N` spikes, the neuron will fire positively.
-            - neg_floor: once fired, the neurons will remain at this negative membrane potential.   \
-                Default is -10.
-
-        NOTE: Once the neuron receives `N` spikes and fires, it will reset to the negative floor &  \
-            never fires again. `N` stands for `time_to_fire`.
+            - neg_floor: signed negative floor. once fired, the neurons will remain at this negative\
+                membrane potential. Default is -10.
+            - keep_shape: whether to maintain shape in the simulation. Default is `False`.
+            - name: name of the neuron. Optional.
         """
         leak_v = 1
         super().__init__(
             shape,
-            reset_v=(-1 - neg_floor),
+            reset_v=neg_floor - 1,
             neg_thres_mode=NTM.MODE_SATURATION,
             neg_threshold=neg_floor,
             pos_threshold=(1 + leak_v) * time_to_fire,
@@ -185,7 +187,13 @@ class Always1Neuron(Neuron):
     ) -> None:
         """A neuron that always outputs 1 as long as it starts working.
 
-        FIXME There must be a forward synapse connected to it, otherwise the backend will go wrong.
+        Args:
+            - shape: shape of neurons.
+            - keep_shape: whether to maintain shape in the simulation. Default is `False`.
+            - name: name of the neuron. Optional.
+
+        FIXME There must be a forward synapse connected to it, otherwise the backend will go wrong. \
+            Therefore, Always1Neuron is not exported to pb.__init__.
         """
         super().__init__(
             shape,
@@ -208,5 +216,11 @@ class SpikingRelu(Neuron):
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
-        """Spiking relu neuron. Act exactly the way you think."""
+        """Spiking relu neuron. Act exactly the way you think.
+
+        Args:
+            - shape: shape of neurons.
+            - keep_shape: whether to maintain shape in the simulation. Default is `False`.
+            - name: name of the neuron. Optional.
+        """
         super().__init__(shape, keep_shape=keep_shape, name=name, **kwargs)
