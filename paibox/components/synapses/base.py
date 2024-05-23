@@ -94,7 +94,7 @@ class FullConnectedSyn(SynSys):
         return FullConnSyn(
             self.source,
             self.dest,
-            self.weights,
+            self.connectivity,
             ConnType.All2All,
             f"{self.name}_copied_{self._n_copied}",
         )
