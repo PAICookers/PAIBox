@@ -128,7 +128,7 @@ class Mapper:
         """4. Adjust the LCN extension of each core block."""
         self.lcn_ex_adjustment()
 
-        self.graph_optimization()
+        # self.graph_optimization()
 
         """5. Core coordinate assignment."""
         self.coord_assign()
