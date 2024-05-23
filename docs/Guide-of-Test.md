@@ -41,6 +41,15 @@ pytest = "^8.0.0"
 
        yield p
 
+   @pytest.fixture(scope="module")
+   def ensure_dump_dir_and_clean():
+       ...
+       yield p
+
+       # Clean up
+       for f in p.iterdir():
+           f.unlink()
+
    # In your test function at `test_items.py`, use it as follows:
    def test_foo(ensure_dump_dir):
        ...
@@ -77,6 +86,66 @@ pytest = "^8.0.0"
    @pytest.mark.usefixtures("cleandir")
    def test_foo():
        ...
+   ```
+
+4. 测试后需要将某些全局配置恢复至默认值。该夹具在每次测试后，重置 `BACKEND_CONFIG` 与 `SynSys.CFLAG_ENABLE_WP_OPTIMIZATION` 为默认值。
+
+   ```python
+   @pytest.fixture(autouse=True)
+   def backend_context_setdefault():
+       """Set the default backend context after each test automatically."""
+       yield
+       SynSys.CFLAG_ENABLE_WP_OPTIMIZATION = True
+       pb.BACKEND_CONFIG.set_default()
+   ```
+
+5. 测试代码运行时间统计。该夹具将测量测试项目的运行时间，并打印至控制台。运行pytest时需添加 `-s` 参数以禁用输出捕获。
+
+   ```python
+   @pytest.fixture
+   def perf_fixture(request):
+       with measure_time(f"{request.node.name}"):
+           yield
+
+   def test_case1(perf_fixture):
+       func1(...)
+       func2(...)
+   ```
+
+   或者，亦可对测试项目的**部分代码**进行计时，使用上下文环境 `with`
+
+   ```python
+   from .utils import measure_time
+
+   def test_case2():
+       with measure_time("test case2"):
+           func1(...)
+           func2(...)
+   ```
+
+6. 可复现的随机测试上下文。该夹具将为测试项目设置随机数种子，确保每次测试中，该测试项内的随机数均相同。
+
+   ```python
+   @pytest.fixture
+   def random_fixture():
+       with fixed_random_seed(42):
+           yield
+
+   def test_foo(random_fixture):
+       ...
+   ```
+
+   或者，亦可对测试项目的**部分代码**设置固定的随机数种子，使用上下文环境 `with`
+
+   ```python
+   from .utils import fixed_random_seed
+   import numpy as np
+
+   def test_case():
+       with fixed_random_seed(999):
+           rd1 = np.random.randn() # Reproducible
+
+       rd2 = np.random.randn() # Not reproducible
    ```
 
 ## 更多

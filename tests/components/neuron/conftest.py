@@ -1,41 +1,20 @@
-import numpy as np
 import pytest
 
 import paibox as pb
 
 
-def fakeout(t, **kwargs):
-    data = np.array(
-        [
-            [1, 1],
-            [1, 1],
-            [1, 1],
-            [1, 1],
-            [1, 0],
-            [0, 1],
-            [1, 0],
-            [1, 1],
-            [0, 1],
-            [1, 0],
-            [1, 0],
-        ],
-        np.bool_,
-    )
-
-    return data[t]
-
-
-class Net1(pb.Network):
-    def __init__(self):
+class Net_Test_Neuron_Behavior(pb.Network):
+    def __init__(self, neuron):
         super().__init__()
-        self.inp1 = pb.InputProj(fakeout, shape_out=(2,))
-        self.n1 = pb.IF((2,), 3)
-        self.s1 = pb.FullConn(self.inp1, self.n1, conn_type=pb.SynConnType.One2One)
+        self.inp1 = pb.InputProj(None, shape_out=(1,))
+        self.n1 = neuron
+        self.s1 = pb.FullConn(self.inp1, self.n1)
 
-        self.probe1 = pb.Probe(self.inp1, "output")
-        self.probe2 = pb.Probe(self.s1, "output")
-        self.probe3 = pb.Probe(self.n1, "output")
-        self.probe4 = pb.Probe(self.n1, "voltage")
+        self.pb_inp_output = pb.Probe(self.inp1, "output")
+        self.pb_s_output = pb.Probe(self.s1, "output")
+        self.pb_n_spike = pb.Probe(self.n1, "spike")
+        self.pb_n_volage = pb.Probe(self.n1, "voltage")
+        self.pb_n_output = pb.Probe(self.n1, "output")
 
 
 class Net2(pb.Network):
@@ -85,23 +64,6 @@ class Net3(pb.Network):
         self.probe4 = pb.Probe(self.n2, "output", name="n2_out")
 
 
-class TonicSpikingNet(pb.Network):
-    def __init__(self):
-        super().__init__()
-        self.inp1 = pb.InputProj(fakeout, shape_out=(2,))
-        self.n1 = pb.TonicSpiking((2,), 3)
-        self.s1 = pb.FullConn(self.inp1, self.n1, conn_type=pb.SynConnType.One2One)
-
-        self.probe1 = pb.Probe(self.s1, "output")
-        self.probe2 = pb.Probe(self.n1, "output")
-        self.probe3 = pb.Probe(self.n1, "voltage")
-
-
-@pytest.fixture(scope="class")
-def build_Net1():
-    return Net1()
-
-
 @pytest.fixture(scope="class")
 def build_Net2():
     return Net2()
@@ -110,8 +72,3 @@ def build_Net2():
 @pytest.fixture(scope="class")
 def build_Net3():
     return Net3()
-
-
-@pytest.fixture(scope="class")
-def build_TonicSpikingNet():
-    return TonicSpikingNet()

@@ -4,7 +4,7 @@ from typing import Literal, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from numpy.typing import NDArray
-from paicorelib import LCM, NTM, RM, TM
+from paicorelib import NTM, RM, TM
 
 from paibox.base import NeuDyn, NodeList
 from paibox.exceptions import FunctionalError, PAIBoxWarning, ShapeError
@@ -23,8 +23,7 @@ from .neuron import Neuron
 from .neuron.neurons import *
 from .neuron.utils import VJT_MIN_LIMIT, _is_vjt_overflow
 from .projection import InputProj
-from .synapses import FullConnSyn
-from .synapses import GeneralConnType as GConnType
+from .synapses import ConnType, FullConnSyn
 from .synapses.conv_types import _Size2Type
 from .synapses.conv_utils import _fm_ndim2_check, _pair
 from .synapses.transforms import _Pool2dForward
@@ -46,7 +45,9 @@ __all__ = [
 
 _L_SADD = 1  # Literal value for spiking addition.
 _L_SSUB = -1  # Literal value for spiking subtraction.
-VJT_OVERFLOW_ERROR_TEXT = "Membrane potential overflow causes spiking addition errors."
+VJT_OVERFLOW_ERROR_TEXT = (
+    "Membrane potential overflow causes spiking addition or subtraction errors."
+)
 
 
 class BitwiseAND(FunctionalModule2to1):
@@ -88,7 +89,6 @@ class BitwiseAND(FunctionalModule2to1):
         # 1. Instantiate neurons & synapses & connect the source
         n1_and = Neuron(
             self.shape_out,
-            leak_comparison=LCM.LEAK_BEFORE_COMP,
             leak_v=-1,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
@@ -101,14 +101,14 @@ class BitwiseAND(FunctionalModule2to1):
             self.module_intf.operands[0],
             n1_and,
             1,
-            conn_type=GConnType.One2One,
+            conn_type=ConnType.One2One,
             name=f"s0_{self.name}",
         )
         syn2 = FullConnSyn(
             self.module_intf.operands[1],
             n1_and,
             1,
-            conn_type=GConnType.One2One,
+            conn_type=ConnType.One2One,
             name=f"s1_{self.name}",
         )
 
@@ -162,7 +162,6 @@ class BitwiseNOT(FunctionalModule):
     def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
         n1_not = Neuron(
             self.shape_out,
-            leak_comparison=LCM.LEAK_BEFORE_COMP,
             leak_v=-1,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
@@ -175,7 +174,7 @@ class BitwiseNOT(FunctionalModule):
             self.module_intf.operands[0],
             n1_not,
             weights=-1,
-            conn_type=GConnType.One2One,
+            conn_type=ConnType.One2One,
             name=f"s0_{self.name}",
         )
 
@@ -229,14 +228,14 @@ class BitwiseOR(FunctionalModule2to1):
             self.module_intf.operands[0],
             n1_or,
             1,
-            conn_type=GConnType.One2One,
+            conn_type=ConnType.One2One,
             name=f"s0_{self.name}",
         )
         syn2 = FullConnSyn(
             self.module_intf.operands[1],
             n1_or,
             1,
-            conn_type=GConnType.One2One,
+            conn_type=ConnType.One2One,
             name=f"s1_{self.name}",
         )
 
@@ -296,7 +295,7 @@ class BitwiseXOR(FunctionalModule2to1):
             self.module_intf.operands[0],
             n1_aux,
             weights=np.hstack([-1 * identity, identity], casting="safe", dtype=np.int8),
-            conn_type=GConnType.MatConn,
+            conn_type=ConnType.All2All,
             name=f"s0_{self.name}",
         )
         # weight of syn2, (1*(N,), -1*(N,))
@@ -304,7 +303,7 @@ class BitwiseXOR(FunctionalModule2to1):
             self.module_intf.operands[1],
             n1_aux,
             weights=np.hstack([identity, -1 * identity], casting="safe", dtype=np.int8),
-            conn_type=GConnType.MatConn,
+            conn_type=ConnType.All2All,
             name=f"s1_{self.name}",
         )
 
@@ -323,7 +322,7 @@ class BitwiseXOR(FunctionalModule2to1):
             n1_aux,
             n2_xor,
             weights=np.vstack([identity, -1 * identity], casting="safe", dtype=np.int8),
-            conn_type=GConnType.MatConn,
+            conn_type=ConnType.All2All,
             name=f"s2_{self.name}",
         )
 
@@ -408,7 +407,7 @@ class DelayChain(FunctionalModule):
             self.module_intf.operands[0],
             n_delaychain[0],
             1,
-            conn_type=GConnType.One2One,
+            conn_type=ConnType.One2One,
             name=f"s0_{self.name}",
         )
 
@@ -417,7 +416,7 @@ class DelayChain(FunctionalModule):
                 n_delaychain[i],
                 n_delaychain[i + 1],
                 1,
-                conn_type=GConnType.One2One,
+                conn_type=ConnType.One2One,
                 name=f"s{i+1}_{self.name}",
             )
 
@@ -487,14 +486,14 @@ class SpikingAdd(FunctionalModule2to1WithV):
             self.module_intf.operands[0],
             n1_sadd,
             1,
-            conn_type=GConnType.One2One,
+            conn_type=ConnType.One2One,
             name=f"s0_{self.name}",
         )
         syn2 = FullConnSyn(
             self.module_intf.operands[1],
             n1_sadd,
             1,
-            conn_type=GConnType.One2One,
+            conn_type=ConnType.One2One,
             name=f"s1_{self.name}",
         )
 
@@ -518,22 +517,13 @@ class _SpikingPool2d(FunctionalModule):
         kernel_size: _Size2Type,
         pool_type: Literal["avg", "max"],
         stride: Optional[_Size2Type] = None,
-        # padding: _Size2Type = 0,
+        padding: _Size2Type = 0,
         # fm_order: _Order3d = "CHW",
         keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
-        """2d pooling for spike.
-
-        Args:
-            - neuron: of which the pooling will be performed.
-            - kernel_size: the size of the window to take a max over.
-            - pool_type: type of pooling, "avg" or "max".
-            - stride: the stride of the window. Default value is `kernel_size`.
-
-        NOTE: the inherent delay of the module is 0.
-        """
+        """Basic 2d spiking pooling."""
         if pool_type not in ("avg", "max"):
             raise ValueError("type of pooling must be 'avg' or 'max'.")
 
@@ -545,7 +535,7 @@ class _SpikingPool2d(FunctionalModule):
 
         _ksize = _pair(kernel_size)
         _stride = _pair(stride) if stride is not None else _ksize
-        _padding = _pair(0)
+        _padding = _pair(padding)
 
         oh = (ih + 2 * _padding[0] - _ksize[0]) // _stride[0] + 1
         ow = (iw + 2 * _padding[1] - _ksize[1]) // _stride[1] + 1
@@ -574,7 +564,6 @@ class _SpikingPool2d(FunctionalModule):
         if self.tfm.pool_type == "avg":
             n1_mp = Neuron(
                 self.shape_out,
-                leak_comparison=LCM.LEAK_BEFORE_COMP,
                 leak_v=-(shape2num(self.tfm.ksize) // 2),
                 delay=self.delay_relative,
                 tick_wait_start=self.tick_wait_start,
@@ -595,7 +584,7 @@ class _SpikingPool2d(FunctionalModule):
             self.module_intf.operands[0],
             n1_mp,
             weights=self.tfm.connectivity.astype(np.bool_),
-            conn_type=GConnType.MatConn,
+            conn_type=ConnType.All2All,
             name=f"s0_{self.name}",
         )
 
@@ -616,7 +605,7 @@ class SpikingAvgPool2d(_SpikingPool2d):
         neuron: Union[NeuDyn, InputProj],
         kernel_size: _Size2Type,
         stride: Optional[_Size2Type] = None,
-        # padding: _Size2Type = 0,
+        padding: _Size2Type = 0,
         # fm_order: _Order3d = "CHW",
         *,
         keep_shape: bool = True,
@@ -629,10 +618,14 @@ class SpikingAvgPool2d(_SpikingPool2d):
             - neuron: the target neuron to be pooled.
             - kernel_size: the size of the window to take a max over.
             - stride: the stride of the window. Default value is `kernel_size`.
+            - padding: the amount of zero-padding applied to the input. It can be a scalar or a tuple of 2  \
+                integers.
 
         NOTE: the inherent delay of the module is 0.
         """
-        super().__init__(neuron, kernel_size, "avg", stride, keep_shape, name, **kwargs)
+        super().__init__(
+            neuron, kernel_size, "avg", stride, padding, keep_shape, name, **kwargs
+        )
 
 
 class SpikingMaxPool2d(_SpikingPool2d):
@@ -648,7 +641,7 @@ class SpikingMaxPool2d(_SpikingPool2d):
         neuron: Union[NeuDyn, InputProj],
         kernel_size: _Size2Type,
         stride: Optional[_Size2Type] = None,
-        # padding: _Size2Type = 0,
+        padding: _Size2Type = 0,
         # fm_order: _Order3d = "CHW",
         *,
         keep_shape: bool = True,
@@ -661,10 +654,14 @@ class SpikingMaxPool2d(_SpikingPool2d):
             - neuron: the target neuron to be pooled.
             - kernel_size: the size of the window to take a max over.
             - stride: the stride of the window. Default value is `kernel_size`.
+            - padding: the amount of zero-padding applied to the input. It can be a scalar or a tuple of 2  \
+                integers.
 
         NOTE: the inherent delay of the module is 0.
         """
-        super().__init__(neuron, kernel_size, "max", stride, keep_shape, name, **kwargs)
+        super().__init__(
+            neuron, kernel_size, "max", stride, padding, keep_shape, name, **kwargs
+        )
 
 
 class SpikingSub(FunctionalModule2to1WithV):
@@ -721,14 +718,14 @@ class SpikingSub(FunctionalModule2to1WithV):
             self.module_intf.operands[0],
             n1_ssub,
             1,
-            conn_type=GConnType.One2One,
+            conn_type=ConnType.One2One,
             name=f"s0_{self.name}",
         )
         syn2 = FullConnSyn(
             self.module_intf.operands[1],
             n1_ssub,
             weights=-1,
-            conn_type=GConnType.One2One,
+            conn_type=ConnType.One2One,
             name=f"s1_{self.name}",
         )
 
@@ -787,7 +784,7 @@ class Transpose2d(TransposeModule):
             self.module_intf.operands[0],
             n1_t2d,
             weights=_transpose2d_mapping(self.shape_in),
-            conn_type=GConnType.MatConn,
+            conn_type=ConnType.All2All,
             name=f"s0_{self.name}",
         )
 
@@ -851,7 +848,7 @@ class Transpose3d(TransposeModule):
             self.module_intf.operands[0],
             n1_t3d,
             weights=_transpose3d_mapping(self.shape_in, self.axes),
-            conn_type=GConnType.MatConn,
+            conn_type=ConnType.All2All,
             name=f"s0_{self.name}",
         )
 

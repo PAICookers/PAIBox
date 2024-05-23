@@ -17,7 +17,13 @@ from paicorelib import (
 
 from paibox.base import NeuDyn
 from paibox.types import Shape, SpikeType, VoltageType
-from paibox.utils import as_shape, shape2num
+from paibox.utils import (
+    arg_check_non_neg,
+    arg_check_non_pos,
+    arg_check_pos,
+    as_shape,
+    shape2num,
+)
 
 from .utils import _vjt_overflow
 
@@ -95,11 +101,11 @@ class MetaNeuron:
             )
         else:
             if incoming_v.ndim == 2:
-                _v = incoming_v.sum(axis=1).astype(np.int32)
+                _v = incoming_v.sum(axis=1, dtype=np.int32)
             else:
                 _v = incoming_v
 
-        v_charged = np.add(vjt_pre, _v).astype(np.int32)
+        v_charged = np.add(vjt_pre, _v, dtype=np.int32)
 
         return _vjt_overflow(v_charged)  # Handle with overflow here
 
@@ -128,7 +134,7 @@ class MetaNeuron:
             _ld = np.sign(vjt)
 
         if self.leak_integration_mode is LIM.MODE_DETERMINISTIC:
-            v_leaked = np.add(vjt, _ld * self.leak_v).astype(np.int32)
+            v_leaked = np.add(vjt, _ld * self.leak_v, dtype=np.int32)
         else:
             raise NotImplementedError(
                 f"mode {LIM.MODE_STOCHASTIC.name} is not implemented."
@@ -347,7 +353,6 @@ class MetaNeuron:
 
     @property
     def bias(self) -> int:
-        """Signed 30-bit. ANN mode only."""
         return self.leak_v
 
 
@@ -364,12 +369,15 @@ class Neuron(MetaNeuron, NeuDyn):
         "master_nodes",
     )
 
+    _n_copied = 0
+    """Counter of copies."""
+
     def __init__(
         self,
         shape: Shape,
         reset_mode: RM = RM.MODE_NORMAL,
         reset_v: int = 0,
-        leak_comparison: LCM = LCM.LEAK_AFTER_COMP,
+        leak_comparison: LCM = LCM.LEAK_BEFORE_COMP,
         threshold_mask_bits: int = 0,
         neg_thres_mode: NTM = NTM.MODE_RESET,
         neg_threshold: int = 0,
@@ -387,38 +395,13 @@ class Neuron(MetaNeuron, NeuDyn):
         keep_shape: bool = False,
         name: Optional[str] = None,
     ) -> None:
-        if neg_threshold > 0:
-            raise ValueError(
-                f"negative threshold must be non-positive, but got {neg_threshold}."
-            )
-
-        if pos_threshold < 0:
-            raise ValueError(
-                f"positive threshold must be non-negative, but got {pos_threshold}."
-            )
-
-        if bit_truncation < 0:
-            raise ValueError(
-                f"bit of tuncation must be non-negative, but got {bit_truncation}."
-            )
-
-        if delay < 1:
-            raise ValueError(f"'delay' must be positive, but got {delay}.")
-
-        if tick_wait_start < 0:
-            raise ValueError(
-                f"'tick_wait_start' must be non-negative, but got {tick_wait_start}."
-            )
-
-        if tick_wait_end < 0:
-            raise ValueError(
-                f"'tick_wait_end' must be non-negative, but got {tick_wait_end}."
-            )
-
-        if unrolling_factor < 1:
-            raise ValueError(
-                f"'unrolling_factor' must be positive, but got {unrolling_factor}."
-            )
+        arg_check_non_pos(neg_threshold, "negative threshold")
+        arg_check_non_neg(pos_threshold, "positive threshold")
+        arg_check_non_neg(bit_truncation, "bit of tuncation")
+        arg_check_pos(delay, "'delay'")
+        arg_check_non_neg(tick_wait_start, "'tick_wait_start'")
+        arg_check_non_neg(tick_wait_end, "'tick_wait_end'")
+        arg_check_pos(unrolling_factor, "'unrolling_factor'")
 
         super().__init__(
             shape,
@@ -464,9 +447,6 @@ class Neuron(MetaNeuron, NeuDyn):
         self._tws = tick_wait_start
         self._twe = tick_wait_end
         self._uf = unrolling_factor
-
-        """Counter of copies."""
-        self._n_copied = 0
 
     def __len__(self) -> int:
         return self._n_neuron

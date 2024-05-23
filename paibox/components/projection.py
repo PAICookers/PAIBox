@@ -69,13 +69,23 @@ class InputProj(Projection, TimeRelatedNode):
         _spike = self._get_neumeric_input(**kwargs)
 
         if isinstance(_spike, (int, np.bool_, np.integer)):
-            self._inner_spike = np.full((self.num_out,), _spike, dtype=np.bool_)
+            # XXX In order to simplify the situation where one neuron is connected to
+            # multiple axons in the simulation (the actual input node output size is 8),
+            # one input node is temporarily allowed to output 8 bits of data.
+            if isinstance(_spike, (np.bool_, np.integer)):
+                _dtype = _spike.dtype
+            else:
+                _dtype = np.int8
+
+            self._inner_spike = np.full((self.num_out,), _spike, dtype=_dtype)
+
         elif isinstance(_spike, np.ndarray):
             if shape2num(_spike.shape) != self.num_out:
                 raise ShapeError(
                     f"cannot reshape output value from {_spike.shape} to ({self.num_out},)."
                 )
-            self._inner_spike = _spike.ravel().astype(np.bool_)
+            self._inner_spike = _spike.ravel()
+
         else:
             # should never be reached
             raise TypeError(

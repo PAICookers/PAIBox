@@ -4,6 +4,7 @@ import pytest
 import paibox as pb
 from paibox.base import DynamicSys
 from paibox.components.modules import FunctionalModule
+from paibox.components.synapses.conv_utils import _pair
 from paibox.network import DynSysGroup
 from paibox.utils import as_shape
 
@@ -209,16 +210,24 @@ class TestFunctionalModules:
         _assert_build_fmodule(net, 6 + 1 + 2, 6 + 3 + 2)
 
     @pytest.mark.parametrize(
-        "shape, channels, ksize, stride, fm_order, pool_type, p_binomial",
+        "shape, channels, ksize, stride, padding, fm_order, pool_type, p_binomial",
         [
-            ((24, 24), 3, (3, 3), (3, 3), "CHW", "avg", 0.7),
-            ((12, 12), 1, (2, 3), None, "CHW", "avg", 0.6),
-            ((32, 32), 8, (3, 3), None, "CHW", "avg", 0.5),
-            ((16, 16), 8, (5, 5), (2, 3), "CHW", "avg", 0.4),
-            ((32, 32), 3, (3, 3), (2, 2), "CHW", "max", 0.2),
-            ((24, 24), 1, (2, 3), None, "CHW", "max", 0.3),
-            ((16, 16), 8, (5, 5), (2, 3), "CHW", "max", 0.4),
-            ((32, 32), 8, (3, 3), (3, 4), "CHW", "max", 0.3),
+            ((24, 24), 3, (3, 3), 3, 0, "CHW", "avg", 0.7),
+            ((12, 12), 1, (2, 3), None, 0, "CHW", "avg", 0.6),
+            ((32, 32), 8, (3, 3), None, 0, "CHW", "avg", 0.5),
+            ((16, 16), 8, (5, 5), (2, 3), 0, "CHW", "avg", 0.4),
+            ((32, 32), 3, (3, 3), 2, 0, "CHW", "max", 0.2),
+            ((24, 24), 1, (2, 3), None, 0, "CHW", "max", 0.3),
+            ((16, 16), 8, (5, 5), (2, 3), 0, "CHW", "max", 0.4),
+            ((32, 32), 8, (3, 3), (3, 4), 0, "CHW", "max", 0.3),
+            ((24, 24), 3, (3, 3), 3, 1, "CHW", "avg", 0.7),
+            ((12, 12), 1, (2, 3), None, (1, 2), "CHW", "avg", 0.6),
+            ((32, 32), 8, (3, 3), None, 2, "CHW", "avg", 0.5),
+            ((16, 16), 8, (5, 5), (2, 3), (2, 3), "CHW", "avg", 0.4),
+            ((32, 32), 3, (3, 3), 2, 1, "CHW", "max", 0.2),
+            ((24, 24), 1, (2, 3), None, 2, "CHW", "max", 0.3),
+            ((16, 16), 8, (5, 5), (2, 3), (1, 1), "CHW", "max", 0.4),
+            ((32, 32), 8, (3, 3), (3, 4), (1, 2), "CHW", "max", 0.3),
             # ((3, 3), 3, (3, 3), (3, 3), "HWC", "avg", 0.7),
             # ((12, 12), 1, (2, 3), None, "HWC", "avg", 0.6),
             # ((32, 32), 8, (3, 3), None, "HWC", "avg", 0.5),
@@ -230,7 +239,7 @@ class TestFunctionalModules:
         ],
     )
     def test_SpikingPool2d(
-        self, shape, channels, ksize, stride, fm_order, pool_type, p_binomial
+        self, shape, channels, ksize, stride, padding, fm_order, pool_type, p_binomial
     ):
         from tests.shared_networks import SpikingPool2d_Net
 
@@ -241,8 +250,8 @@ class TestFunctionalModules:
         else:
             fm_shape = shape + (channels,)
 
-        net1 = SpikingPool2d_Net(fm_shape, ksize, stride, pool_type)
-        net2 = SpikingPool2d_Net(fm_shape, ksize, stride, pool_type)
+        net1 = SpikingPool2d_Net(fm_shape, ksize, stride, padding, pool_type)
+        net2 = SpikingPool2d_Net(fm_shape, ksize, stride, padding, pool_type)
         DynSysGroup.build_fmodule(net2, dry_run=False)
         sim1 = pb.Simulator(net1, start_time_zero=False)
         sim2 = pb.Simulator(net2, start_time_zero=False)
@@ -255,14 +264,17 @@ class TestFunctionalModules:
             sim1.run(1)
             sim2.run(1)
 
+        _stride = _pair(stride) if stride is not None else ksize
+        _padding = _pair(padding)
+
         for i in range(1, 20):
             if pool_type == "avg":
                 expected = avgpool2d_golden(
-                    inpa[i - 1], ksize, stride, (0, 0), fm_order
+                    inpa[i - 1], ksize, _stride, _padding, fm_order
                 ).ravel()
             else:
                 expected = maxpool2d_golden(
-                    inpa[i - 1], ksize, stride, (0, 0), fm_order
+                    inpa[i - 1], ksize, _stride, _padding, fm_order
                 ).ravel()
 
             assert np.array_equal(sim1.data[net1.probe2][i], expected)

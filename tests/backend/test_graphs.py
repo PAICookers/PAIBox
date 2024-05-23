@@ -14,7 +14,7 @@ class TestTopoSort:
     @pytest.mark.parametrize(
         TestData.toposort_data["args"],
         TestData.toposort_data["data"],
-        ids=TestData.toposort_data["ids"],
+        ids=TestData.toposort_data["ids"],  # type:ignore
     )
     def test_toposort(self, nodes):
         """
@@ -215,6 +215,26 @@ class TestPAIGraph:
         mapper = pb.Mapper()
 
         with pytest.raises(NotSupportedError):
+            mapper.build(net)
+
+    def test_prebuild_topo_info(self, build_FModule_ConnWithInput_Net):
+        net = build_FModule_ConnWithInput_Net
+        mapper = pb.Mapper()
+        mapper.build(net)
+
+        assert len(mapper.graph._raw_nodes) == 5
+        assert len(mapper.graph._raw_edges) == 4
+
+    def test_prebuild_gh_build_ignore(
+        self, monkeypatch, build_FModule_ConnWithInput_Net
+    ):
+        net = build_FModule_ConnWithInput_Net
+
+        monkeypatch.setattr(net.n1, "__gh_build_ignore__", True)
+
+        mapper = pb.Mapper()
+
+        with pytest.raises(GraphConnectionError):
             mapper.build(net)
 
 
@@ -474,7 +494,7 @@ class TestDAGPathDistance:
     @pytest.mark.parametrize(
         TestData.get_longest_path_data["args"],
         TestData.get_longest_path_data["data"],
-        ids=TestData.get_longest_path_data["ids"],
+        ids=TestData.get_longest_path_data["ids"],  # type:ignore
     )
     def test_get_longest_path_proto(self, edges, expected_path, expected_distance):
         ordered = toposort(edges)
@@ -534,7 +554,7 @@ class TestDAGPathDistance:
     @pytest.mark.parametrize(
         TestData.get_shortest_path_data["args"],
         TestData.get_shortest_path_data["data"],
-        ids=TestData.get_shortest_path_data["ids"],
+        ids=TestData.get_shortest_path_data["ids"],  # type:ignore
     )
     def test_get_shortest_path_proto(
         self, edges, inodes, expected_path, expected_distance

@@ -1,4 +1,4 @@
-from typing import Any, Iterable, List, Sequence, Tuple
+from typing import Any, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -130,3 +130,27 @@ def is_iterable(obj: Any) -> bool:
 def fn_sgn(a, b) -> int:
     """Signal function."""
     return 1 if a > b else -1 if a < b else 0
+
+
+def arg_check_pos(arg: int, desc: Optional[str] = None) -> None:
+    _desc = "value" if desc is None else f"{desc}"
+    if arg < 1:
+        raise ValueError(f"{_desc} must be positive, but got {arg}.")
+
+
+def arg_check_non_pos(arg: int, desc: Optional[str] = None) -> None:
+    _desc = "value" if desc is None else f"{desc}"
+    if arg > 0:
+        raise ValueError(f"{_desc} must be non-positive, but got {arg}.")
+
+
+def arg_check_neg(arg: int, desc: Optional[str] = None) -> None:
+    _desc = "value" if desc is None else f"{desc}"
+    if arg > -1:
+        raise ValueError(f"{_desc} must be negative, but got {arg}.")
+
+
+def arg_check_non_neg(arg: int, desc: Optional[str] = None) -> None:
+    _desc = "value" if desc is None else f"{desc}"
+    if arg < 0:
+        raise ValueError(f"{_desc} must be non-negative, but got {arg}.")

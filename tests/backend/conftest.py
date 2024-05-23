@@ -381,35 +381,30 @@ class Network_with_Branches_4bit(pb.Network):
             self.inp1,
             self.n1,
             weights=rng.randint(-8, 8, size=(10, 10), dtype=np.int8),
-            conn_type=pb.SynConnType.MatConn,
             name="s1",
         )
         self.s2 = pb.FullConn(
             self.n1,
             self.n2,
             weights=rng.randint(-8, 8, size=(10, 10), dtype=np.int8),
-            conn_type=pb.SynConnType.MatConn,
             name="s2",
         )
         self.s3 = pb.FullConn(
             self.n1,
             self.n3,
             weights=rng.randint(-8, 8, size=(10, 10), dtype=np.int8),
-            conn_type=pb.SynConnType.MatConn,
             name="s3",
         )
         self.s4 = pb.FullConn(
             self.n2,
             self.n4,
             weights=rng.randint(-8, 8, size=(10, 4), dtype=np.int8),
-            conn_type=pb.SynConnType.MatConn,
             name="s4",
         )
         self.s5 = pb.FullConn(
             self.n3,
             self.n4,
             weights=rng.randint(-8, 8, size=(10, 4), dtype=np.int8),
-            conn_type=pb.SynConnType.MatConn,
             name="s5",
         )
 
@@ -433,35 +428,30 @@ class Network_with_Branches_8bit(pb.Network):
             self.inp1,
             self.n1,
             weights=rng.randint(-128, 128, size=(10, 10), dtype=np.int8),
-            conn_type=pb.SynConnType.MatConn,
             name="s1",
         )
         self.s2 = pb.FullConn(
             self.n1,
             self.n2,
             weights=rng.randint(-128, 128, size=(10, 10), dtype=np.int8),
-            conn_type=pb.SynConnType.MatConn,
             name="s2",
         )
         self.s3 = pb.FullConn(
             self.n1,
             self.n3,
             weights=rng.randint(-128, 128, size=(10, 10), dtype=np.int8),
-            conn_type=pb.SynConnType.MatConn,
             name="s3",
         )
         self.s4 = pb.FullConn(
             self.n2,
             self.n4,
             weights=rng.randint(-128, 128, size=(10, 4), dtype=np.int8),
-            conn_type=pb.SynConnType.MatConn,
             name="s4",
         )
         self.s5 = pb.FullConn(
             self.n3,
             self.n4,
             weights=rng.randint(-128, 128, size=(10, 4), dtype=np.int8),
-            conn_type=pb.SynConnType.MatConn,
             name="s5",
         )
 

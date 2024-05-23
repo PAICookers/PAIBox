@@ -1,3 +1,4 @@
+import typing
 from copy import deepcopy
 from functools import wraps
 from typing import Any, Dict, Optional, Sequence, Type, TypeVar
@@ -9,6 +10,9 @@ from .exceptions import RegisterError
 from .naming import get_unique_name
 from .node import NodeDict
 from .types import VoltageType
+
+if typing.TYPE_CHECKING:
+    from paibox.components import FullConnectedSyn
 
 _T = TypeVar("_T")
 
@@ -126,19 +130,16 @@ class Container(MixIn):
 
 
 class ReceiveInputProj(MixIn):
-    master_nodes: NodeDict[str, Any]
+    master_nodes: NodeDict[str, "FullConnectedSyn"]
 
-    def register_master(self, key: str, master_target) -> None:
+    def register_master(self, key: str, master_target: "FullConnectedSyn") -> None:
         if key in self.master_nodes:
             raise RegisterError(f"master node with key '{key}' already exists.")
 
         self.master_nodes[key] = master_target
 
-    def unregister_master(self, key: str, strict: bool = True) -> Optional[Any]:
-        if key in self.master_nodes:
-            return self.master_nodes.pop(key, None)
-        elif strict:
-            raise KeyError(f"key '{key}' not found in master nodes.")
+    def unregister_master(self, key: str) -> Optional["FullConnectedSyn"]:
+        return self.master_nodes.pop(key, None)
 
     def get_master_node(self, key: str) -> Optional[Any]:
         return self.master_nodes.get(key, None)
