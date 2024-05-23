@@ -181,18 +181,7 @@ class PAIGraph:
         # Filter the DG with certain structure.
         _degree_check(self.degree_of_nodes, self.succ_dg)
 
-        # Only support the in-degree of backward node of input node is 1.
-        # FIXME Is it necessary?
-        # for inode in self.inodes:
-        #     if any(
-        #         self.degree_of_nodes[succ_node].in_degree > 1
-        #         for succ_node in self.succ_dg[inode]
-        #     ):
-        #         raise NotSupportedError(
-        #             "Only input nodes as the only input of a node are supported."
-        #         )
-
-        # Only support output nodes with <= 1152 neurons.
+        # Only support output nodes with <= 1152 neurons so far.
         if any(
             onode.num_out > HwConfig.N_FANIN_PER_DENDRITE_MAX
             for onode in self.onodes.values()

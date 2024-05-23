@@ -15,6 +15,7 @@ from .mixin import ReceiveInputProj, StatusMemory, TimeRelatedNode
 from .naming import get_unique_name, is_name_unique
 from .node import NodeDict, NodeList
 from .types import WeightType
+from .utils import arg_check_pos
 
 __all__ = []
 
@@ -313,9 +314,7 @@ class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
 
     @unrolling_factor.setter
     def unrolling_factor(self, factor: int) -> None:
-        if factor < 1:
-            raise ValueError(f"'unrolling_factor' must be positive, but got {factor}.")
-
+        arg_check_pos(factor, "'unrolling_factor'")
         self._uf = factor
 
 

@@ -40,7 +40,7 @@ class Probe(PAIBoxObject):
         return f" '{self.name}'" if hasattr(self, "name") else ""
 
     def __str__(self) -> str:
-        return f"<Probe{self._label_txt} of '{self.attr}' of {self.target}>"
+        return f"<Probe{self._label_txt} of '{self.attr}' of {self.target.name}>"
 
     def __repr__(self) -> str:
-        return f"<Probe{self._label_txt} at 0x{id(self):x} of '{self.attr}' of {self.target}>"
+        return f"<Probe{self._label_txt} at 0x{id(self):x} of '{self.attr}' of {self.target.name}>"

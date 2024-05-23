@@ -15,7 +15,6 @@ from .components.functional import Transpose2d as Transpose2d
 from .components.functional import Transpose3d as Transpose3d
 from .components.neuron.neurons import IF as IF
 from .components.neuron.neurons import LIF as LIF
-from .components.neuron.neurons import Always1Neuron as Always1Neuron
 from .components.neuron.neurons import PhasicSpiking as PhasicSpiking
 from .components.neuron.neurons import SpikingRelu as SpikingRelu
 from .components.neuron.neurons import TonicSpiking as TonicSpiking

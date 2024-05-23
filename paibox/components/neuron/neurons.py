@@ -6,7 +6,7 @@ from paibox.types import Shape
 
 from .base import Neuron
 
-__all__ = ["IF", "LIF", "TonicSpiking", "PhasicSpiking", "Always1Neuron", "SpikingRelu"]
+__all__ = ["IF", "LIF", "TonicSpiking", "PhasicSpiking", "SpikingRelu"]
 
 
 class IF(Neuron):
@@ -143,7 +143,7 @@ class PhasicSpiking(Neuron):
     def __init__(
         self,
         shape: Shape,
-        time_to_fire: int,
+        fire_step: int,
         neg_floor: int = -10,
         *,
         keep_shape: bool = False,
@@ -151,11 +151,11 @@ class PhasicSpiking(Neuron):
         **kwargs,
     ) -> None:
         """Phasic spiking neuron. Once the neuron receives `N` spikes and fires, it will reset to   \
-            the negative floor and never fires again. `N` is `time_to_fire`.
+            the negative floor and never fires again. `N` is `fire_step`.
 
         Args:
             - shape: shape of neurons.
-            - time_to_fire: after `N` spikes, the neuron will fire positively.
+            - fire_step: after `N` spikes, the neuron will fire positively.
             - neg_floor: signed negative floor. once fired, the neurons will remain at this negative\
                 membrane potential. Default is -10.
             - keep_shape: whether to maintain shape in the simulation. Default is `False`.
@@ -167,7 +167,7 @@ class PhasicSpiking(Neuron):
             reset_v=neg_floor - 1,
             neg_thres_mode=NTM.MODE_SATURATION,
             neg_threshold=neg_floor,
-            pos_threshold=(1 + leak_v) * time_to_fire,
+            pos_threshold=(1 + leak_v) * fire_step,
             leak_direction=LDM.MODE_REVERSAL,
             leak_v=leak_v,
             keep_shape=keep_shape,
