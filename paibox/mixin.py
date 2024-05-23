@@ -1,7 +1,7 @@
+import typing
 from copy import deepcopy
 from functools import wraps
 from typing import Any, Dict, Optional, Sequence, Type, TypeVar
-import typing
 
 import numpy as np
 

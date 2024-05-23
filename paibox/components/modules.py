@@ -20,8 +20,9 @@ else:
     from typing_extensions import TypeAlias
 
 if typing.TYPE_CHECKING:
-    from .synapses import FullConnectedSyn
     from paibox.network import DynSysGroup
+
+    from .synapses import FullConnectedSyn
 
 __all__ = ["BuildingModule"]
 

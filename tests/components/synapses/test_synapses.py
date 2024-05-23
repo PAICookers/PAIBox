@@ -1,4 +1,5 @@
 from contextlib import nullcontext
+
 import numpy as np
 import pytest
 from paicorelib import WeightPrecision as WP

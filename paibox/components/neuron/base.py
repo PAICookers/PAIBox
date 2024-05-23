@@ -18,11 +18,11 @@ from paicorelib import (
 from paibox.base import NeuDyn
 from paibox.types import Shape, SpikeType, VoltageType
 from paibox.utils import (
-    as_shape,
-    shape2num,
-    arg_check_pos,
     arg_check_non_neg,
     arg_check_non_pos,
+    arg_check_pos,
+    as_shape,
+    shape2num,
 )
 
 from .utils import _vjt_overflow
