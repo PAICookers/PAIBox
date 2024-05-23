@@ -216,12 +216,14 @@ class Mapper:
         self.routing_groups = convert2routing_groups(
             self.succ_core_blocks, self.degrees_of_cb, self.input_core_blocks
         )
-        
+
         for i in range(len(self.routing_groups)):
             routing_group = self.routing_groups[i]
-            print("routing group[{}]:".format(i), [(cb.name, cb._routing_id) for cb in routing_group.core_blocks])
-    
-                
+            print(
+                "routing group[{}]:".format(i),
+                [(cb.name, cb._routing_id) for cb in routing_group.core_blocks],
+            )
+
     def graph_optimization(self) -> None:
         optimized = self.graph.graph_optimization(self.core_blocks, self.routing_groups)
         if optimized:
@@ -230,7 +232,6 @@ class Mapper:
             self._build_check()
             self.build_core_blocks()
             self.lcn_ex_adjustment()
-        
 
     def coord_assign(self) -> None:
         """Assign the coordinate of each `CorePlacement`.
