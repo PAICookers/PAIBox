@@ -128,6 +128,8 @@ class Mapper:
         """4. Adjust the LCN extension of each core block."""
         self.lcn_ex_adjustment()
 
+        self.graph_optimization()
+
         """5. Core coordinate assignment."""
         self.coord_assign()
 
@@ -160,6 +162,7 @@ class Mapper:
                 self.core_blocks.append(CoreBlock.build(*syns, routing_id=routing_id))
 
         for cb in self.core_blocks:
+            print(cb.name, [sys.name for sys in cb.obj])
             succ_cbs = list(
                 filter(
                     lambda succ_cb: any(d for d in cb.dest if d in succ_cb.source),
@@ -210,6 +213,25 @@ class Mapper:
                 # Doesn't have following core blocks
                 cb.lcn_locked = True
 
+        self.routing_groups = convert2routing_groups(
+            self.succ_core_blocks, self.degrees_of_cb, self.input_core_blocks
+        )
+        
+        for i in range(len(self.routing_groups)):
+            routing_group = self.routing_groups[i]
+            print("routing group[{}]:".format(i), [(cb.name, cb._routing_id) for cb in routing_group.core_blocks])
+    
+                
+    def graph_optimization(self) -> None:
+        optimized = self.graph.graph_optimization(self.core_blocks, self.routing_groups)
+        if optimized:
+            self.core_blocks.clear()
+            self.succ_core_blocks.clear()
+            self._build_check()
+            self.build_core_blocks()
+            self.lcn_ex_adjustment()
+        
+
     def coord_assign(self) -> None:
         """Assign the coordinate of each `CorePlacement`.
 
@@ -234,13 +256,9 @@ class Mapper:
         self.n_core_required = n_core_required
 
         # Generate routing groups by given the list of core blocks.
-        routing_groups = convert2routing_groups(
-            self.succ_core_blocks, self.degrees_of_cb, self.input_core_blocks
-        )
+        routing_groups = self.routing_groups
         for rg in routing_groups:
             self.routing_tree.insert_routing_group(rg)
-
-        self.routing_groups = routing_groups
 
         # Calculate the consumption of occupied physical cores.
         if (

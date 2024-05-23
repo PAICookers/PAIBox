@@ -26,6 +26,9 @@ from .constrs import GraphNodeConstrs
 from .graphs_types import *
 from .placement import CoreBlock
 from .routing import RoutingGroup
+import math
+from .context import _BACKEND_CONTEXT
+from .segment_utils import get_neu_segments
 
 
 @dataclass
@@ -273,6 +276,99 @@ class PAIGraph:
                 continue
 
         return gathered, routing_groups_id
+
+    def find_routing_group(self, core_blocks, routing_groups, node, type) -> Tuple[CoreBlock,RoutingGroup]:
+        if type == "src":
+            core_blocks_ = [cb for cb in core_blocks if node in cb.dest]
+        elif type == "dest":
+            core_blocks_ = [cb for cb in core_blocks if node in cb.source]
+        else:
+            raise ValueError("Invalid type")
+        print("coreblocks", [coreblock.name for coreblock in core_blocks_])
+        if(len(core_blocks_) != 1):
+            raise ValueError("Invalid edge group")
+        
+        
+        core_block_ = core_blocks_[0]
+        routing_groups_ = [rg for rg in routing_groups if core_block_ in rg.core_blocks]
+        for i in range(len(routing_groups_)):
+            routing_group = routing_groups_[i]
+            print("routing group[{}]:".format(i), [(cb.name, cb._routing_id) for cb in routing_group.core_blocks])
+        
+        # print("routing_groups", routing_groups)
+        if(len(routing_groups_) != 1):
+            raise ValueError("Invalid edge group")
+        routing_group_ = routing_groups[0]
+        return core_block_, routing_group_
+
+    def graph_optimization(self, core_blocks:List[CoreBlock], routing_groups:List[RoutingGroup]) -> bool:
+        def roundup_to_power_of_two(n):
+            if n <= 0:
+                return 1
+            power = math.ceil(math.log(n, 2))
+            return 2 ** power
+        length = self.ordered_nodes.__len__()
+        #visit ordered_nodes for end to front
+        for i in range(length-1, -1, -1):
+            node_name = self.ordered_nodes[i]
+            print("try to copy", node_name)
+            node = self.nodes[node_name].node
+            succ_edges = self.succ_dg[node_name]
+            #only support the node with 2 succ_edges
+            if len(succ_edges) != 2 :
+                continue
+            succ_nodes = [edge.edge.dest for edge in succ_edges.values()]
+            print(node.name, node)
+            print("succ_nodes", [succ_node.name for succ_node in succ_nodes])
+            rg_src_n_core = 0
+            rg_src_n_core_after_copy = 0
+            if not isinstance(node, InputProj):
+                cb_src, rg_src = self.find_routing_group(core_blocks, routing_groups, node, "src")
+                cb_src_dest = cb_src.dest.copy()
+                cb_src_dest.append(node.__deepcopy__())
+                print("cb_src_dest", [cb.name for cb in cb_src_dest])
+                n_core_required_after_copy = len(get_neu_segments(cb_src_dest, cb_src.neuron_capacity, cb_src.n_weight_bits*cb_src.n_timeslot, _BACKEND_CONTEXT.cflags["grouping_optim_target"]))
+                rg_src_n_core = rg_src.n_core_required
+                rg_src_n_core_after_copy = rg_src_n_core + n_core_required_after_copy - cb_src.n_core_required
+                print("rg_src_n_core: {}, rg_src_n_core_after_copy: {}".format(rg_src_n_core, rg_src_n_core_after_copy))
+            
+            
+
+            cb_dest, rg_dest = self.find_routing_group(core_blocks, routing_groups, node, "dest")
+            if(len(cb_dest.obj)!=2):
+                continue
+            for syns in cb_dest.obj:
+                print("{}: {}->{}".format(syns.name, syns.source.name, syns.dest.name))
+            
+            n_core_after_split = []
+            for i in range(2):
+                dest = [succ_nodes[i]]
+                n_core_after_split.append(len(get_neu_segments(dest, cb_dest.neuron_capacity, cb_dest.n_weight_bits*cb_dest.n_timeslot, _BACKEND_CONTEXT.cflags["grouping_optim_target"])))
+            '''not finish yet'''
+            
+            n_core_before = roundup_to_power_of_two(rg_src_n_core)+roundup_to_power_of_two(rg_dest.n_core_required)
+            n_core_after = roundup_to_power_of_two(rg_src_n_core_after_copy)+roundup_to_power_of_two(n_core_after_split[0])+roundup_to_power_of_two(n_core_after_split[1])
+            print("n_core_before: {}, n_core_after: {}".format(n_core_before, n_core_after))
+            
+            need_copy = (n_core_after < n_core_before)
+            if(True):
+                node_copy = node.__deepcopy__()
+                self._raw_nodes[node_copy.name] = node_copy
+                syns = succ_edges[succ_nodes[0].name].edge
+                syns.source = node_copy
+                print("{}: {}->{}".format(syns.name, syns.source.name, syns.dest.name))
+                if not isinstance(node, InputProj):
+                    prev_edges = self._find_pred_edges(self.succ_dg, node_name)
+                    for edge in prev_edges:
+                        edge_copy = edge.copy(edge.source, node_copy)
+                        self._raw_edges[edge_copy.name] = edge_copy
+                        print("{}: {}->{}".format(edge.name, edge.source.name, edge.dest.name))
+                        print("{}: {}->{}".format(edge_copy.name, edge_copy.source.name, edge_copy.dest.name))
+                self._update_graph()
+                print("raw_nodes", [raw_node.name for raw_node in self._raw_nodes.values()])
+                print("raw_edges", [raw_edge.name for raw_edge in self._raw_edges.values()])
+                return True
+        return False
 
     @staticmethod
     def _find_pred_edges(
