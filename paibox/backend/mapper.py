@@ -122,6 +122,8 @@ class Mapper:
         """2. Set global compilation flags."""
         self._set_global_cflags()
 
+        self.adjust_graph()
+        
         """3. Build core blocks."""
         self.build_core_blocks()
 
@@ -138,6 +140,10 @@ class Mapper:
 
         """7. Export parameters."""
         return self.config_export()
+    
+    def adjust_graph(self) -> None:
+        self.graph.adjust_graph()
+    
 
     def build_core_blocks(self) -> None:
         """Build core blocks based on grouped edges.

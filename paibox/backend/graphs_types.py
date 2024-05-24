@@ -43,11 +43,14 @@ class NodePosition(Enum):
     """As an output node."""
 
 
-class NodeDegree(NamedTuple):
+class NodeDegree:
     """In/Out-degree of a node in the directed graph."""
 
     in_degree: int = 0
     out_degree: int = 0
+    def __init__(self, in_degree: int, out_degree: int):
+        self.in_degree = in_degree
+        self.out_degree = out_degree
 
 
 class NodeAttr(NamedTuple):

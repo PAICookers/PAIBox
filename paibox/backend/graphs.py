@@ -62,6 +62,10 @@ class PAIGraph:
     succ_dg: Dict[NodeName, Dict[NodeName, EdgeAttr]] = field(default_factory=dict)
     """Successor edges & nodes of every node in the graph."""
 
+    succ_node: Dict[NodeName, List[NodeName]] = field(default_factory=dict)
+    
+    pre_node: Dict[NodeName, List[NodeName]] = field(default_factory=dict)
+
     degree_of_nodes: Dict[NodeName, NodeDegree] = field(default_factory=dict)
     """A dictionary of in/out-degree tuple of nodes."""
 
@@ -125,6 +129,8 @@ class PAIGraph:
 
         # TODO Check isolated nodes in _raw_nodes
         for node in self._raw_nodes:
+            self.succ_node[node] = []
+            self.pre_node[node]  = []
             self.succ_dg[node] = dict()
 
         for syn in self._raw_edges.values():
@@ -138,6 +144,8 @@ class PAIGraph:
                 raise GraphConnectionError(
                     f"the dest neuron {v} of {syn.name} is not included in the graph."
                 )
+            self.succ_node[u].append(v)
+            self.pre_node[v].append(u)
 
             self.succ_dg[u][v] = EdgeAttr(edge=syn, distance=syn.source.delay_relative)
 
@@ -161,7 +169,49 @@ class PAIGraph:
         for name, syn in self._raw_edges.items():
             self.edges[name] = EdgeAttr(edge=syn, distance=syn.source.delay_relative)
 
+        self.ordered_nodes = toposort(self.succ_dg)
         self.has_built = True
+
+        # self._gh_support_check()
+        
+    def adjust_graph(self) -> None:
+        for node_name in reversed(self.ordered_nodes):
+            if self.degree_of_nodes[node_name].out_degree <= 1:
+                continue
+
+            for succ_node_name in self.succ_node[node_name]:
+                if(self.degree_of_nodes[succ_node_name].in_degree > 1 and self.degree_of_nodes[node_name].out_degree > 1):
+                    node_copy = self.nodes[node_name].node.__deepcopy__()
+                    
+                    self._raw_nodes[node_copy.name] = node_copy
+                    
+                    #indegree same, out degree copy is 1, origin -1
+                    self.degree_of_nodes[node_copy.name] = self.degree_of_nodes[node_name]
+                    self.degree_of_nodes[node_copy.name].out_degree = 1
+                    self.degree_of_nodes[node_name].out_degree -= 1
+                    
+                    self.nodes[node_copy.name] = NodeAttr(node=node_copy,
+                                                          position=self._node_pos(node_name),
+                                                          degree=self.degree_of_nodes[node_copy.name])
+                    
+                    #set new source for succ_edge
+                    succ_edge = self.succ_dg[node_name][succ_node_name].edge
+                    succ_edge.source = node_copy
+                    
+                    #set new dest for pre_edge
+                    for pre_node_name in self.pre_node[node_name]:
+                        pre_edge = self.succ_dg[pre_node_name][node_name].edge
+                        pre_edge_copy = pre_edge.copy(pre_edge.source, node_copy)
+                        self._raw_edges[pre_edge_copy.name] = pre_edge_copy
+                        self.edges[pre_edge_copy.name] = EdgeAttr(edge=pre_edge_copy, distance=pre_edge_copy.source.delay_relative)
+                        self.succ_dg[pre_node_name][node_copy.name] = self.edges[pre_edge_copy.name]
+                        self.succ_node[pre_node_name].insert(0, node_copy.name)
+                        self.degree_of_nodes[pre_node_name].out_degree += 1
+        self._update_graph()
+        print("raw_nodes: ", [raw_node.name for raw_node in self._raw_nodes.values()])
+        print("raw_edges: ")
+        for edge in self._raw_edges.values():
+            print("{}: {}->{}".format(edge.name, edge.source.name, edge.dest.name))
 
         self._gh_support_check()
 
@@ -179,7 +229,6 @@ class PAIGraph:
         """
         # TODO Add pre-check: check whether all neuron nodes are connected by synapses
         # Filter the DG with cycles.
-        self.ordered_nodes = toposort(self.succ_dg)
 
         # Filter the DG with certain structure.
         _degree_check(self.degree_of_nodes, self.succ_dg)
