@@ -464,6 +464,7 @@ class Mapper:
 
                     if hasattr(CoordOffset, "from_offset"):
                         # For paicorelib > 0.0.13
+                        # TODO Only use 'from_offset()' after paicorelib releases the next version
                         cur_ocoord = ocoord + CoordOffset.from_offset(offset_idx)
                     else:
                         # For paicorelib <= 0.0.13
@@ -481,7 +482,10 @@ class Mapper:
                     )
 
         # Add the offset as the starting coordinate of the next output node
-        return cur_ocoord + CoordOffset(1, 0)
+        if hasattr(CoordOffset, "from_offset"):
+            return cur_ocoord + CoordOffset.from_offset(1)
+        else:
+            return cur_ocoord + CoordOffset(1, 0)
 
     def _onode_cb_config_export(
         self, onode_cb: CoreBlock, output_dest_info: OutputDestConf, ocoord: Coord
@@ -498,6 +502,7 @@ class Mapper:
 
                 if hasattr(CoordOffset, "from_offset"):
                     # For paicorelib > 0.0.13
+                    # TODO Only use 'from_offset()' after paicorelib releases the next version
                     cur_ocoord = ocoord + CoordOffset.from_offset(offset_idx)
                 else:
                     # For paicorelib <= 0.0.13
@@ -512,7 +517,11 @@ class Mapper:
                     core_plm.neu_configs[neu_seg.parent].neuron_dest_info
                 )
 
-        return cur_ocoord
+        # Add the offset as the starting coordinate of the next output node
+        if hasattr(CoordOffset, "from_offset"):
+            return cur_ocoord + CoordOffset.from_offset(1)
+        else:
+            return cur_ocoord + CoordOffset(1, 0)
 
     def export(
         self,
