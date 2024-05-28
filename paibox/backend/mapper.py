@@ -532,7 +532,7 @@ class Mapper:
             - format: `txt`, `bin`, or `npy`. `bin` is recommended.
             - split_by_coord: whether to split the generated frames file by the core coordinates.
             - export_core_params: whether to export the parameters of occupied cores.
-            - use_hw_sim: whether to use hardware simulator. If use, '.txt' will be exported.
+            - use_hw_sim: whether to use hardware simulator. If use, '.bin' will be exported.
 
         Return: a dictionary of configurations.
         """
@@ -541,7 +541,7 @@ class Mapper:
 
         formats = [format]
         if use_hw_sim:
-            formats.append("txt")
+            formats.append("bin")
 
         formats = list(set(formats))
 

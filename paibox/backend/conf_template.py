@@ -344,7 +344,7 @@ def gen_config_frames_by_coreconf(
         - write_to_file: whether to write frames to file.
         - fp: If `write_to_file` is `True`, specify the path.
         - split_by_coord: whether to split the generated frames file by the core coordinates.
-        - format: a list of formats to export.
+        - formats: a list of formats to export.
     """
 
     def _write_to_f(name: str, array: FrameArrayType) -> None:
