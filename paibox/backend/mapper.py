@@ -127,7 +127,7 @@ class Mapper:
         """3. Build core blocks."""
         self.build_core_blocks()
 
-        """4. Adjust the LCN extension of each core block."""
+        """Adjust the LCN extension of each core block."""
         self.lcn_ex_adjustment()
 
         # self.graph_optimization()
@@ -188,7 +188,7 @@ class Mapper:
         self.degrees_of_cb = get_node_degrees(self.succ_core_blocks)
 
     def lcn_ex_adjustment(self) -> None:
-        """Adjust the LCN extension of each core block."""
+        """Adjust the LCN of each core block & set target LCN."""
         # In the absence of the above complex situations, the following judgment is useless.
         # But it'd be better to add this lcn adjustment.
         for input_cbs in self.input_core_blocks.values():
@@ -199,28 +199,26 @@ class Mapper:
                     g.lcn_ex = max_lcn_ex
 
         for cb in self.core_blocks:
-            succ_cb = self.succ_core_blocks[cb]
+            succ_cbs = self.succ_core_blocks[cb]
 
-            if len(succ_cb) > 1:
-                max_lcn_ex = max_lcn_of_cb(succ_cb)
+            if len(succ_cbs) > 1:
+                max_lcn_ex = max_lcn_of_cb(succ_cbs)
                 # Adjust the `lcn_ex` of the following core blocks
-                for g in succ_cb:
-                    g.lcn_ex = max_lcn_ex
+                for _cb in succ_cbs:
+                    _cb.lcn_ex = max_lcn_ex
 
                 # Adjust `target_lcn` of itself & lock
                 cb.target_lcn = max_lcn_ex
-                cb.lcn_locked = True
-            elif len(succ_cb) == 1:
+            elif len(succ_cbs) == 1:
                 # Adjust `target_lcn` of itself & lock
-                cb.target_lcn = succ_cb[0].lcn_ex
-                cb.lcn_locked = True
-            else:
-                # Doesn't have following core blocks
-                cb.lcn_locked = True
+                cb.target_lcn = succ_cbs[0].lcn_ex
 
-        self.routing_groups = convert2routing_groups(
-            self.succ_core_blocks, self.degrees_of_cb, self.input_core_blocks
-        )
+            cb._lcn_locked = True
+
+    def cb_axon_grouping(self) -> None:
+        """The axons are grouped after the LCN has been modified & locked."""
+        for cb in self.core_blocks:
+            cb.group_axons()
 
         for i in range(len(self.routing_groups)):
             routing_group = self.routing_groups[i]

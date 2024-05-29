@@ -45,6 +45,7 @@ from .segment_utils import (
 )
 
 WeightRamType: TypeAlias = NDArray[np.uint64]  # uint64 weights mapped in weight RAM
+_COORD_UNSET = 0
 
 
 class CoreAbstract(HwCore, PAIBoxObject):
@@ -84,22 +85,20 @@ class CoreBlock(CoreAbstract):
         self.target_lcn = LCN_EX.LCN_1X
         """The target(destination core block) LCN."""
 
-        self.lcn_locked = False
+        self._lcn_locked = False
         """Used to indicate whether `lcn_ex` has been adjusted."""
 
         self.core_coords: List[Coord] = list()
         """Assigned core coordinates."""
 
-        self.chip_coord: ChipCoord = Coord(0, 0)  # default
+        self.chip_coord: ChipCoord = Coord(_COORD_UNSET, _COORD_UNSET)
         """A core block must be placed on a chip."""
 
         self.core_placements: Dict[Coord, CorePlacement] = dict()
         """Core placements."""
 
         # Segment the group of axons.
-        self.axon_segments: Dict[SourceNodeType, AxonSegment] = get_axon_segments(
-            self.axons, self.n_timeslot, self.n_fanin_max
-        )
+        self.axon_segments: Dict[SourceNodeType, AxonSegment] = dict()
         """A dictionary of segments of each axon(source node)."""
 
         self.neuron_segs_of_cb: NeuSegOfCoreBlock = []
@@ -111,20 +110,20 @@ class CoreBlock(CoreAbstract):
         self, optim_target: Literal["latency", "core", "both"] = "both"
     ) -> None:
         """Group the neurons to determine the #N of cores required."""
-        if not self.lcn_locked:
-            raise GraphBuildError("Group the neurons after lcn_ex is locked.")
+        if not self._lcn_locked:
+            raise GraphBuildError("group the neurons after 'lcn_ex' is locked.")
 
         self.neuron_segs_of_cb = get_neu_segments(
             self.dest,
             self.neuron_capacity,
-            _neuron_repl_prop(self.n_weight_bits, self.n_timeslot),
+            neuron_repl_prop(self.n_weight_bits, self.n_timeslot),
             optim_target,
         )
 
     def core_plm_alloc(self) -> None:
         """Allocate `CoreBlock` to physical cores."""
-        if not self.lcn_locked:
-            raise GraphBuildError("Allocate core placements after lcn_ex is locked.")
+        if not self._lcn_locked:
+            raise GraphBuildError("allocate core placements after 'lcn_ex' is locked.")
 
         for i, coord in enumerate(self.core_coords):
             # assert self.get_raw_weight_of_coord(i)[0].shape[0] == self.n_axon
@@ -246,7 +245,7 @@ class CoreBlock(CoreAbstract):
             )
 
         self._lcn_ex = lcn_ex
-        self.lcn_locked = True
+        self._lcn_locked = True
 
     @property
     def n_timeslot(self) -> int:
@@ -309,6 +308,14 @@ class CoreBlock(CoreAbstract):
             sum(seg.n_neuron for seg in neuron_segs)
             for neuron_segs in self.neuron_segs_of_cb
         ]
+
+    def group_axons(self) -> None:
+        if not self._lcn_locked:
+            raise GraphBuildError("get axon segments after 'lcn_ex' is locked.")
+
+        self.axon_segments = get_axon_segments(
+            self.axons, self.n_timeslot, self.n_fanin_max
+        )
 
     @cached_property
     def raw_weight_of_dest(self) -> List[WeightType]:
@@ -700,7 +707,7 @@ class CorePlacement(CoreAbstract):
 
     @property
     def n_dendrite(self) -> int:
-        return self.n_neuron * _neuron_repl_prop(self.n_weight_bits, self.n_timeslot)
+        return self.n_neuron * neuron_repl_prop(self.n_weight_bits, self.n_timeslot)
 
     @property
     def source(self) -> List[SourceNodeType]:
@@ -769,7 +776,7 @@ class EmptyCorePlacement(CoreAbstract):
         return cls(coord)
 
     @property
-    def n_core_required(self):
+    def n_core_required(self) -> int:
         return 1
 
 
@@ -778,18 +785,9 @@ def max_lcn_of_cb(cb: List[CoreBlock]) -> LCN_EX:
     return max(cb, key=lambda cb: cb.lcn_ex).lcn_ex
 
 
-def _neuron_repl_prop(nbits: int, ntimeslot: int) -> int:
+def neuron_repl_prop(nbits: int, ntimeslot: int) -> int:
     """Get the proportion of neuron replication.
 
     scale = nbits(1 << wp) * n_timeslot(1 << lcn_ex)
     """
     return nbits * ntimeslot
-
-
-class CoreMapper:
-    """Manage to group, combine & place the network into the chip.
-
-    TODO Integrate all the info of building the map.
-    """
-
-    core_blocks: List[CoreBlock] = field(default_factory=list)
