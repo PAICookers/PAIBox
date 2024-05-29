@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import sys
 from enum import Enum, auto, unique
 from typing import NamedTuple, Union
@@ -36,21 +37,28 @@ class NodePosition(Enum):
     """Charactor of a node in the directed graph."""
 
     MEMBER = auto()
-    """As a member layer."""
     INPUT = auto()
-    """As an input node."""
     OUTPUT = auto()
-    """As an output node."""
 
 
+_DEGREE_UNSET = -1  # XXX: or 0?
+
+
+@dataclass
 class NodeDegree:
     """In/Out-degree of a node in the directed graph."""
 
-    in_degree: int = 0
-    out_degree: int = 0
-    def __init__(self, in_degree: int, out_degree: int):
-        self.in_degree = in_degree
-        self.out_degree = out_degree
+    in_degree: int = _DEGREE_UNSET
+    out_degree: int = _DEGREE_UNSET
+
+    def __copy__(self) -> "NodeDegree":
+        return self.__deepcopy__()
+
+    def __deepcopy__(self) -> "NodeDegree":
+        return NodeDegree(self.in_degree, self.out_degree)
+
+    def copy(self) -> "NodeDegree":
+        return self.__deepcopy__()
 
 
 class NodeAttr(NamedTuple):

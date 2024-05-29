@@ -26,7 +26,7 @@ from paibox.network import DynSysGroup
 from .constrs import GraphNodeConstrs
 from .context import _BACKEND_CONTEXT
 from .graphs_types import *
-from .placement import CoreBlock
+from .placement import CoreBlock, neuron_repl_prop
 from .routing import RoutingGroup
 from .segment_utils import get_neu_segments
 
@@ -62,9 +62,8 @@ class PAIGraph:
     succ_dg: Dict[NodeName, Dict[NodeName, EdgeAttr]] = field(default_factory=dict)
     """Successor edges & nodes of every node in the graph."""
 
-    succ_node: Dict[NodeName, List[NodeName]] = field(default_factory=dict)
-    
-    pre_node: Dict[NodeName, List[NodeName]] = field(default_factory=dict)
+    pred_dg: Dict[NodeName, Dict[NodeName, EdgeAttr]] = field(default_factory=dict)
+    """Predecessor edges & nodes of every node in the graph."""
 
     degree_of_nodes: Dict[NodeName, NodeDegree] = field(default_factory=dict)
     """A dictionary of in/out-degree tuple of nodes."""
@@ -84,12 +83,14 @@ class PAIGraph:
         self.onodes.clear()
         self.ordered_nodes.clear()
         self.succ_dg.clear()
+        self.pred_dg.clear()
         self.degree_of_nodes.clear()
 
         if total:
             self._raw_networks = ()
             self._raw_nodes.clear()
             self._raw_edges.clear()
+            self._raw_fmodules.clear()
 
     def build(self, *networks: DynSysGroup, **build_options) -> None:
         self.clear()
@@ -129,9 +130,8 @@ class PAIGraph:
 
         # TODO Check isolated nodes in _raw_nodes
         for node in self._raw_nodes:
-            self.succ_node[node] = []
-            self.pre_node[node]  = []
             self.succ_dg[node] = dict()
+            self.pred_dg[node] = dict()
 
         for syn in self._raw_edges.values():
             u, v = syn.source.name, syn.dest.name
@@ -144,10 +144,10 @@ class PAIGraph:
                 raise GraphConnectionError(
                     f"the dest neuron {v} of {syn.name} is not included in the graph."
                 )
-            self.succ_node[u].append(v)
-            self.pre_node[v].append(u)
 
-            self.succ_dg[u][v] = EdgeAttr(edge=syn, distance=syn.source.delay_relative)
+            _edge_attr = EdgeAttr(edge=syn, distance=syn.source.delay_relative)
+            self.succ_dg[u][v] = _edge_attr
+            self.pred_dg[v][u] = _edge_attr
 
         self.degree_of_nodes = get_node_degrees(self.succ_dg)
 
@@ -172,65 +172,23 @@ class PAIGraph:
         self.ordered_nodes = toposort(self.succ_dg)
         self.has_built = True
 
-        # self._gh_support_check()
-        
-    def adjust_graph(self) -> None:
-        for node_name in reversed(self.ordered_nodes):
-            if self.degree_of_nodes[node_name].out_degree <= 1:
-                continue
+    def untwist_branch_nodes(self) -> None:
+        # FIXME Input nodes may need to be excluded from the nodes to be traversed?
+        for node_nn in filter(
+            lambda node: self.degree_of_nodes[node].out_degree > 1,
+            reversed(self.ordered_nodes),
+        ):
+            # succ_dg will be updated in _copy_node, so use the copy of succ_dg.
+            for succ_nn in self.succ_dg[node_nn].copy():
+                if self.degree_of_nodes[succ_nn].in_degree > 1:
+                    node = self._raw_nodes[node_nn]
+                    self._copy_node(
+                        node, keep_pred_conn=True, grab_succ_nodes=succ_nn, update=False
+                    )
 
-            for succ_node_name in self.succ_node[node_name]:
-                if(self.degree_of_nodes[succ_node_name].in_degree > 1 and self.degree_of_nodes[node_name].out_degree > 1):
-                    node_copy = self.nodes[node_name].node.__deepcopy__()
-                    
-                    self._raw_nodes[node_copy.name] = node_copy
-                    
-                    #indegree same, out degree copy is 1, origin -1
-                    self.degree_of_nodes[node_copy.name] = self.degree_of_nodes[node_name]
-                    self.degree_of_nodes[node_copy.name].out_degree = 1
-                    self.degree_of_nodes[node_name].out_degree -= 1
-                    
-                    self.nodes[node_copy.name] = NodeAttr(node=node_copy,
-                                                          position=self._node_pos(node_name),
-                                                          degree=self.degree_of_nodes[node_copy.name])
-                    
-                    #set new source for succ_edge
-                    succ_edge = self.succ_dg[node_name][succ_node_name].edge
-                    succ_edge.source = node_copy
-                    
-                    #set new dest for pre_edge
-                    for pre_node_name in self.pre_node[node_name]:
-                        pre_edge = self.succ_dg[pre_node_name][node_name].edge
-                        pre_edge_copy = pre_edge.copy(pre_edge.source, node_copy)
-                        self._raw_edges[pre_edge_copy.name] = pre_edge_copy
-                        self.edges[pre_edge_copy.name] = EdgeAttr(edge=pre_edge_copy, distance=pre_edge_copy.source.delay_relative)
-                        self.succ_dg[pre_node_name][node_copy.name] = self.edges[pre_edge_copy.name]
-                        self.succ_node[pre_node_name].insert(0, node_copy.name)
-                        self.degree_of_nodes[pre_node_name].out_degree += 1
         self._update_graph()
-        print("raw_nodes: ", [raw_node.name for raw_node in self._raw_nodes.values()])
-        print("raw_edges: ")
-        for edge in self._raw_edges.values():
-            print("{}: {}->{}".format(edge.name, edge.source.name, edge.dest.name))
 
-        self._gh_support_check()
-
-    def _gh_support_check(self) -> None:
-        """Preprocess of the directed graph. Because there are currently    \
-            many limitations on the networks that can be processed, checks  \
-            are performed at this stage.
-
-        Limitation:
-            # For a node with in-degree > 1, the out-degree of all its      \
-            #   forward nodes = 1.
-            - For a node with out-degree > 1, the in-degree of all its      \
-                backward node = 1.
-            - Only support the in-degree of backward node of input node is 1.
-        """
-        # TODO Add pre-check: check whether all neuron nodes are connected by synapses
-        # Filter the DG with cycles.
-
-        # Filter the DG with certain structure.
+    def topo_support_check(self) -> None:
         _degree_check(self.degree_of_nodes, self.succ_dg)
 
         # Only support output nodes with <= 1152 neurons so far.
@@ -487,6 +445,150 @@ class PAIGraph:
                 pred.add(succ_node[target_node].edge)
 
         return pred
+
+    def _copy_node(
+        self,
+        node: NodeType,
+        *,
+        keep_pred_conn: bool = False,
+        keep_succ_conn: bool = False,
+        grab_pred_nodes: Union[NodeName, Sequence[NodeName]] = (),
+        grab_succ_nodes: Union[NodeName, Sequence[NodeName]] = (),
+        update: bool = True,
+    ) -> NodeType:
+        def _copy_pred_conn(
+            copied: DestNodeType, pred_nodes: Dict[NodeName, EdgeAttr], orig_ind: int
+        ) -> None:
+            for pred_nn, pred_edge_attr in pred_nodes.items():
+                copied_edge = pred_edge_attr.edge.copy(target=copied)
+                self._raw_edges[copied_edge.name] = copied_edge
+                # If don't _update_graph(), update partial information:
+                # 1. Add the copied node & its incomming edges to succ_dg.
+                # 2. Update the in-degree of copied node = in-degree of the original node.
+                # 3. The out-degree of predecessors +1.
+                # 1/2 -> A -> ...
+                # ---
+                # 1/2 -> A -> ...
+                # 1/2 -> A'-> ...
+                if not update:
+                    copied_edge_attr = EdgeAttr(copied_edge, pred_edge_attr.distance)
+                    self.succ_dg[pred_nn][copied.name] = copied_edge_attr
+                    self.pred_dg[copied.name] = {pred_nn: copied_edge_attr}
+                    self.degree_of_nodes[pred_nn].out_degree += 1
+
+            if not update:
+                self.degree_of_nodes[copied.name].in_degree = orig_ind
+
+        def _copy_succ_conn(
+            copied: DestNodeType, succ_nodes: Dict[NodeName, EdgeAttr], orig_oud: int
+        ) -> None:
+            for succ_nn, succ_edge_attr in succ_nodes.items():
+                copied_edge = succ_edge_attr.edge.copy(source=copied)
+                self._raw_edges[copied_edge.name] = copied_edge
+                # If don't _update_graph(), update partial information:
+                # 1. Add the copied node & its outcoming edges to pred_nodes_dict & pred_dg.
+                # 2. Update the out-degree of copied node = out-degree of the original node.
+                # 3. The in-degree of successors +1.
+                # ... -> A -> 1/2
+                # ---
+                # ... -> A -> 1/2
+                # ... -> A'-> 1/2
+                if not update:
+                    copied_edge_attr = EdgeAttr(copied_edge, succ_edge_attr.distance)
+                    self.pred_dg[succ_nn][copied.name] = copied_edge_attr
+                    self.succ_dg[copied.name] = {succ_nn: copied_edge_attr}
+                    self.degree_of_nodes[succ_nn].in_degree += 1
+
+            if not update:
+                self.degree_of_nodes[copied.name].out_degree = orig_oud
+
+        pred_nodes = self.pred_dg[node.name]
+        succ_nodes = self.succ_dg[node.name]
+
+        copied: NeuDyn = node.copy()
+        self._raw_nodes[copied.name] = copied
+
+        if not update:
+            self.degree_of_nodes[copied.name] = NodeDegree()
+
+        if keep_pred_conn:
+            orig_ind = self.degree_of_nodes[node.name].in_degree
+            _copy_pred_conn(copied, pred_nodes, orig_ind)
+        else:
+            if isinstance(grab_pred_nodes, NodeName):
+                grab_pred_nodes = (grab_pred_nodes,)
+
+            if any(nn not in pred_nodes for nn in grab_pred_nodes):
+                raise ValueError(
+                    f"not all nodes in 'grab_pred_nodes' are in node {node.name}'s predecessors. "
+                    f"Got {', '.join(grab_pred_nodes)}, but predecessors are {', '.join(pred_nodes)}."
+                )
+            else:
+                for pred_nn in grab_pred_nodes:
+                    pred_edge = pred_nodes[pred_nn].edge
+                    pred_edge.target = copied
+                    # If don't _update_graph(), update partial information:
+                    # 1. Remove the original connection & add the copied node & the edge
+                    # with the modified target to succ_nodes_dict & succ_dg.
+                    # 2. Update the in-degree of copied node = len(grab).
+                    # 3. The out-degree of predecessors keep the same.
+                    # 1/2/3 -> A -> ...
+                    # ---
+                    # 1     -> A -> ...
+                    # 2/3   -> A'-> ...
+                    if not update:
+                        _orig_edge_attr = self.succ_dg[pred_nn].pop(node.name)
+                        new_edge_attr = EdgeAttr(pred_edge, _orig_edge_attr.distance)
+
+                        self.succ_dg[pred_nn][copied.name] = new_edge_attr
+                        self.pred_dg[copied.name] = dict()
+                        self.pred_dg[copied.name][pred_nn] = new_edge_attr
+
+                if not update:
+                    self.degree_of_nodes[node.name].in_degree -= len(grab_pred_nodes)
+                    self.degree_of_nodes[copied.name].in_degree = len(grab_pred_nodes)
+
+        if keep_succ_conn:
+            orig_oud = self.degree_of_nodes[node.name].out_degree
+            _copy_succ_conn(copied, pred_nodes, orig_oud)
+        else:
+            if isinstance(grab_succ_nodes, NodeName):
+                grab_succ_nodes = (grab_succ_nodes,)
+
+            if any(nn not in succ_nodes for nn in grab_succ_nodes):
+                raise ValueError(
+                    f"not all nodes in 'grab_succ_nodes' are in node {node.name}'s successors."
+                    f"Got {', '.join(grab_succ_nodes)}, but successors are {', '.join(succ_nodes)}."
+                )
+            else:
+                for succ_nn in grab_succ_nodes:
+                    succ_edge = succ_nodes[succ_nn].edge
+                    succ_edge.source = copied
+                    # If don't _update_graph(), update partial information:
+                    # 1. Remove the original connection & add the copied node & the edge
+                    # with the modified target to succ_dg.
+                    # 2. Update the out-degree of copied node = len(grab).
+                    # 3. The in-degree of successors keep the same.
+                    # ... -> A -> 1/2/3
+                    # ---
+                    # ... -> A -> 1
+                    # ... -> A'-> 2/3
+                    if not update:
+                        self.succ_dg[node.name].pop(succ_nn)
+                        _orig_edge_attr = self.pred_dg[succ_nn].pop(node.name)
+                        new_edge_attr = EdgeAttr(succ_edge, _orig_edge_attr.distance)
+                        self.succ_dg[copied.name] = {succ_nn: new_edge_attr}
+                        self.pred_dg[succ_nn][copied.name] = new_edge_attr
+                        # self.pred_dg = reverse_edges2(self.succ_dg)
+
+                if not update:
+                    self.degree_of_nodes[node.name].out_degree -= len(grab_succ_nodes)
+                    self.degree_of_nodes[copied.name].out_degree = len(grab_succ_nodes)
+
+        if update:
+            self._update_graph()
+
+        return copied
 
     @property
     def inherent_timestep(self) -> int:
@@ -791,3 +893,15 @@ def get_shortest_path(
 
     path.reverse()
     return path, distance
+
+
+def get_succ_cb_by_node(
+    node: NodeType, core_blocks: Sequence[CoreBlock]
+) -> List[CoreBlock]:
+    return [cb for cb in core_blocks if node in cb.source]
+
+
+def get_pred_cb_by_node(
+    node: NodeType, core_blocks: Sequence[CoreBlock]
+) -> List[CoreBlock]:
+    return [cb for cb in core_blocks if node in cb.dest]
