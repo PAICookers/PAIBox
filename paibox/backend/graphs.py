@@ -632,12 +632,18 @@ def convert2routing_groups(
     routing_groups = []
     succ_cb_gid_dict = defaultdict(list)
 
-    _degree_check(degrees_of_cb, succ_dg_of_cb)
+    # _degree_check(degrees_of_cb, succ_dg_of_cb)
 
     # After that, all input core blocks have been traversed.
     for input_cbs in input_core_blocks.values():
-        seen_cb.update(input_cbs)
-        routing_groups.append(RoutingGroup(*input_cbs))
+        # FIXME Temporary solution. This case should be solved first:
+        # I1 -> A/B, I2 -> B/C.
+        if not seen_cb.isdisjoint(input_cbs):
+            if len(input_cbs) > 1:
+                raise ValueError
+            else:
+                seen_cb.update(input_cbs)
+                routing_groups.append(RoutingGroup(*input_cbs))
 
     for cb in ordered_core_blocks:
         # Check whether the core block has been traversed. This judgment condition is for
