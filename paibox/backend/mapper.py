@@ -2,7 +2,7 @@ import sys
 from collections import defaultdict
 from copy import copy
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Sequence, Union
 
 from paicorelib import Coord, CoordOffset, HwConfig, get_replication_id
 
@@ -23,8 +23,13 @@ from .conf_template import (
     gen_config_frames_by_coreconf,
 )
 from .context import _BACKEND_CONTEXT, set_cflag
-from .graphs import PAIGraph, convert2routing_groups, get_node_degrees
-from .graphs_types import NodeDegree, SourceNodeType
+from .graphs import (
+    PAIGraph,
+    convert2routing_groups,
+    get_node_degrees,
+    get_succ_cb_by_node,
+)
+from .graphs_types import NodeDegree, NodeType, SourceNodeType
 from .placement import CoreBlock, aligned_coords, max_lcn_of_cb
 from .routing import RoutingGroup, RoutingRoot
 from .segment_utils import NeuSeg
@@ -76,6 +81,9 @@ class Mapper:
         _BACKEND_CONTEXT.cflags.clear()
         set_cflag(enable_wp_opt=True)
         set_cflag(grouping_optim_target="both")
+        set_cflag(no_twisted_branch=True)
+        set_cflag(multicast_optim=False)
+        set_cflag(multicast_optim_nodes=())
 
     def build(self, *networks: DynSysGroup, **build_options) -> None:
         """Build the directed graph based on given networks. More than one networks in one graph is supported.
@@ -93,8 +101,10 @@ class Mapper:
     def compile(
         self,
         *,
-        weight_bit_optimization: Optional[bool] = None,
-        grouping_optim_target: Optional[Literal["latency", "core", "both"]] = None,
+        weight_bit_optimization: bool = True,
+        grouping_optim_target: Literal["latency", "core", "both"] = "both",
+        no_twisted_branch: bool = True,
+        multicast_optim: Union[bool, Sequence[NodeType]] = False,
     ) -> GraphInfo:
         """Compile the network with optimization options.
 
@@ -110,78 +120,99 @@ class Mapper:
 
         Return: network information after compilation in dictionary format.
         """
-        if weight_bit_optimization is not None:
-            set_cflag(enable_wp_opt=weight_bit_optimization)
+        set_cflag(enable_wp_opt=weight_bit_optimization)
+        set_cflag(grouping_optim_target=grouping_optim_target)
+        set_cflag(no_twisted_branch=no_twisted_branch)
 
-        if grouping_optim_target is not None:
-            set_cflag(grouping_optim_target=grouping_optim_target)
+        # True, to optimize all nodes. A sequence, to optimize specified nodes
+        if isinstance(multicast_optim, bool):
+            set_cflag(multicast_optim=multicast_optim)
+        elif isinstance(multicast_optim, Sequence):
+            _mul_optim_nodes = tuple(node.name for node in multicast_optim)
 
-        """1. Check whether the PAIGraph has built."""
+            if any(node not in self.graph._raw_nodes for node in _mul_optim_nodes):
+                raise ValueError("not all specified nodes are in the graph.")
+
+            set_cflag(multicast_optim=True)
+            set_cflag(multicast_optim_nodes=_mul_optim_nodes)
+
+        """Preperation.
+            1. Check whether the PAIGraph has built.
+            2. Set global compilation flags.
+        """
         self._build_check()
-
-        """2. Set global compilation flags."""
         self._set_global_cflags()
 
-        self.adjust_graph()
-        
-        """3. Build core blocks."""
+        """Untwist the branch nodes if flag is on."""
+        if no_twisted_branch:
+            self.untwist_branch_nodes()
+
+        """Build core blocks."""
         self.build_core_blocks()
 
         """Adjust the LCN extension of each core block."""
         self.lcn_ex_adjustment()
 
-        # self.graph_optimization()
+        """Group the axons of core block."""
+        self.cb_axon_grouping()
 
-        """5. Core coordinate assignment."""
+        # Generate routing_groups for gh_multicast_optim
+        self.routing_groups = convert2routing_groups(
+            self.succ_core_blocks, self.degrees_of_cb, self.input_core_blocks
+        )
+
+        """Core coordinate assignment."""
         self.coord_assign()
 
-        """6. Allocate the core blocks to the `CorePlacement`."""
+        """Allocate the core blocks to the core placments."""
         self.core_allocation()
 
-        """7. Export parameters."""
+        """Export configurations."""
         return self.config_export()
-    
-    def adjust_graph(self) -> None:
-        self.graph.adjust_graph()
-    
+
+    def untwist_branch_nodes(self) -> None:
+        self.graph.untwist_branch_nodes()
+        self.graph.topo_support_check()
 
     def build_core_blocks(self) -> None:
         """Build core blocks based on grouped edges.
 
         Description: Group all edges & build `CoreBlock` based on the grouped edges.
         """
-        grouped_edges, routing_groups_id = self.graph.group_edges()
+        # TODO Before the compilation, add graph check, such as:
+        # check the node degree: _DEGREE_UNSET, ...
+        grouped_edges, rg_id = self.graph.group_edges()
 
         if sys.version_info >= (3, 10):
-            for syns, routing_id in zip(grouped_edges, routing_groups_id, strict=True):
+            for syns, routing_id in zip(grouped_edges, rg_id, strict=True):
                 self.core_blocks.append(
                     CoreBlock.build(*syns, seed=0, routing_id=routing_id)
                 )
         else:
-            if len(grouped_edges) != len(routing_groups_id):
+            if len(grouped_edges) != len(rg_id):
                 raise ValueError(
                     f"the length of grouped edges & routing groups id are not equal, "
-                    f"{len(grouped_edges)} != {len(routing_groups_id)}"
+                    f"{len(grouped_edges)} != {len(rg_id)}"
                 )
 
-            for syns, routing_id in zip(grouped_edges, routing_groups_id):
+            for syns, routing_id in zip(grouped_edges, rg_id):
                 self.core_blocks.append(CoreBlock.build(*syns, routing_id=routing_id))
 
-        for cb in self.core_blocks:
-            succ_cbs = list(
-                filter(
-                    lambda succ_cb: any(d for d in cb.dest if d in succ_cb.source),
-                    self.core_blocks,
-                )
-            )
-            self.succ_core_blocks[cb].extend(succ_cbs)
+        for cur_cb in self.core_blocks:
+            succ_cbs = []
+            # cur_cb == cb is possible
+            for cb in self.core_blocks:
+                if any(d for d in cur_cb.dest if d in cb.source):
+                    succ_cbs.append(cb)
+
+            self.succ_core_blocks[cur_cb] = succ_cbs
 
         for inode in self.graph.inodes.values():
             # TODO How to prevent this situation: there is input node & predecessor nodes
             # in a certain core blocks.
 
             # Disconnected input nodes will not be recorded.
-            succ_cb = [cb for cb in self.core_blocks if inode in cb.source]
+            succ_cb = get_succ_cb_by_node(inode, self.core_blocks)
             if len(succ_cb) > 0:
                 self.input_core_blocks[inode] = succ_cb
 
@@ -256,13 +287,14 @@ class Mapper:
         self.n_core_required = n_core_required
 
         # Generate routing groups by given the list of core blocks.
-        routing_groups = self.routing_groups
-        for rg in routing_groups:
+        for rg in self.routing_groups:
             self.routing_tree.insert_routing_group(rg)
 
         # Calculate the consumption of occupied physical cores.
         if (
-            n_core_occupied := sum(rg.get_n_core_occupied() for rg in routing_groups)
+            n_core_occupied := sum(
+                rg.get_n_core_occupied() for rg in self.routing_groups
+            )
         ) > n_avail_cores:
             raise ResourceError(
                 CORE_RESOURCE_OUT_OF_RANGE_TEXT.format(n_avail_cores, n_core_occupied)
