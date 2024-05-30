@@ -22,6 +22,7 @@ from paibox.collector import Collector
 from paibox.components import FullConnectedSyn, InputProj, NeuModule
 from paibox.exceptions import GraphBuildError, GraphConnectionError, NotSupportedError
 from paibox.network import DynSysGroup
+from paibox.utils import check_elem_unique
 
 from .constrs import GraphNodeConstrs
 from .context import _BACKEND_CONTEXT
@@ -94,6 +95,9 @@ class PAIGraph:
 
     def build(self, *networks: DynSysGroup, **build_options) -> None:
         self.clear()
+
+        if not check_elem_unique(networks):
+            raise GraphBuildError("duplicated networks are not allowed.")
 
         self._raw_networks = networks
         self._pre_build(**build_options)
@@ -228,7 +232,9 @@ class PAIGraph:
         for node in self.ordered_nodes:
             """Process the predecessor nodes of nodes first, then process the successor nodes."""
             if self.degree_of_nodes[node].in_degree > 1:
-                edge_group = self._find_pred_edges(self.succ_dg, node)
+                edge_group = set(
+                    [pred_nodes.edge for pred_nodes in self.pred_dg[node].values()]
+                )
                 # Get the edges traversed for the first time
                 comming_edges = edge_group.difference(seen_edges)
 
@@ -604,6 +610,7 @@ class PAIGraph:
 
 
 _NT = TypeVar("_NT", CoreBlock, NodeName)
+_T = TypeVar("_T")
 
 
 def _degree_check(
@@ -729,7 +736,7 @@ def toposort(directed_edges: Mapping[_NT, Iterable[_NT]]) -> List[_NT]:
     return ordered
 
 
-def reverse_edges(directed_edges: Mapping[_NT, Iterable[_NT]]) -> Dict[_NT, Set[_NT]]:
+def reverse_edges(directed_edges: Mapping[_NT, Iterable[_NT]]) -> Dict[_NT, List[_NT]]:
     """
     Reverses direction of dependence dict.
 
@@ -743,10 +750,27 @@ def reverse_edges(directed_edges: Mapping[_NT, Iterable[_NT]]) -> Dict[_NT, Set[
     -------
     Dict of the form {a: set(), b: {a}, c: {a}} where b and c depend on a.
     """
-    reversed = {k: set() for k in directed_edges}
+    reversed = {k: list() for k in directed_edges}
     for key in directed_edges:
         for val in directed_edges[key]:
-            reversed[val].add(key)
+            if key in reversed[val]:
+                raise ValueError(f"edge {key} -> {val} is repeated.")
+
+            reversed[val].append(key)
+
+    return reversed
+
+
+def reverse_edges2(
+    directed_edges: Mapping[_NT, Mapping[_NT, _T]]
+) -> Dict[_NT, Dict[_NT, _T]]:
+    reversed = {k: dict() for k in directed_edges}
+    for key in directed_edges:
+        for val, edge in directed_edges[key].items():
+            if key in reversed[val]:
+                raise ValueError(f"edge {key} -> {val} is repeated.")
+
+            reversed[val][key] = edge
 
     return reversed
 
@@ -907,7 +931,31 @@ def get_succ_cb_by_node(
     return [cb for cb in core_blocks if node in cb.source]
 
 
+def get_pred_cb_by_succ_cb(
+    succ_cb: Dict[CoreBlock, List[CoreBlock]]
+) -> Dict[CoreBlock, List[CoreBlock]]:
+    return reverse_edges(succ_cb)
+
+
 def get_pred_cb_by_node(
     node: NodeType, core_blocks: Sequence[CoreBlock]
 ) -> List[CoreBlock]:
     return [cb for cb in core_blocks if node in cb.dest]
+
+
+def get_pred_dg_by_succ_dg(
+    succ_dg: Dict[NodeName, Dict[NodeName, EdgeAttr]]
+) -> Dict[NodeName, Dict[NodeName, EdgeAttr]]:
+    return reverse_edges2(succ_dg)
+
+
+def get_pred_nodes_by_succ_dg(
+    node: NodeType, succ_dg: Dict[NodeName, Dict[NodeName, EdgeAttr]]
+) -> List[NodeName]:
+    pred_nodes = []
+
+    for pred, succ_nodes in succ_dg.items():
+        if node in succ_nodes:
+            pred_nodes.append(pred)
+
+    return pred_nodes
