@@ -132,8 +132,10 @@ class Container(MixIn):
 class ReceiveInputProj(MixIn):
     master_nodes: NodeDict[str, "FullConnectedSyn"]
 
-    def register_master(self, key: str, master_target: "FullConnectedSyn") -> None:
-        if key in self.master_nodes:
+    def register_master(
+        self, key: str, master_target: "FullConnectedSyn", strict: bool = True
+    ) -> None:
+        if key in self.master_nodes and strict:
             raise RegisterError(f"master node with key '{key}' already exists.")
 
         self.master_nodes[key] = master_target

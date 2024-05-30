@@ -144,7 +144,10 @@ class FullConnectedSyn(SynSys):
         self._target.unregister_master(self.name)
 
         self._target = target
-        target.register_master(RIGISTER_MASTER_KEY_FORMAT.format(self.name), self)
+        # Allow the same target to register again.
+        target.register_master(
+            RIGISTER_MASTER_KEY_FORMAT.format(self.name), self, strict=False
+        )
 
     @property
     def dest(self) -> NeuDyn:
