@@ -43,7 +43,7 @@ except Exception:
 from paibox import tools
 
 # Minimum required version of paicorelib
-__plib_minimum_version__ = "1.0.0"
+__plib_minimum_version__ = "1.1.4"
 
 try:
     import paicorelib as plib
