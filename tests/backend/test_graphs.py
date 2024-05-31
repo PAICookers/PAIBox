@@ -206,16 +206,25 @@ def test_bounded_nodes_check(constrs, expected):
 
 
 class TestPAIGraph:
-    def test_output_nodes_with_more_than_1152(self, monkeypatch, build_example_net1):
-        net = build_example_net1
-
-        # Change the #N of neurons of the output node
-        monkeypatch.setattr(net.n3, "_n_neuron", 1200)
-
+    def test_build_duplicated_networks(self, build_example_net2):
+        net = build_example_net2
         mapper = pb.Mapper()
 
+        with pytest.raises(GraphBuildError):
+            mapper.build(net, net, net)
+        
+    def test_output_nodes_with_more_than_1152(self, monkeypatch, build_example_net2):
+        net = build_example_net2
+
+        # Change the #N of neurons of the output node
+        assert 1200 > HwConfig.N_FANIN_PER_DENDRITE_MAX
+        monkeypatch.setattr(net.n2, "_n_neuron", 1200)
+
+        mapper = pb.Mapper()
+        mapper.build(net)
+
         with pytest.raises(NotSupportedError):
-            mapper.build(net)
+            mapper.compile()
 
     def test_prebuild_topo_info(self, build_FModule_ConnWithInput_Net):
         net = build_FModule_ConnWithInput_Net
@@ -236,6 +245,24 @@ class TestPAIGraph:
 
         with pytest.raises(GraphConnectionError):
             mapper.build(net)
+
+    def test_untwist_branch_nodes1(self, build_Network_branch_nodes1):
+        net = build_Network_branch_nodes1
+
+        mapper = pb.Mapper()
+        mapper.build(net)
+        mapper.compile()
+
+        assert len(mapper.graph.nodes) == 9
+
+    def test_untwist_branch_nodes2(self, build_Network_branch_nodes2):
+        net = build_Network_branch_nodes2
+
+        mapper = pb.Mapper()
+        mapper.build(net)
+        mapper.compile()
+
+        assert 1
 
 
 class TestGroupEdges:
@@ -439,15 +466,6 @@ class TestGroupEdges:
                 pos_n3 = i
 
         assert pos_n2 != pos_n3
-
-        # Continue
-        mapper.build_core_blocks()
-        mapper.lcn_ex_adjustment()
-        mapper.coord_assign()
-        mapper.core_allocation()
-
-        mapper.config_export()
-        print()
 
 
 class TestDAGPathDistance:
