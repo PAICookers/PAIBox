@@ -1,3 +1,4 @@
+import sys
 import warnings
 from functools import partial
 from typing import Literal, Optional, Sequence, Tuple, Union
@@ -7,7 +8,12 @@ from numpy.typing import NDArray
 from paicorelib import NTM, RM, TM
 
 from paibox.base import NeuDyn, NodeList
-from paibox.exceptions import FunctionalError, PAIBoxWarning, ShapeError
+from paibox.exceptions import (
+    FunctionalError,
+    PAIBoxDeprecationWarning,
+    PAIBoxWarning,
+    ShapeError,
+)
 from paibox.network import DynSysGroup
 from paibox.types import SpikeType, VoltageType
 from paibox.utils import as_shape, shape2num
@@ -27,6 +33,11 @@ from .synapses import ConnType, FullConnSyn
 from .synapses.conv_types import _Size2Type
 from .synapses.conv_utils import _fm_ndim2_check, _pair
 from .synapses.transforms import _Pool2dForward
+
+if sys.version_info >= (3, 13):
+    from warnings import deprecated
+else:
+    from typing_extensions import deprecated
 
 __all__ = [
     "BitwiseAND",
@@ -740,6 +751,10 @@ class SpikingSub(FunctionalModule2to1WithV):
         return generated
 
 
+@deprecated(
+    "'Transpose2d' will be removed in a future version. Use 'MatMul2d' instead.",
+    category=PAIBoxDeprecationWarning,
+)
 class Transpose2d(TransposeModule):
     def __init__(
         self,
@@ -799,6 +814,10 @@ class Transpose2d(TransposeModule):
         return generated
 
 
+@deprecated(
+    "'Transpose3d' will be removed in a future version. Use 'MatMul2d' instead.",
+    category=PAIBoxDeprecationWarning,
+)
 class Transpose3d(TransposeModule):
     def __init__(
         self,

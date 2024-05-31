@@ -112,11 +112,29 @@ class Mapper:
             - weight_bit_optimization: whether to optimize weight precision. For example, weights declared as   \
                 INT8 are treated as smaller precision based on their actual values (when the weight are all     \
                 between [-8, 7], they can be treated as INT4). By default, it is specified by the corresponding \
-                compile option in the backend configuration item (enabled by default).
+                compile option in the backend configuration item. Default is true.
             - grouping_optim_target: specify the optimization goal of neuron grouping, which can be `latency`,  \
                 `core` or `both`, which respectively represent the optimization goal of delay/throughput,       \
                 occupied cores, or both. The default is specified by the corresponding compilation option in the\
-                backend configuration item (`both` by default).
+                backend configuration item. Default is 'both'.
+            - no_twisted_branch: when parsing the network topology, whether or not to prohibit intersecting     \
+                branch structures will cause such structures to be processed. For example:
+
+                I -> A -> B -> C
+                       ------>
+
+                The out-degree of node A is > 1, and its successor node C has an in-degree > 1. If `no_twisted_branch`    \
+                is true, A will be copied & denoted as A', whose forward connection is preserved.
+
+                I -> A -> B -> C
+                  -> A'------>
+
+                Default is true.
+
+            - multicast_optim (in dev): whether to perform multicast optimization. If true, the optimization is \
+                performed on all nodes in the network. If a node list is passed, the optimization is attempted  \
+                on the specified nodes only. Default is false.
+                TODO A description of it is to be added
 
         Return: network information after compilation in dictionary format.
         """
@@ -491,17 +509,7 @@ class Mapper:
                     core_plm.export_neu_config(neu_seg, dest_cb_of_nseg)
                 else:
                     offset_idx = o_nodes.index(neu_seg.parent)
-
-                    if hasattr(CoordOffset, "from_offset"):
-                        # For paicorelib > 0.0.13
-                        # TODO Only use 'from_offset()' after paicorelib releases the next version
-                        cur_ocoord = ocoord + CoordOffset.from_offset(offset_idx)
-                    else:
-                        # For paicorelib <= 0.0.13
-                        cur_ocoord = ocoord + CoordOffset(
-                            offset_idx // 32, offset_idx % 32
-                        )
-
+                    cur_ocoord = ocoord + CoordOffset.from_offset(offset_idx)
                     output_axon_offset = core_plm.export_neu_config(
                         neu_seg,
                         output_core_coord=cur_ocoord,
@@ -512,10 +520,7 @@ class Mapper:
                     )
 
         # Add the offset as the starting coordinate of the next output node
-        if hasattr(CoordOffset, "from_offset"):
-            return cur_ocoord + CoordOffset.from_offset(1)
-        else:
-            return cur_ocoord + CoordOffset(1, 0)
+        return cur_ocoord + CoordOffset.from_offset(1)
 
     def _onode_cb_config_export(
         self, onode_cb: CoreBlock, output_dest_info: OutputDestConf, ocoord: Coord
@@ -529,15 +534,7 @@ class Mapper:
             for neu_seg in core_plm.neu_segs_of_cplm:
                 # Get the output coordinate of this neu_seg
                 offset_idx = o_nodes.index(neu_seg.parent)
-
-                if hasattr(CoordOffset, "from_offset"):
-                    # For paicorelib > 0.0.13
-                    # TODO Only use 'from_offset()' after paicorelib releases the next version
-                    cur_ocoord = ocoord + CoordOffset.from_offset(offset_idx)
-                else:
-                    # For paicorelib <= 0.0.13
-                    cur_ocoord = ocoord + CoordOffset(offset_idx // 32, offset_idx % 32)
-
+                cur_ocoord = ocoord + CoordOffset.from_offset(offset_idx)
                 output_axon_offset = core_plm.export_neu_config(
                     neu_seg,
                     output_core_coord=cur_ocoord,
@@ -548,10 +545,7 @@ class Mapper:
                 )
 
         # Add the offset as the starting coordinate of the next output node
-        if hasattr(CoordOffset, "from_offset"):
-            return cur_ocoord + CoordOffset.from_offset(1)
-        else:
-            return cur_ocoord + CoordOffset(1, 0)
+        return cur_ocoord + CoordOffset.from_offset(1)
 
     def export(
         self,
