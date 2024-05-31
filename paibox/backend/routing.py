@@ -1,4 +1,4 @@
-from typing import Any, Dict, Iterator, List, Optional, Sequence, final
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Union, final
 
 from paicorelib import ChipCoord, Coord, HwConfig
 from paicorelib.routing_defs import ROUTING_DIRECTIONS_IDX as DIREC_IDX
@@ -100,16 +100,16 @@ class RoutingCluster:
     ) -> bool:
         """Add a child cluster to a certain `direction`."""
         if self.level - child.level != 1:
-            raise ValueError(f"Cannot skip more than 1 level.")
+            raise ValueError(f"cannot skip more than 1 level.")
 
         if d in self:
             return False
 
-        if d == Direction.X1Y1:
+        if d == Direction.X1Y1 or self.level in (Level.L1, Level.L2):
             if self.include_online and check_hit_online:
                 return False
             else:
-                child.include_online = True
+                child.include_online = self.include_online
 
         # child.direction = d. Already done in `self[d]`(__setitem__).
         self[d] = child
@@ -126,7 +126,7 @@ class RoutingCluster:
 
         if child is None:
             if strict:
-                raise RoutingError(f"Removed child of {d} from {self} failed.")
+                raise RoutingError(f"removed child of {d} from {self} failed.")
             else:
                 return None
 
@@ -174,7 +174,7 @@ class RoutingCluster:
         """
         if cluster.level > self.level:
             raise ValueError(
-                f"Cannot get routing path because the level cluster is higher."
+                f"cannot get routing path because the level cluster is higher."
             )
 
         if cluster.level == self.level:
@@ -255,7 +255,7 @@ class RoutingCluster:
                 return False
 
             if sub_n_child == 1:
-                self.add_child(subtree[Direction.X0Y0], check_hit_online)
+                return self.add_child(subtree[Direction.X0Y0], check_hit_online)
 
             elif sub_n_child == 2:
                 n_cur_child = len(self.children)
@@ -292,6 +292,7 @@ class RoutingCluster:
 
             return True
 
+        # subtree.level < self.level
         if not self.is_empty():
             for d in DIREC_IDX:
                 if d in self:
@@ -570,6 +571,8 @@ class RoutingRoot:
                 wasted.append(l0)
 
         # If #N of wasted cores > 16, it won't hit online L2 cluster.
+        # XXX 'check_hit_online' conditions could be more precise, but
+        # there is no clear benefit to doing so at the moment.
         check_hit_online = len(wasted) <= HwConfig.N_CORE_ONLINE
 
         # Add the sub-tree to the root.
@@ -607,11 +610,17 @@ class RoutingRoot:
         for root in self:
             root.clear()
 
-    def breadth_of_lx_at(self, lx: Level, chip_idx: int) -> int:
-        return self[chip_idx].breadth_of_lx(lx)
+    def breadth_of_lx(self, lx: Union[Level, int], chip_idx: int = -1) -> int:
+        """Get the breadth of the given level at chip root #idx.
 
-    def breadth_of_lx(self, lx: Level) -> int:
-        return sum(chip_root.breadth_of_lx(lx) for chip_root in self)
+        Args:
+            - lx: the level to find.
+            - chip_idx: the chip root index. If it is -1, return the sum of the breadth on all roots.
+        """
+        if chip_idx == -1:
+            return sum(chip_root.breadth_of_lx(Level(lx)) for chip_root in self)
+
+        return self[chip_idx].breadth_of_lx(Level(lx))
 
     def __getitem__(self, index: int) -> RoutingCluster:
         return self.chip_roots[index]

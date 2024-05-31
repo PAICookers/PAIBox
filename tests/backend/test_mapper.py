@@ -242,6 +242,41 @@ class TestMapperDebug:
         with pytest.raises(ResourceError):
             mapper.compile()  # 300*300 > 1152*64
 
+    @pytest.mark.parametrize("n_networks", [5, 15, 16, 50, 400, 900, 1008, 1009, 1023])
+    def test_multi_networks(self, n_networks, monkeypatch, ensure_dump_dir):
+        class Net(pb.Network):
+            # This network will be placed in 1 core only.
+            def __init__(self):
+                super().__init__()
+                self.inp = pb.InputProj(1, shape_out=(3,))
+                self.n1 = pb.IF((3,), 10)
+                self.s1 = pb.FullConn(self.inp, self.n1)
+
+        nets = [Net() for _ in range(n_networks)]
+
+        if n_networks > 1008:
+            clist = [Coord(0, 0), Coord(0, 1)]
+            monkeypatch.setattr(pb.BACKEND_CONFIG, "target_chip_addr", clist)
+
+        mapper = pb.Mapper()
+        mapper.build(*nets)
+        graph_info = mapper.compile()
+
+        assert graph_info["n_core_occupied"] == n_networks
+
+        rtotal = mapper.routing_tree.breadth_of_lx(0)
+        r1 = mapper.routing_tree.breadth_of_lx(0, 0)
+
+        if n_networks > 1008:
+            r2 = mapper.routing_tree.breadth_of_lx(0, 1)
+            assert rtotal == r1 + r2
+            assert r1 == 1008
+            assert r2 == n_networks - 1008
+        else:
+            assert rtotal == r1 == n_networks
+
+        mapper.export(fp=ensure_dump_dir)
+
 
 class TestMapper_Export:
     def test_export_multi_nodes_more_than_32(

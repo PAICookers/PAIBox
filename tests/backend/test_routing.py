@@ -270,11 +270,7 @@ class TestRoutingGroup:
 
         mapper = pb.Mapper()
         mapper.build(net)
-
-        # Build the core blocks
-        mapper.build_core_blocks()
-        mapper.lcn_ex_adjustment()
-        mapper.coord_assign()
+        mapper.compile()
 
         # 8+5+4, 8+8+4
         assert (
@@ -289,11 +285,7 @@ class TestRoutingGroup:
 
         mapper = pb.Mapper()
         mapper.build(net)
-
-        # Build the core blocks
-        mapper.build_core_blocks()
-        mapper.lcn_ex_adjustment()
-        mapper.coord_assign()
+        mapper.compile()
 
         assert (
             mapper.routing_tree.breadth_of_lx(RoutingLevel.L0) >= mapper.n_core_required
@@ -305,11 +297,7 @@ class TestRoutingGroup:
         # N1 & N2 will be together
         mapper = pb.Mapper()
         mapper.build(net)
-
-        # Build the core blocks
-        mapper.build_core_blocks()
-        mapper.lcn_ex_adjustment()
-        mapper.coord_assign()
+        mapper.compile()
 
         assert len(mapper.core_blocks) == 3
         assert (
@@ -324,11 +312,7 @@ class TestRoutingGroup:
 
         mapper = pb.Mapper()
         mapper.build(net)
-
-        # Build the core blocks
-        mapper.build_core_blocks()
-        mapper.lcn_ex_adjustment()
-        mapper.coord_assign()
+        mapper.compile()
 
         assert len(mapper.core_blocks) == 4
         assert (
