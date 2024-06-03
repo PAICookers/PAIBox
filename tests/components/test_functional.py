@@ -98,6 +98,16 @@ class TestFunctionalModules:
 
         _assert_build_fmodule(net1, 6 + 1 + 2, 6 + 3 + 2)
 
+    def test_BitwiseAND_mapping(self, ensure_dump_dir):
+        from tests.shared_networks import FunctionalModule_2to1_Net
+
+        net1 = FunctionalModule_2to1_Net("and")
+
+        mapper = pb.Mapper()
+        mapper.build(net1)
+        mapper.compile()
+        mapper.export(fp=ensure_dump_dir)
+
     def test_BitwiseNOT(self):
         from tests.shared_networks import FunctionalModule_1to1_Net
 
@@ -127,6 +137,16 @@ class TestFunctionalModules:
             assert np.array_equal(sim1.data[net1.probe3][i], ~inpa[i - 2])
 
         _assert_build_fmodule(net1, 3 + 1 + 2, 3 + 2 + 2)
+
+    def test_BitwiseNOT_mapping(self, ensure_dump_dir):
+        from tests.shared_networks import FunctionalModule_1to1_Net
+
+        net1 = FunctionalModule_1to1_Net("not")
+
+        mapper = pb.Mapper()
+        mapper.build(net1)
+        mapper.compile()
+        mapper.export(fp=ensure_dump_dir)
 
     def test_BitwiseOR(self):
         from tests.shared_networks import FunctionalModule_2to1_Net
@@ -159,6 +179,16 @@ class TestFunctionalModules:
 
         _assert_build_fmodule(net1, 6 + 1 + 2, 6 + 3 + 2)
 
+    def test_BitwiseOR_mapping(self, ensure_dump_dir):
+        from tests.shared_networks import FunctionalModule_2to1_Net
+
+        net1 = FunctionalModule_2to1_Net("or")
+
+        mapper = pb.Mapper()
+        mapper.build(net1)
+        mapper.compile()
+        mapper.export(fp=ensure_dump_dir)
+
     def test_BitwiseXOR(self):
         from tests.shared_networks import FunctionalModule_2to1_Net
 
@@ -190,6 +220,16 @@ class TestFunctionalModules:
 
         _assert_build_fmodule(net1, 6 + 1 + 2, 6 + 5 + 2)
 
+    def test_BitwiseXOR_mapping(self, ensure_dump_dir):
+        from tests.shared_networks import FunctionalModule_2to1_Net
+
+        net1 = FunctionalModule_2to1_Net("xor")
+
+        mapper = pb.Mapper()
+        mapper.build(net1)
+        mapper.compile()
+        mapper.export(fp=ensure_dump_dir)
+
     def test_DelayChain(self):
         from tests.shared_networks import FunctionalModule_1to1_Net
 
@@ -220,6 +260,16 @@ class TestFunctionalModules:
             assert np.array_equal(sim1.data[net1.probe3][i], inpa[i - 2 - _inh_delay])
 
         _assert_build_fmodule(net1, 3 + 1 + 2, 3 + 2 * net1.func_node.chain_level + 2)
+
+    def test_DelayChain_mapping(self, ensure_dump_dir):
+        from tests.shared_networks import FunctionalModule_1to1_Net
+
+        net1 = FunctionalModule_1to1_Net("delay")
+
+        mapper = pb.Mapper()
+        mapper.build(net1)
+        mapper.compile()
+        mapper.export(fp=ensure_dump_dir)
 
     def test_SpikingAdd(self):
         from tests.shared_networks import FunctionalModule_2to1_Net
@@ -262,6 +312,16 @@ class TestFunctionalModules:
 
         _assert_build_fmodule(net1, 6 + 1 + 2, 6 + 3 + 2)
 
+    def test_SpikingAdd_mapping(self, ensure_dump_dir):
+        from tests.shared_networks import FunctionalModule_2to1_Net
+
+        net1 = FunctionalModule_2to1_Net("add")
+
+        mapper = pb.Mapper()
+        mapper.build(net1)
+        mapper.compile()
+        mapper.export(fp=ensure_dump_dir)
+
     def test_SpikingSub(self):
         from tests.shared_networks import FunctionalModule_2to1_Net
 
@@ -302,6 +362,16 @@ class TestFunctionalModules:
             assert np.array_equal(sim1.data[net1.probe4][i], expected[i - 1])
 
         _assert_build_fmodule(net1, 6 + 1 + 2, 6 + 3 + 2)
+
+    def test_SpikingSub_mapping(self, ensure_dump_dir):
+        from tests.shared_networks import FunctionalModule_2to1_Net
+
+        net1 = FunctionalModule_2to1_Net("sub")
+
+        mapper = pb.Mapper()
+        mapper.build(net1)
+        mapper.compile()
+        mapper.export(fp=ensure_dump_dir)
 
     @pytest.mark.parametrize(
         "shape, channels, ksize, stride, padding, threshold, fm_order, pool_type, p_binomial",
@@ -403,6 +473,16 @@ class TestFunctionalModules:
 
             assert np.array_equal(sim1.data[net1.probe3][i], expected)
 
+    def test_SpikingPool2d_mapping(self, ensure_dump_dir):
+        from tests.shared_networks import SpikingPool2d_Net
+
+        net1 = SpikingPool2d_Net((3, 24, 24), (3, 3), None, 0, None, "avg")
+
+        mapper = pb.Mapper()
+        mapper.build(net1)
+        mapper.compile()
+        mapper.export(fp=ensure_dump_dir)
+
     @pytest.mark.parametrize(
         "shape, channels, ksize, stride, padding, threshold, p_binomial",
         [
@@ -453,6 +533,16 @@ class TestFunctionalModules:
         for i in range(1, 20):
             assert np.array_equal(sim1.data[net1.probe2][i], sim2.data[probe_p2d][i])
 
+    def test_SpikingPool2dWithV_mapping(self, ensure_dump_dir):
+        from tests.shared_networks import SpikingPool2d_Net
+
+        net1 = SpikingPool2d_Net((3, 24, 24), (3, 3), None, 0, None, "avgv")
+
+        mapper = pb.Mapper()
+        mapper.build(net1)
+        mapper.compile()
+        mapper.export(fp=ensure_dump_dir)
+
     @pytest.mark.parametrize("shape", [(32, 16), (1, 32), (64,), (128, 1), 48])
     def test_Transpose2d(self, shape):
         from tests.shared_networks import TransposeModule_T2d_Net
@@ -482,6 +572,16 @@ class TestFunctionalModules:
         for i in range(3, 20):
             expected = inpa[i - 2].T.ravel()
             assert np.array_equal(sim1.data[net1.probe2][i], expected)
+
+    def test_Transpose2d_mapping(self, ensure_dump_dir):
+        from tests.shared_networks import TransposeModule_T2d_Net
+
+        net1 = TransposeModule_T2d_Net((32, 16))
+
+        mapper = pb.Mapper()
+        mapper.build(net1)
+        mapper.compile()
+        mapper.export(fp=ensure_dump_dir)
 
     @pytest.mark.parametrize(
         "shape, axes",
@@ -523,3 +623,13 @@ class TestFunctionalModules:
         for i in range(3, 20):
             expected = inpa[i - 2].transpose(axes).ravel()
             assert np.array_equal(sim1.data[net1.probe2][i], expected)
+
+    def test_Transpose3d_mapping(self, ensure_dump_dir):
+        from tests.shared_networks import TransposeModule_T3d_Net
+
+        net1 = TransposeModule_T3d_Net((28, 28), (2, 0, 1))
+
+        mapper = pb.Mapper()
+        mapper.build(net1)
+        mapper.compile()
+        mapper.export(fp=ensure_dump_dir)
