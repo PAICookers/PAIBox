@@ -1,7 +1,7 @@
+import sys
 from typing import TypeVar, Union
 
 import numpy as np
-import sys
 from numpy.typing import NDArray
 
 if sys.version_info >= (3, 10):

@@ -1,13 +1,15 @@
-import numpy as np
 import warnings
+
+import numpy as np
+
 from paibox.exceptions import FunctionalError, PAIBoxWarning
 from paibox.types import VoltageType
 
 try:
     from paicorelib.ram_model import (
-        VJT_PRE_BIT_MAX as _VJT_PRE_BIT_MAX,
         NEGATIVE_THRESHOLD_VALUE_BIT_MAX as _NEG_THRES_BIT_MAX,
     )
+    from paicorelib.ram_model import VJT_PRE_BIT_MAX as _VJT_PRE_BIT_MAX
 
 except ImportError:
     _VJT_PRE_BIT_MAX = 30
@@ -17,9 +19,7 @@ except ImportError:
 VJT_MAX_LIMIT = 1 << (_VJT_PRE_BIT_MAX - 1) - 1
 VJT_MIN_LIMIT = -(VJT_MAX_LIMIT + 1)
 VJT_LIMIT = 1 << _VJT_PRE_BIT_MAX
-VJT_OVERFLOW_TEXT = (
-    f"Membrane potential overflow, beyond the range of {_VJT_PRE_BIT_MAX}-bit signed integer."
-)
+VJT_OVERFLOW_TEXT = f"Membrane potential overflow, beyond the range of {_VJT_PRE_BIT_MAX}-bit signed integer."
 NEG_THRES_MIN = 1 - (1 << _NEG_THRES_BIT_MAX)
 
 

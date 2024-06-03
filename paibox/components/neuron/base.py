@@ -25,7 +25,7 @@ from paibox.utils import (
     shape2num,
 )
 
-from .utils import vjt_overflow, NEG_THRES_MIN
+from .utils import NEG_THRES_MIN, vjt_overflow
 
 __all__ = ["Neuron"]
 
@@ -498,7 +498,7 @@ class Neuron(MetaNeuron, NeuDyn):
             self.leak_comparison,
             self.threshold_mask_bits,
             self.neg_thres_mode,
-            (-1)*self.neg_threshold,
+            (-1) * self.neg_threshold,
             self.pos_threshold,
             self.leak_direction,
             self.leak_integration_mode,

@@ -1,5 +1,5 @@
-from dataclasses import dataclass
 import sys
+from dataclasses import dataclass
 from enum import Enum, auto, unique
 from typing import NamedTuple, Union
 

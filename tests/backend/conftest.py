@@ -635,7 +635,7 @@ class Network_branch_nodes1(pb.Network):
 class Network_branch_nodes2(pb.Network):
     """
     Before:
-        INP1 -> N1 -> N2 -> 
+        INP1 -> N1 -> N2 ->
                    -------> N3 -> N4
     After:
         INP1 -> N1'-> N2 ->

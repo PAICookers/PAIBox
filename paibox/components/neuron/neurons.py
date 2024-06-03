@@ -4,7 +4,7 @@ from paicorelib import LDM, NTM, RM
 
 from paibox.types import Shape
 
-from .base import Neuron, NEG_THRES_MIN
+from .base import NEG_THRES_MIN, Neuron
 
 try:
     from paicorelib.ram_model import LEAK_V_BIT_MAX

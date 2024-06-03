@@ -28,7 +28,7 @@ from .projection import InputProj
 from .synapses import ConnType, FullConnSyn
 from .synapses.conv_types import _Size2Type
 from .synapses.conv_utils import _fm_ndim2_check, _pair
-from .synapses.transforms import _Pool2dForward, Conv2dForward
+from .synapses.transforms import Conv2dForward, _Pool2dForward
 
 if sys.version_info >= (3, 13):
     from warnings import deprecated

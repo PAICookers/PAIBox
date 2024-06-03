@@ -11,6 +11,7 @@ import paibox as pb
 from paibox.backend.conf_template import CoreConfig, NeuronDest, NeuronDestInfo
 from paibox.base import SynSys
 from paibox.exceptions import ResourceError
+
 from .conftest import TestData
 
 
@@ -123,9 +124,7 @@ class TestGraphInfo:
             export_core_params=True,
         )
 
-    def test_multi_inodes_onodes(
-        self, get_mapper, build_multi_inodes_onodes
-    ):
+    def test_multi_inodes_onodes(self, get_mapper, build_multi_inodes_onodes):
         net = build_multi_inodes_onodes
         mapper: pb.Mapper = get_mapper
         mapper.build(net)
