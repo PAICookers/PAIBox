@@ -7,11 +7,49 @@ from numpy.typing import NDArray
 
 from paibox.base import DynamicSys, PAIBoxObject
 from paibox.context import _FRONTEND_CONTEXT
-from paibox.exceptions import SimulationError
+from paibox.exceptions import PAIBoxDeprecationWarning, SimulationError
 
-from .probe import Probe
+__all__ = ["Probe", "Simulator"]
 
-__all__ = ["Simulator"]
+
+class Probe(PAIBoxObject):
+    target: PAIBoxObject
+
+    def __init__(
+        self,
+        target: PAIBoxObject,
+        attr: str,
+        *,
+        name: Optional[str] = None,
+    ) -> None:
+        """
+        Arguments:
+            - target: the target that needs to be monitored.
+            - attr: the attribute that needs to be monitored.
+            - name: the name of the probe. Optional.
+        """
+        self.attr = attr
+        self._check_attr(target)
+
+        super().__init__(name)
+
+    def _check_attr(self, target: PAIBoxObject) -> None:
+        if not hasattr(target, self.attr):
+            raise AttributeError(
+                f"attribute '{self.attr}' not found in target {target}."
+            )
+
+        self.target = target
+
+    @property
+    def _label_txt(self) -> str:
+        return f"'{self.name}'" if hasattr(self, "name") else ""
+
+    def __str__(self) -> str:
+        return f"<Probe {self._label_txt} of '{self.attr}' of {self.target.name}>"
+
+    def __repr__(self) -> str:
+        return f"<Probe {self._label_txt} at 0x{id(self):x} of '{self.attr}' of {self.target.name}>"
 
 
 class Simulator(PAIBoxObject):
@@ -63,7 +101,7 @@ class Simulator(PAIBoxObject):
             warnings.warn(
                 "passing extra arguments through 'run()' will be deprecated. "
                 "Use 'FRONTEND_ENV.save()' instead.",
-                DeprecationWarning,
+                PAIBoxDeprecationWarning,
             )
 
         if duration < 1:
