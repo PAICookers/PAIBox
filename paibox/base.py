@@ -115,6 +115,8 @@ class PAIBoxObject:
 
         iter_termi = True  # iteration termination flag
 
+        from .simulator import Probe
+
         def _find_nodes_absolute() -> None:
             nonlocal gather, nodes, iter_termi
 
@@ -145,6 +147,8 @@ class PAIBoxObject:
                         _paths=_paths,
                         _iter_termination=iter_termi,
                     )
+                    if not isinstance(v, Probe)
+                    else {}
                 )
 
         def _find_nodes_relative() -> None:
@@ -167,17 +171,18 @@ class PAIBoxObject:
 
             # finding nodes recursively
             for k1, v1 in nodes:
-                for k2, v2 in v1._find_nodes(
-                    method=method,
-                    level=level,
-                    include_self=include_self,
-                    find_recursive=find_recursive,
-                    _lid=_lid + 1,
-                    _paths=_paths,
-                    _iter_termination=iter_termi,
-                ).items():
-                    if k2:
-                        gather[f"{k1}.{k2}"] = v2
+                if not isinstance(v1, Probe):
+                    for k2, v2 in v1._find_nodes(
+                        method=method,
+                        level=level,
+                        include_self=include_self,
+                        find_recursive=find_recursive,
+                        _lid=_lid + 1,
+                        _paths=_paths,
+                        _iter_termination=iter_termi,
+                    ).items():
+                        if k2:
+                            gather[f"{k1}.{k2}"] = v2
 
         nodes = []
 
@@ -284,10 +289,7 @@ class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
             if k in self._excluded_vars:
                 continue
 
-            if sys.version_info >= (3, 9):
-                params.update({k.removeprefix("_"): v})
-            else:
-                params.update({k.lstrip("_"): v})  # compatible for py3.8
+            params.update({k.removeprefix("_"): v})
 
         return params
 
@@ -314,8 +316,7 @@ class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
 
     @unrolling_factor.setter
     def unrolling_factor(self, factor: int) -> None:
-        arg_check_pos(factor, "'unrolling_factor'")
-        self._uf = factor
+        self._uf = arg_check_pos(factor, "'unrolling_factor'")
 
 
 class SynSys(DynamicSys):
