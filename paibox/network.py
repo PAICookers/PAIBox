@@ -101,6 +101,7 @@ class DynSysGroup(DynamicSys, Container):
                 if cpn is obj:
                     cpn.__gh_build_ignore__ = False
                     delattr(self, tag)
+                    break
 
     def _ignore_components(self, *components: DynamicSys) -> None:
         for cpn in components:
