@@ -276,22 +276,10 @@ class FunctionalModule2to1(FunctionalModule):
                 f"two operands must have the same size: {neuron_a.num_out} != {neuron_b.num_out}."
             )
 
-        if keep_shape:
-            if neuron_a.shape_out != neuron_b.shape_out:
-                raise ShapeError(
-                    f"two operands must have the same shape: {neuron_a.shape_out} != {neuron_b.shape_out}.\n"
-                    f"When two operands have different shapes, set 'keep_shape=False' and the output will "
-                    f"not retain shape information."
-                )
-
-            _shape_out = neuron_a.shape_out
-        else:
-            _shape_out = (neuron_a.num_out,)
-
         super().__init__(
             neuron_a,
             neuron_b,
-            shape_out=_shape_out,
+            shape_out=_shape_check2(neuron_a, neuron_b, keep_shape),
             keep_shape=keep_shape,
             name=name,
             **kwargs,
@@ -341,23 +329,24 @@ class TransposeModule(FunctionalModule):
         return self._shape_in
 
 
-class FunctionalModule2to1WithV(FunctionalModule2to1):
+class FunctionalModuleWithV(FunctionalModule):
     """Functional module with two operands.
 
-    NOTE: Compared to `FunctionalModule2to1`, The difference is that we also take the \
-        membrane potential voltage(vjt) into consideration.
+    NOTE: Compared to `FunctionalModule`, the difference is that it takes the \
+        membrane potential voltage into consideration.
     """
 
     def __init__(
         self,
-        neuron_a: Union[NeuDyn, InputProj],
-        neuron_b: Union[NeuDyn, InputProj],
+        *operands: Union[NeuDyn, InputProj],
+        shape_out: Tuple[int, ...],
         keep_shape: bool = False,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
-        super().__init__(neuron_a, neuron_b, keep_shape, name, **kwargs)
-
+        super().__init__(
+            *operands, shape_out=shape_out, keep_shape=keep_shape, name=name, **kwargs
+        )
         self.set_memory("_vjt", np.zeros((self.num_out,), dtype=np.int32))
         self.thres_mode = np.full((self.num_out,), TM.NOT_EXCEEDED, dtype=np.uint8)
 
@@ -383,3 +372,42 @@ class FunctionalModule2to1WithV(FunctionalModule2to1):
     @property
     def voltage(self) -> VoltageType:
         return self._vjt.reshape(self.varshape)
+
+
+class FunctionalModule2to1WithV(FunctionalModuleWithV):
+    def __init__(
+        self,
+        neuron_a: Union[NeuDyn, InputProj],
+        neuron_b: Union[NeuDyn, InputProj],
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            neuron_a,
+            neuron_b,
+            shape_out=_shape_check2(neuron_a, neuron_b, keep_shape),
+            keep_shape=keep_shape,
+            name=name,
+            **kwargs,
+        )
+
+
+def _shape_check2(
+    neuron_a: Union[NeuDyn, InputProj],
+    neuron_b: Union[NeuDyn, InputProj],
+    keep_shape: bool,
+) -> Tuple[int, ...]:
+    if keep_shape:
+        if neuron_a.shape_out != neuron_b.shape_out:
+            raise ShapeError(
+                f"two operands must have the same shape: {neuron_a.shape_out} != {neuron_b.shape_out}. "
+                f"When two operands have different shapes, set 'keep_shape=False' and the output will "
+                f"not retain shape information."
+            )
+
+        shape_out = neuron_a.shape_out
+    else:
+        shape_out = (neuron_a.num_out,)
+
+    return shape_out
