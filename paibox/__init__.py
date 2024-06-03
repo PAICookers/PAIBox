@@ -9,6 +9,7 @@ from .components.functional import BitwiseXOR as BitwiseXOR
 from .components.functional import DelayChain as DelayChain
 from .components.functional import SpikingAdd as SpikingAdd
 from .components.functional import SpikingAvgPool2d as SpikingAvgPool2d
+from .components.functional import SpikingAvgPool2dWithV as SpikingAvgPool2dWithV
 from .components.functional import SpikingMaxPool2d as SpikingMaxPool2d
 from .components.functional import SpikingSub as SpikingSub
 from .components.functional import Transpose2d as Transpose2d
