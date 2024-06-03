@@ -90,7 +90,7 @@ class FunctionalModule_2to1_Net(pb.DynSysGroup):
         elif op == "or":
             self.func_node = pb.BitwiseOR(self.n1, self.n2, delay=1, tick_wait_start=2)
         elif op == "xor":
-            self.func_node = pb.BitwiseXOR(self.n1, self.n2, delay=2, tick_wait_start=2)
+            self.func_node = pb.BitwiseXOR(self.n1, self.n2, delay=1, tick_wait_start=2)
         elif op == "add":
             self.func_node = pb.SpikingAdd(self.n1, self.n2, delay=1, tick_wait_start=2)
         elif op == "sub":
@@ -144,7 +144,7 @@ class FunctionalModule_1to1_Net(pb.DynSysGroup):
 
 
 class SpikingPool2d_Net(pb.DynSysGroup):
-    def __init__(self, fm_shape, ksize, stride, padding, pool_type):
+    def __init__(self, fm_shape, ksize, stride, padding, threshold, pool_type):
         super().__init__()
         self.inp1 = pb.InputProj(input=_out_bypass1, shape_out=fm_shape)
         self.n1 = pb.SpikingRelu(fm_shape, tick_wait_start=1)
@@ -152,7 +152,11 @@ class SpikingPool2d_Net(pb.DynSysGroup):
 
         if pool_type == "avg":
             self.pool2d = pb.SpikingAvgPool2d(
-                self.n1, ksize, stride, padding, delay=1, tick_wait_start=2
+                self.n1, ksize, stride, padding, threshold, delay=1, tick_wait_start=2
+            )
+        elif pool_type == "avgv":
+            self.pool2d = pb.SpikingAvgPool2dWithV(
+                self.n1, ksize, stride, padding, threshold, delay=1, tick_wait_start=2
             )
         else:  # "max"
             self.pool2d = pb.SpikingMaxPool2d(
