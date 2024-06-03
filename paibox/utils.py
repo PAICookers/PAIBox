@@ -132,25 +132,40 @@ def fn_sgn(a, b) -> int:
     return 1 if a > b else -1 if a < b else 0
 
 
-def arg_check_pos(arg: int, desc: Optional[str] = None) -> None:
+def typical_round(number: float) -> int:
+    if number - int(number) < 0.5:
+        return int(number)
+    else:
+        return int(number) + 1
+
+
+def arg_check_pos(arg: int, desc: Optional[str] = None) -> int:
     _desc = "value" if desc is None else f"{desc}"
     if arg < 1:
         raise ValueError(f"{_desc} must be positive, but got {arg}.")
 
+    return arg
 
-def arg_check_non_pos(arg: int, desc: Optional[str] = None) -> None:
+
+def arg_check_non_pos(arg: int, desc: Optional[str] = None) -> int:
     _desc = "value" if desc is None else f"{desc}"
     if arg > 0:
         raise ValueError(f"{_desc} must be non-positive, but got {arg}.")
 
+    return arg
 
-def arg_check_neg(arg: int, desc: Optional[str] = None) -> None:
+
+def arg_check_neg(arg: int, desc: Optional[str] = None) -> int:
     _desc = "value" if desc is None else f"{desc}"
     if arg > -1:
         raise ValueError(f"{_desc} must be negative, but got {arg}.")
 
+    return arg
 
-def arg_check_non_neg(arg: int, desc: Optional[str] = None) -> None:
+
+def arg_check_non_neg(arg: int, desc: Optional[str] = None) -> int:
     _desc = "value" if desc is None else f"{desc}"
     if arg < 0:
         raise ValueError(f"{_desc} must be non-negative, but got {arg}.")
+
+    return arg

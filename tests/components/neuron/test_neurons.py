@@ -13,7 +13,7 @@ from .conftest import Net_Test_Neuron_Behavior
 
 
 def test_NeuronParams_instance(ensure_dump_dir):
-    n1 = pb.LIF((100,), 3)
+    n1 = pb.LIF((100,), 3, reset_v=-20, leak_v=-2)
 
     attrs = NeuronAttrs.model_validate(n1.export_params(), strict=True)
 
@@ -333,7 +333,7 @@ class TestNeuron:
             [[0], [0], [0], [1], [1], [0], [1], [0]], dtype=np.bool_
         )
         expected_vol = np.array(
-            [[2], [1], [4], [4], [0], [2], [1], [0]], dtype=np.int32
+            [[2], [1], [4], [4], [0], [2], [1], [-1]], dtype=np.int32
         )
 
         for i in range(inp_data.size):
@@ -354,7 +354,7 @@ class TestNeuron:
             [[0], [0], [0], [1], [0], [0], [1], [0]], dtype=np.bool_
         )
         expected_vol = np.array(
-            [[1], [0], [2], [2], [2], [3], [2], [0]], dtype=np.int32
+            [[1], [-1], [1], [2], [2], [3], [2], [-1]], dtype=np.int32
         )
 
         for i in range(inp_data.size):
@@ -371,10 +371,10 @@ class TestNeuron:
 
         inp_data = np.array([2, -1, 3, 5, 1, 2, 4, -2], dtype=np.int8)
         expected_spike = np.array(
-            [[0], [0], [0], [1], [0], [0], [1], [0]], dtype=np.bool_
+            [[0], [0], [0], [1], [0], [0], [0], [0]], dtype=np.bool_
         )
         expected_vol = np.array(
-            [[1], [0], [2], [1], [1], [2], [0], [0]], dtype=np.int32
+            [[1], [-1], [1], [0], [0], [1], [4], [1]], dtype=np.int32
         )
 
         for i in range(inp_data.size):
@@ -534,9 +534,8 @@ class TestNeuron:
         NOTE: This neuron is used in `functional.SpikingAvgPool2d` & its basic functions need   \
             to be verified here.
         """
-        from paibox.components import Neuron
+        from paibox.utils import typical_round
 
-        # ksize[0] * ksize[1]
         class Net(pb.Network):
             def __init__(self):
                 super().__init__()
@@ -544,14 +543,11 @@ class TestNeuron:
 
                 self.n1 = Neuron(
                     shape=(1,),
-                    leak_comparison=LCM.LEAK_BEFORE_COMP,
-                    leak_v=-(n_window // 2),
+                    leak_v=1 - typical_round(n_window / 2),
+                    neg_threshold=0,
                     tick_wait_start=1,
                 )
-                self.s1 = pb.FullConn(
-                    self.inp1, self.n1, conn_type=pb.SynConnType.All2All
-                )
-
+                self.s1 = pb.FullConn(self.inp1, self.n1)
                 self.probe1 = pb.Probe(self.n1, "spike")
 
         net = Net()
@@ -564,5 +560,5 @@ class TestNeuron:
             net.inp1.input = inp[t]
             sim.run(1)
 
-            expected = t >= (n_window // 2)
+            expected = (t + 1) >= typical_round(n_window / 2)
             assert sim.data[net.probe1][t][0] == expected

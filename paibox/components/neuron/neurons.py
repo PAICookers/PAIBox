@@ -4,9 +4,16 @@ from paicorelib import LDM, NTM, RM
 
 from paibox.types import Shape
 
-from .base import Neuron
+from .base import Neuron, NEG_THRES_MIN
+
+try:
+    from paicorelib.ram_model import LEAK_V_BIT_MAX
+except:
+    LEAK_V_BIT_MAX = 30  # 1 + 29
 
 __all__ = ["IF", "LIF", "TonicSpiking", "PhasicSpiking", "SpikingRelu"]
+
+LEAK_V_MAX = 1 << (LEAK_V_BIT_MAX - 1) - 1
 
 
 class IF(Neuron):
@@ -15,6 +22,7 @@ class IF(Neuron):
         shape: Shape,
         threshold: int,
         reset_v: Optional[int] = None,
+        neg_threshold: Optional[int] = None,
         *,
         keep_shape: bool = False,
         name: Optional[str] = None,
@@ -25,8 +33,10 @@ class IF(Neuron):
         Args:
             - shape: shape of neurons.
             - threshold: when the membrane potential exceeds the threshold, neurons will fire.
-            - reset_v: If not set, neurons will do soft reset after firing, v - threshold. If set,  \
-                neurons will do hard reset after firing, v = reset_v.
+            - reset_v: If not specified, neurons will do soft reset after firing, v - threshold. If \
+                specified, neurons will do hard reset after firing, v = reset_v.
+            - neg_threshold: signed negative theshold. If not specified, it will be the smallest    \
+                negative integer allowed by the hardware.
             - delay: delay between neurons. Default is 1.
             - tick_wait_start: set the moodule to start at timestep `T`. 0 means not working.       \
                 Default is 1.
@@ -47,11 +57,17 @@ class IF(Neuron):
             _reset_v = 0
             _rm = RM.MODE_LINEAR
 
+        if isinstance(neg_threshold, int):
+            _neg_threshold = neg_threshold
+        else:
+            _neg_threshold = NEG_THRES_MIN
+
         super().__init__(
             shape,
             reset_mode=_rm,
             reset_v=_reset_v,
             neg_thres_mode=NTM.MODE_SATURATION,
+            neg_threshold=_neg_threshold,
             pos_threshold=threshold,
             keep_shape=keep_shape,
             name=name,
@@ -67,6 +83,7 @@ class LIF(Neuron):
         reset_v: Optional[int] = None,
         leak_v: int = 0,
         bias: Optional[int] = None,
+        neg_threshold: Optional[int] = None,
         *,
         keep_shape: bool = False,
         name: Optional[str] = None,
@@ -77,13 +94,15 @@ class LIF(Neuron):
         Args:
             - shape: shape of neurons.
             - threshold: when the membrane potential exceeds the threshold, neurons will fire.
-            - reset_v: If not set, neurons will do soft reset after firing, v - `threshold`. If set,  \
-                neurons will do hard reset after firing, v = `reset_v`.
+            - reset_v: if not specified, neurons will do soft reset after firing, v - threshold. If \
+                specified, neurons will do hard reset after firing, v = reset_v.
             - leak_v: the signed leak voltage will be added directly to the membrane potential.
                 - If it is positive, the membrane potential will increase.
                 - If is is negative, the membrane potential will decrease.
-            - bias: if signed bias is given, it will be used as `leak_v` and neuron will leak before  \
+            - bias: if signed bias is given, it will be used as `leak_v` and neuron will leak before\
                 threshold comparison. `leak_v` will be ignored.
+            - neg_threshold: signed negative theshold. If not specified, it will be the smallest    \
+                negative integer allowed by the hardware.
             - keep_shape: whether to maintain shape in the simulation. Default is `False`.
             - name: name of the neuron. Optional.
         """
@@ -101,11 +120,17 @@ class LIF(Neuron):
         else:
             _leak_v = leak_v
 
+        if isinstance(neg_threshold, int):
+            _neg_threshold = neg_threshold
+        else:
+            _neg_threshold = NEG_THRES_MIN
+
         super().__init__(
             shape,
             reset_mode=_rm,
             reset_v=_reset_v,
             neg_thres_mode=NTM.MODE_SATURATION,
+            neg_threshold=_neg_threshold,
             pos_threshold=threshold,
             leak_v=_leak_v,
             keep_shape=keep_shape,
@@ -199,8 +224,9 @@ class Always1Neuron(Neuron):
             shape,
             reset_v=1,
             neg_thres_mode=NTM.MODE_SATURATION,
+            neg_threshold=0,
             pos_threshold=0,
-            leak_v=(1 << 29) - 1,
+            leak_v=LEAK_V_MAX,
             keep_shape=keep_shape,
             name=name,
             **kwargs,
@@ -223,4 +249,6 @@ class SpikingRelu(Neuron):
             - keep_shape: whether to maintain shape in the simulation. Default is `False`.
             - name: name of the neuron. Optional.
         """
-        super().__init__(shape, keep_shape=keep_shape, name=name, **kwargs)
+        super().__init__(
+            shape, neg_threshold=0, keep_shape=keep_shape, name=name, **kwargs
+        )
