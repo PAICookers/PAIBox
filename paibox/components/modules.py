@@ -119,6 +119,9 @@ class NeuModule(NeuDyn, BuildingModule):
         """Function used to describe generating output spike of the module."""
         raise NotImplementedError
 
+    def is_outputing(self) -> bool:
+        return (self.timestamp - self.inherent_delay) >= 0
+
     @property
     def source(self) -> List[Union[NeuDyn, InputProj]]:
         return self.module_intf.operands
@@ -198,7 +201,7 @@ class FunctionalModule(NeuModule):
             "synin_deque", deque(_init_synin, maxlen=1 + self.inherent_delay)
         )
 
-    def get_inputs(self) -> MultiInputsType:
+    def get_inputs(self) -> None:
         synin = []
 
         for op in self.module_intf.operands:
@@ -215,18 +218,20 @@ class FunctionalModule(NeuModule):
 
         self.synin_deque.append(synin)  # Append to the right of the deque.
 
-        return self.synin_deque.popleft()  # Pop the left of the deque.
-
     def update(self, *args, **kwargs) -> Optional[SpikeType]:
         if not self.is_working():
             self._inner_spike = np.zeros((self.num_out,), dtype=np.bool_)
             return None
 
-        synin = self.get_inputs()
-        self._inner_spike = self.spike_func(*synin).ravel()
+        self.get_inputs()
 
-        idx = (self.timestamp + self.delay_relative - 1) % HwConfig.N_TIMESLOT_MAX
-        self.delay_registers[idx] = self._inner_spike.copy()
+        if self.is_outputing():
+            synin = self.synin_deque.popleft()  # Pop the left of the deque.
+            self._inner_spike = self.spike_func(*synin).ravel()
+            idx = (
+                self.timestamp - self.inherent_delay + self.delay_relative - 1
+            ) % HwConfig.N_TIMESLOT_MAX
+            self.delay_registers[idx] = self._inner_spike.copy()
 
         return self._inner_spike
 
@@ -258,6 +263,10 @@ class FunctionalModule(NeuModule):
     @property
     def feature_map(self) -> SpikeType:
         return self._inner_spike.reshape(self.varshape)
+
+    @property
+    def varshape(self) -> Tuple[int, ...]:
+        return self.shape_out if self.keep_shape else (self.num_out,)
 
 
 class FunctionalModule2to1(FunctionalModule):
@@ -359,13 +368,18 @@ class FunctionalModuleWithV(FunctionalModule):
             self._inner_spike = np.zeros((self.num_out,), dtype=np.bool_)
             return None
 
-        synin = self.get_inputs()
-        incoming_v = self.synaptic_integr(*synin, self._vjt)
-        _is, self._vjt = self.spike_func(incoming_v)
-        self._inner_spike = _is.ravel()
+        self.get_inputs()
 
-        idx = (self.timestamp + self.delay_relative - 1) % HwConfig.N_TIMESLOT_MAX
-        self.delay_registers[idx] = self._inner_spike.copy()
+        if self.is_outputing():
+            synin = self.synin_deque.popleft()  # Pop the left of the deque.
+            incoming_v = self.synaptic_integr(*synin, self._vjt)
+            _is, self._vjt = self.spike_func(incoming_v)
+            self._inner_spike = _is.ravel()
+
+            idx = (
+                self.timestamp - self.inherent_delay + self.delay_relative - 1
+            ) % HwConfig.N_TIMESLOT_MAX
+            self.delay_registers[idx] = self._inner_spike.copy()
 
         return self._inner_spike
 
