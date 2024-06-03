@@ -1,5 +1,3 @@
-from typing import Tuple
-
 import numpy as np
 import pytest
 
@@ -254,10 +252,10 @@ class TestTransforms:
     @staticmethod
     def _conv1d_golden(
         x: np.ndarray,
-        out_shape: Tuple[int],
+        out_shape: tuple[int],
         kernel: np.ndarray,
-        stride: Tuple[int],
-        padding: Tuple[int],
+        stride: tuple[int],
+        padding: tuple[int],
     ):
         cout, cin, kl = kernel.shape
         xcin, il = x.shape
@@ -371,10 +369,10 @@ class TestTransforms:
     @staticmethod
     def _conv2d_golden(
         x: np.ndarray,
-        out_shape: Tuple[int, int],
+        out_shape: tuple[int, int],
         kernel: np.ndarray,
-        stride: Tuple[int, int],
-        padding: Tuple[int, int],
+        stride: tuple[int, int],
+        padding: tuple[int, int],
     ):
         cout, cin, kh, kw = kernel.shape
         xcin, ih, iw = x.shape
@@ -494,11 +492,11 @@ class TestTransforms:
     @staticmethod
     def _convtranspose1d_golden(
         x: np.ndarray,
-        out_shape: Tuple[int],
+        out_shape: tuple[int],
         kernel: np.ndarray,
-        stride: Tuple[int],
-        padding: Tuple[int],
-        output_padding: Tuple[int],
+        stride: tuple[int],
+        padding: tuple[int],
+        output_padding: tuple[int],
     ):
         cout, cin, kl = kernel.shape
         xcin, il = x.shape
@@ -637,11 +635,11 @@ class TestTransforms:
     @staticmethod
     def _convtranspose2d_golden(
         x: np.ndarray,
-        out_shape: Tuple[int, int],
+        out_shape: tuple[int, int],
         kernel: np.ndarray,
-        stride: Tuple[int, int],
-        padding: Tuple[int, int],
-        output_padding: Tuple[int, int],
+        stride: tuple[int, int],
+        padding: tuple[int, int],
+        output_padding: tuple[int, int],
     ):
         cout, cin, kh, kw = kernel.shape
         xcin, ih, iw = x.shape

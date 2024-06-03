@@ -1,7 +1,8 @@
 import typing
+from collections.abc import Sequence
 from copy import deepcopy
 from functools import wraps
-from typing import Any, Dict, Optional, Sequence, Type, TypeVar
+from typing import Any, Optional, TypeVar
 
 import numpy as np
 
@@ -85,10 +86,10 @@ class Container(MixIn):
 
     def elem_format(
         self,
-        child_type: Type[_T],
+        child_type: type[_T],
         *children_as_tuple: Sequence[_T],
-        **children_as_dict: Dict[Any, _T],
-    ) -> Dict[str, _T]:
+        **children_as_dict: dict[Any, _T],
+    ) -> dict[str, _T]:
         elems = dict()
 
         for child in children_as_tuple:
@@ -132,8 +133,10 @@ class Container(MixIn):
 class ReceiveInputProj(MixIn):
     master_nodes: NodeDict[str, "FullConnectedSyn"]
 
-    def register_master(self, key: str, master_target: "FullConnectedSyn") -> None:
-        if key in self.master_nodes:
+    def register_master(
+        self, key: str, master_target: "FullConnectedSyn", strict: bool = True
+    ) -> None:
+        if key in self.master_nodes and strict:
             raise RegisterError(f"master node with key '{key}' already exists.")
 
         self.master_nodes[key] = master_target

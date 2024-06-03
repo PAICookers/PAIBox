@@ -1,13 +1,5 @@
-from typing import (
-    Callable,
-    Dict,
-    MutableMapping,
-    Sequence,
-    Type,
-    TypeVar,
-    Union,
-    overload,
-)
+from collections.abc import Callable, MutableMapping, Sequence
+from typing import TypeVar, Union, overload
 
 _T = TypeVar("_T")
 _KT = TypeVar("_KT")
@@ -16,7 +8,7 @@ _VT = TypeVar("_VT")
 # XXX: use collections.UserDict[_KT, _VT] in 3.9+
 
 
-class Collector(Dict[_KT, _VT]):
+class Collector(dict[_KT, _VT]):
     def __setitem__(self, key, value) -> None:
         if key in self:
             if id(self[key]) != id(value):
@@ -122,7 +114,7 @@ class Collector(Dict[_KT, _VT]):
 
         return gather
 
-    def subset(self, obj_type: Type[_T]) -> "Collector[_KT, _T]":
+    def subset(self, obj_type: type[_T]) -> "Collector[_KT, _T]":
         gather = Collector()
 
         for k, v in self.items():
@@ -131,7 +123,7 @@ class Collector(Dict[_KT, _VT]):
 
         return gather
 
-    def not_subset(self, obj_type: Type[_T]) -> "Collector[_KT, _VT]":
+    def not_subset(self, obj_type: type[_T]) -> "Collector[_KT, _VT]":
         gather = type(self)()
 
         for k, v in self.items():
@@ -140,7 +132,7 @@ class Collector(Dict[_KT, _VT]):
 
         return gather
 
-    def include(self, *types: Type[_T]) -> "Collector[_KT, _T]":
+    def include(self, *types: type[_T]) -> "Collector[_KT, _T]":
         gather = Collector()
 
         for k, v in self.items():
@@ -149,7 +141,7 @@ class Collector(Dict[_KT, _VT]):
 
         return gather
 
-    def exclude(self, *types: Type[_T]) -> "Collector[_KT, _VT]":
+    def exclude(self, *types: type[_T]) -> "Collector[_KT, _VT]":
         gather = type(self)()
 
         for k, v in self.items():

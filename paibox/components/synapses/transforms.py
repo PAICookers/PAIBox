@@ -1,13 +1,13 @@
 import warnings
 from enum import Enum, auto, unique
-from typing import Literal, Tuple
+from typing import Literal, Optional
 
 import numpy as np
 from paicorelib import WeightPrecision as WP
 
 from paibox.exceptions import AutoOptimizationWarning, ShapeError
 from paibox.types import DataArrayType, IntScalarType, SpikeType, SynOutType, WeightType
-from paibox.utils import is_shape, shape2num
+from paibox.utils import is_shape, shape2num, typical_round
 
 from .conv_types import Size1Type, Size2Type, SizeAnyType
 from .conv_utils import (
@@ -295,7 +295,7 @@ class MaskedLinear(Transform):
         in_shape: SizeAnyType,
         out_shape: SizeAnyType,
         weights: WeightType,
-        axes: Tuple[int, ...],
+        axes: tuple[int, ...],
     ) -> WeightType:
         n_ishape = shape2num(in_shape)
         n_oshape = shape2num(out_shape)
@@ -512,6 +512,7 @@ class _Pool2dForward(Transform):
         padding: Size2Type,
         # fm_order: _Order3d,
         pool_type: Literal["avg", "max"],
+        threshold: Optional[int] = None,
     ) -> None:
         self.channels = channels
         self.in_shape = in_shape
@@ -521,8 +522,12 @@ class _Pool2dForward(Transform):
         self.padding = padding
         # self.fm_order = fm_order
         self.pool_type = pool_type
+        if isinstance(threshold, int):
+            self.threshold = threshold
+        else:
+            self.threshold = typical_round(shape2num(kernel_size) / 2)
 
-        super().__init__(np.asarray(1, dtype=np.int8))
+        super().__init__(1)
 
     def __call__(self, x: SpikeType, *args, **kwargs) -> SpikeType:
         # if self.fm_order == "HWC":
@@ -532,7 +537,13 @@ class _Pool2dForward(Transform):
         _x = x.reshape((self.channels,) + self.in_shape)
 
         return _func_pool2d(
-            _x, self.out_shape, self.ksize, self.stride, self.padding, self.pool_type
+            _x,
+            self.out_shape,
+            self.ksize,
+            self.stride,
+            self.padding,
+            self.pool_type,
+            self.threshold,
         )
 
     @property

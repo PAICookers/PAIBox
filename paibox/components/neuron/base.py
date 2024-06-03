@@ -1,4 +1,4 @@
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -25,7 +25,7 @@ from paibox.utils import (
     shape2num,
 )
 
-from .utils import _vjt_overflow
+from .utils import NEG_THRES_MIN, vjt_overflow
 
 __all__ = ["Neuron"]
 
@@ -48,6 +48,7 @@ class MetaNeuron:
         leak_v: int,
         synaptic_integration_mode: SIM,
         bit_truncation: int,
+        overflow_strict: bool,
         keep_shape: bool = False,
     ) -> None:
         """Stateless attributes. Scalar."""
@@ -79,9 +80,10 @@ class MetaNeuron:
         self._thres_mask: int = (1 << threshold_mask_bits) - 1
         self.thres_mode = self.init_param(TM.NOT_EXCEEDED).astype(np.uint8)
         self._v_th_rand = self.init_param(0).astype(np.int32)
+        self.overflow_strict = overflow_strict
 
     def _neuronal_charge(
-        self, incoming_v: VoltageType, vjt_pre: VoltageType
+        self, incoming_v: VoltageType, vjt_pre: VoltageType, strict: bool = False
     ) -> VoltageType:
         r"""1. Synaptic integration.
 
@@ -107,7 +109,7 @@ class MetaNeuron:
 
         v_charged = np.add(vjt_pre, _v, dtype=np.int32)
 
-        return _vjt_overflow(v_charged)  # Handle with overflow here
+        return vjt_overflow(v_charged, strict)  # Handle with overflow here
 
     def _neuronal_leak(self, vjt: VoltageType) -> VoltageType:
         r"""2. Leak integration.
@@ -323,10 +325,10 @@ class MetaNeuron:
 
     def update(
         self, incoming_v: VoltageType, vjt_pre: VoltageType
-    ) -> Tuple[SpikeType, VoltageType, NDArray[np.uint8]]:
+    ) -> tuple[SpikeType, VoltageType, NDArray[np.uint8]]:
         """Update at one time step."""
         # 1. Charge
-        v_charged = self._neuronal_charge(incoming_v, vjt_pre)
+        v_charged = self._neuronal_charge(incoming_v, vjt_pre, self.overflow_strict)
 
         # 2. Leak & fire
         if self.leak_comparison is LCM.LEAK_BEFORE_COMP:
@@ -348,7 +350,7 @@ class MetaNeuron:
         return np.full((self._n_neuron,), param)
 
     @property
-    def varshape(self) -> Tuple[int, ...]:
+    def varshape(self) -> tuple[int, ...]:
         return self._shape if self.keep_shape else (self._n_neuron,)
 
     @property
@@ -361,9 +363,9 @@ class Neuron(MetaNeuron, NeuDyn):
         "vjt",
         "vj",
         "y",
-        "threshold_mode",
+        "thres_mode",
         "spike",
-        "v_th_rand",
+        "_v_th_rand",
         "_spike_width_format",
         "_pool_max_en",
         "master_nodes",
@@ -380,7 +382,7 @@ class Neuron(MetaNeuron, NeuDyn):
         leak_comparison: LCM = LCM.LEAK_BEFORE_COMP,
         threshold_mask_bits: int = 0,
         neg_thres_mode: NTM = NTM.MODE_RESET,
-        neg_threshold: int = 0,
+        neg_threshold: int = NEG_THRES_MIN,
         pos_threshold: int = 1,
         leak_direction: LDM = LDM.MODE_FORWARD,
         leak_integration_mode: LIM = LIM.MODE_DETERMINISTIC,
@@ -392,17 +394,10 @@ class Neuron(MetaNeuron, NeuDyn):
         tick_wait_start: int = 1,
         tick_wait_end: int = 0,
         unrolling_factor: int = 1,
+        overflow_strict: bool = False,
         keep_shape: bool = False,
         name: Optional[str] = None,
     ) -> None:
-        arg_check_non_pos(neg_threshold, "negative threshold")
-        arg_check_non_neg(pos_threshold, "positive threshold")
-        arg_check_non_neg(bit_truncation, "bit of tuncation")
-        arg_check_pos(delay, "'delay'")
-        arg_check_non_neg(tick_wait_start, "'tick_wait_start'")
-        arg_check_non_neg(tick_wait_end, "'tick_wait_end'")
-        arg_check_pos(unrolling_factor, "'unrolling_factor'")
-
         super().__init__(
             shape,
             reset_mode,
@@ -410,13 +405,15 @@ class Neuron(MetaNeuron, NeuDyn):
             leak_comparison,
             threshold_mask_bits,
             neg_thres_mode,
-            (-neg_threshold),  # In `MetaNeuron`, it is unsgined.
-            pos_threshold,
+            # In `MetaNeuron`, it is unsigned.
+            (-arg_check_non_pos(neg_threshold, "negative threshold")),
+            arg_check_non_neg(pos_threshold, "positive threshold"),
             leak_direction,
             leak_integration_mode,
             leak_v,
             synaptic_integration_mode,
-            bit_truncation,
+            arg_check_non_neg(bit_truncation, "bit of tuncation"),
+            overflow_strict,
             keep_shape,
         )
         super(MetaNeuron, self).__init__(name)
@@ -443,10 +440,10 @@ class Neuron(MetaNeuron, NeuDyn):
             ),
         )
 
-        self._delay = delay
-        self._tws = tick_wait_start
-        self._twe = tick_wait_end
-        self._uf = unrolling_factor
+        self._delay = arg_check_pos(delay, "'delay'")
+        self._tws = arg_check_non_neg(tick_wait_start, "'tick_wait_start'")
+        self._twe = arg_check_non_neg(tick_wait_end, "'tick_wait_end'")
+        self._uf = arg_check_pos(unrolling_factor, "'unrolling_factor'")
 
     def __len__(self) -> int:
         return self._n_neuron
@@ -501,7 +498,7 @@ class Neuron(MetaNeuron, NeuDyn):
             self.leak_comparison,
             self.threshold_mask_bits,
             self.neg_thres_mode,
-            self.neg_threshold,
+            (-1) * self.neg_threshold,
             self.pos_threshold,
             self.leak_direction,
             self.leak_integration_mode,
@@ -520,11 +517,11 @@ class Neuron(MetaNeuron, NeuDyn):
         return self.__deepcopy__()
 
     @property
-    def shape_in(self) -> Tuple[int, ...]:
+    def shape_in(self) -> tuple[int, ...]:
         return self._shape
 
     @property
-    def shape_out(self) -> Tuple[int, ...]:
+    def shape_out(self) -> tuple[int, ...]:
         return self._shape
 
     @property

@@ -1,17 +1,55 @@
 import copy
 import warnings
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import numpy as np
 from numpy.typing import NDArray
 
 from paibox.base import DynamicSys, PAIBoxObject
 from paibox.context import _FRONTEND_CONTEXT
-from paibox.exceptions import SimulationError
+from paibox.exceptions import PAIBoxDeprecationWarning, SimulationError
 
-from .probe import Probe
+__all__ = ["Probe", "Simulator"]
 
-__all__ = ["Simulator"]
+
+class Probe(PAIBoxObject):
+    target: PAIBoxObject
+
+    def __init__(
+        self,
+        target: PAIBoxObject,
+        attr: str,
+        *,
+        name: Optional[str] = None,
+    ) -> None:
+        """
+        Arguments:
+            - target: the target that needs to be monitored.
+            - attr: the attribute that needs to be monitored.
+            - name: the name of the probe. Optional.
+        """
+        self.attr = attr
+        self._check_attr(target)
+
+        super().__init__(name)
+
+    def _check_attr(self, target: PAIBoxObject) -> None:
+        if not hasattr(target, self.attr):
+            raise AttributeError(
+                f"attribute '{self.attr}' not found in target {target}."
+            )
+
+        self.target = target
+
+    @property
+    def _label_txt(self) -> str:
+        return f"'{self.name}'" if hasattr(self, "name") else ""
+
+    def __str__(self) -> str:
+        return f"<Probe {self._label_txt} of '{self.attr}' of {self.target.name}>"
+
+    def __repr__(self) -> str:
+        return f"<Probe {self._label_txt} at 0x{id(self):x} of '{self.attr}' of {self.target.name}>"
 
 
 class Simulator(PAIBoxObject):
@@ -46,7 +84,7 @@ class Simulator(PAIBoxObject):
         self._sim_data["ts"] = []  # Necessary key for recording timestamp
 
         self.data = _SimulationData(self._sim_data)
-        self.probes: List[Probe] = []
+        self.probes: list[Probe] = []
 
         self._add_inner_probes()
         self.reset()
@@ -63,7 +101,7 @@ class Simulator(PAIBoxObject):
             warnings.warn(
                 "passing extra arguments through 'run()' will be deprecated. "
                 "Use 'FRONTEND_ENV.save()' instead.",
-                DeprecationWarning,
+                PAIBoxDeprecationWarning,
             )
 
         if duration < 1:
@@ -119,7 +157,7 @@ class Simulator(PAIBoxObject):
         self._sim_data.clear()
         self.data.reset()
 
-    def get_raw(self, probe: Probe) -> List[Any]:
+    def get_raw(self, probe: Probe) -> list[Any]:
         """Retrieve the raw data.
 
         Argument:
@@ -187,7 +225,7 @@ class Simulator(PAIBoxObject):
 class _SimulationData(dict):
     """Data structure used to retrieve and access the simulation data."""
 
-    def __init__(self, raw: Dict[Probe, List[Any]]) -> None:
+    def __init__(self, raw: dict[Probe, list[Any]]) -> None:
         super().__init__()
         self.raw = raw
         self._cache = {}

@@ -1,5 +1,5 @@
 import sys
-from typing import Any, ClassVar, Dict, List, Literal, Optional, Set, Tuple
+from typing import Any, ClassVar, Literal, Optional
 
 import numpy as np
 
@@ -20,7 +20,7 @@ from .utils import arg_check_pos
 __all__ = []
 
 
-_IdPathType: TypeAlias = Tuple[int, int]
+_IdPathType: TypeAlias = tuple[int, int]
 
 
 class PAIBoxObject:
@@ -92,7 +92,7 @@ class PAIBoxObject:
         include_self: bool = True,
         find_recursive: bool = False,
         _lid: int = 0,
-        _paths: Optional[Set[_IdPathType]] = None,
+        _paths: Optional[set[_IdPathType]] = None,
         _iter_termination: bool = False,
     ) -> Collector[str, "PAIBoxObject"]:
         if _paths is None:
@@ -114,6 +114,8 @@ class PAIBoxObject:
                 return gather
 
         iter_termi = True  # iteration termination flag
+
+        from .simulator import Probe
 
         def _find_nodes_absolute() -> None:
             nonlocal gather, nodes, iter_termi
@@ -145,6 +147,8 @@ class PAIBoxObject:
                         _paths=_paths,
                         _iter_termination=iter_termi,
                     )
+                    if not isinstance(v, Probe)
+                    else {}
                 )
 
         def _find_nodes_relative() -> None:
@@ -167,17 +171,18 @@ class PAIBoxObject:
 
             # finding nodes recursively
             for k1, v1 in nodes:
-                for k2, v2 in v1._find_nodes(
-                    method=method,
-                    level=level,
-                    include_self=include_self,
-                    find_recursive=find_recursive,
-                    _lid=_lid + 1,
-                    _paths=_paths,
-                    _iter_termination=iter_termi,
-                ).items():
-                    if k2:
-                        gather[f"{k1}.{k2}"] = v2
+                if not isinstance(v1, Probe):
+                    for k2, v2 in v1._find_nodes(
+                        method=method,
+                        level=level,
+                        include_self=include_self,
+                        find_recursive=find_recursive,
+                        _lid=_lid + 1,
+                        _paths=_paths,
+                        _iter_termination=iter_termi,
+                    ).items():
+                        if k2:
+                            gather[f"{k1}.{k2}"] = v2
 
         nodes = []
 
@@ -193,9 +198,9 @@ def _add_node1(
     obj: Any,
     k: str,
     v: PAIBoxObject,
-    _paths: Set[_IdPathType],
+    _paths: set[_IdPathType],
     gather: Collector[str, PAIBoxObject],
-    nodes: List[Tuple[str, PAIBoxObject]],
+    nodes: list[tuple[str, PAIBoxObject]],
 ) -> None:
     path = (id(obj), id(v))
 
@@ -208,9 +213,9 @@ def _add_node1(
 def _add_node2(
     obj: Any,
     v: PAIBoxObject,
-    _paths: Set[_IdPathType],
+    _paths: set[_IdPathType],
     gather: Collector[str, PAIBoxObject],
-    nodes: List[PAIBoxObject],
+    nodes: list[PAIBoxObject],
 ) -> None:
     path = (id(obj), id(v))
 
@@ -239,12 +244,12 @@ class DynamicSys(PAIBoxObject, StatusMemory):
         raise NotImplementedError
 
     @property
-    def shape_in(self) -> Tuple[int, ...]:
+    def shape_in(self) -> tuple[int, ...]:
         """Actual shape of input."""
         raise NotImplementedError
 
     @property
-    def shape_out(self) -> Tuple[int, ...]:
+    def shape_out(self) -> tuple[int, ...]:
         """Actual shape of output."""
         raise NotImplementedError
 
@@ -276,7 +281,7 @@ class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
         super().__init__(name)
         self.master_nodes = NodeDict()
 
-    def export_params(self) -> Dict[str, Any]:
+    def export_params(self) -> dict[str, Any]:
         """Export the parameters into dictionary."""
         params = {}
 
@@ -284,10 +289,7 @@ class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
             if k in self._excluded_vars:
                 continue
 
-            if sys.version_info >= (3, 9):
-                params.update({k.removeprefix("_"): v})
-            else:
-                params.update({k.lstrip("_"): v})  # compatible for py3.8
+            params.update({k.removeprefix("_"): v})
 
         return params
 
@@ -314,8 +316,7 @@ class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
 
     @unrolling_factor.setter
     def unrolling_factor(self, factor: int) -> None:
-        arg_check_pos(factor, "'unrolling_factor'")
-        self._uf = factor
+        self._uf = arg_check_pos(factor, "'unrolling_factor'")
 
 
 class SynSys(DynamicSys):

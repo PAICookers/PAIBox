@@ -1,6 +1,7 @@
+from collections.abc import Iterable
 from functools import partial
 from itertools import repeat
-from typing import Any, Iterable
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -237,6 +238,7 @@ def _func_pool2d(
     stride: Size2Type,
     padding: Size2Type,
     type: str,
+    threshold: int,
 ) -> SpikeType:
     xcin, xh, xw = x_chw.shape
     kh, kw = ksize
@@ -274,8 +276,7 @@ def _func_pool2d(
                     )
 
     if type == "avg":
-        thres = kh * kw // 2 + 1
-        return out >= thres
+        return out >= threshold
     else:
         return out.astype(np.bool_)
 

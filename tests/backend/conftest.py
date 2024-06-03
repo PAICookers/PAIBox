@@ -599,6 +599,64 @@ class MultichipNet1(pb.DynSysGroup):
         )
 
 
+class Network_branch_nodes1(pb.Network):
+    """
+    Before:
+        INP1 -> N1 -> N2 -> N4
+                         -> N5
+                   -> N3 -> N5
+                         -> N6
+    After:
+        INP1 -> N1 -> N2 -> N4
+                      N2'-> N5
+                   -> N3'-> N5
+                   -> N3 -> N6
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.inp1 = pb.InputProj(1, shape_out=(600,), name="inp1")
+        self.n1 = pb.IF((600,), 10, name="n1")
+        self.n2 = pb.IF((800,), 10, name="n2")
+        self.n3 = pb.IF((1200,), 10, name="n3")
+        self.n4 = pb.IF((500,), 10, name="n4")
+        self.n5 = pb.IF((400,), 10, name="n5")
+        self.n6 = pb.IF((200,), 10, name="n6")
+
+        self.s1 = pb.FullConn(self.inp1, self.n1, name="s1")
+        self.s2 = pb.FullConn(self.n1, self.n2, name="s2")
+        self.s3 = pb.FullConn(self.n1, self.n3, name="s3")
+        self.s4 = pb.FullConn(self.n2, self.n4, name="s4")
+        self.s5 = pb.FullConn(self.n2, self.n5, name="s5")
+        self.s6 = pb.FullConn(self.n3, self.n5, name="s6")
+        self.s7 = pb.FullConn(self.n3, self.n6, name="s7")
+
+
+class Network_branch_nodes2(pb.Network):
+    """
+    Before:
+        INP1 -> N1 -> N2 ->
+                   -------> N3 -> N4
+    After:
+        INP1 -> N1'-> N2 ->
+             -> N1'-------> N3 -> N4
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.inp1 = pb.InputProj(1, shape_out=(800,), name="inp1")
+        self.n1 = pb.IF((800,), 10, name="n1")
+        self.n2 = pb.IF((1000,), 10, name="n2")
+        self.n3 = pb.IF((1200,), 10, name="n3")
+        self.n4 = pb.IF((500,), 10, name="n4")
+
+        self.s1 = pb.FullConn(self.inp1, self.n1, name="s1")
+        self.s2 = pb.FullConn(self.n1, self.n2, name="s2")
+        self.s3 = pb.FullConn(self.n1, self.n3, name="s3")
+        self.s4 = pb.FullConn(self.n2, self.n3, name="s4")
+        self.s5 = pb.FullConn(self.n3, self.n4, name="s5")
+
+
 @pytest.fixture(scope="class")
 def build_example_net1():
     return NetForTest1()
@@ -692,6 +750,16 @@ def build_MultichipNet1_s1():
 @pytest.fixture(scope="class")
 def build_MultichipNet1_s2():
     return MultichipNet1(scale=2)
+
+
+@pytest.fixture(scope="class")
+def build_Network_branch_nodes1():
+    return Network_branch_nodes1()
+
+
+@pytest.fixture(scope="class")
+def build_Network_branch_nodes2():
+    return Network_branch_nodes2()
 
 
 @pytest.fixture(scope="class")

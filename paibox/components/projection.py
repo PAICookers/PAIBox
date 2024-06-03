@@ -1,6 +1,7 @@
 import inspect
 import sys
-from typing import Callable, Optional, Tuple, Union
+from collections.abc import Callable
+from typing import Optional, Union
 
 import numpy as np
 
@@ -113,7 +114,7 @@ class InputProj(Projection, TimeRelatedNode):
             return _call_with_ctx(self._func_input, self._num_input, **kwargs)
 
     @property
-    def varshape(self) -> Tuple[int, ...]:
+    def varshape(self) -> tuple[int, ...]:
         return self.shape_out if self.keep_shape else (self.num_out,)
 
     @property
@@ -125,11 +126,11 @@ class InputProj(Projection, TimeRelatedNode):
         return shape2num(self._shape)
 
     @property
-    def shape_in(self) -> Tuple[int, ...]:
+    def shape_in(self) -> tuple[int, ...]:
         return (0,)
 
     @property
-    def shape_out(self) -> Tuple[int, ...]:
+    def shape_out(self) -> tuple[int, ...]:
         return self._shape
 
     @property

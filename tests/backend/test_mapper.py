@@ -12,6 +12,8 @@ from paibox.backend.conf_template import CoreConfig, NeuronDest, NeuronDestInfo
 from paibox.base import SynSys
 from paibox.exceptions import ResourceError
 
+from .conftest import TestData
+
 
 class CustomJsonEncoder(JSONEncoder):
     def default(self, o: Any) -> Any:
@@ -122,9 +124,7 @@ class TestGraphInfo:
             export_core_params=True,
         )
 
-    def test_multi_inodes_onodes(
-        self, get_mapper, ensure_dump_dir, build_multi_inodes_onodes
-    ):
+    def test_multi_inodes_onodes(self, get_mapper, build_multi_inodes_onodes):
         net = build_multi_inodes_onodes
         mapper: pb.Mapper = get_mapper
         mapper.build(net)
@@ -154,7 +154,7 @@ class TestGraphInfo:
         assert len(mapper.graph_info["output"]) == 1
 
 
-class TestMapperDebug:
+class TestMapperDeployment:
     def test_build_graph(self, get_mapper, build_example_net1, build_example_net2):
         """Build more than one networks."""
         net1 = build_example_net1
@@ -220,7 +220,7 @@ class TestMapperDebug:
         assert len(mapper.graph_info["input"]) == 0
         assert len(mapper.graph_info["output"]) == 1
 
-    def test_network_axons_outrange(self):
+    def test_network_axons_out_of_range(self):
         class Net(pb.Network):
             def __init__(self):
                 super().__init__()
@@ -242,6 +242,41 @@ class TestMapperDebug:
         with pytest.raises(ResourceError):
             mapper.compile()  # 300*300 > 1152*64
 
+    @pytest.mark.parametrize("n_networks", [5, 15, 16, 50, 400, 900, 1008, 1009, 1023])
+    def test_multi_networks(self, n_networks, monkeypatch, ensure_dump_dir):
+        class Net(pb.Network):
+            # This network will be placed in 1 core only.
+            def __init__(self):
+                super().__init__()
+                self.inp = pb.InputProj(1, shape_out=(3,))
+                self.n1 = pb.IF((3,), 10)
+                self.s1 = pb.FullConn(self.inp, self.n1)
+
+        nets = [Net() for _ in range(n_networks)]
+
+        if n_networks > 1008:
+            clist = [Coord(0, 0), Coord(0, 1)]
+            monkeypatch.setattr(pb.BACKEND_CONFIG, "target_chip_addr", clist)
+
+        mapper = pb.Mapper()
+        mapper.build(*nets)
+        graph_info = mapper.compile()
+
+        assert graph_info["n_core_occupied"] == n_networks
+
+        rtotal = mapper.routing_tree.breadth_of_lx(0)
+        r1 = mapper.routing_tree.breadth_of_lx(0, 0)
+
+        if n_networks > 1008:
+            r2 = mapper.routing_tree.breadth_of_lx(0, 1)
+            assert rtotal == r1 + r2
+            assert r1 == 1008
+            assert r2 == n_networks - 1008
+        else:
+            assert rtotal == r1 == n_networks
+
+        mapper.export(fp=ensure_dump_dir)
+
 
 class TestMapper_Export:
     def test_export_multi_nodes_more_than_32(
@@ -253,7 +288,7 @@ class TestMapper_Export:
         mapper.compile()
         mapper.export(fp=ensure_dump_dir)
 
-        assert len(mapper.graph_info["output"].keys()) == net.n_onodes
+        assert len(mapper.graph_info["output"]) == net.n_onodes
 
     def test_export_empty_cplm(self, build_example_net4_large_scale, ensure_dump_dir):
         net = build_example_net4_large_scale
@@ -356,7 +391,7 @@ class TestMapper_Weight4:
         print("OK")
 
 
-class TestMapper_Grouping_Optim:
+class TestMapper_Compile:
     def test_grouping_optim_latency(
         self, monkeypatch, build_Network_8bit_dense, ensure_dump_dir
     ):
@@ -369,10 +404,7 @@ class TestMapper_Grouping_Optim:
 
         mapper = pb.Mapper()
         mapper.build(net)
-        monkeypatch.setitem(
-            pb.BACKEND_CONFIG.cflags, "grouping_optim_target", "latency"
-        )
-        mapper.compile()
+        mapper.compile(grouping_optim_target="latency")
 
         # Export complete configurations of cores into json
         export_core_plm_conf_json(
@@ -388,8 +420,7 @@ class TestMapper_Grouping_Optim:
 
         mapper = pb.Mapper()
         mapper.build(net)
-        monkeypatch.setitem(pb.BACKEND_CONFIG.cflags, "grouping_optim_target", "core")
-        mapper.compile()
+        mapper.compile(grouping_optim_target="core")
 
         assert mapper.core_blocks[0].n_core_required == ceil(
             net.n1.num_out / HwConfig.N_DENDRITE_MAX_SNN
@@ -410,8 +441,7 @@ class TestMapper_Grouping_Optim:
 
         mapper = pb.Mapper()
         mapper.build(net)
-        monkeypatch.setitem(pb.BACKEND_CONFIG.cflags, "grouping_optim_target", "both")
-        mapper.compile()
+        mapper.compile(grouping_optim_target="both")
 
         assert (
             mapper.core_blocks[0].n_core_required
@@ -429,14 +459,12 @@ class TestMapper_Grouping_Optim:
 
 
 class TestMapper_cflags:
-    from .conftest import TestData
-
     @pytest.mark.parametrize(
         TestData.cflags_weight_bit_opt_data["args"],
         TestData.cflags_weight_bit_opt_data["data"],
     )
     def test_cflags_weight_bit_opt(
-        self, monkeypatch, range, scalar, dtype, expected_wp_noopt, expected_wp_opt
+        self, range, scalar, dtype, expected_wp_noopt, expected_wp_opt
     ):
         # s1, s2, s3 will be grouped in one core block.
         class Net(pb.Network):
@@ -470,41 +498,36 @@ class TestMapper_cflags:
         net = Net()
         mapper = pb.Mapper()
         mapper.build(net)
-        monkeypatch.setitem(pb.BACKEND_CONFIG.cflags, "enable_wp_opt", False)
-        mapper.compile()
+        mapper.compile(weight_bit_optimization=False)
         assert mapper.core_blocks[0].weight_precision == expected_wp_noopt
 
         mapper.clear()
         mapper.build(net)
-        monkeypatch.setitem(pb.BACKEND_CONFIG.cflags, "enable_wp_opt", True)
-        mapper.compile()
+        mapper.compile(weight_bit_optimization=True)
         assert mapper.core_blocks[0].weight_precision == max(
             s.weight_precision for s in (net.s1, net.s2, net.s3)
         )
         assert mapper.core_blocks[0].weight_precision == expected_wp_opt
 
 
+from tests.utils import measure_time
+
+
 class TestMapper_Multichip:
     @pytest.mark.xfail(reason="Network may too large.")
     def test_multichip_1(self, ensure_dump_dir, monkeypatch, build_MultichipNet1_s1):
         """Multichip network of scale 1"""
-        import time
-
-        from paibox.backend.context import _BACKEND_CONTEXT
 
         clist = [Coord(0, 0), Coord(0, 1)]
         monkeypatch.setattr(pb.BACKEND_CONFIG, "target_chip_addr", clist)
-        assert _BACKEND_CONTEXT.n_target_chips == len(clist)
+        assert pb.BACKEND_CONFIG.n_target_chips == len(clist)
 
         net = build_MultichipNet1_s1
         mapper = pb.Mapper()
         mapper.build(net)
 
-        monkeypatch.setitem(pb.BACKEND_CONFIG.cflags, "enable_wp_opt", False)
-        t_start = time.time()
-        mapper.compile()
-        t_end = time.time()
-        print(f"Used {t_end - t_start}")
+        with measure_time("test_multichip_1"):
+            mapper.compile(weight_bit_optimization=False)
 
         mapper.export(fp=ensure_dump_dir, export_core_params=True, split_by_coord=False)
 
@@ -515,23 +538,16 @@ class TestMapper_Multichip:
     @pytest.mark.xfail(reason="Network may too large.")
     def test_multichip_2(self, ensure_dump_dir, monkeypatch, build_MultichipNet1_s2):
         """Multichip network of scale 2"""
-        import time
-
-        from paibox.backend.context import _BACKEND_CONTEXT
-
         clist = [Coord(0, 0), Coord(0, 1), Coord(1, 0)]
         monkeypatch.setattr(pb.BACKEND_CONFIG, "target_chip_addr", clist)
-        assert _BACKEND_CONTEXT.n_target_chips == len(clist)
+        assert pb.BACKEND_CONFIG.n_target_chips == len(clist)
 
         net = build_MultichipNet1_s2
         mapper = pb.Mapper()
         mapper.build(net)
 
-        monkeypatch.setitem(pb.BACKEND_CONFIG.cflags, "enable_wp_opt", False)
-        t_start = time.time()
-        mapper.compile()
-        t_end = time.time()
-        print(f"Used {t_end - t_start}")
+        with measure_time("test_multichip_2"):
+            mapper.compile(weight_bit_optimization=False)
 
         mapper.export(fp=ensure_dump_dir, export_core_params=True, split_by_coord=False)
 

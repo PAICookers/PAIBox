@@ -1,6 +1,6 @@
 from enum import Enum
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, NamedTuple, TypedDict
+from typing import Any, ClassVar, NamedTuple, TypedDict
 
 import numpy as np
 from numpy.typing import NDArray
@@ -97,12 +97,12 @@ class CoreConfig(NamedTuple):
     target_lcn: LCN_EX
     test_chip_addr: Coord
 
-    def export(self) -> Dict[str, Any]:
+    def export(self) -> dict[str, Any]:
         return ParamsReg.model_validate(self._asdict(), strict=True).model_dump(
             by_alias=True
         )
 
-    def __json__(self) -> Dict[str, Any]:
+    def __json__(self) -> dict[str, Any]:
         """Dump the configs into json for debugging."""
         dict_ = self.export()
 
@@ -118,8 +118,8 @@ class NeuronDest(NamedTuple):
     _extra_params = ("tick_relative", "addr_axon")
     """Extra parameters for debugging."""
 
-    tick_relative: List[int]
-    addr_axon: List[int]
+    tick_relative: list[int]
+    addr_axon: list[int]
     addr_core_x: int
     addr_core_y: int
     addr_core_x_ex: int
@@ -127,13 +127,13 @@ class NeuronDest(NamedTuple):
     addr_chip_x: int
     addr_chip_y: int
 
-    def export(self) -> Dict[str, Any]:
+    def export(self) -> dict[str, Any]:
         dest_info = NeuronDestInfo.model_validate(self._asdict(), strict=True)
         dict_ = dest_info.model_dump(by_alias=True)
 
         return dict_
 
-    def __json__(self) -> Dict[str, Any]:
+    def __json__(self) -> dict[str, Any]:
         """Dump the configs into json for debugging."""
         dict_ = self.export()
 
@@ -170,7 +170,7 @@ class NeuronConfig(NamedTuple):
     """Extra parameters for debugging."""
 
     n_neuron: int
-    addr_ram: List[int]
+    addr_ram: list[int]
     """RAM Address of neurons"""
     addr_offset: int
     "RAM starting address(offset)"
@@ -182,10 +182,10 @@ class NeuronConfig(NamedTuple):
         cls,
         neuron: NeuDyn,
         n_neuron: int,
-        addr_ram: List[int],
+        addr_ram: list[int],
         addr_offset: int,
-        axon_coords: List[AxonCoord],
-        dest_core_coords: List[Coord],
+        axon_coords: list[AxonCoord],
+        dest_core_coords: list[Coord],
         dest_chip_coord: Coord,
     ):
         """Build the `NeuronConfig`.
@@ -224,7 +224,7 @@ class NeuronConfig(NamedTuple):
             neuron_dest_info,
         )
 
-    def export(self) -> Dict[str, Any]:
+    def export(self) -> dict[str, Any]:
         dict_ = self.neuron_attrs.model_dump(
             by_alias=True,
             # exclude={"dest_info": self.params_ram.dest_info._exclude_vars},
@@ -233,7 +233,7 @@ class NeuronConfig(NamedTuple):
 
         return dict_
 
-    def __json__(self) -> Dict[str, Any]:
+    def __json__(self) -> dict[str, Any]:
         """Dump the configs into json for debugging."""
         dict_ = self.export()
 
@@ -250,7 +250,7 @@ class CorePlmConfig(NamedTuple):
     random_seed: int
     weight_ram: NDArray[np.uint64]
     params_reg: ParamsReg
-    neuron_configs: Dict[NeuDyn, NeuronConfig]
+    neuron_configs: dict[NeuDyn, NeuronConfig]
 
     @classmethod
     def encapsulate(
@@ -258,7 +258,7 @@ class CorePlmConfig(NamedTuple):
         random_seed: int,
         weight_ram: NDArray[np.uint64],
         core_config: CoreConfig,
-        neuron_configs: Dict[NeuDyn, NeuronConfig],
+        neuron_configs: dict[NeuDyn, NeuronConfig],
     ):
         return cls(
             random_seed,
@@ -267,7 +267,7 @@ class CorePlmConfig(NamedTuple):
             neuron_configs,
         )
 
-    def export(self) -> Dict[str, Any]:
+    def export(self) -> dict[str, Any]:
         dict_ = {
             "name": self.params_reg.name,
             "random_seed": self.random_seed,
@@ -280,7 +280,7 @@ class CorePlmConfig(NamedTuple):
 
         return dict_
 
-    def __json__(self) -> Dict[str, Any]:
+    def __json__(self) -> dict[str, Any]:
         """Dump the configs into json for debugging."""
         dict_ = self.export()
 
@@ -307,10 +307,10 @@ class EmptyCorePlmConfig(CorePlmConfig):
         )
 
 
-InputNodeConf: TypeAlias = Dict[NodeName, NeuronDest]
-OutputDestConf: TypeAlias = Dict[NodeName, Dict[CoordAddr, NeuronDestInfo]]
-CorePlmConfInChip: TypeAlias = Dict[Coord, CorePlmConfig]
-CorePlmConf: TypeAlias = Dict[ChipCoord, CorePlmConfInChip]
+InputNodeConf: TypeAlias = dict[NodeName, NeuronDest]
+OutputDestConf: TypeAlias = dict[NodeName, dict[CoordAddr, NeuronDestInfo]]
+CorePlmConfInChip: TypeAlias = dict[Coord, CorePlmConfig]
+CorePlmConf: TypeAlias = dict[ChipCoord, CorePlmConfInChip]
 
 
 class GraphInfo(TypedDict):
@@ -327,7 +327,7 @@ class GraphInfo(TypedDict):
     """The actual used cores."""
     n_core_occupied: int
     """The occupied cores, including used & wasted."""
-    extras: NotRequired[Dict[str, Any]]
+    extras: NotRequired[dict[str, Any]]
 
 
 def gen_config_frames_by_coreconf(
@@ -335,8 +335,8 @@ def gen_config_frames_by_coreconf(
     write_to_file: bool,
     fp: Path,
     split_by_coord: bool,
-    formats: List[str],
-) -> Dict[Coord, FrameArrayType]:
+    formats: list[str],
+) -> dict[Coord, FrameArrayType]:
     """Generate configuration frames by given the `CorePlmConfig`.
 
     Args:
@@ -344,7 +344,7 @@ def gen_config_frames_by_coreconf(
         - write_to_file: whether to write frames to file.
         - fp: If `write_to_file` is `True`, specify the path.
         - split_by_coord: whether to split the generated frames file by the core coordinates.
-        - format: a list of formats to export.
+        - formats: a list of formats to export.
     """
 
     def _write_to_f(name: str, array: FrameArrayType) -> None:
@@ -358,8 +358,8 @@ def gen_config_frames_by_coreconf(
                 np2txt(_fp, array)
 
     _default_rid = RId(0, 0)
-    _debug_dict: Dict[Coord, Dict[str, Any]] = dict()
-    frame_arrays_on_core: Dict[Coord, FrameArrayType] = dict()
+    _debug_dict: dict[Coord, dict[str, Any]] = dict()
+    frame_arrays_on_core: dict[Coord, FrameArrayType] = dict()
 
     for chip_coord, conf_in_chip in config_dict.items():
         for core_coord, v in conf_in_chip.items():
@@ -452,7 +452,7 @@ def gen_config_frames_by_coreconf(
     return frame_arrays_on_core
 
 
-def export_core_params_json(core_conf: Dict[Coord, CoreConfig], fp: Path) -> None:
+def export_core_params_json(core_conf: dict[Coord, CoreConfig], fp: Path) -> None:
     _valid_conf = {str(k): v.export() for k, v in core_conf.items()}
 
     if _use_orjson:
@@ -496,7 +496,7 @@ def export_output_conf_json(output_conf_info: OutputDestConf, fp: Path) -> None:
             json.dump(output_conf_info, f, indent=2, cls=PAIConfigJsonEncoder)
 
 
-def export_neuconf_json(neuron_conf: Dict[NeuDyn, NeuronConfig], full_fp: Path) -> None:
+def export_neuconf_json(neuron_conf: dict[NeuDyn, NeuronConfig], full_fp: Path) -> None:
     _valid_conf = {k.name: v.export() for k, v in neuron_conf.items()}
 
     if _use_orjson:

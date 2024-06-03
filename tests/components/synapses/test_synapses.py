@@ -31,7 +31,7 @@ class TestFullConnectedSyn:
         with pytest.raises(RegisterError):
             s1.target = new_target2
 
-    def test_FullConnectedSyn_copy(self):
+    def test_FullConn_copy(self):
         n1 = pb.IF((10, 10), 10)
         n2 = pb.IF((20, 10), 10)
         s1 = pb.FullConn(
@@ -45,9 +45,63 @@ class TestFullConnectedSyn:
         assert s1.source == s2.source
         assert s1.target == s2.target
         assert s1.weights is not s2.weights
-        assert np.array_equal(s1.weights, s2.weights)
+        assert np.array_equal(s1.connectivity, s2.connectivity)
+
+        # Check the size
+        s2.source = n1
+        s2.target = n2
 
         new_target1 = pb.LIF((10, 20), 7)
+        s2.target = new_target1
+
+        assert s1.target != s2.target
+
+    def test_MatMul2d_copy(self):
+        n1 = pb.IF((20, 10), 10)
+        n2 = pb.IF((10, 10), 10)
+        s1 = pb.MatMul2d(n1, n2, np.random.randint(-128, 128, (20, 10), dtype=np.int8))
+        s2 = s1.copy()
+
+        assert isinstance(s2, FullConnectedSyn)
+        assert id(s1) != id(s2)
+        assert s1 != s2
+        assert s1.source == s2.source
+        assert s1.target == s2.target
+        assert s1.weights is not s2.weights
+        assert np.array_equal(s1.connectivity, s2.connectivity)
+
+        s2.source = n1
+        s2.target = n2
+
+        new_target1 = pb.LIF((10, 10), 7)
+        s2.target = new_target1
+
+        assert s1.target != s2.target
+
+    def test_Conv2d_copy(self):
+        n1 = pb.IF((8, 28, 28), 10)
+        n2 = pb.IF((16, 14, 14), 10)
+        s1 = pb.Conv2d(
+            n1,
+            n2,
+            np.random.randint(-128, 128, (16, 8, 3, 3), dtype=np.int8),
+            stride=2,
+            padding=1,
+        )
+        s2 = s1.copy()
+
+        assert isinstance(s2, FullConnectedSyn)
+        assert id(s1) != id(s2)
+        assert s1 != s2
+        assert s1.source == s2.source
+        assert s1.target == s2.target
+        assert s1.weights is not s2.weights
+        assert np.array_equal(s1.connectivity, s2.connectivity)
+
+        s2.source = n1
+        s2.target = n2
+
+        new_target1 = pb.IF((16, 14, 14), 7)
         s2.target = new_target1
 
         assert s1.target != s2.target

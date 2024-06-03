@@ -101,7 +101,7 @@ class TestTopoSort:
     ],
 )
 def test_bounded_by(constrs, expected):
-    def _bounded_by_proto(node: str, constrs: Sequence[Sequence[str]]) -> List[str]:
+    def _bounded_by_proto(node: str, constrs: Sequence[Sequence[str]]) -> list[str]:
         for constr in constrs:
             for bounded_node in constr:
                 if node == bounded_node:
@@ -124,7 +124,7 @@ def test_bounded_by(constrs, expected):
     ],
 )
 def test_conflicted_by(constrs, expected):
-    def _conflicted_by_proto(node: str, constrs: Dict[str, Sequence[str]]) -> List[str]:
+    def _conflicted_by_proto(node: str, constrs: dict[str, Sequence[str]]) -> list[str]:
         c = set(constrs.get(node, []))
 
         for k, v in constrs.items():
@@ -166,8 +166,8 @@ def test_conflicted_by(constrs, expected):
 )
 def test_bounded_nodes_check(constrs, expected):
     def _bounded_nodes_check_proto(
-        constrs: List[Sequence[str]],
-    ) -> List[FrozenSet[str]]:
+        constrs: list[Sequence[str]],
+    ) -> list[frozenset[str]]:
         seen = {}
         need_update_nodes = []
 
@@ -206,16 +206,25 @@ def test_bounded_nodes_check(constrs, expected):
 
 
 class TestPAIGraph:
-    def test_output_nodes_with_more_than_1152(self, monkeypatch, build_example_net1):
-        net = build_example_net1
-
-        # Change the #N of neurons of the output node
-        monkeypatch.setattr(net.n3, "_n_neuron", 1200)
-
+    def test_build_duplicated_networks(self, build_example_net2):
+        net = build_example_net2
         mapper = pb.Mapper()
 
+        with pytest.raises(GraphBuildError):
+            mapper.build(net, net, net)
+
+    def test_output_nodes_with_more_than_1152(self, monkeypatch, build_example_net2):
+        net = build_example_net2
+
+        # Change the #N of neurons of the output node
+        assert 1200 > HwConfig.N_FANIN_PER_DENDRITE_MAX
+        monkeypatch.setattr(net.n2, "_n_neuron", 1200)
+
+        mapper = pb.Mapper()
+        mapper.build(net)
+
         with pytest.raises(NotSupportedError):
-            mapper.build(net)
+            mapper.compile()
 
     def test_prebuild_topo_info(self, build_FModule_ConnWithInput_Net):
         net = build_FModule_ConnWithInput_Net
@@ -237,15 +246,33 @@ class TestPAIGraph:
         with pytest.raises(GraphConnectionError):
             mapper.build(net)
 
+    def test_untwist_branch_nodes1(self, build_Network_branch_nodes1):
+        net = build_Network_branch_nodes1
+
+        mapper = pb.Mapper()
+        mapper.build(net)
+        mapper.compile()
+
+        assert len(mapper.graph.nodes) == 9
+
+    def test_untwist_branch_nodes2(self, build_Network_branch_nodes2):
+        net = build_Network_branch_nodes2
+
+        mapper = pb.Mapper()
+        mapper.build(net)
+        mapper.compile()
+
+        assert 1
+
 
 class TestGroupEdges:
     @staticmethod
     def group_edges_proto(
-        succ_edges: Dict[NodeName, Dict[NodeName, EdgeName]],
-        degree: Dict[NodeName, NodeDegree],
+        succ_edges: dict[NodeName, dict[NodeName, EdgeName]],
+        degree: dict[NodeName, NodeDegree],
         *,
-        ordered_nodes: Optional[List[NodeName]] = None,
-    ) -> List[Set[EdgeName]]:
+        ordered_nodes: Optional[list[NodeName]] = None,
+    ) -> list[set[EdgeName]]:
         """Group all edges according to a certain rule.
 
         Args:
@@ -259,8 +286,8 @@ class TestGroupEdges:
         """
 
         def _find_pred_edges_proto(
-            succ_edges: Dict[NodeName, Dict[NodeName, EdgeName]], target_node: NodeName
-        ) -> Set[EdgeName]:
+            succ_edges: dict[NodeName, dict[NodeName, EdgeName]], target_node: NodeName
+        ) -> set[EdgeName]:
             pred = set()
 
             for succ_node in filter(
@@ -440,23 +467,14 @@ class TestGroupEdges:
 
         assert pos_n2 != pos_n3
 
-        # Continue
-        mapper.build_core_blocks()
-        mapper.lcn_ex_adjustment()
-        mapper.coord_assign()
-        mapper.core_allocation()
-
-        mapper.config_export()
-        print()
-
 
 class TestDAGPathDistance:
     """Consider DAG only."""
 
     @staticmethod
     def get_longest_path_proto(
-        edges_with_d: Dict[NodeName, Dict[NodeName, int]], ordered_nodes: List[NodeName]
-    ) -> Tuple[List[NodeName], int]:
+        edges_with_d: dict[NodeName, dict[NodeName, int]], ordered_nodes: list[NodeName]
+    ) -> tuple[list[NodeName], int]:
         """Get the longest path in the DAG.
 
         Args:
@@ -465,8 +483,8 @@ class TestDAGPathDistance:
 
         Return: the longest distance in the graph.
         """
-        distances: Dict[NodeName, int] = {node: 0 for node in ordered_nodes}
-        pred_nodes: Dict[NodeName, NodeName] = defaultdict()
+        distances: dict[NodeName, int] = {node: 0 for node in ordered_nodes}
+        pred_nodes: dict[NodeName, NodeName] = defaultdict()
 
         for node in ordered_nodes:
             for neighbor in edges_with_d[node]:
@@ -505,10 +523,10 @@ class TestDAGPathDistance:
 
     @staticmethod
     def get_shortest_path_proto(
-        edges_with_d: Dict[NodeName, Dict[NodeName, int]],
-        ordered_nodes: List[NodeName],
-        input_nodes: List[NodeName],
-    ) -> Tuple[List[NodeName], int]:
+        edges_with_d: dict[NodeName, dict[NodeName, int]],
+        ordered_nodes: list[NodeName],
+        input_nodes: list[NodeName],
+    ) -> tuple[list[NodeName], int]:
         """Get the shortest path in the DAG.
 
         Args:
@@ -518,10 +536,10 @@ class TestDAGPathDistance:
 
         Return: the shortest distance in the graph.
         """
-        distances: Dict[NodeName, int] = defaultdict(lambda: 999)
-        pred_nodes: Dict[NodeName, NodeName] = defaultdict()
+        distances: dict[NodeName, int] = defaultdict(lambda: 999)
+        pred_nodes: dict[NodeName, NodeName] = defaultdict()
 
-        # Set initial value for all inputs nodes.
+        # set initial value for all inputs nodes.
         if input_nodes:
             for inode in input_nodes:
                 distances[inode] = 0

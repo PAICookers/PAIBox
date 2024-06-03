@@ -1,6 +1,7 @@
 import sys
 from collections import defaultdict
-from typing import ClassVar, Dict, FrozenSet, List, Sequence, Tuple
+from collections.abc import Sequence
+from typing import ClassVar
 
 from .graphs_types import NodeName, NodeType
 
@@ -9,7 +10,7 @@ if sys.version_info >= (3, 10):
 else:
     from typing_extensions import TypeAlias
 
-BoundedConstrType: TypeAlias = List[FrozenSet[NodeName]]
+BoundedConstrType: TypeAlias = list[frozenset[NodeName]]
 
 
 class Constraints:
@@ -17,8 +18,8 @@ class Constraints:
 
 
 class GraphNodeConstrs(Constraints):
-    BOUNDED_CONSTRS: ClassVar[List[List[NodeName]]] = []
-    CONFLICTED_CONSTRS: ClassVar[Dict[NodeName, Tuple[NodeName, ...]]] = defaultdict(
+    BOUNDED_CONSTRS: ClassVar[list[list[NodeName]]] = []
+    CONFLICTED_CONSTRS: ClassVar[dict[NodeName, tuple[NodeName, ...]]] = defaultdict(
         tuple
     )
 
@@ -32,7 +33,7 @@ class GraphNodeConstrs(Constraints):
         cls,
         *,
         bounded: Sequence[NodeName] = (),
-        conflicted: Dict[NodeName, Sequence[NodeName]] = {},
+        conflicted: dict[NodeName, Sequence[NodeName]] = {},
     ):
         """Add constraints to a node."""
         if len(bounded) > 0:
@@ -43,7 +44,7 @@ class GraphNodeConstrs(Constraints):
                 cls.CONFLICTED_CONSTRS[k] = tuple(v)
 
     @staticmethod
-    def tick_wait_attr_constr(raw_nodes: List[NodeType]) -> List[List[int]]:
+    def tick_wait_attr_constr(raw_nodes: list[NodeType]) -> list[list[int]]:
         """Check whether the neurons to be assigned to a group are "equal" after\
             automatic inference.
 

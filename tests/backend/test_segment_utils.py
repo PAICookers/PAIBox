@@ -1,5 +1,4 @@
 from math import ceil
-from typing import List
 
 import pytest
 from paicorelib import AxonCoord, AxonSegment
@@ -20,7 +19,7 @@ class TestGetNeuronSegments:
     def _coarse_group_with_load_balancing_proto(
         n_neuron: int, capacity: int, unrolling_factor: int
     ):
-        def _average_load(n: int, n_part: int) -> List[int]:
+        def _average_load(n: int, n_part: int) -> list[int]:
             quotient = ceil(n / n_part)
             rest = n - (n_part - 1) * quotient
             return [quotient] * (n_part - 1) + [rest]

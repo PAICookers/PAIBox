@@ -20,7 +20,6 @@ classifiers = [
     "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -35,10 +34,10 @@ packages = [{ include = "paibox" }]
 include = ["docs/Guide-of-PAIBox.md", "CHANGELOG.md"]
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = "^3.9"
 pydantic = "^2.0"
-numpy = "^1.24.0"
-paicorelib = "^1.1.2"
+numpy = "^1.26.0"
+paicorelib = "^1.1.4"
 
 [tool.poetry.group.test]
 optional = true
@@ -47,26 +46,19 @@ optional = true
 optional = true
 
 [tool.poetry.group.test.dependencies]
-pytest = { version = "^8.0.0", python = "^3.8" }
+pytest = "^8.0.0"
 pytest-md = "^0.2.0"
-torch = { version = "^2.2.1+cpu", optional = true, source = "torch-cpu" }
 paicorelib = {git = "https://github.com/PAICookers/PAIlib.git", rev = "dev"}
-orjson = "^3.10.1"
+orjson = "^3.10.0"
 
 
 [tool.poetry.group.dev.dependencies]
-orjson = "^3.10.1"
+orjson = "^3.10.0"
 
 
 [tool.pytest.ini_options]
-minversion = "7.0.0"
+minversion = "8.0.0"
 testpaths = ["tests"]
-
-
-[[tool.poetry.source]]
-name = "torch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-priority = "explicit"
 
 
 [[tool.poetry.source]]
