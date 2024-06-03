@@ -1,8 +1,9 @@
 import sys
 import warnings
+from collections.abc import Sequence
 from functools import partial
 from math import ceil
-from typing import Dict, List, Literal, NamedTuple, Sequence
+from typing import Literal, NamedTuple
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias
@@ -34,12 +35,12 @@ class NeuSeg(NamedTuple):
 
 
 NeuSlice: TypeAlias = slice
-NeuSegOfCorePlm: TypeAlias = List[NeuSeg]
-NeuSegOfCoreBlock: TypeAlias = List[NeuSegOfCorePlm]
+NeuSegOfCorePlm: TypeAlias = list[NeuSeg]
+NeuSegOfCoreBlock: TypeAlias = list[NeuSegOfCorePlm]
 
 
 def _place_seperately(
-    seg_slices_dict: Dict[NeuDyn, List[NeuSlice]], repl_prop: int
+    seg_slices_dict: dict[NeuDyn, list[NeuSlice]], repl_prop: int
 ) -> NeuSegOfCoreBlock:
     neu_segs_of_cb = []
 
@@ -58,7 +59,7 @@ def _coarse_group(
     neu: NeuDyn,
     capacity: int,
     load_type: Literal["average", "max_capacity"],
-) -> List[NeuSlice]:
+) -> list[NeuSlice]:
     """Group neurons with 'average' or 'maximum capacity' load type.
 
     NOTE: Group neuron seperately, like [N1], [N2], ..., [Nn]. For each neuron, \
@@ -69,21 +70,21 @@ def _coarse_group(
         Average load of nx = ceil(nx / (#N of cores required of nx))
     """
 
-    def _average_load(n: int, n_part: int) -> List[int]:
+    def _average_load(n: int, n_part: int) -> list[int]:
         """Distribute #num into #n_part parts evently."""
         quotient = ceil(n / n_part)
         rest = n - (n_part - 1) * quotient
 
         return [quotient] * (n_part - 1) + [rest]
 
-    def _max_capacity_load(n: int) -> List[int]:
+    def _max_capacity_load(n: int) -> list[int]:
         nonlocal capacity
         n_part = ceil(n / capacity)
         rest = n - (n_part - 1) * capacity
 
         return [capacity] * (n_part - 1) + [rest]
 
-    neu_seg_slices: List[NeuSlice] = []
+    neu_seg_slices: list[NeuSlice] = []
     n_neuron = neu.num_out
 
     if load_type == "average":
@@ -101,7 +102,7 @@ def _coarse_group(
 
 
 def _get_nsg_opt_core(
-    seg_slices_dict: Dict[NeuDyn, List[NeuSlice]], capacity: int, repl_prop: int
+    seg_slices_dict: dict[NeuDyn, list[NeuSlice]], capacity: int, repl_prop: int
 ) -> NeuSegOfCoreBlock:
     neu_segs_of_cb: NeuSegOfCoreBlock = []  # The final result
     raise_warning = False
@@ -178,15 +179,15 @@ def _get_nsg_opt_core(
 
 
 def _get_neu_slices(
-    neu_groups: List[NeuDyn],
+    neu_groups: list[NeuDyn],
     capacity: int,
     load_type: Literal["average", "max_capacity"],
-) -> Dict[NeuDyn, List[NeuSlice]]:
+) -> dict[NeuDyn, list[NeuSlice]]:
     """Group the neuron groups by category with load balancing optimization.
 
     NOTE: Use load balancing optimization automatically.
     """
-    seg_slices_dict: Dict[NeuDyn, List[NeuSlice]] = dict()
+    seg_slices_dict: dict[NeuDyn, list[NeuSlice]] = dict()
 
     for neu in neu_groups:
         seg_slices_dict[neu] = _coarse_group(neu, capacity, load_type)
@@ -199,7 +200,7 @@ _get_neu_slices_opt_latency = partial(_get_neu_slices, load_type="average")
 
 
 def _dense_reorganized(
-    seg_slices_dict: Dict[NeuDyn, List[NeuSlice]], capacity: int, repl_prop: int
+    seg_slices_dict: dict[NeuDyn, list[NeuSlice]], capacity: int, repl_prop: int
 ) -> NeuSegOfCoreBlock:
     """Reorganize densely. Based on the result of 'latency' method, use greedy algorithm to \
         reorganize the incomplete neuron segments for saving cores.
@@ -255,7 +256,7 @@ def _dense_reorganized(
 
 
 def get_neu_segments(
-    neu_groups: List[NeuDyn],
+    neu_groups: list[NeuDyn],
     capacity: int,
     repl_prop: int,
     optim_target: Literal["latency", "core", "both"],
@@ -284,7 +285,7 @@ def get_neu_segments(
 
 def get_axon_segments(
     axons: Sequence[SourceNodeType], tr_max: int, fan_in_max: int
-) -> Dict[SourceNodeType, AxonSegment]:
+) -> dict[SourceNodeType, AxonSegment]:
     """Divide axons into segments by group to fit the hardware constraints.
 
     Args:
@@ -329,7 +330,7 @@ def get_axon_segments(
 
 def aligned_coords(
     neu_index: NeuSlice, axon_seg: AxonSegment, delay: int, dest_n_timeslot: int
-) -> List[AxonCoord]:
+) -> list[AxonCoord]:
     """Find the axon segments aligned with the index of neuron segment.
 
     The length of axon coordinates is the same as `neu_index`.

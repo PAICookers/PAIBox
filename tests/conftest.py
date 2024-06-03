@@ -2,7 +2,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, List, Optional, TypedDict
+from typing import Any, Optional, TypedDict
 
 import numpy as np
 import pytest
@@ -91,8 +91,8 @@ class ParametrizedTestData(TypedDict):
     """Parametrized test data in dictionary format."""
 
     args: str
-    data: List[Any]
-    ids: NotRequired[List[str]]
+    data: list[Any]
+    ids: NotRequired[list[str]]
 
 
 class Input_to_N1(pb.DynSysGroup):

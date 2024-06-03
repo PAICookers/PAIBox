@@ -1,8 +1,9 @@
 import sys
 from collections import defaultdict
+from collections.abc import Sequence
 from copy import copy
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Sequence, Union
+from typing import Any, Literal, Optional, Union
 
 from paicorelib import Coord, CoordOffset, HwConfig, get_replication_id
 
@@ -42,19 +43,19 @@ class Mapper:
     graph_info: GraphInfo
 
     def __init__(self) -> None:
-        self.core_blocks: List[CoreBlock] = []
+        self.core_blocks: list[CoreBlock] = []
         """List for core blocks in the network."""
-        self.succ_core_blocks: Dict[CoreBlock, List[CoreBlock]] = defaultdict(list)
-        self.input_core_blocks: Dict[SourceNodeType, List[CoreBlock]] = defaultdict(
+        self.succ_core_blocks: dict[CoreBlock, list[CoreBlock]] = defaultdict(list)
+        self.input_core_blocks: dict[SourceNodeType, list[CoreBlock]] = defaultdict(
             list
         )
         """List of input core blocks for each input node."""
 
-        self.degrees_of_cb: Dict[CoreBlock, NodeDegree] = defaultdict(NodeDegree)
-        self.routing_groups: List[RoutingGroup] = []
+        self.degrees_of_cb: dict[CoreBlock, NodeDegree] = defaultdict(NodeDegree)
+        self.routing_groups: list[RoutingGroup] = []
 
         self.core_plm_config: CorePlmConf = defaultdict(dict)
-        self.core_params: Dict[Coord, CoreConfig] = dict()
+        self.core_params: dict[Coord, CoreConfig] = dict()
         """The dictionary of core parameters."""
 
         self.n_core_required = 0
@@ -383,7 +384,7 @@ class Mapper:
 
         # Traverse input core blocks
         for inode, input_cbs in self.input_core_blocks.items():
-            dest_coords: List[Coord] = []
+            dest_coords: list[Coord] = []
 
             assert all(input_cbs[0].chip_coord == cb.chip_coord for cb in input_cbs)
             for cb in input_cbs:  # Do not use iterative generation.
@@ -556,7 +557,7 @@ class Mapper:
         split_by_coord: bool = False,
         export_core_params: bool = False,
         use_hw_sim: bool = True,
-    ) -> Dict[Coord, Any]:
+    ) -> dict[Coord, Any]:
         """Generate configuration frames & export to file.
 
         Args:
@@ -634,14 +635,14 @@ class Mapper:
     def _build_check(self) -> None:
         return self.graph.build_check()
 
-    def _find_dest_cb_by_nseg(self, neu_seg: NeuSeg, cb: CoreBlock) -> List[CoreBlock]:
+    def _find_dest_cb_by_nseg(self, neu_seg: NeuSeg, cb: CoreBlock) -> list[CoreBlock]:
         succ_cbs = self.succ_core_blocks[cb]
         dest_cb_of_nseg = [cb for cb in succ_cbs if neu_seg.parent in cb.source]
 
         return dest_cb_of_nseg
 
 
-def group_by(dict_: Dict, keyfunc=lambda item: item):
+def group_by(dict_: dict, keyfunc=lambda item: item):
     """Groups the given list or dictionary by the value returned by ``keyfunc``."""
     d = defaultdict(list)
 
@@ -652,7 +653,7 @@ def group_by(dict_: Dict, keyfunc=lambda item: item):
 
 
 def _cb_routable(
-    routing_group: List[RoutingGroup], core_blocks: List[CoreBlock]
+    routing_group: list[RoutingGroup], core_blocks: list[CoreBlock]
 ) -> bool:
     if len(core_blocks) == 1:
         return True

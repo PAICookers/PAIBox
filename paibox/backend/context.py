@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Any, Union
 
 from paicorelib import ChipCoord, Coord, CoordLike, to_coord
 from paicorelib.coordinate import to_coords
@@ -34,11 +34,11 @@ class _BackendContext(_Context):
         self.update(self._default)
 
     @property
-    def target_chip_addr(self) -> List[ChipCoord]:
+    def target_chip_addr(self) -> list[ChipCoord]:
         return self["target_chip_addr"]
 
     @target_chip_addr.setter
-    def target_chip_addr(self, addr: Union[CoordLike, List[CoordLike]]) -> None:
+    def target_chip_addr(self, addr: Union[CoordLike, list[CoordLike]]) -> None:
         if isinstance(addr, list):
             self["target_chip_addr"] = to_coords(addr)
         else:
@@ -83,7 +83,7 @@ class _BackendContext(_Context):
         self["build_directory"] = Path(p)
 
     @property
-    def cflags(self) -> Dict[str, Any]:
+    def cflags(self) -> dict[str, Any]:
         """Compilation options."""
         return self["cflags"]
 

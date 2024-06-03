@@ -1,4 +1,5 @@
-from typing import Any, Iterable, List, Optional, Sequence, Tuple
+from collections.abc import Iterable, Sequence
+from typing import Any, Optional
 
 import numpy as np
 
@@ -35,7 +36,7 @@ def count_unique_elem(obj: Iterable[Any]) -> int:
     return len(seen)
 
 
-def merge_unique_ordered(list1: List[Any], list2: List[Any]) -> List[Any]:
+def merge_unique_ordered(list1: list[Any], list2: list[Any]) -> list[Any]:
     seen = set()
     result = []
 
@@ -82,7 +83,7 @@ def shape2num(shape: Shape) -> int:
         return a
 
 
-def as_shape(x, min_dim: int = 0) -> Tuple[int, ...]:
+def as_shape(x, min_dim: int = 0) -> tuple[int, ...]:
     """Return a tuple if `x` is iterable or `(x,)` if `x` is integer."""
     if is_integer(x):
         _shape = (int(x),)

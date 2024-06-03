@@ -1,7 +1,8 @@
 import typing
+from collections.abc import Sequence
 from copy import deepcopy
 from functools import wraps
-from typing import Any, Dict, Optional, Sequence, Type, TypeVar
+from typing import Any, Optional, TypeVar
 
 import numpy as np
 
@@ -85,10 +86,10 @@ class Container(MixIn):
 
     def elem_format(
         self,
-        child_type: Type[_T],
+        child_type: type[_T],
         *children_as_tuple: Sequence[_T],
-        **children_as_dict: Dict[Any, _T],
-    ) -> Dict[str, _T]:
+        **children_as_dict: dict[Any, _T],
+    ) -> dict[str, _T]:
         elems = dict()
 
         for child in children_as_tuple:

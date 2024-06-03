@@ -1,5 +1,5 @@
 import sys
-from typing import Any, ClassVar, Dict, List, Literal, Optional, Set, Tuple
+from typing import Any, ClassVar, Literal, Optional
 
 import numpy as np
 
@@ -20,7 +20,7 @@ from .utils import arg_check_pos
 __all__ = []
 
 
-_IdPathType: TypeAlias = Tuple[int, int]
+_IdPathType: TypeAlias = tuple[int, int]
 
 
 class PAIBoxObject:
@@ -92,7 +92,7 @@ class PAIBoxObject:
         include_self: bool = True,
         find_recursive: bool = False,
         _lid: int = 0,
-        _paths: Optional[Set[_IdPathType]] = None,
+        _paths: Optional[set[_IdPathType]] = None,
         _iter_termination: bool = False,
     ) -> Collector[str, "PAIBoxObject"]:
         if _paths is None:
@@ -198,9 +198,9 @@ def _add_node1(
     obj: Any,
     k: str,
     v: PAIBoxObject,
-    _paths: Set[_IdPathType],
+    _paths: set[_IdPathType],
     gather: Collector[str, PAIBoxObject],
-    nodes: List[Tuple[str, PAIBoxObject]],
+    nodes: list[tuple[str, PAIBoxObject]],
 ) -> None:
     path = (id(obj), id(v))
 
@@ -213,9 +213,9 @@ def _add_node1(
 def _add_node2(
     obj: Any,
     v: PAIBoxObject,
-    _paths: Set[_IdPathType],
+    _paths: set[_IdPathType],
     gather: Collector[str, PAIBoxObject],
-    nodes: List[PAIBoxObject],
+    nodes: list[PAIBoxObject],
 ) -> None:
     path = (id(obj), id(v))
 
@@ -244,12 +244,12 @@ class DynamicSys(PAIBoxObject, StatusMemory):
         raise NotImplementedError
 
     @property
-    def shape_in(self) -> Tuple[int, ...]:
+    def shape_in(self) -> tuple[int, ...]:
         """Actual shape of input."""
         raise NotImplementedError
 
     @property
-    def shape_out(self) -> Tuple[int, ...]:
+    def shape_out(self) -> tuple[int, ...]:
         """Actual shape of output."""
         raise NotImplementedError
 
@@ -281,7 +281,7 @@ class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
         super().__init__(name)
         self.master_nodes = NodeDict()
 
-    def export_params(self) -> Dict[str, Any]:
+    def export_params(self) -> dict[str, Any]:
         """Export the parameters into dictionary."""
         params = {}
 

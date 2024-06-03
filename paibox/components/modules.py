@@ -1,8 +1,9 @@
 import sys
 import typing
 from collections import deque
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import ClassVar, List, Optional, Sequence, Tuple, Union
+from typing import ClassVar, Optional, Union
 
 import numpy as np
 from paicorelib import TM, HwConfig
@@ -26,8 +27,8 @@ if typing.TYPE_CHECKING:
 
 __all__ = ["BuildingModule"]
 
-MultiInputsType: TypeAlias = List[SpikeType]  # Type of inputs of `NeuModule`.
-BuiltComponentType: TypeAlias = List[Union["FullConnectedSyn", NeuDyn]]
+MultiInputsType: TypeAlias = list[SpikeType]  # Type of inputs of `NeuModule`.
+BuiltComponentType: TypeAlias = list[Union["FullConnectedSyn", NeuDyn]]
 
 
 @dataclass
@@ -36,9 +37,9 @@ class ModuleIntf:
         gets input and where it outputs. This information will be used when building the module.
     """
 
-    operands: List[Union[NeuDyn, InputProj]] = field(default_factory=list)
+    operands: list[Union[NeuDyn, InputProj]] = field(default_factory=list)
     """TODO can operands be a `NeuModule`?"""
-    output: List["FullConnectedSyn"] = field(default_factory=list)
+    output: list["FullConnectedSyn"] = field(default_factory=list)
     """A list of synapses."""
 
     @property
@@ -123,7 +124,7 @@ class NeuModule(NeuDyn, BuildingModule):
         return (self.timestamp - self.inherent_delay) >= 0
 
     @property
-    def source(self) -> List[Union[NeuDyn, InputProj]]:
+    def source(self) -> list[Union[NeuDyn, InputProj]]:
         return self.module_intf.operands
 
     @property
@@ -148,7 +149,7 @@ class FunctionalModule(NeuModule):
     def __init__(
         self,
         *operands: Union[NeuDyn, InputProj],
-        shape_out: Tuple[int, ...],
+        shape_out: tuple[int, ...],
         keep_shape: bool,
         name: Optional[str] = None,
         **kwargs,
@@ -241,7 +242,7 @@ class FunctionalModule(NeuModule):
         raise NotImplementedError
 
     @property
-    def shape_out(self) -> Tuple[int, ...]:
+    def shape_out(self) -> tuple[int, ...]:
         return self._shape_out
 
     @property
@@ -265,7 +266,7 @@ class FunctionalModule(NeuModule):
         return self._inner_spike.reshape(self.varshape)
 
     @property
-    def varshape(self) -> Tuple[int, ...]:
+    def varshape(self) -> tuple[int, ...]:
         return self.shape_out if self.keep_shape else (self.num_out,)
 
 
@@ -295,7 +296,7 @@ class FunctionalModule2to1(FunctionalModule):
         )
 
     @property
-    def varshape(self) -> Tuple[int, ...]:
+    def varshape(self) -> tuple[int, ...]:
         return self.shape_out if self.keep_shape else (self.num_out,)
 
 
@@ -305,7 +306,7 @@ class TransposeModule(FunctionalModule):
     def __init__(
         self,
         neuron: Union[NeuDyn, InputProj],
-        shape_in: Tuple[int, ...],
+        shape_in: tuple[int, ...],
         axes: Optional[Sequence[int]] = None,
         keep_shape: bool = True,
         name: Optional[str] = None,
@@ -334,7 +335,7 @@ class TransposeModule(FunctionalModule):
         )
 
     @property
-    def shape_in(self) -> Tuple[int, ...]:
+    def shape_in(self) -> tuple[int, ...]:
         return self._shape_in
 
 
@@ -348,7 +349,7 @@ class FunctionalModuleWithV(FunctionalModule):
     def __init__(
         self,
         *operands: Union[NeuDyn, InputProj],
-        shape_out: Tuple[int, ...],
+        shape_out: tuple[int, ...],
         keep_shape: bool = False,
         name: Optional[str] = None,
         **kwargs,
@@ -411,7 +412,7 @@ def _shape_check2(
     neuron_a: Union[NeuDyn, InputProj],
     neuron_b: Union[NeuDyn, InputProj],
     keep_shape: bool,
-) -> Tuple[int, ...]:
+) -> tuple[int, ...]:
     if keep_shape:
         if neuron_a.shape_out != neuron_b.shape_out:
             raise ShapeError(

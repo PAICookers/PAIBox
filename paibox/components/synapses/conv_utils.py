@@ -1,6 +1,7 @@
+from collections.abc import Iterable
 from functools import partial
 from itertools import repeat
-from typing import Any, Iterable
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray

@@ -1,4 +1,4 @@
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -325,7 +325,7 @@ class MetaNeuron:
 
     def update(
         self, incoming_v: VoltageType, vjt_pre: VoltageType
-    ) -> Tuple[SpikeType, VoltageType, NDArray[np.uint8]]:
+    ) -> tuple[SpikeType, VoltageType, NDArray[np.uint8]]:
         """Update at one time step."""
         # 1. Charge
         v_charged = self._neuronal_charge(incoming_v, vjt_pre, self.overflow_strict)
@@ -350,7 +350,7 @@ class MetaNeuron:
         return np.full((self._n_neuron,), param)
 
     @property
-    def varshape(self) -> Tuple[int, ...]:
+    def varshape(self) -> tuple[int, ...]:
         return self._shape if self.keep_shape else (self._n_neuron,)
 
     @property
@@ -517,11 +517,11 @@ class Neuron(MetaNeuron, NeuDyn):
         return self.__deepcopy__()
 
     @property
-    def shape_in(self) -> Tuple[int, ...]:
+    def shape_in(self) -> tuple[int, ...]:
         return self._shape
 
     @property
-    def shape_out(self) -> Tuple[int, ...]:
+    def shape_out(self) -> tuple[int, ...]:
         return self._shape
 
     @property

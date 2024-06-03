@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Type, Union
+from typing import Optional, Union
 
 import numpy as np
 from typing_extensions import TypeAlias
@@ -17,7 +17,7 @@ class DynSysGroup(DynamicSys, Container):
     def __init__(
         self,
         *components_as_tuple,
-        component_type: Type = DynamicSys,
+        component_type: type = DynamicSys,
         name: Optional[str] = None,
         **components_as_dict,
     ) -> None:
@@ -72,7 +72,7 @@ class DynSysGroup(DynamicSys, Container):
     @classmethod
     def build_fmodule(
         cls, network: "DynSysGroup", **build_options
-    ) -> Dict[NeuModule, BuiltComponentType]:
+    ) -> dict[NeuModule, BuiltComponentType]:
         generated = dict()
         modules = network.components.subset(NeuModule).unique()
 

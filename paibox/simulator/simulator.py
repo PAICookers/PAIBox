@@ -1,6 +1,6 @@
 import copy
 import warnings
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -84,7 +84,7 @@ class Simulator(PAIBoxObject):
         self._sim_data["ts"] = []  # Necessary key for recording timestamp
 
         self.data = _SimulationData(self._sim_data)
-        self.probes: List[Probe] = []
+        self.probes: list[Probe] = []
 
         self._add_inner_probes()
         self.reset()
@@ -157,7 +157,7 @@ class Simulator(PAIBoxObject):
         self._sim_data.clear()
         self.data.reset()
 
-    def get_raw(self, probe: Probe) -> List[Any]:
+    def get_raw(self, probe: Probe) -> list[Any]:
         """Retrieve the raw data.
 
         Argument:
@@ -225,7 +225,7 @@ class Simulator(PAIBoxObject):
 class _SimulationData(dict):
     """Data structure used to retrieve and access the simulation data."""
 
-    def __init__(self, raw: Dict[Probe, List[Any]]) -> None:
+    def __init__(self, raw: dict[Probe, list[Any]]) -> None:
         super().__init__()
         self.raw = raw
         self._cache = {}

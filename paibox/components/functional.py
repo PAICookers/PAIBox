@@ -1,6 +1,7 @@
 import sys
+from collections.abc import Sequence
 from functools import partial
-from typing import Literal, Optional, Sequence, Tuple, Union
+from typing import Literal, Optional, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -467,7 +468,7 @@ class SpikingAdd(FunctionalModule2to1WithV):
         self.overflow_strict = overflow_strict
         super().__init__(neuron_a, neuron_b, keep_shape=keep_shape, name=name, **kwargs)
 
-    def spike_func(self, vjt: VoltageType, **kwargs) -> Tuple[SpikeType, VoltageType]:
+    def spike_func(self, vjt: VoltageType, **kwargs) -> tuple[SpikeType, VoltageType]:
         """Simplified neuron computing mechanism as the operator function."""
         return _spike_func_sadd_ssub(vjt)
 
@@ -563,7 +564,7 @@ class _SpikingPool2dWithV(FunctionalModuleWithV):
             **kwargs,
         )
 
-    def spike_func(self, vjt: VoltageType, **kwargs) -> Tuple[SpikeType, VoltageType]:
+    def spike_func(self, vjt: VoltageType, **kwargs) -> tuple[SpikeType, VoltageType]:
         return _spike_func_avg_pool(vjt, self.pos_thres)
 
     def synaptic_integr(self, x1: SpikeType, vjt_pre: VoltageType) -> VoltageType:
@@ -820,7 +821,7 @@ class SpikingSub(FunctionalModule2to1WithV):
         self.overflow_strict = overflow_strict
         super().__init__(neuron_a, neuron_b, keep_shape=keep_shape, name=name, **kwargs)
 
-    def spike_func(self, vjt: VoltageType, **kwargs) -> Tuple[SpikeType, VoltageType]:
+    def spike_func(self, vjt: VoltageType, **kwargs) -> tuple[SpikeType, VoltageType]:
         """Simplified neuron computing mechanism to generate output spike."""
         return _spike_func_sadd_ssub(vjt)
 
@@ -1000,7 +1001,7 @@ class Transpose3d(TransposeModule):
         return generated
 
 
-def _spike_func_sadd_ssub(vjt: VoltageType) -> Tuple[SpikeType, VoltageType]:
+def _spike_func_sadd_ssub(vjt: VoltageType) -> tuple[SpikeType, VoltageType]:
     """Function `spike_func()` in spiking addition & subtraction."""
     # Fire
     thres_mode = np.where(
@@ -1017,7 +1018,7 @@ def _spike_func_sadd_ssub(vjt: VoltageType) -> Tuple[SpikeType, VoltageType]:
 
 def _spike_func_avg_pool(
     vjt: VoltageType, pos_thres: int
-) -> Tuple[SpikeType, VoltageType]:
+) -> tuple[SpikeType, VoltageType]:
     """Function `spike_func()` in spiking addition & subtraction."""
     # Fire
     thres_mode = np.where(
@@ -1044,7 +1045,7 @@ def _sum_inputs_sadd_ssub(
     return vjt_overflow(incoming_v, strict)
 
 
-def _shape_check(shape: Tuple[int, ...], ndim: int) -> Tuple[int, ...]:
+def _shape_check(shape: tuple[int, ...], ndim: int) -> tuple[int, ...]:
     if len(shape) > ndim:
         raise ShapeError(
             f"expected shape to have dimensions <= {ndim}, but got {len(shape)}."
@@ -1057,7 +1058,7 @@ _shape_ndim2_check = partial(_shape_check, ndim=2)
 _shape_ndim3_check = partial(_shape_check, ndim=3)
 
 
-def _transpose2d_mapping(op_shape: Tuple[int, ...]) -> NDArray[np.bool_]:
+def _transpose2d_mapping(op_shape: tuple[int, ...]) -> NDArray[np.bool_]:
     """Get the mapping matrix for transpose of 2d array.
 
     Argument:
@@ -1075,7 +1076,7 @@ def _transpose2d_mapping(op_shape: Tuple[int, ...]) -> NDArray[np.bool_]:
 
 
 def _transpose3d_mapping(
-    op_shape: Tuple[int, ...], axes: Tuple[int, ...]
+    op_shape: tuple[int, ...], axes: tuple[int, ...]
 ) -> NDArray[np.bool_]:
     """Get the mapping matrix for transpose of 3d array.
 

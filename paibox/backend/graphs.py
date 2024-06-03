@@ -1,19 +1,8 @@
 import math
 from collections import defaultdict
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import (
-    Any,
-    Dict,
-    FrozenSet,
-    Iterable,
-    List,
-    Mapping,
-    Sequence,
-    Set,
-    Tuple,
-    TypeVar,
-    Union,
-)
+from typing import Any, TypeVar, Union
 
 from paicorelib import HwConfig
 
@@ -38,7 +27,7 @@ class PAIGraph:
         In the graph, synapses are edges while neurons are nodes.
     """
 
-    _raw_networks: Tuple[DynSysGroup, ...] = field(default_factory=tuple)
+    _raw_networks: tuple[DynSysGroup, ...] = field(default_factory=tuple)
     """All networks are seen as one graph."""
     _raw_nodes: Collector[NodeName, NodeType] = field(default_factory=Collector)
     """Raw nodes in the networks."""
@@ -47,9 +36,9 @@ class PAIGraph:
     _raw_fmodules: Collector[NodeName, NeuModule] = field(default_factory=Collector)
     """Raw functional modules in the graph."""
 
-    nodes: Dict[NodeName, NodeAttr] = field(default_factory=dict)
+    nodes: dict[NodeName, NodeAttr] = field(default_factory=dict)
     """General nodes in the graph."""
-    edges: Dict[EdgeName, EdgeAttr] = field(default_factory=dict)
+    edges: dict[EdgeName, EdgeAttr] = field(default_factory=dict)
     """General edges in the graph."""
 
     inodes: Collector[NodeName, SourceNodeType] = field(default_factory=Collector)
@@ -57,16 +46,16 @@ class PAIGraph:
     onodes: Collector[NodeName, DestNodeType] = field(default_factory=Collector)
     """Output nodes in the graph."""
 
-    ordered_nodes: List[NodeName] = field(default_factory=list)
+    ordered_nodes: list[NodeName] = field(default_factory=list)
     """Nodes in topological sort order."""
 
-    succ_dg: Dict[NodeName, Dict[NodeName, EdgeAttr]] = field(default_factory=dict)
+    succ_dg: dict[NodeName, dict[NodeName, EdgeAttr]] = field(default_factory=dict)
     """Successor edges & nodes of every node in the graph."""
 
-    pred_dg: Dict[NodeName, Dict[NodeName, EdgeAttr]] = field(default_factory=dict)
+    pred_dg: dict[NodeName, dict[NodeName, EdgeAttr]] = field(default_factory=dict)
     """Predecessor edges & nodes of every node in the graph."""
 
-    degree_of_nodes: Dict[NodeName, NodeDegree] = field(default_factory=dict)
+    degree_of_nodes: dict[NodeName, NodeDegree] = field(default_factory=dict)
     """A dictionary of in/out-degree tuple of nodes."""
 
     """Status options"""
@@ -217,7 +206,7 @@ class PAIGraph:
         if not self.has_built:
             raise GraphBuildError(f"the graph hasn't been built yet.")
 
-    def group_edges(self) -> Tuple[List[FrozenSet[EdgeType]], List[int]]:
+    def group_edges(self) -> tuple[list[frozenset[EdgeType]], list[int]]:
         """Group all edges according to a certain rule.
 
         Return: a list of set of grouped edges and a list of routing groups id.
@@ -225,9 +214,9 @@ class PAIGraph:
         self.build_check()
 
         rgid = 0  # routing group id
-        routing_groups_id: List[int] = []
-        gathered: List[FrozenSet[EdgeType]] = []
-        seen_edges: Set[EdgeType] = set()  # Check if all edges are traversed
+        routing_groups_id: list[int] = []
+        gathered: list[frozenset[EdgeType]] = []
+        seen_edges: set[EdgeType] = set()  # Check if all edges are traversed
 
         for node in self.ordered_nodes:
             """Process the predecessor nodes of nodes first, then process the successor nodes."""
@@ -290,167 +279,98 @@ class PAIGraph:
 
         return gathered, routing_groups_id
 
-    def find_routing_group(
-        self, core_blocks, routing_groups, node, type
-    ) -> Tuple[CoreBlock, RoutingGroup]:
-        if type == "src":
-            core_blocks_ = [cb for cb in core_blocks if node in cb.dest]
-        elif type == "dest":
-            core_blocks_ = [cb for cb in core_blocks if node in cb.source]
-        else:
-            raise ValueError("Invalid type")
-        print("coreblocks", [coreblock.name for coreblock in core_blocks_])
-        if len(core_blocks_) != 1:
-            raise ValueError("Invalid edge group")
+    def multicast_optim(
+        self,
+        core_blocks: list[CoreBlock],
+        routing_groups: list[RoutingGroup],
+        optim_nodes: tuple[NodeName, ...] = (),
+    ) -> bool:
+        """Multicast optimization.
 
-        core_block_ = core_blocks_[0]
-        routing_groups_ = [rg for rg in routing_groups if core_block_ in rg.core_blocks]
-        for i in range(len(routing_groups_)):
-            routing_group = routing_groups_[i]
-            print(
-                "routing group[{}]:".format(i),
-                [(cb.name, cb._routing_id) for cb in routing_group.core_blocks],
+        NOTE: Only applies to a node that only has 2 successors, and they belong to the same core block.
+        """
+        ONLY_SUPPORT_N_SUCC = 2
+
+        def _roundup_to_pow2(n: int) -> int:
+            return 1 if n < 1 else 2 ** math.ceil(math.log(n, 2))
+
+        is_optimized = False
+
+        if optim_nodes == ():
+            _optim_nodes = reversed(self.ordered_nodes)
+        else:
+            _optim_nodes = optim_nodes
+
+        # visit ordered nodes for end to front
+        for node_name in filter(lambda node: isinstance(node, NeuDyn), _optim_nodes):
+            node = self._raw_nodes[node_name]
+
+            succ_nn = list(self.succ_dg[node_name].keys())
+            if len(succ_nn) != ONLY_SUPPORT_N_SUCC:
+                continue
+
+            succ_cbs = get_succ_cb_by_node(node, core_blocks)
+            pred_cbs = get_pred_cb_by_node(node, core_blocks)
+
+            # the node to be optimized can only has one successor core block & predecessor core block.
+            if len(succ_cbs) != 1 or len(pred_cbs) != 1:
+                continue
+
+            succ_cb = succ_cbs[0]
+            pred_cb = pred_cbs[0]
+
+            if set(d.name for d in succ_cb.dest) != set(succ_nn):
+                continue
+
+            pred_rg = self._find_rg_by_cb(pred_cb, routing_groups)
+            succ_rg = self._find_rg_by_cb(succ_cb, routing_groups)
+
+            # The expected previous core block will add a new replicated node.
+            pred_cb_dest = pred_cb.dest.copy()
+            pred_cb_dest.append(node.copy())
+
+            n_core_required_after_copy = len(
+                get_neu_segments(
+                    pred_cb_dest,
+                    pred_cb.neuron_capacity,
+                    neuron_repl_prop(pred_cb.n_weight_bits, pred_cb.n_timeslot),
+                    _BACKEND_CONTEXT.cflags["grouping_optim_target"],
+                )
+            )
+            pred_rg_n_core = pred_rg.n_core_required
+            pred_rg_n_core_after_copy = (
+                pred_rg_n_core - pred_cb.n_core_required + n_core_required_after_copy
             )
 
-        # print("routing_groups", routing_groups)
-        if len(routing_groups_) != 1:
-            raise ValueError("Invalid edge group")
-        routing_group_ = routing_groups[0]
-        return core_block_, routing_group_
-
-    def graph_optimization(
-        self, core_blocks: List[CoreBlock], routing_groups: List[RoutingGroup]
-    ) -> bool:
-        def roundup_to_power_of_two(n):
-            if n <= 0:
-                return 1
-            power = math.ceil(math.log(n, 2))
-            return 2**power
-
-        length = self.ordered_nodes.__len__()
-        # visit ordered_nodes for end to front
-        for i in range(length - 1, -1, -1):
-            node_name = self.ordered_nodes[i]
-            print("try to copy", node_name)
-            node = self.nodes[node_name].node
-            succ_edges = self.succ_dg[node_name]
-            # only support the node with 2 succ_edges
-            if len(succ_edges) != 2:
-                continue
-            succ_nodes = [edge.edge.dest for edge in succ_edges.values()]
-            print(node.name, node)
-            print("succ_nodes", [succ_node.name for succ_node in succ_nodes])
-            rg_src_n_core = 0
-            rg_src_n_core_after_copy = 0
-            if not isinstance(node, InputProj):
-                cb_src, rg_src = self.find_routing_group(
-                    core_blocks, routing_groups, node, "src"
-                )
-                cb_src_dest = cb_src.dest.copy()
-                cb_src_dest.append(node.__deepcopy__())
-                print("cb_src_dest", [cb.name for cb in cb_src_dest])
-                n_core_required_after_copy = len(
+            n_core_after_split = [0] * ONLY_SUPPORT_N_SUCC
+            for i in range(ONLY_SUPPORT_N_SUCC):
+                dest = [self._raw_nodes[succ_nn[i]]]
+                n_core_after_split[i] = len(
                     get_neu_segments(
-                        cb_src_dest,
-                        cb_src.neuron_capacity,
-                        cb_src.n_weight_bits * cb_src.n_timeslot,
+                        dest,  # type: ignore
+                        succ_cb.neuron_capacity,
+                        neuron_repl_prop(succ_cb.n_weight_bits, succ_cb.n_timeslot),
                         _BACKEND_CONTEXT.cflags["grouping_optim_target"],
                     )
                 )
-                rg_src_n_core = rg_src.n_core_required
-                rg_src_n_core_after_copy = (
-                    rg_src_n_core + n_core_required_after_copy - cb_src.n_core_required
-                )
-                print(
-                    "rg_src_n_core: {}, rg_src_n_core_after_copy: {}".format(
-                        rg_src_n_core, rg_src_n_core_after_copy
-                    )
-                )
 
-            cb_dest, rg_dest = self.find_routing_group(
-                core_blocks, routing_groups, node, "dest"
+            # 2^log2(#N of source rg) + 2^log2(#N of dest rg)
+            n_core_before = _roundup_to_pow2(pred_rg_n_core) + _roundup_to_pow2(
+                succ_rg.n_core_required
             )
-            if len(cb_dest.obj) != 2:
-                continue
-            for syns in cb_dest.obj:
-                print("{}: {}->{}".format(syns.name, syns.source.name, syns.dest.name))
-
-            n_core_after_split = []
-            for i in range(2):
-                dest = [succ_nodes[i]]
-                n_core_after_split.append(
-                    len(
-                        get_neu_segments(
-                            dest,
-                            cb_dest.neuron_capacity,
-                            cb_dest.n_weight_bits * cb_dest.n_timeslot,
-                            _BACKEND_CONTEXT.cflags["grouping_optim_target"],
-                        )
-                    )
-                )
-            """not finish yet"""
-
-            n_core_before = roundup_to_power_of_two(
-                rg_src_n_core
-            ) + roundup_to_power_of_two(rg_dest.n_core_required)
-            n_core_after = (
-                roundup_to_power_of_two(rg_src_n_core_after_copy)
-                + roundup_to_power_of_two(n_core_after_split[0])
-                + roundup_to_power_of_two(n_core_after_split[1])
-            )
-            print(
-                "n_core_before: {}, n_core_after: {}".format(
-                    n_core_before, n_core_after
-                )
+            # 2^log2(#N of source rg after copy) + sum(2^log2(#N of dest rg[i]))
+            n_core_after = _roundup_to_pow2(pred_rg_n_core_after_copy) + sum(
+                _roundup_to_pow2(n) for n in n_core_after_split
             )
 
-            need_copy = n_core_after < n_core_before
+            # TODO actually here is: n_core_after < n_core_before
             if True:
-                node_copy = node.__deepcopy__()
-                self._raw_nodes[node_copy.name] = node_copy
-                syns = succ_edges[succ_nodes[0].name].edge
-                syns.source = node_copy
-                print("{}: {}->{}".format(syns.name, syns.source.name, syns.dest.name))
-                if not isinstance(node, InputProj):
-                    prev_edges = self._find_pred_edges(self.succ_dg, node_name)
-                    for edge in prev_edges:
-                        edge_copy = edge.copy(edge.source, node_copy)
-                        self._raw_edges[edge_copy.name] = edge_copy
-                        print(
-                            "{}: {}->{}".format(
-                                edge.name, edge.source.name, edge.dest.name
-                            )
-                        )
-                        print(
-                            "{}: {}->{}".format(
-                                edge_copy.name,
-                                edge_copy.source.name,
-                                edge_copy.dest.name,
-                            )
-                        )
-                self._update_graph()
-                print(
-                    "raw_nodes",
-                    [raw_node.name for raw_node in self._raw_nodes.values()],
-                )
-                print(
-                    "raw_edges",
-                    [raw_edge.name for raw_edge in self._raw_edges.values()],
-                )
-                return True
-        return False
+                if not is_optimized:
+                    is_optimized = True
 
-    @staticmethod
-    def _find_pred_edges(
-        succ_edges: Dict[NodeName, Dict[NodeName, EdgeAttr]], target_node: NodeName
-    ) -> Set[EdgeType]:
-        pred = set()
+                self._copy_node(node, keep_pred_conn=True, grab_succ_nodes=succ_nn[-1])
 
-        for succ_node in succ_edges.values():
-            if target_node in succ_node:
-                pred.add(succ_node[target_node].edge)
-
-        return pred
+        return is_optimized
 
     def _copy_node(
         self,
@@ -463,7 +383,7 @@ class PAIGraph:
         update: bool = True,
     ) -> NodeType:
         def _copy_pred_conn(
-            copied: DestNodeType, pred_nodes: Dict[NodeName, EdgeAttr], orig_ind: int
+            copied: DestNodeType, pred_nodes: dict[NodeName, EdgeAttr], orig_ind: int
         ) -> None:
             for pred_nn, pred_edge_attr in pred_nodes.items():
                 copied_edge = pred_edge_attr.edge.copy(target=copied)
@@ -486,7 +406,7 @@ class PAIGraph:
                 self.degree_of_nodes[copied.name].in_degree = orig_ind
 
         def _copy_succ_conn(
-            copied: DestNodeType, succ_nodes: Dict[NodeName, EdgeAttr], orig_oud: int
+            copied: DestNodeType, succ_nodes: dict[NodeName, EdgeAttr], orig_oud: int
         ) -> None:
             for succ_nn, succ_edge_attr in succ_nodes.items():
                 copied_edge = succ_edge_attr.edge.copy(source=copied)
@@ -596,6 +516,20 @@ class PAIGraph:
 
         return copied
 
+    @staticmethod
+    def _find_rg_by_cb(
+        core_block: CoreBlock, routing_groups: list[RoutingGroup]
+    ) -> RoutingGroup:
+        """Find which routing group the target core block is in."""
+        _rgs = [rg for rg in routing_groups if core_block in rg.core_blocks]
+
+        if len(_rgs) != 1:
+            raise GraphConnectionError(
+                f"the core block can only be assigned to 1 routing group, but got {len(_rgs)}."
+            )
+
+        return routing_groups[0]
+
     @property
     def inherent_timestep(self) -> int:
         self.build_check()
@@ -630,10 +564,10 @@ def _degree_check(
 
 
 def convert2routing_groups(
-    succ_dg_of_cb: Dict[CoreBlock, List[CoreBlock]],
-    degrees_of_cb: Dict[CoreBlock, NodeDegree],
-    input_core_blocks: Dict[SourceNodeType, List[CoreBlock]],
-) -> List[RoutingGroup]:
+    succ_dg_of_cb: dict[CoreBlock, list[CoreBlock]],
+    degrees_of_cb: dict[CoreBlock, NodeDegree],
+    input_core_blocks: dict[SourceNodeType, list[CoreBlock]],
+) -> list[RoutingGroup]:
     ordered_core_blocks = toposort(succ_dg_of_cb)
     seen_cb = set()
     routing_groups = []
@@ -677,7 +611,7 @@ def convert2routing_groups(
     return routing_groups
 
 
-def toposort(directed_edges: Mapping[_NT, Iterable[_NT]]) -> List[_NT]:
+def toposort(directed_edges: Mapping[_NT, Iterable[_NT]]) -> list[_NT]:
     """
     Topological sort algorithm by Kahn [1]_.
 
@@ -686,7 +620,7 @@ def toposort(directed_edges: Mapping[_NT, Iterable[_NT]]) -> List[_NT]:
     Parameters
     ----------
     edges : dict
-        Dict of the form {a: {b, c}} where b and c depend on a
+        dict of the form {a: {b, c}} where b and c depend on a
 
     Returns
     -------
@@ -736,19 +670,19 @@ def toposort(directed_edges: Mapping[_NT, Iterable[_NT]]) -> List[_NT]:
     return ordered
 
 
-def reverse_edges(directed_edges: Mapping[_NT, Iterable[_NT]]) -> Dict[_NT, List[_NT]]:
+def reverse_edges(directed_edges: Mapping[_NT, Iterable[_NT]]) -> dict[_NT, list[_NT]]:
     """
     Reverses direction of dependence dict.
 
     Parameters
     ----------
     directed_edges : dict
-        Dict of the form {a: {b, c}, b: set(), c: set()} where b and c depend
+        dict of the form {a: {b, c}, b: set(), c: set()} where b and c depend
         on a.
 
     Returns
     -------
-    Dict of the form {a: set(), b: {a}, c: {a}} where b and c depend on a.
+    dict of the form {a: set(), b: {a}, c: {a}} where b and c depend on a.
     """
     reversed = {k: list() for k in directed_edges}
     for key in directed_edges:
@@ -763,7 +697,7 @@ def reverse_edges(directed_edges: Mapping[_NT, Iterable[_NT]]) -> Dict[_NT, List
 
 def reverse_edges2(
     directed_edges: Mapping[_NT, Mapping[_NT, _T]]
-) -> Dict[_NT, Dict[_NT, _T]]:
+) -> dict[_NT, dict[_NT, _T]]:
     reversed = {k: dict() for k in directed_edges}
     for key in directed_edges:
         for val, edge in directed_edges[key].items():
@@ -786,7 +720,7 @@ def reverse_edges2(
 #             seen.add(node)
 
 
-# def _bounded_by(node: NodeName, constrs: Sequence[Sequence[NeuDyn]]) -> List[NodeName]:
+# def _bounded_by(node: NodeName, constrs: Sequence[Sequence[NeuDyn]]) -> list[NodeName]:
 #     for constr in constrs:
 #         for bounded_node in constr:
 #             if node == bounded_node.name:
@@ -796,8 +730,8 @@ def reverse_edges2(
 
 
 # def _conflicted_by(
-#     node: NodeName, constrs: Dict[NodeName, Sequence[NeuDyn]]
-# ) -> List[NodeName]:
+#     node: NodeName, constrs: dict[NodeName, Sequence[NeuDyn]]
+# ) -> list[NodeName]:
 #     """Find all the conflicted nodes of node.
 
 #     Example: {"1": {"2", "3"}, "4": {"1"}}. For node 1, return ["2", "3", "4"].
@@ -814,7 +748,7 @@ def reverse_edges2(
 
 def get_node_degrees(
     succ_edges: Mapping[_NT, Union[Sequence[_NT], Mapping[_NT, Any]]]
-) -> Dict[_NT, NodeDegree]:
+) -> dict[_NT, NodeDegree]:
     degree = defaultdict(NodeDegree)
     in_degrees = defaultdict(int)
     out_degrees = defaultdict(int)
@@ -832,9 +766,9 @@ def get_node_degrees(
 
 
 def get_longest_path(
-    edges_with_d: Dict[_NT, Dict[_NT, EdgeAttr]],
-    ordered_nodes: List[_NT],
-) -> Tuple[List[_NT], int]:
+    edges_with_d: dict[_NT, dict[_NT, EdgeAttr]],
+    ordered_nodes: list[_NT],
+) -> tuple[list[_NT], int]:
     """Get the longest path in the DAG.
 
     Args:
@@ -844,8 +778,8 @@ def get_longest_path(
     Return:
         A tuple containing the longest path in the graph and its distance.
     """
-    distances: Dict[_NT, int] = {node: 0 for node in ordered_nodes}
-    pred_nodes: Dict[_NT, _NT] = dict()
+    distances: dict[_NT, int] = {node: 0 for node in ordered_nodes}
+    pred_nodes: dict[_NT, _NT] = dict()
 
     for node in ordered_nodes:
         for neighbor, edge_attr in edges_with_d[node].items():
@@ -876,10 +810,10 @@ MAX_DISTANCE = 999  # I don't like float('inf')
 
 
 def get_shortest_path(
-    edges_with_d: Dict[_NT, Dict[_NT, EdgeAttr]],
-    ordered_nodes: List[_NT],
-    input_nodes: List[_NT],
-) -> Tuple[List[_NT], int]:
+    edges_with_d: dict[_NT, dict[_NT, EdgeAttr]],
+    ordered_nodes: list[_NT],
+    input_nodes: list[_NT],
+) -> tuple[list[_NT], int]:
     """Get the shortest path in the DAG.
 
     Args:
@@ -889,10 +823,10 @@ def get_shortest_path(
 
     Return: the shortest distance in the graph.
     """
-    distances: Dict[_NT, int] = defaultdict(lambda: MAX_DISTANCE)
-    pred_nodes: Dict[_NT, _NT] = dict()
+    distances: dict[_NT, int] = defaultdict(lambda: MAX_DISTANCE)
+    pred_nodes: dict[_NT, _NT] = dict()
 
-    # Set initial value for all inputs nodes. If there is no input node,
+    # set initial value for all inputs nodes. If there is no input node,
     # the first node after topological sorting will be used as the starting node.
     if input_nodes:
         for inode in input_nodes:
@@ -927,31 +861,31 @@ def get_shortest_path(
 
 def get_succ_cb_by_node(
     node: NodeType, core_blocks: Sequence[CoreBlock]
-) -> List[CoreBlock]:
+) -> list[CoreBlock]:
     return [cb for cb in core_blocks if node in cb.source]
 
 
 def get_pred_cb_by_succ_cb(
-    succ_cb: Dict[CoreBlock, List[CoreBlock]]
-) -> Dict[CoreBlock, List[CoreBlock]]:
+    succ_cb: dict[CoreBlock, list[CoreBlock]]
+) -> dict[CoreBlock, list[CoreBlock]]:
     return reverse_edges(succ_cb)
 
 
 def get_pred_cb_by_node(
     node: NodeType, core_blocks: Sequence[CoreBlock]
-) -> List[CoreBlock]:
+) -> list[CoreBlock]:
     return [cb for cb in core_blocks if node in cb.dest]
 
 
 def get_pred_dg_by_succ_dg(
-    succ_dg: Dict[NodeName, Dict[NodeName, EdgeAttr]]
-) -> Dict[NodeName, Dict[NodeName, EdgeAttr]]:
+    succ_dg: dict[NodeName, dict[NodeName, EdgeAttr]]
+) -> dict[NodeName, dict[NodeName, EdgeAttr]]:
     return reverse_edges2(succ_dg)
 
 
 def get_pred_nodes_by_succ_dg(
-    node: NodeType, succ_dg: Dict[NodeName, Dict[NodeName, EdgeAttr]]
-) -> List[NodeName]:
+    node: NodeType, succ_dg: dict[NodeName, dict[NodeName, EdgeAttr]]
+) -> list[NodeName]:
     pred_nodes = []
 
     for pred, succ_nodes in succ_dg.items():

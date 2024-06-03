@@ -1,4 +1,4 @@
-from typing import ClassVar, Optional, Tuple, Union
+from typing import ClassVar, Optional, Union
 
 import numpy as np
 from paicorelib import HwConfig
@@ -160,11 +160,11 @@ class FullConnectedSyn(SynSys):
         self.target = target
 
     @property
-    def shape_in(self) -> Tuple[int, ...]:
+    def shape_in(self) -> tuple[int, ...]:
         return self._source.shape_out
 
     @property
-    def shape_out(self) -> Tuple[int, ...]:
+    def shape_out(self) -> tuple[int, ...]:
         return self._target.shape_in
 
     @property
@@ -238,9 +238,9 @@ class Conv1dSyn(FullConnectedSyn):
         source: Union[NeuDyn, InputProj],
         dest: Neuron,
         kernel: np.ndarray,
-        stride: Tuple[int],
-        padding: Tuple[int],
-        dilation: Tuple[int],
+        stride: tuple[int],
+        padding: tuple[int],
+        dilation: tuple[int],
         order: _KOrder3d,
         name: Optional[str] = None,
     ) -> None:
@@ -281,9 +281,9 @@ class Conv2dSyn(FullConnectedSyn):
         source: Union[NeuDyn, InputProj],
         dest: Neuron,
         kernel: np.ndarray,
-        stride: Tuple[int, int],
-        padding: Tuple[int, int],
-        dilation: Tuple[int, int],
+        stride: tuple[int, int],
+        padding: tuple[int, int],
+        dilation: tuple[int, int],
         order: _KOrder4d,
         name: Optional[str] = None,
     ) -> None:
@@ -332,10 +332,10 @@ class ConvTranspose1dSyn(FullConnectedSyn):
         source: Union[NeuDyn, InputProj],
         dest: Neuron,
         kernel: np.ndarray,
-        stride: Tuple[int],
-        padding: Tuple[int],
-        dilation: Tuple[int],
-        output_padding: Tuple[int],
+        stride: tuple[int],
+        padding: tuple[int],
+        dilation: tuple[int],
+        output_padding: tuple[int],
         order: _KOrder3d,
         name: Optional[str] = None,
     ) -> None:
@@ -382,10 +382,10 @@ class ConvTranspose2dSyn(FullConnectedSyn):
         source: Union[NeuDyn, InputProj],
         dest: Neuron,
         kernel: np.ndarray,
-        stride: Tuple[int, int],
-        padding: Tuple[int, int],
-        dilation: Tuple[int, int],
-        output_padding: Tuple[int, int],
+        stride: tuple[int, int],
+        padding: tuple[int, int],
+        dilation: tuple[int, int],
+        output_padding: tuple[int, int],
         order: _KOrder4d,
         name: Optional[str] = None,
     ) -> None:

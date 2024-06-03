@@ -1,6 +1,6 @@
 import warnings
 from enum import Enum, auto, unique
-from typing import Literal, Optional, Tuple
+from typing import Literal, Optional
 
 import numpy as np
 from paicorelib import WeightPrecision as WP
@@ -295,7 +295,7 @@ class MaskedLinear(Transform):
         in_shape: SizeAnyType,
         out_shape: SizeAnyType,
         weights: WeightType,
-        axes: Tuple[int, ...],
+        axes: tuple[int, ...],
     ) -> WeightType:
         n_ishape = shape2num(in_shape)
         n_oshape = shape2num(out_shape)

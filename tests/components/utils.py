@@ -1,4 +1,4 @@
-from typing import Optional, Tuple
+from typing import Optional
 
 import numpy as np
 
@@ -7,9 +7,9 @@ from paibox.types import SpikeType
 
 def maxpool2d_golden(
     x: SpikeType,
-    kernel_size: Tuple[int, int],
-    stride: Optional[Tuple[int, int]],
-    padding: Tuple[int, int],
+    kernel_size: tuple[int, int],
+    stride: Optional[tuple[int, int]],
+    padding: tuple[int, int],
     fm_order: str,
 ) -> SpikeType:
     if fm_order == "HWC":
@@ -47,9 +47,9 @@ def maxpool2d_golden(
 
 def avgpool2d_golden(
     x: SpikeType,
-    kernel_size: Tuple[int, int],
-    stride: Tuple[int, int],
-    padding: Tuple[int, int],
+    kernel_size: tuple[int, int],
+    stride: tuple[int, int],
+    padding: tuple[int, int],
     fm_order: str,
     threshold: int,
 ) -> SpikeType:
