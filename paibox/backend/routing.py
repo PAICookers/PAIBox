@@ -1,3 +1,4 @@
+from collections import UserList
 from collections.abc import Iterator, Sequence
 from typing import Any, Optional, Union, final
 
@@ -426,14 +427,14 @@ class RoutingCluster:
         return HwConfig.N_SUB_ROUTING_NODE if self.level > Level.L0 else 0
 
 
-class RoutingGroup(list[CoreBlock]):
+class RoutingGroup(UserList[CoreBlock]):
     """Core blocks located within a routing group are routable.
 
     NOTE: Axon groups within a routing group are the same.
     """
 
     def __init__(self, *cb: CoreBlock) -> None:
-        self.core_blocks = list(cb)
+        super().__init__(cb)
         self.assigned_coords: list[Coord] = []
         """Assigned core coordinates in the routing group"""
         self.wasted_coords: list[Coord] = []
@@ -473,25 +474,9 @@ class RoutingGroup(list[CoreBlock]):
         """Get the #N of cores occupied by the routing group."""
         return len(self.assigned_coords) + len(self.wasted_coords)
 
-    def __getitem__(self, idx: int) -> CoreBlock:
-        if idx >= len(self.core_blocks) or idx < 0:
-            raise IndexError(
-                f"index out of range [0, {len(self.core_blocks)}), ({idx})."
-            )
-
-        return self.core_blocks[idx]
-
-    def __len__(self) -> int:
-        return len(self.core_blocks)
-
-    def __iter__(self) -> Iterator[CoreBlock]:
-        return self.core_blocks.__iter__()
-
-    def __contains__(self, key: CoreBlock) -> bool:
-        return key in self.core_blocks
-
     @property
     def n_core_required(self) -> int:
+        """The actual number of cores required by the routing group."""
         return sum(cb.n_core_required for cb in self)
 
     @property
