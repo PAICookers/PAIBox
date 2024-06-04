@@ -246,23 +246,19 @@ class TestPAIGraph:
         with pytest.raises(GraphConnectionError):
             mapper.build(net)
 
-    def test_untwist_branch_nodes1(self, build_Network_branch_nodes1):
-        net = build_Network_branch_nodes1
+    def test_untwist_branch_nodes1(self, ensure_dump_dir, build_Network_branch_nodes):
+        net: pb.Network = build_Network_branch_nodes
 
         mapper = pb.Mapper()
         mapper.build(net)
         mapper.compile()
+        mapper.export(fp=ensure_dump_dir)
 
-        assert len(mapper.graph.nodes) == 9
-
-    def test_untwist_branch_nodes2(self, build_Network_branch_nodes2):
-        net = build_Network_branch_nodes2
-
-        mapper = pb.Mapper()
-        mapper.build(net)
-        mapper.compile()
-
-        assert 1
+        assert (
+            len(mapper.graph.nodes)
+            == len(net.get_components(level=1).include(Neuron, pb.InputProj))
+            + net.n_copy
+        )
 
 
 class TestGroupEdges:
