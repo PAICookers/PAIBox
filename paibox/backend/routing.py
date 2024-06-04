@@ -541,12 +541,12 @@ class RoutingRoot:
         """
         cost = routing_group.routing_cost
         level = routing_group.routing_level
-        if cost.n_L0 > HwConfig.N_CORE_OFFLINE:
+        if routing_group.n_core_required > HwConfig.N_CORE_OFFLINE:
             raise ResourceError(
-                f"the number of cores required exceeds the hardware limit, {cost.n_L0} > {HwConfig.N_CORE_OFFLINE}."
+                f"the number of cores required by the routing group exceeds the hardware limit, "
+                f"{routing_group.n_core_required} > {HwConfig.N_CORE_OFFLINE}."
             )
 
-        # Create a routing cluster
         routing_cluster = RoutingCluster.create_routing_tree(level, cost[level - 1])
 
         # `n_L0` physical cores will be occupied.
@@ -556,25 +556,32 @@ class RoutingRoot:
         # then assign coordinates & status.
         leaves = []
         wasted = []
-        for i in range(cost.n_L0):
-            if i < routing_group.n_core_required:
-                l0 = routing_cluster.add_L0_for_placing(
-                    data=f"{id(routing_group)}_{i}",
-                    status=Status.USED,
-                    tag=f"{id(routing_group)}_{i}",
-                )
-                leaves.append(l0)
 
-            else:
-                l0 = routing_cluster.add_L0_for_placing(
-                    status=Status.OCCUPIED, tag=f"{id(routing_group)}_{i}"
-                )
-                wasted.append(l0)
+        if cost.n_L0 > HwConfig.N_CORE_OFFLINE:
+            _max_n_l0 = HwConfig.N_CORE_OFFLINE
+        else:
+            _max_n_l0 = cost.n_L0
+
+        for i in range(routing_group.n_core_required):
+            l0 = routing_cluster.add_L0_for_placing(
+                data=f"rg_{id(routing_group)}_{i}",
+                status=Status.USED,
+                tag=f"rg_{id(routing_group)}_{i}",
+            )
+            leaves.append(l0)
+
+        for i in range(routing_group.n_core_required, _max_n_l0):
+            l0 = routing_cluster.add_L0_for_placing(
+                status=Status.OCCUPIED, tag=f"rg_{id(routing_group)}_{i}"
+            )
+            wasted.append(l0)
 
         # If #N of wasted cores > 16, it won't hit online L2 cluster.
         # XXX 'check_hit_online' conditions could be more precise, but
         # there is no clear benefit to doing so at the moment.
-        check_hit_online = len(wasted) <= HwConfig.N_CORE_ONLINE
+        check_hit_online = (
+            _max_n_l0 - routing_group.n_core_required
+        ) <= HwConfig.N_CORE_ONLINE
 
         # Add the sub-tree to the root.
         flag = False
@@ -586,7 +593,7 @@ class RoutingRoot:
 
         if not flag:
             raise RoutingError(
-                f"insert routing group {routing_group} into the routing tree failed, "
+                f"insert routing group 0x{id(routing_group):x} into the routing tree failed, "
                 f"cannot insert to any chip."
             )
 
