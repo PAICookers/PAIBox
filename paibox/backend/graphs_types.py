@@ -22,6 +22,7 @@ __all__ = [
     "NodeDegree",
     "NodeAttr",
     "EdgeAttr",
+    "PartitionedEdges",
 ]
 
 NodeName: TypeAlias = str
@@ -70,3 +71,8 @@ class NodeAttr(NamedTuple):
 class EdgeAttr(NamedTuple):
     edge: EdgeType
     distance: int
+
+
+class PartitionedEdges(NamedTuple):
+    edges: set[EdgeType]
+    rg_id: int

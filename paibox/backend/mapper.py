@@ -1,4 +1,3 @@
-import sys
 from collections import defaultdict
 from collections.abc import Sequence
 from copy import copy
@@ -194,28 +193,13 @@ class Mapper:
         self.graph.topo_support_check()
 
     def build_core_blocks(self) -> None:
-        """Build core blocks based on grouped edges.
+        """Build core blocks based on partitioned edges."""
+        partitioned_edges = self.graph.graph_partition()
 
-        Description: Group all edges & build `CoreBlock` based on the grouped edges.
-        """
-        # TODO Before the compilation, add graph check, such as:
-        # check the node degree: _DEGREE_UNSET, ...
-        grouped_edges, rg_id = self.graph.group_edges()
-
-        if sys.version_info >= (3, 10):
-            for syns, routing_id in zip(grouped_edges, rg_id, strict=True):
-                self.core_blocks.append(
-                    CoreBlock.build(*syns, seed=0, routing_id=routing_id)
-                )
-        else:
-            if len(grouped_edges) != len(rg_id):
-                raise ValueError(
-                    f"the length of grouped edges & routing groups id are not equal, "
-                    f"{len(grouped_edges)} != {len(rg_id)}"
-                )
-
-            for syns, routing_id in zip(grouped_edges, rg_id):
-                self.core_blocks.append(CoreBlock.build(*syns, routing_id=routing_id))
+        for part in partitioned_edges:
+            self.core_blocks.append(
+                CoreBlock.build(*part.edges, seed=0, routing_id=part.rg_id)
+            )
 
         for cur_cb in self.core_blocks:
             succ_cbs = []
