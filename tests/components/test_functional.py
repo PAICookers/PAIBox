@@ -67,6 +67,14 @@ class TestFunctionalModules:
 
         _assert_build_fmodule(net, 9 + 2 + 2, 9 + 2 * 3 + 2)
 
+    def test_FModule_ConnWithFModule(self, build_FModule_ConnWithFModule_Net):
+        net = build_FModule_ConnWithFModule_Net
+        mapper = pb.Mapper()
+        mapper.build(net)
+        mapper.compile()
+
+        assert len(mapper.graph._raw_nodes) == 4
+
     def test_BitwiseAND(self):
         from tests.shared_networks import FunctionalModule_2to1_Net
 
