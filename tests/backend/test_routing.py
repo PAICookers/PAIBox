@@ -5,9 +5,13 @@ import pytest
 from paicorelib import Coord, RoutingDirection, RoutingLevel
 
 import paibox as pb
-from paibox.backend.routing import RoutingCluster, RoutingRoot, get_parent
+from paibox.backend.routing import RoutingCluster, RoutingRoot, get_parent, RoutingCoord
 from paibox.exceptions import RoutingError
-
+X0Y0 = RoutingDirection.X0Y0
+X1Y0 = RoutingDirection.X1Y0
+X0Y1 = RoutingDirection.X0Y1
+X1Y1 = RoutingDirection.X1Y1
+ANY  = RoutingDirection.ANY
 
 class TestRouterTree:
     def test_basics(self):
@@ -383,18 +387,53 @@ class TestRoutingRoot:
         return cores
 
     @pytest.mark.parametrize(
-        "cores", ([5, 10, 20, 100, 500], [10, 20, 30, 40, 100, 200])
+        "cores, expectation",
+        (
+            ([10, 20, 30, 40, 100, 200], nullcontext()),
+            ([5, 10, 20, 100, 500], pytest.raises(RoutingError)),
+        ),
     )
-    def test_insert_routing_group_1chip(self, cores):
+    def test_insert_routing_group_1chip(self, cores, expectation):
         root = RoutingRoot(pb.BACKEND_CONFIG.target_chip_addr)
-
-        for core in cores:
-            subtree = self._gen_routing_cluster(core)
-            assert root[0].add_subtree(subtree, True) == True
+        
+        with expectation as e:
+            for core in cores:
+                subtree = self._gen_routing_cluster(core)
+                if not root[0].add_subtree(subtree, True):
+                    raise RoutingError("Insert failed.")
 
         huge_core = 500
         subtree = self._gen_routing_cluster(huge_core)
         assert root[0].add_subtree(subtree, True) == False  # Out of resources
+
+    @pytest.mark.parametrize(
+        "cores, expectation",
+        (
+            ([64, 128, 64], 
+             [RoutingCoord(X0Y0, X0Y0), RoutingCoord(X0Y0, X1Y0), RoutingCoord(X0Y0, X1Y1), RoutingCoord(X0Y0, X0Y1)]),
+        )
+    )
+    def test_insert_routing_group_detail(self, cores, expectation):
+        root = RoutingRoot(pb.BACKEND_CONFIG.target_chip_addr)
+        index = 0
+        for core in cores:
+            subtree = self._gen_routing_cluster(core)
+            assert root[0].add_subtree(subtree, True) == True
+            if len(subtree.children) == 1:
+                assert subtree.children[X0Y0].get_routing_coord() == expectation[index]
+                index += 1
+            elif len(subtree.children) == 2:
+                assert subtree.children[X0Y0].get_routing_coord() == expectation[index]
+                index += 1
+                assert subtree.children[X0Y1].get_routing_coord() == expectation[index]
+                index += 1
+            elif len(subtree.children) == 4:
+                assert subtree.children[X0Y0].parent.get_routing_coord() == expectation[index]
+                index += 1
+            else:
+                assert False
+        
+    
 
     @pytest.mark.parametrize(
         "cores, expectation",

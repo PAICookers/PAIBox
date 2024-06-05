@@ -28,6 +28,7 @@ class RoutingCluster:
         status: Optional[Status] = None,
         tag: Optional[str] = None,
         include_online: bool = False,
+        parent: Optional["RoutingCluster"] = None,
     ) -> None:
         """Instance a tree cluster with `level` and `direction`.
         - For a Lx(>0)-level cluster, after created, the length of children is `node_capacity`.
@@ -53,6 +54,7 @@ class RoutingCluster:
         self.item = data
         self.tag = tag
         self.include_online = include_online
+        self.parent = parent
 
         # Only set the attribute for L0-level cluster.
         if self.level == Level.L0:
@@ -115,6 +117,7 @@ class RoutingCluster:
 
         # child.direction = d. Already done in `self[d]`(__setitem__).
         self[d] = child
+        child.parent = self
 
         return True
 
@@ -137,6 +140,19 @@ class RoutingCluster:
         child.d = revert_direc
 
         return child
+
+    def get_routing_coord(self) -> RoutingCoord:
+        current_cluster = self
+        path = [self.d]
+        while current_cluster.parent is not None:
+            path.insert(0, current_cluster.parent.d)
+            current_cluster = current_cluster.parent
+        path = path[1:]
+        for i in range(current_cluster.level, Level.L5):
+            path.insert(0, Direction.X0Y0)
+        for i in range(self.level):
+            path.append(Direction.ANY)
+        return RoutingCoord(*path)
 
     def find_cluster_by_path(
         self, path: Sequence[Direction]
@@ -261,6 +277,7 @@ class RoutingCluster:
 
             elif sub_n_child == 2:
                 n_cur_child = len(self.children)
+                n_cur_child += n_cur_child % 2
                 hit_online = False
 
                 for i in range(sub_n_child):
@@ -277,6 +294,7 @@ class RoutingCluster:
                         removed = self.remove_child(
                             DIREC_IDX[n_cur_child + i], DIREC_IDX[i], strict=False
                         )
+                        subtree[DIREC_IDX[i]].parent = subtree
 
                     return False
 
@@ -288,6 +306,8 @@ class RoutingCluster:
                 # Because the tree is inserted using depth-first order, when a node is
                 # encountered with no child, it must be on the far right.
                 self[Direction.X1Y1].include_online = True
+                for child in self.children.values():
+                    child.parent = self
 
             else:
                 raise ValueError(f"the number of {sub_n_child} child is invalid.")
