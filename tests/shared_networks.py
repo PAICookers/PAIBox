@@ -80,7 +80,7 @@ class FModule_ConnWithFModule_Net(pb.DynSysGroup):
         self.n2 = pb.IF((8, 4, 4), 5, tick_wait_start=2)
         self.mp2d = pb.SpikingMaxPool2d(self.n1, (4, 4), tick_wait_start=2)
         self.sub = pb.SpikingSub(self.n2, self.mp2d, tick_wait_start=3)
-        
+
         self.s1 = pb.FullConn(self.n1, self.n2)
 
 

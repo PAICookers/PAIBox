@@ -612,6 +612,7 @@ class Network_branch_nodes1(pb.Network):
                    -> N3'-> N5
                    -> N3 -> N6
     """
+
     n_copy = 2
 
     def __init__(self):
@@ -642,6 +643,7 @@ class Network_branch_nodes2(pb.Network):
         INP1 -> N1'-> N2 ->
              -> N1'-------> N3 -> N4
     """
+
     n_copy = 1
 
     def __init__(self):
@@ -674,6 +676,7 @@ class Network_branch_nodes3(pb.Network):
                       N3 -> N4'-> N6
                         INP2 --->
     """
+
     n_copy = 3
 
     def __init__(self):

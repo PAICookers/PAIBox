@@ -242,7 +242,9 @@ class TestMapperDeployment:
         with pytest.raises(ResourceError):
             mapper.compile()  # 300*300 > 1152*64
 
-    @pytest.mark.parametrize("n_networks", [16, 50, 400, 512, 513, 600, 900, 1008, 1009, 1023])
+    @pytest.mark.parametrize(
+        "n_networks", [16, 50, 400, 512, 513, 600, 900, 1008, 1009, 1023]
+    )
     def test_multi_networks(self, n_networks, monkeypatch, ensure_dump_dir):
         class Net(pb.Network):
             # This network will be placed in 1 core only.
