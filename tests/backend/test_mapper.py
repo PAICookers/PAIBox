@@ -497,6 +497,16 @@ class TestMapper_Compile:
             multicast_optim=[net.n0],
         )
 
+    def test_core_estimate_only(self, build_example_net4):
+        net = build_example_net4
+
+        mapper = pb.Mapper()
+        mapper.build(net)
+        graph_info = mapper.compile(core_estimate_only=True)
+
+        assert graph_info["n_core_required"] > 0
+        assert graph_info["members"] == {}
+
 
 class TestMapper_cflags:
     @pytest.mark.parametrize(
