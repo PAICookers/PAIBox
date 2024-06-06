@@ -1,7 +1,7 @@
 import sys
 from collections.abc import Sequence
 from functools import partial
-from typing import Literal, Optional, Union
+from typing import Literal, Optional, Union, ClassVar
 
 import numpy as np
 from paicorelib import NTM, RM, TM
@@ -39,7 +39,7 @@ from .neuron import Neuron
 from .neuron.neurons import *
 from .neuron.utils import vjt_overflow
 from .projection import InputProj
-from .synapses import ConnType, FullConnSyn
+from .synapses import ConnType, FullConnSyn, Conv2dHalfRollSyn
 from .synapses.conv_types import _Size2Type
 from .synapses.conv_utils import _fm_ndim2_check, _pair
 from .synapses.transforms import Conv2dForward, _Pool2dForward
@@ -62,6 +62,9 @@ __all__ = [
     "SpikingSub",
     "Transpose2d",
     "Transpose3d",
+    "Conv_HalfRoll",
+    "Filter",
+    "Delay_FullConn"
 ]
 
 
@@ -791,14 +794,14 @@ class SpikingSub(FunctionalModule2to1WithV):
     pos_threshold: int = 1
 
     def __init__(
-        self,
-        neuron_a: Union[NeuDyn, InputProj],
-        neuron_b: Union[NeuDyn, InputProj],
-        *,
-        keep_shape: bool = True,
-        name: Optional[str] = None,
-        overflow_strict: bool = False,
-        **kwargs,
+            self,
+            neuron_a: Union[NeuDyn, InputProj],
+            neuron_b: Union[NeuDyn, InputProj],
+            *,
+            keep_shape: bool = True,
+            name: Optional[str] = None,
+            overflow_strict: bool = False,
+            **kwargs,
     ) -> None:
         """Spiking subtraction module. The result will be reflected in time dimension.
 
@@ -865,12 +868,12 @@ class SpikingSub(FunctionalModule2to1WithV):
 @set_rt_mode(1, 1, 1)
 class Transpose2d(TransposeModule):
     def __init__(
-        self,
-        neuron: Union[NeuDyn, InputProj],
-        *,
-        keep_shape: bool = True,
-        name: Optional[str] = None,
-        **kwargs,
+            self,
+            neuron: Union[NeuDyn, InputProj],
+            *,
+            keep_shape: bool = True,
+            name: Optional[str] = None,
+            **kwargs,
     ) -> None:
         """2d transpose module.
 
@@ -924,13 +927,13 @@ class Transpose2d(TransposeModule):
 @set_rt_mode(1, 1, 1)
 class Transpose3d(TransposeModule):
     def __init__(
-        self,
-        neuron: Union[NeuDyn, InputProj],
-        axes: Optional[Sequence[int]] = None,
-        *,
-        keep_shape: bool = True,
-        name: Optional[str] = None,
-        **kwargs,
+            self,
+            neuron: Union[NeuDyn, InputProj],
+            axes: Optional[Sequence[int]] = None,
+            *,
+            keep_shape: bool = True,
+            name: Optional[str] = None,
+            **kwargs,
     ) -> None:
         """3d transpose module.
 
@@ -978,6 +981,258 @@ class Transpose3d(TransposeModule):
         generated = [n1_t3d, syn1]
         self._rebuild_out_intf(network, n1_t3d, *generated, **build_options)
 
+        return generated
+
+
+@set_rt_mode(8, 8, 0)
+class Delay_FullConn(FunctionalModule):
+    def __init__(
+            self,
+            neuron_s: Union[NeuDyn, InputProj],
+            neuron_d: Union[NeuDyn, InputProj],
+            delay: int,
+            weights: DataArrayType = 1,
+            conn_type: ConnType = ConnType.MatConn,
+            keep_shape: bool = False,
+            name: Optional[str] = None,
+            **kwargs,
+    ) -> None:
+        self.delay = delay
+        self.weights = weights
+        self.conn_type = conn_type
+        _shape_out = neuron_d.shape_out
+        super().__init__(
+            neuron_s,
+            neuron_d,
+            shape_out=_shape_out,
+            keep_shape=keep_shape,
+            name=name,
+            **kwargs,
+        )
+
+    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
+        return
+
+    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
+        if len(self.module_intf.operands[0].shape_out)!=2:
+            raise ShapeError("The source node must be a successor to the half-convolution")
+        delay_shape = self.module_intf.operands[0].shape_out
+        delay_neurons = []
+        for i in range(self.delay):
+            neuron = Neuron(
+                shape=delay_shape,
+                leak_v=0,
+                neg_threshold=0,
+                delay=i+1,
+                tick_wait_start=self.tick_wait_start,
+                tick_wait_end=self.tick_wait_end,
+                keep_shape=self.keep_shape,
+                name=f"n{i}_{self.name}",
+            )
+            delay_neurons.append(neuron)
+            # 延时突触
+            syn1 = FullConnSyn(
+                self.module_intf.operands[0],
+                delay_neurons[i],
+                weights=_delay_mapping(delay_shape[1], delay_shape[0], 1),
+                conn_type=ConnType.All2All,
+                name=f"s{i}_delay",
+            )
+            #w = np.zeros((neuron.num_out, self.module_intf.operands[1].num_out))
+            w = self.weights[i::self.delay, :]
+            syn2 = FullConnSyn(  # cin,(kw-1)*ih -> cout * oh
+                delay_neurons[i], # 54 -> 54
+                self.module_intf.operands[1],
+                weights=w,
+                conn_type=self.conn_type,
+                name=f"s{i}_{self.name}",
+            )
+            network._add_components(neuron, syn1, syn2)
+            network._remove_components(self)
+            generated = [*delay_neurons, syn1, syn2]
+        return generated
+
+
+@set_rt_mode(8, 8, 0)
+class Conv_HalfRoll(FunctionalModule):
+    _spatial_ndim: ClassVar[int] = 2
+
+    def __init__(
+            self,
+            neuron_s: Union[NeuDyn, InputProj],
+            #neuron_d: Union[NeuDyn, InputProj],
+            kernel: np.ndarray,
+            stride: Optional[_Size2Type] = None,
+            padding: _Size2Type = 0,
+            keep_shape: bool = False,
+            name: Optional[str] = None,
+            **kwargs,
+    ) -> None:
+        """2d conv_halfroll for spike.
+
+        """
+        self.kernel = kernel
+        self.stride = _pair(stride)
+        self.padding = _pair(padding)
+        if kernel.ndim != self._spatial_ndim + 2:
+            raise ShapeError(
+                f"convolution kernel dimension must be {self._spatial_ndim + 2}, but got {kernel.ndim}."
+            )
+
+        if len(neuron_s.shape_out) != 2:
+            in_ch, in_h, in_w = _fm_ndim2_check(neuron_s.shape_out, "CHW")
+            neuron_s.shape_change((in_ch, in_h))
+        in_ch, in_h = neuron_s.shape_out
+        cout, cin, kh, kw = kernel.shape
+        # if len(neuron_d.shape_out) != 2:
+        #     out_ch, out_h, out_w = _fm_ndim2_check(neuron_d.shape_out, "CHW")
+        #     neuron_d.shape_change((cout, out_h))
+
+
+        out_h = (in_h - kh + 2 * self.padding[0] ) // self.stride[0] + 1
+        if in_ch != cin:
+            raise ShapeError(f"input channels mismatch: {in_ch} != {cin}.")
+
+
+        _shape_out = (cout, out_h)
+
+        super().__init__(
+            neuron_s,
+            #neuron_d,
+            shape_out=_shape_out,
+            keep_shape=keep_shape,
+            name=name,
+            **kwargs,
+        )
+
+    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
+        #print("进入function.spike_func")
+        return
+
+    def build(self, network: DynSysGroup, delay: int, **build_options) -> BuiltComponentType:
+        #print("进入build")
+        in_ch, in_h = self.module_intf.operands[0].shape_out
+        cout, cin, kh, kw = self.kernel.shape
+        n_delays = NodeList()
+        s_delays = NodeList()
+        relu = Neuron(
+            self.shape_out,
+            reset_mode=RM.MODE_NONRESET,
+            neg_thres_mode=NTM.MODE_SATURATION,
+            leak_v=0,
+            neg_threshold=0,
+            pos_threshold=0,
+            delay=self.delay_relative,
+            tick_wait_start=self.tick_wait_start+1,
+            tick_wait_end=self.tick_wait_end,
+            input_width=self.input_width,
+            spike_width=self.spike_width,
+            snn_en=self.snn_en,
+            keep_shape=self.keep_shape,
+            name=f"nd_{self.name}",
+        )
+        for i in range(kw):
+            neuron = Neuron(
+                (cin, in_h),
+                leak_v=0,
+                neg_threshold=0,
+                delay=delay*i+1,
+                tick_wait_start=self.tick_wait_start,
+                tick_wait_end=self.tick_wait_end,
+                input_width=self.input_width,
+                spike_width=self.spike_width,
+                snn_en=self.snn_en,
+                keep_shape=self.keep_shape,
+                name=f"n{i}_{self.name}",
+            )
+            n_delays.append(neuron)
+            # 延时突触
+            syn1 = FullConnSyn(
+                self.module_intf.operands[0],# (2, 5)
+                n_delays[i],
+                weights=_delay_mapping(in_h, cin, 1),
+                conn_type=ConnType.All2All,
+                name=f"s{i}_delay_{self.name}",
+            )
+            s_delays.append(syn1)
+            syn2 = Conv2dHalfRollSyn(  # cin, ih -> cout * oh
+                n_delays[i],
+                relu,
+                kernel=self.kernel[:, :, :, kw-i-1],
+                stride=self.stride,
+                padding=self.padding,
+                order="OIHW",
+                name=f"s{i}_{self.name}",
+            )
+            s_delays.append(syn2)
+
+        generated = [relu, *n_delays, *s_delays]
+        self._rebuild_out_intf(network, relu, *generated, **build_options)
+
+        return generated
+
+@set_rt_mode(8, 8, 0)
+class Filter(FunctionalModule):
+
+    def __init__(
+            self,
+            neuron: Union[NeuDyn, InputProj],
+            time_to_fire: int,
+            keep_shape: bool = False,
+            name: Optional[str] = None,
+            **kwargs,
+    ) -> None:
+        """
+        """
+        shape_out = neuron.shape_out
+        self.time_to_fire = time_to_fire
+        self.cur_time = 0
+        super().__init__(
+            neuron,
+            shape_out=shape_out,
+            keep_shape=keep_shape,
+            name=name,
+            **kwargs,
+        )
+
+    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
+        if self.cur_time != self.time_to_fire:
+            self.cur_time += 1
+            return np.zeros_like(x1)
+        else:
+            self.cur_time = 0
+            return x1
+
+    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
+        inp1 = Always1Neuron((2,))
+        n1_filter = Neuron(
+            self.shape_out,
+            leak_v=0,
+            neg_threshold=0,
+            delay=self.delay_relative,
+            tick_wait_start=self.tick_wait_start,
+            tick_wait_end=self.tick_wait_end,
+            keep_shape=self.keep_shape,
+            name="filter"
+        )
+
+        syn1 = FullConnSyn(
+            self.module_intf.operands[0],  # (10,0)
+            n1_filter,  # (10,0)
+            weights=1,
+            conn_type=ConnType.One2One,
+            name=f"s0_{self.name}",
+        )
+        syn2 = FullConnSyn(
+            inp1,  # (2,0)
+            n1_filter,  # (10,0)
+            weights=-128,
+            conn_type=ConnType.All2All,
+            name=f"s1_{self.name}",
+        )
+        network._add_components(n1_filter, syn1, syn2)
+        network._remove_components(self)
+        generated = [n1_filter, syn1, syn2]
         return generated
 
 
@@ -1084,4 +1339,13 @@ def _transpose3d_mapping(
             idx[axes[0]] * size12_t + idx[axes[1]] * shape_t[2] + idx[axes[2]],
         ] = 1
 
+    return mt
+
+
+def _delay_mapping(h: int, cin: int, n: int) -> WeightType:
+    mt = np.zeros((cin * h, cin * n * h), dtype=np.bool_)
+    for i in range(cin):
+        for j in range(n * cin):
+            for k in range(h):
+                mt[i * h + k, j * h + k] = 1
     return mt

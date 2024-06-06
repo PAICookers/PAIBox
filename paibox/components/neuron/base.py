@@ -318,7 +318,7 @@ class MetaNeuron:
         """
 
         def _truncate() -> VoltageType:
-            if (vj >> self.bit_truncation) > 0:  # Saturate truncation
+            if (vj >> self.bit_truncation).all() > 0:  # Saturate truncation
                 return np.full_like(vj, _mask(8))
             elif self.bit_truncation == 0:
                 return self._vjt0
@@ -326,7 +326,6 @@ class MetaNeuron:
                 return (vj << (8 - self.bit_truncation)) & _mask(8)
             else:
                 return (vj >> (self.bit_truncation - 8)) & _mask(8)
-
         v_truncated = np.where(
             self.thres_mode == TM.EXCEED_POSITIVE, _truncate(), self._vjt0
         )
@@ -499,7 +498,6 @@ class Neuron(MetaNeuron, NeuDyn):
             x = self.sum_inputs()
         else:
             x = np.atleast_1d(x)
-
         self._neu_out, self._vjt = super().update(x, self._vjt)
 
         idx = (self.timestamp + self.delay_relative - 1) % HwConfig.N_TIMESLOT_MAX
@@ -584,6 +582,25 @@ class Neuron(MetaNeuron, NeuDyn):
 
     def __getitem__(self, index) -> "NeuronSubView":
         return NeuronSubView(self, index)
+
+    def shape_change(self, new_shape: Shape) -> None:
+        #print(self.name,"shape change")
+        self._n_neuron = shape2num(new_shape)
+        self._shape = as_shape(new_shape)
+        self._vjt = self.init_param(0).astype(np.int32)
+        self.set_reset_value("_vjt", self._vjt)
+        self._inner_spike = self.init_param(0).astype(np.bool_)
+        self.set_reset_value("_inner_spike", self._inner_spike)
+        self.vj = self.init_param(0).astype(np.int32)
+        self.set_reset_value("vj", self.vj)
+        self.y = self.init_param(0).astype(np.int32)
+        self.set_reset_value("y", self.y)
+        self.delay_registers = np.zeros(
+                (HwConfig.N_TIMESLOT_MAX,) + self._inner_spike.shape, dtype=np.bool_
+            )
+        self.set_reset_value("delay_registers", self.delay_registers)
+
+        return
 
     @property
     def shape_in(self) -> tuple[int, ...]:

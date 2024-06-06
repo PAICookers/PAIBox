@@ -14,6 +14,9 @@ from .components.functional import SpikingMaxPool2d as SpikingMaxPool2d
 from .components.functional import SpikingSub as SpikingSub
 from .components.functional import Transpose2d as Transpose2d
 from .components.functional import Transpose3d as Transpose3d
+from .components.functional import Conv_HalfRoll as ConvHalfRoll
+from .components.functional import Filter as Filter
+from .components.functional import Delay_FullConn as DelayFullConn
 from .components.neuron.neurons import IF as IF
 from .components.neuron.neurons import LIF as LIF
 from .components.neuron.neurons import PhasicSpiking as PhasicSpiking

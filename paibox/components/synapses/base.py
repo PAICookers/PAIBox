@@ -18,6 +18,7 @@ from .transforms import (
     ConnType,
     Conv1dForward,
     Conv2dForward,
+    Conv2dHalfForward,
     ConvTranspose1dForward,
     ConvTranspose2dForward,
     Identity,
@@ -324,6 +325,42 @@ class Conv2dSyn(FullConnectedSyn):
             (in_h, in_w), (out_h, out_w), _kernel, stride, padding
         )
 
+
+
+class Conv2dHalfRollSyn(FullConnectedSyn):
+
+    def __init__(
+            self,
+            source: Union[NeuDyn, InputProj],
+            dest: Neuron,
+            kernel: np.ndarray,
+            stride: tuple[int, int],
+            padding: tuple[int, int],
+            order: _KOrder4d = "OIHW",
+            name: Optional[str] = None,
+    ) -> None:
+        super().__init__(source, dest, name)
+        #print("进入halfroll")
+        if order == "IOHW":
+            _kernel = np.swapaxes(kernel, 0, 1)
+        else:
+            _kernel = kernel.copy()
+
+        # O,I,H,W
+        out_channels, in_channels, kernel_h = _kernel.shape
+        # C,H,W
+        if len(source.shape_out) == 2:
+            in_ch, in_h = source.shape_out
+        else:
+            in_ch, in_h, in_w = _fm_ndim2_check(source.shape_out, "CHW")
+        out_h = (in_h + 2 * padding[0] - kernel_h) // stride[0] + 1
+
+        if in_ch != in_channels:
+            raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
+
+        #comm = Conv2dForward((in_h, in_w), (out_h, out_w), _kernel, stride, padding)
+        self.comm = Conv2dHalfForward((in_ch, in_h), (out_channels, out_h), _kernel, stride, padding)
+        #print(self.comm.connectivity)
 
 class ConvTranspose1dSyn(FullConnectedSyn):
     _spatial_ndim: ClassVar[int] = 1
