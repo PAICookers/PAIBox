@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "paibox"
-version = "1.1.0a3"
+version = "1.1.0a4"
 description = "Toolchain of PAICORE 2.0"
 authors = ["Ziru Pan <zrpan@stu.pku.edu.cn>"]
 maintainers = [
