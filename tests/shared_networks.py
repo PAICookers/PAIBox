@@ -73,6 +73,17 @@ class FModule_ConnWithModule_Net(pb.DynSysGroup):
         self.probe3 = pb.Probe(self.or1, "spike")
 
 
+class FModule_ConnWithFModule_Net(pb.DynSysGroup):
+    def __init__(self):
+        super().__init__()
+        self.n1 = pb.IF((8, 16, 16), 10, tick_wait_start=1)
+        self.n2 = pb.IF((8, 4, 4), 5, tick_wait_start=2)
+        self.mp2d = pb.SpikingMaxPool2d(self.n1, (4, 4), tick_wait_start=2)
+        self.sub = pb.SpikingSub(self.n2, self.mp2d, tick_wait_start=3)
+
+        self.s1 = pb.FullConn(self.n1, self.n2)
+
+
 class FunctionalModule_2to1_Net(pb.DynSysGroup):
     def __init__(self, op: Literal["and", "or", "xor", "add", "sub"]):
         super().__init__()
@@ -248,3 +259,8 @@ def build_FModule_ConnWithInput_Net():
 @pytest.fixture(scope="class")
 def build_FModule_ConnWithModule_Net():
     return FModule_ConnWithModule_Net()
+
+
+@pytest.fixture(scope="class")
+def build_FModule_ConnWithFModule_Net():
+    return FModule_ConnWithFModule_Net()

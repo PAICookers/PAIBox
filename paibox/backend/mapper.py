@@ -1,4 +1,3 @@
-import sys
 from collections import defaultdict
 from collections.abc import Sequence
 from copy import copy
@@ -102,6 +101,7 @@ class Mapper:
     def compile(
         self,
         *,
+        core_estimate_only: bool = False,
         weight_bit_optimization: bool = True,
         grouping_optim_target: Literal["latency", "core", "both"] = "both",
         no_twisted_branch: bool = True,
@@ -181,7 +181,17 @@ class Mapper:
         )
 
         """Core coordinate assignment."""
-        self.coord_assign()
+        self.coord_assign(core_estimate_only)
+
+        if core_estimate_only:
+            return GraphInfo(
+                input={},
+                output={},
+                members={},
+                inherent_timestep=self.graph.inherent_timestep,
+                n_core_required=self.n_core_required,
+                n_core_occupied=0,
+            )
 
         """Allocate the core blocks to the core placments."""
         self.core_allocation()
@@ -194,28 +204,13 @@ class Mapper:
         self.graph.topo_support_check()
 
     def build_core_blocks(self) -> None:
-        """Build core blocks based on grouped edges.
+        """Build core blocks based on partitioned edges."""
+        partitioned_edges = self.graph.graph_partition()
 
-        Description: Group all edges & build `CoreBlock` based on the grouped edges.
-        """
-        # TODO Before the compilation, add graph check, such as:
-        # check the node degree: _DEGREE_UNSET, ...
-        grouped_edges, rg_id = self.graph.group_edges()
-
-        if sys.version_info >= (3, 10):
-            for syns, routing_id in zip(grouped_edges, rg_id, strict=True):
-                self.core_blocks.append(
-                    CoreBlock.build(*syns, seed=0, routing_id=routing_id)
-                )
-        else:
-            if len(grouped_edges) != len(rg_id):
-                raise ValueError(
-                    f"the length of grouped edges & routing groups id are not equal, "
-                    f"{len(grouped_edges)} != {len(rg_id)}"
-                )
-
-            for syns, routing_id in zip(grouped_edges, rg_id):
-                self.core_blocks.append(CoreBlock.build(*syns, routing_id=routing_id))
+        for part in partitioned_edges:
+            self.core_blocks.append(
+                CoreBlock.build(*part.edges, seed=0, routing_id=part.rg_id)
+            )
 
         for cur_cb in self.core_blocks:
             succ_cbs = []
@@ -282,7 +277,7 @@ class Mapper:
             self.build_core_blocks()
             self.lcn_ex_adjustment()
 
-    def coord_assign(self) -> None:
+    def coord_assign(self, core_estimate_only: bool = False) -> None:
         """Assign the coordinate of each `CorePlacement`.
 
         NOTE: The neurons in each core block must be grouped first to determine the \
@@ -300,10 +295,13 @@ class Mapper:
             n_core_required := sum(cb.n_core_required for cb in self.core_blocks)
         ) > n_avail_cores:
             raise ResourceError(
-                CORE_RESOURCE_OUT_OF_RANGE_TEXT.format(n_avail_cores, n_core_required)
+                OUT_OF_CORE_RESOURCE_TEXT.format(n_avail_cores, n_core_required)
             )
 
         self.n_core_required = n_core_required
+
+        if core_estimate_only:
+            return None
 
         # Generate routing groups by given the list of core blocks.
         for rg in self.routing_groups:
@@ -316,7 +314,7 @@ class Mapper:
             )
         ) > n_avail_cores:
             raise ResourceError(
-                CORE_RESOURCE_OUT_OF_RANGE_TEXT.format(n_avail_cores, n_core_occupied)
+                OUT_OF_CORE_RESOURCE_TEXT.format(n_avail_cores, n_core_occupied)
             )
 
         self.n_core_occupied = n_core_occupied
@@ -677,6 +675,4 @@ def _fp_check(fp: Optional[Union[str, Path]] = None) -> Path:
     return _fp
 
 
-CORE_RESOURCE_OUT_OF_RANGE_TEXT = (
-    "the number of required cores is out of range {0} ({1})."
-)
+OUT_OF_CORE_RESOURCE_TEXT = "the number of required cores is out of range {0} ({1})."

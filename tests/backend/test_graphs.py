@@ -1,11 +1,15 @@
+from collections import defaultdict
+from collections.abc import Sequence
 from typing import Optional
 
 import pytest
+from paicorelib import HwConfig
 
 import paibox as pb
-from paibox.backend.graphs import *
-from paibox.backend.graphs import _degree_check
-from paibox.exceptions import NotSupportedError
+from paibox.backend.graphs import get_node_degrees, get_pred_dg_by_succ_dg, toposort
+from paibox.backend.graphs_types import *
+from paibox.components import Neuron
+from paibox.exceptions import GraphBuildError, GraphConnectionError, NotSupportedError
 
 from .conftest import TestData
 
@@ -246,59 +250,34 @@ class TestPAIGraph:
         with pytest.raises(GraphConnectionError):
             mapper.build(net)
 
-    def test_untwist_branch_nodes1(self, build_Network_branch_nodes1):
-        net = build_Network_branch_nodes1
+    def test_untwist_branch_nodes1(self, ensure_dump_dir, build_Network_branch_nodes):
+        net: pb.Network = build_Network_branch_nodes
 
         mapper = pb.Mapper()
         mapper.build(net)
         mapper.compile()
+        mapper.export(fp=ensure_dump_dir)
 
-        assert len(mapper.graph.nodes) == 9
-
-    def test_untwist_branch_nodes2(self, build_Network_branch_nodes2):
-        net = build_Network_branch_nodes2
-
-        mapper = pb.Mapper()
-        mapper.build(net)
-        mapper.compile()
-
-        assert 1
+        assert (
+            len(mapper.graph.nodes)
+            == len(net.get_components(level=1).include(Neuron, pb.InputProj))
+            + net.n_copy
+        )
 
 
 class TestGroupEdges:
     @staticmethod
-    def group_edges_proto(
+    def graph_partition_proto(
         succ_edges: dict[NodeName, dict[NodeName, EdgeName]],
         degree: dict[NodeName, NodeDegree],
         *,
         ordered_nodes: Optional[list[NodeName]] = None,
     ) -> list[set[EdgeName]]:
-        """Group all edges according to a certain rule.
+        gh_parts = []
+        rgid = 0
+        seen_nodes: set[NodeName] = set()
 
-        Args:
-            - edges: a list of edges.
-            - succ_edges: a dictionary recording previous nodes and edges.
-            - degree: the in/out-degree of nodes.
-            - ordered_nodes: nodes in topological sorting. Optional.
-
-        Returns:
-            - A list of set of grouped edges.
-        """
-
-        def _find_pred_edges_proto(
-            succ_edges: dict[NodeName, dict[NodeName, EdgeName]], target_node: NodeName
-        ) -> set[EdgeName]:
-            pred = set()
-
-            for succ_node in filter(
-                lambda node: target_node in node, succ_edges.values()
-            ):
-                pred.add(succ_node[target_node])
-
-            return pred
-
-        gathered = []
-        seen_edges = set()
+        pred_dg = get_pred_dg_by_succ_dg(succ_edges)
 
         if isinstance(ordered_nodes, list):
             # In topological sorting.
@@ -308,93 +287,127 @@ class TestGroupEdges:
             ordered = list(succ_edges.keys())
 
         for node in ordered:
-            if degree[node].in_degree > 1:
-                edge_group = _find_pred_edges_proto(succ_edges, node)
-                # edge_group2 = edge_group.copy()
-
-                # # Remove edges if it is already traversed
-                # for e in edge_group:
-                #     if e in seen_edges:
-                #         edge_group2.remove(e)
-                comming_edges = edge_group.difference(seen_edges)
-
-                seen_edges.update(comming_edges)
-                gathered.append(comming_edges)
-
-            if degree[node].out_degree > 1:
-                edge_group = set(e for e in succ_edges[node].values())
-
-                if edge_group not in gathered:
-                    seen_edges.update(edge_group)
-                    gathered.append(edge_group)
-
-            elif degree[node].out_degree > 0:
-                succ_node = list(succ_edges[node].keys())[0]
-                # Check the in-degree of the only following node.
-                if degree[succ_node].in_degree == 1:
-                    gathered.append({succ_edges[node][succ_node]})
-            else:
-                # out-degree = 0, do nothing.
+            if node in seen_nodes:
                 continue
 
-        return gathered
+            if degree[node].out_degree == 0:
+                seen_nodes.add(node)
+                continue
+
+            succ_nodes: set[NodeName] = set()
+            other_involved_nodes: set[NodeName] = set()
+            succ_nodes_candid: set[NodeName] = set(succ_edges[node].keys())
+            partitioned_nodes = set([node])
+
+            while len(succ_nodes_candid) > 0:
+                succ_nodes.update(succ_nodes_candid)
+
+                for candid in succ_nodes_candid:
+                    if degree[candid].in_degree > 1:
+                        coming_nodes = set(pred_dg[candid].keys()) - seen_nodes
+                        other_involved_nodes |= coming_nodes
+
+                other_involved_nodes -= partitioned_nodes
+                partitioned_nodes |= other_involved_nodes
+                succ_nodes_candid.clear()
+
+                for other_node in other_involved_nodes:
+                    other_candid = set(succ_edges[other_node].keys()) - succ_nodes
+                    succ_nodes_candid |= other_candid
+
+            seen_nodes |= partitioned_nodes
+
+            succ_edges_set: set[EdgeName] = set()
+            succ_nodes_set: set[NodeName] = set()
+
+            for _node in partitioned_nodes:
+                succ_edges_set.update(e for e in succ_edges[_node].values())
+                succ_nodes_set.update(n for n in succ_edges[_node])
+
+            gh_parts.append(succ_edges_set)
+
+            rgid += 1
+
+        return gh_parts
 
     @pytest.mark.parametrize(
-        "succ_edges",
+        "succ_edges, expectation",
         [
-            # This structure is filtered.
-            # (
-            #     {
-            #         "inp1": {"n1": "s1"},
-            #         "n1": {"n2": "s2", "n4": "s3"},
-            #         "n2": {"n3": "s4"},
-            #         "n3": {},
-            #         "n4": {"n2": "s5"},
-            #     },
-            # ),
-            {
-                "inp1": {"n1": "s1"},
-                "n1": {"n2": "s2", "n3": "s3"},
-                "n2": {"n4": "s4"},
-                "n3": {"n4": "s5"},
-                "n4": {},
-            },
-            {
-                "inp1": {"n1": "s1"},
-                "inp2": {"n4": "s2"},
-                "n1": {"n2": "s3"},
-                "n2": {"n3": "s4"},
-                "n3": {},
-                "n4": {"n5": "s5"},
-                "n5": {"n3": "s6"},
-            },
+            (
+                {
+                    "inp1": {"n1": "s1"},
+                    "n1": {"n2": "s2", "n3": "s3"},
+                    "n2": {"n3": "s4"},
+                    "n3": {"n4": "s5"},
+                    "n4": {},
+                },
+                [{"s1"}, {"s2", "s3", "s4"}, {"s5"}],
+            ),
+            (
+                {
+                    "inp1": {"n1": "s1"},
+                    "n1": {"n2": "s2", "n3": "s3"},
+                    "n2": {"n4": "s4"},
+                    "n3": {"n4": "s5"},
+                    "n4": {},
+                },
+                [{"s1"}, {"s2", "s3"}, {"s4", "s5"}],
+            ),
+            (
+                {
+                    "inp1": {"n1": "s1"},
+                    "inp2": {"n4": "s2"},
+                    "n1": {"n2": "s3"},
+                    "n2": {"n3": "s4"},
+                    "n3": {},
+                    "n4": {"n5": "s5"},
+                    "n5": {"n3": "s6"},
+                },
+                [{"s1"}, {"s2"}, {"s3"}, {"s5"}, {"s4", "s6"}],
+            ),
+            (
+                {
+                    "n1": {"n2": "s1", "n3": "s2"},
+                    "n2": {"n4": "s3"},
+                    "n3": {"n4": "s4"},
+                    "n4": {"n5": "s5", "n6": "s6"},
+                    "n5": {},
+                    "n6": {},
+                    "n7": {"n6": "s7"},
+                },
+                [{"s1", "s2"}, {"s3", "s4"}, {"s5", "s6", "s7"}],
+            ),
         ],
-        ids=["topo_2", "topo_3"],
     )
-    def test_group_edges_ordered(self, succ_edges):
+    def test_graph_partition(self, succ_edges, expectation):
         """
         Test #1:
-            INP1 -> N1    ->    N2 -> N3
-                    N1 -> N4 -> N2
-        FIXME Not supported
+            INP1 -> N1 -> N2 -> N3 -> N4
+                       ------->
 
         Test #2:
             INP1 -> N1 -> N2 -> N4
-            N1 -> N3 -> N4
+                       -> N3 ->
 
         Test #3:
             INP1 -> N1 -> N2 -> N3
-            INP2 -> N4 -> N5 -> N3
+            INP2 -> N4 -> N5 ->
+
+        Test #4:
+            N1 -> N2 -> N4 -> N5
+               -> N3 ->    -> N6
+                        N7 ->
         """
         degrees = get_node_degrees(succ_edges)
         ordered_nodes = toposort(succ_edges)
-
-        _degree_check(degrees, succ_edges)
-
-        gathered = self.group_edges_proto(
+        partitioned_edges = self.graph_partition_proto(
             succ_edges, degrees, ordered_nodes=ordered_nodes
         )
-        print()
+
+        # without considering the order in the list
+        assert set(frozenset(e) for e in partitioned_edges) == set(
+            frozenset(e) for e in expectation
+        )
 
     @pytest.mark.parametrize(
         "succ_edges",
@@ -428,19 +441,19 @@ class TestGroupEdges:
         print()
 
     def test_group_edges_with_constrs(
-        self, monkeypatch, get_mapper, build_network_with_branches_4bit
+        self, monkeypatch, build_network_with_branches_4bit
     ):
         net = build_network_with_branches_4bit
 
-        mapper: pb.Mapper = get_mapper
+        mapper = pb.Mapper()
         mapper.clear()
         mapper.build(net)
-        grouped_edges, _ = mapper.graph.group_edges()
+        partitioned_edges = mapper.graph.graph_partition()
 
         # In this case, N2 & N3 should be together.
         pos_n2 = pos_n3 = 0
-        for i, g in enumerate(grouped_edges):
-            _g_with_name = [e.name for e in g]
+        for i, part in enumerate(partitioned_edges):
+            _g_with_name = [e.name for e in part.edges]
             if "s2" in _g_with_name:
                 pos_n2 = i
             if "s3" in _g_with_name:
@@ -455,11 +468,11 @@ class TestGroupEdges:
 
         mapper.clear()
         mapper.build(net)
-        grouped_edges, _ = mapper.graph.group_edges()
+        partitioned_edges = mapper.graph.graph_partition()
 
         pos_n2 = pos_n3 = 0
-        for i, g in enumerate(grouped_edges):
-            _g_with_name = [e.name for e in g]
+        for i, part in enumerate(partitioned_edges):
+            _g_with_name = [e.name for e in part.edges]
             if "s2" in _g_with_name:
                 pos_n2 = i
             if "s3" in _g_with_name:
@@ -469,8 +482,6 @@ class TestGroupEdges:
 
 
 class TestDAGPathDistance:
-    """Consider DAG only."""
-
     @staticmethod
     def get_longest_path_proto(
         edges_with_d: dict[NodeName, dict[NodeName, int]], ordered_nodes: list[NodeName]

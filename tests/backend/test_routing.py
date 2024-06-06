@@ -5,54 +5,66 @@ import pytest
 from paicorelib import Coord, RoutingDirection, RoutingLevel
 
 import paibox as pb
-from paibox.backend.routing import RoutingCluster, RoutingRoot, get_parent
+from paibox.backend.routing import RoutingCluster, RoutingCoord, RoutingRoot, get_parent
 from paibox.exceptions import RoutingError
+
+X0Y0 = RoutingDirection.X0Y0
+X1Y0 = RoutingDirection.X1Y0
+X0Y1 = RoutingDirection.X0Y1
+X1Y1 = RoutingDirection.X1Y1
+ANY = RoutingDirection.ANY
+L5 = RoutingLevel.L5
+L4 = RoutingLevel.L4
+L3 = RoutingLevel.L3
+L2 = RoutingLevel.L2
+L1 = RoutingLevel.L1
+L0 = RoutingLevel.L0
 
 
 class TestRouterTree:
     def test_basics(self):
-        root = RoutingCluster(RoutingLevel.L3, tag="L3")
+        root = RoutingCluster(L3, tag="L3")
 
-        cluster_l2_1 = RoutingCluster(RoutingLevel.L2, tag="L2_1")
-        cluster_l2_2 = RoutingCluster(RoutingLevel.L2, tag="L2_2")
-        cluster_l2_3 = RoutingCluster(RoutingLevel.L2, tag="L2_3")
+        cluster_l2_1 = RoutingCluster(L2, tag="L2_1")
+        cluster_l2_2 = RoutingCluster(L2, tag="L2_2")
+        cluster_l2_3 = RoutingCluster(L2, tag="L2_3")
 
         assert root.add_child(cluster_l2_1) == True
-        assert root.add_child_to(cluster_l2_2, RoutingDirection.X1Y1) == True
+        assert root.add_child_to(cluster_l2_2, X1Y1) == True
 
         cluster1 = root.create_child(tag="L2_created")  # X0Y1
         assert cluster1 is not None
         assert len(root.children) == 3
 
-        assert root.add_child_to(cluster_l2_3, RoutingDirection.X1Y1) == False
+        assert root.add_child_to(cluster_l2_3, X1Y1) == False
         assert len(root.children) == 3
 
         cluster2 = root.create_child(tag="L2_created2")  # X1Y0
         assert cluster2 is not None
         assert len(root.children) == 4
-        assert root.children[RoutingDirection.X1Y0] == cluster2
+        assert root.children[X1Y0] == cluster2
 
         cluster3 = root.create_child(tag="L2_created3")
         assert cluster3 is None
 
     def test_clear(self):
-        root = RoutingCluster(RoutingLevel.L3, tag="L3")
+        root = RoutingCluster(L3, tag="L3")
 
-        cluster_l2_1 = RoutingCluster(RoutingLevel.L2, tag="L2_1")
-        cluster_l2_2 = RoutingCluster(RoutingLevel.L2, tag="L2_2")
-        cluster_l2_3 = RoutingCluster(RoutingLevel.L2, tag="L2_3")
+        cluster_l2_1 = RoutingCluster(L2, tag="L2_1")
+        cluster_l2_2 = RoutingCluster(L2, tag="L2_2")
+        cluster_l2_3 = RoutingCluster(L2, tag="L2_3")
 
-        cluster_l1_1 = RoutingCluster(RoutingLevel.L1, tag="L1_1")
-        cluster_l1_2 = RoutingCluster(RoutingLevel.L1, tag="L1_2")
-        cluster_l1_3 = RoutingCluster(RoutingLevel.L1, tag="L1_3")
+        cluster_l1_1 = RoutingCluster(L1, tag="L1_1")
+        cluster_l1_2 = RoutingCluster(L1, tag="L1_2")
+        cluster_l1_3 = RoutingCluster(L1, tag="L1_3")
 
-        assert cluster_l2_1.add_child_to(cluster_l1_1, RoutingDirection.X0Y0) == True
-        assert cluster_l2_2.add_child_to(cluster_l1_2, RoutingDirection.X0Y1) == True
-        assert cluster_l2_3.add_child_to(cluster_l1_3, RoutingDirection.X1Y0) == True
+        assert cluster_l2_1.add_child_to(cluster_l1_1, X0Y0) == True
+        assert cluster_l2_2.add_child_to(cluster_l1_2, X0Y1) == True
+        assert cluster_l2_3.add_child_to(cluster_l1_3, X1Y0) == True
 
-        assert root.add_child_to(cluster_l2_1, RoutingDirection.X0Y0) == True
-        assert root.add_child_to(cluster_l2_2, RoutingDirection.X1Y1) == True
-        assert root.add_child_to(cluster_l2_3, RoutingDirection.X1Y0) == True
+        assert root.add_child_to(cluster_l2_1, X0Y0) == True
+        assert root.add_child_to(cluster_l2_2, X1Y1) == True
+        assert root.add_child_to(cluster_l2_3, X1Y0) == True
 
         cluster_l2_2.clear()
         assert len(cluster_l2_2.children) == 0
@@ -63,125 +75,111 @@ class TestRouterTree:
     def test_remove_child(self, build_example_root):
         root = build_example_root
 
-        assert root.remove_child(RoutingDirection.X0Y1, strict=True)
-        assert RoutingDirection.X0Y1 not in root
+        assert root.remove_child(X0Y1, strict=True)
+        assert X0Y1 not in root
 
         with pytest.raises(RoutingError):
-            root.remove_child(RoutingDirection.X1Y1, strict=True)
+            root.remove_child(X1Y1, strict=True)
 
     def test_find_cluster_by_path(self):
-        root = RoutingCluster(RoutingLevel.L3, tag="L3")
+        root = RoutingCluster(L3, tag="L3")
 
-        cluster_l2_1 = RoutingCluster(RoutingLevel.L2, tag="L2_1")
-        cluster_l2_2 = RoutingCluster(RoutingLevel.L2, tag="L2_2")
-        cluster_l2_3 = RoutingCluster(RoutingLevel.L2, tag="L2_3")
+        cluster_l2_1 = RoutingCluster(L2, tag="L2_1")
+        cluster_l2_2 = RoutingCluster(L2, tag="L2_2")
+        cluster_l2_3 = RoutingCluster(L2, tag="L2_3")
 
-        cluster_l1_1 = RoutingCluster(RoutingLevel.L1, tag="L1_1")
-        cluster_l1_2 = RoutingCluster(RoutingLevel.L1, tag="L1_2")
-        cluster_l1_3 = RoutingCluster(RoutingLevel.L1, tag="L1_3")
+        cluster_l1_1 = RoutingCluster(L1, tag="L1_1")
+        cluster_l1_2 = RoutingCluster(L1, tag="L1_2")
+        cluster_l1_3 = RoutingCluster(L1, tag="L1_3")
 
-        assert cluster_l2_1.add_child_to(cluster_l1_1, RoutingDirection.X0Y0) == True
-        assert cluster_l2_2.add_child_to(cluster_l1_2, RoutingDirection.X0Y1) == True
-        assert cluster_l2_3.add_child_to(cluster_l1_3, RoutingDirection.X1Y0) == True
+        assert cluster_l2_1.add_child_to(cluster_l1_1, X0Y0) == True
+        assert cluster_l2_2.add_child_to(cluster_l1_2, X0Y1) == True
+        assert cluster_l2_3.add_child_to(cluster_l1_3, X1Y0) == True
 
-        assert root.add_child_to(cluster_l2_1, RoutingDirection.X0Y0) == True
-        assert root.add_child_to(cluster_l2_2, RoutingDirection.X1Y1) == True
-        assert root.add_child_to(cluster_l2_3, RoutingDirection.X1Y0) == True
+        assert root.add_child_to(cluster_l2_1, X0Y0) == True
+        assert root.add_child_to(cluster_l2_2, X1Y1) == True
+        assert root.add_child_to(cluster_l2_3, X1Y0) == True
 
-        find0 = root[RoutingDirection.X0Y0]
+        find0 = root[X0Y0]
         assert find0 == cluster_l2_1
 
-        find1 = root.find_cluster_by_path(
-            [RoutingDirection.X0Y0, RoutingDirection.X0Y0]
-        )
+        find1 = root.find_cluster_by_path([X0Y0, X0Y0])
         assert find1 == cluster_l1_1
 
-        find2 = root.find_cluster_by_path(
-            [RoutingDirection.X0Y0, RoutingDirection.X0Y1]
-        )
+        find2 = root.find_cluster_by_path([X0Y0, X0Y1])
         assert find2 is None
 
-        find3 = root.find_cluster_by_path(
-            [RoutingDirection.X1Y0, RoutingDirection.X1Y0]
-        )
+        find3 = root.find_cluster_by_path([X1Y0, X1Y0])
         assert find3 == cluster_l1_3
 
-        find4 = root.find_cluster_by_path(
-            [RoutingDirection.X1Y1, RoutingDirection.X1Y0]
-        )
+        find4 = root.find_cluster_by_path([X1Y1, X1Y0])
         assert find4 is None
 
     def test_get_routing_path(self):
-        root = RoutingCluster(RoutingLevel.L3, tag="L3")
+        root = RoutingCluster(L3, tag="L3")
 
-        cluster_l2_1 = RoutingCluster(RoutingLevel.L2, tag="L2_1")
-        cluster_l2_2 = RoutingCluster(RoutingLevel.L2, tag="L2_2")
-        cluster_l2_3 = RoutingCluster(RoutingLevel.L2, tag="L2_3")
+        cluster_l2_1 = RoutingCluster(L2, tag="L2_1")
+        cluster_l2_2 = RoutingCluster(L2, tag="L2_2")
+        cluster_l2_3 = RoutingCluster(L2, tag="L2_3")
 
-        cluster_l1_1 = RoutingCluster(RoutingLevel.L1, tag="L1_1")
-        cluster_l1_2 = RoutingCluster(RoutingLevel.L1, tag="L1_2")
-        cluster_l1_3 = RoutingCluster(RoutingLevel.L1, tag="L1_3")
-        cluster_l1_4 = RoutingCluster(RoutingLevel.L1, tag="L1_4")
+        cluster_l1_1 = RoutingCluster(L1, tag="L1_1")
+        cluster_l1_2 = RoutingCluster(L1, tag="L1_2")
+        cluster_l1_3 = RoutingCluster(L1, tag="L1_3")
+        cluster_l1_4 = RoutingCluster(L1, tag="L1_4")
 
-        assert cluster_l2_1.add_child_to(cluster_l1_1, RoutingDirection.X0Y0) == True
-        assert cluster_l2_2.add_child_to(cluster_l1_2, RoutingDirection.X0Y1) == True
-        assert cluster_l2_3.add_child_to(cluster_l1_3, RoutingDirection.X1Y0) == True
+        assert cluster_l2_1.add_child_to(cluster_l1_1, X0Y0) == True
+        assert cluster_l2_2.add_child_to(cluster_l1_2, X0Y1) == True
+        assert cluster_l2_3.add_child_to(cluster_l1_3, X1Y0) == True
 
-        assert root.add_child_to(cluster_l2_1, RoutingDirection.X0Y0) == True
-        assert root.add_child_to(cluster_l2_2, RoutingDirection.X1Y1) == True
-        assert root.add_child_to(cluster_l2_3, RoutingDirection.X1Y0) == True
+        assert root.add_child_to(cluster_l2_1, X0Y0) == True
+        assert root.add_child_to(cluster_l2_2, X1Y1) == True
+        assert root.add_child_to(cluster_l2_3, X1Y0) == True
 
-        assert root.get_routing_path(cluster_l2_1) == [RoutingDirection.X0Y0]
+        assert root.get_routing_path(cluster_l2_1) == [X0Y0]
         assert root.get_routing_path(cluster_l1_3) == [
-            RoutingDirection.X1Y0,
-            RoutingDirection.X1Y0,
+            X1Y0,
+            X1Y0,
         ]
 
         assert root.get_routing_path(cluster_l1_3) == [
-            RoutingDirection.X1Y0,
-            RoutingDirection.X1Y0,
+            X1Y0,
+            X1Y0,
         ]
         assert root.get_routing_path(cluster_l1_4) == None
 
     def test_create_lx_full_tree(self):
-        root = RoutingCluster(RoutingLevel.L3, tag="L3")
+        root = RoutingCluster(L3, tag="L3")
 
-        cluster_l2_1 = RoutingCluster.create_lx_full_tree(
-            RoutingLevel.L2, root_tag="L2_1"
-        )
-        cluster_l2_2 = RoutingCluster.create_lx_full_tree(
-            RoutingLevel.L2, root_tag="L2_2"
-        )
-        cluster_l2_3 = RoutingCluster.create_lx_full_tree(
-            RoutingLevel.L2, root_tag="L2_3"
-        )
+        cluster_l2_1 = RoutingCluster.create_lx_full_tree(L2, root_tag="L2_1")
+        cluster_l2_2 = RoutingCluster.create_lx_full_tree(L2, root_tag="L2_2")
+        cluster_l2_3 = RoutingCluster.create_lx_full_tree(L2, root_tag="L2_3")
 
         assert root.add_child(cluster_l2_1) == True
         assert root.add_child(cluster_l2_2) == True
 
-        assert root.add_child_to(cluster_l2_3, RoutingDirection.X1Y1, False) == True
+        assert root.add_child_to(cluster_l2_3, X1Y1, False) == True
 
         assert len(root.children) == 3
-        assert RoutingDirection.X1Y0 not in root.children.keys()
+        assert X1Y0 not in root.children.keys()
 
     def test_add_L0_for_placing(self):
-        subtree = RoutingCluster.create_routing_tree(RoutingLevel.L3, 2)
+        subtree = RoutingCluster.create_routing_tree(L3, 2)
         assert len(subtree.children) == 2
 
         n = 6
         for _ in range(n):
             subtree.add_L0_for_placing()
 
-        find_l0_1 = subtree.find_leaf_at_level(RoutingLevel.L0)
-        find_l0_2 = subtree.find_lx_clusters(RoutingLevel.L0, 0)
+        find_l0_1 = subtree.find_leaf_at_level(L0)
+        find_l0_2 = subtree.find_lx_clusters(L0, 0)
 
-        find_l1_1 = subtree.find_lx_clusters(RoutingLevel.L1, 0)
-        find_l1_2 = subtree.find_lx_clusters(RoutingLevel.L1, 2)
-        find_l1_3 = subtree.find_lx_clusters(RoutingLevel.L1, 4)
-        find_l1_4 = subtree.find_leaf_at_level(RoutingLevel.L1)
+        find_l1_1 = subtree.find_lx_clusters(L1, 0)
+        find_l1_2 = subtree.find_lx_clusters(L1, 2)
+        find_l1_3 = subtree.find_lx_clusters(L1, 4)
+        find_l1_4 = subtree.find_leaf_at_level(L1)
 
-        find_l2 = subtree.find_lx_clusters(RoutingLevel.L2, 0)
-        find_l3 = subtree.find_lx_clusters(RoutingLevel.L3, 2)
+        find_l2 = subtree.find_lx_clusters(L2, 0)
+        find_l3 = subtree.find_lx_clusters(L3, 2)
 
         assert len(find_l0_1) == 0
         assert len(find_l0_2) == n
@@ -198,28 +196,28 @@ class TestRouterTree:
     def test_create_routing_tree(self):
         """Test for `create_routing_tree()` & `find_empty_lx_clusters()`."""
         # A L3-level routing tree.
-        subtree = RoutingCluster.create_routing_tree(RoutingLevel.L3, 2)
+        subtree = RoutingCluster.create_routing_tree(L3, 2)
 
-        find_l2 = subtree.find_leaf_at_level(RoutingLevel.L2)
-        find_l1 = subtree.find_leaf_at_level(RoutingLevel.L1)
+        find_l2 = subtree.find_leaf_at_level(L2)
+        find_l1 = subtree.find_leaf_at_level(L1)
 
         assert len(find_l2) == 0
         assert len(find_l1) == 8
 
         # A L4-level routing tree.
-        subtree = RoutingCluster.create_routing_tree(RoutingLevel.L4, 1)
+        subtree = RoutingCluster.create_routing_tree(L4, 1)
 
-        find_l3 = subtree.find_leaf_at_level(RoutingLevel.L3)
-        find_l2 = subtree.find_leaf_at_level(RoutingLevel.L2)
-        find_l1 = subtree.find_leaf_at_level(RoutingLevel.L1)
+        find_l3 = subtree.find_leaf_at_level(L3)
+        find_l2 = subtree.find_leaf_at_level(L2)
+        find_l1 = subtree.find_leaf_at_level(L1)
 
         assert len(find_l3) == 0
         assert len(find_l2) == 0
         assert len(find_l1) == 4 * 4
 
     def test_add_subtree(self):
-        root = RoutingCluster(RoutingLevel.L4, tag="L4")
-        subtree = RoutingCluster.create_routing_tree(RoutingLevel.L3, 2)
+        root = RoutingCluster(L4, tag="L4")
+        subtree = RoutingCluster.create_routing_tree(L3, 2)
 
         n = 6
         for _ in range(n):
@@ -229,13 +227,13 @@ class TestRouterTree:
 
         assert insert == True
 
-        subtree2 = RoutingCluster.create_routing_tree(RoutingLevel.L3, 4)
+        subtree2 = RoutingCluster.create_routing_tree(L3, 4)
         insert = root.add_subtree(subtree2, False)
 
         assert insert == True
 
-        subtree3 = RoutingCluster.create_routing_tree(RoutingLevel.L3, 1)
-        l2_cluster = subtree3.find_lx_clusters(RoutingLevel.L2)[0]
+        subtree3 = RoutingCluster.create_routing_tree(L3, 1)
+        l2_cluster = subtree3.find_lx_clusters(L2)[0]
         l2_cluster.tag = "L2_new"
 
         insert = root.add_subtree(subtree3, False)
@@ -243,18 +241,16 @@ class TestRouterTree:
         assert insert == True
 
     def test_get_parent(self):
-        root = RoutingCluster(RoutingLevel.L3, tag="L3")
+        root = RoutingCluster(L3, tag="L3")
+        cluster_l2_1 = RoutingCluster(L2, tag="L2_1")
+        cluster_l1_1 = RoutingCluster(L1, tag="L1_1")
+        cluster_l1_2 = RoutingCluster(L1, tag="L1_2")
+        cluster_l1_3 = RoutingCluster(L1, tag="L1_3")
 
-        cluster_l2_1 = RoutingCluster(RoutingLevel.L2, tag="L2_1")
+        assert cluster_l2_1.add_child_to(cluster_l1_1, X0Y0) == True
+        assert cluster_l2_1.add_child_to(cluster_l1_2, X0Y1) == True
 
-        cluster_l1_1 = RoutingCluster(RoutingLevel.L1, tag="L1_1")
-        cluster_l1_2 = RoutingCluster(RoutingLevel.L1, tag="L1_2")
-        cluster_l1_3 = RoutingCluster(RoutingLevel.L1, tag="L1_3")
-
-        assert cluster_l2_1.add_child_to(cluster_l1_1, RoutingDirection.X0Y0) == True
-        assert cluster_l2_1.add_child_to(cluster_l1_2, RoutingDirection.X0Y1) == True
-
-        assert root.add_child_to(cluster_l2_1, RoutingDirection.X0Y0) == True
+        assert root.add_child_to(cluster_l2_1, X0Y0) == True
 
         parent1 = get_parent(root, cluster_l1_1)
 
@@ -262,6 +258,24 @@ class TestRouterTree:
 
         parent2 = get_parent(root, cluster_l1_3)
         assert parent2 is None
+
+    def test_routing_coord(self):
+        root = RoutingCluster(L3, tag="L3")
+        cluster_l2_1 = RoutingCluster(L2, tag="L2_1")
+        cluster_l1_1 = RoutingCluster(L1, tag="L1_1")
+        cluster_l1_2 = RoutingCluster(L1, tag="L1_2")
+        cluster_l1_3 = RoutingCluster(L1, tag="L1_3")
+        cluster_l0_1 = RoutingCluster(L0, tag="L0_1")
+
+        assert cluster_l1_3.add_child_to(cluster_l0_1, X0Y1) == True
+        assert cluster_l2_1.add_child_to(cluster_l1_1, X0Y0) == True
+        assert cluster_l2_1.add_child_to(cluster_l1_2, X0Y1) == True
+        assert cluster_l2_1.add_child_to(cluster_l1_3, X1Y0) == True
+        assert root.add_child_to(cluster_l2_1, X1Y1) == True
+
+        assert root.routing_coord == RoutingCoord(X0Y0, X0Y0)
+        assert cluster_l1_2.routing_coord == RoutingCoord(X0Y0, X0Y0, X1Y1, X0Y1, ANY)
+        assert cluster_l0_1.routing_coord == RoutingCoord(X0Y0, X0Y0, X1Y1, X1Y0, X0Y1)
 
 
 class TestRoutingGroup:
@@ -273,9 +287,7 @@ class TestRoutingGroup:
         mapper.compile()
 
         # 8+5+4, 8+8+4
-        assert (
-            mapper.routing_tree.breadth_of_lx(RoutingLevel.L0) >= mapper.n_core_required
-        )
+        assert mapper.routing_tree.breadth_of_lx(L0) >= mapper.n_core_required
 
     def test_RoutingGroup_instance2(self, monkeypatch, build_example_net2):
         net = build_example_net2
@@ -287,9 +299,7 @@ class TestRoutingGroup:
         mapper.build(net)
         mapper.compile()
 
-        assert (
-            mapper.routing_tree.breadth_of_lx(RoutingLevel.L0) >= mapper.n_core_required
-        )
+        assert mapper.routing_tree.breadth_of_lx(L0) >= mapper.n_core_required
 
     def test_RoutingGroup_instance3(self, build_example_net4):
         net = build_example_net4
@@ -300,9 +310,7 @@ class TestRoutingGroup:
         mapper.compile()
 
         assert len(mapper.core_blocks) == 3
-        assert (
-            mapper.routing_tree.breadth_of_lx(RoutingLevel.L0) >= mapper.n_core_required
-        )
+        assert mapper.routing_tree.breadth_of_lx(L0) >= mapper.n_core_required
 
     def test_RoutingGroup_instance4(self, monkeypatch, build_example_net4):
         net = build_example_net4
@@ -315,9 +323,7 @@ class TestRoutingGroup:
         mapper.compile()
 
         assert len(mapper.core_blocks) == 4
-        assert (
-            mapper.routing_tree.breadth_of_lx(RoutingLevel.L0) >= mapper.n_core_required
-        )
+        assert mapper.routing_tree.breadth_of_lx(L0) >= mapper.n_core_required
 
 
 class TestRoutingRoot:
@@ -333,12 +339,12 @@ class TestRoutingRoot:
         assert root[0].add_subtree(build_example_root, False) == True
         assert root[1].add_subtree(build_example_root, False) == True
 
-        clusters_l5 = root[0].breadth_of_lx(RoutingLevel.L5)
-        clusters_l4 = root[0].breadth_of_lx(RoutingLevel.L4)
-        clusters_l3 = root[0].breadth_of_lx(RoutingLevel.L3)
-        clusters_l2 = root[1].breadth_of_lx(RoutingLevel.L2)
-        clusters_l1 = root[1].breadth_of_lx(RoutingLevel.L1)
-        clusters_l0 = root[1].breadth_of_lx(RoutingLevel.L0)
+        clusters_l5 = root[0].breadth_of_lx(L5)
+        clusters_l4 = root[0].breadth_of_lx(L4)
+        clusters_l3 = root[0].breadth_of_lx(L3)
+        clusters_l2 = root[1].breadth_of_lx(L2)
+        clusters_l1 = root[1].breadth_of_lx(L1)
+        clusters_l0 = root[1].breadth_of_lx(L0)
 
         assert clusters_l5 == 1
         assert clusters_l4 == 1
@@ -347,8 +353,8 @@ class TestRoutingRoot:
         assert clusters_l1 == 5
         assert clusters_l0 == 0
 
-        assert root.breadth_of_lx(RoutingLevel.L1) == 5 * 2
-        assert root.breadth_of_lx(RoutingLevel.L2) == 2 * 2
+        assert root.breadth_of_lx(L1) == 5 * 2
+        assert root.breadth_of_lx(L2) == 2 * 2
 
     @staticmethod
     def _gen_routing_cluster(n_core: int):
@@ -383,18 +389,60 @@ class TestRoutingRoot:
         return cores
 
     @pytest.mark.parametrize(
-        "cores", ([5, 10, 20, 100, 500], [10, 20, 30, 40, 100, 200])
+        "cores, expectation",
+        (
+            ([10, 20, 30, 40, 100, 200], nullcontext()),
+            ([5, 10, 20, 100, 500], pytest.raises(RoutingError)),
+        ),
     )
-    def test_insert_routing_group_1chip(self, cores):
+    def test_insert_routing_group_1chip(self, cores, expectation):
         root = RoutingRoot(pb.BACKEND_CONFIG.target_chip_addr)
+
+        with expectation as e:
+            for core in cores:
+                subtree = self._gen_routing_cluster(core)
+                if not root[0].add_subtree(subtree, True):
+                    raise RoutingError("Insert failed.")
+
+        huge_core = 500
+        subtree = self._gen_routing_cluster(huge_core)
+        assert root[0].add_subtree(subtree, True) == False  # Out of resources
+
+    @pytest.mark.parametrize(
+        "cores, expectation",
+        (
+            (
+                [64, 128, 64],
+                [
+                    RoutingCoord(X0Y0, X0Y0),
+                    RoutingCoord(X0Y0, X1Y0),
+                    RoutingCoord(X0Y0, X1Y1),
+                    RoutingCoord(X0Y0, X0Y1),
+                ],
+            ),
+        ),
+    )
+    def test_insert_routing_group_detail(self, cores, expectation):
+        root = RoutingRoot(pb.BACKEND_CONFIG.target_chip_addr)
+        index = 0
 
         for core in cores:
             subtree = self._gen_routing_cluster(core)
             assert root[0].add_subtree(subtree, True) == True
 
-        huge_core = 500
-        subtree = self._gen_routing_cluster(huge_core)
-        assert root[0].add_subtree(subtree, True) == False  # Out of resources
+            if len(subtree.children) == 1:
+                assert subtree[X0Y0].routing_coord == expectation[index]
+                index += 1
+            elif len(subtree.children) == 2:
+                assert subtree[X0Y0].routing_coord == expectation[index]
+                index += 1
+                assert subtree[X0Y1].routing_coord == expectation[index]
+                index += 1
+            elif len(subtree.children) == 4:
+                assert subtree[X0Y0].parent.routing_coord == expectation[index]
+                index += 1
+            else:
+                assert False
 
     @pytest.mark.parametrize(
         "cores, expectation",

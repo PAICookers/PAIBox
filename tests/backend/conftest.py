@@ -613,15 +613,17 @@ class Network_branch_nodes1(pb.Network):
                    -> N3 -> N6
     """
 
+    n_copy = 2
+
     def __init__(self):
         super().__init__()
         self.inp1 = pb.InputProj(1, shape_out=(600,), name="inp1")
-        self.n1 = pb.IF((600,), 10, name="n1")
-        self.n2 = pb.IF((800,), 10, name="n2")
-        self.n3 = pb.IF((1200,), 10, name="n3")
-        self.n4 = pb.IF((500,), 10, name="n4")
-        self.n5 = pb.IF((400,), 10, name="n5")
-        self.n6 = pb.IF((200,), 10, name="n6")
+        self.n1 = pb.IF((600,), 10, name="n1", tick_wait_start=1)
+        self.n2 = pb.IF((800,), 10, name="n2", tick_wait_start=2)
+        self.n3 = pb.IF((1200,), 10, name="n3", tick_wait_start=2)
+        self.n4 = pb.IF((500,), 10, name="n4", tick_wait_start=3)
+        self.n5 = pb.IF((400,), 10, name="n5", tick_wait_start=3)
+        self.n6 = pb.IF((200,), 10, name="n6", tick_wait_start=3)
 
         self.s1 = pb.FullConn(self.inp1, self.n1, name="s1")
         self.s2 = pb.FullConn(self.n1, self.n2, name="s2")
@@ -642,19 +644,61 @@ class Network_branch_nodes2(pb.Network):
              -> N1'-------> N3 -> N4
     """
 
+    n_copy = 1
+
     def __init__(self):
         super().__init__()
         self.inp1 = pb.InputProj(1, shape_out=(800,), name="inp1")
-        self.n1 = pb.IF((800,), 10, name="n1")
-        self.n2 = pb.IF((1000,), 10, name="n2")
-        self.n3 = pb.IF((1200,), 10, name="n3")
-        self.n4 = pb.IF((500,), 10, name="n4")
+        self.n1 = pb.IF((800,), 10, name="n1", tick_wait_start=1)
+        self.n2 = pb.IF((1000,), 10, name="n2", tick_wait_start=2)
+        self.n3 = pb.IF((1200,), 10, name="n3", tick_wait_start=3)
+        self.n4 = pb.IF((500,), 10, name="n4", tick_wait_start=4)
 
         self.s1 = pb.FullConn(self.inp1, self.n1, name="s1")
         self.s2 = pb.FullConn(self.n1, self.n2, name="s2")
         self.s3 = pb.FullConn(self.n1, self.n3, name="s3")
         self.s4 = pb.FullConn(self.n2, self.n3, name="s4")
         self.s5 = pb.FullConn(self.n3, self.n4, name="s5")
+
+
+class Network_branch_nodes3(pb.Network):
+    """
+    Before:
+        INP1 -> N1 -> N2 ->
+                   -> N3 -> N4 -> N5
+                               -> N6
+                        INP2 --->
+    After:
+        INP1 -> N1 -> N2'-> N4 -> N5
+                   -> N3'->
+
+                      N2 ->
+                      N3 -> N4'-> N6
+                        INP2 --->
+    """
+
+    n_copy = 3
+
+    def __init__(self):
+        super().__init__()
+        self.inp1 = pb.InputProj(1, shape_out=(800,), name="inp1")
+        self.inp2 = pb.InputProj(1, shape_out=(800,), name="inp2")
+
+        self.n1 = pb.IF((800,), 10, name="n1", tick_wait_start=1)
+        self.n2 = pb.IF((800,), 10, name="n2", tick_wait_start=2)
+        self.n3 = pb.IF((800,), 10, name="n3", tick_wait_start=2)
+        self.n4 = pb.IF((1000,), 10, name="n4", tick_wait_start=3)
+        self.n5 = pb.IF((800,), 10, name="n5", tick_wait_start=4)
+        self.n6 = pb.IF((1000,), 10, name="n6", tick_wait_start=4)
+
+        self.s1 = pb.FullConn(self.inp1, self.n1, name="s1")
+        self.s2 = pb.FullConn(self.n1, self.n2, name="s2")
+        self.s3 = pb.FullConn(self.n1, self.n3, name="s3")
+        self.s4 = pb.FullConn(self.n2, self.n4, name="s4")
+        self.s5 = pb.FullConn(self.n3, self.n4, name="s5")
+        self.s6 = pb.FullConn(self.n4, self.n5, name="s6")
+        self.s7 = pb.FullConn(self.n4, self.n6, name="s7")
+        self.s8 = pb.FullConn(self.inp2, self.n6, name="s8")
 
 
 @pytest.fixture(scope="class")
@@ -752,14 +796,13 @@ def build_MultichipNet1_s2():
     return MultichipNet1(scale=2)
 
 
-@pytest.fixture(scope="class")
-def build_Network_branch_nodes1():
-    return Network_branch_nodes1()
-
-
-@pytest.fixture(scope="class")
-def build_Network_branch_nodes2():
-    return Network_branch_nodes2()
+@pytest.fixture(
+    scope="function",
+    params=[Network_branch_nodes1, Network_branch_nodes2, Network_branch_nodes3],
+    ids=["net1", "net2", "net3"],
+)
+def build_Network_branch_nodes(request):
+    return request.param()
 
 
 @pytest.fixture(scope="class")

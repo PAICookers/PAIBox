@@ -1,3 +1,4 @@
+from collections import UserList
 from collections.abc import Iterator, Sequence
 from typing import Any, Optional, Union, final
 
@@ -27,6 +28,7 @@ class RoutingCluster:
         status: Optional[Status] = None,
         tag: Optional[str] = None,
         include_online: bool = False,
+        parent: Optional["RoutingCluster"] = None,
     ) -> None:
         """Instance a tree cluster with `level` and `direction`.
         - For a Lx(>0)-level cluster, after created, the length of children is `node_capacity`.
@@ -52,6 +54,7 @@ class RoutingCluster:
         self.item = data
         self.tag = tag
         self.include_online = include_online
+        self.parent = parent
 
         # Only set the attribute for L0-level cluster.
         if self.level == Level.L0:
@@ -114,6 +117,7 @@ class RoutingCluster:
 
         # child.direction = d. Already done in `self[d]`(__setitem__).
         self[d] = child
+        child.parent = self
 
         return True
 
@@ -259,13 +263,19 @@ class RoutingCluster:
                 return self.add_child(subtree[Direction.X0Y0], check_hit_online)
 
             elif sub_n_child == 2:
-                n_cur_child = len(self.children)
+                # len(self.children) == 0, place in [0,1]
+                # len(self.children) == 1, place in [2,3]
+                if len(self.children) == 0:
+                    _place_idx = (0, 1)
+                else:  # 2 & 3
+                    _place_idx = (2, 3)
+
                 hit_online = False
 
                 for i in range(sub_n_child):
                     success = self.add_child_to(
                         subtree[DIREC_IDX[i]],
-                        DIREC_IDX[n_cur_child + i],
+                        DIREC_IDX[_place_idx[i]],
                         check_hit_online,
                     )
                     hit_online |= not success
@@ -274,8 +284,9 @@ class RoutingCluster:
                     # If any of the subtrees fail to insert, the inserted subtrees are removed.
                     for i in range(sub_n_child):
                         removed = self.remove_child(
-                            DIREC_IDX[n_cur_child + i], DIREC_IDX[i], strict=False
+                            DIREC_IDX[_place_idx[i]], DIREC_IDX[i], strict=False
                         )
+                        subtree[DIREC_IDX[i]].parent = subtree
 
                     return False
 
@@ -287,6 +298,8 @@ class RoutingCluster:
                 # Because the tree is inserted using depth-first order, when a node is
                 # encountered with no child, it must be on the far right.
                 self[Direction.X1Y1].include_online = True
+                for child in self.children.values():
+                    child.parent = self
 
             else:
                 raise ValueError(f"the number of {sub_n_child} child is invalid.")
@@ -425,15 +438,34 @@ class RoutingCluster:
     def node_capacity(self) -> int:
         return HwConfig.N_SUB_ROUTING_NODE if self.level > Level.L0 else 0
 
+    @property
+    def routing_coord(self) -> RoutingCoord:
+        cur_cluster = self
+        path = [self.d]
 
-class RoutingGroup(list[CoreBlock]):
+        while cur_cluster.parent is not None:
+            path.append(cur_cluster.parent.d)
+            cur_cluster = cur_cluster.parent
+
+        path = path[:-1]
+
+        for _ in range(cur_cluster.level, Level.L5):
+            path.append(Direction.X0Y0)
+
+        for _ in range(self.level):
+            path.insert(0, Direction.ANY)
+
+        return RoutingCoord(*reversed(path))
+
+
+class RoutingGroup(UserList[CoreBlock]):
     """Core blocks located within a routing group are routable.
 
     NOTE: Axon groups within a routing group are the same.
     """
 
     def __init__(self, *cb: CoreBlock) -> None:
-        self.core_blocks = list(cb)
+        super().__init__(cb)
         self.assigned_coords: list[Coord] = []
         """Assigned core coordinates in the routing group"""
         self.wasted_coords: list[Coord] = []
@@ -473,25 +505,9 @@ class RoutingGroup(list[CoreBlock]):
         """Get the #N of cores occupied by the routing group."""
         return len(self.assigned_coords) + len(self.wasted_coords)
 
-    def __getitem__(self, idx: int) -> CoreBlock:
-        if idx >= len(self.core_blocks) or idx < 0:
-            raise IndexError(
-                f"index out of range [0, {len(self.core_blocks)}), ({idx})."
-            )
-
-        return self.core_blocks[idx]
-
-    def __len__(self) -> int:
-        return len(self.core_blocks)
-
-    def __iter__(self) -> Iterator[CoreBlock]:
-        return self.core_blocks.__iter__()
-
-    def __contains__(self, key: CoreBlock) -> bool:
-        return key in self.core_blocks
-
     @property
     def n_core_required(self) -> int:
+        """The actual number of cores required by the routing group."""
         return sum(cb.n_core_required for cb in self)
 
     @property
@@ -541,12 +557,12 @@ class RoutingRoot:
         """
         cost = routing_group.routing_cost
         level = routing_group.routing_level
-        if cost.n_L0 > HwConfig.N_CORE_OFFLINE:
+        if routing_group.n_core_required > HwConfig.N_CORE_OFFLINE:
             raise ResourceError(
-                f"the number of cores required exceeds the hardware limit, {cost.n_L0} > {HwConfig.N_CORE_OFFLINE}."
+                f"the number of cores required by the routing group exceeds the hardware limit, "
+                f"{routing_group.n_core_required} > {HwConfig.N_CORE_OFFLINE}."
             )
 
-        # Create a routing cluster
         routing_cluster = RoutingCluster.create_routing_tree(level, cost[level - 1])
 
         # `n_L0` physical cores will be occupied.
@@ -556,25 +572,32 @@ class RoutingRoot:
         # then assign coordinates & status.
         leaves = []
         wasted = []
-        for i in range(cost.n_L0):
-            if i < routing_group.n_core_required:
-                l0 = routing_cluster.add_L0_for_placing(
-                    data=f"{id(routing_group)}_{i}",
-                    status=Status.USED,
-                    tag=f"{id(routing_group)}_{i}",
-                )
-                leaves.append(l0)
 
-            else:
-                l0 = routing_cluster.add_L0_for_placing(
-                    status=Status.OCCUPIED, tag=f"{id(routing_group)}_{i}"
-                )
-                wasted.append(l0)
+        if cost.n_L0 > HwConfig.N_CORE_OFFLINE:
+            _max_n_l0 = HwConfig.N_CORE_OFFLINE
+        else:
+            _max_n_l0 = cost.n_L0
+
+        for i in range(routing_group.n_core_required):
+            l0 = routing_cluster.add_L0_for_placing(
+                data=f"rg_{id(routing_group)}_{i}",
+                status=Status.USED,
+                tag=f"rg_{id(routing_group)}_{i}",
+            )
+            leaves.append(l0)
+
+        for i in range(routing_group.n_core_required, _max_n_l0):
+            l0 = routing_cluster.add_L0_for_placing(
+                status=Status.OCCUPIED, tag=f"rg_{id(routing_group)}_{i}"
+            )
+            wasted.append(l0)
 
         # If #N of wasted cores > 16, it won't hit online L2 cluster.
         # XXX 'check_hit_online' conditions could be more precise, but
         # there is no clear benefit to doing so at the moment.
-        check_hit_online = len(wasted) <= HwConfig.N_CORE_ONLINE
+        check_hit_online = (
+            _max_n_l0 - routing_group.n_core_required
+        ) <= HwConfig.N_CORE_ONLINE
 
         # Add the sub-tree to the root.
         flag = False
@@ -586,7 +609,7 @@ class RoutingRoot:
 
         if not flag:
             raise RoutingError(
-                f"insert routing group {routing_group} into the routing tree failed, "
+                f"insert routing group 0x{id(routing_group):x} into the routing tree failed, "
                 f"cannot insert to any chip."
             )
 

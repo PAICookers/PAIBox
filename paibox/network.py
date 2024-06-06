@@ -29,7 +29,7 @@ class DynSysGroup(DynamicSys, Container):
     def update(self, **kwargs) -> None:
         """Network update.
 
-        XXX: The hierarchy of `NeuModule` requires that its update order is after synapses & before neurons.   \
+        XXX: The hierarchy of `NeuModule` requires that its update order is after synapses & before neurons.    \
             For example, a network with topology I1 -> M1 -> S1 -> N1, where the M1 consists of S2, S3 & N2. The\
             right update order is I1 -> S1, S2, S3 -> N1, N2. So the update order inside M1 is S2, S3 -> N2, of \
             which the update order is exactly between the synapses & neurons outside the module.
@@ -112,6 +112,13 @@ class DynSysGroup(DynamicSys, Container):
     def components(self) -> Collector[str, PAIBoxObject]:
         """Recursively search for all components within the network."""
         return self.nodes(include_self=False, find_recursive=True)
+
+    def get_components(self, level: int = -1) -> Collector[str, PAIBoxObject]:
+        """Recursively search for all components within the network."""
+        if level > -1:
+            return self.nodes(include_self=False, level=level)
+        else:
+            return self.nodes(include_self=False, find_recursive=True)
 
 
 Network: TypeAlias = DynSysGroup

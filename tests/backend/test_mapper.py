@@ -242,7 +242,9 @@ class TestMapperDeployment:
         with pytest.raises(ResourceError):
             mapper.compile()  # 300*300 > 1152*64
 
-    @pytest.mark.parametrize("n_networks", [5, 15, 16, 50, 400, 900, 1008, 1009, 1023])
+    @pytest.mark.parametrize(
+        "n_networks", [16, 50, 400, 512, 513, 600, 900, 1008, 1009, 1023]
+    )
     def test_multi_networks(self, n_networks, monkeypatch, ensure_dump_dir):
         class Net(pb.Network):
             # This network will be placed in 1 core only.
@@ -456,6 +458,54 @@ class TestMapper_Compile:
             mapper.core_blocks[2].n_core_required
             == ceil(net.n4.num_out / HwConfig.N_DENDRITE_MAX_SNN) * 4
         )
+
+    def test_gh_multicast_optim(self):
+        class Net(pb.Network):
+            def __init__(self):
+                super().__init__()
+                self.inp1 = pb.InputProj(input=None, shape_out=(400,), name="inp1")
+                self.n0 = pb.IF(400, 3, name="n0")
+                self.n1 = pb.IF(400, 3, name="n1")
+                self.n2 = pb.IF(800, 3, name="n2")
+                self.n3 = pb.IF(400, 4, name="n3")
+                self.n4 = pb.IF(300, 4, name="n4")
+                self.s0 = pb.FullConn(
+                    self.inp1, self.n0, conn_type=pb.SynConnType.One2One, name="s0"
+                )
+                self.s1 = pb.FullConn(
+                    self.n0, self.n1, conn_type=pb.SynConnType.One2One, name="s1"
+                )
+                self.s2 = pb.FullConn(
+                    self.n1, self.n2, conn_type=pb.SynConnType.All2All, name="s2"
+                )
+                self.s3 = pb.FullConn(
+                    self.n2, self.n3, conn_type=pb.SynConnType.All2All, name="s3"
+                )
+                self.s4 = pb.FullConn(
+                    self.n0, self.n4, conn_type=pb.SynConnType.All2All, name="s4"
+                )
+                self.s5 = pb.FullConn(
+                    self.n4, self.n2, conn_type=pb.SynConnType.All2All, name="s5"
+                )
+
+        net = Net()
+        mapper = pb.Mapper()
+        mapper.build(net)
+        graph_info = mapper.compile(
+            weight_bit_optimization=False,
+            grouping_optim_target="latency",
+            multicast_optim=[net.n0],
+        )
+
+    def test_core_estimate_only(self, build_example_net4):
+        net = build_example_net4
+
+        mapper = pb.Mapper()
+        mapper.build(net)
+        graph_info = mapper.compile(core_estimate_only=True)
+
+        assert graph_info["n_core_required"] > 0
+        assert graph_info["members"] == {}
 
 
 class TestMapper_cflags:

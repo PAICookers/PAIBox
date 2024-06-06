@@ -23,12 +23,13 @@ else:
 if typing.TYPE_CHECKING:
     from paibox.network import DynSysGroup
 
+    from .neuron import Neuron
     from .synapses import FullConnectedSyn
 
 __all__ = ["BuildingModule"]
 
 MultiInputsType: TypeAlias = list[SpikeType]  # Type of inputs of `NeuModule`.
-BuiltComponentType: TypeAlias = list[Union["FullConnectedSyn", NeuDyn]]
+BuiltComponentType: TypeAlias = list[Union["FullConnectedSyn", "Neuron"]]
 
 
 @dataclass
@@ -38,9 +39,7 @@ class ModuleIntf:
     """
 
     operands: list[Union[NeuDyn, InputProj]] = field(default_factory=list)
-    """TODO can operands be a `NeuModule`?"""
-    output: list["FullConnectedSyn"] = field(default_factory=list)
-    """A list of synapses."""
+    output: list[Union["FullConnectedSyn", "NeuModule"]] = field(default_factory=list)
 
     @property
     def num_in(self) -> int:
@@ -58,7 +57,7 @@ class BuildingModule:
         """Construct the actual basic components and add to the network. Called in the backend ONLY."""
         raise NotImplementedError
 
-    def register_operands(self, *op: Union[NeuDyn, InputProj]) -> None:
+    def register_operand(self, *op: Union[NeuDyn, InputProj]) -> None:
         """Register operands to the interface."""
         self.module_intf.operands.extend(op)
 
@@ -66,13 +65,13 @@ class BuildingModule:
         """Remove a operand from the interface."""
         self.module_intf.operands.remove(op)
 
-    def register_output(self, syn: "FullConnectedSyn") -> None:
-        """Register the output synapses."""
-        self.module_intf.output.append(syn)
+    def register_output(self, *output: Union["FullConnectedSyn", "NeuModule"]) -> None:
+        """Register the output."""
+        self.module_intf.output.append(*output)
 
-    def unregister_output(self, syn: "FullConnectedSyn") -> None:
-        """Remove an output synapses."""
-        self.module_intf.output.remove(syn)
+    def unregister_output(self, output: Union["FullConnectedSyn", "NeuModule"]) -> None:
+        """Remove an output."""
+        self.module_intf.output.remove(output)
 
     @property
     def n_op(self) -> int:
@@ -128,12 +127,12 @@ class NeuModule(NeuDyn, BuildingModule):
         return self.module_intf.operands
 
     @property
-    def dest(self):
-        return self  # will be deprecated at anytime in the future.
+    def dest(self) -> list[Union["FullConnectedSyn", "NeuModule"]]:
+        return self.module_intf.output  # will be deprecated at anytime in the future.
 
     @property
-    def target(self):
-        return self
+    def target(self) -> list[Union["FullConnectedSyn", "NeuModule"]]:
+        return self.module_intf.output
 
     @property
     def external_delay(self) -> int:
@@ -166,18 +165,21 @@ class FunctionalModule(NeuModule):
             )
 
         for op in operands:
-            if isinstance(op, FunctionalModule) and op.n_output > 1:
-                # TODO Connection between modules with `n_output` > 1.
-                raise NotSupportedError(
-                    "The connection between the module & the module with output node "
-                    "greater than 1 is not supported yet."
-                )
+            if isinstance(op, BuildingModule):
+                if op.n_output > 1:
+                    # TODO Connection between modules with `n_output` > 1.
+                    raise NotSupportedError(
+                        "The connection between the module & the module with output node "
+                        "greater than 1 is not supported yet."
+                    )
+
+                op.register_output(self)
 
         super().__init__(**kwargs, name=name)
 
         self.keep_shape = keep_shape
         self._shape_out = shape_out
-        self.register_operands(*operands)
+        self.register_operand(*operands)
 
         # Set memory for only 1 output node.
         # TODO how to handle with more than 1 output nodes
@@ -235,6 +237,25 @@ class FunctionalModule(NeuModule):
             self.delay_registers[idx] = self._inner_spike.copy()
 
         return self._inner_spike
+
+    def _rebuild_out_intf(
+        self,
+        network: "DynSysGroup",
+        out_neuron: "Neuron",
+        *generated: Union[NeuDyn, "FullConnectedSyn"],
+        **build_options,
+    ) -> None:
+        from .synapses import FullConnectedSyn
+
+        for out in self.module_intf.output:
+            if isinstance(out, FullConnectedSyn):
+                out.source = out_neuron
+            else:
+                out.unregister_operand(self)
+                out.register_operand(out_neuron)
+
+        network._add_components(*generated)
+        network._remove_components(self)
 
     @property
     def shape_in(self):

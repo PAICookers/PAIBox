@@ -63,7 +63,7 @@ class BitwiseAND(FunctionalModule2to1):
         neuron_a: Union[NeuDyn, InputProj],
         neuron_b: Union[NeuDyn, InputProj],
         *,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -91,11 +91,11 @@ class BitwiseAND(FunctionalModule2to1):
         return x1 & x2
 
     def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
-        # 1. Instantiate neurons & synapses & connect the source
-        n1_and = Neuron(
+        n1_and = LIF(
             self.shape_out,
-            neg_threshold=0,
+            threshold=1,
             leak_v=-1,
+            neg_threshold=0,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
             tick_wait_end=self.tick_wait_end,
@@ -119,14 +119,7 @@ class BitwiseAND(FunctionalModule2to1):
         )
 
         generated = [n1_and, syn1, syn2]
-
-        # 2. Connect the source of all backward synapses to output neuron.
-        for syn in self.module_intf.output:
-            syn.source = n1_and
-
-        # 3. Add the components to the network & remove the module itself.
-        network._add_components(*generated)
-        network._remove_components(self)
+        self._rebuild_out_intf(network, n1_and, *generated, **build_options)
 
         return generated
 
@@ -138,7 +131,7 @@ class BitwiseNOT(FunctionalModule):
         self,
         neuron: Union[NeuDyn, InputProj],
         *,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -169,8 +162,8 @@ class BitwiseNOT(FunctionalModule):
         n1_not = LIF(
             self.shape_out,
             threshold=1,
-            neg_threshold=0,
             leak_v=1,
+            neg_threshold=0,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
             tick_wait_end=self.tick_wait_end,
@@ -187,12 +180,7 @@ class BitwiseNOT(FunctionalModule):
         )
 
         generated = [n1_not, syn1]
-
-        for syns in self.module_intf.output:
-            syns.source = n1_not
-
-        network._add_components(*generated)
-        network._remove_components(self)
+        self._rebuild_out_intf(network, n1_not, *generated, **build_options)
 
         return generated
 
@@ -205,7 +193,7 @@ class BitwiseOR(FunctionalModule2to1):
         neuron_a: Union[NeuDyn, InputProj],
         neuron_b: Union[NeuDyn, InputProj],
         *,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -248,12 +236,7 @@ class BitwiseOR(FunctionalModule2to1):
         )
 
         generated = [n1_or, syn1, syn2]
-
-        for syns in self.module_intf.output:
-            syns.source = n1_or
-
-        network._add_components(*generated)
-        network._remove_components(self)
+        self._rebuild_out_intf(network, n1_or, *generated, **build_options)
 
         return generated
 
@@ -266,7 +249,7 @@ class BitwiseXOR(FunctionalModule2to1):
         neuron_a: Union[NeuDyn, InputProj],
         neuron_b: Union[NeuDyn, InputProj],
         *,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -335,12 +318,7 @@ class BitwiseXOR(FunctionalModule2to1):
         )
 
         generated = [n1_aux, n2_xor, syn1, syn2, syn3]
-
-        for syns in self.module_intf.output:
-            syns.source = n2_xor
-
-        network._add_components(*generated)
-        network._remove_components(self)
+        self._rebuild_out_intf(network, n2_xor, *generated, **build_options)
 
         return generated
 
@@ -351,7 +329,7 @@ class DelayChain(FunctionalModule):
         neuron: Union[NeuDyn, InputProj],
         chain_level: int = 1,
         *,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -432,12 +410,7 @@ class DelayChain(FunctionalModule):
             s_delaychain.append(s_delay)
 
         generated = [*n_delaychain, syn_in, *s_delaychain]
-
-        for syns in self.module_intf.output:
-            syns.source = n_out
-
-        network._add_components(*generated)
-        network._remove_components(self)
+        self._rebuild_out_intf(network, n_out, *generated, **build_options)
 
         return generated
 
@@ -508,12 +481,7 @@ class SpikingAdd(FunctionalModule2to1WithV):
         )
 
         generated = [n1_sadd, syn1, syn2]
-
-        for syns in self.module_intf.output:
-            syns.source = n1_sadd
-
-        network._add_components(*generated)
-        network._remove_components(self)
+        self._rebuild_out_intf(network, n1_sadd, *generated, **build_options)
 
         return generated
 
@@ -591,12 +559,7 @@ class _SpikingPool2dWithV(FunctionalModuleWithV):
         )
 
         generated = [n1_ap2d, syn1]
-
-        for syns in self.module_intf.output:
-            syns.source = n1_ap2d
-
-        network._add_components(*generated)
-        network._remove_components(self)
+        self._rebuild_out_intf(network, n1_ap2d, *generated, **build_options)
 
         return generated
 
@@ -684,12 +647,13 @@ class _SpikingPool2d(FunctionalModule):
         )
 
         generated = [n1_p2d, syn1]
+        self._rebuild_out_intf(network, n1_p2d, *generated, **build_options)
 
-        for syns in self.module_intf.output:
-            syns.source = n1_p2d
+        # for syns in self.module_intf.output:
+        #     syns.source = n1_p2d
 
-        network._add_components(*generated)
-        network._remove_components(self)
+        # network._add_components(*generated)
+        # network._remove_components(self)
 
         return generated
 
@@ -860,12 +824,7 @@ class SpikingSub(FunctionalModule2to1WithV):
         )
 
         generated = [n1_ssub, syn1, syn2]
-
-        for syns in self.module_intf.output:
-            syns.source = n1_ssub
-
-        network._add_components(*generated)
-        network._remove_components(self)
+        self._rebuild_out_intf(network, n1_ssub, *generated, **build_options)
 
         return generated
 
@@ -923,12 +882,7 @@ class Transpose2d(TransposeModule):
         )
 
         generated = [n1_t2d, syn1]
-
-        for syns in self.module_intf.output:
-            syns.source = n1_t2d
-
-        network._add_components(*generated)
-        network._remove_components(self)
+        self._rebuild_out_intf(network, n1_t2d, *generated, **build_options)
 
         return generated
 
@@ -991,12 +945,7 @@ class Transpose3d(TransposeModule):
         )
 
         generated = [n1_t3d, syn1]
-
-        for syns in self.module_intf.output:
-            syns.source = n1_t3d
-
-        network._add_components(*generated)
-        network._remove_components(self)
+        self._rebuild_out_intf(network, n1_t3d, *generated, **build_options)
 
         return generated
 

@@ -173,7 +173,12 @@ class PAIGraph:
         ):
             # succ_dg will be updated in _copy_node, so use the copy of succ_dg.
             for succ_nn in self.succ_dg[node_nn].copy():
-                if self.degree_of_nodes[succ_nn].in_degree > 1:
+                # Checking the out-degree of node_nn every time is necessary.
+                # The out-degree of node_nn will be changed after coping.
+                if (
+                    self.degree_of_nodes[succ_nn].in_degree > 1
+                    and self.degree_of_nodes[node_nn].out_degree > 1
+                ):
                     node = self._raw_nodes[node_nn]
                     self._copy_node(
                         node, keep_pred_conn=True, grab_succ_nodes=succ_nn, update=False
@@ -206,78 +211,78 @@ class PAIGraph:
         if not self.has_built:
             raise GraphBuildError(f"the graph hasn't been built yet.")
 
-    def group_edges(self) -> tuple[list[frozenset[EdgeType]], list[int]]:
-        """Group all edges according to a certain rule.
+    def graph_partition(self) -> list[PartitionedEdges]:
+        """Partition the graph. According to specific rules, the nodes in the graph are divided,    \
+            and the edges connected to these partitioned nodes will be returned as a set.
 
-        Return: a list of set of grouped edges and a list of routing groups id.
+        Return: a list of partitioned edges & a list of routing groups id.
         """
         self.build_check()
 
+        gh_parts: list[PartitionedEdges] = []
         rgid = 0  # routing group id
-        routing_groups_id: list[int] = []
-        gathered: list[frozenset[EdgeType]] = []
-        seen_edges: set[EdgeType] = set()  # Check if all edges are traversed
+        seen_nodes: set[NodeName] = set()
 
         for node in self.ordered_nodes:
-            """Process the predecessor nodes of nodes first, then process the successor nodes."""
-            if self.degree_of_nodes[node].in_degree > 1:
-                edge_group = set(
-                    [pred_nodes.edge for pred_nodes in self.pred_dg[node].values()]
-                )
-                # Get the edges traversed for the first time
-                comming_edges = edge_group.difference(seen_edges)
-
-                seen_edges.update(comming_edges)
-                routing_groups_id.append(rgid)
-                rgid += 1
-                gathered.append(frozenset(comming_edges))
-
-            if self.degree_of_nodes[node].out_degree > 1:
-                """Consider the constraints to the nodes."""
-                succ_edges = [e.edge for e in self.succ_dg[node].values()]
-                succ_nodes = [self.nodes[n].node for n in self.succ_dg[node]]
-
-                # Get the subgroup of indices, like [[0, 1], [2], [3, 4]]
-                idx_of_sg = GraphNodeConstrs.tick_wait_attr_constr(succ_nodes)
-
-                if len(idx_of_sg) > 0:
-                    for idx in idx_of_sg:
-                        succ_edges_sg = frozenset([succ_edges[i] for i in idx])
-                        if succ_edges_sg not in gathered:
-                            seen_edges.update(succ_edges_sg)
-                            routing_groups_id.append(rgid)
-                            gathered.append(succ_edges_sg)
-                        else:
-                            # FIXME Will this happen?
-                            raise NotSupportedError
-                else:
-                    succ_edges_sg = frozenset(succ_edges)
-                    if succ_edges_sg not in gathered:
-                        seen_edges.update(succ_edges_sg)
-                        routing_groups_id.append(rgid)
-                        gathered.append(succ_edges_sg)
-                    else:
-                        # FIXME Will this happen?
-                        raise NotSupportedError
-
-                rgid += 1
-
-            elif self.degree_of_nodes[node].out_degree == 1:
-                succ_node = list(self.succ_dg[node].keys())[0]
-                # Check the in-degree of the only following node.
-                if self.degree_of_nodes[succ_node].in_degree == 1:
-                    gathered.append(frozenset({self.succ_dg[node][succ_node].edge}))
-                    routing_groups_id.append(rgid)
-                    rgid += 1
-                else:
-                    # This edge is waiting to be processed when
-                    # traversing the following node `succ_node`.
-                    pass
-            else:
-                # out-degree = 0, do nothing.
+            if node in seen_nodes:
                 continue
 
-        return gathered, routing_groups_id
+            if self.degree_of_nodes[node].out_degree == 0:
+                seen_nodes.add(node)
+                continue
+
+            succ_nodes: set[NodeName] = set()
+            # Other source nodes involved
+            other_involved_nodes: set[NodeName] = set()
+            # Successor candidate nodes
+            succ_nodes_candid: set[NodeName] = set(self.succ_dg[node].keys())
+            # Partitioned nodes
+            partitioned_nodes = set([node])
+
+            while len(succ_nodes_candid) > 0:
+                succ_nodes.update(succ_nodes_candid)
+
+                for candid in succ_nodes_candid:
+                    if self.degree_of_nodes[candid].in_degree > 1:
+                        coming_nodes = set(self.pred_dg[candid].keys()) - seen_nodes
+                        other_involved_nodes |= coming_nodes
+
+                other_involved_nodes -= partitioned_nodes
+                partitioned_nodes |= other_involved_nodes
+                succ_nodes_candid.clear()
+
+                for other_node in other_involved_nodes:
+                    other_candid = set(self.succ_dg[other_node].keys()) - succ_nodes
+                    succ_nodes_candid |= other_candid
+
+            seen_nodes |= partitioned_nodes
+
+            succ_edges_set: set[EdgeType] = set()
+            succ_nodes_set: set[NodeType] = set()
+
+            for _node in partitioned_nodes:
+                succ_edges_set.update(e.edge for e in self.succ_dg[_node].values())
+                succ_nodes_set.update(self._raw_nodes[n] for n in self.succ_dg[_node])
+
+            succ_nodes_lst: list[NodeType] = list(succ_nodes_set)
+            idx_of_sg = GraphNodeConstrs.tick_wait_attr_constr(succ_nodes_lst)
+
+            if len(idx_of_sg) > 0:
+                for idx in idx_of_sg:
+                    succ_edges_sg: set[EdgeType] = set()
+                    for i in idx:
+                        succ_edges_sg.update(
+                            e.edge
+                            for e in self.pred_dg[succ_nodes_lst[i].name].values()
+                        )
+                    gh_parts.append(PartitionedEdges(succ_edges_sg, rgid))
+
+            else:
+                gh_parts.append(PartitionedEdges(succ_edges_set, rgid))
+
+            rgid += 1
+
+        return gh_parts
 
     def multicast_optim(
         self,
@@ -292,6 +297,7 @@ class PAIGraph:
         ONLY_SUPPORT_N_SUCC = 2
 
         def _roundup_to_pow2(n: int) -> int:
+            assert n > 0
             return 1 if n < 1 else 2 ** math.ceil(math.log(n, 2))
 
         is_optimized = False
@@ -521,7 +527,7 @@ class PAIGraph:
         core_block: CoreBlock, routing_groups: list[RoutingGroup]
     ) -> RoutingGroup:
         """Find which routing group the target core block is in."""
-        _rgs = [rg for rg in routing_groups if core_block in rg.core_blocks]
+        _rgs = [rg for rg in routing_groups if core_block in rg]
 
         if len(_rgs) != 1:
             raise GraphConnectionError(
@@ -878,8 +884,8 @@ def get_pred_cb_by_node(
 
 
 def get_pred_dg_by_succ_dg(
-    succ_dg: dict[NodeName, dict[NodeName, EdgeAttr]]
-) -> dict[NodeName, dict[NodeName, EdgeAttr]]:
+    succ_dg: dict[NodeName, dict[NodeName, _T]]
+) -> dict[NodeName, dict[NodeName, _T]]:
     return reverse_edges2(succ_dg)
 
 
