@@ -141,19 +141,6 @@ class RoutingCluster:
 
         return child
 
-    def get_routing_coord(self) -> RoutingCoord:
-        current_cluster = self
-        path = [self.d]
-        while current_cluster.parent is not None:
-            path.insert(0, current_cluster.parent.d)
-            current_cluster = current_cluster.parent
-        path = path[1:]
-        for i in range(current_cluster.level, Level.L5):
-            path.insert(0, Direction.X0Y0)
-        for i in range(self.level):
-            path.append(Direction.ANY)
-        return RoutingCoord(*path)
-
     def find_cluster_by_path(
         self, path: Sequence[Direction]
     ) -> Optional["RoutingCluster"]:
@@ -276,14 +263,19 @@ class RoutingCluster:
                 return self.add_child(subtree[Direction.X0Y0], check_hit_online)
 
             elif sub_n_child == 2:
-                n_cur_child = len(self.children)
-                n_cur_child += n_cur_child % 2
+                # len(self.children) == 0, place in [0,1]
+                # len(self.children) == 1, place in [2,3]
+                if len(self.children) == 0:
+                    _place_idx = (0, 1)
+                else:  # 2 & 3
+                    _place_idx = (2, 3)
+
                 hit_online = False
 
                 for i in range(sub_n_child):
                     success = self.add_child_to(
                         subtree[DIREC_IDX[i]],
-                        DIREC_IDX[n_cur_child + i],
+                        DIREC_IDX[_place_idx[i]],
                         check_hit_online,
                     )
                     hit_online |= not success
@@ -292,7 +284,7 @@ class RoutingCluster:
                     # If any of the subtrees fail to insert, the inserted subtrees are removed.
                     for i in range(sub_n_child):
                         removed = self.remove_child(
-                            DIREC_IDX[n_cur_child + i], DIREC_IDX[i], strict=False
+                            DIREC_IDX[_place_idx[i]], DIREC_IDX[i], strict=False
                         )
                         subtree[DIREC_IDX[i]].parent = subtree
 
@@ -445,6 +437,25 @@ class RoutingCluster:
     @property
     def node_capacity(self) -> int:
         return HwConfig.N_SUB_ROUTING_NODE if self.level > Level.L0 else 0
+
+    @property
+    def routing_coord(self) -> RoutingCoord:
+        cur_cluster = self
+        path = [self.d]
+
+        while cur_cluster.parent is not None:
+            path.append(cur_cluster.parent.d)
+            cur_cluster = cur_cluster.parent
+
+        path = path[:-1]
+
+        for _ in range(cur_cluster.level, Level.L5):
+            path.append(Direction.X0Y0)
+
+        for _ in range(self.level):
+            path.insert(0, Direction.ANY)
+
+        return RoutingCoord(*reversed(path))
 
 
 class RoutingGroup(UserList[CoreBlock]):
