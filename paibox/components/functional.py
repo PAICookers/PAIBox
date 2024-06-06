@@ -63,7 +63,7 @@ class BitwiseAND(FunctionalModule2to1):
         neuron_a: Union[NeuDyn, InputProj],
         neuron_b: Union[NeuDyn, InputProj],
         *,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -131,7 +131,7 @@ class BitwiseNOT(FunctionalModule):
         self,
         neuron: Union[NeuDyn, InputProj],
         *,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -193,7 +193,7 @@ class BitwiseOR(FunctionalModule2to1):
         neuron_a: Union[NeuDyn, InputProj],
         neuron_b: Union[NeuDyn, InputProj],
         *,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -249,7 +249,7 @@ class BitwiseXOR(FunctionalModule2to1):
         neuron_a: Union[NeuDyn, InputProj],
         neuron_b: Union[NeuDyn, InputProj],
         *,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -329,7 +329,7 @@ class DelayChain(FunctionalModule):
         neuron: Union[NeuDyn, InputProj],
         chain_level: int = 1,
         *,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
