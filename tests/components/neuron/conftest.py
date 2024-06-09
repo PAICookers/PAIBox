@@ -27,20 +27,13 @@ class Net2(pb.Network):
         super().__init__()
         self.inp1 = pb.InputProj(1, shape_out=(2, 2))
         self.n1 = pb.LIF((2, 2), 600, reset_v=1, leak_v=-1)
-        self.s1 = pb.FullConn(
-            self.inp1, self.n1, weights=127, conn_type=pb.SynConnType.All2All
-        )
-        self.s2 = pb.FullConn(
-            self.inp1, self.n1, weights=127, conn_type=pb.SynConnType.All2All
-        )
-        self.s3 = pb.FullConn(
-            self.inp1, self.n1, weights=127, conn_type=pb.SynConnType.All2All
-        )
+        self.s1 = pb.FullConn(self.inp1, self.n1, weights=127)
+        self.s2 = pb.FullConn(self.inp1, self.n1, weights=127)
+        self.s3 = pb.FullConn(self.inp1, self.n1, weights=127)
 
-        self.probe1 = pb.Probe(self.inp1, "output")
-        self.probe2 = pb.Probe(self.s1, "output")
-        self.probe3 = pb.Probe(self.n1, "output")
-        self.probe4 = pb.Probe(self.n1, "voltage")
+        self.probe1 = pb.Probe(self.s1, "output")
+        self.probe2 = pb.Probe(self.n1, "spike")
+        self.probe3 = pb.Probe(self.n1, "voltage")
 
 
 class Net3(pb.Network):

@@ -7,9 +7,8 @@ from paicorelib import LCM, LDM, LIM, NTM, RM, SIM, TM, NeuronAttrs
 
 import paibox as pb
 from paibox.components import Neuron
+from paibox.components.neuron.utils import VJT_MAX_LIMIT, VJT_MIN_LIMIT
 from paibox.utils import as_shape, shape2num
-
-from .conftest import Net_Test_Neuron_Behavior
 
 
 def test_NeuronParams_instance(ensure_dump_dir):
@@ -199,13 +198,14 @@ class TestNeuronBehavior:
         "incoming_v, expected_v, expected_spike",
         [
             (
-                np.array([2**30], dtype=np.int32),
-                np.array([2**30 - 2**30], dtype=np.int32),
+                np.array([VJT_MAX_LIMIT + 1], dtype=np.int32),
+                np.array([VJT_MIN_LIMIT + 1], dtype=np.int32),
+                # Exceeded the positive threshold but no spike
                 np.array([False], dtype=np.bool_),
             ),
             (
-                np.array([-(2**31)], dtype=np.int32),
-                np.array([0]),  # Reset
+                np.array([VJT_MIN_LIMIT - 1], dtype=np.int32),
+                np.array([VJT_MAX_LIMIT - 1], dtype=np.int32),
                 # Exceeded the negative threshold but no spike
                 np.array([False], dtype=np.bool_),
             ),
@@ -214,14 +214,13 @@ class TestNeuronBehavior:
     )
     def test_vjt_overflow(self, incoming_v, expected_v, expected_spike):
         pb.FRONTEND_ENV["t"] = 0
-        reset_v = 0
-        neg_thres = -(1 << 29)
-        pos_thres = 1 << 29
+        neg_thres = VJT_MIN_LIMIT
+        pos_thres = VJT_MAX_LIMIT
 
         n1 = Neuron(
             1,
             RM.MODE_NORMAL,
-            reset_v,
+            0,
             self.lc,
             self.mask,
             NTM.MODE_RESET,
@@ -305,8 +304,6 @@ def test_neuron_copy():
 class TestNeuron:
     def test_IF_hard_reset(self):
         n1 = pb.IF(1, 5, 2)
-        net = Net_Test_Neuron_Behavior(n1)
-        sim = pb.Simulator(net)
 
         inp_data = np.array([2, -1, 3, 5, 1, 2, 4, -2], dtype=np.int8)
         expected_spike = np.array(
@@ -317,16 +314,14 @@ class TestNeuron:
         )
 
         for i in range(inp_data.size):
-            net.inp1.input = inp_data[i]
-            sim.run(1)
+            pb.FRONTEND_ENV["t"] += 1
+            n1.update(inp_data[i])
 
-        assert np.array_equal(sim.data[net.pb_n_spike], expected_spike)
-        assert np.array_equal(sim.data[net.pb_n_volage], expected_vol)
+            assert np.array_equal(n1.spike, expected_spike[i])
+            assert np.array_equal(n1.voltage, expected_vol[i])
 
     def test_IF_soft_reset(self):
         n1 = pb.IF(1, 5, None)
-        net = Net_Test_Neuron_Behavior(n1)
-        sim = pb.Simulator(net)
 
         inp_data = np.array([2, -1, 3, 5, 1, 2, 4, -2], dtype=np.int8)
         expected_spike = np.array(
@@ -337,17 +332,15 @@ class TestNeuron:
         )
 
         for i in range(inp_data.size):
-            net.inp1.input = inp_data[i]
-            sim.run(1)
+            pb.FRONTEND_ENV["t"] += 1
+            n1.update(inp_data[i])
 
-        assert np.array_equal(sim.data[net.pb_n_spike], expected_spike)
-        assert np.array_equal(sim.data[net.pb_n_volage], expected_vol)
+            assert np.array_equal(n1.spike, expected_spike[i])
+            assert np.array_equal(n1.voltage, expected_vol[i])
 
     def test_LIF_hard_reset(self):
         # hard reset + leak before comparison
         n1 = pb.LIF(shape=1, threshold=5, reset_v=2, leak_v=-1)
-        net = Net_Test_Neuron_Behavior(n1)
-        sim = pb.Simulator(net)
 
         inp_data = np.array([2, -1, 3, 5, 1, 2, 4, -2], dtype=np.int8)
         expected_spike = np.array(
@@ -358,16 +351,14 @@ class TestNeuron:
         )
 
         for i in range(inp_data.size):
-            net.inp1.input = inp_data[i]
-            sim.run(1)
+            pb.FRONTEND_ENV["t"] += 1
+            n1.update(inp_data[i])
 
-        assert np.array_equal(sim.data[net.pb_n_spike], expected_spike)
-        assert np.array_equal(sim.data[net.pb_n_volage], expected_vol)
+            assert np.array_equal(n1.spike, expected_spike[i])
+            assert np.array_equal(n1.voltage, expected_vol[i])
 
     def test_LIF_soft_reset(self):
         n1 = pb.LIF(1, 5, reset_v=None, leak_v=-1)
-        net = Net_Test_Neuron_Behavior(n1)
-        sim = pb.Simulator(net)
 
         inp_data = np.array([2, -1, 3, 5, 1, 2, 4, -2], dtype=np.int8)
         expected_spike = np.array(
@@ -378,17 +369,15 @@ class TestNeuron:
         )
 
         for i in range(inp_data.size):
-            net.inp1.input = inp_data[i]
-            sim.run(1)
+            pb.FRONTEND_ENV["t"] += 1
+            n1.update(inp_data[i])
 
-        assert np.array_equal(sim.data[net.pb_n_spike], expected_spike)
-        assert np.array_equal(sim.data[net.pb_n_volage], expected_vol)
+            assert np.array_equal(n1.spike, expected_spike[i])
+            assert np.array_equal(n1.voltage, expected_vol[i])
 
     def test_LIF_with_bias(self):
         # Hard reset, bias. leak_v is ignored.
         n1 = pb.LIF(shape=1, threshold=6, reset_v=1, leak_v=10, bias=2)
-        net = Net_Test_Neuron_Behavior(n1)
-        sim = pb.Simulator(net)
         assert n1.leak_v == n1.bias == 2
 
         inp_data = np.array([1, 1, 0, 1, 0, 1], dtype=np.bool_)
@@ -396,16 +385,14 @@ class TestNeuron:
         expected_vol = np.array([[3], [1], [3], [1], [3], [1]], dtype=np.int32)
 
         for i in range(inp_data.size):
-            net.inp1.input = inp_data[i]
-            sim.run(1)
+            pb.FRONTEND_ENV["t"] += 1
+            n1.update(inp_data[i])
 
-        assert np.array_equal(sim.data[net.pb_n_spike], expected_spike)
-        assert np.array_equal(sim.data[net.pb_n_volage], expected_vol)
+            assert np.array_equal(n1.spike, expected_spike[i])
+            assert np.array_equal(n1.voltage, expected_vol[i])
 
     def test_TonicSpiking(self):
         n1 = pb.TonicSpiking(1, fire_step=3)
-        net = Net_Test_Neuron_Behavior(n1)
-        sim = pb.Simulator(net)
 
         inp_data = np.array([1, 1, 1, 1, 0, 1, 0, 1, 0, 1], dtype=np.bool_)
         expected_spike = np.array(
@@ -416,16 +403,14 @@ class TestNeuron:
         )
 
         for i in range(inp_data.size):
-            net.inp1.input = inp_data[i]
-            sim.run(1)
+            pb.FRONTEND_ENV["t"] += 1
+            n1.update(inp_data[i])
 
-        assert np.array_equal(sim.data[net.pb_n_spike], expected_spike)
-        assert np.array_equal(sim.data[net.pb_n_volage], expected_vol)
+            assert np.array_equal(n1.spike, expected_spike[i])
+            assert np.array_equal(n1.voltage, expected_vol[i])
 
     def test_PhasicSpiking(self):
         n1 = pb.PhasicSpiking(1, fire_step=3, neg_floor=-2)
-        net = Net_Test_Neuron_Behavior(n1)
-        sim = pb.Simulator(net)
 
         inp_data = np.array([1, 1, 1, 1, 0, 1, 0, 1, 0, 1], dtype=np.bool_)
         expected_spike = np.array(
@@ -436,34 +421,32 @@ class TestNeuron:
         )
 
         for i in range(inp_data.size):
-            net.inp1.input = inp_data[i]
-            sim.run(1)
+            pb.FRONTEND_ENV["t"] += 1
+            n1.update(inp_data[i])
 
-        assert np.array_equal(sim.data[net.pb_n_spike], expected_spike)
-        assert np.array_equal(sim.data[net.pb_n_volage], expected_vol)
+            assert np.array_equal(n1.spike, expected_spike[i])
+            assert np.array_equal(n1.voltage, expected_vol[i])
 
     def test_SpikingRelu(self):
         n1 = pb.SpikingRelu(1)
-        net = Net_Test_Neuron_Behavior(n1)
-        sim = pb.Simulator(net)
 
         inp_data = np.random.randint(0, 2, size=(20, 1), dtype=np.bool_)
 
-        for t in range(inp_data.size):
-            net.inp1.input = inp_data[t]
-            sim.run(1)
+        for i in range(inp_data.size):
+            pb.FRONTEND_ENV["t"] += 1
+            n1.update(inp_data[i])
 
-        for t in range(20):
-            assert np.array_equal(sim.data[net.pb_n_spike][t], inp_data[t])
+            assert np.array_equal(n1.spike, inp_data[i])
 
     def test_sum_inputs_behavior(self, build_Net2):
         net = build_Net2
         sim = pb.Simulator(net)
 
-        sim.run(10)
+        _always_spike = np.full((net.n1.num_out,), 1, dtype=np.bool_)
 
-        print(sim.data[net.probe1])
-        print(sim.data[net.probe2])
+        for i in range(10):
+            sim.run(1)
+            assert np.array_equal(sim.data[net.probe2][i], _always_spike)
 
     def test_tick_attr_behavior(self, monkeypatch, build_Net3):
         net = build_Net3
@@ -506,59 +489,27 @@ class TestNeuron:
         reason="'Always1Neuron' is not exported to paibox.",
     )
     def test_Always1Neuron_behavior(self) -> None:
-        class Net(pb.Network):
-            def __init__(self):
-                super().__init__()
-                self.inp1 = pb.InputProj(input=None, shape_out=(1,))
-                self.n1 = pb.Always1Neuron(shape=(1,), tick_wait_start=1)
-                self.s1 = pb.FullConn(
-                    self.inp1, self.n1, weights=0, conn_type=pb.SynConnType.One2One
-                )
+        n1 = pb.Always1Neuron((1,))  # type: ignore
 
-                self.probe1 = pb.Probe(self.n1, "spike")
+        for i in range(10):
+            pb.FRONTEND_ENV["t"] += 1
+            n1.update()
 
-        net = Net()
-        sim = pb.Simulator(net)
-
-        for i in range(20):
-            net.inp1.input = np.random.randint(0, 2, size=(1,), dtype=np.bool_)
-            sim.run(1)
-
-        assert np.array_equal(
-            sim.data[net.probe1], 20 * [np.ones((1,), dtype=np.bool_)]
-        )
+            assert np.array_equal(n1.spike, np.ones((1,), dtype=np.bool_))
 
     @pytest.mark.parametrize("n_window", [4, 6, 8, 9, 12, 16, 25, 32, 36, 49])
     def test_AvgPool_Neuron(self, n_window):
-        """
-        NOTE: This neuron is used in `functional.SpikingAvgPool2d` & its basic functions need   \
-            to be verified here.
-        """
+        # This neuron is used in `functional.SpikingAvgPool2d`.
         from paibox.utils import typical_round
 
-        class Net(pb.Network):
-            def __init__(self):
-                super().__init__()
-                self.inp1 = pb.InputProj(input=None, shape_out=(n_window,))
-
-                self.n1 = Neuron(
-                    shape=(1,),
-                    leak_v=1 - typical_round(n_window / 2),
-                    neg_threshold=0,
-                    tick_wait_start=1,
-                )
-                self.s1 = pb.FullConn(self.inp1, self.n1)
-                self.probe1 = pb.Probe(self.n1, "spike")
-
-        net = Net()
-        sim = pb.Simulator(net)
+        n1 = Neuron(shape=(1,), leak_v=1 - typical_round(n_window / 2), neg_threshold=0)
 
         # Generate upper triangular matrix where the number of 1's increases in sequence.
-        inp = np.tril(np.ones((1 + n_window, n_window), dtype=np.bool_))
+        inp_data = np.tril(np.ones((1 + n_window, n_window), dtype=np.bool_))
 
-        for t in range(1 + n_window):
-            net.inp1.input = inp[t]
-            sim.run(1)
+        for i in range(1 + n_window):
+            pb.FRONTEND_ENV["t"] += 1
+            n1.update(np.sum(inp_data[i]))
 
-            expected = (t + 1) >= typical_round(n_window / 2)
-            assert sim.data[net.probe1][t][0] == expected
+            expected = (i + 1) >= typical_round(n_window / 2)
+            assert np.array_equal(n1.spike[0], expected)
