@@ -15,7 +15,7 @@ from .conftest import Net_Test_Neuron_Behavior
 def test_NeuronParams_instance(ensure_dump_dir):
     n1 = pb.LIF((100,), 3, reset_v=-20, leak_v=-2)
 
-    attrs = NeuronAttrs.model_validate(n1.export_params(), strict=True)
+    attrs = NeuronAttrs.model_validate(n1.__dict__, strict=True)
 
     attrs_dict = attrs.model_dump(by_alias=True)
 

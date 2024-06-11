@@ -198,7 +198,7 @@ class NeuronConfig(NamedTuple):
             - dest_core_coords: coordinates of the core of the destination axons.
             - dest_chip_coord: coordinate of the chip of the destination axons.
         """
-        attrs = NeuronAttrs.model_validate(neuron.export_params(), strict=True)
+        attrs = NeuronAttrs.model_validate(neuron.__dict__, strict=True)
         dest_rid = get_replication_id(dest_core_coords)
 
         dest_info = NeuronDest(

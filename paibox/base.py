@@ -281,18 +281,6 @@ class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
         super().__init__(name)
         self.master_nodes = NodeDict()
 
-    def export_params(self) -> dict[str, Any]:
-        """Export the parameters into dictionary."""
-        params = {}
-
-        for k, v in self.__dict__.items():
-            if k in self._excluded_vars:
-                continue
-
-            params.update({k.removeprefix("_"): v})
-
-        return params
-
     def is_working(self) -> bool:
         return (self.tick_wait_start > 0 and self.timestamp >= 0) and (
             self.tick_wait_end == 0 or self.timestamp + 1 <= self.tick_wait_end
