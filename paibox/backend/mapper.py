@@ -291,17 +291,16 @@ class Mapper:
 
         # Calculate the consumption of required physical cores.
         n_avail_cores = HwConfig.N_CORE_OFFLINE * _BACKEND_CONTEXT.n_target_chips
-        if (
-            n_core_required := sum(cb.n_core_required for cb in self.core_blocks)
-        ) > n_avail_cores:
+        n_core_required = sum(cb.n_core_required for cb in self.core_blocks)
+
+        if core_estimate_only:
+            self.n_core_required = n_core_required
+            return None
+
+        elif n_core_required > n_avail_cores:
             raise ResourceError(
                 OUT_OF_CORE_RESOURCE_TEXT.format(n_avail_cores, n_core_required)
             )
-
-        self.n_core_required = n_core_required
-
-        if core_estimate_only:
-            return None
 
         # Generate routing groups by given the list of core blocks.
         for rg in self.routing_groups:
