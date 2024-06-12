@@ -4,16 +4,11 @@ from paicorelib import LDM, NTM, RM
 
 from paibox.types import Shape
 
-from .base import NEG_THRES_MIN, Neuron
+from .base import Neuron
+from .utils import LEAK_V_MAX, NEG_THRES_MIN
 
-try:
-    from paicorelib.ram_model import LEAK_V_BIT_MAX
-except:
-    LEAK_V_BIT_MAX = 30  # 1 + 29
 
 __all__ = ["IF", "LIF", "TonicSpiking", "PhasicSpiking", "SpikingRelu"]
-
-LEAK_V_MAX = 1 << (LEAK_V_BIT_MAX - 1) - 1
 
 
 class IF(Neuron):

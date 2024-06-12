@@ -18,12 +18,16 @@ from paicorelib import (
     ChipCoord,
     Coord,
     CoreMode,
-    CoreModeDict,
     HwConfig,
     HwCore,
     MaxPoolingEnable,
 )
 from paicorelib import WeightPrecision as WP
+
+from paicorelib import __version__ as __plib_version__
+
+if __plib_version__ <= "1.1.4":
+    from paicorelib import CoreModeDict
 
 from paibox.base import NeuDyn, PAIBoxObject
 from paibox.components import FullConnectedSyn
@@ -562,7 +566,11 @@ class CorePlacement(CoreAbstract):
         return w_folded
 
     def export_param_config(self) -> CoreConfig:
-        _mode_params = CoreModeDict[self.mode]
+        if __plib_version__ > "1.1.4":
+            _mode_params = self.mode.conf
+        else:
+            _mode_params = CoreModeDict[self.mode]
+
         # fmt: off
         cb_config = CoreConfig(
             self.name,                          # name of the core
@@ -747,7 +755,11 @@ class EmptyCorePlacement(CoreAbstract):
         self.coord = coord
 
     def export_param_config(self) -> CoreConfig:
-        _mode_params = CoreModeDict[CoreMode.MODE_SNN]
+        if __plib_version__ > "1.1.4":
+            _mode_params = CoreMode.MODE_SNN.conf
+        else:
+            _mode_params = CoreModeDict[CoreMode.MODE_SNN]
+
         # fmt: off
         cb_config = CoreConfig(
             self.name,                          # name of the core
