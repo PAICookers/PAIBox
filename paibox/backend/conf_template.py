@@ -1,3 +1,4 @@
+import sys
 from enum import Enum
 from pathlib import Path
 from typing import Any, ClassVar, NamedTuple, TypedDict
@@ -16,26 +17,33 @@ from paicorelib import (
     NeuronAttrs,
     NeuronDestInfo,
     ParamsReg,
-)
-from paicorelib import ReplicationId as RId
-from paicorelib import (
     SNNModeEnable,
     SpikeWidthFormat,
     WeightPrecision,
     get_replication_id,
 )
-from paicorelib.framelib import types
+from paicorelib import ReplicationId as RId
+from paicorelib.framelib import types as flib_types
 from paicorelib.framelib.frame_gen import OfflineFrameGen
 from paicorelib.framelib.utils import np2bin, np2npy, np2txt
-from typing_extensions import NotRequired, TypeAlias
+
+if sys.version_info >= (3, 10):
+    from typing import TypeAlias
+else:
+    from typing_extensions import TypeAlias
+
+if sys.version_info >= (3, 11):
+    from typing import NotRequired
+else:
+    from typing_extensions import NotRequired
 
 from paibox.base import NeuDyn
 
 from .context import _BACKEND_CONTEXT
-from .graphs_types import NodeName
+from .types import NodeName
 
 try:
-    import orjson  # type: ignore
+    import orjson
 
     _use_orjson = True
 
@@ -45,7 +53,7 @@ try:
         elif isinstance(o, NeuronDestInfo):
             return o.model_dump(by_alias=True)
 
-        raise TypeError
+        raise TypeError(f"type {type(o)} not defined in custom Json encoder.")
 
 except ModuleNotFoundError:
     import json
@@ -67,13 +75,13 @@ except ModuleNotFoundError:
 
 
 # Prevent import errors caused by changes in type definitions in paicorelib.
-if hasattr(types, "FRAME_DTYPE"):
-    FRAME_DTYPE = types.FRAME_DTYPE
+if hasattr(flib_types, "FRAME_DTYPE"):
+    FRAME_DTYPE = flib_types.FRAME_DTYPE
 else:
     FRAME_DTYPE = np.uint64
 
-if hasattr(types, "FrameArrayType"):
-    FrameArrayType = types.FrameArrayType
+if hasattr(flib_types, "FrameArrayType"):
+    FrameArrayType = flib_types.FrameArrayType
 else:
     FrameArrayType = NDArray[FRAME_DTYPE]
 

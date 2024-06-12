@@ -1,6 +1,9 @@
 import sys
+
+import numpy as np
 from dataclasses import dataclass
 from enum import Enum, auto, unique
+from numpy.typing import NDArray
 from typing import NamedTuple, Union
 
 if sys.version_info >= (3, 10):
@@ -32,6 +35,9 @@ EdgeType: TypeAlias = FullConnectedSyn
 SourceNodeType: TypeAlias = NodeType
 DestNodeType: TypeAlias = NeuDyn
 
+WeightRamType: TypeAlias = NDArray[np.uint64]  # uint64 weights mapped in weight RAM
+_COORD_UNSET = 0
+
 
 @unique
 class NodePosition(Enum):
@@ -42,7 +48,7 @@ class NodePosition(Enum):
     OUTPUT = auto()
 
 
-_DEGREE_UNSET = -1  # XXX: or 0?
+_DEGREE_UNSET = -1
 
 
 @dataclass

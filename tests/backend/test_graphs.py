@@ -7,7 +7,7 @@ from paicorelib import HwConfig
 
 import paibox as pb
 from paibox.backend.graphs import get_node_degrees, get_pred_dg_by_succ_dg, toposort
-from paibox.backend.graphs_types import *
+from paibox.backend.types import *
 from paibox.components import Neuron
 from paibox.exceptions import GraphBuildError, GraphConnectionError, NotSupportedError
 

@@ -15,7 +15,7 @@ from paicorelib import AxonCoord, AxonSegment, NeuronSegment
 from paibox.base import NeuDyn
 from paibox.exceptions import ParameterInvalidWarning, ResourceError
 
-from .graphs_types import DestNodeType, SourceNodeType
+from .types import DestNodeType, SourceNodeType
 
 
 class NeuSeg(NamedTuple):

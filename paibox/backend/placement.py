@@ -1,15 +1,8 @@
-import sys
 import warnings
 from functools import cached_property
 from typing import ClassVar, Literal, Optional, overload
 
 import numpy as np
-from numpy.typing import NDArray
-
-if sys.version_info >= (3, 10):
-    from typing import TypeAlias
-else:
-    from typing_extensions import TypeAlias
 
 from paicorelib import (
     LCN_EX,
@@ -37,7 +30,7 @@ from paibox.utils import check_attr_same, count_unique_elem
 
 from .conf_template import CoreConfig, CorePlmConfig, EmptyCorePlmConfig, NeuronConfig
 from .context import _BACKEND_CONTEXT
-from .graphs_types import DestNodeType, SourceNodeType
+from .types import DestNodeType, SourceNodeType, WeightRamType, _COORD_UNSET
 from .segment_utils import (
     NeuSeg,
     NeuSegOfCoreBlock,
@@ -46,9 +39,6 @@ from .segment_utils import (
     get_axon_segments,
     get_neu_segments,
 )
-
-WeightRamType: TypeAlias = NDArray[np.uint64]  # uint64 weights mapped in weight RAM
-_COORD_UNSET = 0
 
 
 class CoreAbstract(HwCore, PAIBoxObject):

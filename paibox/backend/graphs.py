@@ -15,7 +15,7 @@ from paibox.utils import check_elem_unique
 
 from .constrs import GraphNodeConstrs
 from .context import _BACKEND_CONTEXT
-from .graphs_types import *
+from .types import *
 from .placement import CoreBlock, neuron_repl_prop
 from .routing import RoutingGroup
 from .segment_utils import get_neu_segments

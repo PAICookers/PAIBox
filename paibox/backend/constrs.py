@@ -3,7 +3,7 @@ from collections import defaultdict
 from collections.abc import Sequence
 from typing import ClassVar
 
-from .graphs_types import NodeName, NodeType
+from .types import NodeName, NodeType
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias

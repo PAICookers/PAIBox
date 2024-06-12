@@ -29,7 +29,7 @@ from .graphs import (
     get_node_degrees,
     get_succ_cb_by_node,
 )
-from .graphs_types import NodeDegree, NodeType, SourceNodeType
+from .types import NodeDegree, NodeType, SourceNodeType
 from .placement import CoreBlock, aligned_coords, max_lcn_of_cb
 from .routing import RoutingGroup, RoutingRoot
 from .segment_utils import NeuSeg
