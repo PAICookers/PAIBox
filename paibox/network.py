@@ -3,7 +3,7 @@ from typing import Optional, Union
 import numpy as np
 from typing_extensions import TypeAlias
 
-from .base import DynamicSys, PAIBoxObject, SynSys
+from .base import DynamicSys, SynSys
 from .collector import Collector
 from .components import NeuModule, Neuron, Projection
 from .components.modules import BuiltComponentType
@@ -37,7 +37,7 @@ class DynSysGroup(DynamicSys, Container):
             It requires that the computing mechanism described inside modules can only be the computing process \
             from synapses (as inputs) to neurons (as outputs).
         """
-        nodes = self.components.subset(DynamicSys).unique()
+        nodes = self.components
 
         for node in nodes.subset(Projection).values():
             node(**kwargs)
@@ -52,7 +52,7 @@ class DynSysGroup(DynamicSys, Container):
             node()
 
     def reset_state(self) -> None:
-        nodes = self.components.subset(DynamicSys).unique()
+        nodes = self.components
 
         for node in nodes.subset(Projection).values():
             node.reset_state()
@@ -74,7 +74,7 @@ class DynSysGroup(DynamicSys, Container):
         cls, network: "DynSysGroup", **build_options
     ) -> dict[NeuModule, BuiltComponentType]:
         generated = dict()
-        modules = network.components.subset(NeuModule).unique()
+        modules = network.nodes().subset(NeuModule).unique()
 
         for module in modules.values():
             generated[module] = module.build(network, **build_options)
@@ -109,16 +109,9 @@ class DynSysGroup(DynamicSys, Container):
                 cpn.__gh_build_ignore__ = True
 
     @property
-    def components(self) -> Collector[str, PAIBoxObject]:
+    def components(self) -> Collector[str, DynamicSys]:
         """Recursively search for all components within the network."""
-        return self.nodes(include_self=False, find_recursive=True)
-
-    def get_components(self, level: int = -1) -> Collector[str, PAIBoxObject]:
-        """Recursively search for all components within the network."""
-        if level > -1:
-            return self.nodes(include_self=False, level=level)
-        else:
-            return self.nodes(include_self=False, find_recursive=True)
+        return self.nodes(level=-1).subset(DynamicSys).unique().not_subset(DynSysGroup)
 
 
 Network: TypeAlias = DynSysGroup

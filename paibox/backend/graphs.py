@@ -96,11 +96,11 @@ class PAIGraph:
         fm: Collector[NodeName, NeuModule] = Collector()
 
         for subnet in self._raw_networks:
-            fm += subnet.components.subset(NeuModule).unique()
+            fm += subnet.nodes().subset(NeuModule).unique()
             nodes += (
-                subnet.components.include(InputProj, NeuDyn).exclude(NeuModule).unique()
+                subnet.nodes().include(InputProj, NeuDyn).exclude(NeuModule).unique()
             )
-            edges += subnet.components.subset(FullConnectedSyn).unique()
+            edges += subnet.nodes().subset(FullConnectedSyn).unique()
 
         self._raw_nodes += nodes.val_on_condition(
             lambda node: not node.__gh_build_ignore__
