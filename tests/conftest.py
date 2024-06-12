@@ -60,19 +60,19 @@ def cleandir():
         os.chdir(old_cwd)
 
 
-@pytest.fixture(autouse=True)
-def clean_name_dict():
-    """Clean the global name dictionary after each test automatically."""
-    yield
+def _reset_context() -> None:
     clear_name_cache(ignore_warn=True)
+    pb.FRONTEND_ENV["t"] = 0
+    pb.BACKEND_CONFIG.set_default()
+    SynSys.CFLAG_ENABLE_WP_OPTIMIZATION = True
 
 
 @pytest.fixture(autouse=True)
-def backend_context_setdefault():
-    """Set the default backend context after each test automatically."""
+def context_reset():
+    """Reset the context after each test automatically."""
+    _reset_context()
     yield
-    SynSys.CFLAG_ENABLE_WP_OPTIMIZATION = True
-    pb.BACKEND_CONFIG.set_default()
+    _reset_context()
 
 
 @pytest.fixture
