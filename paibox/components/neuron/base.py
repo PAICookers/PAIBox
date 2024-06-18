@@ -359,18 +359,6 @@ class MetaNeuron:
 
 
 class Neuron(MetaNeuron, NeuDyn):
-    _excluded_vars = (
-        "vjt",
-        "vj",
-        "y",
-        "thres_mode",
-        "spike",
-        "_v_th_rand",
-        "_spike_width_format",
-        "_pool_max_en",
-        "master_nodes",
-    )
-
     _n_copied = 0
     """Counter of copies."""
 
@@ -492,29 +480,67 @@ class Neuron(MetaNeuron, NeuDyn):
         self._n_copied += 1
 
         return Neuron(
-            self._shape,
-            self.reset_mode,
-            self.reset_v,
-            self.leak_comparison,
-            self.threshold_mask_bits,
-            self.neg_thres_mode,
-            (-1) * self.neg_threshold,
-            self.pos_threshold,
-            self.leak_direction,
-            self.leak_integration_mode,
-            self.leak_v,
-            self.synaptic_integration_mode,
-            self.bit_truncation,
-            delay=self.delay_relative,
-            tick_wait_start=self.tick_wait_start,
-            tick_wait_end=self.tick_wait_end,
-            unrolling_factor=self.unrolling_factor,
-            keep_shape=self.keep_shape,
+            **self.attrs(all=True),
             name=f"{self.name}_copied_{self._n_copied}",
         )
 
     def copy(self) -> "Neuron":
         return self.__deepcopy__()
+
+    def attrs(self, all: bool) -> dict[str, Any]:
+        attrs = {
+            "reset_mode": self.reset_mode,
+            "reset_v": self.reset_v,
+            "leak_comparison": self.leak_comparison,
+            "threshold_mask_bits": self.threshold_mask_bits,
+            "neg_thres_mode": self.neg_thres_mode,
+            "neg_threshold": (-1) * self.neg_threshold,
+            "pos_threshold": self.pos_threshold,
+            "leak_direction": self.leak_direction,
+            "leak_integration_mode": self.leak_integr,
+            "leak_v": self.leak_v,
+            "synaptic_integration_mode": self.synaptic_integr,
+            "bit_truncation": self.bit_truncation,
+        }
+
+        if all:
+            attrs |= {
+                "shape": self._shape,
+                "keep_shape": self.keep_shape,
+                "delay": self.delay_relative,
+                "tick_wait_start": self.tick_wait_start,
+                "tick_wait_end": self.tick_wait_end,
+                "unrolling_factor": self.unrolling_factor,
+                "overflow_strict": self.overflow_strict,
+            }
+
+        return attrs
+
+    def _slice_attrs(
+        self,
+        index: Union[int, slice, tuple[Union[int, slice]]],
+        all: bool = False,
+        with_shape: bool = False,
+    ) -> dict[str, Any]:
+        """Slice the vector variables in the target.
+
+        NOTE: since it does not participate in the simulation, all stateful attributes can be left \
+            unrecorded.
+        """
+        attrs = self.attrs(all)
+
+        for k, v in attrs.items():
+            # Flatten the array-like attributes
+            if isinstance(v, np.ndarray):
+                if with_shape:
+                    attrs[k] = v.reshape(self.varshape)[index]
+                else:
+                    attrs[k] = v.ravel()[index]
+
+        return attrs
+
+    def __getitem__(self, index) -> "NeuronSubView":
+        return NeuronSubView(self, index)
 
     @property
     def shape_in(self) -> tuple[int, ...]:
