@@ -1,10 +1,10 @@
 import numpy as np
 import pytest
-from paicorelib import LCN_EX, NeuronSegment
+from paicorelib import LCN_EX
 from paicorelib import WeightPrecision as WP
 
 import paibox as pb
-from paibox.backend.placement import NeuSeg
+from paibox.backend.types import NeuSegment
 from paibox.exceptions import ResourceError
 
 
@@ -35,18 +35,18 @@ def test_get_raw_weight_ref():
 
     neuron_segs_of_cb = [
         [
-            NeuSeg(n1, NeuronSegment(slice(0, 20, 1), 0)),
-            NeuSeg(n2, NeuronSegment(slice(0, 5, 1), 20)),
+            NeuSegment(n1, slice(0, 20, 1), 0),
+            NeuSegment(n2, slice(0, 5, 1), 20),
         ],
-        [NeuSeg(n2, NeuronSegment(slice(5, 30, 1), 0))],
+        [NeuSegment(n2, slice(5, 30, 1), 0)],
     ]
 
     w_of_neu_segs_of_cb = []
     for neu_segs in neuron_segs_of_cb:
         w_of_neu_segs = []
         for neu_seg in neu_segs:
-            w = w_of_neurons[dest.index(neu_seg.parent)][  # type: ignore
-                :, neu_seg.segment.index
+            w = w_of_neurons[dest.index(neu_seg.target)][  # type: ignore
+                :, neu_seg.index
             ].copy()
             w.setflags(write=False)
             w_of_neu_segs.append(w)

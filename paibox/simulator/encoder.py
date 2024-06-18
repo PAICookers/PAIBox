@@ -210,7 +210,7 @@ class Conv2dEncoder(DirectEncoder):
             for details.
         """
         if kernel_order not in ("OIHW", "IOHW"):
-            raise ValueError(f"kernel order must be 'OIHW' or 'IOHW'.")
+            raise ValueError("kernel order must be 'OIHW' or 'IOHW'.")
 
         if kernel_order == "IOHW":
             _kernel = np.swapaxes(kernel, 0, 1)

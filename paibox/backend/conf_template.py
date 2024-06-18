@@ -1,12 +1,12 @@
+import sys
 from enum import Enum
 from pathlib import Path
-from typing import Any, ClassVar, NamedTuple, TypedDict
+from typing import Any, ClassVar, NamedTuple, TypedDict, Union
 
 import numpy as np
 from numpy.typing import NDArray
 from paicorelib import (
     LCN_EX,
-    AxonCoord,
     ChipCoord,
     Coord,
     CoordAddr,
@@ -24,33 +24,45 @@ from paicorelib import (
     WeightPrecision,
     get_replication_id,
 )
-from paicorelib.framelib import types
+from paicorelib.framelib import types as flib_types
 from paicorelib.framelib.frame_gen import OfflineFrameGen
 from paicorelib.framelib.utils import np2bin, np2npy, np2txt
-from typing_extensions import NotRequired, TypeAlias
+from pydantic import BaseModel
 
-from paibox.base import NeuDyn
+if sys.version_info >= (3, 10):
+    from typing import TypeAlias
+else:
+    from typing_extensions import TypeAlias
+
+if sys.version_info >= (3, 11):
+    from typing import NotRequired
+else:
+    from typing_extensions import NotRequired
+
+from paibox.components import Neuron
 
 from .context import _BACKEND_CONTEXT
-from .graphs_types import NodeName
+from .types import AxonCoord, NeuSegment, NodeName
 
 try:
-    import orjson  # type: ignore
+    import orjson
 
-    _use_orjson = True
+    _USE_ORJSON = True
 
     def PAIConfigJsonDefault(o: Any):
         if isinstance(o, Coord):
             return o.address
+        elif isinstance(o, NeuronAttrs):
+            return o.model_dump(by_alias=True)
         elif isinstance(o, NeuronDestInfo):
             return o.model_dump(by_alias=True)
 
-        raise TypeError
+        raise TypeError(f"type {type(o)} not defined in custom Json encoder.")
 
 except ModuleNotFoundError:
     import json
 
-    _use_orjson = False
+    _USE_ORJSON = False
 
     class PAIConfigJsonEncoder(json.JSONEncoder):
         def default(self, o: Any) -> Any:
@@ -60,20 +72,22 @@ except ModuleNotFoundError:
                 return o.value
             elif isinstance(o, np.ndarray):
                 return o.tolist()
+            elif isinstance(o, NeuronAttrs):
+                return o.model_dump_json(indent=2, by_alias=True)
             elif isinstance(o, NeuronDestInfo):
                 return o.model_dump(by_alias=True)
-            else:
-                return super().default(o)
+
+            return super().default(o)
 
 
 # Prevent import errors caused by changes in type definitions in paicorelib.
-if hasattr(types, "FRAME_DTYPE"):
-    FRAME_DTYPE = types.FRAME_DTYPE
+if hasattr(flib_types, "FRAME_DTYPE"):
+    FRAME_DTYPE = flib_types.FRAME_DTYPE
 else:
     FRAME_DTYPE = np.uint64
 
-if hasattr(types, "FrameArrayType"):
-    FrameArrayType = types.FrameArrayType
+if hasattr(flib_types, "FrameArrayType"):
+    FrameArrayType = flib_types.FrameArrayType
 else:
     FrameArrayType = NDArray[FRAME_DTYPE]
 
@@ -97,14 +111,12 @@ class CoreConfig(NamedTuple):
     target_lcn: LCN_EX
     test_chip_addr: Coord
 
-    def export(self) -> dict[str, Any]:
-        return ParamsReg.model_validate(self._asdict(), strict=True).model_dump(
-            by_alias=True
-        )
+    def export(self) -> ParamsReg:
+        return ParamsReg.model_validate(self._asdict(), strict=True)
 
-    def __json__(self) -> dict[str, Any]:
+    def to_json(self) -> dict[str, Any]:
         """Dump the configs into json for debugging."""
-        dict_ = self.export()
+        dict_ = self.export().model_dump(by_alias=True)
 
         for var in self._extra_params:
             dict_[var] = getattr(self, var)
@@ -127,15 +139,12 @@ class NeuronDest(NamedTuple):
     addr_chip_x: int
     addr_chip_y: int
 
-    def export(self) -> dict[str, Any]:
-        dest_info = NeuronDestInfo.model_validate(self._asdict(), strict=True)
-        dict_ = dest_info.model_dump(by_alias=True)
+    def export(self) -> NeuronDestInfo:
+        return NeuronDestInfo.model_validate(self._asdict(), strict=True)
 
-        return dict_
-
-    def __json__(self) -> dict[str, Any]:
+    def to_json(self) -> dict[str, Any]:
         """Dump the configs into json for debugging."""
-        dict_ = self.export()
+        dict_ = self.export().model_dump(by_alias=True)
 
         for var in self._extra_params:
             dict_[var] = getattr(self, var)
@@ -155,10 +164,13 @@ class OutputNeuronDest(NamedTuple):
     end: AxonCoord
 
 
-class ConfigTemplate:
-    """A configuration template."""
+try:
+    from paicorelib.ram_model import NeuronConf as _NeuronConf
+except ImportError:
 
-    pass
+    class _NeuronConf(BaseModel):
+        attrs: NeuronAttrs
+        dest_info: NeuronDestInfo
 
 
 class NeuronConfig(NamedTuple):
@@ -180,10 +192,7 @@ class NeuronConfig(NamedTuple):
     @classmethod
     def encapsulate(
         cls,
-        neuron: NeuDyn,
-        n_neuron: int,
-        addr_ram: list[int],
-        addr_offset: int,
+        neu_seg: NeuSegment,
         axon_coords: list[AxonCoord],
         dest_core_coords: list[Coord],
         dest_chip_coord: Coord,
@@ -191,14 +200,14 @@ class NeuronConfig(NamedTuple):
         """Build the `NeuronConfig`.
 
         Args:
-            - neuron: the target `NeuDyn`.
-            - addr_ram: assigned RAM address of the target neuron.
-            - addr_offset: offset of the RAM address.
+            - neu_seg: neuron segment.
             - axon_segs: the destination axon segments.
             - dest_core_coords: coordinates of the core of the destination axons.
             - dest_chip_coord: coordinate of the chip of the destination axons.
         """
-        attrs = NeuronAttrs.model_validate(neuron.export_params(), strict=True)
+        attrs = NeuronAttrs.model_validate(
+            neu_seg.target._slice_attrs(neu_seg.index), strict=True
+        )
         dest_rid = get_replication_id(dest_core_coords)
 
         dest_info = NeuronDest(
@@ -217,30 +226,23 @@ class NeuronConfig(NamedTuple):
         )
 
         return cls(
-            n_neuron,
-            addr_ram,
-            addr_offset,
-            attrs,
-            neuron_dest_info,
+            neu_seg.n_neuron, neu_seg.addr_ram, neu_seg.offset, attrs, neuron_dest_info
         )
 
-    def export(self) -> dict[str, Any]:
-        dict_ = self.neuron_attrs.model_dump(
-            by_alias=True,
-            # exclude={"dest_info": self.params_ram.dest_info._exclude_vars},
-        )
-        dict_.update(self.neuron_dest_info.model_dump(by_alias=True))
+    def export(self) -> _NeuronConf:
+        return _NeuronConf(attrs=self.neuron_attrs, dest_info=self.neuron_dest_info)
 
-        return dict_
-
-    def __json__(self) -> dict[str, Any]:
+    def to_json(self) -> Union[str, bytes]:
         """Dump the configs into json for debugging."""
-        dict_ = self.export()
+        dict_ = {var: getattr(self, var) for var in self._extra_params}
+        dict_ |= self.export().model_dump(by_alias=True)
 
-        for var in self._extra_params:
-            dict_[var] = getattr(self, var)
-
-        return dict_
+        if _USE_ORJSON:
+            return orjson.dumps(
+                dict_, option=orjson.OPT_INDENT_2 | orjson.OPT_SERIALIZE_NUMPY
+            )
+        else:
+            return json.dumps(dict_, indent=2, cls=PAIConfigJsonEncoder)
 
 
 class CorePlmConfig(NamedTuple):
@@ -250,7 +252,7 @@ class CorePlmConfig(NamedTuple):
     random_seed: int
     weight_ram: NDArray[np.uint64]
     params_reg: ParamsReg
-    neuron_configs: dict[NeuDyn, NeuronConfig]
+    neuron_configs: dict[Neuron, NeuronConfig]
 
     @classmethod
     def encapsulate(
@@ -258,7 +260,7 @@ class CorePlmConfig(NamedTuple):
         random_seed: int,
         weight_ram: NDArray[np.uint64],
         core_config: CoreConfig,
-        neuron_configs: dict[NeuDyn, NeuronConfig],
+        neuron_configs: dict[Neuron, NeuronConfig],
     ):
         return cls(
             random_seed,
@@ -276,11 +278,14 @@ class CorePlmConfig(NamedTuple):
         }
 
         for neu, neu_config in self.neuron_configs.items():
-            dict_["neuron_rams"][neu.name] = neu_config.export()
+            if _USE_ORJSON:
+                dict_["neuron_rams"][neu.name] = orjson.loads(neu_config.to_json())
+            else:
+                dict_["neuron_rams"][neu.name] = json.loads(neu_config.to_json())
 
         return dict_
 
-    def __json__(self) -> dict[str, Any]:
+    def to_json(self) -> dict[str, Any]:
         """Dump the configs into json for debugging."""
         dict_ = self.export()
 
@@ -447,42 +452,41 @@ def gen_config_frames_by_coreconf(
             f = np.concatenate(
                 list(frame_arrays_on_core.values()), dtype=FRAME_DTYPE, casting="no"
             )
-            _write_to_f(f"config_cores_all", f)
+            _write_to_f("config_cores_all", f)
 
     return frame_arrays_on_core
 
 
 def export_core_params_json(core_conf: dict[Coord, CoreConfig], fp: Path) -> None:
-    _valid_conf = {str(k): v.export() for k, v in core_conf.items()}
+    _valid_conf = {str(k): v.to_json() for k, v in core_conf.items()}
 
-    if _use_orjson:
+    if _USE_ORJSON:
         with open(fp / _BACKEND_CONTEXT["core_conf_json"], "wb") as f:
-            f.write(
-                orjson.dumps(
-                    _valid_conf,
-                    option=orjson.OPT_NON_STR_KEYS | orjson.OPT_INDENT_2,
-                )
-            )
+            f.write(orjson.dumps(_valid_conf, option=orjson.OPT_INDENT_2))
     else:
         with open(fp / _BACKEND_CONTEXT["core_conf_json"], "w") as f:
-            json.dump(
-                _valid_conf, f, ensure_ascii=True, indent=2, cls=PAIConfigJsonEncoder
-            )
+            json.dump(_valid_conf, f, indent=2)
 
 
 def export_input_conf_json(input_conf_info: InputNodeConf, fp: Path) -> None:
     _valid_conf = {k: v.export() for k, v in input_conf_info.items()}
 
-    if _use_orjson:
+    if _USE_ORJSON:
         with open(fp / _BACKEND_CONTEXT["input_conf_json"], "wb") as f:
-            f.write(orjson.dumps(_valid_conf, option=orjson.OPT_INDENT_2))
+            f.write(
+                orjson.dumps(
+                    _valid_conf,
+                    default=PAIConfigJsonDefault,
+                    option=orjson.OPT_INDENT_2,
+                )
+            )
     else:
         with open(fp / _BACKEND_CONTEXT["input_conf_json"], "w") as f:
             json.dump(_valid_conf, f, indent=2, cls=PAIConfigJsonEncoder)
 
 
 def export_output_conf_json(output_conf_info: OutputDestConf, fp: Path) -> None:
-    if _use_orjson:
+    if _USE_ORJSON:
         with open(fp / _BACKEND_CONTEXT["output_conf_json"], "wb") as f:
             f.write(
                 orjson.dumps(
@@ -496,15 +500,27 @@ def export_output_conf_json(output_conf_info: OutputDestConf, fp: Path) -> None:
             json.dump(output_conf_info, f, indent=2, cls=PAIConfigJsonEncoder)
 
 
-def export_neuconf_json(neuron_conf: dict[NeuDyn, NeuronConfig], full_fp: Path) -> None:
-    _valid_conf = {k.name: v.export() for k, v in neuron_conf.items()}
+if _USE_ORJSON:
 
-    if _use_orjson:
+    def export_neuconf_json(
+        neuron_conf: dict[Neuron, NeuronConfig], full_fp: Path
+    ) -> None:
+        _valid_conf = {
+            k.name: orjson.loads(v.to_json()) for k, v in neuron_conf.items()
+        }
+
         with open(full_fp, "wb") as f:
             f.write(orjson.dumps(_valid_conf, option=orjson.OPT_INDENT_2))
-    else:
+
+else:
+
+    def export_neuconf_json(
+        neuron_conf: dict[Neuron, NeuronConfig], full_fp: Path
+    ) -> None:
+        _valid_conf = {k.name: json.loads(v.to_json()) for k, v in neuron_conf.items()}
+
         with open(full_fp, "w") as f:
-            json.dump(_valid_conf, f, indent=2, cls=PAIConfigJsonEncoder)
+            json.dump(_valid_conf, f, indent=2)
 
 
 def export_core_plm_conf_json(core_plm_conf: CorePlmConf, full_fp: Path) -> None:
@@ -513,15 +529,11 @@ def export_core_plm_conf_json(core_plm_conf: CorePlmConf, full_fp: Path) -> None
     for chip_coord, cconf in core_plm_conf.items():
         _valid_conf[str(chip_coord)] = {}
         for core_coord, conf in cconf.items():
-            _valid_conf[str(chip_coord)][str(core_coord)] = conf.export()
+            _valid_conf[str(chip_coord)][str(core_coord)] = conf.to_json()
 
-    if _use_orjson:
+    if _USE_ORJSON:
         with open(full_fp, "wb") as f:
-            f.write(
-                orjson.dumps(
-                    _valid_conf, option=orjson.OPT_NON_STR_KEYS | orjson.OPT_INDENT_2
-                )
-            )
+            f.write(orjson.dumps(_valid_conf, option=orjson.OPT_INDENT_2))
     else:
         with open(full_fp, "w") as f:
-            json.dump(_valid_conf, f, indent=2, cls=PAIConfigJsonEncoder)
+            json.dump(_valid_conf, f, indent=2)

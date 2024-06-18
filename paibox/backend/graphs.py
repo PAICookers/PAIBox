@@ -15,10 +15,10 @@ from paibox.utils import check_elem_unique
 
 from .constrs import GraphNodeConstrs
 from .context import _BACKEND_CONTEXT
-from .graphs_types import *
 from .placement import CoreBlock, neuron_repl_prop
 from .routing import RoutingGroup
 from .segment_utils import get_neu_segments
+from .types import *
 
 
 @dataclass
@@ -96,11 +96,11 @@ class PAIGraph:
         fm: Collector[NodeName, NeuModule] = Collector()
 
         for subnet in self._raw_networks:
-            fm += subnet.components.subset(NeuModule).unique()
+            fm += subnet.nodes().subset(NeuModule).unique()
             nodes += (
-                subnet.components.include(InputProj, NeuDyn).exclude(NeuModule).unique()
+                subnet.nodes().include(InputProj, NeuDyn).exclude(NeuModule).unique()
             )
-            edges += subnet.components.subset(FullConnectedSyn).unique()
+            edges += subnet.nodes().subset(FullConnectedSyn).unique()
 
         self._raw_nodes += nodes.val_on_condition(
             lambda node: not node.__gh_build_ignore__
@@ -209,7 +209,7 @@ class PAIGraph:
 
     def build_check(self) -> None:
         if not self.has_built:
-            raise GraphBuildError(f"the graph hasn't been built yet.")
+            raise GraphBuildError("the graph hasn't been built yet.")
 
     def graph_partition(self) -> list[PartitionedEdges]:
         """Partition the graph. According to specific rules, the nodes in the graph are divided,    \

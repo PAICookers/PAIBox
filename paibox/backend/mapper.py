@@ -29,10 +29,9 @@ from .graphs import (
     get_node_degrees,
     get_succ_cb_by_node,
 )
-from .graphs_types import NodeDegree, NodeType, SourceNodeType
 from .placement import CoreBlock, aligned_coords, max_lcn_of_cb
 from .routing import RoutingGroup, RoutingRoot
-from .segment_utils import NeuSeg
+from .types import NeuSegment, NodeDegree, NodeType, SourceNodeType
 
 __all__ = ["Mapper"]
 
@@ -291,17 +290,16 @@ class Mapper:
 
         # Calculate the consumption of required physical cores.
         n_avail_cores = HwConfig.N_CORE_OFFLINE * _BACKEND_CONTEXT.n_target_chips
-        if (
-            n_core_required := sum(cb.n_core_required for cb in self.core_blocks)
-        ) > n_avail_cores:
+        n_core_required = sum(cb.n_core_required for cb in self.core_blocks)
+
+        if core_estimate_only:
+            self.n_core_required = n_core_required
+            return None
+
+        elif n_core_required > n_avail_cores:
             raise ResourceError(
                 OUT_OF_CORE_RESOURCE_TEXT.format(n_avail_cores, n_core_required)
             )
-
-        self.n_core_required = n_core_required
-
-        if core_estimate_only:
-            return None
 
         # Generate routing groups by given the list of core blocks.
         for rg in self.routing_groups:
@@ -507,15 +505,15 @@ class Mapper:
                     assert _cb_routable(self.routing_groups, dest_cb_of_nseg)
                     core_plm.export_neu_config(neu_seg, dest_cb_of_nseg)
                 else:
-                    offset_idx = o_nodes.index(neu_seg.parent)
+                    offset_idx = o_nodes.index(neu_seg.target)
                     cur_ocoord = ocoord + CoordOffset.from_offset(offset_idx)
                     output_axon_offset = core_plm.export_neu_config(
                         neu_seg,
                         output_core_coord=cur_ocoord,
                         axon_addr_offset=output_axon_offset,
                     )
-                    output_dest_info[neu_seg.parent.name][core_plm.coord.address] = (
-                        core_plm.neu_configs[neu_seg.parent].neuron_dest_info
+                    output_dest_info[neu_seg.target.name][core_plm.coord.address] = (
+                        core_plm.neu_configs[neu_seg.target].neuron_dest_info
                     )
 
         # Add the offset as the starting coordinate of the next output node
@@ -532,15 +530,15 @@ class Mapper:
         for core_plm in onode_cb.core_placements.values():
             for neu_seg in core_plm.neu_segs_of_cplm:
                 # Get the output coordinate of this neu_seg
-                offset_idx = o_nodes.index(neu_seg.parent)
+                offset_idx = o_nodes.index(neu_seg.target)
                 cur_ocoord = ocoord + CoordOffset.from_offset(offset_idx)
                 output_axon_offset = core_plm.export_neu_config(
                     neu_seg,
                     output_core_coord=cur_ocoord,
                     axon_addr_offset=output_axon_offset,
                 )
-                output_dest_info[neu_seg.parent.name][core_plm.coord.address] = (
-                    core_plm.neu_configs[neu_seg.parent].neuron_dest_info
+                output_dest_info[neu_seg.target.name][core_plm.coord.address] = (
+                    core_plm.neu_configs[neu_seg.target].neuron_dest_info
                 )
 
         # Add the offset as the starting coordinate of the next output node
@@ -608,11 +606,11 @@ class Mapper:
                 )
                 for core_plm in cb.core_placements.values():
                     for neu_seg in core_plm.neu_segs_of_cplm:
-                        if neuron is neu_seg.parent:
+                        if neuron is neu_seg.target:
                             print(
                                 f"{neuron.name} placed in {core_plm.coord}\n"
-                                f"N:        {neu_seg.segment.n_neuron}\n"
-                                f"Address:  {neu_seg.segment.addr_slice}"
+                                f"N:        {neu_seg.n_neuron}\n"
+                                f"Address:  {neu_seg.addr_slice}"
                             )
 
     def find_axon(self, neuron: NeuDyn, *, verbose: int = 0) -> None:
@@ -633,9 +631,11 @@ class Mapper:
     def _build_check(self) -> None:
         return self.graph.build_check()
 
-    def _find_dest_cb_by_nseg(self, neu_seg: NeuSeg, cb: CoreBlock) -> list[CoreBlock]:
+    def _find_dest_cb_by_nseg(
+        self, neu_seg: NeuSegment, cb: CoreBlock
+    ) -> list[CoreBlock]:
         succ_cbs = self.succ_core_blocks[cb]
-        dest_cb_of_nseg = [cb for cb in succ_cbs if neu_seg.parent in cb.source]
+        dest_cb_of_nseg = [cb for cb in succ_cbs if neu_seg.target in cb.source]
 
         return dest_cb_of_nseg
 

@@ -1,19 +1,14 @@
 from typing import Optional
 
+import numpy as np
 from paicorelib import LDM, NTM, RM
 
-from paibox.types import Shape
+from paibox.types import DataArrayType, Shape
 
-from .base import NEG_THRES_MIN, Neuron
-
-try:
-    from paicorelib.ram_model import LEAK_V_BIT_MAX
-except:
-    LEAK_V_BIT_MAX = 30  # 1 + 29
+from .base import Neuron
+from .utils import LEAK_V_MAX, NEG_THRES_MIN
 
 __all__ = ["IF", "LIF", "TonicSpiking", "PhasicSpiking", "SpikingRelu"]
-
-LEAK_V_MAX = 1 << (LEAK_V_BIT_MAX - 1) - 1
 
 
 class IF(Neuron):
@@ -24,7 +19,7 @@ class IF(Neuron):
         reset_v: Optional[int] = None,
         neg_threshold: Optional[int] = None,
         *,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -45,7 +40,7 @@ class IF(Neuron):
             - unrolling_factor: argument related to the backend. It represents the degree to which  \
                 modules are expanded. The larger the value, the more cores required for deployment, \
                 but the lower the latency & the higher the throughput. Default is 1.
-            - keep_shape: whether to maintain shape in the simulation. Default is `False`.
+            - keep_shape: whether to maintain shape in the simulation. Default is `True`.
             - name: name of the neuron. Optional.
         """
         if isinstance(reset_v, int):
@@ -82,10 +77,10 @@ class LIF(Neuron):
         threshold: int,
         reset_v: Optional[int] = None,
         leak_v: int = 0,
-        bias: Optional[int] = None,
+        bias: Optional[DataArrayType] = None,
         neg_threshold: Optional[int] = None,
         *,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -115,8 +110,10 @@ class LIF(Neuron):
             _reset_v = 0
             _rm = RM.MODE_LINEAR
 
-        if isinstance(bias, int):
-            _leak_v = bias
+        if isinstance(bias, (list, tuple, np.ndarray)):
+            _leak_v = np.asarray(bias, dtype=np.int32)
+        elif bias is not None:
+            _leak_v = int(bias)
         else:
             _leak_v = leak_v
 
@@ -145,7 +142,7 @@ class TonicSpiking(Neuron):
         shape: Shape,
         fire_step: int,
         *,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -171,7 +168,7 @@ class PhasicSpiking(Neuron):
         fire_step: int,
         neg_floor: int = -10,
         *,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -206,7 +203,7 @@ class Always1Neuron(Neuron):
         self,
         shape: Shape,
         *,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -238,7 +235,7 @@ class SpikingRelu(Neuron):
         self,
         shape: Shape,
         *,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:

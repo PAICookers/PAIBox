@@ -7,7 +7,7 @@ from paicorelib import HwConfig
 
 import paibox as pb
 from paibox.backend.graphs import get_node_degrees, get_pred_dg_by_succ_dg, toposort
-from paibox.backend.graphs_types import *
+from paibox.backend.types import *
 from paibox.components import Neuron
 from paibox.exceptions import GraphBuildError, GraphConnectionError, NotSupportedError
 
@@ -260,8 +260,7 @@ class TestPAIGraph:
 
         assert (
             len(mapper.graph.nodes)
-            == len(net.get_components(level=1).include(Neuron, pb.InputProj))
-            + net.n_copy
+            == len(net.nodes(level=1).include(Neuron, pb.InputProj)) + net.n_copy
         )
 
 

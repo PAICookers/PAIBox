@@ -12,14 +12,14 @@ from paibox.utils import as_shape, shape2num, typical_round
 def _assert_build_fmodule(
     network: DynSysGroup, n_node_bef_build: int, n_node_aft_build: int
 ):
-    nodes = network.components.subset(DynamicSys).unique()
+    nodes = network.nodes().subset(DynamicSys).unique()
     assert len(nodes) == n_node_bef_build
 
     # Construct the functional modules
     DynSysGroup.build_fmodule(network)
 
     # Must exclude `NeuModule`s, because it may be in the probe's `__dict__`.
-    nodes = network.components.subset(DynamicSys).exclude(NeuModule).unique()
+    nodes = network.nodes().subset(DynamicSys).exclude(NeuModule).unique()
     assert len(nodes) == n_node_aft_build
 
 

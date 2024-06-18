@@ -130,7 +130,7 @@ def is_iterable(obj: Any) -> bool:
 
 def fn_sgn(a, b) -> int:
     """Signal function."""
-    return 1 if a > b else -1 if a < b else 0
+    return (a > b) - (a < b)
 
 
 def typical_round(number: float) -> int:

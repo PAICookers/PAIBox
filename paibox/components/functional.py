@@ -10,8 +10,14 @@ from paicorelib import NTM, RM, TM
 from paibox.base import NeuDyn, NodeList
 from paibox.exceptions import PAIBoxDeprecationWarning, ShapeError
 from paibox.network import DynSysGroup
-from paibox.types import SpikeType, VoltageType
-from paibox.utils import arg_check_non_neg, as_shape, shape2num, typical_round
+from paibox.types import IntScalarType, SpikeType, VoltageType
+from paibox.utils import (
+    arg_check_non_neg,
+    arg_check_pos,
+    as_shape,
+    shape2num,
+    typical_round,
+)
 
 from .modules import (
     BuiltComponentType,
@@ -49,10 +55,6 @@ __all__ = [
     "Transpose2d",
     "Transpose3d",
 ]
-
-
-_L_SADD = 1  # Literal value for spiking addition.
-_L_SSUB = -1  # Literal value for spiking subtraction.
 
 
 class BitwiseAND(FunctionalModule2to1):
@@ -422,6 +424,9 @@ class SpikingAdd(FunctionalModule2to1WithV):
         self,
         neuron_a: Union[NeuDyn, InputProj],
         neuron_b: Union[NeuDyn, InputProj],
+        factor_a: IntScalarType = 1,
+        factor_b: IntScalarType = 1,
+        pos_thres: int = 1,
         *,
         keep_shape: bool = True,
         name: Optional[str] = None,
@@ -433,23 +438,30 @@ class SpikingAdd(FunctionalModule2to1WithV):
         Args:
             - neuron_a: the first operand.
             - neuron_b: the second operand.
+            - factor_a: positive factor of neuron_a. Default is 1.
+            - factor_b: positive factor of neuron_b. Default is 1.
+            - pos_thres: positive threshold. Default is 1.
             - overflow_strict: flag of whether to strictly check overflow. If enabled, an exception will be \
                 raised if the result overflows during simulation.
 
         NOTE: the inherent delay of the module is 0.
         """
+        self.factor_a = arg_check_pos(int(factor_a), "factor_a")
+        self.factor_b = arg_check_pos(int(factor_b), "factor_b")
+        self.pos_threshold = arg_check_pos(int(pos_thres), "pos_threshold")
         self.overflow_strict = overflow_strict
+
         super().__init__(neuron_a, neuron_b, keep_shape=keep_shape, name=name, **kwargs)
 
     def spike_func(self, vjt: VoltageType, **kwargs) -> tuple[SpikeType, VoltageType]:
         """Simplified neuron computing mechanism as the operator function."""
-        return _spike_func_sadd_ssub(vjt)
+        return _spike_func_sadd_ssub(vjt, self.pos_threshold)
 
     def synaptic_integr(
         self, x1: SpikeType, x2: SpikeType, vjt_pre: VoltageType
     ) -> VoltageType:
         return _sum_inputs_sadd_ssub(
-            x1, x2, vjt_pre, _L_SADD, strict=self.overflow_strict
+            x1, x2, self.factor_a, self.factor_b, vjt_pre, strict=self.overflow_strict
         )
 
     def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
@@ -458,6 +470,7 @@ class SpikingAdd(FunctionalModule2to1WithV):
             reset_mode=RM.MODE_LINEAR,
             neg_thres_mode=NTM.MODE_SATURATION,
             neg_threshold=0,
+            pos_threshold=self.pos_threshold,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
             tick_wait_end=self.tick_wait_end,
@@ -468,14 +481,14 @@ class SpikingAdd(FunctionalModule2to1WithV):
         syn1 = FullConnSyn(
             self.module_intf.operands[0],
             n1_sadd,
-            1,
+            self.factor_a,
             conn_type=ConnType.One2One,
             name=f"s0_{self.name}",
         )
         syn2 = FullConnSyn(
             self.module_intf.operands[1],
             n1_sadd,
-            1,
+            self.factor_b,
             conn_type=ConnType.One2One,
             name=f"s1_{self.name}",
         )
@@ -761,6 +774,9 @@ class SpikingMaxPool2d(_SpikingPool2d):
 
 class SpikingSub(FunctionalModule2to1WithV):
     inherent_delay = 0
+    factor_a: int = 1
+    factor_b: int = -1
+    pos_threshold: int = 1
 
     def __init__(
         self,
@@ -787,13 +803,13 @@ class SpikingSub(FunctionalModule2to1WithV):
 
     def spike_func(self, vjt: VoltageType, **kwargs) -> tuple[SpikeType, VoltageType]:
         """Simplified neuron computing mechanism to generate output spike."""
-        return _spike_func_sadd_ssub(vjt)
+        return _spike_func_sadd_ssub(vjt, self.pos_threshold)
 
     def synaptic_integr(
         self, x1: SpikeType, x2: SpikeType, vjt_pre: VoltageType
     ) -> VoltageType:
         return _sum_inputs_sadd_ssub(
-            x1, x2, vjt_pre, _L_SSUB, strict=self.overflow_strict
+            x1, x2, self.factor_a, self.factor_b, vjt_pre, strict=self.overflow_strict
         )
 
     def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
@@ -801,6 +817,7 @@ class SpikingSub(FunctionalModule2to1WithV):
             self.shape_out,
             reset_mode=RM.MODE_LINEAR,
             neg_thres_mode=NTM.MODE_SATURATION,
+            pos_threshold=self.pos_threshold,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
             tick_wait_end=self.tick_wait_end,
@@ -811,14 +828,14 @@ class SpikingSub(FunctionalModule2to1WithV):
         syn1 = FullConnSyn(
             self.module_intf.operands[0],
             n1_ssub,
-            1,
+            self.factor_a,
             conn_type=ConnType.One2One,
             name=f"s0_{self.name}",
         )
         syn2 = FullConnSyn(
             self.module_intf.operands[1],
             n1_ssub,
-            weights=-1,
+            self.factor_b,
             conn_type=ConnType.One2One,
             name=f"s1_{self.name}",
         )
@@ -950,17 +967,19 @@ class Transpose3d(TransposeModule):
         return generated
 
 
-def _spike_func_sadd_ssub(vjt: VoltageType) -> tuple[SpikeType, VoltageType]:
+def _spike_func_sadd_ssub(
+    vjt: VoltageType, pos_thres: int
+) -> tuple[SpikeType, VoltageType]:
     """Function `spike_func()` in spiking addition & subtraction."""
     # Fire
     thres_mode = np.where(
-        vjt >= 1,
+        vjt >= pos_thres,
         TM.EXCEED_POSITIVE,
         np.where(vjt < 0, TM.EXCEED_NEGATIVE, TM.NOT_EXCEEDED),
     )
     spike = np.equal(thres_mode, TM.EXCEED_POSITIVE)
     # Reset
-    v_reset = np.where(thres_mode == TM.EXCEED_POSITIVE, vjt - 1, vjt)
+    v_reset = np.where(thres_mode == TM.EXCEED_POSITIVE, vjt - pos_thres, vjt)
 
     return spike, v_reset
 
@@ -983,14 +1002,10 @@ def _spike_func_avg_pool(
 
 
 def _sum_inputs_sadd_ssub(
-    x1: SpikeType,
-    x2: SpikeType,
-    vjt_pre: VoltageType,
-    add_or_sub: Literal[1, -1],
-    strict: bool,
+    x1: SpikeType, x2: SpikeType, f1: int, f2: int, vjt_pre: VoltageType, strict: bool
 ) -> VoltageType:
     """Function `sum_input()` for spiking addition & subtraction."""
-    incoming_v = (vjt_pre + x1 * 1 + x2 * add_or_sub).astype(np.int32)
+    incoming_v = (vjt_pre + x1 * f1 + x2 * f2).astype(np.int32)
     return vjt_overflow(incoming_v, strict)
 
 

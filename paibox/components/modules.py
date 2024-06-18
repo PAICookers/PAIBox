@@ -339,10 +339,10 @@ class TransposeModule(FunctionalModule):
         axes = tuple(axes)
 
         if not check_elem_unique(axes):
-            raise ValueError(f"repeated axis in transpose.")
+            raise ValueError("repeated axis in transpose.")
 
         if len(axes) != len(shape_in):
-            raise ValueError(f"axes don't match array.")
+            raise ValueError("axes don't match array.")
 
         if keep_shape:
             shape_out = tuple(shape_in[i] for i in axes)

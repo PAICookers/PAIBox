@@ -2,7 +2,6 @@ import numpy as np
 import pytest
 
 import paibox as pb
-from paibox.context import FRONTEND_ENV
 
 
 class Net1(pb.DynSysGroup):
@@ -116,11 +115,7 @@ class Conv2d_Net(pb.Network):
         stride = 1
 
         self.conv1 = pb.Conv2d(
-            self.inp1,
-            self.n1,
-            kernel,
-            stride=stride,
-            kernel_order="IOHW",
+            self.inp1, self.n1, kernel, stride=stride, kernel_order="IOHW"
         )
 
         self.prob1 = pb.Probe(self.n1, "spike")
@@ -197,10 +192,10 @@ class TestSimulator:
         net = Net2_with_multi_inpproj_func(10)
         sim = pb.Simulator(net, start_time_zero=False)
 
-        FRONTEND_ENV.save(a=1, b=2)
+        pb.FRONTEND_ENV.save(a=1, b=2)
         sim.run(10)
 
-        FRONTEND_ENV.save("a", -1, "b", -2)
+        pb.FRONTEND_ENV.save("a", -1, "b", -2)
         sim.run(3)
 
         sim.reset()
@@ -225,7 +220,7 @@ class TestSimulator:
         sim = pb.Simulator(net, start_time_zero=False)
 
         # The probes defined in the subnets will be discovered.
-        assert len(sim.probes) == 5
+        assert len(sim.probes) == 3 + 1 * 2 + 2 * 1
 
         net.inp1.input = np.ones((10,), dtype=np.int8)
         sim.run(20)

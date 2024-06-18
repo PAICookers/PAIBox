@@ -1,18 +1,15 @@
 <div align="center">
-
 # PAIBox使用指南
 
 </div>
 
 ## 安装
 
-请安装如下依赖：
-
 ```toml
 python = "^3.9"
 pydantic = "^2.0"
 numpy = "^1.26.0"
-paicorelib = "^1.1.4"
+paicorelib = "^1.1.6"
 ```
 
 可选依赖：
@@ -71,7 +68,7 @@ n1 = pb.IF(shape=10, threshold=127, reset_v=0, neg_threshold=-100, keep_shape=Fa
 - `tick_wait_start`：设定神经元启动时间。神经元将在第 `T` 个时间步时启动。0表示不启动。默认为1。
 - `tick_wait_end`：设定神经元持续工作时长。神经元将持续工作 `T` 个时间步。0表示**持续工作**。默认为0。
 - `unrolling_factor`：该参数与后端流程相关。展开因子表示神经元将被展开，部署至更多的物理核上，以降低延迟并提高吞吐率。
-- `keep_shape`：是否在仿真记录数据时保持尺寸信息，默认为 `False`。实际进行运算的尺寸仍视为一维。
+- `keep_shape`：是否在仿真记录数据时保持尺寸信息，默认为 `True`。实际进行运算的尺寸仍视为一维。
 - `name`：神经元的名称。可选参数。
 
 #### LIF
@@ -84,7 +81,7 @@ n2 = pb.LIF(shape=128, threshold=10, reset_v=1, bias=-1, keep_shape=True, name='
 ```
 
 - `leak_v`：LIF 神经元的泄露值，有符号数。
-- `bias`：偏置，有符号数。当指定偏置时，神经元将使用该值作为其泄露值，并**在阈值比较前泄露**，从而实现“偏置”的效果。此时，`leak_v` 将被忽略。在未指定偏置时，神经元先阈值比较后泄露。
+- `bias`：偏置，有符号数。当指定偏置时，神经元将使用该值作为其泄露值，并**在阈值比较前泄露**，从而实现“偏置”的效果。当设置 `bias` 时， `leak_v` 将被忽略。在未指定偏置时，神经元先阈值比较后泄露。支持数组形式的偏置，这通常用于实现卷积的分通道偏置，偏置的尺寸应与神经元尺寸相关，这取决于偏置的实际含义。它可以为标量（例如，线性层的偏置）、`(C,)` 数组（其中 `C` 为通道数）或 `(C,H,W)` 数组。
 - 其他参数含义与 IF 相同。
 
 #### Tonic Spiking
@@ -203,11 +200,21 @@ s1 = pb.MatMul2d(source=n1, dest=n2, weights=np.ones((16, 10), dtype=np.int8))
 ⚠️ 不要与 `FullConn` 混淆。`FullConn` 需要传入 `N*M` 矩阵，其中 `N` 为前向神经元组数目，`M` 为后向神经元组数目。而 `MatMul2d` 中传入的矩阵尺寸并非 `N*M` ，它最终将展开为 `N*M` 矩阵。如下式所示，由于输入/输出数据在芯片中只能以一维表示，因此，它在芯片中的实现为：
 
 $$
-\begin{bmatrix}x_{11}&x_{12}&x_{13}\\x_{21}&x_{22}&x_{23}\end{bmatrix}\cdot\begin{bmatrix}w_{11}&w_{12}\\w_{21}&w_{22}\\w_{31}&w_{32}\end{bmatrix}=\begin{bmatrix}y_{11}&y_{12}\\y_{21}&y_{22}\end{bmatrix}
+\begin{bmatrix}x_{11}& x_{12}& x_{13}\\ x_{21}& x_{22}& x_{23}\end{bmatrix}\cdot\begin{bmatrix}w_{11}& w_{12}\\ w_{21}& w_{22}\\ w_{31}& w_{32}\end{bmatrix}=\begin{bmatrix}y_{11}& y_{12}\\ y_{21}& y_{22}\end{bmatrix}
 $$
 
 $$
-\begin{bmatrix}x_{11}\\x_{12}\\x_{13}\\x_{21}\\x_{22}\\x_{23}\end{bmatrix}\cdot\begin{bmatrix}w_{11}&w_{12}&0&0\\w_{21}&w_{22}&0&0\\w_{31}&w_{32}&0&0\\0&0&w_{11}&w_{12}\\0&0&w_{21}&w_{22}\\0&0&w_{31}&w_{32}\end{bmatrix}=\begin{bmatrix}y_{11}&y_{12}&y_{21}&y_{22}\end{bmatrix}
+\begin{bmatrix}x_{11}\\ x_{12}\\ x_{13}\\ x_{21}\\ x_{22}\\ x_{23}\end{bmatrix}^T\cdot\begin{bmatrix}w_{11}& w_{12}& 0& 0\\ w_{21}& w_{22}& 0& 0\\ w_{31}& w_{32}& 0& 0\\0& 0& w_{11}& w_{12}\\0& 0& w_{21}& w_{22}\\0& 0& w_{31}& w_{32}\end{bmatrix}=\begin{bmatrix}y_{11}\\ y_{12}\\ y_{21}\\ y_{22}\end{bmatrix}^T
+$$
+
+对于 $y=x^T\cdot w$，将转置作用于 $w$ 即可等效实现。例如：
+
+$$
+\begin{bmatrix}x_{11}& x_{12}\\ x_{21}& x_{22}\\ x_{31}& x_{32}\end{bmatrix}^T\cdot\begin{bmatrix}w_{11}& w_{12}\\ w_{21}& w_{22}\\ w_{31}& w_{32}\end{bmatrix}=\begin{bmatrix}y_{11}& y_{12}\\ y_{21}& y_{22}\end{bmatrix}
+$$
+
+$$
+\begin{bmatrix}x_{11}\\x_{12}\\x_{21}\\x_{22}\\x_{31}\\x_{32}\end{bmatrix}^T\cdot\begin{bmatrix}w_{11}& w_{12}& 0& 0\\0& 0& w_{11}& w_{12}\\ w_{21}& w_{22}& 0& 0\\ 0& 0& w_{21}& w_{22}\\ w_{31}& w_{32}& 0& 0\\0& 0& w_{31}& w_{32}\end{bmatrix}=\begin{bmatrix}y_{11}\\ y_{12}\\ y_{21}\\ y_{22}\end{bmatrix}^T
 $$
 
 #### 1D卷积
@@ -629,7 +636,7 @@ s3 = pb.FullConn(p2d, n2, conn_type=pb.SynConnType.One2One)
 
 对于平均池化 `SpikingAvgPool2d`，它还有如下参数可配置：
 
-- `threshold`：平均池化的比较阈值，芯片需要通过神经元的阈值比较间接地实现除法。当不指定时，阈值为 $\text{round}(\text{kernel\_size}/2)$。池化窗口的输入做累加后与该阈值进行比较，可等价于平均池化的操作，即 $o_j=\sum^{k-1}_{i=0}x_{ij} >= \text{threshold}$，其中 $k$ 为池化窗口尺寸，$x_{ij}$ 为每个池化窗口内的输入特征图元素，$o_j$ 为第 $j$ 个输出特征图元素。
+- `threshold`：平均池化的比较阈值，芯片需要通过神经元的阈值比较间接地实现除法。当不指定时，阈值为 $\text{round}(\text{kernel\_size}/2)$。池化窗口的输入做累加后与该阈值进行比较，可等价于平均池化的操作，即 $o_j=\sum^{k-1}_{i=0}x_{ij} \ge V_{th,pos}$，其中 $k$ 为池化窗口尺寸，$x_{ij}$ 为每个池化窗口内的输入特征图元素，$o_j$ 为第 $j$ 个输出特征图元素。
 
 ### \*2D平均池化（与膜电位相关）
 
@@ -649,7 +656,13 @@ inpb = np.array([0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0], np.bool_)
 >>> np.array([0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0], np.bool_)
 ```
 
-`SpikingAdd`，`SpikingSub` 的使用方式与逻辑运算模块相同：
+`SpikingAdd`，`SpikingSub` 的使用方式与逻辑运算模块基本相同，对于 `SpikingAdd`，其内部运算原理为：
+
+$$
+V_{pre} + a\cdot f_a + b\cdot f_b \ge V_{th,pos}
+$$
+
+对于 `SpikingSub`，$f_a=1$，$f_b=-1$.
 
 ```python
 n1 = pb.IF((10,), 1, 0, delay=1, tick_wait_start=1)
@@ -662,6 +675,9 @@ sub1 = pb.SpikingSub(n1, n2, overflow_strict=False, delay=1, tick_wait_start=2) 
 
 - `neuron_a`：第一个操作数。
 - `neuron_b`：第二个操作数。在减法中作被减数。
+- `factor_a`：第一个操作数的缩放因子，正整数标量。默认为1，仅在 `SpikingAdd` 中使用。
+- `factor_b`：第一个操作数的缩放因子，正整数标量。默认为1，仅在 `SpikingAdd` 中使用。
+- `pos_thres`：正阈值。默认为1，仅在 `SpikingAdd` 中使用。
 - `overflow_strict`：是否严格检查运算结果溢出。如果启用，则在仿真中，当脉冲加、减运算结果溢出时将报错。默认为 `False`。
 
 ### 2D/3D转置
@@ -800,6 +816,7 @@ sim = pb.Simulator(fcnet, start_time_zero=False)
 
 - `target`: 监测对象，必须是 `DynamicSys` 类。
 - `attr`：监测的属性，如 `spike`、`output` 等，字符串类型，这将监测属性 `target.attr`。
+- `name`：探针的名字，可选参数。
 
 基于上述仿真示例，我们添加几个探针：
 

@@ -1,4 +1,5 @@
-from typing import Any, Optional
+from collections.abc import Iterable
+from typing import Any, Optional, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -16,7 +17,8 @@ from paicorelib import (
 )
 
 from paibox.base import NeuDyn
-from paibox.types import Shape, SpikeType, VoltageType
+from paibox.exceptions import ShapeError
+from paibox.types import LeakVType, Shape, SpikeType, VoltageType
 from paibox.utils import (
     arg_check_non_neg,
     arg_check_non_pos,
@@ -25,7 +27,7 @@ from paibox.utils import (
     shape2num,
 )
 
-from .utils import NEG_THRES_MIN, vjt_overflow
+from .utils import NEG_THRES_MIN, _is_leak_v_overflow, vjt_overflow
 
 __all__ = ["Neuron"]
 
@@ -44,9 +46,9 @@ class MetaNeuron:
         neg_threshold: int,
         pos_threshold: int,
         leak_direction: LDM,
-        leak_integration_mode: LIM,
-        leak_v: int,
-        synaptic_integration_mode: SIM,
+        leak_integr: LIM,
+        leak_v: Union[int, LeakVType],
+        synaptic_integr: SIM,
         bit_truncation: int,
         overflow_strict: bool,
         keep_shape: bool = False,
@@ -64,12 +66,26 @@ class MetaNeuron:
         self.leak_comparison: LCM = leak_comparison
         self.threshold_mask_bits: int = threshold_mask_bits
         self.neg_thres_mode: NTM = neg_thres_mode
-        self.neg_threshold: int = neg_threshold  # Unsigned 29-bit
+        self.neg_threshold: int = (-1) * neg_threshold  # Unsigned 29-bit
         self.pos_threshold: int = pos_threshold  # Unsigned 29-bit
         self.leak_direction: LDM = leak_direction
-        self.leak_integration_mode: LIM = leak_integration_mode
-        self.leak_v: int = leak_v  # Signed 30-bit
-        self.synaptic_integration_mode: SIM = synaptic_integration_mode
+        self.leak_integr: LIM = leak_integr
+
+        if isinstance(leak_v, int):
+            self.leak_v = leak_v
+        elif np.prod(leak_v.shape) == np.prod(self._shape):
+            # leak with shape (32,32) == (1,32,32) is allowed.
+            self.leak_v = leak_v.ravel()
+        elif leak_v.ndim == 1 and leak_v.shape[0] == self._shape[0]:
+            self.leak_v = np.repeat(leak_v, shape2num(self._shape[1:])).ravel()
+        else:
+            raise ShapeError(
+                f"'leak' is either scalar or have shape (output channels, ), but got ({self._shape[0]},)."
+            )
+
+        _is_leak_v_overflow(self.leak_v)
+
+        self.synaptic_integr: SIM = synaptic_integr
         self.bit_truncation: int = bit_truncation  # Unsigned 5-bit
 
         # TODO These two config below are parameters of CORE.
@@ -97,7 +113,7 @@ class MetaNeuron:
         """
         _rho_w_ij = 1  # Random synaptic integration enable, 0/1
 
-        if self.synaptic_integration_mode is SIM.MODE_STOCHASTIC:
+        if self.synaptic_integr is SIM.MODE_STOCHASTIC:
             raise NotImplementedError(
                 f"mode {SIM.MODE_STOCHASTIC.name} is not implemented."
             )
@@ -135,7 +151,7 @@ class MetaNeuron:
         else:
             _ld = np.sign(vjt)
 
-        if self.leak_integration_mode is LIM.MODE_DETERMINISTIC:
+        if self.leak_integr is LIM.MODE_DETERMINISTIC:
             v_leaked = np.add(vjt, _ld * self.leak_v, dtype=np.int32)
         else:
             raise NotImplementedError(
@@ -354,23 +370,11 @@ class MetaNeuron:
         return self._shape if self.keep_shape else (self._n_neuron,)
 
     @property
-    def bias(self) -> int:
+    def bias(self) -> Union[int, LeakVType]:
         return self.leak_v
 
 
 class Neuron(MetaNeuron, NeuDyn):
-    _excluded_vars = (
-        "vjt",
-        "vj",
-        "y",
-        "thres_mode",
-        "spike",
-        "_v_th_rand",
-        "_spike_width_format",
-        "_pool_max_en",
-        "master_nodes",
-    )
-
     _n_copied = 0
     """Counter of copies."""
 
@@ -386,7 +390,7 @@ class Neuron(MetaNeuron, NeuDyn):
         pos_threshold: int = 1,
         leak_direction: LDM = LDM.MODE_FORWARD,
         leak_integration_mode: LIM = LIM.MODE_DETERMINISTIC,
-        leak_v: int = 0,
+        leak_v: Union[int, LeakVType] = 0,
         synaptic_integration_mode: SIM = SIM.MODE_DETERMINISTIC,
         bit_truncation: int = 0,
         *,
@@ -395,9 +399,13 @@ class Neuron(MetaNeuron, NeuDyn):
         tick_wait_end: int = 0,
         unrolling_factor: int = 1,
         overflow_strict: bool = False,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
     ) -> None:
+        if neg_threshold > 0:
+            # XXX *(-1) if passing a negative threshold > 0
+            neg_threshold = (-1) * neg_threshold
+
         super().__init__(
             shape,
             reset_mode,
@@ -405,8 +413,7 @@ class Neuron(MetaNeuron, NeuDyn):
             leak_comparison,
             threshold_mask_bits,
             neg_thres_mode,
-            # In `MetaNeuron`, it is unsigned.
-            (-arg_check_non_pos(neg_threshold, "negative threshold")),
+            arg_check_non_pos(neg_threshold, "negative threshold"),
             arg_check_non_neg(pos_threshold, "positive threshold"),
             leak_direction,
             leak_integration_mode,
@@ -492,29 +499,67 @@ class Neuron(MetaNeuron, NeuDyn):
         self._n_copied += 1
 
         return Neuron(
-            self._shape,
-            self.reset_mode,
-            self.reset_v,
-            self.leak_comparison,
-            self.threshold_mask_bits,
-            self.neg_thres_mode,
-            (-1) * self.neg_threshold,
-            self.pos_threshold,
-            self.leak_direction,
-            self.leak_integration_mode,
-            self.leak_v,
-            self.synaptic_integration_mode,
-            self.bit_truncation,
-            delay=self.delay_relative,
-            tick_wait_start=self.tick_wait_start,
-            tick_wait_end=self.tick_wait_end,
-            unrolling_factor=self.unrolling_factor,
-            keep_shape=self.keep_shape,
+            **self.attrs(all=True),
             name=f"{self.name}_copied_{self._n_copied}",
         )
 
     def copy(self) -> "Neuron":
         return self.__deepcopy__()
+
+    def attrs(self, all: bool) -> dict[str, Any]:
+        attrs = {
+            "reset_mode": self.reset_mode,
+            "reset_v": self.reset_v,
+            "leak_comparison": self.leak_comparison,
+            "threshold_mask_bits": self.threshold_mask_bits,
+            "neg_thres_mode": self.neg_thres_mode,
+            "neg_threshold": self.neg_threshold,
+            "pos_threshold": self.pos_threshold,
+            "leak_direction": self.leak_direction,
+            "leak_integration_mode": self.leak_integr,
+            "leak_v": self.leak_v,
+            "synaptic_integration_mode": self.synaptic_integr,
+            "bit_truncation": self.bit_truncation,
+        }
+
+        if all:
+            attrs |= {
+                "shape": self._shape,
+                "keep_shape": self.keep_shape,
+                "delay": self.delay_relative,
+                "tick_wait_start": self.tick_wait_start,
+                "tick_wait_end": self.tick_wait_end,
+                "unrolling_factor": self.unrolling_factor,
+                "overflow_strict": self.overflow_strict,
+            }
+
+        return attrs
+
+    def _slice_attrs(
+        self,
+        index: Union[int, slice, tuple[Union[int, slice]]],
+        all: bool = False,
+        with_shape: bool = False,
+    ) -> dict[str, Any]:
+        """Slice the vector variables in the target.
+
+        NOTE: since it does not participate in the simulation, all stateful attributes can be left \
+            unrecorded.
+        """
+        attrs = self.attrs(all)
+
+        for k, v in attrs.items():
+            # Flatten the array-like attributes
+            if isinstance(v, np.ndarray):
+                if with_shape:
+                    attrs[k] = v.reshape(self.varshape)[index]
+                else:
+                    attrs[k] = v.ravel()[index]
+
+        return attrs
+
+    def __getitem__(self, index) -> "NeuronSubView":
+        return NeuronSubView(self, index)
 
     @property
     def shape_in(self) -> tuple[int, ...]:
@@ -547,3 +592,56 @@ class Neuron(MetaNeuron, NeuDyn):
     @property
     def voltage(self) -> VoltageType:
         return self._vjt.reshape(self.varshape)
+
+
+class NeuronSubView(Neuron):
+    __gh_build_ignore__ = True
+
+    def __init__(
+        self,
+        target: Neuron,
+        index: Union[int, slice, tuple[Union[int, slice]]],
+        name: Optional[str] = None,
+    ) -> None:
+        if isinstance(index, (int, slice)):
+            index = (index,)
+
+        if len(index) > len(target.varshape):
+            raise ValueError(
+                f"index {index} is too long for target's shape {target.varshape}."
+            )
+
+        self.target = target
+        self.index = index
+
+        shape = []
+        for i, idx in enumerate(self.index):
+            if isinstance(idx, int):
+                shape.append(1)
+            elif isinstance(idx, slice):
+                shape.append(len(range(target.varshape[i])[idx]))
+            elif not isinstance(idx, Iterable):
+                raise TypeError(
+                    f"the index should be an iterable, but got {type(idx)}."
+                )
+            else:
+                shape.append(len(idx))
+
+        shape += list(target.varshape[len(self.index) :])
+
+        super().__init__(
+            shape,
+            **target._slice_attrs(self.index, with_shape=True),
+            keep_shape=target.keep_shape,
+            name=name,
+        )
+
+    def update(self, *args, **kwargs):
+        raise NotImplementedError(
+            f"{NeuronSubView.__name__} {self.name} cannot be updated."
+        )
+
+    def reset_state(self, *args, **kwargs):
+        raise NotImplementedError(
+            f"{NeuronSubView.__name__} {self.name} cannot be reset."
+        )

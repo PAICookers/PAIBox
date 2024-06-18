@@ -60,19 +60,19 @@ def cleandir():
         os.chdir(old_cwd)
 
 
-@pytest.fixture(autouse=True)
-def clean_name_dict():
-    """Clean the global name dictionary after each test automatically."""
-    yield
+def _reset_context() -> None:
     clear_name_cache(ignore_warn=True)
+    pb.FRONTEND_ENV["t"] = 0
+    pb.BACKEND_CONFIG.set_default()
+    SynSys.CFLAG_ENABLE_WP_OPTIMIZATION = True
 
 
 @pytest.fixture(autouse=True)
-def backend_context_setdefault():
-    """Set the default backend context after each test automatically."""
+def context_reset():
+    """Reset the context after each test automatically."""
+    _reset_context()
     yield
-    SynSys.CFLAG_ENABLE_WP_OPTIMIZATION = True
-    pb.BACKEND_CONFIG.set_default()
+    _reset_context()
 
 
 @pytest.fixture
@@ -210,51 +210,38 @@ class Nested_Net_L1(pb.DynSysGroup):
             weights=np.random.randint(-128, 127, (10, 10), dtype=np.int8),
         )
 
+        self.probe1 = pb.Probe(self.post_n, "spike")
+
 
 class Nested_Net_L2(pb.DynSysGroup):
-    """Level 2 nested network: inp1 -> s1 -> Nested_Net_L1 -> s2 -> Nested_Net_L1"""
+    """Level 2 nested network: n1 -> s1 -> subnet1 -> s2 -> subnet2"""
 
     def __init__(self, name: Optional[str] = None):
         super().__init__(name=name)
 
-        self.inp1 = pb.InputProj(1, shape_out=(10,))
+        self.n1 = pb.IF((10,), 1)
         self.subnet1 = Nested_Net_L1()
-        self.subnet2 = Nested_Net_L1(name="Named_SubNet_L1_1")
-        self.s1 = pb.FullConn(
-            self.inp1,
-            self.subnet1.pre_n,
-            conn_type=pb.SynConnType.One2One,
-        )
-        self.s2 = pb.FullConn(
-            self.subnet1.post_n,
-            self.subnet2.pre_n,
-            conn_type=pb.SynConnType.One2One,
-        )
+        self.subnet2 = Nested_Net_L1()
+        self.s1 = pb.FullConn(self.n1, self.subnet1.pre_n)
+        self.s2 = pb.FullConn(self.subnet1.post_n, self.subnet2.pre_n)
 
-        self.probe1 = pb.Probe(self.inp1, "spike")  # won't be discovered in level 3
+        self.probe1 = pb.Probe(self.n1, "spike")
+        self.probe2 = pb.Probe(self.subnet1.pre_n, "spike")
 
 
 class Nested_Net_L3(pb.DynSysGroup):
-    """Level 3 nested network: inp1 -> s1 -> Named_Nested_Net_L2"""
+    """Level 3 nested network: inp1 -> s1 -> subnet_L2_1"""
 
     def __init__(self):
         self.inp1 = pb.InputProj(1, shape_out=(10,))
-        subnet1 = Nested_Net_L2(name="Named_Nested_Net_L2")
-
-        self.subnet1_of_subnet1 = subnet1.subnet1
-
-        self.s1 = pb.FullConn(
-            self.inp1,
-            self.subnet1_of_subnet1.pre_n,
-            conn_type=pb.SynConnType.One2One,
-        )
+        subnet1 = Nested_Net_L2(name="subnet_L2_1")
+        self.s1 = pb.FullConn(self.inp1, subnet1.n1)
 
         super().__init__(subnet1)
 
-        self.probe1 = pb.Probe(self.inp1, "spike")
-        self.probe2 = pb.Probe(self.subnet1_of_subnet1.pre_n, "spike")
-        self.probe3 = pb.Probe(self.subnet1_of_subnet1.pre_n, "voltage")
-        self.probe4 = pb.Probe(subnet1.s1, "output")
+        self.probe1 = pb.Probe(self.inp1, "spike", name="pb_L3_1")
+        self.probe2 = pb.Probe(subnet1.n1, "spike", name="pb_L3_2")
+        self.probe3 = pb.Probe(subnet1.s1, "output", name="pb_L3_3")
 
 
 @pytest.fixture(scope="class")

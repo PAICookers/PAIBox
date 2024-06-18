@@ -44,19 +44,12 @@ except Exception:
 from paibox import tools
 
 # Minimum required version of paicorelib
-__plib_minimum_version__ = "1.1.4"
+__plib_minimum_version__ = "1.1.6"
 
 try:
     import paicorelib as plib
 
-    if hasattr(plib, "get_version"):  # For plib <= 0.0.12
-        raise ImportError(
-            tools.PLIB_UPDATE_INTRO.format(
-                __plib_minimum_version__, ".".join(map(str, plib.get_version()))  # type: ignore
-            )
-        ) from None
-
-    if plib.__version__ < __plib_minimum_version__:  # For plib > 0.0.12
+    if plib.__version__ < __plib_minimum_version__:  # For paicorelib > 0.0.12
         raise ImportError(
             tools.PLIB_UPDATE_INTRO.format(__plib_minimum_version__, plib.__version__)
         ) from None

@@ -24,7 +24,6 @@ _IdPathType: TypeAlias = tuple[int, int]
 
 
 class PAIBoxObject:
-    _excluded_vars = ()
     __avoid_name_conflict__: ClassVar[bool] = False
 
     def __init__(self, name: Optional[str] = None) -> None:
@@ -70,8 +69,7 @@ class PAIBoxObject:
         self,
         method: Literal["absolute", "relative"] = "absolute",
         level: int = -1,
-        include_self: bool = True,
-        find_recursive: bool = False,
+        include_self: bool = False,
     ) -> Collector[str, "PAIBoxObject"]:
         """Collect all child nodes.
 
@@ -79,21 +77,19 @@ class PAIBoxObject:
             - method: the method to find the nodes.
                 - "absolute": the name of the node it is looking for will be `v.name`.
                 - "relative": the name will be its attribute name, `x` in `self.x = v`.
-            - level: the level at which the search ends.
+            - level: the level at which the search ends. The default value is -1, which indicates   \
+                that all levels will be searched.
             - include_self: whether to include the current node itself.
-            - find_recursive: whether to search for nodes recursively until they are not found.
         """
-        return self._find_nodes(method, level, include_self, find_recursive)
+        return self._find_nodes(method, level, include_self)
 
     def _find_nodes(
         self,
         method: Literal["absolute", "relative"] = "absolute",
         level: int = -1,
-        include_self: bool = True,
-        find_recursive: bool = False,
+        include_self: bool = False,
         _lid: int = 0,
         _paths: Optional[set[_IdPathType]] = None,
-        _iter_termination: bool = False,
     ) -> Collector[str, "PAIBoxObject"]:
         if _paths is None:
             _paths = set()
@@ -106,33 +102,24 @@ class PAIBoxObject:
             else:
                 gather[""] = self
 
-        if find_recursive:
-            if _iter_termination:
-                return gather
-        else:
-            if (level > -1) and (_lid >= level):
-                return gather
-
-        iter_termi = True  # iteration termination flag
+        if (level > -1) and (_lid >= level):
+            return gather
 
         from .simulator import Probe
 
         def _find_nodes_absolute() -> None:
-            nonlocal gather, nodes, iter_termi
+            nonlocal gather, nodes
 
             for v in self.__dict__.values():
                 if isinstance(v, PAIBoxObject):
-                    iter_termi = False
                     _add_node2(self, v, _paths, gather, nodes)
                 elif isinstance(v, NodeList):
                     for v2 in v:
                         if isinstance(v2, PAIBoxObject):
-                            iter_termi = False
                             _add_node2(self, v2, _paths, gather, nodes)
                 elif isinstance(v, NodeDict):
                     for v2 in v.values():
                         if isinstance(v2, PAIBoxObject):
-                            iter_termi = False
                             _add_node2(self, v2, _paths, gather, nodes)
 
             # finding nodes recursively
@@ -142,31 +129,26 @@ class PAIBoxObject:
                         method=method,
                         level=level,
                         include_self=include_self,
-                        find_recursive=find_recursive,
                         _lid=_lid + 1,
                         _paths=_paths,
-                        _iter_termination=iter_termi,
                     )
                     if not isinstance(v, Probe)
                     else {}
                 )
 
         def _find_nodes_relative() -> None:
-            nonlocal gather, nodes, iter_termi
+            nonlocal gather, nodes
 
             for k, v in self.__dict__.items():
                 if isinstance(v, PAIBoxObject):
-                    iter_termi = False
                     _add_node1(self, k, v, _paths, gather, nodes)
                 elif isinstance(v, NodeList):
                     for i, v2 in enumerate(v):
                         if isinstance(v2, PAIBoxObject):
-                            iter_termi = False
                             _add_node1(self, f"{k}-{str(i)}", v2, _paths, gather, nodes)
                 elif isinstance(v, NodeDict):
                     for k2, v2 in v.items():
                         if isinstance(v2, PAIBoxObject):
-                            iter_termi = False
                             _add_node1(self, f"{k}.{k2}", v2, _paths, gather, nodes)
 
             # finding nodes recursively
@@ -176,10 +158,8 @@ class PAIBoxObject:
                         method=method,
                         level=level,
                         include_self=include_self,
-                        find_recursive=find_recursive,
                         _lid=_lid + 1,
                         _paths=_paths,
-                        _iter_termination=iter_termi,
                     ).items():
                         if k2:
                             gather[f"{k1}.{k2}"] = v2
@@ -280,18 +260,6 @@ class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
     def __init__(self, name: Optional[str] = None) -> None:
         super().__init__(name)
         self.master_nodes = NodeDict()
-
-    def export_params(self) -> dict[str, Any]:
-        """Export the parameters into dictionary."""
-        params = {}
-
-        for k, v in self.__dict__.items():
-            if k in self._excluded_vars:
-                continue
-
-            params.update({k.removeprefix("_"): v})
-
-        return params
 
     def is_working(self) -> bool:
         return (self.tick_wait_start > 0 and self.timestamp >= 0) and (

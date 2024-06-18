@@ -17,6 +17,7 @@ DataType = TypeVar("DataType", int, np.bool_, np.integer, np.ndarray)
 DataArrayType = TypeVar(
     "DataArrayType", int, np.bool_, np.integer, list[int], tuple[int, ...], np.ndarray
 )
+LeakVType: TypeAlias = NDArray[np.int32]
 SpikeType: TypeAlias = NDArray[np.bool_]
 SynOutType: TypeAlias = NDArray[np.int32]
 VoltageType: TypeAlias = NDArray[np.int32]

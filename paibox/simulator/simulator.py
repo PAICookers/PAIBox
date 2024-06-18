@@ -205,11 +205,7 @@ class Simulator(PAIBoxObject):
 
     def _add_inner_probes(self) -> None:
         # Find probes at all levels.
-        probe_nodes = (
-            self.target.nodes(include_self=False, find_recursive=True)
-            .subset(Probe)
-            .unique()
-        )
+        probe_nodes = self.target.nodes().subset(Probe).unique()
 
         for probe in probe_nodes.values():
             # Store the probe instances
