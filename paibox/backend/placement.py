@@ -6,56 +6,46 @@ import numpy as np
 
 from paicorelib import (
     LCN_EX,
-    AxonCoord,
-    AxonSegment,
     ChipCoord,
     Coord,
     CoreMode,
     HwConfig,
-    HwCore,
     MaxPoolingEnable,
 )
 from paicorelib import WeightPrecision as WP
-
-from paicorelib import __version__ as __plib_version__
-
-if __plib_version__ <= "1.1.4":
-    from paicorelib import CoreModeDict
-
-from paibox.base import NeuDyn, PAIBoxObject
-from paibox.components import FullConnectedSyn
+from paibox.components import FullConnectedSyn, Neuron
 from paibox.exceptions import GraphBuildError, ResourceError, TruncationWarning
 from paibox.types import WeightType
 from paibox.utils import check_attr_same, count_unique_elem
 
 from .conf_template import CoreConfig, CorePlmConfig, EmptyCorePlmConfig, NeuronConfig
 from .context import _BACKEND_CONTEXT
-from .types import DestNodeType, SourceNodeType, WeightRamType, _COORD_UNSET
-from .segment_utils import (
-    NeuSeg,
+from .types import (
+    AxonCoord,
+    AxonSegment,
+    CoreAbstract,
+    DestNodeType,
+    NeuSegment,
     NeuSegOfCoreBlock,
     NeuSegOfCorePlm,
+    SourceNodeType,
+    WeightRamType,
+    _COORD_UNSET,
+)
+from .segment_utils import (
     aligned_coords,
     get_axon_segments,
     get_neu_segments,
 )
 
 
-class CoreAbstract(HwCore, PAIBoxObject):
-    SUPPORTED_MODE: ClassVar[tuple[CoreMode, ...]] = (CoreMode.MODE_SNN,)
-    """Supported core modes."""
-
-
 class CoreBlock(CoreAbstract):
-    """Core Block for `MODE_SNN` ONLY."""
-
-    RUNTIME_MODE: ClassVar[CoreMode] = CoreMode.MODE_SNN
-
     def __init__(
         self,
         *parents: FullConnectedSyn,
         routing_id: int,
         seed: int,
+        mode: CoreMode = CoreMode.MODE_SNN,
         name: Optional[str] = None,
     ) -> None:
         """Core blocks in SNN mode.
@@ -64,13 +54,16 @@ class CoreBlock(CoreAbstract):
             - parents: the parent synapses.
             - routing_id: id of routing group.
             - seed: random seed. Default value is 0.
+            - mode: runtime mode of the core block. Default value is `MODE_SNN`.
             - name: name of the core block. Optional.
         """
         super().__init__(name)
         self._parents = parents
-        self._lcn_ex = self._n_axon2lcn_ex()
         self._wp = WP.WEIGHT_WIDTH_8BIT  # default value
         self._routing_id = routing_id
+        self.runtime_mode = mode
+        
+        self._lcn_ex = self._n_axon2lcn_ex()
 
         self.seed = seed
         """Random seed, legal integer, no more than uint64."""
@@ -190,7 +183,7 @@ class CoreBlock(CoreAbstract):
     def neuron_capacity(self) -> int:
         """Neuron capacity. #N of valid dendrites/#N of dendrites required per neuron.
 
-        FIXME This method ONLY works in SNN RUNTIME_MODE. For ANN RUNTIME_MODE, use table lookup?
+        FIXME This method ONLY works in SNN runtime_mode. For ANN runtime_mode, use table lookup?
         """
         return (self.n_dendrite_max >> self.lcn_ex) // self.n_dendrite_per_neuron
 
@@ -199,7 +192,7 @@ class CoreBlock(CoreAbstract):
         """Maximum #N of fan-in per dendrite."""
         return (
             HwConfig.N_FANIN_PER_DENDRITE_ANN
-            if self.RUNTIME_MODE is CoreMode.MODE_ANN
+            if self.runtime_mode is CoreMode.MODE_ANN
             else HwConfig.N_FANIN_PER_DENDRITE_SNN
         )
 
@@ -272,7 +265,7 @@ class CoreBlock(CoreAbstract):
     def n_dendrite_max(self) -> int:
         return (
             HwConfig.N_DENDRITE_MAX_ANN
-            if self.RUNTIME_MODE is CoreMode.MODE_ANN
+            if self.runtime_mode is CoreMode.MODE_ANN
             else HwConfig.N_DENDRITE_MAX_SNN
         )
 
@@ -288,7 +281,7 @@ class CoreBlock(CoreAbstract):
     def n_neuron_of_plm(self) -> list[int]:
         """A list of the #N of neurons on each `CorePlacement`.
 
-        FIXME Different in SNN/ANN RUNTIME_MODE.
+        FIXME Different in SNN/ANN runtime_mode.
         """
         if len(self.core_coords) == 0:
             raise GraphBuildError(f"do this after coordinates assignment.")
@@ -343,8 +336,8 @@ class CoreBlock(CoreAbstract):
         w_of_neu_segs: list[WeightType] = []
 
         for neu_seg in self.neuron_segs_of_cb[idx]:
-            w_of_dest = self.raw_weight_of_dest[self.dest.index(neu_seg.parent)]
-            w_of_neu_seg = w_of_dest[:, neu_seg.segment.index].copy()
+            w_of_dest = self.raw_weight_of_dest[self.dest.index(neu_seg.target)]
+            w_of_neu_seg = w_of_dest[:, neu_seg.index].copy()
             w_of_neu_seg.setflags(write=False)
             w_of_neu_segs.append(w_of_neu_seg)
 
@@ -424,7 +417,7 @@ class CorePlacement(CoreAbstract):
         """The folded weights."""
 
         self.neu_segs_of_cplm = neu_segs_of_cplm
-        self.neu_configs: dict[NeuDyn, NeuronConfig] = dict()
+        self.neu_configs: dict[Neuron, NeuronConfig] = dict()
 
     @classmethod
     def build(cls, parent: CoreBlock, idx: int):
@@ -556,10 +549,7 @@ class CorePlacement(CoreAbstract):
         return w_folded
 
     def export_param_config(self) -> CoreConfig:
-        if __plib_version__ > "1.1.4":
-            _mode_params = self.mode.conf
-        else:
-            _mode_params = CoreModeDict[self.mode]
+        _mode_params = self.mode.conf
 
         # fmt: off
         cb_config = CoreConfig(
@@ -581,13 +571,13 @@ class CorePlacement(CoreAbstract):
 
     @overload
     def export_neu_config(
-        self, neu_seg: NeuSeg, axon_dests: list[CoreBlock]
+        self, neu_seg: NeuSegment, axon_dests: list[CoreBlock]
     ) -> None: ...
 
     @overload
     def export_neu_config(
         self,
-        neu_seg: NeuSeg,
+        neu_seg: NeuSegment,
         *,
         output_core_coord: Coord,
         axon_addr_offset: int,
@@ -595,7 +585,7 @@ class CorePlacement(CoreAbstract):
 
     def export_neu_config(
         self,
-        neu_seg: NeuSeg,
+        neu_seg: NeuSegment,
         axon_dests: Optional[list[CoreBlock]] = None,
         output_core_coord: Optional[Coord] = None,
         axon_addr_offset: Optional[int] = None,
@@ -603,9 +593,9 @@ class CorePlacement(CoreAbstract):
         """Export the neuron configuration."""
         if isinstance(axon_dests, list):
             axon_coords = aligned_coords(
-                neu_seg.segment.index,
-                axon_dests[0].axon_segments[neu_seg.parent],
-                neu_seg.parent.delay_relative,
+                neu_seg.index,
+                axon_dests[0].axon_segments[neu_seg.target],
+                neu_seg.target.delay_relative,
                 axon_dests[0].n_timeslot,
             )
 
@@ -617,16 +607,10 @@ class CorePlacement(CoreAbstract):
                 dest_core_coords.extend(ad.core_coords)
 
             config = NeuronConfig.encapsulate(
-                neu_seg.parent,
-                neu_seg.n_neuron,
-                neu_seg.segment.addr_ram,
-                neu_seg.segment.addr_offset,
-                axon_coords,
-                dest_core_coords,
-                axon_dests[0].chip_coord,
+                neu_seg, axon_coords, dest_core_coords, axon_dests[0].chip_coord
             )
 
-            self.neu_configs[neu_seg.parent] = config
+            self.neu_configs[neu_seg.target] = config
         else:
             # neu_seg is a part of an output node
             assert isinstance(output_core_coord, Coord)
@@ -638,17 +622,14 @@ class CorePlacement(CoreAbstract):
             ]
 
             config = NeuronConfig.encapsulate(
-                neu_seg.parent,
-                neu_seg.n_neuron,
-                neu_seg.segment.addr_ram,
-                neu_seg.segment.addr_offset,
+                neu_seg,
                 axon_coords,
                 [output_core_coord],
                 # output chip coordinate for output node
                 _BACKEND_CONTEXT["output_chip_addr"],
             )
 
-            self.neu_configs[neu_seg.parent] = config
+            self.neu_configs[neu_seg.target] = config
 
             return axon_addr_offset + neu_seg.n_neuron
 
@@ -656,15 +637,12 @@ class CorePlacement(CoreAbstract):
         core_param = self.export_param_config()
 
         return CorePlmConfig.encapsulate(
-            self.parent.seed,
-            self.weight_ram,
-            core_param,
-            self.neu_configs,
+            self.parent.seed, self.weight_ram, core_param, self.neu_configs
         )
 
     @property
     def mode(self) -> CoreMode:
-        return self.parent.RUNTIME_MODE
+        return self.parent.runtime_mode
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -716,7 +694,7 @@ class CorePlacement(CoreAbstract):
 
         NOTE: This attribute is different from the one of its parent.
         """
-        return [p.parent for p in self.neu_segs_of_cplm]
+        return [p.target for p in self.neu_segs_of_cplm]
 
     @property
     def weight_ram(self) -> WeightRamType:
@@ -745,10 +723,7 @@ class EmptyCorePlacement(CoreAbstract):
         self.coord = coord
 
     def export_param_config(self) -> CoreConfig:
-        if __plib_version__ > "1.1.4":
-            _mode_params = CoreMode.MODE_SNN.conf
-        else:
-            _mode_params = CoreModeDict[CoreMode.MODE_SNN]
+        _mode_params = CoreMode.MODE_SNN.conf
 
         # fmt: off
         cb_config = CoreConfig(
