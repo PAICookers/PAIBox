@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 from paicorelib import (
     LCN_EX,
-    AxonCoord,
     Coord,
     CoordOffset,
     InputWidthFormat,
@@ -28,8 +27,8 @@ from paibox.backend.conf_template import (
     NeuronDest,
     NeuronDestInfo,
 )
-from paibox.backend.placement import NeuSeg
 from paibox.backend.routing import RoutingCluster
+from paibox.backend.types import AxonCoord, AxonSegment, NeuSegment
 from paibox.exceptions import ResourceError
 from paibox.node import NodeList
 from tests.conftest import ParametrizedTestData
@@ -1584,7 +1583,75 @@ class TestData:
                         NeuSeg(_nb[4], NeuronSegment(slice(75 * 2, 75 * 3, 1), 0, 2)),
                         NeuSeg(_nb[3], NeuronSegment(slice(67 * 2, 200, 1), 150, 2)),
                     ],
-                    [NeuSeg(_nb[4], NeuronSegment(slice(75 * 3, 75 * 4, 1), 0, 2))],
+                    [NeuSegment(_nb[4], slice(75 * 3, 75 * 4, 1), 0, 2)],
+                ],
+            ),
+        ],
+    )
+
+    aligned_coords_test_data = ParametrizedTestData(
+        args="neu_index, axon_seg, delay, n_timeslot, expected",
+        data=[
+            (
+                slice(5, 8),
+                AxonSegment(12, 3, 0),
+                1,
+                1 << 1,
+                [
+                    AxonCoord(1, 2),
+                    AxonCoord(2, 0),
+                    AxonCoord(2, 1),
+                ],
+            ),
+            (
+                slice(0, 3),
+                AxonSegment(12, 3, 0),
+                2,
+                1 << 1,
+                [
+                    AxonCoord(2 + 0, 0),
+                    AxonCoord(2 + 0, 1),
+                    AxonCoord(2 + 0, 2),
+                ],
+            ),
+            (
+                slice(1, 5),
+                AxonSegment(12, 3, 0),
+                2,
+                1 << 2,
+                [
+                    AxonCoord(4 + 0, 1),
+                    AxonCoord(4 + 0, 2),
+                    AxonCoord(4 + 1, 0),
+                    AxonCoord(4 + 1, 1),
+                ],
+            ),
+            (
+                slice(1, 6),
+                AxonSegment(12, 3, 0),
+                4,
+                1 << 3,
+                [
+                    AxonCoord(24 + 0, 1),
+                    AxonCoord(24 + 0, 2),
+                    AxonCoord(24 + 1, 0),
+                    AxonCoord(24 + 1, 1),
+                    AxonCoord(24 + 1, 2),
+                ],
+            ),
+            (
+                slice(3, 10),
+                AxonSegment(16, 4, 4),
+                4,
+                1 << 4,
+                [
+                    AxonCoord(48 + 0, 4 + 3),
+                    AxonCoord(48 + 1, 4 + 0),
+                    AxonCoord(48 + 1, 4 + 1),
+                    AxonCoord(48 + 1, 4 + 2),
+                    AxonCoord(48 + 1, 4 + 3),
+                    AxonCoord(48 + 2, 4 + 0),
+                    AxonCoord(48 + 2, 4 + 1),
                 ],
             ),
         ],

@@ -1,36 +1,12 @@
-from enum import Enum
-from json import JSONEncoder
-from math import ceil
-from typing import Any
-
 import numpy as np
 import pytest
-from paicorelib import Coord, HwConfig
-
 import paibox as pb
-from paibox.backend.conf_template import CoreConfig, NeuronDest, NeuronDestInfo
+from math import ceil
+from paicorelib import Coord, HwConfig
 from paibox.base import SynSys
 from paibox.exceptions import ResourceError
 
 from .conftest import TestData
-
-
-class CustomJsonEncoder(JSONEncoder):
-    def default(self, o: Any) -> Any:
-        if isinstance(o, Coord):
-            return o.address
-        elif isinstance(o, Enum):
-            return o.value
-        elif isinstance(o, np.ndarray):
-            return o.tolist()
-        elif isinstance(o, CoreConfig):
-            return o.__json__()
-        elif isinstance(o, NeuronDest):
-            return o.__json__()
-        elif isinstance(o, NeuronDestInfo):
-            return o.model_dump(by_alias=True)
-        else:
-            return super().default(o)
 
 
 class TestGraphInfo:
