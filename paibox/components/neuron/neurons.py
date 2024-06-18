@@ -1,6 +1,6 @@
-import numpy as np
 from typing import Optional
 
+import numpy as np
 from paicorelib import LDM, NTM, RM
 
 from paibox.types import DataArrayType, Shape

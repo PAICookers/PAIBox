@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from functools import partial
 from math import ceil
 from typing import Literal
+
 from paibox.components import Neuron
 from paibox.exceptions import ParameterInvalidWarning, ResourceError
 

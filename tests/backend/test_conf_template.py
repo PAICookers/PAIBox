@@ -1,8 +1,8 @@
 import json
 
-import paibox as pb
 from paicorelib import Coord
 
+import paibox as pb
 from paibox.backend.conf_template import (
     export_core_params_json,
     export_core_plm_conf_json,
@@ -17,7 +17,7 @@ try:
     print("Use orjson")
 except ModuleNotFoundError:
     print("Use json")
-    
+
 
 class TestConfExport:
     def test_export_core_params_json(self, ensure_dump_dir, MockCoreConfigDict):

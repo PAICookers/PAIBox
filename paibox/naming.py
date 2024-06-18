@@ -51,4 +51,4 @@ def clear_name_cache(ignore_warn: bool = False) -> None:
     _type_names.clear()
 
     if not ignore_warn:
-        warnings.warn(f"all named models & ids are cleared.", PAIBoxWarning)
+        warnings.warn("all named models & ids are cleared.", PAIBoxWarning)

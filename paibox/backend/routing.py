@@ -88,7 +88,7 @@ class RoutingCluster:
     ) -> bool:
         if self.level == Level.L0:
             # L0-level cluster cannot add child.
-            raise AttributeError(f"L0-level cluster cannot add child.")
+            raise AttributeError("L0-level cluster cannot add child.")
 
         if self.is_full():
             return False
@@ -104,7 +104,7 @@ class RoutingCluster:
     ) -> bool:
         """Add a child cluster to a certain `direction`."""
         if self.level - child.level != 1:
-            raise ValueError(f"cannot skip more than 1 level.")
+            raise ValueError("cannot skip more than 1 level.")
 
         if d in self:
             return False
@@ -179,7 +179,7 @@ class RoutingCluster:
         """
         if cluster.level > self.level:
             raise ValueError(
-                f"cannot get routing path because the level cluster is higher."
+                "cannot get routing path because the level cluster is higher."
             )
 
         if cluster.level == self.level:
@@ -350,7 +350,7 @@ class RoutingCluster:
             raise ValueError(f"#N of branches out of range, got {n_branch}.")
 
         if lx == Level.L0:
-            raise ValueError(f"do not create L0-level node directly.")
+            raise ValueError("do not create L0-level node directly.")
 
         root = RoutingCluster(lx, Direction.X0Y0)
 
@@ -377,7 +377,7 @@ class RoutingCluster:
             raise RoutingError("available L1 cluster not found.")
 
         if not L1_cluster.add_child(cluster):
-            raise RoutingError(f"add child to L1 cluster failed.")
+            raise RoutingError("add child to L1 cluster failed.")
 
         return cluster
 

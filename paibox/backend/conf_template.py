@@ -1,7 +1,6 @@
 import sys
 from enum import Enum
 from pathlib import Path
-from pydantic import BaseModel
 from typing import Any, ClassVar, NamedTuple, TypedDict, Union
 
 import numpy as np
@@ -17,15 +16,18 @@ from paicorelib import (
     NeuronAttrs,
     NeuronDestInfo,
     ParamsReg,
+)
+from paicorelib import ReplicationId as RId
+from paicorelib import (
     SNNModeEnable,
     SpikeWidthFormat,
     WeightPrecision,
     get_replication_id,
 )
-from paicorelib import ReplicationId as RId
 from paicorelib.framelib import types as flib_types
 from paicorelib.framelib.frame_gen import OfflineFrameGen
 from paicorelib.framelib.utils import np2bin, np2npy, np2txt
+from pydantic import BaseModel
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias
@@ -450,7 +452,7 @@ def gen_config_frames_by_coreconf(
             f = np.concatenate(
                 list(frame_arrays_on_core.values()), dtype=FRAME_DTYPE, casting="no"
             )
-            _write_to_f(f"config_cores_all", f)
+            _write_to_f("config_cores_all", f)
 
     return frame_arrays_on_core
 

@@ -104,7 +104,7 @@ class InputProj(Projection, TimeRelatedNode):
         # Otherwise, use the output of `_func_input`.
         if self._num_input is None:
             if self._func_input is None:
-                raise SimulationError(f"both numeric & functional input are not set.")
+                raise SimulationError("both numeric & functional input are not set.")
             else:
                 return _call_with_ctx(self._func_input, **kwargs)
 

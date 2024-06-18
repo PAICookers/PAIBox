@@ -3,16 +3,9 @@ from functools import cached_property
 from typing import ClassVar, Literal, Optional, overload
 
 import numpy as np
-
-from paicorelib import (
-    LCN_EX,
-    ChipCoord,
-    Coord,
-    CoreMode,
-    HwConfig,
-    MaxPoolingEnable,
-)
+from paicorelib import LCN_EX, ChipCoord, Coord, CoreMode, HwConfig, MaxPoolingEnable
 from paicorelib import WeightPrecision as WP
+
 from paibox.components import FullConnectedSyn, Neuron
 from paibox.exceptions import GraphBuildError, ResourceError, TruncationWarning
 from paibox.types import WeightType
@@ -20,7 +13,9 @@ from paibox.utils import check_attr_same, count_unique_elem
 
 from .conf_template import CoreConfig, CorePlmConfig, EmptyCorePlmConfig, NeuronConfig
 from .context import _BACKEND_CONTEXT
+from .segment_utils import aligned_coords, get_axon_segments, get_neu_segments
 from .types import (
+    _COORD_UNSET,
     AxonCoord,
     AxonSegment,
     CoreAbstract,
@@ -30,12 +25,6 @@ from .types import (
     NeuSegOfCorePlm,
     SourceNodeType,
     WeightRamType,
-    _COORD_UNSET,
-)
-from .segment_utils import (
-    aligned_coords,
-    get_axon_segments,
-    get_neu_segments,
 )
 
 
@@ -62,7 +51,7 @@ class CoreBlock(CoreAbstract):
         self._wp = WP.WEIGHT_WIDTH_8BIT  # default value
         self._routing_id = routing_id
         self.runtime_mode = mode
-        
+
         self._lcn_ex = self._n_axon2lcn_ex()
 
         self.seed = seed
@@ -284,7 +273,7 @@ class CoreBlock(CoreAbstract):
         FIXME Different in SNN/ANN runtime_mode.
         """
         if len(self.core_coords) == 0:
-            raise GraphBuildError(f"do this after coordinates assignment.")
+            raise GraphBuildError("do this after coordinates assignment.")
 
         # Get #N of neurons on each `CorePlacement` according to the
         # maximum address required of neuron segments on each `CorePlacement`.

@@ -1,8 +1,10 @@
+from math import ceil
+
 import numpy as np
 import pytest
-import paibox as pb
-from math import ceil
 from paicorelib import Coord, HwConfig
+
+import paibox as pb
 from paibox.base import SynSys
 from paibox.exceptions import ResourceError
 

@@ -1,19 +1,13 @@
-from typing import Union
 import warnings
+from typing import Union
 
 import numpy as np
+from paicorelib.ram_model import LEAK_V_BIT_MAX, LEAK_V_MAX, LEAK_V_MIN
+from paicorelib.ram_model import NEG_THRES_MAX as NEG_THRES_UNSIGNED_MAX
+from paicorelib.ram_model import VJT_MAX, VJT_MIN, VJT_PRE_BIT_MAX
 
 from paibox.exceptions import FunctionalError, PAIBoxWarning
 from paibox.types import LeakVType, VoltageType
-from paicorelib.ram_model import (
-    LEAK_V_BIT_MAX,
-    LEAK_V_MAX,
-    LEAK_V_MIN,
-    VJT_MAX,
-    VJT_MIN,
-    VJT_PRE_BIT_MAX,
-)
-from paicorelib.ram_model import NEG_THRES_MAX as NEG_THRES_UNSIGNED_MAX
 
 NEG_THRES_MIN = -NEG_THRES_UNSIGNED_MAX
 

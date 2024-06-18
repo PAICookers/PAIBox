@@ -29,9 +29,9 @@ from .graphs import (
     get_node_degrees,
     get_succ_cb_by_node,
 )
-from .types import NodeDegree, NodeType, NeuSegment, SourceNodeType
 from .placement import CoreBlock, aligned_coords, max_lcn_of_cb
 from .routing import RoutingGroup, RoutingRoot
+from .types import NeuSegment, NodeDegree, NodeType, SourceNodeType
 
 __all__ = ["Mapper"]
 

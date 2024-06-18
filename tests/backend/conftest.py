@@ -5,20 +5,17 @@ from typing import Optional
 import numpy as np
 import pytest
 from paicorelib import (
-    HwConfig,
     LCN_EX,
     Coord,
     CoordOffset,
     CoreMode,
+    HwConfig,
     MaxPoolingEnable,
     RoutingDirection,
     RoutingLevel,
 )
 from paicorelib import WeightPrecision as WP
-from paicorelib.reg_model import (
-    TICK_WAIT_START_MAX,
-    TICK_WAIT_END_MAX,
-)
+from paicorelib.reg_model import TICK_WAIT_END_MAX, TICK_WAIT_START_MAX
 
 import paibox as pb
 from paibox.backend.conf_template import (

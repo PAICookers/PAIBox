@@ -27,7 +27,7 @@ from paibox.utils import (
     shape2num,
 )
 
-from .utils import NEG_THRES_MIN, vjt_overflow, _is_leak_v_overflow
+from .utils import NEG_THRES_MIN, _is_leak_v_overflow, vjt_overflow
 
 __all__ = ["Neuron"]
 

@@ -260,8 +260,7 @@ class TestPAIGraph:
 
         assert (
             len(mapper.graph.nodes)
-            == len(net.nodes(level=1).include(Neuron, pb.InputProj))
-            + net.n_copy
+            == len(net.nodes(level=1).include(Neuron, pb.InputProj)) + net.n_copy
         )
 
 

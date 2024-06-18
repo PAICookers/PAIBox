@@ -32,7 +32,8 @@ def test_NeuronParams_instance(ensure_dump_dir):
     n2 = pb.LIF((4, 4, 4), 3, reset_v=-20, leak_v=-2, bias=np.arange(4))
 
     attrs = NeuronAttrs.model_validate(
-        n2._slice_attrs(slice(2 * 4 * 4 - 10, 3 * 4 * 4 + 2, 1), with_shape=True), strict=True
+        n2._slice_attrs(slice(2 * 4 * 4 - 10, 3 * 4 * 4 + 2, 1), with_shape=True),
+        strict=True,
     )
     attrs_dict = attrs.model_dump(by_alias=True)
 

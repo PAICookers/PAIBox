@@ -1,18 +1,18 @@
-from abc import ABC, abstractmethod
 import sys
-
-import numpy as np
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum, auto, unique
-from numpy.typing import NDArray
 from typing import Any, NamedTuple, Union
+
+import numpy as np
+from numpy.typing import NDArray
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias
 else:
     from typing_extensions import TypeAlias
 
-from paicorelib import HwConfig, CoreMode
+from paicorelib import CoreMode, HwConfig
 
 from paibox.base import NeuDyn, PAIBoxObject
 from paibox.components import FullConnectedSyn, InputProj, Neuron

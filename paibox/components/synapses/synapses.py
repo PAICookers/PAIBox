@@ -121,7 +121,7 @@ class Conv1d(Conv1dSyn):
         NOTE: See https://pytorch.org/docs/stable/generated/torch.nn.Conv1d.html#torch.nn.Conv1d for details.
         """
         if kernel_order not in ("OIL", "IOL"):
-            raise ValueError(f"kernel order must be 'OIL' or 'IOL'.")
+            raise ValueError("kernel order must be 'OIL' or 'IOL'.")
 
         super().__init__(
             source,
@@ -163,7 +163,7 @@ class Conv2d(Conv2dSyn):
         NOTE: See https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html#torch.nn.Conv2d for details.
         """
         if kernel_order not in ("OIHW", "IOHW"):
-            raise ValueError(f"kernel order must be 'OIHW' or 'IOHW'.")
+            raise ValueError("kernel order must be 'OIHW' or 'IOHW'.")
 
         super().__init__(
             source,
@@ -209,7 +209,7 @@ class ConvTranspose1d(ConvTranspose1dSyn):
             for details.
         """
         if kernel_order not in ("OIL", "IOL"):
-            raise ValueError(f"kernel order must be 'OIL' or 'IOL'.")
+            raise ValueError("kernel order must be 'OIL' or 'IOL'.")
 
         super().__init__(
             source,
@@ -259,7 +259,7 @@ class ConvTranspose2d(ConvTranspose2dSyn):
             for details.
         """
         if kernel_order not in ("OIHW", "IOHW"):
-            raise ValueError(f"kernel order must be 'OIHW' or 'IOHW'.")
+            raise ValueError("kernel order must be 'OIHW' or 'IOHW'.")
 
         super().__init__(
             source,
