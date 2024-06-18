@@ -66,7 +66,7 @@ class MetaNeuron:
         self.leak_comparison: LCM = leak_comparison
         self.threshold_mask_bits: int = threshold_mask_bits
         self.neg_thres_mode: NTM = neg_thres_mode
-        self.neg_threshold: int = neg_threshold  # Unsigned 29-bit
+        self.neg_threshold: int = (-1) * neg_threshold  # Unsigned 29-bit
         self.pos_threshold: int = pos_threshold  # Unsigned 29-bit
         self.leak_direction: LDM = leak_direction
         self.leak_integr: LIM = leak_integr
@@ -402,6 +402,10 @@ class Neuron(MetaNeuron, NeuDyn):
         keep_shape: bool = True,
         name: Optional[str] = None,
     ) -> None:
+        if neg_threshold > 0:
+            # XXX *(-1) if passing a negative threshold > 0
+            neg_threshold = (-1) * neg_threshold
+
         super().__init__(
             shape,
             reset_mode,
@@ -409,8 +413,7 @@ class Neuron(MetaNeuron, NeuDyn):
             leak_comparison,
             threshold_mask_bits,
             neg_thres_mode,
-            # In `MetaNeuron`, it is unsigned.
-            (-arg_check_non_pos(neg_threshold, "negative threshold")),
+            arg_check_non_pos(neg_threshold, "negative threshold"),
             arg_check_non_neg(pos_threshold, "positive threshold"),
             leak_direction,
             leak_integration_mode,
@@ -510,7 +513,7 @@ class Neuron(MetaNeuron, NeuDyn):
             "leak_comparison": self.leak_comparison,
             "threshold_mask_bits": self.threshold_mask_bits,
             "neg_thres_mode": self.neg_thres_mode,
-            "neg_threshold": (-1) * self.neg_threshold,
+            "neg_threshold": self.neg_threshold,
             "pos_threshold": self.pos_threshold,
             "leak_direction": self.leak_direction,
             "leak_integration_mode": self.leak_integr,
