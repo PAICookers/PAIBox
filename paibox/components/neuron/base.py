@@ -589,3 +589,56 @@ class Neuron(MetaNeuron, NeuDyn):
     @property
     def voltage(self) -> VoltageType:
         return self._vjt.reshape(self.varshape)
+
+
+class NeuronSubView(Neuron):
+    __gh_build_ignore__ = True
+
+    def __init__(
+        self,
+        target: Neuron,
+        index: Union[int, slice, tuple[Union[int, slice]]],
+        name: Optional[str] = None,
+    ) -> None:
+        if isinstance(index, (int, slice)):
+            index = (index,)
+
+        if len(index) > len(target.varshape):
+            raise ValueError(
+                f"index {index} is too long for target's shape {target.varshape}."
+            )
+
+        self.target = target
+        self.index = index
+
+        shape = []
+        for i, idx in enumerate(self.index):
+            if isinstance(idx, int):
+                shape.append(1)
+            elif isinstance(idx, slice):
+                shape.append(len(range(target.varshape[i])[idx]))
+            elif not isinstance(idx, Iterable):
+                raise TypeError(
+                    f"the index should be an iterable, but got {type(idx)}."
+                )
+            else:
+                shape.append(len(idx))
+
+        shape += list(target.varshape[len(self.index) :])
+
+        super().__init__(
+            shape,
+            **target._slice_attrs(self.index, with_shape=True),
+            keep_shape=target.keep_shape,
+            name=name,
+        )
+
+    def update(self, *args, **kwargs):
+        raise NotImplementedError(
+            f"{NeuronSubView.__name__} {self.name} cannot be updated."
+        )
+
+    def reset_state(self, *args, **kwargs):
+        raise NotImplementedError(
+            f"{NeuronSubView.__name__} {self.name} cannot be reset."
+        )
