@@ -1,44 +1,35 @@
+from typing import Union
 import warnings
 
 import numpy as np
 
 from paibox.exceptions import FunctionalError, PAIBoxWarning
-from paibox.types import VoltageType
-from paicorelib import __version__ as __plib_version__
+from paibox.types import LeakVType, VoltageType
+from paicorelib.ram_model import (
+    LEAK_V_BIT_MAX,
+    LEAK_V_MAX,
+    LEAK_V_MIN,
+    VJT_MAX,
+    VJT_MIN,
+    VJT_PRE_BIT_MAX,
+)
+from paicorelib.ram_model import NEG_THRES_MAX as NEG_THRES_UNSIGNED_MAX
 
-if __plib_version__ > "1.1.4":
-    from paicorelib.ram_model import PRN_THRES_BIT_MAX, NEGATIVE_THRES_BIT_MAX
-else:
-    PRN_THRES_BIT_MAX = 29
-    NEGATIVE_THRES_BIT_MAX = 29
-
-try:
-    from paicorelib.framelib.frame_defs import _mask
-    from paicorelib.ram_model import (
-        LEAK_V_BIT_MAX,
-        VJT_PRE_BIT_MAX,
-    )
-except ImportError:
-
-    def _mask(mask_bit: int) -> int:
-        return (1 << mask_bit) - 1
-
-    LEAK_V_BIT_MAX = 30
-    VJT_PRE_BIT_MAX = 30
+NEG_THRES_MIN = -NEG_THRES_UNSIGNED_MAX
 
 
-VJT_MAX_LIMIT = _mask(VJT_PRE_BIT_MAX - 1)
-VJT_MIN_LIMIT = -(VJT_MAX_LIMIT + 1)
-VJT_LIMIT = VJT_MAX_LIMIT - VJT_MIN_LIMIT
-VJT_OVERFLOW_TEXT = f"Membrane potential overflow, beyond the range of {VJT_PRE_BIT_MAX}-bit signed integer."
-NEG_THRES_MIN = -_mask(NEGATIVE_THRES_BIT_MAX)
-LEAK_V_MAX = _mask(LEAK_V_BIT_MAX - 1)
+SIGNED_PARAM_OVERFLOW_TEXT = "{0} overflow, beyond the range of {1}-bit signed integer."
+VJT_OVERFLOW_TEXT = SIGNED_PARAM_OVERFLOW_TEXT.format(
+    "membrane potential", VJT_PRE_BIT_MAX
+)
+LEAK_V_OVERFLOW_TEXT = SIGNED_PARAM_OVERFLOW_TEXT.format("leak voltage", LEAK_V_BIT_MAX)
+VJT_RANGE_LIMIT = VJT_MAX - VJT_MIN
 
 
 def _is_vjt_overflow(vjt: VoltageType, strict: bool = False) -> bool:
     # NOTE: In most cases, membrane potential overflow won't occur,
     # otherwise the result is incorrect.
-    if np.any(vjt > VJT_MAX_LIMIT) or np.any(vjt < VJT_MIN_LIMIT):
+    if np.any(vjt > VJT_MAX) or np.any(vjt < VJT_MIN):
         if strict:
             raise FunctionalError(VJT_OVERFLOW_TEXT)
         else:
@@ -52,18 +43,31 @@ def _is_vjt_overflow(vjt: VoltageType, strict: bool = False) -> bool:
 def vjt_overflow(vjt: VoltageType, strict: bool = False) -> VoltageType:
     """Handle the overflow of the membrane potential.
 
-    NOTE: If the incoming membrane potential (30-bit signed) overflows, the chip\
-        will automatically handle it. This behavior needs to be implemented in  \
-        simulation.
+    NOTE: If the incoming membrane potential (30-bit signed) overflows, the chip will   \
+        automatically handle it. This behavior needs to be implemented in simulation.
     """
     _is_vjt_overflow(vjt, strict)
 
     return np.where(
-        vjt > VJT_MAX_LIMIT,
-        vjt - VJT_LIMIT,
+        vjt > VJT_MAX,
+        vjt - VJT_RANGE_LIMIT,
         np.where(
-            vjt < VJT_MIN_LIMIT,
-            vjt + VJT_LIMIT,
+            vjt < VJT_MIN,
+            vjt + VJT_RANGE_LIMIT,
             vjt,
         ),
     ).astype(np.int32)
+
+
+def _is_leak_v_overflow(leak_v: Union[int, LeakVType], strict: bool = True) -> None:
+    if isinstance(leak_v, int):
+        if leak_v > LEAK_V_MAX or leak_v < LEAK_V_MIN:
+            if strict:
+                raise FunctionalError(LEAK_V_OVERFLOW_TEXT)
+            else:
+                warnings.warn(LEAK_V_OVERFLOW_TEXT, PAIBoxWarning)
+    elif np.any(leak_v > LEAK_V_MAX) or np.any(leak_v < LEAK_V_MIN):
+        if strict:
+            raise FunctionalError(LEAK_V_OVERFLOW_TEXT)
+        else:
+            warnings.warn(LEAK_V_OVERFLOW_TEXT, PAIBoxWarning)
