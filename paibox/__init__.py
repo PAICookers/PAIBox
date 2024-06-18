@@ -44,7 +44,7 @@ except Exception:
 from paibox import tools
 
 # Minimum required version of paicorelib
-__plib_minimum_version__ = "1.1.4"
+__plib_minimum_version__ = "1.1.6"
 
 try:
     import paicorelib as plib
