@@ -5,18 +5,20 @@ from typing import Optional
 import numpy as np
 import pytest
 from paicorelib import (
+    HwConfig,
     LCN_EX,
     Coord,
     CoordOffset,
-    InputWidthFormat,
+    CoreMode,
     MaxPoolingEnable,
-    NeuronSegment,
     RoutingDirection,
     RoutingLevel,
-    SNNModeEnable,
-    SpikeWidthFormat,
 )
 from paicorelib import WeightPrecision as WP
+from paicorelib.reg_model import (
+    TICK_WAIT_START_MAX,
+    TICK_WAIT_END_MAX,
+)
 
 import paibox as pb
 from paibox.backend.conf_template import (
@@ -813,13 +815,13 @@ def get_mapper() -> pb.Mapper:
 def MockCoreConfigDict() -> CoreConfig:
     wp = random.choice(list(WP))
     lcn_ex = random.choice(list(LCN_EX))
-    iwf = random.choice(list(InputWidthFormat))
-    swf = random.choice(list(SpikeWidthFormat))
-    num_den = random.randint(1, 512)
+
+    iwf, swf, sme = random.choice(list(CoreMode)).conf
+
+    num_den = random.randint(1, HwConfig.N_DENDRITE_MAX_SNN)
     mpe = random.choice(list(MaxPoolingEnable))
-    tws = random.randint(0, 10)
-    twe = random.randint(10, 20)
-    sme = random.choice(list(SNNModeEnable))
+    tws = random.randint(0, TICK_WAIT_START_MAX)
+    twe = random.randint(0, TICK_WAIT_END_MAX)
     target_lcn = random.choice(list(LCN_EX))
     test_chip_addr = Coord(random.randint(0, 31), random.randint(0, 31))
 
@@ -841,29 +843,29 @@ def MockCoreConfigDict() -> CoreConfig:
 
 @pytest.fixture
 def MockNeuronConfig() -> NeuronConfig:
-    n = random.randint(10, 200)
+    n_channel = 3
+    _n_per_ch = random.randint(20, 100)
+    n = n_channel * _n_per_ch
     offset = random.randint(1, 100)
     interval = random.randint(1, 2)
     thres = random.randint(1, 5)
     reset_v = random.randint(-5, 5)
-    neuron = pb.IF((n,), thres, reset_v)
+    leak_v = np.arange(n_channel * n).reshape((n_channel, n))
+    neuron = pb.LIF((n_channel, n), thres, reset_v, bias=leak_v, keep_shape=True)
     dest_coord_start = Coord(random.randint(0, 10), random.randint(0, 10))
     test_chip_addr = Coord(random.randint(0, 31), random.randint(0, 31))
 
-    ns = NeuronSegment(slice(0, 0 + n, 1), offset, interval)
+    _n_start = random.randint(0, 20)
+    nseg = NeuSegment(
+        neuron, slice(_n_start, 1 * _n_per_ch + _n_start), offset, interval
+    )
 
-    axon_coords = [AxonCoord(0, i) for i in range(n)]
+    axon_coords = [AxonCoord(0, i) for i in range(nseg.n_neuron)]
     dest_coords = [dest_coord_start, dest_coord_start + CoordOffset(0, 1)]
     pb.BACKEND_CONFIG.test_chip_addr = test_chip_addr
 
     return NeuronConfig.encapsulate(
-        neuron,
-        n,
-        ns.addr_ram,
-        ns.addr_offset,
-        axon_coords,
-        dest_coords,
-        pb.BACKEND_CONFIG.test_chip_addr,
+        nseg, axon_coords, dest_coords, pb.BACKEND_CONFIG.test_chip_addr
     )
 
 
@@ -1327,10 +1329,10 @@ class TestData:
                 WP.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
-                    [NeuSeg(_nl[0], NeuronSegment(slice(0, 300, 1), 0))],
-                    [NeuSeg(_nl[0], NeuronSegment(slice(300, 600, 1), 0))],
-                    [NeuSeg(_nl[1], NeuronSegment(slice(0, 400, 1), 0))],
-                    [NeuSeg(_nl[1], NeuronSegment(slice(400, 800, 1), 0))],
+                    [NeuSegment(_nl[0], slice(0, 300, 1), 0)],
+                    [NeuSegment(_nl[0], slice(300, 600, 1), 0)],
+                    [NeuSegment(_nl[1], slice(0, 400, 1), 0)],
+                    [NeuSegment(_nl[1], slice(400, 800, 1), 0)],
                 ],
             ),
             (
@@ -1339,13 +1341,13 @@ class TestData:
                 WP.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
-                    [NeuSeg(_nl[0], NeuronSegment(slice(0, 200, 1), 0, 2))],
-                    [NeuSeg(_nl[0], NeuronSegment(slice(200, 400, 1), 0, 2))],
-                    [NeuSeg(_nl[0], NeuronSegment(slice(400, 600, 1), 0, 2))],
-                    [NeuSeg(_nl[1], NeuronSegment(slice(0, 200, 1), 0, 2))],
-                    [NeuSeg(_nl[1], NeuronSegment(slice(200, 400, 1), 0, 2))],
-                    [NeuSeg(_nl[1], NeuronSegment(slice(400, 600, 1), 0, 2))],
-                    [NeuSeg(_nl[1], NeuronSegment(slice(600, 800, 1), 0, 2))],
+                    [NeuSegment(_nl[0], slice(0, 200, 1), 0, 2)],
+                    [NeuSegment(_nl[0], slice(200, 400, 1), 0, 2)],
+                    [NeuSegment(_nl[0], slice(400, 600, 1), 0, 2)],
+                    [NeuSegment(_nl[1], slice(0, 200, 1), 0, 2)],
+                    [NeuSegment(_nl[1], slice(200, 400, 1), 0, 2)],
+                    [NeuSegment(_nl[1], slice(400, 600, 1), 0, 2)],
+                    [NeuSegment(_nl[1], slice(600, 800, 1), 0, 2)],
                 ],
             ),
             (
@@ -1354,10 +1356,10 @@ class TestData:
                 WP.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
-                    [NeuSeg(_nl[2], NeuronSegment(slice(80 * 0, 80 * 1, 1), 0, 2))],
-                    [NeuSeg(_nl[2], NeuronSegment(slice(80 * 1, 80 * 2, 1), 0, 2))],
-                    [NeuSeg(_nl[2], NeuronSegment(slice(80 * 2, 80 * 3, 1), 0, 2))],
-                    [NeuSeg(_nl[2], NeuronSegment(slice(80 * 3, 80 * 4, 1), 0, 2))],
+                    [NeuSegment(_nl[2], slice(80 * 0, 80 * 1, 1), 0, 2)],
+                    [NeuSegment(_nl[2], slice(80 * 1, 80 * 2, 1), 0, 2)],
+                    [NeuSegment(_nl[2], slice(80 * 2, 80 * 3, 1), 0, 2)],
+                    [NeuSegment(_nl[2], slice(80 * 3, 80 * 4, 1), 0, 2)],
                 ],
             ),
             (
@@ -1366,10 +1368,10 @@ class TestData:
                 WP.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
-                    [NeuSeg(_nl[0], NeuronSegment(slice(0, 300, 1), 0))],
-                    [NeuSeg(_nl[0], NeuronSegment(slice(300, 600, 1), 0))],
-                    [NeuSeg(_nl[2], NeuronSegment(slice(160 * 0, 160 * 1, 1), 0))],
-                    [NeuSeg(_nl[2], NeuronSegment(slice(160 * 1, 160 * 2, 1), 0))],
+                    [NeuSegment(_nl[0], slice(0, 300, 1), 0)],
+                    [NeuSegment(_nl[0], slice(300, 600, 1), 0)],
+                    [NeuSegment(_nl[2], slice(160 * 0, 160 * 1, 1), 0)],
+                    [NeuSegment(_nl[2], slice(160 * 1, 160 * 2, 1), 0)],
                 ],
             ),
             (
@@ -1378,13 +1380,13 @@ class TestData:
                 WP.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
-                    [NeuSeg(_nl[3], NeuronSegment(slice(67 * 0, 67 * 1, 1), 0, 2))],
-                    [NeuSeg(_nl[3], NeuronSegment(slice(67 * 1, 67 * 2, 1), 0, 2))],
-                    [NeuSeg(_nl[3], NeuronSegment(slice(67 * 2, 200, 1), 0, 2))],
-                    [NeuSeg(_nl[4], NeuronSegment(slice(75 * 0, 75 * 1, 1), 0, 2))],
-                    [NeuSeg(_nl[4], NeuronSegment(slice(75 * 1, 75 * 2, 1), 0, 2))],
-                    [NeuSeg(_nl[4], NeuronSegment(slice(75 * 2, 75 * 3, 1), 0, 2))],
-                    [NeuSeg(_nl[4], NeuronSegment(slice(75 * 3, 75 * 4, 1), 0, 2))],
+                    [NeuSegment(_nl[3], slice(67 * 0, 67 * 1, 1), 0, 2)],
+                    [NeuSegment(_nl[3], slice(67 * 1, 67 * 2, 1), 0, 2)],
+                    [NeuSegment(_nl[3], slice(67 * 2, 200, 1), 0, 2)],
+                    [NeuSegment(_nl[4], slice(75 * 0, 75 * 1, 1), 0, 2)],
+                    [NeuSegment(_nl[4], slice(75 * 1, 75 * 2, 1), 0, 2)],
+                    [NeuSegment(_nl[4], slice(75 * 2, 75 * 3, 1), 0, 2)],
+                    [NeuSegment(_nl[4], slice(75 * 3, 75 * 4, 1), 0, 2)],
                 ],
             ),
         ],
@@ -1400,11 +1402,11 @@ class TestData:
                 WP.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
-                    [NeuSeg(_nc[0], NeuronSegment(slice(0, 512, 1), 0))],
-                    [NeuSeg(_nc[1], NeuronSegment(slice(0, 512, 1), 0))],
+                    [NeuSegment(_nc[0], slice(0, 512, 1), 0)],
+                    [NeuSegment(_nc[1], slice(0, 512, 1), 0)],
                     [
-                        NeuSeg(_nc[1], NeuronSegment(slice(512, 800, 1), 0)),
-                        NeuSeg(_nc[0], NeuronSegment(slice(512, 600, 1), 288)),
+                        NeuSegment(_nc[1], slice(512, 800, 1), 0),
+                        NeuSegment(_nc[0], slice(512, 600, 1), 288),
                     ],
                 ],
             ),
@@ -1414,16 +1416,14 @@ class TestData:
                 WP.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
-                    [NeuSeg(_nc[0], NeuronSegment(slice(256 * 0, 256 * 1, 1), 0, 2))],
-                    [NeuSeg(_nc[0], NeuronSegment(slice(256 * 1, 256 * 2, 1), 0, 2))],
-                    [NeuSeg(_nc[1], NeuronSegment(slice(256 * 0, 256 * 1, 1), 0, 2))],
-                    [NeuSeg(_nc[1], NeuronSegment(slice(256 * 1, 256 * 2, 1), 0, 2))],
-                    [NeuSeg(_nc[1], NeuronSegment(slice(256 * 2, 256 * 3, 1), 0, 2))],
+                    [NeuSegment(_nc[0], slice(256 * 0, 256 * 1, 1), 0, 2)],
+                    [NeuSegment(_nc[0], slice(256 * 1, 256 * 2, 1), 0, 2)],
+                    [NeuSegment(_nc[1], slice(256 * 0, 256 * 1, 1), 0, 2)],
+                    [NeuSegment(_nc[1], slice(256 * 1, 256 * 2, 1), 0, 2)],
+                    [NeuSegment(_nc[1], slice(256 * 2, 256 * 3, 1), 0, 2)],
                     [
-                        NeuSeg(_nc[0], NeuronSegment(slice(256 * 2, 600, 1), 0, 2)),
-                        NeuSeg(
-                            _nc[1], NeuronSegment(slice(256 * 3, 800, 1), 88 * 2, 2)
-                        ),
+                        NeuSegment(_nc[0], slice(256 * 2, 600, 1), 0, 2),
+                        NeuSegment(_nc[1], slice(256 * 3, 800, 1), 88 * 2, 2),
                     ],
                 ],
             ),
@@ -1434,10 +1434,10 @@ class TestData:
                 LCN_EX.LCN_2X,
                 [
                     # Place the neuron segments with full capacity first
-                    [NeuSeg(_nc[4], NeuronSegment(slice(0, 256, 1), 0, 2))],
+                    [NeuSegment(_nc[4], slice(0, 256, 1), 0, 2)],
                     [
-                        NeuSeg(_nc[3], NeuronSegment(slice(0, 200, 1), 0, 2)),
-                        NeuSeg(_nc[4], NeuronSegment(slice(256, 300, 1), 200 * 2, 2)),
+                        NeuSegment(_nc[3], slice(0, 200, 1), 0, 2),
+                        NeuSegment(_nc[4], slice(256, 300, 1), 200 * 2, 2),
                     ],
                 ],
             ),
@@ -1447,8 +1447,8 @@ class TestData:
                 WP.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
-                    [NeuSeg(_nc[6], NeuronSegment(slice(0, 500, 1), 0, 1))],
-                    [NeuSeg(_nc[5], NeuronSegment(slice(0, 400, 1), 0, 1))],
+                    [NeuSegment(_nc[6], slice(0, 500, 1), 0, 1)],
+                    [NeuSegment(_nc[5], slice(0, 400, 1), 0, 1)],
                 ],
             ),
         ],
@@ -1464,10 +1464,10 @@ class TestData:
                 WP.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
-                    [NeuSeg(_nb[0], NeuronSegment(slice(0, 300, 1), 0))],
-                    [NeuSeg(_nb[0], NeuronSegment(slice(300, 600, 1), 0))],
-                    [NeuSeg(_nb[1], NeuronSegment(slice(0, 400, 1), 0))],
-                    [NeuSeg(_nb[1], NeuronSegment(slice(400, 800, 1), 0))],
+                    [NeuSegment(_nb[0], slice(0, 300, 1), 0)],
+                    [NeuSegment(_nb[0], slice(300, 600, 1), 0)],
+                    [NeuSegment(_nb[1], slice(0, 400, 1), 0)],
+                    [NeuSegment(_nb[1], slice(400, 800, 1), 0)],
                 ],
             ),
             (
@@ -1476,13 +1476,13 @@ class TestData:
                 WP.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
-                    [NeuSeg(_nb[1], NeuronSegment(slice(0, 200, 1), 0, 2))],
-                    [NeuSeg(_nb[1], NeuronSegment(slice(200, 400, 1), 0, 2))],
-                    [NeuSeg(_nb[1], NeuronSegment(slice(400, 600, 1), 0, 2))],
-                    [NeuSeg(_nb[1], NeuronSegment(slice(600, 800, 1), 0, 2))],
-                    [NeuSeg(_nb[0], NeuronSegment(slice(0, 200, 1), 0, 2))],
-                    [NeuSeg(_nb[0], NeuronSegment(slice(200, 400, 1), 0, 2))],
-                    [NeuSeg(_nb[0], NeuronSegment(slice(400, 600, 1), 0, 2))],
+                    [NeuSegment(_nb[1], slice(0, 200, 1), 0, 2)],
+                    [NeuSegment(_nb[1], slice(200, 400, 1), 0, 2)],
+                    [NeuSegment(_nb[1], slice(400, 600, 1), 0, 2)],
+                    [NeuSegment(_nb[1], slice(600, 800, 1), 0, 2)],
+                    [NeuSegment(_nb[0], slice(0, 200, 1), 0, 2)],
+                    [NeuSegment(_nb[0], slice(200, 400, 1), 0, 2)],
+                    [NeuSegment(_nb[0], slice(400, 600, 1), 0, 2)],
                 ],
             ),
             (
@@ -1491,10 +1491,10 @@ class TestData:
                 WP.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
-                    [NeuSeg(_nb[2], NeuronSegment(slice(80 * 0, 80 * 1, 1), 0, 2))],
-                    [NeuSeg(_nb[2], NeuronSegment(slice(80 * 1, 80 * 2, 1), 0, 2))],
-                    [NeuSeg(_nb[2], NeuronSegment(slice(80 * 2, 80 * 3, 1), 0, 2))],
-                    [NeuSeg(_nb[2], NeuronSegment(slice(80 * 3, 80 * 4, 1), 0, 2))],
+                    [NeuSegment(_nb[2], slice(80 * 0, 80 * 1, 1), 0, 2)],
+                    [NeuSegment(_nb[2], slice(80 * 1, 80 * 2, 1), 0, 2)],
+                    [NeuSegment(_nb[2], slice(80 * 2, 80 * 3, 1), 0, 2)],
+                    [NeuSegment(_nb[2], slice(80 * 3, 80 * 4, 1), 0, 2)],
                 ],
             ),
             (
@@ -1504,22 +1504,22 @@ class TestData:
                 LCN_EX.LCN_2X,
                 [
                     [
-                        NeuSeg(_nb[2], NeuronSegment(slice(80 * 0, 80 * 1, 1), 0, 2)),
+                        NeuSegment(_nb[2], slice(80 * 0, 80 * 1, 1), 0, 2),
                         # offset = 160
-                        NeuSeg(_nb[3], NeuronSegment(slice(67 * 0, 67 * 1, 1), 160, 2)),
+                        NeuSegment(_nb[3], slice(67 * 0, 67 * 1, 1), 160, 2),
                     ],
                     [
-                        NeuSeg(_nb[2], NeuronSegment(slice(80 * 1, 80 * 2, 1), 0, 2)),
+                        NeuSegment(_nb[2], slice(80 * 1, 80 * 2, 1), 0, 2),
                         # offset = 160
-                        NeuSeg(_nb[3], NeuronSegment(slice(67 * 1, 67 * 2, 1), 160, 2)),
+                        NeuSegment(_nb[3], slice(67 * 1, 67 * 2, 1), 160, 2),
                     ],
                     [
-                        NeuSeg(_nb[2], NeuronSegment(slice(80 * 2, 80 * 3, 1), 0, 2)),
+                        NeuSegment(_nb[2], slice(80 * 2, 80 * 3, 1), 0, 2),
                         # offset = 160
-                        NeuSeg(_nb[3], NeuronSegment(slice(67 * 2, 200, 1), 160, 2)),
+                        NeuSegment(_nb[3], slice(67 * 2, 200, 1), 160, 2),
                     ],
                     [
-                        NeuSeg(_nb[2], NeuronSegment(slice(80 * 3, 80 * 4, 1), 0, 2)),
+                        NeuSegment(_nb[2], slice(80 * 3, 80 * 4, 1), 0, 2),
                     ],
                 ],
             ),
@@ -1530,38 +1530,40 @@ class TestData:
                 LCN_EX.LCN_2X,
                 [
                     [
-                        NeuSeg(_nb[2], NeuronSegment(slice(80 * 0, 80 * 1, 1), 0, 2)),
+                        NeuSegment(_nb[2], slice(80 * 0, 80 * 1, 1), 0, 2),
                         # offset = 160
-                        NeuSeg(_nb[4], NeuronSegment(slice(75 * 0, 75 * 1, 1), 160, 2)),
+                        NeuSegment(_nb[4], slice(75 * 0, 75 * 1, 1), 160, 2),
                         # offset = 160 + 150
-                        NeuSeg(
+                        NeuSegment(
                             _nb[3],
-                            NeuronSegment(slice(67 * 0, 67 * 1, 1), 160 + 150, 2),
+                            slice(67 * 0, 67 * 1, 1),
+                            160 + 150,
+                            2,
                         ),
                     ],
                     [
-                        NeuSeg(_nb[2], NeuronSegment(slice(80 * 1, 80 * 2, 1), 0, 2)),
+                        NeuSegment(_nb[2], slice(80 * 1, 80 * 2, 1), 0, 2),
                         # offset = 160
-                        NeuSeg(_nb[4], NeuronSegment(slice(75 * 1, 75 * 2, 1), 160, 2)),
+                        NeuSegment(_nb[4], slice(75 * 1, 75 * 2, 1), 160, 2),
                         # offset = 160 + 150
-                        NeuSeg(
+                        NeuSegment(
                             _nb[3],
-                            NeuronSegment(slice(67 * 1, 67 * 2, 1), 160 + 150, 2),
+                            slice(67 * 1, 67 * 2, 1),
+                            160 + 150,
+                            2,
                         ),
                     ],
                     [
-                        NeuSeg(_nb[2], NeuronSegment(slice(80 * 2, 80 * 3, 1), 0, 2)),
+                        NeuSegment(_nb[2], slice(80 * 2, 80 * 3, 1), 0, 2),
                         # offset = 160
-                        NeuSeg(_nb[4], NeuronSegment(slice(75 * 2, 75 * 3, 1), 160, 2)),
+                        NeuSegment(_nb[4], slice(75 * 2, 75 * 3, 1), 160, 2),
                         # offset = 160 + 150
-                        NeuSeg(
-                            _nb[3], NeuronSegment(slice(67 * 2, 200, 1), 160 + 150, 2)
-                        ),
+                        NeuSegment(_nb[3], slice(67 * 2, 200, 1), 160 + 150, 2),
                     ],
                     [
-                        NeuSeg(_nb[2], NeuronSegment(slice(80 * 3, 80 * 4, 1), 0, 2)),
+                        NeuSegment(_nb[2], slice(80 * 3, 80 * 4, 1), 0, 2),
                         # offset = 160
-                        NeuSeg(_nb[4], NeuronSegment(slice(75 * 3, 75 * 4, 1), 160, 2)),
+                        NeuSegment(_nb[4], slice(75 * 3, 75 * 4, 1), 160, 2),
                     ],
                 ],
             ),
@@ -1572,16 +1574,16 @@ class TestData:
                 LCN_EX.LCN_2X,
                 [
                     [
-                        NeuSeg(_nb[4], NeuronSegment(slice(75 * 0, 75 * 1, 1), 0, 2)),
-                        NeuSeg(_nb[3], NeuronSegment(slice(67 * 0, 67 * 1, 1), 150, 2)),
+                        NeuSegment(_nb[4], slice(75 * 0, 75 * 1, 1), 0, 2),
+                        NeuSegment(_nb[3], slice(67 * 0, 67 * 1, 1), 150, 2),
                     ],
                     [
-                        NeuSeg(_nb[4], NeuronSegment(slice(75 * 1, 75 * 2, 1), 0, 2)),
-                        NeuSeg(_nb[3], NeuronSegment(slice(67 * 1, 67 * 2, 1), 150, 2)),
+                        NeuSegment(_nb[4], slice(75 * 1, 75 * 2, 1), 0, 2),
+                        NeuSegment(_nb[3], slice(67 * 1, 67 * 2, 1), 150, 2),
                     ],
                     [
-                        NeuSeg(_nb[4], NeuronSegment(slice(75 * 2, 75 * 3, 1), 0, 2)),
-                        NeuSeg(_nb[3], NeuronSegment(slice(67 * 2, 200, 1), 150, 2)),
+                        NeuSegment(_nb[4], slice(75 * 2, 75 * 3, 1), 0, 2),
+                        NeuSegment(_nb[3], slice(67 * 2, 200, 1), 150, 2),
                     ],
                     [NeuSegment(_nb[4], slice(75 * 3, 75 * 4, 1), 0, 2)],
                 ],
