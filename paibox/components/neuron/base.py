@@ -399,7 +399,7 @@ class Neuron(MetaNeuron, NeuDyn):
         tick_wait_end: int = 0,
         unrolling_factor: int = 1,
         overflow_strict: bool = False,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
     ) -> None:
         super().__init__(

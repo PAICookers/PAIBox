@@ -19,7 +19,7 @@ class IF(Neuron):
         reset_v: Optional[int] = None,
         neg_threshold: Optional[int] = None,
         *,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -40,7 +40,7 @@ class IF(Neuron):
             - unrolling_factor: argument related to the backend. It represents the degree to which  \
                 modules are expanded. The larger the value, the more cores required for deployment, \
                 but the lower the latency & the higher the throughput. Default is 1.
-            - keep_shape: whether to maintain shape in the simulation. Default is `False`.
+            - keep_shape: whether to maintain shape in the simulation. Default is `True`.
             - name: name of the neuron. Optional.
         """
         if isinstance(reset_v, int):
@@ -80,7 +80,7 @@ class LIF(Neuron):
         bias: Optional[DataArrayType] = None,
         neg_threshold: Optional[int] = None,
         *,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -142,7 +142,7 @@ class TonicSpiking(Neuron):
         shape: Shape,
         fire_step: int,
         *,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -168,7 +168,7 @@ class PhasicSpiking(Neuron):
         fire_step: int,
         neg_floor: int = -10,
         *,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -203,7 +203,7 @@ class Always1Neuron(Neuron):
         self,
         shape: Shape,
         *,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
@@ -235,7 +235,7 @@ class SpikingRelu(Neuron):
         self,
         shape: Shape,
         *,
-        keep_shape: bool = False,
+        keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
