@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import Optional, Union
 
 import numpy as np
@@ -108,10 +109,10 @@ class DynSysGroup(DynamicSys, Container):
             if cpn in self.__dict__.values():
                 cpn.__gh_build_ignore__ = True
 
-    @property
+    @cached_property
     def components(self) -> Collector[str, DynamicSys]:
         """Recursively search for all components within the network."""
-        return self.nodes(level=-1).subset(DynamicSys).unique().not_subset(DynSysGroup)
+        return self.nodes().subset(DynamicSys).unique().not_subset(DynSysGroup)
 
 
 Network: TypeAlias = DynSysGroup
