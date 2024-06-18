@@ -1,18 +1,21 @@
+from abc import ABC, abstractmethod
 import sys
 
 import numpy as np
 from dataclasses import dataclass
 from enum import Enum, auto, unique
 from numpy.typing import NDArray
-from typing import NamedTuple, Union
+from typing import Any, NamedTuple, Union
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias
 else:
     from typing_extensions import TypeAlias
 
-from paibox.base import NeuDyn
-from paibox.components import FullConnectedSyn, InputProj
+from paicorelib import HwConfig, CoreMode
+
+from paibox.base import NeuDyn, PAIBoxObject
+from paibox.components import FullConnectedSyn, InputProj, Neuron
 
 __all__ = [
     "NodeName",
@@ -26,6 +29,13 @@ __all__ = [
     "NodeAttr",
     "EdgeAttr",
     "PartitionedEdges",
+    "NeuSlice",
+    "NeuSegment",
+    "NeuSegOfCorePlm",
+    "NeuSegOfCoreBlock",
+    "AxonCoord",
+    "AxonSegment",
+    "CoreAbstract",
 ]
 
 NodeName: TypeAlias = str
@@ -33,10 +43,11 @@ EdgeName: TypeAlias = str
 NodeType: TypeAlias = Union[InputProj, NeuDyn]
 EdgeType: TypeAlias = FullConnectedSyn
 SourceNodeType: TypeAlias = NodeType
-DestNodeType: TypeAlias = NeuDyn
+DestNodeType: TypeAlias = Neuron
 
 WeightRamType: TypeAlias = NDArray[np.uint64]  # uint64 weights mapped in weight RAM
 _COORD_UNSET = 0
+_DEGREE_UNSET = -1
 
 
 @unique
@@ -46,9 +57,6 @@ class NodePosition(Enum):
     MEMBER = auto()
     INPUT = auto()
     OUTPUT = auto()
-
-
-_DEGREE_UNSET = -1
 
 
 @dataclass
@@ -82,3 +90,80 @@ class EdgeAttr(NamedTuple):
 class PartitionedEdges(NamedTuple):
     edges: set[EdgeType]
     rg_id: int
+
+
+NeuSlice: TypeAlias = slice
+
+
+@dataclass(frozen=True)
+class NeuSegment:
+    target: DestNodeType
+    index: NeuSlice  # slice like slice(x, y, 1)
+    offset: int
+    repeat: int = 1
+
+    @property
+    def n_neuron(self) -> int:
+        return self.index.stop - self.index.start
+
+    @property
+    def n_addr(self) -> int:
+        return self.repeat * self.n_neuron
+
+    @property
+    def addr_ram(self) -> list[int]:
+        """Convert index of neuron into RAM address."""
+        return list(range(self.offset, self.addr_max, 1))
+
+    @property
+    def addr_max(self) -> int:
+        if (
+            _addr_max := self.offset + self.repeat * self.n_neuron
+        ) > HwConfig.ADDR_RAM_MAX:
+            raise ValueError(
+                f"neuron RAM address out of range {HwConfig.ADDR_RAM_MAX} ({_addr_max})."
+            )
+
+        return _addr_max
+
+    @property
+    def addr_slice(self) -> slice:
+        """Display the RAM address in slice format."""
+        return slice(self.offset, self.addr_max, self.repeat)
+
+    def __str__(self) -> str:
+        return f"NeuSeg {self.target.name} at offset {self.offset}"
+
+
+NeuSegOfCorePlm: TypeAlias = list[NeuSegment]
+NeuSegOfCoreBlock: TypeAlias = list[NeuSegOfCorePlm]
+
+
+class AxonCoord(NamedTuple):
+    tick_relative: int
+    addr_axon: int
+
+
+class AxonSegment(NamedTuple):
+    n_axon: int
+    """#N of axons."""
+    addr_width: int
+    """The range of axon address is [addr_offset, addr_offset + addr_width)."""
+    addr_offset: int
+    """The offset of the assigned address."""
+
+
+class CoreAbstract(PAIBoxObject, ABC):
+    """Abstract core class."""
+
+    runtime_mode: CoreMode
+
+    @property
+    @abstractmethod
+    def n_core_required(self) -> int:
+        """#N of cores required to accommodate neurons inside self."""
+        ...
+
+    @classmethod
+    @abstractmethod
+    def build(cls): ...
