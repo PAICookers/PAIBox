@@ -1,4 +1,5 @@
-from typing import Any, Optional
+from collections.abc import Iterable
+from typing import Any, Optional, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -16,7 +17,8 @@ from paicorelib import (
 )
 
 from paibox.base import NeuDyn
-from paibox.types import Shape, SpikeType, VoltageType
+from paibox.exceptions import ShapeError
+from paibox.types import LeakVType, Shape, SpikeType, VoltageType
 from paibox.utils import (
     arg_check_non_neg,
     arg_check_non_pos,
@@ -25,7 +27,7 @@ from paibox.utils import (
     shape2num,
 )
 
-from .utils import NEG_THRES_MIN, vjt_overflow
+from .utils import NEG_THRES_MIN, vjt_overflow, _is_leak_v_overflow
 
 __all__ = ["Neuron"]
 
@@ -44,9 +46,9 @@ class MetaNeuron:
         neg_threshold: int,
         pos_threshold: int,
         leak_direction: LDM,
-        leak_integration_mode: LIM,
-        leak_v: int,
-        synaptic_integration_mode: SIM,
+        leak_integr: LIM,
+        leak_v: Union[int, LeakVType],
+        synaptic_integr: SIM,
         bit_truncation: int,
         overflow_strict: bool,
         keep_shape: bool = False,
@@ -67,9 +69,23 @@ class MetaNeuron:
         self.neg_threshold: int = neg_threshold  # Unsigned 29-bit
         self.pos_threshold: int = pos_threshold  # Unsigned 29-bit
         self.leak_direction: LDM = leak_direction
-        self.leak_integration_mode: LIM = leak_integration_mode
-        self.leak_v: int = leak_v  # Signed 30-bit
-        self.synaptic_integration_mode: SIM = synaptic_integration_mode
+        self.leak_integr: LIM = leak_integr
+
+        if isinstance(leak_v, int):
+            self.leak_v = leak_v
+        elif np.prod(leak_v.shape) == np.prod(self._shape):
+            # leak with shape (32,32) == (1,32,32) is allowed.
+            self.leak_v = leak_v.ravel()
+        elif leak_v.ndim == 1 and leak_v.shape[0] == self._shape[0]:
+            self.leak_v = np.repeat(leak_v, shape2num(self._shape[1:])).ravel()
+        else:
+            raise ShapeError(
+                f"'leak' is either scalar or have shape (output channels, ), but got ({self._shape[0]},)."
+            )
+
+        _is_leak_v_overflow(self.leak_v)
+
+        self.synaptic_integr: SIM = synaptic_integr
         self.bit_truncation: int = bit_truncation  # Unsigned 5-bit
 
         # TODO These two config below are parameters of CORE.
@@ -97,7 +113,7 @@ class MetaNeuron:
         """
         _rho_w_ij = 1  # Random synaptic integration enable, 0/1
 
-        if self.synaptic_integration_mode is SIM.MODE_STOCHASTIC:
+        if self.synaptic_integr is SIM.MODE_STOCHASTIC:
             raise NotImplementedError(
                 f"mode {SIM.MODE_STOCHASTIC.name} is not implemented."
             )
@@ -135,7 +151,7 @@ class MetaNeuron:
         else:
             _ld = np.sign(vjt)
 
-        if self.leak_integration_mode is LIM.MODE_DETERMINISTIC:
+        if self.leak_integr is LIM.MODE_DETERMINISTIC:
             v_leaked = np.add(vjt, _ld * self.leak_v, dtype=np.int32)
         else:
             raise NotImplementedError(
@@ -354,7 +370,7 @@ class MetaNeuron:
         return self._shape if self.keep_shape else (self._n_neuron,)
 
     @property
-    def bias(self) -> int:
+    def bias(self) -> Union[int, LeakVType]:
         return self.leak_v
 
 
@@ -374,7 +390,7 @@ class Neuron(MetaNeuron, NeuDyn):
         pos_threshold: int = 1,
         leak_direction: LDM = LDM.MODE_FORWARD,
         leak_integration_mode: LIM = LIM.MODE_DETERMINISTIC,
-        leak_v: int = 0,
+        leak_v: Union[int, LeakVType] = 0,
         synaptic_integration_mode: SIM = SIM.MODE_DETERMINISTIC,
         bit_truncation: int = 0,
         *,

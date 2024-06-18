@@ -1,12 +1,12 @@
+import numpy as np
 from typing import Optional
 
 from paicorelib import LDM, NTM, RM
 
-from paibox.types import Shape
+from paibox.types import DataArrayType, Shape
 
 from .base import Neuron
 from .utils import LEAK_V_MAX, NEG_THRES_MIN
-
 
 __all__ = ["IF", "LIF", "TonicSpiking", "PhasicSpiking", "SpikingRelu"]
 
@@ -77,7 +77,7 @@ class LIF(Neuron):
         threshold: int,
         reset_v: Optional[int] = None,
         leak_v: int = 0,
-        bias: Optional[int] = None,
+        bias: Optional[DataArrayType] = None,
         neg_threshold: Optional[int] = None,
         *,
         keep_shape: bool = False,
@@ -110,8 +110,10 @@ class LIF(Neuron):
             _reset_v = 0
             _rm = RM.MODE_LINEAR
 
-        if isinstance(bias, int):
-            _leak_v = bias
+        if isinstance(bias, (list, tuple, np.ndarray)):
+            _leak_v = np.asarray(bias, dtype=np.int32)
+        elif bias is not None:
+            _leak_v = int(bias)
         else:
             _leak_v = leak_v
 
