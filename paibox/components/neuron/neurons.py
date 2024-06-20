@@ -94,11 +94,12 @@ class LIF(Neuron):
             - leak_v: the signed leak voltage will be added directly to the membrane potential.
                 - If it is positive, the membrane potential will increase.
                 - If is is negative, the membrane potential will decrease.
-            - bias: if signed bias is given, it will be used as `leak_v` and neuron will leak before\
-                threshold comparison. `leak_v` will be ignored.
+                - the final leak_v is leak_v + bias (default=0).
+            - bias: if a signed bias is given, it will be added to `leak_v`. The neuron will leak   \
+                before threshold comparison. `leak_v` will also be considered now.
             - neg_threshold: signed negative theshold. If not specified, it will be the smallest    \
                 negative integer allowed by the hardware.
-            - keep_shape: whether to maintain shape in the simulation. Default is `False`.
+            - keep_shape: whether to maintain shape in the simulation. Default is `True`.
             - name: name of the neuron. Optional.
         """
         if isinstance(reset_v, int):
@@ -111,11 +112,14 @@ class LIF(Neuron):
             _rm = RM.MODE_LINEAR
 
         if isinstance(bias, (list, tuple, np.ndarray)):
-            _leak_v = np.asarray(bias, dtype=np.int32)
+            _bias = np.asarray(bias, dtype=np.int32)
         elif bias is not None:
-            _leak_v = int(bias)
+            _bias = int(bias)
         else:
-            _leak_v = leak_v
+            _bias = 0
+
+        # Support passing in bias & leak_v at the same time
+        _leak_v = leak_v + _bias
 
         if isinstance(neg_threshold, int):
             _neg_threshold = neg_threshold
@@ -151,7 +155,7 @@ class TonicSpiking(Neuron):
         Args:
             - shape: shape of neurons.
             - fire_step: every `N` spike, the neuron will fire positively.
-            - keep_shape: whether to maintain shape in the simulation. Default is `False`.
+            - keep_shape: whether to maintain shape in the simulation. Default is `True`.
             - name: name of the neuron. Optional.
 
         NOTE: The neuron receives `N` spikes and fires, then it will reset to 0.
@@ -180,7 +184,7 @@ class PhasicSpiking(Neuron):
             - fire_step: after `N` spikes, the neuron will fire positively.
             - neg_floor: signed negative floor. once fired, the neurons will remain at this negative\
                 membrane potential. Default is -10.
-            - keep_shape: whether to maintain shape in the simulation. Default is `False`.
+            - keep_shape: whether to maintain shape in the simulation. Default is `True`.
             - name: name of the neuron. Optional.
         """
         leak_v = 1
@@ -211,7 +215,7 @@ class Always1Neuron(Neuron):
 
         Args:
             - shape: shape of neurons.
-            - keep_shape: whether to maintain shape in the simulation. Default is `False`.
+            - keep_shape: whether to maintain shape in the simulation. Default is `True`.
             - name: name of the neuron. Optional.
 
         FIXME There must be a forward synapse connected to it, otherwise the backend will go wrong. \
@@ -243,7 +247,7 @@ class SpikingRelu(Neuron):
 
         Args:
             - shape: shape of neurons.
-            - keep_shape: whether to maintain shape in the simulation. Default is `False`.
+            - keep_shape: whether to maintain shape in the simulation. Default is `True`.
             - name: name of the neuron. Optional.
         """
         super().__init__(

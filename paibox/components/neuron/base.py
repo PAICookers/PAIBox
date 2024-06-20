@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from typing import Any, Optional, Union
+from typing import Any, NoReturn, Optional, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -27,7 +27,7 @@ from paibox.utils import (
     shape2num,
 )
 
-from .utils import NEG_THRES_MIN, _is_leak_v_overflow, vjt_overflow
+from .utils import NEG_THRES_MIN, _is_leak_v_overflow, _mask, vjt_overflow
 
 __all__ = ["Neuron"]
 
@@ -61,18 +61,21 @@ class MetaNeuron:
 
         # DO NOT modify the names of the following variables.
         # They will be exported to the parameter verification model.
-        self.reset_mode: RM = reset_mode
-        self.reset_v: int = reset_v  # Signed 30-bit
-        self.leak_comparison: LCM = leak_comparison
-        self.threshold_mask_bits: int = threshold_mask_bits
-        self.neg_thres_mode: NTM = neg_thres_mode
-        self.neg_threshold: int = (-1) * neg_threshold  # Unsigned 29-bit
-        self.pos_threshold: int = pos_threshold  # Unsigned 29-bit
-        self.leak_direction: LDM = leak_direction
-        self.leak_integr: LIM = leak_integr
+        self.reset_mode = reset_mode
+        self.reset_v = reset_v  # Signed 30-bit
+        self.leak_comparison = leak_comparison
+        self.threshold_mask_bits = threshold_mask_bits
+        self.neg_thres_mode = neg_thres_mode
+        self.neg_threshold = (-1) * neg_threshold  # Unsigned 29-bit
+        self.pos_threshold = pos_threshold  # Unsigned 29-bit
+        self.leak_direction = leak_direction
+        self.leak_integr = leak_integr
+        self.synaptic_integr = synaptic_integr
+        self.bit_truncation = bit_truncation  # Unsigned 5-bit
 
-        if isinstance(leak_v, int):
-            self.leak_v = leak_v
+        if isinstance(leak_v, int) or leak_v.size == 1:
+            # np.array([x]) is treated as a scalar.
+            self.leak_v = int(leak_v)
         elif np.prod(leak_v.shape) == np.prod(self._shape):
             # leak with shape (32,32) == (1,32,32) is allowed.
             self.leak_v = leak_v.ravel()
@@ -80,20 +83,17 @@ class MetaNeuron:
             self.leak_v = np.repeat(leak_v, shape2num(self._shape[1:])).ravel()
         else:
             raise ShapeError(
-                f"'leak' is either scalar or have shape (output channels, ), but got ({self._shape[0]},)."
+                f"'leak' is either a scalar or have shape (output channels, ), but got ({self._shape[0]},)."
             )
 
         _is_leak_v_overflow(self.leak_v)
-
-        self.synaptic_integr: SIM = synaptic_integr
-        self.bit_truncation: int = bit_truncation  # Unsigned 5-bit
 
         # TODO These two config below are parameters of CORE.
         self._spike_width_format: SpikeWidthFormat
         self._pool_max_en: MaxPoolingEnable
 
         # Auxiliary attributes or variables.
-        self._thres_mask: int = (1 << threshold_mask_bits) - 1
+        self._thres_mask = _mask(threshold_mask_bits)
         self.thres_mode = self.init_param(TM.NOT_EXCEEDED).astype(np.uint8)
         self._v_th_rand = self.init_param(0).astype(np.int32)
         self.overflow_strict = overflow_strict
@@ -636,12 +636,12 @@ class NeuronSubView(Neuron):
             name=name,
         )
 
-    def update(self, *args, **kwargs):
+    def update(self, *args, **kwargs) -> NoReturn:
         raise NotImplementedError(
             f"{NeuronSubView.__name__} {self.name} cannot be updated."
         )
 
-    def reset_state(self, *args, **kwargs):
+    def reset_state(self, *args, **kwargs) -> NoReturn:
         raise NotImplementedError(
             f"{NeuronSubView.__name__} {self.name} cannot be reset."
         )
