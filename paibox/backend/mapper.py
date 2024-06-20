@@ -299,8 +299,9 @@ class Mapper:
         n_avail_cores = HwConfig.N_CORE_OFFLINE * _BACKEND_CONTEXT.n_target_chips
         n_core_required = sum(cb.n_core_required for cb in self.core_blocks)
 
+        self.n_core_required = n_core_required
+
         if core_estimate_only:
-            self.n_core_required = n_core_required
             return None
 
         elif n_core_required > n_avail_cores:
