@@ -1,5 +1,6 @@
 from collections.abc import Iterable
-from typing import Any, NoReturn, Optional, Union
+from typing import Any, Literal, NoReturn, Optional, Union
+import warnings
 
 import numpy as np
 from numpy.typing import NDArray
@@ -17,7 +18,7 @@ from paicorelib import (
 )
 
 from paibox.base import NeuDyn
-from paibox.exceptions import ShapeError
+from paibox.exceptions import PAIBoxWarning, ShapeError
 from paibox.types import LeakVType, Shape, SpikeType, VoltageType
 from paibox.utils import (
     arg_check_non_neg,
@@ -30,6 +31,8 @@ from paibox.utils import (
 from .utils import NEG_THRES_MIN, _is_leak_v_overflow, _mask, vjt_overflow
 
 __all__ = ["Neuron"]
+
+L = Literal
 
 
 class MetaNeuron:
@@ -98,6 +101,26 @@ class MetaNeuron:
         self._v_th_rand = self.init_param(0).astype(np.int32)
         self.overflow_strict = overflow_strict
 
+        if self.synaptic_integr is SIM.MODE_STOCHASTIC:
+            warnings.warn(
+                f"mode {SIM.MODE_STOCHASTIC.name} is configurated "
+                f"but will not be simulated.",
+                PAIBoxWarning,
+            )
+
+        if self.leak_integr is LIM.MODE_STOCHASTIC:
+            warnings.warn(
+                f"mode {LIM.MODE_STOCHASTIC.name} is configurated "
+                f"but will not be simulated.",
+                PAIBoxWarning,
+            )
+
+        if threshold_mask_bits > 0:
+            warnings.warn(
+                f"random threshold is configurated but will not be simulated.",
+                PAIBoxWarning,
+            )
+
     def _neuronal_charge(
         self, incoming_v: VoltageType, vjt_pre: VoltageType, strict: bool = False
     ) -> VoltageType:
@@ -111,17 +134,10 @@ class MetaNeuron:
             else (stochastic)
                 `vjt` = `vjt_pre` + `_rho_w_ij` * \sum^{N-1}_{i=0} * x_i(t) * w_{i,j}
         """
-        _rho_w_ij = 1  # Random synaptic integration enable, 0/1
-
-        if self.synaptic_integr is SIM.MODE_STOCHASTIC:
-            raise NotImplementedError(
-                f"mode {SIM.MODE_STOCHASTIC.name} is not implemented."
-            )
+        if incoming_v.ndim == 2:
+            _v = incoming_v.sum(axis=1, dtype=np.int32)
         else:
-            if incoming_v.ndim == 2:
-                _v = incoming_v.sum(axis=1, dtype=np.int32)
-            else:
-                _v = incoming_v
+            _v = incoming_v
 
         v_charged = np.add(vjt_pre, _v, dtype=np.int32)
 
@@ -144,22 +160,12 @@ class MetaNeuron:
 
                 `vjt` = `vjt` + \sgn{`leak_v`}* `_ld` * `_F`
         """
-        _rho_j_lambda = 2  # Random leak, unsigned 29-bit.
-
         if self.leak_direction is LDM.MODE_FORWARD:
             _ld = np.ones((self._n_neuron,), dtype=np.bool_)
         else:
             _ld = np.sign(vjt)
 
-        if self.leak_integr is LIM.MODE_DETERMINISTIC:
-            v_leaked = np.add(vjt, _ld * self.leak_v, dtype=np.int32)
-        else:
-            raise NotImplementedError(
-                f"mode {LIM.MODE_STOCHASTIC.name} is not implemented."
-            )
-            # _F = 1 if abs(self.leak_v) >= _rho_j_lambda else 0
-            # sgn_leak_v = fn_sgn(self.leak_v, 0)
-            # self.vjt = np.add(self.vjt, sgn_leak_v * _F * _ld).astype(np.int32)
+        v_leaked = np.add(vjt, _ld * self.leak_v, dtype=np.int32)
 
         return v_leaked
 
@@ -182,8 +188,7 @@ class MetaNeuron:
             else
                 `spike` = 0
         """
-        # TODO Is _rho_j_T and _v_th_rand for all neurons or for each neuron?
-        _rho_j_T = 3  # Random threshold, unsigned 29-bit.
+        # fixed at 0 since we won't simulate random threshold
         _v_th_rand = 0 & self._thres_mask
         self._v_th_rand = self.init_param(_v_th_rand).astype(np.int32)
 
@@ -389,9 +394,9 @@ class Neuron(MetaNeuron, NeuDyn):
         neg_threshold: int = NEG_THRES_MIN,
         pos_threshold: int = 1,
         leak_direction: LDM = LDM.MODE_FORWARD,
-        leak_integration_mode: LIM = LIM.MODE_DETERMINISTIC,
+        leak_integration_mode: Union[L[0, 1], bool, LIM] = LIM.MODE_DETERMINISTIC,
         leak_v: Union[int, LeakVType] = 0,
-        synaptic_integration_mode: SIM = SIM.MODE_DETERMINISTIC,
+        synaptic_integration_mode: Union[L[0, 1], bool, SIM] = SIM.MODE_DETERMINISTIC,
         bit_truncation: int = 0,
         *,
         delay: int = 1,
@@ -416,9 +421,9 @@ class Neuron(MetaNeuron, NeuDyn):
             arg_check_non_pos(neg_threshold, "negative threshold"),
             arg_check_non_neg(pos_threshold, "positive threshold"),
             leak_direction,
-            leak_integration_mode,
+            LIM(leak_integration_mode),
             leak_v,
-            synaptic_integration_mode,
+            SIM(synaptic_integration_mode),
             arg_check_non_neg(bit_truncation, "bit of tuncation"),
             overflow_strict,
             keep_shape,
