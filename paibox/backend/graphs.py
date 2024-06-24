@@ -391,6 +391,8 @@ class PAIGraph:
         def _copy_pred_conn(
             copied: DestNodeType, pred_nodes: dict[NodeName, EdgeAttr], orig_ind: int
         ) -> None:
+            if copied.name not in self.pred_dg.keys():
+                self.pred_dg[copied.name] = dict()
             for pred_nn, pred_edge_attr in pred_nodes.items():
                 copied_edge = pred_edge_attr.edge.copy(target=copied)
                 self._raw_edges[copied_edge.name] = copied_edge
@@ -405,7 +407,7 @@ class PAIGraph:
                 if not update:
                     copied_edge_attr = EdgeAttr(copied_edge, pred_edge_attr.distance)
                     self.succ_dg[pred_nn][copied.name] = copied_edge_attr
-                    self.pred_dg[copied.name] = {pred_nn: copied_edge_attr}
+                    self.pred_dg[copied.name][pred_nn] = copied_edge_attr
                     self.degree_of_nodes[pred_nn].out_degree += 1
 
             if not update:
@@ -456,6 +458,8 @@ class PAIGraph:
                     f"Got {', '.join(grab_pred_nodes)}, but predecessors are {', '.join(pred_nodes)}."
                 )
             else:
+                if copied.name not in self.pred_dg.keys():
+                    self.pred_dg[copied.name] = dict()
                 for pred_nn in grab_pred_nodes:
                     pred_edge = pred_nodes[pred_nn].edge
                     pred_edge.target = copied
@@ -473,7 +477,6 @@ class PAIGraph:
                         new_edge_attr = EdgeAttr(pred_edge, _orig_edge_attr.distance)
 
                         self.succ_dg[pred_nn][copied.name] = new_edge_attr
-                        self.pred_dg[copied.name] = dict()
                         self.pred_dg[copied.name][pred_nn] = new_edge_attr
 
                 if not update:
