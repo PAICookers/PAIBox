@@ -458,7 +458,7 @@ class RoutingCluster:
         return RoutingCoord(*reversed(path))
 
 
-class RoutingGroup():
+class RoutingGroup:
     """Core blocks located within a routing group are routable.
 
     NOTE: Axon groups within a routing group are the same.
@@ -526,7 +526,7 @@ class RoutingGroup():
             )
 
         return self[0].chip_coord
-    
+
     def __getitem__(self, key):
         return self.core_blocks[key]
 
@@ -540,7 +540,9 @@ class RoutingRoot:
         self.chip_roots = [
             RoutingCluster(Level.L5, include_online=True) for _ in range(len(chip_list))
         ]
-        self.used_L2_coords: list[list[RoutingCoord]] = [list() for _ in range(len(chip_list))]
+        self.used_L2_coords: list[list[RoutingCoord]] = [
+            list() for _ in range(len(chip_list))
+        ]
         self.n_core_consumption: int = 0
         self.routing_path: list[Direction] = []
         self.chip_coord: ChipCoord = None
@@ -556,64 +558,81 @@ class RoutingRoot:
 
         raise RoutingError(f"get leaf {leaf.tag} coordinate failed.")
 
-    #this function reture a ChipCoord and a RoutingCoord
-    def set_coord(self, n_core_comsumtion:int):
+    # this function reture a ChipCoord and a RoutingCoord
+    def set_coord(self, n_core_comsumtion: int):
         self.chip_index = n_core_comsumtion // HwConfig.N_CORE_MAX_INCHIP
         if self.chip_index >= len(self.chip_list):
-            raise ValueError("The number of required chips is out of range {0} ({1}).".format(len(self.chip_list), chip_index+1))
+            raise ValueError(
+                "The number of required chips is out of range {0} ({1}).".format(
+                    len(self.chip_list), chip_index + 1
+                )
+            )
         self.chip_coord = self.chip_list[self.chip_index]
         routing_index = n_core_comsumtion % HwConfig.N_CORE_MAX_INCHIP
         self.routing_path = []
         for i in range(HwConfig.N_BIT_CORE_X):
-            self.routing_path.append(DIREC_IDX[routing_index % HwConfig.N_SUB_ROUTING_NODE])
+            self.routing_path.append(
+                DIREC_IDX[routing_index % HwConfig.N_SUB_ROUTING_NODE]
+            )
             routing_index = routing_index // HwConfig.N_SUB_ROUTING_NODE
-    
+
     def next_coord(self):
         for i in range(HwConfig.N_BIT_CORE_X):
             if self.routing_path[i] == Direction.X1Y1:
                 self.routing_path[i] = Direction.X0Y0
             else:
-                self.routing_path[i] = DIREC_IDX[DIREC_IDX.index(self.routing_path[i]) + 1]
+                self.routing_path[i] = DIREC_IDX[
+                    DIREC_IDX.index(self.routing_path[i]) + 1
+                ]
                 break
-        
+
     def place_routing_group(self, routing_group: RoutingGroup) -> bool:
         cost = 1 << (routing_group.n_core_required - 1).bit_length()
         required = routing_group.n_core_required
         wasted = cost - required
         if cost > HwConfig.N_CORE_OFFLINE:
-            raise ValueError("The number of required cores is out of range {0} ({1}).".format(HwConfig.N_CORE_OFFLINE, cost))
+            raise ValueError(
+                "The number of required cores is out of range {0} ({1}).".format(
+                    HwConfig.N_CORE_OFFLINE, cost
+                )
+            )
         n_core_consumption = self.n_core_consumption
         if n_core_consumption % cost != 0:
             n_core_consumption = n_core_consumption + cost - n_core_consumption % cost
         temp_consumption = n_core_consumption + cost
-        temp_consumption = temp_consumption%HwConfig.N_CORE_MAX_INCHIP
-        temp_consumption = temp_consumption if temp_consumption != 0 else HwConfig.N_CORE_MAX_INCHIP
+        temp_consumption = temp_consumption % HwConfig.N_CORE_MAX_INCHIP
+        temp_consumption = (
+            temp_consumption if temp_consumption != 0 else HwConfig.N_CORE_MAX_INCHIP
+        )
         if temp_consumption - wasted > HwConfig.N_CORE_OFFLINE:
-            n_core_consumption = n_core_consumption + HwConfig.N_CORE_MAX_INCHIP - n_core_consumption % HwConfig.N_CORE_MAX_INCHIP
+            n_core_consumption = (
+                n_core_consumption
+                + HwConfig.N_CORE_MAX_INCHIP
+                - n_core_consumption % HwConfig.N_CORE_MAX_INCHIP
+            )
         self.n_core_consumption = n_core_consumption
         self.set_coord(n_core_consumption)
         valid_coords = []
         wasted_coords = []
-        
+
         for i in range(cost):
             if i == 0:
                 print("valid:")
             if i == required:
                 print("wasted:")
             leaf_coord = RoutingCoord(*reversed(self.routing_path))
-            if i % (HwConfig.N_SUB_ROUTING_NODE ** 2) == 0:
+            if i % (HwConfig.N_SUB_ROUTING_NODE**2) == 0:
                 L2_coord = RoutingCoord(*(reversed(self.routing_path[2:])))
                 self.used_L2_coords[self.chip_index].append(L2_coord)
             print(leaf_coord)
             self.next_coord()
-            if(i < required):
+            if i < required:
                 valid_coords.append(leaf_coord)
             else:
                 wasted_coords.append(leaf_coord)
 
         routing_group.assign(valid_coords, wasted_coords, self.chip_coord)
         self.n_core_consumption += cost
-        
 
     def insert_routing_group(self, routing_group: RoutingGroup) -> bool:
         """Insert a `RoutingGroup` in the routing tree. Assign each core blocks with \
