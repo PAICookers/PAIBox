@@ -6,7 +6,8 @@ from typing import Any, Literal, Optional, Union
 
 from paicorelib import Coord, CoordOffset, HwConfig, get_replication_id
 
-from paibox.base import NeuDyn, SynSys
+from paibox.base import SynSys
+from paibox.components import Neuron
 from paibox.exceptions import ConfigInvalidError, ResourceError
 from paibox.network import DynSysGroup
 
@@ -52,9 +53,7 @@ class Mapper:
 
         self.degrees_of_cb: dict[CoreBlock, NodeDegree] = defaultdict(NodeDegree)
         self.routing_groups: list[RoutingGroup] = []
-        self.succ_routing_groups: dict[RoutingGroup, list[RoutingGroup]] = defaultdict(
-            list
-        )
+        self.succ_routing_groups: dict[RoutingGroup, list[RoutingGroup]] = dict()
 
         self.core_plm_config: CorePlmConf = defaultdict(dict)
         self.core_params: CoreConf = defaultdict(dict)
@@ -603,7 +602,7 @@ class Mapper:
 
         return config_dict
 
-    def find_neuron(self, neuron: NeuDyn, *, verbose: int = 0) -> None:
+    def find_neuron(self, neuron: Neuron, *, verbose: int = 0) -> None:
         self._build_check()
 
         for cb in self.core_blocks:
@@ -621,7 +620,7 @@ class Mapper:
                                 f"Address:  {neu_seg.addr_slice}"
                             )
 
-    def find_axon(self, neuron: NeuDyn, *, verbose: int = 0) -> None:
+    def find_axon(self, neuron: Neuron, *, verbose: int = 0) -> None:
         self._build_check()
 
         for cb in self.core_blocks:

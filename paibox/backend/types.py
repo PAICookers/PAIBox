@@ -2,7 +2,7 @@ import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum, auto, unique
-from typing import Any, NamedTuple, Union
+from typing import NamedTuple, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -14,7 +14,7 @@ else:
 
 from paicorelib import CoreMode, HwConfig
 
-from paibox.base import NeuDyn, PAIBoxObject
+from paibox.base import PAIBoxObject
 from paibox.components import FullConnectedSyn, InputProj, Neuron
 
 __all__ = [
@@ -40,7 +40,7 @@ __all__ = [
 
 NodeName: TypeAlias = str
 EdgeName: TypeAlias = str
-NodeType: TypeAlias = Union[InputProj, NeuDyn]
+NodeType: TypeAlias = Union[InputProj, Neuron]
 EdgeType: TypeAlias = FullConnectedSyn
 SourceNodeType: TypeAlias = NodeType
 DestNodeType: TypeAlias = Neuron

@@ -6,9 +6,8 @@ from typing import Any, TypeVar, Union
 
 from paicorelib import HwConfig
 
-from paibox.base import NeuDyn
 from paibox.collector import Collector
-from paibox.components import FullConnectedSyn, InputProj, NeuModule
+from paibox.components import FullConnectedSyn, InputProj, NeuModule, Neuron
 from paibox.exceptions import GraphBuildError, GraphConnectionError, NotSupportedError
 from paibox.network import DynSysGroup
 from paibox.utils import check_elem_unique
@@ -98,7 +97,7 @@ class PAIGraph:
         for subnet in self._raw_networks:
             fm += subnet.nodes().subset(NeuModule).unique()
             nodes += (
-                subnet.nodes().include(InputProj, NeuDyn).exclude(NeuModule).unique()
+                subnet.nodes().include(InputProj, Neuron).exclude(NeuModule).unique()
             )
             edges += subnet.nodes().subset(FullConnectedSyn).unique()
 
@@ -308,7 +307,7 @@ class PAIGraph:
             _optim_nodes = optim_nodes
 
         # visit ordered nodes for end to front
-        for node_name in filter(lambda node: isinstance(node, NeuDyn), _optim_nodes):
+        for node_name in filter(lambda node: isinstance(node, Neuron), _optim_nodes):
             node = self._raw_nodes[node_name]
 
             succ_nn = list(self.succ_dg[node_name].keys())
@@ -439,7 +438,7 @@ class PAIGraph:
         pred_nodes = self.pred_dg[node.name]
         succ_nodes = self.succ_dg[node.name]
 
-        copied: NeuDyn = node.copy()
+        copied = node.copy()
         self._raw_nodes[copied.name] = copied
 
         if not update:
@@ -552,7 +551,7 @@ class PAIGraph:
         return _prefix + "_and_".join(network.name for network in self._raw_networks)
 
 
-_NT = TypeVar("_NT", CoreBlock, NodeName)
+_NT = TypeVar("_NT", CoreBlock, NodeName, RoutingGroup)
 _T = TypeVar("_T")
 
 
@@ -576,13 +575,11 @@ def convert2routing_groups(
     succ_dg_of_cb: dict[CoreBlock, list[CoreBlock]],
     degrees_of_cb: dict[CoreBlock, NodeDegree],
     input_core_blocks: dict[SourceNodeType, list[CoreBlock]],
-) -> list[RoutingGroup]:
+) -> tuple[list[RoutingGroup], dict[RoutingGroup, list[RoutingGroup]]]:
     ordered_core_blocks = toposort(succ_dg_of_cb)
     seen_cb = set()
     routing_groups: list[RoutingGroup] = []
     succ_cb_gid_dict = defaultdict(list)
-
-    # _degree_check(degrees_of_cb, succ_dg_of_cb)
 
     # After that, all input core blocks have been traversed.
     for input_cbs in input_core_blocks.values():
@@ -618,11 +615,13 @@ def convert2routing_groups(
                 routing_groups.append(RoutingGroup(*succ_cb))
 
     routing_groups_succ: dict[RoutingGroup, list[RoutingGroup]] = defaultdict(list)
+
     for rg in routing_groups:
         routing_groups_succ[rg] = []
         rg_succ_cb: set[CoreBlock] = set()
         for cb in rg:
             rg_succ_cb.update(succ_dg_of_cb[cb])
+
         for _rg in routing_groups:
             for cb in rg_succ_cb:
                 if cb in _rg:
