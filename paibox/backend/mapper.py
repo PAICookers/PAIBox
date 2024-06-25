@@ -11,7 +11,7 @@ from paibox.exceptions import ConfigInvalidError, ResourceError
 from paibox.network import DynSysGroup
 
 from .conf_template import (
-    CoreConfig,
+    CoreConf,
     CorePlmConf,
     GraphInfo,
     InputNodeConf,
@@ -57,7 +57,7 @@ class Mapper:
         )
 
         self.core_plm_config: CorePlmConf = defaultdict(dict)
-        self.core_params: dict[Coord, CoreConfig] = dict()
+        self.core_params: CoreConf = defaultdict(dict)
         """The dictionary of core parameters."""
 
         self.n_core_required = 0
@@ -341,7 +341,7 @@ class Mapper:
             "target_chip_addr"
         ]:
             raise ConfigInvalidError(
-                f"The output chip address  {ochip_coord} should not overlap with the "
+                f"The output chip address {ochip_coord} should not overlap with the "
                 f"chip addresses, but got {_BACKEND_CONTEXT._target_chip_addr_repr()}."
             )
 
@@ -452,9 +452,9 @@ class Mapper:
 
         for rg in self.routing_groups:
             for member_cb in rg:
-                self.core_params.update(
-                    CoreBlock.export_core_plm_config(member_cb)
-                )  # compatible for py3.8
+                self.core_params[rg.chip_coord] |= CoreBlock.export_core_plm_config(
+                    member_cb
+                )
 
                 if self.degrees_of_cb[member_cb].out_degree == 0:
                     # member_cb is a pure output core block. All neu_segs inside are output neurons.

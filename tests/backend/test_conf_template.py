@@ -21,7 +21,13 @@ except ModuleNotFoundError:
 
 class TestConfExport:
     def test_export_core_params_json(self, ensure_dump_dir, MockCoreConfigDict):
-        core_params = {Coord(0, 0): MockCoreConfigDict}
+        core_params = {
+            Coord(1, 1): {
+                Coord(0, 0): MockCoreConfigDict,
+                Coord(0, 1): MockCoreConfigDict,
+            },
+            Coord(2, 2): {Coord(0, 0): MockCoreConfigDict},
+        }
 
         export_core_params_json(core_params, ensure_dump_dir)
 

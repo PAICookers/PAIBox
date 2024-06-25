@@ -316,6 +316,8 @@ InputNodeConf: TypeAlias = dict[NodeName, NeuronDest]
 OutputDestConf: TypeAlias = dict[NodeName, dict[CoordAddr, NeuronDestInfo]]
 CorePlmConfInChip: TypeAlias = dict[Coord, CorePlmConfig]
 CorePlmConf: TypeAlias = dict[ChipCoord, CorePlmConfInChip]
+CoreConfInChip: TypeAlias = dict[Coord, CoreConfig]
+CoreConf: TypeAlias = dict[ChipCoord, CoreConfInChip]
 
 
 class GraphInfo(TypedDict):
@@ -457,8 +459,13 @@ def gen_config_frames_by_coreconf(
     return frame_arrays_on_core
 
 
-def export_core_params_json(core_conf: dict[Coord, CoreConfig], fp: Path) -> None:
-    _valid_conf = {str(k): v.to_json() for k, v in core_conf.items()}
+def export_core_params_json(core_conf: CoreConf, fp: Path) -> None:
+    _valid_conf = {}
+
+    for chip_coord, cconf in core_conf.items():
+        _valid_conf[str(chip_coord)] = {}
+        for core_coord, conf in cconf.items():
+            _valid_conf[str(chip_coord)][str(core_coord)] = conf.to_json()
 
     if _USE_ORJSON:
         with open(fp / _BACKEND_CONTEXT["core_conf_json"], "wb") as f:
