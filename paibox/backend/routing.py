@@ -543,6 +543,7 @@ class RoutingRoot:
         self.used_L2_coords: list[list[RoutingCoord]] = [
             list() for _ in range(len(chip_list))
         ]
+        self.n_core_per_chip: list[int] = [0] * len(chip_list)
         self.n_core_consumption: int = 0
         self.routing_path: list[Direction] = []
         self.chip_coord: ChipCoord = None
@@ -564,7 +565,7 @@ class RoutingRoot:
         if self.chip_index >= len(self.chip_list):
             raise ValueError(
                 "The number of required chips is out of range {0} ({1}).".format(
-                    len(self.chip_list), chip_index + 1
+                    len(self.chip_list), self.chip_index + 1
                 )
             )
         self.chip_coord = self.chip_list[self.chip_index]
@@ -585,6 +586,7 @@ class RoutingRoot:
                     DIREC_IDX.index(self.routing_path[i]) + 1
                 ]
                 break
+        self.n_core_consumption += 1
 
     def place_routing_group(self, routing_group: RoutingGroup) -> bool:
         cost = 1 << (routing_group.n_core_required - 1).bit_length()
@@ -621,7 +623,7 @@ class RoutingRoot:
             if i == required:
                 print("wasted:")
             leaf_coord = RoutingCoord(*reversed(self.routing_path))
-            if i % (HwConfig.N_SUB_ROUTING_NODE**2) == 0:
+            if self.n_core_consumption % (HwConfig.N_SUB_ROUTING_NODE**2) == 0:
                 L2_coord = RoutingCoord(*(reversed(self.routing_path[2:])))
                 self.used_L2_coords[self.chip_index].append(L2_coord)
             print(leaf_coord)
@@ -632,7 +634,11 @@ class RoutingRoot:
                 wasted_coords.append(leaf_coord.to_coord())
 
         routing_group.assign(valid_coords, wasted_coords, self.chip_coord)
-        self.n_core_consumption += cost
+        temp_consumption = self.n_core_consumption % HwConfig.N_CORE_MAX_INCHIP
+        temp_consumption = (
+            temp_consumption if temp_consumption != 0 else HwConfig.N_CORE_MAX_INCHIP
+        )
+        self.n_core_per_chip[self.chip_index] = temp_consumption
 
     def insert_routing_group(self, routing_group: RoutingGroup) -> bool:
         """Insert a `RoutingGroup` in the routing tree. Assign each core blocks with \
