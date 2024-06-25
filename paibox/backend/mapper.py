@@ -28,6 +28,7 @@ from .graphs import (
     convert2routing_groups,
     get_node_degrees,
     get_succ_cb_by_node,
+    toposort,
 )
 from .placement import CoreBlock, aligned_coords, max_lcn_of_cb
 from .routing import RoutingGroup, RoutingRoot
@@ -51,6 +52,9 @@ class Mapper:
 
         self.degrees_of_cb: dict[CoreBlock, NodeDegree] = defaultdict(NodeDegree)
         self.routing_groups: list[RoutingGroup] = []
+        self.succ_routing_groups: dict[RoutingGroup, list[RoutingGroup]] = defaultdict(
+            list
+        )
 
         self.core_plm_config: CorePlmConf = defaultdict(dict)
         self.core_params: dict[Coord, CoreConfig] = dict()
@@ -175,7 +179,7 @@ class Mapper:
         self.cb_axon_grouping()
 
         # Generate routing_groups for gh_multicast_optim
-        self.routing_groups = convert2routing_groups(
+        self.routing_groups, self.succ_routing_groups = convert2routing_groups(
             self.succ_core_blocks, self.degrees_of_cb, self.input_core_blocks
         )
 
@@ -288,6 +292,9 @@ class Mapper:
                 optim_target=_BACKEND_CONTEXT.cflags["grouping_optim_target"]
             )
 
+        # Optimize the order of routing groups
+        # self.routing_groups = reorder_routing_groups(self.succ_routing_groups)
+        self.routing_groups = toposort(self.succ_routing_groups)
         # Calculate the consumption of required physical cores.
         n_avail_cores = HwConfig.N_CORE_OFFLINE * _BACKEND_CONTEXT.n_target_chips
         n_core_required = sum(cb.n_core_required for cb in self.core_blocks)
@@ -303,7 +310,7 @@ class Mapper:
 
         # Generate routing groups by given the list of core blocks.
         for rg in self.routing_groups:
-            self.routing_tree.insert_routing_group(rg)
+            self.routing_tree.place_routing_group(rg)
 
         # Calculate the consumption of occupied physical cores.
         if (
@@ -673,6 +680,78 @@ def _fp_check(fp: Optional[Union[str, Path]] = None) -> Path:
         _fp.mkdir(parents=True, exist_ok=True)
 
     return _fp
+
+
+def _calculate_core_consumption(order_rgs: list[RoutingGroup]) -> int:
+    n_core_consumption: int = 0
+    rg_consumption: list[int] = [
+        1 << (rg.n_core_required - 1).bit_length() for rg in order_rgs
+    ]
+    rg_wasted: list[int] = [
+        rg_consum - rg.n_core_required
+        for rg, rg_consum in zip(order_rgs, rg_consumption)
+    ]
+    for wasted, consumption in zip(rg_wasted, rg_consumption):
+        if consumption > HwConfig.N_CORE_OFFLINE:
+            raise ValueError(
+                "The number of required cores is out of range {0} ({1}).".format(
+                    HwConfig.N_CORE_OFFLINE, consumption
+                )
+            )
+        if n_core_consumption % consumption != 0:
+            n_core_consumption = (
+                n_core_consumption + consumption - n_core_consumption % consumption
+            )
+        temp_consumption = n_core_consumption + consumption
+        temp_consumption = temp_consumption % HwConfig.N_CORE_MAX_INCHIP
+        temp_consumption = (
+            temp_consumption if temp_consumption != 0 else HwConfig.N_CORE_MAX_INCHIP
+        )
+        if temp_consumption - wasted > HwConfig.N_CORE_OFFLINE:
+            n_core_consumption = (
+                n_core_consumption
+                + HwConfig.N_CORE_MAX_INCHIP
+                - n_core_consumption % HwConfig.N_CORE_MAX_INCHIP
+            )
+        n_core_consumption += consumption
+    return n_core_consumption
+
+
+def reorder_routing_groups(
+    graph: dict[RoutingGroup, list[RoutingGroup]]
+) -> list[RoutingGroup]:
+    in_degree = {node: 0 for node in graph}
+    for node in graph:
+        for successor in graph[node]:
+            in_degree[successor] += 1
+    best_order = []
+    min_core_consumption = HwConfig.N_CORE_MAX_INCHIP * _BACKEND_CONTEXT.n_target_chips
+
+    # 辅助函数，用于生成所有可能的拓扑排序
+    def backtrack(current_order: list[RoutingGroup]):
+        nonlocal best_order, min_core_consumption
+        if len(current_order) == len(graph):
+            current_cost = _calculate_core_consumption(current_order)
+            # print("current_order", current_order)
+            # print("current_cost", current_cost)
+            if current_cost < min_core_consumption:
+                best_order = current_order.copy()
+                min_core_consumption = current_cost
+            return
+        for node in graph:
+            if in_degree[node] == 0 and node not in current_order:
+                current_order.append(node)
+                for successor in graph[node]:
+                    in_degree[successor] -= 1
+                backtrack(current_order)
+                current_order.pop()
+                for successor in graph[node]:
+                    in_degree[successor] += 1
+
+    backtrack([])
+    print("best_order", best_order)
+    print("min_cost", min_core_consumption)
+    return best_order
 
 
 OUT_OF_CORE_RESOURCE_TEXT = "the number of required cores is out of range {0} ({1})."

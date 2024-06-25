@@ -579,7 +579,7 @@ def convert2routing_groups(
 ) -> list[RoutingGroup]:
     ordered_core_blocks = toposort(succ_dg_of_cb)
     seen_cb = set()
-    routing_groups = []
+    routing_groups: list[RoutingGroup] = []
     succ_cb_gid_dict = defaultdict(list)
 
     # _degree_check(degrees_of_cb, succ_dg_of_cb)
@@ -617,7 +617,19 @@ def convert2routing_groups(
             for succ_cb in succ_cb_gid_dict.values():
                 routing_groups.append(RoutingGroup(*succ_cb))
 
-    return routing_groups
+    routing_groups_succ: dict[RoutingGroup, list[RoutingGroup]] = defaultdict(list)
+    for rg in routing_groups:
+        routing_groups_succ[rg] = []
+        rg_succ_cb: set[CoreBlock] = set()
+        for cb in rg:
+            rg_succ_cb.update(succ_dg_of_cb[cb])
+        for _rg in routing_groups:
+            for cb in rg_succ_cb:
+                if cb in _rg:
+                    routing_groups_succ[rg].append(_rg)
+                    break
+
+    return routing_groups, routing_groups_succ
 
 
 def toposort(directed_edges: Mapping[_NT, Iterable[_NT]]) -> list[_NT]:

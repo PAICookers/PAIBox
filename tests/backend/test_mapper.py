@@ -244,11 +244,11 @@ class TestMapperDeployment:
 
         assert graph_info["n_core_occupied"] == n_networks
 
-        rtotal = mapper.routing_tree.breadth_of_lx(0)
-        r1 = mapper.routing_tree.breadth_of_lx(0, 0)
+        rtotal = sum(mapper.routing_tree.n_core_per_chip)
+        r1 = mapper.routing_tree.n_core_per_chip[0]
 
         if n_networks > 1008:
-            r2 = mapper.routing_tree.breadth_of_lx(0, 1)
+            r2 = mapper.routing_tree.n_core_per_chip[1]
             assert rtotal == r1 + r2
             assert r1 == 1008
             assert r2 == n_networks - 1008
