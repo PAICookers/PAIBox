@@ -627,9 +627,9 @@ class RoutingRoot:
             print(leaf_coord)
             self.next_coord()
             if i < required:
-                valid_coords.append(leaf_coord)
+                valid_coords.append(leaf_coord.to_coord())
             else:
-                wasted_coords.append(leaf_coord)
+                wasted_coords.append(leaf_coord.to_coord())
 
         routing_group.assign(valid_coords, wasted_coords, self.chip_coord)
         self.n_core_consumption += cost
