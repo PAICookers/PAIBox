@@ -28,6 +28,7 @@ from .graphs import (
     convert2routing_groups,
     get_node_degrees,
     get_succ_cb_by_node,
+    toposort,
 )
 from .placement import CoreBlock, aligned_coords, max_lcn_of_cb
 from .routing import RoutingGroup, RoutingRoot
@@ -292,7 +293,8 @@ class Mapper:
             )
 
         # Optimize the order of routing groups
-        self.routing_groups = reorder_routing_groups(self.succ_routing_groups)
+        # self.routing_groups = reorder_routing_groups(self.succ_routing_groups)
+        self.routing_groups = toposort(self.succ_routing_groups)
         # Calculate the consumption of required physical cores.
         n_avail_cores = HwConfig.N_CORE_OFFLINE * _BACKEND_CONTEXT.n_target_chips
         n_core_required = sum(cb.n_core_required for cb in self.core_blocks)
@@ -308,7 +310,7 @@ class Mapper:
 
         # Generate routing groups by given the list of core blocks.
         for rg in self.routing_groups:
-            self.routing_tree.insert_routing_group(rg)
+            self.routing_tree.place_routing_group(rg)
 
         # Calculate the consumption of occupied physical cores.
         if (
