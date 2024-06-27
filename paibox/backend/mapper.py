@@ -108,6 +108,7 @@ class Mapper:
         grouping_optim_target: Literal["latency", "core", "both"] = "both",
         no_twisted_branch: bool = True,
         multicast_optim: Union[bool, Sequence[NodeType]] = False,
+        use_exp_features: bool = False,
     ) -> GraphInfo:
         """Compile the network with optimization options.
 
@@ -177,13 +178,13 @@ class Mapper:
         """Group the axons of core block."""
         self.cb_axon_grouping()
 
-        # Generate routing_groups for gh_multicast_optim
+        # Convert core blocks to routing groups
         self.routing_groups, self.succ_routing_groups = convert2routing_groups(
             self.succ_core_blocks, self.degrees_of_cb, self.input_core_blocks
         )
 
         """Core coordinate assignment."""
-        self.coord_assign(core_estimate_only)
+        self.coord_assign(core_estimate_only, use_exp_features)
 
         if core_estimate_only:
             return GraphInfo(
@@ -267,9 +268,6 @@ class Mapper:
         for cb in self.core_blocks:
             cb.group_axons()
 
-        for i in range(len(self.routing_groups)):
-            routing_group = self.routing_groups[i]
-
     def graph_optimization(self) -> None:
         optimized = self.graph.graph_optimization(self.core_blocks, self.routing_groups)
         if optimized:
@@ -279,7 +277,7 @@ class Mapper:
             self.build_core_blocks()
             self.lcn_ex_adjustment()
 
-    def coord_assign(self, core_estimate_only: bool = False) -> None:
+    def coord_assign(self, core_estimate_only: bool, use_new_routing: bool) -> None:
         """Assign the coordinate of each `CorePlacement`.
 
         NOTE: The neurons in each core block must be grouped first to determine the \
@@ -308,9 +306,16 @@ class Mapper:
                 OUT_OF_CORE_RESOURCE_TEXT.format(n_avail_cores, n_core_required)
             )
 
-        # Generate routing groups by given the list of core blocks.
         for rg in self.routing_groups:
-            self.routing_tree.place_routing_group(rg)
+            """
+            TODO The new routing method is an experimental feature that is yet  \
+                to be validated. Once it has been validated, the old method can \
+                be completely deprecated.
+            """
+            if use_new_routing:
+                self.routing_tree.place_routing_group(rg)
+            else:
+                self.routing_tree.insert_routing_group(rg)
 
         # Calculate the consumption of occupied physical cores.
         if (
