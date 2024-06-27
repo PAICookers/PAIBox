@@ -1,14 +1,15 @@
-from collections import UserList
-from collections.abc import Iterator, Sequence
+import itertools
+from collections.abc import Generator, Iterator, Sequence
 from typing import Any, Optional, Union, final
 
 from paicorelib import ChipCoord, Coord, HwConfig
-from paicorelib.routing_defs import ROUTING_DIRECTIONS_IDX as DIREC_IDX
-from paicorelib.routing_defs import RoutingCoord, RoutingCost
-from paicorelib.routing_defs import RoutingDirection as Direction
-from paicorelib.routing_defs import RoutingLevel as Level
-from paicorelib.routing_defs import RoutingStatus as Status
-from paicorelib.routing_defs import get_routing_consumption
+from paicorelib import ROUTING_DIRECTIONS_IDX as DIREC_IDX
+from paicorelib import RoutingCoord, RoutingCost
+from paicorelib import RoutingDirection as Direction
+from paicorelib import RoutingLevel as Level
+from paicorelib import RoutingStatus as Status
+from paicorelib import get_routing_consumption
+from paicorelib.routing_defs import MAX_ROUTING_PATH_LENGTH
 
 from paibox.exceptions import ResourceError, RoutingError
 
@@ -522,32 +523,32 @@ class RoutingGroup:
     def chip_coord(self) -> ChipCoord:
         if not all(cb.chip_coord == self[0].chip_coord for cb in self):
             raise RoutingError(
-                "Chip coordinates in the routing group is not consistent."
+                "chip coordinates in the routing group are not consistent."
             )
 
         return self[0].chip_coord
 
-    def __getitem__(self, key):
-        return self.core_blocks[key]
+    def __getitem__(self, idx: int) -> CoreBlock:
+        return self.core_blocks[idx]
 
 
 @final
 class RoutingRoot:
     def __init__(self, chip_list: list[ChipCoord], **kwargs) -> None:
         """Initialize a routing quadtree root."""
-        self.chip_list = chip_list
+        self.chip_list: list[ChipCoord] = chip_list
         # Every L5 routing cluster is unique in each chip root.
         self.chip_roots = [
             RoutingCluster(Level.L5, include_online=True) for _ in range(len(chip_list))
         ]
-        self.used_L2_coords: list[list[RoutingCoord]] = [
+        self.used_L2_clusters: list[list[RoutingCoord]] = [
             list() for _ in range(len(chip_list))
         ]
+        """Used L2 clusters in each chip root. The clocks of unused L2 clusters can be turned off   \
+            through the serial port to reduce power consumption.
+        """
+        self.n_core_total: int = 0
         self.n_core_per_chip: list[int] = [0] * len(chip_list)
-        self.n_core_consumption: int = 0
-        self.routing_path: list[Direction] = []
-        self.chip_coord: ChipCoord = None
-        self.chip_index: int = 0
 
     def get_leaf_coord(
         self, root: RoutingCluster, leaf: RoutingCluster
@@ -559,86 +560,77 @@ class RoutingRoot:
 
         raise RoutingError(f"get leaf {leaf.tag} coordinate failed.")
 
-    # this function reture a ChipCoord and a RoutingCoord
-    def set_coord(self, n_core_comsumtion: int):
-        self.chip_index = n_core_comsumtion // HwConfig.N_CORE_MAX_INCHIP
-        if self.chip_index >= len(self.chip_list):
-            raise ValueError(
-                "The number of required chips is out of range {0} ({1}).".format(
-                    len(self.chip_list), self.chip_index + 1
-                )
-            )
-        self.chip_coord = self.chip_list[self.chip_index]
-        routing_index = n_core_comsumtion % HwConfig.N_CORE_MAX_INCHIP
-        self.routing_path = []
-        for i in range(HwConfig.N_BIT_CORE_X):
-            self.routing_path.append(
-                DIREC_IDX[routing_index % HwConfig.N_SUB_ROUTING_NODE]
-            )
-            routing_index = routing_index // HwConfig.N_SUB_ROUTING_NODE
+    def get_insert_location(
+        self, n_core_incoming: int, n_core_required: int
+    ) -> tuple[int, int, list[Direction]]:
+        """Look for the insertion location of the incoming routing group."""
+        n_core_wasted = n_core_incoming - n_core_required
+        # Look for n_core_aligned closest to cur_cost, where n_core_aligned = n*n_core_incoming
+        n_core_aligned = _closet_multiple_above(self.n_core_total, n_core_incoming)
 
-    def next_coord(self):
-        for i in range(HwConfig.N_BIT_CORE_X):
-            if self.routing_path[i] == Direction.X1Y1:
-                self.routing_path[i] = Direction.X0Y0
-            else:
-                self.routing_path[i] = DIREC_IDX[
-                    DIREC_IDX.index(self.routing_path[i]) + 1
-                ]
-                break
-        self.n_core_consumption += 1
+        n_core_predicted = n_core_aligned + n_core_incoming
+        n_core_inchip = _num_inchip(n_core_predicted)
 
-    def place_routing_group(self, routing_group: RoutingGroup) -> bool:
-        cost = 1 << (routing_group.n_core_required - 1).bit_length()
-        required = routing_group.n_core_required
-        wasted = cost - required
-        if cost > HwConfig.N_CORE_OFFLINE:
-            raise ValueError(
-                "The number of required cores is out of range {0} ({1}).".format(
-                    HwConfig.N_CORE_OFFLINE, cost
-                )
+        # If online cores are hit, start from the next chip
+        if n_core_inchip - n_core_wasted > HwConfig.N_CORE_OFFLINE:
+            n_core_aligned = _closet_multiple_above(
+                n_core_aligned, HwConfig.N_CORE_MAX_INCHIP
             )
-        n_core_consumption = self.n_core_consumption
-        if n_core_consumption % cost != 0:
-            n_core_consumption = n_core_consumption + cost - n_core_consumption % cost
-        temp_consumption = n_core_consumption + cost
-        temp_consumption = temp_consumption % HwConfig.N_CORE_MAX_INCHIP
-        temp_consumption = (
-            temp_consumption if temp_consumption != 0 else HwConfig.N_CORE_MAX_INCHIP
+
+        core_loc = n_core_aligned
+
+        if (chip_idx_loc := core_loc // HwConfig.N_CORE_MAX_INCHIP) >= len(
+            self.chip_list
+        ):
+            raise ResourceError(
+                f"the number of required chips exceeds the limit {len(self.chip_list)} ({chip_idx_loc+1})."
+            )
+
+        self.n_core_total = n_core_aligned + n_core_incoming
+        self.n_core_per_chip[chip_idx_loc] = _num_inchip(self.n_core_total)
+
+        routing_idx = core_loc % HwConfig.N_CORE_MAX_INCHIP
+        routing_path = []
+
+        # From L0 to L4
+        for _ in range(MAX_ROUTING_PATH_LENGTH):
+            routing_idx, re = divmod(routing_idx, HwConfig.N_SUB_ROUTING_NODE)
+            routing_path.append(DIREC_IDX[re])
+
+        return core_loc, chip_idx_loc, routing_path
+
+    def place_routing_group(self, routing_group: RoutingGroup) -> None:
+        """Place a routing group in the chip list. Assign each core blocks with routing coordinates &   \
+            make sure they are routable.
+        """
+        n_core_req = routing_group.n_core_required
+        n_core_cost = 1 << (n_core_req - 1).bit_length()  # n_core_req <= 2^X
+
+        if n_core_cost > HwConfig.N_CORE_OFFLINE:
+            raise ResourceError(
+                "the number of cores required by the routing group exceeds the hardware limit, "
+                f"{n_core_cost} > {HwConfig.N_CORE_OFFLINE}."
+            )
+
+        core_insert_loc, chip_idx_loc, rpath_start = self.get_insert_location(
+            n_core_cost, n_core_req
         )
-        if temp_consumption - wasted > HwConfig.N_CORE_OFFLINE:
-            n_core_consumption = (
-                n_core_consumption
-                + HwConfig.N_CORE_MAX_INCHIP
-                - n_core_consumption % HwConfig.N_CORE_MAX_INCHIP
-            )
-        self.n_core_consumption = n_core_consumption
-        self.set_coord(n_core_consumption)
         valid_coords = []
         wasted_coords = []
 
-        for i in range(cost):
-            if i == 0:
-                print("valid:")
-            if i == required:
-                print("wasted:")
-            leaf_coord = RoutingCoord(*reversed(self.routing_path))
-            if self.n_core_consumption % (HwConfig.N_SUB_ROUTING_NODE**2) == 0:
-                L2_coord = RoutingCoord(*(reversed(self.routing_path[2:])))
-                self.used_L2_coords[self.chip_index].append(L2_coord)
-            print(leaf_coord)
-            self.next_coord()
-            if i < required:
+        for i, rpath in _routing_path_generator(n_core_cost, rpath_start):
+            leaf_coord = RoutingCoord(*reversed(rpath))
+            # Record the used L2 clusters
+            if (core_insert_loc + i) % (HwConfig.N_SUB_ROUTING_NODE**Level.L2) == 0:
+                L2_coord = RoutingCoord(*reversed(rpath[Level.L2 :]))
+                self.used_L2_clusters[chip_idx_loc].append(L2_coord)
+
+            if i < n_core_req:
                 valid_coords.append(leaf_coord.to_coord())
             else:
                 wasted_coords.append(leaf_coord.to_coord())
 
-        routing_group.assign(valid_coords, wasted_coords, self.chip_coord)
-        temp_consumption = self.n_core_consumption % HwConfig.N_CORE_MAX_INCHIP
-        temp_consumption = (
-            temp_consumption if temp_consumption != 0 else HwConfig.N_CORE_MAX_INCHIP
-        )
-        self.n_core_per_chip[self.chip_index] = temp_consumption
+        routing_group.assign(valid_coords, wasted_coords, self.chip_list[chip_idx_loc])
 
     def insert_routing_group(self, routing_group: RoutingGroup) -> bool:
         """Insert a `RoutingGroup` in the routing tree. Assign each core blocks with \
@@ -766,3 +758,47 @@ def get_parent(
         return None
 
     return dfs_preorder(tree, cluster)
+
+
+def _closet_multiple_above(above: int, multiple: int) -> int:
+    """Return the closest number above n that is a multiple of x."""
+    return (above + multiple - 1) // multiple * multiple
+
+
+def _num_inchip(n: int) -> int:
+    return (n - 1) % HwConfig.N_CORE_MAX_INCHIP + 1
+
+
+def _routing_path_generator(
+    n_times: int, rpath: list[Direction]
+) -> Generator[tuple[int, list[Direction]], Any, None]:
+    for i in range(n_times):
+        yield i, rpath
+
+        for lx in range(len(rpath)):
+            if rpath[lx] == DIREC_IDX[-1]:
+                rpath[lx] = DIREC_IDX[0]
+            else:
+                rpath[lx] = DIREC_IDX[(DIREC_IDX.index(rpath[lx]) + 1) % len(DIREC_IDX)]
+                break
+
+
+# def _routing_path_generator(
+#     n_times: int, rpath: RoutingPath, yield_first: bool = True
+# ) -> Generator[tuple[int, RoutingPath], Any, None]:
+#     _len = len(rpath)
+#     lx_iter = reversed(range(_len)) if rpath.reversed else range(_len)
+
+#     for i in range(n_times):
+#         if yield_first:
+#             yield i, rpath
+
+#         for lx in lx_iter:
+#             if rpath[lx] == DIREC_IDX[-1]:
+#                 rpath[lx] = DIREC_IDX[0]
+#             else:
+#                 rpath[lx] = DIREC_IDX[(DIREC_IDX.index(rpath[lx]) + 1) % len(DIREC_IDX)]
+#                 break
+
+#         if not yield_first:
+#             yield i, rpath
