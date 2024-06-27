@@ -34,11 +34,6 @@ if sys.version_info >= (3, 10):
 else:
     from typing_extensions import TypeAlias
 
-if sys.version_info >= (3, 11):
-    from typing import NotRequired
-else:
-    from typing_extensions import NotRequired
-
 from paibox.components import Neuron
 
 from .context import _BACKEND_CONTEXT
@@ -334,7 +329,8 @@ class GraphInfo(TypedDict):
     """The actual used cores."""
     n_core_occupied: int
     """The occupied cores, including used & wasted."""
-    extras: NotRequired[dict[str, Any]]
+    misc: dict[str, Any]
+    """Miscellaneous information."""
 
 
 def gen_config_frames_by_coreconf(
@@ -459,7 +455,12 @@ def gen_config_frames_by_coreconf(
     return frame_arrays_on_core
 
 
+def _with_suffix_json(fp: Path, fname: str) -> Path:
+    return (fp / fname).with_suffix(".json")
+
+
 def export_core_params_json(core_conf: CoreConf, fp: Path) -> None:
+    _full_fp = _with_suffix_json(fp, _BACKEND_CONTEXT["core_conf_json"])
     _valid_conf = {}
 
     for chip_coord, cconf in core_conf.items():
@@ -468,18 +469,19 @@ def export_core_params_json(core_conf: CoreConf, fp: Path) -> None:
             _valid_conf[str(chip_coord)][str(core_coord)] = conf.to_json()
 
     if _USE_ORJSON:
-        with open(fp / _BACKEND_CONTEXT["core_conf_json"], "wb") as f:
+        with open(_full_fp, "wb") as f:
             f.write(orjson.dumps(_valid_conf, option=orjson.OPT_INDENT_2))
     else:
-        with open(fp / _BACKEND_CONTEXT["core_conf_json"], "w") as f:
+        with open(_full_fp, "w") as f:
             json.dump(_valid_conf, f, indent=2)
 
 
 def export_input_conf_json(input_conf_info: InputNodeConf, fp: Path) -> None:
+    _full_fp = _with_suffix_json(fp, _BACKEND_CONTEXT["input_conf_json"])
     _valid_conf = {k: v.export() for k, v in input_conf_info.items()}
 
     if _USE_ORJSON:
-        with open(fp / _BACKEND_CONTEXT["input_conf_json"], "wb") as f:
+        with open(_full_fp, "wb") as f:
             f.write(
                 orjson.dumps(
                     _valid_conf,
@@ -488,13 +490,14 @@ def export_input_conf_json(input_conf_info: InputNodeConf, fp: Path) -> None:
                 )
             )
     else:
-        with open(fp / _BACKEND_CONTEXT["input_conf_json"], "w") as f:
+        with open(_full_fp, "w") as f:
             json.dump(_valid_conf, f, indent=2, cls=PAIConfigJsonEncoder)
 
 
 def export_output_conf_json(output_conf_info: OutputDestConf, fp: Path) -> None:
+    _full_fp = _with_suffix_json(fp, _BACKEND_CONTEXT["output_conf_json"])
     if _USE_ORJSON:
-        with open(fp / _BACKEND_CONTEXT["output_conf_json"], "wb") as f:
+        with open(_full_fp, "wb") as f:
             f.write(
                 orjson.dumps(
                     output_conf_info,
@@ -503,34 +506,39 @@ def export_output_conf_json(output_conf_info: OutputDestConf, fp: Path) -> None:
                 )
             )
     else:
-        with open(fp / _BACKEND_CONTEXT["output_conf_json"], "w") as f:
+        with open(_full_fp, "w") as f:
             json.dump(output_conf_info, f, indent=2, cls=PAIConfigJsonEncoder)
 
 
 if _USE_ORJSON:
 
     def export_neuconf_json(
-        neuron_conf: dict[Neuron, NeuronConfig], full_fp: Path
+        neuron_conf: dict[Neuron, NeuronConfig], fp: Path, fname: str = "neu_conf"
     ) -> None:
+        _full_fp = _with_suffix_json(fp, fname)
         _valid_conf = {
             k.name: orjson.loads(v.to_json()) for k, v in neuron_conf.items()
         }
 
-        with open(full_fp, "wb") as f:
+        with open(_full_fp, "wb") as f:
             f.write(orjson.dumps(_valid_conf, option=orjson.OPT_INDENT_2))
 
 else:
 
     def export_neuconf_json(
-        neuron_conf: dict[Neuron, NeuronConfig], full_fp: Path
+        neuron_conf: dict[Neuron, NeuronConfig], fp: Path, fname: str = "neu_conf"
     ) -> None:
+        _full_fp = _with_suffix_json(fp, fname)
         _valid_conf = {k.name: json.loads(v.to_json()) for k, v in neuron_conf.items()}
 
-        with open(full_fp, "w") as f:
+        with open(_full_fp, "w") as f:
             json.dump(_valid_conf, f, indent=2)
 
 
-def export_core_plm_conf_json(core_plm_conf: CorePlmConf, full_fp: Path) -> None:
+def export_core_plm_conf_json(
+    core_plm_conf: CorePlmConf, fp: Path, fname: str = "core_plm"
+) -> None:
+    _full_fp = _with_suffix_json(fp, fname)
     _valid_conf = {}
 
     for chip_coord, cconf in core_plm_conf.items():
@@ -539,8 +547,8 @@ def export_core_plm_conf_json(core_plm_conf: CorePlmConf, full_fp: Path) -> None
             _valid_conf[str(chip_coord)][str(core_coord)] = conf.to_json()
 
     if _USE_ORJSON:
-        with open(full_fp, "wb") as f:
+        with open(_full_fp, "wb") as f:
             f.write(orjson.dumps(_valid_conf, option=orjson.OPT_INDENT_2))
     else:
-        with open(full_fp, "w") as f:
+        with open(_full_fp, "w") as f:
             json.dump(_valid_conf, f, indent=2)

@@ -12,9 +12,9 @@ __all__ = []
 DEFAULT_OUTPUT_CHIP_ADDR = Coord(1, 0)
 DEFAULT_LOCAL_CHIP_ADDR = [Coord(0, 0)]  # Support multi-chip.
 DEFAULT_OUTPUT_CORE_ADDR_START = Coord(0, 0)
-DEFAULT_CORE_PARAMS_CONF_JSON = "core_params.json"
-DEFAULT_INPUT_CONF_JSON = "input_proj_info.json"
-DEFAULT_OUTPUT_CONF_JSON = "output_dest_info.json"
+DEFAULT_CORE_PARAMS_CONF_JSON = "core_params"
+DEFAULT_INPUT_CONF_JSON = "input_proj_info"
+DEFAULT_OUTPUT_CONF_JSON = "output_dest_info"
 
 
 class _BackendContext(_Context):

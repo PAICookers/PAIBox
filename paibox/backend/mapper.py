@@ -194,6 +194,7 @@ class Mapper:
                 inherent_timestep=self.graph.inherent_timestep,
                 n_core_required=self.n_core_required,
                 n_core_occupied=0,
+                misc={"name": self.graph.graph_name_repr},
             )
 
         """Allocate the core blocks to the core placments."""
@@ -300,7 +301,6 @@ class Mapper:
 
         if core_estimate_only:
             return None
-
         elif n_core_required > n_avail_cores:
             raise ResourceError(
                 OUT_OF_CORE_RESOURCE_TEXT.format(n_avail_cores, n_core_required)
