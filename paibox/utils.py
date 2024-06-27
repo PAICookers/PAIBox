@@ -133,11 +133,21 @@ def fn_sgn(a, b) -> int:
     return (a > b) - (a < b)
 
 
-def typical_round(number: float) -> int:
-    if number - int(number) < 0.5:
-        return int(number)
+def typical_round(n: float) -> int:
+    if n - int(n) < 0.5:
+        return int(n)
     else:
-        return int(number) + 1
+        return int(n) + 1
+
+
+def bit_reversal(u8: int) -> int:
+    """Reverse the bit order of a 8-bit unsigned integer."""
+    reversed = 0
+    for i in range(8):
+        if (u8 >> i) & 1:
+            reversed += 1 << (7 - i)
+
+    return reversed
 
 
 def arg_check_pos(arg: int, desc: Optional[str] = None) -> int:

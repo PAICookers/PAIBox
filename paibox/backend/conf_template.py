@@ -16,18 +16,16 @@ from paicorelib import (
     NeuronAttrs,
     NeuronDestInfo,
     ParamsReg,
-)
-from paicorelib import ReplicationId as RId
-from paicorelib import (
+    RoutingCoord,
     SNNModeEnable,
     SpikeWidthFormat,
     WeightPrecision,
     get_replication_id,
 )
+from paicorelib import ReplicationId as RId
 from paicorelib.framelib import types as flib_types
 from paicorelib.framelib.frame_gen import OfflineFrameGen
-from paicorelib.framelib.utils import np2bin, np2npy, np2txt
-from pydantic import BaseModel
+from paicorelib.framelib.utils import np2bin, np2npy, np2txt, _mask
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias
@@ -35,6 +33,7 @@ else:
     from typing_extensions import TypeAlias
 
 from paibox.components import Neuron
+from paibox.utils import bit_reversal
 
 from .context import _BACKEND_CONTEXT
 from .types import AxonCoord, NeuSegment, NodeName
@@ -162,6 +161,7 @@ class OutputNeuronDest(NamedTuple):
 try:
     from paicorelib.ram_model import NeuronConf as _NeuronConf
 except ImportError:
+    from pydantic import BaseModel
 
     class _NeuronConf(BaseModel):
         attrs: NeuronAttrs
@@ -552,3 +552,74 @@ def export_core_plm_conf_json(
     else:
         with open(_full_fp, "w") as f:
             json.dump(_valid_conf, f, indent=2)
+
+
+def export_used_L2_clusters(
+    clk_en_L2_dict: dict[ChipCoord, list[int]], fp: Path, fname: str = "used_L2"
+) -> None:
+    _full_fp = _with_suffix_json(fp, fname)
+    _valid_conf = {str(k): v for k, v in clk_en_L2_dict.items()}
+
+    if _USE_ORJSON:
+        with open(_full_fp, "wb") as f:
+            f.write(orjson.dumps(_valid_conf, option=orjson.OPT_INDENT_2))
+    else:
+        with open(_full_fp, "w") as f:
+            json.dump(_valid_conf, f, indent=2)
+
+
+def _get_clk_en_L2_dict(
+    chip_list: list[ChipCoord], used_L2: list[list[RoutingCoord]]
+) -> dict[ChipCoord, list[int]]:
+    """Generate serial port data for controlling the L2 cluster clocks of the chip.
+
+    Args:
+        - chip_list: the available chip list.
+        - used_L2: the routing coordinates of used L2 clusters in each chip.
+
+    Returns:
+        A dictionary of chip address & the corresponding L2 cluster clocks enable uint8 data.
+        
+    NOTE: Serial port data for L2 cluster clocks enable:
+        #1 [7:0] L2 clk en #0~#7 (x=0b000, y=0b000) ~ (x=0b000, y=0b111)
+        #2 [7:0] L2 clk en #8~#15(x=0b001, y=0b000) ~ (x=0b001, y=0b111)
+        ...
+        #8 [7:0] L2 clk en #8~#15(x=0b111, y=0b000) ~ (x=0b111, y=0b111)
+    """
+
+    def L2_to_idx(L2: RoutingCoord) -> int:
+        x = sum(L2[i].value[0] << (2 - i) for i in range(3))
+        y = sum(L2[i].value[1] << (2 - i) for i in range(3))
+
+        return (x << 3) + y
+
+    def to_clk_en_L2_u8(L2_inchip: list[RoutingCoord]) -> list[int]:
+        clk_en = []
+        # L2_inchip is out of order
+        bitmap = sum(1 << L2_to_idx(l2) for l2 in L2_inchip)
+
+        for _ in range(8):
+            u8 = bitmap & _mask(8)
+            bitmap >>= 8
+            clk_en.append(bit_reversal(u8))
+
+        return clk_en
+
+    clk_en_L2_dict = dict()
+
+    if sys.version_info >= (3, 10):
+        for chip_addr, used_L2_inchip in zip(chip_list, used_L2, strict=True):
+            clk_en_L2 = to_clk_en_L2_u8(used_L2_inchip)
+            clk_en_L2_dict[chip_addr] = clk_en_L2
+    else:
+        if len(chip_list) != len(used_L2):
+            raise ValueError(
+                "the length of chip list & used L2 clusters must be equal, "
+                f"but {len(chip_list)} != {len(used_L2)}."
+            )
+
+        for chip_addr, used_L2_inchip in zip(chip_list, used_L2):
+            clk_en_L2 = to_clk_en_L2_u8(used_L2_inchip)
+            clk_en_L2_dict[chip_addr] = clk_en_L2
+
+    return clk_en_L2_dict

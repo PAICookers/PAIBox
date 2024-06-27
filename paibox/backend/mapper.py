@@ -21,7 +21,9 @@ from .conf_template import (
     export_core_params_json,
     export_input_conf_json,
     export_output_conf_json,
+    export_used_L2_clusters,
     gen_config_frames_by_coreconf,
+    _get_clk_en_L2_dict,
 )
 from .context import _BACKEND_CONTEXT, set_cflag
 from .graphs import (
@@ -360,7 +362,13 @@ class Mapper:
             inherent_timestep=self.graph.inherent_timestep,
             n_core_required=self.n_core_required,
             n_core_occupied=self.n_core_occupied,
-            extras={"name": self.graph.graph_name_repr},
+            misc={
+                "name": self.graph.graph_name_repr,
+                "clk_en_L2": _get_clk_en_L2_dict(
+                    _BACKEND_CONTEXT["target_chip_addr"],
+                    self.routing_tree.used_L2_clusters,
+                ),
+            },
         )
 
         self.graph_info = _graph_info
@@ -564,6 +572,7 @@ class Mapper:
         format: Literal["txt", "bin", "npy"] = "bin",
         split_by_coord: bool = False,
         export_core_params: bool = False,
+        export_clk_en_L2: bool = False,
         use_hw_sim: bool = True,
     ) -> dict[Coord, Any]:
         """Generate configuration frames & export to file.
@@ -574,6 +583,7 @@ class Mapper:
             - format: `txt`, `bin`, or `npy`. `bin` is recommended.
             - split_by_coord: whether to split the generated frames file by the core coordinates.
             - export_core_params: whether to export the parameters of occupied cores.
+            - export_used_L2: whether to export the serial port data of the L2 cluster clocks.
             - use_hw_sim: whether to use hardware simulator. If use, '.bin' will be exported.
 
         Return: a dictionary of configurations.
@@ -604,6 +614,10 @@ class Mapper:
         export_input_conf_json(self.graph_info["input"], _fp)
         # Export the configurations of output destinations
         export_output_conf_json(self.graph_info["output"], _fp)
+
+        # Export the serial port data of the L2 cluster clocks
+        if export_clk_en_L2:
+            export_used_L2_clusters(self.graph_info["misc"]["clk_en_L2"], _fp)
 
         return config_dict
 
