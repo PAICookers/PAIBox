@@ -1,12 +1,20 @@
 from contextlib import nullcontext
+import random
 
 import numpy as np
 import pytest
-from paicorelib import Coord, RoutingDirection, RoutingLevel
+from paicorelib import Coord, HwConfig, RoutingDirection, RoutingLevel
 
 import paibox as pb
-from paibox.backend.routing import RoutingCluster, RoutingCoord, RoutingRoot, get_parent
+from paibox.backend.routing import (
+    RoutingCluster,
+    RoutingCoord,
+    RoutingRoot,
+    get_parent,
+    get_unused_lx,
+)
 from paibox.exceptions import RoutingError
+from .conftest import gen_random_used_lx
 
 X0Y0 = RoutingDirection.X0Y0
 X1Y0 = RoutingDirection.X1Y0
@@ -388,6 +396,20 @@ class TestRoutingRoot:
 
         return cores
 
+    def test_get_insert_location(self, monkeypatch):
+        clist = [Coord(0, 0)]
+        monkeypatch.setattr(pb.BACKEND_CONFIG, "target_chip_addr", clist)
+
+        root = RoutingRoot(pb.BACKEND_CONFIG.target_chip_addr)
+
+        cores_required = [100, 200, 100, 100]
+        cores_cost = [1 << (n - 1).bit_length() for n in cores_required]
+
+        for core_incoming, core_req in zip(cores_cost, cores_required):
+            core_loc, chip_idx_loc, routing_path = root.get_insert_location(
+                core_incoming, core_req
+            )
+
     @pytest.mark.parametrize(
         "cores, expectation",
         (
@@ -456,8 +478,6 @@ class TestRoutingRoot:
         ),
     )
     def test_insert_routing_group_multichip4(self, cores, expectation):
-        from paicorelib import Coord, HwConfig
-
         chip_list = [Coord(1, 1), Coord(1, 2), Coord(2, 1), Coord(2, 2)]
         root = RoutingRoot(chip_list)
 
@@ -479,3 +499,14 @@ class TestRoutingRoot:
 
                 if not flag:
                     raise RoutingError("Insert failed.")
+
+
+@pytest.mark.parametrize("lx", [L4, L3, L2, L1, L0])
+def test_get_unused_lx(lx):
+    n_lx_max = HwConfig.N_SUB_ROUTING_NODE ** (5 - lx)
+    n = random.randint(1, n_lx_max)
+
+    used_lx = gen_random_used_lx(n, lx)
+    unused_lx = get_unused_lx(used_lx, lx)
+
+    assert len(unused_lx) == n_lx_max - len(set(used_lx))

@@ -240,7 +240,7 @@ class TestMapperDeployment:
 
         mapper = pb.Mapper()
         mapper.build(*nets)
-        graph_info = mapper.compile()
+        graph_info = mapper.compile(use_exp_features=True)
 
         assert graph_info["n_core_occupied"] == n_networks
 
@@ -255,7 +255,7 @@ class TestMapperDeployment:
         else:
             assert rtotal == r1 == n_networks
 
-        mapper.export(fp=ensure_dump_dir)
+        mapper.export(fp=ensure_dump_dir, export_core_params=True)
 
 
 class TestMapper_Export:
@@ -388,7 +388,7 @@ class TestMapper_Compile:
 
         # Export complete configurations of cores into json
         export_core_plm_conf_json(
-            mapper.core_plm_config, ensure_dump_dir / "core_plm_configs_dense.json"
+            mapper.core_plm_config, ensure_dump_dir, "core_plm_configs_dense.json"
         )
 
     def test_grouping_optim_core(self, monkeypatch, build_example_net4):
