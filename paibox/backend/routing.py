@@ -802,3 +802,21 @@ def _routing_path_generator(
 
 #         if not yield_first:
 #             yield i, rpath
+
+
+def _all_lx_clusters(lx: Union[Level, int]) -> list[RoutingCoord]:
+    return [
+        RoutingCoord(*path)
+        for path in itertools.product(DIREC_IDX, repeat=MAX_ROUTING_PATH_LENGTH - lx)
+    ]
+
+
+def get_unused_lx(
+    used_lx: list[RoutingCoord], lx: Union[Level, int] = Level.L2
+) -> list[RoutingCoord]:
+    all_lx = _all_lx_clusters(lx)
+
+    for l in set(used_lx):  # make used_lx unduplicated
+        all_lx.remove(l)  # keep the rest clusters in order
+
+    return all_lx
