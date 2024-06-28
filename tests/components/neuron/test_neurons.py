@@ -453,7 +453,7 @@ class TestNeuron:
 
             assert np.array_equal(n1.spike, expected_spike[i])
             assert np.array_equal(n1.voltage, expected_vol[i])
-            
+
     def test_LIF_both_leak_bias(self):
         # Soft reset, leak & bias.
         n1 = pb.LIF(shape=1, threshold=6, leak_v=-1, bias=2)
@@ -469,7 +469,6 @@ class TestNeuron:
 
             assert np.array_equal(n1.spike, expected_spike[i])
             assert np.array_equal(n1.voltage, expected_vol[i])
-            
 
     def test_TonicSpiking(self):
         n1 = pb.TonicSpiking(1, fire_step=3)

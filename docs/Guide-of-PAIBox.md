@@ -949,6 +949,7 @@ mapper.clear()
    # or
    BACKEND_CONFIG.test_chip_addr = (2, 0)
    ```
+
    ⚠️ 请确保输出芯片地址不与本地芯片地址重叠。
 
 3. 编译后配置信息等文件输出目录路径 `output_dir`，默认为用户当前工作目录

@@ -1,6 +1,6 @@
+import warnings
 from collections.abc import Iterable
 from typing import Any, Literal, NoReturn, Optional, Union
-import warnings
 
 import numpy as np
 from numpy.typing import NDArray
@@ -117,7 +117,7 @@ class MetaNeuron:
 
         if threshold_mask_bits > 0:
             warnings.warn(
-                f"random threshold is configurated but will not be simulated.",
+                "random threshold is configurated but will not be simulated.",
                 PAIBoxWarning,
             )
 

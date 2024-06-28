@@ -18,12 +18,12 @@ from .conf_template import (
     InputNodeConf,
     NeuronDest,
     OutputDestConf,
+    _get_clk_en_L2_dict,
     export_core_params_json,
     export_input_conf_json,
     export_output_conf_json,
     export_used_L2_clusters,
     gen_config_frames_by_coreconf,
-    _get_clk_en_L2_dict,
 )
 from .context import _BACKEND_CONTEXT, set_cflag
 from .graphs import (

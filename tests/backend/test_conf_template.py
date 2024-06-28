@@ -1,4 +1,5 @@
 import random
+
 from paicorelib import Coord, HwConfig
 
 import paibox as pb
@@ -58,8 +59,9 @@ class TestConfExport:
             assert list(core_plm_conf_json.keys())[0] == str(chip_coord)
 
     def test_export_used_L2_clusters(self, ensure_dump_dir, monkeypatch):
-        from .conftest import gen_random_used_lx
         from paibox.backend.conf_template import _get_clk_en_L2_dict
+
+        from .conftest import gen_random_used_lx
 
         clist = [Coord(0, 0), Coord(0, 1), Coord(2, 2)]
         monkeypatch.setattr(pb.BACKEND_CONFIG, "target_chip_addr", clist)

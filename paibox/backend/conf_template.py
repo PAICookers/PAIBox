@@ -16,16 +16,18 @@ from paicorelib import (
     NeuronAttrs,
     NeuronDestInfo,
     ParamsReg,
+)
+from paicorelib import ReplicationId as RId
+from paicorelib import (
     RoutingCoord,
     SNNModeEnable,
     SpikeWidthFormat,
     WeightPrecision,
     get_replication_id,
 )
-from paicorelib import ReplicationId as RId
 from paicorelib.framelib import types as flib_types
 from paicorelib.framelib.frame_gen import OfflineFrameGen
-from paicorelib.framelib.utils import np2bin, np2npy, np2txt, _mask
+from paicorelib.framelib.utils import _mask, np2bin, np2npy, np2txt
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias
@@ -579,7 +581,7 @@ def _get_clk_en_L2_dict(
 
     Returns:
         A dictionary of chip address & the corresponding L2 cluster clocks enable uint8 data.
-        
+
     NOTE: Serial port data for L2 cluster clocks enable:
         #1 [7:0] L2 clk en #0~#7 (x=0b000, y=0b000) ~ (x=0b000, y=0b111)
         #2 [7:0] L2 clk en #8~#15(x=0b001, y=0b000) ~ (x=0b001, y=0b111)

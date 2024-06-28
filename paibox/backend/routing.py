@@ -2,9 +2,8 @@ import itertools
 from collections.abc import Generator, Iterator, Sequence
 from typing import Any, Optional, Union, final
 
-from paicorelib import ChipCoord, Coord, HwConfig
 from paicorelib import ROUTING_DIRECTIONS_IDX as DIREC_IDX
-from paicorelib import RoutingCoord, RoutingCost
+from paicorelib import ChipCoord, Coord, HwConfig, RoutingCoord, RoutingCost
 from paicorelib import RoutingDirection as Direction
 from paicorelib import RoutingLevel as Level
 from paicorelib import RoutingStatus as Status

@@ -1,5 +1,5 @@
-from contextlib import nullcontext
 import random
+from contextlib import nullcontext
 
 import numpy as np
 import pytest
@@ -14,6 +14,7 @@ from paibox.backend.routing import (
     get_unused_lx,
 )
 from paibox.exceptions import RoutingError
+
 from .conftest import gen_random_used_lx
 
 X0Y0 = RoutingDirection.X0Y0

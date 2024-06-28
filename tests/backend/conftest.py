@@ -997,7 +997,7 @@ def gen_random_used_lx(n: int, lx: int) -> list[RoutingCoord]:
     for _ in range(n):
         rc = random.choices(d_candid, k=5 - lx)
         used_lx.append(RoutingCoord(*rc))  # may have repeat elements
-        
+
     return list(set(used_lx))
 
 
