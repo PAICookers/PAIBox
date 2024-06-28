@@ -2,6 +2,7 @@ import warnings
 from typing import Union
 
 import numpy as np
+from paicorelib.framelib.utils import _mask
 from paicorelib.ram_model import LEAK_V_BIT_MAX, LEAK_V_MAX, LEAK_V_MIN
 from paicorelib.ram_model import NEG_THRES_MAX as NEG_THRES_UNSIGNED_MAX
 from paicorelib.ram_model import VJT_MAX, VJT_MIN, VJT_PRE_BIT_MAX

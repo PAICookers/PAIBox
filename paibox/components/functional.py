@@ -426,7 +426,8 @@ class SpikingAdd(FunctionalModule2to1WithV):
         neuron_b: Union[NeuDyn, InputProj],
         factor_a: IntScalarType = 1,
         factor_b: IntScalarType = 1,
-        pos_thres: int = 1,
+        pos_thres: IntScalarType = 1,
+        reset_v: Optional[int] = None,
         *,
         keep_shape: bool = True,
         name: Optional[str] = None,
@@ -441,6 +442,8 @@ class SpikingAdd(FunctionalModule2to1WithV):
             - factor_a: positive factor of neuron_a. Default is 1.
             - factor_b: positive factor of neuron_b. Default is 1.
             - pos_thres: positive threshold. Default is 1.
+            - reset_v: if not specified, neurons will do soft reset after firing, v - threshold. If         \
+                specified, neurons will do hard reset after firing, v = reset_v.
             - overflow_strict: flag of whether to strictly check overflow. If enabled, an exception will be \
                 raised if the result overflows during simulation.
 
@@ -448,6 +451,7 @@ class SpikingAdd(FunctionalModule2to1WithV):
         """
         self.factor_a = arg_check_pos(int(factor_a), "factor_a")
         self.factor_b = arg_check_pos(int(factor_b), "factor_b")
+        self.reset_v = reset_v
         self.pos_threshold = arg_check_pos(int(pos_thres), "pos_threshold")
         self.overflow_strict = overflow_strict
 
@@ -465,12 +469,10 @@ class SpikingAdd(FunctionalModule2to1WithV):
         )
 
     def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
-        n1_sadd = Neuron(
+        n1_sadd = IF(
             self.shape_out,
-            reset_mode=RM.MODE_LINEAR,
-            neg_thres_mode=NTM.MODE_SATURATION,
-            neg_threshold=0,
-            pos_threshold=self.pos_threshold,
+            self.pos_threshold,
+            self.reset_v,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
             tick_wait_end=self.tick_wait_end,

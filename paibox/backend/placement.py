@@ -11,7 +11,13 @@ from paibox.exceptions import GraphBuildError, ResourceError, TruncationWarning
 from paibox.types import WeightType
 from paibox.utils import check_attr_same, count_unique_elem
 
-from .conf_template import CoreConfig, CorePlmConfig, EmptyCorePlmConfig, NeuronConfig
+from .conf_template import (
+    CoreConfig,
+    CoreConfInChip,
+    CorePlmConfig,
+    EmptyCorePlmConfig,
+    NeuronConfig,
+)
 from .context import _BACKEND_CONTEXT
 from .segment_utils import aligned_coords, get_axon_segments, get_neu_segments
 from .types import (
@@ -358,7 +364,7 @@ class CoreBlock(CoreAbstract):
         return cls(*synapses, routing_id=routing_id, seed=seed)
 
     @classmethod
-    def export_core_plm_config(cls, cb: "CoreBlock") -> dict[Coord, CoreConfig]:
+    def export_core_plm_config(cls, cb: "CoreBlock") -> CoreConfInChip:
         """Export the parameters of the core into a dictionary."""
         cb_config = dict()
 

@@ -11,6 +11,7 @@ from paicorelib import (
     CoreMode,
     HwConfig,
     MaxPoolingEnable,
+    RoutingCoord,
     RoutingDirection,
     RoutingLevel,
 )
@@ -986,6 +987,18 @@ def _gen_neurons_for_neu_segs():
 _nl = _gen_neurons_for_neu_segs()
 _nc = _gen_neurons_for_neu_segs()
 _nb = _gen_neurons_for_neu_segs()
+
+
+def gen_random_used_lx(n: int, lx: int) -> list[RoutingCoord]:
+    used_lx = []
+    d_candid = list(RoutingDirection)
+    d_candid.remove(RoutingDirection.ANY)
+
+    for _ in range(n):
+        rc = random.choices(d_candid, k=5 - lx)
+        used_lx.append(RoutingCoord(*rc))  # may have repeat elements
+
+    return list(set(used_lx))
 
 
 class TestData:

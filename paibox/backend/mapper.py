@@ -6,20 +6,23 @@ from typing import Any, Literal, Optional, Union
 
 from paicorelib import Coord, CoordOffset, HwConfig, get_replication_id
 
-from paibox.base import NeuDyn, SynSys
+from paibox.base import SynSys
+from paibox.components import Neuron
 from paibox.exceptions import ConfigInvalidError, ResourceError
 from paibox.network import DynSysGroup
 
 from .conf_template import (
-    CoreConfig,
+    CoreConf,
     CorePlmConf,
     GraphInfo,
     InputNodeConf,
     NeuronDest,
     OutputDestConf,
+    _get_clk_en_L2_dict,
     export_core_params_json,
     export_input_conf_json,
     export_output_conf_json,
+    export_used_L2_clusters,
     gen_config_frames_by_coreconf,
 )
 from .context import _BACKEND_CONTEXT, set_cflag
@@ -28,6 +31,7 @@ from .graphs import (
     convert2routing_groups,
     get_node_degrees,
     get_succ_cb_by_node,
+    toposort,
 )
 from .placement import CoreBlock, aligned_coords, max_lcn_of_cb
 from .routing import RoutingGroup, RoutingRoot
@@ -51,9 +55,10 @@ class Mapper:
 
         self.degrees_of_cb: dict[CoreBlock, NodeDegree] = defaultdict(NodeDegree)
         self.routing_groups: list[RoutingGroup] = []
+        self.succ_routing_groups: dict[RoutingGroup, list[RoutingGroup]] = dict()
 
         self.core_plm_config: CorePlmConf = defaultdict(dict)
-        self.core_params: dict[Coord, CoreConfig] = dict()
+        self.core_params: CoreConf = defaultdict(dict)
         """The dictionary of core parameters."""
 
         self.n_core_required = 0
@@ -105,6 +110,7 @@ class Mapper:
         grouping_optim_target: Literal["latency", "core", "both"] = "both",
         no_twisted_branch: bool = True,
         multicast_optim: Union[bool, Sequence[NodeType]] = False,
+        use_exp_features: bool = False,
     ) -> GraphInfo:
         """Compile the network with optimization options.
 
@@ -174,13 +180,13 @@ class Mapper:
         """Group the axons of core block."""
         self.cb_axon_grouping()
 
-        # Generate routing_groups for gh_multicast_optim
-        self.routing_groups = convert2routing_groups(
+        # Convert core blocks to routing groups
+        self.routing_groups, self.succ_routing_groups = convert2routing_groups(
             self.succ_core_blocks, self.degrees_of_cb, self.input_core_blocks
         )
 
         """Core coordinate assignment."""
-        self.coord_assign(core_estimate_only)
+        self.coord_assign(core_estimate_only, use_exp_features)
 
         if core_estimate_only:
             return GraphInfo(
@@ -190,6 +196,7 @@ class Mapper:
                 inherent_timestep=self.graph.inherent_timestep,
                 n_core_required=self.n_core_required,
                 n_core_occupied=0,
+                misc={"name": self.graph.graph_name_repr},
             )
 
         """Allocate the core blocks to the core placments."""
@@ -264,9 +271,6 @@ class Mapper:
         for cb in self.core_blocks:
             cb.group_axons()
 
-        for i in range(len(self.routing_groups)):
-            routing_group = self.routing_groups[i]
-
     def graph_optimization(self) -> None:
         optimized = self.graph.graph_optimization(self.core_blocks, self.routing_groups)
         if optimized:
@@ -276,7 +280,7 @@ class Mapper:
             self.build_core_blocks()
             self.lcn_ex_adjustment()
 
-    def coord_assign(self, core_estimate_only: bool = False) -> None:
+    def coord_assign(self, core_estimate_only: bool, use_new_routing: bool) -> None:
         """Assign the coordinate of each `CorePlacement`.
 
         NOTE: The neurons in each core block must be grouped first to determine the \
@@ -288,22 +292,32 @@ class Mapper:
                 optim_target=_BACKEND_CONTEXT.cflags["grouping_optim_target"]
             )
 
+        # Optimize the order of routing groups
+        # self.routing_groups = reorder_routing_groups(self.succ_routing_groups)
+        self.routing_groups = toposort(self.succ_routing_groups)
         # Calculate the consumption of required physical cores.
         n_avail_cores = HwConfig.N_CORE_OFFLINE * _BACKEND_CONTEXT.n_target_chips
         n_core_required = sum(cb.n_core_required for cb in self.core_blocks)
 
-        if core_estimate_only:
-            self.n_core_required = n_core_required
-            return None
+        self.n_core_required = n_core_required
 
+        if core_estimate_only:
+            return None
         elif n_core_required > n_avail_cores:
             raise ResourceError(
                 OUT_OF_CORE_RESOURCE_TEXT.format(n_avail_cores, n_core_required)
             )
 
-        # Generate routing groups by given the list of core blocks.
         for rg in self.routing_groups:
-            self.routing_tree.insert_routing_group(rg)
+            """
+            TODO The new routing method is an experimental feature that is yet  \
+                to be validated. Once it has been validated, the old method can \
+                be completely deprecated.
+            """
+            if use_new_routing:
+                self.routing_tree.place_routing_group(rg)
+            else:
+                self.routing_tree.insert_routing_group(rg)
 
         # Calculate the consumption of occupied physical cores.
         if (
@@ -334,7 +348,7 @@ class Mapper:
             "target_chip_addr"
         ]:
             raise ConfigInvalidError(
-                f"The output chip address  {ochip_coord} should not overlap with the "
+                f"The output chip address {ochip_coord} should not overlap with the "
                 f"chip addresses, but got {_BACKEND_CONTEXT._target_chip_addr_repr()}."
             )
 
@@ -348,7 +362,13 @@ class Mapper:
             inherent_timestep=self.graph.inherent_timestep,
             n_core_required=self.n_core_required,
             n_core_occupied=self.n_core_occupied,
-            extras={"name": self.graph.graph_name_repr},
+            misc={
+                "name": self.graph.graph_name_repr,
+                "clk_en_L2": _get_clk_en_L2_dict(
+                    _BACKEND_CONTEXT["target_chip_addr"],
+                    self.routing_tree.used_L2_clusters,
+                ),
+            },
         )
 
         self.graph_info = _graph_info
@@ -445,9 +465,9 @@ class Mapper:
 
         for rg in self.routing_groups:
             for member_cb in rg:
-                self.core_params.update(
-                    CoreBlock.export_core_plm_config(member_cb)
-                )  # compatible for py3.8
+                self.core_params[rg.chip_coord] |= CoreBlock.export_core_plm_config(
+                    member_cb
+                )
 
                 if self.degrees_of_cb[member_cb].out_degree == 0:
                     # member_cb is a pure output core block. All neu_segs inside are output neurons.
@@ -552,6 +572,7 @@ class Mapper:
         format: Literal["txt", "bin", "npy"] = "bin",
         split_by_coord: bool = False,
         export_core_params: bool = False,
+        export_clk_en_L2: bool = False,
         use_hw_sim: bool = True,
     ) -> dict[Coord, Any]:
         """Generate configuration frames & export to file.
@@ -562,6 +583,7 @@ class Mapper:
             - format: `txt`, `bin`, or `npy`. `bin` is recommended.
             - split_by_coord: whether to split the generated frames file by the core coordinates.
             - export_core_params: whether to export the parameters of occupied cores.
+            - export_used_L2: whether to export the serial port data of the L2 cluster clocks.
             - use_hw_sim: whether to use hardware simulator. If use, '.bin' will be exported.
 
         Return: a dictionary of configurations.
@@ -593,9 +615,13 @@ class Mapper:
         # Export the configurations of output destinations
         export_output_conf_json(self.graph_info["output"], _fp)
 
+        # Export the serial port data of the L2 cluster clocks
+        if export_clk_en_L2:
+            export_used_L2_clusters(self.graph_info["misc"]["clk_en_L2"], _fp)
+
         return config_dict
 
-    def find_neuron(self, neuron: NeuDyn, *, verbose: int = 0) -> None:
+    def find_neuron(self, neuron: Neuron, *, verbose: int = 0) -> None:
         self._build_check()
 
         for cb in self.core_blocks:
@@ -613,7 +639,7 @@ class Mapper:
                                 f"Address:  {neu_seg.addr_slice}"
                             )
 
-    def find_axon(self, neuron: NeuDyn, *, verbose: int = 0) -> None:
+    def find_axon(self, neuron: Neuron, *, verbose: int = 0) -> None:
         self._build_check()
 
         for cb in self.core_blocks:
@@ -673,6 +699,78 @@ def _fp_check(fp: Optional[Union[str, Path]] = None) -> Path:
         _fp.mkdir(parents=True, exist_ok=True)
 
     return _fp
+
+
+def _calculate_core_consumption(order_rgs: list[RoutingGroup]) -> int:
+    n_core_consumption: int = 0
+    rg_consumption: list[int] = [
+        1 << (rg.n_core_required - 1).bit_length() for rg in order_rgs
+    ]
+    rg_wasted: list[int] = [
+        rg_consum - rg.n_core_required
+        for rg, rg_consum in zip(order_rgs, rg_consumption)
+    ]
+    for wasted, consumption in zip(rg_wasted, rg_consumption):
+        if consumption > HwConfig.N_CORE_OFFLINE:
+            raise ValueError(
+                "The number of required cores is out of range {0} ({1}).".format(
+                    HwConfig.N_CORE_OFFLINE, consumption
+                )
+            )
+        if n_core_consumption % consumption != 0:
+            n_core_consumption = (
+                n_core_consumption + consumption - n_core_consumption % consumption
+            )
+        temp_consumption = n_core_consumption + consumption
+        temp_consumption = temp_consumption % HwConfig.N_CORE_MAX_INCHIP
+        temp_consumption = (
+            temp_consumption if temp_consumption != 0 else HwConfig.N_CORE_MAX_INCHIP
+        )
+        if temp_consumption - wasted > HwConfig.N_CORE_OFFLINE:
+            n_core_consumption = (
+                n_core_consumption
+                + HwConfig.N_CORE_MAX_INCHIP
+                - n_core_consumption % HwConfig.N_CORE_MAX_INCHIP
+            )
+        n_core_consumption += consumption
+    return n_core_consumption
+
+
+def reorder_routing_groups(
+    graph: dict[RoutingGroup, list[RoutingGroup]]
+) -> list[RoutingGroup]:
+    in_degree = {node: 0 for node in graph}
+    for node in graph:
+        for successor in graph[node]:
+            in_degree[successor] += 1
+    best_order = []
+    min_core_consumption = HwConfig.N_CORE_MAX_INCHIP * _BACKEND_CONTEXT.n_target_chips
+
+    # 辅助函数，用于生成所有可能的拓扑排序
+    def backtrack(current_order: list[RoutingGroup]):
+        nonlocal best_order, min_core_consumption
+        if len(current_order) == len(graph):
+            current_cost = _calculate_core_consumption(current_order)
+            # print("current_order", current_order)
+            # print("current_cost", current_cost)
+            if current_cost < min_core_consumption:
+                best_order = current_order.copy()
+                min_core_consumption = current_cost
+            return
+        for node in graph:
+            if in_degree[node] == 0 and node not in current_order:
+                current_order.append(node)
+                for successor in graph[node]:
+                    in_degree[successor] -= 1
+                backtrack(current_order)
+                current_order.pop()
+                for successor in graph[node]:
+                    in_degree[successor] += 1
+
+    backtrack([])
+    print("best_order", best_order)
+    print("min_cost", min_core_consumption)
+    return best_order
 
 
 OUT_OF_CORE_RESOURCE_TEXT = "the number of required cores is out of range {0} ({1})."

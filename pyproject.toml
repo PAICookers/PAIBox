@@ -35,7 +35,7 @@ include = ["docs/Guide-of-PAIBox.md", "CHANGELOG.md"]
 
 [tool.poetry.dependencies]
 python = "^3.9"
-pydantic = "^2.0"
+pydantic = "^2.0.3"
 numpy = "^1.26.0"
 paicorelib = "^1.1.6"
 

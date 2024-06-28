@@ -19,6 +19,7 @@ from paicorelib import (
 )
 from paicorelib import ReplicationId as RId
 from paicorelib import (
+    RoutingCoord,
     SNNModeEnable,
     SpikeWidthFormat,
     WeightPrecision,
@@ -26,20 +27,15 @@ from paicorelib import (
 )
 from paicorelib.framelib import types as flib_types
 from paicorelib.framelib.frame_gen import OfflineFrameGen
-from paicorelib.framelib.utils import np2bin, np2npy, np2txt
-from pydantic import BaseModel
+from paicorelib.framelib.utils import _mask, np2bin, np2npy, np2txt
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias
 else:
     from typing_extensions import TypeAlias
 
-if sys.version_info >= (3, 11):
-    from typing import NotRequired
-else:
-    from typing_extensions import NotRequired
-
 from paibox.components import Neuron
+from paibox.utils import bit_reversal
 
 from .context import _BACKEND_CONTEXT
 from .types import AxonCoord, NeuSegment, NodeName
@@ -167,6 +163,7 @@ class OutputNeuronDest(NamedTuple):
 try:
     from paicorelib.ram_model import NeuronConf as _NeuronConf
 except ImportError:
+    from pydantic import BaseModel
 
     class _NeuronConf(BaseModel):
         attrs: NeuronAttrs
@@ -316,6 +313,8 @@ InputNodeConf: TypeAlias = dict[NodeName, NeuronDest]
 OutputDestConf: TypeAlias = dict[NodeName, dict[CoordAddr, NeuronDestInfo]]
 CorePlmConfInChip: TypeAlias = dict[Coord, CorePlmConfig]
 CorePlmConf: TypeAlias = dict[ChipCoord, CorePlmConfInChip]
+CoreConfInChip: TypeAlias = dict[Coord, CoreConfig]
+CoreConf: TypeAlias = dict[ChipCoord, CoreConfInChip]
 
 
 class GraphInfo(TypedDict):
@@ -332,7 +331,8 @@ class GraphInfo(TypedDict):
     """The actual used cores."""
     n_core_occupied: int
     """The occupied cores, including used & wasted."""
-    extras: NotRequired[dict[str, Any]]
+    misc: dict[str, Any]
+    """Miscellaneous information."""
 
 
 def gen_config_frames_by_coreconf(
@@ -457,22 +457,33 @@ def gen_config_frames_by_coreconf(
     return frame_arrays_on_core
 
 
-def export_core_params_json(core_conf: dict[Coord, CoreConfig], fp: Path) -> None:
-    _valid_conf = {str(k): v.to_json() for k, v in core_conf.items()}
+def _with_suffix_json(fp: Path, fname: str) -> Path:
+    return (fp / fname).with_suffix(".json")
+
+
+def export_core_params_json(core_conf: CoreConf, fp: Path) -> None:
+    _full_fp = _with_suffix_json(fp, _BACKEND_CONTEXT["core_conf_json"])
+    _valid_conf = {}
+
+    for chip_coord, cconf in core_conf.items():
+        _valid_conf[str(chip_coord)] = {}
+        for core_coord, conf in cconf.items():
+            _valid_conf[str(chip_coord)][str(core_coord)] = conf.to_json()
 
     if _USE_ORJSON:
-        with open(fp / _BACKEND_CONTEXT["core_conf_json"], "wb") as f:
+        with open(_full_fp, "wb") as f:
             f.write(orjson.dumps(_valid_conf, option=orjson.OPT_INDENT_2))
     else:
-        with open(fp / _BACKEND_CONTEXT["core_conf_json"], "w") as f:
+        with open(_full_fp, "w") as f:
             json.dump(_valid_conf, f, indent=2)
 
 
 def export_input_conf_json(input_conf_info: InputNodeConf, fp: Path) -> None:
+    _full_fp = _with_suffix_json(fp, _BACKEND_CONTEXT["input_conf_json"])
     _valid_conf = {k: v.export() for k, v in input_conf_info.items()}
 
     if _USE_ORJSON:
-        with open(fp / _BACKEND_CONTEXT["input_conf_json"], "wb") as f:
+        with open(_full_fp, "wb") as f:
             f.write(
                 orjson.dumps(
                     _valid_conf,
@@ -481,13 +492,14 @@ def export_input_conf_json(input_conf_info: InputNodeConf, fp: Path) -> None:
                 )
             )
     else:
-        with open(fp / _BACKEND_CONTEXT["input_conf_json"], "w") as f:
+        with open(_full_fp, "w") as f:
             json.dump(_valid_conf, f, indent=2, cls=PAIConfigJsonEncoder)
 
 
 def export_output_conf_json(output_conf_info: OutputDestConf, fp: Path) -> None:
+    _full_fp = _with_suffix_json(fp, _BACKEND_CONTEXT["output_conf_json"])
     if _USE_ORJSON:
-        with open(fp / _BACKEND_CONTEXT["output_conf_json"], "wb") as f:
+        with open(_full_fp, "wb") as f:
             f.write(
                 orjson.dumps(
                     output_conf_info,
@@ -496,34 +508,39 @@ def export_output_conf_json(output_conf_info: OutputDestConf, fp: Path) -> None:
                 )
             )
     else:
-        with open(fp / _BACKEND_CONTEXT["output_conf_json"], "w") as f:
+        with open(_full_fp, "w") as f:
             json.dump(output_conf_info, f, indent=2, cls=PAIConfigJsonEncoder)
 
 
 if _USE_ORJSON:
 
     def export_neuconf_json(
-        neuron_conf: dict[Neuron, NeuronConfig], full_fp: Path
+        neuron_conf: dict[Neuron, NeuronConfig], fp: Path, fname: str = "neu_conf"
     ) -> None:
+        _full_fp = _with_suffix_json(fp, fname)
         _valid_conf = {
             k.name: orjson.loads(v.to_json()) for k, v in neuron_conf.items()
         }
 
-        with open(full_fp, "wb") as f:
+        with open(_full_fp, "wb") as f:
             f.write(orjson.dumps(_valid_conf, option=orjson.OPT_INDENT_2))
 
 else:
 
     def export_neuconf_json(
-        neuron_conf: dict[Neuron, NeuronConfig], full_fp: Path
+        neuron_conf: dict[Neuron, NeuronConfig], fp: Path, fname: str = "neu_conf"
     ) -> None:
+        _full_fp = _with_suffix_json(fp, fname)
         _valid_conf = {k.name: json.loads(v.to_json()) for k, v in neuron_conf.items()}
 
-        with open(full_fp, "w") as f:
+        with open(_full_fp, "w") as f:
             json.dump(_valid_conf, f, indent=2)
 
 
-def export_core_plm_conf_json(core_plm_conf: CorePlmConf, full_fp: Path) -> None:
+def export_core_plm_conf_json(
+    core_plm_conf: CorePlmConf, fp: Path, fname: str = "core_plm"
+) -> None:
+    _full_fp = _with_suffix_json(fp, fname)
     _valid_conf = {}
 
     for chip_coord, cconf in core_plm_conf.items():
@@ -532,8 +549,79 @@ def export_core_plm_conf_json(core_plm_conf: CorePlmConf, full_fp: Path) -> None
             _valid_conf[str(chip_coord)][str(core_coord)] = conf.to_json()
 
     if _USE_ORJSON:
-        with open(full_fp, "wb") as f:
+        with open(_full_fp, "wb") as f:
             f.write(orjson.dumps(_valid_conf, option=orjson.OPT_INDENT_2))
     else:
-        with open(full_fp, "w") as f:
+        with open(_full_fp, "w") as f:
             json.dump(_valid_conf, f, indent=2)
+
+
+def export_used_L2_clusters(
+    clk_en_L2_dict: dict[ChipCoord, list[int]], fp: Path, fname: str = "used_L2"
+) -> None:
+    _full_fp = _with_suffix_json(fp, fname)
+    _valid_conf = {str(k): v for k, v in clk_en_L2_dict.items()}
+
+    if _USE_ORJSON:
+        with open(_full_fp, "wb") as f:
+            f.write(orjson.dumps(_valid_conf, option=orjson.OPT_INDENT_2))
+    else:
+        with open(_full_fp, "w") as f:
+            json.dump(_valid_conf, f, indent=2)
+
+
+def _get_clk_en_L2_dict(
+    chip_list: list[ChipCoord], used_L2: list[list[RoutingCoord]]
+) -> dict[ChipCoord, list[int]]:
+    """Generate serial port data for controlling the L2 cluster clocks of the chip.
+
+    Args:
+        - chip_list: the available chip list.
+        - used_L2: the routing coordinates of used L2 clusters in each chip.
+
+    Returns:
+        A dictionary of chip address & the corresponding L2 cluster clocks enable uint8 data.
+
+    NOTE: Serial port data for L2 cluster clocks enable:
+        #1 [7:0] L2 clk en #0~#7 (x=0b000, y=0b000) ~ (x=0b000, y=0b111)
+        #2 [7:0] L2 clk en #8~#15(x=0b001, y=0b000) ~ (x=0b001, y=0b111)
+        ...
+        #8 [7:0] L2 clk en #8~#15(x=0b111, y=0b000) ~ (x=0b111, y=0b111)
+    """
+
+    def L2_to_idx(L2: RoutingCoord) -> int:
+        x = sum(L2[i].value[0] << (2 - i) for i in range(3))
+        y = sum(L2[i].value[1] << (2 - i) for i in range(3))
+
+        return (x << 3) + y
+
+    def to_clk_en_L2_u8(L2_inchip: list[RoutingCoord]) -> list[int]:
+        clk_en = []
+        # L2_inchip is out of order
+        bitmap = sum(1 << L2_to_idx(l2) for l2 in L2_inchip)
+
+        for _ in range(8):
+            u8 = bitmap & _mask(8)
+            bitmap >>= 8
+            clk_en.append(bit_reversal(u8))
+
+        return clk_en
+
+    clk_en_L2_dict = dict()
+
+    if sys.version_info >= (3, 10):
+        for chip_addr, used_L2_inchip in zip(chip_list, used_L2, strict=True):
+            clk_en_L2 = to_clk_en_L2_u8(used_L2_inchip)
+            clk_en_L2_dict[chip_addr] = clk_en_L2
+    else:
+        if len(chip_list) != len(used_L2):
+            raise ValueError(
+                "the length of chip list & used L2 clusters must be equal, "
+                f"but {len(chip_list)} != {len(used_L2)}."
+            )
+
+        for chip_addr, used_L2_inchip in zip(chip_list, used_L2):
+            clk_en_L2 = to_clk_en_L2_u8(used_L2_inchip)
+            clk_en_L2_dict[chip_addr] = clk_en_L2
+
+    return clk_en_L2_dict

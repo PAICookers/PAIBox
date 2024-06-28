@@ -7,7 +7,7 @@
 
 ```toml
 python = "^3.9"
-pydantic = "^2.0"
+pydantic = "^2.0.3"
 numpy = "^1.26.0"
 paicorelib = "^1.1.6"
 ```
@@ -68,6 +68,7 @@ n1 = pb.IF(shape=10, threshold=127, reset_v=0, neg_threshold=-100, keep_shape=Fa
 - `tick_wait_start`：设定神经元启动时间。神经元将在第 `T` 个时间步时启动。0表示不启动。默认为1。
 - `tick_wait_end`：设定神经元持续工作时长。神经元将持续工作 `T` 个时间步。0表示**持续工作**。默认为0。
 - `unrolling_factor`：该参数与后端流程相关。展开因子表示神经元将被展开，部署至更多的物理核上，以降低延迟并提高吞吐率。
+- `overflow_strict`：溢出严格模式。用于设置是否严格检查运算过程中神经元膜电位出现溢出的情况。若启用，遇到溢出将报错，否则将遵循硬件行为进行处理。默认为 `False`。
 - `keep_shape`：是否在仿真记录数据时保持尺寸信息，默认为 `True`。实际进行运算的尺寸仍视为一维。
 - `name`：神经元的名称。可选参数。
 
@@ -80,8 +81,8 @@ n1 = pb.LIF(shape=128, threshold=127, reset_v=0, leak_v=-1, neg_threshold=0, kee
 n2 = pb.LIF(shape=128, threshold=10, reset_v=1, bias=-1, keep_shape=True, name='n2')
 ```
 
-- `leak_v`：LIF 神经元的泄露值，有符号数。
-- `bias`：偏置，有符号数。当指定偏置时，神经元将使用该值作为其泄露值，并**在阈值比较前泄露**，从而实现“偏置”的效果。当设置 `bias` 时， `leak_v` 将被忽略。在未指定偏置时，神经元先阈值比较后泄露。支持数组形式的偏置，这通常用于实现卷积的分通道偏置，偏置的尺寸应与神经元尺寸相关，这取决于偏置的实际含义。它可以为标量（例如，线性层的偏置）、`(C,)` 数组（其中 `C` 为通道数）或 `(C,H,W)` 数组。
+- `leak_v`：泄露，有符号数。
+- `bias`：偏置，有符号数。神经元将**在阈值比较前泄露**，从而实现“偏置”的效果。 `bias` 与 `leak_v` 效果将叠加。支持数组形式的偏置，这通常用于实现卷积的分通道偏置，偏置的尺寸应与神经元尺寸相关，这取决于偏置的实际含义：可以为标量（例如，线性层的偏置）、`(C,)` 数组（其中 `C` 为通道数）或 `(C,H,W)` 数组。
 - 其他参数含义与 IF 相同。
 
 #### Tonic Spiking
@@ -678,6 +679,7 @@ sub1 = pb.SpikingSub(n1, n2, overflow_strict=False, delay=1, tick_wait_start=2) 
 - `factor_a`：第一个操作数的缩放因子，正整数标量。默认为1，仅在 `SpikingAdd` 中使用。
 - `factor_b`：第一个操作数的缩放因子，正整数标量。默认为1，仅在 `SpikingAdd` 中使用。
 - `pos_thres`：正阈值。默认为1，仅在 `SpikingAdd` 中使用。
+- `reset_v`：复位电位，可选参数。当指定时，神经元在发放后，进行硬复位( `v = resetv` )；当未指定时，进行软复位( `v -= pos_threshold` )。默认进行软复位，仅在 `SpikingAdd` 中使用。
 - `overflow_strict`：是否严格检查运算结果溢出。如果启用，则在仿真中，当脉冲加、减运算结果溢出时将报错。默认为 `False`。
 
 ### 2D/3D转置
@@ -903,6 +905,7 @@ mapper.clear()
 - `format`：导出交换文件格式，可以为 `bin`、`npy` 或 `txt`。默认为 `bin`。
 - `split_by_coord`：是否将配置帧以每个核坐标进行分割，由此生成的配置帧文件命名形如"config_core1"、"config_core2"。默认为 `False`，即最终导出为一个文件。
 - `export_core_params`：是否导出实际使用核参数至 json 文件，以直观显示实际使用核的配置信息。默认为 `False`。
+- `export_clk_en_L2`：是否导出L2簇时钟串口数据。默认为 `False`。
 - `use_hw_sim`：是否使用硬件仿真器。若使用，将额外导出 `bin` 格式的配置帧文件。
 
 同时，该方法将返回模型的配置项字典 `GraphInfo`，包括：
@@ -913,7 +916,7 @@ mapper.clear()
 - `inherent_timestep`：网络的最长时间步。
 - `n_core_required`：网络**需要**的物理核数目。
 - `n_core_occupied`：网络**实际占用**的物理核数目。
-- `extras`：其他额外的网络信息字典，例如，编译后的网络名称。
+- `misc`：其他杂项信息。例如，编译后的网络名称；上述L2簇时钟串口数据在该键 `["clk_en_L2"]` 中。
 
 ### 后端配置项
 

@@ -439,13 +439,29 @@ class TestNeuron:
             assert np.array_equal(n1.voltage, expected_vol[i])
 
     def test_LIF_with_bias(self):
-        # Hard reset, bias. leak_v is ignored.
-        n1 = pb.LIF(shape=1, threshold=6, reset_v=1, leak_v=10, bias=2)
+        # Hard reset, bias.
+        n1 = pb.LIF(shape=1, threshold=6, reset_v=1, leak_v=0, bias=2)
         assert n1.leak_v == n1.bias == 2
 
         inp_data = np.array([1, 1, 0, 1, 0, 1], dtype=np.bool_)
         expected_spike = np.array([[0], [1], [0], [1], [0], [1]], dtype=np.bool_)
         expected_vol = np.array([[3], [1], [3], [1], [3], [1]], dtype=np.int32)
+
+        for i in range(inp_data.size):
+            pb.FRONTEND_ENV["t"] += 1
+            n1.update(inp_data[i])
+
+            assert np.array_equal(n1.spike, expected_spike[i])
+            assert np.array_equal(n1.voltage, expected_vol[i])
+
+    def test_LIF_both_leak_bias(self):
+        # Soft reset, leak & bias.
+        n1 = pb.LIF(shape=1, threshold=6, leak_v=-1, bias=2)
+        assert n1.leak_v == n1.bias == 1
+
+        inp_data = np.array([1, 1, 0, 1, 0, 1], dtype=np.bool_)
+        expected_spike = np.array([[0], [0], [0], [1], [0], [0]], dtype=np.bool_)
+        expected_vol = np.array([[2], [4], [5], [1], [2], [4]], dtype=np.int32)
 
         for i in range(inp_data.size):
             pb.FRONTEND_ENV["t"] += 1
