@@ -459,7 +459,7 @@ class SpikingAdd(FunctionalModule2to1WithV):
 
     def spike_func(self, vjt: VoltageType, **kwargs) -> tuple[SpikeType, VoltageType]:
         """Simplified neuron computing mechanism as the operator function."""
-        return _spike_func_sadd_ssub(vjt, self.pos_threshold)
+        return _spike_func_sadd_ssub(vjt, self.pos_threshold, self.reset_v)
 
     def synaptic_integr(
         self, x1: SpikeType, x2: SpikeType, vjt_pre: VoltageType
@@ -970,7 +970,7 @@ class Transpose3d(TransposeModule):
 
 
 def _spike_func_sadd_ssub(
-    vjt: VoltageType, pos_thres: int
+    vjt: VoltageType, pos_thres: int, reset_v: Optional[int] = None
 ) -> tuple[SpikeType, VoltageType]:
     """Function `spike_func()` in spiking addition & subtraction."""
     # Fire
@@ -979,9 +979,14 @@ def _spike_func_sadd_ssub(
         TM.EXCEED_POSITIVE,
         np.where(vjt < 0, TM.EXCEED_NEGATIVE, TM.NOT_EXCEEDED),
     )
-    spike = np.equal(thres_mode, TM.EXCEED_POSITIVE)
     # Reset
-    v_reset = np.where(thres_mode == TM.EXCEED_POSITIVE, vjt - pos_thres, vjt)
+    if reset_v is None:
+        v_reset = np.where(thres_mode == TM.EXCEED_POSITIVE, vjt - pos_thres, vjt)
+    else:
+        v_reset = np.where(thres_mode == TM.EXCEED_POSITIVE, reset_v, vjt)
+    
+    # Spike
+    spike = np.equal(thres_mode, TM.EXCEED_POSITIVE)
 
     return spike, v_reset
 
