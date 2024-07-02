@@ -1,5 +1,5 @@
 from collections.abc import Iterable, Sequence
-from typing import Any, Optional
+from typing import Any, Optional, TypeVar
 
 import numpy as np
 
@@ -36,11 +36,14 @@ def count_unique_elem(obj: Iterable[Any]) -> int:
     return len(seen)
 
 
-def merge_unique_ordered(list1: list[Any], list2: list[Any]) -> list[Any]:
+_T = TypeVar("_T")
+
+
+def merge_unique_ordered(lst1: list[_T], lst2: list[_T]) -> list[_T]:
     seen = set()
     result = []
 
-    for item in list1 + list2:
+    for item in lst1 + lst2:
         if item not in seen:
             seen.add(item)
             result.append(item)
@@ -128,7 +131,7 @@ def is_iterable(obj: Any) -> bool:
     return isinstance(obj, Iterable)
 
 
-def fn_sgn(a, b) -> int:
+def fn_sgn(a, b=0) -> int:
     """Signal function."""
     return (a > b) - (a < b)
 
@@ -140,12 +143,12 @@ def typical_round(n: float) -> int:
         return int(n) + 1
 
 
-def bit_reversal(u8: int) -> int:
-    """Reverse the bit order of a 8-bit unsigned integer."""
+def bit_reversal(uint: int, n_bit: int = 8) -> int:
+    """Reverse the bit order of a N-bit unsigned integer, where N is `n_bit`."""
     reversed = 0
-    for i in range(8):
-        if (u8 >> i) & 1:
-            reversed += 1 << (7 - i)
+    for i in range(n_bit):
+        if (uint >> i) & 1:
+            reversed += 1 << (n_bit - 1 - i)
 
     return reversed
 

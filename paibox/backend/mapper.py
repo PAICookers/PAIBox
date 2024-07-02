@@ -172,6 +172,8 @@ class Mapper:
         if no_twisted_branch:
             self.untwist_branch_nodes()
 
+        self.graph.topo_support_check()
+
         """Build core blocks."""
         self.build_core_blocks()
 
@@ -208,7 +210,6 @@ class Mapper:
 
     def untwist_branch_nodes(self) -> None:
         self.graph.untwist_branch_nodes()
-        self.graph.topo_support_check()
 
     def build_core_blocks(self) -> None:
         """Build core blocks based on partitioned edges."""
@@ -523,9 +524,11 @@ class Mapper:
                 dest_cb_of_nseg = self._find_dest_cb_by_nseg(neu_seg, member_onode_cb)
 
                 if len(dest_cb_of_nseg) > 0:
+                    # The destination of the neuron segment is another core block(s)
                     assert _cb_routable(self.routing_groups, dest_cb_of_nseg)
                     core_plm.export_neu_config(neu_seg, dest_cb_of_nseg)
                 else:
+                    # The destination of the neuron segment is outside of the chip(s)
                     offset_idx = o_nodes.index(neu_seg.target)
                     cur_ocoord = ocoord + CoordOffset.from_offset(offset_idx)
                     output_axon_offset = core_plm.export_neu_config(
