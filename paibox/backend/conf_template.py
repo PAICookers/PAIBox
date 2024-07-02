@@ -1,3 +1,4 @@
+from collections import defaultdict
 import sys
 from enum import Enum
 from pathlib import Path
@@ -335,26 +336,21 @@ class GraphInfo(TypedDict):
     """Miscellaneous information."""
 
 
+_RID_UNSET = RId(0, 0)
+
+
 def gen_config_frames_by_coreconf(
     config_dict: CorePlmConf,
     write_to_file: bool,
     fp: Path,
-    split_by_coord: bool,
+    split_by_chip: bool,
     formats: list[str],
-) -> dict[Coord, FrameArrayType]:
-    """Generate configuration frames by given the `CorePlmConfig`.
-
-    Args:
-        - config_dict: the dictionary of configurations.
-        - write_to_file: whether to write frames to file.
-        - fp: If `write_to_file` is `True`, specify the path.
-        - split_by_coord: whether to split the generated frames file by the core coordinates.
-        - formats: a list of formats to export.
-    """
+) -> dict[ChipCoord, list[FrameArrayType]]:
+    """Generate configuration frames by given the `CorePlmConfig`."""
 
     def _write_to_f(name: str, array: FrameArrayType) -> None:
         for format in formats:
-            _fp = fp / (name + f".{format}")
+            _fp = (fp / name).with_suffix("." + format)  # don't forget "."
             if format == "npy":
                 np2npy(_fp, array)
             elif format == "bin":
@@ -362,20 +358,18 @@ def gen_config_frames_by_coreconf(
             else:
                 np2txt(_fp, array)
 
-    _default_rid = RId(0, 0)
-    _debug_dict: dict[Coord, dict[str, Any]] = dict()
-    frame_arrays_on_core: dict[Coord, FrameArrayType] = dict()
+    frame_arrays_total: dict[ChipCoord, list[FrameArrayType]] = defaultdict(list)
 
-    for chip_coord, conf_in_chip in config_dict.items():
-        for core_coord, v in conf_in_chip.items():
+    for chip_coord, conf_inchip in config_dict.items():
+        for core_coord, v in conf_inchip.items():
             # 1. Only one config frame type I for each physical core.
             config_frame_type1 = OfflineFrameGen.gen_config_frame1(
-                chip_coord, core_coord, _default_rid, v.random_seed
+                chip_coord, core_coord, _RID_UNSET, v.random_seed
             )
 
             # 2. Only one config frame type II for each physical core.
             config_frame_type2 = OfflineFrameGen.gen_config_frame2(
-                chip_coord, core_coord, _default_rid, v.params_reg
+                chip_coord, core_coord, _RID_UNSET, v.params_reg
             )
 
             # 3. Iterate all the neuron segments inside the physical core.
@@ -385,7 +379,7 @@ def gen_config_frames_by_coreconf(
                     OfflineFrameGen.gen_config_frame3(
                         chip_coord,
                         core_coord,
-                        _default_rid,
+                        _RID_UNSET,
                         neu_conf.addr_offset,
                         neu_conf.n_neuron,
                         neu_conf.neuron_attrs,
@@ -402,7 +396,7 @@ def gen_config_frames_by_coreconf(
                     casting="no",
                 )
             else:
-                frame3 = np.asarray([], dtype=FRAME_DTYPE)
+                frame3 = np.array([], dtype=FRAME_DTYPE)
 
             # 4. Only one config frame type IV for each physical core.
             n_addr_write = v.params_reg.num_dendrite  # The number of address to write
@@ -410,7 +404,7 @@ def gen_config_frames_by_coreconf(
                 config_frame_type4 = OfflineFrameGen.gen_config_frame4(
                     chip_coord,
                     core_coord,
-                    _default_rid,
+                    _RID_UNSET,
                     0,
                     18 * n_addr_write,
                     v.weight_ram[:n_addr_write],
@@ -418,43 +412,42 @@ def gen_config_frames_by_coreconf(
             else:
                 config_frame_type4 = None
 
-            _debug_dict[core_coord] = {
-                "config1": config_frame_type1,
-                "config2": config_frame_type2,
-                "config3": config_frame_type3,
-                "config4": config_frame_type4,
-            }
-
             if config_frame_type4:
-                frame_arrays_on_core[core_coord] = np.concatenate(
-                    [
-                        config_frame_type1.value,
-                        config_frame_type2.value,
-                        frame3,
-                        config_frame_type4.value,
-                    ],
-                    dtype=FRAME_DTYPE,
-                    casting="no",
+                frame_arrays_total[chip_coord].append(
+                    np.concatenate(
+                        [
+                            config_frame_type1.value,
+                            config_frame_type2.value,
+                            frame3,
+                            config_frame_type4.value,
+                        ],
+                        dtype=FRAME_DTYPE,
+                        casting="no",
+                    )
                 )
             else:
-                frame_arrays_on_core[core_coord] = np.concatenate(
-                    [config_frame_type1.value, config_frame_type2.value, frame3],
-                    dtype=FRAME_DTYPE,
-                    casting="no",
+                frame_arrays_total[chip_coord].append(
+                    np.concatenate(
+                        [config_frame_type1.value, config_frame_type2.value, frame3],
+                        dtype=FRAME_DTYPE,
+                        casting="no",
+                    )
                 )
 
     if write_to_file:
-        if split_by_coord:
-            for core_coord, f in frame_arrays_on_core.items():
-                addr = core_coord.address
-                _write_to_f(f"config_core{addr}", f)
+        if split_by_chip:
+            for chip, frame_arrays_onchip in frame_arrays_total.items():
+                f = np.concatenate(frame_arrays_onchip, dtype=FRAME_DTYPE, casting="no")
+                _write_to_f(f"config_chip{chip.address}_cores_all", f)
         else:
-            f = np.concatenate(
-                list(frame_arrays_on_core.values()), dtype=FRAME_DTYPE, casting="no"
-            )
-            _write_to_f("config_cores_all", f)
+            _fa = []
+            for f in frame_arrays_total.values():
+                _fa.extend(f)
 
-    return frame_arrays_on_core
+            f = np.concatenate(_fa, dtype=FRAME_DTYPE, casting="no")
+            _write_to_f(f"config_all", f)
+
+    return frame_arrays_total
 
 
 def _with_suffix_json(fp: Path, fname: str) -> Path:

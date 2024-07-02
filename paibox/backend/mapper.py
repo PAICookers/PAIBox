@@ -2,9 +2,9 @@ from collections import defaultdict
 from collections.abc import Sequence
 from copy import copy
 from pathlib import Path
-from typing import Any, Literal, Optional, Union
+from typing import Literal, Optional, Union
 
-from paicorelib import Coord, CoordOffset, HwConfig, get_replication_id
+from paicorelib import ChipCoord, Coord, CoordOffset, HwConfig, get_replication_id
 
 from paibox.base import SynSys
 from paibox.components import Neuron
@@ -14,6 +14,7 @@ from paibox.network import DynSysGroup
 from .conf_template import (
     CoreConf,
     CorePlmConf,
+    FrameArrayType,
     GraphInfo,
     InputNodeConf,
     NeuronDest,
@@ -570,23 +571,23 @@ class Mapper:
         *,
         fp: Optional[Union[str, Path]] = None,
         format: Literal["txt", "bin", "npy"] = "bin",
-        split_by_coord: bool = False,
+        split_by_chip: bool = False,
         export_core_params: bool = False,
         export_clk_en_L2: bool = False,
         use_hw_sim: bool = True,
-    ) -> dict[Coord, Any]:
+    ) -> dict[ChipCoord, list[FrameArrayType]]:
         """Generate configuration frames & export to file.
 
         Args:
             - write_to_file: whether to write frames into file.
             - fp: If `write_to_file` is `True`, specify the output path.
             - format: `txt`, `bin`, or `npy`. `bin` is recommended.
-            - split_by_coord: whether to split the generated frames file by the core coordinates.
+            - split_by_chip: whether to split the generated frames file by the chips.
             - export_core_params: whether to export the parameters of occupied cores.
             - export_used_L2: whether to export the serial port data of the L2 cluster clocks.
             - use_hw_sim: whether to use hardware simulator. If use, '.bin' will be exported.
 
-        Return: a dictionary of configurations.
+        Return: total configurations in dictionary format.
         """
         if format not in ("bin", "npy", "txt"):
             raise ValueError(f"format {format} is not supported.")
@@ -602,7 +603,7 @@ class Mapper:
             self.graph_info["members"],
             write_to_file,
             _fp,
-            split_by_coord,
+            split_by_chip,
             formats,
         )
 
