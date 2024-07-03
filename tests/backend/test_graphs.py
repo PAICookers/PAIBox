@@ -447,7 +447,7 @@ class TestGroupEdges:
     )
     def test_get_node_degrees(self, succ_edges):
         degrees = get_node_degrees(succ_edges)
-        print()
+        assert 1
 
     def test_group_edges_with_constrs(
         self, monkeypatch, build_network_with_branches_4bit

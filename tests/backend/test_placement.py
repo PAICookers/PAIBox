@@ -295,7 +295,7 @@ class TestWeightUnpack:
 
         ww = wT.view(np.uint64).reshape(-1, 18)
         ww.setflags(write=False)
-        print()
+        assert 1
 
     @staticmethod
     def _fold_raw_weight_ref(raw_weight: np.ndarray, expected_row: int, nfold: int):

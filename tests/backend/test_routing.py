@@ -296,7 +296,7 @@ class TestRoutingGroup:
         mapper.compile()
 
         # 8+5+4, 8+8+4
-        assert mapper.routing_tree.breadth_of_lx(L0) >= mapper.n_core_required
+        assert mapper.routing_tree.n_core_total >= mapper.n_core_required
 
     def test_RoutingGroup_instance2(self, monkeypatch, build_example_net2):
         net = build_example_net2
@@ -308,7 +308,7 @@ class TestRoutingGroup:
         mapper.build(net)
         mapper.compile()
 
-        assert mapper.routing_tree.breadth_of_lx(L0) >= mapper.n_core_required
+        assert mapper.routing_tree.n_core_total >= mapper.n_core_required
 
     def test_RoutingGroup_instance3(self, build_example_net4):
         net = build_example_net4
@@ -319,7 +319,7 @@ class TestRoutingGroup:
         mapper.compile()
 
         assert len(mapper.core_blocks) == 3
-        assert mapper.routing_tree.breadth_of_lx(L0) >= mapper.n_core_required
+        assert mapper.routing_tree.n_core_total >= mapper.n_core_required
 
     def test_RoutingGroup_instance4(self, monkeypatch, build_example_net4):
         net = build_example_net4
@@ -332,7 +332,7 @@ class TestRoutingGroup:
         mapper.compile()
 
         assert len(mapper.core_blocks) == 4
-        assert mapper.routing_tree.breadth_of_lx(L0) >= mapper.n_core_required
+        assert mapper.routing_tree.n_core_total >= mapper.n_core_required
 
 
 class TestRoutingRoot:

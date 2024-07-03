@@ -108,11 +108,7 @@ if __name__ == "__main__":
     print("Core required:", graph_info["n_core_required"])
 
     mapper.export(
-        write_to_file=True,
-        fp=out_dir / "debug",
-        format="npy",
-        split_by_coord=True,
-        export_core_params=False,
+        write_to_file=True, fp=out_dir / "debug", format="npy", export_core_params=False
     )
 
     # Clear all the results

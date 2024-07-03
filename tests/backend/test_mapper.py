@@ -22,7 +22,7 @@ class TestGraphInfo:
         mapper.export(
             fp=ensure_dump_dir,
             format="txt",
-            split_by_coord=True,
+            split_by_chip=True,
             export_core_params=True,
         )
 
@@ -38,7 +38,7 @@ class TestGraphInfo:
         mapper.export(
             fp=ensure_dump_dir,
             format="txt",
-            split_by_coord=True,
+            split_by_chip=True,
             export_core_params=True,
         )
 
@@ -54,7 +54,7 @@ class TestGraphInfo:
         mapper.export(
             fp=ensure_dump_dir,
             format="txt",
-            split_by_coord=True,
+            split_by_chip=True,
             export_core_params=True,
         )
 
@@ -81,7 +81,7 @@ class TestGraphInfo:
         mapper.export(
             fp=ensure_dump_dir,
             format="txt",
-            split_by_coord=True,
+            split_by_chip=True,
             export_core_params=True,
         )
 
@@ -98,7 +98,7 @@ class TestGraphInfo:
         mapper.export(
             fp=ensure_dump_dir,
             format="txt",
-            split_by_coord=True,
+            split_by_chip=True,
             export_core_params=True,
         )
 
@@ -164,8 +164,8 @@ class TestMapperDeployment:
         assert len(mapper.core_blocks) == 3  # 3 layers
         assert mapper.graph_info["inherent_timestep"] == 3
 
-        mapper.export(fp=ensure_dump_dir, export_core_params=True, split_by_coord=False)
-        print()
+        mapper.export(fp=ensure_dump_dir, export_core_params=True, split_by_chip=False)
+        assert 1
 
     @pytest.mark.usefixtures("compile_simple_net")
     def test_find_neuron(self, get_mapper, build_example_net1):
@@ -175,7 +175,7 @@ class TestMapperDeployment:
 
         mapper.find_neuron(net.n3)
 
-        print()
+        assert 1
 
     @pytest.mark.usefixtures("compile_simple_net")
     def test_find_axon(self, get_mapper, build_example_net1):
@@ -185,7 +185,7 @@ class TestMapperDeployment:
 
         mapper.find_axon(net.n2)
 
-        print()
+        assert 1
 
     def test_network_with_container(self, get_mapper, build_Network_with_container):
         net: pb.Network = build_Network_with_container
@@ -608,7 +608,7 @@ class TestMapper_Multichip:
         with measure_time("test_multichip_1"):
             mapper.compile(weight_bit_optimization=False)
 
-        mapper.export(fp=ensure_dump_dir, export_core_params=True, split_by_coord=False)
+        mapper.export(fp=ensure_dump_dir, export_core_params=True, split_by_chip=False)
 
         print("Total cores occupied:", mapper.n_core_occupied)
 
@@ -628,7 +628,7 @@ class TestMapper_Multichip:
         with measure_time("test_multichip_2"):
             mapper.compile(weight_bit_optimization=False)
 
-        mapper.export(fp=ensure_dump_dir, export_core_params=True, split_by_coord=False)
+        mapper.export(fp=ensure_dump_dir, export_core_params=True, split_by_chip=False)
 
         print("Total cores occupied:", mapper.n_core_occupied)
 

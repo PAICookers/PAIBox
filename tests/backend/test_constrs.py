@@ -12,7 +12,7 @@ class TestGraphNodeConstrs:
 
         constr.add_node_constr(conflicted={"4": {"1"}})
 
-        print()
+        assert 1
 
     def test_tick_wait_attr_constr(self):
         n1 = pb.LIF(10, 3, tick_wait_start=1, tick_wait_end=0, name="n1")
