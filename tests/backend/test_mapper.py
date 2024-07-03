@@ -257,6 +257,57 @@ class TestMapperDeployment:
 
         mapper.export(fp=ensure_dump_dir, export_core_params=True)
 
+    @pytest.mark.parametrize("layer", [63, 64])
+    def test_bypass_linear(self, layer, ensure_dump_dir, monkeypatch):
+        class Net(pb.Network):
+            def __init__(self, layer: int):
+                super().__init__()
+                weight1 = np.eye(1000, dtype=np.int8) * 127
+                self.i1 = pb.InputProj(input=1, shape_out=(weight1.shape[0],))
+                self.n_list = pb.NodeList()
+                self.s_list = pb.NodeList()
+                self.p_list = pb.NodeList()
+
+                for i in range(layer):
+                    self.n_list.append(
+                        pb.IF(
+                            weight1.shape[1],
+                            threshold=127,
+                            tick_wait_start=i + 1,
+                        )
+                    )
+                    if i == 0:
+                        self.s_list.append(
+                            pb.FullConn(self.i1, self.n_list[i], weights=weight1)
+                        )
+                    else:
+                        self.s_list.append(
+                            pb.FullConn(
+                                self.n_list[i - 1], self.n_list[i], weights=weight1
+                            )
+                        )
+
+        net = Net(layer)
+
+        # Output to (2,0)
+        monkeypatch.setattr(pb.BACKEND_CONFIG, "output_chip_addr", (2, 0))
+
+        if layer > 64 - 1:
+            clist = [Coord(1, 0), Coord(0, 0)]
+        else:
+            clist = [Coord(1, 0)]
+
+        monkeypatch.setattr(pb.BACKEND_CONFIG, "target_chip_addr", clist)
+
+        mapper = pb.Mapper()
+        mapper.build(net)
+        graph_info = mapper.compile()
+        mapper.export(
+            fp=ensure_dump_dir, format="txt", use_hw_sim=False, export_core_params=True
+        )
+
+        assert 1
+
 
 class TestMapper_Export:
     def test_export_multi_nodes_more_than_32(

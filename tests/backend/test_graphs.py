@@ -250,12 +250,22 @@ class TestPAIGraph:
         with pytest.raises(GraphConnectionError):
             mapper.build(net)
 
-    def test_untwist_branch_nodes1(self, ensure_dump_dir, build_Network_branch_nodes):
+    @pytest.mark.parametrize("no_twisted_branch", [True, False])
+    def test_untwist_branch_nodes1(
+        self, ensure_dump_dir, build_Network_branch_nodes, no_twisted_branch
+    ):
         net: pb.Network = build_Network_branch_nodes
 
         mapper = pb.Mapper()
         mapper.build(net)
-        mapper.compile()
+
+        try:
+            mapper.compile(no_twisted_branch=no_twisted_branch)
+        except NotSupportedError:
+            # A certain sturcture in the network is not supported.
+            assert no_twisted_branch == False
+            return
+
         mapper.export(fp=ensure_dump_dir)
 
         assert (
