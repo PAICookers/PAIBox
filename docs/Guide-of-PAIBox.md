@@ -882,7 +882,7 @@ sim.reset()
 mapper = pb.Mapper()
 mapper.build(fcnet)
 graph_info = mapper.compile(core_estimate_only==False, weight_bit_optimization=True, grouping_optim_target="both")
-mapper.export(write_to_file=True, fp="./debug/", format="bin", split_by_coord=False, export_core_params=False, use_hw_sim=True)
+mapper.export(write_to_file=True, fp="./debug/", format="bin", split_by_chip=False, export_core_params=False, use_hw_sim=True)
 
 print(graph_info.n_core_required)
 >>> 999
@@ -903,10 +903,10 @@ mapper.clear()
 - `write_to_file`: 是否将配置帧导出为文件。默认为 `True`。
 - `fp`：导出目录。若未指定，则默认为后端配置选项 `build_directory` 所设置的目录（当前工作目录）。
 - `format`：导出交换文件格式，可以为 `bin`、`npy` 或 `txt`。默认为 `bin`。
-- `split_by_coord`：是否将配置帧以每个核坐标进行分割，由此生成的配置帧文件命名形如"config_core1"、"config_core2"。默认为 `False`，即最终导出为一个文件。
+- `split_by_chip`：是否将配置帧以芯片坐标进行分割，由此生成的配置帧文件命名形如"config_chip0_core0"、"config_chip0_core1"、"config_chip1_core0"。默认为 `False`，即最终导出为一个文件 "config_all"。
 - `export_core_params`：是否导出实际使用核参数至 json 文件，以直观显示实际使用核的配置信息。默认为 `False`。
 - `export_clk_en_L2`：是否导出L2簇时钟串口数据。默认为 `False`。
-- `use_hw_sim`：是否使用硬件仿真器。若使用，将额外导出 `bin` 格式的配置帧文件。
+- `use_hw_sim`：是否使用硬件仿真器。若使用，将额外导出 `bin` 格式的配置帧文件。默认为 `True`。
 
 同时，该方法将返回模型的配置项字典 `GraphInfo`，包括：
 
