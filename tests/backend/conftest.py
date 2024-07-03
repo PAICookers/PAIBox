@@ -894,7 +894,7 @@ def MockNeuronDest() -> NeuronDest:
         addr_core_x_ex,
         addr_core_y_ex,
         addr_chip_x,
-        addr_chip_y
+        addr_chip_y,
     )
 
 

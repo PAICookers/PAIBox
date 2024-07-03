@@ -1,6 +1,6 @@
+import sys
 from collections import defaultdict
 from dataclasses import asdict, dataclass
-import sys
 from enum import Enum
 from pathlib import Path
 from typing import Any, ClassVar, NamedTuple, TypedDict, Union
@@ -458,7 +458,7 @@ def gen_config_frames_by_coreconf(
                 _fa.extend(f)
 
             f = np.concatenate(_fa, dtype=FRAME_DTYPE, casting="no")
-            _write_to_f(f"config_all", f)
+            _write_to_f("config_all", f)
 
     return frame_arrays_total
 

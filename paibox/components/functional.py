@@ -984,7 +984,7 @@ def _spike_func_sadd_ssub(
         v_reset = np.where(thres_mode == TM.EXCEED_POSITIVE, vjt - pos_thres, vjt)
     else:
         v_reset = np.where(thres_mode == TM.EXCEED_POSITIVE, reset_v, vjt)
-    
+
     # Spike
     spike = np.equal(thres_mode, TM.EXCEED_POSITIVE)
 

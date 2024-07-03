@@ -1,4 +1,5 @@
 import pytest
+
 from paibox.utils import bit_reversal, fn_sgn, typical_round
 
 
