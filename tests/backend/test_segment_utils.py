@@ -1,8 +1,6 @@
 from math import ceil
-from typing import List
 
 import pytest
-from paicorelib import AxonCoord, AxonSegment
 
 import paibox as pb
 from paibox.backend.segment_utils import (
@@ -20,7 +18,7 @@ class TestGetNeuronSegments:
     def _coarse_group_with_load_balancing_proto(
         n_neuron: int, capacity: int, unrolling_factor: int
     ):
-        def _average_load(n: int, n_part: int) -> List[int]:
+        def _average_load(n: int, n_part: int) -> list[int]:
             quotient = ceil(n / n_part)
             rest = n - (n_part - 1) * quotient
             return [quotient] * (n_part - 1) + [rest]
@@ -118,71 +116,8 @@ def test_get_axon_segments_boundary(axons):
 
 
 @pytest.mark.parametrize(
-    "neu_index, axon_seg, delay, n_timeslot, expected",
-    [
-        (
-            slice(5, 8),
-            AxonSegment(12, 3, 0),
-            1,
-            1 << 1,
-            [
-                AxonCoord(1, 2),
-                AxonCoord(2, 0),
-                AxonCoord(2, 1),
-            ],
-        ),
-        (
-            slice(0, 3),
-            AxonSegment(12, 3, 0),
-            2,
-            1 << 1,
-            [
-                AxonCoord(2 + 0, 0),
-                AxonCoord(2 + 0, 1),
-                AxonCoord(2 + 0, 2),
-            ],
-        ),
-        (
-            slice(1, 5),
-            AxonSegment(12, 3, 0),
-            2,
-            1 << 2,
-            [
-                AxonCoord(4 + 0, 1),
-                AxonCoord(4 + 0, 2),
-                AxonCoord(4 + 1, 0),
-                AxonCoord(4 + 1, 1),
-            ],
-        ),
-        (
-            slice(1, 6),
-            AxonSegment(12, 3, 0),
-            4,
-            1 << 3,
-            [
-                AxonCoord(24 + 0, 1),
-                AxonCoord(24 + 0, 2),
-                AxonCoord(24 + 1, 0),
-                AxonCoord(24 + 1, 1),
-                AxonCoord(24 + 1, 2),
-            ],
-        ),
-        (
-            slice(3, 10),
-            AxonSegment(16, 4, 4),
-            4,
-            1 << 4,
-            [
-                AxonCoord(48 + 0, 4 + 3),
-                AxonCoord(48 + 1, 4 + 0),
-                AxonCoord(48 + 1, 4 + 1),
-                AxonCoord(48 + 1, 4 + 2),
-                AxonCoord(48 + 1, 4 + 3),
-                AxonCoord(48 + 2, 4 + 0),
-                AxonCoord(48 + 2, 4 + 1),
-            ],
-        ),
-    ],
+    TestData.aligned_coords_test_data["args"],
+    TestData.aligned_coords_test_data["data"],
 )
 def test_aligned_coords(neu_index, axon_seg, delay, n_timeslot, expected):
     axon_coords = aligned_coords(neu_index, axon_seg, delay, n_timeslot)

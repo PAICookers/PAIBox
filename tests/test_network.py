@@ -3,8 +3,7 @@ import pytest
 
 import paibox as pb
 from paibox.base import DynamicSys, NeuDyn
-from paibox.exceptions import PAIBoxWarning
-from paibox.node import NodeDict
+from paibox.components import Projection
 
 
 class TestNetwork_Components_Discover:
@@ -64,78 +63,67 @@ class TestNetwork_Components_Discover:
         )
         assert len(nodes4) == 6
 
-        # Simulation
-        sim = pb.Simulator(net)
-        sim.run(10)
-        sim.reset()
-
     def test_nested_net_L2(self, build_Nested_Net_L2):
         net: pb.Network = build_Nested_Net_L2
 
-        nodes = net.nodes(level=1, include_self=False).subset(DynamicSys).unique()
-        nodes_excluded = (
-            net.nodes(level=1, include_self=False)
-            .subset(DynamicSys)
-            .unique()
-            .not_subset(pb.DynSysGroup)
-        )
+        nodes1 = net.nodes(level=1).subset(DynamicSys).unique()
+        assert len(nodes1) == 5
+
+        nodes_excluded = nodes1.not_subset(pb.DynSysGroup)
+        assert len(nodes_excluded) == 5 - 2
+
         nodes2 = (
-            net.nodes(level=2, include_self=False)
-            .subset(DynamicSys)
-            .unique()
-            .not_subset(pb.DynSysGroup)
+            net.nodes(level=2).subset(DynamicSys).unique().not_subset(pb.DynSysGroup)
         )
-        nodes9 = (
-            net.nodes(level=9, include_self=False)
-            .subset(DynamicSys)
-            .unique()
-            .not_subset(pb.DynSysGroup)
-        )
-
-        from .conftest import Nested_Net_L1
-
-        assert isinstance(net[f"{Nested_Net_L1.__name__}_0"], pb.Network)
-        assert isinstance(net["Named_SubNet_L1_1"], pb.Network)
-
-        assert len(nodes) == 5
-        assert len(nodes_excluded) == 3
         assert len(nodes2) == 3 + 3 * 2
+
+        nodes9 = (
+            net.nodes(level=9).subset(DynamicSys).unique().not_subset(pb.DynSysGroup)
+        )
         assert len(nodes9) == len(nodes2)
 
-        del Nested_Net_L1
+        nodes_all = net.nodes().subset(DynamicSys).unique()
+        assert len(nodes_all) == 5 + 2 * 3
 
-    def test_nested_net_L2_find_nodes_recursively(self, build_Nested_Net_L2):
+        assert len(net.components) == 3 + 3 * 2
 
-        net: pb.Network = build_Nested_Net_L2
+        probes1 = net.nodes(level=1).subset(pb.Probe).unique()
+        assert len(probes1) == 2
 
-        nodes = (
-            net.nodes(level=-1, include_self=False, find_recursive=True)
-            .subset(DynamicSys)
-            .unique()
-            .not_subset(pb.DynSysGroup)
-        )
+        probes_all = net.nodes().subset(pb.Probe).unique()
+        assert len(probes_all) == 2 + 2 * 1
 
-        assert len(nodes) == 3 + 3 * 2
-
-    # @pytest.mark.xfail(raises=RegisterError)
-    def test_nested_net_L3_find_nodes_recursively(self, build_Nested_Net_L3):
+    def test_nested_net_L3(self, build_Nested_Net_L3):
         net: pb.Network = build_Nested_Net_L3
 
-        nodes = (
-            net.nodes(level=-1, include_self=False, find_recursive=True)
-            .subset(DynamicSys)
-            .unique()
-            .not_subset(pb.DynSysGroup)
-        )
+        nodes1 = net.nodes(level=1).subset(DynamicSys).unique()
+        assert len(nodes1) == 3
 
-        assert len(nodes) == 2 + 3 + 2 * 3
+        nodes2 = net.nodes(level=2).subset(DynamicSys).unique()
+        assert len(nodes2) == 8
+
+        nodes3 = (
+            net.nodes(level=3).subset(DynamicSys).unique().not_subset(pb.DynSysGroup)
+        )
+        assert len(nodes3) == 2 + 1 * 3 + 1 * 2 * 3
+
+        nodes_all = net.nodes().subset(DynamicSys).unique()
+        assert len(nodes_all) == 3 + 1 * 5 + 1 * 2 * 3
+
+        assert len(net.components) == 2 + 1 * 3 + 1 * 2 * 3
+
+        probes1 = net.nodes(level=1).subset(pb.Probe).unique()
+        assert len(probes1) == 3
+
+        probes_all = net.nodes().subset(pb.Probe).unique()
+        assert len(probes_all) == 3 + 1 * 2 + 1 * 2 * 1
 
 
 class TestNetwork_Components_Oprations:
     def test_Collector_operations(self):
-        s1 = pb.base.DynamicSys(name="s1")
+        s1 = DynamicSys(name="s1")
         s2 = pb.InputProj(1, shape_out=1, name="s2")
-        s3 = pb.base.NeuDyn(name="s3")
+        s3 = NeuDyn(name="s3")
         s4 = pb.DynSysGroup(s1, s2, name="s4")
 
         g1 = pb.DynSysGroup(s1, s2, s3, name="g1")
@@ -160,101 +148,28 @@ class TestNetwork_Components_Oprations:
 
         assert len(g4_nodes.unique()) == 2
 
-        assert len(g3_nodes.exclude(pb.projection.Projection)) == 1
+        assert len(g3_nodes.exclude(Projection)) == 1
         assert len(g1_nodes.not_subset(NeuDyn)) == 2
-        assert len(g1_nodes.include(NeuDyn, pb.projection.Projection)) == 2
+        assert len(g1_nodes.include(NeuDyn, Projection)) == 2
 
     def test_add_components(self, build_NotNested_Net_Exp):
         net: pb.Network = build_NotNested_Net_Exp
         n3 = pb.LIF((3,), 10)
-        s1 = pb.FullConn(net.n1, n3, conn_type=pb.SynConnType.All2All)
-        s2 = pb.FullConn(net.n2, n3, conn_type=pb.SynConnType.All2All)
+        s1 = pb.FullConn(net.n1, n3, name="s1_new")
+        s2 = pb.FullConn(net.n2, n3, name="s2_new")
 
         # Add extra components into the network after initialization
         setattr(net, n3.name, n3)  # key is 'LIF_0'
         # Or added by user
         # net.n3 = n3 # key is 'n3'
-        net.add_components(s_insert=s1)
+        net._add_components(s_insert=s1)
         nodes = net.nodes(level=1, include_self=False).subset(DynamicSys).unique()
         assert n3.name in nodes
         assert s1.name in nodes
         assert getattr(net, "s_insert", False)
 
-        net.add_components(s2)
+        net._add_components(s2)
         assert getattr(net, s2.name, False)
-
-    def test_disconnect_neuron_from(self, build_Network_with_container):
-        net: pb.Network = build_Network_with_container
-
-        # Disconnet the n_list[0] -> s1 -> n_list[1]
-        # Nothing to disconnect so a warning is raised
-        with pytest.warns(PAIBoxWarning):
-            removed = net.disconnect_neuron_from(net.n_list[0], net.n_list[2])
-            assert removed == []
-
-        nodes = net.nodes(level=1, include_self=False).subset(DynamicSys).unique()
-        assert net.n_list[0].name in nodes
-
-        # Remove the target synapse
-        removed = net.disconnect_neuron_from(net.n_list[0], net.n_list[1])
-        assert len(removed) == 1
-        assert not getattr(net, "s1", False)
-
-    @pytest.mark.skip("Not implemented")
-    def test_disconnect_neuron_succ(self, build_multi_inodes_onodes):
-        net: pb.Network = build_multi_inodes_onodes
-
-        removed = net.diconnect_neuron_succ(net.n1)
-
-        assert len(removed) == 2
-        assert not getattr(net, "s2", False)
-        assert not getattr(net, "s4", False)
-        assert getattr(net, "s1", False)
-        assert getattr(net, "s3", False)
-
-    @pytest.mark.skip("Not implemented")
-    def test_replace_neuron_pred(self, build_multi_inodes_onodes):
-        net: pb.Network = build_multi_inodes_onodes
-
-        removed = net.replace_neuron_pred(net.n1)
-
-        assert len(removed) == 2
-        assert not getattr(net, "s1", False)
-        assert not getattr(net, "s3", False)
-        assert getattr(net, "s2", False)
-        assert getattr(net, "s4", False)
-
-    def test_insert_between_neuron(self, build_Network_with_container):
-        net: pb.Network = build_Network_with_container
-
-        # Insert n3 between n_list[0] & n_list[1]
-        n_insert = pb.LIF((3,), 10)
-        s_insert1 = pb.FullConn(
-            net.n_list[0], n_insert, conn_type=pb.SynConnType.All2All, name="s_insert1"
-        )
-        s_insert2 = pb.FullConn(
-            n_insert, net.n_list[1], conn_type=pb.SynConnType.All2All, name="s_insert2"
-        )
-
-        # Replace s1 with s_insert1->n_insert->s_insert2
-        net.insert_between_neuron(
-            net.n_list[0],
-            net.n_list[1],
-            (n_insert, s_insert1, s_insert2),
-            replace=True,
-        )
-
-        nodes = net.nodes(level=1, include_self=False).subset(DynamicSys).unique()
-        assert n_insert.name in nodes
-        assert s_insert1.name in nodes
-        assert s_insert2.name in nodes
-        assert getattr(net, f"{s_insert1.name}", False)
-
-        assert not getattr(net, "s1", False)  # s1 ie removed from the network
-
-        assert getattr(net, f"{s_insert2.name}", False) in list(
-            net.n_list[1].master_nodes.values()
-        )
 
 
 @pytest.mark.skip(reason="'Sequential' is not used")
@@ -290,7 +205,7 @@ def test_Sequential_getitem():
     s2 = pb.FullConn(n2, n3, conn_type=pb.SynConnType.All2All)
     sequential = pb.network.Sequential(n1, s1, n2, s2, n3, name="Sequential_2")
 
-    assert isinstance(sequential.children, NodeDict)
+    assert isinstance(sequential.children, pb.NodeDict)
     assert len(sequential) == 5
 
     # str

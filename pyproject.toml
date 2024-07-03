@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "paibox"
-version = "1.0.0"
-description = "Toolchain of PAICORE 2.0."
+version = "1.1.0"
+description = "Toolchain of PAICORE 2.0"
 authors = ["Ziru Pan <zrpan@stu.pku.edu.cn>"]
 maintainers = [
     "Hongtu Xia <hongtux@pku.edu.cn>",
@@ -20,7 +20,6 @@ classifiers = [
     "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -32,35 +31,34 @@ classifiers = [
 packages = [{ include = "paibox" }]
 
 # Includes the document
-include = ["docs", "CHANGELOG.md"]
-# Excludes the experimental code
-exclude = ["paibox/experimental"]
+include = ["docs/Guide-of-PAIBox.md", "CHANGELOG.md"]
 
 [tool.poetry.dependencies]
-python = "^3.8"
-pydantic = "^2.0"
-numpy = "^1.24.0"
-paicorelib = "^1.0.0"
+python = "^3.9"
+pydantic = "^2.0.3"
+numpy = "^1.26.0"
+paicorelib = "^1.1.6"
 
 [tool.poetry.group.test]
 optional = true
 
+[tool.poetry.group.dev]
+optional = true
 
 [tool.poetry.group.test.dependencies]
-pytest = { version = "^8.0.0", python = "^3.8" }
+pytest = "^8.0.0"
 pytest-md = "^0.2.0"
-torch = { version = "^2.2.1+cpu", optional = true, source = "torch-cpu" }
+paicorelib = {git = "https://github.com/PAICookers/PAIlib.git", rev = "dev"}
+orjson = "^3.10.0"
+
+
+[tool.poetry.group.dev.dependencies]
+orjson = "^3.10.0"
 
 
 [tool.pytest.ini_options]
-minversion = "7.0.0"
+minversion = "8.0.0"
 testpaths = ["tests"]
-
-
-[[tool.poetry.source]]
-name = "torch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-priority = "explicit"
 
 
 [[tool.poetry.source]]

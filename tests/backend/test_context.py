@@ -1,38 +1,51 @@
 import copy
+from pathlib import Path
 
-import pytest
 from paicorelib import Coord, CoordOffset
 
-from paibox import BACKEND_CONFIG
+import paibox as pb
 from paibox.backend.context import _BACKEND_CONTEXT
 
 
-def test_backend_context():
-    _BACKEND_CONTEXT.test_chip_addr = Coord(3, 4)
-    assert BACKEND_CONFIG["output_chip_addr"] == Coord(3, 4)
+def test_backend_context(monkeypatch):
+    monkeypatch.setattr(pb.BACKEND_CONFIG, "test_chip_addr", Coord(3, 4))
+    assert pb.BACKEND_CONFIG["output_chip_addr"] == Coord(3, 4)
 
-    BACKEND_CONFIG.local_chip_addr = Coord(10, 10)
-    assert BACKEND_CONFIG.local_chip_addr == Coord(10, 10)
+    monkeypatch.setattr(pb.BACKEND_CONFIG, "target_chip_addr", Coord(10, 10))
+    assert pb.BACKEND_CONFIG.target_chip_addr == [Coord(10, 10)]
+    assert isinstance(pb.BACKEND_CONFIG.target_chip_addr[0], Coord)
 
-    # DO NOT set item in this way!
-    # BACKEND_CONFIG["local_chip_addr"] = (10, 10)
-    # assert not isinstance(BACKEND_CONFIG.local_chip_addr, Coord)
-    BACKEND_CONFIG.local_chip_addr = (10, 10)
-    assert isinstance(BACKEND_CONFIG.local_chip_addr, Coord)
+    # Multichip
+    clist = [(1, 2), (2, 1), (2, 2)]
+    monkeypatch.setattr(pb.BACKEND_CONFIG, "target_chip_addr", clist)
+    assert pb.BACKEND_CONFIG.target_chip_addr == clist
 
-    BACKEND_CONFIG.save("strkey", False, 12345, "ABC", a=1, b=2, c=3)
-    assert BACKEND_CONFIG["b"] == 2
-    assert BACKEND_CONFIG.load("strkey") == False
+    pb.BACKEND_CONFIG.save("strkey", False, 12345, "ABC", a=1, b=2, c=3)
+    assert pb.BACKEND_CONFIG["b"] == 2
+    assert pb.BACKEND_CONFIG.load("strkey") == False
 
-    cflags = BACKEND_CONFIG.cflags
+    cflags = pb.BACKEND_CONFIG.cflags
     cflags["op1"] = True
 
-    assert BACKEND_CONFIG.cflags["op1"] == True
+    assert pb.BACKEND_CONFIG.cflags["op1"] == True
 
-    BACKEND_CONFIG.cflags["op2"] = 999
-    assert BACKEND_CONFIG.cflags["op2"] == 999
+    monkeypatch.setitem(pb.BACKEND_CONFIG.cflags, "op2", 999)
+    assert pb.BACKEND_CONFIG.cflags["op2"] == 999
+
+    assert _BACKEND_CONTEXT["output_core_addr_start"] == Coord(0, 0)
 
     ocoord = copy.copy(_BACKEND_CONTEXT["output_core_addr_start"])
     ocoord += CoordOffset(1, 0)
 
-    assert _BACKEND_CONTEXT["output_core_addr_start"] == Coord(0, 0)
+    opath = Path.cwd() / "output_dest_info.json"
+    monkeypatch.setitem(_BACKEND_CONTEXT, "output_conf_json", opath)
+    assert _BACKEND_CONTEXT["output_conf_json"] == opath
+
+
+def test_backend_context_add_chip_addr(monkeypatch):
+    monkeypatch.setattr(
+        pb.BACKEND_CONFIG, "target_chip_addr", [Coord(1, 0), Coord(10, 10)]
+    )
+
+    pb.BACKEND_CONFIG.add_chip_addr((3, 4), (10, 10))
+    assert pb.BACKEND_CONFIG["target_chip_addr"][2] == Coord(3, 4)

@@ -1,9 +1,9 @@
-from typing import Any, Tuple
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
 
-Size2Type = Tuple[int, int]
+Size2Type = tuple[int, int]
 
 
 """Faster Conv2d in FP32 format."""

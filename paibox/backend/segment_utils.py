@@ -1,61 +1,41 @@
-import sys
 import warnings
+from collections.abc import Sequence
 from functools import partial
 from math import ceil
-from typing import Dict, List, Literal, NamedTuple, Sequence
+from typing import Literal
 
-if sys.version_info >= (3, 10):
-    from typing import TypeAlias
-else:
-    from typing_extensions import TypeAlias
-
-from paicorelib import AxonCoord, AxonSegment, NeuronSegment
-
-from paibox.base import NeuDyn
+from paibox.components import Neuron
 from paibox.exceptions import ParameterInvalidWarning, ResourceError
 
-from .graphs_types import DestNodeType, SourceNodeType
-
-
-class NeuSeg(NamedTuple):
-    parent: DestNodeType
-    segment: NeuronSegment
-
-    @property
-    def n_neuron(self) -> int:
-        return self.segment.n_neuron
-
-    @property
-    def n_addr(self) -> int:
-        return self.segment.n_addr
-
-
-NeuSlice: TypeAlias = slice
-NeuSegOfCorePlm: TypeAlias = List[NeuSeg]
-NeuSegOfCoreBlock: TypeAlias = List[NeuSegOfCorePlm]
+from .types import (
+    AxonCoord,
+    AxonSegment,
+    NeuSegment,
+    NeuSegOfCoreBlock,
+    NeuSegOfCorePlm,
+    NeuSlice,
+    SourceNodeType,
+)
 
 
 def _place_seperately(
-    seg_slices_dict: Dict[NeuDyn, List[NeuSlice]], repl_prop: int
+    seg_slices_dict: dict[Neuron, list[NeuSlice]], repl_prop: int
 ) -> NeuSegOfCoreBlock:
     neu_segs_of_cb = []
 
     for neu, seg_slices in seg_slices_dict.items():
         neu_segs_of_cb.extend(
-            [
-                [NeuSeg(neu, NeuronSegment(seg_slice, 0, repl_prop))]
-                for seg_slice in seg_slices
-            ]
+            [[NeuSegment(neu, seg_slice, 0, repl_prop)] for seg_slice in seg_slices]
         )
 
     return neu_segs_of_cb
 
 
 def _coarse_group(
-    neu: NeuDyn,
+    neu: Neuron,
     capacity: int,
     load_type: Literal["average", "max_capacity"],
-) -> List[NeuSlice]:
+) -> list[NeuSlice]:
     """Group neurons with 'average' or 'maximum capacity' load type.
 
     NOTE: Group neuron seperately, like [N1], [N2], ..., [Nn]. For each neuron, \
@@ -66,21 +46,21 @@ def _coarse_group(
         Average load of nx = ceil(nx / (#N of cores required of nx))
     """
 
-    def _average_load(n: int, n_part: int) -> List[int]:
+    def _average_load(n: int, n_part: int) -> list[int]:
         """Distribute #num into #n_part parts evently."""
         quotient = ceil(n / n_part)
         rest = n - (n_part - 1) * quotient
 
         return [quotient] * (n_part - 1) + [rest]
 
-    def _max_capacity_load(n: int) -> List[int]:
+    def _max_capacity_load(n: int) -> list[int]:
         nonlocal capacity
         n_part = ceil(n / capacity)
         rest = n - (n_part - 1) * capacity
 
         return [capacity] * (n_part - 1) + [rest]
 
-    neu_seg_slices: List[NeuSlice] = []
+    neu_seg_slices: list[NeuSlice] = []
     n_neuron = neu.num_out
 
     if load_type == "average":
@@ -98,7 +78,7 @@ def _coarse_group(
 
 
 def _get_nsg_opt_core(
-    seg_slices_dict: Dict[NeuDyn, List[NeuSlice]], capacity: int, repl_prop: int
+    seg_slices_dict: dict[Neuron, list[NeuSlice]], capacity: int, repl_prop: int
 ) -> NeuSegOfCoreBlock:
     neu_segs_of_cb: NeuSegOfCoreBlock = []  # The final result
     raise_warning = False
@@ -148,13 +128,11 @@ def _get_nsg_opt_core(
             return
         else:
             taken.append(
-                NeuSeg(
-                    neu_segs_not_full[n_cur_reg].parent,
-                    NeuronSegment(
-                        neu_segs_not_full[n_cur_reg].segment.index,
-                        cur_addr_offset,
-                        repl_prop,
-                    ),
+                NeuSegment(
+                    neu_segs_not_full[n_cur_reg].target,
+                    neu_segs_not_full[n_cur_reg].index,
+                    cur_addr_offset,
+                    repl_prop,
                 )
             )
             cur_addr_offset += neu_segs_not_full[n_cur_reg].n_addr
@@ -175,15 +153,15 @@ def _get_nsg_opt_core(
 
 
 def _get_neu_slices(
-    neu_groups: List[NeuDyn],
+    neu_groups: list[Neuron],
     capacity: int,
     load_type: Literal["average", "max_capacity"],
-) -> Dict[NeuDyn, List[NeuSlice]]:
+) -> dict[Neuron, list[NeuSlice]]:
     """Group the neuron groups by category with load balancing optimization.
 
     NOTE: Use load balancing optimization automatically.
     """
-    seg_slices_dict: Dict[NeuDyn, List[NeuSlice]] = dict()
+    seg_slices_dict: dict[Neuron, list[NeuSlice]] = dict()
 
     for neu in neu_groups:
         seg_slices_dict[neu] = _coarse_group(neu, capacity, load_type)
@@ -196,14 +174,14 @@ _get_neu_slices_opt_latency = partial(_get_neu_slices, load_type="average")
 
 
 def _dense_reorganized(
-    seg_slices_dict: Dict[NeuDyn, List[NeuSlice]], capacity: int, repl_prop: int
+    seg_slices_dict: dict[Neuron, list[NeuSlice]], capacity: int, repl_prop: int
 ) -> NeuSegOfCoreBlock:
     """Reorganize densely. Based on the result of 'latency' method, use greedy algorithm to \
         reorganize the incomplete neuron segments for saving cores.
     """
 
-    def _find_neu_in_segs_of_cplm(neu: NeuDyn, seg_of_cplm: NeuSegOfCorePlm) -> bool:
-        return any(neu == s.parent for s in seg_of_cplm)
+    def _find_neu_in_segs_of_cplm(neu: Neuron, seg_of_cplm: NeuSegOfCorePlm) -> bool:
+        return any(neu == s.target for s in seg_of_cplm)
 
     # If there is only one type of neuron segment slices, place seperately.
     if len(seg_slices_dict) == 1:
@@ -217,7 +195,7 @@ def _dense_reorganized(
     _max_core_req_neu, _max_core_req_seg_slices = _seg_slices_sorted_list[0]
 
     _max_seg_slices_of_cplm = [
-        [NeuSeg(_max_core_req_neu, NeuronSegment(seg_slice, 0, repl_prop))]
+        [NeuSegment(_max_core_req_neu, seg_slice, 0, repl_prop)]
         for seg_slice in _max_core_req_seg_slices
     ]
     neu_segs_of_cb.extend(_max_seg_slices_of_cplm)
@@ -236,23 +214,21 @@ def _dense_reorganized(
                     cur_n_neuron + seg_slice.stop - seg_slice.start
                 ) <= capacity and not _find_neu_in_segs_of_cplm(neu, seg_of_cplm):
                     # FIXME Necessary check not _find_neu_in_segs_of_cplm?
-                    neu_seg = NeuSeg(
-                        neu, NeuronSegment(seg_slice, cur_addr_offset, repl_prop)
-                    )
+                    neu_seg = NeuSegment(neu, seg_slice, cur_addr_offset, repl_prop)
                     seg_of_cplm.append(neu_seg)
 
                     require_new_cplm = False
                     break
 
             if require_new_cplm:
-                neu_seg = NeuSeg(neu, NeuronSegment(seg_slice, 0, repl_prop))
+                neu_seg = NeuSegment(neu, seg_slice, 0, repl_prop)
                 neu_segs_of_cb.append([neu_seg])
 
     return neu_segs_of_cb
 
 
 def get_neu_segments(
-    neu_groups: List[NeuDyn],
+    neu_groups: list[Neuron],
     capacity: int,
     repl_prop: int,
     optim_target: Literal["latency", "core", "both"],
@@ -281,7 +257,7 @@ def get_neu_segments(
 
 def get_axon_segments(
     axons: Sequence[SourceNodeType], tr_max: int, fan_in_max: int
-) -> Dict[SourceNodeType, AxonSegment]:
+) -> dict[SourceNodeType, AxonSegment]:
     """Divide axons into segments by group to fit the hardware constraints.
 
     Args:
@@ -326,7 +302,7 @@ def get_axon_segments(
 
 def aligned_coords(
     neu_index: NeuSlice, axon_seg: AxonSegment, delay: int, dest_n_timeslot: int
-) -> List[AxonCoord]:
+) -> list[AxonCoord]:
     """Find the axon segments aligned with the index of neuron segment.
 
     The length of axon coordinates is the same as `neu_index`.

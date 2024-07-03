@@ -1,14 +1,24 @@
 import os
+import sys
 import tempfile
 from pathlib import Path
-from typing import Any, List, Optional, TypedDict
+from typing import Any, Optional, TypedDict
 
 import numpy as np
 import pytest
-from typing_extensions import NotRequired
 
 import paibox as pb
+from paibox.base import SynSys
+from paibox.components import Neuron
 from paibox.naming import clear_name_cache
+
+from .shared_networks import *
+from .utils import *
+
+if sys.version_info >= (3, 11):
+    from typing import NotRequired
+else:
+    from typing_extensions import NotRequired
 
 
 @pytest.fixture(scope="module")
@@ -22,9 +32,23 @@ def ensure_dump_dir():
             f.unlink()
 
     yield p
+
+
+@pytest.fixture(scope="module")
+def ensure_dump_dir_and_clean():
+    p = Path(__file__).parent / "debug"
+
+    if not p.is_dir():
+        p.mkdir(parents=True, exist_ok=True)
+    else:
+        for f in p.iterdir():
+            f.unlink()
+
+    yield p
+
     # Clean up
-    # for f in p.iterdir():
-    #     f.unlink()
+    for f in p.iterdir():
+        f.unlink()
 
 
 @pytest.fixture
@@ -36,19 +60,39 @@ def cleandir():
         os.chdir(old_cwd)
 
 
-@pytest.fixture(autouse=True)
-def clean_name_dict():
-    """Clean the global name dictionary after each test automatically."""
-    yield
+def _reset_context() -> None:
     clear_name_cache(ignore_warn=True)
+    pb.FRONTEND_ENV["t"] = 0
+    pb.BACKEND_CONFIG.set_default()
+    SynSys.CFLAG_ENABLE_WP_OPTIMIZATION = True
+
+
+@pytest.fixture(autouse=True)
+def context_reset():
+    """Reset the context after each test automatically."""
+    _reset_context()
+    yield
+    _reset_context()
+
+
+@pytest.fixture
+def perf_fixture(request):
+    with measure_time(f"{request.node.name}"):
+        yield
+
+
+@pytest.fixture
+def random_fixture():
+    with fixed_random_seed(42):
+        yield
 
 
 class ParametrizedTestData(TypedDict):
     """Parametrized test data in dictionary format."""
 
     args: str
-    data: List[Any]
-    ids: NotRequired[List[str]]
+    data: list[Any]
+    ids: NotRequired[list[str]]
 
 
 class Input_to_N1(pb.DynSysGroup):
@@ -111,7 +155,7 @@ class Network_with_container(pb.DynSysGroup):
         n2 = pb.TonicSpiking((3,), 3)
         n3 = pb.TonicSpiking((3,), 4)
 
-        n_list: pb.NodeList[pb.neuron.Neuron] = pb.NodeList()
+        n_list: pb.NodeList[Neuron] = pb.NodeList()
         n_list.append(n1)
         n_list.append(n2)
         n_list.append(n3)
@@ -160,55 +204,44 @@ class Nested_Net_L1(pb.DynSysGroup):
         self.pre_n = pb.LIF((10,), 10)
         self.post_n = pb.LIF((10,), 10)
 
-        w = np.random.randint(-128, 127, (10, 10), dtype=np.int8)
         self.syn = pb.FullConn(
-            self.pre_n, self.post_n, conn_type=pb.SynConnType.All2All, weights=w
+            self.pre_n,
+            self.post_n,
+            weights=np.random.randint(-128, 127, (10, 10), dtype=np.int8),
         )
+
+        self.probe1 = pb.Probe(self.post_n, "spike")
 
 
 class Nested_Net_L2(pb.DynSysGroup):
-    """Level 2 nested network: inp1 -> s1 -> Nested_Net_L1 -> s2 -> Nested_Net_L1"""
+    """Level 2 nested network: n1 -> s1 -> subnet1 -> s2 -> subnet2"""
 
     def __init__(self, name: Optional[str] = None):
-        self.inp1 = pb.InputProj(1, shape_out=(10,))
-        subnet1 = Nested_Net_L1()
-        subnet2 = Nested_Net_L1(name="Named_SubNet_L1_1")
-        self.s1 = pb.FullConn(
-            self.inp1,
-            subnet1.pre_n,
-            conn_type=pb.SynConnType.One2One,
-        )
-        self.s2 = pb.FullConn(
-            subnet1.post_n,
-            subnet2.pre_n,
-            conn_type=pb.SynConnType.One2One,
-        )
+        super().__init__(name=name)
 
-        super().__init__(subnet1, subnet2, name=name)
-        self.probe1 = pb.Probe(self.inp1, "spike")  # won't be discovered in level 3
+        self.n1 = pb.IF((10,), 1)
+        self.subnet1 = Nested_Net_L1()
+        self.subnet2 = Nested_Net_L1()
+        self.s1 = pb.FullConn(self.n1, self.subnet1.pre_n)
+        self.s2 = pb.FullConn(self.subnet1.post_n, self.subnet2.pre_n)
+
+        self.probe1 = pb.Probe(self.n1, "spike")
+        self.probe2 = pb.Probe(self.subnet1.pre_n, "spike")
 
 
 class Nested_Net_L3(pb.DynSysGroup):
-    """Level 3 nested network: inp1 -> s1 -> Named_Nested_Net_L2"""
+    """Level 3 nested network: inp1 -> s1 -> subnet_L2_1"""
 
     def __init__(self):
         self.inp1 = pb.InputProj(1, shape_out=(10,))
-        subnet1 = Nested_Net_L2(name="Named_Nested_Net_L2")
-
-        subnet1_of_subnet1 = subnet1[f"{Nested_Net_L1.__name__}_0"]
-
-        self.s1 = pb.FullConn(
-            self.inp1,
-            subnet1_of_subnet1.pre_n,
-            conn_type=pb.SynConnType.One2One,
-        )
+        subnet1 = Nested_Net_L2(name="subnet_L2_1")
+        self.s1 = pb.FullConn(self.inp1, subnet1.n1)
 
         super().__init__(subnet1)
 
-        self.probe1 = pb.Probe(self.inp1, "spike")
-        self.probe2 = pb.Probe(subnet1_of_subnet1.pre_n, "spike")
-        self.probe3 = pb.Probe(subnet1_of_subnet1.pre_n, "voltage")
-        self.probe4 = pb.Probe(subnet1.s1, "output")
+        self.probe1 = pb.Probe(self.inp1, "spike", name="pb_L3_1")
+        self.probe2 = pb.Probe(subnet1.n1, "spike", name="pb_L3_2")
+        self.probe3 = pb.Probe(subnet1.s1, "output", name="pb_L3_3")
 
 
 @pytest.fixture(scope="class")

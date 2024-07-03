@@ -4,8 +4,9 @@ from typing import Any, Literal, Optional
 import numpy as np
 from numpy.typing import NDArray
 
+from paibox.components.synapses.conv_types import _KOrder4d, _Size2Type
+from paibox.components.synapses.conv_utils import _pair
 from paibox.mixin import StatusMemory
-from paibox.synapses.conv_utils import _KOrder4d, _pair, _Size2Type
 from paibox.types import SpikeType
 
 from .utils import _conv2d_faster_fp32
@@ -209,7 +210,7 @@ class Conv2dEncoder(DirectEncoder):
             for details.
         """
         if kernel_order not in ("OIHW", "IOHW"):
-            raise ValueError(f"kernel order must be 'OIHW' or 'IOHW'.")
+            raise ValueError("kernel order must be 'OIHW' or 'IOHW'.")
 
         if kernel_order == "IOHW":
             _kernel = np.swapaxes(kernel, 0, 1)

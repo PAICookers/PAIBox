@@ -6,27 +6,30 @@ import numpy as np
 import pytest
 from paicorelib import (
     LCN_EX,
-    AxonCoord,
     Coord,
-    InputWidthFormat,
+    CoordOffset,
+    CoreMode,
+    HwConfig,
     MaxPoolingEnable,
-    NeuronSegment,
+    RoutingCoord,
     RoutingDirection,
     RoutingLevel,
-    SNNModeEnable,
-    SpikeWidthFormat,
 )
 from paicorelib import WeightPrecision as WP
+from paicorelib.reg_model import TICK_WAIT_END_MAX, TICK_WAIT_START_MAX
 
 import paibox as pb
 from paibox.backend.conf_template import (
     CoreConfig,
-    CorePlacementConfig,
-    EmptyCorePlacementConfig,
+    CorePlmConfig,
+    EmptyCorePlmConfig,
+    InputNeuronDest,
     NeuronConfig,
+    NeuronDest,
+    NeuronDestInfo,
 )
-from paibox.backend.placement import NeuSeg
 from paibox.backend.routing import RoutingCluster
+from paibox.backend.types import AxonCoord, AxonSegment, NeuSegment
 from paibox.exceptions import ResourceError
 from paibox.node import NodeList
 from tests.conftest import ParametrizedTestData
@@ -378,35 +381,30 @@ class Network_with_Branches_4bit(pb.Network):
             self.inp1,
             self.n1,
             weights=rng.randint(-8, 8, size=(10, 10), dtype=np.int8),
-            conn_type=pb.SynConnType.MatConn,
             name="s1",
         )
         self.s2 = pb.FullConn(
             self.n1,
             self.n2,
             weights=rng.randint(-8, 8, size=(10, 10), dtype=np.int8),
-            conn_type=pb.SynConnType.MatConn,
             name="s2",
         )
         self.s3 = pb.FullConn(
             self.n1,
             self.n3,
             weights=rng.randint(-8, 8, size=(10, 10), dtype=np.int8),
-            conn_type=pb.SynConnType.MatConn,
             name="s3",
         )
         self.s4 = pb.FullConn(
             self.n2,
             self.n4,
             weights=rng.randint(-8, 8, size=(10, 4), dtype=np.int8),
-            conn_type=pb.SynConnType.MatConn,
             name="s4",
         )
         self.s5 = pb.FullConn(
             self.n3,
             self.n4,
             weights=rng.randint(-8, 8, size=(10, 4), dtype=np.int8),
-            conn_type=pb.SynConnType.MatConn,
             name="s5",
         )
 
@@ -430,35 +428,30 @@ class Network_with_Branches_8bit(pb.Network):
             self.inp1,
             self.n1,
             weights=rng.randint(-128, 128, size=(10, 10), dtype=np.int8),
-            conn_type=pb.SynConnType.MatConn,
             name="s1",
         )
         self.s2 = pb.FullConn(
             self.n1,
             self.n2,
             weights=rng.randint(-128, 128, size=(10, 10), dtype=np.int8),
-            conn_type=pb.SynConnType.MatConn,
             name="s2",
         )
         self.s3 = pb.FullConn(
             self.n1,
             self.n3,
             weights=rng.randint(-128, 128, size=(10, 10), dtype=np.int8),
-            conn_type=pb.SynConnType.MatConn,
             name="s3",
         )
         self.s4 = pb.FullConn(
             self.n2,
             self.n4,
             weights=rng.randint(-128, 128, size=(10, 4), dtype=np.int8),
-            conn_type=pb.SynConnType.MatConn,
             name="s4",
         )
         self.s5 = pb.FullConn(
             self.n3,
             self.n4,
             weights=rng.randint(-128, 128, size=(10, 4), dtype=np.int8),
-            conn_type=pb.SynConnType.MatConn,
             name="s5",
         )
 
@@ -538,6 +531,174 @@ class Nested_Net_level_3(pb.DynSysGroup):
         )
 
         super().__init__(subnet1)
+
+
+class MultichipNet1(pb.DynSysGroup):
+    def __init__(self, scale: int):
+        super().__init__()
+        self.inp1 = pb.InputProj(1, shape_out=(1000,))
+
+        self.n = NodeList()
+
+        for _ in range(5):
+            n = random.randint(800, 1500)
+            thres = random.randint(3, 6)
+            resetv = random.randint(-1, 1)
+
+            self.n.append(pb.IF((n,), thres, resetv))
+
+        for _ in range(3):
+            n = random.randint(3000, 5000)
+            leakv = random.randint(-1, 1)
+            thres = random.randint(3, 6)
+            resetv = random.randint(-1, 1)
+
+            self.n.append(pb.LIF((n,), thres, resetv, leakv))
+
+        for _ in range(4 * scale):
+            n = random.randint(1500, 3000)
+            thres = random.randint(3, 6)
+            resetv = random.randint(-1, 1)
+
+            self.n.append(pb.IF((n,), thres, resetv))
+
+        self.n_out = pb.SpikingRelu(1000)
+
+        self.s = NodeList()
+
+        self.s.append(
+            pb.FullConn(
+                self.inp1,
+                self.n[0],
+                np.random.randint(
+                    -127, 128, size=(self.inp1.num_out, self.n[0].num_in), dtype=np.int8
+                ),
+            )
+        )
+
+        for i in range(7 + 4 * scale):
+            self.s.append(
+                pb.FullConn(
+                    self.n[i],
+                    self.n[i + 1],
+                    np.random.randint(
+                        -127,
+                        128,
+                        size=(self.n[i].num_out, self.n[i + 1].num_in),
+                        dtype=np.int8,
+                    ),
+                )
+            )
+
+        self.s_out = pb.FullConn(
+            self.n[-1],
+            self.n_out,
+            np.random.randint(
+                -127, 128, size=(self.n[-1].num_out, self.n_out.num_in), dtype=np.int8
+            ),
+        )
+
+
+class Network_branch_nodes1(pb.Network):
+    """
+    Before:
+        INP1 -> N1 -> N2 -> N4
+                         -> N5
+                   -> N3 -> N5
+                         -> N6
+    After:
+        INP1 -> N1 -> N2 -> N4
+                      N2'-> N5
+                   -> N3'-> N5
+                   -> N3 -> N6
+    """
+
+    n_copy = 2
+
+    def __init__(self):
+        super().__init__()
+        self.inp1 = pb.InputProj(1, shape_out=(600,), name="inp1")
+        self.n1 = pb.IF((600,), 10, name="n1", tick_wait_start=1)
+        self.n2 = pb.IF((800,), 10, name="n2", tick_wait_start=2)
+        self.n3 = pb.IF((1200,), 10, name="n3", tick_wait_start=2)
+        self.n4 = pb.IF((500,), 10, name="n4", tick_wait_start=3)
+        self.n5 = pb.IF((400,), 10, name="n5", tick_wait_start=3)
+        self.n6 = pb.IF((200,), 10, name="n6", tick_wait_start=3)
+
+        self.s1 = pb.FullConn(self.inp1, self.n1, name="s1")
+        self.s2 = pb.FullConn(self.n1, self.n2, name="s2")
+        self.s3 = pb.FullConn(self.n1, self.n3, name="s3")
+        self.s4 = pb.FullConn(self.n2, self.n4, name="s4")
+        self.s5 = pb.FullConn(self.n2, self.n5, name="s5")
+        self.s6 = pb.FullConn(self.n3, self.n5, name="s6")
+        self.s7 = pb.FullConn(self.n3, self.n6, name="s7")
+
+
+class Network_branch_nodes2(pb.Network):
+    """
+    Before:
+        INP1 -> N1 -> N2 ->
+                   -------> N3 -> N4
+    After:
+        INP1 -> N1'-> N2 ->
+             -> N1'-------> N3 -> N4
+    """
+
+    n_copy = 1
+
+    def __init__(self):
+        super().__init__()
+        self.inp1 = pb.InputProj(1, shape_out=(800,), name="inp1")
+        self.n1 = pb.IF((800,), 10, name="n1", tick_wait_start=1)
+        self.n2 = pb.IF((1000,), 10, name="n2", tick_wait_start=2)
+        self.n3 = pb.IF((1200,), 10, name="n3", tick_wait_start=3)
+        self.n4 = pb.IF((500,), 10, name="n4", tick_wait_start=4)
+
+        self.s1 = pb.FullConn(self.inp1, self.n1, name="s1")
+        self.s2 = pb.FullConn(self.n1, self.n2, name="s2")
+        self.s3 = pb.FullConn(self.n1, self.n3, name="s3")
+        self.s4 = pb.FullConn(self.n2, self.n3, name="s4")
+        self.s5 = pb.FullConn(self.n3, self.n4, name="s5")
+
+
+class Network_branch_nodes3(pb.Network):
+    """
+    Before:
+        INP1 -> N1 -> N2 ->
+                   -> N3 -> N4 -> N5
+                               -> N6
+                        INP2 --->
+    After:
+        INP1 -> N1 -> N2'-> N4 -> N5
+                   -> N3'->
+
+                      N2 ->
+                      N3 -> N4'-> N6
+                        INP2 --->
+    """
+
+    n_copy = 3
+
+    def __init__(self):
+        super().__init__()
+        self.inp1 = pb.InputProj(1, shape_out=(800,), name="inp1")
+        self.inp2 = pb.InputProj(1, shape_out=(800,), name="inp2")
+
+        self.n1 = pb.IF((800,), 10, name="n1", tick_wait_start=1)
+        self.n2 = pb.IF((800,), 10, name="n2", tick_wait_start=2)
+        self.n3 = pb.IF((800,), 10, name="n3", tick_wait_start=2)
+        self.n4 = pb.IF((1000,), 10, name="n4", tick_wait_start=3)
+        self.n5 = pb.IF((800,), 10, name="n5", tick_wait_start=4)
+        self.n6 = pb.IF((1000,), 10, name="n6", tick_wait_start=4)
+
+        self.s1 = pb.FullConn(self.inp1, self.n1, name="s1")
+        self.s2 = pb.FullConn(self.n1, self.n2, name="s2")
+        self.s3 = pb.FullConn(self.n1, self.n3, name="s3")
+        self.s4 = pb.FullConn(self.n2, self.n4, name="s4")
+        self.s5 = pb.FullConn(self.n3, self.n4, name="s5")
+        self.s6 = pb.FullConn(self.n4, self.n5, name="s6")
+        self.s7 = pb.FullConn(self.n4, self.n6, name="s7")
+        self.s8 = pb.FullConn(self.inp2, self.n6, name="s8")
 
 
 @pytest.fixture(scope="class")
@@ -626,6 +787,25 @@ def build_Nested_Net_level_3():
 
 
 @pytest.fixture(scope="class")
+def build_MultichipNet1_s1():
+    return MultichipNet1(scale=1)
+
+
+@pytest.fixture(scope="class")
+def build_MultichipNet1_s2():
+    return MultichipNet1(scale=2)
+
+
+@pytest.fixture(
+    scope="function",
+    params=[Network_branch_nodes1, Network_branch_nodes2, Network_branch_nodes3],
+    ids=["net1", "net2", "net3"],
+)
+def build_Network_branch_nodes(request):
+    return request.param()
+
+
+@pytest.fixture(scope="class")
 def get_mapper() -> pb.Mapper:
     return pb.Mapper()
 
@@ -634,13 +814,13 @@ def get_mapper() -> pb.Mapper:
 def MockCoreConfigDict() -> CoreConfig:
     wp = random.choice(list(WP))
     lcn_ex = random.choice(list(LCN_EX))
-    iwf = random.choice(list(InputWidthFormat))
-    swf = random.choice(list(SpikeWidthFormat))
-    num_den = random.randint(1, 512)
+
+    iwf, swf, sme = random.choice(list(CoreMode)).conf
+
+    num_den = random.randint(1, HwConfig.N_DENDRITE_MAX_SNN)
     mpe = random.choice(list(MaxPoolingEnable))
-    tws = random.randint(0, 100)
-    twe = random.randint(0, 100)
-    sme = random.choice(list(SNNModeEnable))
+    tws = random.randint(0, TICK_WAIT_START_MAX)
+    twe = random.randint(0, TICK_WAIT_END_MAX)
     target_lcn = random.choice(list(LCN_EX))
     test_chip_addr = Coord(random.randint(0, 31), random.randint(0, 31))
 
@@ -662,34 +842,98 @@ def MockCoreConfigDict() -> CoreConfig:
 
 @pytest.fixture
 def MockNeuronConfig() -> NeuronConfig:
-    n = random.randint(1, 200)
+    n_channel = 3
+    _n_per_ch = random.randint(20, 100)
+    n = n_channel * _n_per_ch
     offset = random.randint(1, 100)
     interval = random.randint(1, 2)
+    thres = random.randint(1, 5)
+    reset_v = random.randint(-5, 5)
+    leak_v = np.arange(n_channel * n).reshape((n_channel, n))
+    neuron = pb.LIF((n_channel, n), thres, reset_v, bias=leak_v, keep_shape=True)
+    dest_coord_start = Coord(random.randint(0, 10), random.randint(0, 10))
+    test_chip_addr = Coord(random.randint(0, 31), random.randint(0, 31))
 
-    neuron = pb.IF((n,), 3, reset_v=-1)
-    ns = NeuronSegment(slice(0, 0 + n, 1), offset, interval)
+    _n_start = random.randint(0, 20)
+    nseg = NeuSegment(
+        neuron, slice(_n_start, 1 * _n_per_ch + _n_start), offset, interval
+    )
 
-    axon_coords = [AxonCoord(0, i) for i in range(0, n)]
-    dest_coords = [Coord(0, 0), Coord(0, 1)]
-    pb.BACKEND_CONFIG.test_chip_addr = (10, 0)
+    axon_coords = [AxonCoord(0, i) for i in range(nseg.n_neuron)]
+    dest_coords = [dest_coord_start, dest_coord_start + CoordOffset(0, 1)]
+    pb.BACKEND_CONFIG.test_chip_addr = test_chip_addr
 
     return NeuronConfig.encapsulate(
-        neuron,
-        n,
-        ns.addr_ram,
-        ns.addr_offset,
-        axon_coords,
-        dest_coords,
-        pb.BACKEND_CONFIG.test_chip_addr,
+        nseg, axon_coords, dest_coords, pb.BACKEND_CONFIG.test_chip_addr
     )
 
 
 @pytest.fixture
-def MockCorePlacementConfig(MockCoreConfigDict, MockNeuronConfig):
-    neuron = pb.IF((100,), 3, reset_v=-1)
+def MockNeuronDestInfo(MockNeuronConfig) -> NeuronDestInfo:
+    return MockNeuronConfig.neuron_dest_info
 
-    cpc = CorePlacementConfig.encapsulate(
-        random.randint(1, 200),
+
+@pytest.fixture
+def MockNeuronDest() -> NeuronDest:
+    n = random.randint(100, 1000)
+    tick_relative = [0 for _ in range(n)]
+    addr_axon = [i for i in range(n)]
+
+    addr_core_x = random.randint(0, 31)
+    addr_core_y = random.randint(0, 31)
+    addr_core_x_ex = random.randint(0, 31)
+    addr_core_y_ex = random.randint(0, 31)
+    addr_chip_x = random.randint(0, 31)
+    addr_chip_y = random.randint(0, 31)
+
+    return NeuronDest(
+        tick_relative,
+        addr_axon,
+        addr_core_x,
+        addr_core_y,
+        addr_core_x_ex,
+        addr_core_y_ex,
+        addr_chip_x,
+        addr_chip_y,
+    )
+
+
+@pytest.fixture
+def MockInputNeuronDest():
+    n = random.randint(100, 1000)
+    tick_relative = [0 for _ in range(n)]
+    addr_axon = [i for i in range(n)]
+
+    addr_core_x = random.randint(0, 31)
+    addr_core_y = random.randint(0, 31)
+    addr_core_x_ex = random.randint(0, 31)
+    addr_core_y_ex = random.randint(0, 31)
+    addr_chip_x = random.randint(0, 31)
+    addr_chip_y = random.randint(0, 31)
+    lcn = 1 << random.choice(list(LCN_EX))
+
+    return InputNeuronDest(
+        tick_relative,
+        addr_axon,
+        addr_core_x,
+        addr_core_y,
+        addr_core_x_ex,
+        addr_core_y_ex,
+        addr_chip_x,
+        addr_chip_y,
+        lcn,
+    )
+
+
+@pytest.fixture
+def MockCorePlmConfig(MockCoreConfigDict, MockNeuronConfig):
+    n = random.randint(100, 400)
+    thres = random.randint(1, 5)
+    reset_v = random.randint(-5, 5)
+    neuron = pb.IF((n,), thres, reset_v)
+
+    cpc = CorePlmConfig.encapsulate(
+        random.randint(0, 1000),
         np.random.randint(0, 100, size=(1152, 512), dtype=np.uint64),
         MockCoreConfigDict,
         {neuron: MockNeuronConfig},
@@ -699,8 +943,8 @@ def MockCorePlacementConfig(MockCoreConfigDict, MockNeuronConfig):
 
 
 @pytest.fixture
-def MockEmptyCorePlacementConfig(MockCoreConfigDict):
-    return EmptyCorePlacementConfig.encapsulate(MockCoreConfigDict)
+def MockEmptyCorePlmConfig(MockCoreConfigDict):
+    return EmptyCorePlmConfig.encapsulate(MockCoreConfigDict)
 
 
 def packbits_ref(bits: np.ndarray, count: int) -> int:
@@ -771,6 +1015,18 @@ def _gen_neurons_for_neu_segs():
 _nl = _gen_neurons_for_neu_segs()
 _nc = _gen_neurons_for_neu_segs()
 _nb = _gen_neurons_for_neu_segs()
+
+
+def gen_random_used_lx(n: int, lx: int) -> list[RoutingCoord]:
+    used_lx = []
+    d_candid = list(RoutingDirection)
+    d_candid.remove(RoutingDirection.ANY)
+
+    for _ in range(n):
+        rc = random.choices(d_candid, k=5 - lx)
+        used_lx.append(RoutingCoord(*rc))  # may have repeat elements
+
+    return list(set(used_lx))
 
 
 class TestData:
@@ -1111,10 +1367,10 @@ class TestData:
                 WP.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
-                    [NeuSeg(_nl[0], NeuronSegment(slice(0, 300, 1), 0))],
-                    [NeuSeg(_nl[0], NeuronSegment(slice(300, 600, 1), 0))],
-                    [NeuSeg(_nl[1], NeuronSegment(slice(0, 400, 1), 0))],
-                    [NeuSeg(_nl[1], NeuronSegment(slice(400, 800, 1), 0))],
+                    [NeuSegment(_nl[0], slice(0, 300, 1), 0)],
+                    [NeuSegment(_nl[0], slice(300, 600, 1), 0)],
+                    [NeuSegment(_nl[1], slice(0, 400, 1), 0)],
+                    [NeuSegment(_nl[1], slice(400, 800, 1), 0)],
                 ],
             ),
             (
@@ -1123,13 +1379,13 @@ class TestData:
                 WP.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
-                    [NeuSeg(_nl[0], NeuronSegment(slice(0, 200, 1), 0, 2))],
-                    [NeuSeg(_nl[0], NeuronSegment(slice(200, 400, 1), 0, 2))],
-                    [NeuSeg(_nl[0], NeuronSegment(slice(400, 600, 1), 0, 2))],
-                    [NeuSeg(_nl[1], NeuronSegment(slice(0, 200, 1), 0, 2))],
-                    [NeuSeg(_nl[1], NeuronSegment(slice(200, 400, 1), 0, 2))],
-                    [NeuSeg(_nl[1], NeuronSegment(slice(400, 600, 1), 0, 2))],
-                    [NeuSeg(_nl[1], NeuronSegment(slice(600, 800, 1), 0, 2))],
+                    [NeuSegment(_nl[0], slice(0, 200, 1), 0, 2)],
+                    [NeuSegment(_nl[0], slice(200, 400, 1), 0, 2)],
+                    [NeuSegment(_nl[0], slice(400, 600, 1), 0, 2)],
+                    [NeuSegment(_nl[1], slice(0, 200, 1), 0, 2)],
+                    [NeuSegment(_nl[1], slice(200, 400, 1), 0, 2)],
+                    [NeuSegment(_nl[1], slice(400, 600, 1), 0, 2)],
+                    [NeuSegment(_nl[1], slice(600, 800, 1), 0, 2)],
                 ],
             ),
             (
@@ -1138,10 +1394,10 @@ class TestData:
                 WP.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
-                    [NeuSeg(_nl[2], NeuronSegment(slice(80 * 0, 80 * 1, 1), 0, 2))],
-                    [NeuSeg(_nl[2], NeuronSegment(slice(80 * 1, 80 * 2, 1), 0, 2))],
-                    [NeuSeg(_nl[2], NeuronSegment(slice(80 * 2, 80 * 3, 1), 0, 2))],
-                    [NeuSeg(_nl[2], NeuronSegment(slice(80 * 3, 80 * 4, 1), 0, 2))],
+                    [NeuSegment(_nl[2], slice(80 * 0, 80 * 1, 1), 0, 2)],
+                    [NeuSegment(_nl[2], slice(80 * 1, 80 * 2, 1), 0, 2)],
+                    [NeuSegment(_nl[2], slice(80 * 2, 80 * 3, 1), 0, 2)],
+                    [NeuSegment(_nl[2], slice(80 * 3, 80 * 4, 1), 0, 2)],
                 ],
             ),
             (
@@ -1150,10 +1406,10 @@ class TestData:
                 WP.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
-                    [NeuSeg(_nl[0], NeuronSegment(slice(0, 300, 1), 0))],
-                    [NeuSeg(_nl[0], NeuronSegment(slice(300, 600, 1), 0))],
-                    [NeuSeg(_nl[2], NeuronSegment(slice(160 * 0, 160 * 1, 1), 0))],
-                    [NeuSeg(_nl[2], NeuronSegment(slice(160 * 1, 160 * 2, 1), 0))],
+                    [NeuSegment(_nl[0], slice(0, 300, 1), 0)],
+                    [NeuSegment(_nl[0], slice(300, 600, 1), 0)],
+                    [NeuSegment(_nl[2], slice(160 * 0, 160 * 1, 1), 0)],
+                    [NeuSegment(_nl[2], slice(160 * 1, 160 * 2, 1), 0)],
                 ],
             ),
             (
@@ -1162,13 +1418,13 @@ class TestData:
                 WP.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
-                    [NeuSeg(_nl[3], NeuronSegment(slice(67 * 0, 67 * 1, 1), 0, 2))],
-                    [NeuSeg(_nl[3], NeuronSegment(slice(67 * 1, 67 * 2, 1), 0, 2))],
-                    [NeuSeg(_nl[3], NeuronSegment(slice(67 * 2, 200, 1), 0, 2))],
-                    [NeuSeg(_nl[4], NeuronSegment(slice(75 * 0, 75 * 1, 1), 0, 2))],
-                    [NeuSeg(_nl[4], NeuronSegment(slice(75 * 1, 75 * 2, 1), 0, 2))],
-                    [NeuSeg(_nl[4], NeuronSegment(slice(75 * 2, 75 * 3, 1), 0, 2))],
-                    [NeuSeg(_nl[4], NeuronSegment(slice(75 * 3, 75 * 4, 1), 0, 2))],
+                    [NeuSegment(_nl[3], slice(67 * 0, 67 * 1, 1), 0, 2)],
+                    [NeuSegment(_nl[3], slice(67 * 1, 67 * 2, 1), 0, 2)],
+                    [NeuSegment(_nl[3], slice(67 * 2, 200, 1), 0, 2)],
+                    [NeuSegment(_nl[4], slice(75 * 0, 75 * 1, 1), 0, 2)],
+                    [NeuSegment(_nl[4], slice(75 * 1, 75 * 2, 1), 0, 2)],
+                    [NeuSegment(_nl[4], slice(75 * 2, 75 * 3, 1), 0, 2)],
+                    [NeuSegment(_nl[4], slice(75 * 3, 75 * 4, 1), 0, 2)],
                 ],
             ),
         ],
@@ -1184,11 +1440,11 @@ class TestData:
                 WP.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
-                    [NeuSeg(_nc[0], NeuronSegment(slice(0, 512, 1), 0))],
-                    [NeuSeg(_nc[1], NeuronSegment(slice(0, 512, 1), 0))],
+                    [NeuSegment(_nc[0], slice(0, 512, 1), 0)],
+                    [NeuSegment(_nc[1], slice(0, 512, 1), 0)],
                     [
-                        NeuSeg(_nc[1], NeuronSegment(slice(512, 800, 1), 0)),
-                        NeuSeg(_nc[0], NeuronSegment(slice(512, 600, 1), 288)),
+                        NeuSegment(_nc[1], slice(512, 800, 1), 0),
+                        NeuSegment(_nc[0], slice(512, 600, 1), 288),
                     ],
                 ],
             ),
@@ -1198,16 +1454,14 @@ class TestData:
                 WP.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
-                    [NeuSeg(_nc[0], NeuronSegment(slice(256 * 0, 256 * 1, 1), 0, 2))],
-                    [NeuSeg(_nc[0], NeuronSegment(slice(256 * 1, 256 * 2, 1), 0, 2))],
-                    [NeuSeg(_nc[1], NeuronSegment(slice(256 * 0, 256 * 1, 1), 0, 2))],
-                    [NeuSeg(_nc[1], NeuronSegment(slice(256 * 1, 256 * 2, 1), 0, 2))],
-                    [NeuSeg(_nc[1], NeuronSegment(slice(256 * 2, 256 * 3, 1), 0, 2))],
+                    [NeuSegment(_nc[0], slice(256 * 0, 256 * 1, 1), 0, 2)],
+                    [NeuSegment(_nc[0], slice(256 * 1, 256 * 2, 1), 0, 2)],
+                    [NeuSegment(_nc[1], slice(256 * 0, 256 * 1, 1), 0, 2)],
+                    [NeuSegment(_nc[1], slice(256 * 1, 256 * 2, 1), 0, 2)],
+                    [NeuSegment(_nc[1], slice(256 * 2, 256 * 3, 1), 0, 2)],
                     [
-                        NeuSeg(_nc[0], NeuronSegment(slice(256 * 2, 600, 1), 0, 2)),
-                        NeuSeg(
-                            _nc[1], NeuronSegment(slice(256 * 3, 800, 1), 88 * 2, 2)
-                        ),
+                        NeuSegment(_nc[0], slice(256 * 2, 600, 1), 0, 2),
+                        NeuSegment(_nc[1], slice(256 * 3, 800, 1), 88 * 2, 2),
                     ],
                 ],
             ),
@@ -1218,10 +1472,10 @@ class TestData:
                 LCN_EX.LCN_2X,
                 [
                     # Place the neuron segments with full capacity first
-                    [NeuSeg(_nc[4], NeuronSegment(slice(0, 256, 1), 0, 2))],
+                    [NeuSegment(_nc[4], slice(0, 256, 1), 0, 2)],
                     [
-                        NeuSeg(_nc[3], NeuronSegment(slice(0, 200, 1), 0, 2)),
-                        NeuSeg(_nc[4], NeuronSegment(slice(256, 300, 1), 200 * 2, 2)),
+                        NeuSegment(_nc[3], slice(0, 200, 1), 0, 2),
+                        NeuSegment(_nc[4], slice(256, 300, 1), 200 * 2, 2),
                     ],
                 ],
             ),
@@ -1231,8 +1485,8 @@ class TestData:
                 WP.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
-                    [NeuSeg(_nc[6], NeuronSegment(slice(0, 500, 1), 0, 1))],
-                    [NeuSeg(_nc[5], NeuronSegment(slice(0, 400, 1), 0, 1))],
+                    [NeuSegment(_nc[6], slice(0, 500, 1), 0, 1)],
+                    [NeuSegment(_nc[5], slice(0, 400, 1), 0, 1)],
                 ],
             ),
         ],
@@ -1248,10 +1502,10 @@ class TestData:
                 WP.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
-                    [NeuSeg(_nb[0], NeuronSegment(slice(0, 300, 1), 0))],
-                    [NeuSeg(_nb[0], NeuronSegment(slice(300, 600, 1), 0))],
-                    [NeuSeg(_nb[1], NeuronSegment(slice(0, 400, 1), 0))],
-                    [NeuSeg(_nb[1], NeuronSegment(slice(400, 800, 1), 0))],
+                    [NeuSegment(_nb[0], slice(0, 300, 1), 0)],
+                    [NeuSegment(_nb[0], slice(300, 600, 1), 0)],
+                    [NeuSegment(_nb[1], slice(0, 400, 1), 0)],
+                    [NeuSegment(_nb[1], slice(400, 800, 1), 0)],
                 ],
             ),
             (
@@ -1260,13 +1514,13 @@ class TestData:
                 WP.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
-                    [NeuSeg(_nb[1], NeuronSegment(slice(0, 200, 1), 0, 2))],
-                    [NeuSeg(_nb[1], NeuronSegment(slice(200, 400, 1), 0, 2))],
-                    [NeuSeg(_nb[1], NeuronSegment(slice(400, 600, 1), 0, 2))],
-                    [NeuSeg(_nb[1], NeuronSegment(slice(600, 800, 1), 0, 2))],
-                    [NeuSeg(_nb[0], NeuronSegment(slice(0, 200, 1), 0, 2))],
-                    [NeuSeg(_nb[0], NeuronSegment(slice(200, 400, 1), 0, 2))],
-                    [NeuSeg(_nb[0], NeuronSegment(slice(400, 600, 1), 0, 2))],
+                    [NeuSegment(_nb[1], slice(0, 200, 1), 0, 2)],
+                    [NeuSegment(_nb[1], slice(200, 400, 1), 0, 2)],
+                    [NeuSegment(_nb[1], slice(400, 600, 1), 0, 2)],
+                    [NeuSegment(_nb[1], slice(600, 800, 1), 0, 2)],
+                    [NeuSegment(_nb[0], slice(0, 200, 1), 0, 2)],
+                    [NeuSegment(_nb[0], slice(200, 400, 1), 0, 2)],
+                    [NeuSegment(_nb[0], slice(400, 600, 1), 0, 2)],
                 ],
             ),
             (
@@ -1275,10 +1529,10 @@ class TestData:
                 WP.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
-                    [NeuSeg(_nb[2], NeuronSegment(slice(80 * 0, 80 * 1, 1), 0, 2))],
-                    [NeuSeg(_nb[2], NeuronSegment(slice(80 * 1, 80 * 2, 1), 0, 2))],
-                    [NeuSeg(_nb[2], NeuronSegment(slice(80 * 2, 80 * 3, 1), 0, 2))],
-                    [NeuSeg(_nb[2], NeuronSegment(slice(80 * 3, 80 * 4, 1), 0, 2))],
+                    [NeuSegment(_nb[2], slice(80 * 0, 80 * 1, 1), 0, 2)],
+                    [NeuSegment(_nb[2], slice(80 * 1, 80 * 2, 1), 0, 2)],
+                    [NeuSegment(_nb[2], slice(80 * 2, 80 * 3, 1), 0, 2)],
+                    [NeuSegment(_nb[2], slice(80 * 3, 80 * 4, 1), 0, 2)],
                 ],
             ),
             (
@@ -1288,22 +1542,22 @@ class TestData:
                 LCN_EX.LCN_2X,
                 [
                     [
-                        NeuSeg(_nb[2], NeuronSegment(slice(80 * 0, 80 * 1, 1), 0, 2)),
+                        NeuSegment(_nb[2], slice(80 * 0, 80 * 1, 1), 0, 2),
                         # offset = 160
-                        NeuSeg(_nb[3], NeuronSegment(slice(67 * 0, 67 * 1, 1), 160, 2)),
+                        NeuSegment(_nb[3], slice(67 * 0, 67 * 1, 1), 160, 2),
                     ],
                     [
-                        NeuSeg(_nb[2], NeuronSegment(slice(80 * 1, 80 * 2, 1), 0, 2)),
+                        NeuSegment(_nb[2], slice(80 * 1, 80 * 2, 1), 0, 2),
                         # offset = 160
-                        NeuSeg(_nb[3], NeuronSegment(slice(67 * 1, 67 * 2, 1), 160, 2)),
+                        NeuSegment(_nb[3], slice(67 * 1, 67 * 2, 1), 160, 2),
                     ],
                     [
-                        NeuSeg(_nb[2], NeuronSegment(slice(80 * 2, 80 * 3, 1), 0, 2)),
+                        NeuSegment(_nb[2], slice(80 * 2, 80 * 3, 1), 0, 2),
                         # offset = 160
-                        NeuSeg(_nb[3], NeuronSegment(slice(67 * 2, 200, 1), 160, 2)),
+                        NeuSegment(_nb[3], slice(67 * 2, 200, 1), 160, 2),
                     ],
                     [
-                        NeuSeg(_nb[2], NeuronSegment(slice(80 * 3, 80 * 4, 1), 0, 2)),
+                        NeuSegment(_nb[2], slice(80 * 3, 80 * 4, 1), 0, 2),
                     ],
                 ],
             ),
@@ -1314,38 +1568,40 @@ class TestData:
                 LCN_EX.LCN_2X,
                 [
                     [
-                        NeuSeg(_nb[2], NeuronSegment(slice(80 * 0, 80 * 1, 1), 0, 2)),
+                        NeuSegment(_nb[2], slice(80 * 0, 80 * 1, 1), 0, 2),
                         # offset = 160
-                        NeuSeg(_nb[4], NeuronSegment(slice(75 * 0, 75 * 1, 1), 160, 2)),
+                        NeuSegment(_nb[4], slice(75 * 0, 75 * 1, 1), 160, 2),
                         # offset = 160 + 150
-                        NeuSeg(
+                        NeuSegment(
                             _nb[3],
-                            NeuronSegment(slice(67 * 0, 67 * 1, 1), 160 + 150, 2),
+                            slice(67 * 0, 67 * 1, 1),
+                            160 + 150,
+                            2,
                         ),
                     ],
                     [
-                        NeuSeg(_nb[2], NeuronSegment(slice(80 * 1, 80 * 2, 1), 0, 2)),
+                        NeuSegment(_nb[2], slice(80 * 1, 80 * 2, 1), 0, 2),
                         # offset = 160
-                        NeuSeg(_nb[4], NeuronSegment(slice(75 * 1, 75 * 2, 1), 160, 2)),
+                        NeuSegment(_nb[4], slice(75 * 1, 75 * 2, 1), 160, 2),
                         # offset = 160 + 150
-                        NeuSeg(
+                        NeuSegment(
                             _nb[3],
-                            NeuronSegment(slice(67 * 1, 67 * 2, 1), 160 + 150, 2),
+                            slice(67 * 1, 67 * 2, 1),
+                            160 + 150,
+                            2,
                         ),
                     ],
                     [
-                        NeuSeg(_nb[2], NeuronSegment(slice(80 * 2, 80 * 3, 1), 0, 2)),
+                        NeuSegment(_nb[2], slice(80 * 2, 80 * 3, 1), 0, 2),
                         # offset = 160
-                        NeuSeg(_nb[4], NeuronSegment(slice(75 * 2, 75 * 3, 1), 160, 2)),
+                        NeuSegment(_nb[4], slice(75 * 2, 75 * 3, 1), 160, 2),
                         # offset = 160 + 150
-                        NeuSeg(
-                            _nb[3], NeuronSegment(slice(67 * 2, 200, 1), 160 + 150, 2)
-                        ),
+                        NeuSegment(_nb[3], slice(67 * 2, 200, 1), 160 + 150, 2),
                     ],
                     [
-                        NeuSeg(_nb[2], NeuronSegment(slice(80 * 3, 80 * 4, 1), 0, 2)),
+                        NeuSegment(_nb[2], slice(80 * 3, 80 * 4, 1), 0, 2),
                         # offset = 160
-                        NeuSeg(_nb[4], NeuronSegment(slice(75 * 3, 75 * 4, 1), 160, 2)),
+                        NeuSegment(_nb[4], slice(75 * 3, 75 * 4, 1), 160, 2),
                     ],
                 ],
             ),
@@ -1356,18 +1612,86 @@ class TestData:
                 LCN_EX.LCN_2X,
                 [
                     [
-                        NeuSeg(_nb[4], NeuronSegment(slice(75 * 0, 75 * 1, 1), 0, 2)),
-                        NeuSeg(_nb[3], NeuronSegment(slice(67 * 0, 67 * 1, 1), 150, 2)),
+                        NeuSegment(_nb[4], slice(75 * 0, 75 * 1, 1), 0, 2),
+                        NeuSegment(_nb[3], slice(67 * 0, 67 * 1, 1), 150, 2),
                     ],
                     [
-                        NeuSeg(_nb[4], NeuronSegment(slice(75 * 1, 75 * 2, 1), 0, 2)),
-                        NeuSeg(_nb[3], NeuronSegment(slice(67 * 1, 67 * 2, 1), 150, 2)),
+                        NeuSegment(_nb[4], slice(75 * 1, 75 * 2, 1), 0, 2),
+                        NeuSegment(_nb[3], slice(67 * 1, 67 * 2, 1), 150, 2),
                     ],
                     [
-                        NeuSeg(_nb[4], NeuronSegment(slice(75 * 2, 75 * 3, 1), 0, 2)),
-                        NeuSeg(_nb[3], NeuronSegment(slice(67 * 2, 200, 1), 150, 2)),
+                        NeuSegment(_nb[4], slice(75 * 2, 75 * 3, 1), 0, 2),
+                        NeuSegment(_nb[3], slice(67 * 2, 200, 1), 150, 2),
                     ],
-                    [NeuSeg(_nb[4], NeuronSegment(slice(75 * 3, 75 * 4, 1), 0, 2))],
+                    [NeuSegment(_nb[4], slice(75 * 3, 75 * 4, 1), 0, 2)],
+                ],
+            ),
+        ],
+    )
+
+    aligned_coords_test_data = ParametrizedTestData(
+        args="neu_index, axon_seg, delay, n_timeslot, expected",
+        data=[
+            (
+                slice(5, 8),
+                AxonSegment(12, 3, 0),
+                1,
+                1 << 1,
+                [
+                    AxonCoord(1, 2),
+                    AxonCoord(2, 0),
+                    AxonCoord(2, 1),
+                ],
+            ),
+            (
+                slice(0, 3),
+                AxonSegment(12, 3, 0),
+                2,
+                1 << 1,
+                [
+                    AxonCoord(2 + 0, 0),
+                    AxonCoord(2 + 0, 1),
+                    AxonCoord(2 + 0, 2),
+                ],
+            ),
+            (
+                slice(1, 5),
+                AxonSegment(12, 3, 0),
+                2,
+                1 << 2,
+                [
+                    AxonCoord(4 + 0, 1),
+                    AxonCoord(4 + 0, 2),
+                    AxonCoord(4 + 1, 0),
+                    AxonCoord(4 + 1, 1),
+                ],
+            ),
+            (
+                slice(1, 6),
+                AxonSegment(12, 3, 0),
+                4,
+                1 << 3,
+                [
+                    AxonCoord(24 + 0, 1),
+                    AxonCoord(24 + 0, 2),
+                    AxonCoord(24 + 1, 0),
+                    AxonCoord(24 + 1, 1),
+                    AxonCoord(24 + 1, 2),
+                ],
+            ),
+            (
+                slice(3, 10),
+                AxonSegment(16, 4, 4),
+                4,
+                1 << 4,
+                [
+                    AxonCoord(48 + 0, 4 + 3),
+                    AxonCoord(48 + 1, 4 + 0),
+                    AxonCoord(48 + 1, 4 + 1),
+                    AxonCoord(48 + 1, 4 + 2),
+                    AxonCoord(48 + 1, 4 + 3),
+                    AxonCoord(48 + 2, 4 + 0),
+                    AxonCoord(48 + 2, 4 + 1),
                 ],
             ),
         ],

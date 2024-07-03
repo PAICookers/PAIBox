@@ -1,16 +1,19 @@
+import typing
+from collections.abc import Sequence
 from copy import deepcopy
 from functools import wraps
-from typing import Any, Dict, Optional, Sequence, Type, TypeVar
+from typing import Any, Optional, TypeVar
 
 import numpy as np
-from numpy.typing import NDArray
-
-import paibox as pb
 
 from .context import _FRONTEND_CONTEXT
 from .exceptions import RegisterError
 from .naming import get_unique_name
 from .node import NodeDict
+from .types import VoltageType
+
+if typing.TYPE_CHECKING:
+    from paibox.components import FullConnectedSyn
 
 _T = TypeVar("_T")
 
@@ -63,6 +66,7 @@ class MixIn:
     pass
 
 
+# XXX this class seems useless
 class Container(MixIn):
     children: NodeDict[str, Any]
 
@@ -72,18 +76,20 @@ class Container(MixIn):
 
         raise KeyError(f"key '{item}' not found.")
 
-    def _get_elem_name(self, elem: object) -> str:
-        if isinstance(elem, pb.base.PAIBoxObject):
+    def _get_elem_name(self, elem: Any) -> str:
+        from .base import PAIBoxObject
+
+        if isinstance(elem, PAIBoxObject):
             return elem._name
         else:
             return get_unique_name("ContainerElem")
 
     def elem_format(
         self,
-        child_type: Type[_T],
+        child_type: type[_T],
         *children_as_tuple: Sequence[_T],
-        **children_as_dict: Dict[Any, _T],
-    ) -> Dict[str, _T]:
+        **children_as_dict: dict[Any, _T],
+    ) -> dict[str, _T]:
         elems = dict()
 
         for child in children_as_tuple:
@@ -125,26 +131,25 @@ class Container(MixIn):
 
 
 class ReceiveInputProj(MixIn):
-    master_nodes: NodeDict[str, Any]
+    master_nodes: NodeDict[str, "FullConnectedSyn"]
 
-    def register_master(self, key: str, master_target) -> None:
-        if key in self.master_nodes:
+    def register_master(
+        self, key: str, master_target: "FullConnectedSyn", strict: bool = True
+    ) -> None:
+        if key in self.master_nodes and strict:
             raise RegisterError(f"master node with key '{key}' already exists.")
 
         self.master_nodes[key] = master_target
 
-    def unregister_master(self, key: str, strict: bool = True) -> Optional[Any]:
-        if key in self.master_nodes:
-            return self.master_nodes.pop(key, None)
-        elif strict:
-            raise KeyError(f"key '{key}' not found in master nodes.")
+    def unregister_master(self, key: str) -> Optional["FullConnectedSyn"]:
+        return self.master_nodes.pop(key, None)
 
     def get_master_node(self, key: str) -> Optional[Any]:
         return self.master_nodes.get(key, None)
 
-    def sum_inputs(self, **kwargs) -> NDArray[np.int32]:
+    def sum_inputs(self, *, init: VoltageType = 0, **kwargs) -> VoltageType:  # type: ignore
         # TODO Out is a np.ndarray right now, but it may be more than one type.
-        output = 0
+        output = init
         for node in self.master_nodes.values():
             output += node.output.copy()
 

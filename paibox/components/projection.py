@@ -1,6 +1,7 @@
 import inspect
 import sys
-from typing import Callable, Optional, Tuple, Union
+from collections.abc import Callable
+from typing import Optional, Union
 
 import numpy as np
 
@@ -9,12 +10,12 @@ if sys.version_info >= (3, 10):
 else:
     from typing_extensions import ParamSpec
 
-from .base import DynamicSys
-from .context import _FRONTEND_CONTEXT
-from .exceptions import ShapeError, SimulationError
-from .mixin import TimeRelatedNode
-from .types import DataType, Shape, SpikeType
-from .utils import as_shape, shape2num
+from paibox.base import DynamicSys
+from paibox.context import _FRONTEND_CONTEXT
+from paibox.exceptions import ShapeError, SimulationError
+from paibox.mixin import TimeRelatedNode
+from paibox.types import DataType, Shape, SpikeType
+from paibox.utils import as_shape, shape2num
 
 __all__ = ["InputProj"]
 
@@ -69,13 +70,23 @@ class InputProj(Projection, TimeRelatedNode):
         _spike = self._get_neumeric_input(**kwargs)
 
         if isinstance(_spike, (int, np.bool_, np.integer)):
-            self._inner_spike = np.full((self.num_out,), _spike, dtype=np.bool_)
+            # XXX In order to simplify the situation where one neuron is connected to
+            # multiple axons in the simulation (the actual input node output size is 8),
+            # one input node is temporarily allowed to output 8 bits of data.
+            if isinstance(_spike, (np.bool_, np.integer)):
+                _dtype = _spike.dtype
+            else:
+                _dtype = np.int8
+
+            self._inner_spike = np.full((self.num_out,), _spike, dtype=_dtype)
+
         elif isinstance(_spike, np.ndarray):
             if shape2num(_spike.shape) != self.num_out:
                 raise ShapeError(
                     f"cannot reshape output value from {_spike.shape} to ({self.num_out},)."
                 )
-            self._inner_spike = _spike.ravel().astype(np.bool_)
+            self._inner_spike = _spike.ravel()
+
         else:
             # should never be reached
             raise TypeError(
@@ -93,7 +104,7 @@ class InputProj(Projection, TimeRelatedNode):
         # Otherwise, use the output of `_func_input`.
         if self._num_input is None:
             if self._func_input is None:
-                raise SimulationError(f"both numeric & functional input are not set.")
+                raise SimulationError("both numeric & functional input are not set.")
             else:
                 return _call_with_ctx(self._func_input, **kwargs)
 
@@ -103,7 +114,7 @@ class InputProj(Projection, TimeRelatedNode):
             return _call_with_ctx(self._func_input, self._num_input, **kwargs)
 
     @property
-    def varshape(self) -> Tuple[int, ...]:
+    def varshape(self) -> tuple[int, ...]:
         return self.shape_out if self.keep_shape else (self.num_out,)
 
     @property
@@ -115,11 +126,11 @@ class InputProj(Projection, TimeRelatedNode):
         return shape2num(self._shape)
 
     @property
-    def shape_in(self) -> Tuple[int, ...]:
+    def shape_in(self) -> tuple[int, ...]:
         return (0,)
 
     @property
-    def shape_out(self) -> Tuple[int, ...]:
+    def shape_out(self) -> tuple[int, ...]:
         return self._shape
 
     @property

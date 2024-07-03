@@ -1,5 +1,5 @@
 import sys
-from typing import Any, ClassVar, Dict, List, Literal, Optional, Set, Tuple
+from typing import Any, ClassVar, Literal, Optional
 
 import numpy as np
 
@@ -15,16 +15,16 @@ from .mixin import ReceiveInputProj, StatusMemory, TimeRelatedNode
 from .naming import get_unique_name, is_name_unique
 from .node import NodeDict, NodeList
 from .types import WeightType
+from .utils import arg_check_pos
 
 __all__ = []
 
 
-_IdPathType: TypeAlias = Tuple[int, int]
+_IdPathType: TypeAlias = tuple[int, int]
 
 
 class PAIBoxObject:
-    _excluded_vars = ()
-    _avoid_name_conflict: ClassVar[bool] = False
+    __avoid_name_conflict__: ClassVar[bool] = False
 
     def __init__(self, name: Optional[str] = None) -> None:
         self._name: str = self.unique_name(name)
@@ -54,7 +54,7 @@ class PAIBoxObject:
 
             return get_unique_name(__type)
 
-        is_name_unique(name, self, self._avoid_name_conflict)
+        is_name_unique(name, self, self.__avoid_name_conflict__)
         return name
 
     @property
@@ -69,8 +69,7 @@ class PAIBoxObject:
         self,
         method: Literal["absolute", "relative"] = "absolute",
         level: int = -1,
-        include_self: bool = True,
-        find_recursive: bool = False,
+        include_self: bool = False,
     ) -> Collector[str, "PAIBoxObject"]:
         """Collect all child nodes.
 
@@ -78,21 +77,19 @@ class PAIBoxObject:
             - method: the method to find the nodes.
                 - "absolute": the name of the node it is looking for will be `v.name`.
                 - "relative": the name will be its attribute name, `x` in `self.x = v`.
-            - level: the level at which the search ends.
+            - level: the level at which the search ends. The default value is -1, which indicates   \
+                that all levels will be searched.
             - include_self: whether to include the current node itself.
-            - find_recursive: whether to search for nodes recursively until they are not found.
         """
-        return self._find_nodes(method, level, include_self, find_recursive)
+        return self._find_nodes(method, level, include_self)
 
     def _find_nodes(
         self,
         method: Literal["absolute", "relative"] = "absolute",
         level: int = -1,
-        include_self: bool = True,
-        find_recursive: bool = False,
+        include_self: bool = False,
         _lid: int = 0,
-        _paths: Optional[Set[_IdPathType]] = None,
-        _iter_termination: bool = False,
+        _paths: Optional[set[_IdPathType]] = None,
     ) -> Collector[str, "PAIBoxObject"]:
         if _paths is None:
             _paths = set()
@@ -105,31 +102,24 @@ class PAIBoxObject:
             else:
                 gather[""] = self
 
-        if find_recursive:
-            if _iter_termination:
-                return gather
-        else:
-            if (level > -1) and (_lid >= level):
-                return gather
+        if (level > -1) and (_lid >= level):
+            return gather
 
-        iter_termi = True  # iteration termination flag
+        from .simulator import Probe
 
         def _find_nodes_absolute() -> None:
-            nonlocal gather, nodes, iter_termi
+            nonlocal gather, nodes
 
             for v in self.__dict__.values():
                 if isinstance(v, PAIBoxObject):
-                    iter_termi = False
                     _add_node2(self, v, _paths, gather, nodes)
                 elif isinstance(v, NodeList):
                     for v2 in v:
                         if isinstance(v2, PAIBoxObject):
-                            iter_termi = False
                             _add_node2(self, v2, _paths, gather, nodes)
                 elif isinstance(v, NodeDict):
                     for v2 in v.values():
                         if isinstance(v2, PAIBoxObject):
-                            iter_termi = False
                             _add_node2(self, v2, _paths, gather, nodes)
 
             # finding nodes recursively
@@ -139,44 +129,40 @@ class PAIBoxObject:
                         method=method,
                         level=level,
                         include_self=include_self,
-                        find_recursive=find_recursive,
                         _lid=_lid + 1,
                         _paths=_paths,
-                        _iter_termination=iter_termi,
                     )
+                    if not isinstance(v, Probe)
+                    else {}
                 )
 
         def _find_nodes_relative() -> None:
-            nonlocal gather, nodes, iter_termi
+            nonlocal gather, nodes
 
             for k, v in self.__dict__.items():
                 if isinstance(v, PAIBoxObject):
-                    iter_termi = False
                     _add_node1(self, k, v, _paths, gather, nodes)
                 elif isinstance(v, NodeList):
                     for i, v2 in enumerate(v):
                         if isinstance(v2, PAIBoxObject):
-                            iter_termi = False
                             _add_node1(self, f"{k}-{str(i)}", v2, _paths, gather, nodes)
                 elif isinstance(v, NodeDict):
                     for k2, v2 in v.items():
                         if isinstance(v2, PAIBoxObject):
-                            iter_termi = False
                             _add_node1(self, f"{k}.{k2}", v2, _paths, gather, nodes)
 
             # finding nodes recursively
             for k1, v1 in nodes:
-                for k2, v2 in v1._find_nodes(
-                    method=method,
-                    level=level,
-                    include_self=include_self,
-                    find_recursive=find_recursive,
-                    _lid=_lid + 1,
-                    _paths=_paths,
-                    _iter_termination=iter_termi,
-                ).items():
-                    if k2:
-                        gather[f"{k1}.{k2}"] = v2
+                if not isinstance(v1, Probe):
+                    for k2, v2 in v1._find_nodes(
+                        method=method,
+                        level=level,
+                        include_self=include_self,
+                        _lid=_lid + 1,
+                        _paths=_paths,
+                    ).items():
+                        if k2:
+                            gather[f"{k1}.{k2}"] = v2
 
         nodes = []
 
@@ -192,9 +178,9 @@ def _add_node1(
     obj: Any,
     k: str,
     v: PAIBoxObject,
-    _paths: Set[_IdPathType],
+    _paths: set[_IdPathType],
     gather: Collector[str, PAIBoxObject],
-    nodes: List[Tuple[str, PAIBoxObject]],
+    nodes: list[tuple[str, PAIBoxObject]],
 ) -> None:
     path = (id(obj), id(v))
 
@@ -207,9 +193,9 @@ def _add_node1(
 def _add_node2(
     obj: Any,
     v: PAIBoxObject,
-    _paths: Set[_IdPathType],
+    _paths: set[_IdPathType],
     gather: Collector[str, PAIBoxObject],
-    nodes: List[PAIBoxObject],
+    nodes: list[PAIBoxObject],
 ) -> None:
     path = (id(obj), id(v))
 
@@ -220,6 +206,10 @@ def _add_node2(
 
 
 class DynamicSys(PAIBoxObject, StatusMemory):
+    __gh_build_ignore__: bool = False
+    """To indicate whether the backend will take the object into account
+        when the network topology information is first constructed"""
+
     def __init__(self, name: Optional[str] = None) -> None:
         super().__init__(name)
         super(PAIBoxObject, self).__init__()
@@ -234,12 +224,12 @@ class DynamicSys(PAIBoxObject, StatusMemory):
         raise NotImplementedError
 
     @property
-    def shape_in(self) -> Tuple[int, ...]:
+    def shape_in(self) -> tuple[int, ...]:
         """Actual shape of input."""
         raise NotImplementedError
 
     @property
-    def shape_out(self) -> Tuple[int, ...]:
+    def shape_out(self) -> tuple[int, ...]:
         """Actual shape of output."""
         raise NotImplementedError
 
@@ -271,22 +261,6 @@ class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
         super().__init__(name)
         self.master_nodes = NodeDict()
 
-    def export_params(self) -> Dict[str, Any]:
-        """Export the parameters into dictionary."""
-        params = {}
-
-        for k, v in self.__dict__.items():
-            if k in self._excluded_vars:
-                continue
-
-            if sys.version_info >= (3, 9):
-                params.update({k.removeprefix("_"): v})
-            else:
-                params.update({k.lstrip("_"): v})  # compatible for py3.8
-
-        return params
-
-    @property
     def is_working(self) -> bool:
         return (self.tick_wait_start > 0 and self.timestamp >= 0) and (
             self.tick_wait_end == 0 or self.timestamp + 1 <= self.tick_wait_end
@@ -306,14 +280,11 @@ class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
 
     @property
     def unrolling_factor(self) -> int:
-        return self._unrolling_factor
+        return self._uf
 
     @unrolling_factor.setter
     def unrolling_factor(self, factor: int) -> None:
-        if factor < 1:
-            raise ValueError(f"'unrolling_factor' must be positive, but got {factor}.")
-
-        self._unrolling_factor = factor
+        self._uf = arg_check_pos(factor, "'unrolling_factor'")
 
 
 class SynSys(DynamicSys):
