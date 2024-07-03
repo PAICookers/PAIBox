@@ -23,6 +23,7 @@ from paibox.backend.conf_template import (
     CoreConfig,
     CorePlmConfig,
     EmptyCorePlmConfig,
+    InputNeuronDest,
     NeuronConfig,
     NeuronDest,
     NeuronDestInfo,
@@ -893,7 +894,34 @@ def MockNeuronDest() -> NeuronDest:
         addr_core_x_ex,
         addr_core_y_ex,
         addr_chip_x,
+        addr_chip_y
+    )
+
+
+@pytest.fixture
+def MockInputNeuronDest():
+    n = random.randint(100, 1000)
+    tick_relative = [0 for _ in range(n)]
+    addr_axon = [i for i in range(n)]
+
+    addr_core_x = random.randint(0, 31)
+    addr_core_y = random.randint(0, 31)
+    addr_core_x_ex = random.randint(0, 31)
+    addr_core_y_ex = random.randint(0, 31)
+    addr_chip_x = random.randint(0, 31)
+    addr_chip_y = random.randint(0, 31)
+    lcn = 1 << random.choice(list(LCN_EX))
+
+    return InputNeuronDest(
+        tick_relative,
+        addr_axon,
+        addr_core_x,
+        addr_core_y,
+        addr_core_x_ex,
+        addr_core_y_ex,
+        addr_chip_x,
         addr_chip_y,
+        lcn,
     )
 
 

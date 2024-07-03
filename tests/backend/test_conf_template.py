@@ -39,8 +39,8 @@ class TestConfExport:
         mock_n = pb.IF(1, 1)
         export_neuconf_json({mock_n: nconf}, ensure_dump_dir)
 
-    def test_export_input_conf_json(self, ensure_dump_dir, MockNeuronDest):
-        iconf = {"n1": MockNeuronDest}
+    def test_export_input_conf_json(self, ensure_dump_dir, MockInputNeuronDest):
+        iconf = {"n1": MockInputNeuronDest}
         export_input_conf_json(iconf, ensure_dump_dir)
 
     def test_export_output_conf_json(self, ensure_dump_dir, MockNeuronDestInfo):
