@@ -17,7 +17,7 @@ from .conf_template import (
     FrameArrayType,
     GraphInfo,
     InputNodeConf,
-    NeuronDest,
+    InputNeuronDest,
     OutputDestConf,
     _get_clk_en_L2_dict,
     export_core_params_json,
@@ -342,7 +342,7 @@ class Mapper:
             "target_chip_addr"
         ]:
             raise ConfigInvalidError(
-                f"The output chip address {ochip_coord} should not overlap with the "
+                f"the output chip address {ochip_coord} should not overlap with the "
                 f"chip addresses, but got {_BACKEND_CONTEXT._target_chip_addr_repr()}."
             )
 
@@ -384,6 +384,7 @@ class Mapper:
                 "addr_core_y_ex": 3,
                 "addr_chip_x": 0,
                 "addr_chip_y": 0,
+                "lcn": 1 << lcn_ex,
                 "tick_relative": [...],
                 "addr_axon": [...]
             },
@@ -412,7 +413,7 @@ class Mapper:
                 input_cb.n_timeslot,
             )
 
-            neuron_dest = NeuronDest(
+            inp_neuron_dest = InputNeuronDest(
                 [coord.tick_relative for coord in axon_coords],
                 [coord.addr_axon for coord in axon_coords],
                 dest_coords[0].x,
@@ -421,9 +422,10 @@ class Mapper:
                 dest_rid.y,
                 input_cb.chip_coord.x,
                 input_cb.chip_coord.y,
+                input_cb.n_timeslot,  # 1 << lcn_ex
             )
 
-            input_nodes_info[inode.name] = neuron_dest
+            input_nodes_info[inode.name] = inp_neuron_dest
 
         return input_nodes_info
 

@@ -1,4 +1,5 @@
 from collections import defaultdict
+from dataclasses import asdict, dataclass
 import sys
 from enum import Enum
 from pathlib import Path
@@ -34,6 +35,8 @@ if sys.version_info >= (3, 10):
     from typing import TypeAlias
 else:
     from typing_extensions import TypeAlias
+
+from typing_extensions import NotRequired
 
 from paibox.components import Neuron
 from paibox.utils import bit_reversal
@@ -121,7 +124,8 @@ class CoreConfig(NamedTuple):
         return dict_
 
 
-class NeuronDest(NamedTuple):
+@dataclass(frozen=True)
+class NeuronDest:
     """Information of neuron destination (axon address information)."""
 
     _extra_params = ("tick_relative", "addr_axon")
@@ -137,7 +141,7 @@ class NeuronDest(NamedTuple):
     addr_chip_y: int
 
     def export(self) -> NeuronDestInfo:
-        return NeuronDestInfo.model_validate(self._asdict(), strict=True)
+        return NeuronDestInfo.model_validate(asdict(self), strict=True)
 
     def to_json(self) -> dict[str, Any]:
         """Dump the configs into json for debugging."""
@@ -145,6 +149,17 @@ class NeuronDest(NamedTuple):
 
         for var in self._extra_params:
             dict_[var] = getattr(self, var)
+
+        return dict_
+
+
+@dataclass(frozen=True)
+class InputNeuronDest(NeuronDest):
+    lcn: int
+
+    def to_json(self) -> dict[str, Any]:
+        dict_ = super().export().model_dump(by_alias=True)
+        dict_ |= {"lcn": self.lcn}
 
         return dict_
 
@@ -219,9 +234,7 @@ class NeuronConfig(NamedTuple):
             dest_chip_coord.y,
         )
 
-        neuron_dest_info = NeuronDestInfo.model_validate(
-            dest_info._asdict(), strict=True
-        )
+        neuron_dest_info = NeuronDestInfo.model_validate(asdict(dest_info), strict=True)
 
         return cls(
             neu_seg.n_neuron, neu_seg.addr_ram, neu_seg.offset, attrs, neuron_dest_info
@@ -310,7 +323,7 @@ class EmptyCorePlmConfig(CorePlmConfig):
         )
 
 
-InputNodeConf: TypeAlias = dict[NodeName, NeuronDest]
+InputNodeConf: TypeAlias = dict[NodeName, InputNeuronDest]
 OutputDestConf: TypeAlias = dict[NodeName, dict[CoordAddr, NeuronDestInfo]]
 CorePlmConfInChip: TypeAlias = dict[Coord, CorePlmConfig]
 CorePlmConf: TypeAlias = dict[ChipCoord, CorePlmConfInChip]
@@ -473,20 +486,14 @@ def export_core_params_json(core_conf: CoreConf, fp: Path) -> None:
 
 def export_input_conf_json(input_conf_info: InputNodeConf, fp: Path) -> None:
     _full_fp = _with_suffix_json(fp, _BACKEND_CONTEXT["input_conf_json"])
-    _valid_conf = {k: v.export() for k, v in input_conf_info.items()}
+    _valid_conf = {k: v.to_json() for k, v in input_conf_info.items()}
 
     if _USE_ORJSON:
         with open(_full_fp, "wb") as f:
-            f.write(
-                orjson.dumps(
-                    _valid_conf,
-                    default=PAIConfigJsonDefault,
-                    option=orjson.OPT_INDENT_2,
-                )
-            )
+            f.write(orjson.dumps(_valid_conf, option=orjson.OPT_INDENT_2))
     else:
         with open(_full_fp, "w") as f:
-            json.dump(_valid_conf, f, indent=2, cls=PAIConfigJsonEncoder)
+            json.dump(_valid_conf, f, indent=2)
 
 
 def export_output_conf_json(output_conf_info: OutputDestConf, fp: Path) -> None:
