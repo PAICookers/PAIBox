@@ -111,7 +111,7 @@ class Mapper:
         grouping_optim_target: Literal["latency", "core", "both"] = "both",
         no_twisted_branch: bool = True,
         multicast_optim: Union[bool, Sequence[NodeType]] = False,
-        use_exp_features: bool = False,
+        **kwargs,
     ) -> GraphInfo:
         """Compile the network with optimization options.
 
@@ -189,7 +189,7 @@ class Mapper:
         )
 
         """Core coordinate assignment."""
-        self.coord_assign(core_estimate_only, use_exp_features)
+        self.coord_assign(core_estimate_only)
 
         if core_estimate_only:
             return GraphInfo(
@@ -282,7 +282,7 @@ class Mapper:
             self.build_core_blocks()
             self.lcn_ex_adjustment()
 
-    def coord_assign(self, core_estimate_only: bool, use_new_routing: bool) -> None:
+    def coord_assign(self, core_estimate_only: bool) -> None:
         """Assign the coordinate of each `CorePlacement`.
 
         NOTE: The neurons in each core block must be grouped first to determine the \
@@ -311,15 +311,7 @@ class Mapper:
             )
 
         for rg in self.routing_groups:
-            """
-            TODO The new routing method is an experimental feature that is yet  \
-                to be validated. Once it has been validated, the old method can \
-                be completely deprecated.
-            """
-            if use_new_routing:
-                self.routing_tree.place_routing_group(rg)
-            else:
-                self.routing_tree.insert_routing_group(rg)
+            self.routing_tree.place_routing_group(rg)
 
         # Calculate the consumption of occupied physical cores.
         if (

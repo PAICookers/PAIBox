@@ -1,8 +1,7 @@
 from pathlib import Path
 from typing import Any, Union
 
-from paicorelib import ChipCoord, Coord, CoordLike, to_coord
-from paicorelib.coordinate import to_coords
+from paicorelib import ChipCoord, Coord, CoordLike, to_coord, to_coords
 
 from paibox.context import _Context
 from paibox.utils import merge_unique_ordered
