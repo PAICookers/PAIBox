@@ -1,14 +1,27 @@
 import warnings
-from typing import Union
+from typing import Literal, Union
 
 import numpy as np
+from paicorelib import InputWidthFormat, SpikeWidthFormat
 from paicorelib.framelib.utils import _mask
-from paicorelib.ram_model import LEAK_V_BIT_MAX, LEAK_V_MAX, LEAK_V_MIN
+from paicorelib.ram_model import (
+    BIT_TRUNCATE_MAX,
+    LEAK_V_BIT_MAX,
+    LEAK_V_MAX,
+    LEAK_V_MIN,
+)
 from paicorelib.ram_model import NEG_THRES_MAX as NEG_THRES_UNSIGNED_MAX
 from paicorelib.ram_model import VJT_MAX, VJT_MIN, VJT_PRE_BIT_MAX
 
 from paibox.exceptions import FunctionalError, PAIBoxWarning
-from paibox.types import LeakVType, VoltageType
+from paibox.types import (
+    LeakVType,
+    NEUOUT_U8_DTYPE,
+    SPIKE_DTYPE,
+    VoltageType,
+    VOLTAGE_DTYPE,
+)
+
 
 NEG_THRES_MIN = -NEG_THRES_UNSIGNED_MAX
 
@@ -22,8 +35,8 @@ VJT_RANGE_LIMIT = VJT_MAX - VJT_MIN
 
 
 def _is_vjt_overflow(vjt: VoltageType, strict: bool = False) -> bool:
-    # NOTE: In most cases, membrane potential overflow won't occur,
-    # otherwise the result is incorrect.
+    # NOTE: In most cases, membrane potential overflow won't occur, otherwise the result
+    # may be incorrect.
     if np.any(vjt > VJT_MAX) or np.any(vjt < VJT_MIN):
         if strict:
             raise FunctionalError(VJT_OVERFLOW_TEXT)
@@ -51,18 +64,45 @@ def vjt_overflow(vjt: VoltageType, strict: bool = False) -> VoltageType:
             vjt + VJT_RANGE_LIMIT,
             vjt,
         ),
-    ).astype(np.int32)
+    ).astype(VOLTAGE_DTYPE)
 
 
-def _is_leak_v_overflow(leak_v: Union[int, LeakVType], strict: bool = True) -> None:
+def _leak_v_check(leak_v: Union[int, LeakVType]) -> None:
     if isinstance(leak_v, int):
         if leak_v > LEAK_V_MAX or leak_v < LEAK_V_MIN:
-            if strict:
-                raise FunctionalError(LEAK_V_OVERFLOW_TEXT)
-            else:
-                warnings.warn(LEAK_V_OVERFLOW_TEXT, PAIBoxWarning)
-    elif np.any(leak_v > LEAK_V_MAX) or np.any(leak_v < LEAK_V_MIN):
-        if strict:
             raise FunctionalError(LEAK_V_OVERFLOW_TEXT)
-        else:
-            warnings.warn(LEAK_V_OVERFLOW_TEXT, PAIBoxWarning)
+
+    elif np.any(leak_v > LEAK_V_MAX) or np.any(leak_v < LEAK_V_MIN):
+        raise FunctionalError(LEAK_V_OVERFLOW_TEXT)
+
+
+L = Literal
+
+
+def _input_width_format(iwf: Union[L[1, 8], InputWidthFormat]) -> InputWidthFormat:
+    if isinstance(iwf, InputWidthFormat):
+        return iwf
+
+    if iwf == 1:
+        return InputWidthFormat.WIDTH_1BIT
+    else:
+        return InputWidthFormat.WIDTH_8BIT
+
+
+def _spike_width_format(swf: Union[L[1, 8], SpikeWidthFormat]) -> SpikeWidthFormat:
+    if isinstance(swf, SpikeWidthFormat):
+        return swf
+
+    if swf == 1:
+        return SpikeWidthFormat.WIDTH_1BIT
+    else:
+        return SpikeWidthFormat.WIDTH_8BIT
+
+
+def _get_neu_out_dtype(
+    swf: SpikeWidthFormat,
+) -> type[Union[SPIKE_DTYPE, NEUOUT_U8_DTYPE]]:
+    if swf is SpikeWidthFormat.WIDTH_1BIT:
+        return SPIKE_DTYPE
+    else:
+        return NEUOUT_U8_DTYPE

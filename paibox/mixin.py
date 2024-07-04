@@ -10,7 +10,7 @@ from .context import _FRONTEND_CONTEXT
 from .exceptions import RegisterError
 from .naming import get_unique_name
 from .node import NodeDict
-from .types import VoltageType
+from .types import VOLTAGE_DTYPE, VoltageType
 
 if typing.TYPE_CHECKING:
     from paibox.components import FullConnectedSyn
@@ -147,13 +147,12 @@ class ReceiveInputProj(MixIn):
     def get_master_node(self, key: str) -> Optional[Any]:
         return self.master_nodes.get(key, None)
 
-    def sum_inputs(self, *, init: VoltageType = 0, **kwargs) -> VoltageType:  # type: ignore
-        # TODO Out is a np.ndarray right now, but it may be more than one type.
-        output = init
+    def sum_inputs(self, *args, **kwargs) -> VoltageType:
+        output = 0
         for node in self.master_nodes.values():
             output += node.output.copy()
 
-        return np.array(output).astype(np.int32)
+        return np.asarray(output, dtype=VOLTAGE_DTYPE)
 
 
 class TimeRelatedNode(MixIn):
