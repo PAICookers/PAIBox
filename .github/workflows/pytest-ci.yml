@@ -31,7 +31,7 @@ jobs:
 
       - name: Install test dependencies
         run: |
-          poetry install --with test
+          poetry install --with test --sync
 
       - name: Run pytest
         uses: pavelzw/pytest-action@v2
