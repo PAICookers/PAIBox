@@ -1,7 +1,7 @@
 import inspect
 import sys
 from collections.abc import Callable
-from typing import Optional, Union
+from typing import Literal, Optional, Union
 
 import numpy as np
 
@@ -14,11 +14,12 @@ from paibox.base import DynamicSys
 from paibox.context import _FRONTEND_CONTEXT
 from paibox.exceptions import ShapeError, SimulationError
 from paibox.mixin import TimeRelatedNode
-from paibox.types import DataType, Shape, SpikeType
+from paibox.types import NEUOUT_U8_DTYPE, DataType, NeuOutType, Shape
 from paibox.utils import as_shape, shape2num
 
 __all__ = ["InputProj"]
 
+L = Literal
 P = ParamSpec("P")
 
 
@@ -26,12 +27,27 @@ def _func_bypass(x: DataType) -> DataType:
     return x
 
 
-class Projection(DynamicSys):
-    def __call__(self, *args, **kwargs) -> SpikeType:
+class Projection(DynamicSys, TimeRelatedNode):
+    def __call__(self, *args, **kwargs) -> NeuOutType:
         return self.update(*args, **kwargs)
 
+    @property
+    def delay_relative(self) -> int:
+        return 1  # Fixed
 
-class InputProj(Projection, TimeRelatedNode):
+    @property
+    def tick_wait_start(self) -> int:
+        return 1  # Fixed
+
+    @property
+    def tick_wait_end(self) -> int:
+        return 0  # Fixed
+
+
+class InputProj(Projection):
+    # TODO Since the input port can be equivalent to the output of a neuron, is it more appropriate
+    # to use a neuron as an input port?
+
     def __init__(
         self,
         input: Optional[Union[DataType, Callable[P, DataType]]],
@@ -43,9 +59,8 @@ class InputProj(Projection, TimeRelatedNode):
         """The input node of network.
 
         Arguments:
-            - input: the input value of the projection node. It can be numeric value or callable\
-                function(function or `Encoder`).
-            - shape_out: the shape of the output.
+            - input: the input value of the projection node. It can be a numeric value or a callable function.
+            - shape_out: the shape of the output..
             - keep_shape: wether to keep the shape when retieving the feature map.
             - name: the name of the node. Optional.
         """
@@ -59,42 +74,31 @@ class InputProj(Projection, TimeRelatedNode):
             self._func_input = input
         else:  # Numeric input
             self._num_input = input
-            self._func_input = _func_bypass
+            self._func_input = None
 
         self._shape = as_shape(shape_out)
         self.keep_shape = keep_shape
+        self.set_memory("_neu_out", np.zeros((self.num_out,), dtype=NEUOUT_U8_DTYPE))
 
-        self.set_memory("_inner_spike", np.zeros((self.num_out,), dtype=np.bool_))
+    def update(self, *args, **kwargs) -> NeuOutType:
+        _input = self._get_neumeric_input(**kwargs)
 
-    def update(self, **kwargs) -> SpikeType:
-        _spike = self._get_neumeric_input(**kwargs)
-
-        if isinstance(_spike, (int, np.bool_, np.integer)):
-            # XXX In order to simplify the situation where one neuron is connected to
-            # multiple axons in the simulation (the actual input node output size is 8),
-            # one input node is temporarily allowed to output 8 bits of data.
-            if isinstance(_spike, (np.bool_, np.integer)):
-                _dtype = _spike.dtype
-            else:
-                _dtype = np.int8
-
-            self._inner_spike = np.full((self.num_out,), _spike, dtype=_dtype)
-
-        elif isinstance(_spike, np.ndarray):
-            if shape2num(_spike.shape) != self.num_out:
+        if isinstance(_input, (int, np.bool_, np.integer)):
+            self._neu_out = np.full_like(self._neu_out, _input, dtype=NEUOUT_U8_DTYPE)
+        elif isinstance(_input, np.ndarray):
+            if _input.size != self._neu_out.size:
                 raise ShapeError(
-                    f"cannot reshape output value from {_spike.shape} to ({self.num_out},)."
+                    f"cannot reshape output value from {_input.shape} to {self._neu_out.shape}."
                 )
-            self._inner_spike = _spike.ravel()
-
+            self._neu_out = _input.ravel().astype(NEUOUT_U8_DTYPE)
         else:
             # should never be reached
             raise TypeError(
                 f"expected type int, np.bool_, np.integer or np.ndarray, "
-                f"but got {_spike}, type {type(_spike)}."
+                f"but got {_input}, type {type(_input)}."
             )
 
-        return self._inner_spike
+        return self._neu_out
 
     def reset_state(self) -> None:
         self.reset_memory()  # Call reset of `StatusMemory`.
@@ -149,28 +153,16 @@ class InputProj(Projection, TimeRelatedNode):
         self._num_input = value
 
     @property
-    def output(self) -> SpikeType:
-        return self._inner_spike
+    def output(self) -> NeuOutType:
+        return self._neu_out
 
     @property
-    def spike(self) -> SpikeType:
-        return self._inner_spike
+    def spike(self) -> NeuOutType:
+        return self._neu_out
 
     @property
-    def feature_map(self) -> SpikeType:
-        return self.output.reshape(self.varshape)
-
-    @property
-    def delay_relative(self) -> int:
-        return 1  # Fixed
-
-    @property
-    def tick_wait_start(self) -> int:
-        return 1  # Fixed
-
-    @property
-    def tick_wait_end(self) -> int:
-        return 0  # Fixed
+    def feature_map(self) -> NeuOutType:
+        return self._neu_out.reshape(self.varshape)
 
 
 def _call_with_ctx(f: Callable[..., DataType], *args, **kwargs) -> DataType:
