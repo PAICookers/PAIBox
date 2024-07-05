@@ -6,7 +6,7 @@ from paicorelib import WeightPrecision as WP
 
 from paibox.base import NeuDyn, SynSys
 from paibox.exceptions import RegisterError, ShapeError
-from paibox.types import DataArrayType, SynOutType, WeightType
+from paibox.types import DataArrayType, NeuOutType, SynOutType, WeightType
 
 from ..modules import BuildingModule
 from ..neuron import Neuron
@@ -50,7 +50,6 @@ class FullConnectedSyn(SynSys):
         name: Optional[str] = None,
     ) -> None:
         super().__init__(name)
-
         self._source = source
         self._target = target
 
@@ -66,19 +65,21 @@ class FullConnectedSyn(SynSys):
     def __call__(self, *args, **kwargs) -> SynOutType:
         return self.update(*args, **kwargs)
 
-    def update(self, spike: Optional[np.ndarray] = None, *args, **kwargs) -> SynOutType:
-        # Retrieve the spike at index `timestamp` of the dest neurons
+    def update(self, x: Optional[NeuOutType] = None, *args, **kwargs) -> SynOutType:
+        # Retrieve the output at [timestamp] of the dest neurons
         if self.dest.is_working():
             if isinstance(self.source, InputProj):
-                synin = self.source.output.copy() if spike is None else spike
+                synin = self.source.output if x is None else np.atleast_1d(x)
             else:
                 idx = self.dest.timestamp % HwConfig.N_TIMESLOT_MAX
-                synin = self.source.output[idx].copy() if spike is None else spike
+                synin = (
+                    self.source.delay_registers[idx] if x is None else np.atleast_1d(x)
+                )
         else:
             # Retrieve 0 to the dest neurons if it is not working
-            synin = np.zeros_like(self.source.spike)
+            synin = np.zeros_like(self.source.output)
 
-        self._synout = self.comm(synin).ravel().astype(np.int32)
+        self._synout = self.comm(synin).ravel()
         return self._synout
 
     def reset_state(self, *args, **kwargs) -> None:
@@ -88,7 +89,7 @@ class FullConnectedSyn(SynSys):
     def __copy__(self) -> "FullConnSyn":
         return self.__deepcopy__()
 
-    def __deepcopy__(self, memo=None, _nil=[]) -> "FullConnSyn":
+    def __deepcopy__(self) -> "FullConnSyn":
         self._n_copied += 1
 
         return FullConnSyn(

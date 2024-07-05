@@ -6,7 +6,14 @@ import numpy as np
 from paicorelib import WeightPrecision as WP
 
 from paibox.exceptions import AutoOptimizationWarning, ShapeError
-from paibox.types import DataArrayType, IntScalarType, SpikeType, SynOutType, WeightType
+from paibox.types import (
+    DataArrayType,
+    IntScalarType,
+    NeuOutType,
+    SynOutType,
+    WeightType,
+    VOLTAGE_DTYPE,
+)
 from paibox.utils import is_shape, shape2num, typical_round
 
 from .conv_types import Size1Type, Size2Type, SizeAnyType
@@ -92,14 +99,6 @@ def _set_coarse_dtype(raw_w: DataArrayType) -> WeightType:
         raise ValueError(f"weight out of range int8, got [{_min}, {_max}].")
 
     if _array.dtype > np.int8:
-        # XXX If it is automatically optimized to int8, it cannot be converted using the 'same_kind' rule.
-        # if _max <= MAX_INT1 and _min >= MIN_INT1:
-        #     warnings.warn(
-        #         f"dtype of weight is optimized automatically, {_array.dtype} -> bool.",
-        #         AutoOptimizationWarning,
-        #     )
-        #     _dtype = np.bool_
-        # else:
         warnings.warn(
             f"dtype of weight is optimized automatically, {_array.dtype} -> int8.",
             AutoOptimizationWarning,
@@ -139,13 +138,15 @@ def _get_weight_precision(weight: WeightType, enable_wp_opt: bool) -> WP:
 class Transform:
     def __init__(self, weights: DataArrayType) -> None:
         self.weights = _set_coarse_dtype(weights)
-
         """The actual weights in synapses. Stored in `np.bool_` or `np.int8` format."""
+
         self.weights.setflags(write=False)
 
     def __call__(self, *args, **kwargs) -> SynOutType:
-        """Ensure that in all subclasses, the output dimensions are (M,)."""
-        raise NotImplementedError
+        # Ensure that in all subclasses, the output dimensions are (M,).
+        raise NotImplementedError(
+            "function '__call__' must be implemented in the subclasses."
+        )
 
     def _get_wp(self, enable_wp_opt: bool) -> WP:
         return _get_weight_precision(self.weights, enable_wp_opt)
@@ -153,7 +154,9 @@ class Transform:
     @property
     def connectivity(self) -> WeightType:
         """The connectivity matrix in `np.ndarray` format."""
-        raise NotImplementedError
+        raise NotImplementedError(
+            "property 'connectivity' must be implemented in the subclasses."
+        )
 
 
 class OneToOne(Transform):
@@ -185,9 +188,9 @@ class OneToOne(Transform):
                 f"the ndim of weights must be 0 or 1, but got {self.weights.ndim}."
             )
 
-    def __call__(self, x: SpikeType, *args, **kwargs) -> SynOutType:
+    def __call__(self, x: NeuOutType, *args, **kwargs) -> SynOutType:
         # (N,) * (N,) -> (N,)
-        return x * self.weights.astype(np.int32)
+        return x * self.weights.astype(VOLTAGE_DTYPE)
 
     @property
     def connectivity(self):
@@ -233,20 +236,21 @@ class AllToAll(Transform):
                 f"the ndim of weights must be 0 or 2, but got {self.weights.ndim}."
             )
 
-    def __call__(self, x: SpikeType, *args, **kwargs) -> SynOutType:
+    def __call__(self, x: NeuOutType, *args, **kwargs) -> SynOutType:
         """
         NOTE:
-            - When weights is a scalar, the output is a scalar (sum * w) & repeated     \
-                `conn_size[1]` times.
+            - When weights is a scalar, the output is a scalar (sum * w) & repeated `conn_size[1]` times.
             - When weights is a matrix, the output is the dot product of `x` & weights.
         """
         if self.weights.ndim == 0:
-            sum_x = np.sum(x, axis=None, dtype=np.int32)
+            sum_x = np.sum(x, dtype=VOLTAGE_DTYPE)
             # (M,)
-            output = np.full((self.conn_size[1],), self.weights * sum_x, dtype=np.int32)
+            output = np.full(
+                (self.conn_size[1],), self.weights * sum_x, dtype=VOLTAGE_DTYPE
+            )
         else:
             # (N,) @ (N, M) -> (M,)
-            output = x @ self.weights.astype(np.int32)
+            output = x @ self.weights.astype(VOLTAGE_DTYPE)
 
         return output
 
@@ -284,11 +288,11 @@ class MaskedLinear(Transform):
 
         super().__init__(weights)
 
-    def __call__(self, x: SpikeType, *args, **kwargs) -> SynOutType:
+    def __call__(self, x: NeuOutType, *args, **kwargs) -> SynOutType:
         # (n?, k) @ (k, m?) -> (n?, m?)
         _x = x.reshape(self.in_shape).transpose(self.axes)
 
-        return _x @ self.weights.astype(np.int32)
+        return _x @ self.weights.astype(VOLTAGE_DTYPE)
 
     @staticmethod
     def _matmul_unroll(
@@ -343,7 +347,7 @@ class Conv1dForward(Transform):
 
         super().__init__(kernel)
 
-    def __call__(self, x: SpikeType, *args, **kwargs) -> SynOutType:
+    def __call__(self, x: NeuOutType, *args, **kwargs) -> SynOutType:
         cin = self.weights.shape[1]
 
         # if self.fm_order == "LC":
@@ -381,7 +385,7 @@ class Conv2dForward(Transform):
 
         super().__init__(kernel)
 
-    def __call__(self, x: SpikeType, *args, **kwargs) -> SynOutType:
+    def __call__(self, x: NeuOutType, *args, **kwargs) -> SynOutType:
         cin = self.weights.shape[1]
 
         # if self.fm_order == "HWC":
@@ -421,7 +425,7 @@ class ConvTranspose1dForward(Transform):
 
         super().__init__(kernel)
 
-    def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
+    def __call__(self, x: NeuOutType, *args, **kwargs) -> SynOutType:
         cin = self.weights.shape[1]
 
         # if self.fm_order == "LC":
@@ -471,7 +475,7 @@ class ConvTranspose2dForward(Transform):
 
         super().__init__(kernel)
 
-    def __call__(self, x: np.ndarray, *args, **kwargs) -> SynOutType:
+    def __call__(self, x: NeuOutType, *args, **kwargs) -> SynOutType:
         cin = self.weights.shape[1]
 
         # if self.fm_order == "HWC":
@@ -529,7 +533,7 @@ class _Pool2dForward(Transform):
 
         super().__init__(1)
 
-    def __call__(self, x: SpikeType, *args, **kwargs) -> SpikeType:
+    def __call__(self, x: NeuOutType, *args, **kwargs) -> NeuOutType:
         # if self.fm_order == "HWC":
         #     # (N,) -> (H, W, C) -> (C, H, W)
         #     _x = x.reshape(self.in_shape + (self.channels,)).transpose(2, 0, 1)

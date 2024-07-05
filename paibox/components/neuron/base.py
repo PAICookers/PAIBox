@@ -1,15 +1,8 @@
-import sys
 import warnings
 from collections.abc import Iterable
 from typing import Any, Literal, NoReturn, Optional, Union
 
-if sys.version_info >= (3, 10):
-    from typing import TypeAlias
-else:
-    from typing_extensions import TypeAlias
-
 import numpy as np
-from numpy.typing import NDArray
 from paicorelib import (
     LCM,
     LDM,
@@ -30,12 +23,10 @@ from paibox.base import NeuDyn
 from paibox.exceptions import PAIBoxWarning, ShapeError
 from paibox.types import (
     NEUOUT_U8_DTYPE,
-    SPIKE_DTYPE,
     VOLTAGE_DTYPE,
     LeakVType,
     NeuOutType,
     Shape,
-    SpikeType,
     VoltageType,
 )
 from paibox.utils import (
@@ -54,13 +45,11 @@ from .utils import (
     vjt_overflow,
     _input_width_format,
     _spike_width_format,
-    _get_neu_out_dtype,
 )
 
 __all__ = ["Neuron"]
 
 L = Literal
-NeuOutTruncType: TypeAlias = NDArray[NEUOUT_U8_DTYPE]
 
 
 class MetaNeuron:
@@ -218,7 +207,7 @@ class MetaNeuron:
 
         return vjt_overflow(v_leaked, self.overflow_strict)
 
-    def _neuronal_fire(self, vjt: VoltageType) -> SpikeType:
+    def _neuronal_fire(self, vjt: VoltageType) -> NeuOutType:
         r"""3. Threshold comparison.
 
         3.1 Random threshold.
@@ -244,7 +233,7 @@ class MetaNeuron:
         )
 
         spike = self.thres_mode == TM.EXCEED_POSITIVE
-        return spike
+        return spike.astype(NEUOUT_U8_DTYPE)
 
     def _neuronal_reset(self, vjt: VoltageType) -> VoltageType:
         r"""4. Reset.
@@ -300,7 +289,7 @@ class MetaNeuron:
 
         return v_reset.astype(VOLTAGE_DTYPE)
 
-    def _bit_truncate(self, vj: VoltageType) -> NeuOutTruncType:
+    def _bit_truncate(self, vj: VoltageType) -> NeuOutType:
         r"""Bit Truncation.
 
         If spiking width format is `WIDTH_1BIT`, then
@@ -355,7 +344,7 @@ class MetaNeuron:
 
     def update(
         self, incoming_v: VoltageType, vjt_pre: VoltageType
-    ) -> tuple[Union[SpikeType, NeuOutTruncType], VoltageType]:
+    ) -> tuple[NeuOutType, VoltageType]:
         """Update at one timestep."""
         self._aux_pre_hook()
 
@@ -390,17 +379,12 @@ class MetaNeuron:
         return np.full((self._n_neuron,), param)
 
     @property
-    def _neu_out_dtype(self) -> type[Union[SPIKE_DTYPE, NEUOUT_U8_DTYPE]]:
-        """dtype of output of neuron."""
-        return _get_neu_out_dtype(self.spike_width)
-
-    @property
     def _vjt0(self) -> VoltageType:
         return self.init_param(0).astype(VOLTAGE_DTYPE)
 
     @property
     def _neu_out0(self) -> NeuOutType:
-        return self.init_param(0).astype(self._neu_out_dtype)
+        return self.init_param(0).astype(NEUOUT_U8_DTYPE)
 
     @property
     def varshape(self) -> tuple[int, ...]:
@@ -480,8 +464,7 @@ class Neuron(MetaNeuron, NeuDyn):
         self.set_memory(
             "delay_registers",
             np.zeros(
-                (HwConfig.N_TIMESLOT_MAX,) + self._neu_out.shape,
-                dtype=self._neu_out.dtype,
+                (HwConfig.N_TIMESLOT_MAX,) + self._neu_out.shape, dtype=NEUOUT_U8_DTYPE
             ),
         )
 

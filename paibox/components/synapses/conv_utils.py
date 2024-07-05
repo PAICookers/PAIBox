@@ -1,13 +1,18 @@
 from collections.abc import Iterable
 from functools import partial
 from itertools import repeat
-from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
 
 from paibox.exceptions import ShapeError
-from paibox.types import SpikeType, SynOutType, WeightType
+from paibox.types import (
+    NEUOUT_U8_DTYPE,
+    VOLTAGE_DTYPE,
+    NeuOutType,
+    SynOutType,
+    WeightType,
+)
 
 from .conv_types import Size1Type, Size2Type, Size3Type, SizeAnyType, _Order2d, _Order3d
 
@@ -232,14 +237,14 @@ def _pool2d_kernel_unroll(
 
 
 def _func_pool2d(
-    x_chw: SpikeType,
+    x_chw: NeuOutType,
     out_shape: Size2Type,
     ksize: Size2Type,
     stride: Size2Type,
     padding: Size2Type,
     type: str,
     threshold: int,
-) -> SpikeType:
+) -> NeuOutType:
     xcin, xh, xw = x_chw.shape
     kh, kw = ksize
     oh, ow = out_shape
@@ -276,13 +281,15 @@ def _func_pool2d(
                     )
 
     if type == "avg":
-        return out >= threshold
+        result = out >= threshold
     else:
-        return out.astype(np.bool_)
+        result = out
+
+    return result.astype(NEUOUT_U8_DTYPE)
 
 
 def _conv1d_faster(
-    x_cl: NDArray[Any],
+    x_cl: NeuOutType,
     out_shape: Size1Type,
     kernel: WeightType,
     stride: Size1Type,
@@ -309,11 +316,11 @@ def _conv1d_faster(
     out = col_fm @ col_kernel.T  # + self.bias
 
     # (ol, cout) -> (cout, ol)
-    return out.astype(np.int32).T
+    return out.T.astype(VOLTAGE_DTYPE)
 
 
 def _conv2d_faster(
-    x_chw: NDArray[Any],
+    x_chw: NeuOutType,
     out_shape: Size2Type,
     kernel: WeightType,
     stride: Size2Type,
@@ -343,9 +350,9 @@ def _conv2d_faster(
     # (oh*ow, cin*kh*kw) * (cout, cin*kh*kw)^T = (oh*ow, cout)
     out = col_fm @ col_kernel.T  # + self.bias
     # (oh*ow, cout) -> (cout, oh*ow) -> (cout, oh, ow)
-    out = out.astype(np.int32).T.reshape((cout,) + out_shape)
+    out = out.T.reshape((cout,) + out_shape)
 
-    return out
+    return out.astype(VOLTAGE_DTYPE)
 
 
 def _convtranspose1d_unroll(
@@ -516,7 +523,7 @@ def _convtranspose2d_unroll(
 
 
 def _convtranspose1d_faster(
-    x_cl: NDArray[Any],
+    x_cl: NeuOutType,
     out_shape: Size1Type,
     kernel: WeightType,
     stride: Size1Type,
@@ -565,11 +572,11 @@ def _convtranspose1d_faster(
     # output_padding
     out = np.pad(out, ((0, 0), (0, output_padding[0])), mode="constant")
 
-    return out.astype(np.int32)
+    return out.astype(VOLTAGE_DTYPE)
 
 
 def _convtranspose2d_faster(
-    x_chw: NDArray[Any],
+    x_chw: NeuOutType,
     out_shape: Size2Type,
     kernel: WeightType,
     stride: Size2Type,
@@ -615,7 +622,7 @@ def _convtranspose2d_faster(
     # (oh*ow, cin*kh*kw) * (cin*kh*kw, cout) = (oh*ow, cout)
     out_col = col_fm @ kernel_col.T
     # (oh*ow, cout) -> (oh, ow, cout) -> (cout, oh, ow)
-    out = out_col.astype(np.int32).T.reshape((cout,) + (noh, now))
+    out = out_col.astype(VOLTAGE_DTYPE).T.reshape((cout,) + (noh, now))
 
     # padding & output_padding
     # inverse padding
@@ -633,7 +640,7 @@ def _convtranspose2d_faster(
 
 
 def _1d_im2col(
-    x_padded: NDArray[Any], ol: int, kl: int, stride: Size1Type
+    x_padded: NeuOutType, ol: int, kl: int, stride: Size1Type
 ) -> NDArray[np.int64]:
     cols = np.zeros((ol, x_padded.shape[0] * kl), dtype=np.int64)
 
@@ -648,7 +655,7 @@ def _1d_im2col(
 
 
 def _2d_im2col(
-    x_padded: NDArray[Any], oh: int, ow: int, kh: int, kw: int, stride: Size2Type
+    x_padded: NeuOutType, oh: int, ow: int, kh: int, kw: int, stride: Size2Type
 ) -> NDArray[np.int64]:
     cols = np.zeros((oh * ow, x_padded.shape[0] * kh * kw), dtype=np.int64)
 

@@ -144,13 +144,13 @@ class ReceiveInputProj(MixIn):
     def unregister_master(self, key: str) -> Optional["FullConnectedSyn"]:
         return self.master_nodes.pop(key, None)
 
-    def get_master_node(self, key: str) -> Optional[Any]:
+    def get_master_node(self, key: str) -> Optional["FullConnectedSyn"]:
         return self.master_nodes.get(key, None)
 
     def sum_inputs(self, *args, **kwargs) -> VoltageType:
         output = 0
         for node in self.master_nodes.values():
-            output += node.output.copy()
+            output = output + node.output.copy()  # do not use +=
 
         return np.asarray(output, dtype=VOLTAGE_DTYPE)
 

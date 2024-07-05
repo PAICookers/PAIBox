@@ -23,11 +23,10 @@ SPIKE_DTYPE = np.bool_
 VOLTAGE_DTYPE = np.int32
 NEUOUT_SPIKE_DTYPE = np.bool_
 NEUOUT_U8_DTYPE = np.uint8
-NEUOUT_DTYPE = Union[NEUOUT_SPIKE_DTYPE, NEUOUT_U8_DTYPE]
 
 LeakVType: TypeAlias = NDArray[LEAK_V_DTYPE]
 SpikeType: TypeAlias = NDArray[SPIKE_DTYPE]
 SynOutType: TypeAlias = NDArray[VOLTAGE_DTYPE]
 VoltageType: TypeAlias = NDArray[VOLTAGE_DTYPE]
-NeuOutType: TypeAlias = NDArray[NEUOUT_DTYPE]
+NeuOutType: TypeAlias = NDArray[NEUOUT_U8_DTYPE]
 WeightType: TypeAlias = NDArray[Union[np.bool_, np.int8]]
