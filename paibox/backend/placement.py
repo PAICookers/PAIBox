@@ -438,12 +438,16 @@ class CorePlacement(CoreAbstract):
         # LCN_EX > LCN_1X
         for raw_weight in raw_weights:
             w_folded_of_axon_segs.clear()
+            _n_axon_last = 0
 
             for s in self.source:
                 axon_seg = self.parent.axon_segments[s]
 
                 # Retrive the weight of the axon segment
-                w_of_axon_seg = raw_weight[: axon_seg.n_axon, :]
+                w_of_axon_seg = raw_weight[
+                    _n_axon_last : _n_axon_last + axon_seg.n_axon, :
+                ]
+                _n_axon_last += axon_seg.n_axon
 
                 # Fold the weight of axon segment
                 w_folded_of_axon_seg = self._nfold_weight(
