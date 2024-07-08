@@ -1282,55 +1282,48 @@ class TestData:
     )
 
     cflags_weight_bit_opt_data = ParametrizedTestData(
-        args="range, scalar, dtype, expected_wp_noopt, expected_wp_opt",
+        args="range, scalar, dtype, expected_wp_opt",
         data=[
             (
                 ((0, 2), (0, 2)),
                 1,
                 (np.bool_, np.bool_),
                 WP.WEIGHT_WIDTH_1BIT,
-                WP.WEIGHT_WIDTH_1BIT,
             ),
             (
                 ((0, 2), (0, 2)),
                 -1,
                 (np.bool_, np.bool_),
-                WP.WEIGHT_WIDTH_8BIT,
                 WP.WEIGHT_WIDTH_2BIT,
             ),
             (
                 ((0, 2), (0, 2)),
                 1,
                 (np.bool_, np.int8),
-                WP.WEIGHT_WIDTH_8BIT,
                 WP.WEIGHT_WIDTH_1BIT,
             ),
             (
                 ((0, 2), (0, 2)),
                 -2,
                 (np.int8, np.bool_),
-                WP.WEIGHT_WIDTH_8BIT,
                 WP.WEIGHT_WIDTH_2BIT,
             ),
             (
                 ((0, 2), (0, 2)),
                 1,
                 (np.int8, np.int8),
-                WP.WEIGHT_WIDTH_8BIT,
                 WP.WEIGHT_WIDTH_1BIT,
             ),
             (
                 ((0, 2), (-2, 2)),
                 -8,
                 (np.bool_, np.int8),
-                WP.WEIGHT_WIDTH_8BIT,
                 WP.WEIGHT_WIDTH_4BIT,
             ),
             (
                 ((0, 2), (-2, 2)),
                 7,
                 (np.bool_, np.int8),
-                WP.WEIGHT_WIDTH_8BIT,
                 WP.WEIGHT_WIDTH_4BIT,
             ),
             (
@@ -1338,20 +1331,17 @@ class TestData:
                 127,
                 (np.bool_, np.int8),
                 WP.WEIGHT_WIDTH_8BIT,
-                WP.WEIGHT_WIDTH_8BIT,
             ),
             (
                 ((-2, 2), (-8, 8)),
                 7,
                 (np.int8, np.int8),
-                WP.WEIGHT_WIDTH_8BIT,
                 WP.WEIGHT_WIDTH_4BIT,
             ),
             (
                 ((-8, 8), (-8, 8)),
                 -100,
                 (np.int8, np.int8),
-                WP.WEIGHT_WIDTH_8BIT,
                 WP.WEIGHT_WIDTH_8BIT,
             ),
         ],

@@ -8,7 +8,7 @@ from paicorelib import WeightPrecision as WP
 
 from paibox.components import FullConnectedSyn, Neuron
 from paibox.exceptions import GraphBuildError, ResourceError, TruncationWarning
-from paibox.types import WeightType
+from paibox.types import WeightType, WEIGHT_DTYPE
 from paibox.utils import check_attr_same, count_unique_elem
 
 from .conf_template import (
@@ -313,9 +313,11 @@ class CoreBlock(CoreAbstract):
                     w_of_dest.append(syn.connectivity)
                 else:
                     # Fill with 0.
-                    w_of_dest.append(np.zeros((s.num_out, d.num_in), dtype=np.int8))
+                    w_of_dest.append(
+                        np.zeros((s.num_out, d.num_in), dtype=WEIGHT_DTYPE)
+                    )
 
-            w_dest = np.vstack(w_of_dest, dtype=np.int8)
+            w_dest = np.vstack(w_of_dest)
             w_of_neurons.append(w_dest)
 
         # Check
@@ -430,9 +432,8 @@ class CorePlacement(CoreAbstract):
         n_fold = self.n_timeslot
 
         if self.lcn_ex == LCN_EX.LCN_1X:
-            w_folded = np.hstack(raw_weights, dtype=np.int8)
+            w_folded = np.hstack(raw_weights)
             w_folded.setflags(write=False)
-
             return w_folded
 
         # LCN_EX > LCN_1X
@@ -455,12 +456,11 @@ class CorePlacement(CoreAbstract):
                 )
                 w_folded_of_axon_segs.append(w_folded_of_axon_seg)
 
-            w_folded = np.vstack(w_folded_of_axon_segs, dtype=np.int8)
+            w_folded = np.vstack(w_folded_of_axon_segs)
             w_folded_list.append(w_folded)
 
-        w_folded = np.hstack(w_folded_list, dtype=np.int8)
+        w_folded = np.hstack(w_folded_list)
         w_folded.setflags(write=False)
-
         return w_folded
 
     def _weight_ram_mapping(self) -> WeightRamType:
@@ -528,7 +528,7 @@ class CorePlacement(CoreAbstract):
 
             _raw_weight = np.append(
                 raw_weight,
-                np.zeros((n_row_padding, raw_col), dtype=np.int8),
+                np.zeros((n_row_padding, raw_col), dtype=WEIGHT_DTYPE),
                 axis=0,
             )
         else:
@@ -539,7 +539,7 @@ class CorePlacement(CoreAbstract):
         # Check #2
         # assert _raw_weight.shape[0] == expected_row * n_fold
 
-        w_folded = np.zeros((expected_row, raw_col * n_fold), dtype=np.int8)
+        w_folded = np.zeros((expected_row, raw_col * n_fold), dtype=WEIGHT_DTYPE)
 
         for i, j in np.ndindex((n_fold, raw_col)):
             w_col = w_splited[i][:, j]

@@ -2,7 +2,7 @@ from math import ceil
 
 import numpy as np
 import pytest
-from paicorelib import Coord, HwConfig
+from paicorelib import Coord, HwConfig, WeightPrecision as WP
 
 import paibox as pb
 from paibox.base import SynSys
@@ -542,9 +542,7 @@ class TestMapper_cflags:
         TestData.cflags_weight_bit_opt_data["args"],
         TestData.cflags_weight_bit_opt_data["data"],
     )
-    def test_cflags_weight_bit_opt(
-        self, range, scalar, dtype, expected_wp_noopt, expected_wp_opt
-    ):
+    def test_cflags_weight_bit_opt(self, range, scalar, dtype, expected_wp_opt):
         # s1, s2, s3 will be grouped in one core block.
         class Net(pb.Network):
             def __init__(self):
@@ -578,7 +576,7 @@ class TestMapper_cflags:
         mapper = pb.Mapper()
         mapper.build(net)
         mapper.compile(weight_bit_optimization=False)
-        assert mapper.core_blocks[0].weight_precision == expected_wp_noopt
+        assert mapper.core_blocks[0].weight_precision == WP.WEIGHT_WIDTH_8BIT
 
         mapper.clear()
         mapper.build(net)

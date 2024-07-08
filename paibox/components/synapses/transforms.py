@@ -7,12 +7,13 @@ from paicorelib import WeightPrecision as WP
 
 from paibox.exceptions import AutoOptimizationWarning, ShapeError
 from paibox.types import (
+    WEIGHT_DTYPE,
     DataArrayType,
     IntScalarType,
     NeuOutType,
     SynOutType,
     WeightType,
-    VOLTAGE_DTYPE,
+    VOLTAGE_DTYPE
 )
 from paibox.utils import is_shape, shape2num, typical_round
 
@@ -70,7 +71,7 @@ def _set_coarse_dtype(raw_w: DataArrayType) -> WeightType:
     """Convert raw weights to `np.ndarray` coarsely (without optimization).
 
     Description:
-        - For weights of type `bool` or `np.bool_`, set `np.bool_` as the dtype.
+        - For weights of type `bool` or `np.bool_`, set `np.int8` as the dtype.
         - For integer scalar weight, set the dtype according to its value.
         - For array weights, set the dtype according to its minimum & maximum values. For weights in the\
             range of int8, the dtype when declared will be followed (i.e. not optimized).
@@ -83,12 +84,7 @@ def _set_coarse_dtype(raw_w: DataArrayType) -> WeightType:
         if raw_w > MAX_INT8 or raw_w < MIN_INT8:
             raise ValueError(f"weight out of range int8, got {raw_w}.")
 
-        if raw_w <= MAX_INT1 and raw_w >= MIN_INT1:
-            _dtype = np.bool_
-        else:
-            _dtype = np.int8
-
-        return np.asarray(raw_w, dtype=_dtype)
+        return np.asarray(raw_w, dtype=WEIGHT_DTYPE)
 
     # Convert list or tuple to np.ndarray
     _array = np.asarray(raw_w)
@@ -103,10 +99,10 @@ def _set_coarse_dtype(raw_w: DataArrayType) -> WeightType:
             f"dtype of weight is optimized automatically, {_array.dtype} -> int8.",
             AutoOptimizationWarning,
         )
-        _dtype = np.int8
+        _dtype = WEIGHT_DTYPE
 
     elif _array.dtype == np.bool_ or _array.dtype == np.int8:
-        _dtype = _array.dtype
+        _dtype = WEIGHT_DTYPE
     else:
         raise TypeError(f"weights must be bool or int8, but got {_array.dtype}.")
 
@@ -128,17 +124,13 @@ def _get_weight_precision(weight: WeightType, enable_wp_opt: bool) -> WP:
         else:
             return WP.WEIGHT_WIDTH_8BIT
     else:
-        # If weight precision opt is disabled, return WP1 if dtype is np.bool_ else WP8.
-        if weight.dtype == np.bool_:
-            return WP.WEIGHT_WIDTH_1BIT
-        else:
-            return WP.WEIGHT_WIDTH_8BIT
+        return WP.WEIGHT_WIDTH_8BIT
 
 
 class Transform:
     def __init__(self, weights: DataArrayType) -> None:
         self.weights = _set_coarse_dtype(weights)
-        """The actual weights in synapses. Stored in `np.bool_` or `np.int8` format."""
+        """The actual weights in synapses. Stored in np.int8 format."""
 
         self.weights.setflags(write=False)
 
@@ -195,7 +187,7 @@ class OneToOne(Transform):
     @property
     def connectivity(self):
         return (
-            (self.weights * np.identity(self.num, dtype=np.bool_))
+            (self.weights * np.identity(self.num, dtype=WEIGHT_DTYPE))
             if self.weights.ndim == 0
             else np.diag(self.weights)
         )
@@ -259,7 +251,7 @@ class AllToAll(Transform):
         return (
             self.weights
             if self.weights.ndim == 2
-            else (self.weights * np.ones(self.conn_size, dtype=np.bool_))
+            else (self.weights * np.ones(self.conn_size, dtype=WEIGHT_DTYPE))
         )
 
 
@@ -305,7 +297,7 @@ class MaskedLinear(Transform):
         n_oshape = shape2num(out_shape)
         in_shape_t = tuple(in_shape[i] for i in axes)
 
-        w_unrolled = np.zeros((n_ishape, n_oshape), dtype=weights.dtype)
+        w_unrolled = np.zeros((n_ishape, n_oshape), dtype=WEIGHT_DTYPE)
 
         orig_idx = np.arange(n_ishape).reshape(in_shape_t)
         mapping_tbl = orig_idx.transpose(np.argsort(axes)).ravel()
@@ -560,3 +552,24 @@ class _Pool2dForward(Transform):
             self.stride,
             self.padding,
         )
+
+
+class _CompareMax(AllToAll):
+    def __call__(self, x: NeuOutType, *args, **kwargs) -> SynOutType:
+        """The maximum value of the input corresponding to the non-zero columns of the weight matrix is \
+            taken as the output.
+            x = (x1, x2, ..., xn)
+            w = [n*m]
+            y = (y1, y2, ..., ym)
+        """
+        if self.weights.ndim == 0:
+            output = np.full(
+                (self.conn_size[1],), np.max(x, axis=None), dtype=VOLTAGE_DTYPE
+            )
+        else:
+            output = np.zeros((self.conn_size[1],), dtype=VOLTAGE_DTYPE)
+            for col in range(self.conn_size[1]):
+                non_zero_idx = np.nonzero(self.weights[:, col])[0]
+                output[col] = np.max(x[non_zero_idx])
+
+        return output
