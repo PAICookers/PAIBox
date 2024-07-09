@@ -67,3 +67,7 @@
   1. 子网络现在直接在主网络内部 `self.subnet=...` 例化即可
   2. 编译选项现在直接通过 `paibox.Mapper.compile(...)` 传入，默认配置不变
   3. 在 `paibox.Mapper.export()` 中使用 `split_by_chip` 指定配置帧文件是否以芯片分割，默认不分割。原 `split_by_coord` 弃用。
+
+## v1.1.1
+
+- 修复对权重RAM错误的配置
