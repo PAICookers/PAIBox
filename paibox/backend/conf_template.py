@@ -36,10 +36,8 @@ if sys.version_info >= (3, 10):
 else:
     from typing_extensions import TypeAlias
 
-from typing_extensions import NotRequired
-
 from paibox.components import Neuron
-from paibox.utils import bit_reversal
+from paibox.utils import reverse_8bit
 
 from .context import _BACKEND_CONTEXT
 from .types import AxonCoord, NeuSegment, NodeName
@@ -603,7 +601,7 @@ def _get_clk_en_L2_dict(
         for _ in range(8):
             u8 = bitmap & _mask(8)
             bitmap >>= 8
-            clk_en.append(bit_reversal(u8))
+            clk_en.append(reverse_8bit(u8))
 
         return clk_en
 

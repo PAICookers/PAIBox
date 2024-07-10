@@ -143,14 +143,19 @@ def typical_round(n: float) -> int:
         return int(n) + 1
 
 
-def bit_reversal(uint: int, n_bit: int = 8) -> int:
-    """Reverse the bit order of a N-bit unsigned integer, where N is `n_bit`."""
-    reversed = 0
-    for i in range(n_bit):
-        if (uint >> i) & 1:
-            reversed += 1 << (n_bit - 1 - i)
+def reverse_8bit(x: int) -> int:
+    """Reverse the bit order of 8-bit unsigned integer."""
+    x = ((x & 0xAA) >> 1) | ((x & 0x55) << 1)
+    x = ((x & 0xCC) >> 2) | ((x & 0x33) << 2)
+    x = ((x & 0xF0) >> 4) | ((x & 0x0F) << 4)
+    return x
 
-    return reversed
+
+def reverse_16bit(x: int) -> int:
+    x = ((x & 0xAAAA) >> 1) | ((x & 0x5555) << 1)
+    x = ((x & 0xCCCC) >> 2) | ((x & 0x3333) << 2)
+    x = ((x & 0xF0F0) >> 4) | ((x & 0x0F0F) << 4)
+    return ((x >> 8) | (x << 8)) & 0xFFFF
 
 
 def arg_check_pos(arg: int, desc: Optional[str] = None) -> int:
