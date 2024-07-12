@@ -74,19 +74,19 @@ class DynSysGroup(DynamicSys, Container):
         cls, network: "DynSysGroup", **build_options
     ) -> dict[NeuModule, BuiltComponentType]:
         try:
-            from .components.functional import Conv_HalfRoll
+            from .components.functional import Conv_HalfRoll, Delay_FullConn
         except ImportError:
-            Conv_HalfRoll = None
+            Conv_HalfRoll, Delay_FullConn = None
         generated = dict()
-        modules = network.components.subset(NeuModule).unique()
-        delay = 0
+        modules = network.nodes().subset(NeuModule).unique()
+        delay = 1
         for module in modules.values():
             if Conv_HalfRoll is not None and isinstance(module, Conv_HalfRoll):
-                #print(module.stride)
-                generated[module] = module.build(network, module.stride[1] ** (delay), **build_options)
-                if module.stride[1] != 1 :
-                    delay += 1
-
+                generated[module] = module.build(network, delay, **build_options)
+                if module.stride[1] != 1:
+                    delay = delay*module.stride[1]
+            elif Delay_FullConn is not None and isinstance(module, Delay_FullConn):
+                generated[module] = module.build(network, delay, **build_options)
             else:
                 generated[module] = module.build(network, **build_options)
 

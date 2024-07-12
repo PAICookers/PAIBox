@@ -6,6 +6,7 @@ from paibox.base import DynamicSys
 from paibox.components import NeuModule
 from paibox.components.synapses.conv_utils import _pair
 from paibox.network import DynSysGroup
+from paibox.simulator.utils import _conv2d_faster_fp32
 from paibox.utils import as_shape, shape2num, typical_round
 
 
@@ -442,7 +443,7 @@ class TestFunctionalModules:
         sim2.add_probe(probe_p2d)
 
         # Use binomial distribution to generate a sparse matrix with more zeros
-        inpa = np.random.binomial(1, p_binomial, size=(20,) + fm_shape).astype(np.bool_)
+        inpa = np.random.binomial(1, p_binomial, size=(20,)).astype(np.bool_)
 
         for i in range(20):
             pb.FRONTEND_ENV.save(data1=inpa[i])
@@ -645,3 +646,49 @@ class TestFunctionalModules:
         mapper.build(net1)
         mapper.compile()
         mapper.export(fp=ensure_dump_dir)
+
+    @pytest.mark.parametrize(
+        "shape, kernel, stride, padding, out_feature, weight",
+        [
+            ((1, 11), np.array([[[[2, 1, 2], [1, -2, 1], [-1, 2, -3]]]], dtype=np.int8),
+             [1, 1], [0, 0], 10, np.random.randint(-5, 5, size=(7*7, 10), dtype=np.int8)),
+            ((1, 11), np.array([[[[2, 1, 2], [1, -2, 1], [-1, 2, -3]]]], dtype=np.int8),
+             [1, 2], [0, 0], 10, np.random.randint(-5, 5, size=(4*4, 10), dtype=np.int8)),
+            ((1, 11), np.array([[[[2, 1, 2], [1, -2, 1], [-1, 2, -3]]]], dtype=np.int8),
+             [2, 1], [0, 0], 10, np.random.randint(-5, 5, size=(3 * 3, 10), dtype=np.int8)),
+            ((1, 11), np.array([[[[2, 1, 2], [1, -2, 1], [-1, 2, -3]]]], dtype=np.int8),
+             [2, 2], [0, 0], 10, np.random.randint(-5, 5, size=(2*2, 10), dtype=np.int8)),
+        ],
+    )
+    def test_Conv_HalfRoll_Net(self, shape, kernel, stride, padding, out_feature, weight):
+        from tests.shared_networks import Conv_HalfRoll_Net1, Conv_HalfRoll_Net2
+
+        #net1 = Conv_HalfRoll_Net1(shape, kernel, stride, padding, out_feature, delay, weight)
+        net2 = Conv_HalfRoll_Net2(shape, kernel, stride, padding, out_feature, weight)
+        conv = net2.conv2
+        linear = net2.linear1
+        generated = DynSysGroup.build_fmodule(net2)
+        #sim1 = pb.Simulator(net1, start_time_zero=False)
+        sim2 = pb.Simulator(net2, start_time_zero=False)
+
+        probe_conv = pb.Probe(generated[conv][0], "output")
+        probe_linear = pb.Probe(generated[linear][0], "output")
+        sim2.add_probe(probe_conv)
+        sim2.add_probe(probe_linear)
+        # Use binomial distribution to generate a sparse matrix with more zeros
+        inpa = np.random.randint(0, 5, size=(1, 11, 11)).astype(np.int8)
+        inpb = np.concatenate([inpa, np.zeros((1, 10, 11))], axis=1)
+        for i in range(17):
+            pb.FRONTEND_ENV.save(data1=inpb[0][i])
+            sim2.run(1)
+        expected = _conv2d_faster_fp32(np.transpose(inpa, (0, 2, 1)), kernel, _pair(stride[0]), _pair(padding[0]))
+        expected[expected < 0] = 0
+        expected = _conv2d_faster_fp32(expected, kernel, _pair(stride[1]), _pair(padding[1]))
+        expected[expected < 0] = 0
+        # print(sim2.data[probe_conv][7:14])
+        # print(expected)
+        expected = expected.ravel() @ weight
+        expected[expected < 0] = 0
+        #expected = np.clip(expected, 0, 7)
+        print(expected)
+        print(sim2.data[probe_linear][15])

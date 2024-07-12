@@ -79,8 +79,14 @@ class FullConnectedSyn(SynSys):
         else:
             # Retrieve 0 to the dest neurons if it is not working
             synin = np.zeros_like(self.source.output)
-
+        # for i in range(5):
+        #     if self.name == f"s{i}_Conv_HalfRoll_1":
+        #         print(f"{self.name}", synin)
+        #         print(self.connectivity)
         self._synout = self.comm(synin).ravel()
+        # for i in range(5):
+        #     if self.name == f"s{i}_Conv_HalfRoll_1":
+        #         print(f"{self.name}", self._synout)
         return self._synout
 
     def reset_state(self, *args, **kwargs) -> None:

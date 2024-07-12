@@ -61,11 +61,11 @@ def _fm_ndim2_check(fm_shape: SizeAnyType, fm_order: _Order3d) -> Size3Type:
 
 
 def _conv1d_unroll(
-    in_shape: Size1Type,
-    out_shape: Size1Type,
-    kernel: WeightType,
-    stride: Size1Type,
-    padding: Size1Type,
+        in_shape: Size1Type,
+        out_shape: Size1Type,
+        kernel: WeightType,
+        stride: Size1Type,
+        padding: Size1Type,
 ) -> WeightType:
     """Unroll the kernel of 1d convolution into a matrix."""
     cout, cin, kl = kernel.shape
@@ -80,9 +80,9 @@ def _conv1d_unroll(
         for ch_idx in np.ndindex(kernel.shape[:2]):
             # [0] -> o_ch, [1] -> i_ch
             zeros_image[
-                i * stride[0] + ch_idx[1] * il : i * stride[0] + ch_idx[1] * il + kl,
-                ch_idx[0],
-                i,
+            i * stride[0] + ch_idx[1] * il: i * stride[0] + ch_idx[1] * il + kl,
+            ch_idx[0],
+            i,
             ] = kernel[ch_idx[0], ch_idx[1], :]
 
         # if fm_order == "CL":
@@ -100,19 +100,19 @@ def _conv1d_unroll(
     nil = in_shape[0]
     w_unrolled = np.zeros((cin * nil, cout * ol), dtype=kernel.dtype)
     for i in range(cin):
-        w_unrolled[i * nil : i * nil + nil, :] = w_unrolled_np[
-            i * il + padding[0] : i * il + il - padding[0], :
-        ]
+        w_unrolled[i * nil: i * nil + nil, :] = w_unrolled_np[
+                                                i * il + padding[0]: i * il + il - padding[0], :
+                                                ]
 
     return w_unrolled
 
 
 def _conv2d_unroll(
-    in_shape: Size2Type,
-    out_shape: Size2Type,
-    kernel: WeightType,
-    stride: Size2Type,
-    padding: Size2Type,
+        in_shape: Size2Type,
+        out_shape: Size2Type,
+        kernel: WeightType,
+        stride: Size2Type,
+        padding: Size2Type,
 ) -> WeightType:
     """Unroll the kernel of 2d convolution into a matrix."""
     cout, cin, kh, kw = kernel.shape
@@ -133,21 +133,21 @@ def _conv2d_unroll(
             for ch_idx in np.ndindex(kernel.shape[:2]):
                 # [0] -> o_ch, [1] -> i_ch
                 zeros_image[
-                    i * stride[0]
-                    + ch_idx[1] * ih : i * stride[0]
-                    + ch_idx[1] * ih
-                    + kh,
-                    j * stride[1]
-                    + ch_idx[0] * iw : j * stride[1]
-                    + ch_idx[0] * iw
-                    + kw,
-                    i * ow + j,
+                i * stride[0]
+                + ch_idx[1] * ih: i * stride[0]
+                                  + ch_idx[1] * ih
+                                  + kh,
+                j * stride[1]
+                + ch_idx[0] * iw: j * stride[1]
+                                  + ch_idx[0] * iw
+                                  + kw,
+                i * ow + j,
                 ] = kernel[ch_idx[0], ch_idx[1], :, :]
 
             t = (
                 zeros_image[:, :, i * ow + j]
-                .reshape(cin * ih, cout, iw)
-                .transpose(1, 0, 2)
+                    .reshape(cin * ih, cout, iw)
+                    .transpose(1, 0, 2)
             )
             # else:
             #     # (cin*ih, cout, iw) -> (cout, cin, ih, iw)
@@ -168,15 +168,15 @@ def _conv2d_unroll(
 
     for i in range(cin):
         for j in range(nih):
-            w_unrolled[i * nin_size + j * niw : i * nin_size + j * niw + niw, :] = (
+            w_unrolled[i * nin_size + j * niw: i * nin_size + j * niw + niw, :] = (
                 w_unrolled_np[
-                    i * in_size
-                    + (padding[0] + j) * iw
-                    + padding[1] : i * in_size
-                    + (padding[0] + j) * iw
-                    + padding[1]
-                    + niw,
-                    :,
+                i * in_size
+                + (padding[0] + j) * iw
+                + padding[1]: i * in_size
+                              + (padding[0] + j) * iw
+                              + padding[1]
+                              + niw,
+                :,
                 ]
             )
 
@@ -190,29 +190,33 @@ def _conv2d_halfroll(
         stride: Size2Type,
         padding: Size2Type,
 ) -> WeightType:
-    cout, cin, kh= kernel.shape
-    #ih = in_shape[1] + 2 * padding[0]
-    ih = in_shape[1]
+    cout, cin, kh = kernel.shape
+    ih = in_shape[1] + 2 * padding[0]
+    #ih = in_shape[1]
     o_ch, oh = out_shape
     w_np = np.zeros((cin * ih, cout * oh), dtype=kernel.dtype)
     for i in range(cout):
         for j in range(cin):
-            for k in range(oh-2*padding[0]):
-                w_np[j*ih+k*stride[1]:j*ih+k*stride[1]+kh, i*oh+k+padding[0]] = kernel[i, j, :]
-            for k in range(padding[0]):
-                w_np[j*ih+k*stride[1]:j*ih+k*stride[1]+kh-padding[0], i*oh+k] = kernel[i, j, k+1:]
-                w_np[j*ih+ih-padding[0]-1:j*ih+ih, (i+1)*oh-1] = kernel[i, j, :-(k+1)]
+            if padding[0] == 0:
+                for k in range(oh):
+                    # w_np[j*ih+padding[0]*(stride[1]-1)+k*stride[1]:j*ih+padding[1]*(stride[1]-1)+k*stride[1]+kh, i*oh+k+padding[0]] = kernel[i, j, :]
+                    # w_np[j*ih+stride[1]*(padding[0]+k)-padding[0]:j*ih+stride[1]*(padding[0]+k)-padding[0]+kh, i*oh+k+padding[0]] = kernel[i, j, :]
+                    w_np[j * ih + k * stride[1]:j * ih + k * stride[1] + kh, i * oh + k] = kernel[i, j, :]
+            else:
+                for k in range(oh):
+                    w_np[j * ih + k * stride[1]:j * ih + k * stride[1] + kh, i * oh + k] = kernel[i, j, :]
+            w_np= np.delete(w_np, np.concatenate((np.arange(padding[0]), np.arange(ih-padding[0], ih))), axis=0)
     return w_np
 
 
 def _pool2d_kernel_unroll(
-    channels: int,
-    in_shape: Size2Type,
-    out_shape: Size2Type,
-    ksize: Size2Type,
-    stride: Size2Type,
-    padding: Size2Type,
-    # fm_order: str,
+        channels: int,
+        in_shape: Size2Type,
+        out_shape: Size2Type,
+        ksize: Size2Type,
+        stride: Size2Type,
+        padding: Size2Type,
+        # fm_order: str,
 ) -> WeightType:
     kh, kw = ksize
     ih = in_shape[0] + 2 * padding[0]
@@ -228,8 +232,8 @@ def _pool2d_kernel_unroll(
             zeros_image = np.zeros((channels * ih, iw * channels), dtype=np.bool_)
             for i_ch in range(channels):
                 zeros_image[
-                    (i * stride[0] + i_ch * ih) : (i * stride[0] + i_ch * ih) + kh,
-                    (j * stride[1] + i_ch * iw) : (j * stride[1] + i_ch * iw) + kw,
+                (i * stride[0] + i_ch * ih): (i * stride[0] + i_ch * ih) + kh,
+                (j * stride[1] + i_ch * iw): (j * stride[1] + i_ch * iw) + kw,
                 ] = 1
 
             temp = zeros_image.reshape((channels * ih, channels, iw)).transpose(1, 0, 2)
@@ -243,15 +247,15 @@ def _pool2d_kernel_unroll(
 
     for i in range(channels):
         for j in range(nih):
-            w_unrolled[i * nin_size + j * niw : i * nin_size + j * niw + niw, :] = (
+            w_unrolled[i * nin_size + j * niw: i * nin_size + j * niw + niw, :] = (
                 w_unrolled_np[
-                    i * in_size
-                    + (padding[0] + j) * iw
-                    + padding[1] : i * in_size
-                    + (padding[0] + j) * iw
-                    + padding[1]
-                    + niw,
-                    :,
+                i * in_size
+                + (padding[0] + j) * iw
+                + padding[1]: i * in_size
+                              + (padding[0] + j) * iw
+                              + padding[1]
+                              + niw,
+                :,
                 ]
             )
 
@@ -259,13 +263,13 @@ def _pool2d_kernel_unroll(
 
 
 def _func_pool2d(
-    x_chw: NeuOutType,
-    out_shape: Size2Type,
-    ksize: Size2Type,
-    stride: Size2Type,
-    padding: Size2Type,
-    type: str,
-    threshold: int,
+        x_chw: NeuOutType,
+        out_shape: Size2Type,
+        ksize: Size2Type,
+        stride: Size2Type,
+        padding: Size2Type,
+        type: str,
+        threshold: int,
 ) -> NeuOutType:
     xcin, xh, xw = x_chw.shape
     kh, kw = ksize
@@ -288,17 +292,17 @@ def _func_pool2d(
                 if type == "avg":
                     out[c, i, j] = np.sum(
                         x_padded[
-                            c,
-                            stride[0] * i : stride[0] * i + kh,
-                            stride[1] * j : stride[1] * j + kw,
+                        c,
+                        stride[0] * i: stride[0] * i + kh,
+                        stride[1] * j: stride[1] * j + kw,
                         ]
                     )
                 else:
                     out[c, i, j] = np.max(
                         x_padded[
-                            c,
-                            stride[0] * i : stride[0] * i + kh,
-                            stride[1] * j : stride[1] * j + kw,
+                        c,
+                        stride[0] * i: stride[0] * i + kh,
+                        stride[1] * j: stride[1] * j + kw,
                         ]
                     )
 
@@ -311,11 +315,11 @@ def _func_pool2d(
 
 
 def _conv1d_faster(
-    x_cl: NeuOutType,
-    out_shape: Size1Type,
-    kernel: WeightType,
-    stride: Size1Type,
-    padding: Size1Type,
+        x_cl: NeuOutType,
+        out_shape: Size1Type,
+        kernel: WeightType,
+        stride: Size1Type,
+        padding: Size1Type,
 ) -> SynOutType:
     """Faster 1d convolution.
 
@@ -342,12 +346,12 @@ def _conv1d_faster(
 
 
 def _conv2d_faster(
-    x_chw: NeuOutType,
-    out_shape: Size2Type,
-    kernel: WeightType,
-    stride: Size2Type,
-    padding: Size2Type,
-    # fm_order: str,
+        x_chw: NeuOutType,
+        out_shape: Size2Type,
+        kernel: WeightType,
+        stride: Size2Type,
+        padding: Size2Type,
+        # fm_order: str,
 ) -> SynOutType:
     """Faster 2d convolution.
 
@@ -378,12 +382,12 @@ def _conv2d_faster(
 
 
 def _convtranspose1d_unroll(
-    in_shape: Size1Type,
-    out_shape: Size1Type,
-    kernel: WeightType,
-    stride: Size1Type,
-    padding: Size1Type,
-    output_padding: Size1Type,
+        in_shape: Size1Type,
+        out_shape: Size1Type,
+        kernel: WeightType,
+        stride: Size1Type,
+        padding: Size1Type,
+        output_padding: Size1Type,
 ) -> WeightType:
     """Unroll the kernel of 1d transposed convolution into a matrix.
 
@@ -404,12 +408,12 @@ def _convtranspose1d_unroll(
         for ch_idx in np.ndindex(kernel_flip.shape[:2]):
             # [0] -> o_ch, [1] -> i_ch
             zeros_image[
-                i * stride_transpose
-                + ch_idx[1] * il : i * stride_transpose
-                + ch_idx[1] * il
-                + kl,
-                ch_idx[0],
-                i,
+            i * stride_transpose
+            + ch_idx[1] * il: i * stride_transpose
+                              + ch_idx[1] * il
+                              + kl,
+            ch_idx[0],
+            i,
             ] = kernel_flip[ch_idx[0], ch_idx[1], :]
 
         t = zeros_image[:, :, i].T
@@ -421,9 +425,9 @@ def _convtranspose1d_unroll(
     nil = in_shape[0] + (in_shape[0] - 1) * (stride[0] - 1)
     w_unrolled_nk = np.zeros((cin * nil, cout * ol), dtype=kernel.dtype)
     for i in range(cin):
-        w_unrolled_nk[i * nil : i * nil + nil, :] = w_unrolled_np[
-            i * il + kl - 1 : i * il + kl - 1 + nil, :
-        ]
+        w_unrolled_nk[i * nil: i * nil + nil, :] = w_unrolled_np[
+                                                   i * il + kl - 1: i * il + kl - 1 + nil, :
+                                                   ]
 
     # stripe
     w_reshaped = w_unrolled_nk.reshape((cin, nil, cout, ol))
@@ -434,7 +438,7 @@ def _convtranspose1d_unroll(
     # padding
     # w_unrolled : (cin, in_shape[0], cout, ol - output_padding[0])
     w_unrolled = (
-        w_unrolled_ns[:, :, :, padding[0] : (-1 * padding[0])]
+        w_unrolled_ns[:, :, :, padding[0]: (-1 * padding[0])]
         if padding[0] > 0
         else w_unrolled_ns
     )
@@ -449,12 +453,12 @@ def _convtranspose1d_unroll(
 
 
 def _convtranspose2d_unroll(
-    in_shape: Size2Type,
-    out_shape: Size2Type,
-    kernel: WeightType,
-    stride: Size2Type,
-    padding: Size2Type,
-    output_padding: Size2Type,
+        in_shape: Size2Type,
+        out_shape: Size2Type,
+        kernel: WeightType,
+        stride: Size2Type,
+        padding: Size2Type,
+        output_padding: Size2Type,
 ) -> WeightType:
     """Unroll the kernel of 2d transposed convolution into a matrix."""
     kernel_flip = np.flip(kernel, axis=(2, 3))
@@ -478,21 +482,21 @@ def _convtranspose2d_unroll(
             for ch_idx in np.ndindex(kernel_flip.shape[:2]):
                 # [0] -> o_ch, [1] -> i_ch
                 zeros_image[
-                    i * stride_transpose[0]
-                    + ch_idx[1] * ih : i * stride_transpose[0]
-                    + ch_idx[1] * ih
-                    + kh,
-                    j * stride_transpose[1]
-                    + ch_idx[0] * iw : j * stride_transpose[1]
-                    + ch_idx[0] * iw
-                    + kw,
-                    i * ow + j,
+                i * stride_transpose[0]
+                + ch_idx[1] * ih: i * stride_transpose[0]
+                                  + ch_idx[1] * ih
+                                  + kh,
+                j * stride_transpose[1]
+                + ch_idx[0] * iw: j * stride_transpose[1]
+                                  + ch_idx[0] * iw
+                                  + kw,
+                i * ow + j,
                 ] = kernel_flip[ch_idx[0], ch_idx[1], :, :]
 
             t = (
                 zeros_image[:, :, i * ow + j]
-                .reshape(cin * ih, cout, iw)
-                .transpose(1, 0, 2)
+                    .reshape(cin * ih, cout, iw)
+                    .transpose(1, 0, 2)
             )
             for o_ch in range(cout):
                 w_unrolled_np[:, i * ow + j + o_ch * out_size] = t[o_ch].ravel()
@@ -545,12 +549,12 @@ def _convtranspose2d_unroll(
 
 
 def _convtranspose1d_faster(
-    x_cl: NeuOutType,
-    out_shape: Size1Type,
-    kernel: WeightType,
-    stride: Size1Type,
-    padding: Size1Type,
-    output_padding: Size1Type,
+        x_cl: NeuOutType,
+        out_shape: Size1Type,
+        kernel: WeightType,
+        stride: Size1Type,
+        padding: Size1Type,
+        output_padding: Size1Type,
 ) -> SynOutType:
     # (C, L)
     xc, xl = x_cl.shape
@@ -589,7 +593,7 @@ def _convtranspose1d_faster(
     out = out.T
 
     # inverse padding : (cout, (xl-1)*stride+kernel) -> (cout, (xl-1)*stride+kernel-2*padding)
-    out = out[:, padding[0] : (-1 * padding[0])] if padding[0] > 0 else out
+    out = out[:, padding[0]: (-1 * padding[0])] if padding[0] > 0 else out
 
     # output_padding
     out = np.pad(out, ((0, 0), (0, output_padding[0])), mode="constant")
@@ -598,12 +602,12 @@ def _convtranspose1d_faster(
 
 
 def _convtranspose2d_faster(
-    x_chw: NeuOutType,
-    out_shape: Size2Type,
-    kernel: WeightType,
-    stride: Size2Type,
-    padding: Size2Type,
-    output_padding: Size2Type,
+        x_chw: NeuOutType,
+        out_shape: Size2Type,
+        kernel: WeightType,
+        stride: Size2Type,
+        padding: Size2Type,
+        output_padding: Size2Type,
 ) -> SynOutType:
     # (C, H, W)
     xc, xh, xw = x_chw.shape
@@ -649,10 +653,10 @@ def _convtranspose2d_faster(
     # padding & output_padding
     # inverse padding
     out = out[
-        :,
-        padding[0] : (-1 * padding[0]) if padding[0] > 0 else None,
-        padding[1] : (-1 * padding[1]) if padding[1] > 0 else None,
-    ]
+          :,
+          padding[0]: (-1 * padding[0]) if padding[0] > 0 else None,
+          padding[1]: (-1 * padding[1]) if padding[1] > 0 else None,
+          ]
     # output_padding
     out = np.pad(
         out, ((0, 0), (0, output_padding[0]), (0, output_padding[1])), mode="constant"
@@ -662,7 +666,7 @@ def _convtranspose2d_faster(
 
 
 def _1d_im2col(
-    x_padded: NeuOutType, ol: int, kl: int, stride: Size1Type
+        x_padded: NeuOutType, ol: int, kl: int, stride: Size1Type
 ) -> NDArray[np.int64]:
     cols = np.zeros((ol, x_padded.shape[0] * kl), dtype=np.int64)
 
@@ -670,14 +674,14 @@ def _1d_im2col(
 
     idx = 0
     for i in range(0, pl - kl + 1, stride[0]):
-        cols[idx] = x_padded[:, i : i + kl].ravel()
+        cols[idx] = x_padded[:, i: i + kl].ravel()
         idx += 1
 
     return cols
 
 
 def _2d_im2col(
-    x_padded: NeuOutType, oh: int, ow: int, kh: int, kw: int, stride: Size2Type
+        x_padded: NeuOutType, oh: int, ow: int, kh: int, kw: int, stride: Size2Type
 ) -> NDArray[np.int64]:
     cols = np.zeros((oh * ow, x_padded.shape[0] * kh * kw), dtype=np.int64)
 
@@ -686,7 +690,7 @@ def _2d_im2col(
     idx = 0
     for i in range(0, ph - kh + 1, stride[0]):
         for j in range(0, pw - kw + 1, stride[1]):
-            cols[idx] = x_padded[:, i : i + kh, j : j + kw].ravel()
+            cols[idx] = x_padded[:, i: i + kh, j: j + kw].ravel()
             idx += 1
 
     return cols

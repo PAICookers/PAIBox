@@ -8,148 +8,6 @@ from paibox.components.synapses.conv_utils import _conv2d_halfroll
 from paibox.simulator.utils import _conv2d_faster_fp32
 
 
-class fcnet_2layer_dual_port(pb.Network):
-    def __init__(self, weight1, Vthr1, weight2, Vthr2):
-        super().__init__()
-
-        pe = pb.simulator.PoissonEncoder()
-        self.i1 = pb.InputProj(input=pe, shape_out=(5,))
-        self.i2 = pb.InputProj(input=pe,shape_out=(5,))
-        self.n1 = pb.IF(10, threshold=Vthr1, reset_v=0, name="delay_1")
-        self.s1 = pb.FullConn(
-            self.i1,
-            self.n1,
-            weights=weight1,
-            conn_type=pb.SynConnType.All2All,
-        )
-        self.n2 = pb.IF(
-            5, threshold=Vthr2, reset_v=0, tick_wait_start=2, name="delay_2"
-        )
-        self.s2 = pb.FullConn(
-            self.i2,
-            self.n2,
-            weights=weight1,
-            conn_type=pb.SynConnType.All2All,
-        )
-        self.n3 = pb.IF(
-            20, threshold=Vthr2, reset_v=0, tick_wait_start=2, name="IF_1"
-        )
-        self.s3 = pb.FullConn(
-            self.n1,
-            self.n3,
-            weights=weight1,
-            conn_type=pb.SynConnType.All2All,
-        )
-        self.s4 = pb.FullConn(
-            self.n2,
-            self.n3,
-            weights=weight1,
-            conn_type=pb.SynConnType.All2All,
-        )
-        # self.n3 = pb.IF(
-        #     20, threshold=Vthr2, reset_v=0, tick_wait_start=2, name="IF_2"
-        # )
-        # self.s4 = pb.FullConn(
-        #     self.n2,
-        #     self.n3,
-        #     weights=weight1,
-        #     conn_type=pb.SynConnType.All2All,
-        # )
-
-        # tick_wait_start = 2 for second layer
-
-        # self.n3 = pb.IF(
-        #     5, threshold=Vthr2, reset_v=0, tick_wait_start=2, name="batch_dual_port_o2"
-        # )
-        # self.s3 = pb.FullConn(
-        #     self.n1,
-        #     self.n2,
-        #     weights=weight2,
-        #     conn_type=pb.SynConnType.All2All,
-        # )
-        # self.s4 = pb.FullConn(
-        #     self.n1,
-        #     self.n3,
-        #     weights=weight2,
-        #     conn_type=pb.SynConnType.All2All,
-        # )
-        #
-        # self.probe1 = pb.Probe(target=self.n2, attr="spike")
-        # self.probe2 = pb.Probe(target=self.n3, attr="spike")
-
-class fcnet_3(pb.Network):
-    def __init__(self):
-        super().__init__()
-
-        pe = pb.simulator.PoissonEncoder()
-        self.i1 = pb.InputProj(input=pe, shape_out=(2, 5, 5))
-        self.n1 = pb.IF((1, 7), threshold=1, reset_v=0, name="n_1")
-        self.n2 = pb.IF((1, 5, 5), threshold=1, reset_v=0, name="n_2")
-        self.n3 = pb.IF((1, 5, 5), threshold=1, reset_v=0, name="n_3")
-        self.n4 = pb.IF((1, 5), threshold=1, reset_v=0, name="n_4")
-        self.n5 = pb.IF((1, 3), threshold=1, reset_v=0, name="n_5")
-        self.n6 = pb.IF((1, 3), threshold=1, reset_v=0, name="n_6")
-        self.n7 = pb.IF((1, 3), threshold=1, reset_v=0, name="n_7")
-        self.s0 = pb.FullConn(
-            self.i1,
-            self.n1,
-            weights=1,
-            conn_type=pb.SynConnType.All2All,
-        )
-        self.s1 = pb.FullConn(
-            self.n1,
-            self.n2,
-            weights=1,
-            conn_type=pb.SynConnType.All2All,
-        )
-        self.s2 = pb.FullConn(
-            self.n2,
-            self.n3,
-            weights=1,
-            conn_type=pb.SynConnType.All2All,
-        )
-        self.s3 = pb.FullConn(
-            self.n1,
-            self.n3,
-            weights=1,
-            conn_type=pb.SynConnType.All2All,
-        )
-        self.s4 = pb.FullConn(
-            self.n3,
-            self.n4,
-            weights=1,
-            conn_type=pb.SynConnType.All2All,
-        )
-        self.s5 = pb.FullConn(
-            self.n4,
-            self.n5,
-            weights=1,
-            conn_type=pb.SynConnType.All2All,
-        )
-        self.s6 = pb.FullConn(
-            self.n3,
-            self.n5,
-            weights=1,
-            conn_type=pb.SynConnType.All2All,
-        )
-        self.s7 = pb.FullConn(
-            self.n5,
-            self.n6,
-            weights=1,
-            conn_type=pb.SynConnType.All2All,
-        )
-        self.s8 = pb.FullConn(
-            self.n6,
-            self.n7,
-            weights=1,
-            conn_type=pb.SynConnType.All2All,
-        )
-        self.s9 = pb.FullConn(
-            self.n5,
-            self.n7,
-            weights=1,
-            conn_type=pb.SynConnType.All2All,
-        )
 weight1 = np.random.randint(0, 10, size=(32, 1, 5, 5), dtype=np.int8)
 weight2 = np.random.randint(0, 10, size=(32, 32, 2, 2), dtype=np.int8)
 weight3 = np.random.randint(0, 10, size=(64, 32, 5, 5), dtype=np.int8)
@@ -243,50 +101,81 @@ class fcnet_4(pb.DynSysGroup):
 def out_bypass1(t, data1, *args, **kwargs):
     return data1
 
-input_data1 = np.array([[1,2,5,7,5],
-                       [2,0,8,8,2],
-                       [3,8,5,7,5],
-                       [4,9,2,5,4],
-                       [5,10,2,3,8],
-                       [0,0,0,0,0],
-                       [0,0,0,0,0],
-                       [0,0,0,0,0],
-                       [0,0,0,0,0]], dtype=np.int8)
+# input_data1 = np.array([[1,2,5,7,5],
+#                        [2,0,8,8,2],
+#                        [3,8,5,7,5],
+#                        [4,9,2,5,4],
+#                        [5,10,2,3,8],
+#                        [0,0,0,0,0],
+#                        [0,0,0,0,0],
+#                        [0,0,0,0,0],
+#                        [0,0,0,0,0],
+#                        [0,0,0,0,0]], dtype=np.int8)
+#
+# weight1 = np.array([[1,0],
+#  [0 ,1],
+#  [1 ,0],
+#  [0 ,1],
+#  [1 ,0],
+#  [0 ,1],
+#  [0 ,1],
+#  [0 ,0],
+#  [1 ,1]], dtype=np.int8)
+inpa = np.random.randint(0, 2, size=(1, 11, 11)).astype(np.int8)
+inpb = np.concatenate([inpa, np.zeros((1, 10, 11))], axis=1)
+weight = np.random.randint(0, 2, size=(3*3, 2), dtype=np.int8)
 class fcnet_5(pb.DynSysGroup):
     def __init__(self):
         super().__init__()
-        self.i1 = pb.InputProj(input=out_bypass1, shape_out=(1, 5))
-        self.conv1 = pb.ConvHalfRoll(self.i1, np.array([[[[2,1,2],[1,2,1],[1,2,3]]]], dtype=np.int8), 1, 1, tick_wait_start=1)
-        self.conv2 = pb.ConvHalfRoll(self.conv1, np.array([[[[-2,1,2],[1,-2,1],[1,2,-3]]]], dtype=np.int8),1,0, tick_wait_start=3)
-        # self.linear1 = pb.DelayFullConn(
-        #     self.n5,
-        #     self.n6,
-        #     delay=4,
-        #     weights=np.random.randint(0, 10, size=(1024, 256), dtype=np.int8),
-        #     conn_type=pb.SynConnType.All2All,
-        # )
-        # self.filter = pb.Filter(self.n8, 28)
-pb_net = fcnet_5()
+        self.i1 = pb.InputProj(input=out_bypass1, shape_out=(1, 11))
+        self.conv1 = pb.ConvHalfRoll(self.i1, np.array([[[[2,1,2],[1,-2,1],[-1,2,-3]]]], dtype=np.int8), 2, 0, tick_wait_start=1)
+        self.conv2 = pb.ConvHalfRoll(self.conv1, np.array([[[[2,1,2],[1,-2,1],[-1,2,-3]]]], dtype=np.int8), 1, 0, tick_wait_start=3)
+        self.linear1 = pb.DelayFullConn(
+            self.conv2,
+            2,
+            weights=weight,
+            conn_type=pb.SynConnType.All2All,
+            tick_wait_start=5
+        )
 
-generated = pb.DynSysGroup.build_fmodule(pb_net)
+pb_net1 = fcnet_5()
+conv = pb_net1.conv2
+linear = pb_net1.linear1
+generated = pb.DynSysGroup.build_fmodule(pb_net1)
 
-sim1 = pb.Simulator(pb_net, start_time_zero=False)
+sim1 = pb.Simulator(pb_net1, start_time_zero=False)
 
-for i in range(9):
-    pb.FRONTEND_ENV.save(data1=input_data1[i])
+
+probe_conv = pb.Probe(generated[conv][0], "output")
+probe_linear = pb.Probe(generated[linear][0], "output")
+sim1.add_probe(probe_conv)
+sim1.add_probe(probe_linear)
+for i in range(20):
+    pb.FRONTEND_ENV.save(data1=inpb[0][i])
     sim1.run(1)
-    #print(pb_net.nd_Conv_HalfRoll_0.output)
-    print(pb_net.nd_Conv_HalfRoll_1.output)
-
-output =_conv2d_faster_fp32(np.array([[[1,2,3,4,5],[2,0,8,9,10],[5,8,5,2,2],[7,8,7,5,3],[5,2,5,4,8]]]),
-                            np.array([[[[2,1,2],[1,2,1],[1,2,3]]]], dtype=np.int8),
-                            (1,1),
-                            (1,1))
-#print(output)
-output = _conv2d_faster_fp32(np.array([[[8,34,55,72,43],[43,56,64,71,48],[58,90,83,82,45],[59,82,76,73,37],[35,50,49,46,33]]]),
-                             np.array([[[[-2,1,2],[1,-2,1],[1,2,-3]]]], dtype=np.int8),(1,1),(0,0))
-print(output)
-
+    #print(pb_net1.nd_Delay_FullConn_0.output)
+    #sim2.run(1)
+for i in range(17):
+#     print(sim1.data[probe_conv][i])
+    print(sim1.data[probe_linear][i])
+data = np.array(sim1.data[probe_conv][8:15])
+print(data)
+#data = np.transpose(data, (1, 0))
+print(data)
+# output = data.ravel() @ weight
+# print(output)
+# output =_conv2d_faster_fp32(np.array([[[1,2,3,4,5],[2,0,8,9,10],[5,8,5,2,2],[7,8,7,5,3],[5,2,5,4,8]]]),
+#                             np.array([[[[2,1,2],[1,-2,1],[-1,2,-3]]]], dtype=np.int8),
+#                             (2,2),
+#                             (1,1))
+# output[output < 0] = 0
+# print(output)
+# #output = np.transpose(output, (0, 2, 1))
+#
+# #print(output.ravel() @ weight1)
+# output = _conv2d_faster_fp32(output, np.array([[[[2,1,2],[1,-2,1],[-1,2,-3]]]], dtype=np.int8),(2,2),(0,0))
+# output[output < 0] = 0
+# print(output)
 
 
 class deeplabv2(pb.DynSysGroup):

@@ -41,8 +41,9 @@ from .neuron.utils import vjt_overflow
 from .projection import InputProj
 from .synapses import ConnType, FullConnSyn, Conv2dHalfRollSyn
 from .synapses.conv_types import _Size2Type
-from .synapses.conv_utils import _fm_ndim2_check, _pair
+from .synapses.conv_utils import _fm_ndim2_check, _pair, _conv2d_faster
 from .synapses.transforms import Conv2dForward, _Pool2dForward
+from ..simulator.utils import _conv2d_faster_fp32
 
 if sys.version_info >= (3, 13):
     from warnings import deprecated
@@ -989,21 +990,22 @@ class Delay_FullConn(FunctionalModule):
     def __init__(
             self,
             neuron_s: Union[NeuDyn, InputProj],
-            neuron_d: Union[NeuDyn, InputProj],
-            delay: int,
+            #neuron_d: Union[NeuDyn, InputProj],
+            out_feature: tuple[int, ...],
+            #delay: int,
             weights: DataArrayType = 1,
             conn_type: ConnType = ConnType.MatConn,
             keep_shape: bool = False,
             name: Optional[str] = None,
             **kwargs,
     ) -> None:
-        self.delay = delay
+        #self.delay =
         self.weights = weights
         self.conn_type = conn_type
-        _shape_out = neuron_d.shape_out
+        _shape_out = out_feature
         super().__init__(
             neuron_s,
-            neuron_d,
+            #neuron_d,
             shape_out=_shape_out,
             keep_shape=keep_shape,
             name=name,
@@ -1011,21 +1013,41 @@ class Delay_FullConn(FunctionalModule):
         )
 
     def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
-        return
+        output = x1 @ self.weights
+        return output
 
-    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
-        if len(self.module_intf.operands[0].shape_out)!=2:
+    def build(self, network: DynSysGroup, delay: int, **build_options) -> BuiltComponentType:
+        if len(self.module_intf.operands[0].shape_out) != 2:
             raise ShapeError("The source node must be a successor to the half-convolution")
         delay_shape = self.module_intf.operands[0].shape_out
         delay_neurons = []
-        for i in range(self.delay):
+        neuron_d = Neuron(
+            self.shape_out,
+            reset_mode=RM.MODE_NONRESET,
+            neg_thres_mode=NTM.MODE_SATURATION,
+            leak_v=0,
+            neg_threshold=0,
+            pos_threshold=0,
+            delay=self.delay_relative,
+            tick_wait_start=self.tick_wait_start+1,
+            tick_wait_end=self.tick_wait_end,
+            input_width=self.input_width,
+            spike_width=self.spike_width,
+            snn_en=self.snn_en,
+            keep_shape=self.keep_shape,
+            name=f"nd_{self.name}",
+        )
+        for i in range(delay_shape[1]):
             neuron = Neuron(
                 shape=delay_shape,
                 leak_v=0,
                 neg_threshold=0,
-                delay=i+1,
+                delay=delay*i+1,
                 tick_wait_start=self.tick_wait_start,
                 tick_wait_end=self.tick_wait_end,
+                input_width=self.input_width,
+                spike_width=self.spike_width,
+                snn_en=self.snn_en,
                 keep_shape=self.keep_shape,
                 name=f"n{i}_{self.name}",
             )
@@ -1039,17 +1061,18 @@ class Delay_FullConn(FunctionalModule):
                 name=f"s{i}_delay",
             )
             #w = np.zeros((neuron.num_out, self.module_intf.operands[1].num_out))
-            w = self.weights[i::self.delay, :]
+            w = self.weights[delay_shape[1]-i-1::delay_shape[1], :]
             syn2 = FullConnSyn(  # cin,(kw-1)*ih -> cout * oh
                 delay_neurons[i], # 54 -> 54
-                self.module_intf.operands[1],
+                neuron_d,
                 weights=w,
                 conn_type=self.conn_type,
                 name=f"s{i}_{self.name}",
             )
-            network._add_components(neuron, syn1, syn2)
-            network._remove_components(self)
-            generated = [*delay_neurons, syn1, syn2]
+
+            generated = [neuron_d, *delay_neurons, syn1, syn2]
+            self._rebuild_out_intf(network, neuron_d, *generated, **build_options)
+
         return generated
 
 
@@ -1080,19 +1103,15 @@ class Conv_HalfRoll(FunctionalModule):
             )
 
         if len(neuron_s.shape_out) != 2:
-            in_ch, in_h, in_w = _fm_ndim2_check(neuron_s.shape_out, "CHW")
-            neuron_s.shape_change((in_ch, in_h))
-        in_ch, in_h = neuron_s.shape_out
+            in_ch, in_h, in_w = neuron_s.shape_out
+        #     in_ch, in_h, in_w = _fm_ndim2_check(neuron_s.shape_out, "CHW")
+        #     neuron_s.shape_change((in_ch, in_h))
+        else:
+            in_ch, in_h, = neuron_s.shape_out
         cout, cin, kh, kw = kernel.shape
-        # if len(neuron_d.shape_out) != 2:
-        #     out_ch, out_h, out_w = _fm_ndim2_check(neuron_d.shape_out, "CHW")
-        #     neuron_d.shape_change((cout, out_h))
-
-
         out_h = (in_h - kh + 2 * self.padding[0] ) // self.stride[0] + 1
         if in_ch != cin:
             raise ShapeError(f"input channels mismatch: {in_ch} != {cin}.")
-
 
         _shape_out = (cout, out_h)
 
@@ -1106,11 +1125,18 @@ class Conv_HalfRoll(FunctionalModule):
         )
 
     def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
-        #print("进入function.spike_func")
-        return
+        print("进入conv.spike_func")
+        print(x1)
+        #output = _conv2d_faster_fp32(x1, self.kernel, self.stride, self.padding)
+        output = _conv2d_faster(x1, self.shape_out, self.kernel, self.stride, self.padding)
+        output[output < 0] = 0
+        return output
 
     def build(self, network: DynSysGroup, delay: int, **build_options) -> BuiltComponentType:
         #print("进入build")
+        if len(self.module_intf.operands[0].shape_out) != 2:
+            in_ch, in_h, in_w = _fm_ndim2_check(self.module_intf.operands[0].shape_out, "CHW")
+            self.module_intf.operands[0].shape_change((in_ch, in_h))
         in_ch, in_h = self.module_intf.operands[0].shape_out
         cout, cin, kh, kw = self.kernel.shape
         n_delays = NodeList()
@@ -1212,6 +1238,9 @@ class Filter(FunctionalModule):
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
             tick_wait_end=self.tick_wait_end,
+            input_width=self.input_width,
+            spike_width=self.spike_width,
+            snn_en=self.snn_en,
             keep_shape=self.keep_shape,
             name="filter"
         )
