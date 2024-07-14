@@ -981,17 +981,11 @@ def packbits1():
 
 
 def n_axon2lcn_ex_proto(n_axon, n_fanin_max) -> LCN_EX:
-    """Convert #N(of axons) to `LCN_EX` & check.
-
-    NOTE: LCN_EX = log2[ceil(#N/fan-in per dendrite)], where `LCN_1X` = 0.
-    """
     if n_axon < 1:
-        raise ValueError(f"the number of axons must be positive, but got {n_axon}.")
+        raise ValueError
 
     if (lcn := ((n_axon - 1) // n_fanin_max).bit_length()) > LCN_EX.LCN_64X:
-        raise ResourceError(
-            f"required LCN extension out of range {LCN_EX.LCN_64X} ({lcn}). "
-        )
+        raise ResourceError
 
     return LCN_EX(lcn)
 
@@ -1620,13 +1614,15 @@ class TestData:
     )
 
     aligned_coords_test_data = ParametrizedTestData(
-        args="neu_index, axon_seg, delay, n_timeslot, expected",
+        args="neu_index, axon_seg, delay, n_timeslot, is_iw8, expected",
         data=[
+            # iw1
             (
                 slice(5, 8),
                 AxonSegment(12, 3, 0),
                 1,
                 1 << 1,
+                False,
                 [
                     AxonCoord(1, 2),
                     AxonCoord(2, 0),
@@ -1638,17 +1634,15 @@ class TestData:
                 AxonSegment(12, 3, 0),
                 2,
                 1 << 1,
-                [
-                    AxonCoord(2 + 0, 0),
-                    AxonCoord(2 + 0, 1),
-                    AxonCoord(2 + 0, 2),
-                ],
+                False,
+                [AxonCoord(2 + 0, i) for i in range(3)],
             ),
             (
                 slice(1, 5),
                 AxonSegment(12, 3, 0),
                 2,
                 1 << 2,
+                False,
                 [
                     AxonCoord(4 + 0, 1),
                     AxonCoord(4 + 0, 2),
@@ -1661,6 +1655,7 @@ class TestData:
                 AxonSegment(12, 3, 0),
                 4,
                 1 << 3,
+                False,
                 [
                     AxonCoord(24 + 0, 1),
                     AxonCoord(24 + 0, 2),
@@ -1674,15 +1669,78 @@ class TestData:
                 AxonSegment(16, 4, 4),
                 4,
                 1 << 4,
+                False,
+                [AxonCoord(48 + 0, 4 + 3)]
+                + [AxonCoord(48 + 1, 4 + i) for i in range(4)]
+                + [AxonCoord(48 + 2, 4 + 0), AxonCoord(48 + 2, 4 + 1)],
+            ),
+            # iw8
+            (
+                slice(5, 8),
+                AxonSegment(12, 3, 0),
+                1,
+                1 << 1,
+                True,
                 [
-                    AxonCoord(48 + 0, 4 + 3),
-                    AxonCoord(48 + 1, 4 + 0),
-                    AxonCoord(48 + 1, 4 + 1),
-                    AxonCoord(48 + 1, 4 + 2),
-                    AxonCoord(48 + 1, 4 + 3),
-                    AxonCoord(48 + 2, 4 + 0),
-                    AxonCoord(48 + 2, 4 + 1),
+                    AxonCoord(1, 8 * 2),
+                    AxonCoord(2, 8 * 0),
+                    AxonCoord(2, 8 * 1),
                 ],
+            ),
+            (
+                slice(0, 3),
+                AxonSegment(12, 3, 0),
+                2,
+                1 << 1,
+                True,
+                [AxonCoord(2 + 0, 8 * i) for i in range(3)],
+            ),
+            (
+                slice(1, 5),
+                AxonSegment(12, 3, 0),
+                2,
+                1 << 2,
+                True,
+                [
+                    AxonCoord(4 + 0, 8 * 1),
+                    AxonCoord(4 + 0, 8 * 2),
+                    AxonCoord(4 + 1, 8 * 0),
+                    AxonCoord(4 + 1, 8 * 1),
+                ],
+            ),
+            (
+                slice(1, 6),
+                AxonSegment(12, 3, 0),
+                4,
+                1 << 3,
+                True,
+                [
+                    AxonCoord(24 + 0, 8 * 1),
+                    AxonCoord(24 + 0, 8 * 2),
+                    AxonCoord(24 + 1, 8 * 0),
+                    AxonCoord(24 + 1, 8 * 1),
+                    AxonCoord(24 + 1, 8 * 2),
+                ],
+            ),
+            (
+                slice(5, 15),
+                AxonSegment(16, 8, 16),
+                1,
+                1 << 1,
+                True,
+                [AxonCoord(0, 8 * (16 + i)) for i in range(5, 8)]
+                + [AxonCoord(1, 8 * (16 + i)) for i in range(7)],
+            ),
+            (
+                slice(5, 35),
+                AxonSegment(40, 10, 10),
+                1,
+                1 << 2,
+                True,
+                [AxonCoord(0, 8 * (10 + i)) for i in range(5, 10)]
+                + [AxonCoord(1, 8 * (10 + i)) for i in range(10)]
+                + [AxonCoord(2, 8 * (10 + i)) for i in range(10)]
+                + [AxonCoord(3, 8 * (10 + i)) for i in range(5)],
             ),
         ],
     )

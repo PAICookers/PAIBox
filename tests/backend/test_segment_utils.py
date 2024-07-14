@@ -119,6 +119,5 @@ def test_get_axon_segments_boundary(axons):
     TestData.aligned_coords_test_data["args"],
     TestData.aligned_coords_test_data["data"],
 )
-def test_aligned_coords(neu_index, axon_seg, delay, n_timeslot, expected):
-    axon_coords = aligned_coords(neu_index, axon_seg, delay, n_timeslot)
-    assert axon_coords == expected
+def test_aligned_coords(neu_index, axon_seg, delay, n_timeslot, is_iw8, expected):
+    assert aligned_coords(neu_index, axon_seg, delay, n_timeslot, is_iw8) == expected
