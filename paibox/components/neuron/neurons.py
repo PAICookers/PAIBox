@@ -6,7 +6,7 @@ from paicorelib import LDM, NTM, RM
 from paibox.types import DataArrayType, Shape
 
 from .base import Neuron
-from .utils import LEAK_V_MAX, NEG_THRES_MIN
+from .utils import LEAK_V_MAX
 
 __all__ = ["IF", "LIF", "TonicSpiking", "PhasicSpiking", "SpikingRelu"]
 
@@ -52,17 +52,12 @@ class IF(Neuron):
             _reset_v = 0
             _rm = RM.MODE_LINEAR
 
-        if isinstance(neg_threshold, int):
-            _neg_threshold = neg_threshold
-        else:
-            _neg_threshold = NEG_THRES_MIN
-
         super().__init__(
             shape,
             reset_mode=_rm,
             reset_v=_reset_v,
             neg_thres_mode=NTM.MODE_SATURATION,
-            neg_threshold=_neg_threshold,
+            neg_threshold=neg_threshold,
             pos_threshold=threshold,
             keep_shape=keep_shape,
             name=name,
@@ -121,17 +116,12 @@ class LIF(Neuron):
         # Support passing in bias & leak_v at the same time
         _leak_v = leak_v + _bias
 
-        if isinstance(neg_threshold, int):
-            _neg_threshold = neg_threshold
-        else:
-            _neg_threshold = NEG_THRES_MIN
-
         super().__init__(
             shape,
             reset_mode=_rm,
             reset_v=_reset_v,
             neg_thres_mode=NTM.MODE_SATURATION,
-            neg_threshold=_neg_threshold,
+            neg_threshold=neg_threshold,
             pos_threshold=threshold,
             leak_v=_leak_v,
             keep_shape=keep_shape,

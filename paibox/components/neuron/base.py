@@ -407,7 +407,7 @@ class Neuron(MetaNeuron, NeuDyn):
         leak_comparison: LCM = LCM.LEAK_BEFORE_COMP,
         threshold_mask_bits: int = 0,
         neg_thres_mode: NTM = NTM.MODE_RESET,
-        neg_threshold: int = NEG_THRES_MIN,
+        neg_threshold: Optional[int] = None,
         pos_threshold: int = 1,
         leak_direction: LDM = LDM.MODE_FORWARD,
         leak_integration_mode: Union[L[0, 1], bool, LIM] = LIM.MODE_DETERMINISTIC,
@@ -426,6 +426,9 @@ class Neuron(MetaNeuron, NeuDyn):
         keep_shape: bool = True,
         name: Optional[str] = None,
     ) -> None:
+        if neg_threshold is None:
+            neg_threshold = NEG_THRES_MIN
+
         if neg_threshold > 0:
             # XXX *(-1) if passing a negative threshold > 0
             neg_threshold = (-1) * neg_threshold
