@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 import sys
 from collections import defaultdict
 from dataclasses import asdict, dataclass
@@ -355,7 +356,7 @@ def gen_config_frames_by_coreconf(
     write_to_file: bool,
     fp: Path,
     split_by_chip: bool,
-    formats: list[str],
+    formats: Sequence[str],
 ) -> dict[ChipCoord, list[FrameArrayType]]:
     """Generate configuration frames by given the `CorePlmConfig`."""
 

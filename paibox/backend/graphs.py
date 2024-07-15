@@ -302,7 +302,7 @@ class PAIGraph:
         is_optimized = False
 
         if optim_nodes == ():
-            _optim_nodes = reversed(self.ordered_nodes)
+            _optim_nodes = list(reversed(self.ordered_nodes))
         else:
             _optim_nodes = optim_nodes
 
@@ -613,8 +613,8 @@ def convert2routing_groups(
                 else:
                     succ_cb_gid_dict[succ_cb._routing_id] = [succ_cb]
 
-            for succ_cb in succ_cb_gid_dict.values():
-                routing_groups.append(RoutingGroup(*succ_cb))
+            for v in succ_cb_gid_dict.values():
+                routing_groups.append(RoutingGroup(*v))
 
     routing_groups_succ: dict[RoutingGroup, list[RoutingGroup]] = defaultdict(list)
 

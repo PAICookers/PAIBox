@@ -28,7 +28,7 @@ class IF(Neuron):
         Args:
             - shape: shape of neurons.
             - threshold: when the membrane potential exceeds the threshold, neurons will fire.
-            - reset_v: If not specified, neurons will do soft reset after firing, v - threshold. If \
+            - reset_v: if not specified, neurons will do soft reset after firing, v - threshold. If \
                 specified, neurons will do hard reset after firing, v = reset_v.
             - neg_threshold: signed negative theshold. If not specified, it will be the smallest    \
                 negative integer allowed by the hardware.
@@ -94,7 +94,7 @@ class LIF(Neuron):
             - leak_v: the signed leak voltage will be added directly to the membrane potential.
                 - If it is positive, the membrane potential will increase.
                 - If is is negative, the membrane potential will decrease.
-                - the final leak_v is leak_v + bias (default=0).
+                - The final leak_v is leak_v + bias (default=0).
             - bias: if a signed bias is given, it will be added to `leak_v`. The neuron will leak   \
                 before threshold comparison. `leak_v` will also be considered now.
             - neg_threshold: signed negative theshold. If not specified, it will be the smallest    \

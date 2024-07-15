@@ -527,8 +527,14 @@ class RoutingGroup:
 
         return self[0].chip_coord
 
+    def __contains__(self, cb: CoreBlock) -> bool:
+        return cb in self.core_blocks
+
     def __getitem__(self, idx: int) -> CoreBlock:
         return self.core_blocks[idx]
+
+    def __iter__(self) -> Iterator[CoreBlock]:
+        return self.core_blocks.__iter__()
 
 
 @final

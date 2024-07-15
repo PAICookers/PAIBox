@@ -455,7 +455,7 @@ class Mapper:
             "n4": {...} # as output node #2
         }
         """
-        output_dest_info = defaultdict(dict)
+        output_dest_info: OutputDestConf = defaultdict(dict)
         # Shallow copy
         ocoord = copy(_BACKEND_CONTEXT["output_core_addr_start"])
 
