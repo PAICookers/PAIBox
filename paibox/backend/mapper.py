@@ -36,7 +36,7 @@ from .graphs import (
 )
 from .placement import CoreBlock, aligned_coords, max_lcn_of_cb
 from .routing import RoutingGroup, RoutingRoot
-from .types import NeuSegment, NodeDegree, NodeType, SourceNodeType
+from .types import NeuSegment, NodeDegree, NodeType, SourceNodeType, is_iw8
 
 __all__ = ["Mapper"]
 
@@ -217,7 +217,9 @@ class Mapper:
 
         for part in partitioned_edges:
             self.core_blocks.append(
-                CoreBlock.build(*part.edges, seed=0, routing_id=part.rg_id)
+                CoreBlock.build(
+                    *part.edges, routing_id=part.rg_id, rt_mode=part.rt_mode
+                )
             )
 
         for cur_cb in self.core_blocks:
@@ -411,6 +413,7 @@ class Mapper:
                 input_cb.axon_segments[inode],
                 1,
                 input_cb.n_timeslot,
+                is_iw8(input_cb.rt_mode),
             )
 
             inp_neuron_dest = InputNeuronDest(

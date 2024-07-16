@@ -14,7 +14,7 @@ from paibox.utils import check_elem_unique
 
 from .constrs import GraphNodeConstrs
 from .context import _BACKEND_CONTEXT
-from .placement import CoreBlock, neuron_repl_prop
+from .placement import CoreBlock
 from .routing import RoutingGroup
 from .segment_utils import get_neu_segments
 from .types import *
@@ -215,6 +215,8 @@ class PAIGraph:
             and the edges connected to these partitioned nodes will be returned as a set.
 
         Return: a list of partitioned edges & a list of routing groups id.
+
+        TODO constraints in partitioning: iw, sw, snn_en, tws, twe, pool_max_en.
         """
         self.build_check()
 
@@ -264,6 +266,10 @@ class PAIGraph:
                 succ_nodes_set.update(self._raw_nodes[n] for n in self.succ_dg[_node])
 
             succ_nodes_lst: list[NodeType] = list(succ_nodes_set)
+            mode = succ_nodes_lst[0].mode
+            if any(mode != node.mode for node in succ_nodes_lst):
+                raise NotSupportedError("mixed mode is not supported.")
+
             idx_of_sg = GraphNodeConstrs.tick_wait_attr_constr(succ_nodes_lst)
 
             if len(idx_of_sg) > 0:
@@ -274,10 +280,9 @@ class PAIGraph:
                             e.edge
                             for e in self.pred_dg[succ_nodes_lst[i].name].values()
                         )
-                    gh_parts.append(PartitionedEdges(succ_edges_sg, rgid))
-
+                    gh_parts.append(PartitionedEdges(succ_edges_sg, rgid, rt_mode=mode))
             else:
-                gh_parts.append(PartitionedEdges(succ_edges_set, rgid))
+                gh_parts.append(PartitionedEdges(succ_edges_set, rgid, rt_mode=mode))
 
             rgid += 1
 
@@ -337,8 +342,8 @@ class PAIGraph:
             n_core_required_after_copy = len(
                 get_neu_segments(
                     pred_cb_dest,
-                    pred_cb.neuron_capacity,
-                    neuron_repl_prop(pred_cb.n_weight_bits, pred_cb.n_timeslot),
+                    pred_cb.n_fanout,
+                    pred_cb.n_neuron_repl,
                     _BACKEND_CONTEXT.cflags["grouping_optim_target"],
                 )
             )
@@ -353,8 +358,8 @@ class PAIGraph:
                 n_core_after_split[i] = len(
                     get_neu_segments(
                         dest,  # type: ignore
-                        succ_cb.neuron_capacity,
-                        neuron_repl_prop(succ_cb.n_weight_bits, succ_cb.n_timeslot),
+                        succ_cb.n_fanout,
+                        succ_cb.n_neuron_repl,
                         _BACKEND_CONTEXT.cflags["grouping_optim_target"],
                     )
                 )
