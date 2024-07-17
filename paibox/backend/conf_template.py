@@ -385,15 +385,29 @@ def gen_config_frames_by_coreconf(
             )
 
             # 3. Iterate all the neuron segments inside the physical core.
+            # FIXME Unfortunately, at present, only the corresponding NRAM can be written based on
+            # the neuron configurations, and it cannot handle the case where the NRAM address is >= 512,
+            # that is, some neurons need to occupy the NRAM, which is inconsistent with the current logic.
+            # Additional neuron configurations has been written to the NRAM within the CorePlacement.
+            # NOTE The meaning of 'n_neuron' in function 'gen_config_frame3' is the number of neurons in
+            # the NRAM. See notes of function '_weight_ram_mapping' of `CorePlacement` in file
+            # backend/placement.py for details.
             config_frame_type3 = []
             for neu_conf in v.neuron_configs.values():
+                # The actual number of neurons placed in NRAM.
+                _n_neuron_nram = (
+                    HwConfig.ADDR_RAM_MAX + 1
+                    if neu_conf.n_neuron > HwConfig.ADDR_RAM_MAX + 1
+                    else neu_conf.n_neuron
+                )
+
                 config_frame_type3.append(
                     OfflineFrameGen.gen_config_frame3(
                         chip_coord,
                         core_coord,
                         _RID_UNSET,
                         neu_conf.addr_offset,
-                        neu_conf.n_neuron,
+                        _n_neuron_nram,
                         neu_conf.neuron_attrs,
                         neu_conf.neuron_dest_info,
                         lcn_ex=v.params_reg.lcn_extension,
@@ -411,15 +425,16 @@ def gen_config_frames_by_coreconf(
                 frame3 = np.array([], dtype=FRAME_DTYPE)
 
             # 4. Only one config frame type IV for each physical core.
-            n_addr_write = v.params_reg.num_dendrite  # The number of address to write
-            if n_addr_write > 0:
+            # NOTE To avoid logical complications, write the entire weights to the WRAM, rather than just the
+            # valid partial weights, because there are still some neurons configurations in the WRAM.
+            if v.params_reg.num_dendrite > 0:
                 config_frame_type4 = OfflineFrameGen.gen_config_frame4(
                     chip_coord,
                     core_coord,
                     _RID_UNSET,
                     0,
-                    18 * n_addr_write,
-                    v.weight_ram[:n_addr_write],
+                    18 * (HwConfig.ADDR_RAM_MAX + 1),
+                    v.weight_ram[: HwConfig.ADDR_RAM_MAX + 1],
                 )
             else:
                 config_frame_type4 = None
