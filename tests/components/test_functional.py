@@ -11,7 +11,7 @@ from paibox.utils import as_shape, shape2num, typical_round
 
 
 def _assert_build_fmodule(
-    network: DynSysGroup, n_node_bef_build: int, n_node_aft_build: int
+        network: DynSysGroup, n_node_bef_build: int, n_node_aft_build: int
 ):
     nodes = network.nodes().subset(DynamicSys).unique()
     assert len(nodes) == n_node_bef_build
@@ -412,16 +412,16 @@ class TestFunctionalModules:
         ],
     )
     def test_SpikingPool2d(
-        self,
-        shape,
-        channels,
-        ksize,
-        stride,
-        padding,
-        threshold,
-        fm_order,
-        pool_type,
-        p_binomial,
+            self,
+            shape,
+            channels,
+            ksize,
+            stride,
+            padding,
+            threshold,
+            fm_order,
+            pool_type,
+            p_binomial,
     ):
         from tests.shared_networks import SpikingPool2d_Net
 
@@ -506,14 +506,14 @@ class TestFunctionalModules:
         ],
     )
     def test_SpikingAvgPool2dWithV(
-        self,
-        shape,
-        channels,
-        ksize,
-        stride,
-        padding,
-        threshold,
-        p_binomial,
+            self,
+            shape,
+            channels,
+            ksize,
+            stride,
+            padding,
+            threshold,
+            p_binomial,
     ):
         """NOTE: This function is a native implementation of SNNs and is therefore not  \
             compared to the ANN implementation."""
@@ -648,34 +648,64 @@ class TestFunctionalModules:
         mapper.export(fp=ensure_dump_dir)
 
     @pytest.mark.parametrize(
+        "shape, kernel, stride, padding",
+        [
+            ((3, 11), np.random.randint(-2, 3, size=(1, 3, 3, 3), dtype=np.int8),
+             [1, 1], [0, 0]),
+            ((3, 11), np.random.randint(-2, 3, size=(1, 3, 3, 3), dtype=np.int8),
+             [1, 2], [0, 0]),
+            ((3, 11), np.random.randint(-2, 3, size=(1, 3, 3, 3), dtype=np.int8),
+             [2, 1], [0, 0]),
+            ((3, 11), np.random.randint(-2, 3, size=(1, 3, 3, 3), dtype=np.int8),
+             [2, 2], [0, 0]),
+        ],
+    )
+    def test_Conv2dSemiMap(self, shape, kernel, stride, padding):
+        from tests.shared_networks import Conv2dSemiMap_Net1
+        net1 = Conv2dSemiMap_Net1(shape, kernel, stride, padding)
+        conv = net1.conv1
+        generated = DynSysGroup.build_fmodule(net1)
+        sim1 = pb.Simulator(net1, start_time_zero=False)
+        probe_conv = pb.Probe(generated[conv][0], "output")
+        sim1.add_probe(probe_conv)
+        inpa = np.random.randint(0, 5, size=(3, 11, 11)).astype(np.int8)
+        inpb = np.concatenate([inpa, np.zeros((3, 10, 11))], axis=1)
+        for i in range(15):
+            pb.FRONTEND_ENV.save(data1=inpb[:, i, :])
+            sim1.run(1)
+        expected = _conv2d_faster_fp32(np.transpose(inpa, (0, 2, 1)), kernel, _pair(stride[0]), _pair(padding[0]))
+        expected[expected < 0] = 0
+        expected = expected & (1 << 8) - 1
+        # print(expected)
+        # print(sim1.data[probe_conv])
+
+    @pytest.mark.parametrize(
         "shape, kernel, stride, padding, out_feature, weight",
         [
             ((1, 11), np.array([[[[2, 1, 2], [1, -2, 1], [-1, 2, -3]]]], dtype=np.int8),
-             [1, 1], [0, 0], 10, np.random.randint(-5, 5, size=(7*7, 10), dtype=np.int8)),
+             [1, 1], [0, 0], 10, np.random.randint(-5, 5, size=(7 * 7, 10), dtype=np.int8)),
             ((1, 11), np.array([[[[2, 1, 2], [1, -2, 1], [-1, 2, -3]]]], dtype=np.int8),
-             [1, 2], [0, 0], 10, np.random.randint(-5, 5, size=(4*4, 10), dtype=np.int8)),
+             [1, 2], [0, 0], 10, np.random.randint(-5, 5, size=(4 * 4, 10), dtype=np.int8)),
             ((1, 11), np.array([[[[2, 1, 2], [1, -2, 1], [-1, 2, -3]]]], dtype=np.int8),
              [2, 1], [0, 0], 10, np.random.randint(-5, 5, size=(3 * 3, 10), dtype=np.int8)),
             ((1, 11), np.array([[[[2, 1, 2], [1, -2, 1], [-1, 2, -3]]]], dtype=np.int8),
-             [2, 2], [0, 0], 10, np.random.randint(-5, 5, size=(2*2, 10), dtype=np.int8)),
+             [2, 2], [0, 0], 10, np.random.randint(-5, 5, size=(2 * 2, 10), dtype=np.int8)),
         ],
     )
-    def test_Conv_HalfRoll_Net(self, shape, kernel, stride, padding, out_feature, weight):
-        from tests.shared_networks import Conv_HalfRoll_Net1, Conv_HalfRoll_Net2
+    def test_Conv2dSemiMap_Net(self, shape, kernel, stride, padding, out_feature, weight):
+        from tests.shared_networks import Conv2dSemiMap_Net2
 
-        #net1 = Conv_HalfRoll_Net1(shape, kernel, stride, padding, out_feature, delay, weight)
-        net2 = Conv_HalfRoll_Net2(shape, kernel, stride, padding, out_feature, weight)
+        net2 = Conv2dSemiMap_Net2(shape, kernel, stride, padding, out_feature, weight)
         conv = net2.conv2
         linear = net2.linear1
         generated = DynSysGroup.build_fmodule(net2)
-        #sim1 = pb.Simulator(net1, start_time_zero=False)
+        # sim1 = pb.Simulator(net1, start_time_zero=False)
         sim2 = pb.Simulator(net2, start_time_zero=False)
 
         probe_conv = pb.Probe(generated[conv][0], "output")
         probe_linear = pb.Probe(generated[linear][0], "output")
         sim2.add_probe(probe_conv)
         sim2.add_probe(probe_linear)
-        # Use binomial distribution to generate a sparse matrix with more zeros
         inpa = np.random.randint(0, 5, size=(1, 11, 11)).astype(np.int8)
         inpb = np.concatenate([inpa, np.zeros((1, 10, 11))], axis=1)
         for i in range(17):
@@ -683,12 +713,67 @@ class TestFunctionalModules:
             sim2.run(1)
         expected = _conv2d_faster_fp32(np.transpose(inpa, (0, 2, 1)), kernel, _pair(stride[0]), _pair(padding[0]))
         expected[expected < 0] = 0
+
         expected = _conv2d_faster_fp32(expected, kernel, _pair(stride[1]), _pair(padding[1]))
         expected[expected < 0] = 0
-        # print(sim2.data[probe_conv][7:14])
-        # print(expected)
+
+        expected = np.array(expected, dtype=np.int32)
         expected = expected.ravel() @ weight
         expected[expected < 0] = 0
-        #expected = np.clip(expected, 0, 7)
-        print(expected)
-        print(sim2.data[probe_linear][15])
+        if (expected >> 8).all() > 0:
+            expected = np.full_like(expected, ((1 << 8) - 1))
+        else:
+            expected = expected & ((1 << 8) - 1)
+        # expected = np.clip(expected, 0, 7)
+        assert np.array_equal(expected, sim2.data[probe_linear][15])
+
+    @pytest.mark.parametrize(
+        "shape, kernel_size, stride, weight",
+        [
+            ((1, 8), (2, 2), [1, 1], np.random.randint(-5, 5, size=(6 * 6, 2), dtype=np.int8)),
+            ((1, 8), (2, 2), [2, 2], np.random.randint(-5, 5, size=(2 * 2, 2), dtype=np.int8)),
+        ],
+    )
+    def test_AvgPool2dSemiMap(self, shape, kernel_size, stride, weight):
+        from tests.shared_networks import AvgPool2dSemiMap_Net
+        net1 = AvgPool2dSemiMap_Net(shape, kernel_size, stride, weight)
+        avg = net1.avgpool2
+        linear = net1.linear1
+        generated = DynSysGroup.build_fmodule(net1)
+        sim1 = pb.Simulator(net1, start_time_zero=False)
+        probe_linear = pb.Probe(generated[linear][0], "output")
+        probe_avg = pb.Probe(generated[avg][0], "output")
+        sim1.add_probe(probe_avg)
+        sim1.add_probe(probe_linear)
+        inpa = np.random.randint(0, 10, size=(1, 8, 8)).astype(np.int8)
+        inpb = np.concatenate([inpa, np.zeros((1, 10, 8))], axis=1)
+        for i in range(12):
+            pb.FRONTEND_ENV.save(data1=inpb[:, i, :])
+            sim1.run(1)
+
+        #print(sim1.data[probe_avg])
+        #print(sim1.data[probe_linear])
+
+    @pytest.mark.parametrize(
+        "shape, weight1",
+        [
+            ((3, 5, 5), np.random.randint(-5, 5, size=(3 * 5 * 5, 10), dtype=np.int8)),
+        ],
+    )
+    def test_Linear(self, shape, weight1):
+        from tests.shared_networks import Linear_Net
+        net1 = Linear_Net(shape, weight1)
+        net2 = Linear_Net(shape, weight1)
+        linear = net2.linear1
+        generated = pb.DynSysGroup.build_fmodule(net2)
+        sim1 = pb.Simulator(net1, start_time_zero=False)
+        sim2 = pb.Simulator(net2, start_time_zero=False)
+        probe_linear = pb.Probe(generated[linear][0], "output")
+        sim2.add_probe(probe_linear)
+        inpa = np.random.randint(0, 10, (3, 5, 5), dtype=np.int8)
+        for i in range(1):
+            pb.FRONTEND_ENV.save(data1=inpa)
+            sim1.run(1)
+            sim2.run(1)
+
+        assert np.array_equal(sim1.data[net1.probe1][0], sim2.data[probe_linear][0])
