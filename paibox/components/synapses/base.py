@@ -89,7 +89,7 @@ class FullConnectedSyn(SynSys):
     def __copy__(self) -> "FullConnSyn":
         return self.__deepcopy__()
 
-    def __deepcopy__(self) -> "FullConnSyn":
+    def __deepcopy__(self, memo=None) -> "FullConnSyn":
         self._n_copied += 1
 
         return FullConnSyn(

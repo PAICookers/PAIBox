@@ -514,7 +514,7 @@ class Neuron(MetaNeuron, NeuDyn):
         """Same as `__deepcopy__`."""
         return self.__deepcopy__()
 
-    def __deepcopy__(self) -> "Neuron":
+    def __deepcopy__(self, memo=None) -> "Neuron":
         """Deepcopy a neuron.
 
         NOTE: It simply reinitializes a neuron with the parameters of the original neuron.

@@ -74,7 +74,7 @@ class NodeDegree:
     def __copy__(self) -> "NodeDegree":
         return self.__deepcopy__()
 
-    def __deepcopy__(self) -> "NodeDegree":
+    def __deepcopy__(self, memo=None) -> "NodeDegree":
         return NodeDegree(self.in_degree, self.out_degree)
 
     def copy(self) -> "NodeDegree":
