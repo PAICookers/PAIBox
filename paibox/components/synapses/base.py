@@ -25,6 +25,7 @@ from .transforms import (
     MaskedLinear,
     OneToOne,
     Transform,
+    _CompareMax,
 )
 
 RIGISTER_MASTER_KEY_FORMAT = "{0}.output"
@@ -79,14 +80,9 @@ class FullConnectedSyn(SynSys):
         else:
             # Retrieve 0 to the dest neurons if it is not working
             synin = np.zeros_like(self.source.output)
-        # for i in range(5):
-        #     if self.name == f"s{i}_Conv_HalfRoll_1":
-        #         print(f"{self.name}", synin)
-        #         print(self.connectivity)
+
         self._synout = self.comm(synin).ravel()
-        # for i in range(5):
-        #     if self.name == f"s{i}_Conv_HalfRoll_1":
-        #         print(f"{self.name}", self._synout)
+
         return self._synout
 
     def reset_state(self, *args, **kwargs) -> None:
@@ -364,9 +360,7 @@ class Conv2dHalfRollSyn(FullConnectedSyn):
         if in_ch != in_channels:
             raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
 
-        #comm = Conv2dForward((in_h, in_w), (out_h, out_w), _kernel, stride, padding)
         self.comm = Conv2dHalfForward((in_ch, in_h), (out_channels, out_h), _kernel, stride, padding)
-        #print(self.comm.connectivity)
 
 class ConvTranspose1dSyn(FullConnectedSyn):
     _spatial_ndim: ClassVar[int] = 1
@@ -473,3 +467,15 @@ class ConvTranspose2dSyn(FullConnectedSyn):
         self.comm = ConvTranspose2dForward(
             (in_h, in_w), (out_h, out_w), _kernel, stride, padding, output_padding
         )
+
+class MaxPool2dSemiMapSyn(FullConnectedSyn):
+
+    def __init__(
+            self,
+            source: Union[NeuDyn, InputProj],
+            dest: Neuron,
+            weights: DataArrayType = 1,
+            name: Optional[str] = None,
+    ) -> None:
+        super().__init__(source, dest, name)
+        self.comm = _CompareMax((self.num_in, self.num_out), weights)

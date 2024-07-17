@@ -16,6 +16,7 @@ from paicorelib import (
     InputWidthFormat,
     SNNModeEnable,
     SpikeWidthFormat,
+    MaxPoolingEnable,
     get_core_mode,
 )
 
@@ -78,6 +79,7 @@ class MetaNeuron:
         input_width: InputWidthFormat,
         spike_width: SpikeWidthFormat,
         snn_en: SNNModeEnable,
+        pool_max: MaxPoolingEnable,
         overflow_strict: bool,
         keep_shape: bool = False,
     ) -> None:
@@ -90,6 +92,7 @@ class MetaNeuron:
         self.input_width = input_width
         self.spike_width = spike_width
         self.snn_en = snn_en
+        self.pool_max = pool_max
         # check whether the mode is valid
         self.mode = get_core_mode(input_width, spike_width, snn_en)
 
@@ -318,7 +321,7 @@ class MetaNeuron:
         """
 
         def _truncate() -> VoltageType:
-            if (vj >> self.bit_truncation).all() > 0:  # Saturate truncation
+            if (vj >> self.bit_truncation > 0).all():  # Saturate truncation
                 return np.full_like(vj, _mask(8))
             elif self.bit_truncation == 0:
                 return self._vjt0
@@ -329,7 +332,6 @@ class MetaNeuron:
         v_truncated = np.where(
             self.thres_mode == TM.EXCEED_POSITIVE, _truncate(), self._vjt0
         )
-
         return v_truncated.astype(NEUOUT_U8_DTYPE)
 
     def _aux_pre_hook(self) -> None:
@@ -420,6 +422,7 @@ class Neuron(MetaNeuron, NeuDyn):
         input_width: Union[L[1, 8], InputWidthFormat] = InputWidthFormat.WIDTH_1BIT,
         spike_width: Union[L[1, 8], SpikeWidthFormat] = SpikeWidthFormat.WIDTH_1BIT,
         snn_en: bool = True,
+        pool_max: bool = False,
         unrolling_factor: int = 1,
         overflow_strict: bool = False,
         keep_shape: bool = True,
@@ -455,6 +458,7 @@ class Neuron(MetaNeuron, NeuDyn):
             _input_width_format(input_width),
             _spike_width_format(spike_width),
             SNNModeEnable(snn_en),
+            MaxPoolingEnable(pool_max),
             overflow_strict,
             keep_shape,
         )
@@ -495,7 +499,10 @@ class Neuron(MetaNeuron, NeuDyn):
             return None
 
         if x is None:
-            x = self.sum_inputs()
+            if not self.pool_max:
+                x = self.sum_inputs()
+            else:
+                x = self.max_inputs()
         else:
             x = np.atleast_1d(x)
         self._neu_out, self._vjt = super().update(x, self._vjt)

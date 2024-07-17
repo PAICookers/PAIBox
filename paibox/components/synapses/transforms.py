@@ -68,6 +68,7 @@ class ConnType(Enum):
     """All-to-all connection."""
 
 
+
 def _set_coarse_dtype(raw_w: DataArrayType) -> WeightType:
     """Convert raw weights to `np.ndarray` coarsely (without optimization).
 
@@ -416,9 +417,6 @@ class Conv2dHalfForward(Transform):
         super().__init__(kernel)
 
     def __call__(self, x: NeuOutType, *args, **kwargs) -> SynOutType:
-        # print(x)
-        # print(self.connectivity)
-        # print(x@self.connectivity)
         return x @ self.connectivity
 
 

@@ -154,6 +154,17 @@ class ReceiveInputProj(MixIn):
 
         return np.asarray(output, dtype=VOLTAGE_DTYPE)
 
+    def max_inputs(self, *args, **kwargs) -> VoltageType:
+        output = None
+        for node in self.master_nodes.values():
+            if output is None:
+                output = node.output.copy()
+            else:
+                output = np.maximum(output, node.output.copy())
+
+        return np.asarray(output, dtype=VOLTAGE_DTYPE)
+
+
 
 class TimeRelatedNode(MixIn):
     """Add time-related properties for `NeuDyn` & `InputProj`."""

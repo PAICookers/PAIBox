@@ -74,19 +74,27 @@ class DynSysGroup(DynamicSys, Container):
         cls, network: "DynSysGroup", **build_options
     ) -> dict[NeuModule, BuiltComponentType]:
         try:
-            from .components.functional import Conv_HalfRoll, Delay_FullConn
+            from .components.functional import Conv2dSemiMap, Delay_FullConn, MaxPool2dSemiMap, AvgPool2dSemiMap
         except ImportError:
-            Conv_HalfRoll, Delay_FullConn = None
+            Conv2dSemiMap, Delay_FullConn = None
         generated = dict()
         modules = network.nodes().subset(NeuModule).unique()
         delay = 1
         for module in modules.values():
-            if Conv_HalfRoll is not None and isinstance(module, Conv_HalfRoll):
+            if Conv2dSemiMap is not None and isinstance(module, Conv2dSemiMap):
                 generated[module] = module.build(network, delay, **build_options)
                 if module.stride[1] != 1:
                     delay = delay*module.stride[1]
             elif Delay_FullConn is not None and isinstance(module, Delay_FullConn):
                 generated[module] = module.build(network, delay, **build_options)
+            elif MaxPool2dSemiMap is not None and isinstance(module, MaxPool2dSemiMap):
+                generated[module] = module.build(network, delay, **build_options)
+                if module.stride[1] != 1:
+                    delay = delay*module.stride[1]
+            elif AvgPool2dSemiMap is not None and isinstance(module, AvgPool2dSemiMap):
+                generated[module] = module.build(network, delay, **build_options)
+                if module.stride[1] != 1:
+                    delay = delay*module.stride[1]
             else:
                 generated[module] = module.build(network, **build_options)
 
