@@ -4,7 +4,7 @@ from collections import defaultdict
 from dataclasses import asdict, dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, ClassVar, NamedTuple, TypedDict, Union
+from typing import Any, NamedTuple, TypedDict, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -41,7 +41,7 @@ from paibox.components import Neuron
 from paibox.utils import reverse_8bit
 
 from .context import _BACKEND_CONTEXT
-from .types import AxonCoord, NeuSegment, NodeName
+from .types import WRAMPackedType, AxonCoord, NeuSegment, NodeName
 
 try:
     import orjson
@@ -260,7 +260,7 @@ class CorePlmConfig(NamedTuple):
     """Extra parameters for debugging."""
 
     random_seed: int
-    weight_ram: NDArray[np.uint64]
+    weight_ram: WRAMPackedType
     params_reg: ParamsReg
     neuron_configs: dict[Neuron, NeuronConfig]
 
@@ -268,15 +268,15 @@ class CorePlmConfig(NamedTuple):
     def encapsulate(
         cls,
         random_seed: int,
-        weight_ram: NDArray[np.uint64],
-        core_config: CoreConfig,
-        neuron_configs: dict[Neuron, NeuronConfig],
+        weight_ram: WRAMPackedType,
+        core_cfg: CoreConfig,
+        neuron_cfg: dict[Neuron, NeuronConfig],
     ):
         return cls(
             random_seed,
             weight_ram,
-            ParamsReg.model_validate(core_config._asdict(), strict=True),
-            neuron_configs,
+            ParamsReg.model_validate(core_cfg._asdict(), strict=True),
+            neuron_cfg,
         )
 
     def export(self) -> dict[str, Any]:
@@ -287,11 +287,11 @@ class CorePlmConfig(NamedTuple):
             **self.params_reg.model_dump(by_alias=True),
         }
 
-        for neu, neu_config in self.neuron_configs.items():
+        for neu, neu_cfg in self.neuron_configs.items():
             if _USE_ORJSON:
-                dict_["neuron_rams"][neu.name] = orjson.loads(neu_config.to_json())
+                dict_["neuron_rams"][neu.name] = orjson.loads(neu_cfg.to_json())
             else:
-                dict_["neuron_rams"][neu.name] = json.loads(neu_config.to_json())
+                dict_["neuron_rams"][neu.name] = json.loads(neu_cfg.to_json())
 
         return dict_
 
@@ -303,23 +303,6 @@ class CorePlmConfig(NamedTuple):
             dict_[var] = getattr(self, var)
 
         return dict_
-
-
-class EmptyCorePlmConfig(CorePlmConfig):
-    _default_seed: ClassVar[int] = 0
-    _default_zero_wram: ClassVar[NDArray[np.uint64]] = np.zeros(
-        (HwConfig.ADDR_RAM_MAX, 18), dtype=np.uint64
-    )
-    _default_neuron_conf = {}  # don't care
-
-    @classmethod
-    def encapsulate(cls, core_config: CoreConfig):
-        return cls(
-            cls._default_seed,
-            cls._default_zero_wram,
-            ParamsReg.model_validate(core_config._asdict(), strict=True),
-            cls._default_neuron_conf,
-        )
 
 
 InputNodeConf: TypeAlias = dict[NodeName, InputNeuronDest]
@@ -436,7 +419,7 @@ def gen_config_frames_by_coreconf(
                     18 * (HwConfig.ADDR_RAM_MAX + 1),
                     v.weight_ram[: HwConfig.ADDR_RAM_MAX + 1],
                 )
-            else:
+            else:  # empty core placement
                 config_frame_type4 = None
 
             if config_frame_type4:

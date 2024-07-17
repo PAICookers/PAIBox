@@ -16,13 +16,7 @@ from paibox.exceptions import (
 from paibox.types import WeightType, WEIGHT_DTYPE
 from paibox.utils import check_attr_same
 
-from .conf_template import (
-    CoreConfig,
-    CoreConfInChip,
-    CorePlmConfig,
-    EmptyCorePlmConfig,
-    NeuronConfig,
-)
+from .conf_template import CoreConfig, CoreConfInChip, CorePlmConfig, NeuronConfig
 from .context import _BACKEND_CONTEXT
 from .segment_utils import aligned_coords, get_axon_segments, get_neu_segments
 from .types import (
@@ -758,6 +752,8 @@ class CorePlacement(CoreAbstract):
 class EmptyCorePlacement(CoreAbstract):
     """Empty core placement."""
 
+    _EMPTY_WRAM: int = 0
+
     def __init__(self, coord: Coord, name: Optional[str] = None) -> None:
         super().__init__(name)
         self.coord = coord
@@ -783,9 +779,10 @@ class EmptyCorePlacement(CoreAbstract):
         # fmt: on
         return cb_config
 
-    def export_core_plm_config(self) -> EmptyCorePlmConfig:
+    def export_core_plm_config(self) -> CorePlmConfig:
         core_param = self.export_param_config()
-        return EmptyCorePlmConfig.encapsulate(core_param)
+        # For empty core placements, we don't care random seed, WRAM & neurons cfg.
+        return CorePlmConfig.encapsulate(0, self._EMPTY_WRAM, core_param, {})  # type: ignore
 
     @classmethod
     def build(cls, coord: Coord):

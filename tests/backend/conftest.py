@@ -22,7 +22,6 @@ import paibox as pb
 from paibox.backend.conf_template import (
     CoreConfig,
     CorePlmConfig,
-    EmptyCorePlmConfig,
     InputNeuronDest,
     NeuronConfig,
     NeuronDest,
@@ -940,11 +939,6 @@ def MockCorePlmConfig(MockCoreConfigDict, MockNeuronConfig):
     )
 
     return cpc
-
-
-@pytest.fixture
-def MockEmptyCorePlmConfig(MockCoreConfigDict):
-    return EmptyCorePlmConfig.encapsulate(MockCoreConfigDict)
 
 
 def packbits_ref(bits: np.ndarray, count: int) -> int:
