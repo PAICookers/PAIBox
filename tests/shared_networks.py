@@ -241,14 +241,18 @@ class Conv2dSemiMap_Net2(pb.DynSysGroup):
             tick_wait_start=5
         )
 
-class AvgPool2dSemiMap_Net(pb.DynSysGroup):
-    def __init__(self, shape, kernel_size, stride, weight):
+class Pool2dSemiMap_Net(pb.DynSysGroup):
+    def __init__(self, shape, kernel_size, stride, weight, pool_type):
         super().__init__()
         self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape)
-        self.avgpool1 = pb.AvgPool2dSemiMap(self.i1, kernel_size, stride[0], tick_wait_start=1)
-        self.avgpool2 = pb.AvgPool2dSemiMap(self.avgpool1, kernel_size, stride[1], tick_wait_start=3)
+        if pool_type == "avg":
+            self.pool1 = pb.AvgPool2dSemiMap(self.i1, kernel_size, stride[0], tick_wait_start=1)
+            self.pool2 = pb.AvgPool2dSemiMap(self.pool1, kernel_size, stride[1], tick_wait_start=3)
+        else:
+            self.pool1 = pb.MaxPool2dSemiMap(self.i1, kernel_size, stride[0], tick_wait_start=1)
+            self.pool2 = pb.MaxPool2dSemiMap(self.pool1, kernel_size, stride[1], tick_wait_start=3)
         self.linear1 = pb.DelayFullConn(
-            self.avgpool2,
+            self.pool2,
             2,
             weights=weight,
             bias=0,

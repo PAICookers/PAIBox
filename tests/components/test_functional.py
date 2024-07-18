@@ -8,6 +8,7 @@ from paibox.components.synapses.conv_utils import _pair
 from paibox.network import DynSysGroup
 from paibox.simulator.utils import _conv2d_faster_fp32
 from paibox.utils import as_shape, shape2num, typical_round
+from tests.components.utils import max_pooling, avg_pooling
 
 
 def _assert_build_fmodule(
@@ -443,7 +444,7 @@ class TestFunctionalModules:
         sim2.add_probe(probe_p2d)
 
         # Use binomial distribution to generate a sparse matrix with more zeros
-        inpa = np.random.binomial(1, p_binomial, size=(20,)).astype(np.bool_)
+        inpa = np.random.binomial(1, p_binomial, size=(20,) + fm_shape).astype(np.bool_)
 
         for i in range(20):
             pb.FRONTEND_ENV.save(data1=inpa[i])
@@ -674,8 +675,11 @@ class TestFunctionalModules:
             pb.FRONTEND_ENV.save(data1=inpb[:, i, :])
             sim1.run(1)
         expected = _conv2d_faster_fp32(np.transpose(inpa, (0, 2, 1)), kernel, _pair(stride[0]), _pair(padding[0]))
-        expected[expected < 0] = 0
-        expected = expected & (1 << 8) - 1
+        expected = np.array(expected, dtype=np.int32)
+        if (expected >> 8).all() > 0:
+            expected = np.full_like(expected, ((1 << 8) - 1))
+        else:
+            expected = expected & ((1 << 8) - 1)
         # print(expected)
         # print(sim1.data[probe_conv])
 
@@ -728,30 +732,52 @@ class TestFunctionalModules:
         assert np.array_equal(expected, sim2.data[probe_linear][15])
 
     @pytest.mark.parametrize(
-        "shape, kernel_size, stride, weight",
+        "shape, kernel_size, stride, weight, pool_type",
         [
-            ((1, 8), (2, 2), [1, 1], np.random.randint(-5, 5, size=(6 * 6, 2), dtype=np.int8)),
-            ((1, 8), (2, 2), [2, 2], np.random.randint(-5, 5, size=(2 * 2, 2), dtype=np.int8)),
+            ((1, 8), (2, 2), [1, 1], np.random.randint(-5, 5, size=(6 * 6, 2), dtype=np.int8), "avg"),
+            ((1, 8), (2, 2), [2, 2], np.random.randint(-5, 5, size=(2 * 2, 2), dtype=np.int8), "avg"),
+            ((1, 8), (2, 2), [1, 1], np.random.randint(0, 5, size=(6 * 6, 2), dtype=np.int8), "max"),
+            ((1, 8), (2, 2), [2, 2], np.random.randint(0, 5, size=(2 * 2, 2), dtype=np.int8), "max"),
         ],
     )
-    def test_AvgPool2dSemiMap(self, shape, kernel_size, stride, weight):
-        from tests.shared_networks import AvgPool2dSemiMap_Net
-        net1 = AvgPool2dSemiMap_Net(shape, kernel_size, stride, weight)
-        avg = net1.avgpool2
+    def test_Pool2dSemiMap(self, shape, kernel_size, stride, weight, pool_type):
+        from tests.shared_networks import Pool2dSemiMap_Net
+        net1 = Pool2dSemiMap_Net(shape, kernel_size, stride, weight, pool_type)
+        pool = net1.pool2
         linear = net1.linear1
         generated = DynSysGroup.build_fmodule(net1)
         sim1 = pb.Simulator(net1, start_time_zero=False)
         probe_linear = pb.Probe(generated[linear][0], "output")
-        probe_avg = pb.Probe(generated[avg][0], "output")
-        sim1.add_probe(probe_avg)
+        probe_pool = pb.Probe(generated[pool][0], "output")
+        sim1.add_probe(probe_pool)
         sim1.add_probe(probe_linear)
         inpa = np.random.randint(0, 10, size=(1, 8, 8)).astype(np.int8)
         inpb = np.concatenate([inpa, np.zeros((1, 10, 8))], axis=1)
-        for i in range(12):
+        for i in range(13):
             pb.FRONTEND_ENV.save(data1=inpb[:, i, :])
             sim1.run(1)
-
-        #print(sim1.data[probe_avg])
+        if pool_type == "max":
+            expected = max_pooling(np.transpose(inpa, (0, 2, 1)), kernel_size, stride)
+            expected = max_pooling(expected, kernel_size, stride)
+            expected = np.array(expected, dtype=np.int32)
+            expected = expected.ravel() @ weight
+            if (expected >> 8).all() > 0:
+                expected = np.full_like(expected, ((1 << 8) - 1))
+            else:
+                expected = expected & ((1 << 8) - 1)
+            assert np.array_equal(expected, sim1.data[probe_linear][12])
+        else:
+            expected = avg_pooling(np.transpose(inpa, (0, 2, 1)), kernel_size, stride)
+            expected = avg_pooling(expected, kernel_size, stride)
+            expected = np.array(expected, dtype=np.int32)
+            expected = expected.ravel() @ weight
+            expected[expected < 0] = 0
+            if (expected >> 8).all() > 0:
+                expected = np.full_like(expected, ((1 << 8) - 1))
+            else:
+                expected = expected & ((1 << 8) - 1)
+            assert np.array_equal(expected, sim1.data[probe_linear][12])
+        #print(sim1.data[probe_pool])
         #print(sim1.data[probe_linear])
 
     @pytest.mark.parametrize(

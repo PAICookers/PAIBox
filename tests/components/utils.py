@@ -2,7 +2,7 @@ from typing import Optional
 
 import numpy as np
 
-from paibox.types import SpikeType
+from paibox.types import SpikeType, NeuOutType
 
 
 def maxpool2d_golden(
@@ -83,3 +83,64 @@ def avgpool2d_golden(
                 )
 
     return out >= threshold
+
+
+def max_pooling(input_data, kernel_size: tuple[int, int], stride:tuple[int, int],) -> NeuOutType:
+    """
+    实现最大池化层
+
+    参数:
+    input_data (numpy.ndarray): 输入数据,形状为(channels, height, width)
+    kernel_size (int): 池化核大小
+    stride (int): 步长
+
+    返回:
+    numpy.ndarray: 池化后的输出数据,形状为(channels, new_height, new_width)
+    """
+    channels, height, width = input_data.shape
+    new_height = (height - kernel_size[0]) // stride[0] + 1
+    new_width = (width - kernel_size[1]) // stride[1] + 1
+
+    output_data = np.zeros((channels, new_height, new_width))
+
+    for c in range(channels):
+        for i in range(new_height):
+            for j in range(new_width):
+                x1 = i * stride[0]
+                y1 = j * stride[1]
+                x2 = x1 + kernel_size[0]
+                y2 = y1 + kernel_size[1]
+                output_data[c, i, j] = np.max(input_data[c, x1:x2, y1:y2])
+
+    return output_data
+
+
+def avg_pooling(input_data, kernel_size: tuple[int, int], stride:tuple[int, int],) -> NeuOutType:
+    """
+    实现平均池化层
+
+    参数:
+    input_data (numpy.ndarray): 输入数据,形状为(batch_size, channels, height, width)
+    kernel_size (int): 池化核大小
+    stride (int): 步长
+
+    返回:
+    numpy.ndarray: 池化后的输出数据,形状为(batch_size, channels, new_height, new_width)
+    """
+    channels, height, width = input_data.shape
+    kernel_height, kernel_width = kernel_size
+    new_height = (height - kernel_size[0]) // stride[0] + 1
+    new_width = (width - kernel_size[1]) // stride[1] + 1
+
+    output_data = np.zeros((channels, new_height, new_width), dtype=np.int32)
+
+    for c in range(channels):
+        for i in range(new_height):
+            for j in range(new_width):
+                x1 = i * stride[0]
+                y1 = j * stride[1]
+                x2 = x1 + kernel_size[0]
+                y2 = y1 + kernel_size[1]
+                output_data[c, i, j] = np.sum(input_data[c, x1:x2, y1:y2]) >> ((kernel_height * kernel_width).bit_length()-1)
+
+    return output_data

@@ -17,6 +17,8 @@ from paibox.types import (
     NeuOutType,
     VoltageType,
     WeightType,
+    DataArrayType,
+    LeakVType,
 )
 from paibox.utils import (
     arg_check_non_neg,
