@@ -551,7 +551,7 @@ class TestFunctionalModules:
         mapper.compile()
         mapper.export(fp=ensure_dump_dir)
 
-    @pytest.mark.skipif(hasattr(pb.Transpose2d, "__deprecated__"))
+    @pytest.mark.skipif(hasattr(pb.Transpose2d, "__deprecated__"), reason="deprecated")
     @pytest.mark.parametrize("shape", [(32, 16), (1, 32), (64,), (128, 1), 48])
     def test_Transpose2d(self, shape):
         from tests.shared_networks import TransposeModule_T2d_Net
@@ -582,7 +582,7 @@ class TestFunctionalModules:
             expected = inpa[i - 2].T.ravel()
             assert np.array_equal(sim1.data[net1.probe2][i], expected)
 
-    @pytest.mark.skipif(hasattr(pb.Transpose2d, "__deprecated__"))
+    @pytest.mark.skipif(hasattr(pb.Transpose2d, "__deprecated__"), reason="deprecated")
     def test_Transpose2d_mapping(self, ensure_dump_dir):
         from tests.shared_networks import TransposeModule_T2d_Net
 
@@ -593,7 +593,7 @@ class TestFunctionalModules:
         mapper.compile()
         mapper.export(fp=ensure_dump_dir)
 
-    @pytest.mark.skipif(hasattr(pb.Transpose2d, "__deprecated__"))
+    @pytest.mark.skipif(hasattr(pb.Transpose2d, "__deprecated__"), reason="deprecated")
     @pytest.mark.parametrize(
         "shape, axes",
         [
@@ -635,7 +635,7 @@ class TestFunctionalModules:
             expected = inpa[i - 2].transpose(axes).ravel()
             assert np.array_equal(sim1.data[net1.probe2][i], expected)
 
-    @pytest.mark.skipif(hasattr(pb.Transpose2d, "__deprecated__"))
+    @pytest.mark.skipif(hasattr(pb.Transpose2d, "__deprecated__"), reason="deprecated")
     def test_Transpose3d_mapping(self, ensure_dump_dir):
         from tests.shared_networks import TransposeModule_T3d_Net
 
