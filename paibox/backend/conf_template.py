@@ -22,6 +22,7 @@ from paicorelib import (
 )
 from paicorelib import ReplicationId as RId
 from paicorelib import (
+    NeuronConf,
     RoutingCoord,
     SNNModeEnable,
     SpikeWidthFormat,
@@ -29,7 +30,7 @@ from paicorelib import (
     get_replication_id,
 )
 from paicorelib.framelib import types as flib_types
-from paicorelib.framelib.frame_gen import OfflineFrameGen
+from paicorelib.framelib import OfflineFrameGen
 from paicorelib.framelib.utils import _mask, np2bin, np2npy, np2txt
 
 if sys.version_info >= (3, 10):
@@ -175,16 +176,6 @@ class OutputNeuronDest(NamedTuple):
     end: AxonCoord
 
 
-try:
-    from paicorelib.ram_model import NeuronConf as _NeuronConf
-except ImportError:
-    from pydantic import BaseModel
-
-    class _NeuronConf(BaseModel):
-        attrs: NeuronAttrs
-        dest_info: NeuronDestInfo
-
-
 class NeuronConfig(NamedTuple):
     _extra_params = (
         "n_neuron",
@@ -239,8 +230,8 @@ class NeuronConfig(NamedTuple):
             neu_seg.n_neuron, neu_seg.addr_ram, neu_seg.offset, attrs, neuron_dest_info
         )
 
-    def export(self) -> _NeuronConf:
-        return _NeuronConf(attrs=self.neuron_attrs, dest_info=self.neuron_dest_info)
+    def export(self) -> NeuronConf:
+        return NeuronConf(attrs=self.neuron_attrs, dest_info=self.neuron_dest_info)
 
     def to_json(self) -> Union[str, bytes]:
         """Dump the configs into json for debugging."""
@@ -393,8 +384,7 @@ def gen_config_frames_by_coreconf(
                         _n_neuron_nram,
                         neu_conf.neuron_attrs,
                         neu_conf.neuron_dest_info,
-                        lcn_ex=v.params_reg.lcn_extension,
-                        weight_precision=v.params_reg.weight_precision,
+                        v.params_reg.n_repeat_nram,
                     )
                 )
 

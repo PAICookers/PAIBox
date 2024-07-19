@@ -393,8 +393,10 @@ class CorePlacement(CoreAbstract):
     neu_segs_of_cplm: NeuSegOfCorePlm
     neu_configs: dict[Neuron, NeuronConfig]
 
-    # FIXME Change to HwConfig.ADDR_AXON_MAX(1152) once it is fixed.
-    WRAM_BASE_SHAPE: ClassVar[tuple[int, int]] = (1152, HwConfig.ADDR_RAM_MAX)
+    WRAM_BASE_SHAPE: ClassVar[tuple[int, int]] = (
+        HwConfig.ADDR_AXON_MAX + 1,
+        HwConfig.ADDR_RAM_MAX + 1,
+    )
 
     def __init__(
         self,
@@ -797,19 +799,8 @@ def max_lcn_of_cb(cb: list[CoreBlock]) -> LCN_EX:
     return max(cb, key=lambda cb: cb.lcn_ex).lcn_ex
 
 
+# Get the fan-out by the combination rate of dendrites
 if hasattr(HwConfig, "FANOUT_IW8"):
     FANOUT_IW8 = HwConfig.FANOUT_IW8  # type: ignore
 else:
-    # Get the fan-out by the combination rate of dendrites
-    FANOUT_IW8: list[int] = [
-        HwConfig.N_NEURON_MAX_ANN,
-        1364,
-        876,
-        512,
-        256,
-        128,
-        64,
-        32,
-        16,
-        8,
-    ]
+    FANOUT_IW8 = [HwConfig.N_NEURON_MAX_ANN, 1364, 876, 512, 256, 128, 64, 32, 16, 8]

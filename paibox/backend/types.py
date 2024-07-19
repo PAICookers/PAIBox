@@ -125,9 +125,9 @@ class NeuSegment:
     def addr_max(self) -> int:
         if (
             _addr_max := self.offset + self.repeat * self.n_neuron
-        ) > HwConfig.ADDR_RAM_MAX:
+        ) > HwConfig.ADDR_RAM_MAX + 1:
             raise ValueError(
-                f"neuron RAM address out of range {HwConfig.ADDR_RAM_MAX} ({_addr_max})."
+                f"neuron RAM address out of range {HwConfig.ADDR_RAM_MAX + 1} ({_addr_max})."
             )
 
         return _addr_max
