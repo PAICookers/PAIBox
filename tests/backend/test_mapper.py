@@ -2,7 +2,7 @@ from math import ceil
 
 import numpy as np
 import pytest
-from paicorelib import Coord, HwConfig, WeightPrecision as WP
+from paicorelib import Coord, HwConfig, WeightWidth as WW
 
 import paibox as pb
 from paibox.base import SynSys
@@ -576,15 +576,15 @@ class TestMapper_cflags:
         mapper = pb.Mapper()
         mapper.build(net)
         mapper.compile(weight_bit_optimization=False)
-        assert mapper.core_blocks[0].weight_precision == WP.WEIGHT_WIDTH_8BIT
+        assert mapper.core_blocks[0].weight_width == WW.WEIGHT_WIDTH_8BIT
 
         mapper.clear()
         mapper.build(net)
         mapper.compile(weight_bit_optimization=True)
-        assert mapper.core_blocks[0].weight_precision == max(
-            s.weight_precision for s in (net.s1, net.s2, net.s3)
+        assert mapper.core_blocks[0].weight_width == max(
+            s.weight_width for s in (net.s1, net.s2, net.s3)
         )
-        assert mapper.core_blocks[0].weight_precision == expected_wp_opt
+        assert mapper.core_blocks[0].weight_width == expected_wp_opt
 
 
 from tests.utils import measure_time

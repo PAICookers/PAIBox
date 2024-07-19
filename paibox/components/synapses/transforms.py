@@ -3,7 +3,7 @@ from enum import Enum, auto, unique
 from typing import Literal, Optional
 
 import numpy as np
-from paicorelib import WeightPrecision as WP
+from paicorelib import WeightWidth as WW
 
 from paibox.exceptions import AutoOptimizationWarning, ShapeError
 from paibox.types import (
@@ -13,7 +13,7 @@ from paibox.types import (
     NeuOutType,
     SynOutType,
     WeightType,
-    VOLTAGE_DTYPE
+    VOLTAGE_DTYPE,
 )
 from paibox.utils import is_shape, shape2num, typical_round
 
@@ -109,22 +109,21 @@ def _set_coarse_dtype(raw_w: DataArrayType) -> WeightType:
     return _array.astype(_dtype, casting="same_kind")
 
 
-def _get_weight_precision(weight: WeightType, enable_wp_opt: bool) -> WP:
-    """Get the actual weight_precision of the weight."""
-    _max = np.max(weight, axis=None)
-    _min = np.min(weight, axis=None)
+def _get_weight_width_inner(weight: WeightType, enable_wp_opt: bool) -> WW:
+    """Get the actual width of the weight."""
+    _max, _min = np.max(weight), np.min(weight)
 
     if enable_wp_opt:
         if _max <= MAX_INT1 and _min >= MIN_INT1:
-            return WP.WEIGHT_WIDTH_1BIT
+            return WW.WEIGHT_WIDTH_1BIT
         elif _max <= MAX_INT2 and _min >= MIN_INT2:
-            return WP.WEIGHT_WIDTH_2BIT
+            return WW.WEIGHT_WIDTH_2BIT
         elif _max <= MAX_INT4 and _min >= MIN_INT4:
-            return WP.WEIGHT_WIDTH_4BIT
+            return WW.WEIGHT_WIDTH_4BIT
         else:
-            return WP.WEIGHT_WIDTH_8BIT
+            return WW.WEIGHT_WIDTH_8BIT
     else:
-        return WP.WEIGHT_WIDTH_8BIT
+        return WW.WEIGHT_WIDTH_8BIT
 
 
 class Transform:
@@ -140,8 +139,8 @@ class Transform:
             "function '__call__' must be implemented in the subclasses."
         )
 
-    def _get_wp(self, enable_wp_opt: bool) -> WP:
-        return _get_weight_precision(self.weights, enable_wp_opt)
+    def _get_weight_width(self, enable_wp_opt: bool) -> WW:
+        return _get_weight_width_inner(self.weights, enable_wp_opt)
 
     @property
     def connectivity(self) -> WeightType:

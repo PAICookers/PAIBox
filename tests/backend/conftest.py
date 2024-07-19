@@ -15,7 +15,7 @@ from paicorelib import (
     RoutingDirection,
     RoutingLevel,
 )
-from paicorelib import WeightPrecision as WP
+from paicorelib import WeightWidth as WW
 from paicorelib.reg_model import TICK_WAIT_END_MAX, TICK_WAIT_START_MAX
 
 import paibox as pb
@@ -811,7 +811,7 @@ def get_mapper() -> pb.Mapper:
 
 @pytest.fixture
 def MockCoreConfigDict() -> CoreConfig:
-    wp = random.choice(list(WP))
+    wp = random.choice(list(WW))
     lcn_ex = random.choice(list(LCN_EX))
 
     iwf, swf, sme = random.choice(list(CoreMode)).conf
@@ -1276,61 +1276,61 @@ class TestData:
                 ((0, 2), (0, 2)),
                 1,
                 (np.bool_, np.bool_),
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
             ),
             (
                 ((0, 2), (0, 2)),
                 -1,
                 (np.bool_, np.bool_),
-                WP.WEIGHT_WIDTH_2BIT,
+                WW.WEIGHT_WIDTH_2BIT,
             ),
             (
                 ((0, 2), (0, 2)),
                 1,
                 (np.bool_, np.int8),
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
             ),
             (
                 ((0, 2), (0, 2)),
                 -2,
                 (np.int8, np.bool_),
-                WP.WEIGHT_WIDTH_2BIT,
+                WW.WEIGHT_WIDTH_2BIT,
             ),
             (
                 ((0, 2), (0, 2)),
                 1,
                 (np.int8, np.int8),
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
             ),
             (
                 ((0, 2), (-2, 2)),
                 -8,
                 (np.bool_, np.int8),
-                WP.WEIGHT_WIDTH_4BIT,
+                WW.WEIGHT_WIDTH_4BIT,
             ),
             (
                 ((0, 2), (-2, 2)),
                 7,
                 (np.bool_, np.int8),
-                WP.WEIGHT_WIDTH_4BIT,
+                WW.WEIGHT_WIDTH_4BIT,
             ),
             (
                 ((0, 2), (-128, 128)),
                 127,
                 (np.bool_, np.int8),
-                WP.WEIGHT_WIDTH_8BIT,
+                WW.WEIGHT_WIDTH_8BIT,
             ),
             (
                 ((-2, 2), (-8, 8)),
                 7,
                 (np.int8, np.int8),
-                WP.WEIGHT_WIDTH_4BIT,
+                WW.WEIGHT_WIDTH_4BIT,
             ),
             (
                 ((-8, 8), (-8, 8)),
                 -100,
                 (np.int8, np.int8),
-                WP.WEIGHT_WIDTH_8BIT,
+                WW.WEIGHT_WIDTH_8BIT,
             ),
         ],
     )
@@ -1342,7 +1342,7 @@ class TestData:
             (
                 [_nl[0], _nl[1]],
                 512,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
                     [NeuSegment(_nl[0], slice(0, 300, 1), 0)],
@@ -1354,7 +1354,7 @@ class TestData:
             (
                 [_nl[0], _nl[1]],
                 256,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [NeuSegment(_nl[0], slice(0, 200, 1), 0, 2)],
@@ -1369,7 +1369,7 @@ class TestData:
             (
                 [_nl[2]],
                 200,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [NeuSegment(_nl[2], slice(80 * 0, 80 * 1, 1), 0, 2)],
@@ -1381,7 +1381,7 @@ class TestData:
             (
                 [_nl[0], _nl[2]],
                 400,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
                     [NeuSegment(_nl[0], slice(0, 300, 1), 0)],
@@ -1393,7 +1393,7 @@ class TestData:
             (
                 [_nl[3], _nl[4]],
                 240,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [NeuSegment(_nl[3], slice(67 * 0, 67 * 1, 1), 0, 2)],
@@ -1415,7 +1415,7 @@ class TestData:
             (
                 [_nc[0], _nc[1]],
                 512,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
                     [NeuSegment(_nc[0], slice(0, 512, 1), 0)],
@@ -1429,7 +1429,7 @@ class TestData:
             (
                 [_nc[0], _nc[1]],
                 256,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [NeuSegment(_nc[0], slice(256 * 0, 256 * 1, 1), 0, 2)],
@@ -1446,7 +1446,7 @@ class TestData:
             (
                 [_nc[3], _nc[4]],
                 256,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     # Place the neuron segments with full capacity first
@@ -1460,7 +1460,7 @@ class TestData:
             (
                 [_nc[5], _nc[6]],
                 512,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
                     [NeuSegment(_nc[6], slice(0, 500, 1), 0, 1)],
@@ -1477,7 +1477,7 @@ class TestData:
             (
                 [_nb[0], _nb[1]],
                 512,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
                     [NeuSegment(_nb[0], slice(0, 300, 1), 0)],
@@ -1489,7 +1489,7 @@ class TestData:
             (
                 [_nb[0], _nb[1]],
                 256,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [NeuSegment(_nb[1], slice(0, 200, 1), 0, 2)],
@@ -1504,7 +1504,7 @@ class TestData:
             (
                 [_nb[2]],
                 200,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [NeuSegment(_nb[2], slice(80 * 0, 80 * 1, 1), 0, 2)],
@@ -1516,7 +1516,7 @@ class TestData:
             (
                 [_nb[2], _nb[3]],
                 200,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [
@@ -1542,7 +1542,7 @@ class TestData:
             (
                 [_nb[2], _nb[3], _nb[4]],
                 256,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [
@@ -1586,7 +1586,7 @@ class TestData:
             (
                 [_nb[3], _nb[4]],
                 240,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [

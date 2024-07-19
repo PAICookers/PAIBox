@@ -4,7 +4,7 @@ from typing import ClassVar, Literal, Optional, overload
 
 import numpy as np
 from paicorelib import LCN_EX, ChipCoord, Coord, CoreMode, HwConfig, MaxPoolingEnable
-from paicorelib import WeightPrecision as WP
+from paicorelib import WeightWidth as WW
 
 from paibox.components import FullConnectedSyn, Neuron
 from paibox.exceptions import (
@@ -189,14 +189,14 @@ class CoreBlock(CoreAbstract):
         return len(self.neuron_segs_of_cb)
 
     @property
-    def weight_precision(self) -> WP:
-        # Optimized in `s.weight_precision`.
-        return max(s.weight_precision for s in self.obj)
+    def weight_width(self) -> WW:
+        # `weight_width` is optimized in FullConnectedSyn.
+        return max(s.weight_width for s in self.obj)
 
     @property
     def n_weight_bits(self) -> int:
         """Multiple dendrites will be combined to achieve higher precision weights."""
-        return 1 << self.weight_precision
+        return 1 << self.weight_width
 
     @property
     def lcn_ex(self) -> LCN_EX:
@@ -219,7 +219,7 @@ class CoreBlock(CoreAbstract):
     @property
     def dendrite_comb_rate(self) -> int:
         """#N of dendrites will be combined."""
-        return self.lcn_ex + self.weight_precision
+        return self.lcn_ex + self.weight_width
 
     @property
     def tws(self) -> int:
@@ -331,7 +331,7 @@ class CoreBlock(CoreAbstract):
     def n_neuron_repl(self) -> int:
         """The number of neurons that need to be repeatedly placed into NRAM.
 
-        For example, in SNN mode, N[0:3] with LCN_2X & WP8:
+        For example, in SNN mode, N[0:3] with LCN_2X & WW8:
             NRAM [0]  [1]  ... [15] [16] [17] ... [31] ...
                  N[0] N[0] ... N[0] N[1] N[1] ... N[1] ...
 
@@ -483,12 +483,12 @@ class CorePlacement(CoreAbstract):
             
             A portion of the fan-in needs to be expanded to an unfilled portion in the direction of the weight      \
             accuracy. At this point, n_fold=n_timeslot/(8/n_weight_bits)=2^(dendrite_comb_rate - 3). For example,   \
-            for LCN_8X & WP8, the n_fold is 3. For LCN_32X & WP4, the n_fold is 4 (instead of 5).
+            for LCN_8X & WW8, the n_fold is 3. For LCN_32X & WW4, the n_fold is 4 (instead of 5).
             
         TODO Now, in ANN mode, only the mapping of 8-bit weights is supported. The weight accuracy optimization is  \
             supposed to disable manually for now.
         """
-        if not self.rt_mode.is_snn and self.weight_precision < WP.WEIGHT_WIDTH_8BIT:
+        if not self.rt_mode.is_snn and self.weight_width < WW.WEIGHT_WIDTH_8BIT:
             raise NotSupportedError("only support 8-bit weights in ANN mode.")
 
         _weights_folded = self._fold_raw_weights(self.raw_weights)
@@ -588,7 +588,7 @@ class CorePlacement(CoreAbstract):
         # fmt: off
         cb_config = CoreConfig(
             self.name,                          # name of the core
-            self.weight_precision,              # weight_precision
+            self.weight_width,             # weight_precision
             self.lcn_ex,                        # lcn_extension
             _mode_params[0],                    # input_width_format
             _mode_params[1],                    # spike_width_format
@@ -671,7 +671,6 @@ class CorePlacement(CoreAbstract):
 
     def export_core_plm_config(self) -> CorePlmConfig:
         core_param = self.export_param_config()
-
         return CorePlmConfig.encapsulate(
             self.parent.seed, self.weight_ram, core_param, self.neu_configs
         )
@@ -679,10 +678,10 @@ class CorePlacement(CoreAbstract):
     @property
     def shape(self) -> tuple[int, int]:
         return (len(self.source), len(self.dest))
- 
+
     @property
-    def weight_precision(self) -> WP:
-        return self.parent.weight_precision
+    def weight_width(self) -> WW:
+        return self.parent.weight_width
 
     @property
     def n_weight_bits(self) -> int:
@@ -764,7 +763,7 @@ class EmptyCorePlacement(CoreAbstract):
         # fmt: off
         cb_config = CoreConfig(
             self.name,                          # name of the core
-            WP.WEIGHT_WIDTH_1BIT,               # weight_precision
+            WW.WEIGHT_WIDTH_1BIT,               # weight_precision
             LCN_EX.LCN_1X,                      # lcn_extension
             _mode_params[0],                    # input_width_format
             _mode_params[1],                    # spike_width_format

@@ -2,7 +2,7 @@ from typing import ClassVar, Optional, Union
 
 import numpy as np
 from paicorelib import HwConfig
-from paicorelib import WeightPrecision as WP
+from paicorelib import WeightWidth as WW
 
 from paibox.base import NeuDyn, SynSys
 from paibox.exceptions import RegisterError, ShapeError
@@ -185,8 +185,8 @@ class FullConnectedSyn(SynSys):
         return self.comm.weights
 
     @property
-    def weight_precision(self) -> WP:
-        return self.comm._get_wp(self.CFLAG_ENABLE_WP_OPTIMIZATION)
+    def weight_width(self) -> WW:
+        return self.comm._get_weight_width(self.CFLAG_ENABLE_WP_OPTIMIZATION)
 
     @property
     def connectivity(self) -> WeightType:

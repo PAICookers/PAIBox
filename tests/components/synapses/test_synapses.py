@@ -2,7 +2,7 @@ from contextlib import nullcontext
 
 import numpy as np
 import pytest
-from paicorelib import WeightPrecision as WP
+from paicorelib import WeightWidth as WW
 
 import paibox as pb
 from paibox.components import FullConnectedSyn
@@ -112,13 +112,13 @@ class TestFullConn:
     @pytest.mark.parametrize(
         "n1, n2, scalar_weight, expected_wp",
         [
-            (pb.IF(10, 3), pb.IF(10, 3), 1, WP.WEIGHT_WIDTH_1BIT),
-            (pb.IF((3, 3), 3), pb.IF((3, 3), 3), 4, WP.WEIGHT_WIDTH_4BIT),
-            (pb.IF((5,), 3), pb.IF((5,), 3), -1, WP.WEIGHT_WIDTH_2BIT),
+            (pb.IF(10, 3), pb.IF(10, 3), 1, WW.WEIGHT_WIDTH_1BIT),
+            (pb.IF((3, 3), 3), pb.IF((3, 3), 3), 4, WW.WEIGHT_WIDTH_4BIT),
+            (pb.IF((5,), 3), pb.IF((5,), 3), -1, WW.WEIGHT_WIDTH_2BIT),
             # TODO 3-dimension shape is correct for data flow?
-            (pb.IF((10, 2, 3), 3), pb.IF((10, 2, 3), 3), 16, WP.WEIGHT_WIDTH_8BIT),
-            (pb.IF((10, 2), 3), pb.IF((4, 5), 3), -100, WP.WEIGHT_WIDTH_8BIT),
-            (pb.IF(10, 3), pb.IF((2, 5), 3), 7, WP.WEIGHT_WIDTH_4BIT),
+            (pb.IF((10, 2, 3), 3), pb.IF((10, 2, 3), 3), 16, WW.WEIGHT_WIDTH_8BIT),
+            (pb.IF((10, 2), 3), pb.IF((4, 5), 3), -100, WW.WEIGHT_WIDTH_8BIT),
+            (pb.IF(10, 3), pb.IF((2, 5), 3), 7, WW.WEIGHT_WIDTH_4BIT),
         ],
     )
     def test_FullConn_One2One_scalar(self, n1, n2, scalar_weight, expected_wp):
@@ -131,7 +131,7 @@ class TestFullConn:
             scalar_weight * np.identity(n1.num_out, dtype=WEIGHT_DTYPE),
         )
         assert s1.connectivity.dtype == WEIGHT_DTYPE
-        assert s1.weight_precision is expected_wp
+        assert s1.weight_width is expected_wp
 
     @pytest.mark.parametrize(
         "n1, n2",
@@ -158,7 +158,7 @@ class TestFullConn:
             s1.connectivity, np.array([[2, 0, 0], [0, 3, 0], [0, 0, 4]], dtype=np.int8)
         )
         assert s1.connectivity.dtype == WEIGHT_DTYPE
-        assert s1.weight_precision is WP.WEIGHT_WIDTH_4BIT
+        assert s1.weight_width is WW.WEIGHT_WIDTH_4BIT
 
         weight = np.array([1, 0, 1, 0], np.int8)
         s2 = pb.FullConn(
@@ -174,7 +174,7 @@ class TestFullConn:
             ),
         )
         assert s2.connectivity.dtype == WEIGHT_DTYPE
-        assert s2.weight_precision is WP.WEIGHT_WIDTH_1BIT
+        assert s2.weight_width is WW.WEIGHT_WIDTH_1BIT
 
     @pytest.mark.parametrize(
         "n1, n2",
@@ -204,7 +204,7 @@ class TestFullConn:
 
         assert np.array_equal(s1.weights, weight)
         assert s1.connectivity.dtype == WEIGHT_DTYPE
-        assert s1.weight_precision is WP.WEIGHT_WIDTH_4BIT
+        assert s1.weight_width is WW.WEIGHT_WIDTH_4BIT
 
         """2. Weights matrix."""
         weight = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])

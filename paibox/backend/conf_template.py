@@ -25,7 +25,7 @@ from paicorelib import (
     RoutingCoord,
     SNNModeEnable,
     SpikeWidthFormat,
-    WeightPrecision,
+    WeightWidth,
     get_replication_id,
 )
 from paicorelib.framelib import types as flib_types
@@ -98,7 +98,7 @@ class CoreConfig(NamedTuple):
     """Extra parameters for debugging."""
 
     name: str
-    weight_precision: WeightPrecision
+    weight_width: WeightWidth
     lcn_extension: LCN_EX
     input_width_format: InputWidthFormat
     spike_width_format: SpikeWidthFormat
