@@ -165,7 +165,6 @@ class ReceiveInputProj(MixIn):
         return np.asarray(output, dtype=VOLTAGE_DTYPE)
 
 
-
 class TimeRelatedNode(MixIn):
     """Add time-related properties for `NeuDyn` & `InputProj`."""
 

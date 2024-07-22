@@ -14,9 +14,9 @@ from paicorelib import (
     CoreMode,
     HwConfig,
     InputWidthFormat,
+    MaxPoolingEnable,
     SNNModeEnable,
     SpikeWidthFormat,
-    MaxPoolingEnable,
     get_core_mode,
 )
 
@@ -329,6 +329,7 @@ class MetaNeuron:
                 return (vj << (8 - self.bit_truncation)) & _mask(8)
             else:
                 return (vj >> (self.bit_truncation - 8)) & _mask(8)
+
         v_truncated = np.where(
             self.thres_mode == TM.EXCEED_POSITIVE, _truncate(), self._vjt0
         )
@@ -591,7 +592,7 @@ class Neuron(MetaNeuron, NeuDyn):
         return NeuronSubView(self, index)
 
     def shape_change(self, new_shape: Shape) -> None:
-        #print(self.name,"shape change")
+        # print(self.name,"shape change")
         self._n_neuron = shape2num(new_shape)
         self._shape = as_shape(new_shape)
         self._vjt = self.init_param(0).astype(np.int32)
@@ -603,8 +604,8 @@ class Neuron(MetaNeuron, NeuDyn):
         self.y = self.init_param(0).astype(np.int32)
         self.set_reset_value("y", self.y)
         self.delay_registers = np.zeros(
-                (HwConfig.N_TIMESLOT_MAX,) + self._inner_spike.shape, dtype=np.bool_
-            )
+            (HwConfig.N_TIMESLOT_MAX,) + self._inner_spike.shape, dtype=np.bool_
+        )
         self.set_reset_value("delay_registers", self.delay_registers)
 
         return

@@ -95,15 +95,15 @@ class MatMul2d(FullConnSyn):
 
 class Conv1d(Conv1dSyn):
     def __init__(
-            self,
-            source: Union[Neuron, InputProj],
-            dest: Neuron,
-            kernel: np.ndarray,
-            *,
-            stride: _Size1Type = 1,
-            padding: _Size1Type = 0,
-            kernel_order: _KOrder3d = "OIL",
-            name: Optional[str] = None,
+        self,
+        source: Union[Neuron, InputProj],
+        dest: Neuron,
+        kernel: np.ndarray,
+        *,
+        stride: _Size1Type = 1,
+        padding: _Size1Type = 0,
+        kernel_order: _KOrder3d = "OIL",
+        name: Optional[str] = None,
     ) -> None:
         """1d convolution synapses in fully-unrolled format.
 
@@ -137,15 +137,15 @@ class Conv1d(Conv1dSyn):
 
 class Conv2d(Conv2dSyn):
     def __init__(
-            self,
-            source: Union[Neuron, InputProj],
-            dest: Neuron,
-            kernel: np.ndarray,
-            *,
-            stride: _Size2Type = 1,
-            padding: _Size2Type = 0,
-            kernel_order: _KOrder4d = "OIHW",
-            name: Optional[str] = None,
+        self,
+        source: Union[Neuron, InputProj],
+        dest: Neuron,
+        kernel: np.ndarray,
+        *,
+        stride: _Size2Type = 1,
+        padding: _Size2Type = 0,
+        kernel_order: _KOrder4d = "OIHW",
+        name: Optional[str] = None,
     ) -> None:
         """2d convolution synapses in fully-unrolled format.
 
@@ -179,16 +179,16 @@ class Conv2d(Conv2dSyn):
 
 class ConvTranspose1d(ConvTranspose1dSyn):
     def __init__(
-            self,
-            source: Union[Neuron, InputProj],
-            dest: Neuron,
-            kernel: np.ndarray,
-            *,
-            stride: _Size1Type = 1,
-            padding: _Size1Type = 0,
-            output_padding: _Size1Type = 0,
-            kernel_order: _KOrder3d = "OIL",
-            name: Optional[str] = None,
+        self,
+        source: Union[Neuron, InputProj],
+        dest: Neuron,
+        kernel: np.ndarray,
+        *,
+        stride: _Size1Type = 1,
+        padding: _Size1Type = 0,
+        output_padding: _Size1Type = 0,
+        kernel_order: _KOrder3d = "OIL",
+        name: Optional[str] = None,
     ) -> None:
         """1d transposed convolution synapses in fully-unrolled format.
 
@@ -226,16 +226,16 @@ class ConvTranspose1d(ConvTranspose1dSyn):
 
 class ConvTranspose2d(ConvTranspose2dSyn):
     def __init__(
-            self,
-            source: Union[Neuron, InputProj],
-            dest: Neuron,
-            kernel: np.ndarray,
-            *,
-            stride: _Size2Type = 1,
-            padding: _Size2Type = 0,
-            output_padding: _Size2Type = 0,
-            kernel_order: _KOrder4d = "OIHW",
-            name: Optional[str] = None,
+        self,
+        source: Union[Neuron, InputProj],
+        dest: Neuron,
+        kernel: np.ndarray,
+        *,
+        stride: _Size2Type = 1,
+        padding: _Size2Type = 0,
+        output_padding: _Size2Type = 0,
+        kernel_order: _KOrder4d = "OIHW",
+        name: Optional[str] = None,
     ) -> None:
         """2d transposed convolution synapses in fully-unrolled format.
 
@@ -272,4 +272,3 @@ class ConvTranspose2d(ConvTranspose2dSyn):
             kernel_order,
             name,
         )
-

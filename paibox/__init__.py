@@ -2,11 +2,17 @@ from importlib.metadata import version
 
 from .backend import BACKEND_CONFIG as BACKEND_CONFIG
 from .backend import Mapper as Mapper
+from .components.functional import AvgPool2dSemiMap as AvgPool2dSemiMap
 from .components.functional import BitwiseAND as BitwiseAND
 from .components.functional import BitwiseNOT as BitwiseNOT
 from .components.functional import BitwiseOR as BitwiseOR
 from .components.functional import BitwiseXOR as BitwiseXOR
+from .components.functional import Conv2dSemiMap as Conv2dSemiMap
+from .components.functional import Delay_FullConn as DelayFullConn
 from .components.functional import DelayChain as DelayChain
+from .components.functional import Filter as Filter
+from .components.functional import Linear as Linear
+from .components.functional import MaxPool2dSemiMap as MaxPool2dSemiMap
 from .components.functional import SpikingAdd as SpikingAdd
 from .components.functional import SpikingAvgPool2d as SpikingAvgPool2d
 from .components.functional import SpikingAvgPool2dWithV as SpikingAvgPool2dWithV
@@ -14,12 +20,6 @@ from .components.functional import SpikingMaxPool2d as SpikingMaxPool2d
 from .components.functional import SpikingSub as SpikingSub
 from .components.functional import Transpose2d as Transpose2d
 from .components.functional import Transpose3d as Transpose3d
-from .components.functional import Conv2dSemiMap as Conv2dSemiMap
-from .components.functional import Filter as Filter
-from .components.functional import Delay_FullConn as DelayFullConn
-from .components.functional import MaxPool2dSemiMap as MaxPool2dSemiMap
-from .components.functional import AvgPool2dSemiMap as AvgPool2dSemiMap
-from .components.functional import Linear as Linear
 from .components.neuron.neurons import IF as IF
 from .components.neuron.neurons import LIF as LIF
 from .components.neuron.neurons import PhasicSpiking as PhasicSpiking

@@ -328,21 +328,20 @@ class Conv2dSyn(FullConnectedSyn):
         )
 
 
-
 class Conv2dHalfRollSyn(FullConnectedSyn):
 
     def __init__(
-            self,
-            source: Union[NeuDyn, InputProj],
-            dest: Neuron,
-            kernel: np.ndarray,
-            stride: tuple[int, int],
-            padding: tuple[int, int],
-            order: _KOrder4d = "OIHW",
-            name: Optional[str] = None,
+        self,
+        source: Union[NeuDyn, InputProj],
+        dest: Neuron,
+        kernel: np.ndarray,
+        stride: tuple[int, int],
+        padding: tuple[int, int],
+        order: _KOrder4d = "OIHW",
+        name: Optional[str] = None,
     ) -> None:
         super().__init__(source, dest, name)
-        #print("进入halfroll")
+        # print("进入halfroll")
         if order == "IOHW":
             _kernel = np.swapaxes(kernel, 0, 1)
         else:
@@ -360,7 +359,10 @@ class Conv2dHalfRollSyn(FullConnectedSyn):
         if in_ch != in_channels:
             raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
 
-        self.comm = Conv2dHalfForward((in_ch, in_h), (out_channels, out_h), _kernel, stride, padding)
+        self.comm = Conv2dHalfForward(
+            (in_ch, in_h), (out_channels, out_h), _kernel, stride, padding
+        )
+
 
 class ConvTranspose1dSyn(FullConnectedSyn):
     _spatial_ndim: ClassVar[int] = 1
@@ -468,14 +470,15 @@ class ConvTranspose2dSyn(FullConnectedSyn):
             (in_h, in_w), (out_h, out_w), _kernel, stride, padding, output_padding
         )
 
+
 class MaxPool2dSemiMapSyn(FullConnectedSyn):
 
     def __init__(
-            self,
-            source: Union[NeuDyn, InputProj],
-            dest: Neuron,
-            weights: DataArrayType = 1,
-            name: Optional[str] = None,
+        self,
+        source: Union[NeuDyn, InputProj],
+        dest: Neuron,
+        weights: DataArrayType = 1,
+        name: Optional[str] = None,
     ) -> None:
         super().__init__(source, dest, name)
         self.comm = _CompareMax((self.num_in, self.num_out), weights)

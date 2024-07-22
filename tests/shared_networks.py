@@ -216,13 +216,15 @@ class TransposeModule_T3d_Net(pb.DynSysGroup):
         self.probe1 = pb.Probe(self.t3d, "spike")
         self.probe2 = pb.Probe(self.n2, "spike")
 
+
 class Conv2dSemiMap_Net1(pb.DynSysGroup):
     def __init__(self, shape, kernel, stride, padding):
         super().__init__()
 
         self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape)
-        self.conv1 = pb.Conv2dSemiMap(self.i1, kernel, stride[0], padding[0], tick_wait_start=1)
-
+        self.conv1 = pb.Conv2dSemiMap(
+            self.i1, kernel, stride[0], padding[0], tick_wait_start=1
+        )
 
 
 class Conv2dSemiMap_Net2(pb.DynSysGroup):
@@ -230,42 +232,59 @@ class Conv2dSemiMap_Net2(pb.DynSysGroup):
         super().__init__()
 
         self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape)
-        self.conv1 = pb.Conv2dSemiMap(self.i1, kernel, stride[0], padding[0], tick_wait_start=1)
-        self.conv2 = pb.Conv2dSemiMap(self.conv1, kernel, stride[1], padding[1], tick_wait_start=3)
+        self.conv1 = pb.Conv2dSemiMap(
+            self.i1, kernel, stride[0], padding[0], tick_wait_start=1
+        )
+        self.conv2 = pb.Conv2dSemiMap(
+            self.conv1, kernel, stride[1], padding[1], tick_wait_start=3
+        )
         self.linear1 = pb.DelayFullConn(
             self.conv2,
             out_feature,
             weights=weight,
             bias=0,
             conn_type=pb.SynConnType.All2All,
-            tick_wait_start=5
+            tick_wait_start=5,
         )
+
 
 class Pool2dSemiMap_Net(pb.DynSysGroup):
     def __init__(self, shape, kernel_size, stride, weight, pool_type):
         super().__init__()
         self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape)
         if pool_type == "avg":
-            self.pool1 = pb.AvgPool2dSemiMap(self.i1, kernel_size, stride[0], tick_wait_start=1)
-            self.pool2 = pb.AvgPool2dSemiMap(self.pool1, kernel_size, stride[1], tick_wait_start=3)
+            self.pool1 = pb.AvgPool2dSemiMap(
+                self.i1, kernel_size, stride[0], tick_wait_start=1
+            )
+            self.pool2 = pb.AvgPool2dSemiMap(
+                self.pool1, kernel_size, stride[1], tick_wait_start=3
+            )
         else:
-            self.pool1 = pb.MaxPool2dSemiMap(self.i1, kernel_size, stride[0], tick_wait_start=1)
-            self.pool2 = pb.MaxPool2dSemiMap(self.pool1, kernel_size, stride[1], tick_wait_start=3)
+            self.pool1 = pb.MaxPool2dSemiMap(
+                self.i1, kernel_size, stride[0], tick_wait_start=1
+            )
+            self.pool2 = pb.MaxPool2dSemiMap(
+                self.pool1, kernel_size, stride[1], tick_wait_start=3
+            )
         self.linear1 = pb.DelayFullConn(
             self.pool2,
             2,
             weights=weight,
             bias=0,
             conn_type=pb.SynConnType.All2All,
-            tick_wait_start=5
+            tick_wait_start=5,
         )
+
 
 class Linear_Net(pb.DynSysGroup):
     def __init__(self, shape, weight1):
         super().__init__()
         self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape)
-        self.linear1 = pb.Linear(self.i1, 10, weights=weight1, bias=2, conn_type=pb.SynConnType.All2All)
+        self.linear1 = pb.Linear(
+            self.i1, 10, weights=weight1, bias=2, conn_type=pb.SynConnType.All2All
+        )
         self.probe1 = pb.Probe(self.linear1, "spike")
+
 
 class ANNNetwork(pb.Network):
     def __init__(self):

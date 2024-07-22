@@ -22,8 +22,8 @@ from .conv_utils import (
     _conv1d_faster,
     _conv1d_unroll,
     _conv2d_faster,
-    _conv2d_unroll,
     _conv2d_halfroll,
+    _conv2d_unroll,
     _convtranspose1d_faster,
     _convtranspose1d_unroll,
     _convtranspose2d_faster,
@@ -66,7 +66,6 @@ class ConnType(Enum):
 
     All2All = auto()
     """All-to-all connection."""
-
 
 
 def _set_coarse_dtype(raw_w: DataArrayType) -> WeightType:
@@ -397,6 +396,7 @@ class Conv2dForward(Transform):
             self.in_shape, self.out_shape, self.weights, self.stride, self.padding
         )
 
+
 class Conv2dHalfForward(Transform):
     def __init__(
         self,
@@ -418,7 +418,6 @@ class Conv2dHalfForward(Transform):
 
     def __call__(self, x: NeuOutType, *args, **kwargs) -> SynOutType:
         return x @ self.connectivity
-
 
     @property
     def connectivity(self):
