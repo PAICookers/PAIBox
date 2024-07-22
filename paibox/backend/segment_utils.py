@@ -307,7 +307,7 @@ def aligned_coords(
         | ------- AxonSeg[0] ------- | ------- AxonSeg[1] ------- | ...
     tr=0 A1[0]   A1[1]   ...  A1[99]   A2[0]   A2[1]   ... A2[199]
     tr=1 A1[100] A1[101] ... A1[199]   A2[200] A2[201] ... A2[399]
-    
+
     The target axon may be Ax[100:499], where (tr=0, offset+100) is the start and (tr=2, offset+499)\
         is the end.
             offset
@@ -316,7 +316,7 @@ def aligned_coords(
     tr=0  ...   Ax[0]   Ax[1]   ... Ax[199]
     tr=1  ...   Ax[200] Ax[201] ... Ax[399]
     tr=2  ...   Ax[400] Ax[401] ... Ax[599]
-    
+
     When the input width is 8 bits, each A[x] occupies 8 bits. The interval of axons is 8.
     """
     addr_width = axon_seg.addr_width

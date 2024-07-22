@@ -1,11 +1,11 @@
 import numpy as np
 import pytest
-from paicorelib import HwConfig, LCN_EX
+from paicorelib import LCN_EX, HwConfig
 from paicorelib import WeightWidth as WW
 
 import paibox as pb
 from paibox.backend.placement import CorePlacement
-from paibox.backend.types import NeuSegment, WRAMUnpackedType, WRAM_PACKED_DTYPE
+from paibox.backend.types import WRAM_PACKED_DTYPE, NeuSegment, WRAMUnpackedType
 from paibox.exceptions import ResourceError
 from paibox.types import WEIGHT_DTYPE, WeightType
 

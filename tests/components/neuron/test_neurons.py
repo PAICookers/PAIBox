@@ -3,9 +3,9 @@ from copy import copy
 from typing import Any, Literal
 
 import numpy as np
-from numpy.typing import NDArray
 import pytest
-from paicorelib import CoreMode, LCM, LDM, LIM, NTM, RM, SIM, TM, NeuronAttrs
+from numpy.typing import NDArray
+from paicorelib import LCM, LDM, LIM, NTM, RM, SIM, TM, CoreMode, NeuronAttrs
 
 import paibox as pb
 from paibox.components import Neuron

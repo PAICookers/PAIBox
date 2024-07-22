@@ -7,13 +7,13 @@ from paicorelib import WeightWidth as WW
 
 from paibox.exceptions import AutoOptimizationWarning, ShapeError
 from paibox.types import (
+    VOLTAGE_DTYPE,
     WEIGHT_DTYPE,
     DataArrayType,
     IntScalarType,
     NeuOutType,
     SynOutType,
     WeightType,
-    VOLTAGE_DTYPE,
 )
 from paibox.utils import is_shape, shape2num, typical_round
 

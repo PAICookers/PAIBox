@@ -15,13 +15,12 @@ from paicorelib.ram_model import VJT_MAX, VJT_MIN, VJT_PRE_BIT_MAX
 
 from paibox.exceptions import FunctionalError, PAIBoxWarning
 from paibox.types import (
-    LeakVType,
     NEUOUT_U8_DTYPE,
     SPIKE_DTYPE,
-    VoltageType,
     VOLTAGE_DTYPE,
+    LeakVType,
+    VoltageType,
 )
-
 
 NEG_THRES_MIN = -NEG_THRES_UNSIGNED_MAX
 

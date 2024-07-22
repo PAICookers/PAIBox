@@ -13,7 +13,7 @@ from paibox.exceptions import (
     ResourceError,
     TruncationWarning,
 )
-from paibox.types import WeightType, WEIGHT_DTYPE
+from paibox.types import WEIGHT_DTYPE, WeightType
 from paibox.utils import check_attr_same
 
 from .conf_template import CoreConfig, CoreConfInChip, CorePlmConfig, NeuronConfig
@@ -474,19 +474,19 @@ class CorePlacement(CoreAbstract):
 
     def _weight_ram_mapping(self) -> WRAMPackedType:
         """Map the raw weights to the weight RAM(WRAM). The mapping is different for both input widths.
-        
+
         NOTE: When the input width is 8 bits, no neurons need to be mapped to the WRAM when the combination rate of \
-            dentrites >= 8, while some neurons need to be mapped to the WRAM when < 8. 
-            
+            dentrites >= 8, while some neurons need to be mapped to the WRAM when < 8.
+
             When the input width is 8 bits and with the combination rate of dentrites > 3, the mapping of weights   \
             becomes the key to limiting neuron capacity. In this case, if the weight accuracy is less than 8 bits   \
             (which may also occur when the weight accuracy is optimized), the weight cannot be folded directly in   \
             the fan-in expansion direction, otherwise the column of the WRAM will exceed the upper limit(512).      \
-            
+
             A portion of the fan-in needs to be expanded to an unfilled portion in the direction of the weight      \
             accuracy. At this point, n_fold=n_timeslot/(8/n_weight_bits)=2^(dendrite_comb_rate - 3). For example,   \
             for LCN_8X & WW8, the n_fold is 3. For LCN_32X & WW4, the n_fold is 4 (instead of 5).
-            
+
         TODO Now, in ANN mode, only the mapping of 8-bit weights is supported. The weight accuracy optimization is  \
             supposed to disable manually for now.
         """

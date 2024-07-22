@@ -7,11 +7,11 @@ from typing import ClassVar, Literal, Optional, TypeVar, Union
 
 import numpy as np
 from paicorelib import (
-    InputWidthFormat,
-    SpikeWidthFormat,
     TM,
     HwConfig,
+    InputWidthFormat,
     SNNModeEnable,
+    SpikeWidthFormat,
     get_core_mode,
 )
 

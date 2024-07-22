@@ -1,6 +1,6 @@
-from collections.abc import Sequence
 import sys
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from enum import Enum
 from pathlib import Path
@@ -17,20 +17,20 @@ from paicorelib import (
     InputWidthFormat,
     MaxPoolingEnable,
     NeuronAttrs,
+    NeuronConf,
     NeuronDestInfo,
     ParamsReg,
 )
 from paicorelib import ReplicationId as RId
 from paicorelib import (
-    NeuronConf,
     RoutingCoord,
     SNNModeEnable,
     SpikeWidthFormat,
     WeightWidth,
     get_replication_id,
 )
-from paicorelib.framelib import types as flib_types
 from paicorelib.framelib import OfflineFrameGen
+from paicorelib.framelib import types as flib_types
 from paicorelib.framelib.utils import _mask, np2bin, np2npy, np2txt
 
 if sys.version_info >= (3, 10):
@@ -42,7 +42,7 @@ from paibox.components import Neuron
 from paibox.utils import reverse_8bit
 
 from .context import _BACKEND_CONTEXT
-from .types import WRAMPackedType, AxonCoord, NeuSegment, NodeName
+from .types import AxonCoord, NeuSegment, NodeName, WRAMPackedType
 
 try:
     import orjson

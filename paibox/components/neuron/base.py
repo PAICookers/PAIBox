@@ -11,11 +11,11 @@ from paicorelib import (
     RM,
     SIM,
     TM,
+    CoreMode,
     HwConfig,
     InputWidthFormat,
-    SpikeWidthFormat,
     SNNModeEnable,
-    CoreMode,
+    SpikeWidthFormat,
     get_core_mode,
 )
 
@@ -40,11 +40,11 @@ from paibox.utils import (
 from .utils import (
     BIT_TRUNCATE_MAX,
     NEG_THRES_MIN,
+    _input_width_format,
     _leak_v_check,
     _mask,
-    vjt_overflow,
-    _input_width_format,
     _spike_width_format,
+    vjt_overflow,
 )
 
 __all__ = ["Neuron"]

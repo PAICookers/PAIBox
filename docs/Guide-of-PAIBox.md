@@ -1,5 +1,5 @@
 <style>
-.center 
+.center
 {
     width: auto;
     display: table;
@@ -87,15 +87,15 @@ n1 = pb.IF(shape=10, threshold=127, reset_v=0, neg_threshold=-100, keep_shape=Fa
 <p align="center">计算核配置项与工作模式对应表</p>
 <div class="center">
 
-|           模式           | `input_width` | `spike_width` | `snn_en` |
-| :-----------------------: | :-------------: | :-------------: | :--------: |
-|           BANN           |        0        |        0        |     0     |
-|            SNN            |        0        |        0        |     1     |
-|       BANN/SNN to ANN       |        0        |        1        |     0     |
-| BANN/SNN to SNN with values |        0        |        1        |     1     |
-|       ANN to BANN/SNN       |        1        |        0        |     0     |
-|           BANN           |        1        |        1        |     0     |
-|         Undefined         |        1        |       0/1       |     1     |
+|            模式             | `input_width` | `spike_width` | `snn_en` |
+| :-------------------------: | :-----------: | :-----------: | :------: |
+|            BANN             |       0       |       0       |    0     |
+|             SNN             |       0       |       0       |    1     |
+|       BANN/SNN to ANN       |       0       |       1       |    0     |
+| BANN/SNN to SNN with values |       0       |       1       |    1     |
+|       ANN to BANN/SNN       |       1       |       0       |    0     |
+|            BANN             |       1       |       1       |    0     |
+|          Undefined          |       1       |      0/1      |    1     |
 
 </div>
 
@@ -107,16 +107,16 @@ n1 = pb.IF(shape=10, threshold=127, reset_v=0, neg_threshold=-100, keep_shape=Fa
 <p align="center">截取位置对应表</p>
 <div class="center">
 
-| `bit_truncation` |   截取位置   |
-| :----------------: | :-----------: |
-|         0         |     8'h0     |
-|         1         |  {[0], 7'h0}  |
-|         2         | {[1:0], 6'h0} |
-|        ……        |     ……     |
-|         8         |     [7:0]     |
-|         9         |     [8:1]     |
-|        ……        |     ……     |
-|         29         |    [28:21]    |
+| `bit_truncation` |   截取位置    |
+| :--------------: | :-----------: |
+|        0         |     8'h0      |
+|        1         |  {[0], 7'h0}  |
+|        2         | {[1:0], 6'h0} |
+|        ……        |      ……       |
+|        8         |     [7:0]     |
+|        9         |     [8:1]     |
+|        ……        |      ……       |
+|        29        |    [28:21]    |
 
 </div>
 

@@ -1,6 +1,6 @@
 import pytest
 
-from paibox.utils import reverse_8bit, reverse_16bit, fn_sgn, typical_round
+from paibox.utils import fn_sgn, reverse_8bit, reverse_16bit, typical_round
 
 
 @pytest.mark.parametrize("a,b, expected", [(1, 0, 1), (1, 2, -1), (3, 3, 0)])
