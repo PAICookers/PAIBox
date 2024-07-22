@@ -200,7 +200,7 @@ reference = "tsinghua"
 
 [[package]]
 name = "paicorelib"
-version = "1.3.0a1"
+version = "1.3.0"
 description = "Library of PAICORE 2.0"
 optional = false
 python-versions = "^3.9"
@@ -215,7 +215,7 @@ pydantic = "^2.0.3"
 type = "git"
 url = "https://github.com/PAICookers/PAIlib.git"
 reference = "dev"
-resolved_reference = "041f4451c01c1d6710c51eece9fa3e98edffdac4"
+resolved_reference = "5cedc5fb1f66bc21e1c442a87bc804517a6555c2"
 
 [[package]]
 name = "pluggy"
