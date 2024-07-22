@@ -1,6 +1,6 @@
 import pytest
 
-from paibox.utils import bit_reversal, fn_sgn, typical_round
+from paibox.utils import fn_sgn, reverse_8bit, reverse_16bit, typical_round
 
 
 @pytest.mark.parametrize("a,b, expected", [(1, 0, 1), (1, 2, -1), (3, 3, 0)])
@@ -16,12 +16,24 @@ def test_typical_round(n, expected):
 
 
 @pytest.mark.parametrize(
-    "uint, n_bit, expected",
+    "x, expected",
     [
-        (0b10110, 5, 0b01101),
-        (0b0111_0111_1001_1001, 10, 0b1001_1001_11),
-        (0b1010_1100_1101, 7, 0b1011_001),
+        (0b1001_0110, 0b0110_1001),
+        (0b0001_1001, 0b1001_1000),
+        (0b1100_1101, 0b1011_0011),
     ],
 )
-def test_bit_reversal(uint, n_bit, expected):
-    assert bit_reversal(uint, n_bit) == expected
+def test_reverse_8bit(x, expected):
+    assert reverse_8bit(x) == expected
+
+
+@pytest.mark.parametrize(
+    "x, expected",
+    [
+        (0b0110_0001_1001_0111, 0b1110_1001_1000_0110),
+        (0b1110_0011_0001_1001, 0b1001_1000_1100_0111),
+        (0b1100_1101_1001_1101, 0b1011_1001_1011_0011),
+    ],
+)
+def test_reverse_16bit(x, expected):
+    assert reverse_16bit(x) == expected

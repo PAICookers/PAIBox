@@ -4,13 +4,20 @@ from functools import partial
 from typing import Literal, Optional, Union
 
 import numpy as np
-from numpy.typing import NDArray
 from paicorelib import NTM, RM, TM
 
 from paibox.base import NeuDyn, NodeList
 from paibox.exceptions import PAIBoxDeprecationWarning, ShapeError
 from paibox.network import DynSysGroup
-from paibox.types import IntScalarType, SpikeType, VoltageType
+from paibox.types import (
+    NEUOUT_U8_DTYPE,
+    VOLTAGE_DTYPE,
+    IntScalarType,
+    NeuOutType,
+    SpikeType,
+    VoltageType,
+    WeightType,
+)
 from paibox.utils import (
     arg_check_non_neg,
     arg_check_pos,
@@ -26,6 +33,7 @@ from .modules import (
     FunctionalModule2to1WithV,
     FunctionalModuleWithV,
     TransposeModule,
+    set_rt_mode,
 )
 from .neuron import Neuron
 from .neuron.neurons import *
@@ -57,6 +65,7 @@ __all__ = [
 ]
 
 
+@set_rt_mode(1, 1, 1)
 class BitwiseAND(FunctionalModule2to1):
     inherent_delay = 0
 
@@ -89,7 +98,7 @@ class BitwiseAND(FunctionalModule2to1):
         """
         super().__init__(neuron_a, neuron_b, keep_shape=keep_shape, name=name, **kwargs)
 
-    def spike_func(self, x1: SpikeType, x2: SpikeType, **kwargs) -> SpikeType:
+    def spike_func(self, x1: NeuOutType, x2: NeuOutType, **kwargs) -> NeuOutType:
         return x1 & x2
 
     def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
@@ -126,6 +135,7 @@ class BitwiseAND(FunctionalModule2to1):
         return generated
 
 
+@set_rt_mode(1, 1, 1)
 class BitwiseNOT(FunctionalModule):
     inherent_delay = 0
 
@@ -157,8 +167,8 @@ class BitwiseNOT(FunctionalModule):
             **kwargs,
         )
 
-    def spike_func(self, x1: SpikeType, **kwargs) -> SpikeType:
-        return ~x1
+    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
+        return x1 == 0  # x1 is an array in uint8
 
     def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
         n1_not = LIF(
@@ -187,6 +197,7 @@ class BitwiseNOT(FunctionalModule):
         return generated
 
 
+@set_rt_mode(1, 1, 1)
 class BitwiseOR(FunctionalModule2to1):
     inherent_delay = 0
 
@@ -209,7 +220,7 @@ class BitwiseOR(FunctionalModule2to1):
         """
         super().__init__(neuron_a, neuron_b, keep_shape=keep_shape, name=name, **kwargs)
 
-    def spike_func(self, x1: SpikeType, x2: SpikeType, **kwargs) -> SpikeType:
+    def spike_func(self, x1: NeuOutType, x2: NeuOutType, **kwargs) -> NeuOutType:
         return x1 | x2
 
     def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
@@ -243,6 +254,7 @@ class BitwiseOR(FunctionalModule2to1):
         return generated
 
 
+@set_rt_mode(1, 1, 1)
 class BitwiseXOR(FunctionalModule2to1):
     inherent_delay = 1
 
@@ -266,7 +278,7 @@ class BitwiseXOR(FunctionalModule2to1):
         """
         super().__init__(neuron_a, neuron_b, keep_shape=keep_shape, name=name, **kwargs)
 
-    def spike_func(self, x1: SpikeType, x2: SpikeType, **kwargs) -> SpikeType:
+    def spike_func(self, x1: NeuOutType, x2: NeuOutType, **kwargs) -> NeuOutType:
         return x1 ^ x2
 
     def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
@@ -364,7 +376,7 @@ class DelayChain(FunctionalModule):
             **kwargs,
         )
 
-    def spike_func(self, x1: SpikeType, **kwargs) -> SpikeType:
+    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
         return x1
 
     def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
@@ -417,6 +429,7 @@ class DelayChain(FunctionalModule):
         return generated
 
 
+@set_rt_mode(1, 1, 1)
 class SpikingAdd(FunctionalModule2to1WithV):
     inherent_delay = 0
 
@@ -457,12 +470,12 @@ class SpikingAdd(FunctionalModule2to1WithV):
 
         super().__init__(neuron_a, neuron_b, keep_shape=keep_shape, name=name, **kwargs)
 
-    def spike_func(self, vjt: VoltageType, **kwargs) -> tuple[SpikeType, VoltageType]:
+    def spike_func(self, vjt: VoltageType, **kwargs) -> tuple[NeuOutType, VoltageType]:
         """Simplified neuron computing mechanism as the operator function."""
         return _spike_func_sadd_ssub(vjt, self.pos_threshold, self.reset_v)
 
     def synaptic_integr(
-        self, x1: SpikeType, x2: SpikeType, vjt_pre: VoltageType
+        self, x1: NeuOutType, x2: NeuOutType, vjt_pre: VoltageType
     ) -> VoltageType:
         return _sum_inputs_sadd_ssub(
             x1, x2, self.factor_a, self.factor_b, vjt_pre, strict=self.overflow_strict
@@ -501,6 +514,7 @@ class SpikingAdd(FunctionalModule2to1WithV):
         return generated
 
 
+@set_rt_mode(1, 1, 1)
 class _SpikingPool2dWithV(FunctionalModuleWithV):
     inherent_delay = 0
 
@@ -547,11 +561,11 @@ class _SpikingPool2dWithV(FunctionalModuleWithV):
             **kwargs,
         )
 
-    def spike_func(self, vjt: VoltageType, **kwargs) -> tuple[SpikeType, VoltageType]:
+    def spike_func(self, vjt: VoltageType, **kwargs) -> tuple[NeuOutType, VoltageType]:
         return _spike_func_avg_pool(vjt, self.pos_thres)
 
-    def synaptic_integr(self, x1: SpikeType, vjt_pre: VoltageType) -> VoltageType:
-        return vjt_overflow((vjt_pre + self.tfm(x1).ravel()).astype(np.int32))
+    def synaptic_integr(self, x1: NeuOutType, vjt_pre: VoltageType) -> VoltageType:
+        return vjt_overflow(vjt_pre + self.tfm(x1).ravel())
 
     def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
         n1_ap2d = IF(
@@ -579,6 +593,7 @@ class _SpikingPool2dWithV(FunctionalModuleWithV):
         return generated
 
 
+@set_rt_mode(1, 1, 1)
 class _SpikingPool2d(FunctionalModule):
     inherent_delay = 0
 
@@ -629,7 +644,7 @@ class _SpikingPool2d(FunctionalModule):
             **kwargs,
         )
 
-    def spike_func(self, x1: SpikeType, **kwargs) -> SpikeType:
+    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
         return self.tfm(x1)
 
     def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
@@ -663,12 +678,6 @@ class _SpikingPool2d(FunctionalModule):
 
         generated = [n1_p2d, syn1]
         self._rebuild_out_intf(network, n1_p2d, *generated, **build_options)
-
-        # for syns in self.module_intf.output:
-        #     syns.source = n1_p2d
-
-        # network._add_components(*generated)
-        # network._remove_components(self)
 
         return generated
 
@@ -774,6 +783,7 @@ class SpikingMaxPool2d(_SpikingPool2d):
         )
 
 
+@set_rt_mode(1, 1, 1)
 class SpikingSub(FunctionalModule2to1WithV):
     inherent_delay = 0
     factor_a: int = 1
@@ -803,12 +813,12 @@ class SpikingSub(FunctionalModule2to1WithV):
         self.overflow_strict = overflow_strict
         super().__init__(neuron_a, neuron_b, keep_shape=keep_shape, name=name, **kwargs)
 
-    def spike_func(self, vjt: VoltageType, **kwargs) -> tuple[SpikeType, VoltageType]:
+    def spike_func(self, vjt: VoltageType, **kwargs) -> tuple[NeuOutType, VoltageType]:
         """Simplified neuron computing mechanism to generate output spike."""
         return _spike_func_sadd_ssub(vjt, self.pos_threshold)
 
     def synaptic_integr(
-        self, x1: SpikeType, x2: SpikeType, vjt_pre: VoltageType
+        self, x1: NeuOutType, x2: NeuOutType, vjt_pre: VoltageType
     ) -> VoltageType:
         return _sum_inputs_sadd_ssub(
             x1, x2, self.factor_a, self.factor_b, vjt_pre, strict=self.overflow_strict
@@ -852,6 +862,7 @@ class SpikingSub(FunctionalModule2to1WithV):
     "'Transpose2d' will be removed in a future version. Use 'MatMul2d' instead.",
     category=PAIBoxDeprecationWarning,
 )
+@set_rt_mode(1, 1, 1)
 class Transpose2d(TransposeModule):
     def __init__(
         self,
@@ -877,7 +888,7 @@ class Transpose2d(TransposeModule):
             **kwargs,
         )
 
-    def spike_func(self, x1: SpikeType, **kwargs) -> SpikeType:
+    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
         _x1 = x1.reshape(self.shape_in)
 
         return _x1.T
@@ -910,6 +921,7 @@ class Transpose2d(TransposeModule):
     "'Transpose3d' will be removed in a future version. Use 'MatMul2d' instead.",
     category=PAIBoxDeprecationWarning,
 )
+@set_rt_mode(1, 1, 1)
 class Transpose3d(TransposeModule):
     def __init__(
         self,
@@ -940,7 +952,7 @@ class Transpose3d(TransposeModule):
             **kwargs,
         )
 
-    def spike_func(self, x1: SpikeType, **kwargs) -> SpikeType:
+    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
         _x1 = x1.reshape(self.shape_in)
 
         return _x1.transpose(self.axes)
@@ -971,7 +983,7 @@ class Transpose3d(TransposeModule):
 
 def _spike_func_sadd_ssub(
     vjt: VoltageType, pos_thres: int, reset_v: Optional[int] = None
-) -> tuple[SpikeType, VoltageType]:
+) -> tuple[NeuOutType, VoltageType]:
     """Function `spike_func()` in spiking addition & subtraction."""
     # Fire
     thres_mode = np.where(
@@ -986,14 +998,14 @@ def _spike_func_sadd_ssub(
         v_reset = np.where(thres_mode == TM.EXCEED_POSITIVE, reset_v, vjt)
 
     # Spike
-    spike = np.equal(thres_mode, TM.EXCEED_POSITIVE)
+    spike = thres_mode == TM.EXCEED_POSITIVE
 
-    return spike, v_reset
+    return spike.astype(NEUOUT_U8_DTYPE), v_reset
 
 
 def _spike_func_avg_pool(
     vjt: VoltageType, pos_thres: int
-) -> tuple[SpikeType, VoltageType]:
+) -> tuple[NeuOutType, VoltageType]:
     """Function `spike_func()` in spiking addition & subtraction."""
     # Fire
     thres_mode = np.where(
@@ -1001,18 +1013,18 @@ def _spike_func_avg_pool(
         TM.EXCEED_POSITIVE,
         np.where(vjt < 0, TM.EXCEED_NEGATIVE, TM.NOT_EXCEEDED),
     )
-    spike = np.equal(thres_mode, TM.EXCEED_POSITIVE)
+    spike = thres_mode == TM.EXCEED_POSITIVE
     # Reset
     v_reset = np.where(thres_mode == TM.EXCEED_POSITIVE, 0, vjt)
 
-    return spike, v_reset
+    return spike.astype(NEUOUT_U8_DTYPE), v_reset
 
 
 def _sum_inputs_sadd_ssub(
-    x1: SpikeType, x2: SpikeType, f1: int, f2: int, vjt_pre: VoltageType, strict: bool
+    x1: NeuOutType, x2: NeuOutType, f1: int, f2: int, vjt_pre: VoltageType, strict: bool
 ) -> VoltageType:
     """Function `sum_input()` for spiking addition & subtraction."""
-    incoming_v = (vjt_pre + x1 * f1 + x2 * f2).astype(np.int32)
+    incoming_v = (vjt_pre + x1 * f1 + x2 * f2).astype(VOLTAGE_DTYPE)
     return vjt_overflow(incoming_v, strict)
 
 
@@ -1029,7 +1041,7 @@ _shape_ndim2_check = partial(_shape_check, ndim=2)
 _shape_ndim3_check = partial(_shape_check, ndim=3)
 
 
-def _transpose2d_mapping(op_shape: tuple[int, ...]) -> NDArray[np.bool_]:
+def _transpose2d_mapping(op_shape: tuple[int, ...]) -> WeightType:
     """Get the mapping matrix for transpose of 2d array.
 
     Argument:
@@ -1048,7 +1060,7 @@ def _transpose2d_mapping(op_shape: tuple[int, ...]) -> NDArray[np.bool_]:
 
 def _transpose3d_mapping(
     op_shape: tuple[int, ...], axes: tuple[int, ...]
-) -> NDArray[np.bool_]:
+) -> WeightType:
     """Get the mapping matrix for transpose of 3d array.
 
     Argument:

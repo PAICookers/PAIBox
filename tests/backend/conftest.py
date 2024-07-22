@@ -15,14 +15,13 @@ from paicorelib import (
     RoutingDirection,
     RoutingLevel,
 )
-from paicorelib import WeightPrecision as WP
+from paicorelib import WeightWidth as WW
 from paicorelib.reg_model import TICK_WAIT_END_MAX, TICK_WAIT_START_MAX
 
 import paibox as pb
 from paibox.backend.conf_template import (
     CoreConfig,
     CorePlmConfig,
-    EmptyCorePlmConfig,
     InputNeuronDest,
     NeuronConfig,
     NeuronDest,
@@ -812,7 +811,7 @@ def get_mapper() -> pb.Mapper:
 
 @pytest.fixture
 def MockCoreConfigDict() -> CoreConfig:
-    wp = random.choice(list(WP))
+    wp = random.choice(list(WW))
     lcn_ex = random.choice(list(LCN_EX))
 
     iwf, swf, sme = random.choice(list(CoreMode)).conf
@@ -942,11 +941,6 @@ def MockCorePlmConfig(MockCoreConfigDict, MockNeuronConfig):
     return cpc
 
 
-@pytest.fixture
-def MockEmptyCorePlmConfig(MockCoreConfigDict):
-    return EmptyCorePlmConfig.encapsulate(MockCoreConfigDict)
-
-
 def packbits_ref(bits: np.ndarray, count: int) -> int:
     """Pack unsigned bits into a signed integer.
 
@@ -981,17 +975,11 @@ def packbits1():
 
 
 def n_axon2lcn_ex_proto(n_axon, n_fanin_max) -> LCN_EX:
-    """Convert #N(of axons) to `LCN_EX` & check.
-
-    NOTE: LCN_EX = log2[ceil(#N/fan-in per dendrite)], where `LCN_1X` = 0.
-    """
     if n_axon < 1:
-        raise ValueError(f"the number of axons must be positive, but got {n_axon}.")
+        raise ValueError
 
     if (lcn := ((n_axon - 1) // n_fanin_max).bit_length()) > LCN_EX.LCN_64X:
-        raise ResourceError(
-            f"required LCN extension out of range {LCN_EX.LCN_64X} ({lcn}). "
-        )
+        raise ResourceError
 
     return LCN_EX(lcn)
 
@@ -1282,77 +1270,67 @@ class TestData:
     )
 
     cflags_weight_bit_opt_data = ParametrizedTestData(
-        args="range, scalar, dtype, expected_wp_noopt, expected_wp_opt",
+        args="range, scalar, dtype, expected_wp_opt",
         data=[
             (
                 ((0, 2), (0, 2)),
                 1,
                 (np.bool_, np.bool_),
-                WP.WEIGHT_WIDTH_1BIT,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
             ),
             (
                 ((0, 2), (0, 2)),
                 -1,
                 (np.bool_, np.bool_),
-                WP.WEIGHT_WIDTH_8BIT,
-                WP.WEIGHT_WIDTH_2BIT,
+                WW.WEIGHT_WIDTH_2BIT,
             ),
             (
                 ((0, 2), (0, 2)),
                 1,
                 (np.bool_, np.int8),
-                WP.WEIGHT_WIDTH_8BIT,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
             ),
             (
                 ((0, 2), (0, 2)),
                 -2,
                 (np.int8, np.bool_),
-                WP.WEIGHT_WIDTH_8BIT,
-                WP.WEIGHT_WIDTH_2BIT,
+                WW.WEIGHT_WIDTH_2BIT,
             ),
             (
                 ((0, 2), (0, 2)),
                 1,
                 (np.int8, np.int8),
-                WP.WEIGHT_WIDTH_8BIT,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
             ),
             (
                 ((0, 2), (-2, 2)),
                 -8,
                 (np.bool_, np.int8),
-                WP.WEIGHT_WIDTH_8BIT,
-                WP.WEIGHT_WIDTH_4BIT,
+                WW.WEIGHT_WIDTH_4BIT,
             ),
             (
                 ((0, 2), (-2, 2)),
                 7,
                 (np.bool_, np.int8),
-                WP.WEIGHT_WIDTH_8BIT,
-                WP.WEIGHT_WIDTH_4BIT,
+                WW.WEIGHT_WIDTH_4BIT,
             ),
             (
                 ((0, 2), (-128, 128)),
                 127,
                 (np.bool_, np.int8),
-                WP.WEIGHT_WIDTH_8BIT,
-                WP.WEIGHT_WIDTH_8BIT,
+                WW.WEIGHT_WIDTH_8BIT,
             ),
             (
                 ((-2, 2), (-8, 8)),
                 7,
                 (np.int8, np.int8),
-                WP.WEIGHT_WIDTH_8BIT,
-                WP.WEIGHT_WIDTH_4BIT,
+                WW.WEIGHT_WIDTH_4BIT,
             ),
             (
                 ((-8, 8), (-8, 8)),
                 -100,
                 (np.int8, np.int8),
-                WP.WEIGHT_WIDTH_8BIT,
-                WP.WEIGHT_WIDTH_8BIT,
+                WW.WEIGHT_WIDTH_8BIT,
             ),
         ],
     )
@@ -1364,7 +1342,7 @@ class TestData:
             (
                 [_nl[0], _nl[1]],
                 512,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
                     [NeuSegment(_nl[0], slice(0, 300, 1), 0)],
@@ -1376,7 +1354,7 @@ class TestData:
             (
                 [_nl[0], _nl[1]],
                 256,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [NeuSegment(_nl[0], slice(0, 200, 1), 0, 2)],
@@ -1391,7 +1369,7 @@ class TestData:
             (
                 [_nl[2]],
                 200,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [NeuSegment(_nl[2], slice(80 * 0, 80 * 1, 1), 0, 2)],
@@ -1403,7 +1381,7 @@ class TestData:
             (
                 [_nl[0], _nl[2]],
                 400,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
                     [NeuSegment(_nl[0], slice(0, 300, 1), 0)],
@@ -1415,7 +1393,7 @@ class TestData:
             (
                 [_nl[3], _nl[4]],
                 240,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [NeuSegment(_nl[3], slice(67 * 0, 67 * 1, 1), 0, 2)],
@@ -1437,7 +1415,7 @@ class TestData:
             (
                 [_nc[0], _nc[1]],
                 512,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
                     [NeuSegment(_nc[0], slice(0, 512, 1), 0)],
@@ -1451,7 +1429,7 @@ class TestData:
             (
                 [_nc[0], _nc[1]],
                 256,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [NeuSegment(_nc[0], slice(256 * 0, 256 * 1, 1), 0, 2)],
@@ -1468,7 +1446,7 @@ class TestData:
             (
                 [_nc[3], _nc[4]],
                 256,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     # Place the neuron segments with full capacity first
@@ -1482,7 +1460,7 @@ class TestData:
             (
                 [_nc[5], _nc[6]],
                 512,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
                     [NeuSegment(_nc[6], slice(0, 500, 1), 0, 1)],
@@ -1499,7 +1477,7 @@ class TestData:
             (
                 [_nb[0], _nb[1]],
                 512,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
                     [NeuSegment(_nb[0], slice(0, 300, 1), 0)],
@@ -1511,7 +1489,7 @@ class TestData:
             (
                 [_nb[0], _nb[1]],
                 256,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [NeuSegment(_nb[1], slice(0, 200, 1), 0, 2)],
@@ -1526,7 +1504,7 @@ class TestData:
             (
                 [_nb[2]],
                 200,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [NeuSegment(_nb[2], slice(80 * 0, 80 * 1, 1), 0, 2)],
@@ -1538,7 +1516,7 @@ class TestData:
             (
                 [_nb[2], _nb[3]],
                 200,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [
@@ -1564,7 +1542,7 @@ class TestData:
             (
                 [_nb[2], _nb[3], _nb[4]],
                 256,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [
@@ -1608,7 +1586,7 @@ class TestData:
             (
                 [_nb[3], _nb[4]],
                 240,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [
@@ -1630,13 +1608,15 @@ class TestData:
     )
 
     aligned_coords_test_data = ParametrizedTestData(
-        args="neu_index, axon_seg, delay, n_timeslot, expected",
+        args="neu_index, axon_seg, delay, n_timeslot, is_iw8, expected",
         data=[
+            # iw1
             (
                 slice(5, 8),
                 AxonSegment(12, 3, 0),
                 1,
                 1 << 1,
+                False,
                 [
                     AxonCoord(1, 2),
                     AxonCoord(2, 0),
@@ -1648,17 +1628,15 @@ class TestData:
                 AxonSegment(12, 3, 0),
                 2,
                 1 << 1,
-                [
-                    AxonCoord(2 + 0, 0),
-                    AxonCoord(2 + 0, 1),
-                    AxonCoord(2 + 0, 2),
-                ],
+                False,
+                [AxonCoord(2 + 0, i) for i in range(3)],
             ),
             (
                 slice(1, 5),
                 AxonSegment(12, 3, 0),
                 2,
                 1 << 2,
+                False,
                 [
                     AxonCoord(4 + 0, 1),
                     AxonCoord(4 + 0, 2),
@@ -1671,6 +1649,7 @@ class TestData:
                 AxonSegment(12, 3, 0),
                 4,
                 1 << 3,
+                False,
                 [
                     AxonCoord(24 + 0, 1),
                     AxonCoord(24 + 0, 2),
@@ -1684,15 +1663,78 @@ class TestData:
                 AxonSegment(16, 4, 4),
                 4,
                 1 << 4,
+                False,
+                [AxonCoord(48 + 0, 4 + 3)]
+                + [AxonCoord(48 + 1, 4 + i) for i in range(4)]
+                + [AxonCoord(48 + 2, 4 + 0), AxonCoord(48 + 2, 4 + 1)],
+            ),
+            # iw8
+            (
+                slice(5, 8),
+                AxonSegment(12, 3, 0),
+                1,
+                1 << 1,
+                True,
                 [
-                    AxonCoord(48 + 0, 4 + 3),
-                    AxonCoord(48 + 1, 4 + 0),
-                    AxonCoord(48 + 1, 4 + 1),
-                    AxonCoord(48 + 1, 4 + 2),
-                    AxonCoord(48 + 1, 4 + 3),
-                    AxonCoord(48 + 2, 4 + 0),
-                    AxonCoord(48 + 2, 4 + 1),
+                    AxonCoord(1, 8 * 2),
+                    AxonCoord(2, 8 * 0),
+                    AxonCoord(2, 8 * 1),
                 ],
+            ),
+            (
+                slice(0, 3),
+                AxonSegment(12, 3, 0),
+                2,
+                1 << 1,
+                True,
+                [AxonCoord(2 + 0, 8 * i) for i in range(3)],
+            ),
+            (
+                slice(1, 5),
+                AxonSegment(12, 3, 0),
+                2,
+                1 << 2,
+                True,
+                [
+                    AxonCoord(4 + 0, 8 * 1),
+                    AxonCoord(4 + 0, 8 * 2),
+                    AxonCoord(4 + 1, 8 * 0),
+                    AxonCoord(4 + 1, 8 * 1),
+                ],
+            ),
+            (
+                slice(1, 6),
+                AxonSegment(12, 3, 0),
+                4,
+                1 << 3,
+                True,
+                [
+                    AxonCoord(24 + 0, 8 * 1),
+                    AxonCoord(24 + 0, 8 * 2),
+                    AxonCoord(24 + 1, 8 * 0),
+                    AxonCoord(24 + 1, 8 * 1),
+                    AxonCoord(24 + 1, 8 * 2),
+                ],
+            ),
+            (
+                slice(5, 15),
+                AxonSegment(16, 8, 16),
+                1,
+                1 << 1,
+                True,
+                [AxonCoord(0, 8 * (16 + i)) for i in range(5, 8)]
+                + [AxonCoord(1, 8 * (16 + i)) for i in range(7)],
+            ),
+            (
+                slice(5, 35),
+                AxonSegment(40, 10, 10),
+                1,
+                1 << 2,
+                True,
+                [AxonCoord(0, 8 * (10 + i)) for i in range(5, 10)]
+                + [AxonCoord(1, 8 * (10 + i)) for i in range(10)]
+                + [AxonCoord(2, 8 * (10 + i)) for i in range(10)]
+                + [AxonCoord(3, 8 * (10 + i)) for i in range(5)],
             ),
         ],
     )

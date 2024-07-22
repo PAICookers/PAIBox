@@ -46,7 +46,7 @@ repos:
         args: [--pytest-test-first]
       - id: requirements-txt-fixer
       - id: pretty-format-json
-        args: [--autofix]
+        args: [--autofix, --indent 2]
       - id: no-commit-to-branch
 
   - repo: https://github.com/python-poetry/poetry

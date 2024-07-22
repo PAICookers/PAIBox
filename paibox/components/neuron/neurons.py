@@ -6,7 +6,7 @@ from paicorelib import LDM, NTM, RM
 from paibox.types import DataArrayType, Shape
 
 from .base import Neuron
-from .utils import LEAK_V_MAX, NEG_THRES_MIN
+from .utils import LEAK_V_MAX
 
 __all__ = ["IF", "LIF", "TonicSpiking", "PhasicSpiking", "SpikingRelu"]
 
@@ -28,7 +28,7 @@ class IF(Neuron):
         Args:
             - shape: shape of neurons.
             - threshold: when the membrane potential exceeds the threshold, neurons will fire.
-            - reset_v: If not specified, neurons will do soft reset after firing, v - threshold. If \
+            - reset_v: if not specified, neurons will do soft reset after firing, v - threshold. If \
                 specified, neurons will do hard reset after firing, v = reset_v.
             - neg_threshold: signed negative theshold. If not specified, it will be the smallest    \
                 negative integer allowed by the hardware.
@@ -52,17 +52,12 @@ class IF(Neuron):
             _reset_v = 0
             _rm = RM.MODE_LINEAR
 
-        if isinstance(neg_threshold, int):
-            _neg_threshold = neg_threshold
-        else:
-            _neg_threshold = NEG_THRES_MIN
-
         super().__init__(
             shape,
             reset_mode=_rm,
             reset_v=_reset_v,
             neg_thres_mode=NTM.MODE_SATURATION,
-            neg_threshold=_neg_threshold,
+            neg_threshold=neg_threshold,
             pos_threshold=threshold,
             keep_shape=keep_shape,
             name=name,
@@ -94,7 +89,7 @@ class LIF(Neuron):
             - leak_v: the signed leak voltage will be added directly to the membrane potential.
                 - If it is positive, the membrane potential will increase.
                 - If is is negative, the membrane potential will decrease.
-                - the final leak_v is leak_v + bias (default=0).
+                - The final leak_v is leak_v + bias (default=0).
             - bias: if a signed bias is given, it will be added to `leak_v`. The neuron will leak   \
                 before threshold comparison. `leak_v` will also be considered now.
             - neg_threshold: signed negative theshold. If not specified, it will be the smallest    \
@@ -121,17 +116,12 @@ class LIF(Neuron):
         # Support passing in bias & leak_v at the same time
         _leak_v = leak_v + _bias
 
-        if isinstance(neg_threshold, int):
-            _neg_threshold = neg_threshold
-        else:
-            _neg_threshold = NEG_THRES_MIN
-
         super().__init__(
             shape,
             reset_mode=_rm,
             reset_v=_reset_v,
             neg_thres_mode=NTM.MODE_SATURATION,
-            neg_threshold=_neg_threshold,
+            neg_threshold=neg_threshold,
             pos_threshold=threshold,
             leak_v=_leak_v,
             keep_shape=keep_shape,

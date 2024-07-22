@@ -1,5 +1,4 @@
 import warnings
-from collections.abc import Sequence
 from functools import partial
 from math import ceil
 from typing import Literal
@@ -256,22 +255,18 @@ def get_neu_segments(
 
 
 def get_axon_segments(
-    axons: Sequence[SourceNodeType], tr_max: int, fan_in_max: int
+    axons: list[SourceNodeType], tr_max: int, n_fanin: int
 ) -> dict[SourceNodeType, AxonSegment]:
     """Divide axons into segments by group to fit the hardware constraints.
 
     Args:
-        - axons: The axons to be segmented.
-        - tr_max: The maximum value of the time slot(=n_timeslot).
-        - fan_in_max: The value of fan-in per dendrite(=N_FANIN_PER_DENDRITE_XNN).
-
-    TODO Provide an alternative when failed.
+        - axons: the axons to be segmented.
+        - tr_max: the maximum value of the time slot(n_timeslot).
+        - n_fanin: the fan-in of cores.
     """
 
-    def _seg_alloc(axon: SourceNodeType) -> AxonSegment:
+    def _seg_alloc(axon: SourceNodeType, offset: int) -> tuple[AxonSegment, int]:
         """Allocate an axon segment, return the next offset of axon address."""
-        nonlocal offset
-
         # The width of assigned address
         if axon.num_out % tr_max > 0:
             addr_width = axon.num_out // tr_max + 1
@@ -280,58 +275,92 @@ def get_axon_segments(
             addr_width = axon.num_out // tr_max
             # n_axon_rest = 0
 
-        if offset + addr_width > fan_in_max:
+        if offset + addr_width > n_fanin:
             raise ResourceError(
-                f"axons address out of range [0, {fan_in_max}) ({offset + addr_width})."
+                f"axons address out of range [0, {n_fanin}) ({offset + addr_width})."
             )
 
-        cur_offset = offset
-        offset += addr_width
-
-        return AxonSegment(axon.num_out, addr_width, cur_offset)
+        return AxonSegment(axon.num_out, addr_width, offset), offset + addr_width
 
     offset = 0
     axon_segments = dict()
 
     for axon in axons:
-        segment = _seg_alloc(axon)
+        segment, offset = _seg_alloc(axon, offset)
         axon_segments[axon] = segment
 
     return axon_segments
 
 
 def aligned_coords(
-    neu_index: NeuSlice, axon_seg: AxonSegment, delay: int, dest_n_timeslot: int
+    neu_index: NeuSlice,
+    axon_seg: AxonSegment,
+    delay: int,
+    dest_n_timeslot: int,
+    is_iw8: bool,
 ) -> list[AxonCoord]:
     """Find the axon segments aligned with the index of neuron segment.
 
-    The length of axon coordinates is the same as `neu_index`.
+    NOTE: Axons are described in a tuple (tick_relative, axon_addr). Axis 'tr' is used as the row   \
+        coordinates while axis 'axon' is used as the column coordinates.
+
+        | ------- AxonSeg[0] ------- | ------- AxonSeg[1] ------- | ...
+    tr=0 A1[0]   A1[1]   ...  A1[99]   A2[0]   A2[1]   ... A2[199]
+    tr=1 A1[100] A1[101] ... A1[199]   A2[200] A2[201] ... A2[399]
+
+    The target axon may be Ax[100:499], where (tr=0, offset+100) is the start and (tr=2, offset+499)\
+        is the end.
+            offset
+              | <--------- width --------> |
+        | ... | ------- AxonSeg[x] ------- | ...
+    tr=0  ...   Ax[0]   Ax[1]   ... Ax[199]
+    tr=1  ...   Ax[200] Ax[201] ... Ax[399]
+    tr=2  ...   Ax[400] Ax[401] ... Ax[599]
+
+    When the input width is 8 bits, each A[x] occupies 8 bits. The interval of axons is 8.
     """
-    axon_coords = []
     addr_width = axon_seg.addr_width
     addr_offset = axon_seg.addr_offset
 
     # tick_relative = n_timeslot * (delay - 1) + tr_offset (start & end)
     tr_base = dest_n_timeslot * (delay - 1)
-
     tr_offset_start, tr_offset_stop = (
         neu_index.start // addr_width,
         neu_index.stop // addr_width,
     )
     addr_start, addr_stop = (neu_index.start % addr_width, neu_index.stop % addr_width)
 
+    _addr_interval = 8 if is_iw8 else 1
+
     if tr_offset_stop == tr_offset_start:
-        for addr in range(addr_start, addr_stop):
-            axon_coords.append(AxonCoord(tr_base + tr_offset_start, addr_offset + addr))
+        axon_coords = [
+            AxonCoord(tr_base + tr_offset_start, (addr_offset + addr) * _addr_interval)
+            for addr in range(addr_start, addr_stop)
+        ]
     else:
-        for addr in range(addr_start, addr_width):
-            axon_coords.append(AxonCoord(tr_base + tr_offset_start, addr_offset + addr))
+        # First row: addr_start -> end
+        acoords_first = [
+            AxonCoord(tr_base + tr_offset_start, (addr_offset + addr) * _addr_interval)
+            for addr in range(addr_start, addr_width)
+        ]
 
+        # Middle rows
+        acoords_mid = []
         for tr in range(tr_offset_start + 1, tr_offset_stop):
-            for addr in range(addr_width):
-                axon_coords.append(AxonCoord(tr_base + tr, addr_offset + addr))
+            acoords_mid.extend(
+                AxonCoord(tr_base + tr, (addr_offset + addr) * _addr_interval)
+                for addr in range(addr_width)
+            )
 
-        for addr in range(addr_stop):
-            axon_coords.append(AxonCoord(tr_base + tr_offset_stop, addr_offset + addr))
+        # Last row: start -> addr_stop
+        acoords_last = [
+            AxonCoord(tr_base + tr_offset_stop, (addr_offset + addr) * _addr_interval)
+            for addr in range(addr_stop)
+        ]
+
+        axon_coords = []
+        axon_coords.extend(acoords_first)
+        axon_coords.extend(acoords_mid)
+        axon_coords.extend(acoords_last)
 
     return axon_coords

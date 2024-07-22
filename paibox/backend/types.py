@@ -45,7 +45,12 @@ EdgeType: TypeAlias = FullConnectedSyn
 SourceNodeType: TypeAlias = NodeType
 DestNodeType: TypeAlias = Neuron
 
-WeightRamType: TypeAlias = NDArray[np.uint64]  # uint64 weights mapped in weight RAM
+WRAM_UNPACKED_DTYPE = np.uint8
+WRAM_PACKED_DTYPE = np.uint64
+# Type of unpacked weight in WRAM
+WRAMUnpackedType: TypeAlias = NDArray[WRAM_UNPACKED_DTYPE]
+# Type of packed weight in WRAM
+WRAMPackedType: TypeAlias = NDArray[WRAM_PACKED_DTYPE]
 _COORD_UNSET = 0
 _DEGREE_UNSET = -1
 
@@ -69,7 +74,7 @@ class NodeDegree:
     def __copy__(self) -> "NodeDegree":
         return self.__deepcopy__()
 
-    def __deepcopy__(self) -> "NodeDegree":
+    def __deepcopy__(self, memo=None) -> "NodeDegree":
         return NodeDegree(self.in_degree, self.out_degree)
 
     def copy(self) -> "NodeDegree":
@@ -90,6 +95,7 @@ class EdgeAttr(NamedTuple):
 class PartitionedEdges(NamedTuple):
     edges: set[EdgeType]
     rg_id: int
+    rt_mode: CoreMode = CoreMode.MODE_SNN  # XXX Temp solution
 
 
 NeuSlice: TypeAlias = slice
@@ -119,9 +125,9 @@ class NeuSegment:
     def addr_max(self) -> int:
         if (
             _addr_max := self.offset + self.repeat * self.n_neuron
-        ) > HwConfig.ADDR_RAM_MAX:
+        ) > HwConfig.ADDR_RAM_MAX + 1:
             raise ValueError(
-                f"neuron RAM address out of range {HwConfig.ADDR_RAM_MAX} ({_addr_max})."
+                f"neuron RAM address out of range {HwConfig.ADDR_RAM_MAX + 1} ({_addr_max})."
             )
 
         return _addr_max
@@ -156,7 +162,7 @@ class AxonSegment(NamedTuple):
 class CoreAbstract(PAIBoxObject, ABC):
     """Abstract core class."""
 
-    runtime_mode: CoreMode
+    rt_mode: CoreMode
 
     @property
     @abstractmethod
@@ -166,4 +172,15 @@ class CoreAbstract(PAIBoxObject, ABC):
 
     @classmethod
     @abstractmethod
-    def build(cls): ...
+    def build(cls, *args, **kwargs): ...
+
+
+if hasattr(CoreMode, "is_iw8"):
+
+    def is_iw8(mode: CoreMode) -> bool:
+        return mode.is_iw8  # type: ignore
+
+else:
+
+    def is_iw8(mode: CoreMode) -> bool:
+        return mode is CoreMode.MODE_ANN_TO_BANN_OR_SNN or mode is CoreMode.MODE_ANN

@@ -8,7 +8,7 @@ if sys.version_info >= (3, 10):
 else:
     from typing_extensions import TypeAlias
 
-from paicorelib import WeightPrecision as WP
+from paicorelib import WeightWidth as WW
 
 from .collector import Collector
 from .mixin import ReceiveInputProj, StatusMemory, TimeRelatedNode
@@ -296,7 +296,7 @@ class SynSys(DynamicSys):
         raise NotImplementedError
 
     @property
-    def weight_precision(self) -> WP:
+    def weight_width(self) -> WW:
         raise NotImplementedError
 
     @property

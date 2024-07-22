@@ -1,5 +1,6 @@
 from typing import Literal
 
+import numpy as np
 import pytest
 
 import paibox as pb
@@ -216,6 +217,57 @@ class TransposeModule_T3d_Net(pb.DynSysGroup):
         self.probe2 = pb.Probe(self.n2, "spike")
 
 
+class ANNNetwork(pb.Network):
+    def __init__(self):
+        super().__init__()
+        self.inp1 = pb.InputProj(input=_out_bypass1, shape_out=(32, 32))
+
+        n1_bias = np.random.randint(-128, 128, size=(4,), dtype=np.int8)
+        self.n1 = pb.LIF(
+            (4, 30, 30),
+            100,
+            bias=n1_bias,
+            tick_wait_start=1,
+            input_width=8,
+            spike_width=8,
+            snn_en=False,
+        )
+        n2_bias = np.random.randint(-128, 128, size=(4,), dtype=np.int8)
+        self.n2 = pb.LIF(
+            (4, 28, 28),
+            50,
+            bias=n2_bias,
+            tick_wait_start=2,
+            input_width=8,
+            spike_width=8,
+            snn_en=False,
+        )
+        self.n3 = pb.LIF(
+            (2, 26, 26),
+            20,
+            bias=1,
+            tick_wait_start=3,
+            input_width=8,
+            spike_width=8,
+            snn_en=False,
+        )
+        self.n4 = pb.IF(
+            (100,), 10, tick_wait_start=4, input_width=8, spike_width=8, snn_en=False
+        )
+
+        kernel_1 = np.random.randint(-128, 128, size=(4, 1, 3, 3), dtype=np.int8)
+        self.conv2d_1 = pb.Conv2d(self.inp1, self.n1, kernel_1)
+
+        kernel_2 = np.random.randint(-128, 128, size=(4, 4, 3, 3), dtype=np.int8)
+        self.conv2d_2 = pb.Conv2d(self.n1, self.n2, kernel_2)
+
+        kernel_3 = np.random.randint(-128, 128, size=(2, 4, 3, 3), dtype=np.int8)
+        self.conv2d_3 = pb.Conv2d(self.n2, self.n3, kernel_3)
+
+        w4 = np.random.randint(-128, 128, size=(2 * 26 * 26, 100), dtype=np.int8)
+        self.fc1 = pb.FullConn(self.n3, self.n4, w4)
+
+
 @pytest.fixture(scope="class")
 def build_BitwiseAND_Net():
     return FunctionalModule_2to1_Net("and")
@@ -264,3 +316,8 @@ def build_FModule_ConnWithModule_Net():
 @pytest.fixture(scope="class")
 def build_FModule_ConnWithFModule_Net():
     return FModule_ConnWithFModule_Net()
+
+
+@pytest.fixture(scope="class")
+def build_ANN_Network_1():
+    return ANNNetwork()

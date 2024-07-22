@@ -3,48 +3,49 @@ import pytest
 
 from paibox.components.synapses import transforms as tfm
 from paibox.exceptions import AutoOptimizationWarning
+from paibox.types import WEIGHT_DTYPE
 from paibox.utils import shape2num
 
 
 class TestTransforms:
     @pytest.mark.parametrize(
-        "weight, expected_dtype",
+        "weight",
         [
-            (np.array([1, 2, 3], dtype=np.int8), np.int8),
-            (np.array([1, 0, 1], dtype=np.bool_), np.bool_),
-            (np.array([True, False]), np.bool_),
-            (np.array([True, False], dtype=np.int8), np.int8),
-            (10, np.int8),
-            (1, np.bool_),
-            (True, np.bool_),
-            (np.int8(1), np.bool_),  # automatically optimizated
-            (np.uint8(99), np.int8),
-            (np.array([-128, 1, 127], dtype=np.int8), np.int8),
-            ([1, 2, 3], np.int8),
-            ((0, 1, 0, 1), np.int8),
+            np.array([1, 2, 3], dtype=np.int8),
+            np.array([1, 0, 1], dtype=np.bool_),
+            np.array([True, False]),
+            np.array([True, False], dtype=np.int8),
+            10,
+            1,
+            True,
+            np.int8(1),  # automatically optimizated
+            np.uint8(99),
+            np.array([-128, 1, 127], dtype=np.int8),
+            [1, 2, 3],
+            (0, 1, 0, 1),
         ],
     )
-    def test_weight_dtype_convert(self, weight, expected_dtype):
+    def test_weight_dtype_convert(self, weight):
         t = tfm.Transform(weight)
-        assert t.weights.dtype == expected_dtype
+        assert t.weights.dtype == WEIGHT_DTYPE
 
     @pytest.mark.parametrize(
-        "weight, expected_dtype",
+        "weight",
         [
-            (np.array([1, 2, 3]), np.int8),
+            np.array([1, 2, 3]),
             # Only automatically optimized to int8 unless specified as bool
-            (np.array([True, False], dtype=np.int16), np.int8),
-            (np.array([1, 0, 1], dtype=np.int16), np.int8),  # Same as above
-            (np.array([-128, 1, 127], dtype=np.int32), np.int8),
-            (np.array([-8, 4, 7]), np.int8),
-            ([-100, 0, 100], np.int8),
+            np.array([True, False], dtype=np.int16),
+            np.array([1, 0, 1], dtype=np.int16),  # Same as above
+            np.array([-128, 1, 127], dtype=np.int32),
+            np.array([-8, 4, 7]),
+            [-100, 0, 100],
         ],
     )
-    def test_weight_dtype_convert_warning(self, weight, expected_dtype):
+    def test_weight_dtype_convert_warning(self, weight):
         with pytest.warns(AutoOptimizationWarning):
             t = tfm.Transform(weight)
 
-        assert t.weights.dtype == expected_dtype
+        assert t.weights.dtype == WEIGHT_DTYPE
 
     @pytest.mark.parametrize(
         "weight",
@@ -111,15 +112,8 @@ class TestTransforms:
         assert y.shape == (4,)
 
     @pytest.mark.parametrize(
-        "weight, expected_dtype",
-        [
-            (1, np.bool_),
-            (-1, np.int8),
-            (10, np.int8),
-            (-100, np.int8),
-            (-128, np.int8),
-            (127, np.int8),
-        ],
+        "weight",
+        [1, -1, 10, -100, -128, 127],
         ids=[
             "scalar_1",
             "scalar_-1",
@@ -129,7 +123,7 @@ class TestTransforms:
             "scalar_-127",
         ],
     )
-    def test_AllToAll_weight_scalar(self, weight, expected_dtype):
+    def test_AllToAll_weight_scalar(self, weight):
         """Test `AllToAll` when weight is a scalar"""
 
         num_in, num_out = 10, 20
@@ -138,7 +132,7 @@ class TestTransforms:
         y = f(x)
         expected = np.full((num_out,), np.sum(x, axis=None), dtype=np.int32) * weight
 
-        assert f.connectivity.dtype == expected_dtype
+        assert f.connectivity.dtype == WEIGHT_DTYPE
         assert y.dtype == np.int32
         assert y.shape == (num_out,)
         assert y.ndim == 1
@@ -146,37 +140,32 @@ class TestTransforms:
         assert f.connectivity.shape == (num_in, num_out)
 
     @pytest.mark.parametrize(
-        "shape, x, weights, expected_dtype",
+        "shape, x, weights",
         [
             (
                 (3, 4),
                 np.random.randint(2, size=(3,), dtype=np.bool_),
                 np.random.randint(2, size=(3, 4), dtype=np.bool_),
-                np.bool_,
             ),
             (
                 (10, 20),
                 np.random.randint(2, size=(10,), dtype=np.bool_),
                 np.random.randint(127, size=(10, 20), dtype=np.int8),
-                np.int8,
             ),
             (
                 (20, 10),
                 np.random.randint(2, size=(20,), dtype=np.bool_),
                 np.random.randint(2, size=(20, 10), dtype=np.bool_),
-                np.bool_,
             ),
             (
                 (2, 2),
                 np.array([1, 1], dtype=np.bool_),
                 np.array([[1, 2], [3, 4]], dtype=np.int8),
-                np.int8,
             ),
             (
                 (2, 2),
                 np.array([1, 1], dtype=np.bool_),
                 np.array([[127, 0], [3, -128]], dtype=np.int8),
-                np.int8,
             ),
         ],
         ids=[
@@ -187,43 +176,43 @@ class TestTransforms:
             "weights_int8_4",
         ],
     )
-    def test_AllToAll_array(self, shape, x, weights, expected_dtype):
+    def test_AllToAll_array(self, shape, x, weights):
         """Test `AllToAll` when weights is an array"""
 
         f = tfm.AllToAll(shape, weights)
         y = f(x)
         expected = x @ weights.copy().astype(np.int32)
 
-        assert f.connectivity.dtype == expected_dtype
+        assert f.connectivity.dtype == WEIGHT_DTYPE
         assert np.array_equal(y, expected)
         assert f.connectivity.shape == shape
 
     @pytest.mark.parametrize(
-        "x, weights, expected_dtype",
+        "x, weights",
         [
             (
                 np.arange(12, dtype=np.int8).reshape(3, 4),
                 np.array([[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]], dtype=np.int8),
-                np.int8,
             ),
             (
                 np.random.randint(2, size=(10,), dtype=np.bool_),
                 np.random.randint(-10, 10, size=(10, 20), dtype=np.int8),
-                np.int8,
             ),
             (
                 np.ones((20, 10), dtype=np.bool_),
                 np.random.randint(2, size=(20, 10), dtype=np.bool_),
-                np.bool_,
             ),
             (
                 np.array((1, 1), dtype=np.bool_),
                 np.array([[127, 0], [3, -128]], dtype=np.int8),
-                np.int8,
             ),
         ],
     )
-    def test_MaskedLinear(self, x, weights, expected_dtype):
+    def test_MaskedLinear(
+        self,
+        x,
+        weights,
+    ):
         if x.ndim == 1:
             in_shape = (1, x.shape[0])
         else:
@@ -242,7 +231,7 @@ class TestTransforms:
         y2 = x.flatten() @ f.connectivity.astype(np.int32)
         expected = x.reshape(in_shape).transpose(axes) @ weights.copy().astype(np.int32)
 
-        assert f.connectivity.dtype == expected_dtype
+        assert f.connectivity.dtype == WEIGHT_DTYPE
         assert y.shape == oshape
         assert y2.dtype == np.int32
         assert np.array_equal(y, expected)

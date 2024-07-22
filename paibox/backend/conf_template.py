@@ -1,9 +1,10 @@
 import sys
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, ClassVar, NamedTuple, TypedDict, Union
+from typing import Any, NamedTuple, TypedDict, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -16,6 +17,7 @@ from paicorelib import (
     InputWidthFormat,
     MaxPoolingEnable,
     NeuronAttrs,
+    NeuronConf,
     NeuronDestInfo,
     ParamsReg,
 )
@@ -24,11 +26,11 @@ from paicorelib import (
     RoutingCoord,
     SNNModeEnable,
     SpikeWidthFormat,
-    WeightPrecision,
+    WeightWidth,
     get_replication_id,
 )
+from paicorelib.framelib import OfflineFrameGen
 from paicorelib.framelib import types as flib_types
-from paicorelib.framelib.frame_gen import OfflineFrameGen
 from paicorelib.framelib.utils import _mask, np2bin, np2npy, np2txt
 
 if sys.version_info >= (3, 10):
@@ -36,13 +38,11 @@ if sys.version_info >= (3, 10):
 else:
     from typing_extensions import TypeAlias
 
-from typing_extensions import NotRequired
-
 from paibox.components import Neuron
-from paibox.utils import bit_reversal
+from paibox.utils import reverse_8bit
 
 from .context import _BACKEND_CONTEXT
-from .types import AxonCoord, NeuSegment, NodeName
+from .types import AxonCoord, NeuSegment, NodeName, WRAMPackedType
 
 try:
     import orjson
@@ -99,7 +99,7 @@ class CoreConfig(NamedTuple):
     """Extra parameters for debugging."""
 
     name: str
-    weight_precision: WeightPrecision
+    weight_width: WeightWidth
     lcn_extension: LCN_EX
     input_width_format: InputWidthFormat
     spike_width_format: SpikeWidthFormat
@@ -176,16 +176,6 @@ class OutputNeuronDest(NamedTuple):
     end: AxonCoord
 
 
-try:
-    from paicorelib.ram_model import NeuronConf as _NeuronConf
-except ImportError:
-    from pydantic import BaseModel
-
-    class _NeuronConf(BaseModel):
-        attrs: NeuronAttrs
-        dest_info: NeuronDestInfo
-
-
 class NeuronConfig(NamedTuple):
     _extra_params = (
         "n_neuron",
@@ -240,8 +230,8 @@ class NeuronConfig(NamedTuple):
             neu_seg.n_neuron, neu_seg.addr_ram, neu_seg.offset, attrs, neuron_dest_info
         )
 
-    def export(self) -> _NeuronConf:
-        return _NeuronConf(attrs=self.neuron_attrs, dest_info=self.neuron_dest_info)
+    def export(self) -> NeuronConf:
+        return NeuronConf(attrs=self.neuron_attrs, dest_info=self.neuron_dest_info)
 
     def to_json(self) -> Union[str, bytes]:
         """Dump the configs into json for debugging."""
@@ -261,7 +251,7 @@ class CorePlmConfig(NamedTuple):
     """Extra parameters for debugging."""
 
     random_seed: int
-    weight_ram: NDArray[np.uint64]
+    weight_ram: WRAMPackedType
     params_reg: ParamsReg
     neuron_configs: dict[Neuron, NeuronConfig]
 
@@ -269,15 +259,15 @@ class CorePlmConfig(NamedTuple):
     def encapsulate(
         cls,
         random_seed: int,
-        weight_ram: NDArray[np.uint64],
-        core_config: CoreConfig,
-        neuron_configs: dict[Neuron, NeuronConfig],
+        weight_ram: WRAMPackedType,
+        core_cfg: CoreConfig,
+        neuron_cfg: dict[Neuron, NeuronConfig],
     ):
         return cls(
             random_seed,
             weight_ram,
-            ParamsReg.model_validate(core_config._asdict(), strict=True),
-            neuron_configs,
+            ParamsReg.model_validate(core_cfg._asdict(), strict=True),
+            neuron_cfg,
         )
 
     def export(self) -> dict[str, Any]:
@@ -288,11 +278,11 @@ class CorePlmConfig(NamedTuple):
             **self.params_reg.model_dump(by_alias=True),
         }
 
-        for neu, neu_config in self.neuron_configs.items():
+        for neu, neu_cfg in self.neuron_configs.items():
             if _USE_ORJSON:
-                dict_["neuron_rams"][neu.name] = orjson.loads(neu_config.to_json())
+                dict_["neuron_rams"][neu.name] = orjson.loads(neu_cfg.to_json())
             else:
-                dict_["neuron_rams"][neu.name] = json.loads(neu_config.to_json())
+                dict_["neuron_rams"][neu.name] = json.loads(neu_cfg.to_json())
 
         return dict_
 
@@ -304,23 +294,6 @@ class CorePlmConfig(NamedTuple):
             dict_[var] = getattr(self, var)
 
         return dict_
-
-
-class EmptyCorePlmConfig(CorePlmConfig):
-    _default_seed: ClassVar[int] = 0
-    _default_zero_wram: ClassVar[NDArray[np.uint64]] = np.zeros(
-        (HwConfig.ADDR_RAM_MAX, 18), dtype=np.uint64
-    )
-    _default_neuron_conf = {}  # don't care
-
-    @classmethod
-    def encapsulate(cls, core_config: CoreConfig):
-        return cls(
-            cls._default_seed,
-            cls._default_zero_wram,
-            ParamsReg.model_validate(core_config._asdict(), strict=True),
-            cls._default_neuron_conf,
-        )
 
 
 InputNodeConf: TypeAlias = dict[NodeName, InputNeuronDest]
@@ -357,7 +330,7 @@ def gen_config_frames_by_coreconf(
     write_to_file: bool,
     fp: Path,
     split_by_chip: bool,
-    formats: list[str],
+    formats: Sequence[str],
 ) -> dict[ChipCoord, list[FrameArrayType]]:
     """Generate configuration frames by given the `CorePlmConfig`."""
 
@@ -386,19 +359,32 @@ def gen_config_frames_by_coreconf(
             )
 
             # 3. Iterate all the neuron segments inside the physical core.
+            # FIXME Unfortunately, at present, only the corresponding NRAM can be written based on
+            # the neuron configurations, and it cannot handle the case where the NRAM address is >= 512,
+            # that is, some neurons need to occupy the NRAM, which is inconsistent with the current logic.
+            # Additional neuron configurations has been written to the NRAM within the CorePlacement.
+            # NOTE The meaning of 'n_neuron' in function 'gen_config_frame3' is the number of neurons in
+            # the NRAM. See notes of function '_weight_ram_mapping' of `CorePlacement` in file
+            # backend/placement.py for details.
             config_frame_type3 = []
             for neu_conf in v.neuron_configs.values():
+                # The actual number of neurons placed in NRAM.
+                _n_neuron_nram = (
+                    HwConfig.ADDR_RAM_MAX + 1
+                    if neu_conf.n_neuron > HwConfig.ADDR_RAM_MAX + 1
+                    else neu_conf.n_neuron
+                )
+
                 config_frame_type3.append(
                     OfflineFrameGen.gen_config_frame3(
                         chip_coord,
                         core_coord,
                         _RID_UNSET,
                         neu_conf.addr_offset,
-                        neu_conf.n_neuron,
+                        _n_neuron_nram,
                         neu_conf.neuron_attrs,
                         neu_conf.neuron_dest_info,
-                        lcn_ex=v.params_reg.lcn_extension,
-                        weight_precision=v.params_reg.weight_precision,
+                        v.params_reg.n_repeat_nram,
                     )
                 )
 
@@ -412,17 +398,18 @@ def gen_config_frames_by_coreconf(
                 frame3 = np.array([], dtype=FRAME_DTYPE)
 
             # 4. Only one config frame type IV for each physical core.
-            n_addr_write = v.params_reg.num_dendrite  # The number of address to write
-            if n_addr_write > 0:
+            # NOTE To avoid logical complications, write the entire weights to the WRAM, rather than just the
+            # valid partial weights, because there are still some neurons configurations in the WRAM.
+            if v.params_reg.num_dendrite > 0:
                 config_frame_type4 = OfflineFrameGen.gen_config_frame4(
                     chip_coord,
                     core_coord,
                     _RID_UNSET,
                     0,
-                    18 * n_addr_write,
-                    v.weight_ram[:n_addr_write],
+                    18 * (HwConfig.ADDR_RAM_MAX + 1),
+                    v.weight_ram[: HwConfig.ADDR_RAM_MAX + 1],
                 )
-            else:
+            else:  # empty core placement
                 config_frame_type4 = None
 
             if config_frame_type4:
@@ -603,7 +590,7 @@ def _get_clk_en_L2_dict(
         for _ in range(8):
             u8 = bitmap & _mask(8)
             bitmap >>= 8
-            clk_en.append(bit_reversal(u8))
+            clk_en.append(reverse_8bit(u8))
 
         return clk_en
 
