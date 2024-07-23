@@ -422,7 +422,7 @@ class Neuron(MetaNeuron, NeuDyn):
         tick_wait_end: int = 0,
         input_width: Union[L[1, 8], InputWidthFormat] = InputWidthFormat.WIDTH_1BIT,
         spike_width: Union[L[1, 8], SpikeWidthFormat] = SpikeWidthFormat.WIDTH_1BIT,
-        snn_en: bool = True,
+        snn_en: Union[bool, SNNModeEnable] = True,
         pool_max: bool = False,
         unrolling_factor: int = 1,
         overflow_strict: bool = False,
