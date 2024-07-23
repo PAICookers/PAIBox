@@ -2,7 +2,39 @@ from typing import Optional
 
 import numpy as np
 
-from paibox.types import NeuOutType, SpikeType
+from paibox.types import WEIGHT_DTYPE, NeuOutType, SpikeType
+
+
+def maxpool1d_golden(
+    x: SpikeType,
+    kernel_size: tuple[int],
+    stride: Optional[tuple[int]],
+    padding: tuple[int],
+    fm_order: str,
+) -> SpikeType:
+    if fm_order == "LC":
+        _x = x.T
+    else:
+        _x = x
+
+    xcin, il = _x.shape
+    kl = kernel_size[0]
+    _stride = stride if stride is not None else kernel_size
+    ol = (il - kl + 2 * padding[0]) // _stride[0] + 1
+    cout = xcin
+
+    out = np.zeros((cout, ol), dtype=x.dtype)
+    x_padded = np.pad(
+        _x,
+        ((0, 0), (padding[0], padding[0])),
+        mode="constant",
+    )
+
+    for c in range(cout):
+        for i in range(ol):
+            out[c, i] = np.max(x_padded[c, _stride[0] * i : _stride[0] * i + kl])
+
+    return out
 
 
 def maxpool2d_golden(
@@ -45,10 +77,43 @@ def maxpool2d_golden(
     return out
 
 
+def avgpool1d_golden(
+    x: SpikeType,
+    kernel_size: tuple[int],
+    stride: Optional[tuple[int]],
+    padding: tuple[int],
+    fm_order: str,
+    threshold: int,
+) -> SpikeType:
+    if fm_order == "LC":
+        _x = x.T
+    else:
+        _x = x
+
+    xcin, il = _x.shape
+    kl = kernel_size[0]
+    _stride = stride if stride is not None else kernel_size
+    ol = (il - kl + 2 * padding[0]) // _stride[0] + 1
+    cout = xcin
+
+    out = np.zeros((cout, ol), dtype=WEIGHT_DTYPE)
+    x_padded = np.pad(
+        _x,
+        ((0, 0), (padding[0], padding[0])),
+        mode="constant",
+    )
+
+    for c in range(cout):
+        for i in range(ol):
+            out[c, i] = np.sum(x_padded[c, _stride[0] * i : _stride[0] * i + kl])
+
+    return out >= threshold
+
+
 def avgpool2d_golden(
     x: SpikeType,
     kernel_size: tuple[int, int],
-    stride: tuple[int, int],
+    stride: Optional[tuple[int, int]],
     padding: tuple[int, int],
     fm_order: str,
     threshold: int,
@@ -60,11 +125,12 @@ def avgpool2d_golden(
 
     xcin, ih, iw = _x.shape
     kh, kw = kernel_size
-    oh = (ih - kh + 2 * padding[0]) // stride[0] + 1
-    ow = (iw - kw + 2 * padding[1]) // stride[1] + 1
+    _stride = stride if stride is not None else kernel_size
+    oh = (ih - kh + 2 * padding[0]) // _stride[0] + 1
+    ow = (iw - kw + 2 * padding[1]) // _stride[1] + 1
     cout = xcin
 
-    out = np.zeros((cout, oh, ow), dtype=np.int8)
+    out = np.zeros((cout, oh, ow), dtype=WEIGHT_DTYPE)
     x_padded = np.pad(
         _x,
         ((0, 0), (padding[0], padding[0]), (padding[1], padding[1])),
@@ -77,8 +143,8 @@ def avgpool2d_golden(
                 out[c, i, j] = np.sum(
                     x_padded[
                         c,
-                        stride[0] * i : stride[0] * i + kh,
-                        stride[1] * j : stride[1] * j + kw,
+                        _stride[0] * i : _stride[0] * i + kh,
+                        _stride[1] * j : _stride[1] * j + kw,
                     ]
                 )
 
