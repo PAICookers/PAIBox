@@ -18,12 +18,14 @@ from .transforms import (
     ConnType,
     Conv1dForward,
     Conv2dForward,
+    Conv2dHalfForward,
     ConvTranspose1dForward,
     ConvTranspose2dForward,
     Identity,
     MaskedLinear,
     OneToOne,
     Transform,
+    _CompareMax,
 )
 
 RIGISTER_MASTER_KEY_FORMAT = "{0}.output"
@@ -80,6 +82,7 @@ class FullConnectedSyn(SynSys):
             synin = np.zeros_like(self.source.output)
 
         self._synout = self.comm(synin).ravel()
+
         return self._synout
 
     def reset_state(self, *args, **kwargs) -> None:
@@ -325,6 +328,42 @@ class Conv2dSyn(FullConnectedSyn):
         )
 
 
+class Conv2dHalfRollSyn(FullConnectedSyn):
+
+    def __init__(
+        self,
+        source: Union[NeuDyn, InputProj],
+        dest: Neuron,
+        kernel: np.ndarray,
+        stride: tuple[int, int],
+        padding: tuple[int, int],
+        order: _KOrder4d = "OIHW",
+        name: Optional[str] = None,
+    ) -> None:
+        super().__init__(source, dest, name)
+        # print("进入halfroll")
+        if order == "IOHW":
+            _kernel = np.swapaxes(kernel, 0, 1)
+        else:
+            _kernel = kernel.copy()
+
+        # O,I,H,W
+        out_channels, in_channels, kernel_h = _kernel.shape
+        # C,H,W
+        if len(source.shape_out) == 2:
+            in_ch, in_h = source.shape_out
+        else:
+            in_ch, in_h, in_w = _fm_ndim2_check(source.shape_out, "CHW")
+        out_h = (in_h + 2 * padding[0] - kernel_h) // stride[0] + 1
+
+        if in_ch != in_channels:
+            raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
+
+        self.comm = Conv2dHalfForward(
+            (in_ch, in_h), (out_channels, out_h), _kernel, stride, padding
+        )
+
+
 class ConvTranspose1dSyn(FullConnectedSyn):
     _spatial_ndim: ClassVar[int] = 1
 
@@ -430,3 +469,16 @@ class ConvTranspose2dSyn(FullConnectedSyn):
         self.comm = ConvTranspose2dForward(
             (in_h, in_w), (out_h, out_w), _kernel, stride, padding, output_padding
         )
+
+
+class MaxPool2dSemiMapSyn(FullConnectedSyn):
+
+    def __init__(
+        self,
+        source: Union[NeuDyn, InputProj],
+        dest: Neuron,
+        weights: DataArrayType = 1,
+        name: Optional[str] = None,
+    ) -> None:
+        super().__init__(source, dest, name)
+        self.comm = _CompareMax((self.num_in, self.num_out), weights)

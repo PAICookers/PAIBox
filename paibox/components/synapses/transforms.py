@@ -22,6 +22,7 @@ from .conv_utils import (
     _conv1d_faster,
     _conv1d_unroll,
     _conv2d_faster,
+    _conv2d_halfroll,
     _conv2d_unroll,
     _convtranspose1d_faster,
     _convtranspose1d_unroll,
@@ -393,6 +394,35 @@ class Conv2dForward(Transform):
     def connectivity(self):
         return _conv2d_unroll(
             self.in_shape, self.out_shape, self.weights, self.stride, self.padding
+        )
+
+
+class Conv2dHalfForward(Transform):
+    def __init__(
+        self,
+        in_shape: Size2Type,
+        out_shape: Size2Type,
+        kernel: np.ndarray,
+        stride: Size2Type,
+        padding: Size2Type,
+        # fm_order: _Order3d,
+    ) -> None:
+        self.in_shape = in_shape
+        self.out_shape = out_shape
+        self.stride = stride
+        self.padding = padding
+        self.kernel = kernel
+        # self.fm_order = fm_order
+
+        super().__init__(kernel)
+
+    def __call__(self, x: NeuOutType, *args, **kwargs) -> SynOutType:
+        return x @ self.connectivity
+
+    @property
+    def connectivity(self):
+        return _conv2d_halfroll(
+            self.in_shape, self.out_shape, self.kernel, self.stride, self.padding
         )
 
 

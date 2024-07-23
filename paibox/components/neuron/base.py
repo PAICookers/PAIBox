@@ -14,6 +14,7 @@ from paicorelib import (
     CoreMode,
     HwConfig,
     InputWidthFormat,
+    MaxPoolingEnable,
     SNNModeEnable,
     SpikeWidthFormat,
     get_core_mode,
@@ -78,6 +79,7 @@ class MetaNeuron:
         input_width: InputWidthFormat,
         spike_width: SpikeWidthFormat,
         snn_en: SNNModeEnable,
+        pool_max: MaxPoolingEnable,
         overflow_strict: bool,
         keep_shape: bool = False,
     ) -> None:
@@ -90,6 +92,7 @@ class MetaNeuron:
         self.input_width = input_width
         self.spike_width = spike_width
         self.snn_en = snn_en
+        self.pool_max = pool_max
         # check whether the mode is valid
         self.mode = get_core_mode(input_width, spike_width, snn_en)
 
@@ -318,7 +321,7 @@ class MetaNeuron:
         """
 
         def _truncate() -> VoltageType:
-            if (vj >> self.bit_truncation) > 0:  # Saturate truncation
+            if (vj >> self.bit_truncation > 0).all():  # Saturate truncation
                 return np.full_like(vj, _mask(8))
             elif self.bit_truncation == 0:
                 return self._vjt0
@@ -330,7 +333,6 @@ class MetaNeuron:
         v_truncated = np.where(
             self.thres_mode == TM.EXCEED_POSITIVE, _truncate(), self._vjt0
         )
-
         return v_truncated.astype(NEUOUT_U8_DTYPE)
 
     def _aux_pre_hook(self) -> None:
@@ -421,6 +423,7 @@ class Neuron(MetaNeuron, NeuDyn):
         input_width: Union[L[1, 8], InputWidthFormat] = InputWidthFormat.WIDTH_1BIT,
         spike_width: Union[L[1, 8], SpikeWidthFormat] = SpikeWidthFormat.WIDTH_1BIT,
         snn_en: bool = True,
+        pool_max: bool = False,
         unrolling_factor: int = 1,
         overflow_strict: bool = False,
         keep_shape: bool = True,
@@ -456,6 +459,7 @@ class Neuron(MetaNeuron, NeuDyn):
             _input_width_format(input_width),
             _spike_width_format(spike_width),
             SNNModeEnable(snn_en),
+            MaxPoolingEnable(pool_max),
             overflow_strict,
             keep_shape,
         )
@@ -496,10 +500,12 @@ class Neuron(MetaNeuron, NeuDyn):
             return None
 
         if x is None:
-            x = self.sum_inputs()
+            if not self.pool_max:
+                x = self.sum_inputs()
+            else:
+                x = self.max_inputs()
         else:
             x = np.atleast_1d(x)
-
         self._neu_out, self._vjt = super().update(x, self._vjt)
 
         idx = (self.timestamp + self.delay_relative - 1) % HwConfig.N_TIMESLOT_MAX
@@ -584,6 +590,25 @@ class Neuron(MetaNeuron, NeuDyn):
 
     def __getitem__(self, index) -> "NeuronSubView":
         return NeuronSubView(self, index)
+
+    def shape_change(self, new_shape: Shape) -> None:
+        # print(self.name,"shape change")
+        self._n_neuron = shape2num(new_shape)
+        self._shape = as_shape(new_shape)
+        self._vjt = self.init_param(0).astype(np.int32)
+        self.set_reset_value("_vjt", self._vjt)
+        self._inner_spike = self.init_param(0).astype(np.bool_)
+        self.set_reset_value("_inner_spike", self._inner_spike)
+        self.vj = self.init_param(0).astype(np.int32)
+        self.set_reset_value("vj", self.vj)
+        self.y = self.init_param(0).astype(np.int32)
+        self.set_reset_value("y", self.y)
+        self.delay_registers = np.zeros(
+            (HwConfig.N_TIMESLOT_MAX,) + self._inner_spike.shape, dtype=np.bool_
+        )
+        self.set_reset_value("delay_registers", self.delay_registers)
+
+        return
 
     @property
     def shape_in(self) -> tuple[int, ...]:

@@ -8,7 +8,7 @@ from paibox.types import DataArrayType, Shape
 from .base import Neuron
 from .utils import LEAK_V_MAX
 
-__all__ = ["IF", "LIF", "TonicSpiking", "PhasicSpiking", "SpikingRelu"]
+__all__ = ["IF", "LIF", "TonicSpiking", "PhasicSpiking", "SpikingRelu", "Always1Neuron"]
 
 
 class IF(Neuron):

@@ -1,7 +1,8 @@
+import math
 import sys
 from collections.abc import Sequence
 from functools import partial
-from typing import Literal, Optional, Union
+from typing import ClassVar, Literal, Optional, Union
 
 import numpy as np
 from paicorelib import NTM, RM, TM
@@ -12,9 +13,10 @@ from paibox.network import DynSysGroup
 from paibox.types import (
     NEUOUT_U8_DTYPE,
     VOLTAGE_DTYPE,
+    DataArrayType,
     IntScalarType,
+    LeakVType,
     NeuOutType,
-    SpikeType,
     VoltageType,
     WeightType,
 )
@@ -39,7 +41,7 @@ from .neuron import Neuron
 from .neuron.neurons import *
 from .neuron.utils import vjt_overflow
 from .projection import InputProj
-from .synapses import ConnType, FullConnSyn
+from .synapses import ConnType, Conv2dHalfRollSyn, FullConnSyn, MaxPool2dSemiMapSyn
 from .synapses.conv_types import _Size2Type
 from .synapses.conv_utils import _fm_ndim2_check, _pair
 from .synapses.transforms import Conv2dForward, _Pool2dForward
@@ -62,6 +64,12 @@ __all__ = [
     "SpikingSub",
     "Transpose2d",
     "Transpose3d",
+    "Conv2dSemiMap",
+    "Filter",
+    "Delay_FullConn",
+    "Linear",
+    "MaxPool2dSemiMap",
+    "AvgPool2dSemiMap",
 ]
 
 
@@ -400,7 +408,7 @@ class DelayChain(FunctionalModule):
             tick_wait_start=self.tick_wait_start + i + 1,
             tick_wait_end=self.tick_wait_end,
             delay=self.delay_relative,
-            name=f"n{i+1}_{self.name}",
+            name=f"n{i + 1}_{self.name}",
         )
         n_delaychain.append(n_out)  # Must append to the last.
 
@@ -418,7 +426,7 @@ class DelayChain(FunctionalModule):
                 n_delaychain[i + 1],
                 1,
                 conn_type=ConnType.One2One,
-                name=f"s{i+1}_{self.name}",
+                name=f"s{i + 1}_{self.name}",
             )
 
             s_delaychain.append(s_delay)
@@ -981,6 +989,608 @@ class Transpose3d(TransposeModule):
         return generated
 
 
+@set_rt_mode(8, 8, 0)
+class Delay_FullConn(FunctionalModule):
+    "That operator is used on the first fully connected layer after the semimap-convolution."
+
+    def __init__(
+        self,
+        neuron_s: Union[NeuDyn, InputProj],
+        out_feature: tuple[int, ...],
+        weights: DataArrayType = 1,
+        bias: Union[int, LeakVType] = 0,
+        conn_type: ConnType = ConnType.MatConn,
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        # self.delay =
+        self.weights = weights
+        self.conn_type = conn_type
+        self.bias = bias
+        _shape_out = out_feature
+        super().__init__(
+            neuron_s,
+            # neuron_d,
+            shape_out=_shape_out,
+            keep_shape=keep_shape,
+            name=name,
+            **kwargs,
+        )
+
+    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
+        output = x1 @ self.weights
+        return output
+
+    def build(
+        self, network: DynSysGroup, delay: int, **build_options
+    ) -> BuiltComponentType:
+        if len(self.module_intf.operands[0].shape_out) != 2:
+            raise ShapeError(
+                "The source node must be a successor to the half-convolution"
+            )
+        delay_shape = self.module_intf.operands[0].shape_out
+        delay_neurons = []
+        neuron_d = Neuron(
+            self.shape_out,
+            reset_mode=RM.MODE_NONRESET,
+            neg_thres_mode=NTM.MODE_SATURATION,
+            leak_v=self.bias,
+            neg_threshold=0,
+            pos_threshold=0,
+            delay=self.delay_relative,
+            tick_wait_start=self.tick_wait_start + 1,
+            tick_wait_end=self.tick_wait_end,
+            input_width=self.input_width,
+            spike_width=self.spike_width,
+            snn_en=self.snn_en,
+            keep_shape=self.keep_shape,
+            name=f"nd_{self.name}",
+        )
+        for i in range(delay_shape[1]):
+            neuron = Neuron(
+                shape=delay_shape,
+                leak_v=0,
+                neg_threshold=0,
+                delay=delay * i + 1,
+                tick_wait_start=self.tick_wait_start,
+                tick_wait_end=self.tick_wait_end,
+                input_width=self.input_width,
+                spike_width=self.spike_width,
+                snn_en=self.snn_en,
+                keep_shape=self.keep_shape,
+                name=f"n{i}_{self.name}",
+            )
+            delay_neurons.append(neuron)
+            # 延时突触
+            syn1 = FullConnSyn(
+                self.module_intf.operands[0],
+                delay_neurons[i],
+                weights=_delay_mapping(delay_shape[1], delay_shape[0], 1),
+                conn_type=ConnType.All2All,
+                name=f"s{i}_delay",
+            )
+            # w = np.zeros((neuron.num_out, self.module_intf.operands[1].num_out))
+            w = self.weights[delay_shape[1] - i - 1 :: delay_shape[1], :]
+            syn2 = FullConnSyn(  # cin,(kw-1)*ih -> cout * oh
+                delay_neurons[i],  # 54 -> 54
+                neuron_d,
+                weights=w,
+                conn_type=self.conn_type,
+                name=f"s{i}_{self.name}",
+            )
+
+            generated = [neuron_d, *delay_neurons, syn1, syn2]
+            self._rebuild_out_intf(network, neuron_d, *generated, **build_options)
+
+        return generated
+
+
+@set_rt_mode(8, 8, 0)
+class Conv2dSemiMap(FunctionalModule):
+    _spatial_ndim: ClassVar[int] = 2
+
+    def __init__(
+        self,
+        neuron_s: Union[NeuDyn, InputProj],
+        # neuron_d: Union[NeuDyn, InputProj],
+        kernel: np.ndarray,
+        stride: Optional[_Size2Type] = None,
+        padding: _Size2Type = 0,
+        bias: Union[int, LeakVType] = 0,
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        """2d conv_semimap for ANN mode."""
+        self.kernel = kernel
+        self.stride = _pair(stride)
+        self.padding = _pair(padding)
+        self.bias = bias
+        if kernel.ndim != self._spatial_ndim + 2:
+            raise ShapeError(
+                f"convolution kernel dimension must be {self._spatial_ndim + 2}, but got {kernel.ndim}."
+            )
+
+        if len(neuron_s.shape_out) != 2:
+            in_ch, in_h, in_w = neuron_s.shape_out
+        #     in_ch, in_h, in_w = _fm_ndim2_check(neuron_s.shape_out, "CHW")
+        #     neuron_s.shape_change((in_ch, in_h))
+        else:
+            (
+                in_ch,
+                in_h,
+            ) = neuron_s.shape_out
+        cout, cin, kh, kw = kernel.shape
+        out_h = (in_h - kh + 2 * self.padding[0]) // self.stride[0] + 1
+        if in_ch != cin:
+            raise ShapeError(f"input channels mismatch: {in_ch} != {cin}.")
+
+        _shape_out = (cout, out_h)
+
+        super().__init__(
+            neuron_s,
+            # neuron_d,
+            shape_out=_shape_out,
+            keep_shape=keep_shape,
+            name=name,
+            **kwargs,
+        )
+
+    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
+        print("进入conv.spike_func")
+        # print(x1)
+        # output = _conv2d_faster_fp32(x1, self.kernel, self.stride, self.padding)
+        # output[output < 0] = 0
+        return  # output
+
+    def build(
+        self, network: DynSysGroup, delay: int, **build_options
+    ) -> BuiltComponentType:
+        # print("进入build")
+        if len(self.module_intf.operands[0].shape_out) != 2:
+            in_ch, in_h, in_w = _fm_ndim2_check(
+                self.module_intf.operands[0].shape_out, "CHW"
+            )
+            self.module_intf.operands[0].shape_change((in_ch, in_h))
+        in_ch, in_h = self.module_intf.operands[0].shape_out
+        cout, cin, kh, kw = self.kernel.shape
+        n_delays = NodeList()
+        s_delays = NodeList()
+        relu = Neuron(
+            self.shape_out,
+            reset_mode=RM.MODE_NONRESET,
+            neg_thres_mode=NTM.MODE_SATURATION,
+            leak_v=self.bias,
+            neg_threshold=0,
+            pos_threshold=0,
+            delay=self.delay_relative,
+            tick_wait_start=self.tick_wait_start + 1,
+            tick_wait_end=self.tick_wait_end,
+            input_width=self.input_width,
+            spike_width=self.spike_width,
+            snn_en=self.snn_en,
+            keep_shape=self.keep_shape,
+            name=f"nd_{self.name}",
+        )
+        for i in range(kw):
+            neuron = Neuron(
+                (cin, in_h),
+                leak_v=0,
+                neg_threshold=0,
+                delay=delay * i + 1,
+                tick_wait_start=self.tick_wait_start,
+                tick_wait_end=self.tick_wait_end,
+                input_width=self.input_width,
+                spike_width=self.spike_width,
+                snn_en=self.snn_en,
+                keep_shape=self.keep_shape,
+                name=f"n{i}_{self.name}",
+            )
+            n_delays.append(neuron)
+            # 延时突触
+            syn1 = FullConnSyn(
+                self.module_intf.operands[0],  # (2, 5)
+                n_delays[i],
+                weights=_delay_mapping(in_h, cin, 1),
+                conn_type=ConnType.All2All,
+                name=f"s{i}_delay_{self.name}",
+            )
+            s_delays.append(syn1)
+            syn2 = Conv2dHalfRollSyn(  # cin, ih -> cout * oh
+                n_delays[i],
+                relu,
+                kernel=self.kernel[:, :, :, kw - i - 1],
+                stride=self.stride,
+                padding=self.padding,
+                order="OIHW",
+                name=f"s{i}_{self.name}",
+            )
+            s_delays.append(syn2)
+
+        generated = [relu, *n_delays, *s_delays]
+        self._rebuild_out_intf(network, relu, *generated, **build_options)
+
+        return generated
+
+
+@deprecated(
+    "The backend currently does not support 'Filter', please use it in a future version",
+    category=PAIBoxDeprecationWarning,
+)
+@set_rt_mode(8, 8, 0)
+class Filter(FunctionalModule):
+
+    def __init__(
+        self,
+        neuron: Union[NeuDyn, InputProj],
+        time_to_fire: int,
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        """ """
+        shape_out = neuron.shape_out
+        self.time_to_fire = time_to_fire
+        self.cur_time = 0
+        super().__init__(
+            neuron,
+            shape_out=shape_out,
+            keep_shape=keep_shape,
+            name=name,
+            **kwargs,
+        )
+
+    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
+        if self.cur_time != self.time_to_fire:
+            self.cur_time += 1
+            return np.zeros_like(x1)
+        else:
+            self.cur_time = 0
+            return x1
+
+    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
+        inp1 = Always1Neuron((2,))
+        n1_filter = Neuron(
+            self.shape_out,
+            leak_v=0,
+            neg_threshold=0,
+            delay=self.delay_relative,
+            tick_wait_start=self.tick_wait_start,
+            tick_wait_end=self.tick_wait_end,
+            input_width=self.input_width,
+            spike_width=self.spike_width,
+            snn_en=self.snn_en,
+            keep_shape=self.keep_shape,
+            name="filter",
+        )
+
+        syn1 = FullConnSyn(
+            self.module_intf.operands[0],  # (10,0)
+            n1_filter,  # (10,0)
+            weights=1,
+            conn_type=ConnType.One2One,
+            name=f"s0_{self.name}",
+        )
+        syn2 = FullConnSyn(
+            inp1,  # (2,0)
+            n1_filter,  # (10,0)
+            weights=-128,
+            conn_type=ConnType.All2All,
+            name=f"s1_{self.name}",
+        )
+        network._add_components(n1_filter, syn1, syn2)
+        network._remove_components(self)
+        generated = [n1_filter, syn1, syn2]
+        return generated
+
+
+@set_rt_mode(8, 8, 0)
+class Linear(FunctionalModule):
+    "FullConn for ANN mode"
+
+    def __init__(
+        self,
+        neuron_s: Union[NeuDyn, InputProj],
+        out_feature: tuple[int, ...],
+        weights: DataArrayType = 1,
+        bias: Union[int, LeakVType] = 0,
+        conn_type: ConnType = ConnType.MatConn,
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        self.weights = weights
+        self.conn_type = conn_type
+        self.bias = bias
+        _shape_out = out_feature
+        super().__init__(
+            neuron_s,
+            shape_out=_shape_out,
+            keep_shape=keep_shape,
+            name=name,
+            **kwargs,
+        )
+
+    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
+        output = x1.ravel() @ self.weights
+        output = output + self.bias
+        output[output < 0] = 0
+        return output
+
+    def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
+        neuron_d = Neuron(
+            self.shape_out,
+            reset_mode=RM.MODE_NONRESET,
+            neg_thres_mode=NTM.MODE_SATURATION,
+            leak_v=self.bias,
+            neg_threshold=0,
+            pos_threshold=0,
+            delay=self.delay_relative,
+            tick_wait_start=self.tick_wait_start,
+            tick_wait_end=self.tick_wait_end,
+            input_width=self.input_width,
+            spike_width=self.spike_width,
+            snn_en=self.snn_en,
+            keep_shape=self.keep_shape,
+            name=f"nd_{self.name}",
+        )
+        syn1 = FullConnSyn(
+            self.module_intf.operands[0],
+            neuron_d,
+            weights=self.weights,
+            conn_type=self.conn_type,
+            name=f"syn1_{self.name}",
+        )
+        generated = [neuron_d, syn1]
+        self._rebuild_out_intf(network, neuron_d, *generated, **build_options)
+
+        return generated
+
+
+@set_rt_mode(8, 8, 0)
+class MaxPool2dSemiMap(FunctionalModule):
+    _spatial_ndim: ClassVar[int] = 2
+
+    def __init__(
+        self,
+        neuron_s: Union[NeuDyn, InputProj],
+        # neuron_d: Union[NeuDyn, InputProj],
+        kernel_size: _Size2Type,
+        stride: Optional[_Size2Type] = None,
+        # padding: _Size2Type = 0,
+        # bias: Union[int, LeakVType] = 0,
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        """2d Pool2d_semimap for spike."""
+        self.kernel_size = kernel_size
+        self.stride = _pair(stride)
+        self.pool_max = True
+        # self.padding = _pair(padding)
+        # self.bias = bias
+
+        if len(neuron_s.shape_out) != 2:
+            in_ch, in_h, in_w = neuron_s.shape_out
+        else:
+            (
+                in_ch,
+                in_h,
+            ) = neuron_s.shape_out
+        cout = cin = in_ch
+        out_h = (in_h - kernel_size[0]) // self.stride[0] + 1
+        if in_ch != cin:
+            raise ShapeError(f"input channels mismatch: {in_ch} != {cin}.")
+
+        _shape_out = (cout, out_h)
+        # self.tfm = Conv2dHalfForward((in_ch, in_h), (out_channels, out_h), _kernel, stride, padding)
+        super().__init__(
+            neuron_s,
+            # neuron_d,
+            shape_out=_shape_out,
+            keep_shape=keep_shape,
+            name=name,
+            **kwargs,
+        )
+
+    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
+        print("进入pool2d_func")
+        return
+
+    def build(
+        self, network: DynSysGroup, delay: int, **build_options
+    ) -> BuiltComponentType:
+        # print("进入build")
+        if len(self.module_intf.operands[0].shape_out) != 2:
+            in_ch, in_h, in_w = _fm_ndim2_check(
+                self.module_intf.operands[0].shape_out, "CHW"
+            )
+            self.module_intf.operands[0].shape_change((in_ch, in_h))
+        in_ch, in_h = self.module_intf.operands[0].shape_out
+        cout = cin = in_ch
+        kh, kw = self.kernel_size
+        n_delays = NodeList()
+        s_delays = NodeList()
+        pool2d = Neuron(
+            self.shape_out,
+            reset_mode=RM.MODE_NONRESET,
+            neg_thres_mode=NTM.MODE_SATURATION,
+            leak_v=0,
+            neg_threshold=0,
+            pos_threshold=0,
+            delay=self.delay_relative,
+            tick_wait_start=self.tick_wait_start + 1,
+            tick_wait_end=self.tick_wait_end,
+            input_width=self.input_width,
+            spike_width=self.spike_width,
+            snn_en=self.snn_en,
+            pool_max=self.pool_max,
+            keep_shape=self.keep_shape,
+            name=f"nd_{self.name}",
+        )
+        for i in range(kw):
+            neuron = Neuron(
+                (cin, in_h),
+                leak_v=0,
+                neg_threshold=0,
+                delay=delay * i + 1,
+                tick_wait_start=self.tick_wait_start,
+                tick_wait_end=self.tick_wait_end,
+                input_width=self.input_width,
+                spike_width=self.spike_width,
+                snn_en=self.snn_en,
+                keep_shape=self.keep_shape,
+                name=f"n{i}_{self.name}",
+            )
+            n_delays.append(neuron)
+            # 延时突触
+            syn1 = FullConnSyn(
+                self.module_intf.operands[0],  # (2, 5)
+                n_delays[i],
+                weights=_delay_mapping(in_h, cin, 1),
+                conn_type=ConnType.All2All,
+                name=f"s{i}_delay_{self.name}",
+            )
+            s_delays.append(syn1)
+            syn2 = MaxPool2dSemiMapSyn(
+                n_delays[i],
+                pool2d,
+                weights=_pool2d_semimap(
+                    (cin, in_h), self.shape_out, self.kernel_size, self.stride
+                ),
+                name=f"s{i}_{self.name}",
+            )
+            s_delays.append(syn2)
+
+        generated = [pool2d, *n_delays, *s_delays]
+        self._rebuild_out_intf(network, pool2d, *generated, **build_options)
+
+        return generated
+
+
+@set_rt_mode(8, 8, 0)
+class AvgPool2dSemiMap(FunctionalModule):
+    _spatial_ndim: ClassVar[int] = 2
+
+    def __init__(
+        self,
+        neuron_s: Union[NeuDyn, InputProj],
+        # neuron_d: Union[NeuDyn, InputProj],
+        kernel_size: _Size2Type,
+        stride: Optional[_Size2Type] = None,
+        # padding: _Size2Type = 0,
+        # bias: Union[int, LeakVType] = 0,
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        """2d AvgPool2d_semimap for spike."""
+        self.kernel_size = kernel_size
+        self.stride = _pair(stride)
+        # self.padding = _pair(padding)
+        # self.bias = bias
+
+        if len(neuron_s.shape_out) != 2:
+            in_ch, in_h, in_w = neuron_s.shape_out
+        else:
+            (
+                in_ch,
+                in_h,
+            ) = neuron_s.shape_out
+        cout = cin = in_ch
+        out_h = (in_h - kernel_size[0]) // self.stride[0] + 1
+        if in_ch != cin:
+            raise ShapeError(f"input channels mismatch: {in_ch} != {cin}.")
+
+        _shape_out = (cout, out_h)
+        # self.tfm = Conv2dHalfForward((in_ch, in_h), (out_channels, out_h), _kernel, stride, padding)
+        super().__init__(
+            neuron_s,
+            # neuron_d,
+            shape_out=_shape_out,
+            keep_shape=keep_shape,
+            name=name,
+            **kwargs,
+        )
+
+    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
+        print("进入pool2d_func")
+        return
+
+    def build(
+        self, network: DynSysGroup, delay: int, **build_options
+    ) -> BuiltComponentType:
+        # print("进入build")
+        if len(self.module_intf.operands[0].shape_out) != 2:
+            in_ch, in_h, in_w = _fm_ndim2_check(
+                self.module_intf.operands[0].shape_out, "CHW"
+            )
+            self.module_intf.operands[0].shape_change((in_ch, in_h))
+        in_ch, in_h = self.module_intf.operands[0].shape_out
+        cout = cin = in_ch
+        kh, kw = self.kernel_size
+        bittrunc = int(math.log2(kw * kh) + 8)
+        n_delays = NodeList()
+        s_delays = NodeList()
+        pool2d = Neuron(
+            self.shape_out,
+            reset_mode=RM.MODE_NONRESET,
+            neg_thres_mode=NTM.MODE_SATURATION,
+            leak_v=0,
+            neg_threshold=0,
+            pos_threshold=0,
+            delay=self.delay_relative,
+            bit_truncation=bittrunc,
+            tick_wait_start=self.tick_wait_start + 1,
+            tick_wait_end=self.tick_wait_end,
+            input_width=self.input_width,
+            spike_width=self.spike_width,
+            snn_en=self.snn_en,
+            keep_shape=self.keep_shape,
+            name=f"nd_{self.name}",
+        )
+        for i in range(kw):
+            neuron = Neuron(
+                (cin, in_h),
+                leak_v=0,
+                neg_threshold=0,
+                delay=delay * i + 1,
+                tick_wait_start=self.tick_wait_start,
+                tick_wait_end=self.tick_wait_end,
+                input_width=self.input_width,
+                spike_width=self.spike_width,
+                snn_en=self.snn_en,
+                keep_shape=self.keep_shape,
+                name=f"n{i}_{self.name}",
+            )
+            n_delays.append(neuron)
+            # 延时突触
+            syn1 = FullConnSyn(
+                self.module_intf.operands[0],  # (2, 5)
+                n_delays[i],
+                weights=_delay_mapping(in_h, cin, 1),
+                conn_type=ConnType.All2All,
+                name=f"s{i}_delay_{self.name}",
+            )
+            s_delays.append(syn1)
+            syn2 = FullConnSyn(
+                n_delays[i],
+                pool2d,
+                weights=_pool2d_semimap(
+                    (cin, in_h), self.shape_out, self.kernel_size, self.stride
+                ),
+                conn_type=ConnType.All2All,
+                name=f"s{i}_{self.name}",
+            )
+            s_delays.append(syn2)
+
+        generated = [pool2d, *n_delays, *s_delays]
+        self._rebuild_out_intf(network, pool2d, *generated, **build_options)
+
+        return generated
+
+
 def _spike_func_sadd_ssub(
     vjt: VoltageType, pos_thres: int, reset_v: Optional[int] = None
 ) -> tuple[NeuOutType, VoltageType]:
@@ -1084,4 +1694,32 @@ def _transpose3d_mapping(
             idx[axes[0]] * size12_t + idx[axes[1]] * shape_t[2] + idx[axes[2]],
         ] = 1
 
+    return mt
+
+
+def _delay_mapping(h: int, cin: int, n: int) -> WeightType:
+    # mt = np.zeros((cin * h, cin * n * h), dtype=np.bool_)
+    # for i in range(cin):
+    #     for j in range(n * cin):
+    #         for k in range(h):
+    #             mt[i * h + k, j * h + k] = 1
+    mt = np.eye(cin * h, dtype=np.int8)
+    return mt
+
+
+def _pool2d_semimap(
+    in_shape: _Size2Type,
+    out_shape: _Size2Type,
+    kernel_size: WeightType,
+    stride: _Size2Type,
+) -> WeightType:
+    cout = cin = in_shape[0]
+    kh, kw = kernel_size
+    ih = in_shape[1]
+    o_ch, oh = out_shape
+    mt = np.zeros((cin * ih, cout * oh), dtype=np.bool_)
+    for i in range(cout):
+        for j in range(cin):
+            for k in range(oh):
+                mt[j * ih + k * stride[1] : j * ih + k * stride[1] + kh, i * oh + k] = 1
     return mt
