@@ -1,10 +1,8 @@
-import sys
 from typing import Optional, Union
 
 import numpy as np
 
 from paibox.base import NeuDyn
-from paibox.exceptions import PAIBoxDeprecationWarning
 from paibox.types import DataArrayType
 
 from ..neuron import Neuron
@@ -19,11 +17,6 @@ from .base import (
 from .conv_types import _KOrder3d, _KOrder4d, _Size1Type, _Size2Type
 from .conv_utils import _pair, _single
 from .transforms import ConnType
-
-if sys.version_info >= (3, 13):
-    from warnings import deprecated
-else:
-    from typing_extensions import deprecated
 
 __all__ = [
     "FullConn",
@@ -54,23 +47,6 @@ class FullConn(FullConnSyn):
             - conn_type: the type of connection.
             - name: name of the full-connected synapses. Optional.
         """
-        super().__init__(source, dest, weights, conn_type, name=name)
-
-
-@deprecated(
-    "'NoDecay' will be removed in a future version. Use 'FullConn' instead.",
-    category=PAIBoxDeprecationWarning,
-)
-class NoDecay(FullConnSyn):
-    def __init__(
-        self,
-        source: Union[NeuDyn, InputProj],
-        dest: NeuDyn,
-        weights: DataArrayType = 1,
-        *,
-        conn_type: ConnType = ConnType.All2All,
-        name: Optional[str] = None,
-    ) -> None:
         super().__init__(source, dest, weights, conn_type, name=name)
 
 

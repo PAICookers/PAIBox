@@ -33,7 +33,6 @@ from .components.synapses.synapses import ConvTranspose1d as ConvTranspose1d
 from .components.synapses.synapses import ConvTranspose2d as ConvTranspose2d
 from .components.synapses.synapses import FullConn as FullConn
 from .components.synapses.synapses import MatMul2d as MatMul2d
-from .components.synapses.synapses import NoDecay as NoDecay
 from .context import FRONTEND_ENV as FRONTEND_ENV
 from .network import DynSysGroup as DynSysGroup
 from .network import Network as Network
