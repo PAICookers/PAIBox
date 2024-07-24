@@ -1,3 +1,4 @@
+from functools import partial
 import sys
 import typing
 from collections import deque
@@ -6,21 +7,14 @@ from dataclasses import dataclass, field
 from typing import ClassVar, Literal, Optional, TypeVar, Union
 
 import numpy as np
-from paicorelib import (
-    TM,
-    HwConfig,
-    InputWidthFormat,
-    SNNModeEnable,
-    SpikeWidthFormat,
-    get_core_mode,
-)
+from paicorelib import CoreMode, TM, HwConfig, get_core_mode, SNNModeEnable
 
 from paibox.base import NeuDyn
 from paibox.exceptions import NotSupportedError, RegisterError, ShapeError
 from paibox.types import NEUOUT_U8_DTYPE, NeuOutType, VoltageType
 from paibox.utils import check_elem_unique, shape2num
 
-from .neuron.utils import _input_width_format, _spike_width_format
+from .neuron.utils import _input_width_format, _spike_width_format, _RTModeKwds
 from .projection import InputProj
 
 if sys.version_info >= (3, 10):
@@ -97,9 +91,8 @@ class NeuModule(NeuDyn, BuildingModule):
     """#N of outputs."""
     inherent_delay: int = 0
     """Internal delay of the module, relative to the external."""
-    input_width: ClassVar[InputWidthFormat] = InputWidthFormat.WIDTH_1BIT
-    spike_width: ClassVar[SpikeWidthFormat] = SpikeWidthFormat.WIDTH_1BIT
-    snn_en: ClassVar[SNNModeEnable] = SNNModeEnable.ENABLE
+    rt_mode_kwds: _RTModeKwds
+    mode: CoreMode
 
     def __init__(
         self,
@@ -188,7 +181,6 @@ class FunctionalModule(NeuModule):
 
         super().__init__(**kwargs, name=name)
 
-        self.mode = get_core_mode(self.input_width, self.spike_width, self.snn_en)
         self.keep_shape = keep_shape
         self._shape_out = shape_out
         self.register_operand(*operands)
@@ -453,12 +445,19 @@ _T = TypeVar("_T", bound=NeuModule)
 
 def set_rt_mode(input_width: L[1, 8], spike_width: L[1, 8], snn_en: L[0, 1]):
     def wrapper(cls: type[_T]) -> type[_T]:
-        cls.input_width = _input_width_format(input_width)
-        cls.spike_width = _spike_width_format(spike_width)
-        cls.snn_en = SNNModeEnable(snn_en)
+        iw = _input_width_format(input_width)
+        sw = _spike_width_format(spike_width)
+        sen = SNNModeEnable(snn_en)
+
+        cls.mode = get_core_mode(iw, sw, sen)
+        cls.rt_mode_kwds = {"input_width": iw, "spike_width": sw, "snn_en": sen}
         return cls
 
     return wrapper
+
+
+set_rt_mode_snn = partial(set_rt_mode, input_width=1, spike_width=1, snn_en=1)
+set_rt_mode_ann = partial(set_rt_mode, input_width=8, spike_width=8, snn_en=0)
 
 
 def _shape_check2(

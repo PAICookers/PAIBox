@@ -46,6 +46,7 @@ from .utils import (
     _mask,
     _spike_width_format,
     vjt_overflow,
+    _RTModeKwds,
 )
 
 __all__ = ["Neuron"]
@@ -56,9 +57,7 @@ L = Literal
 class MetaNeuron:
     """Meta neuron"""
 
-    input_width: InputWidthFormat
-    spike_width: SpikeWidthFormat
-    snn_en: SNNModeEnable
+    rt_mode_kwds: _RTModeKwds
     mode: CoreMode
 
     def __init__(
@@ -89,9 +88,11 @@ class MetaNeuron:
         self._shape = as_shape(shape)
         self._n_neuron = shape2num(self._shape)
 
-        self.input_width = input_width
-        self.spike_width = spike_width
-        self.snn_en = snn_en
+        self.rt_mode_kwds = {
+            "input_width": input_width,
+            "spike_width": spike_width,
+            "snn_en": snn_en,
+        }
         self.pool_max = pool_max
         # check whether the mode is valid
         self.mode = get_core_mode(input_width, spike_width, snn_en)
@@ -173,7 +174,7 @@ class MetaNeuron:
         else:
             _v = incoming_v
 
-        if self.snn_en:
+        if self.rt_mode_kwds["snn_en"]:
             v_charged = vjt_pre + _v
         else:
             # SNN_EN=0, the previous voltage is unused
@@ -198,7 +199,7 @@ class MetaNeuron:
 
                 `vjt` = `vjt` + \sgn{`leak_v`}* `_ld` * `_F`
         """
-        if self.snn_en:
+        if self.rt_mode_kwds["snn_en"]:
             if self.leak_direction is LDM.MODE_FORWARD:
                 _ld = 1
             else:
@@ -364,14 +365,14 @@ class MetaNeuron:
         # 3. Reset. Reset is performed in all modes.
         v_reset = self._neuronal_reset(v_leaked)
 
-        if self.spike_width is SpikeWidthFormat.WIDTH_8BIT:
+        if self.rt_mode_kwds["spike_width"] is SpikeWidthFormat.WIDTH_8BIT:
             # Althought the truncated voltage is of type VOLTAGE_DTYPE, its value <= uint8.
             # The voltage to truncate is the one before neuronal reset.
             v_truncated = self._bit_truncate(v_leaked)
 
         self._aux_post_hook()
 
-        if self.spike_width is SpikeWidthFormat.WIDTH_1BIT:
+        if self.rt_mode_kwds["spike_width"] is SpikeWidthFormat.WIDTH_1BIT:
             # When output width is 1 bit, bit truncation is not performed.
             return spike, v_reset
         else:
