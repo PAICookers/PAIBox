@@ -4,11 +4,19 @@ import pytest
 import paibox as pb
 from paibox.base import DynamicSys
 from paibox.components import NeuModule
-from paibox.components.synapses.conv_utils import _pair
+from paibox.components.synapses.conv_utils import _single, _pair
 from paibox.network import DynSysGroup
 from paibox.simulator.utils import _conv2d_faster_fp32
 from paibox.utils import as_shape, shape2num, typical_round
-from tests.components.utils import avg_pooling, max_pooling
+
+from .utils import (
+    avgpool1d_golden,
+    avgpool2d_golden,
+    maxpool1d_golden,
+    maxpool2d_golden,
+    avg_pooling,
+    max_pooling,
+)
 
 
 def _assert_build_fmodule(
@@ -386,6 +394,106 @@ class TestFunctionalModules:
     @pytest.mark.parametrize(
         "shape, channels, ksize, stride, padding, threshold, fm_order, pool_type, p_binomial",
         [
+            ((24,), 3, (3,), 3, 0, None, "CL", "avg", 0.7),
+            ((12,), 1, (2,), None, 0, None, "CL", "avg", 0.5),
+            ((32,), 8, (3,), None, 0, 3, "CL", "avg", 0.6),
+            ((16,), 8, (5,), (2,), 0, 16, "CL", "avg", 0.7),
+            ((32,), 3, (3,), 2, 0, None, "CL", "max", 0.5),
+            ((24,), 1, (2,), None, 0, None, "CL", "max", 0.4),
+            ((16,), 8, (5,), (2,), 0, None, "CL", "max", 0.6),
+            ((32,), 8, (3,), (3,), 0, None, "CL", "max", 0.3),
+            ((24,), 3, (3,), 3, 1, 4, "CL", "avg", 0.6),
+            ((12,), 1, (2,), None, (1,), None, "CL", "avg", 0.5),
+            ((32,), 8, (3,), None, 2, None, "CL", "avg", 0.5),
+            ((16,), 8, (5,), (2,), (2,), 12, "CL", "avg", 0.4),
+            ((32,), 3, (3,), 2, 1, None, "CL", "max", 0.6),
+            ((24,), 1, (2,), None, 2, None, "CL", "max", 0.7),
+            ((16,), 8, (5,), (2,), (1,), None, "CL", "max", 0.5),
+            ((32,), 8, (3,), (3,), (1,), None, "CL", "max", 0.3),
+        ],
+    )
+    def test_SpikingPool1d(
+        self,
+        shape,
+        channels,
+        ksize,
+        stride,
+        padding,
+        threshold,
+        fm_order,
+        pool_type,
+        p_binomial,
+    ):
+        from tests.shared_networks import SpikingPool1d_Net
+
+        if fm_order == "CL":
+            fm_shape = (channels,) + shape
+        else:
+            fm_shape = shape + (channels,)
+
+        net1 = SpikingPool1d_Net(fm_shape, ksize, stride, padding, threshold, pool_type)
+        net2 = SpikingPool1d_Net(fm_shape, ksize, stride, padding, threshold, pool_type)
+        p1d = net2.pool
+        generated = DynSysGroup.build_fmodule(net2)
+        sim1 = pb.Simulator(net1, start_time_zero=False)
+        sim2 = pb.Simulator(net2, start_time_zero=False)
+
+        probe_p1d = pb.Probe(generated[p1d][0], "spike")
+        sim2.add_probe(probe_p1d)
+
+        # Use binomial distribution to generate a sparse matrix with more zeros
+        inpa = np.random.binomial(1, p_binomial, size=(20,) + fm_shape).astype(np.bool_)
+
+        for i in range(20):
+            pb.FRONTEND_ENV.save(data1=inpa[i])
+            sim1.run(1)
+            sim2.run(1)
+
+        _stride = _single(stride) if stride is not None else ksize
+        _padding = _single(padding)
+        if isinstance(threshold, int):
+            _threshold = threshold
+        else:
+            _threshold = typical_round(shape2num(ksize) / 2)
+
+        for i in range(1, 20):
+            if pool_type == "avg":
+                expected = avgpool1d_golden(
+                    inpa[i - 1], ksize, _stride, _padding, fm_order, _threshold
+                ).ravel()
+            else:
+                expected = maxpool1d_golden(
+                    inpa[i - 1], ksize, _stride, _padding, fm_order
+                ).ravel()
+
+            assert np.array_equal(sim1.data[net1.probe2][i], expected)
+            assert np.array_equal(sim2.data[probe_p1d][i], expected)
+
+        for i in range(2, 20):
+            if pool_type == "avg":
+                expected = avgpool1d_golden(
+                    inpa[i - 2], ksize, _stride, _padding, fm_order, _threshold
+                ).ravel()
+            else:
+                expected = maxpool1d_golden(
+                    inpa[i - 2], ksize, _stride, _padding, fm_order
+                ).ravel()
+
+            assert np.array_equal(sim1.data[net1.probe3][i], expected)
+
+    def test_SpikingPool1d_mapping(self, ensure_dump_dir):
+        from tests.shared_networks import SpikingPool1d_Net
+
+        net1 = SpikingPool1d_Net((3, 24), (3,), None, 0, None, "avg")
+
+        mapper = pb.Mapper()
+        mapper.build(net1)
+        mapper.compile()
+        mapper.export(fp=ensure_dump_dir)
+
+    @pytest.mark.parametrize(
+        "shape, channels, ksize, stride, padding, threshold, fm_order, pool_type, p_binomial",
+        [
             ((24, 24), 3, (3, 3), 3, 0, None, "CHW", "avg", 0.7),
             ((12, 12), 1, (2, 3), None, 0, None, "CHW", "avg", 0.5),
             ((32, 32), 8, (3, 3), None, 0, 3, "CHW", "avg", 0.6),
@@ -426,8 +534,6 @@ class TestFunctionalModules:
     ):
         from tests.shared_networks import SpikingPool2d_Net
 
-        from .utils import avgpool2d_golden, maxpool2d_golden
-
         if fm_order == "CHW":
             fm_shape = (channels,) + shape
         else:
@@ -435,7 +541,7 @@ class TestFunctionalModules:
 
         net1 = SpikingPool2d_Net(fm_shape, ksize, stride, padding, threshold, pool_type)
         net2 = SpikingPool2d_Net(fm_shape, ksize, stride, padding, threshold, pool_type)
-        p2d = net2.pool2d
+        p2d = net2.pool
         generated = DynSysGroup.build_fmodule(net2)
         sim1 = pb.Simulator(net1, start_time_zero=False)
         sim2 = pb.Simulator(net2, start_time_zero=False)
@@ -496,6 +602,59 @@ class TestFunctionalModules:
     @pytest.mark.parametrize(
         "shape, channels, ksize, stride, padding, threshold, p_binomial",
         [
+            ((24,), 3, (3,), 3, 0, None, 0.5),
+            ((12,), 1, (3,), None, 0, None, 0.7),
+            ((32,), 8, (3,), None, 0, 3, 0.8),
+            ((16,), 8, (5,), 5, 0, 16, 0.5),
+            ((24,), 3, (3,), 3, 1, 4, 0.6),
+            ((12,), 1, (3,), None, (1,), None, 0.7),
+            ((32,), 8, (3,), None, 2, None, 0.7),
+            ((16,), 8, (5,), 3, (2,), 12, 0.5),
+        ],
+    )
+    def test_SpikingAvgPool1dWithV(
+        self, shape, channels, ksize, stride, padding, threshold, p_binomial
+    ):
+        """NOTE: This function is a native implementation of SNNs and is therefore not  \
+            compared to the ANN implementation."""
+        from tests.shared_networks import SpikingPool1d_Net
+
+        fm_shape = (channels,) + shape
+
+        net1 = SpikingPool1d_Net(fm_shape, ksize, stride, padding, threshold, "avgv")
+        net2 = SpikingPool1d_Net(fm_shape, ksize, stride, padding, threshold, "avgv")
+        p1d = net2.pool
+        generated = DynSysGroup.build_fmodule(net2)
+        sim1 = pb.Simulator(net1, start_time_zero=False)
+        sim2 = pb.Simulator(net2, start_time_zero=False)
+
+        probe_p1d = pb.Probe(generated[p1d][0], "spike")
+        sim2.add_probe(probe_p1d)
+
+        # Use binomial distribution to generate a sparse matrix with more zeros
+        inpa = np.random.binomial(1, p_binomial, size=(20,) + fm_shape).astype(np.bool_)
+
+        for i in range(20):
+            pb.FRONTEND_ENV.save(data1=inpa[i])
+            sim1.run(1)
+            sim2.run(1)
+
+        for i in range(1, 20):
+            assert np.array_equal(sim1.data[net1.probe2][i], sim2.data[probe_p1d][i])
+
+    def test_SpikingAvgPool1dWithV_mapping(self, ensure_dump_dir):
+        from tests.shared_networks import SpikingPool1d_Net
+
+        net1 = SpikingPool1d_Net((3, 24), (3,), None, 0, None, "avgv")
+
+        mapper = pb.Mapper()
+        mapper.build(net1)
+        mapper.compile()
+        mapper.export(fp=ensure_dump_dir)
+
+    @pytest.mark.parametrize(
+        "shape, channels, ksize, stride, padding, threshold, p_binomial",
+        [
             ((24, 24), 3, (3, 3), 3, 0, None, 0.5),
             ((12, 12), 1, (3, 3), None, 0, None, 0.7),
             ((32, 32), 8, (3, 3), None, 0, 3, 0.8),
@@ -524,7 +683,7 @@ class TestFunctionalModules:
 
         net1 = SpikingPool2d_Net(fm_shape, ksize, stride, padding, threshold, "avgv")
         net2 = SpikingPool2d_Net(fm_shape, ksize, stride, padding, threshold, "avgv")
-        p2d = net2.pool2d
+        p2d = net2.pool
         generated = DynSysGroup.build_fmodule(net2)
         sim1 = pb.Simulator(net1, start_time_zero=False)
         sim2 = pb.Simulator(net2, start_time_zero=False)
@@ -543,7 +702,7 @@ class TestFunctionalModules:
         for i in range(1, 20):
             assert np.array_equal(sim1.data[net1.probe2][i], sim2.data[probe_p2d][i])
 
-    def test_SpikingPool2dWithV_mapping(self, ensure_dump_dir):
+    def test_SpikingAvgPool2dWithV_mapping(self, ensure_dump_dir):
         from tests.shared_networks import SpikingPool2d_Net
 
         net1 = SpikingPool2d_Net((3, 24, 24), (3, 3), None, 0, None, "avgv")

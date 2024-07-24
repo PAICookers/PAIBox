@@ -85,6 +85,15 @@ class FModule_ConnWithFModule_Net(pb.DynSysGroup):
         self.s1 = pb.FullConn(self.n1, self.n2)
 
 
+_2to1_op = {
+    "and": pb.BitwiseAND,
+    "or": pb.BitwiseOR,
+    "xor": pb.BitwiseXOR,
+    "add": pb.SpikingAdd,
+    "sub": pb.SpikingSub,
+}
+
+
 class FunctionalModule_2to1_Net(pb.DynSysGroup):
     def __init__(self, op: Literal["and", "or", "xor", "add", "sub"]):
         super().__init__()
@@ -97,16 +106,7 @@ class FunctionalModule_2to1_Net(pb.DynSysGroup):
         self.s1 = pb.FullConn(self.inp1, self.n1, conn_type=pb.SynConnType.One2One)
         self.s2 = pb.FullConn(self.inp2, self.n2, conn_type=pb.SynConnType.One2One)
 
-        if op == "and":
-            self.func_node = pb.BitwiseAND(self.n1, self.n2, delay=1, tick_wait_start=2)
-        elif op == "or":
-            self.func_node = pb.BitwiseOR(self.n1, self.n2, delay=1, tick_wait_start=2)
-        elif op == "xor":
-            self.func_node = pb.BitwiseXOR(self.n1, self.n2, delay=1, tick_wait_start=2)
-        elif op == "add":
-            self.func_node = pb.SpikingAdd(self.n1, self.n2, delay=1, tick_wait_start=2)
-        elif op == "sub":
-            self.func_node = pb.SpikingSub(self.n1, self.n2, delay=1, tick_wait_start=2)
+        self.func_node = _2to1_op[op](self.n1, self.n2, delay=1, tick_wait_start=2)
 
         self.n3 = pb.SpikingRelu(
             (10,),
@@ -155,32 +155,59 @@ class FunctionalModule_1to1_Net(pb.DynSysGroup):
             self.probe4 = pb.Probe(self.func_node, "voltage")
 
 
-class SpikingPool2d_Net(pb.DynSysGroup):
-    def __init__(self, fm_shape, ksize, stride, padding, threshold, pool_type):
+_pool_op = {
+    (1, "avg"): pb.SpikingAvgPool1d,
+    (1, "avgv"): pb.SpikingAvgPool1dWithV,
+    (2, "avg"): pb.SpikingAvgPool2d,
+    (2, "avgv"): pb.SpikingAvgPool2dWithV,
+    (1, "max"): pb.SpikingMaxPool1d,
+    (2, "max"): pb.SpikingMaxPool2d,
+}
+
+
+class _SpikingPoolNd_Net(pb.DynSysGroup):
+    def __init__(
+        self, pool_ndim, fm_shape, ksize, stride, padding, threshold, pool_type
+    ):
         super().__init__()
         self.inp1 = pb.InputProj(input=_out_bypass1, shape_out=fm_shape)
         self.n1 = pb.SpikingRelu(fm_shape, tick_wait_start=1)
         self.s1 = pb.FullConn(self.inp1, self.n1, conn_type=pb.SynConnType.One2One)
 
-        if pool_type == "avg":
-            self.pool2d = pb.SpikingAvgPool2d(
-                self.n1, ksize, stride, padding, threshold, delay=1, tick_wait_start=2
-            )
-        elif pool_type == "avgv":
-            self.pool2d = pb.SpikingAvgPool2dWithV(
-                self.n1, ksize, stride, padding, threshold, delay=1, tick_wait_start=2
-            )
-        else:  # "max"
-            self.pool2d = pb.SpikingMaxPool2d(
-                self.n1, ksize, stride, padding, delay=1, tick_wait_start=2
-            )
+        self.pool = _pool_op[(pool_ndim, pool_type)](
+            self.n1,
+            ksize,
+            stride,
+            padding,
+            threshold=threshold,  # no need for maxpool
+            delay=1,
+            tick_wait_start=2,
+        )
 
-        self.n2 = pb.SpikingRelu(self.pool2d.shape_out, delay=1, tick_wait_start=3)
-        self.s3 = pb.FullConn(self.pool2d, self.n2, conn_type=pb.SynConnType.One2One)
+        self.n2 = pb.SpikingRelu(self.pool.shape_out, delay=1, tick_wait_start=3)
+        self.s3 = pb.FullConn(self.pool, self.n2, conn_type=pb.SynConnType.One2One)
 
         self.probe1 = pb.Probe(self.n1, "spike")
-        self.probe2 = pb.Probe(self.pool2d, "spike")
+        self.probe2 = pb.Probe(self.pool, "spike")
         self.probe3 = pb.Probe(self.n2, "spike")
+
+
+class SpikingPool1d_Net(_SpikingPoolNd_Net):
+    pool_ndim = 1
+
+    def __init__(self, fm_shape, ksize, stride, padding, threshold, pool_type):
+        super().__init__(
+            self.pool_ndim, fm_shape, ksize, stride, padding, threshold, pool_type
+        )
+
+
+class SpikingPool2d_Net(_SpikingPoolNd_Net):
+    pool_ndim = 2
+
+    def __init__(self, fm_shape, ksize, stride, padding, threshold, pool_type):
+        super().__init__(
+            self.pool_ndim, fm_shape, ksize, stride, padding, threshold, pool_type
+        )
 
 
 class TransposeModule_T2d_Net(pb.DynSysGroup):
