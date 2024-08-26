@@ -4,18 +4,18 @@ import pytest
 import paibox as pb
 from paibox.base import DynamicSys
 from paibox.components import NeuModule
-from paibox.components.synapses.conv_utils import _single, _pair
+from paibox.components.synapses.conv_utils import _pair, _single
 from paibox.network import DynSysGroup
 from paibox.simulator.utils import _conv2d_faster_fp32
 from paibox.utils import as_shape, shape2num, typical_round
 
 from .utils import (
+    avg_pooling,
     avgpool1d_golden,
     avgpool2d_golden,
+    max_pooling,
     maxpool1d_golden,
     maxpool2d_golden,
-    avg_pooling,
-    max_pooling,
 )
 
 

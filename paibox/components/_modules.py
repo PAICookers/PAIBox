@@ -20,7 +20,7 @@ from .neuron.utils import vjt_overflow
 from .projection import InputProj
 from .synapses import ConnType, FullConnSyn
 from .synapses.conv_types import _Size1Type, _Size2Type
-from .synapses.conv_utils import _fm_ndim1_check, _fm_ndim2_check, _single, _pair
+from .synapses.conv_utils import _fm_ndim1_check, _fm_ndim2_check, _pair, _single
 from .synapses.transforms import (
     Conv1dForward,
     Conv2dForward,
@@ -307,8 +307,8 @@ class _SpikingPool2dWithV(FunctionalModuleWithV):
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
-        """Basic 2d spiking pooling with voltage at the previous timestep. 
-        
+        """Basic 2d spiking pooling with voltage at the previous timestep.
+
         NOTE: This is not a regular average pooling operator. It is just to correspond to the operators \
             that appear in PAIFLOW.
         """

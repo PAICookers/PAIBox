@@ -1,8 +1,8 @@
 import warnings
-from typing import Literal, Union, TypedDict
+from typing import Literal, TypedDict, Union
 
 import numpy as np
-from paicorelib import InputWidthFormat, SpikeWidthFormat, SNNModeEnable
+from paicorelib import InputWidthFormat, SNNModeEnable, SpikeWidthFormat
 from paicorelib.framelib.utils import _mask
 from paicorelib.ram_model import (
     BIT_TRUNCATE_MAX,

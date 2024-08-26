@@ -44,9 +44,9 @@ from .utils import (
     _input_width_format,
     _leak_v_check,
     _mask,
+    _RTModeKwds,
     _spike_width_format,
     vjt_overflow,
-    _RTModeKwds,
 )
 
 __all__ = ["Neuron"]

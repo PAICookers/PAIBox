@@ -1,20 +1,20 @@
-from functools import partial
 import sys
 import typing
 from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from functools import partial
 from typing import ClassVar, Literal, Optional, TypeVar, Union
 
 import numpy as np
-from paicorelib import CoreMode, TM, HwConfig, get_core_mode, SNNModeEnable
+from paicorelib import TM, CoreMode, HwConfig, SNNModeEnable, get_core_mode
 
 from paibox.base import NeuDyn
 from paibox.exceptions import NotSupportedError, RegisterError, ShapeError
 from paibox.types import NEUOUT_U8_DTYPE, NeuOutType, VoltageType
 from paibox.utils import check_elem_unique, shape2num
 
-from .neuron.utils import _input_width_format, _spike_width_format, _RTModeKwds
+from .neuron.utils import _input_width_format, _RTModeKwds, _spike_width_format
 from .projection import InputProj
 
 if sys.version_info >= (3, 10):

@@ -17,8 +17,8 @@ from .components.functional import Linear as Linear
 from .components.functional import MaxPool2dSemiMap as MaxPool2dSemiMap
 from .components.functional import SpikingAdd as SpikingAdd
 from .components.functional import SpikingAvgPool1d as SpikingAvgPool1d
-from .components.functional import SpikingAvgPool2d as SpikingAvgPool2d
 from .components.functional import SpikingAvgPool1dWithV as SpikingAvgPool1dWithV
+from .components.functional import SpikingAvgPool2d as SpikingAvgPool2d
 from .components.functional import SpikingAvgPool2dWithV as SpikingAvgPool2dWithV
 from .components.functional import SpikingMaxPool1d as SpikingMaxPool1d
 from .components.functional import SpikingMaxPool2d as SpikingMaxPool2d

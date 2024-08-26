@@ -17,7 +17,7 @@ from paibox.types import (
 )
 from paibox.utils import is_shape, shape2num, typical_round
 
-from .conv_types import _SizeAnyType, Size1Type, Size2Type, SizeAnyType
+from .conv_types import Size1Type, Size2Type, SizeAnyType, _SizeAnyType
 from .conv_utils import (
     _conv1d_faster,
     _conv1d_unroll,
