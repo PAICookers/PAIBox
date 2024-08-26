@@ -13,7 +13,7 @@ repos:
         stages: [commit]
 
   - repo: https://github.com/psf/black
-    rev: 24.4.2
+    rev: 24.8.0
     hooks:
       - id: black
         stages: [commit]
@@ -50,7 +50,7 @@ repos:
       - id: no-commit-to-branch
 
   - repo: https://github.com/python-poetry/poetry
-    rev: 1.8.3
+    rev: 1.8.0
     hooks:
       - id: poetry-check
       - id: poetry-export

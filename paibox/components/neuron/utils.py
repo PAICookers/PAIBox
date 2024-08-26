@@ -1,8 +1,8 @@
 import warnings
-from typing import Literal, Union
+from typing import Literal, TypedDict, Union
 
 import numpy as np
-from paicorelib import InputWidthFormat, SpikeWidthFormat
+from paicorelib import InputWidthFormat, SNNModeEnable, SpikeWidthFormat
 from paicorelib.framelib.utils import _mask
 from paicorelib.ram_model import (
     BIT_TRUNCATE_MAX,
@@ -105,3 +105,11 @@ def _get_neu_out_dtype(
         return SPIKE_DTYPE
     else:
         return NEUOUT_U8_DTYPE
+
+
+class _RTModeKwds(TypedDict):
+    """A typed keywords for runtime mode. Only for checking if necessary."""
+
+    input_width: InputWidthFormat
+    spike_width: SpikeWidthFormat
+    snn_en: SNNModeEnable

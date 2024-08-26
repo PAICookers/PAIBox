@@ -2,7 +2,7 @@ import math
 import sys
 from collections.abc import Sequence
 from functools import partial
-from typing import ClassVar, Literal, Optional, Union
+from typing import ClassVar, Optional, Union
 
 import numpy as np
 from paicorelib import NTM, RM, TM
@@ -20,31 +20,25 @@ from paibox.types import (
     VoltageType,
     WeightType,
 )
-from paibox.utils import (
-    arg_check_non_neg,
-    arg_check_pos,
-    as_shape,
-    shape2num,
-    typical_round,
-)
+from paibox.utils import arg_check_pos, as_shape, shape2num
 
+from ._modules import *
 from .modules import (
     BuiltComponentType,
     FunctionalModule,
     FunctionalModule2to1,
     FunctionalModule2to1WithV,
-    FunctionalModuleWithV,
     TransposeModule,
     set_rt_mode,
+    set_rt_mode_snn,
 )
 from .neuron import Neuron
 from .neuron.neurons import *
 from .neuron.utils import vjt_overflow
 from .projection import InputProj
-from .synapses import ConnType, Conv2dHalfRollSyn, FullConnSyn, MaxPool2dSemiMapSyn
-from .synapses.conv_types import _Size2Type
+from .synapses import ConnType, FullConnSyn
+from .synapses.conv_types import _Size1Type, _Size2Type
 from .synapses.conv_utils import _fm_ndim2_check, _pair
-from .synapses.transforms import Conv2dForward, _Pool2dForward
 
 if sys.version_info >= (3, 13):
     from warnings import deprecated
@@ -58,6 +52,9 @@ __all__ = [
     "BitwiseXOR",
     "DelayChain",
     "SpikingAdd",
+    "SpikingAvgPool1d",
+    "SpikingAvgPool1dWithV",
+    "SpikingMaxPool1d",
     "SpikingAvgPool2d",
     "SpikingAvgPool2dWithV",
     "SpikingMaxPool2d",
@@ -73,7 +70,7 @@ __all__ = [
 ]
 
 
-@set_rt_mode(1, 1, 1)
+@set_rt_mode_snn()
 class BitwiseAND(FunctionalModule2to1):
     inherent_delay = 0
 
@@ -120,6 +117,7 @@ class BitwiseAND(FunctionalModule2to1):
             tick_wait_end=self.tick_wait_end,
             keep_shape=self.keep_shape,
             name=f"n0_{self.name}",
+            **self.rt_mode_kwds,
         )
 
         syn1 = FullConnSyn(
@@ -143,7 +141,7 @@ class BitwiseAND(FunctionalModule2to1):
         return generated
 
 
-@set_rt_mode(1, 1, 1)
+@set_rt_mode_snn()
 class BitwiseNOT(FunctionalModule):
     inherent_delay = 0
 
@@ -189,6 +187,7 @@ class BitwiseNOT(FunctionalModule):
             tick_wait_end=self.tick_wait_end,
             keep_shape=self.keep_shape,
             name=f"n0_{self.name}",
+            **self.rt_mode_kwds,
         )
 
         syn1 = FullConnSyn(
@@ -205,7 +204,7 @@ class BitwiseNOT(FunctionalModule):
         return generated
 
 
-@set_rt_mode(1, 1, 1)
+@set_rt_mode_snn()
 class BitwiseOR(FunctionalModule2to1):
     inherent_delay = 0
 
@@ -239,6 +238,7 @@ class BitwiseOR(FunctionalModule2to1):
             tick_wait_end=self.tick_wait_end,
             keep_shape=self.keep_shape,
             name=f"n0_{self.name}",
+            **self.rt_mode_kwds,
         )
 
         syn1 = FullConnSyn(
@@ -262,7 +262,7 @@ class BitwiseOR(FunctionalModule2to1):
         return generated
 
 
-@set_rt_mode(1, 1, 1)
+@set_rt_mode_snn()
 class BitwiseXOR(FunctionalModule2to1):
     inherent_delay = 1
 
@@ -300,6 +300,7 @@ class BitwiseXOR(FunctionalModule2to1):
             tick_wait_end=self.tick_wait_end,
             keep_shape=False,
             name=f"n0_{self.name}",
+            **self.rt_mode_kwds,
         )
 
         identity = np.identity(self.num_out, dtype=np.int8)
@@ -328,6 +329,7 @@ class BitwiseXOR(FunctionalModule2to1):
             tick_wait_end=self.tick_wait_end,
             keep_shape=self.keep_shape,
             name=f"n1_{self.name}",
+            **self.rt_mode_kwds,
         )
 
         # weight of syn3, identity matrix with shape (2N, N)
@@ -368,12 +370,7 @@ class DelayChain(FunctionalModule):
         else:
             shape_out = (neuron.num_out,)
 
-        if chain_level < 1:
-            raise ValueError(
-                f"the level of delay chain must be positive, but got {chain_level}."
-            )
-
-        self.chain_level = chain_level
+        self.chain_level = arg_check_pos(chain_level, "chain level")
         self.inherent_delay = chain_level - 1
 
         super().__init__(
@@ -399,6 +396,7 @@ class DelayChain(FunctionalModule):
                 tick_wait_end=self.tick_wait_end,
                 delay=1,
                 name=f"n{i}_{self.name}",
+                **self.rt_mode_kwds,
             )
             n_delaychain.append(n_delay)
 
@@ -409,6 +407,7 @@ class DelayChain(FunctionalModule):
             tick_wait_end=self.tick_wait_end,
             delay=self.delay_relative,
             name=f"n{i + 1}_{self.name}",
+            **self.rt_mode_kwds,
         )
         n_delaychain.append(n_out)  # Must append to the last.
 
@@ -437,7 +436,7 @@ class DelayChain(FunctionalModule):
         return generated
 
 
-@set_rt_mode(1, 1, 1)
+@set_rt_mode_snn()
 class SpikingAdd(FunctionalModule2to1WithV):
     inherent_delay = 0
 
@@ -499,6 +498,7 @@ class SpikingAdd(FunctionalModule2to1WithV):
             tick_wait_end=self.tick_wait_end,
             keep_shape=self.keep_shape,
             name=f"n0_{self.name}",
+            **self.rt_mode_kwds,
         )
 
         syn1 = FullConnSyn(
@@ -522,172 +522,110 @@ class SpikingAdd(FunctionalModule2to1WithV):
         return generated
 
 
-@set_rt_mode(1, 1, 1)
-class _SpikingPool2dWithV(FunctionalModuleWithV):
-    inherent_delay = 0
-
+class SpikingAvgPool1d(_SpikingPool1d):
     def __init__(
         self,
         neuron: Union[NeuDyn, InputProj],
-        kernel_size: _Size2Type,
-        stride: Optional[_Size2Type] = None,
-        padding: _Size2Type = 0,
-        pos_thres: Optional[int] = None,
-        keep_shape: bool = True,
-        name: Optional[str] = None,
-        **kwargs,
-    ) -> None:
-        """Basic 2d spiking pooling."""
-        # C,H,W
-        cin, ih, iw = _fm_ndim2_check(neuron.shape_out, "CHW")
-
-        _ksize = _pair(kernel_size)
-        _kernel = np.ones((cin, cin, *_ksize), dtype=np.int8)
-        _stride = _pair(stride) if stride is not None else _ksize
-        _padding = _pair(padding)
-
-        oh = (ih + 2 * _padding[0] - _ksize[0]) // _stride[0] + 1
-        ow = (iw + 2 * _padding[1] - _ksize[1]) // _stride[1] + 1
-
-        if keep_shape:
-            shape_out = (cin, oh, ow)
-        else:
-            shape_out = (cin * oh * ow,)
-
-        if isinstance(pos_thres, int):
-            self.pos_thres = arg_check_non_neg(pos_thres, "positive threshold")
-        else:
-            self.pos_thres = typical_round(shape2num(_ksize) / 2)
-
-        self.tfm = Conv2dForward((ih, iw), (oh, ow), _kernel, _stride, _padding)
-
-        super().__init__(
-            neuron,
-            shape_out=shape_out,
-            keep_shape=keep_shape,
-            name=name,
-            **kwargs,
-        )
-
-    def spike_func(self, vjt: VoltageType, **kwargs) -> tuple[NeuOutType, VoltageType]:
-        return _spike_func_avg_pool(vjt, self.pos_thres)
-
-    def synaptic_integr(self, x1: NeuOutType, vjt_pre: VoltageType) -> VoltageType:
-        return vjt_overflow(vjt_pre + self.tfm(x1).ravel())
-
-    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
-        n1_ap2d = IF(
-            self.shape_out,
-            threshold=self.pos_thres,
-            reset_v=0,
-            delay=self.delay_relative,
-            tick_wait_start=self.tick_wait_start,
-            tick_wait_end=self.tick_wait_end,
-            keep_shape=self.keep_shape,
-            name=f"n0_{self.name}",
-        )
-
-        syn1 = FullConnSyn(
-            self.module_intf.operands[0],
-            n1_ap2d,
-            weights=self.tfm.connectivity.astype(np.bool_),
-            conn_type=ConnType.All2All,
-            name=f"s0_{self.name}",
-        )
-
-        generated = [n1_ap2d, syn1]
-        self._rebuild_out_intf(network, n1_ap2d, *generated, **build_options)
-
-        return generated
-
-
-@set_rt_mode(1, 1, 1)
-class _SpikingPool2d(FunctionalModule):
-    inherent_delay = 0
-
-    def __init__(
-        self,
-        neuron: Union[NeuDyn, InputProj],
-        kernel_size: _Size2Type,
-        pool_type: Literal["avg", "max"],
-        stride: Optional[_Size2Type] = None,
-        padding: _Size2Type = 0,
+        kernel_size: _Size1Type,
+        stride: Optional[_Size1Type] = None,
+        padding: _Size1Type = 0,
         threshold: Optional[int] = None,
-        # fm_order: _Order3d = "CHW",
+        *,
         keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
-        """Basic 2d spiking pooling."""
-        if pool_type not in ("avg", "max"):
-            raise ValueError("type of pooling must be 'avg' or 'max'.")
+        """1d average pooling for spike. The input feature map is in 'CL' order by default.
 
-        # if fm_order not in ("CHW", "HWC"):
-        #     raise ValueError("feature map order must be 'CHW' or 'HWC'.")
+        Args:
+            - neuron: the target neuron to be pooled.
+            - kernel_size: the size of the window to take a max over.
+            - stride: the stride of the window. Default value is `kernel_size`.
+            - padding: the amount of zero-padding applied to the input. It can be a scalar or a tuple of 1  \
+                integer.
+            - threshold: if specified, the pooling result is o = (sum of the pooling window > threshold).   \
+                Otherwise the threshold is kernel_size // 2.
 
-        # C,H,W
-        cin, ih, iw = _fm_ndim2_check(neuron.shape_out, "CHW")
-
-        _ksize = _pair(kernel_size)
-        _stride = _pair(stride) if stride is not None else _ksize
-        _padding = _pair(padding)
-
-        oh = (ih + 2 * _padding[0] - _ksize[0]) // _stride[0] + 1
-        ow = (iw + 2 * _padding[1] - _ksize[1]) // _stride[1] + 1
-
-        if keep_shape:
-            shape_out = (cin, oh, ow)
-        else:
-            shape_out = (cin * oh * ow,)
-
-        self.tfm = _Pool2dForward(
-            cin, (ih, iw), (oh, ow), _ksize, _stride, _padding, pool_type, threshold
-        )
-
+        NOTE: the inherent delay of the module is 0.
+        """
         super().__init__(
             neuron,
-            shape_out=shape_out,
+            kernel_size,
+            "avg",
+            stride,
+            padding,
+            threshold,
+            keep_shape,
+            name,
+            **kwargs,
+        )
+
+
+class SpikingAvgPool1dWithV(_SpikingPool1dWithV):
+    def __init__(
+        self,
+        neuron: Union[NeuDyn, InputProj],
+        kernel_size: _Size1Type,
+        stride: Optional[_Size1Type] = None,
+        padding: _Size1Type = 0,
+        threshold: Optional[int] = None,
+        *,
+        keep_shape: bool = True,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        """1d average pooling for spike with voltage at the previous timestep. The input feature map is in  \
+            'CL' order by default.
+
+        Args:
+            - neuron: the target neuron to be pooled.
+            - kernel_size: the size of the window to take a max over.
+            - stride: the stride of the window. Default value is `kernel_size`.
+            - padding: the amount of zero-padding applied to the input. It can be a scalar or a tuple of 1  \
+                integer.
+            - threshold: if specified, the pooling result is o = (sum of the pooling window >= threshold).  \
+                Otherwise the threshold is kernel_size // 2.
+
+        NOTE: the inherent delay of the module is 0.
+        """
+        super().__init__(
+            neuron, kernel_size, stride, padding, threshold, keep_shape, name, **kwargs
+        )
+
+
+class SpikingMaxPool1d(_SpikingPool1d):
+    def __init__(
+        self,
+        neuron: Union[NeuDyn, InputProj],
+        kernel_size: _Size1Type,
+        stride: Optional[_Size1Type] = None,
+        padding: _Size1Type = 0,
+        *,
+        keep_shape: bool = True,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        """1d max pooling for spike. The input feature map is in 'CL' order by default.
+
+        Args:
+            - neuron: the target neuron to be pooled.
+            - kernel_size: the size of the window to take a max over.
+            - stride: the stride of the window. Default value is `kernel_size`.
+            - padding: the amount of zero-padding applied to the input. It can be a scalar or a tuple of a  \
+                integer.
+
+        NOTE: the inherent delay of the module is 0.
+        """
+        super().__init__(
+            neuron,
+            kernel_size,
+            "max",
+            stride,
+            padding,
             keep_shape=keep_shape,
             name=name,
             **kwargs,
         )
-
-    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
-        return self.tfm(x1)
-
-    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
-        if self.tfm.pool_type == "avg":
-            n1_p2d = Neuron(
-                self.shape_out,
-                leak_v=1 - self.tfm.threshold,
-                neg_threshold=0,
-                delay=self.delay_relative,
-                tick_wait_start=self.tick_wait_start,
-                tick_wait_end=self.tick_wait_end,
-                keep_shape=self.keep_shape,
-            )
-        else:  # "max"
-            n1_p2d = SpikingRelu(
-                self.shape_out,
-                delay=self.delay_relative,
-                tick_wait_start=self.tick_wait_start,
-                tick_wait_end=self.tick_wait_end,
-                keep_shape=self.keep_shape,
-                name=f"n0_{self.name}",
-            )
-
-        syn1 = FullConnSyn(
-            self.module_intf.operands[0],
-            n1_p2d,
-            weights=self.tfm.connectivity.astype(np.bool_),
-            conn_type=ConnType.All2All,
-            name=f"s0_{self.name}",
-        )
-
-        generated = [n1_p2d, syn1]
-        self._rebuild_out_intf(network, n1_p2d, *generated, **build_options)
-
-        return generated
 
 
 class SpikingAvgPool2d(_SpikingPool2d):
@@ -708,11 +646,11 @@ class SpikingAvgPool2d(_SpikingPool2d):
 
         Args:
             - neuron: the target neuron to be pooled.
-            - kernel_size: the size of the window to take a max over.
+            - kernel_size: the size of the window.
             - stride: the stride of the window. Default value is `kernel_size`.
             - padding: the amount of zero-padding applied to the input. It can be a scalar or a tuple of 2  \
                 integers.
-            - threshold: if specified, the pooling result is o = (sum of the pooling window > threshold).   \
+            - threshold: if specified, the pooling result is o = (sum of the pooling window >= threshold).  \
                 Otherwise the threshold is kernel_size // 2.
 
         NOTE: the inherent delay of the module is 0.
@@ -743,6 +681,20 @@ class SpikingAvgPool2dWithV(_SpikingPool2dWithV):
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
+        """2d average pooling for spike with voltage at the previous timestep. The input feature map is in  \
+            'CHW' order by default.
+
+        Args:
+            - neuron: the target neuron to be pooled.
+            - kernel_size: the size of the window.
+            - stride: the stride of the window. Default value is `kernel_size`.
+            - padding: the amount of zero-padding applied to the input. It can be a scalar or a tuple of 2  \
+                integers.
+            - threshold: if specified, the pooling result is o = (sum of the pooling window >= threshold).  \
+                Otherwise the threshold is kernel_size // 2.
+
+        NOTE: the inherent delay of the module is 0.
+        """
         super().__init__(
             neuron, kernel_size, stride, padding, threshold, keep_shape, name, **kwargs
         )
@@ -768,7 +720,7 @@ class SpikingMaxPool2d(_SpikingPool2d):
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
-        """2d max pooling for spike.
+        """2d max pooling for spike. The input feature map is in 'CHW' order by default.
 
         Args:
             - neuron: the target neuron to be pooled.
@@ -791,7 +743,7 @@ class SpikingMaxPool2d(_SpikingPool2d):
         )
 
 
-@set_rt_mode(1, 1, 1)
+@set_rt_mode_snn()
 class SpikingSub(FunctionalModule2to1WithV):
     inherent_delay = 0
     factor_a: int = 1
@@ -843,6 +795,7 @@ class SpikingSub(FunctionalModule2to1WithV):
             tick_wait_end=self.tick_wait_end,
             keep_shape=self.keep_shape,
             name=f"n0_{self.name}",
+            **self.rt_mode_kwds,
         )
 
         syn1 = FullConnSyn(
@@ -870,7 +823,7 @@ class SpikingSub(FunctionalModule2to1WithV):
     "'Transpose2d' will be removed in a future version. Use 'MatMul2d' instead.",
     category=PAIBoxDeprecationWarning,
 )
-@set_rt_mode(1, 1, 1)
+@set_rt_mode_snn()
 class Transpose2d(TransposeModule):
     def __init__(
         self,
@@ -909,6 +862,7 @@ class Transpose2d(TransposeModule):
             tick_wait_end=self.tick_wait_end,
             keep_shape=self.keep_shape,
             name=f"n0_{self.name}",
+            **self.rt_mode_kwds,
         )
 
         syn1 = FullConnSyn(
@@ -929,7 +883,7 @@ class Transpose2d(TransposeModule):
     "'Transpose3d' will be removed in a future version. Use 'MatMul2d' instead.",
     category=PAIBoxDeprecationWarning,
 )
-@set_rt_mode(1, 1, 1)
+@set_rt_mode_snn()
 class Transpose3d(TransposeModule):
     def __init__(
         self,
@@ -973,6 +927,7 @@ class Transpose3d(TransposeModule):
             tick_wait_end=self.tick_wait_end,
             keep_shape=self.keep_shape,
             name=f"n0_{self.name}",
+            **self.rt_mode_kwds,
         )
 
         syn1 = FullConnSyn(

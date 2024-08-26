@@ -17,7 +17,7 @@ from paibox.types import (
 )
 from paibox.utils import is_shape, shape2num, typical_round
 
-from .conv_types import Size1Type, Size2Type, SizeAnyType
+from .conv_types import Size1Type, Size2Type, SizeAnyType, _SizeAnyType
 from .conv_utils import (
     _conv1d_faster,
     _conv1d_unroll,
@@ -28,7 +28,9 @@ from .conv_utils import (
     _convtranspose1d_unroll,
     _convtranspose2d_faster,
     _convtranspose2d_unroll,
+    _func_pool1d,
     _func_pool2d,
+    _pool1d_kernel_unroll,
     _pool2d_kernel_unroll,
 )
 
@@ -321,23 +323,31 @@ class MaskedLinear(Transform):
         return self.axes == (1, 0)
 
 
-class Conv1dForward(Transform):
+class _ConvNdForward(Transform):
     def __init__(
         self,
-        in_shape: Size1Type,
-        out_shape: Size1Type,
+        in_shape: SizeAnyType,
+        out_shape: SizeAnyType,
         kernel: np.ndarray,
-        stride: Size1Type,
-        padding: Size1Type,
-        # fm_order: _Order2d,
+        stride: _SizeAnyType = 0,
+        padding: _SizeAnyType = 0,
+        output_padding: _SizeAnyType = 0,
     ) -> None:
         self.in_shape = in_shape
         self.out_shape = out_shape
         self.stride = stride
         self.padding = padding
-        # self.fm_order = fm_order
+        self.output_padding = output_padding
 
         super().__init__(kernel)
+
+
+class Conv1dForward(_ConvNdForward):
+
+    in_shape: Size1Type
+    out_shape: Size1Type
+    stride: Size1Type
+    padding: Size1Type
 
     def __call__(self, x: NeuOutType, *args, **kwargs) -> SynOutType:
         cin = self.weights.shape[1]
@@ -359,23 +369,11 @@ class Conv1dForward(Transform):
         )
 
 
-class Conv2dForward(Transform):
-    def __init__(
-        self,
-        in_shape: Size2Type,
-        out_shape: Size2Type,
-        kernel: np.ndarray,
-        stride: Size2Type,
-        padding: Size2Type,
-        # fm_order: _Order3d,
-    ) -> None:
-        self.in_shape = in_shape
-        self.out_shape = out_shape
-        self.stride = stride
-        self.padding = padding
-        # self.fm_order = fm_order
-
-        super().__init__(kernel)
+class Conv2dForward(_ConvNdForward):
+    in_shape: Size2Type
+    out_shape: Size2Type
+    stride: Size2Type
+    padding: Size2Type
 
     def __call__(self, x: NeuOutType, *args, **kwargs) -> SynOutType:
         cin = self.weights.shape[1]
@@ -426,25 +424,12 @@ class Conv2dHalfForward(Transform):
         )
 
 
-class ConvTranspose1dForward(Transform):
-    def __init__(
-        self,
-        in_shape: Size1Type,
-        out_shape: Size1Type,
-        kernel: np.ndarray,
-        stride: Size1Type,
-        padding: Size1Type,
-        output_padding: Size1Type,
-        # fm_order: _Order2d,
-    ) -> None:
-        self.in_shape = in_shape
-        self.out_shape = out_shape
-        self.stride = stride
-        self.padding = padding
-        self.output_padding = output_padding
-        # self.fm_order = fm_order
-
-        super().__init__(kernel)
+class ConvTranspose1dForward(_ConvNdForward):
+    in_shape: Size1Type
+    out_shape: Size1Type
+    stride: Size1Type
+    padding: Size1Type
+    output_padding: Size1Type
 
     def __call__(self, x: NeuOutType, *args, **kwargs) -> SynOutType:
         cin = self.weights.shape[1]
@@ -476,25 +461,12 @@ class ConvTranspose1dForward(Transform):
         )
 
 
-class ConvTranspose2dForward(Transform):
-    def __init__(
-        self,
-        in_shape: Size2Type,
-        out_shape: Size2Type,
-        kernel: np.ndarray,
-        stride: Size2Type,
-        padding: Size2Type,
-        output_padding: Size2Type,
-        # fm_order: _Order3d,
-    ) -> None:
-        self.in_shape = in_shape
-        self.out_shape = out_shape
-        self.stride = stride
-        self.padding = padding
-        self.output_padding = output_padding
-        # self.fm_order = fm_order
-
-        super().__init__(kernel)
+class ConvTranspose2dForward(_ConvNdForward):
+    in_shape: Size2Type
+    out_shape: Size2Type
+    stride: Size2Type
+    padding: Size2Type
+    output_padding: Size2Type
 
     def __call__(self, x: NeuOutType, *args, **kwargs) -> SynOutType:
         cin = self.weights.shape[1]
@@ -526,16 +498,15 @@ class ConvTranspose2dForward(Transform):
         )
 
 
-class _Pool2dForward(Transform):
+class _PoolNdForward(Transform):
     def __init__(
         self,
         channels: int,
-        in_shape: Size2Type,
-        out_shape: Size2Type,
-        kernel_size: Size2Type,
-        stride: Size2Type,
-        padding: Size2Type,
-        # fm_order: _Order3d,
+        in_shape: SizeAnyType,
+        out_shape: SizeAnyType,
+        kernel_size: SizeAnyType,
+        stride: _SizeAnyType,
+        padding: _SizeAnyType,
         pool_type: Literal["avg", "max"],
         threshold: Optional[int] = None,
     ) -> None:
@@ -545,14 +516,54 @@ class _Pool2dForward(Transform):
         self.ksize = kernel_size
         self.stride = stride
         self.padding = padding
-        # self.fm_order = fm_order
         self.pool_type = pool_type
+
         if isinstance(threshold, int):
             self.threshold = threshold
         else:
             self.threshold = typical_round(shape2num(kernel_size) / 2)
 
         super().__init__(1)
+
+
+class _Pool1dForward(_PoolNdForward):
+    in_shape: Size1Type
+    out_shape: Size1Type
+    ksize: Size1Type
+    stride: Size1Type
+    padding: Size1Type
+
+    def __call__(self, x: NeuOutType, *args, **kwargs) -> NeuOutType:
+        _x = x.reshape((self.channels,) + self.in_shape)
+
+        return _func_pool1d(
+            _x,
+            self.out_shape,
+            self.ksize,
+            self.stride,
+            self.padding,
+            self.pool_type,
+            self.threshold,
+        )
+
+    @property
+    def connectivity(self):
+        return _pool1d_kernel_unroll(
+            self.channels,
+            self.in_shape,
+            self.out_shape,
+            self.ksize,
+            self.stride,
+            self.padding,
+        )
+
+
+class _Pool2dForward(_PoolNdForward):
+    in_shape: Size2Type
+    out_shape: Size2Type
+    ksize: Size2Type
+    stride: Size2Type
+    padding: Size2Type
 
     def __call__(self, x: NeuOutType, *args, **kwargs) -> NeuOutType:
         # if self.fm_order == "HWC":
