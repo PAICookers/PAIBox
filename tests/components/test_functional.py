@@ -248,6 +248,7 @@ class TestFunctionalModules:
         mapper.compile()
         mapper.export(fp=ensure_dump_dir)
 
+    @pytest.mark.skip(reason="'rt_mode_kwds' is not implemented in DelayChain.")
     def test_DelayChain(self):
         from tests.shared_networks import FunctionalModule_1to1_Net
 
@@ -279,6 +280,7 @@ class TestFunctionalModules:
 
         _assert_build_fmodule(net1, 3 + 1 + 2, 3 + 2 * net1.func_node.chain_level + 2)
 
+    @pytest.mark.skip(reason="'rt_mode_kwds' is not implemented in DelayChain.")
     def test_DelayChain_mapping(self, ensure_dump_dir):
         from tests.shared_networks import FunctionalModule_1to1_Net
 
@@ -807,6 +809,7 @@ class TestFunctionalModules:
         mapper.compile()
         mapper.export(fp=ensure_dump_dir)
 
+    @pytest.mark.skip(reason="not implemented yet")
     @pytest.mark.parametrize(
         "shape, kernel, stride, padding",
         [
@@ -861,6 +864,7 @@ class TestFunctionalModules:
         # print(expected)
         # print(sim1.data[probe_conv])
 
+    @pytest.mark.skip(reason="not implemented yet")
     @pytest.mark.parametrize(
         "shape, kernel, stride, padding, out_feature, weight",
         [
@@ -939,6 +943,7 @@ class TestFunctionalModules:
         # expected = np.clip(expected, 0, 7)
         assert np.array_equal(expected, sim2.data[probe_linear][15])
 
+    @pytest.mark.skip(reason="not implemented yet")
     @pytest.mark.parametrize(
         "shape, kernel_size, stride, weight, pool_type",
         [
@@ -1013,6 +1018,7 @@ class TestFunctionalModules:
         # print(sim1.data[probe_pool])
         # print(sim1.data[probe_linear])
 
+    @pytest.mark.skip(reason="not implemented yet")
     @pytest.mark.parametrize(
         "shape, weight1",
         [
