@@ -9,7 +9,7 @@ from paibox.exceptions import AutoOptimizationWarning, ShapeError
 from paibox.types import (
     VOLTAGE_DTYPE,
     WEIGHT_DTYPE,
-    DataArrayType,
+    DataType,
     IntScalarType,
     NeuOutType,
     SynOutType,
@@ -70,7 +70,7 @@ class ConnType(Enum):
     """All-to-all connection."""
 
 
-def _set_coarse_dtype(raw_w: DataArrayType) -> WeightType:
+def _set_coarse_dtype(raw_w: DataType) -> WeightType:
     """Convert raw weights to `np.ndarray` coarsely (without optimization).
 
     Description:
@@ -130,7 +130,7 @@ def _get_weight_width_inner(weight: WeightType, enable_wp_opt: bool) -> WW:
 
 
 class Transform:
-    def __init__(self, weights: DataArrayType) -> None:
+    def __init__(self, weights: DataType) -> None:
         self.weights = _set_coarse_dtype(weights)
         """The actual weights in synapses. Stored in np.int8 format."""
 
@@ -154,7 +154,7 @@ class Transform:
 
 
 class OneToOne(Transform):
-    def __init__(self, num: int, weights: DataArrayType) -> None:
+    def __init__(self, num: int, weights: DataType) -> None:
         """
         Arguments:
             - num: number of neurons.
@@ -206,7 +206,7 @@ class Identity(OneToOne):
 
 
 class AllToAll(Transform):
-    def __init__(self, conn_size: Size2Type, weights: DataArrayType) -> None:
+    def __init__(self, conn_size: Size2Type, weights: DataType) -> None:
         """
         Arguments:
             - conn_size: size of connections.

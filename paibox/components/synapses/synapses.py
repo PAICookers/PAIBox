@@ -3,7 +3,7 @@ from typing import Optional, Union
 import numpy as np
 
 from paibox.base import NeuDyn
-from paibox.types import DataArrayType
+from paibox.types import DataType
 
 from ..neuron import Neuron
 from ..projection import InputProj
@@ -33,7 +33,7 @@ class FullConn(FullConnSyn):
         self,
         source: Union[NeuDyn, InputProj],
         dest: NeuDyn,
-        weights: DataArrayType = 1,
+        weights: DataType = 1,
         *,
         conn_type: ConnType = ConnType.All2All,
         name: Optional[str] = None,

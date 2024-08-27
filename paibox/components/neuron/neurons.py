@@ -3,7 +3,7 @@ from typing import Optional
 import numpy as np
 from paicorelib import LDM, NTM, RM
 
-from paibox.types import DataArrayType, Shape
+from paibox.types import LEAK_V_DTYPE, DataType, Shape
 
 from .base import Neuron
 from .utils import LEAK_V_MAX
@@ -72,7 +72,7 @@ class LIF(Neuron):
         threshold: int,
         reset_v: Optional[int] = None,
         leak_v: int = 0,
-        bias: Optional[DataArrayType] = None,
+        bias: Optional[DataType] = None,
         neg_threshold: Optional[int] = None,
         *,
         keep_shape: bool = True,
@@ -107,7 +107,7 @@ class LIF(Neuron):
             _rm = RM.MODE_LINEAR
 
         if isinstance(bias, (list, tuple, np.ndarray)):
-            _bias = np.asarray(bias, dtype=np.int32)
+            _bias = np.asarray(bias, dtype=LEAK_V_DTYPE)
         elif bias is not None:
             _bias = int(bias)
         else:
