@@ -6,7 +6,7 @@ from paicorelib import WeightWidth as WW
 
 from paibox.base import NeuDyn, SynSys
 from paibox.exceptions import RegisterError, ShapeError
-from paibox.types import DataArrayType, NeuOutType, SynOutType, WeightType
+from paibox.types import DataType, NeuOutType, SynOutType, WeightType
 
 from ..modules import BuildingModule
 from ..neuron import Neuron
@@ -202,7 +202,7 @@ class FullConnSyn(FullConnectedSyn):
         self,
         source: Union[NeuDyn, InputProj],
         target: NeuDyn,
-        weights: DataArrayType,
+        weights: DataType,
         conn_type: ConnType,
         name: Optional[str] = None,
     ) -> None:
@@ -477,7 +477,7 @@ class MaxPool2dSemiMapSyn(FullConnectedSyn):
         self,
         source: Union[NeuDyn, InputProj],
         dest: Neuron,
-        weights: DataArrayType = 1,
+        weights: DataType = 1,
         name: Optional[str] = None,
     ) -> None:
         super().__init__(source, dest, name)

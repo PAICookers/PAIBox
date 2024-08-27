@@ -14,9 +14,6 @@ ArrayType = TypeVar("ArrayType", list[int], tuple[int, ...], np.ndarray)
 Scalar = TypeVar("Scalar", int, float, np.generic)
 IntScalarType = TypeVar("IntScalarType", int, np.bool_, np.integer)
 DataType = TypeVar("DataType", int, np.bool_, np.integer, np.ndarray)
-DataArrayType = TypeVar(
-    "DataArrayType", int, np.bool_, np.integer, list[int], tuple[int, ...], np.ndarray
-)
 
 LEAK_V_DTYPE = np.int32
 SPIKE_DTYPE = np.bool_
