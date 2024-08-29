@@ -320,19 +320,10 @@ class MetaNeuron:
 
             If the MSB of voltage is greater than the truncation bit, return 8'd255.
         """
-
-        def _truncate() -> VoltageType:
-            if (vj >> self.bit_truncation > 0).all():  # Saturate truncation
-                return np.full_like(vj, _mask(8))
-            elif self.bit_truncation == 0:
-                return self._vjt0
-            elif self.bit_truncation < 8:
-                return (vj << (8 - self.bit_truncation)) & _mask(8)
-            else:
-                return (vj >> (self.bit_truncation - 8)) & _mask(8)
-
         v_truncated = np.where(
-            self.thres_mode == TM.EXCEED_POSITIVE, _truncate(), self._vjt0
+            self.thres_mode == TM.EXCEED_POSITIVE,
+            self._truncate(vj, self.bit_truncation),
+            self._vjt0,
         )
         return v_truncated.astype(NEUOUT_U8_DTYPE)
 
@@ -380,6 +371,17 @@ class MetaNeuron:
 
     def init_param(self, param: Any) -> np.ndarray:
         return np.full((self._n_neuron,), param)
+
+    @staticmethod
+    def _truncate(v: VoltageType, bit_trunc: int) -> VoltageType:
+        if np.any((v >> bit_trunc) > 0):  # Saturate truncation
+            return np.full_like(v, _mask(8))
+        elif bit_trunc == 0:
+            return np.full_like(v, 0)
+        elif bit_trunc < 8:
+            return (v << (8 - bit_trunc)) & _mask(8)
+        else:
+            return (v >> (bit_trunc - 8)) & _mask(8)
 
     @property
     def _vjt0(self) -> VoltageType:
