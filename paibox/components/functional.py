@@ -231,7 +231,7 @@ class BitwiseOR(FunctionalModule2to1):
         return x1 | x2
 
     def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
-        n1_or = SpikingRelu(
+        n1_or = BypassNeuron(
             self.shape_out,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
@@ -293,7 +293,7 @@ class BitwiseXOR(FunctionalModule2to1):
         # If neuron_a is of shape (h1, w1) = N, and neuron_b is of shape (h2, w2) = N.
         # The output shape of the module is (N,) or (h1, w1)(if h1 == h2).
         # The shape of n1 is (2N,) or (2, h1, w1).
-        n1_aux = SpikingRelu(
+        n1_aux = BypassNeuron(
             (2,) + self.shape_out,
             delay=1,
             tick_wait_start=self.tick_wait_start,
@@ -322,7 +322,7 @@ class BitwiseXOR(FunctionalModule2to1):
         )
 
         # The shape of n2 is (N,) or (h1, w1).
-        n2_xor = SpikingRelu(
+        n2_xor = BypassNeuron(
             self.shape_out,
             delay=self.delay_relative,
             tick_wait_start=n1_aux.tick_wait_start + 1,
@@ -855,7 +855,7 @@ class Transpose2d(TransposeModule):
         return _x1.T
 
     def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
-        n1_t2d = SpikingRelu(
+        n1_t2d = BypassNeuron(
             self.shape_out,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
@@ -920,7 +920,7 @@ class Transpose3d(TransposeModule):
         return _x1.transpose(self.axes)
 
     def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
-        n1_t3d = SpikingRelu(
+        n1_t3d = BypassNeuron(
             self.shape_out,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,

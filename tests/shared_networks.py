@@ -108,7 +108,7 @@ class FunctionalModule_2to1_Net(pb.DynSysGroup):
 
         self.func_node = _2to1_op[op](self.n1, self.n2, delay=1, tick_wait_start=2)
 
-        self.n3 = pb.SpikingRelu(
+        self.n3 = pb.BypassNeuron(
             (10,),
             delay=1,
             tick_wait_start=self.func_node.tick_wait_start
@@ -137,9 +137,18 @@ class FunctionalModule_1to1_Net(pb.DynSysGroup):
         if op == "not":
             self.func_node = pb.BitwiseNOT(self.n1, tick_wait_start=2)
         elif op == "delay":
-            self.func_node = pb.DelayChain(self.n1, chain_level=5, tick_wait_start=2)
+            if hasattr(pb, "DelayChain"):
+                self.func_node = pb.DelayChain(  # type: ignore
+                    self.n1, chain_level=5, tick_wait_start=2
+                )
+            else:
+                from paibox.components._modules import _DelayChainSNN
 
-        self.n2 = pb.SpikingRelu(
+                self.func_node = _DelayChainSNN(
+                    self.n1, chain_level=5, tick_wait_start=2
+                )
+
+        self.n2 = pb.BypassNeuron(
             (10,),
             delay=1,
             tick_wait_start=self.func_node.tick_wait_start
@@ -171,7 +180,7 @@ class _SpikingPoolNd_Net(pb.DynSysGroup):
     ):
         super().__init__()
         self.inp1 = pb.InputProj(input=_out_bypass1, shape_out=fm_shape)
-        self.n1 = pb.SpikingRelu(fm_shape, tick_wait_start=1)
+        self.n1 = pb.BypassNeuron(fm_shape, tick_wait_start=1)
         self.s1 = pb.FullConn(self.inp1, self.n1, conn_type=pb.SynConnType.One2One)
 
         self.pool = _pool_op[(pool_ndim, pool_type)](
@@ -184,7 +193,7 @@ class _SpikingPoolNd_Net(pb.DynSysGroup):
             tick_wait_start=2,
         )
 
-        self.n2 = pb.SpikingRelu(self.pool.shape_out, delay=1, tick_wait_start=3)
+        self.n2 = pb.BypassNeuron(self.pool.shape_out, delay=1, tick_wait_start=3)
         self.s3 = pb.FullConn(self.pool, self.n2, conn_type=pb.SynConnType.One2One)
 
         self.probe1 = pb.Probe(self.n1, "spike")
@@ -218,7 +227,7 @@ class TransposeModule_T2d_Net(pb.DynSysGroup):
         self.n1 = pb.IF(shape, 1, 0, tick_wait_start=1)
         self.s1 = pb.FullConn(self.inp1, self.n1, conn_type=pb.SynConnType.One2One)
         self.t2d = pb.Transpose2d(self.n1, tick_wait_start=2)
-        self.n2 = pb.SpikingRelu(
+        self.n2 = pb.BypassNeuron(
             shape, tick_wait_start=self.t2d.tick_wait_start + self.t2d.external_delay
         )
         self.s2 = pb.FullConn(self.t2d, self.n2, conn_type=pb.SynConnType.One2One)
@@ -235,7 +244,7 @@ class TransposeModule_T3d_Net(pb.DynSysGroup):
         self.n1 = pb.IF(shape, 1, 0, tick_wait_start=1)
         self.s1 = pb.FullConn(self.inp1, self.n1, conn_type=pb.SynConnType.One2One)
         self.t3d = pb.Transpose3d(self.n1, axes=axes, tick_wait_start=2)
-        self.n2 = pb.SpikingRelu(
+        self.n2 = pb.BypassNeuron(
             shape, tick_wait_start=self.t3d.tick_wait_start + self.t3d.external_delay
         )
         self.s2 = pb.FullConn(self.t3d, self.n2, conn_type=pb.SynConnType.One2One)
