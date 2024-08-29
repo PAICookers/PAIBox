@@ -536,8 +536,8 @@ class TestNeuronModeSNN:  # iss = 001
             assert np.array_equal(n1.spike, expected_spike[i])
             assert np.array_equal(n1.voltage, expected_vol[i])
 
-    def test_SpikingRelu(self):
-        n1 = pb.SpikingRelu(1)
+    def test_BypassNeuron(self):
+        n1 = pb.BypassNeuron(1, **_snn_kwds)
 
         incoming_v = np.random.randint(0, 2, size=(20, 1), dtype=np.bool_)
 
@@ -622,6 +622,60 @@ class TestNeuronModeSNN:  # iss = 001
 
             expected = (i + 1) >= typical_round(n_window / 2)
             assert np.array_equal(n1.spike[0], expected)
+
+
+from paibox.components.neuron.neurons import ANNNeuron
+
+
+class TestANNNeuron:
+    def test_ANNNeuron(self):
+        n1 = ANNNeuron(1, 0, 8)
+
+        incoming_v = np.random.randint(-128, 128, size=(20, 1), dtype=np.int32)
+
+        for i in range(incoming_v.size):
+            pb.FRONTEND_ENV["t"] += 1
+            n1.update(incoming_v[i])
+
+            assert np.array_equal(
+                n1.spike, np.asarray([0]) if incoming_v[i] < 0 else incoming_v[i]
+            )
+
+        assert 1
+
+    @pytest.mark.parametrize(
+        "bit_trunc, expected_v",
+        [
+            (8, np.array([10, 255, 255, 90, 110 & 255, 255, 0, 0], dtype=np.uint8)),
+            (
+                9,
+                np.array(
+                    [
+                        (10 >> 1) & 255,
+                        (390 >> 1) & 255,
+                        255,
+                        (90 >> 1) & 255,
+                        (110 >> 1) & 255,
+                        (468 >> 1) & 255,
+                        0,
+                        0,
+                    ],
+                    dtype=np.uint8,
+                ),
+            ),
+        ],
+        ids=["8_bit", "9_bit"],
+    )
+    def test_ANNNeuron_bit_trunc(self, bit_trunc, expected_v):
+        n1 = ANNNeuron(1, -10, bit_trunc)
+
+        incoming_v = np.array([20, 400, 1000, 100, 120, 478, 0, -10], dtype=np.int32)
+
+        for i in range(incoming_v.size):
+            pb.FRONTEND_ENV["t"] += 1
+            n1.update(incoming_v[i])
+
+            assert np.array_equal(n1.spike[0], expected_v[i])
 
 
 class TestNeuronAllModes:
