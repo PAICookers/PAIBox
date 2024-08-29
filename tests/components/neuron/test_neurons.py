@@ -9,6 +9,7 @@ from paicorelib import LCM, LDM, LIM, NTM, RM, SIM, TM, CoreMode, NeuronAttrs
 
 import paibox as pb
 from paibox.components import Neuron
+from paibox.components.neuron.base import MetaNeuron
 from paibox.components.neuron.utils import VJT_MAX, VJT_MIN
 from paibox.exceptions import ShapeError
 from paibox.types import NEUOUT_U8_DTYPE, VoltageType
@@ -686,23 +687,15 @@ class TestNeuronAllModes:
 
     @staticmethod
     def _ann_vjt_func(vj: VoltageType, neuron: Neuron) -> NDArray[NEUOUT_U8_DTYPE]:
-        def _bit_tuncate(bit_tunc: int, vj: VoltageType):
-            if bit_tunc == 0:
-                return np.zeros_like(vj)
-            elif vj >> bit_tunc > 0:  # Saturate truncation
-                return np.full_like(vj, 255)
-            elif bit_tunc < 8:
-                return (vj << (8 - bit_tunc)) & 255
-            else:
-                return (vj >> (bit_tunc - 8)) & 255
-
         return np.where(
             vj >= neuron.pos_threshold,
-            _bit_tuncate(neuron.bit_truncation, vj),
-            neuron._vjt0,
+            MetaNeuron._truncate(vj, neuron.bit_truncation),
+            0,
         ).astype(NEUOUT_U8_DTYPE)
 
-    @pytest.mark.parametrize("reg_kwds", [_reg010_kwds, _reg110_kwds])
+    @pytest.mark.parametrize(
+        "reg_kwds", [_reg010_kwds, _reg110_kwds], ids=["010", "ann"]
+    )
     def test_IF_ss10(self, reg_kwds):
         n1 = pb.IF(1, 0, 0, bit_truncation=8, **reg_kwds)
 
@@ -713,10 +706,7 @@ class TestNeuronAllModes:
         for i in range(incoming_v.size):
             pb.FRONTEND_ENV["t"] += 1
             n1.update(incoming_v[i])
-            v_bt = self._ann_vjt_func(
-                np.asarray(incoming_v[i], dtype=np.int32),
-                n1,
-            )
+            v_bt = self._ann_vjt_func(np.atleast_1d(incoming_v[i]), n1)
 
             assert np.array_equal(n1.spike, v_bt)
 
@@ -734,10 +724,7 @@ class TestNeuronAllModes:
             pre_vjt += incoming_v[i]
             spike = pre_vjt >= pos_thres
 
-            v_bt = self._ann_vjt_func(
-                np.asarray(pre_vjt, dtype=np.int32),
-                n1,
-            )
+            v_bt = self._ann_vjt_func(np.atleast_1d(pre_vjt), n1)
 
             if spike:
                 pre_vjt -= pos_thres
