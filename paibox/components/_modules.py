@@ -98,7 +98,7 @@ class _SpikingPool1d(FunctionalModule):
                 **self.rt_mode_kwds,
             )
         else:  # "max"
-            n1_p1d = SpikingRelu(
+            n1_p1d = BypassNeuron(
                 self.shape_out,
                 delay=self.delay_relative,
                 tick_wait_start=self.tick_wait_start,
@@ -268,7 +268,7 @@ class _SpikingPool2d(FunctionalModule):
                 **self.rt_mode_kwds,
             )
         else:  # "max"
-            n1_p2d = SpikingRelu(
+            n1_p2d = BypassNeuron(
                 self.shape_out,
                 delay=self.delay_relative,
                 tick_wait_start=self.tick_wait_start,

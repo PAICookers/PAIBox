@@ -3,12 +3,29 @@ from typing import Optional
 import numpy as np
 from paicorelib import LDM, NTM, RM
 
+from paibox.exceptions import PAIBoxDeprecationWarning
 from paibox.types import LEAK_V_DTYPE, DataType, Shape
 
 from .base import Neuron
 from .utils import LEAK_V_MAX
 
-__all__ = ["IF", "LIF", "TonicSpiking", "PhasicSpiking", "SpikingRelu", "Always1Neuron"]
+import sys
+
+if sys.version_info >= (3, 13):
+    from typing import deprecated
+else:
+    from typing_extensions import deprecated
+
+__all__ = [
+    "IF",
+    "LIF",
+    "TonicSpiking",
+    "PhasicSpiking",
+    "BypassNeuron",
+    "Always1Neuron",
+    "ANNBypassNeuron",
+    "ANNNeuron",
+]
 
 
 class IF(Neuron):
@@ -224,7 +241,7 @@ class Always1Neuron(Neuron):
         )
 
 
-class SpikingRelu(Neuron):
+class BypassNeuron(Neuron):
     def __init__(
         self,
         shape: Shape,
@@ -233,13 +250,61 @@ class SpikingRelu(Neuron):
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
-        """Spiking relu neuron. Act exactly the way you think.
+        """Bypass neuron. Output is equal to input.
 
         Args:
             - shape: shape of neurons.
             - keep_shape: whether to maintain shape in the simulation. Default is `True`.
             - name: name of the neuron. Optional.
+
+        NOTE: positive threshold = 1, negative threshold = 0, reset_v = 0, and leak_v = 0.
+
         """
         super().__init__(
             shape, neg_threshold=0, keep_shape=keep_shape, name=name, **kwargs
+        )
+
+
+@deprecated(
+    "'SpikingRelu' is deprecated in version 1.2.0 and   \
+        will be removed in version 1.3.0. Use 'BypassNeuron' instead.",
+    category=PAIBoxDeprecationWarning,
+)
+class SpikingRelu(BypassNeuron):
+    pass
+
+
+class ANNNeuron(LIF):
+    def __init__(
+        self,
+        shape: Shape,
+        bias: Optional[DataType] = None,
+        bit_trunc: int = 8,
+        *,
+        keep_shape: bool = True,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        """General neuron used in ANN mode. Positive threshold = 1, negative threshold = 0."""
+        kwargs["bit_truncation"] = bit_trunc
+        kwargs.setdefault("input_width", 8)
+        kwargs.setdefault("spike_width", 8)
+        kwargs.setdefault("snn_en", False)
+
+        super().__init__(
+            shape, 1, bias=bias, keep_shape=keep_shape, name=name, **kwargs
+        )
+
+
+class ANNBypassNeuron(ANNNeuron):
+    def __init__(
+        self,
+        shape: Shape,
+        *,
+        keep_shape: bool = True,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            shape, bias=None, bit_trunc=8, keep_shape=keep_shape, name=name, **kwargs
         )
