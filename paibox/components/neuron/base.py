@@ -374,14 +374,16 @@ class MetaNeuron:
 
     @staticmethod
     def _truncate(v: VoltageType, bit_trunc: int) -> VoltageType:
-        if np.any((v >> bit_trunc) > 0):  # Saturate truncation
-            return np.full_like(v, _mask(8))
-        elif bit_trunc == 0:
-            return np.full_like(v, 0)
-        elif bit_trunc < 8:
-            return (v << (8 - bit_trunc)) & _mask(8)
-        else:
-            return (v >> (bit_trunc - 8)) & _mask(8)
+        def _truncate_below_u8(vt):
+            if bit_trunc == 0:
+                return 0
+            elif bit_trunc < 8:
+                return (vt << (8 - bit_trunc)) & _mask(8)
+            else:
+                return (vt >> (bit_trunc - 8)) & _mask(8)
+
+        # Saturate truncation
+        return np.where((v >> bit_trunc) > 0, _mask(8), _truncate_below_u8(v))
 
     @property
     def _vjt0(self) -> VoltageType:
