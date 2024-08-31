@@ -18,7 +18,7 @@ from .transforms import (
     ConnType,
     Conv1dForward,
     Conv2dForward,
-    Conv2dHalfForward,
+    Conv2dSemiFoldedForward,
     ConvTranspose1dForward,
     ConvTranspose2dForward,
     Identity,
@@ -328,7 +328,8 @@ class Conv2dSyn(FullConnectedSyn):
         )
 
 
-class Conv2dHalfRollSyn(FullConnectedSyn):
+class Conv2dSemiFoldedSyn(FullConnectedSyn):
+    _spatial_ndim: ClassVar[int] = 1
 
     def __init__(
         self,
@@ -359,7 +360,13 @@ class Conv2dHalfRollSyn(FullConnectedSyn):
         if in_ch != in_channels:
             raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
 
-        self.comm = Conv2dHalfForward(
+        if (_output_size := out_channels * out_h) != dest.num_in:
+            raise ShapeError(
+                f"output size mismatch: {_output_size} ({out_channels}*{out_h}) "
+                f"!= {dest.num_in}."
+            )
+
+        self.comm = Conv2dSemiFoldedForward(
             (in_ch, in_h), (out_channels, out_h), _kernel, stride, padding
         )
 
