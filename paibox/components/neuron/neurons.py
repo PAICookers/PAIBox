@@ -89,7 +89,7 @@ class LIF(Neuron):
         threshold: int,
         reset_v: Optional[int] = None,
         leak_v: int = 0,
-        bias: Optional[DataType] = None,
+        bias: DataType = 0,
         neg_threshold: Optional[int] = None,
         *,
         keep_shape: bool = True,
@@ -123,12 +123,10 @@ class LIF(Neuron):
             _reset_v = 0
             _rm = RM.MODE_LINEAR
 
-        if isinstance(bias, (list, tuple, np.ndarray)):
-            _bias = np.asarray(bias, dtype=LEAK_V_DTYPE)
-        elif bias is not None:
-            _bias = int(bias)
+        if isinstance(bias, np.ndarray):
+            _bias = np.atleast_1d(bias).astype(LEAK_V_DTYPE)
         else:
-            _bias = 0
+            _bias = int(bias)
 
         # Support passing in bias & leak_v at the same time
         _leak_v = leak_v + _bias
@@ -278,7 +276,7 @@ class ANNNeuron(LIF):
     def __init__(
         self,
         shape: Shape,
-        bias: Optional[DataType] = None,
+        bias: DataType = 0,
         bit_trunc: int = 8,
         *,
         keep_shape: bool = True,
@@ -306,5 +304,5 @@ class ANNBypassNeuron(ANNNeuron):
         **kwargs,
     ) -> None:
         super().__init__(
-            shape, bias=None, bit_trunc=8, keep_shape=keep_shape, name=name, **kwargs
+            shape, bias=0, bit_trunc=8, keep_shape=keep_shape, name=name, **kwargs
         )
