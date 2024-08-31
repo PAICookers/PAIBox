@@ -183,7 +183,7 @@ def _conv2d_unroll(
     return w_unrolled
 
 
-def _conv2d_halfroll(
+def _conv2d_semifolded_unroll(
     in_shape: Size2Type,
     out_shape: Size2Type,
     kernel: WeightType,
