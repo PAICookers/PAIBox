@@ -154,6 +154,49 @@ class _DelayChainANN(_DelayChainBase):
     pass
 
 
+class _HasSemiFoldedIntf(Protocol):
+    """The front of this module has replication & delay interface for semi-folded convolution."""
+
+    def build(
+        self, network: DynSysGroup, delay: int, **build_options
+    ) -> BuiltComponentType: ...
+
+
+@set_rt_mode_ann()
+class _LinearBase(FunctionalModule):
+    def __init__(
+        self,
+        neuron_s: Union[NeuDyn, InputProj],
+        out_features: Shape,
+        weights: np.ndarray,
+        bias: DataType = 0,
+        bit_trunc: int = 8,
+        *,
+        conn_type: ConnType = ConnType.All2All,
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        self.weights = weights
+        self.conn_type = conn_type
+        self.bit_trunc = bit_trunc
+
+        if isinstance(bias, np.ndarray):
+            _bias = np.atleast_1d(bias).astype(LEAK_V_DTYPE)
+        else:
+            _bias = int(bias)
+
+        self.bias = _bias
+
+        super().__init__(
+            neuron_s,
+            shape_out=as_shape(out_features),
+            keep_shape=keep_shape,
+            name=name,
+            **kwargs,
+        )
+
+
 @set_rt_mode_snn()
 class _SpikingPool1d(FunctionalModule):
     inherent_delay = 0

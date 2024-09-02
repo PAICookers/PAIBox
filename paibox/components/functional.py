@@ -35,6 +35,7 @@ from .modules import (
     set_rt_mode_snn,
 )
 from .neuron import Neuron
+from .neuron.base import MetaNeuron
 from .neuron.neurons import *
 from .neuron.utils import vjt_overflow
 from .projection import InputProj
@@ -859,99 +860,65 @@ class Transpose3d(TransposeModule):
         return generated
 
 
-@set_rt_mode(8, 8, 0)
-class Delay_FullConn(FunctionalModule):
-    "That operator is used on the first fully connected layer after the semimap-convolution."
-
-    def __init__(
-        self,
-        neuron_s: Union[NeuDyn, InputProj],
-        out_feature: tuple[int, ...],
-        weights: DataArrayType = 1,
-        bias: Union[int, LeakVType] = 0,
-        conn_type: ConnType = ConnType.MatConn,
-        keep_shape: bool = False,
-        name: Optional[str] = None,
-        **kwargs,
-    ) -> None:
-        # self.delay =
-        self.weights = weights
-        self.conn_type = conn_type
-        self.bias = bias
-        _shape_out = out_feature
-        super().__init__(
-            neuron_s,
-            # neuron_d,
-            shape_out=_shape_out,
-            keep_shape=keep_shape,
-            name=name,
-            **kwargs,
-        )
+class LinearSemiFolded(_LinearBase, _HasSemiFoldedIntf):
+    "That operator is used on the first fully-connected layer after the semi-folded convolution."
 
     def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
-        output = x1 @ self.weights
-        return output
+        raise NotImplementedError
 
     def build(
         self, network: DynSysGroup, delay: int, **build_options
     ) -> BuiltComponentType:
-        if len(self.module_intf.operands[0].shape_out) != 2:
-            raise ShapeError(
-                "The source node must be a successor to the half-convolution"
-            )
+        assert len(self.module_intf.operands[0].shape_out) == 2
+
         delay_shape = self.module_intf.operands[0].shape_out
-        delay_neurons = []
-        neuron_d = Neuron(
+        n_delays = NodeList()
+        s_delays = NodeList()
+        s_weight = NodeList()
+
+        n_fc = ANNNeuron(
             self.shape_out,
-            reset_mode=RM.MODE_NONRESET,
-            neg_thres_mode=NTM.MODE_SATURATION,
-            leak_v=self.bias,
-            neg_threshold=0,
-            pos_threshold=0,
+            self.bias,
+            self.bit_trunc,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start + 1,
             tick_wait_end=self.tick_wait_end,
-            input_width=self.input_width,
-            spike_width=self.spike_width,
-            snn_en=self.snn_en,
             keep_shape=self.keep_shape,
             name=f"nd_{self.name}",
         )
+
         for i in range(delay_shape[1]):
-            neuron = Neuron(
+            neuron = ANNBypassNeuron(
                 shape=delay_shape,
-                leak_v=0,
-                neg_threshold=0,
                 delay=delay * i + 1,
                 tick_wait_start=self.tick_wait_start,
                 tick_wait_end=self.tick_wait_end,
-                input_width=self.input_width,
-                spike_width=self.spike_width,
-                snn_en=self.snn_en,
                 keep_shape=self.keep_shape,
                 name=f"n{i}_{self.name}",
             )
-            delay_neurons.append(neuron)
-            # 延时突触
+            n_delays.append(neuron)
+            # Delay synapses
             syn1 = FullConnSyn(
                 self.module_intf.operands[0],
-                delay_neurons[i],
+                neuron,
                 weights=_delay_mapping(delay_shape[1], delay_shape[0], 1),
                 conn_type=ConnType.All2All,
-                name=f"s{i}_delay",
+                name=f"s{i}_delay_{self.name}",
             )
-            # w = np.zeros((neuron.num_out, self.module_intf.operands[1].num_out))
+            s_delays.append(syn1)
+
             w = self.weights[delay_shape[1] - i - 1 :: delay_shape[1], :]
-            syn2 = FullConnSyn(  # cin,(kw-1)*ih -> cout * oh
-                delay_neurons[i],  # 54 -> 54
-                neuron_d,
+            syn2 = FullConnSyn(
+                neuron,
+                n_fc,
                 weights=w,
                 conn_type=self.conn_type,
                 name=f"s{i}_{self.name}",
             )
+            s_weight.append(syn2)
 
-            generated = [neuron_d, *delay_neurons, syn1, syn2]
-            self._rebuild_out_intf(network, neuron_d, *generated, **build_options)
+        generated = [n_fc, *n_delays, *s_delays, *s_weight]
+        self._rebuild_out_intf(network, n_fc, *generated, **build_options)
 
         return generated
 
@@ -1155,53 +1122,26 @@ class Filter(FunctionalModule):
         return generated
 
 
-@set_rt_mode(8, 8, 0)
-class Linear(FunctionalModule):
-    "FullConn for ANN mode"
+class Linear(_LinearBase):
+    "Linear layer for ANN."
 
-    def __init__(
-        self,
-        neuron_s: Union[NeuDyn, InputProj],
-        out_feature: tuple[int, ...],
-        weights: DataArrayType = 1,
-        bias: Union[int, LeakVType] = 0,
-        conn_type: ConnType = ConnType.MatConn,
-        keep_shape: bool = False,
-        name: Optional[str] = None,
-        **kwargs,
-    ) -> None:
-        self.weights = weights
-        self.conn_type = conn_type
-        self.bias = bias
-        _shape_out = out_feature
-        super().__init__(
-            neuron_s,
-            shape_out=_shape_out,
-            keep_shape=keep_shape,
-            name=name,
-            **kwargs,
-        )
+    inherent_delay = 0
 
     def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
-        output = x1.ravel() @ self.weights
+        output = x1 @ self.weights.astype(VOLTAGE_DTYPE)
         output = output + self.bias
-        output[output < 0] = 0
-        return output
+        output = np.where(output >= 1, MetaNeuron._truncate(output, self.bit_trunc), 0)
 
-    def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
-        neuron_d = Neuron(
+        return output.astype(NEUOUT_U8_DTYPE)
+
+    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
+        neuron_d = ANNNeuron(
             self.shape_out,
-            reset_mode=RM.MODE_NONRESET,
-            neg_thres_mode=NTM.MODE_SATURATION,
-            leak_v=self.bias,
-            neg_threshold=0,
-            pos_threshold=0,
+            self.bias,
+            self.bit_trunc,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
             tick_wait_end=self.tick_wait_end,
-            input_width=self.input_width,
-            spike_width=self.spike_width,
-            snn_en=self.snn_en,
             keep_shape=self.keep_shape,
             name=f"nd_{self.name}",
         )
