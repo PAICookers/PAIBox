@@ -11,11 +11,12 @@ from paibox.base import NeuDyn, NodeList
 from paibox.exceptions import PAIBoxDeprecationWarning, ShapeError
 from paibox.network import DynSysGroup
 from paibox.types import (
+    LEAK_V_DTYPE,
     NEUOUT_U8_DTYPE,
     VOLTAGE_DTYPE,
-    DataArrayType,
+    WEIGHT_DTYPE,
     IntScalarType,
-    LeakVType,
+    DataType,
     NeuOutType,
     VoltageType,
     WeightType,
@@ -30,6 +31,7 @@ from .modules import (
     FunctionalModule2to1WithV,
     TransposeModule,
     set_rt_mode,
+    set_rt_mode_ann,
     set_rt_mode_snn,
 )
 from .neuron import Neuron
@@ -50,7 +52,6 @@ __all__ = [
     "BitwiseNOT",
     "BitwiseOR",
     "BitwiseXOR",
-    "DelayChain",
     "SpikingAdd",
     "SpikingAvgPool1d",
     "SpikingAvgPool1dWithV",
@@ -343,95 +344,6 @@ class BitwiseXOR(FunctionalModule2to1):
 
         generated = [n1_aux, n2_xor, syn1, syn2, syn3]
         self._rebuild_out_intf(network, n2_xor, *generated, **build_options)
-
-        return generated
-
-
-class DelayChain(FunctionalModule):
-    def __init__(
-        self,
-        neuron: Union[NeuDyn, InputProj],
-        chain_level: int = 1,
-        *,
-        keep_shape: bool = True,
-        name: Optional[str] = None,
-        **kwargs,
-    ) -> None:
-        """Delay chain. It will add extra neurons (and identity synapses) as buffer.
-
-        Args:
-            - neuron: the target neuron to be delayed.
-            - chain_level: the level of delay chain.
-
-        NOTE: the inherent delay of the module depends on `chain_level`.
-        """
-        if keep_shape:
-            shape_out = neuron.shape_out
-        else:
-            shape_out = (neuron.num_out,)
-
-        self.chain_level = arg_check_pos(chain_level, "chain level")
-        self.inherent_delay = chain_level - 1
-
-        super().__init__(
-            neuron,
-            shape_out=shape_out,
-            keep_shape=keep_shape,
-            name=name,
-            **kwargs,
-        )
-
-    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
-        return x1
-
-    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
-        n_delaychain = NodeList()
-        s_delaychain = NodeList()
-
-        # Delay chain of length #D.
-        for i in range(self.chain_level - 1):
-            n_delay = SpikingRelu(
-                self.shape_out,
-                tick_wait_start=self.tick_wait_start + i,
-                tick_wait_end=self.tick_wait_end,
-                delay=1,
-                name=f"n{i}_{self.name}",
-                **self.rt_mode_kwds,
-            )
-            n_delaychain.append(n_delay)
-
-        # delay = delay_relative for output neuron
-        n_out = SpikingRelu(
-            self.shape_out,
-            tick_wait_start=self.tick_wait_start + i + 1,
-            tick_wait_end=self.tick_wait_end,
-            delay=self.delay_relative,
-            name=f"n{i + 1}_{self.name}",
-            **self.rt_mode_kwds,
-        )
-        n_delaychain.append(n_out)  # Must append to the last.
-
-        syn_in = FullConnSyn(
-            self.module_intf.operands[0],
-            n_delaychain[0],
-            1,
-            conn_type=ConnType.One2One,
-            name=f"s0_{self.name}",
-        )
-
-        for i in range(self.chain_level - 1):
-            s_delay = FullConnSyn(
-                n_delaychain[i],
-                n_delaychain[i + 1],
-                1,
-                conn_type=ConnType.One2One,
-                name=f"s{i + 1}_{self.name}",
-            )
-
-            s_delaychain.append(s_delay)
-
-        generated = [*n_delaychain, syn_in, *s_delaychain]
-        self._rebuild_out_intf(network, n_out, *generated, **build_options)
 
         return generated
 
