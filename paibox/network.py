@@ -1,7 +1,6 @@
 from typing import Optional, Union
-
+import sys
 import numpy as np
-from typing_extensions import TypeAlias
 
 from .base import DynamicSys, SynSys
 from .collector import Collector
@@ -9,6 +8,13 @@ from .components import NeuModule, Neuron, Projection
 from .components.modules import BuiltComponentType
 from .mixin import Container
 from .node import NodeDict
+
+
+if sys.version_info >= (3, 10):
+    from typing import TypeAlias
+else:
+    from typing_extensions import TypeAlias
+
 
 __all__ = ["DynSysGroup", "Network"]
 
@@ -73,33 +79,28 @@ class DynSysGroup(DynamicSys, Container):
     def build_fmodule(
         cls, network: "DynSysGroup", **build_options
     ) -> dict[NeuModule, BuiltComponentType]:
-        try:
-            from .components.functional import (
-                AvgPool2dSemiMap,
-                Conv2dSemiMap,
-                Delay_FullConn,
-                MaxPool2dSemiMap,
-            )
-        except ImportError:
-            Conv2dSemiMap, Delay_FullConn = None
+        from .components.functional import (
+            AvgPool2dSemiMap,
+            Conv2dSemiFolded,
+            LinearSemiFolded,
+            MaxPool2dSemiMap,
+        )
+
         generated = dict()
         modules = network.nodes().subset(NeuModule).unique()
         delay = 1
         for module in modules.values():
-            if Conv2dSemiMap is not None and isinstance(module, Conv2dSemiMap):
+            if isinstance(module, Conv2dSemiFolded):
                 generated[module] = module.build(network, delay, **build_options)
-                if module.stride[1] != 1:
-                    delay = delay * module.stride[1]
-            elif Delay_FullConn is not None and isinstance(module, Delay_FullConn):
+                delay *= module.stride[1]  # stride of w > 1
+            elif isinstance(module, LinearSemiFolded):
                 generated[module] = module.build(network, delay, **build_options)
-            elif MaxPool2dSemiMap is not None and isinstance(module, MaxPool2dSemiMap):
+            elif isinstance(module, MaxPool2dSemiMap):
                 generated[module] = module.build(network, delay, **build_options)
-                if module.stride[1] != 1:
-                    delay = delay * module.stride[1]
-            elif AvgPool2dSemiMap is not None and isinstance(module, AvgPool2dSemiMap):
+                delay *= module.stride[1]
+            elif isinstance(module, AvgPool2dSemiMap):
                 generated[module] = module.build(network, delay, **build_options)
-                if module.stride[1] != 1:
-                    delay = delay * module.stride[1]
+                delay *= module.stride[1]
             else:
                 generated[module] = module.build(network, **build_options)
 
