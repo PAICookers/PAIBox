@@ -192,9 +192,9 @@ def _conv2d_semifolded_unroll(
 ) -> WeightType:
     cout, cin, kh = kernel.shape
     ih = in_shape[1] + 2 * padding[0]
-    # ih = in_shape[1]
-    o_ch, oh = out_shape
+    _, oh = out_shape
     w_np = np.zeros((cin * ih, cout * oh), dtype=kernel.dtype)
+
     for i in range(cout):
         for j in range(cin):
             if padding[0] == 0:
@@ -209,11 +209,13 @@ def _conv2d_semifolded_unroll(
                     w_np[
                         j * ih + k * stride[1] : j * ih + k * stride[1] + kh, i * oh + k
                     ] = kernel[i, j, :]
-            w_np = np.delete(
-                w_np,
-                np.concatenate((np.arange(padding[0]), np.arange(ih - padding[0], ih))),
-                axis=0,
-            )
+
+                w_np = np.delete(
+                    w_np,
+                    np.hstack((np.arange(padding[0]), np.arange(ih - padding[0], ih))),
+                    axis=0,
+                )
+
     return w_np
 
 

@@ -1,5 +1,6 @@
 from importlib.metadata import version
 
+# Backend context & mapper
 from .backend import BACKEND_CONFIG as BACKEND_CONFIG
 from .backend import Mapper as Mapper
 
@@ -9,7 +10,8 @@ from .components.functional import BitwiseAND as BitwiseAND
 from .components.functional import BitwiseNOT as BitwiseNOT
 from .components.functional import BitwiseOR as BitwiseOR
 from .components.functional import BitwiseXOR as BitwiseXOR
-
+from .components.functional import Conv2dSemiFolded as Conv2dSemiFolded
+from .components.functional import LinearSemiFolded as LinearSemiFolded
 from .components.functional import Filter as Filter
 from .components.functional import Linear as Linear
 from .components.functional import MaxPool2dSemiMap as MaxPool2dSemiMap
@@ -43,13 +45,21 @@ from .components.synapses.synapses import ConvTranspose1d as ConvTranspose1d
 from .components.synapses.synapses import ConvTranspose2d as ConvTranspose2d
 from .components.synapses.synapses import FullConn as FullConn
 from .components.synapses.synapses import MatMul2d as MatMul2d
-from .context import FRONTEND_ENV as FRONTEND_ENV
+
+# Network
 from .network import DynSysGroup as DynSysGroup
 from .network import Network as Network
-from .node import NodeDict as NodeDict
-from .node import NodeList as NodeList
+
+# Simulation
 from .simulator import Probe as Probe
 from .simulator import Simulator as Simulator
+
+# Frontend context
+from .context import FRONTEND_ENV as FRONTEND_ENV
+
+# Auxiliary containers
+from .node import NodeDict as NodeDict
+from .node import NodeList as NodeList
 
 try:
     __version__ = version("paibox")

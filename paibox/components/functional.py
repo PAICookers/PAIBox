@@ -64,7 +64,6 @@ __all__ = [
     "Transpose3d",
     "Conv2dSemiMap",
     "Filter",
-    "Delay_FullConn",
     "Linear",
     "MaxPool2dSemiMap",
     "AvgPool2dSemiMap",
@@ -732,11 +731,13 @@ class SpikingSub(FunctionalModule2to1WithV):
 
 
 @deprecated(
-    "'Transpose2d' will be removed in a future version. Use 'MatMul2d' instead.",
+    "'Transpose2d' will be removed in version 1.2.0. Use 'MatMul2d' instead.",
     category=PAIBoxDeprecationWarning,
 )
 @set_rt_mode_snn()
 class Transpose2d(TransposeModule):
+    inherent_delay = 0
+
     def __init__(
         self,
         neuron: Union[NeuDyn, InputProj],
@@ -792,11 +793,13 @@ class Transpose2d(TransposeModule):
 
 
 @deprecated(
-    "'Transpose3d' will be removed in a future version. Use 'MatMul2d' instead.",
+    "'Transpose3d' will be removed in version 1.2.0. Use 'MatMul2d' instead.",
     category=PAIBoxDeprecationWarning,
 )
 @set_rt_mode_snn()
 class Transpose3d(TransposeModule):
+    inherent_delay = 0
+
     def __init__(
         self,
         neuron: Union[NeuDyn, InputProj],
@@ -1570,7 +1573,7 @@ def _delay_mapping(h: int, cin: int, n: int) -> WeightType:
     #     for j in range(n * cin):
     #         for k in range(h):
     #             mt[i * h + k, j * h + k] = 1
-    mt = np.eye(cin * h, dtype=np.int8)
+    mt = np.eye(cin * h, dtype=WEIGHT_DTYPE)
     return mt
 
 
