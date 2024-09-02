@@ -253,30 +253,48 @@ class TransposeModule_T3d_Net(pb.DynSysGroup):
         self.probe2 = pb.Probe(self.n2, "spike")
 
 
-class Conv2dSemiMap_Net1(pb.DynSysGroup):
-    def __init__(self, shape, kernel, stride, padding):
+class Conv2dSemiFolded_1Layer(pb.DynSysGroup):
+    def __init__(self, shape, kernel, stride, padding, bias):
         super().__init__()
 
         self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape)
-        self.conv1 = pb.Conv2dSemiMap(
-            self.i1, kernel, stride[0], padding[0], tick_wait_start=1
+        self.conv1 = pb.Conv2dSemiFolded(
+            self.i1, kernel, stride[0], padding[0], bias=bias, tick_wait_start=1
         )
+        
 
-
-class Conv2dSemiMap_Net2(pb.DynSysGroup):
-    def __init__(self, shape, kernel, stride, padding, out_feature, weight):
+class Conv2dSemiFolded_FC_Net1(pb.DynSysGroup):
+    def __init__(self, shape, kernel, stride, padding, out_features, weight):
         super().__init__()
 
         self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape)
-        self.conv1 = pb.Conv2dSemiMap(
+        self.conv1 = pb.Conv2dSemiFolded(
+            self.i1, kernel, stride, padding, tick_wait_start=1
+        )
+        self.linear1 = pb.LinearSemiFolded(
+            self.conv1,
+            out_features,
+            weights=weight,
+            bias=0,
+            conn_type=pb.SynConnType.All2All,
+            tick_wait_start=self.conv1.tick_wait_start + 2,
+        )
+
+
+class Conv2dSemiFolded_FC_Net2(pb.DynSysGroup):
+    def __init__(self, shape, kernel, stride, padding, out_features, weight):
+        super().__init__()
+
+        self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape)
+        self.conv1 = pb.Conv2dSemiFolded(
             self.i1, kernel, stride[0], padding[0], tick_wait_start=1
         )
-        self.conv2 = pb.Conv2dSemiMap(
+        self.conv2 = pb.Conv2dSemiFolded(
             self.conv1, kernel, stride[1], padding[1], tick_wait_start=3
         )
-        self.linear1 = pb.DelayFullConn(
+        self.linear1 = pb.LinearSemiFolded(
             self.conv2,
-            out_feature,
+            out_features,
             weights=weight,
             bias=0,
             conn_type=pb.SynConnType.All2All,
@@ -302,7 +320,7 @@ class Pool2dSemiMap_Net(pb.DynSysGroup):
             self.pool2 = pb.MaxPool2dSemiMap(
                 self.pool1, kernel_size, stride[1], tick_wait_start=3
             )
-        self.linear1 = pb.DelayFullConn(
+        self.linear1 = pb.LinearSemiFolded(
             self.pool2,
             2,
             weights=weight,
@@ -316,9 +334,7 @@ class Linear_Net(pb.DynSysGroup):
     def __init__(self, shape, weight1):
         super().__init__()
         self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape)
-        self.linear1 = pb.Linear(
-            self.i1, 10, weights=weight1, bias=2, conn_type=pb.SynConnType.All2All
-        )
+        self.linear1 = pb.Linear(self.i1, 10, weights=weight1, bias=2)
         self.probe1 = pb.Probe(self.linear1, "spike")
 
 
