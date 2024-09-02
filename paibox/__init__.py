@@ -9,9 +9,7 @@ from .components.functional import BitwiseAND as BitwiseAND
 from .components.functional import BitwiseNOT as BitwiseNOT
 from .components.functional import BitwiseOR as BitwiseOR
 from .components.functional import BitwiseXOR as BitwiseXOR
-from .components.functional import Conv2dSemiMap as Conv2dSemiMap
-from .components.functional import Delay_FullConn as DelayFullConn
-from .components.functional import DelayChain as DelayChain
+
 from .components.functional import Filter as Filter
 from .components.functional import Linear as Linear
 from .components.functional import MaxPool2dSemiMap as MaxPool2dSemiMap

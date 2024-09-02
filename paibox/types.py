@@ -15,9 +15,10 @@ Scalar = TypeVar("Scalar", int, float, np.generic)
 IntScalarType = TypeVar("IntScalarType", int, np.bool_, np.integer)
 DataType = TypeVar("DataType", int, np.bool_, np.integer, np.ndarray)
 
-LEAK_V_DTYPE = np.int32
 SPIKE_DTYPE = np.bool_
 VOLTAGE_DTYPE = np.int32
+LEAK_V_DTYPE = VOLTAGE_DTYPE
+THRES_V_DTYPE = VOLTAGE_DTYPE
 WEIGHT_DTYPE = np.int8
 NEUOUT_SPIKE_DTYPE = np.bool_
 NEUOUT_U8_DTYPE = np.uint8
