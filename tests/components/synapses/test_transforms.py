@@ -6,7 +6,7 @@ from paibox.exceptions import AutoOptimizationWarning
 from paibox.types import WEIGHT_DTYPE
 from paibox.utils import shape2num
 
-from ..utils import _conv1d_golden, _conv2d_golden
+from tests.components.utils import _conv1d_golden, _conv2d_golden
 
 
 class TestTransforms:
@@ -705,3 +705,23 @@ class TestTransforms:
             shape2num((kernel.shape[1],) + in_shape),
             shape2num((kernel.shape[0],) + out_shape),
         )
+
+    @pytest.mark.parametrize("n_compare, n_group", [(4, 8), (9, 12), (25, 1)])
+    def test_CompareMax(self, n_compare, n_group):
+        from paibox.components.synapses.transforms import _CompareMax
+
+        n = n_compare * n_group
+        w = np.zeros((n, n_group), dtype=np.int8)
+        for i in range(n_group):
+            w[n_compare * i : n_compare * (i + 1), i] = 1
+
+        f = _CompareMax((n, n_group), w)
+
+        x = np.random.randint(0, 256, size=(n_compare, n_group), dtype=np.uint8)
+        y1 = f(x.ravel(order="F"))  # flatten in column-major order
+        expected = np.zeros((n_group,), dtype=np.int32)
+
+        for i in range(n_group):
+            expected[i] = np.max(x[:, i])
+
+        assert np.array_equal(y1, expected)
