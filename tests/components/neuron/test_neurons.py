@@ -558,6 +558,23 @@ class TestNeuronModeSNN:  # iss = 001
             sim.run(1)
             assert np.array_equal(sim.data[net.probe2][i], _always_spike)
 
+    def test_max_inputs_behavior(self):
+        """Only check the voltage result after the `sum_inputs` of neuron."""
+        incoming_v1 = np.array([1, 2, 3, 4, 5, 6, 7, 8], dtype=np.int32)
+        incoming_v2 = np.array([-1, 7, -3, 8, -5, -6, 1, 2], dtype=np.int32)
+        incoming_v3 = np.array([2, 3, 1, -8, 0, 8, 4, 7], dtype=np.int32)
+        incoming_v = [incoming_v1, incoming_v2, incoming_v3]
+
+        v_poolmax = np.zeros_like(incoming_v1)
+        for v in incoming_v:
+            if v_poolmax is None:
+                v_poolmax = v.copy()
+            else:
+                v_poolmax = np.maximum(v_poolmax, v)
+
+        assert v_poolmax.shape == incoming_v1.shape
+        assert np.array_equal(v_poolmax, np.array([2, 7, 3, 8, 5, 8, 7, 8]))
+
     def test_tick_attr_behavior(self, monkeypatch, build_Net3):
         net = build_Net3
         sim = pb.Simulator(net)
