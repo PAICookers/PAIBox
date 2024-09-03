@@ -481,8 +481,7 @@ class ConvTranspose2dSyn(FullConnectedSyn):
         )
 
 
-class MaxPool2dSemiMapSyn(FullConnectedSyn):
-
+class MaxPool2dSemiFoldedSyn(FullConnectedSyn):
     def __init__(
         self,
         source: Union[NeuDyn, InputProj],
