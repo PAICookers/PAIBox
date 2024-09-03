@@ -21,7 +21,7 @@ from paicorelib import (
 )
 
 from paibox.base import NeuDyn
-from paibox.exceptions import PAIBoxWarning, ShapeError
+from paibox.exceptions import NotSupportedError, PAIBoxWarning, ShapeError
 from paibox.types import (
     NEUOUT_U8_DTYPE,
     VOLTAGE_DTYPE,
@@ -93,9 +93,16 @@ class MetaNeuron:
             "spike_width": spike_width,
             "snn_en": snn_en,
         }
-        self.pool_max = pool_max
         # check whether the mode is valid
         self.mode = get_core_mode(input_width, spike_width, snn_en)
+
+        if pool_max == True and self.mode != CoreMode.MODE_ANN:
+            raise NotSupportedError(
+                f"max pooling is only supported in {CoreMode.MODE_ANN.name}, "
+                f"but got {self.mode.name}."
+            )
+
+        self.pool_max = pool_max
 
         # DO NOT modify the names of the following variables.
         # They will be exported to the parameter verification model.
@@ -428,7 +435,7 @@ class Neuron(MetaNeuron, NeuDyn):
         input_width: Union[L[1, 8], InputWidthFormat] = InputWidthFormat.WIDTH_1BIT,
         spike_width: Union[L[1, 8], SpikeWidthFormat] = SpikeWidthFormat.WIDTH_1BIT,
         snn_en: Union[bool, SNNModeEnable] = True,
-        pool_max: bool = False,
+        pool_max: Union[bool, MaxPoolingEnable] = False,
         unrolling_factor: int = 1,
         overflow_strict: bool = False,
         keep_shape: bool = True,
@@ -505,12 +512,13 @@ class Neuron(MetaNeuron, NeuDyn):
             return None
 
         if x is None:
-            if not self.pool_max:
-                x = self.sum_inputs()
-            else:
+            if self.pool_max:
                 x = self.max_inputs()
+            else:
+                x = self.sum_inputs()
         else:
             x = np.atleast_1d(x)
+
         self._neu_out, self._vjt = super().update(x, self._vjt)
 
         idx = (self.timestamp + self.delay_relative - 1) % HwConfig.N_TIMESLOT_MAX
