@@ -592,13 +592,13 @@ class _CompareMax(AllToAll):
             y = (y1, y2, ..., ym)
         """
         if self.weights.ndim == 0:
-            output = np.full(
+            output = self.weights * np.full(
                 (self.conn_size[1],), np.max(x, axis=None), dtype=VOLTAGE_DTYPE
             )
         else:
             output = np.zeros((self.conn_size[1],), dtype=VOLTAGE_DTYPE)
             for col in range(self.conn_size[1]):
-                non_zero_idx = np.nonzero(self.weights[:, col])[0]
-                output[col] = np.max(x[non_zero_idx])
+                col_result = x * self.weights[:, col]
+                output[col] = np.max(col_result)
 
         return output
