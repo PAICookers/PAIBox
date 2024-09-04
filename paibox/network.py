@@ -7,7 +7,7 @@ from .collector import Collector
 from .components import NeuModule, Neuron, Projection
 from .components.modules import BuiltComponentType
 from .mixin import Container
-from .node import NodeDict
+from .node import NodeDict, NodeList
 
 
 if sys.version_info >= (3, 10):
@@ -88,6 +88,9 @@ class DynSysGroup(DynamicSys, Container):
 
         generated = dict()
         modules = network.nodes().subset(NeuModule).unique()
+
+        network._remove_modules_from_containers(network, modules)
+
         delay = 1
         for module in modules.values():
             if isinstance(module, Conv2dSemiFolded):
@@ -132,6 +135,23 @@ class DynSysGroup(DynamicSys, Container):
         for cpn in components:
             if cpn in self.__dict__.values():
                 cpn.__gh_build_ignore__ = True
+
+    @staticmethod
+    def _remove_modules_from_containers(
+        network: "DynSysGroup", modules: Collector[str, NeuModule]
+    ) -> None:
+        """Remove the built modules from the node containers of the network."""
+        node_lists = [v for v in network.__dict__.values() if isinstance(v, NodeList)]
+        node_dicts = [v for v in network.__dict__.values() if isinstance(v, NodeDict)]
+
+        for module in modules.values():
+            for lst in node_lists:
+                if module in lst:
+                    lst.remove(module)
+
+            for dct in node_dicts:
+                if module in dct.values():
+                    dct.pop(module)
 
     @property
     def components(self) -> Collector[str, DynamicSys]:
