@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 import paibox as pb
+from paibox.node import NodeList
 
 
 def _out_bypass1(t, data1, *args, **kwargs):
@@ -253,53 +254,38 @@ class TransposeModule_T3d_Net(pb.DynSysGroup):
         self.probe2 = pb.Probe(self.n2, "spike")
 
 
-class Conv2dSemiFolded_1Layer(pb.DynSysGroup):
-    def __init__(self, shape, kernel, stride, padding, bias):
+class Conv2dSemiFolded_FC_ChainNetN(pb.DynSysGroup):
+    def __init__(self, shape, kernels, strides, paddings, out_features, weight):
         super().__init__()
 
         self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape)
-        self.conv1 = pb.Conv2dSemiFolded(
-            self.i1, kernel, stride[0], padding[0], bias=bias, tick_wait_start=1
-        )
-        
+        self.conv_list = NodeList()
 
-class Conv2dSemiFolded_FC_Net1(pb.DynSysGroup):
-    def __init__(self, shape, kernel, stride, padding, out_features, weight):
-        super().__init__()
+        for i, (kernel, stride, padding) in enumerate(zip(kernels, strides, paddings)):
+            self.conv_list.append(
+                pb.Conv2dSemiFolded(
+                    self.conv_list[-1] if i > 0 else self.i1,
+                    kernel,
+                    stride,
+                    padding,
+                    tick_wait_start=1 + 2 * i,
+                )
+            )
 
-        self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape)
-        self.conv1 = pb.Conv2dSemiFolded(
-            self.i1, kernel, stride, padding, tick_wait_start=1
-        )
         self.linear1 = pb.LinearSemiFolded(
-            self.conv1,
+            self.conv_list[-1],
             out_features,
-            weights=weight,
+            weight,
             bias=0,
             conn_type=pb.SynConnType.All2All,
-            tick_wait_start=self.conv1.tick_wait_start + 2,
+            tick_wait_start=self.conv_list[-1].tick_wait_start + 2,
         )
 
 
-class Conv2dSemiFolded_FC_Net2(pb.DynSysGroup):
-    def __init__(self, shape, kernel, stride, padding, out_features, weight):
-        super().__init__()
-
-        self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape)
-        self.conv1 = pb.Conv2dSemiFolded(
-            self.i1, kernel, stride[0], padding[0], tick_wait_start=1
-        )
-        self.conv2 = pb.Conv2dSemiFolded(
-            self.conv1, kernel, stride[1], padding[1], tick_wait_start=3
-        )
-        self.linear1 = pb.LinearSemiFolded(
-            self.conv2,
-            out_features,
-            weights=weight,
-            bias=0,
-            conn_type=pb.SynConnType.All2All,
-            tick_wait_start=5,
-        )
+_pool_semi_op = {
+    "avg": pb.AvgPool2dSemiFolded,
+    "max": pb.MaxPool2dSemiFolded,
+}
 
 
 class Pool2dSemiMap_Net(pb.DynSysGroup):

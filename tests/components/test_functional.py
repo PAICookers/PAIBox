@@ -28,9 +28,15 @@ def _assert_build_fmodule(
     # Construct the functional modules
     DynSysGroup.build_fmodule(network)
 
-    # Must exclude `NeuModule`s, because it may be in the probe's `__dict__`.
+    # Must exclude `NeuModule`, because it may be in the `__dict__` of probe
     nodes = network.nodes().subset(DynamicSys).exclude(NeuModule).unique()
     assert len(nodes) == n_node_aft_build
+
+
+def _ann_bit_trunc(v_array: VoltageType, bit_trunc: int = 8) -> NeuOutType:
+    return np.where(v_array <= 0, 0, MetaNeuron._truncate(v_array, bit_trunc)).astype(
+        NEUOUT_U8_DTYPE
+    )
 
 
 N_TEST = 20
@@ -819,158 +825,181 @@ class TestFunctionalModules:
         mapper.export(fp=ensure_dump_dir)
 
     @pytest.mark.parametrize(
-        "ishape_chw, kshape_oihw, stride, padding, bias",
+        "ishape_chw, n_conv, kshape_oihw, stride, padding, out_features",
         [
-            ((3, 11, 11), (6, 3, 3, 3), 1, 0, 0),
-            ((12, 24, 24), (24, 12, 3, 3), 1, 0, 0),
-            ((16, 32, 32), (24, 16, 4, 4), 1, 0, 0),
-            ((12, 24, 24), (4, 12, 3, 3), 2, 0, 0),
-            ((12, 32, 32), (32, 12, 3, 3), 3, 0, 0),
-            ((12, 28, 28), (4, 12, 3, 3), 2, 0, 0),
+            # n_conv = 1
+            ((3, 12, 12), 1, [(12, 3, 3, 3)], [(1, 1)], [0], (10,)),
+            ((8, 12, 12), 1, [(16, 8, 3, 3)], [(2, 2)], [0], (10,)),
+            ((8, 12, 12), 1, [(16, 8, 4, 4)], [2], [0], (10,)),
+            ((4, 12, 12), 1, [(8, 4, 3, 3)], [1], [0], (4, 2)),
+            ((4, 24, 24), 1, [(8, 4, 3, 3)], [2], [0], 10),
+            ((12, 12, 12), 1, [(6, 12, 3, 3)], [1], [0], (3, 3)),
+            ((4, 24, 24), 1, [(8, 4, 4, 4)], [2], [0], (10,)),
+            ((8, 32, 32), 1, [(4, 8, 3, 3)], [2], [0], 10),
+            # n_conv = 2
+            (
+                (4, 32, 32),
+                2,
+                [(8, 4, 3, 3), (12, 8, 4, 4)],
+                [(2, 2), (2, 2)],
+                [0, 0],
+                10,
+            ),
+            (
+                (4, 32, 32),
+                2,
+                [(8, 4, 3, 3), (12, 8, 4, 4)],
+                [(2, 2), (1, 1)],
+                [0, 0],
+                10,
+            ),
+            ((1, 32, 32), 2, [(1, 1, 3, 3), (1, 1, 3, 3)], [2, 2], [0, 0], 10),
+            ((1, 32, 32), 2, [(1, 1, 4, 4), (1, 1, 4, 4)], [1, 2], [0, 0], 10),
+            ((1, 32, 32), 2, [(1, 1, 4, 4), (1, 1, 4, 4)], [2, 2], [0, 0], 10),
+            ((1, 24, 24), 2, [(1, 1, 3, 3), (1, 1, 4, 4)], [1, 2], [0, 0], 10),
+            ((1, 24, 24), 2, [(1, 1, 3, 3), (1, 1, 4, 4)], [2, 2], [0, 0], 10),
+            # n_conv = 3
+            (
+                (4, 32, 32),
+                3,
+                [(8, 4, 3, 3), (16, 8, 3, 3), (8, 16, 2, 2)],
+                [2, 1, 1],
+                [0, 0, 0],
+                3,
+            ),
+            (
+                (3, 32, 32),
+                3,
+                [(16, 3, 3, 3), (32, 16, 3, 3), (10, 32, 3, 3)],
+                [1, 1, 1],
+                [0, 0, 0],
+                10,
+            ),
         ],
     )
-    def test_Conv2dSemiFolded_1Layer(
-        self, ishape_chw, kshape_oihw, stride, padding, bias, random_fixture
+    def test_Conv2dSemiFolded_FC_ChainNet(
+        self,
+        ishape_chw,
+        n_conv,
+        kshape_oihw,
+        stride,
+        padding,
+        out_features,
+        random_fixture,
     ):
-        from tests.shared_networks import Conv2dSemiFolded_1Layer
+        """Test the network with N semi-folded conv2d + 1 semi-folded linear."""
+        from tests.shared_networks import Conv2dSemiFolded_FC_ChainNetN
 
-        kernel = np.random.randint(-3, 4, size=kshape_oihw, dtype=np.int8)
-        _stride = _pair(stride)
-        _padding = _pair(padding)
-        ow = (ishape_chw[-1] + 2 * _padding[1] - kshape_oihw[-1]) // _stride[1] + 1
+        assert n_conv == len(kshape_oihw) == len(stride) == len(padding)
+        kernels = []
+        strides = []
+        paddings = []
+        ocs = []
+        ohs = []
+        ows = []
 
-        net1 = Conv2dSemiFolded_1Layer(ishape_chw[:2], kernel, _stride, _padding, bias)
-        conv2d = net1.conv1
-        generated = DynSysGroup.build_fmodule(net1)
-        sim1 = pb.Simulator(net1, start_time_zero=False)
+        for i_conv in range(n_conv):
+            kshape, s, p = kshape_oihw[i_conv], stride[i_conv], padding[i_conv]
 
-        probe_conv = pb.Probe(generated[conv2d][0], "output")
-        sim1.add_probe(probe_conv)
+            k = np.random.randint(-3, 4, size=kshape, dtype=WEIGHT_DTYPE)
+            _stride = _pair(s)
+            _padding = _pair(p)
+            kernels.append(k)
+            strides.append(_stride)
+            paddings.append(_padding)
 
-        n_time = 3
-        for _ in range(n_time):
-            sim1.reset()
-            inpa = np.random.randint(0, 3, size=ishape_chw, dtype=np.uint8)
-            inp_pad0 = np.concatenate(
-                [inpa, np.zeros_like(inpa)], axis=2, dtype=np.uint8
-            )
+            ih = ishape_chw[1] if i_conv == 0 else ohs[-1]
+            iw = ishape_chw[2] if i_conv == 0 else ows[-1]
+            oc = kshape[0]
+            oh = (ih + 2 * _padding[0] - kshape[2]) // _stride[0] + 1
+            ow = (iw + 2 * _padding[1] - kshape[3]) // _stride[1] + 1
+            ocs.append(oc)
+            ohs.append(oh)
+            ows.append(ow)
 
-            for i in range(inp_pad0.shape[-1]):
-                pb.FRONTEND_ENV.save(data1=inp_pad0[:, :, i])
-                sim1.run(1)
-
-            expected = _conv2d_faster_fp32(inpa, kernel, _stride, _padding).astype(
-                np.int32
-            )
-
-            # Truncated expected convolution result
-            expected_t = np.where(
-                expected <= 0,
-                0,
-                np.where((expected >> 8) > 0, np.uint8(255), expected & np.uint8(255)),
-            ).astype(np.uint8)
-
-            # Valid result at [kw : kw+ow]
-            for i in range(ow):
-                assert np.array_equal(
-                    expected_t[:, :, i].ravel(),
-                    sim1.data[probe_conv][
-                        generated[conv2d][0].tick_wait_start
-                        + (kshape_oihw[-1] - 1)
-                        - 1
-                        + i * _stride[1]
-                    ],
-                )
-
-    @pytest.mark.parametrize(
-        "ishape_chw, kshape_oihw, stride, padding, out_features",
-        [
-            ((3, 12, 12), (12, 3, 3, 3), 1, 0, (10,)),
-            ((8, 12, 12), (16, 8, 3, 3), 1, 0, (10,)),
-            ((4, 12, 12), (8, 4, 3, 3), 1, 0, (4, 2)),
-            ((4, 24, 24), (8, 4, 3, 3), 2, 0, 10),
-            ((12, 12, 12), (6, 12, 3, 3), 1, 0, (3, 3)),
-            ((4, 24, 24), (8, 4, 4, 4), 2, 0, (10,)),  # corner case
-        ],
-    )
-    def test_Conv2dSemiFolded_FC_Net1(
-        self, ishape_chw, kshape_oihw, stride, padding, out_features, random_fixture
-    ):
-        from tests.shared_networks import Conv2dSemiFolded_FC_Net1
-
-        kernel = np.random.randint(-3, 4, size=kshape_oihw, dtype=np.int8)
-        _stride = _pair(stride)
-        _padding = _pair(padding)
-        oc = kshape_oihw[0]
-        oh = (ishape_chw[1] + 2 * _padding[0] - kshape_oihw[2]) // _stride[0] + 1
-        ow = (ishape_chw[2] + 2 * _padding[1] - kshape_oihw[3]) // _stride[1] + 1
         fc_weight = np.random.randint(
-            -4, 5, size=(oc * oh * ow, shape2num(out_features)), dtype=np.int8
+            -4,
+            5,
+            size=(ocs[-1] * ohs[-1] * ows[-1], shape2num(out_features)),
+            dtype=WEIGHT_DTYPE,
         )
 
-        net1 = Conv2dSemiFolded_FC_Net1(
-            ishape_chw[:2], kernel, stride, padding, out_features, fc_weight
+        net2 = Conv2dSemiFolded_FC_ChainNetN(
+            ishape_chw[:2], kernels, strides, paddings, out_features, fc_weight
         )
-        conv2d = net1.conv1
-        linear = net1.linear1
-        generated = DynSysGroup.build_fmodule(net1)
-        sim1 = pb.Simulator(net1, start_time_zero=False)
+        # `conv_list` will be removed in `build_fmodule`
+        conv2d_list = net2.conv_list.copy()
+        linear = net2.linear1
+        generated = DynSysGroup.build_fmodule(net2)
+        sim1 = pb.Simulator(net2, start_time_zero=False)
 
-        probe_conv = pb.Probe(generated[conv2d][0], "output")
+        probe_conv_list = []
+        for conv2d in conv2d_list:
+            probe = pb.Probe(generated[conv2d][0], "output")
+            probe_conv_list.append(probe)
+            sim1.add_probe(probe)
+
         probe_linear = pb.Probe(generated[linear][0], "output")
-        sim1.add_probe(probe_conv)
         sim1.add_probe(probe_linear)
 
-        n_time = 3
-        for _ in range(n_time):
+        semi_folded_modules = [*conv2d_list, linear]
+        semi_valid_interval = []
+        for m in semi_folded_modules:
+            semi_valid_interval.append(m.valid_interval)
+
+        ts_1st_valid = [0] * n_conv
+        for i in range(n_conv):
+            if i == 0:
+                ts_1st_valid[i] = kshape_oihw[0][-1] * semi_valid_interval[0]
+            else:
+                ts_1st_valid[i] = (
+                    ts_1st_valid[i - 1]
+                    + (kshape_oihw[i][-1] - 1) * semi_valid_interval[i]
+                )
+
+        n_test = 3  # can be more
+        for _ in range(n_test):
             sim1.reset()
-            inpa = np.random.randint(0, 3, size=ishape_chw, dtype=np.uint8)
+            inpa = np.random.randint(0, 3, size=ishape_chw, dtype=VOLTAGE_DTYPE)
             inp_pad0 = np.concatenate(
-                [inpa, np.zeros_like(inpa)], axis=2, dtype=np.uint8
+                [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
             )
 
             for i in range(inp_pad0.shape[-1]):
                 pb.FRONTEND_ENV.save(data1=inp_pad0[:, :, i])
                 sim1.run(1)
 
-            expected = _conv2d_faster_fp32(inpa, kernel, _stride, _padding).astype(
-                np.int32
-            )
-            # Truncated expected convolution result
-            expected_t = np.where(
-                expected <= 0,
-                0,
-                np.where((expected >> 8) > 0, np.uint8(255), expected & np.uint8(255)),
-            ).astype(np.uint8)
-
-            # Check the result of semi-folded convolution.
-            # Valid result at [kw : kw+ow]
-            for i in range(ow):
-                assert np.array_equal(
-                    expected_t[:, :, i].ravel(),
-                    sim1.data[probe_conv][
-                        generated[conv2d][0].tick_wait_start
-                        + (kshape_oihw[-1] - 1)
-                        - 1
-                        + i * _stride[1]
-                    ],
+            x = inpa
+            for i_conv in range(n_conv):
+                x = _ann_bit_trunc(
+                    _conv2d_faster_fp32(
+                        x, kernels[i_conv], strides[i_conv], paddings[i_conv]
+                    ).astype(VOLTAGE_DTYPE)
                 )
 
-            expected_fc = expected_t.ravel() @ fc_weight
-            # Truncated expected linear result
-            expected_fc_t = np.where(
-                expected_fc <= 0,
-                0,
-                np.where(
-                    (expected_fc >> 8) > 0, np.uint8(255), expected_fc & np.uint8(255)
-                ),
-            ).astype(np.uint8)
+                # Check the result of semi-folded convolutions.
+                for i in range(ow):
+                    assert np.array_equal(
+                        x[:, :, i].ravel(),
+                        sim1.data[probe_conv_list[i_conv]][
+                            conv2d_list[i_conv].tick_wait_start
+                            + ts_1st_valid[i_conv]
+                            + i * semi_valid_interval[i_conv + 1]
+                            - 1
+                        ],
+                    )
+
+            # x is the reference result of the last convolution.
+            expected_fc_t = _ann_bit_trunc(x.ravel() @ fc_weight.astype(VOLTAGE_DTYPE))
 
             # Check the result of semi-folded linear.
             assert np.array_equal(
                 expected_fc_t,
                 sim1.data[probe_linear][
-                    generated[linear][0].tick_wait_start + (ow - 1) * _stride[1] + 1
+                    linear.tick_wait_start
+                    + ts_1st_valid[-1]
+                    + (ows[-1] - 1) * semi_valid_interval[-1]
+                    - 1
                 ],
             )
 
