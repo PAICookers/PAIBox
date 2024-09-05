@@ -157,8 +157,10 @@ class _DelayChainANN(_DelayChainBase):
 class _HasSemiFoldedIntf(Protocol):
     """The front of this module has replication & delay interface for semi-folded convolution."""
 
+    valid_interval: int = 1
+
     def build(
-        self, network: DynSysGroup, delay: int, **build_options
+        self, network: DynSysGroup, valid_interval: int, **build_options
     ) -> BuiltComponentType: ...
 
 

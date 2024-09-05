@@ -867,9 +867,11 @@ class LinearSemiFolded(_LinearBase, _HasSemiFoldedIntf):
         raise NotImplementedError
 
     def build(
-        self, network: DynSysGroup, delay: int, **build_options
+        self, network: DynSysGroup, valid_interval: int, **build_options
     ) -> BuiltComponentType:
         assert len(self.module_intf.operands[0].shape_out) == 2
+        
+        self.valid_interval = valid_interval
 
         delay_shape = self.module_intf.operands[0].shape_out
         n_delays = NodeList()
@@ -890,7 +892,7 @@ class LinearSemiFolded(_LinearBase, _HasSemiFoldedIntf):
         for i in range(delay_shape[1]):
             neuron = ANNBypassNeuron(
                 shape=delay_shape,
-                delay=delay * i + 1,
+                delay=valid_interval * i + 1,
                 tick_wait_start=self.tick_wait_start,
                 tick_wait_end=self.tick_wait_end,
                 keep_shape=self.keep_shape,
@@ -968,17 +970,19 @@ class Conv2dSemiFolded(FunctionalModule, _HasSemiFoldedIntf):
         if in_ch != cin:
             raise ShapeError(f"input channels mismatch: {in_ch} != {cin}.")
 
-        _shape_out = (cout, out_h)
-
         super().__init__(
-            neuron_s, shape_out=_shape_out, keep_shape=keep_shape, name=name, **kwargs
+            neuron_s,
+            shape_out=(cout, out_h),
+            keep_shape=keep_shape,
+            name=name,
+            **kwargs,
         )
 
     def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
         raise NotImplementedError
 
     def build(
-        self, network: DynSysGroup, delay: int, **build_options
+        self, network: DynSysGroup, valid_interval: int, **build_options
     ) -> BuiltComponentType:
         assert len(self.module_intf.operands[0].shape_out) == 2
         # if len(self.module_intf.operands[0].shape_out) != 2:
@@ -986,6 +990,7 @@ class Conv2dSemiFolded(FunctionalModule, _HasSemiFoldedIntf):
         #         self.module_intf.operands[0].shape_out, "CHW"
         #     )
         #     self.module_intf.operands[0].shape_change((in_ch, in_h))
+        self.valid_interval = valid_interval
 
         _, in_h = self.module_intf.operands[0].shape_out
         _, cin, _, kw = self.kernel.shape
@@ -1008,7 +1013,7 @@ class Conv2dSemiFolded(FunctionalModule, _HasSemiFoldedIntf):
         for i in range(kw):
             neuron = ANNBypassNeuron(
                 (cin, in_h),
-                delay=delay * i + 1,
+                delay=valid_interval * i + 1,
                 tick_wait_start=self.tick_wait_start,
                 tick_wait_end=self.tick_wait_end,
                 keep_shape=self.keep_shape,
