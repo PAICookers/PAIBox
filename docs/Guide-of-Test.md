@@ -123,29 +123,15 @@ pytest = "^8.0.0"
            func2(...)
    ```
 
-6. 可复现的随机测试上下文。该夹具将为测试项目设置随机数种子，确保每次测试中，该测试项内的随机数均相同。
+6. 固定种子的随机数生成器。该夹具返回一个固定的随机数生成器，通过该生成器生成的随机数可复现。
 
-   ```python
-   @pytest.fixture
-   def random_fixture():
-       with fixed_random_seed(42):
-           yield
+    ```python
+    @pytest.fixture
+    def fixed_rng() -> np.random.Generator:
+        return np.random.default_rng(42)
 
-   def test_foo(random_fixture):
-       ...
-   ```
-
-   或者，亦可对测试项目的**部分代码**设置固定的随机数种子，使用上下文环境 `with`
-
-   ```python
-   from .utils import fixed_random_seed
-   import numpy as np
-
-   def test_case():
-       with fixed_random_seed(999):
-           rd1 = np.random.randn() # Reproducible
-
-       rd2 = np.random.randn() # Not reproducible
+    def test_foo(fixed_rng):
+        fixed_rng.random(...)
    ```
 
 ## 更多

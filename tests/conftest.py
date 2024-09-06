@@ -82,9 +82,8 @@ def perf_fixture(request):
 
 
 @pytest.fixture
-def random_fixture():
-    with fixed_random_seed(42):
-        yield
+def fixed_rng() -> np.random.Generator:
+    return np.random.default_rng(42)
 
 
 class ParametrizedTestData(TypedDict):
