@@ -23,9 +23,9 @@ def packbits_ref(bits: np.ndarray, count: int) -> int:
     return result
 
 
-def test_get_raw_weight_ref(random_fixture):
-    w1 = np.random.randint(-128, 128, size=(10, 20), dtype=WEIGHT_DTYPE)
-    w2 = np.random.randint(-128, 128, size=(10, 30), dtype=WEIGHT_DTYPE)
+def test_get_raw_weight_ref(fixed_rng: np.random.Generator):
+    w1 = fixed_rng.integers(-128, 128, size=(10, 20), dtype=WEIGHT_DTYPE)
+    w2 = fixed_rng.integers(-128, 128, size=(10, 30), dtype=WEIGHT_DTYPE)
 
     w_of_neurons = [w1, w2]
 
@@ -353,14 +353,14 @@ class TestWeightUnpack:
             (HwConfig.ADDR_AXON_MAX + 1) // (WRAM_PACKED_DTYPE(1).nbytes * 8),
         )
 
-    def test_packbits_to_mapping_form(self, random_fixture):
+    def test_packbits_to_mapping_form(self, fixed_rng: np.random.Generator):
         def _weight_ram_T(weight_ram_mapped: np.ndarray):
             _w = weight_ram_mapped.T.reshape(-1, 64)
             w_packed_u8 = np.packbits(_w, axis=-1, bitorder="little")
 
             return w_packed_u8
 
-        w = np.random.randint(-8, 8, size=(1152, 64), dtype=WEIGHT_DTYPE)
+        w = fixed_rng.integers(-8, 8, size=(1152, 64), dtype=WEIGHT_DTYPE)
 
         # 1152 * 512
         w1 = self._weight_ram_mapping_ref(w, 8, False, 0)
