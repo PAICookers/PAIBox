@@ -197,19 +197,12 @@ def _conv2d_semifolded_unroll(
 
     for i in range(cout):
         for j in range(cin):
-            if padding[0] == 0:
-                for k in range(oh):
-                    # w_np[j*ih+padding[0]*(stride[1]-1)+k*stride[1]:j*ih+padding[1]*(stride[1]-1)+k*stride[1]+kh, i*oh+k+padding[0]] = kernel[i, j, :]
-                    # w_np[j*ih+stride[1]*(padding[0]+k)-padding[0]:j*ih+stride[1]*(padding[0]+k)-padding[0]+kh, i*oh+k+padding[0]] = kernel[i, j, :]
-                    w_np[
-                        j * ih + k * stride[1] : j * ih + k * stride[1] + kh, i * oh + k
-                    ] = kernel[i, j, :]
-            else:
-                for k in range(oh):
-                    w_np[
-                        j * ih + k * stride[1] : j * ih + k * stride[1] + kh, i * oh + k
-                    ] = kernel[i, j, :]
+            for k in range(oh):
+                w_np[
+                    j * ih + k * stride[1] : j * ih + k * stride[1] + kh, i * oh + k
+                ] = kernel[i, j, :]
 
+            if padding[0] > 0: # H direction
                 w_np = np.delete(
                     w_np,
                     np.hstack((np.arange(padding[0]), np.arange(ih - padding[0], ih))),
@@ -217,6 +210,11 @@ def _conv2d_semifolded_unroll(
                 )
 
     return w_np
+
+
+"""
+    NOTE: The faster convolutions are verified by _convNd_golden() functions in test utils.
+"""
 
 
 def _conv1d_faster(
@@ -227,7 +225,7 @@ def _conv1d_faster(
     padding: Size1Type,
 ) -> SynOutType:
     """Faster 1d convolution."""
-    cout, cin, kl = kernel.shape  # (O, I, L)
+    cout, _, kl = kernel.shape  # (O, I, L)
 
     x_padded = np.pad(x_cl, ((0, 0), (padding[0], padding[0])), mode="constant")
 
@@ -254,7 +252,7 @@ def _conv2d_faster(
     # fm_order: str,
 ) -> SynOutType:
     """Faster 2d convolution."""
-    cout, cin, kh, kw = kernel.shape  # (O, I, H, W)
+    cout, _, kh, kw = kernel.shape  # (O, I, H, W)
 
     x_padded = np.pad(
         x_chw,

@@ -598,7 +598,7 @@ class _CompareMax(AllToAll):
         else:
             output = np.zeros((self.conn_size[1],), dtype=VOLTAGE_DTYPE)
             for col in range(self.conn_size[1]):
-                col_result = x * self.weights[:, col]
+                col_result = x * self.weights[:, col].astype(VOLTAGE_DTYPE)
                 output[col] = np.max(col_result)
 
         return output
