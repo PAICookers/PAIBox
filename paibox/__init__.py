@@ -5,16 +5,10 @@ from .backend import BACKEND_CONFIG as BACKEND_CONFIG
 from .backend import Mapper as Mapper
 
 # Functional modules
-from .components.functional import AvgPool2dSemiMap as AvgPool2dSemiMap
 from .components.functional import BitwiseAND as BitwiseAND
 from .components.functional import BitwiseNOT as BitwiseNOT
 from .components.functional import BitwiseOR as BitwiseOR
 from .components.functional import BitwiseXOR as BitwiseXOR
-from .components.functional import Conv2dSemiFolded as Conv2dSemiFolded
-from .components.functional import LinearSemiFolded as LinearSemiFolded
-from .components.functional import Filter as Filter
-from .components.functional import Linear as Linear
-from .components.functional import MaxPool2dSemiMap as MaxPool2dSemiMap
 from .components.functional import SpikingAdd as SpikingAdd
 from .components.functional import SpikingAvgPool1d as SpikingAvgPool1d
 from .components.functional import SpikingAvgPool1dWithV as SpikingAvgPool1dWithV
@@ -26,6 +20,13 @@ from .components.functional import SpikingSub as SpikingSub
 from .components.functional import Transpose2d as Transpose2d
 from .components.functional import Transpose3d as Transpose3d
 
+# Functional modules in ANN mode only
+from .components.functional import Linear as Linear
+from .components.functional import LinearSemiFolded as LinearSemiFolded
+from .components.functional import Conv2dSemiFolded as Conv2dSemiFolded
+from .components.functional import AvgPool2dSemiFolded as AvgPool2dSemiFolded
+from .components.functional import MaxPool2dSemiFolded as MaxPool2dSemiFolded
+
 # Reduced neurons
 from .components.neuron.neurons import IF as IF
 from .components.neuron.neurons import LIF as LIF
@@ -33,6 +34,8 @@ from .components.neuron.neurons import PhasicSpiking as PhasicSpiking
 from .components.neuron.neurons import SpikingRelu as SpikingRelu
 from .components.neuron.neurons import TonicSpiking as TonicSpiking
 from .components.neuron.neurons import BypassNeuron as BypassNeuron
+from .components.neuron.neurons import ANNBypassNeuron as ANNBypassNeuron
+from .components.neuron.neurons import ANNNeuron as ANNNeuron
 
 # Input projection
 from .components.projection import InputProj as InputProj
@@ -48,7 +51,7 @@ from .components.synapses.synapses import MatMul2d as MatMul2d
 
 # Network
 from .network import DynSysGroup as DynSysGroup
-from .network import Network as Network
+from .network import Network  # alias for DynSysGroup
 
 # Simulation
 from .simulator import Probe as Probe
