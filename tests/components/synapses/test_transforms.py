@@ -2,11 +2,10 @@ import numpy as np
 import pytest
 
 from paibox.components.synapses import transforms as tfm
+from paibox.components.synapses.conv_utils import _conv1d_faster, _conv2d_faster
 from paibox.exceptions import AutoOptimizationWarning
 from paibox.types import WEIGHT_DTYPE
 from paibox.utils import shape2num
-
-from tests.components.utils import _conv1d_golden, _conv2d_golden
 
 
 class TestTransforms:
@@ -313,7 +312,7 @@ class TestTransforms:
         # The result of matmul using the unrolled matrix
         y2 = xf @ f.connectivity.astype(np.int32)
 
-        expected = _conv1d_golden(x, out_shape, kernel, stride, padding)
+        expected = _conv1d_faster(x, out_shape, kernel, stride, padding)
 
         assert np.array_equal(y1, expected)
         assert np.array_equal(y2, expected.ravel())
@@ -393,7 +392,7 @@ class TestTransforms:
         # The result of matmul using the unrolled matrix
         y2 = xf @ f.connectivity.astype(np.int32)
 
-        expected = _conv2d_golden(x, out_shape, kernel, stride, padding)
+        expected = _conv2d_faster(x, out_shape, kernel, stride, padding)
 
         assert np.array_equal(y1, expected)
         assert np.array_equal(y2, expected.ravel())
