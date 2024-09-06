@@ -1,4 +1,3 @@
-import math
 import sys
 from collections.abc import Sequence
 from functools import partial
@@ -30,7 +29,6 @@ from .modules import (
     FunctionalModule2to1,
     FunctionalModule2to1WithV,
     TransposeModule,
-    set_rt_mode,
     set_rt_mode_ann,
     set_rt_mode_snn,
 )
@@ -39,9 +37,9 @@ from .neuron.base import MetaNeuron
 from .neuron.neurons import *
 from .neuron.utils import vjt_overflow
 from .projection import InputProj
-from .synapses import ConnType, FullConnSyn, Conv2dSemiFoldedSyn
+from .synapses import ConnType, FullConnSyn, Conv2dSemiFoldedSyn, MaxPool2dSemiFoldedSyn
 from .synapses.conv_types import _Size1Type, _Size2Type
-from .synapses.conv_utils import _fm_ndim2_check, _pair
+from .synapses.conv_utils import _pair
 
 if sys.version_info >= (3, 13):
     from warnings import deprecated
@@ -66,8 +64,8 @@ __all__ = [
     "Conv2dSemiFolded",
     "Filter",
     "Linear",
-    "MaxPool2dSemiMap",
-    "AvgPool2dSemiMap",
+    "MaxPool2dSemiFolded",
+    "AvgPool2dSemiFolded",
 ]
 
 
@@ -860,7 +858,7 @@ class Transpose3d(TransposeModule):
         return generated
 
 
-class LinearSemiFolded(_LinearBase, _HasSemiFoldedIntf):
+class LinearSemiFolded(_LinearBase, _SemiFoldedModule):
     "That operator is used on the first fully-connected layer after the semi-folded convolution."
 
     def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
@@ -870,10 +868,10 @@ class LinearSemiFolded(_LinearBase, _HasSemiFoldedIntf):
         self, network: DynSysGroup, valid_interval: int, **build_options
     ) -> BuiltComponentType:
         assert len(self.module_intf.operands[0].shape_out) == 2
-        
         self.valid_interval = valid_interval
 
-        delay_shape = self.module_intf.operands[0].shape_out
+        in_ch, in_h = self.module_intf.operands[0].shape_out
+
         n_delays = NodeList()
         s_delays = NodeList()
         s_weight = NodeList()
@@ -889,9 +887,9 @@ class LinearSemiFolded(_LinearBase, _HasSemiFoldedIntf):
             name=f"nd_{self.name}",
         )
 
-        for i in range(delay_shape[1]):
+        for i in range(in_h):
             neuron = ANNBypassNeuron(
-                shape=delay_shape,
+                shape=(in_ch, in_h),
                 delay=valid_interval * i + 1,
                 tick_wait_start=self.tick_wait_start,
                 tick_wait_end=self.tick_wait_end,
@@ -903,13 +901,13 @@ class LinearSemiFolded(_LinearBase, _HasSemiFoldedIntf):
             syn1 = FullConnSyn(
                 self.module_intf.operands[0],
                 neuron,
-                weights=_delay_mapping(delay_shape[1], delay_shape[0], 1),
+                weights=_delay_mapping(in_h, in_ch),
                 conn_type=ConnType.All2All,
                 name=f"s{i}_delay_{self.name}",
             )
             s_delays.append(syn1)
 
-            w = self.weights[delay_shape[1] - i - 1 :: delay_shape[1], :]
+            w = self.weights[in_h - i - 1 :: in_h, :]
             syn2 = FullConnSyn(
                 neuron,
                 n_fc,
@@ -925,8 +923,7 @@ class LinearSemiFolded(_LinearBase, _HasSemiFoldedIntf):
         return generated
 
 
-@set_rt_mode_ann()
-class Conv2dSemiFolded(FunctionalModule, _HasSemiFoldedIntf):
+class Conv2dSemiFolded(_SemiFoldedModule):
     _spatial_ndim: ClassVar[int] = 2
 
     def __init__(
@@ -950,6 +947,8 @@ class Conv2dSemiFolded(FunctionalModule, _HasSemiFoldedIntf):
         self.kernel = kernel
         self.stride = _pair(stride)
         self.padding = _pair(padding)
+        self._w_padding_check(self.padding[1], neuron_s)
+
         self.bit_trunc = bit_trunc
 
         if isinstance(bias, np.ndarray):
@@ -1024,7 +1023,7 @@ class Conv2dSemiFolded(FunctionalModule, _HasSemiFoldedIntf):
             syn1 = FullConnSyn(
                 self.module_intf.operands[0],
                 n_delays[i],
-                weights=_delay_mapping(in_h, cin, 1),
+                weights=_delay_mapping(in_h, cin),
                 conn_type=ConnType.All2All,
                 name=f"s{i}_delay_{self.name}",
             )
@@ -1033,10 +1032,10 @@ class Conv2dSemiFolded(FunctionalModule, _HasSemiFoldedIntf):
             syn2 = Conv2dSemiFoldedSyn(  # cin, ih -> cout * oh
                 neuron,
                 n_conv2d,
-                kernel=self.kernel[:, :, :, kw - i - 1],
-                stride=self.stride,
-                padding=self.padding,
-                order="OIL",
+                self.kernel[:, :, :, kw - i - 1],
+                self.stride,
+                self.padding,
+                "OIL",
                 name=f"s{i}_{self.name}",
             )
             s_kernel.append(syn2)
@@ -1051,9 +1050,8 @@ class Conv2dSemiFolded(FunctionalModule, _HasSemiFoldedIntf):
     "The backend currently does not support 'Filter', please use it in a future version",
     category=PAIBoxDeprecationWarning,
 )
-@set_rt_mode(8, 8, 0)
+@set_rt_mode_ann()
 class Filter(FunctionalModule):
-
     def __init__(
         self,
         neuron: Union[NeuDyn, InputProj],
@@ -1118,6 +1116,7 @@ class Filter(FunctionalModule):
         return generated
 
 
+@set_rt_mode_ann()
 class Linear(_LinearBase):
     "Linear layer for ANN."
 
@@ -1145,125 +1144,108 @@ class Linear(_LinearBase):
             self.module_intf.operands[0],
             neuron_d,
             weights=self.weights,
-            conn_type=self.conn_type,
+            conn_type=ConnType.All2All,
             name=f"syn1_{self.name}",
         )
+
         generated = [neuron_d, syn1]
         self._rebuild_out_intf(network, neuron_d, *generated, **build_options)
 
         return generated
 
 
-@set_rt_mode(8, 8, 0)
-class MaxPool2dSemiMap(FunctionalModule):
+class MaxPool2dSemiFolded(_SemiFoldedModule):
     _spatial_ndim: ClassVar[int] = 2
 
     def __init__(
         self,
         neuron_s: Union[NeuDyn, InputProj],
-        # neuron_d: Union[NeuDyn, InputProj],
         kernel_size: _Size2Type,
         stride: Optional[_Size2Type] = None,
         # padding: _Size2Type = 0,
-        # bias: Union[int, LeakVType] = 0,
         keep_shape: bool = False,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
-        """2d Pool2d_semimap for spike."""
-        self.kernel_size = kernel_size
-        self.stride = _pair(stride)
-        self.pool_max = True
-        # self.padding = _pair(padding)
-        # self.bias = bias
-
-        if len(neuron_s.shape_out) != 2:
-            in_ch, in_h, in_w = neuron_s.shape_out
+        """2d semi-folded max pooling for ANN mode."""
+        self.kernel_size = _pair(kernel_size)
+        if stride is None:
+            _stride = self.kernel_size
         else:
-            (
-                in_ch,
-                in_h,
-            ) = neuron_s.shape_out
-        cout = cin = in_ch
-        out_h = (in_h - kernel_size[0]) // self.stride[0] + 1
-        if in_ch != cin:
-            raise ShapeError(f"input channels mismatch: {in_ch} != {cin}.")
+            _stride = _pair(stride)
 
-        _shape_out = (cout, out_h)
-        # self.tfm = Conv2dHalfForward((in_ch, in_h), (out_channels, out_h), _kernel, stride, padding)
+        self.stride = _stride
+        # self.padding = _pair(padding)
+        # self._w_padding_check(self.padding[1], neuron_s)
+
+        assert len(neuron_s.shape_out) == 2
+        in_ch, in_h = neuron_s.shape_out
+
+        out_h = (in_h - self.kernel_size[0]) // self.stride[0] + 1
+
         super().__init__(
             neuron_s,
-            # neuron_d,
-            shape_out=_shape_out,
+            shape_out=(in_ch, out_h),
             keep_shape=keep_shape,
             name=name,
             **kwargs,
         )
 
     def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
-        print("进入pool2d_func")
-        return
+        raise NotImplementedError
 
     def build(
-        self, network: DynSysGroup, delay: int, **build_options
+        self, network: DynSysGroup, valid_interval: int, **build_options
     ) -> BuiltComponentType:
-        # print("进入build")
-        if len(self.module_intf.operands[0].shape_out) != 2:
-            in_ch, in_h, in_w = _fm_ndim2_check(
-                self.module_intf.operands[0].shape_out, "CHW"
-            )
-            self.module_intf.operands[0].shape_change((in_ch, in_h))
+        assert len(self.module_intf.operands[0].shape_out) == 2
+        # if len(self.module_intf.operands[0].shape_out) != 2:
+        #     in_ch, in_h, in_w = _fm_ndim2_check(
+        #         self.module_intf.operands[0].shape_out, "CHW"
+        #     )
+        #     self.module_intf.operands[0].shape_change((in_ch, in_h))
+        self.valid_interval = valid_interval
+
         in_ch, in_h = self.module_intf.operands[0].shape_out
-        cout = cin = in_ch
-        kh, kw = self.kernel_size
+        cin = in_ch
+        _, kw = self.kernel_size
+
         n_delays = NodeList()
         s_delays = NodeList()
-        pool2d = Neuron(
+
+        pool2d = ANNNeuron(
             self.shape_out,
-            reset_mode=RM.MODE_NONRESET,
-            neg_thres_mode=NTM.MODE_SATURATION,
-            leak_v=0,
-            neg_threshold=0,
-            pos_threshold=0,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start + 1,
             tick_wait_end=self.tick_wait_end,
-            input_width=self.input_width,
-            spike_width=self.spike_width,
-            snn_en=self.snn_en,
-            pool_max=self.pool_max,
+            pool_max=True,
             keep_shape=self.keep_shape,
             name=f"nd_{self.name}",
         )
+
         for i in range(kw):
-            neuron = Neuron(
+            neuron = ANNBypassNeuron(
                 (cin, in_h),
-                leak_v=0,
-                neg_threshold=0,
-                delay=delay * i + 1,
+                delay=valid_interval * i + 1,
                 tick_wait_start=self.tick_wait_start,
                 tick_wait_end=self.tick_wait_end,
-                input_width=self.input_width,
-                spike_width=self.spike_width,
-                snn_en=self.snn_en,
                 keep_shape=self.keep_shape,
                 name=f"n{i}_{self.name}",
             )
             n_delays.append(neuron)
-            # 延时突触
+            # delay synapses
             syn1 = FullConnSyn(
-                self.module_intf.operands[0],  # (2, 5)
+                self.module_intf.operands[0],
                 n_delays[i],
-                weights=_delay_mapping(in_h, cin, 1),
+                weights=_delay_mapping(in_h, cin),
                 conn_type=ConnType.All2All,
                 name=f"s{i}_delay_{self.name}",
             )
             s_delays.append(syn1)
-            syn2 = MaxPool2dSemiMapSyn(
-                n_delays[i],
+            syn2 = MaxPool2dSemiFoldedSyn(
+                neuron,
                 pool2d,
-                weights=_pool2d_semimap(
-                    (cin, in_h), self.shape_out, self.kernel_size, self.stride
+                weights=_poo2d_semifolded_mapping(
+                    cin, in_h, self.shape_out[1], self.kernel_size[0], self.stride
                 ),
                 name=f"s{i}_{self.name}",
             )
@@ -1275,116 +1257,100 @@ class MaxPool2dSemiMap(FunctionalModule):
         return generated
 
 
-@set_rt_mode(8, 8, 0)
-class AvgPool2dSemiMap(FunctionalModule):
+class AvgPool2dSemiFolded(_SemiFoldedModule):
     _spatial_ndim: ClassVar[int] = 2
 
     def __init__(
         self,
         neuron_s: Union[NeuDyn, InputProj],
-        # neuron_d: Union[NeuDyn, InputProj],
         kernel_size: _Size2Type,
         stride: Optional[_Size2Type] = None,
         # padding: _Size2Type = 0,
-        # bias: Union[int, LeakVType] = 0,
         keep_shape: bool = False,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
         """2d AvgPool2d_semimap for spike."""
-        self.kernel_size = kernel_size
-        self.stride = _pair(stride)
-        # self.padding = _pair(padding)
-        # self.bias = bias
-
-        if len(neuron_s.shape_out) != 2:
-            in_ch, in_h, in_w = neuron_s.shape_out
+        self.kernel_size = _pair(kernel_size)
+        if stride is None:
+            _stride = self.kernel_size
         else:
-            (
-                in_ch,
-                in_h,
-            ) = neuron_s.shape_out
-        cout = cin = in_ch
-        out_h = (in_h - kernel_size[0]) // self.stride[0] + 1
-        if in_ch != cin:
-            raise ShapeError(f"input channels mismatch: {in_ch} != {cin}.")
+            _stride = _pair(stride)
 
-        _shape_out = (cout, out_h)
-        # self.tfm = Conv2dHalfForward((in_ch, in_h), (out_channels, out_h), _kernel, stride, padding)
+        self.stride = _stride
+        # self.padding = _pair(padding)
+        # self._w_padding_check(self.padding[1], neuron_s)
+
+        assert len(neuron_s.shape_out) == 2
+        in_ch, in_h = neuron_s.shape_out
+
+        out_h = (in_h - self.kernel_size[0]) // self.stride[0] + 1
+
         super().__init__(
             neuron_s,
-            # neuron_d,
-            shape_out=_shape_out,
+            shape_out=(in_ch, out_h),
             keep_shape=keep_shape,
             name=name,
             **kwargs,
         )
 
     def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
-        print("进入pool2d_func")
-        return
+        raise NotImplementedError
 
     def build(
-        self, network: DynSysGroup, delay: int, **build_options
+        self, network: DynSysGroup, valid_interval: int, **build_options
     ) -> BuiltComponentType:
-        # print("进入build")
-        if len(self.module_intf.operands[0].shape_out) != 2:
-            in_ch, in_h, in_w = _fm_ndim2_check(
-                self.module_intf.operands[0].shape_out, "CHW"
-            )
-            self.module_intf.operands[0].shape_change((in_ch, in_h))
+        assert len(self.module_intf.operands[0].shape_out) == 2
+        # if len(self.module_intf.operands[0].shape_out) != 2:
+        #     in_ch, in_h, in_w = _fm_ndim2_check(
+        #         self.module_intf.operands[0].shape_out, "CHW"
+        #     )
+        #     self.module_intf.operands[0].shape_change((in_ch, in_h))
+        self.valid_interval = valid_interval
+
         in_ch, in_h = self.module_intf.operands[0].shape_out
-        cout = cin = in_ch
+        cin = in_ch
         kh, kw = self.kernel_size
-        bittrunc = int(math.log2(kw * kh) + 8)
+        # NOTE: Division is achieved with the help of truncation operation.
+        # It can only be approximated to a power of an integer of 2.
+        bit_trunc = 8 + (kh * kw).bit_length() - 1
+
         n_delays = NodeList()
         s_delays = NodeList()
-        pool2d = Neuron(
+
+        pool2d = ANNNeuron(
             self.shape_out,
-            reset_mode=RM.MODE_NONRESET,
-            neg_thres_mode=NTM.MODE_SATURATION,
-            leak_v=0,
-            neg_threshold=0,
-            pos_threshold=0,
             delay=self.delay_relative,
-            bit_truncation=bittrunc,
+            bit_trunc=bit_trunc,
             tick_wait_start=self.tick_wait_start + 1,
             tick_wait_end=self.tick_wait_end,
-            input_width=self.input_width,
-            spike_width=self.spike_width,
-            snn_en=self.snn_en,
             keep_shape=self.keep_shape,
             name=f"nd_{self.name}",
         )
         for i in range(kw):
-            neuron = Neuron(
+            neuron = ANNBypassNeuron(
                 (cin, in_h),
-                leak_v=0,
-                neg_threshold=0,
-                delay=delay * i + 1,
+                delay=valid_interval * i + 1,
                 tick_wait_start=self.tick_wait_start,
                 tick_wait_end=self.tick_wait_end,
-                input_width=self.input_width,
-                spike_width=self.spike_width,
-                snn_en=self.snn_en,
                 keep_shape=self.keep_shape,
                 name=f"n{i}_{self.name}",
             )
             n_delays.append(neuron)
-            # 延时突触
+            # delay synapses
             syn1 = FullConnSyn(
-                self.module_intf.operands[0],  # (2, 5)
+                self.module_intf.operands[0],
                 n_delays[i],
-                weights=_delay_mapping(in_h, cin, 1),
+                weights=_delay_mapping(in_h, cin),
                 conn_type=ConnType.All2All,
                 name=f"s{i}_delay_{self.name}",
             )
             s_delays.append(syn1)
             syn2 = FullConnSyn(
-                n_delays[i],
+                neuron,
                 pool2d,
-                weights=_pool2d_semimap(
-                    (cin, in_h), self.shape_out, self.kernel_size, self.stride
+                weights=_poo2d_semifolded_mapping(
+                    cin, in_h, self.shape_out[1], self.kernel_size[0], self.stride
                 ),
                 conn_type=ConnType.All2All,
                 name=f"s{i}_{self.name}",
@@ -1503,29 +1469,18 @@ def _transpose3d_mapping(
     return mt
 
 
-def _delay_mapping(h: int, cin: int, n: int) -> WeightType:
-    # mt = np.zeros((cin * h, cin * n * h), dtype=np.bool_)
-    # for i in range(cin):
-    #     for j in range(n * cin):
-    #         for k in range(h):
-    #             mt[i * h + k, j * h + k] = 1
-    mt = np.eye(cin * h, dtype=WEIGHT_DTYPE)
-    return mt
+def _delay_mapping(h: int, cin: int) -> WeightType:
+    return np.eye(cin * h, dtype=WEIGHT_DTYPE)
 
 
-def _pool2d_semimap(
-    in_shape: _Size2Type,
-    out_shape: _Size2Type,
-    kernel_size: WeightType,
-    stride: _Size2Type,
+def _poo2d_semifolded_mapping(
+    cin: int, ih: int, oh: int, kh: int, stride: tuple[int, int]
 ) -> WeightType:
-    cout = cin = in_shape[0]
-    kh, kw = kernel_size
-    ih = in_shape[1]
-    o_ch, oh = out_shape
-    mt = np.zeros((cin * ih, cout * oh), dtype=np.bool_)
+    cout = cin
+    m = np.zeros((cin * ih, cout * oh), dtype=WEIGHT_DTYPE)
+
     for i in range(cout):
-        for j in range(cin):
-            for k in range(oh):
-                mt[j * ih + k * stride[1] : j * ih + k * stride[1] + kh, i * oh + k] = 1
-    return mt
+        for j in range(oh):
+            m[i * ih + j * stride[1] : i * ih + j * stride[1] + kh, i * oh + j] = 1
+
+    return m

@@ -80,32 +80,36 @@ class DynSysGroup(DynamicSys, Container):
         cls, network: "DynSysGroup", **build_options
     ) -> dict[NeuModule, BuiltComponentType]:
         from .components.functional import (
-            AvgPool2dSemiMap,
+            AvgPool2dSemiFolded,
             Conv2dSemiFolded,
             LinearSemiFolded,
-            MaxPool2dSemiMap,
+            MaxPool2dSemiFolded,
         )
 
         generated = dict()
         modules = network.nodes().subset(NeuModule).unique()
 
-        network._remove_modules_from_containers(network, modules)
+        # Valid interval for semi-folded components
+        # If the input data is input continuously on the W-axis, the initial
+        # valid interval for the first semi-folded component is 1.
+        semi_valid_interval = 1
 
-        delay = 1
         for module in modules.values():
-            if isinstance(module, Conv2dSemiFolded):
-                generated[module] = module.build(network, delay, **build_options)
-                delay *= module.stride[1]  # stride of w > 1
+            if isinstance(
+                module, (Conv2dSemiFolded, MaxPool2dSemiFolded, AvgPool2dSemiFolded)
+            ):
+                generated[module] = module.build(
+                    network, semi_valid_interval, **build_options
+                )
+                semi_valid_interval *= module.stride[1]
             elif isinstance(module, LinearSemiFolded):
-                generated[module] = module.build(network, delay, **build_options)
-            elif isinstance(module, MaxPool2dSemiMap):
-                generated[module] = module.build(network, delay, **build_options)
-                delay *= module.stride[1]
-            elif isinstance(module, AvgPool2dSemiMap):
-                generated[module] = module.build(network, delay, **build_options)
-                delay *= module.stride[1]
+                generated[module] = module.build(
+                    network, semi_valid_interval, **build_options
+                )
             else:
                 generated[module] = module.build(network, **build_options)
+
+        network._remove_modules_from_containers(network, modules)
 
         return generated
 
