@@ -4,7 +4,8 @@ import pytest
 import paibox as pb
 from paibox.base import DynamicSys
 from paibox.components import NeuModule
-from paibox.components.synapses.conv_utils import _pair, _single
+from paibox.components.neuron.base import MetaNeuron
+from paibox.components.synapses.conv_utils import _pair, _single, _conv2d_faster
 from paibox.network import DynSysGroup
 from paibox.simulator.utils import _conv2d_faster_fp32
 from paibox.utils import as_shape, shape2num, typical_round
@@ -470,7 +471,7 @@ class TestFunctionalModules:
         for i in range(1, N_TEST):
             if pool_type == "avg":
                 expected = avgpool1d_golden(
-                    inpa[i - 1], ksize, _stride, _padding, fm_order, _threshold
+                    inpa[i - 1], ksize, _stride, _padding, _threshold, fm_order
                 ).ravel()
             else:
                 expected = maxpool1d_golden(
@@ -483,7 +484,7 @@ class TestFunctionalModules:
         for i in range(2, N_TEST):
             if pool_type == "avg":
                 expected = avgpool1d_golden(
-                    inpa[i - 2], ksize, _stride, _padding, fm_order, _threshold
+                    inpa[i - 2], ksize, _stride, _padding, _threshold, fm_order
                 ).ravel()
             else:
                 expected = maxpool1d_golden(
@@ -580,7 +581,7 @@ class TestFunctionalModules:
         for i in range(1, N_TEST):
             if pool_type == "avg":
                 expected = avgpool2d_golden(
-                    inpa[i - 1], ksize, _stride, _padding, fm_order, _threshold
+                    inpa[i - 1], ksize, _stride, _padding, _threshold, fm_order
                 ).ravel()
             else:
                 expected = maxpool2d_golden(
@@ -593,7 +594,7 @@ class TestFunctionalModules:
         for i in range(2, N_TEST):
             if pool_type == "avg":
                 expected = avgpool2d_golden(
-                    inpa[i - 2], ksize, _stride, _padding, fm_order, _threshold
+                    inpa[i - 2], ksize, _stride, _padding, _threshold, fm_order
                 ).ravel()
             else:
                 expected = maxpool2d_golden(
@@ -972,9 +973,13 @@ class TestFunctionalModules:
             x = inpa
             for i_conv in range(n_conv):
                 x = _ann_bit_trunc(
-                    _conv2d_faster_fp32(
-                        x, kernels[i_conv], strides[i_conv], paddings[i_conv]
-                    ).astype(VOLTAGE_DTYPE)
+                    _conv2d_faster(
+                        x,
+                        (ohs[i_conv], ows[i_conv]),
+                        kernels[i_conv],
+                        strides[i_conv],
+                        paddings[i_conv],
+                    )
                 )
 
                 # Check the result of semi-folded convolutions.
