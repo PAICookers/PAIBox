@@ -7,14 +7,18 @@ from paibox.components import NeuModule
 from paibox.components.neuron.base import MetaNeuron
 from paibox.components.synapses.conv_utils import _pair, _single, _conv2d_faster
 from paibox.network import DynSysGroup
-from paibox.simulator.utils import _conv2d_faster_fp32
+from paibox.types import (
+    VOLTAGE_DTYPE,
+    WEIGHT_DTYPE,
+    NeuOutType,
+    VoltageType,
+    NEUOUT_U8_DTYPE,
+)
 from paibox.utils import as_shape, shape2num, typical_round
 
 from .utils import (
-    avg_pooling,
     avgpool1d_golden,
     avgpool2d_golden,
-    max_pooling,
     maxpool1d_golden,
     maxpool2d_golden,
 )
@@ -1008,159 +1012,144 @@ class TestFunctionalModules:
                 ],
             )
 
-    @pytest.mark.skip(reason="not implemented yet")
     @pytest.mark.parametrize(
-        "shape, kernel, stride, padding, out_features, weight",
+        "ishape_chw, n_pool, kshape_hw, stride, out_features, pool_type",
         [
-            (
-                (1, 11),
-                np.array([[[[2, 1, 2], [1, -2, 1], [-1, 2, -3]]]], dtype=np.int8),
-                [1, 1],
-                [0, 0],
-                10,
-                np.random.randint(-5, 5, size=(7 * 7, 10), dtype=np.int8),
-            ),
-            (
-                (1, 11),
-                np.array([[[[2, 1, 2], [1, -2, 1], [-1, 2, -3]]]], dtype=np.int8),
-                [1, 2],
-                [0, 0],
-                10,
-                np.random.randint(-5, 5, size=(4 * 4, 10), dtype=np.int8),
-            ),
-            (
-                (1, 11),
-                np.array([[[[2, 1, 2], [1, -2, 1], [-1, 2, -3]]]], dtype=np.int8),
-                [2, 1],
-                [0, 0],
-                10,
-                np.random.randint(-5, 5, size=(3 * 3, 10), dtype=np.int8),
-            ),
-            (
-                (1, 11),
-                np.array([[[[2, 1, 2], [1, -2, 1], [-1, 2, -3]]]], dtype=np.int8),
-                [2, 2],
-                [0, 0],
-                10,
-                np.random.randint(-5, 5, size=(2 * 2, 10), dtype=np.int8),
-            ),
+            # NOTE: the first layer is not likely to be a pooling layer. So we
+            # don't support padding for pooling layers.
+            # n_pool = 2
+            ((3, 24, 24), 2, [2, 2], [1, 1], (2, 2), "avg"),
+            ((3, 24, 24), 2, [(2, 2), (2, 2)], [None, None], (10,), "avg"),
+            ((6, 32, 32), 2, [3, 3], [None, None], (10,), "avg"),
+            ((3, 24, 24), 2, [2, 2], [1, 1], (4,), "max"),
+            ((3, 24, 24), 2, [(2, 2), (2, 2)], [2, 2], (10,), "max"),
+            ((6, 32, 32), 2, [3, 3], [None, None], (10,), "max"),
+            # n_pool = 3
+            ((3, 48, 48), 3, [3, 2, 2], [None, None, None], (10,), "avg"),
+            ((3, 48, 48), 3, [3, 2, 2], [None, None, None], (10,), "max"),
         ],
     )
-    def test_Conv2dSemiFolded_FC_Net2(
-        self, shape, kernel, stride, padding, out_features, weight
+    def test_Pool2dSemiFolded_FC_ChainNet(
+        self, ishape_chw, n_pool, kshape_hw, stride, out_features, pool_type, fixed_rng
     ):
-        from tests.shared_networks import Conv2dSemiFolded_FC_Net2
+        from tests.shared_networks import Pool2dSemiFolded_FC_ChainNetN
 
-        net2 = Conv2dSemiFolded_FC_Net2(
-            shape, kernel, stride, padding, out_features, weight
+        assert n_pool == len(kshape_hw) == len(stride)
+        ksizes = []
+        strides = []
+        paddings = [(0, 0) for _ in range(n_pool)]
+        ocs = []
+        ohs = []
+        ows = []
+
+        for i_pool in range(n_pool):
+            k, s = kshape_hw[i_pool], stride[i_pool]
+
+            _ksize = _pair(k)
+            _stride = _pair(s) if s is not None else _ksize
+            ksizes.append(_ksize)
+            strides.append(_stride)
+
+            ih = ishape_chw[1] if i_pool == 0 else ohs[-1]
+            iw = ishape_chw[2] if i_pool == 0 else ows[-1]
+            oc = ishape_chw[0]
+            oh = (ih - _ksize[0]) // _stride[0] + 1
+            ow = (iw - _ksize[1]) // _stride[1] + 1
+            ocs.append(oc)
+            ohs.append(oh)
+            ows.append(ow)
+
+        fc_weight = fixed_rng.integers(
+            -4,
+            5,
+            size=(ocs[-1] * ohs[-1] * ows[-1], shape2num(out_features)),
+            dtype=WEIGHT_DTYPE,
         )
-        conv2d = net2.conv2
-        linear = net2.linear1
-        generated = DynSysGroup.build_fmodule(net2)
-        # sim1 = pb.Simulator(net1, start_time_zero=False)
-        sim2 = pb.Simulator(net2, start_time_zero=False)
 
-        probe_conv = pb.Probe(generated[conv2d][0], "output")
-        probe_linear = pb.Probe(generated[linear][0], "output")
-        sim2.add_probe(probe_conv)
-        sim2.add_probe(probe_linear)
-        inpa = np.random.randint(0, 5, size=(1, 11, 11)).astype(np.int8)
-        inpb = np.concatenate([inpa, np.zeros((1, 10, 11))], axis=1)
-        for i in range(17):
-            pb.FRONTEND_ENV.save(data1=inpb[0][i])
-            sim2.run(1)
-        expected = _conv2d_faster_fp32(
-            np.transpose(inpa, (0, 2, 1)), kernel, _pair(stride[0]), _pair(padding[0])
+        net1 = Pool2dSemiFolded_FC_ChainNetN(
+            ishape_chw[:2],
+            ksizes,
+            strides,
+            paddings,
+            out_features,
+            fc_weight,
+            pool_type,
         )
-        expected[expected < 0] = 0
-
-        expected = _conv2d_faster_fp32(
-            expected, kernel, _pair(stride[1]), _pair(padding[1])
-        )
-        expected[expected < 0] = 0
-
-        expected = np.array(expected, dtype=np.int32)
-        expected = expected.ravel() @ weight
-        expected[expected < 0] = 0
-        if (expected >> 8).all() > 0:
-            expected = np.full_like(expected, ((1 << 8) - 1))
-        else:
-            expected = expected & ((1 << 8) - 1)
-        # expected = np.clip(expected, 0, 7)
-        assert np.array_equal(expected, sim2.data[probe_linear][15])
-
-    @pytest.mark.skip(reason="not implemented yet")
-    @pytest.mark.parametrize(
-        "shape, kernel_size, stride, weight, pool_type",
-        [
-            (
-                (1, 8),
-                (2, 2),
-                [1, 1],
-                np.random.randint(-5, 5, size=(6 * 6, 2), dtype=np.int8),
-                "avg",
-            ),
-            (
-                (1, 8),
-                (2, 2),
-                [2, 2],
-                np.random.randint(-5, 5, size=(2 * 2, 2), dtype=np.int8),
-                "avg",
-            ),
-            (
-                (1, 8),
-                (2, 2),
-                [1, 1],
-                np.random.randint(0, 5, size=(6 * 6, 2), dtype=np.int8),
-                "max",
-            ),
-            (
-                (1, 8),
-                (2, 2),
-                [2, 2],
-                np.random.randint(0, 5, size=(2 * 2, 2), dtype=np.int8),
-                "max",
-            ),
-        ],
-    )
-    def test_Pool2dSemiMap(self, shape, kernel_size, stride, weight, pool_type):
-        from tests.shared_networks import Pool2dSemiMap_Net
-
-        net1 = Pool2dSemiMap_Net(shape, kernel_size, stride, weight, pool_type)
-        pool = net1.pool2
+        # `net1.pool_list` will be removed in `build_fmodule`
+        pool2d_list = net1.pool_list.copy()
         linear = net1.linear1
         generated = DynSysGroup.build_fmodule(net1)
         sim1 = pb.Simulator(net1, start_time_zero=False)
+
+        probe_pool_list = []
+        for poool2d in pool2d_list:
+            probe = pb.Probe(generated[poool2d][0], "output")
+            probe_pool_list.append(probe)
+            sim1.add_probe(probe)
+
         probe_linear = pb.Probe(generated[linear][0], "output")
-        probe_pool = pb.Probe(generated[pool][0], "output")
-        sim1.add_probe(probe_pool)
         sim1.add_probe(probe_linear)
-        inpa = np.random.randint(0, 10, size=(1, 8, 8)).astype(np.int8)
-        inpb = np.concatenate([inpa, np.zeros((1, 10, 8))], axis=1)
-        for i in range(13):
-            pb.FRONTEND_ENV.save(data1=inpb[:, i, :])
-            sim1.run(1)
-        if pool_type == "max":
-            expected = max_pooling(np.transpose(inpa, (0, 2, 1)), kernel_size, stride)
-            expected = max_pooling(expected, kernel_size, stride)
-            expected = np.array(expected, dtype=np.int32)
-            expected = expected.ravel() @ weight
-            if (expected >> 8).all() > 0:
-                expected = np.full_like(expected, ((1 << 8) - 1))
+
+        semi_folded_modules = [*pool2d_list, linear]
+        semi_valid_interval = []
+        for m in semi_folded_modules:
+            semi_valid_interval.append(m.valid_interval)
+
+        ts_1st_valid = [0] * n_pool
+        for i in range(n_pool):
+            if i == 0:
+                ts_1st_valid[i] = ksizes[0][-1] * semi_valid_interval[0]
             else:
-                expected = expected & ((1 << 8) - 1)
-            assert np.array_equal(expected, sim1.data[probe_linear][12])
-        else:
-            expected = avg_pooling(np.transpose(inpa, (0, 2, 1)), kernel_size, stride)
-            expected = avg_pooling(expected, kernel_size, stride)
-            expected = np.array(expected, dtype=np.int32)
-            expected = expected.ravel() @ weight
-            expected[expected < 0] = 0
-            if (expected >> 8).all() > 0:
-                expected = np.full_like(expected, ((1 << 8) - 1))
-            else:
-                expected = expected & ((1 << 8) - 1)
-            assert np.array_equal(expected, sim1.data[probe_linear][12])
+                ts_1st_valid[i] = (
+                    ts_1st_valid[i - 1] + (ksizes[i][-1] - 1) * semi_valid_interval[i]
+                )
+
+        n_test = 3  # can be more
+        _pool_op = {"avg": avgpool2d_golden, "max": maxpool2d_golden}
+
+        for _ in range(n_test):
+            sim1.reset()
+            inpa = fixed_rng.integers(256, size=ishape_chw).astype(NEUOUT_U8_DTYPE)
+            inp_pad0 = np.concatenate(
+                [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
+            )
+
+            for i in range(inp_pad0.shape[-1]):
+                pb.FRONTEND_ENV.save(data1=inp_pad0[:, :, i])
+                sim1.run(1)
+
+            x = inpa
+            for i_pool in range(n_pool):
+                x = _ann_bit_trunc(
+                    _pool_op[pool_type](
+                        x, ksizes[i_pool], strides[i_pool], paddings[i_pool]
+                    )
+                )
+
+                # Check the result of semi-folded pooling.
+                for i in range(ows[i_pool]):
+                    assert np.array_equal(
+                        x[:, :, i].ravel(),
+                        sim1.data[probe_pool_list[i_pool]][
+                            pool2d_list[i_pool].tick_wait_start
+                            + ts_1st_valid[i_pool]
+                            + i * semi_valid_interval[i_pool + 1]
+                            - 1
+                        ],
+                    )
+
+            # x is the reference result of the last pooling.
+            expected_fc_t = _ann_bit_trunc(x.ravel() @ fc_weight.astype(VOLTAGE_DTYPE))
+            # Check the result of semi-folded linear.
+            assert np.array_equal(
+                expected_fc_t,
+                sim1.data[probe_linear][
+                    linear.tick_wait_start
+                    + ts_1st_valid[-1]
+                    + (ows[-1] - 1) * semi_valid_interval[-1]
+                    - 1
+                ],
+            )
 
     @pytest.mark.parametrize(
         "shape, weight",

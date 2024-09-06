@@ -288,31 +288,31 @@ _pool_semi_op = {
 }
 
 
-class Pool2dSemiMap_Net(pb.DynSysGroup):
-    def __init__(self, shape, kernel_size, stride, weight, pool_type):
+class Pool2dSemiFolded_FC_ChainNetN(pb.DynSysGroup):
+    def __init__(
+        self, shape, kernel_sizes, strides, paddings, out_features, weight, pool_type
+    ):
         super().__init__()
         self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape)
-        if pool_type == "avg":
-            self.pool1 = pb.AvgPool2dSemiMap(
-                self.i1, kernel_size, stride[0], tick_wait_start=1
+        self.pool_list = NodeList()
+
+        for i, (ksize, stride) in enumerate(zip(kernel_sizes, strides)):
+            self.pool_list.append(
+                _pool_semi_op[pool_type](
+                    self.pool_list[-1] if i > 0 else self.i1,
+                    ksize,
+                    stride,
+                    tick_wait_start=1 + 2 * i,
+                )
             )
-            self.pool2 = pb.AvgPool2dSemiMap(
-                self.pool1, kernel_size, stride[1], tick_wait_start=3
-            )
-        else:
-            self.pool1 = pb.MaxPool2dSemiMap(
-                self.i1, kernel_size, stride[0], tick_wait_start=1
-            )
-            self.pool2 = pb.MaxPool2dSemiMap(
-                self.pool1, kernel_size, stride[1], tick_wait_start=3
-            )
+
         self.linear1 = pb.LinearSemiFolded(
-            self.pool2,
-            2,
+            self.pool_list[-1],
+            out_features,
             weights=weight,
             bias=0,
             conn_type=pb.SynConnType.All2All,
-            tick_wait_start=5,
+            tick_wait_start=self.pool_list[-1].tick_wait_start + 2,
         )
 
 
