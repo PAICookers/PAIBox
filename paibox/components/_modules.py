@@ -4,6 +4,7 @@ import numpy as np
 from paicorelib import TM
 
 from paibox.base import NeuDyn, NodeList
+from paibox.exceptions import NotSupportedError
 from paibox.network import DynSysGroup
 from paibox.types import (
     LEAK_V_DTYPE,
@@ -50,7 +51,7 @@ __all__ = [
     "_SpikingPool1dWithV",
     "_SpikingPool2d",
     "_SpikingPool2dWithV",
-    "_HasSemiFoldedIntf",
+    "_SemiFoldedModule",
     "_LinearBase",
 ]
 
@@ -157,14 +158,28 @@ class _DelayChainANN(_DelayChainBase):
 class _HasSemiFoldedIntf(Protocol):
     """The front of this module has replication & delay interface for semi-folded convolution."""
 
-    valid_interval: int = 1
-
     def build(
         self, network: DynSysGroup, valid_interval: int, **build_options
     ) -> BuiltComponentType: ...
 
 
 @set_rt_mode_ann()
+class _SemiFoldedModule(FunctionalModule, _HasSemiFoldedIntf):
+    valid_interval: int = 1
+    """The interval of valid output data"""
+
+    @staticmethod
+    def _w_padding_check(w_padding: int, prev_node: Union[NeuDyn, InputProj]) -> None:
+        # NOTE: Only support padding in the first semi-folded conv2d for now.
+        # In fact, it is rare for the H & W directions to be padded unequally.
+        # TODO Support H padding
+        if w_padding > 0 and not isinstance(prev_node, InputProj):
+            raise NotSupportedError(
+                "only semi-folded convolutions that connect input projection "
+                "are supported to have padding in the W direction."
+            )
+
+
 class _LinearBase(FunctionalModule):
     def __init__(
         self,
