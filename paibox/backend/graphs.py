@@ -609,10 +609,11 @@ def convert2routing_groups(
         # If out-degree > 1, group successor core blocks according to their routing id.
         if degrees_of_cb[cb].out_degree > 1:
             succ_cbs = succ_dg_of_cb[cb]
-            seen_cb.update(succ_cbs)
 
             succ_cb_gid_dict.clear()
             for succ_cb in succ_cbs:
+                if succ_cb in seen_cb:
+                    continue
                 if succ_cb._routing_id in succ_cb_gid_dict:
                     succ_cb_gid_dict[succ_cb._routing_id].append(succ_cb)
                 else:
@@ -620,6 +621,8 @@ def convert2routing_groups(
 
             for v in succ_cb_gid_dict.values():
                 routing_groups.append(RoutingGroup(*v))
+
+            seen_cb.update(succ_cbs)
 
     routing_groups_succ: dict[RoutingGroup, list[RoutingGroup]] = defaultdict(list)
 
