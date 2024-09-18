@@ -7,7 +7,7 @@ import numpy as np
 from paicorelib import NTM, RM, TM
 
 from paibox.base import NeuDyn, NodeList
-from paibox.exceptions import PAIBoxDeprecationWarning, ShapeError
+from paibox.exceptions import PAIBoxDeprecationWarning, ShapeError, ResourceError
 from paibox.network import DynSysGroup
 from paibox.types import (
     LEAK_V_DTYPE,
@@ -871,7 +871,8 @@ class LinearSemiFolded(_LinearBase, _SemiFoldedModule):
         self.valid_interval = valid_interval
 
         in_ch, in_h = self.module_intf.operands[0].shape_out
-
+        if in_ch * in_h * in_h * valid_interval > 18432:
+            raise ResourceError(f"The {self.name} input size is too large. Please adjust the input size or the number of channels.")
         n_delays = NodeList()
         s_delays = NodeList()
         s_weight = NodeList()
@@ -967,7 +968,7 @@ class Conv2dSemiFolded(_SemiFoldedModule):
         out_h = (in_h - kh + 2 * self.padding[0]) // self.stride[0] + 1
 
         if in_ch != cin:
-            raise ShapeError(f"input channels mismatch: {in_ch} != {cin}.")
+            raise ShapeError(f"The channels mismatch: {in_ch} != {cin}.")
 
         super().__init__(
             neuron_s,
@@ -981,7 +982,7 @@ class Conv2dSemiFolded(_SemiFoldedModule):
         raise NotImplementedError
 
     def build(
-        self, network: DynSysGroup, valid_interval: int, **build_options
+        self, network: DynSysGroup, valid_interval: int, input_valid: int, **build_options
     ) -> BuiltComponentType:
         assert len(self.module_intf.operands[0].shape_out) == 2
         # if len(self.module_intf.operands[0].shape_out) != 2:
@@ -990,11 +991,18 @@ class Conv2dSemiFolded(_SemiFoldedModule):
         #     )
         #     self.module_intf.operands[0].shape_change((in_ch, in_h))
         self.valid_interval = valid_interval
-
         _, in_h = self.module_intf.operands[0].shape_out
         _, cin, _, kw = self.kernel.shape
-
+        ts_1st_valid = (
+                input_valid
+                + (kw - 1 - self.padding[0]) * valid_interval
+        )
+        self.ts_1st_valid = ts_1st_valid
+        tick_wait_end = 1 + ts_1st_valid + (self.shape_out[1]-1) * valid_interval * self.stride[1]
+        if cin * in_h * kw * valid_interval > 18432:
+            raise ResourceError(f"The {self.name} input size is too large. Please adjust the input size or the number of channels.")
         n_delays = NodeList()
+        n_copies = NodeList()
         s_delays = NodeList()
         s_kernel = NodeList()
 
@@ -1004,7 +1012,7 @@ class Conv2dSemiFolded(_SemiFoldedModule):
             self.bit_trunc,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start + 1,
-            tick_wait_end=self.tick_wait_end,
+            tick_wait_end=tick_wait_end,
             keep_shape=self.keep_shape,
             name=f"nd_{self.name}",
         )
@@ -1014,9 +1022,9 @@ class Conv2dSemiFolded(_SemiFoldedModule):
                 (cin, in_h),
                 delay=valid_interval * i + 1,
                 tick_wait_start=self.tick_wait_start,
-                tick_wait_end=self.tick_wait_end,
+                tick_wait_end=tick_wait_end,
                 keep_shape=self.keep_shape,
-                name=f"n{i}_{self.name}",
+                name=f"n{i}_delay_{self.name}",
             )
             n_delays.append(neuron)
             # delay synapses
@@ -1040,6 +1048,38 @@ class Conv2dSemiFolded(_SemiFoldedModule):
             )
             s_kernel.append(syn2)
 
+        if input_valid > 0:
+            for i in range(self.padding[0]):
+                neuron = ANNBypassNeuron(
+                    (cin, in_h),
+                    delay=valid_interval * (kw-1-i) + 1,
+                    tick_wait_start=self.tick_wait_start,
+                    tick_wait_end=input_valid,
+                    keep_shape=self.keep_shape,
+                    name=f"n{i}_copy_{self.name}",
+                )
+
+                n_copies.append(neuron)
+                # delay synapses
+                syn1 = FullConnSyn(
+                    self.module_intf.operands[0],
+                    n_copies[i],
+                    weights=_delay_mapping(in_h, cin),
+                    conn_type=ConnType.All2All,
+                    name=f"s{i}_copy_{self.name}",
+                )
+                s_delays.append(syn1)
+
+                syn2 = Conv2dSemiFoldedSyn(  # cin, ih -> cout * oh
+                    n_copies[i],
+                    n_conv2d,
+                    -(self.kernel[:, :, :, i]),
+                    self.stride,
+                    self.padding,
+                    "OIL",
+                    name=f"neg_s{i}_{self.name}",
+                )
+                s_kernel.append(syn2)
         generated = [n_conv2d, *n_delays, *s_delays, *s_kernel]
         self._rebuild_out_intf(network, n_conv2d, *generated, **build_options)
 
@@ -1195,7 +1235,7 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
         raise NotImplementedError
 
     def build(
-        self, network: DynSysGroup, valid_interval: int, **build_options
+        self, network: DynSysGroup, valid_interval: int, input_valid: int, **build_options
     ) -> BuiltComponentType:
         assert len(self.module_intf.operands[0].shape_out) == 2
         # if len(self.module_intf.operands[0].shape_out) != 2:
@@ -1209,6 +1249,16 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
         cin = in_ch
         _, kw = self.kernel_size
 
+        ts_1st_valid = (
+                input_valid
+                + (kw - 1) * valid_interval
+        )
+        self.ts_1st_valid = ts_1st_valid
+        tick_wait_end = 1 + ts_1st_valid + (self.shape_out[1] - 1) * valid_interval * self.stride[1]
+
+        if cin * in_h * kw * valid_interval > 18432:
+            raise ResourceError(f"The {self.name} input size is too large. Please adjust the input size or the number of channels.")
+
         n_delays = NodeList()
         s_delays = NodeList()
 
@@ -1216,7 +1266,7 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
             self.shape_out,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start + 1,
-            tick_wait_end=self.tick_wait_end,
+            tick_wait_end=tick_wait_end,
             pool_max=True,
             keep_shape=self.keep_shape,
             name=f"nd_{self.name}",
@@ -1227,7 +1277,7 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
                 (cin, in_h),
                 delay=valid_interval * i + 1,
                 tick_wait_start=self.tick_wait_start,
-                tick_wait_end=self.tick_wait_end,
+                tick_wait_end=tick_wait_end,
                 keep_shape=self.keep_shape,
                 name=f"n{i}_{self.name}",
             )
@@ -1298,7 +1348,7 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
         raise NotImplementedError
 
     def build(
-        self, network: DynSysGroup, valid_interval: int, **build_options
+        self, network: DynSysGroup, valid_interval: int, input_valid: int, **build_options
     ) -> BuiltComponentType:
         assert len(self.module_intf.operands[0].shape_out) == 2
         # if len(self.module_intf.operands[0].shape_out) != 2:
@@ -1311,6 +1361,9 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
         in_ch, in_h = self.module_intf.operands[0].shape_out
         cin = in_ch
         kh, kw = self.kernel_size
+        if cin * in_h * kw * valid_interval > 18432:
+            raise ResourceError(f"The {self.name} input size is too large. Please adjust the input size or the number of channels.")
+
         # NOTE: Division is achieved with the help of truncation operation.
         # It can only be approximated to a power of an integer of 2.
         bit_trunc = 8 + (kh * kw).bit_length() - 1

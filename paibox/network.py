@@ -93,15 +93,16 @@ class DynSysGroup(DynamicSys, Container):
         # If the input data is input continuously on the W-axis, the initial
         # valid interval for the first semi-folded component is 1.
         semi_valid_interval = 1
-
+        ts_1st_valid = 0
         for module in modules.values():
             if isinstance(
                 module, (Conv2dSemiFolded, MaxPool2dSemiFolded, AvgPool2dSemiFolded)
             ):
                 generated[module] = module.build(
-                    network, semi_valid_interval, **build_options
+                    network, semi_valid_interval, ts_1st_valid, **build_options
                 )
                 semi_valid_interval *= module.stride[1]
+                ts_1st_valid = module.ts_1st_valid
             elif isinstance(module, LinearSemiFolded):
                 generated[module] = module.build(
                     network, semi_valid_interval, **build_options

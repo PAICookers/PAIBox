@@ -831,33 +831,35 @@ class TestFunctionalModules:
 
     @pytest.mark.parametrize(
         # NOTE: Only support padding in the first semi-folded conv2d for now.
-        "ishape_chw, n_conv, kshape_oihw, stride, padding1, out_features",
+        "ishape_chw, n_conv, kshape_oihw, stride, padding, out_features",
         [
             # n_conv = 1
-            ((3, 11, 11), 1, [(12, 3, 3, 3)], [1], 0, (10,)),
-            ((3, 12, 12), 1, [(12, 3, 3, 3)], [(1, 1)], 0, (10,)),
-            ((8, 12, 12), 1, [(16, 8, 3, 3)], [(2, 2)], 0, (10,)),
-            ((8, 12, 12), 1, [(16, 8, 4, 4)], [2], 0, (10,)),
-            ((4, 12, 12), 1, [(8, 4, 3, 3)], [1], 0, (4, 2)),
-            ((4, 24, 24), 1, [(8, 4, 3, 3)], [2], 0, 10),
-            ((12, 12, 12), 1, [(6, 12, 3, 3)], [1], 0, (3, 3)),
-            ((4, 24, 24), 1, [(8, 4, 4, 4)], [2], 0, (10,)),
-            ((8, 32, 32), 1, [(4, 8, 3, 3)], [2], 0, 10),
+            ((3, 11, 11), 1, [(1, 3, 3, 3)], [1], [1], (10,)),
+            ((3, 12, 12), 1, [(12, 3, 3, 3)], [(1, 1)], [2], (10,)),
+            ((8, 12, 12), 1, [(16, 8, 3, 3)], [(2, 2)], [2], (10,)),
+            ((8, 12, 12), 1, [(16, 8, 4, 4)], [2], [1], (10,)),
+            ((4, 12, 12), 1, [(8, 4, 3, 3)], [1], [0], (4, 2)),
+            ((4, 24, 24), 1, [(8, 4, 3, 3)], [2], [0], 10),
+            ((12, 12, 12), 1, [(6, 12, 3, 3)], [1], [0], (3, 3)),
+            ((4, 24, 24), 1, [(8, 4, 4, 4)], [2], [0], (10,)),
+            ((8, 32, 32), 1, [(4, 8, 3, 3)], [2], [0], 10),
             # n_conv = 2
-            ((4, 32, 32), 2, [(8, 4, 3, 3), (12, 8, 4, 4)], [(2, 2), (2, 2)], 0, 10),
-            ((4, 32, 32), 2, [(8, 4, 3, 3), (12, 8, 4, 4)], [(2, 2), (1, 1)], 0, 10),
-            ((1, 32, 32), 2, [(1, 1, 3, 3), (1, 1, 3, 3)], [2, 2], 0, 10),
-            ((1, 32, 32), 2, [(1, 1, 4, 4), (1, 1, 4, 4)], [1, 2], 0, 10),
-            ((1, 32, 32), 2, [(1, 1, 4, 4), (1, 1, 4, 4)], [2, 2], 0, 10),
-            ((1, 24, 24), 2, [(1, 1, 3, 3), (1, 1, 4, 4)], [1, 2], 0, 10),
-            ((1, 24, 24), 2, [(1, 1, 3, 3), (1, 1, 4, 4)], [2, 2], 0, 10),
+            ((1, 5, 5), 2, [(1, 1, 3, 3), (1, 1, 3, 3)], [(1, 1), (1, 1)], [2, 2], 10),
+            ((4, 32, 32), 2, [(8, 4, 3, 3), (12, 8, 4, 4)], [(2, 2), (2, 2)], [1, 1], 10),
+            ((4, 32, 32), 2, [(8, 4, 3, 3), (12, 8, 4, 4)], [(2, 2), (1, 1)], [1, 2], 10),
+            ((1, 32, 32), 2, [(1, 1, 3, 3), (1, 1, 3, 3)], [2, 2], [2, 2], 10),
+            ((1, 32, 32), 2, [(1, 1, 4, 4), (1, 1, 4, 4)], [1, 2], [2, 2], 10),
+            ((1, 32, 32), 2, [(1, 1, 4, 4), (1, 1, 4, 4)], [2, 2], [2, 2], 10),
+            ((1, 24, 24), 2, [(1, 1, 3, 3), (1, 1, 4, 4)], [1, 2], [2, 1], 10),
+            ((1, 24, 24), 2, [(1, 1, 3, 3), (1, 1, 3, 3)], [2, 2], [2, 2], 10),
+
             # n_conv = 3
             (
                 (4, 32, 32),
                 3,
                 [(8, 4, 3, 3), (16, 8, 3, 3), (8, 16, 2, 2)],
-                [2, 1, 1],
-                0,
+                [1, 1, 1],
+                [1, 1, 1],
                 3,
             ),
             (
@@ -865,8 +867,33 @@ class TestFunctionalModules:
                 3,
                 [(16, 3, 3, 3), (32, 16, 3, 3), (10, 32, 3, 3)],
                 [1, 1, 1],
-                0,
+                [1, 0, 1],
                 10,
+            ),
+            (
+                    (1, 224, 224),
+                    3,
+                    [(1, 1, 7, 7), (1, 1, 5, 5), (1, 1, 3, 3)],
+                    [2, 2, 2],
+                    [3, 2, 1],
+                    10,
+            ),
+            (
+                    (3, 32, 32),
+                    3,
+                    [(3, 3, 3, 3), (3, 3, 2, 2), (3, 3, 3, 3)],
+                    [1, 2, 1],
+                    [1, 0, 1],
+                    10,
+            ),
+            # n_conv = 5
+            (
+                    (3, 32, 32),
+                    5,
+                    [(3, 3, 3, 3), (3, 3, 2, 2), (3, 3, 3, 3), (3, 3, 2, 2), (3, 3, 3, 3)],
+                    [1, 2, 1, 2, 1],
+                    [1, 0, 1, 0, 1],
+                    10,
             ),
         ],
     )
@@ -876,7 +903,7 @@ class TestFunctionalModules:
         n_conv,
         kshape_oihw,
         stride,
-        padding1,
+        padding,
         out_features,
         fixed_rng,
     ):
@@ -888,24 +915,26 @@ class TestFunctionalModules:
 
         kernels = []
         strides = []
-        paddings = [_pair(padding1)] + [(0, 0) for _ in range(1, n_conv)]
+        paddings = []
         ocs = []
         ohs = []
         ows = []
 
         for i_conv in range(n_conv):
-            kshape, s = kshape_oihw[i_conv], stride[i_conv]
+            kshape, s, p = kshape_oihw[i_conv], stride[i_conv], padding[i_conv]
 
             k = np.random.randint(-3, 4, size=kshape, dtype=WEIGHT_DTYPE)
             _stride = _pair(s)
+            _padding = _pair(p)
             kernels.append(k)
             strides.append(_stride)
+            paddings.append(_padding)
 
             ih = ishape_chw[1] if i_conv == 0 else ohs[-1]
             iw = ishape_chw[2] if i_conv == 0 else ows[-1]
             oc = kshape[0]
-            oh = (ih - kshape[2]) // _stride[0] + 1
-            ow = (iw - kshape[3]) // _stride[1] + 1
+            oh = (ih - kshape[2] + 2 * paddings[i_conv][0]) // _stride[0] + 1
+            ow = (iw - kshape[3] + 2 * paddings[i_conv][0]) // _stride[1] + 1
             ocs.append(oc)
             ohs.append(oh)
             ows.append(ow)
@@ -943,20 +972,25 @@ class TestFunctionalModules:
         ts_1st_valid = [0] * n_conv
         for i in range(n_conv):
             if i == 0:
-                ts_1st_valid[i] = kshape_oihw[0][-1] * semi_valid_interval[0]
+                ts_1st_valid[i] = (kshape_oihw[0][-1] - padding[0]) * semi_valid_interval[0]
             else:
                 ts_1st_valid[i] = (
                     ts_1st_valid[i - 1]
-                    + (kshape_oihw[i][-1] - 1) * semi_valid_interval[i]
+                    + (kshape_oihw[i][-1] - 1 - padding[i]) * semi_valid_interval[i]
                 )
 
         n_test = 3  # can be more
         for _ in range(n_test):
             sim1.reset()
             inpa = fixed_rng.integers(0, 4, size=ishape_chw, dtype=NEUOUT_U8_DTYPE)
-            inp_pad0 = np.concatenate(
-                [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
-            )
+            if inpa.shape[-1] < 10:
+                inp_pad0 = np.concatenate(
+                    [inpa, np.zeros((inpa.shape[0], inpa.shape[1], 15), dtype=inpa.dtype)], axis=2, dtype=inpa.dtype
+                )
+            else:
+                inp_pad0 = np.concatenate(
+                    [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
+                )
 
             for i in range(inp_pad0.shape[-1]):
                 pb.FRONTEND_ENV.save(data1=inp_pad0[:, :, i])
@@ -974,7 +1008,7 @@ class TestFunctionalModules:
                     )
                 )
 
-                # Check the result of semi-folded convolutions.
+                #Check the result of semi-folded convolutions.
                 for i in range(ows[i_conv]):
                     assert np.array_equal(
                         x[:, :, i].ravel(),
@@ -988,6 +1022,7 @@ class TestFunctionalModules:
 
             # x is the reference result of the last convolution.
             expected_fc_t = _ann_bit_trunc(x.ravel() @ fc_weight.astype(VOLTAGE_DTYPE))
+
             # Check the result of semi-folded linear.
             assert np.array_equal(
                 expected_fc_t,
