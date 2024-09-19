@@ -125,13 +125,13 @@ pytest = "^8.0.0"
 
 6. 固定种子的随机数生成器。该夹具返回一个固定的随机数生成器，通过该生成器生成的随机数可复现。
 
-    ```python
-    @pytest.fixture
-    def fixed_rng() -> np.random.Generator:
-        return np.random.default_rng(42)
+   ```python
+   @pytest.fixture
+   def fixed_rng() -> np.random.Generator:
+       return np.random.default_rng(42)
 
-    def test_foo(fixed_rng):
-        fixed_rng.random(...)
+   def test_foo(fixed_rng):
+       fixed_rng.random(...)
    ```
 
 ## 更多

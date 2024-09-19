@@ -7,15 +7,15 @@ import numpy as np
 from paicorelib import NTM, RM, TM
 
 from paibox.base import NeuDyn, NodeList
-from paibox.exceptions import PAIBoxDeprecationWarning, ShapeError, ResourceError
+from paibox.exceptions import PAIBoxDeprecationWarning, ResourceError, ShapeError
 from paibox.network import DynSysGroup
 from paibox.types import (
     LEAK_V_DTYPE,
     NEUOUT_U8_DTYPE,
     VOLTAGE_DTYPE,
     WEIGHT_DTYPE,
-    IntScalarType,
     DataType,
+    IntScalarType,
     NeuOutType,
     VoltageType,
     WeightType,
@@ -37,7 +37,7 @@ from .neuron.base import MetaNeuron
 from .neuron.neurons import *
 from .neuron.utils import vjt_overflow
 from .projection import InputProj
-from .synapses import ConnType, FullConnSyn, Conv2dSemiFoldedSyn, MaxPool2dSemiFoldedSyn
+from .synapses import ConnType, Conv2dSemiFoldedSyn, FullConnSyn, MaxPool2dSemiFoldedSyn
 from .synapses.conv_types import _Size1Type, _Size2Type
 from .synapses.conv_utils import _pair
 
@@ -872,7 +872,9 @@ class LinearSemiFolded(_LinearBase, _SemiFoldedModule):
 
         in_ch, in_h = self.module_intf.operands[0].shape_out
         if in_ch * in_h * in_h * valid_interval > 18432:
-            raise ResourceError(f"The {self.name} input size is too large. Please adjust the input size or the number of channels.")
+            raise ResourceError(
+                f"The {self.name} input size is too large. Please adjust the input size or the number of channels."
+            )
         n_delays = NodeList()
         s_delays = NodeList()
         s_weight = NodeList()
@@ -982,7 +984,11 @@ class Conv2dSemiFolded(_SemiFoldedModule):
         raise NotImplementedError
 
     def build(
-        self, network: DynSysGroup, valid_interval: int, input_valid: int, **build_options
+        self,
+        network: DynSysGroup,
+        valid_interval: int,
+        input_valid: int,
+        **build_options,
     ) -> BuiltComponentType:
         assert len(self.module_intf.operands[0].shape_out) == 2
         # if len(self.module_intf.operands[0].shape_out) != 2:
@@ -993,14 +999,15 @@ class Conv2dSemiFolded(_SemiFoldedModule):
         self.valid_interval = valid_interval
         _, in_h = self.module_intf.operands[0].shape_out
         _, cin, _, kw = self.kernel.shape
-        ts_1st_valid = (
-                input_valid
-                + (kw - 1 - self.padding[0]) * valid_interval
-        )
+        ts_1st_valid = input_valid + (kw - 1 - self.padding[0]) * valid_interval
         self.ts_1st_valid = ts_1st_valid
-        tick_wait_end = 1 + ts_1st_valid + (self.shape_out[1]-1) * valid_interval * self.stride[1]
+        tick_wait_end = (
+            1 + ts_1st_valid + (self.shape_out[1] - 1) * valid_interval * self.stride[1]
+        )
         if cin * in_h * kw * valid_interval > 18432:
-            raise ResourceError(f"The {self.name} input size is too large. Please adjust the input size or the number of channels.")
+            raise ResourceError(
+                f"The {self.name} input size is too large. Please adjust the input size or the number of channels."
+            )
         n_delays = NodeList()
         n_copies = NodeList()
         s_delays = NodeList()
@@ -1052,7 +1059,7 @@ class Conv2dSemiFolded(_SemiFoldedModule):
             for i in range(self.padding[0]):
                 neuron = ANNBypassNeuron(
                     (cin, in_h),
-                    delay=valid_interval * (kw-1-i) + 1,
+                    delay=valid_interval * (kw - 1 - i) + 1,
                     tick_wait_start=self.tick_wait_start,
                     tick_wait_end=input_valid,
                     keep_shape=self.keep_shape,
@@ -1235,7 +1242,11 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
         raise NotImplementedError
 
     def build(
-        self, network: DynSysGroup, valid_interval: int, input_valid: int, **build_options
+        self,
+        network: DynSysGroup,
+        valid_interval: int,
+        input_valid: int,
+        **build_options,
     ) -> BuiltComponentType:
         assert len(self.module_intf.operands[0].shape_out) == 2
         # if len(self.module_intf.operands[0].shape_out) != 2:
@@ -1249,15 +1260,16 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
         cin = in_ch
         _, kw = self.kernel_size
 
-        ts_1st_valid = (
-                input_valid
-                + (kw - 1) * valid_interval
-        )
+        ts_1st_valid = input_valid + (kw - 1) * valid_interval
         self.ts_1st_valid = ts_1st_valid
-        tick_wait_end = 1 + ts_1st_valid + (self.shape_out[1] - 1) * valid_interval * self.stride[1]
+        tick_wait_end = (
+            1 + ts_1st_valid + (self.shape_out[1] - 1) * valid_interval * self.stride[1]
+        )
 
         if cin * in_h * kw * valid_interval > 18432:
-            raise ResourceError(f"The {self.name} input size is too large. Please adjust the input size or the number of channels.")
+            raise ResourceError(
+                f"The {self.name} input size is too large. Please adjust the input size or the number of channels."
+            )
 
         n_delays = NodeList()
         s_delays = NodeList()
@@ -1348,7 +1360,11 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
         raise NotImplementedError
 
     def build(
-        self, network: DynSysGroup, valid_interval: int, input_valid: int, **build_options
+        self,
+        network: DynSysGroup,
+        valid_interval: int,
+        input_valid: int,
+        **build_options,
     ) -> BuiltComponentType:
         assert len(self.module_intf.operands[0].shape_out) == 2
         # if len(self.module_intf.operands[0].shape_out) != 2:
@@ -1362,7 +1378,9 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
         cin = in_ch
         kh, kw = self.kernel_size
         if cin * in_h * kw * valid_interval > 18432:
-            raise ResourceError(f"The {self.name} input size is too large. Please adjust the input size or the number of channels.")
+            raise ResourceError(
+                f"The {self.name} input size is too large. Please adjust the input size or the number of channels."
+            )
 
         # NOTE: Division is achieved with the help of truncation operation.
         # It can only be approximated to a power of an integer of 2.
