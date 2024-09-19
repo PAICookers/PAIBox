@@ -5,14 +5,14 @@ import paibox as pb
 from paibox.base import DynamicSys
 from paibox.components import NeuModule
 from paibox.components.neuron.base import MetaNeuron
-from paibox.components.synapses.conv_utils import _pair, _single, _conv2d_faster
+from paibox.components.synapses.conv_utils import _conv2d_faster, _pair, _single
 from paibox.network import DynSysGroup
 from paibox.types import (
+    NEUOUT_U8_DTYPE,
     VOLTAGE_DTYPE,
     WEIGHT_DTYPE,
     NeuOutType,
     VoltageType,
-    NEUOUT_U8_DTYPE,
 )
 from paibox.utils import as_shape, shape2num, typical_round
 
@@ -845,14 +845,27 @@ class TestFunctionalModules:
             ((8, 32, 32), 1, [(4, 8, 3, 3)], [2], [0], 10),
             # n_conv = 2
             ((1, 5, 5), 2, [(1, 1, 3, 3), (1, 1, 3, 3)], [(1, 1), (1, 1)], [2, 2], 10),
-            ((4, 32, 32), 2, [(8, 4, 3, 3), (12, 8, 4, 4)], [(2, 2), (2, 2)], [1, 1], 10),
-            ((4, 32, 32), 2, [(8, 4, 3, 3), (12, 8, 4, 4)], [(2, 2), (1, 1)], [1, 2], 10),
+            (
+                (4, 32, 32),
+                2,
+                [(8, 4, 3, 3), (12, 8, 4, 4)],
+                [(2, 2), (2, 2)],
+                [1, 1],
+                10,
+            ),
+            (
+                (4, 32, 32),
+                2,
+                [(8, 4, 3, 3), (12, 8, 4, 4)],
+                [(2, 2), (1, 1)],
+                [1, 2],
+                10,
+            ),
             ((1, 32, 32), 2, [(1, 1, 3, 3), (1, 1, 3, 3)], [2, 2], [2, 2], 10),
             ((1, 32, 32), 2, [(1, 1, 4, 4), (1, 1, 4, 4)], [1, 2], [2, 2], 10),
             ((1, 32, 32), 2, [(1, 1, 4, 4), (1, 1, 4, 4)], [2, 2], [2, 2], 10),
             ((1, 24, 24), 2, [(1, 1, 3, 3), (1, 1, 4, 4)], [1, 2], [2, 1], 10),
             ((1, 24, 24), 2, [(1, 1, 3, 3), (1, 1, 3, 3)], [2, 2], [2, 2], 10),
-
             # n_conv = 3
             (
                 (4, 32, 32),
@@ -871,29 +884,29 @@ class TestFunctionalModules:
                 10,
             ),
             (
-                    (1, 224, 224),
-                    3,
-                    [(1, 1, 7, 7), (1, 1, 5, 5), (1, 1, 3, 3)],
-                    [2, 2, 2],
-                    [3, 2, 1],
-                    10,
+                (1, 224, 224),
+                3,
+                [(1, 1, 7, 7), (1, 1, 5, 5), (1, 1, 3, 3)],
+                [2, 2, 2],
+                [3, 2, 1],
+                10,
             ),
             (
-                    (3, 32, 32),
-                    3,
-                    [(3, 3, 3, 3), (3, 3, 2, 2), (3, 3, 3, 3)],
-                    [1, 2, 1],
-                    [1, 0, 1],
-                    10,
+                (3, 32, 32),
+                3,
+                [(3, 3, 3, 3), (3, 3, 2, 2), (3, 3, 3, 3)],
+                [1, 2, 1],
+                [1, 0, 1],
+                10,
             ),
             # n_conv = 5
             (
-                    (3, 32, 32),
-                    5,
-                    [(3, 3, 3, 3), (3, 3, 2, 2), (3, 3, 3, 3), (3, 3, 2, 2), (3, 3, 3, 3)],
-                    [1, 2, 1, 2, 1],
-                    [1, 0, 1, 0, 1],
-                    10,
+                (3, 32, 32),
+                5,
+                [(3, 3, 3, 3), (3, 3, 2, 2), (3, 3, 3, 3), (3, 3, 2, 2), (3, 3, 3, 3)],
+                [1, 2, 1, 2, 1],
+                [1, 0, 1, 0, 1],
+                10,
             ),
         ],
     )
@@ -972,7 +985,9 @@ class TestFunctionalModules:
         ts_1st_valid = [0] * n_conv
         for i in range(n_conv):
             if i == 0:
-                ts_1st_valid[i] = (kshape_oihw[0][-1] - padding[0]) * semi_valid_interval[0]
+                ts_1st_valid[i] = (
+                    kshape_oihw[0][-1] - padding[0]
+                ) * semi_valid_interval[0]
             else:
                 ts_1st_valid[i] = (
                     ts_1st_valid[i - 1]
@@ -985,7 +1000,12 @@ class TestFunctionalModules:
             inpa = fixed_rng.integers(0, 4, size=ishape_chw, dtype=NEUOUT_U8_DTYPE)
             if inpa.shape[-1] < 10:
                 inp_pad0 = np.concatenate(
-                    [inpa, np.zeros((inpa.shape[0], inpa.shape[1], 15), dtype=inpa.dtype)], axis=2, dtype=inpa.dtype
+                    [
+                        inpa,
+                        np.zeros((inpa.shape[0], inpa.shape[1], 15), dtype=inpa.dtype),
+                    ],
+                    axis=2,
+                    dtype=inpa.dtype,
                 )
             else:
                 inp_pad0 = np.concatenate(
@@ -1008,7 +1028,7 @@ class TestFunctionalModules:
                     )
                 )
 
-                #Check the result of semi-folded convolutions.
+                # Check the result of semi-folded convolutions.
                 for i in range(ows[i_conv]):
                     assert np.array_equal(
                         x[:, :, i].ravel(),

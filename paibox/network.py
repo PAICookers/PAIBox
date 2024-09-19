@@ -1,5 +1,6 @@
-from typing import Optional, Union
 import sys
+from typing import Optional, Union
+
 import numpy as np
 
 from .base import DynamicSys, SynSys
@@ -8,7 +9,6 @@ from .components import NeuModule, Neuron, Projection
 from .components.modules import BuiltComponentType
 from .mixin import Container
 from .node import NodeDict, NodeList
-
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias

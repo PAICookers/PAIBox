@@ -2,7 +2,6 @@ import time
 from contextlib import contextmanager
 from typing import Any, Generator
 
-
 __all__ = ["measure_time"]
 
 

@@ -198,17 +198,17 @@ def _conv2d_semifolded_unroll(
         for j in range(cin):
             w_block = np.zeros((ih, oh), dtype=kernel.dtype)
             for k in range(oh):
-                w_block[
-                    k * stride[1] : k * stride[1] + kh, k
-                ] = kernel[i, j, :]
+                w_block[k * stride[1] : k * stride[1] + kh, k] = kernel[i, j, :]
 
-            if padding[0] > 0:# H direction
+            if padding[0] > 0:  # H direction
                 w_block = np.delete(
                     w_block,
                     np.hstack((np.arange(padding[0]), np.arange(ih - padding[0], ih))),
                     axis=0,
                 )
-            w_np[j*in_shape[1]: (j+1)*in_shape[1], i*oh : (i+1)*oh] = w_block
+            w_np[j * in_shape[1] : (j + 1) * in_shape[1], i * oh : (i + 1) * oh] = (
+                w_block
+            )
     return w_np
 
 

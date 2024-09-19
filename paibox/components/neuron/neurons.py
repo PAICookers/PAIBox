@@ -1,3 +1,4 @@
+import sys
 from typing import Optional
 
 import numpy as np
@@ -8,8 +9,6 @@ from paibox.types import LEAK_V_DTYPE, DataType, Shape
 
 from .base import Neuron
 from .utils import LEAK_V_MAX
-
-import sys
 
 if sys.version_info >= (3, 13):
     from typing import deprecated
