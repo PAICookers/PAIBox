@@ -51,6 +51,8 @@ WRAM_PACKED_DTYPE = np.uint64
 WRAMUnpackedType: TypeAlias = NDArray[WRAM_UNPACKED_DTYPE]
 # Type of packed weight in WRAM
 WRAMPackedType: TypeAlias = NDArray[WRAM_PACKED_DTYPE]
+N_BIT_PACKED_WEIGHT = WRAM_PACKED_DTYPE(1).nbytes * 8  # #N bits of packed weight
+
 _COORD_UNSET = 0
 _DEGREE_UNSET = -1
 
