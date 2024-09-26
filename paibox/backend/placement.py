@@ -655,7 +655,7 @@ class CorePlacement(CoreAbstract):
         # fmt: off
         cb_config = CoreConfig(
             self.name,                          # name of the core
-            self.weight_width,             # weight_precision
+            self.weight_width,                  # weight_precision
             self.lcn_ex,                        # lcn_extension
             _mode_params[0],                    # input_width_format
             _mode_params[1],                    # spike_width_format
@@ -708,7 +708,7 @@ class CorePlacement(CoreAbstract):
             for ad in axon_dests:
                 dest_core_coords.extend(ad.core_coords)
 
-            config = NeuronConfig.encapsulate(
+            config = NeuronConfig(
                 neu_seg, axon_coords, dest_core_coords, axon_dests[0].chip_coord
             )
 
@@ -724,7 +724,7 @@ class CorePlacement(CoreAbstract):
                 for i in range(axon_addr_offset, axon_addr_offset + neu_seg.n_neuron)
             ]
 
-            config = NeuronConfig.encapsulate(
+            config = NeuronConfig(
                 neu_seg,
                 axon_coords,
                 [output_core_coord],
@@ -784,8 +784,7 @@ class CorePlacement(CoreAbstract):
 
     @property
     def n_working_dendrite(self) -> int:
-        """The number of actual working dendrites. IN ANN mode, the number of working   \
-            dendrites N <= 4096. In SNN mode, N <= 512.
+        """The number of actual working dendrites.
 
         NOTE: n_neuron * (2^comb_rate) = n_neuron << comb_rate
         """
