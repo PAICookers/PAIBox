@@ -6,6 +6,7 @@ from typing import ClassVar, Literal, Optional, overload
 import numpy as np
 from paicorelib import LCN_EX, ChipCoord, Coord, CoreMode, HwConfig, MaxPoolingEnable
 from paicorelib import WeightWidth as WW
+from paicorelib.framelib import OfflineFrameGen
 
 from paibox.components import FullConnectedSyn, Neuron
 from paibox.exceptions import GraphBuildError, ResourceError, TruncationWarning
@@ -17,6 +18,7 @@ from .context import _BACKEND_CONTEXT
 from .segment_utils import aligned_coords, get_axon_segments, get_neu_segments
 from .types import (
     _COORD_UNSET,
+    _RID_UNSET,
     WRAM_PACKED_DTYPE,
     WRAM_UNPACKED_DTYPE,
     N_BIT_PACKED_WEIGHT,
@@ -85,7 +87,7 @@ class CoreBlock(CoreAbstract):
         self.target_lcn = LCN_EX.LCN_1X
         self._lcn_locked = False
         self.core_coords = []
-        self.chip_coord = Coord(_COORD_UNSET, _COORD_UNSET)
+        self.chip_coord = _COORD_UNSET
         self.core_placements = dict()
         self.axon_segments = dict()
         self.neuron_segs_of_cb = []
@@ -572,9 +574,6 @@ class CorePlacement(CoreAbstract):
             18 uint64.
             (1152, x) -> (x, 1152) -> (x*18, 64) -> (x*18, 8) uint8 -> (x*18, 1) uint64 -> (x, 18) uint64.
         """
-        # #N of u64 on each NRAM address
-        _n_u64_naddr = CorePlacement.WRAM_BASE_SHAPE[0] // N_BIT_PACKED_WEIGHT
-
         # Reshape to 64 columns to avoid contiguous problem.
         w_unpacked_aligned = w_unpacked.T.reshape((-1, N_BIT_PACKED_WEIGHT))
         # (x*18, 64) uint8 -> (x*18, 8) uint8
@@ -582,10 +581,73 @@ class CorePlacement(CoreAbstract):
             w_unpacked_aligned, axis=1, bitorder=HwConfig.WEIGHT_BITORDER
         )
         # (x*18, 8) uint8 -> (x*18, 1) uint64 -> (x, 18) uint64
-        w_packed_u64 = w_packed_u8.view(WRAM_PACKED_DTYPE).reshape((-1, _n_u64_naddr))
+        w_packed_u64 = w_packed_u8.view(WRAM_PACKED_DTYPE).reshape(
+            (w_unpacked.shape[1], -1)
+        )
         w_packed_u64.setflags(write=False)
 
         return w_packed_u64
+
+    @staticmethod
+    def neu_params_mapping(neu_confs: list[NeuronConfig]) -> WRAMPackedType:
+        """Map the extra neurons parameters to the WRAM. This only happens when the input width is 8 bits.
+
+        NOTE: This function was tested using only the prototype functions. For test items, please refer to              \
+            `tests/backend/test_placement.py::TestWeightRamMapping` for details.
+
+        Return:
+            The packed matrix of extra neurons parameters mapped to the WRAM, with shape (x, 18) (x <= 512).
+        """
+        neu_conf_params_list: list[WRAMUnpackedType] = []
+
+        for neu_conf in neu_confs:
+            neu_conf_params = np.zeros(
+                (neu_conf.neu_seg.n_neuron, NEURON_PARAMS_BIT_LENGTH),
+                dtype=WRAM_UNPACKED_DTYPE,
+            )
+
+            # Only the packges will be used.
+            frame3 = OfflineFrameGen.gen_config_frame3(
+                _COORD_UNSET,
+                _COORD_UNSET,
+                _RID_UNSET,
+                0,
+                neu_conf.neu_seg.n_neuron,
+                neu_conf.neuron_attrs,
+                neu_conf.neuron_dest_info,
+                1,
+            )
+
+            for i in range(neu_conf.neu_seg.n_neuron):
+                params = frame3.packages[i * 4 : (i + 1) * 4]
+                neu_conf_params[i, :] = np.unpackbits(
+                    params.view(WRAM_UNPACKED_DTYPE), axis=0, bitorder="little"
+                )[:NEURON_PARAMS_BIT_LENGTH]
+
+            neu_conf_params_list.append(neu_conf_params)
+
+        neu_params = np.vstack(neu_conf_params_list)
+
+        N_NEURON_PARAM_IN_COL = (
+            CorePlacement.WRAM_BASE_SHAPE[0] // NEURON_PARAMS_BIT_LENGTH
+        )
+        n_col_occupied, r = divmod(neu_params.shape[0], N_NEURON_PARAM_IN_COL)
+        if r > 0:
+            n_col_occupied += 1
+            neu_params = np.pad(neu_params, ((0, N_NEURON_PARAM_IN_COL - r), (0, 0)))
+
+        neu_params = neu_params.reshape((n_col_occupied, -1))
+
+        # (1152, y)
+        result = np.zeros(
+            (CorePlacement.WRAM_BASE_SHAPE[0], n_col_occupied),
+            dtype=WRAM_UNPACKED_DTYPE,
+        )
+        _n_bit_nparams = NEURON_PARAMS_BIT_LENGTH * N_NEURON_PARAM_IN_COL
+        result[:_n_bit_nparams] = neu_params.T
+
+        # (1152, y) -> (y, 18)
+        return CorePlacement._weight_pack(result)
 
     def export_param_config(self) -> CoreConfig:
         _mode_params = self.rt_mode.conf
@@ -807,3 +869,6 @@ if hasattr(HwConfig, "FANOUT_IW8"):
     FANOUT_IW8 = HwConfig.FANOUT_IW8  # type: ignore
 else:
     FANOUT_IW8 = [HwConfig.N_NEURON_MAX_ANN, 1364, 876, 512, 256, 128, 64, 32, 16, 8]
+
+
+NEURON_PARAMS_BIT_LENGTH = 214

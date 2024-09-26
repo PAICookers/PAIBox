@@ -12,8 +12,8 @@ if sys.version_info >= (3, 10):
 else:
     from typing_extensions import TypeAlias
 
-from paicorelib import CoreMode, HwConfig
-
+from paicorelib import Coord, CoreMode
+from paicorelib import ReplicationId as RId
 from paibox.base import PAIBoxObject
 from paibox.components import FullConnectedSyn, InputProj, Neuron
 
@@ -53,7 +53,8 @@ WRAMUnpackedType: TypeAlias = NDArray[WRAM_UNPACKED_DTYPE]
 WRAMPackedType: TypeAlias = NDArray[WRAM_PACKED_DTYPE]
 N_BIT_PACKED_WEIGHT = WRAM_PACKED_DTYPE(1).nbytes * 8  # #N bits of packed weight
 
-_COORD_UNSET = 0
+_COORD_UNSET = Coord(0, 0)
+_RID_UNSET = RId(0, 0)
 _DEGREE_UNSET = -1
 
 
@@ -164,7 +165,7 @@ class NeuSegment:
     @property
     def attrs(self) -> dict[str, Any]:
         return self.target._slice_attrs(self.index)
-    
+
     @property
     def addr_ram(self) -> list[int]:
         """Convert index of neuron into RAM address."""
