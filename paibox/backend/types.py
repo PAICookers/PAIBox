@@ -2,7 +2,7 @@ import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum, auto, unique
-from typing import NamedTuple, Union
+from typing import Any, NamedTuple, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -110,37 +110,70 @@ class NeuSegment:
     offset: int
     repeat: int = 1
 
+    def __getitem__(self, s: slice) -> "NeuSegment":
+        # if isinstance(idx, int):
+        #     if idx < 0:
+        #         _idx = self.n_neuron + idx
+        #         if _idx < 0:
+        #             raise ValueError(f"index out of range: {idx} < 0")
+        #     else:
+        #         _idx = idx
+        #         if _idx > self.n_neuron - 1:
+        #             raise ValueError(f"index out of range: {idx} > {self.n_neuron-1}")
+
+        #     start = self.index.start + _idx
+        #     end = start + 1
+
+        #     return NeuSegment(
+        #         self.target,
+        #         NeuSlice(start, end, self.index.step),
+        #         self.offset + idx,
+        #         self.repeat,
+        #     )
+        _idx_start = s.start if s.start is not None else 0
+        if s.stop is None:
+            _idx_stop = self.n_neuron
+        elif s.stop < 0:
+            _idx_stop = self.n_neuron + s.stop
+        else:
+            _idx_stop = s.stop
+
+        if (_n_idx := _idx_stop - _idx_start) > self.n_neuron:
+            raise IndexError(f"index out of range: {_n_idx} > {self.n_neuron}")
+
+        start = self.index.start + _idx_start
+        end = self.index.start + _idx_stop
+
+        return NeuSegment(
+            self.target,
+            NeuSlice(start, end, self.index.step),
+            self.offset + _idx_start,
+            self.repeat,
+        )
+
     @property
     def n_neuron(self) -> int:
+        """#N of unique neurons in this segment."""
         return self.index.stop - self.index.start
 
     @property
-    def n_addr(self) -> int:
+    def n_occupied_addr(self) -> int:
+        """#N of neuron addresses the segment occupies in the RAM."""
         return self.repeat * self.n_neuron
 
     @property
+    def attrs(self) -> dict[str, Any]:
+        return self.target._slice_attrs(self.index)
+    
+    @property
     def addr_ram(self) -> list[int]:
         """Convert index of neuron into RAM address."""
-        return list(range(self.offset, self.addr_max, 1))
+        return list(range(self.offset, self.offset + self.n_occupied_addr, 1))
 
     @property
-    def addr_max(self) -> int:
-        if (
-            _addr_max := self.offset + self.repeat * self.n_neuron
-        ) > HwConfig.ADDR_RAM_MAX + 1:
-            raise ValueError(
-                f"neuron RAM address out of range {HwConfig.ADDR_RAM_MAX + 1} ({_addr_max})."
-            )
-
-        return _addr_max
-
-    @property
-    def addr_slice(self) -> slice:
-        """Display the RAM address in slice format."""
-        return slice(self.offset, self.addr_max, self.repeat)
-
-    def __str__(self) -> str:
-        return f"NeuSeg {self.target.name} at offset {self.offset}"
+    def _addr_ram_repr(self) -> slice:
+        """Represent the slice of neuron RAM address."""
+        return slice(self.offset, self.offset + self.n_occupied_addr, self.repeat)
 
 
 NeuSegOfCorePlm: TypeAlias = list[NeuSegment]
