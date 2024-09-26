@@ -472,11 +472,14 @@ class CorePlacement(CoreAbstract):
 
             This function was tested using only the prototype functions. For test items, please refer to                \
             tests/backend/test_placement.py::TestWeightRamMapping for details.
+
+        Return:
+            The packed matrix of weights mapped to the WRAM, with shape (x, 18) (x <= 512).
         """
         w_folded = self._fold_raw_weights(self.raw_weights)
         folded_row, _ = w_folded.shape
         # The 1152*512 unpacked weight, uint8 but only 0 & 1.
-        wram_unpacked = np.zeros(self.WRAM_BASE_SHAPE, dtype=WRAM_UNPACKED_DTYPE)
+        # wram_unpacked = np.zeros(self.WRAM_BASE_SHAPE, dtype=WRAM_UNPACKED_DTYPE)
 
         if is_iw8(self.rt_mode):
             # The length of slot for each bit of input data
@@ -495,9 +498,7 @@ class CorePlacement(CoreAbstract):
         )
 
         # (N, M)(int8) -> (M, N, 1)(uint8)
-        w_folded_3d = np.expand_dims(w_folded.T, axis=2).view(
-            WRAM_UNPACKED_DTYPE
-        )
+        w_folded_3d = np.expand_dims(w_folded.T, axis=2).view(WRAM_UNPACKED_DTYPE)
         for c in range(orig_col):
             for lcn in range(self.n_timeslot):
                 # For every column, unpack the array (N, 1) -> (N, n_weight_bits)
@@ -529,9 +530,10 @@ class CorePlacement(CoreAbstract):
 
         # For 8-bit input width, here is only the weight mapped to the WRAM. Extra neurons
         # paramaters will be mapped to the WRAM when exporting the configuration frames.
-        wram_unpacked[:, : w_mapped.shape[1]] = w_mapped
+        # wram_unpacked[:, : w_mapped.shape[1]] = w_mapped
 
-        return self._weight_pack(wram_unpacked)
+        # `w_mapped` is only the weight mapped to the WRAM. The shape[1] of `w_mapped` <= 512.
+        return self._weight_pack(w_mapped)
 
     @staticmethod
     def _nfold_weight(
@@ -566,20 +568,20 @@ class CorePlacement(CoreAbstract):
 
     @staticmethod
     def _weight_pack(w_unpacked: WRAMUnpackedType) -> WRAMPackedType:
-        """Convert the unpacked weights into a mapping format, corresponding to the WRAM address, each address      \
-            contains 18 uint64.
-            (1152, 512) -> T -> (512*18, 64) -> (512*18, 8) uint8 -> (512*18, 1) uint64 -> (512, 18) uint64.
+        """Convert the unpacked weights into a mapping format, corresponding to the WRAM address, each address contains \
+            18 uint64.
+            (1152, x) -> (x, 1152) -> (x*18, 64) -> (x*18, 8) uint8 -> (x*18, 1) uint64 -> (x, 18) uint64.
         """
         # #N of u64 on each NRAM address
         _n_u64_naddr = CorePlacement.WRAM_BASE_SHAPE[0] // N_BIT_PACKED_WEIGHT
 
         # Reshape to 64 columns to avoid contiguous problem.
         w_unpacked_aligned = w_unpacked.T.reshape((-1, N_BIT_PACKED_WEIGHT))
-        # (512*18, 64) uint8 -> (512*18, 8) uint8
+        # (x*18, 64) uint8 -> (x*18, 8) uint8
         w_packed_u8 = np.packbits(
             w_unpacked_aligned, axis=1, bitorder=HwConfig.WEIGHT_BITORDER
         )
-        # (512*18, 8) uint8 -> (512*18, 1) uint64 -> (512, 18) uint64
+        # (x*18, 8) uint8 -> (x*18, 1) uint64 -> (x, 18) uint64
         w_packed_u64 = w_packed_u8.view(WRAM_PACKED_DTYPE).reshape((-1, _n_u64_naddr))
         w_packed_u64.setflags(write=False)
 
