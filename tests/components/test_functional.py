@@ -25,7 +25,7 @@ from .utils import (
 
 
 def _assert_build_fmodule(
-        network: DynSysGroup, n_node_bef_build: int, n_node_aft_build: int
+    network: DynSysGroup, n_node_bef_build: int, n_node_aft_build: int
 ):
     nodes = network.nodes().subset(DynamicSys).unique()
     assert len(nodes) == n_node_bef_build
@@ -427,16 +427,16 @@ class TestFunctionalModules:
         ],
     )
     def test_SpikingPool1d(
-            self,
-            shape,
-            channels,
-            ksize,
-            stride,
-            padding,
-            threshold,
-            fm_order,
-            pool_type,
-            p_binomial,
+        self,
+        shape,
+        channels,
+        ksize,
+        stride,
+        padding,
+        threshold,
+        fm_order,
+        pool_type,
+        p_binomial,
     ):
         from tests.shared_networks import SpikingPool1d_Net
 
@@ -537,16 +537,16 @@ class TestFunctionalModules:
         ],
     )
     def test_SpikingPool2d(
-            self,
-            shape,
-            channels,
-            ksize,
-            stride,
-            padding,
-            threshold,
-            fm_order,
-            pool_type,
-            p_binomial,
+        self,
+        shape,
+        channels,
+        ksize,
+        stride,
+        padding,
+        threshold,
+        fm_order,
+        pool_type,
+        p_binomial,
     ):
         from tests.shared_networks import SpikingPool2d_Net
 
@@ -631,7 +631,7 @@ class TestFunctionalModules:
         ],
     )
     def test_SpikingAvgPool1dWithV(
-            self, shape, channels, ksize, stride, padding, threshold, p_binomial
+        self, shape, channels, ksize, stride, padding, threshold, p_binomial
     ):
         """NOTE: This function is a native implementation of SNNs and is therefore not  \
             compared to the ANN implementation."""
@@ -686,14 +686,14 @@ class TestFunctionalModules:
         ],
     )
     def test_SpikingAvgPool2dWithV(
-            self,
-            shape,
-            channels,
-            ksize,
-            stride,
-            padding,
-            threshold,
-            p_binomial,
+        self,
+        shape,
+        channels,
+        ksize,
+        stride,
+        padding,
+        threshold,
+        p_binomial,
     ):
         """NOTE: This function is a native implementation of SNNs and is therefore not  \
             compared to the ANN implementation."""
@@ -868,20 +868,20 @@ class TestFunctionalModules:
             ((1, 24, 24), 2, [(1, 1, 3, 3), (1, 1, 3, 3)], [2, 2], [2, 2], 10),
             # n_conv = 3
             (
-                    (4, 32, 32),
-                    3,
-                    [(8, 4, 3, 3), (16, 8, 3, 3), (8, 16, 2, 2)],
-                    [1, 1, 1],
-                    [1, 1, 1],
-                    3,
+                (4, 32, 32),
+                3,
+                [(8, 4, 3, 3), (16, 8, 3, 3), (8, 16, 2, 2)],
+                [1, 1, 1],
+                [1, 1, 1],
+                3,
             ),
             (
-                    (3, 32, 32),
-                    3,
-                    [(16, 3, 3, 3), (32, 16, 3, 3), (10, 32, 3, 3)],
-                    [1, 1, 1],
-                    [1, 0, 1],
-                    10,
+                (3, 32, 32),
+                3,
+                [(16, 3, 3, 3), (32, 16, 3, 3), (10, 32, 3, 3)],
+                [1, 1, 1],
+                [1, 0, 1],
+                10,
             ),
             (
                 (1, 224, 224),
@@ -911,14 +911,14 @@ class TestFunctionalModules:
         ],
     )
     def test_Conv2dSemiFolded_FC_ChainNet(
-            self,
-            ishape_chw,
-            n_conv,
-            kshape_oihw,
-            stride,
-            padding,
-            out_features,
-            fixed_rng: np.random.Generator,
+        self,
+        ishape_chw,
+        n_conv,
+        kshape_oihw,
+        stride,
+        padding,
+        out_features,
+        fixed_rng: np.random.Generator,
     ):
         """Test the network with N semi-folded conv2d + 1 semi-folded linear."""
         from tests.shared_networks import Conv2dSemiFolded_FC_ChainNetN
@@ -990,8 +990,8 @@ class TestFunctionalModules:
                 ) * semi_valid_interval[0]
             else:
                 ts_1st_valid[i] = (
-                        ts_1st_valid[i - 1]
-                        + (kshape_oihw[i][-1] - 1 - paddings[i][0]) * semi_valid_interval[i]
+                    ts_1st_valid[i - 1]
+                    + (kshape_oihw[i][-1] - 1 - paddings[i][0]) * semi_valid_interval[i]
                 )
 
         n_test = 3  # can be more
@@ -1037,7 +1037,7 @@ class TestFunctionalModules:
                             + ts_1st_valid[i_conv]
                             + i * semi_valid_interval[i_conv + 1]
                             - 1
-                            ],
+                        ],
                     )
 
             # x is the reference result of the last convolution.
@@ -1051,23 +1051,23 @@ class TestFunctionalModules:
                     + ts_1st_valid[-1]
                     + (ows[-1] - 1) * semi_valid_interval[-1]
                     - 1
-                    ],
+                ],
             )
 
     @pytest.mark.parametrize(
         "ishape_chw, n_pool, kshape_hw, stride, padding, out_features, pool_type",
-        [   # n_pool = 1
+        [  # n_pool = 1
             ((3, 16, 16), 1, [2], [2], [1], (10,), "avg"),
             # n_pool = 2
             ((3, 24, 24), 2, [2, 2], [1, 1], [0, 0], (2, 2), "avg"),
             (
-                    (3, 24, 24),
-                    2,
-                    [(2, 2), (2, 2)],
-                    [None, None],
-                    [1, 1],
-                    (10,),
-                    "avg",
+                (3, 24, 24),
+                2,
+                [(2, 2), (2, 2)],
+                [None, None],
+                [1, 1],
+                (10,),
+                "avg",
             ),
             ((4, 32, 32), 2, [3, 3], [1, 1], [(0, 0), (1, 1)], (10,), "avg"),
             ((1, 8, 8), 2, [3, 3], [1, 1], [(0, 0), (1, 1)], (10,), "avg"),
@@ -1075,22 +1075,37 @@ class TestFunctionalModules:
             ((3, 24, 24), 2, [(2, 2), (2, 2)], [2, 2], [], (10,), "max"),
             ((6, 32, 32), 2, [3, 3], [None, None], [], (10,), "max"),
             # n_pool = 3
-            ((3, 48, 48), 3, [3, 2, 2], [None, None, None], [(1, 1), (0, 0), (1, 1)], (10,), "avg"),
-            ((3, 48, 48), 3, [3, 3, 3], [2, 2, 2], [(2, 2), (0, 0), (1, 1)], (10,), "avg"),
+            (
+                (3, 48, 48),
+                3,
+                [3, 2, 2],
+                [None, None, None],
+                [(1, 1), (0, 0), (1, 1)],
+                (10,),
+                "avg",
+            ),
+            (
+                (3, 48, 48),
+                3,
+                [3, 3, 3],
+                [2, 2, 2],
+                [(2, 2), (0, 0), (1, 1)],
+                (10,),
+                "avg",
+            ),
             ((3, 48, 48), 3, [3, 2, 2], [None, None, None], [], (10,), "max"),
-
         ],
     )
     def test_Pool2dSemiFolded_FC_ChainNet(
-            self,
-            ishape_chw,
-            n_pool,
-            kshape_hw,
-            stride,
-            padding,
-            out_features,
-            pool_type,
-            fixed_rng: np.random.Generator,
+        self,
+        ishape_chw,
+        n_pool,
+        kshape_hw,
+        stride,
+        padding,
+        out_features,
+        pool_type,
+        fixed_rng: np.random.Generator,
     ):
         """Test the network with N semi-folded pool2d + 1 semi-folded linear."""
         from tests.shared_networks import Pool2dSemiFolded_FC_ChainNetN
@@ -1164,11 +1179,13 @@ class TestFunctionalModules:
         ts_1st_valid = [0] * n_pool
         for i in range(n_pool):
             if i == 0:
-                ts_1st_valid[i] = (ksizes[0][-1] - paddings[0][0]) * semi_valid_interval[0]
+                ts_1st_valid[i] = (
+                    ksizes[0][-1] - paddings[0][0]
+                ) * semi_valid_interval[0]
             else:
                 ts_1st_valid[i] = (
-                        ts_1st_valid[i - 1]
-                        + (ksizes[i][-1] - 1 - paddings[i][0]) * semi_valid_interval[i]
+                    ts_1st_valid[i - 1]
+                    + (ksizes[i][-1] - 1 - paddings[i][0]) * semi_valid_interval[i]
                 )
 
         n_test = 3  # can be more
@@ -1202,7 +1219,7 @@ class TestFunctionalModules:
                             + ts_1st_valid[i_pool]
                             + i * semi_valid_interval[i_pool + 1]
                             - 1
-                            ],
+                        ],
                     )
 
             # x is the reference result of the last pooling.
@@ -1216,7 +1233,7 @@ class TestFunctionalModules:
                     + ts_1st_valid[-1]
                     + (ows[-1] - 1) * semi_valid_interval[-1]
                     - 1
-                    ],
+                ],
             )
 
     @pytest.mark.parametrize(

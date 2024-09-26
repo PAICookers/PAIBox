@@ -1308,7 +1308,12 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
                 neuron,
                 pool2d,
                 weights=_poo2d_semifolded_mapping(
-                    cin, in_h, self.shape_out[1], self.kernel_size[0], self.stride, self.padding
+                    cin,
+                    in_h,
+                    self.shape_out[1],
+                    self.kernel_size[0],
+                    self.stride,
+                    self.padding,
                 ),
                 name=f"s{i}_{self.name}",
             )
@@ -1383,19 +1388,18 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
                 f"The {self.name} input size is too large. Please adjust the input size or the number of channels."
             )
 
-        ts_1st_valid = (
-                input_valid
-                + (kw - 1 - self.padding[0]) * valid_interval
-        )
+        ts_1st_valid = input_valid + (kw - 1 - self.padding[0]) * valid_interval
         self.ts_1st_valid = ts_1st_valid
-        tick_wait_end = 1 + ts_1st_valid + (self.shape_out[1] - 1) * valid_interval * self.stride[1]
+        tick_wait_end = (
+            1 + ts_1st_valid + (self.shape_out[1] - 1) * valid_interval * self.stride[1]
+        )
 
         E = math.ceil(math.log2(cin * in_h * kw / 144))
         E = 0 if E < 0 else E
-        if kw * valid_interval > 256 / (2 ** E):
+        if kw * valid_interval > 256 / (2**E):
             raise ResourceError(
-                f"The {self.name} input size is too large. Please adjust the input size or the number of channels.")
-
+                f"The {self.name} input size is too large. Please adjust the input size or the number of channels."
+            )
 
         # NOTE: Division is achieved with the help of truncation operation.
         # It can only be approximated to a power of an integer of 2.
@@ -1438,7 +1442,12 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
                 neuron,
                 pool2d,
                 weights=_poo2d_semifolded_mapping(
-                    cin, in_h, self.shape_out[1], self.kernel_size[0], self.stride, self.padding
+                    cin,
+                    in_h,
+                    self.shape_out[1],
+                    self.kernel_size[0],
+                    self.stride,
+                    self.padding,
                 ),
                 conn_type=ConnType.All2All,
                 name=f"s{i}_{self.name}",
@@ -1448,7 +1457,7 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
             for i in range(self.padding[0]):
                 neuron = ANNBypassNeuron(
                     (cin, in_h),
-                    delay=valid_interval * (kw-1-i) + 1,
+                    delay=valid_interval * (kw - 1 - i) + 1,
                     tick_wait_start=self.tick_wait_start,
                     tick_wait_end=input_valid,
                     keep_shape=self.keep_shape,
@@ -1469,8 +1478,16 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
                 syn2 = FullConnSyn(  # cin, ih -> cout * oh
                     n_copies[i],
                     pool2d,
-                    weights=-(_poo2d_semifolded_mapping(
-                        cin, in_h, self.shape_out[1], self.kernel_size[0], self.stride, self.padding)),
+                    weights=-(
+                        _poo2d_semifolded_mapping(
+                            cin,
+                            in_h,
+                            self.shape_out[1],
+                            self.kernel_size[0],
+                            self.stride,
+                            self.padding,
+                        )
+                    ),
                     conn_type=ConnType.All2All,
                     name=f"neg_s{i}_{self.name}",
                 )
@@ -1592,23 +1609,30 @@ def _delay_mapping(h: int, cin: int) -> WeightType:
 
 
 def _poo2d_semifolded_mapping(
-    cin: int, ih: int, oh: int, kh: int, stride: tuple[int, int], padding: tuple[int, int]
+    cin: int,
+    ih: int,
+    oh: int,
+    kh: int,
+    stride: tuple[int, int],
+    padding: tuple[int, int],
 ) -> WeightType:
     cout = cin
 
     m = np.zeros((cin * ih, cout * oh), dtype=WEIGHT_DTYPE)
-    m_block = np.zeros((ih+2*padding[0], oh), dtype=WEIGHT_DTYPE)
+    m_block = np.zeros((ih + 2 * padding[0], oh), dtype=WEIGHT_DTYPE)
 
     for j in range(oh):
-        m_block[j * stride[1] : j * stride[1] + kh, j] =1
+        m_block[j * stride[1] : j * stride[1] + kh, j] = 1
     if padding[0] > 0:
         m_block = np.delete(
             m_block,
-            np.hstack((np.arange(padding[0]), np.arange(ih + padding[0], ih+2*padding[0]))),
+            np.hstack(
+                (np.arange(padding[0]), np.arange(ih + padding[0], ih + 2 * padding[0]))
+            ),
             axis=0,
         )
 
     for i in range(cout):
-        m[i*ih: i*ih+ih, i*oh:i*oh+oh] = m_block
+        m[i * ih : i * ih + ih, i * oh : i * oh + oh] = m_block
 
     return m

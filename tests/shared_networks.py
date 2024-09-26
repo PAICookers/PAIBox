@@ -290,7 +290,7 @@ _pool_semi_op = {
 
 class Pool2dSemiFolded_FC_ChainNetN(pb.DynSysGroup):
     def __init__(
-            self, shape, kernel_sizes, strides, paddings, out_features, weight, pool_type
+        self, shape, kernel_sizes, strides, paddings, out_features, weight, pool_type
     ):
         super().__init__()
         self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape)
