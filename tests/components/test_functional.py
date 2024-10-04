@@ -986,7 +986,7 @@ class TestFunctionalModules:
         for i in range(n_conv):
             if i == 0:
                 ts_1st_valid[i] = (
-                    kshape_oihw[0][-1] - padding[0]
+                    kshape_oihw[0][-1] - paddings[0][0]
                 ) * semi_valid_interval[0]
             else:
                 ts_1st_valid[i] = (
@@ -1056,7 +1056,8 @@ class TestFunctionalModules:
 
     @pytest.mark.parametrize(
         "ishape_chw, n_pool, kshape_hw, stride, padding, out_features, pool_type",
-        [  # n_pool = 1
+        [
+            # n_pool = 1
             ((3, 16, 16), 1, [2], [2], [1], (10,), "avg"),
             # n_pool = 2
             ((3, 24, 24), 2, [2, 2], [1, 1], [0, 0], (2, 2), "avg"),

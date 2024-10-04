@@ -31,7 +31,7 @@ def conv1d_golden(
 
     out = np.zeros((cout,) + out_shape, dtype=np.int64)
 
-    x_padded = np.pad(x, ((0, 0), (padding[0], padding[0])), mode="constant")
+    x_padded = np.pad(x, ((0, 0), (padding[0], padding[0])))
     conv_result = np.zeros((ol,), dtype=np.int64)
 
     for o in range(cout):
@@ -70,7 +70,6 @@ def conv2d_golden(
     x_padded = np.pad(
         x,
         ((0, 0), (padding[0], padding[0]), (padding[1], padding[1])),
-        mode="constant",
     )
     conv_result = np.zeros((oh, ow), dtype=np.int64)
 
@@ -110,11 +109,7 @@ def maxpool1d_golden(
     cout = xcin
 
     out = np.zeros((cout, ol), dtype=x.dtype)
-    x_padded = np.pad(
-        _x,
-        ((0, 0), (padding[0], padding[0])),
-        mode="constant",
-    )
+    x_padded = np.pad(_x, ((0, 0), (padding[0], padding[0])))
 
     for c in range(cout):
         for i in range(ol):
@@ -168,11 +163,7 @@ def maxpool2d_golden(
     else:
         out = np.zeros((cout, oh, ow), dtype=SPIKE_DTYPE)
 
-    x_padded = np.pad(
-        _x,
-        ((0, 0), (padding[0], padding[0]), (padding[1], padding[1])),
-        mode="constant",
-    )
+    x_padded = np.pad(_x, ((0, 0), (padding[0], padding[0]), (padding[1], padding[1])))
 
     for c in range(cout):
         for i in range(oh):
@@ -208,11 +199,7 @@ def avgpool1d_golden(
     cout = xcin
 
     out = np.zeros((cout, ol), dtype=WEIGHT_DTYPE)
-    x_padded = np.pad(
-        _x,
-        ((0, 0), (padding[0], padding[0])),
-        mode="constant",
-    )
+    x_padded = np.pad(_x, ((0, 0), (padding[0], padding[0])))
 
     for c in range(cout):
         for i in range(ol):
@@ -265,11 +252,7 @@ def avgpool2d_golden(
 
     # Treat the result as voltage since it will be turncated or compared later.
     out = np.zeros((cout, oh, ow), dtype=VOLTAGE_DTYPE)
-    x_padded = np.pad(
-        _x,
-        ((0, 0), (padding[0], padding[0]), (padding[1], padding[1])),
-        mode="constant",
-    )
+    x_padded = np.pad(_x, ((0, 0), (padding[0], padding[0]), (padding[1], padding[1])))
 
     for c in range(cout):
         for i in range(oh):
@@ -285,4 +268,5 @@ def avgpool2d_golden(
     if threshold:
         return out >= threshold
     else:
+        # Use the bit truncation method to simulate the behavior of the hardware.
         return out >> ((kh * kw).bit_length() - 1)
