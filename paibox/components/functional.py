@@ -1,4 +1,3 @@
-import math
 import sys
 from collections.abc import Sequence
 from functools import partial
@@ -1008,10 +1007,8 @@ class Conv2dSemiFolded(_SemiFoldedModule):
             + (self.shape_out[1] - 1) * valid_interval * self.stride[1]
         )
 
-        if cin * in_h * kw * valid_interval > 18432:
-            raise ResourceError(
-                f"The {self.name} input size is too large. Please adjust the input size or the number of channels."
-            )
+        if build_options.get("check_before_compile"):
+            self._input_buffer_len_check(cin, in_h, kw, valid_interval)
 
         n_delays = NodeList()
         n_neg_padding = NodeList()
@@ -1280,10 +1277,8 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
             + (self.shape_out[1] - 1) * valid_interval * self.stride[1]
         )
 
-        if cin * in_h * kw * valid_interval > 18432:
-            raise ResourceError(
-                f"The {self.name} input size is too large. Please adjust the input size or the number of channels."
-            )
+        if build_options.get("check_before_compile"):
+            self._input_buffer_len_check(cin, in_h, kw, valid_interval)
 
         n_delays = NodeList()
         s_delays = NodeList()
@@ -1400,12 +1395,8 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
         )
         twe = 1 + self.ts_1st_valid_out + (out_h - 1) * valid_interval * self.stride[1]
 
-        E = math.ceil(math.log2(cin * in_h * kw / 144))
-        E = 0 if E < 0 else E
-        if kw * valid_interval > 256 / (2**E):
-            raise ResourceError(
-                f"The {self.name} input size is too large. Please adjust the input size or the number of channels."
-            )
+        if build_options.get("check_before_compile"):
+            self._input_buffer_len_check(cin, in_h, kw, valid_interval)
 
         # NOTE: Division is achieved with the help of truncation operation.
         # It can only be approximated to a power of an integer of 2.

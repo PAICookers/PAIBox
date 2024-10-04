@@ -1,9 +1,11 @@
+import math
 from typing import Literal, Optional, Protocol, Union
 
 import numpy as np
-from paicorelib import TM
+from paicorelib import TM, HwConfig
 
 from paibox.base import NeuDyn, NodeList
+from paibox.exceptions import ResourceError
 from paibox.network import DynSysGroup
 from paibox.types import (
     LEAK_V_DTYPE,
@@ -172,6 +174,24 @@ class _SemiFoldedModule(FunctionalModule, _HasSemiFoldedIntf):
     """The interval of valid output data"""
     ts_1st_valid_out: int = 0
     """The timestamp of the first valid output data"""
+
+    def _input_buffer_len_check(
+        self, in_channels: int, in_h: int, kw: int, valid_interval: int
+    ) -> None:
+        """Check the limit of the semi-folded operators on the input buffer length of the core during the build phase.
+
+        NOTE: If the condition is not met, an expection will be raised in the subsequent compilation phase.
+        """
+        E = math.ceil(
+            math.log2(
+                math.ceil(in_channels * in_h * kw / HwConfig.N_FANIN_PER_DENDRITE_ANN)
+            )
+        )
+
+        if not kw * valid_interval > HwConfig.N_TIMESLOT_MAX / (2**E):
+            raise ResourceError(
+                f"the input size of {self.name} is too large. Please adjust the input size or the number of channels."
+            )
 
 
 class _LinearBase(FunctionalModule):
