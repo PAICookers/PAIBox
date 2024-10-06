@@ -9,7 +9,7 @@ from paibox.exceptions import AutoOptimizationWarning, ShapeError
 from paibox.types import (
     VOLTAGE_DTYPE,
     WEIGHT_DTYPE,
-    DataArrayType,
+    DataType,
     IntScalarType,
     NeuOutType,
     SynOutType,
@@ -22,7 +22,7 @@ from .conv_utils import (
     _conv1d_faster,
     _conv1d_unroll,
     _conv2d_faster,
-    _conv2d_halfroll,
+    _conv2d_semifolded_unroll,
     _conv2d_unroll,
     _convtranspose1d_faster,
     _convtranspose1d_unroll,
@@ -39,7 +39,9 @@ __all__ = [
     "AllToAll",
     "Identity",
     "MaskedLinear",
+    "Conv1dForward",
     "Conv2dForward",
+    "Conv2dSemiFoldedForward",
     "ConvTranspose1dForward",
     "ConvTranspose2dForward",
 ]
@@ -70,7 +72,7 @@ class ConnType(Enum):
     """All-to-all connection."""
 
 
-def _set_coarse_dtype(raw_w: DataArrayType) -> WeightType:
+def _set_coarse_dtype(raw_w: DataType) -> WeightType:
     """Convert raw weights to `np.ndarray` coarsely (without optimization).
 
     Description:
@@ -130,7 +132,7 @@ def _get_weight_width_inner(weight: WeightType, enable_wp_opt: bool) -> WW:
 
 
 class Transform:
-    def __init__(self, weights: DataArrayType) -> None:
+    def __init__(self, weights: DataType) -> None:
         self.weights = _set_coarse_dtype(weights)
         """The actual weights in synapses. Stored in np.int8 format."""
 
@@ -154,7 +156,7 @@ class Transform:
 
 
 class OneToOne(Transform):
-    def __init__(self, num: int, weights: DataArrayType) -> None:
+    def __init__(self, num: int, weights: DataType) -> None:
         """
         Arguments:
             - num: number of neurons.
@@ -206,7 +208,7 @@ class Identity(OneToOne):
 
 
 class AllToAll(Transform):
-    def __init__(self, conn_size: Size2Type, weights: DataArrayType) -> None:
+    def __init__(self, conn_size: Size2Type, weights: DataType) -> None:
         """
         Arguments:
             - conn_size: size of connections.
@@ -395,32 +397,19 @@ class Conv2dForward(_ConvNdForward):
         )
 
 
-class Conv2dHalfForward(Transform):
-    def __init__(
-        self,
-        in_shape: Size2Type,
-        out_shape: Size2Type,
-        kernel: np.ndarray,
-        stride: Size2Type,
-        padding: Size2Type,
-        # fm_order: _Order3d,
-    ) -> None:
-        self.in_shape = in_shape
-        self.out_shape = out_shape
-        self.stride = stride
-        self.padding = padding
-        self.kernel = kernel
-        # self.fm_order = fm_order
-
-        super().__init__(kernel)
+class Conv2dSemiFoldedForward(_ConvNdForward):
+    in_shape: Size2Type
+    out_shape: Size2Type
+    stride: Size2Type
+    padding: Size2Type
 
     def __call__(self, x: NeuOutType, *args, **kwargs) -> SynOutType:
         return x @ self.connectivity
 
     @property
     def connectivity(self):
-        return _conv2d_halfroll(
-            self.in_shape, self.out_shape, self.kernel, self.stride, self.padding
+        return _conv2d_semifolded_unroll(
+            self.in_shape, self.out_shape, self.weights, self.stride, self.padding
         )
 
 
@@ -603,13 +592,13 @@ class _CompareMax(AllToAll):
             y = (y1, y2, ..., ym)
         """
         if self.weights.ndim == 0:
-            output = np.full(
+            output = self.weights * np.full(
                 (self.conn_size[1],), np.max(x, axis=None), dtype=VOLTAGE_DTYPE
             )
         else:
             output = np.zeros((self.conn_size[1],), dtype=VOLTAGE_DTYPE)
             for col in range(self.conn_size[1]):
-                non_zero_idx = np.nonzero(self.weights[:, col])[0]
-                output[col] = np.max(x[non_zero_idx])
+                col_result = x * self.weights[:, col].astype(VOLTAGE_DTYPE)
+                output[col] = np.max(col_result)
 
         return output

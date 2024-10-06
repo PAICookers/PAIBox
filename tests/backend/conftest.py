@@ -561,7 +561,7 @@ class MultichipNet1(pb.DynSysGroup):
 
             self.n.append(pb.IF((n,), thres, resetv))
 
-        self.n_out = pb.SpikingRelu(1000)
+        self.n_out = pb.BypassNeuron(1000)
 
         self.s = NodeList()
 

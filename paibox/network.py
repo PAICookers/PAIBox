@@ -1,14 +1,20 @@
+import sys
 from typing import Optional, Union
 
 import numpy as np
-from typing_extensions import TypeAlias
 
 from .base import DynamicSys, SynSys
 from .collector import Collector
 from .components import NeuModule, Neuron, Projection
 from .components.modules import BuiltComponentType
 from .mixin import Container
-from .node import NodeDict
+from .node import NodeDict, NodeList
+
+if sys.version_info >= (3, 10):
+    from typing import TypeAlias
+else:
+    from typing_extensions import TypeAlias
+
 
 __all__ = ["DynSysGroup", "Network"]
 
@@ -73,35 +79,39 @@ class DynSysGroup(DynamicSys, Container):
     def build_fmodule(
         cls, network: "DynSysGroup", **build_options
     ) -> dict[NeuModule, BuiltComponentType]:
-        try:
-            from .components.functional import (
-                AvgPool2dSemiMap,
-                Conv2dSemiMap,
-                Delay_FullConn,
-                MaxPool2dSemiMap,
-            )
-        except ImportError:
-            Conv2dSemiMap, Delay_FullConn = None
+        from .components.functional import (
+            AvgPool2dSemiFolded,
+            Conv2dSemiFolded,
+            LinearSemiFolded,
+            MaxPool2dSemiFolded,
+        )
+
         generated = dict()
         modules = network.nodes().subset(NeuModule).unique()
-        delay = 1
+
+        # Valid interval for semi-folded components
+        # If the input data is input continuously on the W-axis, the initial
+        # valid interval for the first semi-folded component is 1.
+        semi_valid_interval = 1
+        ts_1st_valid_out = 0
+
         for module in modules.values():
-            if Conv2dSemiMap is not None and isinstance(module, Conv2dSemiMap):
-                generated[module] = module.build(network, delay, **build_options)
-                if module.stride[1] != 1:
-                    delay = delay * module.stride[1]
-            elif Delay_FullConn is not None and isinstance(module, Delay_FullConn):
-                generated[module] = module.build(network, delay, **build_options)
-            elif MaxPool2dSemiMap is not None and isinstance(module, MaxPool2dSemiMap):
-                generated[module] = module.build(network, delay, **build_options)
-                if module.stride[1] != 1:
-                    delay = delay * module.stride[1]
-            elif AvgPool2dSemiMap is not None and isinstance(module, AvgPool2dSemiMap):
-                generated[module] = module.build(network, delay, **build_options)
-                if module.stride[1] != 1:
-                    delay = delay * module.stride[1]
+            if isinstance(
+                module, (Conv2dSemiFolded, MaxPool2dSemiFolded, AvgPool2dSemiFolded)
+            ):
+                generated[module] = module.build(
+                    network, semi_valid_interval, ts_1st_valid_out, **build_options
+                )
+                semi_valid_interval *= module.stride[1]
+                ts_1st_valid_out = module.ts_1st_valid_out
+            elif isinstance(module, LinearSemiFolded):
+                generated[module] = module.build(
+                    network, semi_valid_interval, **build_options
+                )
             else:
                 generated[module] = module.build(network, **build_options)
+
+        network._remove_modules_from_containers(network, modules)
 
         return generated
 
@@ -131,6 +141,23 @@ class DynSysGroup(DynamicSys, Container):
         for cpn in components:
             if cpn in self.__dict__.values():
                 cpn.__gh_build_ignore__ = True
+
+    @staticmethod
+    def _remove_modules_from_containers(
+        network: "DynSysGroup", modules: Collector[str, NeuModule]
+    ) -> None:
+        """Remove the built modules from the node containers of the network."""
+        node_lists = [v for v in network.__dict__.values() if isinstance(v, NodeList)]
+        node_dicts = [v for v in network.__dict__.values() if isinstance(v, NodeDict)]
+
+        for module in modules.values():
+            for lst in node_lists:
+                if module in lst:
+                    lst.remove(module)
+
+            for dct in node_dicts:
+                if module in dct.values():
+                    dct.pop(module)
 
     @property
     def components(self) -> Collector[str, DynamicSys]:

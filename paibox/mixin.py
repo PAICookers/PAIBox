@@ -160,7 +160,7 @@ class ReceiveInputProj(MixIn):
             if output is None:
                 output = node.output.copy()
             else:
-                output = np.maximum(output, node.output.copy())
+                output = np.maximum(output, node.output)
 
         return np.asarray(output, dtype=VOLTAGE_DTYPE)
 

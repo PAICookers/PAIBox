@@ -9,6 +9,7 @@ from paicorelib import LCM, LDM, LIM, NTM, RM, SIM, TM, CoreMode, NeuronAttrs
 
 import paibox as pb
 from paibox.components import Neuron
+from paibox.components.neuron.base import MetaNeuron
 from paibox.components.neuron.utils import VJT_MAX, VJT_MIN
 from paibox.exceptions import ShapeError
 from paibox.types import NEUOUT_U8_DTYPE, VoltageType
@@ -536,8 +537,8 @@ class TestNeuronModeSNN:  # iss = 001
             assert np.array_equal(n1.spike, expected_spike[i])
             assert np.array_equal(n1.voltage, expected_vol[i])
 
-    def test_SpikingRelu(self):
-        n1 = pb.SpikingRelu(1)
+    def test_BypassNeuron(self):
+        n1 = pb.BypassNeuron(1, **_snn_kwds)
 
         incoming_v = np.random.randint(0, 2, size=(20, 1), dtype=np.bool_)
 
@@ -556,6 +557,23 @@ class TestNeuronModeSNN:  # iss = 001
         for i in range(10):
             sim.run(1)
             assert np.array_equal(sim.data[net.probe2][i], _always_spike)
+
+    def test_max_inputs_behavior(self):
+        """Only check the voltage result after the `sum_inputs` of neuron."""
+        incoming_v1 = np.array([1, 2, 3, 4, 5, 6, 7, 8], dtype=np.int32)
+        incoming_v2 = np.array([-1, 7, -3, 8, -5, -6, 1, 2], dtype=np.int32)
+        incoming_v3 = np.array([2, 3, 1, -8, 0, 8, 4, 7], dtype=np.int32)
+        incoming_v = [incoming_v1, incoming_v2, incoming_v3]
+
+        v_poolmax = np.zeros_like(incoming_v1)
+        for v in incoming_v:
+            if v_poolmax is None:
+                v_poolmax = v.copy()
+            else:
+                v_poolmax = np.maximum(v_poolmax, v)
+
+        assert v_poolmax.shape == incoming_v1.shape
+        assert np.array_equal(v_poolmax, np.array([2, 7, 3, 8, 5, 8, 7, 8]))
 
     def test_tick_attr_behavior(self, monkeypatch, build_Net3):
         net = build_Net3
@@ -624,6 +642,60 @@ class TestNeuronModeSNN:  # iss = 001
             assert np.array_equal(n1.spike[0], expected)
 
 
+from paibox.components.neuron.neurons import ANNNeuron
+
+
+class TestANNNeuron:
+    def test_ANNNeuron(self):
+        n1 = ANNNeuron(1, 0, 8)
+
+        incoming_v = np.random.randint(-128, 128, size=(20, 1), dtype=np.int32)
+
+        for i in range(incoming_v.size):
+            pb.FRONTEND_ENV["t"] += 1
+            n1.update(incoming_v[i])
+
+            assert np.array_equal(
+                n1.spike, np.asarray([0]) if incoming_v[i] < 0 else incoming_v[i]
+            )
+
+        assert 1
+
+    @pytest.mark.parametrize(
+        "bit_trunc, expected_v",
+        [
+            (8, np.array([10, 255, 255, 90, 110 & 255, 255, 0, 0], dtype=np.uint8)),
+            (
+                9,
+                np.array(
+                    [
+                        (10 >> 1) & 255,
+                        (390 >> 1) & 255,
+                        255,
+                        (90 >> 1) & 255,
+                        (110 >> 1) & 255,
+                        (468 >> 1) & 255,
+                        0,
+                        0,
+                    ],
+                    dtype=np.uint8,
+                ),
+            ),
+        ],
+        ids=["8_bit", "9_bit"],
+    )
+    def test_ANNNeuron_bit_trunc(self, bit_trunc, expected_v):
+        n1 = ANNNeuron(1, -10, bit_trunc)
+
+        incoming_v = np.array([20, 400, 1000, 100, 120, 478, 0, -10], dtype=np.int32)
+
+        for i in range(incoming_v.size):
+            pb.FRONTEND_ENV["t"] += 1
+            n1.update(incoming_v[i])
+
+            assert np.array_equal(n1.spike[0], expected_v[i])
+
+
 class TestNeuronAllModes:
     """Test neuron with specified 'spike width' & 'snn_en'.
 
@@ -632,23 +704,15 @@ class TestNeuronAllModes:
 
     @staticmethod
     def _ann_vjt_func(vj: VoltageType, neuron: Neuron) -> NDArray[NEUOUT_U8_DTYPE]:
-        def _bit_tuncate(bit_tunc: int, vj: VoltageType):
-            if bit_tunc == 0:
-                return np.zeros_like(vj)
-            elif vj >> bit_tunc > 0:  # Saturate truncation
-                return np.full_like(vj, 255)
-            elif bit_tunc < 8:
-                return (vj << (8 - bit_tunc)) & 255
-            else:
-                return (vj >> (bit_tunc - 8)) & 255
-
         return np.where(
             vj >= neuron.pos_threshold,
-            _bit_tuncate(neuron.bit_truncation, vj),
-            neuron._vjt0,
+            MetaNeuron._truncate(vj, neuron.bit_truncation),
+            0,
         ).astype(NEUOUT_U8_DTYPE)
 
-    @pytest.mark.parametrize("reg_kwds", [_reg010_kwds, _reg110_kwds])
+    @pytest.mark.parametrize(
+        "reg_kwds", [_reg010_kwds, _reg110_kwds], ids=["010", "ann"]
+    )
     def test_IF_ss10(self, reg_kwds):
         n1 = pb.IF(1, 0, 0, bit_truncation=8, **reg_kwds)
 
@@ -659,10 +723,7 @@ class TestNeuronAllModes:
         for i in range(incoming_v.size):
             pb.FRONTEND_ENV["t"] += 1
             n1.update(incoming_v[i])
-            v_bt = self._ann_vjt_func(
-                np.asarray(incoming_v[i], dtype=np.int32),
-                n1,
-            )
+            v_bt = self._ann_vjt_func(np.atleast_1d(incoming_v[i]), n1)
 
             assert np.array_equal(n1.spike, v_bt)
 
@@ -680,10 +741,7 @@ class TestNeuronAllModes:
             pre_vjt += incoming_v[i]
             spike = pre_vjt >= pos_thres
 
-            v_bt = self._ann_vjt_func(
-                np.asarray(pre_vjt, dtype=np.int32),
-                n1,
-            )
+            v_bt = self._ann_vjt_func(np.atleast_1d(pre_vjt), n1)
 
             if spike:
                 pre_vjt -= pos_thres

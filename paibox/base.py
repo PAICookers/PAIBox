@@ -257,6 +257,15 @@ class DynamicSys(PAIBoxObject, StatusMemory):
 
 
 class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
+
+    _delay: int
+    _tws: int
+    """tick_wait_start"""
+    _twe: int
+    """tick_wait_end"""
+    _uf: int
+    """unrolling_factor"""
+
     def __init__(self, name: Optional[str] = None) -> None:
         super().__init__(name)
         self.master_nodes = NodeDict()

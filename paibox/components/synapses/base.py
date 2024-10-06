@@ -6,7 +6,7 @@ from paicorelib import WeightWidth as WW
 
 from paibox.base import NeuDyn, SynSys
 from paibox.exceptions import RegisterError, ShapeError
-from paibox.types import DataArrayType, NeuOutType, SynOutType, WeightType
+from paibox.types import DataType, NeuOutType, SynOutType, WeightType
 
 from ..modules import BuildingModule
 from ..neuron import Neuron
@@ -18,7 +18,7 @@ from .transforms import (
     ConnType,
     Conv1dForward,
     Conv2dForward,
-    Conv2dHalfForward,
+    Conv2dSemiFoldedForward,
     ConvTranspose1dForward,
     ConvTranspose2dForward,
     Identity,
@@ -202,7 +202,7 @@ class FullConnSyn(FullConnectedSyn):
         self,
         source: Union[NeuDyn, InputProj],
         target: NeuDyn,
-        weights: DataArrayType,
+        weights: DataType,
         conn_type: ConnType,
         name: Optional[str] = None,
     ) -> None:
@@ -272,7 +272,7 @@ class Conv1dSyn(FullConnectedSyn):
             raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
 
         if (_output_size := out_channels * out_l) != dest.num_in:
-            raise ShapeError(f"Output size mismatch: {_output_size} != {dest.num_in}.")
+            raise ShapeError(f"output size mismatch: {_output_size} != {dest.num_in}.")
 
         self.comm = Conv1dForward((in_l,), (out_l,), _kernel, stride, padding)
 
@@ -319,7 +319,7 @@ class Conv2dSyn(FullConnectedSyn):
 
         if (_output_size := out_channels * out_h * out_w) != dest.num_in:
             raise ShapeError(
-                f"Output size mismatch: {_output_size} ({out_channels}*{out_h}*{out_w}) "
+                f"output size mismatch: {_output_size} ({out_channels}*{out_h}*{out_w}) "
                 f"!= {dest.num_in}."
             )
 
@@ -328,7 +328,8 @@ class Conv2dSyn(FullConnectedSyn):
         )
 
 
-class Conv2dHalfRollSyn(FullConnectedSyn):
+class Conv2dSemiFoldedSyn(FullConnectedSyn):
+    _spatial_ndim: ClassVar[int] = 1
 
     def __init__(
         self,
@@ -337,29 +338,38 @@ class Conv2dHalfRollSyn(FullConnectedSyn):
         kernel: np.ndarray,
         stride: tuple[int, int],
         padding: tuple[int, int],
-        order: _KOrder4d = "OIHW",
+        order: _KOrder3d,
         name: Optional[str] = None,
     ) -> None:
         super().__init__(source, dest, name)
-        # print("进入halfroll")
-        if order == "IOHW":
+
+        if kernel.ndim != self._spatial_ndim + 2:
+            raise ShapeError(
+                f"convolution kernel dimension must be {self._spatial_ndim + 2}, but got {kernel.ndim}."
+            )
+
+        if order == "IOL":
             _kernel = np.swapaxes(kernel, 0, 1)
         else:
             _kernel = kernel.copy()
 
-        # O,I,H,W
+        # O,I,H
         out_channels, in_channels, kernel_h = _kernel.shape
-        # C,H,W
-        if len(source.shape_out) == 2:
-            in_ch, in_h = source.shape_out
-        else:
-            in_ch, in_h, in_w = _fm_ndim2_check(source.shape_out, "CHW")
+        # I,H
+        assert len(source.shape_out) == 2
+        in_ch, in_h = source.shape_out
         out_h = (in_h + 2 * padding[0] - kernel_h) // stride[0] + 1
 
         if in_ch != in_channels:
             raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
 
-        self.comm = Conv2dHalfForward(
+        if (_output_size := out_channels * out_h) != dest.num_in:
+            raise ShapeError(
+                f"output size mismatch: {_output_size} ({out_channels}*{out_h}) "
+                f"!= {dest.num_in}."
+            )
+
+        self.comm = Conv2dSemiFoldedForward(
             (in_ch, in_h), (out_channels, out_h), _kernel, stride, padding
         )
 
@@ -407,7 +417,7 @@ class ConvTranspose1dSyn(FullConnectedSyn):
             raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
 
         if (_output_size := out_channels * out_l) != dest.num_in:
-            raise ShapeError(f"Output size mismatch: {_output_size} != {dest.num_in}.")
+            raise ShapeError(f"output size mismatch: {_output_size} != {dest.num_in}.")
 
         self.comm = ConvTranspose1dForward(
             (in_l,), (out_l,), _kernel, stride, padding, output_padding
@@ -464,20 +474,19 @@ class ConvTranspose2dSyn(FullConnectedSyn):
             raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
 
         if (_output_size := out_channels * out_h * out_w) != dest.num_in:
-            raise ShapeError(f"Output size mismatch: {_output_size} != {dest.num_in}.")
+            raise ShapeError(f"output size mismatch: {_output_size} != {dest.num_in}.")
 
         self.comm = ConvTranspose2dForward(
             (in_h, in_w), (out_h, out_w), _kernel, stride, padding, output_padding
         )
 
 
-class MaxPool2dSemiMapSyn(FullConnectedSyn):
-
+class MaxPool2dSemiFoldedSyn(FullConnectedSyn):
     def __init__(
         self,
         source: Union[NeuDyn, InputProj],
         dest: Neuron,
-        weights: DataArrayType = 1,
+        weights: DataType = 1,
         name: Optional[str] = None,
     ) -> None:
         super().__init__(source, dest, name)

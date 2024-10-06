@@ -113,6 +113,9 @@ class PAIGraph:
 
     def _pre_build(self, **build_options) -> None:
         """Preprocessing before obtaining the topology."""
+        # Check the hardware resource limits of operators in the network during the build phase.
+        build_options.setdefault("check_before_compile", True)
+
         # Build functional modules in the subnets
         for subnet in self._raw_networks:
             DynSysGroup.build_fmodule(subnet, **build_options)

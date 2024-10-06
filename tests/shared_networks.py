@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 import paibox as pb
+from paibox.node import NodeList
 
 
 def _out_bypass1(t, data1, *args, **kwargs):
@@ -108,7 +109,7 @@ class FunctionalModule_2to1_Net(pb.DynSysGroup):
 
         self.func_node = _2to1_op[op](self.n1, self.n2, delay=1, tick_wait_start=2)
 
-        self.n3 = pb.SpikingRelu(
+        self.n3 = pb.BypassNeuron(
             (10,),
             delay=1,
             tick_wait_start=self.func_node.tick_wait_start
@@ -137,9 +138,18 @@ class FunctionalModule_1to1_Net(pb.DynSysGroup):
         if op == "not":
             self.func_node = pb.BitwiseNOT(self.n1, tick_wait_start=2)
         elif op == "delay":
-            self.func_node = pb.DelayChain(self.n1, chain_level=5, tick_wait_start=2)
+            if hasattr(pb, "DelayChain"):
+                self.func_node = pb.DelayChain(  # type: ignore
+                    self.n1, chain_level=5, tick_wait_start=2
+                )
+            else:
+                from paibox.components._modules import _DelayChainSNN
 
-        self.n2 = pb.SpikingRelu(
+                self.func_node = _DelayChainSNN(
+                    self.n1, chain_level=5, tick_wait_start=2
+                )
+
+        self.n2 = pb.BypassNeuron(
             (10,),
             delay=1,
             tick_wait_start=self.func_node.tick_wait_start
@@ -171,7 +181,7 @@ class _SpikingPoolNd_Net(pb.DynSysGroup):
     ):
         super().__init__()
         self.inp1 = pb.InputProj(input=_out_bypass1, shape_out=fm_shape)
-        self.n1 = pb.SpikingRelu(fm_shape, tick_wait_start=1)
+        self.n1 = pb.BypassNeuron(fm_shape, tick_wait_start=1)
         self.s1 = pb.FullConn(self.inp1, self.n1, conn_type=pb.SynConnType.One2One)
 
         self.pool = _pool_op[(pool_ndim, pool_type)](
@@ -184,7 +194,7 @@ class _SpikingPoolNd_Net(pb.DynSysGroup):
             tick_wait_start=2,
         )
 
-        self.n2 = pb.SpikingRelu(self.pool.shape_out, delay=1, tick_wait_start=3)
+        self.n2 = pb.BypassNeuron(self.pool.shape_out, delay=1, tick_wait_start=3)
         self.s3 = pb.FullConn(self.pool, self.n2, conn_type=pb.SynConnType.One2One)
 
         self.probe1 = pb.Probe(self.n1, "spike")
@@ -218,7 +228,7 @@ class TransposeModule_T2d_Net(pb.DynSysGroup):
         self.n1 = pb.IF(shape, 1, 0, tick_wait_start=1)
         self.s1 = pb.FullConn(self.inp1, self.n1, conn_type=pb.SynConnType.One2One)
         self.t2d = pb.Transpose2d(self.n1, tick_wait_start=2)
-        self.n2 = pb.SpikingRelu(
+        self.n2 = pb.BypassNeuron(
             shape, tick_wait_start=self.t2d.tick_wait_start + self.t2d.external_delay
         )
         self.s2 = pb.FullConn(self.t2d, self.n2, conn_type=pb.SynConnType.One2One)
@@ -235,7 +245,7 @@ class TransposeModule_T3d_Net(pb.DynSysGroup):
         self.n1 = pb.IF(shape, 1, 0, tick_wait_start=1)
         self.s1 = pb.FullConn(self.inp1, self.n1, conn_type=pb.SynConnType.One2One)
         self.t3d = pb.Transpose3d(self.n1, axes=axes, tick_wait_start=2)
-        self.n2 = pb.SpikingRelu(
+        self.n2 = pb.BypassNeuron(
             shape, tick_wait_start=self.t3d.tick_wait_start + self.t3d.external_delay
         )
         self.s2 = pb.FullConn(self.t3d, self.n2, conn_type=pb.SynConnType.One2One)
@@ -244,62 +254,73 @@ class TransposeModule_T3d_Net(pb.DynSysGroup):
         self.probe2 = pb.Probe(self.n2, "spike")
 
 
-class Conv2dSemiMap_Net1(pb.DynSysGroup):
-    def __init__(self, shape, kernel, stride, padding):
+class Conv2dSemiFolded_FC_ChainNetN(pb.DynSysGroup):
+    def __init__(self, shape, kernels, strides, paddings, out_features, weight):
         super().__init__()
 
         self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape)
-        self.conv1 = pb.Conv2dSemiMap(
-            self.i1, kernel, stride[0], padding[0], tick_wait_start=1
+        self.conv_list = NodeList()
+
+        for i, (kernel, stride, padding) in enumerate(zip(kernels, strides, paddings)):
+            self.conv_list.append(
+                pb.Conv2dSemiFolded(
+                    self.conv_list[-1] if i > 0 else self.i1,
+                    kernel,
+                    stride,
+                    padding,
+                    tick_wait_start=1 + 2 * i,
+                )
+            )
+
+        self.linear1 = pb.LinearSemiFolded(
+            self.conv_list[-1],
+            out_features,
+            weight,
+            bias=0,
+            conn_type=pb.SynConnType.All2All,
+            tick_wait_start=self.conv_list[-1].tick_wait_start + 2,
         )
 
 
-class Conv2dSemiMap_Net2(pb.DynSysGroup):
-    def __init__(self, shape, kernel, stride, padding, out_feature, weight):
+_pool_semi_op = {
+    "avg": pb.AvgPool2dSemiFolded,
+    "max": pb.MaxPool2dSemiFolded,
+}
+
+
+class Pool2dSemiFolded_FC_ChainNetN(pb.DynSysGroup):
+    def __init__(
+        self, shape, kernel_sizes, strides, paddings, out_features, weight, pool_type
+    ):
         super().__init__()
-
         self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape)
-        self.conv1 = pb.Conv2dSemiMap(
-            self.i1, kernel, stride[0], padding[0], tick_wait_start=1
-        )
-        self.conv2 = pb.Conv2dSemiMap(
-            self.conv1, kernel, stride[1], padding[1], tick_wait_start=3
-        )
-        self.linear1 = pb.DelayFullConn(
-            self.conv2,
-            out_feature,
+        self.pool_list = NodeList()
+
+        for i, (ksize, stride) in enumerate(zip(kernel_sizes, strides)):
+            if pool_type == "max":
+                pool = _pool_semi_op[pool_type](
+                    self.pool_list[-1] if i > 0 else self.i1,
+                    ksize,
+                    stride,
+                    tick_wait_start=1 + 2 * i,
+                )
+            else:
+                pool = _pool_semi_op[pool_type](
+                    self.pool_list[-1] if i > 0 else self.i1,
+                    ksize,
+                    stride,
+                    padding=paddings[i],
+                    tick_wait_start=1 + 2 * i,
+                )
+            self.pool_list.append(pool)
+
+        self.linear1 = pb.LinearSemiFolded(
+            self.pool_list[-1],
+            out_features,
             weights=weight,
             bias=0,
             conn_type=pb.SynConnType.All2All,
-            tick_wait_start=5,
-        )
-
-
-class Pool2dSemiMap_Net(pb.DynSysGroup):
-    def __init__(self, shape, kernel_size, stride, weight, pool_type):
-        super().__init__()
-        self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape)
-        if pool_type == "avg":
-            self.pool1 = pb.AvgPool2dSemiMap(
-                self.i1, kernel_size, stride[0], tick_wait_start=1
-            )
-            self.pool2 = pb.AvgPool2dSemiMap(
-                self.pool1, kernel_size, stride[1], tick_wait_start=3
-            )
-        else:
-            self.pool1 = pb.MaxPool2dSemiMap(
-                self.i1, kernel_size, stride[0], tick_wait_start=1
-            )
-            self.pool2 = pb.MaxPool2dSemiMap(
-                self.pool1, kernel_size, stride[1], tick_wait_start=3
-            )
-        self.linear1 = pb.DelayFullConn(
-            self.pool2,
-            2,
-            weights=weight,
-            bias=0,
-            conn_type=pb.SynConnType.All2All,
-            tick_wait_start=5,
+            tick_wait_start=self.pool_list[-1].tick_wait_start + 2,
         )
 
 
@@ -307,9 +328,7 @@ class Linear_Net(pb.DynSysGroup):
     def __init__(self, shape, weight1):
         super().__init__()
         self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape)
-        self.linear1 = pb.Linear(
-            self.i1, 10, weights=weight1, bias=2, conn_type=pb.SynConnType.All2All
-        )
+        self.linear1 = pb.Linear(self.i1, 10, weights=weight1, bias=2)
         self.probe1 = pb.Probe(self.linear1, "spike")
 
 

@@ -1,17 +1,34 @@
-from typing import Literal, Optional, Union
+import math
+from typing import Literal, Optional, Protocol, Union
 
 import numpy as np
-from paicorelib import TM
+from paicorelib import TM, HwConfig
 
-from paibox.base import NeuDyn
+from paibox.base import NeuDyn, NodeList
+from paibox.exceptions import ResourceError
 from paibox.network import DynSysGroup
-from paibox.types import NEUOUT_U8_DTYPE, WEIGHT_DTYPE, NeuOutType, VoltageType
-from paibox.utils import arg_check_non_neg, shape2num, typical_round
+from paibox.types import (
+    LEAK_V_DTYPE,
+    NEUOUT_U8_DTYPE,
+    WEIGHT_DTYPE,
+    DataType,
+    NeuOutType,
+    Shape,
+    VoltageType,
+)
+from paibox.utils import (
+    arg_check_non_neg,
+    arg_check_pos,
+    as_shape,
+    shape2num,
+    typical_round,
+)
 
 from .modules import (
     BuiltComponentType,
     FunctionalModule,
     FunctionalModuleWithV,
+    set_rt_mode_ann,
     set_rt_mode_snn,
 )
 from .neuron import Neuron
@@ -29,11 +46,186 @@ from .synapses.transforms import (
 )
 
 __all__ = [
+    "_DelayChainANN",
+    "_DelayChainSNN",
     "_SpikingPool1d",
     "_SpikingPool1dWithV",
     "_SpikingPool2d",
     "_SpikingPool2dWithV",
+    "_SemiFoldedModule",
+    "_LinearBase",
 ]
+
+
+class _DelayChainBase(FunctionalModule):
+    def __init__(
+        self,
+        neuron: Union[NeuDyn, InputProj],
+        chain_level: int = 1,
+        *,
+        keep_shape: bool = True,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        """Delay chain. It will add extra neurons (and identity synapses) as buffer.
+
+        Args:
+            - neuron: the target neuron to be delayed.
+            - chain_level: the level of delay chain.
+
+        NOTE: the inherent delay of the module depends on `chain_level`.
+        """
+        if keep_shape:
+            shape_out = neuron.shape_out
+        else:
+            shape_out = (neuron.num_out,)
+
+        self.chain_level = arg_check_pos(chain_level, "chain level")
+        self.inherent_delay = chain_level - 1
+
+        super().__init__(
+            neuron,
+            shape_out=shape_out,
+            keep_shape=keep_shape,
+            name=name,
+            **kwargs,
+        )
+
+    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
+        return x1
+
+    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
+        n_delaychain = NodeList()
+        s_delaychain = NodeList()
+
+        # Delay chain of length #D.
+        for i in range(self.chain_level - 1):
+            n_delay = BypassNeuron(
+                self.shape_out,
+                tick_wait_start=self.tick_wait_start + i,
+                tick_wait_end=self.tick_wait_end,
+                delay=1,
+                name=f"n{i}_{self.name}",
+                **self.rt_mode_kwds,
+            )
+            n_delaychain.append(n_delay)
+
+        # delay = delay_relative for output neuron
+        n_out = BypassNeuron(
+            self.shape_out,
+            tick_wait_start=self.tick_wait_start + i + 1,
+            tick_wait_end=self.tick_wait_end,
+            delay=self.delay_relative,
+            name=f"n{i + 1}_{self.name}",
+            **self.rt_mode_kwds,
+        )
+        n_delaychain.append(n_out)  # Must append to the last.
+
+        syn_in = FullConnSyn(
+            self.module_intf.operands[0],
+            n_delaychain[0],
+            1,
+            conn_type=ConnType.One2One,
+            name=f"s0_{self.name}",
+        )
+
+        for i in range(self.chain_level - 1):
+            s_delay = FullConnSyn(
+                n_delaychain[i],
+                n_delaychain[i + 1],
+                1,
+                conn_type=ConnType.One2One,
+                name=f"s{i + 1}_{self.name}",
+            )
+
+            s_delaychain.append(s_delay)
+
+        generated = [*n_delaychain, syn_in, *s_delaychain]
+        self._rebuild_out_intf(network, n_out, *generated, **build_options)
+
+        return generated
+
+
+@set_rt_mode_snn()
+class _DelayChainSNN(_DelayChainBase):
+    pass
+
+
+@set_rt_mode_ann()
+class _DelayChainANN(_DelayChainBase):
+    pass
+
+
+class _HasSemiFoldedIntf(Protocol):
+    """The front of this module has replication & delay interface for semi-folded operators."""
+
+    def build(
+        self,
+        network: DynSysGroup,
+        valid_interval: int,
+        ts_first_valid_inp: int,
+        **build_options,
+    ) -> BuiltComponentType: ...
+
+
+@set_rt_mode_ann()
+class _SemiFoldedModule(FunctionalModule, _HasSemiFoldedIntf):
+    valid_interval: int = 1
+    """The interval of valid output data"""
+    ts_1st_valid_out: int = 0
+    """The timestamp of the first valid output data"""
+
+    def _input_buffer_len_check(
+        self, in_channels: int, in_h: int, kw: int, valid_interval: int
+    ) -> None:
+        """Check the limit of the semi-folded operators on the input buffer length of the core during the build phase.
+
+        NOTE: If the condition is not met, an expection will be raised in the subsequent compilation phase.
+        """
+        E = math.ceil(
+            math.log2(
+                math.ceil(in_channels * in_h * kw / HwConfig.N_FANIN_PER_DENDRITE_ANN)
+            )
+        )
+
+        if not kw * valid_interval > HwConfig.N_TIMESLOT_MAX / (2**E):
+            raise ResourceError(
+                f"the input size of {self.name} is too large. Please adjust the input size or the number of channels."
+            )
+
+
+class _LinearBase(FunctionalModule):
+    def __init__(
+        self,
+        neuron_s: Union[NeuDyn, InputProj],
+        out_features: Shape,
+        weights: np.ndarray,
+        bias: DataType = 0,
+        bit_trunc: int = 8,
+        *,
+        conn_type: ConnType = ConnType.All2All,
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        self.weights = weights
+        self.conn_type = conn_type
+        self.bit_trunc = bit_trunc
+
+        if isinstance(bias, np.ndarray):
+            _bias = np.atleast_1d(bias).astype(LEAK_V_DTYPE)
+        else:
+            _bias = int(bias)
+
+        self.bias = _bias
+
+        super().__init__(
+            neuron_s,
+            shape_out=as_shape(out_features),
+            keep_shape=keep_shape,
+            name=name,
+            **kwargs,
+        )
 
 
 @set_rt_mode_snn()
@@ -98,7 +290,7 @@ class _SpikingPool1d(FunctionalModule):
                 **self.rt_mode_kwds,
             )
         else:  # "max"
-            n1_p1d = SpikingRelu(
+            n1_p1d = BypassNeuron(
                 self.shape_out,
                 delay=self.delay_relative,
                 tick_wait_start=self.tick_wait_start,
@@ -268,7 +460,7 @@ class _SpikingPool2d(FunctionalModule):
                 **self.rt_mode_kwds,
             )
         else:  # "max"
-            n1_p2d = SpikingRelu(
+            n1_p2d = BypassNeuron(
                 self.shape_out,
                 delay=self.delay_relative,
                 tick_wait_start=self.tick_wait_start,

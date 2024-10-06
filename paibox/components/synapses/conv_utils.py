@@ -183,7 +183,7 @@ def _conv2d_unroll(
     return w_unrolled
 
 
-def _conv2d_halfroll(
+def _conv2d_semifolded_unroll(
     in_shape: Size2Type,
     out_shape: Size2Type,
     kernel: WeightType,
@@ -192,29 +192,32 @@ def _conv2d_halfroll(
 ) -> WeightType:
     cout, cin, kh = kernel.shape
     ih = in_shape[1] + 2 * padding[0]
-    # ih = in_shape[1]
-    o_ch, oh = out_shape
-    w_np = np.zeros((cin * ih, cout * oh), dtype=kernel.dtype)
+    _, oh = out_shape
+    w_np = np.zeros((cin * in_shape[1], cout * oh), dtype=kernel.dtype)
+
     for i in range(cout):
         for j in range(cin):
-            if padding[0] == 0:
-                for k in range(oh):
-                    # w_np[j*ih+padding[0]*(stride[1]-1)+k*stride[1]:j*ih+padding[1]*(stride[1]-1)+k*stride[1]+kh, i*oh+k+padding[0]] = kernel[i, j, :]
-                    # w_np[j*ih+stride[1]*(padding[0]+k)-padding[0]:j*ih+stride[1]*(padding[0]+k)-padding[0]+kh, i*oh+k+padding[0]] = kernel[i, j, :]
-                    w_np[
-                        j * ih + k * stride[1] : j * ih + k * stride[1] + kh, i * oh + k
-                    ] = kernel[i, j, :]
-            else:
-                for k in range(oh):
-                    w_np[
-                        j * ih + k * stride[1] : j * ih + k * stride[1] + kh, i * oh + k
-                    ] = kernel[i, j, :]
-            w_np = np.delete(
-                w_np,
-                np.concatenate((np.arange(padding[0]), np.arange(ih - padding[0], ih))),
-                axis=0,
+            # Must recreate `w_block` every time because some rows will be deleted.
+            w_block = np.zeros((ih, oh), dtype=kernel.dtype)
+            for k in range(oh):
+                w_block[k * stride[1] : k * stride[1] + kh, k] = kernel[i, j, :]
+
+            if padding[0] > 0:  # H direction
+                w_block = np.delete(
+                    w_block,
+                    np.hstack((np.arange(padding[0]), np.arange(ih - padding[0], ih))),
+                    axis=0,
+                )
+            w_np[j * in_shape[1] : (j + 1) * in_shape[1], i * oh : (i + 1) * oh] = (
+                w_block
             )
+
     return w_np
+
+
+"""
+    NOTE: The faster convolutions are verified by _convNd_golden() functions in test utils.
+"""
 
 
 def _conv1d_faster(
@@ -225,9 +228,9 @@ def _conv1d_faster(
     padding: Size1Type,
 ) -> SynOutType:
     """Faster 1d convolution."""
-    cout, cin, kl = kernel.shape  # (O, I, L)
+    cout, _, kl = kernel.shape  # (O, I, L)
 
-    x_padded = np.pad(x_cl, ((0, 0), (padding[0], padding[0])), mode="constant")
+    x_padded = np.pad(x_cl, ((0, 0), (padding[0], padding[0])))
 
     # kernel: (cout, cin, kl) -> (cout, cin*kl)
     col_kernel = kernel.reshape(cout, -1)
@@ -252,12 +255,11 @@ def _conv2d_faster(
     # fm_order: str,
 ) -> SynOutType:
     """Faster 2d convolution."""
-    cout, cin, kh, kw = kernel.shape  # (O, I, H, W)
+    cout, _, kh, kw = kernel.shape  # (O, I, H, W)
 
     x_padded = np.pad(
         x_chw,
         ((0, 0), (padding[0], padding[0]), (padding[1], padding[1])),
-        mode="constant",
     )
 
     # kernel: (cout, cin, kh, kw) -> (cout, cin*kh*kw)
@@ -338,9 +340,7 @@ def _convtranspose1d_unroll(
     )
 
     # output_padding
-    w_unrolled = np.pad(
-        w_unrolled, ((0, 0), (0, 0), (0, 0), (0, output_padding[0])), mode="constant"
-    )
+    w_unrolled = np.pad(w_unrolled, ((0, 0), (0, 0), (0, 0), (0, output_padding[0])))
     w_unrolled = w_unrolled.reshape(cin * in_shape[0], cout * out_shape[0])
 
     return w_unrolled
@@ -432,7 +432,6 @@ def _convtranspose2d_unroll(
             (0, output_padding[0]),
             (0, output_padding[1]),
         ),
-        mode="constant",
     )
     w_unrolled = w_unrolled.reshape(
         cin * in_shape[0] * in_shape[1], cout * out_shape[0] * out_shape[1]
@@ -468,7 +467,7 @@ def _convtranspose1d_faster(
 
     # inverse padding
     # x_transpose : (cin, (xl-1)*(stride-1)+2*(kl-1))
-    x_transpose = np.pad(x_transpose, ((0, 0), (kl - 1, kl - 1)), mode="constant")
+    x_transpose = np.pad(x_transpose, ((0, 0), (kl - 1, kl - 1)))
 
     # convolution kernel rotated 180 degrees
     kernel_flip = np.flip(kernel, axis=2)
@@ -489,7 +488,7 @@ def _convtranspose1d_faster(
     out = out[:, padding[0] : (-1 * padding[0])] if padding[0] > 0 else out
 
     # output_padding
-    out = np.pad(out, ((0, 0), (0, output_padding[0])), mode="constant")
+    out = np.pad(out, ((0, 0), (0, output_padding[0])))
 
     return out.astype(VOLTAGE_DTYPE)
 
@@ -524,9 +523,7 @@ def _convtranspose2d_faster(
     x_transpose = np.zeros((xc_t, xh_t, xw_t), dtype=x_chw.dtype)
     x_transpose[::1, :: stride[0], :: stride[1]] = x_chw
     # padding 0 for transpose not for parameter padding, get new input array x_transpose
-    x_transpose = np.pad(
-        x_transpose, ((0, 0), (kh - 1, kh - 1), (kw - 1, kw - 1)), mode="constant"
-    )
+    x_transpose = np.pad(x_transpose, ((0, 0), (kh - 1, kh - 1), (kw - 1, kw - 1)))
 
     # kernel: (cout, cin, kh, kw) -> (cout, cin*kh*kw)
     kernel_flip = np.flip(kernel, axis=(2, 3))  # convolution kernel rotated 180 degrees
@@ -551,9 +548,7 @@ def _convtranspose2d_faster(
         padding[1] : (-1 * padding[1]) if padding[1] > 0 else None,
     ]
     # output_padding
-    out = np.pad(
-        out, ((0, 0), (0, output_padding[0]), (0, output_padding[1])), mode="constant"
-    )
+    out = np.pad(out, ((0, 0), (0, output_padding[0]), (0, output_padding[1])))
 
     return out
 
@@ -702,7 +697,7 @@ def _func_pool1d(
     assert (xl + padding[0] * 2 - kl) // stride[0] + 1 == ol
 
     out = np.zeros((cout, ol), dtype=np.int32)
-    x_padded = np.pad(x_cl, ((0, 0), (padding[0], padding[0])), mode="constant")
+    x_padded = np.pad(x_cl, ((0, 0), (padding[0], padding[0])))
 
     for c in range(cout):
         for i in range(ol):
@@ -740,7 +735,6 @@ def _func_pool2d(
     x_padded = np.pad(
         x_chw,
         ((0, 0), (padding[0], padding[0]), (padding[1], padding[1])),
-        mode="constant",
     )
 
     for c in range(cout):
