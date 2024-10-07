@@ -11,15 +11,12 @@ from paibox.backend.conf_template import (
     InputNeuronDest,
     NeuronConfig,
     NeuronDestInfo,
-    export_core_params_json,
-    export_core_plm_conf_json,
-    export_input_conf_json,
-    export_neuconf_json,
-    export_output_conf_json,
-    export_used_L2_clusters,
 )
+from paibox.backend.conf_exporting import *
 from paibox.backend.types import AxonCoord, NeuSegment
 from paicorelib.reg_model import TICK_WAIT_END_MAX, TICK_WAIT_START_MAX
+
+from .conftest import gen_random_used_lx
 
 try:
     import orjson as json
@@ -76,7 +73,7 @@ def _gen_random_neuron_config(n_per_channel: int, n_channel: int = 3) -> NeuronC
     dest_coords = [dest_coord_start, dest_coord_start + CoordOffset(0, 1)]
     pb.BACKEND_CONFIG.test_chip_addr = test_chip_addr
 
-    return NeuronConfig.encapsulate(
+    return NeuronConfig(
         nseg, axon_coords, dest_coords, pb.BACKEND_CONFIG.test_chip_addr
     )
 
@@ -194,10 +191,6 @@ class TestConfExporting:
             assert list(core_plm_conf_json.keys())[0] == str(chip_coord)
 
     def test_export_used_L2_clusters(self, ensure_dump_dir, monkeypatch):
-        from paibox.backend.conf_template import _get_clk_en_L2_dict
-
-        from .conftest import gen_random_used_lx
-
         clist = [Coord(0, 0), Coord(0, 1), Coord(2, 2)]
         monkeypatch.setattr(pb.BACKEND_CONFIG, "target_chip_addr", clist)
 
@@ -208,8 +201,54 @@ class TestConfExporting:
         for _ in range(len(clist)):
             used_L2.append(gen_random_used_lx(n, 2))
 
-        clk_en_L2_dict = _get_clk_en_L2_dict(
-            pb.BACKEND_CONFIG.target_chip_addr, used_L2
-        )
+        clk_en_L2_dict = get_clk_en_L2_dict(pb.BACKEND_CONFIG.target_chip_addr, used_L2)
 
         export_used_L2_clusters(clk_en_L2_dict, ensure_dump_dir)
+
+
+@pytest.mark.parametrize(
+    "index, offset, expected",
+    [
+        (slice(0, 200), 100, (slice(0, 200), None)),
+        (slice(200, 400), 512, (None, slice(200, 400))),
+        (slice(0, 600), 100, (slice(0, 412), slice(412, 600))),
+        (slice(100, 400), 300, (slice(100, 312), slice(312, 400))),
+    ],
+)
+def test_NeuronConfig_mapped_on_ram(index, offset, expected):
+    n = index.stop - index.start
+    neuron = pb.ANNNeuron((n,), bias=9, keep_shape=True)
+    dest_coord_start = Coord(random.randint(0, 10), random.randint(0, 10))
+
+    nseg = NeuSegment(neuron, index, offset)
+    axon_coords = [AxonCoord(0, i) for i in range(n)]
+    dest_coords = [dest_coord_start, dest_coord_start + CoordOffset(0, 1)]
+
+    neu_config1 = NeuronConfig(
+        nseg, axon_coords, dest_coords, pb.BACKEND_CONFIG.test_chip_addr
+    )
+
+    if (
+        neu_config1.neu_seg.offset + neu_config1.neu_seg.n_neuron
+        <= HwConfig.ADDR_RAM_MAX + 1
+    ):
+        result1 = neu_config1
+        result2 = None
+
+        assert result1.neu_seg.index == expected[0]
+        assert result2 == expected[1]
+
+    elif (n_on_nram := HwConfig.ADDR_RAM_MAX + 1 - neu_config1.neu_seg.offset) > 0:
+        s1 = slice(None, n_on_nram)
+        s2 = slice(n_on_nram, None)
+        result1 = neu_config1[s1]
+        result2 = neu_config1[s2]
+
+        assert result1.neu_seg.index == expected[0]
+        assert result2.neu_seg.index == expected[1]
+    else:
+        result1 = None
+        result2 = neu_config1
+
+        assert result1 == expected[0]
+        assert result2.neu_seg.index == expected[1]

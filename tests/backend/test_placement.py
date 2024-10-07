@@ -22,7 +22,7 @@ from paibox.backend.types import (
 from paibox.exceptions import ResourceError
 from paibox.types import WEIGHT_DTYPE, WeightType
 
-from .test_conf_template import _gen_random_neuron_dest_info
+from .test_conf_exporting import _gen_random_neuron_dest_info
 
 
 def _packbits_ref(bits: np.ndarray, count: Optional[int] = None) -> int:

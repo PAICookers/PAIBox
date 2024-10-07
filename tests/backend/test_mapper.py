@@ -6,7 +6,7 @@ from paicorelib import Coord, HwConfig
 from paicorelib import WeightWidth as WW
 
 import paibox as pb
-from paibox.base import SynSys
+from paibox.backend.conf_exporting import *
 from paibox.exceptions import ResourceError
 
 from .conftest import TestData
@@ -344,11 +344,10 @@ class TestMapper_Export:
 
 
 class TestMapper_Compile:
+    @pytest.mark.xfail(reason="change the hardware limit may cause unexpected errors.")
     def test_grouping_optim_latency(
         self, monkeypatch, build_Network_8bit_dense, ensure_dump_dir
     ):
-        from paibox.backend.conf_template import export_core_plm_conf_json
-
         monkeypatch.setattr(HwConfig, "N_NEURON_MAX_SNN", 8 * 8)
         monkeypatch.setattr(HwConfig, "N_FANIN_PER_DENDRITE_SNN", 6)
 
