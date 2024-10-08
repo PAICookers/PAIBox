@@ -12,7 +12,7 @@ from paicorelib.routing_defs import MAX_ROUTING_PATH_LENGTH
 
 from paibox.exceptions import ResourceError, RoutingError
 
-from .conf_template import CorePlmConfInChip
+from .conf_types import CorePlmConfInChip
 from .placement import CoreBlock, CorePlacement, EmptyCorePlacement
 
 __all__ = ["RoutingGroup", "RoutingRoot"]

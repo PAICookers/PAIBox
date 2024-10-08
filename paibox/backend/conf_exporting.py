@@ -12,7 +12,7 @@ from .placement import CorePlacement
 from paibox.components import Neuron
 from paibox.utils import reverse_8bit
 
-from .conf_template import (
+from .conf_types import (
     _USE_ORJSON,
     FRAME_DTYPE,
     CoreConf,
@@ -26,11 +26,13 @@ from .context import _BACKEND_CONTEXT
 from .types import _RID_UNSET
 
 if _USE_ORJSON:
-    from .conf_template import PAIConfigJsonDefault
     import orjson
+
+    from .conf_types import PAIConfigJsonDefault
 else:
-    from .conf_template import PAIConfigJsonEncoder
     import json
+
+    from .conf_types import PAIConfigJsonEncoder
 
 
 __all__ = [
@@ -112,7 +114,7 @@ def gen_config_frames_by_coreconf(
                     if (
                         n_on_nram := HwConfig.ADDR_RAM_MAX + 1 - neu_conf.neu_seg.offset
                     ) > 0:
-                        # Place in the NRAM partially & the rest in the WRAM
+                        # Place in the NRAM partially
                         neu_on_nram_conf = neu_conf[:n_on_nram]
                         config_frame_type3.append(
                             OfflineFrameGen.gen_config_frame3(
@@ -126,6 +128,7 @@ def gen_config_frames_by_coreconf(
                                 neu_on_nram_conf.neu_seg.repeat,
                             )
                         )
+                        # Place the rest in the WRAM
                         neu_conf_on_wram.append(neu_conf[n_on_nram:])
                     else:
                         # Place in the WRAM totally
@@ -162,7 +165,10 @@ def gen_config_frames_by_coreconf(
             if neu_conf_on_wram:
                 neu_on_wram = CorePlacement.neu_params_mapping(neu_conf_on_wram)
                 # Extra neurons part
-                assert v.weight_ram.shape[0] + neu_on_wram.shape[0] <= 512
+                assert (
+                    v.weight_ram.shape[0] + neu_on_wram.shape[0]
+                    <= HwConfig.ADDR_RAM_MAX + 1
+                )
                 config_frame_type4_n = OfflineFrameGen.gen_config_frame4(
                     chip_coord,
                     core_coord,

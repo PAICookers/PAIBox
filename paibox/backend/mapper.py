@@ -11,7 +11,7 @@ from paibox.components import Neuron
 from paibox.exceptions import ConfigInvalidError, ResourceError
 from paibox.network import DynSysGroup
 
-from .conf_template import (
+from .conf_types import (
     CoreConf,
     CorePlmConf,
     FrameArrayType,

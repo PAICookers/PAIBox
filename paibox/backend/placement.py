@@ -13,7 +13,7 @@ from paibox.exceptions import GraphBuildError, ResourceError, TruncationWarning
 from paibox.types import WEIGHT_DTYPE, WeightType
 from paibox.utils import check_attr_same
 
-from .conf_template import CoreConfig, CoreConfInChip, CorePlmConfig, NeuronConfig
+from .conf_types import CoreConfig, CoreConfInChip, CorePlmConfig, NeuronConfig
 from .context import _BACKEND_CONTEXT
 from .segment_utils import aligned_coords, get_axon_segments, get_neu_segments
 from .types import (

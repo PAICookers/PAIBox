@@ -5,7 +5,7 @@ import paibox as pb
 
 from paicorelib import Coord, CoordOffset, CoreMode, HwConfig, LCN_EX, MaxPoolingEnable
 from paicorelib import WeightWidth as WW
-from paibox.backend.conf_template import (
+from paibox.backend.conf_types import (
     CoreConfig,
     CorePlmConfig,
     InputNeuronDest,
