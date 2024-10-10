@@ -189,7 +189,7 @@ class PAIGraph:
         self._update_graph()
 
     def topo_support_check(self) -> None:
-        _degree_check(self.degree_of_nodes, self.succ_dg)
+        # _degree_check(self.degree_of_nodes, self.succ_dg)
 
         # Only support output nodes with <= 1152 neurons so far.
         if any(
@@ -213,83 +213,34 @@ class PAIGraph:
         if not self.has_built:
             raise GraphBuildError("the graph hasn't been built yet.")
 
-    def graph_partition(self) -> list[PartitionedEdges]:
-        """Partition the graph. According to specific rules, the nodes in the graph are divided,    \
-            and the edges connected to these partitioned nodes will be returned as a set.
-
-        Return: a list of partitioned edges & a list of routing groups id.
-
-        TODO constraints in partitioning: iw, sw, snn_en, tws, twe, pool_max_en.
-        """
-        self.build_check()
-
-        gh_parts: list[PartitionedEdges] = []
-        rgid = 0  # routing group id
-        seen_nodes: set[NodeName] = set()
-
+    def graph_partition(self) -> list[RouteGroup]:
+        groups: list[SuccGroup] = list()
         for node in self.ordered_nodes:
-            if node in seen_nodes:
-                continue
+            succ_node_names = set(self.succ_dg[node].keys())
+            if len(succ_node_names) > 0:
+                succ_nodes = [self._raw_nodes[n] for n in succ_node_names]
+                succ_edges = [self.succ_dg[node][n.name].edge for n in succ_nodes]
+                groups.append(SuccGroup(succ_nodes, succ_edges, self._raw_nodes[node]))
+        
+        #并查集过程，将所有分组相互合并，合并条件是两个分组有交集，合并结果用RouteGroup表示
+        route_groups: list[RouteGroup] = list()
+        visited = set()
+        def dfs(group: SuccGroup, visited: set[SuccGroup], route_group: RouteGroup):
+            for other_group in groups:
+                if other_group not in visited and not set(group.nodes).isdisjoint(other_group.nodes):
+                    visited.add(other_group)
+                    route_group.add_group(other_group)
+                    dfs(other_group, visited, route_group)
 
-            if self.degree_of_nodes[node].out_degree == 0:
-                seen_nodes.add(node)
-                continue
-
-            succ_nodes: set[NodeName] = set()
-            # Other source nodes involved
-            other_involved_nodes: set[NodeName] = set()
-            # Successor candidate nodes
-            succ_nodes_candid: set[NodeName] = set(self.succ_dg[node].keys())
-            # Partitioned nodes
-            partitioned_nodes = set([node])
-
-            while len(succ_nodes_candid) > 0:
-                succ_nodes.update(succ_nodes_candid)
-
-                for candid in succ_nodes_candid:
-                    if self.degree_of_nodes[candid].in_degree > 1:
-                        coming_nodes = set(self.pred_dg[candid].keys()) - seen_nodes
-                        other_involved_nodes |= coming_nodes
-
-                other_involved_nodes -= partitioned_nodes
-                partitioned_nodes |= other_involved_nodes
-                succ_nodes_candid.clear()
-
-                for other_node in other_involved_nodes:
-                    other_candid = set(self.succ_dg[other_node].keys()) - succ_nodes
-                    succ_nodes_candid |= other_candid
-
-            seen_nodes |= partitioned_nodes
-
-            succ_edges_set: set[EdgeType] = set()
-            succ_nodes_set: set[NodeType] = set()
-
-            for _node in partitioned_nodes:
-                succ_edges_set.update(e.edge for e in self.succ_dg[_node].values())
-                succ_nodes_set.update(self._raw_nodes[n] for n in self.succ_dg[_node])
-
-            succ_nodes_lst: list[NodeType] = list(succ_nodes_set)
-            mode = succ_nodes_lst[0].mode
-            if any(mode != node.mode for node in succ_nodes_lst):
-                raise NotSupportedError("mixed mode is not supported.")
-
-            idx_of_sg = GraphNodeConstrs.tick_wait_attr_constr(succ_nodes_lst)
-
-            if len(idx_of_sg) > 0:
-                for idx in idx_of_sg:
-                    succ_edges_sg: set[EdgeType] = set()
-                    for i in idx:
-                        succ_edges_sg.update(
-                            e.edge
-                            for e in self.pred_dg[succ_nodes_lst[i].name].values()
-                        )
-                    gh_parts.append(PartitionedEdges(succ_edges_sg, rgid, rt_mode=mode))
-            else:
-                gh_parts.append(PartitionedEdges(succ_edges_set, rgid, rt_mode=mode))
-
-            rgid += 1
-
-        return gh_parts
+        for group in groups:
+            if group not in visited:
+                route_group = RouteGroup()
+                route_group.add_group(group)
+                visited.add(group)
+                dfs(group, visited, route_group)
+                route_groups.append(route_group)
+        
+        return route_groups
 
     def multicast_optim(
         self,

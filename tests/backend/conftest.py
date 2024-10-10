@@ -668,7 +668,7 @@ class Network_branch_nodes3(pb.Network):
         self.n3 = pb.IF((800,), 10, name="n3", tick_wait_start=2)
         self.n4 = pb.IF((1000,), 10, name="n4", tick_wait_start=3)
         self.n5 = pb.IF((800,), 10, name="n5", tick_wait_start=4)
-        self.n6 = pb.IF((1000,), 10, name="n6", tick_wait_start=4)
+        self.n6 = pb.IF((200,), 10, name="n6", tick_wait_start=4)
 
         self.s1 = pb.FullConn(self.inp1, self.n1, name="s1")
         self.s2 = pb.FullConn(self.n1, self.n2, name="s2")

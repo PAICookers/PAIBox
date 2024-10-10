@@ -9,12 +9,13 @@ from paicorelib import WeightWidth as WW
 from paicorelib.framelib import OfflineFrameGen
 
 from paibox.components import FullConnectedSyn, Neuron
-from paibox.exceptions import GraphBuildError, ResourceError, TruncationWarning
+from paibox.exceptions import GraphBuildError, ResourceError, TruncationWarning, NotSupportedError
 from paibox.types import WEIGHT_DTYPE, WeightType
 from paibox.utils import check_attr_same
 
 from .conf_types import CoreConfig, CoreConfInChip, CorePlmConfig, NeuronConfig
 from .context import _BACKEND_CONTEXT
+from .constrs import GraphNodeConstrs
 from .segment_utils import aligned_coords, get_axon_segments, get_neu_segments
 from .types import (
     _COORD_UNSET,
@@ -33,6 +34,8 @@ from .types import (
     WRAMPackedType,
     WRAMUnpackedType,
     is_iw8,
+    RouteGroup,
+    EdgeType,
 )
 
 
@@ -91,6 +94,7 @@ class CoreBlock(CoreAbstract):
         self.core_placements = dict()
         self.axon_segments = dict()
         self.neuron_segs_of_cb = []
+        self.ordered_axons: list[SourceNodeType] = []
 
     def group_neurons(
         self, optim_target: Literal["latency", "core", "both"] = "both"
@@ -142,6 +146,11 @@ class CoreBlock(CoreAbstract):
             )
 
         return LCN_EX(lcn)
+
+    def assign(self, allocated: list[Coord], chip_coord: Coord) -> list[Coord]:
+        self.core_coords = allocated
+        self.chip_coord = chip_coord
+        return allocated, []
 
     def copy(self):
         raise NotImplementedError
@@ -276,12 +285,17 @@ class CoreBlock(CoreAbstract):
             for neuron_segs in self.neuron_segs_of_cb
         ]
 
-    def group_axons(self) -> None:
+    def group_axons(self, multicast_axons: list[SourceNodeType] = list()) -> None:
         if not self._lcn_locked:
             raise GraphBuildError("get axon segments after 'lcn_ex' is locked.")
-
+        # Remove shared axons
+        axons = [ax for ax in self.axons if ax not in multicast_axons]
+        # More axons may be added to the axon list
+        axons = multicast_axons + axons
+        self.ordered_axons = axons
+        print(f"origin: {len(self.axons)}, ordered: {len(self.ordered_axons)}")
         self.axon_segments = get_axon_segments(
-            self.axons, self.n_timeslot, self.n_fanin_base
+            self.ordered_axons, self.n_timeslot, self.n_fanin_base
         )
 
     @cached_property
@@ -294,7 +308,7 @@ class CoreBlock(CoreAbstract):
             # The weights for each destination node.
             w_of_dest = []
 
-            for s in self.source:
+            for s in self.ordered_axons:
                 if syn := self._get_syn_of(s, d):
                     w_of_dest.append(syn.connectivity)
                 else:
@@ -370,6 +384,26 @@ class CoreBlock(CoreAbstract):
             )
 
         return cls(*synapses, routing_id=routing_id, mode=rt_mode, seed=seed)
+
+    @classmethod
+    def build_core_blocks(cls, route_group: RouteGroup) -> list["CoreBlock"]:
+        core_blocks:list[CoreBlock] = []
+        succ_nodes = list(route_group.nodes)
+        mode = succ_nodes[0].mode
+        if any (node.mode != mode for node in succ_nodes):
+            raise NotSupportedError("mixed mode is not supported.")
+        idx_of_sg = GraphNodeConstrs.tick_wait_attr_constr(succ_nodes)
+        route_group.set_inputs()
+        if len(idx_of_sg) == 0:
+            idx_of_sg = [list(range(len(succ_nodes)))]
+            
+        for idx in idx_of_sg:
+            succ_edges: set[EdgeType] = set()
+            for i in idx:
+                succ_edges.update(route_group.inputs[succ_nodes[i]])
+            core_block = CoreBlock.build(*succ_edges, routing_id = 0, rt_mode = mode)
+            core_blocks.append(core_block)
+        return core_blocks
 
     @classmethod
     def export_core_plm_config(cls, cb: "CoreBlock") -> CoreConfInChip:
@@ -792,7 +826,7 @@ class CorePlacement(CoreAbstract):
 
     @property
     def source(self) -> list[SourceNodeType]:
-        return self.parent.source
+        return self.parent.ordered_axons
 
     @property
     def dest(self) -> list[DestNodeType]:
