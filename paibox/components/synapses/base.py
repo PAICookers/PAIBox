@@ -79,7 +79,10 @@ class FullConnectedSyn(SynSys):
                 )
         else:
             # Retrieve 0 to the dest neurons if it is not working
-            synin = np.zeros_like(self.source.output)
+            if isinstance(self.source, InputProj):
+                synin = np.zeros_like(self.source.output if x is None else np.atleast_1d(x))
+            else:
+                synin = np.zeros_like(self.source.delay_registers[0] if x is None else np.atleast_1d(x))
 
         self._synout = self.comm(synin).ravel()
 
