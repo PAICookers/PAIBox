@@ -611,7 +611,7 @@ class RoutingRoot:
         n_core_req = routing_group.n_core_required
         n_core_cost = 1 << (n_core_req - 1).bit_length()  # n_core_req <= 2^X
 
-        if n_core_cost > HwConfig.N_CORE_OFFLINE:
+        if n_core_req > HwConfig.N_CORE_OFFLINE:
             raise ResourceError(
                 "the number of cores required by the routing group exceeds the hardware limit, "
                 f"{n_core_cost} > {HwConfig.N_CORE_OFFLINE}."
