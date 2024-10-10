@@ -191,11 +191,11 @@ def gen_config_frames_by_coreconf(
                 f = np.hstack(frame_arrays_onchip, casting="no")
                 _write_to_f(f"config_chip{chip.address}_cores_all", f)
         else:
-            _fa = []
+            _fa_list = []
             for f in frame_arrays_total.values():
-                _fa.extend(f)
+                _fa_list.extend(f)
 
-            f = np.hstack(_concat_frames, casting="no")
+            f = np.hstack(_fa_list, casting="no")
             _write_to_f("config_all", f)
 
     return frame_arrays_total
