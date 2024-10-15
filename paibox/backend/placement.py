@@ -1,3 +1,4 @@
+import math
 import warnings
 from functools import cached_property
 from typing import ClassVar, Literal, Optional, overload
@@ -5,24 +6,22 @@ from typing import ClassVar, Literal, Optional, overload
 import numpy as np
 from paicorelib import LCN_EX, ChipCoord, Coord, CoreMode, HwConfig, MaxPoolingEnable
 from paicorelib import WeightWidth as WW
+from paicorelib.framelib import OfflineFrameGen
 
 from paibox.components import FullConnectedSyn, Neuron
-from paibox.exceptions import (
-    GraphBuildError,
-    NotSupportedError,
-    ResourceError,
-    TruncationWarning,
-)
+from paibox.exceptions import GraphBuildError, ResourceError, TruncationWarning
 from paibox.types import WEIGHT_DTYPE, WeightType
 from paibox.utils import check_attr_same
 
-from .conf_template import CoreConfig, CoreConfInChip, CorePlmConfig, NeuronConfig
+from .conf_types import CoreConfig, CoreConfInChip, CorePlmConfig, NeuronConfig
 from .context import _BACKEND_CONTEXT
 from .segment_utils import aligned_coords, get_axon_segments, get_neu_segments
 from .types import (
     _COORD_UNSET,
+    _RID_UNSET,
     WRAM_PACKED_DTYPE,
     WRAM_UNPACKED_DTYPE,
+    N_BIT_PACKED_WEIGHT,
     AxonCoord,
     AxonSegment,
     CoreAbstract,
@@ -88,7 +87,7 @@ class CoreBlock(CoreAbstract):
         self.target_lcn = LCN_EX.LCN_1X
         self._lcn_locked = False
         self.core_coords = []
-        self.chip_coord = Coord(_COORD_UNSET, _COORD_UNSET)
+        self.chip_coord = _COORD_UNSET
         self.core_placements = dict()
         self.axon_segments = dict()
         self.neuron_segs_of_cb = []
@@ -437,12 +436,7 @@ class CorePlacement(CoreAbstract):
         """Fold the weights into LCN-sized blocks."""
         w_folded_list = []
         w_folded_of_axon_segs = []
-        # See the note of function `_weight_ram_mapping` below.
-        n_fold = (
-            self.n_timeslot
-            if self.rt_mode.is_snn
-            else 1 << (self.dendrite_comb_rate - 3)
-        )
+        n_fold = self.n_timeslot
 
         if self.lcn_ex == LCN_EX.LCN_1X:
             return np.hstack(raw_weights)
@@ -473,62 +467,75 @@ class CorePlacement(CoreAbstract):
         return np.hstack(w_folded_list)
 
     def _weight_ram_mapping(self) -> WRAMPackedType:
-        """Map the raw weights to the weight RAM(WRAM). The mapping is different for both input widths.
+        """Map the raw weights to the weight RAM(WRAM). The mapping is different for 1 & 8-bit input widths.
 
-        NOTE: When the input width is 8 bits, no neurons need to be mapped to the WRAM when the combination rate of \
-            dentrites >= 8, while some neurons need to be mapped to the WRAM when < 8.
+        NOTE: When the input width is 1-bit, no neurons need to be mapped to the WRAM. When the input width is 8-bit,   \
+            some neurons may be mapped to the WRAM when the #N of neurons inside the core placement > 512.
 
-            When the input width is 8 bits and with the combination rate of dentrites > 3, the mapping of weights   \
-            becomes the key to limiting neuron capacity. In this case, if the weight accuracy is less than 8 bits   \
-            (which may also occur when the weight accuracy is optimized), the weight cannot be folded directly in   \
-            the fan-in expansion direction, otherwise the column of the WRAM will exceed the upper limit(512).      \
+            This function was tested using only the prototype functions. For test items, please refer to                \
+            tests/backend/test_placement.py::TestWeightRamMapping for details.
 
-            A portion of the fan-in needs to be expanded to an unfilled portion in the direction of the weight      \
-            accuracy. At this point, n_fold=n_timeslot/(8/n_weight_bits)=2^(dendrite_comb_rate - 3). For example,   \
-            for LCN_8X & WW8, the n_fold is 3. For LCN_32X & WW4, the n_fold is 4 (instead of 5).
-
-        TODO Now, in ANN mode, only the mapping of 8-bit weights is supported. The weight accuracy optimization is  \
-            supposed to disable manually for now.
+        Return:
+            The packed matrix of weights mapped to the WRAM, with shape (x, 18) (x <= 512).
         """
-        if not self.rt_mode.is_snn and self.weight_width < WW.WEIGHT_WIDTH_8BIT:
-            raise NotSupportedError("only support 8-bit weights in ANN mode.")
+        w_folded = self._fold_raw_weights(self.raw_weights)
+        folded_row, _ = w_folded.shape
+        # The 1152*512 unpacked weight, uint8 but only 0 & 1.
+        # wram_unpacked = np.zeros(self.WRAM_BASE_SHAPE, dtype=WRAM_UNPACKED_DTYPE)
 
-        _weights_folded = self._fold_raw_weights(self.raw_weights)
-        row, col = _weights_folded.shape
-        # The 1152*512 unpacked weight
-        w_unpacked = np.zeros(self.WRAM_BASE_SHAPE, dtype=WRAM_UNPACKED_DTYPE)
-
-        if self.n_weight_bits == 1:
-            w_unpacked[:row, :col] = _weights_folded
+        if is_iw8(self.rt_mode):
+            # The length of slot for each bit of input data
+            iw, bit_slot_length = 8, HwConfig.N_FANIN_PER_DENDRITE_ANN
         else:
-            # (N, M)(int8) -> (M, N, 1)(uint8)
-            w_folded_3d = np.expand_dims(_weights_folded.T, axis=2).astype(
-                WRAM_UNPACKED_DTYPE
-            )
+            iw, bit_slot_length = 1, HwConfig.N_FANIN_PER_DENDRITE_SNN
 
-            _n_group_bit = HwConfig.N_FANIN_PER_DENDRITE_ANN
+        n_dendrite_comb = 1 << self.dendrite_comb_rate
+        # oc * e / (8/w) = oc * d / 8
+        orig_col = self.n_neuron
+        result_col = math.ceil(orig_col * n_dendrite_comb / iw)
+        # Units are divided into small blocks of columns, fan-in extension
+        cew_block = np.zeros(
+            (orig_col, self.n_timeslot, self.n_weight_bits, bit_slot_length),
+            dtype=WRAM_UNPACKED_DTYPE,
+        )
 
-            for i in range(col):
+        # (N, M)(int8) -> (M, N, 1)(uint8)
+        w_folded_3d = np.expand_dims(w_folded.T, axis=2).view(WRAM_UNPACKED_DTYPE)
+        for c in range(orig_col):
+            for lcn in range(self.n_timeslot):
                 # For every column, unpack the array (N, 1) -> (N, n_weight_bits)
                 unpacked = np.unpackbits(
-                    w_folded_3d[i],
+                    w_folded_3d[c * self.n_timeslot + lcn, :, :],
                     axis=1,
                     count=self.n_weight_bits,
-                    bitorder=HwConfig.WEIGHT_BITORDER,
+                    bitorder="little",
                 )
 
-                if self.rt_mode.is_snn:
-                    w_unpacked[
-                        :row, self.n_weight_bits * i : self.n_weight_bits * (i + 1)
-                    ] = unpacked
-                else:
-                    # In the case of 8-bit input width, the weights are mapped differently
-                    for bit in range(self.n_weight_bits):
-                        w_unpacked[bit * _n_group_bit : bit * _n_group_bit + row, i] = (
-                            unpacked[:, bit]
-                        )
+                for bit in range(self.n_weight_bits):
+                    cew_block[c, lcn, bit, :folded_row] = unpacked[:, bit].squeeze()
 
-        return self._weight_pack(w_unpacked)
+        if n_dendrite_comb >= iw:  # For 1-bit input width, it must go into this case
+            # At least 1 fan-in is required to be combined in one column
+            w_mapped = cew_block.reshape((result_col, -1)).T
+        else:
+            # 2/4/8 original columns are combined in one column
+            n_col_comb_in_col = iw // n_dendrite_comb
+            cew_block = cew_block.reshape((orig_col, -1))
+
+            if (r := orig_col % n_col_comb_in_col) > 0:
+                cew_block = np.pad(cew_block, ((0, n_col_comb_in_col - r), (0, 0)))
+
+            # Now, length of padded columns is a multiple of 'n_col_comb_in_col'
+            w_mapped = cew_block.reshape(
+                (cew_block.shape[0] // n_col_comb_in_col, -1)
+            ).T
+
+        # For 8-bit input width, here is only the weight mapped to the WRAM. Extra neurons
+        # paramaters will be mapped to the WRAM when exporting the configuration frames.
+        # wram_unpacked[:, : w_mapped.shape[1]] = w_mapped
+
+        # `w_mapped` is only the weight mapped to the WRAM. The shape[1] of `w_mapped` <= 512.
+        return self._weight_pack(w_mapped)
 
     @staticmethod
     def _nfold_weight(
@@ -543,11 +550,10 @@ class CorePlacement(CoreAbstract):
         """
         raw_row, raw_col = raw_weight.shape
 
-        if raw_row % n_fold > 0:
-            n_row_padding = n_fold - raw_row % n_fold
+        if (r := raw_row % n_fold) > 0:
             _raw_weight = np.append(
                 raw_weight,
-                np.zeros((n_row_padding, raw_col), dtype=WEIGHT_DTYPE),
+                np.zeros((n_fold - r, raw_col), dtype=WEIGHT_DTYPE),
                 axis=0,
             )
         else:
@@ -564,25 +570,84 @@ class CorePlacement(CoreAbstract):
 
     @staticmethod
     def _weight_pack(w_unpacked: WRAMUnpackedType) -> WRAMPackedType:
-        """Convert the unpacked weights into a mapping format, corresponding to the WRAM address, each address      \
-            contains 18 uint64.
-            (1152, 512) -> T -> (512*18, 64) -> (512*18, 8) uint8 -> (512*18, 1) uint64 -> (512, 18) uint64.
+        """Convert the unpacked weights into a mapping format, corresponding to the WRAM address, each address contains \
+            18 uint64.
+            (1152, x) -> (x, 1152) -> (x*18, 64) -> (x*18, 8) uint8 -> (x*18, 1) uint64 -> (x, 18) uint64.
         """
-        _n_bit_packed = WRAM_PACKED_DTYPE(1).nbytes * 8  # #N bit of packed dtype
-        # #N of u64 on each NRAM address
-        _n_u64_naddr = CorePlacement.WRAM_BASE_SHAPE[0] // _n_bit_packed
-
         # Reshape to 64 columns to avoid contiguous problem.
-        w_unpacked_aligned = w_unpacked.T.reshape(-1, _n_bit_packed)
-        # (512*18, 64) uint8 -> (512*18, 8) uint8
+        w_unpacked_aligned = w_unpacked.T.reshape((-1, N_BIT_PACKED_WEIGHT))
+        # (x*18, 64) uint8 -> (x*18, 8) uint8
         w_packed_u8 = np.packbits(
             w_unpacked_aligned, axis=1, bitorder=HwConfig.WEIGHT_BITORDER
         )
-        # (512*18, 8) uint8 -> (512*18, 1) uint64 -> (512, 18) uint64
-        w_packed_u64 = w_packed_u8.view(WRAM_PACKED_DTYPE).reshape(-1, _n_u64_naddr)
+        # (x*18, 8) uint8 -> (x*18, 1) uint64 -> (x, 18) uint64
+        w_packed_u64 = w_packed_u8.view(WRAM_PACKED_DTYPE).reshape(
+            (w_unpacked.shape[1], -1)
+        )
         w_packed_u64.setflags(write=False)
 
         return w_packed_u64
+
+    @staticmethod
+    def neu_params_mapping(neu_confs: list[NeuronConfig]) -> WRAMPackedType:
+        """Map the extra neurons parameters to the WRAM. This only happens when the input width is 8 bits.
+
+        NOTE: This function was tested using only the prototype functions. For test items, please refer to              \
+            `tests/backend/test_placement.py::TestWeightRamMapping` for details.
+
+        Return:
+            The packed matrix of extra neurons parameters mapped to the WRAM, with shape (x, 18) (x <= 512).
+        """
+        neu_conf_params_list: list[WRAMUnpackedType] = []
+
+        for neu_conf in neu_confs:
+            neu_conf_params = np.zeros(
+                (neu_conf.neu_seg.n_neuron, NEURON_PARAMS_BIT_LENGTH),
+                dtype=WRAM_UNPACKED_DTYPE,
+            )
+
+            # Only the packges will be used.
+            frame3 = OfflineFrameGen.gen_config_frame3(
+                _COORD_UNSET,
+                _COORD_UNSET,
+                _RID_UNSET,
+                0,
+                neu_conf.neu_seg.n_neuron,
+                neu_conf.neuron_attrs,
+                neu_conf.neuron_dest_info,
+                1,
+            )
+
+            for i in range(neu_conf.neu_seg.n_neuron):
+                params = frame3.packages[i * 4 : (i + 1) * 4]
+                neu_conf_params[i, :] = np.unpackbits(
+                    params.view(WRAM_UNPACKED_DTYPE), axis=0, bitorder="little"
+                )[:NEURON_PARAMS_BIT_LENGTH]
+
+            neu_conf_params_list.append(neu_conf_params)
+
+        neu_params = np.vstack(neu_conf_params_list)
+
+        N_NEURON_PARAM_IN_COL = (
+            CorePlacement.WRAM_BASE_SHAPE[0] // NEURON_PARAMS_BIT_LENGTH
+        )
+        n_col_occupied, r = divmod(neu_params.shape[0], N_NEURON_PARAM_IN_COL)
+        if r > 0:
+            n_col_occupied += 1
+            neu_params = np.pad(neu_params, ((0, N_NEURON_PARAM_IN_COL - r), (0, 0)))
+
+        neu_params = neu_params.reshape((n_col_occupied, -1))
+
+        # (1152, y)
+        result = np.zeros(
+            (CorePlacement.WRAM_BASE_SHAPE[0], n_col_occupied),
+            dtype=WRAM_UNPACKED_DTYPE,
+        )
+        _n_bit_nparams = NEURON_PARAMS_BIT_LENGTH * N_NEURON_PARAM_IN_COL
+        result[:_n_bit_nparams] = neu_params.T
+
+        # (1152, y) -> (y, 18)
+        return CorePlacement._weight_pack(result)
 
     def export_param_config(self) -> CoreConfig:
         _mode_params = self.rt_mode.conf
@@ -590,7 +655,7 @@ class CorePlacement(CoreAbstract):
         # fmt: off
         cb_config = CoreConfig(
             self.name,                          # name of the core
-            self.weight_width,             # weight_precision
+            self.weight_width,                  # weight_precision
             self.lcn_ex,                        # lcn_extension
             _mode_params[0],                    # input_width_format
             _mode_params[1],                    # spike_width_format
@@ -643,7 +708,7 @@ class CorePlacement(CoreAbstract):
             for ad in axon_dests:
                 dest_core_coords.extend(ad.core_coords)
 
-            config = NeuronConfig.encapsulate(
+            config = NeuronConfig(
                 neu_seg, axon_coords, dest_core_coords, axon_dests[0].chip_coord
             )
 
@@ -659,7 +724,7 @@ class CorePlacement(CoreAbstract):
                 for i in range(axon_addr_offset, axon_addr_offset + neu_seg.n_neuron)
             ]
 
-            config = NeuronConfig.encapsulate(
+            config = NeuronConfig(
                 neu_seg,
                 axon_coords,
                 [output_core_coord],
@@ -719,8 +784,7 @@ class CorePlacement(CoreAbstract):
 
     @property
     def n_working_dendrite(self) -> int:
-        """The number of actual working dendrites. IN ANN mode, the number of working   \
-            dendrites N <= 4096. In SNN mode, N <= 512.
+        """The number of actual working dendrites.
 
         NOTE: n_neuron * (2^comb_rate) = n_neuron << comb_rate
         """
@@ -804,3 +868,6 @@ if hasattr(HwConfig, "FANOUT_IW8"):
     FANOUT_IW8 = HwConfig.FANOUT_IW8  # type: ignore
 else:
     FANOUT_IW8 = [HwConfig.N_NEURON_MAX_ANN, 1364, 876, 512, 256, 128, 64, 32, 16, 8]
+
+
+NEURON_PARAMS_BIT_LENGTH = 214

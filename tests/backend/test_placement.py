@@ -1,20 +1,44 @@
+import math
 import numpy as np
 import pytest
-from paicorelib import LCN_EX, HwConfig
+import sys
+from contextlib import nullcontext
+from functools import partial
+from paicorelib import Coord, LCN_EX, HwConfig, NeuronAttrs
+from paicorelib import ReplicationId as RId
 from paicorelib import WeightWidth as WW
+from paicorelib.framelib import OfflineFrameGen
+from typing import Literal, Optional
 
 import paibox as pb
 from paibox.backend.placement import CorePlacement
-from paibox.backend.types import WRAM_PACKED_DTYPE, NeuSegment, WRAMUnpackedType
+from paibox.backend.types import (
+    WRAM_PACKED_DTYPE,
+    WRAM_UNPACKED_DTYPE,
+    NeuSegment,
+    WRAMPackedType,
+    WRAMUnpackedType,
+)
 from paibox.exceptions import ResourceError
 from paibox.types import WEIGHT_DTYPE, WeightType
 
+from .test_conf_exporting import _gen_random_neuron_dest_info
 
-def packbits_ref(bits: np.ndarray, count: int) -> int:
-    """Pack unsigned bits into a signed integer.
 
-    This is a test of the prototype of the original function.
+def _packbits_ref(bits: np.ndarray, count: Optional[int] = None) -> int:
+    """Pack unsigned bits (from LSB to MSB) into a signed integer.
+
+    Args:
+        - bits: an array of bits from LSB to MSB(sign bit).
+        - count: `bits` is an N-bit signed integer. If not provided, it is  \
+            assumed to be the same as `bits.size`.
     """
+    if count is None:
+        count = bits.size
+
+    if count == 1:
+        return bits[0]
+
     _bits = np.append(bits[: count - 1], bits[-1])
 
     result = sum(bit << i for i, bit in enumerate(_bits))
@@ -23,7 +47,19 @@ def packbits_ref(bits: np.ndarray, count: int) -> int:
     return result
 
 
-def test_get_raw_weight_ref(fixed_rng: np.random.Generator):
+packbits1 = partial(_packbits_ref, count=1)
+packbits2 = partial(_packbits_ref, count=2)
+packbits4 = partial(_packbits_ref, count=4)
+packbits8 = partial(_packbits_ref, count=8)
+
+
+def _nbit_limit(nbit: int) -> tuple[int, int]:
+    hi = 2 if nbit == 1 else 1 << (nbit - 1)
+    lo = 0 if nbit == 1 else -hi
+    return lo, hi
+
+
+def test_get_raw_weight(fixed_rng: np.random.Generator):
     w1 = fixed_rng.integers(-128, 128, size=(10, 20), dtype=WEIGHT_DTYPE)
     w2 = fixed_rng.integers(-128, 128, size=(10, 30), dtype=WEIGHT_DTYPE)
 
@@ -55,81 +91,15 @@ def test_get_raw_weight_ref(fixed_rng: np.random.Generator):
         w_of_neu_segs_of_cb.append(w_of_neu_segs)
 
 
-@pytest.mark.parametrize(
-    "input, n_col_groups, expected",
-    [
-        (
-            np.arange(1, 17, dtype=np.int8).reshape(8, 2),
-            2,
-            np.array(
-                [
-                    [1, 13, 2, 14],
-                    [3, 15, 4, 16],
-                    [5, 0, 6, 0],
-                    [7, 0, 8, 0],
-                    [9, 0, 10, 0],
-                    [11, 0, 12, 0],
-                ],
-                dtype=np.int8,
-            ),
-        ),
-        (
-            np.arange(1, 13, dtype=np.int8).reshape(6, 2),
-            3,
-            np.array([[1, 5, 9, 2, 6, 10], [3, 7, 11, 4, 8, 12]], dtype=np.int8),
-        ),
-        (
-            np.arange(1, 25, dtype=np.int8).reshape(8, 3),
-            3,
-            np.array(
-                [
-                    [1, 10, 19, 2, 11, 20, 3, 12, 21],
-                    [4, 13, 22, 5, 14, 23, 6, 15, 24],
-                    [7, 16, 0, 8, 17, 0, 9, 18, 0],
-                ],
-                dtype=np.int8,
-            ),
-        ),
-    ],
-)
-def test_weight_ram_mapping(input, n_col_groups, expected):
-    """Convert a weight matirx into a standard binary connectivity.
-
-    This is a test of the prototype of the original function.
-    """
-    cur_shape = input.shape
-    row, _ = expected.shape
-    o_matrix = np.zeros(expected.shape, dtype=np.int8)
-
-    for i in range(cur_shape[1]):
-        w_col = input[:, i]
-        col_group = 0
-
-        while (n_rest_axon := cur_shape[0] - row * col_group) > row:
-            o_matrix[:, n_col_groups * i + col_group] = w_col[
-                row * col_group : row * (col_group + 1)
-            ]
-            col_group += 1
-
-        o_matrix[:, n_col_groups * i + col_group] = np.pad(
-            w_col[row * col_group :],
-            pad_width=(0, row - n_rest_axon),
-            mode="constant",
-            constant_values=0,
-        )
-
-    assert np.array_equal(o_matrix, expected)
-
-
-def test_nfold_weight_ref():
+def test_nfold_weight():
+    """A prototype function of `_nfold_weight` to test the weight folding."""
     original_matrix = np.arange(1, 25, dtype=WEIGHT_DTYPE).reshape(8, 3)
     nfold = 3
 
-    if original_matrix.shape[0] % nfold > 0:
-        _padding = nfold - original_matrix.shape[0] % nfold
+    if (r := original_matrix.shape[0] % nfold) > 0:
         w_padding = np.append(
             original_matrix,
-            values=np.zeros((_padding, original_matrix.shape[1]), dtype=WEIGHT_DTYPE),
+            values=np.zeros((nfold - r, original_matrix.shape[1]), dtype=WEIGHT_DTYPE),
             axis=0,
         )
     else:
@@ -137,8 +107,9 @@ def test_nfold_weight_ref():
 
     split = np.vsplit(w_padding, nfold)
 
+    expected_row = w_padding.shape[0] // nfold
     result = np.zeros(
-        (w_padding.shape[0] // nfold, original_matrix.shape[1] * nfold),
+        (expected_row, original_matrix.shape[1] * nfold),
         dtype=WEIGHT_DTYPE,
     )
 
@@ -159,32 +130,45 @@ def test_nfold_weight_ref():
     )
 
 
-class TestWeightUnpack:
-    @pytest.mark.parametrize(
-        "wp",
-        [
-            WW.WEIGHT_WIDTH_8BIT,
-            WW.WEIGHT_WIDTH_4BIT,
-            WW.WEIGHT_WIDTH_2BIT,
-            WW.WEIGHT_WIDTH_1BIT,
-        ],
-    )
-    def test_signed_unpackbits(self, wp):
-        count = 1 << wp
-        actual_array = np.arange(-(1 << (count - 1)), (1 << (count - 1)), dtype=np.int8)
+N_BIT_PACKED_WEIGHT = WRAM_PACKED_DTYPE(1).nbytes * 8  # #N bits of packed weight
+if hasattr(CorePlacement, "WRAM_BASE_SHAPE"):
+    WRAM_BASE_SHAPE = CorePlacement.WRAM_BASE_SHAPE
+else:
+    WRAM_BASE_SHAPE = (HwConfig.ADDR_AXON_MAX + 1, HwConfig.ADDR_RAM_MAX + 1)
 
-        for actual_signed in actual_array:
-            unpacked = np.unpackbits(
-                np.uint8(actual_signed), axis=0, count=count, bitorder="little"
-            )
-            assert actual_signed == packbits_ref(unpacked, count)
 
+def _get_max_fanout(iw: int, dendr_comb_rate: int) -> int:
+    if iw == 1:
+        return HwConfig.N_DENDRITE_MAX_SNN >> dendr_comb_rate
+    else:
+        return FANOUT_IW8[dendr_comb_rate]
+
+
+class TestWeightUnpackAndPack:
+    def test_signed_unpackbits(self):
+        for wp in WW:
+            nbit = 1 << wp
+            _low, _high = _nbit_limit(nbit)
+
+            if nbit == 1:
+                assert (_low, _high) == (0, 2)
+            elif nbit == 2:
+                assert (_low, _high) == (-2, 2)
+            elif nbit == 4:
+                assert (_low, _high) == (-8, 8)
+            else:
+                assert (_low, _high) == (-128, 128)
+
+            actual_array = np.arange(_low, _high, dtype=np.int8)
+
+            for actual_signed in actual_array:
+                unpacked = np.unpackbits(
+                    np.uint8(actual_signed), axis=0, count=nbit, bitorder="little"
+                )
+                assert actual_signed == _packbits_ref(unpacked, nbit)
+
+    @pytest.mark.skipif(sys.byteorder != "little", reason="not little-endian")
     def test_uint8_unpackbits_scalar(self):
-        import sys
-
-        # Little endian on x86_64
-        assert sys.byteorder == "little"
-
         x1 = np.int8(101)  # 01100101
         assert x1 == 0b01100101
         x2 = np.int8(-27)  # 11100101
@@ -198,27 +182,89 @@ class TestWeightUnpack:
         assert np.array_equal(y2, np.array([1, 0, 1, 0, 0, 1, 1, 1], dtype=np.uint8))
 
     @pytest.mark.parametrize(
-        "shape, wp, nfold, is_iw8",
+        "shape, wp, lcn_ex",
         [
-            ((8, 8), WW.WEIGHT_WIDTH_8BIT, 2, False),
-            ((32, 32), WW.WEIGHT_WIDTH_8BIT, 2, False),
-            ((16, 16), WW.WEIGHT_WIDTH_4BIT, 4, False),
-            ((30, 24), WW.WEIGHT_WIDTH_4BIT, 4, False),
-            ((32, 24), WW.WEIGHT_WIDTH_2BIT, 3, False),
-            ((32, 24), WW.WEIGHT_WIDTH_1BIT, 3, False),
-            ((31, 23), WW.WEIGHT_WIDTH_8BIT, 5, False),
-            ((1200, 200), WW.WEIGHT_WIDTH_1BIT, 2, False),
-            ((800, 64), WW.WEIGHT_WIDTH_8BIT, 2, False),
-            ((8, 8), WW.WEIGHT_WIDTH_8BIT, 2, True),
-            ((32, 32), WW.WEIGHT_WIDTH_8BIT, 2, True),
-            ((16, 16), WW.WEIGHT_WIDTH_4BIT, 4, True),
-            ((200, 32), WW.WEIGHT_WIDTH_8BIT, 2, True),
-            ((30, 24), WW.WEIGHT_WIDTH_4BIT, 4, True),
-            ((32, 24), WW.WEIGHT_WIDTH_2BIT, 3, True),
+            ((120, 800), WW.WEIGHT_WIDTH_1BIT, LCN_EX.LCN_4X),
+            ((16, 16), WW.WEIGHT_WIDTH_4BIT, LCN_EX.LCN_2X),
+            ((80, 48), WW.WEIGHT_WIDTH_4BIT, LCN_EX.LCN_16X),
+            ((100, 510), WW.WEIGHT_WIDTH_8BIT, LCN_EX.LCN_1X),
+            ((99, 32), WW.WEIGHT_WIDTH_8BIT, LCN_EX.LCN_2X),
+            ((100, 32), WW.WEIGHT_WIDTH_8BIT, LCN_EX.LCN_8X),
         ],
     )
-    def test_weight_ram_mapping(self, shape, wp, nfold, is_iw8):
+    def test_unpacked_weight_pack(
+        self, shape, wp, lcn_ex, fixed_rng: np.random.Generator
+    ):
+        assert shape[1] <= _get_max_fanout(8, wp + lcn_ex)
+
         nbit = 1 << wp
+        nfold = 1 << lcn_ex
+        _low, _high = _nbit_limit(nbit)
+        # Generate the unpacked weight, folded
+        test_weight = fixed_rng.integers(_low, _high, size=shape, dtype=WEIGHT_DTYPE)
+        w_packed_u64 = self._weight_pack(test_weight, nbit, nfold)
+
+        assert w_packed_u64.shape[0] == WRAM_BASE_SHAPE[1]
+
+    @staticmethod
+    def _weight_pack(w: WeightType, nbit: int, nfold: int) -> WRAMPackedType:
+        """This prototype function is used to pack the unpacked uint8 weight of size `WRAM_BASE_SHAPE` into \
+            a packed uint64 weight of size (WRAM_BASE_SHAPE[1], WRAM_BASE_SHAPE[0]//64)."""
+        wram_base_shape = np.zeros(WRAM_BASE_SHAPE, dtype=WRAM_UNPACKED_DTYPE)
+
+        # -> 1152*512 uint8
+        wram_unpacked = TestWeightRamMapping._weight_ram_mapping(w, nbit, nfold, 8)
+        wram_base_shape[:, : wram_unpacked.shape[1]] = wram_unpacked
+
+        # -> 512*1152 -> (512*18)*64
+        w_unpacked_aligned = wram_base_shape.T.reshape((-1, N_BIT_PACKED_WEIGHT))
+
+        # -> (512*18)*8 uint8
+        w_packed_u8 = np.packbits(w_unpacked_aligned, axis=1, bitorder="little")
+        assert w_packed_u8.shape[1] == 8
+
+        _n_u64 = WRAM_BASE_SHAPE[0] // N_BIT_PACKED_WEIGHT
+        # -> (512*18)*1 uint64 -> 512*18 uint64
+        w_packed_u64 = w_packed_u8.view(WRAM_PACKED_DTYPE).reshape((-1, _n_u64))
+
+        return w_packed_u64
+
+
+from paibox.backend.placement import FANOUT_IW8
+
+NEURON_PARAMS_BIT_LENGTH = 214
+N_NEURON_PARAM_IN_COL = HwConfig.N_FANIN_PER_DENDRITE_MAX // NEURON_PARAMS_BIT_LENGTH
+
+
+class TestWeightRamMapping:
+
+    @pytest.mark.parametrize(
+        "shape, wp, lcn_ex",
+        [
+            ((1200, 200), WW.WEIGHT_WIDTH_1BIT, LCN_EX.LCN_2X),
+            ((1000 * 4, 24), WW.WEIGHT_WIDTH_1BIT, LCN_EX.LCN_4X),
+            ((1000 * 8, 50), WW.WEIGHT_WIDTH_1BIT, LCN_EX.LCN_8X),
+            ((1152 * 2, 120), WW.WEIGHT_WIDTH_2BIT, LCN_EX.LCN_2X),
+            ((16, 16), WW.WEIGHT_WIDTH_4BIT, LCN_EX.LCN_2X),
+            ((80, 5), WW.WEIGHT_WIDTH_4BIT, LCN_EX.LCN_16X),
+            ((800, 60), WW.WEIGHT_WIDTH_8BIT, LCN_EX.LCN_1X),
+            ((800, 32), WW.WEIGHT_WIDTH_8BIT, LCN_EX.LCN_2X),
+            ((1100 * 8, 8), WW.WEIGHT_WIDTH_8BIT, LCN_EX.LCN_8X),
+        ],
+    )
+    def test_weight_ram_mapping_iw1(
+        self, shape, wp, lcn_ex, fixed_rng: np.random.Generator
+    ):
+        """A prototype function for testing weight RAM mapping for 1-bit input width.
+
+        NOTE: The shape of unpacked weight mapped in WRAM `wram_unpacked` is (1152(WRAM_BASE_SHAPE[0]), x),    \
+            where x <= 512 (WRAM_BASE_SHAPE[1]).
+        """
+        iw = 1
+        nbit = 1 << wp
+        nfold = 1 << lcn_ex
+        # Check the shape[1] is legal
+        assert shape[1] <= _get_max_fanout(iw, wp + lcn_ex)
 
         if shape[0] % nfold > 0:
             expected_h = shape[0] // nfold + 1
@@ -228,39 +274,336 @@ class TestWeightUnpack:
         expected_shape = (expected_h, shape[1] * nfold)
 
         # Generate the original weight with shape
-        _low = 0 if nbit == 1 else -(1 << (nbit - 1))
-        _high = 1 << (nbit - 1)
-        test_weight = np.random.randint(_low, _high, size=shape, dtype=WEIGHT_DTYPE)
+        _low, _high = _nbit_limit(nbit)
+        test_weight = fixed_rng.integers(_low, _high, size=shape, dtype=WEIGHT_DTYPE)
 
         # 1. Fold, return the folded weight after padding.
-        w_folded = self._nfold_weight_ref(test_weight, expected_shape[0], nfold)
+        w_folded = self._fold_raw_weight_single(test_weight, expected_shape[0], nfold)
 
-        # 2. Unpack, get the weight ram.
-        # The real interval is HwConfig.N_FANIN_PER_DENDRITE_ANN
-        _fake_interval = w_folded.shape[0] * 2
-        w_unpacked = self._weight_ram_mapping_ref(
-            w_folded, nbit, is_iw8, _fake_interval
-        )
-        w_unpacked.setflags(write=False)
+        # 2. Map to the WRAM.
+        wram_unpacked = np.zeros(WRAM_BASE_SHAPE, dtype=WRAM_UNPACKED_DTYPE)
+        wram_weight = self._weight_ram_mapping(w_folded, nbit, nfold, iw)
+        wram_unpacked[:, : wram_weight.shape[1]] = wram_weight
 
         # 3. Check
-        self._check(
-            test_weight, w_folded, w_unpacked, nbit, nfold, is_iw8, _fake_interval
-        )
+        self._wram_mapping_check_iw1(test_weight, w_folded, wram_unpacked, nbit, nfold)
+
+    @pytest.mark.parametrize(
+        "shape, wp, lcn_ex",
+        [
+            # E*W < 8
+            ((240, 1200), WW.WEIGHT_WIDTH_1BIT, LCN_EX.LCN_2X),
+            ((500, 800), WW.WEIGHT_WIDTH_1BIT, LCN_EX.LCN_4X),
+            ((200, 800), WW.WEIGHT_WIDTH_2BIT, LCN_EX.LCN_2X),
+            ((144, 876), WW.WEIGHT_WIDTH_4BIT, LCN_EX.LCN_1X),
+            # E*W >= 8
+            ((30, 30), WW.WEIGHT_WIDTH_1BIT, LCN_EX.LCN_8X),
+            ((2200, 100), WW.WEIGHT_WIDTH_1BIT, LCN_EX.LCN_16X),
+            ((30, 24), WW.WEIGHT_WIDTH_2BIT, LCN_EX.LCN_4X),
+            ((100, 15), WW.WEIGHT_WIDTH_2BIT, LCN_EX.LCN_8X),
+            ((30, 24), WW.WEIGHT_WIDTH_4BIT, LCN_EX.LCN_2X),
+            ((550, 40), WW.WEIGHT_WIDTH_4BIT, LCN_EX.LCN_4X),
+            ((1001, 100), WW.WEIGHT_WIDTH_4BIT, LCN_EX.LCN_8X),
+            ((30, 24), WW.WEIGHT_WIDTH_8BIT, LCN_EX.LCN_1X),
+            ((200, 100), WW.WEIGHT_WIDTH_8BIT, LCN_EX.LCN_2X),
+            ((480, 100), WW.WEIGHT_WIDTH_8BIT, LCN_EX.LCN_4X),
+            ((4200, 8), WW.WEIGHT_WIDTH_8BIT, LCN_EX.LCN_32X),
+        ],
+    )
+    def test_weight_ram_mapping_iw8(
+        self, shape, wp, lcn_ex, fixed_rng: np.random.Generator
+    ):
+        """A prototype function for testing weight RAM mapping for 8-bit input width.
+
+        NOTE: The shape of unpacked weight mapped in WRAM `wram_unpacked` is (1152(WRAM_BASE_SHAPE[0]), x),    \
+            where x <= 512 (WRAM_BASE_SHAPE[1]).
+        """
+        iw = 8
+        nbit = 1 << wp
+        nfold = 1 << lcn_ex
+        # Check the shape[1] is legal
+        assert shape[1] <= _get_max_fanout(iw, wp + lcn_ex)
+
+        if shape[0] % nfold > 0:
+            expected_h = shape[0] // nfold + 1
+        else:
+            expected_h = shape[0] // nfold
+
+        expected_shape = (expected_h, shape[1] * nfold)
+
+        # Generate the original weight with shape
+        _low, _high = _nbit_limit(nbit)
+        test_weight = fixed_rng.integers(_low, _high, size=shape, dtype=WEIGHT_DTYPE)
+
+        # 1. Fold, return the folded weight after padding.
+        w_folded = self._fold_raw_weight_single(test_weight, expected_shape[0], nfold)
+
+        # 2. Map to the NRAM.
+        wram_unpacked = np.zeros(WRAM_BASE_SHAPE, dtype=WRAM_UNPACKED_DTYPE)
+        wram_weight = self._weight_ram_mapping(w_folded, nbit, nfold, iw)
+        wram_unpacked[:, : wram_weight.shape[1]] = wram_weight
+
+        # NOTE: While mapping extra neuron parameters to the WRAM occurs
+        # during the configuration frame export phase, it is tested here.
+        if (n_extra_neurons := shape[1] - WRAM_BASE_SHAPE[1]) > 0:
+            wram_neurons = self._gen_wram_for_neurons(n_extra_neurons, wp, lcn_ex)
+
+            assert wram_weight.shape[1] + wram_neurons.shape[1] <= WRAM_BASE_SHAPE[1]
+            wram_unpacked[:, -wram_neurons.shape[1] :] = wram_neurons
+
+        # TODO how to check
 
     @staticmethod
-    def _nfold_weight_ref(raw_weight: WeightType, expected_row: int, nfold: int):
+    def _weight_ram_mapping(
+        folded_weights: WeightType, n_bit: int, n_fold: int, iw: Literal[1, 8]
+    ) -> WRAMUnpackedType:
+        if iw == 1:
+            # The length of slot for each bit of input data
+            bit_slot_length = HwConfig.N_FANIN_PER_DENDRITE_SNN
+        else:
+            # N_FANIN_PER_DENDRITE_SNN // iw
+            bit_slot_length = HwConfig.N_FANIN_PER_DENDRITE_ANN
+
+        folded_row, folded_col = folded_weights.shape
+        n_dendrite_comb = n_bit * n_fold
+        # oc * e / (8/w) = oc * d / 8
+        orig_col = folded_col // n_fold
+        result_col = math.ceil(orig_col * n_dendrite_comb / iw)
+        # Units are divided into small blocks of columns, fan-in extension
+        # (oc, lcn, nbit, 144/1152)
+        cew_block = np.zeros(
+            (orig_col, n_fold, n_bit, bit_slot_length), dtype=WRAM_UNPACKED_DTYPE
+        )
+        # [N*M] -> [M*N*1]
+        folded_weights_3d = np.expand_dims(folded_weights.T, axis=2).view(
+            WRAM_UNPACKED_DTYPE
+        )
+        for c in range(orig_col):
+            for lcn in range(n_fold):
+                # Unpack the array [N*1] -> [N*8]
+                # [0, :]-> [folded_row, :]: A[0] -> A[folded_row-1]
+                # [:, 0]->[:,7]: LSB->MSB
+                unpacked = np.unpackbits(
+                    folded_weights_3d[c * n_fold + lcn, :, :],
+                    axis=1,
+                    count=n_bit,
+                    bitorder="little",
+                )
+
+                for bit in range(n_bit):
+                    cew_block[c, lcn, bit, :folded_row] = unpacked[:, bit].squeeze()
+
+        if n_dendrite_comb >= iw:  # For SNN mode, it must go into this case
+            # At least 1 fan-in is required to be combined in one column
+            result = cew_block.reshape((result_col, -1)).T
+        else:
+            # 2/4/8 original columns are combined in one column
+            n_col_comb_in_col = iw // n_dendrite_comb
+            cew_block = cew_block.reshape((orig_col, -1))
+
+            if (r := orig_col % n_col_comb_in_col) > 0:
+                cew_block = np.pad(cew_block, ((0, n_col_comb_in_col - r), (0, 0)))
+
+            # Now, length of padded columns is a multiple of 'n_col_comb_in_col'
+            assert cew_block.shape[0] % n_col_comb_in_col == 0
+            result = cew_block.reshape((cew_block.shape[0] // n_col_comb_in_col, -1)).T
+
+            # For n_dendrite_comb = 1, the #C columns of result <= FANOUT_IW8[0]/8
+            # For n_dendrite_comb = 2, #C <= FANOUT_IW8[1]/4
+            # For n_dendrite_comb = 4, #C <= FANOUT_IW8[2]/2
+            assert (
+                result.shape[1]
+                <= FANOUT_IW8[n_dendrite_comb.bit_length() - 1] // n_col_comb_in_col
+            )
+
+        assert np.max(result, axis=None) <= 1
+        assert np.min(result, axis=None) >= 0
+
+        return result
+
+    @pytest.mark.parametrize(
+        "shape, wp, lcn_ex, expectation",
+        [
+            # E*W=1
+            ((120, 1888), WW.WEIGHT_WIDTH_1BIT, LCN_EX.LCN_1X, nullcontext()),
+            (
+                (120, 1889),
+                WW.WEIGHT_WIDTH_1BIT,
+                LCN_EX.LCN_1X,
+                pytest.raises(AssertionError),
+            ),
+            # E*W=2
+            ((288, 1364), WW.WEIGHT_WIDTH_1BIT, LCN_EX.LCN_2X, nullcontext()),
+            (
+                (144, 1365),
+                WW.WEIGHT_WIDTH_2BIT,
+                LCN_EX.LCN_1X,
+                pytest.raises(AssertionError),
+            ),
+            # E*W=4
+            ((144 * 4, 876), WW.WEIGHT_WIDTH_1BIT, LCN_EX.LCN_4X, nullcontext()),
+            (
+                (144, 877),
+                WW.WEIGHT_WIDTH_4BIT,
+                LCN_EX.LCN_1X,
+                pytest.raises(AssertionError),
+            ),
+            ((120, 876), WW.WEIGHT_WIDTH_4BIT, LCN_EX.LCN_1X, nullcontext()),
+            (
+                (240, 877),
+                WW.WEIGHT_WIDTH_2BIT,
+                LCN_EX.LCN_2X,
+                pytest.raises(AssertionError),
+            ),
+        ],
+    )
+    def test_weight_ram_mapping_neurons_limit(
+        self, shape, wp, lcn_ex, expectation, fixed_rng: np.random.Generator
+    ):
+        """Test cases about neurons limit, only for 8-bit input width & #N of combined dendrites < 8."""
+        assert wp + lcn_ex <= 2
+        iw = 8
+        nbit = 1 << wp
+        nfold = 1 << lcn_ex
+
+        if shape[0] % nfold > 0:
+            expected_h = shape[0] // nfold + 1
+        else:
+            expected_h = shape[0] // nfold
+
+        expected_shape = (expected_h, shape[1] * nfold)
+
+        # Generate the original weight with shape
+        _low, _high = _nbit_limit(nbit)
+        test_weight = fixed_rng.integers(_low, _high, size=shape, dtype=WEIGHT_DTYPE)
+
+        # 1. Fold, return the folded weight after padding.
+        w_folded = self._fold_raw_weight_single(test_weight, expected_shape[0], nfold)
+
+        # 2. Map to the NRAM.
+        with expectation:
+            w_mapped = self._weight_ram_mapping(w_folded, nbit, nfold, iw)
+
+    @staticmethod
+    def _weight_ram_mapping_iw8(
+        folded_weights: WeightType,
+        n_bit: int,
+        n_fold: int,
+        wbit_slot_length: int = HwConfig.N_FANIN_PER_DENDRITE_ANN,
+    ):
+        """A prototype function for weight ram mapping for 8-bit input width."""
+        row, col = folded_weights.shape
+        orig_col = col // n_fold
+        _n_block_in_row = 8  # iw = 8
+        dendrite_comb_rate = n_bit * n_fold
+        # oc * e / (8/w) = oc * d / 8
+        result_col = math.ceil(orig_col * dendrite_comb_rate / _n_block_in_row)
+        result = np.zeros(
+            (_n_block_in_row * wbit_slot_length, result_col), dtype=np.uint8
+        )
+        # Units are divided into small blocks of columns, fan-in extension
+        # Each block contains N-bits * 144 (slot length)
+        cew_block = np.zeros(
+            (orig_col, n_fold, n_bit, wbit_slot_length), dtype=np.uint8
+        )
+        # [N*M] -> [M*N*1]
+        folded_weights_3d = np.expand_dims(folded_weights.T, axis=2).view(np.uint8)
+
+        for c in range(orig_col):
+            for lcn in range(n_fold):
+                # For every m in M, unpack the array [N*1] -> [N*8]
+                # [0, :]-> [row, :]: A[0] -> A[row-1]
+                # [:, 0]->[:,7]: LSB->MSB
+                unpacked = np.unpackbits(
+                    folded_weights_3d[c * n_fold + lcn, :, :],
+                    axis=1,
+                    count=n_bit,
+                    bitorder="little",
+                )
+
+                for bit in range(n_bit):
+                    cew_block[c, lcn, bit, :row] = unpacked[:, bit].squeeze()
+
+        # if n_bit < 8:
+        #     if dendrite_comb_rate > _n_block_in_row:  # W<8, E*W>8
+        #         # How many fan-ins are combined in one column
+        #         n_lcn_comb_in_col = _n_block_in_row // n_bit  # <n_fold
+        #         # For all fan-ins on the original column, how many columns are needed to accommodate
+        #         n_col_lcn_accom, r = divmod(n_fold, n_lcn_comb_in_col)
+        #         assert r == 0
+        #         result3 = cew_block.reshape((result_col, -1)).T
+        #         cew_block = cew_block.reshape((orig_col, n_col_lcn_accom, -1))
+
+        #         for c, l in np.ndindex(cew_block.shape[:2]):
+        #             result[:, c * n_col_lcn_accom + l] = cew_block[c, l, :].ravel()
+
+        #         result2 = cew_block.reshape((result_col, -1)).T
+        #         assert np.array_equal(result, result2)
+        #         assert np.array_equal(result, result3)
+        #     else:  # W<8, E*W<=8
+        #         # How many original columns are combined in one column
+        #         n_col_comb_in_col = _n_block_in_row // dendrite_comb_rate  # 1 < x <= 8
+        #         cew_block = cew_block.reshape((orig_col, -1))
+
+        #         for c in range(cew_block.shape[0]):
+        #             col_idx, row_idx = divmod(c, n_col_comb_in_col)
+        #             result[
+        #                 row_idx
+        #                 * cew_block.shape[-1] : (row_idx + 1)
+        #                 * cew_block.shape[-1],
+        #                 col_idx,
+        #             ] = cew_block[c, :].ravel()
+
+        #         if (r := orig_col % n_col_comb_in_col) > 0:
+        #             cew_block = np.pad(cew_block, ((0, n_col_comb_in_col - r), (0, 0)))
+
+        #         # Now, length of padded columns is a multiple of 'n_col_comb_in_col'
+        #         assert cew_block.shape[0] % n_col_comb_in_col == 0
+        #         result2 = cew_block.reshape(
+        #             (cew_block.shape[0] // n_col_comb_in_col, -1)
+        #         ).T
+        #         assert np.array_equal(result, result2)
+        # else:  # W=8, EW>=8
+        #     result2 = cew_block.reshape((result_col, -1)).T
+        #     cew_block = cew_block.reshape((orig_col, n_fold, -1))
+        #     result = cew_block.reshape((orig_col * n_fold, -1)).T
+
+        #     assert np.array_equal(result, result2)
+
+        if dendrite_comb_rate >= _n_block_in_row:
+            # At least 1 fan-in is required to be combined in one column
+            result999 = cew_block.reshape((result_col, -1)).T
+        else:
+            # 2/4/8 original columns are combined in one column
+            n_col_comb_in_col = _n_block_in_row // dendrite_comb_rate
+            cew_block = cew_block.reshape((orig_col, -1))
+
+            if (r := orig_col % n_col_comb_in_col) > 0:
+                cew_block = np.pad(cew_block, ((0, n_col_comb_in_col - r), (0, 0)))
+
+            # Now, length of padded columns is a multiple of 'n_col_comb_in_col'
+            assert cew_block.shape[0] % n_col_comb_in_col == 0
+            result999 = cew_block.reshape(
+                (cew_block.shape[0] // n_col_comb_in_col, -1)
+            ).T
+
+        # assert np.max(result, axis=None) <= 1
+        # assert np.min(result, axis=None) >= 0
+
+        assert np.max(result999, axis=None) <= 1
+        assert np.min(result999, axis=None) >= 0
+
+        return result
+
+    @staticmethod
+    def _fold_raw_weight_single(raw_weight: WeightType, expected_row: int, nfold: int):
         raw_row, raw_col = raw_weight.shape
 
-        if raw_row % nfold > 0:
-            _padding = nfold - raw_row % nfold
+        if (r := raw_row % nfold) > 0:
+            _padding = nfold - r
             assert expected_row * nfold == raw_row + _padding
 
-            w_padding = np.append(
-                raw_weight,
-                values=np.zeros((_padding, raw_col), dtype=WEIGHT_DTYPE),
-                axis=0,
-            )
+            w_padding = np.pad(raw_weight, ((0, _padding), (0, 0)))
         else:
             w_padding = raw_weight
 
@@ -273,25 +616,12 @@ class TestWeightUnpack:
 
         return w_folded
 
+    # at commit 67054d8
     @staticmethod
-    def _weight_ram_mapping_ref(
-        folded_weights: WeightType,
-        n_bit: int,
-        is_iw8: bool,
-        fake_interval: int,
-    ):
+    def _weight_ram_mapping_iw1_old(folded_weights: np.ndarray, n_bit: int):
+        """Old weight ram mapping for 1-bit input width."""
         row, col = folded_weights.shape
-        # if iw = 1, the row of result is the same as the row of folded_weights
-        if not is_iw8:
-            result_row = row
-        else:
-            result_row = 8 * fake_interval
-
-        result = np.zeros((result_row, col * n_bit), dtype=np.uint8)
-
-        if n_bit == 1:
-            result[:row, :col] = folded_weights
-            return result
+        result = np.zeros((row, col * n_bit), dtype=np.uint8)
 
         # [N*M] -> [M*N*1]
         folded_weights_3d = np.expand_dims(folded_weights.T, axis=2).astype(np.uint8)
@@ -302,13 +632,7 @@ class TestWeightUnpack:
                 folded_weights_3d[i], axis=1, count=n_bit, bitorder="little"
             )
 
-            if not is_iw8:
-                result[:row, n_bit * i : n_bit * (i + 1)] = unpacked
-            else:
-                for bit in range(n_bit):
-                    result[bit * fake_interval : bit * fake_interval + row, i] = (
-                        unpacked[:, bit]
-                    )
+            result[:, n_bit * i : n_bit * (i + 1)] = unpacked
 
         assert np.max(result, axis=None) <= 1
         assert np.min(result, axis=None) >= 0
@@ -316,63 +640,124 @@ class TestWeightUnpack:
         return result
 
     @staticmethod
-    def _check(
+    def _wram_mapping_check_iw1(
         test_data: WeightType,
         w_folded: WeightType,
         w_unpacked: WRAMUnpackedType,
         nbit: int,
         nfold: int,
-        is_iw8: bool,
-        fake_interval: int = 0,
     ) -> None:
         for i, j in np.ndindex(test_data.shape):
             n_in_col = w_folded.shape[0]
-            now_i = i % n_in_col
-            offset_j = i // n_in_col
+            offset_j, now_i = divmod(i, n_in_col)
             now_j = offset_j + j * nfold
 
-            if not is_iw8:
-                wij = w_unpacked[now_i, now_j * nbit : (now_j + 1) * nbit]
-            else:
-                # From LSB to MSB
-                bits = [
-                    w_unpacked[i * fake_interval + now_i, now_j] for i in range(nbit)
-                ]
-                wij = np.asarray(bits, dtype=np.uint8)
+            wij = w_unpacked[now_i, now_j * nbit : (now_j + 1) * nbit]
 
-            wij_packed = packbits_ref(wij, nbit)
+            wij_packed = _packbits_ref(wij, nbit)
             assert test_data[i, j] == wij_packed
 
-    def test_CorePlacement_weight_pack_shape(self):
-        # Mock unpacked weight
-        w_unpacked = np.zeros(CorePlacement.WRAM_BASE_SHAPE, dtype=np.uint8)
-        w_packed_u64 = CorePlacement._weight_pack(w_unpacked)
+    @staticmethod
+    def _wram_mapping_check_iw8(
+        test_data: WeightType,
+        w_folded: WeightType,
+        w_unpacked: WRAMUnpackedType,
+        nbit: int,
+        nfold: int,
+    ) -> None:
+        pass
 
-        assert w_packed_u64.shape == (
-            (HwConfig.ADDR_RAM_MAX + 1),
-            (HwConfig.ADDR_AXON_MAX + 1) // (WRAM_PACKED_DTYPE(1).nbytes * 8),
+    @pytest.mark.parametrize(
+        "shape, wp, lcn_ex",
+        [
+            # E*W < 8
+            ((240, 1200), WW.WEIGHT_WIDTH_1BIT, LCN_EX.LCN_2X),
+            ((500, 800), WW.WEIGHT_WIDTH_1BIT, LCN_EX.LCN_4X),
+            ((200, 800), WW.WEIGHT_WIDTH_2BIT, LCN_EX.LCN_2X),
+            ((200, 811), WW.WEIGHT_WIDTH_2BIT, LCN_EX.LCN_2X),
+            ((144, 876), WW.WEIGHT_WIDTH_4BIT, LCN_EX.LCN_1X),
+        ],
+    )
+    def test_weight_ram_mapping_for_neurons(self, shape, wp, lcn_ex):
+        """This test is for extra neurons parameters mapping on the WRAM for 8-bit input width."""
+        assert wp + lcn_ex <= 2
+
+        n_extra_neurons = shape[1] - WRAM_BASE_SHAPE[1]
+        wram_neurons = self._gen_wram_for_neurons(n_extra_neurons, wp, lcn_ex)
+
+    @staticmethod
+    def _gen_wram_for_neurons(n_extra_neurons: int, wp, lcn_ex):
+        """A prototype function for mapping extra neurons parameters on the WRAM for 8-bit input width.
+
+        NOTE: The shape of final result` is (1152(WRAM_BASE_SHAPE[0]), x), where x <= 512 (WRAM_BASE_SHAPE[1]).
+        """
+        extra_neurons = pb.ANNNeuron(n_extra_neurons, bit_trunc=15)
+        # extra_neurons = pb.ANNBypassNeuron(n_extra_neurons)
+        dest_info = _gen_random_neuron_dest_info(n_extra_neurons)
+
+        # TODO Current APIs are not enough to generate the parameters of neurons directly.
+        frame3 = OfflineFrameGen.gen_config_frame3(
+            Coord(31, 31),
+            Coord(0, 0),
+            RId(0, 0),
+            0,
+            n_extra_neurons,
+            NeuronAttrs.model_validate(extra_neurons.attrs(all=False)),
+            dest_info,
+            1,
         )
 
-    def test_packbits_to_mapping_form(self, fixed_rng: np.random.Generator):
-        def _weight_ram_T(weight_ram_mapped: np.ndarray):
-            _w = weight_ram_mapped.T.reshape(-1, 64)
-            w_packed_u8 = np.packbits(_w, axis=-1, bitorder="little")
+        neuron_params_214b = np.zeros(
+            (n_extra_neurons, NEURON_PARAMS_BIT_LENGTH), dtype=WRAM_UNPACKED_DTYPE
+        )
 
-            return w_packed_u8
+        for i in range(n_extra_neurons):
+            # A neuron's parameters are packed in 4 single packages
+            params = frame3.packages[i * 4 : (i + 1) * 4]
+            # [0:NEURON_PARAMS_BIT_LENGTH]:LSB to MSB + [NEURON_PARAMS_BIT_LENGTH:]:0
+            neuron_params_214b[i, :] = np.unpackbits(
+                params.view(WRAM_UNPACKED_DTYPE), axis=0, bitorder="little"
+            )[:NEURON_PARAMS_BIT_LENGTH]
 
-        w = fixed_rng.integers(-8, 8, size=(1152, 64), dtype=WEIGHT_DTYPE)
+        # Slow method
+        n_col_avail = math.ceil(
+            (_get_max_fanout(8, wp + lcn_ex) - WRAM_BASE_SHAPE[1])
+            / N_NEURON_PARAM_IN_COL
+        )
+        wram_neurons_slow = np.zeros(
+            (WRAM_BASE_SHAPE[0], n_col_avail), dtype=WRAM_UNPACKED_DTYPE
+        )
+        for i in range(n_extra_neurons):
+            idx_col, idx_in_col = divmod(i, N_NEURON_PARAM_IN_COL)
+            wram_neurons_slow[
+                idx_in_col
+                * NEURON_PARAMS_BIT_LENGTH : (idx_in_col + 1)
+                * NEURON_PARAMS_BIT_LENGTH,
+                idx_col,
+            ] = neuron_params_214b[i, :].squeeze()
+        # Slow method ends.
 
-        # 1152 * 512
-        w1 = self._weight_ram_mapping_ref(w, 8, False, 0)
+        # Pad the row of neuron parameters to a multiple of `N_NEURON_PARAM_IN_COL`
+        if (r := neuron_params_214b.shape[0] % N_NEURON_PARAM_IN_COL) > 0:
+            neuron_params_214b = np.pad(
+                neuron_params_214b, ((0, N_NEURON_PARAM_IN_COL - r), (0, 0))
+            )
 
-        # -> 512 * 1152 -> 512 * 144 (uint8)
-        wT = _weight_ram_T(w1)
+        n_bit_nparams = NEURON_PARAMS_BIT_LENGTH * N_NEURON_PARAM_IN_COL
 
-        ww = wT.view(np.uint64).reshape(-1, 18)
-        ww.setflags(write=False)
-        assert 1
+        neuron_params_214b = neuron_params_214b.reshape((-1, n_bit_nparams))
+        _n_col_occupied = neuron_params_214b.shape[0]
 
-    def test_weight_ram_mapping_8bits(self, packbits8):
+        result = np.zeros(
+            (WRAM_BASE_SHAPE[0], _n_col_occupied), dtype=WRAM_UNPACKED_DTYPE
+        )
+        result[:n_bit_nparams] = neuron_params_214b.T
+
+        assert np.array_equal(result, wram_neurons_slow[:, :_n_col_occupied])
+
+        return result
+
+    def test_weight_ram_mapping_8bits(self):
         binary_conn = np.zeros((6, 8 * 5), dtype=np.bool_)
         wp = WW.WEIGHT_WIDTH_8BIT
 
@@ -390,7 +775,7 @@ class TestWeightUnpack:
 
             assert expected == r
 
-    def test_weight_ram_mapping_4bits(self, packbits4):
+    def test_weight_ram_mapping_4bits(self):
         binary_conn = np.zeros((6, 4 * 5), dtype=np.bool_)
         wp = WW.WEIGHT_WIDTH_4BIT
 
@@ -413,7 +798,7 @@ class TestWeightUnpack:
 
             assert expected == r
 
-    def test_weight_ram_mapping_2bits(self, packbits2):
+    def test_weight_ram_mapping_2bits(self):
         binary_conn = np.zeros((6, 4 * 5), dtype=np.bool_)
         wp = WW.WEIGHT_WIDTH_2BIT
 

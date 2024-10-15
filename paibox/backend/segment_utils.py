@@ -134,7 +134,7 @@ def _get_nsg_opt_core(
                     repl_prop,
                 )
             )
-            cur_addr_offset += neu_segs_not_full[n_cur_reg].n_addr
+            cur_addr_offset += neu_segs_not_full[n_cur_reg].n_occupied_addr
             cur_n_neuron += neu_segs_not_full[n_cur_reg].n_neuron
             n_cur_reg += 1
 
@@ -205,7 +205,7 @@ def _dense_reorganized(
             require_new_cplm = True
 
             for seg_of_cplm in neu_segs_of_cb:
-                cur_addr_offset = sum([seg.n_addr for seg in seg_of_cplm])
+                cur_addr_offset = sum([seg.n_occupied_addr for seg in seg_of_cplm])
                 cur_n_neuron = sum([seg.n_neuron for seg in seg_of_cplm])
 
                 # Available to place & insert for the first time

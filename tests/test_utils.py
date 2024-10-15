@@ -37,3 +37,60 @@ def test_reverse_8bit(x, expected):
 )
 def test_reverse_16bit(x, expected):
     assert reverse_16bit(x) == expected
+
+
+@pytest.mark.parametrize(
+    "s1, idx, expected",
+    [
+        (slice(5, 10), 2, slice(7, 8)),
+        (slice(100, 200), 20, slice(120, 121)),
+        (slice(100, 200), -1, slice(199, 200)),
+        (slice(100, 200), -10, slice(190, 191)),
+    ],
+)
+def test_slice_by_index(s1, idx, expected):
+    n_s1 = s1.stop - s1.start
+    if idx < 0:
+        _idx = n_s1 + idx
+        if _idx < 0:
+            raise ValueError(f"index out of range: {idx} < 0")
+    else:
+        _idx = idx
+        if _idx > n_s1 - 1:
+            raise ValueError(f"index out of range: {idx} > {n_s1-1}")
+
+    start = s1.start + _idx
+    end = start + 1
+    new_slice = slice(start, end, s1.step)
+
+    assert new_slice == expected
+
+
+@pytest.mark.parametrize(
+    "s1, s2, expected",
+    [
+        (slice(5, 10), slice(0, 3), slice(5, 8)),
+        (slice(100, 200), slice(50, 100), slice(150, 200)),
+        (slice(100, 200), slice(None, 20), slice(100, 120)),
+        (slice(100, 200), slice(10, None), slice(110, 200)),
+        (slice(100, 300), slice(None, -40), slice(100, 260)),
+    ],
+)
+def test_slice_by_slice(s1, s2, expected):
+    n_s1 = s1.stop - s1.start
+    _s2_start = s2.start if s2.start is not None else 0
+    if s2.stop is None:
+        _s2_stop = n_s1
+    elif s2.stop < 0:
+        _s2_stop = n_s1 + s2.stop
+    else:
+        _s2_stop = s2.stop
+
+    if (_n_s2 := _s2_stop - _s2_start) > n_s1:
+        raise ValueError(f"index out of range: {_n_s2} > {n_s1}")
+
+    start = s1.start + _s2_start
+    end = s1.start + _s2_stop
+    new_slice = slice(start, end, s1.step)
+
+    assert new_slice == expected

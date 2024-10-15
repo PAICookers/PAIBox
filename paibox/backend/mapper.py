@@ -11,7 +11,7 @@ from paibox.components import Neuron
 from paibox.exceptions import ConfigInvalidError, ResourceError
 from paibox.network import DynSysGroup
 
-from .conf_template import (
+from .conf_types import (
     CoreConf,
     CorePlmConf,
     FrameArrayType,
@@ -19,13 +19,8 @@ from .conf_template import (
     InputNeuronDest,
     InputNodeConf,
     OutputDestConf,
-    _get_clk_en_L2_dict,
-    export_core_params_json,
-    export_input_conf_json,
-    export_output_conf_json,
-    export_used_L2_clusters,
-    gen_config_frames_by_coreconf,
 )
+from .conf_exporting import *
 from .context import _BACKEND_CONTEXT, set_cflag
 from .graphs import (
     PAIGraph,
@@ -360,7 +355,7 @@ class Mapper:
             n_core_occupied=self.n_core_occupied,
             misc={
                 "name": self.graph.graph_name_repr,
-                "clk_en_L2": _get_clk_en_L2_dict(
+                "clk_en_L2": get_clk_en_L2_dict(
                     _BACKEND_CONTEXT["target_chip_addr"],
                     self.routing_tree.used_L2_clusters,
                 ),
@@ -637,7 +632,7 @@ class Mapper:
                             print(
                                 f"{neuron.name} placed in {core_plm.coord}\n"
                                 f"N:        {neu_seg.n_neuron}\n"
-                                f"Address:  {neu_seg.addr_slice}"
+                                f"Address:  {neu_seg._addr_ram_repr}"
                             )
 
     def find_axon(self, neuron: Neuron, *, verbose: int = 0) -> None:
