@@ -1,4 +1,5 @@
 import itertools
+import math
 from collections.abc import Generator, Iterator, Sequence
 from typing import Any, Optional, Union, final
 
@@ -570,15 +571,15 @@ class RoutingRoot:
     ) -> tuple[int, int, list[Direction]]:
         """Look for the insertion location of the incoming routing group."""
         n_core_wasted = n_core_incoming - n_core_required
-        # Look for n_core_aligned closest to cur_cost, where n_core_aligned = n*n_core_incoming
-        n_core_aligned = _closet_multiple_above(self.n_core_total, n_core_incoming)
+        # Look for n_core_aligned nearest to cur_cost, where n_core_aligned = n*n_core_incoming
+        n_core_aligned = _nearest_multiple_above(self.n_core_total, n_core_incoming)
 
         n_core_predicted = n_core_aligned + n_core_incoming
         n_core_inchip = _num_inchip(n_core_predicted)
 
         # If online cores are hit, start from the next chip
         if n_core_inchip - n_core_wasted > HwConfig.N_CORE_OFFLINE:
-            n_core_aligned = _closet_multiple_above(
+            n_core_aligned = _nearest_multiple_above(
                 n_core_aligned, HwConfig.N_CORE_MAX_INCHIP
             )
 
@@ -765,9 +766,10 @@ def get_parent(
     return dfs_preorder(tree, cluster)
 
 
-def _closet_multiple_above(above: int, multiple: int) -> int:
-    """Return the closest number above n that is a multiple of x."""
-    return (above + multiple - 1) // multiple * multiple
+def _nearest_multiple_above(a: int, x: int) -> int:
+    """Return the nearest number greater than or equal to `a`, and is an integer multiple of `x`."""
+    # (above + multiple - 1) // multiple
+    return math.ceil(a / x) * x
 
 
 def _num_inchip(n: int) -> int:
