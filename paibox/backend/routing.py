@@ -474,10 +474,10 @@ class RoutingCluster:
 # each sub routing group should be able to route by single coord
 class SubRoutingGroup:
     index = 0
-    def __init__(self, unorder_elements: list["CoreBlock|SubRoutingGroup"], ordered_elements: list["SubRoutingGroup"]) -> None:
-        self.unorder_elements:list["CoreBlock|SubRoutingGroup"] = unorder_elements
+    def __init__(self, unorder_elements: list[Union[CoreBlock,"SubRoutingGroup"]], ordered_elements: list["SubRoutingGroup"]) -> None:
+        self.unorder_elements:list[Union[CoreBlock,"SubRoutingGroup"]] = unorder_elements
         self.ordered_elements:list["SubRoutingGroup"] = ordered_elements
-        self.routing_elements:list["CoreBlock|SubRoutingGroup"] = unorder_elements + ordered_elements
+        self.routing_elements:list[Union[CoreBlock,"SubRoutingGroup"]] = unorder_elements + ordered_elements
         self.offset:list[int] = list()
         self.n_core_required:int = 0
         self.tail_wasted:int = 0
@@ -509,7 +509,7 @@ class SubRoutingGroup:
             self.n_core_required = n_core_assigned + n_core_required
         
         #routing elements should satisfy topological order
-        self.routing_elements:list["CoreBlock|SubRoutingGroup"] = unorder_elements + ordered_elements
+        self.routing_elements:list[Union[CoreBlock,"SubRoutingGroup"]] = unorder_elements + ordered_elements
         
         
         sub_tail_wasted = 0 if isinstance(self.routing_elements[-1], CoreBlock) else self.routing_elements[-1].tail_wasted
