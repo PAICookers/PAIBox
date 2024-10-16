@@ -259,19 +259,17 @@ class TestPAIGraph:
         mapper = pb.Mapper()
         mapper.build(net)
 
-        try:
-            mapper.compile(no_twisted_branch=no_twisted_branch)
-        except NotSupportedError:
-            # A certain sturcture in the network is not supported.
-            assert no_twisted_branch == False
-            return
+        mapper.compile(no_twisted_branch=no_twisted_branch)
 
         mapper.export(fp=ensure_dump_dir)
-
-        assert (
-            len(mapper.graph.nodes)
-            == len(net.nodes(level=1).include(Neuron, pb.InputProj)) + net.n_copy
-        )
+        
+        if no_twisted_branch:
+            assert (
+                len(mapper.graph.nodes)
+                == len(net.nodes(level=1).include(Neuron, pb.InputProj)) + net.n_copy
+            )
+        else:
+            assert len(mapper.graph.nodes) == len(net.nodes(level=1).include(Neuron, pb.InputProj))
 
 
 class TestGroupEdges:
@@ -457,12 +455,12 @@ class TestGroupEdges:
         mapper = pb.Mapper()
         mapper.clear()
         mapper.build(net)
-        partitioned_edges = mapper.graph.graph_partition()
+        mapper.compile(no_twisted_branch=False)
 
         # In this case, N2 & N3 should be together.
         pos_n2 = pos_n3 = 0
-        for i, part in enumerate(partitioned_edges):
-            _g_with_name = [e.name for e in part.edges]
+        for i, cb in enumerate(mapper.core_blocks):
+            _g_with_name = [e.name for e in cb._parents]
             if "s2" in _g_with_name:
                 pos_n2 = i
             if "s3" in _g_with_name:
@@ -477,11 +475,11 @@ class TestGroupEdges:
 
         mapper.clear()
         mapper.build(net)
-        partitioned_edges = mapper.graph.graph_partition()
+        mapper.compile(no_twisted_branch=False)
 
         pos_n2 = pos_n3 = 0
-        for i, part in enumerate(partitioned_edges):
-            _g_with_name = [e.name for e in part.edges]
+        for i, part in enumerate(mapper.core_blocks):
+            _g_with_name = [e.name for e in part._parents]
             if "s2" in _g_with_name:
                 pos_n2 = i
             if "s3" in _g_with_name:

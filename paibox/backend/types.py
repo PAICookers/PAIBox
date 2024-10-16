@@ -36,6 +36,8 @@ __all__ = [
     "AxonCoord",
     "AxonSegment",
     "CoreAbstract",
+    "SuccGroup",
+    "RouteGroup",
 ]
 
 NodeName: TypeAlias = str
@@ -103,7 +105,40 @@ class PartitionedEdges(NamedTuple):
 
 NeuSlice: TypeAlias = slice
 
+class SuccGroup:
+    # edge for input to nodes[i] is edges[i]
+    def __init__(self, nodes:list[NodeType], edges:list[EdgeType], input:NodeType):
+        self.nodes = nodes
+        self.edges = edges
+        self.input = input
 
+class RouteGroup:
+    def __init__(self):
+        self.groups: list[SuccGroup] = list()
+        self.nodes: set[NodeType] = set()
+        self.inputs: dict[NodeType, list[EdgeType]] = dict()
+        
+    def add_group(self, group:SuccGroup):
+        self.groups.append(group)
+        self.nodes.update(group.nodes)
+    
+    def set_inputs(self):
+        for group in self.groups:
+            for node, edge in zip(group.nodes, group.edges):
+                if node not in self.inputs.keys():
+                    self.inputs[node] = list()
+                assert edge.dest.name == node.name
+                self.inputs[node].append(edge)
+    
+    def dump(self):
+        print("RouteGroup:")
+        for group in self.groups:
+            print(f"\tGroup: of {group.input.name}")
+            for node, edge in zip(group.nodes, group.edges):
+                print(f"\t\tnode: {node.name}, edge: {edge.name}: {edge.source.name} -> {edge.dest.name}")
+        print("\tNodes:")
+        for node in self.nodes:
+            print(f"\t\tnode: {node.name}")
 @dataclass(frozen=True)
 class NeuSegment:
     target: DestNodeType

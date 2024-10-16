@@ -71,6 +71,10 @@ class Mapper:
         self.succ_core_blocks.clear()
         self.input_core_blocks.clear()
 
+        self.degrees_of_cb.clear()
+        self.routing_groups.clear()
+        self.succ_routing_groups.clear()
+
         self.core_params.clear()
         self.core_plm_config.clear()
 
@@ -178,11 +182,6 @@ class Mapper:
         """Group the axons of core block."""
         self.cb_axon_grouping()
 
-        # Convert core blocks to routing groups
-        self.routing_groups, self.succ_routing_groups = convert2routing_groups(
-            self.succ_core_blocks, self.degrees_of_cb, self.input_core_blocks
-        )
-
         """Core coordinate assignment."""
         self.coord_assign(core_estimate_only)
 
@@ -208,14 +207,14 @@ class Mapper:
 
     def build_core_blocks(self) -> None:
         """Build core blocks based on partitioned edges."""
-        partitioned_edges = self.graph.graph_partition()
-
-        for part in partitioned_edges:
-            self.core_blocks.append(
-                CoreBlock.build(
-                    *part.edges, routing_id=part.rg_id, rt_mode=part.rt_mode
-                )
-            )
+        route_groups = self.graph.graph_partition()
+        
+        for route_group in route_groups:
+            route_group.dump()
+            self.routing_groups.append(RoutingGroup(route_group))
+        
+        for rg in self.routing_groups:
+            self.core_blocks.extend(rg.core_blocks)
 
         for cur_cb in self.core_blocks:
             succ_cbs = []
@@ -236,6 +235,21 @@ class Mapper:
                 self.input_core_blocks[inode] = succ_cb
 
         self.degrees_of_cb = get_node_degrees(self.succ_core_blocks)
+
+        for rg in self.routing_groups:
+            self.succ_routing_groups[rg] = []
+            rg_succ_cb: set[CoreBlock] = set()
+            for cb in rg:
+                rg_succ_cb.update(self.succ_core_blocks[cb])
+
+            for _rg in self.routing_groups:
+                if _rg == rg:
+                    continue
+                for cb in rg_succ_cb:
+                    if cb in _rg:
+                        self.succ_routing_groups[rg].append(_rg)
+                        break
+        
 
     def lcn_ex_adjustment(self) -> None:
         """Adjust the LCN of each core block & set target LCN."""
@@ -267,8 +281,8 @@ class Mapper:
 
     def cb_axon_grouping(self) -> None:
         """The axons are grouped after the LCN has been modified & locked."""
-        for cb in self.core_blocks:
-            cb.group_axons()
+        for rg in self.routing_groups:
+            rg.group_axons()
 
     def graph_optimization(self) -> None:
         optimized = self.graph.graph_optimization(self.core_blocks, self.routing_groups)
@@ -291,6 +305,9 @@ class Mapper:
                 optim_target=_BACKEND_CONTEXT.cflags["grouping_optim_target"]
             )
 
+        for rg in self.routing_groups:
+            rg.sub_routing_group.set_config()
+            rg.sub_routing_group.dump()
         # Optimize the order of routing groups
         # self.routing_groups = reorder_routing_groups(self.succ_routing_groups)
         self.routing_groups = toposort(self.succ_routing_groups)
