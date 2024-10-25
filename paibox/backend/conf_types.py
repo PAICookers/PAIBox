@@ -16,8 +16,11 @@ from paicorelib import (
     NeuronConf,
     NeuronDestInfo,
     ParamsReg,
+    SNNModeEnable,
+    SpikeWidthFormat,
+    WeightWidth,
+    get_replication_id,
 )
-from paicorelib import SNNModeEnable, SpikeWidthFormat, WeightWidth, get_replication_id
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias
@@ -25,6 +28,7 @@ else:
     from typing_extensions import TypeAlias
 
 from paibox.components import Neuron
+
 from .types import AxonCoord, NeuSegment, NodeName, WRAMPackedType
 
 try:

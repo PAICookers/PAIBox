@@ -1,10 +1,13 @@
 import random
+
 import numpy as np
 import pytest
-import paibox as pb
-
-from paicorelib import Coord, CoordOffset, CoreMode, HwConfig, LCN_EX, MaxPoolingEnable
+from paicorelib import LCN_EX, Coord, CoordOffset, CoreMode, HwConfig, MaxPoolingEnable
 from paicorelib import WeightWidth as WW
+from paicorelib.reg_model import TICK_WAIT_END_MAX, TICK_WAIT_START_MAX
+
+import paibox as pb
+from paibox.backend.conf_exporting import *
 from paibox.backend.conf_types import (
     CoreConfig,
     CorePlmConfig,
@@ -12,9 +15,7 @@ from paibox.backend.conf_types import (
     NeuronConfig,
     NeuronDestInfo,
 )
-from paibox.backend.conf_exporting import *
 from paibox.backend.types import AxonCoord, NeuSegment
-from paicorelib.reg_model import TICK_WAIT_END_MAX, TICK_WAIT_START_MAX
 
 from .conftest import gen_random_used_lx
 
