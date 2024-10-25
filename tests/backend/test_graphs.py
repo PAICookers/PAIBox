@@ -262,14 +262,16 @@ class TestPAIGraph:
         mapper.compile(no_twisted_branch=no_twisted_branch)
 
         mapper.export(fp=ensure_dump_dir)
-        
+
         if no_twisted_branch:
             assert (
                 len(mapper.graph.nodes)
                 == len(net.nodes(level=1).include(Neuron, pb.InputProj)) + net.n_copy
             )
         else:
-            assert len(mapper.graph.nodes) == len(net.nodes(level=1).include(Neuron, pb.InputProj))
+            assert len(mapper.graph.nodes) == len(
+                net.nodes(level=1).include(Neuron, pb.InputProj)
+            )
 
 
 class TestGroupEdges:

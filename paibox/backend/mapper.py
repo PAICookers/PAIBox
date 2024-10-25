@@ -11,6 +11,7 @@ from paibox.components import Neuron
 from paibox.exceptions import ConfigInvalidError, ResourceError
 from paibox.network import DynSysGroup
 
+from .conf_exporting import *
 from .conf_types import (
     CoreConf,
     CorePlmConf,
@@ -20,7 +21,6 @@ from .conf_types import (
     InputNodeConf,
     OutputDestConf,
 )
-from .conf_exporting import *
 from .context import _BACKEND_CONTEXT, set_cflag
 from .graphs import (
     PAIGraph,
@@ -208,11 +208,11 @@ class Mapper:
     def build_core_blocks(self) -> None:
         """Build core blocks based on partitioned edges."""
         route_groups = self.graph.graph_partition()
-        
+
         for route_group in route_groups:
             route_group.dump()
             self.routing_groups.append(RoutingGroup(route_group))
-        
+
         for rg in self.routing_groups:
             self.core_blocks.extend(rg.core_blocks)
 
@@ -249,7 +249,6 @@ class Mapper:
                     if cb in _rg:
                         self.succ_routing_groups[rg].append(_rg)
                         break
-        
 
     def lcn_ex_adjustment(self) -> None:
         """Adjust the LCN of each core block & set target LCN."""

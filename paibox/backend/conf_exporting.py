@@ -8,7 +8,6 @@ from paicorelib import ChipCoord, HwConfig, RoutingCoord
 from paicorelib.framelib import OfflineFrameGen
 from paicorelib.framelib.utils import _mask, np2bin, np2npy, np2txt
 
-from .placement import CorePlacement
 from paibox.components import Neuron
 from paibox.utils import reverse_8bit
 
@@ -23,6 +22,7 @@ from .conf_types import (
     OutputDestConf,
 )
 from .context import _BACKEND_CONTEXT
+from .placement import CorePlacement
 from .types import _RID_UNSET
 
 if _USE_ORJSON:
