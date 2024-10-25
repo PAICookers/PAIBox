@@ -1,14 +1,15 @@
 import math
-import numpy as np
-import pytest
 import sys
 from contextlib import nullcontext
 from functools import partial
-from paicorelib import Coord, LCN_EX, HwConfig, NeuronAttrs
+from typing import Literal, Optional
+
+import numpy as np
+import pytest
+from paicorelib import LCN_EX, Coord, HwConfig, NeuronAttrs
 from paicorelib import ReplicationId as RId
 from paicorelib import WeightWidth as WW
 from paicorelib.framelib import OfflineFrameGen
-from typing import Literal, Optional
 
 import paibox as pb
 from paibox.backend.placement import CorePlacement

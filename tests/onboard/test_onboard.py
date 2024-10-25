@@ -1,10 +1,11 @@
+from pathlib import Path
+
+import numpy as np
+import pytest
+
 import paibox as pb
 from paibox.components.neuron.base import MetaNeuron
 from paibox.types import NEUOUT_U8_DTYPE, VOLTAGE_DTYPE, NeuOutType, VoltageType
-import pytest
-import numpy as np
-from pathlib import Path
-
 from tests.components.utils import conv1d_golden
 
 TEST_DIR = Path(__file__).parent
@@ -50,7 +51,7 @@ class TestOnBoard_WRAMMapping:
         sim_time = 5
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / f"data.npz"
+        NPZ_FILE = TEST_CASE_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -138,7 +139,7 @@ class TestOnBoard_WRAMMapping:
         sim_time = 5
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / f"data.npz"
+        NPZ_FILE = TEST_CASE_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -219,7 +220,7 @@ class TestOnBoard_WRAMMapping:
         sim_time = 5
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / f"data.npz"
+        NPZ_FILE = TEST_CASE_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -302,7 +303,7 @@ class TestOnBoard_WRAMMapping:
         sim_time = 5
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / f"data.npz"
+        NPZ_FILE = TEST_CASE_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -396,7 +397,7 @@ class TestOnBoard_WRAMMapping:
         sim_time = 5
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / f"data.npz"
+        NPZ_FILE = TEST_CASE_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -510,7 +511,7 @@ class TestOnBoard_WRAMMapping:
         sim_time = 5
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / f"data.npz"
+        NPZ_FILE = TEST_CASE_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -619,7 +620,7 @@ class TestOnBoard_WRAMMapping:
         sim_time = 5
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / f"data.npz"
+        NPZ_FILE = TEST_CASE_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -709,7 +710,7 @@ class TestOnBoard_WRAMMapping:
         sim_time = 5
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / f"data.npz"
+        NPZ_FILE = TEST_CASE_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -817,7 +818,7 @@ class TestOnBoard_SpikingOp:
         sim_time = 5
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / f"data.npz"
+        NPZ_FILE = TEST_CASE_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -908,7 +909,7 @@ class TestOnBoard_SemiFoldedOp:
         sim_time = 65
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / f"data.npz"
+        NPZ_FILE = TEST_CASE_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -993,7 +994,7 @@ class TestOnBoard_SemiFoldedOp:
         sim_time = 65
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / f"data.npz"
+        NPZ_FILE = TEST_CASE_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -1078,7 +1079,7 @@ class TestOnBoard_SemiFoldedOp:
         sim_time = 65
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / f"data.npz"
+        NPZ_FILE = TEST_CASE_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -1160,7 +1161,7 @@ class TestOnBoard_SemiFoldedOp:
         sim_time = 32
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / f"data.npz"
+        NPZ_FILE = TEST_CASE_DIR / "data.npz"
 
         try:
             npz = np.load(NPZ_FILE)
@@ -1240,7 +1241,7 @@ class TestOnBoard_SemiFoldedOp:
         sim_time = 32
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / f"data.npz"
+        NPZ_FILE = TEST_CASE_DIR / "data.npz"
 
         try:
             npz = np.load(NPZ_FILE)
@@ -1291,7 +1292,9 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"Test {TEST_NAME} end")
 
-    @pytest.mark.xfail(reason="A ValidationError will be raised due to the backend not support.")
+    @pytest.mark.xfail(
+        reason="A ValidationError will be raised due to the backend not support."
+    )
     def test_Conv2dSemiFoldedNet_006(self):
         class Net006(pb.DynSysGroup):
             def __init__(self, w1, w2, w3):
@@ -1339,7 +1342,7 @@ class TestOnBoard_SemiFoldedOp:
         sim_time = 40
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / f"data.npz"
+        NPZ_FILE = TEST_CASE_DIR / "data.npz"
 
         try:
             npz = np.load(NPZ_FILE)
@@ -1455,7 +1458,7 @@ class TestOnBoard_SemiFoldedOp:
         sim_time = 40
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / f"data.npz"
+        NPZ_FILE = TEST_CASE_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -1566,7 +1569,7 @@ class TestOnBoard_SemiFoldedOp:
         sim_time = 42
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / f"data.npz"
+        NPZ_FILE = TEST_CASE_DIR / "data.npz"
 
         try:
             npz = np.load(NPZ_FILE)

@@ -221,13 +221,16 @@ class PAIGraph:
                 succ_nodes = [self._raw_nodes[n] for n in succ_node_names]
                 succ_edges = [self.succ_dg[node][n.name].edge for n in succ_nodes]
                 groups.append(SuccGroup(succ_nodes, succ_edges, self._raw_nodes[node]))
-        
-        #并查集过程，将所有分组相互合并，合并条件是两个分组有交集，合并结果用RouteGroup表示
+
+        # 并查集过程，将所有分组相互合并，合并条件是两个分组有交集，合并结果用RouteGroup表示
         route_groups: list[RouteGroup] = list()
         visited = set()
+
         def dfs(group: SuccGroup, visited: set[SuccGroup], route_group: RouteGroup):
             for other_group in groups:
-                if other_group not in visited and not set(group.nodes).isdisjoint(other_group.nodes):
+                if other_group not in visited and not set(group.nodes).isdisjoint(
+                    other_group.nodes
+                ):
                     visited.add(other_group)
                     route_group.add_group(other_group)
                     dfs(other_group, visited, route_group)
@@ -239,7 +242,7 @@ class PAIGraph:
                 visited.add(group)
                 dfs(group, visited, route_group)
                 route_groups.append(route_group)
-        
+
         return route_groups
 
     def multicast_optim(

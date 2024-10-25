@@ -9,33 +9,38 @@ from paicorelib import WeightWidth as WW
 from paicorelib.framelib import OfflineFrameGen
 
 from paibox.components import FullConnectedSyn, Neuron
-from paibox.exceptions import GraphBuildError, ResourceError, TruncationWarning, NotSupportedError
+from paibox.exceptions import (
+    GraphBuildError,
+    NotSupportedError,
+    ResourceError,
+    TruncationWarning,
+)
 from paibox.types import WEIGHT_DTYPE, WeightType
 from paibox.utils import check_attr_same
 
 from .conf_types import CoreConfig, CoreConfInChip, CorePlmConfig, NeuronConfig
-from .context import _BACKEND_CONTEXT
 from .constrs import GraphNodeConstrs
+from .context import _BACKEND_CONTEXT
 from .segment_utils import aligned_coords, get_axon_segments, get_neu_segments
 from .types import (
     _COORD_UNSET,
     _RID_UNSET,
+    N_BIT_PACKED_WEIGHT,
     WRAM_PACKED_DTYPE,
     WRAM_UNPACKED_DTYPE,
-    N_BIT_PACKED_WEIGHT,
     AxonCoord,
     AxonSegment,
     CoreAbstract,
     DestNodeType,
+    EdgeType,
     NeuSegment,
     NeuSegOfCoreBlock,
     NeuSegOfCorePlm,
+    RouteGroup,
     SourceNodeType,
     WRAMPackedType,
     WRAMUnpackedType,
     is_iw8,
-    RouteGroup,
-    EdgeType,
 )
 
 
@@ -387,21 +392,21 @@ class CoreBlock(CoreAbstract):
 
     @classmethod
     def build_core_blocks(cls, route_group: RouteGroup) -> list["CoreBlock"]:
-        core_blocks:list[CoreBlock] = []
+        core_blocks: list[CoreBlock] = []
         succ_nodes = list(route_group.nodes)
         mode = succ_nodes[0].mode
-        if any (node.mode != mode for node in succ_nodes):
+        if any(node.mode != mode for node in succ_nodes):
             raise NotSupportedError("mixed mode is not supported.")
         idx_of_sg = GraphNodeConstrs.tick_wait_attr_constr(succ_nodes)
         route_group.set_inputs()
         if len(idx_of_sg) == 0:
             idx_of_sg = [list(range(len(succ_nodes)))]
-            
+
         for idx in idx_of_sg:
             succ_edges: set[EdgeType] = set()
             for i in idx:
                 succ_edges.update(route_group.inputs[succ_nodes[i]])
-            core_block = CoreBlock.build(*succ_edges, routing_id = 0, rt_mode = mode)
+            core_block = CoreBlock.build(*succ_edges, routing_id=0, rt_mode=mode)
             core_blocks.append(core_block)
         return core_blocks
 
