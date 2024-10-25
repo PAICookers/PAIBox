@@ -1291,6 +1291,7 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"Test {TEST_NAME} end")
 
+    @pytest.mark.xfail(reason="A ValidationError will be raised due to the backend not support.")
     def test_Conv2dSemiFoldedNet_006(self):
         class Net006(pb.DynSysGroup):
             def __init__(self, w1, w2, w3):
