@@ -1,3 +1,4 @@
+from collections import defaultdict
 import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -38,7 +39,7 @@ __all__ = [
     "AxonSegment",
     "CoreAbstract",
     "SuccGroup",
-    "RouteGroup",
+    "MergedSuccGroup",
 ]
 
 NodeName: TypeAlias = str
@@ -107,34 +108,48 @@ class PartitionedEdges(NamedTuple):
 NeuSlice: TypeAlias = slice
 
 
+@dataclass(frozen=True)
 class SuccGroup:
-    # edge for input to nodes[i] is edges[i]
-    def __init__(self, nodes: list[NodeType], edges: list[EdgeType], input: NodeType):
-        self.nodes = nodes
-        self.edges = edges
-        self.input = input
+    """A node and all its successor nodes & edges are grouped into a `SuccGroup`."""
+
+    input: NodeType
+    nodes: list[NodeType]
+    edges: list[EdgeType]  # len(edges) == len(nodes)
+
+    def __eq__(self, other: "SuccGroup") -> bool:
+        return self.input == other.input
+
+    def __hash__(self) -> int:
+        return hash(self.input)
 
 
-class RouteGroup:
-    def __init__(self):
-        self.groups: list[SuccGroup] = list()
+class MergedSuccGroup:
+    """SuccGroups with intersecting nodes will be merged into a `MergedSuccGroup`."""
+
+    def __init__(self, *init_sgrp: SuccGroup) -> None:
         self.nodes: set[NodeType] = set()
-        self.inputs: dict[NodeType, list[EdgeType]] = dict()
+        self.groups: list[SuccGroup] = list()
 
-    def add_group(self, group: SuccGroup):
+        if init_sgrp:
+            for sgrp in init_sgrp:
+                self.add_group(sgrp)
+
+    def add_group(self, group: SuccGroup) -> None:
         self.groups.append(group)
         self.nodes.update(group.nodes)
 
-    def set_inputs(self):
+    @property
+    def outputs(self) -> dict[NodeType, list[EdgeType]]:
+        onodes = defaultdict(list)
         for group in self.groups:
             for node, edge in zip(group.nodes, group.edges):
-                if node not in self.inputs.keys():
-                    self.inputs[node] = list()
                 assert edge.dest.name == node.name
-                self.inputs[node].append(edge)
+                onodes[node].append(edge)
 
-    def dump(self):
-        print("RouteGroup:")
+        return onodes
+
+    def dump(self) -> None:
+        print("MergedSuccGroup:")
         for group in self.groups:
             print(f"\tGroup: of {group.input.name}")
             for node, edge in zip(group.nodes, group.edges):

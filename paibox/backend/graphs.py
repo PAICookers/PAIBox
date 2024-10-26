@@ -12,7 +12,6 @@ from paibox.exceptions import GraphBuildError, GraphConnectionError, NotSupporte
 from paibox.network import DynSysGroup
 from paibox.utils import check_elem_unique
 
-from .constrs import GraphNodeConstrs
 from .context import _BACKEND_CONTEXT
 from .placement import CoreBlock
 from .routing import RoutingGroup
@@ -59,8 +58,6 @@ class PAIGraph:
 
     """Status options"""
     has_built: bool = field(default=False)
-
-    # node_constrs: GraphNodeConstrs = field(default_factory=GraphNodeConstrs)
 
     def clear(self, total: bool = True) -> None:
         """Clear the PAIGraph."""
@@ -213,34 +210,36 @@ class PAIGraph:
         if not self.has_built:
             raise GraphBuildError("the graph hasn't been built yet.")
 
-    def graph_partition(self) -> list[RouteGroup]:
-        groups: list[SuccGroup] = list()
+    def graph_partition(self) -> list[MergedSuccGroup]:
+        """Graph partition."""
+        # Build the SuccGroup for each node in the graph.
+        succ_groups: list[SuccGroup] = []
         for node in self.ordered_nodes:
             succ_node_names = set(self.succ_dg[node].keys())
-            if len(succ_node_names) > 0:
+            if succ_node_names:
                 succ_nodes = [self._raw_nodes[n] for n in succ_node_names]
                 succ_edges = [self.succ_dg[node][n.name].edge for n in succ_nodes]
-                groups.append(SuccGroup(succ_nodes, succ_edges, self._raw_nodes[node]))
+                succ_groups.append(
+                    SuccGroup(self._raw_nodes[node], succ_nodes, succ_edges)
+                )
 
-        # 并查集过程，将所有分组相互合并，合并条件是两个分组有交集，合并结果用RouteGroup表示
-        route_groups: list[RouteGroup] = list()
-        visited = set()
-
-        def dfs(group: SuccGroup, visited: set[SuccGroup], route_group: RouteGroup):
-            for other_group in groups:
-                if other_group not in visited and not set(group.nodes).isdisjoint(
-                    other_group.nodes
+        def dfs(sgrp: SuccGroup, rgrp: MergedSuccGroup) -> None:
+            # Union-find sets. If the nodes of two succ_groups have intersection, merge them.
+            for other_sgrp in succ_groups:
+                if other_sgrp not in visited and not set(sgrp.nodes).isdisjoint(
+                    other_sgrp.nodes
                 ):
-                    visited.add(other_group)
-                    route_group.add_group(other_group)
-                    dfs(other_group, visited, route_group)
+                    visited.add(other_sgrp)
+                    rgrp.add_group(other_sgrp)
+                    dfs(other_sgrp, rgrp)
 
-        for group in groups:
-            if group not in visited:
-                route_group = RouteGroup()
-                route_group.add_group(group)
-                visited.add(group)
-                dfs(group, visited, route_group)
+        route_groups: list[MergedSuccGroup] = []
+        visited: set[SuccGroup] = set()
+        for sgrp in succ_groups:
+            if sgrp not in visited:
+                route_group = MergedSuccGroup(sgrp)
+                visited.add(sgrp)
+                dfs(sgrp, route_group)
                 route_groups.append(route_group)
 
         return route_groups
@@ -418,31 +417,32 @@ class PAIGraph:
                     f"not all nodes in 'grab_pred_nodes' are in node {node.name}'s predecessors. "
                     f"Got {', '.join(grab_pred_nodes)}, but predecessors are {', '.join(pred_nodes)}."
                 )
-            else:
-                if copied.name not in self.pred_dg.keys():
-                    self.pred_dg[copied.name] = dict()
-                for pred_nn in grab_pred_nodes:
-                    pred_edge = pred_nodes[pred_nn].edge
-                    pred_edge.target = copied
-                    # If don't _update_graph(), update partial information:
-                    # 1. Remove the original connection & add the copied node & the edge
-                    # with the modified target to succ_nodes_dict & succ_dg.
-                    # 2. Update the in-degree of copied node = len(grab).
-                    # 3. The out-degree of predecessors keep the same.
-                    # 1/2/3 -> A -> ...
-                    # ---
-                    # 1     -> A -> ...
-                    # 2/3   -> A'-> ...
-                    if not update:
-                        _orig_edge_attr = self.succ_dg[pred_nn].pop(node.name)
-                        new_edge_attr = EdgeAttr(pred_edge, _orig_edge_attr.distance)
 
-                        self.succ_dg[pred_nn][copied.name] = new_edge_attr
-                        self.pred_dg[copied.name][pred_nn] = new_edge_attr
+            if copied.name not in self.pred_dg.keys():
+                self.pred_dg[copied.name] = dict()
 
+            for pred_nn in grab_pred_nodes:
+                pred_edge = pred_nodes[pred_nn].edge
+                pred_edge.target = copied
+                # If don't _update_graph(), update partial information:
+                # 1. Remove the original connection & add the copied node & the edge
+                # with the modified target to succ_nodes_dict & succ_dg.
+                # 2. Update the in-degree of copied node = len(grab).
+                # 3. The out-degree of predecessors keep the same.
+                # 1/2/3 -> A -> ...
+                # ---
+                # 1     -> A -> ...
+                # 2/3   -> A'-> ...
                 if not update:
-                    self.degree_of_nodes[node.name].in_degree -= len(grab_pred_nodes)
-                    self.degree_of_nodes[copied.name].in_degree = len(grab_pred_nodes)
+                    _orig_edge_attr = self.succ_dg[pred_nn].pop(node.name)
+                    new_edge_attr = EdgeAttr(pred_edge, _orig_edge_attr.distance)
+
+                    self.succ_dg[pred_nn][copied.name] = new_edge_attr
+                    self.pred_dg[copied.name][pred_nn] = new_edge_attr
+
+            if not update:
+                self.degree_of_nodes[node.name].in_degree -= len(grab_pred_nodes)
+                self.degree_of_nodes[copied.name].in_degree = len(grab_pred_nodes)
 
         if keep_succ_conn:
             orig_oud = self.degree_of_nodes[node.name].out_degree
@@ -456,30 +456,30 @@ class PAIGraph:
                     f"not all nodes in 'grab_succ_nodes' are in node {node.name}'s successors."
                     f"Got {', '.join(grab_succ_nodes)}, but successors are {', '.join(succ_nodes)}."
                 )
-            else:
-                for succ_nn in grab_succ_nodes:
-                    succ_edge = succ_nodes[succ_nn].edge
-                    succ_edge.source = copied
-                    # If don't _update_graph(), update partial information:
-                    # 1. Remove the original connection & add the copied node & the edge
-                    # with the modified target to succ_dg.
-                    # 2. Update the out-degree of copied node = len(grab).
-                    # 3. The in-degree of successors keep the same.
-                    # ... -> A -> 1/2/3
-                    # ---
-                    # ... -> A -> 1
-                    # ... -> A'-> 2/3
-                    if not update:
-                        self.succ_dg[node.name].pop(succ_nn)
-                        _orig_edge_attr = self.pred_dg[succ_nn].pop(node.name)
-                        new_edge_attr = EdgeAttr(succ_edge, _orig_edge_attr.distance)
-                        self.succ_dg[copied.name] = {succ_nn: new_edge_attr}
-                        self.pred_dg[succ_nn][copied.name] = new_edge_attr
-                        # self.pred_dg = reverse_edges2(self.succ_dg)
 
+            for succ_nn in grab_succ_nodes:
+                succ_edge = succ_nodes[succ_nn].edge
+                succ_edge.source = copied
+                # If don't _update_graph(), update partial information:
+                # 1. Remove the original connection & add the copied node & the edge
+                # with the modified target to succ_dg.
+                # 2. Update the out-degree of copied node = len(grab).
+                # 3. The in-degree of successors keep the same.
+                # ... -> A -> 1/2/3
+                # ---
+                # ... -> A -> 1
+                # ... -> A'-> 2/3
                 if not update:
-                    self.degree_of_nodes[node.name].out_degree -= len(grab_succ_nodes)
-                    self.degree_of_nodes[copied.name].out_degree = len(grab_succ_nodes)
+                    self.succ_dg[node.name].pop(succ_nn)
+                    _orig_edge_attr = self.pred_dg[succ_nn].pop(node.name)
+                    new_edge_attr = EdgeAttr(succ_edge, _orig_edge_attr.distance)
+                    self.succ_dg[copied.name] = {succ_nn: new_edge_attr}
+                    self.pred_dg[succ_nn][copied.name] = new_edge_attr
+                    # self.pred_dg = reverse_edges2(self.succ_dg)
+
+            if not update:
+                self.degree_of_nodes[node.name].out_degree -= len(grab_succ_nodes)
+                self.degree_of_nodes[copied.name].out_degree = len(grab_succ_nodes)
 
         if update:
             self._update_graph()
