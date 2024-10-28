@@ -258,9 +258,7 @@ class TestPAIGraph:
 
         mapper = pb.Mapper()
         mapper.build(net)
-
         mapper.compile(no_twisted_branch=no_twisted_branch)
-
         mapper.export(fp=ensure_dump_dir)
 
         if no_twisted_branch:

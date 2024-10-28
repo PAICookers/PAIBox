@@ -39,16 +39,13 @@ def count_unique_elem(obj: Iterable[Any]) -> int:
 _T = TypeVar("_T")
 
 
-def merge_unique_ordered(lst1: list[_T], lst2: list[_T]) -> list[_T]:
-    seen = set()
-    result = []
+def merge_unique_ordered(*lst: list[_T]) -> list[_T]:
+    """Merge lists, keeping the original order of elements and removing duplicates."""
+    total = []
+    for l in lst:
+        total.extend(l)
 
-    for item in lst1 + lst2:
-        if item not in seen:
-            seen.add(item)
-            result.append(item)
-
-    return result
+    return list(dict.fromkeys(total))
 
 
 def check_attr_same(obj: Sequence[Any], attr: str) -> bool:

@@ -285,9 +285,9 @@ def get_axon_segments(
     offset = 0
     axon_segments = dict()
 
-    for axon in axons:
-        segment, offset = _seg_alloc(axon, offset)
-        axon_segments[axon] = segment
+    for ax in axons:
+        segment, offset = _seg_alloc(ax, offset)
+        axon_segments[ax] = segment
 
     return axon_segments
 

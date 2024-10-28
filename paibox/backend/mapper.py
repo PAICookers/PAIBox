@@ -22,15 +22,9 @@ from .conf_types import (
     OutputDestConf,
 )
 from .context import _BACKEND_CONTEXT, set_cflag
-from .graphs import (
-    PAIGraph,
-    convert2routing_groups,
-    get_node_degrees,
-    get_succ_cb_by_node,
-    toposort,
-)
+from .graphs import PAIGraph, get_node_degrees, get_succ_cb_by_node, toposort
 from .placement import CoreBlock, aligned_coords, max_lcn_of_cb
-from .routing import RoutingGroup, RoutingRoot
+from .routing import RoutingGroup, RoutingManager
 from .types import NeuSegment, NodeDegree, NodeType, SourceNodeType, is_iw8
 
 __all__ = ["Mapper"]
@@ -59,12 +53,13 @@ class Mapper:
 
         self.n_core_required = 0
         self.n_core_occupied = 0
-        self.routing_tree = RoutingRoot(chip_list=_BACKEND_CONTEXT["target_chip_addr"])
+        self.routing_manager = RoutingManager(
+            chip_list=_BACKEND_CONTEXT["target_chip_addr"]
+        )
 
         self.clear()
 
     def clear(self) -> None:
-        self.routing_tree.clear()
         self.graph.clear()
 
         self.core_blocks.clear()
@@ -108,7 +103,7 @@ class Mapper:
         core_estimate_only: bool = False,
         weight_bit_optimization: bool = True,
         grouping_optim_target: Literal["latency", "core", "both"] = "both",
-        no_twisted_branch: bool = True,
+        no_twisted_branch: bool = False,
         multicast_optim: Union[bool, Sequence[NodeType]] = False,
         **kwargs,
     ) -> GraphInfo:
@@ -123,7 +118,7 @@ class Mapper:
                 `core` or `both`, which respectively represent the optimization goal of delay/throughput,       \
                 occupied cores, or both. The default is specified by the corresponding compilation option in the\
                 backend configuration item. Default is 'both'.
-            - no_twisted_branch: when parsing the network topology, whether or not to prohibit intersecting     \
+            - no_twisted_branch (for advanced use): when parsing the network topology, whether or not to prohibit intersecting     \
                 branch structures will cause such structures to be processed. For example:
 
                 I -> A -> B -> C
@@ -135,7 +130,7 @@ class Mapper:
                 I -> A -> B -> C
                   -> A'------>
 
-                Default is true.
+                Default is false.
 
             - multicast_optim (in dev): whether to perform multicast optimization. If true, the optimization is \
                 performed on all nodes in the network. If a node list is passed, the optimization is attempted  \
@@ -207,17 +202,16 @@ class Mapper:
 
     def build_core_blocks(self) -> None:
         """Build core blocks based on partitioned edges."""
-        route_groups = self.graph.graph_partition()
+        merged_sgrps = self.graph.graph_partition()
 
-        for route_group in route_groups:
-            route_group.dump()
-            self.routing_groups.append(RoutingGroup(route_group))
+        for msgrp in merged_sgrps:
+            self.routing_groups.append(RoutingGroup.build(msgrp))
 
         for rg in self.routing_groups:
-            self.core_blocks.extend(rg.core_blocks)
+            self.core_blocks += rg.core_blocks
 
         for cur_cb in self.core_blocks:
-            succ_cbs = []
+            succ_cbs: list[CoreBlock] = []
             # cur_cb == cb is possible
             for cb in self.core_blocks:
                 if any(d for d in cur_cb.dest if d in cb.source):
@@ -305,8 +299,8 @@ class Mapper:
             )
 
         for rg in self.routing_groups:
-            rg.sub_routing_group.set_config()
-            rg.sub_routing_group.dump()
+            rg.set_core_required()
+
         # Optimize the order of routing groups
         # self.routing_groups = reorder_routing_groups(self.succ_routing_groups)
         self.routing_groups = toposort(self.succ_routing_groups)
@@ -318,13 +312,14 @@ class Mapper:
 
         if core_estimate_only:
             return None
-        elif n_core_required > n_avail_cores:
+
+        if n_core_required > n_avail_cores:
             raise ResourceError(
                 OUT_OF_CORE_RESOURCE_TEXT.format(n_avail_cores, n_core_required)
             )
 
         for rg in self.routing_groups:
-            self.routing_tree.place_routing_group(rg)
+            self.routing_manager.place_routing_group(rg)
 
         # Calculate the consumption of occupied physical cores.
         if (
@@ -373,7 +368,7 @@ class Mapper:
                 "name": self.graph.graph_name_repr,
                 "clk_en_L2": get_clk_en_L2_dict(
                     _BACKEND_CONTEXT["target_chip_addr"],
-                    self.routing_tree.used_L2_clusters,
+                    self.routing_manager.used_L2_clusters,
                 ),
             },
         )

@@ -1,6 +1,5 @@
 import math
 import warnings
-from functools import cached_property
 from typing import ClassVar, Literal, Optional, overload
 
 import numpy as np
@@ -11,9 +10,9 @@ from paicorelib.framelib import OfflineFrameGen
 from paibox.components import FullConnectedSyn, Neuron
 from paibox.exceptions import (
     GraphBuildError,
-    NotSupportedError,
     ResourceError,
     TruncationWarning,
+    NotSupportedError,
 )
 from paibox.types import WEIGHT_DTYPE, WeightType
 from paibox.utils import check_attr_same
@@ -36,18 +35,18 @@ from .types import (
     NeuSegment,
     NeuSegOfCoreBlock,
     NeuSegOfCorePlm,
-    RouteGroup,
     SourceNodeType,
     WRAMPackedType,
     WRAMUnpackedType,
     is_iw8,
+    MergedSuccGroup,
 )
 
 
 class CoreBlock(CoreAbstract):
 
     _parents: tuple[FullConnectedSyn, ...]
-    _routing_id: int
+    _routing_id: int  # TODO will be deprecated
     seed: int
     """Random seed, legal integer, no more than uint64."""
     _lcn_ex: LCN_EX
@@ -100,6 +99,7 @@ class CoreBlock(CoreAbstract):
         self.axon_segments = dict()
         self.neuron_segs_of_cb = []
         self.ordered_axons: list[SourceNodeType] = []
+        """Axons in private + multicast order."""
 
     def group_neurons(
         self, optim_target: Literal["latency", "core", "both"] = "both"
@@ -152,7 +152,9 @@ class CoreBlock(CoreAbstract):
 
         return LCN_EX(lcn)
 
-    def assign(self, allocated: list[Coord], chip_coord: Coord) -> list[Coord]:
+    def assign_coord(
+        self, chip_coord: Coord, allocated: list[Coord]
+    ) -> tuple[list[Coord], list[Coord]]:
         self.core_coords = allocated
         self.chip_coord = chip_coord
         return allocated, []
@@ -283,27 +285,27 @@ class CoreBlock(CoreAbstract):
 
         # Get #N of neurons on each `CorePlacement` according to the
         # maximum address required of neuron segments on each `CorePlacement`.
-        assert [] not in self.neuron_segs_of_cb  # TODO if it never happens, remove it.
-
         return [
             sum(seg.n_neuron for seg in neuron_segs)
             for neuron_segs in self.neuron_segs_of_cb
         ]
 
-    def group_axons(self, multicast_axons: list[SourceNodeType] = list()) -> None:
+    def group_axons(self, multicast_axons: list[SourceNodeType] = []) -> None:
+        """Group the axons, including the private & the multicast parts.
+
+        NOTE: Take the union of the private axons & the multicast axons, but sort the multicast axons first, then the \
+            axons that are in the private part and not in the multicast part.
+        """
         if not self._lcn_locked:
-            raise GraphBuildError("get axon segments after 'lcn_ex' is locked.")
-        # Remove shared axons
-        axons = [ax for ax in self.axons if ax not in multicast_axons]
-        # More axons may be added to the axon list
-        axons = multicast_axons + axons
+            raise GraphBuildError("group axons after 'lcn_ex' is locked.")
+
+        axons = multicast_axons + [ax for ax in self.axons if ax not in multicast_axons]
         self.ordered_axons = axons
-        print(f"origin: {len(self.axons)}, ordered: {len(self.ordered_axons)}")
         self.axon_segments = get_axon_segments(
             self.ordered_axons, self.n_timeslot, self.n_fanin_base
         )
 
-    @cached_property
+    @property
     def raw_weight_of_dest(self) -> list[WeightType]:
         """Merge and then split the weight matrix according to the grouping of neurons."""
         # The concatenated weight for each destination node.
@@ -391,23 +393,26 @@ class CoreBlock(CoreAbstract):
         return cls(*synapses, routing_id=routing_id, mode=rt_mode, seed=seed)
 
     @classmethod
-    def build_core_blocks(cls, route_group: RouteGroup) -> list["CoreBlock"]:
+    def build_core_blocks(cls, route_group: MergedSuccGroup) -> list["CoreBlock"]:
         core_blocks: list[CoreBlock] = []
         succ_nodes = list(route_group.nodes)
         mode = succ_nodes[0].mode
         if any(node.mode != mode for node in succ_nodes):
             raise NotSupportedError("mixed mode is not supported.")
+
+        # TODO More constraints for nodes can be called here.
         idx_of_sg = GraphNodeConstrs.tick_wait_attr_constr(succ_nodes)
-        route_group.set_inputs()
         if len(idx_of_sg) == 0:
             idx_of_sg = [list(range(len(succ_nodes)))]
 
         for idx in idx_of_sg:
             succ_edges: set[EdgeType] = set()
             for i in idx:
-                succ_edges.update(route_group.inputs[succ_nodes[i]])
+                succ_edges.update(route_group.outputs[succ_nodes[i]])
+
             core_block = CoreBlock.build(*succ_edges, routing_id=0, rt_mode=mode)
             core_blocks.append(core_block)
+
         return core_blocks
 
     @classmethod
