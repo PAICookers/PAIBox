@@ -10,9 +10,9 @@ from paicorelib.framelib import OfflineFrameGen
 from paibox.components import FullConnectedSyn, Neuron
 from paibox.exceptions import (
     GraphBuildError,
+    NotSupportedError,
     ResourceError,
     TruncationWarning,
-    NotSupportedError,
 )
 from paibox.types import WEIGHT_DTYPE, WeightType
 from paibox.utils import check_attr_same
@@ -32,6 +32,7 @@ from .types import (
     CoreAbstract,
     DestNodeType,
     EdgeType,
+    MergedSuccGroup,
     NeuSegment,
     NeuSegOfCoreBlock,
     NeuSegOfCorePlm,
@@ -39,7 +40,6 @@ from .types import (
     WRAMPackedType,
     WRAMUnpackedType,
     is_iw8,
-    MergedSuccGroup,
 )
 
 

@@ -1,6 +1,6 @@
-from collections import defaultdict
 import sys
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum, auto, unique
 from typing import Any, NamedTuple, Union

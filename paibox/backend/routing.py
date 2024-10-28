@@ -11,10 +11,10 @@ from paicorelib import RoutingLevel as Level
 from paicorelib.routing_defs import MAX_ROUTING_PATH_LENGTH
 
 from paibox.exceptions import (
-    ResourceError,
-    RoutingError,
     GraphBuildError,
     PAIBoxDeprecationWarning,
+    ResourceError,
+    RoutingError,
 )
 
 from .conf_types import CorePlmConfInChip
@@ -57,7 +57,7 @@ class RoutingGroup:
         self.routing_elems: list[Union[CoreBlock, "RoutingGroup"]] = (
             unordered_cb + ordered_rgrp
         )
-        self.offset: list[int] = [] # TODO Change a name
+        self.offset: list[int] = []  # TODO Change a name
         self.n_core_required: int = 0
         """The actual number of cores required by the routing group."""
         self.n_tail_waste: int = 0
@@ -322,7 +322,7 @@ class RoutingManager:
     ) -> tuple[list[Coord], list[Coord]]:
         """Place a routing group in the chip list. Assign each core blocks with routing coordinates &   \
             make sure they are routable.
-        
+
         Returns: a tuple of lists of assigned and wasted coordinates.
         """
         # for cb in rgrp:
