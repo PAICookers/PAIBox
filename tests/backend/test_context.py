@@ -48,4 +48,10 @@ def test_backend_context_add_chip_addr(monkeypatch):
     )
 
     pb.BACKEND_CONFIG.add_chip_addr((3, 4), (10, 10))
+    # keep the orders
+    assert pb.BACKEND_CONFIG.target_chip_addr == [
+        Coord(1, 0),
+        Coord(10, 10),
+        Coord(3, 4),
+    ]
     assert pb.BACKEND_CONFIG["target_chip_addr"][2] == Coord(3, 4)
