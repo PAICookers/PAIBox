@@ -3,47 +3,14 @@ from typing import Optional
 
 import numpy as np
 import pytest
-from paicorelib import LCN_EX, RoutingCoord, RoutingDirection, RoutingLevel
+from paicorelib import LCN_EX, RoutingCoord, RoutingDirection
 from paicorelib import WeightWidth as WW
 
 import paibox as pb
-from paibox.backend.routing import RoutingCluster
 from paibox.backend.types import AxonCoord, AxonSegment, NeuSegment
 from paibox.exceptions import ResourceError
 from paibox.node import NodeList
 from tests.conftest import ParametrizedTestData
-
-
-@pytest.fixture
-def build_example_root():
-    """Example root.
-
-    Structure:
-        L3: root
-        L2_1: L1_1
-        L2_2: L1_2, L1_3, L1_4, L1_5
-    """
-    root = RoutingCluster(RoutingLevel.L3, tag="L3")
-
-    node_l2_1 = RoutingCluster(RoutingLevel.L2, tag="L2_1")
-    node_l2_2 = RoutingCluster(RoutingLevel.L2, tag="L2_2")
-
-    node_l1_1 = RoutingCluster(RoutingLevel.L1, tag="L1_1")
-    node_l1_2 = RoutingCluster(RoutingLevel.L1, tag="L1_2")
-    node_l1_3 = RoutingCluster(RoutingLevel.L1, tag="L1_3")
-    node_l1_4 = RoutingCluster(RoutingLevel.L1, tag="L1_4")
-    node_l1_5 = RoutingCluster(RoutingLevel.L1, tag="L1_5")
-
-    node_l2_1.add_child_to(node_l1_1, RoutingDirection.X0Y0)
-    node_l2_2.add_child_to(node_l1_2, RoutingDirection.X0Y0)
-    node_l2_2.add_child_to(node_l1_3, RoutingDirection.X0Y1)
-    node_l2_2.add_child_to(node_l1_4, RoutingDirection.X1Y0)
-    node_l2_2.add_child_to(node_l1_5, RoutingDirection.X1Y1)
-
-    root.add_child_to(node_l2_1, RoutingDirection.X0Y0)
-    root.add_child_to(node_l2_2, RoutingDirection.X0Y1)
-
-    return root
 
 
 class NetForTest1(pb.Network):
