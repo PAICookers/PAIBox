@@ -17,6 +17,7 @@ from .conf_types import (
     CoreConf,
     CorePlmConf,
     FrameArrayType,
+    GraphInfo,
     InputNodeConf,
     NeuronConfig,
     OutputDestConf,
@@ -42,6 +43,7 @@ __all__ = [
     "export_output_conf_json",
     "export_neuconf_json",
     "export_core_plm_conf_json",
+    "export_graph_info",
     "export_used_L2_clusters",
     "get_clk_en_L2_dict",
 ]
@@ -236,13 +238,20 @@ def export_input_conf_json(input_conf_info: InputNodeConf, fp: Path) -> None:
 
 def export_output_conf_json(output_conf_info: OutputDestConf, fp: Path) -> None:
     _full_fp = _with_suffix_json(fp, _BACKEND_CONTEXT["output_conf_json"])
+    _valid_conf = {}
+
+    for dest, dest_info in output_conf_info.items():
+        _valid_conf[dest] = {}
+        for k, v in dest_info.items():
+            _valid_conf[dest][str(k)] = v
+
     if _USE_ORJSON:
         with open(_full_fp, "wb") as f:
             f.write(
                 orjson.dumps(
-                    output_conf_info,
+                    _valid_conf,
                     default=PAIConfigJsonDefault,
-                    option=orjson.OPT_NON_STR_KEYS | orjson.OPT_INDENT_2,
+                    option=orjson.OPT_INDENT_2,
                 )
             )
     else:
@@ -292,6 +301,50 @@ def export_core_plm_conf_json(
     else:
         with open(_full_fp, "w") as f:
             json.dump(_valid_conf, f, indent=2)
+
+
+def export_aux_gh_info(gh_info: GraphInfo, fp: Path, export_clk_en_L2: bool) -> None:
+    _full_fp = _with_suffix_json(fp, _BACKEND_CONTEXT["graph_info_json"])
+    aux_gh_info_dict = {
+        "name": gh_info["name"],
+        "n_core_required": gh_info["n_core_required"],
+        "n_core_occupied": gh_info["n_core_occupied"],
+        "layer_num": gh_info["inherent_timestep"],
+    }
+
+    if misc := gh_info.get("misc"):
+        aux_gh_info_dict["misc"] = {}
+        # Export the serial port data of the L2 cluster clocks
+        if export_clk_en_L2 and (clk_en_L2_dict := misc.get("clk_en_L2")):
+            # dict[ChipCoord, list[int]]
+            aux_gh_info_dict["misc"]["clk_en_L2"] = {
+                str(k): v for k, v in clk_en_L2_dict.items()
+            }
+        if lst := misc.get("target_chip_list"):  # list of ChipCoord
+            aux_gh_info_dict["misc"]["target_chip_list"] = [str(i) for i in lst]
+
+    if _USE_ORJSON:
+        with open(_full_fp, "wb") as f:
+            f.write(orjson.dumps(aux_gh_info_dict, option=orjson.OPT_INDENT_2))
+    else:
+        with open(_full_fp, "w") as f:
+            json.dump(aux_gh_info_dict, f, indent=2)
+
+
+def export_graph_info(
+    gh_info: GraphInfo,
+    fp: Path,
+    export_clk_en_L2: bool,
+    export_core_placements: bool = False,
+) -> None:
+    # Export the configurations of input nodes
+    export_input_conf_json(gh_info["input"], fp)
+    # Export the configurations of output destinations
+    export_output_conf_json(gh_info["output"], fp)
+    export_aux_gh_info(gh_info, fp, export_clk_en_L2)
+
+    if export_core_placements:
+        export_core_plm_conf_json(gh_info["members"], fp)
 
 
 def export_used_L2_clusters(

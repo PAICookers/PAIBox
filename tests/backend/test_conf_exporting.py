@@ -174,7 +174,7 @@ class TestConfExporting:
 
     @pytest.mark.parametrize("n_neuron", [100, 200, 300])
     def test_export_output_conf_json(self, ensure_dump_dir, n_neuron):
-        oconf = {"n1": {0: _gen_random_neuron_dest_info(n_neuron)}}
+        oconf = {"n1": {Coord(3, 2): _gen_random_neuron_dest_info(n_neuron)}}
         export_output_conf_json(oconf, ensure_dump_dir)
 
     @pytest.mark.parametrize("n_neuron", [100, 200, 300])
