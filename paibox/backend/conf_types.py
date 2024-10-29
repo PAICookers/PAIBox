@@ -9,7 +9,6 @@ from paicorelib import (
     LCN_EX,
     ChipCoord,
     Coord,
-    CoordAddr,
     InputWidthFormat,
     MaxPoolingEnable,
     NeuronAttrs,
@@ -26,6 +25,11 @@ if sys.version_info >= (3, 10):
     from typing import TypeAlias
 else:
     from typing_extensions import TypeAlias
+
+if sys.version_info >= (3, 11):
+    from typing import NotRequired
+else:
+    from typing_extensions import NotRequired
 
 from paibox.components import Neuron
 
@@ -276,7 +280,7 @@ class CorePlmConfig(NamedTuple):
 
 
 InputNodeConf: TypeAlias = dict[NodeName, InputNeuronDest]
-OutputDestConf: TypeAlias = dict[NodeName, dict[CoordAddr, NeuronDestInfo]]
+OutputDestConf: TypeAlias = dict[NodeName, dict[Coord, NeuronDestInfo]]
 CorePlmConfInChip: TypeAlias = dict[Coord, CorePlmConfig]
 CorePlmConf: TypeAlias = dict[ChipCoord, CorePlmConfInChip]
 CoreConfInChip: TypeAlias = dict[Coord, CoreConfig]
@@ -284,11 +288,10 @@ CoreConf: TypeAlias = dict[ChipCoord, CoreConfInChip]
 
 
 class GraphInfo(TypedDict):
-    """Information of compiled graph.
+    """Information of graph after compilation."""
 
-    TODO Optimize the data structure
-    """
-
+    name: str
+    """Name of the graph."""
     input: InputNodeConf
     output: OutputDestConf
     members: CorePlmConf
@@ -297,5 +300,5 @@ class GraphInfo(TypedDict):
     """The actual used cores."""
     n_core_occupied: int
     """The occupied cores, including used & wasted."""
-    misc: dict[str, Any]
-    """Miscellaneous information."""
+    misc: NotRequired[dict[str, Any]]
+    """Miscellaneous information. Not required."""

@@ -182,13 +182,13 @@ class Mapper:
 
         if core_estimate_only:
             return GraphInfo(
+                name=self.graph.graph_name_repr,
                 input={},
                 output={},
                 members={},
                 inherent_timestep=self.graph.inherent_timestep,
                 n_core_required=self.n_core_required,
                 n_core_occupied=0,
-                misc={"name": self.graph.graph_name_repr},
             )
 
         """Allocate the core blocks to the core placments."""
@@ -358,6 +358,7 @@ class Mapper:
         output_dest_info = self._member_cb_and_onode_config_export()
 
         _graph_info = GraphInfo(
+            name=self.graph.graph_name_repr,
             input=input_nodes_info,
             output=output_dest_info,
             members=self.core_plm_config,  # The configuration of physical cores is in `core_plm_config`
@@ -365,11 +366,11 @@ class Mapper:
             n_core_required=self.n_core_required,
             n_core_occupied=self.n_core_occupied,
             misc={
-                "name": self.graph.graph_name_repr,
                 "clk_en_L2": get_clk_en_L2_dict(
                     _BACKEND_CONTEXT["target_chip_addr"],
                     self.routing_manager.used_L2_clusters,
                 ),
+                "target_chip_list": _BACKEND_CONTEXT.target_chip_addr,
             },
         )
 
@@ -539,7 +540,7 @@ class Mapper:
                         output_core_coord=cur_ocoord,
                         axon_addr_offset=output_axon_offset,
                     )
-                    output_dest_info[neu_seg.target.name][core_plm.coord.address] = (
+                    output_dest_info[neu_seg.target.name][core_plm.coord] = (
                         core_plm.neu_configs[neu_seg.target].neuron_dest_info
                     )
 
@@ -564,7 +565,7 @@ class Mapper:
                     output_core_coord=cur_ocoord,
                     axon_addr_offset=output_axon_offset,
                 )
-                output_dest_info[neu_seg.target.name][core_plm.coord.address] = (
+                output_dest_info[neu_seg.target.name][core_plm.coord] = (
                     core_plm.neu_configs[neu_seg.target].neuron_dest_info
                 )
 
@@ -617,14 +618,8 @@ class Mapper:
             # Export the parameters of occupied cores
             export_core_params_json(self.core_params, _fp)
 
-        # Export the configurations of input nodes
-        export_input_conf_json(self.graph_info["input"], _fp)
-        # Export the configurations of output destinations
-        export_output_conf_json(self.graph_info["output"], _fp)
-
-        # Export the serial port data of the L2 cluster clocks
-        if export_clk_en_L2:
-            export_used_L2_clusters(self.graph_info["misc"]["clk_en_L2"], _fp)
+        # Export the graph information
+        export_graph_info(self.graph_info, _fp, export_clk_en_L2)
 
         return config_dict
 

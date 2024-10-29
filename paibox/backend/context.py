@@ -14,6 +14,7 @@ DEFAULT_OUTPUT_CORE_ADDR_START = Coord(0, 0)
 DEFAULT_CORE_PARAMS_CONF_JSON = "core_params"
 DEFAULT_INPUT_CONF_JSON = "input_proj_info"
 DEFAULT_OUTPUT_CONF_JSON = "output_dest_info"
+DEFAULT_GRAPH_INFO_JSON = "graph_info"
 
 
 class _BackendContext(_Context):
@@ -25,6 +26,7 @@ class _BackendContext(_Context):
         "core_conf_json": DEFAULT_CORE_PARAMS_CONF_JSON,  # RO mostly
         "input_conf_json": DEFAULT_INPUT_CONF_JSON,  # RO mostly
         "output_conf_json": DEFAULT_OUTPUT_CONF_JSON,  # RO mostly
+        "graph_info_json": DEFAULT_GRAPH_INFO_JSON,  # RO mostly
         "cflags": dict(),  # R/W
     }
 
