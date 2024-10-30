@@ -234,22 +234,35 @@ class CoreBlock(CoreAbstract):
     @property
     def tws(self) -> int:
         """Attribute `tick_wait_start`."""
-        if not check_attr_same(self.dest, "tick_wait_start"):
+        _check_attr = "tick_wait_start"
+        if not check_attr_same(self.dest, _check_attr):
             raise AttributeError(
-                "attribute 'tick_wait_start' of the core block are not equal."
+                f"attribute '{_check_attr}' of the core block are not equal."
             )
 
         return self.dest[0].tick_wait_start
 
     @property
     def twe(self) -> int:
-        """Attribute `tick_wait_end.`"""
-        if not check_attr_same(self.dest, "tick_wait_end"):
+        """Attribute `tick_wait_end`."""
+        _check_attr = "tick_wait_end"
+        if not check_attr_same(self.dest, _check_attr):
             raise AttributeError(
-                "attribute 'tick_wait_end' of the core block are not equal."
+                f"attribute '{_check_attr}' of the core block are not equal."
             )
 
         return self.dest[0].tick_wait_end
+
+    @property
+    def pool_max(self) -> MaxPoolingEnable:
+        """Attribute `pool_max`."""
+        _check_attr = "pool_max"
+        if not check_attr_same(self.dest, _check_attr):
+            raise AttributeError(
+                f"attribute '{_check_attr}' of the core block are not equal."
+            )
+
+        return self.dest[0].pool_max
 
     @property
     def n_axon(self) -> int:
@@ -692,7 +705,7 @@ class CorePlacement(CoreAbstract):
             _mode_params[0],                    # input_width_format
             _mode_params[1],                    # spike_width_format
             self.n_working_dendrite,            # num_dendrite
-            MaxPoolingEnable.DISABLE,           # max_pooling_en
+            self.pool_max,                      # max_pooling_en
             self.tws,                           # tick_wait_start
             self.twe,                           # tick_wait_end
             _mode_params[2],                    # snn_mode_en
@@ -813,6 +826,10 @@ class CorePlacement(CoreAbstract):
     @property
     def twe(self) -> int:
         return self.parent.twe
+
+    @property
+    def pool_max(self) -> MaxPoolingEnable:
+        return self.parent.pool_max
 
     @property
     def n_working_dendrite(self) -> int:
