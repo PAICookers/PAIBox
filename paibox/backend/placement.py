@@ -46,7 +46,6 @@ from .types import (
 class CoreBlock(CoreAbstract):
 
     _parents: tuple[FullConnectedSyn, ...]
-    _routing_id: int  # TODO will be deprecated
     seed: int
     """Random seed, legal integer, no more than uint64."""
     _lcn_ex: LCN_EX
@@ -70,23 +69,19 @@ class CoreBlock(CoreAbstract):
     def __init__(
         self,
         *parents: FullConnectedSyn,
-        routing_id: int,
         seed: int,
-        mode: CoreMode = CoreMode.MODE_SNN,
+        mode: CoreMode,
         name: Optional[str] = None,
     ) -> None:
         """Core blocks in SNN mode.
 
         Args:
-            - parents: the parent synapses.
-            - routing_id: id of routing group.
-            - seed: random seed. Default value is 0.
-            - mode: runtime mode of the core block. Default value is `MODE_SNN`.
-            - name: name of the core block. Optional.
+            parents: the parent synapses.
+            seed: random seed. Default value is 0.
+            mode: runtime mode of the core block.
         """
         super().__init__(name)
         self._parents = parents
-        self._routing_id = routing_id
         self.rt_mode = mode
         self.seed = seed
         self._lcn_ex = self._n_axon2lcn_ex()
@@ -376,13 +371,7 @@ class CoreBlock(CoreAbstract):
         return ", ".join(n.name for n in self.obj)
 
     @classmethod
-    def build(
-        cls,
-        *synapses: FullConnectedSyn,
-        routing_id: int,
-        rt_mode: CoreMode,
-        seed: int = 0,
-    ):
+    def build(cls, *synapses: FullConnectedSyn, rt_mode: CoreMode, seed: int = 0):
         """Group synapses & build `CoreBlock`."""
         if seed > (1 << 64) - 1:
             warnings.warn(
@@ -390,7 +379,7 @@ class CoreBlock(CoreAbstract):
                 TruncationWarning,
             )
 
-        return cls(*synapses, routing_id=routing_id, mode=rt_mode, seed=seed)
+        return cls(*synapses, mode=rt_mode, seed=seed)
 
     @classmethod
     def build_core_blocks(cls, route_group: MergedSuccGroup) -> list["CoreBlock"]:
@@ -410,7 +399,7 @@ class CoreBlock(CoreAbstract):
             for i in idx:
                 succ_edges.update(route_group.outputs[succ_nodes[i]])
 
-            core_block = CoreBlock.build(*succ_edges, routing_id=0, rt_mode=mode)
+            core_block = CoreBlock.build(*succ_edges, rt_mode=mode)
             core_blocks.append(core_block)
 
         return core_blocks
