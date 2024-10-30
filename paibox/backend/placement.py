@@ -382,22 +382,21 @@ class CoreBlock(CoreAbstract):
         return cls(*synapses, mode=rt_mode, seed=seed)
 
     @classmethod
-    def build_core_blocks(cls, route_group: MergedSuccGroup) -> list["CoreBlock"]:
+    def build_core_blocks(cls, msgrp: MergedSuccGroup) -> list["CoreBlock"]:
         core_blocks: list[CoreBlock] = []
-        succ_nodes = list(route_group.nodes)
+        succ_nodes = list(msgrp.nodes)
+        # TODO Currently the runtime mode is not taken into account for grouping constraints,
+        # because in general, a network can only have one mode.
         mode = succ_nodes[0].mode
         if any(node.mode != mode for node in succ_nodes):
             raise NotSupportedError("mixed mode is not supported.")
 
-        # TODO More constraints for nodes can be called here.
-        idx_of_sg = GraphNodeConstrs.tick_wait_attr_constr(succ_nodes)
-        if len(idx_of_sg) == 0:
-            idx_of_sg = [list(range(len(succ_nodes)))]
+        idx_of_sg = GraphNodeConstrs.apply_constrs(succ_nodes)
 
-        for idx in idx_of_sg:
+        for idx_lst in idx_of_sg:
             succ_edges: set[EdgeType] = set()
-            for i in idx:
-                succ_edges.update(route_group.outputs[succ_nodes[i]])
+            for i in idx_lst:
+                succ_edges.update(msgrp.outputs[succ_nodes[i]])
 
             core_block = CoreBlock.build(*succ_edges, rt_mode=mode)
             core_blocks.append(core_block)

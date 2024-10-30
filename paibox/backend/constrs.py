@@ -1,16 +1,16 @@
 import sys
 from collections import defaultdict
-from collections.abc import Sequence
 from typing import ClassVar
 
-from .types import NodeName, NodeType
+from .types import NodeType
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias
 else:
     from typing_extensions import TypeAlias
 
-BoundedConstrType: TypeAlias = list[frozenset[NodeName]]
+NodeIdx: TypeAlias = int
+NodeConstrsAttr: TypeAlias = str
 
 
 class Constraints:
@@ -18,57 +18,48 @@ class Constraints:
 
 
 class GraphNodeConstrs(Constraints):
-    BOUNDED_CONSTRS: ClassVar[list[list[NodeName]]] = []
-    CONFLICTED_CONSTRS: ClassVar[dict[NodeName, tuple[NodeName, ...]]] = defaultdict(
-        tuple
-    )
+    node_constr_attrs: ClassVar[list[NodeConstrsAttr]] = [
+        "pool_max",
+        "tick_wait_start",
+        "tick_wait_end",
+    ]
+    """Node attributes that are actually the parameters of the cores."""
 
     @classmethod
-    def clear(cls) -> None:
-        cls.BOUNDED_CONSTRS = []
-        cls.CONFLICTED_CONSTRS = {}
+    def set_constr_attr(cls, attr: NodeConstrsAttr) -> None:
+        if attr not in cls.node_constr_attrs:
+            cls.node_constr_attrs.append(attr)
 
     @classmethod
-    def add_node_constr(
-        cls,
-        *,
-        bounded: Sequence[NodeName] = (),
-        conflicted: dict[NodeName, Sequence[NodeName]] = {},
-    ):
-        """Add constraints to a node."""
-        if len(bounded) > 0:
-            cls.BOUNDED_CONSTRS.append(list(bounded))
-
-        if conflicted:
-            for k, v in conflicted.items():
-                cls.CONFLICTED_CONSTRS[k] = tuple(v)
+    def remove_constr_attr(cls, attr: NodeConstrsAttr, strict: bool = False) -> None:
+        if attr in cls.node_constr_attrs:
+            cls.node_constr_attrs.remove(attr)
+        elif strict:
+            raise ValueError(
+                f"attribute {attr} not found in constraint attributes list."
+            )
 
     @staticmethod
-    def tick_wait_attr_constr(raw_nodes: list[NodeType]) -> list[list[int]]:
-        """Check whether the neurons to be assigned to a group are "equal" after\
-            automatic inference.
+    def apply_constrs(raw_nodes: list[NodeType]) -> list[list[NodeIdx]]:
+        """Group the nodes by the constraints of the nodes.
 
-        NOTE: Check attributes `tick_wait_start` & `tick_wait_end`. For those   \
-            neurons with different attributes, they need to be separated.
+        Args:
+            raw_nodes: nodes that need to be grouped using core parameter constraints.
 
-        Return: returen the group of indices.
+        Returns:
+            a list of groups of node indices.
         """
-        tw_attrs = [
-            (raw_node.tick_wait_start, raw_node.tick_wait_end) for raw_node in raw_nodes
-        ]
+        grouped_indices = defaultdict(list)
 
-        if len(tw_attrs_set := set(tw_attrs)) == 1:
-            return []
-        else:
-            constr = []
-            pos = []
-            for attr in tw_attrs_set:
-                pos.clear()
-                # Find all positions
-                for i, v in enumerate(tw_attrs):
-                    if attr == v:
-                        pos.append(i)
+        for i, node in enumerate(raw_nodes):
+            key_lst = []
+            for attr in GraphNodeConstrs.node_constr_attrs:
+                if (v := getattr(node, attr, None)) is None:
+                    raise AttributeError(f"node {node.name} has no attribute {attr}.")
 
-                constr.append(pos.copy())
+                key_lst.append(v)
 
-            return constr
+            k = tuple(key_lst)
+            grouped_indices[k].append(i)
+
+        return list(grouped_indices.values())
