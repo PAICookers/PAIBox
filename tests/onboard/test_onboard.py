@@ -885,13 +885,7 @@ class TestOnBoard_SemiFoldedOp:
             def __init__(self, w1):
                 super().__init__()
                 self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
-                self.conv1 = pb.Conv2dSemiFolded(
-                    self.i1,
-                    w1,
-                    1,
-                    0,
-                    tick_wait_start=1,
-                )
+                self.conv1 = pb.Conv2dSemiFolded(self.i1, w1, 1, 0, tick_wait_start=1)
 
         USE_EXISTING_DATA = False
         TEST_NAME = self.test_Conv2dSemiFolded_001.__name__
@@ -969,16 +963,8 @@ class TestOnBoard_SemiFoldedOp:
         class Net002(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
-                self.i1 = pb.InputProj(
-                    input=_out_bypass1, shape_out=shape1[:2]
-                )  # Changed input shape
-                self.conv1 = pb.Conv2dSemiFolded(
-                    self.i1,
-                    w2,
-                    2,  # Changed stride
-                    0,
-                    tick_wait_start=1,
-                )
+                self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
+                self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 2, 0, tick_wait_start=1)
 
         USE_EXISTING_DATA = False
         TEST_NAME = self.test_Conv2dSemiFolded_002.__name__
@@ -1056,16 +1042,8 @@ class TestOnBoard_SemiFoldedOp:
         class Net003(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
-                self.i1 = pb.InputProj(
-                    input=_out_bypass1, shape_out=shape1[:2]
-                )  # Changed input shape
-                self.conv1 = pb.Conv2dSemiFolded(
-                    self.i1,
-                    w2,
-                    2,  # Changed stride
-                    0,
-                    tick_wait_start=1,
-                )
+                self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
+                self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 2, 0, tick_wait_start=1)
 
         USE_EXISTING_DATA = False
         TEST_NAME = self.test_Conv2dSemiFolded_003.__name__
@@ -1143,16 +1121,8 @@ class TestOnBoard_SemiFoldedOp:
         class Net004(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
-                self.i1 = pb.InputProj(
-                    input=_out_bypass1, shape_out=shape1[:2]
-                )  # Changed input shape
-                self.conv1 = pb.Conv2dSemiFolded(
-                    self.i1,
-                    w2,
-                    2,  # Changed stride
-                    0,
-                    tick_wait_start=1,
-                )
+                self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
+                self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 2, 0, tick_wait_start=1)
 
         USE_EXISTING_DATA = False
         TEST_NAME = self.test_Conv2dSemiFolded_004.__name__
@@ -1231,16 +1201,8 @@ class TestOnBoard_SemiFoldedOp:
         class Net005(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
-                self.i1 = pb.InputProj(
-                    input=_out_bypass1, shape_out=shape1[:2]
-                )  # Changed input shape
-                self.conv1 = pb.Conv2dSemiFolded(
-                    self.i1,
-                    w2,
-                    2,  # Changed stride
-                    0,
-                    tick_wait_start=1,
-                )
+                self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
+                self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 2, 0, tick_wait_start=1)
 
         USE_EXISTING_DATA = False
         TEST_NAME = self.test_Conv2dSemiFolded_005.__name__
@@ -1319,16 +1281,8 @@ class TestOnBoard_SemiFoldedOp:
         class Net006(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
-                self.i1 = pb.InputProj(
-                    input=_out_bypass1, shape_out=shape1[:2]
-                )  # Changed input shape
-                self.conv1 = pb.Conv2dSemiFolded(
-                    self.i1,
-                    w2,
-                    1,  # Changed stride
-                    1,
-                    tick_wait_start=1,
-                )
+                self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
+                self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 1, 1, tick_wait_start=1)
 
         USE_EXISTING_DATA = False
         TEST_NAME = self.test_Conv2dSemiFolded_006.__name__
@@ -1406,16 +1360,8 @@ class TestOnBoard_SemiFoldedOp:
         class Net007(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
-                self.i1 = pb.InputProj(
-                    input=_out_bypass1, shape_out=shape1[:2]
-                )  # Changed input shape
-                self.conv1 = pb.Conv2dSemiFolded(
-                    self.i1,
-                    w2,
-                    1,  # Changed stride
-                    1,
-                    tick_wait_start=1,
-                )
+                self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
+                self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 1, 1, tick_wait_start=1)
 
         USE_EXISTING_DATA = False
         TEST_NAME = self.test_Conv2dSemiFolded_007.__name__
@@ -1494,16 +1440,8 @@ class TestOnBoard_SemiFoldedOp:
         class Net008(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
-                self.i1 = pb.InputProj(
-                    input=_out_bypass1, shape_out=shape1[:2]
-                )  # Changed input shape
-                self.conv1 = pb.Conv2dSemiFolded(
-                    self.i1,
-                    w2,
-                    1,  # Changed stride
-                    1,
-                    tick_wait_start=1,
-                )
+                self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
+                self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 1, 1, tick_wait_start=1)
 
         USE_EXISTING_DATA = False
         TEST_NAME = self.test_Conv2dSemiFolded_008.__name__
@@ -1582,16 +1520,8 @@ class TestOnBoard_SemiFoldedOp:
         class Net009(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
-                self.i1 = pb.InputProj(
-                    input=_out_bypass1, shape_out=shape1[:2]
-                )  # Changed input shape
-                self.conv1 = pb.Conv2dSemiFolded(
-                    self.i1,
-                    w2,
-                    1,  # Changed stride
-                    1,
-                    tick_wait_start=1,
-                )
+                self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
+                self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 1, 1, tick_wait_start=1)
 
         USE_EXISTING_DATA = False
         TEST_NAME = self.test_Conv2dSemiFolded_009.__name__
@@ -1668,11 +1598,8 @@ class TestOnBoard_SemiFoldedOp:
             def __init__(self, ksize):
                 super().__init__()
                 self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
-                self.maxpool1 = pb.MaxPool2dSemiFolded(
-                    self.i1,
-                    ksize,
-                    2,
-                    tick_wait_start=1,
+                self.pool1 = pb.MaxPool2dSemiFolded(
+                    self.i1, ksize, 2, tick_wait_start=1
                 )
 
         USE_EXISTING_DATA = False
@@ -1715,10 +1642,10 @@ class TestOnBoard_SemiFoldedOp:
             )
 
         network = Net010(ksize)
-        maxpool = network.maxpool1
+        pool = network.pool1
         generated = pb.DynSysGroup.build_fmodule(network)
         sim = pb.Simulator(network, start_time_zero=False)
-        probe = pb.Probe(generated[maxpool][0], "output")
+        probe = pb.Probe(generated[pool][0], "output")
         sim.add_probe(probe)
         for i in range(sim_time):
             pb.FRONTEND_ENV.save(data1=inpdata1[:, :, i])
@@ -1747,12 +1674,8 @@ class TestOnBoard_SemiFoldedOp:
             def __init__(self, ksize):
                 super().__init__()
                 self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
-                self.maxpool1 = pb.AvgPool2dSemiFolded(
-                    self.i1,
-                    ksize,
-                    2,
-                    0,
-                    tick_wait_start=1,
+                self.pool1 = pb.AvgPool2dSemiFolded(
+                    self.i1, ksize, 2, 0, tick_wait_start=1
                 )
 
         USE_EXISTING_DATA = False
@@ -1795,10 +1718,10 @@ class TestOnBoard_SemiFoldedOp:
             )
 
         network = Net011(ksize)
-        maxpool = network.maxpool1
+        pool = network.pool1
         generated = pb.DynSysGroup.build_fmodule(network)
         sim = pb.Simulator(network, start_time_zero=False)
-        probe = pb.Probe(generated[maxpool][0], "output")
+        probe = pb.Probe(generated[pool][0], "output")
         sim.add_probe(probe)
         for i in range(sim_time):
             pb.FRONTEND_ENV.save(data1=inpdata1[:, :, i])
@@ -1830,29 +1753,14 @@ class TestOnBoard_SemiFoldedOp:
             def __init__(self, w1, w2, w3):
                 super().__init__()
                 self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
-                self.conv1 = pb.Conv2dSemiFolded(
-                    self.i1,
-                    w1,
-                    1,
-                    1,
-                    tick_wait_start=1,
-                )
+                self.conv1 = pb.Conv2dSemiFolded(self.i1, w1, 1, 1, tick_wait_start=1)
 
                 self.conv2 = pb.Conv2dSemiFolded(
-                    self.conv1,
-                    w2,
-                    1,
-                    1,
-                    tick_wait_start=3,
+                    self.conv1, w2, 1, 1, tick_wait_start=3
                 )
 
                 self.linear1 = pb.LinearSemiFolded(
-                    self.conv2,
-                    out_shape[1],
-                    weights=w3,
-                    bias=2,
-                    conn_type=pb.SynConnType.All2All,
-                    tick_wait_start=5,
+                    self.conv2, out_shape[1], weights=w3, bias=2, tick_wait_start=5
                 )
 
         USE_EXISTING_DATA = False
@@ -1946,29 +1854,12 @@ class TestOnBoard_SemiFoldedOp:
             def __init__(self, w1, w2, w3):
                 super().__init__()
                 self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
-                self.conv1 = pb.Conv2dSemiFolded(
-                    self.i1,
-                    w1,
-                    2,
-                    1,
-                    tick_wait_start=1,
-                )
-
+                self.conv1 = pb.Conv2dSemiFolded(self.i1, w1, 2, 1, tick_wait_start=1)
                 self.conv2 = pb.Conv2dSemiFolded(
-                    self.conv1,
-                    w2,
-                    2,
-                    1,
-                    tick_wait_start=3,
+                    self.conv1, w2, 2, 1, tick_wait_start=3
                 )
-
                 self.linear1 = pb.LinearSemiFolded(
-                    self.conv2,
-                    out_shape[1],
-                    weights=w3,
-                    bias=2,
-                    conn_type=pb.SynConnType.All2All,
-                    tick_wait_start=5,
+                    self.conv2, out_shape[1], weights=w3, bias=2, tick_wait_start=5
                 )
 
         USE_EXISTING_DATA = False
@@ -2060,7 +1951,6 @@ class TestOnBoard_SemiFoldedOp:
         class Net014(pb.DynSysGroup):
             def __init__(self, w1, w2, w3):
                 super().__init__()
-
                 self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
 
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w1, 1, 1, tick_wait_start=1)
@@ -2074,12 +1964,7 @@ class TestOnBoard_SemiFoldedOp:
                     self.conv2, (2, 2), 2, tick_wait_start=7
                 )
                 self.linear1 = pb.LinearSemiFolded(
-                    self.pool2,
-                    out_shape[1],
-                    weights=w3,
-                    bias=2,
-                    conn_type=pb.SynConnType.All2All,
-                    tick_wait_start=9,
+                    self.pool2, out_shape[1], weights=w3, bias=2, tick_wait_start=9
                 )
 
         USE_EXISTING_DATA = False
