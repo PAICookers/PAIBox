@@ -2,16 +2,16 @@
 
 ## ANN权重映射
 
-|         测试项目          | 结果  |    备注    |
-| :-----------------------: | :---: | :--------: |
-| [001 单层](#001-单层w8e1) |   ✅   |            |
-| [002 单层](#002-单层w8e4) |   ✅   |            |
-| [003 单层](#003-单层w2e2) |   ✅   |            |
-| [004 单层](#004-单层w4e2) |   ✅   |            |
-| [005 多层-1](#005-多层-1) |   ✅   |            |
-| [006 多层-2](#006-多层-2) |   ✅   |            |
-| [007 单层](#007-单层w4e1) |   ❌   | 芯片不输出 |
-| [008 多层-1](#008-多层-1) |   ❌   | 芯片不输出 |
+|         测试项目          | 结果 |    备注    |
+| :-----------------------: | :--: | :--------: |
+| [001 单层](#001-单层w8e1) |  ✅  |            |
+| [002 单层](#002-单层w8e4) |  ✅  |            |
+| [003 单层](#003-单层w2e2) |  ✅  |            |
+| [004 单层](#004-单层w4e2) |  ✅  |            |
+| [005 多层-1](#005-多层-1) |  ✅  |            |
+| [006 多层-2](#006-多层-2) |  ✅  |            |
+| [007 单层](#007-单层w4e1) |  ❌  | 芯片不输出 |
+| [008 多层-1](#008-多层-1) |  ❌  | 芯片不输出 |
 
 ### 无神经元在WRAM
 
@@ -124,9 +124,9 @@
 
 ## SNN算子
 
-|         测试项目          | 结果  | 备注  |
-| :-----------------------: | :---: | :---: |
-| [001 Conv1d](#001-conv1d) |   ✅   |       |
+|         测试项目          | 结果 | 备注 |
+| :-----------------------: | :--: | :--: |
+| [001 Conv1d](#001-conv1d) |  ✅  |      |
 
 ### Conv1d
 
@@ -145,22 +145,22 @@
 
 ## 半折叠算子
 
-|                      测试项目                       | 结果  |    备注    |
-| :-------------------------------------------------: | :---: | :--------: |
-|    [001 Conv2dSemiFolded](#001-conv2dsemifolded)    |   ✅   |            |
-|    [002 Conv2dSemiFolded](#002-conv2dsemifolded)    |   ❌   | 不完全相等 |
-|    [003 Conv2dSemiFolded](#003-conv2dsemifolded)    |       |            |
-|    [004 Conv2dSemiFolded](#004-conv2dsemifolded)    |       |            |
-|    [005 Conv2dSemiFolded](#005-conv2dsemifolded)    |       |            |
-|    [006 Conv2dSemiFolded](#006-conv2dsemifolded)    |   ❌   | 不完全相等 |
-|    [007 Conv2dSemiFolded](#007-conv2dsemifolded)    |       |            |
-|    [008 Conv2dSemiFolded](#008-conv2dsemifolded)    |       |            |
-|    [009 Conv2dSemiFolded](#009-conv2dsemifolded)    |       |            |
-| [010 MaxPool2dSemiFolded](#010-maxpool2dsemifolded) |       |            |
-| [011 AvgPool2dSemiFolded](#011-avgpool2dsemifolded) |   ✅   |            |
-| [012 Conv2dSemiFoldedNet](#012-conv2dsemifoldednet) |       |            |
-| [013 Conv2dSemiFoldedNet](#013-conv2dsemifoldednet) |       |            |
-|    [014 CNNSemiFoldedNet](#014-cnnsemifoldednet)    |       |            |
+|                      测试项目                       | 结果 |    备注    |
+| :-------------------------------------------------: | :--: | :--------: |
+|    [001 Conv2dSemiFolded](#001-conv2dsemifolded)    |  ✅  |            |
+|    [002 Conv2dSemiFolded](#002-conv2dsemifolded)    |  ❌  | 不完全相等 |
+|    [003 Conv2dSemiFolded](#003-conv2dsemifolded)    |      |            |
+|    [004 Conv2dSemiFolded](#004-conv2dsemifolded)    |      |            |
+|    [005 Conv2dSemiFolded](#005-conv2dsemifolded)    |      |            |
+|    [006 Conv2dSemiFolded](#006-conv2dsemifolded)    |  ❌  | 不完全相等 |
+|    [007 Conv2dSemiFolded](#007-conv2dsemifolded)    |      |            |
+|    [008 Conv2dSemiFolded](#008-conv2dsemifolded)    |      |            |
+|    [009 Conv2dSemiFolded](#009-conv2dsemifolded)    |      |            |
+| [010 MaxPool2dSemiFolded](#010-maxpool2dsemifolded) |      |            |
+| [011 AvgPool2dSemiFolded](#011-avgpool2dsemifolded) |  ✅  |            |
+| [012 Conv2dSemiFoldedNet](#012-conv2dsemifoldednet) |      |            |
+| [013 Conv2dSemiFoldedNet](#013-conv2dsemifoldednet) |      |            |
+|    [014 CNNSemiFoldedNet](#014-cnnsemifoldednet)    |      |            |
 
 ### 单层
 
