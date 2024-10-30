@@ -40,9 +40,13 @@ try:
 
     _USE_ORJSON = True
 
-    def PAIConfigJsonDefault(o: Any):
-        if isinstance(o, Coord):
-            return o.address
+    def PAIConfigJsonDefault(o: Any) -> Any:
+        if isinstance(o, (list, tuple)):
+            return [PAIConfigJsonDefault(i) for i in o]
+        elif isinstance(o, dict):
+            return {str(k): PAIConfigJsonDefault(v) for k, v in o.items()}
+        elif isinstance(o, Coord):
+            return str(o)
         elif isinstance(o, NeuronAttrs):
             return o.model_dump(by_alias=True)
         elif isinstance(o, NeuronDestInfo):
@@ -57,8 +61,12 @@ except ModuleNotFoundError:
 
     class PAIConfigJsonEncoder(json.JSONEncoder):
         def default(self, o: Any) -> Any:
-            if isinstance(o, Coord):
-                return o.address
+            if isinstance(o, (list, tuple)):
+                return [self.default(i) for i in o]
+            elif isinstance(o, dict):
+                return {str(k): self.default(v) for k, v in o.items()}
+            elif isinstance(o, Coord):
+                return str(o)
             elif isinstance(o, Enum):
                 return o.value
             elif isinstance(o, np.ndarray):
