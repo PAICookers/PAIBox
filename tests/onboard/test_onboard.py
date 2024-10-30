@@ -963,7 +963,9 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_Conv2dSemiFolded_002(self):
+    #对比test002系列
+    # weight正常
+    def test_Conv2dSemiFolded_002_1(self):
         class Net002(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
@@ -979,7 +981,7 @@ class TestOnBoard_SemiFoldedOp:
                 )
 
         USE_EXISTING_DATA = False
-        TEST_NAME = self.test_Conv2dSemiFolded_002.__name__
+        TEST_NAME = self.test_Conv2dSemiFolded_002_1.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
         if not TEST_CASE_DIR.exists():
@@ -987,11 +989,11 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"\nTest {TEST_NAME} start")
 
-        shape1 = (8, 64, 64)  # C*H*W
-        ksize = (4, shape1[0], 7, 7)  # O*C*K*k
-        out_shape = (4, 29, 29)
+        shape1 = (1, 8, 8)  # C*H*W
+        ksize = (1, 1, 2, 2)  # O*C*K*k
+        out_shape = (1, 4, 4)
 
-        sim_time = 65
+        sim_time = 16
 
         USE_EXISTING_DATA = False
         NPZ_FILE = TEST_CASE_DIR / "data.npz"
@@ -1001,13 +1003,14 @@ class TestOnBoard_SemiFoldedOp:
             inpdata1 = npz["inpdata1"]
             refresult1 = npz["refresult1"]
             print("Using the existing data file")
+            print("input:", inpdata1)
+            print("weight:", weight1)
             USE_EXISTING_DATA = True
         except:
             pass
 
         if not USE_EXISTING_DATA:
             print("Generating new data")
-            # W=8, disable weight bit optimization
             weight1 = FIXED_RNG.integers(-10, 10, size=ksize, dtype=np.int8)
             inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
             inpdata1 = np.concatenate(
@@ -1048,7 +1051,270 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_Conv2dSemiFolded_003(self):
+    # weight全为1
+    def test_Conv2dSemiFolded_002_2(self):
+        class Net002(pb.DynSysGroup):
+            def __init__(self, w2):
+                super().__init__()
+                self.i1 = pb.InputProj(
+                    input=_out_bypass1, shape_out=shape1[:2]
+                )  # Changed input shape
+                self.conv1 = pb.Conv2dSemiFolded(
+                    self.i1,
+                    w2,
+                    2,  # Changed stride
+                    0,
+                    tick_wait_start=1,
+                )
+
+        USE_EXISTING_DATA = False
+        TEST_NAME = self.test_Conv2dSemiFolded_002_2.__name__
+        TEST_CASE_DIR = DATA_DIR / TEST_NAME
+        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
+        if not TEST_CASE_DIR.exists():
+            TEST_CASE_DIR.mkdir()
+
+        print(f"\nTest {TEST_NAME} start")
+
+        shape1 = (1, 8, 8)  # C*H*W
+        ksize = (1, shape1[0], 2, 2)  # O*C*K*k
+        out_shape = (1, 4, 4)
+
+        sim_time = 16
+
+        USE_EXISTING_DATA = False
+        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        try:
+            npz = np.load(NPZ_FILE)
+            weight1 = npz["weight1"]
+            inpdata1 = npz["inpdata1"]
+            refresult1 = npz["refresult1"]
+            print("Using the existing data file")
+            print("Input", inpdata1)
+            USE_EXISTING_DATA = True
+        except:
+            pass
+
+        if not USE_EXISTING_DATA:
+            print("Generating new data")
+            #weight1 = FIXED_RNG.integers(0, 1, size=ksize, dtype=np.int8)
+            weight1 = np.ones(ksize, dtype=np.int8)
+            inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
+            inpdata1 = np.concatenate(
+                [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
+            )
+            # Shape of reference result is sim_time * refdata
+            refresult1 = np.zeros(
+                (sim_time, out_shape[0] * out_shape[1]), dtype=NEUOUT_U8_DTYPE
+            )
+
+        network = Net002(weight1)
+        conv2d = network.conv1
+        generated = pb.DynSysGroup.build_fmodule(network)
+        sim = pb.Simulator(network, start_time_zero=False)
+        probe = pb.Probe(generated[conv2d][0], "output")
+        sim.add_probe(probe)
+        for i in range(sim_time):
+            pb.FRONTEND_ENV.save(data1=inpdata1[:, :, i])
+            sim.run(1)
+
+            if not USE_EXISTING_DATA:
+                refresult1[i, :] = sim.data[probe][i]
+            print(sim.data[probe][i].shape)
+            print(f"t={i + 1}\n", sim.data[probe][i])
+
+        # Save weights & input data
+        if not USE_EXISTING_DATA:
+            np.savez(
+                NPZ_FILE, weight1=weight1, inpdata1=inpdata1, refresult1=refresult1
+            )
+
+        mapper = pb.Mapper()
+        mapper.build(network)
+        mapper.compile(weight_bit_optimization=False)
+        mapper.export(
+            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
+        )
+
+        print(f"Test {TEST_NAME} end")
+
+    #扇入扩展， weight全正1
+    def test_Conv2dSemiFolded_002_3(self):
+        class Net002(pb.DynSysGroup):
+            def __init__(self, w2):
+                super().__init__()
+                self.i1 = pb.InputProj(
+                    input=_out_bypass1, shape_out=shape1[:2]
+                )  # Changed input shape
+                self.conv1 = pb.Conv2dSemiFolded(
+                    self.i1,
+                    w2,
+                    2,  # Changed stride
+                    0,
+                    tick_wait_start=1,
+                )
+
+        USE_EXISTING_DATA = False
+        TEST_NAME = self.test_Conv2dSemiFolded_002_3.__name__
+        TEST_CASE_DIR = DATA_DIR / TEST_NAME
+        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
+        if not TEST_CASE_DIR.exists():
+            TEST_CASE_DIR.mkdir()
+
+        print(f"\nTest {TEST_NAME} start")
+
+        shape1 = (8, 64, 64)  # C*H*W
+        ksize = (4, shape1[0], 7, 7)  # O*C*K*k
+        out_shape = (4, 29, 29)
+
+        sim_time = 65
+
+        USE_EXISTING_DATA = False
+        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        try:
+            npz = np.load(NPZ_FILE)
+            weight1 = npz["weight1"]
+            inpdata1 = npz["inpdata1"]
+            refresult1 = npz["refresult1"]
+            print("Using the existing data file")
+            print("Input", inpdata1)
+            print("weight", weight1)
+            USE_EXISTING_DATA = True
+        except:
+            pass
+
+        if not USE_EXISTING_DATA:
+            print("Generating new data")
+            #weight1 = FIXED_RNG.integers(0, 1, size=ksize, dtype=np.int8)
+            weight1 = np.ones(ksize, dtype=np.int8)
+            inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
+            inpdata1 = np.concatenate(
+                [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
+            )
+            # Shape of reference result is sim_time * refdata
+            refresult1 = np.zeros(
+                (sim_time, out_shape[0] * out_shape[1]), dtype=NEUOUT_U8_DTYPE
+            )
+
+        network = Net002(weight1)
+        conv2d = network.conv1
+        generated = pb.DynSysGroup.build_fmodule(network)
+        sim = pb.Simulator(network, start_time_zero=False)
+        probe = pb.Probe(generated[conv2d][0], "output")
+        sim.add_probe(probe)
+        for i in range(sim_time):
+            pb.FRONTEND_ENV.save(data1=inpdata1[:, :, i])
+            sim.run(1)
+
+            if not USE_EXISTING_DATA:
+                refresult1[i, :] = sim.data[probe][i]
+            print(sim.data[probe][i].shape)
+            print(f"t={i + 1}\n", sim.data[probe][i])
+
+        # Save weights & input data
+        if not USE_EXISTING_DATA:
+            np.savez(
+                NPZ_FILE, weight1=weight1, inpdata1=inpdata1, refresult1=refresult1
+            )
+
+        mapper = pb.Mapper()
+        mapper.build(network)
+        mapper.compile(weight_bit_optimization=False)
+        mapper.export(
+            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
+        )
+
+        print(f"Test {TEST_NAME} end")
+
+    #扇入扩展
+    def test_Conv2dSemiFolded_002_4(self):
+        class Net002(pb.DynSysGroup):
+            def __init__(self, w2):
+                super().__init__()
+                self.i1 = pb.InputProj(
+                    input=_out_bypass1, shape_out=shape1[:2]
+                )  # Changed input shape
+                self.conv1 = pb.Conv2dSemiFolded(
+                    self.i1,
+                    w2,
+                    2,  # Changed stride
+                    0,
+                    tick_wait_start=1,
+                )
+
+        USE_EXISTING_DATA = False
+        TEST_NAME = self.test_Conv2dSemiFolded_002_4.__name__
+        TEST_CASE_DIR = DATA_DIR / TEST_NAME
+        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
+        if not TEST_CASE_DIR.exists():
+            TEST_CASE_DIR.mkdir()
+
+        print(f"\nTest {TEST_NAME} start")
+
+        shape1 = (8, 64, 64)  # C*H*W
+        ksize = (4, shape1[0], 7, 7)  # O*C*K*k
+        out_shape = (4, 29, 29)
+
+        sim_time = 65
+
+        USE_EXISTING_DATA = False
+        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        try:
+            npz = np.load(NPZ_FILE)
+            weight1 = npz["weight1"]
+            inpdata1 = npz["inpdata1"]
+            refresult1 = npz["refresult1"]
+            print("Using the existing data file")
+            print("Input", inpdata1)
+            print("weight", weight1)
+            USE_EXISTING_DATA = True
+        except:
+            pass
+
+        if not USE_EXISTING_DATA:
+            print("Generating new data")
+            weight1 = FIXED_RNG.integers(0, 5, size=ksize, dtype=np.int8)
+            #weight1 = np.ones(ksize, dtype=np.int8)
+            inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
+            inpdata1 = np.concatenate(
+                [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
+            )
+            # Shape of reference result is sim_time * refdata
+            refresult1 = np.zeros(
+                (sim_time, out_shape[0] * out_shape[1]), dtype=NEUOUT_U8_DTYPE
+            )
+
+        network = Net002(weight1)
+        conv2d = network.conv1
+        generated = pb.DynSysGroup.build_fmodule(network)
+        sim = pb.Simulator(network, start_time_zero=False)
+        probe = pb.Probe(generated[conv2d][0], "output")
+        sim.add_probe(probe)
+        for i in range(sim_time):
+            pb.FRONTEND_ENV.save(data1=inpdata1[:, :, i])
+            sim.run(1)
+
+            if not USE_EXISTING_DATA:
+                refresult1[i, :] = sim.data[probe][i]
+            print(sim.data[probe][i].shape)
+            print(f"t={i + 1}\n", sim.data[probe][i])
+
+        # Save weights & input data
+        if not USE_EXISTING_DATA:
+            np.savez(
+                NPZ_FILE, weight1=weight1, inpdata1=inpdata1, refresult1=refresult1
+            )
+
+        mapper = pb.Mapper()
+        mapper.build(network)
+        mapper.compile(weight_bit_optimization=False)
+        mapper.export(
+            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
+        )
+
+        print(f"Test {TEST_NAME} end")
+
+    def test_Conv2dSemiFolded_003_1(self):
         class Net003(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
@@ -1064,7 +1330,7 @@ class TestOnBoard_SemiFoldedOp:
                 )
 
         USE_EXISTING_DATA = False
-        TEST_NAME = self.test_Conv2dSemiFolded_003.__name__
+        TEST_NAME = self.test_Conv2dSemiFolded_003_1.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
         if not TEST_CASE_DIR.exists():
@@ -1072,11 +1338,277 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"\nTest {TEST_NAME} start")
 
-        shape1 = (8, 64, 64)  # C*H*W
-        ksize = (4, shape1[0], 3, 3)  # O*C*K*k
-        out_shape = (4, 64, 64)
+        shape1 = (1, 8, 8)  # C*H*W
+        ksize = (1, shape1[0], 3, 3)  # O*C*K*k
+        out_shape = (1, 8, 8)
 
-        sim_time = 65
+        sim_time = 10
+
+        USE_EXISTING_DATA = False
+        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        try:
+            npz = np.load(NPZ_FILE)
+            weight1 = npz["weight1"]
+            inpdata1 = npz["inpdata1"]
+            refresult1 = npz["refresult1"]
+            print("Using the existing data file")
+            print("Input:", inpdata1)
+            print("weight:", weight1)
+            USE_EXISTING_DATA = True
+        except:
+            pass
+
+        if not USE_EXISTING_DATA:
+            print("Generating new data")
+            # W=8, disable weight bit optimization
+            weight1 = FIXED_RNG.integers(-10, 10, size=ksize, dtype=np.int8)
+            inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
+            inpdata1 = np.concatenate(
+                [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
+            )
+            # Shape of reference result is sim_time * refdata
+            refresult1 = np.zeros(
+                (sim_time, out_shape[0] * out_shape[1]), dtype=NEUOUT_U8_DTYPE
+            )
+
+        network = Net003(weight1)
+        conv2d = network.conv1
+        generated = pb.DynSysGroup.build_fmodule(network)
+        sim = pb.Simulator(network, start_time_zero=False)
+        probe = pb.Probe(generated[conv2d][0], "output")
+        sim.add_probe(probe)
+        for i in range(sim_time):
+            pb.FRONTEND_ENV.save(data1=inpdata1[:, :, i])
+            sim.run(1)
+
+            if not USE_EXISTING_DATA:
+                refresult1[i, :] = sim.data[probe][i]
+
+            print(f"t={i + 1}\n", sim.data[probe][i])
+
+        # Save weights & input data
+        if not USE_EXISTING_DATA:
+            np.savez(
+                NPZ_FILE, weight1=weight1, inpdata1=inpdata1, refresult1=refresult1
+            )
+
+        mapper = pb.Mapper()
+        mapper.build(network)
+        mapper.compile(weight_bit_optimization=False)
+        mapper.export(
+            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
+        )
+
+        print(f"Test {TEST_NAME} end")
+
+    def test_Conv2dSemiFolded_003_2(self):
+        class Net003(pb.DynSysGroup):
+            def __init__(self, w2):
+                super().__init__()
+                self.i1 = pb.InputProj(
+                    input=_out_bypass1, shape_out=shape1[:2]
+                )  # Changed input shape
+                self.conv1 = pb.Conv2dSemiFolded(
+                    self.i1,
+                    w2,
+                    1,  # Changed stride
+                    1,
+                    tick_wait_start=1,
+                )
+
+        USE_EXISTING_DATA = False
+        TEST_NAME = self.test_Conv2dSemiFolded_003_2.__name__
+        TEST_CASE_DIR = DATA_DIR / TEST_NAME
+        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
+        if not TEST_CASE_DIR.exists():
+            TEST_CASE_DIR.mkdir()
+
+        print(f"\nTest {TEST_NAME} start")
+
+        shape1 = (1, 8, 8)  # C*H*W
+        ksize = (1, shape1[0], 3, 3)  # O*C*K*k
+        out_shape = (1, 8, 8)
+
+        sim_time = 10
+
+        USE_EXISTING_DATA = False
+        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        try:
+            npz = np.load(NPZ_FILE)
+            weight1 = npz["weight1"]
+            inpdata1 = npz["inpdata1"]
+            refresult1 = npz["refresult1"]
+            print("Using the existing data file")
+            print("Input:", inpdata1)
+            print("weight:", weight1)
+            USE_EXISTING_DATA = True
+        except:
+            pass
+
+        if not USE_EXISTING_DATA:
+            print("Generating new data")
+            # weight =1
+            #weight1 = FIXED_RNG.integers(-10, 10, size=ksize, dtype=np.int8)
+            weight1 = np.ones(ksize, dtype=np.int8)
+            inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
+            inpdata1 = np.concatenate(
+                [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
+            )
+            # Shape of reference result is sim_time * refdata
+            refresult1 = np.zeros(
+                (sim_time, out_shape[0] * out_shape[1]), dtype=NEUOUT_U8_DTYPE
+            )
+
+        network = Net003(weight1)
+        conv2d = network.conv1
+        generated = pb.DynSysGroup.build_fmodule(network)
+        sim = pb.Simulator(network, start_time_zero=False)
+        probe = pb.Probe(generated[conv2d][0], "output")
+        sim.add_probe(probe)
+        for i in range(sim_time):
+            pb.FRONTEND_ENV.save(data1=inpdata1[:, :, i])
+            sim.run(1)
+
+            if not USE_EXISTING_DATA:
+                refresult1[i, :] = sim.data[probe][i]
+
+            print(f"t={i + 1}\n", sim.data[probe][i])
+
+        # Save weights & input data
+        if not USE_EXISTING_DATA:
+            np.savez(
+                NPZ_FILE, weight1=weight1, inpdata1=inpdata1, refresult1=refresult1
+            )
+
+        mapper = pb.Mapper()
+        mapper.build(network)
+        mapper.compile(weight_bit_optimization=False)
+        mapper.export(
+            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
+        )
+
+        print(f"Test {TEST_NAME} end")
+
+
+
+    def test_Conv2dSemiFolded_003_3(self):
+        class Net003(pb.DynSysGroup):
+            def __init__(self, w2):
+                super().__init__()
+                self.i1 = pb.InputProj(
+                    input=_out_bypass1, shape_out=shape1[:2]
+                )  # Changed input shape
+                self.conv1 = pb.Conv2dSemiFolded(
+                    self.i1,
+                    w2,
+                    1,  # Changed stride
+                    1,
+                    tick_wait_start=1,
+                )
+
+        USE_EXISTING_DATA = False
+        TEST_NAME = self.test_Conv2dSemiFolded_003_3.__name__
+        TEST_CASE_DIR = DATA_DIR / TEST_NAME
+        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
+        if not TEST_CASE_DIR.exists():
+            TEST_CASE_DIR.mkdir()
+
+        print(f"\nTest {TEST_NAME} start")
+
+        shape1 = (8, 32, 32)  # C*H*W
+        ksize = (4, shape1[0], 3, 3)  # O*C*K*k
+        out_shape = (4, 32, 32)
+
+        sim_time = 35
+
+        USE_EXISTING_DATA = False
+        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        try:
+            npz = np.load(NPZ_FILE)
+            weight1 = npz["weight1"]
+            inpdata1 = npz["inpdata1"]
+            refresult1 = npz["refresult1"]
+            print("Using the existing data file")
+            print("Input:", inpdata1)
+            print("weight:", weight1)
+            USE_EXISTING_DATA = True
+        except:
+            pass
+
+        if not USE_EXISTING_DATA:
+            print("Generating new data")
+            # weight =1
+            #weight1 = FIXED_RNG.integers(-10, 10, size=ksize, dtype=np.int8)
+            weight1 = np.ones(ksize, dtype=np.int8)
+            inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
+            inpdata1 = np.concatenate(
+                [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
+            )
+            # Shape of reference result is sim_time * refdata
+            refresult1 = np.zeros(
+                (sim_time, out_shape[0] * out_shape[1]), dtype=NEUOUT_U8_DTYPE
+            )
+
+        network = Net003(weight1)
+        conv2d = network.conv1
+        generated = pb.DynSysGroup.build_fmodule(network)
+        sim = pb.Simulator(network, start_time_zero=False)
+        probe = pb.Probe(generated[conv2d][0], "output")
+        sim.add_probe(probe)
+        for i in range(sim_time):
+            pb.FRONTEND_ENV.save(data1=inpdata1[:, :, i])
+            sim.run(1)
+
+            if not USE_EXISTING_DATA:
+                refresult1[i, :] = sim.data[probe][i]
+
+            print(f"t={i + 1}\n", sim.data[probe][i])
+
+        # Save weights & input data
+        if not USE_EXISTING_DATA:
+            np.savez(
+                NPZ_FILE, weight1=weight1, inpdata1=inpdata1, refresult1=refresult1
+            )
+
+        mapper = pb.Mapper()
+        mapper.build(network)
+        mapper.compile(weight_bit_optimization=False)
+        mapper.export(
+            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
+        )
+
+        print(f"Test {TEST_NAME} end")
+
+
+    def test_Conv2dSemiFolded_003_4(self):
+        class Net003(pb.DynSysGroup):
+            def __init__(self, w2):
+                super().__init__()
+                self.i1 = pb.InputProj(
+                    input=_out_bypass1, shape_out=shape1[:2]
+                )  # Changed input shape
+                self.conv1 = pb.Conv2dSemiFolded(
+                    self.i1,
+                    w2,
+                    1,  # Changed stride
+                    1,
+                    tick_wait_start=1,
+                )
+
+        USE_EXISTING_DATA = False
+        TEST_NAME = self.test_Conv2dSemiFolded_003_4.__name__
+        TEST_CASE_DIR = DATA_DIR / TEST_NAME
+        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
+        if not TEST_CASE_DIR.exists():
+            TEST_CASE_DIR.mkdir()
+
+        print(f"\nTest {TEST_NAME} start")
+
+        shape1 = (8, 32, 32)  # C*H*W
+        ksize = (4, shape1[0], 3, 3)  # O*C*K*k
+        out_shape = (4, 32, 32)
+
+        sim_time = 35
 
         USE_EXISTING_DATA = False
         NPZ_FILE = TEST_CASE_DIR / "data.npz"
