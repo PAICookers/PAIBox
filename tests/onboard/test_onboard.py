@@ -963,7 +963,7 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"Test {TEST_NAME} end")
 
-    #对比test002-005系列
+    # 对比test002-005系列
     # weight正常
     def test_Conv2dSemiFolded_002(self):
         class Net002(pb.DynSysGroup):
@@ -1097,7 +1097,7 @@ class TestOnBoard_SemiFoldedOp:
 
         if not USE_EXISTING_DATA:
             print("Generating new data")
-            #weight1 = FIXED_RNG.integers(0, 1, size=ksize, dtype=np.int8)
+            # weight1 = FIXED_RNG.integers(0, 1, size=ksize, dtype=np.int8)
             weight1 = np.ones(ksize, dtype=np.int8)
             inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
             inpdata1 = np.concatenate(
@@ -1138,7 +1138,7 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"Test {TEST_NAME} end")
 
-    #扇入扩展， weight全正1
+    # 扇入扩展， weight全正1
     def test_Conv2dSemiFolded_004(self):
         class Net004(pb.DynSysGroup):
             def __init__(self, w2):
@@ -1185,7 +1185,7 @@ class TestOnBoard_SemiFoldedOp:
 
         if not USE_EXISTING_DATA:
             print("Generating new data")
-            #weight1 = FIXED_RNG.integers(0, 1, size=ksize, dtype=np.int8)
+            # weight1 = FIXED_RNG.integers(0, 1, size=ksize, dtype=np.int8)
             weight1 = np.ones(ksize, dtype=np.int8)
             inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
             inpdata1 = np.concatenate(
@@ -1226,7 +1226,7 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"Test {TEST_NAME} end")
 
-    #扇入扩展
+    # 扇入扩展
     def test_Conv2dSemiFolded_005(self):
         class Net005(pb.DynSysGroup):
             def __init__(self, w2):
@@ -1274,7 +1274,7 @@ class TestOnBoard_SemiFoldedOp:
         if not USE_EXISTING_DATA:
             print("Generating new data")
             weight1 = FIXED_RNG.integers(0, 5, size=ksize, dtype=np.int8)
-            #weight1 = np.ones(ksize, dtype=np.int8)
+            # weight1 = np.ones(ksize, dtype=np.int8)
             inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
             inpdata1 = np.concatenate(
                 [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
@@ -1449,7 +1449,7 @@ class TestOnBoard_SemiFoldedOp:
         if not USE_EXISTING_DATA:
             print("Generating new data")
             # weight =1
-            #weight1 = FIXED_RNG.integers(-10, 10, size=ksize, dtype=np.int8)
+            # weight1 = FIXED_RNG.integers(-10, 10, size=ksize, dtype=np.int8)
             weight1 = np.ones(ksize, dtype=np.int8)
             inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
             inpdata1 = np.concatenate(
@@ -1489,8 +1489,6 @@ class TestOnBoard_SemiFoldedOp:
         )
 
         print(f"Test {TEST_NAME} end")
-
-
 
     def test_Conv2dSemiFolded_008(self):
         class Net008(pb.DynSysGroup):
@@ -1539,7 +1537,7 @@ class TestOnBoard_SemiFoldedOp:
         if not USE_EXISTING_DATA:
             print("Generating new data")
             # weight =1
-            #weight1 = FIXED_RNG.integers(-10, 10, size=ksize, dtype=np.int8)
+            # weight1 = FIXED_RNG.integers(-10, 10, size=ksize, dtype=np.int8)
             weight1 = np.ones(ksize, dtype=np.int8)
             inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
             inpdata1 = np.concatenate(
@@ -1579,7 +1577,6 @@ class TestOnBoard_SemiFoldedOp:
         )
 
         print(f"Test {TEST_NAME} end")
-
 
     def test_Conv2dSemiFolded_009(self):
         class Net009(pb.DynSysGroup):
