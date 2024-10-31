@@ -289,6 +289,7 @@ class CoreBlock(CoreAbstract):
             sum(seg.n_neuron for seg in neuron_segs)
             for neuron_segs in self.neuron_segs_of_cb
         ]
+
     @property
     def ordered_axons(self) -> list[SourceNodeType]:
         return self._ordered_axons
@@ -427,15 +428,13 @@ class CoreBlock(CoreAbstract):
             cb_config[coord] = CorePlacement.export_param_config(core_plm)
 
         return cb_config
-    
+
     def dump(self, i: int = 0) -> None:
         tabs = "\t" * i
         print(f"{tabs}{self.name} with {self.n_core_required} cores:")
         print(f"{tabs}\tLCN: {self.lcn_ex}")
         for edge in self._parents:
-            print(
-                f"{tabs}\t{edge.name}: {edge.source.name} -> {edge.target.name}"
-            )
+            print(f"{tabs}\t{edge.name}: {edge.source.name} -> {edge.target.name}")
 
 
 class CorePlacement(CoreAbstract):

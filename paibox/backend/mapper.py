@@ -22,10 +22,24 @@ from .conf_types import (
     OutputDestConf,
 )
 from .context import _BACKEND_CONTEXT, set_cflag
-from .graphs import PAIGraph, get_node_degrees, get_succ_cb_by_node, toposort, find_cycles, merge_overlap
+from .graphs import (
+    PAIGraph,
+    find_cycles,
+    get_node_degrees,
+    get_succ_cb_by_node,
+    merge_overlap,
+    toposort,
+)
 from .placement import CoreBlock, aligned_coords, max_lcn_of_cb
 from .routing import RoutingGroup, RoutingManager
-from .types import NeuSegment, NodeDegree, NodeType, SourceNodeType, is_iw8, MergedSuccGroup
+from .types import (
+    MergedSuccGroup,
+    NeuSegment,
+    NodeDegree,
+    NodeType,
+    SourceNodeType,
+    is_iw8,
+)
 
 __all__ = ["Mapper"]
 
@@ -202,17 +216,17 @@ class Mapper:
 
     def build_core_blocks(self) -> None:
         """Build core blocks based on partitioned edges."""
-        merged_sgrps:list[MergedSuccGroup] = self.graph.graph_partition()
-        merged_sgrps:list[MergedSuccGroup] = cycle_merge(merged_sgrps)
+        merged_sgrps: list[MergedSuccGroup] = self.graph.graph_partition()
+        merged_sgrps: list[MergedSuccGroup] = cycle_merge(merged_sgrps)
 
         for msgrp in merged_sgrps:
             self.routing_groups.append(RoutingGroup.build(msgrp, True))
-        
+
         routing_groups: list[RoutingGroup] = list()
         for rg in self.routing_groups:
             routing_groups.extend(rg.optimize_group())
         self.routing_groups = routing_groups
-        
+
         for rg in self.routing_groups:
             rg.dump()
 
@@ -676,8 +690,9 @@ class Mapper:
 
         return dest_cb_of_nseg
 
+
 def cycle_merge(merged_sgrps: list[MergedSuccGroup]):
-    succ_merged_sgrps: dict[MergedSuccGroup,list[MergedSuccGroup]] = dict()
+    succ_merged_sgrps: dict[MergedSuccGroup, list[MergedSuccGroup]] = dict()
     for msgrp in merged_sgrps:
         succ_merged_sgrps[msgrp] = []
         nodes = set(msgrp.nodes)
@@ -686,10 +701,10 @@ def cycle_merge(merged_sgrps: list[MergedSuccGroup]):
                 continue
             if not nodes.isdisjoint(_msgrp.input_nodes):
                 succ_merged_sgrps[msgrp].append(_msgrp)
-    
+
     cycles: list[list[MergedSuccGroup]] = find_cycles(succ_merged_sgrps)
     merged_cycles: list[list[MergedSuccGroup]] = merge_overlap(cycles)
-    
+
     processed_merged_cycles: list[MergedSuccGroup] = list()
     remaining_merged_sgrps: set[MergedSuccGroup] = set(merged_sgrps)
     for merged_cycle in merged_cycles:
@@ -697,8 +712,8 @@ def cycle_merge(merged_sgrps: list[MergedSuccGroup]):
         for msgrp in merged_cycle:
             remaining_merged_sgrps.remove(msgrp)
     processed_merged_cycles.extend(remaining_merged_sgrps)
-    return processed_merged_cycles        
-        
+    return processed_merged_cycles
+
 
 def group_by(dict_: dict, keyfunc=lambda item: item):
     """Groups the given list or dictionary by the value returned by ``keyfunc``."""

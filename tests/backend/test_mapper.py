@@ -372,7 +372,7 @@ class TestMapper_Compile:
         mapper = pb.Mapper()
         mapper.build(net)
         mapper.compile(grouping_optim_target="core")
-        
+
         for cb in mapper.core_blocks:
             if net.n1 in cb.dest:
                 assert cb.n_core_required == ceil(
@@ -448,7 +448,7 @@ class TestMapper_Compile:
             grouping_optim_target="latency",
             multicast_optim=[net.n0],
         )
-    
+
     def test_ordered_axons(self, build_example_net5):
         net = build_example_net5
         mapper = pb.Mapper()
@@ -460,7 +460,7 @@ class TestMapper_Compile:
                 assert len(cb.ordered_axons) > len(cb.source)
             else:
                 assert len(cb.ordered_axons) == len(cb.source)
-    
+
     def test_partition(self, build_example_net6):
         net = build_example_net6
         mapper = pb.Mapper()
@@ -471,7 +471,6 @@ class TestMapper_Compile:
                 assert len(cb.ordered_axons) == 2
             if net.n4 in cb.dest:
                 assert len(cb.ordered_axons) == 3
-        
 
     def test_core_estimate_only(self, build_example_net4):
         net = build_example_net4

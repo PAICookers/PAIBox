@@ -597,9 +597,10 @@ def convert2routing_groups(
 
     return routing_groups, routing_groups_succ
 
+
 def find_cycles(directed_edges: Mapping[_NT, Iterable[_NT]]) -> list[list[_NT]]:
     cycles: list[list[_NT]] = []
-    visited:set[_NT] = set()
+    visited: set[_NT] = set()
     stack: list[_NT] = []
     stack_set: set[_NT] = set()  # 方便快速检查路径中的节点
 
@@ -629,7 +630,8 @@ def find_cycles(directed_edges: Mapping[_NT, Iterable[_NT]]) -> list[list[_NT]]:
 
     return cycles
 
-def merge_overlap(groups:Iterable[Iterable[_NT]]) -> list[list[_NT]]:
+
+def merge_overlap(groups: Iterable[Iterable[_NT]]) -> list[list[_NT]]:
     # 并查集数据结构
     parent: dict[_NT, _NT] = dict()
 
@@ -651,7 +653,7 @@ def merge_overlap(groups:Iterable[Iterable[_NT]]) -> list[list[_NT]]:
         for element in group:
             if element not in parent:
                 parent[element] = element
-    
+
     # 合并所有相互重叠的环
     for group in groups:
         first_element = group[0]
@@ -668,6 +670,7 @@ def merge_overlap(groups:Iterable[Iterable[_NT]]) -> list[list[_NT]]:
 
     # 将结果转换为列表列表形式
     return list(merged_groups.values())
+
 
 def toposort(directed_edges: Mapping[_NT, Iterable[_NT]]) -> list[_NT]:
     """

@@ -153,7 +153,7 @@ class MergedSuccGroup:
     @property
     def num_in(self) -> int:
         return sum(input_node.num_out for input_node in self.input_nodes)
-    
+
     @classmethod
     def merge(cls, merged_sgrps: list["MergedSuccGroup"]) -> "MergedSuccGroup":
         merged = cls()
@@ -162,7 +162,7 @@ class MergedSuccGroup:
             merged.groups.extend(merged_sgrp.groups)
             merged.input_nodes.extend(merged_sgrp.input_nodes)
         return merged
-    
+
     def __hash__(self) -> int:
         return hash(tuple(self.nodes))
 

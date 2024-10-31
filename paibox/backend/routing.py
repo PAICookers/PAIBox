@@ -50,7 +50,10 @@ class RoutingGroup:
     """Class counter for debugging."""
 
     def __init__(
-        self, unordered_elems: list[Union[CoreBlock, "RoutingGroup"]], ordered_elems: list["RoutingGroup"], is_root: bool = False
+        self,
+        unordered_elems: list[Union[CoreBlock, "RoutingGroup"]],
+        ordered_elems: list["RoutingGroup"],
+        is_root: bool = False,
     ) -> None:
         self.unordered_elems: list[Union[CoreBlock, "RoutingGroup"]] = unordered_elems
         self.ordered_elems: list["RoutingGroup"] = ordered_elems
@@ -68,7 +71,7 @@ class RoutingGroup:
             axons.update(elem.axons)
 
         self.axons: list[SourceNodeType] = list(axons)  # unordered
-        
+
         dest: set[DestNodeType] = set()
         for elem in self.routing_elems:
             dest.update(elem.dest)
@@ -85,8 +88,8 @@ class RoutingGroup:
         self.global_axons: list[SourceNodeType] = []
         """multicast axons inheritted from the parent routing group"""
         self.private_axons: list[SourceNodeType] = []
-        """multicast axons only effective in the current routing group"""  
-        
+        """multicast axons only effective in the current routing group"""
+
         """Status options"""
         self.is_assigned = False
         """Whether the coordinates of chip & cores are assigned."""
@@ -103,7 +106,7 @@ class RoutingGroup:
         """Set the multicast axons for the routing group."""
         self.global_axons = multicast_axons
         ax_shared_times: list[int] = [0] * len(self.axons)
-        
+
         used_axons: set[SourceNodeType] = set()
         for elem in self.routing_elems:
             # all axon of coreblocks should be multicast to the whole routing group
@@ -119,12 +122,12 @@ class RoutingGroup:
                             self.private_axons.append(axon)
                         else:
                             used_axons.add(axon)
-        
+
         for elem in self.routing_elems:
             if isinstance(elem, RoutingGroup):
                 elem.set_axons(self.global_axons + self.private_axons)
             else:
-                # coreblocks in the routing group shuold reserve space for 
+                # coreblocks in the routing group shuold reserve space for
                 # all axons that multicast to the routing group
                 elem.ordered_axons = self.global_axons + self.private_axons
 
@@ -207,14 +210,14 @@ class RoutingGroup:
                 optimized_unordered.append(elem)
         for elem in self.ordered_elems:
             optimized_ordered += elem.optimize_group()
-        
-        # If one sub routing group in elems does not use 
+
+        # If one sub routing group in elems does not use
         # the private multicast axons, then make it independent.
-        
+
         # coreblocks in the routing group always use the private multicast axons
         # otherwise, this coreblock should not in the routing group
-        unordered_groups:list["RoutingGroup"] = list()
-        remaining_unordered:list[Union[CoreBlock, "RoutingGroup"]] = list()
+        unordered_groups: list["RoutingGroup"] = list()
+        remaining_unordered: list[Union[CoreBlock, "RoutingGroup"]] = list()
         for elem in optimized_unordered:
             if isinstance(elem, CoreBlock):
                 remaining_unordered.append(elem)
@@ -222,10 +225,10 @@ class RoutingGroup:
                 remaining_unordered.append(elem)
             else:
                 unordered_groups.append(elem)
-        
-        ordered_groups:list["RoutingGroup"] = list()
-        remaining_ordered:list["RoutingGroup"] = list()
-        inputs:set[DestNodeType] = set()
+
+        ordered_groups: list["RoutingGroup"] = list()
+        remaining_ordered: list["RoutingGroup"] = list()
+        inputs: set[DestNodeType] = set()
         for elem in reversed(optimized_ordered):
             if not set(self.private_axons).isdisjoint(elem.axons):
                 inputs.update(elem.axons)
@@ -237,14 +240,16 @@ class RoutingGroup:
                 elem.global_axons = self.global_axons
                 elem.is_root = self.is_root
                 ordered_groups.insert(0, elem)
-        
-        optimized_groups:list["RoutingGroup"] = list()
+
+        optimized_groups: list["RoutingGroup"] = list()
         if len(remaining_unordered) > 0:
-            optimized_groups.append(RoutingGroup(remaining_unordered, remaining_ordered, self.is_root))
-            
+            optimized_groups.append(
+                RoutingGroup(remaining_unordered, remaining_ordered, self.is_root)
+            )
+
         # can not change the order here
         optimized_groups = unordered_groups + optimized_groups + ordered_groups
-        
+
         return optimized_groups
 
     @property
@@ -261,7 +266,9 @@ class RoutingGroup:
         return cbs
 
     @classmethod
-    def build(cls, merged_sgrp: MergedSuccGroup, is_root:bool = False) -> "RoutingGroup":
+    def build(
+        cls, merged_sgrp: MergedSuccGroup, is_root: bool = False
+    ) -> "RoutingGroup":
         msgrp = MergedSuccGroup()
         remaining = MergedSuccGroup()
         sub_nodes = set()
@@ -278,7 +285,7 @@ class RoutingGroup:
                 remaining.add_group(group)
 
         remaining.nodes &= remaining_nodes
-        msgrp.nodes     &= sub_nodes
+        msgrp.nodes &= sub_nodes
         unordered_cb = CoreBlock.build_core_blocks(remaining)
 
         if len(msgrp.nodes) > 0:
@@ -322,7 +329,9 @@ class RoutingGroup:
     def dump(self, i: int = 0) -> None:
         tabs = "\t" * i
         print(f"{tabs}RoutingGroup: {self} with {self.n_core_required} cores:")
-        print(f"{tabs}multicast axons: {[axon.name for axon in self.global_axons + self.private_axons]}")
+        print(
+            f"{tabs}multicast axons: {[axon.name for axon in self.global_axons + self.private_axons]}"
+        )
         for elem in self.routing_elems:
             if isinstance(elem, RoutingGroup):
                 elem.dump(i + 1)
