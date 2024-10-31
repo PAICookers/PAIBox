@@ -89,7 +89,7 @@ class CoreBlock(CoreAbstract):
         self._routing_id = routing_id
         self.rt_mode = mode
         self.seed = seed
-        self._lcn_ex = self._n_axon2lcn_ex()
+        self._lcn_ex = LCN_EX.LCN_1X
 
         self.target_lcn = LCN_EX.LCN_1X
         self._lcn_locked = False
@@ -98,7 +98,7 @@ class CoreBlock(CoreAbstract):
         self.core_placements = dict()
         self.axon_segments = dict()
         self.neuron_segs_of_cb = []
-        self.ordered_axons: list[SourceNodeType] = []
+        self._ordered_axons: list[SourceNodeType] = []
         """Axons in private + multicast order."""
 
     def group_neurons(
@@ -168,7 +168,7 @@ class CoreBlock(CoreAbstract):
 
     @property
     def shape(self) -> tuple[int, int]:
-        return (len(self.source), len(self.dest))
+        return (len(self.ordered_axons), len(self.dest))
 
     @property
     def source(self) -> list[SourceNodeType]:
@@ -186,7 +186,7 @@ class CoreBlock(CoreAbstract):
 
     def n_axon_of(self, index: int) -> int:
         """Get the #N of axons of `index`-th source neuron."""
-        return self.axons[index].num_out
+        return self.ordered_axons[index].num_out
 
     """Boundary limitations"""
 
@@ -258,7 +258,7 @@ class CoreBlock(CoreAbstract):
 
     @property
     def n_axon(self) -> int:
-        return sum(s.num_out for s in self.axons)
+        return sum(s.num_out for s in self.ordered_axons)
 
     @property
     def n_fanout(self) -> int:
@@ -289,18 +289,21 @@ class CoreBlock(CoreAbstract):
             sum(seg.n_neuron for seg in neuron_segs)
             for neuron_segs in self.neuron_segs_of_cb
         ]
+    @property
+    def ordered_axons(self) -> list[SourceNodeType]:
+        return self._ordered_axons
 
-    def group_axons(self, multicast_axons: list[SourceNodeType] = []) -> None:
+    @ordered_axons.setter
+    def ordered_axons(self, axons: list[SourceNodeType]):
+        self._ordered_axons = axons
+        self._lcn_ex = self._n_axon2lcn_ex()
+
+    def group_axons(self) -> None:
         """Group the axons, including the private & the multicast parts.
 
         NOTE: Take the union of the private axons & the multicast axons, but sort the multicast axons first, then the \
             axons that are in the private part and not in the multicast part.
         """
-        if not self._lcn_locked:
-            raise GraphBuildError("group axons after 'lcn_ex' is locked.")
-
-        axons = multicast_axons + [ax for ax in self.axons if ax not in multicast_axons]
-        self.ordered_axons = axons
         self.axon_segments = get_axon_segments(
             self.ordered_axons, self.n_timeslot, self.n_fanin_base
         )
@@ -424,6 +427,15 @@ class CoreBlock(CoreAbstract):
             cb_config[coord] = CorePlacement.export_param_config(core_plm)
 
         return cb_config
+    
+    def dump(self, i: int = 0) -> None:
+        tabs = "\t" * i
+        print(f"{tabs}{self.name} with {self.n_core_required} cores:")
+        print(f"{tabs}\tLCN: {self.lcn_ex}")
+        for edge in self._parents:
+            print(
+                f"{tabs}\t{edge.name}: {edge.source.name} -> {edge.target.name}"
+            )
 
 
 class CorePlacement(CoreAbstract):

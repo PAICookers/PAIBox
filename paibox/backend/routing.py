@@ -50,12 +50,12 @@ class RoutingGroup:
     """Class counter for debugging."""
 
     def __init__(
-        self, unordered_cb: list[CoreBlock], ordered_rgrp: list["RoutingGroup"]
+        self, unordered_elems: list[Union[CoreBlock, "RoutingGroup"]], ordered_elems: list["RoutingGroup"], is_root: bool = False
     ) -> None:
-        self.unordered_cb: list[CoreBlock] = unordered_cb
-        self.ordered_rgrp: list["RoutingGroup"] = ordered_rgrp
+        self.unordered_elems: list[Union[CoreBlock, "RoutingGroup"]] = unordered_elems
+        self.ordered_elems: list["RoutingGroup"] = ordered_elems
         self.routing_elems: list[Union[CoreBlock, "RoutingGroup"]] = (
-            unordered_cb + ordered_rgrp
+            unordered_elems + ordered_elems
         )
         self.offset: list[int] = []  # TODO Change a name
         self.n_core_required: int = 0
@@ -68,6 +68,11 @@ class RoutingGroup:
             axons.update(elem.axons)
 
         self.axons: list[SourceNodeType] = list(axons)  # unordered
+        
+        dest: set[DestNodeType] = set()
+        for elem in self.routing_elems:
+            dest.update(elem.dest)
+        self.dest: list[DestNodeType] = list(dest)
 
         self.assigned_coords: list[Coord] = []
         """Assigned core coordinates in the routing group"""
@@ -76,17 +81,56 @@ class RoutingGroup:
         self.wasted_core_plm: dict[Coord, EmptyCorePlacement] = {}
         """Wasted core placements"""
 
+        # can not use set here, order matters
+        self.global_axons: list[SourceNodeType] = []
+        """multicast axons inheritted from the parent routing group"""
+        self.private_axons: list[SourceNodeType] = []
+        """multicast axons only effective in the current routing group"""  
+        
         """Status options"""
         self.is_assigned = False
         """Whether the coordinates of chip & cores are assigned."""
+        self.is_root = is_root
 
         # For debugging
         self._id = RoutingGroup._debug_id
         RoutingGroup._debug_id += 1
 
+        if is_root:
+            self.set_axons()
+
+    def set_axons(self, multicast_axons: list[SourceNodeType] = []) -> None:
+        """Set the multicast axons for the routing group."""
+        self.global_axons = multicast_axons
+        ax_shared_times: list[int] = [0] * len(self.axons)
+        
+        used_axons: set[SourceNodeType] = set()
+        for elem in self.routing_elems:
+            # all axon of coreblocks should be multicast to the whole routing group
+            # because this routing group is the only coord that can access the coreblocks
+            if isinstance(elem, CoreBlock):
+                for axon in elem.axons:
+                    if axon not in self.global_axons and axon not in self.private_axons:
+                        self.private_axons.append(axon)
+            else:
+                for axon in elem.axons:
+                    if axon not in self.global_axons and axon not in self.private_axons:
+                        if axon in used_axons:
+                            self.private_axons.append(axon)
+                        else:
+                            used_axons.add(axon)
+        
+        for elem in self.routing_elems:
+            if isinstance(elem, RoutingGroup):
+                elem.set_axons(self.global_axons + self.private_axons)
+            else:
+                # coreblocks in the routing group shuold reserve space for 
+                # all axons that multicast to the routing group
+                elem.ordered_axons = self.global_axons + self.private_axons
+
     def set_core_required(self) -> None:
         """Calculate the number of cores required for the routing group iteratively."""
-        for rgrp in self.ordered_rgrp:
+        for rgrp in self.ordered_elems:
             rgrp.set_core_required()
 
         # Record the used cores of the members, but not the actual amount.
@@ -94,14 +138,14 @@ class RoutingGroup:
 
         # Unordered core blocks sorted in descending order, avoiding assigning waste.
         unordered_cb = sorted(
-            self.unordered_cb, key=lambda x: x.n_core_required, reverse=True
+            self.unordered_elems, key=lambda x: x.n_core_required, reverse=True
         )
         for cb in unordered_cb:
             self.offset.append(self.n_core_required)
             n_core_used += cb.n_core_required
 
         # Ordered routing groups should be assgined first.
-        ordered_rgrp = self.ordered_rgrp
+        ordered_rgrp = self.ordered_elems
         for rgrp in ordered_rgrp:
             n_core_assigned = _nearest_multiple_above(n_core_used, rgrp.n_core_required)
             self.offset.append(n_core_assigned)
@@ -153,28 +197,55 @@ class RoutingGroup:
 
         return self.assigned_coords, self.wasted_coords
 
-    def group_axons(self, multicast_axons: list[SourceNodeType] = []) -> None:
-        """Group the axons, using list to keep the order of axons."""
-        if not all(cb._lcn_locked for cb in self.core_blocks):
-            raise GraphBuildError(
-                "get axon segments of core block after 'lcn_ex' is locked."
-            )
-
-        private_multicast_axons = multicast_axons.copy()
-        ax_shared_times: list[int] = [0] * len(self.axons)
-
-        # Axons shared within a routing group also need to be multicast.
-        for elem in self.routing_elems:
-            for ax in elem.axons:
-                idx = self.axons.index(ax)
-                ax_shared_times[idx] += 1
-
-        for ax, times in zip(self.axons, ax_shared_times):
-            if times > 1 and ax not in private_multicast_axons:
-                private_multicast_axons.append(ax)
-
-        for elem in self.routing_elems:
-            elem.group_axons(private_multicast_axons)
+    def optimize_group(self) -> list["RoutingGroup"]:
+        optimized_unordered: list[Union[CoreBlock, "RoutingGroup"]] = list()
+        optimized_ordered: list["RoutingGroup"] = list()
+        for elem in self.unordered_elems:
+            if isinstance(elem, RoutingGroup):
+                optimized_unordered += elem.optimize_group()
+            else:
+                optimized_unordered.append(elem)
+        for elem in self.ordered_elems:
+            optimized_ordered += elem.optimize_group()
+        
+        # If one sub routing group in elems does not use 
+        # the private multicast axons, then make it independent.
+        
+        # coreblocks in the routing group always use the private multicast axons
+        # otherwise, this coreblock should not in the routing group
+        unordered_groups:list["RoutingGroup"] = list()
+        remaining_unordered:list[Union[CoreBlock, "RoutingGroup"]] = list()
+        for elem in optimized_unordered:
+            if isinstance(elem, CoreBlock):
+                remaining_unordered.append(elem)
+            elif not set(self.private_axons).isdisjoint(elem.axons):
+                remaining_unordered.append(elem)
+            else:
+                unordered_groups.append(elem)
+        
+        ordered_groups:list["RoutingGroup"] = list()
+        remaining_ordered:list["RoutingGroup"] = list()
+        inputs:set[DestNodeType] = set()
+        for elem in reversed(optimized_ordered):
+            if not set(self.private_axons).isdisjoint(elem.axons):
+                inputs.update(elem.axons)
+                remaining_ordered.insert(0, elem)
+            elif not inputs.isdisjoint(elem.dest):
+                inputs.update(elem.dest)
+                remaining_ordered.insert(0, elem)
+            else:
+                elem.global_axons = self.global_axons
+                elem.is_root = self.is_root
+                ordered_groups.insert(0, elem)
+        
+        optimized_groups:list["RoutingGroup"] = list()
+        if len(remaining_unordered) > 0:
+            optimized_groups.append(RoutingGroup(remaining_unordered, remaining_ordered, self.is_root))
+            
+        # can not change the order here
+        optimized_groups = unordered_groups + optimized_groups + ordered_groups
+        
+        return optimized_groups
 
     @property
     def core_blocks(self) -> list[CoreBlock]:
@@ -190,17 +261,24 @@ class RoutingGroup:
         return cbs
 
     @classmethod
-    def build(cls, merged_sgrp: MergedSuccGroup) -> "RoutingGroup":
+    def build(cls, merged_sgrp: MergedSuccGroup, is_root:bool = False) -> "RoutingGroup":
         msgrp = MergedSuccGroup()
         remaining = MergedSuccGroup()
-
+        sub_nodes = set()
+        remaining_nodes = set()
         for group in merged_sgrp.groups:
             if group.input in merged_sgrp.nodes:
+                sub_nodes.update(group.nodes)
+        remaining_nodes = merged_sgrp.nodes - sub_nodes
+
+        for group in merged_sgrp.groups:
+            if not sub_nodes.isdisjoint(group.nodes):
                 msgrp.add_group(group)
-            else:
+            if not remaining_nodes.isdisjoint(group.nodes):
                 remaining.add_group(group)
 
-        remaining.nodes -= msgrp.nodes
+        remaining.nodes &= remaining_nodes
+        msgrp.nodes     &= sub_nodes
         unordered_cb = CoreBlock.build_core_blocks(remaining)
 
         if len(msgrp.nodes) > 0:
@@ -209,7 +287,7 @@ class RoutingGroup:
         else:
             ordered_rgrp = []
 
-        return cls(unordered_cb, ordered_rgrp)
+        return cls(unordered_cb, ordered_rgrp, is_root)
 
     def core_block_alloc(self) -> None:
         assert self.is_assigned, "coordinates are not assigned."
@@ -244,15 +322,13 @@ class RoutingGroup:
     def dump(self, i: int = 0) -> None:
         tabs = "\t" * i
         print(f"{tabs}RoutingGroup: {self} with {self.n_core_required} cores:")
+        print(f"{tabs}multicast axons: {[axon.name for axon in self.global_axons + self.private_axons]}")
         for elem in self.routing_elems:
             if isinstance(elem, RoutingGroup):
                 elem.dump(i + 1)
             else:
-                print(f"{tabs}\t{elem.name} with {elem.n_core_required} cores:")
-                for edge in elem._parents:
-                    print(
-                        f"{tabs}\t\t{edge.name}: {edge.source.name} -> {edge.target.name}"
-                    )
+                elem.dump(i + 1)
+        print()
 
     def __contains__(self, cb: CoreBlock) -> bool:
         return cb in self.core_blocks
