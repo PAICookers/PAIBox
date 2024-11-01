@@ -22,10 +22,24 @@ from .conf_types import (
     OutputDestConf,
 )
 from .context import _BACKEND_CONTEXT, set_cflag
-from .graphs import PAIGraph, get_node_degrees, get_succ_cb_by_node, toposort
+from .graphs import (
+    PAIGraph,
+    find_cycles,
+    get_node_degrees,
+    get_succ_cb_by_node,
+    merge_overlap,
+    toposort,
+)
 from .placement import CoreBlock, aligned_coords, max_lcn_of_cb
 from .routing import RoutingGroup, RoutingManager
-from .types import NeuSegment, NodeDegree, NodeType, SourceNodeType, is_iw8
+from .types import (
+    MergedSuccGroup,
+    NeuSegment,
+    NodeDegree,
+    NodeType,
+    SourceNodeType,
+    is_iw8,
+)
 
 __all__ = ["Mapper"]
 
@@ -202,10 +216,19 @@ class Mapper:
 
     def build_core_blocks(self) -> None:
         """Build core blocks based on partitioned edges."""
-        merged_sgrps = self.graph.graph_partition()
+        merged_sgrps: list[MergedSuccGroup] = self.graph.graph_partition()
+        merged_sgrps: list[MergedSuccGroup] = cycle_merge(merged_sgrps)
 
         for msgrp in merged_sgrps:
-            self.routing_groups.append(RoutingGroup.build(msgrp))
+            self.routing_groups.append(RoutingGroup.build(msgrp, True))
+
+        routing_groups: list[RoutingGroup] = list()
+        for rg in self.routing_groups:
+            routing_groups.extend(rg.optimize_group())
+        self.routing_groups = routing_groups
+
+        for rg in self.routing_groups:
+            rg.dump()
 
         for rg in self.routing_groups:
             self.core_blocks += rg.core_blocks
@@ -214,7 +237,7 @@ class Mapper:
             succ_cbs: list[CoreBlock] = []
             # cur_cb == cb is possible
             for cb in self.core_blocks:
-                if any(d for d in cur_cb.dest if d in cb.source):
+                if any(d for d in cur_cb.dest if d in cb.ordered_axons):
                     succ_cbs.append(cb)
 
             self.succ_core_blocks[cur_cb] = succ_cbs
@@ -274,8 +297,8 @@ class Mapper:
 
     def cb_axon_grouping(self) -> None:
         """The axons are grouped after the LCN has been modified & locked."""
-        for rg in self.routing_groups:
-            rg.group_axons()
+        for core_block in self.core_blocks:
+            core_block.group_axons()
 
     def graph_optimization(self) -> None:
         optimized = self.graph.graph_optimization(self.core_blocks, self.routing_groups)
@@ -416,7 +439,7 @@ class Mapper:
             # LCN of `input_cbs` are the same.
             input_cb = input_cbs[0]
             axon_coords = aligned_coords(
-                slice(0, input_cb.n_axon_of(input_cb.source.index(inode)), 1),
+                slice(0, input_cb.n_axon_of(input_cb.ordered_axons.index(inode)), 1),
                 input_cb.axon_segments[inode],
                 1,
                 input_cb.n_timeslot,
@@ -646,7 +669,7 @@ class Mapper:
 
         for cb in self.core_blocks:
             # Find neuron in one or more core blocks.
-            if neuron in cb.source:
+            if neuron in cb.ordered_axons:
                 print(f"axons {neuron.name} placed in {cb.name}, LCN_{1 << cb.lcn_ex}X")
                 axon_segment = cb.axon_segments[neuron]
                 print(
@@ -663,9 +686,33 @@ class Mapper:
         self, neu_seg: NeuSegment, cb: CoreBlock
     ) -> list[CoreBlock]:
         succ_cbs = self.succ_core_blocks[cb]
-        dest_cb_of_nseg = [cb for cb in succ_cbs if neu_seg.target in cb.source]
+        dest_cb_of_nseg = [cb for cb in succ_cbs if neu_seg.target in cb.ordered_axons]
 
         return dest_cb_of_nseg
+
+
+def cycle_merge(merged_sgrps: list[MergedSuccGroup]):
+    succ_merged_sgrps: dict[MergedSuccGroup, list[MergedSuccGroup]] = dict()
+    for msgrp in merged_sgrps:
+        succ_merged_sgrps[msgrp] = []
+        nodes = set(msgrp.nodes)
+        for _msgrp in merged_sgrps:
+            if msgrp == _msgrp:
+                continue
+            if not nodes.isdisjoint(_msgrp.input_nodes):
+                succ_merged_sgrps[msgrp].append(_msgrp)
+
+    cycles: list[list[MergedSuccGroup]] = find_cycles(succ_merged_sgrps)
+    merged_cycles: list[list[MergedSuccGroup]] = merge_overlap(cycles)
+
+    processed_merged_cycles: list[MergedSuccGroup] = list()
+    remaining_merged_sgrps: set[MergedSuccGroup] = set(merged_sgrps)
+    for merged_cycle in merged_cycles:
+        processed_merged_cycles.append(MergedSuccGroup.merge(merged_cycle))
+        for msgrp in merged_cycle:
+            remaining_merged_sgrps.remove(msgrp)
+    processed_merged_cycles.extend(remaining_merged_sgrps)
+    return processed_merged_cycles
 
 
 def group_by(dict_: dict, keyfunc=lambda item: item):

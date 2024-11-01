@@ -127,6 +127,62 @@ class NetForTest4(pb.Network):
         )
 
 
+class NetForTest5(pb.Network):
+    def __init__(self):
+        super().__init__()
+        self.n1 = pb.InputProj(input=None, shape_out=(400,), name="n1")
+        self.n2 = pb.TonicSpiking(400, 3, name="n2")
+        self.n3 = pb.TonicSpiking(400, 3, name="n3")
+        self.n4 = pb.TonicSpiking(400, 3, name="n4")
+        self.n5 = pb.TonicSpiking(800, 3, name="n5")
+        self.n6 = pb.TonicSpiking(400, 4, name="n6")
+        self.s0 = pb.FullConn(
+            self.n1, self.n2, conn_type=pb.SynConnType.All2All, name="s0"
+        )
+        self.s1 = pb.FullConn(
+            self.n2, self.n3, conn_type=pb.SynConnType.All2All, name="s1"
+        )
+        self.s2 = pb.FullConn(
+            self.n3, self.n4, conn_type=pb.SynConnType.All2All, name="s2"
+        )
+        self.s3 = pb.FullConn(
+            self.n4, self.n5, conn_type=pb.SynConnType.All2All, name="s3"
+        )
+        self.s4 = pb.FullConn(
+            self.n5, self.n6, conn_type=pb.SynConnType.All2All, name="s4"
+        )
+        self.s5 = pb.FullConn(
+            self.n1, self.n6, conn_type=pb.SynConnType.All2All, name="s5"
+        )
+        self.s6 = pb.FullConn(
+            self.n2, self.n5, conn_type=pb.SynConnType.All2All, name="s6"
+        )
+
+
+class NetForTest6(pb.Network):
+    def __init__(self):
+        super().__init__()
+        self.n1 = pb.InputProj(input=None, shape_out=(400,), name="n1")
+        self.n2 = pb.InputProj(input=None, shape_out=(400,), name="n2")
+        self.n3 = pb.TonicSpiking(400, 3, name="n3")
+        self.n4 = pb.TonicSpiking(400, 3, name="n4")
+        self.s0 = pb.FullConn(
+            self.n1, self.n3, conn_type=pb.SynConnType.All2All, name="s0"
+        )
+        self.s1 = pb.FullConn(
+            self.n1, self.n4, conn_type=pb.SynConnType.All2All, name="s1"
+        )
+        self.s2 = pb.FullConn(
+            self.n2, self.n3, conn_type=pb.SynConnType.All2All, name="s2"
+        )
+        self.s3 = pb.FullConn(
+            self.n2, self.n4, conn_type=pb.SynConnType.All2All, name="s3"
+        )
+        self.s4 = pb.FullConn(
+            self.n3, self.n4, conn_type=pb.SynConnType.All2All, name="s4"
+        )
+
+
 class Network_with_multi_inodes1(pb.Network):
     """Test the following situations with multiple input nodes:
         1. Two input nodes with their own core blocks.
@@ -680,6 +736,16 @@ def build_example_net3():
 @pytest.fixture(scope="class")
 def build_example_net4():
     return NetForTest4()
+
+
+@pytest.fixture(scope="class")
+def build_example_net5():
+    return NetForTest5()
+
+
+@pytest.fixture(scope="class")
+def build_example_net6():
+    return NetForTest6()
 
 
 @pytest.fixture(scope="class")

@@ -375,15 +375,18 @@ class TestMapper_Compile:
         mapper.build(net)
         mapper.compile(grouping_optim_target="core")
 
-        assert mapper.core_blocks[0].n_core_required == ceil(
-            net.n1.num_out / HwConfig.N_DENDRITE_MAX_SNN
-        )
+        for cb in mapper.core_blocks:
+            if net.n1 in cb.dest:
+                assert cb.n_core_required == ceil(
+                    net.n1.num_out / HwConfig.N_DENDRITE_MAX_SNN
+                )
+            elif net.n2 in cb.dest:
+                assert cb.n_core_required == 1 + 1
 
-        assert mapper.core_blocks[1].n_core_required == 1 + 1
-
-        assert mapper.core_blocks[2].n_core_required == ceil(
-            net.n4.num_out / HwConfig.N_DENDRITE_MAX_SNN
-        )
+            elif net.n4 in cb.dest:
+                assert cb.n_core_required == ceil(
+                    net.n4.num_out / HwConfig.N_DENDRITE_MAX_SNN
+                )
 
     def test_grouping_optim_both(self, monkeypatch, build_example_net4):
         net = build_example_net4
@@ -447,6 +450,29 @@ class TestMapper_Compile:
             grouping_optim_target="latency",
             multicast_optim=[net.n0],
         )
+
+    def test_ordered_axons(self, build_example_net5):
+        net = build_example_net5
+        mapper = pb.Mapper()
+        mapper.build(net)
+        mapper.compile()
+        nodes_with_empty_axons = [net.n3, net.n4, net.n5]
+        for cb in mapper.core_blocks:
+            if cb.dest[0] in nodes_with_empty_axons:
+                assert len(cb.ordered_axons) > len(cb.source)
+            else:
+                assert len(cb.ordered_axons) == len(cb.source)
+
+    def test_partition(self, build_example_net6):
+        net = build_example_net6
+        mapper = pb.Mapper()
+        mapper.build(net)
+        mapper.compile()
+        for cb in mapper.core_blocks:
+            if net.n3 in cb.dest:
+                assert len(cb.ordered_axons) == 2
+            if net.n4 in cb.dest:
+                assert len(cb.ordered_axons) == 3
 
     def test_core_estimate_only(self, build_example_net4):
         net = build_example_net4
