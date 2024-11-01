@@ -256,7 +256,7 @@ def export_output_conf_json(output_conf_info: OutputDestConf, fp: Path) -> None:
             )
     else:
         with open(_full_fp, "w") as f:
-            json.dump(output_conf_info, f, indent=2, cls=PAIConfigJsonEncoder)
+            json.dump(_valid_conf, f, indent=2, cls=PAIConfigJsonEncoder)
 
 
 if _USE_ORJSON:
@@ -317,18 +317,22 @@ def export_aux_gh_info(gh_info: GraphInfo, fp: Path, export_clk_en_L2: bool) -> 
         # Export the serial port data of the L2 cluster clocks
         if export_clk_en_L2 and (clk_en_L2_dict := misc.get("clk_en_L2")):
             # dict[ChipCoord, list[int]]
-            aux_gh_info_dict["misc"]["clk_en_L2"] = {
-                str(k): v for k, v in clk_en_L2_dict.items()
-            }
+            aux_gh_info_dict["misc"]["clk_en_L2"] = clk_en_L2_dict
         if lst := misc.get("target_chip_list"):  # list of ChipCoord
-            aux_gh_info_dict["misc"]["target_chip_list"] = [str(i) for i in lst]
+            aux_gh_info_dict["misc"]["target_chip_list"] = lst
 
     if _USE_ORJSON:
         with open(_full_fp, "wb") as f:
-            f.write(orjson.dumps(aux_gh_info_dict, option=orjson.OPT_INDENT_2))
+            f.write(
+                orjson.dumps(
+                    aux_gh_info_dict,
+                    default=PAIConfigJsonDefault,
+                    option=orjson.OPT_INDENT_2,
+                )
+            )
     else:
         with open(_full_fp, "w") as f:
-            json.dump(aux_gh_info_dict, f, indent=2)
+            json.dump(aux_gh_info_dict, f, indent=2, cls=PAIConfigJsonEncoder)
 
 
 def export_graph_info(

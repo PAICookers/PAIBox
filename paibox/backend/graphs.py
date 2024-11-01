@@ -535,69 +535,6 @@ def _degree_check(
                 )
 
 
-def convert2routing_groups(
-    succ_dg_of_cb: dict[CoreBlock, list[CoreBlock]],
-    degrees_of_cb: dict[CoreBlock, NodeDegree],
-    input_core_blocks: dict[SourceNodeType, list[CoreBlock]],
-) -> tuple[list[RoutingGroup], dict[RoutingGroup, list[RoutingGroup]]]:
-    ordered_core_blocks = toposort(succ_dg_of_cb)
-    seen_cb = set()
-    routing_groups: list[RoutingGroup] = []
-    succ_cb_gid_dict = defaultdict(list)
-
-    # After that, all input core blocks have been traversed.
-    for input_cbs in input_core_blocks.values():
-        # FIXME Temporary solution. This case should be solved first:
-        # I1 -> A/B, I2 -> B/C.
-        if not seen_cb.isdisjoint(input_cbs):
-            if len(input_cbs) > 1:
-                raise ValueError
-            else:
-                seen_cb.update(input_cbs)
-                routing_groups.append(RoutingGroup(*input_cbs))
-
-    for cb in ordered_core_blocks:
-        # Check whether the core block has been traversed. This judgment condition is for
-        # core blocks with out-degree = 1 & output core blocks (out-degree = 0).
-        if cb not in seen_cb:
-            seen_cb.add(cb)
-            routing_groups.append(RoutingGroup(cb))
-
-        # If out-degree > 1, group successor core blocks according to their routing id.
-        if degrees_of_cb[cb].out_degree > 1:
-            succ_cbs = succ_dg_of_cb[cb]
-
-            succ_cb_gid_dict.clear()
-            for succ_cb in succ_cbs:
-                if succ_cb in seen_cb:
-                    continue
-                if succ_cb._routing_id in succ_cb_gid_dict:
-                    succ_cb_gid_dict[succ_cb._routing_id].append(succ_cb)
-                else:
-                    succ_cb_gid_dict[succ_cb._routing_id] = [succ_cb]
-
-            for v in succ_cb_gid_dict.values():
-                routing_groups.append(RoutingGroup(*v))
-
-            seen_cb.update(succ_cbs)
-
-    routing_groups_succ: dict[RoutingGroup, list[RoutingGroup]] = defaultdict(list)
-
-    for rg in routing_groups:
-        routing_groups_succ[rg] = []
-        rg_succ_cb: set[CoreBlock] = set()
-        for cb in rg:
-            rg_succ_cb.update(succ_dg_of_cb[cb])
-
-        for _rg in routing_groups:
-            for cb in rg_succ_cb:
-                if cb in _rg:
-                    routing_groups_succ[rg].append(_rg)
-                    break
-
-    return routing_groups, routing_groups_succ
-
-
 def toposort(directed_edges: Mapping[_NT, Iterable[_NT]]) -> list[_NT]:
     """
     Topological sort algorithm by Kahn [1]_.

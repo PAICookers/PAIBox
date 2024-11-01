@@ -46,7 +46,6 @@ from .types import (
 class CoreBlock(CoreAbstract):
 
     _parents: tuple[FullConnectedSyn, ...]
-    _routing_id: int  # TODO will be deprecated
     seed: int
     """Random seed, legal integer, no more than uint64."""
     _lcn_ex: LCN_EX
@@ -70,23 +69,19 @@ class CoreBlock(CoreAbstract):
     def __init__(
         self,
         *parents: FullConnectedSyn,
-        routing_id: int,
         seed: int,
-        mode: CoreMode = CoreMode.MODE_SNN,
+        mode: CoreMode,
         name: Optional[str] = None,
     ) -> None:
         """Core blocks in SNN mode.
 
         Args:
-            - parents: the parent synapses.
-            - routing_id: id of routing group.
-            - seed: random seed. Default value is 0.
-            - mode: runtime mode of the core block. Default value is `MODE_SNN`.
-            - name: name of the core block. Optional.
+            parents: the parent synapses.
+            seed: random seed. Default value is 0.
+            mode: runtime mode of the core block.
         """
         super().__init__(name)
         self._parents = parents
-        self._routing_id = routing_id
         self.rt_mode = mode
         self.seed = seed
         self._lcn_ex = self._n_axon2lcn_ex()
@@ -239,22 +234,35 @@ class CoreBlock(CoreAbstract):
     @property
     def tws(self) -> int:
         """Attribute `tick_wait_start`."""
-        if not check_attr_same(self.dest, "tick_wait_start"):
+        _check_attr = "tick_wait_start"
+        if not check_attr_same(self.dest, _check_attr):
             raise AttributeError(
-                "attribute 'tick_wait_start' of the core block are not equal."
+                f"attribute '{_check_attr}' of the core block are not equal."
             )
 
         return self.dest[0].tick_wait_start
 
     @property
     def twe(self) -> int:
-        """Attribute `tick_wait_end.`"""
-        if not check_attr_same(self.dest, "tick_wait_end"):
+        """Attribute `tick_wait_end`."""
+        _check_attr = "tick_wait_end"
+        if not check_attr_same(self.dest, _check_attr):
             raise AttributeError(
-                "attribute 'tick_wait_end' of the core block are not equal."
+                f"attribute '{_check_attr}' of the core block are not equal."
             )
 
         return self.dest[0].tick_wait_end
+
+    @property
+    def pool_max(self) -> MaxPoolingEnable:
+        """Attribute `pool_max`."""
+        _check_attr = "pool_max"
+        if not check_attr_same(self.dest, _check_attr):
+            raise AttributeError(
+                f"attribute '{_check_attr}' of the core block are not equal."
+            )
+
+        return self.dest[0].pool_max
 
     @property
     def n_axon(self) -> int:
@@ -376,13 +384,7 @@ class CoreBlock(CoreAbstract):
         return ", ".join(n.name for n in self.obj)
 
     @classmethod
-    def build(
-        cls,
-        *synapses: FullConnectedSyn,
-        routing_id: int,
-        rt_mode: CoreMode,
-        seed: int = 0,
-    ):
+    def build(cls, *synapses: FullConnectedSyn, rt_mode: CoreMode, seed: int = 0):
         """Group synapses & build `CoreBlock`."""
         if seed > (1 << 64) - 1:
             warnings.warn(
@@ -390,27 +392,26 @@ class CoreBlock(CoreAbstract):
                 TruncationWarning,
             )
 
-        return cls(*synapses, routing_id=routing_id, mode=rt_mode, seed=seed)
+        return cls(*synapses, mode=rt_mode, seed=seed)
 
     @classmethod
-    def build_core_blocks(cls, route_group: MergedSuccGroup) -> list["CoreBlock"]:
+    def build_core_blocks(cls, msgrp: MergedSuccGroup) -> list["CoreBlock"]:
         core_blocks: list[CoreBlock] = []
-        succ_nodes = list(route_group.nodes)
+        succ_nodes = list(msgrp.nodes)
+        # TODO Currently the runtime mode is not taken into account for grouping constraints,
+        # because in general, a network can only have one mode.
         mode = succ_nodes[0].mode
         if any(node.mode != mode for node in succ_nodes):
             raise NotSupportedError("mixed mode is not supported.")
 
-        # TODO More constraints for nodes can be called here.
-        idx_of_sg = GraphNodeConstrs.tick_wait_attr_constr(succ_nodes)
-        if len(idx_of_sg) == 0:
-            idx_of_sg = [list(range(len(succ_nodes)))]
+        idx_of_sg = GraphNodeConstrs.apply_constrs(succ_nodes)
 
-        for idx in idx_of_sg:
+        for idx_lst in idx_of_sg:
             succ_edges: set[EdgeType] = set()
-            for i in idx:
-                succ_edges.update(route_group.outputs[succ_nodes[i]])
+            for i in idx_lst:
+                succ_edges.update(msgrp.outputs[succ_nodes[i]])
 
-            core_block = CoreBlock.build(*succ_edges, routing_id=0, rt_mode=mode)
+            core_block = CoreBlock.build(*succ_edges, rt_mode=mode)
             core_blocks.append(core_block)
 
         return core_blocks
@@ -704,7 +705,7 @@ class CorePlacement(CoreAbstract):
             _mode_params[0],                    # input_width_format
             _mode_params[1],                    # spike_width_format
             self.n_working_dendrite,            # num_dendrite
-            MaxPoolingEnable.DISABLE,           # max_pooling_en
+            self.pool_max,                      # max_pooling_en
             self.tws,                           # tick_wait_start
             self.twe,                           # tick_wait_end
             _mode_params[2],                    # snn_mode_en
@@ -825,6 +826,10 @@ class CorePlacement(CoreAbstract):
     @property
     def twe(self) -> int:
         return self.parent.twe
+
+    @property
+    def pool_max(self) -> MaxPoolingEnable:
+        return self.parent.pool_max
 
     @property
     def n_working_dendrite(self) -> int:
