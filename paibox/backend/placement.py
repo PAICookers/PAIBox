@@ -43,6 +43,16 @@ from .types import (
 )
 
 
+# Get the fan-out by the combination rate of dendrites
+if hasattr(HwConfig, "FANOUT_IW8"):
+    FANOUT_IW8 = HwConfig.FANOUT_IW8
+else:
+    FANOUT_IW8 = [HwConfig.N_NEURON_MAX_ANN, 1364, 876, 512, 256, 128, 64, 32, 16, 8]
+
+
+NEURON_PARAMS_BIT_LENGTH = 214  # A constant of frame definition
+
+
 class CoreBlock(CoreAbstract):
 
     _parents: tuple[FullConnectedSyn, ...]
@@ -553,7 +563,7 @@ class CorePlacement(CoreAbstract):
                     w_folded_3d[c * self.n_timeslot + lcn, :, :],
                     axis=1,
                     count=self.n_weight_bits,
-                    bitorder="little",
+                    bitorder=HwConfig.WEIGHT_BITORDER,
                 )
 
                 for bit in range(self.n_weight_bits):
@@ -586,21 +596,19 @@ class CorePlacement(CoreAbstract):
     def _nfold_weight(
         raw_weight: WeightType, expected_row: int, n_fold: int
     ) -> WeightType:
-        """According to the folding ratio `n_fold`, fold the weight matrix.
+        """Fold the weight matrix according to the folding ratio.
 
         Args:
-            - raw_weight: the raw weight matrix.
-            - expected_row: expected #N of row.
-            - n_fold: the folding ratio.
+            raw_weight: the raw weight matrix.
+            expected_row: the expected #N of row.
+            n_fold: the folding ratio (1 << LCN).
         """
         raw_row, raw_col = raw_weight.shape
+        n_row_folded, r = divmod(raw_row, n_fold)  # #N of rows after folding
 
-        if (r := raw_row % n_fold) > 0:
-            _raw_weight = np.append(
-                raw_weight,
-                np.zeros((n_fold - r, raw_col), dtype=WEIGHT_DTYPE),
-                axis=0,
-            )
+        if r > 0:
+            n_row_folded += 1
+            _raw_weight = np.pad(raw_weight, ((0, n_fold - r), (0, 0)))
         else:
             _raw_weight = raw_weight
 
@@ -609,15 +617,17 @@ class CorePlacement(CoreAbstract):
 
         for i, j in np.ndindex((n_fold, raw_col)):
             w_col = w_splited[i][:, j]
-            w_folded[:, n_fold * j + i] = w_col
+            w_folded[:n_row_folded, j * n_fold + i] = w_col
 
         return w_folded
 
     @staticmethod
     def _weight_pack(w_unpacked: WRAMUnpackedType) -> WRAMPackedType:
-        """Convert the unpacked weights into a mapping format, corresponding to the WRAM address, each address contains \
+        """Convert the unpacked weights into a mapping form, corresponding to the WRAM address. Each address contains \
             18 uint64.
             (1152, x) -> (x, 1152) -> (x*18, 64) -> (x*18, 8) uint8 -> (x*18, 1) uint64 -> (x, 18) uint64.
+            
+            TODO simpler (1152, x) -> (x, 1152) -> pack -> (x, 144) uint8 -> (x, 18) uint64. (x <= 512)
         """
         # Reshape to 64 columns to avoid contiguous problem.
         w_unpacked_aligned = w_unpacked.T.reshape((-1, N_BIT_PACKED_WEIGHT))
@@ -629,6 +639,11 @@ class CorePlacement(CoreAbstract):
         w_packed_u64 = w_packed_u8.view(WRAM_PACKED_DTYPE).reshape(
             (w_unpacked.shape[1], -1)
         )
+        # TODO If everything is okay, use the simpler method as follows:
+        # w_packed_u8 = np.packbits(
+        #     w_unpacked.T, axis=1, bitorder=HwConfig.WEIGHT_BITORDER
+        # )
+        # w_packed_u64 = np.ascontiguousarray(w_packed_u8).view(WRAM_PACKED_DTYPE)
         w_packed_u64.setflags(write=False)
 
         return w_packed_u64
@@ -666,7 +681,9 @@ class CorePlacement(CoreAbstract):
             for i in range(neu_conf.neu_seg.n_neuron):
                 params = frame3.packages[i * 4 : (i + 1) * 4]
                 neu_conf_params[i, :] = np.unpackbits(
-                    params.view(WRAM_UNPACKED_DTYPE), axis=0, bitorder="little"
+                    params.view(WRAM_UNPACKED_DTYPE),
+                    axis=0,
+                    bitorder=HwConfig.WEIGHT_BITORDER,
                 )[:NEURON_PARAMS_BIT_LENGTH]
 
             neu_conf_params_list.append(neu_conf_params)
@@ -910,13 +927,3 @@ class EmptyCorePlacement(CoreAbstract):
 def max_lcn_of_cb(cb: list[CoreBlock]) -> LCN_EX:
     """Find the max LCN extenion of previous grouped synapses"""
     return max(cb, key=lambda cb: cb.lcn_ex).lcn_ex
-
-
-# Get the fan-out by the combination rate of dendrites
-if hasattr(HwConfig, "FANOUT_IW8"):
-    FANOUT_IW8 = HwConfig.FANOUT_IW8  # type: ignore
-else:
-    FANOUT_IW8 = [HwConfig.N_NEURON_MAX_ANN, 1364, 876, 512, 256, 128, 64, 32, 16, 8]
-
-
-NEURON_PARAMS_BIT_LENGTH = 214
