@@ -152,38 +152,44 @@ class TestWeightUnpackAndPack:
         assert np.array_equal(y2, np.array([1, 0, 1, 0, 0, 1, 1, 1], dtype=np.uint8))
 
     @pytest.mark.parametrize(
-        "shape, wp, lcn_ex",
+        "shape, wp, lcn_ex, iw",
         [
-            ((120, 800), WW.WEIGHT_WIDTH_1BIT, LCN_EX.LCN_4X),
-            ((16, 16), WW.WEIGHT_WIDTH_4BIT, LCN_EX.LCN_2X),
-            ((80, 48), WW.WEIGHT_WIDTH_4BIT, LCN_EX.LCN_16X),
-            ((100, 510), WW.WEIGHT_WIDTH_8BIT, LCN_EX.LCN_1X),
-            ((99, 32), WW.WEIGHT_WIDTH_8BIT, LCN_EX.LCN_2X),
-            ((100, 32), WW.WEIGHT_WIDTH_8BIT, LCN_EX.LCN_8X),
+            ((600, 100), WW.WEIGHT_WIDTH_1BIT, LCN_EX.LCN_4X, 1),
+            ((1000, 32), WW.WEIGHT_WIDTH_8BIT, LCN_EX.LCN_2X, 1),
+            ((120, 800), WW.WEIGHT_WIDTH_1BIT, LCN_EX.LCN_4X, 8),
+            ((16, 16), WW.WEIGHT_WIDTH_4BIT, LCN_EX.LCN_2X, 8),
+            ((80, 48), WW.WEIGHT_WIDTH_4BIT, LCN_EX.LCN_16X, 8),
+            ((100, 510), WW.WEIGHT_WIDTH_8BIT, LCN_EX.LCN_1X, 8),
+            ((99, 32), WW.WEIGHT_WIDTH_8BIT, LCN_EX.LCN_2X, 8),
+            ((100, 32), WW.WEIGHT_WIDTH_8BIT, LCN_EX.LCN_8X, 8),
         ],
     )
     def test_unpacked_weight_pack(
-        self, shape, wp, lcn_ex, fixed_rng: np.random.Generator
+        self, shape, wp, lcn_ex, iw, fixed_rng: np.random.Generator
     ):
-        assert shape[1] <= _get_max_fanout(8, wp + lcn_ex)
+        assert shape[1] <= _get_max_fanout(iw, wp + lcn_ex)
 
         nbit = 1 << wp
         nfold = 1 << lcn_ex
         _low, _high = _nbit_limit(nbit)
         # Generate the unpacked weight, folded
         test_weight = fixed_rng.integers(_low, _high, size=shape, dtype=WEIGHT_DTYPE)
-        w_packed_u64 = self._weight_pack(test_weight, nbit, nfold)
+        w_packed_u64 = self._weight_pack(test_weight, nbit, nfold, iw)
 
         assert w_packed_u64.shape[0] == WRAM_BASE_SHAPE[1]
 
     @staticmethod
-    def _weight_pack(w: WeightType, nbit: int, nfold: int) -> WRAMPackedType:
+    def _weight_pack(
+        w: WeightType, nbit: int, nfold: int, iw: Literal[1, 8]
+    ) -> WRAMPackedType:
         """This prototype function is used to pack the unpacked uint8 weight of size `WRAM_BASE_SHAPE` into \
-            a packed uint64 weight of size (WRAM_BASE_SHAPE[1], WRAM_BASE_SHAPE[0]//64)."""
+            a packed uint64 weight of size (WRAM_BASE_SHAPE[1], WRAM_BASE_SHAPE[0]//64).
+        """
         wram_base_shape = np.zeros(WRAM_BASE_SHAPE, dtype=WRAM_UNPACKED_DTYPE)
 
         # -> 1152*512 uint8
-        wram_unpacked = TestWeightRamMapping._weight_ram_mapping(w, nbit, nfold, 8)
+        wram_unpacked = TestWeightRamMapping._weight_ram_mapping(w, nbit, nfold, iw)
+
         wram_base_shape[:, : wram_unpacked.shape[1]] = wram_unpacked
 
         # -> 512*1152 -> (512*18)*64
@@ -201,7 +207,14 @@ class TestWeightUnpackAndPack:
         a = np.packbits(wram_base_shape.T, axis=1, bitorder=W_BITORDER)
         b = np.ascontiguousarray(a).view(WRAM_PACKED_DTYPE)
 
+        # Use the method in the `CorePlacement`, return the weight part only.
+        # TODO If everything is OK, just keep this method.
+        wram_packed_u64 = CorePlacement._weight_pack(wram_unpacked)
+
         assert np.array_equal(w_packed_u64, b)
+        assert np.array_equal(
+            wram_packed_u64, w_packed_u64[: wram_packed_u64.shape[0], :]
+        )
 
         return w_packed_u64
 
@@ -329,20 +342,46 @@ class TestWeightRamMapping:
         w_folded = CorePlacement._nfold_weight(test_weight, expected_shape[0], nfold)
 
         # 2. Map to the NRAM.
-        wram_unpacked = np.zeros(WRAM_BASE_SHAPE, dtype=WRAM_UNPACKED_DTYPE)
-        wram_weight = self._weight_ram_mapping(w_folded, nbit, nfold, iw)
-        wram_unpacked[:, : wram_weight.shape[1]] = wram_weight
+        # (1152, 512)
+        wram_unpacked_total = np.zeros(WRAM_BASE_SHAPE, dtype=WRAM_UNPACKED_DTYPE)
+        wram_weight_unpacked = self._weight_ram_mapping(w_folded, nbit, nfold, iw)
+        wram_unpacked_total[:, : wram_weight_unpacked.shape[1]] = wram_weight_unpacked
 
+        n_col_used_total = wram_weight_unpacked.shape[1]
+        wram_nparams_unpacked = None
         # NOTE: While mapping extra neuron parameters to the WRAM occurs
         # during the configuration frame export phase, it is tested here.
         if (n_extra_neurons := shape[1] - WRAM_BASE_SHAPE[1]) > 0:
-            wram_neurons = self._gen_wram_for_neurons(n_extra_neurons, wp, lcn_ex)
+            wram_nparams_unpacked = self._gen_wram_for_neurons(
+                n_extra_neurons, wp, lcn_ex
+            )
 
-            assert wram_weight.shape[1] + wram_neurons.shape[1] <= WRAM_BASE_SHAPE[1]
-            wram_unpacked[:, -wram_neurons.shape[1] :] = wram_neurons
+            n_col_used_total += wram_nparams_unpacked.shape[1]
+            wram_unpacked_total[:, wram_weight_unpacked.shape[1] : n_col_used_total] = (
+                wram_nparams_unpacked
+            )
+
+            # Get the used columns of wram_unpacked_total after `np.hstack`.
+            wram_unpacked_total2 = np.hstack(
+                [wram_weight_unpacked, wram_nparams_unpacked]
+            )
+            assert np.array_equal(
+                wram_unpacked_total[:, :n_col_used_total], wram_unpacked_total2
+            )
 
         # 3. Check
-        self._wram_mapping_check_iw8(test_weight, w_folded, wram_unpacked, nbit, nfold)
+        assert n_col_used_total <= WRAM_BASE_SHAPE[1]
+        self._wram_mapping_check_iw8(
+            test_weight, w_folded, wram_unpacked_total, nbit, nfold
+        )
+
+        # 4. Pack
+        wram_weight_packed = CorePlacement._weight_pack(wram_weight_unpacked)
+        assert wram_weight_packed.shape[1] <= WRAM_BASE_SHAPE[1]
+
+        if wram_nparams_unpacked is not None:
+            wram_nparams_packed = CorePlacement._weight_pack(wram_nparams_unpacked)
+            assert wram_nparams_packed.shape[1] <= WRAM_BASE_SHAPE[1]
 
     @staticmethod
     def _weight_ram_mapping(
@@ -667,10 +706,12 @@ class TestWeightRamMapping:
         wram_neurons = self._gen_wram_for_neurons(n_extra_neurons, wp, lcn_ex)
 
     @staticmethod
-    def _gen_wram_for_neurons(n_extra_neurons: int, wp, lcn_ex):
+    def _gen_wram_for_neurons(
+        n_extra_neurons: int, wp: WW, lcn_ex: LCN_EX
+    ) -> WRAMUnpackedType:
         """A prototype function for mapping extra neurons parameters on the WRAM for 8-bit input width.
 
-        NOTE: The shape of final result` is (1152(WRAM_BASE_SHAPE[0]), x), where x <= 512 (WRAM_BASE_SHAPE[1]).
+        NOTE: The shape of final result is (1152(WRAM_BASE_SHAPE[0]), x), where x <= 512 (WRAM_BASE_SHAPE[1]).
         """
         extra_neurons = pb.ANNNeuron(n_extra_neurons, bit_trunc=15)
         # extra_neurons = pb.ANNBypassNeuron(n_extra_neurons)
@@ -700,11 +741,12 @@ class TestWeightRamMapping:
                 params.view(WRAM_UNPACKED_DTYPE), axis=0, bitorder=W_BITORDER
             )[:NEURON_PARAMS_BIT_LENGTH]
 
-        # Slow method
         n_col_avail = math.ceil(
             (_get_max_fanout(8, wp + lcn_ex) - WRAM_BASE_SHAPE[1])
             / N_NEURON_PARAM_IN_COL
         )
+        # Slow method
+        # TODO Remove it if allright
         wram_neurons_slow = np.zeros(
             (WRAM_BASE_SHAPE[0], n_col_avail), dtype=WRAM_UNPACKED_DTYPE
         )
@@ -729,12 +771,10 @@ class TestWeightRamMapping:
         neuron_params_214b = neuron_params_214b.reshape((-1, n_bit_nparams))
         _n_col_occupied = neuron_params_214b.shape[0]
 
-        result = np.zeros(
-            (WRAM_BASE_SHAPE[0], _n_col_occupied), dtype=WRAM_UNPACKED_DTYPE
-        )
-        result[:n_bit_nparams] = neuron_params_214b.T
+        result = np.zeros((WRAM_BASE_SHAPE[0], n_col_avail), dtype=WRAM_UNPACKED_DTYPE)
+        result[:n_bit_nparams, :_n_col_occupied] = neuron_params_214b.T
 
-        assert np.array_equal(result, wram_neurons_slow[:, :_n_col_occupied])
+        assert np.array_equal(result, wram_neurons_slow)
 
         return result
 
