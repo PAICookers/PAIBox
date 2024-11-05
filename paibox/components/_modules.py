@@ -1,12 +1,12 @@
 import math
 from typing import Literal, Optional, Protocol, Union
+import typing
 
 import numpy as np
 from paicorelib import TM, HwConfig
 
 from paibox.base import NeuDyn, NodeList
-from paibox.exceptions import ResourceError
-from paibox.network import DynSysGroup
+from paibox.exceptions import ResourceError, ShapeError
 from paibox.types import (
     LEAK_V_DTYPE,
     NEUOUT_U8_DTYPE,
@@ -44,6 +44,9 @@ from .synapses.transforms import (
     _Pool1dForward,
     _Pool2dForward,
 )
+
+if typing.TYPE_CHECKING:
+    from paibox.network import DynSysGroup
 
 __all__ = [
     "_DelayChainANN",
@@ -94,7 +97,7 @@ class _DelayChainBase(FunctionalModule):
     def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
         return x1
 
-    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
+    def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
         n_delaychain = NodeList()
         s_delaychain = NodeList()
 
@@ -161,7 +164,7 @@ class _HasSemiFoldedIntf(Protocol):
 
     def build(
         self,
-        network: DynSysGroup,
+        network: "DynSysGroup",
         valid_interval: int,
         ts_first_valid_inp: int,
         **build_options,
@@ -276,7 +279,7 @@ class _SpikingPool1d(FunctionalModule):
     def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
         return self.tfm(x1)
 
-    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
+    def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
         if self.tfm.pool_type == "avg":
             n1_p1d = Neuron(
                 self.shape_out,
@@ -366,7 +369,7 @@ class _SpikingPool1dWithV(FunctionalModuleWithV):
     def synaptic_integr(self, x1: NeuOutType, vjt_pre: VoltageType) -> VoltageType:
         return vjt_overflow(vjt_pre + self.tfm(x1).ravel())
 
-    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
+    def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
         n1_p1d = IF(
             self.shape_out,
             threshold=self.pos_thres,
@@ -446,7 +449,7 @@ class _SpikingPool2d(FunctionalModule):
     def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
         return self.tfm(x1)
 
-    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
+    def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
         if self.tfm.pool_type == "avg":
             n1_p2d = Neuron(
                 self.shape_out,
@@ -540,7 +543,7 @@ class _SpikingPool2dWithV(FunctionalModuleWithV):
     def synaptic_integr(self, x1: NeuOutType, vjt_pre: VoltageType) -> VoltageType:
         return vjt_overflow(vjt_pre + self.tfm(x1).ravel())
 
-    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
+    def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
         n1_p2d = IF(
             self.shape_out,
             threshold=self.pos_thres,

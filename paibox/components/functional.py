@@ -2,13 +2,13 @@ import sys
 from collections.abc import Sequence
 from functools import partial
 from typing import ClassVar, Optional, Union
+import typing
 
 import numpy as np
 from paicorelib import NTM, RM, TM
 
 from paibox.base import NeuDyn, NodeList
-from paibox.exceptions import PAIBoxDeprecationWarning, ResourceError, ShapeError
-from paibox.network import DynSysGroup
+from paibox.exceptions import PAIBoxDeprecationWarning, ShapeError
 from paibox.types import (
     LEAK_V_DTYPE,
     NEUOUT_U8_DTYPE,
@@ -45,6 +45,9 @@ if sys.version_info >= (3, 13):
     from warnings import deprecated
 else:
     from typing_extensions import deprecated
+
+if typing.TYPE_CHECKING:
+    from paibox.network import DynSysGroup
 
 __all__ = [
     "BitwiseAND",
@@ -105,7 +108,7 @@ class BitwiseAND(FunctionalModule2to1):
     def spike_func(self, x1: NeuOutType, x2: NeuOutType, **kwargs) -> NeuOutType:
         return x1 & x2
 
-    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
+    def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
         n1_and = LIF(
             self.shape_out,
             threshold=1,
@@ -175,7 +178,7 @@ class BitwiseNOT(FunctionalModule):
     def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
         return x1 == 0  # x1 is an array in uint8
 
-    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
+    def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
         n1_not = LIF(
             self.shape_out,
             threshold=1,
@@ -229,7 +232,7 @@ class BitwiseOR(FunctionalModule2to1):
     def spike_func(self, x1: NeuOutType, x2: NeuOutType, **kwargs) -> NeuOutType:
         return x1 | x2
 
-    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
+    def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
         n1_or = BypassNeuron(
             self.shape_out,
             delay=self.delay_relative,
@@ -288,7 +291,7 @@ class BitwiseXOR(FunctionalModule2to1):
     def spike_func(self, x1: NeuOutType, x2: NeuOutType, **kwargs) -> NeuOutType:
         return x1 ^ x2
 
-    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
+    def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
         # If neuron_a is of shape (h1, w1) = N, and neuron_b is of shape (h2, w2) = N.
         # The output shape of the module is (N,) or (h1, w1)(if h1 == h2).
         # The shape of n1 is (2N,) or (2, h1, w1).
@@ -398,7 +401,7 @@ class SpikingAdd(FunctionalModule2to1WithV):
             x1, x2, self.factor_a, self.factor_b, vjt_pre, strict=self.overflow_strict
         )
 
-    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
+    def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
         n1_sadd = IF(
             self.shape_out,
             self.pos_threshold,
@@ -694,7 +697,7 @@ class SpikingSub(FunctionalModule2to1WithV):
             x1, x2, self.factor_a, self.factor_b, vjt_pre, strict=self.overflow_strict
         )
 
-    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
+    def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
         n1_ssub = Neuron(
             self.shape_out,
             reset_mode=RM.MODE_LINEAR,
@@ -766,7 +769,7 @@ class Transpose2d(TransposeModule):
 
         return _x1.T
 
-    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
+    def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
         n1_t2d = BypassNeuron(
             self.shape_out,
             delay=self.delay_relative,
@@ -833,7 +836,7 @@ class Transpose3d(TransposeModule):
 
         return _x1.transpose(self.axes)
 
-    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
+    def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
         n1_t3d = BypassNeuron(
             self.shape_out,
             delay=self.delay_relative,
@@ -865,16 +868,12 @@ class LinearSemiFolded(_LinearBase, _SemiFoldedModule):
         raise NotImplementedError
 
     def build(
-        self, network: DynSysGroup, valid_interval: int, **build_options
+        self, network: "DynSysGroup", valid_interval: int, **build_options
     ) -> BuiltComponentType:
         assert len(self.module_intf.operands[0].shape_out) == 2
         self.valid_interval = valid_interval
 
         in_ch, in_h = self.module_intf.operands[0].shape_out
-        if in_ch * in_h * in_h * valid_interval > 18432:
-            raise ResourceError(
-                f"The {self.name} input size is too large. Please adjust the input size or the number of channels."
-            )
         n_delays = NodeList()
         s_delays = NodeList()
         s_weight = NodeList()
@@ -915,7 +914,7 @@ class LinearSemiFolded(_LinearBase, _SemiFoldedModule):
                 neuron,
                 n_fc,
                 weights=w,
-                conn_type=self.conn_type,
+                conn_type=ConnType.All2All,
                 name=f"s{i}_{self.name}",
             )
             s_weight.append(syn2)
@@ -983,7 +982,7 @@ class Conv2dSemiFolded(_SemiFoldedModule):
 
     def build(
         self,
-        network: DynSysGroup,
+        network: "DynSysGroup",
         valid_interval: int,
         ts_first_valid_inp: int,
         **build_options,
@@ -1253,7 +1252,7 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
 
     def build(
         self,
-        network: DynSysGroup,
+        network: "DynSysGroup",
         valid_interval: int,
         ts_first_valid_inp: int,
         **build_options,
@@ -1373,7 +1372,7 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
 
     def build(
         self,
-        network: DynSysGroup,
+        network: "DynSysGroup",
         valid_interval: int,
         ts_first_valid_inp: int,
         **build_options,

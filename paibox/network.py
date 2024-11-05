@@ -7,6 +7,12 @@ from .base import DynamicSys, SynSys
 from .collector import Collector
 from .components import NeuModule, Neuron, Projection
 from .components.modules import BuiltComponentType
+from .components.functional import (
+    AvgPool2dSemiFolded,
+    Conv2dSemiFolded,
+    LinearSemiFolded,
+    MaxPool2dSemiFolded,
+)
 from .mixin import Container
 from .node import NodeDict, NodeList
 
@@ -79,13 +85,6 @@ class DynSysGroup(DynamicSys, Container):
     def build_fmodule(
         cls, network: "DynSysGroup", **build_options
     ) -> dict[NeuModule, BuiltComponentType]:
-        from .components.functional import (
-            AvgPool2dSemiFolded,
-            Conv2dSemiFolded,
-            LinearSemiFolded,
-            MaxPool2dSemiFolded,
-        )
-
         generated = dict()
         modules = network.nodes().subset(NeuModule).unique()
 
@@ -133,8 +132,8 @@ class DynSysGroup(DynamicSys, Container):
         for cpn in components:
             for tag, obj in self.__dict__.items():
                 if cpn is obj:
-                    cpn.__gh_build_ignore__ = False
-                    delattr(self, tag)
+                    # cpn.__gh_build_ignore__ = False
+                    delattr(self, tag)  # remove the cpn from the network
                     break
 
     def _ignore_components(self, *components: DynamicSys) -> None:
