@@ -277,7 +277,6 @@ class Conv2dSemiFolded_FC_ChainNetN(pb.DynSysGroup):
             out_features,
             weight,
             bias=0,
-            conn_type=pb.SynConnType.All2All,
             tick_wait_start=self.conv_list[-1].tick_wait_start + 2,
         )
 
@@ -319,7 +318,6 @@ class Pool2dSemiFolded_FC_ChainNetN(pb.DynSysGroup):
             out_features,
             weights=weight,
             bias=0,
-            conn_type=pb.SynConnType.All2All,
             tick_wait_start=self.pool_list[-1].tick_wait_start + 2,
         )
 

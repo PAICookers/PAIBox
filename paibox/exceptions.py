@@ -14,7 +14,7 @@ class PAIBoxWarning(UserWarning):
 
 
 class PAIBoxDeprecationWarning(PAIBoxWarning, DeprecationWarning):
-    """Warning class for features which will be deprecatedin a future version."""
+    """Warning class for deprecated features."""
 
     pass
 

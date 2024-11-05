@@ -4,8 +4,8 @@ from importlib.metadata import version
 from .backend import BACKEND_CONFIG as BACKEND_CONFIG
 from .backend import Mapper as Mapper
 
+# Functional modules in SNN mode only
 # Functional modules in ANN mode only
-# Functional modules
 from .components.functional import AvgPool2dSemiFolded as AvgPool2dSemiFolded
 from .components.functional import BitwiseAND as BitwiseAND
 from .components.functional import BitwiseNOT as BitwiseNOT
@@ -26,6 +26,7 @@ from .components.functional import SpikingSub as SpikingSub
 from .components.functional import Transpose2d as Transpose2d
 from .components.functional import Transpose3d as Transpose3d
 
+# Recued neurons in ANN mode only
 # Reduced neurons
 from .components.neuron.neurons import IF as IF
 from .components.neuron.neurons import LIF as LIF
@@ -39,8 +40,10 @@ from .components.neuron.neurons import TonicSpiking as TonicSpiking
 # Input projection
 from .components.projection import InputProj as InputProj
 
-# Synapses
+# Connection types of synapses
 from .components.synapses import ConnType as SynConnType
+
+# Synapses
 from .components.synapses.synapses import Conv1d as Conv1d
 from .components.synapses.synapses import Conv2d as Conv2d
 from .components.synapses.synapses import ConvTranspose1d as ConvTranspose1d

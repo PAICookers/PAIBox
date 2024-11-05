@@ -255,7 +255,6 @@ class BypassNeuron(Neuron):
             - name: name of the neuron. Optional.
 
         NOTE: positive threshold = 1, negative threshold = 0, reset_v = 0, and leak_v = 0.
-
         """
         super().__init__(
             shape, neg_threshold=0, keep_shape=keep_shape, name=name, **kwargs
@@ -263,8 +262,8 @@ class BypassNeuron(Neuron):
 
 
 @deprecated(
-    "'SpikingRelu' is deprecated in version 1.2.0 and   \
-        will be removed in version 1.3.0. Use 'BypassNeuron' instead.",
+    "'SpikingRelu' is deprecated in version 1.2.0 and will "
+    "be removed in version 1.3.0. Use 'BypassNeuron' instead.",
     category=PAIBoxDeprecationWarning,
 )
 class SpikingRelu(BypassNeuron):
