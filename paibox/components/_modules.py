@@ -1,6 +1,6 @@
 import math
-from typing import Literal, Optional, Protocol, Union
 import typing
+from typing import Literal, Optional, Protocol, Union
 
 import numpy as np
 from paicorelib import TM, HwConfig

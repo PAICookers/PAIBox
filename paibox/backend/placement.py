@@ -42,7 +42,6 @@ from .types import (
     is_iw8,
 )
 
-
 # Get the fan-out by the combination rate of dendrites
 if hasattr(HwConfig, "FANOUT_IW8"):
     FANOUT_IW8 = HwConfig.FANOUT_IW8

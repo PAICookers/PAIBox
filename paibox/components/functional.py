@@ -1,8 +1,8 @@
 import sys
+import typing
 from collections.abc import Sequence
 from functools import partial
 from typing import ClassVar, Optional, Union
-import typing
 
 import numpy as np
 from paicorelib import NTM, RM, TM

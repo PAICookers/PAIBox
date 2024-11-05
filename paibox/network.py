@@ -6,13 +6,13 @@ import numpy as np
 from .base import DynamicSys, SynSys
 from .collector import Collector
 from .components import NeuModule, Neuron, Projection
-from .components.modules import BuiltComponentType
 from .components.functional import (
     AvgPool2dSemiFolded,
     Conv2dSemiFolded,
     LinearSemiFolded,
     MaxPool2dSemiFolded,
 )
+from .components.modules import BuiltComponentType
 from .mixin import Container
 from .node import NodeDict, NodeList
 
