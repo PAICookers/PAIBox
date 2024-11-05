@@ -174,9 +174,9 @@ class _HasSemiFoldedIntf(Protocol):
 @set_rt_mode_ann()
 class _SemiFoldedModule(FunctionalModule, _HasSemiFoldedIntf):
     valid_interval: int = 1
-    """The interval of valid output data"""
+    """The interval of valid output data."""
     ts_1st_valid_out: int = 0
-    """The timestamp of the first valid output data"""
+    """The timestamp of the first valid output data."""
 
     def _input_buffer_len_check(
         self, in_channels: int, in_h: int, kw: int, valid_interval: int
@@ -206,28 +206,36 @@ class _LinearBase(FunctionalModule):
         bias: DataType = 0,
         bit_trunc: int = 8,
         *,
-        conn_type: ConnType = ConnType.All2All,
         keep_shape: bool = False,
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
+        """Basic linear layer for ANN mode.
+
+        Args:
+            neuron_s: the input neuron.
+            out_features: the output shape.
+            weights: the weight matrix.
+            bias: It can be a scalar or an array of the same size as the output.
+            bit_trunc: the bit truncation position. By default, bits 7 to 0 are truncated.
+        """
         self.weights = weights
-        self.conn_type = conn_type
         self.bit_trunc = bit_trunc
+        _shape_out = as_shape(out_features)
 
         if isinstance(bias, np.ndarray):
             _bias = np.atleast_1d(bias).astype(LEAK_V_DTYPE)
+            if _bias.shape != _shape_out:
+                raise ShapeError(
+                    f"the shape of bias {_bias.shape} does not match the shape of output {_shape_out}."
+                )
         else:
             _bias = int(bias)
 
         self.bias = _bias
 
         super().__init__(
-            neuron_s,
-            shape_out=as_shape(out_features),
-            keep_shape=keep_shape,
-            name=name,
-            **kwargs,
+            neuron_s, shape_out=_shape_out, keep_shape=keep_shape, name=name, **kwargs
         )
 
 

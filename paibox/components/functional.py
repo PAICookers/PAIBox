@@ -64,9 +64,9 @@ __all__ = [
     "SpikingSub",
     "Transpose2d",
     "Transpose3d",
-    "Conv2dSemiFolded",
-    "Filter",
     "Linear",
+    "LinearSemiFolded",
+    "Conv2dSemiFolded",
     "MaxPool2dSemiFolded",
     "AvgPool2dSemiFolded",
 ]
@@ -861,6 +861,44 @@ class Transpose3d(TransposeModule):
         return generated
 
 
+@set_rt_mode_ann()
+class Linear(_LinearBase):
+    "Linear layer for ANN."
+
+    inherent_delay = 0
+
+    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
+        output = x1 @ self.weights.astype(VOLTAGE_DTYPE)
+        output = output + self.bias
+        output = np.where(output >= 1, MetaNeuron._truncate(output, self.bit_trunc), 0)
+
+        return output.astype(NEUOUT_U8_DTYPE)
+
+    def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
+        neuron_d = ANNNeuron(
+            self.shape_out,
+            self.bias,
+            self.bit_trunc,
+            delay=self.delay_relative,
+            tick_wait_start=self.tick_wait_start,
+            tick_wait_end=self.tick_wait_end,
+            keep_shape=self.keep_shape,
+            name=f"nd_{self.name}",
+        )
+        syn1 = FullConnSyn(
+            self.module_intf.operands[0],
+            neuron_d,
+            weights=self.weights,
+            conn_type=ConnType.All2All,
+            name=f"syn1_{self.name}",
+        )
+
+        generated = [neuron_d, syn1]
+        self._rebuild_out_intf(network, neuron_d, *generated, **build_options)
+
+        return generated
+
+
 class LinearSemiFolded(_LinearBase, _SemiFoldedModule):
     "This operator is used on the first fully-connected layer after the semi-folded convolution."
 
@@ -940,7 +978,16 @@ class Conv2dSemiFolded(_SemiFoldedModule):
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
-        """2d semi-folded convolution for ANN mode."""
+        """2d semi-folded convolution for ANN mode.
+
+        Args:
+            neuron_s: source neuron. The dimensions need to be expressed explicitly as (C,H,W).
+            kernel: convolution kernel in (O,I,H,W) order.
+            stride: the step size of the kernel sliding. It can be a scalar or a tuple of 2 integers.
+            padding: the amount of zero-padding applied to the input. It can be a scalar or a tuple of 2 integers.
+            bias: It can be a scalar or an array of the same size as the output.
+            bit_trunc: the bit truncation position. By default, bits 7 to 0 are truncated.
+        """
         if kernel.ndim != self._spatial_ndim + 2:
             raise ShapeError(
                 f"convolution kernel dimension must be {self._spatial_ndim + 2}, but got {kernel.ndim}."
@@ -950,13 +997,6 @@ class Conv2dSemiFolded(_SemiFoldedModule):
         self.stride = _pair(stride)
         self.padding = _pair(padding)
         self.bit_trunc = bit_trunc
-
-        if isinstance(bias, np.ndarray):
-            _bias = np.atleast_1d(bias).astype(LEAK_V_DTYPE)
-        else:
-            _bias = int(bias)
-
-        self.bias = _bias
 
         assert len(neuron_s.shape_out) == 2
         in_ch, in_h = neuron_s.shape_out
@@ -969,12 +1009,21 @@ class Conv2dSemiFolded(_SemiFoldedModule):
         if in_ch != cin:
             raise ShapeError(f"the channels mismatch: {in_ch} != {cin}.")
 
+        _shape_out = (cout, out_h)
+
+        if isinstance(bias, np.ndarray):
+            _bias = np.atleast_1d(bias).astype(LEAK_V_DTYPE)
+            if _bias.shape != _shape_out:
+                raise ShapeError(
+                    f"the shape of bias {_bias.shape} does not match the shape of output {_shape_out}."
+                )
+        else:
+            _bias = int(bias)
+
+        self.bias = _bias
+
         super().__init__(
-            neuron_s,
-            shape_out=(cout, out_h),
-            keep_shape=keep_shape,
-            name=name,
-            **kwargs,
+            neuron_s, shape_out=_shape_out, keep_shape=keep_shape, name=name, **kwargs
         )
 
     def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
@@ -1057,10 +1106,9 @@ class Conv2dSemiFolded(_SemiFoldedModule):
             )
             s_kernel.append(syn2)
 
-        # Extra negative padding layer
+        # Add additional negative padding layer to eliminate the incorrect output
         # NOTE: ts_first_valid_inp = 0 & padding[0] > 0 means the previous layer is
         # an input node. No need to add negative padding layer for this case.
-        # TODO add technical details
         if ts_first_valid_inp > 0:
             for p in range(self.padding[0]):
                 neuron = ANNBypassNeuron(
@@ -1106,114 +1154,6 @@ class Conv2dSemiFolded(_SemiFoldedModule):
         return generated
 
 
-@deprecated(
-    "The backend currently does not support 'Filter', please use it in a future version",
-    category=PAIBoxDeprecationWarning,
-)
-@set_rt_mode_ann()
-class Filter(FunctionalModule):
-    def __init__(
-        self,
-        neuron: Union[NeuDyn, InputProj],
-        time_to_fire: int,
-        keep_shape: bool = False,
-        name: Optional[str] = None,
-        **kwargs,
-    ) -> None:
-        """ """
-        shape_out = neuron.shape_out
-        self.time_to_fire = time_to_fire
-        self.cur_time = 0
-        super().__init__(
-            neuron,
-            shape_out=shape_out,
-            keep_shape=keep_shape,
-            name=name,
-            **kwargs,
-        )
-
-    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
-        if self.cur_time != self.time_to_fire:
-            self.cur_time += 1
-            return np.zeros_like(x1)
-        else:
-            self.cur_time = 0
-            return x1
-
-    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
-        inp1 = Always1Neuron((2,))
-        n1_filter = Neuron(
-            self.shape_out,
-            leak_v=0,
-            neg_threshold=0,
-            delay=self.delay_relative,
-            tick_wait_start=self.tick_wait_start,
-            tick_wait_end=self.tick_wait_end,
-            input_width=self.input_width,
-            spike_width=self.spike_width,
-            snn_en=self.snn_en,
-            keep_shape=self.keep_shape,
-            name="filter",
-        )
-
-        syn1 = FullConnSyn(
-            self.module_intf.operands[0],  # (10,0)
-            n1_filter,  # (10,0)
-            weights=1,
-            conn_type=ConnType.One2One,
-            name=f"s0_{self.name}",
-        )
-        syn2 = FullConnSyn(
-            inp1,  # (2,0)
-            n1_filter,  # (10,0)
-            weights=-128,
-            conn_type=ConnType.All2All,
-            name=f"s1_{self.name}",
-        )
-        network._add_components(n1_filter, syn1, syn2)
-        network._remove_components(self)
-        generated = [n1_filter, syn1, syn2]
-        return generated
-
-
-@set_rt_mode_ann()
-class Linear(_LinearBase):
-    "Linear layer for ANN."
-
-    inherent_delay = 0
-
-    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
-        output = x1 @ self.weights.astype(VOLTAGE_DTYPE)
-        output = output + self.bias
-        output = np.where(output >= 1, MetaNeuron._truncate(output, self.bit_trunc), 0)
-
-        return output.astype(NEUOUT_U8_DTYPE)
-
-    def build(self, network: DynSysGroup, **build_options) -> BuiltComponentType:
-        neuron_d = ANNNeuron(
-            self.shape_out,
-            self.bias,
-            self.bit_trunc,
-            delay=self.delay_relative,
-            tick_wait_start=self.tick_wait_start,
-            tick_wait_end=self.tick_wait_end,
-            keep_shape=self.keep_shape,
-            name=f"nd_{self.name}",
-        )
-        syn1 = FullConnSyn(
-            self.module_intf.operands[0],
-            neuron_d,
-            weights=self.weights,
-            conn_type=ConnType.All2All,
-            name=f"syn1_{self.name}",
-        )
-
-        generated = [neuron_d, syn1]
-        self._rebuild_out_intf(network, neuron_d, *generated, **build_options)
-
-        return generated
-
-
 class MaxPool2dSemiFolded(_SemiFoldedModule):
     _spatial_ndim: ClassVar[int] = 2
 
@@ -1226,7 +1166,16 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
-        """2d semi-folded max pooling for ANN mode."""
+        """2d semi-folded max pooling for ANN mode.
+
+        Args:
+            neuron_s: the input neuron to be pooled.
+            kernel_size: the size of the window to take a max over.
+            stride: the stride of the window. Default value is `kernel_size`.
+
+        NOTE: Since the semi-folded max pooling in the ANN mode is implemented using comparators, it is not \
+            possible to use negative padding layer to eliminate the incorrect results of the padding part.
+        """
         self.kernel_size = _pair(kernel_size)
         if stride is None:
             _stride = self.kernel_size
@@ -1345,7 +1294,15 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
         name: Optional[str] = None,
         **kwargs,
     ) -> None:
-        """2d AvgPool2d_semimap for spike."""
+        """2d semi-folded average pooling for ANN mode.
+
+        Args:
+            neuron_s: the input neuron to be pooled.
+            kernel_size: the size of the window.
+            stride: the stride of the window. Default value is `kernel_size`.
+            padding: the amount of zero-padding applied to the input. It can be a scalar or a tuple of 2    \
+                integers.
+        """
         self.kernel_size = _pair(kernel_size)
         if stride is None:
             _stride = self.kernel_size
@@ -1397,8 +1354,17 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
         if build_options.get("check_before_compile"):
             self._input_buffer_len_check(cin, in_h, kw, valid_interval)
 
-        # NOTE: Division is achieved with the help of truncation operation.
-        # It can only be approximated to a power of an integer of 2.
+        # NOTE: Division is achieved with the help of output truncation.
+        # TODO Since division with a divisor that is an integer power of 2 can only be implemented by
+        # truncating the output, when the pooling window is not an integer power of 2 (which is the
+        # usual case), additional processing is required before instantiating these operators.
+        # For example,
+        # 1. The pooling window size is 3x3, but the chip can only accurately implement result/8.
+        # 2. bit_trunc=8 for the output neurons of this pooling layer, but for the next layer, the
+        # weights becomes w*8/9, where w is the original weights.
+        # 3. The alternative is bit_tunc=16 for this layer & w*16/9 for the next layer?
+        # NOTE: The resulting linear transformation of weights of the next layer needs to be considered
+        # during quantization.
         bit_trunc = 8 + (kh * kw).bit_length() - 1
 
         n_delays = NodeList()
@@ -1445,7 +1411,7 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
             )
             s_delays.append(syn2)
 
-        # Extra negative padding layer
+        # Add additional negative padding layer to eliminate the incorrect output
         if ts_first_valid_inp > 0:
             for p in range(self.padding[0]):
                 neuron = ANNBypassNeuron(
