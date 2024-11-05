@@ -242,13 +242,20 @@ class TestPAIGraph:
         self, monkeypatch, build_FModule_ConnWithInput_Net
     ):
         net = build_FModule_ConnWithInput_Net
+        mapper = pb.Mapper()
 
         monkeypatch.setattr(net.n1, "__gh_build_ignore__", True)
 
-        mapper = pb.Mapper()
-
         with pytest.raises(GraphConnectionError):
             mapper.build(net)
+
+        monkeypatch.setattr(net.n1, "__gh_build_ignore__", False)
+        monkeypatch.setattr(net.s2, "__gh_build_ignore__", True)
+        monkeypatch.setattr(net.n2, "__gh_build_ignore__", True)
+
+        mapper.build(net)
+        assert net.s2.name not in mapper.graph._raw_edges
+        assert net.n2.name not in mapper.graph._raw_nodes
 
     @pytest.mark.parametrize("no_twisted_branch", [True, False])
     def test_untwist_branch_nodes1(
