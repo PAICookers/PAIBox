@@ -103,10 +103,6 @@ def gen_config_frames_by_coreconf(
                             neu_conf.neuron_attrs,
                             neu_conf.neuron_dest_info,
                             neu_conf.neu_seg.repeat,
-                            # v.params_reg.n_repeat_nram,
-                            # XXX Is the parameter 'repeat' passed in from the previous step, or
-                            # is it calculated automatically in the parametric model?
-                            # Need to check this parameter?
                         )
                     )
                 else:
@@ -158,26 +154,29 @@ def gen_config_frames_by_coreconf(
                     core_coord,
                     _RID_UNSET,
                     0,
-                    18 * v.weight_ram.shape[0],
+                    v.weight_ram.size,
                     v.weight_ram,
                 )
 
                 _concat_frames.append(config_frame_type4_w.value)
 
+            # Extra neurons part
             if neu_conf_on_wram:
+                # Only the part that is mapped to the neuron parameters is returned.
                 neu_on_wram = CorePlacement.neu_params_mapping(neu_conf_on_wram)
-                # Extra neurons part
                 assert (
                     v.weight_ram.shape[0] + neu_on_wram.shape[0]
-                    <= HwConfig.ADDR_RAM_MAX + 1
+                    <= CorePlacement.WRAM_BASE_SHAPE[1]
                 )
+
                 config_frame_type4_n = OfflineFrameGen.gen_config_frame4(
                     chip_coord,
                     core_coord,
                     _RID_UNSET,
-                    # Start after the weights mapped to the WRAM
+                    # `v.weigh_ram` already contains the mapped & unallocated parts for weight mapping,
+                    # so `neu_on_wram` can be placed next to it.
                     v.weight_ram.shape[0],
-                    18 * neu_on_wram.shape[0],
+                    neu_on_wram.size,
                     neu_on_wram,
                 )
 

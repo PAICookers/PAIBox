@@ -50,7 +50,7 @@ SourceNodeType: TypeAlias = NodeType
 DestNodeType: TypeAlias = Neuron
 
 WRAM_UNPACKED_DTYPE = np.uint8
-WRAM_PACKED_DTYPE = np.uint64
+WRAM_PACKED_DTYPE = np.uint64  # Type of one frame of data package
 # Type of unpacked weight in WRAM
 WRAMUnpackedType: TypeAlias = NDArray[WRAM_UNPACKED_DTYPE]
 # Type of packed weight in WRAM
