@@ -164,6 +164,27 @@ class InputProj(Projection):
     def feature_map(self) -> NeuOutType:
         return self._neu_out.reshape(self.varshape)
 
+class InputSlice:
+    def __init__(self, input:InputProj, index: slice = None):
+        self.target = input
+        self.index = index
+        if index is None:
+            self.index = slice(0, input.num_out)
+
+    @property
+    def num_out(self) -> int:
+        return self.index.stop - self.index.start
+    
+    @property
+    def info(self) -> str:
+        return f"InputSlice {self.target.name}[{self.index.start}:{self.index.stop}]"
+    
+    def __eq__(self, other: "InputSlice") -> bool:
+        return self.target == other.target and self.index == other.index
+    
+    def __hash__(self) -> int:
+        return hash((self.target, self.index.start, self.index.stop))
+
 
 def _call_with_ctx(f: Callable[..., DataType], *args, **kwargs) -> DataType:
     try:
