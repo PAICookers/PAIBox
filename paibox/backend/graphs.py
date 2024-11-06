@@ -23,7 +23,7 @@ from .placement import CoreBlock
 from .routing import RoutingGroup
 from .segment_utils import get_neu_segments
 from .types import *
-
+from .slice import node_overlap
 
 @dataclass
 class PAIGraph:
@@ -978,7 +978,7 @@ def get_shortest_path(
 def get_succ_cb_by_node(
     node: NodeType, core_blocks: Sequence[CoreBlock]
 ) -> list[CoreBlock]:
-    return [cb for cb in core_blocks if node in cb.source]
+    return [cb for cb in core_blocks if node_overlap(node, cb.ordered_axons)]
 
 
 def get_pred_cb_by_succ_cb(
