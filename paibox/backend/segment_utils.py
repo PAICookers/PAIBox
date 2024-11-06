@@ -3,7 +3,7 @@ from functools import partial
 from math import ceil
 from typing import Literal
 
-from paibox.components import Neuron
+from paibox.components import Neuron, NeuronSlice
 from paibox.exceptions import ParameterInvalidWarning, ResourceError
 
 from .types import (
@@ -14,6 +14,7 @@ from .types import (
     NeuSegOfCorePlm,
     NeuSlice,
     SourceNodeType,
+    SourceSliceType,
 )
 
 
@@ -31,7 +32,7 @@ def _place_seperately(
 
 
 def _coarse_group(
-    neu: Neuron,
+    neu: NeuronSlice,
     capacity: int,
     load_type: Literal["average", "max_capacity"],
 ) -> list[NeuSlice]:
@@ -68,7 +69,7 @@ def _coarse_group(
     else:
         dist = _max_capacity_load(n_neuron)
 
-    _sum = 0
+    _sum = neu.index.start
     for d in dist:
         neu_seg_slices.append(NeuSlice(_sum, _sum + d, 1))
         _sum += d
@@ -152,7 +153,7 @@ def _get_nsg_opt_core(
 
 
 def _get_neu_slices(
-    neu_groups: list[Neuron],
+    neu_groups: list[NeuronSlice],
     capacity: int,
     load_type: Literal["average", "max_capacity"],
 ) -> dict[Neuron, list[NeuSlice]]:
@@ -162,8 +163,8 @@ def _get_neu_slices(
     """
     seg_slices_dict: dict[Neuron, list[NeuSlice]] = dict()
 
-    for neu in neu_groups:
-        seg_slices_dict[neu] = _coarse_group(neu, capacity, load_type)
+    for neu_slice in neu_groups:
+        seg_slices_dict[neu_slice.target] = _coarse_group(neu_slice, capacity, load_type)
 
     return seg_slices_dict
 
@@ -227,7 +228,7 @@ def _dense_reorganized(
 
 
 def get_neu_segments(
-    neu_groups: list[Neuron],
+    neu_groups: list[NeuronSlice],
     capacity: int,
     repl_prop: int,
     optim_target: Literal["latency", "core", "both"],
@@ -255,8 +256,8 @@ def get_neu_segments(
 
 
 def get_axon_segments(
-    axons: list[SourceNodeType], tr_max: int, n_fanin: int
-) -> dict[SourceNodeType, AxonSegment]:
+    axons: list[SourceSliceType], tr_max: int, n_fanin: int
+) -> dict[SourceSliceType, AxonSegment]:
     """Divide axons into segments by group to fit the hardware constraints.
 
     Args:
@@ -265,7 +266,7 @@ def get_axon_segments(
         - n_fanin: the fan-in of cores.
     """
 
-    def _seg_alloc(axon: SourceNodeType, offset: int) -> tuple[AxonSegment, int]:
+    def _seg_alloc(axon: SourceSliceType, offset: int) -> tuple[AxonSegment, int]:
         """Allocate an axon segment, return the next offset of axon address."""
         # The width of assigned address
         if axon.num_out % tr_max > 0:
@@ -280,10 +281,10 @@ def get_axon_segments(
                 f"axons address out of range [0, {n_fanin}) ({offset + addr_width})."
             )
 
-        return AxonSegment(axon.num_out, addr_width, offset), offset + addr_width
+        return AxonSegment(axon.num_out, addr_width, offset, axon.index.start), offset + addr_width
 
     offset = 0
-    axon_segments = dict()
+    axon_segments:dict[SourceSliceType, AxonSegment] = dict()
 
     for ax in axons:
         segment, offset = _seg_alloc(ax, offset)
@@ -328,7 +329,9 @@ def aligned_coords(
         neu_index.start // addr_width,
         neu_index.stop // addr_width,
     )
-    addr_start, addr_stop = (neu_index.start % addr_width, neu_index.stop % addr_width)
+    addr_start = (neu_index.start - axon_seg.start_offset) % addr_width
+    addr_stop = (neu_index.stop - axon_seg.start_offset) % addr_width
+    # addr_start, addr_stop = (neu_index.start % addr_width, neu_index.stop % addr_width)
 
     _addr_interval = 8 if is_iw8 else 1
 
