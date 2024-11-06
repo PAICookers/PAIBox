@@ -17,7 +17,7 @@ from paicorelib import Coord, CoreMode, HwConfig
 from paicorelib import ReplicationId as RId
 
 from paibox.base import PAIBoxObject
-from paibox.components import FullConnectedSyn, InputProj, Neuron
+from paibox.components import FullConnectedSyn, InputProj, Neuron, EdgeSlice, InputSlice, NeuronSlice
 
 __all__ = [
     "NodeName",
@@ -26,6 +26,10 @@ __all__ = [
     "EdgeType",
     "SourceNodeType",
     "DestNodeType",
+    "NodeSliceType",
+    "EdgeSliceType",
+    "SourceSliceType",
+    "DestSliceType",
     "NodePosition",
     "NodeDegree",
     "NodeAttr",
@@ -44,9 +48,13 @@ __all__ = [
 NodeName: TypeAlias = str
 EdgeName: TypeAlias = str
 NodeType: TypeAlias = Union[InputProj, Neuron]
+NodeSliceType: TypeAlias = Union[InputSlice, NeuronSlice]
 EdgeType: TypeAlias = FullConnectedSyn
+EdgeSliceType: TypeAlias = EdgeSlice
 SourceNodeType: TypeAlias = NodeType
+SourceSliceType: TypeAlias = NodeSliceType
 DestNodeType: TypeAlias = Neuron
+DestSliceType: TypeAlias = NeuronSlice
 
 WRAM_UNPACKED_DTYPE = np.uint8
 WRAM_PACKED_DTYPE = np.uint64  # Type of one frame of data package
@@ -144,6 +152,22 @@ class MergedSuccGroup:
                 onodes[node].append(edge)
 
         return onodes
+    
+    @property
+    def num_in(self) -> int:
+        return sum(input_node.num_out for input_node in self.input_nodes)
+    
+    @classmethod
+    def merge(cls, merged_sgrps: list["MergedSuccGroup"]) -> "MergedSuccGroup":
+        merged = cls()
+        for merged_sgrp in merged_sgrps:
+            merged.nodes.update(merged_sgrp.nodes)
+            merged.groups.extend(merged_sgrp.groups)
+            merged.input_nodes.extend(merged_sgrp.input_nodes)
+        return merged
+    
+    def __hash__(self) -> int:
+        return hash(tuple(self.nodes))
 
     @property
     def num_in(self) -> int:
@@ -268,6 +292,8 @@ class AxonSegment(NamedTuple):
     """The range of axon address is [addr_offset, addr_offset + addr_width)."""
     addr_offset: int
     """The offset of the assigned address."""
+    start_offset: int
+    """"The start of the source slice."""
 
 
 class CoreAbstract(PAIBoxObject, ABC):
