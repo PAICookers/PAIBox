@@ -2,7 +2,7 @@ from math import ceil
 
 import numpy as np
 import pytest
-from paicorelib import Coord, HwConfig
+from paicorelib import Coord, HwConfig, ONLINE_CORES_BASE_COORD
 from paicorelib import WeightWidth as WW
 
 import paibox as pb
@@ -262,8 +262,10 @@ class TestMapperDeployment:
         if n_networks > 1008:
             r2 = mapper.routing_manager.n_core_per_chip[1]
             assert rtotal == r1 + r2
-            assert r1 == 1008
+            assert r1 == 1024
             assert r2 == n_networks - 1008
+        elif n_networks > ONLINE_CORES_BASE_COORD:
+            assert rtotal == r1 == n_networks + 16
         else:
             assert rtotal == r1 == n_networks
 
