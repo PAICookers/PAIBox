@@ -2,7 +2,7 @@ from math import ceil
 
 import numpy as np
 import pytest
-from paicorelib import Coord, HwConfig, ONLINE_CORES_BASE_COORD
+from paicorelib import ONLINE_CORES_BASE_COORD, Coord, HwConfig
 from paicorelib import WeightWidth as WW
 
 import paibox as pb

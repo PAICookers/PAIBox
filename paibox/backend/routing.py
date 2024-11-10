@@ -4,8 +4,8 @@ import sys
 from collections.abc import Generator, Iterator
 from typing import Any, ClassVar, Union
 
-from paicorelib import ROUTING_DIRECTIONS_IDX as DIREC_IDX
 from paicorelib import ONLINE_CORES_BASE_COORD
+from paicorelib import ROUTING_DIRECTIONS_IDX as DIREC_IDX
 from paicorelib import ChipCoord, Coord, HwConfig, RoutingCoord
 from paicorelib import RoutingDirection as Direction
 from paicorelib import RoutingLevel as Level
@@ -287,12 +287,15 @@ class RoutingManager:
         """Look for the insertion location of the incoming routing group."""
         n_core_aligned = _nearest_multiple_above(self.n_core_total, n_core_incoming)
 
-        n_core_predicted = n_core_aligned + n_core_incoming 
+        n_core_predicted = n_core_aligned + n_core_incoming
         start_core_inchip = _num_inchip(n_core_aligned)
         end_core_inchip = _num_inchip(n_core_predicted) - n_core_wasted
-        
+
         # If online cores are hit, start from the first core after the online cores
-        if start_core_inchip <= ONLINE_CORES_BASE_COORD and end_core_inchip > ONLINE_CORES_BASE_COORD:
+        if (
+            start_core_inchip <= ONLINE_CORES_BASE_COORD
+            and end_core_inchip > ONLINE_CORES_BASE_COORD
+        ):
             online_end_inchip = ONLINE_CORES_BASE_COORD + HwConfig.N_CORE_ONLINE
             # The first core after the online cores
             online_end = n_core_aligned - start_core_inchip + online_end_inchip
