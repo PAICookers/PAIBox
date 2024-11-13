@@ -334,13 +334,17 @@ def aligned_coords(
 
     if tr_offset_stop == tr_offset_start:
         axon_coords = [
-            AxonCoord.build(tr_base + tr_offset_start, (addr_offset + addr) * _addr_interval)
+            AxonCoord.build(
+                tr_base + tr_offset_start, (addr_offset + addr) * _addr_interval
+            )
             for addr in range(addr_start, addr_stop)
         ]
     else:
         # First row: addr_start -> end
         acoords_first = [
-            AxonCoord.build(tr_base + tr_offset_start, (addr_offset + addr) * _addr_interval)
+            AxonCoord.build(
+                tr_base + tr_offset_start, (addr_offset + addr) * _addr_interval
+            )
             for addr in range(addr_start, addr_width)
         ]
 
@@ -354,7 +358,9 @@ def aligned_coords(
 
         # Last row: start -> addr_stop
         acoords_last = [
-            AxonCoord.build(tr_base + tr_offset_stop, (addr_offset + addr) * _addr_interval)
+            AxonCoord.build(
+                tr_base + tr_offset_stop, (addr_offset + addr) * _addr_interval
+            )
             for addr in range(addr_stop)
         ]
 

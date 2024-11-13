@@ -247,6 +247,7 @@ class AxonCoord(NamedTuple):
         tick_relative = tick_relative % HwConfig.N_TIMESLOT_MAX
         return cls(tick_relative, addr_axon)
 
+
 class AxonSegment(NamedTuple):
     n_axon: int
     """#N of axons."""
