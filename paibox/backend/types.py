@@ -13,7 +13,7 @@ if sys.version_info >= (3, 10):
 else:
     from typing_extensions import TypeAlias
 
-from paicorelib import Coord, CoreMode
+from paicorelib import Coord, CoreMode, HwConfig
 from paicorelib import ReplicationId as RId
 
 from paibox.base import PAIBoxObject
@@ -242,6 +242,10 @@ class AxonCoord(NamedTuple):
     tick_relative: int
     addr_axon: int
 
+    @classmethod
+    def build(cls, tick_relative: int, addr_axon: int) -> "AxonCoord":
+        tick_relative = tick_relative % HwConfig.N_TIMESLOT_MAX
+        return cls(tick_relative, addr_axon)
 
 class AxonSegment(NamedTuple):
     n_axon: int
