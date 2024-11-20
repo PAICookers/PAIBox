@@ -1,3 +1,4 @@
+from collections import UserDict
 from typing import Any, TypeVar
 
 __all__ = ["FRONTEND_ENV"]
@@ -6,10 +7,8 @@ __all__ = ["FRONTEND_ENV"]
 _KT = TypeVar("_KT")
 _VT = TypeVar("_VT")
 
-# XXX: use collections.UserDict[_KT, _VT] in 3.9+
 
-
-class _Context(dict[_KT, _VT]):
+class _Context(UserDict[_KT, _VT]):
     def load(self, key: Any, default: Any = None) -> Any:
         """Load the context by the `key`.
 
