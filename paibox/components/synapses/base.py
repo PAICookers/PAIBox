@@ -15,6 +15,7 @@ from .conv_types import _KOrder3d, _KOrder4d
 from .conv_utils import _fm_ndim1_check, _fm_ndim2_check
 from .transforms import (
     AllToAll,
+    CompareMax,
     ConnType,
     Conv1dForward,
     Conv2dForward,
@@ -25,7 +26,6 @@ from .transforms import (
     MaskedLinear,
     OneToOne,
     Transform,
-    CompareMax,
 )
 
 RIGISTER_MASTER_KEY_FORMAT = "{0}.output"
