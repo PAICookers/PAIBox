@@ -40,29 +40,15 @@ from .types import (
     SourceNodeType,
     is_iw8,
     NeuSegOfCoreBlock,
-
+    Coord2str,
 )
 from .overlap import LL_overlap, NL_overlap, overlap
-
+import logging
+logging.basicConfig(
+    level=logging.INFO,  # 设置日志级别
+    format="%(levelname)s:\t%(message)s"  # 自定义格式
+)
 __all__ = ["Mapper"]
-
-def print_neu_seg(neu_segs: NeuSegOfCoreBlock):
-    for i, neu_seg in enumerate(neu_segs):
-        print(f"Core[{i}]:")
-        for neu in neu_seg:
-            print(f"\t{neu.target.name}[{neu.index}]") 
-
-def to_last_five_binary(n: int) -> str:
-    # 将数字转换为二进制并去掉前面的 '0b' 前缀
-    binary_rep = bin(n)[2:]
-    
-    # 获取最后五位并用 'zfill' 补齐不足的部分
-    last_five = binary_rep[-5:].zfill(5)
-    
-    return last_five
-
-def Coord2str(coord: Coord) -> str:
-    return f"({to_last_five_binary(coord.x)},{to_last_five_binary(coord.y)})"
 
 class Mapper:
     graph: PAIGraph
@@ -260,25 +246,28 @@ class Mapper:
             routing_groups.extend(rg.optimize_group())
         self.routing_groups = routing_groups
 
-        print("\n\n\nAfter optimization:")
+        logging.info(f"################################### Routing Group Builded, N_Core_Required Not Set Yet ###################################")
         for rg in self.routing_groups:
             rg.dump()
 
         for rg in self.routing_groups:
             self.core_blocks += rg.core_blocks
 
+        logging.info(f"################################### Set Succ CoreBlock ###################################")
         for cur_cb in self.core_blocks:
             succ_cbs: list[CoreBlock] = []
             # cur_cb == cb is possible
             for cb in self.core_blocks:
                 if LL_overlap(cur_cb.dest, cb.ordered_axons):
                     succ_cbs.append(cb)
-            # print(f"succ core block of {cur_cb.name}:")
-            # for cb in succ_cbs:
-            #     print(f"\t{cb.name}")
-            # print()
-
             self.succ_core_blocks[cur_cb] = succ_cbs
+            
+            logging.info(f"{cur_cb.name} Succ:")
+            for cb in succ_cbs:
+                logging.info(f"\t{cb.name}")
+            logging.info("")
+
+            
 
 
         for inode in self.graph.inodes.values():
@@ -338,16 +327,23 @@ class Mapper:
                 cb.target_lcn = succ_cbs[0].lcn_ex
 
             cb._lcn_locked = True
+        
+        logging.info(f"################################### LCN Adjustment Finished ###################################")
+        for cb in self.core_blocks:
+            logging.info(f"{cb.name}: LCN = {cb.lcn_ex}")
 
     #需要广播的神经元的目的地的axon需要保持一致，检查同一routing group中的所有core block的输入，如果有相互重合的部分需要将重合的部分设置相同的axon
     def cb_axon_grouping(self) -> None:
         """The axons are grouped after the LCN has been modified & locked."""
         for cb in self.core_blocks:
             cb.group_axons()
-            print(f"cb: {cb.name}:")
+        
+        logging.info(f"################################### Axon Group Finished ###################################")
+        for cb in self.core_blocks:
+            logging.info(f"cb: {cb.name}:")
             for source, axon_seg in cb.axon_segments.items():
-                print(f"\t{source.info}: {axon_seg}")
-            print()
+                logging.info(f"\t{source.info}: {axon_seg}")
+            logging.info("")
 
     def graph_optimization(self) -> None:
         optimized = self.graph.graph_optimization(self.core_blocks, self.routing_groups)
@@ -364,25 +360,33 @@ class Mapper:
         NOTE: The neurons in each core block must be grouped first to determine the \
             #N of cores required, and then the routing coordinates can be assigned.
         """
-        for cb in self.core_blocks:
-            print(f"{cb.name}:")
-            print(f"\tlcn_ex: {cb.lcn_ex}")
-            print(f"\tweight_width: {cb.weight_width}")
-            print(f"\tfan_out: {cb.n_fanout}")
-            print()
-        
+
         for cb in self.core_blocks:
             # Group the neurons, get the #N of cores required.
             cb.group_neurons(
                 optim_target=_BACKEND_CONTEXT.cflags["grouping_optim_target"]
             )
-            print (cb.name)
-            print_neu_seg (cb.neuron_segs_of_cb)
-            print("************************\n")
+        
+        logging.info(f"################################### Neuron Grouping Finished ###################################")
+        for cb in self.core_blocks:
+            logging.info(f"{cb.name}:")
+            logging.info(f"\tlcn_ex: {cb.lcn_ex}")
+            logging.info(f"\tweight_width: {cb.weight_width}")
+            logging.info(f"\tfan_out: {cb.n_fanout}")
+            logging.info(f"\tDests:")
+            for dest in cb.dest:
+                logging.info(f"\t\t{dest.info}")
+            logging.info(f"\tCores:")
+            for i, neu_seg in enumerate(cb.neuron_segs_of_cb):
+                logging.info(f"\t\t[{i}]:")
+                for neu in neu_seg:
+                    logging.info(f"\t\t\t{neu.target.name}[{neu.index}]") 
+            logging.info("")
 
         for rg in self.routing_groups:
             rg.set_core_required()
-            
+
+        logging.info(f"################################### Core Required Set ###################################")
         for rg in self.routing_groups:
             rg.dump()
 
@@ -405,6 +409,10 @@ class Mapper:
 
         for rg in self.routing_groups:
             self.routing_manager.place_routing_group(rg)
+        
+        logging.info(f"################################### Assigned finished ###################################")
+        for rg in self.routing_groups:
+            rg.dump_routing_result()
 
         # Calculate the consumption of occupied physical cores.
         if (
@@ -426,19 +434,21 @@ class Mapper:
                 if source not in self.neuron_dest:
                     self.neuron_dest[source] = SourceDest()
                 self.neuron_dest[source].add_dest(source_slice, axon_seg, cb)
+            
+        logging.info(f"################################### Neuron Dest Info ###################################")
 
         for source, dest in self.neuron_dest.items():
             dest.fusion_dest()
-            print(f"source: {source.name}")
-            print (f"cut_point: {dest.cut_points}")
+            logging.info(f"source: {source.name}")
+            logging.info(f"cut_point: {dest.cut_points}")
             for slice, slice_dest in zip(dest.slices, dest.dests):
-                print(f"\tslice    : ({slice.start}, {slice.stop})")
-                print(f"\taxon_addr: {slice_dest.dest_axon}")
-                print(f"\tchip_addr: {slice_dest.dest_chip_coord}")
-                print(f"\tcore_addr: {Coord2str(slice_dest.base_coord)}")
-                print(f"\tmulticat : {Coord2str(slice_dest.rid)}")
-                print()
-            print()
+                logging.info(f"\tslice    : ({slice.start}, {slice.stop})")
+                logging.info(f"\taxon_addr: {slice_dest.dest_axon}")
+                logging.info(f"\tchip_addr: {slice_dest.dest_chip_coord}")
+                logging.info(f"\tcore_addr: {Coord2str(slice_dest.base_coord)}")
+                logging.info(f"\tmulticast: {Coord2str(slice_dest.rid)}")
+                logging.info("")
+            logging.info("")
             
                 
                 
