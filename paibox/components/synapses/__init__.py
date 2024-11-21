@@ -1,7 +1,2 @@
-from .base import (
-    Conv2dSemiFoldedSyn,
-    FullConnectedSyn,
-    FullConnSyn,
-    MaxPool2dSemiFoldedSyn,
-)
+from .base import Conv2dSemiFoldedSyn, FullConnectedSyn, FullConnSyn, MaxPoolSyn
 from .transforms import ConnType

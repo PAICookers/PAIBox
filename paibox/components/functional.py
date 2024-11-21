@@ -37,7 +37,7 @@ from .neuron.base import MetaNeuron
 from .neuron.neurons import *
 from .neuron.utils import vjt_overflow
 from .projection import InputProj
-from .synapses import ConnType, Conv2dSemiFoldedSyn, FullConnSyn, MaxPool2dSemiFoldedSyn
+from .synapses import ConnType, Conv2dSemiFoldedSyn, FullConnSyn, MaxPoolSyn
 from .synapses.conv_types import _Size1Type, _Size2Type
 from .synapses.conv_utils import _pair
 
@@ -941,7 +941,7 @@ class LinearSemiFolded(_LinearBase, _SemiFoldedModule):
             syn1 = FullConnSyn(
                 self.module_intf.operands[0],
                 neuron,
-                weights=_delay_mapping(in_h, in_ch),
+                weights=_delay_mapping_mask(in_h, in_ch),
                 conn_type=ConnType.All2All,
                 name=f"s{i}_delay_{self.name}",
             )
@@ -1089,7 +1089,7 @@ class Conv2dSemiFolded(_SemiFoldedModule):
             syn1 = FullConnSyn(
                 self.module_intf.operands[0],
                 neuron,
-                weights=_delay_mapping(in_h, cin),
+                weights=_delay_mapping_mask(in_h, cin),
                 conn_type=ConnType.All2All,
                 name=f"s{i}_delay_{self.name}",
             )
@@ -1124,7 +1124,7 @@ class Conv2dSemiFolded(_SemiFoldedModule):
                 syn1 = FullConnSyn(
                     self.module_intf.operands[0],
                     neuron,
-                    weights=_delay_mapping(in_h, cin),
+                    weights=_delay_mapping_mask(in_h, cin),
                     conn_type=ConnType.All2All,
                     name=f"s{p}_pad_{self.name}",
                 )
@@ -1255,15 +1255,15 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
             syn1 = FullConnSyn(
                 self.module_intf.operands[0],
                 neuron,
-                weights=_delay_mapping(in_h, cin),
+                weights=_delay_mapping_mask(in_h, cin),
                 conn_type=ConnType.All2All,
                 name=f"s{i}_delay_{self.name}",
             )
             s_delays.append(syn1)
-            syn2 = MaxPool2dSemiFoldedSyn(
+            syn2 = MaxPoolSyn(
                 neuron,
                 pool2d,
-                weights=_poo2d_semifolded_mapping(
+                weights=_poo2d_semifolded_mapping_mask(
                     cin,
                     in_h,
                     self.shape_out[1],
@@ -1395,7 +1395,7 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
             syn1 = FullConnSyn(
                 self.module_intf.operands[0],
                 neuron,
-                weights=_delay_mapping(in_h, cin),
+                weights=_delay_mapping_mask(in_h, cin),
                 conn_type=ConnType.All2All,
                 name=f"s{i}_delay_{self.name}",
             )
@@ -1403,7 +1403,7 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
             syn2 = FullConnSyn(
                 neuron,
                 pool2d,
-                weights=_poo2d_semifolded_mapping(
+                weights=_poo2d_semifolded_mapping_mask(
                     cin, in_h, out_h, kh, self.stride, self.padding
                 ),
                 conn_type=ConnType.All2All,
@@ -1427,7 +1427,7 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
                 syn1 = FullConnSyn(
                     self.module_intf.operands[0],
                     neuron,
-                    weights=_delay_mapping(in_h, cin),
+                    weights=_delay_mapping_mask(in_h, cin),
                     conn_type=ConnType.All2All,
                     name=f"s{p}_pad_{self.name}",
                 )
@@ -1436,7 +1436,7 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
                 syn2 = FullConnSyn(
                     neuron,
                     pool2d,
-                    weights=-_poo2d_semifolded_mapping(
+                    weights=-_poo2d_semifolded_mapping_mask(
                         cin, in_h, out_h, kh, self.stride, self.padding
                     ),
                     conn_type=ConnType.All2All,
@@ -1556,11 +1556,11 @@ def _transpose3d_mapping(
     return mt
 
 
-def _delay_mapping(h: int, cin: int) -> WeightType:
+def _delay_mapping_mask(h: int, cin: int) -> WeightType:
     return np.eye(cin * h, dtype=WEIGHT_DTYPE)
 
 
-def _poo2d_semifolded_mapping(
+def _poo2d_semifolded_mapping_mask(
     cin: int,
     ih: int,
     oh: int,

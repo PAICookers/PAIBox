@@ -44,6 +44,7 @@ __all__ = [
     "Conv2dSemiFoldedForward",
     "ConvTranspose1dForward",
     "ConvTranspose2dForward",
+    "CompareMax",
 ]
 
 
@@ -583,7 +584,18 @@ class _Pool2dForward(_PoolNdForward):
         )
 
 
-class _CompareMax(AllToAll):
+class CompareMax(AllToAll):
+    def __init__(self, conn_size: Size2Type, mask: DataType) -> None:
+        """A transformation that finds the maximum of the input vector according to each column of the  \
+            mask matrix.
+
+        NOTE: the value of mask matrix must be either 0 or 1.
+        """
+        if not np.all((mask == 0) | (mask == 1)):
+            raise ValueError("the mask must be 0 or 1.")
+
+        super().__init__(conn_size, mask)
+
     def __call__(self, x: NeuOutType, *args, **kwargs) -> SynOutType:
         """The maximum value of the input corresponding to the non-zero columns of the weight matrix is \
             taken as the output.
@@ -592,13 +604,12 @@ class _CompareMax(AllToAll):
             y = (y1, y2, ..., ym)
         """
         if self.weights.ndim == 0:
-            output = self.weights * np.full(
-                (self.conn_size[1],), np.max(x, axis=None), dtype=VOLTAGE_DTYPE
+            output = np.full(
+                (self.conn_size[1],),
+                self.weights * np.max(x, axis=None),
+                dtype=VOLTAGE_DTYPE,
             )
         else:
-            output = np.zeros((self.conn_size[1],), dtype=VOLTAGE_DTYPE)
-            for col in range(self.conn_size[1]):
-                col_result = x * self.weights[:, col].astype(VOLTAGE_DTYPE)
-                output[col] = np.max(col_result)
+            output = np.max(x[:, None] * self.weights, axis=0).astype(VOLTAGE_DTYPE)
 
         return output

@@ -25,7 +25,7 @@ from .transforms import (
     MaskedLinear,
     OneToOne,
     Transform,
-    _CompareMax,
+    CompareMax,
 )
 
 RIGISTER_MASTER_KEY_FORMAT = "{0}.output"
@@ -488,7 +488,9 @@ class ConvTranspose2dSyn(FullConnectedSyn):
         )
 
 
-class MaxPool2dSemiFoldedSyn(FullConnectedSyn):
+class MaxPoolSyn(FullConnectedSyn):
+    """Max pooling synapses. Only used when input width is 8-bit."""
+
     def __init__(
         self,
         source: Union[NeuDyn, InputProj],
@@ -497,4 +499,4 @@ class MaxPool2dSemiFoldedSyn(FullConnectedSyn):
         name: Optional[str] = None,
     ) -> None:
         super().__init__(source, dest, name)
-        self.comm = _CompareMax((self.num_in, self.num_out), weights)
+        self.comm = CompareMax((self.num_in, self.num_out), weights)
