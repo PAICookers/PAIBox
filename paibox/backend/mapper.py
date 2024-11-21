@@ -7,7 +7,7 @@ from typing import Literal, Optional, Union
 from paicorelib import ChipCoord, Coord, CoordOffset, HwConfig, get_replication_id
 
 from paibox.base import SynSys
-from paibox.components import Neuron
+from paibox.components import Neuron, NeuronSlice
 from paibox.exceptions import CompileError, ConfigInvalidError, ResourceError
 from paibox.network import DynSysGroup
 
@@ -30,7 +30,7 @@ from .graphs import (
     merge_overlap,
     toposort,
 )
-from .placement import CoreBlock, aligned_coords, max_lcn_of_cb
+from .placement import CoreBlock, SourceDest, SliceDest, aligned_coords, max_lcn_of_cb
 from .routing import RoutingGroup, RoutingManager
 from .types import (
     MergedSuccGroup,
@@ -42,7 +42,7 @@ from .types import (
     NeuSegOfCoreBlock,
 
 )
-from .slice import overlap, SourceDest, SliceDest
+from .overlap import LL_overlap, NL_overlap, overlap
 
 __all__ = ["Mapper"]
 
@@ -116,6 +116,7 @@ class Mapper:
         self.n_core_occupied = 0
 
         self._core_estimate_only = False
+        self.neuron_dest.clear()
 
         # Set default cflags
         _BACKEND_CONTEXT.cflags.clear()
@@ -269,7 +270,7 @@ class Mapper:
             succ_cbs: list[CoreBlock] = []
             # cur_cb == cb is possible
             for cb in self.core_blocks:
-                if overlap(cur_cb.dest, cb.ordered_axons):
+                if LL_overlap(cur_cb.dest, cb.ordered_axons):
                     succ_cbs.append(cb)
             # print(f"succ core block of {cur_cb.name}:")
             # for cb in succ_cbs:
@@ -515,9 +516,9 @@ class Mapper:
         
         for inode in self.graph.inodes.values():
             if inode not in self.neuron_dest:
-                raise ValueError(f"neuron {inode.name} has no destination.")
+                continue
             dest: SourceDest = self.neuron_dest[inode]
-            slice_dest: SliceDest = dest.dest_info()
+            slice_dest: SliceDest = dest.undivided_dest()
             axon_coords = aligned_coords(
                 dest.slices[0],
                 slice_dest.dest_axon,
@@ -781,38 +782,49 @@ class Mapper:
 
         return config_dict
 
-    def find_neuron(self, neuron: Neuron, *, verbose: int = 0) -> None:
+    def find_neuron(self, neuron: Union[Neuron, NeuronSlice], *, verbose: int = 0) -> None:
         self._build_check()
+        neuron_slice = neuron if isinstance(neuron, NeuronSlice) else NeuronSlice(neuron)
+        name = neuron_slice.target.name
 
         for cb in self.core_blocks:
             # Find neuron in one or more core blocks.
-            if neuron in cb.dest:
+            if NL_overlap(neuron_slice, cb.dest):
                 print(
-                    f"neurons {neuron.name} placed in {cb.name}, LCN_{1 << cb.lcn_ex}X"
+                    f"neurons {name} placed in {cb.name}, LCN_{1 << cb.lcn_ex}X"
                 )
                 for core_plm in cb.core_placements.values():
                     for neu_seg in core_plm.neu_segs_of_cplm:
-                        if neuron is neu_seg.target:
+                        if neuron is neu_seg.target and overlap(neuron_slice.index, neu_seg.index):
                             print(
-                                f"{neuron.name} placed in {core_plm.coord}\n"
+                                f"{name} placed in {core_plm.coord}\n"
                                 f"N:        {neu_seg.n_neuron}\n"
                                 f"Address:  {neu_seg._addr_ram_repr}"
                             )
 
     def find_axon(self, neuron: Neuron, *, verbose: int = 0) -> None:
         self._build_check()
+        dest = self.neuron_dest[neuron]
+        
+        for slice, slice_dest in zip(dest.slices, dest.dests):
+            print(
+                f"{neuron.name}[{slice}] dest: {slice_dest.base_coord}, {slice_dest.rid}\n"
+                f"N:                {slice_dest.dest_axon.n_axon}\n"
+                f"Address width:    {slice_dest.dest_axon.addr_width}\n"
+                f"Address offset:   {slice_dest.dest_axon.addr_offset}"
+            )
 
-        for cb in self.core_blocks:
-            # Find neuron in one or more core blocks.
-            if neuron in cb.ordered_axons:
-                print(f"axons {neuron.name} placed in {cb.name}, LCN_{1 << cb.lcn_ex}X")
-                axon_segment = cb.axon_segments[neuron]
-                print(
-                    f"{neuron.name} placed in {cb.core_coords}\n"
-                    f"N:                {axon_segment.n_axon}\n"
-                    f"Address width:    {axon_segment.addr_width}\n"
-                    f"Address offset:   {axon_segment.addr_offset}"
-                )
+        # for cb in self.core_blocks:
+        #     # Find neuron in one or more core blocks.
+        #     if neuron in cb.ordered_axons:
+        #         print(f"axons {neuron.name} placed in {cb.name}, LCN_{1 << cb.lcn_ex}X")
+        #         axon_segment = cb.axon_segments[neuron]
+        #         print(
+        #             f"{neuron.name} placed in {cb.core_coords}\n"
+        #             f"N:                {axon_segment.n_axon}\n"
+        #             f"Address width:    {axon_segment.addr_width}\n"
+        #             f"Address offset:   {axon_segment.addr_offset}"
+        #         )
 
     def _build_check(self) -> None:
         return self.graph.build_check()
