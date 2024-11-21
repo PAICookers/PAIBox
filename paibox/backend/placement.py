@@ -43,46 +43,7 @@ from .types import (
     is_iw8,
     SourceSliceType,
 )
-from .slice import node_covered, SourceDest
-
-
-class EdgeGroup:
-    def __init__(self, *edges: FullConnectedSyn, routing_id: int) -> None:
-        self._edges = edges
-        self.rg_id = routing_id
-    
-    def build_coreblock(self) -> list['CoreBlock']:
-        partition_main:FullConnectedSyn = None
-        for edge in self._edges:
-            if isinstance(edge, MatMul2d):
-                if partition_main is not None:
-                    raise NotImplementedError("Only one MatMul2d is supported")
-                partition_main = edge
-        if partition_main is None:
-            edge_slices:list[EdgeSlice] = []
-            for edge in self._edges:
-                edge_slices.append(EdgeSlice(edge, None, None))
-            return [CoreBlock.build(*edge_slices, routing_id = self.rg_id, rt_mode=CoreMode.MODE_SNN)]
-            
-        mat_mul = partition_main
-        shape_in = mat_mul.shape_in
-        shape_out = mat_mul.shape_out
-        in_slice_len = shape_in[1]
-        out_slice_len = shape_out[1]
-        
-        input_slices = [slice(i*in_slice_len, (i+1)*in_slice_len) for i in range(shape_in[0])]
-        output_slices = [slice(i*out_slice_len, (i+1)*out_slice_len) for i in range(shape_out[0])]
-        
-        coreblocks:list[CoreBlock] = []
-        for input_slice, output_slice in zip(input_slices, output_slices):
-            edge_slices:list[EdgeSlice] = []
-            for edge in self._edges:
-                if edge == partition_main:
-                    edge_slices.append(EdgeSlice(edge, input_slice, output_slice))
-                else:
-                    edge_slices.append(EdgeSlice(edge, None, output_slice))
-            coreblocks.append(CoreBlock.build(*edge_slices, routing_id = self.rg_id, independent_route=True, rt_mode=CoreMode.MODE_SNN))
-        return coreblocks
+from .overlap import NN_cover
 
 # Get the fan-out by the combination rate of dendrites
 if hasattr(HwConfig, "FANOUT_IW8"):
@@ -92,7 +53,6 @@ else:
 
 
 NEURON_PARAMS_BIT_LENGTH = 214  # A constant of frame definition
-
 
 class CoreBlock(CoreAbstract):
 
@@ -419,7 +379,7 @@ class CoreBlock(CoreAbstract):
             sub_slice = slice(0, 0)
             for i, dest in enumerate(self.dest):
                 temp = NeuronSlice(neu_seg.target, neu_seg.index)
-                if node_covered(temp, dest):
+                if NN_cover(temp, dest):
                     idx = i
                     sub_slice = slice(temp.index.start - dest.index.start, temp.index.stop - dest.index.start)
                     break
@@ -458,7 +418,7 @@ class CoreBlock(CoreAbstract):
     @property
     def _obj_repr(self) -> str:
         """The representation of the names of target objects."""
-        return ", ".join(n.name for n in self.obj)
+        return ", ".join(n.info for n in self.obj)
 
     @classmethod
     def build(
@@ -518,6 +478,95 @@ class CoreBlock(CoreAbstract):
         print(f"{tabs}\tEdges:")
         for edge in self._parents:
             print(f"{tabs}\t\t{edge.info}")
+
+
+def fusion(nums: list[int]):
+    base = nums[0]
+    rid  = 0
+    for num in nums[1:]:
+        rid |= base ^ num
+    base &= ~rid
+    return base, rid
+
+class SliceDest:
+    def __init__(self, dest_axon: AxonSegment, dest_coords: list[Coord], dest_chip_coord: Coord, time_slot: int, mode: CoreMode) -> None:
+        self.dest_axon: AxonSegment = dest_axon
+        self.dest_coords: list[Coord] = dest_coords
+        self.dest_chip_coord: Coord = dest_chip_coord
+        self.base_coord: Coord = Coord(0, 0)
+        self.rid: Coord = Coord(0, 0)
+        self.time_slot: int = time_slot
+        self.rt_mode: CoreMode = mode
+    def fusion(self):
+        base, rid = fusion([coord.x for coord in self.dest_coords])
+        self.base_coord.x = base
+        self.rid.x = rid
+        base, rid = fusion([coord.y for coord in self.dest_coords])
+        self.base_coord.y = base
+        self.rid.y = rid
+
+
+class SourceDest: 
+    def __init__(self) -> None:
+        self.slices: list[slice] = list()
+        self.dests: list[SliceDest] = list()
+        self.cut_points: list[int] = list()
+    
+    def add_dest(self, dest_slice: SourceSliceType, dest_axon: AxonSegment, coreblock: CoreBlock):
+        dest_coords = coreblock.core_coords.copy()
+        dest_chip_coord = coreblock.chip_coord
+        time_slot = coreblock.n_timeslot
+        mode = coreblock.rt_mode
+        if dest_slice.index not in self.slices:
+            self.slices.append(dest_slice.index)
+            slice_dest = SliceDest(dest_axon, dest_coords, dest_chip_coord, time_slot, mode)
+            self.dests.append(slice_dest)
+        else:
+            idx = self.slices.index(dest_slice.index)
+            slice_dest = self.dests[idx]
+            assert slice_dest.dest_axon == dest_axon
+            assert slice_dest.dest_chip_coord == dest_chip_coord
+            assert slice_dest.time_slot == time_slot
+            assert slice_dest.rt_mode == mode
+            slice_dest.dest_coords.extend(dest_coords)
+
+    def fusion_dest(self):
+        for slice_dest in self.dests:
+            slice_dest.fusion()
+        
+        sorted_lists = sorted(zip(self.slices, self.dests), key=lambda x: x[0].start)
+        sorted_slices, sorted_dests = zip(*sorted_lists)
+        self.slices = list(sorted_slices)
+        self.dests = list(sorted_dests)
+        for slice in self.slices:
+            self.cut_points.append(slice.stop)
+            
+    def undivided_dest(self, index: slice = None) -> SliceDest:
+        if index is None:
+            if len(self.dests) != 1:
+                raise ValueError("Multiple destinations")
+            else:
+                return self.dests[0]
+    
+    def slice_dest(self, nue_seg: NeuSegment) -> tuple[list[NeuSegment], list[SliceDest]]:
+        neu_seg_list:list[NeuSegment] = list()
+        dest_list: list[SliceDest] = list()
+        start = nue_seg.index.start
+        stop = nue_seg.index.stop
+        for i, cut_point in enumerate(self.cut_points):
+            if cut_point <= start:
+                continue
+            
+            elif cut_point > start and cut_point < stop:
+                neu_seg_list.append(NeuSegment(nue_seg.target, slice(start, cut_point), nue_seg.repeat))
+                dest_list.append(self.dests[i])
+                start = cut_point
+                
+            elif cut_point >= stop:
+                neu_seg_list.append(NeuSegment(nue_seg.target, slice(start, stop), nue_seg.repeat))
+                dest_list.append(self.dests[i])
+                break
+        return neu_seg_list, dest_list
 
 
 class CorePlacement(CoreAbstract):
