@@ -3,6 +3,7 @@ import math
 import sys
 from collections.abc import Generator, Iterator
 from typing import Any, ClassVar, Union
+import logging
 
 from paicorelib import ONLINE_CORES_BASE_COORD
 from paicorelib import ROUTING_DIRECTIONS_IDX as DIREC_IDX
@@ -23,6 +24,7 @@ from .constrs import GraphNodeConstrs
 from .conf_types import CorePlmConfInChip
 from .placement import CoreBlock, EmptyCorePlacement
 from .types import *
+from .types import Coord2str, _Coord2Index
 
 if sys.version_info >= (3, 13):
     from warnings import deprecated
@@ -31,19 +33,6 @@ else:
 
 __all__ = ["RoutingGroup", "RoutingManager"]
 
-
-def _Coord2RoutingCoord(coord: Coord) -> RoutingCoord:
-    directions: list[Direction] = []
-    x = coord.x
-    y = coord.y
-
-    for i in range(MAX_ROUTING_PATH_LENGTH):
-        # 每个循环，提取最高位（移动了 4-i 位）到最低位，恢复 value_x 和 value_y
-        shift = 4 - i
-        value_x, value_y = (x >> shift) & 0b1, (y >> shift) & 0b1
-        directions.append(Direction((value_x, value_y)))
-
-    return RoutingCoord(*directions)
 
 
 def MatMul2d_slices(mat_mul: MatMul2d) -> tuple[list[slice], list[slice]]:
@@ -256,9 +245,6 @@ class RoutingGroup:
 
             cur_i = offset
             n = elem.n_core_required
-            # print(
-            #     f"element: {elem}, {n} cores, start at {_Coord2RoutingCoord(allocated[cur_i])}"
-            # )
             assigned, wasted = elem.assign_coord(
                 chip_coord, allocated[cur_i : cur_i + n]
             )
@@ -409,18 +395,34 @@ class RoutingGroup:
 
         return self[0].chip_coord
 
-    def dump(self, i: int = 0) -> None:
+    def dump(self, i: int = 0) -> str:
         tabs = "\t" * i
-        print(f"{tabs}RoutingGroup(root:{self.is_root}): {self} with {self.n_core_required} cores:")
-        print(
+        logging.info(f"{tabs}{self}(root:{self.is_root}) with {self.n_core_required} cores:")
+        logging.info(
             f"{tabs}global axons: {[axon.info for axon in self.global_axons]}"
         )
-        print(
+        logging.info(
             f"{tabs}private axons: {[axon.info for axon in self.private_axons]}"
         )
+        logging.info(f"{tabs}Offset: {self.offset}")
         for elem in self.routing_elems:
             elem.dump(i + 1)
-        print()
+        logging.info(" ")
+    
+    def dump_routing_result(self, i: int = 0) -> str:
+        tabs = "\t" * i
+        logging.info(f"{tabs}{self}(root:{self.is_root}) with {self.n_core_required} cores:")
+        logging.info(f"{tabs}Chip Coord: {self.chip_coord}")
+        logging.info(f"{tabs}Start Core Coord: {Coord2str(self.assigned_coords[0])}, {_Coord2Index(self.assigned_coords[0])}")
+        for elem in self.routing_elems:
+            if isinstance(elem, CoreBlock):
+                logging.info(f"\t{tabs}{elem.name} with {elem.n_core_required} cores:")
+                logging.info(f"\t{tabs}Chip Coord: {elem.chip_coord}")
+                logging.info(f"\t{tabs}Start Core Coord: {Coord2str(elem.core_coords[0])}, {_Coord2Index(self.assigned_coords[0])}")
+                logging.info(f"")
+            else:  
+                elem.dump_routing_result(i + 1)
+        logging.info(" ")
 
     def __contains__(self, cb: CoreBlock) -> bool:
         return cb in self.core_blocks
