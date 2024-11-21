@@ -1,7 +1,7 @@
 import math
 import warnings
 from typing import ClassVar, Literal, Optional, cast, overload
-
+import logging
 import numpy as np
 from paicorelib import LCN_EX, ChipCoord, Coord, CoreMode, HwConfig, MaxPoolingEnable
 from paicorelib import WeightWidth as WW
@@ -470,14 +470,19 @@ class CoreBlock(CoreAbstract):
 
     def dump(self, i: int = 0) -> None:
         tabs = "\t" * i
-        print(f"{tabs}{self.name} with {self.n_core_required} cores:")
-        print(f"{tabs}\tLCN: {self.lcn_ex}")
-        print(f"{tabs}\tAxons:")
+        logging.info(f"{tabs}{self.name} with {self.n_core_required} cores:")
+        logging.info(f"{tabs}\tLCN: {self.lcn_ex}")
+        logging.info(f"{tabs}\tWeight_Width: {self.weight_width}")
+        logging.info(f"{tabs}\tAxons:")
         for axon in self.ordered_axons:
-            print(f"{tabs}\t\t{axon.info}")
-        print(f"{tabs}\tEdges:")
+            logging.info(f"{tabs}\t\t{axon.info}")
+        logging.info(f"{tabs}\tDests:")
+        for dest in self.dest:
+            logging.info(f"{tabs}\t\t{dest.info}")
+        logging.info(f"{tabs}\tEdges:")
         for edge in self._parents:
-            print(f"{tabs}\t\t{edge.info}")
+            logging.info(f"{tabs}\t\t{edge.info}")
+        logging.info("")
 
 
 def fusion(nums: list[int]):

@@ -13,9 +13,10 @@ if sys.version_info >= (3, 10):
 else:
     from typing_extensions import TypeAlias
 
-from paicorelib import Coord, CoreMode, HwConfig
+from paicorelib import Coord, CoreMode, HwConfig, RoutingCoord
 from paicorelib import ReplicationId as RId
-
+from paicorelib import RoutingDirection as Direction
+from paicorelib.routing_defs import MAX_ROUTING_PATH_LENGTH
 from paibox.base import PAIBoxObject
 from paibox.components import FullConnectedSyn, InputProj, Neuron, EdgeSlice, InputSlice, NeuronSlice
 
@@ -321,3 +322,35 @@ else:
 
     def is_iw8(mode: CoreMode) -> bool:
         return mode is CoreMode.MODE_ANN_TO_BANN_OR_SNN or mode is CoreMode.MODE_ANN
+
+
+def _Coord2Index(coord: Coord) -> str:
+    directions: list[Direction] = []
+    x = coord.x
+    y = coord.y
+    index = 0
+    for i in range(MAX_ROUTING_PATH_LENGTH):
+        shift = 4 - i
+        value_x, value_y = (x >> shift) & 0b1, (y >> shift) & 0b1
+        if HwConfig.COORD_Y_PRIORITY:
+            index = (index << 1) | value_x
+            index = (index << 1) | value_y
+        else:
+            index = (index << 1) | value_y
+            index = (index << 1) | value_x
+            
+    binary_rep = bin(index)[2:]
+    last_ten = binary_rep[-10:].zfill(10)
+    return "0b{}({})".format(last_ten, index)
+
+def to_last_five_binary(n: int) -> str:
+    # 将数字转换为二进制并去掉前面的 '0b' 前缀
+    binary_rep = bin(n)[2:]
+    
+    # 获取最后五位并用 'zfill' 补齐不足的部分
+    last_five = binary_rep[-5:].zfill(5)
+    
+    return last_five
+
+def Coord2str(coord: Coord) -> str:
+    return f"({to_last_five_binary(coord.x)},{to_last_five_binary(coord.y)})"
