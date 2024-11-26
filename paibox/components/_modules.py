@@ -1,6 +1,6 @@
-from dataclasses import dataclass
 import math
 import typing
+from dataclasses import dataclass
 from typing import Literal, Optional, Union
 
 import numpy as np

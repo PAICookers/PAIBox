@@ -1,16 +1,15 @@
-from collections.abc import Sequence
 import sys
+from collections.abc import Sequence
 from typing import Optional, Union
 
 import numpy as np
 
-from .exceptions import NotSupportedError
-
 from .base import DynamicSys, SynSys
 from .collector import Collector
-from .components._modules import _SemiFoldedModule, SemiFoldedStreamAttr
 from .components import NeuModule, Neuron, Projection
+from .components._modules import SemiFoldedStreamAttr, _SemiFoldedModule
 from .components.modules import BuiltComponentType
+from .exceptions import NotSupportedError
 from .mixin import Container
 from .node import NodeDict, NodeList
 
