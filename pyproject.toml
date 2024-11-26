@@ -48,6 +48,7 @@ optional = true
 [tool.poetry.group.test.dependencies]
 pytest = "^8.0.0"
 pytest-md = "^0.2.0"
+pytest-cov = "^6.0.0"
 paicorelib = {git = "https://github.com/PAICookers/PAIlib.git", rev = "dev"}
 orjson = "^3.10.0"
 
@@ -59,6 +60,7 @@ orjson = "^3.10.0"
 [tool.pytest.ini_options]
 minversion = "8.0.0"
 testpaths = ["tests"]
+addopts = "--cov=paibox --cov-report=term"
 
 
 [[tool.poetry.source]]
