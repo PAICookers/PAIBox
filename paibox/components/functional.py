@@ -902,16 +902,16 @@ class Linear(_LinearBase):
 class LinearSemiFolded(_LinearBase, _SemiFoldedModule):
     "This operator is used on the first fully-connected layer after the semi-folded convolution."
 
-    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
-        raise NotImplementedError
-
     def build(
-        self, network: "DynSysGroup", valid_interval: int, **build_options
+        self,
+        network: "DynSysGroup",
+        incoming_stream_attr: SemiFoldedStreamAttr,
+        **build_options,
     ) -> BuiltComponentType:
-        assert len(self.module_intf.operands[0].shape_out) == 2
-        self.valid_interval = valid_interval
+        assert len(self.source[0].shape_out) == 2
+        self.ostream_attr = incoming_stream_attr
 
-        in_ch, in_h = self.module_intf.operands[0].shape_out
+        ich, ih = self.source[0].shape_out
         n_delays = NodeList()
         s_delays = NodeList()
         s_weight = NodeList()
@@ -927,10 +927,10 @@ class LinearSemiFolded(_LinearBase, _SemiFoldedModule):
             name=f"nd_{self.name}",
         )
 
-        for i in range(in_h):
+        for i in range(ih):
             neuron = ANNBypassNeuron(
-                shape=(in_ch, in_h),
-                delay=valid_interval * i + 1,
+                shape=(ich, ih),
+                delay=incoming_stream_attr.interval * i + 1,
                 tick_wait_start=self.tick_wait_start,
                 tick_wait_end=self.tick_wait_end,
                 keep_shape=self.keep_shape,
@@ -939,15 +939,15 @@ class LinearSemiFolded(_LinearBase, _SemiFoldedModule):
             n_delays.append(neuron)
             # Delay synapses
             syn1 = FullConnSyn(
-                self.module_intf.operands[0],
+                self.source[0],
                 neuron,
-                weights=_delay_mapping_mask(in_h, in_ch),
+                weights=_delay_mapping_mask(ih, ich),
                 conn_type=ConnType.All2All,
                 name=f"s{i}_delay_{self.name}",
             )
             s_delays.append(syn1)
 
-            w = self.weights[in_h - i - 1 :: in_h, :]
+            w = self.weights[ih - i - 1 :: ih, :]
             syn2 = FullConnSyn(
                 neuron,
                 n_fc,
@@ -1027,37 +1027,31 @@ class Conv2dSemiFolded(_SemiFoldedModule):
             neuron_s, shape_out=_shape_out, keep_shape=keep_shape, name=name, **kwargs
         )
 
-    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
-        raise NotImplementedError
-
     def build(
         self,
         network: "DynSysGroup",
-        valid_interval: int,
-        ts_first_valid_inp: int,
+        incoming_stream_attr: SemiFoldedStreamAttr,
         **build_options,
     ) -> BuiltComponentType:
         assert len(self.source[0].shape_out) == 2
         # if len(self.source[0].shape_out) != 2:
         #     in_ch, in_h, in_w = _fm_ndim2_check(
-        #         self.module_intf.operands[0].shape_out, "CHW"
+        #         self.source[0].shape_out, "CHW"
         #     )
-        #     self.module_intf.operands[0].shape_change((in_ch, in_h))
-        self.valid_interval = valid_interval
-        _, in_h = self.module_intf.operands[0].shape_out
+        #     self.source[0].shape_change((in_ch, in_h))
+        _, ih = self.source[0].shape_out
         _, cin, _, kw = self.kernel.shape
+        _, ow = self.shape_out
 
-        self.ts_1st_valid_out = (
-            ts_first_valid_inp + (kw - 1 - self.padding[0]) * valid_interval
+        self.ostream_attr = SemiFoldedStreamAttr(
+            incoming_stream_attr.t_at(kw - self.padding[0]),
+            incoming_stream_attr.interval * self.stride[1],
+            ow,
         )
-        twe = (
-            1
-            + self.ts_1st_valid_out
-            + (self.shape_out[1] - 1) * valid_interval * self.stride[1]
-        )
+        twe = 1 + self.ostream_attr.t_last_vld
 
         if build_options.get("check_before_compile"):
-            self._input_buffer_len_check(cin, in_h, kw, valid_interval)
+            self._input_buffer_len_check(cin, ih, kw, incoming_stream_attr.interval)
 
         n_delays = NodeList()
         n_neg_padding = NodeList()
@@ -1078,11 +1072,10 @@ class Conv2dSemiFolded(_SemiFoldedModule):
 
         for i in range(kw):
             neuron = ANNBypassNeuron(
-                (cin, in_h),
-                delay=valid_interval * i + 1,
+                (cin, ih),
+                delay=incoming_stream_attr.interval * i + 1,
                 tick_wait_start=self.tick_wait_start,
                 tick_wait_end=twe,
-                keep_shape=self.keep_shape,
                 name=f"n{i}_delay_{self.name}",
             )
             n_delays.append(neuron)
@@ -1090,7 +1083,7 @@ class Conv2dSemiFolded(_SemiFoldedModule):
             syn1 = FullConnSyn(
                 self.source[0],
                 neuron,
-                weights=_delay_mapping_mask(in_h, cin),
+                weights=_delay_mapping_mask(ih, cin),
                 conn_type=ConnType.All2All,
                 name=f"s{i}_delay_{self.name}",
             )
@@ -1108,15 +1101,15 @@ class Conv2dSemiFolded(_SemiFoldedModule):
             s_kernel.append(syn2)
 
         # Add additional negative padding layer to eliminate the incorrect output
-        # NOTE: ts_first_valid_inp = 0 & padding[0] > 0 means the previous layer is
+        # NOTE: `t_1st_vld` = 0 & `padding[0]` > 0 means the previous layer is
         # an input node. No need to add negative padding layer for this case.
-        if ts_first_valid_inp > 0:
+        if incoming_stream_attr.t_1st_vld > 0:
             for p in range(self.padding[0]):
                 neuron = ANNBypassNeuron(
-                    (cin, in_h),
-                    delay=valid_interval * (kw - 1 - p) + 1,
+                    (cin, ih),
+                    delay=1 + incoming_stream_attr.interval * (kw - 1 - p),
                     tick_wait_start=self.tick_wait_start,
-                    tick_wait_end=ts_first_valid_inp,
+                    tick_wait_end=incoming_stream_attr.t_1st_vld,
                     keep_shape=self.keep_shape,
                     name=f"n{p}_pad_{self.name}",
                 )
@@ -1125,7 +1118,7 @@ class Conv2dSemiFolded(_SemiFoldedModule):
                 syn1 = FullConnSyn(
                     self.source[0],
                     neuron,
-                    weights=_delay_mapping_mask(in_h, cin),
+                    weights=_delay_mapping_mask(ih, cin),
                     conn_type=ConnType.All2All,
                     name=f"s{p}_pad_{self.name}",
                 )
@@ -1198,37 +1191,31 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
             **kwargs,
         )
 
-    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
-        raise NotImplementedError
-
     def build(
         self,
         network: "DynSysGroup",
-        valid_interval: int,
-        ts_first_valid_inp: int,
+        incoming_stream_attr: SemiFoldedStreamAttr,
         **build_options,
     ) -> BuiltComponentType:
-        assert len(self.module_intf.operands[0].shape_out) == 2
-        # if len(self.module_intf.operands[0].shape_out) != 2:
+        assert len(self.source[0].shape_out) == 2
+        # if len(self.source[0].shape_out) != 2:
         #     in_ch, in_h, in_w = _fm_ndim2_check(
-        #         self.module_intf.operands[0].shape_out, "CHW"
+        #         self.source[0].shape_out, "CHW"
         #     )
-        #     self.module_intf.operands[0].shape_change((in_ch, in_h))
-        self.valid_interval = valid_interval
+        #     self.source[0].shape_change((in_ch, in_h))
+        cin, ih = self.source[0].shape_out
+        kh, kw = self.kernel_size
+        _, ow = self.shape_out
 
-        in_ch, in_h = self.module_intf.operands[0].shape_out
-        cin = in_ch
-        _, kw = self.kernel_size
-
-        self.ts_1st_valid_out = ts_first_valid_inp + (kw - 1) * valid_interval
-        twe = (
-            1
-            + self.ts_1st_valid_out
-            + (self.shape_out[1] - 1) * valid_interval * self.stride[1]
+        self.ostream_attr = SemiFoldedStreamAttr(
+            incoming_stream_attr.t_at(kw),
+            incoming_stream_attr.interval * self.stride[1],
+            ow,
         )
+        twe = 1 + self.ostream_attr.t_last_vld
 
         if build_options.get("check_before_compile"):
-            self._input_buffer_len_check(cin, in_h, kw, valid_interval)
+            self._input_buffer_len_check(cin, ih, kw, incoming_stream_attr.interval)
 
         n_delays = NodeList()
         s_delays = NodeList()
@@ -1245,8 +1232,8 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
 
         for i in range(kw):
             neuron = ANNBypassNeuron(
-                (cin, in_h),
-                delay=valid_interval * i + 1,
+                (cin, ih),
+                delay=incoming_stream_attr.interval * i + 1,
                 tick_wait_start=self.tick_wait_start,
                 tick_wait_end=twe,
                 keep_shape=self.keep_shape,
@@ -1257,7 +1244,7 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
             syn1 = FullConnSyn(
                 self.source[0],
                 neuron,
-                weights=_delay_mapping_mask(in_h, cin),
+                weights=_delay_mapping_mask(ih, cin),
                 conn_type=ConnType.All2All,
                 name=f"s{i}_delay_{self.name}",
             )
@@ -1266,12 +1253,7 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
                 neuron,
                 pool2d,
                 weights=_poo2d_semifolded_mapping_mask(
-                    cin,
-                    in_h,
-                    self.shape_out[1],
-                    self.kernel_size[0],
-                    self.stride,
-                    (0, 0),
+                    cin, ih, ow, kh, self.stride, (0, 0)
                 ),
                 name=f"s{i}_{self.name}",
             )
@@ -1327,35 +1309,31 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
             **kwargs,
         )
 
-    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
-        raise NotImplementedError
-
     def build(
         self,
         network: "DynSysGroup",
-        valid_interval: int,
-        ts_first_valid_inp: int,
+        incoming_stream_attr: SemiFoldedStreamAttr,
         **build_options,
     ) -> BuiltComponentType:
-        assert len(self.module_intf.operands[0].shape_out) == 2
-        # if len(self.module_intf.operands[0].shape_out) != 2:
+        assert len(self.source[0].shape_out) == 2
+        # if len(self.source[0].shape_out) != 2:
         #     in_ch, in_h, in_w = _fm_ndim2_check(
-        #         self.module_intf.operands[0].shape_out, "CHW"
+        #         self.source[0].shape_out, "CHW"
         #     )
-        #     self.module_intf.operands[0].shape_change((in_ch, in_h))
-        self.valid_interval = valid_interval
-        in_ch, in_h = self.module_intf.operands[0].shape_out
-        cin = in_ch
+        #     self.source[0].shape_change((in_ch, in_h))
+        cin, ih = self.source[0].shape_out
         kh, kw = self.kernel_size
-        out_h = self.shape_out[1]
+        _, ow = self.shape_out
 
-        self.ts_1st_valid_out = (
-            ts_first_valid_inp + (kw - 1 - self.padding[0]) * valid_interval
+        self.ostream_attr = SemiFoldedStreamAttr(
+            incoming_stream_attr.t_at(kw - self.padding[0]),
+            incoming_stream_attr.interval * self.stride[1],
+            ow,
         )
-        twe = 1 + self.ts_1st_valid_out + (out_h - 1) * valid_interval * self.stride[1]
+        twe = 1 + self.ostream_attr.t_last_vld
 
         if build_options.get("check_before_compile"):
-            self._input_buffer_len_check(cin, in_h, kw, valid_interval)
+            self._input_buffer_len_check(cin, ih, kw, incoming_stream_attr.interval)
 
         # NOTE: Division is achieved with the help of output truncation.
         # TODO Since division with a divisor that is an integer power of 2 can only be implemented by
@@ -1386,8 +1364,8 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
         )
         for i in range(kw):
             neuron = ANNBypassNeuron(
-                (cin, in_h),
-                delay=valid_interval * i + 1,
+                (cin, ih),
+                delay=incoming_stream_attr.interval * i + 1,
                 tick_wait_start=self.tick_wait_start,
                 tick_wait_end=twe,
                 keep_shape=self.keep_shape,
@@ -1398,7 +1376,7 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
             syn1 = FullConnSyn(
                 self.source[0],
                 neuron,
-                weights=_delay_mapping_mask(in_h, cin),
+                weights=_delay_mapping_mask(ih, cin),
                 conn_type=ConnType.All2All,
                 name=f"s{i}_delay_{self.name}",
             )
@@ -1407,7 +1385,7 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
                 neuron,
                 pool2d,
                 weights=_poo2d_semifolded_mapping_mask(
-                    cin, in_h, out_h, kh, self.stride, self.padding
+                    cin, ih, ow, kh, self.stride, self.padding
                 ),
                 conn_type=ConnType.All2All,
                 name=f"s{i}_{self.name}",
@@ -1415,13 +1393,13 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
             s_delays.append(syn2)
 
         # Add additional negative padding layer to eliminate the incorrect output
-        if ts_first_valid_inp > 0:
+        if incoming_stream_attr.t_1st_vld > 0:
             for p in range(self.padding[0]):
                 neuron = ANNBypassNeuron(
-                    (cin, in_h),
-                    delay=valid_interval * (kw - 1 - p) + 1,
+                    (cin, ih),
+                    delay=1 + incoming_stream_attr.interval * (kw - 1 - p),
                     tick_wait_start=self.tick_wait_start,
-                    tick_wait_end=ts_first_valid_inp,
+                    tick_wait_end=incoming_stream_attr.t_1st_vld,
                     keep_shape=self.keep_shape,
                     name=f"n{p}_pad_{self.name}",
                 )
@@ -1430,7 +1408,7 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
                 syn1 = FullConnSyn(
                     self.source[0],
                     neuron,
-                    weights=_delay_mapping_mask(in_h, cin),
+                    weights=_delay_mapping_mask(ih, cin),
                     conn_type=ConnType.All2All,
                     name=f"s{p}_pad_{self.name}",
                 )
@@ -1440,7 +1418,7 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
                     neuron,
                     pool2d,
                     weights=-_poo2d_semifolded_mapping_mask(
-                        cin, in_h, out_h, kh, self.stride, self.padding
+                        cin, ih, ow, kh, self.stride, self.padding
                     ),
                     conn_type=ConnType.All2All,
                     name=f"neg_s{i}_{self.name}",

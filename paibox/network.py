@@ -1,17 +1,15 @@
+from collections.abc import Sequence
 import sys
 from typing import Optional, Union
 
 import numpy as np
 
+from .exceptions import NotSupportedError
+
 from .base import DynamicSys, SynSys
 from .collector import Collector
+from .components._modules import _SemiFoldedModule, SemiFoldedStreamAttr
 from .components import NeuModule, Neuron, Projection
-from .components.functional import (
-    AvgPool2dSemiFolded,
-    Conv2dSemiFolded,
-    LinearSemiFolded,
-    MaxPool2dSemiFolded,
-)
 from .components.modules import BuiltComponentType
 from .mixin import Container
 from .node import NodeDict, NodeList
@@ -81,38 +79,64 @@ class DynSysGroup(DynamicSys, Container):
     def __call__(self, **kwargs) -> None:
         return self.update(**kwargs)
 
-    @classmethod
-    def build_fmodule(
-        cls, network: "DynSysGroup", **build_options
+    def build_modules(
+        self,
+        pred_dg_semi_ops: Optional[dict[str, list[str]]] = None,
+        ordered_semi_ops: Optional[list[NeuModule]] = None,
+        **build_options,
     ) -> dict[NeuModule, BuiltComponentType]:
+        """Build the functional modules in the network.
+
+        Args:
+            pred_dg_semi_ops (dict[str, list[str]], None): The predecessor directed graph of semi-folded operators.
+            ordered_semi_ops (list[NeuModule], None): The ordered semi-folded operators.
+
+        Returns:
+            built_components (dict[NeuModule, BuiltComponentType]): The dictionary of generated basic components after building.
+        """
+        if pred_dg_semi_ops is not None and ordered_semi_ops is not None:
+            # It is the network composed of all semi-folded operators.
+            modules = ordered_semi_ops
+        else:
+            # It is the network composed of general operators.
+            modules = list(self.components.subset(NeuModule).unique().values())
+
         generated = dict()
-        modules = network.nodes().subset(NeuModule).unique()
 
-        # Valid interval for semi-folded components
-        # If the input data is input continuously on the W-axis, the initial
-        # valid interval for the first semi-folded component is 1.
-        semi_valid_interval = 1
-        ts_1st_valid_out = 0
+        # For external input stream info:
+        # 1. The start time is 1
+        # 2. The interval is 1
+        # 3. The #N of data is -1 since it dosen't effect the subsequent output stream.
+        # TODO Reserve an interface for setting the properties of external input from `FRONTEND_ENV`?
+        last_vld_output_attr = SemiFoldedStreamAttr(0, 1)
 
-        for module in modules.values():
-            if isinstance(
-                module, (Conv2dSemiFolded, MaxPool2dSemiFolded, AvgPool2dSemiFolded)
-            ):
-                generated[module] = module.build(
-                    network, semi_valid_interval, ts_1st_valid_out, **build_options
-                )
-                semi_valid_interval *= module.stride[1]
-                ts_1st_valid_out = module.ts_1st_valid_out
-            elif isinstance(module, LinearSemiFolded):
-                generated[module] = module.build(
-                    network, semi_valid_interval, **build_options
-                )
+        for m in modules:
+            # TODO for the case of the ResBlock, the `pred_dg_semi_ops` will be used.
+            if isinstance(m, _SemiFoldedModule):
+                generated[m] = m.build(self, last_vld_output_attr, **build_options)
+                last_vld_output_attr = m.ostream_attr
             else:
-                generated[module] = module.build(network, **build_options)
+                generated[m] = m.build(self, **build_options)
 
-        network._remove_modules_from_containers(network, modules)
-
+        self._remove_modules(modules)
         return generated
+
+    def is_composed_of_semi_folded_ops(self) -> bool:
+        """Check if the network consists entirely or not of semi-folded operators. Return true if all the \
+            components are semi-folded operators. Return false if all the components are not semi-folded. \
+            In other cases, an exception will be raised.
+        """
+        if all(isinstance(cpn, _SemiFoldedModule) for cpn in self.components.values()):
+            return True
+        elif not all(
+            isinstance(cpn, _SemiFoldedModule) for cpn in self.components.values()
+        ):
+            return False
+        else:
+            # XXX It seems that there will be no network mixed with semi-folded operators at present.
+            raise NotSupportedError(
+                "mixed semi-folded & normal operators in the network is not supported."
+            )
 
     def _add_components(self, *implicit: DynamicSys, **explicit: DynamicSys) -> None:
         """Add new components. When the component is passed in explicitly, its tag name can \
@@ -141,22 +165,19 @@ class DynSysGroup(DynamicSys, Container):
             if cpn in self.__dict__.values():
                 cpn.__gh_build_ignore__ = True
 
-    @staticmethod
-    def _remove_modules_from_containers(
-        network: "DynSysGroup", modules: Collector[str, NeuModule]
-    ) -> None:
-        """Remove the built modules from the node containers of the network."""
-        node_lists = [v for v in network.__dict__.values() if isinstance(v, NodeList)]
-        node_dicts = [v for v in network.__dict__.values() if isinstance(v, NodeDict)]
+    def _remove_modules(self, modules: Sequence[NeuModule]) -> None:
+        """Remove the built modules from the network."""
+        node_lst = [v for v in self.__dict__.values() if isinstance(v, NodeList)]
+        node_dct = [v for v in self.__dict__.values() if isinstance(v, NodeDict)]
 
-        for module in modules.values():
-            for lst in node_lists:
-                if module in lst:
-                    lst.remove(module)
+        for m in modules:
+            for lst in node_lst:
+                if m in lst:
+                    lst.remove(m)
 
-            for dct in node_dicts:
-                if module in dct.values():
-                    dct.pop(module)
+            for dct in node_dct:
+                if m in dct.values():
+                    dct.pop(m)
 
     @property
     def components(self) -> Collector[str, DynamicSys]:
