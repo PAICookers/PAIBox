@@ -123,14 +123,14 @@ class BitwiseAND(FunctionalModule2to1):
         )
 
         syn1 = FullConnSyn(
-            self.module_intf.operands[0],
+            self.source[0],
             n1_and,
             1,
             conn_type=ConnType.One2One,
             name=f"s0_{self.name}",
         )
         syn2 = FullConnSyn(
-            self.module_intf.operands[1],
+            self.source[1],
             n1_and,
             1,
             conn_type=ConnType.One2One,
@@ -193,7 +193,7 @@ class BitwiseNOT(FunctionalModule):
         )
 
         syn1 = FullConnSyn(
-            self.module_intf.operands[0],
+            self.source[0],
             n1_not,
             weights=-1,
             conn_type=ConnType.One2One,
@@ -244,14 +244,14 @@ class BitwiseOR(FunctionalModule2to1):
         )
 
         syn1 = FullConnSyn(
-            self.module_intf.operands[0],
+            self.source[0],
             n1_or,
             1,
             conn_type=ConnType.One2One,
             name=f"s0_{self.name}",
         )
         syn2 = FullConnSyn(
-            self.module_intf.operands[1],
+            self.source[1],
             n1_or,
             1,
             conn_type=ConnType.One2One,
@@ -308,7 +308,7 @@ class BitwiseXOR(FunctionalModule2to1):
         identity = np.identity(self.num_out, dtype=np.int8)
         # weight of syn1, (-1*(N,), 1*(N,))
         syn1 = FullConnSyn(
-            self.module_intf.operands[0],
+            self.source[0],
             n1_aux,
             weights=np.hstack([-1 * identity, identity], casting="safe", dtype=np.int8),
             conn_type=ConnType.All2All,
@@ -316,7 +316,7 @@ class BitwiseXOR(FunctionalModule2to1):
         )
         # weight of syn2, (1*(N,), -1*(N,))
         syn2 = FullConnSyn(
-            self.module_intf.operands[1],
+            self.source[1],
             n1_aux,
             weights=np.hstack([identity, -1 * identity], casting="safe", dtype=np.int8),
             conn_type=ConnType.All2All,
@@ -415,14 +415,14 @@ class SpikingAdd(FunctionalModule2to1WithV):
         )
 
         syn1 = FullConnSyn(
-            self.module_intf.operands[0],
+            self.source[0],
             n1_sadd,
             self.factor_a,
             conn_type=ConnType.One2One,
             name=f"s0_{self.name}",
         )
         syn2 = FullConnSyn(
-            self.module_intf.operands[1],
+            self.source[1],
             n1_sadd,
             self.factor_b,
             conn_type=ConnType.One2One,
@@ -712,14 +712,14 @@ class SpikingSub(FunctionalModule2to1WithV):
         )
 
         syn1 = FullConnSyn(
-            self.module_intf.operands[0],
+            self.source[0],
             n1_ssub,
             self.factor_a,
             conn_type=ConnType.One2One,
             name=f"s0_{self.name}",
         )
         syn2 = FullConnSyn(
-            self.module_intf.operands[1],
+            self.source[1],
             n1_ssub,
             self.factor_b,
             conn_type=ConnType.One2One,
@@ -781,7 +781,7 @@ class Transpose2d(TransposeModule):
         )
 
         syn1 = FullConnSyn(
-            self.module_intf.operands[0],
+            self.source[0],
             n1_t2d,
             weights=_transpose2d_mapping(self.shape_in),
             conn_type=ConnType.All2All,
@@ -848,7 +848,7 @@ class Transpose3d(TransposeModule):
         )
 
         syn1 = FullConnSyn(
-            self.module_intf.operands[0],
+            self.source[0],
             n1_t3d,
             weights=_transpose3d_mapping(self.shape_in, self.axes),
             conn_type=ConnType.All2All,
@@ -886,7 +886,7 @@ class Linear(_LinearBase):
             name=f"nd_{self.name}",
         )
         syn1 = FullConnSyn(
-            self.module_intf.operands[0],
+            self.source[0],
             neuron_d,
             weights=self.weights,
             conn_type=ConnType.All2All,
@@ -974,6 +974,7 @@ class Conv2dSemiFolded(_SemiFoldedModule):
         padding: _Size2Type = 0,
         bias: DataType = 0,
         bit_trunc: int = 8,
+        *,
         keep_shape: bool = False,
         name: Optional[str] = None,
         **kwargs,
@@ -981,7 +982,7 @@ class Conv2dSemiFolded(_SemiFoldedModule):
         """2d semi-folded convolution for ANN mode.
 
         Args:
-            neuron_s: source neuron. The dimensions need to be expressed explicitly as (C,H,W).
+            neuron_s: source neuron. The dimensions need to be expressed explicitly as (C,H) or (C,W).
             kernel: convolution kernel in (O,I,H,W) order.
             stride: the step size of the kernel sliding. It can be a scalar or a tuple of 2 integers.
             padding: the amount of zero-padding applied to the input. It can be a scalar or a tuple of 2 integers.
@@ -1036,8 +1037,8 @@ class Conv2dSemiFolded(_SemiFoldedModule):
         ts_first_valid_inp: int,
         **build_options,
     ) -> BuiltComponentType:
-        assert len(self.module_intf.operands[0].shape_out) == 2
-        # if len(self.module_intf.operands[0].shape_out) != 2:
+        assert len(self.source[0].shape_out) == 2
+        # if len(self.source[0].shape_out) != 2:
         #     in_ch, in_h, in_w = _fm_ndim2_check(
         #         self.module_intf.operands[0].shape_out, "CHW"
         #     )
@@ -1087,7 +1088,7 @@ class Conv2dSemiFolded(_SemiFoldedModule):
             n_delays.append(neuron)
             # delay synapses
             syn1 = FullConnSyn(
-                self.module_intf.operands[0],
+                self.source[0],
                 neuron,
                 weights=_delay_mapping_mask(in_h, cin),
                 conn_type=ConnType.All2All,
@@ -1122,7 +1123,7 @@ class Conv2dSemiFolded(_SemiFoldedModule):
                 n_neg_padding.append(neuron)
                 # delay synapses
                 syn1 = FullConnSyn(
-                    self.module_intf.operands[0],
+                    self.source[0],
                     neuron,
                     weights=_delay_mapping_mask(in_h, cin),
                     conn_type=ConnType.All2All,
@@ -1162,6 +1163,7 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
         neuron_s: Union[NeuDyn, InputProj],
         kernel_size: _Size2Type,
         stride: Optional[_Size2Type] = None,
+        *,
         keep_shape: bool = False,
         name: Optional[str] = None,
         **kwargs,
@@ -1253,7 +1255,7 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
             n_delays.append(neuron)
             # delay synapses
             syn1 = FullConnSyn(
-                self.module_intf.operands[0],
+                self.source[0],
                 neuron,
                 weights=_delay_mapping_mask(in_h, cin),
                 conn_type=ConnType.All2All,
@@ -1290,6 +1292,7 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
         kernel_size: _Size2Type,
         stride: Optional[_Size2Type] = None,
         padding: _Size2Type = 0,
+        *,
         keep_shape: bool = False,
         name: Optional[str] = None,
         **kwargs,
@@ -1393,7 +1396,7 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
             n_delays.append(neuron)
             # delay synapses
             syn1 = FullConnSyn(
-                self.module_intf.operands[0],
+                self.source[0],
                 neuron,
                 weights=_delay_mapping_mask(in_h, cin),
                 conn_type=ConnType.All2All,
@@ -1425,7 +1428,7 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
                 n_neg_padding.append(neuron)
                 # delay synapses
                 syn1 = FullConnSyn(
-                    self.module_intf.operands[0],
+                    self.source[0],
                     neuron,
                     weights=_delay_mapping_mask(in_h, cin),
                     conn_type=ConnType.All2All,

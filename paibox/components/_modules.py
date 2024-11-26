@@ -125,7 +125,7 @@ class _DelayChainBase(FunctionalModule):
         n_delaychain.append(n_out)  # Must append to the last.
 
         syn_in = FullConnSyn(
-            self.module_intf.operands[0],
+            self.source[0],
             n_delaychain[0],
             1,
             conn_type=ConnType.One2One,
@@ -312,7 +312,7 @@ class _SpikingPool1d(FunctionalModule):
             )
 
         syn1 = FullConnSyn(
-            self.module_intf.operands[0],
+            self.source[0],
             n1_p1d,
             weights=self.tfm.connectivity.astype(np.bool_),
             conn_type=ConnType.All2All,
@@ -391,7 +391,7 @@ class _SpikingPool1dWithV(FunctionalModuleWithV):
         )
 
         syn1 = FullConnSyn(
-            self.module_intf.operands[0],
+            self.source[0],
             n1_p1d,
             weights=self.tfm.connectivity.astype(np.bool_),
             conn_type=ConnType.All2All,
@@ -482,7 +482,7 @@ class _SpikingPool2d(FunctionalModule):
             )
 
         syn1 = FullConnSyn(
-            self.module_intf.operands[0],
+            self.source[0],
             n1_p2d,
             weights=self.tfm.connectivity.astype(np.bool_),
             conn_type=ConnType.All2All,
@@ -566,7 +566,7 @@ class _SpikingPool2dWithV(FunctionalModuleWithV):
         )
 
         syn1 = FullConnSyn(
-            self.module_intf.operands[0],
+            self.source[0],
             n1_p2d,
             weights=self.tfm.connectivity.astype(np.bool_),
             conn_type=ConnType.All2All,

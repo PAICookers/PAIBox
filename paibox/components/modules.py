@@ -4,7 +4,7 @@ from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from functools import partial
-from typing import ClassVar, Literal, Optional, TypeVar, Union
+from typing import Callable, ClassVar, Literal, Optional, TypeVar, Union
 
 import numpy as np
 from paicorelib import TM, CoreMode, HwConfig, SNNModeEnable, get_core_mode
@@ -100,6 +100,7 @@ class NeuModule(NeuDyn, BuildingModule):
         tick_wait_start: int,
         tick_wait_end: int,
         unrolling_factor: int,
+        keep_shape: bool,
         name: Optional[str] = None,
     ) -> None:
         super().__init__(name)
@@ -108,6 +109,7 @@ class NeuModule(NeuDyn, BuildingModule):
         self._tws = tick_wait_start
         self._twe = tick_wait_end
         self._uf = unrolling_factor
+        self.keep_shape = keep_shape
 
     def __call__(self, *args, **kwargs):
         return self.update(*args, **kwargs)
@@ -179,9 +181,7 @@ class FunctionalModule(NeuModule):
 
                 op.register_output(self)
 
-        super().__init__(**kwargs, name=name)
-
-        self.keep_shape = keep_shape
+        super().__init__(**kwargs, keep_shape=keep_shape, name=name)
         self._shape_out = shape_out
         self.register_operand(*operands)
 
@@ -198,12 +198,7 @@ class FunctionalModule(NeuModule):
         # Set a deque for the `synin` to implement the delay of `inherent_delay` for the module.
         if self.inherent_delay > 0:
             _init_synin = [
-                self.n_op
-                * [
-                    np.zeros(
-                        self.module_intf.operands[0].num_out, dtype=NEUOUT_U8_DTYPE
-                    )
-                ]
+                self.n_op * [np.zeros(self.source[0].num_out, dtype=NEUOUT_U8_DTYPE)]
             ]
         else:
             _init_synin = []
@@ -215,7 +210,7 @@ class FunctionalModule(NeuModule):
     def get_inputs(self) -> None:
         synin = []
 
-        for op in self.module_intf.operands:
+        for op in self.source:
             # Retrieve the spike at index `timestamp` of the dest neurons
             if self.is_working():
                 if isinstance(op, InputProj):
@@ -255,7 +250,7 @@ class FunctionalModule(NeuModule):
     ) -> None:
         from .synapses import FullConnectedSyn
 
-        for out in self.module_intf.output:
+        for out in self.target:
             if isinstance(out, FullConnectedSyn):
                 out.source = out_neuron
             else:
@@ -443,7 +438,9 @@ L = Literal
 _T = TypeVar("_T", bound=NeuModule)
 
 
-def set_rt_mode(input_width: L[1, 8], spike_width: L[1, 8], snn_en: L[0, 1]):
+def set_rt_mode(
+    input_width: L[1, 8], spike_width: L[1, 8], snn_en: L[0, 1]
+) -> Callable[[type[_T]], type[_T]]:
     def wrapper(cls: type[_T]) -> type[_T]:
         iw = _input_width_format(input_width)
         sw = _spike_width_format(spike_width)
