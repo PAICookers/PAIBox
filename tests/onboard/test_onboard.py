@@ -792,7 +792,7 @@ class TestOnBoard_WRAMMapping:
 
 
 class TestOnBoard_SpikingOp:
-    def test_Conv1d_001(self):
+    def test_001_Conv1d(self):
         class Net001(pb.Network):
             def __init__(self, w1):
                 super().__init__()
@@ -803,7 +803,7 @@ class TestOnBoard_SpikingOp:
                 self.p1 = pb.Probe(self.n1, "feature_map")
 
         USE_EXISTING_DATA = False
-        TEST_NAME = self.test_Conv1d_001.__name__
+        TEST_NAME = self.test_001_Conv1d.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
         if not TEST_CASE_DIR.exists():
@@ -880,7 +880,7 @@ class TestOnBoard_SpikingOp:
 
 
 class TestOnBoard_SemiFoldedOp:
-    def test_Conv2dSemiFolded_001(self):
+    def test_001_Conv2dSemiFolded(self):
         class Net001(pb.DynSysGroup):
             def __init__(self, w1):
                 super().__init__()
@@ -888,7 +888,7 @@ class TestOnBoard_SemiFoldedOp:
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w1, 1, 0, tick_wait_start=1)
 
         USE_EXISTING_DATA = False
-        TEST_NAME = self.test_Conv2dSemiFolded_001.__name__
+        TEST_NAME = self.test_001_Conv2dSemiFolded.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
         if not TEST_CASE_DIR.exists():
@@ -929,7 +929,7 @@ class TestOnBoard_SemiFoldedOp:
 
         network = Net001(weight1)
         conv2d = network.conv1
-        generated = pb.DynSysGroup.build_fmodule(network)
+        generated = network.build_modules()
         sim = pb.Simulator(network, start_time_zero=False)
         probe = pb.Probe(generated[conv2d][0], "output")
         sim.add_probe(probe)
@@ -959,7 +959,7 @@ class TestOnBoard_SemiFoldedOp:
 
     # 对比test002-005系列
     # weight正常
-    def test_Conv2dSemiFolded_002(self):
+    def test_002_Conv2dSemiFolded(self):
         class Net002(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
@@ -967,7 +967,7 @@ class TestOnBoard_SemiFoldedOp:
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 2, 0, tick_wait_start=1)
 
         USE_EXISTING_DATA = False
-        TEST_NAME = self.test_Conv2dSemiFolded_002.__name__
+        TEST_NAME = self.test_002_Conv2dSemiFolded.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
         if not TEST_CASE_DIR.exists():
@@ -1009,7 +1009,7 @@ class TestOnBoard_SemiFoldedOp:
 
         network = Net002(weight1)
         conv2d = network.conv1
-        generated = pb.DynSysGroup.build_fmodule(network)
+        generated = network.build_modules()
         sim = pb.Simulator(network, start_time_zero=False)
         probe = pb.Probe(generated[conv2d][0], "output")
         sim.add_probe(probe)
@@ -1038,7 +1038,7 @@ class TestOnBoard_SemiFoldedOp:
         print(f"Test {TEST_NAME} end")
 
     # weight全为1
-    def test_Conv2dSemiFolded_003(self):
+    def test_003_Conv2dSemiFolded(self):
         class Net003(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
@@ -1046,7 +1046,7 @@ class TestOnBoard_SemiFoldedOp:
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 2, 0, tick_wait_start=1)
 
         USE_EXISTING_DATA = False
-        TEST_NAME = self.test_Conv2dSemiFolded_003.__name__
+        TEST_NAME = self.test_003_Conv2dSemiFolded.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
         if not TEST_CASE_DIR.exists():
@@ -1088,7 +1088,7 @@ class TestOnBoard_SemiFoldedOp:
 
         network = Net003(weight1)
         conv2d = network.conv1
-        generated = pb.DynSysGroup.build_fmodule(network)
+        generated = network.build_modules()
         sim = pb.Simulator(network, start_time_zero=False)
         probe = pb.Probe(generated[conv2d][0], "output")
         sim.add_probe(probe)
@@ -1117,7 +1117,7 @@ class TestOnBoard_SemiFoldedOp:
         print(f"Test {TEST_NAME} end")
 
     # 扇入扩展， weight全正1
-    def test_Conv2dSemiFolded_004(self):
+    def test_004_Conv2dSemiFolded(self):
         class Net004(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
@@ -1125,7 +1125,7 @@ class TestOnBoard_SemiFoldedOp:
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 2, 0, tick_wait_start=1)
 
         USE_EXISTING_DATA = False
-        TEST_NAME = self.test_Conv2dSemiFolded_004.__name__
+        TEST_NAME = self.test_004_Conv2dSemiFolded.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
         if not TEST_CASE_DIR.exists():
@@ -1168,7 +1168,7 @@ class TestOnBoard_SemiFoldedOp:
 
         network = Net004(weight1)
         conv2d = network.conv1
-        generated = pb.DynSysGroup.build_fmodule(network)
+        generated = network.build_modules()
         sim = pb.Simulator(network, start_time_zero=False)
         probe = pb.Probe(generated[conv2d][0], "output")
         sim.add_probe(probe)
@@ -1197,7 +1197,7 @@ class TestOnBoard_SemiFoldedOp:
         print(f"Test {TEST_NAME} end")
 
     # 扇入扩展
-    def test_Conv2dSemiFolded_005(self):
+    def test_005_Conv2dSemiFolded(self):
         class Net005(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
@@ -1205,7 +1205,7 @@ class TestOnBoard_SemiFoldedOp:
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 2, 0, tick_wait_start=1)
 
         USE_EXISTING_DATA = False
-        TEST_NAME = self.test_Conv2dSemiFolded_005.__name__
+        TEST_NAME = self.test_005_Conv2dSemiFolded.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
         if not TEST_CASE_DIR.exists():
@@ -1248,7 +1248,7 @@ class TestOnBoard_SemiFoldedOp:
 
         network = Net005(weight1)
         conv2d = network.conv1
-        generated = pb.DynSysGroup.build_fmodule(network)
+        generated = network.build_modules()
         sim = pb.Simulator(network, start_time_zero=False)
         probe = pb.Probe(generated[conv2d][0], "output")
         sim.add_probe(probe)
@@ -1277,7 +1277,7 @@ class TestOnBoard_SemiFoldedOp:
         print(f"Test {TEST_NAME} end")
 
     # 对比006-009
-    def test_Conv2dSemiFolded_006(self):
+    def test_006_Conv2dSemiFolded(self):
         class Net006(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
@@ -1285,7 +1285,7 @@ class TestOnBoard_SemiFoldedOp:
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 1, 1, tick_wait_start=1)
 
         USE_EXISTING_DATA = False
-        TEST_NAME = self.test_Conv2dSemiFolded_006.__name__
+        TEST_NAME = self.test_006_Conv2dSemiFolded.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
         if not TEST_CASE_DIR.exists():
@@ -1328,7 +1328,7 @@ class TestOnBoard_SemiFoldedOp:
 
         network = Net006(weight1)
         conv2d = network.conv1
-        generated = pb.DynSysGroup.build_fmodule(network)
+        generated = network.build_modules()
         sim = pb.Simulator(network, start_time_zero=False)
         probe = pb.Probe(generated[conv2d][0], "output")
         sim.add_probe(probe)
@@ -1356,7 +1356,7 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_Conv2dSemiFolded_007(self):
+    def test_007_Conv2dSemiFolded(self):
         class Net007(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
@@ -1364,7 +1364,7 @@ class TestOnBoard_SemiFoldedOp:
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 1, 1, tick_wait_start=1)
 
         USE_EXISTING_DATA = False
-        TEST_NAME = self.test_Conv2dSemiFolded_007.__name__
+        TEST_NAME = self.test_007_Conv2dSemiFolded.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
         if not TEST_CASE_DIR.exists():
@@ -1408,7 +1408,7 @@ class TestOnBoard_SemiFoldedOp:
 
         network = Net007(weight1)
         conv2d = network.conv1
-        generated = pb.DynSysGroup.build_fmodule(network)
+        generated = network.build_modules()
         sim = pb.Simulator(network, start_time_zero=False)
         probe = pb.Probe(generated[conv2d][0], "output")
         sim.add_probe(probe)
@@ -1436,7 +1436,7 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_Conv2dSemiFolded_008(self):
+    def test_008_Conv2dSemiFolded(self):
         class Net008(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
@@ -1444,7 +1444,7 @@ class TestOnBoard_SemiFoldedOp:
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 1, 1, tick_wait_start=1)
 
         USE_EXISTING_DATA = False
-        TEST_NAME = self.test_Conv2dSemiFolded_008.__name__
+        TEST_NAME = self.test_008_Conv2dSemiFolded.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
         if not TEST_CASE_DIR.exists():
@@ -1488,7 +1488,7 @@ class TestOnBoard_SemiFoldedOp:
 
         network = Net008(weight1)
         conv2d = network.conv1
-        generated = pb.DynSysGroup.build_fmodule(network)
+        generated = network.build_modules()
         sim = pb.Simulator(network, start_time_zero=False)
         probe = pb.Probe(generated[conv2d][0], "output")
         sim.add_probe(probe)
@@ -1516,7 +1516,7 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_Conv2dSemiFolded_009(self):
+    def test_009_Conv2dSemiFolded(self):
         class Net009(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
@@ -1524,7 +1524,7 @@ class TestOnBoard_SemiFoldedOp:
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 1, 1, tick_wait_start=1)
 
         USE_EXISTING_DATA = False
-        TEST_NAME = self.test_Conv2dSemiFolded_009.__name__
+        TEST_NAME = self.test_009_Conv2dSemiFolded.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
         if not TEST_CASE_DIR.exists():
@@ -1565,7 +1565,7 @@ class TestOnBoard_SemiFoldedOp:
 
         network = Net009(weight1)
         conv2d = network.conv1
-        generated = pb.DynSysGroup.build_fmodule(network)
+        generated = network.build_modules()
         sim = pb.Simulator(network, start_time_zero=False)
         probe = pb.Probe(generated[conv2d][0], "output")
         sim.add_probe(probe)
@@ -1593,7 +1593,7 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_MaxPool2dSemiFolded_010(self):
+    def test_010_MaxPool2dSemiFolded(self):
         class Net010(pb.DynSysGroup):
             def __init__(self, ksize):
                 super().__init__()
@@ -1603,7 +1603,7 @@ class TestOnBoard_SemiFoldedOp:
                 )
 
         USE_EXISTING_DATA = False
-        TEST_NAME = self.test_MaxPool2dSemiFolded_010.__name__
+        TEST_NAME = self.test_010_MaxPool2dSemiFolded.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
         if not TEST_CASE_DIR.exists():
@@ -1643,7 +1643,7 @@ class TestOnBoard_SemiFoldedOp:
 
         network = Net010(ksize)
         pool = network.pool1
-        generated = pb.DynSysGroup.build_fmodule(network)
+        generated = network.build_modules()
         sim = pb.Simulator(network, start_time_zero=False)
         probe = pb.Probe(generated[pool][0], "output")
         sim.add_probe(probe)
@@ -1669,7 +1669,7 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_AvgPool2dSemiFolded_011(self):
+    def test_011_AvgPool2dSemiFolded(self):
         class Net011(pb.DynSysGroup):
             def __init__(self, ksize):
                 super().__init__()
@@ -1679,7 +1679,7 @@ class TestOnBoard_SemiFoldedOp:
                 )
 
         USE_EXISTING_DATA = False
-        TEST_NAME = self.test_AvgPool2dSemiFolded_011.__name__
+        TEST_NAME = self.test_011_AvgPool2dSemiFolded.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
         if not TEST_CASE_DIR.exists():
@@ -1719,7 +1719,7 @@ class TestOnBoard_SemiFoldedOp:
 
         network = Net011(ksize)
         pool = network.pool1
-        generated = pb.DynSysGroup.build_fmodule(network)
+        generated = network.build_modules()
         sim = pb.Simulator(network, start_time_zero=False)
         probe = pb.Probe(generated[pool][0], "output")
         sim.add_probe(probe)
@@ -1748,7 +1748,7 @@ class TestOnBoard_SemiFoldedOp:
     @pytest.mark.xfail(
         reason="A ValidationError will be raised due to the backend not support."
     )
-    def test_Conv2dSemiFoldedNet_012(self):
+    def test_012_Conv2dSemiFoldedNet(self):
         class Net012(pb.DynSysGroup):
             def __init__(self, w1, w2, w3):
                 super().__init__()
@@ -1764,7 +1764,7 @@ class TestOnBoard_SemiFoldedOp:
                 )
 
         USE_EXISTING_DATA = False
-        TEST_NAME = self.test_Conv2dSemiFoldedNet_012.__name__
+        TEST_NAME = self.test_012_Conv2dSemiFoldedNet.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
         if not TEST_CASE_DIR.exists():
@@ -1811,7 +1811,7 @@ class TestOnBoard_SemiFoldedOp:
         conv2d1 = network.conv1
         conv2d2 = network.conv2
         linear = network.linear1
-        generated = pb.DynSysGroup.build_fmodule(network)
+        generated = network.build_modules()
         sim = pb.Simulator(network, start_time_zero=False)
         probe1 = pb.Probe(generated[conv2d1][0], "output")
         probe2 = pb.Probe(generated[conv2d2][0], "output")
@@ -1849,7 +1849,7 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_Conv2dSemiFoldedNet_013(self):
+    def test_013_Conv2dSemiFoldedNet(self):
         class Net013(pb.DynSysGroup):
             def __init__(self, w1, w2, w3):
                 super().__init__()
@@ -1863,7 +1863,7 @@ class TestOnBoard_SemiFoldedOp:
                 )
 
         USE_EXISTING_DATA = False
-        TEST_NAME = self.test_Conv2dSemiFoldedNet_013.__name__
+        TEST_NAME = self.test_013_Conv2dSemiFoldedNet.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
         if not TEST_CASE_DIR.exists():
@@ -1909,7 +1909,7 @@ class TestOnBoard_SemiFoldedOp:
         conv2d1 = network.conv1
         conv2d2 = network.conv2
         linear = network.linear1
-        generated = pb.DynSysGroup.build_fmodule(network)
+        generated = network.build_modules()
         sim = pb.Simulator(network, start_time_zero=False)
         probe1 = pb.Probe(generated[conv2d1][0], "output")
         probe2 = pb.Probe(generated[conv2d2][0], "output")
@@ -1947,7 +1947,7 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_CNNSemiFoldedNet_014(self):
+    def test_014_CNNSemiFoldedNet(self):
         class Net014(pb.DynSysGroup):
             def __init__(self, w1, w2, w3):
                 super().__init__()
@@ -1968,7 +1968,7 @@ class TestOnBoard_SemiFoldedOp:
                 )
 
         USE_EXISTING_DATA = False
-        TEST_NAME = self.test_CNNSemiFoldedNet_014.__name__
+        TEST_NAME = self.test_014_CNNSemiFoldedNet.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
         if not TEST_CASE_DIR.exists():
@@ -2015,7 +2015,7 @@ class TestOnBoard_SemiFoldedOp:
         conv2d1 = network.conv1
         conv2d2 = network.conv2
         linear = network.linear1
-        generated = pb.DynSysGroup.build_fmodule(network)
+        generated = network.build_modules()
         sim = pb.Simulator(network, start_time_zero=False)
         probe1 = pb.Probe(generated[conv2d1][0], "output")
         probe2 = pb.Probe(generated[conv2d2][0], "output")

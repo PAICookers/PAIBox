@@ -145,22 +145,22 @@
 
 ## 半折叠算子
 
-|                      测试项目                       | 结果 |    备注    |
-| :-------------------------------------------------: | :--: | :--------: |
-|    [001 Conv2dSemiFolded](#001-conv2dsemifolded)    |  ✅  |            |
-|    [002 Conv2dSemiFolded](#002-conv2dsemifolded)    |  ❌  | 不完全相等 |
-|    [003 Conv2dSemiFolded](#003-conv2dsemifolded)    |      |            |
-|    [004 Conv2dSemiFolded](#004-conv2dsemifolded)    |      |            |
-|    [005 Conv2dSemiFolded](#005-conv2dsemifolded)    |      |            |
-|    [006 Conv2dSemiFolded](#006-conv2dsemifolded)    |  ❌  | 不完全相等 |
-|    [007 Conv2dSemiFolded](#007-conv2dsemifolded)    |      |            |
-|    [008 Conv2dSemiFolded](#008-conv2dsemifolded)    |      |            |
-|    [009 Conv2dSemiFolded](#009-conv2dsemifolded)    |      |            |
-| [010 MaxPool2dSemiFolded](#010-maxpool2dsemifolded) |      |            |
-| [011 AvgPool2dSemiFolded](#011-avgpool2dsemifolded) |  ✅  |            |
-| [012 Conv2dSemiFoldedNet](#012-conv2dsemifoldednet) |      |            |
-| [013 Conv2dSemiFoldedNet](#013-conv2dsemifoldednet) |      |            |
-|    [014 CNNSemiFoldedNet](#014-cnnsemifoldednet)    |      |            |
+|                      测试项目                       | 结果 |                 备注                 |
+| :-------------------------------------------------: | :--: | :----------------------------------: |
+|    [001 Conv2dSemiFolded](#001-conv2dsemifolded)    |  ✅  |                                      |
+|    [002 Conv2dSemiFolded](#002-conv2dsemifolded)    |  ✅  |                                      |
+|    [003 Conv2dSemiFolded](#003-conv2dsemifolded)    |  ✅  |                                      |
+|    [004 Conv2dSemiFolded](#004-conv2dsemifolded)    |  ✅  | 仅错在前2、3时间步，本身就是无效数据 |
+|    [005 Conv2dSemiFolded](#005-conv2dsemifolded)    |  ✅  |                                      |
+|    [006 Conv2dSemiFolded](#006-conv2dsemifolded)    |  ✅  |                                      |
+|    [007 Conv2dSemiFolded](#007-conv2dsemifolded)    |  ✅  |                                      |
+|    [008 Conv2dSemiFolded](#008-conv2dsemifolded)    |  ✅  |                                      |
+|    [009 Conv2dSemiFolded](#009-conv2dsemifolded)    |  ✅  |                                      |
+| [010 MaxPool2dSemiFolded](#010-maxpool2dsemifolded) |  ❌  |                                      |
+| [011 AvgPool2dSemiFolded](#011-avgpool2dsemifolded) |  ✅  |                                      |
+| [012 Conv2dSemiFoldedNet](#012-conv2dsemifoldednet) |  ❌  |                                      |
+| [013 Conv2dSemiFoldedNet](#013-conv2dsemifoldednet) |  ✅  |                                      |
+|    [014 CNNSemiFoldedNet](#014-cnnsemifoldednet)    |  ✅  |                                      |
 
 ### 单层
 

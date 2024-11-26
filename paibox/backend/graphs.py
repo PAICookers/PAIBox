@@ -8,6 +8,7 @@ from paicorelib import HwConfig
 
 from paibox.collector import Collector
 from paibox.components import FullConnectedSyn, InputProj, NeuModule, Neuron
+from paibox.components.functional import LinearSemiFolded
 from paibox.exceptions import GraphBuildError, GraphConnectionError, NotSupportedError
 from paibox.network import DynSysGroup
 from paibox.utils import check_elem_unique
@@ -113,9 +114,32 @@ class PAIGraph:
         # Check the hardware resource limits of operators in the network during the build phase.
         build_options.setdefault("check_before_compile", True)
 
-        # Build functional modules in the subnets
-        for subnet in self._raw_networks:
-            DynSysGroup.build_fmodule(subnet, **build_options)
+        # Build functional modules for each network.
+        for network in self._raw_networks:
+            if network.is_composed_of_semi_folded_ops():
+                modules = network.components.subset(NeuModule)
+                succ_dg_semi_ops = {
+                    name: [t.name for t in op.target] for name, op in modules.items()
+                }
+                pred_dg_semi_ops = reverse_edges(succ_dg_semi_ops)
+
+                # XXX Networks consisting entirely of semi-folded operators require some additional topology
+                # checks. These additional checks may be removed as more network structures will be supported.
+
+                # Currently, `LinearSemiFolded` is at the end of the network, since it will change the form of
+                # the input data stream, and its effective output is at the same time.
+                semi_linears = modules.subset(LinearSemiFolded)
+                if not all(
+                    len(succ_dg_semi_ops[linear]) == 0 for linear in semi_linears
+                ):
+                    raise NotSupportedError(
+                        "currently, the semi-folded linear can only be used as output of the network."
+                    )
+
+                ordered_nodes = [modules[name] for name in toposort(succ_dg_semi_ops)]
+                network.build_modules(pred_dg_semi_ops, ordered_nodes, **build_options)
+            else:
+                network.build_modules(**build_options)
 
     def _update_graph(self, **build_options) -> None:
         self.clear(total=False)
@@ -125,7 +149,7 @@ class PAIGraph:
             self.succ_dg[node] = dict()
             self.pred_dg[node] = dict()
 
-        for syn in self._raw_edges.values():
+        for name, syn in self._raw_edges.items():
             u, v = syn.source.name, syn.dest.name
             if u not in self._raw_nodes:
                 raise GraphConnectionError(
@@ -138,6 +162,7 @@ class PAIGraph:
                 )
 
             _edge_attr = EdgeAttr(edge=syn, distance=syn.source.delay_relative)
+            self.edges[name] = _edge_attr
             self.succ_dg[u][v] = _edge_attr
             self.pred_dg[v][u] = _edge_attr
 
@@ -157,9 +182,6 @@ class PAIGraph:
                 position=self._node_pos(name),
                 degree=self.degree_of_nodes[name],
             )
-
-        for name, syn in self._raw_edges.items():
-            self.edges[name] = EdgeAttr(edge=syn, distance=syn.source.delay_relative)
 
         self.ordered_nodes = toposort(self.succ_dg)
         self.has_built = True

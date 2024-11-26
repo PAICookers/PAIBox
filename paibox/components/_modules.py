@@ -1,6 +1,7 @@
 import math
 import typing
-from typing import Literal, Optional, Protocol, Union
+from dataclasses import dataclass
+from typing import Literal, Optional, Union
 
 import numpy as np
 from paicorelib import TM, HwConfig
@@ -57,6 +58,7 @@ __all__ = [
     "_SpikingPool2dWithV",
     "_SemiFoldedModule",
     "_LinearBase",
+    "SemiFoldedStreamAttr",
 ]
 
 
@@ -125,7 +127,7 @@ class _DelayChainBase(FunctionalModule):
         n_delaychain.append(n_out)  # Must append to the last.
 
         syn_in = FullConnSyn(
-            self.module_intf.operands[0],
+            self.source[0],
             n_delaychain[0],
             1,
             conn_type=ConnType.One2One,
@@ -159,24 +161,44 @@ class _DelayChainANN(_DelayChainBase):
     pass
 
 
-class _HasSemiFoldedIntf(Protocol):
-    """The front of this module has replication & delay interface for semi-folded operators."""
+@dataclass(frozen=True)
+class SemiFoldedStreamAttr:
+    """Details of transmission of valid data in semi-folded form data stream."""
+
+    t_1st_vld: int
+    """The time of the first valid data, relative to `t_1st_vld` of the external input."""
+    interval: int
+    """The interval of the output data stream."""
+    n_data: int = 0
+    """The number of valid output data."""
+
+    def t_at(self, n: int) -> int:
+        """The time of the n-th valid data."""
+        if self.n_data > 0:
+            assert 1 <= n <= self.n_data
+
+        return self.t_1st_vld + (n - 1) * self.interval
+
+    @property
+    def t_last_vld(self) -> int:
+        """The time of the last valid data."""
+        assert self.n_data > 0
+        return self.t_at(self.n_data)
+
+
+@set_rt_mode_ann()
+class _SemiFoldedModule(FunctionalModule):
+    """Functional modules with interfaces in semi-folded form. Use `build()` of class `HasSemiFoldedIntf`."""
+
+    ostream_attr: SemiFoldedStreamAttr
 
     def build(
         self,
         network: "DynSysGroup",
-        valid_interval: int,
-        ts_first_valid_inp: int,
+        incoming_stream_attr: SemiFoldedStreamAttr,
         **build_options,
-    ) -> BuiltComponentType: ...
-
-
-@set_rt_mode_ann()
-class _SemiFoldedModule(FunctionalModule, _HasSemiFoldedIntf):
-    valid_interval: int = 1
-    """The interval of valid output data."""
-    ts_1st_valid_out: int = 0
-    """The timestamp of the first valid output data."""
+    ) -> BuiltComponentType:
+        raise NotImplementedError
 
     def _input_buffer_len_check(
         self, in_channels: int, in_h: int, kw: int, valid_interval: int
@@ -312,7 +334,7 @@ class _SpikingPool1d(FunctionalModule):
             )
 
         syn1 = FullConnSyn(
-            self.module_intf.operands[0],
+            self.source[0],
             n1_p1d,
             weights=self.tfm.connectivity.astype(np.bool_),
             conn_type=ConnType.All2All,
@@ -391,7 +413,7 @@ class _SpikingPool1dWithV(FunctionalModuleWithV):
         )
 
         syn1 = FullConnSyn(
-            self.module_intf.operands[0],
+            self.source[0],
             n1_p1d,
             weights=self.tfm.connectivity.astype(np.bool_),
             conn_type=ConnType.All2All,
@@ -482,7 +504,7 @@ class _SpikingPool2d(FunctionalModule):
             )
 
         syn1 = FullConnSyn(
-            self.module_intf.operands[0],
+            self.source[0],
             n1_p2d,
             weights=self.tfm.connectivity.astype(np.bool_),
             conn_type=ConnType.All2All,
@@ -566,7 +588,7 @@ class _SpikingPool2dWithV(FunctionalModuleWithV):
         )
 
         syn1 = FullConnSyn(
-            self.module_intf.operands[0],
+            self.source[0],
             n1_p2d,
             weights=self.tfm.connectivity.astype(np.bool_),
             conn_type=ConnType.All2All,

@@ -31,7 +31,7 @@ def _assert_build_fmodule(
     assert len(nodes) == n_node_bef_build
 
     # Construct the functional modules
-    DynSysGroup.build_fmodule(network)
+    network.build_modules()
 
     # Must exclude `NeuModule`, because it may be in the `__dict__` of probe
     nodes = network.nodes().subset(DynamicSys).exclude(NeuModule).unique()
@@ -106,7 +106,7 @@ class TestFunctionalModules:
         net2 = FunctionalModule_2to1_Net("and")
         bitwise = net1.bitwise
         func = net2.func_node
-        generated = DynSysGroup.build_fmodule(net2)
+        generated = net2.build_modules()
         sim1 = pb.Simulator(net1, start_time_zero=False)
         sim2 = pb.Simulator(net2, start_time_zero=False)
 
@@ -147,7 +147,7 @@ class TestFunctionalModules:
         net2 = FunctionalModule_1to1_Net("not")
         bitwise = net1.bitwise
         func = net2.func_node
-        generated = DynSysGroup.build_fmodule(net2)
+        generated = net2.build_modules()
         sim1 = pb.Simulator(net1, start_time_zero=False)
         sim2 = pb.Simulator(net2, start_time_zero=False)
 
@@ -187,7 +187,7 @@ class TestFunctionalModules:
         net2 = FunctionalModule_2to1_Net("or")
         bitwise = net1.bitwise
         func = net2.func_node
-        generated = DynSysGroup.build_fmodule(net2)
+        generated = net2.build_modules()
         sim1 = pb.Simulator(net1, start_time_zero=False)
         sim2 = pb.Simulator(net2, start_time_zero=False)
 
@@ -228,7 +228,7 @@ class TestFunctionalModules:
         net2 = FunctionalModule_2to1_Net("xor")
         bitwise = net1.bitwise
         func = net2.func_node
-        generated = DynSysGroup.build_fmodule(net2)
+        generated = net2.build_modules()
         sim1 = pb.Simulator(net1, start_time_zero=False)
         sim2 = pb.Simulator(net2, start_time_zero=False)
 
@@ -269,7 +269,7 @@ class TestFunctionalModules:
         net2 = FunctionalModule_1to1_Net("delay")
         bitwise = net1.bitwise
         func = net2.func_node
-        generated = DynSysGroup.build_fmodule(net2)
+        generated = net2.build_modules()
         sim1 = pb.Simulator(net1, start_time_zero=False)
         sim2 = pb.Simulator(net2, start_time_zero=False)
 
@@ -309,7 +309,7 @@ class TestFunctionalModules:
         net1 = FunctionalModule_2to1_Net("add")
         net2 = FunctionalModule_2to1_Net("add")
         func = net2.func_node
-        generated = DynSysGroup.build_fmodule(net2)
+        generated = net2.build_modules()
         sim1 = pb.Simulator(net1, start_time_zero=False)
         sim2 = pb.Simulator(net2, start_time_zero=False)
 
@@ -360,7 +360,7 @@ class TestFunctionalModules:
         net1 = FunctionalModule_2to1_Net("sub")
         net2 = FunctionalModule_2to1_Net("sub")
         func = net2.func_node
-        generated = DynSysGroup.build_fmodule(net2)
+        generated = net2.build_modules()
         sim1 = pb.Simulator(net1, start_time_zero=False)
         sim2 = pb.Simulator(net2, start_time_zero=False)
 
@@ -448,7 +448,7 @@ class TestFunctionalModules:
         net1 = SpikingPool1d_Net(fm_shape, ksize, stride, padding, threshold, pool_type)
         net2 = SpikingPool1d_Net(fm_shape, ksize, stride, padding, threshold, pool_type)
         p1d = net2.pool
-        generated = DynSysGroup.build_fmodule(net2)
+        generated = net2.build_modules()
         sim1 = pb.Simulator(net1, start_time_zero=False)
         sim2 = pb.Simulator(net2, start_time_zero=False)
 
@@ -558,7 +558,7 @@ class TestFunctionalModules:
         net1 = SpikingPool2d_Net(fm_shape, ksize, stride, padding, threshold, pool_type)
         net2 = SpikingPool2d_Net(fm_shape, ksize, stride, padding, threshold, pool_type)
         p2d = net2.pool
-        generated = DynSysGroup.build_fmodule(net2)
+        generated = net2.build_modules()
         sim1 = pb.Simulator(net1, start_time_zero=False)
         sim2 = pb.Simulator(net2, start_time_zero=False)
 
@@ -642,7 +642,7 @@ class TestFunctionalModules:
         net1 = SpikingPool1d_Net(fm_shape, ksize, stride, padding, threshold, "avgv")
         net2 = SpikingPool1d_Net(fm_shape, ksize, stride, padding, threshold, "avgv")
         p1d = net2.pool
-        generated = DynSysGroup.build_fmodule(net2)
+        generated = net2.build_modules()
         sim1 = pb.Simulator(net1, start_time_zero=False)
         sim2 = pb.Simulator(net2, start_time_zero=False)
 
@@ -704,7 +704,7 @@ class TestFunctionalModules:
         net1 = SpikingPool2d_Net(fm_shape, ksize, stride, padding, threshold, "avgv")
         net2 = SpikingPool2d_Net(fm_shape, ksize, stride, padding, threshold, "avgv")
         p2d = net2.pool
-        generated = DynSysGroup.build_fmodule(net2)
+        generated = net2.build_modules()
         sim1 = pb.Simulator(net1, start_time_zero=False)
         sim2 = pb.Simulator(net2, start_time_zero=False)
 
@@ -742,7 +742,7 @@ class TestFunctionalModules:
         net1 = TransposeModule_T2d_Net(shape)
         net2 = TransposeModule_T2d_Net(shape)
         t2d = net2.t2d
-        generated = DynSysGroup.build_fmodule(net2)
+        generated = net2.build_modules()
         sim1 = pb.Simulator(net1, start_time_zero=False)
         sim2 = pb.Simulator(net2, start_time_zero=False)
 
@@ -792,7 +792,7 @@ class TestFunctionalModules:
         net1 = TransposeModule_T3d_Net(shape, axes)
         net2 = TransposeModule_T3d_Net(shape, axes)
         t3d = net2.t3d
-        generated = DynSysGroup.build_fmodule(net2)
+        generated = net2.build_modules()
         sim1 = pb.Simulator(net1, start_time_zero=False)
         sim2 = pb.Simulator(net2, start_time_zero=False)
 
@@ -830,7 +830,6 @@ class TestFunctionalModules:
         mapper.export(fp=ensure_dump_dir)
 
     @pytest.mark.parametrize(
-        # NOTE: Only support padding in the first semi-folded conv2d for now.
         "ishape_chw, n_conv, kshape_oihw, stride, padding, out_features",
         [
             # n_conv = 1
@@ -965,7 +964,7 @@ class TestFunctionalModules:
         # `net1.conv_list` will be removed in `build_fmodule`
         conv2d_list = net1.conv_list.copy()
         linear = net1.linear1
-        generated = DynSysGroup.build_fmodule(net1)
+        generated = net1.build_modules()
         sim1 = pb.Simulator(net1, start_time_zero=False)
 
         probe_conv_list = []
@@ -978,20 +977,23 @@ class TestFunctionalModules:
         sim1.add_probe(probe_linear)
 
         semi_folded_modules = [*conv2d_list, linear]
-        semi_valid_interval = []
-        for m in semi_folded_modules:
-            semi_valid_interval.append(m.valid_interval)
-
-        ts_1st_valid = [0] * n_conv
+        # The interval & the time o the first valid data of the external input data stream
+        semi_vld_out_intv0 = 1
+        t_1st_vld_data0 = 0
+        # The interval & the time of the first valid data of the current layers
+        semi_vld_out_intv = [m.ostream_attr.interval for m in semi_folded_modules]
+        t_1st_vld_data = [0] * n_conv
         for i in range(n_conv):
             if i == 0:
-                ts_1st_valid[i] = (
-                    kshape_oihw[0][-1] - paddings[0][0]
-                ) * semi_valid_interval[0]
+                t_1st_vld_data[i] = (
+                    t_1st_vld_data0
+                    + (kshape_oihw[0][-1] - paddings[0][0]) * semi_vld_out_intv0
+                )
             else:
-                ts_1st_valid[i] = (
-                    ts_1st_valid[i - 1]
-                    + (kshape_oihw[i][-1] - 1 - paddings[i][0]) * semi_valid_interval[i]
+                t_1st_vld_data[i] = (
+                    t_1st_vld_data[i - 1]
+                    + (kshape_oihw[i][-1] - 1 - paddings[i][0])
+                    * semi_vld_out_intv[i - 1]
                 )
 
         n_test = 3  # can be more
@@ -1034,8 +1036,8 @@ class TestFunctionalModules:
                         x[:, :, i].ravel(),
                         sim1.data[probe_conv_list[i_conv]][
                             conv2d_list[i_conv].tick_wait_start
-                            + ts_1st_valid[i_conv]
-                            + i * semi_valid_interval[i_conv + 1]
+                            + t_1st_vld_data[i_conv]
+                            + i * semi_vld_out_intv[i_conv]
                             - 1
                         ],
                     )
@@ -1047,10 +1049,7 @@ class TestFunctionalModules:
             assert np.array_equal(
                 expected_fc_t,
                 sim1.data[probe_linear][
-                    linear.tick_wait_start
-                    + ts_1st_valid[-1]
-                    + (ows[-1] - 1) * semi_valid_interval[-1]
-                    - 1
+                    linear.tick_wait_start + linear.ostream_attr.t_last_vld
                 ],
             )
 
@@ -1160,7 +1159,7 @@ class TestFunctionalModules:
         # `net1.pool_list` will be removed in `build_fmodule`
         pool2d_list = net1.pool_list.copy()
         linear = net1.linear1
-        generated = DynSysGroup.build_fmodule(net1)
+        generated = net1.build_modules()
         sim1 = pb.Simulator(net1, start_time_zero=False)
 
         probe_pool_list = []
@@ -1173,20 +1172,22 @@ class TestFunctionalModules:
         sim1.add_probe(probe_linear)
 
         semi_folded_modules = [*pool2d_list, linear]
-        semi_valid_interval = []
-        for m in semi_folded_modules:
-            semi_valid_interval.append(m.valid_interval)
-
-        ts_1st_valid = [0] * n_pool
+        # The interval & the time o the first valid data of the external input data stream
+        semi_vld_out_intv0 = 1
+        t_1st_vld_data0 = 0
+        # The interval & the time of the first valid data of the current layers
+        semi_vld_out_intv = [m.ostream_attr.interval for m in semi_folded_modules]
+        t_1st_vld_data = [0] * n_pool
         for i in range(n_pool):
             if i == 0:
-                ts_1st_valid[i] = (
-                    ksizes[0][-1] - paddings[0][0]
-                ) * semi_valid_interval[0]
+                t_1st_vld_data[i] = (
+                    t_1st_vld_data0
+                    + (ksizes[i][-1] - paddings[i][0]) * semi_vld_out_intv0
+                )
             else:
-                ts_1st_valid[i] = (
-                    ts_1st_valid[i - 1]
-                    + (ksizes[i][-1] - 1 - paddings[i][0]) * semi_valid_interval[i]
+                t_1st_vld_data[i] = (
+                    t_1st_vld_data[i - 1]
+                    + (ksizes[i][-1] - 1 - paddings[i][0]) * semi_vld_out_intv[i - 1]
                 )
 
         n_test = 3  # can be more
@@ -1217,8 +1218,8 @@ class TestFunctionalModules:
                         x[:, :, i].ravel(),
                         sim1.data[probe_pool_list[i_pool]][
                             pool2d_list[i_pool].tick_wait_start
-                            + ts_1st_valid[i_pool]
-                            + i * semi_valid_interval[i_pool + 1]
+                            + t_1st_vld_data[i_pool]
+                            + i * semi_vld_out_intv[i_pool]
                             - 1
                         ],
                     )
@@ -1230,10 +1231,7 @@ class TestFunctionalModules:
             assert np.array_equal(
                 expected_fc_t,
                 sim1.data[probe_linear][
-                    linear.tick_wait_start
-                    + ts_1st_valid[-1]
-                    + (ows[-1] - 1) * semi_valid_interval[-1]
-                    - 1
+                    linear.tick_wait_start + linear.ostream_attr.t_last_vld
                 ],
             )
 
@@ -1250,7 +1248,7 @@ class TestFunctionalModules:
         net1 = Linear_Net(shape, weight)
         net2 = Linear_Net(shape, weight)
         linear = net2.linear1
-        generated = pb.DynSysGroup.build_fmodule(net2)
+        generated = net2.build_modules()
         sim1 = pb.Simulator(net1, start_time_zero=False)
         sim2 = pb.Simulator(net2, start_time_zero=False)
 
