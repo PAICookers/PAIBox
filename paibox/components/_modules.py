@@ -201,21 +201,21 @@ class _SemiFoldedModule(FunctionalModule):
         raise NotImplementedError
 
     def _input_buffer_len_check(
-        self, in_channels: int, in_h: int, kw: int, valid_interval: int
+        self, ich: int, ih: int, kw: int, interval: int
     ) -> None:
         """Check the limit of the semi-folded operators on the input buffer length of the core during the build phase.
 
-        NOTE: If the condition is not met, an expection will be raised in the subsequent compilation phase.
+        NOTE: The right side of the inequality will only be smaller in the backend. If the condition is not met, an \
+            expection will be raised in the subsequent compilation phase.
         """
         E = math.ceil(
-            math.log2(
-                math.ceil(in_channels * in_h * kw / HwConfig.N_FANIN_PER_DENDRITE_ANN)
-            )
+            math.log2(math.ceil(ich * ih * kw / HwConfig.N_FANIN_PER_DENDRITE_ANN))
         )
-        deep = min(in_h - kw, kw - 1) * valid_interval + 1
-        if not HwConfig.N_TIMESLOT_MAX / (2**E) > deep:
+
+        if min(ih - kw, kw - 1) * interval + 1 >= (HwConfig.N_TIMESLOT_MAX >> E):
+            _adjust_text = "input size, kernel size or stride along the data flow."
             raise ResourceError(
-                f"the input size of {self.name} is too large. Please adjust the input size or the number of channels."
+                f"the data arrangement of {self.name}'s input buffer may be wrong. Please adjust the {_adjust_text}."
             )
 
 
