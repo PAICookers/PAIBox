@@ -212,11 +212,12 @@ class _SemiFoldedModule(FunctionalModule):
                 math.ceil(in_channels * in_h * kw / HwConfig.N_FANIN_PER_DENDRITE_ANN)
             )
         )
-
-        if not kw * valid_interval > HwConfig.N_TIMESLOT_MAX / (2**E):
+        deep = min(in_h - kw, kw - 1) * valid_interval + 1
+        if not HwConfig.N_TIMESLOT_MAX / (2**E) > deep:
             raise ResourceError(
                 f"the input size of {self.name} is too large. Please adjust the input size or the number of channels."
             )
+
 
 
 class _LinearBase(FunctionalModule):
