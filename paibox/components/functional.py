@@ -910,8 +910,12 @@ class LinearSemiFolded(_LinearBase, _SemiFoldedModule):
     ) -> BuiltComponentType:
         assert len(self.source[0].shape_out) == 2
         self.ostream_attr = incoming_stream_attr
+        twe = 1 + self.ostream_attr.t_last_vld
 
         ich, ih = self.source[0].shape_out
+
+        if build_options.get("check_before_compile"):
+            self._input_buffer_len_check(ich, ih, ih, incoming_stream_attr.interval)
         n_delays = NodeList()
         s_delays = NodeList()
         s_weight = NodeList()
@@ -932,7 +936,7 @@ class LinearSemiFolded(_LinearBase, _SemiFoldedModule):
                 shape=(ich, ih),
                 delay=incoming_stream_attr.interval * i + 1,
                 tick_wait_start=self.tick_wait_start,
-                tick_wait_end=self.tick_wait_end,
+                tick_wait_end=twe - incoming_stream_attr.interval * i,
                 keep_shape=self.keep_shape,
                 name=f"n{i}_{self.name}",
             )
@@ -1049,7 +1053,6 @@ class Conv2dSemiFolded(_SemiFoldedModule):
             ow,
         )
         twe = 1 + self.ostream_attr.t_last_vld
-
         if build_options.get("check_before_compile"):
             self._input_buffer_len_check(cin, ih, kw, incoming_stream_attr.interval)
 
@@ -1069,13 +1072,12 @@ class Conv2dSemiFolded(_SemiFoldedModule):
             keep_shape=self.keep_shape,
             name=f"nd_{self.name}",
         )
-
         for i in range(kw):
             neuron = ANNBypassNeuron(
                 (cin, ih),
                 delay=incoming_stream_attr.interval * i + 1,
                 tick_wait_start=self.tick_wait_start,
-                tick_wait_end=twe,
+                tick_wait_end=twe - incoming_stream_attr.interval * i,
                 name=f"n{i}_delay_{self.name}",
             )
             n_delays.append(neuron)
@@ -1235,7 +1237,7 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
                 (cin, ih),
                 delay=incoming_stream_attr.interval * i + 1,
                 tick_wait_start=self.tick_wait_start,
-                tick_wait_end=twe,
+                tick_wait_end=twe - incoming_stream_attr.interval * i,
                 keep_shape=self.keep_shape,
                 name=f"n{i}_{self.name}",
             )
@@ -1367,7 +1369,7 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
                 (cin, ih),
                 delay=incoming_stream_attr.interval * i + 1,
                 tick_wait_start=self.tick_wait_start,
-                tick_wait_end=twe,
+                tick_wait_end=twe - incoming_stream_attr.interval * i,
                 keep_shape=self.keep_shape,
                 name=f"n{i}_{self.name}",
             )
