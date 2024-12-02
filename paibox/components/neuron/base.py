@@ -20,7 +20,7 @@ from paicorelib import (
     get_core_mode,
 )
 
-from paibox.base import DataFlowFormat, NeuDyn, INFINITE_DATAFLOW
+from paibox.base import DataFlowFormat, NeuDyn
 from paibox.exceptions import NotSupportedError, PAIBoxWarning, ShapeError
 from paibox.types import (
     NEUOUT_U8_DTYPE,
@@ -492,8 +492,8 @@ class Neuron(MetaNeuron, NeuDyn):
         self._tws = arg_check_non_neg(tick_wait_start, "'tick_wait_start'")
         self._twe = arg_check_non_neg(tick_wait_end, "'tick_wait_end'")
         self._uf = arg_check_pos(unrolling_factor, "'unrolling_factor'")
-        # Default dataflow is infinite and continuous, starting at `tws`.
-        self.oflow_format = DataFlowFormat(self.tick_wait_start)
+        # Default dataflow is infinite and continuous, starting at tws+0.
+        self.oflow_format = DataFlowFormat(0, is_local_time=True)
 
     def __len__(self) -> int:
         return self._n_neuron
@@ -535,41 +535,44 @@ class Neuron(MetaNeuron, NeuDyn):
         self,
         t_1st_vld: Optional[int] = None,
         interval: Optional[int] = None,
-        n_vld: Optional[int] = None
+        n_vld: Optional[int] = None,
+        *,
+        format_type: type[DataFlowFormat] = DataFlowFormat,
     ) -> None:
-        assert hasattr(self, "oflow_format")
-        _t_1st_vld = (
-            t_1st_vld if isinstance(t_1st_vld, int) else self.oflow_format.t_1st_vld
-        )
-
-        _interval = (
-            arg_check_pos(interval, "interval")
-            if isinstance(interval, int)
-            else self.oflow_format.interval
-        )
-
-        _n_vld = (
-            arg_check_non_neg(n_vld, "n_vld")
-            if isinstance(n_vld, int)
-            else self.oflow_format.n_vld
-        )
-
-        if _t_1st_vld < self.tick_wait_start:
-            raise ValueError(
-                f"the output time of the first valid data should be greater than or equal to "
-                f"{self.tick_wait_start}, but got {_t_1st_vld}."
+        """Set the attributes of output dataflow format by given arguments."""
+        if hasattr(self, "oflow_format"):
+            _t_1st_vld = (
+                t_1st_vld if isinstance(t_1st_vld, int) else self.oflow_format.t_1st_vld
             )
-
-        if _n_vld > INFINITE_DATAFLOW:
-            if (t_last_vld := _t_1st_vld + (_n_vld - 1) * _interval) > self.end_tick:
+            _interval = (
+                arg_check_pos(interval, "interval")
+                if isinstance(interval, int)
+                else self.oflow_format.interval
+            )
+            _n_vld = (
+                arg_check_non_neg(n_vld, "n_vld")
+                if isinstance(n_vld, int)
+                else self.oflow_format.n_vld
+            )
+            self._assign_flow_format(_t_1st_vld, _interval, _n_vld)
+        else:
+            if not (
+                isinstance(interval, int)
+                and isinstance(n_vld, int)
+                and isinstance(t_1st_vld, int)
+            ):
                 raise ValueError(
-                    f"valid data is output after the end time. The neuron stops working at "
-                    f"{self.end_tick}, but still needs to output at {t_last_vld}."
+                    "if 'oflow_format' is not set, 't_1st_vld', 'interval' & 'n_vld' must be set."
                 )
 
-        self.oflow_format.t_1st_vld = _t_1st_vld
-        self.oflow_format.interval = _interval
-        self.oflow_format.n_vld = _n_vld
+            self.oflow_format = format_type(t_1st_vld, interval, n_vld)
+            self.oflow_format._check_after_assign(self.tick_wait_start, self.end_tick)
+
+    def _assign_flow_format(self, t_1st_vld: int, intv: int, n_vld: int) -> None:
+        self.oflow_format.t_1st_vld = t_1st_vld
+        self.oflow_format.interval = intv
+        self.oflow_format.n_vld = n_vld
+        self.oflow_format._check_after_assign(self.tick_wait_start, self.end_tick)
 
     def __copy__(self) -> "Neuron":
         """Same as `__deepcopy__`."""
