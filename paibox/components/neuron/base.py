@@ -41,10 +41,10 @@ from paibox.utils import (
 from .utils import (
     BIT_TRUNCATE_MAX,
     NEG_THRES_MIN,
+    RTModeKwds,
     _input_width_format,
     _leak_v_check,
     _mask,
-    RTModeKwds,
     _spike_width_format,
     vjt_overflow,
 )

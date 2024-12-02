@@ -1,7 +1,7 @@
 import pytest
 
 import paibox as pb
-from paibox.base import PAIBoxObject, DataFlowFormat
+from paibox.base import DataFlowFormat, PAIBoxObject
 from paibox.exceptions import RegisterError
 
 
