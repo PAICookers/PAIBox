@@ -14,7 +14,7 @@ from paibox.exceptions import NotSupportedError, RegisterError, ShapeError
 from paibox.types import NEUOUT_U8_DTYPE, NeuOutType, VoltageType
 from paibox.utils import check_elem_unique, shape2num
 
-from .neuron.utils import _input_width_format, _RTModeKwds, _spike_width_format
+from .neuron.utils import _input_width_format, RTModeKwds, _spike_width_format
 from .projection import InputProj
 
 if sys.version_info >= (3, 10):
@@ -91,7 +91,7 @@ class NeuModule(NeuDyn, BuildingModule):
     """#N of outputs."""
     inherent_delay: int = 0
     """Internal delay of the module, relative to the external."""
-    rt_mode_kwds: _RTModeKwds
+    rt_mode_kwds: RTModeKwds
     mode: CoreMode
 
     def __init__(
