@@ -1,7 +1,7 @@
 import pytest
 
 import paibox as pb
-from paibox.base import PAIBoxObject
+from paibox.base import DataFlowFormat, PAIBoxObject
 from paibox.exceptions import RegisterError
 
 
@@ -41,3 +41,20 @@ def test_paiboxobject_nodes():
 
     nodes4 = obj1.nodes(method="absolute", level=-1, include_self=True)
     assert nodes4["obj111"] == obj1
+
+
+class TestDataFlowFormat:
+    def test_dff_infinite_dataflow(self):
+        with pytest.raises((AssertionError, ValueError)):
+            dff = DataFlowFormat(1, 0, -1)
+            _ = dff.t_last_vld
+
+    def test_dff_valid(self):
+        # 1. t1 >= tws, t_last > endtick
+        dff1 = DataFlowFormat(10, 3, 10, is_local_time=False)
+        with pytest.raises(ValueError):
+            dff1._check_after_assign(8, 36)
+
+        # 2. t1 >= tws, t_last <= endtick
+        dff2 = DataFlowFormat(10, 3, 10, is_local_time=True)
+        dff2._check_after_assign(2, 39)

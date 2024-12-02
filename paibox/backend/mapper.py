@@ -8,7 +8,7 @@ from paicorelib import ChipCoord, Coord, CoordOffset, HwConfig, get_replication_
 
 from paibox.base import SynSys
 from paibox.components import Neuron
-from paibox.exceptions import ConfigInvalidError, ResourceError
+from paibox.exceptions import CompileError, ConfigInvalidError, ResourceError
 from paibox.network import DynSysGroup
 
 from .conf_exporting import *
@@ -45,10 +45,11 @@ __all__ = ["Mapper"]
 
 
 class Mapper:
-    graph = PAIGraph()
+    graph: PAIGraph
     graph_info: GraphInfo
 
     def __init__(self) -> None:
+        self.graph = PAIGraph()
         self.core_blocks: list[CoreBlock] = []
         """List for core blocks in the network."""
         self.succ_core_blocks: dict[CoreBlock, list[CoreBlock]] = defaultdict(list)
@@ -71,6 +72,9 @@ class Mapper:
             chip_list=_BACKEND_CONTEXT["target_chip_addr"]
         )
 
+        self._core_estimate_only = False
+        """Wether this compilation is for core estimation only. If so, no core will be assigned."""
+
         self.clear()
 
     def clear(self) -> None:
@@ -89,6 +93,8 @@ class Mapper:
 
         self.n_core_required = 0
         self.n_core_occupied = 0
+
+        self._core_estimate_only = False
 
         # Set default cflags
         _BACKEND_CONTEXT.cflags.clear()
@@ -169,6 +175,8 @@ class Mapper:
             set_cflag(multicast_optim=True)
             set_cflag(multicast_optim_nodes=_mul_optim_nodes)
 
+        self._core_estimate_only = core_estimate_only
+
         """Preperation.
             1. Check whether the PAIGraph has built.
             2. Set global compilation flags.
@@ -192,9 +200,9 @@ class Mapper:
         self.cb_axon_grouping()
 
         """Core coordinate assignment."""
-        self.coord_assign(core_estimate_only)
+        self.coord_assign(self._core_estimate_only)
 
-        if core_estimate_only:
+        if self._core_estimate_only:
             return GraphInfo(
                 name=self.graph.graph_name_repr,
                 input={},
@@ -374,7 +382,7 @@ class Mapper:
         ]:
             raise ConfigInvalidError(
                 f"the output chip address {ochip_coord} should not overlap with the "
-                f"chip addresses, but got {_BACKEND_CONTEXT._target_chip_addr_repr()}."
+                f"target chip addresses, but got {_BACKEND_CONTEXT._target_chip_addr_repr()}."
             )
 
         input_nodes_info = self._inpproj_config_export()
@@ -619,6 +627,12 @@ class Mapper:
 
         Return: total configurations in dictionary format.
         """
+        if self._core_estimate_only:
+            raise CompileError(
+                "the current compilation is only for core estimation. "
+                "Please disable 'core_estimate_only' and compile again before exporting."
+            )
+
         if format not in ("bin", "npy", "txt"):
             raise ValueError(f"format {format} is not supported.")
 
@@ -691,27 +705,27 @@ class Mapper:
         return dest_cb_of_nseg
 
 
-def cycle_merge(merged_sgrps: list[MergedSuccGroup]):
-    succ_merged_sgrps: dict[MergedSuccGroup, list[MergedSuccGroup]] = dict()
+def cycle_merge(merged_sgrps: list[MergedSuccGroup]) -> list[MergedSuccGroup]:
+    succ_merged_sgrps: dict[MergedSuccGroup, list[MergedSuccGroup]] = defaultdict(list)
+
     for msgrp in merged_sgrps:
-        succ_merged_sgrps[msgrp] = []
-        nodes = set(msgrp.nodes)
         for _msgrp in merged_sgrps:
             if msgrp == _msgrp:
                 continue
-            if not nodes.isdisjoint(_msgrp.input_nodes):
+            if not msgrp.nodes.isdisjoint(_msgrp.input_nodes):
                 succ_merged_sgrps[msgrp].append(_msgrp)
 
     cycles: list[list[MergedSuccGroup]] = find_cycles(succ_merged_sgrps)
     merged_cycles: list[list[MergedSuccGroup]] = merge_overlap(cycles)
 
     processed_merged_cycles: list[MergedSuccGroup] = list()
-    remaining_merged_sgrps: set[MergedSuccGroup] = set(merged_sgrps)
-    for merged_cycle in merged_cycles:
-        processed_merged_cycles.append(MergedSuccGroup.merge(merged_cycle))
-        for msgrp in merged_cycle:
-            remaining_merged_sgrps.remove(msgrp)
-    processed_merged_cycles.extend(remaining_merged_sgrps)
+    remaining_msgrps: set[MergedSuccGroup] = set(merged_sgrps)
+    for mc in merged_cycles:
+        processed_merged_cycles.append(MergedSuccGroup.merge(mc))
+        for msgrp in mc:
+            remaining_msgrps.remove(msgrp)
+
+    processed_merged_cycles.extend(remaining_msgrps)
     return processed_merged_cycles
 
 
