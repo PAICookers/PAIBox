@@ -1,12 +1,10 @@
-import math
 import typing
-from dataclasses import dataclass
 from typing import Literal, Optional, Union
 
 import numpy as np
 from paicorelib import TM, HwConfig
 
-from paibox.base import NeuDyn, NodeList
+from paibox.base import DataFlowFormat, NeuDyn, NodeList
 from paibox.exceptions import ResourceError, ShapeError
 from paibox.types import (
     LEAK_V_DTYPE,
@@ -58,7 +56,7 @@ __all__ = [
     "_SpikingPool2dWithV",
     "_SemiFoldedModule",
     "_LinearBase",
-    "SemiFoldedStreamAttr",
+    "SemiFoldedDataFlowFormat",
 ]
 
 
@@ -161,41 +159,21 @@ class _DelayChainANN(_DelayChainBase):
     pass
 
 
-@dataclass(frozen=True)
-class SemiFoldedStreamAttr:
-    """Details of transmission of valid data in semi-folded form data stream."""
-
-    t_1st_vld: int
-    """The time of the first valid data, relative to `t_1st_vld` of the external input."""
-    interval: int
-    """The interval of the output data stream."""
-    n_data: int = 0
-    """The number of valid output data."""
-
-    def t_at(self, n: int) -> int:
-        """The time of the n-th valid data."""
-        if self.n_data > 0:
-            assert 1 <= n <= self.n_data
-
-        return self.t_1st_vld + (n - 1) * self.interval
-
-    @property
-    def t_last_vld(self) -> int:
-        """The time of the last valid data."""
-        assert self.n_data > 0
-        return self.t_at(self.n_data)
+class SemiFoldedDataFlowFormat(DataFlowFormat):
+    pass
 
 
 @set_rt_mode_ann()
 class _SemiFoldedModule(FunctionalModule):
     """Functional modules with interfaces in semi-folded form. Use `build()` of class `HasSemiFoldedIntf`."""
 
-    ostream_attr: SemiFoldedStreamAttr
+    inherent_delay = 1
+    oflow_format: SemiFoldedDataFlowFormat
 
     def build(
         self,
         network: "DynSysGroup",
-        incoming_stream_attr: SemiFoldedStreamAttr,
+        incoming_flow_format: SemiFoldedDataFlowFormat,
         **build_options,
     ) -> BuiltComponentType:
         raise NotImplementedError
