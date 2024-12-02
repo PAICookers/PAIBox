@@ -16,6 +16,7 @@ homepage = "https://github.com/PAICookers/PAIBox"
 documentation = "https://github.com/PAICookers/PAIBox#readme"
 keywords = ["PAICORE 2.0", "PAIBox", "SNN", "Toolchain"]
 classifiers = [
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Operating System :: OS Independent",
@@ -24,9 +25,9 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
-    "Topic :: Software Development :: Build Tools",
-    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Compilers",
 ]
 packages = [{ include = "paibox" }]
 
