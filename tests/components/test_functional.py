@@ -4,6 +4,7 @@ import pytest
 import paibox as pb
 from paibox.base import DynamicSys
 from paibox.components import NeuModule
+from paibox.components._modules import _SemiFoldedModule
 from paibox.components.neuron.base import MetaNeuron
 from paibox.components.synapses.conv_utils import _conv2d_faster, _pair, _single
 from paibox.network import DynSysGroup
@@ -976,12 +977,12 @@ class TestFunctionalModules:
         probe_linear = pb.Probe(generated[linear][0], "output")
         sim1.add_probe(probe_linear)
 
-        semi_folded_modules = [*conv2d_list, linear]
+        semi_folded_modules: list[_SemiFoldedModule] = [*conv2d_list, linear]
         # The interval & the time o the first valid data of the external input data stream
         semi_vld_out_intv0 = 1
         t_1st_vld_data0 = 0
         # The interval & the time of the first valid data of the current layers
-        semi_vld_out_intv = [m.ostream_attr.interval for m in semi_folded_modules]
+        semi_vld_out_intv = [m.oflow_format.interval for m in semi_folded_modules]
         t_1st_vld_data = [0] * n_conv
         for i in range(n_conv):
             if i == 0:
@@ -1049,7 +1050,7 @@ class TestFunctionalModules:
             assert np.array_equal(
                 expected_fc_t,
                 sim1.data[probe_linear][
-                    linear.tick_wait_start + linear.ostream_attr.t_last_vld
+                    linear.tick_wait_start + linear.oflow_format.t_last_vld
                 ],
             )
 
@@ -1171,12 +1172,12 @@ class TestFunctionalModules:
         probe_linear = pb.Probe(generated[linear][0], "output")
         sim1.add_probe(probe_linear)
 
-        semi_folded_modules = [*pool2d_list, linear]
+        semi_folded_modules: list[_SemiFoldedModule] = [*pool2d_list, linear]
         # The interval & the time o the first valid data of the external input data stream
         semi_vld_out_intv0 = 1
         t_1st_vld_data0 = 0
         # The interval & the time of the first valid data of the current layers
-        semi_vld_out_intv = [m.ostream_attr.interval for m in semi_folded_modules]
+        semi_vld_out_intv = [m.oflow_format.interval for m in semi_folded_modules]
         t_1st_vld_data = [0] * n_pool
         for i in range(n_pool):
             if i == 0:
@@ -1231,7 +1232,7 @@ class TestFunctionalModules:
             assert np.array_equal(
                 expected_fc_t,
                 sim1.data[probe_linear][
-                    linear.tick_wait_start + linear.ostream_attr.t_last_vld
+                    linear.tick_wait_start + linear.oflow_format.t_last_vld
                 ],
             )
 
