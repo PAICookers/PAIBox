@@ -219,7 +219,6 @@ class _SemiFoldedModule(FunctionalModule):
             )
 
 
-
 class _LinearBase(FunctionalModule):
     def __init__(
         self,
