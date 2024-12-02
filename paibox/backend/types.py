@@ -30,7 +30,6 @@ __all__ = [
     "NodeDegree",
     "NodeAttr",
     "EdgeAttr",
-    "PartitionedEdges",
     "NeuSlice",
     "NeuSegment",
     "NeuSegOfCorePlm",
@@ -88,21 +87,17 @@ class NodeDegree:
         return self.__deepcopy__()
 
 
-class NodeAttr(NamedTuple):
+@dataclass
+class NodeAttr:
     node: NodeType
     position: NodePosition
     degree: NodeDegree
 
 
-class EdgeAttr(NamedTuple):
+@dataclass
+class EdgeAttr:  # TODO FIXME distance?
     edge: EdgeType
     distance: int
-
-
-class PartitionedEdges(NamedTuple):
-    edges: set[EdgeType]
-    rg_id: int
-    rt_mode: CoreMode = CoreMode.MODE_SNN  # XXX Temp solution
 
 
 NeuSlice: TypeAlias = slice

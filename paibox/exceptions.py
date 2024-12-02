@@ -57,7 +57,13 @@ class GraphConnectionError(GraphBuildError):
 
 
 class NotSupportedError(PAIBoxError, NotImplementedError):
-    """Exception for a certain function not supported."""
+    """Exception for unsupported functions."""
+
+    pass
+
+
+class GraphNotSupportedError(GraphBuildError, NotSupportedError):
+    """Eception for unsupported structures of graph."""
 
     pass
 
