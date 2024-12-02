@@ -2,12 +2,7 @@ import warnings
 from typing import Literal, TypedDict, Union
 
 import numpy as np
-from paicorelib import (
-    InputWidthFormat,
-    MaxPoolingEnable,
-    SNNModeEnable,
-    SpikeWidthFormat,
-)
+from paicorelib import InputWidthFormat, SNNModeEnable, SpikeWidthFormat
 from paicorelib.framelib.utils import _mask
 from paicorelib.ram_model import (
     BIT_TRUNCATE_MAX,
@@ -112,24 +107,9 @@ def _get_neu_out_dtype(
         return NEUOUT_U8_DTYPE
 
 
-class RTModeKwds(TypedDict):
+class _RTModeKwds(TypedDict):
     """A typed keywords for runtime mode. Only for checking if necessary."""
 
     input_width: InputWidthFormat
     spike_width: SpikeWidthFormat
     snn_en: SNNModeEnable
-
-
-class ExtraNeuAttrKwds(TypedDict, total=False):
-    """A typed keywords for extra neuron attributes."""
-
-    bit_truncation: int  # For ANNNeuron
-    delay: int
-    tick_wait_start: int
-    tick_wait_end: int
-    input_width: Union[L[1, 8], InputWidthFormat]
-    spike_width: Union[L[1, 8], SpikeWidthFormat]
-    snn_en: Union[bool, SNNModeEnable]
-    pool_max: Union[bool, MaxPoolingEnable]
-    unrolling_factor: int
-    overflow_strict: bool

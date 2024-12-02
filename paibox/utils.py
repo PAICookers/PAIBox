@@ -155,33 +155,33 @@ def reverse_16bit(x: int) -> int:
     return ((x >> 8) | (x << 8)) & 0xFFFF
 
 
-def _get_desc(desc: Optional[str] = None) -> str:
-    return "value" if desc is None else desc
-
-
 def arg_check_pos(arg: int, desc: Optional[str] = None) -> int:
+    _desc = "value" if desc is None else f"{desc}"
     if arg < 1:
-        raise ValueError(f"{_get_desc(desc)} must be positive, but got {arg}.")
+        raise ValueError(f"{_desc} must be positive, but got {arg}.")
 
     return arg
 
 
 def arg_check_non_pos(arg: int, desc: Optional[str] = None) -> int:
+    _desc = "value" if desc is None else f"{desc}"
     if arg > 0:
-        raise ValueError(f"{_get_desc(desc)} must be non-positive, but got {arg}.")
+        raise ValueError(f"{_desc} must be non-positive, but got {arg}.")
 
     return arg
 
 
 def arg_check_neg(arg: int, desc: Optional[str] = None) -> int:
+    _desc = "value" if desc is None else f"{desc}"
     if arg > -1:
-        raise ValueError(f"{_get_desc(desc)} must be negative, but got {arg}.")
+        raise ValueError(f"{_desc} must be negative, but got {arg}.")
 
     return arg
 
 
 def arg_check_non_neg(arg: int, desc: Optional[str] = None) -> int:
+    _desc = "value" if desc is None else f"{desc}"
     if arg < 0:
-        raise ValueError(f"{_get_desc(desc)} must be non-negative, but got {arg}.")
+        raise ValueError(f"{_desc} must be non-negative, but got {arg}.")
 
     return arg

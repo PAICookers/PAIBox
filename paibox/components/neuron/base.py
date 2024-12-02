@@ -20,8 +20,8 @@ from paicorelib import (
     get_core_mode,
 )
 
-from paibox.base import DataFlowFormat, NeuDyn
-from paibox.exceptions import ConfigInvalidError, PAIBoxWarning, ShapeError
+from paibox.base import NeuDyn
+from paibox.exceptions import NotSupportedError, PAIBoxWarning, ShapeError
 from paibox.types import (
     NEUOUT_U8_DTYPE,
     VOLTAGE_DTYPE,
@@ -41,10 +41,10 @@ from paibox.utils import (
 from .utils import (
     BIT_TRUNCATE_MAX,
     NEG_THRES_MIN,
-    RTModeKwds,
     _input_width_format,
     _leak_v_check,
     _mask,
+    _RTModeKwds,
     _spike_width_format,
     vjt_overflow,
 )
@@ -57,7 +57,7 @@ L = Literal
 class MetaNeuron:
     """Meta neuron"""
 
-    rt_mode_kwds: RTModeKwds
+    rt_mode_kwds: _RTModeKwds
     mode: CoreMode
 
     def __init__(
@@ -96,8 +96,8 @@ class MetaNeuron:
         # check whether the mode is valid
         self.mode = get_core_mode(input_width, spike_width, snn_en)
 
-        if pool_max and self.mode != CoreMode.MODE_ANN:
-            raise ConfigInvalidError(
+        if pool_max == True and self.mode != CoreMode.MODE_ANN:
+            raise NotSupportedError(
                 f"max pooling is only supported in {CoreMode.MODE_ANN.name}, "
                 f"but got {self.mode.name}."
             )
@@ -487,13 +487,11 @@ class Neuron(MetaNeuron, NeuDyn):
             ),
         )
 
-        """Non-stateful attributes."""
+        """Auxiliary internal stateful attributes for debugging"""
         self._delay = arg_check_pos(delay, "'delay'")
         self._tws = arg_check_non_neg(tick_wait_start, "'tick_wait_start'")
         self._twe = arg_check_non_neg(tick_wait_end, "'tick_wait_end'")
         self._uf = arg_check_pos(unrolling_factor, "'unrolling_factor'")
-        # Default dataflow is infinite and continuous, starting at tws+0.
-        self.oflow_format = DataFlowFormat(0, is_local_time=True)
 
     def __len__(self) -> int:
         return self._n_neuron
@@ -530,49 +528,6 @@ class Neuron(MetaNeuron, NeuDyn):
 
     def reset_state(self, *args, **kwargs) -> None:
         self.reset_memory()  # Call reset of `StatusMemory`.
-
-    def set_oflow_format(
-        self,
-        t_1st_vld: Optional[int] = None,
-        interval: Optional[int] = None,
-        n_vld: Optional[int] = None,
-        *,
-        format_type: type[DataFlowFormat] = DataFlowFormat,
-    ) -> None:
-        """Set the attributes of output dataflow format by given arguments."""
-        if hasattr(self, "oflow_format"):
-            _t_1st_vld = (
-                t_1st_vld if isinstance(t_1st_vld, int) else self.oflow_format.t_1st_vld
-            )
-            _interval = (
-                arg_check_pos(interval, "interval")
-                if isinstance(interval, int)
-                else self.oflow_format.interval
-            )
-            _n_vld = (
-                arg_check_non_neg(n_vld, "n_vld")
-                if isinstance(n_vld, int)
-                else self.oflow_format.n_vld
-            )
-            self._assign_flow_format(_t_1st_vld, _interval, _n_vld)
-        else:
-            if not (
-                isinstance(interval, int)
-                and isinstance(n_vld, int)
-                and isinstance(t_1st_vld, int)
-            ):
-                raise ValueError(
-                    "if 'oflow_format' is not set, 't_1st_vld', 'interval' & 'n_vld' must be set."
-                )
-
-            self.oflow_format = format_type(t_1st_vld, interval, n_vld)
-            self.oflow_format._check_after_assign(self.tick_wait_start, self.end_tick)
-
-    def _assign_flow_format(self, t_1st_vld: int, intv: int, n_vld: int) -> None:
-        self.oflow_format.t_1st_vld = t_1st_vld
-        self.oflow_format.interval = intv
-        self.oflow_format.n_vld = n_vld
-        self.oflow_format._check_after_assign(self.tick_wait_start, self.end_tick)
 
     def __copy__(self) -> "Neuron":
         """Same as `__deepcopy__`."""

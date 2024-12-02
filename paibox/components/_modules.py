@@ -1,10 +1,12 @@
+import math
 import typing
+from dataclasses import dataclass
 from typing import Literal, Optional, Union
 
 import numpy as np
 from paicorelib import TM, HwConfig
 
-from paibox.base import DataFlowFormat, NeuDyn, NodeList
+from paibox.base import NeuDyn, NodeList
 from paibox.exceptions import ResourceError, ShapeError
 from paibox.types import (
     LEAK_V_DTYPE,
@@ -56,7 +58,7 @@ __all__ = [
     "_SpikingPool2dWithV",
     "_SemiFoldedModule",
     "_LinearBase",
-    "SemiFoldedDataFlowFormat",
+    "SemiFoldedStreamAttr",
 ]
 
 
@@ -159,41 +161,61 @@ class _DelayChainANN(_DelayChainBase):
     pass
 
 
-class SemiFoldedDataFlowFormat(DataFlowFormat):
-    pass
+@dataclass(frozen=True)
+class SemiFoldedStreamAttr:
+    """Details of transmission of valid data in semi-folded form data stream."""
+
+    t_1st_vld: int
+    """The time of the first valid data, relative to `t_1st_vld` of the external input."""
+    interval: int
+    """The interval of the output data stream."""
+    n_data: int = 0
+    """The number of valid output data."""
+
+    def t_at(self, n: int) -> int:
+        """The time of the n-th valid data."""
+        if self.n_data > 0:
+            assert 1 <= n <= self.n_data
+
+        return self.t_1st_vld + (n - 1) * self.interval
+
+    @property
+    def t_last_vld(self) -> int:
+        """The time of the last valid data."""
+        assert self.n_data > 0
+        return self.t_at(self.n_data)
 
 
 @set_rt_mode_ann()
 class _SemiFoldedModule(FunctionalModule):
     """Functional modules with interfaces in semi-folded form. Use `build()` of class `HasSemiFoldedIntf`."""
 
-    inherent_delay = 1
-    oflow_format: SemiFoldedDataFlowFormat
+    ostream_attr: SemiFoldedStreamAttr
 
     def build(
         self,
         network: "DynSysGroup",
-        incoming_flow_format: SemiFoldedDataFlowFormat,
+        incoming_stream_attr: SemiFoldedStreamAttr,
         **build_options,
     ) -> BuiltComponentType:
         raise NotImplementedError
 
     def _input_buffer_len_check(
-        self, ich: int, ih: int, kw: int, interval: int
+        self, in_channels: int, in_h: int, kw: int, valid_interval: int
     ) -> None:
         """Check the limit of the semi-folded operators on the input buffer length of the core during the build phase.
 
-        NOTE: The right side of the inequality will only be smaller in the backend. If the condition is not met, an \
-            expection will be raised in the subsequent compilation phase.
+        NOTE: If the condition is not met, an expection will be raised in the subsequent compilation phase.
         """
         E = math.ceil(
-            math.log2(math.ceil(ich * ih * kw / HwConfig.N_FANIN_PER_DENDRITE_ANN))
+            math.log2(
+                math.ceil(in_channels * in_h * kw / HwConfig.N_FANIN_PER_DENDRITE_ANN)
+            )
         )
-
-        if min(ih - kw, kw - 1) * interval + 1 >= (HwConfig.N_TIMESLOT_MAX >> E):
-            _adjust_text = "input size, kernel size or stride along the data flow."
+        deep = min(in_h - kw, kw - 1) * valid_interval + 1
+        if not HwConfig.N_TIMESLOT_MAX / (2**E) > deep:
             raise ResourceError(
-                f"the data arrangement of {self.name}'s input buffer may be wrong. Please adjust the {_adjust_text}."
+                f"the input size of {self.name} is too large. Please adjust the input size or the number of channels."
             )
 
 

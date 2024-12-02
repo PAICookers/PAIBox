@@ -57,13 +57,7 @@ class GraphConnectionError(GraphBuildError):
 
 
 class NotSupportedError(PAIBoxError, NotImplementedError):
-    """Exception for unsupported functions."""
-
-    pass
-
-
-class GraphNotSupportedError(GraphBuildError, NotSupportedError):
-    """Eception for unsupported structures of graph."""
+    """Exception for a certain function not supported."""
 
     pass
 
@@ -76,12 +70,6 @@ class SimulationError(PAIBoxError, RuntimeError):
 
 class FunctionalError(PAIBoxError, RuntimeError):
     """Functional errors, usually hardware related register."""
-
-    pass
-
-
-class CompileError(PAIBoxError, RuntimeError):
-    """Exception for compilation."""
 
     pass
 
