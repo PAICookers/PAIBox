@@ -21,7 +21,7 @@ from paicorelib import (
 )
 
 from paibox.base import DataFlowFormat, NeuDyn
-from paibox.exceptions import NotSupportedError, PAIBoxWarning, ShapeError
+from paibox.exceptions import ConfigInvalidError, PAIBoxWarning, ShapeError
 from paibox.types import (
     NEUOUT_U8_DTYPE,
     VOLTAGE_DTYPE,
@@ -44,7 +44,7 @@ from .utils import (
     _input_width_format,
     _leak_v_check,
     _mask,
-    _RTModeKwds,
+    RTModeKwds,
     _spike_width_format,
     vjt_overflow,
 )
@@ -57,7 +57,7 @@ L = Literal
 class MetaNeuron:
     """Meta neuron"""
 
-    rt_mode_kwds: _RTModeKwds
+    rt_mode_kwds: RTModeKwds
     mode: CoreMode
 
     def __init__(
@@ -96,8 +96,8 @@ class MetaNeuron:
         # check whether the mode is valid
         self.mode = get_core_mode(input_width, spike_width, snn_en)
 
-        if pool_max == True and self.mode != CoreMode.MODE_ANN:
-            raise NotSupportedError(
+        if pool_max and self.mode != CoreMode.MODE_ANN:
+            raise ConfigInvalidError(
                 f"max pooling is only supported in {CoreMode.MODE_ANN.name}, "
                 f"but got {self.mode.name}."
             )
