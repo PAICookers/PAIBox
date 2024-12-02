@@ -74,6 +74,12 @@ class FunctionalError(PAIBoxError, RuntimeError):
     pass
 
 
+class CompileError(PAIBoxError, RuntimeError):
+    """Exception for compilation."""
+
+    pass
+
+
 class RoutingError(PAIBoxError):
     """Exception for routing tree."""
 

@@ -8,7 +8,7 @@ from paicorelib import ChipCoord, Coord, CoordOffset, HwConfig, get_replication_
 
 from paibox.base import SynSys
 from paibox.components import Neuron
-from paibox.exceptions import ConfigInvalidError, ResourceError
+from paibox.exceptions import CompileError, ConfigInvalidError, ResourceError
 from paibox.network import DynSysGroup
 
 from .conf_exporting import *
@@ -71,6 +71,9 @@ class Mapper:
             chip_list=_BACKEND_CONTEXT["target_chip_addr"]
         )
 
+        self._core_estimate_only = False
+        """Wether this compilation is for core estimation only. If so, no core will be assigned."""
+
         self.clear()
 
     def clear(self) -> None:
@@ -89,6 +92,8 @@ class Mapper:
 
         self.n_core_required = 0
         self.n_core_occupied = 0
+
+        self._core_estimate_only = False
 
         # Set default cflags
         _BACKEND_CONTEXT.cflags.clear()
@@ -169,6 +174,8 @@ class Mapper:
             set_cflag(multicast_optim=True)
             set_cflag(multicast_optim_nodes=_mul_optim_nodes)
 
+        self._core_estimate_only = core_estimate_only
+
         """Preperation.
             1. Check whether the PAIGraph has built.
             2. Set global compilation flags.
@@ -192,9 +199,9 @@ class Mapper:
         self.cb_axon_grouping()
 
         """Core coordinate assignment."""
-        self.coord_assign(core_estimate_only)
+        self.coord_assign(self._core_estimate_only)
 
-        if core_estimate_only:
+        if self._core_estimate_only:
             return GraphInfo(
                 name=self.graph.graph_name_repr,
                 input={},
@@ -619,6 +626,12 @@ class Mapper:
 
         Return: total configurations in dictionary format.
         """
+        if self._core_estimate_only:
+            raise CompileError(
+                "the current compilation is only for core estimation. "
+                "Please disable 'core_estimate_only' and compile again before exporting."
+            )
+
         if format not in ("bin", "npy", "txt"):
             raise ValueError(f"format {format} is not supported.")
 
