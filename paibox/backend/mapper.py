@@ -45,10 +45,11 @@ __all__ = ["Mapper"]
 
 
 class Mapper:
-    graph = PAIGraph()
+    graph: PAIGraph
     graph_info: GraphInfo
 
     def __init__(self) -> None:
+        self.graph = PAIGraph()
         self.core_blocks: list[CoreBlock] = []
         """List for core blocks in the network."""
         self.succ_core_blocks: dict[CoreBlock, list[CoreBlock]] = defaultdict(list)
@@ -381,7 +382,7 @@ class Mapper:
         ]:
             raise ConfigInvalidError(
                 f"the output chip address {ochip_coord} should not overlap with the "
-                f"chip addresses, but got {_BACKEND_CONTEXT._target_chip_addr_repr()}."
+                f"target chip addresses, but got {_BACKEND_CONTEXT._target_chip_addr_repr()}."
             )
 
         input_nodes_info = self._inpproj_config_export()
@@ -704,27 +705,27 @@ class Mapper:
         return dest_cb_of_nseg
 
 
-def cycle_merge(merged_sgrps: list[MergedSuccGroup]):
-    succ_merged_sgrps: dict[MergedSuccGroup, list[MergedSuccGroup]] = dict()
+def cycle_merge(merged_sgrps: list[MergedSuccGroup]) -> list[MergedSuccGroup]:
+    succ_merged_sgrps: dict[MergedSuccGroup, list[MergedSuccGroup]] = defaultdict(list)
+
     for msgrp in merged_sgrps:
-        succ_merged_sgrps[msgrp] = []
-        nodes = set(msgrp.nodes)
         for _msgrp in merged_sgrps:
             if msgrp == _msgrp:
                 continue
-            if not nodes.isdisjoint(_msgrp.input_nodes):
+            if not msgrp.nodes.isdisjoint(_msgrp.input_nodes):
                 succ_merged_sgrps[msgrp].append(_msgrp)
 
     cycles: list[list[MergedSuccGroup]] = find_cycles(succ_merged_sgrps)
     merged_cycles: list[list[MergedSuccGroup]] = merge_overlap(cycles)
 
     processed_merged_cycles: list[MergedSuccGroup] = list()
-    remaining_merged_sgrps: set[MergedSuccGroup] = set(merged_sgrps)
-    for merged_cycle in merged_cycles:
-        processed_merged_cycles.append(MergedSuccGroup.merge(merged_cycle))
-        for msgrp in merged_cycle:
-            remaining_merged_sgrps.remove(msgrp)
-    processed_merged_cycles.extend(remaining_merged_sgrps)
+    remaining_msgrps: set[MergedSuccGroup] = set(merged_sgrps)
+    for mc in merged_cycles:
+        processed_merged_cycles.append(MergedSuccGroup.merge(mc))
+        for msgrp in mc:
+            remaining_msgrps.remove(msgrp)
+
+    processed_merged_cycles.extend(remaining_msgrps)
     return processed_merged_cycles
 
 
