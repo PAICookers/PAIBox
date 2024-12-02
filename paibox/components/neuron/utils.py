@@ -4,9 +4,9 @@ from typing import Literal, TypedDict, Union
 import numpy as np
 from paicorelib import (
     InputWidthFormat,
+    MaxPoolingEnable,
     SNNModeEnable,
     SpikeWidthFormat,
-    MaxPoolingEnable,
 )
 from paicorelib.framelib.utils import _mask
 from paicorelib.ram_model import (
