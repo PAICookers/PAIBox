@@ -932,7 +932,9 @@ class LinearSemiFolded(_LinearBase, _SemiFoldedModule):
             name=f"nd_{self.name}",
         )
         n_linear.set_oflow_format(
-            interval=self.oflow_format.interval, n_vld=self.oflow_format.n_vld
+            self.oflow_format.t_1st_vld,
+            self.oflow_format.interval,
+            self.oflow_format.n_vld,
         )
 
         for i in range(ih):
@@ -1080,7 +1082,9 @@ class Conv2dSemiFolded(_SemiFoldedModule):
             name=f"nd_{self.name}",
         )
         n_conv2d.set_oflow_format(
-            interval=self.oflow_format.interval, n_vld=self.oflow_format.n_vld
+            self.oflow_format.t_1st_vld,
+            self.oflow_format.interval,
+            self.oflow_format.n_vld,
         )
 
         for i in range(kw):
@@ -1243,7 +1247,9 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
             name=f"nd_{self.name}",
         )
         n_pool2d.set_oflow_format(
-            interval=self.oflow_format.interval, n_vld=self.oflow_format.n_vld
+            self.oflow_format.t_1st_vld,
+            self.oflow_format.interval,
+            self.oflow_format.n_vld,
         )
 
         for i in range(kw):
@@ -1381,7 +1387,9 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
             name=f"nd_{self.name}",
         )
         n_pool2d.set_oflow_format(
-            interval=self.oflow_format.interval, n_vld=self.oflow_format.n_vld
+            self.oflow_format.t_1st_vld,
+            self.oflow_format.interval,
+            self.oflow_format.n_vld,
         )
 
         for i in range(kw):
