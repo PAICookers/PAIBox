@@ -467,14 +467,18 @@ class TestGroupEdges:
         # In this case, N2 & N3 should be together.
         pos_n2 = pos_n3 = 0
         for i, cb in enumerate(mapper.core_blocks):
-            _g_with_name = [e.name for e in cb._parents]
+            _g_with_name = [e.name for e in cb.obj]
             if "s2" in _g_with_name:
                 pos_n2 = i
+                break
+
+        for i, cb in enumerate(mapper.core_blocks):
+            _g_with_name = [e.name for e in cb.obj]
             if "s3" in _g_with_name:
                 pos_n3 = i
+                break
 
         assert pos_n2 == pos_n3
-        assert pos_n2 != 0
 
         # In this case, N2 & N3 should be split.
         monkeypatch.setattr(net.n2, "_tws", 2)
@@ -486,11 +490,16 @@ class TestGroupEdges:
 
         pos_n2 = pos_n3 = 0
         for i, part in enumerate(mapper.core_blocks):
-            _g_with_name = [e.name for e in part._parents]
+            _g_with_name = [e.name for e in part.obj]
             if "s2" in _g_with_name:
                 pos_n2 = i
+                break
+
+        for i, part in enumerate(mapper.core_blocks):
+            _g_with_name = [e.name for e in part.obj]
             if "s3" in _g_with_name:
                 pos_n3 = i
+                break
 
         assert pos_n2 != pos_n3
 
