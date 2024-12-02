@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import sys
 from typing import Any, ClassVar, Literal, Optional
 
@@ -256,6 +257,45 @@ class DynamicSys(PAIBoxObject, StatusMemory):
         return self._memories
 
 
+INFINITE_DATAFLOW = 0  # the dataflow is infinite.
+
+
+@dataclass
+class DataFlowFormat:
+    """Describe in detail the format of valid data in the dataflow."""
+
+    t_1st_vld: int
+    """The time of the first valid data, relative to `t_1st_vld` of the external input."""
+    interval: int = 1
+    """The interval of valid data in the flow."""
+    n_vld: int = INFINITE_DATAFLOW
+    """The number of valid data. 0 for infinite dataflow."""
+
+    def __post_init__(self) -> None:
+        if self.n_vld < INFINITE_DATAFLOW:
+            raise ValueError(
+                f"'n_vld' should be greater than or equal to {INFINITE_DATAFLOW}, "
+                f"but got {self.n_vld}."
+            )
+
+    def t_at_idx(self, idx: int) -> int:
+        """The time of the valid data at the given index."""
+        if self.n_vld > INFINITE_DATAFLOW:
+            assert 0 <= idx <= self.n_vld - 1
+
+        return self.t_1st_vld + idx * self.interval
+
+    def t_at_n(self, n: int) -> int:
+        """The time of the n-th valid data."""
+        return self.t_at_idx(n - 1)
+
+    @property
+    def t_last_vld(self) -> int:
+        """The time of the last valid data."""
+        assert self.n_vld > INFINITE_DATAFLOW
+        return self.t_at_n(self.n_vld)
+
+
 class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
 
     _delay: int
@@ -265,6 +305,9 @@ class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
     """tick_wait_end"""
     _uf: int
     """unrolling_factor"""
+
+    oflow_format: DataFlowFormat
+    """The format of output data stream"""
 
     def __init__(self, name: Optional[str] = None) -> None:
         super().__init__(name)
@@ -290,6 +333,14 @@ class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
     @property
     def unrolling_factor(self) -> int:
         return self._uf
+
+    @property
+    def end_tick(self) -> int:
+        """End time of work."""
+        if self.tick_wait_end == 0:
+            return 9999  # Never end
+
+        return self.tick_wait_start + self.tick_wait_end - 1
 
     @unrolling_factor.setter
     def unrolling_factor(self, factor: int) -> None:
