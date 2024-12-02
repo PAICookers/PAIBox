@@ -31,10 +31,11 @@ __all__ = ["Mapper"]
 
 
 class Mapper:
-    graph = PAIGraph()
+    graph: PAIGraph
     graph_info: GraphInfo
 
     def __init__(self) -> None:
+        self.graph = PAIGraph()
         self.core_blocks: list[CoreBlock] = []
         """List for core blocks in the network."""
         self.succ_core_blocks: dict[CoreBlock, list[CoreBlock]] = defaultdict(list)
@@ -358,7 +359,7 @@ class Mapper:
         ]:
             raise ConfigInvalidError(
                 f"the output chip address {ochip_coord} should not overlap with the "
-                f"chip addresses, but got {_BACKEND_CONTEXT._target_chip_addr_repr()}."
+                f"target chip addresses, but got {_BACKEND_CONTEXT._target_chip_addr_repr()}."
             )
 
         input_nodes_info = self._inpproj_config_export()

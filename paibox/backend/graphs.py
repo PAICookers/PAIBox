@@ -2,14 +2,18 @@ import math
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, TypeVar, Union
+from typing import Any, TypeVar, Union, cast
 
 from paicorelib import HwConfig
 
 from paibox.collector import Collector
 from paibox.components import FullConnectedSyn, InputProj, NeuModule, Neuron
 from paibox.components.functional import LinearSemiFolded
-from paibox.exceptions import GraphBuildError, GraphConnectionError, NotSupportedError
+from paibox.exceptions import (
+    GraphBuildError,
+    GraphConnectionError,
+    GraphNotSupportedError,
+)
 from paibox.network import DynSysGroup
 from paibox.utils import check_elem_unique
 
@@ -132,7 +136,7 @@ class PAIGraph:
                 if not all(
                     len(succ_dg_semi_ops[linear]) == 0 for linear in semi_linears
                 ):
-                    raise NotSupportedError(
+                    raise GraphNotSupportedError(
                         "currently, the semi-folded linear can only be used as output of the network."
                     )
 
@@ -183,9 +187,7 @@ class PAIGraph:
 
         for name, node in self._raw_nodes.items():
             self.nodes[name] = NodeAttr(
-                node=node,
-                position=self._node_pos(name),
-                degree=self.degree_of_nodes[name],
+                node, self._node_pos(name), self.degree_of_nodes[name]
             )
 
         self.ordered_nodes = toposort(self.succ_dg)
@@ -220,7 +222,7 @@ class PAIGraph:
             onode.num_out > HwConfig.N_FANIN_PER_DENDRITE_MAX
             for onode in self.onodes.values()
         ):
-            raise NotSupportedError(
+            raise GraphNotSupportedError(
                 f"only output nodes with no more than {HwConfig.N_FANIN_PER_DENDRITE_MAX} "
                 f"neurons are supported."
             )
@@ -541,7 +543,7 @@ class PAIGraph:
         return _prefix + "_and_".join(network.name for network in self._raw_networks)
 
 
-_NT = TypeVar("_NT", CoreBlock, NodeName, RoutingGroup)
+_NT = TypeVar("_NT", CoreBlock, NodeName, RoutingGroup, MergedSuccGroup)
 _T = TypeVar("_T")
 
 
@@ -557,7 +559,7 @@ def _degree_check(
                     if isinstance(succ_node, CoreBlock)
                     else str(succ_node)
                 )
-                raise NotSupportedError(
+                raise GraphNotSupportedError(
                     f"If out-degree of a node is greater than 1, the in-degree of its sucessors must be 1. "
                     f"However, in-degree of {_node_repr} is {degree_of_nodes[succ_node].in_degree}."
                 )
@@ -617,7 +619,7 @@ def toposort(directed_edges: Mapping[_NT, Iterable[_NT]]) -> list[_NT]:
                 vertices.add(m)
 
     if any(incoming_edges.get(v, None) for v in directed_edges):
-        raise NotSupportedError("the graph with cycles is not supported.")
+        raise GraphNotSupportedError("the graph with cycles is not supported.")
 
     return ordered
 

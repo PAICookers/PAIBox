@@ -1,6 +1,6 @@
 import math
 import warnings
-from typing import ClassVar, Literal, Optional, overload
+from typing import ClassVar, Literal, Optional, cast, overload
 
 import numpy as np
 from paicorelib import LCN_EX, ChipCoord, Coord, CoreMode, HwConfig, MaxPoolingEnable
@@ -177,7 +177,9 @@ class CoreBlock(CoreAbstract):
     @property
     def source(self) -> list[SourceNodeType]:
         """Ordered unique source nodes."""
-        return list(set([parent.source for parent in self.obj]))
+        return cast(
+            list[SourceNodeType], list(set([parent.source for parent in self.obj]))
+        )
 
     @property
     def axons(self) -> list[SourceNodeType]:
@@ -186,7 +188,7 @@ class CoreBlock(CoreAbstract):
     @property
     def dest(self) -> list[DestNodeType]:
         """Ordered unique destination nodes."""
-        return list(set([parent.dest for parent in self.obj]))
+        return cast(list[DestNodeType], list(set([parent.dest for parent in self.obj])))
 
     def n_axon_of(self, index: int) -> int:
         """Get the #N of axons of `index`-th source neuron."""
