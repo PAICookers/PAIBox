@@ -1043,6 +1043,16 @@ class TestFunctionalModules:
                         ],
                     )
 
+                    assert conv2d_list[i_conv].tick_wait_start + t_1st_vld_data[
+                        i_conv
+                    ] + i * semi_vld_out_intv[i_conv] - 1 == conv2d_list[
+                        i_conv
+                    ].tick_wait_start + conv2d_list[
+                        i_conv
+                    ].oflow_format.t_at_idx(
+                        i
+                    )
+
             # x is the reference result of the last convolution.
             expected_fc_t = _ann_bit_trunc(x.ravel() @ fc_weight.astype(VOLTAGE_DTYPE))
 
@@ -1052,6 +1062,10 @@ class TestFunctionalModules:
                 sim1.data[probe_linear][
                     linear.tick_wait_start + linear.oflow_format.t_last_vld
                 ],
+            )
+            assert (
+                linear.oflow_format.get_global_t_1st_vld(linear.tick_wait_start)
+                == linear.tick_wait_start + linear.oflow_format.t_last_vld
             )
 
     @pytest.mark.parametrize(
@@ -1225,6 +1239,16 @@ class TestFunctionalModules:
                         ],
                     )
 
+                    assert pool2d_list[i_pool].tick_wait_start + t_1st_vld_data[
+                        i_pool
+                    ] + i * semi_vld_out_intv[i_pool] - 1 == pool2d_list[
+                        i_pool
+                    ].tick_wait_start + pool2d_list[
+                        i_pool
+                    ].oflow_format.t_at_idx(
+                        i
+                    )
+
             # x is the reference result of the last pooling.
             expected_fc_t = _ann_bit_trunc(x.ravel() @ fc_weight.astype(VOLTAGE_DTYPE))
 
@@ -1234,6 +1258,11 @@ class TestFunctionalModules:
                 sim1.data[probe_linear][
                     linear.tick_wait_start + linear.oflow_format.t_last_vld
                 ],
+            )
+
+            assert (
+                linear.oflow_format.get_global_t_1st_vld(linear.tick_wait_start)
+                == linear.tick_wait_start + linear.oflow_format.t_last_vld
             )
 
     @pytest.mark.parametrize(

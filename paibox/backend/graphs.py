@@ -127,7 +127,7 @@ class PAIGraph:
                 # checks. These additional checks may be removed as more network structures will be supported.
 
                 # Currently, `LinearSemiFolded` is at the end of the network, since it will change the form of
-                # the input data stream, and its effective output is at the same time.
+                # the input dataflow, and its effective output is at the same time.
                 semi_linears = modules.subset(LinearSemiFolded)
                 if not all(
                     len(succ_dg_semi_ops[linear]) == 0 for linear in semi_linears
@@ -172,9 +172,14 @@ class PAIGraph:
         self.inodes = self._raw_nodes.subset(InputProj)
 
         # By default, nodes with out-degree = 0 are considered as output nodes.
-        self.onodes = self._raw_nodes.key_on_condition(
-            lambda node: self.degree_of_nodes[node].out_degree == 0
-        )  # type: ignore
+        # TODO A node with out-degree can also be an output node. However, no network for now has this topology.
+        self.onodes = Collector(
+            {
+                k: cast(DestNodeType, v)
+                for k, v in self._raw_nodes.items()
+                if self.degree_of_nodes[k].out_degree == 0
+            }
+        ).not_subset(InputProj)
 
         for name, node in self._raw_nodes.items():
             self.nodes[name] = NodeAttr(
@@ -525,9 +530,10 @@ class PAIGraph:
     @property
     def inherent_timestep(self) -> int:
         self.build_check()
-        _, distance = get_longest_path(self.succ_dg, self.ordered_nodes)
-
-        return distance
+        return max(
+            n.oflow_format.get_global_t_1st_vld(n.tick_wait_start)
+            for n in self.onodes.values()
+        )
 
     @property
     def graph_name_repr(self) -> str:
