@@ -7,7 +7,7 @@ import numpy as np
 from .base import DynamicSys, SynSys
 from .collector import Collector
 from .components import NeuModule, Neuron, Projection
-from .components._modules import SemiFoldedStreamAttr, _SemiFoldedModule
+from .components._modules import SemiFoldedDataFlowFormat, _SemiFoldedModule
 from .components.modules import BuiltComponentType
 from .exceptions import NotSupportedError
 from .mixin import Container
@@ -102,18 +102,18 @@ class DynSysGroup(DynamicSys, Container):
 
         generated = dict()
 
-        # For external input stream info:
-        # 1. The start time is 1
-        # 2. The interval is 1
-        # 3. The #N of data is -1 since it dosen't effect the subsequent output stream.
+        # For external input dataflow:
+        # 1. The start time is 0.
+        # 2. The interval is 1.
+        # 3. The #N of data is `INFINITE_DATA_STREAM` since it dosen't effect the subsequent output dataflow.
         # TODO Reserve an interface for setting the properties of external input from `FRONTEND_ENV`?
-        last_vld_output_attr = SemiFoldedStreamAttr(0, 1)
+        last_vld_output_attr = SemiFoldedDataFlowFormat(t_1st_vld=0)
 
         for m in modules:
             # TODO for the case of the ResBlock, the `pred_dg_semi_ops` will be used.
             if isinstance(m, _SemiFoldedModule):
                 generated[m] = m.build(self, last_vld_output_attr, **build_options)
-                last_vld_output_attr = m.ostream_attr
+                last_vld_output_attr = m.oflow_format
             else:
                 generated[m] = m.build(self, **build_options)
 
