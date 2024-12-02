@@ -2,14 +2,18 @@ import math
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, TypeVar, Union
+from typing import Any, TypeVar, Union, cast
 
 from paicorelib import HwConfig
 
 from paibox.collector import Collector
 from paibox.components import FullConnectedSyn, InputProj, NeuModule, Neuron
 from paibox.components.functional import LinearSemiFolded
-from paibox.exceptions import GraphBuildError, GraphConnectionError, NotSupportedError
+from paibox.exceptions import (
+    GraphBuildError,
+    GraphConnectionError,
+    GraphNotSupportedError,
+)
 from paibox.network import DynSysGroup
 from paibox.utils import check_elem_unique
 
@@ -127,12 +131,12 @@ class PAIGraph:
                 # checks. These additional checks may be removed as more network structures will be supported.
 
                 # Currently, `LinearSemiFolded` is at the end of the network, since it will change the form of
-                # the input data stream, and its effective output is at the same time.
+                # the input dataflow, and its effective output is at the same time.
                 semi_linears = modules.subset(LinearSemiFolded)
                 if not all(
                     len(succ_dg_semi_ops[linear]) == 0 for linear in semi_linears
                 ):
-                    raise NotSupportedError(
+                    raise GraphNotSupportedError(
                         "currently, the semi-folded linear can only be used as output of the network."
                     )
 
@@ -172,15 +176,18 @@ class PAIGraph:
         self.inodes = self._raw_nodes.subset(InputProj)
 
         # By default, nodes with out-degree = 0 are considered as output nodes.
-        self.onodes = self._raw_nodes.key_on_condition(
-            lambda node: self.degree_of_nodes[node].out_degree == 0
-        )  # type: ignore
+        # TODO A node with out-degree can also be an output node. However, no network for now has this topology.
+        self.onodes = Collector(
+            {
+                k: cast(DestNodeType, v)
+                for k, v in self._raw_nodes.items()
+                if self.degree_of_nodes[k].out_degree == 0
+            }
+        ).not_subset(InputProj)
 
         for name, node in self._raw_nodes.items():
             self.nodes[name] = NodeAttr(
-                node=node,
-                position=self._node_pos(name),
-                degree=self.degree_of_nodes[name],
+                node, self._node_pos(name), self.degree_of_nodes[name]
             )
 
         self.ordered_nodes = toposort(self.succ_dg)
@@ -215,7 +222,7 @@ class PAIGraph:
             onode.num_out > HwConfig.N_FANIN_PER_DENDRITE_MAX
             for onode in self.onodes.values()
         ):
-            raise NotSupportedError(
+            raise GraphNotSupportedError(
                 f"only output nodes with no more than {HwConfig.N_FANIN_PER_DENDRITE_MAX} "
                 f"neurons are supported."
             )
@@ -525,9 +532,10 @@ class PAIGraph:
     @property
     def inherent_timestep(self) -> int:
         self.build_check()
-        _, distance = get_longest_path(self.succ_dg, self.ordered_nodes)
-
-        return distance
+        return max(
+            n.oflow_format.get_global_t_1st_vld(n.tick_wait_start)
+            for n in self.onodes.values()
+        )
 
     @property
     def graph_name_repr(self) -> str:
@@ -535,7 +543,7 @@ class PAIGraph:
         return _prefix + "_and_".join(network.name for network in self._raw_networks)
 
 
-_NT = TypeVar("_NT", CoreBlock, NodeName, RoutingGroup)
+_NT = TypeVar("_NT", CoreBlock, NodeName, RoutingGroup, MergedSuccGroup)
 _T = TypeVar("_T")
 
 
@@ -551,7 +559,7 @@ def _degree_check(
                     if isinstance(succ_node, CoreBlock)
                     else str(succ_node)
                 )
-                raise NotSupportedError(
+                raise GraphNotSupportedError(
                     f"If out-degree of a node is greater than 1, the in-degree of its sucessors must be 1. "
                     f"However, in-degree of {_node_repr} is {degree_of_nodes[succ_node].in_degree}."
                 )
@@ -564,7 +572,7 @@ def find_cycles(directed_edges: Mapping[_NT, Iterable[_NT]]) -> list[list[_NT]]:
     stack_set: set[_NT] = set()  # 方便快速检查路径中的节点
 
     # 深度优先搜索的辅助函数
-    def dfs(node: _NT):
+    def dfs(node: _NT) -> None:
         if node in stack_set:  # 检测到环
             cycle_start_index = stack.index(node)
             cycles.append(stack[cycle_start_index:])
@@ -590,45 +598,45 @@ def find_cycles(directed_edges: Mapping[_NT, Iterable[_NT]]) -> list[list[_NT]]:
     return cycles
 
 
-def merge_overlap(groups: Iterable[Iterable[_NT]]) -> list[list[_NT]]:
+def merge_overlap(groups: Iterable[Sequence[_NT]]) -> list[list[_NT]]:
     # 并查集数据结构
     parent: dict[_NT, _NT] = dict()
 
     # 查找集合的根节点
-    def find(x):
+    def find(x: _NT) -> _NT:
         if parent[x] != x:
             parent[x] = find(parent[x])
+
         return parent[x]
 
     # 合并两个集合
-    def union(x, y):
-        rootX = find(x)
-        rootY = find(y)
-        if rootX != rootY:
-            parent[rootY] = rootX
+    def union(x, y) -> None:
+        rootx = find(x)
+        rooty = find(y)
+        if rootx != rooty:
+            parent[rooty] = rootx
 
     # 初始化并查集
     for group in groups:
-        for element in group:
-            if element not in parent:
-                parent[element] = element
+        for elem in group:
+            if elem not in parent:
+                parent[elem] = elem
 
     # 合并所有相互重叠的环
     for group in groups:
-        first_element = group[0]
-        for element in group[1:]:
-            union(first_element, element)
+        first_elem = group[0]
+        for elem in group[1:]:
+            union(first_elem, elem)
 
     # 根据并查集结果，将所有节点归类到同一个集合中
-    merged_groups: dict[_NT, list[_NT]] = dict()
-    for element in parent:
-        root = find(element)
-        if root not in merged_groups:
-            merged_groups[root] = []
-        merged_groups[root].append(element)
+    mgrps: dict[_NT, list[_NT]] = dict()
+    for elem in parent:
+        root = find(elem)
+        if root not in mgrps:
+            mgrps[root] = []
+        mgrps[root].append(elem)
 
-    # 将结果转换为列表列表形式
-    return list(merged_groups.values())
+    return list(mgrps.values())
 
 
 def toposort(directed_edges: Mapping[_NT, Iterable[_NT]]) -> list[_NT]:
@@ -685,7 +693,7 @@ def toposort(directed_edges: Mapping[_NT, Iterable[_NT]]) -> list[_NT]:
                 vertices.add(m)
 
     if any(incoming_edges.get(v, None) for v in directed_edges):
-        raise NotSupportedError("the graph with cycles is not supported.")
+        raise GraphNotSupportedError("the graph with cycles is not supported.")
 
     return ordered
 

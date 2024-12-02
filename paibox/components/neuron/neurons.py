@@ -8,10 +8,15 @@ from paibox.exceptions import PAIBoxDeprecationWarning
 from paibox.types import LEAK_V_DTYPE, DataType, Shape
 
 from .base import Neuron
-from .utils import LEAK_V_MAX
+from .utils import LEAK_V_MAX, ExtraNeuAttrKwds
+
+if sys.version_info >= (3, 12):
+    from typing import Unpack
+else:
+    from typing_extensions import Unpack
 
 if sys.version_info >= (3, 13):
-    from typing import deprecated
+    from warnings import deprecated
 else:
     from typing_extensions import deprecated
 
@@ -37,7 +42,7 @@ class IF(Neuron):
         *,
         keep_shape: bool = True,
         name: Optional[str] = None,
-        **kwargs,
+        **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """IF neuron.
 
@@ -93,7 +98,7 @@ class LIF(Neuron):
         *,
         keep_shape: bool = True,
         name: Optional[str] = None,
-        **kwargs,
+        **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """LIF neuron.
 
@@ -152,7 +157,7 @@ class TonicSpiking(Neuron):
         *,
         keep_shape: bool = True,
         name: Optional[str] = None,
-        **kwargs,
+        **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """Tonic spiking neuron.
 
@@ -178,7 +183,7 @@ class PhasicSpiking(Neuron):
         *,
         keep_shape: bool = True,
         name: Optional[str] = None,
-        **kwargs,
+        **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """Phasic spiking neuron. Once the neuron receives `N` spikes and fires, it will reset to   \
             the negative floor and never fires again. `N` is `fire_step`.
@@ -213,7 +218,7 @@ class Always1Neuron(Neuron):
         *,
         keep_shape: bool = True,
         name: Optional[str] = None,
-        **kwargs,
+        **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """A neuron that always outputs 1 as long as it starts working.
 
@@ -245,7 +250,7 @@ class BypassNeuron(Neuron):
         *,
         keep_shape: bool = True,
         name: Optional[str] = None,
-        **kwargs,
+        **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """Bypass neuron. Output is equal to input.
 
@@ -279,7 +284,7 @@ class ANNNeuron(LIF):
         *,
         keep_shape: bool = True,
         name: Optional[str] = None,
-        **kwargs,
+        **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """General neuron used in ANN mode. Positive threshold = 1, negative threshold = 0."""
         kwargs["bit_truncation"] = bit_trunc
@@ -299,7 +304,7 @@ class ANNBypassNeuron(ANNNeuron):
         *,
         keep_shape: bool = True,
         name: Optional[str] = None,
-        **kwargs,
+        **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         super().__init__(
             shape, bias=0, bit_trunc=8, keep_shape=keep_shape, name=name, **kwargs
