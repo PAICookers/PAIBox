@@ -912,7 +912,6 @@ class LinearSemiFolded(_LinearBase, _SemiFoldedModule):
         self.ostream_attr = incoming_stream_attr
         twe = 1 + self.ostream_attr.t_last_vld
 
-
         ich, ih = self.source[0].shape_out
 
         if build_options.get("check_before_compile"):
