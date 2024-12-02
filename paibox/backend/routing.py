@@ -11,19 +11,14 @@ from paicorelib import RoutingDirection as Direction
 from paicorelib import RoutingLevel as Level
 from paicorelib.routing_defs import MAX_ROUTING_PATH_LENGTH
 
-from paibox.exceptions import (
-    GraphBuildError,
-    PAIBoxDeprecationWarning,
-    ResourceError,
-    RoutingError,
-)
+from paibox.exceptions import PAIBoxDeprecationWarning, ResourceError, RoutingError
 
 from .conf_types import CorePlmConfInChip
 from .placement import CoreBlock, EmptyCorePlacement
 from .types import *
 
 if sys.version_info >= (3, 13):
-    from typing import deprecated
+    from warnings import deprecated
 else:
     from typing_extensions import deprecated
 
