@@ -1,5 +1,4 @@
 import sys
-from dataclasses import dataclass
 from typing import Any, ClassVar, Literal, Optional
 
 import numpy as np
@@ -257,77 +256,6 @@ class DynamicSys(PAIBoxObject, StatusMemory):
         return self._memories
 
 
-INFINITE_DATAFLOW = 0
-
-
-@dataclass
-class DataFlowFormat:
-    """Describe in detail the format of valid data in the dataflow."""
-
-    t_1st_vld: int = 0
-    """Global time or a relative time of the first valid data in the dataflow, determined by `is_local_time`."""
-    interval: int = 1
-    """The interval of valid data in the dataflow."""
-    n_vld: int = INFINITE_DATAFLOW
-    """The number of valid data. <0 for infinite dataflow."""
-
-    is_local_time: bool = True
-    """Whether the `t_1st_vld` is relative to the local time(tws+T) of the neuron, or   \
-        relative to the global time of the external input."""
-
-    def t_at_idx(self, idx: int) -> int:
-        """The time of the valid data at the given index."""
-        if self.n_vld > INFINITE_DATAFLOW:
-            assert 0 <= idx <= self.n_vld - 1
-
-        return self.t_1st_vld + idx * self.interval
-
-    def t_at_n(self, n: int) -> int:
-        """The time of the n-th valid data."""
-        return self.t_at_idx(n - 1)
-
-    @property
-    def t_last_vld(self) -> int:
-        """The time of the last valid data."""
-        assert self.n_vld > INFINITE_DATAFLOW
-        return self.t_at_n(self.n_vld)
-
-    def get_global_t_1st_vld(self, tws: int) -> int:
-        """Get the global time of the first valid data."""
-        return tws + self.t_1st_vld if self.is_local_time else self.t_1st_vld
-
-    def _check_after_assign(self, tws: int, end_tick: int) -> None:
-        _t_1st_vld_out_of_range_text = (
-            "the {0} output time of the first valid data should be in the working "
-            + "time from {1} to {2}, but got {3}."
-        )
-
-        # The global time of the first valid data is in [tws, end_tick].
-        gb_t_1st_vld = self.get_global_t_1st_vld(tws)
-        if gb_t_1st_vld < tws or gb_t_1st_vld > end_tick:
-            if self.is_local_time:
-                raise ValueError(
-                    _t_1st_vld_out_of_range_text.format(
-                        "local", "+0", f"+{end_tick - tws + 1}", self.t_1st_vld
-                    )
-                )
-            else:
-                raise ValueError(
-                    _t_1st_vld_out_of_range_text.format(
-                        "global", tws, end_tick, self.t_1st_vld
-                    )
-                )
-
-        if self.n_vld > INFINITE_DATAFLOW:
-            if (
-                t_last_vld := gb_t_1st_vld + (self.n_vld - 1) * self.interval
-            ) > end_tick:
-                raise ValueError(
-                    f"valid data is output after the end time. The neuron stops working at "
-                    f"{end_tick}, but still needs to output at {t_last_vld}."
-                )
-
-
 class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
 
     _delay: int
@@ -337,9 +265,6 @@ class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
     """tick_wait_end"""
     _uf: int
     """unrolling_factor"""
-
-    oflow_format: DataFlowFormat
-    """The format of output data stream"""
 
     def __init__(self, name: Optional[str] = None) -> None:
         super().__init__(name)
@@ -365,14 +290,6 @@ class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
     @property
     def unrolling_factor(self) -> int:
         return self._uf
-
-    @property
-    def end_tick(self) -> int:
-        """End time of work."""
-        if self.tick_wait_end == 0:
-            return 9999  # Never end
-
-        return self.tick_wait_start + self.tick_wait_end - 1
 
     @unrolling_factor.setter
     def unrolling_factor(self, factor: int) -> None:
