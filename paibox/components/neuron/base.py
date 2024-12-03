@@ -160,7 +160,7 @@ class MetaNeuron:
 
         if bit_truncation > BIT_TRUNCATE_MAX:
             raise ValueError(
-                f"'bit_truncation' should be less than or equal to {BIT_TRUNCATE_MAX}."
+                f"'bit_truncation' should be less than or equal to {BIT_TRUNCATE_MAX}, but got {bit_truncation}."
             )
 
     def _neuronal_charge(

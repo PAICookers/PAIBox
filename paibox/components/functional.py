@@ -996,7 +996,7 @@ class Conv2dSemiFolded(_SemiFoldedModule):
             kernel: convolution kernel in (O,I,H,W) order.
             stride: the step size of the kernel sliding. It can be a scalar or a tuple of 2 integers.
             padding: the amount of zero-padding applied to the input. It can be a scalar or a tuple of 2 integers.
-            bias: It can be a scalar or an array of the same size as the output.
+            bias: it can be a scalar or an array of the same size as the output.
             bit_trunc: the bit truncation position. By default, bits 7 to 0 are truncated.
         """
         if kernel.ndim != self._spatial_ndim + 2:
@@ -1023,17 +1023,7 @@ class Conv2dSemiFolded(_SemiFoldedModule):
             raise ShapeError(f"the channels mismatch: {in_ch} != {cin}.")
 
         _shape_out = (cout, out_h)
-
-        if isinstance(bias, np.ndarray):
-            _bias = np.atleast_1d(bias).astype(LEAK_V_DTYPE)
-            if _bias.shape != _shape_out:
-                raise ShapeError(
-                    f"the shape of bias {_bias.shape} does not match the shape of output {_shape_out}."
-                )
-        else:
-            _bias = int(bias)
-
-        self.bias = _bias
+        self.bias = bias
 
         super().__init__(
             neuron_s, shape_out=_shape_out, keep_shape=keep_shape, name=name, **kwargs
@@ -1173,6 +1163,7 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
         neuron_s: Union[NeuDyn, InputProj],
         kernel_size: _Size2Type,
         stride: Optional[_Size2Type] = None,
+        bit_trunc: int = 8,
         *,
         keep_shape: bool = False,
         name: Optional[str] = None,
@@ -1184,6 +1175,7 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
             neuron_s: the input neuron to be pooled.
             kernel_size: the size of the window to take a max over.
             stride: the stride of the window. Default value is `kernel_size`.
+            bit_trunc: the bit truncation position. By default, bits 7 to 0 are truncated.
 
         NOTE: Since the semi-folded max pooling in the ANN mode is implemented using comparators, it is not \
             possible to use negative padding layer to eliminate the incorrect results of the padding part.
@@ -1195,6 +1187,7 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
             _stride = _pair(stride)
 
         self.stride = _stride
+        self.bit_trunc = bit_trunc
 
         assert len(neuron_s.shape_out) == 2
         in_ch, in_h = neuron_s.shape_out
@@ -1239,6 +1232,7 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
 
         n_pool2d = ANNNeuron(
             self.shape_out,
+            bit_trunc=self.bit_trunc,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start + 1,
             tick_wait_end=twe,
@@ -1296,6 +1290,7 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
         kernel_size: _Size2Type,
         stride: Optional[_Size2Type] = None,
         padding: _Size2Type = 0,
+        bit_trunc: Optional[int] = None,
         *,
         keep_shape: bool = False,
         name: Optional[str] = None,
@@ -1309,6 +1304,7 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
             stride: the stride of the window. Default value is `kernel_size`.
             padding: the amount of zero-padding applied to the input. It can be a scalar or a tuple of 2    \
                 integers.
+            bit_trunc: the bit truncation position. By default, bit_trunc = 8 + ksize.bit_length() - 1.
         """
         self.kernel_size = _pair(kernel_size)
         if stride is None:
@@ -1318,6 +1314,7 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
 
         self.stride = _stride
         self.padding = _pair(padding)
+        self.bit_trunc = bit_trunc
 
         assert len(neuron_s.shape_out) == 2
         in_ch, in_h = neuron_s.shape_out
@@ -1370,7 +1367,11 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
         # 3. The alternative is bit_tunc=16 for this layer & w*16/9 for the next layer?
         # NOTE: The resulting linear transformation of weights of the next layer needs to be considered
         # during quantization.
-        bit_trunc = 8 + (kh * kw).bit_length() - 1
+        bt = (
+            self.bit_trunc
+            if isinstance(self.bit_trunc, int)
+            else 8 + (kh * kw).bit_length() - 1
+        )
 
         n_delays = NodeList()
         n_neg_padding = NodeList()

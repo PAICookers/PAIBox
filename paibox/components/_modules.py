@@ -1,3 +1,4 @@
+import math
 import typing
 from typing import Literal, Optional, Union
 
@@ -5,9 +6,8 @@ import numpy as np
 from paicorelib import TM, HwConfig
 
 from paibox.base import DataFlowFormat, NeuDyn, NodeList
-from paibox.exceptions import ResourceError, ShapeError
+from paibox.exceptions import ResourceError
 from paibox.types import (
-    LEAK_V_DTYPE,
     NEUOUT_U8_DTYPE,
     WEIGHT_DTYPE,
     DataType,
@@ -216,26 +216,19 @@ class _LinearBase(FunctionalModule):
             neuron_s: the input neuron.
             out_features: the output shape.
             weights: the weight matrix.
-            bias: It can be a scalar or an array of the same size as the output.
+            bias: it can be a scalar or an array of the same size as the output.
             bit_trunc: the bit truncation position. By default, bits 7 to 0 are truncated.
         """
         self.weights = weights
         self.bit_trunc = bit_trunc
-        _shape_out = as_shape(out_features)
-
-        if isinstance(bias, np.ndarray):
-            _bias = np.atleast_1d(bias).astype(LEAK_V_DTYPE)
-            if _bias.shape != _shape_out:
-                raise ShapeError(
-                    f"the shape of bias {_bias.shape} does not match the shape of output {_shape_out}."
-                )
-        else:
-            _bias = int(bias)
-
-        self.bias = _bias
+        self.bias = bias
 
         super().__init__(
-            neuron_s, shape_out=_shape_out, keep_shape=keep_shape, name=name, **kwargs
+            neuron_s,
+            shape_out=as_shape(out_features),
+            keep_shape=keep_shape,
+            name=name,
+            **kwargs,
         )
 
 
