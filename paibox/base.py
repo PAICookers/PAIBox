@@ -338,7 +338,7 @@ class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
     _uf: int
     """unrolling_factor"""
 
-    oflow_format: DataFlowFormat
+    _oflow_format: DataFlowFormat
     """The format of output data stream"""
 
     def __init__(self, name: Optional[str] = None) -> None:

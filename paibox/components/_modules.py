@@ -168,7 +168,7 @@ class _SemiFoldedModule(FunctionalModule):
     """Functional modules with interfaces in semi-folded form. Use `build()` of class `HasSemiFoldedIntf`."""
 
     inherent_delay = 1
-    oflow_format: SemiFoldedDataFlowFormat
+    _oflow_format: SemiFoldedDataFlowFormat
 
     def build(
         self,

@@ -982,7 +982,7 @@ class TestFunctionalModules:
         semi_vld_out_intv0 = 1
         t_1st_vld_data0 = 0
         # The interval & the time of the first valid data of the current layers
-        semi_vld_out_intv = [m.oflow_format.interval for m in semi_folded_modules]
+        semi_vld_out_intv = [m._oflow_format.interval for m in semi_folded_modules]
         t_1st_vld_data = [0] * n_conv
         for i in range(n_conv):
             if i == 0:
@@ -1049,7 +1049,7 @@ class TestFunctionalModules:
                         i_conv
                     ].tick_wait_start + conv2d_list[
                         i_conv
-                    ].oflow_format.t_at_idx(
+                    ]._oflow_format.t_at_idx(
                         i
                     )
 
@@ -1060,12 +1060,12 @@ class TestFunctionalModules:
             assert np.array_equal(
                 expected_fc_t,
                 sim1.data[probe_linear][
-                    linear.tick_wait_start + linear.oflow_format.t_last_vld
+                    linear.tick_wait_start + linear._oflow_format.t_last_vld
                 ],
             )
             assert (
-                linear.oflow_format.get_global_t_1st_vld(linear.tick_wait_start)
-                == linear.tick_wait_start + linear.oflow_format.t_last_vld
+                linear._oflow_format.get_global_t_1st_vld(linear.tick_wait_start)
+                == linear.tick_wait_start + linear._oflow_format.t_last_vld
             )
 
     @pytest.mark.parametrize(
@@ -1191,7 +1191,7 @@ class TestFunctionalModules:
         semi_vld_out_intv0 = 1
         t_1st_vld_data0 = 0
         # The interval & the time of the first valid data of the current layers
-        semi_vld_out_intv = [m.oflow_format.interval for m in semi_folded_modules]
+        semi_vld_out_intv = [m._oflow_format.interval for m in semi_folded_modules]
         t_1st_vld_data = [0] * n_pool
         for i in range(n_pool):
             if i == 0:
@@ -1245,7 +1245,7 @@ class TestFunctionalModules:
                         i_pool
                     ].tick_wait_start + pool2d_list[
                         i_pool
-                    ].oflow_format.t_at_idx(
+                    ]._oflow_format.t_at_idx(
                         i
                     )
 
@@ -1256,13 +1256,13 @@ class TestFunctionalModules:
             assert np.array_equal(
                 expected_fc_t,
                 sim1.data[probe_linear][
-                    linear.tick_wait_start + linear.oflow_format.t_last_vld
+                    linear.tick_wait_start + linear._oflow_format.t_last_vld
                 ],
             )
 
             assert (
-                linear.oflow_format.get_global_t_1st_vld(linear.tick_wait_start)
-                == linear.tick_wait_start + linear.oflow_format.t_last_vld
+                linear._oflow_format.get_global_t_1st_vld(linear.tick_wait_start)
+                == linear.tick_wait_start + linear._oflow_format.t_last_vld
             )
 
     @pytest.mark.parametrize(
