@@ -255,13 +255,13 @@ class TransposeModule_T3d_Net(pb.DynSysGroup):
 
 
 class Conv2dSemiFolded_FC_ChainNetN(pb.DynSysGroup):
-    def __init__(self, shape, kernels, strides, paddings, out_features, weight):
+    def __init__(self, shape, kernels, strides, paddings, out_features, weight, groups):
         super().__init__()
 
         self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape)
         self.conv_list = NodeList()
 
-        for i, (kernel, stride, padding) in enumerate(zip(kernels, strides, paddings)):
+        for i, (kernel, stride, padding, g) in enumerate(zip(kernels, strides, paddings, groups)):
             self.conv_list.append(
                 pb.Conv2dSemiFolded(
                     self.conv_list[-1] if i > 0 else self.i1,
@@ -269,6 +269,7 @@ class Conv2dSemiFolded_FC_ChainNetN(pb.DynSysGroup):
                     stride,
                     padding,
                     tick_wait_start=1 + 2 * i,
+                    groups=g,
                 )
             )
 
