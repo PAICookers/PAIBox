@@ -345,6 +345,7 @@ class Conv2dSemiFoldedSyn(FullConnectedSyn):
         kernel: np.ndarray,
         stride: tuple[int, int],
         padding: tuple[int, int],
+        groups: int,
         order: _KOrder3d,
         name: Optional[str] = None,
     ) -> None:
@@ -367,7 +368,7 @@ class Conv2dSemiFoldedSyn(FullConnectedSyn):
         in_ch, in_h = source.shape_out
         out_h = (in_h + 2 * padding[0] - kernel_h) // stride[0] + 1
 
-        if in_ch != in_channels:
+        if in_ch != groups * in_channels:
             raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
 
         if (_output_size := out_channels * out_h) != dest.num_in:
@@ -377,7 +378,7 @@ class Conv2dSemiFoldedSyn(FullConnectedSyn):
             )
 
         self.comm = Conv2dSemiFoldedForward(
-            (in_ch, in_h), (out_channels, out_h), _kernel, stride, padding
+            (in_ch, in_h), (out_channels, out_h), _kernel, stride, padding, groups
         )
 
 
