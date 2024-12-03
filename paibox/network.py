@@ -113,7 +113,7 @@ class DynSysGroup(DynamicSys, Container):
             # TODO for the case of the ResBlock, the `pred_dg_semi_ops` will be used.
             if isinstance(m, _SemiFoldedModule):
                 generated[m] = m.build(self, last_vld_output_attr, **build_options)
-                last_vld_output_attr = m.oflow_format
+                last_vld_output_attr = m._oflow_format
             else:
                 generated[m] = m.build(self, **build_options)
 

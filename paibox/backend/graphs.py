@@ -533,7 +533,7 @@ class PAIGraph:
     def inherent_timestep(self) -> int:
         self.build_check()
         return max(
-            n.oflow_format.get_global_t_1st_vld(n.tick_wait_start)
+            n._oflow_format.get_global_t_1st_vld(n.tick_wait_start)
             for n in self.onodes.values()
         )
 
