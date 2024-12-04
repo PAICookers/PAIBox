@@ -261,7 +261,9 @@ class Conv2dSemiFolded_FC_ChainNetN(pb.DynSysGroup):
         self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape)
         self.conv_list = NodeList()
 
-        for i, (kernel, stride, padding, g) in enumerate(zip(kernels, strides, paddings, groups)):
+        for i, (kernel, stride, padding, g) in enumerate(
+            zip(kernels, strides, paddings, groups)
+        ):
             self.conv_list.append(
                 pb.Conv2dSemiFolded(
                     self.conv_list[-1] if i > 0 else self.i1,

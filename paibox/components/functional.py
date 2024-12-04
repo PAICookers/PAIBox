@@ -1022,9 +1022,9 @@ class Conv2dSemiFolded(_SemiFoldedModule):
         assert self.padding[0] < kh and self.padding[1] < kw
 
         if in_ch % groups != 0:
-            raise ValueError('in_channels must be divisible by groups')
+            raise ValueError("in_channels must be divisible by groups")
         if cout % groups != 0:
-            raise ValueError('out_channels must be divisible by groups')
+            raise ValueError("out_channels must be divisible by groups")
         if in_ch != groups * cin:
             raise ShapeError(f"the channels mismatch: {in_ch} != {cin}.")
 

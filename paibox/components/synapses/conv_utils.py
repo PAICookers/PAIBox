@@ -197,22 +197,30 @@ def _conv2d_semifolded_unroll(
     _, oh = out_shape
     w_np = np.zeros((cin * in_shape[1], cout * oh), dtype=kernel.dtype)
     for g in range(groups):
-        for i in range(cout//groups):
+        for i in range(cout // groups):
             for j in range(ck):
                 # Must recreate `w_block` every time because some rows will be deleted.
                 w_block = np.zeros((ih, oh), dtype=kernel.dtype)
                 for k in range(oh):
-                    w_block[k * stride[1] : k * stride[1] + kh, k] = kernel[g*cout//groups+i, j, :]
+                    w_block[k * stride[1] : k * stride[1] + kh, k] = kernel[
+                        g * cout // groups + i, j, :
+                    ]
                 if padding[0] > 0:  # H direction
                     w_block = np.delete(
                         w_block,
-                        np.hstack((np.arange(padding[0]), np.arange(ih - padding[0], ih))),
+                        np.hstack(
+                            (np.arange(padding[0]), np.arange(ih - padding[0], ih))
+                        ),
                         axis=0,
                     )
-                w_np[g*ck*in_shape[1] + j * in_shape[1] : g*ck*in_shape[1]+(j + 1) * in_shape[1], g*oh*cout//groups+i * oh :g*oh*cout//groups+(i + 1) * oh] = (
-                    w_block
-                )
-
+                w_np[
+                    g * ck * in_shape[1]
+                    + j * in_shape[1] : g * ck * in_shape[1]
+                    + (j + 1) * in_shape[1],
+                    g * oh * cout // groups
+                    + i * oh : g * oh * cout // groups
+                    + (i + 1) * oh,
+                ] = w_block
 
     # for i in range(cout):
     #     for j in range(cin):
@@ -294,8 +302,8 @@ def _conv2d_faster(
 
     for g in range(groups):
         # 获取当前组的输入和卷积核
-        x_group = x_padded[g * cin_per_group:(g + 1) * cin_per_group, :, :]
-        kernel_group = kernel[g * cout_per_group:(g + 1) * cout_per_group, :, :, :]
+        x_group = x_padded[g * cin_per_group : (g + 1) * cin_per_group, :, :]
+        kernel_group = kernel[g * cout_per_group : (g + 1) * cout_per_group, :, :, :]
 
         # 重塑卷积核以进行矩阵乘法
         col_kernel = kernel_group.reshape(cout_per_group, -1)
@@ -307,7 +315,9 @@ def _conv2d_faster(
         out_group = col_fm @ col_kernel.T
 
         # 将组输出重塑并合并到最终输出中
-        out[g * cout_per_group:(g + 1) * cout_per_group, :] = out_group.T.reshape((cout_per_group, *out_shape))
+        out[g * cout_per_group : (g + 1) * cout_per_group, :] = out_group.T.reshape(
+            (cout_per_group, *out_shape)
+        )
     return out.astype(VOLTAGE_DTYPE)
 
     # x_padded = np.pad(
