@@ -42,7 +42,6 @@ repos:
       - id: check-symlinks
       - id: check-merge-conflict
       - id: mixed-line-ending
-        args: [--pytest-test-first]
       - id: requirements-txt-fixer
       - id: pretty-format-json
         args: [--autofix, --indent 2]
