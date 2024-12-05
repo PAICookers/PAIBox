@@ -189,28 +189,55 @@ def _conv2d_semifolded_unroll(
     kernel: WeightType,
     stride: Size2Type,
     padding: Size2Type,
+    groups: int,
 ) -> WeightType:
-    cout, cin, kh = kernel.shape
+    cout, ck, kh = kernel.shape
+    cin = groups * ck
     ih = in_shape[1] + 2 * padding[0]
     _, oh = out_shape
     w_np = np.zeros((cin * in_shape[1], cout * oh), dtype=kernel.dtype)
+    for g in range(groups):
+        for i in range(cout // groups):
+            for j in range(ck):
+                # Must recreate `w_block` every time because some rows will be deleted.
+                w_block = np.zeros((ih, oh), dtype=kernel.dtype)
+                for k in range(oh):
+                    w_block[k * stride[1] : k * stride[1] + kh, k] = kernel[
+                        g * cout // groups + i, j, :
+                    ]
+                if padding[0] > 0:  # H direction
+                    w_block = np.delete(
+                        w_block,
+                        np.hstack(
+                            (np.arange(padding[0]), np.arange(ih - padding[0], ih))
+                        ),
+                        axis=0,
+                    )
+                w_np[
+                    g * ck * in_shape[1]
+                    + j * in_shape[1] : g * ck * in_shape[1]
+                    + (j + 1) * in_shape[1],
+                    g * oh * cout // groups
+                    + i * oh : g * oh * cout // groups
+                    + (i + 1) * oh,
+                ] = w_block
 
-    for i in range(cout):
-        for j in range(cin):
-            # Must recreate `w_block` every time because some rows will be deleted.
-            w_block = np.zeros((ih, oh), dtype=kernel.dtype)
-            for k in range(oh):
-                w_block[k * stride[1] : k * stride[1] + kh, k] = kernel[i, j, :]
+    # for i in range(cout):
+    #     for j in range(cin):
+    #         # Must recreate `w_block` every time because some rows will be deleted.
+    #         w_block = np.zeros((ih, oh), dtype=kernel.dtype)
+    #         for k in range(oh):
+    #             w_block[k * stride[1] : k * stride[1] + kh, k] = kernel[i, j, :]
 
-            if padding[0] > 0:  # H direction
-                w_block = np.delete(
-                    w_block,
-                    np.hstack((np.arange(padding[0]), np.arange(ih - padding[0], ih))),
-                    axis=0,
-                )
-            w_np[j * in_shape[1] : (j + 1) * in_shape[1], i * oh : (i + 1) * oh] = (
-                w_block
-            )
+    #         if padding[0] > 0:  # H direction
+    #             w_block = np.delete(
+    #                 w_block,
+    #                 np.hstack((np.arange(padding[0]), np.arange(ih - padding[0], ih))),
+    #                 axis=0,
+    #             )
+    #         w_np[j * in_shape[1] : (j + 1) * in_shape[1], i * oh : (i + 1) * oh] = (
+    #             w_block
+    #         )
 
     return w_np
 
@@ -252,28 +279,64 @@ def _conv2d_faster(
     kernel: WeightType,
     stride: Size2Type,
     padding: Size2Type,
+    groups: int = 1,
     # fm_order: str,
 ) -> SynOutType:
     """Faster 2d convolution."""
-    cout, _, kh, kw = kernel.shape  # (O, I, H, W)
+    cout, cin, kh, kw = kernel.shape  # (O, I, H, W)
+    if cout % groups != 0:
+        raise ValueError("Output channels must be divisible by groups.")
 
+        # 计算每个组的通道数
+    cin_per_group = cin
+    cout_per_group = cout // groups
+
+    # 将输入张量进行填充
     x_padded = np.pad(
         x_chw,
         ((0, 0), (padding[0], padding[0]), (padding[1], padding[1])),
     )
 
-    # kernel: (cout, cin, kh, kw) -> (cout, cin*kh*kw)
-    col_kernel = kernel.reshape(cout, -1)
+    # 用于存储最终输出
+    out = np.zeros((cout, *out_shape), dtype=np.int64)
 
-    # padded: (cin, xh+2*p[0]-kh, xw+2*p[1]-kw) -> (oh*ow, cin*kh*kw)
-    col_fm = _2d_im2col(x_padded, out_shape[0], out_shape[1], kh, kw, stride)
-    # out = np.zeros((cout,) + out_shape, dtype=np.int64)
-    # (oh*ow, cin*kh*kw) * (cout, cin*kh*kw)^T = (oh*ow, cout)
-    out = col_fm @ col_kernel.T  # + self.bias
-    # (oh*ow, cout) -> (cout, oh*ow) -> (cout, oh, ow)
-    out = out.T.reshape((cout,) + out_shape)
+    for g in range(groups):
+        # 获取当前组的输入和卷积核
+        x_group = x_padded[g * cin_per_group : (g + 1) * cin_per_group, :, :]
+        kernel_group = kernel[g * cout_per_group : (g + 1) * cout_per_group, :, :, :]
 
+        # 重塑卷积核以进行矩阵乘法
+        col_kernel = kernel_group.reshape(cout_per_group, -1)
+
+        # 转换当前组的填充图像为列格式
+        col_fm = _2d_im2col(x_group, out_shape[0], out_shape[1], kh, kw, stride)
+
+        # 进行矩阵乘法
+        out_group = col_fm @ col_kernel.T
+
+        # 将组输出重塑并合并到最终输出中
+        out[g * cout_per_group : (g + 1) * cout_per_group, :] = out_group.T.reshape(
+            (cout_per_group, *out_shape)
+        )
     return out.astype(VOLTAGE_DTYPE)
+
+    # x_padded = np.pad(
+    #     x_chw,
+    #     ((0, 0), (padding[0], padding[0]), (padding[1], padding[1])),
+    # )
+
+    # # kernel: (cout, cin, kh, kw) -> (cout, cin*kh*kw)
+    # col_kernel = kernel.reshape(cout, -1)
+
+    # # padded: (cin, xh+2*p[0]-kh, xw+2*p[1]-kw) -> (oh*ow, cin*kh*kw)
+    # col_fm = _2d_im2col(x_padded, out_shape[0], out_shape[1], kh, kw, stride)
+    # # out = np.zeros((cout,) + out_shape, dtype=np.int64)
+    # # (oh*ow, cin*kh*kw) * (cout, cin*kh*kw)^T = (oh*ow, cout)
+    # out = col_fm @ col_kernel.T  # + self.bias
+    # # (oh*ow, cout) -> (cout, oh*ow) -> (cout, oh, ow)
+    # out = out.T.reshape((cout,) + out_shape)
+
+    # return out.astype(VOLTAGE_DTYPE)
 
 
 def _convtranspose1d_unroll(
