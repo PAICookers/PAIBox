@@ -252,6 +252,7 @@ class Conv1dSyn(FullConnectedSyn):
         stride: tuple[int],
         padding: tuple[int],
         dilation: tuple[int],
+        groups: int,
         order: _KOrder3d,
         name: Optional[str] = None,
     ) -> None:
@@ -268,7 +269,8 @@ class Conv1dSyn(FullConnectedSyn):
             _kernel = kernel.copy()
 
         # O,I,L
-        out_channels, in_channels, kernel_l = _kernel.shape
+        out_channels, group_in_channels, kernel_l = _kernel.shape
+        in_channels = groups * group_in_channels
         # C,L
         in_ch, in_l = _fm_ndim1_check(source.shape_out, "CL")
         out_l = (in_l + 2 * padding[0] - dilation[0] * (kernel_l - 1) - 1) // stride[
@@ -281,7 +283,7 @@ class Conv1dSyn(FullConnectedSyn):
         if (_output_size := out_channels * out_l) != dest.num_in:
             raise ShapeError(f"output size mismatch: {_output_size} != {dest.num_in}.")
 
-        self.comm = Conv1dForward((in_l,), (out_l,), _kernel, stride, padding)
+        self.comm = Conv1dForward((in_l,), (out_l,), _kernel, stride, padding, groups=groups)
 
 
 class Conv2dSyn(FullConnectedSyn):
@@ -295,6 +297,7 @@ class Conv2dSyn(FullConnectedSyn):
         stride: tuple[int, int],
         padding: tuple[int, int],
         dilation: tuple[int, int],
+        groups: int,
         order: _KOrder4d,
         name: Optional[str] = None,
     ) -> None:
@@ -311,7 +314,8 @@ class Conv2dSyn(FullConnectedSyn):
             _kernel = kernel.copy()
 
         # O,I,H,W
-        out_channels, in_channels, kernel_h, kernel_w = _kernel.shape
+        out_channels, group_in_channels, kernel_h, kernel_w = _kernel.shape
+        in_channels = groups * group_in_channels
         # C,H,W
         in_ch, in_h, in_w = _fm_ndim2_check(source.shape_out, "CHW")
         out_h = (in_h + 2 * padding[0] - dilation[0] * (kernel_h - 1) - 1) // stride[
@@ -331,7 +335,7 @@ class Conv2dSyn(FullConnectedSyn):
             )
 
         self.comm = Conv2dForward(
-            (in_h, in_w), (out_h, out_w), _kernel, stride, padding
+            (in_h, in_w), (out_h, out_w), _kernel, stride, padding, groups=groups
         )
 
 

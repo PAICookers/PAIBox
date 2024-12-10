@@ -273,6 +273,7 @@ class TestConv:
         kernel_size = (5,)
         stride = 2
         padding = 1
+        groups = 2
         out_shape = ((32 + 2 - 5) // 2 + 1,)
         in_channels = 8
         out_channels = 16
@@ -282,16 +283,16 @@ class TestConv:
         n2 = pb.IF((out_channels,) + out_shape, 3)
 
         weight = np.random.randint(
-            -128, 128, size=(in_channels, out_channels) + kernel_size, dtype=np.int8
+            -128, 128, size=(in_channels // groups, out_channels) + kernel_size, dtype=np.int8
         )
         s1 = pb.Conv1d(
-            n1, n2, weight, stride=stride, padding=padding, kernel_order=korder
+            n1, n2, weight, stride=stride, padding=padding, kernel_order=korder, groups=groups
         )
 
         assert s1.num_in == in_channels * shape2num(in_shape)
         assert s1.connectivity.dtype == WEIGHT_DTYPE
         assert s1.connectivity.shape == (
-            in_channels * shape2num(in_shape),
+            in_channels // groups * shape2num(in_shape),
             out_channels * shape2num(out_shape),
         )
 
@@ -300,6 +301,7 @@ class TestConv:
         kernel_size = (5, 5)
         padding = (1, 1)
         stride = 2
+        groups = 2
         out_shape = ((32 + 2 - 5) // 2 + 1, (32 + 2 - 5) // 2 + 1)
         in_channels = 8
         out_channels = 16
@@ -310,16 +312,16 @@ class TestConv:
         n2 = pb.IF((out_channels * out_shape[0] * out_shape[1],), 3)
 
         weight = np.random.randint(
-            -8, 8, size=(in_channels, out_channels) + kernel_size, dtype=np.int32
+            -8, 8, size=(in_channels // groups, out_channels) + kernel_size, dtype=np.int32
         )
         s1 = pb.Conv2d(
-            n1, n2, weight, stride=stride, padding=padding, kernel_order=korder
+            n1, n2, weight, stride=stride, padding=padding, kernel_order=korder, groups=groups
         )
 
         assert s1.num_in == in_channels * shape2num(in_shape)
         assert s1.connectivity.dtype == WEIGHT_DTYPE
         assert s1.connectivity.shape == (
-            in_channels * shape2num(in_shape),
+            in_channels // groups * shape2num(in_shape),
             out_channels * shape2num(out_shape),
         )
 
@@ -328,6 +330,7 @@ class TestConv:
         kernel_size = (5,)
         stride = 2
         out_shape = ((32 - 5) // 2 + 1,)
+        groups = 1
         in_channels = 1  # omit it
         out_channels = 4
         korder = "IOL"
@@ -336,14 +339,14 @@ class TestConv:
         n2 = pb.IF((out_channels,) + out_shape, 3)
 
         weight = np.random.randint(
-            -128, 128, size=(in_channels, out_channels) + kernel_size, dtype=np.int64
+            -128, 128, size=(in_channels // groups, out_channels) + kernel_size, dtype=np.int64
         )
-        s1 = pb.Conv1d(n1, n2, weight, stride=stride, kernel_order=korder)
+        s1 = pb.Conv1d(n1, n2, weight, stride=stride, kernel_order=korder, groups=groups)
 
         assert s1.num_in == in_channels * shape2num(in_shape)
         assert s1.connectivity.dtype == WEIGHT_DTYPE
         assert s1.connectivity.shape == (
-            in_channels * shape2num(in_shape),
+            in_channels // groups * shape2num(in_shape),
             out_channels * shape2num(out_shape),
         )
 
@@ -351,6 +354,7 @@ class TestConv:
         in_shape = (32, 32)
         kernel_size = (5, 5)
         stride = 2
+        groups = 1
         out_shape = ((32 - 5) // 2 + 1, (32 - 5) // 2 + 1)
         in_channels = 1  # omit it
         out_channels = 4
@@ -360,13 +364,13 @@ class TestConv:
         n2 = pb.IF((out_channels,) + out_shape, 3)
 
         weight = np.random.randint(
-            -128, 128, size=(in_channels, out_channels) + kernel_size, dtype=np.int8
+            -128, 128, size=(in_channels // groups, out_channels) + kernel_size, dtype=np.int8
         )
-        s1 = pb.Conv2d(n1, n2, weight, stride=stride, kernel_order=korder)
+        s1 = pb.Conv2d(n1, n2, weight, stride=stride, kernel_order=korder, groups=groups)
 
         assert s1.num_in == in_channels * shape2num(in_shape)
         assert s1.connectivity.shape == (
-            in_channels * shape2num(in_shape),
+            in_channels // groups * shape2num(in_shape),
             out_channels * shape2num(out_shape),
         )
 
