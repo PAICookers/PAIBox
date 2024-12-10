@@ -248,7 +248,7 @@ class TestTransforms:
             (np.bool_, (28,), 24, 12, (5,), (2,), (2,), 6, np.bool_),
             (np.bool_, (16,), 8, 16, (3,), (2,), (0,), 8, np.bool_),
             (np.bool_, (28,), 16, 8, (3,), (1,), (0,), 1, np.int8),
-            (np.bool_, (28,), 24, 12, (3,), (2,), (0,), 1,np.int8),
+            (np.bool_, (28,), 24, 12, (3,), (2,), (0,), 1, np.int8),
             (np.bool_, (28,), 24, 12, (5,), (2,), (0,), 4, np.int8),
             (np.bool_, (16,), 8, 16, (3,), (2,), (0,), 2, np.int8),
             (np.int8, (8,), 16, 8, (3,), (1,), (1,), 2, np.int8),
@@ -282,7 +282,10 @@ class TestTransforms:
         group_out_channels = out_channels // groups
         if kdtype == np.bool_:
             kernel = np.random.randint(
-                0, 2, size=(out_channels, group_in_channels) + kernel_size, dtype=np.bool_
+                0,
+                2,
+                size=(out_channels, group_in_channels) + kernel_size,
+                dtype=np.bool_,
             )
         else:
             kernel = np.random.randint(
@@ -304,7 +307,9 @@ class TestTransforms:
             )
 
         out_shape = ((in_shape[0] + 2 * padding[0] - kernel_size[0]) // stride[0] + 1,)
-        f = tfm.Conv1dForward(in_shape, out_shape, kernel, stride, padding, groups=groups)
+        f = tfm.Conv1dForward(
+            in_shape, out_shape, kernel, stride, padding, groups=groups
+        )
 
         # x = np.random.randint(0, 2, size=fm_shape, dtype=np.bool_)
         xf = x.ravel()
@@ -314,7 +319,9 @@ class TestTransforms:
         y1 = f(xf)
         # The result of matmul using the unrolled matrix
         fkernel = f.connectivity.astype(np.int32)
-        fkernel = fkernel.reshape(groups, group_in_channels * in_shape[0], group_out_channels * out_shape[0])
+        fkernel = fkernel.reshape(
+            groups, group_in_channels * in_shape[0], group_out_channels * out_shape[0]
+        )
         y2 = [xg[i] @ fkernel[i] for i in range(groups)]
         y2 = np.concatenate(y2, axis=0)
 
@@ -367,7 +374,10 @@ class TestTransforms:
 
         if kdtype == np.bool_:
             kernel = np.random.randint(
-                0, 2, size=(out_channels, group_in_channels) + kernel_size, dtype=np.bool_
+                0,
+                2,
+                size=(out_channels, group_in_channels) + kernel_size,
+                dtype=np.bool_,
             )
         else:
             kernel = np.random.randint(
@@ -393,16 +403,22 @@ class TestTransforms:
             (in_shape[1] + 2 * padding[1] - kernel_size[1]) // stride[1] + 1,
         )
 
-        f = tfm.Conv2dForward(in_shape, out_shape, kernel, stride, padding, groups=groups)
+        f = tfm.Conv2dForward(
+            in_shape, out_shape, kernel, stride, padding, groups=groups
+        )
 
         xf = x.ravel()
         xg = xf.reshape(groups, -1)
-        
+
         # The result of __call__ using traditional conv
         y1 = f(xf)
         # The result of matmul using the unrolled matrix
         fkernel = f.connectivity.astype(np.int32)
-        fkernel = fkernel.reshape(groups, group_in_channels * in_shape[0] * in_shape[1], group_out_channels * out_shape[0] * out_shape[1])
+        fkernel = fkernel.reshape(
+            groups,
+            group_in_channels * in_shape[0] * in_shape[1],
+            group_out_channels * out_shape[0] * out_shape[1],
+        )
         y2 = [xg[i] @ fkernel[i] for i in range(groups)]
         y2 = np.concatenate(y2, axis=0)
 

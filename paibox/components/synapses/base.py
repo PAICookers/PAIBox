@@ -283,7 +283,9 @@ class Conv1dSyn(FullConnectedSyn):
         if (_output_size := out_channels * out_l) != dest.num_in:
             raise ShapeError(f"output size mismatch: {_output_size} != {dest.num_in}.")
 
-        self.comm = Conv1dForward((in_l,), (out_l,), _kernel, stride, padding, groups=groups)
+        self.comm = Conv1dForward(
+            (in_l,), (out_l,), _kernel, stride, padding, groups=groups
+        )
 
 
 class Conv2dSyn(FullConnectedSyn):

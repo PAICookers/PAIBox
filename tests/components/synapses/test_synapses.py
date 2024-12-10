@@ -283,10 +283,19 @@ class TestConv:
         n2 = pb.IF((out_channels,) + out_shape, 3)
 
         weight = np.random.randint(
-            -128, 128, size=(in_channels // groups, out_channels) + kernel_size, dtype=np.int8
+            -128,
+            128,
+            size=(in_channels // groups, out_channels) + kernel_size,
+            dtype=np.int8,
         )
         s1 = pb.Conv1d(
-            n1, n2, weight, stride=stride, padding=padding, kernel_order=korder, groups=groups
+            n1,
+            n2,
+            weight,
+            stride=stride,
+            padding=padding,
+            kernel_order=korder,
+            groups=groups,
         )
 
         assert s1.num_in == in_channels * shape2num(in_shape)
@@ -312,10 +321,19 @@ class TestConv:
         n2 = pb.IF((out_channels * out_shape[0] * out_shape[1],), 3)
 
         weight = np.random.randint(
-            -8, 8, size=(in_channels // groups, out_channels) + kernel_size, dtype=np.int32
+            -8,
+            8,
+            size=(in_channels // groups, out_channels) + kernel_size,
+            dtype=np.int32,
         )
         s1 = pb.Conv2d(
-            n1, n2, weight, stride=stride, padding=padding, kernel_order=korder, groups=groups
+            n1,
+            n2,
+            weight,
+            stride=stride,
+            padding=padding,
+            kernel_order=korder,
+            groups=groups,
         )
 
         assert s1.num_in == in_channels * shape2num(in_shape)
@@ -339,9 +357,14 @@ class TestConv:
         n2 = pb.IF((out_channels,) + out_shape, 3)
 
         weight = np.random.randint(
-            -128, 128, size=(in_channels // groups, out_channels) + kernel_size, dtype=np.int64
+            -128,
+            128,
+            size=(in_channels // groups, out_channels) + kernel_size,
+            dtype=np.int64,
         )
-        s1 = pb.Conv1d(n1, n2, weight, stride=stride, kernel_order=korder, groups=groups)
+        s1 = pb.Conv1d(
+            n1, n2, weight, stride=stride, kernel_order=korder, groups=groups
+        )
 
         assert s1.num_in == in_channels * shape2num(in_shape)
         assert s1.connectivity.dtype == WEIGHT_DTYPE
@@ -364,9 +387,14 @@ class TestConv:
         n2 = pb.IF((out_channels,) + out_shape, 3)
 
         weight = np.random.randint(
-            -128, 128, size=(in_channels // groups, out_channels) + kernel_size, dtype=np.int8
+            -128,
+            128,
+            size=(in_channels // groups, out_channels) + kernel_size,
+            dtype=np.int8,
         )
-        s1 = pb.Conv2d(n1, n2, weight, stride=stride, kernel_order=korder, groups=groups)
+        s1 = pb.Conv2d(
+            n1, n2, weight, stride=stride, kernel_order=korder, groups=groups
+        )
 
         assert s1.num_in == in_channels * shape2num(in_shape)
         assert s1.connectivity.shape == (

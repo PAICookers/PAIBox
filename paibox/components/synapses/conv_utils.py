@@ -77,7 +77,9 @@ def _conv1d_unroll(
     ol = out_shape[0]
 
     # weight unrolled without considering parameter padding : weight unrolled no padding
-    w_unrolled_np = np.zeros((groups, group_cin * il, group_cout * ol), dtype=kernel.dtype)
+    w_unrolled_np = np.zeros(
+        (groups, group_cin * il, group_cout * ol), dtype=kernel.dtype
+    )
     zeros_image = np.zeros((groups, group_cin * il, group_cout, ol), dtype=kernel.dtype)
     for g in range(groups):
         for i in range(ol):
@@ -86,7 +88,10 @@ def _conv1d_unroll(
                 # [0] -> o_ch, [1] -> i_ch
                 zeros_image[
                     g,
-                    i * stride[0] + ch_idx[1] * il : i * stride[0] + ch_idx[1] * il + kl,
+                    i * stride[0]
+                    + ch_idx[1] * il : i * stride[0]
+                    + ch_idx[1] * il
+                    + kl,
                     ch_idx[0],
                     i,
                 ] = kernel[g, ch_idx[0], ch_idx[1], :]
@@ -104,7 +109,9 @@ def _conv1d_unroll(
     # Remove the part of the padding in the w_unrolled_no_padding
     # That is, remove useless weight in the w_unrolled_no_padding
     nil = in_shape[0]
-    w_unrolled = np.zeros((groups, group_cin * nil, group_cout * ol), dtype=kernel.dtype)
+    w_unrolled = np.zeros(
+        (groups, group_cin * nil, group_cout * ol), dtype=kernel.dtype
+    )
     for g in range(groups):
         for i in range(group_cin):
             w_unrolled[g, i * nil : i * nil + nil, :] = w_unrolled_np[
@@ -134,8 +141,12 @@ def _conv2d_unroll(
     out_size = oh * ow
 
     # weight unrolled without considering parameter padding
-    w_unrolled_np = np.zeros((groups, group_cin * in_size, group_cout * out_size), dtype=kernel.dtype)
-    zeros_image = np.zeros((groups, group_cin * ih, iw * group_cout, out_size), dtype=kernel.dtype)
+    w_unrolled_np = np.zeros(
+        (groups, group_cin * in_size, group_cout * out_size), dtype=kernel.dtype
+    )
+    zeros_image = np.zeros(
+        (groups, group_cin * ih, iw * group_cout, out_size), dtype=kernel.dtype
+    )
 
     for g in range(groups):
         for i in range(oh):
@@ -169,29 +180,33 @@ def _conv2d_unroll(
                 #     )
 
                 for o_ch in range(group_cout):
-                    w_unrolled_np[g, :, i * ow + j + o_ch * out_size] = temp[o_ch].ravel()
+                    w_unrolled_np[g, :, i * ow + j + o_ch * out_size] = temp[
+                        o_ch
+                    ].ravel()
 
     # Remove the part of the padding in the w_unrolled_no_padding
     # That is, remove useless weight in the w_unrolled_no_padding
     nih, niw = in_shape
     nin_size = nih * niw
-    w_unrolled = np.zeros((groups, group_cin * nin_size, group_cout * out_size), dtype=kernel.dtype)
+    w_unrolled = np.zeros(
+        (groups, group_cin * nin_size, group_cout * out_size), dtype=kernel.dtype
+    )
 
     for g in range(groups):
         for i in range(group_cin):
             for j in range(nih):
-                w_unrolled[g, i * nin_size + j * niw : i * nin_size + j * niw + niw, :] = (
-                    w_unrolled_np[
-                        g,
-                        i * in_size
-                        + (padding[0] + j) * iw
-                        + padding[1] : i * in_size
-                        + (padding[0] + j) * iw
-                        + padding[1]
-                        + niw,
-                        :,
-                    ]
-                )
+                w_unrolled[
+                    g, i * nin_size + j * niw : i * nin_size + j * niw + niw, :
+                ] = w_unrolled_np[
+                    g,
+                    i * in_size
+                    + (padding[0] + j) * iw
+                    + padding[1] : i * in_size
+                    + (padding[0] + j) * iw
+                    + padding[1]
+                    + niw,
+                    :,
+                ]
 
     return w_unrolled.reshape(group_cin * nin_size, cout * out_size)
 

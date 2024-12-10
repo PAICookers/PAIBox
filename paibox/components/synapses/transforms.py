@@ -370,8 +370,13 @@ class Conv1dForward(_ConvNdForward):
 
     @property
     def connectivity(self):
-        return _conv1d_unroll( 
-            self.in_shape, self.out_shape, self.weights, self.stride, self.padding, self.groups
+        return _conv1d_unroll(
+            self.in_shape,
+            self.out_shape,
+            self.weights,
+            self.stride,
+            self.padding,
+            self.groups,
         )
 
 
@@ -398,7 +403,12 @@ class Conv2dForward(_ConvNdForward):
     @property
     def connectivity(self):
         return _conv2d_unroll(
-            self.in_shape, self.out_shape, self.weights, self.stride, self.padding, self.groups
+            self.in_shape,
+            self.out_shape,
+            self.weights,
+            self.stride,
+            self.padding,
+            self.groups,
         )
 
 
