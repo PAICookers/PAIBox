@@ -385,7 +385,12 @@ class Conv2dSemiFoldedSyn(FullConnectedSyn):
             )
 
         self.comm = Conv2dSemiFoldedForward(
-            (in_ch, in_h), (out_channels, out_h), _kernel, stride, padding, groups=groups
+            (in_ch, in_h),
+            (out_channels, out_h),
+            _kernel,
+            stride,
+            padding,
+            groups=groups,
         )
 
 

@@ -355,7 +355,6 @@ class Conv1dForward(_ConvNdForward):
     padding: Size1Type
     groups: int
 
-
     def __call__(self, x: NeuOutType, *args, **kwargs) -> SynOutType:
         cin = self.weights.shape[1] * self.groups
 
