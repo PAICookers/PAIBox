@@ -335,25 +335,30 @@ class _ConvNdForward(Transform):
         stride: _SizeAnyType = 0,
         padding: _SizeAnyType = 0,
         output_padding: _SizeAnyType = 0,
-        groups: int = 1,
     ) -> None:
         self.in_shape = in_shape
         self.out_shape = out_shape
         self.stride = stride
         self.padding = padding
         self.output_padding = output_padding
-        self.groups = groups
 
         super().__init__(kernel)
 
 
 class Conv1dForward(_ConvNdForward):
 
-    in_shape: Size1Type
-    out_shape: Size1Type
-    stride: Size1Type
-    padding: Size1Type
-    groups: int
+    def __init__(
+        self,
+        in_shape: SizeAnyType,
+        out_shape: SizeAnyType,
+        kernel: np.ndarray,
+        stride: _SizeAnyType = 0,
+        padding: _SizeAnyType = 0,
+        groups: int = 1,
+        output_padding: _SizeAnyType = 0,
+    ) -> None:
+        self.groups = groups
+        super().__init__(in_shape, out_shape, kernel, stride, padding, output_padding)
 
     def __call__(self, x: NeuOutType, *args, **kwargs) -> SynOutType:
         cin = self.weights.shape[1] * self.groups
@@ -381,11 +386,18 @@ class Conv1dForward(_ConvNdForward):
 
 
 class Conv2dForward(_ConvNdForward):
-    in_shape: Size2Type
-    out_shape: Size2Type
-    stride: Size2Type
-    padding: Size2Type
-    groups: int
+    def __init__(
+        self,
+        in_shape: SizeAnyType,
+        out_shape: SizeAnyType,
+        kernel: np.ndarray,
+        stride: _SizeAnyType = 0,
+        padding: _SizeAnyType = 0,
+        groups: int = 1,
+        output_padding: _SizeAnyType = 0,
+    ) -> None:
+        self.groups = groups
+        super().__init__(in_shape, out_shape, kernel, stride, padding, output_padding)
 
     def __call__(self, x: NeuOutType, *args, **kwargs) -> SynOutType:
         cin = self.weights.shape[1] * self.groups
