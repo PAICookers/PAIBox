@@ -316,13 +316,12 @@ def _conv2d_faster(
     # fm_order: str,
 ) -> SynOutType:
     """Faster 2d convolution."""
-    cout, cin, kh, kw = kernel.shape  # (O, I, H, W)
+    cout, group_cin, kh, kw = kernel.shape  # (O, I, H, W)
     if cout % groups != 0:
         raise ValueError("Output channels must be divisible by groups.")
 
-        # 计算每个组的通道数
-    cin_per_group = cin
-    cout_per_group = cout // groups
+    # 计算每个组的通道数
+    group_cout = cout // groups
 
     # 将输入张量进行填充
     x_padded = np.pad(
@@ -335,11 +334,11 @@ def _conv2d_faster(
 
     for g in range(groups):
         # 获取当前组的输入和卷积核
-        x_group = x_padded[g * cin_per_group : (g + 1) * cin_per_group, :, :]
-        kernel_group = kernel[g * cout_per_group : (g + 1) * cout_per_group, :, :, :]
+        x_group = x_padded[g * group_cin : (g + 1) * group_cin, :, :]
+        kernel_group = kernel[g * group_cout : (g + 1) * group_cout, :, :, :]
 
         # 重塑卷积核以进行矩阵乘法
-        col_kernel = kernel_group.reshape(cout_per_group, -1)
+        col_kernel = kernel_group.reshape(group_cout, -1)
 
         # 转换当前组的填充图像为列格式
         col_fm = _2d_im2col(x_group, out_shape[0], out_shape[1], kh, kw, stride)
@@ -348,28 +347,10 @@ def _conv2d_faster(
         out_group = col_fm @ col_kernel.T
 
         # 将组输出重塑并合并到最终输出中
-        out[g * cout_per_group : (g + 1) * cout_per_group, :] = out_group.T.reshape(
-            (cout_per_group, *out_shape)
+        out[g * group_cout : (g + 1) * group_cout, :] = out_group.T.reshape(
+            (group_cout, *out_shape)
         )
     return out.astype(VOLTAGE_DTYPE)
-
-    # x_padded = np.pad(
-    #     x_chw,
-    #     ((0, 0), (padding[0], padding[0]), (padding[1], padding[1])),
-    # )
-
-    # # kernel: (cout, cin, kh, kw) -> (cout, cin*kh*kw)
-    # col_kernel = kernel.reshape(cout, -1)
-
-    # # padded: (cin, xh+2*p[0]-kh, xw+2*p[1]-kw) -> (oh*ow, cin*kh*kw)
-    # col_fm = _2d_im2col(x_padded, out_shape[0], out_shape[1], kh, kw, stride)
-    # # out = np.zeros((cout,) + out_shape, dtype=np.int64)
-    # # (oh*ow, cin*kh*kw) * (cout, cin*kh*kw)^T = (oh*ow, cout)
-    # out = col_fm @ col_kernel.T  # + self.bias
-    # # (oh*ow, cout) -> (cout, oh*ow) -> (cout, oh, ow)
-    # out = out.T.reshape((cout,) + out_shape)
-
-    # return out.astype(VOLTAGE_DTYPE)
 
 
 def _convtranspose1d_unroll(

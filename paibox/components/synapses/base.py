@@ -368,13 +368,14 @@ class Conv2dSemiFoldedSyn(FullConnectedSyn):
             _kernel = kernel.copy()
 
         # O,I,H
-        out_channels, in_channels, kernel_h = _kernel.shape
+        out_channels, group_in_channels, kernel_h = _kernel.shape
+        in_channels = groups * group_in_channels
         # I,H
         assert len(source.shape_out) == 2
         in_ch, in_h = source.shape_out
         out_h = (in_h + 2 * padding[0] - kernel_h) // stride[0] + 1
 
-        if in_ch != groups * in_channels:
+        if in_ch != in_channels:
             raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
 
         if (_output_size := out_channels * out_h) != dest.num_in:
@@ -384,7 +385,7 @@ class Conv2dSemiFoldedSyn(FullConnectedSyn):
             )
 
         self.comm = Conv2dSemiFoldedForward(
-            (in_ch, in_h), (out_channels, out_h), _kernel, stride, padding, groups
+            (in_ch, in_h), (out_channels, out_h), _kernel, stride, padding, groups=groups
         )
 
 
