@@ -335,12 +335,14 @@ class _ConvNdForward(Transform):
         stride: _SizeAnyType = 0,
         padding: _SizeAnyType = 0,
         output_padding: _SizeAnyType = 0,
+        groups: int = 1,
     ) -> None:
         self.in_shape = in_shape
         self.out_shape = out_shape
         self.stride = stride
         self.padding = padding
         self.output_padding = output_padding
+        self.groups = groups
 
         super().__init__(kernel)
 
@@ -351,9 +353,10 @@ class Conv1dForward(_ConvNdForward):
     out_shape: Size1Type
     stride: Size1Type
     padding: Size1Type
+    groups: int
 
     def __call__(self, x: NeuOutType, *args, **kwargs) -> SynOutType:
-        cin = self.weights.shape[1]
+        cin = self.weights.shape[1] * self.groups
 
         # if self.fm_order == "LC":
         #     # (N,) -> (L, C) -> (C, L)
@@ -362,24 +365,31 @@ class Conv1dForward(_ConvNdForward):
         _x = x.reshape((cin,) + self.in_shape)
 
         return _conv1d_faster(
-            _x, self.out_shape, self.weights, self.stride, self.padding
+            _x, self.out_shape, self.weights, self.stride, self.padding, self.groups
         )
 
     @property
     def connectivity(self):
         return _conv1d_unroll(
-            self.in_shape, self.out_shape, self.weights, self.stride, self.padding
+            self.in_shape,
+            self.out_shape,
+            self.weights,
+            self.stride,
+            self.padding,
+            self.groups,
         )
 
 
 class Conv2dForward(_ConvNdForward):
+
     in_shape: Size2Type
     out_shape: Size2Type
     stride: Size2Type
     padding: Size2Type
+    groups: int
 
     def __call__(self, x: NeuOutType, *args, **kwargs) -> SynOutType:
-        cin = self.weights.shape[1]
+        cin = self.weights.shape[1] * self.groups
 
         # if self.fm_order == "HWC":
         #     # (N,) -> (H, W, C) -> (C, H, W)
@@ -388,29 +398,28 @@ class Conv2dForward(_ConvNdForward):
         _x = x.reshape((cin,) + self.in_shape)
 
         return _conv2d_faster(
-            _x, self.out_shape, self.weights, self.stride, self.padding
+            _x, self.out_shape, self.weights, self.stride, self.padding, self.groups
         )
 
     @property
     def connectivity(self):
         return _conv2d_unroll(
-            self.in_shape, self.out_shape, self.weights, self.stride, self.padding
+            self.in_shape,
+            self.out_shape,
+            self.weights,
+            self.stride,
+            self.padding,
+            self.groups,
         )
 
 
 class Conv2dSemiFoldedForward(_ConvNdForward):
-    def __init__(
-        self,
-        in_shape: SizeAnyType,
-        out_shape: SizeAnyType,
-        kernel: np.ndarray,
-        stride: _SizeAnyType = 0,
-        padding: _SizeAnyType = 0,
-        groups: int = 1,
-        output_padding: _SizeAnyType = 0,
-    ) -> None:
-        self.groups = groups
-        super().__init__(in_shape, out_shape, kernel, stride, padding, output_padding)
+
+    in_shape: Size2Type
+    out_shape: Size2Type
+    stride: Size2Type
+    padding: Size2Type
+    groups: int
 
     def __call__(self, x: NeuOutType, *args, **kwargs) -> SynOutType:
         return x @ self.connectivity

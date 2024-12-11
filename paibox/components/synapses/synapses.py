@@ -78,6 +78,7 @@ class Conv1d(Conv1dSyn):
         *,
         stride: _Size1Type = 1,
         padding: _Size1Type = 0,
+        groups: int = 1,
         kernel_order: _KOrder3d = "OIL",
         name: Optional[str] = None,
     ) -> None:
@@ -106,6 +107,7 @@ class Conv1d(Conv1dSyn):
             _single(stride),
             _single(padding),
             _single(1),
+            groups,
             kernel_order,
             name,
         )
@@ -120,6 +122,7 @@ class Conv2d(Conv2dSyn):
         *,
         stride: _Size2Type = 1,
         padding: _Size2Type = 0,
+        groups: int = 1,
         kernel_order: _KOrder4d = "OIHW",
         name: Optional[str] = None,
     ) -> None:
@@ -148,6 +151,7 @@ class Conv2d(Conv2dSyn):
             _pair(stride),
             _pair(padding),
             _pair(1),
+            groups,
             kernel_order,
             name,
         )

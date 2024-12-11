@@ -240,26 +240,26 @@ class TestTransforms:
         assert f.connectivity.shape == (x.size, y.size)
 
     @pytest.mark.parametrize(
-        "xdtype, in_shape, in_channels, out_channels, kernel_size, stride, padding, kdtype",
+        "xdtype, in_shape, in_channels, out_channels, kernel_size, stride, padding, groups, kdtype",
         [
-            (np.bool_, (8,), 16, 8, (3,), (1,), (1,), np.int8),
-            (np.bool_, (28,), 16, 8, (3,), (1,), (1,), np.bool_),
-            (np.bool_, (28,), 24, 12, (3,), (2,), (2,), np.bool_),
-            (np.bool_, (28,), 24, 12, (5,), (2,), (2,), np.bool_),
-            (np.bool_, (16,), 8, 16, (3,), (2,), (0,), np.bool_),
-            (np.bool_, (28,), 16, 8, (3,), (1,), (0,), np.int8),
-            (np.bool_, (28,), 24, 12, (3,), (2,), (0,), np.int8),
-            (np.bool_, (28,), 24, 12, (5,), (2,), (0,), np.int8),
-            (np.bool_, (16,), 8, 16, (3,), (2,), (0,), np.int8),
-            (np.int8, (8,), 16, 8, (3,), (1,), (1,), np.int8),
-            (np.int8, (28,), 16, 8, (3,), (1,), (1,), np.bool_),
-            (np.int8, (28,), 24, 12, (3,), (2,), (2,), np.bool_),
-            (np.int8, (28,), 24, 12, (5,), (2,), (2,), np.bool_),
-            (np.int8, (16,), 8, 16, (3,), (2,), (0,), np.bool_),
-            (np.int8, (28,), 16, 8, (3,), (1,), (0,), np.int8),
-            (np.int8, (28,), 24, 12, (3,), (2,), (0,), np.int8),
-            (np.int8, (28,), 24, 12, (5,), (2,), (0,), np.int8),
-            (np.int8, (16,), 8, 16, (3,), (2,), (0,), np.int8),
+            (np.bool_, (8,), 16, 8, (3,), (1,), (1,), 2, np.int8),
+            (np.bool_, (28,), 16, 8, (3,), (1,), (1,), 4, np.bool_),
+            (np.bool_, (28,), 24, 12, (3,), (2,), (2,), 3, np.bool_),
+            (np.bool_, (28,), 24, 12, (5,), (2,), (2,), 6, np.bool_),
+            (np.bool_, (16,), 8, 16, (3,), (2,), (0,), 8, np.bool_),
+            (np.bool_, (28,), 16, 8, (3,), (1,), (0,), 1, np.int8),
+            (np.bool_, (28,), 24, 12, (3,), (2,), (0,), 1, np.int8),
+            (np.bool_, (28,), 24, 12, (5,), (2,), (0,), 4, np.int8),
+            (np.bool_, (16,), 8, 16, (3,), (2,), (0,), 2, np.int8),
+            (np.int8, (8,), 16, 8, (3,), (1,), (1,), 2, np.int8),
+            (np.int8, (28,), 16, 8, (3,), (1,), (1,), 4, np.bool_),
+            (np.int8, (28,), 24, 12, (3,), (2,), (2,), 3, np.bool_),
+            (np.int8, (28,), 24, 12, (5,), (2,), (2,), 3, np.bool_),
+            (np.int8, (16,), 8, 16, (3,), (2,), (0,), 8, np.bool_),
+            (np.int8, (28,), 16, 8, (3,), (1,), (0,), 1, np.int8),
+            (np.int8, (28,), 24, 12, (3,), (2,), (0,), 1, np.int8),
+            (np.int8, (28,), 24, 12, (5,), (2,), (0,), 4, np.int8),
+            (np.int8, (16,), 8, 16, (3,), (2,), (0,), 8, np.int8),
             # ((28,), 16, 8, (3,), (1,), (0,), "LC"),
             # ((24,), 8, 8, (3,), (2,), (0,), "LC"),
             # ((24,), 8, 16, (7,), (2,), (0,), "LC"),
@@ -275,17 +275,23 @@ class TestTransforms:
         kernel_size,
         stride,
         padding,
+        groups,
         kdtype,
     ):
+        group_in_channels = in_channels // groups
+        group_out_channels = out_channels // groups
         if kdtype == np.bool_:
             kernel = np.random.randint(
-                0, 2, size=(out_channels, in_channels) + kernel_size, dtype=np.bool_
+                0,
+                2,
+                size=(out_channels, group_in_channels) + kernel_size,
+                dtype=np.bool_,
             )
         else:
             kernel = np.random.randint(
                 np.iinfo(kdtype).min,
                 np.iinfo(kdtype).max + 1,
-                size=(out_channels, in_channels) + kernel_size,
+                size=(out_channels, group_in_channels) + kernel_size,
                 dtype=kdtype,
             )
 
@@ -301,18 +307,25 @@ class TestTransforms:
             )
 
         out_shape = ((in_shape[0] + 2 * padding[0] - kernel_size[0]) // stride[0] + 1,)
+        f = tfm.Conv1dForward(
+            in_shape, out_shape, kernel, stride, padding, groups=groups
+        )
 
-        f = tfm.Conv1dForward(in_shape, out_shape, kernel, stride, padding)
-
-        x = np.random.randint(0, 2, size=fm_shape, dtype=np.bool_)
+        # x = np.random.randint(0, 2, size=fm_shape, dtype=np.bool_)
         xf = x.ravel()
+        xg = xf.reshape(groups, -1)
 
         # The result of __call__ using traditional conv
         y1 = f(xf)
         # The result of matmul using the unrolled matrix
-        y2 = xf @ f.connectivity.astype(np.int32)
+        fkernel = f.connectivity.astype(np.int32)
+        fkernel = fkernel.reshape(
+            groups, group_in_channels * in_shape[0], group_out_channels * out_shape[0]
+        )
+        y2 = [xg[i] @ fkernel[i] for i in range(groups)]
+        y2 = np.concatenate(y2, axis=0)
 
-        expected = _conv1d_faster(x, out_shape, kernel, stride, padding)
+        expected = _conv1d_faster(x, out_shape, kernel, stride, padding, groups=groups)
 
         assert np.array_equal(y1, expected)
         assert np.array_equal(y2, expected.ravel())
@@ -322,20 +335,20 @@ class TestTransforms:
         )
 
     @pytest.mark.parametrize(
-        "xdtype, in_shape, in_channels, out_channels, kernel_size, stride, padding, kdtype",
+        "xdtype, in_shape, in_channels, out_channels, kernel_size, stride, padding, groups, kdtype",
         [
-            (np.bool_, (28, 28), 16, 8, (3, 3), (1, 1), (1, 1), np.bool_),
-            (np.bool_, (28, 28), 24, 12, (3, 3), (2, 2), (2, 1), np.bool_),
-            (np.bool_, (28, 28), 16, 8, (3, 3), (1, 1), (2, 3), np.bool_),
-            (np.bool_, (28, 28), 24, 12, (3, 3), (2, 2), (0, 0), np.int8),
-            (np.bool_, (28, 28), 24, 12, (5, 5), (2, 1), (0, 0), np.int8),
-            (np.bool_, (8, 8), 8, 16, (3, 3), (2, 2), (1, 1), np.int8),
-            (np.int8, (28, 28), 16, 8, (3, 3), (1, 1), (1, 1), np.bool_),
-            (np.int8, (28, 28), 24, 12, (3, 3), (2, 2), (2, 1), np.bool_),
-            (np.int8, (28, 28), 16, 8, (3, 3), (1, 1), (2, 3), np.bool_),
-            (np.int8, (28, 28), 24, 12, (3, 3), (2, 2), (0, 0), np.int8),
-            (np.int8, (28, 28), 24, 12, (5, 5), (2, 1), (0, 0), np.int8),
-            (np.int8, (8, 8), 8, 16, (3, 3), (2, 2), (1, 1), np.int8),
+            (np.bool_, (28, 28), 16, 8, (3, 3), (1, 1), (1, 1), 2, np.bool_),
+            (np.bool_, (28, 28), 24, 12, (3, 3), (2, 2), (2, 1), 3, np.bool_),
+            (np.bool_, (28, 28), 16, 8, (3, 3), (1, 1), (2, 3), 8, np.bool_),
+            (np.bool_, (28, 28), 24, 12, (3, 3), (2, 2), (0, 0), 4, np.int8),
+            (np.bool_, (28, 28), 24, 12, (5, 5), (2, 1), (0, 0), 4, np.int8),
+            (np.bool_, (8, 8), 8, 16, (3, 3), (2, 2), (1, 1), 1, np.int8),
+            (np.int8, (28, 28), 16, 8, (3, 3), (1, 1), (1, 1), 8, np.bool_),
+            (np.int8, (28, 28), 24, 12, (3, 3), (2, 2), (2, 1), 1, np.bool_),
+            (np.int8, (28, 28), 16, 8, (3, 3), (1, 1), (2, 3), 4, np.bool_),
+            (np.int8, (28, 28), 24, 12, (3, 3), (2, 2), (0, 0), 12, np.int8),
+            (np.int8, (28, 28), 24, 12, (5, 5), (2, 1), (0, 0), 3, np.int8),
+            (np.int8, (8, 8), 8, 16, (3, 3), (2, 2), (1, 1), 2, np.int8),
             # ((28, 28), 16, 8, (3, 3), (1, 1), (0, 0), "HWC", np.bool_),
             # ((24, 32), 8, 8, (3, 4), (2, 1), (0, 0), "HWC", np.bool_),
             # ((24, 24), 8, 16, (7, 7), (2, 2), (0, 0), "HWC", np.bool_),
@@ -353,17 +366,24 @@ class TestTransforms:
         kernel_size,
         stride,
         padding,
+        groups,
         kdtype,
     ):
+        group_in_channels = in_channels // groups
+        group_out_channels = out_channels // groups
+
         if kdtype == np.bool_:
             kernel = np.random.randint(
-                0, 2, size=(out_channels, in_channels) + kernel_size, dtype=np.bool_
+                0,
+                2,
+                size=(out_channels, group_in_channels) + kernel_size,
+                dtype=np.bool_,
             )
         else:
             kernel = np.random.randint(
                 np.iinfo(kdtype).min,
                 np.iinfo(kdtype).max + 1,
-                size=(out_channels, in_channels) + kernel_size,
+                size=(out_channels, group_in_channels) + kernel_size,
                 dtype=kdtype,
             )
 
@@ -383,16 +403,26 @@ class TestTransforms:
             (in_shape[1] + 2 * padding[1] - kernel_size[1]) // stride[1] + 1,
         )
 
-        f = tfm.Conv2dForward(in_shape, out_shape, kernel, stride, padding)
+        f = tfm.Conv2dForward(
+            in_shape, out_shape, kernel, stride, padding, groups=groups
+        )
 
         xf = x.ravel()
+        xg = xf.reshape(groups, -1)
 
         # The result of __call__ using traditional conv
         y1 = f(xf)
         # The result of matmul using the unrolled matrix
-        y2 = xf @ f.connectivity.astype(np.int32)
+        fkernel = f.connectivity.astype(np.int32)
+        fkernel = fkernel.reshape(
+            groups,
+            group_in_channels * in_shape[0] * in_shape[1],
+            group_out_channels * out_shape[0] * out_shape[1],
+        )
+        y2 = [xg[i] @ fkernel[i] for i in range(groups)]
+        y2 = np.concatenate(y2, axis=0)
 
-        expected = _conv2d_faster(x, out_shape, kernel, stride, padding)
+        expected = _conv2d_faster(x, out_shape, kernel, stride, padding, groups=groups)
 
         assert np.array_equal(y1, expected)
         assert np.array_equal(y2, expected.ravel())

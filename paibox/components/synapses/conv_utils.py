@@ -67,46 +67,58 @@ def _conv1d_unroll(
     kernel: WeightType,
     stride: Size1Type,
     padding: Size1Type,
+    groups: int,
 ) -> WeightType:
     """Unroll the kernel of 1d convolution into a matrix."""
-    cout, cin, kl = kernel.shape
+    cout, group_cin, kl = kernel.shape
+    group_cout = cout // groups
+    kernel = kernel.reshape(groups, group_cout, group_cin, kl)
     il = in_shape[0] + 2 * padding[0]
     ol = out_shape[0]
 
     # weight unrolled without considering parameter padding : weight unrolled no padding
-    w_unrolled_np = np.zeros((cin * il, cout * ol), dtype=kernel.dtype)
-    zeros_image = np.zeros((cin * il, cout, ol), dtype=kernel.dtype)
+    w_unrolled_np = np.zeros(
+        (groups, group_cin * il, group_cout * ol), dtype=kernel.dtype
+    )
+    zeros_image = np.zeros((groups, group_cin * il, group_cout, ol), dtype=kernel.dtype)
+    for g in range(groups):
+        for i in range(ol):
+            zeros_image[g].fill(0)
+            for ch_idx in np.ndindex(kernel.shape[1:3]):
+                # [0] -> o_ch, [1] -> i_ch
+                zeros_image[
+                    g,
+                    i * stride[0]
+                    + ch_idx[1] * il : i * stride[0]
+                    + ch_idx[1] * il
+                    + kl,
+                    ch_idx[0],
+                    i,
+                ] = kernel[g, ch_idx[0], ch_idx[1], :]
 
-    for i in range(ol):
-        zeros_image.fill(0)
-        for ch_idx in np.ndindex(kernel.shape[:2]):
-            # [0] -> o_ch, [1] -> i_ch
-            zeros_image[
-                i * stride[0] + ch_idx[1] * il : i * stride[0] + ch_idx[1] * il + kl,
-                ch_idx[0],
-                i,
-            ] = kernel[ch_idx[0], ch_idx[1], :]
+            # if fm_order == "CL":
+            # (cin*il, cout) -> (cout, cin*il)
+            temp = zeros_image[g, :, :, i].T
+            # else:
+            #     # (cin*il, cout) -> (cout, il, cin)
+            #     temp = zeros_image[:, :, i].reshape(cin, il, cout).transpose()
 
-        # if fm_order == "CL":
-        # (cin*il, cout) -> (cout, cin*il)
-        temp = zeros_image[:, :, i].T
-        # else:
-        #     # (cin*il, cout) -> (cout, il, cin)
-        #     temp = zeros_image[:, :, i].reshape(cin, il, cout).transpose()
-
-        for o_ch in range(cout):
-            w_unrolled_np[:, i + o_ch * ol] = temp[o_ch].ravel()
+            for o_ch in range(group_cout):
+                w_unrolled_np[g, :, i + o_ch * ol] = temp[o_ch].ravel()
 
     # Remove the part of the padding in the w_unrolled_no_padding
     # That is, remove useless weight in the w_unrolled_no_padding
     nil = in_shape[0]
-    w_unrolled = np.zeros((cin * nil, cout * ol), dtype=kernel.dtype)
-    for i in range(cin):
-        w_unrolled[i * nil : i * nil + nil, :] = w_unrolled_np[
-            i * il + padding[0] : i * il + il - padding[0], :
-        ]
+    w_unrolled = np.zeros(
+        (groups, group_cin * nil, group_cout * ol), dtype=kernel.dtype
+    )
+    for g in range(groups):
+        for i in range(group_cin):
+            w_unrolled[g, i * nil : i * nil + nil, :] = w_unrolled_np[
+                g, i * il + padding[0] : i * il + il - padding[0], :
+            ]
 
-    return w_unrolled
+    return w_unrolled.reshape(group_cin * nil, cout * ol)
 
 
 def _conv2d_unroll(
@@ -115,9 +127,13 @@ def _conv2d_unroll(
     kernel: WeightType,
     stride: Size2Type,
     padding: Size2Type,
+    groups: int,
 ) -> WeightType:
     """Unroll the kernel of 2d convolution into a matrix."""
-    cout, cin, kh, kw = kernel.shape
+    cout, group_cin, kh, kw = kernel.shape
+    cin = group_cin * groups
+    group_cout = cout // groups
+    kernel = kernel.reshape(groups, group_cout, group_cin, kh, kw)
     ih = in_shape[0] + 2 * padding[0]
     iw = in_shape[1] + 2 * padding[1]
     oh, ow = out_shape
@@ -125,51 +141,64 @@ def _conv2d_unroll(
     out_size = oh * ow
 
     # weight unrolled without considering parameter padding
-    w_unrolled_np = np.zeros((cin * in_size, cout * out_size), dtype=kernel.dtype)
-    zeros_image = np.zeros((cin * ih, iw * cout, out_size), dtype=kernel.dtype)
+    w_unrolled_np = np.zeros(
+        (groups, group_cin * in_size, group_cout * out_size), dtype=kernel.dtype
+    )
+    zeros_image = np.zeros(
+        (groups, group_cin * ih, iw * group_cout, out_size), dtype=kernel.dtype
+    )
 
-    for i in range(oh):
-        for j in range(ow):
-            for ch_idx in np.ndindex(kernel.shape[:2]):
-                # [0] -> o_ch, [1] -> i_ch
-                zeros_image[
-                    i * stride[0]
-                    + ch_idx[1] * ih : i * stride[0]
-                    + ch_idx[1] * ih
-                    + kh,
-                    j * stride[1]
-                    + ch_idx[0] * iw : j * stride[1]
-                    + ch_idx[0] * iw
-                    + kw,
-                    i * ow + j,
-                ] = kernel[ch_idx[0], ch_idx[1], :, :]
+    for g in range(groups):
+        for i in range(oh):
+            for j in range(ow):
+                for ch_idx in np.ndindex(kernel.shape[1:3]):
+                    # [0] -> o_ch, [1] -> i_ch
+                    zeros_image[
+                        g,
+                        i * stride[0]
+                        + ch_idx[1] * ih : i * stride[0]
+                        + ch_idx[1] * ih
+                        + kh,
+                        j * stride[1]
+                        + ch_idx[0] * iw : j * stride[1]
+                        + ch_idx[0] * iw
+                        + kw,
+                        i * ow + j,
+                    ] = kernel[g, ch_idx[0], ch_idx[1], :, :]
 
-            temp = (
-                zeros_image[:, :, i * ow + j]
-                .reshape(cin * ih, cout, iw)
-                .transpose(1, 0, 2)
-            )
-            # else:
-            #     # (cin*ih, cout, iw) -> (cout, cin, ih, iw)
-            #     temp = (
-            #         zeros_image[:, :, i * ow + j]
-            #         .reshape(cin, ih, cout, iw)
-            #         .transpose(2, 1, 3, 0)
-            #     )
+                temp = (
+                    zeros_image[g, :, :, i * ow + j]
+                    .reshape(group_cin * ih, group_cout, iw)
+                    .transpose(1, 0, 2)
+                )
+                # else:
+                #     # (cin*ih, cout, iw) -> (cout, cin, ih, iw)
+                #     temp = (
+                #         zeros_image[:, :, i * ow + j]
+                #         .reshape(cin, ih, cout, iw)
+                #         .transpose(2, 1, 3, 0)
+                #     )
 
-            for o_ch in range(cout):
-                w_unrolled_np[:, i * ow + j + o_ch * out_size] = temp[o_ch].ravel()
+                for o_ch in range(group_cout):
+                    w_unrolled_np[g, :, i * ow + j + o_ch * out_size] = temp[
+                        o_ch
+                    ].ravel()
 
     # Remove the part of the padding in the w_unrolled_no_padding
     # That is, remove useless weight in the w_unrolled_no_padding
     nih, niw = in_shape
     nin_size = nih * niw
-    w_unrolled = np.zeros((cin * nin_size, cout * out_size), dtype=kernel.dtype)
+    w_unrolled = np.zeros(
+        (groups, group_cin * nin_size, group_cout * out_size), dtype=kernel.dtype
+    )
 
-    for i in range(cin):
-        for j in range(nih):
-            w_unrolled[i * nin_size + j * niw : i * nin_size + j * niw + niw, :] = (
-                w_unrolled_np[
+    for g in range(groups):
+        for i in range(group_cin):
+            for j in range(nih):
+                w_unrolled[
+                    g, i * nin_size + j * niw : i * nin_size + j * niw + niw, :
+                ] = w_unrolled_np[
+                    g,
                     i * in_size
                     + (padding[0] + j) * iw
                     + padding[1] : i * in_size
@@ -178,9 +207,8 @@ def _conv2d_unroll(
                     + niw,
                     :,
                 ]
-            )
 
-    return w_unrolled
+    return w_unrolled.reshape(group_cin * nin_size, cout * out_size)
 
 
 def _conv2d_semifolded_unroll(
@@ -253,24 +281,29 @@ def _conv1d_faster(
     kernel: WeightType,
     stride: Size1Type,
     padding: Size1Type,
+    groups: int,
 ) -> SynOutType:
     """Faster 1d convolution."""
-    cout, _, kl = kernel.shape  # (O, I, L)
+    cout, group_cin, kl = kernel.shape  # (O, I, L)
+    cin = group_cin * groups
+    local_cout = cout // groups
 
     x_padded = np.pad(x_cl, ((0, 0), (padding[0], padding[0])))
+    x_padded = x_padded.reshape(groups, group_cin, -1)
 
-    # kernel: (cout, cin, kl) -> (cout, cin*kl)
-    col_kernel = kernel.reshape(cout, -1)
+    # kernel: (cout, local_cin, kl) -> (groups, local_cout, local_cin*kl)
+    col_kernel = kernel.reshape(groups, local_cout, -1)
 
-    # padded: (cin, xl+2*p[0]-kl) -> (ol, cin*kl)
-    col_fm = _1d_im2col(x_padded, out_shape[0], kl, stride)
+    # padded: (groups, local_cin, xl+2*p[0]-kl) -> (groups, ol, local_cin*kl)
+    col_fm = [_1d_im2col(x_padded[i], out_shape[0], kl, stride) for i in range(groups)]
 
     # out = np.zeros((cout,) + out_shape, dtype=np.int64)
     # (ol, cin*kl) * (cout, cin*kl)^T = (ol, cout)
-    out = col_fm @ col_kernel.T  # + self.bias
+    out = [col_fm[i] @ col_kernel[i].T for i in range(groups)]  # + self.bias
+    out = [arr.T for arr in out]
+    out_arr = np.concatenate(out, axis=0)
 
-    # (ol, cout) -> (cout, ol)
-    return out.T.astype(VOLTAGE_DTYPE)
+    return out_arr.astype(VOLTAGE_DTYPE)
 
 
 def _conv2d_faster(
@@ -283,13 +316,12 @@ def _conv2d_faster(
     # fm_order: str,
 ) -> SynOutType:
     """Faster 2d convolution."""
-    cout, cin, kh, kw = kernel.shape  # (O, I, H, W)
+    cout, group_cin, kh, kw = kernel.shape  # (O, I, H, W)
     if cout % groups != 0:
         raise ValueError("Output channels must be divisible by groups.")
 
-        # 计算每个组的通道数
-    cin_per_group = cin
-    cout_per_group = cout // groups
+    # 计算每个组的通道数
+    group_cout = cout // groups
 
     # 将输入张量进行填充
     x_padded = np.pad(
@@ -302,11 +334,11 @@ def _conv2d_faster(
 
     for g in range(groups):
         # 获取当前组的输入和卷积核
-        x_group = x_padded[g * cin_per_group : (g + 1) * cin_per_group, :, :]
-        kernel_group = kernel[g * cout_per_group : (g + 1) * cout_per_group, :, :, :]
+        x_group = x_padded[g * group_cin : (g + 1) * group_cin, :, :]
+        kernel_group = kernel[g * group_cout : (g + 1) * group_cout, :, :, :]
 
         # 重塑卷积核以进行矩阵乘法
-        col_kernel = kernel_group.reshape(cout_per_group, -1)
+        col_kernel = kernel_group.reshape(group_cout, -1)
 
         # 转换当前组的填充图像为列格式
         col_fm = _2d_im2col(x_group, out_shape[0], out_shape[1], kh, kw, stride)
@@ -315,28 +347,10 @@ def _conv2d_faster(
         out_group = col_fm @ col_kernel.T
 
         # 将组输出重塑并合并到最终输出中
-        out[g * cout_per_group : (g + 1) * cout_per_group, :] = out_group.T.reshape(
-            (cout_per_group, *out_shape)
+        out[g * group_cout : (g + 1) * group_cout, :] = out_group.T.reshape(
+            (group_cout, *out_shape)
         )
     return out.astype(VOLTAGE_DTYPE)
-
-    # x_padded = np.pad(
-    #     x_chw,
-    #     ((0, 0), (padding[0], padding[0]), (padding[1], padding[1])),
-    # )
-
-    # # kernel: (cout, cin, kh, kw) -> (cout, cin*kh*kw)
-    # col_kernel = kernel.reshape(cout, -1)
-
-    # # padded: (cin, xh+2*p[0]-kh, xw+2*p[1]-kw) -> (oh*ow, cin*kh*kw)
-    # col_fm = _2d_im2col(x_padded, out_shape[0], out_shape[1], kh, kw, stride)
-    # # out = np.zeros((cout,) + out_shape, dtype=np.int64)
-    # # (oh*ow, cin*kh*kw) * (cout, cin*kh*kw)^T = (oh*ow, cout)
-    # out = col_fm @ col_kernel.T  # + self.bias
-    # # (oh*ow, cout) -> (cout, oh*ow) -> (cout, oh, ow)
-    # out = out.T.reshape((cout,) + out_shape)
-
-    # return out.astype(VOLTAGE_DTYPE)
 
 
 def _convtranspose1d_unroll(
