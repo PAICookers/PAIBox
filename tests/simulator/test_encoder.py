@@ -36,10 +36,9 @@ class TestEncoder:
             out_spike2[t] = le2(x)
         assert 1
 
-    def test_PoissonEncoder(self):
+    def test_PoissonEncoder(self, fixed_rng: np.random.Generator):
         seed = 1
-        rng = np.random.RandomState(seed=seed)
-        x = rng.rand(10, 10).astype(np.float32)
+        x = fixed_rng.random(size=(10, 10), dtype=np.float32)
         pe = pb.simulator.PoissonEncoder(seed=seed)
         out_spike = np.full((20, 10, 10), 0)
         for t in range(20):

@@ -1,14 +1,35 @@
+import sys
 from typing import Optional
 
 import numpy as np
 from paicorelib import LDM, NTM, RM
 
-from paibox.types import DataArrayType, Shape
+from paibox.exceptions import PAIBoxDeprecationWarning
+from paibox.types import LEAK_V_DTYPE, DataType, Shape
 
 from .base import Neuron
-from .utils import LEAK_V_MAX, NEG_THRES_MIN
+from .utils import LEAK_V_MAX, ExtraNeuAttrKwds
 
-__all__ = ["IF", "LIF", "TonicSpiking", "PhasicSpiking", "SpikingRelu"]
+if sys.version_info >= (3, 12):
+    from typing import Unpack
+else:
+    from typing_extensions import Unpack
+
+if sys.version_info >= (3, 13):
+    from warnings import deprecated
+else:
+    from typing_extensions import deprecated
+
+__all__ = [
+    "IF",
+    "LIF",
+    "TonicSpiking",
+    "PhasicSpiking",
+    "BypassNeuron",
+    "Always1Neuron",
+    "ANNBypassNeuron",
+    "ANNNeuron",
+]
 
 
 class IF(Neuron):
@@ -21,14 +42,14 @@ class IF(Neuron):
         *,
         keep_shape: bool = True,
         name: Optional[str] = None,
-        **kwargs,
+        **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """IF neuron.
 
         Args:
             - shape: shape of neurons.
             - threshold: when the membrane potential exceeds the threshold, neurons will fire.
-            - reset_v: If not specified, neurons will do soft reset after firing, v - threshold. If \
+            - reset_v: if not specified, neurons will do soft reset after firing, v - threshold. If \
                 specified, neurons will do hard reset after firing, v = reset_v.
             - neg_threshold: signed negative theshold. If not specified, it will be the smallest    \
                 negative integer allowed by the hardware.
@@ -52,17 +73,12 @@ class IF(Neuron):
             _reset_v = 0
             _rm = RM.MODE_LINEAR
 
-        if isinstance(neg_threshold, int):
-            _neg_threshold = neg_threshold
-        else:
-            _neg_threshold = NEG_THRES_MIN
-
         super().__init__(
             shape,
             reset_mode=_rm,
             reset_v=_reset_v,
             neg_thres_mode=NTM.MODE_SATURATION,
-            neg_threshold=_neg_threshold,
+            neg_threshold=neg_threshold,
             pos_threshold=threshold,
             keep_shape=keep_shape,
             name=name,
@@ -77,12 +93,12 @@ class LIF(Neuron):
         threshold: int,
         reset_v: Optional[int] = None,
         leak_v: int = 0,
-        bias: Optional[DataArrayType] = None,
+        bias: DataType = 0,
         neg_threshold: Optional[int] = None,
         *,
         keep_shape: bool = True,
         name: Optional[str] = None,
-        **kwargs,
+        **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """LIF neuron.
 
@@ -94,7 +110,7 @@ class LIF(Neuron):
             - leak_v: the signed leak voltage will be added directly to the membrane potential.
                 - If it is positive, the membrane potential will increase.
                 - If is is negative, the membrane potential will decrease.
-                - the final leak_v is leak_v + bias (default=0).
+                - The final leak_v is leak_v + bias (default=0).
             - bias: if a signed bias is given, it will be added to `leak_v`. The neuron will leak   \
                 before threshold comparison. `leak_v` will also be considered now.
             - neg_threshold: signed negative theshold. If not specified, it will be the smallest    \
@@ -111,27 +127,20 @@ class LIF(Neuron):
             _reset_v = 0
             _rm = RM.MODE_LINEAR
 
-        if isinstance(bias, (list, tuple, np.ndarray)):
-            _bias = np.asarray(bias, dtype=np.int32)
-        elif bias is not None:
-            _bias = int(bias)
+        if isinstance(bias, np.ndarray):
+            _bias = np.atleast_1d(bias).astype(LEAK_V_DTYPE)
         else:
-            _bias = 0
+            _bias = int(bias)
 
         # Support passing in bias & leak_v at the same time
         _leak_v = leak_v + _bias
-
-        if isinstance(neg_threshold, int):
-            _neg_threshold = neg_threshold
-        else:
-            _neg_threshold = NEG_THRES_MIN
 
         super().__init__(
             shape,
             reset_mode=_rm,
             reset_v=_reset_v,
             neg_thres_mode=NTM.MODE_SATURATION,
-            neg_threshold=_neg_threshold,
+            neg_threshold=neg_threshold,
             pos_threshold=threshold,
             leak_v=_leak_v,
             keep_shape=keep_shape,
@@ -148,7 +157,7 @@ class TonicSpiking(Neuron):
         *,
         keep_shape: bool = True,
         name: Optional[str] = None,
-        **kwargs,
+        **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """Tonic spiking neuron.
 
@@ -174,7 +183,7 @@ class PhasicSpiking(Neuron):
         *,
         keep_shape: bool = True,
         name: Optional[str] = None,
-        **kwargs,
+        **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """Phasic spiking neuron. Once the neuron receives `N` spikes and fires, it will reset to   \
             the negative floor and never fires again. `N` is `fire_step`.
@@ -209,7 +218,7 @@ class Always1Neuron(Neuron):
         *,
         keep_shape: bool = True,
         name: Optional[str] = None,
-        **kwargs,
+        **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """A neuron that always outputs 1 as long as it starts working.
 
@@ -234,22 +243,69 @@ class Always1Neuron(Neuron):
         )
 
 
-class SpikingRelu(Neuron):
+class BypassNeuron(Neuron):
     def __init__(
         self,
         shape: Shape,
         *,
         keep_shape: bool = True,
         name: Optional[str] = None,
-        **kwargs,
+        **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
-        """Spiking relu neuron. Act exactly the way you think.
+        """Bypass neuron. Output is equal to input.
 
         Args:
             - shape: shape of neurons.
             - keep_shape: whether to maintain shape in the simulation. Default is `True`.
             - name: name of the neuron. Optional.
+
+        NOTE: positive threshold = 1, negative threshold = 0, reset_v = 0, and leak_v = 0.
         """
         super().__init__(
             shape, neg_threshold=0, keep_shape=keep_shape, name=name, **kwargs
+        )
+
+
+@deprecated(
+    "'SpikingRelu' is deprecated in version 1.2.0 and will "
+    "be removed in version 1.3.0. Use 'BypassNeuron' instead.",
+    category=PAIBoxDeprecationWarning,
+)
+class SpikingRelu(BypassNeuron):
+    pass
+
+
+class ANNNeuron(LIF):
+    def __init__(
+        self,
+        shape: Shape,
+        bias: DataType = 0,
+        bit_trunc: int = 8,
+        *,
+        keep_shape: bool = True,
+        name: Optional[str] = None,
+        **kwargs: Unpack[ExtraNeuAttrKwds],
+    ) -> None:
+        """General neuron used in ANN mode. Positive threshold = 1, negative threshold = 0."""
+        kwargs["bit_truncation"] = bit_trunc
+        kwargs.setdefault("input_width", 8)
+        kwargs.setdefault("spike_width", 8)
+        kwargs.setdefault("snn_en", False)
+
+        super().__init__(
+            shape, 1, bias=bias, keep_shape=keep_shape, name=name, **kwargs
+        )
+
+
+class ANNBypassNeuron(ANNNeuron):
+    def __init__(
+        self,
+        shape: Shape,
+        *,
+        keep_shape: bool = True,
+        name: Optional[str] = None,
+        **kwargs: Unpack[ExtraNeuAttrKwds],
+    ) -> None:
+        super().__init__(
+            shape, bias=0, bit_trunc=8, keep_shape=keep_shape, name=name, **kwargs
         )

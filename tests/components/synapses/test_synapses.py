@@ -2,11 +2,12 @@ from contextlib import nullcontext
 
 import numpy as np
 import pytest
-from paicorelib import WeightPrecision as WP
+from paicorelib import WeightWidth as WW
 
 import paibox as pb
 from paibox.components import FullConnectedSyn
 from paibox.exceptions import RegisterError, ShapeError
+from paibox.types import WEIGHT_DTYPE
 from paibox.utils import shape2num
 
 
@@ -111,13 +112,13 @@ class TestFullConn:
     @pytest.mark.parametrize(
         "n1, n2, scalar_weight, expected_wp",
         [
-            (pb.IF(10, 3), pb.IF(10, 3), 1, WP.WEIGHT_WIDTH_1BIT),
-            (pb.IF((3, 3), 3), pb.IF((3, 3), 3), 4, WP.WEIGHT_WIDTH_4BIT),
-            (pb.IF((5,), 3), pb.IF((5,), 3), -1, WP.WEIGHT_WIDTH_2BIT),
+            (pb.IF(10, 3), pb.IF(10, 3), 1, WW.WEIGHT_WIDTH_1BIT),
+            (pb.IF((3, 3), 3), pb.IF((3, 3), 3), 4, WW.WEIGHT_WIDTH_4BIT),
+            (pb.IF((5,), 3), pb.IF((5,), 3), -1, WW.WEIGHT_WIDTH_2BIT),
             # TODO 3-dimension shape is correct for data flow?
-            (pb.IF((10, 2, 3), 3), pb.IF((10, 2, 3), 3), 16, WP.WEIGHT_WIDTH_8BIT),
-            (pb.IF((10, 2), 3), pb.IF((4, 5), 3), -100, WP.WEIGHT_WIDTH_8BIT),
-            (pb.IF(10, 3), pb.IF((2, 5), 3), 7, WP.WEIGHT_WIDTH_4BIT),
+            (pb.IF((10, 2, 3), 3), pb.IF((10, 2, 3), 3), 16, WW.WEIGHT_WIDTH_8BIT),
+            (pb.IF((10, 2), 3), pb.IF((4, 5), 3), -100, WW.WEIGHT_WIDTH_8BIT),
+            (pb.IF(10, 3), pb.IF((2, 5), 3), 7, WW.WEIGHT_WIDTH_4BIT),
         ],
     )
     def test_FullConn_One2One_scalar(self, n1, n2, scalar_weight, expected_wp):
@@ -127,14 +128,10 @@ class TestFullConn:
         assert (s1.num_in, s1.num_out) == (n1.num_out, n2.num_in)
         assert np.array_equal(
             s1.connectivity,
-            scalar_weight * np.identity(n1.num_out, dtype=np.int8),
+            scalar_weight * np.identity(n1.num_out, dtype=WEIGHT_DTYPE),
         )
-        assert (
-            s1.connectivity.dtype == np.int8
-            if expected_wp > WP.WEIGHT_WIDTH_1BIT
-            else np.bool_
-        )
-        assert s1.weight_precision is expected_wp
+        assert s1.connectivity.dtype == WEIGHT_DTYPE
+        assert s1.weight_width is expected_wp
 
     @pytest.mark.parametrize(
         "n1, n2",
@@ -160,8 +157,8 @@ class TestFullConn:
         assert np.array_equal(
             s1.connectivity, np.array([[2, 0, 0], [0, 3, 0], [0, 0, 4]], dtype=np.int8)
         )
-        assert s1.connectivity.dtype == np.int8
-        assert s1.weight_precision is WP.WEIGHT_WIDTH_4BIT
+        assert s1.connectivity.dtype == WEIGHT_DTYPE
+        assert s1.weight_width is WW.WEIGHT_WIDTH_4BIT
 
         weight = np.array([1, 0, 1, 0], np.int8)
         s2 = pb.FullConn(
@@ -173,11 +170,11 @@ class TestFullConn:
         assert np.array_equal(
             s2.connectivity,
             np.array(
-                [[1, 0, 0, 0], [0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 0]], dtype=np.bool_
+                [[1, 0, 0, 0], [0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 0]], dtype=np.int16
             ),
         )
-        assert s2.connectivity.dtype == np.int8
-        assert s2.weight_precision is WP.WEIGHT_WIDTH_1BIT
+        assert s2.connectivity.dtype == WEIGHT_DTYPE
+        assert s2.weight_width is WW.WEIGHT_WIDTH_1BIT
 
     @pytest.mark.parametrize(
         "n1, n2",
@@ -193,7 +190,7 @@ class TestFullConn:
         s1 = pb.FullConn(n1, n2, conn_type=pb.SynConnType.All2All)
 
         assert (s1.num_in, s1.num_out) == (n1.num_out, n2.num_in)
-        assert s1.connectivity.dtype == np.bool_
+        assert s1.connectivity.dtype == WEIGHT_DTYPE
         assert np.array_equal(s1.weights, 1)
         assert np.array_equal(s1.connectivity, np.ones((n1.num_out, n2.num_in)))
 
@@ -206,14 +203,14 @@ class TestFullConn:
         s1 = pb.FullConn(n1, n2, weight, conn_type=pb.SynConnType.All2All)
 
         assert np.array_equal(s1.weights, weight)
-        assert s1.connectivity.dtype == np.int8
-        assert s1.weight_precision is WP.WEIGHT_WIDTH_4BIT
+        assert s1.connectivity.dtype == WEIGHT_DTYPE
+        assert s1.weight_width is WW.WEIGHT_WIDTH_4BIT
 
         """2. Weights matrix."""
         weight = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
         s2 = pb.FullConn(n1, n2, weight, conn_type=pb.SynConnType.All2All)
 
-        assert s2.connectivity.dtype == np.int8
+        assert s2.connectivity.dtype == WEIGHT_DTYPE
         assert np.array_equal(s2.weights, weight)
         assert np.array_equal(s2.connectivity, weight)
 
@@ -266,7 +263,7 @@ class TestMatMul2d:
             s = pb.MatMul2d(n1, n2, weights=weights)
 
             assert (s.num_in, s.num_out) == (n1.num_out, n2.num_in)
-            assert s.connectivity.dtype == np.int8
+            assert s.connectivity.dtype == WEIGHT_DTYPE
             assert np.array_equal(s.weights, weights)
 
 
@@ -276,6 +273,7 @@ class TestConv:
         kernel_size = (5,)
         stride = 2
         padding = 1
+        groups = 2
         out_shape = ((32 + 2 - 5) // 2 + 1,)
         in_channels = 8
         out_channels = 16
@@ -285,16 +283,25 @@ class TestConv:
         n2 = pb.IF((out_channels,) + out_shape, 3)
 
         weight = np.random.randint(
-            -128, 128, size=(in_channels, out_channels) + kernel_size, dtype=np.int8
+            -128,
+            128,
+            size=(in_channels // groups, out_channels) + kernel_size,
+            dtype=np.int8,
         )
         s1 = pb.Conv1d(
-            n1, n2, weight, stride=stride, padding=padding, kernel_order=korder
+            n1,
+            n2,
+            weight,
+            stride=stride,
+            padding=padding,
+            kernel_order=korder,
+            groups=groups,
         )
 
         assert s1.num_in == in_channels * shape2num(in_shape)
-        assert s1.connectivity.dtype == np.int8
+        assert s1.connectivity.dtype == WEIGHT_DTYPE
         assert s1.connectivity.shape == (
-            in_channels * shape2num(in_shape),
+            in_channels // groups * shape2num(in_shape),
             out_channels * shape2num(out_shape),
         )
 
@@ -303,6 +310,7 @@ class TestConv:
         kernel_size = (5, 5)
         padding = (1, 1)
         stride = 2
+        groups = 2
         out_shape = ((32 + 2 - 5) // 2 + 1, (32 + 2 - 5) // 2 + 1)
         in_channels = 8
         out_channels = 16
@@ -313,16 +321,25 @@ class TestConv:
         n2 = pb.IF((out_channels * out_shape[0] * out_shape[1],), 3)
 
         weight = np.random.randint(
-            -8, 8, size=(in_channels, out_channels) + kernel_size, dtype=np.int32
+            -8,
+            8,
+            size=(in_channels // groups, out_channels) + kernel_size,
+            dtype=np.int32,
         )
         s1 = pb.Conv2d(
-            n1, n2, weight, stride=stride, padding=padding, kernel_order=korder
+            n1,
+            n2,
+            weight,
+            stride=stride,
+            padding=padding,
+            kernel_order=korder,
+            groups=groups,
         )
 
         assert s1.num_in == in_channels * shape2num(in_shape)
-        assert s1.connectivity.dtype == np.int8
+        assert s1.connectivity.dtype == WEIGHT_DTYPE
         assert s1.connectivity.shape == (
-            in_channels * shape2num(in_shape),
+            in_channels // groups * shape2num(in_shape),
             out_channels * shape2num(out_shape),
         )
 
@@ -331,6 +348,7 @@ class TestConv:
         kernel_size = (5,)
         stride = 2
         out_shape = ((32 - 5) // 2 + 1,)
+        groups = 1
         in_channels = 1  # omit it
         out_channels = 4
         korder = "IOL"
@@ -339,14 +357,19 @@ class TestConv:
         n2 = pb.IF((out_channels,) + out_shape, 3)
 
         weight = np.random.randint(
-            -128, 128, size=(in_channels, out_channels) + kernel_size, dtype=np.int64
+            -128,
+            128,
+            size=(in_channels // groups, out_channels) + kernel_size,
+            dtype=np.int64,
         )
-        s1 = pb.Conv1d(n1, n2, weight, stride=stride, kernel_order=korder)
+        s1 = pb.Conv1d(
+            n1, n2, weight, stride=stride, kernel_order=korder, groups=groups
+        )
 
         assert s1.num_in == in_channels * shape2num(in_shape)
-        assert s1.connectivity.dtype == np.int8
+        assert s1.connectivity.dtype == WEIGHT_DTYPE
         assert s1.connectivity.shape == (
-            in_channels * shape2num(in_shape),
+            in_channels // groups * shape2num(in_shape),
             out_channels * shape2num(out_shape),
         )
 
@@ -354,6 +377,7 @@ class TestConv:
         in_shape = (32, 32)
         kernel_size = (5, 5)
         stride = 2
+        groups = 1
         out_shape = ((32 - 5) // 2 + 1, (32 - 5) // 2 + 1)
         in_channels = 1  # omit it
         out_channels = 4
@@ -363,13 +387,18 @@ class TestConv:
         n2 = pb.IF((out_channels,) + out_shape, 3)
 
         weight = np.random.randint(
-            -128, 128, size=(in_channels, out_channels) + kernel_size, dtype=np.int8
+            -128,
+            128,
+            size=(in_channels // groups, out_channels) + kernel_size,
+            dtype=np.int8,
         )
-        s1 = pb.Conv2d(n1, n2, weight, stride=stride, kernel_order=korder)
+        s1 = pb.Conv2d(
+            n1, n2, weight, stride=stride, kernel_order=korder, groups=groups
+        )
 
         assert s1.num_in == in_channels * shape2num(in_shape)
         assert s1.connectivity.shape == (
-            in_channels * shape2num(in_shape),
+            in_channels // groups * shape2num(in_shape),
             out_channels * shape2num(out_shape),
         )
 
@@ -403,7 +432,7 @@ class TestConvTranspose2d:
         )
 
         assert s1.num_in == in_channels * shape2num(in_shape)
-        assert s1.connectivity.dtype == np.int8
+        assert s1.connectivity.dtype == WEIGHT_DTYPE
         assert s1.connectivity.shape == (
             in_channels * shape2num(in_shape),
             out_channels * shape2num(out_shape),
@@ -437,7 +466,7 @@ class TestConvTranspose2d:
         )
 
         assert s1.num_in == in_channels * shape2num(in_shape)
-        assert s1.connectivity.dtype == np.int8
+        assert s1.connectivity.dtype == WEIGHT_DTYPE
         assert s1.connectivity.shape == (
             in_channels * shape2num(in_shape),
             out_channels * shape2num(out_shape),
@@ -471,7 +500,7 @@ class TestConvTranspose2d:
         )
 
         assert s1.num_in == in_channels * shape2num(in_shape)
-        assert s1.connectivity.dtype == np.int8
+        assert s1.connectivity.dtype == WEIGHT_DTYPE
         assert s1.connectivity.shape == (
             in_channels * shape2num(in_shape),
             out_channels * shape2num(out_shape),
@@ -505,7 +534,7 @@ class TestConvTranspose2d:
         )
 
         assert s1.num_in == in_channels * shape2num(in_shape)
-        assert s1.connectivity.dtype == np.int8
+        assert s1.connectivity.dtype == WEIGHT_DTYPE
         assert s1.connectivity.shape == (
             in_channels * shape2num(in_shape),
             out_channels * shape2num(out_shape),

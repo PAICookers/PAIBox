@@ -1,70 +1,16 @@
 import random
-from functools import partial
 from typing import Optional
 
 import numpy as np
 import pytest
-from paicorelib import (
-    LCN_EX,
-    Coord,
-    CoordOffset,
-    CoreMode,
-    HwConfig,
-    MaxPoolingEnable,
-    RoutingCoord,
-    RoutingDirection,
-    RoutingLevel,
-)
-from paicorelib import WeightPrecision as WP
-from paicorelib.reg_model import TICK_WAIT_END_MAX, TICK_WAIT_START_MAX
+from paicorelib import LCN_EX, RoutingCoord, RoutingDirection
+from paicorelib import WeightWidth as WW
 
 import paibox as pb
-from paibox.backend.conf_template import (
-    CoreConfig,
-    CorePlmConfig,
-    EmptyCorePlmConfig,
-    InputNeuronDest,
-    NeuronConfig,
-    NeuronDest,
-    NeuronDestInfo,
-)
-from paibox.backend.routing import RoutingCluster
 from paibox.backend.types import AxonCoord, AxonSegment, NeuSegment
 from paibox.exceptions import ResourceError
 from paibox.node import NodeList
 from tests.conftest import ParametrizedTestData
-
-
-@pytest.fixture
-def build_example_root():
-    """Example root.
-
-    Structure:
-        L3: root
-        L2_1: L1_1
-        L2_2: L1_2, L1_3, L1_4, L1_5
-    """
-    root = RoutingCluster(RoutingLevel.L3, tag="L3")
-
-    node_l2_1 = RoutingCluster(RoutingLevel.L2, tag="L2_1")
-    node_l2_2 = RoutingCluster(RoutingLevel.L2, tag="L2_2")
-
-    node_l1_1 = RoutingCluster(RoutingLevel.L1, tag="L1_1")
-    node_l1_2 = RoutingCluster(RoutingLevel.L1, tag="L1_2")
-    node_l1_3 = RoutingCluster(RoutingLevel.L1, tag="L1_3")
-    node_l1_4 = RoutingCluster(RoutingLevel.L1, tag="L1_4")
-    node_l1_5 = RoutingCluster(RoutingLevel.L1, tag="L1_5")
-
-    node_l2_1.add_child_to(node_l1_1, RoutingDirection.X0Y0)
-    node_l2_2.add_child_to(node_l1_2, RoutingDirection.X0Y0)
-    node_l2_2.add_child_to(node_l1_3, RoutingDirection.X0Y1)
-    node_l2_2.add_child_to(node_l1_4, RoutingDirection.X1Y0)
-    node_l2_2.add_child_to(node_l1_5, RoutingDirection.X1Y1)
-
-    root.add_child_to(node_l2_1, RoutingDirection.X0Y0)
-    root.add_child_to(node_l2_2, RoutingDirection.X0Y1)
-
-    return root
 
 
 class NetForTest1(pb.Network):
@@ -178,6 +124,62 @@ class NetForTest4(pb.Network):
         )
         self.s5 = pb.FullConn(
             self.n3, self.n4, conn_type=pb.SynConnType.All2All, name="s5"
+        )
+
+
+class NetForTest5(pb.Network):
+    def __init__(self):
+        super().__init__()
+        self.n1 = pb.InputProj(input=None, shape_out=(400,), name="n1")
+        self.n2 = pb.TonicSpiking(400, 3, name="n2")
+        self.n3 = pb.TonicSpiking(400, 3, name="n3")
+        self.n4 = pb.TonicSpiking(400, 3, name="n4")
+        self.n5 = pb.TonicSpiking(800, 3, name="n5")
+        self.n6 = pb.TonicSpiking(400, 4, name="n6")
+        self.s0 = pb.FullConn(
+            self.n1, self.n2, conn_type=pb.SynConnType.All2All, name="s0"
+        )
+        self.s1 = pb.FullConn(
+            self.n2, self.n3, conn_type=pb.SynConnType.All2All, name="s1"
+        )
+        self.s2 = pb.FullConn(
+            self.n3, self.n4, conn_type=pb.SynConnType.All2All, name="s2"
+        )
+        self.s3 = pb.FullConn(
+            self.n4, self.n5, conn_type=pb.SynConnType.All2All, name="s3"
+        )
+        self.s4 = pb.FullConn(
+            self.n5, self.n6, conn_type=pb.SynConnType.All2All, name="s4"
+        )
+        self.s5 = pb.FullConn(
+            self.n1, self.n6, conn_type=pb.SynConnType.All2All, name="s5"
+        )
+        self.s6 = pb.FullConn(
+            self.n2, self.n5, conn_type=pb.SynConnType.All2All, name="s6"
+        )
+
+
+class NetForTest6(pb.Network):
+    def __init__(self):
+        super().__init__()
+        self.n1 = pb.InputProj(input=None, shape_out=(400,), name="n1")
+        self.n2 = pb.InputProj(input=None, shape_out=(400,), name="n2")
+        self.n3 = pb.TonicSpiking(400, 3, name="n3")
+        self.n4 = pb.TonicSpiking(400, 3, name="n4")
+        self.s0 = pb.FullConn(
+            self.n1, self.n3, conn_type=pb.SynConnType.All2All, name="s0"
+        )
+        self.s1 = pb.FullConn(
+            self.n1, self.n4, conn_type=pb.SynConnType.All2All, name="s1"
+        )
+        self.s2 = pb.FullConn(
+            self.n2, self.n3, conn_type=pb.SynConnType.All2All, name="s2"
+        )
+        self.s3 = pb.FullConn(
+            self.n2, self.n4, conn_type=pb.SynConnType.All2All, name="s3"
+        )
+        self.s4 = pb.FullConn(
+            self.n3, self.n4, conn_type=pb.SynConnType.All2All, name="s4"
         )
 
 
@@ -562,7 +564,7 @@ class MultichipNet1(pb.DynSysGroup):
 
             self.n.append(pb.IF((n,), thres, resetv))
 
-        self.n_out = pb.SpikingRelu(1000)
+        self.n_out = pb.BypassNeuron(1000)
 
         self.s = NodeList()
 
@@ -689,7 +691,7 @@ class Network_branch_nodes3(pb.Network):
         self.n3 = pb.IF((800,), 10, name="n3", tick_wait_start=2)
         self.n4 = pb.IF((1000,), 10, name="n4", tick_wait_start=3)
         self.n5 = pb.IF((800,), 10, name="n5", tick_wait_start=4)
-        self.n6 = pb.IF((1000,), 10, name="n6", tick_wait_start=4)
+        self.n6 = pb.IF((200,), 10, name="n6", tick_wait_start=4)
 
         self.s1 = pb.FullConn(self.inp1, self.n1, name="s1")
         self.s2 = pb.FullConn(self.n1, self.n2, name="s2")
@@ -734,6 +736,16 @@ def build_example_net3():
 @pytest.fixture(scope="class")
 def build_example_net4():
     return NetForTest4()
+
+
+@pytest.fixture(scope="class")
+def build_example_net5():
+    return NetForTest5()
+
+
+@pytest.fixture(scope="class")
+def build_example_net6():
+    return NetForTest6()
 
 
 @pytest.fixture(scope="class")
@@ -810,188 +822,12 @@ def get_mapper() -> pb.Mapper:
     return pb.Mapper()
 
 
-@pytest.fixture
-def MockCoreConfigDict() -> CoreConfig:
-    wp = random.choice(list(WP))
-    lcn_ex = random.choice(list(LCN_EX))
-
-    iwf, swf, sme = random.choice(list(CoreMode)).conf
-
-    num_den = random.randint(1, HwConfig.N_DENDRITE_MAX_SNN)
-    mpe = random.choice(list(MaxPoolingEnable))
-    tws = random.randint(0, TICK_WAIT_START_MAX)
-    twe = random.randint(0, TICK_WAIT_END_MAX)
-    target_lcn = random.choice(list(LCN_EX))
-    test_chip_addr = Coord(random.randint(0, 31), random.randint(0, 31))
-
-    return CoreConfig(
-        "mock_core",
-        wp,
-        lcn_ex,
-        iwf,
-        swf,
-        num_den,
-        mpe,
-        tws,
-        twe,
-        sme,
-        target_lcn,
-        test_chip_addr,
-    )
-
-
-@pytest.fixture
-def MockNeuronConfig() -> NeuronConfig:
-    n_channel = 3
-    _n_per_ch = random.randint(20, 100)
-    n = n_channel * _n_per_ch
-    offset = random.randint(1, 100)
-    interval = random.randint(1, 2)
-    thres = random.randint(1, 5)
-    reset_v = random.randint(-5, 5)
-    leak_v = np.arange(n_channel * n).reshape((n_channel, n))
-    neuron = pb.LIF((n_channel, n), thres, reset_v, bias=leak_v, keep_shape=True)
-    dest_coord_start = Coord(random.randint(0, 10), random.randint(0, 10))
-    test_chip_addr = Coord(random.randint(0, 31), random.randint(0, 31))
-
-    _n_start = random.randint(0, 20)
-    nseg = NeuSegment(
-        neuron, slice(_n_start, 1 * _n_per_ch + _n_start), offset, interval
-    )
-
-    axon_coords = [AxonCoord(0, i) for i in range(nseg.n_neuron)]
-    dest_coords = [dest_coord_start, dest_coord_start + CoordOffset(0, 1)]
-    pb.BACKEND_CONFIG.test_chip_addr = test_chip_addr
-
-    return NeuronConfig.encapsulate(
-        nseg, axon_coords, dest_coords, pb.BACKEND_CONFIG.test_chip_addr
-    )
-
-
-@pytest.fixture
-def MockNeuronDestInfo(MockNeuronConfig) -> NeuronDestInfo:
-    return MockNeuronConfig.neuron_dest_info
-
-
-@pytest.fixture
-def MockNeuronDest() -> NeuronDest:
-    n = random.randint(100, 1000)
-    tick_relative = [0 for _ in range(n)]
-    addr_axon = [i for i in range(n)]
-
-    addr_core_x = random.randint(0, 31)
-    addr_core_y = random.randint(0, 31)
-    addr_core_x_ex = random.randint(0, 31)
-    addr_core_y_ex = random.randint(0, 31)
-    addr_chip_x = random.randint(0, 31)
-    addr_chip_y = random.randint(0, 31)
-
-    return NeuronDest(
-        tick_relative,
-        addr_axon,
-        addr_core_x,
-        addr_core_y,
-        addr_core_x_ex,
-        addr_core_y_ex,
-        addr_chip_x,
-        addr_chip_y,
-    )
-
-
-@pytest.fixture
-def MockInputNeuronDest():
-    n = random.randint(100, 1000)
-    tick_relative = [0 for _ in range(n)]
-    addr_axon = [i for i in range(n)]
-
-    addr_core_x = random.randint(0, 31)
-    addr_core_y = random.randint(0, 31)
-    addr_core_x_ex = random.randint(0, 31)
-    addr_core_y_ex = random.randint(0, 31)
-    addr_chip_x = random.randint(0, 31)
-    addr_chip_y = random.randint(0, 31)
-    lcn = 1 << random.choice(list(LCN_EX))
-
-    return InputNeuronDest(
-        tick_relative,
-        addr_axon,
-        addr_core_x,
-        addr_core_y,
-        addr_core_x_ex,
-        addr_core_y_ex,
-        addr_chip_x,
-        addr_chip_y,
-        lcn,
-    )
-
-
-@pytest.fixture
-def MockCorePlmConfig(MockCoreConfigDict, MockNeuronConfig):
-    n = random.randint(100, 400)
-    thres = random.randint(1, 5)
-    reset_v = random.randint(-5, 5)
-    neuron = pb.IF((n,), thres, reset_v)
-
-    cpc = CorePlmConfig.encapsulate(
-        random.randint(0, 1000),
-        np.random.randint(0, 100, size=(1152, 512), dtype=np.uint64),
-        MockCoreConfigDict,
-        {neuron: MockNeuronConfig},
-    )
-
-    return cpc
-
-
-@pytest.fixture
-def MockEmptyCorePlmConfig(MockCoreConfigDict):
-    return EmptyCorePlmConfig.encapsulate(MockCoreConfigDict)
-
-
-def packbits_ref(bits: np.ndarray, count: int) -> int:
-    """Pack unsigned bits into a signed integer.
-
-    This is a test of the prototype of the original function.
-    """
-    _bits = np.append(bits[: count - 1], bits[-1])
-
-    result = sum(bit << i for i, bit in enumerate(_bits))
-    result -= _bits[-1] << count
-
-    return result
-
-
-@pytest.fixture
-def packbits8():
-    return partial(packbits_ref, count=8)
-
-
-@pytest.fixture
-def packbits4():
-    return partial(packbits_ref, count=4)
-
-
-@pytest.fixture
-def packbits2():
-    return partial(packbits_ref, count=2)
-
-
-@pytest.fixture
-def packbits1():
-    return partial(packbits_ref, count=1)
-
-
 def n_axon2lcn_ex_proto(n_axon, n_fanin_max) -> LCN_EX:
-    """Convert #N(of axons) to `LCN_EX` & check.
-
-    NOTE: LCN_EX = log2[ceil(#N/fan-in per dendrite)], where `LCN_1X` = 0.
-    """
     if n_axon < 1:
-        raise ValueError(f"the number of axons must be positive, but got {n_axon}.")
+        raise ValueError
 
     if (lcn := ((n_axon - 1) // n_fanin_max).bit_length()) > LCN_EX.LCN_64X:
-        raise ResourceError(
-            f"required LCN extension out of range {LCN_EX.LCN_64X} ({lcn}). "
-        )
+        raise ResourceError
 
     return LCN_EX(lcn)
 
@@ -1282,77 +1118,67 @@ class TestData:
     )
 
     cflags_weight_bit_opt_data = ParametrizedTestData(
-        args="range, scalar, dtype, expected_wp_noopt, expected_wp_opt",
+        args="range, scalar, dtype, expected_wp_opt",
         data=[
             (
                 ((0, 2), (0, 2)),
                 1,
                 (np.bool_, np.bool_),
-                WP.WEIGHT_WIDTH_1BIT,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
             ),
             (
                 ((0, 2), (0, 2)),
                 -1,
                 (np.bool_, np.bool_),
-                WP.WEIGHT_WIDTH_8BIT,
-                WP.WEIGHT_WIDTH_2BIT,
+                WW.WEIGHT_WIDTH_2BIT,
             ),
             (
                 ((0, 2), (0, 2)),
                 1,
                 (np.bool_, np.int8),
-                WP.WEIGHT_WIDTH_8BIT,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
             ),
             (
                 ((0, 2), (0, 2)),
                 -2,
                 (np.int8, np.bool_),
-                WP.WEIGHT_WIDTH_8BIT,
-                WP.WEIGHT_WIDTH_2BIT,
+                WW.WEIGHT_WIDTH_2BIT,
             ),
             (
                 ((0, 2), (0, 2)),
                 1,
                 (np.int8, np.int8),
-                WP.WEIGHT_WIDTH_8BIT,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
             ),
             (
                 ((0, 2), (-2, 2)),
                 -8,
                 (np.bool_, np.int8),
-                WP.WEIGHT_WIDTH_8BIT,
-                WP.WEIGHT_WIDTH_4BIT,
+                WW.WEIGHT_WIDTH_4BIT,
             ),
             (
                 ((0, 2), (-2, 2)),
                 7,
                 (np.bool_, np.int8),
-                WP.WEIGHT_WIDTH_8BIT,
-                WP.WEIGHT_WIDTH_4BIT,
+                WW.WEIGHT_WIDTH_4BIT,
             ),
             (
                 ((0, 2), (-128, 128)),
                 127,
                 (np.bool_, np.int8),
-                WP.WEIGHT_WIDTH_8BIT,
-                WP.WEIGHT_WIDTH_8BIT,
+                WW.WEIGHT_WIDTH_8BIT,
             ),
             (
                 ((-2, 2), (-8, 8)),
                 7,
                 (np.int8, np.int8),
-                WP.WEIGHT_WIDTH_8BIT,
-                WP.WEIGHT_WIDTH_4BIT,
+                WW.WEIGHT_WIDTH_4BIT,
             ),
             (
                 ((-8, 8), (-8, 8)),
                 -100,
                 (np.int8, np.int8),
-                WP.WEIGHT_WIDTH_8BIT,
-                WP.WEIGHT_WIDTH_8BIT,
+                WW.WEIGHT_WIDTH_8BIT,
             ),
         ],
     )
@@ -1364,7 +1190,7 @@ class TestData:
             (
                 [_nl[0], _nl[1]],
                 512,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
                     [NeuSegment(_nl[0], slice(0, 300, 1), 0)],
@@ -1376,7 +1202,7 @@ class TestData:
             (
                 [_nl[0], _nl[1]],
                 256,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [NeuSegment(_nl[0], slice(0, 200, 1), 0, 2)],
@@ -1391,7 +1217,7 @@ class TestData:
             (
                 [_nl[2]],
                 200,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [NeuSegment(_nl[2], slice(80 * 0, 80 * 1, 1), 0, 2)],
@@ -1403,7 +1229,7 @@ class TestData:
             (
                 [_nl[0], _nl[2]],
                 400,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
                     [NeuSegment(_nl[0], slice(0, 300, 1), 0)],
@@ -1415,7 +1241,7 @@ class TestData:
             (
                 [_nl[3], _nl[4]],
                 240,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [NeuSegment(_nl[3], slice(67 * 0, 67 * 1, 1), 0, 2)],
@@ -1437,7 +1263,7 @@ class TestData:
             (
                 [_nc[0], _nc[1]],
                 512,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
                     [NeuSegment(_nc[0], slice(0, 512, 1), 0)],
@@ -1451,7 +1277,7 @@ class TestData:
             (
                 [_nc[0], _nc[1]],
                 256,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [NeuSegment(_nc[0], slice(256 * 0, 256 * 1, 1), 0, 2)],
@@ -1468,7 +1294,7 @@ class TestData:
             (
                 [_nc[3], _nc[4]],
                 256,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     # Place the neuron segments with full capacity first
@@ -1482,7 +1308,7 @@ class TestData:
             (
                 [_nc[5], _nc[6]],
                 512,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
                     [NeuSegment(_nc[6], slice(0, 500, 1), 0, 1)],
@@ -1499,7 +1325,7 @@ class TestData:
             (
                 [_nb[0], _nb[1]],
                 512,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
                     [NeuSegment(_nb[0], slice(0, 300, 1), 0)],
@@ -1511,7 +1337,7 @@ class TestData:
             (
                 [_nb[0], _nb[1]],
                 256,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [NeuSegment(_nb[1], slice(0, 200, 1), 0, 2)],
@@ -1526,7 +1352,7 @@ class TestData:
             (
                 [_nb[2]],
                 200,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [NeuSegment(_nb[2], slice(80 * 0, 80 * 1, 1), 0, 2)],
@@ -1538,7 +1364,7 @@ class TestData:
             (
                 [_nb[2], _nb[3]],
                 200,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [
@@ -1564,7 +1390,7 @@ class TestData:
             (
                 [_nb[2], _nb[3], _nb[4]],
                 256,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [
@@ -1608,7 +1434,7 @@ class TestData:
             (
                 [_nb[3], _nb[4]],
                 240,
-                WP.WEIGHT_WIDTH_1BIT,
+                WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
                     [
@@ -1630,13 +1456,15 @@ class TestData:
     )
 
     aligned_coords_test_data = ParametrizedTestData(
-        args="neu_index, axon_seg, delay, n_timeslot, expected",
+        args="neu_index, axon_seg, delay, n_timeslot, is_iw8, expected",
         data=[
+            # iw1
             (
                 slice(5, 8),
                 AxonSegment(12, 3, 0),
                 1,
                 1 << 1,
+                False,
                 [
                     AxonCoord(1, 2),
                     AxonCoord(2, 0),
@@ -1648,17 +1476,15 @@ class TestData:
                 AxonSegment(12, 3, 0),
                 2,
                 1 << 1,
-                [
-                    AxonCoord(2 + 0, 0),
-                    AxonCoord(2 + 0, 1),
-                    AxonCoord(2 + 0, 2),
-                ],
+                False,
+                [AxonCoord(2 + 0, i) for i in range(3)],
             ),
             (
                 slice(1, 5),
                 AxonSegment(12, 3, 0),
                 2,
                 1 << 2,
+                False,
                 [
                     AxonCoord(4 + 0, 1),
                     AxonCoord(4 + 0, 2),
@@ -1671,6 +1497,7 @@ class TestData:
                 AxonSegment(12, 3, 0),
                 4,
                 1 << 3,
+                False,
                 [
                     AxonCoord(24 + 0, 1),
                     AxonCoord(24 + 0, 2),
@@ -1684,15 +1511,78 @@ class TestData:
                 AxonSegment(16, 4, 4),
                 4,
                 1 << 4,
+                False,
+                [AxonCoord(48 + 0, 4 + 3)]
+                + [AxonCoord(48 + 1, 4 + i) for i in range(4)]
+                + [AxonCoord(48 + 2, 4 + 0), AxonCoord(48 + 2, 4 + 1)],
+            ),
+            # iw8
+            (
+                slice(5, 8),
+                AxonSegment(12, 3, 0),
+                1,
+                1 << 1,
+                True,
                 [
-                    AxonCoord(48 + 0, 4 + 3),
-                    AxonCoord(48 + 1, 4 + 0),
-                    AxonCoord(48 + 1, 4 + 1),
-                    AxonCoord(48 + 1, 4 + 2),
-                    AxonCoord(48 + 1, 4 + 3),
-                    AxonCoord(48 + 2, 4 + 0),
-                    AxonCoord(48 + 2, 4 + 1),
+                    AxonCoord(1, 8 * 2),
+                    AxonCoord(2, 8 * 0),
+                    AxonCoord(2, 8 * 1),
                 ],
+            ),
+            (
+                slice(0, 3),
+                AxonSegment(12, 3, 0),
+                2,
+                1 << 1,
+                True,
+                [AxonCoord(2 + 0, 8 * i) for i in range(3)],
+            ),
+            (
+                slice(1, 5),
+                AxonSegment(12, 3, 0),
+                2,
+                1 << 2,
+                True,
+                [
+                    AxonCoord(4 + 0, 8 * 1),
+                    AxonCoord(4 + 0, 8 * 2),
+                    AxonCoord(4 + 1, 8 * 0),
+                    AxonCoord(4 + 1, 8 * 1),
+                ],
+            ),
+            (
+                slice(1, 6),
+                AxonSegment(12, 3, 0),
+                4,
+                1 << 3,
+                True,
+                [
+                    AxonCoord(24 + 0, 8 * 1),
+                    AxonCoord(24 + 0, 8 * 2),
+                    AxonCoord(24 + 1, 8 * 0),
+                    AxonCoord(24 + 1, 8 * 1),
+                    AxonCoord(24 + 1, 8 * 2),
+                ],
+            ),
+            (
+                slice(5, 15),
+                AxonSegment(16, 8, 16),
+                1,
+                1 << 1,
+                True,
+                [AxonCoord(0, 8 * (16 + i)) for i in range(5, 8)]
+                + [AxonCoord(1, 8 * (16 + i)) for i in range(7)],
+            ),
+            (
+                slice(5, 35),
+                AxonSegment(40, 10, 10),
+                1,
+                1 << 2,
+                True,
+                [AxonCoord(0, 8 * (10 + i)) for i in range(5, 10)]
+                + [AxonCoord(1, 8 * (10 + i)) for i in range(10)]
+                + [AxonCoord(2, 8 * (10 + i)) for i in range(10)]
+                + [AxonCoord(3, 8 * (10 + i)) for i in range(5)],
             ),
         ],
     )

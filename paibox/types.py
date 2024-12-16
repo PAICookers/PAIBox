@@ -1,5 +1,5 @@
 import sys
-from typing import TypeVar, Union
+from typing import TypeVar
 
 import numpy as np
 from numpy.typing import NDArray
@@ -14,11 +14,18 @@ ArrayType = TypeVar("ArrayType", list[int], tuple[int, ...], np.ndarray)
 Scalar = TypeVar("Scalar", int, float, np.generic)
 IntScalarType = TypeVar("IntScalarType", int, np.bool_, np.integer)
 DataType = TypeVar("DataType", int, np.bool_, np.integer, np.ndarray)
-DataArrayType = TypeVar(
-    "DataArrayType", int, np.bool_, np.integer, list[int], tuple[int, ...], np.ndarray
-)
-LeakVType: TypeAlias = NDArray[np.int32]
-SpikeType: TypeAlias = NDArray[np.bool_]
-SynOutType: TypeAlias = NDArray[np.int32]
-VoltageType: TypeAlias = NDArray[np.int32]
-WeightType: TypeAlias = NDArray[Union[np.bool_, np.int8]]
+
+SPIKE_DTYPE = np.bool_
+VOLTAGE_DTYPE = np.int32
+LEAK_V_DTYPE = VOLTAGE_DTYPE
+THRES_V_DTYPE = VOLTAGE_DTYPE
+WEIGHT_DTYPE = np.int8
+NEUOUT_SPIKE_DTYPE = np.bool_
+NEUOUT_U8_DTYPE = np.uint8
+
+LeakVType: TypeAlias = NDArray[LEAK_V_DTYPE]
+SpikeType: TypeAlias = NDArray[SPIKE_DTYPE]
+SynOutType: TypeAlias = NDArray[VOLTAGE_DTYPE]
+VoltageType: TypeAlias = NDArray[VOLTAGE_DTYPE]
+NeuOutType: TypeAlias = NDArray[NEUOUT_U8_DTYPE]
+WeightType: TypeAlias = NDArray[WEIGHT_DTYPE]

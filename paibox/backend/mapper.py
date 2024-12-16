@@ -8,10 +8,11 @@ from paicorelib import ChipCoord, Coord, CoordOffset, HwConfig, get_replication_
 
 from paibox.base import SynSys
 from paibox.components import Neuron
-from paibox.exceptions import ConfigInvalidError, ResourceError
+from paibox.exceptions import CompileError, ConfigInvalidError, ResourceError
 from paibox.network import DynSysGroup
 
-from .conf_template import (
+from .conf_exporting import *
+from .conf_types import (
     CoreConf,
     CorePlmConf,
     FrameArrayType,
@@ -19,33 +20,36 @@ from .conf_template import (
     InputNeuronDest,
     InputNodeConf,
     OutputDestConf,
-    _get_clk_en_L2_dict,
-    export_core_params_json,
-    export_input_conf_json,
-    export_output_conf_json,
-    export_used_L2_clusters,
-    gen_config_frames_by_coreconf,
 )
 from .context import _BACKEND_CONTEXT, set_cflag
 from .graphs import (
     PAIGraph,
-    convert2routing_groups,
+    find_cycles,
     get_node_degrees,
     get_succ_cb_by_node,
+    merge_overlap,
     toposort,
 )
 from .placement import CoreBlock, aligned_coords, max_lcn_of_cb
-from .routing import RoutingGroup, RoutingRoot
-from .types import NeuSegment, NodeDegree, NodeType, SourceNodeType
+from .routing import RoutingGroup, RoutingManager
+from .types import (
+    MergedSuccGroup,
+    NeuSegment,
+    NodeDegree,
+    NodeType,
+    SourceNodeType,
+    is_iw8,
+)
 
 __all__ = ["Mapper"]
 
 
 class Mapper:
-    graph = PAIGraph()
+    graph: PAIGraph
     graph_info: GraphInfo
 
     def __init__(self) -> None:
+        self.graph = PAIGraph()
         self.core_blocks: list[CoreBlock] = []
         """List for core blocks in the network."""
         self.succ_core_blocks: dict[CoreBlock, list[CoreBlock]] = defaultdict(list)
@@ -64,23 +68,33 @@ class Mapper:
 
         self.n_core_required = 0
         self.n_core_occupied = 0
-        self.routing_tree = RoutingRoot(chip_list=_BACKEND_CONTEXT["target_chip_addr"])
+        self.routing_manager = RoutingManager(
+            chip_list=_BACKEND_CONTEXT["target_chip_addr"]
+        )
+
+        self._core_estimate_only = False
+        """Wether this compilation is for core estimation only. If so, no core will be assigned."""
 
         self.clear()
 
     def clear(self) -> None:
-        self.routing_tree.clear()
         self.graph.clear()
 
         self.core_blocks.clear()
         self.succ_core_blocks.clear()
         self.input_core_blocks.clear()
 
+        self.degrees_of_cb.clear()
+        self.routing_groups.clear()
+        self.succ_routing_groups.clear()
+
         self.core_params.clear()
         self.core_plm_config.clear()
 
         self.n_core_required = 0
         self.n_core_occupied = 0
+
+        self._core_estimate_only = False
 
         # Set default cflags
         _BACKEND_CONTEXT.cflags.clear()
@@ -109,38 +123,37 @@ class Mapper:
         core_estimate_only: bool = False,
         weight_bit_optimization: bool = True,
         grouping_optim_target: Literal["latency", "core", "both"] = "both",
-        no_twisted_branch: bool = True,
+        no_twisted_branch: bool = False,
         multicast_optim: Union[bool, Sequence[NodeType]] = False,
         **kwargs,
     ) -> GraphInfo:
         """Compile the network with optimization options.
 
         Args:
-            - weight_bit_optimization: whether to optimize weight precision. For example, weights declared as   \
-                INT8 are treated as smaller precision based on their actual values (when the weight are all     \
+            weight_bit_optimization (bool): whether to optimize weight precision. For example, weights declared \
+                as INT8 are treated as smaller precision based on their actual values (when the weight are all  \
                 between [-8, 7], they can be treated as INT4). By default, it is specified by the corresponding \
                 compile option in the backend configuration item. Default is true.
-            - grouping_optim_target: specify the optimization goal of neuron grouping, which can be `latency`,  \
-                `core` or `both`, which respectively represent the optimization goal of delay/throughput,       \
-                occupied cores, or both. The default is specified by the corresponding compilation option in the\
-                backend configuration item. Default is 'both'.
-            - no_twisted_branch: when parsing the network topology, whether or not to prohibit intersecting     \
-                branch structures will cause such structures to be processed. For example:
+            grouping_optim_target ("latency", "core", "both"): specify the optimization goal of neuron grouping,\
+                which can be `latency`, `core` or `both` which respectively represent the optimization goal of  \
+                delay/throughput, occupied cores, or both. The default is specified by the corresponding        \
+                compilation option in the backend configuration item. Default is 'both'.
+            no_twisted_branch (bool): only for advanced use. when parsing the network topology, whether or not  \
+                to prohibit intersecting branch structures will cause such structures to be processed.          \
+                For example:
 
                 I -> A -> B -> C
                        ------>
 
-                The out-degree of node A is > 1, and its successor node C has an in-degree > 1. If `no_twisted_branch`    \
-                is true, A will be copied & denoted as A', whose forward connection is preserved.
+                The out-degree of node A is > 1, and its successor node C has an in-degree > 1. If true, A will \
+                be copied & denoted as A', whose forward connection is preserved.
 
                 I -> A -> B -> C
                   -> A'------>
 
-                Default is true.
-
-            - multicast_optim (in dev): whether to perform multicast optimization. If true, the optimization is \
-                performed on all nodes in the network. If a node list is passed, the optimization is attempted  \
-                on the specified nodes only. Default is false.
+            multicast_optim (bool, Sequence[NodeType]): whether to perform multicast optimization. If true, the \
+                optimization is performed on all nodes in the network. If passing a node list, the optimization \
+                is attempted on the specified nodes only. Default is false.
                 TODO A description of it is to be added
 
         Return: network information after compilation in dictionary format.
@@ -160,6 +173,8 @@ class Mapper:
 
             set_cflag(multicast_optim=True)
             set_cflag(multicast_optim_nodes=_mul_optim_nodes)
+
+        self._core_estimate_only = core_estimate_only
 
         """Preperation.
             1. Check whether the PAIGraph has built.
@@ -183,23 +198,18 @@ class Mapper:
         """Group the axons of core block."""
         self.cb_axon_grouping()
 
-        # Convert core blocks to routing groups
-        self.routing_groups, self.succ_routing_groups = convert2routing_groups(
-            self.succ_core_blocks, self.degrees_of_cb, self.input_core_blocks
-        )
-
         """Core coordinate assignment."""
-        self.coord_assign(core_estimate_only)
+        self.coord_assign(self._core_estimate_only)
 
-        if core_estimate_only:
+        if self._core_estimate_only:
             return GraphInfo(
+                name=self.graph.graph_name_repr,
                 input={},
                 output={},
                 members={},
                 inherent_timestep=self.graph.inherent_timestep,
                 n_core_required=self.n_core_required,
                 n_core_occupied=0,
-                misc={"name": self.graph.graph_name_repr},
             )
 
         """Allocate the core blocks to the core placments."""
@@ -213,18 +223,28 @@ class Mapper:
 
     def build_core_blocks(self) -> None:
         """Build core blocks based on partitioned edges."""
-        partitioned_edges = self.graph.graph_partition()
+        merged_sgrps: list[MergedSuccGroup] = self.graph.graph_partition()
+        merged_sgrps: list[MergedSuccGroup] = cycle_merge(merged_sgrps)
 
-        for part in partitioned_edges:
-            self.core_blocks.append(
-                CoreBlock.build(*part.edges, seed=0, routing_id=part.rg_id)
-            )
+        for msgrp in merged_sgrps:
+            self.routing_groups.append(RoutingGroup.build(msgrp, True))
+
+        routing_groups: list[RoutingGroup] = list()
+        for rg in self.routing_groups:
+            routing_groups.extend(rg.optimize_group())
+        self.routing_groups = routing_groups
+
+        for rg in self.routing_groups:
+            rg.dump()
+
+        for rg in self.routing_groups:
+            self.core_blocks += rg.core_blocks
 
         for cur_cb in self.core_blocks:
-            succ_cbs = []
+            succ_cbs: list[CoreBlock] = []
             # cur_cb == cb is possible
             for cb in self.core_blocks:
-                if any(d for d in cur_cb.dest if d in cb.source):
+                if any(d for d in cur_cb.dest if d in cb.ordered_axons):
                     succ_cbs.append(cb)
 
             self.succ_core_blocks[cur_cb] = succ_cbs
@@ -239,6 +259,20 @@ class Mapper:
                 self.input_core_blocks[inode] = succ_cb
 
         self.degrees_of_cb = get_node_degrees(self.succ_core_blocks)
+
+        for rg in self.routing_groups:
+            self.succ_routing_groups[rg] = []
+            rg_succ_cb: set[CoreBlock] = set()
+            for cb in rg:
+                rg_succ_cb.update(self.succ_core_blocks[cb])
+
+            for _rg in self.routing_groups:
+                if _rg == rg:
+                    continue
+                for cb in rg_succ_cb:
+                    if cb in _rg:
+                        self.succ_routing_groups[rg].append(_rg)
+                        break
 
     def lcn_ex_adjustment(self) -> None:
         """Adjust the LCN of each core block & set target LCN."""
@@ -270,8 +304,8 @@ class Mapper:
 
     def cb_axon_grouping(self) -> None:
         """The axons are grouped after the LCN has been modified & locked."""
-        for cb in self.core_blocks:
-            cb.group_axons()
+        for core_block in self.core_blocks:
+            core_block.group_axons()
 
     def graph_optimization(self) -> None:
         optimized = self.graph.graph_optimization(self.core_blocks, self.routing_groups)
@@ -294,6 +328,9 @@ class Mapper:
                 optim_target=_BACKEND_CONTEXT.cflags["grouping_optim_target"]
             )
 
+        for rg in self.routing_groups:
+            rg.set_core_required()
+
         # Optimize the order of routing groups
         # self.routing_groups = reorder_routing_groups(self.succ_routing_groups)
         self.routing_groups = toposort(self.succ_routing_groups)
@@ -305,13 +342,14 @@ class Mapper:
 
         if core_estimate_only:
             return None
-        elif n_core_required > n_avail_cores:
+
+        if n_core_required > n_avail_cores:
             raise ResourceError(
                 OUT_OF_CORE_RESOURCE_TEXT.format(n_avail_cores, n_core_required)
             )
 
         for rg in self.routing_groups:
-            self.routing_tree.place_routing_group(rg)
+            self.routing_manager.place_routing_group(rg)
 
         # Calculate the consumption of occupied physical cores.
         if (
@@ -343,13 +381,14 @@ class Mapper:
         ]:
             raise ConfigInvalidError(
                 f"the output chip address {ochip_coord} should not overlap with the "
-                f"chip addresses, but got {_BACKEND_CONTEXT._target_chip_addr_repr()}."
+                f"target chip addresses, but got {_BACKEND_CONTEXT._target_chip_addr_repr()}."
             )
 
         input_nodes_info = self._inpproj_config_export()
         output_dest_info = self._member_cb_and_onode_config_export()
 
         _graph_info = GraphInfo(
+            name=self.graph.graph_name_repr,
             input=input_nodes_info,
             output=output_dest_info,
             members=self.core_plm_config,  # The configuration of physical cores is in `core_plm_config`
@@ -357,11 +396,11 @@ class Mapper:
             n_core_required=self.n_core_required,
             n_core_occupied=self.n_core_occupied,
             misc={
-                "name": self.graph.graph_name_repr,
-                "clk_en_L2": _get_clk_en_L2_dict(
+                "clk_en_L2": get_clk_en_L2_dict(
                     _BACKEND_CONTEXT["target_chip_addr"],
-                    self.routing_tree.used_L2_clusters,
+                    self.routing_manager.used_L2_clusters,
                 ),
+                "target_chip_list": _BACKEND_CONTEXT.target_chip_addr,
             },
         )
 
@@ -407,10 +446,11 @@ class Mapper:
             # LCN of `input_cbs` are the same.
             input_cb = input_cbs[0]
             axon_coords = aligned_coords(
-                slice(0, input_cb.n_axon_of(input_cb.source.index(inode)), 1),
+                slice(0, input_cb.n_axon_of(input_cb.ordered_axons.index(inode)), 1),
                 input_cb.axon_segments[inode],
                 1,
                 input_cb.n_timeslot,
+                is_iw8(input_cb.rt_mode),
             )
 
             inp_neuron_dest = InputNeuronDest(
@@ -455,7 +495,7 @@ class Mapper:
             "n4": {...} # as output node #2
         }
         """
-        output_dest_info = defaultdict(dict)
+        output_dest_info: OutputDestConf = defaultdict(dict)
         # Shallow copy
         ocoord = copy(_BACKEND_CONTEXT["output_core_addr_start"])
 
@@ -530,7 +570,7 @@ class Mapper:
                         output_core_coord=cur_ocoord,
                         axon_addr_offset=output_axon_offset,
                     )
-                    output_dest_info[neu_seg.target.name][core_plm.coord.address] = (
+                    output_dest_info[neu_seg.target.name][core_plm.coord] = (
                         core_plm.neu_configs[neu_seg.target].neuron_dest_info
                     )
 
@@ -555,7 +595,7 @@ class Mapper:
                     output_core_coord=cur_ocoord,
                     axon_addr_offset=output_axon_offset,
                 )
-                output_dest_info[neu_seg.target.name][core_plm.coord.address] = (
+                output_dest_info[neu_seg.target.name][core_plm.coord] = (
                     core_plm.neu_configs[neu_seg.target].neuron_dest_info
                 )
 
@@ -586,6 +626,12 @@ class Mapper:
 
         Return: total configurations in dictionary format.
         """
+        if self._core_estimate_only:
+            raise CompileError(
+                "the current compilation is only for core estimation. "
+                "Please disable 'core_estimate_only' and compile again before exporting."
+            )
+
         if format not in ("bin", "npy", "txt"):
             raise ValueError(f"format {format} is not supported.")
 
@@ -608,14 +654,8 @@ class Mapper:
             # Export the parameters of occupied cores
             export_core_params_json(self.core_params, _fp)
 
-        # Export the configurations of input nodes
-        export_input_conf_json(self.graph_info["input"], _fp)
-        # Export the configurations of output destinations
-        export_output_conf_json(self.graph_info["output"], _fp)
-
-        # Export the serial port data of the L2 cluster clocks
-        if export_clk_en_L2:
-            export_used_L2_clusters(self.graph_info["misc"]["clk_en_L2"], _fp)
+        # Export the graph information
+        export_graph_info(self.graph_info, _fp, export_clk_en_L2)
 
         return config_dict
 
@@ -634,7 +674,7 @@ class Mapper:
                             print(
                                 f"{neuron.name} placed in {core_plm.coord}\n"
                                 f"N:        {neu_seg.n_neuron}\n"
-                                f"Address:  {neu_seg.addr_slice}"
+                                f"Address:  {neu_seg._addr_ram_repr}"
                             )
 
     def find_axon(self, neuron: Neuron, *, verbose: int = 0) -> None:
@@ -642,7 +682,7 @@ class Mapper:
 
         for cb in self.core_blocks:
             # Find neuron in one or more core blocks.
-            if neuron in cb.source:
+            if neuron in cb.ordered_axons:
                 print(f"axons {neuron.name} placed in {cb.name}, LCN_{1 << cb.lcn_ex}X")
                 axon_segment = cb.axon_segments[neuron]
                 print(
@@ -659,9 +699,33 @@ class Mapper:
         self, neu_seg: NeuSegment, cb: CoreBlock
     ) -> list[CoreBlock]:
         succ_cbs = self.succ_core_blocks[cb]
-        dest_cb_of_nseg = [cb for cb in succ_cbs if neu_seg.target in cb.source]
+        dest_cb_of_nseg = [cb for cb in succ_cbs if neu_seg.target in cb.ordered_axons]
 
         return dest_cb_of_nseg
+
+
+def cycle_merge(merged_sgrps: list[MergedSuccGroup]) -> list[MergedSuccGroup]:
+    succ_merged_sgrps: dict[MergedSuccGroup, list[MergedSuccGroup]] = defaultdict(list)
+
+    for msgrp in merged_sgrps:
+        for _msgrp in merged_sgrps:
+            if msgrp == _msgrp:
+                continue
+            if not msgrp.nodes.isdisjoint(_msgrp.input_nodes):
+                succ_merged_sgrps[msgrp].append(_msgrp)
+
+    cycles: list[list[MergedSuccGroup]] = find_cycles(succ_merged_sgrps)
+    merged_cycles: list[list[MergedSuccGroup]] = merge_overlap(cycles)
+
+    processed_merged_cycles: list[MergedSuccGroup] = list()
+    remaining_msgrps: set[MergedSuccGroup] = set(merged_sgrps)
+    for mc in merged_cycles:
+        processed_merged_cycles.append(MergedSuccGroup.merge(mc))
+        for msgrp in mc:
+            remaining_msgrps.remove(msgrp)
+
+    processed_merged_cycles.extend(remaining_msgrps)
+    return processed_merged_cycles
 
 
 def group_by(dict_: dict, keyfunc=lambda item: item):

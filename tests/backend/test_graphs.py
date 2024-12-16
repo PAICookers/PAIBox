@@ -242,13 +242,20 @@ class TestPAIGraph:
         self, monkeypatch, build_FModule_ConnWithInput_Net
     ):
         net = build_FModule_ConnWithInput_Net
+        mapper = pb.Mapper()
 
         monkeypatch.setattr(net.n1, "__gh_build_ignore__", True)
 
-        mapper = pb.Mapper()
-
         with pytest.raises(GraphConnectionError):
             mapper.build(net)
+
+        monkeypatch.setattr(net.n1, "__gh_build_ignore__", False)
+        monkeypatch.setattr(net.s2, "__gh_build_ignore__", True)
+        monkeypatch.setattr(net.n2, "__gh_build_ignore__", True)
+
+        mapper.build(net)
+        assert net.s2.name not in mapper.graph._raw_edges
+        assert net.n2.name not in mapper.graph._raw_nodes
 
     @pytest.mark.parametrize("no_twisted_branch", [True, False])
     def test_untwist_branch_nodes1(
@@ -258,20 +265,18 @@ class TestPAIGraph:
 
         mapper = pb.Mapper()
         mapper.build(net)
-
-        try:
-            mapper.compile(no_twisted_branch=no_twisted_branch)
-        except NotSupportedError:
-            # A certain sturcture in the network is not supported.
-            assert no_twisted_branch == False
-            return
-
+        mapper.compile(no_twisted_branch=no_twisted_branch)
         mapper.export(fp=ensure_dump_dir)
 
-        assert (
-            len(mapper.graph.nodes)
-            == len(net.nodes(level=1).include(Neuron, pb.InputProj)) + net.n_copy
-        )
+        if no_twisted_branch:
+            assert (
+                len(mapper.graph.nodes)
+                == len(net.nodes(level=1).include(Neuron, pb.InputProj)) + net.n_copy
+            )
+        else:
+            assert len(mapper.graph.nodes) == len(
+                net.nodes(level=1).include(Neuron, pb.InputProj)
+            )
 
 
 class TestGroupEdges:
@@ -457,19 +462,23 @@ class TestGroupEdges:
         mapper = pb.Mapper()
         mapper.clear()
         mapper.build(net)
-        partitioned_edges = mapper.graph.graph_partition()
+        mapper.compile(no_twisted_branch=False)
 
         # In this case, N2 & N3 should be together.
         pos_n2 = pos_n3 = 0
-        for i, part in enumerate(partitioned_edges):
-            _g_with_name = [e.name for e in part.edges]
+        for i, cb in enumerate(mapper.core_blocks):
+            _g_with_name = [e.name for e in cb.obj]
             if "s2" in _g_with_name:
                 pos_n2 = i
+                break
+
+        for i, cb in enumerate(mapper.core_blocks):
+            _g_with_name = [e.name for e in cb.obj]
             if "s3" in _g_with_name:
                 pos_n3 = i
+                break
 
         assert pos_n2 == pos_n3
-        assert pos_n2 != 0
 
         # In this case, N2 & N3 should be split.
         monkeypatch.setattr(net.n2, "_tws", 2)
@@ -477,15 +486,20 @@ class TestGroupEdges:
 
         mapper.clear()
         mapper.build(net)
-        partitioned_edges = mapper.graph.graph_partition()
+        mapper.compile(no_twisted_branch=False)
 
         pos_n2 = pos_n3 = 0
-        for i, part in enumerate(partitioned_edges):
-            _g_with_name = [e.name for e in part.edges]
+        for i, part in enumerate(mapper.core_blocks):
+            _g_with_name = [e.name for e in part.obj]
             if "s2" in _g_with_name:
                 pos_n2 = i
+                break
+
+        for i, part in enumerate(mapper.core_blocks):
+            _g_with_name = [e.name for e in part.obj]
             if "s3" in _g_with_name:
                 pos_n3 = i
+                break
 
         assert pos_n2 != pos_n3
 

@@ -1,38 +1,68 @@
 from importlib.metadata import version
 
+# Backend context & mapper
 from .backend import BACKEND_CONFIG as BACKEND_CONFIG
 from .backend import Mapper as Mapper
+
+# Functional modules in SNN mode only
+# Functional modules in ANN mode only
+from .components.functional import AvgPool2dSemiFolded as AvgPool2dSemiFolded
 from .components.functional import BitwiseAND as BitwiseAND
 from .components.functional import BitwiseNOT as BitwiseNOT
 from .components.functional import BitwiseOR as BitwiseOR
 from .components.functional import BitwiseXOR as BitwiseXOR
-from .components.functional import DelayChain as DelayChain
+from .components.functional import Conv2dSemiFolded as Conv2dSemiFolded
+from .components.functional import Linear as Linear
+from .components.functional import LinearSemiFolded as LinearSemiFolded
+from .components.functional import MaxPool2dSemiFolded as MaxPool2dSemiFolded
 from .components.functional import SpikingAdd as SpikingAdd
+from .components.functional import SpikingAvgPool1d as SpikingAvgPool1d
+from .components.functional import SpikingAvgPool1dWithV as SpikingAvgPool1dWithV
 from .components.functional import SpikingAvgPool2d as SpikingAvgPool2d
 from .components.functional import SpikingAvgPool2dWithV as SpikingAvgPool2dWithV
+from .components.functional import SpikingMaxPool1d as SpikingMaxPool1d
 from .components.functional import SpikingMaxPool2d as SpikingMaxPool2d
 from .components.functional import SpikingSub as SpikingSub
 from .components.functional import Transpose2d as Transpose2d
 from .components.functional import Transpose3d as Transpose3d
+
+# Recued neurons in ANN mode only
+# Reduced neurons
 from .components.neuron.neurons import IF as IF
 from .components.neuron.neurons import LIF as LIF
+from .components.neuron.neurons import ANNBypassNeuron as ANNBypassNeuron
+from .components.neuron.neurons import ANNNeuron as ANNNeuron
+from .components.neuron.neurons import BypassNeuron as BypassNeuron
 from .components.neuron.neurons import PhasicSpiking as PhasicSpiking
 from .components.neuron.neurons import SpikingRelu as SpikingRelu
 from .components.neuron.neurons import TonicSpiking as TonicSpiking
+
+# Input projection
 from .components.projection import InputProj as InputProj
+
+# Connection types of synapses
 from .components.synapses import ConnType as SynConnType
+
+# Synapses
 from .components.synapses.synapses import Conv1d as Conv1d
 from .components.synapses.synapses import Conv2d as Conv2d
 from .components.synapses.synapses import ConvTranspose1d as ConvTranspose1d
 from .components.synapses.synapses import ConvTranspose2d as ConvTranspose2d
 from .components.synapses.synapses import FullConn as FullConn
 from .components.synapses.synapses import MatMul2d as MatMul2d
-from .components.synapses.synapses import NoDecay as NoDecay
+
+# Frontend context
 from .context import FRONTEND_ENV as FRONTEND_ENV
+
+# Network
 from .network import DynSysGroup as DynSysGroup
-from .network import Network as Network
+from .network import Network  # alias for DynSysGroup
+
+# Auxiliary containers
 from .node import NodeDict as NodeDict
 from .node import NodeList as NodeList
+
+# Simulation
 from .simulator import Probe as Probe
 from .simulator import Simulator as Simulator
 
@@ -44,7 +74,7 @@ except Exception:
 from paibox import tools
 
 # Minimum required version of paicorelib
-__plib_minimum_version__ = "1.1.6"
+__plib_minimum_version__ = "1.3.0"
 
 try:
     import paicorelib as plib

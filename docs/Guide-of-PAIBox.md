@@ -1,7 +1,4 @@
-<div align="center">
 # PAIBox使用指南
-
-</div>
 
 ## 安装
 
@@ -9,7 +6,7 @@
 python = "^3.9"
 pydantic = "^2.0.3"
 numpy = "^1.26.0"
-paicorelib = "^1.1.6"
+paicorelib = ">=1.3.1"
 ```
 
 可选依赖：
@@ -50,39 +47,67 @@ PAIBox 提供了多种类型的神经元模型，能够实现各种特殊的功�
 
 #### IF
 
-IF 神经元实现了经典的“积分发射”模型，其调用方式及参数如下：
+IF 神经元实现了经典的“积分-发射”模型，其调用方式及参数如下：
 
 ```python
 import paibox as pb
 
-n1 = pb.IF(shape=10, threshold=127, reset_v=0, neg_threshold=-100, keep_shape=False, delay=1, tick_wait_start=1, tick_wait_end=0, name='n1')
+n1 = pb.IF(shape=10, threshold=127, reset_v=0, neg_threshold=-100, keep_shape=True, delay=1, tick_wait_start=1, tick_wait_end=0, name='n1')
 ```
 
 其中：
 
 - `shape`：代表神经元组的尺寸，其形式可以是整形标量、元组或列表。
 - `threshold`：神经元阈值，其形式为整数。
-- `reset_v`：神经元的复位电位，可选参数。当指定时，神经元在发放后，进行硬复位( `v = resetv` )；当未指定时，进行软复位( `v -= pos_threshold` )。默认进行软复位。
+- `reset_v`：神经元的复位电位，可选参数。当指定时，神经元在发放后，进行硬复位( `v=resetv` )；当未指定时，进行软复位( `v-=pos_thres` )。默认进行软复位。
 - `neg_threshold`：负阈值，神经元膜电位所允许的最小值，必须是非正整数。当未指定时，默认为硬件所允许的最小负整数。
 - `delay`：设定神经元输出的延迟。默认为1，即本时间步的计算结果，**下一时间步**传递至后继节点。
 - `tick_wait_start`：设定神经元启动时间。神经元将在第 `T` 个时间步时启动。0表示不启动。默认为1。
 - `tick_wait_end`：设定神经元持续工作时长。神经元将持续工作 `T` 个时间步。0表示**持续工作**。默认为0。
-- `unrolling_factor`：该参数与后端流程相关。展开因子表示神经元将被展开，部署至更多的物理核上，以降低延迟并提高吞吐率。
+- `unrolling_factor`：展开因子表示神经元将被展开，部署至更多的物理核上，以降低延迟并提高吞吐率。该参数仅与后端流程相关。默认为1。
 - `overflow_strict`：溢出严格模式。用于设置是否严格检查运算过程中神经元膜电位出现溢出的情况。若启用，遇到溢出将报错，否则将遵循硬件行为进行处理。默认为 `False`。
 - `keep_shape`：是否在仿真记录数据时保持尺寸信息，默认为 `True`。实际进行运算的尺寸仍视为一维。
 - `name`：神经元的名称。可选参数。
+
+神经元的部分行为由芯片计算核的某些配置项决定：输入数据位数、输出数据位数、SNN使能。芯片计算核的工作模式即由这些参数决定。例如，SNN模式则是输入数据、输出数据位数均为1bit，SNN使能为1。对应关系如下表所列：
+
+|            模式             | `input_width` | `spike_width` | `snn_en` |
+| :-------------------------: | :-----------: | :-----------: | :------: |
+|            BANN             |       0       |       0       |    0     |
+|             SNN             |       0       |       0       |    1     |
+|       BANN/SNN to ANN       |       0       |       1       |    0     |
+| BANN/SNN to SNN with values |       0       |       1       |    1     |
+|       ANN to BANN/SNN       |       1       |       0       |    0     |
+|            BANN             |       1       |       1       |    0     |
+|          Undefined          |       1       |      0/1      |    1     |
+
+- `input_width`：处理核输入数据位数，1或8。为1表示该处理核的输入数据为脉冲，反之为 8bit 无符号数。默认为1。
+- `spike_width`：神经元输出数据位数，1或8。为1表示该处理核输出数据（从神经元输出）为脉冲，反之为 8bit 无符号数。默认为1。
+- `snn_en`：SNN 模式使能。当开启时，神经元内的计算保留上一时刻膜电平信息，反之不保留（ANN 计算模式不需要上一时刻膜电平信息）。默认为 `True`。
+- `bit_truncation`：神经元输出的 8bit 无符号数的截断位置。默认为8，该参数仅在 `spike_width=8` 时生效。由于膜电平为 30bit 有符号数，因此需要截取 8bit 作为神经元最终的输出。若膜电平最高有效位大于所截取的位置，则输出255。该截断操作类似于有上限的斜率可调的 Relu 操作。`bit_truncation` 与截取位置的对应关系如下表所列：
+
+| `bit_truncation` |   截取位置    |
+| :--------------: | :-----------: |
+|        0         |     8'h0      |
+|        1         |  {[0], 7'h0}  |
+|        2         | {[1:0], 6'h0} |
+|        ……        |      ……       |
+|        8         |     [7:0]     |
+|        9         |     [8:1]     |
+|        ……        |      ……       |
+|        29        |    [28:21]    |
 
 #### LIF
 
 LIF 神经元实现了“泄露-积分-发射”神经元模型，其调用方式及参数如下：
 
 ```python
-n1 = pb.LIF(shape=128, threshold=127, reset_v=0, leak_v=-1, neg_threshold=0, keep_shape=False, name='n1')
-n2 = pb.LIF(shape=128, threshold=10, reset_v=1, bias=-1, keep_shape=True, name='n2')
+n1 = pb.LIF(shape=128, threshold=127, reset_v=0, leak_v=-1, neg_threshold=0, name='n1')
+n2 = pb.LIF(shape=128, threshold=10, reset_v=1, bias=-1, name='n2')
 ```
 
 - `leak_v`：泄露，有符号数。
-- `bias`：偏置，有符号数。神经元将**在阈值比较前泄露**，从而实现“偏置”的效果。 `bias` 与 `leak_v` 效果将叠加。支持数组形式的偏置，这通常用于实现卷积的分通道偏置，偏置的尺寸应与神经元尺寸相关，这取决于偏置的实际含义：可以为标量（例如，线性层的偏置）、`(C,)` 数组（其中 `C` 为通道数）或 `(C,H,W)` 数组。
+- `bias`：偏置，有符号数。神经元将**在阈值比较前泄露**，从而实现“偏置”的效果。`bias` 与 `leak_v` 效果将叠加。支持数组形式的偏置，这通常用于实现卷积的分通道偏置，偏置的尺寸应与神经元尺寸相关，这取决于偏置的实际含义：可以为标量、`(C,)` 数组（其中 `C` 为通道数或输出特征数）或与本层神经元尺寸相同的数组。
 - 其他参数含义与 IF 相同。
 
 #### Tonic Spiking
@@ -90,7 +115,7 @@ n2 = pb.LIF(shape=128, threshold=10, reset_v=1, bias=-1, keep_shape=True, name='
 Tonic Spiking 神经元可以实现对持续脉冲刺激的周期性反应。
 
 ```python
-n1 = pb.TonicSpiking(shape=128, fire_step=3, keep_shape=False, name='n1')
+n1 = pb.TonicSpiking(shape=128, fire_step=3, name='n1')
 ```
 
 - `fire_step`：发放时间，每接收到 `N` 次刺激后发放脉冲。
@@ -100,15 +125,43 @@ n1 = pb.TonicSpiking(shape=128, fire_step=3, keep_shape=False, name='n1')
 Phasic Spiking 神经元可以实现，在接受一定数量脉冲后发放，然后保持静息状态，不再发放。
 
 ```python
-n1 = pb.PhasicSpiking(shape=128, fire_step=3, neg_floor=-10, keep_shape=False, name='n1')
+n1 = pb.PhasicSpiking(shape=128, fire_step=3, neg_floor=-10, name='n1')
 ```
 
 - `fire_step`：发放时间，每接收到 `N` 次刺激后发放脉冲。
 - `neg_floor`：地板阈值，有符号负数。当发放脉冲后，膜电位将永远保持在地板阈值。
 
+#### Bypass Neuron
+
+正阈值为1，负阈值、复位电平、泄露均为0的神经元。它的输出等于输入。
+
+```python
+n1 = pb.BypassNeuron(shape=128, name='n1')
+```
+
 #### Spiking Relu
 
+⚠️ 即将弃用，请使用 `BypassNeuron`
+
 SNN 模式下，具有 Relu 功能的神经元。当输入为1，则输出为1；输入为非正整数，输出为0。
+
+#### ANN Neuron
+
+`LIF` 的子类，在 ANN 模式下调用。`bit_truncation=8`，且预设 `input_width=8`，`spike_width=8` 以及 `snn_en=False`。
+
+```python
+n1 = pb.ANNNeuron(shape=128, bias=1, bit_trunc=9, name='n1')
+```
+
+其中，`bias` 与 `bit_trunc` 的含义参见前述。
+
+#### ANN Bypass Neuron
+
+`ANNNeuron` 的子类，在 ANN 模式下调用，可作为直通神经元使用。`bias=0`，`bit_truncation=8`。
+
+```python
+n1 = pb.ANNBypassNeuron(shape=128, name='n1')
+```
 
 ### 突触
 
@@ -161,7 +214,7 @@ s1= pb.FullConn(source=n1, dest=n2, weights=weight1, conn_type=pb.SynConnType.Al
 
   其权重以标量的形式储存。
 
-- 数组：尺寸要求为 `(N2,)`，可以自定义每组对应神经元之间的连接权重。如下例所示，设置 `weights` 为 `[1, 2, 3, 4, 5]`，
+- 数组：尺寸要求为 `(N2,)`，可以自定义每组对应神经元之间的连接权重。如下例所示，设置 `weights` 为 `[1,2,3,4,5]`，
 
   ```python
   n1 = pb.IF(shape=5, threshold=1)
@@ -181,16 +234,16 @@ s1= pb.FullConn(source=n1, dest=n2, weights=weight1, conn_type=pb.SynConnType.Al
 
 ##### Identity 恒等映射
 
-具有缩放因子的单对单连接，即 `One2One` 中权重项为标量的特殊情况。
+具有标量缩放因子的单对单连接，即 `One2One` 中权重项为标量的特殊情况。
 
 #### 2D矩阵乘法 MatMul2d
 
 专门用于表示二维矩阵乘法， $y=x\cdot w$ 或 $y=x^T\cdot w$
 
-- 例如，输入尺寸为 `(n, k)` ，权重尺寸为 `(k, m)`，输出尺寸为 `(n, m)`
-- 当输入尺寸为 `(k, n)` 时，会**自动进行转置**
+- 例如，输入尺寸为 `(n,k)` ，权重尺寸为 `(k,m)`，输出尺寸为 `(n,m)`
+- 当输入尺寸为 `(k,n)` 时，会**自动进行转置**
 - 输入维度最大为2维
-- 当输入维度小于2维，将自动补齐，即 `(N, )` 补齐为 `(1, N)`
+- 当输入维度小于2维，将自动补齐，即 `(N,)` 补齐为 `(1,N)`
 
 ```python
 n1 = pb.IF(shape=(8, 16), threshold=1)
@@ -198,14 +251,14 @@ n2 = pb.IF(shape=(8, 10), threshold=1)
 s1 = pb.MatMul2d(source=n1, dest=n2, weights=np.ones((16, 10), dtype=np.int8))
 ```
 
-⚠️ 不要与 `FullConn` 混淆。`FullConn` 需要传入 `N*M` 矩阵，其中 `N` 为前向神经元组数目，`M` 为后向神经元组数目。而 `MatMul2d` 中传入的矩阵尺寸并非 `N*M` ，它最终将展开为 `N*M` 矩阵。如下式所示，由于输入/输出数据在芯片中只能以一维表示，因此，它在芯片中的实现为：
+⚠️ 不要与 `FullConn` 混淆。`FullConn` 需要传入 $N*M$ 矩阵，其中 $N$ 为前向神经元组数目，$M$ 为后向神经元组数目。而 `MatMul2d` 中传入的矩阵尺寸并非 $N*M$ ，它最终将展开为 $N*M$ 矩阵。如下式所示，由于输入/输出数据在芯片中只能以一维表示，因此，它在芯片中的实现为：
 
 $$
 \begin{bmatrix}x_{11}& x_{12}& x_{13}\\ x_{21}& x_{22}& x_{23}\end{bmatrix}\cdot\begin{bmatrix}w_{11}& w_{12}\\ w_{21}& w_{22}\\ w_{31}& w_{32}\end{bmatrix}=\begin{bmatrix}y_{11}& y_{12}\\ y_{21}& y_{22}\end{bmatrix}
 $$
 
 $$
-\begin{bmatrix}x_{11}\\ x_{12}\\ x_{13}\\ x_{21}\\ x_{22}\\ x_{23}\end{bmatrix}^T\cdot\begin{bmatrix}w_{11}& w_{12}& 0& 0\\ w_{21}& w_{22}& 0& 0\\ w_{31}& w_{32}& 0& 0\\0& 0& w_{11}& w_{12}\\0& 0& w_{21}& w_{22}\\0& 0& w_{31}& w_{32}\end{bmatrix}=\begin{bmatrix}y_{11}\\ y_{12}\\ y_{21}\\ y_{22}\end{bmatrix}^T
+\begin{bmatrix}x_{11}\\ x_{12}\\ x_{13}\\ x_{21}\\ x_{22}\\ x_{23}\end{bmatrix}^T\cdot\begin{bmatrix}w_{11}& w_{12}& 0& 0\\ w_{21}& w_{22}& 0& 0\\ w_{31}& w_{32}& 0& 0\\ 0& 0& w_{11}& w_{12}\\ 0& 0& w_{21}& w_{22}\\ 0& 0& w_{31}& w_{32}\end{bmatrix}=\begin{bmatrix}y_{11}\\ y_{12}\\ y_{21}\\ y_{22}\end{bmatrix}^T
 $$
 
 对于 $y=x^T\cdot w$，将转置作用于 $w$ 即可等效实现。例如：
@@ -215,7 +268,7 @@ $$
 $$
 
 $$
-\begin{bmatrix}x_{11}\\x_{12}\\x_{21}\\x_{22}\\x_{31}\\x_{32}\end{bmatrix}^T\cdot\begin{bmatrix}w_{11}& w_{12}& 0& 0\\0& 0& w_{11}& w_{12}\\ w_{21}& w_{22}& 0& 0\\ 0& 0& w_{21}& w_{22}\\ w_{31}& w_{32}& 0& 0\\0& 0& w_{31}& w_{32}\end{bmatrix}=\begin{bmatrix}y_{11}\\ y_{12}\\ y_{21}\\ y_{22}\end{bmatrix}^T
+\begin{bmatrix}x_{11}\\ x_{12}\\ x_{21}\\ x_{22}\\ x_{31}\\ x_{32}\end{bmatrix}^T\cdot\begin{bmatrix}w_{11}& w_{12}& 0& 0\\ 0& 0& w_{11}& w_{12}\\ w_{21}& w_{22}& 0& 0\\ 0& 0& w_{21}& w_{22}\\ w_{31}& w_{32}& 0& 0\\ 0& 0& w_{31}& w_{32}\end{bmatrix}=\begin{bmatrix}y_{11}\\ y_{12}\\ y_{21}\\ y_{22}\end{bmatrix}^T
 $$
 
 #### 1D卷积
@@ -224,7 +277,7 @@ $$
 
 - `kernel`：卷积核权重。
 - `stride`：步长，标量。默认为1。
-- `padding`：填充，标量。
+- `padding`：填充，标量。默认为0。
 - `kernel_order`：指定卷积核维度顺序为 `OIL` 或 `IOL` 排列。默认为 `OIL`。
 - 神经元维度顺序仅支持 `CL`。
 
@@ -241,8 +294,8 @@ conv1d = pb.Conv1d(n1, n2, kernel=kernel, stride=1, padding=0, kernel_order="OIL
 全展开形式2D卷积为全连接突触的一种特殊表达。需**严格指定**输入神经元的尺寸与维度、卷积核权重、卷积核维度顺序与步长。对于输出神经元的具体尺寸不做严格要求。
 
 - `kernel`：卷积核权重。
-- `stride`：步长，标量或元组格式。当为标量时，对应为 `(x, x)`；当为元组时，则对应为 `(x, y)`。默认为1。
-- `padding`：填充，可以为标量或元组。当为标量时，对应为 `(x, x)`；当为元组时，则对应为 `(x, y)`。
+- `stride`：步长，标量或元组格式。当为标量时，对应为 `(x,x)`；当为元组时，则对应为 `(x,y)`。默认为1。
+- `padding`：填充，标量或元组格式。当为标量时，对应为 `(x,x)`；当为元组时，则对应为 `(x,y)`。默认为0。
 - `kernel_order`：指定卷积核维度顺序为 `OIHW` 或 `IOHW` 排列。默认为 `OIHW`。
 - 神经元维度顺序仅支持 `CHW`。
 
@@ -281,9 +334,9 @@ convt1d = pb.ConvTranspose1d(n1, n2, kernel=kernel, stride=1, padding=0, output_
 全展开形式2D转置卷积为全连接突触的一种特殊表达。需**严格指定**输入神经元的尺寸与维度、卷积核权重、卷积核维度顺序与步长。对于输出神经元的具体尺寸不做严格要求。
 
 - `kernel`：卷积核权重。
-- `stride`：步长，可以为标量或元组。当为标量时，对应为 `(x, x)`；当为元组时，则对应为 `(x, y)`。
-- `padding`：填充，可以为标量或元组。当为标量时，对应为 `(x, x)`；当为元组时，则对应为 `(x, y)`。
-- `output_padding`：对输出特征图的一侧进行额外的填充，可以为标量或元组。当为标量时，对应为 `(x, x)`；当为元组时，则对应为 `(x, y)`。
+- `stride`：步长，可以为标量或元组。当为标量时，对应为 `(x,x)`；当为元组时，则对应为 `(x,y)`。
+- `padding`：填充，可以为标量或元组。当为标量时，对应为 `(x,x)`；当为元组时，则对应为 `(x,y)`。
+- `output_padding`：对输出特征图的一侧进行额外的填充，可以为标量或元组。当为标量时，对应为 `(x,x)`；当为元组时，则对应为 `(x,y)`。
 - `kernel_order`：指定卷积核维度顺序为 `OIHW` 或 `IOHW` 排列。
 - 神经元维度顺序仅支持 `CHW`。
 - 参数详细含义参见：[pytorch/ConvTranspose2d](https://pytorch.org/docs/stable/generated/torch.nn.ConvTranspose2d.html#torch.nn.ConvTranspose2d)
@@ -348,8 +401,8 @@ for t in range(20):
 其中，
 
 - `kernel`：卷积核权重。
-- `stride`：步长，可以为标量或元组。当为标量时，对应为 `(x, x)`；当为元组时，则对应为 `(x, y)`。
-- `padding`：对输入进行填充，可以为标量或元组。当为标量时，对应为 `(x, x)`；当为元组时，则对应为 `(x, y)`。
+- `stride`：步长，可以为标量或元组。当为标量时，对应为 `(x,x)`；当为元组时，则对应为 `(x,y)`。
+- `padding`：对输入进行填充，可以为标量或元组。当为标量时，对应为 `(x,x)`；当为元组时，则对应为 `(x,y)`。
 - `kernel_order`：指定卷积核维度顺序为 `OIHW` 或 `IOHW` 排列。
 - `tau`：膜电位时间常数。
 - `decay_input`：输入是否也会参与衰减。
@@ -570,9 +623,9 @@ print(output)
 
 功能模块均支持 `delay`，`tick_wait_start`，`tick_wait_end`，`keep_shape` 参数。
 
-### 逻辑运算
+### 逻辑位运算
 
-逻辑运算模块实现了 `numpy` 中的位逻辑运算操作（例如 `&` 与 `numpy.bitwise_and` 等），可对接收到的一或多个输出脉冲进行逻辑运算，并产生脉冲输出。PAIBox 提供了逻辑与、或、非、异或：`BitwiseAND`，`BitwiseOR`，`BitwiseNOT`，`BitwiseXOR`。以位与为例：
+逻辑位运算模块实现了 `numpy` 中的位逻辑运算操作（例如 `&` 与 `numpy.bitwise_and` 等），可对接收到的一或多个输出脉冲进行逻辑运算，并产生脉冲输出。PAIBox 提供了位与、或、非、异或：`BitwiseAND`，`BitwiseOR`，`BitwiseNOT`，`BitwiseXOR`。以位与为例：
 
 ```python
 import paibox as pb
@@ -592,27 +645,12 @@ class Net(pb.DynSysGroup):
 - `neuron_a`：第一个操作数。
 - `neuron_b`：第二个操作数。
 - `delay`：设定模块输出的延迟。默认为1，即本时间步的计算结果，**下一时间步**传递至后继节点。
-- `tick_wait_start`：设定模块启动时间。模块将在第 `T` 个时间步时启动。0表示不启动。默认为1。
-- `tick_wait_end`：设定模块持续工作时长。模块将持续工作 `T` 个时间步。0表示**持续工作**。默认为0。
+- `tick_wait_start`：设定模块启动时刻。模块将在第 `T` 个时间步时启动。0表示不启动。默认为1。
+- `tick_wait_end`：设定模块**持续工作**时长。模块将持续工作 `T` 个时间步。0表示**持续工作**。默认为0。
 - `keep_shape`：是否在仿真记录数据时保持尺寸信息，默认为 `False`。实际进行运算的尺寸仍视为一维。
 - `name`：模块的名称。可选参数。
 
 ⚠️ 模块的属性 `external_delay` 用于表示其相对于外部的内部固有延迟。这是由具体的后端构建形式决定的，不可更改。上述示例中，位与计算结果将输出至 `n3` 中。默认情况下，`n3` 将在位与计算结果输出后启动，因此其启动时间为 `and1` 的启动时间+固有延迟+1。
-
-### 延迟链
-
-用于实现神经元延迟输出。使用方式如下：
-
-```python
-n1 = pb.IF((10,), 1, 0, delay=1, tick_wait_start=1)
-n1_delay_out = pb.DelayChain(n1, chain_level=5, delay=1, tick_wait_start=2)
-n2 = pb.SpikingRelu((10,), delay=1, tick_wait_start=n1_delay_out.tick_wait_start + n1_delay_out.external_delay)
-```
-
-其中：
-
-- `neuron`：进行延迟输出的神经元。
-- `chain_level`：延迟链的级数，即延迟的时间步。注意，这与 `delay` 含义不同：延迟链内部会建立多级神经元（类似buffer），以实现数据的延迟传递，而 `delay` 会使得神经元输出寄存的位置延后，后继节点的启动时间需要提前，这将导致其在前级**有效输出**前就进行了计算。
 
 ### 2D平均/最大池化
 
@@ -630,18 +668,26 @@ s3 = pb.FullConn(p2d, n2, conn_type=pb.SynConnType.One2One)
 其中：
 
 - `neuron`：待池化的神经元。
-- `kernel_size`：池化窗口的尺寸，标量或元组格式。当为标量时，对应为 `(x, x)`；当为元组时，则对应为 `(x, y)`。
+- `kernel_size`：池化窗口的尺寸，标量或元组格式。当为标量时，对应为 `(x,x)`；当为元组时，则对应为 `(x,y)`。
 - `stride`：步长，可选参数，标量或元组格式，默认为 `None`，即池化窗口的尺寸。
-- `padding`：填充，可以为标量或元组。当为标量时，对应为 `(x, x)`；当为元组时，则对应为 `(x, y)`。默认为0。
+- `padding`：填充，标量或元组格式。当为标量时，对应为 `(x,x)`；当为元组时，则对应为 `(x,y)`。默认为0。
 - 神经元维度顺序仅支持 `CHW`。
 
 对于平均池化 `SpikingAvgPool2d`，它还有如下参数可配置：
 
-- `threshold`：平均池化的比较阈值，芯片需要通过神经元的阈值比较间接地实现除法。当不指定时，阈值为 $\text{round}(\text{kernel\_size}/2)$。池化窗口的输入做累加后与该阈值进行比较，可等价于平均池化的操作，即 $o_j=\sum^{k-1}_{i=0}x_{ij} \ge V_{th,pos}$，其中 $k$ 为池化窗口尺寸，$x_{ij}$ 为每个池化窗口内的输入特征图元素，$o_j$ 为第 $j$ 个输出特征图元素。
+- `threshold`：平均池化的比较阈值，芯片需要通过神经元的阈值比较间接地实现除法。当不指定时，阈值为 $\text{round}(\text{ksize}/2)$。池化窗口的输入做累加后与该阈值进行比较，可等价于平均池化的操作，即 $o_j=\sum^{k-1}_{i=0}x_{ij} \ge V_{th,pos}$，其中 $k$ 为池化窗口尺寸，$x_{ij}$ 为每个池化窗口内的输入特征图元素，$o_j$ 为第 $j$ 个输出特征图元素。
 
-### \*2D平均池化（与膜电位相关）
+### 2D平均池化（膜电位相关）
 
 这是 `SpikingAvgPool2d` 的另一种实现形式。`SpikingAvgPool2d` 在每个时间步上的运算**不会造成膜电位积累**（当未发放时），因此，可以说它与时间步无关。而该平均池化实现，当未发放时，**会造成膜电位积累**，因此与时间步相关。调用 `SpikingAvgPool2dWithV`，参数与前述 `SpikingAvgPool2d` 相同。
+
+### 1D平均/最大池化
+
+请参阅2D平均/最大池化。
+
+### 1D平均池化（膜电位相关）
+
+请参阅2D平均池化（膜电位相关）。
 
 ### 脉冲加、减
 
@@ -663,7 +709,7 @@ $$
 V_{pre} + a\cdot f_a + b\cdot f_b \ge V_{th,pos}
 $$
 
-对于 `SpikingSub`，$f_a=1$，$f_b=-1$.
+对于 `SpikingSub`， $f_a=1$， $f_b=-1$。
 
 ```python
 n1 = pb.IF((10,), 1, 0, delay=1, tick_wait_start=1)
@@ -676,10 +722,9 @@ sub1 = pb.SpikingSub(n1, n2, overflow_strict=False, delay=1, tick_wait_start=2) 
 
 - `neuron_a`：第一个操作数。
 - `neuron_b`：第二个操作数。在减法中作被减数。
-- `factor_a`：第一个操作数的缩放因子，正整数标量。默认为1，仅在 `SpikingAdd` 中使用。
-- `factor_b`：第一个操作数的缩放因子，正整数标量。默认为1，仅在 `SpikingAdd` 中使用。
+- `factor_a/b`：第一/二个操作数的缩放因子，正整数标量。默认为1，仅在 `SpikingAdd` 中使用。
 - `pos_thres`：正阈值。默认为1，仅在 `SpikingAdd` 中使用。
-- `reset_v`：复位电位，可选参数。当指定时，神经元在发放后，进行硬复位( `v = resetv` )；当未指定时，进行软复位( `v -= pos_threshold` )。默认进行软复位，仅在 `SpikingAdd` 中使用。
+- `reset_v`：复位电位，可选参数。当指定时，神经元在发放后，进行硬复位( `v=resetv` )；当未指定时，进行软复位( `v-=pos_thres` )。默认进行软复位，仅在 `SpikingAdd` 中使用。
 - `overflow_strict`：是否严格检查运算结果溢出。如果启用，则在仿真中，当脉冲加、减运算结果溢出时将报错。默认为 `False`。
 
 ### 2D/3D转置
@@ -700,6 +745,65 @@ t3d = pb.Transpose3d(n2, axes=(1, 2, 0), tick_wait_start=2)
 
 - `neuron`：待转置其输出脉冲的神经元。对于二维转置，支持输入尺寸为1或2维；对于三维转置，支持输入尺寸为2或3维。尺寸不足时，自动补1。
 - `axes`：（仅三维转置）如果指定，则必须是包含 `[0,1,…,N-1]` 排列的元组或列表，其中 `N` 是矩阵的轴（维度）数。返回数组的第 `i` 轴将对应于输入的编号为 `axes[i]` 的轴。若未指定，则默认为 `range(N)[::-1]`，这将反转轴的顺序。具体参数含义参见：[numpy.transpose](https://numpy.org/doc/1.26/reference/generated/numpy.transpose.html#numpy.transpose)
+
+### 线性层
+
+适用于 ANN 的线性层。
+
+```python
+n1 = pb.ANNNeuron((1024,))
+l1 = pb.Linear(n1, 10, w, bias=10, bit_trunc=8)
+```
+
+其中：
+
+- `neuron_s`：输入特征图（神经元）。
+- `out_features`：输出特征，可以理解为输出神经元。
+- `weights`：权重矩阵。
+- `bias`：偏置，有符号数。可以为标量或 `(out_features,)` 数组。
+- `bit_trunc`：神经元输出的8位无符号数的截断位置。默认为8，即截取 [7:0] 位。
+
+### 半折叠形式算子
+
+以下算子仅适用于ANN，且对数据流形式有严格要求，因此要求神经网络中的所有算子均为半折叠形式。
+
+当神经网络采用半折叠形式时，对于尺寸为 `(C,H,W)` 的特征图，将展开为 `W*(C,H)` 的形式输入，即对于一张特征图需要 `W` 个时间步完成输入（`H` 与 `W` 地位相同，可以互换）。在例化半折叠形式的算子时，卷积核的尺寸依然为（本层的） `(O,I,K,K)`，然而中间特征图的尺寸却减小为 `(C,H)`，`W` 维度被折叠。这显著减少了芯片内所需存储的中间特征图尺寸。作为代价，半折叠形式的卷积（类）算子需至少 `Ow `个时间步才完全输出，其中 `Ow` 为本层的输出特征图宽度。这使得网络模型的推理（得到第一次有效输出数据的）耗时增加。
+
+#### 半折叠2D卷积
+
+- `neuron_s`：输入特征图（神经元），要求为半折叠算子或输入节点。
+- `kernel`：卷积核权重，维度顺序为 `OIHW`。
+- `stride`：步长，标量或元组格式。当为标量时，对应为 `(x,x)`；当为元组时，则对应为 `(x,y)`。默认为1。
+<!-- - `padding`：填充，标量或元组格式。当为标量时，对应为 `(x,x)`；当为元组时，则对应为 `(x,y)`。默认为0。 -->
+- `bias`：偏置，有符号数。可以为标量或 `(C,)` 数组。默认为0。
+- `bit_trunc`：神经元输出的8位无符号数的截断位置。默认为8，即截取 [7:0] 位。
+
+#### 半折叠2D最大池化
+
+- `neuron_s`：输入特征图（神经元），要求为半折叠算子或输入节点。
+- `kernel_size`：池化窗口的尺寸，标量或元组格式。当为标量时，对应为 `(x,x)`；当为元组时，则对应为 `(x, y)`。
+- `stride`：步长，标量或元组格式。当为标量时，对应为 `(x,x)`；当为元组时，则对应为 `(x,y)`。默认为 `None`，即池化窗口的尺寸。
+- `bit_trunc`：神经元输出的8位无符号数的截断位置。默认为8，即截取 [7:0] 位。
+
+⚠️ 半折叠最大池化不支持 padding。
+
+#### 半折叠2D平均池化
+
+- `neuron_s`：输入特征图（神经元），要求为半折叠算子或输入节点。
+- `kernel_size`：池化窗口的尺寸，标量或元组格式。当为标量时，对应为 `(x,x)`；当为元组时，则对应为 `(x, y)`。
+- `stride`：步长，标量或元组格式。当为标量时，对应为 `(x,x)`；当为元组时，则对应为 `(x,y)`。默认为 `None`，即池化窗口的尺寸。
+<!-- - `padding`：填充，标量或元组格式。当为标量时，对应为 `(x,x)`；当为元组时，则对应为 `(x,y)`。默认为0。 -->
+- `bit_trunc`：神经元输出的8位无符号数的截断位置。默认为 `8+ksize.bit_length()-1`，其中 `ksize` 为池化窗口的尺寸。注意，由于平均池化依赖除法实现，而芯片计算核只能通过右移位实现2的整数幂除法。当池化窗口尺寸不为2的整数幂时，只能近似通过上式有损计算除法。例如，当池化窗口为 (3,3) 时，最终将 /8，而非 /9。这样的近似误差可以考虑在量化阶段，为后续层的权重 $w\cdot 8/9$ 而减小。
+
+#### 半折叠线性层
+
+半折叠线性层接受的输入为半折叠形式，而其计算结果在单一时间步上输出。即它将半折叠形式的数据流转换为全展开形式的数据流。
+
+- `neuron_s`：输入特征图（神经元），要求为半折叠算子或输入节点。
+- `out_features`：输出特征，可以理解为输出神经元。
+- `weights`：权重矩阵。
+- `bias`：偏置，有符号数。可以为标量或 `(out_features,)` 数组。
+- `bit_trunc`：神经元输出的8位无符号数的截断位置。默认为8，即截取 [7:0] 位。
 
 ## 网络模型
 
@@ -869,14 +973,14 @@ sim.reset()
 
 调用 `run` 运行仿真，其中：
 
-- `duration`：指定仿真时间步长。请注意，仿真时需要计算网络的最长路径(delay)，并计入仿真步长中以获取有效的输出。
+- `duration`：指定仿真时间步长。请注意，仿真步长需要大于网络模型的有效层数，才会得到并记录有效的仿真数据。
 - `reset`：是否对网络模型中组件进行复位。默认为 `False`。这可实现在一次仿真的不同时间步，输入不同的数据。
 
 ## 编译、映射与导出
 
 模型映射将完成网络拓扑解析、分割、路由坐标分配、配置信息与帧文件导出等一系列工作。
 
-例化 `Mapper`，传入所构建的网络模型，编译，最后导出。
+例化 `Mapper`，传入所构建的网络模型，构建、编译、导出。
 
 ```python
 mapper = pb.Mapper()
@@ -893,27 +997,27 @@ mapper.clear()
 
 其中，编译时有如下参数可指定：
 
-- `core_estimate_only`：仅导出预估所需核数目，不进行后续部署。默认关闭。
-- `weight_bit_optimization`: 是否对权重精度进行优化处理。这将使得声明时为 INT8 的权重根据实际值当作更小的精度处理（当权重的值均在 [-8, 7] 之间，则可当作 INT4 进行处理）。默认开启。
+- `core_estimate_only`：仅导出预估所需核数目，不进行后续部署。默认关闭。当启用此项时，编译工作未全部进行，因此无法导出任何信息。
+- `weight_bit_optimization`: 是否对权重精度进行优化处理。这将使得声明时为 INT8 的权重根据实际值当作更小的精度处理。例如，当权重的值均在 [-8, 7] 之间，则可当作 INT4 进行处理。默认开启。
 - `grouping_optim_target`：指定神经元分组的优化目标，可以为 `"latency"`，`"core"` 或 `"both"`，分别代表以延时/吞吐率、占用核资源为优化目标、或二者兼顾。默认 `both`。
-- 同时，该方法将返回字典形式的编译后网络的信息。
+- 将返回字典形式的编译后网络的信息。
 
 导出时有如下参数可指定：
 
 - `write_to_file`: 是否将配置帧导出为文件。默认为 `True`。
 - `fp`：导出目录。若未指定，则默认为后端配置选项 `build_directory` 所设置的目录（当前工作目录）。
 - `format`：导出交换文件格式，可以为 `bin`、`npy` 或 `txt`。默认为 `bin`。
-- `split_by_chip`：是否将配置帧以芯片坐标进行分割，由此生成的配置帧文件命名形如"config_chip0_core0"、"config_chip0_core1"、"config_chip1_core0"。默认为 `False`，即最终导出为一个文件 "config_all"。
+- `split_by_chip`：是否将配置帧以芯片坐标进行分割，由此生成的配置帧文件命名形如"config_chip0_core0.format"、"config_chip0_core1.format"、"config_chip1_core0.format"。默认为 `False`，即最终导出为一个文件 "config_all.format"。
 - `export_core_params`：是否导出实际使用核参数至 json 文件，以直观显示实际使用核的配置信息。默认为 `False`。
-- `export_clk_en_L2`：是否导出L2簇时钟串口数据。默认为 `False`。
+- `export_clk_en_L2`：是否导出 L2 簇时钟串口数据。默认为 `False`。硬件平台可根据该数据关闭芯片其他未使用的 L2 簇时钟以降低功耗。
 - `use_hw_sim`：是否使用硬件仿真器。若使用，将额外导出 `bin` 格式的配置帧文件。默认为 `True`。
 
 同时，该方法将返回模型的配置项字典 `GraphInfo`，包括：
 
 - `input`：输入节点信息字典。
 - `output`：输出目的地信息字典。
-- `memebers`：中间层所在物理核的配置项字典。
-- `inherent_timestep`：网络的最长时间步。
+- `members`：中间层所在物理核的配置项字典。
+- `inherent_timestep`：网络的最长时间步，即得到网络第一个有效输出数据的用时。
 - `n_core_required`：网络**需要**的物理核数目。
 - `n_core_occupied`：网络**实际占用**的物理核数目。
 - `misc`：其他杂项信息。例如，编译后的网络名称；上述L2簇时钟串口数据在该键 `["clk_en_L2"]` 中。

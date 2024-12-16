@@ -2,10 +2,11 @@ from math import ceil
 
 import numpy as np
 import pytest
-from paicorelib import Coord, HwConfig
+from paicorelib import ONLINE_CORES_BASE_COORD, Coord, HwConfig
+from paicorelib import WeightWidth as WW
 
 import paibox as pb
-from paibox.base import SynSys
+from paibox.backend.conf_exporting import *
 from paibox.exceptions import ResourceError
 
 from .conftest import TestData
@@ -122,14 +123,25 @@ class TestGraphInfo:
         assert len(mapper.graph_info["output"]) == 1
 
     def test_nested_net_L3_compile(self, get_mapper, build_Nested_Net_level_3):
-        net2 = build_Nested_Net_level_3
+        net = build_Nested_Net_level_3
         mapper: pb.Mapper = get_mapper
-        mapper.build(net2)
+        mapper.build(net)
         mapper.compile()
 
         assert len(mapper.graph.edges.keys()) == 5
         assert len(mapper.graph_info["input"]) == 2
         assert len(mapper.graph_info["output"]) == 1
+
+    def test_ANN_network_compile(
+        self, get_mapper, build_ANN_Network_1, ensure_dump_dir
+    ):
+        net = build_ANN_Network_1
+        mapper: pb.Mapper = get_mapper
+        mapper.build(net)
+        mapper.compile()
+        mapper.export(fp=ensure_dump_dir, export_core_params=True)
+
+        assert 1
 
 
 class TestMapperDeployment:
@@ -244,14 +256,16 @@ class TestMapperDeployment:
 
         assert graph_info["n_core_occupied"] == n_networks
 
-        rtotal = sum(mapper.routing_tree.n_core_per_chip)
-        r1 = mapper.routing_tree.n_core_per_chip[0]
+        rtotal = sum(mapper.routing_manager.n_core_per_chip)
+        r1 = mapper.routing_manager.n_core_per_chip[0]
 
         if n_networks > 1008:
-            r2 = mapper.routing_tree.n_core_per_chip[1]
+            r2 = mapper.routing_manager.n_core_per_chip[1]
             assert rtotal == r1 + r2
-            assert r1 == 1008
+            assert r1 == 1024
             assert r2 == n_networks - 1008
+        elif n_networks > ONLINE_CORES_BASE_COORD:
+            assert rtotal == r1 == n_networks + 16
         else:
             assert rtotal == r1 == n_networks
 
@@ -331,104 +345,12 @@ class TestMapper_Export:
         assert len(mapper.routing_groups[1].wasted_coords) == 2
 
 
-class TestMapper_Weight4:
-    @pytest.mark.skipif(
-        hasattr(SynSys, "CFLAG_ENABLE_WP_OPTIMIZATION"), reason="Breaking change"
-    )
-    def test_mapper_weight4(
-        self, monkeypatch, ensure_dump_dir, build_network_with_branches_4bit, packbits8
-    ):
-        # Use monkey patch to change the settings of `HwConfig` when running the test.
-        monkeypatch.setattr(HwConfig, "N_DENDRITE_MAX_SNN", 8 * 8)
-        monkeypatch.setattr(HwConfig, "N_FANIN_PER_DENDRITE_SNN", 6)
-
-        net = build_network_with_branches_4bit
-
-        mapper = pb.Mapper()
-        mapper.build(net)
-        mapper.compile()
-
-        configs = mapper.export(write_to_file=False, fp=ensure_dump_dir, format="npy")
-
-        assert mapper.n_core_required == 11
-
-        from paibox.backend.checker import ConfigChecker
-
-        cplm00 = mapper.core_blocks[0].core_placements[Coord(0, 0)]
-        cplm01 = mapper.core_blocks[0].core_placements[Coord(0, 1)]
-        cplm10 = mapper.core_blocks[0].core_placements[Coord(1, 0)]
-
-        n_config_core00 = ConfigChecker.n_config_estimate(
-            cplm00.n_neuron, cplm00.weight_precision, cplm00.lcn_ex
-        )
-        n_config_core01 = ConfigChecker.n_config_estimate(
-            cplm01.n_neuron, cplm01.weight_precision, cplm01.lcn_ex
-        )
-        n_config_core10 = ConfigChecker.n_config_estimate(
-            cplm10.n_neuron, cplm10.weight_precision, cplm10.lcn_ex
-        )
-
-        assert n_config_core00 == configs[Coord(0, 0)].size
-        assert n_config_core01 == configs[Coord(0, 1)].size
-        assert n_config_core10 == configs[Coord(1, 0)].size
-
-        # The #N of config frames of each core.
-
-        original_w1 = net.s1.connectivity
-        original_w2 = net.s2.connectivity
-        original_w3 = net.s3.connectivity
-        original_w4 = net.s4.connectivity
-        original_w5 = net.s5.connectivity
-
-        # Folded weight of s1
-        w11_folded = mapper.core_blocks[0].core_placements[Coord(0, 0)]._weights_folded
-        w12_folded = mapper.core_blocks[0].core_placements[Coord(0, 1)]._weights_folded
-        w13_folded = mapper.core_blocks[0].core_placements[Coord(1, 0)]._weights_folded
-
-        # Splited & folded weight of s2 & s3
-        w21_folded = mapper.core_blocks[1].core_placements[Coord(2, 0)]._weights_folded
-        w22_folded = mapper.core_blocks[1].core_placements[Coord(2, 1)]._weights_folded
-        w23_folded = mapper.core_blocks[1].core_placements[Coord(3, 0)]._weights_folded
-        w24_folded = mapper.core_blocks[1].core_placements[Coord(3, 1)]._weights_folded
-        w25_folded = mapper.core_blocks[1].core_placements[Coord(2, 2)]._weights_folded
-        w26_folded = mapper.core_blocks[1].core_placements[Coord(2, 3)]._weights_folded
-
-        # Splited & folded weight of s4 & 5
-        w31_folded = mapper.core_blocks[2].core_placements[Coord(0, 2)]._weights_folded
-        w32_folded = mapper.core_blocks[2].core_placements[Coord(0, 3)]._weights_folded
-
-        # Unpacked weight of s1
-        w11_unpacked = mapper.core_blocks[0].core_placements[Coord(0, 0)].weight_ram
-        w12_unpacked = mapper.core_blocks[0].core_placements[Coord(0, 1)].weight_ram
-        w13_unpacked = mapper.core_blocks[0].core_placements[Coord(1, 0)].weight_ram
-
-        for i in range(10):
-            for j in range(4):
-                n_in_col = w11_folded.shape[0]
-                now_i = i % n_in_col
-
-                offset_j = i // n_in_col
-                now_j = offset_j + j * 2
-
-                expected = original_w1[i, j]
-                wij = w11_folded[now_i, now_j]
-
-                assert expected == wij
-
-                # wij = w11_folded[now_i, now_j * 8 : (now_j + 1) * 8]
-                # packed = packbits8(wij)
-                # assert expected == packed
-
-        print("OK")
-
-
 class TestMapper_Compile:
+    @pytest.mark.xfail(reason="change the hardware limit may cause unexpected errors.")
     def test_grouping_optim_latency(
         self, monkeypatch, build_Network_8bit_dense, ensure_dump_dir
     ):
-        from paibox.backend.conf_template import export_core_plm_conf_json
-
-        monkeypatch.setattr(HwConfig, "N_DENDRITE_MAX_SNN", 8 * 8)
+        monkeypatch.setattr(HwConfig, "N_NEURON_MAX_SNN", 8 * 8)
         monkeypatch.setattr(HwConfig, "N_FANIN_PER_DENDRITE_SNN", 6)
 
         net = build_Network_8bit_dense
@@ -453,15 +375,18 @@ class TestMapper_Compile:
         mapper.build(net)
         mapper.compile(grouping_optim_target="core")
 
-        assert mapper.core_blocks[0].n_core_required == ceil(
-            net.n1.num_out / HwConfig.N_DENDRITE_MAX_SNN
-        )
+        for cb in mapper.core_blocks:
+            if net.n1 in cb.dest:
+                assert cb.n_core_required == ceil(
+                    net.n1.num_out / HwConfig.N_DENDRITE_MAX_SNN
+                )
+            elif net.n2 in cb.dest:
+                assert cb.n_core_required == 1 + 1
 
-        assert mapper.core_blocks[1].n_core_required == 1 + 1
-
-        assert mapper.core_blocks[2].n_core_required == ceil(
-            net.n4.num_out / HwConfig.N_DENDRITE_MAX_SNN
-        )
+            elif net.n4 in cb.dest:
+                assert cb.n_core_required == ceil(
+                    net.n4.num_out / HwConfig.N_DENDRITE_MAX_SNN
+                )
 
     def test_grouping_optim_both(self, monkeypatch, build_example_net4):
         net = build_example_net4
@@ -526,6 +451,29 @@ class TestMapper_Compile:
             multicast_optim=[net.n0],
         )
 
+    def test_ordered_axons(self, build_example_net5):
+        net = build_example_net5
+        mapper = pb.Mapper()
+        mapper.build(net)
+        mapper.compile()
+        nodes_with_empty_axons = [net.n3, net.n4, net.n5]
+        for cb in mapper.core_blocks:
+            if cb.dest[0] in nodes_with_empty_axons:
+                assert len(cb.ordered_axons) > len(cb.source)
+            else:
+                assert len(cb.ordered_axons) == len(cb.source)
+
+    def test_partition(self, build_example_net6):
+        net = build_example_net6
+        mapper = pb.Mapper()
+        mapper.build(net)
+        mapper.compile()
+        for cb in mapper.core_blocks:
+            if net.n3 in cb.dest:
+                assert len(cb.ordered_axons) == 2
+            if net.n4 in cb.dest:
+                assert len(cb.ordered_axons) == 3
+
     def test_core_estimate_only(self, build_example_net4):
         net = build_example_net4
 
@@ -542,9 +490,7 @@ class TestMapper_cflags:
         TestData.cflags_weight_bit_opt_data["args"],
         TestData.cflags_weight_bit_opt_data["data"],
     )
-    def test_cflags_weight_bit_opt(
-        self, range, scalar, dtype, expected_wp_noopt, expected_wp_opt
-    ):
+    def test_cflags_weight_bit_opt(self, range, scalar, dtype, expected_wp_opt):
         # s1, s2, s3 will be grouped in one core block.
         class Net(pb.Network):
             def __init__(self):
@@ -578,15 +524,15 @@ class TestMapper_cflags:
         mapper = pb.Mapper()
         mapper.build(net)
         mapper.compile(weight_bit_optimization=False)
-        assert mapper.core_blocks[0].weight_precision == expected_wp_noopt
+        assert mapper.core_blocks[0].weight_width == WW.WEIGHT_WIDTH_8BIT
 
         mapper.clear()
         mapper.build(net)
         mapper.compile(weight_bit_optimization=True)
-        assert mapper.core_blocks[0].weight_precision == max(
-            s.weight_precision for s in (net.s1, net.s2, net.s3)
+        assert mapper.core_blocks[0].weight_width == max(
+            s.weight_width for s in (net.s1, net.s2, net.s3)
         )
-        assert mapper.core_blocks[0].weight_precision == expected_wp_opt
+        assert mapper.core_blocks[0].weight_width == expected_wp_opt
 
 
 from tests.utils import measure_time

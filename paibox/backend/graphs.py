@@ -2,19 +2,23 @@ import math
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, TypeVar, Union
+from typing import Any, TypeVar, Union, cast
 
 from paicorelib import HwConfig
 
 from paibox.collector import Collector
 from paibox.components import FullConnectedSyn, InputProj, NeuModule, Neuron
-from paibox.exceptions import GraphBuildError, GraphConnectionError, NotSupportedError
+from paibox.components.functional import LinearSemiFolded
+from paibox.exceptions import (
+    GraphBuildError,
+    GraphConnectionError,
+    GraphNotSupportedError,
+)
 from paibox.network import DynSysGroup
 from paibox.utils import check_elem_unique
 
-from .constrs import GraphNodeConstrs
 from .context import _BACKEND_CONTEXT
-from .placement import CoreBlock, neuron_repl_prop
+from .placement import CoreBlock
 from .routing import RoutingGroup
 from .segment_utils import get_neu_segments
 from .types import *
@@ -59,8 +63,6 @@ class PAIGraph:
 
     """Status options"""
     has_built: bool = field(default=False)
-
-    # node_constrs: GraphNodeConstrs = field(default_factory=GraphNodeConstrs)
 
     def clear(self, total: bool = True) -> None:
         """Clear the PAIGraph."""
@@ -113,9 +115,35 @@ class PAIGraph:
 
     def _pre_build(self, **build_options) -> None:
         """Preprocessing before obtaining the topology."""
-        # Build functional modules in the subnets
-        for subnet in self._raw_networks:
-            DynSysGroup.build_fmodule(subnet, **build_options)
+        # Check the hardware resource limits of operators in the network during the build phase.
+        build_options.setdefault("check_before_compile", True)
+
+        # Build functional modules for each network.
+        for network in self._raw_networks:
+            if network.is_composed_of_semi_folded_ops():
+                modules = network.components.subset(NeuModule)
+                succ_dg_semi_ops = {
+                    name: [t.name for t in op.target] for name, op in modules.items()
+                }
+                pred_dg_semi_ops = reverse_edges(succ_dg_semi_ops)
+
+                # XXX Networks consisting entirely of semi-folded operators require some additional topology
+                # checks. These additional checks may be removed as more network structures will be supported.
+
+                # Currently, `LinearSemiFolded` is at the end of the network, since it will change the form of
+                # the input dataflow, and its effective output is at the same time.
+                semi_linears = modules.subset(LinearSemiFolded)
+                if not all(
+                    len(succ_dg_semi_ops[linear]) == 0 for linear in semi_linears
+                ):
+                    raise GraphNotSupportedError(
+                        "currently, the semi-folded linear can only be used as output of the network."
+                    )
+
+                ordered_nodes = [modules[name] for name in toposort(succ_dg_semi_ops)]
+                network.build_modules(pred_dg_semi_ops, ordered_nodes, **build_options)
+            else:
+                network.build_modules(**build_options)
 
     def _update_graph(self, **build_options) -> None:
         self.clear(total=False)
@@ -125,7 +153,7 @@ class PAIGraph:
             self.succ_dg[node] = dict()
             self.pred_dg[node] = dict()
 
-        for syn in self._raw_edges.values():
+        for name, syn in self._raw_edges.items():
             u, v = syn.source.name, syn.dest.name
             if u not in self._raw_nodes:
                 raise GraphConnectionError(
@@ -138,6 +166,7 @@ class PAIGraph:
                 )
 
             _edge_attr = EdgeAttr(edge=syn, distance=syn.source.delay_relative)
+            self.edges[name] = _edge_attr
             self.succ_dg[u][v] = _edge_attr
             self.pred_dg[v][u] = _edge_attr
 
@@ -147,19 +176,19 @@ class PAIGraph:
         self.inodes = self._raw_nodes.subset(InputProj)
 
         # By default, nodes with out-degree = 0 are considered as output nodes.
-        self.onodes = self._raw_nodes.key_on_condition(
-            lambda node: self.degree_of_nodes[node].out_degree == 0
-        )  # type: ignore
+        # TODO A node with out-degree can also be an output node. However, no network for now has this topology.
+        self.onodes = Collector(
+            {
+                k: cast(DestNodeType, v)
+                for k, v in self._raw_nodes.items()
+                if self.degree_of_nodes[k].out_degree == 0
+            }
+        ).not_subset(InputProj)
 
         for name, node in self._raw_nodes.items():
             self.nodes[name] = NodeAttr(
-                node=node,
-                position=self._node_pos(name),
-                degree=self.degree_of_nodes[name],
+                node, self._node_pos(name), self.degree_of_nodes[name]
             )
-
-        for name, syn in self._raw_edges.items():
-            self.edges[name] = EdgeAttr(edge=syn, distance=syn.source.delay_relative)
 
         self.ordered_nodes = toposort(self.succ_dg)
         self.has_built = True
@@ -186,14 +215,14 @@ class PAIGraph:
         self._update_graph()
 
     def topo_support_check(self) -> None:
-        _degree_check(self.degree_of_nodes, self.succ_dg)
+        # _degree_check(self.degree_of_nodes, self.succ_dg)
 
         # Only support output nodes with <= 1152 neurons so far.
         if any(
             onode.num_out > HwConfig.N_FANIN_PER_DENDRITE_MAX
             for onode in self.onodes.values()
         ):
-            raise NotSupportedError(
+            raise GraphNotSupportedError(
                 f"only output nodes with no more than {HwConfig.N_FANIN_PER_DENDRITE_MAX} "
                 f"neurons are supported."
             )
@@ -210,78 +239,39 @@ class PAIGraph:
         if not self.has_built:
             raise GraphBuildError("the graph hasn't been built yet.")
 
-    def graph_partition(self) -> list[PartitionedEdges]:
-        """Partition the graph. According to specific rules, the nodes in the graph are divided,    \
-            and the edges connected to these partitioned nodes will be returned as a set.
-
-        Return: a list of partitioned edges & a list of routing groups id.
-        """
-        self.build_check()
-
-        gh_parts: list[PartitionedEdges] = []
-        rgid = 0  # routing group id
-        seen_nodes: set[NodeName] = set()
-
+    def graph_partition(self) -> list[MergedSuccGroup]:
+        """Graph partition."""
+        # Build the SuccGroup for each node in the graph.
+        succ_groups: list[SuccGroup] = []
         for node in self.ordered_nodes:
-            if node in seen_nodes:
-                continue
+            succ_node_names = set(self.succ_dg[node].keys())
+            if succ_node_names:
+                succ_nodes = [self._raw_nodes[n] for n in succ_node_names]
+                succ_edges = [self.succ_dg[node][n.name].edge for n in succ_nodes]
+                succ_groups.append(
+                    SuccGroup(self._raw_nodes[node], succ_nodes, succ_edges)
+                )
 
-            if self.degree_of_nodes[node].out_degree == 0:
-                seen_nodes.add(node)
-                continue
+        def dfs(sgrp: SuccGroup, rgrp: MergedSuccGroup) -> None:
+            # Union-find sets. If the nodes of two succ_groups have intersection, merge them.
+            for other_sgrp in succ_groups:
+                if other_sgrp not in visited and not set(sgrp.nodes).isdisjoint(
+                    other_sgrp.nodes
+                ):
+                    visited.add(other_sgrp)
+                    rgrp.add_group(other_sgrp)
+                    dfs(other_sgrp, rgrp)
 
-            succ_nodes: set[NodeName] = set()
-            # Other source nodes involved
-            other_involved_nodes: set[NodeName] = set()
-            # Successor candidate nodes
-            succ_nodes_candid: set[NodeName] = set(self.succ_dg[node].keys())
-            # Partitioned nodes
-            partitioned_nodes = set([node])
+        route_groups: list[MergedSuccGroup] = []
+        visited: set[SuccGroup] = set()
+        for sgrp in succ_groups:
+            if sgrp not in visited:
+                route_group = MergedSuccGroup(sgrp)
+                visited.add(sgrp)
+                dfs(sgrp, route_group)
+                route_groups.append(route_group)
 
-            while len(succ_nodes_candid) > 0:
-                succ_nodes.update(succ_nodes_candid)
-
-                for candid in succ_nodes_candid:
-                    if self.degree_of_nodes[candid].in_degree > 1:
-                        coming_nodes = set(self.pred_dg[candid].keys()) - seen_nodes
-                        other_involved_nodes |= coming_nodes
-
-                other_involved_nodes -= partitioned_nodes
-                partitioned_nodes |= other_involved_nodes
-                succ_nodes_candid.clear()
-
-                for other_node in other_involved_nodes:
-                    other_candid = set(self.succ_dg[other_node].keys()) - succ_nodes
-                    succ_nodes_candid |= other_candid
-
-            seen_nodes |= partitioned_nodes
-
-            succ_edges_set: set[EdgeType] = set()
-            succ_nodes_set: set[NodeType] = set()
-
-            for _node in partitioned_nodes:
-                succ_edges_set.update(e.edge for e in self.succ_dg[_node].values())
-                succ_nodes_set.update(self._raw_nodes[n] for n in self.succ_dg[_node])
-
-            succ_nodes_lst: list[NodeType] = list(succ_nodes_set)
-            idx_of_sg = GraphNodeConstrs.tick_wait_attr_constr(succ_nodes_lst)
-
-            if len(idx_of_sg) > 0:
-                for idx in idx_of_sg:
-                    succ_edges_sg: set[EdgeType] = set()
-                    for i in idx:
-                        succ_edges_sg.update(
-                            e.edge
-                            for e in self.pred_dg[succ_nodes_lst[i].name].values()
-                        )
-                    gh_parts.append(PartitionedEdges(succ_edges_sg, rgid))
-
-            else:
-                gh_parts.append(PartitionedEdges(succ_edges_set, rgid))
-
-            rgid += 1
-
-        return gh_parts
+        return route_groups
 
     def multicast_optim(
         self,
@@ -302,7 +292,7 @@ class PAIGraph:
         is_optimized = False
 
         if optim_nodes == ():
-            _optim_nodes = reversed(self.ordered_nodes)
+            _optim_nodes = list(reversed(self.ordered_nodes))
         else:
             _optim_nodes = optim_nodes
 
@@ -337,8 +327,8 @@ class PAIGraph:
             n_core_required_after_copy = len(
                 get_neu_segments(
                     pred_cb_dest,
-                    pred_cb.neuron_capacity,
-                    neuron_repl_prop(pred_cb.n_weight_bits, pred_cb.n_timeslot),
+                    pred_cb.n_fanout,
+                    pred_cb.n_neuron_repl,
                     _BACKEND_CONTEXT.cflags["grouping_optim_target"],
                 )
             )
@@ -353,8 +343,8 @@ class PAIGraph:
                 n_core_after_split[i] = len(
                     get_neu_segments(
                         dest,  # type: ignore
-                        succ_cb.neuron_capacity,
-                        neuron_repl_prop(succ_cb.n_weight_bits, succ_cb.n_timeslot),
+                        succ_cb.n_fanout,
+                        succ_cb.n_neuron_repl,
                         _BACKEND_CONTEXT.cflags["grouping_optim_target"],
                     )
                 )
@@ -456,31 +446,32 @@ class PAIGraph:
                     f"not all nodes in 'grab_pred_nodes' are in node {node.name}'s predecessors. "
                     f"Got {', '.join(grab_pred_nodes)}, but predecessors are {', '.join(pred_nodes)}."
                 )
-            else:
-                if copied.name not in self.pred_dg.keys():
-                    self.pred_dg[copied.name] = dict()
-                for pred_nn in grab_pred_nodes:
-                    pred_edge = pred_nodes[pred_nn].edge
-                    pred_edge.target = copied
-                    # If don't _update_graph(), update partial information:
-                    # 1. Remove the original connection & add the copied node & the edge
-                    # with the modified target to succ_nodes_dict & succ_dg.
-                    # 2. Update the in-degree of copied node = len(grab).
-                    # 3. The out-degree of predecessors keep the same.
-                    # 1/2/3 -> A -> ...
-                    # ---
-                    # 1     -> A -> ...
-                    # 2/3   -> A'-> ...
-                    if not update:
-                        _orig_edge_attr = self.succ_dg[pred_nn].pop(node.name)
-                        new_edge_attr = EdgeAttr(pred_edge, _orig_edge_attr.distance)
 
-                        self.succ_dg[pred_nn][copied.name] = new_edge_attr
-                        self.pred_dg[copied.name][pred_nn] = new_edge_attr
+            if copied.name not in self.pred_dg.keys():
+                self.pred_dg[copied.name] = dict()
 
+            for pred_nn in grab_pred_nodes:
+                pred_edge = pred_nodes[pred_nn].edge
+                pred_edge.target = copied
+                # If don't _update_graph(), update partial information:
+                # 1. Remove the original connection & add the copied node & the edge
+                # with the modified target to succ_nodes_dict & succ_dg.
+                # 2. Update the in-degree of copied node = len(grab).
+                # 3. The out-degree of predecessors keep the same.
+                # 1/2/3 -> A -> ...
+                # ---
+                # 1     -> A -> ...
+                # 2/3   -> A'-> ...
                 if not update:
-                    self.degree_of_nodes[node.name].in_degree -= len(grab_pred_nodes)
-                    self.degree_of_nodes[copied.name].in_degree = len(grab_pred_nodes)
+                    _orig_edge_attr = self.succ_dg[pred_nn].pop(node.name)
+                    new_edge_attr = EdgeAttr(pred_edge, _orig_edge_attr.distance)
+
+                    self.succ_dg[pred_nn][copied.name] = new_edge_attr
+                    self.pred_dg[copied.name][pred_nn] = new_edge_attr
+
+            if not update:
+                self.degree_of_nodes[node.name].in_degree -= len(grab_pred_nodes)
+                self.degree_of_nodes[copied.name].in_degree = len(grab_pred_nodes)
 
         if keep_succ_conn:
             orig_oud = self.degree_of_nodes[node.name].out_degree
@@ -494,30 +485,30 @@ class PAIGraph:
                     f"not all nodes in 'grab_succ_nodes' are in node {node.name}'s successors."
                     f"Got {', '.join(grab_succ_nodes)}, but successors are {', '.join(succ_nodes)}."
                 )
-            else:
-                for succ_nn in grab_succ_nodes:
-                    succ_edge = succ_nodes[succ_nn].edge
-                    succ_edge.source = copied
-                    # If don't _update_graph(), update partial information:
-                    # 1. Remove the original connection & add the copied node & the edge
-                    # with the modified target to succ_dg.
-                    # 2. Update the out-degree of copied node = len(grab).
-                    # 3. The in-degree of successors keep the same.
-                    # ... -> A -> 1/2/3
-                    # ---
-                    # ... -> A -> 1
-                    # ... -> A'-> 2/3
-                    if not update:
-                        self.succ_dg[node.name].pop(succ_nn)
-                        _orig_edge_attr = self.pred_dg[succ_nn].pop(node.name)
-                        new_edge_attr = EdgeAttr(succ_edge, _orig_edge_attr.distance)
-                        self.succ_dg[copied.name] = {succ_nn: new_edge_attr}
-                        self.pred_dg[succ_nn][copied.name] = new_edge_attr
-                        # self.pred_dg = reverse_edges2(self.succ_dg)
 
+            for succ_nn in grab_succ_nodes:
+                succ_edge = succ_nodes[succ_nn].edge
+                succ_edge.source = copied
+                # If don't _update_graph(), update partial information:
+                # 1. Remove the original connection & add the copied node & the edge
+                # with the modified target to succ_dg.
+                # 2. Update the out-degree of copied node = len(grab).
+                # 3. The in-degree of successors keep the same.
+                # ... -> A -> 1/2/3
+                # ---
+                # ... -> A -> 1
+                # ... -> A'-> 2/3
                 if not update:
-                    self.degree_of_nodes[node.name].out_degree -= len(grab_succ_nodes)
-                    self.degree_of_nodes[copied.name].out_degree = len(grab_succ_nodes)
+                    self.succ_dg[node.name].pop(succ_nn)
+                    _orig_edge_attr = self.pred_dg[succ_nn].pop(node.name)
+                    new_edge_attr = EdgeAttr(succ_edge, _orig_edge_attr.distance)
+                    self.succ_dg[copied.name] = {succ_nn: new_edge_attr}
+                    self.pred_dg[succ_nn][copied.name] = new_edge_attr
+                    # self.pred_dg = reverse_edges2(self.succ_dg)
+
+            if not update:
+                self.degree_of_nodes[node.name].out_degree -= len(grab_succ_nodes)
+                self.degree_of_nodes[copied.name].out_degree = len(grab_succ_nodes)
 
         if update:
             self._update_graph()
@@ -541,9 +532,10 @@ class PAIGraph:
     @property
     def inherent_timestep(self) -> int:
         self.build_check()
-        _, distance = get_longest_path(self.succ_dg, self.ordered_nodes)
-
-        return distance
+        return max(
+            n._oflow_format.get_global_t_1st_vld(n.tick_wait_start)
+            for n in self.onodes.values()
+        )
 
     @property
     def graph_name_repr(self) -> str:
@@ -551,7 +543,7 @@ class PAIGraph:
         return _prefix + "_and_".join(network.name for network in self._raw_networks)
 
 
-_NT = TypeVar("_NT", CoreBlock, NodeName, RoutingGroup)
+_NT = TypeVar("_NT", CoreBlock, NodeName, RoutingGroup, MergedSuccGroup)
 _T = TypeVar("_T")
 
 
@@ -567,70 +559,84 @@ def _degree_check(
                     if isinstance(succ_node, CoreBlock)
                     else str(succ_node)
                 )
-                raise NotSupportedError(
+                raise GraphNotSupportedError(
                     f"If out-degree of a node is greater than 1, the in-degree of its sucessors must be 1. "
                     f"However, in-degree of {_node_repr} is {degree_of_nodes[succ_node].in_degree}."
                 )
 
 
-def convert2routing_groups(
-    succ_dg_of_cb: dict[CoreBlock, list[CoreBlock]],
-    degrees_of_cb: dict[CoreBlock, NodeDegree],
-    input_core_blocks: dict[SourceNodeType, list[CoreBlock]],
-) -> tuple[list[RoutingGroup], dict[RoutingGroup, list[RoutingGroup]]]:
-    ordered_core_blocks = toposort(succ_dg_of_cb)
-    seen_cb = set()
-    routing_groups: list[RoutingGroup] = []
-    succ_cb_gid_dict = defaultdict(list)
+def find_cycles(directed_edges: Mapping[_NT, Iterable[_NT]]) -> list[list[_NT]]:
+    cycles: list[list[_NT]] = []
+    visited: set[_NT] = set()
+    stack: list[_NT] = []
+    stack_set: set[_NT] = set()  # 方便快速检查路径中的节点
 
-    # After that, all input core blocks have been traversed.
-    for input_cbs in input_core_blocks.values():
-        # FIXME Temporary solution. This case should be solved first:
-        # I1 -> A/B, I2 -> B/C.
-        if not seen_cb.isdisjoint(input_cbs):
-            if len(input_cbs) > 1:
-                raise ValueError
-            else:
-                seen_cb.update(input_cbs)
-                routing_groups.append(RoutingGroup(*input_cbs))
+    # 深度优先搜索的辅助函数
+    def dfs(node: _NT) -> None:
+        if node in stack_set:  # 检测到环
+            cycle_start_index = stack.index(node)
+            cycles.append(stack[cycle_start_index:])
+            return
+        if node in visited:
+            return
 
-    for cb in ordered_core_blocks:
-        # Check whether the core block has been traversed. This judgment condition is for
-        # core blocks with out-degree = 1 & output core blocks (out-degree = 0).
-        if cb not in seen_cb:
-            seen_cb.add(cb)
-            routing_groups.append(RoutingGroup(cb))
+        visited.add(node)
+        stack.append(node)
+        stack_set.add(node)
 
-        # If out-degree > 1, group successor core blocks according to their routing id.
-        if degrees_of_cb[cb].out_degree > 1:
-            succ_cbs = succ_dg_of_cb[cb]
-            seen_cb.update(succ_cbs)
+        for neighbor in directed_edges.get(node, []):
+            dfs(neighbor)
 
-            succ_cb_gid_dict.clear()
-            for succ_cb in succ_cbs:
-                if succ_cb._routing_id in succ_cb_gid_dict:
-                    succ_cb_gid_dict[succ_cb._routing_id].append(succ_cb)
-                else:
-                    succ_cb_gid_dict[succ_cb._routing_id] = [succ_cb]
+        stack.pop()
+        stack_set.remove(node)
 
-            for succ_cb in succ_cb_gid_dict.values():
-                routing_groups.append(RoutingGroup(*succ_cb))
+    # 遍历每个节点，查找所有可能的环
+    for node in directed_edges:
+        if node not in visited:
+            dfs(node)
 
-    routing_groups_succ: dict[RoutingGroup, list[RoutingGroup]] = defaultdict(list)
+    return cycles
 
-    for rg in routing_groups:
-        routing_groups_succ[rg] = []
-        rg_succ_cb: set[CoreBlock] = set()
-        for cb in rg:
-            rg_succ_cb.update(succ_dg_of_cb[cb])
 
-        for _rg in routing_groups:
-            for cb in rg_succ_cb:
-                if cb in _rg:
-                    routing_groups_succ[rg].append(_rg)
-                    break
+def merge_overlap(groups: Iterable[Sequence[_NT]]) -> list[list[_NT]]:
+    # 并查集数据结构
+    parent: dict[_NT, _NT] = dict()
 
-    return routing_groups, routing_groups_succ
+    # 查找集合的根节点
+    def find(x: _NT) -> _NT:
+        if parent[x] != x:
+            parent[x] = find(parent[x])
+
+        return parent[x]
+
+    # 合并两个集合
+    def union(x, y) -> None:
+        rootx = find(x)
+        rooty = find(y)
+        if rootx != rooty:
+            parent[rooty] = rootx
+
+    # 初始化并查集
+    for group in groups:
+        for elem in group:
+            if elem not in parent:
+                parent[elem] = elem
+
+    # 合并所有相互重叠的环
+    for group in groups:
+        first_elem = group[0]
+        for elem in group[1:]:
+            union(first_elem, elem)
+
+    # 根据并查集结果，将所有节点归类到同一个集合中
+    mgrps: dict[_NT, list[_NT]] = dict()
+    for elem in parent:
+        root = find(elem)
+        if root not in mgrps:
+            mgrps[root] = []
+        mgrps[root].append(elem)
+
+    return list(mgrps.values())
 
 
 def toposort(directed_edges: Mapping[_NT, Iterable[_NT]]) -> list[_NT]:
@@ -687,7 +693,7 @@ def toposort(directed_edges: Mapping[_NT, Iterable[_NT]]) -> list[_NT]:
                 vertices.add(m)
 
     if any(incoming_edges.get(v, None) for v in directed_edges):
-        raise NotSupportedError("the graph with cycles is not supported.")
+        raise GraphNotSupportedError("the graph with cycles is not supported.")
 
     return ordered
 

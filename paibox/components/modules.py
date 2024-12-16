@@ -3,16 +3,18 @@ import typing
 from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import ClassVar, Optional, Union
+from functools import partial
+from typing import Callable, ClassVar, Literal, Optional, TypeVar, Union
 
 import numpy as np
-from paicorelib import TM, HwConfig
+from paicorelib import TM, CoreMode, HwConfig, SNNModeEnable, get_core_mode
 
 from paibox.base import NeuDyn
 from paibox.exceptions import NotSupportedError, RegisterError, ShapeError
-from paibox.types import SpikeType, VoltageType
+from paibox.types import NEUOUT_U8_DTYPE, NeuOutType, VoltageType
 from paibox.utils import check_elem_unique, shape2num
 
+from .neuron.utils import RTModeKwds, _input_width_format, _spike_width_format
 from .projection import InputProj
 
 if sys.version_info >= (3, 10):
@@ -28,7 +30,7 @@ if typing.TYPE_CHECKING:
 
 __all__ = ["BuildingModule"]
 
-MultiInputsType: TypeAlias = list[SpikeType]  # Type of inputs of `NeuModule`.
+MultiInputsType: TypeAlias = list[NeuOutType]  # Type of inputs of `NeuModule`.
 BuiltComponentType: TypeAlias = list[Union["FullConnectedSyn", "Neuron"]]
 
 
@@ -85,10 +87,12 @@ class BuildingModule:
 class NeuModule(NeuDyn, BuildingModule):
     __gh_build_ignore__ = True
 
-    n_return: ClassVar[int]
+    n_return: ClassVar[int] = 1
     """#N of outputs."""
     inherent_delay: int = 0
     """Internal delay of the module, relative to the external."""
+    rt_mode_kwds: RTModeKwds
+    mode: CoreMode
 
     def __init__(
         self,
@@ -96,6 +100,7 @@ class NeuModule(NeuDyn, BuildingModule):
         tick_wait_start: int,
         tick_wait_end: int,
         unrolling_factor: int,
+        keep_shape: bool,
         name: Optional[str] = None,
     ) -> None:
         super().__init__(name)
@@ -104,6 +109,7 @@ class NeuModule(NeuDyn, BuildingModule):
         self._tws = tick_wait_start
         self._twe = tick_wait_end
         self._uf = unrolling_factor
+        self.keep_shape = keep_shape
 
     def __call__(self, *args, **kwargs):
         return self.update(*args, **kwargs)
@@ -175,27 +181,24 @@ class FunctionalModule(NeuModule):
 
                 op.register_output(self)
 
-        super().__init__(**kwargs, name=name)
-
-        self.keep_shape = keep_shape
+        super().__init__(**kwargs, keep_shape=keep_shape, name=name)
         self._shape_out = shape_out
         self.register_operand(*operands)
 
         # Set memory for only 1 output node.
         # TODO how to handle with more than 1 output nodes
-        self.set_memory("_inner_spike", np.zeros((self.num_out,), dtype=np.bool_))
+        self.set_memory("_neu_out", np.zeros((self.num_out,), dtype=NEUOUT_U8_DTYPE))
         # Delay registers
         self.set_memory(
             "delay_registers",
             np.zeros(
-                (HwConfig.N_TIMESLOT_MAX,) + self._inner_spike.shape, dtype=np.bool_
+                (HwConfig.N_TIMESLOT_MAX,) + self._neu_out.shape, dtype=NEUOUT_U8_DTYPE
             ),
         )
         # Set a deque for the `synin` to implement the delay of `inherent_delay` for the module.
         if self.inherent_delay > 0:
             _init_synin = [
-                self.n_op
-                * [np.zeros(self.module_intf.operands[0].num_out, dtype=np.bool_)]
+                self.n_op * [np.zeros(self.source[0].num_out, dtype=NEUOUT_U8_DTYPE)]
             ]
         else:
             _init_synin = []
@@ -207,36 +210,36 @@ class FunctionalModule(NeuModule):
     def get_inputs(self) -> None:
         synin = []
 
-        for op in self.module_intf.operands:
+        for op in self.source:
             # Retrieve the spike at index `timestamp` of the dest neurons
             if self.is_working():
                 if isinstance(op, InputProj):
-                    synin.append(op.output.copy())
+                    synin.append(op.output)
                 else:
                     idx = self.timestamp % HwConfig.N_TIMESLOT_MAX
-                    synin.append(op.output[idx].copy())
+                    synin.append(op.delay_registers[idx])
             else:
                 # Retrieve 0 to the dest neurons if it is not working
                 synin.append(np.zeros_like(op.spike))
 
         self.synin_deque.append(synin)  # Append to the right of the deque.
 
-    def update(self, *args, **kwargs) -> Optional[SpikeType]:
+    def update(self, *args, **kwargs) -> Optional[NeuOutType]:
         if not self.is_working():
-            self._inner_spike = np.zeros((self.num_out,), dtype=np.bool_)
+            self._neu_out.fill(0)
             return None
 
         self.get_inputs()
 
         if self.is_outputing():
             synin = self.synin_deque.popleft()  # Pop the left of the deque.
-            self._inner_spike = self.spike_func(*synin).ravel()
+            self._neu_out = self.spike_func(*synin).ravel()
             idx = (
                 self.timestamp - self.inherent_delay + self.delay_relative - 1
             ) % HwConfig.N_TIMESLOT_MAX
-            self.delay_registers[idx] = self._inner_spike.copy()
+            self.delay_registers[idx] = self._neu_out.copy()
 
-        return self._inner_spike
+        return self._neu_out
 
     def _rebuild_out_intf(
         self,
@@ -247,7 +250,7 @@ class FunctionalModule(NeuModule):
     ) -> None:
         from .synapses import FullConnectedSyn
 
-        for out in self.module_intf.output:
+        for out in self.target:
             if isinstance(out, FullConnectedSyn):
                 out.source = out_neuron
             else:
@@ -275,16 +278,16 @@ class FunctionalModule(NeuModule):
         return shape2num(self._shape_out)
 
     @property
-    def output(self) -> SpikeType:
+    def output(self) -> NeuOutType:
         return self.delay_registers
 
     @property
-    def spike(self) -> SpikeType:
-        return self._inner_spike
+    def spike(self) -> NeuOutType:
+        return self._neu_out
 
     @property
-    def feature_map(self) -> SpikeType:
-        return self._inner_spike.reshape(self.varshape)
+    def feature_map(self) -> NeuOutType:
+        return self._neu_out.reshape(self.varshape)
 
     @property
     def varshape(self) -> tuple[int, ...]:
@@ -383,11 +386,13 @@ class FunctionalModuleWithV(FunctionalModule):
 
     def synaptic_integr(self, *args, **kwargs) -> VoltageType:
         """Functions used to describe synaptic integration of the module."""
-        raise NotImplementedError
+        raise NotImplementedError(
+            "'synaptic_integr' should be implemented in the subclasses."
+        )
 
-    def update(self, *args, **kwargs) -> Optional[SpikeType]:
+    def update(self, *args, **kwargs) -> Optional[NeuOutType]:
         if not self.is_working():
-            self._inner_spike = np.zeros((self.num_out,), dtype=np.bool_)
+            self._neu_out.fill(0)
             return None
 
         self.get_inputs()
@@ -396,14 +401,14 @@ class FunctionalModuleWithV(FunctionalModule):
             synin = self.synin_deque.popleft()  # Pop the left of the deque.
             incoming_v = self.synaptic_integr(*synin, self._vjt)
             _is, self._vjt = self.spike_func(incoming_v)
-            self._inner_spike = _is.ravel()
+            self._neu_out = _is.ravel()
 
             idx = (
                 self.timestamp - self.inherent_delay + self.delay_relative - 1
             ) % HwConfig.N_TIMESLOT_MAX
-            self.delay_registers[idx] = self._inner_spike.copy()
+            self.delay_registers[idx] = self._neu_out.copy()
 
-        return self._inner_spike
+        return self._neu_out
 
     @property
     def voltage(self) -> VoltageType:
@@ -427,6 +432,29 @@ class FunctionalModule2to1WithV(FunctionalModuleWithV):
             name=name,
             **kwargs,
         )
+
+
+L = Literal
+_T = TypeVar("_T", bound=NeuModule)
+
+
+def set_rt_mode(
+    input_width: L[1, 8], spike_width: L[1, 8], snn_en: L[0, 1]
+) -> Callable[[type[_T]], type[_T]]:
+    def wrapper(cls: type[_T]) -> type[_T]:
+        iw = _input_width_format(input_width)
+        sw = _spike_width_format(spike_width)
+        sen = SNNModeEnable(snn_en)
+
+        cls.mode = get_core_mode(iw, sw, sen)
+        cls.rt_mode_kwds = {"input_width": iw, "spike_width": sw, "snn_en": sen}
+        return cls
+
+    return wrapper
+
+
+set_rt_mode_snn = partial(set_rt_mode, input_width=1, spike_width=1, snn_en=1)
+set_rt_mode_ann = partial(set_rt_mode, input_width=8, spike_width=8, snn_en=0)
 
 
 def _shape_check2(

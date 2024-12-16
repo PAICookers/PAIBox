@@ -21,7 +21,7 @@ pytest = "^8.0.0"
 
 ## 常用测试夹具
 
-几个常用的与测试环境相关的夹具介绍。请将这些夹具加入到**测试项目所在目录**的 `conftest.py` 内。
+几个常用的与测试环境相关的夹具介绍。可直接在 `tests` 目录下的测试项目中使用这些夹具。
 
 1. 指定测试项目的文件输出目录，例如，输出调试日志等信息。该夹具确保创建一个目录，并返回。若目录已存在，则清空目录（可选）。
 
@@ -123,29 +123,15 @@ pytest = "^8.0.0"
            func2(...)
    ```
 
-6. 可复现的随机测试上下文。该夹具将为测试项目设置随机数种子，确保每次测试中，该测试项内的随机数均相同。
+6. 固定种子的随机数生成器。该夹具返回一个固定的随机数生成器，通过该生成器生成的随机数可复现。
 
    ```python
    @pytest.fixture
-   def random_fixture():
-       with fixed_random_seed(42):
-           yield
+   def fixed_rng() -> np.random.Generator:
+       return np.random.default_rng(42)
 
-   def test_foo(random_fixture):
-       ...
-   ```
-
-   或者，亦可对测试项目的**部分代码**设置固定的随机数种子，使用上下文环境 `with`
-
-   ```python
-   from .utils import fixed_random_seed
-   import numpy as np
-
-   def test_case():
-       with fixed_random_seed(999):
-           rd1 = np.random.randn() # Reproducible
-
-       rd2 = np.random.randn() # Not reproducible
+   def test_foo(fixed_rng):
+       fixed_rng.random(...)
    ```
 
 ## 更多

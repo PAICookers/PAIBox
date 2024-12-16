@@ -39,16 +39,13 @@ def count_unique_elem(obj: Iterable[Any]) -> int:
 _T = TypeVar("_T")
 
 
-def merge_unique_ordered(lst1: list[_T], lst2: list[_T]) -> list[_T]:
-    seen = set()
-    result = []
+def merge_unique_ordered(*lst: list[_T]) -> list[_T]:
+    """Merge lists, keeping the original order of elements and removing duplicates."""
+    total = []
+    for l in lst:
+        total.extend(l)
 
-    for item in lst1 + lst2:
-        if item not in seen:
-            seen.add(item)
-            result.append(item)
-
-    return result
+    return list(dict.fromkeys(total))
 
 
 def check_attr_same(obj: Sequence[Any], attr: str) -> bool:
@@ -143,43 +140,48 @@ def typical_round(n: float) -> int:
         return int(n) + 1
 
 
-def bit_reversal(uint: int, n_bit: int = 8) -> int:
-    """Reverse the bit order of a N-bit unsigned integer, where N is `n_bit`."""
-    reversed = 0
-    for i in range(n_bit):
-        if (uint >> i) & 1:
-            reversed += 1 << (n_bit - 1 - i)
+def reverse_8bit(x: int) -> int:
+    """Reverse the bit order of 8-bit unsigned integer."""
+    x = ((x & 0xAA) >> 1) | ((x & 0x55) << 1)
+    x = ((x & 0xCC) >> 2) | ((x & 0x33) << 2)
+    x = ((x & 0xF0) >> 4) | ((x & 0x0F) << 4)
+    return x
 
-    return reversed
+
+def reverse_16bit(x: int) -> int:
+    x = ((x & 0xAAAA) >> 1) | ((x & 0x5555) << 1)
+    x = ((x & 0xCCCC) >> 2) | ((x & 0x3333) << 2)
+    x = ((x & 0xF0F0) >> 4) | ((x & 0x0F0F) << 4)
+    return ((x >> 8) | (x << 8)) & 0xFFFF
+
+
+def _get_desc(desc: Optional[str] = None) -> str:
+    return "value" if desc is None else desc
 
 
 def arg_check_pos(arg: int, desc: Optional[str] = None) -> int:
-    _desc = "value" if desc is None else f"{desc}"
     if arg < 1:
-        raise ValueError(f"{_desc} must be positive, but got {arg}.")
+        raise ValueError(f"{_get_desc(desc)} must be positive, but got {arg}.")
 
     return arg
 
 
 def arg_check_non_pos(arg: int, desc: Optional[str] = None) -> int:
-    _desc = "value" if desc is None else f"{desc}"
     if arg > 0:
-        raise ValueError(f"{_desc} must be non-positive, but got {arg}.")
+        raise ValueError(f"{_get_desc(desc)} must be non-positive, but got {arg}.")
 
     return arg
 
 
 def arg_check_neg(arg: int, desc: Optional[str] = None) -> int:
-    _desc = "value" if desc is None else f"{desc}"
     if arg > -1:
-        raise ValueError(f"{_desc} must be negative, but got {arg}.")
+        raise ValueError(f"{_get_desc(desc)} must be negative, but got {arg}.")
 
     return arg
 
 
 def arg_check_non_neg(arg: int, desc: Optional[str] = None) -> int:
-    _desc = "value" if desc is None else f"{desc}"
     if arg < 0:
-        raise ValueError(f"{_desc} must be non-negative, but got {arg}.")
+        raise ValueError(f"{_get_desc(desc)} must be non-negative, but got {arg}.")
 
     return arg

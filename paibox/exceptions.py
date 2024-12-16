@@ -14,7 +14,7 @@ class PAIBoxWarning(UserWarning):
 
 
 class PAIBoxDeprecationWarning(PAIBoxWarning, DeprecationWarning):
-    """Warning class for features which will be deprecatedin a future version."""
+    """Warning class for deprecated features."""
 
     pass
 
@@ -57,7 +57,13 @@ class GraphConnectionError(GraphBuildError):
 
 
 class NotSupportedError(PAIBoxError, NotImplementedError):
-    """Exception for a certain function not supported."""
+    """Exception for unsupported functions."""
+
+    pass
+
+
+class GraphNotSupportedError(GraphBuildError, NotSupportedError):
+    """Eception for unsupported structures of graph."""
 
     pass
 
@@ -70,6 +76,12 @@ class SimulationError(PAIBoxError, RuntimeError):
 
 class FunctionalError(PAIBoxError, RuntimeError):
     """Functional errors, usually hardware related register."""
+
+    pass
+
+
+class CompileError(PAIBoxError, RuntimeError):
+    """Exception for compilation."""
 
     pass
 

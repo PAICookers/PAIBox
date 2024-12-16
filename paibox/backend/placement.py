@@ -1,91 +1,109 @@
+import math
 import warnings
-from functools import cached_property
-from typing import ClassVar, Literal, Optional, overload
+from typing import ClassVar, Literal, Optional, cast, overload
 
 import numpy as np
 from paicorelib import LCN_EX, ChipCoord, Coord, CoreMode, HwConfig, MaxPoolingEnable
-from paicorelib import WeightPrecision as WP
+from paicorelib import WeightWidth as WW
+from paicorelib.framelib import OfflineFrameGen
 
 from paibox.components import FullConnectedSyn, Neuron
-from paibox.exceptions import GraphBuildError, ResourceError, TruncationWarning
-from paibox.types import WeightType
-from paibox.utils import check_attr_same, count_unique_elem
-
-from .conf_template import (
-    CoreConfig,
-    CoreConfInChip,
-    CorePlmConfig,
-    EmptyCorePlmConfig,
-    NeuronConfig,
+from paibox.exceptions import (
+    GraphBuildError,
+    NotSupportedError,
+    ResourceError,
+    TruncationWarning,
 )
+from paibox.types import WEIGHT_DTYPE, WeightType
+from paibox.utils import check_attr_same
+
+from .conf_types import CoreConfig, CoreConfInChip, CorePlmConfig, NeuronConfig
+from .constrs import GraphNodeConstrs
 from .context import _BACKEND_CONTEXT
 from .segment_utils import aligned_coords, get_axon_segments, get_neu_segments
 from .types import (
     _COORD_UNSET,
+    _RID_UNSET,
+    N_BIT_PACKED_WEIGHT,
+    WRAM_PACKED_DTYPE,
+    WRAM_UNPACKED_DTYPE,
     AxonCoord,
     AxonSegment,
     CoreAbstract,
     DestNodeType,
+    EdgeType,
+    MergedSuccGroup,
     NeuSegment,
     NeuSegOfCoreBlock,
     NeuSegOfCorePlm,
     SourceNodeType,
-    WeightRamType,
+    WRAMPackedType,
+    WRAMUnpackedType,
+    is_iw8,
 )
+
+# Get the fan-out by the combination rate of dendrites
+if hasattr(HwConfig, "FANOUT_IW8"):
+    FANOUT_IW8 = HwConfig.FANOUT_IW8
+else:
+    FANOUT_IW8 = [HwConfig.N_NEURON_MAX_ANN, 1364, 876, 512, 256, 128, 64, 32, 16, 8]
+
+
+NEURON_PARAMS_BIT_LENGTH = 214  # A constant of frame definition
 
 
 class CoreBlock(CoreAbstract):
+
+    _parents: tuple[FullConnectedSyn, ...]
+    seed: int
+    """Random seed, legal integer, no more than uint64."""
+    _lcn_ex: LCN_EX
+    _lcn_locked: bool
+    """Indicate whether `lcn_ex` has been adjusted & locked."""
+    target_lcn: LCN_EX
+    """The target(destination core block) LCN."""
+    chip_coord: ChipCoord
+    """A core block must be placed on a chip."""
+    core_coords: list[Coord]
+    """Assigned core coordinates."""
+    core_placements: dict[Coord, "CorePlacement"]
+    """Core placements."""
+    axon_segments: dict[SourceNodeType, AxonSegment] = dict()
+    """A dictionary of segments of each axon(source node)."""
+    neuron_segs_of_cb: NeuSegOfCoreBlock = []
+    """Neuron segments in the core block. Each element in the list represents the neuron    \
+        segments in core placement.
+    """
+
     def __init__(
         self,
         *parents: FullConnectedSyn,
-        routing_id: int,
         seed: int,
-        mode: CoreMode = CoreMode.MODE_SNN,
+        mode: CoreMode,
         name: Optional[str] = None,
     ) -> None:
         """Core blocks in SNN mode.
 
         Args:
-            - parents: the parent synapses.
-            - routing_id: id of routing group.
-            - seed: random seed. Default value is 0.
-            - mode: runtime mode of the core block. Default value is `MODE_SNN`.
-            - name: name of the core block. Optional.
+            parents: the parent synapses.
+            seed: random seed. Default value is 0.
+            mode: runtime mode of the core block.
         """
         super().__init__(name)
         self._parents = parents
-        self._wp = WP.WEIGHT_WIDTH_8BIT  # default value
-        self._routing_id = routing_id
-        self.runtime_mode = mode
-
-        self._lcn_ex = self._n_axon2lcn_ex()
-
+        self.rt_mode = mode
         self.seed = seed
-        """Random seed, legal integer, no more than uint64."""
+        self._lcn_ex = LCN_EX.LCN_1X
 
         self.target_lcn = LCN_EX.LCN_1X
-        """The target(destination core block) LCN."""
-
         self._lcn_locked = False
-        """Used to indicate whether `lcn_ex` has been adjusted."""
-
-        self.core_coords: list[Coord] = list()
-        """Assigned core coordinates."""
-
-        self.chip_coord: ChipCoord = Coord(_COORD_UNSET, _COORD_UNSET)
-        """A core block must be placed on a chip."""
-
-        self.core_placements: dict[Coord, CorePlacement] = dict()
-        """Core placements."""
-
-        # Segment the group of axons.
-        self.axon_segments: dict[SourceNodeType, AxonSegment] = dict()
-        """A dictionary of segments of each axon(source node)."""
-
-        self.neuron_segs_of_cb: NeuSegOfCoreBlock = []
-        """Neuron segments in the core block. Each element in the list \
-            represents the neuron segments in core placement(physical core).
-        """
+        self.core_coords = []
+        self.chip_coord = _COORD_UNSET
+        self.core_placements = dict()
+        self.axon_segments = dict()
+        self.neuron_segs_of_cb = []
+        self._ordered_axons: list[SourceNodeType] = []
+        """Axons in private + multicast order."""
 
     def group_neurons(
         self, optim_target: Literal["latency", "core", "both"] = "both"
@@ -95,10 +113,7 @@ class CoreBlock(CoreAbstract):
             raise GraphBuildError("group the neurons after 'lcn_ex' is locked.")
 
         self.neuron_segs_of_cb = get_neu_segments(
-            self.dest,
-            self.neuron_capacity,
-            neuron_repl_prop(self.n_weight_bits, self.n_timeslot),
-            optim_target,
+            self.dest, self.n_fanout, self.n_neuron_repl, optim_target
         )
 
     def core_plm_alloc(self) -> None:
@@ -130,21 +145,26 @@ class CoreBlock(CoreAbstract):
             )
 
         if (
-            lcn := int((self.n_axon - 1) // self.n_fanin_max).bit_length()
+            lcn := ((self.n_axon - 1) // self.n_fanin_base).bit_length()
         ) > LCN_EX.LCN_64X:
-            _max_n_axons = self.n_fanin_max * (1 << LCN_EX.LCN_64X)
+            _max_n_axons = self.n_fanin_base << LCN_EX.LCN_64X
             raise ResourceError(
-                f"required LCN extension out of range {LCN_EX.LCN_64X} ({lcn}). "
-                f"The number of axons must be <= {_max_n_axons}. "
-                f"But synapses {self._obj_repr()} have a total of {self.n_axon} axons."
+                f"required LCN out of range {LCN_EX.LCN_64X} ({lcn}). The number of axons "
+                f"must be <= {_max_n_axons}, but synapses {self._obj_repr} have a total of "
+                f"{self.n_axon} axons."
             )
 
         return LCN_EX(lcn)
 
+    def assign_coord(
+        self, chip_coord: Coord, allocated: list[Coord]
+    ) -> tuple[list[Coord], list[Coord]]:
+        self.core_coords = allocated
+        self.chip_coord = chip_coord
+        return allocated, []
+
     def copy(self):
         raise NotImplementedError
-
-    """Interfaces"""
 
     @property
     def obj(self) -> tuple[FullConnectedSyn, ...]:
@@ -152,12 +172,14 @@ class CoreBlock(CoreAbstract):
 
     @property
     def shape(self) -> tuple[int, int]:
-        return (count_unique_elem(self.source), count_unique_elem(self.dest))
+        return (len(self.ordered_axons), len(self.dest))
 
     @property
     def source(self) -> list[SourceNodeType]:
         """Ordered unique source nodes."""
-        return list(set([parent.source for parent in self.obj]))
+        return cast(
+            list[SourceNodeType], list(set([parent.source for parent in self.obj]))
+        )
 
     @property
     def axons(self) -> list[SourceNodeType]:
@@ -166,29 +188,21 @@ class CoreBlock(CoreAbstract):
     @property
     def dest(self) -> list[DestNodeType]:
         """Ordered unique destination nodes."""
-        return list(set([parent.dest for parent in self.obj]))
+        return cast(list[DestNodeType], list(set([parent.dest for parent in self.obj])))
 
     def n_axon_of(self, index: int) -> int:
         """Get the #N of axons of `index`-th source neuron."""
-        return self.axons[index].num_out
+        return self.ordered_axons[index].num_out
 
     """Boundary limitations"""
 
     @property
-    def neuron_capacity(self) -> int:
-        """Neuron capacity. #N of valid dendrites/#N of dendrites required per neuron.
-
-        FIXME This method ONLY works in SNN runtime_mode. For ANN runtime_mode, use table lookup?
-        """
-        return (self.n_dendrite_max >> self.lcn_ex) // self.n_dendrite_per_neuron
-
-    @property
-    def n_fanin_max(self) -> int:
-        """Maximum #N of fan-in per dendrite."""
+    def n_fanin_base(self) -> int:
+        """The fan-in of cores."""
         return (
-            HwConfig.N_FANIN_PER_DENDRITE_ANN
-            if self.runtime_mode is CoreMode.MODE_ANN
-            else HwConfig.N_FANIN_PER_DENDRITE_SNN
+            HwConfig.N_FANIN_PER_DENDRITE_SNN
+            if self.rt_mode.is_snn
+            else HwConfig.N_FANIN_PER_DENDRITE_ANN
         )
 
     @property
@@ -196,22 +210,14 @@ class CoreBlock(CoreAbstract):
         return len(self.neuron_segs_of_cb)
 
     @property
-    def weight_precision(self) -> WP:
-        # Optimized in `s.weight_precision`.
-        return max(s.weight_precision for s in self.obj)
-
-    @property
-    def n_dendrite_per_neuron(self) -> int:
-        """Multiple dendrites will be combined to achieve higher precision weights.
-
-        FIXME The limit on the number of dendrites in SNN/ANN modes is different, which affects \
-            the capacity of neurons in physical core.
-        """
-        return 1 << self.weight_precision
+    def weight_width(self) -> WW:
+        # `weight_width` is optimized in FullConnectedSyn.
+        return max(s.weight_width for s in self.obj)
 
     @property
     def n_weight_bits(self) -> int:
-        return self.n_dendrite_per_neuron
+        """Multiple dendrites will be combined to achieve higher precision weights."""
+        return 1 << self.weight_width
 
     @property
     def lcn_ex(self) -> LCN_EX:
@@ -219,10 +225,9 @@ class CoreBlock(CoreAbstract):
 
     @lcn_ex.setter
     def lcn_ex(self, lcn_ex: LCN_EX) -> None:
-        """Set or adjust the `lcn_ex` & lock."""
         if lcn_ex > LCN_EX.LCN_64X:
             raise ResourceError(
-                f"required LCN extension out of range {LCN_EX.LCN_64X} ({lcn_ex})."
+                f"required LCN out of range {LCN_EX.LCN_64X} ({lcn_ex})."
             )
 
         self._lcn_ex = lcn_ex
@@ -233,35 +238,54 @@ class CoreBlock(CoreAbstract):
         return 1 << self.lcn_ex
 
     @property
+    def dendrite_comb_rate(self) -> int:
+        """#N of dendrites will be combined."""
+        return self.lcn_ex + self.weight_width
+
+    @property
     def tws(self) -> int:
         """Attribute `tick_wait_start`."""
-        if not check_attr_same(self.dest, "tick_wait_start"):
+        _check_attr = "tick_wait_start"
+        if not check_attr_same(self.dest, _check_attr):
             raise AttributeError(
-                "Attribute 'tick_wait_start' of the core block are not equal."
+                f"attribute '{_check_attr}' of the core block are not equal."
             )
 
         return self.dest[0].tick_wait_start
 
     @property
     def twe(self) -> int:
-        """Attribute `tick_wait_end.`"""
-        if not check_attr_same(self.dest, "tick_wait_end"):
+        """Attribute `tick_wait_end`."""
+        _check_attr = "tick_wait_end"
+        if not check_attr_same(self.dest, _check_attr):
             raise AttributeError(
-                "Attribute 'tick_wait_end' of the core block are not equal."
+                f"attribute '{_check_attr}' of the core block are not equal."
             )
 
         return self.dest[0].tick_wait_end
 
     @property
-    def n_axon(self) -> int:
-        return sum(s.num_out for s in self.axons)
+    def pool_max(self) -> MaxPoolingEnable:
+        """Attribute `pool_max`."""
+        _check_attr = "pool_max"
+        if not check_attr_same(self.dest, _check_attr):
+            raise AttributeError(
+                f"attribute '{_check_attr}' of the core block are not equal."
+            )
+
+        return self.dest[0].pool_max
 
     @property
-    def n_dendrite_max(self) -> int:
+    def n_axon(self) -> int:
+        return sum(s.num_out for s in self.ordered_axons)
+
+    @property
+    def n_fanout(self) -> int:
+        """The fan-out of cores."""
         return (
-            HwConfig.N_DENDRITE_MAX_ANN
-            if self.runtime_mode is CoreMode.MODE_ANN
-            else HwConfig.N_DENDRITE_MAX_SNN
+            HwConfig.N_DENDRITE_MAX_SNN >> self.dendrite_comb_rate
+            if self.rt_mode.is_snn
+            else FANOUT_IW8[self.dendrite_comb_rate]
         )
 
     @property
@@ -274,31 +298,37 @@ class CoreBlock(CoreAbstract):
 
     @property
     def n_neuron_of_plm(self) -> list[int]:
-        """A list of the #N of neurons on each `CorePlacement`.
-
-        FIXME Different in SNN/ANN runtime_mode.
-        """
+        """A list of the #N of neurons on each `CorePlacement`."""
         if len(self.core_coords) == 0:
             raise GraphBuildError("do this after coordinates assignment.")
 
         # Get #N of neurons on each `CorePlacement` according to the
         # maximum address required of neuron segments on each `CorePlacement`.
-        assert [] not in self.neuron_segs_of_cb  # TODO if it never happens, remove it.
-
         return [
             sum(seg.n_neuron for seg in neuron_segs)
             for neuron_segs in self.neuron_segs_of_cb
         ]
 
-    def group_axons(self) -> None:
-        if not self._lcn_locked:
-            raise GraphBuildError("get axon segments after 'lcn_ex' is locked.")
+    @property
+    def ordered_axons(self) -> list[SourceNodeType]:
+        return self._ordered_axons
 
+    @ordered_axons.setter
+    def ordered_axons(self, axons: list[SourceNodeType]):
+        self._ordered_axons = axons
+        self._lcn_ex = self._n_axon2lcn_ex()
+
+    def group_axons(self) -> None:
+        """Group the axons, including the private & the multicast parts.
+
+        NOTE: Take the union of the private axons & the multicast axons, but sort the multicast axons first, then the \
+            axons that are in the private part and not in the multicast part.
+        """
         self.axon_segments = get_axon_segments(
-            self.axons, self.n_timeslot, self.n_fanin_max
+            self.ordered_axons, self.n_timeslot, self.n_fanin_base
         )
 
-    @cached_property
+    @property
     def raw_weight_of_dest(self) -> list[WeightType]:
         """Merge and then split the weight matrix according to the grouping of neurons."""
         # The concatenated weight for each destination node.
@@ -308,14 +338,16 @@ class CoreBlock(CoreAbstract):
             # The weights for each destination node.
             w_of_dest = []
 
-            for s in self.source:
+            for s in self.ordered_axons:
                 if syn := self._get_syn_of(s, d):
                     w_of_dest.append(syn.connectivity)
                 else:
                     # Fill with 0.
-                    w_of_dest.append(np.zeros((s.num_out, d.num_in), dtype=np.int8))
+                    w_of_dest.append(
+                        np.zeros((s.num_out, d.num_in), dtype=WEIGHT_DTYPE)
+                    )
 
-            w_dest = np.vstack(w_of_dest, dtype=np.int8)
+            w_dest = np.vstack(w_of_dest)
             w_of_neurons.append(w_dest)
 
         # Check
@@ -338,6 +370,20 @@ class CoreBlock(CoreAbstract):
 
         return w_of_neu_segs
 
+    @property
+    def n_neuron_repl(self) -> int:
+        """The number of neurons that need to be repeatedly placed into NRAM.
+
+        For example, in SNN mode, N[0:3] with LCN_2X & WW8:
+            NRAM [0]  [1]  ... [15] [16] [17] ... [31] ...
+                 N[0] N[0] ... N[0] N[1] N[1] ... N[1] ...
+
+        But at 8-bit input width, neurons don't need to be replicated.
+            NRAM [0]  [1]  ... [15]  [16]  ...
+                 N[0] N[1] ... N[15] N[16] ...
+        """
+        return 1 << self.dendrite_comb_rate if self.rt_mode.is_snn else 1
+
     def __len__(self) -> int:
         return self.n_core_required
 
@@ -347,21 +393,43 @@ class CoreBlock(CoreAbstract):
     def __str__(self) -> str:
         return f"<{self.name} of target '{self.obj}'>"
 
+    @property
     def _obj_repr(self) -> str:
         """The representation of the names of target objects."""
         return ", ".join(n.name for n in self.obj)
 
     @classmethod
-    def build(cls, *synapses: FullConnectedSyn, routing_id: int, seed: int = 0):
+    def build(cls, *synapses: FullConnectedSyn, rt_mode: CoreMode, seed: int = 0):
         """Group synapses & build `CoreBlock`."""
-        # FIXME where does the parameter check do?
         if seed > (1 << 64) - 1:
             warnings.warn(
                 f"random seed {seed} is too large, truncated into 64 bits.",
                 TruncationWarning,
             )
 
-        return cls(*synapses, routing_id=routing_id, seed=seed)
+        return cls(*synapses, mode=rt_mode, seed=seed)
+
+    @classmethod
+    def build_core_blocks(cls, msgrp: MergedSuccGroup) -> list["CoreBlock"]:
+        core_blocks: list[CoreBlock] = []
+        succ_nodes = list(msgrp.nodes)
+        # TODO Currently the runtime mode is not taken into account for grouping constraints,
+        # because in general, a network can only have one mode.
+        mode = succ_nodes[0].mode
+        if any(node.mode != mode for node in succ_nodes):
+            raise NotSupportedError("mixed mode is not supported.")
+
+        idx_of_sg = GraphNodeConstrs.apply_constrs(succ_nodes)
+
+        for idx_lst in idx_of_sg:
+            succ_edges: set[EdgeType] = set()
+            for i in idx_lst:
+                succ_edges.update(msgrp.outputs[succ_nodes[i]])
+
+            core_block = CoreBlock.build(*succ_edges, rt_mode=mode)
+            core_blocks.append(core_block)
+
+        return core_blocks
 
     @classmethod
     def export_core_plm_config(cls, cb: "CoreBlock") -> CoreConfInChip:
@@ -373,15 +441,32 @@ class CoreBlock(CoreAbstract):
 
         return cb_config
 
+    def dump(self, i: int = 0) -> None:
+        tabs = "\t" * i
+        print(f"{tabs}{self.name} with {self.n_core_required} cores:")
+        print(f"{tabs}\tLCN: {self.lcn_ex}")
+        for edge in self._parents:
+            print(f"{tabs}\t{edge.name}: {edge.source.name} -> {edge.target.name}")
+
 
 class CorePlacement(CoreAbstract):
-    """The divided synapse placed on a single CORE."""
+    parent: CoreBlock
+    coord: Coord
+    """Routing coordinate"""
+    n_neuron: int
+    raw_weights: list[WeightType]
+    """The folded weights."""
+    neu_segs_of_cplm: NeuSegOfCorePlm
+    neu_configs: dict[Neuron, NeuronConfig]
 
-    WEIGHT_RAM_SHAPE: ClassVar[tuple[int, int]] = (
-        HwConfig.N_FANIN_PER_DENDRITE_SNN,
-        HwConfig.N_DENDRITE_MAX_SNN,
+    WRAM_BASE_SHAPE: ClassVar[tuple[int, int]] = (
+        HwConfig.ADDR_AXON_MAX + 1,
+        HwConfig.ADDR_RAM_MAX + 1,
     )
-    """SNN mode ONLY."""
+    """The base shape of weight RAM."""
+
+    N_U64_ON_WRAM_ADDR: ClassVar[int] = WRAM_BASE_SHAPE[0] // N_BIT_PACKED_WEIGHT
+    """The number of u64 at each address of weight RAM."""
 
     def __init__(
         self,
@@ -401,18 +486,13 @@ class CorePlacement(CoreAbstract):
             - neu_segs_of_cplm: The segment of the neurons in the physical core.
         """
         super().__init__(name)
-
         self.parent = parent
+        self.rt_mode = parent.rt_mode
         self.coord = routing_coord
-        """Routing coordinate"""
-
         self.n_neuron = n_neuron
-
-        self._weights_folded = self._fold_raw_weights(raw_weights)
-        """The folded weights."""
-
+        self.raw_weights = raw_weights
         self.neu_segs_of_cplm = neu_segs_of_cplm
-        self.neu_configs: dict[Neuron, NeuronConfig] = dict()
+        self.neu_configs = dict()
 
     @classmethod
     def build(cls, parent: CoreBlock, idx: int):
@@ -430,10 +510,7 @@ class CorePlacement(CoreAbstract):
         n_fold = self.n_timeslot
 
         if self.lcn_ex == LCN_EX.LCN_1X:
-            w_folded = np.hstack(raw_weights, dtype=np.int8)
-            w_folded.setflags(write=False)
-
-            return w_folded
+            return np.hstack(raw_weights)
 
         # LCN_EX > LCN_1X
         for raw_weight in raw_weights:
@@ -455,110 +532,238 @@ class CorePlacement(CoreAbstract):
                 )
                 w_folded_of_axon_segs.append(w_folded_of_axon_seg)
 
-            w_folded = np.vstack(w_folded_of_axon_segs, dtype=np.int8)
+            w_folded = np.vstack(w_folded_of_axon_segs)
             w_folded_list.append(w_folded)
 
-        w_folded = np.hstack(w_folded_list, dtype=np.int8)
-        w_folded.setflags(write=False)
+        return np.hstack(w_folded_list)
 
-        return w_folded
+    def _weight_ram_mapping(self) -> WRAMPackedType:
+        """Map the raw weights to the weight RAM(WRAM). The mapping is different for 1 & 8-bit input widths.
 
-    def _weight_ram_mapping(self) -> WeightRamType:
-        row, col = self._weights_folded.shape
-        w_unpacked = np.zeros(self.WEIGHT_RAM_SHAPE, dtype=np.uint8)
+        NOTE: When the input width is 1-bit, no neurons need to be mapped to the WRAM. When the input width is 8-bit,   \
+            some neurons may be mapped to the WRAM when the #N of neurons inside the core placement > 512.
 
-        if self.n_weight_bits == 1:
-            w_unpacked[:row, :col] = self._weights_folded
-        else:
-            # (N, M) -> (M*N, 1)
-            w_folded_3d = np.expand_dims(self._weights_folded.T, axis=2).astype(
-                np.uint8
-            )
+            This function was tested using only the prototype functions. For test items, please refer to                \
+            tests/backend/test_placement.py::TestWeightRamMapping for details.
 
-            for i in range(col):
-                # For every column, unpack the array [N*1] -> [N*n_weight_bits]
+        Returns:
+            The packed matrix of weights mapped to the WRAM, with shape (x, N_U64_ON_WRAM_ADDR) uint64 (x <= 512). The  \
+            entire WRAM contains up to 4 parts: the mapped & unallocated part for weights & neuron parameters.          \
+            For example,
+
+            W1 = W[:x1  ,:]: the mapped part for weights.
+            W2 = W[x1:x2,:]: the unallocated part for weights(0).
+            W3 = W[x2:x3,:]: the mapped part for neurons parameters.
+            W4 = W[x3:  ,:]: the unallocated part for neurons parameters(0). Since it is at the end of WRAM, we don't   \
+                care about it.
+
+            0 < x1 < x2 < x3 <= 512.
+
+            This function only processes the weight part, that is, returns W1+W2 = W[:x2,:].
+        """
+        w_folded = self._fold_raw_weights(self.raw_weights)
+        folded_row, _ = w_folded.shape
+
+        iw = 8 if is_iw8(self.rt_mode) else 1
+        n_dendrite_comb = 1 << self.dendrite_comb_rate
+        # oc * e / (8/w) = oc * d / 8
+        orig_col = self.n_neuron
+        result_col = math.ceil(orig_col * n_dendrite_comb / iw)
+        # Units are divided into small blocks of columns, fan-in extension
+        cew_block = np.zeros(
+            (orig_col, self.n_timeslot, self.n_weight_bits, self.parent.n_fanin_base),
+            dtype=WRAM_UNPACKED_DTYPE,
+        )
+
+        # (N, M)(int8) -> (M, N, 1)(uint8)
+        w_folded_3d = np.expand_dims(w_folded.T, axis=2).view(WRAM_UNPACKED_DTYPE)
+        for c in range(orig_col):
+            for lcn in range(self.n_timeslot):
+                # For every column, unpack the array (N, 1) -> (N, n_weight_bits)
                 unpacked = np.unpackbits(
-                    w_folded_3d[i],
+                    w_folded_3d[c * self.n_timeslot + lcn, :, :],
                     axis=1,
                     count=self.n_weight_bits,
                     bitorder=HwConfig.WEIGHT_BITORDER,
                 )
 
-                w_unpacked[
-                    :row, self.n_weight_bits * i : self.n_weight_bits * (i + 1)
-                ] = unpacked
+                for bit in range(self.n_weight_bits):
+                    cew_block[c, lcn, bit, :folded_row] = unpacked[:, bit].squeeze()
 
-        assert np.max(w_unpacked, axis=None) <= np.uint8(1)
-        assert np.min(w_unpacked, axis=None) >= np.uint8(0)
+        if n_dendrite_comb >= iw:  # For 1-bit input width, it must go into this case
+            # At least 1 fan-in is required to be combined in one column
+            w_mapped = cew_block.reshape((result_col, -1)).T
+        else:
+            # 2/4/8 original columns are combined in one column
+            n_col_comb_in_col = iw // n_dendrite_comb
+            cew_block = cew_block.reshape((orig_col, -1))
 
-        # Convert the unpacked weights into a mapping format,
-        # corresponding to the RAM address, each address contains 18 uint64.
-        # (1152, 512) -> (512, 1152) -> (512*18, 64)(uint8).
-        # Reshape to 64 columns to avoid contiguous problem.
-        w_unpacked_T_rehaped = w_unpacked.T.reshape(-1, 64)
+            if (r := orig_col % n_col_comb_in_col) > 0:
+                cew_block = np.pad(cew_block, ((0, n_col_comb_in_col - r), (0, 0)))
 
-        # (512*18, 64)(uint8) -> (512*18, 8)(uint8)
-        w_packed_u8 = np.packbits(
-            w_unpacked_T_rehaped, axis=1, bitorder=HwConfig.WEIGHT_BITORDER
+            # Now, length of padded columns is a multiple of 'n_col_comb_in_col'
+            w_mapped = cew_block.reshape(
+                (cew_block.shape[0] // n_col_comb_in_col, -1)
+            ).T
+
+        wram_packed = self._weight_pack(w_mapped)
+
+        # Available columns for weight mapping to the WRAM.
+        if iw == 1:
+            n_col_weight_on_wram = CorePlacement.WRAM_BASE_SHAPE[1]
+        else:
+            n_144b_dendrites = (
+                FANOUT_IW8[self.dendrite_comb_rate] << self.dendrite_comb_rate
+            )
+            n_col_weight_on_wram = n_144b_dendrites // iw
+
+        # The mapped & unallocated part for weights, W1+W2
+        wram_weight_packed = np.zeros(
+            (n_col_weight_on_wram, CorePlacement.N_U64_ON_WRAM_ADDR),
+            dtype=WRAM_PACKED_DTYPE,
         )
-        # (512*18, 8)(uint8) -> (512*18, 1)(uint64) -> (512, 18)(uint64)
-        w_packed_u64 = w_packed_u8.view(np.uint64).reshape(-1, 18)
-        w_packed_u64.setflags(write=False)
+        wram_weight_packed[: wram_packed.shape[0], :] = wram_packed
+        wram_weight_packed.setflags(write=False)
 
-        return w_packed_u64
+        return wram_weight_packed
 
     @staticmethod
     def _nfold_weight(
         raw_weight: WeightType, expected_row: int, n_fold: int
     ) -> WeightType:
-        """According to the folding ratio `n_fold`, fold the weight matrix.
+        """Fold the weight matrix according to the folding ratio.
 
         Args:
-            - raw_weight: the raw weight matrix.
-            - expected_row: expected #N of row.
-            - n_fold: the folding ratio.
+            raw_weight: the raw weight matrix.
+            expected_row: the expected #N of row.
+            n_fold: the folding ratio (1 << LCN).
         """
         raw_row, raw_col = raw_weight.shape
+        n_row_folded, r = divmod(raw_row, n_fold)  # #N of rows after folding
 
-        if raw_row % n_fold > 0:
-            n_row_padding = n_fold - raw_row % n_fold
-
-            # Check #1
-            # assert expected_row * n_fold == raw_row + n_row_padding
-
-            _raw_weight = np.append(
-                raw_weight,
-                np.zeros((n_row_padding, raw_col), dtype=np.int8),
-                axis=0,
-            )
+        if r > 0:
+            n_row_folded += 1
+            _raw_weight = np.pad(raw_weight, ((0, n_fold - r), (0, 0)))
         else:
-            _raw_weight = raw_weight.copy()
+            _raw_weight = raw_weight
 
         w_splited = np.vsplit(_raw_weight, n_fold)
-
-        # Check #2
-        # assert _raw_weight.shape[0] == expected_row * n_fold
-
-        w_folded = np.zeros((expected_row, raw_col * n_fold), dtype=np.int8)
+        w_folded = np.zeros((expected_row, raw_col * n_fold), dtype=WEIGHT_DTYPE)
 
         for i, j in np.ndindex((n_fold, raw_col)):
             w_col = w_splited[i][:, j]
-            w_folded[:, n_fold * j + i] = w_col
+            w_folded[:n_row_folded, j * n_fold + i] = w_col
 
         return w_folded
 
+    @staticmethod
+    def _weight_pack(w_unpacked: WRAMUnpackedType) -> WRAMPackedType:
+        """Convert the unpacked weights into a mapping form, corresponding to the WRAM address. Each address contains   \
+            uint64.
+            (1152, x) -> (x, 1152) -> (x*18, 64) -> (x*18, 8) uint8 -> (x*18, 1) uint64 -> (x, 18) uint64.
+
+            TODO simpler (1152, x) -> (x, 1152) -> pack -> (x, 144) uint8 -> (x, 18) uint64.
+
+        Returns:
+            The packed matrix of weights with shape (x, 18) where x <= 512.
+        """
+        # Reshape to 64 columns to avoid contiguous problem.
+        w_unpacked_aligned = w_unpacked.T.reshape((-1, N_BIT_PACKED_WEIGHT))
+        # (x*18, 64) uint8 -> (x*18, 8) uint8
+        w_packed_u8 = np.packbits(
+            w_unpacked_aligned, axis=1, bitorder=HwConfig.WEIGHT_BITORDER
+        )
+        # (x*18, 8) uint8 -> (x*18, 1) uint64 -> (x, 18) uint64
+        w_packed_u64 = w_packed_u8.view(WRAM_PACKED_DTYPE).reshape(
+            (w_unpacked.shape[1], -1)
+        )
+        # TODO If everything is okay, use the simpler method as follows:
+        # w_packed_u8 = np.packbits(
+        #     w_unpacked.T, axis=1, bitorder=HwConfig.WEIGHT_BITORDER
+        # )
+        # w_packed_u64 = np.ascontiguousarray(w_packed_u8).view(WRAM_PACKED_DTYPE)
+        w_packed_u64.setflags(write=False)
+
+        # TODO If the assertion is useless, remove it.
+        assert w_packed_u64.shape[1] == CorePlacement.N_U64_ON_WRAM_ADDR
+        return w_packed_u64
+
+    @staticmethod
+    def neu_params_mapping(neu_confs: list[NeuronConfig]) -> WRAMPackedType:
+        """Map the extra neurons parameters to the WRAM. This only happens when the input width is 8 bits.
+
+        NOTE: This function was tested using only the prototype functions. For test items, please refer to              \
+            `tests/backend/test_placement.py::TestWeightRamMapping` for details.
+
+        Returns:
+            The packed matrix W3 with shape (L, 18) where L is the used columns for mapping neurons parameters. See     \
+            details in function `_weight_ram_mapping`.
+        """
+        neu_conf_params_list: list[WRAMUnpackedType] = []
+
+        for neu_conf in neu_confs:
+            neu_conf_params = np.zeros(
+                (neu_conf.neu_seg.n_neuron, NEURON_PARAMS_BIT_LENGTH),
+                dtype=WRAM_UNPACKED_DTYPE,
+            )
+
+            # Only the packges will be used.
+            frame3 = OfflineFrameGen.gen_config_frame3(
+                _COORD_UNSET,
+                _COORD_UNSET,
+                _RID_UNSET,
+                0,
+                neu_conf.neu_seg.n_neuron,
+                neu_conf.neuron_attrs,
+                neu_conf.neuron_dest_info,
+                1,
+            )
+
+            for i in range(neu_conf.neu_seg.n_neuron):
+                params = frame3.packages[i * 4 : (i + 1) * 4]
+                neu_conf_params[i, :] = np.unpackbits(
+                    params.view(WRAM_UNPACKED_DTYPE),
+                    axis=0,
+                    bitorder=HwConfig.WEIGHT_BITORDER,
+                )[:NEURON_PARAMS_BIT_LENGTH]
+
+            neu_conf_params_list.append(neu_conf_params)
+
+        neu_params = np.vstack(neu_conf_params_list)
+
+        N_NEURON_PARAM_IN_COL = (
+            CorePlacement.WRAM_BASE_SHAPE[0] // NEURON_PARAMS_BIT_LENGTH
+        )
+        n_col_occupied, r = divmod(neu_params.shape[0], N_NEURON_PARAM_IN_COL)
+        if r > 0:
+            n_col_occupied += 1
+            neu_params = np.pad(neu_params, ((0, N_NEURON_PARAM_IN_COL - r), (0, 0)))
+
+        neu_params = neu_params.reshape((n_col_occupied, -1))
+
+        # (1152, y)
+        result = np.zeros(
+            (CorePlacement.WRAM_BASE_SHAPE[0], n_col_occupied),
+            dtype=WRAM_UNPACKED_DTYPE,
+        )
+        _n_bit_nparams = NEURON_PARAMS_BIT_LENGTH * N_NEURON_PARAM_IN_COL
+        result[:_n_bit_nparams, :] = neu_params.T
+
+        # (1152, y) -> (y, 18)
+        return CorePlacement._weight_pack(result)
+
     def export_param_config(self) -> CoreConfig:
-        _mode_params = self.mode.conf
+        _mode_params = self.rt_mode.conf
 
         # fmt: off
         cb_config = CoreConfig(
             self.name,                          # name of the core
-            self.weight_precision,              # weight_precision
+            self.weight_width,                  # weight_precision
             self.lcn_ex,                        # lcn_extension
             _mode_params[0],                    # input_width_format
             _mode_params[1],                    # spike_width_format
-            self.n_dendrite,                    # num_dendrite
-            MaxPoolingEnable.DISABLE,           # max_pooling_en
+            self.n_working_dendrite,            # num_dendrite
+            self.pool_max,                      # max_pooling_en
             self.tws,                           # tick_wait_start
             self.twe,                           # tick_wait_end
             _mode_params[2],                    # snn_mode_en
@@ -596,6 +801,7 @@ class CorePlacement(CoreAbstract):
                 axon_dests[0].axon_segments[neu_seg.target],
                 neu_seg.target.delay_relative,
                 axon_dests[0].n_timeslot,
+                is_iw8(axon_dests[0].rt_mode),
             )
 
             # Get all core coordinates and replication ids.
@@ -605,11 +811,12 @@ class CorePlacement(CoreAbstract):
             for ad in axon_dests:
                 dest_core_coords.extend(ad.core_coords)
 
-            config = NeuronConfig.encapsulate(
+            config = NeuronConfig(
                 neu_seg, axon_coords, dest_core_coords, axon_dests[0].chip_coord
             )
 
             self.neu_configs[neu_seg.target] = config
+            return None
         else:
             # neu_seg is a part of an output node
             assert isinstance(output_core_coord, Coord)
@@ -620,7 +827,7 @@ class CorePlacement(CoreAbstract):
                 for i in range(axon_addr_offset, axon_addr_offset + neu_seg.n_neuron)
             ]
 
-            config = NeuronConfig.encapsulate(
+            config = NeuronConfig(
                 neu_seg,
                 axon_coords,
                 [output_core_coord],
@@ -634,22 +841,17 @@ class CorePlacement(CoreAbstract):
 
     def export_core_plm_config(self) -> CorePlmConfig:
         core_param = self.export_param_config()
-
         return CorePlmConfig.encapsulate(
             self.parent.seed, self.weight_ram, core_param, self.neu_configs
         )
 
     @property
-    def mode(self) -> CoreMode:
-        return self.parent.runtime_mode
-
-    @property
     def shape(self) -> tuple[int, int]:
-        return (count_unique_elem(self.source), count_unique_elem(self.dest))
+        return (len(self.source), len(self.dest))
 
     @property
-    def weight_precision(self) -> WP:
-        return self.parent.weight_precision
+    def weight_width(self) -> WW:
+        return self.parent.weight_width
 
     @property
     def n_weight_bits(self) -> int:
@@ -672,6 +874,10 @@ class CorePlacement(CoreAbstract):
         return self.parent.target_lcn
 
     @property
+    def dendrite_comb_rate(self) -> int:
+        return self.parent.dendrite_comb_rate
+
+    @property
     def tws(self) -> int:
         return self.parent.tws
 
@@ -680,15 +886,23 @@ class CorePlacement(CoreAbstract):
         return self.parent.twe
 
     @property
-    def n_dendrite(self) -> int:
-        return self.n_neuron * neuron_repl_prop(self.n_weight_bits, self.n_timeslot)
+    def pool_max(self) -> MaxPoolingEnable:
+        return self.parent.pool_max
+
+    @property
+    def n_working_dendrite(self) -> int:
+        """The number of actual working dendrites.
+
+        NOTE: n_neuron * (2^comb_rate) = n_neuron << comb_rate
+        """
+        return self.n_neuron << self.dendrite_comb_rate
 
     @property
     def source(self) -> list[SourceNodeType]:
-        return self.parent.source
+        return self.parent.ordered_axons
 
     @property
-    def dest(self):
+    def dest(self) -> list[DestNodeType]:
         """The destination nodes within it.
 
         NOTE: This attribute is different from the one of its parent.
@@ -696,7 +910,7 @@ class CorePlacement(CoreAbstract):
         return [p.target for p in self.neu_segs_of_cplm]
 
     @property
-    def weight_ram(self) -> WeightRamType:
+    def weight_ram(self) -> WRAMPackedType:
         return self._weight_ram_mapping()
 
     @property
@@ -710,12 +924,7 @@ class CorePlacement(CoreAbstract):
 class EmptyCorePlacement(CoreAbstract):
     """Empty core placement."""
 
-    _default_wp: ClassVar[WP] = WP.WEIGHT_WIDTH_1BIT
-    _default_lcn_ex: ClassVar[LCN_EX] = LCN_EX.LCN_1X
-    _default_n_dendrite: ClassVar[int] = 0
-    _default_tws: ClassVar[int] = 0
-    _default_twe: ClassVar[int] = 0
-    _default_target_lcn: ClassVar[LCN_EX] = LCN_EX.LCN_1X
+    _EMPTY_WRAM: int = 0
 
     def __init__(self, coord: Coord, name: Optional[str] = None) -> None:
         super().__init__(name)
@@ -727,24 +936,25 @@ class EmptyCorePlacement(CoreAbstract):
         # fmt: off
         cb_config = CoreConfig(
             self.name,                          # name of the core
-            self._default_wp,                   # weight_precision
-            self._default_lcn_ex,               # lcn_extension
+            WW.WEIGHT_WIDTH_1BIT,               # weight_precision
+            LCN_EX.LCN_1X,                      # lcn_extension
             _mode_params[0],                    # input_width_format
             _mode_params[1],                    # spike_width_format
-            self._default_n_dendrite,           # num_dendrite
+            0,                                  # num_dendrite
             MaxPoolingEnable.DISABLE,           # max_pooling_en
-            self._default_tws,                  # tick_wait_start
-            self._default_twe,                  # tick_wait_end
+            0,                                  # tick_wait_start
+            0,                                  # tick_wait_end
             _mode_params[2],                    # snn_mode_en
-            self._default_target_lcn,           # target_lcn
+            LCN_EX.LCN_1X,                      # target_lcn
             _BACKEND_CONTEXT.test_chip_addr,    # test_chip_addr
         )
         # fmt: on
         return cb_config
 
-    def export_core_plm_config(self) -> EmptyCorePlmConfig:
+    def export_core_plm_config(self) -> CorePlmConfig:
         core_param = self.export_param_config()
-        return EmptyCorePlmConfig.encapsulate(core_param)
+        # For empty core placements, we don't care random seed, WRAM & neurons cfg.
+        return CorePlmConfig.encapsulate(0, self._EMPTY_WRAM, core_param, {})  # type: ignore
 
     @classmethod
     def build(cls, coord: Coord):
@@ -758,11 +968,3 @@ class EmptyCorePlacement(CoreAbstract):
 def max_lcn_of_cb(cb: list[CoreBlock]) -> LCN_EX:
     """Find the max LCN extenion of previous grouped synapses"""
     return max(cb, key=lambda cb: cb.lcn_ex).lcn_ex
-
-
-def neuron_repl_prop(nbits: int, ntimeslot: int) -> int:
-    """Get the proportion of neuron replication.
-
-    scale = nbits(1 << wp) * n_timeslot(1 << lcn_ex)
-    """
-    return nbits * ntimeslot
