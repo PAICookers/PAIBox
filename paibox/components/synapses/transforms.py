@@ -334,15 +334,15 @@ class _ConvNdForward(Transform):
         kernel: np.ndarray,
         stride: _SizeAnyType = 0,
         padding: _SizeAnyType = 0,
-        output_padding: _SizeAnyType = 0,
         groups: int = 1,
+        output_padding: _SizeAnyType = 0,
     ) -> None:
         self.in_shape = in_shape
         self.out_shape = out_shape
         self.stride = stride
         self.padding = padding
-        self.output_padding = output_padding
         self.groups = groups
+        self.output_padding = output_padding
 
         super().__init__(kernel)
 
@@ -414,7 +414,6 @@ class Conv2dForward(_ConvNdForward):
 
 
 class Conv2dSemiFoldedForward(_ConvNdForward):
-
     in_shape: Size2Type
     out_shape: Size2Type
     stride: Size2Type
@@ -441,10 +440,11 @@ class ConvTranspose1dForward(_ConvNdForward):
     out_shape: Size1Type
     stride: Size1Type
     padding: Size1Type
+    groups: int
     output_padding: Size1Type
 
     def __call__(self, x: NeuOutType, *args, **kwargs) -> SynOutType:
-        cin = self.weights.shape[1]
+        cin = self.weights.shape[1] * self.groups
 
         # if self.fm_order == "LC":
         #     # (N,) -> (L, C) -> (C, L)
@@ -478,10 +478,11 @@ class ConvTranspose2dForward(_ConvNdForward):
     out_shape: Size2Type
     stride: Size2Type
     padding: Size2Type
+    groups: int
     output_padding: Size2Type
 
     def __call__(self, x: NeuOutType, *args, **kwargs) -> SynOutType:
-        cin = self.weights.shape[1]
+        cin = self.weights.shape[1] * self.groups
 
         # if self.fm_order == "HWC":
         #     # (N,) -> (H, W, C) -> (C, H, W)

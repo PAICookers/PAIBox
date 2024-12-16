@@ -553,7 +553,7 @@ class TestTransforms:
             + output_padding[0],
         )
         f = tfm.ConvTranspose1dForward(
-            in_shape, out_shape, kernel, stride, padding, output_padding
+            in_shape, out_shape, kernel, stride, padding, output_padding=output_padding
         )
 
         xf = x.ravel()
@@ -713,7 +713,7 @@ class TestTransforms:
         )
 
         f = tfm.ConvTranspose2dForward(
-            in_shape, out_shape, kernel, stride, padding, output_padding
+            in_shape, out_shape, kernel, stride, padding, output_padding=output_padding
         )
 
         x = np.random.randint(0, 2, size=fm_shape, dtype=np.bool_)

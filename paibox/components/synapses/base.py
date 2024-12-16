@@ -269,18 +269,19 @@ class Conv1dSyn(FullConnectedSyn):
             _kernel = kernel.copy()
 
         # O,I,L
-        out_channels, group_in_channels, kernel_l = _kernel.shape
-        in_channels = groups * group_in_channels
+        o_ch, grp_in_ch, kernel_l = _kernel.shape
         # C,L
         in_ch, in_l = _fm_ndim1_check(source.shape_out, "CL")
         out_l = (in_l + 2 * padding[0] - dilation[0] * (kernel_l - 1) - 1) // stride[
             0
         ] + 1
 
-        if in_ch != in_channels:
-            raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
+        if in_ch != (_cur_in_ch := groups * grp_in_ch):
+            in_ch_mismatch_text = f"input channels mismatch: {in_ch} != {_cur_in_ch}"
+            in_ch_mismatch_text += f" ({groups}*{grp_in_ch})." if groups > 1 else "."
+            raise ShapeError(in_ch_mismatch_text)
 
-        if (_output_size := out_channels * out_l) != dest.num_in:
+        if (_output_size := o_ch * out_l) != dest.num_in:
             raise ShapeError(f"output size mismatch: {_output_size} != {dest.num_in}.")
 
         self.comm = Conv1dForward(
@@ -316,8 +317,7 @@ class Conv2dSyn(FullConnectedSyn):
             _kernel = kernel.copy()
 
         # O,I,H,W
-        out_channels, group_in_channels, kernel_h, kernel_w = _kernel.shape
-        in_channels = groups * group_in_channels
+        o_ch, grp_in_ch, kernel_h, kernel_w = _kernel.shape
         # C,H,W
         in_ch, in_h, in_w = _fm_ndim2_check(source.shape_out, "CHW")
         out_h = (in_h + 2 * padding[0] - dilation[0] * (kernel_h - 1) - 1) // stride[
@@ -327,12 +327,14 @@ class Conv2dSyn(FullConnectedSyn):
             1
         ] + 1
 
-        if in_ch != in_channels:
-            raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
+        if in_ch != (_cur_in_ch := groups * grp_in_ch):
+            in_ch_mismatch_text = f"input channels mismatch: {in_ch} != {_cur_in_ch}"
+            in_ch_mismatch_text += f" ({groups}*{grp_in_ch})." if groups > 1 else "."
+            raise ShapeError(in_ch_mismatch_text)
 
-        if (_output_size := out_channels * out_h * out_w) != dest.num_in:
+        if (_output_size := o_ch * out_h * out_w) != dest.num_in:
             raise ShapeError(
-                f"output size mismatch: {_output_size} ({out_channels}*{out_h}*{out_w}) "
+                f"output size mismatch: {_output_size} ({o_ch}*{out_h}*{out_w}) "
                 f"!= {dest.num_in}."
             )
 
@@ -368,29 +370,25 @@ class Conv2dSemiFoldedSyn(FullConnectedSyn):
             _kernel = kernel.copy()
 
         # O,I,H
-        out_channels, group_in_channels, kernel_h = _kernel.shape
-        in_channels = groups * group_in_channels
+        o_ch, grp_in_ch, kernel_h = _kernel.shape
         # I,H
         assert len(source.shape_out) == 2
         in_ch, in_h = source.shape_out
         out_h = (in_h + 2 * padding[0] - kernel_h) // stride[0] + 1
 
-        if in_ch != in_channels:
-            raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
+        if in_ch != (_cur_in_ch := groups * grp_in_ch):
+            in_ch_mismatch_text = f"input channels mismatch: {in_ch} != {_cur_in_ch}"
+            in_ch_mismatch_text += f" ({groups}*{grp_in_ch})." if groups > 1 else "."
+            raise ShapeError(in_ch_mismatch_text)
 
-        if (_output_size := out_channels * out_h) != dest.num_in:
+        if (_output_size := o_ch * out_h) != dest.num_in:
             raise ShapeError(
-                f"output size mismatch: {_output_size} ({out_channels}*{out_h}) "
+                f"output size mismatch: {_output_size} ({o_ch}*{out_h}) "
                 f"!= {dest.num_in}."
             )
 
         self.comm = Conv2dSemiFoldedForward(
-            (in_ch, in_h),
-            (out_channels, out_h),
-            _kernel,
-            stride,
-            padding,
-            groups=groups,
+            (in_ch, in_h), (o_ch, out_h), _kernel, stride, padding, groups=groups
         )
 
 
@@ -422,7 +420,7 @@ class ConvTranspose1dSyn(FullConnectedSyn):
             _kernel = kernel.copy()
 
         # O,I,L
-        out_channels, in_channels, kernel_l = _kernel.shape
+        o_ch, in_channels, kernel_l = _kernel.shape
         # C,L
         in_ch, in_l = _fm_ndim1_check(source.shape_out, "CL")
         out_l = (
@@ -436,11 +434,11 @@ class ConvTranspose1dSyn(FullConnectedSyn):
         if in_ch != in_channels:
             raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
 
-        if (_output_size := out_channels * out_l) != dest.num_in:
+        if (_output_size := o_ch * out_l) != dest.num_in:
             raise ShapeError(f"output size mismatch: {_output_size} != {dest.num_in}.")
 
         self.comm = ConvTranspose1dForward(
-            (in_l,), (out_l,), _kernel, stride, padding, output_padding
+            (in_l,), (out_l,), _kernel, stride, padding, output_padding=output_padding
         )
 
 
@@ -472,7 +470,7 @@ class ConvTranspose2dSyn(FullConnectedSyn):
             _kernel = kernel.copy()
 
         # O,I,H,W
-        out_channels, in_channels, kernel_h, kernel_w = _kernel.shape
+        o_ch, in_channels, kernel_h, kernel_w = _kernel.shape
         # C,H,W
         in_ch, in_h, in_w = _fm_ndim2_check(source.shape_out, "CHW")
         out_h = (
@@ -493,11 +491,16 @@ class ConvTranspose2dSyn(FullConnectedSyn):
         if in_ch != in_channels:
             raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
 
-        if (_output_size := out_channels * out_h * out_w) != dest.num_in:
+        if (_output_size := o_ch * out_h * out_w) != dest.num_in:
             raise ShapeError(f"output size mismatch: {_output_size} != {dest.num_in}.")
 
         self.comm = ConvTranspose2dForward(
-            (in_h, in_w), (out_h, out_w), _kernel, stride, padding, output_padding
+            (in_h, in_w),
+            (out_h, out_w),
+            _kernel,
+            stride,
+            padding,
+            output_padding=output_padding,
         )
 
 
