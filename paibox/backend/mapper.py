@@ -130,31 +130,30 @@ class Mapper:
         """Compile the network with optimization options.
 
         Args:
-            - weight_bit_optimization: whether to optimize weight precision. For example, weights declared as   \
-                INT8 are treated as smaller precision based on their actual values (when the weight are all     \
+            weight_bit_optimization (bool): whether to optimize weight precision. For example, weights declared \
+                as INT8 are treated as smaller precision based on their actual values (when the weight are all  \
                 between [-8, 7], they can be treated as INT4). By default, it is specified by the corresponding \
                 compile option in the backend configuration item. Default is true.
-            - grouping_optim_target: specify the optimization goal of neuron grouping, which can be `latency`,  \
-                `core` or `both`, which respectively represent the optimization goal of delay/throughput,       \
-                occupied cores, or both. The default is specified by the corresponding compilation option in the\
-                backend configuration item. Default is 'both'.
-            - no_twisted_branch (for advanced use): when parsing the network topology, whether or not to prohibit intersecting     \
-                branch structures will cause such structures to be processed. For example:
+            grouping_optim_target ("latency", "core", "both"): specify the optimization goal of neuron grouping,\
+                which can be `latency`, `core` or `both` which respectively represent the optimization goal of  \
+                delay/throughput, occupied cores, or both. The default is specified by the corresponding        \
+                compilation option in the backend configuration item. Default is 'both'.
+            no_twisted_branch (bool): only for advanced use. when parsing the network topology, whether or not  \
+                to prohibit intersecting branch structures will cause such structures to be processed.          \
+                For example:
 
                 I -> A -> B -> C
                        ------>
 
-                The out-degree of node A is > 1, and its successor node C has an in-degree > 1. If `no_twisted_branch`    \
-                is true, A will be copied & denoted as A', whose forward connection is preserved.
+                The out-degree of node A is > 1, and its successor node C has an in-degree > 1. If true, A will \
+                be copied & denoted as A', whose forward connection is preserved.
 
                 I -> A -> B -> C
                   -> A'------>
 
-                Default is false.
-
-            - multicast_optim (in dev): whether to perform multicast optimization. If true, the optimization is \
-                performed on all nodes in the network. If a node list is passed, the optimization is attempted  \
-                on the specified nodes only. Default is false.
+            multicast_optim (bool, Sequence[NodeType]): whether to perform multicast optimization. If true, the \
+                optimization is performed on all nodes in the network. If passing a node list, the optimization \
+                is attempted on the specified nodes only. Default is false.
                 TODO A description of it is to be added
 
         Return: network information after compilation in dictionary format.
