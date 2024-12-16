@@ -630,7 +630,7 @@ def _convtranspose2d_faster(
     ]
     # output_padding
     out = np.pad(out, ((0, 0), (0, output_padding[0]), (0, output_padding[1])))
-    
+
     if bias:
         _bias = bias.squeeze()
         assert _bias.shape == (cout,)
