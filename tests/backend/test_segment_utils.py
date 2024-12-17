@@ -8,8 +8,9 @@ from paibox.backend.segment_utils import (
     get_axon_segments,
     get_neu_segments,
 )
-from paibox.exceptions import ResourceError
 from paibox.components.neuron import NeuronSlice
+from paibox.exceptions import ResourceError
+
 from .conftest import TestData
 
 
@@ -115,7 +116,7 @@ def test_get_axon_segments_boundary(axons):
 
     lcn_ex = n_axon2lcn_ex_proto(sum(axon.num_out for axon in axons), 1152)
     tr_max = 1 << lcn_ex
-    
+
     axon_slices = [NeuronSlice(axon) for axon in axons]
 
     with pytest.raises(ResourceError):

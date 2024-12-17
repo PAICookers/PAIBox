@@ -18,11 +18,12 @@ from paibox.network import DynSysGroup
 from paibox.utils import check_elem_unique
 
 from .context import _BACKEND_CONTEXT
+from .overlap import NL_overlap
 from .placement import CoreBlock
 from .routing import RoutingGroup
 from .segment_utils import get_neu_segments
 from .types import *
-from .overlap import NL_overlap
+
 
 @dataclass
 class PAIGraph:
@@ -563,6 +564,7 @@ def _degree_check(
                     f"If out-degree of a node is greater than 1, the in-degree of its sucessors must be 1. "
                     f"However, in-degree of {_node_repr} is {degree_of_nodes[succ_node].in_degree}."
                 )
+
 
 def find_cycles(directed_edges: Mapping[_NT, Iterable[_NT]]) -> list[list[_NT]]:
     cycles: list[list[_NT]] = []
