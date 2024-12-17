@@ -2,7 +2,7 @@ import logging
 import math
 import warnings
 from typing import ClassVar, Literal, Optional, cast, overload
-import logging
+
 import numpy as np
 from paicorelib import LCN_EX, ChipCoord, Coord, CoreMode, HwConfig, MaxPoolingEnable
 from paicorelib import WeightWidth as WW
