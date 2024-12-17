@@ -164,7 +164,9 @@ def _get_neu_slices(
     seg_slices_dict: dict[Neuron, list[NeuSlice]] = dict()
 
     for neu_slice in neu_groups:
-        seg_slices_dict[neu_slice.target] = _coarse_group(neu_slice, capacity, load_type)
+        seg_slices_dict[neu_slice.target] = _coarse_group(
+            neu_slice, capacity, load_type
+        )
 
     return seg_slices_dict
 
@@ -281,10 +283,13 @@ def get_axon_segments(
                 f"axons address out of range [0, {n_fanin}) ({offset + addr_width})."
             )
 
-        return AxonSegment(axon.num_out, addr_width, offset, axon.index.start), offset + addr_width
+        return (
+            AxonSegment(axon.num_out, addr_width, offset, axon.index.start),
+            offset + addr_width,
+        )
 
     offset = 0
-    axon_segments:dict[SourceSliceType, AxonSegment] = dict()
+    axon_segments: dict[SourceSliceType, AxonSegment] = dict()
 
     for ax in axons:
         segment, offset = _seg_alloc(ax, offset)
