@@ -1,9 +1,9 @@
 import itertools
+import logging
 import math
 import sys
 from collections.abc import Generator, Iterator
 from typing import Any, ClassVar, Union
-import logging
 
 from paicorelib import ONLINE_CORES_BASE_COORD
 from paicorelib import ROUTING_DIRECTIONS_IDX as DIREC_IDX
@@ -12,16 +12,17 @@ from paicorelib import RoutingDirection as Direction
 from paicorelib import RoutingLevel as Level
 from paicorelib.routing_defs import MAX_ROUTING_PATH_LENGTH
 
+from paibox.components import EdgeSlice, FullConnectedSyn, MatMul2d, Neuron, NeuronSlice
 from paibox.exceptions import (
     GraphBuildError,
+    NotSupportedError,
     PAIBoxDeprecationWarning,
     ResourceError,
     RoutingError,
-    NotSupportedError
 )
-from paibox.components import FullConnectedSyn, Neuron, MatMul2d, NeuronSlice, EdgeSlice
-from .constrs import GraphNodeConstrs
+
 from .conf_types import CorePlmConfInChip
+from .constrs import GraphNodeConstrs
 from .placement import CoreBlock, EmptyCorePlacement
 from .types import *
 from .types import Coord2str, _Coord2Index
@@ -34,19 +35,24 @@ else:
 __all__ = ["RoutingGroup", "RoutingManager"]
 
 
-
 def MatMul2d_slices(mat_mul: MatMul2d) -> tuple[list[slice], list[slice]]:
     shape_in = mat_mul.shape_in
     shape_out = mat_mul.shape_out
     in_slice_len = shape_in[1]
     out_slice_len = shape_out[1]
-    
-    input_slices = [slice(i*in_slice_len, (i+1)*in_slice_len) for i in range(shape_in[0])]
-    output_slices = [slice(i*out_slice_len, (i+1)*out_slice_len) for i in range(shape_out[0])]
-    return input_slices, output_slices
-    
 
-def build_elements(merged_sgrp: MergedSuccGroup) -> list[Union[CoreBlock, "RoutingGroup"]]:
+    input_slices = [
+        slice(i * in_slice_len, (i + 1) * in_slice_len) for i in range(shape_in[0])
+    ]
+    output_slices = [
+        slice(i * out_slice_len, (i + 1) * out_slice_len) for i in range(shape_out[0])
+    ]
+    return input_slices, output_slices
+
+
+def build_elements(
+    merged_sgrp: MergedSuccGroup,
+) -> list[Union[CoreBlock, "RoutingGroup"]]:
     core_blocks: list[CoreBlock] = []
     nodes = list(merged_sgrp.nodes)
     mode = nodes[0].mode
@@ -56,7 +62,7 @@ def build_elements(merged_sgrp: MergedSuccGroup) -> list[Union[CoreBlock, "Routi
     # Optimize weight in single operator, like 'Mat2d'.
     if len(nodes) == 1:
         edges = merged_sgrp.outputs[nodes[0]]
-        #find edges with divisible weight
+        # find edges with divisible weight
         divisible_edge: FullConnectedSyn = None
         for edge in edges:
             # only one edge is allowed to have divisible weight
@@ -67,11 +73,11 @@ def build_elements(merged_sgrp: MergedSuccGroup) -> list[Union[CoreBlock, "Routi
         if divisible_edge is None:
             edge_slices = [EdgeSlice(edge) for edge in edges]
             elements.append(CoreBlock.build(*edge_slices, rt_mode=mode))
-        
+
         else:
             input_slices, output_slices = MatMul2d_slices(divisible_edge)
             for input_slice, output_slice in zip(input_slices, output_slices):
-                edge_slices:list[EdgeSlice] = []
+                edge_slices: list[EdgeSlice] = []
                 for edge in edges:
                     if edge == divisible_edge:
                         edge_slices.append(EdgeSlice(edge, input_slice, output_slice))
@@ -92,12 +98,13 @@ def build_elements(merged_sgrp: MergedSuccGroup) -> list[Union[CoreBlock, "Routi
 
             for i in idx:
                 edges.update(merged_sgrp.outputs[nodes[i]])
-            
+
             edge_slices = [EdgeSlice(edge) for edge in edges]
             core_block = CoreBlock.build(*edge_slices, rt_mode=mode)
             elements.append(core_block)
-    
+
     return elements
+
 
 class RoutingGroup:
     """Each routing group should be able to route by single coord."""
@@ -307,7 +314,9 @@ class RoutingGroup:
         optimized_groups: list["RoutingGroup"] = list()
         if len(remaining_unordered) > 0:
             # remaining routing group inherits the axons of the current routing group
-            remaining_routing_group = RoutingGroup(remaining_unordered, remaining_ordered)
+            remaining_routing_group = RoutingGroup(
+                remaining_unordered, remaining_ordered
+            )
             remaining_routing_group.global_axons = self.global_axons
             remaining_routing_group.private_axons = self.private_axons
             remaining_routing_group.is_root = self.is_root
@@ -397,10 +406,10 @@ class RoutingGroup:
 
     def dump(self, i: int = 0) -> str:
         tabs = "\t" * i
-        logging.info(f"{tabs}{self}(root:{self.is_root}) with {self.n_core_required} cores:")
         logging.info(
-            f"{tabs}global axons: {[axon.info for axon in self.global_axons]}"
+            f"{tabs}{self}(root:{self.is_root}) with {self.n_core_required} cores:"
         )
+        logging.info(f"{tabs}global axons: {[axon.info for axon in self.global_axons]}")
         logging.info(
             f"{tabs}private axons: {[axon.info for axon in self.private_axons]}"
         )
@@ -408,19 +417,25 @@ class RoutingGroup:
         for elem in self.routing_elems:
             elem.dump(i + 1)
         logging.info(" ")
-    
+
     def dump_routing_result(self, i: int = 0) -> str:
         tabs = "\t" * i
-        logging.info(f"{tabs}{self}(root:{self.is_root}) with {self.n_core_required} cores:")
+        logging.info(
+            f"{tabs}{self}(root:{self.is_root}) with {self.n_core_required} cores:"
+        )
         logging.info(f"{tabs}Chip Coord: {self.chip_coord}")
-        logging.info(f"{tabs}Start Core Coord: {Coord2str(self.assigned_coords[0])}, {_Coord2Index(self.assigned_coords[0])}")
+        logging.info(
+            f"{tabs}Start Core Coord: {Coord2str(self.assigned_coords[0])}, {_Coord2Index(self.assigned_coords[0])}"
+        )
         for elem in self.routing_elems:
             if isinstance(elem, CoreBlock):
                 logging.info(f"\t{tabs}{elem.name} with {elem.n_core_required} cores:")
                 logging.info(f"\t{tabs}Chip Coord: {elem.chip_coord}")
-                logging.info(f"\t{tabs}Start Core Coord: {Coord2str(elem.core_coords[0])}, {_Coord2Index(self.assigned_coords[0])}")
-                logging.info(f"")
-            else:  
+                logging.info(
+                    f"\t{tabs}Start Core Coord: {Coord2str(elem.core_coords[0])}, {_Coord2Index(self.assigned_coords[0])}"
+                )
+                logging.info("")
+            else:
                 elem.dump_routing_result(i + 1)
         logging.info(" ")
 

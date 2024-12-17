@@ -1,3 +1,4 @@
+import logging
 from collections import defaultdict
 from collections.abc import Sequence
 from copy import copy
@@ -30,25 +31,26 @@ from .graphs import (
     merge_overlap,
     toposort,
 )
-from .placement import CoreBlock, SourceDest, SliceDest, aligned_coords, max_lcn_of_cb
+from .overlap import LL_overlap, NL_overlap, overlap
+from .placement import CoreBlock, SliceDest, SourceDest, aligned_coords, max_lcn_of_cb
 from .routing import RoutingGroup, RoutingManager
 from .types import (
+    Coord2str,
     MergedSuccGroup,
     NeuSegment,
+    NeuSegOfCoreBlock,
     NodeDegree,
     NodeType,
     SourceNodeType,
     is_iw8,
-    NeuSegOfCoreBlock,
-    Coord2str,
 )
-from .overlap import LL_overlap, NL_overlap, overlap
-import logging
+
 logging.basicConfig(
     level=logging.INFO,  # 设置日志级别
-    format="%(levelname)s:\t%(message)s"  # 自定义格式
+    format="%(levelname)s:\t%(message)s",  # 自定义格式
 )
 __all__ = ["Mapper"]
+
 
 class Mapper:
     graph: PAIGraph
@@ -246,14 +248,18 @@ class Mapper:
             routing_groups.extend(rg.optimize_group())
         self.routing_groups = routing_groups
 
-        logging.info(f"################################### Routing Group Builded, N_Core_Required Not Set Yet ###################################")
+        logging.info(
+            "################################### Routing Group Builded, N_Core_Required Not Set Yet ###################################"
+        )
         for rg in self.routing_groups:
             rg.dump()
 
         for rg in self.routing_groups:
             self.core_blocks += rg.core_blocks
 
-        logging.info(f"################################### Set Succ CoreBlock ###################################")
+        logging.info(
+            "################################### Set Succ CoreBlock ###################################"
+        )
         for cur_cb in self.core_blocks:
             succ_cbs: list[CoreBlock] = []
             # cur_cb == cb is possible
@@ -261,14 +267,11 @@ class Mapper:
                 if LL_overlap(cur_cb.dest, cb.ordered_axons):
                     succ_cbs.append(cb)
             self.succ_core_blocks[cur_cb] = succ_cbs
-            
+
             logging.info(f"{cur_cb.name} Succ:")
             for cb in succ_cbs:
                 logging.info(f"\t{cb.name}")
             logging.info("")
-
-            
-
 
         for inode in self.graph.inodes.values():
             # TODO How to prevent this situation: there is input node & predecessor nodes
@@ -282,7 +285,6 @@ class Mapper:
             # for cb in succ_cb:
             #     print(f"\t{cb.name}")
             # print()
-        
 
         self.degrees_of_cb = get_node_degrees(self.succ_core_blocks)
 
@@ -327,18 +329,22 @@ class Mapper:
                 cb.target_lcn = succ_cbs[0].lcn_ex
 
             cb._lcn_locked = True
-        
-        logging.info(f"################################### LCN Adjustment Finished ###################################")
+
+        logging.info(
+            "################################### LCN Adjustment Finished ###################################"
+        )
         for cb in self.core_blocks:
             logging.info(f"{cb.name}: LCN = {cb.lcn_ex}")
 
-    #需要广播的神经元的目的地的axon需要保持一致，检查同一routing group中的所有core block的输入，如果有相互重合的部分需要将重合的部分设置相同的axon
+    # 需要广播的神经元的目的地的axon需要保持一致，检查同一routing group中的所有core block的输入，如果有相互重合的部分需要将重合的部分设置相同的axon
     def cb_axon_grouping(self) -> None:
         """The axons are grouped after the LCN has been modified & locked."""
         for cb in self.core_blocks:
             cb.group_axons()
-        
-        logging.info(f"################################### Axon Group Finished ###################################")
+
+        logging.info(
+            "################################### Axon Group Finished ###################################"
+        )
         for cb in self.core_blocks:
             logging.info(f"cb: {cb.name}:")
             for source, axon_seg in cb.axon_segments.items():
@@ -366,27 +372,31 @@ class Mapper:
             cb.group_neurons(
                 optim_target=_BACKEND_CONTEXT.cflags["grouping_optim_target"]
             )
-        
-        logging.info(f"################################### Neuron Grouping Finished ###################################")
+
+        logging.info(
+            "################################### Neuron Grouping Finished ###################################"
+        )
         for cb in self.core_blocks:
             logging.info(f"{cb.name}:")
             logging.info(f"\tlcn_ex: {cb.lcn_ex}")
             logging.info(f"\tweight_width: {cb.weight_width}")
             logging.info(f"\tfan_out: {cb.n_fanout}")
-            logging.info(f"\tDests:")
+            logging.info("\tDests:")
             for dest in cb.dest:
                 logging.info(f"\t\t{dest.info}")
-            logging.info(f"\tCores:")
+            logging.info("\tCores:")
             for i, neu_seg in enumerate(cb.neuron_segs_of_cb):
                 logging.info(f"\t\t[{i}]:")
                 for neu in neu_seg:
-                    logging.info(f"\t\t\t{neu.target.name}[{neu.index}]") 
+                    logging.info(f"\t\t\t{neu.target.name}[{neu.index}]")
             logging.info("")
 
         for rg in self.routing_groups:
             rg.set_core_required()
 
-        logging.info(f"################################### Core Required Set ###################################")
+        logging.info(
+            "################################### Core Required Set ###################################"
+        )
         for rg in self.routing_groups:
             rg.dump()
 
@@ -409,8 +419,10 @@ class Mapper:
 
         for rg in self.routing_groups:
             self.routing_manager.place_routing_group(rg)
-        
-        logging.info(f"################################### Assigned finished ###################################")
+
+        logging.info(
+            "################################### Assigned finished ###################################"
+        )
         for rg in self.routing_groups:
             rg.dump_routing_result()
 
@@ -430,12 +442,14 @@ class Mapper:
         for cb in self.core_blocks:
             for source_slice, axon_seg in cb.axon_segments.items():
                 source = source_slice.target
-                #check source whether exist in neuron_dest
+                # check source whether exist in neuron_dest
                 if source not in self.neuron_dest:
                     self.neuron_dest[source] = SourceDest()
                 self.neuron_dest[source].add_dest(source_slice, axon_seg, cb)
-            
-        logging.info(f"################################### Neuron Dest Info ###################################")
+
+        logging.info(
+            "################################### Neuron Dest Info ###################################"
+        )
 
         for source, dest in self.neuron_dest.items():
             dest.fusion_dest()
@@ -449,10 +463,6 @@ class Mapper:
                 logging.info(f"\tmulticast: {Coord2str(slice_dest.rid)}")
                 logging.info("")
             logging.info("")
-            
-                
-                
-        
 
     def core_allocation(self) -> None:
         """Allocate the routing groups to core placements level."""
@@ -525,7 +535,6 @@ class Mapper:
         """
         input_nodes_info = dict()
 
-        
         for inode in self.graph.inodes.values():
             if inode not in self.neuron_dest:
                 continue
@@ -538,7 +547,7 @@ class Mapper:
                 slice_dest.time_slot,
                 is_iw8(slice_dest.rt_mode),
             )
-            
+
             inp_neuron_dest = InputNeuronDest(
                 [coord.tick_relative for coord in axon_coords],
                 [coord.addr_axon for coord in axon_coords],
@@ -549,46 +558,6 @@ class Mapper:
                 slice_dest.dest_chip_coord.x,
                 slice_dest.dest_chip_coord.y,
                 slice_dest.time_slot,  # 1 << lcn_ex
-            )
-            
-            input_nodes_info[inode.name] = inp_neuron_dest
-        
-        return input_nodes_info
-                
-                
-                
-
-        # Traverse input core blocks
-        for inode, input_cbs in self.input_core_blocks.items():
-            dest_coords: list[Coord] = []
-
-            assert all(input_cbs[0].chip_coord == cb.chip_coord for cb in input_cbs)
-            for cb in input_cbs:  # Do not use iterative generation.
-                dest_coords.extend(cb.core_coords)
-
-            dest_rid = get_replication_id(dest_coords)
-
-            # The arrangement of axons is the same for the rest of `input_cbs`.
-            # LCN of `input_cbs` are the same.
-            input_cb = input_cbs[0]
-            axon_coords = aligned_coords(
-                slice(0, input_cb.n_axon_of(input_cb.ordered_axons.index(inode)), 1),
-                input_cb.axon_segments[inode],
-                1,
-                input_cb.n_timeslot,
-                is_iw8(input_cb.rt_mode),
-            )
-
-            inp_neuron_dest = InputNeuronDest(
-                [coord.tick_relative for coord in axon_coords],
-                [coord.addr_axon for coord in axon_coords],
-                dest_coords[0].x,
-                dest_coords[0].y,
-                dest_rid.x,
-                dest_rid.y,
-                input_cb.chip_coord.x,
-                input_cb.chip_coord.y,
-                input_cb.n_timeslot,  # 1 << lcn_ex
             )
 
             input_nodes_info[inode.name] = inp_neuron_dest
@@ -638,7 +607,7 @@ class Mapper:
                         if neu_seg.target in self.neuron_dest:
                             target_dest = self.neuron_dest[neu_seg.target]
                             core_plm.export_neu_config(neu_seg, target_dest)
-                       
+
                         # output off chip
                         elif neu_seg.target in o_nodes:
                             offset_idx = o_nodes.index(neu_seg.target)
@@ -647,12 +616,14 @@ class Mapper:
                                 neu_seg,
                                 output_core_coord=cur_ocoord,
                             )
-                            output_dest_info[neu_seg.target.name][core_plm.coord.address] = (
-                                core_plm.neu_configs[neu_seg.target].neuron_dest_info
-                            )
-                        
+                            output_dest_info[neu_seg.target.name][
+                                core_plm.coord.address
+                            ] = core_plm.neu_configs[neu_seg.target].neuron_dest_info
+
                         else:
-                            raise ValueError(f"find destination of member {neu_seg} failed.")
+                            raise ValueError(
+                                f"find destination of member {neu_seg} failed."
+                            )
 
                 for coord, core_plm in member_cb.core_placements.items():
                     self.core_plm_config[rg.chip_coord][
@@ -794,20 +765,24 @@ class Mapper:
 
         return config_dict
 
-    def find_neuron(self, neuron: Union[Neuron, NeuronSlice], *, verbose: int = 0) -> None:
+    def find_neuron(
+        self, neuron: Union[Neuron, NeuronSlice], *, verbose: int = 0
+    ) -> None:
         self._build_check()
-        neuron_slice = neuron if isinstance(neuron, NeuronSlice) else NeuronSlice(neuron)
+        neuron_slice = (
+            neuron if isinstance(neuron, NeuronSlice) else NeuronSlice(neuron)
+        )
         name = neuron_slice.target.name
 
         for cb in self.core_blocks:
             # Find neuron in one or more core blocks.
             if NL_overlap(neuron_slice, cb.dest):
-                print(
-                    f"neurons {name} placed in {cb.name}, LCN_{1 << cb.lcn_ex}X"
-                )
+                print(f"neurons {name} placed in {cb.name}, LCN_{1 << cb.lcn_ex}X")
                 for core_plm in cb.core_placements.values():
                     for neu_seg in core_plm.neu_segs_of_cplm:
-                        if neuron is neu_seg.target and overlap(neuron_slice.index, neu_seg.index):
+                        if neuron is neu_seg.target and overlap(
+                            neuron_slice.index, neu_seg.index
+                        ):
                             print(
                                 f"{name} placed in {core_plm.coord}\n"
                                 f"N:        {neu_seg.n_neuron}\n"
@@ -817,7 +792,7 @@ class Mapper:
     def find_axon(self, neuron: Neuron, *, verbose: int = 0) -> None:
         self._build_check()
         dest = self.neuron_dest[neuron]
-        
+
         for slice, slice_dest in zip(dest.slices, dest.dests):
             print(
                 f"{neuron.name}[{slice}] dest: {slice_dest.base_coord}, {slice_dest.rid}\n"
