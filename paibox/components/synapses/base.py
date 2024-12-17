@@ -240,9 +240,12 @@ class FullConnSyn(FullConnectedSyn):
 
         self.comm = comm
 
+
 class EdgeSlice:
-    def __init__(self, edge: FullConnectedSyn, in_index: slice = None, out_index: slice = None) -> None:
-        
+    def __init__(
+        self, edge: FullConnectedSyn, in_index: slice = None, out_index: slice = None
+    ) -> None:
+
         self.in_index = slice(0, edge.source.num_out) if in_index == None else in_index
         self.out_index = slice(0, edge.dest.num_out) if out_index == None else out_index
         self.target = edge
@@ -253,24 +256,37 @@ class EdgeSlice:
         else:
             raise TypeError(f"source type {type(edge.source)} is not supported.")
         self.dest = NeuronSlice(edge.dest, self.out_index)
-    
+
     @property
     def info(self) -> str:
         return f"{self.target.name}: {self.source.info} -> {self.dest.info}"
-    
+
     @property
     def weight_width(self) -> int:
         return self.target.weight_width
-    
+
     @property
     def connectivity(self) -> WeightType:
         return self.target.connectivity[self.in_index, self.out_index]
-    
+
     def __eq__(self, other: "EdgeSlice") -> bool:
-        return self.target == other.target and self.in_index == other.in_index and self.out_index == other.out_index
-    
+        return (
+            self.target == other.target
+            and self.in_index == other.in_index
+            and self.out_index == other.out_index
+        )
+
     def __hash__(self) -> int:
-        return hash((self.target, self.in_index.start, self.in_index.stop, self.out_index.start, self.out_index.stop))
+        return hash(
+            (
+                self.target,
+                self.in_index.start,
+                self.in_index.stop,
+                self.out_index.start,
+                self.out_index.stop,
+            )
+        )
+
 
 class Conv1dSyn(FullConnectedSyn):
     _spatial_ndim: ClassVar[int] = 1

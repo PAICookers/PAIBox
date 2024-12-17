@@ -1,1 +1,1 @@
-from .base import Neuron, NeuronSubView, NeuronSlice
+from .base import Neuron, NeuronSlice, NeuronSubView

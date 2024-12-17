@@ -13,12 +13,21 @@ if sys.version_info >= (3, 10):
 else:
     from typing_extensions import TypeAlias
 
-from paicorelib import Coord, CoreMode, HwConfig, RoutingCoord
+from paicorelib import Coord, CoreMode, HwConfig
 from paicorelib import ReplicationId as RId
+from paicorelib import RoutingCoord
 from paicorelib import RoutingDirection as Direction
 from paicorelib.routing_defs import MAX_ROUTING_PATH_LENGTH
+
 from paibox.base import PAIBoxObject
-from paibox.components import FullConnectedSyn, InputProj, Neuron, EdgeSlice, InputSlice, NeuronSlice
+from paibox.components import (
+    EdgeSlice,
+    FullConnectedSyn,
+    InputProj,
+    InputSlice,
+    Neuron,
+    NeuronSlice,
+)
 
 __all__ = [
     "NodeName",
@@ -153,22 +162,6 @@ class MergedSuccGroup:
                 onodes[node].append(edge)
 
         return onodes
-    
-    @property
-    def num_in(self) -> int:
-        return sum(input_node.num_out for input_node in self.input_nodes)
-    
-    @classmethod
-    def merge(cls, merged_sgrps: list["MergedSuccGroup"]) -> "MergedSuccGroup":
-        merged = cls()
-        for merged_sgrp in merged_sgrps:
-            merged.nodes.update(merged_sgrp.nodes)
-            merged.groups.extend(merged_sgrp.groups)
-            merged.input_nodes.extend(merged_sgrp.input_nodes)
-        return merged
-    
-    def __hash__(self) -> int:
-        return hash(tuple(self.nodes))
 
     @property
     def num_in(self) -> int:
@@ -338,19 +331,21 @@ def _Coord2Index(coord: Coord) -> str:
         else:
             index = (index << 1) | value_y
             index = (index << 1) | value_x
-            
+
     binary_rep = bin(index)[2:]
     last_ten = binary_rep[-10:].zfill(10)
     return "0b{}({})".format(last_ten, index)
 
+
 def to_last_five_binary(n: int) -> str:
     # 将数字转换为二进制并去掉前面的 '0b' 前缀
     binary_rep = bin(n)[2:]
-    
+
     # 获取最后五位并用 'zfill' 补齐不足的部分
     last_five = binary_rep[-5:].zfill(5)
-    
+
     return last_five
+
 
 def Coord2str(coord: Coord) -> str:
     return f"({to_last_five_binary(coord.x)},{to_last_five_binary(coord.y)})"

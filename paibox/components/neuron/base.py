@@ -702,46 +702,48 @@ class Neuron(MetaNeuron, NeuDyn):
     def voltage(self) -> VoltageType:
         return self._vjt.reshape(self.varshape)
 
+
 class NeuronSlice:
     def __init__(self, neuron: Neuron, index: slice = None) -> None:
         self.index = index
         self.target = neuron
         if index is None:
             self.index = slice(0, neuron.num_out)
-    
+
     @property
     def num_out(self) -> int:
         return self.index.stop - self.index.start
-    
+
     @property
     def num_in(self) -> int:
         return self.index.stop - self.index.start
-    
+
     @property
     def unrolling_factor(self) -> int:
         return self.target.unrolling_factor
-    
+
     @property
     def tick_wait_start(self) -> int:
         return self.target.tick_wait_start
-    
+
     @property
     def tick_wait_end(self) -> int:
         return self.target.tick_wait_end
-    
+
     @property
     def pool_max(self) -> bool:
         return self.target.pool_max
-    
+
     @property
     def info(self) -> str:
         return f"{self.target.name}[{self.index.start}:{self.index.stop}]"
-    
+
     def __eq__(self, other: "NeuronSlice") -> bool:
         return self.target == other.target and self.index == other.index
-    
+
     def __hash__(self) -> int:
         return hash((self.target, self.index.start, self.index.stop))
+
 
 class NeuronSubView(Neuron):
     __gh_build_ignore__ = True
