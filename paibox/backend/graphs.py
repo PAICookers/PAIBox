@@ -19,6 +19,7 @@ from paibox.network import DynSysGroup
 from paibox.utils import check_elem_unique
 
 from .context import _BACKEND_CONTEXT
+from .overlap import NL_overlap
 from .placement import CoreBlock
 from .routing import RoutingGroup
 from .segment_utils import get_neu_segments
@@ -587,6 +588,80 @@ def find_cycles(directed_edges: Mapping[_NT, Iterable[_NT]]) -> list[list[_NT]]:
     stack_set: set[_NT] = set()  # 方便快速检查路径中的节点
 
     # 深度优先搜索的辅助函数
+    def dfs(node: _NT):
+        if node in stack_set:  # 检测到环
+            cycle_start_index = stack.index(node)
+            cycles.append(stack[cycle_start_index:])
+            return
+        if node in visited:
+            return
+
+        visited.add(node)
+        stack.append(node)
+        stack_set.add(node)
+
+        for neighbor in directed_edges.get(node, []):
+            dfs(neighbor)
+
+        stack.pop()
+        stack_set.remove(node)
+
+    # 遍历每个节点，查找所有可能的环
+    for node in directed_edges:
+        if node not in visited:
+            dfs(node)
+
+    return cycles
+
+
+def merge_overlap(groups: Iterable[Iterable[_NT]]) -> list[list[_NT]]:
+    # 并查集数据结构
+    parent: dict[_NT, _NT] = dict()
+
+    # 查找集合的根节点
+    def find(x):
+        if parent[x] != x:
+            parent[x] = find(parent[x])
+        return parent[x]
+
+    # 合并两个集合
+    def union(x, y):
+        rootX = find(x)
+        rootY = find(y)
+        if rootX != rootY:
+            parent[rootY] = rootX
+
+    # 初始化并查集
+    for group in groups:
+        for element in group:
+            if element not in parent:
+                parent[element] = element
+
+    # 合并所有相互重叠的环
+    for group in groups:
+        first_element = group[0]
+        for element in group[1:]:
+            union(first_element, element)
+
+    # 根据并查集结果，将所有节点归类到同一个集合中
+    merged_groups: dict[_NT, list[_NT]] = dict()
+    for element in parent:
+        root = find(element)
+        if root not in merged_groups:
+            merged_groups[root] = []
+        merged_groups[root].append(element)
+
+    # 将结果转换为列表列表形式
+    return list(merged_groups.values())
+
+
+def find_cycles(directed_edges: Mapping[_NT, Iterable[_NT]]) -> list[list[_NT]]:
+    cycles: list[list[_NT]] = []
+    visited: set[_NT] = set()
+    stack: list[_NT] = []
+    stack_set: set[_NT] = set()  # 方便快速检查路径中的节点
+
+    # 深度优先搜索的辅助函数
     def dfs(node: _NT) -> None:
         if node in stack_set:  # 检测到环
             cycle_start_index = stack.index(node)
@@ -905,7 +980,7 @@ def get_shortest_path(
 def get_succ_cb_by_node(
     node: NodeType, core_blocks: Sequence[CoreBlock]
 ) -> list[CoreBlock]:
-    return [cb for cb in core_blocks if node in cb.source]
+    return [cb for cb in core_blocks if NL_overlap(node, cb.ordered_axons)]
 
 
 def get_pred_cb_by_succ_cb(

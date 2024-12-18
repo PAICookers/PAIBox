@@ -9,8 +9,8 @@ from paibox.exceptions import RegisterError, ShapeError
 from paibox.types import DataType, NeuOutType, SynOutType, WeightType
 
 from ..modules import BuildingModule
-from ..neuron import Neuron
-from ..projection import InputProj
+from ..neuron import Neuron, NeuronSlice
+from ..projection import InputProj, InputSlice
 from .conv_types import _KOrder3d, _KOrder4d
 from .conv_utils import _fm_ndim1_check, _fm_ndim2_check
 from .transforms import (
@@ -239,6 +239,53 @@ class FullConnSyn(FullConnectedSyn):
             comm = MaskedLinear(self.shape_in, self.shape_out, weights)
 
         self.comm = comm
+
+
+class EdgeSlice:
+    def __init__(
+        self, edge: FullConnectedSyn, in_index: slice = None, out_index: slice = None
+    ) -> None:
+
+        self.in_index = slice(0, edge.source.num_out) if in_index == None else in_index
+        self.out_index = slice(0, edge.dest.num_out) if out_index == None else out_index
+        self.target = edge
+        if isinstance(edge.source, InputProj):
+            self.source = InputSlice(edge.source, self.in_index)
+        elif isinstance(edge.source, Neuron):
+            self.source = NeuronSlice(edge.source, self.in_index)
+        else:
+            raise TypeError(f"source type {type(edge.source)} is not supported.")
+        self.dest = NeuronSlice(edge.dest, self.out_index)
+
+    @property
+    def info(self) -> str:
+        return f"{self.target.name}: {self.source.info} -> {self.dest.info}"
+
+    @property
+    def weight_width(self) -> int:
+        return self.target.weight_width
+
+    @property
+    def connectivity(self) -> WeightType:
+        return self.target.connectivity[self.in_index, self.out_index]
+
+    def __eq__(self, other: "EdgeSlice") -> bool:
+        return (
+            self.target == other.target
+            and self.in_index == other.in_index
+            and self.out_index == other.out_index
+        )
+
+    def __hash__(self) -> int:
+        return hash(
+            (
+                self.target,
+                self.in_index.start,
+                self.in_index.stop,
+                self.out_index.start,
+                self.out_index.stop,
+            )
+        )
 
 
 class Conv1dSyn(FullConnectedSyn):
