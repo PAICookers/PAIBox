@@ -1,4 +1,4 @@
 from .modules import NeuModule
-from .neuron import Neuron, NeuronSubView
-from .projection import InputProj, Projection
-from .synapses import FullConnectedSyn
+from .neuron import Neuron, NeuronSlice, NeuronSubView
+from .projection import InputProj, InputSlice, Projection
+from .synapses import EdgeSlice, FullConnectedSyn, MatMul2d
