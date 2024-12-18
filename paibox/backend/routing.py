@@ -1,4 +1,5 @@
 import itertools
+import logging
 import math
 import sys
 from collections.abc import Generator, Iterator
@@ -11,11 +12,20 @@ from paicorelib import RoutingDirection as Direction
 from paicorelib import RoutingLevel as Level
 from paicorelib.routing_defs import MAX_ROUTING_PATH_LENGTH
 
-from paibox.exceptions import PAIBoxDeprecationWarning, ResourceError, RoutingError
+from paibox.components import EdgeSlice, FullConnectedSyn, MatMul2d, Neuron, NeuronSlice
+from paibox.exceptions import (
+    GraphBuildError,
+    NotSupportedError,
+    PAIBoxDeprecationWarning,
+    ResourceError,
+    RoutingError,
+)
 
 from .conf_types import CorePlmConfInChip
+from .constrs import GraphNodeConstrs
 from .placement import CoreBlock, EmptyCorePlacement
 from .types import *
+from .types import Coord2str, _Coord2Index
 
 if sys.version_info >= (3, 13):
     from warnings import deprecated
@@ -25,18 +35,75 @@ else:
 __all__ = ["RoutingGroup", "RoutingManager"]
 
 
-def _Coord2RoutingCoord(coord: Coord) -> RoutingCoord:
-    directions: list[Direction] = []
-    x = coord.x
-    y = coord.y
+def MatMul2d_slices(mat_mul: MatMul2d) -> tuple[list[slice], list[slice]]:
+    shape_in = mat_mul.shape_in
+    shape_out = mat_mul.shape_out
+    in_slice_len = shape_in[1]
+    out_slice_len = shape_out[1]
 
-    for i in range(MAX_ROUTING_PATH_LENGTH):
-        # 每个循环，提取最高位（移动了 4-i 位）到最低位，恢复 value_x 和 value_y
-        shift = 4 - i
-        value_x, value_y = (x >> shift) & 0b1, (y >> shift) & 0b1
-        directions.append(Direction((value_x, value_y)))
+    input_slices = [
+        slice(i * in_slice_len, (i + 1) * in_slice_len) for i in range(shape_in[0])
+    ]
+    output_slices = [
+        slice(i * out_slice_len, (i + 1) * out_slice_len) for i in range(shape_out[0])
+    ]
+    return input_slices, output_slices
 
-    return RoutingCoord(*directions)
+
+def build_elements(
+    merged_sgrp: MergedSuccGroup,
+) -> list[Union[CoreBlock, "RoutingGroup"]]:
+    core_blocks: list[CoreBlock] = []
+    nodes = list(merged_sgrp.nodes)
+    mode = nodes[0].mode
+    elements: list[Union[CoreBlock, "RoutingGroup"]] = []
+    if any(node.mode != mode for node in nodes):
+        raise NotSupportedError("mixed mode is not supported.")
+    # Optimize weight in single operator, like 'Mat2d'.
+    if len(nodes) == 1:
+        edges = merged_sgrp.outputs[nodes[0]]
+        # find edges with divisible weight
+        divisible_edge: FullConnectedSyn = None
+        for edge in edges:
+            # only one edge is allowed to have divisible weight
+            if isinstance(edge, MatMul2d):
+                divisible_edge = edge
+                break
+        # TODO we can judge whether optimization is needed here
+        if divisible_edge is None:
+            edge_slices = [EdgeSlice(edge) for edge in edges]
+            elements.append(CoreBlock.build(*edge_slices, rt_mode=mode))
+
+        else:
+            input_slices, output_slices = MatMul2d_slices(divisible_edge)
+            for input_slice, output_slice in zip(input_slices, output_slices):
+                edge_slices: list[EdgeSlice] = []
+                for edge in edges:
+                    if edge == divisible_edge:
+                        edge_slices.append(EdgeSlice(edge, input_slice, output_slice))
+                    else:
+                        edge_slices.append(EdgeSlice(edge, None, output_slice))
+                core_block = CoreBlock.build(*edge_slices, rt_mode=mode)
+                routing_group = RoutingGroup([core_block], [])
+                elements.append(routing_group)
+    else:
+        # TODO More constraints for nodes can be called here.
+        # TODO weight can be optimized between operators.
+        idx_of_sg = GraphNodeConstrs.apply_constrs(nodes)
+        if len(idx_of_sg) == 0:
+            idx_of_sg = [list(range(len(nodes)))]
+
+        for idx in idx_of_sg:
+            edges: set[EdgeType] = set()
+
+            for i in idx:
+                edges.update(merged_sgrp.outputs[nodes[i]])
+
+            edge_slices = [EdgeSlice(edge) for edge in edges]
+            core_block = CoreBlock.build(*edge_slices, rt_mode=mode)
+            elements.append(core_block)
+
+    return elements
 
 
 class RoutingGroup:
@@ -62,11 +129,11 @@ class RoutingGroup:
         self.n_tail_waste: int = 0
         """Waste cores at the tail of the routing group."""
 
-        axons: set[SourceNodeType] = set()
+        axons: set[SourceSliceType] = set()
         for elem in self.routing_elems:
             axons.update(elem.axons)
 
-        self.axons: list[SourceNodeType] = list(axons)  # unordered
+        self.axons: list[SourceSliceType] = list(axons)  # unordered
 
         dest: set[DestNodeType] = set()
         for elem in self.routing_elems:
@@ -81,9 +148,9 @@ class RoutingGroup:
         """Wasted core placements"""
 
         # can not use set here, order matters
-        self.global_axons: list[SourceNodeType] = []
+        self.global_axons: list[SourceSliceType] = []
         """multicast axons inheritted from the parent routing group"""
-        self.private_axons: list[SourceNodeType] = []
+        self.private_axons: list[SourceSliceType] = []
         """multicast axons only effective in the current routing group"""
 
         """Status options"""
@@ -96,14 +163,14 @@ class RoutingGroup:
         RoutingGroup._debug_id += 1
 
         if is_root:
+            self.init_axons()
             self.set_axons()
 
-    def set_axons(self, multicast_axons: list[SourceNodeType] = []) -> None:
-        """Set the multicast axons for the routing group."""
+    def init_axons(self, multicast_axons: list[SourceSliceType] = []) -> None:
+        """init the multicast axons for the routing group."""
         self.global_axons = multicast_axons
-        ax_shared_times: list[int] = [0] * len(self.axons)
 
-        used_axons: set[SourceNodeType] = set()
+        used_axons: set[SourceSliceType] = set()
         for elem in self.routing_elems:
             # all axon of coreblocks should be multicast to the whole routing group
             # because this routing group is the only coord that can access the coreblocks
@@ -121,7 +188,12 @@ class RoutingGroup:
 
         for elem in self.routing_elems:
             if isinstance(elem, RoutingGroup):
-                elem.set_axons(self.global_axons + self.private_axons)
+                elem.init_axons(self.global_axons + self.private_axons)
+
+    def set_axons(self):
+        for elem in self.routing_elems:
+            if isinstance(elem, RoutingGroup):
+                elem.set_axons()
             else:
                 # coreblocks in the routing group shuold reserve space for
                 # all axons that multicast to the routing group
@@ -180,9 +252,6 @@ class RoutingGroup:
 
             cur_i = offset
             n = elem.n_core_required
-            # print(
-            #     f"element: {elem}, {n} cores, start at {_Coord2RoutingCoord(allocated[cur_i])}"
-            # )
             assigned, wasted = elem.assign_coord(
                 chip_coord, allocated[cur_i : cur_i + n]
             )
@@ -197,6 +266,7 @@ class RoutingGroup:
         return self.assigned_coords, self.wasted_coords
 
     def optimize_group(self) -> list["RoutingGroup"]:
+        # print(f"\n\noptimize{self}#############")
         optimized_unordered: list[Union[CoreBlock, "RoutingGroup"]] = list()
         optimized_ordered: list["RoutingGroup"] = list()
         for elem in self.unordered_elems:
@@ -220,6 +290,9 @@ class RoutingGroup:
             elif not set(self.private_axons).isdisjoint(elem.axons):
                 remaining_unordered.append(elem)
             else:
+                # private_axons will not change when making routing group independent
+                elem.global_axons = self.global_axons
+                elem.is_root = self.is_root
                 unordered_groups.append(elem)
 
         ordered_groups: list["RoutingGroup"] = list()
@@ -233,18 +306,27 @@ class RoutingGroup:
                 inputs.update(elem.dest)
                 remaining_ordered.insert(0, elem)
             else:
+                # private_axons will not change when making routing group independent
                 elem.global_axons = self.global_axons
                 elem.is_root = self.is_root
                 ordered_groups.insert(0, elem)
 
         optimized_groups: list["RoutingGroup"] = list()
         if len(remaining_unordered) > 0:
-            optimized_groups.append(
-                RoutingGroup(remaining_unordered, remaining_ordered, self.is_root)
+            # remaining routing group inherits the axons of the current routing group
+            remaining_routing_group = RoutingGroup(
+                remaining_unordered, remaining_ordered
             )
+            remaining_routing_group.global_axons = self.global_axons
+            remaining_routing_group.private_axons = self.private_axons
+            remaining_routing_group.is_root = self.is_root
+            optimized_groups.append(remaining_routing_group)
 
         # can not change the order here
         optimized_groups = unordered_groups + optimized_groups + ordered_groups
+        if self.is_root:
+            for rgrp in optimized_groups:
+                rgrp.set_axons()
 
         return optimized_groups
 
@@ -282,7 +364,7 @@ class RoutingGroup:
 
         remaining.nodes &= remaining_nodes
         msgrp.nodes &= sub_nodes
-        unordered_cb = CoreBlock.build_core_blocks(remaining)
+        unordered_elems = build_elements(remaining)
 
         if len(msgrp.nodes) > 0:
             sub_rgrp = RoutingGroup.build(msgrp)
@@ -290,7 +372,7 @@ class RoutingGroup:
         else:
             ordered_rgrp = []
 
-        return cls(unordered_cb, ordered_rgrp, is_root)
+        return cls(unordered_elems, ordered_rgrp, is_root)
 
     def core_block_alloc(self) -> None:
         assert self.is_assigned, "coordinates are not assigned."
@@ -322,18 +404,40 @@ class RoutingGroup:
 
         return self[0].chip_coord
 
-    def dump(self, i: int = 0) -> None:
+    def dump(self, i: int = 0) -> str:
         tabs = "\t" * i
-        print(f"{tabs}RoutingGroup: {self} with {self.n_core_required} cores:")
-        print(
-            f"{tabs}multicast axons: {[axon.name for axon in self.global_axons + self.private_axons]}"
+        logging.info(
+            f"{tabs}{self}(root:{self.is_root}) with {self.n_core_required} cores:"
+        )
+        logging.info(f"{tabs}global axons: {[axon.info for axon in self.global_axons]}")
+        logging.info(
+            f"{tabs}private axons: {[axon.info for axon in self.private_axons]}"
+        )
+        logging.info(f"{tabs}Offset: {self.offset}")
+        for elem in self.routing_elems:
+            elem.dump(i + 1)
+        logging.info(" ")
+
+    def dump_routing_result(self, i: int = 0) -> str:
+        tabs = "\t" * i
+        logging.info(
+            f"{tabs}{self}(root:{self.is_root}) with {self.n_core_required} cores:"
+        )
+        logging.info(f"{tabs}Chip Coord: {self.chip_coord}")
+        logging.info(
+            f"{tabs}Start Core Coord: {Coord2str(self.assigned_coords[0])}, {_Coord2Index(self.assigned_coords[0])}"
         )
         for elem in self.routing_elems:
-            if isinstance(elem, RoutingGroup):
-                elem.dump(i + 1)
+            if isinstance(elem, CoreBlock):
+                logging.info(f"\t{tabs}{elem.name} with {elem.n_core_required} cores:")
+                logging.info(f"\t{tabs}Chip Coord: {elem.chip_coord}")
+                logging.info(
+                    f"\t{tabs}Start Core Coord: {Coord2str(elem.core_coords[0])}, {_Coord2Index(self.assigned_coords[0])}"
+                )
+                logging.info("")
             else:
-                elem.dump(i + 1)
-        print()
+                elem.dump_routing_result(i + 1)
+        logging.info(" ")
 
     def __contains__(self, cb: CoreBlock) -> bool:
         return cb in self.core_blocks

@@ -1461,7 +1461,7 @@ class TestData:
             # iw1
             (
                 slice(5, 8),
-                AxonSegment(12, 3, 0),
+                AxonSegment(12, 3, 0, 0),
                 1,
                 1 << 1,
                 False,
@@ -1473,7 +1473,7 @@ class TestData:
             ),
             (
                 slice(0, 3),
-                AxonSegment(12, 3, 0),
+                AxonSegment(12, 3, 0, 0),
                 2,
                 1 << 1,
                 False,
@@ -1481,7 +1481,7 @@ class TestData:
             ),
             (
                 slice(1, 5),
-                AxonSegment(12, 3, 0),
+                AxonSegment(12, 3, 0, 0),
                 2,
                 1 << 2,
                 False,
@@ -1494,7 +1494,7 @@ class TestData:
             ),
             (
                 slice(1, 6),
-                AxonSegment(12, 3, 0),
+                AxonSegment(12, 3, 0, 0),
                 4,
                 1 << 3,
                 False,
@@ -1508,7 +1508,7 @@ class TestData:
             ),
             (
                 slice(3, 10),
-                AxonSegment(16, 4, 4),
+                AxonSegment(16, 4, 4, 0),
                 4,
                 1 << 4,
                 False,
@@ -1519,7 +1519,7 @@ class TestData:
             # iw8
             (
                 slice(5, 8),
-                AxonSegment(12, 3, 0),
+                AxonSegment(12, 3, 0, 0),
                 1,
                 1 << 1,
                 True,
@@ -1531,7 +1531,7 @@ class TestData:
             ),
             (
                 slice(0, 3),
-                AxonSegment(12, 3, 0),
+                AxonSegment(12, 3, 0, 0),
                 2,
                 1 << 1,
                 True,
@@ -1539,7 +1539,7 @@ class TestData:
             ),
             (
                 slice(1, 5),
-                AxonSegment(12, 3, 0),
+                AxonSegment(12, 3, 0, 0),
                 2,
                 1 << 2,
                 True,
@@ -1552,7 +1552,7 @@ class TestData:
             ),
             (
                 slice(1, 6),
-                AxonSegment(12, 3, 0),
+                AxonSegment(12, 3, 0, 0),
                 4,
                 1 << 3,
                 True,
@@ -1566,7 +1566,7 @@ class TestData:
             ),
             (
                 slice(5, 15),
-                AxonSegment(16, 8, 16),
+                AxonSegment(16, 8, 16, 0),
                 1,
                 1 << 1,
                 True,
@@ -1575,7 +1575,7 @@ class TestData:
             ),
             (
                 slice(5, 35),
-                AxonSegment(40, 10, 10),
+                AxonSegment(40, 10, 10, 0),
                 1,
                 1 << 2,
                 True,
