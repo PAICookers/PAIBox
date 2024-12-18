@@ -7,6 +7,7 @@ from paicorelib import WeightWidth as WW
 
 import paibox as pb
 from paibox.backend.conf_exporting import *
+from paibox.backend.overlap import NL_cover
 from paibox.exceptions import ResourceError
 
 from .conftest import TestData
@@ -376,14 +377,14 @@ class TestMapper_Compile:
         mapper.compile(grouping_optim_target="core")
 
         for cb in mapper.core_blocks:
-            if net.n1 in cb.dest:
+            if NL_cover(net.n1, cb.dest):
                 assert cb.n_core_required == ceil(
                     net.n1.num_out / HwConfig.N_DENDRITE_MAX_SNN
                 )
-            elif net.n2 in cb.dest:
+            elif NL_cover(net.n2, cb.dest):
                 assert cb.n_core_required == 1 + 1
 
-            elif net.n4 in cb.dest:
+            elif NL_cover(net.n4, cb.dest):
                 assert cb.n_core_required == ceil(
                     net.n4.num_out / HwConfig.N_DENDRITE_MAX_SNN
                 )
@@ -456,9 +457,12 @@ class TestMapper_Compile:
         mapper = pb.Mapper()
         mapper.build(net)
         mapper.compile()
-        nodes_with_empty_axons = [net.n3, net.n4, net.n5]
         for cb in mapper.core_blocks:
-            if cb.dest[0] in nodes_with_empty_axons:
+            if NL_cover(net.n3, cb.dest):
+                assert len(cb.ordered_axons) > len(cb.source)
+            elif NL_cover(net.n4, cb.dest):
+                assert len(cb.ordered_axons) > len(cb.source)
+            elif NL_cover(net.n5, cb.dest):
                 assert len(cb.ordered_axons) > len(cb.source)
             else:
                 assert len(cb.ordered_axons) == len(cb.source)
@@ -469,9 +473,9 @@ class TestMapper_Compile:
         mapper.build(net)
         mapper.compile()
         for cb in mapper.core_blocks:
-            if net.n3 in cb.dest:
+            if NL_cover(net.n3, cb.dest):
                 assert len(cb.ordered_axons) == 2
-            if net.n4 in cb.dest:
+            if NL_cover(net.n4, cb.dest):
                 assert len(cb.ordered_axons) == 3
 
     def test_core_estimate_only(self, build_example_net4):
