@@ -42,11 +42,7 @@ try:
     _USE_ORJSON = True
 
     def PAIConfigJsonDefault(o: Any) -> Any:
-        if isinstance(o, (list, tuple)):
-            return [PAIConfigJsonDefault(i) for i in o]
-        elif isinstance(o, dict):
-            return {str(k): PAIConfigJsonDefault(v) for k, v in o.items()}
-        elif isinstance(o, Coord):
+        if isinstance(o, Coord):
             return str(o)
         elif isinstance(o, NeuronAttrs):
             return o.model_dump(by_alias=True)
@@ -62,11 +58,9 @@ except ModuleNotFoundError:
 
     class PAIConfigJsonEncoder(json.JSONEncoder):
         def default(self, o: Any) -> Any:
-            if isinstance(o, (list, tuple)):
-                return [self.default(i) for i in o]
-            elif isinstance(o, dict):
-                return {str(k): self.default(v) for k, v in o.items()}
-            elif isinstance(o, Coord):
+            if isinstance(o, Coord):
+                return str(o)
+            elif isinstance(o, DataFlowFormat):
                 return str(o)
             elif isinstance(o, Enum):
                 return o.value
@@ -160,7 +154,7 @@ class InputNeuronDest(NeuronDest):
     lcn: int
 
     def to_json(self) -> dict[str, Any]:
-        dict_ = super().export().model_dump(by_alias=True)
+        dict_ = super().to_json()
         dict_ |= {"lcn": self.lcn}
 
         return dict_

@@ -21,6 +21,7 @@ from .conf_types import (
     InputNodeConf,
     NeuronConfig,
     OutputDestConf,
+    _gh_info2exported_gh_info,
 )
 from .context import _BACKEND_CONTEXT
 from .placement import CorePlacement
@@ -45,6 +46,7 @@ __all__ = [
     "export_core_plm_conf_json",
     "export_graph_info",
     "export_used_L2_clusters",
+    "export_aux_gh_info",
     "get_clk_en_L2_dict",
 ]
 
@@ -302,21 +304,20 @@ def export_core_plm_conf_json(
             json.dump(_valid_conf, f, indent=2)
 
 
-def export_aux_gh_info(gh_info: GraphInfo, fp: Path, export_clk_en_L2: bool) -> None:
+def export_aux_gh_info(
+    gh_info: GraphInfo, fp: Path, export_clk_en_L2: bool = False
+) -> None:
     _full_fp = _with_suffix_json(fp, _BACKEND_CONTEXT["graph_info_json"])
-    aux_gh_info_dict = {
-        "name": gh_info["name"],
-        "n_core_required": gh_info["n_core_required"],
-        "n_core_occupied": gh_info["n_core_occupied"],
-        "layer_num": gh_info["inherent_timestep"],
-    }
+    aux_gh_info_dict = _gh_info2exported_gh_info(gh_info)
 
     if misc := gh_info.get("misc"):
         aux_gh_info_dict["misc"] = {}
         # Export the serial port data of the L2 cluster clocks
         if export_clk_en_L2 and (clk_en_L2_dict := misc.get("clk_en_L2")):
             # dict[ChipCoord, list[int]]
-            aux_gh_info_dict["misc"]["clk_en_L2"] = clk_en_L2_dict
+            aux_gh_info_dict["misc"]["clk_en_L2"] = {
+                str(k): v for k, v in clk_en_L2_dict.items()
+            }
         if lst := misc.get("target_chip_list"):  # list of ChipCoord
             aux_gh_info_dict["misc"]["target_chip_list"] = lst
 
