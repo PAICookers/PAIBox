@@ -206,7 +206,7 @@ s1= pb.FullConn(source=n1, dest=n2, weights=weight1, conn_type=pb.SynConnType.Al
   n1 = pb.IF(shape=5, threshold=1)
   n2 = pb.IF(shape=5, threshold=1)
   s1 = pb.FullConn(source=n1, dest=n2, conn_type=pb.SynConnType.One2One, weights=2, name='s1')
-  
+
   print(s1.weights)
   >>>
   2
@@ -220,7 +220,7 @@ s1= pb.FullConn(source=n1, dest=n2, weights=weight1, conn_type=pb.SynConnType.Al
   n1 = pb.IF(shape=5, threshold=1)
   n2 = pb.IF(shape=5, threshold=1)
   s1 = pb.FullConn(source=n1, dest=n2, conn_type=pb.SynConnType.One2One, weights=np.arange(1, 6, dtype=np.int8), name='s1')
-  
+
   print(s1.weights)
   >>>
   [[1, 0, 0, 0, 0],
@@ -1037,7 +1037,7 @@ mapper.clear()
    # Read
    BACKEND_CONFIG.target_chip_addr
    >>> [Coord(0, 0)]
-   
+
    # Single chip
    BACKEND_CONFIG.target_chip_addr = (1, 1)
    # Multiple chips
@@ -1052,7 +1052,7 @@ mapper.clear()
    # or
    BACKEND_CONFIG.test_chip_addr
    >>> Coord(1, 0)
-   
+
    # Modify
    BACKEND_CONFIG.output_chip_addr = (2, 0)
    # or
@@ -1067,7 +1067,7 @@ mapper.clear()
    # Read
    BACKEND_CONFIG.output_dir
    >>> Path.cwd() # Default is your current working directory
-   
+
    # Modify
    BACKEND_CONFIG.output_dir = "path/to/my/output"
    ```
@@ -1078,116 +1078,116 @@ mapper.clear()
 
 1. 编译后图信息。
 
-    ```json
-    {
-      "name": "graph_of_Example_Net_0",
-      "inherent_timestep": 3,
-      "output_flow_format": {
-        "n2": {
-          "t_1st_vld": 2,
-          "interval": 1,
-          "n_vld": 0,
-          "is_local_time": false // always false
-        },
-        "n3": {
-          "t_1st_vld": 2,
-          "interval": 1,
-          "n_vld": 0,
-          "is_local_time": false
-        }
-      },
-      "n_core_required": 9,
-      "n_core_occupied": 10,
-      "misc": {
-        "clk_en_L2": {
-          "(0,0)": [128,0,0,0,0,0,0,0] // list[int] with length=8
-        },
-        "target_chip_list": [
-          {
-            "x": 0,
-            "y": 0
-          }
-        ]
-      }
-    }
-    ```
+   ```json
+   {
+     "name": "graph_of_Example_Net_0",
+     "inherent_timestep": 3,
+     "output_flow_format": {
+       "n2": {
+         "t_1st_vld": 2,
+         "interval": 1,
+         "n_vld": 0,
+         "is_local_time": false // always false
+       },
+       "n3": {
+         "t_1st_vld": 2,
+         "interval": 1,
+         "n_vld": 0,
+         "is_local_time": false
+       }
+     },
+     "n_core_required": 9,
+     "n_core_occupied": 10,
+     "misc": {
+       "clk_en_L2": {
+         "(0,0)": [128, 0, 0, 0, 0, 0, 0, 0] // list[int] with length=8
+       },
+       "target_chip_list": [
+         {
+           "x": 0,
+           "y": 0
+         }
+       ]
+     }
+   }
+   ```
 
 2. 输入节点信息。可能存在多个输入节点。
 
-    ```json
-    {
-      "InputProj_0": {
-        "addr_chip_x": 0,
-        "addr_chip_y": 0,
-        "addr_core_x": 0,
-        "addr_core_y": 0,
-        "addr_core_x_ex": 1,
-        "addr_core_y_ex": 3,
-        "tick_relative": [0, 0, 1, 1, 2, 2],// list[int]
-        "addr_axon": [0, 1, 2, 3, 4, 5],    // list[int]
-        "lcn": 2
-      },
-      "InputProj_1": {...}
-    }
-    ```
+   ```json
+   {
+     "InputProj_0": {
+       "addr_chip_x": 0,
+       "addr_chip_y": 0,
+       "addr_core_x": 0,
+       "addr_core_y": 0,
+       "addr_core_x_ex": 1,
+       "addr_core_y_ex": 3,
+       "tick_relative": [0, 0, 1, 1, 2, 2],// list[int]
+       "addr_axon": [0, 1, 2, 3, 4, 5],    // list[int]
+       "lcn": 2
+     },
+     "InputProj_1": {...}
+   }
+   ```
 
 3. 输出节点目的地信息。可能存在多个输出节点。
 
-    ```json
-    {
-      "n2": {
-        "(0,1)": {
-          "addr_chip_x": 1,
-          "addr_chip_y": 0,
-          "addr_core_x": 0,
-          "addr_core_y": 0,
-          "addr_core_x_ex": 0,
-          "addr_core_y_ex": 0,
-          "tick_relative": [0,0,0,0,0,0,0,0],// list[int]
-          "addr_axon": [0,1,2,3,4,5,6,7]     // list[int]
-        }
-      },
-      "n3": {...}
-    }
-    ```
+   ```json
+   {
+     "n2": {
+       "(0,1)": {
+         "addr_chip_x": 1,
+         "addr_chip_y": 0,
+         "addr_core_x": 0,
+         "addr_core_y": 0,
+         "addr_core_x_ex": 0,
+         "addr_core_y_ex": 0,
+         "tick_relative": [0,0,0,0,0,0,0,0],// list[int]
+         "addr_axon": [0,1,2,3,4,5,6,7]     // list[int]
+       }
+     },
+     "n3": {...}
+   }
+   ```
 
 4. 计算核配置信息。
 
-    ```json
-    {
-      "(0,0)": { // chip coordinate
-        "(0,0)": { // core coordinate on chip (0,0)
-          "weight_width": 0,
-          "LCN": 0,
-          "input_width": 0,
-          "spike_width": 0,
-          "num_dendrite": 80,
-          "pool_max": 0,
-          "tick_wait_start": 1,
-          "tick_wait_end": 0,
-          "snn_en": 1,
-          "target_LCN": 0,
-          "test_chip_addr": 32,
-          "n_repeat_nram": 1,
-          "name": "CorePlacement_0"
-        },
-        "(0,1)": {
-          "weight_width": 0,
-          "LCN": 0,
-          "input_width": 0,
-          "spike_width": 0,
-          "num_dendrite": 50,
-          "pool_max": 0,
-          "tick_wait_start": 2,
-          "tick_wait_end": 0,
-          "snn_en": 1,
-          "target_LCN": 0,
-          "test_chip_addr": 32,
-          "n_repeat_nram": 1,
-          "name": "CorePlacement_1"
-        },
-        "(1,0)": {...}
-      },
-      "(0,1)": {...}
-    }
-    ```
+   ```json
+   {
+     "(0,0)": { // chip coordinate
+       "(0,0)": { // core coordinate on chip (0,0)
+         "weight_width": 0,
+         "LCN": 0,
+         "input_width": 0,
+         "spike_width": 0,
+         "num_dendrite": 80,
+         "pool_max": 0,
+         "tick_wait_start": 1,
+         "tick_wait_end": 0,
+         "snn_en": 1,
+         "target_LCN": 0,
+         "test_chip_addr": 32,
+         "n_repeat_nram": 1,
+         "name": "CorePlacement_0"
+       },
+       "(0,1)": {
+         "weight_width": 0,
+         "LCN": 0,
+         "input_width": 0,
+         "spike_width": 0,
+         "num_dendrite": 50,
+         "pool_max": 0,
+         "tick_wait_start": 2,
+         "tick_wait_end": 0,
+         "snn_en": 1,
+         "target_LCN": 0,
+         "test_chip_addr": 32,
+         "n_repeat_nram": 1,
+         "name": "CorePlacement_1"
+       },
+       "(1,0)": {...}
+     },
+     "(0,1)": {...}
+   }
+   ```
