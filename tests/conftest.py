@@ -64,6 +64,8 @@ def _reset_context() -> None:
     clear_name_cache(ignore_warn=True)
     pb.FRONTEND_ENV["t"] = 0
     pb.BACKEND_CONFIG.set_default()
+    # To avoid overlapping with multi-chip coordinates
+    pb.BACKEND_CONFIG.output_chip_addr = (9, 9)
     SynSys.CFLAG_ENABLE_WP_OPTIMIZATION = True
 
 
