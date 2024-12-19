@@ -539,7 +539,7 @@ from tests.utils import measure_time
 
 
 class TestMapper_Multichip:
-    @pytest.mark.xfail(reason="Network may too large.")
+    @pytest.mark.xfail(reason="Network may too large.", raises=ResourceError)
     def test_multichip_1(self, ensure_dump_dir, monkeypatch, build_MultichipNet1_s1):
         """Multichip network of scale 1"""
 
@@ -560,7 +560,8 @@ class TestMapper_Multichip:
 
         assert 1
 
-    @pytest.mark.xfail(reason="Network may too large.")
+    @pytest.mark.skip(reason="Too slow, ~15 mins.")
+    @pytest.mark.xfail(reason="Network may too large.", raises=ResourceError)
     def test_multichip_2(self, ensure_dump_dir, monkeypatch, build_MultichipNet1_s2):
         """Multichip network of scale 2"""
         clist = [Coord(0, 0), Coord(0, 1), Coord(1, 0)]

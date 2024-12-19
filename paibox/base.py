@@ -16,7 +16,7 @@ from .mixin import ReceiveInputProj, StatusMemory, TimeRelatedNode
 from .naming import get_unique_name, is_name_unique
 from .node import NodeDict, NodeList
 from .types import WeightType
-from .utils import arg_check_pos
+from .utils import arg_check_non_neg, arg_check_pos
 
 __all__ = []
 
@@ -28,7 +28,7 @@ class PAIBoxObject:
     __avoid_name_conflict__: ClassVar[bool] = False
 
     def __init__(self, name: Optional[str] = None) -> None:
-        self._name: str = self.unique_name(name)
+        self._name = self._unique_name(name)
 
     def __eq__(self, other: "PAIBoxObject") -> bool:
         if not isinstance(other, PAIBoxObject):
@@ -44,7 +44,7 @@ class PAIBoxObject:
     def __hash__(self) -> int:
         return hash((type(self), self._name))
 
-    def unique_name(
+    def _unique_name(
         self, name: Optional[str] = None, _type: Optional[str] = None
     ) -> str:
         if name is None:
@@ -64,7 +64,7 @@ class PAIBoxObject:
 
     @name.setter
     def name(self, name: str) -> None:
-        self._name = self.unique_name(name)
+        self._name = self._unique_name(name)
 
     def nodes(
         self,
@@ -258,6 +258,10 @@ class DynamicSys(PAIBoxObject, StatusMemory):
 
 
 INFINITE_DATAFLOW = 0
+T_FIRST_VLD_OUT_OF_RANGE_TEXT = (
+    "the {0} output time of the first valid data should be in the working "
+    + "time from {1} to {2}, but got {3}."
+)
 
 
 @dataclass
@@ -286,6 +290,12 @@ class DataFlowFormat:
         """The time of the n-th valid data."""
         return self.t_at_idx(n - 1)
 
+    def local2global(self, tws: int):
+        assert self.is_local_time
+        return type(self)(
+            self.get_global_t_1st_vld(tws), self.interval, self.n_vld, False
+        )
+
     @property
     def t_last_vld(self) -> int:
         """The time of the last valid data."""
@@ -294,26 +304,22 @@ class DataFlowFormat:
 
     def get_global_t_1st_vld(self, tws: int) -> int:
         """Get the global time of the first valid data."""
+        arg_check_non_neg(tws)
         return tws + self.t_1st_vld if self.is_local_time else self.t_1st_vld
 
     def _check_after_assign(self, tws: int, end_tick: int) -> None:
-        _t_1st_vld_out_of_range_text = (
-            "the {0} output time of the first valid data should be in the working "
-            + "time from {1} to {2}, but got {3}."
-        )
-
         # The global time of the first valid data is in [tws, end_tick].
         gb_t_1st_vld = self.get_global_t_1st_vld(tws)
         if gb_t_1st_vld < tws or gb_t_1st_vld > end_tick:
             if self.is_local_time:
                 raise ValueError(
-                    _t_1st_vld_out_of_range_text.format(
+                    T_FIRST_VLD_OUT_OF_RANGE_TEXT.format(
                         "local", "+0", f"+{end_tick - tws + 1}", self.t_1st_vld
                     )
                 )
             else:
                 raise ValueError(
-                    _t_1st_vld_out_of_range_text.format(
+                    T_FIRST_VLD_OUT_OF_RANGE_TEXT.format(
                         "global", tws, end_tick, self.t_1st_vld
                     )
                 )
