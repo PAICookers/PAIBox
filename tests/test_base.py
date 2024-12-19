@@ -45,8 +45,8 @@ def test_paiboxobject_nodes():
 
 class TestDataFlowFormat:
     def test_dff_infinite_dataflow(self):
+        dff = DataFlowFormat(1, 0, -1)
         with pytest.raises((AssertionError, ValueError)):
-            dff = DataFlowFormat(1, 0, -1)
             _ = dff.t_last_vld
 
     def test_dff_valid(self):
@@ -58,3 +58,14 @@ class TestDataFlowFormat:
         # 2. t1 >= tws, t_last <= endtick
         dff2 = DataFlowFormat(10, 3, 10, is_local_time=True)
         dff2._check_after_assign(2, 39)
+
+    def test_dff_local2global(self):
+        # not in place
+        dff = DataFlowFormat(10, 3, 10, is_local_time=True)
+        dff_gb = dff.local2global(2)
+        assert dff_gb.t_1st_vld == 10 + 2
+        assert id(dff) != id(dff_gb)
+
+        with pytest.raises(Exception):
+            # dff_gb is alread a global dff.
+            dff_gb.local2global(2)

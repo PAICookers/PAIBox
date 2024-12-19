@@ -207,7 +207,8 @@ class Mapper:
                 input={},
                 output={},
                 members={},
-                inherent_timestep=self.graph.inherent_timestep,
+                inherent_timestep=self.graph.get_global_t_1st_vld(),
+                output_flow_format=self.graph.get_output_flow_format(),
                 n_core_required=self.n_core_required,
                 n_core_occupied=0,
             )
@@ -215,7 +216,7 @@ class Mapper:
         """Allocate the core blocks to the core placments."""
         self.core_allocation()
 
-        """Export configurations."""
+        """Export configurations. This step does not modify any data."""
         return self.config_export()
 
     def untwist_branch_nodes(self) -> None:
@@ -392,7 +393,8 @@ class Mapper:
             input=input_nodes_info,
             output=output_dest_info,
             members=self.core_plm_config,  # The configuration of physical cores is in `core_plm_config`
-            inherent_timestep=self.graph.inherent_timestep,
+            inherent_timestep=self.graph.get_global_t_1st_vld(),
+            output_flow_format=self.graph.get_output_flow_format(),
             n_core_required=self.n_core_required,
             n_core_occupied=self.n_core_occupied,
             misc={

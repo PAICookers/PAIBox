@@ -31,6 +31,7 @@ if sys.version_info >= (3, 11):
 else:
     from typing_extensions import NotRequired
 
+from paibox.base import DataFlowFormat
 from paibox.components import Neuron
 
 from .types import AxonCoord, NeuSegment, NodeName, WRAMPackedType
@@ -295,18 +296,32 @@ CoreConfInChip: TypeAlias = dict[Coord, CoreConfig]
 CoreConf: TypeAlias = dict[ChipCoord, CoreConfInChip]
 
 
-class GraphInfo(TypedDict):
-    """Information of graph after compilation."""
-
+class _ExportedGraphInfo(TypedDict):
     name: str
     """Name of the graph."""
-    input: InputNodeConf
-    output: OutputDestConf
-    members: CorePlmConf
-    inherent_timestep: int
+    inherent_timestep: int  # TODO this attibute will be deprecated.
+    output_flow_format: dict[NodeName, DataFlowFormat]
     n_core_required: int
     """The actual used cores."""
     n_core_occupied: int
     """The occupied cores, including used & wasted."""
     misc: NotRequired[dict[str, Any]]
     """Miscellaneous information. Not required."""
+
+
+class GraphInfo(_ExportedGraphInfo):
+    """Information of graph after compilation."""
+
+    input: InputNodeConf
+    output: OutputDestConf
+    members: CorePlmConf
+
+
+def _gh_info2exported_gh_info(gh_info: GraphInfo) -> _ExportedGraphInfo:
+    return _ExportedGraphInfo(
+        name=gh_info["name"],
+        inherent_timestep=gh_info["inherent_timestep"],
+        output_flow_format=gh_info["output_flow_format"],
+        n_core_required=gh_info["n_core_required"],
+        n_core_occupied=gh_info["n_core_occupied"],
+    )
