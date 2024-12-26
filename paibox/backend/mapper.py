@@ -5,10 +5,10 @@ from copy import copy
 from pathlib import Path
 from typing import Literal, Optional, Union
 
-from paicorelib import ChipCoord, Coord, CoordOffset, HwConfig, get_replication_id
+from paicorelib import ChipCoord, Coord, CoordOffset, HwConfig
 
 from paibox.base import SynSys
-from paibox.components import Neuron, NeuronSlice
+from paibox.components import Neuron
 from paibox.exceptions import CompileError, ConfigInvalidError, ResourceError
 from paibox.network import DynSysGroup
 
@@ -31,14 +31,13 @@ from .graphs import (
     merge_overlap,
     toposort,
 )
-from .overlap import LL_overlap, NL_overlap, overlap
+from ._slice import node_sl_lst_overlap, sl_overlap, NeuronSlice
 from .placement import CoreBlock, SliceDest, SourceDest, aligned_coords, max_lcn_of_cb
 from .routing import RoutingGroup, RoutingManager
 from .types import (
     Coord2str,
     MergedSuccGroup,
     NeuSegment,
-    NeuSegOfCoreBlock,
     NodeDegree,
     NodeType,
     SourceNodeType,
@@ -264,7 +263,7 @@ class Mapper:
             succ_cbs: list[CoreBlock] = []
             # cur_cb == cb is possible
             for cb in self.core_blocks:
-                if LL_overlap(cur_cb.dest, cb.ordered_axons):
+                if node_sl_lst_overlap(cur_cb.dest, cb.ordered_axons):
                     succ_cbs.append(cb)
             self.succ_core_blocks[cur_cb] = succ_cbs
 
@@ -769,19 +768,18 @@ class Mapper:
         self, neuron: Union[Neuron, NeuronSlice], *, verbose: int = 0
     ) -> None:
         self._build_check()
-        neuron_slice = (
-            neuron if isinstance(neuron, NeuronSlice) else NeuronSlice(neuron)
-        )
-        name = neuron_slice.target.name
+        neu_slice = neuron if isinstance(neuron, NeuronSlice) else NeuronSlice(neuron)
+        name = neu_slice.target.name
 
         for cb in self.core_blocks:
             # Find neuron in one or more core blocks.
-            if NL_overlap(neuron_slice, cb.dest):
+            if neu_slice.overlap(cb.dest):
+                # NL_overlap(, cb.dest):
                 print(f"neurons {name} placed in {cb.name}, LCN_{1 << cb.lcn_ex}X")
                 for core_plm in cb.core_placements.values():
                     for neu_seg in core_plm.neu_segs_of_cplm:
-                        if neuron is neu_seg.target and overlap(
-                            neuron_slice.index, neu_seg.index
+                        if neuron is neu_seg.target and sl_overlap(
+                            neu_slice.index, neu_seg.index
                         ):
                             print(
                                 f"{name} placed in {core_plm.coord}\n"
