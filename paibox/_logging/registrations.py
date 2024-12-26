@@ -1,4 +1,4 @@
-from .base import register_log, register_artifact
+from .base import register_artifact, register_log
 
 BACKEND_MODULES = [
     "paibox.backend.mapper",

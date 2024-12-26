@@ -1,9 +1,9 @@
 import logging
 
 import pytest
+
 import paibox as pb
 from paibox import _logging
-
 from tests._logging.logging_utils import is_log_record
 
 

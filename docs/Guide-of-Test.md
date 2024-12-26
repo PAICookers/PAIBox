@@ -145,7 +145,7 @@ pytest = "^8.0.0"
 ## 日志系统
 
 `v1.2.1` 引入了日志系统，用于开发过程中记录开发人员所关注的组件的运行情况。
-   
+
 在 [`_logging/registrations.py`](../paibox/_logging/registrations.py) 中通过 `paibox._logging.register_log` 添加一个新的日志：
 
 ```python
