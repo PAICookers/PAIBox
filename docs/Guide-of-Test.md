@@ -88,15 +88,23 @@ pytest = "^8.0.0"
        ...
    ```
 
-4. 测试后需要将某些全局配置恢复至默认值。该夹具在每次测试后，重置 `BACKEND_CONFIG` 与 `SynSys.CFLAG_ENABLE_WP_OPTIMIZATION` 为默认值。
+4. 测试后需要将某些全局配置恢复至默认值。该夹具在每次测试后，重置 `BACKEND_CONFIG` 与 `SynSys.CFLAG_ENABLE_WP_OPTIMIZATION` 为默认值。该夹具将自动执行。
 
    ```python
+   def _reset_context() -> None:
+   clear_name_cache(ignore_warn=True)
+   pb.FRONTEND_ENV["t"] = 0
+   pb.BACKEND_CONFIG.set_default()
+   # To avoid overlapping with multi-chip coordinates
+   pb.BACKEND_CONFIG.output_chip_addr = (9, 9)
+   SynSys.CFLAG_ENABLE_WP_OPTIMIZATION = True
+
    @pytest.fixture(autouse=True)
-   def backend_context_setdefault():
-       """Set the default backend context after each test automatically."""
+   def context_reset():
+       """Reset the context after each test automatically."""
+       _reset_context()
        yield
-       SynSys.CFLAG_ENABLE_WP_OPTIMIZATION = True
-       pb.BACKEND_CONFIG.set_default()
+       _reset_context()
    ```
 
 5. 测试代码运行时间统计。该夹具将测量测试项目的运行时间，并打印至控制台。运行pytest时需添加 `-s` 参数以禁用输出捕获。
@@ -133,6 +141,44 @@ pytest = "^8.0.0"
    def test_foo(fixed_rng):
        fixed_rng.random(...)
    ```
+
+## 日志系统
+
+`v1.2.1` 引入了日志系统，用于开发过程中记录开发人员所关注的组件的运行情况。
+   
+在 [`_logging/registrations.py`](../paibox/_logging/registrations.py) 中通过 `paibox._logging.register_log` 添加一个新的日志：
+
+```python
+register_log("paibox", "paibox")
+```
+
+通过 `paibox._logging.register_artifact` 添加一个新的针对组件的日志。例如，添加一个新的日志用于记录 `Mapper` 对象内 `build_core_blocks` 函数的运行情况：
+
+```python
+register_artifact("build_core_blocks")
+```
+
+无论在何处对组件进行日志记录，通过调用 `paibox._logging.get_artifact_logger(__name__, <artifact_name>)` 获取日志记录器，而非标准的日志实现方式。例如，获取上述针对 `build_core_blocks` 函数的日志记录器：
+
+```python
+# In backend/mapper.py
+from paibox import _logging
+log = _logging.get_artifact_logger(__name__, "build_core_blocks")
+
+class Mapper:
+    ...
+    def build_core_blocks(self):
+        log.info("hi")
+```
+
+在测试函数中，通过 `paibox._logging.set_logs` 设置更详细日志级别；或者仅开启关注的组件的日志记录。使用 `DEFAULT_LOG_SETTINGS` 设置默认的配置。
+
+```python
+from paibox._logging import set_logs, DEFAULT_LOG_SETTINGS
+
+set_logs(paibox=logging.INFO, backend=logging.DEBUG)
+set_logs(**DEFAULT_LOG_SETTINGS)
+```
 
 ## 更多
 
