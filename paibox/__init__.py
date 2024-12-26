@@ -1,3 +1,5 @@
+# isort: skip_file
+
 # Frontend context
 from .context import FRONTEND_ENV as FRONTEND_ENV
 
