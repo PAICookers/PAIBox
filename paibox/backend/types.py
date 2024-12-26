@@ -15,19 +15,12 @@ else:
 
 from paicorelib import Coord, CoreMode, HwConfig
 from paicorelib import ReplicationId as RId
-from paicorelib import RoutingCoord
 from paicorelib import RoutingDirection as Direction
 from paicorelib.routing_defs import MAX_ROUTING_PATH_LENGTH
 
 from paibox.base import PAIBoxObject
-from paibox.components import (
-    EdgeSlice,
-    FullConnectedSyn,
-    InputProj,
-    InputSlice,
-    Neuron,
-    NeuronSlice,
-)
+from paibox.components import FullConnectedSyn, InputProj, Neuron
+
 
 __all__ = [
     "NodeName",
@@ -36,10 +29,6 @@ __all__ = [
     "EdgeType",
     "SourceNodeType",
     "DestNodeType",
-    "NodeSliceType",
-    "EdgeSliceType",
-    "SourceSliceType",
-    "DestSliceType",
     "NodePosition",
     "NodeDegree",
     "NodeAttr",
@@ -58,13 +47,9 @@ __all__ = [
 NodeName: TypeAlias = str
 EdgeName: TypeAlias = str
 NodeType: TypeAlias = Union[InputProj, Neuron]
-NodeSliceType: TypeAlias = Union[InputSlice, NeuronSlice]
 EdgeType: TypeAlias = FullConnectedSyn
-EdgeSliceType: TypeAlias = EdgeSlice
 SourceNodeType: TypeAlias = NodeType
-SourceSliceType: TypeAlias = NodeSliceType
 DestNodeType: TypeAlias = Neuron
-DestSliceType: TypeAlias = NeuronSlice
 
 WRAM_UNPACKED_DTYPE = np.uint8
 WRAM_PACKED_DTYPE = np.uint64  # Type of one frame of data package

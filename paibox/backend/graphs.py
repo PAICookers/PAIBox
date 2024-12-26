@@ -19,7 +19,7 @@ from paibox.network import DynSysGroup
 from paibox.utils import check_elem_unique
 
 from .context import _BACKEND_CONTEXT
-from .overlap import NL_overlap
+from ._slice import node_sl_lst_overlap
 from .placement import CoreBlock
 from .routing import RoutingGroup
 from .segment_utils import get_neu_segments
@@ -980,7 +980,7 @@ def get_shortest_path(
 def get_succ_cb_by_node(
     node: NodeType, core_blocks: Sequence[CoreBlock]
 ) -> list[CoreBlock]:
-    return [cb for cb in core_blocks if NL_overlap(node, cb.ordered_axons)]
+    return [cb for cb in core_blocks if node_sl_lst_overlap(node, cb.ordered_axons)]
 
 
 def get_pred_cb_by_succ_cb(
