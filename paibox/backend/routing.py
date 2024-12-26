@@ -140,7 +140,7 @@ class RoutingGroup:
             self.unordered_elems, key=lambda x: x.n_core_required, reverse=True
         )
         for cb in unordered_cb:
-            self.offset.append(self.n_core_required)
+            self.offset.append(n_core_used)
             n_core_used += cb.n_core_required
 
         # Ordered routing groups should be assgined first.
