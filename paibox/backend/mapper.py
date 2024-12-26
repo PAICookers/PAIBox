@@ -347,7 +347,7 @@ class Mapper:
         for cb in self.core_blocks:
             logging.info(f"cb: {cb.name}:")
             for source, axon_seg in cb.axon_segments.items():
-                logging.info(f"\t{source.info}: {axon_seg}")
+                logging.info(f"\t{source}: {axon_seg}")
             logging.info("")
 
     def graph_optimization(self) -> None:
@@ -382,7 +382,7 @@ class Mapper:
             logging.info(f"\tfan_out: {cb.n_fanout}")
             logging.info("\tDests:")
             for dest in cb.dest:
-                logging.info(f"\t\t{dest.info}")
+                logging.info(f"\t\t{dest}")
             logging.info("\tCores:")
             for i, neu_seg in enumerate(cb.neuron_segs_of_cb):
                 logging.info(f"\t\t[{i}]:")

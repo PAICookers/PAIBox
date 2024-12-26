@@ -423,7 +423,7 @@ class CoreBlock(CoreAbstract):
     @property
     def _obj_repr(self) -> str:
         """The representation of the names of target objects."""
-        return ", ".join(n.info for n in self.obj)
+        return ", ".join(str(n) for n in self.obj)
 
     @classmethod
     def build(
@@ -480,13 +480,13 @@ class CoreBlock(CoreAbstract):
         logging.info(f"{tabs}\tWeight_Width: {self.weight_width}")
         logging.info(f"{tabs}\tAxons:")
         for axon in self.ordered_axons:
-            logging.info(f"{tabs}\t\t{axon.info}")
+            logging.info(f"{tabs}\t\t{axon}")
         logging.info(f"{tabs}\tDests:")
         for dest in self.dest:
-            logging.info(f"{tabs}\t\t{dest.info}")
+            logging.info(f"{tabs}\t\t{dest}")
         logging.info(f"{tabs}\tEdges:")
         for edge in self._parents:
-            logging.info(f"{tabs}\t\t{edge.info}")
+            logging.info(f"{tabs}\t\t{edge}")
         logging.info("")
 
 

@@ -404,21 +404,21 @@ class RoutingGroup:
 
         return self[0].chip_coord
 
-    def dump(self, i: int = 0) -> str:
+    def dump(self, i: int = 0) -> None:
         tabs = "\t" * i
         logging.info(
             f"{tabs}{self}(root:{self.is_root}) with {self.n_core_required} cores:"
         )
-        logging.info(f"{tabs}global axons: {[axon.info for axon in self.global_axons]}")
+        logging.info(f"{tabs}global axons: {[str(axon) for axon in self.global_axons]}")
         logging.info(
-            f"{tabs}private axons: {[axon.info for axon in self.private_axons]}"
+            f"{tabs}private axons: {[str(axon) for axon in self.private_axons]}"
         )
         logging.info(f"{tabs}Offset: {self.offset}")
         for elem in self.routing_elems:
             elem.dump(i + 1)
         logging.info(" ")
 
-    def dump_routing_result(self, i: int = 0) -> str:
+    def dump_routing_result(self, i: int = 0) -> None:
         tabs = "\t" * i
         logging.info(
             f"{tabs}{self}(root:{self.is_root}) with {self.n_core_required} cores:"
