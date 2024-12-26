@@ -1,12 +1,18 @@
-from collections.abc import Callable
-from dataclasses import dataclass, field
 import logging
 import os
+import sys
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, TypedDict, Union, Unpack
+from typing import Optional, TypedDict, Union
 from weakref import WeakSet
 
 from paibox.exceptions import RegisterError
+
+if sys.version_info >= (3, 11):
+    from typing import Unpack
+else:
+    from typing_extensions import Unpack
 
 # Refer to torch/_logging module: https://github.com/pytorch/pytorch/blob/main/torch/_logging.
 
