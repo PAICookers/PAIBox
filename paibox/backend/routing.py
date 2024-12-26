@@ -212,7 +212,7 @@ class RoutingGroup:
             self.unordered_elems, key=lambda x: x.n_core_required, reverse=True
         )
         for cb in unordered_cb:
-            self.offset.append(self.n_core_required)
+            self.offset.append(n_core_used)
             n_core_used += cb.n_core_required
 
         # Ordered routing groups should be assgined first.
@@ -432,7 +432,7 @@ class RoutingGroup:
                 logging.info(f"\t{tabs}{elem.name} with {elem.n_core_required} cores:")
                 logging.info(f"\t{tabs}Chip Coord: {elem.chip_coord}")
                 logging.info(
-                    f"\t{tabs}Start Core Coord: {Coord2str(elem.core_coords[0])}, {_Coord2Index(self.assigned_coords[0])}"
+                    f"\t{tabs}Start Core Coord: {Coord2str(elem.core_coords[0])}, {_Coord2Index(elem.core_coords[0])}"
                 )
                 logging.info("")
             else:
