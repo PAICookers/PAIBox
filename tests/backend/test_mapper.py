@@ -7,7 +7,7 @@ from paicorelib import WeightWidth as WW
 
 import paibox as pb
 from paibox.backend.conf_exporting import *
-from paibox.backend.overlap import NL_cover
+from paibox.backend._slice import node_sl_lst_overlap
 from paibox.exceptions import ResourceError
 
 from .conftest import TestData
@@ -377,14 +377,14 @@ class TestMapper_Compile:
         mapper.compile(grouping_optim_target="core")
 
         for cb in mapper.core_blocks:
-            if NL_cover(net.n1, cb.dest):
+            if node_sl_lst_overlap(net.n1, cb.dest):
                 assert cb.n_core_required == ceil(
                     net.n1.num_out / HwConfig.N_DENDRITE_MAX_SNN
                 )
-            elif NL_cover(net.n2, cb.dest):
+            elif node_sl_lst_overlap(net.n2, cb.dest):
                 assert cb.n_core_required == 1 + 1
 
-            elif NL_cover(net.n4, cb.dest):
+            elif node_sl_lst_overlap(net.n4, cb.dest):
                 assert cb.n_core_required == ceil(
                     net.n4.num_out / HwConfig.N_DENDRITE_MAX_SNN
                 )
@@ -458,11 +458,11 @@ class TestMapper_Compile:
         mapper.build(net)
         mapper.compile()
         for cb in mapper.core_blocks:
-            if NL_cover(net.n3, cb.dest):
+            if node_sl_lst_overlap(net.n3, cb.dest):
                 assert len(cb.ordered_axons) > len(cb.source)
-            elif NL_cover(net.n4, cb.dest):
+            elif node_sl_lst_overlap(net.n4, cb.dest):
                 assert len(cb.ordered_axons) > len(cb.source)
-            elif NL_cover(net.n5, cb.dest):
+            elif node_sl_lst_overlap(net.n5, cb.dest):
                 assert len(cb.ordered_axons) > len(cb.source)
             else:
                 assert len(cb.ordered_axons) == len(cb.source)
@@ -473,9 +473,9 @@ class TestMapper_Compile:
         mapper.build(net)
         mapper.compile()
         for cb in mapper.core_blocks:
-            if NL_cover(net.n3, cb.dest):
+            if node_sl_lst_overlap(net.n3, cb.dest):
                 assert len(cb.ordered_axons) == 2
-            if NL_cover(net.n4, cb.dest):
+            if node_sl_lst_overlap(net.n4, cb.dest):
                 assert len(cb.ordered_axons) == 3
 
     def test_core_estimate_only(self, build_example_net4):

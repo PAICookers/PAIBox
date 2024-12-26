@@ -3,9 +3,10 @@ from functools import partial
 from math import ceil
 from typing import Literal
 
-from paibox.components import Neuron, NeuronSlice
+from paibox.components import Neuron
 from paibox.exceptions import ParameterInvalidWarning, ResourceError
 
+from ._slice import *
 from .types import (
     AxonCoord,
     AxonSegment,
@@ -13,8 +14,6 @@ from .types import (
     NeuSegOfCoreBlock,
     NeuSegOfCorePlm,
     NeuSlice,
-    SourceNodeType,
-    SourceSliceType,
 )
 
 

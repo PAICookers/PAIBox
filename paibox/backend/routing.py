@@ -12,15 +12,15 @@ from paicorelib import RoutingDirection as Direction
 from paicorelib import RoutingLevel as Level
 from paicorelib.routing_defs import MAX_ROUTING_PATH_LENGTH
 
-from paibox.components import EdgeSlice, FullConnectedSyn, MatMul2d, Neuron, NeuronSlice
+from paibox.components import MatMul2d
 from paibox.exceptions import (
-    GraphBuildError,
     NotSupportedError,
     PAIBoxDeprecationWarning,
     ResourceError,
     RoutingError,
 )
 
+from ._slice import *
 from .conf_types import CorePlmConfInChip
 from .constrs import GraphNodeConstrs
 from .placement import CoreBlock, EmptyCorePlacement

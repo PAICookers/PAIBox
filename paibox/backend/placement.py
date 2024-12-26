@@ -8,7 +8,7 @@ from paicorelib import LCN_EX, ChipCoord, Coord, CoreMode, HwConfig, MaxPoolingE
 from paicorelib import WeightWidth as WW
 from paicorelib.framelib import OfflineFrameGen
 
-from paibox.components import EdgeSlice, FullConnectedSyn, MatMul2d, Neuron, NeuronSlice
+from paibox.components import Neuron
 from paibox.exceptions import (
     GraphBuildError,
     NotSupportedError,
@@ -18,10 +18,10 @@ from paibox.exceptions import (
 from paibox.types import WEIGHT_DTYPE, WeightType
 from paibox.utils import check_attr_same
 
+from ._slice import EdgeSlice, NeuronSlice, SourceSliceType, DestSliceType
 from .conf_types import CoreConfig, CoreConfInChip, CorePlmConfig, NeuronConfig
 from .constrs import GraphNodeConstrs
 from .context import _BACKEND_CONTEXT
-from .overlap import NN_cover
 from .segment_utils import aligned_coords, get_axon_segments, get_neu_segments
 from .types import (
     _COORD_UNSET,
@@ -33,14 +33,12 @@ from .types import (
     AxonSegment,
     CoreAbstract,
     DestNodeType,
-    DestSliceType,
+    SourceNodeType,
     EdgeType,
     MergedSuccGroup,
     NeuSegment,
     NeuSegOfCoreBlock,
     NeuSegOfCorePlm,
-    SourceNodeType,
-    SourceSliceType,
     WRAMPackedType,
     WRAMUnpackedType,
     is_iw8,
@@ -120,7 +118,9 @@ class CoreBlock(CoreAbstract):
             self.dest, self.n_fanout, self.n_neuron_repl, optim_target
         )
 
-    def assign(self, allocated: list[Coord], chip_coord: Coord) -> list[Coord]:
+    def assign(
+        self, allocated: list[Coord], chip_coord: Coord
+    ) -> tuple[list[Coord], list[Coord]]:
         self.core_coords = allocated
         self.chip_coord = chip_coord
         return allocated, []
@@ -381,7 +381,7 @@ class CoreBlock(CoreAbstract):
             sub_slice = slice(0, 0)
             for i, dest in enumerate(self.dest):
                 temp = NeuronSlice(neu_seg.target, neu_seg.index)
-                if NN_cover(temp, dest):
+                if temp.covered_by(dest):
                     idx = i
                     sub_slice = slice(
                         temp.index.start - dest.index.start,
