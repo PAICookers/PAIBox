@@ -18,7 +18,7 @@ from paibox.exceptions import (
 from paibox.types import WEIGHT_DTYPE, WeightType
 from paibox.utils import check_attr_same
 
-from ._slice import EdgeSlice, NeuronSlice, SourceSliceType, DestSliceType
+from ._slice import DestSliceType, EdgeSlice, NeuronSlice, SourceSliceType
 from .conf_types import CoreConfig, CoreConfInChip, CorePlmConfig, NeuronConfig
 from .constrs import GraphNodeConstrs
 from .context import _BACKEND_CONTEXT
@@ -33,12 +33,12 @@ from .types import (
     AxonSegment,
     CoreAbstract,
     DestNodeType,
-    SourceNodeType,
     EdgeType,
     MergedSuccGroup,
     NeuSegment,
     NeuSegOfCoreBlock,
     NeuSegOfCorePlm,
+    SourceNodeType,
     WRAMPackedType,
     WRAMUnpackedType,
     is_iw8,

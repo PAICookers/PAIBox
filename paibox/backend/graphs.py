@@ -18,8 +18,8 @@ from paibox.exceptions import (
 from paibox.network import DynSysGroup
 from paibox.utils import check_elem_unique
 
-from .context import _BACKEND_CONTEXT
 from ._slice import node_sl_lst_overlap
+from .context import _BACKEND_CONTEXT
 from .placement import CoreBlock
 from .routing import RoutingGroup
 from .segment_utils import get_neu_segments
