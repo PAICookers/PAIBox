@@ -94,12 +94,12 @@ def build_elements(
             idx_of_sg = [list(range(len(nodes)))]
 
         for idx in idx_of_sg:
-            edges: set[EdgeType] = set()
+            edges_set: set[EdgeType] = set()
 
             for i in idx:
-                edges.update(merged_sgrp.outputs[nodes[i]])
+                edges_set.update(merged_sgrp.outputs[nodes[i]])
 
-            edge_slices = [EdgeSlice(edge) for edge in edges]
+            edge_slices = [EdgeSlice(edge) for edge in edges_set]
             core_block = CoreBlock.build(*edge_slices, rt_mode=mode)
             elements.append(core_block)
 
@@ -135,10 +135,10 @@ class RoutingGroup:
 
         self.axons: list[SourceSliceType] = list(axons)  # unordered
 
-        dest: set[DestNodeType] = set()
+        dest: set[DestSliceType] = set()
         for elem in self.routing_elems:
             dest.update(elem.dest)
-        self.dest: list[DestNodeType] = list(dest)
+        self.dest: list[DestSliceType] = list(dest)
 
         self.assigned_coords: list[Coord] = []
         """Assigned core coordinates in the routing group"""
@@ -297,7 +297,7 @@ class RoutingGroup:
 
         ordered_groups: list["RoutingGroup"] = list()
         remaining_ordered: list["RoutingGroup"] = list()
-        inputs: set[DestNodeType] = set()
+        inputs: set[SourceSliceType] = set()
         for elem in reversed(optimized_ordered):
             if not set(self.private_axons).isdisjoint(elem.axons):
                 inputs.update(elem.axons)

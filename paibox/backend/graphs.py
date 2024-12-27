@@ -285,6 +285,9 @@ class PAIGraph:
 
         NOTE: Only applies to a node that only has 2 successors, and they belong to the same core block.
         """
+        raise NotImplementedError
+
+        "the following code is not used, but it may be useful in the future."
         ONLY_SUPPORT_N_SUCC = 2
 
         def _roundup_to_pow2(n: int) -> int:
