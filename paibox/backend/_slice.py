@@ -93,12 +93,12 @@ class NodeSlice(PartitionedSlice, Generic[_NT]):
             return any(_cover(sl) for sl in other)
 
     @property
-    def num_out(self) -> int:
+    def num_in(self) -> int:
         return self.index.stop - self.index.start
 
     @property
-    def num_in(self) -> int:
-        return self.num_in
+    def num_out(self) -> int:
+        return self.index.stop - self.index.start
 
     def __str__(self) -> str:
         return (
@@ -149,8 +149,8 @@ class EdgeSlice(PartitionedSlice):
         out_index: Optional[Union[int, slice]] = None,
     ) -> None:
         self.target = target
-        self.in_index = _idx2slice(target, in_index)
-        self.out_index = _idx2slice(target, out_index)
+        self.in_index = _idx2slice(target.source, in_index)
+        self.out_index = _idx2slice(target.dest, out_index)
 
     @property
     def source(self) -> Union[InputSlice, NeuronSlice]:
@@ -174,6 +174,7 @@ class EdgeSlice(PartitionedSlice):
     def __str__(self) -> str:
         return (
             f"{type(self).__name__} {self.target.name}"
+            + f"({self.target.source.name}->{self.target.dest.name})"
             + f"[{self.in_index.start}:{self.in_index.stop}]"
             + f"[{self.out_index.start}:{self.out_index.stop}]"
         )
@@ -215,7 +216,7 @@ def node_sl_lst_overlap(
 
         return False
     else:
-        if isinstance(node_or_sl, NodeType):
+        if isinstance(node_or_sl, (InputProj, Neuron)):
             node_sl = NodeSlice(node_or_sl)
         else:
             node_sl = node_or_sl
