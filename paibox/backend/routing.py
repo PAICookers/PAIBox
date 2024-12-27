@@ -12,15 +12,15 @@ from paicorelib import RoutingDirection as Direction
 from paicorelib import RoutingLevel as Level
 from paicorelib.routing_defs import MAX_ROUTING_PATH_LENGTH
 
-from paibox.components import EdgeSlice, FullConnectedSyn, MatMul2d, Neuron, NeuronSlice
+from paibox.components import MatMul2d
 from paibox.exceptions import (
-    GraphBuildError,
     NotSupportedError,
     PAIBoxDeprecationWarning,
     ResourceError,
     RoutingError,
 )
 
+from ._slice import *
 from .conf_types import CorePlmConfInChip
 from .constrs import GraphNodeConstrs
 from .placement import CoreBlock, EmptyCorePlacement
@@ -63,7 +63,7 @@ def build_elements(
     if len(nodes) == 1:
         edges = merged_sgrp.outputs[nodes[0]]
         # find edges with divisible weight
-        divisible_edge: FullConnectedSyn = None
+        divisible_edge = None
         for edge in edges:
             # only one edge is allowed to have divisible weight
             if isinstance(edge, MatMul2d):
@@ -94,12 +94,12 @@ def build_elements(
             idx_of_sg = [list(range(len(nodes)))]
 
         for idx in idx_of_sg:
-            edges: set[EdgeType] = set()
+            edges_set: set[EdgeType] = set()
 
             for i in idx:
-                edges.update(merged_sgrp.outputs[nodes[i]])
+                edges_set.update(merged_sgrp.outputs[nodes[i]])
 
-            edge_slices = [EdgeSlice(edge) for edge in edges]
+            edge_slices = [EdgeSlice(edge) for edge in edges_set]
             core_block = CoreBlock.build(*edge_slices, rt_mode=mode)
             elements.append(core_block)
 
@@ -135,10 +135,10 @@ class RoutingGroup:
 
         self.axons: list[SourceSliceType] = list(axons)  # unordered
 
-        dest: set[DestNodeType] = set()
+        dest: set[DestSliceType] = set()
         for elem in self.routing_elems:
             dest.update(elem.dest)
-        self.dest: list[DestNodeType] = list(dest)
+        self.dest: list[DestSliceType] = list(dest)
 
         self.assigned_coords: list[Coord] = []
         """Assigned core coordinates in the routing group"""
@@ -297,7 +297,7 @@ class RoutingGroup:
 
         ordered_groups: list["RoutingGroup"] = list()
         remaining_ordered: list["RoutingGroup"] = list()
-        inputs: set[DestNodeType] = set()
+        inputs: set[SourceSliceType] = set()
         for elem in reversed(optimized_ordered):
             if not set(self.private_axons).isdisjoint(elem.axons):
                 inputs.update(elem.axons)
@@ -404,21 +404,21 @@ class RoutingGroup:
 
         return self[0].chip_coord
 
-    def dump(self, i: int = 0) -> str:
+    def dump(self, i: int = 0) -> None:
         tabs = "\t" * i
         logging.info(
             f"{tabs}{self}(root:{self.is_root}) with {self.n_core_required} cores:"
         )
-        logging.info(f"{tabs}global axons: {[axon.info for axon in self.global_axons]}")
+        logging.info(f"{tabs}global axons: {[str(axon) for axon in self.global_axons]}")
         logging.info(
-            f"{tabs}private axons: {[axon.info for axon in self.private_axons]}"
+            f"{tabs}private axons: {[str(axon) for axon in self.private_axons]}"
         )
         logging.info(f"{tabs}Offset: {self.offset}")
         for elem in self.routing_elems:
             elem.dump(i + 1)
         logging.info(" ")
 
-    def dump_routing_result(self, i: int = 0) -> str:
+    def dump_routing_result(self, i: int = 0) -> None:
         tabs = "\t" * i
         logging.info(
             f"{tabs}{self}(root:{self.is_root}) with {self.n_core_required} cores:"
@@ -432,7 +432,7 @@ class RoutingGroup:
                 logging.info(f"\t{tabs}{elem.name} with {elem.n_core_required} cores:")
                 logging.info(f"\t{tabs}Chip Coord: {elem.chip_coord}")
                 logging.info(
-                    f"\t{tabs}Start Core Coord: {Coord2str(elem.core_coords[0])}, {_Coord2Index(self.assigned_coords[0])}"
+                    f"\t{tabs}Start Core Coord: {Coord2str(elem.core_coords[0])}, {_Coord2Index(elem.core_coords[0])}"
                 )
                 logging.info("")
             else:

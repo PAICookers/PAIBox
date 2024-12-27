@@ -3,12 +3,12 @@ from math import ceil
 import pytest
 
 import paibox as pb
+from paibox.backend._slice import NeuronSlice
 from paibox.backend.segment_utils import (
     aligned_coords,
     get_axon_segments,
     get_neu_segments,
 )
-from paibox.components.neuron import NeuronSlice
 from paibox.exceptions import ResourceError
 
 from .conftest import TestData

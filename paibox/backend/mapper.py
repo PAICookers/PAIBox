@@ -5,13 +5,14 @@ from copy import copy
 from pathlib import Path
 from typing import Literal, Optional, Union
 
-from paicorelib import ChipCoord, Coord, CoordOffset, HwConfig, get_replication_id
+from paicorelib import ChipCoord, Coord, CoordOffset, HwConfig
 
 from paibox.base import SynSys
-from paibox.components import Neuron, NeuronSlice
+from paibox.components import Neuron
 from paibox.exceptions import CompileError, ConfigInvalidError, ResourceError
 from paibox.network import DynSysGroup
 
+from ._slice import NeuronSlice, node_sl_lst_overlap, sl_overlap
 from .conf_exporting import *
 from .conf_types import (
     CoreConf,
@@ -31,14 +32,12 @@ from .graphs import (
     merge_overlap,
     toposort,
 )
-from .overlap import LL_overlap, NL_overlap, overlap
 from .placement import CoreBlock, SliceDest, SourceDest, aligned_coords, max_lcn_of_cb
 from .routing import RoutingGroup, RoutingManager
 from .types import (
     Coord2str,
     MergedSuccGroup,
     NeuSegment,
-    NeuSegOfCoreBlock,
     NodeDegree,
     NodeType,
     SourceNodeType,
@@ -264,7 +263,7 @@ class Mapper:
             succ_cbs: list[CoreBlock] = []
             # cur_cb == cb is possible
             for cb in self.core_blocks:
-                if LL_overlap(cur_cb.dest, cb.ordered_axons):
+                if node_sl_lst_overlap(cur_cb.dest, cb.ordered_axons):
                     succ_cbs.append(cb)
             self.succ_core_blocks[cur_cb] = succ_cbs
 
@@ -348,17 +347,8 @@ class Mapper:
         for cb in self.core_blocks:
             logging.info(f"cb: {cb.name}:")
             for source, axon_seg in cb.axon_segments.items():
-                logging.info(f"\t{source.info}: {axon_seg}")
+                logging.info(f"\t{source}: {axon_seg}")
             logging.info("")
-
-    def graph_optimization(self) -> None:
-        optimized = self.graph.graph_optimization(self.core_blocks, self.routing_groups)
-        if optimized:
-            self.core_blocks.clear()
-            self.succ_core_blocks.clear()
-            self._build_check()
-            self.build_core_blocks()
-            self.lcn_ex_adjustment()
 
     def coord_assign(self, core_estimate_only: bool) -> None:
         """Assign the coordinate of each `CorePlacement`.
@@ -383,7 +373,7 @@ class Mapper:
             logging.info(f"\tfan_out: {cb.n_fanout}")
             logging.info("\tDests:")
             for dest in cb.dest:
-                logging.info(f"\t\t{dest.info}")
+                logging.info(f"\t\t{dest}")
             logging.info("\tCores:")
             for i, neu_seg in enumerate(cb.neuron_segs_of_cb):
                 logging.info(f"\t\t[{i}]:")
@@ -616,9 +606,9 @@ class Mapper:
                                 neu_seg,
                                 output_core_coord=cur_ocoord,
                             )
-                            output_dest_info[neu_seg.target.name][
-                                core_plm.coord.address
-                            ] = core_plm.neu_configs[neu_seg.target].neuron_dest_info
+                            output_dest_info[neu_seg.target.name][core_plm.coord] = (
+                                core_plm.neu_configs[neu_seg.target].neuron_dest_info
+                            )
 
                         else:
                             raise ValueError(
@@ -634,79 +624,6 @@ class Mapper:
             self.core_plm_config[rg.chip_coord].update(rg.get_wasted_cplm_config())
 
         return output_dest_info
-
-    def _member_cb_config_export(self, member_cb: CoreBlock) -> None:
-        """Export configuration information for core blocks that are pure members."""
-        for core_plm in member_cb.core_placements.values():
-            for neu_seg in core_plm.neu_segs_of_cplm:
-                # Find the axon destinations of neu_seg, not the successor core blocks.
-                dest_cb_of_nseg = self._find_dest_cb_by_nseg(neu_seg, member_cb)
-
-                if len(dest_cb_of_nseg) > 0:
-                    assert _cb_routable(self.routing_groups, dest_cb_of_nseg)
-                    core_plm.export_neu_config(neu_seg, dest_cb_of_nseg)
-                else:
-                    raise ValueError(f"find destination of member {neu_seg} failed.")
-
-    def _member_onode_cb_config_export(
-        self,
-        member_onode_cb: CoreBlock,
-        output_dest_info: OutputDestConf,
-        ocoord: Coord,
-    ) -> Coord:
-        """Export configuration information for core blocks that are both members & output."""
-        cur_ocoord = ocoord
-        output_axon_offset = 0
-        o_nodes = [d for d in member_onode_cb.dest if d in self.graph.onodes.values()]
-
-        for core_plm in member_onode_cb.core_placements.values():
-            for neu_seg in core_plm.neu_segs_of_cplm:
-                dest_cb_of_nseg = self._find_dest_cb_by_nseg(neu_seg, member_onode_cb)
-
-                if len(dest_cb_of_nseg) > 0:
-                    # The destination of the neuron segment is another core block(s)
-                    assert _cb_routable(self.routing_groups, dest_cb_of_nseg)
-                    core_plm.export_neu_config(neu_seg, dest_cb_of_nseg)
-                else:
-                    # The destination of the neuron segment is outside of the chip(s)
-                    offset_idx = o_nodes.index(neu_seg.target)
-                    cur_ocoord = ocoord + CoordOffset.from_offset(offset_idx)
-                    output_axon_offset = core_plm.export_neu_config(
-                        neu_seg,
-                        output_core_coord=cur_ocoord,
-                        axon_addr_offset=output_axon_offset,
-                    )
-                    output_dest_info[neu_seg.target.name][core_plm.coord] = (
-                        core_plm.neu_configs[neu_seg.target].neuron_dest_info
-                    )
-
-        # Add the offset as the starting coordinate of the next output node
-        return cur_ocoord + CoordOffset.from_offset(1)
-
-    def _onode_cb_config_export(
-        self, onode_cb: CoreBlock, output_dest_info: OutputDestConf, ocoord: Coord
-    ) -> Coord:
-        """Export configuration information for core blocks that are pure output."""
-        cur_ocoord = ocoord
-        output_axon_offset = 0
-        o_nodes = [d for d in onode_cb.dest if d in self.graph.onodes.values()]
-
-        for core_plm in onode_cb.core_placements.values():
-            for neu_seg in core_plm.neu_segs_of_cplm:
-                # Get the output coordinate of this neu_seg
-                offset_idx = o_nodes.index(neu_seg.target)
-                cur_ocoord = ocoord + CoordOffset.from_offset(offset_idx)
-                output_axon_offset = core_plm.export_neu_config(
-                    neu_seg,
-                    output_core_coord=cur_ocoord,
-                    axon_addr_offset=output_axon_offset,
-                )
-                output_dest_info[neu_seg.target.name][core_plm.coord] = (
-                    core_plm.neu_configs[neu_seg.target].neuron_dest_info
-                )
-
-        # Add the offset as the starting coordinate of the next output node
-        return cur_ocoord + CoordOffset.from_offset(1)
 
     def export(
         self,
@@ -769,19 +686,18 @@ class Mapper:
         self, neuron: Union[Neuron, NeuronSlice], *, verbose: int = 0
     ) -> None:
         self._build_check()
-        neuron_slice = (
-            neuron if isinstance(neuron, NeuronSlice) else NeuronSlice(neuron)
-        )
-        name = neuron_slice.target.name
+        neu_slice = neuron if isinstance(neuron, NeuronSlice) else NeuronSlice(neuron)
+        name = neu_slice.target.name
 
         for cb in self.core_blocks:
             # Find neuron in one or more core blocks.
-            if NL_overlap(neuron_slice, cb.dest):
+            if neu_slice.overlap(cb.dest):
+                # NL_overlap(, cb.dest):
                 print(f"neurons {name} placed in {cb.name}, LCN_{1 << cb.lcn_ex}X")
                 for core_plm in cb.core_placements.values():
                     for neu_seg in core_plm.neu_segs_of_cplm:
-                        if neuron is neu_seg.target and overlap(
-                            neuron_slice.index, neu_seg.index
+                        if neuron is neu_seg.target and sl_overlap(
+                            neu_slice.index, neu_seg.index
                         ):
                             print(
                                 f"{name} placed in {core_plm.coord}\n"
