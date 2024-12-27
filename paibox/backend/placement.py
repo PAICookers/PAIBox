@@ -8,7 +8,7 @@ from paicorelib import LCN_EX, ChipCoord, Coord, CoreMode, HwConfig, MaxPoolingE
 from paicorelib import WeightWidth as WW
 from paicorelib.framelib import OfflineFrameGen
 
-from paibox.components import EdgeSlice, FullConnectedSyn, MatMul2d, Neuron, NeuronSlice
+from paibox.components import Neuron
 from paibox.exceptions import (
     GraphBuildError,
     NotSupportedError,
@@ -18,10 +18,10 @@ from paibox.exceptions import (
 from paibox.types import WEIGHT_DTYPE, WeightType
 from paibox.utils import check_attr_same
 
+from ._slice import DestSliceType, EdgeSlice, NeuronSlice, SourceSliceType
 from .conf_types import CoreConfig, CoreConfInChip, CorePlmConfig, NeuronConfig
 from .constrs import GraphNodeConstrs
 from .context import _BACKEND_CONTEXT
-from .overlap import NN_cover
 from .segment_utils import aligned_coords, get_axon_segments, get_neu_segments
 from .types import (
     _COORD_UNSET,
@@ -33,14 +33,12 @@ from .types import (
     AxonSegment,
     CoreAbstract,
     DestNodeType,
-    DestSliceType,
     EdgeType,
     MergedSuccGroup,
     NeuSegment,
     NeuSegOfCoreBlock,
     NeuSegOfCorePlm,
     SourceNodeType,
-    SourceSliceType,
     WRAMPackedType,
     WRAMUnpackedType,
     is_iw8,
@@ -120,7 +118,9 @@ class CoreBlock(CoreAbstract):
             self.dest, self.n_fanout, self.n_neuron_repl, optim_target
         )
 
-    def assign(self, allocated: list[Coord], chip_coord: Coord) -> list[Coord]:
+    def assign(
+        self, allocated: list[Coord], chip_coord: Coord
+    ) -> tuple[list[Coord], list[Coord]]:
         self.core_coords = allocated
         self.chip_coord = chip_coord
         return allocated, []
@@ -189,7 +189,7 @@ class CoreBlock(CoreAbstract):
     def source(self) -> list[SourceSliceType]:
         """Ordered unique source nodes."""
         return cast(
-            list[SourceNodeType], list(set([parent.source for parent in self.obj]))
+            list[SourceSliceType], list(set([parent.source for parent in self.obj]))
         )
 
     @property
@@ -199,7 +199,9 @@ class CoreBlock(CoreAbstract):
     @property
     def dest(self) -> list[DestSliceType]:
         """Ordered unique destination nodes."""
-        return cast(list[DestNodeType], list(set([parent.dest for parent in self.obj])))
+        return cast(
+            list[DestSliceType], list(set([parent.dest for parent in self.obj]))
+        )
 
     def n_axon_of(self, index: int) -> int:
         """Get the #N of axons of `index`-th source neuron."""
@@ -381,7 +383,7 @@ class CoreBlock(CoreAbstract):
             sub_slice = slice(0, 0)
             for i, dest in enumerate(self.dest):
                 temp = NeuronSlice(neu_seg.target, neu_seg.index)
-                if NN_cover(temp, dest):
+                if temp.covered_by(dest):
                     idx = i
                     sub_slice = slice(
                         temp.index.start - dest.index.start,
@@ -423,7 +425,7 @@ class CoreBlock(CoreAbstract):
     @property
     def _obj_repr(self) -> str:
         """The representation of the names of target objects."""
-        return ", ".join(n.info for n in self.obj)
+        return ", ".join(str(n) for n in self.obj)
 
     @classmethod
     def build(
@@ -442,28 +444,6 @@ class CoreBlock(CoreAbstract):
         return cls(*synapses, mode=rt_mode, seed=seed)
 
     @classmethod
-    def build_core_blocks(cls, msgrp: MergedSuccGroup) -> list["CoreBlock"]:
-        core_blocks: list[CoreBlock] = []
-        succ_nodes = list(msgrp.nodes)
-        # TODO Currently the runtime mode is not taken into account for grouping constraints,
-        # because in general, a network can only have one mode.
-        mode = succ_nodes[0].mode
-        if any(node.mode != mode for node in succ_nodes):
-            raise NotSupportedError("mixed mode is not supported.")
-
-        idx_of_sg = GraphNodeConstrs.apply_constrs(succ_nodes)
-
-        for idx_lst in idx_of_sg:
-            succ_edges: set[EdgeType] = set()
-            for i in idx_lst:
-                succ_edges.update(msgrp.outputs[succ_nodes[i]])
-
-            core_block = CoreBlock.build(*succ_edges, rt_mode=mode)
-            core_blocks.append(core_block)
-
-        return core_blocks
-
-    @classmethod
     def export_core_plm_config(cls, cb: "CoreBlock") -> CoreConfInChip:
         """Export the parameters of the core into a dictionary."""
         cb_config = dict()
@@ -480,13 +460,13 @@ class CoreBlock(CoreAbstract):
         logging.info(f"{tabs}\tWeight_Width: {self.weight_width}")
         logging.info(f"{tabs}\tAxons:")
         for axon in self.ordered_axons:
-            logging.info(f"{tabs}\t\t{axon.info}")
+            logging.info(f"{tabs}\t\t{axon}")
         logging.info(f"{tabs}\tDests:")
         for dest in self.dest:
-            logging.info(f"{tabs}\t\t{dest.info}")
+            logging.info(f"{tabs}\t\t{dest}")
         logging.info(f"{tabs}\tEdges:")
         for edge in self._parents:
-            logging.info(f"{tabs}\t\t{edge.info}")
+            logging.info(f"{tabs}\t\t{edge}")
         logging.info("")
 
 
@@ -564,12 +544,10 @@ class SourceDest:
         for slice in self.slices:
             self.cut_points.append(slice.stop)
 
-    def undivided_dest(self, index: slice = None) -> SliceDest:
-        if index is None:
-            if len(self.dests) != 1:
-                raise ValueError("Multiple destinations")
-            else:
-                return self.dests[0]
+    def undivided_dest(self) -> SliceDest:
+        if len(self.dests) != 1:
+            raise ValueError("Multiple destinations")
+        return self.dests[0]
 
     def slice_dest(
         self, nue_seg: NeuSegment
@@ -933,7 +911,6 @@ class CorePlacement(CoreAbstract):
         neu_seg: NeuSegment,
         *,
         output_core_coord: Coord,
-        axon_addr_offset: int,
     ) -> None: ...
 
     def export_neu_config(
@@ -1056,7 +1033,7 @@ class CorePlacement(CoreAbstract):
         return self.n_neuron << self.dendrite_comb_rate
 
     @property
-    def source(self) -> list[SourceNodeType]:
+    def source(self) -> list[SourceSliceType]:
         return self.parent.ordered_axons
 
     @property
