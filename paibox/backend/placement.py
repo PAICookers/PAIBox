@@ -199,7 +199,9 @@ class CoreBlock(CoreAbstract):
     @property
     def dest(self) -> list[DestSliceType]:
         """Ordered unique destination nodes."""
-        return cast(list[DestSliceType], list(set([parent.dest for parent in self.obj])))
+        return cast(
+            list[DestSliceType], list(set([parent.dest for parent in self.obj]))
+        )
 
     def n_axon_of(self, index: int) -> int:
         """Get the #N of axons of `index`-th source neuron."""
