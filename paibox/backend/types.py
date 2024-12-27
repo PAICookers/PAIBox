@@ -21,7 +21,6 @@ from paicorelib.routing_defs import MAX_ROUTING_PATH_LENGTH
 from paibox.base import PAIBoxObject
 from paibox.components import FullConnectedSyn, InputProj, Neuron
 
-
 __all__ = [
     "NodeName",
     "EdgeName",

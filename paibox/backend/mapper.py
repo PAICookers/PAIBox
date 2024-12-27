@@ -12,6 +12,7 @@ from paibox.components import Neuron
 from paibox.exceptions import CompileError, ConfigInvalidError, ResourceError
 from paibox.network import DynSysGroup
 
+from ._slice import NeuronSlice, node_sl_lst_overlap, sl_overlap
 from .conf_exporting import *
 from .conf_types import (
     CoreConf,
@@ -31,7 +32,6 @@ from .graphs import (
     merge_overlap,
     toposort,
 )
-from ._slice import node_sl_lst_overlap, sl_overlap, NeuronSlice
 from .placement import CoreBlock, SliceDest, SourceDest, aligned_coords, max_lcn_of_cb
 from .routing import RoutingGroup, RoutingManager
 from .types import (
