@@ -6,8 +6,8 @@ from paicorelib import ONLINE_CORES_BASE_COORD, Coord, HwConfig
 from paicorelib import WeightWidth as WW
 
 import paibox as pb
-from paibox.backend.conf_exporting import *
 from paibox.backend._slice import node_sl_lst_overlap
+from paibox.backend.conf_exporting import *
 from paibox.exceptions import ResourceError
 
 from .conftest import TestData

@@ -1,5 +1,5 @@
-from paibox.backend._slice import NodeSlice, PrttnSliceType, sl_cover, sl_overlap
 import paibox as pb
+from paibox.backend._slice import NodeSlice, PrttnSliceType, sl_cover, sl_overlap
 
 
 def test_sl_overlap():
