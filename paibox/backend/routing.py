@@ -63,7 +63,7 @@ def build_elements(
     if len(nodes) == 1:
         edges = merged_sgrp.outputs[nodes[0]]
         # find edges with divisible weight
-        divisible_edge: FullConnectedSyn = None
+        divisible_edge = None
         for edge in edges:
             # only one edge is allowed to have divisible weight
             if isinstance(edge, MatMul2d):
@@ -432,7 +432,7 @@ class RoutingGroup:
                 logging.info(f"\t{tabs}{elem.name} with {elem.n_core_required} cores:")
                 logging.info(f"\t{tabs}Chip Coord: {elem.chip_coord}")
                 logging.info(
-                    f"\t{tabs}Start Core Coord: {Coord2str(elem.core_coords[0])}, {_Coord2Index(self.assigned_coords[0])}"
+                    f"\t{tabs}Start Core Coord: {Coord2str(elem.core_coords[0])}, {_Coord2Index(elem.core_coords[0])}"
                 )
                 logging.info("")
             else:
