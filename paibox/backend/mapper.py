@@ -606,9 +606,9 @@ class Mapper:
                                 neu_seg,
                                 output_core_coord=cur_ocoord,
                             )
-                            output_dest_info[neu_seg.target.name][
-                                core_plm.coord
-                            ] = core_plm.neu_configs[neu_seg.target].neuron_dest_info
+                            output_dest_info[neu_seg.target.name][core_plm.coord] = (
+                                core_plm.neu_configs[neu_seg.target].neuron_dest_info
+                            )
 
                         else:
                             raise ValueError(
