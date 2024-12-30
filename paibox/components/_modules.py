@@ -1,3 +1,4 @@
+import logging
 import math
 import typing
 from typing import Literal, Optional, Union
@@ -62,13 +63,13 @@ __all__ = [
 
 class _DelayChainBase(FunctionalModule):
     def __init__(
-        self,
-        neuron: Union[NeuDyn, InputProj],
-        chain_level: int = 1,
-        *,
-        keep_shape: bool = True,
-        name: Optional[str] = None,
-        **kwargs,
+            self,
+            neuron: Union[NeuDyn, InputProj],
+            chain_level: int = 1,
+            *,
+            keep_shape: bool = True,
+            name: Optional[str] = None,
+            **kwargs,
     ) -> None:
         """Delay chain. It will add extra neurons (and identity synapses) as buffer.
 
@@ -170,16 +171,29 @@ class _SemiFoldedModule(FunctionalModule):
     inherent_delay = 1
     _oflow_format: SemiFoldedDataFlowFormat
 
+    def __init__(
+            self,
+            neuron_s: Union[NeuDyn, InputProj],
+            shape_out: tuple[int, ...],
+            keep_shape: bool = False,
+            name: Optional[str] = None,
+            rin_buffer_option: bool = False,
+            **kwargs,
+    ) -> None:
+
+        self.rin_buffer_option = rin_buffer_option
+        super().__init__(neuron_s, shape_out=shape_out, keep_shape=keep_shape, name=name, **kwargs)
+
     def build(
-        self,
-        network: "DynSysGroup",
-        incoming_flow_format: SemiFoldedDataFlowFormat,
-        **build_options,
+            self,
+            network: "DynSysGroup",
+            incoming_flow_format: SemiFoldedDataFlowFormat,
+            **build_options,
     ) -> BuiltComponentType:
         raise NotImplementedError
 
     def _input_buffer_len_check(
-        self, in_channels: int, in_h: int, kw: int, valid_interval: int
+            self, in_channels: int, in_h: int, kw: int, valid_interval: int
     ) -> None:
         """Check the limit of the semi-folded operators on the input buffer length of the core during the build phase.
 
@@ -190,25 +204,30 @@ class _SemiFoldedModule(FunctionalModule):
                 math.ceil(in_channels * in_h * kw / HwConfig.N_FANIN_PER_DENDRITE_ANN)
             )
         )
-        deep = min(in_h - kw, kw - 1) * valid_interval + 1
-        if not HwConfig.N_TIMESLOT_MAX / (2**E) > deep:
-            raise ResourceError(
-                f"the input size of {self.name} is too large. Please adjust the input size or the number of channels."
-            )
+        rin_deep = min(in_h - kw, kw - 1) * valid_interval + 1
+        buffer_deep = kw * valid_interval
+        if buffer_deep > HwConfig.N_TIMESLOT_MAX / (2 ** E):
+            self.rin_buffer_option = True
+            if not HwConfig.N_TIMESLOT_MAX / (2 ** E) > rin_deep:
+                raise ResourceError(
+                    f"the input size of {self.name} is too large. Please adjust the input size or the number of channels."
+                )
+        if self.rin_buffer_option:
+            print("rin buffer has been enabled.")
 
 
 class _LinearBase(FunctionalModule):
     def __init__(
-        self,
-        neuron_s: Union[NeuDyn, InputProj],
-        out_features: Shape,
-        weights: np.ndarray,
-        bias: DataType = 0,
-        bit_trunc: int = 8,
-        *,
-        keep_shape: bool = False,
-        name: Optional[str] = None,
-        **kwargs,
+            self,
+            neuron_s: Union[NeuDyn, InputProj],
+            out_features: Shape,
+            weights: np.ndarray,
+            bias: DataType = 0,
+            bit_trunc: int = 8,
+            *,
+            keep_shape: bool = False,
+            name: Optional[str] = None,
+            **kwargs,
     ) -> None:
         """Basic linear layer for ANN mode.
 
@@ -237,16 +256,16 @@ class _SpikingPool1d(FunctionalModule):
     inherent_delay = 0
 
     def __init__(
-        self,
-        neuron: Union[NeuDyn, InputProj],
-        kernel_size: _Size1Type,
-        pool_type: Literal["avg", "max"],
-        stride: Optional[_Size1Type] = None,
-        padding: _Size1Type = 0,
-        threshold: Optional[int] = None,
-        keep_shape: bool = True,
-        name: Optional[str] = None,
-        **kwargs,
+            self,
+            neuron: Union[NeuDyn, InputProj],
+            kernel_size: _Size1Type,
+            pool_type: Literal["avg", "max"],
+            stride: Optional[_Size1Type] = None,
+            padding: _Size1Type = 0,
+            threshold: Optional[int] = None,
+            keep_shape: bool = True,
+            name: Optional[str] = None,
+            **kwargs,
     ) -> None:
         """Basic 1d spiking pooling."""
         if pool_type not in ("avg", "max"):
@@ -323,15 +342,15 @@ class _SpikingPool1dWithV(FunctionalModuleWithV):
     inherent_delay = 0
 
     def __init__(
-        self,
-        neuron: Union[NeuDyn, InputProj],
-        kernel_size: _Size1Type,
-        stride: Optional[_Size1Type] = None,
-        padding: _Size1Type = 0,
-        pos_thres: Optional[int] = None,
-        keep_shape: bool = True,
-        name: Optional[str] = None,
-        **kwargs,
+            self,
+            neuron: Union[NeuDyn, InputProj],
+            kernel_size: _Size1Type,
+            stride: Optional[_Size1Type] = None,
+            padding: _Size1Type = 0,
+            pos_thres: Optional[int] = None,
+            keep_shape: bool = True,
+            name: Optional[str] = None,
+            **kwargs,
     ) -> None:
         """Basic 1d spiking pooling with voltage at the previous timestep."""
 
@@ -402,17 +421,17 @@ class _SpikingPool2d(FunctionalModule):
     inherent_delay = 0
 
     def __init__(
-        self,
-        neuron: Union[NeuDyn, InputProj],
-        kernel_size: _Size2Type,
-        pool_type: Literal["avg", "max"],
-        stride: Optional[_Size2Type] = None,
-        padding: _Size2Type = 0,
-        threshold: Optional[int] = None,
-        # fm_order: _Order3d = "CHW",
-        keep_shape: bool = True,
-        name: Optional[str] = None,
-        **kwargs,
+            self,
+            neuron: Union[NeuDyn, InputProj],
+            kernel_size: _Size2Type,
+            pool_type: Literal["avg", "max"],
+            stride: Optional[_Size2Type] = None,
+            padding: _Size2Type = 0,
+            threshold: Optional[int] = None,
+            # fm_order: _Order3d = "CHW",
+            keep_shape: bool = True,
+            name: Optional[str] = None,
+            **kwargs,
     ) -> None:
         """Basic 2d spiking pooling."""
         if pool_type not in ("avg", "max"):
@@ -493,15 +512,15 @@ class _SpikingPool2dWithV(FunctionalModuleWithV):
     inherent_delay = 0
 
     def __init__(
-        self,
-        neuron: Union[NeuDyn, InputProj],
-        kernel_size: _Size2Type,
-        stride: Optional[_Size2Type] = None,
-        padding: _Size2Type = 0,
-        pos_thres: Optional[int] = None,
-        keep_shape: bool = True,
-        name: Optional[str] = None,
-        **kwargs,
+            self,
+            neuron: Union[NeuDyn, InputProj],
+            kernel_size: _Size2Type,
+            stride: Optional[_Size2Type] = None,
+            padding: _Size2Type = 0,
+            pos_thres: Optional[int] = None,
+            keep_shape: bool = True,
+            name: Optional[str] = None,
+            **kwargs,
     ) -> None:
         """Basic 2d spiking pooling with voltage at the previous timestep.
 
@@ -573,7 +592,7 @@ class _SpikingPool2dWithV(FunctionalModuleWithV):
 
 
 def _spike_func_avg_pool(
-    vjt: VoltageType, pos_thres: int
+        vjt: VoltageType, pos_thres: int
 ) -> tuple[NeuOutType, VoltageType]:
     # Fire
     thres_mode = np.where(
