@@ -943,7 +943,11 @@ class LinearSemiFolded(_LinearBase, _SemiFoldedModule):
                 shape=(ich, ih),
                 delay=incoming_flow_format.interval * i + 1,
                 tick_wait_start=self.tick_wait_start,
-                tick_wait_end=twe if not self.rin_buffer_option else twe - incoming_flow_format.interval * i,
+                tick_wait_end=(
+                    twe
+                    if not self.rin_buffer_option
+                    else twe - incoming_flow_format.interval * i
+                ),
                 keep_shape=self.keep_shape,
                 name=f"n{i}_{self.name}",
             )
@@ -1088,7 +1092,11 @@ class Conv2dSemiFolded(_SemiFoldedModule):
                 (ic, ih),
                 delay=incoming_flow_format.interval * i + 1,
                 tick_wait_start=self.tick_wait_start,
-                tick_wait_end=twe if not self.rin_buffer_option else twe - incoming_flow_format.interval * i,
+                tick_wait_end=(
+                    twe
+                    if not self.rin_buffer_option
+                    else twe - incoming_flow_format.interval * i
+                ),
                 name=f"n{i}_delay_{self.name}",
             )
             n_delays.append(neuron)
@@ -1258,7 +1266,11 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
                 (cin, ih),
                 delay=incoming_flow_format.interval * i + 1,
                 tick_wait_start=self.tick_wait_start,
-                tick_wait_end=twe if not self.rin_buffer_option else twe - incoming_flow_format.interval * i,
+                tick_wait_end=(
+                    twe
+                    if not self.rin_buffer_option
+                    else twe - incoming_flow_format.interval * i
+                ),
                 keep_shape=self.keep_shape,
                 name=f"n{i}_{self.name}",
             )
@@ -1405,7 +1417,11 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
                 (cin, ih),
                 delay=incoming_flow_format.interval * i + 1,
                 tick_wait_start=self.tick_wait_start,
-                tick_wait_end=twe if not self.rin_buffer_option else twe - incoming_flow_format.interval * i,
+                tick_wait_end=(
+                    twe
+                    if not self.rin_buffer_option
+                    else twe - incoming_flow_format.interval * i
+                ),
                 keep_shape=self.keep_shape,
                 name=f"n{i}_{self.name}",
             )

@@ -1745,7 +1745,6 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"Test {TEST_NAME} end")
 
-
     def test_012_Conv2dSemiFoldedNet(self):
         class Net012(pb.DynSysGroup):
             def __init__(self, w1, w2, w3):
@@ -2063,7 +2062,12 @@ class TestOnBoard_SemiFoldedOp:
                 )
 
                 self.linear1 = pb.LinearSemiFolded(
-                    self.conv2, out_shape[1], weights=w3, bias=2, tick_wait_start=5, rin_buffer_option=True
+                    self.conv2,
+                    out_shape[1],
+                    weights=w3,
+                    bias=2,
+                    tick_wait_start=5,
+                    rin_buffer_option=True,
                 )
 
         USE_EXISTING_DATA = False
@@ -2179,7 +2183,7 @@ class TestOnBoard_SemiFoldedOp:
         shape1 = (3, 32, 32)  # C*H*W
         ksize1 = (4, shape1[0], 3, 3)  # O*C*K*K
         ksize2 = (4, ksize1[0], 3, 3)
-        out_shape = (4 * 32)
+        out_shape = 4 * 32
 
         sim_time = 40
 
