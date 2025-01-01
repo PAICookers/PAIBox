@@ -205,13 +205,13 @@ class _SemiFoldedModule(FunctionalModule):
             )
         )
         rin_deep = min(in_h - kw, kw - 1) * valid_interval + 1
+        if not HwConfig.N_TIMESLOT_MAX / (2 ** E) > rin_deep:
+            raise ResourceError(
+                f"the input size of {self.name} is too large. Please adjust the input size or the number of channels."
+            )
         buffer_deep = kw * valid_interval
         if buffer_deep > HwConfig.N_TIMESLOT_MAX / (2 ** E):
             self.rin_buffer_option = True
-            if not HwConfig.N_TIMESLOT_MAX / (2 ** E) > rin_deep:
-                raise ResourceError(
-                    f"the input size of {self.name} is too large. Please adjust the input size or the number of channels."
-                )
         if self.rin_buffer_option:
             print("rin buffer has been enabled.")
 
