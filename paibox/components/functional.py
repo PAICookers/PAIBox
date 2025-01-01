@@ -916,6 +916,7 @@ class LinearSemiFolded(_LinearBase, _SemiFoldedModule):
         twe = 1 + self._oflow_format.t_last_vld
 
         ich, ih = self.source[0].shape_out
+        self._input_buffer_len_check(ich, ih, ih, incoming_flow_format.interval)
 
         n_delays = NodeList()
         s_delays = NodeList()
@@ -942,7 +943,11 @@ class LinearSemiFolded(_LinearBase, _SemiFoldedModule):
                 shape=(ich, ih),
                 delay=incoming_flow_format.interval * i + 1,
                 tick_wait_start=self.tick_wait_start,
-                tick_wait_end=twe - incoming_flow_format.interval * i,
+                tick_wait_end=(
+                    twe
+                    if not self.rin_buffer_option
+                    else twe - incoming_flow_format.interval * i
+                ),
                 keep_shape=self.keep_shape,
                 name=f"n{i}_{self.name}",
             )
@@ -1058,8 +1063,7 @@ class Conv2dSemiFolded(_SemiFoldedModule):
         )
         twe = 1 + self._oflow_format.t_last_vld
 
-        if build_options.get("check_before_compile"):
-            self._input_buffer_len_check(cin, ih, kw, incoming_flow_format.interval)
+        self._input_buffer_len_check(cin, ih, kw, incoming_flow_format.interval)
 
         n_delays = NodeList()
         n_neg_padding = NodeList()
@@ -1088,7 +1092,11 @@ class Conv2dSemiFolded(_SemiFoldedModule):
                 (ic, ih),
                 delay=incoming_flow_format.interval * i + 1,
                 tick_wait_start=self.tick_wait_start,
-                tick_wait_end=twe - incoming_flow_format.interval * i,
+                tick_wait_end=(
+                    twe
+                    if not self.rin_buffer_option
+                    else twe - incoming_flow_format.interval * i
+                ),
                 name=f"n{i}_delay_{self.name}",
             )
             n_delays.append(neuron)
@@ -1232,8 +1240,7 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
         )
         twe = 1 + self._oflow_format.t_last_vld
 
-        if build_options.get("check_before_compile"):
-            self._input_buffer_len_check(cin, ih, kw, incoming_flow_format.interval)
+        self._input_buffer_len_check(cin, ih, kw, incoming_flow_format.interval)
 
         n_delays = NodeList()
         s_delays = NodeList()
@@ -1259,7 +1266,11 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
                 (cin, ih),
                 delay=incoming_flow_format.interval * i + 1,
                 tick_wait_start=self.tick_wait_start,
-                tick_wait_end=twe - incoming_flow_format.interval * i,
+                tick_wait_end=(
+                    twe
+                    if not self.rin_buffer_option
+                    else twe - incoming_flow_format.interval * i
+                ),
                 keep_shape=self.keep_shape,
                 name=f"n{i}_{self.name}",
             )
@@ -1361,8 +1372,8 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
         )
         twe = 1 + self._oflow_format.t_last_vld
 
-        if build_options.get("check_before_compile"):
-            self._input_buffer_len_check(cin, ih, kw, incoming_flow_format.interval)
+        # if build_options.get("check_before_compile"):
+        self._input_buffer_len_check(cin, ih, kw, incoming_flow_format.interval)
 
         # NOTE: Division is achieved with the help of output truncation.
         # TODO Since division with a divisor that is an integer power of 2 can only be implemented by
@@ -1406,7 +1417,11 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
                 (cin, ih),
                 delay=incoming_flow_format.interval * i + 1,
                 tick_wait_start=self.tick_wait_start,
-                tick_wait_end=twe - incoming_flow_format.interval * i,
+                tick_wait_end=(
+                    twe
+                    if not self.rin_buffer_option
+                    else twe - incoming_flow_format.interval * i
+                ),
                 keep_shape=self.keep_shape,
                 name=f"n{i}_{self.name}",
             )

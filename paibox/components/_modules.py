@@ -1,3 +1,4 @@
+import logging
 import math
 import typing
 from typing import Literal, Optional, Union
@@ -170,6 +171,21 @@ class _SemiFoldedModule(FunctionalModule):
     inherent_delay = 1
     _oflow_format: SemiFoldedDataFlowFormat
 
+    def __init__(
+        self,
+        neuron_s: Union[NeuDyn, InputProj],
+        shape_out: tuple[int, ...],
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        rin_buffer_option: bool = False,
+        **kwargs,
+    ) -> None:
+
+        self.rin_buffer_option = rin_buffer_option
+        super().__init__(
+            neuron_s, shape_out=shape_out, keep_shape=keep_shape, name=name, **kwargs
+        )
+
     def build(
         self,
         network: "DynSysGroup",
@@ -190,11 +206,16 @@ class _SemiFoldedModule(FunctionalModule):
                 math.ceil(in_channels * in_h * kw / HwConfig.N_FANIN_PER_DENDRITE_ANN)
             )
         )
-        deep = min(in_h - kw, kw - 1) * valid_interval + 1
-        if not HwConfig.N_TIMESLOT_MAX / (2**E) > deep:
+        rin_deep = min(in_h - kw, kw - 1) * valid_interval + 1
+        if not HwConfig.N_TIMESLOT_MAX / (2**E) > rin_deep:
             raise ResourceError(
                 f"the input size of {self.name} is too large. Please adjust the input size or the number of channels."
             )
+        buffer_deep = kw * valid_interval
+        if buffer_deep > HwConfig.N_TIMESLOT_MAX / (2**E):
+            self.rin_buffer_option = True
+        if self.rin_buffer_option:
+            print("rin buffer has been enabled.")
 
 
 class _LinearBase(FunctionalModule):
