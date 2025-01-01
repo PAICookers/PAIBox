@@ -201,19 +201,20 @@ class RoutingGroup:
 
     def set_core_required(self) -> None:
         """Calculate the number of cores required for the routing group iteratively."""
-        for rgrp in self.ordered_elems:
-            rgrp.set_core_required()
+        for rgrp in self.routing_elems:
+            if isinstance(rgrp, RoutingGroup):
+                rgrp.set_core_required()
 
         # Record the used cores of the members, but not the actual amount.
         n_core_used = 0
 
         # Unordered core blocks sorted in descending order, avoiding assigning waste.
-        unordered_cb = sorted(
+        unordered_elem = sorted(
             self.unordered_elems, key=lambda x: x.n_core_required, reverse=True
         )
-        for cb in unordered_cb:
+        for elem in unordered_elem:
             self.offset.append(n_core_used)
-            n_core_used += cb.n_core_required
+            n_core_used += elem.n_core_required
 
         # Ordered routing groups should be assgined first.
         ordered_rgrp = self.ordered_elems
@@ -223,7 +224,7 @@ class RoutingGroup:
             n_core_used = n_core_assigned + rgrp.n_core_required
 
         # Routing elements need satisfy the topological order
-        self.routing_elems = unordered_cb + ordered_rgrp
+        self.routing_elems = unordered_elem + ordered_rgrp
 
         # If there are ordered routing groups, the final amount wasted is the
         # tail waste number of the LAST routing group. Otherwise, waste = 0.
