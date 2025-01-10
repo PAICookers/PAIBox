@@ -225,35 +225,66 @@ class TestGroupEdges:
         )
 
     @pytest.mark.parametrize(
-        "succ_edges",
+        "succ_edges, expected",
         [
-            {
-                "inp1": {"n1": "s1"},
-                "n1": {"n2": "s2"},
-                "n2": {"n1": "s3", "n3": "s4"},
-                "n3": {},
-            },
-            {
-                "inp1": {"n1": "s1"},
-                "n1": {"n2": "s2", "n3": "s3"},
-                "n2": {"n3": "s4"},
-                "n3": {"n4": "s5", "n5": "s6"},
-                "n4": {"n6": "s7"},
-                "n5": {"n6": "s8"},
-                "n6": {},
-            },
-            {
-                "n1": {"n3": "s1", "n4": "s2"},
-                "n2": {"n4": "s3", "n5": "s4"},
-                "n3": {},
-                "n4": {},
-                "n5": {},
-            },
+            (
+                {
+                    "inp1": {"n1": "s1"},
+                    "n1": {"n2": "s2"},
+                    "n2": {"n1": "s3", "n3": "s4"},
+                    "n3": {},
+                },
+                {
+                    "inp1": (0, 1),
+                    "n1": (2, 1),
+                    "n2": (1, 2),
+                    "n3": (1, 0),
+                },
+            ),
+            (
+                {
+                    "inp1": {"n1": "s1"},
+                    "n1": {"n2": "s2", "n3": "s3"},
+                    "n2": {"n3": "s4"},
+                    "n3": {"n4": "s5", "n5": "s6"},
+                    "n4": {"n6": "s7"},
+                    "n5": {"n6": "s8"},
+                    "n6": {},
+                },
+                {
+                    "inp1": (0, 1),
+                    "n1": (1, 2),
+                    "n2": (1, 1),
+                    "n3": (2, 2),
+                    "n4": (1, 1),
+                    "n5": (1, 1),
+                    "n6": (2, 0),
+                },
+            ),
+            (
+                {
+                    "n1": {"n3": "s1", "n4": "s2"},
+                    "n2": {"n4": "s3", "n5": "s4"},
+                    "n3": {},
+                    "n4": {},
+                    "n5": {},
+                },
+                {
+                    "n1": (0, 2),
+                    "n2": (0, 2),
+                    "n3": (1, 0),
+                    "n4": (2, 0),
+                    "n5": (1, 0),
+                },
+            ),
         ],
     )
-    def test_get_node_degrees(self, succ_edges):
+    def test_get_node_degrees(self, succ_edges, expected):
         degrees = get_node_degrees(succ_edges)
-        assert 1
+
+        for k, d in expected.items():
+            assert degrees[k].in_degree == d[0]
+            assert degrees[k].out_degree == d[1]
 
     def test_group_edges_with_constrs(
         self, monkeypatch, build_network_with_branches_4bit
