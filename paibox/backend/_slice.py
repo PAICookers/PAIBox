@@ -1,6 +1,6 @@
 import sys
 from collections.abc import Sequence
-from typing import Generic, Optional, Protocol, TypeVar, Union, cast
+from typing import Generic, Optional, Protocol, TypeVar, Union, cast, runtime_checkable
 
 from paicorelib import MaxPoolingEnable, WeightWidth
 
@@ -32,6 +32,24 @@ _NT = TypeVar("_NT", bound=NodeType)
 PrttnSliceType = slice  # Partitioned slice type
 
 
+class _HasAttrNumOut(Protocol):
+    __slots__ = ()
+
+    @property
+    def num_out(self) -> int: ...
+
+
+@runtime_checkable
+class _HasNodeSliceIntf(Protocol):
+    __slots__ = ()
+
+    @property
+    def target(self) -> NodeType: ...
+
+    @property
+    def index(self) -> slice: ...
+
+
 def sl_overlap(slice1: PrttnSliceType, slice2: PrttnSliceType) -> bool:
     """Check wether 2 partitioned slice are overlapped."""
     return slice1.start < slice2.stop and slice2.start < slice1.stop
@@ -42,21 +60,21 @@ def sl_cover(part: PrttnSliceType, whole: PrttnSliceType) -> bool:
     return whole.start <= part.start and whole.stop >= part.stop
 
 
-class _HasAttrNumOut(Protocol):
-
-    @property
-    def num_out(self) -> int: ...
+def _cover(self: _HasNodeSliceIntf, o: _HasNodeSliceIntf) -> bool:
+    return self.target is o.target and sl_cover(self.index, o.index)
 
 
-def _idx2slice(
-    target: _HasAttrNumOut, index: Optional[Union[int, slice]]
-) -> PrttnSliceType:
+def _overlap(self: _HasNodeSliceIntf, o: _HasNodeSliceIntf) -> bool:
+    return self.target is o.target and sl_overlap(self.index, o.index)
+
+
+def _idx2slice(target: _HasAttrNumOut, index: Optional[slice]) -> PrttnSliceType:
+    _nmax = target.num_out
+
     if index is None:
-        return slice(0, target.num_out)
-    if isinstance(index, int):
-        return slice(index, index)
+        return slice(0, _nmax, 1)
 
-    return index
+    return slice(*index.indices(_nmax))
 
 
 class PartitionedSlice:
@@ -64,33 +82,32 @@ class PartitionedSlice:
 
 
 class NodeSlice(PartitionedSlice, Generic[_NT]):
-    __slots__ = ["target", "index"]
+    """NodeSlice represents a slice of a input projection or neuron."""
 
-    def __init__(self, target: _NT, index: Optional[Union[int, slice]] = None) -> None:
+    target: _NT
+    __slots__ = ("target", "index")
+
+    def __init__(self, target: _NT, index: Optional[slice] = None) -> None:
         self.target = target
         self.index = _idx2slice(target, index)
 
-    def overlap(self, other: Union["NodeSlice", Sequence["NodeSlice"]]) -> bool:
-        """Check whether self & the other one are overlapped."""
+    def covered_by(
+        self, other: Union[_HasNodeSliceIntf, Sequence[_HasNodeSliceIntf]]
+    ) -> bool:
+        """Check wherher `self` is covered by the other one or a list of node slices."""
+        if isinstance(other, _HasNodeSliceIntf):
+            return _cover(self, other)
 
-        def _overlap(o: NodeSlice) -> bool:
-            return self.target == o.target and sl_overlap(self.index, o.index)
+        return any(_cover(self, sl) for sl in other)
 
-        if isinstance(other, NodeSlice):
-            return _overlap(other)
-        else:
-            return any(_overlap(sl) for sl in other)
+    def overlap(
+        self, other: Union[_HasNodeSliceIntf, Sequence[_HasNodeSliceIntf]]
+    ) -> bool:
+        """Check whether `self` & the other one or a list of node slices are overlapped."""
+        if isinstance(other, _HasNodeSliceIntf):
+            return _overlap(self, other)
 
-    def covered_by(self, other: Union["NodeSlice", Sequence["NodeSlice"]]) -> bool:
-        """Check wherher self is covered by the other one."""
-
-        def _cover(o: NodeSlice) -> bool:
-            return self.target == o.target and sl_cover(self.index, o.index)
-
-        if isinstance(other, NodeSlice):
-            return _cover(other)
-        else:
-            return any(_cover(sl) for sl in other)
+        return any(_overlap(self, sl) for sl in other)
 
     @property
     def num_in(self) -> int:
@@ -114,10 +131,14 @@ class NodeSlice(PartitionedSlice, Generic[_NT]):
 
 
 class InputSlice(NodeSlice[InputProj]):
+    """Input slice represents a slice of a `InputProj`."""
+
     pass
 
 
 class NeuronSlice(NodeSlice[Neuron]):
+    """Neuron slice represents a slice of a `Neuron`."""
+
     @property
     def unrolling_factor(self) -> int:
         return self.target.unrolling_factor
@@ -140,13 +161,16 @@ class NeuronSlice(NodeSlice[Neuron]):
 
 
 class EdgeSlice(PartitionedSlice):
-    __slots__ = ["target", "in_index", "out_index"]
+    """EdgeSlice records the slices corresponding to the two end nodes of the target synapse."""
+
+    target: EdgeType
+    __slots__ = ("target", "in_index", "out_index")
 
     def __init__(
         self,
         target: EdgeType,
-        in_index: Optional[Union[int, slice]] = None,
-        out_index: Optional[Union[int, slice]] = None,
+        in_index: Optional[slice] = None,
+        out_index: Optional[slice] = None,
     ) -> None:
         self.target = target
         self.in_index = _idx2slice(target.source, in_index)
@@ -174,7 +198,7 @@ class EdgeSlice(PartitionedSlice):
     def __str__(self) -> str:
         return (
             f"{type(self).__name__} {self.target.name}"
-            + f"({self.target.source.name}->{self.target.dest.name})"
+            + f"({self.target.source.name} -> {self.target.dest.name})"
             + f"[{self.in_index.start}:{self.in_index.stop}]"
             + f"[{self.out_index.start}:{self.out_index.stop}]"
         )
@@ -187,15 +211,7 @@ class EdgeSlice(PartitionedSlice):
         )
 
     def __hash__(self) -> int:
-        return hash(
-            (
-                self.target,
-                self.in_index.start,
-                self.in_index.stop,
-                self.out_index.start,
-                self.out_index.stop,
-            )
-        )
+        return hash((self.target, self.in_index, self.out_index))
 
 
 NodeSliceType: TypeAlias = Union[InputSlice, NeuronSlice]
@@ -204,24 +220,36 @@ SourceSliceType: TypeAlias = NodeSliceType
 DestSliceType: TypeAlias = NeuronSlice
 
 
+def covered_by(node_slice_like: _HasNodeSliceIntf, node_slice: NodeSliceType) -> bool:
+    """Check wherher `node_slice_like` is covered by `node_slice`.
+
+    NOTE: A generic implementation of `NodeSlice.covered_by`.
+    """
+    return _cover(node_slice_like, node_slice)
+
+
+def overlap(node_slice_like: _HasNodeSliceIntf, node_slice: NodeSliceType) -> bool:
+    """Check whether `node_slice_like` & `node_slice` are overlapped.
+
+    NOTE: A generic implementation of `NodeSlice.overlap`.
+    """
+    return _overlap(node_slice_like, node_slice)
+
+
 def node_sl_lst_overlap(
     node_or_sl: Union[NodeType, NodeSliceType, Sequence[NodeSliceType]],
     node_sl_lst: Sequence[NodeSliceType],
 ) -> bool:
     """Check whether a single node, node slice or list of node slices overlaps with another list of node slices `node_sl_lst`."""
     if isinstance(node_or_sl, Sequence):
-        for node in node_or_sl:
-            if node.overlap(node_sl_lst):
-                return True
+        return any(node.overlap(node_sl_lst) for node in node_or_sl)
 
-        return False
+    if isinstance(node_or_sl, (InputProj, Neuron)):
+        node_sl = NodeSlice(node_or_sl)
     else:
-        if isinstance(node_or_sl, (InputProj, Neuron)):
-            node_sl = NodeSlice(node_or_sl)
-        else:
-            node_sl = node_or_sl
+        node_sl = node_or_sl
 
-        return node_sl.overlap(node_sl_lst)
+    return node_sl.overlap(node_sl_lst)
 
 
 def node_sl_lst_covered_by(
@@ -230,15 +258,11 @@ def node_sl_lst_covered_by(
 ) -> bool:
     """Check whether another list of node slices `whole_sl_lst` covers a single node, node slice, or list of node slices."""
     if isinstance(node_or_sl, Sequence):
-        for node in node_or_sl:
-            if node.covered_by(whole_sl_lst):
-                return True
+        return any(node.covered_by(whole_sl_lst) for node in node_or_sl)
 
-        return False
+    if isinstance(node_or_sl, (InputProj, Neuron)):
+        node_sl = NodeSlice(node_or_sl)
     else:
-        if isinstance(node_or_sl, NodeType):
-            node_sl = NodeSlice(node_or_sl)
-        else:
-            node_sl = node_or_sl
+        node_sl = node_or_sl
 
-        return node_sl.covered_by(whole_sl_lst)
+    return node_sl.covered_by(whole_sl_lst)
