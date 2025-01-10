@@ -1,30 +1,38 @@
+import pytest
 import paibox as pb
-from paibox.backend.types import MergedSuccGroup, SuccGroup
+
+from paibox.backend.types import NeuSegment
 
 
-class TestMergedSuccGroup:
+class TestNeuSegment:
+    def test_NeuSegment_getitem(self):
+        n1 = pb.ANNNeuron(200)
+        neu_seg1 = NeuSegment(n1, slice(0, 120), 0)
+        neu_seg2 = NeuSegment(n1, slice(120, 160), 120)
+        neu_seg3 = NeuSegment(n1, slice(160, 200), 160)
 
-    def test_MergedSuccGroup_inputs(self):
-        """
-        n1 -> s1 -> n2
-           -> s2 -> n3
-        n4 -> s3 ->
-           -> s4 -> n5
-        """
-        n1 = pb.ANNNeuron(1)
-        n2 = pb.ANNNeuron(1)
-        n3 = pb.ANNNeuron(1)
-        n4 = pb.ANNNeuron(1)
-        n5 = pb.ANNNeuron(1)
-        s1 = pb.FullConn(n1, n2)
-        s2 = pb.FullConn(n1, n3)
-        s3 = pb.FullConn(n4, n3)
-        s4 = pb.FullConn(n4, n5)
+        # out of range
+        with pytest.raises(IndexError):
+            result = neu_seg1[50:150]
 
-        sgrp1 = SuccGroup(n1, [n2, n3], [s1, s2])
-        sgrp2 = SuccGroup(n4, [n3, n5], [s3, s4])
+        with pytest.raises(IndexError):
+            result = neu_seg1[130:]
 
-        msgrp = MergedSuccGroup(sgrp1, sgrp2)
+        result = neu_seg2[10:20]
+        assert result.index.start == 120 + 10
+        assert result.index.stop == 120 + 20
+        assert result.offset_nram == 120 + 10
 
-        # don't care the order
-        assert set(msgrp.outputs.keys()) == set([n2, n3, n5])
+        result = neu_seg2[:30]
+        assert result.index.start == 120
+        assert result.index.stop == 120 + 30
+        assert result.offset_nram == 120
+
+        result = neu_seg3[20:]
+        assert result.index.start == 160 + 20
+        assert result.index.stop == 200
+        assert result.offset_nram == 160 + 20
+
+        # cannot pass an integer
+        with pytest.raises(Exception):
+            result = neu_seg3[0]  # type: ignore
