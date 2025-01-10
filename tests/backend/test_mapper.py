@@ -343,7 +343,7 @@ class TestMapper_Export:
         mapper.compile()
         mapper.export(fp=ensure_dump_dir)
 
-        assert len(mapper.routing_groups[1].wasted_coords) == 2
+        assert len(mapper.routing_manager.routing_grps[1].wasted_coords) == 2
 
 
 class TestMapper_Compile:

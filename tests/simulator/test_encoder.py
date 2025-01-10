@@ -34,7 +34,6 @@ class TestEncoder:
         for t in range(T):
             out_spike1[t] = le1(x)
             out_spike2[t] = le2(x)
-        assert 1
 
     def test_PoissonEncoder(self, fixed_rng: np.random.Generator):
         seed = 1
