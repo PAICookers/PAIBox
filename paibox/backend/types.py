@@ -32,15 +32,13 @@ __all__ = [
     "NodeDegree",
     "NodeAttr",
     "EdgeAttr",
-    "NeuSlice",
+    "NeuSliceType",
     "NeuSegment",
     "NeuSegOfCorePlm",
     "NeuSegOfCoreBlock",
     "AxonCoord",
     "AxonSegment",
-    "CoreAbstract",
-    "SuccGroup",
-    "MergedSuccGroup",
+    "CoreAbstract"
 ]
 
 NodeName: TypeAlias = str
@@ -58,6 +56,7 @@ WRAMUnpackedType: TypeAlias = NDArray[WRAM_UNPACKED_DTYPE]
 WRAMPackedType: TypeAlias = NDArray[WRAM_PACKED_DTYPE]
 N_BIT_PACKED_WEIGHT = np.iinfo(WRAM_PACKED_DTYPE).bits
 
+# TODO `Coord` will be called as read-only object in the future.
 _COORD_UNSET = Coord(0, 0)
 _RID_UNSET = RId(0, 0)
 _DEGREE_UNSET = -1
@@ -102,78 +101,7 @@ class EdgeAttr:  # TODO FIXME distance?
     distance: int
 
 
-NeuSlice: TypeAlias = slice
-
-
-@dataclass(frozen=True)
-class SuccGroup:
-    """A node and all its successor nodes & edges are grouped into a `SuccGroup`."""
-
-    input: NodeType
-    nodes: list[NodeType]
-    edges: list[EdgeType]  # len(edges) == len(nodes)
-
-    def __eq__(self, other: "SuccGroup") -> bool:
-        return self.input == other.input
-
-    def __hash__(self) -> int:
-        return hash(self.input)
-
-
-class MergedSuccGroup:
-    """SuccGroups with intersecting nodes will be merged into a `MergedSuccGroup`."""
-
-    def __init__(self, *init_sgrp: SuccGroup) -> None:
-        self.nodes: set[NodeType] = set()
-        self.groups: list[SuccGroup] = list()
-        self.input_nodes: list[NodeType] = list()
-
-        if init_sgrp:
-            for sgrp in init_sgrp:
-                self.add_group(sgrp)
-
-    def add_group(self, group: SuccGroup) -> None:
-        self.groups.append(group)
-        self.nodes.update(group.nodes)
-        self.input_nodes.append(group.input)
-
-    @property
-    def outputs(self) -> dict[NodeType, list[EdgeType]]:
-        onodes = defaultdict(list)
-        for group in self.groups:
-            for node, edge in zip(group.nodes, group.edges):
-                assert edge.dest.name == node.name
-                onodes[node].append(edge)
-
-        return onodes
-
-    @property
-    def num_in(self) -> int:
-        return sum(input_node.num_out for input_node in self.input_nodes)
-
-    @classmethod
-    def merge(cls, merged_sgrps: list["MergedSuccGroup"]) -> "MergedSuccGroup":
-        merged = cls()
-        for merged_sgrp in merged_sgrps:
-            merged.nodes.update(merged_sgrp.nodes)
-            merged.groups.extend(merged_sgrp.groups)
-            merged.input_nodes.extend(merged_sgrp.input_nodes)
-        return merged
-
-    def __hash__(self) -> int:
-        return hash(tuple(self.nodes))
-
-    def dump(self) -> None:
-        print("MergedSuccGroup:")
-        for group in self.groups:
-            print(f"\tGroup: of {group.input.name}")
-            for node, edge in zip(group.nodes, group.edges):
-                print(
-                    f"\t\tnode: {node.name}, edge: {edge.name}: {edge.source.name} -> {edge.dest.name}"
-                )
-        print("\tNodes:")
-        for node in self.nodes:
-            print(f"\t\tnode: {node.name}")
+NeuSliceType: TypeAlias = slice
 
 
 @dataclass(frozen=True)
