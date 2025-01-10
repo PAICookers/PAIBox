@@ -1,6 +1,6 @@
 import pytest
-import paibox as pb
 
+import paibox as pb
 from paibox.backend.types import NeuSegment
 
 

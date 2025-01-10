@@ -11,7 +11,6 @@ from paicorelib import ReplicationId as RId
 from paicorelib import WeightWidth as WW
 from paicorelib.framelib import OfflineFrameGen
 
-
 import paibox as pb
 from paibox.backend.placement import (
     FANOUT_IW8,

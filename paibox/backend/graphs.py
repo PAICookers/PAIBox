@@ -18,7 +18,7 @@ from paibox.network import DynSysGroup
 from paibox.utils import check_elem_unique
 
 from .context import _BACKEND_CONTEXT
-from .graph_utils import reverse_edges, toposort, get_node_degrees
+from .graph_utils import get_node_degrees, reverse_edges, toposort
 from .placement import CoreBlock
 from .routing import RoutingGroup
 from .segment_utils import get_neu_segments

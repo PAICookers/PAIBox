@@ -134,7 +134,7 @@ class MergedSuccGroup(UserList[SuccGroup]):
         ind1 = "\t"
         ind2 = "\t\t"
         _repr = f"{self.__class__.__name__}:\n"
-        _repr += ind1 + f"Nodes: " + ", ".join(n.name for n in self.nodes) + "\n"
+        _repr += ind1 + "Nodes: " + ", ".join(n.name for n in self.nodes) + "\n"
 
         for sgrp in self:
             _repr += ind1 + f"Group of {sgrp.input.name}:\n"

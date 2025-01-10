@@ -1,7 +1,9 @@
-from contextlib import nullcontext
 import graphlib
-import pytest
 import random
+from contextlib import nullcontext
+
+import pytest
+
 from paibox.backend.graph_utils import *
 from paibox.exceptions import GraphHasCycleError
 

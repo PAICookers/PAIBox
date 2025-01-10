@@ -1,21 +1,14 @@
-from abc import ABC, abstractmethod
-from collections import UserList
-from dataclasses import dataclass, field
 import logging
 import math
 import warnings
+from abc import ABC, abstractmethod
+from collections import UserList
+from dataclasses import dataclass, field
 from typing import ClassVar, Literal, NamedTuple, Optional, overload
 
 import numpy as np
-from paicorelib import (
-    LCN_EX,
-    ChipCoord,
-    Coord,
-    CoreMode,
-    ReplicationId as RId,
-    HwConfig,
-    MaxPoolingEnable,
-)
+from paicorelib import LCN_EX, ChipCoord, Coord, CoreMode, HwConfig, MaxPoolingEnable
+from paicorelib import ReplicationId as RId
 from paicorelib import WeightWidth as WW
 from paicorelib.framelib import OfflineFrameGen
 from paicorelib.routing_defs import get_replication_id
@@ -35,8 +28,8 @@ from paibox.utils import check_attr_same
 from ._slice import (
     DestSliceType,
     EdgeSlice,
-    SourceSliceType,
     PrttnSliceType,
+    SourceSliceType,
     covered_by,
 )
 from .conf_types import CoreConfig, CoreConfInChip, CorePlmConfig, NeuronConfig
@@ -56,9 +49,9 @@ from .types import (
     NeuSegOfCorePlm,
     WRAMPackedType,
     WRAMUnpackedType,
-    is_iw8,
-    _coord_to_bin_str,
     _1st_core_coord_repr,
+    _coord_to_bin_str,
+    is_iw8,
 )
 
 cb_log = _logging.get_artifact_logger(__name__, "core_block_info")
@@ -454,11 +447,11 @@ class CoreBlock(CoreAbstract):
         _repr += ind1 + f"weight_width: {self.weight_width}\n"
         _repr += ind1 + f"fan_out: {self.n_fanout}\n"
 
-        _repr += ind1 + f"dests:\n"
+        _repr += ind1 + "dests:\n"
         for dest in self.dest:
             _repr += ind2 + str(dest) + "\n"
 
-        _repr += ind1 + f"cores "
+        _repr += ind1 + "cores "
         for i, neu_seg in enumerate(self.neuron_segs_of_cb):
             _repr += f"#{i}:\n"
             for seg in neu_seg:
@@ -504,15 +497,15 @@ class CoreBlock(CoreAbstract):
         _logger.debug(ind1 + f"LCN: {self.lcn_ex}")
         _logger.debug(ind1 + f"Weight width: {self.weight_width}")
 
-        _logger.debug(ind1 + f"Axons:")
+        _logger.debug(ind1 + "Axons:")
         for axon in self.ordered_axons:
             _logger.debug(ind2 + str(axon))
 
-        _logger.debug(ind1 + f"Dests:")
+        _logger.debug(ind1 + "Dests:")
         for dest in self.dest:
             _logger.debug(ind2 + str(dest))
 
-        _logger.debug(ind1 + f"Edges:")
+        _logger.debug(ind1 + "Edges:")
         for edge in self.obj:
             _logger.debug(ind2 + str(edge))
 

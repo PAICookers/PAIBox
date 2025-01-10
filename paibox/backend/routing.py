@@ -1,15 +1,15 @@
-from collections import defaultdict
-from collections.abc import Generator, Iterable
-from functools import cached_property
 import itertools
 import logging
 import math
 import sys
+from collections import defaultdict
+from collections.abc import Generator, Iterable
+from functools import cached_property
 from typing import Any, ClassVar, Optional, Union, cast
 
-from paicorelib import CoreMode, ONLINE_CORES_BASE_COORD
+from paicorelib import ONLINE_CORES_BASE_COORD
 from paicorelib import ROUTING_DIRECTIONS_IDX as DIREC_IDX
-from paicorelib import ChipCoord, Coord, HwConfig, RoutingCoord
+from paicorelib import ChipCoord, Coord, CoreMode, HwConfig, RoutingCoord
 from paicorelib import RoutingDirection as Direction
 from paicorelib import RoutingLevel as Level
 from paicorelib.routing_defs import MAX_ROUTING_PATH_LENGTH
@@ -573,7 +573,7 @@ class RoutingManager:
         self, n_core_incoming: int, n_core_wasted: int
     ) -> tuple[int, int, list[Direction]]:
         """Look for the insertion location for the incoming routing group.
-        
+
         Args:
             n_core_incoming: #N of cores required by the incoming routing group, including the wasted cores.    \
                 It must be an integer power of 2.

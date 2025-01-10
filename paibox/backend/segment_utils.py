@@ -1,5 +1,5 @@
-from collections import defaultdict
 import warnings
+from collections import defaultdict
 from functools import partial
 from math import ceil
 from typing import Literal

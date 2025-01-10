@@ -1,5 +1,4 @@
 import sys
-
 from dataclasses import dataclass
 from enum import Enum, auto, unique
 from typing import Any, Union
@@ -15,7 +14,6 @@ else:
 from paicorelib import Coord, CoreMode, HwConfig
 from paicorelib import ReplicationId as RId
 from paicorelib.routing_defs import MAX_ROUTING_PATH_LENGTH
-
 
 from paibox.components import FullConnectedSyn, InputProj, Neuron
 
@@ -116,7 +114,7 @@ class NeuSegment:
 
         NOTE:
                     index.start                                index.stop
-                        |                                           |                        
+                        |                                           |
             index       |<----------- s.stop ---------->|           |
                    [0]  |<-- s.start -->|<-- sub-seg -->|           |    [end-1]
                     |   |<--------------- NeuSegment -------------->|       |
@@ -205,7 +203,6 @@ class AxonSegment:
     """The offset of the assigned address."""
     start_offset: int
     """"The start offset of the source slice."""
-
 
 
 if hasattr(CoreMode, "is_iw8"):

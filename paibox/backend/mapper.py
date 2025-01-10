@@ -1,8 +1,8 @@
+import itertools
+import logging
 from collections import defaultdict
 from collections.abc import Sequence
 from copy import copy
-import itertools
-import logging
 from pathlib import Path
 from typing import Literal, Optional, Union
 
@@ -26,7 +26,7 @@ from .conf_types import (
     OutputDestConf,
 )
 from .context import _BACKEND_CONTEXT, set_cflag
-from .graph_utils import merge_cycles, get_node_degrees, get_succ_cb_by_node
+from .graph_utils import get_node_degrees, get_succ_cb_by_node, merge_cycles
 from .graphs import PAIGraph
 from .placement import CoreBlock, SourceDest, aligned_coords, max_lcn_of_cb
 from .routing import RoutingGroup, RoutingManager
@@ -265,8 +265,8 @@ class Mapper:
         self.routing_manager.build_rg_graph(self.succ_core_blocks)
 
     def _build_cb_graph(self, no_cb_cycle: bool = True) -> None:
-        """Build the successor graph of core blocks. 
-        
+        """Build the successor graph of core blocks.
+
         Args:
             no_cb_cycle (bool): whether to prohibit core blocks forming a cycle. Default is True. This  \
                 situation has been solved in the previous steps.
@@ -315,7 +315,7 @@ class Mapper:
 
     def lcn_ex_adjustment(self) -> None:
         """Adjust the LCN of each core block & set the target LCN.
-        
+
         NOTE: The LCN of all successor core blocks of any core block must be the same. Meanwhile,   \
             the `target_lcn` of the core block is equal to that LCN.
         """

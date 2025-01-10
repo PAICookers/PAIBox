@@ -1,6 +1,6 @@
 import pytest
-import paibox as pb
 
+import paibox as pb
 from paibox.backend.succ_group import MergedSuccGroup, SuccGroup
 
 

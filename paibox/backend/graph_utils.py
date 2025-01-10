@@ -4,12 +4,12 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Generator, TypeVar, Union
 
-from paibox.exceptions import GraphNotSupportedError, GraphHasCycleError
+from paibox.exceptions import GraphHasCycleError, GraphNotSupportedError
 
 from ._slice import node_sl_lst_overlap
 from .placement import CoreBlock
 from .succ_group import MergedSuccGroup
-from .types import NodeName, NodeDegree, NodeType, EdgeAttr
+from .types import EdgeAttr, NodeDegree, NodeName, NodeType
 
 if typing.TYPE_CHECKING:
     from .routing import RoutingGroup
