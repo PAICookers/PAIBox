@@ -174,6 +174,13 @@ class PAIGraph:
             self.succ_dg[u][v] = _edge_attr
             self.pred_dg[v][u] = _edge_attr
 
+        # Check the uniqueness of the successors/predecessors of each node.
+        for n in self.succ_dg:
+            check_elem_unique(self.succ_dg[n])
+
+        for n in self.pred_dg:
+            check_elem_unique(self.pred_dg[n])
+
         self.degree_of_nodes = get_node_degrees(self.succ_dg)
 
         # `InputProj` nodes are input nodes definitely.
@@ -245,37 +252,33 @@ class PAIGraph:
 
     def graph_partition(self) -> list[MergedSuccGroup]:
         """Graph partition."""
-        # Build the SuccGroup for each node in the graph.
-        succ_groups: list[SuccGroup] = []
-        for node in self.ordered_nodes:
-            succ_node_names = set(self.succ_dg[node].keys())
-            if succ_node_names:
-                succ_nodes = [self._raw_nodes[n] for n in succ_node_names]
-                succ_edges = [self.succ_dg[node][n.name].edge for n in succ_nodes]
-                succ_groups.append(
-                    SuccGroup(self._raw_nodes[node], succ_nodes, succ_edges)
-                )
+        # Build the `SuccGroup` for each node in the graph.
+        succ_grps: list[SuccGroup] = []
+        for nn in self.ordered_nodes:
+            if succ_nodes := self.succ_dg[nn]:
+                succ_grps.append(SuccGroup(e.edge for e in succ_nodes.values()))
 
-        def dfs(sgrp: SuccGroup, rgrp: MergedSuccGroup) -> None:
-            # Union-find sets. If the nodes of two succ_groups have intersection, merge them.
-            for other_sgrp in succ_groups:
+        def dfs(sgrp: SuccGroup, msgrp: MergedSuccGroup) -> None:
+            # Union-find sets. If the nodes of two `succ_grps` have intersection, merge them.
+            for other_sgrp in succ_grps:
                 if other_sgrp not in visited and not set(sgrp.nodes).isdisjoint(
                     other_sgrp.nodes
                 ):
                     visited.add(other_sgrp)
-                    rgrp.add_group(other_sgrp)
-                    dfs(other_sgrp, rgrp)
+                    msgrp.add_group(other_sgrp)
+                    dfs(other_sgrp, msgrp)
 
-        route_groups: list[MergedSuccGroup] = []
+        # Merge
+        merged_sgrps: list[MergedSuccGroup] = []
         visited: set[SuccGroup] = set()
-        for sgrp in succ_groups:
+        for sgrp in succ_grps:
             if sgrp not in visited:
-                route_group = MergedSuccGroup(sgrp)
+                m = MergedSuccGroup([sgrp])
                 visited.add(sgrp)
-                dfs(sgrp, route_group)
-                route_groups.append(route_group)
+                dfs(sgrp, m)
+                merged_sgrps.append(m)
 
-        return route_groups
+        return merged_sgrps
 
     def multicast_optim(
         self,
@@ -524,10 +527,10 @@ class PAIGraph:
 
     @staticmethod
     def _find_rg_by_cb(
-        core_block: CoreBlock, routing_groups: list[RoutingGroup]
+        cb: CoreBlock, routing_groups: list[RoutingGroup]
     ) -> RoutingGroup:
         """Find which routing group the target core block is in."""
-        _rgs = [rg for rg in routing_groups if core_block in rg]
+        _rgs = [rg for rg in routing_groups if cb in rg.core_blocks]
 
         if len(_rgs) != 1:
             raise GraphConnectionError(

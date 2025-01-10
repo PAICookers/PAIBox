@@ -200,7 +200,7 @@ class NeuronConfig:
         """Dump the configs into json for debugging."""
         dict_ = {
             "n_neuron": self.neu_seg.n_neuron,
-            "addr_offset": self.neu_seg.offset,
+            "addr_offset": self.neu_seg.offset_nram,
             "addr_ram": self.neu_seg.addr_ram,
         }
         dict_ |= self.export().model_dump(by_alias=True)

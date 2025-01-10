@@ -1,9 +1,8 @@
 import sys
-from abc import ABC, abstractmethod
-from collections import defaultdict
+
 from dataclasses import dataclass
 from enum import Enum, auto, unique
-from typing import Any, NamedTuple, Union
+from typing import Any, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -15,10 +14,9 @@ else:
 
 from paicorelib import Coord, CoreMode, HwConfig
 from paicorelib import ReplicationId as RId
-from paicorelib import RoutingDirection as Direction
 from paicorelib.routing_defs import MAX_ROUTING_PATH_LENGTH
 
-from paibox.base import PAIBoxObject
+
 from paibox.components import FullConnectedSyn, InputProj, Neuron
 
 __all__ = [
@@ -38,7 +36,6 @@ __all__ = [
     "NeuSegOfCoreBlock",
     "AxonCoord",
     "AxonSegment",
-    "CoreAbstract"
 ]
 
 NodeName: TypeAlias = str
@@ -107,49 +104,50 @@ NeuSliceType: TypeAlias = slice
 @dataclass(frozen=True)
 class NeuSegment:
     target: DestNodeType
-    index: NeuSlice  # slice like slice(x, y, 1)
-    offset: int
+    index: NeuSliceType
+    """Indicate that this segment is cut from the target, i.e. `target[index]`."""
+    offset_nram: int
+    """The address offset of the segment in the NRAM."""
     repeat: int = 1
 
-    def __getitem__(self, s: slice) -> "NeuSegment":
-        # if isinstance(idx, int):
-        #     if idx < 0:
-        #         _idx = self.n_neuron + idx
-        #         if _idx < 0:
-        #             raise ValueError(f"index out of range: {idx} < 0")
-        #     else:
-        #         _idx = idx
-        #         if _idx > self.n_neuron - 1:
-        #             raise ValueError(f"index out of range: {idx} > {self.n_neuron-1}")
+    def __getitem__(self, s: slice):
+        """Get a sub-segment of the current segment. The `start` & `stop` in `s` are the offsets    \
+            relative to `index.start`.
 
-        #     start = self.index.start + _idx
-        #     end = start + 1
-
-        #     return NeuSegment(
-        #         self.target,
-        #         NeuSlice(start, end, self.index.step),
-        #         self.offset + idx,
-        #         self.repeat,
-        #     )
-        _idx_start = s.start if s.start is not None else 0
-        if s.stop is None:
-            _idx_stop = self.n_neuron
-        elif s.stop < 0:
-            _idx_stop = self.n_neuron + s.stop
+        NOTE:
+                    index.start                                index.stop
+                        |                                           |                        
+            index       |<----------- s.stop ---------->|           |
+                   [0]  |<-- s.start -->|<-- sub-seg -->|           |    [end-1]
+                    |   |<--------------- NeuSegment -------------->|       |
+            target  ---------------------------------------------------------
+        """
+        if s.start is None:
+            _start_offset = 0
         else:
-            _idx_stop = s.stop
+            assert s.start >= 0
+            if s.start > self.n_neuron:
+                raise IndexError(f"Index out of range: {s.start} > {self.n_neuron}")
 
-        if (_n_idx := _idx_stop - _idx_start) > self.n_neuron:
-            raise IndexError(f"index out of range: {_n_idx} > {self.n_neuron}")
+            _start_offset = s.start
 
-        start = self.index.start + _idx_start
-        end = self.index.start + _idx_stop
+        if s.stop is None:
+            _stop_offset = self.n_neuron
+        else:
+            assert s.stop >= 0
+            if s.stop > self.n_neuron:
+                raise IndexError(f"Index out of range: {s.stop} > {self.n_neuron}")
 
-        return NeuSegment(
-            self.target,
-            NeuSlice(start, end, self.index.step),
-            self.offset + _idx_start,
-            self.repeat,
+            _stop_offset = s.stop
+
+        new_slice = slice(
+            self.index.start + _start_offset,
+            self.index.start + _stop_offset,
+            self.index.step,
+        )
+
+        return type(self)(
+            self.target, new_slice, self.offset_nram + _start_offset, self.repeat
         )
 
     @property
@@ -169,29 +167,36 @@ class NeuSegment:
     @property
     def addr_ram(self) -> list[int]:
         """Convert index of neuron into RAM address."""
-        return list(range(self.offset, self.offset + self.n_occupied_addr, 1))
+        return list(range(self.offset_nram, self.offset_nram + self.n_occupied_addr, 1))
 
     @property
     def _addr_ram_repr(self) -> slice:
         """Represent the slice of neuron RAM address."""
-        return slice(self.offset, self.offset + self.n_occupied_addr, self.repeat)
+        return slice(
+            self.offset_nram, self.offset_nram + self.n_occupied_addr, self.repeat
+        )
 
 
 NeuSegOfCorePlm: TypeAlias = list[NeuSegment]
 NeuSegOfCoreBlock: TypeAlias = list[NeuSegOfCorePlm]
 
 
-class AxonCoord(NamedTuple):
+@dataclass(frozen=True)
+class AxonCoord:
     tick_relative: int
     addr_axon: int
 
     @classmethod
-    def build(cls, tick_relative: int, addr_axon: int) -> "AxonCoord":
-        tick_relative = tick_relative % HwConfig.N_TIMESLOT_MAX
-        return cls(tick_relative, addr_axon)
+    def build(cls, tick_relative: int, addr_axon: int):
+        return cls(tick_relative % HwConfig.N_TIMESLOT_MAX, addr_axon)
 
 
-class AxonSegment(NamedTuple):
+@dataclass(frozen=True)
+class AxonSegment:
+    """The axons will be arranged as a segment on the axon side of the core, and the segment    \
+        starts at `addr_offset` & has a width of `addr_width`.
+    """
+
     n_axon: int
     """#N of axons."""
     addr_width: int
@@ -199,23 +204,8 @@ class AxonSegment(NamedTuple):
     addr_offset: int
     """The offset of the assigned address."""
     start_offset: int
-    """"The start of the source slice."""
+    """"The start offset of the source slice."""
 
-
-class CoreAbstract(PAIBoxObject, ABC):
-    """Abstract core class."""
-
-    rt_mode: CoreMode
-
-    @property
-    @abstractmethod
-    def n_core_required(self) -> int:
-        """#N of cores required to accommodate neurons inside self."""
-        ...
-
-    @classmethod
-    @abstractmethod
-    def build(cls, *args, **kwargs): ...
 
 
 if hasattr(CoreMode, "is_iw8"):
@@ -229,35 +219,39 @@ else:
         return mode is CoreMode.MODE_ANN_TO_BANN_OR_SNN or mode is CoreMode.MODE_ANN
 
 
-def _Coord2Index(coord: Coord) -> str:
-    directions: list[Direction] = []
-    x = coord.x
-    y = coord.y
+def _coord2index(coord: Coord) -> str:
     index = 0
+
     for i in range(MAX_ROUTING_PATH_LENGTH):
         shift = 4 - i
-        value_x, value_y = (x >> shift) & 0b1, (y >> shift) & 0b1
+        value_x, value_y = (coord.x >> shift) & 0b1, (coord.y >> shift) & 0b1
         if HwConfig.COORD_Y_PRIORITY:
-            index = (index << 1) | value_x
-            index = (index << 1) | value_y
+            index = (index << 2) | (value_x << 1) | value_y
         else:
-            index = (index << 1) | value_y
-            index = (index << 1) | value_x
+            index = (index << 2) | (value_y << 1) | value_x
 
-    binary_rep = bin(index)[2:]
-    last_ten = binary_rep[-10:].zfill(10)
-    return "0b{}({})".format(last_ten, index)
+    return f"{bin(index)[2:].zfill(10)}({index})"
 
 
-def to_last_five_binary(n: int) -> str:
-    # 将数字转换为二进制并去掉前面的 '0b' 前缀
-    binary_rep = bin(n)[2:]
+if hasattr(Coord, "to_bin_str"):
 
-    # 获取最后五位并用 'zfill' 补齐不足的部分
-    last_five = binary_rep[-5:].zfill(5)
+    def _coord_to_bin_str(coord: Coord) -> str:
+        return coord.to_bin_str()  # type: ignore
 
-    return last_five
+else:
+
+    def _to_bin(n: int, keep_bits: int) -> str:
+        """Convert an integer to a binary string with a fixed number of bits, removing the prefix '0b'."""
+        assert 0 <= n < (1 << keep_bits)
+        return bin(n)[2:].zfill(keep_bits)
+
+    def _coord_to_bin_str(coord: Coord) -> str:
+        return f"({_to_bin(coord.x, HwConfig.N_BIT_CORE_X)},{_to_bin(coord.y, HwConfig.N_BIT_CORE_Y)})"
 
 
-def Coord2str(coord: Coord) -> str:
-    return f"({to_last_five_binary(coord.x)},{to_last_five_binary(coord.y)})"
+def _1st_core_coord_repr(coord_lst: list[Coord]) -> str:
+    """Represent the first core coordinate in a list of coordinates as a binary string & an index."""
+    if coord_lst:
+        return _coord_to_bin_str(coord_lst[0]) + ", " + _coord2index(coord_lst[0])
+    else:
+        return ""

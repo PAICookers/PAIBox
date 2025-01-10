@@ -1,17 +1,20 @@
+from collections import defaultdict
+from collections.abc import Generator, Iterable
+from functools import cached_property
 import itertools
 import logging
 import math
 import sys
-from collections.abc import Generator, Iterator
-from typing import Any, ClassVar, Union
+from typing import Any, ClassVar, Optional, Union, cast
 
-from paicorelib import ONLINE_CORES_BASE_COORD
+from paicorelib import CoreMode, ONLINE_CORES_BASE_COORD
 from paicorelib import ROUTING_DIRECTIONS_IDX as DIREC_IDX
 from paicorelib import ChipCoord, Coord, HwConfig, RoutingCoord
 from paicorelib import RoutingDirection as Direction
 from paicorelib import RoutingLevel as Level
 from paicorelib.routing_defs import MAX_ROUTING_PATH_LENGTH
 
+from paibox import _logging
 from paibox.components import MatMul2d
 from paibox.exceptions import (
     NotSupportedError,
@@ -23,16 +26,20 @@ from paibox.exceptions import (
 from ._slice import *
 from .conf_types import CorePlmConfInChip
 from .constrs import GraphNodeConstrs
+from .graph_utils import toposort
 from .placement import CoreBlock, EmptyCorePlacement
-from .types import *
-from .types import Coord2str, _Coord2Index
+from .succ_group import MergedSuccGroup
+from .types import EdgeType, NodeType, _1st_core_coord_repr
 
 if sys.version_info >= (3, 13):
     from warnings import deprecated
 else:
     from typing_extensions import deprecated
 
+
 __all__ = ["RoutingGroup", "RoutingManager"]
+
+rt_grp_log = _logging.get_artifact_logger(__name__, "routing_group_info")
 
 
 def MatMul2d_slices(mat_mul: MatMul2d) -> tuple[list[slice], list[slice]]:
@@ -53,12 +60,13 @@ def MatMul2d_slices(mat_mul: MatMul2d) -> tuple[list[slice], list[slice]]:
 def build_elements(
     merged_sgrp: MergedSuccGroup,
 ) -> list[Union[CoreBlock, "RoutingGroup"]]:
-    core_blocks: list[CoreBlock] = []
     nodes = list(merged_sgrp.nodes)
-    mode = nodes[0].mode
     elements: list[Union[CoreBlock, "RoutingGroup"]] = []
-    if any(node.mode != mode for node in nodes):
+
+    mode = cast(CoreMode, nodes[0].mode)
+    if any(mode != node.mode for node in nodes):
         raise NotSupportedError("mixed mode is not supported.")
+
     # Optimize weight in single operator, like 'Mat2d'.
     if len(nodes) == 1:
         edges = merged_sgrp.outputs[nodes[0]]
@@ -89,14 +97,14 @@ def build_elements(
     else:
         # TODO More constraints for nodes can be called here.
         # TODO weight can be optimized between operators.
-        idx_of_sg = GraphNodeConstrs.apply_constrs(nodes)
-        if len(idx_of_sg) == 0:
-            idx_of_sg = [list(range(len(nodes)))]
+        idx_in_cbs = GraphNodeConstrs.apply_constrs(nodes)
+        # if len(idx_of_sg) == 0:
+        #     idx_of_sg = [list(range(len(nodes)))]
 
-        for idx in idx_of_sg:
+        for idx_in_cb in idx_in_cbs:
             edges_set: set[EdgeType] = set()
 
-            for i in idx:
+            for i in idx_in_cb:
                 edges_set.update(merged_sgrp.outputs[nodes[i]])
 
             edge_slices = [EdgeSlice(edge) for edge in edges_set]
@@ -104,6 +112,19 @@ def build_elements(
             elements.append(core_block)
 
     return elements
+
+
+RoutingElemType = Union[CoreBlock, "RoutingGroup"]
+OrderedElemsType = list["RoutingGroup"]
+UnorderedElemsType = list[RoutingElemType]
+
+
+def _iter_rg(iter: Iterable) -> Generator["RoutingGroup", None, None]:
+    return (elem for elem in iter if isinstance(elem, RoutingGroup))
+
+
+def _iter_cb(iter: Iterable) -> Generator[CoreBlock, None, None]:
+    return (elem for elem in iter if isinstance(elem, CoreBlock))
 
 
 class RoutingGroup:
@@ -114,31 +135,30 @@ class RoutingGroup:
 
     def __init__(
         self,
-        unordered_elems: list[Union[CoreBlock, "RoutingGroup"]],
-        ordered_elems: list["RoutingGroup"],
+        unordered_elems: UnorderedElemsType,
+        ordered_elems: OrderedElemsType,
         is_root: bool = False,
     ) -> None:
-        self.unordered_elems: list[Union[CoreBlock, "RoutingGroup"]] = unordered_elems
-        self.ordered_elems: list["RoutingGroup"] = ordered_elems
-        self.routing_elems: list[Union[CoreBlock, "RoutingGroup"]] = (
-            unordered_elems + ordered_elems
-        )
+        self.unordered_elems = unordered_elems
+        self.ordered_elems = ordered_elems
+        self.routing_elems = unordered_elems + ordered_elems
         self.offset: list[int] = []  # TODO Change a name
         self.n_core_required: int = 0
         """The actual number of cores required by the routing group."""
         self.n_tail_waste: int = 0
         """Waste cores at the tail of the routing group."""
 
-        axons: set[SourceSliceType] = set()
-        for elem in self.routing_elems:
-            axons.update(elem.axons)
+        # The following variables maintain the same interface as `CoreBlock`.
+        # Unordered axons
+        self.axons = set(ax for elem in self.routing_elems for ax in elem.axons)
+        # for elem in self.routing_elems:
+        #     axons.update(elem.axons)
+        # self.axons = list(axons)
 
-        self.axons: list[SourceSliceType] = list(axons)  # unordered
-
-        dest: set[DestSliceType] = set()
-        for elem in self.routing_elems:
-            dest.update(elem.dest)
-        self.dest: list[DestSliceType] = list(dest)
+        self.dest = set(d for elem in self.routing_elems for d in elem.dest)
+        # for elem in self.routing_elems:
+        #     dest.update(elem.dest)
+        # self.dest = list(dest)
 
         self.assigned_coords: list[Coord] = []
         """Assigned core coordinates in the routing group"""
@@ -147,63 +167,67 @@ class RoutingGroup:
         self.wasted_core_plm: dict[Coord, EmptyCorePlacement] = {}
         """Wasted core placements"""
 
-        # can not use set here, order matters
         self.global_axons: list[SourceSliceType] = []
-        """multicast axons inheritted from the parent routing group"""
+        """Multicast axons inheritted from the parent routing group."""
         self.private_axons: list[SourceSliceType] = []
-        """multicast axons only effective in the current routing group"""
+        """Multicast axons valid only within this routing group."""
 
-        """Status options"""
+        # Status options
         self.is_assigned = False
         """Whether the coordinates of chip & cores are assigned."""
         self.is_root = is_root
+
+        if is_root:
+            self.init_with_multicast_axons()
+            self.set_cb_ordered_ax()
 
         # For debugging
         self._id = RoutingGroup._debug_id
         RoutingGroup._debug_id += 1
 
-        if is_root:
-            self.init_axons()
-            self.set_axons()
-
-    def init_axons(self, multicast_axons: list[SourceSliceType] = []) -> None:
-        """init the multicast axons for the routing group."""
+    def init_with_multicast_axons(
+        self, multicast_axons: list[SourceSliceType] = []
+    ) -> None:
+        """Initialize the routing group with multicast axons."""
         self.global_axons = multicast_axons
-
         used_axons: set[SourceSliceType] = set()
+
         for elem in self.routing_elems:
-            # all axon of coreblocks should be multicast to the whole routing group
-            # because this routing group is the only coord that can access the coreblocks
-            if isinstance(elem, CoreBlock):
-                for axon in elem.axons:
-                    if axon not in self.global_axons and axon not in self.private_axons:
-                        self.private_axons.append(axon)
-            else:
-                for axon in elem.axons:
-                    if axon not in self.global_axons and axon not in self.private_axons:
-                        if axon in used_axons:
-                            self.private_axons.append(axon)
+            for ax in elem.axons:
+                if ax not in self.global_axons and ax not in self.private_axons:
+                    if isinstance(elem, CoreBlock):
+                        # All axons in the core blocks of the routing elements need to multicast to the
+                        # whole routing group because this routing group is the only one that can access
+                        # the core blocks.
+                        self.private_axons.append(ax)
+                    else:
+                        if ax in used_axons:
+                            self.private_axons.append(ax)
                         else:
-                            used_axons.add(axon)
+                            used_axons.add(ax)
 
+        for elem in self.iter_elem_rg():
+            elem.init_with_multicast_axons(self.global_axons + self.private_axons)
+
+    def set_cb_ordered_ax(self) -> None:
         for elem in self.routing_elems:
             if isinstance(elem, RoutingGroup):
-                elem.init_axons(self.global_axons + self.private_axons)
-
-    def set_axons(self):
-        for elem in self.routing_elems:
-            if isinstance(elem, RoutingGroup):
-                elem.set_axons()
+                elem.set_cb_ordered_ax()
             else:
-                # coreblocks in the routing group shuold reserve space for
-                # all axons that multicast to the routing group
+                # The core blocks in a routing group should reserve space for all axons that multicast
+                # to the routing group.
                 elem.ordered_axons = self.global_axons + self.private_axons
 
     def set_core_required(self) -> None:
         """Calculate the number of cores required for the routing group iteratively."""
-        for rgrp in self.routing_elems:
-            if isinstance(rgrp, RoutingGroup):
-                rgrp.set_core_required()
+        if not all(cb._neurons_grouped for cb in self.iter_elem_cb()):
+            # TODO change the exception type
+            raise ValueError(
+                "All core blocks should be grouped before calculating the number of cores required."
+            )
+
+        for rg in self.iter_elem_rg():
+            rg.set_core_required()
 
         # Record the used cores of the members, but not the actual amount.
         n_core_used = 0
@@ -217,27 +241,25 @@ class RoutingGroup:
             n_core_used += elem.n_core_required
 
         # Ordered routing groups should be assgined first.
-        ordered_rgrp = self.ordered_elems
-        for rgrp in ordered_rgrp:
+        for rgrp in self.ordered_elems:
             n_core_assigned = _nearest_multiple_above(n_core_used, rgrp.n_core_required)
             self.offset.append(n_core_assigned)
             n_core_used = n_core_assigned + rgrp.n_core_required
 
         # Routing elements need satisfy the topological order
-        self.routing_elems = unordered_elem + ordered_rgrp
+        # The order of routing elements is updated.
+        self.routing_elems = unordered_elem + self.ordered_elems
 
-        # If there are ordered routing groups, the final amount wasted is the
-        # tail waste number of the LAST routing group. Otherwise, waste = 0.
-        n_tail_waste = ordered_rgrp[-1].n_tail_waste if ordered_rgrp else 0
-        # sub_tail_wasted = (
-        #     0
-        #     if isinstance(self.routing_elems[-1], CoreBlock)
-        #     else self.routing_elems[-1].n_tail_waste
-        # )
+        # Due to the chip's NoC architecture, data can only be multicast to cores that are an integer power
+        # of 2.
+        self.n_core_required = 1 << (n_core_used - 1).bit_length()  # required actually
 
-        # This is the amount of cores required actually.
-        self.n_core_required = 1 << (n_core_used - 1).bit_length()
-        self.n_tail_waste = self.n_core_required - n_core_used + n_tail_waste
+        # If there are ordered routing groups, the final waste is the tail waste of the last routing group,
+        # otherwise it is 0.
+        n_tail_waste_by_rg = (
+            self.ordered_elems[-1].n_tail_waste if self.ordered_elems else 0
+        )
+        self.n_tail_waste = self.n_core_required - n_core_used + n_tail_waste_by_rg
 
     def assign_coord(
         self, chip_coord: Coord, allocated: list[Coord]
@@ -266,70 +288,85 @@ class RoutingGroup:
 
         return self.assigned_coords, self.wasted_coords
 
-    def optimize_group(self) -> list["RoutingGroup"]:
-        # print(f"\n\noptimize{self}#############")
-        optimized_unordered: list[Union[CoreBlock, "RoutingGroup"]] = list()
-        optimized_ordered: list["RoutingGroup"] = list()
+    def optimize_routing_elems(self) -> list["RoutingGroup"]:
+        # Optimize unordered elements by recursively optimizing sub-routing groups
+        optim_unordered: UnorderedElemsType = []
         for elem in self.unordered_elems:
             if isinstance(elem, RoutingGroup):
-                optimized_unordered += elem.optimize_group()
+                optim_unordered += elem.optimize_routing_elems()
             else:
-                optimized_unordered.append(elem)
+                optim_unordered.append(elem)
+
+        # Optimize ordered elements by recursively optimizing sub-routing groups
+        optim_ordered: OrderedElemsType = []
         for elem in self.ordered_elems:
-            optimized_ordered += elem.optimize_group()
+            optim_ordered += elem.optimize_routing_elems()
 
-        # If one sub routing group in elems does not use
-        # the private multicast axons, then make it independent.
+        # If a sub-routing group does not use the private multicast axons, then make it independent.
+        # Any core block in a routing group always uses the private multicast axons. Otherwise, this
+        # core block should not be in a routing group.
+        unordered_grps, remaining_unordered = self._optimize_unordered_elems(
+            optim_unordered
+        )
+        ordered_grps, remaining_ordered = self._optimize_ordered_elems(optim_ordered)
 
-        # coreblocks in the routing group always use the private multicast axons
-        # otherwise, this coreblock should not in the routing group
-        unordered_groups: list["RoutingGroup"] = list()
-        remaining_unordered: list[Union[CoreBlock, "RoutingGroup"]] = list()
-        for elem in optimized_unordered:
-            if isinstance(elem, CoreBlock):
-                remaining_unordered.append(elem)
-            elif not set(self.private_axons).isdisjoint(elem.axons):
-                remaining_unordered.append(elem)
-            else:
-                # private_axons will not change when making routing group independent
-                elem.global_axons = self.global_axons
-                elem.is_root = self.is_root
-                unordered_groups.append(elem)
+        optim_grps: list["RoutingGroup"] = []
+        if remaining_ordered or remaining_unordered:
+            # The remaining routing groups inherit the axons of the current routing group.
+            remaining_rgrp = RoutingGroup(remaining_unordered, remaining_ordered)
+            remaining_rgrp.global_axons = self.global_axons
+            remaining_rgrp.private_axons = self.private_axons
+            remaining_rgrp.is_root = self.is_root
+            optim_grps.append(remaining_rgrp)
 
-        ordered_groups: list["RoutingGroup"] = list()
-        remaining_ordered: list["RoutingGroup"] = list()
+        # Keep the order of combined routing groups
+        ordered_optim_grp = unordered_grps + optim_grps + ordered_grps
+        if self.is_root:
+            for rgrp in ordered_optim_grp:
+                rgrp.set_cb_ordered_ax()
+
+        return ordered_optim_grp
+
+    def _optimize_ordered_elems(
+        self, ordered_elems: OrderedElemsType
+    ) -> tuple[list["RoutingGroup"], OrderedElemsType]:
+        ordered_grps: list["RoutingGroup"] = []
+        remaining: OrderedElemsType = []
         inputs: set[SourceSliceType] = set()
-        for elem in reversed(optimized_ordered):
+
+        for elem in reversed(ordered_elems):
             if not set(self.private_axons).isdisjoint(elem.axons):
                 inputs.update(elem.axons)
-                remaining_ordered.insert(0, elem)
+                remaining.insert(0, elem)
             elif not inputs.isdisjoint(elem.dest):
                 inputs.update(elem.dest)
-                remaining_ordered.insert(0, elem)
+                remaining.insert(0, elem)
             else:
-                # private_axons will not change when making routing group independent
+                # When making a routing group independent, the private axons do not change.
                 elem.global_axons = self.global_axons
                 elem.is_root = self.is_root
-                ordered_groups.insert(0, elem)
+                ordered_grps.insert(0, elem)
 
-        optimized_groups: list["RoutingGroup"] = list()
-        if len(remaining_unordered) > 0:
-            # remaining routing group inherits the axons of the current routing group
-            remaining_routing_group = RoutingGroup(
-                remaining_unordered, remaining_ordered
-            )
-            remaining_routing_group.global_axons = self.global_axons
-            remaining_routing_group.private_axons = self.private_axons
-            remaining_routing_group.is_root = self.is_root
-            optimized_groups.append(remaining_routing_group)
+        return ordered_grps, remaining
 
-        # can not change the order here
-        optimized_groups = unordered_groups + optimized_groups + ordered_groups
-        if self.is_root:
-            for rgrp in optimized_groups:
-                rgrp.set_axons()
+    def _optimize_unordered_elems(
+        self, unordered_elems: UnorderedElemsType
+    ) -> tuple[list["RoutingGroup"], UnorderedElemsType]:
+        unordered_grps: list["RoutingGroup"] = []
+        remaining: UnorderedElemsType = []
 
-        return optimized_groups
+        for elem in unordered_elems:
+            if isinstance(elem, CoreBlock) or not set(self.private_axons).isdisjoint(
+                elem.axons
+            ):
+                remaining.append(elem)
+            else:
+                # When making a routing group independent, the private axons do not change.
+                elem.global_axons = self.global_axons
+                elem.is_root = self.is_root
+                unordered_grps.append(elem)
+
+        return unordered_grps, remaining
 
     @property
     def core_blocks(self) -> list[CoreBlock]:
@@ -350,35 +387,46 @@ class RoutingGroup:
     ) -> "RoutingGroup":
         msgrp = MergedSuccGroup()
         remaining = MergedSuccGroup()
-        sub_nodes = set()
-        remaining_nodes = set()
-        for group in merged_sgrp.groups:
+        sub_nodes: set[NodeType] = set()
+
+        # If an input node in the merged groups is an output node of the merged groups, the node is
+        # recorded and called a subordinate node.
+        for group in merged_sgrp:
             if group.input in merged_sgrp.nodes:
                 sub_nodes.update(group.nodes)
-        remaining_nodes = merged_sgrp.nodes - sub_nodes
 
-        for group in merged_sgrp.groups:
+        remaining_nodes = set(merged_sgrp.nodes) - sub_nodes
+
+        for group in merged_sgrp:
             if not sub_nodes.isdisjoint(group.nodes):
                 msgrp.add_group(group)
             if not remaining_nodes.isdisjoint(group.nodes):
                 remaining.add_group(group)
 
-        remaining.nodes &= remaining_nodes
-        msgrp.nodes &= sub_nodes
-        unordered_elems = build_elements(remaining)
+        # remaining.nodes &= remaining_nodes
+        for node in remaining.nodes - remaining_nodes:
+            remaining.remove_node(node)
 
+        # msgrp.nodes &= sub_nodes
+        for node in msgrp.nodes - sub_nodes:
+            msgrp.remove_node(node)
+
+        # Build the subordinate routing groups if there are any subordinate nodes.
         if len(msgrp.nodes) > 0:
             sub_rgrp = RoutingGroup.build(msgrp)
             ordered_rgrp = [sub_rgrp]
         else:
             ordered_rgrp = []
 
+        unordered_elems = build_elements(remaining)
+
         return cls(unordered_elems, ordered_rgrp, is_root)
 
-    def core_block_alloc(self) -> None:
-        assert self.is_assigned, "coordinates are not assigned."
+    def allocate_cp(self) -> None:
+        if not self.is_assigned:
+            raise ValueError("coordinates are not assigned.")
 
-        for cb in self:
+        for cb in self.core_blocks:
             cb.core_plm_alloc()
 
         # Allocate empty core placements for the wasted coordinates.
@@ -391,87 +439,152 @@ class RoutingGroup:
             for coord, core_plm in self.wasted_core_plm.items()
         }
 
-    def get_n_core_occupied(self) -> int:
-        """Get the #N of cores occupied by the routing group."""
-        assert self.is_assigned, "coordinates are not assigned."
-        return len(self.assigned_coords) + len(self.wasted_coords)
-
     @property
     def chip_coord(self) -> ChipCoord:
-        if not all(cb.chip_coord == self[0].chip_coord for cb in self):
+        if not all(
+            cb.chip_coord == self.core_blocks[0].chip_coord for cb in self.core_blocks
+        ):
             raise RoutingError(
                 "chip coordinates in the routing group are not consistent."
             )
 
-        return self[0].chip_coord
+        return self.core_blocks[0].chip_coord
 
-    def dump(self, i: int = 0) -> None:
-        tabs = "\t" * i
-        logging.info(
-            f"{tabs}{self}(root:{self.is_root}) with {self.n_core_required} cores:"
-        )
-        logging.info(f"{tabs}global axons: {[str(axon) for axon in self.global_axons]}")
-        logging.info(
-            f"{tabs}private axons: {[str(axon) for axon in self.private_axons]}"
-        )
-        logging.info(f"{tabs}Offset: {self.offset}")
-        for elem in self.routing_elems:
-            elem.dump(i + 1)
-        logging.info(" ")
+    def iter_elem_rg(self) -> Generator["RoutingGroup", None, None]:
+        """Return a generator of routing groups in current routing elements."""
+        return _iter_rg(self.routing_elems)
 
-    def dump_routing_result(self, i: int = 0) -> None:
-        tabs = "\t" * i
-        logging.info(
-            f"{tabs}{self}(root:{self.is_root}) with {self.n_core_required} cores:"
-        )
-        logging.info(f"{tabs}Chip Coord: {self.chip_coord}")
-        logging.info(
-            f"{tabs}Start Core Coord: {Coord2str(self.assigned_coords[0])}, {_Coord2Index(self.assigned_coords[0])}"
-        )
+    def iter_elem_cb(self) -> Generator[CoreBlock, None, None]:
+        """Return a generator of core blocks in current routing elements."""
+        return _iter_cb(self.routing_elems)
+
+    def iter_nested_cb(self) -> Generator[CoreBlock, Any, None]:
+        """Return a generator of core blocks in all nested routing groups."""
         for elem in self.routing_elems:
             if isinstance(elem, CoreBlock):
-                logging.info(f"\t{tabs}{elem.name} with {elem.n_core_required} cores:")
-                logging.info(f"\t{tabs}Chip Coord: {elem.chip_coord}")
-                logging.info(
-                    f"\t{tabs}Start Core Coord: {Coord2str(elem.core_coords[0])}, {_Coord2Index(elem.core_coords[0])}"
-                )
-                logging.info("")
+                yield elem
             else:
-                elem.dump_routing_result(i + 1)
-        logging.info(" ")
-
-    def __contains__(self, cb: CoreBlock) -> bool:
-        return cb in self.core_blocks
-
-    def __getitem__(self, idx: int) -> CoreBlock:
-        return self.core_blocks[idx]
-
-    def __iter__(self) -> Iterator[CoreBlock]:
-        return self.core_blocks.__iter__()
+                yield from elem.iter_nested_cb()
 
     def __str__(self) -> str:
-        return f"RoutingGroup_{self._id}"
+        return f"{self.__class__.__name__}_{self._id}"
+
+    def dump(
+        self, indents: int = 0, father_logger: Optional[logging.Logger] = None
+    ) -> None:
+        _logger = rt_grp_log if father_logger is None else father_logger
+
+        tabs = "\t" * indents
+
+        _logger.debug(
+            tabs + f"{self}(root: {self.is_root}, {self.n_core_required} cores):"
+        )
+        _logger.debug(
+            tabs + f"Global axons: {[str(axon) for axon in self.global_axons]}"
+        )
+        _logger.debug(
+            tabs + f"Private axons: {[str(axon) for axon in self.private_axons]}"
+        )
+        _logger.debug(tabs + f"Offset: {self.offset}")
+
+        for elem in self.routing_elems:
+            elem.dump(indents + 1, father_logger=_logger)
+
+    def dump_routing_result(
+        self, indents: int = 0, father_logger: Optional[logging.Logger] = None
+    ) -> None:
+        _logger = rt_grp_log if father_logger is None else father_logger
+
+        tabs = "\t" * indents
+        ind1 = tabs + "\t"
+
+        _logger.debug(
+            tabs + f"{self}(root: {self.is_root}, {self.n_core_required} cores):"
+        )
+        _logger.debug(tabs + f"Chip coord: {self.chip_coord}")
+        _logger.debug(tabs + f"Start core coord: {self._start_core_coord_repr()}")
+
+        for elem in self.routing_elems:
+            if isinstance(elem, CoreBlock):
+                _logger.debug(ind1 + f"{elem.name} ({elem.n_core_required} cores):")
+                _logger.debug(ind1 + f"Chip coord: {elem.chip_coord}")
+                _logger.debug(
+                    ind1 + f"Start core coord: {elem._start_core_coord_repr()}"
+                )
+            else:
+                elem.dump_routing_result(indents + 1, father_logger=_logger)
+
+    def _start_core_coord_repr(self) -> str:
+        return _1st_core_coord_repr(self.assigned_coords)
 
 
 class RoutingManager:
     def __init__(self, chip_list: list[ChipCoord], **kwargs) -> None:
-        """Initialize a routing quadtree root."""
         self.chip_list: list[ChipCoord] = chip_list
-        self.used_L2_clusters: list[list[RoutingCoord]] = [
-            list() for _ in range(len(chip_list))
-        ]
+        self.used_L2_clusters = self._default_used_L2_clusters()
         """Used L2 clusters in each chip. The clocks of unused L2 clusters can be turned off   \
             through the serial port to reduce power consumption.
         """
         self.n_core_total: int = 0
-        self.n_core_per_chip: list[int] = [0] * len(chip_list)
+        self.n_core_per_chip = self._default_n_core_per_chip()
+
+        self.routing_grps: list[RoutingGroup] = []
+        self.succ_rgrps: dict[RoutingGroup, list[RoutingGroup]] = defaultdict(list)
+
+    def clear(self) -> None:
+        self.n_core_total = 0
+        self._clear_n_core_per_chip()
+        self._clear_used_L2_clusters()
+        self.routing_grps.clear()
+        self.succ_rgrps.clear()
+
+        # Clear the cached property safely
+        if hasattr(self, "ordered_rgrps"):
+            del self.ordered_rgrps
+
+    def optimize_rgrps(self, rgrps: list[RoutingGroup]) -> None:
+        optimized = []
+        for rg in rgrps:
+            optimized.extend(rg.optimize_routing_elems())
+
+        self.routing_grps = optimized
+
+    def build_rg_graph(
+        self, succ_core_blocks: dict[CoreBlock, list[CoreBlock]]
+    ) -> None:
+        """Build the successor graph of routing groups."""
+        for rg in self.routing_grps:
+            self.succ_rgrps[rg] = []  # Record all routing groups to keys.
+            rg_succ_cb: set[CoreBlock] = set()
+            # Iterate over all core blocks within the routing group.
+            for cb in rg.iter_nested_cb():
+                rg_succ_cb.update(succ_core_blocks[cb])
+
+            for next_rg in self.routing_grps:
+                if next_rg == rg:
+                    continue
+
+                for succ_cb in rg_succ_cb:
+                    if succ_cb in next_rg.iter_nested_cb():
+                        self.succ_rgrps[rg].append(next_rg)
+                        break
 
     def get_insert_location(
         self, n_core_incoming: int, n_core_wasted: int
     ) -> tuple[int, int, list[Direction]]:
-        """Look for the insertion location of the incoming routing group."""
-        n_core_aligned = _nearest_multiple_above(self.n_core_total, n_core_incoming)
+        """Look for the insertion location for the incoming routing group.
+        
+        Args:
+            n_core_incoming: #N of cores required by the incoming routing group, including the wasted cores.    \
+                It must be an integer power of 2.
+            n_core_wasted: #N of wasted cores.
+        """
+        if n_core_incoming & (n_core_incoming - 1) != 0:
+            raise ValueError(
+                f"'n_core_incoming' ({n_core_incoming}) is not an integer power of 2."
+            )
 
+        n_core_aligned = _nearest_multiple_above(self.n_core_total, n_core_incoming)
         n_core_predicted = n_core_aligned + n_core_incoming
         start_core_inchip = _num_inchip(n_core_aligned)
         end_core_inchip = _num_inchip(n_core_predicted) - n_core_wasted
@@ -499,7 +612,7 @@ class RoutingManager:
         self.n_core_per_chip[chip_idx_loc] = _num_inchip(self.n_core_total)
 
         routing_idx = core_loc % HwConfig.N_CORE_MAX_INCHIP
-        routing_path = []
+        routing_path: list[Direction] = []
 
         # From L0 to L4
         for _ in range(MAX_ROUTING_PATH_LENGTH):
@@ -514,16 +627,15 @@ class RoutingManager:
         """Place a routing group in the chip list. Assign each core blocks with routing coordinates &   \
             make sure they are routable.
 
-        Returns: a tuple of lists of assigned and wasted coordinates.
+        Returns:
+            A tuple of lists of assigned and wasted coordinates.
         """
-        # for cb in rgrp:
-        #     print(f"\t{cb.name}")
         n_core_cost = rgrp.n_core_required
         n_tail_waste = rgrp.n_tail_waste
         n_core_req = n_core_cost - n_tail_waste
 
         # Check whether a single routing group can be placed within a single core.
-        # The largest continuous offline cores is ONLINE_CORES_BASE_COORD.
+        # The number of offline cores that can be deployed continuously is `ONLINE_CORES_BASE_COORD`.
         if n_core_req > ONLINE_CORES_BASE_COORD:
             raise ResourceError(
                 "the number of cores required by the routing group exceeds the hardware limit, "
@@ -546,6 +658,52 @@ class RoutingManager:
 
         return rgrp.assign_coord(self.chip_list[chip_idx_loc], allocated_coords)
 
+    def allocate_cp(self) -> None:
+        """Allocate core placements for all core blocks in all routing groups."""
+        for rg in self.ordered_rgrps:
+            rg.allocate_cp()
+
+    def get_n_core_occupied(self) -> int:
+        """Get the #N of cores occupied by all routing groups. Online cores are not counted."""
+        n_chip_full_used, remaining = divmod(
+            self.n_core_total, HwConfig.N_CORE_MAX_INCHIP
+        )
+        occupied = n_chip_full_used * HwConfig.N_CORE_OFFLINE
+
+        if remaining <= ONLINE_CORES_BASE_COORD:
+            occupied += remaining
+        elif remaining <= ONLINE_CORES_BASE_COORD + HwConfig.N_CORE_ONLINE:
+            # When the wasted cores of the last routing group in the chip overlap with the online cores.
+            occupied += ONLINE_CORES_BASE_COORD
+        else:
+            # Online cores were all counted incorrectly.
+            occupied += remaining - HwConfig.N_CORE_ONLINE
+
+        return occupied
+
+    @cached_property
+    def ordered_rgrps(self) -> list[RoutingGroup]:
+        """Return a list of routing groups in topological order.
+
+        NOTE: The routing group must be acyclic. Once the property is accessed, the topological order is cached &   \
+            will not be recalculated. Use `del self.ordered_rgrps` to clear the cache.
+        """
+        return toposort(self.succ_rgrps)
+
+    def _default_used_L2_clusters(self) -> list[list[RoutingCoord]]:
+        return [[]] * len(self.chip_list)
+
+    def _clear_used_L2_clusters(self) -> None:
+        for e in self.used_L2_clusters:
+            e.clear()
+
+    def _default_n_core_per_chip(self) -> list[int]:
+        return [0] * len(self.chip_list)
+
+    def _clear_n_core_per_chip(self) -> None:
+        for i in range(len(self.n_core_per_chip)):
+            self.n_core_per_chip[i] = 0
+
 
 @deprecated(
     "'RoutingRoot' is deprecated in version 1.2.0 and will be "
@@ -557,7 +715,10 @@ class RoutingRoot(RoutingManager):
 
 
 def _nearest_multiple_above(a: int, x: int) -> int:
-    """Return the nearest number greater than or equal to `a`, and is an integer multiple of `x`."""
+    """Return the nearest number greater than or equal to `a`, and is an integer multiple of `x`.
+
+    For example, given a=10 & x=3, return 12.
+    """
     # (above + multiple - 1) // multiple
     return math.ceil(a / x) * x
 
@@ -578,27 +739,6 @@ def _routing_path_generator(
             else:
                 rpath[lx] = DIREC_IDX[(DIREC_IDX.index(rpath[lx]) + 1) % len(DIREC_IDX)]
                 break
-
-
-# def _routing_path_generator(
-#     n_times: int, rpath: RoutingPath, yield_first: bool = True
-# ) -> Generator[tuple[int, RoutingPath], Any, None]:
-#     _len = len(rpath)
-#     lx_iter = reversed(range(_len)) if rpath.reversed else range(_len)
-
-#     for i in range(n_times):
-#         if yield_first:
-#             yield i, rpath
-
-#         for lx in lx_iter:
-#             if rpath[lx] == DIREC_IDX[-1]:
-#                 rpath[lx] = DIREC_IDX[0]
-#             else:
-#                 rpath[lx] = DIREC_IDX[(DIREC_IDX.index(rpath[lx]) + 1) % len(DIREC_IDX)]
-#                 break
-
-#         if not yield_first:
-#             yield i, rpath
 
 
 def _all_lx_clusters(lx: Union[Level, int]) -> list[RoutingCoord]:

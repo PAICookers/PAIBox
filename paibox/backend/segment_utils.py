@@ -1,3 +1,4 @@
+from collections import defaultdict
 import warnings
 from functools import partial
 from math import ceil
@@ -13,14 +14,14 @@ from .types import (
     NeuSegment,
     NeuSegOfCoreBlock,
     NeuSegOfCorePlm,
-    NeuSlice,
+    NeuSliceType,
 )
 
 
 def _place_seperately(
-    seg_slices_dict: dict[Neuron, list[NeuSlice]], repl_prop: int
+    seg_slices_dict: dict[Neuron, list[NeuSliceType]], repl_prop: int
 ) -> NeuSegOfCoreBlock:
-    neu_segs_of_cb = []
+    neu_segs_of_cb: NeuSegOfCoreBlock = []
 
     for neu, seg_slices in seg_slices_dict.items():
         neu_segs_of_cb.extend(
@@ -34,7 +35,7 @@ def _coarse_group(
     neu: NeuronSlice,
     capacity: int,
     load_type: Literal["average", "max_capacity"],
-) -> list[NeuSlice]:
+) -> list[NeuSliceType]:
     """Group neurons with 'average' or 'maximum capacity' load type.
 
     NOTE: Group neuron seperately, like [N1], [N2], ..., [Nn]. For each neuron, \
@@ -59,7 +60,7 @@ def _coarse_group(
 
         return [capacity] * (n_part - 1) + [rest]
 
-    neu_seg_slices: list[NeuSlice] = []
+    neu_seg_slices: list[NeuSliceType] = []
     n_neuron = neu.num_out
 
     if load_type == "average":
@@ -70,14 +71,14 @@ def _coarse_group(
 
     _sum = neu.index.start
     for d in dist:
-        neu_seg_slices.append(NeuSlice(_sum, _sum + d, 1))
+        neu_seg_slices.append(slice(_sum, _sum + d, 1))
         _sum += d
 
     return neu_seg_slices
 
 
 def _get_nsg_opt_core(
-    seg_slices_dict: dict[Neuron, list[NeuSlice]], capacity: int, repl_prop: int
+    seg_slices_dict: dict[Neuron, list[NeuSliceType]], capacity: int, repl_prop: int
 ) -> NeuSegOfCoreBlock:
     neu_segs_of_cb: NeuSegOfCoreBlock = []  # The final result
     raise_warning = False
@@ -155,12 +156,12 @@ def _get_neu_slices(
     neu_groups: list[NeuronSlice],
     capacity: int,
     load_type: Literal["average", "max_capacity"],
-) -> dict[Neuron, list[NeuSlice]]:
+) -> dict[Neuron, list[NeuSliceType]]:
     """Group the neuron groups by category with load balancing optimization.
 
     NOTE: Use load balancing optimization automatically.
     """
-    seg_slices_dict: dict[Neuron, list[NeuSlice]] = dict()
+    seg_slices_dict: dict[Neuron, list[NeuSliceType]] = defaultdict(list)
 
     for neu_slice in neu_groups:
         seg_slices_dict[neu_slice.target] = _coarse_group(
@@ -175,7 +176,7 @@ _get_neu_slices_opt_latency = partial(_get_neu_slices, load_type="average")
 
 
 def _dense_reorganized(
-    seg_slices_dict: dict[Neuron, list[NeuSlice]], capacity: int, repl_prop: int
+    seg_slices_dict: dict[Neuron, list[NeuSliceType]], capacity: int, repl_prop: int
 ) -> NeuSegOfCoreBlock:
     """Reorganize densely. Based on the result of 'latency' method, use greedy algorithm to \
         reorganize the incomplete neuron segments for saving cores.
@@ -298,7 +299,7 @@ def get_axon_segments(
 
 
 def aligned_coords(
-    neu_index: NeuSlice,
+    neu_index: NeuSliceType,
     axon_seg: AxonSegment,
     delay: int,
     dest_n_timeslot: int,
