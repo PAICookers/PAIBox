@@ -281,7 +281,7 @@ class Mapper:
         # Generate (c1, (c2, c3, c4,...)), (c2, (c3, c4, c5,...)), (c3, (c4, c5, c6,...)), etc.
         for cb in self.core_blocks:
             self.succ_core_blocks[cb] = []
-            
+
         for cur_cb, next_cb in itertools.combinations(self.core_blocks, 2):
             _ol_c2n = node_sl_lst_overlap(cur_cb.dest, next_cb.ordered_axons)
             _ol_n2c = node_sl_lst_overlap(next_cb.dest, cur_cb.ordered_axons)

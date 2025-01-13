@@ -234,8 +234,8 @@ class RoutingGroup:
 
         # Unordered core blocks sorted in descending order, avoiding assigning waste.
         unordered_elem = sorted(
-            self.unordered_elems, 
-            key=lambda x: (isinstance(x, CoreBlock), -x.n_core_required)
+            self.unordered_elems,
+            key=lambda x: (isinstance(x, CoreBlock), -x.n_core_required),
         )
         for elem in unordered_elem:
             self.offset.append(n_core_used)
@@ -341,7 +341,7 @@ class RoutingGroup:
             if not set(self.private_axons).isdisjoint(elem.axons):
                 remaining_inputs.update(elem.axons)
                 remaining.insert(0, elem)
-            # If one element's output is used by the remaining elements, 
+            # If one element's output is used by the remaining elements,
             # To satisfy the topological order, can not be independent.
             elif not remaining_inputs.isdisjoint(elem.dest):
                 remaining_inputs.update(elem.axons)
