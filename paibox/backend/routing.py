@@ -333,17 +333,24 @@ class RoutingGroup:
     ) -> tuple[list["RoutingGroup"], OrderedElemsType]:
         ordered_grps: list["RoutingGroup"] = []
         remaining: OrderedElemsType = []
-        inputs: set[SourceSliceType] = set()
+        remaining_inputs: set[SourceSliceType] = set()
 
         for elem in reversed(ordered_elems):
+            # One element uses the private axons of the current routing group.
+            # To make sure the private axons use unique routable coord, can not be independent.
             if not set(self.private_axons).isdisjoint(elem.axons):
-                inputs.update(elem.axons)
+                remaining_inputs.update(elem.axons)
                 remaining.insert(0, elem)
-            elif not inputs.isdisjoint(elem.dest):
-                inputs.update(elem.dest)
+            # If one element's output is used by the remaining elements, 
+            # To satisfy the topological order, can not be independent.
+            elif not remaining_inputs.isdisjoint(elem.dest):
+                remaining_inputs.update(elem.axons)
                 remaining.insert(0, elem)
             else:
                 # When making a routing group independent, the private axons do not change.
+                # because the element does not use the private axons of the current routing group.
+                # so there is no difference for this elem's init_axons with multicast axons is
+                # self.global_axons + self.private_axons or self.global_axons.
                 elem.global_axons = self.global_axons
                 elem.is_root = self.is_root
                 ordered_grps.insert(0, elem)
