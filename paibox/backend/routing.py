@@ -234,7 +234,8 @@ class RoutingGroup:
 
         # Unordered core blocks sorted in descending order, avoiding assigning waste.
         unordered_elem = sorted(
-            self.unordered_elems, key=lambda x: x.n_core_required, reverse=True
+            self.unordered_elems, 
+            key=lambda x: (isinstance(x, CoreBlock), -x.n_core_required)
         )
         for elem in unordered_elem:
             self.offset.append(n_core_used)
