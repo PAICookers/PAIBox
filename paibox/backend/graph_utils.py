@@ -294,6 +294,9 @@ def merge_cycles(merged_sgrps: list[MergedSuccGroup]) -> list[MergedSuccGroup]:
         if not cur_m.nodes.isdisjoint(next_m.inputs):
             succ_merged_sgrps[cur_m].append(next_m)
 
+        if not next_m.nodes.isdisjoint(cur_m.inputs):
+            succ_merged_sgrps[next_m].append(cur_m)
+
     cycles = find_cycles(succ_merged_sgrps)
     merged_cycles = merge_overlapping_sets(cycles)
 
