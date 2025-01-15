@@ -4,7 +4,6 @@ import pytest
 from paicorelib import HwConfig
 
 import paibox as pb
-from paibox.backend.graphs import PAIGraph
 from paibox.backend.graph_utils import *
 from paibox.backend.graphs import PAIGraph
 from paibox.backend.types import *
