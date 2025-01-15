@@ -28,6 +28,8 @@ jobs:
           - python-version: "3.13"
             os: windows-latest
     runs-on: ${{ matrix.os }}
+    env:
+      CI_ENV: "true"
 
     steps:
       - uses: actions/checkout@v4
