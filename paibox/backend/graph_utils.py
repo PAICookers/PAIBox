@@ -1,6 +1,6 @@
 import itertools
 import typing
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Generator, TypeVar, Union
 
@@ -308,6 +308,70 @@ def merge_cycles(merged_sgrps: list[MergedSuccGroup]) -> list[MergedSuccGroup]:
 
     merged.extend(remaining)
     return merged
+
+
+def prune_disconn_graph(
+    succ_dg: Mapping[_NT, Iterable[_NT]],
+    start_nodes: Sequence[_NT],
+    forward_only: bool = False,
+) -> tuple[dict[_NT, Iterable[_NT]], set[_NT]]:
+    """Remove all nodes & their associated edges from the computation graph that are not connected to any   \
+        of the given start nodes.
+
+    Args:
+        succ_dg (dict): The computation graph represented as a dictionary, where keys are nodes & values    \
+            are lists of successor nodes. `succ_dg` contains all nodes in the graph.
+        start_nodes (list): A collection of start nodes.
+        forward_only (bool): If True, prune the predecessors of the start nodes even if they are connected  \
+            to them.
+
+    Returns:
+        out (dict): The updated computation graph containing only nodes & edges that are connected to at    \
+            least one start node.
+    """
+
+    def bfs(
+        graph: Mapping[_NT, Iterable[_NT]], start_node: _NT, visited: set[_NT]
+    ) -> None:
+        queue = deque([start_node])
+
+        while queue:
+            node = queue.popleft()
+            if node not in visited:
+                visited.add(node)
+                for neighbor in graph.get(node, []):
+                    if neighbor not in visited:
+                        queue.append(neighbor)
+
+    if len(start_nodes) < 1:
+        raise ValueError("Start nodes list is empty.")
+
+    for n in start_nodes:
+        if n not in succ_dg:
+            raise ValueError(f"Start node {n} is not in the computation graph.")
+
+    connected_nodes: set[_NT] = set()
+    for n in start_nodes:
+        bfs(succ_dg, n, connected_nodes)
+
+    if not forward_only:
+        connected_nodes2: set[_NT] = set()
+        pred_dg = reverse_edges(succ_dg)
+        for n in start_nodes:
+            bfs(pred_dg, n, connected_nodes2)
+
+        connected_nodes |= connected_nodes2
+
+    all_nodes = set(succ_dg.keys())
+    non_connected_nodes = all_nodes - connected_nodes
+
+    new_succ_dg = {
+        node: neighbors
+        for node, neighbors in succ_dg.items()
+        if node not in non_connected_nodes
+    }
+
+    return new_succ_dg, non_connected_nodes
 
 
 def get_longest_path(

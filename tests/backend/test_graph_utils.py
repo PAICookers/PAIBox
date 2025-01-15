@@ -168,6 +168,47 @@ class TestTopoSort:
                 list(iter_toposort(graph))
 
 
+@pytest.mark.parametrize(
+    TestData.prune_disconn_graph_test_data["args"],
+    TestData.prune_disconn_graph_test_data["data"],
+    ids=TestData.prune_disconn_graph_test_data["ids"],  # type: ignore
+)
+def test_prune_disconn_graph(graph, start_nodes, expected_graph, disconn_nodes):
+    new_graph, disconn = prune_disconn_graph(graph, start_nodes, forward_only=False)
+
+    assert set(new_graph.keys()) == set(expected_graph.keys())
+    for node in new_graph:
+        assert set(new_graph[node]) == set(expected_graph[node])
+
+    assert disconn == disconn_nodes
+
+
+def test_prune_disconn_graph_forward_only():
+    graph = {
+        "A": ["B", "C"],
+        "B": ["C", "D"],
+        "C": [],
+        "D": [],
+        "E": [],
+        "F": ["G"],
+        "G": ["F", "H"],
+        "H": [],
+        "I": [],
+    }
+    # If starting from node B with `forward_only=True`, A is dismissed.
+    start_nodes = ["B"]
+    expected_graph = {"B": ["C", "D"], "C": [], "D": []}
+    disconn_nodes = {"A", "E", "F", "G", "H", "I"}
+
+    new_graph, disconn = prune_disconn_graph(graph, start_nodes, forward_only=True)
+
+    assert set(new_graph.keys()) == set(expected_graph.keys())
+    for node in new_graph:
+        assert set(new_graph[node]) == set(expected_graph[node])
+
+    assert disconn == disconn_nodes
+
+
 class TestDAGPathDistance:
     @staticmethod
     def get_longest_path_proto(

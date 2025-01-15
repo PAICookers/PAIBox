@@ -1593,3 +1593,73 @@ class TestData:
             ),
         ],
     )
+
+    prune_disconn_graph_test_data = ParametrizedTestData(
+        args="graph, start_nodes, expected_graph, disconn_nodes",
+        data=[
+            (
+                {1: [2, 3], 2: [4], 3: [5], 4: [], 5: []},
+                [1],
+                {1: [2, 3], 2: [4], 3: [5], 4: [], 5: []},
+                set(),
+            ),
+            (
+                {
+                    "A": ["B", "C"],
+                    "B": ["C", "D"],
+                    "C": [],
+                    "D": [],
+                    "E": [],
+                    "F": ["G"],
+                    "G": ["F", "H"],
+                    "H": [],
+                    "I": [],
+                },
+                ["A"],
+                {"A": ["B", "C"], "B": ["C", "D"], "C": [], "D": []},
+                {"E", "F", "G", "H", "I"},
+            ),
+            (
+                {
+                    "A": ["B", "C"],
+                    "B": ["C", "D"],
+                    "C": [],
+                    "D": [],
+                    "E": [],
+                    "F": ["G"],
+                    "G": ["F", "H"],
+                    "H": [],
+                    "I": [],
+                },
+                ["A", "G"],
+                {
+                    "A": ["B", "C"],
+                    "B": ["C", "D"],
+                    "C": [],
+                    "D": [],
+                    "F": ["G"],
+                    "G": ["F", "H"],
+                    "H": [],
+                },
+                {"E", "I"},
+            ),
+            (
+                {
+                    "A": ["B", "C"],
+                    "B": ["C", "D"],
+                    "C": [],
+                    "D": [],
+                    "E": [],
+                    "F": ["G"],
+                    "G": ["F", "H"],
+                    "H": [],
+                    "I": [],
+                },
+                # Even if starting from node B, A is connected to B.
+                ["B"],
+                {"A": ["B", "C"], "B": ["C", "D"], "C": [], "D": []},
+                {"E", "F", "G", "H", "I"},
+            ),
+        ],
+        ids=["all_connected", "1_start_node", "2_start_nodes", "start_from_middle"],
+    )
