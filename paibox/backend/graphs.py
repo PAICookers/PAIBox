@@ -1,7 +1,8 @@
 import math
-from collections.abc import Sequence
+import warnings
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import Union, cast
+from typing import Any, Union, cast
 
 from paicorelib import HwConfig
 
@@ -13,12 +14,20 @@ from paibox.exceptions import (
     GraphBuildError,
     GraphConnectionError,
     GraphNotSupportedError,
+    PAIBoxWarning,
 )
 from paibox.network import DynSysGroup
 from paibox.utils import check_elem_unique
 
 from .context import _BACKEND_CONTEXT
-from .graph_utils import get_node_degrees, reverse_edges, toposort
+from .graph_utils import (
+    get_node_degrees,
+    get_pred_dg_by_succ_dg,
+    iter_toposort,
+    prune_disconn_graph,
+    reverse_edges,
+    toposort,
+)
 from .placement import CoreBlock
 from .routing import RoutingGroup
 from .segment_utils import get_neu_segments
@@ -28,104 +37,132 @@ from .types import *
 __all__ = ["PAIGraph"]
 
 
+NodeAdjDictType = dict[NodeName, dict[NodeName, EdgeAttr]]
+
+
 @dataclass
 class PAIGraph:
-    """Directed graph of PAIBox. We treat networks as one whole graph. \
-        In the graph, synapses are edges while neurons are nodes.
+    """Directed graph of PAIBox. We treat networks as one whole graph. In the graph, synapses are   \
+        edges and neurons are nodes.
     """
 
-    _raw_networks: tuple[DynSysGroup, ...] = field(default_factory=tuple)
-    """All networks are seen as one graph."""
-    _raw_nodes: Collector[NodeName, NodeType] = field(default_factory=Collector)
-    """Raw nodes in the networks."""
-    _raw_edges: Collector[EdgeName, EdgeType] = field(default_factory=Collector)
-    """Raw edges in the graph."""
-    _raw_fmodules: Collector[NodeName, NeuModule] = field(default_factory=Collector)
-    """Raw functional modules in the graph."""
+    target_networks: tuple[DynSysGroup, ...] = field(default_factory=tuple)
+    """The networks that are actually used in the graph."""
 
-    nodes: dict[NodeName, NodeAttr] = field(default_factory=dict)
-    """General nodes in the graph."""
-    edges: dict[EdgeName, EdgeAttr] = field(default_factory=dict)
-    """General edges in the graph."""
+    nodes: Collector[NodeName, NodeType] = field(default_factory=Collector)
+    """Valid nodes in the graph."""
+    edges: Collector[EdgeName, EdgeType] = field(default_factory=Collector)
+    """Valid edges in the graph."""
 
     inodes: Collector[NodeName, SourceNodeType] = field(default_factory=Collector)
-    """Input nodes in the graph."""
+    """Valid input nodes in the graph. Can be recalculated."""
     onodes: Collector[NodeName, DestNodeType] = field(default_factory=Collector)
-    """Output nodes in the graph."""
+    """Valid output nodes in the graph. Can be recalculated."""
 
-    ordered_nodes: list[NodeName] = field(default_factory=list)
-    """Nodes in topological sort order."""
-
-    succ_dg: dict[NodeName, dict[NodeName, EdgeAttr]] = field(default_factory=dict)
-    """Successor edges & nodes of every node in the graph."""
-
-    pred_dg: dict[NodeName, dict[NodeName, EdgeAttr]] = field(default_factory=dict)
-    """Predecessor edges & nodes of every node in the graph."""
+    succ_dg: NodeAdjDictType = field(default_factory=dict)
+    """Valid successor edges & nodes of every node in the graph. Can be recalculated."""
+    pred_dg: NodeAdjDictType = field(default_factory=dict)
+    """Valid predecessor edges & nodes of every node in the graph. Can be recalculated."""
 
     degree_of_nodes: dict[NodeName, NodeDegree] = field(default_factory=dict)
-    """A dictionary of in/out-degree tuple of nodes."""
+    """A dictionary of in/out-degree tuple of nodes. Can be recalculated"""
 
-    """Status options"""
     has_built: bool = field(default=False)
 
-    def clear(self, total: bool = True) -> None:
+    _build_options: dict[str, Any] = field(default_factory=dict)
+    """Building options."""
+
+    def clear(self) -> None:
         """Clear the PAIGraph."""
         self.has_built = False
+        self._build_options.clear()
 
+        self.target_networks = ()
         self.nodes.clear()
         self.edges.clear()
         self.inodes.clear()
         self.onodes.clear()
-        self.ordered_nodes.clear()
         self.succ_dg.clear()
         self.pred_dg.clear()
         self.degree_of_nodes.clear()
 
-        if total:
-            self._raw_networks = ()
-            self._raw_nodes.clear()
-            self._raw_edges.clear()
-            self._raw_fmodules.clear()
-
     def build(self, *networks: DynSysGroup, **build_options) -> None:
+        # Check the hardware resource limits of operators in the network during the build phase.
+        # self._build_options.setdefault("check_before_compile", True)
+
+        # Prune networks with no input nodes before building the graph.
+        # self._build_options.setdefault("ignore_no_inp_subgraph", True)
+
+        # Update building options provided by the user.
+        self._build_options.update(build_options)
+
         self.clear()
+
+        if not networks:
+            raise GraphBuildError("no networks are provided.")
 
         if not check_elem_unique(networks):
             raise GraphBuildError("duplicated networks are not allowed.")
 
-        self._raw_networks = networks
-        self._pre_build(**build_options)
+        # The networks will be modified in pre-build phase.
+        self._pre_build(networks, **self._build_options)
 
-        nodes: Collector[NodeName, NodeType] = Collector()
-        edges: Collector[EdgeName, EdgeType] = Collector()
-        fm: Collector[NodeName, NeuModule] = Collector()
+        # Collect the raw information of the graph with the given networks.
+        # TODO For debugging, disable the check. Add an env variable to distinguish between debug & production use.
+        self.target_networks = networks
+        # self._filter_out_no_inp_networks(networks)
 
-        for subnet in self._raw_networks:
-            fm += subnet.nodes().subset(NeuModule).unique()
-            nodes += (
-                subnet.nodes().include(InputProj, Neuron).exclude(NeuModule).unique()
+        _nodes: Collector[NodeName, NodeType] = Collector()
+        _edges: Collector[EdgeName, EdgeType] = Collector()
+
+        for nw in self.target_networks:
+            _nodes += nw.nodes().include(InputProj, Neuron).exclude(NeuModule).unique()
+            _edges += nw.nodes().subset(FullConnectedSyn).unique()
+
+        raw_nodes = _nodes.val_on_condition(lambda node: not node.__gh_build_ignore__)
+        raw_edges = _edges.val_on_condition(lambda edge: not edge.__gh_build_ignore__)
+        raw_succ_dg = self._build_succ_dg(raw_nodes, list(raw_edges.values()))
+
+        # `InputProj` nodes are input nodes definitely.
+        self.inodes = raw_nodes.subset(InputProj)
+
+        # Filter out the subgraphs that are not connected to the input nodes.
+        if build_options.get("ignore_no_inp_subgraph", False):
+            pruned_succ_dg, _ = prune_disconn_graph(
+                raw_succ_dg, list(self.inodes.keys())
             )
-            edges += subnet.nodes().subset(FullConnectedSyn).unique()
+            # Remove the disconnected nodes then get the valid nodes.
+            nodes = raw_nodes.key_on_condition(lambda node: node in pruned_succ_dg)
+        else:
+            pruned_succ_dg = raw_succ_dg
+            nodes = raw_nodes
 
-        self._raw_nodes += nodes.val_on_condition(
-            lambda node: not node.__gh_build_ignore__
+        # Finally, collect the valid graph information.
+        self.nodes = nodes
+        self.edges = Collector(
+            {
+                edge.name: edge
+                for edge in raw_edges.values()
+                if edge.source.name in self.nodes and edge.dest.name in self.nodes
+            }
         )
-        self._raw_edges += edges.val_on_condition(
-            lambda edge: not edge.__gh_build_ignore__
-        )
-        self._raw_fmodules = fm
+        self.succ_dg = cast(NodeAdjDictType, pruned_succ_dg)
+        self.pred_dg = get_pred_dg_by_succ_dg(self.succ_dg)
+        self.degree_of_nodes = get_node_degrees(self.succ_dg)
+        self.onodes = self._collect_onodes(self.nodes, self.degree_of_nodes)
 
-        self._update_graph(**build_options)
+        # Check the uniqueness of the successors of each node.
+        for n in self.succ_dg:
+            assert check_elem_unique(self.succ_dg[n])
 
-    def _pre_build(self, **build_options) -> None:
+        self.has_built = True
+
+    def _pre_build(self, networks: tuple[DynSysGroup, ...], **build_options) -> None:
         """Preprocessing before obtaining the topology."""
-        # Check the hardware resource limits of operators in the network during the build phase.
-        build_options.setdefault("check_before_compile", True)
-
         # Build functional modules for each network.
-        for network in self._raw_networks:
-            if network.is_composed_of_semi_folded_ops():
-                modules = network.components.subset(NeuModule)
+        for nw in networks:
+            if nw.is_composed_of_semi_folded_ops():
+                modules = nw.components.subset(NeuModule)
                 succ_dg_semi_ops = {
                     name: [t.name for t in op.target] for name, op in modules.items()
                 }
@@ -145,70 +182,82 @@ class PAIGraph:
                     )
 
                 ordered_nodes = [modules[name] for name in toposort(succ_dg_semi_ops)]
-                network.build_modules(pred_dg_semi_ops, ordered_nodes, **build_options)
+                nw.build_modules(pred_dg_semi_ops, ordered_nodes, **build_options)
             else:
-                network.build_modules(**build_options)
+                nw.build_modules(**build_options)
 
-    def _update_graph(self, **build_options) -> None:
-        self.clear(total=False)
+    @staticmethod
+    def _filter_out_no_inp_networks(
+        networks: tuple[DynSysGroup, ...]
+    ) -> tuple[DynSysGroup, ...]:
+        """Filter out the networks that have no input nodes."""
+        target = []
 
-        # TODO Check isolated nodes in _raw_nodes
-        for node in self._raw_nodes:
-            self.succ_dg[node] = dict()
-            self.pred_dg[node] = dict()
-
-        for name, syn in self._raw_edges.items():
-            u, v = syn.source.name, syn.dest.name
-            if u not in self._raw_nodes:
-                raise GraphConnectionError(
-                    f"the source neuron {u} of {syn.name} is not included in the graph."
+        for nw in networks:
+            if len(nw.nodes().subset(InputProj)) > 0:
+                target.append(nw)
+            else:
+                warnings.warn(
+                    f"Network {nw.name} has no input node, filtered out.",
+                    PAIBoxWarning,
                 )
 
-            if v not in self._raw_nodes:
+        return tuple(target)
+
+    @staticmethod
+    def _build_succ_dg(
+        nodes: Iterable[NodeName], edges: Iterable[EdgeType]
+    ) -> NodeAdjDictType:
+        succ_dg: NodeAdjDictType = {n: dict() for n in nodes}  # record all nodes
+
+        for edge in edges:
+            u, v = edge.source.name, edge.dest.name
+
+            if u not in nodes:
                 raise GraphConnectionError(
-                    f"the dest neuron {v} of {syn.name} is not included in the graph."
+                    f"the source neuron {u} of {edge.name} is not included in the graph."
                 )
 
-            _edge_attr = EdgeAttr(edge=syn, distance=syn.source.delay_relative)
-            self.edges[name] = _edge_attr
-            self.succ_dg[u][v] = _edge_attr
-            self.pred_dg[v][u] = _edge_attr
+            if v not in nodes:
+                raise GraphConnectionError(
+                    f"the dest neuron {v} of {edge.name} is not included in the graph."
+                )
 
-        # Check the uniqueness of the successors/predecessors of each node.
-        for n in self.succ_dg:
-            check_elem_unique(self.succ_dg[n])
+            succ_dg[u][v] = EdgeAttr(edge, edge.source.delay_relative)
 
-        for n in self.pred_dg:
-            check_elem_unique(self.pred_dg[n])
+        for n in succ_dg:
+            assert check_elem_unique(succ_dg[n])
 
-        self.degree_of_nodes = get_node_degrees(self.succ_dg)
+        return succ_dg
 
-        # `InputProj` nodes are input nodes definitely.
-        self.inodes = self._raw_nodes.subset(InputProj)
-
-        # By default, nodes with out-degree = 0 are considered as output nodes.
-        # TODO A node with out-degree can also be an output node. However, no network for now has this topology.
-        self.onodes = Collector(
+    @staticmethod
+    def _collect_onodes(
+        nodes: Collector[NodeName, NodeType], degrees: dict[NodeName, NodeDegree]
+    ) -> Collector[str, DestNodeType]:
+        return Collector(
             {
                 k: cast(DestNodeType, v)
-                for k, v in self._raw_nodes.items()
-                if self.degree_of_nodes[k].out_degree == 0
+                for k, v in nodes.items()
+                if degrees[k].out_degree == 0
             }
-        ).not_subset(InputProj)
+        ).not_subset(
+            InputProj
+        )  # Exclude isolated input nodes
 
-        for name, node in self._raw_nodes.items():
-            self.nodes[name] = NodeAttr(
-                node, self._node_pos(name), self.degree_of_nodes[name]
-            )
-
-        self.ordered_nodes = toposort(self.succ_dg)
-        self.has_built = True
+    def _update_graph(self, **build_options) -> None:
+        """Called after the computation graph(`nodes` or `edges`) has been modified."""
+        self.inodes = self.nodes.subset(InputProj)
+        self.succ_dg = self._build_succ_dg(self.nodes, list(self.edges.values()))
+        self.pred_dg = get_pred_dg_by_succ_dg(self.succ_dg)
+        self.degree_of_nodes = get_node_degrees(self.succ_dg)
+        self.onodes = self._collect_onodes(self.nodes, self.degree_of_nodes)
 
     def untwist_branch_nodes(self) -> None:
         # FIXME Input nodes may need to be excluded from the nodes to be traversed?
+        ordered_nodes = toposort(self.succ_dg)
         for node_nn in filter(
             lambda node: self.degree_of_nodes[node].out_degree > 1,
-            reversed(self.ordered_nodes),
+            reversed(ordered_nodes),
         ):
             # succ_dg will be updated in _copy_node, so use the copy of succ_dg.
             for succ_nn in self.succ_dg[node_nn].copy():
@@ -218,7 +267,7 @@ class PAIGraph:
                     self.degree_of_nodes[succ_nn].in_degree > 1
                     and self.degree_of_nodes[node_nn].out_degree > 1
                 ):
-                    node = self._raw_nodes[node_nn]
+                    node = self.nodes[node_nn]
                     self._copy_node(
                         node, keep_pred_conn=True, grab_succ_nodes=succ_nn, update=False
                     )
@@ -238,14 +287,6 @@ class PAIGraph:
                 f"neurons are supported."
             )
 
-    def _node_pos(self, node: NodeName) -> NodePosition:
-        if node in self.inodes:
-            return NodePosition.INPUT
-        elif node in self.onodes:
-            return NodePosition.OUTPUT
-        else:
-            return NodePosition.MEMBER
-
     def build_check(self) -> None:
         if not self.has_built:
             raise GraphBuildError("the graph hasn't been built yet.")
@@ -254,7 +295,7 @@ class PAIGraph:
         """Graph partition."""
         # Build the `SuccGroup` for each node in the graph.
         succ_grps: list[SuccGroup] = []
-        for nn in self.ordered_nodes:
+        for nn in iter_toposort(self.succ_dg):
             if succ_nodes := self.succ_dg[nn]:
                 succ_grps.append(SuccGroup(e.edge for e in succ_nodes.values()))
 
@@ -394,7 +435,7 @@ class PAIGraph:
                 self.pred_dg[copied.name] = dict()
             for pred_nn, pred_edge_attr in pred_nodes.items():
                 copied_edge = pred_edge_attr.edge.copy(target=copied)
-                self._raw_edges[copied_edge.name] = copied_edge
+                self.edges[copied_edge.name] = copied_edge
                 # If don't _update_graph(), update partial information:
                 # 1. Add the copied node & its incomming edges to succ_dg.
                 # 2. Update the in-degree of copied node = in-degree of the original node.
@@ -417,7 +458,7 @@ class PAIGraph:
         ) -> None:
             for succ_nn, succ_edge_attr in succ_nodes.items():
                 copied_edge = succ_edge_attr.edge.copy(source=copied)
-                self._raw_edges[copied_edge.name] = copied_edge
+                self.edges[copied_edge.name] = copied_edge
                 # If don't _update_graph(), update partial information:
                 # 1. Add the copied node & its outcoming edges to pred_nodes_dict & pred_dg.
                 # 2. Update the out-degree of copied node = out-degree of the original node.
@@ -439,7 +480,7 @@ class PAIGraph:
         succ_nodes = self.succ_dg[node.name]
 
         copied = node.copy()
-        self._raw_nodes[copied.name] = copied
+        self.nodes[copied.name] = copied
 
         if not update:
             self.degree_of_nodes[copied.name] = NodeDegree()
@@ -545,6 +586,10 @@ class PAIGraph:
         NOTE: If there are more than one output nodes, the first valid data will be the one with the smallest timestamp.
         """
         self.build_check()
+
+        if len(self.onodes) == 0:
+            return 0
+
         return min(
             n._oflow_format.get_global_t_1st_vld(n.tick_wait_start)
             for n in self.onodes.values()
@@ -553,9 +598,13 @@ class PAIGraph:
     def get_output_flow_format(self) -> dict[NodeName, DataFlowFormat]:
         """Return the output data flow format of the compiled in global time.
 
-        NOTE: There may be multiple different data streams in the network.
+        NOTE: There may be multiple different data streams in the nw.
         """
         self.build_check()
+
+        if len(self.onodes) == 0:
+            return {}
+
         return {
             n.name: n._oflow_format.local2global(n.tick_wait_start)
             for n in self.onodes.values()
@@ -564,4 +613,4 @@ class PAIGraph:
     @property
     def graph_name_repr(self) -> str:
         _prefix = "graph_of_"
-        return _prefix + "_and_".join(network.name for network in self._raw_networks)
+        return _prefix + "_and_".join(nw.name for nw in self.target_networks)
