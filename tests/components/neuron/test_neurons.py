@@ -659,8 +659,6 @@ class TestANNNeuron:
                 n1.spike, np.asarray([0]) if incoming_v[i] < 0 else incoming_v[i]
             )
 
-        assert 1
-
     @pytest.mark.parametrize(
         "bit_trunc, expected_v",
         [

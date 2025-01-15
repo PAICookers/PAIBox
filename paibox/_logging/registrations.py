@@ -28,7 +28,7 @@ register_artifact("build_core_blocks")
 register_artifact("lcn_ex_adjustment")
 register_artifact("cb_axon_grouping")
 register_artifact("coord_assign")
-register_artifact("get_dest")
+register_artifact("collect_neuron_dest")
 
 # routing
 register_artifact("routing_group_info")

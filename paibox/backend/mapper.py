@@ -1,3 +1,4 @@
+import itertools
 import logging
 from collections import defaultdict
 from collections.abc import Sequence
@@ -5,8 +6,9 @@ from copy import copy
 from pathlib import Path
 from typing import Literal, Optional, Union
 
-from paicorelib import ChipCoord, Coord, CoordOffset, HwConfig
+from paicorelib import ChipCoord, CoordOffset, HwConfig
 
+from paibox import _logging
 from paibox.base import SynSys
 from paibox.components import Neuron
 from paibox.exceptions import CompileError, ConfigInvalidError, ResourceError
@@ -24,31 +26,20 @@ from .conf_types import (
     OutputDestConf,
 )
 from .context import _BACKEND_CONTEXT, set_cflag
-from .graphs import (
-    PAIGraph,
-    find_cycles,
-    get_node_degrees,
-    get_succ_cb_by_node,
-    merge_overlap,
-    toposort,
-)
-from .placement import CoreBlock, SliceDest, SourceDest, aligned_coords, max_lcn_of_cb
+from .graph_utils import get_node_degrees, get_succ_cb_by_node, merge_cycles
+from .graphs import PAIGraph
+from .placement import CoreBlock, SourceDest, aligned_coords, max_lcn_of_cb
 from .routing import RoutingGroup, RoutingManager
-from .types import (
-    Coord2str,
-    MergedSuccGroup,
-    NeuSegment,
-    NodeDegree,
-    NodeType,
-    SourceNodeType,
-    is_iw8,
-)
+from .types import NeuSegment, NodeDegree, NodeType, SourceNodeType, is_iw8
 
-logging.basicConfig(
-    level=logging.INFO,  # 设置日志级别
-    format="%(levelname)s:\t%(message)s",  # 自定义格式
-)
 __all__ = ["Mapper"]
+
+log = logging.getLogger(__name__)
+build_cb_log = _logging.get_artifact_logger(__name__, "build_core_blocks")
+lcn_adj_log = _logging.get_artifact_logger(__name__, "lcn_ex_adjustment")
+cb_axon_grp_log = _logging.get_artifact_logger(__name__, "cb_axon_grouping")
+coord_asg_log = _logging.get_artifact_logger(__name__, "coord_assign")
+ndest_collect = _logging.get_artifact_logger(__name__, "collect_neuron_dest")
 
 
 class Mapper:
@@ -66,8 +57,6 @@ class Mapper:
         """List of input core blocks for each input node."""
 
         self.degrees_of_cb: dict[CoreBlock, NodeDegree] = defaultdict(NodeDegree)
-        self.routing_groups: list[RoutingGroup] = []
-        self.succ_routing_groups: dict[RoutingGroup, list[RoutingGroup]] = dict()
 
         self.core_plm_config: CorePlmConf = defaultdict(dict)
         self.core_params: CoreConf = defaultdict(dict)
@@ -78,8 +67,10 @@ class Mapper:
         self.routing_manager = RoutingManager(
             chip_list=_BACKEND_CONTEXT["target_chip_addr"]
         )
-        self.neuron_dest: dict[SourceNodeType, SourceDest] = dict()
+        self.neuron_dest: dict[SourceNodeType, SourceDest] = defaultdict(SourceDest)
+        """The dictionary of destinations for input or neuron nodes."""
 
+        # Status variables during compilation. Make sure to clear them after each compilation.
         self._core_estimate_only = False
         """Wether this compilation is for core estimation only. If so, no core will be assigned."""
 
@@ -87,14 +78,13 @@ class Mapper:
 
     def clear(self) -> None:
         self.graph.clear()
+        self.routing_manager.clear()
 
         self.core_blocks.clear()
         self.succ_core_blocks.clear()
         self.input_core_blocks.clear()
 
         self.degrees_of_cb.clear()
-        self.routing_groups.clear()
-        self.succ_routing_groups.clear()
 
         self.core_params.clear()
         self.core_plm_config.clear()
@@ -102,8 +92,10 @@ class Mapper:
         self.n_core_required = 0
         self.n_core_occupied = 0
 
-        self._core_estimate_only = False
         self.neuron_dest.clear()
+
+        # Status variables
+        self._core_estimate_only = False
 
         # Set default cflags
         _BACKEND_CONTEXT.cflags.clear()
@@ -185,29 +177,28 @@ class Mapper:
 
         self._core_estimate_only = core_estimate_only
 
-        """Preperation.
-            1. Check whether the PAIGraph has built.
-            2. Set global compilation flags.
-        """
+        # Preperation:
+        # 1. Check whether the PAIGraph has built.
+        # 2. Set global compilation flags.
         self._build_check()
         self._set_global_cflags()
 
-        """Untwist the branch nodes if flag is on."""
+        # Untwist the branch nodes if the flag is on.
         if no_twisted_branch:
             self.untwist_branch_nodes()
 
         self.graph.topo_support_check()
 
-        """Build core blocks."""
+        # Build core blocks
         self.build_core_blocks()
 
-        """Adjust the LCN extension of each core block."""
+        # Adjust the LCN extension of each core block
         self.lcn_ex_adjustment()
 
-        """Group the axons of core block."""
+        # Group the axons of core block
         self.cb_axon_grouping()
 
-        """Core coordinate assignment."""
+        # Coordinates assignment
         self.coord_assign(self._core_estimate_only)
 
         if self._core_estimate_only:
@@ -222,11 +213,13 @@ class Mapper:
                 n_core_occupied=0,
             )
 
-        self.get_dest()
-        """Allocate the core blocks to the core placments."""
+        # Collect the neuron destinations for input or neuron nodes.
+        self.collect_neuron_dest()
+
+        # Allocate the routing groups to the core placements level.
         self.core_allocation()
 
-        """Export configurations. This step does not modify any data."""
+        # Export configurations and return. This step does not modify any data.
         return self.config_export()
 
     def untwist_branch_nodes(self) -> None:
@@ -234,44 +227,81 @@ class Mapper:
 
     def build_core_blocks(self) -> None:
         """Build core blocks based on partitioned edges."""
-        merged_sgrps: list[MergedSuccGroup] = self.graph.graph_partition()
-        merged_sgrps: list[MergedSuccGroup] = cycle_merge(merged_sgrps)
+        # Graph partitioning
+        merged_sgrps = self.graph.graph_partition()
+        merged_sgrps = merge_cycles(merged_sgrps)
 
+        # Build routing groups
+        raw_rgrps: list[RoutingGroup] = []
         for msgrp in merged_sgrps:
-            self.routing_groups.append(RoutingGroup.build(msgrp, True))
-        # for rg in self.routing_groups:
-        #     rg.dump()
+            raw_rgrps.append(RoutingGroup.build(msgrp, is_root=True))
 
-        routing_groups: list[RoutingGroup] = list()
-        for rg in self.routing_groups:
-            routing_groups.extend(rg.optimize_group())
-        self.routing_groups = routing_groups
+        # Record the optimized routing groups in the routing manager
+        self.routing_manager.optimize_rgrps(raw_rgrps)
 
-        logging.info(
-            "################################### Routing Group Builded, N_Core_Required Not Set Yet ###################################"
-        )
-        for rg in self.routing_groups:
+        for rg in self.routing_manager.routing_grps:
             rg.dump()
 
-        for rg in self.routing_groups:
+        log.info(
+            "################################### Routing Group Builded, N_Core_Required Not Set Yet ###################################"
+        )
+
+        # Retrive the core blocks from routing groups
+        for rg in self.routing_manager.routing_grps:
             self.core_blocks += rg.core_blocks
 
-        logging.info(
-            "################################### Set Succ CoreBlock ###################################"
+        log.info(
+            "################################### Succ CoreBlock Set ###################################"
         )
-        for cur_cb in self.core_blocks:
-            succ_cbs: list[CoreBlock] = []
-            # cur_cb == cb is possible
-            for cb in self.core_blocks:
-                if node_sl_lst_overlap(cur_cb.dest, cb.ordered_axons):
-                    succ_cbs.append(cb)
-            self.succ_core_blocks[cur_cb] = succ_cbs
+        # Build the successor graph of core blocks.
+        self._build_cb_graph(no_cb_cycle=True)
+        # Collect the input core blocks for each input node.
+        self._collect_input_core_blocks()
 
-            logging.info(f"{cur_cb.name} Succ:")
+        # Record the degrees of core blocks for later use.
+        self.degrees_of_cb = get_node_degrees(self.succ_core_blocks)
+
+        # Build the successor graph of routing groups.
+        self.routing_manager.build_rg_graph(self.succ_core_blocks)
+
+    def _build_cb_graph(self, no_cb_cycle: bool = True) -> None:
+        """Build the successor graph of core blocks.
+
+        Args:
+            no_cb_cycle (bool): whether to prohibit core blocks forming a cycle. Default is True. This  \
+                situation has been solved in the previous steps.
+        """
+        # Impossible that the sucessor of one core block is itself (as a loop).
+        assert all(
+            not node_sl_lst_overlap(cb.dest, cb.ordered_axons)
+            for cb in self.core_blocks
+        )
+
+        # Use `combinations` to traverse the core blocks pairs without duplication.
+        # Generate (c1, (c2, c3, c4,...)), (c2, (c3, c4, c5,...)), (c3, (c4, c5, c6,...)), etc.
+        for cb in self.core_blocks:
+            self.succ_core_blocks[cb] = []
+
+        for cur_cb, next_cb in itertools.combinations(self.core_blocks, 2):
+            _ol_c2n = node_sl_lst_overlap(cur_cb.dest, next_cb.ordered_axons)
+            _ol_n2c = node_sl_lst_overlap(next_cb.dest, cur_cb.ordered_axons)
+
+            if no_cb_cycle:
+                assert not (_ol_c2n and _ol_n2c)  # cannot be a cycle.
+
+            if _ol_c2n:
+                self.succ_core_blocks[cur_cb].append(next_cb)
+            if _ol_n2c:
+                self.succ_core_blocks[next_cb].append(cur_cb)
+
+        for cur_cb, succ_cbs in self.succ_core_blocks.items():
+            build_cb_log.debug(f"{cur_cb.name} Succ:")
             for cb in succ_cbs:
-                logging.info(f"\t{cb.name}")
-            logging.info("")
+                build_cb_log.debug(f"\t{cb.name}")
 
+    def _collect_input_core_blocks(self) -> None:
+        """Collect the input core blocks for each input node."""
+        # Record the input core blocks for each input node.
         for inode in self.graph.inodes.values():
             # TODO How to prevent this situation: there is input node & predecessor nodes
             # in a certain core blocks.
@@ -280,75 +310,59 @@ class Mapper:
             succ_cb = get_succ_cb_by_node(inode, self.core_blocks)
             if len(succ_cb) > 0:
                 self.input_core_blocks[inode] = succ_cb
-            # print(f"input core block of {inode.name}:")
-            # for cb in succ_cb:
-            #     print(f"\t{cb.name}")
-            # print()
 
-        self.degrees_of_cb = get_node_degrees(self.succ_core_blocks)
-
-        for rg in self.routing_groups:
-            self.succ_routing_groups[rg] = []
-            rg_succ_cb: set[CoreBlock] = set()
-            for cb in rg:
-                rg_succ_cb.update(self.succ_core_blocks[cb])
-
-            for _rg in self.routing_groups:
-                if _rg == rg:
-                    continue
-                for cb in rg_succ_cb:
-                    if cb in _rg:
-                        self.succ_routing_groups[rg].append(_rg)
-                        break
+            build_cb_log.debug(f"input core block of {inode.name}:")
+            for cb in succ_cb:
+                build_cb_log.debug(f"\t{cb.name}")
 
     def lcn_ex_adjustment(self) -> None:
-        """Adjust the LCN of each core block & set target LCN."""
-        # In the absence of the above complex situations, the following judgment is useless.
-        # But it'd be better to add this lcn adjustment.
+        """Adjust the LCN of each core block & set the target LCN.
+
+        NOTE: The LCN of all successor core blocks of any core block must be the same. Meanwhile,   \
+            the `target_lcn` of the core block is equal to that LCN.
+        """
+        # Adjust the `lcn_ex` of the input core blocks for each input node
         for input_cbs in self.input_core_blocks.values():
             if len(input_cbs) > 1:
                 max_lcn_ex = max_lcn_of_cb(input_cbs)
-                # Adjust the `lcn_ex` of the input core blocks for each input node
-                for g in input_cbs:
-                    g.lcn_ex = max_lcn_ex
+                for icb in input_cbs:
+                    icb.lcn_ex = max_lcn_ex
 
         for cb in self.core_blocks:
             succ_cbs = self.succ_core_blocks[cb]
+            if succ_cbs:
+                max_lcn_ex = (
+                    max_lcn_of_cb(succ_cbs) if len(succ_cbs) > 1 else succ_cbs[0].lcn_ex
+                )
+                if len(succ_cbs) > 1:
+                    for scb in succ_cbs:
+                        scb.lcn_ex = max_lcn_ex
 
-            if len(succ_cbs) > 1:
-                max_lcn_ex = max_lcn_of_cb(succ_cbs)
-                # Adjust the `lcn_ex` of the following core blocks
-                for _cb in succ_cbs:
-                    _cb.lcn_ex = max_lcn_ex
-
-                # Adjust `target_lcn` of itself & lock
                 cb.target_lcn = max_lcn_ex
-            elif len(succ_cbs) == 1:
-                # Adjust `target_lcn` of itself & lock
-                cb.target_lcn = succ_cbs[0].lcn_ex
 
             cb._lcn_locked = True
 
-        logging.info(
+        log.info(
             "################################### LCN Adjustment Finished ###################################"
         )
         for cb in self.core_blocks:
-            logging.info(f"{cb.name}: LCN = {cb.lcn_ex}")
+            lcn_adj_log.debug(f"{cb.name}: LCN = {cb.lcn_ex}")
 
-    # 需要广播的神经元的目的地的axon需要保持一致，检查同一routing group中的所有core block的输入，如果有相互重合的部分需要将重合的部分设置相同的axon
     def cb_axon_grouping(self) -> None:
-        """The axons are grouped after the LCN has been modified & locked."""
+        """Group the axons after the LCN is modified & locked. The destination axon of the neurons that need to be  \
+            multicast needs to be consistent. Check the inputs of all core blocks in the same routing group. If     \
+            there are overlapping parts, set the same axon for the overlapping parts.
+        """
         for cb in self.core_blocks:
             cb.group_axons()
 
-        logging.info(
-            "################################### Axon Group Finished ###################################"
+        log.info(
+            "################################### Axon Grouping Finished ###################################"
         )
         for cb in self.core_blocks:
-            logging.info(f"cb: {cb.name}:")
-            for source, axon_seg in cb.axon_segments.items():
-                logging.info(f"\t{source}: {axon_seg}")
-            logging.info("")
+            cb_axon_grp_log.debug(f"cb: {cb.name}:")
+            for source, ax_seg in cb.axon_segments.items():
+                cb_axon_grp_log.debug(f"\t{source}: {ax_seg}")
 
     def coord_assign(self, core_estimate_only: bool) -> None:
         """Assign the coordinate of each `CorePlacement`.
@@ -356,49 +370,36 @@ class Mapper:
         NOTE: The neurons in each core block must be grouped first to determine the \
             #N of cores required, and then the routing coordinates can be assigned.
         """
+        for rg in self.routing_manager.routing_grps:
+            for cb in rg.iter_nested_cb():
+                cb.group_neurons(
+                    optim_target=_BACKEND_CONTEXT.cflags["grouping_optim_target"]
+                )
 
-        for cb in self.core_blocks:
-            # Group the neurons, get the #N of cores required.
-            cb.group_neurons(
-                optim_target=_BACKEND_CONTEXT.cflags["grouping_optim_target"]
-            )
+            rg.set_core_required()
+            rg.dump()
 
-        logging.info(
+        log.info(
             "################################### Neuron Grouping Finished ###################################"
         )
         for cb in self.core_blocks:
-            logging.info(f"{cb.name}:")
-            logging.info(f"\tlcn_ex: {cb.lcn_ex}")
-            logging.info(f"\tweight_width: {cb.weight_width}")
-            logging.info(f"\tfan_out: {cb.n_fanout}")
-            logging.info("\tDests:")
-            for dest in cb.dest:
-                logging.info(f"\t\t{dest}")
-            logging.info("\tCores:")
-            for i, neu_seg in enumerate(cb.neuron_segs_of_cb):
-                logging.info(f"\t\t[{i}]:")
-                for neu in neu_seg:
-                    logging.info(f"\t\t\t{neu.target.name}[{neu.index}]")
-            logging.info("")
+            coord_asg_log.debug(cb)
 
-        for rg in self.routing_groups:
-            rg.set_core_required()
-
-        logging.info(
-            "################################### Core Required Set ###################################"
+        log.info(
+            "################################### Required Cores Set ###################################"
         )
-        for rg in self.routing_groups:
-            rg.dump()
 
         # Optimize the order of routing groups
-        # self.routing_groups = reorder_routing_groups(self.succ_routing_groups)
-        self.routing_groups = toposort(self.succ_routing_groups)
+        # self.routing_grps = reorder_routing_groups(self.succ_rgrps)
+        # self.ordered_rgrps = toposort(self.succ_rgrps)
+
         # Calculate the consumption of required physical cores.
         n_avail_cores = HwConfig.N_CORE_OFFLINE * _BACKEND_CONTEXT.n_target_chips
         n_core_required = sum(cb.n_core_required for cb in self.core_blocks)
 
         self.n_core_required = n_core_required
 
+        # If only estimate the core usage, the rest of the steps are not performed.
         if core_estimate_only:
             return None
 
@@ -407,66 +408,48 @@ class Mapper:
                 OUT_OF_CORE_RESOURCE_TEXT.format(n_avail_cores, n_core_required)
             )
 
-        for rg in self.routing_groups:
+        for rg in self.routing_manager.ordered_rgrps:
             self.routing_manager.place_routing_group(rg)
 
-        logging.info(
-            "################################### Assigned finished ###################################"
+        log.info(
+            "################################### Assignment Finished ###################################"
         )
-        for rg in self.routing_groups:
+        for rg in self.routing_manager.ordered_rgrps:
             rg.dump_routing_result()
 
-        # Calculate the consumption of occupied physical cores.
-        if (
-            n_core_occupied := sum(
-                rg.get_n_core_occupied() for rg in self.routing_groups
-            )
-        ) > n_avail_cores:
-            raise ResourceError(
-                OUT_OF_CORE_RESOURCE_TEXT.format(n_avail_cores, n_core_occupied)
-            )
+        # Online cores are not counted in the number of occupied cores.
+        self.n_core_occupied = self.routing_manager.get_n_core_occupied()
 
-        self.n_core_occupied = n_core_occupied
-
-    def get_dest(self) -> None:
+    def collect_neuron_dest(self) -> None:
+        """Collect the destination details for neuron slices in each core block."""
+        # Traverse all source node slices & their corresponding axon segments on the input axon side of core blocks.
         for cb in self.core_blocks:
             for source_slice, axon_seg in cb.axon_segments.items():
-                source = source_slice.target
-                # check source whether exist in neuron_dest
-                if source not in self.neuron_dest:
-                    self.neuron_dest[source] = SourceDest()
-                self.neuron_dest[source].add_dest(source_slice, axon_seg, cb)
+                self.neuron_dest[source_slice.target].add_dest(
+                    source_slice, axon_seg, cb
+                )
 
-        logging.info(
-            "################################### Neuron Dest Info ###################################"
+        log.info(
+            "################################ Neuron Dest Info Collected ################################"
         )
 
         for source, dest in self.neuron_dest.items():
-            dest.fusion_dest()
-            logging.info(f"source: {source.name}")
-            logging.info(f"cut_point: {dest.cut_points}")
-            for slice, slice_dest in zip(dest.slices, dest.dests):
-                logging.info(f"\tslice    : ({slice.start}, {slice.stop})")
-                logging.info(f"\taxon_addr: {slice_dest.dest_axon}")
-                logging.info(f"\tchip_addr: {slice_dest.dest_chip_coord}")
-                logging.info(f"\tcore_addr: {Coord2str(slice_dest.base_coord)}")
-                logging.info(f"\tmulticast: {Coord2str(slice_dest.rid)}")
-                logging.info("")
-            logging.info("")
+            dest.set_slice_dest_rid()
+            dest.sort_slice_dest_pairs()
+
+            ndest_collect.debug(f"source: {source.name}")
+            ndest_collect.debug(dest)
 
     def core_allocation(self) -> None:
-        """Allocate the routing groups to core placements level."""
-        for rg in self.routing_groups:
-            rg.core_block_alloc()
-        # raise NotImplementedError
+        """Allocate the routing groups to core placements level in topological order."""
+        self.routing_manager.allocate_cp()
 
     def config_export(self) -> GraphInfo:
         """Export parameters of cores & neurons inside.
 
         Steps:
-            - 1. Export the parameters(PARAMETER_REG, including RANDOM_SEED \
-                & Weight RAM) of cores.
-            - 2. Export the parameters(Neuron RAM) of neurons inside.
+            1. Export the parameters(PARAMETER_REG, including RANDOM_SEED & Weight RAM) of cores.
+            2. Export the parameters(Neuron RAM) of neurons inside.
         """
         if (ochip_coord := _BACKEND_CONTEXT["output_chip_addr"]) in _BACKEND_CONTEXT[
             "target_chip_addr"
@@ -523,18 +506,21 @@ class Mapper:
             "inp2_1": {...} # as input node #2
         }
         """
-        input_nodes_info = dict()
+        input_nodes_info: InputNodeConf = dict()
 
         for inode in self.graph.inodes.values():
             if inode not in self.neuron_dest:
                 continue
-            dest: SourceDest = self.neuron_dest[inode]
-            slice_dest: SliceDest = dest.undivided_dest()
+
+            dest = self.neuron_dest[inode]
+            # TODO Input nodes can also be sliced, so additional information needs to be saved in the dictionary
+            slice_dest = dest.is_undivided_dest()
+
             axon_coords = aligned_coords(
                 dest.slices[0],
                 slice_dest.dest_axon,
                 1,
-                slice_dest.time_slot,
+                slice_dest.timeslot,
                 is_iw8(slice_dest.rt_mode),
             )
 
@@ -547,7 +533,7 @@ class Mapper:
                 slice_dest.rid.y,
                 slice_dest.dest_chip_coord.x,
                 slice_dest.dest_chip_coord.y,
-                slice_dest.time_slot,  # 1 << lcn_ex
+                slice_dest.timeslot,  # 1 << lcn_ex
             )
 
             input_nodes_info[inode.name] = inp_neuron_dest
@@ -585,26 +571,32 @@ class Mapper:
         ocoord = copy(_BACKEND_CONTEXT["output_core_addr_start"])
         o_nodes = list(self.graph.onodes.values())
 
-        for rg in self.routing_groups:
-            for member_cb in rg:
-                self.core_params[rg.chip_coord] |= CoreBlock.export_core_plm_config(
-                    member_cb
-                )
+        for rg in self.routing_manager.ordered_rgrps:
+            for member_cb in rg.core_blocks:
+                self.core_params[rg.chip_coord] |= member_cb.export_core_plm_config()
 
                 for core_plm in member_cb.core_placements.values():
                     for neu_seg in core_plm.neu_segs_of_cplm:
-                        # output on chip
+                        # The destination of `neu_seg` is on the chips.
                         if neu_seg.target in self.neuron_dest:
                             target_dest = self.neuron_dest[neu_seg.target]
                             core_plm.export_neu_config(neu_seg, target_dest)
 
-                        # output off chip
+                        # Otherwise, `neu_seg` is an output node & the destination is not on the chips.
                         elif neu_seg.target in o_nodes:
+                            # For the destination allocation of output nodes, in order to enable the hardware platform
+                            # to distinguish & decode the output data of different output nodes, an allocation method
+                            # needs to be agreed upon artificially, as described below:
+                            # 1. All output nodes are output to an external chip (recorded in the CP already).
+                            # 2. Starting from the `output_core_addr_start`(=c) in `_BACKEND_CONTEXT`, each output node is
+                            # output to cores c, c+1, c+2, etc. in turn.
+                            # 3. Since we only leverage the axon coordinate attributes in the output working frames and
+                            # do not use the `tick_relative` attribute, the number of outputs of each output node cannot
+                            # be greater than `N_FANIN_PER_DENDRITE_MAX`(=1152). TODO Can be adjusted later.
                             offset_idx = o_nodes.index(neu_seg.target)
                             cur_ocoord = ocoord + CoordOffset.from_offset(offset_idx)
                             core_plm.export_neu_config(
-                                neu_seg,
-                                output_core_coord=cur_ocoord,
+                                neu_seg, output_core_coord=cur_ocoord
                             )
                             output_dest_info[neu_seg.target.name][core_plm.coord] = (
                                 core_plm.neu_configs[neu_seg.target].neuron_dest_info
@@ -741,30 +733,6 @@ class Mapper:
         return dest_cb_of_nseg
 
 
-def cycle_merge(merged_sgrps: list[MergedSuccGroup]) -> list[MergedSuccGroup]:
-    succ_merged_sgrps: dict[MergedSuccGroup, list[MergedSuccGroup]] = defaultdict(list)
-
-    for msgrp in merged_sgrps:
-        for _msgrp in merged_sgrps:
-            if msgrp == _msgrp:
-                continue
-            if not msgrp.nodes.isdisjoint(_msgrp.input_nodes):
-                succ_merged_sgrps[msgrp].append(_msgrp)
-
-    cycles: list[list[MergedSuccGroup]] = find_cycles(succ_merged_sgrps)
-    merged_cycles: list[list[MergedSuccGroup]] = merge_overlap(cycles)
-
-    processed_merged_cycles: list[MergedSuccGroup] = list()
-    remaining_msgrps: set[MergedSuccGroup] = set(merged_sgrps)
-    for mc in merged_cycles:
-        processed_merged_cycles.append(MergedSuccGroup.merge(mc))
-        for msgrp in mc:
-            remaining_msgrps.remove(msgrp)
-
-    processed_merged_cycles.extend(remaining_msgrps)
-    return processed_merged_cycles
-
-
 def group_by(dict_: dict, keyfunc=lambda item: item):
     """Groups the given list or dictionary by the value returned by ``keyfunc``."""
     d = defaultdict(list)
@@ -782,8 +750,8 @@ def _cb_routable(
         return True
 
     for rg in routing_group:
-        if core_blocks[0] in rg:
-            return all(cb in rg for cb in core_blocks)
+        if core_blocks[0] in rg.core_blocks:
+            return all(cb in rg.iter_nested_cb() for cb in core_blocks)
 
     return False
 

@@ -91,7 +91,7 @@ def gen_config_frames_by_coreconf(
 
             for neu_conf in v.neuron_configs.values():
                 if (
-                    neu_conf.neu_seg.offset + neu_conf.neu_seg.n_neuron
+                    neu_conf.neu_seg.offset_nram + neu_conf.neu_seg.n_neuron
                     <= HwConfig.ADDR_RAM_MAX + 1
                 ):
                     # Place in the NRAM
@@ -100,7 +100,7 @@ def gen_config_frames_by_coreconf(
                             chip_coord,
                             core_coord,
                             _RID_UNSET,
-                            neu_conf.neu_seg.offset,
+                            neu_conf.neu_seg.offset_nram,
                             neu_conf.neu_seg.n_neuron,
                             neu_conf.neuron_attrs,
                             neu_conf.neuron_dest_info,
@@ -112,7 +112,9 @@ def gen_config_frames_by_coreconf(
                     assert neu_conf.neu_seg.repeat == 1
 
                     if (
-                        n_on_nram := HwConfig.ADDR_RAM_MAX + 1 - neu_conf.neu_seg.offset
+                        n_on_nram := HwConfig.ADDR_RAM_MAX
+                        + 1
+                        - neu_conf.neu_seg.offset_nram
                     ) > 0:
                         # Place in the NRAM partially
                         neu_on_nram_conf = neu_conf[:n_on_nram]
@@ -121,7 +123,7 @@ def gen_config_frames_by_coreconf(
                                 chip_coord,
                                 core_coord,
                                 _RID_UNSET,
-                                neu_on_nram_conf.neu_seg.offset,
+                                neu_on_nram_conf.neu_seg.offset_nram,
                                 neu_on_nram_conf.neu_seg.n_neuron,
                                 neu_on_nram_conf.neuron_attrs,
                                 neu_on_nram_conf.neuron_dest_info,

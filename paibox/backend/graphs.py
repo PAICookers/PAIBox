@@ -1,8 +1,7 @@
 import math
-from collections import defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, TypeVar, Union, cast
+from typing import Union, cast
 
 from paicorelib import HwConfig
 
@@ -18,12 +17,15 @@ from paibox.exceptions import (
 from paibox.network import DynSysGroup
 from paibox.utils import check_elem_unique
 
-from ._slice import node_sl_lst_overlap
 from .context import _BACKEND_CONTEXT
+from .graph_utils import get_node_degrees, reverse_edges, toposort
 from .placement import CoreBlock
 from .routing import RoutingGroup
 from .segment_utils import get_neu_segments
+from .succ_group import *
 from .types import *
+
+__all__ = ["PAIGraph"]
 
 
 @dataclass
@@ -172,6 +174,13 @@ class PAIGraph:
             self.succ_dg[u][v] = _edge_attr
             self.pred_dg[v][u] = _edge_attr
 
+        # Check the uniqueness of the successors/predecessors of each node.
+        for n in self.succ_dg:
+            check_elem_unique(self.succ_dg[n])
+
+        for n in self.pred_dg:
+            check_elem_unique(self.pred_dg[n])
+
         self.degree_of_nodes = get_node_degrees(self.succ_dg)
 
         # `InputProj` nodes are input nodes definitely.
@@ -243,37 +252,33 @@ class PAIGraph:
 
     def graph_partition(self) -> list[MergedSuccGroup]:
         """Graph partition."""
-        # Build the SuccGroup for each node in the graph.
-        succ_groups: list[SuccGroup] = []
-        for node in self.ordered_nodes:
-            succ_node_names = set(self.succ_dg[node].keys())
-            if succ_node_names:
-                succ_nodes = [self._raw_nodes[n] for n in succ_node_names]
-                succ_edges = [self.succ_dg[node][n.name].edge for n in succ_nodes]
-                succ_groups.append(
-                    SuccGroup(self._raw_nodes[node], succ_nodes, succ_edges)
-                )
+        # Build the `SuccGroup` for each node in the graph.
+        succ_grps: list[SuccGroup] = []
+        for nn in self.ordered_nodes:
+            if succ_nodes := self.succ_dg[nn]:
+                succ_grps.append(SuccGroup(e.edge for e in succ_nodes.values()))
 
-        def dfs(sgrp: SuccGroup, rgrp: MergedSuccGroup) -> None:
-            # Union-find sets. If the nodes of two succ_groups have intersection, merge them.
-            for other_sgrp in succ_groups:
+        def dfs(sgrp: SuccGroup, msgrp: MergedSuccGroup) -> None:
+            # Union-find sets. If the nodes of two `succ_grps` have intersection, merge them.
+            for other_sgrp in succ_grps:
                 if other_sgrp not in visited and not set(sgrp.nodes).isdisjoint(
                     other_sgrp.nodes
                 ):
                     visited.add(other_sgrp)
-                    rgrp.add_group(other_sgrp)
-                    dfs(other_sgrp, rgrp)
+                    msgrp.add_group(other_sgrp)
+                    dfs(other_sgrp, msgrp)
 
-        route_groups: list[MergedSuccGroup] = []
+        # Merge
+        merged_sgrps: list[MergedSuccGroup] = []
         visited: set[SuccGroup] = set()
-        for sgrp in succ_groups:
+        for sgrp in succ_grps:
             if sgrp not in visited:
-                route_group = MergedSuccGroup(sgrp)
+                m = MergedSuccGroup([sgrp])
                 visited.add(sgrp)
-                dfs(sgrp, route_group)
-                route_groups.append(route_group)
+                dfs(sgrp, m)
+                merged_sgrps.append(m)
 
-        return route_groups
+        return merged_sgrps
 
     def multicast_optim(
         self,
@@ -522,10 +527,10 @@ class PAIGraph:
 
     @staticmethod
     def _find_rg_by_cb(
-        core_block: CoreBlock, routing_groups: list[RoutingGroup]
+        cb: CoreBlock, routing_groups: list[RoutingGroup]
     ) -> RoutingGroup:
         """Find which routing group the target core block is in."""
-        _rgs = [rg for rg in routing_groups if core_block in rg]
+        _rgs = [rg for rg in routing_groups if cb in rg.core_blocks]
 
         if len(_rgs) != 1:
             raise GraphConnectionError(
@@ -560,383 +565,3 @@ class PAIGraph:
     def graph_name_repr(self) -> str:
         _prefix = "graph_of_"
         return _prefix + "_and_".join(network.name for network in self._raw_networks)
-
-
-_NT = TypeVar("_NT", CoreBlock, NodeName, RoutingGroup, MergedSuccGroup)
-_T = TypeVar("_T")
-
-
-def _degree_check(
-    degree_of_nodes: Mapping[_NT, NodeDegree], succ_dg: Mapping[_NT, Iterable[_NT]]
-) -> None:
-    """Filter out such network structure, which is currently not supported."""
-    for node in filter(lambda node: degree_of_nodes[node].out_degree > 1, succ_dg):
-        for succ_node in succ_dg[node]:
-            if degree_of_nodes[succ_node].in_degree > 1:
-                _node_repr = (
-                    succ_node.name
-                    if isinstance(succ_node, CoreBlock)
-                    else str(succ_node)
-                )
-                raise GraphNotSupportedError(
-                    f"If out-degree of a node is greater than 1, the in-degree of its sucessors must be 1. "
-                    f"However, in-degree of {_node_repr} is {degree_of_nodes[succ_node].in_degree}."
-                )
-
-
-def find_cycles(directed_edges: Mapping[_NT, Iterable[_NT]]) -> list[list[_NT]]:
-    cycles: list[list[_NT]] = []
-    visited: set[_NT] = set()
-    stack: list[_NT] = []
-    stack_set: set[_NT] = set()  # 方便快速检查路径中的节点
-
-    # 深度优先搜索的辅助函数
-    def dfs(node: _NT) -> None:
-        if node in stack_set:  # 检测到环
-            cycle_start_index = stack.index(node)
-            cycles.append(stack[cycle_start_index:])
-            return
-        if node in visited:
-            return
-
-        visited.add(node)
-        stack.append(node)
-        stack_set.add(node)
-
-        for neighbor in directed_edges.get(node, []):
-            dfs(neighbor)
-
-        stack.pop()
-        stack_set.remove(node)
-
-    # 遍历每个节点，查找所有可能的环
-    for node in directed_edges:
-        if node not in visited:
-            dfs(node)
-
-    return cycles
-
-
-def merge_overlap(groups: Iterable[Sequence[_NT]]) -> list[list[_NT]]:
-    # 并查集数据结构
-    parent: dict[_NT, _NT] = dict()
-
-    # 查找集合的根节点
-    def find(x: _NT) -> _NT:
-        if parent[x] != x:
-            parent[x] = find(parent[x])
-
-        return parent[x]
-
-    # 合并两个集合
-    def union(x, y) -> None:
-        rootx = find(x)
-        rooty = find(y)
-        if rootx != rooty:
-            parent[rooty] = rootx
-
-    # 初始化并查集
-    for group in groups:
-        for elem in group:
-            if elem not in parent:
-                parent[elem] = elem
-
-    # 合并所有相互重叠的环
-    for group in groups:
-        first_elem = group[0]
-        for elem in group[1:]:
-            union(first_elem, elem)
-
-    # 根据并查集结果，将所有节点归类到同一个集合中
-    mgrps: dict[_NT, list[_NT]] = dict()
-    for elem in parent:
-        root = find(elem)
-        if root not in mgrps:
-            mgrps[root] = []
-        mgrps[root].append(elem)
-
-    return list(mgrps.values())
-
-
-def toposort(directed_edges: Mapping[_NT, Iterable[_NT]]) -> list[_NT]:
-    """
-    Topological sort algorithm by Kahn [1]_.
-
-    Complexity is O(nodes + vertices).
-
-    Parameters
-    ----------
-    edges : dict
-        dict of the form {a: {b, c}} where b and c depend on a
-
-    Returns
-    -------
-    An ordered list of nodes that satisfy the dependencies of ``edges``
-
-    Examples
-    --------
-
-    .. testcode::
-
-       from nengo.utils.graphs import toposort
-
-       print(toposort({1: {2, 3}, 2: {3}, 3: set()}))
-
-    .. testoutput::
-
-       [1, 2, 3]
-
-    Notes
-    -----
-    Closely follows the wikipedia page [2]_.
-
-    References
-    ----------
-    .. [1] Kahn, Arthur B. (1962), "Topological sorting of large networks",
-       Communications of the ACM
-    .. [2] https://en.wikipedia.org/wiki/Toposort#Algorithms
-    """
-    incoming_edges = reverse_edges(directed_edges)
-    vertices = set(
-        v for v in directed_edges if v not in incoming_edges or not incoming_edges[v]
-    )
-    ordered = []
-
-    while vertices:
-        n = vertices.pop()
-        ordered.append(n)
-        for m in directed_edges.get(n, ()):
-            assert n in incoming_edges[m]
-            incoming_edges[m].remove(n)
-            if not incoming_edges[m]:
-                vertices.add(m)
-
-    if any(incoming_edges.get(v, None) for v in directed_edges):
-        raise GraphNotSupportedError("the graph with cycles is not supported.")
-
-    return ordered
-
-
-def reverse_edges(directed_edges: Mapping[_NT, Iterable[_NT]]) -> dict[_NT, list[_NT]]:
-    """
-    Reverses direction of dependence dict.
-
-    Parameters
-    ----------
-    directed_edges : dict
-        dict of the form {a: {b, c}, b: set(), c: set()} where b and c depend
-        on a.
-
-    Returns
-    -------
-    dict of the form {a: set(), b: {a}, c: {a}} where b and c depend on a.
-    """
-    reversed = {k: list() for k in directed_edges}
-    for key in directed_edges:
-        for val in directed_edges[key]:
-            if key in reversed[val]:
-                raise ValueError(f"edge {key} -> {val} is repeated.")
-
-            reversed[val].append(key)
-
-    return reversed
-
-
-def reverse_edges2(
-    directed_edges: Mapping[_NT, Mapping[_NT, _T]]
-) -> dict[_NT, dict[_NT, _T]]:
-    reversed = {k: dict() for k in directed_edges}
-    for key in directed_edges:
-        for val, edge in directed_edges[key].items():
-            if key in reversed[val]:
-                raise ValueError(f"edge {key} -> {val} is repeated.")
-
-            reversed[val][key] = edge
-
-    return reversed
-
-
-# def _bounded_nodes_check(constrs: Sequence[Sequence[NeuDyn]]) -> None:
-#     seen = set()
-
-#     for bounded in constrs:
-#         for node in bounded:
-#             if node in seen:
-#                 raise ValueError(f"Node {node} is repeated in the list of constraints.")
-
-#             seen.add(node)
-
-
-# def _bounded_by(node: NodeName, constrs: Sequence[Sequence[NeuDyn]]) -> list[NodeName]:
-#     for constr in constrs:
-#         for bounded_node in constr:
-#             if node == bounded_node.name:
-#                 return list(n.name for n in set(constr))
-
-#     return []
-
-
-# def _conflicted_by(
-#     node: NodeName, constrs: dict[NodeName, Sequence[NeuDyn]]
-# ) -> list[NodeName]:
-#     """Find all the conflicted nodes of node.
-
-#     Example: {"1": {"2", "3"}, "4": {"1"}}. For node 1, return ["2", "3", "4"].
-#     """
-#     c = set(constrs.get(node, []))
-
-#     for k, v in constrs.items():
-#         for conf_node in v:
-#             if node == conf_node.name:
-#                 c.add(k)
-
-#     return list(n.name for n in c)
-
-
-def get_node_degrees(
-    succ_edges: Mapping[_NT, Union[Sequence[_NT], Mapping[_NT, Any]]]
-) -> dict[_NT, NodeDegree]:
-    degree = defaultdict(NodeDegree)
-    in_degrees = defaultdict(int)
-    out_degrees = defaultdict(int)
-
-    for node, succ_nodes in succ_edges.items():
-        out_degrees[node] = len(succ_nodes)
-
-        for succ_node in succ_nodes:
-            in_degrees[succ_node] += 1
-
-    for node in succ_edges:
-        degree[node] = NodeDegree(in_degrees[node], out_degrees[node])
-
-    return degree
-
-
-def get_longest_path(
-    edges_with_d: dict[_NT, dict[_NT, EdgeAttr]],
-    ordered_nodes: list[_NT],
-) -> tuple[list[_NT], int]:
-    """Get the longest path in the DAG.
-
-    Args:
-        - edges_with_d: a dictionary of directed edges with distance.
-        - ordered_nodes: nodes in topological sorting order.
-
-    Return:
-        A tuple containing the longest path in the graph and its distance.
-    """
-    distances: dict[_NT, int] = {node: 0 for node in ordered_nodes}
-    pred_nodes: dict[_NT, _NT] = dict()
-
-    for node in ordered_nodes:
-        for neighbor, edge_attr in edges_with_d[node].items():
-            d = edge_attr.distance
-            if distances[node] + d > distances[neighbor]:
-                distances[neighbor] = distances[node] + d
-                pred_nodes[neighbor] = node
-
-    # When there are more than one output nodes
-    # with same distance, choose the first one.
-    node = max(
-        filter(lambda node: len(edges_with_d[node]) == 0, distances),
-        key=lambda node: distances.get(node, 0),
-    )
-
-    distance = distances[node]
-    path = [node]
-
-    # Construct the longest path by following the predecessors
-    while path[-1] in pred_nodes:
-        path.append(pred_nodes[path[-1]])
-
-    path.reverse()
-    return path, distance
-
-
-MAX_DISTANCE = 999  # I don't like float('inf')
-
-
-def get_shortest_path(
-    edges_with_d: dict[_NT, dict[_NT, EdgeAttr]],
-    ordered_nodes: list[_NT],
-    input_nodes: list[_NT],
-) -> tuple[list[_NT], int]:
-    """Get the shortest path in the DAG.
-
-    Args:
-        - edges_with_d: a list of directed edges with distance.
-        - ordered_nodes: nodes in topological sorting.
-        - input_nodes: input nodes.
-
-    Return: the shortest distance in the graph.
-    """
-    distances: dict[_NT, int] = defaultdict(lambda: MAX_DISTANCE)
-    pred_nodes: dict[_NT, _NT] = dict()
-
-    # set initial value for all inputs nodes. If there is no input node,
-    # the first node after topological sorting will be used as the starting node.
-    if input_nodes:
-        for inode in input_nodes:
-            distances[inode] = 0
-    else:
-        distances[ordered_nodes[0]] = 0
-
-    for node in ordered_nodes:
-        for neighbor, edge_attr in edges_with_d[node].items():
-            d = edge_attr.distance
-            if distances[node] + d < distances[neighbor]:
-                distances[neighbor] = distances[node] + d
-                pred_nodes[neighbor] = node
-
-    # When there are more than one output nodes
-    # with same distance, choose the first one.
-    node = min(
-        filter(lambda node: len(edges_with_d[node]) == 0, distances),
-        key=lambda node: distances.get(node, 0),
-    )
-
-    distance = distances[node]
-    path = [node]
-
-    # Construct the shortest path by following the predecessors
-    while path[-1] in pred_nodes:
-        path.append(pred_nodes[path[-1]])
-
-    path.reverse()
-    return path, distance
-
-
-def get_succ_cb_by_node(
-    node: NodeType, core_blocks: Sequence[CoreBlock]
-) -> list[CoreBlock]:
-    return [cb for cb in core_blocks if node_sl_lst_overlap(node, cb.ordered_axons)]
-
-
-def get_pred_cb_by_succ_cb(
-    succ_cb: dict[CoreBlock, list[CoreBlock]]
-) -> dict[CoreBlock, list[CoreBlock]]:
-    return reverse_edges(succ_cb)
-
-
-def get_pred_cb_by_node(
-    node: NodeType, core_blocks: Sequence[CoreBlock]
-) -> list[CoreBlock]:
-    return [cb for cb in core_blocks if node in cb.dest]
-
-
-def get_pred_dg_by_succ_dg(
-    succ_dg: dict[NodeName, dict[NodeName, _T]]
-) -> dict[NodeName, dict[NodeName, _T]]:
-    return reverse_edges2(succ_dg)
-
-
-def get_pred_nodes_by_succ_dg(
-    node: NodeType, succ_dg: dict[NodeName, dict[NodeName, EdgeAttr]]
-) -> list[NodeName]:
-    pred_nodes = []
-
-    for pred, succ_nodes in succ_dg.items():
-        if node in succ_nodes:
-            pred_nodes.append(pred)
-
-    return pred_nodes
