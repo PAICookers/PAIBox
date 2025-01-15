@@ -204,10 +204,11 @@ class TestMapperDeployment:
         net: pb.Network = build_Network_with_container
         mapper: pb.Mapper = get_mapper
         mapper.build(net)
+        assert len(mapper.graph.nodes) == 4
+
         mapper.compile()
 
-        assert len(mapper.graph.nodes.keys()) == 4
-        # Input projectioon is discnnected!
+        # The input node is isolated
         assert len(mapper.graph_info["input"]) == 0
         assert len(mapper.graph_info["output"]) == 1
 

@@ -4,7 +4,9 @@ import pytest
 from paicorelib import HwConfig
 
 import paibox as pb
+from paibox.backend.graphs import PAIGraph
 from paibox.backend.graph_utils import *
+from paibox.backend.graphs import PAIGraph
 from paibox.backend.types import *
 from paibox.components import Neuron
 from paibox.exceptions import GraphBuildError, GraphConnectionError, NotSupportedError
@@ -36,8 +38,8 @@ class TestPAIGraph:
         mapper = pb.Mapper()
         mapper.build(net)
 
-        assert len(mapper.graph._raw_nodes) == 5
-        assert len(mapper.graph._raw_edges) == 4
+        assert len(mapper.graph.nodes) == 5
+        assert len(mapper.graph.edges) == 4
 
     def test_prebuild_gh_build_ignore(
         self, monkeypatch, build_FModule_ConnWithInput_Net
@@ -55,8 +57,38 @@ class TestPAIGraph:
         monkeypatch.setattr(net.n2, "__gh_build_ignore__", True)
 
         mapper.build(net)
-        assert net.s2.name not in mapper.graph._raw_edges
-        assert net.n2.name not in mapper.graph._raw_nodes
+        assert net.s2.name not in mapper.graph.edges
+        assert net.n2.name not in mapper.graph.nodes
+
+    def test_graph_build_multi_subgraphs(self):
+        class Net(pb.Network):
+            def __init__(self):
+                super().__init__()
+                self.inp1 = pb.InputProj(None, 1)
+                self.n1 = pb.ANNNeuron(1)
+                self.n2 = pb.ANNNeuron(1)
+                self.n3 = pb.ANNNeuron(1)
+                self.n4 = pb.ANNNeuron(1)  # disconnected
+                self.n5 = pb.ANNNeuron(1)  # disconnected
+
+                self.s1 = pb.FullConn(self.inp1, self.n1)
+                self.s2 = pb.FullConn(self.n1, self.n2)
+                self.s4 = pb.FullConn(self.n2, self.n3)
+                self.s3 = pb.FullConn(self.n4, self.n5)  # disconnected
+
+        net = Net()
+        pgh = PAIGraph()
+        pgh.build(net, ignore_no_inp_subgraph=False)
+
+        assert len(pgh.nodes) == 6
+        assert len(pgh.edges) == 4
+        assert len(pgh.inodes) == 1
+        assert len(pgh.onodes) == 2  # n5 is included
+
+        pgh.build(net, ignore_no_inp_subgraph=True)
+        assert len(pgh.nodes) == 4
+        assert len(pgh.edges) == 3
+        assert len(pgh.onodes) == 1  # n5 is not included now
 
     @pytest.mark.parametrize("no_twisted_branch", [True, False])
     def test_untwist_branch_nodes1(

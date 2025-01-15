@@ -98,7 +98,7 @@ class TestFunctionalModules:
         mapper.build(net)
         mapper.compile()
 
-        assert len(mapper.graph._raw_nodes) == 4
+        assert len(mapper.graph.nodes) == 4
 
     def test_BitwiseAND(self):
         from tests.shared_networks import FunctionalModule_2to1_Net
