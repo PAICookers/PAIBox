@@ -169,7 +169,7 @@ class Mapper:
         elif isinstance(multicast_optim, Sequence):
             _mul_optim_nodes = tuple(node.name for node in multicast_optim)
 
-            if any(node not in self.graph._raw_nodes for node in _mul_optim_nodes):
+            if any(node not in self.graph.nodes for node in _mul_optim_nodes):
                 raise ValueError("not all specified nodes are in the graph.")
 
             set_cflag(multicast_optim=True)

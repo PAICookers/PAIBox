@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import numpy as np
@@ -7,6 +8,10 @@ import paibox as pb
 from paibox.components.neuron.base import MetaNeuron
 from paibox.types import NEUOUT_U8_DTYPE, VOLTAGE_DTYPE, NeuOutType, VoltageType
 from tests.components.utils import conv1d_golden
+
+ci_env = os.environ.get("CI_ENV", None) is not None
+pytestmark = pytest.mark.skipif(ci_env, reason="Skipping in CI environment")
+
 
 TEST_DIR = Path(__file__).parent
 DATA_DIR = TEST_DIR / "data"
