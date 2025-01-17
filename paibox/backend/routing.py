@@ -617,6 +617,12 @@ class RoutingManager:
             )
 
         self.n_core_total = n_core_aligned + n_core_incoming
+        # n_core_aligned % HWConfig.N_CORE_MAX_INCHIP == 0 means the incoming
+        # routing group will be placed in a new chip.
+        # n_core_aligned != 0 make sure the new chip is not the first chip.
+        # In this case, set n_core_per_chip of the last chip properly.
+        if n_core_aligned % HwConfig.N_CORE_MAX_INCHIP == 0 and n_core_aligned != 0:
+            self.n_core_per_chip[chip_idx_loc - 1] = HwConfig.N_CORE_MAX_INCHIP
         self.n_core_per_chip[chip_idx_loc] = _num_inchip(self.n_core_total)
 
         routing_idx = core_loc % HwConfig.N_CORE_MAX_INCHIP
