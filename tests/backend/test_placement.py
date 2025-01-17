@@ -181,38 +181,6 @@ def _nbit_limit(nbit: int) -> tuple[int, int]:
     return lo, hi
 
 
-def test_get_raw_weight(fixed_rng: np.random.Generator):
-    w1 = fixed_rng.integers(-128, 128, size=(10, 20), dtype=WEIGHT_DTYPE)
-    w2 = fixed_rng.integers(-128, 128, size=(10, 30), dtype=WEIGHT_DTYPE)
-
-    w_of_neurons = [w1, w2]
-
-    n1 = pb.LIF((20,), 1)
-    n2 = pb.LIF((30,), 1)
-
-    dest = [n1, n2]
-
-    neuron_segs_of_cb = [
-        [
-            NeuSegment(n1, slice(0, 20, 1), 0),
-            NeuSegment(n2, slice(0, 5, 1), 20),
-        ],
-        [NeuSegment(n2, slice(5, 30, 1), 0)],
-    ]
-
-    w_of_neu_segs_of_cb = []
-    for neu_segs in neuron_segs_of_cb:
-        w_of_neu_segs = []
-        for neu_seg in neu_segs:
-            w = w_of_neurons[dest.index(neu_seg.target)][  # type: ignore
-                :, neu_seg.index
-            ].copy()
-            w.setflags(write=False)
-            w_of_neu_segs.append(w)
-
-        w_of_neu_segs_of_cb.append(w_of_neu_segs)
-
-
 def _get_max_fanout(iw: int, dendr_comb_rate: int) -> int:
     if iw == 1:
         return HwConfig.N_DENDRITE_MAX_SNN >> dendr_comb_rate

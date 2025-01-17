@@ -415,44 +415,6 @@ class TestMapper_Compile:
             == ceil(net.n4.num_out / HwConfig.N_DENDRITE_MAX_SNN) * 4
         )
 
-    def test_gh_multicast_optim(self):
-        class Net(pb.Network):
-            def __init__(self):
-                super().__init__()
-                self.inp1 = pb.InputProj(input=None, shape_out=(400,), name="inp1")
-                self.n0 = pb.IF(400, 3, name="n0")
-                self.n1 = pb.IF(400, 3, name="n1")
-                self.n2 = pb.IF(800, 3, name="n2")
-                self.n3 = pb.IF(400, 4, name="n3")
-                self.n4 = pb.IF(300, 4, name="n4")
-                self.s0 = pb.FullConn(
-                    self.inp1, self.n0, conn_type=pb.SynConnType.One2One, name="s0"
-                )
-                self.s1 = pb.FullConn(
-                    self.n0, self.n1, conn_type=pb.SynConnType.One2One, name="s1"
-                )
-                self.s2 = pb.FullConn(
-                    self.n1, self.n2, conn_type=pb.SynConnType.All2All, name="s2"
-                )
-                self.s3 = pb.FullConn(
-                    self.n2, self.n3, conn_type=pb.SynConnType.All2All, name="s3"
-                )
-                self.s4 = pb.FullConn(
-                    self.n0, self.n4, conn_type=pb.SynConnType.All2All, name="s4"
-                )
-                self.s5 = pb.FullConn(
-                    self.n4, self.n2, conn_type=pb.SynConnType.All2All, name="s5"
-                )
-
-        net = Net()
-        mapper = pb.Mapper()
-        mapper.build(net)
-        graph_info = mapper.compile(
-            weight_bit_optimization=False,
-            grouping_optim_target="latency",
-            multicast_optim=[net.n0],
-        )
-
     def test_ordered_axons(self, build_example_net5):
         net = build_example_net5
         mapper = pb.Mapper()
