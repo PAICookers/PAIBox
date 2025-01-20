@@ -1,14 +1,14 @@
+import json
 from typing import Any, Dict, List, Optional, Union, overload
 
 import numpy as np
 from numpy.typing import NDArray
-import json
-
 from paicorelib import Coord, CoordLike, RIdLike, to_coordoffset
-from paicorelib.framelib.types import ArrayType, DataArrayType, FrameArrayType
-from paicorelib.framelib.frame_defs import FrameHeader as FH, SpikeFrameFormat as SFF
+from paicorelib.framelib.frame_defs import FrameHeader as FH
+from paicorelib.framelib.frame_defs import SpikeFrameFormat as SFF
 from paicorelib.framelib.frame_gen import OfflineFrameGen
 from paicorelib.framelib.frames import OfflineWorkFrame1
+from paicorelib.framelib.types import ArrayType, DataArrayType, FrameArrayType
 from paicorelib.framelib.utils import header_check
 
 __all__ = ["PAIBoxRuntime"]
@@ -133,7 +133,7 @@ class PAIBoxRuntime:
         oframe_infos: FrameArrayType,
         flatten: bool = False,
     ) -> NDArray[np.uint8]: ...
-   
+
     @staticmethod
     def decode_spike(
         timestep: int,
@@ -169,14 +169,16 @@ class PAIBoxRuntime:
                     if not np.array_equal(indices, []):
                         # Part of frame on the core coordinate.
                         oframes_on_coord = oframes[indices]
-                        #oframes_on_coord.sort()
+                        # oframes_on_coord.sort()
                         data_on_coord = (
                             oframes_on_coord >> SFF.DATA_OFFSET
                         ) & SFF.DATA_MASK
-                
-                        valid_idx = [np.where( oframe_info == value)[0][0]
-                                     for value in oframes_on_coord & (SFF.GENERAL_MASK - SFF.DATA_MASK)
-                                     ]
+
+                        valid_idx = [
+                            np.where(oframe_info == value)[0][0]
+                            for value in oframes_on_coord
+                            & (SFF.GENERAL_MASK - SFF.DATA_MASK)
+                        ]
                         data[valid_idx] = data_on_coord
 
                 d_with_shape = data.reshape(timestep, -1)
@@ -204,7 +206,6 @@ class PAIBoxRuntime:
             else:
                 return d_with_shape
 
-  
     def gen_output_frames_more1152_info(
         lcn: int,
         timestep: int,
@@ -240,10 +241,16 @@ class PAIBoxRuntime:
                 for t in range(timestep):
                     for dest_on_coord in onode.values():
                         if t == 0:
-                            temp.extend(OfflineWorkFrame1._frame_dest_reorganized(dest_on_coord))
-                        else: 
-                            dest_on_coord["tick_relative"] = [x + delay + lcn for x in dest_on_coord["tick_relative"]]
-                            temp.extend(OfflineWorkFrame1._frame_dest_reorganized(dest_on_coord))
+                            temp.extend(
+                                OfflineWorkFrame1._frame_dest_reorganized(dest_on_coord)
+                            )
+                        else:
+                            dest_on_coord["tick_relative"] = [
+                                x + delay + lcn for x in dest_on_coord["tick_relative"]
+                            ]
+                            temp.extend(
+                                OfflineWorkFrame1._frame_dest_reorganized(dest_on_coord)
+                            )
 
                 frames_of_dest.append(temp)
                 frames_of_dest = np.hstack(frames_of_dest)
@@ -264,7 +271,3 @@ class PAIBoxRuntime:
             chip_coord, core_coord, rid, axons * timestep, ts
         )
         return oframes_info
-
-
-
-   

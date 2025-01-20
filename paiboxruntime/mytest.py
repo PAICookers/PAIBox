@@ -1,29 +1,32 @@
-
 import json
 import time
 from pathlib import Path
 
 import numpy as np
 import pytest
-
-from runtime import PAIBoxRuntime
-from paicorelib import Coord, to_coordoffset
+from paicorelib import Coord
 from paicorelib import ReplicationId as RId
-from paicorelib.framelib.frame_defs import FrameHeader as FH, SpikeFrameFormat as SFF
+from paicorelib import to_coordoffset
+from paicorelib.framelib.frame_defs import FrameHeader as FH
+from paicorelib.framelib.frame_defs import SpikeFrameFormat as SFF
 from paicorelib.framelib.utils import print_frame
+from runtime import PAIBoxRuntime
+
 
 class TestRuntimeDecoder:
 
     def test_output_more1152_gen_frame(self):
-        with open("config/output_dest_more1152_info.json", "r", encoding="utf-8") as file:
+        with open(
+            "config/output_dest_more1152_info.json", "r", encoding="utf-8"
+        ) as file:
             output_dest_info = json.load(file)
 
         n_ts = 2
-        lcn = 2 #从output_shape计算
+        lcn = 2  # 从output_shape计算
         oframe_infos = PAIBoxRuntime.gen_output_frames_more1152_info(
             lcn, n_ts, output_dest_info=output_dest_info
         )
-       
+
         output_frames = np.array(
             [
                 0b1000_00001_00000_00000_00000_00000_00000_000_00000000000_00000000_00000001,
@@ -36,7 +39,6 @@ class TestRuntimeDecoder:
                 0b1000_00001_00000_00000_00000_00000_00000_000_00000000010_00000010_00000010,
                 0b1000_00001_00000_00000_00000_00000_00000_000_00000000011_00000010_00000011,
                 0b1000_00001_00000_00000_00000_00000_00000_000_00000000000_00000011_00000001,
-
             ],
             dtype=np.uint64,
         )
@@ -64,7 +66,7 @@ class TestRuntimeDecoder:
             output_dest_info = json.load(file)
 
         n_ts = 4
-        lcn = 1#从output_shape计算
+        lcn = 1  # 从output_shape计算
         oframe_infos = PAIBoxRuntime.gen_output_frames_more1152_info(
             lcn, n_ts, output_dest_info=output_dest_info
         )
@@ -88,11 +90,11 @@ class TestRuntimeDecoder:
             n_ts, output_frames, oframe_infos, flatten=False
         )
         print(data)
-        
+
         expected = [
             np.zeros((n_ts, 10), dtype=np.uint8),
         ]
-        
+
         expected[0][0][0] = 1
         expected[0][1][0] = 7
         expected[0][0][2] = 8
@@ -105,6 +107,7 @@ class TestRuntimeDecoder:
         expected[0][3][0] = 1
         print(expected[0])
         assert np.array_equal(data, expected)
+
+
 TestRuntimeDecoder().test_output_more1152_gen_frame()
 TestRuntimeDecoder().test_output_gen_frame()
-
