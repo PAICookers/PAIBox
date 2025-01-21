@@ -823,7 +823,7 @@ class CorePlacement(CoreAbstract):
             assert isinstance(axon_addr_offset, int)
 
             axon_coords = [
-                AxonCoord(0, i)
+                AxonCoord(0, i) if i < 1152 else AxonCoord(i // 1152, i % 1152)
                 for i in range(axon_addr_offset, axon_addr_offset + neu_seg.n_neuron)
             ]
 

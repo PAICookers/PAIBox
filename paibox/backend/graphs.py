@@ -219,14 +219,15 @@ class PAIGraph:
         # _degree_check(self.degree_of_nodes, self.succ_dg)
 
         # Only support output nodes with <= 1152 neurons so far.
-        if any(
-            onode.num_out > HwConfig.N_FANIN_PER_DENDRITE_MAX
-            for onode in self.onodes.values()
-        ):
-            raise GraphNotSupportedError(
-                f"only output nodes with no more than {HwConfig.N_FANIN_PER_DENDRITE_MAX} "
-                f"neurons are supported."
-            )
+        # if any(
+        #     onode.num_out > HwConfig.N_FANIN_PER_DENDRITE_MAX
+        #     for onode in self.onodes.values()
+        # ):
+        #     raise GraphNotSupportedError(
+        #         f"only output nodes with no more than {HwConfig.N_FANIN_PER_DENDRITE_MAX} "
+        #         f"neurons are supported."
+        #     )
+        return
 
     def _node_pos(self, node: NodeName) -> NodePosition:
         if node in self.inodes:

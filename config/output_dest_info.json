@@ -1,0 +1,14 @@
+{
+  "nd_LinearSemiFolded_0": {
+    "(0,4)": {
+      "addr_chip_x": 1,
+      "addr_chip_y": 0,
+      "addr_core_x": 0,
+      "addr_core_y": 0,
+      "addr_core_x_ex": 0,
+      "addr_core_y_ex": 0,
+      "tick_relative": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      "addr_axon": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    }
+  }
+}

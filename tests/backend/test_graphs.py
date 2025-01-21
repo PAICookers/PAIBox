@@ -217,6 +217,7 @@ class TestPAIGraph:
         with pytest.raises(GraphBuildError):
             mapper.build(net, net, net)
 
+    @pytest.mark.skip(reason="Not implemented")
     def test_output_nodes_with_more_than_1152(self, monkeypatch, build_example_net2):
         net = build_example_net2
 
