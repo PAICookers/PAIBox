@@ -801,7 +801,7 @@ def _calculate_core_consumption(order_rgs: list[RoutingGroup]) -> int:
 
 
 def reorder_routing_groups(
-    graph: dict[RoutingGroup, list[RoutingGroup]]
+    graph: dict[RoutingGroup, list[RoutingGroup]],
 ) -> list[RoutingGroup]:
     in_degree = {node: 0 for node in graph}
     for node in graph:
