@@ -8,6 +8,7 @@ from paicorelib import WeightWidth as WW
 import paibox as pb
 from paibox.backend._slice import node_sl_lst_overlap
 from paibox.backend.conf_exporting import *
+from paibox.backend.mapper import merge_cycles
 from paibox.exceptions import ResourceError
 
 from .conftest import TestData
@@ -429,6 +430,57 @@ class TestMapper_Compile:
                 assert len(cb.ordered_axons) > len(cb.source)
             else:
                 assert len(cb.ordered_axons) == len(cb.source)
+
+    def test_merge_cycles(self, build_example_net5):
+        net = build_example_net5
+        mapper = pb.Mapper()
+        mapper.build(net)
+        merged_sgrps_with_cycle = mapper.graph.graph_partition()
+        """merged_sgrps_with_cycle:
+
+        MergedSuccGroup:
+              Nodes: n2, n6
+              Group of n1:
+                      Edge s0: n1 -> n2
+                      Edge s5: n1 -> n6
+              Group of n5:
+                      Edge s4: n5 -> n6
+
+        MergedSuccGroup:
+              Nodes: n5, n3
+              Group of n2:
+                      Edge s1: n2 -> n3
+                      Edge s6: n2 -> n5
+              Group of n4:
+                      Edge s3: n4 -> n5
+
+        MergedSuccGroup:
+              Nodes: n4
+              Group of n3:
+                      Edge s2: n3 -> n4
+        """
+        assert len(merged_sgrps_with_cycle) == 3
+
+        """
+        MergedSuccGroup:
+              Nodes: n2, n6, n3, n4, n5
+              Group of n1:
+                      Edge s0: n1 -> n2
+                      Edge s5: n1 -> n6
+              Group of n5:
+                      Edge s4: n5 -> n6
+              Group of n2:
+                      Edge s1: n2 -> n3
+                      Edge s6: n2 -> n5
+              Group of n4:
+                      Edge s3: n4 -> n5
+              Group of n3:
+                      Edge s2: n3 -> n4
+        """
+
+        merged_sgrps = merge_cycles(merged_sgrps_with_cycle)
+
+        assert len(merged_sgrps) == 1
 
     def test_partition(self, build_example_net6):
         net = build_example_net6
