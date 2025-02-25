@@ -26,11 +26,12 @@ from .conf_types import (
     OutputDestConf,
 )
 from .context import _BACKEND_CONTEXT, set_cflag
-from .graph_utils import get_node_degrees, get_succ_cb_by_node, merge_cycles
+from .graph_utils import get_node_degrees, get_succ_cb_by_node, find_cycles, merge_overlapping_sets
 from .graphs import PAIGraph
 from .placement import CoreBlock, SourceDest, aligned_coords, max_lcn_of_cb
 from .routing import RoutingGroup, RoutingManager
 from .types import NeuSegment, NodeDegree, NodeType, SourceNodeType, is_iw8
+from .succ_group import *
 
 __all__ = ["Mapper"]
 
@@ -767,6 +768,40 @@ def _fp_check(fp: Optional[Union[str, Path]] = None) -> Path:
 
     return _fp
 
+
+def merge_cycles(merged_sgrps: list[MergedSuccGroup]) -> list[MergedSuccGroup]:
+    """Detects cycles among merged successor groups & merges them into a minimal set of     \
+        disjoint groups.
+
+    Args:
+        merged_sgrps (list[MergedSuccGroup]): A list of already merged successor groups to  \
+            be analyzed for cycles.
+
+    Returns:
+        out (list[MergedSuccGroup]): A new list of merged successor groups with detected    \
+            cycles resolved.
+    """
+    succ_merged_sgrps: dict[MergedSuccGroup, list[MergedSuccGroup]] = defaultdict(list)
+
+    for cur_m, next_m in itertools.combinations(merged_sgrps, 2):
+        # (cur_m, (m2, m3, ...)), (m2, (m3, m4, ...)), ...
+        if not cur_m.nodes.isdisjoint(next_m.inputs):
+            succ_merged_sgrps[cur_m].append(next_m)
+
+        if not next_m.nodes.isdisjoint(cur_m.inputs):
+            succ_merged_sgrps[next_m].append(cur_m)
+
+    cycles = find_cycles(succ_merged_sgrps)
+    merged_cycles = merge_overlapping_sets(cycles)
+
+    merged: list[MergedSuccGroup] = []
+    remaining = set(merged_sgrps)
+    for mc in merged_cycles:
+        merged.append(MergedSuccGroup.merge(mc))
+        remaining.difference_update(mc)
+
+    merged.extend(remaining)
+    return merged
 
 def _calculate_core_consumption(order_rgs: list[RoutingGroup]) -> int:
     n_core_consumption: int = 0

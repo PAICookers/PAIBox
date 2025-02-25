@@ -275,41 +275,6 @@ def merge_overlapping_sets(sets: Sequence[Sequence[_NT]]) -> list[list[_NT]]:
     return list(mgrps.values())
 
 
-def merge_cycles(merged_sgrps: list[MergedSuccGroup]) -> list[MergedSuccGroup]:
-    """Detects cycles among merged successor groups & merges them into a minimal set of     \
-        disjoint groups.
-
-    Args:
-        merged_sgrps (list[MergedSuccGroup]): A list of already merged successor groups to  \
-            be analyzed for cycles.
-
-    Returns:
-        out (list[MergedSuccGroup]): A new list of merged successor groups with detected    \
-            cycles resolved.
-    """
-    succ_merged_sgrps: dict[MergedSuccGroup, list[MergedSuccGroup]] = defaultdict(list)
-
-    for cur_m, next_m in itertools.combinations(merged_sgrps, 2):
-        # (cur_m, (m2, m3, ...)), (m2, (m3, m4, ...)), ...
-        if not cur_m.nodes.isdisjoint(next_m.inputs):
-            succ_merged_sgrps[cur_m].append(next_m)
-
-        if not next_m.nodes.isdisjoint(cur_m.inputs):
-            succ_merged_sgrps[next_m].append(cur_m)
-
-    cycles = find_cycles(succ_merged_sgrps)
-    merged_cycles = merge_overlapping_sets(cycles)
-
-    merged: list[MergedSuccGroup] = []
-    remaining = set(merged_sgrps)
-    for mc in merged_cycles:
-        merged.append(MergedSuccGroup.merge(mc))
-        remaining.difference_update(mc)
-
-    merged.extend(remaining)
-    return merged
-
-
 def prune_disconn_graph(
     succ_dg: Mapping[_NT, Iterable[_NT]],
     start_nodes: Sequence[_NT],

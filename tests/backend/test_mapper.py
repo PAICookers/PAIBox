@@ -9,7 +9,7 @@ import paibox as pb
 from paibox.backend._slice import node_sl_lst_overlap
 from paibox.backend.conf_exporting import *
 from paibox.exceptions import ResourceError
-from paibox.backend.graph_utils import merge_cycles
+from paibox.backend.mapper import merge_cycles
 from .conftest import TestData
 
 
