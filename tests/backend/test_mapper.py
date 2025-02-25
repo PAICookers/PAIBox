@@ -8,8 +8,9 @@ from paicorelib import WeightWidth as WW
 import paibox as pb
 from paibox.backend._slice import node_sl_lst_overlap
 from paibox.backend.conf_exporting import *
-from paibox.exceptions import ResourceError
 from paibox.backend.mapper import merge_cycles
+from paibox.exceptions import ResourceError
+
 from .conftest import TestData
 
 
@@ -436,7 +437,7 @@ class TestMapper_Compile:
         mapper.build(net)
         merged_sgrps_with_cycle = mapper.graph.graph_partition()
         """merged_sgrps_with_cycle:
-        
+
         MergedSuccGroup:
               Nodes: n2, n6
               Group of n1:
@@ -459,7 +460,7 @@ class TestMapper_Compile:
                       Edge s2: n3 -> n4
         """
         assert len(merged_sgrps_with_cycle) == 3
-        
+
         """
         MergedSuccGroup:
               Nodes: n2, n6, n3, n4, n5
@@ -476,9 +477,9 @@ class TestMapper_Compile:
               Group of n3:
                       Edge s2: n3 -> n4
         """
-        
+
         merged_sgrps = merge_cycles(merged_sgrps_with_cycle)
-        
+
         assert len(merged_sgrps) == 1
 
     def test_partition(self, build_example_net6):

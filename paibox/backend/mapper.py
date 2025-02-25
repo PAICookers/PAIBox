@@ -26,12 +26,17 @@ from .conf_types import (
     OutputDestConf,
 )
 from .context import _BACKEND_CONTEXT, set_cflag
-from .graph_utils import get_node_degrees, get_succ_cb_by_node, find_cycles, merge_overlapping_sets
+from .graph_utils import (
+    find_cycles,
+    get_node_degrees,
+    get_succ_cb_by_node,
+    merge_overlapping_sets,
+)
 from .graphs import PAIGraph
 from .placement import CoreBlock, SourceDest, aligned_coords, max_lcn_of_cb
 from .routing import RoutingGroup, RoutingManager
-from .types import NeuSegment, NodeDegree, NodeType, SourceNodeType, is_iw8
 from .succ_group import *
+from .types import NeuSegment, NodeDegree, NodeType, SourceNodeType, is_iw8
 
 __all__ = ["Mapper"]
 
@@ -802,6 +807,7 @@ def merge_cycles(merged_sgrps: list[MergedSuccGroup]) -> list[MergedSuccGroup]:
 
     merged.extend(remaining)
     return merged
+
 
 def _calculate_core_consumption(order_rgs: list[RoutingGroup]) -> int:
     n_core_consumption: int = 0
