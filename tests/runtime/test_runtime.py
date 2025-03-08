@@ -81,8 +81,8 @@ class TestRuntime:
                 "5": {
                     "addr_axon": [0, 1, 2, 3, 4, 5, 6, 7],
                     "tick_relative": [0] * 8,
-                    "addr_core_x": 1,
-                    "addr_core_y": 0,
+                    "addr_core_x": 0,
+                    "addr_core_y": 1,  # y increases
                     "addr_core_x_ex": 0,
                     "addr_core_y_ex": 0,
                     "addr_chip_x": 1,
@@ -94,8 +94,8 @@ class TestRuntime:
                 "6": {
                     "addr_axon": [0, 1, 2, 3, 4, 5, 6, 7],
                     "tick_relative": [0] * 8,
-                    "addr_core_x": 2,
-                    "addr_core_y": 0,
+                    "addr_core_x": 0,
+                    "addr_core_y": 2,  # y increases
                     "addr_core_x_ex": 0,
                     "addr_core_y_ex": 0,
                     "addr_chip_x": 1,
@@ -110,12 +110,13 @@ class TestRuntime:
 
         output_frames = np.array(
             [
+                # o1(x=0,y=0), o2(0,1)
                 0b1000_00001_00000_00000_00000_00000_00000_000_00000000000_00000001_00000001,
-                0b1000_00001_00000_00001_00000_00000_00000_000_00000000001_00000000_00000010,
+                0b1000_00001_00000_00000_00001_00000_00000_000_00000000001_00000000_00000010,
                 0b1000_00001_00000_00000_00000_00000_00000_000_00000000011_00000000_00000111,
                 0b1000_00001_00000_00000_00000_00000_00000_000_00000000101_00000000_00001000,
-                0b1000_00001_00000_00001_00000_00000_00000_000_00000000100_00000000_00001001,
-                0b1000_00001_00000_00001_00000_00000_00000_000_00000000111_00000000_00001010,
+                0b1000_00001_00000_00000_00001_00000_00000_000_00000000100_00000000_00001001,
+                0b1000_00001_00000_00000_00001_00000_00000_000_00000000111_00000000_00001010,
             ],
             dtype=np.uint64,
         )
@@ -123,15 +124,14 @@ class TestRuntime:
             n_ts, output_frames, oframe_info, flatten=False
         )
 
-        expected = [
-            np.array(
-                [[0, 0, 0, 7, 0, 8, 0, 0], [1, 0, 0, 0, 0, 0, 0, 0]], dtype=np.uint8
-            ),
-            np.array(
-                [[0, 2, 0, 0, 9, 0, 0, 10], [0, 0, 0, 0, 0, 0, 0, 0]], dtype=np.uint8
-            ),
-            np.zeros((2, 8), dtype=np.uint8),
-        ]
+        expected = np.zeros((len(oframe_info), n_ts, 8), dtype=np.uint8)
+        expected[0][0][3] = 7
+        expected[0][0][5] = 8
+        expected[0][1][0] = 1
+        expected[1][0][1] = 2
+        expected[1][0][4] = 9
+        expected[1][0][7] = 10
+
         assert np.array_equal(data, expected)
 
     def test_decode_spike_by_dict2(self):
@@ -167,11 +167,10 @@ class TestRuntime:
             n_ts, output_frames, oframe_info, flatten=False
         )
 
-        expected = [
-            np.array(
-                [[0, 0, 0, 7, 0, 8, 0, 0], [1, 0, 0, 0, 0, 0, 0, 0]], dtype=np.uint8
-            )
-        ]
+        expected = np.zeros((len(oframe_info), n_ts, 8), dtype=np.uint8)
+        expected[0][0][3] = 7
+        expected[0][0][5] = 8
+        expected[0][1][0] = 1
 
         assert np.array_equal(data, expected)
 
@@ -318,7 +317,7 @@ class TestRuntime:
             n_ts, output_frames, oframe_infos, flatten=False
         )
 
-        expected = [np.zeros((n_ts, 10), dtype=np.uint8)]
+        expected = np.zeros((len(oframe_infos), n_ts, 10), dtype=np.uint8)
         expected[0][0][0] = 1
         expected[0][1][0] = 7
         expected[0][0][2] = 8
@@ -359,7 +358,7 @@ class TestRuntime:
         data = PAIBoxRuntime.decode_spike(
             n_ts, output_frames, oframe_infos, flatten=False
         )
-        expected = [np.zeros((2, 1300), dtype=np.uint8)]
+        expected = np.zeros((len(oframe_infos), n_ts, 1300), dtype=np.uint8)
         expected[0][0][0] = 1
         expected[0][0][1152] = 7
         expected[0][0][2] = 8
@@ -372,3 +371,58 @@ class TestRuntime:
         expected[0][1][1152] = 1
 
         assert np.array_equal(data, expected)
+
+    def test_gen_output_frames_info_more1152_multi_onodes(self):
+        with open(TEST_CONF_DIR / "output_dest_info_more1152_multi.json", "r") as f:
+            output_dest_info = json.load(f)
+
+        n_ts = 4
+        oframe_infos = PAIBoxRuntime.gen_output_frames_info(
+            n_ts, output_dest_info=output_dest_info
+        )
+
+        output_frames = np.array(
+            [
+                # o1(x=0,y=0), o2(0,1)
+                0b1000_00001_00000_00000_00000_00000_00000_000_00000000000_00000000_00000001,
+                0b1000_00001_00000_00000_00000_00000_00000_000_00000000000_00000001_00000111,
+                0b1000_00001_00000_00000_00001_00000_00000_000_00000001000_00000001_00000011,
+                0b1000_00001_00000_00000_00000_00000_00000_000_00000000010_00000000_00001000,
+                0b1000_00001_00000_00000_00000_00000_00000_000_00000000011_00000000_00000011,
+                0b1000_00001_00000_00000_00001_00000_00000_000_00000000100_00000000_00000001,
+                0b1000_00001_00000_00000_00000_00000_00000_000_00000000011_00000001_00010111,
+                0b1000_00001_00000_00000_00000_00000_00000_000_00000000001_00000000_00011000,
+                0b1000_00001_00000_00000_00000_00000_00000_000_00000000001_00000010_00000001,
+                0b1000_00001_00000_00000_00001_00000_00000_000_00000100000_00000011_00001001,
+                0b1000_00001_00000_00000_00001_00000_00000_000_01000000000_00000000_10000000,
+                0b1000_00001_00000_00000_00000_00000_00000_000_00000000010_00000010_00000010,
+                0b1000_00001_00000_00000_00000_00000_00000_000_00000000011_00000010_00000011,
+                0b1000_00001_00000_00000_00000_00000_00000_000_00000000000_00000011_00000001,
+                0b1000_00001_00000_00000_00001_00000_00000_000_00000010011_00000010_00000110,
+            ],
+            dtype=np.uint64,
+        )
+        data = PAIBoxRuntime.decode_spike(
+            n_ts, output_frames, oframe_infos, flatten=False
+        )
+        expected_o1 = np.zeros((n_ts, 1300), dtype=np.uint8)
+        expected_o1[0][0] = 1
+        expected_o1[0][1152] = 7
+        expected_o1[0][2] = 8
+        expected_o1[0][3] = 3
+        expected_o1[0][1155] = 23
+        expected_o1[0][1] = 24
+        expected_o1[1][1] = 1
+        expected_o1[1][2] = 2
+        expected_o1[1][3] = 3
+        expected_o1[1][1152] = 1
+
+        expected_o2 = np.zeros((n_ts, 1200), dtype=np.uint8)
+        expected_o2[0][4] = 1
+        expected_o2[1][8] = 3
+        expected_o2[2][19] = 6
+        expected_o2[3][32] = 9
+        expected_o2[0][1 << 9] = 1 << 7
+
+        assert np.array_equal(data[0], expected_o1)
+        assert np.array_equal(data[1], expected_o2)
