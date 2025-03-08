@@ -30,15 +30,15 @@ from paicorelib.framelib.utils import header_check
 
 __all__ = ["PAIBoxRuntime"]
 
+PAYLOAD_DATA_DTYPE = np.uint8
+PayloadDataType = NDArray[PAYLOAD_DATA_DTYPE]
 
 if hasattr(HwConfig, "N_TIMESLOT_MAX"):
     MAX_TIMESLOT = HwConfig.N_TIMESLOT_MAX - 1  # Start from 0
 else:
     MAX_TIMESLOT = 255
 
-
-PAYLOAD_DATA_DTYPE = np.uint8
-PayloadDataType = NDArray[PAYLOAD_DATA_DTYPE]
+LENGTH_EX_MULTIPLE_KEY = "tick_relative"  # Use the key to represent the length expansion multiple of the output node.
 
 
 def max_timeslot_check(timestep: int, raw_ts: ArrayType) -> None:
@@ -48,7 +48,12 @@ def max_timeslot_check(timestep: int, raw_ts: ArrayType) -> None:
         )
 
 
-LENGTH_EX_MULTIPLE_KEY = "tick_relative"  # Use the key to represent the length expansion multiple of the output node.
+def valid_indices_len_check(idx: list[int], received_data: np.ndarray) -> None:
+    if len(idx) != len(received_data):
+        raise ValueError(
+            "Length of valid indices & received data do not match: "
+            f"{len(idx)} != {len(received_data)}"
+        )
 
 
 def get_length_ex_onode(onode_attrs: dict[str, Any]) -> int:
@@ -180,11 +185,11 @@ class PAIBoxRuntime:
             - timestep: the number of timesteps.
             - oframes: the output spike frames.
             - oframe_infos: the expected common information (without payload) of output frames.
-            - flatten: whether to flatten the decoded data.
+            - flatten: whether to return the flattened data.
 
         Returns:
-            Return the decoded output data. If `oframe_infos` is a list, the output will    \
-            be a list where each element represents the decoded data for each output node.
+            Return the decoded output data. If `oframe_infos` is a list, the output will be a list  \
+            where each element represents the decoded data for each output node.
         """
         header_check(oframes, FH.WORK_TYPE1)
 
@@ -200,7 +205,7 @@ class PAIBoxRuntime:
                 if len(oframes) > 0:
                     _cur_coord = Coord(0, 0) + to_coordoffset(i)
                     indices = np.where(_cur_coord.address == seen_core_coords)[0]
-                    if not np.array_equal(indices, []):
+                    if indices.size > 0:
                         # Part of frame on the core coordinate.
                         oframes_on_coord = oframes[indices]
                         # oframes_on_coord.sort()
@@ -209,20 +214,22 @@ class PAIBoxRuntime:
                         ) & Off_WF1F.DATA_MASK
 
                         valid_idx = [
-                            np.where(oframe_info == value)[0][0]
+                            np.where(oframe_info == value)[0][0]  # may not found
                             for value in oframes_on_coord
                             & (Off_WF1F.GENERAL_MASK - Off_WF1F.DATA_MASK)
                         ]
-                        # TODO
+
+                        # Match the valid indices with the data.
+                        valid_indices_len_check(valid_idx, data_on_coord)
                         data[valid_idx] = data_on_coord
 
                 d_with_shape = data.reshape(timestep, -1)
-                if flatten:
-                    output.append(d_with_shape.flatten())
-                else:
-                    output.append(d_with_shape)
+                output.append(d_with_shape)
 
-            return output
+            if flatten:
+                return [arr.ravel() for arr in output]
+            else:
+                return output
 
         else:
             data = np.zeros_like(oframe_infos, dtype=PAYLOAD_DATA_DTYPE)
@@ -233,12 +240,11 @@ class PAIBoxRuntime:
                 valid_idx = np.isin(
                     oframe_infos, oframes & (Off_WF1F.GENERAL_MASK - Off_WF1F.DATA_MASK)
                 )
-                # TODO
                 data[valid_idx] = data_on_coord
 
             d_with_shape = data.reshape(-1, timestep).T
             if flatten:
-                return d_with_shape.flatten()
+                return d_with_shape.ravel()
             else:
                 return d_with_shape
 
