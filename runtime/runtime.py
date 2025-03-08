@@ -1,11 +1,28 @@
-import json
-from typing import Any, Dict, List, Optional, Union, overload
+"""
+The `PAIBoxRuntime` only guarantees that its functional features are consistent with
+the PAIBox released with it, and that the hardware platform can implement custom
+utilities on it. Make sure you know what you're doing when you make changes.
+
+The runtime dose not depend on any modules of PAIBox.
+"""
+
+from typing import Any, Optional, Union, overload
 
 import numpy as np
 from numpy.typing import NDArray
-from paicorelib import Coord, CoordLike, RIdLike, to_coordoffset
+
+try:
+    import paicorelib
+except ImportError:
+    raise ImportError(
+        "The runtime requires paicorelib. Please install it by running `pip install paicorelib`."
+    ) from None
+
+del paicorelib
+
+from paicorelib import Coord, HwConfig, CoordLike, RIdLike, to_coordoffset
 from paicorelib.framelib.frame_defs import FrameHeader as FH
-from paicorelib.framelib.frame_defs import SpikeFrameFormat as SFF
+from paicorelib.framelib.frame_defs import OfflineWorkFrame1Format as Off_WF1F
 from paicorelib.framelib.frame_gen import OfflineFrameGen
 from paicorelib.framelib.frames import OfflineWorkFrame1
 from paicorelib.framelib.types import ArrayType, DataArrayType, FrameArrayType
@@ -13,29 +30,57 @@ from paicorelib.framelib.utils import header_check
 
 __all__ = ["PAIBoxRuntime"]
 
-MAX_TIMESLOTS = 255
+
+if hasattr(HwConfig, "N_TIMESLOT_MAX"):
+    MAX_TIMESLOT = HwConfig.N_TIMESLOT_MAX - 1  # Start from 0
+else:
+    MAX_TIMESLOT = 255
+
+
+PAYLOAD_DATA_DTYPE = np.uint8
+PayloadDataType = NDArray[PAYLOAD_DATA_DTYPE]
+
+
+def max_timeslot_check(timestep: int, raw_ts: ArrayType) -> None:
+    if timestep * max(raw_ts) > MAX_TIMESLOT:
+        raise ValueError(
+            f"{timestep}*{max(raw_ts)} out of max timeslot ({MAX_TIMESLOT})"
+        )
+
+
+LENGTH_EX_MULTIPLE_KEY = "tick_relative"  # Use the key to represent the length expansion multiple of the output node.
+
+
+def get_length_ex_onode(onode_attrs: dict[str, Any]) -> int:
+    """Retrieve the length expansion multiple of the output node by the given attributes."""
+    return max(max(dest[LENGTH_EX_MULTIPLE_KEY]) for dest in onode_attrs.values()) + 1
 
 
 class PAIBoxRuntime:
     @staticmethod
-    def encode(data: DataArrayType, iframe_info: FrameArrayType) -> FrameArrayType:
+    def encode(
+        data: DataArrayType, iframe_info: FrameArrayType, repeat: int = 1
+    ) -> FrameArrayType:
         """Encode input data with common information of input frames.
 
         Args:
             - data: the raw data for one input node. It will be flatten after encoding.
             - iframe_info: the common information of input frames for one input node.
+            - repeat: used to tile the data. For example, if timestep = 3, the original
+                data [0, 1, 2] will be tiled as [0, 1, 2, 0, 1, 2, 0, 1, 2].
 
         Returns:
-            Return the encoded arrays in spike frame format.
+            Return the encoded arrays in working frame type I format.
         """
-        _data = np.asarray(data, dtype=np.uint8)
+        _data = np.tile(np.asarray(data, dtype=PAYLOAD_DATA_DTYPE), repeat)
+
         return OfflineFrameGen.gen_work_frame1_fast(iframe_info, _data)
 
     @overload
     @staticmethod
     def gen_input_frames_info(
-        timestep: int, *, input_proj_info: Dict[str, Any]
-    ) -> List[FrameArrayType]: ...
+        timestep: int, *, input_proj_info: dict[str, Any]
+    ) -> list[FrameArrayType]: ...
 
     @overload
     @staticmethod
@@ -57,17 +102,17 @@ class PAIBoxRuntime:
         timeslots: Optional[ArrayType] = None,
         axons: Optional[ArrayType] = None,
         *,
-        input_proj_info: Optional[Dict[str, Any]] = None,
-    ) -> Union[FrameArrayType, List[FrameArrayType]]:
+        input_proj_info: Optional[dict[str, Any]] = None,
+    ) -> Union[FrameArrayType, list[FrameArrayType]]:
         """Generate the common information of input frames by given the dictionary  \
             of input projections.
 
         Args:
             - input_proj_info: the dictionary of input projections exported from    \
-                `paibox.Mapper`.  Or you can specify the following parameters:
+                `paibox.Mapper`, or you can specify the following parameters.
             - chip_coord: the destination chip coordinate of the output node.
             - core_coord: the destination coord coordinate of the output node.
-            - rid: Always `(0, 0)`.
+            - rid: the replication ID.
             - timeslots: the range of timeslots from 0 to T.
             - axons: the range of destination address of axons, from 0 to N.
 
@@ -79,10 +124,8 @@ class PAIBoxRuntime:
 
             # Traverse the input nodes
             for inode in input_proj_info.values():
-                raw_ts = inode["tick_relative"]
-                if timestep * max(raw_ts) > MAX_TIMESLOTS:
-                    print(timestep * max(raw_ts))
-                    raise ValueError
+                raw_ts: list[int] = inode["tick_relative"]
+                max_timeslot_check(timestep, raw_ts)
 
                 interval = max(raw_ts) - min(raw_ts) + 1
 
@@ -107,8 +150,7 @@ class PAIBoxRuntime:
         assert timeslots is not None
         assert axons is not None
 
-        if timestep * max(timeslots) > MAX_TIMESLOTS:
-            raise ValueError
+        max_timeslot_check(timestep, timeslots)
 
         # For example:
         # [0, 1, 1, 1, 2, 2] with T = 3 ->
@@ -125,45 +167,37 @@ class PAIBoxRuntime:
             chip_coord, core_coord, rid, axons * timestep, ts
         )
 
-    @overload
-    @staticmethod
-    def decode_spike_less1152(
-        timestep: int,
-        oframes: FrameArrayType,
-        oframe_infos: FrameArrayType,
-        flatten: bool = False,
-    ) -> NDArray[np.uint8]: ...
-
     @staticmethod
     def decode_spike(
         timestep: int,
         oframes: FrameArrayType,
-        oframe_infos: Union[FrameArrayType, List[FrameArrayType]],
+        oframe_infos: Union[FrameArrayType, list[FrameArrayType]],
         flatten: bool = False,
-    ) -> Union[NDArray[np.uint8], List[NDArray[np.uint8]]]:
+    ) -> Union[PayloadDataType, list[PayloadDataType]]:
         """Decode output spike frames.
 
         Args:
+            - timestep: the number of timesteps.
             - oframes: the output spike frames.
-            - oframe_infos: the expected common information of output frames.
-            - flatten: whether flatten the decoded data.
+            - oframe_infos: the expected common information (without payload) of output frames.
+            - flatten: whether to flatten the decoded data.
 
         Returns:
             Return the decoded output data. If `oframe_infos` is a list, the output will    \
             be a list where each element represents the decoded data for each output node.
         """
-        if len(oframes) != 0:
-            header_check(oframes, FH.WORK_TYPE1)
+        header_check(oframes, FH.WORK_TYPE1)
 
         if isinstance(oframe_infos, list):
             output = []
             # From (0, 0) -> (N, 0)
             seen_core_coords = (
-                oframes >> SFF.GENERAL_CORE_ADDR_OFFSET
-            ) & SFF.GENERAL_CORE_ADDR_MASK
+                oframes >> Off_WF1F.GENERAL_CORE_ADDR_OFFSET
+            ) & Off_WF1F.GENERAL_CORE_ADDR_MASK
+
             for i, oframe_info in enumerate(oframe_infos):
-                data = np.zeros_like(oframe_info, dtype=np.uint8)
-                if len(oframes) != 0:
+                data = np.zeros_like(oframe_info, dtype=PAYLOAD_DATA_DTYPE)
+                if len(oframes) > 0:
                     _cur_coord = Coord(0, 0) + to_coordoffset(i)
                     indices = np.where(_cur_coord.address == seen_core_coords)[0]
                     if not np.array_equal(indices, []):
@@ -171,14 +205,15 @@ class PAIBoxRuntime:
                         oframes_on_coord = oframes[indices]
                         # oframes_on_coord.sort()
                         data_on_coord = (
-                            oframes_on_coord >> SFF.DATA_OFFSET
-                        ) & SFF.DATA_MASK
+                            oframes_on_coord >> Off_WF1F.DATA_OFFSET
+                        ) & Off_WF1F.DATA_MASK
 
                         valid_idx = [
                             np.where(oframe_info == value)[0][0]
                             for value in oframes_on_coord
-                            & (SFF.GENERAL_MASK - SFF.DATA_MASK)
+                            & (Off_WF1F.GENERAL_MASK - Off_WF1F.DATA_MASK)
                         ]
+                        # TODO
                         data[valid_idx] = data_on_coord
 
                 d_with_shape = data.reshape(timestep, -1)
@@ -190,71 +225,102 @@ class PAIBoxRuntime:
             return output
 
         else:
-            data = np.zeros_like(oframe_infos, dtype=np.uint8)
-            if len(oframes) != 0:
+            data = np.zeros_like(oframe_infos, dtype=PAYLOAD_DATA_DTYPE)
+            if len(oframes) > 0:
                 oframes.sort()
-                data_on_coord = (oframes >> SFF.DATA_OFFSET) & SFF.DATA_MASK
+                data_on_coord = (oframes >> Off_WF1F.DATA_OFFSET) & Off_WF1F.DATA_MASK
 
                 valid_idx = np.isin(
-                    oframe_infos, oframes & (SFF.GENERAL_MASK - SFF.DATA_MASK)
+                    oframe_infos, oframes & (Off_WF1F.GENERAL_MASK - Off_WF1F.DATA_MASK)
                 )
+                # TODO
                 data[valid_idx] = data_on_coord
-            d_with_shape = data.reshape(-1, timestep).T
 
+            d_with_shape = data.reshape(-1, timestep).T
             if flatten:
                 return d_with_shape.flatten()
             else:
                 return d_with_shape
 
-    def gen_output_frames_more1152_info(
-        lcn: int,
+    # Keep compatible
+    decode_spike_less1152 = decode_spike
+
+    @overload
+    @staticmethod
+    def gen_output_frames_info(
+        timestep: int, *, output_dest_info: dict[str, Any]
+    ) -> list[FrameArrayType]: ...
+
+    @overload
+    @staticmethod
+    def gen_output_frames_info(
         timestep: int,
-        delay: int = 0,
+        chip_coord: CoordLike,
+        core_coord: CoordLike,
+        rid: RIdLike,
+        axons: ArrayType,
+    ) -> FrameArrayType: ...
+
+    @staticmethod
+    def gen_output_frames_info(
+        timestep: int,
         chip_coord: Optional[CoordLike] = None,
         core_coord: Optional[CoordLike] = None,
         rid: Optional[RIdLike] = None,
         axons: Optional[ArrayType] = None,
         *,
-        output_dest_info: Optional[Dict[str, Any]] = None,
-    ) -> Union[FrameArrayType, List[FrameArrayType]]:
+        output_dest_info: Optional[dict[str, Any]] = None,
+    ) -> Union[FrameArrayType, list[FrameArrayType]]:
         """Generate the common information of output frames by given the dictionary \
             of output destinations.
 
         Args:
+            - timestep: used to tile the "tick_relative" info of output destinations.
             - output_dest_info: the dictionary of output destinations exported from \
-                `paibox.Mapper`. Or you can specify the following parameters:
+                `paibox.Mapper`, or you can specify the following parameters.
             - chip_coord: the destination chip coordinate of the output node.
             - core_coord: the destination coord coordinate of the output node.
-            - rid: Always `(0, 0)`.
+            - rid: the replication ID. (maybe unused)
             - axons: the range of destination address of axons, from 0 to N.
-
-        NOTE: If there are #C output nodes, the total shape of outputs will be: C*N.
         """
+        assert 0 < timestep <= MAX_TIMESLOT
+
         if output_dest_info is not None:
             frames = []
             ts = []
+            frames_of_dest = []
 
             for onode in output_dest_info.values():
-                # Traverse output destinations of a node
-                frames_of_dest = []
+                frames_of_dest.clear()
                 temp = []
+                # Get the length expansion multiple of the output node
+                len_ex_onode = get_length_ex_onode(onode)
+
+                if len_ex_onode * timestep > MAX_TIMESLOT:
+                    raise ValueError(
+                        f"Length expansion multiple ({len_ex_onode}) * timestep ({timestep})"
+                        f"out of max timeslot ({MAX_TIMESLOT})"
+                    )
+
+                # Traverse output destinations of a node
                 for t in range(timestep):
                     for dest_on_coord in onode.values():
+                        # For example:
+                        # TR: [0,0,0,0,1,1] with T=3 -> [0,0,0,0,1,1,2,2,2,2,3,3,4,4,4,4,5,5]
                         if t == 0:
                             temp.extend(
                                 OfflineWorkFrame1._frame_dest_reorganized(dest_on_coord)
                             )
                         else:
                             dest_on_coord["tick_relative"] = [
-                                x + delay + lcn for x in dest_on_coord["tick_relative"]
+                                x + len_ex_onode for x in dest_on_coord["tick_relative"]
                             ]
                             temp.extend(
                                 OfflineWorkFrame1._frame_dest_reorganized(dest_on_coord)
                             )
 
                 frames_of_dest.append(temp)
-                frames_of_dest = np.hstack(frames_of_dest)
-                frames.append(frames_of_dest)
+                frames.append(np.hstack(frames_of_dest))
 
             return frames
 
@@ -263,6 +329,7 @@ class PAIBoxRuntime:
         assert rid is not None
         assert axons is not None
 
+        # [i]*len(addr_axon) for i in [0, timestep)
         ts = []
         for i in range(timestep):
             ts.extend([i] * len(axons))
@@ -270,4 +337,6 @@ class PAIBoxRuntime:
         oframes_info = OfflineWorkFrame1.concat_frame_dest(
             chip_coord, core_coord, rid, axons * timestep, ts
         )
+
+        oframes_info.sort()  # in-place sort to save memory
         return oframes_info
