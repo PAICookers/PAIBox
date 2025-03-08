@@ -1,18 +1,16 @@
 import json
 import timeit
-import numpy as np
-import pytest
-
-from runtime.runtime import PAIBoxRuntime, get_length_ex_onode, LENGTH_EX_MULTIPLE_KEY
-from paicorelib.framelib.utils import print_frame
-from paicorelib import Coord
-from paicorelib import ReplicationId as RId
-from paicorelib.framelib.frame_defs import (
-    FrameHeader as FH,
-    OfflineWorkFrame1Format as Off_WF1F,
-)
 from pathlib import Path
 
+import numpy as np
+import pytest
+from paicorelib import Coord
+from paicorelib import ReplicationId as RId
+from paicorelib.framelib.frame_defs import FrameHeader as FH
+from paicorelib.framelib.frame_defs import OfflineWorkFrame1Format as Off_WF1F
+from paicorelib.framelib.utils import print_frame
+
+from runtime.runtime import LENGTH_EX_MULTIPLE_KEY, PAIBoxRuntime, get_length_ex_onode
 
 TEST_CONF_DIR = Path(__file__).parent / "test_data"
 

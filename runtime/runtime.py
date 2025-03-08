@@ -20,7 +20,7 @@ except ImportError:
 
 del paicorelib
 
-from paicorelib import Coord, HwConfig, CoordLike, RIdLike, to_coordoffset
+from paicorelib import Coord, CoordLike, HwConfig, RIdLike, to_coordoffset
 from paicorelib.framelib.frame_defs import FrameHeader as FH
 from paicorelib.framelib.frame_defs import OfflineWorkFrame1Format as Off_WF1F
 from paicorelib.framelib.frame_gen import OfflineFrameGen
