@@ -73,7 +73,7 @@ __all__ = [
     "MaxPooling2d",
     "AvgPooling2d",
     "MaxPooling1d",
-    "AvgPooling1d"
+    "AvgPooling1d",
 ]
 
 
@@ -1495,16 +1495,16 @@ class MaxPooling1d(FunctionalModule):
     inherent_delay = 0
 
     def __init__(
-            self,
-            neuron_s: Union[NeuDyn, InputProj],
-            kernel_size: int,
-            stride: Optional[int] = None,
-            padding: tuple[int, int] = (0, 0),
-            bit_trunc: Optional[int] = 8,
-            *,
-            keep_shape: bool = False,
-            name: Optional[str] = None,
-            **kwargs,
+        self,
+        neuron_s: Union[NeuDyn, InputProj],
+        kernel_size: int,
+        stride: Optional[int] = None,
+        padding: tuple[int, int] = (0, 0),
+        bit_trunc: Optional[int] = 8,
+        *,
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        **kwargs,
     ) -> None:
         self.kernel_size = kernel_size
         self.stride = stride if stride is not None else kernel_size
@@ -1516,7 +1516,9 @@ class MaxPooling1d(FunctionalModule):
         padding_left, padding_right = self.padding
 
         # 计算输出序列长度
-        out_len = (seq_len + padding_left + padding_right - kernel_size) // self.stride + 1
+        out_len = (
+            seq_len + padding_left + padding_right - kernel_size
+        ) // self.stride + 1
         assert self.padding[0] < kernel_size and self.padding[1] < kernel_size
 
         super().__init__(
@@ -1538,7 +1540,7 @@ class MaxPooling1d(FunctionalModule):
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
             tick_wait_end=self.tick_wait_end,
-            pool_max=True,  
+            pool_max=True,
             keep_shape=self.keep_shape,
             name=f"nd_{self.name}",
         )
@@ -1551,7 +1553,7 @@ class MaxPooling1d(FunctionalModule):
                 seq_len=seq_len,
                 kernel_size=ks,
                 stride=self.stride,
-                padding=self.padding
+                padding=self.padding,
             ),
             name=f"s0_{self.name}",
         )
@@ -1561,21 +1563,22 @@ class MaxPooling1d(FunctionalModule):
 
         return generated
 
+
 @set_rt_mode_ann()
 class AvgPooling1d(FunctionalModule):
     inherent_delay = 0
 
     def __init__(
-            self,
-            neuron_s: Union[NeuDyn, InputProj],
-            kernel_size: int,
-            stride: Optional[int] = None,
-            padding: tuple[int, int] = (0, 0),
-            bit_trunc: Optional[int] = None,
-            *,
-            keep_shape: bool = False,
-            name: Optional[str] = None,
-            **kwargs,
+        self,
+        neuron_s: Union[NeuDyn, InputProj],
+        kernel_size: int,
+        stride: Optional[int] = None,
+        padding: tuple[int, int] = (0, 0),
+        bit_trunc: Optional[int] = None,
+        *,
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        **kwargs,
     ) -> None:
         self.kernel_size = kernel_size
         self.stride = stride if stride is not None else kernel_size
@@ -1586,7 +1589,9 @@ class AvgPooling1d(FunctionalModule):
         in_ch, seq_len = neuron_s.shape_out
         padding_left, padding_right = self.padding
 
-        out_len = (seq_len + padding_left + padding_right - kernel_size) // self.stride + 1
+        out_len = (
+            seq_len + padding_left + padding_right - kernel_size
+        ) // self.stride + 1
         assert self.padding[0] < kernel_size and self.padding[1] < kernel_size
 
         super().__init__(
@@ -1596,7 +1601,6 @@ class AvgPooling1d(FunctionalModule):
             name=name,
             **kwargs,
         )
-
 
     def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
         cin, seq_len = self.source[0].shape_out
@@ -1628,7 +1632,7 @@ class AvgPooling1d(FunctionalModule):
                 seq_len=seq_len,
                 kernel_size=ks,
                 stride=self.stride,
-                padding=self.padding
+                padding=self.padding,
             ),
             conn_type=ConnType.All2All,
             name=f"s1_{self.name}",
@@ -1638,7 +1642,7 @@ class AvgPooling1d(FunctionalModule):
         self._rebuild_out_intf(network, pool_1d, *generated, **build_options)
 
         return generated
-    
+
 
 @set_rt_mode_ann()
 class MaxPooling2d(FunctionalModule):
@@ -1709,7 +1713,6 @@ class MaxPooling2d(FunctionalModule):
         self._rebuild_out_intf(network, pool_2d, *generated, **build_options)
 
         return generated
-
 
 
 @set_rt_mode_ann()
@@ -1933,11 +1936,11 @@ def _poo2d_semifolded_mapping_mask(
 
 
 def _poo1d_mapping_mask(
-        cin: int,
-        seq_len: int,
-        kernel_size: int,
-        stride: int,
-        padding: tuple[int, int],
+    cin: int,
+    seq_len: int,
+    kernel_size: int,
+    stride: int,
+    padding: tuple[int, int],
 ) -> WeightType:
     padding_left, padding_right = padding
 

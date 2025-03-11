@@ -212,7 +212,6 @@ def avgpool1d_golden(
         return out >> ((kl).bit_length() - 1)
 
 
-
 @overload
 def avgpool2d_golden(
     x: SpikeType,

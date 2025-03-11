@@ -1455,33 +1455,30 @@ class TestFunctionalModules:
         for i in range(N_TEST):
             assert np.array_equal(sim1.data[net1.probe1][i], sim2.data[probe_linear][i])
 
-
-
-
     @pytest.mark.parametrize(
         "ishape_chw, n_pool, kshape_hw, stride, padding, out_features, pool_type",
         [
             # n_pool = 1
-            ((1, 8, 8), 1, [2], [2], [1], (10, ), "max"),
+            ((1, 8, 8), 1, [2], [2], [1], (10,), "max"),
             ((3, 16, 16), 1, [2], [2], [1], (10,), "avg"),
             # n_pool = 2
             ((1, 8, 8), 2, [2, 2], [2, 2], [0, 0], (2, 2), "max"),
             (
-                    (3, 24, 24),
-                    2,
-                    [(2, 2), (2, 2)],
-                    [None, None],
-                    [0, 0],
-                    (10,),
-                    "avg",
+                (3, 24, 24),
+                2,
+                [(2, 2), (2, 2)],
+                [None, None],
+                [0, 0],
+                (10,),
+                "avg",
             ),
             ((3, 24, 24), 2, [2, 2], [1, 1], [], (4,), "max"),
             ((3, 24, 24), 2, [(2, 2), (2, 2)], [2, 2], [], (10,), "max"),
             ((6, 32, 32), 2, [3, 3], [None, None], [], (10,), "max"),
         ],
     )
-
-    def test_ANNPooling2d(self,
+    def test_ANNPooling2d(
+        self,
         ishape_chw,
         n_pool,
         kshape_hw,
@@ -1489,7 +1486,8 @@ class TestFunctionalModules:
         padding,
         out_features,
         pool_type,
-        fixed_rng: np.random.Generator,):
+        fixed_rng: np.random.Generator,
+    ):
         from tests.shared_networks import Pool2d_FC_ChainNetN
 
         if pool_type == "max":
@@ -1574,8 +1572,9 @@ class TestFunctionalModules:
                         x, ksizes[i_pool], strides[i_pool], paddings[i_pool]
                     )
                 )
-                assert np.array_equal(x.ravel(), sim1.data[probe_pool_list[i_pool]][2 * i_pool])
-
+                assert np.array_equal(
+                    x.ravel(), sim1.data[probe_pool_list[i_pool]][2 * i_pool]
+                )
 
     @pytest.mark.parametrize(
         "ishape_cl, n_pool, kshape_l, stride, padding, out_features, pool_type",
@@ -1586,20 +1585,29 @@ class TestFunctionalModules:
             # n_pool = 2
             ((1, 8), 2, [2, 2], [2, 2], [0, 0], (2,), "max"),  # 1通道，序列长度8
             #
-            ((3, 24), 2, [2, 2], [None, None], [0, 0], (10,), "avg"),  # 3通道，序列长度24
+            (
+                (3, 24),
+                2,
+                [2, 2],
+                [None, None],
+                [0, 0],
+                (10,),
+                "avg",
+            ),  # 3通道，序列长度24
             ((3, 24), 2, [2, 2], [1, 1], [], (4,), "max"),  # 3通道，序列长度24
             ((6, 32), 2, [3, 3], [None, None], [], (10,), "max"),  # 6通道，序列长度32
         ],
     )
-    def test_ANNPooling1d(self,
-            ishape_cl,
-            n_pool,
-            kshape_l,
-            stride,
-            padding,
-            out_features,
-            pool_type,
-            fixed_rng: np.random.Generator,
+    def test_ANNPooling1d(
+        self,
+        ishape_cl,
+        n_pool,
+        kshape_l,
+        stride,
+        padding,
+        out_features,
+        pool_type,
+        fixed_rng: np.random.Generator,
     ):
         from tests.shared_networks import Pool1d_FC_ChainNetN
 
@@ -1686,8 +1694,13 @@ class TestFunctionalModules:
             for i_pool in range(n_pool):
                 x = _ann_bit_trunc(
                     _pool_op[pool_type](
-                        x, _pair(ksizes[i_pool]), _pair(strides[i_pool]), paddings[i_pool], 0
+                        x,
+                        _pair(ksizes[i_pool]),
+                        _pair(strides[i_pool]),
+                        paddings[i_pool],
+                        0,
                     )
                 )
-                assert np.array_equal(x.ravel(), sim1.data[probe_pool_list[i_pool]][2 * i_pool])
-
+                assert np.array_equal(
+                    x.ravel(), sim1.data[probe_pool_list[i_pool]][2 * i_pool]
+                )

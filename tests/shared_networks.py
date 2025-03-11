@@ -329,6 +329,8 @@ _pool_op_2d = {
     "avg": pb.AvgPooling2d,
     "max": pb.MaxPooling2d,
 }
+
+
 class Pool2d_FC_ChainNetN(pb.DynSysGroup):
     def __init__(
         self, shape, kernel_sizes, strides, paddings, out_features, weight, pool_type
@@ -363,10 +365,13 @@ class Pool2d_FC_ChainNetN(pb.DynSysGroup):
             tick_wait_start=self.pool_list[-1].tick_wait_start + 2,
         )
 
+
 _pool_op_1d = {
     "avg": pb.AvgPooling1d,
     "max": pb.MaxPooling1d,
 }
+
+
 class Pool1d_FC_ChainNetN(pb.DynSysGroup):
     def __init__(
         self, shape, kernel_sizes, strides, paddings, out_features, weight, pool_type
