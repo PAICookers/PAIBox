@@ -5,6 +5,7 @@ from functools import partial
 from typing import ClassVar, Optional, Union
 
 import numpy as np
+from numpy.lib.stride_tricks import as_strided
 from paicorelib import NTM, RM, TM
 
 from paibox.base import NeuDyn, NodeList
@@ -69,6 +70,10 @@ __all__ = [
     "Conv2dSemiFolded",
     "MaxPool2dSemiFolded",
     "AvgPool2dSemiFolded",
+    "MaxPooling2d",
+    "AvgPooling2d",
+    "MaxPooling1d",
+    "AvgPooling1d",
 ]
 
 
@@ -1485,6 +1490,310 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
         return generated
 
 
+@set_rt_mode_ann()
+class MaxPooling1d(FunctionalModule):
+    inherent_delay = 0
+
+    def __init__(
+        self,
+        neuron_s: Union[NeuDyn, InputProj],
+        kernel_size: int,
+        stride: Optional[int] = None,
+        padding: tuple[int, int] = (0, 0),
+        bit_trunc: Optional[int] = 8,
+        *,
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        self.kernel_size = kernel_size
+        self.stride = stride if stride is not None else kernel_size
+        self.padding = padding  # (left, right)
+        self.bit_trunc = bit_trunc
+
+        assert len(neuron_s.shape_out) == 2
+        in_ch, seq_len = neuron_s.shape_out
+        padding_left, padding_right = self.padding
+
+        # 计算输出序列长度
+        out_len = (
+            seq_len + padding_left + padding_right - kernel_size
+        ) // self.stride + 1
+        assert self.padding[0] < kernel_size and self.padding[1] < kernel_size
+
+        super().__init__(
+            neuron_s,
+            shape_out=(in_ch, out_len),
+            keep_shape=keep_shape,
+            name=name,
+            **kwargs,
+        )
+
+    def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
+        cin, seq_len = self.source[0].shape_out
+        ks = self.kernel_size
+        _, out_len = self.shape_out
+
+        pool_1d = ANNNeuron(
+            self.shape_out,
+            bit_trunc=self.bit_trunc,
+            delay=self.delay_relative,
+            tick_wait_start=self.tick_wait_start,
+            tick_wait_end=self.tick_wait_end,
+            pool_max=True,
+            keep_shape=self.keep_shape,
+            name=f"nd_{self.name}",
+        )
+
+        syn1 = MaxPoolSyn(
+            self.source[0],
+            pool_1d,
+            weights=_poo1d_mapping_mask(
+                cin=cin,
+                seq_len=seq_len,
+                kernel_size=ks,
+                stride=self.stride,
+                padding=self.padding,
+            ),
+            name=f"s0_{self.name}",
+        )
+
+        generated = [pool_1d, syn1]
+        self._rebuild_out_intf(network, pool_1d, *generated, **build_options)
+
+        return generated
+
+
+@set_rt_mode_ann()
+class AvgPooling1d(FunctionalModule):
+    inherent_delay = 0
+
+    def __init__(
+        self,
+        neuron_s: Union[NeuDyn, InputProj],
+        kernel_size: int,
+        stride: Optional[int] = None,
+        padding: tuple[int, int] = (0, 0),
+        bit_trunc: Optional[int] = None,
+        *,
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        self.kernel_size = kernel_size
+        self.stride = stride if stride is not None else kernel_size
+        self.padding = padding  # (left, right)
+        self.bit_trunc = bit_trunc
+
+        assert len(neuron_s.shape_out) == 2
+        in_ch, seq_len = neuron_s.shape_out
+        padding_left, padding_right = self.padding
+
+        out_len = (
+            seq_len + padding_left + padding_right - kernel_size
+        ) // self.stride + 1
+        assert self.padding[0] < kernel_size and self.padding[1] < kernel_size
+
+        super().__init__(
+            neuron_s,
+            shape_out=(in_ch, out_len),
+            keep_shape=keep_shape,
+            name=name,
+            **kwargs,
+        )
+
+    def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
+        cin, seq_len = self.source[0].shape_out
+        ks = self.kernel_size
+        _, out_len = self.shape_out
+
+        bt = (
+            self.bit_trunc
+            if isinstance(self.bit_trunc, int)
+            else 8 + (ks).bit_length() - 1
+        )
+
+        pool_1d = ANNNeuron(
+            self.shape_out,
+            bit_trunc=bt,
+            delay=self.delay_relative,
+            tick_wait_start=self.tick_wait_start,
+            tick_wait_end=self.tick_wait_end,
+            pool_max=False,
+            keep_shape=self.keep_shape,
+            name=f"nd_{self.name}",
+        )
+
+        syn1 = FullConnSyn(
+            self.source[0],
+            pool_1d,
+            weights=_poo1d_mapping_mask(
+                cin=cin,
+                seq_len=seq_len,
+                kernel_size=ks,
+                stride=self.stride,
+                padding=self.padding,
+            ),
+            conn_type=ConnType.All2All,
+            name=f"s1_{self.name}",
+        )
+
+        generated = [pool_1d, syn1]
+        self._rebuild_out_intf(network, pool_1d, *generated, **build_options)
+
+        return generated
+
+
+@set_rt_mode_ann()
+class MaxPooling2d(FunctionalModule):
+    inherent_delay = 0
+
+    def __init__(
+        self,
+        neuron_s: Union[NeuDyn, InputProj],
+        kernel_size: _Size2Type,
+        stride: Optional[_Size2Type] = None,
+        padding: _Size2Type = 0,
+        bit_trunc: Optional[int] = 8,
+        *,
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        self.kernel_size = _pair(kernel_size)
+        if stride is None:
+            _stride = self.kernel_size
+        else:
+            _stride = _pair(stride)
+
+        self.stride = _stride
+        self.padding = _pair(padding)
+        self.bit_trunc = bit_trunc
+
+        assert len(neuron_s.shape_out) == 3
+        in_ch, in_h, in_w = neuron_s.shape_out
+        out_h = (in_h - self.kernel_size[0] + 2 * self.padding[0]) // self.stride[0] + 1
+        out_w = (in_w - self.kernel_size[1] + 2 * self.padding[1]) // self.stride[1] + 1
+        kh, kw = self.kernel_size
+        assert self.padding[0] < kh and self.padding[1] < kw
+
+        super().__init__(
+            neuron_s,
+            shape_out=(in_ch, out_h, out_w),
+            keep_shape=keep_shape,
+            name=name,
+            **kwargs,
+        )
+
+    def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
+        cin, ih, iw = self.source[0].shape_out
+        kh, kw = self.kernel_size
+        _, oh, ow = self.shape_out
+        pool_2d = ANNNeuron(
+            self.shape_out,
+            bit_trunc=self.bit_trunc,
+            delay=self.delay_relative,
+            tick_wait_start=self.tick_wait_start,
+            tick_wait_end=self.tick_wait_end,
+            pool_max=True,
+            keep_shape=self.keep_shape,
+            name=f"nd_{self.name}",
+        )
+
+        syn1 = MaxPoolSyn(
+            self.source[0],
+            pool_2d,
+            weights=_poo2d_mapping_mask(
+                cin, ih, iw, oh, ow, kh, kw, self.stride, self.padding
+            ),
+            name=f"s0_{self.name}",
+        )
+
+        generated = [pool_2d, syn1]
+        self._rebuild_out_intf(network, pool_2d, *generated, **build_options)
+
+        return generated
+
+
+@set_rt_mode_ann()
+class AvgPooling2d(FunctionalModule):
+    inherent_delay = 0
+
+    def __init__(
+        self,
+        neuron_s: Union[NeuDyn, InputProj],
+        kernel_size: _Size2Type,
+        stride: Optional[_Size2Type] = None,
+        padding: _Size2Type = 0,
+        bit_trunc: Optional[int] = None,
+        *,
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        self.kernel_size = _pair(kernel_size)
+        if stride is None:
+            _stride = self.kernel_size
+        else:
+            _stride = _pair(stride)
+
+        self.stride = _stride
+        self.padding = _pair(padding)
+        self.bit_trunc = bit_trunc
+
+        assert len(neuron_s.shape_out) == 3
+        in_ch, in_h, in_w = neuron_s.shape_out
+        out_h = (in_h - self.kernel_size[0] + 2 * self.padding[0]) // self.stride[0] + 1
+        out_w = (in_w - self.kernel_size[1] + 2 * self.padding[1]) // self.stride[1] + 1
+        kh, kw = self.kernel_size
+        assert self.padding[0] < kh and self.padding[1] < kw
+
+        super().__init__(
+            neuron_s,
+            shape_out=(in_ch, out_h, out_w),
+            keep_shape=keep_shape,
+            name=name,
+            **kwargs,
+        )
+
+    def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
+        cin, ih, iw = self.source[0].shape_out
+        kh, kw = self.kernel_size
+        _, oh, ow = self.shape_out
+
+        bt = (
+            self.bit_trunc
+            if isinstance(self.bit_trunc, int)
+            else 8 + (kh * kw).bit_length() - 1
+        )
+
+        pool_2d = ANNNeuron(
+            self.shape_out,
+            bit_trunc=bt,
+            delay=self.delay_relative,
+            tick_wait_start=self.tick_wait_start,
+            tick_wait_end=self.tick_wait_end,
+            pool_max=False,
+            keep_shape=self.keep_shape,
+            name=f"nd_{self.name}",
+        )
+
+        syn1 = FullConnSyn(
+            self.source[0],
+            pool_2d,
+            weights=_poo2d_mapping_mask(
+                cin, ih, iw, oh, ow, kh, kw, self.stride, self.padding
+            ),
+            conn_type=ConnType.All2All,
+            name=f"s1_{self.name}",
+        )
+
+        generated = [pool_2d, syn1]
+        self._rebuild_out_intf(network, pool_2d, *generated, **build_options)
+
+        return generated
+
+
 def _spike_func_sadd_ssub(
     vjt: VoltageType, pos_thres: int, reset_v: Optional[int] = None
 ) -> tuple[NeuOutType, VoltageType]:
@@ -1624,3 +1933,70 @@ def _poo2d_semifolded_mapping_mask(
         m[i * ih : i * ih + ih, i * oh : i * oh + oh] = m_block
 
     return m
+
+
+def _poo1d_mapping_mask(
+    cin: int,
+    seq_len: int,
+    kernel_size: int,
+    stride: int,
+    padding: tuple[int, int],
+) -> WeightType:
+    padding_left, padding_right = padding
+
+    output_len = (seq_len + padding_left + padding_right - kernel_size) // stride + 1
+
+    n_input = cin * seq_len
+    n_output = cin * output_len
+
+    weights = np.zeros((n_input, n_output), dtype=WEIGHT_DTYPE)
+
+    for c in range(cin):
+        for o in range(output_len):
+            start = o * stride - padding_left
+
+            for k in range(kernel_size):
+                pos = start + k
+
+                if 0 <= pos < seq_len:
+                    input_idx = c * seq_len + pos
+                    output_idx = c * output_len + o
+                    weights[input_idx, output_idx] = 1
+
+    return weights
+
+
+def _poo2d_mapping_mask(
+    cin: int,
+    ih: int,
+    iw: int,
+    oh: int,
+    ow: int,
+    kh: int,
+    kw: int,
+    stride: tuple[int, int],
+    padding: tuple[int, int],
+) -> WeightType:
+    n_input = cin * ih * iw
+    n_output = cin * oh * ow
+    weights = np.zeros((n_input, n_output), dtype=WEIGHT_DTYPE)
+
+    stride_h, stride_w = stride
+    pad_h, pad_w = padding
+
+    for c in range(cin):
+        for h_out in range(oh):
+            for w_out in range(ow):
+                h_start = h_out * stride_h - pad_h
+                w_start = w_out * stride_w - pad_w
+
+                for dh in range(kh):
+                    for dw in range(kw):
+                        h_in = h_start + dh
+                        w_in = w_start + dw
+
+                        if 0 <= h_in < ih and 0 <= w_in < iw:
+                            input_idx = c * (ih * iw) + h_in * iw + w_in
+                            output_idx = c * (oh * ow) + h_out * ow + w_out
+                            weights[input_idx, output_idx] = 1
+    return weights

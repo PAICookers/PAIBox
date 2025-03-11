@@ -180,13 +180,13 @@ def maxpool2d_golden(
 
 
 def avgpool1d_golden(
-    x: SpikeType,
+    x: Union[NeuOutType, SpikeType],
     kernel_size: tuple[int],
     stride: Optional[tuple[int]],
     padding: tuple[int],
-    threshold: int,
+    threshold: Optional[int] = None,
     fm_order: str = "CL",
-) -> SpikeType:
+) -> Union[NeuOutType, SpikeType]:
     if fm_order == "LC":
         _x = x.T
     else:
@@ -198,14 +198,18 @@ def avgpool1d_golden(
     ol = (il - kl + 2 * padding[0]) // _stride[0] + 1
     cout = xcin
 
-    out = np.zeros((cout, ol), dtype=WEIGHT_DTYPE)
+    out = np.zeros((cout, ol), dtype=VOLTAGE_DTYPE)
     x_padded = np.pad(_x, ((0, 0), (padding[0], padding[0])))
 
     for c in range(cout):
         for i in range(ol):
             out[c, i] = np.sum(x_padded[c, _stride[0] * i : _stride[0] * i + kl])
 
-    return out >= threshold
+    if threshold:
+        return out >= threshold
+    else:
+        # Use the bit truncation method to simulate the behavior of the hardware.
+        return out >> ((kl).bit_length() - 1)
 
 
 @overload
