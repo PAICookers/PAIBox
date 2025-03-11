@@ -1527,54 +1527,22 @@ class MaxPooling1d(FunctionalModule):
             **kwargs,
         )
 
-    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
-        c, seq_len = self.source[0].shape_out
-        x_2d = x1.reshape(c, seq_len)
-        ks = self.kernel_size
-        stride = self.stride
-        pad_left, pad_right = self.padding
-
-        # 应用左右填充
-        padded = np.zeros((c, seq_len + pad_left + pad_right), dtype=x_2d.dtype)
-        padded[:, pad_left:pad_left + seq_len] = x_2d
-
-        # 计算滑动窗口
-        _, out_len = self.shape_out
-        strides = (
-            padded.strides[0],  # 通道间步长
-            stride * padded.strides[1],  # 序列方向步长
-            padded.strides[1]  # 窗口内步长
-        )
-
-        windows = as_strided(
-            padded,
-            shape=(c, out_len, ks),  # (通道数, 输出长度, 窗口大小)
-            strides=strides,
-            writeable=False
-        )
-
-        # 取窗口最大值
-        max_values = windows.max(axis=2)
-        return max_values.astype(NEUOUT_U8_DTYPE).flatten()
-
     def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
         cin, seq_len = self.source[0].shape_out
         ks = self.kernel_size
         _, out_len = self.shape_out
 
-        # 创建池化神经元
         pool_1d = ANNNeuron(
             self.shape_out,
             bit_trunc=self.bit_trunc,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
             tick_wait_end=self.tick_wait_end,
-            pool_max=True,  # 关键区别：启用最大值模式
+            pool_max=True,  
             keep_shape=self.keep_shape,
             name=f"nd_{self.name}",
         )
 
-        # 使用最大池化专用突触
         syn1 = MaxPoolSyn(
             self.source[0],
             pool_1d,
@@ -1618,7 +1586,6 @@ class AvgPooling1d(FunctionalModule):
         in_ch, seq_len = neuron_s.shape_out
         padding_left, padding_right = self.padding
 
-        # 计算输出序列长度
         out_len = (seq_len + padding_left + padding_right - kernel_size) // self.stride + 1
         assert self.padding[0] < kernel_size and self.padding[1] < kernel_size
 
@@ -1630,54 +1597,18 @@ class AvgPooling1d(FunctionalModule):
             **kwargs,
         )
 
-    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
-        c, seq_len = self.source[0].shape_out
-        x_2d = x1.reshape(c, seq_len)
-        ks = self.kernel_size
-        stride = self.stride
-        pad_left, pad_right = self.padding
-
-        pool_size = ks
-        shift_bits = (pool_size.bit_length() - 1)
-
-        # 应用左右填充
-        padded = np.zeros((c, seq_len + pad_left + pad_right), dtype=x_2d.dtype)
-        padded[:, pad_left:pad_left + seq_len] = x_2d
-
-        # 计算滑动窗口
-        _, out_len = self.shape_out
-        strides = (
-            padded.strides[0],  # 通道间步长
-            stride * padded.strides[1],  # 序列方向步长
-            padded.strides[1]  # 窗口内步长
-        )
-
-        windows = as_strided(
-            padded,
-            shape=(c, out_len, ks),  # (通道数, 输出长度, 窗口大小)
-            strides=strides,
-            writeable=False
-        )
-
-        # 求和并计算平均值
-        sum_window = windows.sum(axis=2, dtype=np.int8)
-        avg = (sum_window + (1 << (shift_bits - 1))) >> shift_bits
-
-        return avg.astype(NEUOUT_U8_DTYPE).flatten()
 
     def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
         cin, seq_len = self.source[0].shape_out
         ks = self.kernel_size
         _, out_len = self.shape_out
 
-        # 自动计算位截断
         bt = (
             self.bit_trunc
             if isinstance(self.bit_trunc, int)
             else 8 + (ks).bit_length() - 1
         )
 
-        # 创建池化神经元
         pool_1d = ANNNeuron(
             self.shape_out,
             bit_trunc=bt,
@@ -1689,7 +1620,6 @@ class AvgPooling1d(FunctionalModule):
             name=f"nd_{self.name}",
         )
 
-        # 创建全连接突触
         syn1 = FullConnSyn(
             self.source[0],
             pool_1d,
@@ -1750,34 +1680,6 @@ class MaxPooling2d(FunctionalModule):
             name=name,
             **kwargs,
         )
-
-    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType: 
-        c, h, w = self.source[0].shape_out
-        x1 = x1.reshape(c, h, w)
-        kh, kw = self.kernel_size
-        sh, sw = self.stride
-        ph, pw = self.padding
-
-        padded_h = h + 2*ph
-        padded_w = w + 2*pw
-        x_pad = np.zeros((c, padded_h, padded_w), dtype=x1.dtype)
-        x_pad[:, ph:ph+h, pw:pw+w] = x1  
-
-        _, out_h, out_w = self.shape_out
-
-
-        strides = (
-            x_pad.strides[0],  
-            sh * x_pad.strides[1],  
-            sw * x_pad.strides[2]   
-        )
-        windows = as_strided(
-            x_pad,
-            shape=(c, out_h, out_w, kh, kw),
-            strides=strides + (x_pad.strides[1], x_pad.strides[2]),
-            writeable=False
-        )   
-        return windows.max(axis=(3, 4)).astype(NEUOUT_U8_DTYPE)
 
     def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
         cin, ih, iw = self.source[0].shape_out
@@ -1850,40 +1752,6 @@ class AvgPooling2d(FunctionalModule):
             name=name,
             **kwargs,
         )
-
-    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
-        c, h, w = self.source[0].shape_out
-        x_3d = x1.reshape(c, h, w)
-        kh, kw = self.kernel_size
-        sh, sw = self.stride
-        ph, pw = self.padding
-
-        pool_size = kh * kw
-        shift_bits = (pool_size.bit_length() - 1)
-        
-        padded = np.zeros((c, h + 2*ph, w + 2*pw), dtype=x_3d.dtype)
-        padded[:, ph:ph+h, pw:pw+w] = x_3d
-
-        _, out_h, out_w = self.shape_out
-        strides = (
-            padded.strides[0],         
-            sh * padded.strides[1],    
-            sw * padded.strides[2],    #
-            padded.strides[1],         # 
-            padded.strides[2]          # 
-        )
-        
-        windows = as_strided(
-            padded,
-            shape=(c, out_h, out_w, kh, kw),
-            strides=strides,
-            writeable=False
-        )
-
-        sum_window = windows.sum(axis=(3,4), dtype=np.int8)          
-        avg = (sum_window + (1 << (shift_bits - 1))) >> shift_bits    
-        
-        return avg.astype(NEUOUT_U8_DTYPE)
 
     def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
         cin, ih, iw = self.source[0].shape_out
@@ -2070,35 +1938,24 @@ def _poo1d_mapping_mask(
         kernel_size: int,
         stride: int,
         padding: tuple[int, int],
-) -> np.ndarray:
-    # 解析左右填充
+) -> WeightType:
     padding_left, padding_right = padding
 
-    # 计算输出序列长度
     output_len = (seq_len + padding_left + padding_right - kernel_size) // stride + 1
 
-    # 输入和输出的总元素数
     n_input = cin * seq_len
     n_output = cin * output_len
 
-    # 初始化权重矩阵
     weights = np.zeros((n_input, n_output), dtype=WEIGHT_DTYPE)
 
-    # 遍历每个通道
     for c in range(cin):
-        # 遍历每个输出位置
         for o in range(output_len):
-            # 计算窗口起始位置（考虑左填充）
             start = o * stride - padding_left
 
-            # 遍历窗口内的每个元素
             for k in range(kernel_size):
-                # 计算输入中的实际位置
                 pos = start + k
 
-                # 检查位置是否有效
                 if 0 <= pos < seq_len:
-                    # 计算flatten索引
                     input_idx = c * seq_len + pos
                     output_idx = c * output_len + o
                     weights[input_idx, output_idx] = 1
@@ -2119,33 +1976,24 @@ def _poo2d_mapping_mask(
 ) -> WeightType:
     n_input = cin * ih * iw
     n_output = cin * oh * ow
-    # 初始化权重矩阵为全0
     weights = np.zeros((n_input, n_output), dtype=WEIGHT_DTYPE)
 
     stride_h, stride_w = stride
     pad_h, pad_w = padding
 
-    # 遍历每个通道
     for c in range(cin):
-        # 遍历输出特征图的每个位置
         for h_out in range(oh):
             for w_out in range(ow):
-                # 计算池化窗口的起始坐标（考虑padding）
                 h_start = h_out * stride_h - pad_h
                 w_start = w_out * stride_w - pad_w
 
-                # 遍历池化窗口内的每个元素
                 for dh in range(kh):
                     for dw in range(kw):
-                        # 计算输入中的实际坐标
                         h_in = h_start + dh
                         w_in = w_start + dw
 
-                        # 检查坐标是否在有效范围内
                         if 0 <= h_in < ih and 0 <= w_in < iw:
-                            # 计算输入和输出的flatten索引
                             input_idx = c * (ih * iw) + h_in * iw + w_in
                             output_idx = c * (oh * ow) + h_out * ow + w_out
-                            # 在权重矩阵中标记为1
                             weights[input_idx, output_idx] = 1
     return weights
