@@ -325,51 +325,16 @@ class Pool2dSemiFolded_FC_ChainNetN(pb.DynSysGroup):
         )
 
 
-_pool_op_2d = {
-    "avg": pb.AvgPooling2d,
-    "max": pb.MaxPooling2d,
-}
-
-
-class Pool2d_FC_ChainNetN(pb.DynSysGroup):
-    def __init__(
-        self, shape, kernel_sizes, strides, paddings, out_features, weight, pool_type
-    ):
+class Linear_Net(pb.DynSysGroup):
+    def __init__(self, shape, weight1):
         super().__init__()
         self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape)
-        self.pool_list = NodeList()
-
-        for i, (ksize, stride) in enumerate(zip(kernel_sizes, strides)):
-            if pool_type == "max":
-                pool = _pool_op_2d[pool_type](
-                    self.pool_list[-1] if i > 0 else self.i1,
-                    ksize,
-                    stride,
-                    tick_wait_start=1 + 2 * i,
-                )
-            else:
-                pool = _pool_op_2d[pool_type](
-                    self.pool_list[-1] if i > 0 else self.i1,
-                    ksize,
-                    stride,
-                    padding=paddings[i],
-                    tick_wait_start=1 + 2 * i,
-                )
-            self.pool_list.append(pool)
-
-        self.linear1 = pb.Linear(
-            self.pool_list[-1],
-            out_features,
-            weights=weight,
-            bias=0,
-            tick_wait_start=self.pool_list[-1].tick_wait_start + 2,
-        )
+        self.linear1 = pb.Linear(self.i1, 10, weights=weight1, bias=2)
+        self.probe1 = pb.Probe(self.linear1, "spike")
 
 
-_pool_op_1d = {
-    "avg": pb.AvgPooling1d,
-    "max": pb.MaxPooling1d,
-}
+_pool_op_1d = {"avg": pb.AvgPool1d, "max": pb.MaxPool1d}
+_pool_op_2d = {"avg": pb.AvgPool2d, "max": pb.MaxPool2d}
 
 
 class Pool1d_FC_ChainNetN(pb.DynSysGroup):
@@ -381,21 +346,13 @@ class Pool1d_FC_ChainNetN(pb.DynSysGroup):
         self.pool_list = NodeList()
 
         for i, (ksize, stride) in enumerate(zip(kernel_sizes, strides)):
-            if pool_type == "max":
-                pool = _pool_op_1d[pool_type](
-                    self.pool_list[-1] if i > 0 else self.i1,
-                    ksize,
-                    stride,
-                    tick_wait_start=1 + 2 * i,
-                )
-            else:
-                pool = _pool_op_1d[pool_type](
-                    self.pool_list[-1] if i > 0 else self.i1,
-                    ksize,
-                    stride,
-                    padding=paddings[i],
-                    tick_wait_start=1 + 2 * i,
-                )
+            pool = _pool_op_1d[pool_type](
+                self.pool_list[-1] if i > 0 else self.i1,
+                ksize,
+                stride,
+                paddings[i],
+                tick_wait_start=1 + 2 * i,
+            )
             self.pool_list.append(pool)
 
         self.linear1 = pb.Linear(
@@ -407,12 +364,31 @@ class Pool1d_FC_ChainNetN(pb.DynSysGroup):
         )
 
 
-class Linear_Net(pb.DynSysGroup):
-    def __init__(self, shape, weight1):
+class Pool2d_FC_ChainNetN(pb.DynSysGroup):
+    def __init__(
+        self, shape, kernel_sizes, strides, paddings, out_features, weight, pool_type
+    ):
         super().__init__()
         self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape)
-        self.linear1 = pb.Linear(self.i1, 10, weights=weight1, bias=2)
-        self.probe1 = pb.Probe(self.linear1, "spike")
+        self.pool_list = NodeList()
+
+        for i, (ksize, stride) in enumerate(zip(kernel_sizes, strides)):
+            pool = _pool_op_2d[pool_type](
+                self.pool_list[-1] if i > 0 else self.i1,
+                ksize,
+                stride,
+                paddings[i],
+                tick_wait_start=1 + 2 * i,
+            )
+            self.pool_list.append(pool)
+
+        self.linear1 = pb.Linear(
+            self.pool_list[-1],
+            out_features,
+            weights=weight,
+            bias=0,
+            tick_wait_start=self.pool_list[-1].tick_wait_start + 2,
+        )
 
 
 class ANNNetwork(pb.Network):

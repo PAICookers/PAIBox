@@ -53,7 +53,6 @@ def _coarse_group(
         return [quotient] * (n_part - 1) + [rest]
 
     def _max_capacity_load(n: int) -> list[int]:
-        nonlocal capacity
         n_part = ceil(n / capacity)
         rest = n - (n_part - 1) * capacity
 

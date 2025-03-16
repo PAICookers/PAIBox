@@ -5,19 +5,14 @@ import paibox as pb
 from paibox.base import DynamicSys
 from paibox.components import NeuModule
 from paibox.components._modules import _SemiFoldedModule
-from paibox.components.neuron.base import MetaNeuron
 from paibox.components.synapses.conv_utils import _conv2d_faster, _pair, _single
 from paibox.network import DynSysGroup
-from paibox.types import (
-    NEUOUT_U8_DTYPE,
-    VOLTAGE_DTYPE,
-    WEIGHT_DTYPE,
-    NeuOutType,
-    VoltageType,
-)
+from paibox.types import NEUOUT_U8_DTYPE, VOLTAGE_DTYPE, WEIGHT_DTYPE
 from paibox.utils import as_shape, shape2num, typical_round
 
+from .conftest import *  # import test data
 from .utils import (
+    ann_bit_trunc,
     avgpool1d_golden,
     avgpool2d_golden,
     maxpool1d_golden,
@@ -37,12 +32,6 @@ def _assert_build_fmodule(
     # Must exclude `NeuModule`, because it may be in the `__dict__` of probe
     nodes = network.nodes().subset(DynamicSys).exclude(NeuModule).unique()
     assert len(nodes) == n_node_aft_build
-
-
-def _ann_bit_trunc(v_array: VoltageType, bit_trunc: int = 8) -> NeuOutType:
-    return np.where(v_array <= 0, 0, MetaNeuron._truncate(v_array, bit_trunc)).astype(
-        NEUOUT_U8_DTYPE
-    )
 
 
 N_TEST = 20
@@ -831,243 +820,8 @@ class TestFunctionalModules:
         mapper.export(fp=ensure_dump_dir)
 
     @pytest.mark.parametrize(
-        "ishape_chw, n_conv, kshape_oihw, stride, padding, out_features, groups",
-        [
-            # n_conv = 1
-            (
-                (3, 11, 11),
-                1,
-                [(1, 3, 3, 3)],
-                [1],
-                [1],
-                (10,),
-                [
-                    1,
-                ],
-            ),
-            (
-                (3, 12, 12),
-                1,
-                [(12, 3, 3, 3)],
-                [(1, 1)],
-                [2],
-                (10,),
-                [
-                    1,
-                ],
-            ),
-            (
-                (8, 12, 12),
-                1,
-                [(16, 8, 3, 3)],
-                [(2, 2)],
-                [2],
-                (10,),
-                [
-                    1,
-                ],
-            ),
-            (
-                (8, 12, 12),
-                1,
-                [(16, 8, 4, 4)],
-                [2],
-                [1],
-                (10,),
-                [
-                    1,
-                ],
-            ),
-            (
-                (4, 12, 12),
-                1,
-                [(8, 4, 3, 3)],
-                [1],
-                [0],
-                (4, 2),
-                [
-                    1,
-                ],
-            ),
-            (
-                (4, 24, 24),
-                1,
-                [(8, 4, 3, 3)],
-                [2],
-                [0],
-                10,
-                [
-                    1,
-                ],
-            ),
-            (
-                (12, 12, 12),
-                1,
-                [(6, 12, 3, 3)],
-                [1],
-                [0],
-                (3, 3),
-                [
-                    1,
-                ],
-            ),
-            (
-                (4, 24, 24),
-                1,
-                [(8, 4, 4, 4)],
-                [2],
-                [0],
-                (10,),
-                [
-                    1,
-                ],
-            ),
-            (
-                (8, 32, 32),
-                1,
-                [(4, 8, 3, 3)],
-                [2],
-                [0],
-                10,
-                [
-                    1,
-                ],
-            ),
-            # group
-            (
-                (8, 32, 32),
-                1,
-                [(4, 4, 3, 3)],
-                [2],
-                [0],
-                10,
-                [
-                    2,
-                ],
-            ),
-            (
-                (8, 32, 32),
-                1,
-                [(8, 1, 3, 3)],
-                [2],
-                [0],
-                10,
-                [
-                    8,
-                ],
-            ),
-            # n_conv = 2
-            ## group
-            (
-                (4, 5, 5),
-                2,
-                [(8, 1, 3, 3), (8, 1, 3, 3)],
-                [(1, 1), (1, 1)],
-                [2, 2],
-                10,
-                [4, 8],
-            ),
-            (
-                (4, 32, 32),
-                2,
-                [(8, 2, 3, 3), (12, 4, 4, 4)],
-                [(2, 2), (2, 2)],
-                [1, 1],
-                10,
-                [2, 2],
-            ),
-            ##
-            (
-                (1, 5, 5),
-                2,
-                [(1, 1, 3, 3), (1, 1, 3, 3)],
-                [(1, 1), (1, 1)],
-                [2, 2],
-                10,
-                [1, 1],
-            ),
-            (
-                (4, 32, 32),
-                2,
-                [(8, 4, 3, 3), (12, 8, 4, 4)],
-                [(2, 2), (2, 2)],
-                [1, 1],
-                10,
-                [1, 1],
-            ),
-            (
-                (4, 32, 32),
-                2,
-                [(8, 4, 3, 3), (12, 8, 4, 4)],
-                [(2, 2), (1, 1)],
-                [1, 2],
-                10,
-                [1, 1],
-            ),
-            ((1, 32, 32), 2, [(1, 1, 3, 3), (1, 1, 3, 3)], [2, 2], [2, 2], 10, [1, 1]),
-            ((1, 32, 32), 2, [(1, 1, 4, 4), (1, 1, 4, 4)], [1, 2], [2, 2], 10, [1, 1]),
-            ((1, 32, 32), 2, [(1, 1, 4, 4), (1, 1, 4, 4)], [2, 2], [2, 2], 10, [1, 1]),
-            ((1, 24, 24), 2, [(1, 1, 3, 3), (1, 1, 4, 4)], [1, 2], [2, 1], 10, [1, 1]),
-            ((1, 24, 24), 2, [(1, 1, 3, 3), (1, 1, 3, 3)], [2, 2], [2, 2], 10, [1, 1]),
-            # n_conv = 3
-            ## group
-            (
-                (4, 32, 32),
-                3,
-                [(8, 1, 3, 3), (8, 1, 3, 3), (4, 2, 2, 2)],
-                [1, 1, 1],
-                [1, 1, 1],
-                3,
-                [4, 8, 4],
-            ),
-            ##
-            (
-                (4, 32, 32),
-                3,
-                [(8, 4, 3, 3), (16, 8, 3, 3), (8, 16, 2, 2)],
-                [1, 1, 1],
-                [1, 1, 1],
-                3,
-                [1, 1, 1],
-            ),
-            (
-                (3, 32, 32),
-                3,
-                [(16, 3, 3, 3), (32, 16, 3, 3), (10, 32, 3, 3)],
-                [1, 1, 1],
-                [1, 0, 1],
-                10,
-                [1, 1, 1],
-            ),
-            (
-                (1, 224, 224),
-                3,
-                [(1, 1, 7, 7), (1, 1, 5, 5), (1, 1, 3, 3)],
-                [2, 2, 2],
-                [3, 2, 1],
-                10,
-                [1, 1, 1],
-            ),
-            (
-                (3, 32, 32),
-                3,
-                [(3, 3, 3, 3), (3, 3, 2, 2), (3, 3, 3, 3)],
-                [1, 2, 1],
-                [1, 0, 1],
-                10,
-                [1, 1, 1],
-            ),
-            # n_conv = 5
-            (
-                (3, 32, 32),
-                5,
-                [(3, 3, 3, 3), (3, 3, 2, 2), (3, 3, 3, 3), (3, 3, 2, 2), (3, 3, 3, 3)],
-                [1, 2, 1, 2, 1],
-                [1, 0, 1, 0, 1],
-                10,
-                [1, 1, 1, 1, 1],
-            ),
-        ],
+        conv2d_semifolded_fc_chainnet_data["args"],
+        conv2d_semifolded_fc_chainnet_data["data"],
     )
     def test_Conv2dSemiFolded_FC_ChainNet(
         self,
@@ -1095,7 +849,7 @@ class TestFunctionalModules:
         for i_conv in range(n_conv):
             kshape, s, p = kshape_oihw[i_conv], stride[i_conv], padding[i_conv]
 
-            k = np.random.randint(-3, 4, size=kshape, dtype=WEIGHT_DTYPE)
+            k = fixed_rng.integers(-3, 4, size=kshape, dtype=WEIGHT_DTYPE)
             _stride = _pair(s)
             _padding = _pair(p)
             kernels.append(k)
@@ -1180,7 +934,7 @@ class TestFunctionalModules:
 
             x = inpa
             for i_conv in range(n_conv):
-                x = _ann_bit_trunc(
+                x = ann_bit_trunc(
                     _conv2d_faster(
                         x,
                         (ohs[i_conv], ows[i_conv]),
@@ -1214,7 +968,7 @@ class TestFunctionalModules:
                     )
 
             # x is the reference result of the last convolution.
-            expected_fc_t = _ann_bit_trunc(x.ravel() @ fc_weight.astype(VOLTAGE_DTYPE))
+            expected_fc_t = ann_bit_trunc(x.ravel() @ fc_weight.astype(VOLTAGE_DTYPE))
 
             # Check the result of semi-folded linear.
             assert np.array_equal(
@@ -1229,47 +983,8 @@ class TestFunctionalModules:
             )
 
     @pytest.mark.parametrize(
-        "ishape_chw, n_pool, kshape_hw, stride, padding, out_features, pool_type",
-        [
-            # n_pool = 1
-            ((3, 16, 16), 1, [2], [2], [1], (10,), "avg"),
-            # n_pool = 2
-            ((3, 24, 24), 2, [2, 2], [1, 1], [0, 0], (2, 2), "avg"),
-            (
-                (3, 24, 24),
-                2,
-                [(2, 2), (2, 2)],
-                [None, None],
-                [1, 1],
-                (10,),
-                "avg",
-            ),
-            ((4, 32, 32), 2, [3, 3], [1, 1], [(0, 0), (1, 1)], (10,), "avg"),
-            ((1, 8, 8), 2, [3, 3], [1, 1], [(0, 0), (1, 1)], (10,), "avg"),
-            ((3, 24, 24), 2, [2, 2], [1, 1], [], (4,), "max"),
-            ((3, 24, 24), 2, [(2, 2), (2, 2)], [2, 2], [], (10,), "max"),
-            ((6, 32, 32), 2, [3, 3], [None, None], [], (10,), "max"),
-            # n_pool = 3
-            (
-                (3, 48, 48),
-                3,
-                [3, 2, 2],
-                [None, None, None],
-                [(1, 1), (0, 0), (1, 1)],
-                (10,),
-                "avg",
-            ),
-            (
-                (3, 48, 48),
-                3,
-                [3, 3, 3],
-                [2, 2, 2],
-                [(2, 2), (0, 0), (1, 1)],
-                (10,),
-                "avg",
-            ),
-            ((3, 48, 48), 3, [3, 2, 2], [None, None, None], [], (10,), "max"),
-        ],
+        pool2d_semifolded_fc_chainnet_data["args"],
+        pool2d_semifolded_fc_chainnet_data["data"],
     )
     def test_Pool2dSemiFolded_FC_ChainNet(
         self,
@@ -1300,7 +1015,7 @@ class TestFunctionalModules:
             k, s, p = (kshape_hw[i_pool], stride[i_pool], padding[i_pool])
 
             _ksize = _pair(k)
-            _stride = _pair(s) if s is not None else _ksize
+            _stride = _pair(s if s is not None else _ksize)
             _padding = _pair(p)
             ksizes.append(_ksize)
             strides.append(_stride)
@@ -1370,7 +1085,7 @@ class TestFunctionalModules:
 
         for _ in range(n_test):
             sim1.reset()
-            inpa = fixed_rng.integers(256, size=ishape_chw).astype(NEUOUT_U8_DTYPE)
+            inpa = fixed_rng.integers(0, 4, size=ishape_chw, dtype=NEUOUT_U8_DTYPE)
             inp_pad0 = np.concatenate(
                 [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
             )
@@ -1381,7 +1096,7 @@ class TestFunctionalModules:
 
             x = inpa
             for i_pool in range(n_pool):
-                x = _ann_bit_trunc(
+                x = ann_bit_trunc(
                     _pool_op[pool_type](
                         x, ksizes[i_pool], strides[i_pool], paddings[i_pool]
                     )
@@ -1410,7 +1125,7 @@ class TestFunctionalModules:
                     )
 
             # x is the reference result of the last pooling.
-            expected_fc_t = _ann_bit_trunc(x.ravel() @ fc_weight.astype(VOLTAGE_DTYPE))
+            expected_fc_t = ann_bit_trunc(x.ravel() @ fc_weight.astype(VOLTAGE_DTYPE))
 
             # Check the result of semi-folded linear.
             assert np.array_equal(
@@ -1428,11 +1143,14 @@ class TestFunctionalModules:
     @pytest.mark.parametrize(
         "shape, weight",
         [
-            ((3, 5, 5), np.random.randint(0, 5, size=(3 * 5 * 5, 10), dtype=np.int8)),
-            ((10,), np.random.randint(0, 5, size=(10, 10), dtype=np.int8)),
+            (
+                (3, 5, 5),
+                np.random.randint(0, 5, size=(3 * 5 * 5, 10), dtype=WEIGHT_DTYPE),
+            ),
+            ((10,), np.random.randint(0, 5, size=(10, 10), dtype=WEIGHT_DTYPE)),
         ],
     )
-    def test_Linear(self, shape, weight):
+    def test_Linear(self, shape, weight, fixed_rng: np.random.Generator):
         from tests.shared_networks import Linear_Net
 
         net1 = Linear_Net(shape, weight)
@@ -1445,7 +1163,7 @@ class TestFunctionalModules:
         probe_linear = pb.Probe(generated[linear][0], "output")
         sim2.add_probe(probe_linear)
 
-        inpa = np.random.randint(0, 10, (N_TEST,) + shape, dtype=np.uint8)
+        inpa = fixed_rng.integers(0, 10, size=(N_TEST,) + shape, dtype=NEUOUT_U8_DTYPE)
 
         for i in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[i])
@@ -1455,29 +1173,90 @@ class TestFunctionalModules:
         for i in range(N_TEST):
             assert np.array_equal(sim1.data[net1.probe1][i], sim2.data[probe_linear][i])
 
-    @pytest.mark.parametrize(
-        "ishape_chw, n_pool, kshape_hw, stride, padding, out_features, pool_type",
-        [
-            # n_pool = 1
-            ((1, 8, 8), 1, [2], [2], [1], (10,), "max"),
-            ((3, 16, 16), 1, [2], [2], [1], (10,), "avg"),
-            # n_pool = 2
-            ((1, 8, 8), 2, [2, 2], [2, 2], [0, 0], (2, 2), "max"),
-            (
-                (3, 24, 24),
-                2,
-                [(2, 2), (2, 2)],
-                [None, None],
-                [0, 0],
-                (10,),
-                "avg",
-            ),
-            ((3, 24, 24), 2, [2, 2], [1, 1], [], (4,), "max"),
-            ((3, 24, 24), 2, [(2, 2), (2, 2)], [2, 2], [], (10,), "max"),
-            ((6, 32, 32), 2, [3, 3], [None, None], [], (10,), "max"),
-        ],
-    )
-    def test_ANNPooling2d(
+    @pytest.mark.parametrize(ann_pool1d_data["args"], ann_pool1d_data["data"])
+    def test_ANNPool1d(
+        self,
+        ishape_cl,
+        n_pool,
+        kshape_l,
+        stride,
+        padding,
+        out_features,
+        pool_type,
+        fixed_rng: np.random.Generator,
+    ):
+        from tests.shared_networks import Pool1d_FC_ChainNetN
+
+        assert n_pool == len(kshape_l) == len(stride)
+        ksizes = []
+        strides = []
+        paddings = []
+        ocs = []
+        ols = []
+
+        for i_pool in range(n_pool):
+            k, s, p = (kshape_l[i_pool], stride[i_pool], padding[i_pool])
+
+            _ksize = _single(k)
+            _stride = _single(s if s is not None else _ksize)
+            _padding = _single(p)
+            ksizes.append(_ksize)
+            strides.append(_stride)
+            paddings.append(_padding)
+
+            il = ishape_cl[1] if i_pool == 0 else ols[-1]
+            oc = ishape_cl[0]
+            ol = (il - _ksize[0] + 2 * paddings[i_pool][0]) // _stride[0] + 1
+            ocs.append(oc)
+            ols.append(ol)
+
+        fc_weight = fixed_rng.integers(
+            -4, 5, size=(ocs[-1] * ols[-1], shape2num(out_features)), dtype=WEIGHT_DTYPE
+        )
+
+        net1 = Pool1d_FC_ChainNetN(
+            ishape_cl, ksizes, strides, paddings, out_features, fc_weight, pool_type
+        )
+
+        # `net1.pool_list` will be removed in `build_fmodule`
+        pool1d_list = net1.pool_list.copy()
+        linear = net1.linear1
+        generated = net1.build_modules()
+        sim1 = pb.Simulator(net1, start_time_zero=False)
+
+        probe_pool_list = []
+        for pool1d in pool1d_list:
+            probe = pb.Probe(generated[pool1d][0], "output")
+            probe_pool_list.append(probe)
+            sim1.add_probe(probe)
+
+        probe_linear = pb.Probe(generated[linear][0], "output")
+        sim1.add_probe(probe_linear)
+
+        _pool_op = {"avg": avgpool1d_golden, "max": maxpool1d_golden}
+        n_test = 3  # can be more
+
+        for _ in range(n_test):
+            sim1.reset()
+            inpa = fixed_rng.integers(0, 4, size=ishape_cl, dtype=NEUOUT_U8_DTYPE)
+
+            for _ in range(3):  # 3 layers
+                pb.FRONTEND_ENV.save(data1=inpa)
+                sim1.run(1)
+
+            x = inpa
+            for i_pool in range(n_pool):
+                x = ann_bit_trunc(
+                    _pool_op[pool_type](
+                        x, ksizes[i_pool], strides[i_pool], paddings[i_pool]
+                    )
+                )
+                assert np.array_equal(
+                    x.ravel(), sim1.data[probe_pool_list[i_pool]][2 * i_pool]
+                )
+
+    @pytest.mark.parametrize(ann_pool2d_data["args"], ann_pool2d_data["data"])
+    def test_ANNPool2d(
         self,
         ishape_chw,
         n_pool,
@@ -1489,9 +1268,6 @@ class TestFunctionalModules:
         fixed_rng: np.random.Generator,
     ):
         from tests.shared_networks import Pool2d_FC_ChainNetN
-
-        if pool_type == "max":
-            padding = [(0, 0)] * n_pool
 
         assert n_pool == len(kshape_hw) == len(stride)
         ksizes = []
@@ -1505,7 +1281,7 @@ class TestFunctionalModules:
             k, s, p = (kshape_hw[i_pool], stride[i_pool], padding[i_pool])
 
             _ksize = _pair(k)
-            _stride = _pair(s) if s is not None else _ksize
+            _stride = _pair(s if s is not None else _ksize)
             _padding = _pair(p)
             ksizes.append(_ksize)
             strides.append(_stride)
@@ -1515,7 +1291,7 @@ class TestFunctionalModules:
             iw = ishape_chw[2] if i_pool == 0 else ows[-1]
             oc = ishape_chw[0]
             oh = (ih - _ksize[0] + 2 * paddings[i_pool][0]) // _stride[0] + 1
-            ow = (iw - _ksize[1] + 2 * paddings[i_pool][0]) // _stride[1] + 1
+            ow = (iw - _ksize[1] + 2 * paddings[i_pool][1]) // _stride[1] + 1
             ocs.append(oc)
             ohs.append(oh)
             ows.append(ow)
@@ -1528,13 +1304,7 @@ class TestFunctionalModules:
         )
 
         net1 = Pool2d_FC_ChainNetN(
-            ishape_chw,
-            ksizes,
-            strides,
-            paddings,
-            out_features,
-            fc_weight,
-            pool_type,
+            ishape_chw, ksizes, strides, paddings, out_features, fc_weight, pool_type
         )
         # `net1.pool_list` will be removed in `build_fmodule`
         pool2d_list = net1.pool_list.copy()
@@ -1551,148 +1321,20 @@ class TestFunctionalModules:
         probe_linear = pb.Probe(generated[linear][0], "output")
         sim1.add_probe(probe_linear)
 
-        n_test = 1  # can be more
         _pool_op = {"avg": avgpool2d_golden, "max": maxpool2d_golden}
+        n_test = 3  # can be more
 
         for _ in range(n_test):
             sim1.reset()
-            inpa = fixed_rng.integers(256, size=ishape_chw).astype(NEUOUT_U8_DTYPE)
-            # inp_pad0 = np.concatenate(
-            #     [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
-            # )
+            inpa = fixed_rng.integers(0, 4, size=ishape_chw, dtype=NEUOUT_U8_DTYPE)
 
-            for i in range(3):
+            for _ in range(3):  # 3 layers
                 pb.FRONTEND_ENV.save(data1=inpa)
                 sim1.run(1)
 
             x = inpa
             for i_pool in range(n_pool):
-                x = _ann_bit_trunc(
-                    _pool_op[pool_type](
-                        x, ksizes[i_pool], strides[i_pool], paddings[i_pool]
-                    )
-                )
-                assert np.array_equal(
-                    x.ravel(), sim1.data[probe_pool_list[i_pool]][2 * i_pool]
-                )
-
-    @pytest.mark.parametrize(
-        "ishape_cl, n_pool, kshape_l, stride, padding, out_features, pool_type",
-        [
-            # n_pool = 1
-            ((1, 8), 1, [2], [2], [1], (10,), "max"),  # 1通道，序列长度8
-            ((3, 16), 1, [2], [2], [1], (10,), "avg"),  # 3通道，序列长度16
-            # n_pool = 2
-            ((1, 8), 2, [2, 2], [2, 2], [0, 0], (2,), "max"),  # 1通道，序列长度8
-            #
-            (
-                (3, 24),
-                2,
-                [2, 2],
-                [None, None],
-                [0, 0],
-                (10,),
-                "avg",
-            ),  # 3通道，序列长度24
-            ((3, 24), 2, [2, 2], [1, 1], [], (4,), "max"),  # 3通道，序列长度24
-            ((6, 32), 2, [3, 3], [None, None], [], (10,), "max"),  # 6通道，序列长度32
-        ],
-    )
-    def test_ANNPooling1d(
-        self,
-        ishape_cl,
-        n_pool,
-        kshape_l,
-        stride,
-        padding,
-        out_features,
-        pool_type,
-        fixed_rng: np.random.Generator,
-    ):
-        from tests.shared_networks import Pool1d_FC_ChainNetN
-
-        # 如果池化类型是最大池化，填充设置为0
-        if pool_type == "max":
-            padding = [(0, 0)] * n_pool
-
-        # 检查参数长度是否一致
-        assert n_pool == len(kshape_l) == len(stride)
-
-        # 初始化池化参数
-        ksizes = []
-        strides = []
-        paddings = []
-        ocs = []
-        ols = []
-
-        for i_pool in range(n_pool):
-            k, s, p = (kshape_l[i_pool], stride[i_pool], padding[i_pool])
-
-            _ksize = k if isinstance(k, int) else k[0]
-            _stride = s if s is not None else _ksize
-            _padding = _pair(p)
-            ksizes.append(_ksize)
-            strides.append(_stride)
-            paddings.append(_padding)
-
-            il = ishape_cl[1] if i_pool == 0 else ols[-1]
-            oc = ishape_cl[0]
-            ol = (il - _ksize + 2 * paddings[i_pool][0]) // _stride + 1
-            ocs.append(oc)
-            ols.append(ol)
-
-        # 生成全连接层的权重
-        fc_weight = fixed_rng.integers(
-            -4,
-            5,
-            size=(ocs[-1] * ols[-1], shape2num(out_features)),
-            dtype=WEIGHT_DTYPE,
-        )
-
-        # 创建网络
-        net1 = Pool1d_FC_ChainNetN(
-            ishape_cl,
-            ksizes,
-            strides,
-            paddings,
-            out_features,
-            fc_weight,
-            pool_type,
-        )
-
-        # 获取池化层列表和全连接层
-        pool1d_list = net1.pool_list.copy()
-        linear = net1.linear1
-        generated = net1.build_modules()
-        sim1 = pb.Simulator(net1, start_time_zero=False)
-
-        # 添加探针
-        probe_pool_list = []
-        for pool1d in pool1d_list:
-            probe = pb.Probe(generated[pool1d][0], "output")
-            probe_pool_list.append(probe)
-            sim1.add_probe(probe)
-
-        probe_linear = pb.Probe(generated[linear][0], "output")
-        sim1.add_probe(probe_linear)
-
-        # 定义池化操作
-        _pool_op = {"avg": avgpool1d_golden, "max": maxpool1d_golden}
-
-        # 运行测试
-        n_test = 1  # 测试次数
-        for _ in range(n_test):
-            sim1.reset()
-            inpa = fixed_rng.integers(256, size=ishape_cl).astype(NEUOUT_U8_DTYPE)
-
-            for i in range(3):
-                pb.FRONTEND_ENV.save(data1=inpa)
-                sim1.run(1)
-
-            # 验证池化输出
-            x = inpa
-            for i_pool in range(n_pool):
-                x = _ann_bit_trunc(
+                x = ann_bit_trunc(
                     _pool_op[pool_type](
                         x,
                         _pair(ksizes[i_pool]),

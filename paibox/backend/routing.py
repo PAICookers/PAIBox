@@ -163,6 +163,7 @@ class RoutingGroup:
         # )
 
         # This is the amount of cores required actually.
+        assert n_core_used > 0
         self.n_core_required = 1 << (n_core_used - 1).bit_length()
         self.n_tail_waste = self.n_core_required - n_core_used + n_tail_waste
 

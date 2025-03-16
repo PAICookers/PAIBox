@@ -10,9 +10,41 @@ from paicorelib.framelib.frame_defs import FrameHeader as FH
 from paicorelib.framelib.frame_defs import OfflineWorkFrame1Format as Off_WF1F
 from paicorelib.framelib.utils import print_frame
 
-from runtime.runtime import LENGTH_EX_MULTIPLE_KEY, PAIBoxRuntime, get_length_ex_onode
+from paibox.runtime import PAIBoxRuntime
+from paibox.runtime.runtime import LENGTH_EX_MULTIPLE_KEY, get_length_ex_onode
 
 TEST_CONF_DIR = Path(__file__).parent / "test_data"
+
+
+def test_get_length_ex_onode():
+    output_dest_info = {
+        "n2_1": {
+            "4": {
+                "addr_axon": [0, 1, 2, 3, 4, 5, 6, 7],
+                "tick_relative": [0] * 8,
+                "addr_core_x": 0,
+                "addr_core_y": 0,
+                "addr_core_x_ex": 0,
+                "addr_core_y_ex": 0,
+                "addr_chip_x": 1,
+                "addr_chip_y": 0,
+            }
+        },
+        "n3_1": {
+            "5": {
+                "addr_axon": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+                "tick_relative": [0] * 4 + [1] * 4 + [2] * 4 + [3] * 4,
+                "addr_core_x": 0,
+                "addr_core_y": 1,  # y increases
+                "addr_core_x_ex": 0,
+                "addr_core_y_ex": 0,
+                "addr_chip_x": 1,
+                "addr_chip_y": 0,
+            }
+        },
+    }
+    assert get_length_ex_onode(output_dest_info["n2_1"]) == 1
+    assert get_length_ex_onode(output_dest_info["n3_1"]) == 4
 
 
 class TestRuntime:
@@ -60,7 +92,7 @@ class TestRuntime:
         # Except axon with data=0
         assert np.array_equal(axons_in_spike, [1, 2, 3, 4, 5, 6, 7] * n_ts)
 
-    def test_decode_spike_by_dict(self):
+    def test_decode_by_dict(self):
         # oframe_info `list[FrameArrayType]`, return `list[NDArray[np.uint8]]`
         output_dest_info = {
             "n2_1": {
@@ -118,9 +150,7 @@ class TestRuntime:
             ],
             dtype=np.uint64,
         )
-        data = PAIBoxRuntime.decode_spike(
-            n_ts, output_frames, oframe_info, flatten=False
-        )
+        data = PAIBoxRuntime.decode(n_ts, output_frames, oframe_info, flatten=False)
 
         expected = np.zeros((len(oframe_info), n_ts, 8), dtype=np.uint8)
         expected[0][0][3] = 7
@@ -132,7 +162,7 @@ class TestRuntime:
 
         assert np.array_equal(data, expected)
 
-    def test_decode_spike_by_dict2(self):
+    def test_decode_by_dict2(self):
         output_dest_info = {
             "n2_1": {
                 "4": {
@@ -161,9 +191,7 @@ class TestRuntime:
             ],
             dtype=np.uint64,
         )
-        data = PAIBoxRuntime.decode_spike(
-            n_ts, output_frames, oframe_info, flatten=False
-        )
+        data = PAIBoxRuntime.decode(n_ts, output_frames, oframe_info, flatten=False)
 
         expected = np.zeros((len(oframe_info), n_ts, 8), dtype=np.uint8)
         expected[0][0][3] = 7
@@ -172,7 +200,7 @@ class TestRuntime:
 
         assert np.array_equal(data, expected)
 
-    def test_decode_spike_by_kwds(self):
+    def test_decode_by_kwds(self):
         # oframe_info is `FrameArrayType`, return `NDArray[np.uint8]`
         n_axon_max = 100
         n_ts_max = 64
@@ -200,7 +228,7 @@ class TestRuntime:
 
                 expected = expected.reshape(-1, n_ts).T.flatten()
 
-                data = PAIBoxRuntime.decode_spike(
+                data = PAIBoxRuntime.decode(
                     n_ts, shuffle_frame, oframe_info, flatten=True
                 )
 
@@ -209,7 +237,7 @@ class TestRuntime:
     @pytest.mark.parametrize(
         "n_axons, n_ts", [(1000, 1), (1000, 16), (1000, 32), (1000, 64)]
     )
-    def test_decode_spike_perf(self, n_axons, n_ts):
+    def test_decode_perf(self, n_axons, n_ts):
         output_dest_info = {
             "n2_1": {
                 "4": {
@@ -239,7 +267,7 @@ class TestRuntime:
             )
 
         t = timeit.timeit(
-            lambda: PAIBoxRuntime.decode_spike(n_ts, test_frames, oframe_info),
+            lambda: PAIBoxRuntime.decode(n_ts, test_frames, oframe_info),
             number=100,
         )
         print(f"n_axons: {n_axons}, n_ts: {n_ts}, time: {t/100:.5f}s")
@@ -311,9 +339,7 @@ class TestRuntime:
             ],
             dtype=np.uint64,
         )
-        data = PAIBoxRuntime.decode_spike(
-            n_ts, output_frames, oframe_infos, flatten=False
-        )
+        data = PAIBoxRuntime.decode(n_ts, output_frames, oframe_infos, flatten=False)
 
         expected = np.zeros((len(oframe_infos), n_ts, 10), dtype=np.uint8)
         expected[0][0][0] = 1
@@ -353,9 +379,7 @@ class TestRuntime:
             ],
             dtype=np.uint64,
         )
-        data = PAIBoxRuntime.decode_spike(
-            n_ts, output_frames, oframe_infos, flatten=False
-        )
+        data = PAIBoxRuntime.decode(n_ts, output_frames, oframe_infos, flatten=False)
         expected = np.zeros((len(oframe_infos), n_ts, 1300), dtype=np.uint8)
         expected[0][0][0] = 1
         expected[0][0][1152] = 7
@@ -400,9 +424,7 @@ class TestRuntime:
             ],
             dtype=np.uint64,
         )
-        data = PAIBoxRuntime.decode_spike(
-            n_ts, output_frames, oframe_infos, flatten=False
-        )
+        data = PAIBoxRuntime.decode(n_ts, output_frames, oframe_infos, flatten=False)
         expected_o1 = np.zeros((n_ts, 1300), dtype=np.uint8)
         expected_o1[0][0] = 1
         expected_o1[0][1152] = 7
