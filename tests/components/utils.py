@@ -2,15 +2,22 @@ from typing import Optional, Union, overload
 
 import numpy as np
 
+from paibox.components.neuron.base import MetaNeuron
 from paibox.types import (
     NEUOUT_U8_DTYPE,
     SPIKE_DTYPE,
     VOLTAGE_DTYPE,
-    WEIGHT_DTYPE,
     NeuOutType,
     SpikeType,
     SynOutType,
+    VoltageType,
 )
+
+
+def ann_bit_trunc(v_array: VoltageType, bit_trunc: int = 8) -> NeuOutType:
+    return np.where(v_array <= 0, 0, MetaNeuron._truncate(v_array, bit_trunc)).astype(
+        NEUOUT_U8_DTYPE
+    )
 
 
 def conv1d_golden(
@@ -179,6 +186,28 @@ def maxpool2d_golden(
     return out
 
 
+@overload
+def avgpool1d_golden(
+    x: SpikeType,
+    kernel_size: tuple[int],
+    stride: Optional[tuple[int]],
+    padding: tuple[int],
+    threshold: Optional[int] = None,
+    fm_order: str = "CL",
+) -> SpikeType: ...
+
+
+@overload
+def avgpool1d_golden(
+    x: NeuOutType,
+    kernel_size: tuple[int],
+    stride: Optional[tuple[int]],
+    padding: tuple[int],
+    threshold: Optional[int] = None,
+    fm_order: str = "CL",
+) -> SynOutType: ...
+
+
 def avgpool1d_golden(
     x: Union[NeuOutType, SpikeType],
     kernel_size: tuple[int],
@@ -186,7 +215,7 @@ def avgpool1d_golden(
     padding: tuple[int],
     threshold: Optional[int] = None,
     fm_order: str = "CL",
-) -> Union[NeuOutType, SpikeType]:
+) -> Union[SynOutType, SpikeType]:
     if fm_order == "LC":
         _x = x.T
     else:
@@ -209,7 +238,7 @@ def avgpool1d_golden(
         return out >= threshold
     else:
         # Use the bit truncation method to simulate the behavior of the hardware.
-        return out >> ((kl).bit_length() - 1)
+        return out >> (kl.bit_length() - 1)
 
 
 @overload
