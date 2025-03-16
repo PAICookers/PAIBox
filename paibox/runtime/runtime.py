@@ -28,9 +28,24 @@ from paicorelib.framelib.frames import OfflineWorkFrame1
 from paicorelib.framelib.types import ArrayType, DataArrayType, FrameArrayType
 from paicorelib.framelib.utils import header_check
 
+import sys
+
+if sys.version_info >= (3, 13):
+    from warnings import deprecated
+else:
+    from typing_extensions import deprecated
+
 __all__ = ["PAIBoxRuntime"]
 
-PAYLOAD_DATA_DTYPE = np.uint8
+import paicorelib.framelib.types as ftypes
+
+if hasattr(ftypes, "PAYLOAD_DATA_DTYPE"):
+    PAYLOAD_DATA_DTYPE = ftypes.PAYLOAD_DATA_DTYPE  # type: ignore
+else:
+    PAYLOAD_DATA_DTYPE = np.uint8
+
+del ftypes
+
 PayloadDataType = NDArray[PAYLOAD_DATA_DTYPE]
 
 if hasattr(HwConfig, "N_TIMESLOT_MAX"):
@@ -58,6 +73,11 @@ def valid_indices_len_check(idx: list[int], received_data: np.ndarray) -> None:
 
 def get_length_ex_onode(onode_attrs: dict[str, Any]) -> int:
     """Retrieve the length expansion multiple of the output node by the given attributes."""
+    if not all(LENGTH_EX_MULTIPLE_KEY in dest for dest in onode_attrs.values()):
+        raise KeyError(
+            f"key '{LENGTH_EX_MULTIPLE_KEY}' not found in output destination attributes"
+        )
+
     return max(max(dest[LENGTH_EX_MULTIPLE_KEY]) for dest in onode_attrs.values()) + 1
 
 
@@ -173,23 +193,25 @@ class PAIBoxRuntime:
         )
 
     @staticmethod
-    def decode_spike(
+    def decode(
         timestep: int,
         oframes: FrameArrayType,
         oframe_infos: Union[FrameArrayType, list[FrameArrayType]],
         flatten: bool = False,
     ) -> Union[PayloadDataType, list[PayloadDataType]]:
-        """Decode output spike frames.
+        """Decode output frames from chips.
 
         Args:
             - timestep: the number of timesteps.
-            - oframes: the output spike frames.
+            - oframes: the output frames.
             - oframe_infos: the expected common information (without payload) of output frames.
             - flatten: whether to return the flattened data.
 
         Returns:
             Return the decoded output data. If `oframe_infos` is a list, the output will be a list  \
             where each element represents the decoded data for each output node.
+            
+        NOTE: This method has real-time requirement.
         """
         header_check(oframes, FH.WORK_TYPE1)
 
@@ -203,6 +225,8 @@ class PAIBoxRuntime:
             for i, oframe_info in enumerate(oframe_infos):
                 data = np.zeros_like(oframe_info, dtype=PAYLOAD_DATA_DTYPE)
                 if len(oframes) > 0:
+                    # Traverse the coordinates in a specific order. Must be in the same order as when exporting.
+                    # See `paibox.Mapper.export()` for more details.
                     _cur_coord = Coord(0, 0) + to_coordoffset(i)
                     indices = np.where(_cur_coord.address == seen_core_coords)[0]
                     if indices.size > 0:
@@ -249,7 +273,19 @@ class PAIBoxRuntime:
                 return d_with_shape
 
     # Keep compatible
-    decode_spike_less1152 = decode_spike
+    @staticmethod
+    @deprecated(
+        "'decode_spike_less1152' is deprecated and will be removed in the future. "
+        "Use 'decode' instead.",
+        category=DeprecationWarning,
+    )
+    def decode_spike_less1152(
+        timestep: int,
+        oframes: FrameArrayType,
+        oframe_infos: Union[FrameArrayType, list[FrameArrayType]],
+        flatten: bool = False,
+    ) -> Union[PayloadDataType, list[PayloadDataType]]:
+        return PAIBoxRuntime.decode(timestep, oframes, oframe_infos, flatten)
 
     @overload
     @staticmethod
