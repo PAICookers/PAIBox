@@ -187,7 +187,7 @@ class Mapper:
         if no_twisted_branch:
             self.untwist_branch_nodes()
 
-        self.graph.topo_support_check()
+        self.graph.topo_support_check()  # not used for now
 
         """Build core blocks."""
         self.build_core_blocks()

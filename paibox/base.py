@@ -109,8 +109,6 @@ class PAIBoxObject:
         from .simulator import Probe
 
         def _find_nodes_absolute() -> None:
-            nonlocal gather, nodes
-
             for v in self.__dict__.values():
                 if isinstance(v, PAIBoxObject):
                     _add_node2(self, v, _paths, gather, nodes)
@@ -138,8 +136,6 @@ class PAIBoxObject:
                 )
 
         def _find_nodes_relative() -> None:
-            nonlocal gather, nodes
-
             for k, v in self.__dict__.items():
                 if isinstance(v, PAIBoxObject):
                     _add_node1(self, k, v, _paths, gather, nodes)

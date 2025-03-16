@@ -804,7 +804,7 @@ class CorePlacement(CoreAbstract):
                 is_iw8(axon_dests[0].rt_mode),
             )
 
-            # Get all core coordinates and replication ids.
+            # Get all core coordinates & replication ids.
             assert all(axon_dests[0].chip_coord == ad.chip_coord for ad in axon_dests)
 
             dest_core_coords = []
@@ -822,10 +822,15 @@ class CorePlacement(CoreAbstract):
             assert isinstance(output_core_coord, Coord)
             assert isinstance(axon_addr_offset, int)
 
-            axon_coords = [
-                AxonCoord(0, i) if i < 1152 else AxonCoord(i // 1152, i % 1152)
-                for i in range(axon_addr_offset, axon_addr_offset + neu_seg.n_neuron)
-            ]
+            axon_coords: list[AxonCoord] = []
+            for i in range(axon_addr_offset, axon_addr_offset + neu_seg.n_neuron):
+                # NOTE: The runtime already supports cases where the #N of output nodes > the base fan-in of axons,
+                # so this form of output node allocation can be implemented.
+                # See class `PAIBoxRuntime` in runtime.py for details.
+                # May be changed at any time without notice.
+                axon_coords.append(
+                    AxonCoord(*divmod(i, HwConfig.N_FANIN_PER_DENDRITE_MAX))
+                )
 
             config = NeuronConfig(
                 neu_seg,

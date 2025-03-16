@@ -227,7 +227,7 @@ class PAIGraph:
         #         f"only output nodes with no more than {HwConfig.N_FANIN_PER_DENDRITE_MAX} "
         #         f"neurons are supported."
         #     )
-        return
+        pass
 
     def _node_pos(self, node: NodeName) -> NodePosition:
         if node in self.inodes:
