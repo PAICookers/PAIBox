@@ -4,9 +4,8 @@ import numpy as np
 import pytest
 
 import paibox as pb
-from paibox.components.neuron.base import MetaNeuron
-from paibox.types import NEUOUT_U8_DTYPE, VOLTAGE_DTYPE, NeuOutType, VoltageType
-from tests.components.utils import conv1d_golden
+from paibox.types import NEUOUT_U8_DTYPE, VOLTAGE_DTYPE
+from tests.components.utils import conv1d_golden, ann_bit_trunc
 
 TEST_DIR = Path(__file__).parent
 DATA_DIR = TEST_DIR / "data"
@@ -19,12 +18,6 @@ FIXED_RNG = np.random.default_rng(seed=42)
 
 def _out_bypass1(t, data1, *args, **kwargs):
     return data1
-
-
-def _ann_bit_trunc(v_array: VoltageType, bit_trunc: int = 8) -> NeuOutType:
-    return np.where(v_array <= 0, 0, MetaNeuron._truncate(v_array, bit_trunc)).astype(
-        NEUOUT_U8_DTYPE
-    )
 
 
 class TestOnBoard_WRAMMapping:
@@ -83,7 +76,7 @@ class TestOnBoard_WRAMMapping:
         for i in range(sim_time):
             if i < 2:
                 # At ts = 1 & 2, there is output data
-                ref = _ann_bit_trunc(
+                ref = ann_bit_trunc(
                     inpdata1[i, :].ravel() @ weight1.astype(VOLTAGE_DTYPE),
                     bit_trunc=network.l1.bit_trunc,
                 )
@@ -110,9 +103,7 @@ class TestOnBoard_WRAMMapping:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(
-            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
-        )
+        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
@@ -169,7 +160,7 @@ class TestOnBoard_WRAMMapping:
 
         # Check
         for i in range(sim_time):
-            ref = _ann_bit_trunc(
+            ref = ann_bit_trunc(
                 inpdata1[i, :].ravel() @ weight1.astype(VOLTAGE_DTYPE),
                 bit_trunc=network.l1.bit_trunc,
             )
@@ -191,9 +182,7 @@ class TestOnBoard_WRAMMapping:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(
-            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
-        )
+        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
@@ -250,7 +239,7 @@ class TestOnBoard_WRAMMapping:
 
         # Check
         for i in range(sim_time):
-            ref = _ann_bit_trunc(
+            ref = ann_bit_trunc(
                 # Use bias in linear
                 inpdata1[i, :].ravel() @ weight1.astype(VOLTAGE_DTYPE)
                 + network.l1.bias,
@@ -274,9 +263,7 @@ class TestOnBoard_WRAMMapping:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=True)
-        mapper.export(
-            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
-        )
+        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
@@ -333,7 +320,7 @@ class TestOnBoard_WRAMMapping:
 
         # Check
         for i in range(sim_time):
-            ref = _ann_bit_trunc(
+            ref = ann_bit_trunc(
                 inpdata1[i, :].ravel() @ weight1.astype(VOLTAGE_DTYPE),
                 bit_trunc=network.l1.bit_trunc,
             )
@@ -354,9 +341,7 @@ class TestOnBoard_WRAMMapping:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=True)
-        mapper.export(
-            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
-        )
+        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
@@ -431,7 +416,7 @@ class TestOnBoard_WRAMMapping:
         # Check
         for i in range(sim_time):
             # Use bias in linear1
-            _l1 = _ann_bit_trunc(
+            _l1 = ann_bit_trunc(
                 inpdata1[i, :].ravel() @ weight1.astype(VOLTAGE_DTYPE)
                 + network.l1.bias,
                 bit_trunc=network.l1.bit_trunc,
@@ -441,7 +426,7 @@ class TestOnBoard_WRAMMapping:
 
             if i > 0:
                 # The input of Linear2 is the output of Linear1 at the last timestamp
-                ref = _ann_bit_trunc(
+                ref = ann_bit_trunc(
                     sim.data[network.p1][i - 1] @ weight2.astype(VOLTAGE_DTYPE)
                     + network.l2.bias,
                     bit_trunc=network.l2.bit_trunc,
@@ -474,9 +459,7 @@ class TestOnBoard_WRAMMapping:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(
-            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
-        )
+        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
@@ -548,7 +531,7 @@ class TestOnBoard_WRAMMapping:
 
         # Check
         for i in range(sim_time):
-            _l1 = _ann_bit_trunc(
+            _l1 = ann_bit_trunc(
                 inpdata1[i, :].ravel() @ weight1.astype(VOLTAGE_DTYPE),
                 bit_trunc=network.l1.bit_trunc,
             )
@@ -557,7 +540,7 @@ class TestOnBoard_WRAMMapping:
 
             if i > 0:
                 # The input of Linear2 is the output of Linear1 at the last timestamp
-                ref = _ann_bit_trunc(
+                ref = ann_bit_trunc(
                     sim.data[network.p1][i - 1] @ weight2.astype(VOLTAGE_DTYPE),
                     bit_trunc=network.l2.bit_trunc,
                 )
@@ -589,9 +572,7 @@ class TestOnBoard_WRAMMapping:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=True)
-        mapper.export(
-            fp=CONFIG_CASE_DIR, export_core_params=True, format="bin", use_hw_sim=True
-        )
+        mapper.export(fp=CONFIG_CASE_DIR, format="bin", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
@@ -650,7 +631,7 @@ class TestOnBoard_WRAMMapping:
 
         # Check
         for i in range(sim_time):
-            ref = _ann_bit_trunc(
+            ref = ann_bit_trunc(
                 inpdata1[i, :].ravel() @ weight1.astype(VOLTAGE_DTYPE),
                 bit_trunc=network.l1.bit_trunc,
             )
@@ -673,9 +654,7 @@ class TestOnBoard_WRAMMapping:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=True)
-        mapper.export(
-            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
-        )
+        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
@@ -743,7 +722,7 @@ class TestOnBoard_WRAMMapping:
 
         # Check
         for i in range(sim_time):
-            _l1 = _ann_bit_trunc(
+            _l1 = ann_bit_trunc(
                 inpdata1[i, :].ravel() @ weight1.astype(VOLTAGE_DTYPE),
                 bit_trunc=network.l1.bit_trunc,
             )
@@ -752,7 +731,7 @@ class TestOnBoard_WRAMMapping:
 
             if i > 0:
                 # The input of Linear2 is the output of Linear1 at the last timestamp
-                ref = _ann_bit_trunc(
+                ref = ann_bit_trunc(
                     sim.data[network.p1][i - 1] @ weight2.astype(VOLTAGE_DTYPE),
                     bit_trunc=network.l2.bit_trunc,
                 )
@@ -784,9 +763,7 @@ class TestOnBoard_WRAMMapping:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=True)
-        mapper.export(
-            fp=CONFIG_CASE_DIR, export_core_params=True, format="bin", use_hw_sim=True
-        )
+        mapper.export(fp=CONFIG_CASE_DIR, format="bin", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
@@ -872,9 +849,7 @@ class TestOnBoard_SpikingOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(
-            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
-        )
+        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
@@ -951,9 +926,7 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(
-            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
-        )
+        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
@@ -1031,9 +1004,7 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(
-            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
-        )
+        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
@@ -1110,9 +1081,7 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(
-            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
-        )
+        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
@@ -1190,9 +1159,7 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(
-            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
-        )
+        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
@@ -1270,9 +1237,7 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(
-            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
-        )
+        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
@@ -1350,9 +1315,7 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(
-            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
-        )
+        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
@@ -1430,9 +1393,7 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(
-            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
-        )
+        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
@@ -1510,9 +1471,7 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(
-            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
-        )
+        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
@@ -1587,9 +1546,7 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(
-            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
-        )
+        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
@@ -1663,9 +1620,7 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(
-            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
-        )
+        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
@@ -1739,9 +1694,7 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(
-            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
-        )
+        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
@@ -1840,9 +1793,7 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(
-            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
-        )
+        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
@@ -1938,9 +1889,7 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(
-            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
-        )
+        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
@@ -2044,9 +1993,7 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(
-            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
-        )
+        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
@@ -2150,9 +2097,7 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(
-            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
-        )
+        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
@@ -2245,9 +2190,7 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(
-            fp=CONFIG_CASE_DIR, export_core_params=True, format="txt", use_hw_sim=True
-        )
+        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
