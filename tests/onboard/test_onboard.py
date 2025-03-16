@@ -5,7 +5,7 @@ import pytest
 
 import paibox as pb
 from paibox.types import NEUOUT_U8_DTYPE, VOLTAGE_DTYPE
-from tests.components.utils import conv1d_golden, ann_bit_trunc
+from tests.components.utils import ann_bit_trunc, conv1d_golden
 
 TEST_DIR = Path(__file__).parent
 DATA_DIR = TEST_DIR / "data"

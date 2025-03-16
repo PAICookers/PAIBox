@@ -10,7 +10,7 @@ from paibox.network import DynSysGroup
 from paibox.types import NEUOUT_U8_DTYPE, VOLTAGE_DTYPE, WEIGHT_DTYPE
 from paibox.utils import as_shape, shape2num, typical_round
 
-from .conftest import * # import test data
+from .conftest import *  # import test data
 from .utils import (
     ann_bit_trunc,
     avgpool1d_golden,

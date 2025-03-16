@@ -1108,6 +1108,7 @@ mapper.clear()
      }
    }
    ```
+
 2. 输入节点信息 `input_proj_info.json`，可能存在多个输入节点
 
    ```json
@@ -1126,6 +1127,7 @@ mapper.clear()
      "InputProj_1": {...}
    }
    ```
+
 3. 输出节点目的地信息，`output_dest_info.json`，可能存在多个输出节点
 
    ```json
@@ -1145,6 +1147,7 @@ mapper.clear()
      "n3": {...}
    }
    ```
+
 4. 计算核配置信息，`core_params.json`
 
    ```json

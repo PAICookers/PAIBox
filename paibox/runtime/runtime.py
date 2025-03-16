@@ -20,6 +20,8 @@ except ImportError:
 
 del paicorelib
 
+import sys
+
 from paicorelib import Coord, CoordLike, HwConfig, RIdLike, to_coordoffset
 from paicorelib.framelib.frame_defs import FrameHeader as FH
 from paicorelib.framelib.frame_defs import OfflineWorkFrame1Format as Off_WF1F
@@ -27,8 +29,6 @@ from paicorelib.framelib.frame_gen import OfflineFrameGen
 from paicorelib.framelib.frames import OfflineWorkFrame1
 from paicorelib.framelib.types import ArrayType, DataArrayType, FrameArrayType
 from paicorelib.framelib.utils import header_check
-
-import sys
 
 if sys.version_info >= (3, 13):
     from warnings import deprecated
@@ -210,7 +210,7 @@ class PAIBoxRuntime:
         Returns:
             Return the decoded output data. If `oframe_infos` is a list, the output will be a list  \
             where each element represents the decoded data for each output node.
-            
+
         NOTE: This method has real-time requirement.
         """
         header_check(oframes, FH.WORK_TYPE1)
