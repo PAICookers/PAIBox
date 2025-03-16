@@ -1,20 +1,22 @@
-[tool.poetry]
+[project]
 name = "paibox"
-version = "1.2.0"
-description = "Toolchain of PAICORE 2.0"
-authors = ["Ziru Pan <zrpan@stu.pku.edu.cn>"]
-maintainers = [
-    "Hongtu Xia <hongtux@pku.edu.cn>",
-    "Siyuan Gao <siyuan-gao@outlook.com>",
-    "Zhaoyang Hao <hzyang2218@gmail.com>",
-    "Ziru Pan <zrpan@stu.pku.edu.cn>",
-]
-license = "GPL-3.0-or-later"
+version = "1.2.1"
+description = "Toolchain of PAICORE"
+authors = [{ name = "Ziru Pan", email = "zrpan@stu.pku.edu.cn" }]
+license = { text = "GPL-3.0-or-later" }
 readme = "README.md"
-repository = "https://github.com/PAICookers/PAIBox"
-homepage = "https://github.com/PAICookers/PAIBox"
-documentation = "https://github.com/PAICookers/PAIBox#readme"
-keywords = ["PAICORE 2.0", "PAIBox", "SNN", "Toolchain"]
+requires-python = "^3.9"
+dependencies = [
+    "numpy (>=1.26.0)",
+    "pydantic (>=2.0.3,<3.0.0)",
+    "paicorelib (>=1.3.1)",
+]
+maintainers = [
+    { name = "Hongtu Xia", email = "hongtux@pku.edu.cn" },
+    { name = "Siyuan Gao", email = "siyuan-gao@outlook.com" },
+    { name = "Zhaoyang Hao", email = "hzyang2218@gmail.com" },
+    { name = "Ziru Pan", email = "zrpan@stu.pku.edu.cn" },
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
@@ -29,16 +31,18 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Compilers",
 ]
+keywords = ["PAICORE", "neuromorphic-hardware", "SNN", "Toolchain"]
+
+[project.urls]
+repository = "https://github.com/PAICookers/PAIBox"
+homepage = "https://github.com/PAICookers/PAIBox"
+documentation = "https://github.com/PAICookers/PAIBox#readme"
+
+[tool.poetry]
 packages = [{ include = "paibox" }]
 
 # Includes the document
 include = ["docs/Guide-of-PAIBox.md", "CHANGELOG.md"]
-
-[tool.poetry.dependencies]
-python = "^3.9"
-pydantic = "^2.0.3"
-numpy = "^1.26.0"
-paicorelib = ">=1.3.1"
 
 [tool.poetry.group.test]
 optional = true
@@ -47,22 +51,18 @@ optional = true
 optional = true
 
 [tool.poetry.group.test.dependencies]
-pytest = "^8.0.0"
-pytest-md = "^0.2.0"
-pytest-cov = "^6.0.0"
-paicorelib = {git = "https://github.com/PAICookers/PAIlib.git", rev = "dev"}
-orjson = "^3.10.0"
-
+pytest = "^8.0"
+pytest-md = "^0.2"
+pytest-cov = "^6.0"
+orjson = "^3.10"
 
 [tool.poetry.group.dev.dependencies]
-orjson = "^3.10.0"
-
+orjson = "^3.10"
 
 [tool.pytest.ini_options]
 minversion = "8.0.0"
 testpaths = ["tests"]
 addopts = "--cov=paibox --cov-report=term"
-
 
 [[tool.poetry.source]]
 name = "tsinghua"
@@ -70,5 +70,5 @@ url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 priority = "primary"
 
 [build-system]
-requires = ["poetry-core"]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
