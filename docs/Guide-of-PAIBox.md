@@ -200,7 +200,7 @@ s1= pb.FullConn(source=n1, dest=n2, weights=weight1, conn_type=pb.SynConnType.Al
 
 两组神经元之间依次单对单连接，这要求**前向与后向神经元数目相同**。其权重 `weights` 主要有以下几种输入类型：
 
-- 标量：默认为1。这表示前层的各个神经元输出线性地输入到后层神经元，即 $\lambda\cdot\mathbf{I}$
+- 标量：默认为1。这表示前层的各个神经元输出线性地输入到后层神经元，即 $\lambda\cdot\mathbf{I}$。其权重以标量的形式储存。
 
   ```python
   n1 = pb.IF(shape=5, threshold=1)
@@ -211,8 +211,6 @@ s1= pb.FullConn(source=n1, dest=n2, weights=weight1, conn_type=pb.SynConnType.Al
   >>>
   2
   ```
-
-  其权重以标量的形式储存。
 
 - 数组：尺寸要求为 `(N2,)`，可以自定义每组对应神经元之间的连接权重。如下例所示，设置 `weights` 为 `[1,2,3,4,5]`，
 
@@ -990,7 +988,7 @@ sim.reset()
 mapper = pb.Mapper()
 mapper.build(fcnet)
 graph_info = mapper.compile(core_estimate_only==False, weight_bit_optimization=True, grouping_optim_target="both")
-mapper.export(write_to_file=True, fp="./debug/", format="bin", split_by_chip=False, export_core_params=False, use_hw_sim=True)
+mapper.export(write_to_file=True, fp="./debug/", format="bin", split_by_chip=False, use_hw_sim=True)
 
 print(graph_info.n_core_required)
 >>> 999
@@ -1012,7 +1010,6 @@ mapper.clear()
 - `fp`：导出目录。若未指定，则默认为后端配置选项 `build_directory` 所设置的目录（当前工作目录）。
 - `format`：导出交换文件格式，可以为 `bin`、`npy` 或 `txt`。默认为 `bin`。
 - `split_by_chip`：是否将配置帧以芯片坐标进行分割，由此生成的配置帧文件命名形如"config_chip0_core0.format"、"config_chip0_core1.format"、"config_chip1_core0.format"。默认为 `False`，即最终导出为一个文件 "config_all.format"。
-- `export_core_params`：是否导出实际使用核参数至 json 文件，以直观显示实际使用核的配置信息。默认为 `False`。
 - `export_clk_en_L2`：是否导出 L2 簇时钟串口数据。默认为 `False`。硬件平台可根据该数据关闭芯片其他未使用的 L2 簇时钟以降低功耗。
 - `use_hw_sim`：是否使用硬件仿真器。若使用，将额外导出 `bin` 格式的配置帧文件。默认为 `True`。
 
@@ -1076,7 +1073,7 @@ mapper.clear()
 
 由于硬件平台运行时依赖部分编译后网络的信息，因此工具链在编译过程中，通过 [`export`](#编译、映射与导出) 方法导出为 json 文件并提供至硬件平台。以下文件的格式可能会随着版本更新而变化。
 
-1. 编译后图信息。
+1. 编译后图信息 `graph_info.json`
 
    ```json
    {
@@ -1087,7 +1084,7 @@ mapper.clear()
          "t_1st_vld": 2,
          "interval": 1,
          "n_vld": 0,
-         "is_local_time": false // always false
+         "is_local_time": false
        },
        "n3": {
          "t_1st_vld": 2,
@@ -1100,7 +1097,7 @@ mapper.clear()
      "n_core_occupied": 10,
      "misc": {
        "clk_en_L2": {
-         "(0,0)": [128, 0, 0, 0, 0, 0, 0, 0] // list[int] with length=8
+         "(0,0)": [128, 0, 0, 0, 0, 0, 0, 0]
        },
        "target_chip_list": [
          {
@@ -1111,8 +1108,7 @@ mapper.clear()
      }
    }
    ```
-
-2. 输入节点信息。可能存在多个输入节点。
+2. 输入节点信息 `input_proj_info.json`，可能存在多个输入节点
 
    ```json
    {
@@ -1123,15 +1119,14 @@ mapper.clear()
        "addr_core_y": 0,
        "addr_core_x_ex": 1,
        "addr_core_y_ex": 3,
-       "tick_relative": [0, 0, 1, 1, 2, 2],// list[int]
-       "addr_axon": [0, 1, 2, 3, 4, 5],    // list[int]
+       "tick_relative": [0, 0, 1, 1, 2, 2],
+       "addr_axon": [0, 1, 2, 3, 4, 5],
        "lcn": 2
      },
      "InputProj_1": {...}
    }
    ```
-
-3. 输出节点目的地信息。可能存在多个输出节点。
+3. 输出节点目的地信息，`output_dest_info.json`，可能存在多个输出节点
 
    ```json
    {
@@ -1143,20 +1138,19 @@ mapper.clear()
          "addr_core_y": 0,
          "addr_core_x_ex": 0,
          "addr_core_y_ex": 0,
-         "tick_relative": [0,0,0,0,0,0,0,0],// list[int]
-         "addr_axon": [0,1,2,3,4,5,6,7]     // list[int]
+         "tick_relative": [0,0,0,0,0,0,0,0],
+         "addr_axon": [0,1,2,3,4,5,6,7]
        }
      },
      "n3": {...}
    }
    ```
-
-4. 计算核配置信息。
+4. 计算核配置信息，`core_params.json`
 
    ```json
    {
-     "(0,0)": { // chip coordinate
-       "(0,0)": { // core coordinate on chip (0,0)
+     "(0,0)": {
+       "(0,0)": {
          "weight_width": 0,
          "LCN": 0,
          "input_width": 0,
