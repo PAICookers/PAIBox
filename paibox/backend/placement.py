@@ -162,7 +162,7 @@ class CoreBlock(CoreAbstract):
         self, src: SourceSliceType, dest: DestSliceType
     ) -> Optional[EdgeSlice]:
         for syn in self.obj:
-            if syn.source is src and syn.dest is dest:
+            if syn.source == src and syn.dest == dest:
                 return syn
 
         return None
