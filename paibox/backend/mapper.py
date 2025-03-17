@@ -187,7 +187,7 @@ class Mapper:
         if no_twisted_branch:
             self.untwist_branch_nodes()
 
-        self.graph.topo_support_check()
+        self.graph.topo_support_check()  # not used for now
 
         """Build core blocks."""
         self.build_core_blocks()
@@ -207,7 +207,8 @@ class Mapper:
                 input={},
                 output={},
                 members={},
-                inherent_timestep=self.graph.inherent_timestep,
+                inherent_timestep=self.graph.get_global_t_1st_vld(),
+                output_flow_format=self.graph.get_output_flow_format(),
                 n_core_required=self.n_core_required,
                 n_core_occupied=0,
             )
@@ -215,7 +216,7 @@ class Mapper:
         """Allocate the core blocks to the core placments."""
         self.core_allocation()
 
-        """Export configurations."""
+        """Export configurations. This step does not modify any data."""
         return self.config_export()
 
     def untwist_branch_nodes(self) -> None:
@@ -392,7 +393,8 @@ class Mapper:
             input=input_nodes_info,
             output=output_dest_info,
             members=self.core_plm_config,  # The configuration of physical cores is in `core_plm_config`
-            inherent_timestep=self.graph.inherent_timestep,
+            inherent_timestep=self.graph.get_global_t_1st_vld(),
+            output_flow_format=self.graph.get_output_flow_format(),
             n_core_required=self.n_core_required,
             n_core_occupied=self.n_core_occupied,
             misc={
@@ -609,7 +611,6 @@ class Mapper:
         fp: Optional[Union[str, Path]] = None,
         format: Literal["txt", "bin", "npy"] = "bin",
         split_by_chip: bool = False,
-        export_core_params: bool = False,
         export_clk_en_L2: bool = False,
         use_hw_sim: bool = True,
     ) -> dict[ChipCoord, list[FrameArrayType]]:
@@ -620,9 +621,8 @@ class Mapper:
             - fp: If `write_to_file` is `True`, specify the output path.
             - format: `txt`, `bin`, or `npy`. `bin` is recommended.
             - split_by_chip: whether to split the generated frames file by the chips.
-            - export_core_params: whether to export the parameters of occupied cores.
             - export_used_L2: whether to export the serial port data of the L2 cluster clocks.
-            - use_hw_sim: whether to use hardware simulator. If use, '.bin' will be exported.
+            - use_hw_sim: whether to use hardware simulator. If used, '.bin' will be exported.
 
         Return: total configurations in dictionary format.
         """
@@ -636,10 +636,8 @@ class Mapper:
             raise ValueError(f"format {format} is not supported.")
 
         formats = [format]
-        if use_hw_sim:
+        if use_hw_sim and "bin" not in formats:
             formats.append("bin")
-
-        formats = list(set(formats))
 
         _fp = _fp_check(fp)
         config_dict = gen_config_frames_by_coreconf(
@@ -650,9 +648,8 @@ class Mapper:
             formats,
         )
 
-        if export_core_params:
-            # Export the parameters of occupied cores
-            export_core_params_json(self.core_params, _fp)
+        # Export the parameters of occupied cores
+        export_core_params_json(self.core_params, _fp)
 
         # Export the graph information
         export_graph_info(self.graph_info, _fp, export_clk_en_L2)
@@ -799,7 +796,7 @@ def _calculate_core_consumption(order_rgs: list[RoutingGroup]) -> int:
 
 
 def reorder_routing_groups(
-    graph: dict[RoutingGroup, list[RoutingGroup]]
+    graph: dict[RoutingGroup, list[RoutingGroup]],
 ) -> list[RoutingGroup]:
     in_degree = {node: 0 for node in graph}
     for node in graph:

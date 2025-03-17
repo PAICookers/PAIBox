@@ -3,6 +3,7 @@ categories:
     label: "breaking-change"
   - title: "🚀 Features"
     labels:
+      - "feat"
       - "feature"
       - "enhancement"
   - title: "🐛 Bug Fixes"

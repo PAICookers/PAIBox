@@ -13,51 +13,32 @@ from .conftest import TestData
 
 
 class TestGraphInfo:
-    def test_multi_inputproj1(
-        self, get_mapper, ensure_dump_dir, build_multi_inputproj_net1
-    ):
+    def test_multi_inputproj1(self, ensure_dump_dir, build_multi_inputproj_net1):
         net = build_multi_inputproj_net1
-        mapper: pb.Mapper = get_mapper
+        mapper = pb.Mapper()
         mapper.build(net)
         mapper.compile()
-        mapper.export(
-            fp=ensure_dump_dir,
-            format="txt",
-            split_by_chip=True,
-            export_core_params=True,
-        )
+        mapper.export(fp=ensure_dump_dir, split_by_chip=True)
 
         assert len(mapper.graph_info["input"]) == 2
 
-    def test_multi_inputproj2(
-        self, get_mapper, ensure_dump_dir, build_multi_inputproj_net2
-    ):
+    def test_multi_inputproj2(self, ensure_dump_dir, build_multi_inputproj_net2):
         net = build_multi_inputproj_net2
-        mapper: pb.Mapper = get_mapper
+        mapper = pb.Mapper()
         mapper.build(net)
         mapper.compile()
-        mapper.export(
-            fp=ensure_dump_dir,
-            format="txt",
-            split_by_chip=True,
-            export_core_params=True,
-        )
+        mapper.export(fp=ensure_dump_dir, split_by_chip=True)
 
         assert len(mapper.graph_info["input"]) == 2
 
     def test_multi_inputproj3(
-        self, monkeypatch, get_mapper, ensure_dump_dir, build_multi_inputproj_net3
+        self, monkeypatch, ensure_dump_dir, build_multi_inputproj_net3
     ):
         net = build_multi_inputproj_net3
-        mapper: pb.Mapper = get_mapper
+        mapper = pb.Mapper()
         mapper.build(net)
         mapper.compile()
-        mapper.export(
-            fp=ensure_dump_dir,
-            format="txt",
-            split_by_chip=True,
-            export_core_params=True,
-        )
+        mapper.export(fp=ensure_dump_dir, split_by_chip=True)
 
         assert len(mapper.graph_info["input"]) == 1
         assert len(mapper.core_blocks) == 6
@@ -69,52 +50,51 @@ class TestGraphInfo:
 
         assert len(mapper.core_blocks) == 5  # n6 & n7 grouped in one core block.
 
-    def test_multi_output_nodes(
-        self, get_mapper, ensure_dump_dir, build_multi_onodes_net
-    ):
+    def test_multi_onodes(self, ensure_dump_dir, build_multi_onodes_net):
         net = build_multi_onodes_net
-        mapper: pb.Mapper = get_mapper
+        mapper = pb.Mapper()
         mapper.build(net)
         mapper.compile()
 
         assert len(mapper.graph_info["output"]) == 2
 
-        mapper.export(
-            fp=ensure_dump_dir,
-            format="txt",
-            split_by_chip=True,
-            export_core_params=True,
-        )
+        mapper.export(fp=ensure_dump_dir, split_by_chip=True)
 
-    def test_multi_output_nodes2(
-        self, get_mapper, ensure_dump_dir, build_multi_onodes_net2
-    ):
+    def test_multi_onodes2(self, ensure_dump_dir, build_multi_onodes_net2):
         net = build_multi_onodes_net2
-        mapper: pb.Mapper = get_mapper
+        mapper = pb.Mapper()
         mapper.build(net)
         mapper.compile()
 
         assert len(mapper.graph_info["output"]) == 2
 
-        mapper.export(
-            fp=ensure_dump_dir,
-            format="txt",
-            split_by_chip=True,
-            export_core_params=True,
-        )
+        mapper.export(fp=ensure_dump_dir, split_by_chip=True)
 
-    def test_multi_inodes_onodes(self, get_mapper, build_multi_inodes_onodes):
+    def test_multi_onodes_more1152(
+        self, ensure_dump_dir, build_multi_onodes_net_more1152
+    ):
+        net = build_multi_onodes_net_more1152
+
+        mapper = pb.Mapper()
+        mapper.build(net)
+        mapper.compile()
+
+        assert len(mapper.graph_info["output"]) == 2
+
+        mapper.export(fp=ensure_dump_dir, split_by_chip=True)
+
+    def test_multi_inodes_onodes(self, build_multi_inodes_onodes):
         net = build_multi_inodes_onodes
-        mapper: pb.Mapper = get_mapper
+        mapper = pb.Mapper()
         mapper.build(net)
         mapper.compile()
 
         assert len(mapper.graph_info["input"]) == 2
         assert len(mapper.graph_info["output"]) == 2
 
-    def test_nested_net_L2_compile(self, get_mapper, build_Nested_Net_level_2):
+    def test_nested_net_L2_compile(self, build_Nested_Net_level_2):
         net = build_Nested_Net_level_2
-        mapper: pb.Mapper = get_mapper
+        mapper = pb.Mapper()
         mapper.build(net)
         mapper.compile()
 
@@ -122,9 +102,9 @@ class TestGraphInfo:
         assert len(mapper.graph_info["input"]) == 1
         assert len(mapper.graph_info["output"]) == 1
 
-    def test_nested_net_L3_compile(self, get_mapper, build_Nested_Net_level_3):
+    def test_nested_net_L3_compile(self, build_Nested_Net_level_3):
         net = build_Nested_Net_level_3
-        mapper: pb.Mapper = get_mapper
+        mapper = pb.Mapper()
         mapper.build(net)
         mapper.compile()
 
@@ -132,25 +112,23 @@ class TestGraphInfo:
         assert len(mapper.graph_info["input"]) == 2
         assert len(mapper.graph_info["output"]) == 1
 
-    def test_ANN_network_compile(
-        self, get_mapper, build_ANN_Network_1, ensure_dump_dir
-    ):
+    def test_ANN_network_compile(self, build_ANN_Network_1, ensure_dump_dir):
         net = build_ANN_Network_1
-        mapper: pb.Mapper = get_mapper
+        mapper = pb.Mapper()
         mapper.build(net)
         mapper.compile()
-        mapper.export(fp=ensure_dump_dir, export_core_params=True)
+        mapper.export(fp=ensure_dump_dir)
 
         assert 1
 
 
 class TestMapperDeployment:
-    def test_build_graph(self, get_mapper, build_example_net1, build_example_net2):
+    def test_build_graph(self, build_example_net1, build_example_net2):
         """Build more than one networks."""
         net1 = build_example_net1
         net2 = build_example_net2
 
-        mapper: pb.Mapper = get_mapper
+        mapper = pb.Mapper()
         mapper.build(net1, net2)
         mapper.compile()
 
@@ -159,49 +137,45 @@ class TestMapperDeployment:
         assert len(mapper.graph_info["output"]) == 2
 
     @pytest.fixture
-    def compile_simple_net(self, get_mapper, build_example_net1):
+    def compile_simple_net(self, build_example_net1):
         """Reused fixture."""
         net = build_example_net1
 
-        mapper: pb.Mapper = get_mapper
+        mapper = pb.Mapper()
         mapper.build(net)
         mapper.compile()
 
-    @pytest.mark.usefixtures("compile_simple_net")
-    def test_export_config_json(self, ensure_dump_dir, get_mapper):
+        return mapper
+
+    def test_export_config_json(self, ensure_dump_dir, compile_simple_net):
         """Export all the configs into json"""
-        mapper: pb.Mapper = get_mapper
+        mapper = compile_simple_net
         assert mapper.graph.has_built == True
 
         assert len(mapper.core_blocks) == 3  # 3 layers
         assert mapper.graph_info["inherent_timestep"] == 3
 
-        mapper.export(fp=ensure_dump_dir, export_core_params=True, split_by_chip=False)
-        assert 1
+        mapper.export(fp=ensure_dump_dir, split_by_chip=False)
 
-    @pytest.mark.usefixtures("compile_simple_net")
-    def test_find_neuron(self, get_mapper, build_example_net1):
-        net: pb.Network = build_example_net1
-        mapper: pb.Mapper = get_mapper
+    def test_find_neuron(self, compile_simple_net):
+        mapper: pb.Mapper = compile_simple_net
         assert mapper.graph.has_built == True
 
-        mapper.find_neuron(net.n3)
+        mapper.find_neuron(mapper.graph._raw_networks[0].n3)
 
         assert 1
 
-    @pytest.mark.usefixtures("compile_simple_net")
-    def test_find_axon(self, get_mapper, build_example_net1):
-        net: pb.Network = build_example_net1
-        mapper: pb.Mapper = get_mapper
+    def test_find_axon(self, compile_simple_net):
+        mapper = compile_simple_net
         assert mapper.graph.has_built == True
 
-        mapper.find_axon(net.n2)
+        mapper.find_axon(mapper.graph._raw_networks[0].n2)
 
         assert 1
 
-    def test_network_with_container(self, get_mapper, build_Network_with_container):
+    def test_network_with_container(self, build_Network_with_container):
         net: pb.Network = build_Network_with_container
-        mapper: pb.Mapper = get_mapper
+        mapper = pb.Mapper()
         mapper.build(net)
         mapper.compile()
 
@@ -269,7 +243,7 @@ class TestMapperDeployment:
         else:
             assert rtotal == r1 == n_networks
 
-        mapper.export(fp=ensure_dump_dir, export_core_params=True)
+        mapper.export(fp=ensure_dump_dir)
 
     @pytest.mark.parametrize("layer", [63, 64])
     def test_bypass_linear(self, layer, ensure_dump_dir, monkeypatch):
@@ -316,9 +290,7 @@ class TestMapperDeployment:
         mapper = pb.Mapper()
         mapper.build(net)
         graph_info = mapper.compile()
-        mapper.export(
-            fp=ensure_dump_dir, format="txt", use_hw_sim=False, export_core_params=True
-        )
+        mapper.export(fp=ensure_dump_dir, use_hw_sim=False)
 
         assert 1
 
@@ -474,16 +446,6 @@ class TestMapper_Compile:
             if net.n4 in cb.dest:
                 assert len(cb.ordered_axons) == 3
 
-    def test_core_estimate_only(self, build_example_net4):
-        net = build_example_net4
-
-        mapper = pb.Mapper()
-        mapper.build(net)
-        graph_info = mapper.compile(core_estimate_only=True)
-
-        assert graph_info["n_core_required"] > 0
-        assert graph_info["members"] == {}
-
 
 class TestMapper_cflags:
     @pytest.mark.parametrize(
@@ -534,12 +496,22 @@ class TestMapper_cflags:
         )
         assert mapper.core_blocks[0].weight_width == expected_wp_opt
 
+    def test_core_estimate_only(self, build_example_net4):
+        net = build_example_net4
+
+        mapper = pb.Mapper()
+        mapper.build(net)
+        graph_info = mapper.compile(core_estimate_only=True)
+
+        assert graph_info["n_core_required"] > 0
+        assert graph_info["members"] == {}
+
 
 from tests.utils import measure_time
 
 
 class TestMapper_Multichip:
-    @pytest.mark.xfail(reason="Network may too large.")
+    @pytest.mark.xfail(reason="Network may too large.", raises=ResourceError)
     def test_multichip_1(self, ensure_dump_dir, monkeypatch, build_MultichipNet1_s1):
         """Multichip network of scale 1"""
 
@@ -554,13 +526,14 @@ class TestMapper_Multichip:
         with measure_time("test_multichip_1"):
             mapper.compile(weight_bit_optimization=False)
 
-        mapper.export(fp=ensure_dump_dir, export_core_params=True, split_by_chip=False)
+        mapper.export(fp=ensure_dump_dir, split_by_chip=False)
 
         print("Total cores occupied:", mapper.n_core_occupied)
 
         assert 1
 
-    @pytest.mark.xfail(reason="Network may too large.")
+    @pytest.mark.skip(reason="Too slow, ~15 mins.")
+    @pytest.mark.xfail(reason="Network may too large.", raises=ResourceError)
     def test_multichip_2(self, ensure_dump_dir, monkeypatch, build_MultichipNet1_s2):
         """Multichip network of scale 2"""
         clist = [Coord(0, 0), Coord(0, 1), Coord(1, 0)]
@@ -574,7 +547,7 @@ class TestMapper_Multichip:
         with measure_time("test_multichip_2"):
             mapper.compile(weight_bit_optimization=False)
 
-        mapper.export(fp=ensure_dump_dir, export_core_params=True, split_by_chip=False)
+        mapper.export(fp=ensure_dump_dir, split_by_chip=False)
 
         print("Total cores occupied:", mapper.n_core_occupied)
 

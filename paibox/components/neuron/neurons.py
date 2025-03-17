@@ -10,7 +10,7 @@ from paibox.types import LEAK_V_DTYPE, DataType, Shape
 from .base import Neuron
 from .utils import LEAK_V_MAX, ExtraNeuAttrKwds
 
-if sys.version_info >= (3, 12):
+if sys.version_info >= (3, 11):
     from typing import Unpack
 else:
     from typing_extensions import Unpack

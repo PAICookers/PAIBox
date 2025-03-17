@@ -128,9 +128,7 @@ if __name__ == "__main__":
     # #N of cores required
     print("Core required:", graph_info["n_core_required"])
 
-    mapper.export(
-        write_to_file=True, fp=out_dir / "debug", format="npy", export_core_params=False
-    )
+    mapper.export(write_to_file=True, fp=out_dir / "debug", format="npy")
 
     # Clear all the results
     mapper.clear()

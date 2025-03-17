@@ -284,11 +284,15 @@ class Network_with_multi_onodes(pb.Network):
                   N1 -> S3 -> N3 (-> N4)
     """
 
-    def __init__(self, connect_n4: bool = False):
+    def __init__(self, connect_n4: bool = False, onode_more1152: bool = False):
         super().__init__()
         self.inp1 = pb.InputProj(input=1, shape_out=(40,), name="inp1")
         self.n1 = pb.TonicSpiking(80, 2, name="n1", tick_wait_start=1)
-        self.n2 = pb.TonicSpiking(20, 3, name="n2", tick_wait_start=2)
+        if onode_more1152:
+            self.n2 = pb.TonicSpiking(1800, 3, name="n2", tick_wait_start=2)
+        else:
+            self.n2 = pb.TonicSpiking(20, 3, name="n2", tick_wait_start=2)
+
         self.n3 = pb.TonicSpiking(30, 4, name="n3", tick_wait_start=2)
 
         self.s1 = pb.FullConn(
@@ -541,30 +545,37 @@ class MultichipNet1(pb.DynSysGroup):
         self.inp1 = pb.InputProj(1, shape_out=(1000,))
 
         self.n = NodeList()
+        tws = 1
 
-        for _ in range(5):
+        for i in range(5):
             n = random.randint(800, 1500)
             thres = random.randint(3, 6)
             resetv = random.randint(-1, 1)
 
-            self.n.append(pb.IF((n,), thres, resetv))
+            self.n.append(pb.IF((n,), thres, resetv, tick_wait_start=tws + i))
 
-        for _ in range(3):
+        tws += i + 1
+
+        for i in range(3):
             n = random.randint(3000, 5000)
             leakv = random.randint(-1, 1)
             thres = random.randint(3, 6)
             resetv = random.randint(-1, 1)
 
-            self.n.append(pb.LIF((n,), thres, resetv, leakv))
+            self.n.append(pb.LIF((n,), thres, resetv, leakv, tick_wait_start=tws + i))
 
-        for _ in range(4 * scale):
+        tws += i + 1
+
+        for i in range(4 * scale):
             n = random.randint(1500, 3000)
             thres = random.randint(3, 6)
             resetv = random.randint(-1, 1)
 
-            self.n.append(pb.IF((n,), thres, resetv))
+            self.n.append(pb.IF((n,), thres, resetv, tick_wait_start=tws + i))
 
-        self.n_out = pb.BypassNeuron(1000)
+        tws += i + 1
+
+        self.n_out = pb.BypassNeuron(1000, tick_wait_start=tws)
 
         self.s = NodeList()
 
@@ -764,6 +775,11 @@ def build_multi_onodes_net2():
 
 
 @pytest.fixture(scope="class")
+def build_multi_onodes_net_more1152():
+    return Network_with_multi_onodes(connect_n4=True, onode_more1152=True)
+
+
+@pytest.fixture(scope="class")
 def build_multi_inodes_onodes():
     return Network_with_multi_inodes_onodes()
 
@@ -815,11 +831,6 @@ def build_MultichipNet1_s2():
 )
 def build_Network_branch_nodes(request):
     return request.param()
-
-
-@pytest.fixture(scope="class")
-def get_mapper() -> pb.Mapper:
-    return pb.Mapper()
 
 
 def n_axon2lcn_ex_proto(n_axon, n_fanin_max) -> LCN_EX:

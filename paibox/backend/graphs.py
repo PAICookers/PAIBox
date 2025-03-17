@@ -6,6 +6,7 @@ from typing import Any, TypeVar, Union, cast
 
 from paicorelib import HwConfig
 
+from paibox.base import DataFlowFormat
 from paibox.collector import Collector
 from paibox.components import FullConnectedSyn, InputProj, NeuModule, Neuron
 from paibox.components.functional import LinearSemiFolded
@@ -218,14 +219,15 @@ class PAIGraph:
         # _degree_check(self.degree_of_nodes, self.succ_dg)
 
         # Only support output nodes with <= 1152 neurons so far.
-        if any(
-            onode.num_out > HwConfig.N_FANIN_PER_DENDRITE_MAX
-            for onode in self.onodes.values()
-        ):
-            raise GraphNotSupportedError(
-                f"only output nodes with no more than {HwConfig.N_FANIN_PER_DENDRITE_MAX} "
-                f"neurons are supported."
-            )
+        # if any(
+        #     onode.num_out > HwConfig.N_FANIN_PER_DENDRITE_MAX
+        #     for onode in self.onodes.values()
+        # ):
+        #     raise GraphNotSupportedError(
+        #         f"only output nodes with no more than {HwConfig.N_FANIN_PER_DENDRITE_MAX} "
+        #         f"neurons are supported."
+        #     )
+        pass
 
     def _node_pos(self, node: NodeName) -> NodePosition:
         if node in self.inodes:
@@ -529,13 +531,27 @@ class PAIGraph:
 
         return routing_groups[0]
 
-    @property
-    def inherent_timestep(self) -> int:
+    def get_global_t_1st_vld(self) -> int:
+        """Return the timestamp when the compiled network outputs the first valid data from the view of external.
+
+        NOTE: If there are more than one output nodes, the first valid data will be the one with the smallest timestamp.
+        """
         self.build_check()
-        return max(
+        return min(
             n._oflow_format.get_global_t_1st_vld(n.tick_wait_start)
             for n in self.onodes.values()
         )
+
+    def get_output_flow_format(self) -> dict[NodeName, DataFlowFormat]:
+        """Return the output data flow format of the compiled in global time.
+
+        NOTE: There may be multiple different data streams in the network.
+        """
+        self.build_check()
+        return {
+            n.name: n._oflow_format.local2global(n.tick_wait_start)
+            for n in self.onodes.values()
+        }
 
     @property
     def graph_name_repr(self) -> str:
@@ -724,7 +740,7 @@ def reverse_edges(directed_edges: Mapping[_NT, Iterable[_NT]]) -> dict[_NT, list
 
 
 def reverse_edges2(
-    directed_edges: Mapping[_NT, Mapping[_NT, _T]]
+    directed_edges: Mapping[_NT, Mapping[_NT, _T]],
 ) -> dict[_NT, dict[_NT, _T]]:
     reversed = {k: dict() for k in directed_edges}
     for key in directed_edges:
@@ -775,7 +791,7 @@ def reverse_edges2(
 
 
 def get_node_degrees(
-    succ_edges: Mapping[_NT, Union[Sequence[_NT], Mapping[_NT, Any]]]
+    succ_edges: Mapping[_NT, Union[Sequence[_NT], Mapping[_NT, Any]]],
 ) -> dict[_NT, NodeDegree]:
     degree = defaultdict(NodeDegree)
     in_degrees = defaultdict(int)
@@ -894,7 +910,7 @@ def get_succ_cb_by_node(
 
 
 def get_pred_cb_by_succ_cb(
-    succ_cb: dict[CoreBlock, list[CoreBlock]]
+    succ_cb: dict[CoreBlock, list[CoreBlock]],
 ) -> dict[CoreBlock, list[CoreBlock]]:
     return reverse_edges(succ_cb)
 
@@ -906,7 +922,7 @@ def get_pred_cb_by_node(
 
 
 def get_pred_dg_by_succ_dg(
-    succ_dg: dict[NodeName, dict[NodeName, _T]]
+    succ_dg: dict[NodeName, dict[NodeName, _T]],
 ) -> dict[NodeName, dict[NodeName, _T]]:
     return reverse_edges2(succ_dg)
 

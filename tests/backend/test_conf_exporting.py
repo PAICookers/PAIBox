@@ -11,11 +11,13 @@ from paibox.backend.conf_exporting import *
 from paibox.backend.conf_types import (
     CoreConfig,
     CorePlmConfig,
+    GraphInfo,
     InputNeuronDest,
     NeuronConfig,
     NeuronDestInfo,
 )
 from paibox.backend.types import AxonCoord, NeuSegment
+from paibox.base import DataFlowFormat
 
 from .conftest import gen_random_used_lx
 
@@ -149,6 +151,12 @@ def _gen_random_core_plm_config(n_neuron: int) -> CorePlmConfig:
     return cpc
 
 
+@pytest.fixture
+def setup_clist_for_used_L2(monkeypatch):
+    clist = [Coord(0, 0), Coord(0, 1), Coord(2, 2)]
+    monkeypatch.setattr(pb.BACKEND_CONFIG, "target_chip_addr", clist)
+
+
 class TestConfExporting:
     def test_export_core_params_json(self, ensure_dump_dir):
         core_params = {
@@ -191,20 +199,48 @@ class TestConfExporting:
             core_plm_conf_json = json.loads(f.read())
             assert list(core_plm_conf_json.keys())[0] == str(chip_coord)
 
-    def test_export_used_L2_clusters(self, ensure_dump_dir, monkeypatch):
-        clist = [Coord(0, 0), Coord(0, 1), Coord(2, 2)]
-        monkeypatch.setattr(pb.BACKEND_CONFIG, "target_chip_addr", clist)
-
+    def test_export_used_L2_clusters(self, ensure_dump_dir, setup_clist_for_used_L2):
         n_lx_max = HwConfig.N_SUB_ROUTING_NODE ** (5 - 2)
         n = random.randint(1, n_lx_max)
         used_L2 = []
 
-        for _ in range(len(clist)):
+        for _ in range(len(pb.BACKEND_CONFIG.target_chip_addr)):
             used_L2.append(gen_random_used_lx(n, 2))
 
         clk_en_L2_dict = get_clk_en_L2_dict(pb.BACKEND_CONFIG.target_chip_addr, used_L2)
 
         export_used_L2_clusters(clk_en_L2_dict, ensure_dump_dir)
+
+    def test_export_aux_gh_info(self, ensure_dump_dir, setup_clist_for_used_L2):
+        n_lx_max = HwConfig.N_SUB_ROUTING_NODE ** (5 - 2)
+        n = random.randint(1, n_lx_max)
+        used_L2 = []
+
+        for _ in range(len(pb.BACKEND_CONFIG.target_chip_addr)):
+            used_L2.append(gen_random_used_lx(n, 2))
+
+        unused_gh_info = {"input": {}, "output": {}, "members": {}}
+        aux_gh_info = GraphInfo(
+            **unused_gh_info,
+            **{
+                "name": "test_export_aux_gh_info",
+                "n_core_occupied": 100,
+                "n_core_required": 120,
+                "inherent_timestep": 10,
+                "output_flow_format": {
+                    "output_1": DataFlowFormat(10, 1, 1, False),
+                    "output_2": DataFlowFormat(8, 2, 10, False),
+                },
+                "misc": {
+                    "clk_en_L2": get_clk_en_L2_dict(
+                        pb.BACKEND_CONFIG.target_chip_addr, used_L2
+                    ),
+                    "target_chip_list": pb.BACKEND_CONFIG.target_chip_addr,
+                },
+            },
+        )
+
+        export_aux_gh_info(aux_gh_info, ensure_dump_dir, export_clk_en_L2=True)
 
 
 @pytest.mark.parametrize(

@@ -56,6 +56,8 @@ __all__ = [
     "_SpikingPool2dWithV",
     "_SemiFoldedModule",
     "_LinearBase",
+    "_Pool1d",
+    "_Pool2d",
     "SemiFoldedDataFlowFormat",
 ]
 
@@ -170,6 +172,20 @@ class _SemiFoldedModule(FunctionalModule):
     inherent_delay = 1
     _oflow_format: SemiFoldedDataFlowFormat
 
+    def __init__(
+        self,
+        neuron_s: Union[NeuDyn, InputProj],
+        shape_out: tuple[int, ...],
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        rin_buffer_option: bool = False,
+        **kwargs,
+    ) -> None:
+        self.rin_buffer_option = rin_buffer_option
+        super().__init__(
+            neuron_s, shape_out=shape_out, keep_shape=keep_shape, name=name, **kwargs
+        )
+
     def build(
         self,
         network: "DynSysGroup",
@@ -190,11 +206,16 @@ class _SemiFoldedModule(FunctionalModule):
                 math.ceil(in_channels * in_h * kw / HwConfig.N_FANIN_PER_DENDRITE_ANN)
             )
         )
-        deep = min(in_h - kw, kw - 1) * valid_interval + 1
-        if not HwConfig.N_TIMESLOT_MAX / (2**E) > deep:
+        rin_deep = min(in_h - kw, kw - 1) * valid_interval + 1
+        if not HwConfig.N_TIMESLOT_MAX / (2**E) > rin_deep:
             raise ResourceError(
                 f"the input size of {self.name} is too large. Please adjust the input size or the number of channels."
             )
+        buffer_deep = kw * valid_interval
+        if buffer_deep > HwConfig.N_TIMESLOT_MAX / (2**E):
+            self.rin_buffer_option = True
+        if self.rin_buffer_option:
+            print("rin buffer has been enabled.")
 
 
 class _LinearBase(FunctionalModule):
@@ -249,9 +270,7 @@ class _SpikingPool1d(FunctionalModule):
         **kwargs,
     ) -> None:
         """Basic 1d spiking pooling."""
-        if pool_type not in ("avg", "max"):
-            raise ValueError("type of pooling must be 'avg' or 'max'.")
-
+        _pool_type_check(pool_type)
         cin, il = _fm_ndim1_check(neuron.shape_out, "CL")
 
         _ksize = _single(kernel_size)
@@ -415,12 +434,7 @@ class _SpikingPool2d(FunctionalModule):
         **kwargs,
     ) -> None:
         """Basic 2d spiking pooling."""
-        if pool_type not in ("avg", "max"):
-            raise ValueError("type of pooling must be 'avg' or 'max'.")
-
-        # if fm_order not in ("CHW", "HWC"):
-        #     raise ValueError("feature map order must be 'CHW' or 'HWC'.")
-
+        _pool_type_check(pool_type)
         cin, ih, iw = _fm_ndim2_check(neuron.shape_out, "CHW")
 
         _ksize = _pair(kernel_size)
@@ -572,6 +586,91 @@ class _SpikingPool2dWithV(FunctionalModuleWithV):
         return generated
 
 
+@set_rt_mode_ann()
+class _Pool1d(FunctionalModule):
+    inherent_delay = 0
+
+    def __init__(
+        self,
+        neuron_s: Union[NeuDyn, InputProj],
+        kernel_size: _Size1Type,
+        pool_type: Literal["avg", "max"],
+        stride: Optional[_Size1Type] = None,
+        padding: _Size1Type = 0,
+        bit_trunc: Optional[int] = None,
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        """Basic 1d ANN pooling."""
+        _pool_type_check(pool_type)
+        in_ch, in_l = _fm_ndim1_check(neuron_s.shape_out, "CL")
+
+        self.kernel_size = _single(kernel_size)
+        self.stride = _single(kernel_size if stride is None else stride)
+        self.padding = _single(padding)
+
+        # NOTE: Division is achieved with the help of output truncation.
+        # See comments in `AvgPool2dSemiFolded` in functional.py for more details.
+        ksize = shape2num(self.kernel_size)
+        self.bit_trunc = 8 + ksize.bit_length() - 1 if bit_trunc is None else bit_trunc
+
+        out_l = (in_l + 2 * self.padding[0] - self.kernel_size[0]) // self.stride[0] + 1
+        k = self.kernel_size[0]
+        assert 0 <= self.padding[0] <= k / 2 and 0 <= self.padding[0] <= k / 2
+
+        super().__init__(
+            neuron_s,
+            shape_out=(in_ch, out_l),
+            keep_shape=keep_shape,
+            name=name,
+            **kwargs,
+        )
+
+
+@set_rt_mode_ann()
+class _Pool2d(FunctionalModule):
+    inherent_delay = 0
+
+    def __init__(
+        self,
+        neuron_s: Union[NeuDyn, InputProj],
+        kernel_size: _Size2Type,
+        pool_type: Literal["avg", "max"],
+        stride: Optional[_Size2Type] = None,
+        padding: _Size2Type = 0,
+        bit_trunc: Optional[int] = None,
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        """Basic 2d ANN pooling."""
+        _pool_type_check(pool_type)
+        in_ch, in_h, in_w = _fm_ndim2_check(neuron_s.shape_out, "CHW")
+
+        self.kernel_size = _pair(kernel_size)
+        self.stride = _pair(kernel_size if stride is None else stride)
+        self.padding = _pair(padding)
+
+        # NOTE: Division is achieved with the help of output truncation.
+        # See comments in `AvgPool2dSemiFolded` in functional.py for more details.
+        ksize = shape2num(self.kernel_size)
+        self.bit_trunc = 8 + ksize.bit_length() - 1 if bit_trunc is None else bit_trunc
+
+        out_h = (in_h - self.kernel_size[0] + 2 * self.padding[0]) // self.stride[0] + 1
+        out_w = (in_w - self.kernel_size[1] + 2 * self.padding[1]) // self.stride[1] + 1
+        kh, kw = self.kernel_size
+        assert self.padding[0] < kh and self.padding[1] < kw
+
+        super().__init__(
+            neuron_s,
+            shape_out=(in_ch, out_h, out_w),
+            keep_shape=keep_shape,
+            name=name,
+            **kwargs,
+        )
+
+
 def _spike_func_avg_pool(
     vjt: VoltageType, pos_thres: int
 ) -> tuple[NeuOutType, VoltageType]:
@@ -586,3 +685,8 @@ def _spike_func_avg_pool(
     v_reset = np.where(thres_mode == TM.EXCEED_POSITIVE, 0, vjt)
 
     return spike.astype(NEUOUT_U8_DTYPE), v_reset
+
+
+def _pool_type_check(pool_type: str) -> None:
+    if pool_type not in ("avg", "max"):
+        raise ValueError("type of pooling must be 'avg' or 'max'.")

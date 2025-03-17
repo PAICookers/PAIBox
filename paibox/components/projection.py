@@ -60,7 +60,7 @@ class InputProj(Projection):
 
         Arguments:
             - input: the input value of the projection node. It can be a numeric value or a callable function.
-            - shape_out: the shape of the output..
+            - shape_out: the shape of the output.
             - keep_shape: wether to keep the shape when retieving the feature map.
             - name: the name of the node. Optional.
         """

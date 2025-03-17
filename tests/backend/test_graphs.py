@@ -217,19 +217,6 @@ class TestPAIGraph:
         with pytest.raises(GraphBuildError):
             mapper.build(net, net, net)
 
-    def test_output_nodes_with_more_than_1152(self, monkeypatch, build_example_net2):
-        net = build_example_net2
-
-        # Change the #N of neurons of the output node
-        assert 1200 > HwConfig.N_FANIN_PER_DENDRITE_MAX
-        monkeypatch.setattr(net.n2, "_n_neuron", 1200)
-
-        mapper = pb.Mapper()
-        mapper.build(net)
-
-        with pytest.raises(NotSupportedError):
-            mapper.compile()
-
     def test_prebuild_topo_info(self, build_FModule_ConnWithInput_Net):
         net = build_FModule_ConnWithInput_Net
         mapper = pb.Mapper()

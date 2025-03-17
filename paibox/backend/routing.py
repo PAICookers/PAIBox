@@ -140,7 +140,7 @@ class RoutingGroup:
             self.unordered_elems, key=lambda x: x.n_core_required, reverse=True
         )
         for cb in unordered_cb:
-            self.offset.append(self.n_core_required)
+            self.offset.append(n_core_used)
             n_core_used += cb.n_core_required
 
         # Ordered routing groups should be assgined first.
@@ -163,6 +163,7 @@ class RoutingGroup:
         # )
 
         # This is the amount of cores required actually.
+        assert n_core_used > 0
         self.n_core_required = 1 << (n_core_used - 1).bit_length()
         self.n_tail_waste = self.n_core_required - n_core_used + n_tail_waste
 

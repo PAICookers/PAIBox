@@ -21,6 +21,18 @@ else:
     from typing_extensions import NotRequired
 
 
+# Import the logging hooks from logging_utils
+from ._logging.logging_utils import captured_logs, log_settings_patch
+
+
+# Add custom markers to eliminate pytest warning
+def pytest_configure(config: pytest.Config):
+    config.addinivalue_line(
+        "markers",
+        "make_settings_test(**settings_dict): mark test to set custom settings for logging & perform teardown.",
+    )
+
+
 @pytest.fixture(scope="module")
 def ensure_dump_dir():
     p = Path(__file__).parent / "debug"
@@ -64,6 +76,8 @@ def _reset_context() -> None:
     clear_name_cache(ignore_warn=True)
     pb.FRONTEND_ENV["t"] = 0
     pb.BACKEND_CONFIG.set_default()
+    # To avoid overlapping with multi-chip coordinates
+    pb.BACKEND_CONFIG.output_chip_addr = (9, 9)
     SynSys.CFLAG_ENABLE_WP_OPTIMIZATION = True
 
 

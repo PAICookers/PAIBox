@@ -200,7 +200,7 @@ s1= pb.FullConn(source=n1, dest=n2, weights=weight1, conn_type=pb.SynConnType.Al
 
 两组神经元之间依次单对单连接，这要求**前向与后向神经元数目相同**。其权重 `weights` 主要有以下几种输入类型：
 
-- 标量：默认为1。这表示前层的各个神经元输出线性地输入到后层神经元，即 $\lambda\cdot\mathbf{I}$
+- 标量：默认为1。这表示前层的各个神经元输出线性地输入到后层神经元，即 $\lambda\cdot\mathbf{I}$。其权重以标量的形式储存。
 
   ```python
   n1 = pb.IF(shape=5, threshold=1)
@@ -211,8 +211,6 @@ s1= pb.FullConn(source=n1, dest=n2, weights=weight1, conn_type=pb.SynConnType.Al
   >>>
   2
   ```
-
-  其权重以标量的形式储存。
 
 - 数组：尺寸要求为 `(N2,)`，可以自定义每组对应神经元之间的连接权重。如下例所示，设置 `weights` 为 `[1,2,3,4,5]`，
 
@@ -774,7 +772,9 @@ l1 = pb.Linear(n1, 10, w, bias=10, bit_trunc=8)
 - `neuron_s`：输入特征图（神经元），要求为半折叠算子或输入节点。
 - `kernel`：卷积核权重，维度顺序为 `OIHW`。
 - `stride`：步长，标量或元组格式。当为标量时，对应为 `(x,x)`；当为元组时，则对应为 `(x,y)`。默认为1。
+
 <!-- - `padding`：填充，标量或元组格式。当为标量时，对应为 `(x,x)`；当为元组时，则对应为 `(x,y)`。默认为0。 -->
+
 - `bias`：偏置，有符号数。可以为标量或 `(C,)` 数组。默认为0。
 - `bit_trunc`：神经元输出的8位无符号数的截断位置。默认为8，即截取 [7:0] 位。
 
@@ -792,7 +792,9 @@ l1 = pb.Linear(n1, 10, w, bias=10, bit_trunc=8)
 - `neuron_s`：输入特征图（神经元），要求为半折叠算子或输入节点。
 - `kernel_size`：池化窗口的尺寸，标量或元组格式。当为标量时，对应为 `(x,x)`；当为元组时，则对应为 `(x, y)`。
 - `stride`：步长，标量或元组格式。当为标量时，对应为 `(x,x)`；当为元组时，则对应为 `(x,y)`。默认为 `None`，即池化窗口的尺寸。
+
 <!-- - `padding`：填充，标量或元组格式。当为标量时，对应为 `(x,x)`；当为元组时，则对应为 `(x,y)`。默认为0。 -->
+
 - `bit_trunc`：神经元输出的8位无符号数的截断位置。默认为 `8+ksize.bit_length()-1`，其中 `ksize` 为池化窗口的尺寸。注意，由于平均池化依赖除法实现，而芯片计算核只能通过右移位实现2的整数幂除法。当池化窗口尺寸不为2的整数幂时，只能近似通过上式有损计算除法。例如，当池化窗口为 (3,3) 时，最终将 /8，而非 /9。这样的近似误差可以考虑在量化阶段，为后续层的权重 $w\cdot 8/9$ 而减小。
 
 #### 半折叠线性层
@@ -976,7 +978,7 @@ sim.reset()
 - `duration`：指定仿真时间步长。请注意，仿真步长需要大于网络模型的有效层数，才会得到并记录有效的仿真数据。
 - `reset`：是否对网络模型中组件进行复位。默认为 `False`。这可实现在一次仿真的不同时间步，输入不同的数据。
 
-## 编译、映射与导出
+## 编译与导出
 
 模型映射将完成网络拓扑解析、分割、路由坐标分配、配置信息与帧文件导出等一系列工作。
 
@@ -986,7 +988,7 @@ sim.reset()
 mapper = pb.Mapper()
 mapper.build(fcnet)
 graph_info = mapper.compile(core_estimate_only==False, weight_bit_optimization=True, grouping_optim_target="both")
-mapper.export(write_to_file=True, fp="./debug/", format="bin", split_by_chip=False, export_core_params=False, use_hw_sim=True)
+mapper.export(write_to_file=True, fp="./debug/", format="bin", split_by_chip=False, use_hw_sim=True)
 
 print(graph_info.n_core_required)
 >>> 999
@@ -997,7 +999,7 @@ mapper.clear()
 
 其中，编译时有如下参数可指定：
 
-- `core_estimate_only`：仅导出预估所需核数目，不进行后续部署。默认关闭。当启用此项时，编译工作未全部进行，因此无法导出任何信息。
+- `core_estimate_only`：仅导出预估所需核数目，不进行后续部署。默认关闭。当启用此项时，由于编译工作未全部进行，后续无法导出任何信息。
 - `weight_bit_optimization`: 是否对权重精度进行优化处理。这将使得声明时为 INT8 的权重根据实际值当作更小的精度处理。例如，当权重的值均在 [-8, 7] 之间，则可当作 INT4 进行处理。默认开启。
 - `grouping_optim_target`：指定神经元分组的优化目标，可以为 `"latency"`，`"core"` 或 `"both"`，分别代表以延时/吞吐率、占用核资源为优化目标、或二者兼顾。默认 `both`。
 - 将返回字典形式的编译后网络的信息。
@@ -1008,7 +1010,6 @@ mapper.clear()
 - `fp`：导出目录。若未指定，则默认为后端配置选项 `build_directory` 所设置的目录（当前工作目录）。
 - `format`：导出交换文件格式，可以为 `bin`、`npy` 或 `txt`。默认为 `bin`。
 - `split_by_chip`：是否将配置帧以芯片坐标进行分割，由此生成的配置帧文件命名形如"config_chip0_core0.format"、"config_chip0_core1.format"、"config_chip1_core0.format"。默认为 `False`，即最终导出为一个文件 "config_all.format"。
-- `export_core_params`：是否导出实际使用核参数至 json 文件，以直观显示实际使用核的配置信息。默认为 `False`。
 - `export_clk_en_L2`：是否导出 L2 簇时钟串口数据。默认为 `False`。硬件平台可根据该数据关闭芯片其他未使用的 L2 簇时钟以降低功耗。
 - `use_hw_sim`：是否使用硬件仿真器。若使用，将额外导出 `bin` 格式的配置帧文件。默认为 `True`。
 
@@ -1017,10 +1018,11 @@ mapper.clear()
 - `input`：输入节点信息字典。
 - `output`：输出目的地信息字典。
 - `members`：中间层所在物理核的配置项字典。
-- `inherent_timestep`：网络的最长时间步，即得到网络第一个有效输出数据的用时。
+- `inherent_timestep`：得到编译后网络第一个有效输出数据的时刻（全局时间）。
+- `output_flow_format`：编译后网络输出节点的输出数据流格式，包括第一个有效输出数据的时刻（全局时间）、有效输出数据的输出间隔及数目。
 - `n_core_required`：网络**需要**的物理核数目。
 - `n_core_occupied`：网络**实际占用**的物理核数目。
-- `misc`：其他杂项信息。例如，编译后的网络名称；上述L2簇时钟串口数据在该键 `["clk_en_L2"]` 中。
+- `misc`：其他杂项信息。例如，编译后的网络名称；上述L2簇时钟串口数据在键 `clk_en_L2"` 中。
 
 ### 后端配置项
 
@@ -1065,4 +1067,124 @@ mapper.clear()
 
    # Modify
    BACKEND_CONFIG.output_dir = "path/to/my/output"
+   ```
+
+### 与硬件平台的交换文件格式
+
+由于硬件平台运行时依赖部分编译后网络的信息，因此工具链在编译过程中，通过 [`export`](#编译、映射与导出) 方法导出为 json 文件并提供至硬件平台。以下文件的格式可能会随着版本更新而变化。
+
+1. 编译后图信息 `graph_info.json`
+
+   ```json
+   {
+     "name": "graph_of_Example_Net_0",
+     "inherent_timestep": 3,
+     "output_flow_format": {
+       "n2": {
+         "t_1st_vld": 2,
+         "interval": 1,
+         "n_vld": 0,
+         "is_local_time": false
+       },
+       "n3": {
+         "t_1st_vld": 2,
+         "interval": 1,
+         "n_vld": 0,
+         "is_local_time": false
+       }
+     },
+     "n_core_required": 9,
+     "n_core_occupied": 10,
+     "misc": {
+       "clk_en_L2": {
+         "(0,0)": [128, 0, 0, 0, 0, 0, 0, 0]
+       },
+       "target_chip_list": [
+         {
+           "x": 0,
+           "y": 0
+         }
+       ]
+     }
+   }
+   ```
+
+2. 输入节点信息 `input_proj_info.json`，可能存在多个输入节点
+
+   ```json
+   {
+     "InputProj_0": {
+       "addr_chip_x": 0,
+       "addr_chip_y": 0,
+       "addr_core_x": 0,
+       "addr_core_y": 0,
+       "addr_core_x_ex": 1,
+       "addr_core_y_ex": 3,
+       "tick_relative": [0, 0, 1, 1, 2, 2],
+       "addr_axon": [0, 1, 2, 3, 4, 5],
+       "lcn": 2
+     },
+     "InputProj_1": {...}
+   }
+   ```
+
+3. 输出节点目的地信息，`output_dest_info.json`，可能存在多个输出节点
+
+   ```json
+   {
+     "n2": {
+       "(0,1)": {
+         "addr_chip_x": 1,
+         "addr_chip_y": 0,
+         "addr_core_x": 0,
+         "addr_core_y": 0,
+         "addr_core_x_ex": 0,
+         "addr_core_y_ex": 0,
+         "tick_relative": [0,0,0,0,0,0,0,0],
+         "addr_axon": [0,1,2,3,4,5,6,7]
+       }
+     },
+     "n3": {...}
+   }
+   ```
+
+4. 计算核配置信息，`core_params.json`
+
+   ```json
+   {
+     "(0,0)": {
+       "(0,0)": {
+         "weight_width": 0,
+         "LCN": 0,
+         "input_width": 0,
+         "spike_width": 0,
+         "num_dendrite": 80,
+         "pool_max": 0,
+         "tick_wait_start": 1,
+         "tick_wait_end": 0,
+         "snn_en": 1,
+         "target_LCN": 0,
+         "test_chip_addr": 32,
+         "n_repeat_nram": 1,
+         "name": "CorePlacement_0"
+       },
+       "(0,1)": {
+         "weight_width": 0,
+         "LCN": 0,
+         "input_width": 0,
+         "spike_width": 0,
+         "num_dendrite": 50,
+         "pool_max": 0,
+         "tick_wait_start": 2,
+         "tick_wait_end": 0,
+         "snn_en": 1,
+         "target_LCN": 0,
+         "test_chip_addr": 32,
+         "n_repeat_nram": 1,
+         "name": "CorePlacement_1"
+       },
+       "(1,0)": {...}
+     },
+     "(0,1)": {...}
+   }
    ```
