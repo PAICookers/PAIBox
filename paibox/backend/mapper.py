@@ -33,7 +33,13 @@ from .graph_utils import (
     merge_overlapping_sets,
 )
 from .graphs import PAIGraph
-from .placement import CoreBlock, SourceDest, aligned_coords, max_lcn_of_cb, NeuronPosition
+from .placement import (
+    CoreBlock,
+    NeuronPosition,
+    SourceDest,
+    aligned_coords,
+    max_lcn_of_cb,
+)
 from .routing import RoutingGroup, RoutingManager
 from .succ_group import *
 from .types import NeuSegment, NodeDegree, NodeType, SourceNodeType, is_iw8
@@ -75,7 +81,9 @@ class Mapper:
         )
         self.neuron_dest: dict[SourceNodeType, SourceDest] = defaultdict(SourceDest)
         """The dictionary of destinations for input or neuron nodes."""
-        self.neuron_positions: dict[Neuron, NeuronPosition] = defaultdict(NeuronPosition)
+        self.neuron_positions: dict[Neuron, NeuronPosition] = defaultdict(
+            NeuronPosition
+        )
 
         # Status variables during compilation. Make sure to clear them after each compilation.
         self._core_estimate_only = False
@@ -219,10 +227,10 @@ class Mapper:
                 n_core_required=self.n_core_required,
                 n_core_occupied=0,
             )
-            
+
         # Collect the neuron positions for each neuron.
         self.collect_neuron_position()
-        
+
         # Collect the neuron destinations for input or neuron nodes.
         self.collect_neuron_dest()
 
@@ -429,15 +437,17 @@ class Mapper:
 
         # Online cores are not counted in the number of occupied cores.
         self.n_core_occupied = self.routing_manager.get_n_core_occupied()
-    
+
     def collect_neuron_position(self) -> None:
         for cb in self.core_blocks:
             for idx, nue_seg_cp in enumerate(cb.neuron_segs_of_cb):
                 offset = 0
                 for neu_seg in nue_seg_cp:
-                    self.neuron_positions[neu_seg.target].add_position(neu_seg, offset, idx, cb)
+                    self.neuron_positions[neu_seg.target].add_position(
+                        neu_seg, offset, idx, cb
+                    )
                     offset += neu_seg.n_neuron
-        
+
         for neuron, pos in self.neuron_positions.items():
             ndest_collect.debug(f"neuron: {neuron.name}")
             ndest_collect.debug(pos)
