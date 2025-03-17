@@ -451,11 +451,11 @@ class CoreBlock(CoreAbstract):
         for dest in self.dest:
             _repr += ind2 + str(dest) + "\n"
 
-        _repr += ind1 + "cores "
+        _repr += ind1 + "cores: \n"
         for i, neu_seg in enumerate(self.neuron_segs_of_cb):
-            _repr += f"#{i}:\n"
+            _repr += ind2 + f"#{i}: "
             for seg in neu_seg:
-                _repr += ind2 + f"{seg.target.name}[{seg.index}]\n"
+                _repr += f"{seg.target.name}[{seg.index}]\n"
 
         return _repr
 
@@ -511,6 +511,57 @@ class CoreBlock(CoreAbstract):
 
     def _start_core_coord_repr(self) -> str:
         return _1st_core_coord_repr(self.core_coords)
+
+@dataclass
+class SlicePosition:
+    """Used to represent the index of the neu segment in the whole neuron."""
+    index: slice
+    
+    """The chip coord of the neu segment."""
+    chip_coord: ChipCoord
+    
+    """The core coord of the neu segment."""
+    core_coord: Coord
+    
+    """The offset of the neu segment in the core."""
+    offset: int
+    
+    """The lcn of the core"""
+    lcn: int
+    
+    """The weight width of the core"""
+    weitght_width: int
+    
+    """The max fanout of the core"""
+    n_fanout: int = 1
+
+class NeuronPosition(UserList[SlicePosition]):
+    def add_position(self, neu_seg: NeuSegment, offset: int, idx: int, cb: CoreBlock):
+        chip_coord = cb.chip_coord
+        core_coord = cb.core_coords[idx]
+        lcn = cb.lcn_ex
+        weight_width = cb.weight_width
+        n_fanout = cb.n_fanout
+        p = SlicePosition(neu_seg.index, chip_coord, core_coord, offset, lcn, weight_width, n_fanout)
+        self.append(p)
+    def sort_position(self):
+        # sort SlicePosition by the start of the SlicePosition.index.start
+        self.sort(key=lambda x: x.index.start)
+    
+    def __str__(self) -> str:
+        _repr = ""
+        for position in self:
+            # Align with the content of the destination details
+            _repr += f"slice    : ({position.index.start},{position.index.stop})\n"
+            _repr += f"\tchip coord: {position.chip_coord}\n"
+            _repr += f"\tcore coord: {_coord_to_bin_str(position.core_coord)}\n"
+            _repr += f"\toffset: {position.offset}\n"
+            _repr += f"\tlcn: {position.lcn}\n"
+            _repr += f"\tweight width: {position.weitght_width}\n"
+            _repr += f"\tfanout: {position.n_fanout}\n"
+            
+
+        return _repr
 
 
 @dataclass
