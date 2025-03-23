@@ -58,21 +58,10 @@ def gen_config_frames_by_coreconf(
     config_dict: CorePlmConf,
     write_to_file: bool,
     fp: Path,
-    split_by_chip: bool,
     formats: Sequence[str],
+    split_by_chip: bool,
 ) -> dict[ChipCoord, list[FrameArrayType]]:
     """Generate configuration frames by given the `CorePlmConf`."""
-
-    def _write_to_f(name: str, array: FrameArrayType) -> None:
-        for format in formats:
-            _fp = (fp / name).with_suffix("." + format)  # don't forget "."
-            if format == "npy":
-                np2npy(_fp, array)
-            elif format == "bin":
-                np2bin(_fp, array)
-            else:
-                np2txt(_fp, array)
-
     frame_arrays_total: dict[ChipCoord, list[FrameArrayType]] = defaultdict(list)
 
     for chip_coord, conf_inchip in config_dict.items():
@@ -192,6 +181,17 @@ def gen_config_frames_by_coreconf(
             )
 
     if write_to_file:
+
+        def _write_to_f(name: str, array: FrameArrayType) -> None:
+            for format in formats:
+                _fp = (fp / name).with_suffix("." + format)  # don't forget "."
+                if format == "npy":
+                    np2npy(_fp, array)
+                elif format == "bin":
+                    np2bin(_fp, array)
+                else:
+                    np2txt(_fp, array)
+
         if split_by_chip:
             for chip, frame_arrays_onchip in frame_arrays_total.items():
                 f = np.hstack(frame_arrays_onchip, casting="no")

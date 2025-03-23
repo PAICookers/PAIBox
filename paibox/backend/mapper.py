@@ -642,20 +642,21 @@ class Mapper:
                 "Please disable 'core_estimate_only' and compile again before exporting."
             )
 
-        if format not in ("bin", "npy", "txt"):
-            raise ValueError(f"format {format} is not supported.")
+        if write_to_file:
+            if format not in ("bin", "npy", "txt"):
+                raise ValueError(f"format {format} is not supported.")
 
-        formats = [format]
-        if use_hw_sim and "bin" not in formats:
-            formats.append("bin")
+            formats = [format]
+        else:
+            formats = []
+
+        if write_to_file:
+            if use_hw_sim and "bin" not in formats:
+                formats.append("bin")
 
         _fp = _fp_check(fp)
         config_dict = gen_config_frames_by_coreconf(
-            self.graph_info["members"],
-            write_to_file,
-            _fp,
-            split_by_chip,
-            formats,
+            self.graph_info["members"], write_to_file, _fp, formats, split_by_chip
         )
 
         # Export the parameters of occupied cores
