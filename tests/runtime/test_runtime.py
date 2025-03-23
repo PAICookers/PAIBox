@@ -15,6 +15,8 @@ from paicorelib.framelib.utils import print_frame
 from paibox.runtime import PAIBoxRuntime
 from paibox.runtime.runtime import LENGTH_EX_MULTIPLE_KEY, get_length_ex_onode
 
+from tests.utils import file_not_exist_fail
+
 TEST_CONF_DIR = Path(__file__).parent / "test_data"
 
 
@@ -51,7 +53,10 @@ def test_get_length_ex_onode():
 
 class TestRuntime:
     def test_gen_input_frames_info_by_dict(self):
-        with open(TEST_CONF_DIR / "input_proj_info1.json", "r") as f:
+        fp = TEST_CONF_DIR / "input_proj_info1.json"
+        file_not_exist_fail(fp)
+
+        with open(fp, "r") as f:
             input_proj_info = json.load(f)
 
         n_input_node = len(input_proj_info.keys())
@@ -275,7 +280,10 @@ class TestRuntime:
         print(f"n_axons: {n_axons}, n_ts: {n_ts}, time: {t/100:.5f}s")
 
     def test_gen_output_frames_info_by_dict1(self):
-        with open(TEST_CONF_DIR / "output_dest_info1.json", "r") as f:
+        fp = TEST_CONF_DIR / "output_dest_info1.json"
+        file_not_exist_fail(fp)
+
+        with open(fp, "r") as f:
             output_proj_info = json.load(f)
 
         n_output_node = len(output_proj_info.keys())
@@ -287,7 +295,10 @@ class TestRuntime:
         assert sum(part.size for part in common_part) == 800
 
     def test_gen_output_frames_info_by_dict2(self):
-        with open(TEST_CONF_DIR / "output_dest_info2.json", "r") as f:
+        fp = TEST_CONF_DIR / "output_dest_info2.json"
+        file_not_exist_fail(fp)
+
+        with open(fp, "r") as f:
             output_proj_info = json.load(f)
 
         n_output_node = len(output_proj_info.keys())
@@ -318,7 +329,10 @@ class TestRuntime:
         assert n_ex_onode == 3
 
     def test_gen_output_frames_info(self):
-        with open(TEST_CONF_DIR / "output_dest_info.json", "r") as f:
+        fp = TEST_CONF_DIR / "output_dest_info.json"
+        file_not_exist_fail(fp)
+
+        with open(fp, "r") as f:
             output_dest_info = json.load(f)
 
         n_ts = 4
@@ -358,7 +372,10 @@ class TestRuntime:
         assert np.array_equal(data, expected)
 
     def test_gen_output_frames_info_more1152(self):
-        with open(TEST_CONF_DIR / "output_dest_info_more1152.json", "r") as f:
+        fp = TEST_CONF_DIR / "output_dest_info_more1152.json"
+        file_not_exist_fail(fp)
+
+        with open(fp, "r") as f:
             output_dest_info = json.load(f)
 
         n_ts = 2
@@ -397,7 +414,10 @@ class TestRuntime:
         assert np.array_equal(data, expected)
 
     def test_gen_output_frames_info_more1152_multi_onodes(self):
-        with open(TEST_CONF_DIR / "output_dest_info_more1152_multi.json", "r") as f:
+        fp = TEST_CONF_DIR / "output_dest_info_more1152_multi.json"
+        file_not_exist_fail(fp)
+
+        with open(fp, "r") as f:
             output_dest_info = json.load(f)
 
         n_ts = 4

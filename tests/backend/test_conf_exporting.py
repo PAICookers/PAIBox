@@ -20,6 +20,7 @@ from paibox.backend.types import AxonCoord, NeuSegment
 from paibox.base import DataFlowFormat
 
 from .conftest import gen_random_used_lx
+from tests.utils import file_not_exist_fail
 
 try:
     import orjson as json
@@ -195,7 +196,10 @@ class TestConfExporting:
         }
         export_core_plm_conf_json(core_plm_conf, ensure_dump_dir)
 
-        with open(ensure_dump_dir / "core_plm.json", "rb") as f:
+        fp = ensure_dump_dir / "core_plm.json"
+        file_not_exist_fail(fp)
+
+        with open(fp, "rb") as f:
             core_plm_conf_json = json.loads(f.read())
             assert list(core_plm_conf_json.keys())[0] == str(chip_coord)
 
