@@ -88,7 +88,7 @@ except Exception:
 from . import tools
 
 # Minimum required version of paicorelib
-__plib_minimum_version__ = "1.3.1"
+__plib_minimum_version__ = "1.4.0"
 
 try:
     import paicorelib as plib
