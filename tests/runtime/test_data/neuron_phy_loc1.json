@@ -1,0 +1,22 @@
+{
+  "IF_0": {
+    "(0,0)": {
+      "(0,0)": [
+        {
+          "n_neuron": 50,
+          "ram_offset": 0,
+          "interval": 8,
+          "idx_offset": 0
+        }
+      ],
+      "(0,1)": [
+        {
+          "n_neuron": 50,
+          "ram_offset": 0,
+          "interval": 8,
+          "idx_offset": 50
+        }
+      ]
+    }
+  }
+}

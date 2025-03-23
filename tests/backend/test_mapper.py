@@ -514,8 +514,7 @@ class TestMapper_Multichip:
     @pytest.mark.xfail(reason="Network may too large.", raises=ResourceError)
     def test_multichip_1(self, ensure_dump_dir, monkeypatch, build_MultichipNet1_s1):
         """Multichip network of scale 1"""
-
-        clist = [Coord(0, 0), Coord(0, 1)]
+        clist = [Coord(0, 0), Coord(0, 1), Coord(1, 1)]
         monkeypatch.setattr(pb.BACKEND_CONFIG, "target_chip_addr", clist)
         assert pb.BACKEND_CONFIG.n_target_chips == len(clist)
 
@@ -526,7 +525,7 @@ class TestMapper_Multichip:
         with measure_time("test_multichip_1"):
             mapper.compile(weight_bit_optimization=False)
 
-        mapper.export(fp=ensure_dump_dir, split_by_chip=False)
+        mapper.export(fp=ensure_dump_dir, split_by_chip=False, read_voltage=net.n_out)
 
         print("Total cores occupied:", mapper.n_core_occupied)
 
