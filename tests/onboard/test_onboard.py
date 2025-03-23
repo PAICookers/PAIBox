@@ -367,7 +367,6 @@ class TestOnBoard_WRAMMapping:
                 self.p1 = pb.Probe(self.l1, "feature_map")
                 self.p2 = pb.Probe(self.l2, "feature_map")
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_005.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
@@ -479,7 +478,6 @@ class TestOnBoard_WRAMMapping:
                 self.p1 = pb.Probe(self.l1, "feature_map")
                 self.p2 = pb.Probe(self.l2, "feature_map")
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_006.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
@@ -587,7 +585,6 @@ class TestOnBoard_WRAMMapping:
                 )
                 self.p1 = pb.Probe(self.l1, "feature_map")
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_007.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
@@ -674,7 +671,6 @@ class TestOnBoard_WRAMMapping:
                 self.p1 = pb.Probe(self.l1, "feature_map")
                 self.p2 = pb.Probe(self.l2, "feature_map")
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_008.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
@@ -779,7 +775,6 @@ class TestOnBoard_SpikingOp:
                 self.conv = pb.Conv1d(self.i1, self.n1, w1)
                 self.p1 = pb.Probe(self.n1, "feature_map")
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_001_Conv1d.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
@@ -862,7 +857,6 @@ class TestOnBoard_SemiFoldedOp:
                 self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w1, 1, 0, tick_wait_start=1)
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_001_Conv2dSemiFolded.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
@@ -939,7 +933,6 @@ class TestOnBoard_SemiFoldedOp:
                 self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 2, 0, tick_wait_start=1)
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_002_Conv2dSemiFolded.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
@@ -1016,7 +1009,6 @@ class TestOnBoard_SemiFoldedOp:
                 self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 2, 0, tick_wait_start=1)
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_003_Conv2dSemiFolded.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
@@ -1093,7 +1085,6 @@ class TestOnBoard_SemiFoldedOp:
                 self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 2, 0, tick_wait_start=1)
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_004_Conv2dSemiFolded.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
@@ -1171,7 +1162,6 @@ class TestOnBoard_SemiFoldedOp:
                 self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 2, 0, tick_wait_start=1)
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_005_Conv2dSemiFolded.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
@@ -1249,7 +1239,6 @@ class TestOnBoard_SemiFoldedOp:
                 self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 1, 1, tick_wait_start=1)
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_006_Conv2dSemiFolded.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
@@ -1326,7 +1315,6 @@ class TestOnBoard_SemiFoldedOp:
                 self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 1, 1, tick_wait_start=1)
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_007_Conv2dSemiFolded.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
@@ -1404,7 +1392,6 @@ class TestOnBoard_SemiFoldedOp:
                 self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 1, 1, tick_wait_start=1)
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_008_Conv2dSemiFolded.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
@@ -1482,7 +1469,6 @@ class TestOnBoard_SemiFoldedOp:
                 self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 1, 1, tick_wait_start=1)
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_009_Conv2dSemiFolded.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
@@ -1559,7 +1545,6 @@ class TestOnBoard_SemiFoldedOp:
                     self.i1, ksize, 2, tick_wait_start=1
                 )
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_010_MaxPool2dSemiFolded.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
@@ -1633,7 +1618,6 @@ class TestOnBoard_SemiFoldedOp:
                     self.i1, ksize, 2, 0, tick_wait_start=1
                 )
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_011_AvgPool2dSemiFolded.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
@@ -1713,7 +1697,6 @@ class TestOnBoard_SemiFoldedOp:
                     self.conv2, out_shape[1], weights=w3, bias=2, tick_wait_start=5
                 )
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_012_Conv2dSemiFoldedNet.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
@@ -1810,7 +1793,6 @@ class TestOnBoard_SemiFoldedOp:
                     self.conv2, out_shape[1], weights=w3, bias=2, tick_wait_start=5
                 )
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_013_Conv2dSemiFoldedNet.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
@@ -1913,7 +1895,6 @@ class TestOnBoard_SemiFoldedOp:
                     self.pool2, out_shape[1], weights=w3, bias=2, tick_wait_start=9
                 )
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_014_CNNSemiFoldedNet.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
@@ -2017,7 +1998,6 @@ class TestOnBoard_SemiFoldedOp:
                     rin_buffer_option=True,
                 )
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_015_Conv2dSemiFoldedNet.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
@@ -2116,7 +2096,6 @@ class TestOnBoard_SemiFoldedOp:
                 #     self.conv2, out_shape[1], weights=w3, bias=2, tick_wait_start=5
                 # )
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_016_Conv2dSemiFoldedNet.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
         CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
@@ -2191,6 +2170,102 @@ class TestOnBoard_SemiFoldedOp:
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
         mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
+
+        print(f"Test {TEST_NAME} end")
+
+
+class TestOnBoard_ReadNeuronVoltage:
+    # Test cases for reading neuron voltage. Don't care the weights.
+    def test_001_one_onode(self):
+        # 1 output node on 4 cores
+        class Net001(pb.Network):
+            def __init__(self):
+                super().__init__()
+                self.i1 = pb.InputProj(_out_bypass1, shape_out=(100,))
+                self.n1 = pb.IF((200,), 127, tick_wait_start=1)
+                self.s1 = pb.FullConn(
+                    self.i1,
+                    self.n1,
+                    FIXED_RNG.integers(-10, 10, size=(100, 200), dtype=np.int8),
+                )
+
+        TEST_NAME = self.test_001_one_onode.__name__
+        TEST_CASE_DIR = DATA_DIR / TEST_NAME
+        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
+        if not TEST_CASE_DIR.exists():
+            TEST_CASE_DIR.mkdir()
+
+        print(f"\nTest {TEST_NAME} start")
+
+        network = Net001()
+        mapper = pb.Mapper()
+        mapper.build(network)
+        mapper.compile(weight_bit_optimization=False)
+        mapper.export(
+            fp=CONFIG_CASE_DIR, format="bin", use_hw_sim=True, read_voltage=network.n1
+        )
+
+        print(f"Test {TEST_NAME} end")
+
+    def test_002_one_onode_lcn(self):
+        # 1 output node on 4 cores, lcn > 1
+        class Net002(pb.Network):
+            def __init__(self):
+                super().__init__()
+                self.i1 = pb.InputProj(_out_bypass1, shape_out=(2000,))
+                self.n1 = pb.IF((100,), 127, tick_wait_start=1)
+                self.s1 = pb.FullConn(
+                    self.i1,
+                    self.n1,
+                    FIXED_RNG.integers(-10, 10, size=(2000, 100), dtype=np.int8),
+                )
+
+        TEST_NAME = self.test_002_one_onode_lcn.__name__
+        TEST_CASE_DIR = DATA_DIR / TEST_NAME
+        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
+        if not TEST_CASE_DIR.exists():
+            TEST_CASE_DIR.mkdir()
+
+        print(f"\nTest {TEST_NAME} start")
+
+        network = Net002()
+        mapper = pb.Mapper()
+        mapper.build(network)
+        mapper.compile(weight_bit_optimization=False)
+        mapper.export(
+            fp=CONFIG_CASE_DIR, format="bin", use_hw_sim=True, read_voltage=network.n1
+        )
+
+        print(f"Test {TEST_NAME} end")
+
+    def test_003_one_onode_lcn_ann(self):
+        # 1 output node on 4 cores, lcn > 1, ANN mode
+        class Net003(pb.Network):
+            def __init__(self):
+                super().__init__()
+                self.i1 = pb.InputProj(_out_bypass1, shape_out=(400,))
+                self.n1 = pb.ANNNeuron((400,), tick_wait_start=1)
+                self.s1 = pb.FullConn(
+                    self.i1,
+                    self.n1,
+                    FIXED_RNG.integers(-10, 10, size=(400, 400), dtype=np.int8),
+                )
+
+        TEST_NAME = self.test_003_one_onode_lcn_ann.__name__
+        TEST_CASE_DIR = DATA_DIR / TEST_NAME
+        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
+        if not TEST_CASE_DIR.exists():
+            TEST_CASE_DIR.mkdir()
+
+        print(f"\nTest {TEST_NAME} start")
+
+        network = Net003()
+        mapper = pb.Mapper()
+        mapper.build(network)
+        mapper.compile(weight_bit_optimization=False)
+        mapper.export(
+            fp=CONFIG_CASE_DIR, format="bin", use_hw_sim=True, read_voltage=network.n1
+        )
 
         print(f"Test {TEST_NAME} end")
 
