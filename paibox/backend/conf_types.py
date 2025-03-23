@@ -1,5 +1,5 @@
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from enum import Enum
 from typing import Any, NamedTuple, TypedDict, Union
 
@@ -60,8 +60,8 @@ except ModuleNotFoundError:
         def default(self, o: Any) -> Any:
             if isinstance(o, Coord):
                 return str(o)
-            elif isinstance(o, DataFlowFormat):
-                return str(o)
+            elif is_dataclass(o):
+                return asdict(o)  # type: ignore
             elif isinstance(o, Enum):
                 return o.value
             elif isinstance(o, np.ndarray):
