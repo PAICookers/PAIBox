@@ -34,7 +34,7 @@ else:
 from paibox.base import DataFlowFormat
 from paibox.components import Neuron
 
-from .types import AxonCoord, NeuSegment, NodeName, WRAMPackedType
+from .types import AxonCoord, NeuSegRAMAddr, NeuSegment, NodeName, WRAMPackedType
 
 try:
     import orjson
@@ -288,6 +288,12 @@ CorePlmConfInChip: TypeAlias = dict[Coord, CorePlmConfig]
 CorePlmConf: TypeAlias = dict[ChipCoord, CorePlmConfInChip]
 CoreConfInChip: TypeAlias = dict[Coord, CoreConfig]
 CoreConf: TypeAlias = dict[ChipCoord, CoreConfInChip]
+
+# Make sure that the logical locations corresponds to the physical locations
+NeuPhyCoreLoc: TypeAlias = list[NeuSegRAMAddr]
+NeuPhyLocChipLoc: TypeAlias = dict[Coord, NeuPhyCoreLoc]
+NeuPhyLoc: TypeAlias = dict[ChipCoord, NeuPhyLocChipLoc]
+NeuPhyLocMap: TypeAlias = dict[NodeName, NeuPhyLoc]
 
 
 class _ExportedGraphInfo(TypedDict):

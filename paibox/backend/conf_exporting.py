@@ -1,3 +1,4 @@
+from dataclasses import asdict
 import sys
 from collections import defaultdict
 from collections.abc import Sequence
@@ -22,9 +23,10 @@ from .conf_types import (
     NeuronConfig,
     OutputDestConf,
     _gh_info2exported_gh_info,
+    NeuPhyLocMap,
 )
 from .context import _BACKEND_CONTEXT
-from .placement import CorePlacement
+from .placement import CoreBlock, CorePlacement
 from .types import _RID_UNSET
 
 if _USE_ORJSON:
@@ -48,6 +50,7 @@ __all__ = [
     "export_used_L2_clusters",
     "export_aux_gh_info",
     "get_clk_en_L2_dict",
+    "get_neuron_phy_loc",
 ]
 
 
@@ -418,3 +421,46 @@ def get_clk_en_L2_dict(
         clk_en_L2_dict[chip_addr] = to_clk_en_L2_u8(used_L2_inchip)
 
     return clk_en_L2_dict
+
+
+def export_neuron_phy_loc(
+    neu_phy_locs: NeuPhyLocMap, fp: Path, fname: str = "neuron_phy_loc"
+) -> None:
+    _full_fp = _with_suffix_json(fp, fname)
+
+    _valid_conf = {}
+    for neu_name, neu_loc in neu_phy_locs.items():
+        _valid_conf[neu_name] = {}
+        for chip_coord, core_locs in neu_loc.items():
+            _valid_conf[neu_name][str(chip_coord)] = {}
+            for core_coord, neu_segs in core_locs.items():
+                _valid_conf[neu_name][str(chip_coord)][str(core_coord)] = [
+                    asdict(ram_addr) for ram_addr in neu_segs
+                ]
+
+    if _USE_ORJSON:
+        with open(_full_fp, "wb") as f:
+            f.write(orjson.dumps(_valid_conf, option=orjson.OPT_INDENT_2))
+    else:
+        with open(_full_fp, "w") as f:
+            json.dump(_valid_conf, f, indent=2)
+
+
+def get_neuron_phy_loc(
+    core_blocks: list[CoreBlock], targets: Sequence[Neuron]
+) -> NeuPhyLocMap:
+    """Get the physical locations of neurons."""
+    names = {neu.name for neu in targets}  # remove duplicates
+    locations: NeuPhyLocMap = defaultdict(
+        lambda: defaultdict(lambda: defaultdict(list))
+    )
+
+    for cb in core_blocks:
+        for core_coord, neu_segs in zip(cb.core_coords, cb.neuron_segs_of_cb):
+            for seg in neu_segs:
+                if (neu_name := seg.target.name) in names:
+                    locations[neu_name][cb.chip_coord][core_coord].append(
+                        seg.neu_seg_addr
+                    )
+
+    return locations

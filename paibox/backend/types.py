@@ -175,32 +175,25 @@ class MergedSuccGroup:
 
 
 @dataclass(frozen=True)
+class NeuSegRAMAddr:
+    """Address of a neuron segment in the RAM."""
+
+    n_neuron: int
+    ram_offset: int
+    interval: int
+    idx_offset: int
+    """The offset of original neuron."""
+
+
+@dataclass(frozen=True)
 class NeuSegment:
     target: DestNodeType
     index: NeuSlice  # slice like slice(x, y, 1)
     offset: int
+    """The offset at which the segment starts in the RAM."""
     repeat: int = 1
 
     def __getitem__(self, s: slice) -> "NeuSegment":
-        # if isinstance(idx, int):
-        #     if idx < 0:
-        #         _idx = self.n_neuron + idx
-        #         if _idx < 0:
-        #             raise ValueError(f"index out of range: {idx} < 0")
-        #     else:
-        #         _idx = idx
-        #         if _idx > self.n_neuron - 1:
-        #             raise ValueError(f"index out of range: {idx} > {self.n_neuron-1}")
-
-        #     start = self.index.start + _idx
-        #     end = start + 1
-
-        #     return NeuSegment(
-        #         self.target,
-        #         NeuSlice(start, end, self.index.step),
-        #         self.offset + idx,
-        #         self.repeat,
-        #     )
         _idx_start = s.start if s.start is not None else 0
         if s.stop is None:
             _idx_stop = self.n_neuron
@@ -245,6 +238,10 @@ class NeuSegment:
     def _addr_ram_repr(self) -> slice:
         """Represent the slice of neuron RAM address."""
         return slice(self.offset, self.offset + self.n_occupied_addr, self.repeat)
+
+    @property
+    def neu_seg_addr(self) -> NeuSegRAMAddr:
+        return NeuSegRAMAddr(self.n_neuron, self.offset, self.repeat, self.index.start)
 
 
 NeuSegOfCorePlm: TypeAlias = list[NeuSegment]
