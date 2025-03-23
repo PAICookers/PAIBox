@@ -445,7 +445,7 @@ class Mapper:
             for cb in input_cbs:  # Do not use iterative generation.
                 dest_coords.extend(cb.core_coords)
 
-            dest_rid = get_replication_id(dest_coords)
+            base_coord, dest_rid = get_replication_id(dest_coords)
 
             # The arrangement of axons is the same for the rest of `input_cbs`.
             # LCN of `input_cbs` are the same.
@@ -461,8 +461,8 @@ class Mapper:
             inp_neuron_dest = InputNeuronDest(
                 [coord.tick_relative for coord in axon_coords],
                 [coord.addr_axon for coord in axon_coords],
-                dest_coords[0].x,
-                dest_coords[0].y,
+                base_coord.x,
+                base_coord.y,
                 dest_rid.x,
                 dest_rid.y,
                 input_cb.chip_coord.x,

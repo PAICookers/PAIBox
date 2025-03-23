@@ -218,12 +218,12 @@ class NeuronConfig:
 
     @property
     def neuron_dest_info(self) -> NeuronDestInfo:
-        dest_rid = get_replication_id(self.dest_core_coords)
+        base_coord, dest_rid = get_replication_id(self.dest_core_coords)
         dest_info = NeuronDest(
             [coord.tick_relative for coord in self.axon_coords],
             [coord.addr_axon for coord in self.axon_coords],
-            self.dest_core_coords[0].x,
-            self.dest_core_coords[0].y,
+            base_coord.x,
+            base_coord.y,
             dest_rid.x,
             dest_rid.y,
             self.dest_chip_coord.x,
