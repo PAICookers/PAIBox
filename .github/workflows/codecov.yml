@@ -7,7 +7,7 @@ on:
   pull_request:
     branches:
       - master
-      - dev
+      - "dev*"
     paths:
       - "paibox/**"
       - "tests/**"
@@ -24,9 +24,6 @@ jobs:
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
         os: [ubuntu-latest, windows-latest]
-        exclude: # see https://github.com/python/cpython/issues/125842
-          - python-version: "3.13"
-            os: windows-latest
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -42,7 +39,7 @@ jobs:
 
       - name: Install test dependencies
         run: |
-          poetry install --with test --sync
+          poetry install --with test
 
       - name: Run pytest
         run: |
