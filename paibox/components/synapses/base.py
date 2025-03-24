@@ -11,6 +11,7 @@ from paibox.types import DataType, NeuOutType, SynOutType, WeightType
 from ..modules import BuildingModule
 from ..neuron import Neuron
 from ..projection import InputProj
+from ..operations import VirtualNode
 from .conv_types import _KOrder3d, _KOrder4d
 from .conv_utils import _fm_ndim1_check, _fm_ndim2_check
 from .transforms import (
@@ -47,7 +48,7 @@ class FullConnectedSyn(SynSys):
 
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
+        source: Union[NeuDyn, InputProj, VirtualNode],
         target: NeuDyn,
         name: Optional[str] = None,
     ) -> None:
@@ -72,6 +73,9 @@ class FullConnectedSyn(SynSys):
         if self.dest.is_working():
             if isinstance(self.source, InputProj):
                 synin = self.source.output if x is None else np.atleast_1d(x)
+            elif isinstance(self.source, VirtualNode):
+                idx = self.dest.timestamp % HwConfig.N_TIMESLOT_MAX
+                synin = self.source.output(idx) if x is None else np.atleast_1d(x)
             else:
                 idx = self.dest.timestamp % HwConfig.N_TIMESLOT_MAX
                 synin = (
@@ -83,6 +87,8 @@ class FullConnectedSyn(SynSys):
                 synin = np.zeros_like(
                     self.source.output if x is None else np.atleast_1d(x)
                 )
+            elif isinstance(self.source, VirtualNode):
+                synin = np.zeros_like(self.source.output(0) if x is None else np.atleast_1d(x))
             else:
                 synin = np.zeros_like(
                     self.source.delay_registers[0] if x is None else np.atleast_1d(x)
@@ -125,7 +131,7 @@ class FullConnectedSyn(SynSys):
         return copied
 
     @property
-    def source(self) -> Union[NeuDyn, InputProj]:
+    def source(self) -> Union[NeuDyn, InputProj, VirtualNode]:
         return self._source
 
     @source.setter
@@ -207,7 +213,7 @@ class FullConnectedSyn(SynSys):
 class FullConnSyn(FullConnectedSyn):
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
+        source: Union[NeuDyn, InputProj, VirtualNode],
         target: NeuDyn,
         weights: DataType,
         conn_type: ConnType,
@@ -246,7 +252,7 @@ class Conv1dSyn(FullConnectedSyn):
 
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
+        source: Union[NeuDyn, InputProj, VirtualNode],
         dest: Neuron,
         kernel: np.ndarray,
         stride: tuple[int],
@@ -271,7 +277,7 @@ class Conv1dSyn(FullConnectedSyn):
         # O,I,L
         o_ch, grp_in_ch, kernel_l = _kernel.shape
         # C,L
-        in_ch, in_l = _fm_ndim1_check(source.shape_out, "CL")
+        in_ch, in_l = _fm_ndim1_check(self.source.shape_out, "CL")
         out_l = (in_l + 2 * padding[0] - dilation[0] * (kernel_l - 1) - 1) // stride[
             0
         ] + 1
@@ -294,7 +300,7 @@ class Conv2dSyn(FullConnectedSyn):
 
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
+        source: Union[NeuDyn, InputProj, VirtualNode],
         dest: Neuron,
         kernel: np.ndarray,
         stride: tuple[int, int],
@@ -319,7 +325,7 @@ class Conv2dSyn(FullConnectedSyn):
         # O,I,H,W
         o_ch, grp_in_ch, kernel_h, kernel_w = _kernel.shape
         # C,H,W
-        in_ch, in_h, in_w = _fm_ndim2_check(source.shape_out, "CHW")
+        in_ch, in_h, in_w = _fm_ndim2_check(self.source.shape_out, "CHW")
         out_h = (in_h + 2 * padding[0] - dilation[0] * (kernel_h - 1) - 1) // stride[
             0
         ] + 1
