@@ -22,26 +22,22 @@ del paicorelib
 
 import sys
 
-from paicorelib import (
-    ChipCoord,
-    Coord,
-    CoordLike,
-    HwConfig,
-    RIdLike,
-    to_coordoffset,
-    ReplicationId as RId,
-)
-from paicorelib.framelib.frame_defs import FrameHeader as FH, FrameFormat as FF
-from paicorelib.framelib.frame_defs import OfflineWorkFrame1Format as Off_WF1F
+from paicorelib import ChipCoord, Coord, CoordLike, HwConfig
+from paicorelib import ReplicationId as RId
+from paicorelib import RIdLike, to_coordoffset
+from paicorelib.framelib.frame_defs import FrameFormat as FF
+from paicorelib.framelib.frame_defs import FrameHeader as FH
 from paicorelib.framelib.frame_defs import OfflineConfigFrame3Format as Off_NRAMF
+from paicorelib.framelib.frame_defs import OfflineWorkFrame1Format as Off_WF1F
 from paicorelib.framelib.frame_gen import OfflineFrameGen
 from paicorelib.framelib.frames import (
-    OfflineWorkFrame1,
-    OfflineTestInFrame3,
     _L_PACKAGE_TYPE_CONF_TESTOUT,
+    OfflineTestInFrame3,
+    OfflineWorkFrame1,
 )
 from paicorelib.framelib.types import ArrayType, DataArrayType, FrameArrayType
 from paicorelib.framelib.utils import header_check
+
 from .types import *
 
 if sys.version_info >= (3, 13):

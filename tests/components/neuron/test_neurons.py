@@ -14,7 +14,6 @@ from paibox.components.neuron.utils import VJT_MAX, VJT_MIN
 from paibox.exceptions import ShapeError
 from paibox.types import NEUOUT_U8_DTYPE, VoltageType
 from paibox.utils import as_shape, shape2num
-
 from tests.utils import file_not_exist_fail
 
 

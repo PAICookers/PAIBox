@@ -14,7 +14,6 @@ from paicorelib.framelib.utils import print_frame
 
 from paibox.runtime import PAIBoxRuntime
 from paibox.runtime.runtime import LENGTH_EX_MULTIPLE_KEY, get_length_ex_onode
-
 from tests.utils import file_not_exist_fail
 
 TEST_CONF_DIR = Path(__file__).parent / "test_data"

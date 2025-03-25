@@ -1,7 +1,7 @@
-from dataclasses import asdict
 import sys
 from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
@@ -20,10 +20,10 @@ from .conf_types import (
     FrameArrayType,
     GraphInfo,
     InputNodeConf,
+    NeuPhyLocMap,
     NeuronConfig,
     OutputDestConf,
     _gh_info2exported_gh_info,
-    NeuPhyLocMap,
 )
 from .context import _BACKEND_CONTEXT
 from .placement import CoreBlock, CorePlacement

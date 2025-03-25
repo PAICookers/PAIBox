@@ -18,9 +18,9 @@ from paibox.backend.conf_types import (
 )
 from paibox.backend.types import AxonCoord, NeuSegment
 from paibox.base import DataFlowFormat
+from tests.utils import file_not_exist_fail
 
 from .conftest import gen_random_used_lx
-from tests.utils import file_not_exist_fail
 
 try:
     import orjson as json

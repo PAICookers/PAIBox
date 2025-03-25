@@ -1,8 +1,9 @@
-import pytest
 import time
 from contextlib import contextmanager
-from typing import Any, Generator, Union
 from pathlib import Path
+from typing import Any, Generator, Union
+
+import pytest
 
 __all__ = ["measure_time"]
 

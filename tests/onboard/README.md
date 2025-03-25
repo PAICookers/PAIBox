@@ -161,8 +161,8 @@
 | [012 Conv2dSemiFoldedNet](#012-conv2dsemifoldednet) |  ❌  |                                      |
 | [013 Conv2dSemiFoldedNet](#013-conv2dsemifoldednet) |  ✅  |                                      |
 |    [014 CNNSemiFoldedNet](#014-cnnsemifoldednet)    |  ✅  |                                      |
-| [015 Conv2dSemiFoldedNet](#015-Conv2dSemiFoldedNet) | | |
-| [016 Conv2dSemiFoldedNet](#016-Conv2dSemiFoldedNet) | | |
+| [015 Conv2dSemiFoldedNet](#015-Conv2dSemiFoldedNet) |      |                                      |
+| [016 Conv2dSemiFoldedNet](#016-Conv2dSemiFoldedNet) |      |                                      |
 
 ### 单层
 
@@ -440,7 +440,7 @@
 - 输入尺寸：(3, 32, 32)
 - 第一层卷积核尺寸：(4, 3, 3, 3)，stride：1，padding：1
 - 第二层卷积核尺寸：(4, 4, 3, 3)，stride：1，padding：1
-- 输出尺寸：(4*32,)
+- 输出尺寸：(4\*32,)
 - 运行时间步：40，监测输出
 
 检查：
@@ -450,11 +450,11 @@
 
 ## 读取神经元膜电平
 
-|                        测试项目                        | 结果  | 备注  |
-| :----------------------------------------------------: | :---: | :---: |
-|        [001 SNN网络单输出节点](#001-one_onode)         |       |       |
-|   [002 SNN网络单输出节点，LCN>1](#002-one_onode_lcn)   |       |       |
-| [003 ANN网络单输出节点，LCN>1](#003-one_onode_lcn_ann) |       |       |
+|                        测试项目                        | 结果 | 备注 |
+| :----------------------------------------------------: | :--: | :--: |
+|        [001 SNN网络单输出节点](#001-one_onode)         |      |      |
+|   [002 SNN网络单输出节点，LCN>1](#002-one_onode_lcn)   |      |      |
+| [003 ANN网络单输出节点，LCN>1](#003-one_onode_lcn_ann) |      |      |
 
 ### 001 one_onode
 
