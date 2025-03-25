@@ -2179,15 +2179,12 @@ class TestOnBoard_ReadNeuronVoltage:
     def test_001_one_onode(self):
         # 1 output node on 4 cores
         class Net001(pb.Network):
-            def __init__(self):
+            def __init__(self, w1):
                 super().__init__()
                 self.i1 = pb.InputProj(_out_bypass1, shape_out=(100,))
                 self.n1 = pb.IF((200,), 127, tick_wait_start=1)
-                self.s1 = pb.FullConn(
-                    self.i1,
-                    self.n1,
-                    FIXED_RNG.integers(-10, 10, size=(100, 200), dtype=np.int8),
-                )
+                self.s1 = pb.FullConn(self.i1, self.n1, w1)
+                self.probe1 = pb.Probe(self.n1, "voltage")
 
         TEST_NAME = self.test_001_one_onode.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
@@ -2197,7 +2194,50 @@ class TestOnBoard_ReadNeuronVoltage:
 
         print(f"\nTest {TEST_NAME} start")
 
-        network = Net001()
+        sim_time = 1
+
+        USE_EXISTING_DATA = False
+        NPZ_FILE = DATA_DIR / "data.npz"
+
+        try:
+            npz = np.load(NPZ_FILE)
+            weight1 = npz["weight1"]
+            inpdata1 = npz["inpdata1"]
+            refresult1 = npz["refresult1"]
+            print("Using the existing data file")
+            USE_EXISTING_DATA = True
+        except:
+            pass
+
+        if not USE_EXISTING_DATA:
+            print("Generating new data")
+            inpdata1 = FIXED_RNG.integers(0, 4, size=(100,), dtype=NEUOUT_U8_DTYPE)
+            weight1 = FIXED_RNG.integers(-10, 10, size=(100, 200), dtype=np.int8)
+            # Shape of reference result is sim_time * refdata
+            # The result is the voltage of n1
+            refresult1 = np.zeros((sim_time, 200), dtype=VOLTAGE_DTYPE)
+
+        network = Net001(weight1)
+        sim = pb.Simulator(network, start_time_zero=False)
+
+        for i in range(sim_time):
+            pb.FRONTEND_ENV.save(data1=inpdata1[i])
+            sim.run(1)
+
+            v_n1 = sim.data[network.probe1][i]
+            if USE_EXISTING_DATA:
+                assert np.array_equal(v_n1, refresult1[i, :])
+            else:
+                refresult1[i, :] = v_n1
+
+            print(f"t={i + 1}\n", v_n1)
+
+        # Save weights & voltage of n1
+        if not USE_EXISTING_DATA:
+            np.savez(
+                NPZ_FILE, weight1=weight1, inpdata1=inpdata1, refresult1=refresult1
+            )
+
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
@@ -2210,15 +2250,12 @@ class TestOnBoard_ReadNeuronVoltage:
     def test_002_one_onode_lcn(self):
         # 1 output node on 4 cores, lcn > 1
         class Net002(pb.Network):
-            def __init__(self):
+            def __init__(self, w1):
                 super().__init__()
                 self.i1 = pb.InputProj(_out_bypass1, shape_out=(2000,))
                 self.n1 = pb.IF((100,), 127, tick_wait_start=1)
-                self.s1 = pb.FullConn(
-                    self.i1,
-                    self.n1,
-                    FIXED_RNG.integers(-10, 10, size=(2000, 100), dtype=np.int8),
-                )
+                self.s1 = pb.FullConn(self.i1, self.n1, w1)
+                self.probe1 = pb.Probe(self.n1, "voltage")
 
         TEST_NAME = self.test_002_one_onode_lcn.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
@@ -2228,7 +2265,50 @@ class TestOnBoard_ReadNeuronVoltage:
 
         print(f"\nTest {TEST_NAME} start")
 
-        network = Net002()
+        sim_time = 1
+
+        USE_EXISTING_DATA = False
+        NPZ_FILE = DATA_DIR / "data.npz"
+
+        try:
+            npz = np.load(NPZ_FILE)
+            weight1 = npz["weight1"]
+            inpdata1 = npz["inpdata1"]
+            refresult1 = npz["refresult1"]
+            print("Using the existing data file")
+            USE_EXISTING_DATA = True
+        except:
+            pass
+
+        if not USE_EXISTING_DATA:
+            print("Generating new data")
+            inpdata1 = FIXED_RNG.integers(0, 4, size=(2000,), dtype=NEUOUT_U8_DTYPE)
+            weight1 = FIXED_RNG.integers(-9, 10, size=(2000, 100), dtype=np.int8)
+            # Shape of reference result is sim_time * refdata
+            # The result is the voltage of n1
+            refresult1 = np.zeros((sim_time, 100), dtype=VOLTAGE_DTYPE)
+
+        network = Net002(weight1)
+        sim = pb.Simulator(network, start_time_zero=False)
+
+        for i in range(sim_time):
+            pb.FRONTEND_ENV.save(data1=inpdata1[i])
+            sim.run(1)
+
+            v_n1 = sim.data[network.probe1][i]
+            if USE_EXISTING_DATA:
+                assert np.array_equal(v_n1, refresult1[i, :])
+            else:
+                refresult1[i, :] = v_n1
+
+            print(f"t={i + 1}\n", v_n1)
+
+        # Save weights & voltage of n1
+        if not USE_EXISTING_DATA:
+            np.savez(
+                NPZ_FILE, weight1=weight1, inpdata1=inpdata1, refresult1=refresult1
+            )
+
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
@@ -2241,15 +2321,12 @@ class TestOnBoard_ReadNeuronVoltage:
     def test_003_one_onode_lcn_ann(self):
         # 1 output node on 4 cores, lcn > 1, ANN mode
         class Net003(pb.Network):
-            def __init__(self):
+            def __init__(self, w1):
                 super().__init__()
                 self.i1 = pb.InputProj(_out_bypass1, shape_out=(400,))
                 self.n1 = pb.ANNNeuron((400,), tick_wait_start=1)
-                self.s1 = pb.FullConn(
-                    self.i1,
-                    self.n1,
-                    FIXED_RNG.integers(-10, 10, size=(400, 400), dtype=np.int8),
-                )
+                self.s1 = pb.FullConn(self.i1, self.n1, w1)
+                self.probe1 = pb.Probe(self.n1, "voltage")
 
         TEST_NAME = self.test_003_one_onode_lcn_ann.__name__
         TEST_CASE_DIR = DATA_DIR / TEST_NAME
@@ -2259,7 +2336,50 @@ class TestOnBoard_ReadNeuronVoltage:
 
         print(f"\nTest {TEST_NAME} start")
 
-        network = Net003()
+        sim_time = 1
+
+        USE_EXISTING_DATA = False
+        NPZ_FILE = DATA_DIR / "data.npz"
+
+        try:
+            npz = np.load(NPZ_FILE)
+            weight1 = npz["weight1"]
+            inpdata1 = npz["inpdata1"]
+            refresult1 = npz["refresult1"]
+            print("Using the existing data file")
+            USE_EXISTING_DATA = True
+        except:
+            pass
+
+        if not USE_EXISTING_DATA:
+            print("Generating new data")
+            inpdata1 = FIXED_RNG.integers(0, 4, size=(400,), dtype=NEUOUT_U8_DTYPE)
+            weight1 = FIXED_RNG.integers(-10, 10, size=(400, 400), dtype=np.int8)
+            # Shape of reference result is sim_time * refdata
+            # The result is the voltage of n1
+            refresult1 = np.zeros((sim_time, 400), dtype=VOLTAGE_DTYPE)
+
+        network = Net003(weight1)
+        sim = pb.Simulator(network, start_time_zero=False)
+
+        for i in range(sim_time):
+            pb.FRONTEND_ENV.save(data1=inpdata1[i])
+            sim.run(1)
+
+            v_n1 = sim.data[network.probe1][i]
+            if USE_EXISTING_DATA:
+                assert np.array_equal(v_n1, refresult1[i, :])
+            else:
+                refresult1[i, :] = v_n1
+
+            print(f"t={i + 1}\n", v_n1)
+
+        # Save weights & voltage of n1
+        if not USE_EXISTING_DATA:
+            np.savez(
+                NPZ_FILE, weight1=weight1, inpdata1=inpdata1, refresult1=refresult1
+            )
+
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
