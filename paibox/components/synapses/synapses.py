@@ -6,8 +6,8 @@ from paibox.base import NeuDyn
 from paibox.types import DataType
 
 from ..neuron import Neuron
-from ..projection import InputProj
 from ..operations import VirtualNode
+from ..projection import InputProj
 from .base import (
     Conv1dSyn,
     Conv2dSyn,

@@ -1,5 +1,6 @@
-from .synapses import FullConnectedSyn, FullConnSyn, ConnType
-from .operations import VirtualNode, Transpose, Concat
+from .operations import Concat, Transpose, VirtualNode
+from .synapses import ConnType, FullConnectedSyn, FullConnSyn
+
 
 def process_edge(edge: FullConnectedSyn) -> list[FullConnectedSyn]:
     processed_edges: list[FullConnectedSyn] = list()
@@ -19,7 +20,7 @@ def process_edge(edge: FullConnectedSyn) -> list[FullConnectedSyn]:
             processed_edge = FullConnSyn(
                 source,
                 edge.dest,
-                connectivity[offset:offset + source.num_out],
+                connectivity[offset : offset + source.num_out],
                 ConnType.All2All,
                 f"{edge.name}_concat_{i}",
             )
@@ -27,5 +28,5 @@ def process_edge(edge: FullConnectedSyn) -> list[FullConnectedSyn]:
             offset = offset + source.num_out
     else:
         processed_edges.append(edge)
-    
+
     return processed_edges

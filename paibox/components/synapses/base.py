@@ -10,8 +10,8 @@ from paibox.types import DataType, NeuOutType, SynOutType, WeightType
 
 from ..modules import BuildingModule
 from ..neuron import Neuron
-from ..projection import InputProj
 from ..operations import VirtualNode
+from ..projection import InputProj
 from .conv_types import _KOrder3d, _KOrder4d
 from .conv_utils import _fm_ndim1_check, _fm_ndim2_check
 from .transforms import (
@@ -88,7 +88,9 @@ class FullConnectedSyn(SynSys):
                     self.source.output if x is None else np.atleast_1d(x)
                 )
             elif isinstance(self.source, VirtualNode):
-                synin = np.zeros_like(self.source.output(0) if x is None else np.atleast_1d(x))
+                synin = np.zeros_like(
+                    self.source.output(0) if x is None else np.atleast_1d(x)
+                )
             else:
                 synin = np.zeros_like(
                     self.source.delay_registers[0] if x is None else np.atleast_1d(x)
