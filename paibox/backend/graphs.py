@@ -8,7 +8,14 @@ from paicorelib import HwConfig
 
 from paibox.base import DataFlowFormat
 from paibox.collector import Collector
-from paibox.components import FullConnectedSyn, InputProj, NeuModule, Neuron
+from paibox.components import (
+    FullConnectedSyn,
+    InputProj,
+    NeuModule,
+    Neuron,
+    VirtualNode,
+    process_edge,
+)
 from paibox.components.functional import LinearSemiFolded
 from paibox.exceptions import (
     GraphBuildError,
@@ -121,6 +128,20 @@ class PAIGraph:
 
         raw_nodes = _nodes.val_on_condition(lambda node: not node.__gh_build_ignore__)
         raw_edges = _edges.val_on_condition(lambda edge: not edge.__gh_build_ignore__)
+
+        processed_edges: Collector[EdgeName, EdgeType] = Collector()
+
+        # process Virtual Node here
+        for name, edge in raw_edges.items():
+            if isinstance(edge.source, VirtualNode):
+                egdes = process_edge(edge)
+                for e in egdes:
+                    processed_edges[e.name] = e
+            else:
+                processed_edges[name] = edge
+
+        raw_edges = processed_edges
+
         raw_succ_dg = self._build_succ_dg(raw_nodes, list(raw_edges.values()))
 
         # `InputProj` nodes are input nodes definitely.
