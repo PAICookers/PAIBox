@@ -57,7 +57,7 @@ def _packbits_ref(bits: np.ndarray, count: Optional[int] = None) -> int:
 
     _bits = np.append(bits[: count - 1], bits[-1])
 
-    result = sum(bit << i for i, bit in enumerate(_bits))
+    result = np.int8(sum(bit << i for i, bit in enumerate(_bits)))
     result -= _bits[-1] << count
 
     return result

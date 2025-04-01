@@ -36,7 +36,7 @@ from paicorelib.framelib.frames import (
     OfflineWorkFrame1,
 )
 from paicorelib.framelib.types import ArrayType, DataArrayType, FrameArrayType
-from paicorelib.framelib.utils import header_check
+from paicorelib.framelib.utils import framearray_header_check
 
 from .types import *
 
@@ -248,7 +248,7 @@ class PAIBoxRuntime:
 
         NOTE: This method has real-time requirement.
         """
-        header_check(oframes, FH.WORK_TYPE1)
+        framearray_header_check(oframes, FH.WORK_TYPE1)
 
         if isinstance(oframe_infos, list):
             output = []

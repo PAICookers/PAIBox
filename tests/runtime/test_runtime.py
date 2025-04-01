@@ -266,10 +266,10 @@ class TestRuntime:
         for i in range(n_axons):
             _data = np.random.randint(0, 256, dtype=np.uint8)
             test_frames[i] = (
-                (FH.WORK_TYPE1 << Off_WF1F.GENERAL_HEADER_OFFSET)
-                | (Coord(1, 0).address << Off_WF1F.GENERAL_CHIP_ADDR_OFFSET)
-                | (i << Off_WF1F.AXON_OFFSET)
-                | _data
+                np.uint64(FH.WORK_TYPE1 << Off_WF1F.GENERAL_HEADER_OFFSET)
+                | np.uint64(Coord(1, 0).address << Off_WF1F.GENERAL_CHIP_ADDR_OFFSET)
+                | np.uint64(i << Off_WF1F.AXON_OFFSET)
+                | np.uint64(_data)
             )
 
         t = timeit.timeit(
