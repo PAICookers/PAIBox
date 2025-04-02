@@ -1,5 +1,5 @@
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from enum import Enum
 from typing import Any, NamedTuple, TypedDict, Union
 
@@ -34,7 +34,7 @@ else:
 from paibox.base import DataFlowFormat
 from paibox.components import Neuron
 
-from .types import AxonCoord, NeuSegment, NodeName, WRAMPackedType
+from .types import AxonCoord, NeuSegment, NeuSegRAMAddr, NodeName, WRAMPackedType
 
 try:
     import orjson
@@ -60,8 +60,8 @@ except ModuleNotFoundError:
         def default(self, o: Any) -> Any:
             if isinstance(o, Coord):
                 return str(o)
-            elif isinstance(o, DataFlowFormat):
-                return str(o)
+            elif is_dataclass(o):
+                return asdict(o)  # type: ignore
             elif isinstance(o, Enum):
                 return o.value
             elif isinstance(o, np.ndarray):
@@ -218,12 +218,12 @@ class NeuronConfig:
 
     @property
     def neuron_dest_info(self) -> NeuronDestInfo:
-        dest_rid = get_replication_id(self.dest_core_coords)
+        base_coord, dest_rid = get_replication_id(self.dest_core_coords)
         dest_info = NeuronDest(
             [coord.tick_relative for coord in self.axon_coords],
             [coord.addr_axon for coord in self.axon_coords],
-            self.dest_core_coords[0].x,
-            self.dest_core_coords[0].y,
+            base_coord.x,
+            base_coord.y,
             dest_rid.x,
             dest_rid.y,
             self.dest_chip_coord.x,
@@ -288,6 +288,12 @@ CorePlmConfInChip: TypeAlias = dict[Coord, CorePlmConfig]
 CorePlmConf: TypeAlias = dict[ChipCoord, CorePlmConfInChip]
 CoreConfInChip: TypeAlias = dict[Coord, CoreConfig]
 CoreConf: TypeAlias = dict[ChipCoord, CoreConfInChip]
+
+# Make sure that the logical locations corresponds to the physical locations
+NeuPhyCoreLoc: TypeAlias = list[NeuSegRAMAddr]
+NeuPhyLocChipLoc: TypeAlias = dict[Coord, NeuPhyCoreLoc]
+NeuPhyLoc: TypeAlias = dict[ChipCoord, NeuPhyLocChipLoc]
+NeuPhyLocMap: TypeAlias = dict[NodeName, NeuPhyLoc]
 
 
 class _ExportedGraphInfo(TypedDict):

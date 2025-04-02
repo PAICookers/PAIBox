@@ -44,13 +44,12 @@ repos:
       - id: mixed-line-ending
       - id: requirements-txt-fixer
       - id: pretty-format-json
-        args: [--autofix, --indent 2]
+        # Some json test data are sensitive to the order of keys
+        args: ["--autofix", "--indent", "2", "--no-sort-keys"]
       - id: no-commit-to-branch
 
   - repo: https://github.com/python-poetry/poetry
-    rev: 1.8.0
+    rev: 2.1.1
     hooks:
       - id: poetry-check
-      - id: poetry-export
-        args: ["-f", "requirements.txt"]
       - id: poetry-install

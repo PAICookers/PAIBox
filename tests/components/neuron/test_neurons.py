@@ -14,6 +14,7 @@ from paibox.components.neuron.utils import VJT_MAX, VJT_MIN
 from paibox.exceptions import ShapeError
 from paibox.types import NEUOUT_U8_DTYPE, VoltageType
 from paibox.utils import as_shape, shape2num
+from tests.utils import file_not_exist_fail
 
 
 def test_NeuronParams_instance(ensure_dump_dir):
@@ -22,7 +23,10 @@ def test_NeuronParams_instance(ensure_dump_dir):
     attrs = NeuronAttrs.model_validate(n1.attrs(all=True), strict=True)
     attrs_dict = attrs.model_dump(by_alias=True)
 
-    with open(ensure_dump_dir / f"ram_model_{n1.name}.json", "w") as f:
+    fp = ensure_dump_dir / f"ram_model_{n1.name}.json"
+    file_not_exist_fail(fp)
+
+    with open(fp, "w") as f:
         json.dump({n1.name: attrs_dict}, f, indent=2)
 
     class PAIConfigJsonEncoder(json.JSONEncoder):
@@ -41,7 +45,10 @@ def test_NeuronParams_instance(ensure_dump_dir):
     )
     attrs_dict = attrs.model_dump(by_alias=True)
 
-    with open(ensure_dump_dir / f"ram_model_{n2.name}.json", "w") as f:
+    fp2 = ensure_dump_dir / f"ram_model_{n2.name}.json"
+    file_not_exist_fail(fp2)
+
+    with open(fp2, "w") as f:
         json.dump({n2.name: attrs_dict}, f, indent=2, cls=PAIConfigJsonEncoder)
 
 

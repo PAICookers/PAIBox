@@ -316,6 +316,25 @@ class TestMapper_Export:
 
         assert len(mapper.routing_groups[1].wasted_coords) == 2
 
+    def test_export_export_wasted_cores(
+        self, build_example_net4_large_scale, ensure_dump_dir
+    ):
+        net = build_example_net4_large_scale
+        mapper = pb.Mapper()
+        mapper.build(net)
+        mapper.compile()
+        mapper.export(fp=ensure_dump_dir, export_wasted_cores=True)
+
+        conf_fs_include_wasted = (ensure_dump_dir / "config_all.bin").stat().st_size
+
+        mapper.export(fp=ensure_dump_dir, export_wasted_cores=False)
+        conf_fs_exclude_wasted = (ensure_dump_dir / "config_all.bin").stat().st_size
+
+        if len(mapper.routing_groups[1].wasted_coords) > 0:
+            assert conf_fs_exclude_wasted < conf_fs_include_wasted
+        else:
+            pytest.skip("No wasted cores found in this test. Skip.")
+
 
 class TestMapper_Compile:
     @pytest.mark.xfail(reason="change the hardware limit may cause unexpected errors.")
@@ -514,8 +533,7 @@ class TestMapper_Multichip:
     @pytest.mark.xfail(reason="Network may too large.", raises=ResourceError)
     def test_multichip_1(self, ensure_dump_dir, monkeypatch, build_MultichipNet1_s1):
         """Multichip network of scale 1"""
-
-        clist = [Coord(0, 0), Coord(0, 1)]
+        clist = [Coord(0, 0), Coord(0, 1), Coord(1, 1)]
         monkeypatch.setattr(pb.BACKEND_CONFIG, "target_chip_addr", clist)
         assert pb.BACKEND_CONFIG.n_target_chips == len(clist)
 
@@ -526,7 +544,7 @@ class TestMapper_Multichip:
         with measure_time("test_multichip_1"):
             mapper.compile(weight_bit_optimization=False)
 
-        mapper.export(fp=ensure_dump_dir, split_by_chip=False)
+        mapper.export(fp=ensure_dump_dir, split_by_chip=False, read_voltage=net.n_out)
 
         print("Total cores occupied:", mapper.n_core_occupied)
 

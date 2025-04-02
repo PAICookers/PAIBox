@@ -18,6 +18,7 @@ from paibox.backend.conf_types import (
 )
 from paibox.backend.types import AxonCoord, NeuSegment
 from paibox.base import DataFlowFormat
+from tests.utils import file_not_exist_fail
 
 from .conftest import gen_random_used_lx
 
@@ -195,7 +196,10 @@ class TestConfExporting:
         }
         export_core_plm_conf_json(core_plm_conf, ensure_dump_dir)
 
-        with open(ensure_dump_dir / "core_plm.json", "rb") as f:
+        fp = ensure_dump_dir / "core_plm.json"
+        file_not_exist_fail(fp)
+
+        with open(fp, "rb") as f:
             core_plm_conf_json = json.loads(f.read())
             assert list(core_plm_conf_json.keys())[0] == str(chip_coord)
 
@@ -241,6 +245,30 @@ class TestConfExporting:
         )
 
         export_aux_gh_info(aux_gh_info, ensure_dump_dir, export_clk_en_L2=True)
+
+    @pytest.mark.parametrize("read_type", ["object", "name"])
+    def test_export_neuron_phy_loc(
+        self, ensure_dump_dir, build_multi_onodes_net_more1152, read_type
+    ):
+        net = build_multi_onodes_net_more1152
+        mapper = pb.Mapper()
+        mapper.build(net)
+        mapper.compile()
+
+        neu_to_read = []
+
+        neuron_in_net_maybe = ["n1", "n2", "n3", "n4"]
+        for n in neuron_in_net_maybe:
+            if hasattr(net, n):  # prevent the network from being changed unnoticed
+                if read_type == "object":  # Passing in the neuron objects
+                    neu_to_read.append(getattr(net, n))
+                else:  # Passing in the neuron names
+                    neu_to_read.append(n)
+
+        if len(neu_to_read) == 0:
+            pytest.skip("Nothing to read. Skip.")
+
+        mapper.export(fp=ensure_dump_dir, read_voltage=neu_to_read)
 
 
 @pytest.mark.parametrize(

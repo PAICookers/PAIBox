@@ -2,9 +2,7 @@ import math
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, TypeVar, Union, cast
-
-from paicorelib import HwConfig
+from typing import Any, Optional, TypeVar, Union, cast
 
 from paibox.base import DataFlowFormat
 from paibox.collector import Collector
@@ -516,6 +514,20 @@ class PAIGraph:
             self._update_graph()
 
         return copied
+
+    def get_neu_by_name(self, name: NodeName) -> Optional[DestNodeType]:
+        for neu in self._raw_nodes.exclude(InputProj):
+            if name == neu:
+                return cast(DestNodeType, self._raw_nodes[neu])
+
+        return None
+
+    def get_synapse_by_name(self, name: EdgeName) -> Optional[EdgeType]:
+        for syn in self.edges:
+            if name == syn:
+                return self.edges[syn].edge
+
+        return None
 
     @staticmethod
     def _find_rg_by_cb(

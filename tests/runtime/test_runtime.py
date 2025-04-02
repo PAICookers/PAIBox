@@ -8,10 +8,13 @@ from paicorelib import Coord
 from paicorelib import ReplicationId as RId
 from paicorelib.framelib.frame_defs import FrameHeader as FH
 from paicorelib.framelib.frame_defs import OfflineWorkFrame1Format as Off_WF1F
+from paicorelib.framelib.frame_gen import OfflineFrameGen
+from paicorelib.framelib.frames import OfflineTestOutFrame3
 from paicorelib.framelib.utils import print_frame
 
 from paibox.runtime import PAIBoxRuntime
 from paibox.runtime.runtime import LENGTH_EX_MULTIPLE_KEY, get_length_ex_onode
+from tests.utils import file_not_exist_fail
 
 TEST_CONF_DIR = Path(__file__).parent / "test_data"
 
@@ -49,7 +52,10 @@ def test_get_length_ex_onode():
 
 class TestRuntime:
     def test_gen_input_frames_info_by_dict(self):
-        with open(TEST_CONF_DIR / "input_proj_info1.json", "r") as f:
+        fp = TEST_CONF_DIR / "input_proj_info1.json"
+        file_not_exist_fail(fp)
+
+        with open(fp, "r") as f:
             input_proj_info = json.load(f)
 
         n_input_node = len(input_proj_info.keys())
@@ -263,7 +269,7 @@ class TestRuntime:
                 (FH.WORK_TYPE1 << Off_WF1F.GENERAL_HEADER_OFFSET)
                 | (Coord(1, 0).address << Off_WF1F.GENERAL_CHIP_ADDR_OFFSET)
                 | (i << Off_WF1F.AXON_OFFSET)
-                | _data
+                | np.uint64(_data)
             )
 
         t = timeit.timeit(
@@ -273,7 +279,10 @@ class TestRuntime:
         print(f"n_axons: {n_axons}, n_ts: {n_ts}, time: {t/100:.5f}s")
 
     def test_gen_output_frames_info_by_dict1(self):
-        with open(TEST_CONF_DIR / "output_dest_info1.json", "r") as f:
+        fp = TEST_CONF_DIR / "output_dest_info1.json"
+        file_not_exist_fail(fp)
+
+        with open(fp, "r") as f:
             output_proj_info = json.load(f)
 
         n_output_node = len(output_proj_info.keys())
@@ -285,7 +294,10 @@ class TestRuntime:
         assert sum(part.size for part in common_part) == 800
 
     def test_gen_output_frames_info_by_dict2(self):
-        with open(TEST_CONF_DIR / "output_dest_info2.json", "r") as f:
+        fp = TEST_CONF_DIR / "output_dest_info2.json"
+        file_not_exist_fail(fp)
+
+        with open(fp, "r") as f:
             output_proj_info = json.load(f)
 
         n_output_node = len(output_proj_info.keys())
@@ -316,7 +328,10 @@ class TestRuntime:
         assert n_ex_onode == 3
 
     def test_gen_output_frames_info(self):
-        with open(TEST_CONF_DIR / "output_dest_info.json", "r") as f:
+        fp = TEST_CONF_DIR / "output_dest_info.json"
+        file_not_exist_fail(fp)
+
+        with open(fp, "r") as f:
             output_dest_info = json.load(f)
 
         n_ts = 4
@@ -356,7 +371,10 @@ class TestRuntime:
         assert np.array_equal(data, expected)
 
     def test_gen_output_frames_info_more1152(self):
-        with open(TEST_CONF_DIR / "output_dest_info_more1152.json", "r") as f:
+        fp = TEST_CONF_DIR / "output_dest_info_more1152.json"
+        file_not_exist_fail(fp)
+
+        with open(fp, "r") as f:
             output_dest_info = json.load(f)
 
         n_ts = 2
@@ -395,7 +413,10 @@ class TestRuntime:
         assert np.array_equal(data, expected)
 
     def test_gen_output_frames_info_more1152_multi_onodes(self):
-        with open(TEST_CONF_DIR / "output_dest_info_more1152_multi.json", "r") as f:
+        fp = TEST_CONF_DIR / "output_dest_info_more1152_multi.json"
+        file_not_exist_fail(fp)
+
+        with open(fp, "r") as f:
             output_dest_info = json.load(f)
 
         n_ts = 4
@@ -446,3 +467,139 @@ class TestRuntime:
 
         assert np.array_equal(data[0], expected_o1)
         assert np.array_equal(data[1], expected_o2)
+
+
+REQUIRED_PLIB_VERSION = "1.4.1"  # Required version for neuron voltage decoding
+from paicorelib import __version__ as plib_version
+
+
+def _get_neuron_phy_files():
+    return list(TEST_CONF_DIR.glob("neuron_phy_loc[0-9]*.json"))
+
+
+class TestReadNeuronVoltage:
+
+    dest_info = dict(
+        addr_chip_x=1,
+        addr_chip_y=1,
+        addr_core_x=2,
+        addr_core_y=2,
+        addr_core_x_ex=0,
+        addr_core_y_ex=0,
+        tick_relative=[0],
+        addr_axon=[1],
+    )  # ramdon, read only
+
+    neu_attrs = dict(
+        reset_mode=1,
+        reset_v=0,
+        leak_post=0,
+        threshold_mask_ctrl=0,
+        threshold_neg_mode=0,
+        threshold_neg=100,
+        threshold_pos=100,
+        leak_reversal_flag=0,
+        leak_det_stoch=0,
+        leak_v=3,
+        weight_det_stoch=0,
+        bit_truncate=8,
+        voltage=0,  # voltage will be set
+    )
+
+    @pytest.mark.parametrize("fp", _get_neuron_phy_files())
+    def test_gen_read_neuron_voltage_frames(self, fp):
+        file_not_exist_fail(fp)
+
+        with open(fp, "r") as f:
+            neu_phy_locs = json.load(f)
+
+        for _, neu_phy_loc in neu_phy_locs.items():
+            tframe3 = PAIBoxRuntime.gen_read_neuron_attrs_frames(neu_phy_loc)
+
+    @pytest.mark.skipif(
+        plib_version < f"{REQUIRED_PLIB_VERSION}",
+        reason=f"requires paicorelib >= {REQUIRED_PLIB_VERSION}",
+    )
+    def test_decode_neuron_voltage1(self, monkeypatch):
+        fp = TEST_CONF_DIR / "neuron_phy_loc1.json"
+        file_not_exist_fail(fp)
+
+        with open(fp, "r") as f:
+            neu_phy_locs = json.load(f)
+
+        n_neuron = 100
+        interval = 8
+        core_coords = [Coord(0, 0), Coord(0, 1)]
+        expected_v = np.random.randint(-500, 500, size=(n_neuron,), dtype=np.int32)
+        supposed_addr = [
+            interval * (i + 1) - 1 for i in range(n_neuron // len(core_coords))
+        ] * len(core_coords)
+
+        toframe3: list[OfflineTestOutFrame3] = []
+        for i, (v, addr) in enumerate(zip(expected_v, supposed_addr)):
+            core_coord = core_coords[i // 50]
+            monkeypatch.setitem(self.neu_attrs, "voltage", v)
+
+            toframe3.append(
+                OfflineFrameGen.gen_testout_frame3(
+                    Coord(1, 1),
+                    core_coord,
+                    RId(0, 0),
+                    addr,
+                    1,
+                    attrs=self.neu_attrs,
+                    dest_info=self.dest_info,
+                    repeat=1,
+                )
+            )
+
+        toframe3_array = np.hstack([f.value for f in toframe3])
+
+        for _, neu_phy_loc in neu_phy_locs.items():
+            v_decoded = PAIBoxRuntime.decode_neuron_voltage(neu_phy_loc, toframe3_array)
+
+        assert np.array_equal(v_decoded, expected_v)
+
+    @pytest.mark.skipif(
+        plib_version < f"{REQUIRED_PLIB_VERSION}",
+        reason=f"requires paicorelib >= {REQUIRED_PLIB_VERSION}",
+    )
+    def test_decode_neuron_voltage2(self, monkeypatch):
+        fp = TEST_CONF_DIR / "neuron_phy_loc2.json"
+        file_not_exist_fail(fp)
+
+        with open(fp, "r") as f:
+            neu_phy_locs = json.load(f)
+
+        n_neuron = 100
+        interval = 16
+        core_coords = [Coord(0, 0), Coord(0, 1), Coord(1, 0), Coord(1, 1)]
+        expected_v = np.random.randint(-500, 500, size=(n_neuron,), dtype=np.int32)
+        supposed_addr = [
+            interval * (i + 1) - 1 for i in range(n_neuron // len(core_coords))
+        ] * len(core_coords)
+
+        toframe3: list[OfflineTestOutFrame3] = []
+        for i, (v, addr) in enumerate(zip(expected_v, supposed_addr)):
+            core_coord = core_coords[i // 25]
+            monkeypatch.setitem(self.neu_attrs, "voltage", v)
+
+            toframe3.append(
+                OfflineFrameGen.gen_testout_frame3(
+                    Coord(1, 1),
+                    core_coord,
+                    RId(0, 0),
+                    addr,
+                    1,
+                    attrs=self.neu_attrs,
+                    dest_info=self.dest_info,
+                    repeat=1,
+                )
+            )
+
+        toframe3_array = np.hstack([f.value for f in toframe3])
+
+        for _, neu_phy_loc in neu_phy_locs.items():
+            v_decoded = PAIBoxRuntime.decode_neuron_voltage(neu_phy_loc, toframe3_array)
+
+        assert np.array_equal(v_decoded, expected_v)

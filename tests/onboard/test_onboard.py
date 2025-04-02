@@ -7,12 +7,6 @@ import paibox as pb
 from paibox.types import NEUOUT_U8_DTYPE, VOLTAGE_DTYPE
 from tests.components.utils import ann_bit_trunc, conv1d_golden
 
-TEST_DIR = Path(__file__).parent
-DATA_DIR = TEST_DIR / "data"
-CONFIG_DIR = TEST_DIR / "config"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-
 FIXED_RNG = np.random.default_rng(seed=42)
 
 
@@ -21,7 +15,7 @@ def _out_bypass1(t, data1, *args, **kwargs):
 
 
 class TestOnBoard_WRAMMapping:
-    def test_001(self):
+    def test_001(self, ensure_test_item_dirs):
         class Net001(pb.Network):
             def __init__(self, w):
                 super().__init__()
@@ -33,10 +27,7 @@ class TestOnBoard_WRAMMapping:
                 self.p1 = pb.Probe(self.l1, "feature_map")
 
         TEST_NAME = self.test_001.__name__
-        TEST_CASE_DIR = DATA_DIR / TEST_NAME
-        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
-        if not TEST_CASE_DIR.exists():
-            TEST_CASE_DIR.mkdir()
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
 
         print(f"\nTest {TEST_NAME} start")
         shape = (144, 400)
@@ -44,7 +35,7 @@ class TestOnBoard_WRAMMapping:
         sim_time = 5
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        NPZ_FILE = DATA_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -103,11 +94,11 @@ class TestOnBoard_WRAMMapping:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
+        mapper.export(fp=CONFIG_DIR, format="bin", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
-    def test_002(self):
+    def test_002(self, ensure_test_item_dirs):
         class Net002(pb.Network):
             def __init__(self, w):
                 super().__init__()
@@ -119,10 +110,7 @@ class TestOnBoard_WRAMMapping:
                 self.p1 = pb.Probe(self.l1, "feature_map")
 
         TEST_NAME = self.test_002.__name__
-        TEST_CASE_DIR = DATA_DIR / TEST_NAME
-        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
-        if not TEST_CASE_DIR.exists():
-            TEST_CASE_DIR.mkdir()
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
 
         print(f"\nTest {TEST_NAME} start")
         shape = (500, 100)
@@ -130,7 +118,7 @@ class TestOnBoard_WRAMMapping:
         sim_time = 5
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        NPZ_FILE = DATA_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -182,11 +170,11 @@ class TestOnBoard_WRAMMapping:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
+        mapper.export(fp=CONFIG_DIR, format="bin", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
-    def test_003(self):
+    def test_003(self, ensure_test_item_dirs):
         class Net003(pb.Network):
             def __init__(self, w):
                 super().__init__()
@@ -198,10 +186,7 @@ class TestOnBoard_WRAMMapping:
                 self.p1 = pb.Probe(self.l1, "feature_map")
 
         TEST_NAME = self.test_003.__name__
-        TEST_CASE_DIR = DATA_DIR / TEST_NAME
-        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
-        if not TEST_CASE_DIR.exists():
-            TEST_CASE_DIR.mkdir()
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
 
         print(f"\nTest {TEST_NAME} start")
         shape = (240, 200)
@@ -209,7 +194,7 @@ class TestOnBoard_WRAMMapping:
         sim_time = 5
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        NPZ_FILE = DATA_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -263,11 +248,11 @@ class TestOnBoard_WRAMMapping:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=True)
-        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
+        mapper.export(fp=CONFIG_DIR, format="bin", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
-    def test_004(self):
+    def test_004(self, ensure_test_item_dirs):
         class Net004(pb.Network):
             def __init__(self, w):
                 super().__init__()
@@ -279,10 +264,7 @@ class TestOnBoard_WRAMMapping:
                 self.p1 = pb.Probe(self.l1, "feature_map")
 
         TEST_NAME = self.test_004.__name__
-        TEST_CASE_DIR = DATA_DIR / TEST_NAME
-        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
-        if not TEST_CASE_DIR.exists():
-            TEST_CASE_DIR.mkdir()
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
 
         print(f"\nTest {TEST_NAME} start")
         shape = (240, 500)
@@ -290,7 +272,7 @@ class TestOnBoard_WRAMMapping:
         sim_time = 5
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        NPZ_FILE = DATA_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -325,6 +307,7 @@ class TestOnBoard_WRAMMapping:
                 bit_trunc=network.l1.bit_trunc,
             )
             assert np.array_equal(sim.data[network.p1][i], ref)
+
             if USE_EXISTING_DATA:
                 assert np.array_equal(ref, refresult1[i, :])
             else:
@@ -341,11 +324,11 @@ class TestOnBoard_WRAMMapping:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=True)
-        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
+        mapper.export(fp=CONFIG_DIR, format="bin", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
-    def test_005(self):
+    def test_005(self, ensure_test_item_dirs):
         class Net005(pb.Network):
             def __init__(self, w1, w2):
                 super().__init__()
@@ -367,12 +350,8 @@ class TestOnBoard_WRAMMapping:
                 self.p1 = pb.Probe(self.l1, "feature_map")
                 self.p2 = pb.Probe(self.l2, "feature_map")
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_005.__name__
-        TEST_CASE_DIR = DATA_DIR / TEST_NAME
-        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
-        if not TEST_CASE_DIR.exists():
-            TEST_CASE_DIR.mkdir()
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
 
         print(f"\nTest {TEST_NAME} start")
 
@@ -382,7 +361,7 @@ class TestOnBoard_WRAMMapping:
         sim_time = 5
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        NPZ_FILE = DATA_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -421,7 +400,7 @@ class TestOnBoard_WRAMMapping:
                 + network.l1.bias,
                 bit_trunc=network.l1.bit_trunc,
             )
-            # The miintermidiate result is correct
+            # The intermidiate result is correct
             assert np.array_equal(sim.data[network.p1][i], _l1)
 
             if i > 0:
@@ -459,11 +438,11 @@ class TestOnBoard_WRAMMapping:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
+        mapper.export(fp=CONFIG_DIR, format="bin", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
-    def test_006(self):
+    def test_006(self, ensure_test_item_dirs):
         class Net006(pb.Network):
             def __init__(self, w1, w2):
                 super().__init__()
@@ -479,12 +458,8 @@ class TestOnBoard_WRAMMapping:
                 self.p1 = pb.Probe(self.l1, "feature_map")
                 self.p2 = pb.Probe(self.l2, "feature_map")
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_006.__name__
-        TEST_CASE_DIR = DATA_DIR / TEST_NAME
-        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
-        if not TEST_CASE_DIR.exists():
-            TEST_CASE_DIR.mkdir()
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
 
         print(f"\nTest {TEST_NAME} start")
 
@@ -494,7 +469,7 @@ class TestOnBoard_WRAMMapping:
         sim_time = 5
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        NPZ_FILE = DATA_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -535,7 +510,7 @@ class TestOnBoard_WRAMMapping:
                 inpdata1[i, :].ravel() @ weight1.astype(VOLTAGE_DTYPE),
                 bit_trunc=network.l1.bit_trunc,
             )
-            # The miintermidiate result is correct
+            # The intermidiate result is correct
             assert np.array_equal(sim.data[network.p1][i], _l1)
 
             if i > 0:
@@ -572,11 +547,11 @@ class TestOnBoard_WRAMMapping:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=True)
-        mapper.export(fp=CONFIG_CASE_DIR, format="bin", use_hw_sim=True)
+        mapper.export(fp=CONFIG_DIR, format="bin", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
-    def test_007(self):
+    def test_007(self, ensure_test_item_dirs):
         class Net007(pb.Network):
             def __init__(self, w1):
                 super().__init__()
@@ -587,12 +562,8 @@ class TestOnBoard_WRAMMapping:
                 )
                 self.p1 = pb.Probe(self.l1, "feature_map")
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_007.__name__
-        TEST_CASE_DIR = DATA_DIR / TEST_NAME
-        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
-        if not TEST_CASE_DIR.exists():
-            TEST_CASE_DIR.mkdir()
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
 
         print(f"\nTest {TEST_NAME} start")
 
@@ -601,7 +572,7 @@ class TestOnBoard_WRAMMapping:
         sim_time = 5
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        NPZ_FILE = DATA_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -654,11 +625,11 @@ class TestOnBoard_WRAMMapping:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=True)
-        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
+        mapper.export(fp=CONFIG_DIR, format="bin", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
-    def test_008(self):
+    def test_008(self, ensure_test_item_dirs):
         class Net008(pb.Network):
             def __init__(self, w1, w2):
                 super().__init__()
@@ -674,12 +645,8 @@ class TestOnBoard_WRAMMapping:
                 self.p1 = pb.Probe(self.l1, "feature_map")
                 self.p2 = pb.Probe(self.l2, "feature_map")
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_008.__name__
-        TEST_CASE_DIR = DATA_DIR / TEST_NAME
-        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
-        if not TEST_CASE_DIR.exists():
-            TEST_CASE_DIR.mkdir()
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
 
         print(f"\nTest {TEST_NAME} start")
 
@@ -689,7 +656,7 @@ class TestOnBoard_WRAMMapping:
         sim_time = 5
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        NPZ_FILE = DATA_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -726,7 +693,7 @@ class TestOnBoard_WRAMMapping:
                 inpdata1[i, :].ravel() @ weight1.astype(VOLTAGE_DTYPE),
                 bit_trunc=network.l1.bit_trunc,
             )
-            # The miintermidiate result is correct
+            # The intermidiate result is correct
             assert np.array_equal(sim.data[network.p1][i], _l1)
 
             if i > 0:
@@ -763,13 +730,13 @@ class TestOnBoard_WRAMMapping:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=True)
-        mapper.export(fp=CONFIG_CASE_DIR, format="bin", use_hw_sim=True)
+        mapper.export(fp=CONFIG_DIR, format="bin", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
 
 class TestOnBoard_SpikingOp:
-    def test_001_Conv1d(self):
+    def test_001_Conv1d(self, ensure_test_item_dirs):
         class Net001(pb.Network):
             def __init__(self, w1):
                 super().__init__()
@@ -779,12 +746,8 @@ class TestOnBoard_SpikingOp:
                 self.conv = pb.Conv1d(self.i1, self.n1, w1)
                 self.p1 = pb.Probe(self.n1, "feature_map")
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_001_Conv1d.__name__
-        TEST_CASE_DIR = DATA_DIR / TEST_NAME
-        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
-        if not TEST_CASE_DIR.exists():
-            TEST_CASE_DIR.mkdir()
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
 
         print(f"\nTest {TEST_NAME} start")
 
@@ -795,7 +758,7 @@ class TestOnBoard_SpikingOp:
         sim_time = 5
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        NPZ_FILE = DATA_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -849,25 +812,21 @@ class TestOnBoard_SpikingOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
+        mapper.export(fp=CONFIG_DIR, format="bin", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
 
 class TestOnBoard_SemiFoldedOp:
-    def test_001_Conv2dSemiFolded(self):
+    def test_001_Conv2dSemiFolded(self, ensure_test_item_dirs):
         class Net001(pb.DynSysGroup):
             def __init__(self, w1):
                 super().__init__()
                 self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w1, 1, 0, tick_wait_start=1)
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_001_Conv2dSemiFolded.__name__
-        TEST_CASE_DIR = DATA_DIR / TEST_NAME
-        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
-        if not TEST_CASE_DIR.exists():
-            TEST_CASE_DIR.mkdir()
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
 
         print(f"\nTest {TEST_NAME} start")
 
@@ -878,7 +837,7 @@ class TestOnBoard_SemiFoldedOp:
         sim_time = 65
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        NPZ_FILE = DATA_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -926,25 +885,21 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
+        mapper.export(fp=CONFIG_DIR, format="bin", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
     # 对比test002-005系列
     # weight正常
-    def test_002_Conv2dSemiFolded(self):
+    def test_002_Conv2dSemiFolded(self, ensure_test_item_dirs):
         class Net002(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
                 self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 2, 0, tick_wait_start=1)
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_002_Conv2dSemiFolded.__name__
-        TEST_CASE_DIR = DATA_DIR / TEST_NAME
-        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
-        if not TEST_CASE_DIR.exists():
-            TEST_CASE_DIR.mkdir()
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
 
         print(f"\nTest {TEST_NAME} start")
 
@@ -955,7 +910,7 @@ class TestOnBoard_SemiFoldedOp:
         sim_time = 16
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        NPZ_FILE = DATA_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -1004,24 +959,20 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
+        mapper.export(fp=CONFIG_DIR, format="bin", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
     # weight全为1
-    def test_003_Conv2dSemiFolded(self):
+    def test_003_Conv2dSemiFolded(self, ensure_test_item_dirs):
         class Net003(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
                 self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 2, 0, tick_wait_start=1)
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_003_Conv2dSemiFolded.__name__
-        TEST_CASE_DIR = DATA_DIR / TEST_NAME
-        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
-        if not TEST_CASE_DIR.exists():
-            TEST_CASE_DIR.mkdir()
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
 
         print(f"\nTest {TEST_NAME} start")
 
@@ -1032,7 +983,7 @@ class TestOnBoard_SemiFoldedOp:
         sim_time = 16
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        NPZ_FILE = DATA_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -1069,6 +1020,7 @@ class TestOnBoard_SemiFoldedOp:
 
             if not USE_EXISTING_DATA:
                 refresult1[i, :] = sim.data[probe][i]
+
             print(sim.data[probe][i].shape)
             print(f"t={i + 1}\n", sim.data[probe][i])
 
@@ -1081,24 +1033,20 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
+        mapper.export(fp=CONFIG_DIR, format="bin", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
     # 扇入扩展， weight全正1
-    def test_004_Conv2dSemiFolded(self):
+    def test_004_Conv2dSemiFolded(self, ensure_test_item_dirs):
         class Net004(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
                 self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 2, 0, tick_wait_start=1)
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_004_Conv2dSemiFolded.__name__
-        TEST_CASE_DIR = DATA_DIR / TEST_NAME
-        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
-        if not TEST_CASE_DIR.exists():
-            TEST_CASE_DIR.mkdir()
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
 
         print(f"\nTest {TEST_NAME} start")
 
@@ -1109,7 +1057,7 @@ class TestOnBoard_SemiFoldedOp:
         sim_time = 65
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        NPZ_FILE = DATA_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -1147,6 +1095,7 @@ class TestOnBoard_SemiFoldedOp:
 
             if not USE_EXISTING_DATA:
                 refresult1[i, :] = sim.data[probe][i]
+
             print(sim.data[probe][i].shape)
             print(f"t={i + 1}\n", sim.data[probe][i])
 
@@ -1159,24 +1108,20 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
+        mapper.export(fp=CONFIG_DIR, format="bin", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
     # 扇入扩展
-    def test_005_Conv2dSemiFolded(self):
+    def test_005_Conv2dSemiFolded(self, ensure_test_item_dirs):
         class Net005(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
                 self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 2, 0, tick_wait_start=1)
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_005_Conv2dSemiFolded.__name__
-        TEST_CASE_DIR = DATA_DIR / TEST_NAME
-        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
-        if not TEST_CASE_DIR.exists():
-            TEST_CASE_DIR.mkdir()
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
 
         print(f"\nTest {TEST_NAME} start")
 
@@ -1187,7 +1132,7 @@ class TestOnBoard_SemiFoldedOp:
         sim_time = 65
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        NPZ_FILE = DATA_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -1225,6 +1170,7 @@ class TestOnBoard_SemiFoldedOp:
 
             if not USE_EXISTING_DATA:
                 refresult1[i, :] = sim.data[probe][i]
+
             print(sim.data[probe][i].shape)
             print(f"t={i + 1}\n", sim.data[probe][i])
 
@@ -1237,24 +1183,20 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
+        mapper.export(fp=CONFIG_DIR, format="bin", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
     # 对比006-009
-    def test_006_Conv2dSemiFolded(self):
+    def test_006_Conv2dSemiFolded(self, ensure_test_item_dirs):
         class Net006(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
                 self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 1, 1, tick_wait_start=1)
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_006_Conv2dSemiFolded.__name__
-        TEST_CASE_DIR = DATA_DIR / TEST_NAME
-        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
-        if not TEST_CASE_DIR.exists():
-            TEST_CASE_DIR.mkdir()
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
 
         print(f"\nTest {TEST_NAME} start")
 
@@ -1265,7 +1207,7 @@ class TestOnBoard_SemiFoldedOp:
         sim_time = 10
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        NPZ_FILE = DATA_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -1315,23 +1257,19 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
+        mapper.export(fp=CONFIG_DIR, format="bin", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
-    def test_007_Conv2dSemiFolded(self):
+    def test_007_Conv2dSemiFolded(self, ensure_test_item_dirs):
         class Net007(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
                 self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 1, 1, tick_wait_start=1)
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_007_Conv2dSemiFolded.__name__
-        TEST_CASE_DIR = DATA_DIR / TEST_NAME
-        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
-        if not TEST_CASE_DIR.exists():
-            TEST_CASE_DIR.mkdir()
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
 
         print(f"\nTest {TEST_NAME} start")
 
@@ -1342,7 +1280,7 @@ class TestOnBoard_SemiFoldedOp:
         sim_time = 10
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        NPZ_FILE = DATA_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -1393,23 +1331,19 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
+        mapper.export(fp=CONFIG_DIR, format="bin", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
-    def test_008_Conv2dSemiFolded(self):
+    def test_008_Conv2dSemiFolded(self, ensure_test_item_dirs):
         class Net008(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
                 self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 1, 1, tick_wait_start=1)
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_008_Conv2dSemiFolded.__name__
-        TEST_CASE_DIR = DATA_DIR / TEST_NAME
-        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
-        if not TEST_CASE_DIR.exists():
-            TEST_CASE_DIR.mkdir()
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
 
         print(f"\nTest {TEST_NAME} start")
 
@@ -1420,7 +1354,7 @@ class TestOnBoard_SemiFoldedOp:
         sim_time = 35
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        NPZ_FILE = DATA_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -1471,23 +1405,19 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
+        mapper.export(fp=CONFIG_DIR, format="bin", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
-    def test_009_Conv2dSemiFolded(self):
+    def test_009_Conv2dSemiFolded(self, ensure_test_item_dirs):
         class Net009(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
                 self.i1 = pb.InputProj(input=_out_bypass1, shape_out=shape1[:2])
                 self.conv1 = pb.Conv2dSemiFolded(self.i1, w2, 1, 1, tick_wait_start=1)
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_009_Conv2dSemiFolded.__name__
-        TEST_CASE_DIR = DATA_DIR / TEST_NAME
-        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
-        if not TEST_CASE_DIR.exists():
-            TEST_CASE_DIR.mkdir()
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
 
         print(f"\nTest {TEST_NAME} start")
 
@@ -1498,7 +1428,7 @@ class TestOnBoard_SemiFoldedOp:
         sim_time = 35
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        NPZ_FILE = DATA_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -1546,11 +1476,11 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
+        mapper.export(fp=CONFIG_DIR, format="bin", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
-    def test_010_MaxPool2dSemiFolded(self):
+    def test_010_MaxPool2dSemiFolded(self, ensure_test_item_dirs):
         class Net010(pb.DynSysGroup):
             def __init__(self, ksize):
                 super().__init__()
@@ -1559,12 +1489,8 @@ class TestOnBoard_SemiFoldedOp:
                     self.i1, ksize, 2, tick_wait_start=1
                 )
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_010_MaxPool2dSemiFolded.__name__
-        TEST_CASE_DIR = DATA_DIR / TEST_NAME
-        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
-        if not TEST_CASE_DIR.exists():
-            TEST_CASE_DIR.mkdir()
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
 
         print(f"\nTest {TEST_NAME} start")
 
@@ -1575,7 +1501,7 @@ class TestOnBoard_SemiFoldedOp:
         sim_time = 32
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        NPZ_FILE = DATA_DIR / "data.npz"
 
         try:
             npz = np.load(NPZ_FILE)
@@ -1620,11 +1546,11 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
+        mapper.export(fp=CONFIG_DIR, format="bin", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
-    def test_011_AvgPool2dSemiFolded(self):
+    def test_011_AvgPool2dSemiFolded(self, ensure_test_item_dirs):
         class Net011(pb.DynSysGroup):
             def __init__(self, ksize):
                 super().__init__()
@@ -1633,12 +1559,8 @@ class TestOnBoard_SemiFoldedOp:
                     self.i1, ksize, 2, 0, tick_wait_start=1
                 )
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_011_AvgPool2dSemiFolded.__name__
-        TEST_CASE_DIR = DATA_DIR / TEST_NAME
-        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
-        if not TEST_CASE_DIR.exists():
-            TEST_CASE_DIR.mkdir()
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
 
         print(f"\nTest {TEST_NAME} start")
 
@@ -1649,7 +1571,7 @@ class TestOnBoard_SemiFoldedOp:
         sim_time = 32
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        NPZ_FILE = DATA_DIR / "data.npz"
 
         try:
             npz = np.load(NPZ_FILE)
@@ -1694,11 +1616,11 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
+        mapper.export(fp=CONFIG_DIR, format="bin", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
-    def test_012_Conv2dSemiFoldedNet(self):
+    def test_012_Conv2dSemiFoldedNet(self, ensure_test_item_dirs):
         class Net012(pb.DynSysGroup):
             def __init__(self, w1, w2, w3):
                 super().__init__()
@@ -1713,12 +1635,8 @@ class TestOnBoard_SemiFoldedOp:
                     self.conv2, out_shape[1], weights=w3, bias=2, tick_wait_start=5
                 )
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_012_Conv2dSemiFoldedNet.__name__
-        TEST_CASE_DIR = DATA_DIR / TEST_NAME
-        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
-        if not TEST_CASE_DIR.exists():
-            TEST_CASE_DIR.mkdir()
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
 
         print(f"\nTest {TEST_NAME} start")
 
@@ -1730,7 +1648,7 @@ class TestOnBoard_SemiFoldedOp:
         sim_time = 40
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        NPZ_FILE = DATA_DIR / "data.npz"
 
         try:
             npz = np.load(NPZ_FILE)
@@ -1793,11 +1711,11 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
+        mapper.export(fp=CONFIG_DIR, format="bin", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
-    def test_013_Conv2dSemiFoldedNet(self):
+    def test_013_Conv2dSemiFoldedNet(self, ensure_test_item_dirs):
         class Net013(pb.DynSysGroup):
             def __init__(self, w1, w2, w3):
                 super().__init__()
@@ -1810,12 +1728,8 @@ class TestOnBoard_SemiFoldedOp:
                     self.conv2, out_shape[1], weights=w3, bias=2, tick_wait_start=5
                 )
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_013_Conv2dSemiFoldedNet.__name__
-        TEST_CASE_DIR = DATA_DIR / TEST_NAME
-        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
-        if not TEST_CASE_DIR.exists():
-            TEST_CASE_DIR.mkdir()
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
 
         print(f"\nTest {TEST_NAME} start")
 
@@ -1827,7 +1741,7 @@ class TestOnBoard_SemiFoldedOp:
         sim_time = 40
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        NPZ_FILE = DATA_DIR / "data.npz"
         try:
             npz = np.load(NPZ_FILE)
             weight1 = npz["weight1"]
@@ -1889,11 +1803,11 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
+        mapper.export(fp=CONFIG_DIR, format="bin", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
-    def test_014_CNNSemiFoldedNet(self):
+    def test_014_CNNSemiFoldedNet(self, ensure_test_item_dirs):
         class Net014(pb.DynSysGroup):
             def __init__(self, w1, w2, w3):
                 super().__init__()
@@ -1913,12 +1827,8 @@ class TestOnBoard_SemiFoldedOp:
                     self.pool2, out_shape[1], weights=w3, bias=2, tick_wait_start=9
                 )
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_014_CNNSemiFoldedNet.__name__
-        TEST_CASE_DIR = DATA_DIR / TEST_NAME
-        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
-        if not TEST_CASE_DIR.exists():
-            TEST_CASE_DIR.mkdir()
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
 
         print(f"\nTest {TEST_NAME} start")
 
@@ -1930,7 +1840,7 @@ class TestOnBoard_SemiFoldedOp:
         sim_time = 42
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        NPZ_FILE = DATA_DIR / "data.npz"
 
         try:
             npz = np.load(NPZ_FILE)
@@ -1993,11 +1903,11 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
+        mapper.export(fp=CONFIG_DIR, format="bin", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
-    def test_015_Conv2dSemiFoldedNet(self):
+    def test_015_Conv2dSemiFoldedNet(self, ensure_test_item_dirs):
         class Net015(pb.DynSysGroup):
             def __init__(self, w1, w2, w3):
                 super().__init__()
@@ -2017,12 +1927,8 @@ class TestOnBoard_SemiFoldedOp:
                     rin_buffer_option=True,
                 )
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_015_Conv2dSemiFoldedNet.__name__
-        TEST_CASE_DIR = DATA_DIR / TEST_NAME
-        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
-        if not TEST_CASE_DIR.exists():
-            TEST_CASE_DIR.mkdir()
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
 
         print(f"\nTest {TEST_NAME} start")
 
@@ -2034,7 +1940,7 @@ class TestOnBoard_SemiFoldedOp:
         sim_time = 40
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        NPZ_FILE = DATA_DIR / "data.npz"
 
         try:
             npz = np.load(NPZ_FILE)
@@ -2097,11 +2003,11 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
+        mapper.export(fp=CONFIG_DIR, format="bin", use_hw_sim=True)
 
         print(f"Test {TEST_NAME} end")
 
-    def test_016_Conv2dSemiFoldedNet(self):
+    def test_016_Conv2dSemiFoldedNet(self, ensure_test_item_dirs):
         class Net016(pb.DynSysGroup):
             def __init__(self, w1, w2):
                 super().__init__()
@@ -2116,12 +2022,8 @@ class TestOnBoard_SemiFoldedOp:
                 #     self.conv2, out_shape[1], weights=w3, bias=2, tick_wait_start=5
                 # )
 
-        USE_EXISTING_DATA = False
         TEST_NAME = self.test_016_Conv2dSemiFoldedNet.__name__
-        TEST_CASE_DIR = DATA_DIR / TEST_NAME
-        CONFIG_CASE_DIR = CONFIG_DIR / TEST_NAME
-        if not TEST_CASE_DIR.exists():
-            TEST_CASE_DIR.mkdir()
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
 
         print(f"\nTest {TEST_NAME} start")
 
@@ -2133,7 +2035,7 @@ class TestOnBoard_SemiFoldedOp:
         sim_time = 40
 
         USE_EXISTING_DATA = False
-        NPZ_FILE = TEST_CASE_DIR / "data.npz"
+        NPZ_FILE = DATA_DIR / "data.npz"
 
         try:
             npz = np.load(NPZ_FILE)
@@ -2190,7 +2092,214 @@ class TestOnBoard_SemiFoldedOp:
         mapper = pb.Mapper()
         mapper.build(network)
         mapper.compile(weight_bit_optimization=False)
-        mapper.export(fp=CONFIG_CASE_DIR, format="txt", use_hw_sim=True)
+        mapper.export(fp=CONFIG_DIR, format="bin", use_hw_sim=True)
+
+        print(f"Test {TEST_NAME} end")
+
+
+class TestOnBoard_ReadNeuronVoltage:
+    # Test cases for reading neuron voltage. Don't care the weights.
+    def test_001_one_onode(self, ensure_test_item_dirs):
+        # 1 output node on 4 cores
+        class Net001(pb.Network):
+            def __init__(self, w1):
+                super().__init__()
+                self.i1 = pb.InputProj(_out_bypass1, shape_out=(100,))
+                self.n1 = pb.IF((200,), 127, tick_wait_start=1)
+                self.s1 = pb.FullConn(self.i1, self.n1, w1)
+                self.probe1 = pb.Probe(self.n1, "voltage")
+
+        TEST_NAME = self.test_001_one_onode.__name__
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
+
+        print(f"\nTest {TEST_NAME} start")
+
+        sim_time = 1
+
+        USE_EXISTING_DATA = False
+        NPZ_FILE = DATA_DIR / "data.npz"
+
+        try:
+            npz = np.load(NPZ_FILE)
+            weight1 = npz["weight1"]
+            inpdata1 = npz["inpdata1"]
+            refresult1 = npz["refresult1"]
+            print("Using the existing data file")
+            USE_EXISTING_DATA = True
+        except:
+            pass
+
+        if not USE_EXISTING_DATA:
+            print("Generating new data")
+            inpdata1 = FIXED_RNG.integers(0, 4, size=(100,), dtype=NEUOUT_U8_DTYPE)
+            weight1 = FIXED_RNG.integers(-10, 10, size=(100, 200), dtype=np.int8)
+            # Shape of reference result is sim_time * refdata
+            # The result is the voltage of n1
+            refresult1 = np.zeros((sim_time, 200), dtype=VOLTAGE_DTYPE)
+
+        network = Net001(weight1)
+        sim = pb.Simulator(network, start_time_zero=False)
+
+        for i in range(sim_time):
+            pb.FRONTEND_ENV.save(data1=inpdata1[i])
+            sim.run(1)
+
+            v_n1 = sim.data[network.probe1][i]
+            if USE_EXISTING_DATA:
+                assert np.array_equal(v_n1, refresult1[i, :])
+            else:
+                refresult1[i, :] = v_n1
+
+            print(f"t={i + 1}\n", v_n1)
+
+        # Save weights & voltage of n1
+        if not USE_EXISTING_DATA:
+            np.savez(
+                NPZ_FILE, weight1=weight1, inpdata1=inpdata1, refresult1=refresult1
+            )
+
+        mapper = pb.Mapper()
+        mapper.build(network)
+        mapper.compile(weight_bit_optimization=False)
+        mapper.export(
+            fp=CONFIG_DIR, format="bin", use_hw_sim=True, read_voltage=network.n1
+        )
+
+        print(f"Test {TEST_NAME} end")
+
+    def test_002_one_onode_lcn(self, ensure_test_item_dirs):
+        # 1 output node on 4 cores, lcn > 1
+        class Net002(pb.Network):
+            def __init__(self, w1):
+                super().__init__()
+                self.i1 = pb.InputProj(_out_bypass1, shape_out=(2000,))
+                self.n1 = pb.IF((100,), 127, tick_wait_start=1)
+                self.s1 = pb.FullConn(self.i1, self.n1, w1)
+                self.probe1 = pb.Probe(self.n1, "voltage")
+
+        TEST_NAME = self.test_002_one_onode_lcn.__name__
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
+
+        print(f"\nTest {TEST_NAME} start")
+
+        sim_time = 1
+
+        USE_EXISTING_DATA = False
+        NPZ_FILE = DATA_DIR / "data.npz"
+
+        try:
+            npz = np.load(NPZ_FILE)
+            weight1 = npz["weight1"]
+            inpdata1 = npz["inpdata1"]
+            refresult1 = npz["refresult1"]
+            print("Using the existing data file")
+            USE_EXISTING_DATA = True
+        except:
+            pass
+
+        if not USE_EXISTING_DATA:
+            print("Generating new data")
+            inpdata1 = FIXED_RNG.integers(0, 4, size=(2000,), dtype=NEUOUT_U8_DTYPE)
+            weight1 = FIXED_RNG.integers(-9, 10, size=(2000, 100), dtype=np.int8)
+            # Shape of reference result is sim_time * refdata
+            # The result is the voltage of n1
+            refresult1 = np.zeros((sim_time, 100), dtype=VOLTAGE_DTYPE)
+
+        network = Net002(weight1)
+        sim = pb.Simulator(network, start_time_zero=False)
+
+        for i in range(sim_time):
+            pb.FRONTEND_ENV.save(data1=inpdata1[i])
+            sim.run(1)
+
+            v_n1 = sim.data[network.probe1][i]
+            if USE_EXISTING_DATA:
+                assert np.array_equal(v_n1, refresult1[i, :])
+            else:
+                refresult1[i, :] = v_n1
+
+            print(f"t={i + 1}\n", v_n1)
+
+        # Save weights & voltage of n1
+        if not USE_EXISTING_DATA:
+            np.savez(
+                NPZ_FILE, weight1=weight1, inpdata1=inpdata1, refresult1=refresult1
+            )
+
+        mapper = pb.Mapper()
+        mapper.build(network)
+        mapper.compile(weight_bit_optimization=False)
+        mapper.export(
+            fp=CONFIG_DIR, format="bin", use_hw_sim=True, read_voltage=network.n1
+        )
+
+        print(f"Test {TEST_NAME} end")
+
+    def test_003_one_onode_lcn_ann(self, ensure_test_item_dirs):
+        # 1 output node on 4 cores, lcn > 1, ANN mode
+        class Net003(pb.Network):
+            def __init__(self, w1):
+                super().__init__()
+                self.i1 = pb.InputProj(_out_bypass1, shape_out=(400,))
+                self.n1 = pb.ANNNeuron((400,), tick_wait_start=1)
+                self.s1 = pb.FullConn(self.i1, self.n1, w1)
+                self.probe1 = pb.Probe(self.n1, "voltage")
+
+        TEST_NAME = self.test_003_one_onode_lcn_ann.__name__
+        DATA_DIR, CONFIG_DIR = ensure_test_item_dirs
+
+        print(f"\nTest {TEST_NAME} start")
+
+        sim_time = 1
+
+        USE_EXISTING_DATA = False
+        NPZ_FILE = DATA_DIR / "data.npz"
+
+        try:
+            npz = np.load(NPZ_FILE)
+            weight1 = npz["weight1"]
+            inpdata1 = npz["inpdata1"]
+            refresult1 = npz["refresult1"]
+            print("Using the existing data file")
+            USE_EXISTING_DATA = True
+        except:
+            pass
+
+        if not USE_EXISTING_DATA:
+            print("Generating new data")
+            inpdata1 = FIXED_RNG.integers(0, 4, size=(400,), dtype=NEUOUT_U8_DTYPE)
+            weight1 = FIXED_RNG.integers(-10, 10, size=(400, 400), dtype=np.int8)
+            # Shape of reference result is sim_time * refdata
+            # The result is the voltage of n1
+            refresult1 = np.zeros((sim_time, 400), dtype=VOLTAGE_DTYPE)
+
+        network = Net003(weight1)
+        sim = pb.Simulator(network, start_time_zero=False)
+
+        for i in range(sim_time):
+            pb.FRONTEND_ENV.save(data1=inpdata1[i])
+            sim.run(1)
+
+            v_n1 = sim.data[network.probe1][i]
+            if USE_EXISTING_DATA:
+                assert np.array_equal(v_n1, refresult1[i, :])
+            else:
+                refresult1[i, :] = v_n1
+
+            print(f"t={i + 1}\n", v_n1)
+
+        # Save weights & voltage of n1
+        if not USE_EXISTING_DATA:
+            np.savez(
+                NPZ_FILE, weight1=weight1, inpdata1=inpdata1, refresult1=refresult1
+            )
+
+        mapper = pb.Mapper()
+        mapper.build(network)
+        mapper.compile(weight_bit_optimization=False)
+        mapper.export(
+            fp=CONFIG_DIR, format="bin", use_hw_sim=True, read_voltage=network.n1
+        )
 
         print(f"Test {TEST_NAME} end")
 

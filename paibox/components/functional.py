@@ -1741,7 +1741,9 @@ def _sum_inputs_sadd_ssub(
     x1: NeuOutType, x2: NeuOutType, f1: int, f2: int, vjt_pre: VoltageType, strict: bool
 ) -> VoltageType:
     """Function `sum_input()` for spiking addition & subtraction."""
-    incoming_v = (vjt_pre + x1 * f1 + x2 * f2).astype(VOLTAGE_DTYPE)
+    incoming_v = (
+        vjt_pre + x1.astype(VOLTAGE_DTYPE) * f1 + x2.astype(VOLTAGE_DTYPE) * f2
+    ).astype(VOLTAGE_DTYPE)
     return vjt_overflow(incoming_v, strict)
 
 
@@ -1772,7 +1774,7 @@ def _transpose2d_mapping(op_shape: tuple[int, ...]) -> WeightType:
     for idx in np.ndindex(op_shape):
         mt[idx[0] * op_shape[1] + idx[1], idx[1] * op_shape[0] + idx[0]] = 1
 
-    return mt
+    return mt.astype(WEIGHT_DTYPE)
 
 
 def _transpose3d_mapping(
@@ -1801,7 +1803,7 @@ def _transpose3d_mapping(
             idx[axes[0]] * size12_t + idx[axes[1]] * shape_t[2] + idx[axes[2]],
         ] = 1
 
-    return mt
+    return mt.astype(WEIGHT_DTYPE)
 
 
 def _delay_mapping_mask(h: int, cin: int) -> WeightType:

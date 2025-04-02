@@ -3,7 +3,6 @@ import warnings
 from typing import Any, Optional
 
 import numpy as np
-from numpy.typing import NDArray
 
 from paibox.base import DynamicSys, PAIBoxObject
 from paibox.context import _FRONTEND_CONTEXT
@@ -113,7 +112,7 @@ class Simulator(PAIBoxObject):
                 f"the number of simulation steps must be positive, but got {n_steps}."
             )
 
-        indices = np.arange(self._ts, self._ts + n_steps, dtype=np.uint16)
+        indices = list(range(self._ts, self._ts + n_steps))
 
         if reset:
             self.target.reset_state()
@@ -146,9 +145,9 @@ class Simulator(PAIBoxObject):
         else:
             raise KeyError(f"probe '{probe.name}' does not exist.")
 
-    def _run_step(self, indices: NDArray[np.uint16], **kwargs) -> None:
-        for i in range(indices.shape[0]):
-            _FRONTEND_CONTEXT["t"] = indices[i]
+    def _run_step(self, indices: list[int], **kwargs) -> None:
+        for idx in indices:
+            _FRONTEND_CONTEXT["t"] = idx
             self.target.update(**kwargs)
             self._update_probes()
 

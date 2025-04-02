@@ -1,6 +1,7 @@
 import sys
-from collections import defaultdict
+from collections import ChainMap, defaultdict
 from collections.abc import Sequence
+from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
@@ -19,12 +20,13 @@ from .conf_types import (
     FrameArrayType,
     GraphInfo,
     InputNodeConf,
+    NeuPhyLocMap,
     NeuronConfig,
     OutputDestConf,
     _gh_info2exported_gh_info,
 )
 from .context import _BACKEND_CONTEXT
-from .placement import CorePlacement
+from .placement import CoreBlock, CorePlacement
 from .types import _RID_UNSET
 
 if _USE_ORJSON:
@@ -48,32 +50,26 @@ __all__ = [
     "export_used_L2_clusters",
     "export_aux_gh_info",
     "get_clk_en_L2_dict",
+    "get_neuron_phy_loc",
 ]
 
 
 def gen_config_frames_by_coreconf(
     config_dict: CorePlmConf,
+    config_dict_wasted: CorePlmConf,
     write_to_file: bool,
     fp: Path,
-    split_by_chip: bool,
     formats: Sequence[str],
+    split_by_chip: bool,
 ) -> dict[ChipCoord, list[FrameArrayType]]:
     """Generate configuration frames by given the `CorePlmConf`."""
-
-    def _write_to_f(name: str, array: FrameArrayType) -> None:
-        for format in formats:
-            _fp = (fp / name).with_suffix("." + format)  # don't forget "."
-            if format == "npy":
-                np2npy(_fp, array)
-            elif format == "bin":
-                np2bin(_fp, array)
-            else:
-                np2txt(_fp, array)
-
     frame_arrays_total: dict[ChipCoord, list[FrameArrayType]] = defaultdict(list)
 
     for chip_coord, conf_inchip in config_dict.items():
-        for core_coord, v in conf_inchip.items():
+        # Merge the wasted config with the current config in a single chip.
+        _conf_inchip = ChainMap(config_dict_wasted.get(chip_coord, {}), conf_inchip)
+
+        for core_coord, v in _conf_inchip.items():
             # 1. Only one config frame type I for each physical core.
             config_frame_type1 = OfflineFrameGen.gen_config_frame1(
                 chip_coord, core_coord, _RID_UNSET, v.random_seed
@@ -189,6 +185,17 @@ def gen_config_frames_by_coreconf(
             )
 
     if write_to_file:
+
+        def _write_to_f(name: str, array: FrameArrayType) -> None:
+            for format in formats:
+                _fp = (fp / name).with_suffix("." + format)  # don't forget "."
+                if format == "npy":
+                    np2npy(_fp, array)
+                elif format == "bin":
+                    np2bin(_fp, array)
+                else:
+                    np2txt(_fp, array)
+
         if split_by_chip:
             for chip, frame_arrays_onchip in frame_arrays_total.items():
                 f = np.hstack(frame_arrays_onchip, casting="no")
@@ -418,3 +425,46 @@ def get_clk_en_L2_dict(
         clk_en_L2_dict[chip_addr] = to_clk_en_L2_u8(used_L2_inchip)
 
     return clk_en_L2_dict
+
+
+def export_neuron_phy_loc(
+    neu_phy_locs: NeuPhyLocMap, fp: Path, fname: str = "neuron_phy_loc"
+) -> None:
+    _full_fp = _with_suffix_json(fp, fname)
+
+    _valid_conf = {}
+    for neu_name, neu_loc in neu_phy_locs.items():
+        _valid_conf[neu_name] = {}
+        for chip_coord, core_locs in neu_loc.items():
+            _valid_conf[neu_name][str(chip_coord)] = {}
+            for core_coord, neu_segs in core_locs.items():
+                _valid_conf[neu_name][str(chip_coord)][str(core_coord)] = [
+                    asdict(ram_addr) for ram_addr in neu_segs
+                ]
+
+    if _USE_ORJSON:
+        with open(_full_fp, "wb") as f:
+            f.write(orjson.dumps(_valid_conf, option=orjson.OPT_INDENT_2))
+    else:
+        with open(_full_fp, "w") as f:
+            json.dump(_valid_conf, f, indent=2)
+
+
+def get_neuron_phy_loc(
+    core_blocks: list[CoreBlock], targets: Sequence[Neuron]
+) -> NeuPhyLocMap:
+    """Get the physical locations of neurons."""
+    names = {neu.name for neu in targets}  # remove duplicates
+    locations: NeuPhyLocMap = defaultdict(
+        lambda: defaultdict(lambda: defaultdict(list))
+    )
+
+    for cb in core_blocks:
+        for core_coord, neu_segs in zip(cb.core_coords, cb.neuron_segs_of_cb):
+            for seg in neu_segs:
+                if (neu_name := seg.target.name) in names:
+                    locations[neu_name][cb.chip_coord][core_coord].append(
+                        seg.neu_seg_addr
+                    )
+
+    return locations
