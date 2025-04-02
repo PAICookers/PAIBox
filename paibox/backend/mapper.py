@@ -65,6 +65,7 @@ class Mapper:
         self.succ_routing_groups: dict[RoutingGroup, list[RoutingGroup]] = dict()
 
         self.core_plm_config: CorePlmConf = defaultdict(dict)
+        self.core_plm_config_wasted: CorePlmConf = defaultdict(dict)
         self.core_params: CoreConf = defaultdict(dict)
         """The dictionary of core parameters."""
 
@@ -530,7 +531,9 @@ class Mapper:
                     ] = core_plm.export_core_plm_config()
 
             # Generate default configurations for wasted core placements of the routing group
-            self.core_plm_config[rg.chip_coord].update(rg.get_wasted_cplm_config())
+            self.core_plm_config_wasted[rg.chip_coord].update(
+                rg.get_wasted_cplm_config()
+            )
 
         return output_dest_info
 
@@ -617,6 +620,7 @@ class Mapper:
             Union[str, Neuron, Sequence[str], Sequence[Neuron]]
         ] = None,
         split_by_chip: bool = False,
+        export_wasted_cores: bool = True,
         export_clk_en_L2: bool = False,
         use_hw_sim: bool = True,
     ) -> dict[ChipCoord, list[FrameArrayType]]:
@@ -630,6 +634,7 @@ class Mapper:
             read_voltage (Neuron, Sequence[Neuron]): specify the neuron(s) to read its voltage. Their physical locations\
                 on chips will be exported for hardware platform to read.
             split_by_chip (bool): whether to split the generated frames file by the chips.
+            export_wasted_cores (bool): whether to export the configuration of wasted cores.
             export_used_L2 (bool): whether to export the serial port data of the L2 cluster clocks.
             use_hw_sim (bool): whether to use hardware simulator. If used, '.bin' will be exported. If `write_to_file`  \
                 is false, this argument is ignored.
@@ -655,8 +660,19 @@ class Mapper:
                 formats.append("bin")
 
         _fp = _fp_check(fp)
+
+        if export_wasted_cores:
+            _wasted_cplm_conf = self.core_plm_config_wasted
+        else:
+            _wasted_cplm_conf = {}
+
         config_dict = gen_config_frames_by_coreconf(
-            self.graph_info["members"], write_to_file, _fp, formats, split_by_chip
+            self.graph_info["members"],
+            _wasted_cplm_conf,
+            write_to_file,
+            _fp,
+            formats,
+            split_by_chip,
         )
 
         # Export the parameters of occupied cores
