@@ -1741,7 +1741,9 @@ def _sum_inputs_sadd_ssub(
     x1: NeuOutType, x2: NeuOutType, f1: int, f2: int, vjt_pre: VoltageType, strict: bool
 ) -> VoltageType:
     """Function `sum_input()` for spiking addition & subtraction."""
-    incoming_v = (vjt_pre + x1.astype(VOLTAGE_DTYPE) * f1 + x2.astype(VOLTAGE_DTYPE) * f2).astype(VOLTAGE_DTYPE)
+    incoming_v = (
+        vjt_pre + x1.astype(VOLTAGE_DTYPE) * f1 + x2.astype(VOLTAGE_DTYPE) * f2
+    ).astype(VOLTAGE_DTYPE)
     return vjt_overflow(incoming_v, strict)
 
 
