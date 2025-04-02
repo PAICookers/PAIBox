@@ -44,7 +44,8 @@ repos:
       - id: mixed-line-ending
       - id: requirements-txt-fixer
       - id: pretty-format-json
-        args: [--autofix, --indent 2]
+        # Some json test data are sensitive to the order of keys
+        args: ["--autofix", "--indent", "2", "--no-sort-keys"]
       - id: no-commit-to-branch
 
   - repo: https://github.com/python-poetry/poetry
