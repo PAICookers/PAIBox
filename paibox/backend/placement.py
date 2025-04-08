@@ -445,6 +445,8 @@ class CoreBlock(CoreAbstract):
         tabs = "\t" * i
         print(f"{tabs}{self.name} with {self.n_core_required} cores:")
         print(f"{tabs}\tLCN: {self.lcn_ex}")
+        print(f"{tabs}\tweight_width: {self.weight_width}")
+        print(f"{tabs}\tdendrite_per_core: {self.n_fanout}")
         for edge in self._parents:
             print(f"{tabs}\t{edge.name}: {edge.source.name} -> {edge.target.name}")
 

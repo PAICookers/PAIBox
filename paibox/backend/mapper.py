@@ -4,10 +4,10 @@ from copy import copy
 from pathlib import Path
 from typing import Literal, Optional, Union
 
-from paicorelib import ChipCoord, Coord, CoordOffset, HwConfig, get_replication_id
+from paicorelib import ChipCoord, Coord, CoordOffset, HwConfig, get_replication_id, ONLINE_CORES_BASE_COORD
 
 from paibox.base import SynSys
-from paibox.components import Neuron
+from paibox.components import Neuron, InputProj, FullConnSyn, ConnType
 from paibox.exceptions import CompileError, ConfigInvalidError, ResourceError
 from paibox.network import DynSysGroup
 
@@ -80,8 +80,9 @@ class Mapper:
 
         self.clear()
 
-    def clear(self) -> None:
-        self.graph.clear()
+    def clear(self, reserve_graph: bool = False) -> None:
+        if not reserve_graph:
+            self.graph.clear()
 
         self.core_blocks.clear()
         self.succ_core_blocks.clear()
@@ -184,44 +185,53 @@ class Mapper:
             1. Check whether the PAIGraph has built.
             2. Set global compilation flags.
         """
-        self._build_check()
-        self._set_global_cflags()
+        while (True):
+            self._build_check()
+            self._set_global_cflags()
 
-        """Untwist the branch nodes if flag is on."""
-        if no_twisted_branch:
-            self.untwist_branch_nodes()
+            """Untwist the branch nodes if flag is on."""
+            if no_twisted_branch:
+                self.untwist_branch_nodes()
 
-        self.graph.topo_support_check()  # not used for now
+            self.graph.topo_support_check()  # not used for now
 
-        """Build core blocks."""
-        self.build_core_blocks()
+            """Build core blocks."""
+            self.build_core_blocks()
 
-        """Adjust the LCN extension of each core block."""
-        self.lcn_ex_adjustment()
+            """Adjust the LCN extension of each core block."""
+            self.lcn_ex_adjustment()
 
-        """Group the axons of core block."""
-        self.cb_axon_grouping()
+            """Group the axons of core block."""
+            self.cb_axon_grouping()
 
-        """Core coordinate assignment."""
-        self.coord_assign(self._core_estimate_only)
+            """Core coordinate assignment."""
+            
+            assign_success = self.coord_assign(self._core_estimate_only)
+            if not assign_success:
+                # the graph has been changed, restart the compilation
+                self.clear(reserve_graph=True)
+                self.graph.clear(total=False)
+                self.graph._update_graph()
+                continue
+                
 
-        if self._core_estimate_only:
-            return GraphInfo(
-                name=self.graph.graph_name_repr,
-                input={},
-                output={},
-                members={},
-                inherent_timestep=self.graph.get_global_t_1st_vld(),
-                output_flow_format=self.graph.get_output_flow_format(),
-                n_core_required=self.n_core_required,
-                n_core_occupied=0,
-            )
+            if self._core_estimate_only:
+                return GraphInfo(
+                    name=self.graph.graph_name_repr,
+                    input={},
+                    output={},
+                    members={},
+                    inherent_timestep=self.graph.get_global_t_1st_vld(),
+                    output_flow_format=self.graph.get_output_flow_format(),
+                    n_core_required=self.n_core_required,
+                    n_core_occupied=0,
+                )
 
-        """Allocate the core blocks to the core placments."""
-        self.core_allocation()
+            """Allocate the core blocks to the core placments."""
+            self.core_allocation()
 
-        """Export configurations. This step does not modify any data."""
-        return self.config_export()
+            """Export configurations. This step does not modify any data."""
+            return self.config_export()
 
     def untwist_branch_nodes(self) -> None:
         self.graph.untwist_branch_nodes()
@@ -239,8 +249,8 @@ class Mapper:
             routing_groups.extend(rg.optimize_group())
         self.routing_groups = routing_groups
 
-        for rg in self.routing_groups:
-            rg.dump()
+        # for rg in self.routing_groups:
+        #     rg.dump()
 
         for rg in self.routing_groups:
             self.core_blocks += rg.core_blocks
@@ -321,7 +331,7 @@ class Mapper:
             self.build_core_blocks()
             self.lcn_ex_adjustment()
 
-    def coord_assign(self, core_estimate_only: bool) -> None:
+    def coord_assign(self, core_estimate_only: bool) -> bool:
         """Assign the coordinate of each `CorePlacement`.
 
         NOTE: The neurons in each core block must be grouped first to determine the \
@@ -335,10 +345,104 @@ class Mapper:
 
         for rg in self.routing_groups:
             rg.set_core_required()
+        
+        self.routing_groups = toposort(self.succ_routing_groups)
+        #bubble sort routing groups by the number of cores required from big to small
+        for i in range(len(self.routing_groups)):
+            for j in range(0, len(self.routing_groups)-i-1):
+                front = self.routing_groups[j]
+                back = self.routing_groups[j+1]
+                num_factor = front.n_core_required < back.n_core_required
+                topo_factor = back not in self.succ_routing_groups[front]
+                if num_factor and topo_factor:
+                    self.routing_groups[j], self.routing_groups[j+1] = back, front
+        
+        for rg in self.routing_groups:
+            rg.dump()
+        
+        flag = False
+        for rg in self.routing_groups:
+            if rg.n_core_required > ONLINE_CORES_BASE_COORD:
+                flag = True
+                print("meet the condition of out of core")
+                rg.dump()
+                # only support the root routing group
+                # only support the simplest case, input to the first layer of the net
+                if not rg.is_root:
+                    raise NotImplementedError("only support the root routing group")
+                if len(rg.core_blocks) != 1:
+                    raise NotImplementedError("only support one core block")
+                core_block = rg.core_blocks[0]
+                if len(core_block.obj) != 1:
+                    raise NotImplementedError("only support one object")
+                target_edge = core_block.obj[0]
+                if not isinstance(target_edge.source, InputProj):
+                    raise NotImplementedError("only support input projection")
+                n_core_remain = core_block.n_core_required
+                fanout  = core_block.n_fanout
+                neuron_remain = target_edge.num_out
+                offset = 0
+                new_edges:list[FullConnSyn] = []
+                inputs: list[Neuron] = []
+                dests:list[Neuron] = []
+                offsets:list[int] = []
+                while n_core_remain > 0:
+                    print(f"n_core_remain: {n_core_remain}, neuron_remain: {neuron_remain}")
+                    n_core_alloc = max(2**(n_core_remain.bit_length() - 1), HwConfig.N_CORE_ONLINE * 8)
+                    print(f"allocate {n_core_alloc} cores")
+                    neuron_alloc = min(fanout * n_core_alloc, neuron_remain)
+                    input = target_edge.source.copy()
+                    dest = target_edge.dest.copy()
+                    dest.shape_change(neuron_alloc)
+                    edge_name = f"{target_edge.name}_{offset}_{offset + neuron_alloc}"
+                    print(f"create new edge {edge_name} with {neuron_alloc} neurons\n")
+                    new_edge = FullConnSyn(
+                        input,
+                        dest,
+                        target_edge.connectivity[:, offset:offset + neuron_alloc],
+                        ConnType.All2All,
+                        edge_name,
+                    )
+                    new_edges.append(new_edge)
+                    inputs.append(input)
+                    dests.append(dest)
+                    offsets.append(offset)
+                    offset = min(target_edge.num_out, offset + neuron_alloc)
+                    n_core_remain = max(0, n_core_remain - n_core_alloc)
+                    
+                    neuron_remain = max(0, neuron_remain - neuron_alloc)
+                    
+                edge_to_pop: list[FullConnSyn] = [target_edge]
+                for edge in self.graph._raw_edges.values():
+                    if edge.source.name == target_edge.dest.name:
+                        edge_to_pop.append(edge)
+                        for offset, src in zip(offsets, dests):
+                            print(f"create new edge {edge.name}_{offset}_{offset + src.num_out}")
+                            new_edge = FullConnSyn(
+                                src,
+                                edge.dest,
+                                edge.connectivity[offset:offset + src.num_out],
+                                ConnType.All2All,
+                                f"{edge.name}_{offset}_{offset + src.num_out}",
+                            )
+                            new_edges.append(new_edge)
+                for edge in edge_to_pop:
+                    self.graph._raw_edges.pop(edge.name)
+                self.graph._raw_nodes.pop(target_edge.dest.name)
+                self.graph._raw_nodes.pop(target_edge.source.name)
+                for edge in new_edges:
+                    self.graph._raw_edges[edge.name] = edge
+                for input in inputs:
+                    self.graph._raw_nodes[input.name] = input
+                for dest in dests:
+                    self.graph._raw_nodes[dest.name] = dest
+        if flag:
+            return False
+        
 
         # Optimize the order of routing groups
         # self.routing_groups = reorder_routing_groups(self.succ_routing_groups)
-        self.routing_groups = toposort(self.succ_routing_groups)
+        
         # Calculate the consumption of required physical cores.
         n_avail_cores = HwConfig.N_CORE_OFFLINE * _BACKEND_CONTEXT.n_target_chips
         n_core_required = sum(cb.n_core_required for cb in self.core_blocks)
@@ -366,7 +470,8 @@ class Mapper:
                 OUT_OF_CORE_RESOURCE_TEXT.format(n_avail_cores, n_core_occupied)
             )
 
-        self.n_core_occupied = n_core_occupied
+        self.n_core_occupied = self.routing_manager.n_core_total
+        return True
 
     def core_allocation(self) -> None:
         """Allocate the routing groups to core placements level."""

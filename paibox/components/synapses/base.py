@@ -4,7 +4,7 @@ import numpy as np
 from paicorelib import HwConfig
 from paicorelib import WeightWidth as WW
 
-from paibox.base import NeuDyn, SynSys
+from paibox.base import SynSys
 from paibox.exceptions import RegisterError, ShapeError
 from paibox.types import DataType, NeuOutType, SynOutType, WeightType
 
@@ -47,8 +47,8 @@ class FullConnectedSyn(SynSys):
 
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
-        target: NeuDyn,
+        source: Union[Neuron, InputProj],
+        target: Neuron,
         name: Optional[str] = None,
     ) -> None:
         super().__init__(name)
@@ -112,24 +112,24 @@ class FullConnectedSyn(SynSys):
 
     def copy(
         self,
-        source: Optional[Union[NeuDyn, InputProj]] = None,
-        target: Optional[NeuDyn] = None,
+        source: Optional[Union[Neuron, InputProj]] = None,
+        target: Optional[Neuron] = None,
     ) -> "FullConnSyn":
         copied = self.__copy__()
-        if isinstance(source, (NeuDyn, InputProj)):
+        if isinstance(source, (Neuron, InputProj)):
             copied.source = source
 
-        if isinstance(target, NeuDyn):
+        if isinstance(target, Neuron):
             copied.target = target
 
         return copied
 
     @property
-    def source(self) -> Union[NeuDyn, InputProj]:
+    def source(self) -> Union[Neuron, InputProj]:
         return self._source
 
     @source.setter
-    def source(self, source: Union[NeuDyn, InputProj]) -> None:
+    def source(self, source: Union[Neuron, InputProj]) -> None:
         """Set a new source neuron."""
         if source.num_out != self.num_in:
             raise RegisterError(
@@ -140,11 +140,11 @@ class FullConnectedSyn(SynSys):
         self._source = source
 
     @property
-    def target(self) -> NeuDyn:
+    def target(self) -> Neuron:
         return self._target
 
     @target.setter
-    def target(self, target: NeuDyn) -> None:
+    def target(self, target: Neuron) -> None:
         """Set a new target neuron."""
         if target.num_in != self.num_out:
             raise RegisterError(
@@ -161,13 +161,13 @@ class FullConnectedSyn(SynSys):
         )
 
     @property
-    def dest(self) -> NeuDyn:
+    def dest(self) -> Neuron:
         # TODO To maintain compatibility, the dest attribute is preserved.
         # Will be removed in a future version.
         return self._target
 
     @dest.setter
-    def dest(self, target: NeuDyn) -> None:
+    def dest(self, target: Neuron) -> None:
         self.target = target
 
     @property
@@ -207,8 +207,8 @@ class FullConnectedSyn(SynSys):
 class FullConnSyn(FullConnectedSyn):
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
-        target: NeuDyn,
+        source: Union[Neuron, InputProj],
+        target: Neuron,
         weights: DataType,
         conn_type: ConnType,
         name: Optional[str] = None,
@@ -246,7 +246,7 @@ class Conv1dSyn(FullConnectedSyn):
 
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
+        source: Union[Neuron, InputProj],
         dest: Neuron,
         kernel: np.ndarray,
         stride: tuple[int],
@@ -294,7 +294,7 @@ class Conv2dSyn(FullConnectedSyn):
 
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
+        source: Union[Neuron, InputProj],
         dest: Neuron,
         kernel: np.ndarray,
         stride: tuple[int, int],
@@ -348,7 +348,7 @@ class Conv2dSemiFoldedSyn(FullConnectedSyn):
 
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
+        source: Union[Neuron, InputProj],
         dest: Neuron,
         kernel: np.ndarray,
         stride: tuple[int, int],
@@ -397,7 +397,7 @@ class ConvTranspose1dSyn(FullConnectedSyn):
 
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
+        source: Union[Neuron, InputProj],
         dest: Neuron,
         kernel: np.ndarray,
         stride: tuple[int],
@@ -447,7 +447,7 @@ class ConvTranspose2dSyn(FullConnectedSyn):
 
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
+        source: Union[Neuron, InputProj],
         dest: Neuron,
         kernel: np.ndarray,
         stride: tuple[int, int],
@@ -509,7 +509,7 @@ class MaxPoolSyn(FullConnectedSyn):
 
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
+        source: Union[Neuron, InputProj],
         dest: Neuron,
         weights: DataType = 1,
         name: Optional[str] = None,

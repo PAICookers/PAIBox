@@ -329,6 +329,7 @@ class RoutingGroup:
         print(
             f"{tabs}multicast axons: {[axon.name for axon in self.global_axons + self.private_axons]}"
         )
+        print(f"{tabs}num of coreblocks: {len(self.core_blocks)}")
         for elem in self.routing_elems:
             if isinstance(elem, RoutingGroup):
                 elem.dump(i + 1)
@@ -415,7 +416,7 @@ class RoutingManager:
         # for cb in rgrp:
         #     print(f"\t{cb.name}")
         n_core_cost = rgrp.n_core_required
-        n_tail_waste = rgrp.n_tail_waste
+        n_tail_waste = 0
         n_core_req = n_core_cost - n_tail_waste
 
         # Check whether a single routing group can be placed within a single core.

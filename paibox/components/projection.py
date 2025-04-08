@@ -78,6 +78,7 @@ class InputProj(Projection):
 
         self._shape = as_shape(shape_out)
         self.keep_shape = keep_shape
+        self.n_copy = 0
         self.set_memory("_neu_out", np.zeros((self.num_out,), dtype=NEUOUT_U8_DTYPE))
 
     def update(self, *args, **kwargs) -> NeuOutType:
@@ -163,6 +164,16 @@ class InputProj(Projection):
     @property
     def feature_map(self) -> NeuOutType:
         return self._neu_out.reshape(self.varshape)
+    
+    def copy(self) -> "InputProj":
+        """Copy the projection node."""
+        self.n_copy += 1
+        return InputProj(
+            self._num_input,
+            self._shape,
+            keep_shape=self.keep_shape,
+            name = f"{self.name}_copy{self.n_copy}",
+        )
 
 
 def _call_with_ctx(f: Callable[..., DataType], *args, **kwargs) -> DataType:

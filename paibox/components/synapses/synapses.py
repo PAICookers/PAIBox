@@ -2,7 +2,6 @@ from typing import Optional, Union
 
 import numpy as np
 
-from paibox.base import NeuDyn
 from paibox.types import DataType
 
 from ..neuron import Neuron
@@ -31,8 +30,8 @@ __all__ = [
 class FullConn(FullConnSyn):
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
-        dest: NeuDyn,
+        source: Union[Neuron, InputProj],
+        dest: Neuron,
         weights: DataType = 1,
         *,
         conn_type: ConnType = ConnType.All2All,
@@ -53,8 +52,8 @@ class FullConn(FullConnSyn):
 class MatMul2d(FullConnSyn):
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
-        dest: NeuDyn,
+        source: Union[Neuron, InputProj],
+        dest: Neuron,
         weights: np.ndarray,
         name: Optional[str] = None,
     ) -> None:
