@@ -181,9 +181,6 @@ class RoutingGroup:
 
             cur_i = offset
             n = elem.n_core_required
-            # print(
-            #     f"element: {elem}, {n} cores, start at {_Coord2RoutingCoord(allocated[cur_i])}"
-            # )
             assigned, wasted = elem.assign_coord(
                 chip_coord, allocated[cur_i : cur_i + n]
             )
@@ -412,10 +409,11 @@ class RoutingManager:
 
         Returns: a tuple of lists of assigned and wasted coordinates.
         """
-        # for cb in rgrp:
-        #     print(f"\t{cb.name}")
         n_core_cost = rgrp.n_core_required
-        n_tail_waste = rgrp.n_tail_waste
+        # NOTE: The online cores cannot be in the range of offline-cores-to-offline-cores multicast.
+        # So set `n_tail_waste=0` so that the new offline routing group will look for a location
+        # after the online cores.
+        n_tail_waste = 0
         n_core_req = n_core_cost - n_tail_waste
 
         # Check whether a single routing group can be placed within a single core.
