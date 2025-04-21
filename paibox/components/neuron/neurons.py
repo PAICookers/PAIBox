@@ -1,11 +1,11 @@
 import sys
-from typing import Optional
+from typing import Optional, Union
 
 import numpy as np
 from paicorelib import LDM, NTM, RM
 
 from paibox.exceptions import PAIBoxDeprecationWarning
-from paibox.types import LEAK_V_DTYPE, DataType, Shape
+from paibox.types import LEAK_V_DTYPE, DataType, LeakVType, Shape
 
 from .base import Neuron
 from .utils import LEAK_V_MAX, ExtraNeuAttrKwds
@@ -26,6 +26,7 @@ __all__ = [
     "TonicSpiking",
     "PhasicSpiking",
     "BypassNeuron",
+    "StoreVoltageNeuron",
     "Always1Neuron",
     "ANNBypassNeuron",
     "ANNNeuron",
@@ -127,14 +128,6 @@ class LIF(Neuron):
             _reset_v = 0
             _rm = RM.MODE_LINEAR
 
-        if isinstance(bias, np.ndarray):
-            _bias = np.atleast_1d(bias).astype(LEAK_V_DTYPE)
-        else:
-            _bias = int(bias)
-
-        # Support passing in bias & leak_v at the same time
-        _leak_v = leak_v + _bias
-
         super().__init__(
             shape,
             reset_mode=_rm,
@@ -142,7 +135,7 @@ class LIF(Neuron):
             neg_thres_mode=NTM.MODE_SATURATION,
             neg_threshold=neg_threshold,
             pos_threshold=threshold,
-            leak_v=_leak_v,
+            leak_v=leak_v + _bias_to_leak_v(bias),
             keep_shape=keep_shape,
             name=name,
             **kwargs,
@@ -275,6 +268,41 @@ class SpikingRelu(BypassNeuron):
     pass
 
 
+class StoreVoltageNeuron(Neuron):
+    def __init__(
+        self,
+        shape: Shape,
+        leak_v: int = 0,
+        bias: DataType = 0,
+        *,
+        keep_shape: bool = True,
+        name: Optional[str] = None,
+        **kwargs: Unpack[ExtraNeuAttrKwds],
+    ) -> None:
+        """The neuron that stores the voltage and never fires nor resets.
+
+        Args:
+            - shape: shape of neurons.
+            - leak_v: the signed leak voltage will be added directly to the membrane potential.
+                - If it is positive, the membrane potential will increase.
+                - If is is negative, the membrane potential will decrease.
+                - The final leak_v is leak_v + bias (default=0).
+            - bias: if a signed bias is given, it will be added to `leak_v`. The neuron will leak   \
+                before threshold comparison. `leak_v` will also be considered now.
+            - keep_shape: whether to maintain shape in the simulation. Default is `True`.
+            - name: name of the neuron. Optional.
+        """
+        super().__init__(
+            shape,
+            reset_mode=RM.MODE_NONRESET,
+            neg_thres_mode=NTM.MODE_RESET,
+            leak_v=leak_v + _bias_to_leak_v(bias),
+            keep_shape=keep_shape,
+            name=name,
+            **kwargs,
+        )
+
+
 class ANNNeuron(LIF):
     def __init__(
         self,
@@ -309,3 +337,10 @@ class ANNBypassNeuron(ANNNeuron):
         super().__init__(
             shape, bias=0, bit_trunc=8, keep_shape=keep_shape, name=name, **kwargs
         )
+
+
+def _bias_to_leak_v(bias: DataType) -> Union[LeakVType, int]:
+    if isinstance(bias, np.ndarray):
+        return np.atleast_1d(bias).astype(LEAK_V_DTYPE)
+    else:
+        return int(bias)
