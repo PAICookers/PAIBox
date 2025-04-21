@@ -1193,55 +1193,55 @@ mapper.clear()
 
 5. 待读取膜电平的神经元物理位置信息，`neuron_phy_loc.json`，可能存在多个神经元，且每个神经元可能分布在多个核中
 
-  ```json
-  {
-    "n2": {
-      "(0,0)": {
-        "(2,0)": [
-          {
-            "n_neuron": 50,
-            "ram_offset": 0,
-            "interval": 1,
-            "idx_offset": 0
-          }
-        ]
-      }
-    },
-    "n1": {
-      "(0,0)": {
-        "(0,2)": [
-          {
-            "n_neuron": 450,
-            "ram_offset": 0,
-            "interval": 1,
-            "idx_offset": 0
-          }
-        ],
-        "(0,3)": [
-          {
-            "n_neuron": 450,
-            "ram_offset": 0,
-            "interval": 1,
-            "idx_offset": 450
-          }
-        ],
-        "(1,2)": [
-          {
-            "n_neuron": 450,
-            "ram_offset": 0,
-            "interval": 1,
-            "idx_offset": 900
-          }
-        ],
-        "(1,3)": [
-          {
-            "n_neuron": 450,
-            "ram_offset": 0,
-            "interval": 1,
-            "idx_offset": 1350
-          }
-        ]
-      }
+```json
+{
+  "n2": {
+    "(0,0)": {
+      "(2,0)": [
+        {
+          "n_neuron": 50,
+          "ram_offset": 0,
+          "interval": 1,
+          "idx_offset": 0
+        }
+      ]
+    }
+  },
+  "n1": {
+    "(0,0)": {
+      "(0,2)": [
+        {
+          "n_neuron": 450,
+          "ram_offset": 0,
+          "interval": 1,
+          "idx_offset": 0
+        }
+      ],
+      "(0,3)": [
+        {
+          "n_neuron": 450,
+          "ram_offset": 0,
+          "interval": 1,
+          "idx_offset": 450
+        }
+      ],
+      "(1,2)": [
+        {
+          "n_neuron": 450,
+          "ram_offset": 0,
+          "interval": 1,
+          "idx_offset": 900
+        }
+      ],
+      "(1,3)": [
+        {
+          "n_neuron": 450,
+          "ram_offset": 0,
+          "interval": 1,
+          "idx_offset": 1350
+        }
+      ]
     }
   }
-  ```   
+}
+```

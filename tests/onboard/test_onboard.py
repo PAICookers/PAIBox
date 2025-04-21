@@ -2307,7 +2307,7 @@ class TestOnBoard_ReadNeuronVoltage:
         )
 
         print(f"Test {TEST_NAME} end")
-        
+
     def test_004_one2one(self, ensure_test_item_dirs):
         # 1 output node on 4 cores
         class Net001(pb.Network):
