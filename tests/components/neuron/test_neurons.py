@@ -774,3 +774,17 @@ class TestNeuronAllModes:
                 pre_vjt = 2000
 
             assert np.array_equal(n1.spike[0], spike)
+
+
+@pytest.mark.parametrize("leak_v", [0, 10, -10])
+def test_StoreVoltageNeuron(leak_v):
+    n1 = pb.StoreVoltageNeuron(1, leak_v=leak_v)
+    incoming_v = np.random.randint(-100, 100, size=(100,), dtype=np.int32)
+
+    expected_v = 0
+    for i in range(incoming_v.size):
+        pb.FRONTEND_ENV["t"] += 1
+        n1.update(incoming_v[i])
+
+        expected_v += incoming_v[i] + leak_v
+        assert np.array_equal(n1.voltage[0], expected_v)

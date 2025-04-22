@@ -661,6 +661,9 @@ class Mapper:
 
         _fp = _fp_check(fp)
 
+        # FIXME Currently, if the online cores are wasted, incorrect configuration
+        # file(offline cores' format) will be exported, causing the configuration
+        # to fail. Disable the option temporarily to avoid this issue.
         if export_wasted_cores:
             _wasted_cplm_conf = self.core_plm_config_wasted
         else:
