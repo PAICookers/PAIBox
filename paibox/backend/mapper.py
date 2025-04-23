@@ -49,6 +49,7 @@ __all__ = ["Mapper"]
 class Mapper:
     graph: PAIGraph
     graph_info: GraphInfo
+    routing_mgr: RoutingManager
 
     def __init__(self) -> None:
         self.graph = PAIGraph()
@@ -71,9 +72,6 @@ class Mapper:
 
         self.n_core_required = 0
         self.n_core_occupied = 0
-        self.routing_manager = RoutingManager(
-            chip_list=_BACKEND_CONTEXT["target_chip_addr"]
-        )
 
         self._core_estimate_only = False
         """Wether this compilation is for core estimation only. If so, no core will be assigned."""
@@ -183,9 +181,14 @@ class Mapper:
         """Preperation.
             1. Check whether the PAIGraph has built.
             2. Set global compilation flags.
+            3. Initialize necessary managers.
+        
+        TODO Print compilation options & backend contexts after preperation.
         """
         self._build_check()
         self._set_global_cflags()
+
+        self.routing_mgr = RoutingManager(chip_list=_BACKEND_CONTEXT.target_chip_addr)
 
         """Untwist the branch nodes if flag is on."""
         if no_twisted_branch:
@@ -357,7 +360,7 @@ class Mapper:
             )
 
         for rg in self.routing_groups:
-            self.routing_manager.place_routing_group(rg)
+            self.routing_mgr.place_routing_group(rg)
 
         # Calculate the consumption of occupied physical cores.
         if (
@@ -384,9 +387,9 @@ class Mapper:
                 & Weight RAM) of cores.
             - 2. Export the parameters(Neuron RAM) of neurons inside.
         """
-        if (ochip_coord := _BACKEND_CONTEXT["output_chip_addr"]) in _BACKEND_CONTEXT[
-            "target_chip_addr"
-        ]:
+        if (
+            ochip_coord := _BACKEND_CONTEXT.output_chip_addr
+        ) in _BACKEND_CONTEXT.target_chip_addr:
             raise ConfigInvalidError(
                 f"the output chip address {ochip_coord} should not overlap with the "
                 f"target chip addresses, but got {_BACKEND_CONTEXT._target_chip_addr_repr()}."
@@ -406,8 +409,8 @@ class Mapper:
             n_core_occupied=self.n_core_occupied,
             misc={
                 "clk_en_L2": get_clk_en_L2_dict(
-                    _BACKEND_CONTEXT["target_chip_addr"],
-                    self.routing_manager.used_L2_clusters,
+                    _BACKEND_CONTEXT.target_chip_addr,
+                    self.routing_mgr.used_L2_clusters,
                 ),
                 "target_chip_list": _BACKEND_CONTEXT.target_chip_addr,
             },
@@ -806,7 +809,7 @@ def _fp_check(fp: Optional[Union[str, Path]] = None) -> Path:
     if fp is not None:
         _fp = Path(fp)
     else:
-        _fp = _BACKEND_CONTEXT["build_directory"]
+        _fp = _BACKEND_CONTEXT.output_dir
 
     if not _fp.is_dir():
         _fp.mkdir(parents=True, exist_ok=True)
