@@ -437,10 +437,10 @@ def export_neuron_phy_loc(
         _valid_conf[neu_name] = {}
         for chip_coord, core_locs in neu_loc.items():
             _valid_conf[neu_name][str(chip_coord)] = {}
-            for core_coord, neu_segs in core_locs.items():
-                _valid_conf[neu_name][str(chip_coord)][str(core_coord)] = [
-                    asdict(ram_addr) for ram_addr in neu_segs
-                ]
+            for core_coord, ram_addr in core_locs.items():
+                _valid_conf[neu_name][str(chip_coord)][str(core_coord)] = asdict(
+                    ram_addr
+                )
 
     if _USE_ORJSON:
         with open(_full_fp, "wb") as f:
@@ -453,18 +453,37 @@ def export_neuron_phy_loc(
 def get_neuron_phy_loc(
     core_blocks: list[CoreBlock], targets: Sequence[Neuron]
 ) -> NeuPhyLocMap:
-    """Get the physical locations of neurons."""
+    """Get the physical locations of neurons.
+
+    Json exchange file format for neuron physical locations:
+    {
+        "n1": {
+            "(0,0)": { # at chip (0,0)
+                "(2,0)": {  # at core (2,0)
+                    "n_neuron": 50, # #N on the core
+                    "ram_offset": 0,# offset in the RAM
+                    "interval": 1,  # interval between neurons
+                    "idx_offset": 0 # offset in the neuron index
+                },
+                "(2,1)": {  # at core (2,1)
+                    "n_neuron": 50,
+                    "ram_offset": 0,
+                    "interval": 1,
+                    "idx_offset": 50
+                }
+            }
+        },
+        "n2": {...}
+    }
+    NOTE: Only one segment of a neuron is placed on a core.
+    """
     names = {neu.name for neu in targets}  # remove duplicates
-    locations: NeuPhyLocMap = defaultdict(
-        lambda: defaultdict(lambda: defaultdict(list))
-    )
+    locations: NeuPhyLocMap = defaultdict(lambda: defaultdict(dict))
 
     for cb in core_blocks:
         for core_coord, neu_segs in zip(cb.core_coords, cb.neuron_segs_of_cb):
             for seg in neu_segs:
                 if (neu_name := seg.target.name) in names:
-                    locations[neu_name][cb.chip_coord][core_coord].append(
-                        seg.neu_seg_addr
-                    )
+                    locations[neu_name][cb.chip_coord][core_coord] = seg.neu_seg_addr
 
     return locations

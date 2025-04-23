@@ -243,8 +243,8 @@ class PAIBoxRuntime:
             - flatten: whether to return the flattened data.
 
         Returns:
-            Return the decoded output data. If `oframe_infos` is a list, the output will be a list  \
-            where each element represents the decoded data for each output node.
+            Return the decoded_v output data. If `oframe_infos` is a list, the output will be a list  \
+            where each element represents the decoded_v data for each output node.
 
         NOTE: This method has real-time requirement.
         """
@@ -353,17 +353,16 @@ class PAIBoxRuntime:
         *,
         output_dest_info: Optional[dict[str, Any]] = None,
     ) -> Union[FrameArrayType, list[FrameArrayType]]:
-        """Generate the common information of output frames by given the dictionary \
-            of output destinations.
+        """Generate the common information of output frames by given the dictionary of output destinations.
 
         Args:
-            - timestep: used to tile the "tick_relative" info of output destinations.
-            - output_dest_info: the dictionary of output destinations exported from \
-                `paibox.Mapper`, or you can specify the following parameters.
-            - chip_coord: the destination chip coordinate of the output node.
-            - core_coord: the destination coord coordinate of the output node.
-            - rid: the replication ID. (maybe unused)
-            - axons: the range of destination address of axons, from 0 to N.
+            timestep (int): used to tile the "tick_relative" info of output destinations.
+            output_dest_info: the dictionary of output destinations exported from `paibox.Mapper`, or you \
+                can specify the following parameters.
+            chip_coord: the destination chip coordinate of the output node.
+            core_coord: the destination coord coordinate of the output node.
+            rid: the replication ID. (maybe unused)
+            axons: the range of destination address of axons, from 0 to N.
         """
         assert 0 < timestep <= MAX_TIMESLOT
 
@@ -427,84 +426,104 @@ class PAIBoxRuntime:
     def gen_read_neuron_attrs_frames(
         neu_phy_loc: dict[str, Any],
     ) -> list[FrameArrayType]:
-        """Generate test input frames type III for reading a single neuron's attributes.
+        """Generate test input frame type III for single neuron node to read their attributes.
 
-        NOTE: Test output frames will be output to `test_chip_addr`, which is configured before.
+        Args:
+            neu_phy_loc: the physical locations of a single neuron node. For example:
 
-            The chip has a hardware flaw: when the NRAM is read continuously, the second neuron
-            will be missed. To avoid this, we need to read the neuron attributes one by one.
+            >>> d = {
+                    "IF_0": {
+                        "(0,0)": {
+                            "(0,0)": {
+                                "n_neuron": 50,
+                                "ram_offset": 0,
+                                "interval": 8,
+                                "idx_offset": 0
+                            },
+                            "(0,1)": {
+                                "n_neuron": 50,
+                                "ram_offset": 0,
+                                "interval": 8,
+                                "idx_offset": 50
+                            }
+                        }
+                    }
+                }
+            >>> PAIBoxRuntime.gen_read_neuron_attrs_frames(d["IF_0"])
 
-            Takes less time to read NRAM individually than sequential reads.
+        NOTE: Test output frames will be output to `test_chip_addr`, which is configured before. The chip   \
+            has a hardware flaw: when the NRAM is read continuously, the second neuron will be missed. To   \
+            avoid this, we need to read the neuron attributes one by one. It takes less time to read NRAM   \
+            individually than sequentially.
         """
         tframe3: list[OfflineTestInFrame3] = []
 
         for chip_coord, core_locs in neu_phy_loc.items():
-            for core_coord, neu_segs in core_locs.items():
-                for _ram_addr in neu_segs:
-                    ram_addr = NeuSegRAMAddrKeys(_ram_addr)  # cast to typed dict
+            for core_coord, _ram_addr in core_locs.items():
+                ram_addr = NeuSegRAMAddrKeys(_ram_addr)  # cast to typed dict
 
-                    if ram_addr["interval"] > 1:  # LCN > 1
-                        for i in range(ram_addr["n_neuron"]):
-                            tframe3.append(
-                                OfflineFrameGen.gen_testin_frame3(
-                                    ChipCoord(*coordstr_to_tuple(chip_coord)),
-                                    Coord(*coordstr_to_tuple(core_coord)),
-                                    _RID_UNSET,
-                                    # NOTE: Here, we need to strictly refer to the specific arrangement of
-                                    # attributes in NRAM. When LCN of this core(interval) > 1, the attribute
-                                    # of the neuron corresponding to the logical index `i` is located at
-                                    # `(i+1)*LCN-1` of NRAM.
-                                    ram_addr["ram_offset"]
-                                    + (i + 1) * ram_addr["interval"]
-                                    - 1,
-                                    4,
-                                )
-                            )
-                    else:  # LCN = 1
+                if ram_addr["interval"] > 1:  # LCN > 1
+                    for i in range(ram_addr["n_neuron"]):
                         tframe3.append(
                             OfflineFrameGen.gen_testin_frame3(
                                 ChipCoord(*coordstr_to_tuple(chip_coord)),
                                 Coord(*coordstr_to_tuple(core_coord)),
                                 _RID_UNSET,
-                                ram_addr["ram_offset"],
-                                4 * ram_addr["n_neuron"],
+                                # NOTE: Here, we need to strictly refer to the specific arrangement of
+                                # attributes in NRAM. When LCN of this core(interval) > 1, the attribute
+                                # of the neuron corresponding to the logical index `i` is located at
+                                # `(i+1)*LCN-1` of NRAM.
+                                ram_addr["ram_offset"]
+                                + (i + 1) * ram_addr["interval"]
+                                - 1,
+                                4,
                             )
                         )
+                else:  # LCN = 1
+                    tframe3.append(
+                        OfflineFrameGen.gen_testin_frame3(
+                            ChipCoord(*coordstr_to_tuple(chip_coord)),
+                            Coord(*coordstr_to_tuple(core_coord)),
+                            _RID_UNSET,
+                            ram_addr["ram_offset"],
+                            4 * ram_addr["n_neuron"],
+                        )
+                    )
 
         return [f.value for f in tframe3]
 
     @staticmethod
     def decode_neuron_voltage(
-        neu_phy_loc: dict[str, Any], otframes: FrameArrayType
+        neu_phy_loc: dict[str, Any], otframes3: FrameArrayType
     ) -> VoltageType:
-        """Decode output frames from chips for reading voltage of neurons.
+        """Decode type III test output frames of a single neuron node for reading the voltage. The physical \
+            locations of the neurons will be aligned with their logical positions.
 
         Args:
-            neu_phy_loc: the physical locations of neurons.
-            otframes: the test output frames of type III.
+            neu_phy_loc: the physical locations of a single neuron node.
+            otframes3 (FrameArrayType): the test output frames of type III.
 
-        NOTE: Make sure the physical locations is aligned with the logical locations.
+        NOTE: Only single node decoding is supported for now. The test output frames for each neuron may be \
+            unordered.
         """
+        if (n_neu := len(neu_phy_loc.keys())) > 1:
+            raise ValueError(
+                f"Only single node decoding is supported for now, but got {n_neu}."
+            )
+
+        neu = list(neu_phy_loc.keys())[0]
+
         n_neuron_total = 0
-        core_coords = []
+        core_locs: dict[Coord, NeuSegRAMAddrKeys] = {}  # records the core coordinates
+        for coord_str, _ram_addr in neu_phy_loc[neu].items():
+            cur_coord = Coord(*coordstr_to_tuple(coord_str))
+            ram_addr = NeuSegRAMAddrKeys(_ram_addr)  # cast to typed dict
+            core_locs[cur_coord] = ram_addr
+            n_neuron_total += ram_addr["n_neuron"]
 
-        assert len(neu_phy_loc.keys()) == 1
+        decoded_v = np.zeros((n_neuron_total,), dtype=VOLTAGE_DTYPE)
 
-        core_locs = {}
-        for core_coord, neu_segs in neu_phy_loc[list(neu_phy_loc.keys())[0]].items():
-            # records the core coordinates
-            cur_coord = Coord(*coordstr_to_tuple(core_coord))
-            core_coords.append(cur_coord)
-
-            core_locs[cur_coord] = neu_segs
-
-            for _ram_addr in neu_segs:
-                ram_addr = NeuSegRAMAddrKeys(_ram_addr)  # cast to typed dict
-                n_neuron_total += ram_addr["n_neuron"]
-
-        decoded = np.zeros((n_neuron_total,), dtype=VOLTAGE_DTYPE)
-
-        def _testout_type3_parser(otframe3: FrameArrayType, i: Optional[int] = None):
+        def parser(otframe3: FrameArrayType, i: Optional[int] = None) -> None:
             """Parser of test output frame type III."""
             if i is None:
                 i = 0
@@ -537,26 +556,27 @@ class PAIBoxRuntime:
                         int(otframe3[i + 1]) >> Off_NRAMF.VJT_PRE_OFFSET
                     ) & Off_NRAMF.VJT_PRE_MASK
 
-                    if (_coord := Coord.from_addr(core_coord)) not in core_locs:
-                        raise ValueError(f"Invalid core coordinate {_coord}")
+                    if (coord := Coord.from_addr(core_coord)) not in core_locs:
+                        expected = ", ".join(str(c) for c in core_locs)
+                        raise ValueError(
+                            f"Coordinate {coord} is not in expected locations: {expected}."
+                        )
 
-                    assert len(core_locs[_coord]) == 1
-                    ram_addr = NeuSegRAMAddrKeys(core_locs[_coord][0])
-
+                    ram_addr = core_locs[coord]
                     logic_idx = ram_addr["idx_offset"] + (
                         (sram_start_addr + 1 - ram_addr["ram_offset"])
                         // ram_addr["interval"]
                         - 1
                     )
-                    decoded[logic_idx] = convert_30bit_to_signed(v)
+                    decoded_v[logic_idx] = convert_30bit_to_signed(v)
 
                     i += n_package + 1
                 else:
                     raise ValueError("Invalid test output frame type III")
 
-        _testout_type3_parser(otframes)
+        parser(otframes3)
 
-        return decoded
+        return decoded_v
 
 
 def convert_30bit_to_signed(x: int) -> VOLTAGE_DTYPE:

@@ -477,6 +477,13 @@ def _get_neuron_phy_files():
     return list(TEST_CONF_DIR.glob("neuron_phy_loc[0-9]*.json"))
 
 
+def _shuffle_otframe3(otframe3: list[OfflineTestOutFrame3]):
+    rng = np.random.default_rng()
+    otframe3_np = np.asarray(otframe3)
+    rng.shuffle(otframe3_np)
+    return otframe3_np
+
+
 class TestReadNeuronVoltage:
 
     dest_info = dict(
@@ -535,12 +542,12 @@ class TestReadNeuronVoltage:
             interval * (i + 1) - 1 for i in range(n_neuron // len(core_coords))
         ] * len(core_coords)
 
-        toframe3: list[OfflineTestOutFrame3] = []
+        otframe3: list[OfflineTestOutFrame3] = []
         for i, (v, addr) in enumerate(zip(expected_v, supposed_addr)):
             core_coord = core_coords[i // 50]
             monkeypatch.setitem(self.neu_attrs, "voltage", v)
 
-            toframe3.append(
+            otframe3.append(
                 OfflineFrameGen.gen_testout_frame3(
                     Coord(1, 1),
                     core_coord,
@@ -553,12 +560,14 @@ class TestReadNeuronVoltage:
                 )
             )
 
-        toframe3_array = np.hstack([f.value for f in toframe3])
+        # Shuffle the order of the test out frames
+        shuffled = _shuffle_otframe3(otframe3)
+        otframe3_array = np.hstack([f.value for f in shuffled])
 
         for _, neu_phy_loc in neu_phy_locs.items():
-            v_decoded = PAIBoxRuntime.decode_neuron_voltage(neu_phy_loc, toframe3_array)
+            decoded_v = PAIBoxRuntime.decode_neuron_voltage(neu_phy_loc, otframe3_array)
 
-        assert np.array_equal(v_decoded, expected_v)
+        assert np.array_equal(decoded_v, expected_v)
 
     @pytest.mark.skipif(
         plib_version < f"{REQUIRED_PLIB_VERSION}",
@@ -579,12 +588,12 @@ class TestReadNeuronVoltage:
             interval * (i + 1) - 1 for i in range(n_neuron // len(core_coords))
         ] * len(core_coords)
 
-        toframe3: list[OfflineTestOutFrame3] = []
+        otframe3: list[OfflineTestOutFrame3] = []
         for i, (v, addr) in enumerate(zip(expected_v, supposed_addr)):
             core_coord = core_coords[i // 25]
             monkeypatch.setitem(self.neu_attrs, "voltage", v)
 
-            toframe3.append(
+            otframe3.append(
                 OfflineFrameGen.gen_testout_frame3(
                     Coord(1, 1),
                     core_coord,
@@ -597,9 +606,11 @@ class TestReadNeuronVoltage:
                 )
             )
 
-        toframe3_array = np.hstack([f.value for f in toframe3])
+        # Shuffle the order of the test out frames
+        shuffled = _shuffle_otframe3(otframe3)
+        otframe3_array = np.hstack([f.value for f in shuffled])
 
         for _, neu_phy_loc in neu_phy_locs.items():
-            v_decoded = PAIBoxRuntime.decode_neuron_voltage(neu_phy_loc, toframe3_array)
+            decoded_v = PAIBoxRuntime.decode_neuron_voltage(neu_phy_loc, otframe3_array)
 
-        assert np.array_equal(v_decoded, expected_v)
+        assert np.array_equal(decoded_v, expected_v)
