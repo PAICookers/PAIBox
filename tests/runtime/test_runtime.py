@@ -232,8 +232,6 @@ class TestRuntime:
                 expected = np.zeros((n_axon * n_ts,), dtype=np.uint8)
                 expected[choice_idx] = random[choice_idx]
 
-                expected = expected.reshape(-1, n_ts).T.flatten()
-
                 data = PAIBoxRuntime.decode(
                     n_ts, shuffle_frame, oframe_info, flatten=True
                 )
@@ -467,6 +465,24 @@ class TestRuntime:
 
         assert np.array_equal(data[0], expected_o1)
         assert np.array_equal(data[1], expected_o2)
+
+    def test_decode_zero_oframes(self):
+        # Even if zero output frames are given, it should be decoded correctly.
+        fp = TEST_CONF_DIR / "output_dest_info_more1152.json"
+        file_not_exist_fail(fp)
+
+        with open(fp, "r") as f:
+            output_dest_info = json.load(f)
+
+        n_ts = 4
+        oframe_infos = PAIBoxRuntime.gen_output_frames_info(
+            n_ts, output_dest_info=output_dest_info
+        )
+
+        zero_oframes = np.array([], dtype=np.uint64)
+        data = PAIBoxRuntime.decode(n_ts, zero_oframes, oframe_infos, flatten=False)
+
+        assert all(d.all() == 0 for d in data)
 
 
 REQUIRED_PLIB_VERSION = "1.4.1"  # Required version for neuron voltage decoding

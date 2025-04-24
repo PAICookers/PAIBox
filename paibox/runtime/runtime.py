@@ -248,7 +248,8 @@ class PAIBoxRuntime:
 
         NOTE: This method has real-time requirement.
         """
-        framearray_header_check(oframes, FH.WORK_TYPE1)
+        if oframes.size > 0:
+            framearray_header_check(oframes, FH.WORK_TYPE1)
 
         if isinstance(oframe_infos, list):
             output = []
@@ -259,7 +260,7 @@ class PAIBoxRuntime:
 
             for i, oframe_info in enumerate(oframe_infos):
                 data = np.zeros_like(oframe_info, dtype=PAYLOAD_DATA_DTYPE)
-                if len(oframes) > 0:
+                if oframes.size > 0:
                     # Traverse the coordinates in a specific order. Must be in the same order as when exporting.
                     # See `paibox.Mapper.export()` for more details.
                     _cur_coord = Coord(0, 0) + to_coordoffset(i)
@@ -297,7 +298,7 @@ class PAIBoxRuntime:
 
         else:
             data = np.zeros_like(oframe_infos, dtype=PAYLOAD_DATA_DTYPE)
-            if len(oframes) > 0:
+            if oframes.size > 0:
                 oframes.sort()
                 data_on_coord = (oframes >> Off_WF1F.DATA_OFFSET) & Off_WF1F.DATA_MASK
 
@@ -306,7 +307,7 @@ class PAIBoxRuntime:
                 )
                 data[valid_idx] = data_on_coord
 
-            d_with_shape = data.reshape(-1, timestep).T
+            d_with_shape = data.reshape(timestep, -1)
             if flatten:
                 return d_with_shape.ravel()
             else:
@@ -356,7 +357,7 @@ class PAIBoxRuntime:
         """Generate the common information of output frames by given the dictionary of output destinations.
 
         Args:
-            timestep (int): used to tile the "tick_relative" info of output destinations.
+            timestep (int): used to tile the 'tick_relative' info of output destinations.
             output_dest_info: the dictionary of output destinations exported from `paibox.Mapper`, or you \
                 can specify the following parameters.
             chip_coord: the destination chip coordinate of the output node.
