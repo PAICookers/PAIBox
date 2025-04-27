@@ -1011,7 +1011,6 @@ mapper.clear()
 - `format`：导出交换文件格式，可以为 `bin`、`npy` 或 `txt`。默认为 `bin`。
 - `read_voltage`：指定需要读取膜电平的神经元，可以是神经元对象或名称，由此将导出这些神经元的物理位置信息至文件。硬件平台可根据该信息读取并解析膜电平数据。默认为 `None`。
 - `split_by_chip`：是否将配置帧以芯片坐标进行分割，由此生成的配置帧文件命名形如"config_chip0_core0.<format>"、"config_chip0_core1.<format>"、"config_chip1_core0.<format>"。默认不导出，即最终导出为一个文件 "config_all.<format>"。
-- `export_wasted_cores`：是否导出浪费的核的配置信息。硬件平台可根据该配置信息正确关闭这些核，确保它们不会工作并影响计算。默认导出。
 - `export_clk_en_L2`：是否导出 L2 簇时钟串口数据。硬件平台可根据该数据关闭芯片未使用的 L2 簇时钟以降低功耗。默认不导出。
 - `use_hw_sim`：是否使用硬件仿真器。若使用，将额外导出 `bin` 格式的配置帧文件。默认使用。
 

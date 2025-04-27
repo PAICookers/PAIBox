@@ -316,25 +316,6 @@ class TestMapper_Export:
 
         assert len(mapper.routing_groups[1].wasted_coords) == 2
 
-    def test_export_export_wasted_cores(
-        self, build_example_net4_large_scale, ensure_dump_dir
-    ):
-        net = build_example_net4_large_scale
-        mapper = pb.Mapper()
-        mapper.build(net)
-        mapper.compile()
-        mapper.export(fp=ensure_dump_dir, export_wasted_cores=True)
-
-        conf_fs_include_wasted = (ensure_dump_dir / "config_all.bin").stat().st_size
-
-        mapper.export(fp=ensure_dump_dir, export_wasted_cores=False)
-        conf_fs_exclude_wasted = (ensure_dump_dir / "config_all.bin").stat().st_size
-
-        if len(mapper.routing_groups[1].wasted_coords) > 0:
-            assert conf_fs_exclude_wasted < conf_fs_include_wasted
-        else:
-            pytest.skip("No wasted cores found in this test. Skip.")
-
 
 class TestMapper_Compile:
     @pytest.mark.xfail(reason="change the hardware limit may cause unexpected errors.")

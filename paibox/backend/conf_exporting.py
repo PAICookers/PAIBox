@@ -1,5 +1,5 @@
 import sys
-from collections import ChainMap, defaultdict
+from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
@@ -56,7 +56,6 @@ __all__ = [
 
 def gen_config_frames_by_coreconf(
     config_dict: CorePlmConf,
-    config_dict_wasted: CorePlmConf,
     write_to_file: bool,
     fp: Path,
     formats: Sequence[str],
@@ -66,10 +65,7 @@ def gen_config_frames_by_coreconf(
     frame_arrays_total: dict[ChipCoord, list[FrameArrayType]] = defaultdict(list)
 
     for chip_coord, conf_inchip in config_dict.items():
-        # Merge the wasted config with the current config in a single chip.
-        _conf_inchip = ChainMap(config_dict_wasted.get(chip_coord, {}), conf_inchip)
-
-        for core_coord, v in _conf_inchip.items():
+        for core_coord, v in conf_inchip.items():
             # 1. Only one config frame type I for each physical core.
             config_frame_type1 = OfflineFrameGen.gen_config_frame1(
                 chip_coord, core_coord, _RID_UNSET, v.random_seed
