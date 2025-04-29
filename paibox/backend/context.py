@@ -8,8 +8,8 @@ from paibox.utils import merge_unique_ordered
 
 __all__ = []
 
-DEFAULT_OUTPUT_CHIP_ADDR = Coord(1, 0)
-DEFAULT_LOCAL_CHIP_ADDR = [Coord(0, 0)]  # Support multi-chip.
+DEFAULT_OUTPUT_CHIP_ADDR = ChipCoord(1, 0)
+DEFAULT_LOCAL_CHIP_ADDR = [ChipCoord(0, 0)]  # Support multi-chip.
 DEFAULT_OUTPUT_CORE_ADDR_START = Coord(0, 0)
 DEFAULT_CORE_PARAMS_CONF_JSON = "core_params"
 DEFAULT_INPUT_CONF_JSON = "input_proj_info"

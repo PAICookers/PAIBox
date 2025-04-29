@@ -49,6 +49,7 @@ __all__ = ["Mapper"]
 class Mapper:
     graph: PAIGraph
     graph_info: GraphInfo
+    routing_mgr: RoutingManager
 
     def __init__(self) -> None:
         self.graph = PAIGraph()
@@ -65,15 +66,11 @@ class Mapper:
         self.succ_routing_groups: dict[RoutingGroup, list[RoutingGroup]] = dict()
 
         self.core_plm_config: CorePlmConf = defaultdict(dict)
-        self.core_plm_config_wasted: CorePlmConf = defaultdict(dict)
         self.core_params: CoreConf = defaultdict(dict)
         """The dictionary of core parameters."""
 
         self.n_core_required = 0
         self.n_core_occupied = 0
-        self.routing_manager = RoutingManager(
-            chip_list=_BACKEND_CONTEXT["target_chip_addr"]
-        )
 
         self._core_estimate_only = False
         """Wether this compilation is for core estimation only. If so, no core will be assigned."""
@@ -183,9 +180,14 @@ class Mapper:
         """Preperation.
             1. Check whether the PAIGraph has built.
             2. Set global compilation flags.
+            3. Initialize necessary managers.
+
+        TODO Print compilation options & backend contexts after preperation.
         """
         self._build_check()
         self._set_global_cflags()
+
+        self.routing_mgr = RoutingManager(chip_list=_BACKEND_CONTEXT.target_chip_addr)
 
         """Untwist the branch nodes if flag is on."""
         if no_twisted_branch:
@@ -357,7 +359,7 @@ class Mapper:
             )
 
         for rg in self.routing_groups:
-            self.routing_manager.place_routing_group(rg)
+            self.routing_mgr.place_routing_group(rg)
 
         # Calculate the consumption of occupied physical cores.
         if (
@@ -384,9 +386,9 @@ class Mapper:
                 & Weight RAM) of cores.
             - 2. Export the parameters(Neuron RAM) of neurons inside.
         """
-        if (ochip_coord := _BACKEND_CONTEXT["output_chip_addr"]) in _BACKEND_CONTEXT[
-            "target_chip_addr"
-        ]:
+        if (
+            ochip_coord := _BACKEND_CONTEXT.output_chip_addr
+        ) in _BACKEND_CONTEXT.target_chip_addr:
             raise ConfigInvalidError(
                 f"the output chip address {ochip_coord} should not overlap with the "
                 f"target chip addresses, but got {_BACKEND_CONTEXT._target_chip_addr_repr()}."
@@ -406,8 +408,8 @@ class Mapper:
             n_core_occupied=self.n_core_occupied,
             misc={
                 "clk_en_L2": get_clk_en_L2_dict(
-                    _BACKEND_CONTEXT["target_chip_addr"],
-                    self.routing_manager.used_L2_clusters,
+                    _BACKEND_CONTEXT.target_chip_addr,
+                    self.routing_mgr.used_L2_clusters,
                 ),
                 "target_chip_list": _BACKEND_CONTEXT.target_chip_addr,
             },
@@ -534,9 +536,7 @@ class Mapper:
                     ] = core_plm.export_core_plm_config()
 
             # Generate default configurations for wasted core placements of the routing group
-            self.core_plm_config_wasted[rg.chip_coord].update(
-                rg.get_wasted_cplm_config()
-            )
+            self.core_plm_config[rg.chip_coord].update(rg.get_wasted_cplm_config())
 
         return output_dest_info
 
@@ -623,7 +623,6 @@ class Mapper:
             Union[str, Neuron, Sequence[str], Sequence[Neuron]]
         ] = None,
         split_by_chip: bool = False,
-        export_wasted_cores: bool = True,
         export_clk_en_L2: bool = False,
         use_hw_sim: bool = True,
     ) -> dict[ChipCoord, list[FrameArrayType]]:
@@ -637,7 +636,6 @@ class Mapper:
             read_voltage (Neuron, Sequence[Neuron]): specify the neuron(s) to read its voltage. Their physical locations\
                 on chips will be exported for hardware platform to read.
             split_by_chip (bool): whether to split the generated frames file by the chips.
-            export_wasted_cores (bool): whether to export the configuration of wasted cores.
             export_used_L2 (bool): whether to export the serial port data of the L2 cluster clocks.
             use_hw_sim (bool): whether to use hardware simulator. If used, '.bin' will be exported. If `write_to_file`  \
                 is false, this argument is ignored.
@@ -663,22 +661,8 @@ class Mapper:
                 formats.append("bin")
 
         _fp = _fp_check(fp)
-
-        # FIXME Currently, if the online cores are wasted, incorrect configuration
-        # file(offline cores' format) will be exported, causing the configuration
-        # to fail. Disable the option temporarily to avoid this issue.
-        if export_wasted_cores:
-            _wasted_cplm_conf = self.core_plm_config_wasted
-        else:
-            _wasted_cplm_conf = {}
-
         config_dict = gen_config_frames_by_coreconf(
-            self.graph_info["members"],
-            _wasted_cplm_conf,
-            write_to_file,
-            _fp,
-            formats,
-            split_by_chip,
+            self.graph_info["members"], write_to_file, _fp, formats, split_by_chip
         )
 
         # Export the parameters of occupied cores
@@ -806,7 +790,7 @@ def _fp_check(fp: Optional[Union[str, Path]] = None) -> Path:
     if fp is not None:
         _fp = Path(fp)
     else:
-        _fp = _BACKEND_CONTEXT["build_directory"]
+        _fp = _BACKEND_CONTEXT.output_dir
 
     if not _fp.is_dir():
         _fp.mkdir(parents=True, exist_ok=True)

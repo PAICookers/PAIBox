@@ -232,8 +232,6 @@ class TestRuntime:
                 expected = np.zeros((n_axon * n_ts,), dtype=np.uint8)
                 expected[choice_idx] = random[choice_idx]
 
-                expected = expected.reshape(-1, n_ts).T.flatten()
-
                 data = PAIBoxRuntime.decode(
                     n_ts, shuffle_frame, oframe_info, flatten=True
                 )
@@ -468,6 +466,24 @@ class TestRuntime:
         assert np.array_equal(data[0], expected_o1)
         assert np.array_equal(data[1], expected_o2)
 
+    def test_decode_zero_oframes(self):
+        # Even if zero output frames are given, it should be decoded correctly.
+        fp = TEST_CONF_DIR / "output_dest_info_more1152.json"
+        file_not_exist_fail(fp)
+
+        with open(fp, "r") as f:
+            output_dest_info = json.load(f)
+
+        n_ts = 4
+        oframe_infos = PAIBoxRuntime.gen_output_frames_info(
+            n_ts, output_dest_info=output_dest_info
+        )
+
+        zero_oframes = np.array([], dtype=np.uint64)
+        data = PAIBoxRuntime.decode(n_ts, zero_oframes, oframe_infos, flatten=False)
+
+        assert all(d.all() == 0 for d in data)
+
 
 REQUIRED_PLIB_VERSION = "1.4.1"  # Required version for neuron voltage decoding
 from paicorelib import __version__ as plib_version
@@ -475,6 +491,13 @@ from paicorelib import __version__ as plib_version
 
 def _get_neuron_phy_files():
     return list(TEST_CONF_DIR.glob("neuron_phy_loc[0-9]*.json"))
+
+
+def _shuffle_otframe3(otframe3: list[OfflineTestOutFrame3]):
+    rng = np.random.default_rng()
+    otframe3_np = np.asarray(otframe3)
+    rng.shuffle(otframe3_np)
+    return otframe3_np
 
 
 class TestReadNeuronVoltage:
@@ -535,12 +558,12 @@ class TestReadNeuronVoltage:
             interval * (i + 1) - 1 for i in range(n_neuron // len(core_coords))
         ] * len(core_coords)
 
-        toframe3: list[OfflineTestOutFrame3] = []
+        otframe3: list[OfflineTestOutFrame3] = []
         for i, (v, addr) in enumerate(zip(expected_v, supposed_addr)):
             core_coord = core_coords[i // 50]
             monkeypatch.setitem(self.neu_attrs, "voltage", v)
 
-            toframe3.append(
+            otframe3.append(
                 OfflineFrameGen.gen_testout_frame3(
                     Coord(1, 1),
                     core_coord,
@@ -553,12 +576,14 @@ class TestReadNeuronVoltage:
                 )
             )
 
-        toframe3_array = np.hstack([f.value for f in toframe3])
+        # Shuffle the order of the test out frames
+        shuffled = _shuffle_otframe3(otframe3)
+        otframe3_array = np.hstack([f.value for f in shuffled])
 
         for _, neu_phy_loc in neu_phy_locs.items():
-            v_decoded = PAIBoxRuntime.decode_neuron_voltage(neu_phy_loc, toframe3_array)
+            decoded_v = PAIBoxRuntime.decode_neuron_voltage(neu_phy_loc, otframe3_array)
 
-        assert np.array_equal(v_decoded, expected_v)
+        assert np.array_equal(decoded_v, expected_v)
 
     @pytest.mark.skipif(
         plib_version < f"{REQUIRED_PLIB_VERSION}",
@@ -579,12 +604,12 @@ class TestReadNeuronVoltage:
             interval * (i + 1) - 1 for i in range(n_neuron // len(core_coords))
         ] * len(core_coords)
 
-        toframe3: list[OfflineTestOutFrame3] = []
+        otframe3: list[OfflineTestOutFrame3] = []
         for i, (v, addr) in enumerate(zip(expected_v, supposed_addr)):
             core_coord = core_coords[i // 25]
             monkeypatch.setitem(self.neu_attrs, "voltage", v)
 
-            toframe3.append(
+            otframe3.append(
                 OfflineFrameGen.gen_testout_frame3(
                     Coord(1, 1),
                     core_coord,
@@ -597,9 +622,11 @@ class TestReadNeuronVoltage:
                 )
             )
 
-        toframe3_array = np.hstack([f.value for f in toframe3])
+        # Shuffle the order of the test out frames
+        shuffled = _shuffle_otframe3(otframe3)
+        otframe3_array = np.hstack([f.value for f in shuffled])
 
         for _, neu_phy_loc in neu_phy_locs.items():
-            v_decoded = PAIBoxRuntime.decode_neuron_voltage(neu_phy_loc, toframe3_array)
+            decoded_v = PAIBoxRuntime.decode_neuron_voltage(neu_phy_loc, otframe3_array)
 
-        assert np.array_equal(v_decoded, expected_v)
+        assert np.array_equal(decoded_v, expected_v)

@@ -3,6 +3,7 @@ from typing import Optional, Union
 
 import numpy as np
 from paicorelib import LDM, NTM, RM
+from paicorelib.ram_model import POS_THRES_MAX
 
 from paibox.exceptions import PAIBoxDeprecationWarning
 from paibox.types import LEAK_V_DTYPE, DataType, LeakVType, Shape
@@ -297,6 +298,7 @@ class StoreVoltageNeuron(Neuron):
             reset_mode=RM.MODE_NONRESET,
             neg_thres_mode=NTM.MODE_RESET,
             leak_v=leak_v + _bias_to_leak_v(bias),
+            pos_threshold=POS_THRES_MAX,
             keep_shape=keep_shape,
             name=name,
             **kwargs,

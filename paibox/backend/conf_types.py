@@ -289,9 +289,8 @@ CorePlmConf: TypeAlias = dict[ChipCoord, CorePlmConfInChip]
 CoreConfInChip: TypeAlias = dict[Coord, CoreConfig]
 CoreConf: TypeAlias = dict[ChipCoord, CoreConfInChip]
 
-# Make sure that the logical locations corresponds to the physical locations
-NeuPhyCoreLoc: TypeAlias = list[NeuSegRAMAddr]
-NeuPhyLocChipLoc: TypeAlias = dict[Coord, NeuPhyCoreLoc]
+# Only one segment of a neuron is placed on a core
+NeuPhyLocChipLoc: TypeAlias = dict[Coord, NeuSegRAMAddr]
 NeuPhyLoc: TypeAlias = dict[ChipCoord, NeuPhyLocChipLoc]
 NeuPhyLocMap: TypeAlias = dict[NodeName, NeuPhyLoc]
 

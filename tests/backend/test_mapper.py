@@ -230,11 +230,11 @@ class TestMapperDeployment:
 
         assert graph_info["n_core_occupied"] == n_networks
 
-        rtotal = sum(mapper.routing_manager.n_core_per_chip)
-        r1 = mapper.routing_manager.n_core_per_chip[0]
+        rtotal = sum(mapper.routing_mgr.n_core_per_chip)
+        r1 = mapper.routing_mgr.n_core_per_chip[0]
 
         if n_networks > 1008:
-            r2 = mapper.routing_manager.n_core_per_chip[1]
+            r2 = mapper.routing_mgr.n_core_per_chip[1]
             assert rtotal == r1 + r2
             assert r1 == 1024
             assert r2 == n_networks - 1008
@@ -315,25 +315,6 @@ class TestMapper_Export:
         mapper.export(fp=ensure_dump_dir)
 
         assert len(mapper.routing_groups[1].wasted_coords) == 2
-
-    def test_export_export_wasted_cores(
-        self, build_example_net4_large_scale, ensure_dump_dir
-    ):
-        net = build_example_net4_large_scale
-        mapper = pb.Mapper()
-        mapper.build(net)
-        mapper.compile()
-        mapper.export(fp=ensure_dump_dir, export_wasted_cores=True)
-
-        conf_fs_include_wasted = (ensure_dump_dir / "config_all.bin").stat().st_size
-
-        mapper.export(fp=ensure_dump_dir, export_wasted_cores=False)
-        conf_fs_exclude_wasted = (ensure_dump_dir / "config_all.bin").stat().st_size
-
-        if len(mapper.routing_groups[1].wasted_coords) > 0:
-            assert conf_fs_exclude_wasted < conf_fs_include_wasted
-        else:
-            pytest.skip("No wasted cores found in this test. Skip.")
 
 
 class TestMapper_Compile:

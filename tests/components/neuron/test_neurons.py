@@ -788,3 +788,4 @@ def test_StoreVoltageNeuron(leak_v):
 
         expected_v += incoming_v[i] + leak_v
         assert np.array_equal(n1.voltage[0], expected_v)
+        assert n1.spike.all() == 0  # not spiking to effect the output receiving

@@ -837,7 +837,7 @@ class CorePlacement(CoreAbstract):
                 axon_coords,
                 [output_core_coord],
                 # output chip coordinate for output node
-                _BACKEND_CONTEXT["output_chip_addr"],
+                _BACKEND_CONTEXT.output_chip_addr,
             )
 
             self.neu_configs[neu_seg.target] = config
