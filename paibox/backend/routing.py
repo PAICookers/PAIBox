@@ -109,10 +109,8 @@ class RoutingGroup:
                 if target_chip == -1:
                     target_chip = neuron._target_chip
                 elif target_chip != neuron._target_chip:
-                    raise ValueError(f"Cannot multicast to different chip")
+                    raise ValueError("Cannot multicast to different chip")
         self.target_chip = target_chip
-
-
 
     def set_axons(self, multicast_axons: list[SourceNodeType] = []) -> None:
         """Set the multicast axons for the routing group."""
@@ -404,9 +402,8 @@ class RoutingManager:
                     f"the routing group should be placed in chip {chip_idx_loc}."
                 )
             elif chip_idx_loc < target_chip:
-              core_loc = HwConfig.N_CORE_MAX_INCHIP * target_chip
-              chip_idx_loc = target_chip
-
+                core_loc = HwConfig.N_CORE_MAX_INCHIP * target_chip
+                chip_idx_loc = target_chip
 
         if chip_idx_loc >= len(self.chip_list):
             raise ResourceError(

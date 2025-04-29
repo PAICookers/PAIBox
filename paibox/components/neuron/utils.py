@@ -133,4 +133,4 @@ class ExtraNeuAttrKwds(TypedDict, total=False):
     pool_max: Union[bool, MaxPoolingEnable]
     unrolling_factor: int
     overflow_strict: bool
-    target_chip: int 
+    target_chip: int
