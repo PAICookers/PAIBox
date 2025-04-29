@@ -181,7 +181,7 @@ class Mapper:
             1. Check whether the PAIGraph has built.
             2. Set global compilation flags.
             3. Initialize necessary managers.
-        
+
         TODO Print compilation options & backend contexts after preperation.
         """
         self._build_check()
