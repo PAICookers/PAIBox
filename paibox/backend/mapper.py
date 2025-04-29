@@ -240,6 +240,9 @@ class Mapper:
         self.routing_groups = routing_groups
 
         for rg in self.routing_groups:
+            rg.set_target_chip()
+
+        for rg in self.routing_groups:
             rg.dump()
 
         for rg in self.routing_groups:
