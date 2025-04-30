@@ -11,7 +11,9 @@ from paicorelib import RoutingDirection as Direction
 from paicorelib import RoutingLevel as Level
 from paicorelib.routing_defs import MAX_ROUTING_PATH_LENGTH
 
+from paibox.components.neuron.base import NEU_TARGET_CHIP_NOT_SET
 from paibox.exceptions import PAIBoxDeprecationWarning, ResourceError, RoutingError
+from paibox.utils import check_elem_same
 
 from .conf_types import CorePlmConfInChip
 from .placement import CoreBlock, EmptyCorePlacement
@@ -91,7 +93,8 @@ class RoutingGroup:
         """Whether the coordinates of chip & cores are assigned."""
         self.is_root = is_root
 
-        self.target_chip: int = -1
+        self.target_chip_idx = NEU_TARGET_CHIP_NOT_SET
+        """The index of the target chip for this routing group."""
 
         # For debugging
         self._id = RoutingGroup._debug_id
@@ -101,16 +104,13 @@ class RoutingGroup:
             self.set_axons()
 
     def set_target_chip(self) -> None:
-        target_chip = -1
         for cb in self.core_blocks:
-            for neuron in cb.dest:
-                if neuron._target_chip == -1:
-                    continue
-                if target_chip == -1:
-                    target_chip = neuron._target_chip
-                elif target_chip != neuron._target_chip:
-                    raise ValueError("Cannot multicast to different chip")
-        self.target_chip = target_chip
+            if not check_elem_same(d.target_chip_idx for d in cb.dest):
+                raise ValueError("Cannot multicast to different target chip")
+
+            t = cb.dest[0].target_chip_idx
+
+        self.target_chip_idx = t
 
     def set_axons(self, multicast_axons: list[SourceNodeType] = []) -> None:
         """Set the multicast axons for the routing group."""
@@ -374,7 +374,10 @@ class RoutingManager:
         self.n_core_per_chip: list[int] = [0] * len(chip_list)
 
     def get_insert_location(
-        self, n_core_incoming: int, n_core_wasted: int, target_chip: int = -1
+        self,
+        n_core_incoming: int,
+        n_core_wasted: int,
+        target_chip_idx: int = NEU_TARGET_CHIP_NOT_SET,
     ) -> tuple[int, int, list[Direction]]:
         """Look for the insertion location of the incoming routing group."""
         n_core_aligned = _nearest_multiple_above(self.n_core_total, n_core_incoming)
@@ -395,15 +398,18 @@ class RoutingManager:
 
         core_loc = n_core_aligned
         chip_idx_loc = core_loc // HwConfig.N_CORE_MAX_INCHIP
-        if target_chip != -1:
-            if chip_idx_loc > target_chip:
+        if (
+            target_chip_idx > NEU_TARGET_CHIP_NOT_SET
+            and chip_idx_loc != target_chip_idx
+        ):
+            if chip_idx_loc > target_chip_idx:
                 raise ResourceError(
-                    f"the target chip {target_chip} is not routable, "
+                    f"the target chip {target_chip_idx} is not routable, "
                     f"the routing group should be placed in chip {chip_idx_loc}."
                 )
-            elif chip_idx_loc < target_chip:
-                core_loc = HwConfig.N_CORE_MAX_INCHIP * target_chip
-                chip_idx_loc = target_chip
+            else:
+                core_loc = HwConfig.N_CORE_MAX_INCHIP * target_chip_idx
+                chip_idx_loc = target_chip_idx
 
         if chip_idx_loc >= len(self.chip_list):
             raise ResourceError(
@@ -437,7 +443,6 @@ class RoutingManager:
         # after the online cores.
         n_tail_waste = 0
         n_core_req = n_core_cost - n_tail_waste
-        target_chip = rgrp.target_chip
 
         # Check whether a single routing group can be placed within a single core.
         # The largest continuous offline cores is ONLINE_CORES_BASE_COORD.
@@ -448,7 +453,7 @@ class RoutingManager:
             )
 
         core_insert_loc, chip_idx_loc, rpath_start = self.get_insert_location(
-            n_core_cost, n_tail_waste, target_chip
+            n_core_cost, n_tail_waste, rgrp.target_chip_idx
         )
 
         allocated_coords: list[Coord] = []

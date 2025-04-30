@@ -52,6 +52,7 @@ from .utils import (
 __all__ = ["Neuron"]
 
 L = Literal
+NEU_TARGET_CHIP_NOT_SET = -1
 
 
 class MetaNeuron:
@@ -439,7 +440,7 @@ class Neuron(MetaNeuron, NeuDyn):
         unrolling_factor: int = 1,
         overflow_strict: bool = False,
         keep_shape: bool = True,
-        target_chip: int = -1,
+        target_chip: int = NEU_TARGET_CHIP_NOT_SET,
         name: Optional[str] = None,
     ) -> None:
         if neg_threshold is None:
@@ -493,7 +494,7 @@ class Neuron(MetaNeuron, NeuDyn):
         self._tws = arg_check_non_neg(tick_wait_start, "'tick_wait_start'")
         self._twe = arg_check_non_neg(tick_wait_end, "'tick_wait_end'")
         self._uf = arg_check_pos(unrolling_factor, "'unrolling_factor'")
-        self._target_chip = target_chip
+        self.target_chip_idx = target_chip
         # Default dataflow is infinite and continuous, starting at tws+0.
         self._oflow_format = DataFlowFormat(0, is_local_time=True)
 
