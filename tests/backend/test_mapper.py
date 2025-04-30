@@ -446,6 +446,28 @@ class TestMapper_Compile:
             if net.n4 in cb.dest:
                 assert len(cb.ordered_axons) == 3
 
+    def test_set_target_chip(self, build_example_net1, monkeypatch):
+        monkeypatch.setattr(
+            pb.BACKEND_CONFIG, "target_chip_addr", [Coord(1, 0), (0, 0), (1, 1)]
+        )
+        net = build_example_net1
+        monkeypatch.setattr(net.n2, "target_chip_idx", 1)
+        monkeypatch.setattr(net.n3, "target_chip_idx", 2)
+
+        mapper = pb.Mapper()
+        mapper.build(net)
+        info = mapper.compile()
+        assert len(info["members"].keys()) == 3
+        mapper.clear()
+
+        monkeypatch.setattr(
+            net.n3, "target_chip_idx", len(pb.BACKEND_CONFIG.target_chip_addr)
+        )
+        mapper.build(net)
+
+        with pytest.raises(ResourceError):
+            info = mapper.compile()
+
 
 class TestMapper_cflags:
     @pytest.mark.parametrize(

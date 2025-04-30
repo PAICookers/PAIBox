@@ -477,7 +477,7 @@ class TestNeuronModeSNN:  # iss = 001
             assert np.array_equal(n1.voltage, expected_vol[i])
 
     def test_LIF_with_bias(self):
-        # Hard reset, bias.
+        # Hard reset, bias, scalar.
         n1 = pb.LIF(shape=1, threshold=6, reset_v=1, leak_v=0, bias=2)
         assert n1.leak_v == n1.bias == 2
 
@@ -491,6 +491,24 @@ class TestNeuronModeSNN:  # iss = 001
 
             assert np.array_equal(n1.spike, expected_spike[i])
             assert np.array_equal(n1.voltage, expected_vol[i])
+
+    def test_LIF_with_bias_vector(self):
+        # Soft reset, bias.
+        n1 = pb.LIF(
+            shape=(3, 2),
+            threshold=6,
+            reset_v=0,
+            bias=np.array([1, 2, 2], dtype=np.int32),
+        )
+
+        incoming_v = np.array([[[0, 0], [1, 1], [0, 0]]], dtype=np.bool_)
+        expected_vol = np.array([[[3, 3], [3, 3], [0, 0]]], dtype=np.int32)
+
+        for _ in range(3):
+            pb.FRONTEND_ENV["t"] += 1
+            n1.update(incoming_v[0].ravel())
+
+        assert np.array_equal(n1.voltage, expected_vol[0])
 
     def test_LIF_both_leak_bias(self):
         # Soft reset, leak & bias.
