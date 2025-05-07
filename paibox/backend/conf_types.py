@@ -34,7 +34,7 @@ else:
 from paibox.base import DataFlowFormat
 from paibox.components import Neuron
 
-from .types import AxonCoord, NeuSegment, NeuSegRAMAddr, NodeName, WRAMPackedType
+from .types import AxonCoord, NeuSegment, NeuSegAddr, NodeName, WRAMPackedType
 
 try:
     import orjson
@@ -201,7 +201,7 @@ class NeuronConfig:
         dict_ = {
             "n_neuron": self.neu_seg.n_neuron,
             "addr_offset": self.neu_seg.offset,
-            "addr_ram": self.neu_seg.addr_ram,
+            "addr_occupied": self.neu_seg.occupied_addr,
         }
         dict_ |= self.export().model_dump(by_alias=True)
 
@@ -290,7 +290,7 @@ CoreConfInChip: TypeAlias = dict[Coord, CoreConfig]
 CoreConf: TypeAlias = dict[ChipCoord, CoreConfInChip]
 
 # Only one segment of a neuron is placed on a core
-NeuPhyLocChipLoc: TypeAlias = dict[Coord, NeuSegRAMAddr]
+NeuPhyLocChipLoc: TypeAlias = dict[Coord, NeuSegAddr]
 NeuPhyLoc: TypeAlias = dict[ChipCoord, NeuPhyLocChipLoc]
 NeuPhyLocMap: TypeAlias = dict[NodeName, NeuPhyLoc]
 

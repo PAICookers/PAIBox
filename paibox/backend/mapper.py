@@ -709,7 +709,7 @@ class Mapper:
                             print(
                                 f"{neuron.name} placed in {core_plm.coord}\n"
                                 f"N:        {neu_seg.n_neuron}\n"
-                                f"Address:  {neu_seg._addr_ram_repr}"
+                                f"Address:  {neu_seg._occupied_addr_repr}"
                             )
 
     def find_axon(self, neuron: Neuron, *, verbose: int = 0) -> None:
