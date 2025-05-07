@@ -77,7 +77,6 @@ def gen_config_frames_by_coreconf(
             )
 
             # 3. Iterate all the neuron segments inside the physical core.
-            # The meaning of 'n_neuron' in function 'gen_config_frame3' is the number of neurons in the NRAM.
             config_frame_type3 = []
             neu_conf_on_wram: list[NeuronConfig] = []
 
@@ -93,7 +92,7 @@ def gen_config_frames_by_coreconf(
                             core_coord,
                             _RID_UNSET,
                             neu_conf.neu_seg.offset,
-                            neu_conf.neu_seg.n_neuron,
+                            neu_conf.neu_seg.n_neuron,  # #N of logical neurons
                             neu_conf.neuron_attrs,
                             neu_conf.neuron_dest_info,
                             neu_conf.neu_seg.repeat,
@@ -456,14 +455,14 @@ def get_neuron_phy_loc(
         "n1": {
             "(0,0)": { # at chip (0,0)
                 "(2,0)": {  # at core (2,0)
-                    "n_neuron": 50, # #N on the core
-                    "ram_offset": 0,# offset in the RAM
-                    "interval": 1,  # interval between neurons
-                    "idx_offset": 0 # offset in the neuron index
+                    "n_neuron": 50,
+                    "addr_offset": 0,
+                    "interval": 1,
+                    "idx_offset": 0
                 },
                 "(2,1)": {  # at core (2,1)
                     "n_neuron": 50,
-                    "ram_offset": 0,
+                    "addr_offset": 0,
                     "interval": 1,
                     "idx_offset": 50
                 }
@@ -471,7 +470,8 @@ def get_neuron_phy_loc(
         },
         "n2": {...}
     }
-    NOTE: Only one segment of a neuron is placed on a core.
+
+    NOTE: Only one segment of a neuron is placed on a core for now. See `NeuSegment` in `types.py` for details.
     """
     names = {neu.name for neu in targets}  # remove duplicates
     locations: NeuPhyLocMap = defaultdict(lambda: defaultdict(dict))

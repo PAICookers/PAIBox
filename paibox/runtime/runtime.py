@@ -15,7 +15,7 @@ try:
     import paicorelib
 except ImportError:
     raise ImportError(
-        "The runtime requires paicorelib. Please install it by running `pip install paicorelib`."
+        "The runtime requires paicorelib. Please install it by running 'pip install paicorelib'."
     ) from None
 
 del paicorelib
@@ -430,64 +430,58 @@ class PAIBoxRuntime:
         """Generate test input frame type III for single neuron node to read their attributes.
 
         Args:
-            neu_phy_loc: the physical locations of a single neuron node. For example:
+            neu_phy_loc (dict[str, Any]): the physical locations of a single neuron node. For example:
 
             >>> d = {
                     "IF_0": {
                         "(0,0)": {
                             "(0,0)": {
                                 "n_neuron": 50,
-                                "ram_offset": 0,
+                                "addr_offset": 0,
                                 "interval": 8,
                                 "idx_offset": 0
                             },
                             "(0,1)": {
                                 "n_neuron": 50,
-                                "ram_offset": 0,
+                                "addr_offset": 0,
                                 "interval": 8,
                                 "idx_offset": 50
                             }
                         }
                     }
                 }
-            >>> PAIBoxRuntime.gen_read_neuron_attrs_frames(d["IF_0"])
+            >>> tframes3_if0 = PAIBoxRuntime.gen_read_neuron_attrs_frames(d["IF_0"])
 
-        NOTE: Test output frames will be output to `test_chip_addr`, which is configured before. The chip   \
-            has a hardware flaw: when the NRAM is read continuously, the second neuron will be missed. To   \
-            avoid this, we need to read the neuron attributes one by one. It takes less time to read NRAM   \
-            individually than sequentially.
+        NOTE: Test output frames will be output to `test_chip_addr` which is configured before. Since the   \
+            chip has a hardware flaw that when the SRAM is read continuously, the second neuron will be     \
+            missed. To avoid this, we need to read the neuron attributes one by one. It takes less time to  \
+            read the neuron attributes individually than sequentially.
         """
         tframe3: list[OfflineTestInFrame3] = []
 
         for chip_coord, core_locs in neu_phy_loc.items():
-            for core_coord, _ram_addr in core_locs.items():
-                ram_addr = NeuSegRAMAddrKeys(_ram_addr)  # cast to typed dict
-
-                if ram_addr["interval"] > 1:  # LCN > 1
-                    for i in range(ram_addr["n_neuron"]):
-                        tframe3.append(
-                            OfflineFrameGen.gen_testin_frame3(
-                                ChipCoord(*coordstr_to_tuple(chip_coord)),
-                                Coord(*coordstr_to_tuple(core_coord)),
-                                _RID_UNSET,
-                                # NOTE: Here, we need to strictly refer to the specific arrangement of
-                                # attributes in NRAM. When LCN of this core(interval) > 1, the attribute
-                                # of the neuron corresponding to the logical index `i` is located at
-                                # `(i+1)*LCN-1` of NRAM.
-                                ram_addr["ram_offset"]
-                                + (i + 1) * ram_addr["interval"]
-                                - 1,
-                                4,
-                            )
-                        )
-                else:  # LCN = 1
+            for core_coord, _seg_addr in core_locs.items():
+                nseg_addr = NeuSegAddrKeys(_seg_addr)  # cast to typed dict
+                for i in range(nseg_addr["n_neuron"]):
+                    # NOTE: Mapping between logical neuron indexes, neuron addresses & SRAM addresses:
+                    # Logical idx:                    [0]                           [1]
+                    #                   |<------- interval=8 -------->|                             |
+                    # Neuron address:      [0]      [1]   ...   [7]      [8]        ...       [15]
+                    # SRAM address:     [0*4+:4] [1*4+:4] ... [7*4+:4] [8*4+:4]     ...     [15*4+:4]
+                    # NOTE: According to our experiments, the attributes of each logical neuron at index `i` is stored
+                    # many times repeatedly in the **neuron address** addr_offset+[i],[i+1],...,[i+interval-1].
+                    # However, the correct voltage is stored in the **neuron address** addr_offset+[i], or
+                    # [(addr_offset+i)*4+:4] in SRAM. Reading [i] is the most efficient way to get all attributes. This
+                    # behavior above is not officially documented in the chip manual.
                     tframe3.append(
                         OfflineFrameGen.gen_testin_frame3(
                             ChipCoord(*coordstr_to_tuple(chip_coord)),
                             Coord(*coordstr_to_tuple(core_coord)),
                             _RID_UNSET,
-                            ram_addr["ram_offset"],
-                            4 * ram_addr["n_neuron"],
+                            # NOTE: Attention! The argument `sram_base_addr` of config/test frame 3 & 4 is incorrectly
+                            # named. In fact, it is the **neuron address** as described above.
+                            nseg_addr["addr_offset"] + i * nseg_addr["interval"],
+                            4,
                         )
                     )
 
@@ -497,30 +491,33 @@ class PAIBoxRuntime:
     def decode_neuron_voltage(
         neu_phy_loc: dict[str, Any], otframes3: FrameArrayType
     ) -> VoltageType:
-        """Decode type III test output frames of a single neuron node for reading the voltage. The physical \
+        """Decode type III test output frames of a single neuron node for reading the voltage. The physical     \
             locations of the neurons will be aligned with their logical positions.
 
         Args:
-            neu_phy_loc: the physical locations of a single neuron node.
+            neu_phy_loc (dict[str, Any]): the physical locations of a single neuron node.
             otframes3 (FrameArrayType): the test output frames of type III.
 
-        NOTE: Only single node decoding is supported for now. The test output frames for each neuron may be \
+            >>> decoded_v = PAIBoxRuntime.decode_neuron_voltage(d["IF_0"], otframes3_if0)
+
+            where `otframes3_if0` is the output frames of type III for neuron 'IF_0'.
+
+        NOTE: Only single node decoding is supported for now. The test output frames for each neuron may be     \
             unordered.
         """
-        if (n_neu := len(neu_phy_loc.keys())) > 1:
+        if (n_neu := len(neu_phy_loc)) > 1:
             raise ValueError(
                 f"Only single node decoding is supported for now, but got {n_neu}."
             )
 
-        neu = list(neu_phy_loc.keys())[0]
-
+        neu = list(neu_phy_loc)[0]
         n_neuron_total = 0
-        core_locs: dict[Coord, NeuSegRAMAddrKeys] = {}  # records the core coordinates
-        for coord_str, _ram_addr in neu_phy_loc[neu].items():
+        core_locs: dict[Coord, NeuSegAddrKeys] = {}  # records the core coordinates
+        for coord_str, _seg_addr in neu_phy_loc[neu].items():
             cur_coord = Coord(*coordstr_to_tuple(coord_str))
-            ram_addr = NeuSegRAMAddrKeys(_ram_addr)  # cast to typed dict
-            core_locs[cur_coord] = ram_addr
-            n_neuron_total += ram_addr["n_neuron"]
+            nseg_addr = NeuSegAddrKeys(_seg_addr)  # cast to typed dict
+            core_locs[cur_coord] = nseg_addr
+            n_neuron_total += nseg_addr["n_neuron"]
 
         decoded_v = np.zeros((n_neuron_total,), dtype=VOLTAGE_DTYPE)
 
@@ -531,8 +528,7 @@ class PAIBoxRuntime:
 
             while i < len(otframe3):
                 cur_frame = int(otframe3[i])
-                if (
-                    # check current frame only
+                if (  # check current frame only
                     FH.TEST_TYPE3
                     == FH(
                         (cur_frame >> FF.GENERAL_HEADER_OFFSET) & FF.GENERAL_HEADER_MASK
@@ -544,7 +540,7 @@ class PAIBoxRuntime:
                     core_coord = (
                         cur_frame >> FF.GENERAL_CORE_ADDR_OFFSET
                     ) & FF.GENERAL_CORE_ADDR_MASK
-                    sram_start_addr = (
+                    neu_addr = (
                         cur_frame >> FF.GENERAL_PACKAGE_SRAM_ADDR_OFFSET
                     ) & FF.GENERAL_PACKAGE_SRAM_ADDR_MASK
                     n_package = (
@@ -552,7 +548,7 @@ class PAIBoxRuntime:
                     ) & FF.GENERAL_PACKAGE_NUM_MASK
 
                     assert n_package == 4
-                    # Voltages is at #1 of 4 frames in package.
+                    # The voltage is at #1 of 4 frames in package.
                     v = (
                         int(otframe3[i + 1]) >> Off_NRAMF.VJT_PRE_OFFSET
                     ) & Off_NRAMF.VJT_PRE_MASK
@@ -560,14 +556,13 @@ class PAIBoxRuntime:
                     if (coord := Coord.from_addr(core_coord)) not in core_locs:
                         expected = ", ".join(str(c) for c in core_locs)
                         raise ValueError(
-                            f"Coordinate {coord} is not in expected locations: {expected}."
+                            f"{coord} is not in expected locations: {expected}."
                         )
 
-                    ram_addr = core_locs[coord]
-                    logic_idx = ram_addr["idx_offset"] + (
-                        (sram_start_addr + 1 - ram_addr["ram_offset"])
-                        // ram_addr["interval"]
-                        - 1
+                    nseg_addr = core_locs[coord]
+                    # See comments in `gen_read_neuron_attrs_frames()` above.
+                    logic_idx = nseg_addr["idx_offset"] + (
+                        (neu_addr - nseg_addr["addr_offset"]) // nseg_addr["interval"]
                     )
                     decoded_v[logic_idx] = convert_30bit_to_signed(v)
 

@@ -3,25 +3,25 @@
     "(0,0)": {
       "(0,0)": {
         "n_neuron": 25,
-        "ram_offset": 0,
+        "addr_offset": 0,
         "interval": 16,
         "idx_offset": 0
       },
       "(0,1)": {
         "n_neuron": 25,
-        "ram_offset": 0,
+        "addr_offset": 0,
         "interval": 16,
         "idx_offset": 25
       },
       "(1,0)": {
         "n_neuron": 25,
-        "ram_offset": 0,
+        "addr_offset": 0,
         "interval": 16,
         "idx_offset": 50
       },
       "(1,1)": {
         "n_neuron": 25,
-        "ram_offset": 0,
+        "addr_offset": 0,
         "interval": 16,
         "idx_offset": 75
       }

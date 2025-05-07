@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass
 from enum import Enum, auto, unique
-from typing import Any, NamedTuple, Union
+from typing import Any, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -175,23 +175,40 @@ class MergedSuccGroup:
 
 
 @dataclass(frozen=True)
-class NeuSegRAMAddr:
-    """Address of a neuron segment in the RAM."""
+class NeuSegAddr:
+    """The neuron segment in neuron address space."""
 
     n_neuron: int
-    ram_offset: int
+    addr_offset: int
+    """Same as `NeuSegment.offset`."""
     interval: int
+    """Same as `NeuSegment.repeat`."""
     idx_offset: int
-    """The offset of original neuron."""
+    """The offset of the starting address of this neuron corresponding to the neuron node   \
+        in which it is located."""
 
 
 @dataclass(frozen=True)
 class NeuSegment:
+    """`NeuSegment` describes the arrangement of neurons in neuron address space.
+
+    Mapping between logical neuron indexes, neuron addresses & SRAM addresses:
+                                        |<----------- index --------->|
+        Logical idx:           ...     [1]                           [2]         ...
+                            |<----- repeat ----->|        |<------ repeat ------>|
+        Neuron address:    [0]      [1]   ...   [7]      [8]         ...        [15]
+        SRAM address:    [0*4+:4] [1*4+:4] ... [7*4+:4] [8*4+:4]     ...     [15*4+:4]
+
+    NOTE: Not necessary to descibe the neuron mapping in the SRAM address space. The SRAM address space \
+        is only used to store the frame data.
+    """
+
     target: DestNodeType
     index: NeuSlice  # slice like slice(x, y, 1)
     offset: int
-    """The offset at which the segment starts in the RAM."""
+    """The offset at which the segment starts in the neuron address space."""
     repeat: int = 1
+    """The number of times the neuron in the segment is repeated."""
 
     def __getitem__(self, s: slice) -> "NeuSegment":
         _idx_start = s.start if s.start is not None else 0
@@ -217,12 +234,12 @@ class NeuSegment:
 
     @property
     def n_neuron(self) -> int:
-        """#N of unique neurons in this segment."""
+        """The number of logical neurons in the segment."""
         return self.index.stop - self.index.start
 
     @property
-    def n_occupied_addr(self) -> int:
-        """#N of neuron addresses the segment occupies in the RAM."""
+    def n_occupied_in_addr(self) -> int:
+        """#N of neuron addresses the segment occupies in the neuron address space."""
         return self.repeat * self.n_neuron
 
     @property
@@ -230,35 +247,36 @@ class NeuSegment:
         return self.target._slice_attrs(self.index)
 
     @property
-    def addr_ram(self) -> list[int]:
-        """Convert index of neuron into RAM address."""
-        return list(range(self.offset, self.offset + self.n_occupied_addr, 1))
+    def occupied_addr(self) -> list[int]:
+        """Return the occupied neuron address range in the neuron address space."""
+        return list(range(self.offset, self.offset + self.n_occupied_in_addr, 1))
 
     @property
-    def _addr_ram_repr(self) -> slice:
-        """Represent the slice of neuron RAM address."""
-        return slice(self.offset, self.offset + self.n_occupied_addr, self.repeat)
+    def _occupied_addr_repr(self) -> slice:
+        """Represent the occupied neuron address range in the neuron address space with 'repeat'."""
+        return slice(self.offset, self.offset + self.n_occupied_in_addr, self.repeat)
 
     @property
-    def neu_seg_addr(self) -> NeuSegRAMAddr:
-        return NeuSegRAMAddr(self.n_neuron, self.offset, self.repeat, self.index.start)
+    def neu_seg_addr(self) -> NeuSegAddr:
+        return NeuSegAddr(self.n_neuron, self.offset, self.repeat, self.index.start)
 
 
 NeuSegOfCorePlm: TypeAlias = list[NeuSegment]
 NeuSegOfCoreBlock: TypeAlias = list[NeuSegOfCorePlm]
 
 
-class AxonCoord(NamedTuple):
+@dataclass(frozen=True)
+class AxonCoord:
     tick_relative: int
     addr_axon: int
 
     @classmethod
     def build(cls, tick_relative: int, addr_axon: int) -> "AxonCoord":
-        tick_relative = tick_relative % HwConfig.N_TIMESLOT_MAX
-        return cls(tick_relative, addr_axon)
+        return cls(tick_relative % HwConfig.N_TIMESLOT_MAX, addr_axon)
 
 
-class AxonSegment(NamedTuple):
+@dataclass(frozen=True)
+class AxonSegment:
     n_axon: int
     """#N of axons."""
     addr_width: int

@@ -93,7 +93,7 @@ class RoutingGroup:
         """Whether the coordinates of chip & cores are assigned."""
         self.is_root = is_root
 
-        self.target_chip_idx = NEU_TARGET_CHIP_NOT_SET
+        self.target_chip_idx: Union[int, None] = None
         """The index of the target chip for this routing group."""
 
         # For debugging
@@ -104,13 +104,12 @@ class RoutingGroup:
             self.set_axons()
 
     def set_target_chip(self) -> None:
-        for cb in self.core_blocks:
-            if not check_elem_same(d.target_chip_idx for d in cb.dest):
-                raise ValueError("Cannot multicast to different target chip")
+        if not check_elem_same(
+            d.target_chip_idx for cb in self.core_blocks for d in cb.dest
+        ):
+            raise ValueError("Cannot multicast to different target chips.")
 
-            t = cb.dest[0].target_chip_idx
-
-        self.target_chip_idx = t
+        self.target_chip_idx = self.core_blocks[0].dest[0].target_chip_idx
 
     def set_axons(self, multicast_axons: list[SourceNodeType] = []) -> None:
         """Set the multicast axons for the routing group."""
@@ -451,6 +450,9 @@ class RoutingManager:
                 "the number of cores required by the routing group exceeds the hardware limit, "
                 f"{n_core_req} > {ONLINE_CORES_BASE_COORD}."
             )
+
+        if rgrp.target_chip_idx is None:
+            raise ValueError("The 'target_chip_idx' of the routing group is not set.")
 
         core_insert_loc, chip_idx_loc, rpath_start = self.get_insert_location(
             n_core_cost, n_tail_waste, rgrp.target_chip_idx
