@@ -539,6 +539,13 @@ class TestReadNeuronVoltage:
         for _, neu_phy_loc in neu_phy_locs.items():
             tframe3 = PAIBoxRuntime.gen_read_neuron_attrs_frames(neu_phy_loc)
 
+            n_neuron = 0
+            for _, chip_loc in neu_phy_loc.items():
+                for _, core_loc in chip_loc.items():
+                    n_neuron += core_loc["n_neuron"]
+
+            assert len(tframe3) == n_neuron
+
     @pytest.mark.skipif(
         plib_version < f"{REQUIRED_PLIB_VERSION}",
         reason=f"requires paicorelib >= {REQUIRED_PLIB_VERSION}",
@@ -555,7 +562,7 @@ class TestReadNeuronVoltage:
         core_coords = [Coord(0, 0), Coord(0, 1)]
         expected_v = np.random.randint(-500, 500, size=(n_neuron,), dtype=np.int32)
         supposed_addr = [
-            interval * (i + 1) - 1 for i in range(n_neuron // len(core_coords))
+            interval * i for i in range(n_neuron // len(core_coords))
         ] * len(core_coords)
 
         otframe3: list[OfflineTestOutFrame3] = []
@@ -580,10 +587,11 @@ class TestReadNeuronVoltage:
         shuffled = _shuffle_otframe3(otframe3)
         otframe3_array = np.hstack([f.value for f in shuffled])
 
+        assert len(neu_phy_locs) == 1
         for _, neu_phy_loc in neu_phy_locs.items():
             decoded_v = PAIBoxRuntime.decode_neuron_voltage(neu_phy_loc, otframe3_array)
 
-        assert np.array_equal(decoded_v, expected_v)
+            assert np.array_equal(decoded_v, expected_v)
 
     @pytest.mark.skipif(
         plib_version < f"{REQUIRED_PLIB_VERSION}",
@@ -601,7 +609,7 @@ class TestReadNeuronVoltage:
         core_coords = [Coord(0, 0), Coord(0, 1), Coord(1, 0), Coord(1, 1)]
         expected_v = np.random.randint(-500, 500, size=(n_neuron,), dtype=np.int32)
         supposed_addr = [
-            interval * (i + 1) - 1 for i in range(n_neuron // len(core_coords))
+            interval * i for i in range(n_neuron // len(core_coords))
         ] * len(core_coords)
 
         otframe3: list[OfflineTestOutFrame3] = []
@@ -626,7 +634,8 @@ class TestReadNeuronVoltage:
         shuffled = _shuffle_otframe3(otframe3)
         otframe3_array = np.hstack([f.value for f in shuffled])
 
+        assert len(neu_phy_locs) == 1
         for _, neu_phy_loc in neu_phy_locs.items():
             decoded_v = PAIBoxRuntime.decode_neuron_voltage(neu_phy_loc, otframe3_array)
 
-        assert np.array_equal(decoded_v, expected_v)
+            assert np.array_equal(decoded_v, expected_v)

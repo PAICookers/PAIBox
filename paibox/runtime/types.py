@@ -20,14 +20,19 @@ def coordstr_to_tuple(coord_str: CoordStr) -> CoordTuple:
         raise ValueError(f"Invalid coord_str: {coord_str}") from e
 
 
-class NeuSegRAMAddrKeys(TypedDict):
+class NeuSegAddrKeys(TypedDict):
     n_neuron: int
-    ram_offset: int
+    """The number of neurons in the segment."""
+    addr_offset: int
+    """The address offset at which the segment starts in the neuron address space."""
     interval: int
+    """The number of times the neuron in the segment is repeated."""
     idx_offset: int
+    """The offset of the starting address of this neuron corresponding to the neuron node   \
+        in which it is located."""
 
 
-NeuPhyLoc = dict[ChipCoordStr, dict[CoordStr, list[NeuSegRAMAddrKeys]]]
+NeuPhyLoc = dict[ChipCoordStr, dict[CoordStr, list[NeuSegAddrKeys]]]
 
 import paicorelib.framelib.types as ftypes
 
