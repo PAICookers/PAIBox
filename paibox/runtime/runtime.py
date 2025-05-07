@@ -497,9 +497,9 @@ class PAIBoxRuntime:
         Args:
             neu_phy_loc (dict[str, Any]): the physical locations of a single neuron node.
             otframes3 (FrameArrayType): the test output frames of type III.
-            
+
             >>> decoded_v = PAIBoxRuntime.decode_neuron_voltage(d["IF_0"], otframes3_if0)
-            
+
             where `otframes3_if0` is the output frames of type III for neuron 'IF_0'.
 
         NOTE: Only single node decoding is supported for now. The test output frames for each neuron may be     \

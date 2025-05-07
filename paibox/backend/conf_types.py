@@ -34,7 +34,7 @@ else:
 from paibox.base import DataFlowFormat
 from paibox.components import Neuron
 
-from .types import AxonCoord, NeuSegment, NeuSegAddr, NodeName, WRAMPackedType
+from .types import AxonCoord, NeuSegAddr, NeuSegment, NodeName, WRAMPackedType
 
 try:
     import orjson

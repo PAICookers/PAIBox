@@ -198,7 +198,7 @@ class NeuSegment:
                             |<----- repeat ----->|        |<------ repeat ------>|
         Neuron address:    [0]      [1]   ...   [7]      [8]         ...        [15]
         SRAM address:    [0*4+:4] [1*4+:4] ... [7*4+:4] [8*4+:4]     ...     [15*4+:4]
-    
+
     NOTE: Not necessary to descibe the neuron mapping in the SRAM address space. The SRAM address space \
         is only used to store the frame data.
     """
