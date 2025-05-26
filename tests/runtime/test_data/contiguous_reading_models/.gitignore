@@ -1,0 +1,4 @@
+*.bin
+*.json
+
+!**/neuron_phy_loc.json

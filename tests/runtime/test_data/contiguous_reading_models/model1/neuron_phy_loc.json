@@ -1,0 +1,12 @@
+{
+  "IF_0": {
+    "(0,0)": {
+      "(0,0)": {
+        "n_neuron": 64,
+        "addr_offset": 0,
+        "interval": 8,
+        "idx_offset": 0
+      }
+    }
+  }
+}
