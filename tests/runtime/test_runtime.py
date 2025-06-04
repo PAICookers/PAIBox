@@ -1,6 +1,7 @@
 import json
 import timeit
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -489,7 +490,7 @@ REQUIRED_PLIB_VERSION = "1.4.1"  # Required version for neuron voltage decoding
 from paicorelib import __version__ as plib_version
 
 
-def _get_neuron_phy_files():
+def get_neu_phy_files() -> list[Path]:
     return list(TEST_CONF_DIR.glob("neuron_phy_loc[0-9]*.json"))
 
 
@@ -500,8 +501,46 @@ def _shuffle_otframe3(otframe3: list[OfflineTestOutFrame3]):
     return otframe3_np
 
 
-class TestReadNeuronVoltage:
+def get_n_neuron_from_phy_loc(neu_phy_loc: dict[str, dict[str, Any]]) -> int:
+    n_neuron = 0
+    for chip_loc in neu_phy_loc.values():
+        n_neuron += sum(core_loc["n_neuron"] for core_loc in chip_loc.values())
 
+    return n_neuron
+
+
+def get_contiguous_reading_models_dir() -> list[Path]:
+    return list((TEST_CONF_DIR / "contiguous_reading_models").glob("model[0-9]*"))
+
+
+"""If necessary, enable the following variable to recompile the actual networks for contiguous voltage  \
+    decoding tests.
+"""
+COMPILE_CONTIGUOUS_DECOING_MODEL = 0
+import paibox as pb
+from paibox.components.synapses.transforms import ConnType
+
+
+# Run 1 timestep to check the voltage decoding
+class Net1_one2one_8b(pb.Network):
+    def __init__(self, n: int):
+        super().__init__()
+        self.inp1 = pb.InputProj(None, (n,))
+        self.n1 = pb.IF((n,), 1000, tick_wait_start=1)
+        w = np.arange(1, n + 1, dtype=np.int8)
+        self.s1 = pb.FullConn(self.inp1, self.n1, w, conn_type=ConnType.One2One)
+
+
+class Net2_triu_1b(pb.Network):
+    def __init__(self, n: int):
+        super().__init__()
+        self.inp1 = pb.InputProj(None, (n,))
+        self.n1 = pb.IF((n,), 10000)
+        w = np.triu(np.ones((n, n), dtype=np.bool_), k=0)  # w1
+        self.s1 = pb.FullConn(self.inp1, self.n1, w)
+
+
+class TestReadNeuronVoltage:
     dest_info = dict(
         addr_chip_x=1,
         addr_chip_y=1,
@@ -529,33 +568,47 @@ class TestReadNeuronVoltage:
         voltage=0,  # voltage will be set
     )
 
-    @pytest.mark.parametrize("fp", _get_neuron_phy_files())
-    def test_gen_read_neuron_voltage_frames(self, fp):
+    @pytest.mark.parametrize("fp", get_neu_phy_files())
+    def test_gen_read_attr_frames(self, fp):
         file_not_exist_fail(fp)
 
         with open(fp, "r") as f:
             neu_phy_locs = json.load(f)
 
-        for _, neu_phy_loc in neu_phy_locs.items():
-            tframe3 = PAIBoxRuntime.gen_read_neuron_attrs_frames(neu_phy_loc)
+        for neu_phy_loc in neu_phy_locs.values():
+            # read mode: one-by-one
+            tframe3 = PAIBoxRuntime.gen_read_neuron_attrs_frames(
+                neu_phy_loc, reading_mode="onebyone"
+            )
 
-            n_neuron = 0
-            for _, chip_loc in neu_phy_loc.items():
-                for _, core_loc in chip_loc.items():
-                    n_neuron += core_loc["n_neuron"]
-
+            n_neuron = get_n_neuron_from_phy_loc(neu_phy_loc)
             assert len(tframe3) == n_neuron
+
+            # read mode: contiguous
+            tframe3_2 = PAIBoxRuntime.gen_read_neuron_attrs_frames(
+                neu_phy_loc, reading_mode="contiguous"
+            )
+            n_itf = 0
+            for chip_loc in neu_phy_loc.values():
+                for core_loc in chip_loc.values():
+                    if core_loc["interval"] > 1 or core_loc["n_neuron"] == 1:
+                        n_itf += 1
+                    else:
+                        n_itf += 2
+
+            assert len(tframe3_2) == n_itf
 
     @pytest.mark.skipif(
         plib_version < f"{REQUIRED_PLIB_VERSION}",
         reason=f"requires paicorelib >= {REQUIRED_PLIB_VERSION}",
     )
-    def test_decode_neuron_voltage1(self, monkeypatch):
+    def test_decode_voltage_onebyone1(self, monkeypatch):
         fp = TEST_CONF_DIR / "neuron_phy_loc1.json"
         file_not_exist_fail(fp)
 
         with open(fp, "r") as f:
             neu_phy_locs = json.load(f)
+            assert len(neu_phy_locs) == 1
 
         n_neuron = 100
         interval = 8
@@ -585,11 +638,11 @@ class TestReadNeuronVoltage:
 
         # Shuffle the order of the test out frames
         shuffled = _shuffle_otframe3(otframe3)
-        otframe3_array = np.hstack([f.value for f in shuffled])
 
-        assert len(neu_phy_locs) == 1
-        for _, neu_phy_loc in neu_phy_locs.items():
-            decoded_v = PAIBoxRuntime.decode_neuron_voltage(neu_phy_loc, otframe3_array)
+        for neu_phy_loc in neu_phy_locs.values():
+            decoded_v = PAIBoxRuntime.decode_voltage(
+                neu_phy_loc, *[f.value for f in shuffled], reading_mode="onebyone"
+            )
 
             assert np.array_equal(decoded_v, expected_v)
 
@@ -597,12 +650,13 @@ class TestReadNeuronVoltage:
         plib_version < f"{REQUIRED_PLIB_VERSION}",
         reason=f"requires paicorelib >= {REQUIRED_PLIB_VERSION}",
     )
-    def test_decode_neuron_voltage2(self, monkeypatch):
+    def test_decode_voltage_onebyone2(self, monkeypatch):
         fp = TEST_CONF_DIR / "neuron_phy_loc2.json"
         file_not_exist_fail(fp)
 
         with open(fp, "r") as f:
             neu_phy_locs = json.load(f)
+            assert len(neu_phy_locs) == 1
 
         n_neuron = 100
         interval = 16
@@ -632,10 +686,72 @@ class TestReadNeuronVoltage:
 
         # Shuffle the order of the test out frames
         shuffled = _shuffle_otframe3(otframe3)
-        otframe3_array = np.hstack([f.value for f in shuffled])
 
-        assert len(neu_phy_locs) == 1
-        for _, neu_phy_loc in neu_phy_locs.items():
-            decoded_v = PAIBoxRuntime.decode_neuron_voltage(neu_phy_loc, otframe3_array)
+        for neu_phy_loc in neu_phy_locs.values():
+            decoded_v = PAIBoxRuntime.decode_voltage(
+                neu_phy_loc, *[f.value for f in shuffled], reading_mode="onebyone"
+            )
 
             assert np.array_equal(decoded_v, expected_v)
+
+    """Use real network to decode voltages contiguously from the actual output test frames made on the chip.
+        The directory is at `runtime/test_data/real_models/model{x}`.
+        The real output test frames are obtained from the chip & saved in `otf3.npz`([arr1, arr2, ...]).
+    """
+
+    @pytest.mark.skipif(
+        plib_version < f"{REQUIRED_PLIB_VERSION}",
+        reason=f"requires paicorelib >= {REQUIRED_PLIB_VERSION}",
+    )
+    @pytest.mark.parametrize("test_model_dir", get_contiguous_reading_models_dir())
+    def test_decode_voltage_contiguous(self, test_model_dir: Path):
+        fp = test_model_dir / "neuron_phy_loc.json"
+        file_not_exist_fail(fp)
+
+        otf3_fp = test_model_dir / "otf3.npz"
+        file_not_exist_fail(otf3_fp)
+
+        with open(fp, "r") as f:
+            neu_phy_locs = json.load(f)
+
+        weight_all1 = ["model3", "model4"]
+
+        for neu_phy_loc in neu_phy_locs.values():
+            n_neuron = get_n_neuron_from_phy_loc(neu_phy_loc)
+
+            _loaded = np.load(otf3_fp)
+            otframes = list(_loaded.values())
+            decoded_v = PAIBoxRuntime.decode_voltage(
+                neu_phy_loc, *otframes, reading_mode="contiguous"
+            )
+
+            if test_model_dir.name in weight_all1:
+                expected_v = np.arange(1, n_neuron + 1, dtype=np.int32)
+            else:
+                expected_v = np.arange(1, n_neuron + 1, dtype=np.int8).astype(np.int32)
+
+            assert np.array_equal(decoded_v, expected_v)
+
+    @pytest.mark.skipif(COMPILE_CONTIGUOUS_DECOING_MODEL == 0, reason="skip by default")
+    @pytest.mark.parametrize(
+        "idx, model, n_neuron, wbit_opt",
+        [
+            (1, Net1_one2one_8b, 64, False),
+            (2, Net1_one2one_8b, 180, False),
+            (3, Net2_triu_1b, 100, True),
+            (4, Net2_triu_1b, 2000, True),  # lcn2
+        ],
+    )
+    def test_compile_decode_voltage_contiguous_models(
+        self, idx, model, n_neuron, wbit_opt
+    ):
+        pb.BACKEND_CONFIG.target_chip_addr = (0, 0)
+        pb.BACKEND_CONFIG.output_chip_addr = (2, 0)
+
+        net = model(n_neuron)
+        mapper = pb.Mapper()
+        mapper.build(net)
+        mapper.compile(weight_bit_optimization=wbit_opt)
+        mapper.export(
+            fp=TEST_CONF_DIR / "real_models" / f"model{idx}", read_voltage=net.n1
+        )

@@ -6,7 +6,7 @@ if sys.version_info >= (3, 8):
 else:
     from typing_extensions import TypedDict
 
-from paicorelib.coordinate import CoordTuple
+from paicorelib.coordinate import Coord, CoordTuple
 
 ChipCoordStr = str
 CoordStr = ChipCoordStr
@@ -33,6 +33,7 @@ class NeuSegAddrKeys(TypedDict):
 
 
 NeuPhyLoc = dict[ChipCoordStr, dict[CoordStr, list[NeuSegAddrKeys]]]
+CoreNeuSegLocType = dict[Coord, NeuSegAddrKeys]
 
 import paicorelib.framelib.types as ftypes
 
