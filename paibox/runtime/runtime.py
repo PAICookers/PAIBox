@@ -6,13 +6,11 @@ utilities on it. Make sure you know what you're doing when you make changes.
 The runtime dose not depend on any modules of PAIBox.
 """
 
-from typing import Any, Literal, Optional, Union, cast, overload
 import sys
+from typing import Any, Literal, Optional, Union, cast, overload
+
 import numpy as np
 from numpy.typing import NDArray
-
-from paibox.runtime.types import NeuSegAddrKeys
-
 from paicorelib import ChipCoord, Coord, CoordLike, HwConfig
 from paicorelib import ReplicationId as RId
 from paicorelib import RIdLike, to_coordoffset
@@ -28,6 +26,8 @@ from paicorelib.framelib.frames import (
 )
 from paicorelib.framelib.types import ArrayType, DataArrayType, FrameArrayType
 from paicorelib.framelib.utils import framearray_header_check
+
+from paibox.runtime.types import NeuSegAddrKeys
 
 from .types import *
 
@@ -423,7 +423,7 @@ class PAIBoxRuntime:
 
         Args:
             neu_phy_loc (dict[str, Any]): the physical locations of a single neuron node. For example:
-            reading_mode ("onebyone", "contiguous"): 
+            reading_mode ("onebyone", "contiguous"):
                 - "onebyone": read the addresses of neurons that contain the correct voltage at intervals.
                 - "contiguous" (default): read the addresses of neurons contiguously. Necessary to retrieve \
                     the addresses that store the correct voltage based on the interval.
