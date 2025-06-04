@@ -7,22 +7,11 @@ The runtime dose not depend on any modules of PAIBox.
 """
 
 from typing import Any, Literal, Optional, Union, cast, overload
-
+import sys
 import numpy as np
 from numpy.typing import NDArray
 
 from paibox.runtime.types import NeuSegAddrKeys
-
-try:
-    import paicorelib
-except ImportError:
-    raise ImportError(
-        "The runtime requires paicorelib. Please install it by running 'pip install paicorelib'."
-    ) from None
-
-del paicorelib
-
-import sys
 
 from paicorelib import ChipCoord, Coord, CoordLike, HwConfig
 from paicorelib import ReplicationId as RId
@@ -436,8 +425,8 @@ class PAIBoxRuntime:
             neu_phy_loc (dict[str, Any]): the physical locations of a single neuron node. For example:
             reading_mode ("onebyone", "contiguous"): 
                 - "onebyone": read the addresses of neurons that contain the correct voltage at intervals.
-                - "contiguous": read the addresses of neurons contiguously. Necessary to retrieve the       \
-                    addresses that store the correct voltage based on the interval.
+                - "contiguous" (default): read the addresses of neurons contiguously. Necessary to retrieve \
+                    the addresses that store the correct voltage based on the interval.
 
         Returns:
             A list of tuples of test input frames & the number of packages to read.
@@ -507,7 +496,7 @@ class PAIBoxRuntime:
                                     core_coord,
                                     _RID_UNSET,
                                     # NOTE: Attention! The argument `sram_base_addr` of config/test frame 3 & 4 is incorrectly
-                                    # named. In fact, it is the base **neuron address** as described above.
+                                    # named. In fact, it is the **neuron start address** as described above.
                                     addr_offset + i * interval,
                                     4,
                                 ),
@@ -517,8 +506,8 @@ class PAIBoxRuntime:
                 else:
                     if interval == 1:
                         # Read two times if #N of neurons > 1, otherwise read once.
-                        # 1. Set base addr=addr_offset,   n_package=4*1*(N-1), to read neuron addr_offset+[0] & [2]~[N-1].
-                        # 2. Set base addr=1+addr_offset, n_package=4*1*1,     to read neuron addr_offset+[1](if N > 1).
+                        # 1. Set neuron start addr=addr_offset,   n_package=4*1*(N-1), to read neuron addr_offset+[0] & [2]~[N-1].
+                        # 2. Set neuron start addr=1+addr_offset, n_package=4*1*1,     to read neuron addr_offset+[1](if N > 1).
                         n_package = 4 * (n_neuron - 1) if n_neuron > 1 else 4
                         tframe3.append(
                             (
@@ -550,7 +539,7 @@ class PAIBoxRuntime:
                         # containing the correct voltage have still been read accurately.
                         # When interval > 1, for example 4:
                         # In order to read neuron [0], [4], [4*2], ..., [4*N], set test input frame with:
-                        #   base addr = addr_offset
+                        #   start addr = addr_offset
                         #   n_package = 4*interval(4)*N
                         # Return addresses: [0], [2], [3], [4], ..., [4*N+1]
                         n_package = 4 * interval * n_neuron
