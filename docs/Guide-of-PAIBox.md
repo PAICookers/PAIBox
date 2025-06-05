@@ -1110,8 +1110,8 @@ mapper.clear()
          "(0,1)": [128, 0, 0, 0, 0, 0, 0, 0]
        },
        "target_chip_list": [
-         {"x": 0, "y": 0},
-         {"x": 0, "y": 1}
+         { "x": 0, "y": 0 },
+         { "x": 0, "y": 1 }
        ]
      }
    }
@@ -1201,43 +1201,43 @@ mapper.clear()
 
    ```json
    {
-    "n2": {
-      "(0,0)": {
-        "(2,0)": {
-          "n_neuron": 50,
-          "addr_offset": 0,
-          "interval": 1,
-          "idx_offset": 0
-        }
-      }
-    },
-    "n1": {
-      "(0,0)": {
-        "(0,2)": {
-          "n_neuron": 450,
-          "addr_offset": 0,
-          "interval": 1,
-          "idx_offset": 0
-        },
-        "(0,3)": {
-          "n_neuron": 450,
-          "addr_offset": 0,
-          "interval": 1,
-          "idx_offset": 450
-        },
-        "(1,2)": {
-          "n_neuron": 450,
-          "addr_offset": 0,
-          "interval": 1,
-          "idx_offset": 900
-        },
-        "(1,3)": {
-          "n_neuron": 450,
-          "addr_offset": 0,
-          "interval": 1,
-          "idx_offset": 1350
-        }
-      }
-    }
+     "n2": {
+       "(0,0)": {
+         "(2,0)": {
+           "n_neuron": 50,
+           "addr_offset": 0,
+           "interval": 1,
+           "idx_offset": 0
+         }
+       }
+     },
+     "n1": {
+       "(0,0)": {
+         "(0,2)": {
+           "n_neuron": 450,
+           "addr_offset": 0,
+           "interval": 1,
+           "idx_offset": 0
+         },
+         "(0,3)": {
+           "n_neuron": 450,
+           "addr_offset": 0,
+           "interval": 1,
+           "idx_offset": 450
+         },
+         "(1,2)": {
+           "n_neuron": 450,
+           "addr_offset": 0,
+           "interval": 1,
+           "idx_offset": 900
+         },
+         "(1,3)": {
+           "n_neuron": 450,
+           "addr_offset": 0,
+           "interval": 1,
+           "idx_offset": 1350
+         }
+       }
+     }
    }
    ```
