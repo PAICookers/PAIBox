@@ -5,7 +5,7 @@
 ```toml
 python = ">=3.9"
 pydantic = ">=2.0.3,<3.0.0"
-numpy = ">=2.0"
+numpy = ">=2.1.0,<3.0.0"
 paicorelib = ">=1.4.0,<1.5.0"
 ```
 
@@ -15,7 +15,7 @@ paicorelib = ">=1.4.0,<1.5.0"
 orjson = ">=3.10"
 ```
 
-或者从Github克隆，由此下载的PAIBox将包含测试文件、文档等。
+或从仓库克隆，由此下载的 PAIBox 将包含测试文件、文档等。
 
 ```bash
 git clone https://github.com/PAICookers/PAIBox.git
@@ -144,6 +144,14 @@ n1 = pb.BypassNeuron(shape=128, name='n1')
 ⚠️ 即将弃用，请使用 `BypassNeuron`
 
 SNN 模式下，具有 Relu 功能的神经元。当输入为1，则输出为1；输入为非正整数，输出为0。
+
+#### Store Voltage Neuron
+
+该神经元被设置为不进行膜电平重置操作，因此将持续存储膜电位平（可能溢出）。仅用于需要读取膜电平的层，该层神经元的设置。其参数含义同 LIF 神经元。
+
+```python
+n1 = pb.StoreVoltageNeuron(shape=(10,), leak_v=-100, bias=0, name='n1')
+```
 
 #### ANN Neuron
 
@@ -1098,13 +1106,12 @@ mapper.clear()
      "n_core_occupied": 10,
      "misc": {
        "clk_en_L2": {
-         "(0,0)": [128, 0, 0, 0, 0, 0, 0, 0]
+         "(0,0)": [128, 0, 0, 0, 0, 0, 0, 0],
+         "(0,1)": [128, 0, 0, 0, 0, 0, 0, 0]
        },
        "target_chip_list": [
-         {
-           "x": 0,
-           "y": 0
-         }
+         {"x": 0, "y": 0},
+         {"x": 0, "y": 1}
        ]
      }
    }
@@ -1192,55 +1199,45 @@ mapper.clear()
 
 5. 待读取膜电平的神经元物理位置信息，`neuron_phy_loc.json`，可能存在多个神经元，且每个神经元可能分布在多个核中
 
-```json
-{
-  "n2": {
-    "(0,0)": {
-      "(2,0)": [
-        {
+   ```json
+   {
+    "n2": {
+      "(0,0)": {
+        "(2,0)": {
           "n_neuron": 50,
-          "ram_offset": 0,
+          "addr_offset": 0,
           "interval": 1,
           "idx_offset": 0
         }
-      ]
-    }
-  },
-  "n1": {
-    "(0,0)": {
-      "(0,2)": [
-        {
+      }
+    },
+    "n1": {
+      "(0,0)": {
+        "(0,2)": {
           "n_neuron": 450,
-          "ram_offset": 0,
+          "addr_offset": 0,
           "interval": 1,
           "idx_offset": 0
-        }
-      ],
-      "(0,3)": [
-        {
+        },
+        "(0,3)": {
           "n_neuron": 450,
-          "ram_offset": 0,
+          "addr_offset": 0,
           "interval": 1,
           "idx_offset": 450
-        }
-      ],
-      "(1,2)": [
-        {
+        },
+        "(1,2)": {
           "n_neuron": 450,
-          "ram_offset": 0,
+          "addr_offset": 0,
           "interval": 1,
           "idx_offset": 900
-        }
-      ],
-      "(1,3)": [
-        {
+        },
+        "(1,3)": {
           "n_neuron": 450,
-          "ram_offset": 0,
+          "addr_offset": 0,
           "interval": 1,
           "idx_offset": 1350
         }
-      ]
+      }
     }
-  }
-}
-```
+   }
+   ```
