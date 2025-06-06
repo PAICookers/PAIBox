@@ -1,6 +1,6 @@
 import pytest
 
-from paibox.utils import fn_sgn, reverse_8bit, reverse_16bit, typical_round
+from paibox.utils import *
 
 
 @pytest.mark.parametrize("a,b, expected", [(1, 0, 1), (1, 2, -1), (3, 3, 0)])
@@ -94,3 +94,15 @@ def test_slice_by_slice(s1, s2, expected):
     new_slice = slice(start, end, s1.step)
 
     assert new_slice == expected
+
+
+def test_check_elem_same():
+    class TestObj:
+        def __init__(self, val):
+            self.val = val
+
+    d1 = [TestObj(1), TestObj(1), TestObj(1), TestObj(-1)]
+    d2 = [TestObj(-1), TestObj(-1), TestObj(-1), TestObj(-1)]
+
+    assert check_elem_same(d.val for d in d1) == False
+    assert check_elem_same(d.val for d in d2) == True

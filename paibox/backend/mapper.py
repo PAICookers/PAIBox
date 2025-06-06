@@ -12,6 +12,7 @@ from paibox.exceptions import CompileError, ConfigInvalidError, ResourceError
 from paibox.network import DynSysGroup
 
 from .conf_exporting import *
+from .conf_exporting import export_neuron_phy_loc
 from .conf_types import (
     CoreConf,
     CorePlmConf,
@@ -33,6 +34,7 @@ from .graphs import (
 from .placement import CoreBlock, aligned_coords, max_lcn_of_cb
 from .routing import RoutingGroup, RoutingManager
 from .types import (
+    DestNodeType,
     MergedSuccGroup,
     NeuSegment,
     NodeDegree,
@@ -47,6 +49,7 @@ __all__ = ["Mapper"]
 class Mapper:
     graph: PAIGraph
     graph_info: GraphInfo
+    routing_mgr: RoutingManager
 
     def __init__(self) -> None:
         self.graph = PAIGraph()
@@ -68,9 +71,6 @@ class Mapper:
 
         self.n_core_required = 0
         self.n_core_occupied = 0
-        self.routing_manager = RoutingManager(
-            chip_list=_BACKEND_CONTEXT["target_chip_addr"]
-        )
 
         self._core_estimate_only = False
         """Wether this compilation is for core estimation only. If so, no core will be assigned."""
@@ -130,10 +130,11 @@ class Mapper:
         """Compile the network with optimization options.
 
         Args:
-            weight_bit_optimization (bool): whether to optimize weight precision. For example, weights declared \
-                as INT8 are treated as smaller precision based on their actual values (when the weight are all  \
-                between [-8, 7], they can be treated as INT4). By default, it is specified by the corresponding \
-                compile option in the backend configuration item. Default is true.
+            core_estimate_only (bool): only do the core estimation, without allocation. Default is false.
+            weight_bit_optimization (bool): whether to optimize weight width. For example, weights declared as  \
+                INT8 are treated as smaller width based on their actual values (when the weight are all between \
+                [-8, 7], they can be treated as INT4). By default, it is specified by the corresponding compile \
+                option in the backend configuration item. Default is true.
             grouping_optim_target ("latency", "core", "both"): specify the optimization goal of neuron grouping,\
                 which can be `latency`, `core` or `both` which respectively represent the optimization goal of  \
                 delay/throughput, occupied cores, or both. The default is specified by the corresponding        \
@@ -179,9 +180,14 @@ class Mapper:
         """Preperation.
             1. Check whether the PAIGraph has built.
             2. Set global compilation flags.
+            3. Initialize necessary managers.
+
+        TODO Print compilation options & backend contexts after preperation.
         """
         self._build_check()
         self._set_global_cflags()
+
+        self.routing_mgr = RoutingManager(chip_list=_BACKEND_CONTEXT.target_chip_addr)
 
         """Untwist the branch nodes if flag is on."""
         if no_twisted_branch:
@@ -234,6 +240,9 @@ class Mapper:
         for rg in self.routing_groups:
             routing_groups.extend(rg.optimize_group())
         self.routing_groups = routing_groups
+
+        for rg in self.routing_groups:
+            rg.set_target_chip()
 
         for rg in self.routing_groups:
             rg.dump()
@@ -350,7 +359,7 @@ class Mapper:
             )
 
         for rg in self.routing_groups:
-            self.routing_manager.place_routing_group(rg)
+            self.routing_mgr.place_routing_group(rg)
 
         # Calculate the consumption of occupied physical cores.
         if (
@@ -377,9 +386,9 @@ class Mapper:
                 & Weight RAM) of cores.
             - 2. Export the parameters(Neuron RAM) of neurons inside.
         """
-        if (ochip_coord := _BACKEND_CONTEXT["output_chip_addr"]) in _BACKEND_CONTEXT[
-            "target_chip_addr"
-        ]:
+        if (
+            ochip_coord := _BACKEND_CONTEXT.output_chip_addr
+        ) in _BACKEND_CONTEXT.target_chip_addr:
             raise ConfigInvalidError(
                 f"the output chip address {ochip_coord} should not overlap with the "
                 f"target chip addresses, but got {_BACKEND_CONTEXT._target_chip_addr_repr()}."
@@ -399,8 +408,8 @@ class Mapper:
             n_core_occupied=self.n_core_occupied,
             misc={
                 "clk_en_L2": get_clk_en_L2_dict(
-                    _BACKEND_CONTEXT["target_chip_addr"],
-                    self.routing_manager.used_L2_clusters,
+                    _BACKEND_CONTEXT.target_chip_addr,
+                    self.routing_mgr.used_L2_clusters,
                 ),
                 "target_chip_list": _BACKEND_CONTEXT.target_chip_addr,
             },
@@ -442,7 +451,7 @@ class Mapper:
             for cb in input_cbs:  # Do not use iterative generation.
                 dest_coords.extend(cb.core_coords)
 
-            dest_rid = get_replication_id(dest_coords)
+            base_coord, dest_rid = get_replication_id(dest_coords)
 
             # The arrangement of axons is the same for the rest of `input_cbs`.
             # LCN of `input_cbs` are the same.
@@ -458,8 +467,8 @@ class Mapper:
             inp_neuron_dest = InputNeuronDest(
                 [coord.tick_relative for coord in axon_coords],
                 [coord.addr_axon for coord in axon_coords],
-                dest_coords[0].x,
-                dest_coords[0].y,
+                base_coord.x,
+                base_coord.y,
                 dest_rid.x,
                 dest_rid.y,
                 input_cb.chip_coord.x,
@@ -610,6 +619,9 @@ class Mapper:
         *,
         fp: Optional[Union[str, Path]] = None,
         format: Literal["txt", "bin", "npy"] = "bin",
+        read_voltage: Optional[
+            Union[str, Neuron, Sequence[str], Sequence[Neuron]]
+        ] = None,
         split_by_chip: bool = False,
         export_clk_en_L2: bool = False,
         use_hw_sim: bool = True,
@@ -617,12 +629,16 @@ class Mapper:
         """Generate configuration frames & export to file.
 
         Args:
-            - write_to_file: whether to write frames into file.
-            - fp: If `write_to_file` is `True`, specify the output path.
-            - format: `txt`, `bin`, or `npy`. `bin` is recommended.
-            - split_by_chip: whether to split the generated frames file by the chips.
-            - export_used_L2: whether to export the serial port data of the L2 cluster clocks.
-            - use_hw_sim: whether to use hardware simulator. If used, '.bin' will be exported.
+            write_to_file (bool): whether to write configuration frames into file.
+            fp (str, Path): specify the output path for the config file (if `write_to_file` is true) & json files.
+            format (str): `txt`, `bin`, or `npy`. `bin` is recommended. If `write_to_file` is false, this argument is   \
+                ignored.
+            read_voltage (Neuron, Sequence[Neuron]): specify the neuron(s) to read its voltage. Their physical locations\
+                on chips will be exported for hardware platform to read.
+            split_by_chip (bool): whether to split the generated frames file by the chips.
+            export_used_L2 (bool): whether to export the serial port data of the L2 cluster clocks.
+            use_hw_sim (bool): whether to use hardware simulator. If used, '.bin' will be exported. If `write_to_file`  \
+                is false, this argument is ignored.
 
         Return: total configurations in dictionary format.
         """
@@ -632,20 +648,21 @@ class Mapper:
                 "Please disable 'core_estimate_only' and compile again before exporting."
             )
 
-        if format not in ("bin", "npy", "txt"):
-            raise ValueError(f"format {format} is not supported.")
+        if write_to_file:
+            if format not in ("bin", "npy", "txt"):
+                raise ValueError(f"format {format} is not supported.")
 
-        formats = [format]
-        if use_hw_sim and "bin" not in formats:
-            formats.append("bin")
+            formats = [format]
+        else:
+            formats = []
+
+        if write_to_file:
+            if use_hw_sim and "bin" not in formats:
+                formats.append("bin")
 
         _fp = _fp_check(fp)
         config_dict = gen_config_frames_by_coreconf(
-            self.graph_info["members"],
-            write_to_file,
-            _fp,
-            split_by_chip,
-            formats,
+            self.graph_info["members"], write_to_file, _fp, formats, split_by_chip
         )
 
         # Export the parameters of occupied cores
@@ -653,6 +670,27 @@ class Mapper:
 
         # Export the graph information
         export_graph_info(self.graph_info, _fp, export_clk_en_L2)
+
+        # Retrieve the neuron's physical locations if specified
+        if read_voltage is not None:
+
+            def _convert_to_neuron(_neu: Union[str, DestNodeType]) -> DestNodeType:
+                if isinstance(_neu, DestNodeType):
+                    return _neu
+
+                if (neu := self.graph.get_neu_by_name(_neu)) is None:
+                    raise ValueError(f"neuron {_neu} not found in the graph.")
+
+                return neu
+
+            if isinstance(read_voltage, (str, Neuron)):
+                to_read = (read_voltage,)
+            else:
+                to_read = read_voltage
+
+            reading_targets = [_convert_to_neuron(n) for n in to_read]
+            phy_locations = get_neuron_phy_loc(self.core_blocks, reading_targets)
+            export_neuron_phy_loc(phy_locations, _fp)
 
         return config_dict
 
@@ -671,7 +709,7 @@ class Mapper:
                             print(
                                 f"{neuron.name} placed in {core_plm.coord}\n"
                                 f"N:        {neu_seg.n_neuron}\n"
-                                f"Address:  {neu_seg._addr_ram_repr}"
+                                f"Address:  {neu_seg._occupied_addr_repr}"
                             )
 
     def find_axon(self, neuron: Neuron, *, verbose: int = 0) -> None:
@@ -752,7 +790,7 @@ def _fp_check(fp: Optional[Union[str, Path]] = None) -> Path:
     if fp is not None:
         _fp = Path(fp)
     else:
-        _fp = _BACKEND_CONTEXT["build_directory"]
+        _fp = _BACKEND_CONTEXT.output_dir
 
     if not _fp.is_dir():
         _fp.mkdir(parents=True, exist_ok=True)

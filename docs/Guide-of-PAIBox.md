@@ -3,19 +3,19 @@
 ## 安装
 
 ```toml
-python = "^3.9"
-pydantic = "^2.0.3"
-numpy = "^1.26.0"
-paicorelib = ">=1.3.1"
+python = ">=3.9"
+pydantic = ">=2.0.3,<3.0.0"
+numpy = ">=2.1.0,<3.0.0"
+paicorelib = ">=1.4.0,<1.5.0"
 ```
 
 可选依赖：
 
 ```toml
-orjson = "^3.10.0"
+orjson = ">=3.10"
 ```
 
-或者从Github克隆，由此下载的PAIBox将包含测试文件、文档等。
+或从仓库克隆，由此下载的 PAIBox 将包含测试文件、文档等。
 
 ```bash
 git clone https://github.com/PAICookers/PAIBox.git
@@ -144,6 +144,14 @@ n1 = pb.BypassNeuron(shape=128, name='n1')
 ⚠️ 即将弃用，请使用 `BypassNeuron`
 
 SNN 模式下，具有 Relu 功能的神经元。当输入为1，则输出为1；输入为非正整数，输出为0。
+
+#### Store Voltage Neuron
+
+该神经元被设置为不进行膜电平重置操作，因此将持续存储膜电位平（可能溢出）。仅用于需要读取膜电平的层，该层神经元的设置。其参数含义同 LIF 神经元。
+
+```python
+n1 = pb.StoreVoltageNeuron(shape=(10,), leak_v=-100, bias=0, name='n1')
+```
 
 #### ANN Neuron
 
@@ -999,19 +1007,20 @@ mapper.clear()
 
 其中，编译时有如下参数可指定：
 
-- `core_estimate_only`：仅导出预估所需核数目，不进行后续部署。默认关闭。当启用此项时，由于编译工作未全部进行，后续无法导出任何信息。
+- `core_estimate_only`：仅导出预估所需核数目，不进行后续部署。当启用此项时，由于编译工作未全部进行，后续无法导出任何信息。默认关闭。
 - `weight_bit_optimization`: 是否对权重精度进行优化处理。这将使得声明时为 INT8 的权重根据实际值当作更小的精度处理。例如，当权重的值均在 [-8, 7] 之间，则可当作 INT4 进行处理。默认开启。
 - `grouping_optim_target`：指定神经元分组的优化目标，可以为 `"latency"`，`"core"` 或 `"both"`，分别代表以延时/吞吐率、占用核资源为优化目标、或二者兼顾。默认 `both`。
 - 将返回字典形式的编译后网络的信息。
 
 导出时有如下参数可指定：
 
-- `write_to_file`: 是否将配置帧导出为文件。默认为 `True`。
+- `write_to_file`: 是否将配置帧导出为文件。默认导出。
 - `fp`：导出目录。若未指定，则默认为后端配置选项 `build_directory` 所设置的目录（当前工作目录）。
 - `format`：导出交换文件格式，可以为 `bin`、`npy` 或 `txt`。默认为 `bin`。
-- `split_by_chip`：是否将配置帧以芯片坐标进行分割，由此生成的配置帧文件命名形如"config_chip0_core0.format"、"config_chip0_core1.format"、"config_chip1_core0.format"。默认为 `False`，即最终导出为一个文件 "config_all.format"。
-- `export_clk_en_L2`：是否导出 L2 簇时钟串口数据。默认为 `False`。硬件平台可根据该数据关闭芯片其他未使用的 L2 簇时钟以降低功耗。
-- `use_hw_sim`：是否使用硬件仿真器。若使用，将额外导出 `bin` 格式的配置帧文件。默认为 `True`。
+- `read_voltage`：指定需要读取膜电平的神经元，可以是神经元对象或名称，由此将导出这些神经元的物理位置信息至文件。硬件平台可根据该信息读取并解析膜电平数据。默认为 `None`。
+- `split_by_chip`：是否将配置帧以芯片坐标进行分割，由此生成的配置帧文件命名形如"config_chip0_core0.<format>"、"config_chip0_core1.<format>"、"config_chip1_core0.<format>"。默认不导出，即最终导出为一个文件 "config_all.<format>"。
+- `export_clk_en_L2`：是否导出 L2 簇时钟串口数据。硬件平台可根据该数据关闭芯片未使用的 L2 簇时钟以降低功耗。默认不导出。
+- `use_hw_sim`：是否使用硬件仿真器。若使用，将额外导出 `bin` 格式的配置帧文件。默认使用。
 
 同时，该方法将返回模型的配置项字典 `GraphInfo`，包括：
 
@@ -1022,7 +1031,7 @@ mapper.clear()
 - `output_flow_format`：编译后网络输出节点的输出数据流格式，包括第一个有效输出数据的时刻（全局时间）、有效输出数据的输出间隔及数目。
 - `n_core_required`：网络**需要**的物理核数目。
 - `n_core_occupied`：网络**实际占用**的物理核数目。
-- `misc`：其他杂项信息。例如，编译后的网络名称；上述L2簇时钟串口数据在键 `clk_en_L2"` 中。
+- `misc`：其他杂项信息。例如，编译后的网络名称；上述 L2 簇时钟串口数据在键 `clk_en_L2"` 中。
 
 ### 后端配置项
 
@@ -1097,13 +1106,12 @@ mapper.clear()
      "n_core_occupied": 10,
      "misc": {
        "clk_en_L2": {
-         "(0,0)": [128, 0, 0, 0, 0, 0, 0, 0]
+         "(0,0)": [128, 0, 0, 0, 0, 0, 0, 0],
+         "(0,1)": [128, 0, 0, 0, 0, 0, 0, 0]
        },
        "target_chip_list": [
-         {
-           "x": 0,
-           "y": 0
-         }
+         { "x": 0, "y": 0 },
+         { "x": 0, "y": 1 }
        ]
      }
    }
@@ -1186,5 +1194,50 @@ mapper.clear()
        "(1,0)": {...}
      },
      "(0,1)": {...}
+   }
+   ```
+
+5. 待读取膜电平的神经元物理位置信息，`neuron_phy_loc.json`，可能存在多个神经元，且每个神经元可能分布在多个核中
+
+   ```json
+   {
+     "n2": {
+       "(0,0)": {
+         "(2,0)": {
+           "n_neuron": 50,
+           "addr_offset": 0,
+           "interval": 1,
+           "idx_offset": 0
+         }
+       }
+     },
+     "n1": {
+       "(0,0)": {
+         "(0,2)": {
+           "n_neuron": 450,
+           "addr_offset": 0,
+           "interval": 1,
+           "idx_offset": 0
+         },
+         "(0,3)": {
+           "n_neuron": 450,
+           "addr_offset": 0,
+           "interval": 1,
+           "idx_offset": 450
+         },
+         "(1,2)": {
+           "n_neuron": 450,
+           "addr_offset": 0,
+           "interval": 1,
+           "idx_offset": 900
+         },
+         "(1,3)": {
+           "n_neuron": 450,
+           "addr_offset": 0,
+           "interval": 1,
+           "idx_offset": 1350
+         }
+       }
+     }
    }
    ```

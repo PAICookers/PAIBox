@@ -100,17 +100,16 @@ def _set_coarse_dtype(raw_w: DataType) -> WeightType:
     if _max > MAX_INT8 or _min < MIN_INT8:
         raise ValueError(f"weight out of range int8, got [{_min}, {_max}].")
 
-    if _array.dtype > np.int8:
+    if _array.dtype > WEIGHT_DTYPE:
         warnings.warn(
             f"dtype of weight is optimized automatically, {_array.dtype} -> int8.",
             AutoOptimizationWarning,
         )
         _dtype = WEIGHT_DTYPE
-
-    elif _array.dtype == np.bool_ or _array.dtype == np.int8:
+    elif _array.dtype in (np.bool_, WEIGHT_DTYPE):
         _dtype = WEIGHT_DTYPE
     else:
-        raise TypeError(f"weights must be bool or int8, but got {_array.dtype}.")
+        raise TypeError(f"weight must be bool or int8, but got {_array.dtype}.")
 
     return _array.astype(_dtype, casting="same_kind")
 

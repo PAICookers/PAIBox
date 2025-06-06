@@ -25,7 +25,6 @@ jobs:
           ref: ${{ env.TAG_NAME }}
 
       - name: Publish python poetry package
-        uses: JRubics/poetry-publish@v2.0
+        uses: JRubics/poetry-publish@v2.1
         with:
-          poetry_install_options: "--sync"
           pypi_token: ${{ secrets.PYPI_API_TOKEN }}

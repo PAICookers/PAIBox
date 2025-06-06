@@ -230,11 +230,11 @@ class TestMapperDeployment:
 
         assert graph_info["n_core_occupied"] == n_networks
 
-        rtotal = sum(mapper.routing_manager.n_core_per_chip)
-        r1 = mapper.routing_manager.n_core_per_chip[0]
+        rtotal = sum(mapper.routing_mgr.n_core_per_chip)
+        r1 = mapper.routing_mgr.n_core_per_chip[0]
 
         if n_networks > 1008:
-            r2 = mapper.routing_manager.n_core_per_chip[1]
+            r2 = mapper.routing_mgr.n_core_per_chip[1]
             assert rtotal == r1 + r2
             assert r1 == 1024
             assert r2 == n_networks - 1008
@@ -446,6 +446,28 @@ class TestMapper_Compile:
             if net.n4 in cb.dest:
                 assert len(cb.ordered_axons) == 3
 
+    def test_set_target_chip(self, build_example_net1, monkeypatch):
+        monkeypatch.setattr(
+            pb.BACKEND_CONFIG, "target_chip_addr", [Coord(1, 0), (0, 0), (1, 1)]
+        )
+        net = build_example_net1
+        monkeypatch.setattr(net.n2, "target_chip_idx", 1)
+        monkeypatch.setattr(net.n3, "target_chip_idx", 2)
+
+        mapper = pb.Mapper()
+        mapper.build(net)
+        info = mapper.compile()
+        assert len(info["members"].keys()) == 3
+        mapper.clear()
+
+        monkeypatch.setattr(
+            net.n3, "target_chip_idx", len(pb.BACKEND_CONFIG.target_chip_addr)
+        )
+        mapper.build(net)
+
+        with pytest.raises(ResourceError):
+            info = mapper.compile()
+
 
 class TestMapper_cflags:
     @pytest.mark.parametrize(
@@ -514,8 +536,7 @@ class TestMapper_Multichip:
     @pytest.mark.xfail(reason="Network may too large.", raises=ResourceError)
     def test_multichip_1(self, ensure_dump_dir, monkeypatch, build_MultichipNet1_s1):
         """Multichip network of scale 1"""
-
-        clist = [Coord(0, 0), Coord(0, 1)]
+        clist = [Coord(0, 0), Coord(0, 1), Coord(1, 1)]
         monkeypatch.setattr(pb.BACKEND_CONFIG, "target_chip_addr", clist)
         assert pb.BACKEND_CONFIG.n_target_chips == len(clist)
 
@@ -526,7 +547,7 @@ class TestMapper_Multichip:
         with measure_time("test_multichip_1"):
             mapper.compile(weight_bit_optimization=False)
 
-        mapper.export(fp=ensure_dump_dir, split_by_chip=False)
+        mapper.export(fp=ensure_dump_dir, split_by_chip=False, read_voltage=net.n_out)
 
         print("Total cores occupied:", mapper.n_core_occupied)
 

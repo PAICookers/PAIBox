@@ -41,7 +41,7 @@ NEURON_PARAMS_BIT_LENGTH = 214
 N_NEURON_PARAM_IN_COL = HwConfig.N_FANIN_PER_DENDRITE_MAX // NEURON_PARAMS_BIT_LENGTH
 
 
-def _packbits_ref(bits: np.ndarray, count: Optional[int] = None) -> int:
+def _packbits_ref(bits: np.ndarray, count: Optional[int] = None) -> np.int8:
     """Pack unsigned bits (from LSB to MSB) into a signed integer.
 
     Args:
@@ -55,12 +55,26 @@ def _packbits_ref(bits: np.ndarray, count: Optional[int] = None) -> int:
     if count == 1:
         return bits[0]
 
-    _bits = np.append(bits[: count - 1], bits[-1])
+    assert count <= 8
 
-    result = sum(bit << i for i, bit in enumerate(_bits))
-    result -= _bits[-1] << count
+    result = np.uint8(sum(bit << i for i, bit in enumerate(bits)))
+    result -= bits[-1] << count  # may return np.int16/int32
 
-    return result
+    return np.int8(result)
+
+
+def test_packbits_ref():
+    d1 = np.int8(-86)  # 0b10101010
+    r1 = _packbits_ref(np.array([0, 1, 0, 1, 0, 1, 0, 1], dtype=np.int32))
+    assert r1 == d1
+
+    d2 = np.int8(101)  # 0b01100101
+    r2 = _packbits_ref(np.array([1, 0, 1, 0, 0, 1, 1, 0], dtype=np.int8))
+    assert r2 == d2
+
+    d3 = np.int8(-8)  # 0b11111000
+    r3 = _packbits_ref(np.array([0, 0, 0, 1], dtype=np.int8), 4)
+    assert r3 == d3
 
 
 packbits1 = partial(_packbits_ref, count=1)

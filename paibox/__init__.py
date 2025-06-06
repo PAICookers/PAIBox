@@ -45,6 +45,7 @@ from .components.neuron.neurons import BypassNeuron as BypassNeuron
 from .components.neuron.neurons import PhasicSpiking as PhasicSpiking
 from .components.neuron.neurons import SpikingRelu as SpikingRelu
 from .components.neuron.neurons import TonicSpiking as TonicSpiking
+from .components.neuron.neurons import StoreVoltageNeuron as StoreVoltageNeuron
 
 # Input projection
 from .components.projection import InputProj as InputProj
@@ -88,7 +89,7 @@ except Exception:
 from . import tools
 
 # Minimum required version of paicorelib
-__plib_minimum_version__ = "1.3.1"
+__plib_minimum_version__ = "1.4.0"
 
 try:
     import paicorelib as plib

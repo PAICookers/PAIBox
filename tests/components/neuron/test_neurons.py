@@ -14,6 +14,7 @@ from paibox.components.neuron.utils import VJT_MAX, VJT_MIN
 from paibox.exceptions import ShapeError
 from paibox.types import NEUOUT_U8_DTYPE, VoltageType
 from paibox.utils import as_shape, shape2num
+from tests.utils import file_not_exist_fail
 
 
 def test_NeuronParams_instance(ensure_dump_dir):
@@ -22,7 +23,10 @@ def test_NeuronParams_instance(ensure_dump_dir):
     attrs = NeuronAttrs.model_validate(n1.attrs(all=True), strict=True)
     attrs_dict = attrs.model_dump(by_alias=True)
 
-    with open(ensure_dump_dir / f"ram_model_{n1.name}.json", "w") as f:
+    fp = ensure_dump_dir / f"ram_model_{n1.name}.json"
+    file_not_exist_fail(fp)
+
+    with open(fp, "w") as f:
         json.dump({n1.name: attrs_dict}, f, indent=2)
 
     class PAIConfigJsonEncoder(json.JSONEncoder):
@@ -41,7 +45,10 @@ def test_NeuronParams_instance(ensure_dump_dir):
     )
     attrs_dict = attrs.model_dump(by_alias=True)
 
-    with open(ensure_dump_dir / f"ram_model_{n2.name}.json", "w") as f:
+    fp2 = ensure_dump_dir / f"ram_model_{n2.name}.json"
+    file_not_exist_fail(fp2)
+
+    with open(fp2, "w") as f:
         json.dump({n2.name: attrs_dict}, f, indent=2, cls=PAIConfigJsonEncoder)
 
 
@@ -470,7 +477,7 @@ class TestNeuronModeSNN:  # iss = 001
             assert np.array_equal(n1.voltage, expected_vol[i])
 
     def test_LIF_with_bias(self):
-        # Hard reset, bias.
+        # Hard reset, bias, scalar.
         n1 = pb.LIF(shape=1, threshold=6, reset_v=1, leak_v=0, bias=2)
         assert n1.leak_v == n1.bias == 2
 
@@ -484,6 +491,24 @@ class TestNeuronModeSNN:  # iss = 001
 
             assert np.array_equal(n1.spike, expected_spike[i])
             assert np.array_equal(n1.voltage, expected_vol[i])
+
+    def test_LIF_with_bias_vector(self):
+        # Soft reset, bias.
+        n1 = pb.LIF(
+            shape=(3, 2),
+            threshold=6,
+            reset_v=0,
+            bias=np.array([1, 2, 2], dtype=np.int32),
+        )
+
+        incoming_v = np.array([[[0, 0], [1, 1], [0, 0]]], dtype=np.bool_)
+        expected_vol = np.array([[[3, 3], [3, 3], [0, 0]]], dtype=np.int32)
+
+        for _ in range(3):
+            pb.FRONTEND_ENV["t"] += 1
+            n1.update(incoming_v[0].ravel())
+
+        assert np.array_equal(n1.voltage, expected_vol[0])
 
     def test_LIF_both_leak_bias(self):
         # Soft reset, leak & bias.
@@ -767,3 +792,18 @@ class TestNeuronAllModes:
                 pre_vjt = 2000
 
             assert np.array_equal(n1.spike[0], spike)
+
+
+@pytest.mark.parametrize("leak_v", [0, 10, -10])
+def test_StoreVoltageNeuron(leak_v):
+    n1 = pb.StoreVoltageNeuron(1, leak_v=leak_v)
+    incoming_v = np.random.randint(-100, 100, size=(100,), dtype=np.int32)
+
+    expected_v = 0
+    for i in range(incoming_v.size):
+        pb.FRONTEND_ENV["t"] += 1
+        n1.update(incoming_v[i])
+
+        expected_v += incoming_v[i] + leak_v
+        assert np.array_equal(n1.voltage[0], expected_v)
+        assert n1.spike.all() == 0  # not spiking to effect the output receiving

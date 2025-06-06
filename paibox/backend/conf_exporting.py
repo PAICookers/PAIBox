@@ -1,6 +1,7 @@
 import sys
 from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
@@ -19,12 +20,13 @@ from .conf_types import (
     FrameArrayType,
     GraphInfo,
     InputNodeConf,
+    NeuPhyLocMap,
     NeuronConfig,
     OutputDestConf,
     _gh_info2exported_gh_info,
 )
 from .context import _BACKEND_CONTEXT
-from .placement import CorePlacement
+from .placement import CoreBlock, CorePlacement
 from .types import _RID_UNSET
 
 if _USE_ORJSON:
@@ -48,6 +50,7 @@ __all__ = [
     "export_used_L2_clusters",
     "export_aux_gh_info",
     "get_clk_en_L2_dict",
+    "get_neuron_phy_loc",
 ]
 
 
@@ -55,21 +58,10 @@ def gen_config_frames_by_coreconf(
     config_dict: CorePlmConf,
     write_to_file: bool,
     fp: Path,
-    split_by_chip: bool,
     formats: Sequence[str],
+    split_by_chip: bool,
 ) -> dict[ChipCoord, list[FrameArrayType]]:
     """Generate configuration frames by given the `CorePlmConf`."""
-
-    def _write_to_f(name: str, array: FrameArrayType) -> None:
-        for format in formats:
-            _fp = (fp / name).with_suffix("." + format)  # don't forget "."
-            if format == "npy":
-                np2npy(_fp, array)
-            elif format == "bin":
-                np2bin(_fp, array)
-            else:
-                np2txt(_fp, array)
-
     frame_arrays_total: dict[ChipCoord, list[FrameArrayType]] = defaultdict(list)
 
     for chip_coord, conf_inchip in config_dict.items():
@@ -85,7 +77,6 @@ def gen_config_frames_by_coreconf(
             )
 
             # 3. Iterate all the neuron segments inside the physical core.
-            # The meaning of 'n_neuron' in function 'gen_config_frame3' is the number of neurons in the NRAM.
             config_frame_type3 = []
             neu_conf_on_wram: list[NeuronConfig] = []
 
@@ -101,7 +92,7 @@ def gen_config_frames_by_coreconf(
                             core_coord,
                             _RID_UNSET,
                             neu_conf.neu_seg.offset,
-                            neu_conf.neu_seg.n_neuron,
+                            neu_conf.neu_seg.n_neuron,  # #N of logical neurons
                             neu_conf.neuron_attrs,
                             neu_conf.neuron_dest_info,
                             neu_conf.neu_seg.repeat,
@@ -189,6 +180,17 @@ def gen_config_frames_by_coreconf(
             )
 
     if write_to_file:
+
+        def _write_to_f(name: str, array: FrameArrayType) -> None:
+            for format in formats:
+                _fp = (fp / name).with_suffix("." + format)  # don't forget "."
+                if format == "npy":
+                    np2npy(_fp, array)
+                elif format == "bin":
+                    np2bin(_fp, array)
+                else:
+                    np2txt(_fp, array)
+
         if split_by_chip:
             for chip, frame_arrays_onchip in frame_arrays_total.items():
                 f = np.hstack(frame_arrays_onchip, casting="no")
@@ -418,3 +420,66 @@ def get_clk_en_L2_dict(
         clk_en_L2_dict[chip_addr] = to_clk_en_L2_u8(used_L2_inchip)
 
     return clk_en_L2_dict
+
+
+def export_neuron_phy_loc(
+    neu_phy_locs: NeuPhyLocMap, fp: Path, fname: str = "neuron_phy_loc"
+) -> None:
+    _full_fp = _with_suffix_json(fp, fname)
+
+    _valid_conf = {}
+    for neu_name, neu_loc in neu_phy_locs.items():
+        _valid_conf[neu_name] = {}
+        for chip_coord, core_locs in neu_loc.items():
+            _valid_conf[neu_name][str(chip_coord)] = {}
+            for core_coord, ram_addr in core_locs.items():
+                _valid_conf[neu_name][str(chip_coord)][str(core_coord)] = asdict(
+                    ram_addr
+                )
+
+    if _USE_ORJSON:
+        with open(_full_fp, "wb") as f:
+            f.write(orjson.dumps(_valid_conf, option=orjson.OPT_INDENT_2))
+    else:
+        with open(_full_fp, "w") as f:
+            json.dump(_valid_conf, f, indent=2)
+
+
+def get_neuron_phy_loc(
+    core_blocks: list[CoreBlock], targets: Sequence[Neuron]
+) -> NeuPhyLocMap:
+    """Get the physical locations of neurons.
+
+    Json exchange file format for neuron physical locations:
+    {
+        "n1": {
+            "(0,0)": { # at chip (0,0)
+                "(2,0)": {  # at core (2,0)
+                    "n_neuron": 50,
+                    "addr_offset": 0,
+                    "interval": 1,
+                    "idx_offset": 0
+                },
+                "(2,1)": {  # at core (2,1)
+                    "n_neuron": 50,
+                    "addr_offset": 0,
+                    "interval": 1,
+                    "idx_offset": 50
+                }
+            }
+        },
+        "n2": {...}
+    }
+
+    NOTE: Only one segment of a neuron is placed on a core for now. See `NeuSegment` in `types.py` for details.
+    """
+    names = {neu.name for neu in targets}  # remove duplicates
+    locations: NeuPhyLocMap = defaultdict(lambda: defaultdict(dict))
+
+    for cb in core_blocks:
+        for core_coord, neu_segs in zip(cb.core_coords, cb.neuron_segs_of_cb):
+            for seg in neu_segs:
+                if (neu_name := seg.target.name) in names:
+                    locations[neu_name][cb.chip_coord][core_coord] = seg.neu_seg_addr
+
+    return locations
