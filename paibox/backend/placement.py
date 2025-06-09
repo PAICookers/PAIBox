@@ -1,24 +1,33 @@
+import logging
 import math
 import warnings
-from typing import ClassVar, Literal, Optional, cast, overload
+from abc import ABC, abstractmethod
+from collections import UserList
+from dataclasses import dataclass, field
+from typing import ClassVar, Literal, NamedTuple, Optional, overload
 
 import numpy as np
 from paicorelib import LCN_EX, ChipCoord, Coord, CoreMode, HwConfig, MaxPoolingEnable
+from paicorelib import ReplicationId as RId
 from paicorelib import WeightWidth as WW
 from paicorelib.framelib import OfflineFrameGen
+from paicorelib.routing_defs import get_replication_id
 
-from paibox.components import FullConnectedSyn, Neuron
-from paibox.exceptions import (
-    GraphBuildError,
-    NotSupportedError,
-    ResourceError,
-    TruncationWarning,
-)
+from paibox import _logging
+from paibox.base import PAIBoxObject
+from paibox.components import Neuron
+from paibox.exceptions import GraphBuildError, ResourceError, TruncationWarning
 from paibox.types import WEIGHT_DTYPE, WeightType
 from paibox.utils import check_attr_same
 
+from ._slice import (
+    DestSliceType,
+    EdgeSlice,
+    PrttnSliceType,
+    SourceSliceType,
+    covered_by,
+)
 from .conf_types import CoreConfig, CoreConfInChip, CorePlmConfig, NeuronConfig
-from .constrs import GraphNodeConstrs
 from .context import _BACKEND_CONTEXT
 from .segment_utils import aligned_coords, get_axon_segments, get_neu_segments
 from .types import (
@@ -29,18 +38,18 @@ from .types import (
     WRAM_UNPACKED_DTYPE,
     AxonCoord,
     AxonSegment,
-    CoreAbstract,
     DestNodeType,
-    EdgeType,
-    MergedSuccGroup,
     NeuSegment,
     NeuSegOfCoreBlock,
     NeuSegOfCorePlm,
-    SourceNodeType,
     WRAMPackedType,
     WRAMUnpackedType,
+    _1st_core_coord_repr,
+    _coord_to_bin_str,
     is_iw8,
 )
+
+cb_log = _logging.get_artifact_logger(__name__, "core_block_info")
 
 # Get the fan-out by the combination rate of dendrites
 if hasattr(HwConfig, "FANOUT_IW8"):
@@ -52,9 +61,25 @@ else:
 NEURON_PARAMS_BIT_LENGTH = 214  # A constant of frame definition
 
 
+class CoreAbstract(PAIBoxObject, ABC):
+    """Abstract core class."""
+
+    rt_mode: CoreMode
+
+    @property
+    @abstractmethod
+    def n_core_required(self) -> int:
+        """#N of cores required to accommodate neurons inside self."""
+        ...
+
+    @classmethod
+    @abstractmethod
+    def build(cls, *args, **kwargs): ...
+
+
 class CoreBlock(CoreAbstract):
 
-    _parents: tuple[FullConnectedSyn, ...]
+    _parents: tuple[EdgeSlice, ...]
     seed: int
     """Random seed, legal integer, no more than uint64."""
     _lcn_ex: LCN_EX
@@ -68,7 +93,7 @@ class CoreBlock(CoreAbstract):
     """Assigned core coordinates."""
     core_placements: dict[Coord, "CorePlacement"]
     """Core placements."""
-    axon_segments: dict[SourceNodeType, AxonSegment] = dict()
+    axon_segments: dict[SourceSliceType, AxonSegment] = dict()
     """A dictionary of segments of each axon(source node)."""
     neuron_segs_of_cb: NeuSegOfCoreBlock = []
     """Neuron segments in the core block. Each element in the list represents the neuron    \
@@ -77,7 +102,7 @@ class CoreBlock(CoreAbstract):
 
     def __init__(
         self,
-        *parents: FullConnectedSyn,
+        *parents: EdgeSlice,
         seed: int,
         mode: CoreMode,
         name: Optional[str] = None,
@@ -96,14 +121,16 @@ class CoreBlock(CoreAbstract):
         self._lcn_ex = LCN_EX.LCN_1X
 
         self.target_lcn = LCN_EX.LCN_1X
-        self._lcn_locked = False
         self.core_coords = []
         self.chip_coord = _COORD_UNSET
         self.core_placements = dict()
         self.axon_segments = dict()
         self.neuron_segs_of_cb = []
-        self._ordered_axons: list[SourceNodeType] = []
-        """Axons in private + multicast order."""
+        self._ordered_axons: list[SourceSliceType] = []
+        """Axons in global + private types order."""
+
+        self._lcn_locked = False
+        self._neurons_grouped = False
 
     def group_neurons(
         self, optim_target: Literal["latency", "core", "both"] = "both"
@@ -116,18 +143,19 @@ class CoreBlock(CoreAbstract):
             self.dest, self.n_fanout, self.n_neuron_repl, optim_target
         )
 
+        self._neurons_grouped = True
+
     def core_plm_alloc(self) -> None:
         """Allocate `CoreBlock` to physical cores."""
         if not self._lcn_locked:
             raise GraphBuildError("allocate core placements after 'lcn_ex' is locked.")
 
         for i, coord in enumerate(self.core_coords):
-            # assert self.get_raw_weight_of_coord(i)[0].shape[0] == self.n_axon
             self.core_placements[coord] = CorePlacement.build(self, i)
 
     def _get_syn_of(
-        self, src: SourceNodeType, dest: DestNodeType
-    ) -> Optional[FullConnectedSyn]:
+        self, src: SourceSliceType, dest: DestSliceType
+    ) -> Optional[EdgeSlice]:
         for syn in self.obj:
             if syn.source == src and syn.dest == dest:
                 return syn
@@ -159,15 +187,15 @@ class CoreBlock(CoreAbstract):
     def assign_coord(
         self, chip_coord: Coord, allocated: list[Coord]
     ) -> tuple[list[Coord], list[Coord]]:
-        self.core_coords = allocated
         self.chip_coord = chip_coord
+        self.core_coords = allocated
         return allocated, []
 
     def copy(self):
         raise NotImplementedError
 
     @property
-    def obj(self) -> tuple[FullConnectedSyn, ...]:
+    def obj(self) -> tuple[EdgeSlice, ...]:
         return self._parents
 
     @property
@@ -175,20 +203,18 @@ class CoreBlock(CoreAbstract):
         return (len(self.ordered_axons), len(self.dest))
 
     @property
-    def source(self) -> list[SourceNodeType]:
+    def source(self) -> list[SourceSliceType]:
         """Ordered unique source nodes."""
-        return cast(
-            list[SourceNodeType], list(set([parent.source for parent in self.obj]))
-        )
+        return list(set([parent.source for parent in self.obj]))
 
     @property
-    def axons(self) -> list[SourceNodeType]:
+    def axons(self) -> list[SourceSliceType]:
         return self.source
 
     @property
-    def dest(self) -> list[DestNodeType]:
+    def dest(self) -> list[DestSliceType]:
         """Ordered unique destination nodes."""
-        return cast(list[DestNodeType], list(set([parent.dest for parent in self.obj])))
+        return list(set([parent.dest for parent in self.obj]))
 
     def n_axon_of(self, index: int) -> int:
         """Get the #N of axons of `index`-th source neuron."""
@@ -225,10 +251,11 @@ class CoreBlock(CoreAbstract):
 
     @lcn_ex.setter
     def lcn_ex(self, lcn_ex: LCN_EX) -> None:
+        # if self._lcn_locked:
+        #     raise LockedAttrOverwriteError("`lcn_ex` has been locked.")
+
         if lcn_ex > LCN_EX.LCN_64X:
-            raise ResourceError(
-                f"required LCN out of range {LCN_EX.LCN_64X} ({lcn_ex})."
-            )
+            raise ValueError(f"required LCN out of range {LCN_EX.LCN_64X} ({lcn_ex}).")
 
         self._lcn_ex = lcn_ex
         self._lcn_locked = True
@@ -310,20 +337,17 @@ class CoreBlock(CoreAbstract):
         ]
 
     @property
-    def ordered_axons(self) -> list[SourceNodeType]:
+    def ordered_axons(self) -> list[SourceSliceType]:
         return self._ordered_axons
 
     @ordered_axons.setter
-    def ordered_axons(self, axons: list[SourceNodeType]):
+    def ordered_axons(self, axons: list[SourceSliceType]) -> None:
         self._ordered_axons = axons
-        self._lcn_ex = self._n_axon2lcn_ex()
+        self._lcn_ex = self._n_axon2lcn_ex()  # not use `@lcn_ex.setter` here
 
     def group_axons(self) -> None:
-        """Group the axons, including the private & the multicast parts.
-
-        NOTE: Take the union of the private axons & the multicast axons, but sort the multicast axons first, then the \
-            axons that are in the private part and not in the multicast part.
-        """
+        """Group the axons, including the global & private parts. Sort the axons in order."""
+        # The ordered axon has global(multicast) & private axons arranged in order.
         self.axon_segments = get_axon_segments(
             self.ordered_axons, self.n_timeslot, self.n_fanin_base
         )
@@ -359,12 +383,31 @@ class CoreBlock(CoreAbstract):
         return w_of_neurons
 
     def get_raw_weight_of_coord(self, idx: int) -> list[WeightType]:
-        """Get the raw weight of a coordinate(on each `CorePlacement`)."""
+        """Get the corresponding part of the original weight matrix corresponding to each CP."""
         w_of_neu_segs: list[WeightType] = []
+        _idx = 0
+        sub_slice = slice(0, 0)
 
         for neu_seg in self.neuron_segs_of_cb[idx]:
-            w_of_dest = self.raw_weight_of_dest[self.dest.index(neu_seg.target)]
-            w_of_neu_seg = w_of_dest[:, neu_seg.index].copy()
+            _not_covered = True
+
+            for i, dest_sl in enumerate(self.dest):
+                # Get the corresponding part of `neu_seg` on the slice of `dest_sl`.
+                if covered_by(neu_seg, dest_sl):
+                    _not_covered = False
+                    _idx = i
+                    sub_slice = slice(
+                        neu_seg.index.start - dest_sl.index.start,
+                        neu_seg.index.stop - dest_sl.index.start,
+                    )
+                    break
+
+            assert (
+                not _not_covered
+            ), f"neuron segment {neu_seg} is not covered by any dest: {self.dest}."
+
+            w_of_dest = self.raw_weight_of_dest[_idx]
+            w_of_neu_seg = w_of_dest[:, sub_slice].copy()
             w_of_neu_seg.setflags(write=False)
             w_of_neu_segs.append(w_of_neu_seg)
 
@@ -389,18 +432,36 @@ class CoreBlock(CoreAbstract):
         return self.n_core_required
 
     def __repr__(self) -> str:
-        return f"<{self.name} at 0x{id(self):x} of target '{self.obj}'>"
+        return f"<{self.name} at 0x{id(self):x} of target '{self._obj_repr}'>"
 
     def __str__(self) -> str:
-        return f"<{self.name} of target '{self.obj}'>"
+        ind1 = "\t"
+        ind2 = "\t\t"
+
+        _repr = self.name + "\n"
+        _repr += ind1 + f"lcn_ex: {self.lcn_ex}\n"
+        _repr += ind1 + f"weight_width: {self.weight_width}\n"
+        _repr += ind1 + f"fan_out: {self.n_fanout}\n"
+
+        _repr += ind1 + "dests:\n"
+        for dest in self.dest:
+            _repr += ind2 + str(dest) + "\n"
+
+        _repr += ind1 + "cores "
+        for i, neu_seg in enumerate(self.neuron_segs_of_cb):
+            _repr += f"#{i}:\n"
+            for seg in neu_seg:
+                _repr += ind2 + f"{seg.target.name}[{seg.index}]\n"
+
+        return _repr
 
     @property
     def _obj_repr(self) -> str:
         """The representation of the names of target objects."""
-        return ", ".join(n.name for n in self.obj)
+        return ", ".join(str(n) for n in self.obj)
 
     @classmethod
-    def build(cls, *synapses: FullConnectedSyn, rt_mode: CoreMode, seed: int = 0):
+    def build(cls, *synapses: EdgeSlice, rt_mode: CoreMode, seed: int = 0):
         """Group synapses & build `CoreBlock`."""
         if seed > (1 << 64) - 1:
             warnings.warn(
@@ -410,44 +471,205 @@ class CoreBlock(CoreAbstract):
 
         return cls(*synapses, mode=rt_mode, seed=seed)
 
-    @classmethod
-    def build_core_blocks(cls, msgrp: MergedSuccGroup) -> list["CoreBlock"]:
-        core_blocks: list[CoreBlock] = []
-        succ_nodes = list(msgrp.nodes)
-        # TODO Currently the runtime mode is not taken into account for grouping constraints,
-        # because in general, a network can only have one mode.
-        mode = succ_nodes[0].mode
-        if any(node.mode != mode for node in succ_nodes):
-            raise NotSupportedError("mixed mode is not supported.")
-
-        idx_of_sg = GraphNodeConstrs.apply_constrs(succ_nodes)
-
-        for idx_lst in idx_of_sg:
-            succ_edges: set[EdgeType] = set()
-            for i in idx_lst:
-                succ_edges.update(msgrp.outputs[succ_nodes[i]])
-
-            core_block = CoreBlock.build(*succ_edges, rt_mode=mode)
-            core_blocks.append(core_block)
-
-        return core_blocks
-
-    @classmethod
-    def export_core_plm_config(cls, cb: "CoreBlock") -> CoreConfInChip:
+    def export_core_plm_config(self) -> CoreConfInChip:
         """Export the parameters of the core into a dictionary."""
-        cb_config = dict()
+        cb_config: CoreConfInChip = dict()
 
-        for coord, core_plm in cb.core_placements.items():
+        for coord, core_plm in self.core_placements.items():
             cb_config[coord] = CorePlacement.export_param_config(core_plm)
 
         return cb_config
 
-    def dump(self, i: int = 0) -> None:
-        tabs = "\t" * i
-        print(f"{tabs}{self.name} with {self.n_core_required} cores:")
-        print(f"{tabs}\tLCN: {self.lcn_ex}")
-        for edge in self._parents:
-            print(f"{tabs}\t{edge.name}: {edge.source.name} -> {edge.target.name}")
+    def dump(
+        self, indents: int = 0, father_logger: Optional[logging.Logger] = None
+    ) -> None:
+        _logger = cb_log if father_logger is None else father_logger
+
+        tabs = "\t" * indents
+        ind1 = tabs + "\t"
+        ind2 = tabs + "\t\t"
+
+        _logger.debug(tabs + f"{self.name} ({self.n_core_required} cores):")
+        _logger.debug(ind1 + f"LCN: {self.lcn_ex}")
+        _logger.debug(ind1 + f"Weight width: {self.weight_width}")
+
+        _logger.debug(ind1 + "Axons:")
+        for axon in self.ordered_axons:
+            _logger.debug(ind2 + str(axon))
+
+        _logger.debug(ind1 + "Dests:")
+        for dest in self.dest:
+            _logger.debug(ind2 + str(dest))
+
+        _logger.debug(ind1 + "Edges:")
+        for edge in self.obj:
+            _logger.debug(ind2 + str(edge))
+
+    def _start_core_coord_repr(self) -> str:
+        return _1st_core_coord_repr(self.core_coords)
+
+
+@dataclass
+class SliceDest:
+    """Used to represent the destination details of a `NeuronSlice`."""
+
+    dest_chip_coord: ChipCoord
+    dest_axon: AxonSegment
+    timeslot: int
+    rt_mode: CoreMode
+    dest_coords: list[Coord] = field(default_factory=list)
+    rid: RId = field(init=False, repr=False)
+    base_coord: Coord = field(init=False, repr=False)
+
+    def set_rid(self) -> None:
+        if len(self.dest_coords) == 0:
+            raise ValueError("No destination coordinates.")
+
+        self.base_coord, self.rid = get_replication_id(self.dest_coords)
+
+    def __str__(self) -> str:
+        _repr = f"chip addr: {self.dest_chip_coord}\n"
+        # fmt: off
+        if hasattr(self, "base_coord") and hasattr(self, "rid"):
+            _repr += f"core addr: {_coord_to_bin_str(self.base_coord)}\n" + \
+                     f"multicast: {_coord_to_bin_str(self.rid)}\n"
+
+        _repr +=     f"axon addr: {self.dest_axon}\n"
+        # fmt: on
+        return _repr
+
+
+def _check_dest_attrs_same(sl_dest: SliceDest, *args) -> None:
+    """Check if the attributes of the destination details are the same as the given arguments."""
+    recorded = (
+        sl_dest.dest_chip_coord,
+        sl_dest.dest_axon,
+        sl_dest.timeslot,
+        sl_dest.rt_mode,
+    )
+
+    for r, arg in zip(recorded, args):
+        if r != arg:
+            raise ValueError(
+                f"The attributes of the destination are not equal: {r} != {arg}."
+            )
+
+
+class NeuSegDestPair(NamedTuple):
+    """Used to record the neuron segment & corresponding slice destination details for the original     \
+        `NeuSegment`. Read only.
+    """
+
+    neu_seg: NeuSegment
+    dest: SliceDest
+
+
+@dataclass
+class SliceDestPair:
+    """Slice-destination pair."""
+
+    slice_: PrttnSliceType
+    dest: SliceDest
+
+
+class SourceDest(UserList[SliceDestPair]):
+    """Used to represent the destination details of an entire neuron node. Since a neuron node may be   \
+        divided into multiple `NeuronSlice`, it contains a list consisting of slice-destination pairs.
+
+        It provides a method to obtain the destination details of the specified `NeuSegment`.
+    """
+
+    def add_dest(
+        self, dest_slice: SourceSliceType, dest_ax_seg: AxonSegment, cb: CoreBlock
+    ) -> None:
+        """Using the information of core block `cb` where the axon segment is, record the slice info & destination details."""
+        dest_coords = cb.core_coords.copy()
+        dest_chip_coord = cb.chip_coord
+        timeslot = cb.n_timeslot
+        mode = cb.rt_mode
+
+        if dest_slice.index not in self.slices:
+            # Add the destination slice in record.
+            d = SliceDest(dest_chip_coord, dest_ax_seg, timeslot, mode, dest_coords)
+            self.append(SliceDestPair(dest_slice.index, d))
+        else:
+            # When the destination slice has been recorded, the info of the destination axon segment &
+            # the core block where it's located also needs to be the same as the recorded info.
+            idx = self.slices.index(dest_slice.index)
+            d = self.dests[idx]
+            _check_dest_attrs_same(d, dest_chip_coord, dest_ax_seg, timeslot, mode)
+            # In this case, only the core coordinates of the core blocks where the destination slice
+            # is located are append to the recorded list.
+            d.dest_coords.extend(dest_coords)
+
+    def set_slice_dest_rid(self) -> None:
+        for d in self.dests:
+            d.set_rid()
+
+    def sort_slice_dest_pairs(self) -> None:
+        """Sort the slice-destination pairs by the start position of the slice."""
+        self.sort(key=lambda p: p.slice_.start)
+
+    def is_undivided_dest(self) -> SliceDest:
+        if len(self) > 1:
+            raise ValueError("Multiple destinations")
+
+        return self[0].dest
+
+    def get_slice_dest_pairs(self, neu_seg: NeuSegment) -> list[NeuSegDestPair]:
+        """According to the given neuron segment, find the corresponding neuron segments & slice destination details.
+
+        Returns:
+            A list of `NeuSegDestPair` containing the neuron segments and their corresponding destination details.
+        """
+        pairs: list[NeuSegDestPair] = []
+        start = neu_seg.index.start
+        stop = neu_seg.index.stop
+        cur_start = start
+
+        if len(self) == 0:
+            raise ValueError(f"No destination information for {neu_seg}.")
+
+        for i, pos in enumerate(s.stop for s in self.slices):
+            if pos <= start:
+                continue
+
+            elif start < pos < stop:
+                pairs.append(
+                    NeuSegDestPair(
+                        neu_seg[cur_start - start : pos - start], self.dests[i]
+                    )
+                )
+                cur_start = pos
+
+            elif pos >= stop:
+                pairs.append(
+                    NeuSegDestPair(
+                        neu_seg[cur_start - start : stop - start], self.dests[i]
+                    )
+                )
+                break  # No need to traverse the rest.
+
+        return pairs
+
+    @property
+    def slices(self) -> list[PrttnSliceType]:
+        """Return all the slices in the slice-destination pair."""
+        return [pair.slice_ for pair in self]
+
+    @property
+    def dests(self) -> list[SliceDest]:
+        """Return all the destination details in the slice-destination pair."""
+        return [pair.dest for pair in self]
+
+    def __str__(self) -> str:
+        _repr = ""
+        for pairs in self:
+            # Align with the content of the destination details
+            _repr += f"slice    : ({pairs.slice_.start},{pairs.slice_.stop})\n"
+            _repr += str(pairs.dest)
+
+        return _repr
 
 
 class CorePlacement(CoreAbstract):
@@ -776,62 +998,45 @@ class CorePlacement(CoreAbstract):
 
     @overload
     def export_neu_config(
-        self, neu_seg: NeuSegment, axon_dests: list[CoreBlock]
+        self, neu_seg: NeuSegment, source_dest: SourceDest
     ) -> None: ...
 
     @overload
     def export_neu_config(
-        self,
-        neu_seg: NeuSegment,
-        *,
-        output_core_coord: Coord,
-        axon_addr_offset: int,
-    ) -> int: ...
+        self, neu_seg: NeuSegment, *, output_core_coord: Coord
+    ) -> None: ...
 
     def export_neu_config(
         self,
         neu_seg: NeuSegment,
-        axon_dests: Optional[list[CoreBlock]] = None,
+        source_dest: Optional[SourceDest] = None,
         output_core_coord: Optional[Coord] = None,
-        axon_addr_offset: Optional[int] = None,
-    ) -> Optional[int]:
+    ) -> None:
         """Export the neuron configuration."""
-        if isinstance(axon_dests, list):
-            axon_coords = aligned_coords(
-                neu_seg.index,
-                axon_dests[0].axon_segments[neu_seg.target],
-                neu_seg.target.delay_relative,
-                axon_dests[0].n_timeslot,
-                is_iw8(axon_dests[0].rt_mode),
-            )
-
-            # Get all core coordinates & replication ids.
-            assert all(axon_dests[0].chip_coord == ad.chip_coord for ad in axon_dests)
-
-            dest_core_coords = []
-            for ad in axon_dests:
-                dest_core_coords.extend(ad.core_coords)
-
-            config = NeuronConfig(
-                neu_seg, axon_coords, dest_core_coords, axon_dests[0].chip_coord
-            )
-
-            self.neu_configs[neu_seg.target] = config
-            return None
+        if isinstance(source_dest, SourceDest):
+            neu_seg_dest_pairs = source_dest.get_slice_dest_pairs(neu_seg)
+            for seg, dest in neu_seg_dest_pairs:
+                axon_coords = aligned_coords(
+                    seg.index,
+                    dest.dest_axon,
+                    seg.target.delay_relative,
+                    dest.timeslot,
+                    is_iw8(dest.rt_mode),
+                )
+                config = NeuronConfig(
+                    seg, axon_coords, dest.dest_coords, dest.dest_chip_coord
+                )
+                self.neu_configs[seg.target] = config
         else:
             # neu_seg is a part of an output node
             assert isinstance(output_core_coord, Coord)
-            assert isinstance(axon_addr_offset, int)
-
-            axon_coords: list[AxonCoord] = []
-            for i in range(axon_addr_offset, axon_addr_offset + neu_seg.n_neuron):
-                # NOTE: The runtime already supports cases where the #N of output nodes > the base fan-in of axons,
-                # so this form of output node allocation can be implemented.
-                # See class `PAIBoxRuntime` in runtime.py for details.
-                # May be changed at any time without notice.
-                axon_coords.append(
-                    AxonCoord(*divmod(i, HwConfig.N_FANIN_PER_DENDRITE_MAX))
-                )
+            # TODO Only leverage the axon coordinate attributes in `AxonCoord` and do not use the
+            # `tick_relative` attribute, which causes the number of an output node cannot be
+            # greater than `N_FANIN_PER_DENDRITE_MAX`(=1152).
+            axon_coords = [
+                AxonCoord.build(0, i)
+                for i in range(neu_seg.index.start, neu_seg.index.stop)
+            ]
 
             config = NeuronConfig(
                 neu_seg,
@@ -842,8 +1047,6 @@ class CorePlacement(CoreAbstract):
             )
 
             self.neu_configs[neu_seg.target] = config
-
-            return axon_addr_offset + neu_seg.n_neuron
 
     def export_core_plm_config(self) -> CorePlmConfig:
         core_param = self.export_param_config()
@@ -904,7 +1107,7 @@ class CorePlacement(CoreAbstract):
         return self.n_neuron << self.dendrite_comb_rate
 
     @property
-    def source(self) -> list[SourceNodeType]:
+    def source(self) -> list[SourceSliceType]:
         return self.parent.ordered_axons
 
     @property
@@ -972,5 +1175,5 @@ class EmptyCorePlacement(CoreAbstract):
 
 
 def max_lcn_of_cb(cb: list[CoreBlock]) -> LCN_EX:
-    """Find the max LCN extenion of previous grouped synapses"""
+    """Get the max LCN extenion of given core blocks."""
     return max(cb, key=lambda cb: cb.lcn_ex).lcn_ex

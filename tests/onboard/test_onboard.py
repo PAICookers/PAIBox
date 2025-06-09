@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import numpy as np
@@ -5,7 +6,18 @@ import pytest
 
 import paibox as pb
 from paibox.types import NEUOUT_U8_DTYPE, VOLTAGE_DTYPE
-from tests.components.utils import ann_bit_trunc, conv1d_golden
+from tests.components.utils import ann_bit_trunc
+from paibox.types import NEUOUT_U8_DTYPE, VOLTAGE_DTYPE
+
+ci_env = os.environ.get("CI_ENV", None) is not None
+pytestmark = pytest.mark.skipif(ci_env, reason="Skipping in CI environment")
+
+
+TEST_DIR = Path(__file__).parent
+DATA_DIR = TEST_DIR / "data"
+CONFIG_DIR = TEST_DIR / "config"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
 FIXED_RNG = np.random.default_rng(seed=42)
 

@@ -3,6 +3,7 @@ from math import ceil
 import pytest
 
 import paibox as pb
+from paibox.backend._slice import NeuronSlice
 from paibox.backend.segment_utils import (
     aligned_coords,
     get_axon_segments,
@@ -49,8 +50,9 @@ class TestGetNeuronSegments:
         TestData.neu_segs_latency_test_data["data"],
     )
     def test_get_neu_segments_latency(self, neurons, capacity, wp, lcn_ex, expected):
+        neuron_slices = [NeuronSlice(neuron) for neuron in neurons]
         neu_segs = get_neu_segments(
-            neurons, capacity, self._get_interval(wp, lcn_ex), "latency"
+            neuron_slices, capacity, self._get_interval(wp, lcn_ex), "latency"
         )
         assert neu_segs == expected
 
@@ -59,8 +61,9 @@ class TestGetNeuronSegments:
         TestData.neu_segs_core_test_data["data"],
     )
     def test_get_neu_segments_core(self, neurons, capacity, wp, lcn_ex, expected):
+        neuron_slices = [NeuronSlice(neuron) for neuron in neurons]
         neu_segs = get_neu_segments(
-            neurons, capacity, self._get_interval(wp, lcn_ex), "core"
+            neuron_slices, capacity, self._get_interval(wp, lcn_ex), "core"
         )
         assert neu_segs == expected
 
@@ -69,8 +72,9 @@ class TestGetNeuronSegments:
         TestData.neu_segs_both_test_data["data"],
     )
     def test_get_neu_segments_both(self, neurons, capacity, wp, lcn_ex, expected):
+        neuron_slices = [NeuronSlice(neuron) for neuron in neurons]
         neu_segs = get_neu_segments(
-            neurons, capacity, self._get_interval(wp, lcn_ex), "both"
+            neuron_slices, capacity, self._get_interval(wp, lcn_ex), "both"
         )
         assert neu_segs == expected
 
@@ -91,7 +95,9 @@ def test_get_axon_segments(axons):
 
     tr_max = 1 << lcn_ex
 
-    axon_segs = get_axon_segments(axons, tr_max, 1152)
+    axon_slices = [NeuronSlice(axon) for axon in axons]
+
+    axon_segs = get_axon_segments(axon_slices, tr_max, 1152)
 
     for axon_seg in axon_segs.values():
         assert axon_seg.addr_offset <= 1152
@@ -111,8 +117,10 @@ def test_get_axon_segments_boundary(axons):
     lcn_ex = n_axon2lcn_ex_proto(sum(axon.num_out for axon in axons), 1152)
     tr_max = 1 << lcn_ex
 
+    axon_slices = [NeuronSlice(axon) for axon in axons]
+
     with pytest.raises(ResourceError):
-        axon_segs = get_axon_segments(axons, tr_max, 1152)
+        axon_segs = get_axon_segments(axon_slices, tr_max, 1152)
 
 
 @pytest.mark.parametrize(
