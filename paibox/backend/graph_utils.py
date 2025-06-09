@@ -85,7 +85,7 @@ def toposort(directed_edges: Mapping[_NT, Iterable[_NT]]) -> list[_NT]:
 
 
 def _toposort(
-    directed_edges: Mapping[_NT, Iterable[_NT]]
+    directed_edges: Mapping[_NT, Iterable[_NT]],
 ) -> Generator[list[_NT], Any, None]:
     incoming_edges = reverse_edges(directed_edges)
     zero_indegree = [
@@ -116,7 +116,7 @@ def _toposort(
 
 
 def iter_toposort(
-    directed_edges: Mapping[_NT, Iterable[_NT]]
+    directed_edges: Mapping[_NT, Iterable[_NT]],
 ) -> Generator[_NT, Any, None]:
     for generation in _toposort(directed_edges):
         yield from generation
@@ -148,7 +148,7 @@ def reverse_edges(directed_edges: Mapping[_NT, Iterable[_NT]]) -> dict[_NT, list
 
 
 def reverse_edges2(
-    directed_edges: Mapping[_NT, Mapping[_NT, _T]]
+    directed_edges: Mapping[_NT, Mapping[_NT, _T]],
 ) -> dict[_NT, dict[_NT, _T]]:
     reversed = {k: dict() for k in directed_edges}
     for key in directed_edges:
@@ -162,7 +162,7 @@ def reverse_edges2(
 
 
 def get_node_degrees(
-    succ_edges: Mapping[_NT, Union[Sequence[_NT], Mapping[_NT, Any]]]
+    succ_edges: Mapping[_NT, Union[Sequence[_NT], Mapping[_NT, Any]]],
 ) -> dict[_NT, NodeDegree]:
     degree = defaultdict(NodeDegree)
     in_degrees = defaultdict(int)
@@ -440,7 +440,7 @@ def get_succ_cb_by_node(
 
 
 def get_pred_cb_by_succ_cb(
-    succ_cb: dict[CoreBlock, list[CoreBlock]]
+    succ_cb: dict[CoreBlock, list[CoreBlock]],
 ) -> dict[CoreBlock, list[CoreBlock]]:
     return reverse_edges(succ_cb)
 
@@ -452,7 +452,7 @@ def get_pred_cb_by_node(
 
 
 def get_pred_dg_by_succ_dg(
-    succ_dg: dict[NodeName, dict[NodeName, _T]]
+    succ_dg: dict[NodeName, dict[NodeName, _T]],
 ) -> dict[NodeName, dict[NodeName, _T]]:
     return reverse_edges2(succ_dg)
 

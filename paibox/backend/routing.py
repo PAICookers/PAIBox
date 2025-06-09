@@ -14,17 +14,16 @@ from paicorelib import RoutingDirection as Direction
 from paicorelib import RoutingLevel as Level
 from paicorelib.routing_defs import MAX_ROUTING_PATH_LENGTH
 
-from paibox.components.neuron.base import NEU_TARGET_CHIP_NOT_SET
-from paibox.exceptions import PAIBoxDeprecationWarning, ResourceError, RoutingError
-from paibox.utils import check_elem_same
 from paibox import _logging
 from paibox.components import MatMul2d
+from paibox.components.neuron.base import NEU_TARGET_CHIP_NOT_SET
 from paibox.exceptions import (
     NotSupportedError,
     PAIBoxDeprecationWarning,
     ResourceError,
     RoutingError,
 )
+from paibox.utils import check_elem_same
 
 from ._slice import *
 from .conf_types import CorePlmConfInChip

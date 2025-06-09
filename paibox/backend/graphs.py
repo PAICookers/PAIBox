@@ -186,7 +186,7 @@ class PAIGraph:
 
     @staticmethod
     def _filter_out_no_inp_networks(
-        networks: tuple[DynSysGroup, ...]
+        networks: tuple[DynSysGroup, ...],
     ) -> tuple[DynSysGroup, ...]:
         """Filter out the networks that have no input nodes."""
         target = []

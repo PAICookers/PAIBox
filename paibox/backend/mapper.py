@@ -36,6 +36,7 @@ from .graph_utils import (
 from .graphs import PAIGraph
 from .placement import CoreBlock, SourceDest, aligned_coords, max_lcn_of_cb
 from .routing import RoutingGroup, RoutingManager
+from .succ_group import *
 from .types import (
     DestNodeType,
     NeuSegment,
@@ -44,7 +45,6 @@ from .types import (
     SourceNodeType,
     is_iw8,
 )
-from .succ_group import *
 
 __all__ = ["Mapper"]
 

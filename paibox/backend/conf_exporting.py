@@ -103,9 +103,7 @@ def gen_config_frames_by_coreconf(
                     assert neu_conf.neu_seg.repeat == 1
 
                     if (
-                        n_on_nram := HwConfig.ADDR_RAM_MAX
-                        + 1
-                        - neu_conf.neu_seg.offset
+                        n_on_nram := HwConfig.ADDR_RAM_MAX + 1 - neu_conf.neu_seg.offset
                     ) > 0:
                         # Place in the NRAM partially
                         neu_on_nram_conf = neu_conf[:n_on_nram]
