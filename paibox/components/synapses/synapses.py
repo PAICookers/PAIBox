@@ -6,6 +6,7 @@ from paibox.base import NeuDyn
 from paibox.types import DataType
 
 from ..neuron import Neuron
+from ..operations import VirtualNode
 from ..projection import InputProj
 from .base import (
     Conv1dSyn,
@@ -31,7 +32,7 @@ __all__ = [
 class FullConn(FullConnSyn):
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
+        source: Union[NeuDyn, InputProj, VirtualNode],
         dest: NeuDyn,
         weights: DataType = 1,
         *,
@@ -53,7 +54,7 @@ class FullConn(FullConnSyn):
 class MatMul2d(FullConnSyn):
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
+        source: Union[NeuDyn, InputProj, VirtualNode],
         dest: NeuDyn,
         weights: np.ndarray,
         name: Optional[str] = None,
@@ -72,7 +73,7 @@ class MatMul2d(FullConnSyn):
 class Conv1d(Conv1dSyn):
     def __init__(
         self,
-        source: Union[Neuron, InputProj],
+        source: Union[NeuDyn, InputProj, VirtualNode],
         dest: Neuron,
         kernel: np.ndarray,
         *,
@@ -116,7 +117,7 @@ class Conv1d(Conv1dSyn):
 class Conv2d(Conv2dSyn):
     def __init__(
         self,
-        source: Union[Neuron, InputProj],
+        source: Union[NeuDyn, InputProj, VirtualNode],
         dest: Neuron,
         kernel: np.ndarray,
         *,
