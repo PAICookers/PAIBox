@@ -294,7 +294,7 @@ def test_NeuronConfig_mapped_on_ram(index, offset, expected):
     )
 
     if (
-        neu_config1.neu_seg.offset_nram + neu_config1.neu_seg.n_neuron
+        neu_config1.neu_seg.offset + neu_config1.neu_seg.n_neuron
         <= HwConfig.ADDR_RAM_MAX + 1
     ):
         result1 = neu_config1
@@ -303,7 +303,7 @@ def test_NeuronConfig_mapped_on_ram(index, offset, expected):
         assert result1.neu_seg.index == expected[0]
         assert result2 == expected[1]
 
-    elif (n_on_nram := HwConfig.ADDR_RAM_MAX + 1 - neu_config1.neu_seg.offset_nram) > 0:
+    elif (n_on_nram := HwConfig.ADDR_RAM_MAX + 1 - neu_config1.neu_seg.offset) > 0:
         s1 = slice(None, n_on_nram)
         s2 = slice(n_on_nram, None)
         result1 = neu_config1[s1]

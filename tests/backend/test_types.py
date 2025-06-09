@@ -21,17 +21,17 @@ class TestNeuSegment:
         result = neu_seg2[10:20]
         assert result.index.start == 120 + 10
         assert result.index.stop == 120 + 20
-        assert result.offset_nram == 120 + 10
+        assert result.offset == 120 + 10
 
         result = neu_seg2[:30]
         assert result.index.start == 120
         assert result.index.stop == 120 + 30
-        assert result.offset_nram == 120
+        assert result.offset == 120
 
         result = neu_seg3[20:]
         assert result.index.start == 160 + 20
         assert result.index.stop == 200
-        assert result.offset_nram == 160 + 20
+        assert result.offset == 160 + 20
 
         # cannot pass an integer
         with pytest.raises(Exception):

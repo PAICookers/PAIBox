@@ -163,7 +163,7 @@ class TestMapperDeployment:
         mapper: pb.Mapper = compile_simple_net
         assert mapper.graph.has_built == True
 
-        mapper.find_neuron(mapper.graph._raw_networks[0].n3)
+        mapper.find_neuron(mapper.graph.target_networks[0].n3)
 
         assert 1
 
@@ -171,7 +171,7 @@ class TestMapperDeployment:
         mapper = compile_simple_net
         assert mapper.graph.has_built == True
 
-        mapper.find_axon(mapper.graph._raw_networks[0].n2)
+        mapper.find_axon(mapper.graph.target_networks[0].n2)
 
         assert 1
 
@@ -317,7 +317,7 @@ class TestMapper_Export:
         mapper.compile()
         mapper.export(fp=ensure_dump_dir)
 
-        assert len(mapper.routing_manager.ordered_rgrps[1].wasted_coords) == 2
+        assert len(mapper.routing_mgr.ordered_rgrps[1].wasted_coords) == 2
 
 
 class TestMapper_Compile:

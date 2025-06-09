@@ -156,6 +156,10 @@ class NeuronSlice(NodeSlice[Neuron]):
         return self.target.pool_max
 
     @property
+    def target_chip_idx(self) -> int:
+        return self.target.target_chip_idx
+
+    @property
     def view(self) -> NeuronSubView:
         return NeuronSubView(self.target, self.index)
 
