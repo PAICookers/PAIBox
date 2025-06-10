@@ -1034,7 +1034,7 @@ class CorePlacement(CoreAbstract):
             # `tick_relative` attribute, which causes the number of an output node cannot be
             # greater than `N_FANIN_PER_DENDRITE_MAX`(=1152).
             axon_coords = [
-                AxonCoord.build(0, i)
+                AxonCoord.build(0, i) if i < 1152 else AxonCoord.build(i // 1152, i % 1152)
                 for i in range(neu_seg.index.start, neu_seg.index.stop)
             ]
 
