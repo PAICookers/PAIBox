@@ -447,11 +447,11 @@ class CoreBlock(CoreAbstract):
         for dest in self.dest:
             _repr += ind2 + str(dest) + "\n"
 
-        _repr += ind1 + "cores "
+        _repr += ind1 + "cores:\n"
         for i, neu_seg in enumerate(self.neuron_segs_of_cb):
-            _repr += f"#{i}:\n"
+            _repr += ind2 + f"#{i}:\n"
             for seg in neu_seg:
-                _repr += ind2 + f"{seg.target.name}[{seg.index}]\n"
+                _repr += ind2 + f"\t{seg.target.name}[{seg.index}]\n"
 
         return _repr
 
