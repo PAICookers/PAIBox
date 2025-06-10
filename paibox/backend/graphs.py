@@ -566,9 +566,9 @@ class PAIGraph:
         return copied
 
     def get_neu_by_name(self, name: NodeName) -> Optional[DestNodeType]:
-        for neu in self._raw_nodes.exclude(InputProj):
+        for neu in self.nodes.exclude(InputProj):
             if name == neu:
-                return cast(DestNodeType, self._raw_nodes[neu])
+                return cast(DestNodeType, self.nodes[neu])
 
         return None
 
