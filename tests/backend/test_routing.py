@@ -118,6 +118,81 @@ class TestRoutingManager:
                 chip_idx_loc * HwConfig.N_CORE_MAX_INCHIP + expected[i][1] == core_loc
             )
 
+    @pytest.mark.parametrize(
+        "n, expected",
+        [
+            (800, 800),
+            (1000, 1000 - 16),
+            (1200, 1200 - 16),
+            (1900, 1900 - 16),
+            (2000, 2000 - 16 * 2),
+        ],
+    )
+    def test_get_n_core_occupied(self, n, expected):
+        rm = RoutingManager([Coord(0, 0), Coord(1, 0)])
+        rm.n_core_total = n
+        rm.n_core_per_chip[0] = n
+
+        assert rm.get_n_core_occupied() == expected
+
+    @pytest.mark.parametrize(
+        "chips, to_insert, expected",
+        # to_insert: (incoming, wasted)
+        [
+            (
+                1,
+                [(512, 0), (256, 0), (128, 0), (64, 16), (16, 6)],
+                512 + 256 + 128 + 48 + 16,
+            ),
+            (
+                2,
+                [
+                    # in chip#1
+                    (256, 32),
+                    (128, 12),
+                    (128, 9),
+                    (64, 0),  # -> 128
+                    (128, 20),
+                    # in chip#2
+                    (256, 30),
+                    (8, 1),  # -> 16
+                    (16, 2),
+                    (8, 0),
+                ],
+                1008 + (256 + 16 + 16 + 8),
+            ),
+            (
+                2,
+                [
+                    # in chip#1
+                    (256, 32),
+                    (128, 12),
+                    (128, 9),
+                    (64, 0),  # -> 128
+                    (128, 16),
+                    (128, 20),
+                    (8, 2),  # -> 32
+                    # after online cores
+                    (32, 10),
+                    (8, 3),  # ->16
+                    (16, 0),
+                    # in chip#2
+                    (64, 3),
+                ],
+                (944 + (32 + 16 + 16)) + (64),
+            ),
+        ],
+    )
+    def test_insert_and_get_n_core_occupied(self, chips, to_insert, expected):
+        chip_list = [Coord.from_addr(idx) for idx in range(chips)]
+        rm = RoutingManager(chip_list)
+
+        for incoming, wasted in to_insert:
+            rm.get_insert_location(incoming, wasted)
+
+        occupied = rm.get_n_core_occupied()
+        assert occupied == expected
+
 
 @pytest.mark.parametrize("lx", [L4, L3, L2, L1, L0])
 def test_get_unused_lx(lx):

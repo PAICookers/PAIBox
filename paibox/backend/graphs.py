@@ -1,8 +1,8 @@
 import math
-from collections import defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+import warnings
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Optional, TypeVar, Union, cast
+from typing import Any, Optional, Union, cast
 
 from paibox.base import DataFlowFormat
 from paibox.collector import Collector
@@ -12,115 +12,155 @@ from paibox.exceptions import (
     GraphBuildError,
     GraphConnectionError,
     GraphNotSupportedError,
+    PAIBoxWarning,
 )
 from paibox.network import DynSysGroup
 from paibox.utils import check_elem_unique
 
 from .context import _BACKEND_CONTEXT
+from .graph_utils import (
+    get_node_degrees,
+    get_pred_dg_by_succ_dg,
+    iter_toposort,
+    prune_disconn_graph,
+    reverse_edges,
+    toposort,
+)
 from .placement import CoreBlock
 from .routing import RoutingGroup
 from .segment_utils import get_neu_segments
+from .succ_group import *
 from .types import *
+
+__all__ = ["PAIGraph"]
+
+
+NodeAdjDictType = dict[NodeName, dict[NodeName, EdgeAttr]]
 
 
 @dataclass
 class PAIGraph:
-    """Directed graph of PAIBox. We treat networks as one whole graph. \
-        In the graph, synapses are edges while neurons are nodes.
+    """Directed graph of PAIBox. We treat networks as one whole graph. In the graph, synapses are   \
+        edges and neurons are nodes.
     """
 
-    _raw_networks: tuple[DynSysGroup, ...] = field(default_factory=tuple)
-    """All networks are seen as one graph."""
-    _raw_nodes: Collector[NodeName, NodeType] = field(default_factory=Collector)
-    """Raw nodes in the networks."""
-    _raw_edges: Collector[EdgeName, EdgeType] = field(default_factory=Collector)
-    """Raw edges in the graph."""
-    _raw_fmodules: Collector[NodeName, NeuModule] = field(default_factory=Collector)
-    """Raw functional modules in the graph."""
+    target_networks: tuple[DynSysGroup, ...] = field(default_factory=tuple)
+    """The networks that are actually used in the graph."""
 
-    nodes: dict[NodeName, NodeAttr] = field(default_factory=dict)
-    """General nodes in the graph."""
-    edges: dict[EdgeName, EdgeAttr] = field(default_factory=dict)
-    """General edges in the graph."""
+    nodes: Collector[NodeName, NodeType] = field(default_factory=Collector)
+    """Valid nodes in the graph."""
+    edges: Collector[EdgeName, EdgeType] = field(default_factory=Collector)
+    """Valid edges in the graph."""
 
     inodes: Collector[NodeName, SourceNodeType] = field(default_factory=Collector)
-    """Input nodes in the graph."""
+    """Valid input nodes in the graph. Can be recalculated."""
     onodes: Collector[NodeName, DestNodeType] = field(default_factory=Collector)
-    """Output nodes in the graph."""
+    """Valid output nodes in the graph. Can be recalculated."""
 
-    ordered_nodes: list[NodeName] = field(default_factory=list)
-    """Nodes in topological sort order."""
-
-    succ_dg: dict[NodeName, dict[NodeName, EdgeAttr]] = field(default_factory=dict)
-    """Successor edges & nodes of every node in the graph."""
-
-    pred_dg: dict[NodeName, dict[NodeName, EdgeAttr]] = field(default_factory=dict)
-    """Predecessor edges & nodes of every node in the graph."""
+    succ_dg: NodeAdjDictType = field(default_factory=dict)
+    """Valid successor edges & nodes of every node in the graph. Can be recalculated."""
+    pred_dg: NodeAdjDictType = field(default_factory=dict)
+    """Valid predecessor edges & nodes of every node in the graph. Can be recalculated."""
 
     degree_of_nodes: dict[NodeName, NodeDegree] = field(default_factory=dict)
-    """A dictionary of in/out-degree tuple of nodes."""
+    """A dictionary of in/out-degree tuple of nodes. Can be recalculated"""
 
-    """Status options"""
     has_built: bool = field(default=False)
 
-    def clear(self, total: bool = True) -> None:
+    _build_options: dict[str, Any] = field(default_factory=dict)
+    """Building options."""
+
+    def clear(self) -> None:
         """Clear the PAIGraph."""
         self.has_built = False
+        self._build_options.clear()
 
+        self.target_networks = ()
         self.nodes.clear()
         self.edges.clear()
         self.inodes.clear()
         self.onodes.clear()
-        self.ordered_nodes.clear()
         self.succ_dg.clear()
         self.pred_dg.clear()
         self.degree_of_nodes.clear()
 
-        if total:
-            self._raw_networks = ()
-            self._raw_nodes.clear()
-            self._raw_edges.clear()
-            self._raw_fmodules.clear()
-
     def build(self, *networks: DynSysGroup, **build_options) -> None:
+        # Check the hardware resource limits of operators in the network during the build phase.
+        # self._build_options.setdefault("check_before_compile", True)
+
+        # Prune networks with no input nodes before building the graph.
+        # self._build_options.setdefault("ignore_no_inp_subgraph", True)
+
+        # Update building options provided by the user.
+        self._build_options.update(build_options)
+
         self.clear()
+
+        if not networks:
+            raise GraphBuildError("no networks are provided.")
 
         if not check_elem_unique(networks):
             raise GraphBuildError("duplicated networks are not allowed.")
 
-        self._raw_networks = networks
-        self._pre_build(**build_options)
+        # The networks will be modified in pre-build phase.
+        self._pre_build(networks, **self._build_options)
 
-        nodes: Collector[NodeName, NodeType] = Collector()
-        edges: Collector[EdgeName, EdgeType] = Collector()
-        fm: Collector[NodeName, NeuModule] = Collector()
+        # Collect the raw information of the graph with the given networks.
+        # TODO For debugging, disable the check. Add an env variable to distinguish between debug & production use.
+        self.target_networks = networks
+        # self._filter_out_no_inp_networks(networks)
 
-        for subnet in self._raw_networks:
-            fm += subnet.nodes().subset(NeuModule).unique()
-            nodes += (
-                subnet.nodes().include(InputProj, Neuron).exclude(NeuModule).unique()
+        _nodes: Collector[NodeName, NodeType] = Collector()
+        _edges: Collector[EdgeName, EdgeType] = Collector()
+
+        for nw in self.target_networks:
+            _nodes += nw.nodes().include(InputProj, Neuron).exclude(NeuModule).unique()
+            _edges += nw.nodes().subset(FullConnectedSyn).unique()
+
+        raw_nodes = _nodes.val_on_condition(lambda node: not node.__gh_build_ignore__)
+        raw_edges = _edges.val_on_condition(lambda edge: not edge.__gh_build_ignore__)
+        raw_succ_dg = self._build_succ_dg(raw_nodes, list(raw_edges.values()))
+
+        # `InputProj` nodes are input nodes definitely.
+        self.inodes = raw_nodes.subset(InputProj)
+
+        # Filter out the subgraphs that are not connected to the input nodes.
+        if build_options.get("ignore_no_inp_subgraph", False):
+            pruned_succ_dg, _ = prune_disconn_graph(
+                raw_succ_dg, list(self.inodes.keys())
             )
-            edges += subnet.nodes().subset(FullConnectedSyn).unique()
+            # Remove the disconnected nodes then get the valid nodes.
+            nodes = raw_nodes.key_on_condition(lambda node: node in pruned_succ_dg)
+        else:
+            pruned_succ_dg = raw_succ_dg
+            nodes = raw_nodes
 
-        self._raw_nodes += nodes.val_on_condition(
-            lambda node: not node.__gh_build_ignore__
+        # Finally, collect the valid graph information.
+        self.nodes = nodes
+        self.edges = Collector(
+            {
+                edge.name: edge
+                for edge in raw_edges.values()
+                if edge.source.name in self.nodes and edge.dest.name in self.nodes
+            }
         )
-        self._raw_edges += edges.val_on_condition(
-            lambda edge: not edge.__gh_build_ignore__
-        )
-        self._raw_fmodules = fm
+        self.succ_dg = cast(NodeAdjDictType, pruned_succ_dg)
+        self.pred_dg = get_pred_dg_by_succ_dg(self.succ_dg)
+        self.degree_of_nodes = get_node_degrees(self.succ_dg)
+        self.onodes = self._collect_onodes(self.nodes, self.degree_of_nodes)
 
-        self._update_graph(**build_options)
+        # Check the uniqueness of the successors of each node.
+        for n in self.succ_dg:
+            assert check_elem_unique(self.succ_dg[n])
 
-    def _pre_build(self, **build_options) -> None:
+        self.has_built = True
+
+    def _pre_build(self, networks: tuple[DynSysGroup, ...], **build_options) -> None:
         """Preprocessing before obtaining the topology."""
-        # Check the hardware resource limits of operators in the network during the build phase.
-        build_options.setdefault("check_before_compile", True)
-
         # Build functional modules for each network.
-        for network in self._raw_networks:
-            if network.is_composed_of_semi_folded_ops():
-                modules = network.components.subset(NeuModule)
+        for nw in networks:
+            if nw.is_composed_of_semi_folded_ops():
+                modules = nw.components.subset(NeuModule)
                 succ_dg_semi_ops = {
                     name: [t.name for t in op.target] for name, op in modules.items()
                 }
@@ -140,63 +180,82 @@ class PAIGraph:
                     )
 
                 ordered_nodes = [modules[name] for name in toposort(succ_dg_semi_ops)]
-                network.build_modules(pred_dg_semi_ops, ordered_nodes, **build_options)
+                nw.build_modules(pred_dg_semi_ops, ordered_nodes, **build_options)
             else:
-                network.build_modules(**build_options)
+                nw.build_modules(**build_options)
 
-    def _update_graph(self, **build_options) -> None:
-        self.clear(total=False)
+    @staticmethod
+    def _filter_out_no_inp_networks(
+        networks: tuple[DynSysGroup, ...],
+    ) -> tuple[DynSysGroup, ...]:
+        """Filter out the networks that have no input nodes."""
+        target = []
 
-        # TODO Check isolated nodes in _raw_nodes
-        for node in self._raw_nodes:
-            self.succ_dg[node] = dict()
-            self.pred_dg[node] = dict()
-
-        for name, syn in self._raw_edges.items():
-            u, v = syn.source.name, syn.dest.name
-            if u not in self._raw_nodes:
-                raise GraphConnectionError(
-                    f"the source neuron {u} of {syn.name} is not included in the graph."
+        for nw in networks:
+            if len(nw.nodes().subset(InputProj)) > 0:
+                target.append(nw)
+            else:
+                warnings.warn(
+                    f"Network {nw.name} has no input node, filtered out.",
+                    PAIBoxWarning,
                 )
 
-            if v not in self._raw_nodes:
+        return tuple(target)
+
+    @staticmethod
+    def _build_succ_dg(
+        nodes: Iterable[NodeName], edges: Iterable[EdgeType]
+    ) -> NodeAdjDictType:
+        succ_dg: NodeAdjDictType = {n: dict() for n in nodes}  # record all nodes
+
+        for edge in edges:
+            u, v = edge.source.name, edge.dest.name
+
+            if u not in nodes:
                 raise GraphConnectionError(
-                    f"the dest neuron {v} of {syn.name} is not included in the graph."
+                    f"the source neuron {u} of {edge.name} is not included in the graph."
                 )
 
-            _edge_attr = EdgeAttr(edge=syn, distance=syn.source.delay_relative)
-            self.edges[name] = _edge_attr
-            self.succ_dg[u][v] = _edge_attr
-            self.pred_dg[v][u] = _edge_attr
+            if v not in nodes:
+                raise GraphConnectionError(
+                    f"the dest neuron {v} of {edge.name} is not included in the graph."
+                )
 
-        self.degree_of_nodes = get_node_degrees(self.succ_dg)
+            succ_dg[u][v] = EdgeAttr(edge, edge.source.delay_relative)
 
-        # `InputProj` nodes are input nodes definitely.
-        self.inodes = self._raw_nodes.subset(InputProj)
+        for n in succ_dg:
+            assert check_elem_unique(succ_dg[n])
 
-        # By default, nodes with out-degree = 0 are considered as output nodes.
-        # TODO A node with out-degree can also be an output node. However, no network for now has this topology.
-        self.onodes = Collector(
+        return succ_dg
+
+    @staticmethod
+    def _collect_onodes(
+        nodes: Collector[NodeName, NodeType], degrees: dict[NodeName, NodeDegree]
+    ) -> Collector[str, DestNodeType]:
+        return Collector(
             {
                 k: cast(DestNodeType, v)
-                for k, v in self._raw_nodes.items()
-                if self.degree_of_nodes[k].out_degree == 0
+                for k, v in nodes.items()
+                if degrees[k].out_degree == 0
             }
-        ).not_subset(InputProj)
+        ).not_subset(
+            InputProj
+        )  # Exclude isolated input nodes
 
-        for name, node in self._raw_nodes.items():
-            self.nodes[name] = NodeAttr(
-                node, self._node_pos(name), self.degree_of_nodes[name]
-            )
-
-        self.ordered_nodes = toposort(self.succ_dg)
-        self.has_built = True
+    def _update_graph(self, **build_options) -> None:
+        """Called after the computation graph(`nodes` or `edges`) has been modified."""
+        self.inodes = self.nodes.subset(InputProj)
+        self.succ_dg = self._build_succ_dg(self.nodes, list(self.edges.values()))
+        self.pred_dg = get_pred_dg_by_succ_dg(self.succ_dg)
+        self.degree_of_nodes = get_node_degrees(self.succ_dg)
+        self.onodes = self._collect_onodes(self.nodes, self.degree_of_nodes)
 
     def untwist_branch_nodes(self) -> None:
         # FIXME Input nodes may need to be excluded from the nodes to be traversed?
+        ordered_nodes = toposort(self.succ_dg)
         for node_nn in filter(
             lambda node: self.degree_of_nodes[node].out_degree > 1,
-            reversed(self.ordered_nodes),
+            reversed(ordered_nodes),
         ):
             # succ_dg will be updated in _copy_node, so use the copy of succ_dg.
             for succ_nn in self.succ_dg[node_nn].copy():
@@ -206,7 +265,7 @@ class PAIGraph:
                     self.degree_of_nodes[succ_nn].in_degree > 1
                     and self.degree_of_nodes[node_nn].out_degree > 1
                 ):
-                    node = self._raw_nodes[node_nn]
+                    node = self.nodes[node_nn]
                     self._copy_node(
                         node, keep_pred_conn=True, grab_succ_nodes=succ_nn, update=False
                     )
@@ -227,51 +286,39 @@ class PAIGraph:
         #     )
         pass
 
-    def _node_pos(self, node: NodeName) -> NodePosition:
-        if node in self.inodes:
-            return NodePosition.INPUT
-        elif node in self.onodes:
-            return NodePosition.OUTPUT
-        else:
-            return NodePosition.MEMBER
-
     def build_check(self) -> None:
         if not self.has_built:
             raise GraphBuildError("the graph hasn't been built yet.")
 
     def graph_partition(self) -> list[MergedSuccGroup]:
         """Graph partition."""
-        # Build the SuccGroup for each node in the graph.
-        succ_groups: list[SuccGroup] = []
-        for node in self.ordered_nodes:
-            succ_node_names = set(self.succ_dg[node].keys())
-            if succ_node_names:
-                succ_nodes = [self._raw_nodes[n] for n in succ_node_names]
-                succ_edges = [self.succ_dg[node][n.name].edge for n in succ_nodes]
-                succ_groups.append(
-                    SuccGroup(self._raw_nodes[node], succ_nodes, succ_edges)
-                )
+        # Build the `SuccGroup` for each node in the graph.
+        succ_grps: list[SuccGroup] = []
+        for nn in iter_toposort(self.succ_dg):
+            if succ_nodes := self.succ_dg[nn]:
+                succ_grps.append(SuccGroup(e.edge for e in succ_nodes.values()))
 
-        def dfs(sgrp: SuccGroup, rgrp: MergedSuccGroup) -> None:
-            # Union-find sets. If the nodes of two succ_groups have intersection, merge them.
-            for other_sgrp in succ_groups:
+        def dfs(sgrp: SuccGroup, msgrp: MergedSuccGroup) -> None:
+            # Union-find sets. If the nodes of two `succ_grps` have intersection, merge them.
+            for other_sgrp in succ_grps:
                 if other_sgrp not in visited and not set(sgrp.nodes).isdisjoint(
                     other_sgrp.nodes
                 ):
                     visited.add(other_sgrp)
-                    rgrp.add_group(other_sgrp)
-                    dfs(other_sgrp, rgrp)
+                    msgrp.add_group(other_sgrp)
+                    dfs(other_sgrp, msgrp)
 
-        route_groups: list[MergedSuccGroup] = []
+        # Merge
+        merged_sgrps: list[MergedSuccGroup] = []
         visited: set[SuccGroup] = set()
-        for sgrp in succ_groups:
+        for sgrp in succ_grps:
             if sgrp not in visited:
-                route_group = MergedSuccGroup(sgrp)
+                m = MergedSuccGroup([sgrp])
                 visited.add(sgrp)
-                dfs(sgrp, route_group)
-                route_groups.append(route_group)
+                dfs(sgrp, m)
+                merged_sgrps.append(m)
 
-        return route_groups
+        return merged_sgrps
 
     def multicast_optim(
         self,
@@ -283,6 +330,9 @@ class PAIGraph:
 
         NOTE: Only applies to a node that only has 2 successors, and they belong to the same core block.
         """
+        raise NotImplementedError
+
+        "the following code is not used, but it may be useful in the future."
         ONLY_SUPPORT_N_SUCC = 2
 
         def _roundup_to_pow2(n: int) -> int:
@@ -384,7 +434,7 @@ class PAIGraph:
                 self.pred_dg[copied.name] = dict()
             for pred_nn, pred_edge_attr in pred_nodes.items():
                 copied_edge = pred_edge_attr.edge.copy(target=copied)
-                self._raw_edges[copied_edge.name] = copied_edge
+                self.edges[copied_edge.name] = copied_edge
                 # If don't _update_graph(), update partial information:
                 # 1. Add the copied node & its incomming edges to succ_dg.
                 # 2. Update the in-degree of copied node = in-degree of the original node.
@@ -407,7 +457,7 @@ class PAIGraph:
         ) -> None:
             for succ_nn, succ_edge_attr in succ_nodes.items():
                 copied_edge = succ_edge_attr.edge.copy(source=copied)
-                self._raw_edges[copied_edge.name] = copied_edge
+                self.edges[copied_edge.name] = copied_edge
                 # If don't _update_graph(), update partial information:
                 # 1. Add the copied node & its outcoming edges to pred_nodes_dict & pred_dg.
                 # 2. Update the out-degree of copied node = out-degree of the original node.
@@ -429,7 +479,7 @@ class PAIGraph:
         succ_nodes = self.succ_dg[node.name]
 
         copied = node.copy()
-        self._raw_nodes[copied.name] = copied
+        self.nodes[copied.name] = copied
 
         if not update:
             self.degree_of_nodes[copied.name] = NodeDegree()
@@ -516,9 +566,9 @@ class PAIGraph:
         return copied
 
     def get_neu_by_name(self, name: NodeName) -> Optional[DestNodeType]:
-        for neu in self._raw_nodes.exclude(InputProj):
+        for neu in self.nodes.exclude(InputProj):
             if name == neu:
-                return cast(DestNodeType, self._raw_nodes[neu])
+                return cast(DestNodeType, self.nodes[neu])
 
         return None
 
@@ -531,10 +581,10 @@ class PAIGraph:
 
     @staticmethod
     def _find_rg_by_cb(
-        core_block: CoreBlock, routing_groups: list[RoutingGroup]
+        cb: CoreBlock, routing_groups: list[RoutingGroup]
     ) -> RoutingGroup:
         """Find which routing group the target core block is in."""
-        _rgs = [rg for rg in routing_groups if core_block in rg]
+        _rgs = [rg for rg in routing_groups if cb in rg.core_blocks]
 
         if len(_rgs) != 1:
             raise GraphConnectionError(
@@ -549,6 +599,10 @@ class PAIGraph:
         NOTE: If there are more than one output nodes, the first valid data will be the one with the smallest timestamp.
         """
         self.build_check()
+
+        if len(self.onodes) == 0:
+            return 0
+
         return min(
             n._oflow_format.get_global_t_1st_vld(n.tick_wait_start)
             for n in self.onodes.values()
@@ -557,9 +611,13 @@ class PAIGraph:
     def get_output_flow_format(self) -> dict[NodeName, DataFlowFormat]:
         """Return the output data flow format of the compiled in global time.
 
-        NOTE: There may be multiple different data streams in the network.
+        NOTE: There may be multiple different data streams in the nw.
         """
         self.build_check()
+
+        if len(self.onodes) == 0:
+            return {}
+
         return {
             n.name: n._oflow_format.local2global(n.tick_wait_start)
             for n in self.onodes.values()
@@ -568,384 +626,4 @@ class PAIGraph:
     @property
     def graph_name_repr(self) -> str:
         _prefix = "graph_of_"
-        return _prefix + "_and_".join(network.name for network in self._raw_networks)
-
-
-_NT = TypeVar("_NT", CoreBlock, NodeName, RoutingGroup, MergedSuccGroup)
-_T = TypeVar("_T")
-
-
-def _degree_check(
-    degree_of_nodes: Mapping[_NT, NodeDegree], succ_dg: Mapping[_NT, Iterable[_NT]]
-) -> None:
-    """Filter out such network structure, which is currently not supported."""
-    for node in filter(lambda node: degree_of_nodes[node].out_degree > 1, succ_dg):
-        for succ_node in succ_dg[node]:
-            if degree_of_nodes[succ_node].in_degree > 1:
-                _node_repr = (
-                    succ_node.name
-                    if isinstance(succ_node, CoreBlock)
-                    else str(succ_node)
-                )
-                raise GraphNotSupportedError(
-                    f"If out-degree of a node is greater than 1, the in-degree of its sucessors must be 1. "
-                    f"However, in-degree of {_node_repr} is {degree_of_nodes[succ_node].in_degree}."
-                )
-
-
-def find_cycles(directed_edges: Mapping[_NT, Iterable[_NT]]) -> list[list[_NT]]:
-    cycles: list[list[_NT]] = []
-    visited: set[_NT] = set()
-    stack: list[_NT] = []
-    stack_set: set[_NT] = set()  # 方便快速检查路径中的节点
-
-    # 深度优先搜索的辅助函数
-    def dfs(node: _NT) -> None:
-        if node in stack_set:  # 检测到环
-            cycle_start_index = stack.index(node)
-            cycles.append(stack[cycle_start_index:])
-            return
-        if node in visited:
-            return
-
-        visited.add(node)
-        stack.append(node)
-        stack_set.add(node)
-
-        for neighbor in directed_edges.get(node, []):
-            dfs(neighbor)
-
-        stack.pop()
-        stack_set.remove(node)
-
-    # 遍历每个节点，查找所有可能的环
-    for node in directed_edges:
-        if node not in visited:
-            dfs(node)
-
-    return cycles
-
-
-def merge_overlap(groups: Iterable[Sequence[_NT]]) -> list[list[_NT]]:
-    # 并查集数据结构
-    parent: dict[_NT, _NT] = dict()
-
-    # 查找集合的根节点
-    def find(x: _NT) -> _NT:
-        if parent[x] != x:
-            parent[x] = find(parent[x])
-
-        return parent[x]
-
-    # 合并两个集合
-    def union(x, y) -> None:
-        rootx = find(x)
-        rooty = find(y)
-        if rootx != rooty:
-            parent[rooty] = rootx
-
-    # 初始化并查集
-    for group in groups:
-        for elem in group:
-            if elem not in parent:
-                parent[elem] = elem
-
-    # 合并所有相互重叠的环
-    for group in groups:
-        first_elem = group[0]
-        for elem in group[1:]:
-            union(first_elem, elem)
-
-    # 根据并查集结果，将所有节点归类到同一个集合中
-    mgrps: dict[_NT, list[_NT]] = dict()
-    for elem in parent:
-        root = find(elem)
-        if root not in mgrps:
-            mgrps[root] = []
-        mgrps[root].append(elem)
-
-    return list(mgrps.values())
-
-
-def toposort(directed_edges: Mapping[_NT, Iterable[_NT]]) -> list[_NT]:
-    """
-    Topological sort algorithm by Kahn [1]_.
-
-    Complexity is O(nodes + vertices).
-
-    Parameters
-    ----------
-    edges : dict
-        dict of the form {a: {b, c}} where b and c depend on a
-
-    Returns
-    -------
-    An ordered list of nodes that satisfy the dependencies of ``edges``
-
-    Examples
-    --------
-
-    .. testcode::
-
-       from nengo.utils.graphs import toposort
-
-       print(toposort({1: {2, 3}, 2: {3}, 3: set()}))
-
-    .. testoutput::
-
-       [1, 2, 3]
-
-    Notes
-    -----
-    Closely follows the wikipedia page [2]_.
-
-    References
-    ----------
-    .. [1] Kahn, Arthur B. (1962), "Topological sorting of large networks",
-       Communications of the ACM
-    .. [2] https://en.wikipedia.org/wiki/Toposort#Algorithms
-    """
-    incoming_edges = reverse_edges(directed_edges)
-    vertices = set(
-        v for v in directed_edges if v not in incoming_edges or not incoming_edges[v]
-    )
-    ordered = []
-
-    while vertices:
-        n = vertices.pop()
-        ordered.append(n)
-        for m in directed_edges.get(n, ()):
-            assert n in incoming_edges[m]
-            incoming_edges[m].remove(n)
-            if not incoming_edges[m]:
-                vertices.add(m)
-
-    if any(incoming_edges.get(v, None) for v in directed_edges):
-        raise GraphNotSupportedError("the graph with cycles is not supported.")
-
-    return ordered
-
-
-def reverse_edges(directed_edges: Mapping[_NT, Iterable[_NT]]) -> dict[_NT, list[_NT]]:
-    """
-    Reverses direction of dependence dict.
-
-    Parameters
-    ----------
-    directed_edges : dict
-        dict of the form {a: {b, c}, b: set(), c: set()} where b and c depend
-        on a.
-
-    Returns
-    -------
-    dict of the form {a: set(), b: {a}, c: {a}} where b and c depend on a.
-    """
-    reversed = {k: list() for k in directed_edges}
-    for key in directed_edges:
-        for val in directed_edges[key]:
-            if key in reversed[val]:
-                raise ValueError(f"edge {key} -> {val} is repeated.")
-
-            reversed[val].append(key)
-
-    return reversed
-
-
-def reverse_edges2(
-    directed_edges: Mapping[_NT, Mapping[_NT, _T]],
-) -> dict[_NT, dict[_NT, _T]]:
-    reversed = {k: dict() for k in directed_edges}
-    for key in directed_edges:
-        for val, edge in directed_edges[key].items():
-            if key in reversed[val]:
-                raise ValueError(f"edge {key} -> {val} is repeated.")
-
-            reversed[val][key] = edge
-
-    return reversed
-
-
-# def _bounded_nodes_check(constrs: Sequence[Sequence[NeuDyn]]) -> None:
-#     seen = set()
-
-#     for bounded in constrs:
-#         for node in bounded:
-#             if node in seen:
-#                 raise ValueError(f"Node {node} is repeated in the list of constraints.")
-
-#             seen.add(node)
-
-
-# def _bounded_by(node: NodeName, constrs: Sequence[Sequence[NeuDyn]]) -> list[NodeName]:
-#     for constr in constrs:
-#         for bounded_node in constr:
-#             if node == bounded_node.name:
-#                 return list(n.name for n in set(constr))
-
-#     return []
-
-
-# def _conflicted_by(
-#     node: NodeName, constrs: dict[NodeName, Sequence[NeuDyn]]
-# ) -> list[NodeName]:
-#     """Find all the conflicted nodes of node.
-
-#     Example: {"1": {"2", "3"}, "4": {"1"}}. For node 1, return ["2", "3", "4"].
-#     """
-#     c = set(constrs.get(node, []))
-
-#     for k, v in constrs.items():
-#         for conf_node in v:
-#             if node == conf_node.name:
-#                 c.add(k)
-
-#     return list(n.name for n in c)
-
-
-def get_node_degrees(
-    succ_edges: Mapping[_NT, Union[Sequence[_NT], Mapping[_NT, Any]]],
-) -> dict[_NT, NodeDegree]:
-    degree = defaultdict(NodeDegree)
-    in_degrees = defaultdict(int)
-    out_degrees = defaultdict(int)
-
-    for node, succ_nodes in succ_edges.items():
-        out_degrees[node] = len(succ_nodes)
-
-        for succ_node in succ_nodes:
-            in_degrees[succ_node] += 1
-
-    for node in succ_edges:
-        degree[node] = NodeDegree(in_degrees[node], out_degrees[node])
-
-    return degree
-
-
-def get_longest_path(
-    edges_with_d: dict[_NT, dict[_NT, EdgeAttr]],
-    ordered_nodes: list[_NT],
-) -> tuple[list[_NT], int]:
-    """Get the longest path in the DAG.
-
-    Args:
-        - edges_with_d: a dictionary of directed edges with distance.
-        - ordered_nodes: nodes in topological sorting order.
-
-    Return:
-        A tuple containing the longest path in the graph and its distance.
-    """
-    distances: dict[_NT, int] = {node: 0 for node in ordered_nodes}
-    pred_nodes: dict[_NT, _NT] = dict()
-
-    for node in ordered_nodes:
-        for neighbor, edge_attr in edges_with_d[node].items():
-            d = edge_attr.distance
-            if distances[node] + d > distances[neighbor]:
-                distances[neighbor] = distances[node] + d
-                pred_nodes[neighbor] = node
-
-    # When there are more than one output nodes
-    # with same distance, choose the first one.
-    node = max(
-        filter(lambda node: len(edges_with_d[node]) == 0, distances),
-        key=lambda node: distances.get(node, 0),
-    )
-
-    distance = distances[node]
-    path = [node]
-
-    # Construct the longest path by following the predecessors
-    while path[-1] in pred_nodes:
-        path.append(pred_nodes[path[-1]])
-
-    path.reverse()
-    return path, distance
-
-
-MAX_DISTANCE = 999  # I don't like float('inf')
-
-
-def get_shortest_path(
-    edges_with_d: dict[_NT, dict[_NT, EdgeAttr]],
-    ordered_nodes: list[_NT],
-    input_nodes: list[_NT],
-) -> tuple[list[_NT], int]:
-    """Get the shortest path in the DAG.
-
-    Args:
-        - edges_with_d: a list of directed edges with distance.
-        - ordered_nodes: nodes in topological sorting.
-        - input_nodes: input nodes.
-
-    Return: the shortest distance in the graph.
-    """
-    distances: dict[_NT, int] = defaultdict(lambda: MAX_DISTANCE)
-    pred_nodes: dict[_NT, _NT] = dict()
-
-    # set initial value for all inputs nodes. If there is no input node,
-    # the first node after topological sorting will be used as the starting node.
-    if input_nodes:
-        for inode in input_nodes:
-            distances[inode] = 0
-    else:
-        distances[ordered_nodes[0]] = 0
-
-    for node in ordered_nodes:
-        for neighbor, edge_attr in edges_with_d[node].items():
-            d = edge_attr.distance
-            if distances[node] + d < distances[neighbor]:
-                distances[neighbor] = distances[node] + d
-                pred_nodes[neighbor] = node
-
-    # When there are more than one output nodes
-    # with same distance, choose the first one.
-    node = min(
-        filter(lambda node: len(edges_with_d[node]) == 0, distances),
-        key=lambda node: distances.get(node, 0),
-    )
-
-    distance = distances[node]
-    path = [node]
-
-    # Construct the shortest path by following the predecessors
-    while path[-1] in pred_nodes:
-        path.append(pred_nodes[path[-1]])
-
-    path.reverse()
-    return path, distance
-
-
-def get_succ_cb_by_node(
-    node: NodeType, core_blocks: Sequence[CoreBlock]
-) -> list[CoreBlock]:
-    return [cb for cb in core_blocks if node in cb.source]
-
-
-def get_pred_cb_by_succ_cb(
-    succ_cb: dict[CoreBlock, list[CoreBlock]],
-) -> dict[CoreBlock, list[CoreBlock]]:
-    return reverse_edges(succ_cb)
-
-
-def get_pred_cb_by_node(
-    node: NodeType, core_blocks: Sequence[CoreBlock]
-) -> list[CoreBlock]:
-    return [cb for cb in core_blocks if node in cb.dest]
-
-
-def get_pred_dg_by_succ_dg(
-    succ_dg: dict[NodeName, dict[NodeName, _T]],
-) -> dict[NodeName, dict[NodeName, _T]]:
-    return reverse_edges2(succ_dg)
-
-
-def get_pred_nodes_by_succ_dg(
-    node: NodeType, succ_dg: dict[NodeName, dict[NodeName, EdgeAttr]]
-) -> list[NodeName]:
-    pred_nodes = []
-
-    for pred, succ_nodes in succ_dg.items():
-        if node in succ_nodes:
-            pred_nodes.append(pred)
-
-    return pred_nodes
+        return _prefix + "_and_".join(nw.name for nw in self.target_networks)

@@ -6,16 +6,23 @@ from typing import Literal, Optional
 
 import numpy as np
 import pytest
-from paicorelib import LCN_EX, Coord, HwConfig, NeuronAttrs
+from paicorelib import LCN_EX, Coord, CoreMode, HwConfig, NeuronAttrs
 from paicorelib import ReplicationId as RId
 from paicorelib import WeightWidth as WW
 from paicorelib.framelib import OfflineFrameGen
 
 import paibox as pb
-from paibox.backend.placement import FANOUT_IW8, CorePlacement
+from paibox.backend.placement import (
+    FANOUT_IW8,
+    CorePlacement,
+    SliceDest,
+    SliceDestPair,
+    SourceDest,
+)
 from paibox.backend.types import (
     WRAM_PACKED_DTYPE,
     WRAM_UNPACKED_DTYPE,
+    AxonSegment,
     NeuSegment,
     WRAMPackedType,
     WRAMUnpackedType,
@@ -24,6 +31,105 @@ from paibox.exceptions import ResourceError
 from paibox.types import WEIGHT_DTYPE, WeightType
 
 from .test_conf_exporting import _gen_random_neuron_dest_info
+
+
+def _gen_slice_dest():
+    ch_coord = Coord(2, 1)
+    d_ax = AxonSegment(100, 50, 10, 0)
+    ts = 2
+    rt_mode = CoreMode.MODE_ANN
+    dest_coords = [Coord(0, 0), Coord(1, 0), Coord(2, 0)]
+
+    return SliceDest(ch_coord, d_ax, ts, rt_mode, dest_coords)
+
+
+class TestSliceDest:
+    def test_str_format(self, capsys):
+        # rid & base_coord not set
+        sl_dest = _gen_slice_dest()
+        with capsys.disabled():
+            print("\n")
+            print(sl_dest)
+
+        # Set rid & base_coord
+        sl_dest.set_rid()
+        with capsys.disabled():
+            print(str(sl_dest))
+
+
+class TestSourceDest:
+    def test_get_slice_dest(self):
+        sl_dest1 = SliceDest(
+            Coord(0, 0),
+            AxonSegment(100, 50, 0, 0),
+            2,
+            CoreMode.MODE_ANN,
+            [Coord(0, 1), Coord(1, 0)],
+        )
+        sl_dest2 = SliceDest(
+            Coord(0, 0),
+            AxonSegment(100, 50, 100, 100),
+            2,
+            CoreMode.MODE_ANN,
+            [Coord(1, 0), Coord(1, 1)],
+        )
+        sl_dest3 = SliceDest(
+            Coord(0, 0),
+            AxonSegment(100, 50, 100, 200),
+            2,
+            CoreMode.MODE_ANN,
+            [Coord(2, 0), Coord(2, 1)],
+        )
+        sl_dest4 = SliceDest(
+            Coord(0, 0),
+            AxonSegment(100, 50, 100, 300),
+            2,
+            CoreMode.MODE_ANN,
+            [Coord(0, 2), Coord(1, 2)],
+        )
+
+        dest_pair1 = SliceDestPair(slice(0, 100), sl_dest1)
+        dest_pair2 = SliceDestPair(slice(100, 200), sl_dest2)
+        dest_pair3 = SliceDestPair(slice(200, 300), sl_dest3)
+        dest_pair4 = SliceDestPair(slice(300, 400), sl_dest4)
+
+        source_dests = SourceDest([dest_pair3, dest_pair2, dest_pair4, dest_pair1])
+        source_dests.set_slice_dest_rid()
+        source_dests.sort_slice_dest_pairs()
+
+        neu_seg1 = NeuSegment(pb.ANNNeuron(100), slice(150, 250), 0)
+
+        dest_pairs = source_dests.get_slice_dest_pairs(neu_seg1)
+        dests = [d.dest for d in dest_pairs]
+
+        assert len(dest_pairs) == 2
+        assert sl_dest2 in dests
+        assert sl_dest3 in dests
+
+        neu_seg2 = NeuSegment(pb.ANNNeuron(100), slice(300, 400), 100)
+        dest_pairs = source_dests.get_slice_dest_pairs(neu_seg2)
+        dests = [d.dest for d in dest_pairs]
+
+        assert len(dest_pairs) == 1
+        assert sl_dest4 in dests
+
+    def test_str_format(self, capsys):
+        sl_dest1 = _gen_slice_dest()
+        sl_dest1.set_rid()
+        sl_dest2 = _gen_slice_dest()
+        sl_dest2.set_rid()
+
+        source_dest = SourceDest(
+            [
+                SliceDestPair(slice(100, 200), sl_dest1),
+                SliceDestPair(slice(200, 300), sl_dest2),
+            ]
+        )
+
+        with capsys.disabled():
+            print("\n")
+            print(source_dest)
+
 
 if hasattr(HwConfig, "WEIGHT_BITORDER"):
     W_BITORDER = HwConfig.WEIGHT_BITORDER
@@ -87,38 +193,6 @@ def _nbit_limit(nbit: int) -> tuple[int, int]:
     hi = 2 if nbit == 1 else 1 << (nbit - 1)
     lo = 0 if nbit == 1 else -hi
     return lo, hi
-
-
-def test_get_raw_weight(fixed_rng: np.random.Generator):
-    w1 = fixed_rng.integers(-128, 128, size=(10, 20), dtype=WEIGHT_DTYPE)
-    w2 = fixed_rng.integers(-128, 128, size=(10, 30), dtype=WEIGHT_DTYPE)
-
-    w_of_neurons = [w1, w2]
-
-    n1 = pb.LIF((20,), 1)
-    n2 = pb.LIF((30,), 1)
-
-    dest = [n1, n2]
-
-    neuron_segs_of_cb = [
-        [
-            NeuSegment(n1, slice(0, 20, 1), 0),
-            NeuSegment(n2, slice(0, 5, 1), 20),
-        ],
-        [NeuSegment(n2, slice(5, 30, 1), 0)],
-    ]
-
-    w_of_neu_segs_of_cb = []
-    for neu_segs in neuron_segs_of_cb:
-        w_of_neu_segs = []
-        for neu_seg in neu_segs:
-            w = w_of_neurons[dest.index(neu_seg.target)][  # type: ignore
-                :, neu_seg.index
-            ].copy()
-            w.setflags(write=False)
-            w_of_neu_segs.append(w)
-
-        w_of_neu_segs_of_cb.append(w_of_neu_segs)
 
 
 def _get_max_fanout(iw: int, dendr_comb_rate: int) -> int:

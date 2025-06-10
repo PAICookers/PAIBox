@@ -1,4 +1,5 @@
 import warnings
+from collections import defaultdict
 from functools import partial
 from math import ceil
 from typing import Literal
@@ -6,21 +7,21 @@ from typing import Literal
 from paibox.components import Neuron
 from paibox.exceptions import ParameterInvalidWarning, ResourceError
 
+from ._slice import *
 from .types import (
     AxonCoord,
     AxonSegment,
     NeuSegment,
     NeuSegOfCoreBlock,
     NeuSegOfCorePlm,
-    NeuSlice,
-    SourceNodeType,
+    NeuSliceType,
 )
 
 
 def _place_seperately(
-    seg_slices_dict: dict[Neuron, list[NeuSlice]], repl_prop: int
+    seg_slices_dict: dict[Neuron, list[NeuSliceType]], repl_prop: int
 ) -> NeuSegOfCoreBlock:
-    neu_segs_of_cb = []
+    neu_segs_of_cb: NeuSegOfCoreBlock = []
 
     for neu, seg_slices in seg_slices_dict.items():
         neu_segs_of_cb.extend(
@@ -31,10 +32,10 @@ def _place_seperately(
 
 
 def _coarse_group(
-    neu: Neuron,
+    neu: NeuronSlice,
     capacity: int,
     load_type: Literal["average", "max_capacity"],
-) -> list[NeuSlice]:
+) -> list[NeuSliceType]:
     """Group neurons with 'average' or 'maximum capacity' load type.
 
     NOTE: Group neuron seperately, like [N1], [N2], ..., [Nn]. For each neuron, \
@@ -58,7 +59,7 @@ def _coarse_group(
 
         return [capacity] * (n_part - 1) + [rest]
 
-    neu_seg_slices: list[NeuSlice] = []
+    neu_seg_slices: list[NeuSliceType] = []
     n_neuron = neu.num_out
 
     if load_type == "average":
@@ -67,16 +68,16 @@ def _coarse_group(
     else:
         dist = _max_capacity_load(n_neuron)
 
-    _sum = 0
+    _sum = neu.index.start
     for d in dist:
-        neu_seg_slices.append(NeuSlice(_sum, _sum + d, 1))
+        neu_seg_slices.append(slice(_sum, _sum + d, 1))
         _sum += d
 
     return neu_seg_slices
 
 
 def _get_nsg_opt_core(
-    seg_slices_dict: dict[Neuron, list[NeuSlice]], capacity: int, repl_prop: int
+    seg_slices_dict: dict[Neuron, list[NeuSliceType]], capacity: int, repl_prop: int
 ) -> NeuSegOfCoreBlock:
     neu_segs_of_cb: NeuSegOfCoreBlock = []  # The final result
     raise_warning = False
@@ -151,18 +152,20 @@ def _get_nsg_opt_core(
 
 
 def _get_neu_slices(
-    neu_groups: list[Neuron],
+    neu_groups: list[NeuronSlice],
     capacity: int,
     load_type: Literal["average", "max_capacity"],
-) -> dict[Neuron, list[NeuSlice]]:
+) -> dict[Neuron, list[NeuSliceType]]:
     """Group the neuron groups by category with load balancing optimization.
 
     NOTE: Use load balancing optimization automatically.
     """
-    seg_slices_dict: dict[Neuron, list[NeuSlice]] = dict()
+    seg_slices_dict: dict[Neuron, list[NeuSliceType]] = defaultdict(list)
 
-    for neu in neu_groups:
-        seg_slices_dict[neu] = _coarse_group(neu, capacity, load_type)
+    for neu_slice in neu_groups:
+        seg_slices_dict[neu_slice.target] = _coarse_group(
+            neu_slice, capacity, load_type
+        )
 
     return seg_slices_dict
 
@@ -172,7 +175,7 @@ _get_neu_slices_opt_latency = partial(_get_neu_slices, load_type="average")
 
 
 def _dense_reorganized(
-    seg_slices_dict: dict[Neuron, list[NeuSlice]], capacity: int, repl_prop: int
+    seg_slices_dict: dict[Neuron, list[NeuSliceType]], capacity: int, repl_prop: int
 ) -> NeuSegOfCoreBlock:
     """Reorganize densely. Based on the result of 'latency' method, use greedy algorithm to \
         reorganize the incomplete neuron segments for saving cores.
@@ -226,7 +229,7 @@ def _dense_reorganized(
 
 
 def get_neu_segments(
-    neu_groups: list[Neuron],
+    neu_groups: list[NeuronSlice],
     capacity: int,
     repl_prop: int,
     optim_target: Literal["latency", "core", "both"],
@@ -254,8 +257,8 @@ def get_neu_segments(
 
 
 def get_axon_segments(
-    axons: list[SourceNodeType], tr_max: int, n_fanin: int
-) -> dict[SourceNodeType, AxonSegment]:
+    axons: list[SourceSliceType], tr_max: int, n_fanin: int
+) -> dict[SourceSliceType, AxonSegment]:
     """Divide axons into segments by group to fit the hardware constraints.
 
     Args:
@@ -264,7 +267,7 @@ def get_axon_segments(
         - n_fanin: the fan-in of cores.
     """
 
-    def _seg_alloc(axon: SourceNodeType, offset: int) -> tuple[AxonSegment, int]:
+    def _seg_alloc(axon: SourceSliceType, offset: int) -> tuple[AxonSegment, int]:
         """Allocate an axon segment, return the next offset of axon address."""
         # The width of assigned address
         if axon.num_out % tr_max > 0:
@@ -279,10 +282,13 @@ def get_axon_segments(
                 f"axons address out of range [0, {n_fanin}) ({offset + addr_width})."
             )
 
-        return AxonSegment(axon.num_out, addr_width, offset), offset + addr_width
+        return (
+            AxonSegment(axon.num_out, addr_width, offset, axon.index.start),
+            offset + addr_width,
+        )
 
     offset = 0
-    axon_segments = dict()
+    axon_segments: dict[SourceSliceType, AxonSegment] = dict()
 
     for ax in axons:
         segment, offset = _seg_alloc(ax, offset)
@@ -292,7 +298,7 @@ def get_axon_segments(
 
 
 def aligned_coords(
-    neu_index: NeuSlice,
+    neu_index: NeuSliceType,
     axon_seg: AxonSegment,
     delay: int,
     dest_n_timeslot: int,
@@ -327,7 +333,9 @@ def aligned_coords(
         neu_index.start // addr_width,
         neu_index.stop // addr_width,
     )
-    addr_start, addr_stop = (neu_index.start % addr_width, neu_index.stop % addr_width)
+    addr_start = (neu_index.start - axon_seg.start_offset) % addr_width
+    addr_stop = (neu_index.stop - axon_seg.start_offset) % addr_width
+    # addr_start, addr_stop = (neu_index.start % addr_width, neu_index.stop % addr_width)
 
     _addr_interval = 8 if is_iw8 else 1
 

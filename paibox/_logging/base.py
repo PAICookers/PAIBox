@@ -276,7 +276,7 @@ class _LogSettingsKwds(TypedDict, total=False):
     lcn_ex_adjustment: bool
     cb_axon_grouping: bool
     coord_assign: bool
-    get_dest: bool
+    collect_neuron_dest: bool
     routing_group_info: bool
 
 
@@ -289,7 +289,7 @@ DEFAULT_LOG_SETTINGS: _LogSettingsKwds = {
     "lcn_ex_adjustment": True,
     "cb_axon_grouping": True,
     "coord_assign": True,
-    "get_dest": True,
+    "collect_neuron_dest": True,
     "routing_group_info": True,
 }
 

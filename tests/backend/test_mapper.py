@@ -6,7 +6,9 @@ from paicorelib import ONLINE_CORES_BASE_COORD, Coord, HwConfig
 from paicorelib import WeightWidth as WW
 
 import paibox as pb
+from paibox.backend._slice import node_sl_lst_overlap
 from paibox.backend.conf_exporting import *
+from paibox.backend.mapper import merge_cycles
 from paibox.exceptions import ResourceError
 
 from .conftest import TestData
@@ -161,7 +163,7 @@ class TestMapperDeployment:
         mapper: pb.Mapper = compile_simple_net
         assert mapper.graph.has_built == True
 
-        mapper.find_neuron(mapper.graph._raw_networks[0].n3)
+        mapper.find_neuron(mapper.graph.target_networks[0].n3)
 
         assert 1
 
@@ -169,7 +171,7 @@ class TestMapperDeployment:
         mapper = compile_simple_net
         assert mapper.graph.has_built == True
 
-        mapper.find_axon(mapper.graph._raw_networks[0].n2)
+        mapper.find_axon(mapper.graph.target_networks[0].n2)
 
         assert 1
 
@@ -177,10 +179,11 @@ class TestMapperDeployment:
         net: pb.Network = build_Network_with_container
         mapper = pb.Mapper()
         mapper.build(net)
+        assert len(mapper.graph.nodes) == 4
+
         mapper.compile()
 
-        assert len(mapper.graph.nodes.keys()) == 4
-        # Input projectioon is discnnected!
+        # The input node is isolated
         assert len(mapper.graph_info["input"]) == 0
         assert len(mapper.graph_info["output"]) == 1
 
@@ -314,7 +317,7 @@ class TestMapper_Export:
         mapper.compile()
         mapper.export(fp=ensure_dump_dir)
 
-        assert len(mapper.routing_groups[1].wasted_coords) == 2
+        assert len(mapper.routing_mgr.ordered_rgrps[1].wasted_coords) == 2
 
 
 class TestMapper_Compile:
@@ -348,14 +351,14 @@ class TestMapper_Compile:
         mapper.compile(grouping_optim_target="core")
 
         for cb in mapper.core_blocks:
-            if net.n1 in cb.dest:
+            if node_sl_lst_overlap(net.n1, cb.dest):
                 assert cb.n_core_required == ceil(
                     net.n1.num_out / HwConfig.N_DENDRITE_MAX_SNN
                 )
-            elif net.n2 in cb.dest:
+            elif node_sl_lst_overlap(net.n2, cb.dest):
                 assert cb.n_core_required == 1 + 1
 
-            elif net.n4 in cb.dest:
+            elif node_sl_lst_overlap(net.n4, cb.dest):
                 assert cb.n_core_required == ceil(
                     net.n4.num_out / HwConfig.N_DENDRITE_MAX_SNN
                 )
@@ -385,55 +388,71 @@ class TestMapper_Compile:
             == ceil(net.n4.num_out / HwConfig.N_DENDRITE_MAX_SNN) * 4
         )
 
-    def test_gh_multicast_optim(self):
-        class Net(pb.Network):
-            def __init__(self):
-                super().__init__()
-                self.inp1 = pb.InputProj(input=None, shape_out=(400,), name="inp1")
-                self.n0 = pb.IF(400, 3, name="n0")
-                self.n1 = pb.IF(400, 3, name="n1")
-                self.n2 = pb.IF(800, 3, name="n2")
-                self.n3 = pb.IF(400, 4, name="n3")
-                self.n4 = pb.IF(300, 4, name="n4")
-                self.s0 = pb.FullConn(
-                    self.inp1, self.n0, conn_type=pb.SynConnType.One2One, name="s0"
-                )
-                self.s1 = pb.FullConn(
-                    self.n0, self.n1, conn_type=pb.SynConnType.One2One, name="s1"
-                )
-                self.s2 = pb.FullConn(
-                    self.n1, self.n2, conn_type=pb.SynConnType.All2All, name="s2"
-                )
-                self.s3 = pb.FullConn(
-                    self.n2, self.n3, conn_type=pb.SynConnType.All2All, name="s3"
-                )
-                self.s4 = pb.FullConn(
-                    self.n0, self.n4, conn_type=pb.SynConnType.All2All, name="s4"
-                )
-                self.s5 = pb.FullConn(
-                    self.n4, self.n2, conn_type=pb.SynConnType.All2All, name="s5"
-                )
-
-        net = Net()
-        mapper = pb.Mapper()
-        mapper.build(net)
-        graph_info = mapper.compile(
-            weight_bit_optimization=False,
-            grouping_optim_target="latency",
-            multicast_optim=[net.n0],
-        )
-
     def test_ordered_axons(self, build_example_net5):
         net = build_example_net5
         mapper = pb.Mapper()
         mapper.build(net)
         mapper.compile()
-        nodes_with_empty_axons = [net.n3, net.n4, net.n5]
         for cb in mapper.core_blocks:
-            if cb.dest[0] in nodes_with_empty_axons:
+            if node_sl_lst_overlap(net.n3, cb.dest):
+                assert len(cb.ordered_axons) > len(cb.source)
+            elif node_sl_lst_overlap(net.n4, cb.dest):
+                assert len(cb.ordered_axons) > len(cb.source)
+            elif node_sl_lst_overlap(net.n5, cb.dest):
                 assert len(cb.ordered_axons) > len(cb.source)
             else:
                 assert len(cb.ordered_axons) == len(cb.source)
+
+    def test_merge_cycles(self, build_example_net5):
+        net = build_example_net5
+        mapper = pb.Mapper()
+        mapper.build(net)
+        merged_sgrps_with_cycle = mapper.graph.graph_partition()
+        """merged_sgrps_with_cycle:
+
+        MergedSuccGroup:
+              Nodes: n2, n6
+              Group of n1:
+                      Edge s0: n1 -> n2
+                      Edge s5: n1 -> n6
+              Group of n5:
+                      Edge s4: n5 -> n6
+
+        MergedSuccGroup:
+              Nodes: n5, n3
+              Group of n2:
+                      Edge s1: n2 -> n3
+                      Edge s6: n2 -> n5
+              Group of n4:
+                      Edge s3: n4 -> n5
+
+        MergedSuccGroup:
+              Nodes: n4
+              Group of n3:
+                      Edge s2: n3 -> n4
+        """
+        assert len(merged_sgrps_with_cycle) == 3
+
+        """
+        MergedSuccGroup:
+              Nodes: n2, n6, n3, n4, n5
+              Group of n1:
+                      Edge s0: n1 -> n2
+                      Edge s5: n1 -> n6
+              Group of n5:
+                      Edge s4: n5 -> n6
+              Group of n2:
+                      Edge s1: n2 -> n3
+                      Edge s6: n2 -> n5
+              Group of n4:
+                      Edge s3: n4 -> n5
+              Group of n3:
+                      Edge s2: n3 -> n4
+        """
+
+        merged_sgrps = merge_cycles(merged_sgrps_with_cycle)
+
+        assert len(merged_sgrps) == 1
 
     def test_partition(self, build_example_net6):
         net = build_example_net6
@@ -441,9 +460,9 @@ class TestMapper_Compile:
         mapper.build(net)
         mapper.compile()
         for cb in mapper.core_blocks:
-            if net.n3 in cb.dest:
+            if node_sl_lst_overlap(net.n3, cb.dest):
                 assert len(cb.ordered_axons) == 2
-            if net.n4 in cb.dest:
+            if node_sl_lst_overlap(net.n4, cb.dest):
                 assert len(cb.ordered_axons) == 3
 
     def test_set_target_chip(self, build_example_net1, monkeypatch):
