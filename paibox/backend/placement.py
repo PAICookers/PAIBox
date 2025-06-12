@@ -397,8 +397,8 @@ class CoreBlock(CoreAbstract):
                     _not_covered = False
                     _idx = i
                     sub_slice = slice(
-                        neu_seg.index.start - dest_sl.index.start,
-                        neu_seg.index.stop - dest_sl.index.start,
+                        neu_seg.index.start - dest_sl.index[3].start,
+                        neu_seg.index.stop - dest_sl.index[3].start,
                     )
                     break
 
@@ -608,7 +608,7 @@ class SourceDest(UserList[SliceDestPair]):
 
     def sort_slice_dest_pairs(self) -> None:
         """Sort the slice-destination pairs by the start position of the slice."""
-        self.sort(key=lambda p: p.slice_.start)
+        self.sort(key=lambda p: p.slice_[3].start)
 
     def is_undivided_dest(self) -> SliceDest:
         if len(self) > 1:
@@ -630,7 +630,7 @@ class SourceDest(UserList[SliceDestPair]):
         if len(self) == 0:
             raise ValueError(f"No destination information for {neu_seg}.")
 
-        for i, pos in enumerate(s.stop for s in self.slices):
+        for i, pos in enumerate(s[3].stop for s in self.slices):
             if pos <= start:
                 continue
 
