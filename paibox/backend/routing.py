@@ -15,7 +15,7 @@ from paicorelib import RoutingLevel as Level
 from paicorelib.routing_defs import MAX_ROUTING_PATH_LENGTH
 
 from paibox import _logging
-from paibox.components import MatMul2d
+from paibox.components import Conv2d, MatMul2d
 from paibox.components.neuron.base import NEU_TARGET_CHIP_NOT_SET
 from paibox.exceptions import (
     NotSupportedError,
@@ -59,6 +59,103 @@ def MatMul2d_slices(mat_mul: MatMul2d) -> tuple[list[slice], list[slice]]:
     return input_slices, output_slices
 
 
+def SearchOptimalSplit(shape_in, shape_out) -> tuple[int, int]:
+    # Currently, replication is done using multicast instead of replication cores, which may lead to inaccurate expected results on the actual board.
+    # The impact of replication cores is temporarily not considered when estimating the number of cores.
+    fin = [1152, 2304, 4068, 9216, 18432, 36864, 73728]
+    cin, hin, win = shape_in[0], shape_in[1], shape_in[2]
+    cout, hout, wout = shape_out[0], shape_out[1], shape_out[2]
+    kh = hin - hout + 1
+    kw = win - wout + 1
+    min_cores = 1e9
+    n_cores = 0
+    split = 1
+    split_start = 1
+    split_stop = min(hout, wout)
+    for i in range(split_start, split_stop):
+        out_slice_len_h = math.ceil(hout / i)
+        out_slice_len_w = math.ceil(wout / i)
+        in_slice_len_h = out_slice_len_h + kh - 1
+        in_slice_len_w = out_slice_len_w + kw - 1
+        input_len = in_slice_len_h * in_slice_len_w
+        if input_len > 9216:
+            continue
+        n_fin = next((n for n in fin if n >= input_len), None)
+        n_fout = 73728 // n_fin
+        n_cores = (
+            i * i * cin * math.ceil(cout * out_slice_len_h * out_slice_len_w / n_fout)
+        )
+        if n_cores < min_cores:
+            min_cores = n_cores
+            split = i
+    return split, split
+
+
+def Conv2d_slices(conv2d: Conv2d) -> tuple[list[list[slice]], list[list[slice]]]:
+    # Currently, the axon segment in the backend requires a contiguous block of data.
+    # However, during slicing, it's impossible to fully overlap shared data without changing the total size.
+    # Using multiple slices to fetch the data may be the correct approach,
+    # but the changes involve many components and are complex, I haven't been able to make it work.
+    # For now, axon slicing still follows the original approach due to these unresolved backend issues.
+
+    shape_in = conv2d.shape_in
+    shape_out = conv2d.shape_out
+
+    cin = shape_in[0]
+    cout = shape_out[0]
+
+    kh = shape_in[1] - shape_out[1] + 1
+    kw = shape_in[2] - shape_out[2] + 1
+    h_splits, w_splits = SearchOptimalSplit(shape_in, shape_out)
+
+    out_slice_len_h = math.ceil(shape_out[1] / h_splits)
+    out_slice_len_w = math.ceil(shape_out[2] / w_splits)
+    in_slice_len_h = out_slice_len_h + kh - 1
+    in_slice_len_w = out_slice_len_w + kw - 1
+
+    input_slices_c = slice(0, cin)
+    input_slices_h = [
+        slice(i * out_slice_len_h, (i + 1) * out_slice_len_h + kh - 1)
+        for i in range(h_splits)
+    ]
+    input_slices_w = [
+        slice(i * out_slice_len_w, (i + 1) * out_slice_len_w + kw - 1)
+        for i in range(w_splits)
+    ]
+
+    output_slices_c = slice(0, cout)
+    output_slices_h = [
+        slice(i * out_slice_len_h, (i + 1) * out_slice_len_h) for i in range(h_splits)
+    ]
+    output_slices_w = [
+        slice(i * out_slice_len_w, (i + 1) * out_slice_len_w) for i in range(w_splits)
+    ]
+
+    input_slices = []
+    output_slices = []
+    for h_slice in input_slices_h:
+        for w_slice in input_slices_w:
+            slice_start = cin * (
+                h_slice.start * shape_in[2] + w_slice.start * in_slice_len_h
+            )
+            slice_stop = slice_start + cin * in_slice_len_h * in_slice_len_w
+            input_slices.append(
+                [input_slices_c, h_slice, w_slice, slice(slice_start, slice_stop)]
+            )
+
+    for h_slice in output_slices_h:
+        for w_slice in output_slices_w:
+            slice_start = cout * (
+                h_slice.start * shape_out[2] + w_slice.start * out_slice_len_h
+            )
+            slice_stop = slice_start + cout * out_slice_len_h * out_slice_len_w
+            output_slices.append(
+                [output_slices_c, h_slice, w_slice, slice(slice_start, slice_stop)]
+            )
+
+    return input_slices, output_slices
+
+
 def build_elements(
     merged_sgrp: MergedSuccGroup,
 ) -> list[Union[CoreBlock, "RoutingGroup"]]:
@@ -79,13 +176,20 @@ def build_elements(
             if isinstance(edge, MatMul2d):
                 divisible_edge = edge
                 break
+            if isinstance(edge, Conv2d):
+                divisible_edge = edge
+                break
         # TODO we can judge whether optimization is needed here
         if divisible_edge is None:
             edge_slices = [EdgeSlice(edge) for edge in edges]
             elements.append(CoreBlock.build(*edge_slices, rt_mode=mode))
 
         else:
-            input_slices, output_slices = MatMul2d_slices(divisible_edge)
+            if isinstance(divisible_edge, MatMul2d):
+                input_slices, output_slices = MatMul2d_slices(divisible_edge)
+            else:
+                input_slices, output_slices = Conv2d_slices(divisible_edge)
+
             for input_slice, output_slice in zip(input_slices, output_slices):
                 edge_slices: list[EdgeSlice] = []
                 for edge in edges:

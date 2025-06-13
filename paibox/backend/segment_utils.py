@@ -68,7 +68,7 @@ def _coarse_group(
     else:
         dist = _max_capacity_load(n_neuron)
 
-    _sum = neu.index.start
+    _sum = neu.index[3].start
     for d in dist:
         neu_seg_slices.append(slice(_sum, _sum + d, 1))
         _sum += d
@@ -283,7 +283,7 @@ def get_axon_segments(
             )
 
         return (
-            AxonSegment(axon.num_out, addr_width, offset, axon.index.start),
+            AxonSegment(axon.num_out, addr_width, offset, axon.index[3].start),
             offset + addr_width,
         )
 

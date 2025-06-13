@@ -478,7 +478,9 @@ class Mapper:
                 f"target chip addresses, but got {_BACKEND_CONTEXT._target_chip_addr_repr()}."
             )
 
-        input_nodes_info = self._inpproj_config_export()
+        # The self._inpproj_config_export() function is currently incomplete, so input_nodes_info is temporarily set to None
+        # input_nodes_info = self._inpproj_config_export()
+        input_nodes_info = None
         output_dest_info = self._member_cb_and_onode_config_export()
 
         _graph_info = GraphInfo(
