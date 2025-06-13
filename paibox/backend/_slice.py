@@ -1,12 +1,27 @@
 import sys
 from collections.abc import Sequence
-from typing import Generic, Optional, List, Protocol, TypeVar, Union, cast, runtime_checkable
+from typing import (
+    Generic,
+    List,
+    Optional,
+    Protocol,
+    TypeVar,
+    Union,
+    cast,
+    runtime_checkable,
+)
 
 from paicorelib import MaxPoolingEnable, WeightWidth
 
-from paibox.components import InputProj, Neuron, NeuronSubView
+from paibox.components import (
+    Conv2d,
+    FullConn,
+    InputProj,
+    MatMul2d,
+    Neuron,
+    NeuronSubView,
+)
 from paibox.types import WeightType
-from paibox.components import MatMul2d, Conv2d, FullConn
 
 from .types import EdgeType, NodeType
 
@@ -80,12 +95,12 @@ def _idx2slice(target: _HasAttrNumOut, index: Optional[List[slice]]) -> PrttnSli
 
     if index is None:
         # Default to full range for all three dimensions
-        shape = target.shape if hasattr(target, 'shape') else (target.num_out, 1, 1)
+        shape = target.shape if hasattr(target, "shape") else (target.num_out, 1, 1)
         return [
             slice(0, shape[0], 1),
             slice(0, shape[1], 1),
             slice(0, shape[2], 1),
-            slice(0, _nmax, 1)
+            slice(0, _nmax, 1),
         ]
     return index
 
@@ -152,7 +167,7 @@ class NodeSlice(PartitionedSlice, Generic[_NT]):
             # + f"[{self.index[0].start}:{self.index[0].stop}]"
             # + f"[{self.index[1].start}:{self.index[1].stop}]"
             # + f"[{self.index[2].start}:{self.index[2].stop}]"
-            + f"[{self.index[3].start}:{self.index[3].stop}]"   
+            + f"[{self.index[3].start}:{self.index[3].stop}]"
         )
 
     def __eq__(self, other: "NodeSlice") -> bool:
@@ -163,7 +178,7 @@ class NodeSlice(PartitionedSlice, Generic[_NT]):
     def __hash__(self) -> int:
         # print(f"[INFO] hash {self.index}")
         return hash((self.target, self.index[3].start, self.index[3].stop))
-        # return hash((self.target, 
+        # return hash((self.target,
         #             self.index[0].start, self.index[0].stop,
         #             self.index[1].start, self.index[1].stop,
         #             self.index[2].start, self.index[2].stop))
@@ -239,14 +254,25 @@ class EdgeSlice(PartitionedSlice):
         if isinstance(self.target, Conv2d):
             shape_in = self.target.shape_in
             shape_out = self.target.shape_out
-            conn = self.target.connectivity.reshape(shape_in[0], shape_in[1], shape_in[2],
-                                                    shape_out[0], shape_out[1], shape_out[2])
-            conn_slice = conn[self.in_index[0], self.in_index[1], self.in_index[2], 
-                                self.out_index[0], self.out_index[1], self.out_index[2]]
+            conn = self.target.connectivity.reshape(
+                shape_in[0],
+                shape_in[1],
+                shape_in[2],
+                shape_out[0],
+                shape_out[1],
+                shape_out[2],
+            )
+            conn_slice = conn[
+                self.in_index[0],
+                self.in_index[1],
+                self.in_index[2],
+                self.out_index[0],
+                self.out_index[1],
+                self.out_index[2],
+            ]
             shape = conn_slice.shape
             conn_slice = conn_slice.reshape(
-                shape[0] * shape[1] * shape[2],
-                shape[3] * shape[4] * shape[5]
+                shape[0] * shape[1] * shape[2], shape[3] * shape[4] * shape[5]
             )
             return conn_slice
         if isinstance(self.target, FullConn):

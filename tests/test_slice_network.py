@@ -1,8 +1,8 @@
+import sys
 from pathlib import Path
 
 import numpy as np
 
-import sys
 sys.path.append("/Users/xiahongtu/workspace/PAIBox")
 
 import paibox as pb
@@ -23,7 +23,6 @@ class Conv2d_Net(pb.Network):
         )
 
 
-
 if __name__ == "__main__":
     w1 = np.random.randint(-128, 127, size=(8, 1, 5, 5), dtype=np.int8)
     w2 = np.random.randint(-128, 127, size=(8 * 48 * 48, 10), dtype=np.int8)
@@ -33,7 +32,7 @@ if __name__ == "__main__":
 
     pb_net = Conv2d_Net(w1, vthr1, w2, vthr2)
 
-    input_data = np.random.randint(0, 255, size=52*52, dtype=np.uint8)
+    input_data = np.random.randint(0, 255, size=52 * 52, dtype=np.uint8)
 
     # Input
     pb_net.i1.input = input_data
