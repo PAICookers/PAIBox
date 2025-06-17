@@ -2,7 +2,16 @@ import random
 
 import numpy as np
 import pytest
-from paicorelib import LCN_EX, Coord, CoordOffset, CoreMode, HwConfig, MaxPoolingEnable, OffCoreCfg, OffRegDefs
+from paicorelib import (
+    LCN_EX,
+    Coord,
+    CoordOffset,
+    CoreMode,
+    HwConfig,
+    MaxPoolingEnable,
+    OffCoreCfg,
+    OffRegDefs,
+)
 from paicorelib import WeightWidth as WW
 
 import paibox as pb
@@ -28,6 +37,7 @@ except ModuleNotFoundError:
 
 TICK_WAIT_END_MAX = OffRegDefs.TICK_WAIT_END_MAX
 TICK_WAIT_START_MAX = OffRegDefs.TICK_WAIT_START_MAX
+
 
 def _gen_random_core_config() -> CoreConfig:
     wp = random.choice(list(WW))
@@ -58,7 +68,9 @@ def _gen_random_core_config() -> CoreConfig:
     )
 
 
-def _gen_random_neuron_config(n_per_channel: int, n_channel: int = 3) -> OfflineNeuConfig:
+def _gen_random_neuron_config(
+    n_per_channel: int, n_channel: int = 3
+) -> OfflineNeuConfig:
     n = n_channel * n_per_channel
     offset = random.randint(1, 20)
     interval = random.randint(1, 2)
@@ -172,7 +184,9 @@ class TestConfExporting:
         export_core_params_json(core_params, ensure_dump_dir)
 
     @pytest.mark.parametrize("n_per_channel, n_channel", [(100, 3), (200, 2), (240, 1)])
-    def test_OfflineNeuConfig_conf_json(self, ensure_dump_dir, n_per_channel, n_channel):
+    def test_OfflineNeuConfig_conf_json(
+        self, ensure_dump_dir, n_per_channel, n_channel
+    ):
         nconf = _gen_random_neuron_config(n_per_channel, n_channel)
         mock_n = pb.IF(1, 1)
         export_neuconf_json({mock_n: nconf}, ensure_dump_dir)

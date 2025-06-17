@@ -32,7 +32,7 @@ from .modules import (
 )
 from .neuron import Neuron
 from .neuron.neurons import *
-from .neuron.utils import vjt_overflow, ThresholdMode
+from .neuron.utils import ThresholdMode, vjt_overflow
 from .projection import InputProj
 from .synapses import ConnType, FullConnSyn
 from .synapses.conv_types import _Size1Type, _Size2Type

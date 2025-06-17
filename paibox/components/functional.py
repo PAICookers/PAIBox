@@ -34,7 +34,7 @@ from .modules import (
 from .neuron import Neuron
 from .neuron.base import MetaNeuron
 from .neuron.neurons import *
-from .neuron.utils import vjt_overflow, ThresholdMode
+from .neuron.utils import ThresholdMode, vjt_overflow
 from .projection import InputProj
 from .synapses import ConnType, Conv2dSemiFoldedSyn, FullConnSyn, MaxPoolSyn
 from .synapses.conv_types import _Size1Type, _Size2Type
@@ -1710,7 +1710,9 @@ def _spike_func_sadd_ssub(
     )
     # Reset
     if reset_v is None:
-        v_reset = np.where(thres_mode == ThresholdMode.EXCEED_POSITIVE, vjt - pos_thres, vjt)
+        v_reset = np.where(
+            thres_mode == ThresholdMode.EXCEED_POSITIVE, vjt - pos_thres, vjt
+        )
     else:
         v_reset = np.where(thres_mode == ThresholdMode.EXCEED_POSITIVE, reset_v, vjt)
 

@@ -1,16 +1,16 @@
 import warnings
-from enum import unique, IntEnum
+from enum import IntEnum, unique
 from typing import Literal, TypedDict, Union
 
 import numpy as np
 from paicorelib import (
     InputWidthFormat,
     MaxPoolingEnable,
+    OffRAMDefs,
     SNNModeEnable,
     SpikeWidthFormat,
 )
 from paicorelib.framelib.utils import _mask
-from paicorelib import OffRAMDefs
 
 from paibox.exceptions import FunctionalError, PAIBoxWarning
 from paibox.types import (
@@ -137,13 +137,14 @@ class ExtraNeuAttrKwds(TypedDict, total=False):
     overflow_strict: bool
     target_chip: int
 
+
 @unique
 class ThresholdMode(IntEnum):
     """Auxiliary enum type to indicate whether the neuron reaches the threshold or not.
-Add commentMore actions
-    - `NOT_EXCEEDED`: dosen't exceed. Must reset after neuronal reset.
-    - `EXCEED_POSITIVE`: exceeded positive threshold.
-    - `EXCEED_NEGATIVE`: exceeded negative threshold.
+    Add commentMore actions
+        - `NOT_EXCEEDED`: dosen't exceed. Must reset after neuronal reset.
+        - `EXCEED_POSITIVE`: exceeded positive threshold.
+        - `EXCEED_NEGATIVE`: exceeded negative threshold.
     """
 
     NOT_EXCEEDED = 0

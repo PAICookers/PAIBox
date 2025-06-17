@@ -11,11 +11,11 @@ import paibox as pb
 from paibox.components import Neuron
 from paibox.components.neuron.base import MetaNeuron
 from paibox.components.neuron.utils import VJT_MAX, VJT_MIN
+from paibox.components.neuron.utils import ThresholdMode as TM
 from paibox.exceptions import ShapeError
 from paibox.types import NEUOUT_U8_DTYPE, VoltageType
 from paibox.utils import as_shape, shape2num
 from tests.utils import file_not_exist_fail
-from paibox.components.neuron.utils import ThresholdMode as TM
 
 
 def test_NeuronParams_instance(ensure_dump_dir):

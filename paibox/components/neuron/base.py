@@ -11,9 +11,9 @@ from paicorelib import (
     RM,
     SIM,
     CoreMode,
-    OffCoreCfg,
     InputWidthFormat,
     MaxPoolingEnable,
+    OffCoreCfg,
     SNNModeEnable,
     SpikeWidthFormat,
     get_core_mode,
@@ -241,7 +241,11 @@ class MetaNeuron:
         self.thres_mode = np.where(
             vjt >= self.pos_threshold,
             ThresholdMode.EXCEED_POSITIVE,
-            np.where(vjt + self.neg_threshold < 0, ThresholdMode.EXCEED_NEGATIVE, ThresholdMode.NOT_EXCEEDED),
+            np.where(
+                vjt + self.neg_threshold < 0,
+                ThresholdMode.EXCEED_NEGATIVE,
+                ThresholdMode.NOT_EXCEEDED,
+            ),
         )
 
         spike = self.thres_mode == ThresholdMode.EXCEED_POSITIVE
@@ -296,7 +300,11 @@ class MetaNeuron:
         v_reset = np.where(
             self.thres_mode == ThresholdMode.EXCEED_POSITIVE,
             _when_exceed_pos(),
-            np.where(self.thres_mode == ThresholdMode.EXCEED_NEGATIVE, _when_exceed_neg(), vjt),
+            np.where(
+                self.thres_mode == ThresholdMode.EXCEED_NEGATIVE,
+                _when_exceed_neg(),
+                vjt,
+            ),
         )
 
         return v_reset.astype(VOLTAGE_DTYPE)
@@ -485,7 +493,8 @@ class Neuron(MetaNeuron, NeuDyn):
         self.set_memory(
             "delay_registers",
             np.zeros(
-                (OffCoreCfg.N_TIMESLOT_MAX,) + self._neu_out.shape, dtype=NEUOUT_U8_DTYPE
+                (OffCoreCfg.N_TIMESLOT_MAX,) + self._neu_out.shape,
+                dtype=NEUOUT_U8_DTYPE,
             ),
         )
 

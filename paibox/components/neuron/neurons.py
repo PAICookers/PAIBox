@@ -2,8 +2,7 @@ import sys
 from typing import Optional, Union
 
 import numpy as np
-from paicorelib import LDM, NTM, RM
-from paicorelib import OffRAMDefs
+from paicorelib import LDM, NTM, RM, OffRAMDefs
 
 from paibox.exceptions import PAIBoxDeprecationWarning
 from paibox.types import LEAK_V_DTYPE, DataType, LeakVType, Shape
@@ -34,6 +33,8 @@ __all__ = [
 ]
 
 POS_THRES_MAX = OffRAMDefs.POS_THRES_MAX
+
+
 class IF(Neuron):
     def __init__(
         self,

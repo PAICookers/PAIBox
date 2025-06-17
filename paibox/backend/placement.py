@@ -7,7 +7,15 @@ from dataclasses import dataclass, field
 from typing import ClassVar, Literal, NamedTuple, Optional, overload
 
 import numpy as np
-from paicorelib import LCN_EX, ChipCoord, Coord, CoreMode, HwConfig, MaxPoolingEnable, OffCoreCfg
+from paicorelib import (
+    LCN_EX,
+    ChipCoord,
+    Coord,
+    CoreMode,
+    HwConfig,
+    MaxPoolingEnable,
+    OffCoreCfg,
+)
 from paicorelib import ReplicationId as RId
 from paicorelib import WeightWidth as WW
 from paicorelib.framelib import OfflineFrameGen
