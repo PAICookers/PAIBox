@@ -3,7 +3,7 @@ from typing import Optional, Union
 
 import numpy as np
 from paicorelib import LDM, NTM, RM
-from paicorelib.ram_model import POS_THRES_MAX
+from paicorelib import OffRAMDefs
 
 from paibox.exceptions import PAIBoxDeprecationWarning
 from paibox.types import LEAK_V_DTYPE, DataType, LeakVType, Shape
@@ -33,7 +33,7 @@ __all__ = [
     "ANNNeuron",
 ]
 
-
+POS_THRES_MAX = OffRAMDefs.POS_THRES_MAX
 class IF(Neuron):
     def __init__(
         self,
@@ -310,14 +310,14 @@ class ANNNeuron(LIF):
         self,
         shape: Shape,
         bias: DataType = 0,
-        bit_trunc: int = 8,
+        bit_truncation: int = 8,
         *,
         keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """General neuron used in ANN mode. Positive threshold = 1, negative threshold = 0."""
-        kwargs["bit_truncation"] = bit_trunc
+        kwargs["bit_trunc"] = bit_truncation
         kwargs.setdefault("input_width", 8)
         kwargs.setdefault("spike_width", 8)
         kwargs.setdefault("snn_en", False)
@@ -337,7 +337,7 @@ class ANNBypassNeuron(ANNNeuron):
         **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         super().__init__(
-            shape, bias=0, bit_trunc=8, keep_shape=keep_shape, name=name, **kwargs
+            shape, bias=0, bit_truncation=8, keep_shape=keep_shape, name=name, **kwargs
         )
 
 

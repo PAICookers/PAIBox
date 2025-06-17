@@ -607,6 +607,8 @@ class RoutingManager:
                 It must be an integer power of 2.
             n_core_wasted: #N of wasted cores.
         """
+        n_core_wasted = 0
+
         if n_core_incoming & (n_core_incoming - 1) != 0:
             raise ValueError(
                 f"'n_core_incoming' ({n_core_incoming}) is not an integer power of 2."

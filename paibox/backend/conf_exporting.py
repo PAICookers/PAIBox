@@ -5,7 +5,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
-from paicorelib import ChipCoord, HwConfig, RoutingCoord
+from paicorelib import ChipCoord, HwConfig, RoutingCoord, OffCoreCfg
 from paicorelib.framelib import OfflineFrameGen
 from paicorelib.framelib.utils import _mask, np2bin, np2npy, np2txt
 
@@ -21,7 +21,7 @@ from .conf_types import (
     GraphInfo,
     InputNodeConf,
     NeuPhyLocMap,
-    NeuronConfig,
+    OfflineNeuConfig,
     OutputDestConf,
     _gh_info2exported_gh_info,
 )
@@ -78,12 +78,12 @@ def gen_config_frames_by_coreconf(
 
             # 3. Iterate all the neuron segments inside the physical core.
             config_frame_type3 = []
-            neu_conf_on_wram: list[NeuronConfig] = []
+            neu_conf_on_wram: list[OfflineNeuConfig] = []
 
             for neu_conf in v.neuron_configs.values():
                 if (
                     neu_conf.neu_seg.offset + neu_conf.neu_seg.n_neuron
-                    <= HwConfig.ADDR_RAM_MAX + 1
+                    <= OffCoreCfg.ADDR_RAM_MAX + 1
                 ):
                     # Place in the NRAM
                     config_frame_type3.append(
@@ -103,7 +103,7 @@ def gen_config_frames_by_coreconf(
                     assert neu_conf.neu_seg.repeat == 1
 
                     if (
-                        n_on_nram := HwConfig.ADDR_RAM_MAX + 1 - neu_conf.neu_seg.offset
+                        n_on_nram := OffCoreCfg.ADDR_RAM_MAX + 1 - neu_conf.neu_seg.offset
                     ) > 0:
                         # Place in the NRAM partially
                         neu_on_nram_conf = neu_conf[:n_on_nram]
@@ -265,7 +265,7 @@ def export_output_conf_json(output_conf_info: OutputDestConf, fp: Path) -> None:
 if _USE_ORJSON:
 
     def export_neuconf_json(
-        neuron_conf: dict[Neuron, NeuronConfig], fp: Path, fname: str = "neu_conf"
+        neuron_conf: dict[Neuron, OfflineNeuConfig], fp: Path, fname: str = "neu_conf"
     ) -> None:
         _full_fp = _with_suffix_json(fp, fname)
         _valid_conf = {
@@ -278,7 +278,7 @@ if _USE_ORJSON:
 else:
 
     def export_neuconf_json(
-        neuron_conf: dict[Neuron, NeuronConfig], fp: Path, fname: str = "neu_conf"
+        neuron_conf: dict[Neuron, OfflineNeuConfig], fp: Path, fname: str = "neu_conf"
     ) -> None:
         _full_fp = _with_suffix_json(fp, fname)
         _valid_conf = {k.name: json.loads(v.to_json()) for k, v in neuron_conf.items()}

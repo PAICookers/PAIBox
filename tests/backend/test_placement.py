@@ -6,7 +6,7 @@ from typing import Literal, Optional
 
 import numpy as np
 import pytest
-from paicorelib import LCN_EX, Coord, CoreMode, HwConfig, NeuronAttrs
+from paicorelib import LCN_EX, Coord, CoreMode, HwConfig, OfflineNeuAttrs
 from paicorelib import ReplicationId as RId
 from paicorelib import WeightWidth as WW
 from paicorelib.framelib import OfflineFrameGen
@@ -812,7 +812,7 @@ class TestWeightRamMapping:
             RId(0, 0),
             0,
             n_extra_neurons,
-            NeuronAttrs.model_validate(extra_neurons.attrs(all=False)),
+            OfflineNeuAttrs.model_validate(extra_neurons.attrs(all=False)),
             dest_info,
             1,
         )

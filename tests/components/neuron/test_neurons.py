@@ -5,7 +5,7 @@ from typing import Any, Literal
 import numpy as np
 import pytest
 from numpy.typing import NDArray
-from paicorelib import LCM, LDM, LIM, NTM, RM, SIM, TM, CoreMode, NeuronAttrs
+from paicorelib import LCM, LDM, LIM, NTM, RM, SIM, CoreMode, OfflineNeuAttrs
 
 import paibox as pb
 from paibox.components import Neuron
@@ -15,12 +15,13 @@ from paibox.exceptions import ShapeError
 from paibox.types import NEUOUT_U8_DTYPE, VoltageType
 from paibox.utils import as_shape, shape2num
 from tests.utils import file_not_exist_fail
+from paibox.components.neuron.utils import ThresholdMode as TM
 
 
 def test_NeuronParams_instance(ensure_dump_dir):
     n1 = pb.LIF((100,), 3, reset_v=-20, leak_v=-2)
 
-    attrs = NeuronAttrs.model_validate(n1.attrs(all=True), strict=True)
+    attrs = OfflineNeuAttrs.model_validate(n1.attrs(all=True), strict=True)
     attrs_dict = attrs.model_dump(by_alias=True)
 
     fp = ensure_dump_dir / f"ram_model_{n1.name}.json"
@@ -39,7 +40,7 @@ def test_NeuronParams_instance(ensure_dump_dir):
     # leak_v is an array
     n2 = pb.LIF((4, 4, 4), 3, reset_v=-20, leak_v=-2, bias=np.arange(4))
 
-    attrs = NeuronAttrs.model_validate(
+    attrs = OfflineNeuAttrs.model_validate(
         n2._slice_attrs(slice(2 * 4 * 4 - 10, 3 * 4 * 4 + 2, 1), with_shape=True),
         strict=True,
     )
@@ -737,7 +738,7 @@ class TestNeuronAllModes:
         "reg_kwds", [_reg010_kwds, _reg110_kwds], ids=["010", "ann"]
     )
     def test_IF_ss10(self, reg_kwds):
-        n1 = pb.IF(1, 0, 0, bit_truncation=8, **reg_kwds)
+        n1 = pb.IF(1, 0, 0, bit_trunc=8, **reg_kwds)
 
         incoming_v = np.random.randint(
             np.iinfo(np.int16).min, np.iinfo(np.int16).max, size=(8,), dtype=np.int32
@@ -752,7 +753,7 @@ class TestNeuronAllModes:
 
     def test_LIF_ss11(self):
         pos_thres = 8000
-        n1 = pb.LIF(1, pos_thres, bit_truncation=12, **_reg011_kwds)
+        n1 = pb.LIF(1, pos_thres, bit_trunc=12, **_reg011_kwds)
 
         incoming_v = np.random.randint(-10000, 10000, size=(20,), dtype=np.int32)
         pre_vjt = 0
@@ -774,7 +775,7 @@ class TestNeuronAllModes:
     @pytest.mark.parametrize("reg_kwds", [_reg000_kwds, _reg100_kwds])
     def test_LIF_ss00(self, reg_kwds):
         pos_thres = 8000
-        n1 = pb.LIF(1, pos_thres, reset_v=2000, bit_truncation=10, **reg_kwds)
+        n1 = pb.LIF(1, pos_thres, reset_v=2000, bit_trunc=10, **reg_kwds)
 
         incoming_v = np.random.randint(-10000, 10000, size=(20,), dtype=np.int32)
         pre_vjt = 0

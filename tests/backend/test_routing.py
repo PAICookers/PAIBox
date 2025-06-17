@@ -122,10 +122,10 @@ class TestRoutingManager:
         "n, expected",
         [
             (800, 800),
-            (1000, 1000 - 16),
+            (1000, 1000),
             (1200, 1200 - 16),
             (1900, 1900 - 16),
-            (2000, 2000 - 16 * 2),
+            (2000, 2000 - 16),
         ],
     )
     def test_get_n_core_occupied(self, n, expected):
@@ -136,13 +136,15 @@ class TestRoutingManager:
         assert rm.get_n_core_occupied() == expected
 
     @pytest.mark.parametrize(
+        # the multicast data can not send to online cores,
+        # online cores can not be used for wasted cores
         "chips, to_insert, expected",
         # to_insert: (incoming, wasted)
         [
             (
                 1,
                 [(512, 0), (256, 0), (128, 0), (64, 16), (16, 6)],
-                512 + 256 + 128 + 48 + 16,
+                512 + 256 + 128 + 64 + 16,
             ),
             (
                 2,

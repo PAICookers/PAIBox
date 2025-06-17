@@ -1,7 +1,7 @@
 from typing import ClassVar, Optional, Union
 
 import numpy as np
-from paicorelib import HwConfig
+from paicorelib import HwConfig, OffCoreCfg
 from paicorelib import WeightWidth as WW
 
 from paibox.base import NeuDyn, SynSys
@@ -73,7 +73,7 @@ class FullConnectedSyn(SynSys):
             if isinstance(self.source, InputProj):
                 synin = self.source.output if x is None else np.atleast_1d(x)
             else:
-                idx = self.dest.timestamp % HwConfig.N_TIMESLOT_MAX
+                idx = self.dest.timestamp % OffCoreCfg.N_TIMESLOT_MAX
                 synin = (
                     self.source.delay_registers[idx] if x is None else np.atleast_1d(x)
                 )

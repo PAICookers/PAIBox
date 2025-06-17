@@ -10,9 +10,8 @@ from paicorelib import (
     NTM,
     RM,
     SIM,
-    TM,
     CoreMode,
-    HwConfig,
+    OffCoreCfg,
     InputWidthFormat,
     MaxPoolingEnable,
     SNNModeEnable,
@@ -42,6 +41,7 @@ from .utils import (
     BIT_TRUNCATE_MAX,
     NEG_THRES_MIN,
     RTModeKwds,
+    ThresholdMode,
     _input_width_format,
     _leak_v_check,
     _mask,
@@ -121,7 +121,7 @@ class MetaNeuron:
 
         # Auxiliary attributes or variables.
         self._thres_mask = _mask(threshold_mask_bits)
-        self.thres_mode = self.init_param(TM.NOT_EXCEEDED)
+        self.thres_mode = self.init_param(ThresholdMode.NOT_EXCEEDED)
         self.overflow_strict = overflow_strict
 
         if isinstance(leak_v, int) or leak_v.size == 1:
@@ -240,11 +240,11 @@ class MetaNeuron:
         """
         self.thres_mode = np.where(
             vjt >= self.pos_threshold,
-            TM.EXCEED_POSITIVE,
-            np.where(vjt + self.neg_threshold < 0, TM.EXCEED_NEGATIVE, TM.NOT_EXCEEDED),
+            ThresholdMode.EXCEED_POSITIVE,
+            np.where(vjt + self.neg_threshold < 0, ThresholdMode.EXCEED_NEGATIVE, ThresholdMode.NOT_EXCEEDED),
         )
 
-        spike = self.thres_mode == TM.EXCEED_POSITIVE
+        spike = self.thres_mode == ThresholdMode.EXCEED_POSITIVE
         return spike.astype(NEUOUT_U8_DTYPE)
 
     def _neuronal_reset(self, vjt: VoltageType) -> VoltageType:
@@ -294,9 +294,9 @@ class MetaNeuron:
 
         # USE "=="!
         v_reset = np.where(
-            self.thres_mode == TM.EXCEED_POSITIVE,
+            self.thres_mode == ThresholdMode.EXCEED_POSITIVE,
             _when_exceed_pos(),
-            np.where(self.thres_mode == TM.EXCEED_NEGATIVE, _when_exceed_neg(), vjt),
+            np.where(self.thres_mode == ThresholdMode.EXCEED_NEGATIVE, _when_exceed_neg(), vjt),
         )
 
         return v_reset.astype(VOLTAGE_DTYPE)
@@ -329,7 +329,7 @@ class MetaNeuron:
             If the MSB of voltage is greater than the truncation bit, return 8'd255.
         """
         v_truncated = np.where(
-            self.thres_mode == TM.EXCEED_POSITIVE,
+            self.thres_mode == ThresholdMode.EXCEED_POSITIVE,
             self._truncate(vj, self.bit_truncation),
             self._vjt0,
         )
@@ -342,7 +342,7 @@ class MetaNeuron:
     def _aux_post_hook(self) -> None:
         """Post-hook after the entire update."""
         # Reset the auxiliary threshold mode
-        self.thres_mode = self.init_param(TM.NOT_EXCEEDED)
+        self.thres_mode = self.init_param(ThresholdMode.NOT_EXCEEDED)
 
     def update(
         self, incoming_v: VoltageType, vjt_pre: VoltageType
@@ -420,15 +420,15 @@ class Neuron(MetaNeuron, NeuDyn):
         reset_mode: RM = RM.MODE_NORMAL,
         reset_v: int = 0,
         leak_comparison: LCM = LCM.LEAK_BEFORE_COMP,
-        threshold_mask_bits: int = 0,
+        thres_mask_bits: int = 0,
         neg_thres_mode: NTM = NTM.MODE_RESET,
         neg_threshold: Optional[int] = None,
         pos_threshold: int = 1,
         leak_direction: LDM = LDM.MODE_FORWARD,
         leak_integration_mode: Union[L[0, 1], bool, LIM] = LIM.MODE_DETERMINISTIC,
         leak_v: Union[int, LeakVType] = 0,
-        synaptic_integration_mode: Union[L[0, 1], bool, SIM] = SIM.MODE_DETERMINISTIC,
-        bit_truncation: int = 8,
+        syn_integration_mode: Union[L[0, 1], bool, SIM] = SIM.MODE_DETERMINISTIC,
+        bit_trunc: int = 8,
         *,
         delay: int = 1,
         tick_wait_start: int = 1,
@@ -450,10 +450,10 @@ class Neuron(MetaNeuron, NeuDyn):
             # XXX *(-1) if passing a negative threshold > 0
             neg_threshold = (-1) * neg_threshold
 
-        if bit_truncation > BIT_TRUNCATE_MAX:
+        if bit_trunc > BIT_TRUNCATE_MAX:
             raise ValueError(
                 f"'bit_truncation' should be less than or equal to {BIT_TRUNCATE_MAX}, "
-                f"but got {bit_truncation}."
+                f"but got {bit_trunc}."
             )
 
         super().__init__(
@@ -461,15 +461,15 @@ class Neuron(MetaNeuron, NeuDyn):
             reset_mode,
             reset_v,
             leak_comparison,
-            threshold_mask_bits,
+            thres_mask_bits,
             neg_thres_mode,
             arg_check_non_pos(neg_threshold, "negative threshold"),
             arg_check_non_neg(pos_threshold, "positive threshold"),
             leak_direction,
             LIM(leak_integration_mode),
             leak_v,
-            SIM(synaptic_integration_mode),
-            arg_check_non_neg(bit_truncation, "bit of tuncation"),
+            SIM(syn_integration_mode),
+            arg_check_non_neg(bit_trunc, "bit of tuncation"),
             _input_width_format(input_width),
             _spike_width_format(spike_width),
             SNNModeEnable(snn_en),
@@ -485,7 +485,7 @@ class Neuron(MetaNeuron, NeuDyn):
         self.set_memory(
             "delay_registers",
             np.zeros(
-                (HwConfig.N_TIMESLOT_MAX,) + self._neu_out.shape, dtype=NEUOUT_U8_DTYPE
+                (OffCoreCfg.N_TIMESLOT_MAX,) + self._neu_out.shape, dtype=NEUOUT_U8_DTYPE
             ),
         )
 
@@ -526,7 +526,7 @@ class Neuron(MetaNeuron, NeuDyn):
 
         self._neu_out, self._vjt = super().update(x, self._vjt)
 
-        idx = (self.timestamp + self.delay_relative - 1) % HwConfig.N_TIMESLOT_MAX
+        idx = (self.timestamp + self.delay_relative - 1) % OffCoreCfg.N_TIMESLOT_MAX
         self.delay_registers[idx] = self._neu_out.copy()
 
         return self._neu_out
@@ -604,15 +604,15 @@ class Neuron(MetaNeuron, NeuDyn):
             "reset_mode": self.reset_mode,
             "reset_v": self.reset_v,
             "leak_comparison": self.leak_comparison,
-            "threshold_mask_bits": self.threshold_mask_bits,
+            "thres_mask_bits": self.threshold_mask_bits,
             "neg_thres_mode": self.neg_thres_mode,
             "neg_threshold": self.neg_threshold,
             "pos_threshold": self.pos_threshold,
             "leak_direction": self.leak_direction,
             "leak_integration_mode": self.leak_integr,
             "leak_v": self.leak_v,
-            "synaptic_integration_mode": self.synaptic_integr,
-            "bit_truncation": self.bit_truncation,
+            "syn_integration_mode": self.synaptic_integr,
+            "bit_trunc": self.bit_truncation,
         }
 
         if all:
@@ -667,7 +667,7 @@ class Neuron(MetaNeuron, NeuDyn):
         self.y = self.init_param(0).astype(np.int32)
         self.set_reset_value("y", self.y)
         self.delay_registers = np.zeros(
-            (HwConfig.N_TIMESLOT_MAX,) + self._inner_spike.shape, dtype=np.bool_
+            (OffCoreCfg.N_TIMESLOT_MAX,) + self._inner_spike.shape, dtype=np.bool_
         )
         self.set_reset_value("delay_registers", self.delay_registers)
 

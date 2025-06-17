@@ -2,9 +2,8 @@ import random
 
 import numpy as np
 import pytest
-from paicorelib import LCN_EX, Coord, CoordOffset, CoreMode, HwConfig, MaxPoolingEnable
+from paicorelib import LCN_EX, Coord, CoordOffset, CoreMode, HwConfig, MaxPoolingEnable, OffCoreCfg, OffRegDefs
 from paicorelib import WeightWidth as WW
-from paicorelib.reg_model import TICK_WAIT_END_MAX, TICK_WAIT_START_MAX
 
 import paibox as pb
 from paibox.backend.conf_exporting import *
@@ -13,8 +12,8 @@ from paibox.backend.conf_types import (
     CorePlmConfig,
     GraphInfo,
     InputNeuronDest,
-    NeuronConfig,
-    NeuronDestInfo,
+    OfflineNeuConfig,
+    OfflineNeuDestInfo,
 )
 from paibox.backend.types import AxonCoord, NeuSegment
 from paibox.base import DataFlowFormat
@@ -27,6 +26,8 @@ try:
 except ModuleNotFoundError:
     import json
 
+TICK_WAIT_END_MAX = OffRegDefs.TICK_WAIT_END_MAX
+TICK_WAIT_START_MAX = OffRegDefs.TICK_WAIT_START_MAX
 
 def _gen_random_core_config() -> CoreConfig:
     wp = random.choice(list(WW))
@@ -34,7 +35,7 @@ def _gen_random_core_config() -> CoreConfig:
 
     iwf, swf, sme = random.choice(list(CoreMode)).conf
 
-    num_den = random.randint(1, HwConfig.N_DENDRITE_MAX_SNN)
+    num_den = random.randint(1, OffCoreCfg.N_DENDRITE_MAX_SNN)
     mpe = random.choice(list(MaxPoolingEnable))
     tws = random.randint(0, TICK_WAIT_START_MAX)
     twe = random.randint(0, TICK_WAIT_END_MAX)
@@ -57,7 +58,7 @@ def _gen_random_core_config() -> CoreConfig:
     )
 
 
-def _gen_random_neuron_config(n_per_channel: int, n_channel: int = 3) -> NeuronConfig:
+def _gen_random_neuron_config(n_per_channel: int, n_channel: int = 3) -> OfflineNeuConfig:
     n = n_channel * n_per_channel
     offset = random.randint(1, 20)
     interval = random.randint(1, 2)
@@ -77,12 +78,12 @@ def _gen_random_neuron_config(n_per_channel: int, n_channel: int = 3) -> NeuronC
     dest_coords = [dest_coord_start, dest_coord_start + CoordOffset(0, 1)]
     pb.BACKEND_CONFIG.test_chip_addr = test_chip_addr
 
-    return NeuronConfig(
+    return OfflineNeuConfig(
         nseg, axon_coords, dest_coords, pb.BACKEND_CONFIG.test_chip_addr
     )
 
 
-def _gen_random_neuron_dest_info(n: int) -> NeuronDestInfo:
+def _gen_random_neuron_dest_info(n: int) -> OfflineNeuDestInfo:
     tick_relative = [0 for _ in range(n)]
     addr_axon = [i for i in range(n)]
 
@@ -104,7 +105,7 @@ def _gen_random_neuron_dest_info(n: int) -> NeuronDestInfo:
         "addr_chip_y": addr_chip_y,
     }
 
-    return NeuronDestInfo.model_validate(dest_info, strict=True)
+    return OfflineNeuDestInfo.model_validate(dest_info, strict=True)
 
 
 def _gen_input_neuron_dest(n: int) -> InputNeuronDest:
@@ -171,7 +172,7 @@ class TestConfExporting:
         export_core_params_json(core_params, ensure_dump_dir)
 
     @pytest.mark.parametrize("n_per_channel, n_channel", [(100, 3), (200, 2), (240, 1)])
-    def test_NeuronConfig_conf_json(self, ensure_dump_dir, n_per_channel, n_channel):
+    def test_OfflineNeuConfig_conf_json(self, ensure_dump_dir, n_per_channel, n_channel):
         nconf = _gen_random_neuron_config(n_per_channel, n_channel)
         mock_n = pb.IF(1, 1)
         export_neuconf_json({mock_n: nconf}, ensure_dump_dir)
@@ -280,7 +281,7 @@ class TestConfExporting:
         (slice(100, 400), 300, (slice(100, 312), slice(312, 400))),
     ],
 )
-def test_NeuronConfig_mapped_on_ram(index, offset, expected):
+def test_OfflineNeuConfig_mapped_on_ram(index, offset, expected):
     n = index.stop - index.start
     neuron = pb.ANNNeuron((n,), bias=9, keep_shape=True)
     dest_coord_start = Coord(random.randint(0, 10), random.randint(0, 10))
@@ -289,13 +290,13 @@ def test_NeuronConfig_mapped_on_ram(index, offset, expected):
     axon_coords = [AxonCoord(0, i) for i in range(n)]
     dest_coords = [dest_coord_start, dest_coord_start + CoordOffset(0, 1)]
 
-    neu_config1 = NeuronConfig(
+    neu_config1 = OfflineNeuConfig(
         nseg, axon_coords, dest_coords, pb.BACKEND_CONFIG.test_chip_addr
     )
 
     if (
         neu_config1.neu_seg.offset + neu_config1.neu_seg.n_neuron
-        <= HwConfig.ADDR_RAM_MAX + 1
+        <= OffCoreCfg.ADDR_RAM_MAX + 1
     ):
         result1 = neu_config1
         result2 = None
@@ -303,7 +304,7 @@ def test_NeuronConfig_mapped_on_ram(index, offset, expected):
         assert result1.neu_seg.index == expected[0]
         assert result2 == expected[1]
 
-    elif (n_on_nram := HwConfig.ADDR_RAM_MAX + 1 - neu_config1.neu_seg.offset) > 0:
+    elif (n_on_nram := OffCoreCfg.ADDR_RAM_MAX + 1 - neu_config1.neu_seg.offset) > 0:
         s1 = slice(None, n_on_nram)
         s2 = slice(n_on_nram, None)
         result1 = neu_config1[s1]

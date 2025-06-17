@@ -5,7 +5,7 @@ from functools import partial
 from typing import ClassVar, Optional, Union
 
 import numpy as np
-from paicorelib import NTM, RM, TM
+from paicorelib import NTM, RM
 
 from paibox.base import NeuDyn, NodeList
 from paibox.exceptions import PAIBoxDeprecationWarning, ShapeError
@@ -34,7 +34,7 @@ from .modules import (
 from .neuron import Neuron
 from .neuron.base import MetaNeuron
 from .neuron.neurons import *
-from .neuron.utils import vjt_overflow
+from .neuron.utils import vjt_overflow, ThresholdMode
 from .projection import InputProj
 from .synapses import ConnType, Conv2dSemiFoldedSyn, FullConnSyn, MaxPoolSyn
 from .synapses.conv_types import _Size1Type, _Size2Type
@@ -1705,17 +1705,17 @@ def _spike_func_sadd_ssub(
     # Fire
     thres_mode = np.where(
         vjt >= pos_thres,
-        TM.EXCEED_POSITIVE,
-        np.where(vjt < 0, TM.EXCEED_NEGATIVE, TM.NOT_EXCEEDED),
+        ThresholdMode.EXCEED_POSITIVE,
+        np.where(vjt < 0, ThresholdMode.EXCEED_NEGATIVE, ThresholdMode.NOT_EXCEEDED),
     )
     # Reset
     if reset_v is None:
-        v_reset = np.where(thres_mode == TM.EXCEED_POSITIVE, vjt - pos_thres, vjt)
+        v_reset = np.where(thres_mode == ThresholdMode.EXCEED_POSITIVE, vjt - pos_thres, vjt)
     else:
-        v_reset = np.where(thres_mode == TM.EXCEED_POSITIVE, reset_v, vjt)
+        v_reset = np.where(thres_mode == ThresholdMode.EXCEED_POSITIVE, reset_v, vjt)
 
     # Spike
-    spike = thres_mode == TM.EXCEED_POSITIVE
+    spike = thres_mode == ThresholdMode.EXCEED_POSITIVE
 
     return spike.astype(NEUOUT_U8_DTYPE), v_reset
 
@@ -1727,12 +1727,12 @@ def _spike_func_avg_pool(
     # Fire
     thres_mode = np.where(
         vjt >= pos_thres,
-        TM.EXCEED_POSITIVE,
-        np.where(vjt < 0, TM.EXCEED_NEGATIVE, TM.NOT_EXCEEDED),
+        ThresholdMode.EXCEED_POSITIVE,
+        np.where(vjt < 0, ThresholdMode.EXCEED_NEGATIVE, ThresholdMode.NOT_EXCEEDED),
     )
-    spike = thres_mode == TM.EXCEED_POSITIVE
+    spike = thres_mode == ThresholdMode.EXCEED_POSITIVE
     # Reset
-    v_reset = np.where(thres_mode == TM.EXCEED_POSITIVE, 0, vjt)
+    v_reset = np.where(thres_mode == ThresholdMode.EXCEED_POSITIVE, 0, vjt)
 
     return spike.astype(NEUOUT_U8_DTYPE), v_reset
 

@@ -3,7 +3,7 @@ import typing
 from typing import Literal, Optional, Union
 
 import numpy as np
-from paicorelib import TM, HwConfig
+from paicorelib import OffCoreCfg
 
 from paibox.base import DataFlowFormat, NeuDyn, NodeList
 from paibox.exceptions import ResourceError
@@ -32,7 +32,7 @@ from .modules import (
 )
 from .neuron import Neuron
 from .neuron.neurons import *
-from .neuron.utils import vjt_overflow
+from .neuron.utils import vjt_overflow, ThresholdMode
 from .projection import InputProj
 from .synapses import ConnType, FullConnSyn
 from .synapses.conv_types import _Size1Type, _Size2Type
@@ -203,16 +203,16 @@ class _SemiFoldedModule(FunctionalModule):
         """
         E = math.ceil(
             math.log2(
-                math.ceil(in_channels * in_h * kw / HwConfig.N_FANIN_PER_DENDRITE_ANN)
+                math.ceil(in_channels * in_h * kw / OffCoreCfg.N_FANIN_PER_DENDRITE_ANN)
             )
         )
         rin_deep = min(in_h - kw, kw - 1) * valid_interval + 1
-        if not HwConfig.N_TIMESLOT_MAX / (2**E) > rin_deep:
+        if not OffCoreCfg.N_TIMESLOT_MAX / (2**E) > rin_deep:
             raise ResourceError(
                 f"the input size of {self.name} is too large. Please adjust the input size or the number of channels."
             )
         buffer_deep = kw * valid_interval
-        if buffer_deep > HwConfig.N_TIMESLOT_MAX / (2**E):
+        if buffer_deep > OffCoreCfg.N_TIMESLOT_MAX / (2**E):
             self.rin_buffer_option = True
         if self.rin_buffer_option:
             print("rin buffer has been enabled.")
@@ -677,12 +677,12 @@ def _spike_func_avg_pool(
     # Fire
     thres_mode = np.where(
         vjt >= pos_thres,
-        TM.EXCEED_POSITIVE,
-        np.where(vjt < 0, TM.EXCEED_NEGATIVE, TM.NOT_EXCEEDED),
+        ThresholdMode.EXCEED_POSITIVE,
+        np.where(vjt < 0, ThresholdMode.EXCEED_NEGATIVE, ThresholdMode.NOT_EXCEEDED),
     )
-    spike = thres_mode == TM.EXCEED_POSITIVE
+    spike = thres_mode == ThresholdMode.EXCEED_POSITIVE
     # Reset
-    v_reset = np.where(thres_mode == TM.EXCEED_POSITIVE, 0, vjt)
+    v_reset = np.where(thres_mode == ThresholdMode.EXCEED_POSITIVE, 0, vjt)
 
     return spike.astype(NEUOUT_U8_DTYPE), v_reset
 
