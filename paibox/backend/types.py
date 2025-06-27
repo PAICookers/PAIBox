@@ -11,7 +11,7 @@ if sys.version_info >= (3, 10):
 else:
     from typing_extensions import TypeAlias
 
-from paicorelib import Coord, CoreMode, HwConfig
+from paicorelib import Coord, CoreMode, HwConfig, OffCoreCfg
 from paicorelib import ReplicationId as RId
 from paicorelib.routing_defs import MAX_ROUTING_PATH_LENGTH
 
@@ -215,7 +215,7 @@ class AxonCoord:
 
     @classmethod
     def build(cls, tick_relative: int, addr_axon: int) -> "AxonCoord":
-        return cls(tick_relative % HwConfig.N_TIMESLOT_MAX, addr_axon)
+        return cls(tick_relative % OffCoreCfg.N_TIMESLOT_MAX, addr_axon)
 
 
 @dataclass(frozen=True)

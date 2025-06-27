@@ -7,14 +7,19 @@ from functools import partial
 from typing import Callable, ClassVar, Literal, Optional, TypeVar, Union
 
 import numpy as np
-from paicorelib import TM, CoreMode, HwConfig, SNNModeEnable, get_core_mode
+from paicorelib import CoreMode, HwConfig, OffCoreCfg, SNNModeEnable, get_core_mode
 
 from paibox.base import NeuDyn
 from paibox.exceptions import NotSupportedError, RegisterError, ShapeError
 from paibox.types import NEUOUT_U8_DTYPE, NeuOutType, VoltageType
 from paibox.utils import check_elem_unique, shape2num
 
-from .neuron.utils import RTModeKwds, _input_width_format, _spike_width_format
+from .neuron.utils import (
+    RTModeKwds,
+    ThresholdMode,
+    _input_width_format,
+    _spike_width_format,
+)
 from .projection import InputProj
 
 if sys.version_info >= (3, 10):
@@ -192,7 +197,8 @@ class FunctionalModule(NeuModule):
         self.set_memory(
             "delay_registers",
             np.zeros(
-                (HwConfig.N_TIMESLOT_MAX,) + self._neu_out.shape, dtype=NEUOUT_U8_DTYPE
+                (OffCoreCfg.N_TIMESLOT_MAX,) + self._neu_out.shape,
+                dtype=NEUOUT_U8_DTYPE,
             ),
         )
         # Set a deque for the `synin` to implement the delay of `inherent_delay` for the module.
@@ -216,7 +222,7 @@ class FunctionalModule(NeuModule):
                 if isinstance(op, InputProj):
                     synin.append(op.output)
                 else:
-                    idx = self.timestamp % HwConfig.N_TIMESLOT_MAX
+                    idx = self.timestamp % OffCoreCfg.N_TIMESLOT_MAX
                     synin.append(op.delay_registers[idx])
             else:
                 # Retrieve 0 to the dest neurons if it is not working
@@ -236,7 +242,7 @@ class FunctionalModule(NeuModule):
             self._neu_out = self.spike_func(*synin).ravel()
             idx = (
                 self.timestamp - self.inherent_delay + self.delay_relative - 1
-            ) % HwConfig.N_TIMESLOT_MAX
+            ) % OffCoreCfg.N_TIMESLOT_MAX
             self.delay_registers[idx] = self._neu_out.copy()
 
         return self._neu_out
@@ -382,7 +388,9 @@ class FunctionalModuleWithV(FunctionalModule):
             *operands, shape_out=shape_out, keep_shape=keep_shape, name=name, **kwargs
         )
         self.set_memory("_vjt", np.zeros((self.num_out,), dtype=np.int32))
-        self.thres_mode = np.full((self.num_out,), TM.NOT_EXCEEDED, dtype=np.uint8)
+        self.thres_mode = np.full(
+            (self.num_out,), ThresholdMode.NOT_EXCEEDED, dtype=np.uint8
+        )
 
     def synaptic_integr(self, *args, **kwargs) -> VoltageType:
         """Functions used to describe synaptic integration of the module."""
@@ -405,7 +413,7 @@ class FunctionalModuleWithV(FunctionalModule):
 
             idx = (
                 self.timestamp - self.inherent_delay + self.delay_relative - 1
-            ) % HwConfig.N_TIMESLOT_MAX
+            ) % OffCoreCfg.N_TIMESLOT_MAX
             self.delay_registers[idx] = self._neu_out.copy()
 
         return self._neu_out

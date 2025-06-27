@@ -2,7 +2,7 @@ from math import ceil
 
 import numpy as np
 import pytest
-from paicorelib import ONLINE_CORES_BASE_COORD, Coord, HwConfig
+from paicorelib import ONLINE_CORES_BASE_COORD, Coord, HwConfig, OffCoreCfg
 from paicorelib import WeightWidth as WW
 
 import paibox as pb
@@ -353,14 +353,14 @@ class TestMapper_Compile:
         for cb in mapper.core_blocks:
             if node_sl_lst_overlap(net.n1, cb.dest):
                 assert cb.n_core_required == ceil(
-                    net.n1.num_out / HwConfig.N_DENDRITE_MAX_SNN
+                    net.n1.num_out / OffCoreCfg.N_DENDRITE_MAX_SNN
                 )
             elif node_sl_lst_overlap(net.n2, cb.dest):
                 assert cb.n_core_required == 1 + 1
 
             elif node_sl_lst_overlap(net.n4, cb.dest):
                 assert cb.n_core_required == ceil(
-                    net.n4.num_out / HwConfig.N_DENDRITE_MAX_SNN
+                    net.n4.num_out / OffCoreCfg.N_DENDRITE_MAX_SNN
                 )
 
     def test_grouping_optim_both(self, monkeypatch, build_example_net4):
@@ -376,16 +376,16 @@ class TestMapper_Compile:
 
         assert (
             mapper.core_blocks[0].n_core_required
-            == ceil(net.n1.num_out / HwConfig.N_DENDRITE_MAX_SNN) * 2
+            == ceil(net.n1.num_out / OffCoreCfg.N_DENDRITE_MAX_SNN) * 2
         )
 
         assert mapper.core_blocks[1].n_core_required == ceil(
-            net.n2.num_out / HwConfig.N_DENDRITE_MAX_SNN
-        ) * 3 + ceil(net.n3.num_out / HwConfig.N_DENDRITE_MAX_SNN)
+            net.n2.num_out / OffCoreCfg.N_DENDRITE_MAX_SNN
+        ) * 3 + ceil(net.n3.num_out / OffCoreCfg.N_DENDRITE_MAX_SNN)
 
         assert (
             mapper.core_blocks[2].n_core_required
-            == ceil(net.n4.num_out / HwConfig.N_DENDRITE_MAX_SNN) * 4
+            == ceil(net.n4.num_out / OffCoreCfg.N_DENDRITE_MAX_SNN) * 4
         )
 
     def test_ordered_axons(self, build_example_net5):

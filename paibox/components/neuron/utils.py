@@ -1,22 +1,16 @@
 import warnings
+from enum import IntEnum, unique
 from typing import Literal, TypedDict, Union
 
 import numpy as np
 from paicorelib import (
     InputWidthFormat,
     MaxPoolingEnable,
+    OffRAMDefs,
     SNNModeEnable,
     SpikeWidthFormat,
 )
 from paicorelib.framelib.utils import _mask
-from paicorelib.ram_model import (
-    BIT_TRUNCATE_MAX,
-    LEAK_V_BIT_MAX,
-    LEAK_V_MAX,
-    LEAK_V_MIN,
-)
-from paicorelib.ram_model import NEG_THRES_MAX as NEG_THRES_UNSIGNED_MAX
-from paicorelib.ram_model import VJT_MAX, VJT_MIN, VJT_PRE_BIT_MAX
 
 from paibox.exceptions import FunctionalError, PAIBoxWarning
 from paibox.types import (
@@ -27,6 +21,14 @@ from paibox.types import (
     VoltageType,
 )
 
+BIT_TRUNCATE_MAX = OffRAMDefs.BIT_TRUNC_MAX
+LEAK_V_BIT_MAX = OffRAMDefs.LEAK_V_BIT_MAX
+LEAK_V_MAX = OffRAMDefs.LEAK_V_MAX
+LEAK_V_MIN = OffRAMDefs.LEAK_V_MIN
+NEG_THRES_UNSIGNED_MAX = OffRAMDefs.NEG_THRES_MAX
+VJT_MAX = OffRAMDefs.VOLTAGE_MAX
+VJT_MIN = OffRAMDefs.VOLTAGE_MIN
+VJT_PRE_BIT_MAX = OffRAMDefs.VOLTAGE_BIT_MAX
 NEG_THRES_MIN = -NEG_THRES_UNSIGNED_MAX
 
 
@@ -123,7 +125,7 @@ class RTModeKwds(TypedDict):
 class ExtraNeuAttrKwds(TypedDict, total=False):
     """A typed keywords for extra neuron attributes."""
 
-    bit_truncation: int  # For ANNNeuron
+    bit_trunc: int  # For ANNNeuron
     delay: int
     tick_wait_start: int
     tick_wait_end: int
@@ -134,3 +136,17 @@ class ExtraNeuAttrKwds(TypedDict, total=False):
     unrolling_factor: int
     overflow_strict: bool
     target_chip: int
+
+
+@unique
+class ThresholdMode(IntEnum):
+    """Auxiliary enum type to indicate whether the neuron reaches the threshold or not.
+    Add commentMore actions
+        - `NOT_EXCEEDED`: dosen't exceed. Must reset after neuronal reset.
+        - `EXCEED_POSITIVE`: exceeded positive threshold.
+        - `EXCEED_NEGATIVE`: exceeded negative threshold.
+    """
+
+    NOT_EXCEEDED = 0
+    EXCEED_POSITIVE = 1
+    EXCEED_NEGATIVE = 2

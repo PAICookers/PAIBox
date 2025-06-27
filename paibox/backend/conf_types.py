@@ -11,10 +11,10 @@ from paicorelib import (
     Coord,
     InputWidthFormat,
     MaxPoolingEnable,
-    NeuronAttrs,
-    NeuronConf,
-    NeuronDestInfo,
-    ParamsReg,
+    OfflineCoreReg,
+    OfflineNeuAttrs,
+    OfflineNeuConf,
+    OfflineNeuDestInfo,
     SNNModeEnable,
     SpikeWidthFormat,
     WeightWidth,
@@ -44,9 +44,9 @@ try:
     def PAIConfigJsonDefault(o: Any) -> Any:
         if isinstance(o, Coord):
             return str(o)
-        elif isinstance(o, NeuronAttrs):
+        elif isinstance(o, OfflineNeuAttrs):
             return o.model_dump(by_alias=True)
-        elif isinstance(o, NeuronDestInfo):
+        elif isinstance(o, OfflineNeuDestInfo):
             return o.model_dump(by_alias=True)
 
         raise TypeError(f"type {type(o)} not defined in custom Json encoder.")
@@ -66,9 +66,9 @@ except ModuleNotFoundError:
                 return o.value
             elif isinstance(o, np.ndarray):
                 return o.tolist()
-            elif isinstance(o, NeuronAttrs):
+            elif isinstance(o, OfflineNeuAttrs):
                 return o.model_dump_json(indent=2, by_alias=True)
-            elif isinstance(o, NeuronDestInfo):
+            elif isinstance(o, OfflineNeuDestInfo):
                 return o.model_dump(by_alias=True)
 
             return super().default(o)
@@ -96,19 +96,19 @@ class CoreConfig(NamedTuple):
 
     name: str
     weight_width: WeightWidth
-    lcn_extension: LCN_EX
-    input_width_format: InputWidthFormat
-    spike_width_format: SpikeWidthFormat
+    lcn: LCN_EX
+    input_width: InputWidthFormat
+    spike_width: SpikeWidthFormat
     num_dendrite: int
     max_pooling_en: MaxPoolingEnable
     tick_wait_start: int
     tick_wait_end: int
-    snn_mode_en: SNNModeEnable
+    snn_en: SNNModeEnable
     target_lcn: LCN_EX
     test_chip_addr: Coord
 
-    def export(self) -> ParamsReg:
-        return ParamsReg.model_validate(self._asdict(), strict=True)
+    def export(self) -> OfflineCoreReg:
+        return OfflineCoreReg.model_validate(self._asdict(), strict=True)
 
     def to_json(self) -> dict[str, Any]:
         """Dump the configs into json for debugging."""
@@ -136,8 +136,8 @@ class NeuronDest:
     addr_chip_x: int
     addr_chip_y: int
 
-    def export(self) -> NeuronDestInfo:
-        return NeuronDestInfo.model_validate(asdict(self), strict=True)
+    def export(self) -> OfflineNeuDestInfo:
+        return OfflineNeuDestInfo.model_validate(asdict(self), strict=True)
 
     def to_json(self) -> dict[str, Any]:
         """Dump the configs into json for debugging."""
@@ -173,7 +173,7 @@ class OutputNeuronDest(NamedTuple):
 
 
 @dataclass(frozen=True)
-class NeuronConfig:
+class OfflineNeuConfig:
     """Extra parameters for debugging."""
 
     neu_seg: NeuSegment
@@ -185,16 +185,16 @@ class NeuronConfig:
     dest_chip_coord: Coord
     """Coordinate of the chip of the destination axons."""
 
-    def __getitem__(self, s: slice) -> "NeuronConfig":
-        return NeuronConfig(
+    def __getitem__(self, s: slice) -> "OfflineNeuConfig":
+        return OfflineNeuConfig(
             self.neu_seg[s],
             self.axon_coords[s],
             self.dest_core_coords,
             self.dest_chip_coord,
         )
 
-    def export(self) -> NeuronConf:
-        return NeuronConf(attrs=self.neuron_attrs, dest_info=self.neuron_dest_info)
+    def export(self) -> OfflineNeuConf:
+        return OfflineNeuConf(attrs=self.neuron_attrs, dest_info=self.neuron_dest_info)
 
     def to_json(self) -> Union[str, bytes]:
         """Dump the configs into json for debugging."""
@@ -213,11 +213,11 @@ class NeuronConfig:
             return json.dumps(dict_, indent=2, cls=PAIConfigJsonEncoder)
 
     @property
-    def neuron_attrs(self) -> NeuronAttrs:
-        return NeuronAttrs.model_validate(self.neu_seg.attrs, strict=True)
+    def neuron_attrs(self) -> OfflineNeuAttrs:
+        return OfflineNeuAttrs.model_validate(self.neu_seg.attrs, strict=True)
 
     @property
-    def neuron_dest_info(self) -> NeuronDestInfo:
+    def neuron_dest_info(self) -> OfflineNeuDestInfo:
         base_coord, dest_rid = get_replication_id(self.dest_core_coords)
         dest_info = NeuronDest(
             [coord.tick_relative for coord in self.axon_coords],
@@ -229,7 +229,7 @@ class NeuronConfig:
             self.dest_chip_coord.x,
             self.dest_chip_coord.y,
         )
-        return NeuronDestInfo.model_validate(asdict(dest_info), strict=True)
+        return OfflineNeuDestInfo.model_validate(asdict(dest_info), strict=True)
 
 
 class CorePlmConfig(NamedTuple):
@@ -238,8 +238,8 @@ class CorePlmConfig(NamedTuple):
 
     random_seed: int
     weight_ram: WRAMPackedType
-    params_reg: ParamsReg
-    neuron_configs: dict[Neuron, NeuronConfig]
+    params_reg: OfflineCoreReg
+    neuron_configs: dict[Neuron, OfflineNeuConfig]
 
     @classmethod
     def encapsulate(
@@ -247,12 +247,12 @@ class CorePlmConfig(NamedTuple):
         random_seed: int,
         weight_ram: WRAMPackedType,
         core_cfg: CoreConfig,
-        neuron_cfg: dict[Neuron, NeuronConfig],
+        neuron_cfg: dict[Neuron, OfflineNeuConfig],
     ):
         return cls(
             random_seed,
             weight_ram,
-            ParamsReg.model_validate(core_cfg._asdict(), strict=True),
+            OfflineCoreReg.model_validate(core_cfg._asdict(), strict=True),
             neuron_cfg,
         )
 
@@ -283,7 +283,7 @@ class CorePlmConfig(NamedTuple):
 
 
 InputNodeConf: TypeAlias = dict[NodeName, InputNeuronDest]
-OutputDestConf: TypeAlias = dict[NodeName, dict[Coord, NeuronDestInfo]]
+OutputDestConf: TypeAlias = dict[NodeName, dict[Coord, OfflineNeuDestInfo]]
 CorePlmConfInChip: TypeAlias = dict[Coord, CorePlmConfig]
 CorePlmConf: TypeAlias = dict[ChipCoord, CorePlmConfInChip]
 CoreConfInChip: TypeAlias = dict[Coord, CoreConfig]

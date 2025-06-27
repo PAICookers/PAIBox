@@ -7,7 +7,15 @@ from dataclasses import dataclass, field
 from typing import ClassVar, Literal, NamedTuple, Optional, overload
 
 import numpy as np
-from paicorelib import LCN_EX, ChipCoord, Coord, CoreMode, HwConfig, MaxPoolingEnable
+from paicorelib import (
+    LCN_EX,
+    ChipCoord,
+    Coord,
+    CoreMode,
+    HwConfig,
+    MaxPoolingEnable,
+    OffCoreCfg,
+)
 from paicorelib import ReplicationId as RId
 from paicorelib import WeightWidth as WW
 from paicorelib.framelib import OfflineFrameGen
@@ -27,7 +35,7 @@ from ._slice import (
     SourceSliceType,
     covered_by,
 )
-from .conf_types import CoreConfig, CoreConfInChip, CorePlmConfig, NeuronConfig
+from .conf_types import CoreConfig, CoreConfInChip, CorePlmConfig, OfflineNeuConfig
 from .context import _BACKEND_CONTEXT
 from .segment_utils import aligned_coords, get_axon_segments, get_neu_segments
 from .types import (
@@ -52,10 +60,10 @@ from .types import (
 cb_log = _logging.get_artifact_logger(__name__, "core_block_info")
 
 # Get the fan-out by the combination rate of dendrites
-if hasattr(HwConfig, "FANOUT_IW8"):
-    FANOUT_IW8 = HwConfig.FANOUT_IW8
+if hasattr(OffCoreCfg, "FANOUT_IW8"):
+    FANOUT_IW8 = OffCoreCfg.FANOUT_IW8
 else:
-    FANOUT_IW8 = [HwConfig.N_NEURON_MAX_ANN, 1364, 876, 512, 256, 128, 64, 32, 16, 8]
+    FANOUT_IW8 = [OffCoreCfg.N_NEURON_MAX_ANN, 1364, 876, 512, 256, 128, 64, 32, 16, 8]
 
 
 NEURON_PARAMS_BIT_LENGTH = 214  # A constant of frame definition
@@ -226,9 +234,9 @@ class CoreBlock(CoreAbstract):
     def n_fanin_base(self) -> int:
         """The fan-in of cores."""
         return (
-            HwConfig.N_FANIN_PER_DENDRITE_SNN
+            OffCoreCfg.N_FANIN_PER_DENDRITE_SNN
             if self.rt_mode.is_snn
-            else HwConfig.N_FANIN_PER_DENDRITE_ANN
+            else OffCoreCfg.N_FANIN_PER_DENDRITE_ANN
         )
 
     @property
@@ -310,7 +318,7 @@ class CoreBlock(CoreAbstract):
     def n_fanout(self) -> int:
         """The fan-out of cores."""
         return (
-            HwConfig.N_DENDRITE_MAX_SNN >> self.dendrite_comb_rate
+            OffCoreCfg.N_DENDRITE_MAX_SNN >> self.dendrite_comb_rate
             if self.rt_mode.is_snn
             else FANOUT_IW8[self.dendrite_comb_rate]
         )
@@ -680,11 +688,11 @@ class CorePlacement(CoreAbstract):
     raw_weights: list[WeightType]
     """The folded weights."""
     neu_segs_of_cplm: NeuSegOfCorePlm
-    neu_configs: dict[Neuron, NeuronConfig]
+    neu_configs: dict[Neuron, OfflineNeuConfig]
 
     WRAM_BASE_SHAPE: ClassVar[tuple[int, int]] = (
-        HwConfig.ADDR_AXON_MAX + 1,
-        HwConfig.ADDR_RAM_MAX + 1,
+        OffCoreCfg.ADDR_AXON_MAX + 1,
+        OffCoreCfg.ADDR_RAM_MAX + 1,
     )
     """The base shape of weight RAM."""
 
@@ -912,7 +920,7 @@ class CorePlacement(CoreAbstract):
         return w_packed_u64
 
     @staticmethod
-    def neu_params_mapping(neu_confs: list[NeuronConfig]) -> WRAMPackedType:
+    def neu_params_mapping(neu_confs: list[OfflineNeuConfig]) -> WRAMPackedType:
         """Map the extra neurons parameters to the WRAM. This only happens when the input width is 8 bits.
 
         NOTE: This function was tested using only the prototype functions. For test items, please refer to              \
@@ -1023,7 +1031,7 @@ class CorePlacement(CoreAbstract):
                     dest.timeslot,
                     is_iw8(dest.rt_mode),
                 )
-                config = NeuronConfig(
+                config = OfflineNeuConfig(
                     seg, axon_coords, dest.dest_coords, dest.dest_chip_coord
                 )
                 self.neu_configs[seg.target] = config
@@ -1042,7 +1050,7 @@ class CorePlacement(CoreAbstract):
                 for i in range(neu_seg.index.start, neu_seg.index.stop)
             ]
 
-            config = NeuronConfig(
+            config = OfflineNeuConfig(
                 neu_seg,
                 axon_coords,
                 [output_core_coord],
