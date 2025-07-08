@@ -78,6 +78,7 @@ class Conv1d(Conv1dSyn):
         *,
         stride: _Size1Type = 1,
         padding: _Size1Type = 0,
+        dilation: _Size1Type = 1,
         groups: int = 1,
         kernel_order: _KOrder3d = "OIL",
         name: Optional[str] = None,
@@ -91,6 +92,8 @@ class Conv1d(Conv1dSyn):
                 argument `kernel_order`.
             - stride: the step size of the kernel sliding. It can be a scalar or an integer.
             - padding: the amount of zero-padding applied to the input. It can be a scalar or an integer.
+            - dilation: the spacing between kernel elements. It can be a scalar or an integer.
+            - groups: number of groups in the convolution.
             - kernel_order: dimension order of kernel, (O,I,L) or (I,O,L). (O,I,L) stands for (output channels, \
                 input channels, length).
             - name: name of the 1d convolution. Optional.
@@ -106,7 +109,7 @@ class Conv1d(Conv1dSyn):
             kernel,
             _single(stride),
             _single(padding),
-            _single(1),
+            _single(dilation),
             groups,
             kernel_order,
             name,
@@ -119,9 +122,9 @@ class Conv2d(Conv2dSyn):
         source: Union[Neuron, InputProj],
         dest: Neuron,
         kernel: np.ndarray,
-        *,
         stride: _Size2Type = 1,
         padding: _Size2Type = 0,
+        dilation: _Size2Type = 1,
         groups: int = 1,
         kernel_order: _KOrder4d = "OIHW",
         name: Optional[str] = None,
@@ -135,6 +138,8 @@ class Conv2d(Conv2dSyn):
                 argument `kernel_order`.
             - stride: the step size of the kernel sliding. It can be a scalar or a tuple of 2 integers.
             - padding: the amount of zero-padding applied to the input. It can be a scalar or a tuple of 2 integers.
+            - dilation: the spacing between kernel elements. It can be a scalar or a tuple of 2 integers.
+            - groups: number of groups in the convolution.
             - kernel_order: dimension order of kernel, (O,I,H,W) or (I,O,H,W). (O,I,H,W) stands for (output     \
                 channels, input channels, height, width).
             - name: name of the 2d convolution. Optional.
@@ -150,7 +155,7 @@ class Conv2d(Conv2dSyn):
             kernel,
             _pair(stride),
             _pair(padding),
-            _pair(1),
+            _pair(dilation),
             groups,
             kernel_order,
             name,

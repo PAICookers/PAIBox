@@ -6,7 +6,7 @@ import numpy as np
 from paicorelib import OffCoreCfg
 
 from paibox.base import DataFlowFormat, NeuDyn, NodeList
-from paibox.exceptions import ResourceError
+from paibox.exceptions import ResourceError, ShapeError
 from paibox.types import (
     NEUOUT_U8_DTYPE,
     WEIGHT_DTYPE,
@@ -35,11 +35,18 @@ from .neuron.neurons import *
 from .neuron.utils import ThresholdMode, vjt_overflow
 from .projection import InputProj
 from .synapses import ConnType, FullConnSyn
-from .synapses.conv_types import _Size1Type, _Size2Type
+from .synapses.conv_types import (
+    _Size1Type,
+    _Size2Type,
+    Size1Type,
+    Size2Type,
+    SizeAnyType,
+)
 from .synapses.conv_utils import _fm_ndim1_check, _fm_ndim2_check, _pair, _single
 from .synapses.transforms import (
     Conv1dForward,
     Conv2dForward,
+    _PoolNdForward,
     _Pool1dForward,
     _Pool2dForward,
 )
@@ -254,8 +261,27 @@ class _LinearBase(FunctionalModule):
 
 
 @set_rt_mode_snn()
-class _SpikingPool1d(FunctionalModule):
+class _SpikingPoolNd(FunctionalModule):
     inherent_delay = 0
+    tfm: _PoolNdForward
+
+    def __init__(
+        self,
+        neuron: Union[NeuDyn, InputProj],
+        shape_out: SizeAnyType,
+        keep_shape: bool,
+        name: Optional[str],
+        **kwargs,
+    ) -> None:
+        """Basic Nd pooling."""
+        _pool_ksize_check(self.tfm.ksize, self.tfm.in_shape, self.tfm.padding)
+        super().__init__(
+            neuron, shape_out=shape_out, keep_shape=keep_shape, name=name, **kwargs
+        )
+
+
+class _SpikingPool1d(_SpikingPoolNd):
+    tfm: _Pool1dForward
 
     def __init__(
         self,
@@ -353,7 +379,6 @@ class _SpikingPool1dWithV(FunctionalModuleWithV):
         **kwargs,
     ) -> None:
         """Basic 1d spiking pooling with voltage at the previous timestep."""
-
         cin, il = _fm_ndim1_check(neuron.shape_out, "CL")
 
         _ksize = _single(kernel_size)
@@ -416,9 +441,8 @@ class _SpikingPool1dWithV(FunctionalModuleWithV):
         return generated
 
 
-@set_rt_mode_snn()
-class _SpikingPool2d(FunctionalModule):
-    inherent_delay = 0
+class _SpikingPool2d(_SpikingPoolNd):
+    tfm: _Pool2dForward
 
     def __init__(
         self,
@@ -587,8 +611,33 @@ class _SpikingPool2dWithV(FunctionalModuleWithV):
 
 
 @set_rt_mode_ann()
-class _Pool1d(FunctionalModule):
+class _PoolNd(FunctionalModule):
     inherent_delay = 0
+    kernel_size: SizeAnyType
+    stride: SizeAnyType
+    padding: SizeAnyType
+    bit_trunc: int
+
+    def __init__(
+        self,
+        neuron_s: Union[NeuDyn, InputProj],
+        in_size: SizeAnyType,
+        shape_out: SizeAnyType,
+        keep_shape: bool,
+        name: Optional[str],
+        **kwargs,
+    ) -> None:
+        """Basic Nd pooling."""
+        _pool_ksize_check(self.kernel_size, in_size, self.padding)
+        super().__init__(
+            neuron_s, shape_out=shape_out, keep_shape=keep_shape, name=name, **kwargs
+        )
+
+
+class _Pool1d(_PoolNd):
+    kernel_size: Size1Type
+    stride: Size1Type
+    padding: Size1Type
 
     def __init__(
         self,
@@ -622,15 +671,17 @@ class _Pool1d(FunctionalModule):
         super().__init__(
             neuron_s,
             shape_out=(in_ch, out_l),
+            in_size=(in_l,),
             keep_shape=keep_shape,
             name=name,
             **kwargs,
         )
 
 
-@set_rt_mode_ann()
-class _Pool2d(FunctionalModule):
-    inherent_delay = 0
+class _Pool2d(_PoolNd):
+    kernel_size: Size2Type
+    stride: Size2Type
+    padding: Size2Type
 
     def __init__(
         self,
@@ -665,6 +716,7 @@ class _Pool2d(FunctionalModule):
         super().__init__(
             neuron_s,
             shape_out=(in_ch, out_h, out_w),
+            in_size=(in_h, in_w),
             keep_shape=keep_shape,
             name=name,
             **kwargs,
@@ -690,3 +742,13 @@ def _spike_func_avg_pool(
 def _pool_type_check(pool_type: str) -> None:
     if pool_type not in ("avg", "max"):
         raise ValueError("type of pooling must be 'avg' or 'max'.")
+
+
+def _pool_ksize_check(
+    ksize: SizeAnyType, ifm_shape: SizeAnyType, padding: SizeAnyType
+) -> None:
+    eff_i = [i + 2 * p for i, p in zip(ifm_shape, padding)]
+    if any(k > ei for k, ei in zip(ksize, eff_i)):
+        raise ShapeError(
+            f"Kernel size {ksize} > effective input size {tuple(eff_i)}, (p={padding})"
+        )

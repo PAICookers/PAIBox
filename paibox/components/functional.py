@@ -37,7 +37,7 @@ from .neuron.neurons import *
 from .neuron.utils import ThresholdMode, vjt_overflow
 from .projection import InputProj
 from .synapses import ConnType, Conv2dSemiFoldedSyn, FullConnSyn, MaxPoolSyn
-from .synapses.conv_types import _Size1Type, _Size2Type
+from .synapses.conv_types import _Size1Type, _Size2Type, Size1Type, Size2Type
 from .synapses.conv_utils import _pair
 
 if sys.version_info >= (3, 13):
@@ -1848,8 +1848,8 @@ def _poo1d_mapping_mask(
     in_l: int,
     o_l: int,
     kernel_size: int,
-    stride: tuple[int],
-    padding: tuple[int],
+    stride: Size1Type,
+    padding: Size1Type,
 ) -> WeightType:
     n_input = cin * in_l
     n_output = cin * o_l
@@ -1879,8 +1879,8 @@ def _poo2d_mapping_mask(
     ow: int,
     kh: int,
     kw: int,
-    stride: tuple[int, int],
-    padding: tuple[int, int],
+    stride: Size2Type,
+    padding: Size2Type,
 ) -> WeightType:
     n_input = cin * ih * iw
     n_output = cin * oh * ow

@@ -11,7 +11,7 @@ from paibox.types import DataType, NeuOutType, SynOutType, WeightType
 from ..modules import BuildingModule
 from ..neuron import Neuron
 from ..projection import InputProj
-from .conv_types import _KOrder3d, _KOrder4d
+from .conv_types import _KOrder3d, _KOrder4d, Size1Type, Size2Type
 from .conv_utils import _fm_ndim1_check, _fm_ndim2_check
 from .transforms import (
     AllToAll,
@@ -242,6 +242,7 @@ class FullConnSyn(FullConnectedSyn):
 
 
 class Conv1dSyn(FullConnectedSyn):
+    comm: Conv1dForward
     _spatial_ndim: ClassVar[int] = 1
 
     def __init__(
@@ -249,9 +250,9 @@ class Conv1dSyn(FullConnectedSyn):
         source: Union[NeuDyn, InputProj],
         dest: Neuron,
         kernel: np.ndarray,
-        stride: tuple[int],
-        padding: tuple[int],
-        dilation: tuple[int],
+        stride: Size1Type,
+        padding: Size1Type,
+        dilation: Size1Type,
         groups: int,
         order: _KOrder3d,
         name: Optional[str] = None,
@@ -269,12 +270,10 @@ class Conv1dSyn(FullConnectedSyn):
             _kernel = kernel.copy()
 
         # O,I,L
-        o_ch, grp_in_ch, kernel_l = _kernel.shape
+        o_ch, grp_in_ch, kl = _kernel.shape
         # C,L
         in_ch, in_l = _fm_ndim1_check(source.shape_out, "CL")
-        out_l = (in_l + 2 * padding[0] - dilation[0] * (kernel_l - 1) - 1) // stride[
-            0
-        ] + 1
+        out_l = (in_l + 2 * padding[0] - dilation[0] * (kl - 1) - 1) // stride[0] + 1
 
         if in_ch != (_cur_in_ch := groups * grp_in_ch):
             in_ch_mismatch_text = f"input channels mismatch: {in_ch} != {_cur_in_ch}"
@@ -290,6 +289,7 @@ class Conv1dSyn(FullConnectedSyn):
 
 
 class Conv2dSyn(FullConnectedSyn):
+    comm: Conv2dForward
     _spatial_ndim: ClassVar[int] = 2
 
     def __init__(
@@ -297,9 +297,9 @@ class Conv2dSyn(FullConnectedSyn):
         source: Union[NeuDyn, InputProj],
         dest: Neuron,
         kernel: np.ndarray,
-        stride: tuple[int, int],
-        padding: tuple[int, int],
-        dilation: tuple[int, int],
+        stride: Size2Type,
+        padding: Size2Type,
+        dilation: Size2Type,
         groups: int,
         order: _KOrder4d,
         name: Optional[str] = None,
@@ -317,15 +317,11 @@ class Conv2dSyn(FullConnectedSyn):
             _kernel = kernel.copy()
 
         # O,I,H,W
-        o_ch, grp_in_ch, kernel_h, kernel_w = _kernel.shape
+        o_ch, grp_in_ch, kh, kw = _kernel.shape
         # C,H,W
         in_ch, in_h, in_w = _fm_ndim2_check(source.shape_out, "CHW")
-        out_h = (in_h + 2 * padding[0] - dilation[0] * (kernel_h - 1) - 1) // stride[
-            0
-        ] + 1
-        out_w = (in_w + 2 * padding[1] - dilation[1] * (kernel_w - 1) - 1) // stride[
-            1
-        ] + 1
+        out_h = (in_h + 2 * padding[0] - dilation[0] * (kh - 1) - 1) // stride[0] + 1
+        out_w = (in_w + 2 * padding[1] - dilation[1] * (kw - 1) - 1) // stride[1] + 1
 
         if in_ch != (_cur_in_ch := groups * grp_in_ch):
             in_ch_mismatch_text = f"input channels mismatch: {in_ch} != {_cur_in_ch}"
@@ -344,6 +340,7 @@ class Conv2dSyn(FullConnectedSyn):
 
 
 class Conv2dSemiFoldedSyn(FullConnectedSyn):
+    comm: Conv2dSemiFoldedForward
     _spatial_ndim: ClassVar[int] = 1
 
     def __init__(
@@ -370,11 +367,11 @@ class Conv2dSemiFoldedSyn(FullConnectedSyn):
             _kernel = kernel.copy()
 
         # O,I,H
-        o_ch, grp_in_ch, kernel_h = _kernel.shape
+        o_ch, grp_in_ch, kh = _kernel.shape
         # I,H
         assert len(source.shape_out) == 2
         in_ch, in_h = source.shape_out
-        out_h = (in_h + 2 * padding[0] - kernel_h) // stride[0] + 1
+        out_h = (in_h + 2 * padding[0] - kh) // stride[0] + 1
 
         if in_ch != (_cur_in_ch := groups * grp_in_ch):
             in_ch_mismatch_text = f"input channels mismatch: {in_ch} != {_cur_in_ch}"
@@ -420,13 +417,13 @@ class ConvTranspose1dSyn(FullConnectedSyn):
             _kernel = kernel.copy()
 
         # O,I,L
-        o_ch, in_channels, kernel_l = _kernel.shape
+        o_ch, in_channels, kl = _kernel.shape
         # C,L
         in_ch, in_l = _fm_ndim1_check(source.shape_out, "CL")
         out_l = (
             (in_l - 1) * stride[0]
             - 2 * padding[0]
-            + dilation[0] * (kernel_l - 1)
+            + dilation[0] * (kl - 1)
             + output_padding[0]
             + 1
         )
@@ -470,20 +467,20 @@ class ConvTranspose2dSyn(FullConnectedSyn):
             _kernel = kernel.copy()
 
         # O,I,H,W
-        o_ch, in_channels, kernel_h, kernel_w = _kernel.shape
+        o_ch, in_channels, kh, kw = _kernel.shape
         # C,H,W
         in_ch, in_h, in_w = _fm_ndim2_check(source.shape_out, "CHW")
         out_h = (
             (in_h - 1) * stride[0]
             - 2 * padding[0]
-            + dilation[0] * (kernel_h - 1)
+            + dilation[0] * (kh - 1)
             + output_padding[0]
             + 1
         )
         out_w = (
             (in_w - 1) * stride[1]
             - 2 * padding[1]
-            + dilation[1] * (kernel_w - 1)
+            + dilation[1] * (kw - 1)
             + output_padding[1]
             + 1
         )
@@ -506,6 +503,8 @@ class ConvTranspose2dSyn(FullConnectedSyn):
 
 class MaxPoolSyn(FullConnectedSyn):
     """Max pooling synapses. Only used when input width is 8-bit."""
+
+    comm: CompareMax
 
     def __init__(
         self,
