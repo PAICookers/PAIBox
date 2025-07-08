@@ -13,8 +13,12 @@ from paicorelib.framelib.frame_gen import OfflineFrameGen
 from paicorelib.framelib.frames import OfflineTestOutFrame3
 from paicorelib.framelib.utils import print_frame
 
-from paibox.runtime import PAIBoxRuntime
-from paibox.runtime.runtime import LENGTH_EX_MULTIPLE_KEY, get_length_ex_onode
+try:
+    from paibox.runtime import PAIBoxRuntime
+    from paibox.runtime.runtime import LENGTH_EX_MULTIPLE_KEY, get_length_ex_onode
+except ImportError:
+    pytestmark = pytest.mark.skip(reason="Skip if runtime module import failed")
+
 from tests.utils import file_not_exist_fail
 
 TEST_CONF_DIR = Path(__file__).parent / "test_data"
