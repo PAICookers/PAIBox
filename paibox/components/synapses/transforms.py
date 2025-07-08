@@ -19,9 +19,9 @@ from paibox.utils import is_shape, shape2num, typical_round
 
 from .conv_types import Size1Type, Size2Type, SizeAnyType, _SizeAnyType
 from .conv_utils import (
-    _conv1d_faster,
+    conv1d_faster,
     _conv1d_unroll,
-    _conv2d_faster,
+    conv2d_faster,
     _conv2d_semifolded_unroll,
     _conv2d_unroll,
     _convtranspose1d_faster,
@@ -345,6 +345,9 @@ class _ConvNdForward(Transform):
 
         super().__init__(kernel)
 
+    @property
+    def ksize(self): ...
+
 
 class Conv1dForward(_ConvNdForward):
 
@@ -363,8 +366,8 @@ class Conv1dForward(_ConvNdForward):
         # else:
         _x = x.reshape((cin,) + self.in_shape)
 
-        return _conv1d_faster(
-            _x, self.out_shape, self.weights, self.stride, self.padding, self.groups
+        return conv1d_faster(
+            _x, self.out_shape, self.weights, self.stride, self.padding, groups=self.groups
         )
 
     @property
@@ -377,6 +380,10 @@ class Conv1dForward(_ConvNdForward):
             self.padding,
             self.groups,
         )
+
+    @property
+    def ksize(self) -> Size1Type:
+        return (self.weights.shape[-1],)
 
 
 class Conv2dForward(_ConvNdForward):
@@ -396,8 +403,8 @@ class Conv2dForward(_ConvNdForward):
         # else:
         _x = x.reshape((cin,) + self.in_shape)
 
-        return _conv2d_faster(
-            _x, self.out_shape, self.weights, self.stride, self.padding, self.groups
+        return conv2d_faster(
+            _x, self.out_shape, self.weights, self.stride, self.padding, groups=self.groups
         )
 
     @property
@@ -410,6 +417,10 @@ class Conv2dForward(_ConvNdForward):
             self.padding,
             self.groups,
         )
+
+    @property
+    def ksize(self) -> Size2Type:
+        return self.weights.shape[-2:]
 
 
 class Conv2dSemiFoldedForward(_ConvNdForward):
@@ -432,6 +443,10 @@ class Conv2dSemiFoldedForward(_ConvNdForward):
             self.padding,
             self.groups,
         )
+
+    @property
+    def ksize(self) -> Size1Type:
+        return (self.weights.shape[-1],)
 
 
 class ConvTranspose1dForward(_ConvNdForward):
@@ -517,8 +532,8 @@ class _PoolNdForward(Transform):
         in_shape: SizeAnyType,
         out_shape: SizeAnyType,
         kernel_size: SizeAnyType,
-        stride: _SizeAnyType,
-        padding: _SizeAnyType,
+        stride: SizeAnyType,
+        padding: SizeAnyType,
         pool_type: Literal["avg", "max"],
         threshold: Optional[int] = None,
     ) -> None:
