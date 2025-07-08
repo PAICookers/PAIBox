@@ -396,27 +396,7 @@ class TestFunctionalModules:
         mapper.compile()
         mapper.export(fp=ensure_dump_dir)
 
-    @pytest.mark.parametrize(
-        "shape, channels, ksize, stride, padding, threshold, fm_order, pool_type, p_binomial",
-        [
-            ((24,), 3, (3,), 3, 0, None, "CL", "avg", 0.7),
-            ((12,), 1, (2,), None, 0, None, "CL", "avg", 0.5),
-            ((32,), 8, (3,), None, 0, 3, "CL", "avg", 0.6),
-            ((16,), 8, (5,), (2,), 0, 16, "CL", "avg", 0.7),
-            ((32,), 3, (3,), 2, 0, None, "CL", "max", 0.5),
-            ((24,), 1, (2,), None, 0, None, "CL", "max", 0.4),
-            ((16,), 8, (5,), (2,), 0, None, "CL", "max", 0.6),
-            ((32,), 8, (3,), (3,), 0, None, "CL", "max", 0.3),
-            ((24,), 3, (3,), 3, 1, 4, "CL", "avg", 0.6),
-            ((12,), 1, (2,), None, (1,), None, "CL", "avg", 0.5),
-            ((32,), 8, (3,), None, 2, None, "CL", "avg", 0.5),
-            ((16,), 8, (5,), (2,), (2,), 12, "CL", "avg", 0.4),
-            ((32,), 3, (3,), 2, 1, None, "CL", "max", 0.6),
-            ((24,), 1, (2,), None, 2, None, "CL", "max", 0.7),
-            ((16,), 8, (5,), (2,), (1,), None, "CL", "max", 0.5),
-            ((32,), 8, (3,), (3,), (1,), None, "CL", "max", 0.3),
-        ],
-    )
+    @pytest.mark.parametrize(spiking_pool1d_data["args"], spiking_pool1d_data["data"])
     def test_SpikingPool1d(
         self,
         shape,
@@ -498,35 +478,7 @@ class TestFunctionalModules:
         mapper.compile()
         mapper.export(fp=ensure_dump_dir)
 
-    @pytest.mark.parametrize(
-        "shape, channels, ksize, stride, padding, threshold, fm_order, pool_type, p_binomial",
-        [
-            ((24, 24), 3, (3, 3), 3, 0, None, "CHW", "avg", 0.7),
-            ((12, 12), 1, (2, 3), None, 0, None, "CHW", "avg", 0.5),
-            ((32, 32), 8, (3, 3), None, 0, 3, "CHW", "avg", 0.6),
-            ((16, 16), 8, (5, 5), (2, 3), 0, 16, "CHW", "avg", 0.7),
-            ((32, 32), 3, (3, 3), 2, 0, None, "CHW", "max", 0.5),
-            ((24, 24), 1, (2, 3), None, 0, None, "CHW", "max", 0.4),
-            ((16, 16), 8, (5, 5), (2, 3), 0, None, "CHW", "max", 0.6),
-            ((32, 32), 8, (3, 3), (3, 4), 0, None, "CHW", "max", 0.3),
-            ((24, 24), 3, (3, 3), 3, 1, 4, "CHW", "avg", 0.6),
-            ((12, 12), 1, (2, 3), None, (1, 2), None, "CHW", "avg", 0.5),
-            ((32, 32), 8, (3, 3), None, 2, None, "CHW", "avg", 0.5),
-            ((16, 16), 8, (5, 5), (2, 3), (2, 3), 12, "CHW", "avg", 0.4),
-            ((32, 32), 3, (3, 3), 2, 1, None, "CHW", "max", 0.6),
-            ((24, 24), 1, (2, 3), None, 2, None, "CHW", "max", 0.7),
-            ((16, 16), 8, (5, 5), (2, 3), (1, 1), None, "CHW", "max", 0.5),
-            ((32, 32), 8, (3, 3), (3, 4), (1, 2), None, "CHW", "max", 0.3),
-            # ((3, 3), 3, (3, 3), (3, 3), "HWC", "avg", 0.7),
-            # ((12, 12), 1, (2, 3), None, "HWC", "avg", 0.6),
-            # ((32, 32), 8, (3, 3), None, "HWC", "avg", 0.5),
-            # ((16, 16), 8, (5, 5), (2, 3), "HWC", "avg", 0.4),
-            # ((32, 32), 3, (3, 3), (2, 2), "HWC", "max", 0.2),
-            # ((24, 24), 1, (2, 3), None, "HWC", "max", 0.3),
-            # ((16, 16), 8, (5, 5), (2, 3), "HWC", "max", 0.4),
-            # ((32, 32), 8, (3, 3), (3, 4), "HWC", "max", 0.3),
-        ],
-    )
+    @pytest.mark.parametrize(spiking_pool2d_data["args"], spiking_pool2d_data["data"])
     def test_SpikingPool2d(
         self,
         shape,
@@ -607,6 +559,15 @@ class TestFunctionalModules:
         mapper.build(net1)
         mapper.compile()
         mapper.export(fp=ensure_dump_dir)
+
+    def test_SpikingPoolNd_ksize_check(self):
+        n1 = pb.IF((3, 32, 32), 1)
+        with pytest.raises(ShapeError):
+            p = pb.SpikingMaxPool2d(n1, 33)
+
+        n2 = pb.IF((3, 64), 1)
+        with pytest.raises(ShapeError):
+            p = pb.SpikingAvgPool1d(n2, 67, padding=1)
 
     @pytest.mark.parametrize(
         "shape, channels, ksize, stride, padding, threshold, p_binomial",
@@ -1347,3 +1308,13 @@ class TestFunctionalModules:
                 assert np.array_equal(
                     x.ravel(), sim1.data[probe_pool_list[i_pool]][2 * i_pool]
                 )
+
+    def test_ANNPoolNd_ksize_check(self):
+        n1 = pb.ANNNeuron((3, 32, 32))
+        with pytest.raises(ShapeError):
+            p = pb.MaxPool2d(n1, 33)
+
+        n2 = pb.ANNNeuron((3, 64))
+
+        with pytest.raises(ShapeError):
+            p = pb.MaxPool1d(n2, 67, padding=1)
