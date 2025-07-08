@@ -6,7 +6,7 @@ from typing import Literal, Optional
 
 import numpy as np
 import pytest
-from paicorelib import LCN_EX, Coord, CoreMode, HwConfig, OfflineNeuAttrs
+from paicorelib import LCN_EX, Coord, CoreMode, HwConfig, OffCoreCfg, OfflineNeuAttrs
 from paicorelib import ReplicationId as RId
 from paicorelib import WeightWidth as WW
 from paicorelib.framelib import OfflineFrameGen
@@ -140,11 +140,11 @@ N_BIT_PACKED_WEIGHT = np.iinfo(WRAM_PACKED_DTYPE).bits
 if hasattr(CorePlacement, "WRAM_BASE_SHAPE"):
     WRAM_BASE_SHAPE = CorePlacement.WRAM_BASE_SHAPE
 else:
-    WRAM_BASE_SHAPE = (HwConfig.ADDR_AXON_MAX + 1, HwConfig.ADDR_RAM_MAX + 1)
+    WRAM_BASE_SHAPE = (OffCoreCfg.ADDR_AXON_MAX + 1, OffCoreCfg.ADDR_RAM_MAX + 1)
 
 
 NEURON_PARAMS_BIT_LENGTH = 214
-N_NEURON_PARAM_IN_COL = HwConfig.N_FANIN_PER_DENDRITE_MAX // NEURON_PARAMS_BIT_LENGTH
+N_NEURON_PARAM_IN_COL = OffCoreCfg.N_FANIN_PER_DENDRITE_MAX // NEURON_PARAMS_BIT_LENGTH
 
 
 def _packbits_ref(bits: np.ndarray, count: Optional[int] = None) -> np.int8:
@@ -197,7 +197,7 @@ def _nbit_limit(nbit: int) -> tuple[int, int]:
 
 def _get_max_fanout(iw: int, dendr_comb_rate: int) -> int:
     if iw == 1:
-        return HwConfig.N_DENDRITE_MAX_SNN >> dendr_comb_rate
+        return OffCoreCfg.N_DENDRITE_MAX_SNN >> dendr_comb_rate
     else:
         return FANOUT_IW8[dendr_comb_rate]
 
@@ -477,10 +477,10 @@ class TestWeightRamMapping:
     ) -> WRAMUnpackedType:
         if iw == 1:
             # The length of slot for each bit of input data
-            bit_slot_length = HwConfig.N_FANIN_PER_DENDRITE_SNN
+            bit_slot_length = OffCoreCfg.N_FANIN_PER_DENDRITE_SNN
         else:
             # N_FANIN_PER_DENDRITE_SNN // iw
-            bit_slot_length = HwConfig.N_FANIN_PER_DENDRITE_ANN
+            bit_slot_length = OffCoreCfg.N_FANIN_PER_DENDRITE_ANN
 
         folded_row, folded_col = w_folded.shape
         n_dendrite_comb = n_bit * n_fold
@@ -603,7 +603,7 @@ class TestWeightRamMapping:
         folded_weights: WeightType,
         n_bit: int,
         n_fold: int,
-        wbit_slot_length: int = HwConfig.N_FANIN_PER_DENDRITE_ANN,
+        wbit_slot_length: int = OffCoreCfg.N_FANIN_PER_DENDRITE_ANN,
     ):
         """A prototype function for weight ram mapping for 8-bit input width."""
         row, col = folded_weights.shape
@@ -768,7 +768,7 @@ class TestWeightRamMapping:
             # Get the index of E-block
             e_j, e_i = divmod(j_folded, n_lcn_in_col)
             # Just get `nbit` bits
-            wij = w_unpacked[i_folded :: HwConfig.N_FANIN_PER_DENDRITE_ANN, e_j][
+            wij = w_unpacked[i_folded :: OffCoreCfg.N_FANIN_PER_DENDRITE_ANN, e_j][
                 e_i * nbit : (e_i + 1) * nbit
             ]
             wij_packed = _packbits_ref(wij, nbit)
@@ -935,20 +935,22 @@ def test_n_axon2lcn_ex():
     from .conftest import n_axon2lcn_ex_proto
 
     lcn_ex = n_axon2lcn_ex_proto(
-        HwConfig.N_FANIN_PER_DENDRITE_SNN * 18 + 1, HwConfig.N_FANIN_PER_DENDRITE_SNN
+        OffCoreCfg.N_FANIN_PER_DENDRITE_SNN * 18 + 1,
+        OffCoreCfg.N_FANIN_PER_DENDRITE_SNN,
     )
     assert lcn_ex == LCN_EX.LCN_32X
 
     lcn_ex = n_axon2lcn_ex_proto(
-        HwConfig.N_FANIN_PER_DENDRITE_ANN * 3 + 20, HwConfig.N_FANIN_PER_DENDRITE_ANN
+        OffCoreCfg.N_FANIN_PER_DENDRITE_ANN * 3 + 20,
+        OffCoreCfg.N_FANIN_PER_DENDRITE_ANN,
     )
     assert lcn_ex == LCN_EX.LCN_4X
 
     with pytest.raises(ValueError):
-        lcn_ex = n_axon2lcn_ex_proto(0, HwConfig.N_FANIN_PER_DENDRITE_SNN)
+        lcn_ex = n_axon2lcn_ex_proto(0, OffCoreCfg.N_FANIN_PER_DENDRITE_SNN)
 
     with pytest.raises(ResourceError):
         lcn_ex = n_axon2lcn_ex_proto(
-            HwConfig.N_FANIN_PER_DENDRITE_SNN << LCN_EX.LCN_64X + 1,
-            HwConfig.N_FANIN_PER_DENDRITE_SNN,
+            OffCoreCfg.N_FANIN_PER_DENDRITE_SNN << LCN_EX.LCN_64X + 1,
+            OffCoreCfg.N_FANIN_PER_DENDRITE_SNN,
         )
