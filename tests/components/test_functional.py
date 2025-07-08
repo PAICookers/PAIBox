@@ -5,7 +5,8 @@ import paibox as pb
 from paibox.base import DynamicSys
 from paibox.components import NeuModule
 from paibox.components._modules import _SemiFoldedModule
-from paibox.components.synapses.conv_utils import _conv2d_faster, _pair, _single
+from paibox.components.synapses.conv_utils import conv2d_faster, _pair, _single
+from paibox.exceptions import ShapeError
 from paibox.network import DynSysGroup
 from paibox.types import NEUOUT_U8_DTYPE, VOLTAGE_DTYPE, WEIGHT_DTYPE
 from paibox.utils import as_shape, shape2num, typical_round
@@ -935,13 +936,13 @@ class TestFunctionalModules:
             x = inpa
             for i_conv in range(n_conv):
                 x = ann_bit_trunc(
-                    _conv2d_faster(
+                    conv2d_faster(
                         x,
                         (ohs[i_conv], ows[i_conv]),
                         kernels[i_conv],
                         strides[i_conv],
                         paddings[i_conv],
-                        groups[i_conv],
+                        groups=groups[i_conv],
                     )
                 )
 

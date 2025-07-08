@@ -1,11 +1,24 @@
 import numpy as np
 import pytest
+from numpy.typing import DTypeLike
 
 from paibox.components.synapses import transforms as tfm
-from paibox.components.synapses.conv_utils import _conv1d_faster, _conv2d_faster
 from paibox.exceptions import AutoOptimizationWarning
-from paibox.types import WEIGHT_DTYPE
+from paibox.types import VOLTAGE_DTYPE, WEIGHT_DTYPE, Shape
 from paibox.utils import shape2num
+
+from tests.components.utils import *
+
+RNG = np.random.default_rng()
+
+
+def gen_random_array(shape: Shape, dtype_: DTypeLike):
+    if dtype_ == np.bool_:
+        return RNG.integers(0, 2, shape, dtype_)
+    else:
+        return RNG.integers(
+            np.iinfo(dtype_).min, np.iinfo(dtype_).max + 1, shape, dtype_
+        )
 
 
 class TestTransforms:
@@ -88,7 +101,7 @@ class TestTransforms:
     def test_OneToOne_dtype(self, weight):
         num = 3
         f = tfm.OneToOne(num, weight)
-        x = np.array([1, 0, 1], dtype=np.bool_)
+        x = np.array([1, 0, 1], dtype=np.uint8)
         y = f(x)
         expected = x * weight
 
@@ -103,12 +116,12 @@ class TestTransforms:
         assert f.connectivity.shape == (4, 4)
 
         # The last spike is an array.
-        x1 = np.array([0, 1, 1, 0], dtype=np.bool_)
+        x1 = np.array([0, 1, 1, 0], dtype=np.uint8)
         y = f(x1)
         assert y.shape == (4,)
 
         # The last spike is a scalar.
-        x2 = np.array(1, dtype=np.bool_)
+        x2 = np.array(1, dtype=np.uint8)
         y = f(x2)
         assert y.shape == (4,)
 
@@ -128,7 +141,7 @@ class TestTransforms:
         """Test `AllToAll` when weight is a scalar"""
 
         num_in, num_out = 10, 20
-        x = np.random.randint(2, size=(10,), dtype=np.bool_)
+        x = gen_random_array((num_in,), np.bool_)
         f = tfm.AllToAll((num_in, num_out), weight)
         y = f(x)
         expected = np.full((num_out,), np.sum(x, axis=None), dtype=np.int32) * weight
@@ -145,18 +158,18 @@ class TestTransforms:
         [
             (
                 (3, 4),
-                np.random.randint(2, size=(3,), dtype=np.bool_),
-                np.random.randint(2, size=(3, 4), dtype=np.bool_),
+                gen_random_array((3,), np.bool_),
+                gen_random_array((3, 4), np.bool_),
             ),
             (
                 (10, 20),
-                np.random.randint(2, size=(10,), dtype=np.bool_),
-                np.random.randint(127, size=(10, 20), dtype=np.int8),
+                gen_random_array((10,), np.bool_),
+                gen_random_array((10, 20), np.int8),
             ),
             (
                 (20, 10),
-                np.random.randint(2, size=(20,), dtype=np.bool_),
-                np.random.randint(2, size=(20, 10), dtype=np.bool_),
+                gen_random_array((20,), np.bool_),
+                gen_random_array((20, 10), np.bool_),
             ),
             (
                 (2, 2),
@@ -169,20 +182,14 @@ class TestTransforms:
                 np.array([[127, 0], [3, -128]], dtype=np.int8),
             ),
         ],
-        ids=[
-            "weights_bool_1",
-            "weights_int8_1",
-            "weights_int8_2",
-            "weights_int8_3",
-            "weights_int8_4",
-        ],
+        ids=["bool_1", "int8_1", "int8_2", "int8_3", "int8_4"],
     )
     def test_AllToAll_array(self, shape, x, weights):
         """Test `AllToAll` when weights is an array"""
 
         f = tfm.AllToAll(shape, weights)
         y = f(x)
-        expected = x @ weights.copy().astype(np.int32)
+        expected = x @ weights.astype(np.int32)
 
         assert f.connectivity.dtype == WEIGHT_DTYPE
         assert np.array_equal(y, expected)
@@ -195,14 +202,8 @@ class TestTransforms:
                 np.arange(12, dtype=np.int8).reshape(3, 4),
                 np.array([[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]], dtype=np.int8),
             ),
-            (
-                np.random.randint(2, size=(10,), dtype=np.bool_),
-                np.random.randint(-10, 10, size=(10, 20), dtype=np.int8),
-            ),
-            (
-                np.ones((20, 10), dtype=np.bool_),
-                np.random.randint(2, size=(20, 10), dtype=np.bool_),
-            ),
+            (gen_random_array((10,), np.bool_), gen_random_array((10, 20), np.int8)),
+            (np.ones((20, 10), dtype=np.bool_), gen_random_array((20, 10), np.bool_)),
             (
                 np.array((1, 1), dtype=np.bool_),
                 np.array([[127, 0], [3, -128]], dtype=np.int8),
@@ -229,18 +230,18 @@ class TestTransforms:
 
         f = tfm.MaskedLinear(x.shape, oshape, weights)
         y = f(x)
-        y2 = x.flatten() @ f.connectivity.astype(np.int32)
-        expected = x.reshape(in_shape).transpose(axes) @ weights.copy().astype(np.int32)
+        y2 = x.ravel() @ f.connectivity.astype(np.int32)
+        expected = x.reshape(in_shape).transpose(axes) @ weights.astype(np.int32)
 
         assert f.connectivity.dtype == WEIGHT_DTYPE
         assert y.shape == oshape
         assert y2.dtype == np.int32
         assert np.array_equal(y, expected)
-        assert np.array_equal(y2, expected.ravel())
+        assert np.array_equal(y2, y.ravel())
         assert f.connectivity.shape == (x.size, y.size)
 
     @pytest.mark.parametrize(
-        "xdtype, in_shape, in_channels, out_channels, kernel_size, stride, padding, groups, kdtype",
+        "xdtype, in_shape, in_channels, out_channels, ksize, stride, padding, groups, kdtype",
         [
             (np.bool_, (8,), 16, 8, (3,), (1,), (1,), 2, np.int8),
             (np.bool_, (28,), 16, 8, (3,), (1,), (1,), 4, np.bool_),
@@ -251,9 +252,9 @@ class TestTransforms:
             (np.bool_, (28,), 24, 12, (3,), (2,), (0,), 1, np.int8),
             (np.bool_, (28,), 24, 12, (5,), (2,), (0,), 4, np.int8),
             (np.bool_, (16,), 8, 16, (3,), (2,), (0,), 2, np.int8),
-            (np.int8, (8,), 16, 8, (3,), (1,), (1,), 2, np.int8),
-            (np.int8, (28,), 16, 8, (3,), (1,), (1,), 4, np.bool_),
-            (np.int8, (28,), 24, 12, (3,), (2,), (2,), 3, np.bool_),
+            (np.uint8, (8,), 16, 8, (3,), (1,), (1,), 2, np.int8),
+            (np.uint8, (28,), 16, 8, (3,), (1,), (1,), 4, np.bool_),
+            (np.uint8, (28,), 24, 12, (3,), (2,), (2,), 3, np.bool_),
             (np.int8, (28,), 24, 12, (5,), (2,), (2,), 3, np.bool_),
             (np.int8, (16,), 8, 16, (3,), (2,), (0,), 8, np.bool_),
             (np.int8, (28,), 16, 8, (3,), (1,), (0,), 1, np.int8),
@@ -272,79 +273,60 @@ class TestTransforms:
         in_shape,
         in_channels,
         out_channels,
-        kernel_size,
+        ksize,
         stride,
         padding,
         groups,
         kdtype,
     ):
-        group_in_channels = in_channels // groups
-        group_out_channels = out_channels // groups
-        if kdtype == np.bool_:
-            kernel = np.random.randint(
-                0,
-                2,
-                size=(out_channels, group_in_channels) + kernel_size,
-                dtype=np.bool_,
-            )
-        else:
-            kernel = np.random.randint(
-                np.iinfo(kdtype).min,
-                np.iinfo(kdtype).max + 1,
-                size=(out_channels, group_in_channels) + kernel_size,
-                dtype=kdtype,
-            )
+        cin_per_grp = in_channels // groups
+        cout_per_grp = out_channels // groups
+        x_shape = (in_channels,) + in_shape
 
-        fm_shape = (in_channels,) + in_shape
-        if xdtype == np.bool_:
-            x = np.random.randint(0, 2, size=fm_shape, dtype=np.bool_)
-        else:
-            x = np.random.randint(
-                np.iinfo(xdtype).min,
-                np.iinfo(xdtype).max + 1,
-                size=fm_shape,
-                dtype=xdtype,
-            )
+        kernel = gen_random_array((out_channels, cin_per_grp) + ksize, kdtype)
+        x = gen_random_array(x_shape, xdtype)
 
-        out_shape = ((in_shape[0] + 2 * padding[0] - kernel_size[0]) // stride[0] + 1,)
+        out_shape = ((in_shape[0] + 2 * padding[0] - ksize[0]) // stride[0] + 1,)
         f = tfm.Conv1dForward(
             in_shape, out_shape, kernel, stride, padding, groups=groups
         )
 
-        # x = np.random.randint(0, 2, size=fm_shape, dtype=np.bool_)
         xf = x.ravel()
         xg = xf.reshape(groups, -1)
 
-        # The result of __call__ using traditional conv
+        # The result of traditional conv
+        ygolden = conv1d_golden(
+            x, out_shape, kernel, stride, padding, groups=groups
+        ).astype(VOLTAGE_DTYPE)
+
+        # The result of __call__ using faster conv
         y1 = f(xf)
         # The result of matmul using the unrolled matrix
         fkernel = f.connectivity.astype(np.int32)
         fkernel = fkernel.reshape(
-            groups, group_in_channels * in_shape[0], group_out_channels * out_shape[0]
+            groups, cin_per_grp * in_shape[0], cout_per_grp * out_shape[0]
         )
         y2 = [xg[i] @ fkernel[i] for i in range(groups)]
         y2 = np.concatenate(y2, axis=0)
 
-        expected = _conv1d_faster(x, out_shape, kernel, stride, padding, groups=groups)
-
-        assert np.array_equal(y1, expected)
-        assert np.array_equal(y2, expected.ravel())
+        assert np.array_equal(ygolden, y1)
+        assert np.array_equal(y2, y1.ravel())
         assert f.connectivity.shape == (
             shape2num((kernel.shape[1],) + in_shape),
             shape2num((kernel.shape[0],) + out_shape),
         )
 
     @pytest.mark.parametrize(
-        "xdtype, in_shape, in_channels, out_channels, kernel_size, stride, padding, groups, kdtype",
+        "xdtype, in_shape, in_channels, out_channels, ksize, stride, padding, groups, kdtype",
         [
             (np.bool_, (28, 28), 16, 8, (3, 3), (1, 1), (1, 1), 2, np.bool_),
             (np.bool_, (28, 28), 24, 12, (3, 3), (2, 2), (2, 1), 3, np.bool_),
             (np.bool_, (28, 28), 16, 8, (3, 3), (1, 1), (2, 3), 8, np.bool_),
-            (np.bool_, (28, 28), 24, 12, (3, 3), (2, 2), (0, 0), 4, np.int8),
+            (np.bool_, (28, 28), 24, 12, (3, 3), (2, 2), (0, 0), 1, np.int8),
             (np.bool_, (28, 28), 24, 12, (5, 5), (2, 1), (0, 0), 4, np.int8),
             (np.bool_, (8, 8), 8, 16, (3, 3), (2, 2), (1, 1), 1, np.int8),
-            (np.int8, (28, 28), 16, 8, (3, 3), (1, 1), (1, 1), 8, np.bool_),
-            (np.int8, (28, 28), 24, 12, (3, 3), (2, 2), (2, 1), 1, np.bool_),
+            (np.uint8, (28, 28), 16, 8, (3, 3), (1, 1), (1, 1), 8, np.bool_),
+            (np.uint8, (28, 28), 24, 12, (3, 3), (2, 2), (2, 1), 1, np.bool_),
             (np.int8, (28, 28), 16, 8, (3, 3), (1, 1), (2, 3), 4, np.bool_),
             (np.int8, (28, 28), 24, 12, (3, 3), (2, 2), (0, 0), 12, np.int8),
             (np.int8, (28, 28), 24, 12, (5, 5), (2, 1), (0, 0), 3, np.int8),
@@ -363,44 +345,22 @@ class TestTransforms:
         in_shape,
         in_channels,
         out_channels,
-        kernel_size,
+        ksize,
         stride,
         padding,
         groups,
         kdtype,
     ):
-        group_in_channels = in_channels // groups
-        group_out_channels = out_channels // groups
+        cin_per_grp = in_channels // groups
+        cout_per_grp = out_channels // groups
+        x_shape = (in_channels,) + in_shape
 
-        if kdtype == np.bool_:
-            kernel = np.random.randint(
-                0,
-                2,
-                size=(out_channels, group_in_channels) + kernel_size,
-                dtype=np.bool_,
-            )
-        else:
-            kernel = np.random.randint(
-                np.iinfo(kdtype).min,
-                np.iinfo(kdtype).max + 1,
-                size=(out_channels, group_in_channels) + kernel_size,
-                dtype=kdtype,
-            )
-
-        fm_shape = (in_channels,) + in_shape
-        if xdtype == np.bool_:
-            x = np.random.randint(0, 2, size=fm_shape, dtype=np.bool_)
-        else:
-            x = np.random.randint(
-                np.iinfo(xdtype).min,
-                np.iinfo(xdtype).max + 1,
-                size=fm_shape,
-                dtype=xdtype,
-            )
+        kernel = gen_random_array((out_channels, cin_per_grp) + ksize, kdtype)
+        x = gen_random_array(x_shape, xdtype)
 
         out_shape = (
-            (in_shape[0] + 2 * padding[0] - kernel_size[0]) // stride[0] + 1,
-            (in_shape[1] + 2 * padding[1] - kernel_size[1]) // stride[1] + 1,
+            (in_shape[0] + 2 * padding[0] - ksize[0]) // stride[0] + 1,
+            (in_shape[1] + 2 * padding[1] - ksize[1]) // stride[1] + 1,
         )
 
         f = tfm.Conv2dForward(
@@ -410,83 +370,32 @@ class TestTransforms:
         xf = x.ravel()
         xg = xf.reshape(groups, -1)
 
-        # The result of __call__ using traditional conv
+        # The result of traditional conv
+        ygolden = conv2d_golden(
+            x, out_shape, kernel, stride, padding, groups=groups
+        ).astype(VOLTAGE_DTYPE)
+
+        # The result of __call__ using faster conv
         y1 = f(xf)
         # The result of matmul using the unrolled matrix
         fkernel = f.connectivity.astype(np.int32)
         fkernel = fkernel.reshape(
             groups,
-            group_in_channels * in_shape[0] * in_shape[1],
-            group_out_channels * out_shape[0] * out_shape[1],
+            cin_per_grp * in_shape[0] * in_shape[1],
+            cout_per_grp * out_shape[0] * out_shape[1],
         )
         y2 = [xg[i] @ fkernel[i] for i in range(groups)]
         y2 = np.concatenate(y2, axis=0)
 
-        expected = _conv2d_faster(x, out_shape, kernel, stride, padding, groups=groups)
-
-        assert np.array_equal(y1, expected)
-        assert np.array_equal(y2, expected.ravel())
+        assert np.array_equal(ygolden, y1)
+        assert np.array_equal(y2, y1.ravel())
         assert f.connectivity.shape == (
             shape2num((kernel.shape[1],) + in_shape),
             shape2num((kernel.shape[0],) + out_shape),
         )
 
-    @staticmethod
-    def _convtranspose1d_golden(
-        x: np.ndarray,
-        out_shape: tuple[int],
-        kernel: np.ndarray,
-        stride: tuple[int],
-        padding: tuple[int],
-        output_padding: tuple[int],
-    ):
-        cout, cin, kl = kernel.shape
-        xcin, il = x.shape
-
-        assert cin == xcin
-
-        ol = (il - 1) * stride[0] - 2 * padding[0] + kl + output_padding[0]
-
-        assert ol == out_shape[0]
-
-        nol = ol - output_padding[0] + 2 * padding[0]
-
-        out = np.zeros((cout,) + (nol,), dtype=np.int64)
-
-        # generate new input array : transpose padding 0 & stride 0
-        # Insert 0 between rows and columns (for stride)
-        xc_t = xcin
-        xl_t = il + (il - 1) * (stride[0] - 1)
-        x_transpose = np.zeros((xc_t, xl_t), dtype=x.dtype)
-        x_transpose[::1, :: stride[0]] = x
-        # padding 0 for transpose not for parameter padding, get new input array x_transpose
-        x_transpose = np.pad(x_transpose, ((0, 0), (kl - 1, kl - 1)), mode="constant")
-
-        kernel_flip = np.flip(kernel, axis=2)
-        stride_transpose = 1
-        conv_result = np.zeros((nol,), dtype=np.int64)
-
-        for o in range(cout):
-            for i in range(cin):
-                conv_result.fill(0)
-                for l in range(nol):
-                    window = x_transpose[
-                        i, l * stride_transpose : l * stride_transpose + kl
-                    ].astype(np.int64)
-                    conv_result[l] = np.sum(window * kernel_flip[o, i, :])
-
-                out[o] += conv_result
-
-        # inverse padding : (cout, (xl-1)*stride+kernel) -> (cout, (xl-1)*stride+kernel-2*padding)
-        out = out[:, padding[0] : (-1 * padding[0])] if padding[0] > 0 else out
-
-        # output_padding
-        out = np.pad(out, ((0, 0), (0, output_padding[0])), mode="constant")
-
-        return out
-
     @pytest.mark.parametrize(
-        "xdtype, in_shape, in_channels, out_channels, kernel_size, stride, padding, output_padding, kdtype",
+        "xdtype, in_shape, in_channels, out_channels, ksize, stride, padding, output_padding, kdtype",
         [
             (np.bool_, (28,), 16, 8, (3,), (1,), (0,), (0,), np.bool_),
             (np.bool_, (28,), 24, 12, (3,), (2,), (2,), (2,), np.bool_),
@@ -496,10 +405,10 @@ class TestTransforms:
             (np.bool_, (28,), 24, 12, (3,), (2,), (3,), (0,), np.int8),
             (np.bool_, (28,), 24, 12, (5,), (2,), (0,), (0,), np.int8),
             (np.bool_, (16,), 8, 16, (3,), (2,), (1,), (1,), np.int8),
-            (np.int8, (28,), 16, 8, (3,), (1,), (0,), (0,), np.bool_),
-            (np.int8, (28,), 24, 12, (3,), (2,), (2,), (2,), np.bool_),
-            (np.int8, (28,), 24, 12, (5,), (2,), (0,), (1,), np.bool_),
-            (np.int8, (16,), 8, 16, (3,), (2,), (1,), (0,), np.bool_),
+            (np.uint8, (28,), 16, 8, (3,), (1,), (0,), (0,), np.bool_),
+            (np.uint8, (28,), 24, 12, (3,), (2,), (2,), (2,), np.bool_),
+            (np.uint8, (28,), 24, 12, (5,), (2,), (0,), (1,), np.bool_),
+            (np.uint8, (16,), 8, 16, (3,), (2,), (1,), (0,), np.bool_),
             (np.int8, (28,), 16, 8, (3,), (3,), (0,), (0,), np.int8),
             (np.int8, (28,), 24, 12, (3,), (2,), (3,), (0,), np.int8),
             (np.int8, (28,), 24, 12, (5,), (2,), (0,), (0,), np.int8),
@@ -516,40 +425,20 @@ class TestTransforms:
         in_shape,
         in_channels,
         out_channels,
-        kernel_size,
+        ksize,
         stride,
         padding,
         output_padding,
         kdtype,
     ):
-        if kdtype == np.bool_:
-            kernel = np.random.randint(
-                0, 2, size=(out_channels, in_channels) + kernel_size, dtype=np.bool_
-            )
-        else:
-            kernel = np.random.randint(
-                np.iinfo(kdtype).min,
-                np.iinfo(kdtype).max + 1,
-                size=(out_channels, in_channels) + kernel_size,
-                dtype=kdtype,
-            )
+        x_shape = (in_channels,) + in_shape
+        kernel = gen_random_array((out_channels, in_channels) + ksize, kdtype)
+        x = gen_random_array(x_shape, xdtype)
 
-        fm_shape = (in_channels,) + in_shape
-        if xdtype == np.bool_:
-            x = np.random.randint(0, 2, size=fm_shape, dtype=np.bool_)
-        else:
-            x = np.random.randint(
-                np.iinfo(xdtype).min,
-                np.iinfo(xdtype).max + 1,
-                size=fm_shape,
-                dtype=xdtype,
-            )
-
-        # out_shape = ((in_shape[0] + 2 * padding[0] - kernel_size[0]) // stride[0] + 1,)
         out_shape = (
             (in_shape[0] - 1) * stride[0]
             - 2 * padding[0]
-            + kernel_size[0]
+            + ksize[0]
             + output_padding[0],
         )
         f = tfm.ConvTranspose1dForward(
@@ -558,93 +447,25 @@ class TestTransforms:
 
         xf = x.ravel()
 
+        # The result of traditional conv
+        ygolden = convtranspose1d_golden(
+            x, out_shape, kernel, stride, padding, output_padding
+        )
+
         # The result of __call__ using traditional conv
         y1 = f(xf)
         # The result of matmul using the unrolled matrix
         y2 = xf @ f.connectivity.astype(np.int32)
 
-        expected = self._convtranspose1d_golden(
-            x, out_shape, kernel, stride, padding, output_padding
-        )
-
-        assert np.array_equal(y1, expected)
-        assert np.array_equal(y2, expected.ravel())
+        assert np.array_equal(y1, ygolden)
+        assert np.array_equal(y2, y1.ravel())
         assert f.connectivity.shape == (
             shape2num((kernel.shape[1],) + in_shape),
             shape2num((kernel.shape[0],) + out_shape),
         )
 
-    @staticmethod
-    def _convtranspose2d_golden(
-        x: np.ndarray,
-        out_shape: tuple[int, int],
-        kernel: np.ndarray,
-        stride: tuple[int, int],
-        padding: tuple[int, int],
-        output_padding: tuple[int, int],
-    ):
-        cout, cin, kh, kw = kernel.shape
-        xcin, ih, iw = x.shape
-
-        assert cin == xcin
-
-        oh = (ih - 1) * stride[0] - 2 * padding[0] + kh + output_padding[0]
-        ow = (iw - 1) * stride[1] - 2 * padding[1] + kw + output_padding[1]
-
-        assert oh, ow == out_shape
-
-        noh = oh - output_padding[0] + 2 * padding[0]
-        now = ow - output_padding[1] + 2 * padding[1]
-
-        out = np.zeros((cout,) + (noh, now), dtype=np.int64)
-
-        # Generate the transpose input arrary : transpose padding 0 & stride 0
-        xc_t = xcin
-        xh_t = ih + (ih - 1) * (stride[0] - 1)
-        xw_t = iw + (iw - 1) * (stride[1] - 1)
-        x_transpose = np.zeros((xc_t, xh_t, xw_t), dtype=x.dtype)
-        x_transpose[::1, :: stride[0], :: stride[1]] = x
-        # padding 0 for transpose not for parameter padding, get new input array x_transpose
-        x_transpose = np.pad(
-            x_transpose, ((0, 0), (kh - 1, kh - 1), (kw - 1, kw - 1)), mode="constant"
-        )
-
-        kernel_flip = np.flip(kernel, axis=(2, 3))
-        stride_transpose = (1, 1)
-        conv_result = np.zeros((noh, now), dtype=np.int64)
-
-        for o in range(cout):
-            for i in range(cin):
-                conv_result.fill(0)
-                for h in range(noh):
-                    for w in range(now):
-                        window = x_transpose[
-                            i,
-                            h * stride_transpose[0] : h * stride_transpose[0] + kh,
-                            w * stride_transpose[1] : w * stride_transpose[1] + kw,
-                        ].astype(np.int64)
-                        conv_result[h, w] = np.sum(window * kernel_flip[o, i, :, :])
-
-                out[o] += conv_result
-
-        # inverse padding
-        ph_start = padding[0] if padding[0] > 0 else None
-        ph_end = (-1 * padding[0]) if padding[0] > 0 else None
-        pw_start = padding[1] if padding[1] > 0 else None
-        pw_end = (-1 * padding[1]) if padding[1] > 0 else None
-        out = out[:, ph_start:ph_end, pw_start:pw_end]
-
-        # output_padding
-        out = np.pad(
-            out,
-            ((0, 0), (0, output_padding[0]), (0, output_padding[1])),
-            mode="constant",
-        )
-
-        return out
-
     @pytest.mark.parametrize(
-        "xdtype, in_shape, in_channels, out_channels, kernel_size, stride, padding, output_padding, kdtype",
+        "xdtype, in_shape, in_channels, out_channels, ksize, stride, padding, output_padding, kdtype",
         [
             (np.bool_, (12, 12), 16, 8, (3, 3), (1, 1), (1, 1), (1, 1), np.bool_),
             (np.bool_, (12, 12), 24, 12, (3, 3), (2, 2), (2, 2), (1, 0), np.bool_),
@@ -652,8 +473,8 @@ class TestTransforms:
             (np.bool_, (12, 12), 24, 12, (3, 3), (2, 2), (1, 2), (0, 1), np.int8),
             (np.bool_, (10, 10), 24, 12, (5, 5), (2, 1), (1, 1), (2, 2), np.int8),
             (np.bool_, (16, 16), 8, 16, (3, 3), (2, 2), (1, 3), (2, 0), np.int8),
-            (np.int8, (12, 12), 16, 8, (3, 3), (1, 1), (1, 1), (1, 1), np.bool_),
-            (np.int8, (12, 12), 24, 12, (3, 3), (2, 2), (2, 2), (1, 0), np.bool_),
+            (np.uint8, (12, 12), 16, 8, (3, 3), (1, 1), (1, 1), (1, 1), np.bool_),
+            (np.uint8, (12, 12), 24, 12, (3, 3), (2, 2), (2, 2), (1, 0), np.bool_),
             (np.int8, (12, 12), 16, 8, (3, 3), (1, 1), (0, 0), (0, 0), np.bool_),
             (np.int8, (12, 12), 24, 12, (3, 3), (2, 2), (1, 2), (0, 1), np.int8),
             (np.int8, (10, 10), 24, 12, (5, 5), (2, 1), (1, 1), (2, 2), np.int8),
@@ -672,43 +493,24 @@ class TestTransforms:
         in_shape,
         in_channels,
         out_channels,
-        kernel_size,
+        ksize,
         stride,
         padding,
         output_padding,
         kdtype,
     ):
-        if kdtype == np.bool_:
-            kernel = np.random.randint(
-                0, 2, size=(out_channels, in_channels) + kernel_size, dtype=np.bool_
-            )
-        else:
-            kernel = np.random.randint(
-                np.iinfo(kdtype).min,
-                np.iinfo(kdtype).max + 1,
-                size=(out_channels, in_channels) + kernel_size,
-                dtype=kdtype,
-            )
-
-        fm_shape = (in_channels,) + in_shape
-        if xdtype == np.bool_:
-            x = np.random.randint(0, 2, size=fm_shape, dtype=np.bool_)
-        else:
-            x = np.random.randint(
-                np.iinfo(xdtype).min,
-                np.iinfo(xdtype).max + 1,
-                size=fm_shape,
-                dtype=xdtype,
-            )
+        x_shape = (in_channels,) + in_shape
+        kernel = gen_random_array((out_channels, in_channels) + ksize, kdtype)
+        x = gen_random_array(x_shape, xdtype)
 
         out_shape = (
             (in_shape[0] - 1) * stride[0]
             - 2 * padding[0]
-            + kernel_size[0]
+            + ksize[0]
             + output_padding[0],
             (in_shape[1] - 1) * stride[1]
             - 2 * padding[1]
-            + kernel_size[1]
+            + ksize[1]
             + output_padding[1],
         )
 
@@ -716,20 +518,20 @@ class TestTransforms:
             in_shape, out_shape, kernel, stride, padding, output_padding=output_padding
         )
 
-        x = np.random.randint(0, 2, size=fm_shape, dtype=np.bool_)
         xf = x.ravel()
+
+        # The result of traditional conv
+        ygolden = convtranspose2d_golden(
+            x, out_shape, kernel, stride, padding, output_padding
+        )
 
         # The result of __call__ using traditional conv
         y1 = f(xf)
         # The result of matmul using the unrolled matrix
         y2 = xf @ f.connectivity.astype(np.int32)
 
-        expected = self._convtranspose2d_golden(
-            x, out_shape, kernel, stride, padding, output_padding
-        )
-
-        assert np.array_equal(y1, expected)
-        assert np.array_equal(y2, expected.ravel())
+        assert np.array_equal(y1, ygolden)
+        assert np.array_equal(y2, y1.ravel())
         assert f.connectivity.shape == (
             shape2num((kernel.shape[1],) + in_shape),
             shape2num((kernel.shape[0],) + out_shape),
@@ -744,8 +546,9 @@ class TestTransforms:
 
         f = tfm.CompareMax((n, n_group), w)
 
-        x = np.random.randint(0, 256, size=(n_compare, n_group), dtype=np.uint8)
-        y1 = f(x.ravel(order="F"))  # flatten in column-major order
+        x = gen_random_array((n_compare, n_group), np.uint8)
+        x_cm_order = x.ravel(order="F")
+        y1 = f(x_cm_order)  # flatten in column-major order
         expected = np.zeros((n_group,), dtype=np.uint8)
 
         for i in range(n_group):

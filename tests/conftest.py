@@ -31,6 +31,15 @@ def pytest_configure(config: pytest.Config):
         "markers",
         "make_settings_test(**settings_dict): mark test to set custom settings for logging & perform teardown.",
     )
+    config.addinivalue_line(
+        "markers",
+        "perf: mark test to measure performance. Skip if running in ci environment.",
+    )
+
+
+def pytest_runtest_setup(item: pytest.Item):
+    if "perf" in item.keywords and os.getenv("CI", None) is not None:
+        pytest.skip("Skipping perf test in CI environment")
 
 
 @pytest.fixture(scope="module")
