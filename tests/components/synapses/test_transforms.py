@@ -7,18 +7,8 @@ from paibox.exceptions import AutoOptimizationWarning
 from paibox.types import VOLTAGE_DTYPE, WEIGHT_DTYPE, Shape
 from paibox.utils import shape2num
 
+from tests.utils import gen_random_array
 from tests.components.utils import *
-
-RNG = np.random.default_rng()
-
-
-def gen_random_array(shape: Shape, dtype_: DTypeLike):
-    if dtype_ == np.bool_:
-        return RNG.integers(0, 2, shape, dtype_)
-    else:
-        return RNG.integers(
-            np.iinfo(dtype_).min, np.iinfo(dtype_).max + 1, shape, dtype_
-        )
 
 
 class TestTransforms:
