@@ -1,4 +1,6 @@
 import time
+import tracemalloc
+import os
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Generator, Optional, Union
@@ -10,8 +12,6 @@ from numpy.typing import DTypeLike
 from paibox.types import Shape
 from paibox.utils import as_shape
 
-__all__ = ["measure_time"]
-
 
 @contextmanager
 def measure_time(desc: str) -> Generator[None, Any, None]:
@@ -22,6 +22,15 @@ def measure_time(desc: str) -> Generator[None, Any, None]:
         end_time = time.time()
         elapsed = end_time - start_time
         print(f"{desc} executed in: {elapsed:.2f} secs")
+
+
+def measure_peak_memory(func, *args, **kwargs) -> float:
+    tracemalloc.start()
+    _ = func(*args, **kwargs)
+    current, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+
+    return peak / (1024 << 1)  # MiB
 
 
 def file_not_exist_fail(_fp: Union[str, Path]) -> None:
@@ -44,3 +53,7 @@ def gen_random_array(
         return rng.integers(
             np.iinfo(dtype_).min, np.iinfo(dtype_).max + 1, shape, dtype_
         )
+
+
+def is_ci_env() -> bool:
+    return os.getenv("CI_ENV", None) is not None

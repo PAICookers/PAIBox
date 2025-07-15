@@ -38,7 +38,7 @@ def pytest_configure(config: pytest.Config):
 
 
 def pytest_runtest_setup(item: pytest.Item):
-    if "perf" in item.keywords and os.getenv("CI", None) is not None:
+    if "perf" in item.keywords and is_ci_env():
         pytest.skip("Skipping perf test in CI environment")
 
 

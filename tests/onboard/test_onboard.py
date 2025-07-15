@@ -7,9 +7,9 @@ import pytest
 import paibox as pb
 from paibox.types import NEUOUT_U8_DTYPE, VOLTAGE_DTYPE
 from tests.components.utils import ann_bit_trunc
+from tests.utils import is_ci_env
 
-ci_env = os.environ.get("CI_ENV", None) is not None
-pytestmark = pytest.mark.skipif(ci_env, reason="Skipping in CI environment")
+pytestmark = pytest.mark.skipif(is_ci_env(), reason="Skipping in CI environment")
 
 
 TEST_DIR = Path(__file__).parent
