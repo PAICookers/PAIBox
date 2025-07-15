@@ -1,10 +1,10 @@
 import numpy as np
 import pytest
-from numpy.typing import DTypeLike
 
 from paibox.components.synapses import transforms as tfm
+from paibox.components.synapses.conv_utils import _conv1d_oshape, _conv2d_oshape
 from paibox.exceptions import AutoOptimizationWarning
-from paibox.types import VOLTAGE_DTYPE, WEIGHT_DTYPE, Shape
+from paibox.types import VOLTAGE_DTYPE, WEIGHT_DTYPE
 from paibox.utils import shape2num
 
 from tests.utils import gen_random_array
@@ -251,10 +251,6 @@ class TestTransforms:
             (np.int8, (28,), 24, 12, (3,), (2,), (0,), 1, np.int8),
             (np.int8, (28,), 24, 12, (5,), (2,), (0,), 4, np.int8),
             (np.int8, (16,), 8, 16, (3,), (2,), (0,), 8, np.int8),
-            # ((28,), 16, 8, (3,), (1,), (0,), "LC"),
-            # ((24,), 8, 8, (3,), (2,), (0,), "LC"),
-            # ((24,), 8, 16, (7,), (2,), (0,), "LC"),
-            # ((32,), 4, 12, (5,), (1,), (0,), "LC"),
         ],
     )
     def test_Conv1dForward(
@@ -269,20 +265,18 @@ class TestTransforms:
         groups,
         kdtype,
     ):
-        cin_per_grp = in_channels // groups
-        cout_per_grp = out_channels // groups
+        ci_in_grp = in_channels // groups
         x_shape = (in_channels,) + in_shape
 
-        kernel = gen_random_array((out_channels, cin_per_grp) + ksize, kdtype)
+        kernel = gen_random_array((out_channels, ci_in_grp) + ksize, kdtype)
         x = gen_random_array(x_shape, xdtype)
 
-        out_shape = ((in_shape[0] + 2 * padding[0] - ksize[0]) // stride[0] + 1,)
+        out_shape = _conv1d_oshape(in_shape, ksize, stride, padding)
         f = tfm.Conv1dForward(
             in_shape, out_shape, kernel, stride, padding, groups=groups
         )
 
         xf = x.ravel()
-        xg = xf.reshape(groups, -1)
 
         # The result of traditional conv
         ygolden = conv1d_golden(
@@ -291,19 +285,16 @@ class TestTransforms:
 
         # The result of __call__ using faster conv
         y1 = f(xf)
+
         # The result of matmul using the unrolled matrix
-        fkernel = f.connectivity.astype(np.int32)
-        fkernel = fkernel.reshape(
-            groups, cin_per_grp * in_shape[0], cout_per_grp * out_shape[0]
-        )
-        y2 = [xg[i] @ fkernel[i] for i in range(groups)]
-        y2 = np.concatenate(y2, axis=0)
+        w_unrolled = f.connectivity
+        y2 = (xf.astype(np.int32) @ w_unrolled).astype(VOLTAGE_DTYPE)
 
         assert np.array_equal(ygolden, y1)
         assert np.array_equal(y2, y1.ravel())
-        assert f.connectivity.shape == (
-            shape2num((kernel.shape[1],) + in_shape),
-            shape2num((kernel.shape[0],) + out_shape),
+        assert w_unrolled.shape == (
+            shape2num(x_shape),
+            shape2num((out_channels,) + out_shape),
         )
 
     @pytest.mark.parametrize(
@@ -321,12 +312,6 @@ class TestTransforms:
             (np.int8, (28, 28), 24, 12, (3, 3), (2, 2), (0, 0), 12, np.int8),
             (np.int8, (28, 28), 24, 12, (5, 5), (2, 1), (0, 0), 3, np.int8),
             (np.int8, (8, 8), 8, 16, (3, 3), (2, 2), (1, 1), 2, np.int8),
-            # ((28, 28), 16, 8, (3, 3), (1, 1), (0, 0), "HWC", np.bool_),
-            # ((24, 32), 8, 8, (3, 4), (2, 1), (0, 0), "HWC", np.bool_),
-            # ((24, 24), 8, 16, (7, 7), (2, 2), (0, 0), "HWC", np.bool_),
-            # ((32, 16), 4, 12, (5, 7), (1, 2), (0, 0), "HWC", np.int8),
-            # ((24, 24), 8, 16, (7, 7), (2, 2), (0, 0), "HWC", np.int8),
-            # ((32, 16), 4, 12, (5, 7), (1, 2), (0, 0), "HWC", np.int8),
         ],
     )
     def test_Conv2dForward(
@@ -341,24 +326,19 @@ class TestTransforms:
         groups,
         kdtype,
     ):
-        cin_per_grp = in_channels // groups
-        cout_per_grp = out_channels // groups
+        ci_in_grp = in_channels // groups
         x_shape = (in_channels,) + in_shape
 
-        kernel = gen_random_array((out_channels, cin_per_grp) + ksize, kdtype)
+        kernel = gen_random_array((out_channels, ci_in_grp) + ksize, kdtype)
         x = gen_random_array(x_shape, xdtype)
 
-        out_shape = (
-            (in_shape[0] + 2 * padding[0] - ksize[0]) // stride[0] + 1,
-            (in_shape[1] + 2 * padding[1] - ksize[1]) // stride[1] + 1,
-        )
+        out_shape = _conv2d_oshape(in_shape, ksize, stride, padding)
 
         f = tfm.Conv2dForward(
             in_shape, out_shape, kernel, stride, padding, groups=groups
         )
 
         xf = x.ravel()
-        xg = xf.reshape(groups, -1)
 
         # The result of traditional conv
         ygolden = conv2d_golden(
@@ -367,21 +347,16 @@ class TestTransforms:
 
         # The result of __call__ using faster conv
         y1 = f(xf)
+
         # The result of matmul using the unrolled matrix
-        fkernel = f.connectivity.astype(np.int32)
-        fkernel = fkernel.reshape(
-            groups,
-            cin_per_grp * in_shape[0] * in_shape[1],
-            cout_per_grp * out_shape[0] * out_shape[1],
-        )
-        y2 = [xg[i] @ fkernel[i] for i in range(groups)]
-        y2 = np.concatenate(y2, axis=0)
+        w_unrolled = f.connectivity
+        y2 = (xf.astype(np.int32) @ w_unrolled).astype(VOLTAGE_DTYPE)
 
         assert np.array_equal(ygolden, y1)
         assert np.array_equal(y2, y1.ravel())
-        assert f.connectivity.shape == (
-            shape2num((kernel.shape[1],) + in_shape),
-            shape2num((kernel.shape[0],) + out_shape),
+        assert w_unrolled.shape == (
+            shape2num(x_shape),
+            shape2num((out_channels,) + out_shape),
         )
 
     @pytest.mark.parametrize(
