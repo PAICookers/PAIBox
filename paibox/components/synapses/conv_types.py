@@ -16,6 +16,7 @@ SizeAnyType = tuple[int, ...]
 Size1Type = tuple[int]
 Size2Type = tuple[int, int]
 Size3Type = tuple[int, int, int]
+Size4Type = tuple[int, int, int, int]
 
 _Order2d = Literal["CL", "LC"]  # Feature map order in 2d
 _Order3d = Literal["CHW", "HWC"]  # Feature map order in 3d

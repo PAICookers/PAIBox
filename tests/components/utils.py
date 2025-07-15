@@ -9,7 +9,12 @@ from paibox.components.synapses.conv_types import (
     Size1Type,
     Size2Type,
 )
-from paibox.components.synapses.conv_utils import _single, _pair
+from paibox.components.synapses.conv_utils import (
+    _single,
+    _pair,
+    _conv1d_oshape,
+    _conv2d_oshape,
+)
 from paibox.types import (
     NEUOUT_U8_DTYPE,
     SPIKE_DTYPE,
@@ -48,42 +53,45 @@ def conv1d_golden(
     dilation: _Size1Type = 1,
     groups: int = 1,
 ) -> np.ndarray:
-    cout, cin_per_grp, kl = kernel.shape
+    cout, ci_in_grp, kl = kernel.shape
     cin, il = x.shape
 
-    assert cin == cin_per_grp * groups
+    assert cin == ci_in_grp * groups
     assert (
         cin % groups == 0 and cout % groups == 0
     ), f"Input & output channels {cin} & {cout} must be divisible by groups {groups}"
-    cout_per_grp = cout // groups
+    co_in_grp = cout // groups
 
     stride = _single(stride)
     padding = _single(padding)
     dilation = _single(dilation)
+    s = stride[0]
+    p = padding[0]
+    d = dilation[0]
 
-    ol = (il + 2 * padding[0] - dilation[0] * (kl - 1) - 1) // stride[0] + 1
+    (ol,) = _conv1d_oshape((il,), kl, stride, padding, dilation)
     assert ol == out_shape[0]
 
-    if padding > (0,):
-        x_padded = np.pad(x, ((0, 0), (padding[0], padding[0])))
+    if p > 0:
+        x_padded = np.pad(x, ((0, 0), (p, p)))
     else:
         x_padded = x
 
     out = np.zeros((cout,) + out_shape, dtype=np.int64)
-    conv_result = np.zeros((cout_per_grp, ol), dtype=np.int64)
+    conv_result = np.zeros((co_in_grp, ol), dtype=np.int64)
 
     for g in range(groups):
         # Get the input & output channels for this group
-        cin_start = g * cin_per_grp
-        cout_start = g * cout_per_grp
-        cout_end = (g + 1) * cout_per_grp
+        cin_start = g * ci_in_grp
+        cout_start = g * co_in_grp
+        cout_end = (g + 1) * co_in_grp
 
         conv_result.fill(0)
-        for o in range(cout_per_grp):
-            for i in range(cin_per_grp):
+        for o in range(co_in_grp):
+            for i in range(ci_in_grp):
                 for l in range(ol):
                     # Calculate input positions with dilation
-                    l_pos = [l * stride[0] + k * dilation[0] for k in range(kl)]
+                    l_pos = [l * s + k * d for k in range(kl)]
 
                     # Extract window
                     window = x_padded[cin_start + i, l_pos].astype(np.int64)
@@ -103,47 +111,47 @@ def conv2d_golden(
     dilation: _Size2Type = 1,
     groups: int = 1,
 ):
-    cout, cin_per_grp, kh, kw = kernel.shape
+    cout, ci_in_grp, kh, kw = kernel.shape
     cin, ih, iw = x.shape
 
-    assert cin == cin_per_grp * groups
+    assert cin == ci_in_grp * groups
     assert (
         cout % groups == 0 and cin % groups == 0
     ), f"Number of channels {cin} & {cout} must be divisible by groups {groups}"
-    cout_per_grp = cout // groups
+    co_in_grp = cout // groups
 
     stride = _pair(stride)
     padding = _pair(padding)
     dilation = _pair(dilation)
+    sh, sw = stride
+    ph, pw = padding
+    dh, dw = dilation
 
-    oh = (ih + 2 * padding[0] - dilation[0] * (kh - 1) - 1) // stride[0] + 1
-    ow = (iw + 2 * padding[1] - dilation[1] * (kw - 1) - 1) // stride[1] + 1
+    oh, ow = _conv2d_oshape((ih, iw), (kh, kw), stride, padding, dilation)
     assert (oh, ow) == out_shape
 
-    if padding > (0, 0):
-        x_padded = np.pad(
-            x, ((0, 0), (padding[0], padding[0]), (padding[1], padding[1]))
-        )
+    if ph > 0 or pw > 0:
+        x_padded = np.pad(x, ((0, 0), (ph, ph), (pw, pw)))
     else:
         x_padded = x
 
     out = np.zeros((cout,) + out_shape, dtype=np.int64)
-    conv_result = np.zeros((cout_per_grp, oh, ow), dtype=np.int64)
+    conv_result = np.zeros((co_in_grp, oh, ow), dtype=np.int64)
 
     for g in range(groups):
         # Get the input & output channels for this group
-        cin_start = g * cin_per_grp
-        cout_start = g * cout_per_grp
-        cout_end = (g + 1) * cout_per_grp
+        cin_start = g * ci_in_grp
+        cout_start = g * co_in_grp
+        cout_end = (g + 1) * co_in_grp
 
         conv_result.fill(0)
-        for o in range(cout_per_grp):
-            for i in range(cin_per_grp):
+        for o in range(co_in_grp):
+            for i in range(ci_in_grp):
                 for h in range(oh):
                     for w in range(ow):
                         # Calculate input positions with dilation
-                        h_pos = [h * stride[0] + m * dilation[0] for m in range(kh)]
-                        w_pos = [w * stride[1] + n * dilation[1] for n in range(kw)]
+                        h_pos = [h * sh + m * dh for m in range(kh)]
+                        w_pos = [w * sw + n * dw for n in range(kw)]
 
                         # Extract window
                         window = x_padded[cin_start + i, h_pos, :][:, w_pos].astype(
@@ -190,7 +198,7 @@ def convtranspose1d_golden(
     x_transpose[::1, :: stride[0]] = x
     # padding 0 for transpose not for parameter padding, get new input array x_transpose
     if kl > 1:
-        x_transpose = np.pad(x_transpose, ((0, 0), (kl - 1, kl - 1)), mode="constant")
+        x_transpose = np.pad(x_transpose, ((0, 0), (kl - 1, kl - 1)))
 
     kernel_flip = np.flip(kernel, axis=2)
     stride_transpose = 1
@@ -212,7 +220,7 @@ def convtranspose1d_golden(
 
     # output_padding
     if opl > 0:
-        out = np.pad(out, ((0, 0), (0, opl)), mode="constant")
+        out = np.pad(out, ((0, 0), (0, opl)))
 
     return out
 
@@ -262,9 +270,7 @@ def convtranspose2d_golden(
     x_transpose[::1, :: stride[0], :: stride[1]] = x
     # padding 0 for transpose not for parameter padding, get new input array x_transpose
     if kh > 1 or kw > 1:
-        x_transpose = np.pad(
-            x_transpose, ((0, 0), (kh - 1, kh - 1), (kw - 1, kw - 1)), mode="constant"
-        )
+        x_transpose = np.pad(x_transpose, ((0, 0), (kh - 1, kh - 1), (kw - 1, kw - 1)))
 
     kernel_flip = np.flip(kernel, axis=(2, 3))
     stride_transpose = (1, 1)
@@ -338,9 +344,11 @@ def maxpool1d_golden(
     ksize = _single(ksize)
     stride = _single(stride) if stride is not None else ksize
     padding = _single(padding)
+    s = stride[0]
+    p = padding[0]
 
     kl = ksize[0]
-    ol = (il - kl + 2 * padding[0]) // stride[0] + 1
+    (ol,) = _conv1d_oshape((il,), ksize, stride, padding)
     cout = cin
 
     if x.dtype == NEUOUT_U8_DTYPE:
@@ -349,14 +357,14 @@ def maxpool1d_golden(
     else:
         out = np.zeros((cout, ol), dtype=SPIKE_DTYPE)
 
-    if padding > (0,):
-        x_padded = np.pad(_x, ((0, 0), (padding[0], padding[0])))
+    if p > 0:
+        x_padded = np.pad(_x, ((0, 0), (p, p)))
     else:
         x_padded = _x
 
     for c in range(cout):
         for i in range(ol):
-            out[c, i] = np.max(x_padded[c, stride[0] * i : stride[0] * i + kl])
+            out[c, i] = np.max(x_padded[c, s * i : s * i + kl])
 
     return out
 
@@ -397,10 +405,11 @@ def maxpool2d_golden(
     ksize = _pair(ksize)
     stride = _pair(stride) if stride is not None else ksize
     padding = _pair(padding)
+    sh, sw = stride
+    ph, pw = padding
 
     kh, kw = ksize
-    oh = (ih - kh + 2 * padding[0]) // stride[0] + 1
-    ow = (iw - kw + 2 * padding[1]) // stride[1] + 1
+    (oh, ow) = _conv2d_oshape((ih, iw), ksize, stride, padding)
     cout = cin
 
     if x.dtype == NEUOUT_U8_DTYPE:
@@ -409,10 +418,8 @@ def maxpool2d_golden(
     else:
         out = np.zeros((cout, oh, ow), dtype=SPIKE_DTYPE)
 
-    if padding > (0, 0):
-        x_padded = np.pad(
-            _x, ((0, 0), (padding[0], padding[0]), (padding[1], padding[1]))
-        )
+    if ph > 0 or pw > 0:
+        x_padded = np.pad(_x, ((0, 0), (ph, ph), (pw, pw)))
     else:
         x_padded = _x
 
@@ -420,11 +427,7 @@ def maxpool2d_golden(
         for i in range(oh):
             for j in range(ow):
                 out[c, i, j] = np.max(
-                    x_padded[
-                        c,
-                        stride[0] * i : stride[0] * i + kh,
-                        stride[1] * j : stride[1] * j + kw,
-                    ]
+                    x_padded[c, sh * i : sh * i + kh, sw * j : sw * j + kw]
                 )
 
     return out
@@ -469,22 +472,24 @@ def avgpool1d_golden(
     ksize = _single(ksize)
     stride = _single(stride) if stride is not None else ksize
     padding = _single(padding)
+    s = stride[0]
+    p = padding[0]
 
     kl = ksize[0]
-    ol = (il - kl + 2 * padding[0]) // stride[0] + 1
+    (ol,) = _conv1d_oshape((il,), ksize, stride, padding)
     cout = cin
 
     # Treat the result as voltage since it will be turncated or compared later.
     out = np.zeros((cout, ol), dtype=VOLTAGE_DTYPE)
 
-    if padding > (0,):
-        x_padded = np.pad(_x, ((0, 0), (padding[0], padding[0])))
+    if p > 0:
+        x_padded = np.pad(_x, ((0, 0), (p, p)))
     else:
         x_padded = _x
 
     for c in range(cout):
         for i in range(ol):
-            out[c, i] = np.sum(x_padded[c, stride[0] * i : stride[0] * i + kl])
+            out[c, i] = np.sum(x_padded[c, s * i : s * i + kl])
 
     if threshold:
         assert x.dtype == SPIKE_DTYPE
@@ -538,25 +543,25 @@ def avgpool2d_golden(
     ksize = _pair(ksize)
     stride = _pair(stride) if stride is not None else ksize
     padding = _pair(padding)
+    sh, sw = stride
+    ph, pw = padding
 
     kh, kw = ksize
-    oh = (ih - kh + 2 * padding[0]) // stride[0] + 1
-    ow = (iw - kw + 2 * padding[1]) // stride[1] + 1
+    (oh, ow) = _conv2d_oshape((ih, iw), (kh, kw), stride, padding)
     cout = cin
 
     # Treat the result as voltage since it will be turncated or compared later.
     out = np.zeros((cout, oh, ow), dtype=VOLTAGE_DTYPE)
-    x_padded = np.pad(_x, ((0, 0), (padding[0], padding[0]), (padding[1], padding[1])))
+    if ph > 0 or pw > 0:
+        x_padded = np.pad(_x, ((0, 0), (ph, ph), (pw, pw)))
+    else:
+        x_padded = _x
 
     for c in range(cout):
         for i in range(oh):
             for j in range(ow):
                 out[c, i, j] = np.sum(
-                    x_padded[
-                        c,
-                        stride[0] * i : stride[0] * i + kh,
-                        stride[1] * j : stride[1] * j + kw,
-                    ]
+                    x_padded[c, sh * i : sh * i + kh, sw * j : sw * j + kw]
                 )
 
     if threshold:
