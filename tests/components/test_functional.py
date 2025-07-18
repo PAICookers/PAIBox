@@ -5,7 +5,13 @@ import paibox as pb
 from paibox.base import DynamicSys
 from paibox.components import NeuModule
 from paibox.components._modules import _SemiFoldedModule
-from paibox.components.synapses.conv_utils import conv2d_faster, _pair, _single
+from paibox.components.synapses.conv_utils import (
+    _conv1d_oshape,
+    _conv2d_oshape,
+    conv2d_faster,
+    _pair,
+    _single,
+)
 from paibox.exceptions import ShapeError
 from paibox.network import DynSysGroup
 from paibox.types import NEUOUT_U8_DTYPE, VOLTAGE_DTYPE, WEIGHT_DTYPE
@@ -794,7 +800,7 @@ class TestFunctionalModules:
         padding,
         out_features,
         groups,
-        fixed_rng: np.random.Generator,
+        fixed_rng,
     ):
         """Test the network with N semi-folded conv2d + 1 semi-folded linear."""
         from tests.shared_networks import Conv2dSemiFolded_FC_ChainNetN
@@ -804,9 +810,9 @@ class TestFunctionalModules:
         kernels = []
         strides = []
         paddings = []
-        ocs = []
-        ohs = []
-        ows = []
+        co_list = []
+        ho_list = []
+        wo_list = []
 
         for i_conv in range(n_conv):
             kshape, s, p = kshape_oihw[i_conv], stride[i_conv], padding[i_conv]
@@ -818,19 +824,19 @@ class TestFunctionalModules:
             strides.append(_stride)
             paddings.append(_padding)
 
-            ih = ishape_chw[1] if i_conv == 0 else ohs[-1]
-            iw = ishape_chw[2] if i_conv == 0 else ows[-1]
-            oc = kshape[0]
-            oh = (ih - kshape[2] + 2 * paddings[i_conv][0]) // _stride[0] + 1
-            ow = (iw - kshape[3] + 2 * paddings[i_conv][0]) // _stride[1] + 1
-            ocs.append(oc)
-            ohs.append(oh)
-            ows.append(ow)
+            hi = ishape_chw[1] if i_conv == 0 else ho_list[-1]
+            wi = ishape_chw[2] if i_conv == 0 else wo_list[-1]
+            co = kshape[0]
+            ho = (hi - kshape[2] + 2 * paddings[i_conv][0]) // _stride[0] + 1
+            wo = (wi - kshape[3] + 2 * paddings[i_conv][0]) // _stride[1] + 1
+            co_list.append(co)
+            ho_list.append(ho)
+            wo_list.append(wo)
 
         fc_weight = fixed_rng.integers(
             -4,
             5,
-            size=(ocs[-1] * ohs[-1] * ows[-1], shape2num(out_features)),
+            size=(co_list[-1] * ho_list[-1] * wo_list[-1], shape2num(out_features)),
             dtype=WEIGHT_DTYPE,
         )
 
@@ -899,7 +905,7 @@ class TestFunctionalModules:
                 x = ann_bit_trunc(
                     conv2d_faster(
                         x,
-                        (ohs[i_conv], ows[i_conv]),
+                        (ho_list[i_conv], wo_list[i_conv]),
                         kernels[i_conv],
                         strides[i_conv],
                         paddings[i_conv],
@@ -908,7 +914,7 @@ class TestFunctionalModules:
                 )
 
                 # Check the result of semi-folded convolutions.
-                for i in range(ows[i_conv]):
+                for i in range(wo_list[i_conv]):
                     assert np.array_equal(
                         x[:, :, i].ravel(),
                         sim1.data[probe_conv_list[i_conv]][
@@ -957,7 +963,7 @@ class TestFunctionalModules:
         padding,
         out_features,
         pool_type,
-        fixed_rng: np.random.Generator,
+        fixed_rng,
     ):
         """Test the network with N semi-folded pool2d + 1 semi-folded linear."""
         from tests.shared_networks import Pool2dSemiFolded_FC_ChainNetN
@@ -969,9 +975,9 @@ class TestFunctionalModules:
         ksizes = []
         strides = []
         paddings = []
-        ocs = []
-        ohs = []
-        ows = []
+        co_list = []
+        ho_list = []
+        wo_list = []
 
         for i_pool in range(n_pool):
             k, s, p = (kshape_hw[i_pool], stride[i_pool], padding[i_pool])
@@ -983,19 +989,18 @@ class TestFunctionalModules:
             strides.append(_stride)
             paddings.append(_padding)
 
-            ih = ishape_chw[1] if i_pool == 0 else ohs[-1]
-            iw = ishape_chw[2] if i_pool == 0 else ows[-1]
-            oc = ishape_chw[0]
-            oh = (ih - _ksize[0] + 2 * paddings[i_pool][0]) // _stride[0] + 1
-            ow = (iw - _ksize[1] + 2 * paddings[i_pool][0]) // _stride[1] + 1
-            ocs.append(oc)
-            ohs.append(oh)
-            ows.append(ow)
+            hi = ishape_chw[1] if i_pool == 0 else ho_list[-1]
+            wi = ishape_chw[2] if i_pool == 0 else wo_list[-1]
+            co = ishape_chw[0]
+            ho, wo = _conv2d_oshape((hi, wi), _ksize, _stride, _padding)
+            co_list.append(co)
+            ho_list.append(ho)
+            wo_list.append(wo)
 
         fc_weight = fixed_rng.integers(
             -4,
             5,
-            size=(ocs[-1] * ohs[-1] * ows[-1], shape2num(out_features)),
+            size=(co_list[-1] * ho_list[-1] * wo_list[-1], shape2num(out_features)),
             dtype=WEIGHT_DTYPE,
         )
 
@@ -1065,7 +1070,7 @@ class TestFunctionalModules:
                 )
 
                 # Check the result of semi-folded pooling.
-                for i in range(ows[i_pool]):
+                for i in range(wo_list[i_pool]):
                     assert np.array_equal(
                         x[:, :, i].ravel(),
                         sim1.data[probe_pool_list[i_pool]][
@@ -1145,7 +1150,7 @@ class TestFunctionalModules:
         padding,
         out_features,
         pool_type,
-        fixed_rng: np.random.Generator,
+        fixed_rng,
     ):
         from tests.shared_networks import Pool1d_FC_ChainNetN
 
@@ -1153,8 +1158,8 @@ class TestFunctionalModules:
         ksizes = []
         strides = []
         paddings = []
-        ocs = []
-        ols = []
+        co_list = []
+        lo_list = []
 
         for i_pool in range(n_pool):
             k, s, p = (kshape_l[i_pool], stride[i_pool], padding[i_pool])
@@ -1166,14 +1171,17 @@ class TestFunctionalModules:
             strides.append(_stride)
             paddings.append(_padding)
 
-            il = ishape_cl[1] if i_pool == 0 else ols[-1]
-            oc = ishape_cl[0]
-            ol = (il - _ksize[0] + 2 * paddings[i_pool][0]) // _stride[0] + 1
-            ocs.append(oc)
-            ols.append(ol)
+            li = ishape_cl[1] if i_pool == 0 else lo_list[-1]
+            co = ishape_cl[0]
+            (lo,) = _conv1d_oshape((li,), _ksize, _stride, _padding)
+            co_list.append(co)
+            lo_list.append(lo)
 
         fc_weight = fixed_rng.integers(
-            -4, 5, size=(ocs[-1] * ols[-1], shape2num(out_features)), dtype=WEIGHT_DTYPE
+            -4,
+            5,
+            size=(co_list[-1] * lo_list[-1], shape2num(out_features)),
+            dtype=WEIGHT_DTYPE,
         )
 
         net1 = Pool1d_FC_ChainNetN(
@@ -1227,7 +1235,7 @@ class TestFunctionalModules:
         padding,
         out_features,
         pool_type,
-        fixed_rng: np.random.Generator,
+        fixed_rng,
     ):
         from tests.shared_networks import Pool2d_FC_ChainNetN
 
@@ -1235,9 +1243,9 @@ class TestFunctionalModules:
         ksizes = []
         strides = []
         paddings = []
-        ocs = []
-        ohs = []
-        ows = []
+        co_list = []
+        ho_list = []
+        wo_list = []
 
         for i_pool in range(n_pool):
             k, s, p = (kshape_hw[i_pool], stride[i_pool], padding[i_pool])
@@ -1249,19 +1257,18 @@ class TestFunctionalModules:
             strides.append(_stride)
             paddings.append(_padding)
 
-            ih = ishape_chw[1] if i_pool == 0 else ohs[-1]
-            iw = ishape_chw[2] if i_pool == 0 else ows[-1]
-            oc = ishape_chw[0]
-            oh = (ih - _ksize[0] + 2 * paddings[i_pool][0]) // _stride[0] + 1
-            ow = (iw - _ksize[1] + 2 * paddings[i_pool][1]) // _stride[1] + 1
-            ocs.append(oc)
-            ohs.append(oh)
-            ows.append(ow)
+            hi = ishape_chw[1] if i_pool == 0 else ho_list[-1]
+            wi = ishape_chw[2] if i_pool == 0 else wo_list[-1]
+            co = ishape_chw[0]
+            ho, wo = _conv2d_oshape((hi, wi), _ksize, _stride, _padding)
+            co_list.append(co)
+            ho_list.append(ho)
+            wo_list.append(wo)
 
         fc_weight = fixed_rng.integers(
             -4,
             5,
-            size=(ocs[-1] * ohs[-1] * ows[-1], shape2num(out_features)),
+            size=(co_list[-1] * ho_list[-1] * wo_list[-1], shape2num(out_features)),
             dtype=WEIGHT_DTYPE,
         )
 
