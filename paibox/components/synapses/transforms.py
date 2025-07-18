@@ -367,7 +367,12 @@ class Conv1dForward(_ConvNdForward):
         _x = x.reshape((cin,) + self.in_shape)
 
         return conv1d_faster(
-            _x, self.out_shape, self.weights, self.stride, self.padding, groups=self.groups
+            _x,
+            self.out_shape,
+            self.weights,
+            self.stride,
+            self.padding,
+            groups=self.groups,
         )
 
     @property
@@ -404,7 +409,12 @@ class Conv2dForward(_ConvNdForward):
         _x = x.reshape((cin,) + self.in_shape)
 
         return conv2d_faster(
-            _x, self.out_shape, self.weights, self.stride, self.padding, groups=self.groups
+            _x,
+            self.out_shape,
+            self.weights,
+            self.stride,
+            self.padding,
+            groups=self.groups,
         )
 
     @property
@@ -420,7 +430,7 @@ class Conv2dForward(_ConvNdForward):
 
     @property
     def ksize(self) -> Size2Type:
-        return self.weights.shape[-2:]
+        return self.weights.shape[-2:]  # type: ignore
 
 
 class Conv2dSemiFoldedForward(_ConvNdForward):
