@@ -36,26 +36,26 @@ from .neuron.utils import ThresholdMode, vjt_overflow
 from .projection import InputProj
 from .synapses import ConnType, FullConnSyn
 from .synapses.conv_types import (
-    _Size1Type,
-    _Size2Type,
     Size1Type,
     Size2Type,
     SizeAnyType,
+    _Size1Type,
+    _Size2Type,
 )
 from .synapses.conv_utils import (
+    _conv1d_oshape,
+    _conv2d_oshape,
     _fm_ndim1_check,
     _fm_ndim2_check,
     _pair,
     _single,
-    _conv1d_oshape,
-    _conv2d_oshape,
 )
 from .synapses.transforms import (
     Conv1dForward,
     Conv2dForward,
-    _PoolNdForward,
     _Pool1dForward,
     _Pool2dForward,
+    _PoolNdForward,
 )
 
 if typing.TYPE_CHECKING:

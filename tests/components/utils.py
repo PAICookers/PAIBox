@@ -4,17 +4,17 @@ import numpy as np
 
 from paibox.components.neuron.base import MetaNeuron
 from paibox.components.synapses.conv_types import (
-    _Size1Type,
-    _Size2Type,
     Size1Type,
     Size2Type,
+    _Size1Type,
+    _Size2Type,
 )
 from paibox.components.synapses.conv_utils import (
-    _group_ch_check,
-    _single,
-    _pair,
     _conv1d_oshape,
     _conv2d_oshape,
+    _group_ch_check,
+    _pair,
+    _single,
 )
 from paibox.types import (
     NEUOUT_U8_DTYPE,

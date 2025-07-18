@@ -8,9 +8,9 @@ from paibox.components._modules import _SemiFoldedModule
 from paibox.components.synapses.conv_utils import (
     _conv1d_oshape,
     _conv2d_oshape,
-    conv2d_faster,
     _pair,
     _single,
+    conv2d_faster,
 )
 from paibox.exceptions import ShapeError
 from paibox.network import DynSysGroup

@@ -19,8 +19,6 @@ from paibox.types import (
 )
 
 from .conv_types import (
-    _Size1Type,
-    _Size2Type,
     Size1Type,
     Size2Type,
     Size3Type,
@@ -28,6 +26,8 @@ from .conv_types import (
     SizeAnyType,
     _Order2d,
     _Order3d,
+    _Size1Type,
+    _Size2Type,
 )
 
 if sys.version_info >= (3, 13):

@@ -6,9 +6,8 @@ from paibox.components.synapses.conv_utils import _conv1d_oshape, _conv2d_oshape
 from paibox.exceptions import AutoOptimizationWarning
 from paibox.types import VOLTAGE_DTYPE, WEIGHT_DTYPE
 from paibox.utils import shape2num
-
-from tests.utils import gen_random_array
 from tests.components.utils import *
+from tests.utils import gen_random_array
 
 
 class TestTransforms:

@@ -1,12 +1,12 @@
+import os
 import time
 import tracemalloc
-import os
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Generator, Optional, Union
 
-import pytest
 import numpy as np
+import pytest
 from numpy.typing import DTypeLike
 
 from paibox.types import Shape

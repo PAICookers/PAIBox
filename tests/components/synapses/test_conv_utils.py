@@ -1,19 +1,19 @@
+import timeit
+
 import numpy as np
 import pytest
-import timeit
 
 from paibox.components.synapses.conv_utils import (
     _conv1d_oshape,
-    _conv2d_oshape,
     _conv1d_unroll,
+    _conv2d_oshape,
     _conv2d_unroll,
     conv1d_faster,
     conv2d_faster,
 )
-from tests.conftest import ParametrizedTestData
 from tests.components.utils import conv1d_golden, conv2d_golden
+from tests.conftest import ParametrizedTestData
 from tests.utils import gen_random_array, is_ci_env
-
 
 try:
     from paibox.components.synapses.conv_utils import conv1d_faster_legacy

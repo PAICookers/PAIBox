@@ -11,13 +11,13 @@ from paibox.types import DataType, NeuOutType, SynOutType, WeightType
 from ..modules import BuildingModule
 from ..neuron import Neuron
 from ..projection import InputProj
-from .conv_types import _KOrder3d, _KOrder4d, Size1Type, Size2Type
+from .conv_types import Size1Type, Size2Type, _KOrder3d, _KOrder4d
 from .conv_utils import (
     _conv1d_oshape,
     _conv2d_oshape,
-    _group_ch_check,
     _fm_ndim1_check,
     _fm_ndim2_check,
+    _group_ch_check,
 )
 from .transforms import (
     AllToAll,
