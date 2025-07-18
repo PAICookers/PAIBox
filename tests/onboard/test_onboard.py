@@ -7,9 +7,9 @@ import pytest
 import paibox as pb
 from paibox.types import NEUOUT_U8_DTYPE, VOLTAGE_DTYPE
 from tests.components.utils import ann_bit_trunc
+from tests.utils import is_ci_env
 
-ci_env = os.environ.get("CI_ENV", None) is not None
-pytestmark = pytest.mark.skipif(ci_env, reason="Skipping in CI environment")
+pytestmark = pytest.mark.skipif(is_ci_env(), reason="Skipping in CI environment")
 
 
 TEST_DIR = Path(__file__).parent
@@ -17,8 +17,6 @@ DATA_DIR = TEST_DIR / "data"
 CONFIG_DIR = TEST_DIR / "config"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-
-FIXED_RNG = np.random.default_rng(seed=42)
 
 
 def _out_bypass1(t, data1, *args, **kwargs):
@@ -60,8 +58,8 @@ class TestOnBoard_WRAMMapping:
         if not USE_EXISTING_DATA:
             print("Generating new data")
             # W=8, disable weight bit optimization
-            weight1 = FIXED_RNG.integers(-10, 10, size=shape, dtype=np.int8)
-            inpdata1 = FIXED_RNG.integers(
+            weight1 = fixed_rng.integers(-10, 10, size=shape, dtype=np.int8)
+            inpdata1 = fixed_rng.integers(
                 np.iinfo(np.uint8).min, 5, size=(sim_time, shape[0]), dtype=np.uint8
             )
             # Shape of reference result is sim_time * refdata
@@ -143,8 +141,8 @@ class TestOnBoard_WRAMMapping:
         if not USE_EXISTING_DATA:
             print("Generating new data")
             # W=8, disable weight bit optimization
-            weight1 = FIXED_RNG.integers(-10, 10, size=shape, dtype=np.int8)
-            inpdata1 = FIXED_RNG.integers(
+            weight1 = fixed_rng.integers(-10, 10, size=shape, dtype=np.int8)
+            inpdata1 = fixed_rng.integers(
                 np.iinfo(np.uint8).min, 5, size=(sim_time, shape[0]), dtype=np.uint8
             )
             # Shape of reference result is sim_time * refdata
@@ -219,8 +217,8 @@ class TestOnBoard_WRAMMapping:
         if not USE_EXISTING_DATA:
             print("Generating new data")
             # W=2, enable weight bit optimization
-            weight1 = FIXED_RNG.integers(-2, 2, size=shape, dtype=np.int8)
-            inpdata1 = FIXED_RNG.integers(
+            weight1 = fixed_rng.integers(-2, 2, size=shape, dtype=np.int8)
+            inpdata1 = fixed_rng.integers(
                 np.iinfo(np.uint8).min, 2, size=(sim_time, shape[0]), dtype=np.uint8
             )
             # Shape of reference result is sim_time * refdata
@@ -297,8 +295,8 @@ class TestOnBoard_WRAMMapping:
         if not USE_EXISTING_DATA:
             print("Generating new data")
             # W=4, enable weight bit optimization
-            weight1 = FIXED_RNG.integers(-8, 8, size=shape, dtype=np.int8)
-            inpdata1 = FIXED_RNG.integers(
+            weight1 = fixed_rng.integers(-8, 8, size=shape, dtype=np.int8)
+            inpdata1 = fixed_rng.integers(
                 np.iinfo(np.uint8).min, 5, size=(sim_time, shape[0]), dtype=np.uint8
             )
             # Shape of reference result is sim_time * refdata
@@ -387,10 +385,10 @@ class TestOnBoard_WRAMMapping:
         if not USE_EXISTING_DATA:
             print("Generating new data")
             # W=8, disable weight bit optimization
-            weight1 = FIXED_RNG.integers(-5, 5, size=shape1, dtype=np.int8)
+            weight1 = fixed_rng.integers(-5, 5, size=shape1, dtype=np.int8)
             # W=4
-            weight2 = FIXED_RNG.integers(-15, 15, size=shape2, dtype=np.int8)
-            inpdata1 = FIXED_RNG.integers(
+            weight2 = fixed_rng.integers(-15, 15, size=shape2, dtype=np.int8)
+            inpdata1 = fixed_rng.integers(
                 np.iinfo(np.uint8).min, 5, size=(sim_time, shape1[0]), dtype=np.uint8
             )
             # Shape of reference result is sim_time * refdata
@@ -495,14 +493,14 @@ class TestOnBoard_WRAMMapping:
         if not USE_EXISTING_DATA:
             print("Generating new data")
             # W=1, enable weight bit optimization
-            weight1 = FIXED_RNG.integers(
+            weight1 = fixed_rng.integers(
                 0, 1, size=shape1, dtype=np.int8, endpoint=True
             )
             # W=1
-            weight2 = FIXED_RNG.integers(
+            weight2 = fixed_rng.integers(
                 0, 1, size=shape2, dtype=np.int8, endpoint=True
             )
-            inpdata1 = FIXED_RNG.integers(
+            inpdata1 = fixed_rng.integers(
                 np.iinfo(np.uint8).min, 5, size=(sim_time, shape1[0]), dtype=np.uint8
             )
             # Shape of reference result is sim_time * refdata
@@ -597,8 +595,8 @@ class TestOnBoard_WRAMMapping:
         if not USE_EXISTING_DATA:
             print("Generating new data")
             # W=4, enable weight bit optimization
-            weight1 = FIXED_RNG.integers(-8, 8, size=shape1, dtype=np.int8)
-            inpdata1 = FIXED_RNG.integers(
+            weight1 = fixed_rng.integers(-8, 8, size=shape1, dtype=np.int8)
+            inpdata1 = fixed_rng.integers(
                 np.iinfo(np.uint8).min, 3, size=(sim_time, shape1[0]), dtype=np.uint8
             )
             # Shape of reference result is sim_time * refdata
@@ -682,10 +680,10 @@ class TestOnBoard_WRAMMapping:
         if not USE_EXISTING_DATA:
             print("Generating new data")
             # W=4, enable weight bit optimization
-            weight1 = FIXED_RNG.integers(-8, 8, size=shape1, dtype=np.int8)
+            weight1 = fixed_rng.integers(-8, 8, size=shape1, dtype=np.int8)
             # W=8
-            weight2 = FIXED_RNG.integers(-15, 15, size=shape2, dtype=np.int8)
-            inpdata1 = FIXED_RNG.integers(
+            weight2 = fixed_rng.integers(-15, 15, size=shape2, dtype=np.int8)
+            inpdata1 = fixed_rng.integers(
                 np.iinfo(np.uint8).min, 5, size=(sim_time, shape1[0]), dtype=np.uint8
             )
             # Shape of reference result is sim_time * refdata
@@ -783,8 +781,8 @@ class TestOnBoard_SpikingOp:
         if not USE_EXISTING_DATA:
             print("Generating new data")
             # W=8, disable weight bit optimization
-            weight1 = FIXED_RNG.integers(-10, 12, size=ksize, dtype=np.int8)
-            inpdata1 = FIXED_RNG.integers(
+            weight1 = fixed_rng.integers(-10, 12, size=ksize, dtype=np.int8)
+            inpdata1 = fixed_rng.integers(
                 0, 1, size=(sim_time,) + shape1, dtype=np.bool_, endpoint=True
             )
             # Shape of reference result is sim_time * refdata
@@ -862,8 +860,8 @@ class TestOnBoard_SemiFoldedOp:
         if not USE_EXISTING_DATA:
             print("Generating new data")
             # W=8, disable weight bit optimization
-            weight1 = FIXED_RNG.integers(-10, 10, size=ksize, dtype=np.int8)
-            inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
+            weight1 = fixed_rng.integers(-10, 10, size=ksize, dtype=np.int8)
+            inpa = fixed_rng.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
             inpdata1 = np.concatenate(
                 [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
             )
@@ -936,8 +934,8 @@ class TestOnBoard_SemiFoldedOp:
 
         if not USE_EXISTING_DATA:
             print("Generating new data")
-            weight1 = FIXED_RNG.integers(-10, 10, size=ksize, dtype=np.int8)
-            inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
+            weight1 = fixed_rng.integers(-10, 10, size=ksize, dtype=np.int8)
+            inpa = fixed_rng.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
             inpdata1 = np.concatenate(
                 [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
             )
@@ -1008,9 +1006,9 @@ class TestOnBoard_SemiFoldedOp:
 
         if not USE_EXISTING_DATA:
             print("Generating new data")
-            # weight1 = FIXED_RNG.integers(0, 1, size=ksize, dtype=np.int8)
+            # weight1 = fixed_rng.integers(0, 1, size=ksize, dtype=np.int8)
             weight1 = np.ones(ksize, dtype=np.int8)
-            inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
+            inpa = fixed_rng.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
             inpdata1 = np.concatenate(
                 [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
             )
@@ -1083,9 +1081,9 @@ class TestOnBoard_SemiFoldedOp:
 
         if not USE_EXISTING_DATA:
             print("Generating new data")
-            # weight1 = FIXED_RNG.integers(0, 1, size=ksize, dtype=np.int8)
+            # weight1 = fixed_rng.integers(0, 1, size=ksize, dtype=np.int8)
             weight1 = np.ones(ksize, dtype=np.int8)
-            inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
+            inpa = fixed_rng.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
             inpdata1 = np.concatenate(
                 [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
             )
@@ -1158,9 +1156,9 @@ class TestOnBoard_SemiFoldedOp:
 
         if not USE_EXISTING_DATA:
             print("Generating new data")
-            weight1 = FIXED_RNG.integers(0, 5, size=ksize, dtype=np.int8)
+            weight1 = fixed_rng.integers(0, 5, size=ksize, dtype=np.int8)
             # weight1 = np.ones(ksize, dtype=np.int8)
-            inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
+            inpa = fixed_rng.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
             inpdata1 = np.concatenate(
                 [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
             )
@@ -1234,8 +1232,8 @@ class TestOnBoard_SemiFoldedOp:
         if not USE_EXISTING_DATA:
             print("Generating new data")
             # W=8, disable weight bit optimization
-            weight1 = FIXED_RNG.integers(-10, 10, size=ksize, dtype=np.int8)
-            inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
+            weight1 = fixed_rng.integers(-10, 10, size=ksize, dtype=np.int8)
+            inpa = fixed_rng.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
             inpdata1 = np.concatenate(
                 [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
             )
@@ -1307,9 +1305,9 @@ class TestOnBoard_SemiFoldedOp:
         if not USE_EXISTING_DATA:
             print("Generating new data")
             # weight =1
-            # weight1 = FIXED_RNG.integers(-10, 10, size=ksize, dtype=np.int8)
+            # weight1 = fixed_rng.integers(-10, 10, size=ksize, dtype=np.int8)
             weight1 = np.ones(ksize, dtype=np.int8)
-            inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
+            inpa = fixed_rng.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
             inpdata1 = np.concatenate(
                 [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
             )
@@ -1381,9 +1379,9 @@ class TestOnBoard_SemiFoldedOp:
         if not USE_EXISTING_DATA:
             print("Generating new data")
             # weight =1
-            # weight1 = FIXED_RNG.integers(-10, 10, size=ksize, dtype=np.int8)
+            # weight1 = fixed_rng.integers(-10, 10, size=ksize, dtype=np.int8)
             weight1 = np.ones(ksize, dtype=np.int8)
-            inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
+            inpa = fixed_rng.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
             inpdata1 = np.concatenate(
                 [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
             )
@@ -1453,8 +1451,8 @@ class TestOnBoard_SemiFoldedOp:
         if not USE_EXISTING_DATA:
             print("Generating new data")
             # W=8, disable weight bit optimization
-            weight1 = FIXED_RNG.integers(-10, 10, size=ksize, dtype=np.int8)
-            inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
+            weight1 = fixed_rng.integers(-10, 10, size=ksize, dtype=np.int8)
+            inpa = fixed_rng.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
             inpdata1 = np.concatenate(
                 [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
             )
@@ -1526,7 +1524,7 @@ class TestOnBoard_SemiFoldedOp:
         if not USE_EXISTING_DATA:
             print("Generating new data")
             # W=8, disable weight bit optimization
-            inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
+            inpa = fixed_rng.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
             inpdata1 = np.concatenate(
                 [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
             )
@@ -1596,7 +1594,7 @@ class TestOnBoard_SemiFoldedOp:
         if not USE_EXISTING_DATA:
             print("Generating new data")
             # W=8, disable weight bit optimization
-            inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
+            inpa = fixed_rng.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
             inpdata1 = np.concatenate(
                 [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
             )
@@ -1676,10 +1674,10 @@ class TestOnBoard_SemiFoldedOp:
         if not USE_EXISTING_DATA:
             print("Generating new data")
             # W=8, disable weight bit optimization
-            weight1 = FIXED_RNG.integers(0, 3, size=ksize1, dtype=np.int8)
-            weight2 = FIXED_RNG.integers(-3, 3, size=ksize2, dtype=np.int8)
-            weight3 = FIXED_RNG.integers(-3, 5, size=out_shape, dtype=np.int8)
-            inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
+            weight1 = fixed_rng.integers(0, 3, size=ksize1, dtype=np.int8)
+            weight2 = fixed_rng.integers(-3, 3, size=ksize2, dtype=np.int8)
+            weight3 = fixed_rng.integers(-3, 5, size=out_shape, dtype=np.int8)
+            inpa = fixed_rng.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
             inpdata1 = np.concatenate(
                 [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
             )
@@ -1768,10 +1766,10 @@ class TestOnBoard_SemiFoldedOp:
         if not USE_EXISTING_DATA:
             print("Generating new data")
             # W=8, disable weight bit optimization
-            weight1 = FIXED_RNG.integers(0, 3, size=ksize1, dtype=np.int8)
-            weight2 = FIXED_RNG.integers(-3, 3, size=ksize2, dtype=np.int8)
-            weight3 = FIXED_RNG.integers(-3, 5, size=out_shape, dtype=np.int8)
-            inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
+            weight1 = fixed_rng.integers(0, 3, size=ksize1, dtype=np.int8)
+            weight2 = fixed_rng.integers(-3, 3, size=ksize2, dtype=np.int8)
+            weight3 = fixed_rng.integers(-3, 5, size=out_shape, dtype=np.int8)
+            inpa = fixed_rng.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
             inpdata1 = np.concatenate(
                 [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
             )
@@ -1868,10 +1866,10 @@ class TestOnBoard_SemiFoldedOp:
         if not USE_EXISTING_DATA:
             print("Generating new data")
             # W=8, disable weight bit optimization
-            weight1 = FIXED_RNG.integers(0, 3, size=ksize1, dtype=np.int8)
-            weight2 = FIXED_RNG.integers(-3, 3, size=ksize2, dtype=np.int8)
-            weight3 = FIXED_RNG.integers(-3, 5, size=out_shape, dtype=np.int8)
-            inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
+            weight1 = fixed_rng.integers(0, 3, size=ksize1, dtype=np.int8)
+            weight2 = fixed_rng.integers(-3, 3, size=ksize2, dtype=np.int8)
+            weight3 = fixed_rng.integers(-3, 5, size=out_shape, dtype=np.int8)
+            inpa = fixed_rng.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
             inpdata1 = np.concatenate(
                 [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
             )
@@ -1968,10 +1966,10 @@ class TestOnBoard_SemiFoldedOp:
         if not USE_EXISTING_DATA:
             print("Generating new data")
             # W=8, disable weight bit optimization
-            weight1 = FIXED_RNG.integers(0, 3, size=ksize1, dtype=np.int8)
-            weight2 = FIXED_RNG.integers(-3, 3, size=ksize2, dtype=np.int8)
-            weight3 = FIXED_RNG.integers(-3, 5, size=out_shape, dtype=np.int8)
-            inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
+            weight1 = fixed_rng.integers(0, 3, size=ksize1, dtype=np.int8)
+            weight2 = fixed_rng.integers(-3, 3, size=ksize2, dtype=np.int8)
+            weight3 = fixed_rng.integers(-3, 5, size=out_shape, dtype=np.int8)
+            inpa = fixed_rng.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
             inpdata1 = np.concatenate(
                 [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
             )
@@ -2062,9 +2060,9 @@ class TestOnBoard_SemiFoldedOp:
         if not USE_EXISTING_DATA:
             print("Generating new data")
             # W=8, disable weight bit optimization
-            weight1 = FIXED_RNG.integers(0, 3, size=ksize1, dtype=np.int8)
-            weight2 = FIXED_RNG.integers(-3, 3, size=ksize2, dtype=np.int8)
-            inpa = FIXED_RNG.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
+            weight1 = fixed_rng.integers(0, 3, size=ksize1, dtype=np.int8)
+            weight2 = fixed_rng.integers(-3, 3, size=ksize2, dtype=np.int8)
+            inpa = fixed_rng.integers(0, 4, size=shape1, dtype=NEUOUT_U8_DTYPE)
             inpdata1 = np.concatenate(
                 [inpa, np.zeros_like(inpa)], axis=2, dtype=inpa.dtype
             )
@@ -2142,10 +2140,10 @@ class TestOnBoard_ReadNeuronVoltage:
 
         if not USE_EXISTING_DATA:
             print("Generating new data")
-            inpdata1 = FIXED_RNG.integers(
+            inpdata1 = fixed_rng.integers(
                 0, 1, size=(sim_time, 100), endpoint=True, dtype=np.bool_
             )
-            weight1 = FIXED_RNG.integers(-8, 10, size=(100, 200), dtype=np.int8)
+            weight1 = fixed_rng.integers(-8, 10, size=(100, 200), dtype=np.int8)
             # Shape of reference result is sim_time * refdata
             # The result is the voltage of n1
             refresult1 = np.zeros((sim_time, 200), dtype=VOLTAGE_DTYPE)
@@ -2213,10 +2211,10 @@ class TestOnBoard_ReadNeuronVoltage:
 
         if not USE_EXISTING_DATA:
             print("Generating new data")
-            inpdata1 = FIXED_RNG.integers(
+            inpdata1 = fixed_rng.integers(
                 0, 1, size=(sim_time, 2000), endpoint=True, dtype=np.bool_
             )
-            weight1 = FIXED_RNG.integers(-9, 10, size=(2000, 100), dtype=np.int8)
+            weight1 = fixed_rng.integers(-9, 10, size=(2000, 100), dtype=np.int8)
             # Shape of reference result is sim_time * refdata
             # The result is the voltage of n1
             refresult1 = np.zeros((sim_time, 100), dtype=VOLTAGE_DTYPE)
@@ -2283,8 +2281,8 @@ class TestOnBoard_ReadNeuronVoltage:
 
         if not USE_EXISTING_DATA:
             print("Generating new data")
-            inpdata1 = FIXED_RNG.integers(0, 4, size=(400,), dtype=NEUOUT_U8_DTYPE)
-            weight1 = FIXED_RNG.integers(-10, 10, size=(400, 400), dtype=np.int8)
+            inpdata1 = fixed_rng.integers(0, 4, size=(400,), dtype=NEUOUT_U8_DTYPE)
+            weight1 = fixed_rng.integers(-10, 10, size=(400, 400), dtype=np.int8)
             # Shape of reference result is sim_time * refdata
             # The result is the voltage of n1
             refresult1 = np.zeros((sim_time, 400), dtype=VOLTAGE_DTYPE)

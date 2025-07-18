@@ -6,7 +6,7 @@ version = "0.7.0"
 description = "Reusable constraint types to use with typing.Annotated"
 optional = false
 python-versions = ">=3.8"
-groups = ["main"]
+groups = ["main", "test"]
 files = [
     {file = "annotated_types-0.7.0-py3-none-any.whl", hash = "sha256:1f02e8b43a8fbbc3f3e0d4f0f4bfc8131bcb4eebe8849b8e5c773f3a1c582a53"},
     {file = "annotated_types-0.7.0.tar.gz", hash = "sha256:aff07c09a53a08bc8cfccb9c85b05f1aa9a2a6f23728d790723543408344ce89"},
@@ -170,7 +170,7 @@ version = "2.0.2"
 description = "Fundamental package for array computing in Python"
 optional = false
 python-versions = ">=3.9"
-groups = ["main"]
+groups = ["main", "test"]
 markers = "python_version == \"3.9\""
 files = [
     {file = "numpy-2.0.2-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:51129a29dbe56f9ca83438b706e2e69a39892b5eda6cedcb6b0c9fdc9b0d3ece"},
@@ -231,7 +231,7 @@ version = "2.2.6"
 description = "Fundamental package for array computing in Python"
 optional = false
 python-versions = ">=3.10"
-groups = ["main"]
+groups = ["main", "test"]
 markers = "python_version >= \"3.10\""
 files = [
     {file = "numpy-2.2.6-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:b412caa66f72040e6d268491a59f2c43bf03eb6c96dd8f0307829feb7fa2b6fb"},
@@ -402,18 +402,21 @@ reference = "tsinghua"
 
 [[package]]
 name = "paicorelib"
-version = "1.4.1"
+version = "1.5.0a1"
 description = "Library of PAICORE"
 optional = false
 python-versions = ">=3.9"
-groups = ["main"]
+groups = ["main", "test"]
 files = [
-    {file = "paicorelib-1.4.1-py3-none-any.whl", hash = "sha256:912a914b6aa30b34d7f00e3b924df055444e079d1750f42a6e913f295b75a9a3"},
-    {file = "paicorelib-1.4.1.tar.gz", hash = "sha256:a0c73924dc54756fd244a9467db2181c3793ab26af84fa146fc08f48f3021fe0"},
+    {file = "paicorelib-1.5.0a1-py3-none-any.whl", hash = "sha256:1d34de88159995eaeee2da80430ae2c127ab99f7e521e5076440e6ce29c9d84d"},
+    {file = "paicorelib-1.5.0a1.tar.gz", hash = "sha256:07efe245b1878c515742721a78c56b6caf7246fbecb13d3b316c0362257fda70"},
 ]
 
 [package.dependencies]
-numpy = ">=2.0"
+numpy = [
+    {version = ">=2.1.0,<3.0.0", markers = "python_version >= \"3.10\""},
+    {version = ">=2.0.0,<3.0.0"},
+]
 pydantic = ">=2.0.3,<3.0.0"
 
 [package.source]
@@ -448,7 +451,7 @@ version = "2.11.5"
 description = "Data validation using Python type hints"
 optional = false
 python-versions = ">=3.9"
-groups = ["main"]
+groups = ["main", "test"]
 files = [
     {file = "pydantic-2.11.5-py3-none-any.whl", hash = "sha256:f9c26ba06f9747749ca1e5c94d6a85cb84254577553c8785576fd38fa64dc0f7"},
     {file = "pydantic-2.11.5.tar.gz", hash = "sha256:7f853db3d0ce78ce8bbb148c401c2cdd6431b3473c0cdff2755c7690952a7b7a"},
@@ -475,7 +478,7 @@ version = "2.33.2"
 description = "Core functionality for Pydantic validation and serialization"
 optional = false
 python-versions = ">=3.9"
-groups = ["main"]
+groups = ["main", "test"]
 files = [
     {file = "pydantic_core-2.33.2-cp310-cp310-macosx_10_12_x86_64.whl", hash = "sha256:2b3d326aaef0c0399d9afffeb6367d5e26ddc24d351dbc9c636840ac355dc5d8"},
     {file = "pydantic_core-2.33.2-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:0e5b2671f05ba48b94cb90ce55d8bdcaaedb8ba00cc5359f6810fc918713983d"},
@@ -738,7 +741,6 @@ files = [
     {file = "typing_extensions-4.14.0-py3-none-any.whl", hash = "sha256:a1514509136dd0b477638fc68d6a91497af5076466ad0fa6c338e44e359944af"},
     {file = "typing_extensions-4.14.0.tar.gz", hash = "sha256:8676b788e32f02ab42d9e7c61324048ae4c6d844a399eebace3d4979d75ceef4"},
 ]
-markers = {test = "python_version < \"3.11\""}
 
 [package.source]
 type = "legacy"
@@ -751,7 +753,7 @@ version = "0.4.1"
 description = "Runtime typing introspection tools"
 optional = false
 python-versions = ">=3.9"
-groups = ["main"]
+groups = ["main", "test"]
 files = [
     {file = "typing_inspection-0.4.1-py3-none-any.whl", hash = "sha256:389055682238f53b04f7badcb49b989835495a96700ced5dab2d8feae4b26f51"},
     {file = "typing_inspection-0.4.1.tar.gz", hash = "sha256:6ae134cc0203c33377d43188d4064e9b357dba58cff3185f22924610e70a9d28"},
@@ -768,4 +770,4 @@ reference = "tsinghua"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.9"
-content-hash = "8321f04a0923b7e6c811c25d00fee9f7eb5af20009f55e3fdf50cd5d1446395e"
+content-hash = "cb6b03b7347bfdfe881b3ffb40f1c6f4563843e0cc47240f4951c1c048b148c4"

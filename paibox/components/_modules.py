@@ -6,7 +6,7 @@ import numpy as np
 from paicorelib import OffCoreCfg
 
 from paibox.base import DataFlowFormat, NeuDyn, NodeList
-from paibox.exceptions import ResourceError
+from paibox.exceptions import ResourceError, ShapeError
 from paibox.types import (
     NEUOUT_U8_DTYPE,
     WEIGHT_DTYPE,
@@ -35,13 +35,27 @@ from .neuron.neurons import *
 from .neuron.utils import ThresholdMode, vjt_overflow
 from .projection import InputProj
 from .synapses import ConnType, FullConnSyn
-from .synapses.conv_types import _Size1Type, _Size2Type
-from .synapses.conv_utils import _fm_ndim1_check, _fm_ndim2_check, _pair, _single
+from .synapses.conv_types import (
+    Size1Type,
+    Size2Type,
+    SizeAnyType,
+    _Size1Type,
+    _Size2Type,
+)
+from .synapses.conv_utils import (
+    _conv1d_oshape,
+    _conv2d_oshape,
+    _fm_ndim1_check,
+    _fm_ndim2_check,
+    _pair,
+    _single,
+)
 from .synapses.transforms import (
     Conv1dForward,
     Conv2dForward,
     _Pool1dForward,
     _Pool2dForward,
+    _PoolNdForward,
 )
 
 if typing.TYPE_CHECKING:
@@ -195,18 +209,16 @@ class _SemiFoldedModule(FunctionalModule):
         raise NotImplementedError
 
     def _input_buffer_len_check(
-        self, in_channels: int, in_h: int, kw: int, valid_interval: int
+        self, ci: int, hi: int, kw: int, valid_interval: int
     ) -> None:
         """Check the limit of the semi-folded operators on the input buffer length of the core during the build phase.
 
         NOTE: If the condition is not met, an expection will be raised in the subsequent compilation phase.
         """
         E = math.ceil(
-            math.log2(
-                math.ceil(in_channels * in_h * kw / OffCoreCfg.N_FANIN_PER_DENDRITE_ANN)
-            )
+            math.log2(math.ceil(ci * hi * kw / OffCoreCfg.N_FANIN_PER_DENDRITE_ANN))
         )
-        rin_deep = min(in_h - kw, kw - 1) * valid_interval + 1
+        rin_deep = min(hi - kw, kw - 1) * valid_interval + 1
         if not OffCoreCfg.N_TIMESLOT_MAX / (2**E) > rin_deep:
             raise ResourceError(
                 f"the input size of {self.name} is too large. Please adjust the input size or the number of channels."
@@ -254,8 +266,27 @@ class _LinearBase(FunctionalModule):
 
 
 @set_rt_mode_snn()
-class _SpikingPool1d(FunctionalModule):
+class _SpikingPoolNd(FunctionalModule):
     inherent_delay = 0
+    tfm: _PoolNdForward
+
+    def __init__(
+        self,
+        neuron: Union[NeuDyn, InputProj],
+        shape_out: SizeAnyType,
+        keep_shape: bool,
+        name: Optional[str],
+        **kwargs,
+    ) -> None:
+        """Basic Nd pooling."""
+        _pool_ksize_check(self.tfm.ksize, self.tfm.in_shape, self.tfm.padding)
+        super().__init__(
+            neuron, shape_out=shape_out, keep_shape=keep_shape, name=name, **kwargs
+        )
+
+
+class _SpikingPool1d(_SpikingPoolNd):
+    tfm: _Pool1dForward
 
     def __init__(
         self,
@@ -271,7 +302,7 @@ class _SpikingPool1d(FunctionalModule):
     ) -> None:
         """Basic 1d spiking pooling."""
         _pool_type_check(pool_type)
-        cin, il = _fm_ndim1_check(neuron.shape_out, "CL")
+        ci, il = _fm_ndim1_check(neuron.shape_out, "CL")
 
         _ksize = _single(kernel_size)
         _stride = _single(stride) if stride is not None else _ksize
@@ -280,12 +311,12 @@ class _SpikingPool1d(FunctionalModule):
         ol = (il + 2 * _padding[0] - _ksize[0]) // _stride[0] + 1
 
         if keep_shape:
-            shape_out = (cin, ol)
+            shape_out = (ci, ol)
         else:
-            shape_out = (cin * ol,)
+            shape_out = (ci * ol,)
 
         self.tfm = _Pool1dForward(
-            cin, (il,), (ol,), _ksize, _stride, _padding, pool_type, threshold
+            ci, (il,), (ol,), _ksize, _stride, _padding, pool_type, threshold
         )
 
         super().__init__(
@@ -353,20 +384,19 @@ class _SpikingPool1dWithV(FunctionalModuleWithV):
         **kwargs,
     ) -> None:
         """Basic 1d spiking pooling with voltage at the previous timestep."""
-
-        cin, il = _fm_ndim1_check(neuron.shape_out, "CL")
+        ci, il = _fm_ndim1_check(neuron.shape_out, "CL")
 
         _ksize = _single(kernel_size)
-        _kernel = np.ones((cin, cin, *_ksize), dtype=WEIGHT_DTYPE)
+        _kernel = np.ones((ci, ci, *_ksize), dtype=WEIGHT_DTYPE)
         _stride = _single(stride) if stride is not None else _ksize
         _padding = _single(padding)
 
         ol = (il + 2 * _padding[0] - _ksize[0]) // _stride[0] + 1
 
         if keep_shape:
-            shape_out = (cin, ol)
+            shape_out = (ci, ol)
         else:
-            shape_out = (cin * ol,)
+            shape_out = (ci * ol,)
 
         if isinstance(pos_thres, int):
             self.pos_thres = arg_check_non_neg(pos_thres, "positive threshold")
@@ -416,9 +446,8 @@ class _SpikingPool1dWithV(FunctionalModuleWithV):
         return generated
 
 
-@set_rt_mode_snn()
-class _SpikingPool2d(FunctionalModule):
-    inherent_delay = 0
+class _SpikingPool2d(_SpikingPoolNd):
+    tfm: _Pool2dForward
 
     def __init__(
         self,
@@ -435,22 +464,21 @@ class _SpikingPool2d(FunctionalModule):
     ) -> None:
         """Basic 2d spiking pooling."""
         _pool_type_check(pool_type)
-        cin, ih, iw = _fm_ndim2_check(neuron.shape_out, "CHW")
+        ci, hi, wi = _fm_ndim2_check(neuron.shape_out, "CHW")
 
         _ksize = _pair(kernel_size)
         _stride = _pair(stride) if stride is not None else _ksize
         _padding = _pair(padding)
 
-        oh = (ih + 2 * _padding[0] - _ksize[0]) // _stride[0] + 1
-        ow = (iw + 2 * _padding[1] - _ksize[1]) // _stride[1] + 1
+        ho, wo = _conv2d_oshape((hi, wi), _ksize, _stride, _padding)
 
         if keep_shape:
-            shape_out = (cin, oh, ow)
+            shape_out = (ci, ho, wo)
         else:
-            shape_out = (cin * oh * ow,)
+            shape_out = (ci * ho * wo,)
 
         self.tfm = _Pool2dForward(
-            cin, (ih, iw), (oh, ow), _ksize, _stride, _padding, pool_type, threshold
+            ci, (hi, wi), (ho, wo), _ksize, _stride, _padding, pool_type, threshold
         )
 
         super().__init__(
@@ -522,27 +550,27 @@ class _SpikingPool2dWithV(FunctionalModuleWithV):
         NOTE: This is not a regular average pooling operator. It is just to correspond to the operators \
             that appear in PAIFLOW.
         """
-        cin, ih, iw = _fm_ndim2_check(neuron.shape_out, "CHW")
+        ci, hi, wi = _fm_ndim2_check(neuron.shape_out, "CHW")
 
         _ksize = _pair(kernel_size)
-        _kernel = np.ones((cin, cin, *_ksize), dtype=WEIGHT_DTYPE)
+        _kernel = np.ones((ci, ci, *_ksize), dtype=WEIGHT_DTYPE)
         _stride = _pair(stride) if stride is not None else _ksize
         _padding = _pair(padding)
 
-        oh = (ih + 2 * _padding[0] - _ksize[0]) // _stride[0] + 1
-        ow = (iw + 2 * _padding[1] - _ksize[1]) // _stride[1] + 1
+        ho = (hi + 2 * _padding[0] - _ksize[0]) // _stride[0] + 1
+        wo = (wi + 2 * _padding[1] - _ksize[1]) // _stride[1] + 1
 
         if keep_shape:
-            shape_out = (cin, oh, ow)
+            shape_out = (ci, ho, wo)
         else:
-            shape_out = (cin * oh * ow,)
+            shape_out = (ci * ho * wo,)
 
         if isinstance(pos_thres, int):
             self.pos_thres = arg_check_non_neg(pos_thres, "positive threshold")
         else:
             self.pos_thres = typical_round(shape2num(_ksize) / 2)
 
-        self.tfm = Conv2dForward((ih, iw), (oh, ow), _kernel, _stride, _padding)
+        self.tfm = Conv2dForward((hi, wi), (ho, wo), _kernel, _stride, _padding)
 
         super().__init__(
             neuron,
@@ -587,8 +615,28 @@ class _SpikingPool2dWithV(FunctionalModuleWithV):
 
 
 @set_rt_mode_ann()
-class _Pool1d(FunctionalModule):
+class _PoolNd(FunctionalModule):
     inherent_delay = 0
+    tfm: _PoolNdForward
+    bit_trunc: int
+
+    def __init__(
+        self,
+        neuron_s: Union[NeuDyn, InputProj],
+        shape_out: SizeAnyType,
+        keep_shape: bool,
+        name: Optional[str],
+        **kwargs,
+    ) -> None:
+        """Basic Nd pooling."""
+        _pool_ksize_check(self.tfm.ksize, self.tfm.in_shape, self.tfm.padding)
+        super().__init__(
+            neuron_s, shape_out=shape_out, keep_shape=keep_shape, name=name, **kwargs
+        )
+
+
+class _Pool1d(_PoolNd):
+    tfm: _Pool1dForward
 
     def __init__(
         self,
@@ -604,33 +652,35 @@ class _Pool1d(FunctionalModule):
     ) -> None:
         """Basic 1d ANN pooling."""
         _pool_type_check(pool_type)
-        in_ch, in_l = _fm_ndim1_check(neuron_s.shape_out, "CL")
+        ci, li = _fm_ndim1_check(neuron_s.shape_out, "CL")
 
-        self.kernel_size = _single(kernel_size)
-        self.stride = _single(kernel_size if stride is None else stride)
-        self.padding = _single(padding)
+        ksize = _single(kernel_size)
+        s = _single(stride) if stride is not None else ksize
+        p = _single(padding)
 
         # NOTE: Division is achieved with the help of output truncation.
         # See comments in `AvgPool2dSemiFolded` in functional.py for more details.
-        ksize = shape2num(self.kernel_size)
-        self.bit_trunc = 8 + ksize.bit_length() - 1 if bit_trunc is None else bit_trunc
+        n_ksize = shape2num(ksize)
+        self.bit_trunc = (
+            8 + n_ksize.bit_length() - 1 if bit_trunc is None else bit_trunc
+        )
 
-        out_l = (in_l + 2 * self.padding[0] - self.kernel_size[0]) // self.stride[0] + 1
-        k = self.kernel_size[0]
-        assert 0 <= self.padding[0] <= k / 2 and 0 <= self.padding[0] <= k / 2
+        (lo,) = _conv1d_oshape((li,), ksize, s, p)
+        k = ksize[0]
+        assert 0 <= p[0] <= k / 2 and 0 <= p[0] <= k / 2
 
+        self.tfm = _Pool1dForward(ci, (li,), (lo,), ksize, s, p, pool_type)
         super().__init__(
             neuron_s,
-            shape_out=(in_ch, out_l),
+            shape_out=(ci, lo),
             keep_shape=keep_shape,
             name=name,
             **kwargs,
         )
 
 
-@set_rt_mode_ann()
-class _Pool2d(FunctionalModule):
-    inherent_delay = 0
+class _Pool2d(_PoolNd):
+    tfm: _Pool2dForward
 
     def __init__(
         self,
@@ -646,28 +696,27 @@ class _Pool2d(FunctionalModule):
     ) -> None:
         """Basic 2d ANN pooling."""
         _pool_type_check(pool_type)
-        in_ch, in_h, in_w = _fm_ndim2_check(neuron_s.shape_out, "CHW")
+        ci, hi, wi = _fm_ndim2_check(neuron_s.shape_out, "CHW")
 
-        self.kernel_size = _pair(kernel_size)
-        self.stride = _pair(kernel_size if stride is None else stride)
-        self.padding = _pair(padding)
+        ksize = _pair(kernel_size)
+        s = _pair(stride) if stride is not None else ksize
+        p = _pair(padding)
 
         # NOTE: Division is achieved with the help of output truncation.
         # See comments in `AvgPool2dSemiFolded` in functional.py for more details.
-        ksize = shape2num(self.kernel_size)
-        self.bit_trunc = 8 + ksize.bit_length() - 1 if bit_trunc is None else bit_trunc
+        n_ksize = shape2num(ksize)
+        self.bit_trunc = (
+            8 + n_ksize.bit_length() - 1 if bit_trunc is None else bit_trunc
+        )
 
-        out_h = (in_h - self.kernel_size[0] + 2 * self.padding[0]) // self.stride[0] + 1
-        out_w = (in_w - self.kernel_size[1] + 2 * self.padding[1]) // self.stride[1] + 1
-        kh, kw = self.kernel_size
-        assert self.padding[0] < kh and self.padding[1] < kw
+        ho, wo = _conv2d_oshape((hi, wi), ksize, s, p)
+        kh, kw = ksize
+        ph, pw = p
+        assert 0 <= ph <= kh / 2 and 0 <= pw <= kw / 2
 
+        self.tfm = _Pool2dForward(ci, (hi, wi), (ho, wo), ksize, s, p, pool_type)
         super().__init__(
-            neuron_s,
-            shape_out=(in_ch, out_h, out_w),
-            keep_shape=keep_shape,
-            name=name,
-            **kwargs,
+            neuron_s, shape_out=(ci, ho, wo), keep_shape=keep_shape, name=name, **kwargs
         )
 
 
@@ -690,3 +739,13 @@ def _spike_func_avg_pool(
 def _pool_type_check(pool_type: str) -> None:
     if pool_type not in ("avg", "max"):
         raise ValueError("type of pooling must be 'avg' or 'max'.")
+
+
+def _pool_ksize_check(
+    ksize: SizeAnyType, ifm_shape: SizeAnyType, padding: SizeAnyType
+) -> None:
+    eff_i = [i + 2 * p for i, p in zip(ifm_shape, padding)]
+    if any(k > ei for k, ei in zip(ksize, eff_i)):
+        raise ShapeError(
+            f"Kernel size {ksize} > effective input size {tuple(eff_i)}, (p={padding})"
+        )

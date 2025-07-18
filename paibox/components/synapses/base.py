@@ -1,7 +1,7 @@
 from typing import ClassVar, Optional, Union
 
 import numpy as np
-from paicorelib import HwConfig, OffCoreCfg
+from paicorelib import OffCoreCfg
 from paicorelib import WeightWidth as WW
 
 from paibox.base import NeuDyn, SynSys
@@ -11,8 +11,14 @@ from paibox.types import DataType, NeuOutType, SynOutType, WeightType
 from ..modules import BuildingModule
 from ..neuron import Neuron
 from ..projection import InputProj
-from .conv_types import _KOrder3d, _KOrder4d
-from .conv_utils import _fm_ndim1_check, _fm_ndim2_check
+from .conv_types import Size1Type, Size2Type, _KOrder3d, _KOrder4d
+from .conv_utils import (
+    _conv1d_oshape,
+    _conv2d_oshape,
+    _fm_ndim1_check,
+    _fm_ndim2_check,
+    _group_ch_check,
+)
 from .transforms import (
     AllToAll,
     CompareMax,
@@ -242,6 +248,7 @@ class FullConnSyn(FullConnectedSyn):
 
 
 class Conv1dSyn(FullConnectedSyn):
+    comm: Conv1dForward
     _spatial_ndim: ClassVar[int] = 1
 
     def __init__(
@@ -249,9 +256,9 @@ class Conv1dSyn(FullConnectedSyn):
         source: Union[NeuDyn, InputProj],
         dest: Neuron,
         kernel: np.ndarray,
-        stride: tuple[int],
-        padding: tuple[int],
-        dilation: tuple[int],
+        stride: Size1Type,
+        padding: Size1Type,
+        dilation: Size1Type,
         groups: int,
         order: _KOrder3d,
         name: Optional[str] = None,
@@ -266,30 +273,22 @@ class Conv1dSyn(FullConnectedSyn):
         if order == "IOL":
             _kernel = np.swapaxes(kernel, 0, 1)
         else:
-            _kernel = kernel.copy()
+            _kernel = kernel
 
-        # O,I,L
-        o_ch, grp_in_ch, kernel_l = _kernel.shape
-        # C,L
-        in_ch, in_l = _fm_ndim1_check(source.shape_out, "CL")
-        out_l = (in_l + 2 * padding[0] - dilation[0] * (kernel_l - 1) - 1) // stride[
-            0
-        ] + 1
+        co, ci_in_grp, k = _kernel.shape
+        ci, li = _fm_ndim1_check(source.shape_out, "CL")
+        (lo,) = _conv1d_oshape((li,), (k,), stride, padding, dilation)
 
-        if in_ch != (_cur_in_ch := groups * grp_in_ch):
-            in_ch_mismatch_text = f"input channels mismatch: {in_ch} != {_cur_in_ch}"
-            in_ch_mismatch_text += f" ({groups}*{grp_in_ch})." if groups > 1 else "."
-            raise ShapeError(in_ch_mismatch_text)
+        _group_ch_check(ci, co, groups, ci_in_grp)
 
-        if (_output_size := o_ch * out_l) != dest.num_in:
+        if (_output_size := co * lo) != dest.num_in:
             raise ShapeError(f"output size mismatch: {_output_size} != {dest.num_in}.")
 
-        self.comm = Conv1dForward(
-            (in_l,), (out_l,), _kernel, stride, padding, groups=groups
-        )
+        self.comm = Conv1dForward((li,), (lo,), _kernel, stride, padding, groups=groups)
 
 
 class Conv2dSyn(FullConnectedSyn):
+    comm: Conv2dForward
     _spatial_ndim: ClassVar[int] = 2
 
     def __init__(
@@ -297,9 +296,9 @@ class Conv2dSyn(FullConnectedSyn):
         source: Union[NeuDyn, InputProj],
         dest: Neuron,
         kernel: np.ndarray,
-        stride: tuple[int, int],
-        padding: tuple[int, int],
-        dilation: tuple[int, int],
+        stride: Size2Type,
+        padding: Size2Type,
+        dilation: Size2Type,
         groups: int,
         order: _KOrder4d,
         name: Optional[str] = None,
@@ -314,36 +313,27 @@ class Conv2dSyn(FullConnectedSyn):
         if order == "IOHW":
             _kernel = np.swapaxes(kernel, 0, 1)
         else:
-            _kernel = kernel.copy()
+            _kernel = kernel
 
-        # O,I,H,W
-        o_ch, grp_in_ch, kernel_h, kernel_w = _kernel.shape
-        # C,H,W
-        in_ch, in_h, in_w = _fm_ndim2_check(source.shape_out, "CHW")
-        out_h = (in_h + 2 * padding[0] - dilation[0] * (kernel_h - 1) - 1) // stride[
-            0
-        ] + 1
-        out_w = (in_w + 2 * padding[1] - dilation[1] * (kernel_w - 1) - 1) // stride[
-            1
-        ] + 1
+        co, ci_in_grp, kh, kw = _kernel.shape
+        ci, hi, wi = _fm_ndim2_check(source.shape_out, "CHW")
+        ho, wo = _conv2d_oshape((hi, wi), (kh, kw), stride, padding, dilation)
 
-        if in_ch != (_cur_in_ch := groups * grp_in_ch):
-            in_ch_mismatch_text = f"input channels mismatch: {in_ch} != {_cur_in_ch}"
-            in_ch_mismatch_text += f" ({groups}*{grp_in_ch})." if groups > 1 else "."
-            raise ShapeError(in_ch_mismatch_text)
+        _group_ch_check(ci, co, groups, ci_in_grp)
 
-        if (_output_size := o_ch * out_h * out_w) != dest.num_in:
+        if (_output_size := co * ho * wo) != dest.num_in:
             raise ShapeError(
-                f"output size mismatch: {_output_size} ({o_ch}*{out_h}*{out_w}) "
+                f"output size mismatch: {_output_size} ({co}*{ho}*{wo}) "
                 f"!= {dest.num_in}."
             )
 
         self.comm = Conv2dForward(
-            (in_h, in_w), (out_h, out_w), _kernel, stride, padding, groups=groups
+            (hi, wi), (ho, wo), _kernel, stride, padding, groups=groups
         )
 
 
 class Conv2dSemiFoldedSyn(FullConnectedSyn):
+    comm: Conv2dSemiFoldedForward
     _spatial_ndim: ClassVar[int] = 1
 
     def __init__(
@@ -370,25 +360,25 @@ class Conv2dSemiFoldedSyn(FullConnectedSyn):
             _kernel = kernel.copy()
 
         # O,I,H
-        o_ch, grp_in_ch, kernel_h = _kernel.shape
+        co, ci_in_grp, kh = _kernel.shape
         # I,H
         assert len(source.shape_out) == 2
-        in_ch, in_h = source.shape_out
-        out_h = (in_h + 2 * padding[0] - kernel_h) // stride[0] + 1
+        ci, hi = source.shape_out
+        ho = (hi + 2 * padding[0] - kh) // stride[0] + 1
 
-        if in_ch != (_cur_in_ch := groups * grp_in_ch):
-            in_ch_mismatch_text = f"input channels mismatch: {in_ch} != {_cur_in_ch}"
-            in_ch_mismatch_text += f" ({groups}*{grp_in_ch})." if groups > 1 else "."
+        if ci != (_cur_in_ch := groups * ci_in_grp):
+            in_ch_mismatch_text = f"input channels mismatch: {ci} != {_cur_in_ch}"
+            in_ch_mismatch_text += f" ({groups}*{ci_in_grp})." if groups > 1 else "."
             raise ShapeError(in_ch_mismatch_text)
 
-        if (_output_size := o_ch * out_h) != dest.num_in:
+        if (_output_size := co * ho) != dest.num_in:
             raise ShapeError(
-                f"output size mismatch: {_output_size} ({o_ch}*{out_h}) "
+                f"output size mismatch: {_output_size} ({co}*{ho}) "
                 f"!= {dest.num_in}."
             )
 
         self.comm = Conv2dSemiFoldedForward(
-            (in_ch, in_h), (o_ch, out_h), _kernel, stride, padding, groups=groups
+            (ci, hi), (co, ho), _kernel, stride, padding, groups=groups
         )
 
 
@@ -420,25 +410,25 @@ class ConvTranspose1dSyn(FullConnectedSyn):
             _kernel = kernel.copy()
 
         # O,I,L
-        o_ch, in_channels, kernel_l = _kernel.shape
+        co, in_channels, k = _kernel.shape
         # C,L
-        in_ch, in_l = _fm_ndim1_check(source.shape_out, "CL")
-        out_l = (
-            (in_l - 1) * stride[0]
+        ci, li = _fm_ndim1_check(source.shape_out, "CL")
+        lo = (
+            (li - 1) * stride[0]
             - 2 * padding[0]
-            + dilation[0] * (kernel_l - 1)
+            + dilation[0] * (k - 1)
             + output_padding[0]
             + 1
         )
 
-        if in_ch != in_channels:
-            raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
+        if ci != in_channels:
+            raise ShapeError(f"input channels mismatch: {ci} != {in_channels}.")
 
-        if (_output_size := o_ch * out_l) != dest.num_in:
+        if (_output_size := co * lo) != dest.num_in:
             raise ShapeError(f"output size mismatch: {_output_size} != {dest.num_in}.")
 
         self.comm = ConvTranspose1dForward(
-            (in_l,), (out_l,), _kernel, stride, padding, output_padding=output_padding
+            (li,), (lo,), _kernel, stride, padding, output_padding=output_padding
         )
 
 
@@ -470,33 +460,33 @@ class ConvTranspose2dSyn(FullConnectedSyn):
             _kernel = kernel.copy()
 
         # O,I,H,W
-        o_ch, in_channels, kernel_h, kernel_w = _kernel.shape
+        co, in_channels, kh, kw = _kernel.shape
         # C,H,W
-        in_ch, in_h, in_w = _fm_ndim2_check(source.shape_out, "CHW")
-        out_h = (
-            (in_h - 1) * stride[0]
+        ci, hi, wi = _fm_ndim2_check(source.shape_out, "CHW")
+        ho = (
+            (hi - 1) * stride[0]
             - 2 * padding[0]
-            + dilation[0] * (kernel_h - 1)
+            + dilation[0] * (kh - 1)
             + output_padding[0]
             + 1
         )
-        out_w = (
-            (in_w - 1) * stride[1]
+        wo = (
+            (wi - 1) * stride[1]
             - 2 * padding[1]
-            + dilation[1] * (kernel_w - 1)
+            + dilation[1] * (kw - 1)
             + output_padding[1]
             + 1
         )
 
-        if in_ch != in_channels:
-            raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
+        if ci != in_channels:
+            raise ShapeError(f"input channels mismatch: {ci} != {in_channels}.")
 
-        if (_output_size := o_ch * out_h * out_w) != dest.num_in:
+        if (_output_size := co * ho * wo) != dest.num_in:
             raise ShapeError(f"output size mismatch: {_output_size} != {dest.num_in}.")
 
         self.comm = ConvTranspose2dForward(
-            (in_h, in_w),
-            (out_h, out_w),
+            (hi, wi),
+            (ho, wo),
             _kernel,
             stride,
             padding,
@@ -506,6 +496,8 @@ class ConvTranspose2dSyn(FullConnectedSyn):
 
 class MaxPoolSyn(FullConnectedSyn):
     """Max pooling synapses. Only used when input width is 8-bit."""
+
+    comm: CompareMax
 
     def __init__(
         self,

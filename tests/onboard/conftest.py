@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 
@@ -41,3 +42,8 @@ def ensure_test_item_dirs(request: pytest.FixtureRequest):
         pass  # will be overwritten every time
 
     return data_subdir, config_subdir
+
+
+@pytest.fixture(autouse=True)
+def fixed_rng() -> np.random.Generator:
+    return np.random.default_rng(42)
