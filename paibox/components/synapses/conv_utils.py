@@ -49,7 +49,7 @@ _triple = partial(_ntuple, n=3)
 _quadruple = partial(_ntuple, n=4)
 
 
-INDEX_DTYPE = np.uint16
+INDEX_DTYPE = np.uint32
 MAX_INDEX = np.iinfo(INDEX_DTYPE).max
 
 
@@ -202,16 +202,34 @@ def _conv1d_unroll(
     stride: Size1Type,
     padding: Size1Type,
     groups: int = 1,
+) -> np.ndarray:
+    p = padding[0]
+    return _conv1d_unroll_asymmetric_padding(
+        in_shape, out_shape, kernel, stride, _pair(p), groups
+    )
+
+
+def _conv1d_unroll_asymmetric_padding(
+    in_shape: Size1Type,
+    out_shape: Size1Type,
+    kernel: WeightType,
+    stride: Size1Type,
+    padding: Size2Type,
+    groups: int = 1,
 ) -> WeightType:
-    """Optimized version of conv1d kernel unrolling using vectorization."""
+    """Optimized version of conv1d kernel unrolling using vectorization & indexing.
+    
+    NOTE: the padding argument is a tuple of 2 values, (pl, pr) specifying the padding for the left & right \
+        sides of the input.
+    """
     li = in_shape[0]
     lo = out_shape[0]
     co, ci_in_grp, kl = kernel.shape
     co_in_grp = co // groups
 
     s = stride[0]
-    p = padding[0]
-    li_padded = li + 2 * p
+    pl, pr = padding
+    li_padded = li + pl + pr
 
     x_grp_idx_shape = (ci_in_grp, li_padded)
     x_grp_idx_n = np.prod(x_grp_idx_shape)
@@ -232,9 +250,9 @@ def _conv1d_unroll(
             k_ur[g, mask, cols] = k[:, np.newaxis]
 
     # Handle padding removal
-    if p > 0:
+    if pl > 0 or pr > 0:
         k_ur = k_ur.reshape(groups, ci_in_grp, li_padded, -1)
-        k_ur = k_ur[:, :, p : -p or None, :]
+        k_ur = k_ur[:, :, pl : -pr or None, :]
 
     return k_ur.reshape(-1, co * lo)
 
@@ -327,7 +345,7 @@ def _conv2d_unroll(
 ) -> np.ndarray:
     ph, pw = padding
     return _conv2d_unroll_asymmetric_padding(
-        in_shape, out_shape, kernel, stride, (ph, ph, pw, pw), groups
+        in_shape, out_shape, kernel, stride, _pair(ph) + _pair(pw), groups
     )
 
 
@@ -341,8 +359,8 @@ def _conv2d_unroll_asymmetric_padding(
 ) -> np.ndarray:
     """Optimized version of conv2d kernel unrolling using sliding window view & indexing.
 
-    NOTE: the padding argument is a tuple of 4 values, (ph, pd, pl, pr) specifying the padding for  \
-        the top, bottom, left & right sides of the input.
+    NOTE: the padding argument is a tuple of 4 values, (ph, pd, pl, pr) specifying the padding for the top, \
+        bottom, left & right sides of the input.
     """
     hi, wi = in_shape
     ho, wo = out_shape
