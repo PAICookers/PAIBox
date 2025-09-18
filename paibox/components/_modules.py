@@ -35,13 +35,7 @@ from .neuron.neurons import *
 from .neuron.utils import ThresholdMode, vjt_overflow
 from .projection import InputProj
 from .synapses import ConnType, FullConnSyn
-from .synapses.conv_types import (
-    Size1Type,
-    Size2Type,
-    SizeAnyType,
-    _Size1Type,
-    _Size2Type,
-)
+from .synapses.conv_types import SizeAnyType, _Size1Type, _Size2Type
 from .synapses.conv_utils import (
     _conv1d_oshape,
     _conv2d_oshape,
@@ -667,7 +661,7 @@ class _Pool1d(_PoolNd):
 
         (lo,) = _conv1d_oshape((li,), ksize, s, p)
         k = ksize[0]
-        assert 0 <= p[0] <= k / 2 and 0 <= p[0] <= k / 2
+        assert 0 <= p[0] <= k
 
         self.tfm = _Pool1dForward(ci, (li,), (lo,), ksize, s, p, pool_type)
         super().__init__(
@@ -712,7 +706,7 @@ class _Pool2d(_PoolNd):
         ho, wo = _conv2d_oshape((hi, wi), ksize, s, p)
         kh, kw = ksize
         ph, pw = p
-        assert 0 <= ph <= kh / 2 and 0 <= pw <= kw / 2
+        assert 0 <= ph <= kh and 0 <= pw <= kw
 
         self.tfm = _Pool2dForward(ci, (hi, wi), (ho, wo), ksize, s, p, pool_type)
         super().__init__(
