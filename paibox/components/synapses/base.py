@@ -17,7 +17,7 @@ from .conv_utils import (
     _conv2d_oshape,
     _fm_ndim1_check,
     _fm_ndim2_check,
-    _group_ch_check,
+    group_ch_check,
 )
 from .transforms import (
     AllToAll,
@@ -279,7 +279,7 @@ class Conv1dSyn(FullConnectedSyn):
         ci, li = _fm_ndim1_check(source.shape_out, "CL")
         (lo,) = _conv1d_oshape((li,), (k,), stride, padding, dilation)
 
-        _group_ch_check(ci, co, groups, ci_in_grp)
+        group_ch_check(ci, co, groups, ci_in_grp)
 
         if (_output_size := co * lo) != dest.num_in:
             raise ShapeError(f"output size mismatch: {_output_size} != {dest.num_in}.")
@@ -319,7 +319,7 @@ class Conv2dSyn(FullConnectedSyn):
         ci, hi, wi = _fm_ndim2_check(source.shape_out, "CHW")
         ho, wo = _conv2d_oshape((hi, wi), (kh, kw), stride, padding, dilation)
 
-        _group_ch_check(ci, co, groups, ci_in_grp)
+        group_ch_check(ci, co, groups, ci_in_grp)
 
         if (_output_size := co * ho * wo) != dest.num_in:
             raise ShapeError(

@@ -53,12 +53,12 @@ INDEX_DTYPE = np.uint32
 MAX_INDEX = np.iinfo(INDEX_DTYPE).max
 
 
-def _assert_max_index(*args: Union[int, np.integer]) -> None:
+def assert_max_index(*args: Union[int, np.integer]) -> None:
     for n in args:
         assert n <= MAX_INDEX, f"Number {n} exceeds max index {MAX_INDEX}"
 
 
-def _group_ch_check(ci: int, co: int, groups: int, ci_in_grp: int) -> None:
+def group_ch_check(ci: int, co: int, groups: int, ci_in_grp: int) -> None:
     assert (
         ci % groups == 0 and co % groups == 0
     ), f"Input & output channels {ci} & {co} must be divisible by groups {groups}"
@@ -202,7 +202,7 @@ def _conv1d_unroll(
     stride: Size1Type,
     padding: Size1Type,
     groups: int = 1,
-) -> np.ndarray:
+) -> WeightType:
     p = padding[0]
     return _conv1d_unroll_asymmetric_padding(
         in_shape, out_shape, kernel, stride, _pair(p), groups
@@ -233,7 +233,7 @@ def _conv1d_unroll_asymmetric_padding(
 
     x_grp_idx_shape = (ci_in_grp, li_padded)
     x_grp_idx_n = np.prod(x_grp_idx_shape)
-    _assert_max_index(x_grp_idx_n)
+    assert_max_index(x_grp_idx_n)
 
     x_grp_idx = np.arange(x_grp_idx_n, dtype=np.int16).reshape(x_grp_idx_shape)
     k_ur = np.zeros((groups, ci_in_grp * li_padded, co * lo), dtype=kernel.dtype)
@@ -342,7 +342,7 @@ def _conv2d_unroll(
     stride: Size2Type,
     padding: Size2Type,
     groups: int = 1,
-) -> np.ndarray:
+) -> WeightType:
     ph, pw = padding
     return _conv2d_unroll_asymmetric_padding(
         in_shape, out_shape, kernel, stride, _pair(ph) + _pair(pw), groups
@@ -356,7 +356,7 @@ def _conv2d_unroll_asymmetric_padding(
     stride: Size2Type,
     padding: Size4Type,
     groups: int = 1,
-) -> np.ndarray:
+) -> WeightType:
     """Optimized version of conv2d kernel unrolling using sliding window view & indexing.
 
     NOTE: the padding argument is a tuple of 4 values, (ph, pd, pl, pr) specifying the padding for the top, \
@@ -375,7 +375,7 @@ def _conv2d_unroll_asymmetric_padding(
 
     x_grp_idx_shape = (ci_in_grp, hi_padded, wi_padded)
     x_grp_idx_n = np.prod(x_grp_idx_shape)
-    _assert_max_index(x_grp_idx_n)
+    assert_max_index(x_grp_idx_n)
 
     x_grp_idx = np.arange(x_grp_idx_n, dtype=INDEX_DTYPE).reshape(x_grp_idx_shape)
     k_ur = np.zeros((groups, x_grp_idx_n, co * osize), dtype=kernel.dtype)
@@ -465,7 +465,7 @@ def conv1d_faster_legacy(
     p = _single(padding)[0]
     d = _single(dilation)
 
-    _group_ch_check(ci, co, groups, ci_in_grp)
+    group_ch_check(ci, co, groups, ci_in_grp)
     co_in_grp = co // groups
 
     if p > 0:
@@ -518,7 +518,7 @@ def conv1d_faster(
     p = _single(padding)
     d = _single(dilation)
 
-    _group_ch_check(ci, co, groups, ci_in_grp)
+    group_ch_check(ci, co, groups, ci_in_grp)
 
     x_cols = im2col_indices_1d(x, kl, s, p, d, groups, out_shape)
     co_in_grp = co // groups
@@ -565,7 +565,7 @@ def conv2d_faster_legacy(
     ph, pw = _pair(padding)
     d = _pair(dilation)
 
-    _group_ch_check(ci, co, groups, ci_in_grp)
+    group_ch_check(ci, co, groups, ci_in_grp)
     co_in_grp = co // groups
 
     if ph > 0 or pw > 0:
@@ -615,7 +615,7 @@ def conv2d_faster(
     p = _pair(padding)
     d = _pair(dilation)
 
-    _group_ch_check(ci, co, groups, ci_in_grp)
+    group_ch_check(ci, co, groups, ci_in_grp)
 
     x_cols = im2col_indices_2d(x, kh, kw, s, p, d, groups, out_shape)
     co_in_grp = co // groups
@@ -1011,7 +1011,7 @@ def get_im2col_indices_1d(
     assert ci % groups == 0, f"Input channels {ci} must be divisible by groups {groups}"
     ci_in_grp = ci // groups
 
-    _assert_max_index(kl, lo, ci_in_grp)
+    assert_max_index(kl, lo, ci_in_grp)
 
     i0 = np.arange(kl, dtype=INDEX_DTYPE) * dl
     i0 = np.tile(i0, ci_in_grp)
@@ -1039,7 +1039,7 @@ def get_im2col_indices_2d(
     assert ci % groups == 0, f"Input channels {ci} must be divisible by groups {groups}"
     ci_in_grp = ci // groups
 
-    _assert_max_index(kh, kw, ho, wo, ci_in_grp)
+    assert_max_index(kh, kw, ho, wo, ci_in_grp)
 
     i0 = np.repeat(np.arange(kh, dtype=INDEX_DTYPE) * dh, kw)
     i0 = np.tile(i0, ci_in_grp)
@@ -1137,7 +1137,7 @@ def _pool1d_kernel_unroll(
 
     x_ch_idx_shape = (li_padded,)
     x_ch_idx_n = np.prod(x_ch_idx_shape)
-    _assert_max_index(x_ch_idx_n)
+    assert_max_index(x_ch_idx_n)
 
     x_ch_idx = np.arange(x_ch_idx_n, dtype=INDEX_DTYPE).reshape(x_ch_idx_shape)
 
@@ -1175,7 +1175,7 @@ def _pool2d_kernel_unroll(
 
     x_ch_idx_shape = (hi_padded, wi_padded)
     x_ch_idx_n = np.prod(x_ch_idx_shape)
-    _assert_max_index(x_ch_idx_n)
+    assert_max_index(x_ch_idx_n)
 
     x_ch_idx = np.arange(x_ch_idx_n, dtype=INDEX_DTYPE).reshape(x_ch_idx_shape)
 

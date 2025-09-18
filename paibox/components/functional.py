@@ -38,7 +38,7 @@ from .neuron.utils import ThresholdMode, vjt_overflow
 from .projection import InputProj
 from .synapses import ConnType, Conv2dSemiFoldedSyn, FullConnSyn, MaxPoolSyn
 from .synapses.conv_types import _Size1Type, _Size2Type
-from .synapses.conv_utils import _conv1d_oshape, _group_ch_check, _pair
+from .synapses.conv_utils import _conv1d_oshape, group_ch_check, _pair
 
 if sys.version_info >= (3, 13):
     from warnings import deprecated
@@ -1011,7 +1011,7 @@ class Conv2dSemiFolded(_SemiFoldedModule):
         ph, pw = self.padding
         assert ph < kh and pw < kw
 
-        _group_ch_check(ci, co, groups, ci_in_grp)
+        group_ch_check(ci, co, groups, ci_in_grp)
 
         super().__init__(
             neuron_s, shape_out=(co, ho), keep_shape=keep_shape, name=name, **kwargs
