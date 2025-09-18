@@ -1,35 +1,67 @@
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
 from dataclasses import dataclass
 from enum import IntEnum, unique
 import math
 import numpy as np
+from numpy.lib.stride_tricks import sliding_window_view
+from numpy.typing import NDArray
 
-from typing import Optional, Literal, Union
+from typing import ClassVar, Optional, Literal, TypeVar, Union, cast, overload
 
 from paicorelib import LCN_EX, HwConfig
 from paibox import _logging
 from paibox.components.synapses.conv_utils import (
-    _assert_max_index,
-    _group_ch_check,
+    INDEX_DTYPE,
+    group_ch_check,
     _conv1d_oshape,
-    _conv1d_unroll,
-    _conv1d_unroll_asymmetric_padding,
     _conv2d_oshape,
-    _conv2d_unroll,
-    _conv2d_unroll_asymmetric_padding,
     _pair,
+    _quadruple,
     _single,
 )
 from paibox.components.synapses.conv_types import (
     _Size1Type,
     _Size2Type,
+    _Size4Type,
     Size1Type,
     Size2Type,
     Size3Type,
     Size4Type,
+    SizeAnyType,
 )
-from paibox.types import VOLTAGE_DTYPE, Shape, SynOutType, WeightType
+from paibox.types import Shape, WeightType
 from paibox.utils import shape2num
+
+from .kernel_unrolling import *
+
+
+__all__ = [
+    # Types
+    "TileSize2d",
+    "TileSize3d",
+    "TileSlice2d",
+    "TileSlice3d",
+    "TileSliceConv1d",
+    "TileSliceConv2d",
+    "EstCoreCostStatus",
+    "EstCoreCostResult",
+    # Functions for estimating operator's cost
+    "operator_core_cost_estimate",
+    "optimal_lcn_matmul2d",
+    "optimal_tiling_conv1d",
+    "optimal_tiling_conv2d",
+    # Functions for tiling
+    "conv1d_tile_by_tile_size",
+    "conv2d_tile_by_tile_size",
+    "make_conv_tiled_idx_map",
+    "make_output_conv_tiled_idx_map",
+    "make_input_conv_tiled_idx_map",
+    "make_conv1d_kernel_tiled_unrolled",
+    "make_conv2d_kernel_tiled_unrolled",
+    # Functions for optimizing tiling for conv
+    "conv1d_tiling_optimize",
+    "conv2d_tiling_optimize",
+]
 
 tl_optim_log = _logging.get_artifact_logger(__name__, "tiling_optim")
 
@@ -37,17 +69,22 @@ TileSize2d = Size2Type
 TileSize3d = Size3Type
 
 
-class TileSlice2d:
+def _starts_ends_pair(starts: Sequence[int], lens: Sequence[int]) -> tuple[int, ...]:
+    ends = tuple(s + l for s, l in zip(starts, lens))
+    return tuple(x for pair in zip(starts, ends) for x in pair)
+
+
+class TileSliceBase:
+    pass
+
+
+class TileSlice2d(TileSliceBase):
+    ndim: ClassVar[int] = 2
+
     def __init__(self, x_start: int, x_end: int, y_start: int, y_end: int) -> None:
         assert x_start < x_end and y_start < y_end
         self.x = slice(x_start, x_end, 1)
         self.y = slice(y_start, y_end, 1)
-
-    def to_shape(self):
-        raise NotImplementedError
-
-    def to_slice(self):
-        raise NotImplementedError
 
     @property
     def start(self) -> tuple[int, int]:
@@ -62,6 +99,10 @@ class TileSlice2d:
         return (self.xlen, self.ylen)
 
     @property
+    def size(self) -> int:
+        return self.xlen * self.ylen
+
+    @property
     def xlen(self) -> int:
         return self.x.stop - self.x.start
 
@@ -69,8 +110,17 @@ class TileSlice2d:
     def ylen(self) -> int:
         return self.y.stop - self.y.start
 
+    @property
+    def slice_range(self):
+        raise NotImplementedError
 
-class TileSlice3d:
+    def __str__(self) -> str:
+        return f"x={self.x}, y={self.y}"
+
+
+class TileSlice3d(TileSliceBase):
+    ndim: ClassVar[int] = 3
+
     def __init__(
         self,
         x_start: int,
@@ -85,12 +135,6 @@ class TileSlice3d:
         self.y = slice(y_start, y_end, 1)
         self.z = slice(z_start, z_end, 1)
 
-    def to_shape(self):
-        raise NotImplementedError
-
-    def to_slice(self):
-        raise NotImplementedError
-
     @property
     def start(self) -> tuple[int, int, int]:
         return (self.x.start, self.y.start, self.z.start)
@@ -104,6 +148,10 @@ class TileSlice3d:
         return (self.xlen, self.ylen, self.zlen)
 
     @property
+    def size(self) -> int:
+        return self.xlen * self.ylen * self.zlen
+
+    @property
     def xlen(self) -> int:
         return self.x.stop - self.x.start
 
@@ -115,15 +163,47 @@ class TileSlice3d:
     def zlen(self) -> int:
         return self.z.stop - self.z.start
 
+    @property
+    def slice_range(self):
+        raise NotImplementedError
+
+    def __str__(self) -> str:
+        return f"x={self.x}, y={self.y}, z={self.z}"
+
+
+SliceRangeNd = tuple[slice, ...]
+SliceRange3d = tuple[slice, slice, slice]
+SliceRange4d = tuple[slice, slice, slice, slice]
+
 
 class TileSliceConv1d(TileSlice2d):
-    def __init__(self, g_start: int, g_end: int, l_start: int, l_end: int) -> None:
+    def __init__(
+        self,
+        g_start: int,
+        g_end: int,
+        l_start: int,
+        l_end: int,
+        paddings: _Size2Type = 0,
+    ) -> None:
+        # Pad on the L dimension only
+        pl, pr = _pair(paddings)
+        self.paddings = ((0, 0), (pl, pr))
+
         super().__init__(g_start, g_end, l_start, l_end)
 
-    def to_shape(self):
+    @classmethod
+    def make_tile_slice(
+        cls, start_idx: Size2Type, side_lens: Size2Type, paddings: _Size2Type = 0
+    ):
+        return cls(*_starts_ends_pair(start_idx, side_lens), paddings=paddings)
+
+    @property
+    def shape_ext(self) -> Size3Type:
+        """Extended shape g, c(=-1), l."""
         return (self.xlen, -1, self.ylen)
 
-    def to_slice(self):
+    @property
+    def slice_range(self) -> SliceRange3d:
         return (self.x, slice(None), self.y)
 
 
@@ -136,140 +216,27 @@ class TileSliceConv2d(TileSlice3d):
         h_end: int,
         w_start: int,
         w_end: int,
+        paddings: _Size4Type = 0,
     ) -> None:
+        pt, pb, pl, pr = _quadruple(paddings)
+        self.paddings = ((0, 0), (pt, pb), (pl, pr))
+
         super().__init__(g_start, g_end, h_start, h_end, w_start, w_end)
 
-    def to_shape(self):
+    @classmethod
+    def make_tile_slice(
+        cls, start_idx: Size3Type, side_lens: Size3Type, paddings: _Size4Type = 0
+    ):
+        return cls(*_starts_ends_pair(start_idx, side_lens), paddings=paddings)
+
+    @property
+    def shape_ext(self) -> Size4Type:
+        """Extended shape g, c(=-1), h, w."""
         return (self.xlen, -1, self.ylen, self.zlen)
 
-    def to_slice(self):
+    @property
+    def slice_range(self) -> SliceRange4d:
         return (self.x, slice(None), self.y, self.z)
-
-
-def _eff_step(start: int, step: int, len: int) -> int:
-    """Return the effective step."""
-    if start + step <= len:
-        return step
-    else:
-        return len - start
-
-
-def _eff_tile_size2d(
-    tile_start_idx: tuple[int, int],
-    conv1d_tile_size: TileSize2d,
-    range: tuple[int, int],
-) -> TileSize2d:
-    g, l = map(
-        lambda args: _eff_step(*args), zip(tile_start_idx, conv1d_tile_size, range)
-    )
-    return g, l
-
-
-def _eff_tile_size3d(
-    tile_start_idx: tuple[int, int, int],
-    conv2d_tile_size: TileSize3d,
-    range: tuple[int, int, int],
-) -> TileSize3d:
-    g, h, w = map(
-        lambda args: _eff_step(*args), zip(tile_start_idx, conv2d_tile_size, range)
-    )
-    return g, h, w
-
-
-def _conv_pos_o2i(pos: int, s: int, p: int) -> int:
-    return pos * s - p
-
-
-def _input_pos_conv1d(pos: int, stride: Size1Type, padding: Size1Type) -> int:
-    """Compute the input position from the output position."""
-    return _conv_pos_o2i(pos, stride[0], padding[0])
-
-
-def _input_pos_conv2d(
-    pos: Size2Type, stride: Size2Type, padding: Size2Type
-) -> Size2Type:
-    """Compute the input position from the output position."""
-
-    hi, wi = map(lambda args: _conv_pos_o2i(*args), zip(pos, stride, padding))
-    return hi, wi
-
-
-def _conv_len_o2i(len: int, k: int, s: int) -> int:
-    return (len - 1) * s + k
-
-
-def _i_tile_hw_conv1d(o_tile_size: int, ksize: Size1Type, stride: Size1Type) -> int:
-    """Compute the input tile size by given the output tile size, kernel size & stride."""
-    k = ksize[0]
-    s = stride[0]
-
-    return _conv_len_o2i(o_tile_size, k, s)
-
-
-def _i_tile_hw_conv2d(
-    o_tile_size: Size2Type, ksize: Size2Type, stride: Size2Type
-) -> Size2Type:
-    """Compute the input tile size by given the output tile size, kernel size & stride."""
-
-    hi_tl, wi_tl = map(
-        lambda args: _conv_len_o2i(*args), zip(o_tile_size, ksize, stride)
-    )
-    return hi_tl, wi_tl
-
-
-def _eff_input_tile_size1d(
-    in_shape_l: Size1Type,
-    ksize: Size1Type,
-    stride: Size1Type,
-    padding: Size1Type,
-    o_tile_l: int,
-    o_tile_l_start: int,
-) -> tuple[int, int, Size2Type]:
-    (li,) = in_shape_l
-
-    _li_start = _input_pos_conv1d(o_tile_l_start, stride, padding)
-    _li_tl = _i_tile_hw_conv1d(o_tile_l, ksize, stride)
-    _li_end = _li_start + _li_tl
-
-    pad_l = max(-_li_start, 0)
-    pad_r = max(_li_end - li, 0)
-
-    li_start = max(_li_start, 0)
-
-    # Actual block size without padding
-    li_tl = _li_tl - pad_l - pad_r
-
-    return li_tl, li_start, (pad_l, pad_r)
-
-
-def _eff_input_tile_size2d(
-    in_shape_hw: Size2Type,
-    ksize: Size2Type,
-    stride: Size2Type,
-    padding: Size2Type,
-    o_tile_hw: Size2Type,
-    o_tile_hw_start: Size2Type,
-) -> tuple[Size2Type, Size2Type, Size4Type]:
-    hi, wi = in_shape_hw
-
-    _hi_start, _wi_start = _input_pos_conv2d(o_tile_hw_start, stride, padding)
-    _hi_tl, _wi_tl = _i_tile_hw_conv2d(o_tile_hw, ksize, stride)
-    _hi_end = _hi_start + _hi_tl
-    _wi_end = _wi_start + _wi_tl
-
-    pad_t = max(-_hi_start, 0)
-    pad_b = max(_hi_end - hi, 0)
-    pad_l = max(-_wi_start, 0)
-    pad_r = max(_wi_end - wi, 0)
-
-    hi_start = max(_hi_start, 0)
-    wi_start = max(_wi_start, 0)
-
-    # Actual block size without padding
-    hi_tl = _hi_tl - pad_t - pad_b
-    wi_tl = _wi_tl - pad_l - pad_r
-
-    return (hi_tl, wi_tl), (hi_start, wi_start), (pad_t, pad_b, pad_l, pad_r)
 
 
 @unique
@@ -278,23 +245,21 @@ class EstCoreCostStatus(IntEnum):
 
     SUCCESS = 0
     FAN_IN_TOO_LARGE = -1
-    """The fan-in of the operator is too large for the computing cores."""
+    """Too large fan-in for the computing cores."""
     CORES_MORE_THAN_ONE_CHIP = -2
-    """The number of cores needed is more than one chip so it is impossible to be multicasted."""
+    """Required cores more than one chip, impossible to be multicasted."""
     FAILED = -99
-
-
-_EstStatus = EstCoreCostStatus
 
 
 @dataclass
 class EstCoreCostResult:
-    status: _EstStatus
+    status: EstCoreCostStatus
     n_core: int
     lcn: LCN_EX
 
 
-_EstResult = EstCoreCostResult
+EstStatus = EstCoreCostStatus
+EstResult = EstCoreCostResult
 
 
 def optimal_lcn_matmul2d(
@@ -302,7 +267,7 @@ def optimal_lcn_matmul2d(
     shape_b: Size2Type,
     core_n_fanin_base: int,
     core_n_fanout_base: int,
-) -> _EstResult:
+) -> EstResult:
     """Estimate the optimal LCN for 2d matmul tiling. A 2d matmul `Y = A(m*n) * B(n*k)` can be viewed as:
         [Y1, Y2, ..., Ym]^T = [A1, A2, ..., An]^T @ B
 
@@ -313,7 +278,7 @@ def optimal_lcn_matmul2d(
     """
     assert shape_a[1] == shape_b[0]
 
-    est_result = _EstResult(_EstStatus.FAILED, 0, LCN_EX.LCN_1X)
+    est_result = EstResult(EstStatus.FAILED, 0, LCN_EX.LCN_1X)
     n_fanin_patch, n_fanout_patch = shape_b
     n_patch = shape_a[0]
 
@@ -330,13 +295,13 @@ def optimal_lcn_matmul2d(
         n_core_tile = math.ceil(n_patch_in_tile * n_fanout_patch / fout_capacity)
         # if n_core_tile > HwConfig.N_CORE_OFFLINE:
         #     # The #N of cores for a single tile exceeds the maximum number of cores in a single chip.
-        #     est_result.status = _EstStatus.CORES_MORE_THAN_ONE_CHIP
+        #     est_result.status = EstStatus.CORES_MORE_THAN_ONE_CHIP
         #     break
 
         # Get the #N of tiles to allocate for this matmul
-        n_tile, n_patch_remain = divmod(n_patch, n_patch_in_tile)
+        n_tl_ghw, n_patch_remain = divmod(n_patch, n_patch_in_tile)
 
-        n_core = n_core_tile * n_tile
+        n_core = n_core_tile * n_tl_ghw
         if n_patch_remain > 0:
             n_core += math.ceil(n_patch_remain * n_fanout_patch / fout_capacity)
 
@@ -348,8 +313,8 @@ def optimal_lcn_matmul2d(
 
         # If this is the first successful estimation or the total number of cores is less than
         # the previous one, update the result.
-        if est_result.status == _EstStatus.FAILED or n_core < est_result.n_core:
-            est_result.status = _EstStatus.SUCCESS
+        if est_result.status == EstStatus.FAILED or n_core < est_result.n_core:
+            est_result.status = EstStatus.SUCCESS
             est_result.n_core = n_core
             est_result.lcn = lcn
 
@@ -361,7 +326,7 @@ def operator_core_cost_estimate(
     out_shape: Shape,
     core_n_fanin_base: int,
     core_n_fanout_base: int,
-) -> _EstResult:
+) -> EstResult:
     """Estimate the number of cores & LCN needed for a given input & output shape of an operator.
 
     Args:
@@ -379,13 +344,138 @@ def operator_core_cost_estimate(
     # Estimate #N of cores needed for this op
     if (_lcn := ((n_fanin - 1) // core_n_fanin_base).bit_length()) > LCN_EX.LCN_64X:
         # Fan-in is too large for the core
-        return _EstResult(_EstStatus.FAN_IN_TOO_LARGE, 0, LCN_EX.LCN_64X)
+        return EstResult(EstStatus.FAN_IN_TOO_LARGE, 0, LCN_EX.LCN_64X)
 
     est_n_core = math.ceil(n_fanout / (core_n_fanout_base >> _lcn))
     if est_n_core > HwConfig.N_CORE_OFFLINE:
-        return _EstResult(_EstStatus.CORES_MORE_THAN_ONE_CHIP, est_n_core, LCN_EX(_lcn))
+        return EstResult(EstStatus.CORES_MORE_THAN_ONE_CHIP, est_n_core, LCN_EX(_lcn))
 
-    return _EstResult(_EstStatus.SUCCESS, est_n_core, LCN_EX(_lcn))
+    return EstResult(EstStatus.SUCCESS, est_n_core, LCN_EX(_lcn))
+
+
+def _eff_step(start: int, step: int, len: int) -> int:
+    """Return the effective step."""
+    if start + step <= len:
+        return step
+    else:
+        return len - start
+
+
+def _eff_tile_size2d(
+    tile_start_idx: Size2Type, o_tile_size: TileSize2d, range: Size2Type
+) -> TileSize2d:
+    g, l = map(lambda args: _eff_step(*args), zip(tile_start_idx, o_tile_size, range))
+    return g, l
+
+
+def _eff_tile_size3d(
+    tile_start_idx: Size3Type, o_tile_size: TileSize3d, range: Size3Type
+) -> TileSize3d:
+    g, h, w = map(
+        lambda args: _eff_step(*args), zip(tile_start_idx, o_tile_size, range)
+    )
+    return g, h, w
+
+
+def _conv_pos_o2i(pos: int, s: int, p: int) -> int:
+    return pos * s - p
+
+
+def _input_pos_conv1d(pos: int, stride: Size1Type, padding: Size1Type) -> int:
+    """Compute the input position from the output position."""
+    return _conv_pos_o2i(pos, stride[0], padding[0])
+
+
+def _input_pos_conv2d(
+    pos: Size2Type, stride: Size2Type, padding: Size2Type
+) -> Size2Type:
+    """Compute the input position from the output position."""
+    hi, wi = map(lambda args: _conv_pos_o2i(*args), zip(pos, stride, padding))
+    return hi, wi
+
+
+def _conv_len_o2i(len: int, k: int, s: int) -> int:
+    return (len - 1) * s + k
+
+
+def _i_tile_hw_conv1d(o_tl_size_gl: int, ksize: Size1Type, stride: Size1Type) -> int:
+    """Compute the input tile size by given the output tile size, kernel size & stride."""
+    return _conv_len_o2i(o_tl_size_gl, ksize[0], stride[0])
+
+
+def _i_tile_hw_conv2d(
+    o_tl_size_ghw: Size2Type, ksize: Size2Type, stride: Size2Type
+) -> Size2Type:
+    """Compute the input tile size by given the output tile size, kernel size & stride."""
+    hi_tl, wi_tl = map(
+        lambda args: _conv_len_o2i(*args), zip(o_tl_size_ghw, ksize, stride)
+    )
+    return hi_tl, wi_tl
+
+
+def _i_tile_hw_conv(
+    o_tile_size: SizeAnyType, ksize: SizeAnyType, stride: SizeAnyType
+) -> SizeAnyType:
+    """Compute the input tile size by given the output tile size, kernel size & stride."""
+    assert len(o_tile_size) == len(ksize) == len(stride)
+    return tuple(
+        map(lambda args: _conv_len_o2i(*args), zip(o_tile_size, ksize, stride))
+    )
+
+
+def _eff_input_tile_size1d(
+    in_shape_l: Size1Type,
+    ksize: Size1Type,
+    stride: Size1Type,
+    padding: Size1Type,
+    o_tile_l: int,
+    o_tile_l_start: int,
+) -> tuple[int, int, Size2Type]:
+    li = in_shape_l[0]
+
+    _li_start = _input_pos_conv1d(o_tile_l_start, stride, padding)
+    _li_tl = _i_tile_hw_conv1d(o_tile_l, ksize, stride)
+    _li_end = _li_start + _li_tl
+
+    pl = max(-_li_start, 0)
+    pr = max(_li_end - li, 0)
+
+    li_start = max(_li_start, 0)
+
+    # Actual block size without padding
+    li_tl = _li_tl - pl - pr
+
+    return li_tl, li_start, (pl, pr)
+
+
+def _eff_input_tile_size2d(
+    in_shape_hw: Size2Type,
+    ksize: Size2Type,
+    stride: Size2Type,
+    padding: Size2Type,
+    o_tile_hw: Size2Type,
+    o_tile_start_hw: Size2Type,
+) -> tuple[Size2Type, Size2Type, Size4Type]:
+    hi, wi = in_shape_hw
+
+    _hi_start, _wi_start = _input_pos_conv2d(o_tile_start_hw, stride, padding)
+    _hi_tl, _wi_tl = _i_tile_hw_conv2d(o_tile_hw, ksize, stride)
+    _hi_end = _hi_start + _hi_tl
+    _wi_end = _wi_start + _wi_tl
+
+    pt = max(-_hi_start, 0)
+    pb = max(_hi_end - hi, 0)
+    pl = max(-_wi_start, 0)
+    pr = max(_wi_end - wi, 0)
+
+    hi_start = max(_hi_start, 0)
+    wi_start = max(_wi_start, 0)
+
+    # Actual block size without padding
+    hi_tl = _hi_tl - pt - pb
+    wi_tl = _wi_tl - pl - pr
+
+    return (hi_tl, wi_tl), (hi_start, wi_start), (pt, pb, pl, pr)
 
 
 def _traverse_tile_size1d(
@@ -419,6 +509,49 @@ def _traverse_tile_size2d(
             yield (h, wo)
 
 
+def get_factors(n: int) -> list[int]:
+    factors = set()
+    for i in range(1, int(math.sqrt(n)) + 1):
+        if n % i == 0:
+            factors.add(i)
+            factors.add(n // i)
+
+    return sorted(factors)
+
+
+def tile_size_ghw_o2i(
+    o_tl_size_ghw: TileSize3d, ksize: Size2Type, stride: Size2Type
+) -> TileSize3d:
+    return (o_tl_size_ghw[0],) + _i_tile_hw_conv2d(o_tl_size_ghw[1:], ksize, stride)
+
+
+def tile_size_o_gl2i_cl(
+    o_tl_size_gl: TileSize2d, ci_in_grp: int, ksize: Size1Type, stride: Size1Type
+) -> TileSize2d:
+    g_tl = o_tl_size_gl[0]
+    li_tl = _i_tile_hw_conv1d(o_tl_size_gl[-1], ksize, stride)
+    return (g_tl * ci_in_grp, li_tl)
+
+
+def tile_size_o_ghw2i_chw(
+    o_tl_size_ghw: TileSize3d, ci_in_grp: int, ksize: Size2Type, stride: Size2Type
+) -> TileSize3d:
+    g_tl = o_tl_size_ghw[0]
+    hi_tl, wi_tl = _i_tile_hw_conv2d(o_tl_size_ghw[1:], ksize, stride)
+    return (g_tl * ci_in_grp, hi_tl, wi_tl)
+
+
+TST = TypeVar("TST", TileSize2d, TileSize3d)
+
+
+def tile_size_gl2cl(tl_slice: TST, c_in_grp: int) -> TST:
+    return (tl_slice[0] * c_in_grp,) + tl_slice[1:]
+
+
+def tile_size_ghw2chw(tl_slice: TST, c_in_grp: int) -> TST:
+    return tile_size_gl2cl(tl_slice, c_in_grp)
+
+
 def optimal_tiling_conv1d(
     in_shape: Size2Type,
     out_shape: Size2Type,
@@ -427,26 +560,21 @@ def optimal_tiling_conv1d(
     groups: int,
     core_n_fanin_base: int,
     core_n_fanout_base: int,
-    *,
     traverse_order: Literal["all", "even"] = "all",
-) -> tuple[_EstResult, TileSize2d, TileSize2d]:
+) -> tuple[EstResult, TileSize2d, TileSize2d]:
     """Tile the 1d convolution & find the optimal block size of the output feature map.
 
     Args:
-        in_shape (tuple[int, int]): the shape of the input feature map in C, L order.
-        out_shape (tuple[int, int]): the shape of the output feature map in C, L order.
-        ksize (Size1Type): the kernel size.
-        stride (Size1Type): the stride.
-        groups (int): the number of groups.
         core_n_fanin_base (int): the base fan-in of a core.
         core_n_fanout_base (int): the base fan-out of a core.
-        traverse_order (Literal["all", "even"]): the order to traverse the possible optimal output feature map. \
-            Defaults to "all".
+        traverse_order ("all" or "even"): the order to traverse the possible optimal output feature map.\
+            Default is "all".
 
     Returns:
-        est_result (EstCoreCostResult): the result of the estimation, including the status, #N of cores & LCN.
-        tile_size_ghw (tuple[int, int, int]): the block size on dimensions g, l.
-        n_tile_ghw (tuple[int, int, int]): the number of blocks in each dimension of g, l.
+        est_result (EstCoreCostResult): the result of the estimation, including the status, #N of cores \
+            & LCN.
+        best_tl_size_gl (Size2Type): the optimal block size on dimensions g, l.
+        best_n_tl_gl (Size2Type): the number of blocks in each dimension of g, l.
     """
     ci, _ = in_shape
     co, lo = out_shape
@@ -457,53 +585,52 @@ def optimal_tiling_conv1d(
     ci_in_grp = ci // groups
     co_in_grp = co // groups
 
-    est_result = _EstResult(_EstStatus.FAILED, 0, LCN_EX.LCN_1X)
+    est_result = EstResult(EstStatus.FAILED, 0, LCN_EX.LCN_1X)
 
     # Tile the conv1d in g, l dimensions (channels will be followed by groups)
-    best_n_tile_gl = (0, 0)
-    best_tile_size_gl = (0, 0)
+    best_n_tl_gl = (0, 0)
+    best_tl_size_gl = (0, 0)
 
-    for g_tl in range(1, groups + 1):
-        n_tile_g = math.ceil(groups / g_tl)
+    # NOTE: Make sure candidate `g_tl` is a factor of `groups`
+    for g_tl in get_factors(groups):
+        n_tl_g = math.ceil(groups / g_tl)
 
         for lo_tl in _traverse_tile_size1d(lo, traverse_order):
-            o_tile_size_gl = (g_tl, lo_tl)
-            li_tl = _i_tile_hw_conv1d(lo_tl, ksize, stride)
-
-            i_tile_size = (g_tl, ci_in_grp, li_tl)
-            o_tile_size = (g_tl, co_in_grp, lo_tl)
+            o_tl_size_gl = (g_tl, lo_tl)
+            o_tl_size_gcl = tile_size_gl2cl(o_tl_size_gl, co_in_grp)
+            i_tl_size_gcl = tile_size_o_gl2i_cl(o_tl_size_gcl, ci_in_grp, ksize, stride)
 
             est = operator_core_cost_estimate(
-                i_tile_size, o_tile_size, core_n_fanin_base, core_n_fanout_base
+                i_tl_size_gcl, o_tl_size_gcl, core_n_fanin_base, core_n_fanout_base
             )
-            if est.status != _EstStatus.SUCCESS:
+            if est.status != EstStatus.SUCCESS:
                 continue
 
-            # Even if there are incomplete tile, treat them as a `o_tile_size` block for calculating
+            # Even if there are incomplete tile, treat them as a `o_tl_size_ghw` block for calculating
             # resource costs.
-            n_tile_l = math.ceil(lo / lo_tl)
-            n_tile_gl = (n_tile_g, n_tile_l)
+            n_tl_l = math.ceil(lo / lo_tl)
+            n_tl_gl = (n_tl_g, n_tl_l)
 
-            total_n_core = est.n_core * shape2num(n_tile_gl)
+            total_n_core = est.n_core * shape2num(n_tl_gl)
             if total_n_core > HwConfig.N_CORE_OFFLINE:
                 continue
 
             # If this is the first successful estimation or the total number of cores is less than
             # the previous one, update the result.
             if (
-                est_result.status == _EstStatus.FAILED
+                est_result.status == EstStatus.FAILED
                 or total_n_core < est_result.n_core
             ):
                 est_result.status = est.status
                 est_result.n_core = total_n_core
                 est_result.lcn = est.lcn
-                best_n_tile_gl = n_tile_gl
-                best_tile_size_gl = o_tile_size_gl
+                best_n_tl_gl = n_tl_gl
+                best_tl_size_gl = o_tl_size_gl
 
             # TODO After finding an available tile size, we should also consider the
             # #N of cores for copying the overlap between the adjacent input tiles.
 
-    return est_result, best_tile_size_gl, best_n_tile_gl
+    return est_result, best_tl_size_gl, best_n_tl_gl
 
 
 def optimal_tiling_conv2d(
@@ -514,26 +641,21 @@ def optimal_tiling_conv2d(
     groups: int,
     core_n_fanin_base: int,
     core_n_fanout_base: int,
-    *,
     traverse_order: Literal["all", "Lshape", "even"] = "all",
-) -> tuple[_EstResult, TileSize3d, TileSize3d]:
+) -> tuple[EstResult, TileSize3d, TileSize3d]:
     """Tile the 2d convolution & find the optimal block size of the output feature map.
 
     Args:
-        in_shape (tuple[int, int, int]): the shape of the input feature map in C, H, W order.
-        out_shape (tuple[int, int, int]): the shape of the output feature map in C, H, W order.
-        ksize (Size2Type): the kernel size.
-        stride (Size2Type): the stride.
-        groups (int): the number of groups.
         core_n_fanin_base (int): the base fan-in of a core.
         core_n_fanout_base (int): the base fan-out of a core.
-        traverse_order (Literal["all", "Lshape", "even"]): the order to traverse the possible optimal output \
-            feature map. Defaults to "all".
+        traverse_order ("all", "Lshape" or "even"): the order to traverse the possible optimal output   \
+            feature map. Default is "all".
 
     Returns:
-        est_result (EstCoreCostResult): the result of the estimation, including the status, #N of cores & LCN.
-        tile_size_ghw (tuple[int, int, int]): the block size on dimensions g, h, w.
-        n_tile_ghw (tuple[int, int, int]): the number of blocks in each dimension of g, h, w.
+        est_result (EstCoreCostResult): the result of the estimation, including the status, #N of cores \
+            & LCN.
+        tile_size_ghw (Size3Type): the block size on dimensions g, h, w.
+        n_tl_ghw (Size3Type): the number of blocks in each dimension of g, h, w.
     """
     ci, _, _ = in_shape
     co, ho, wo = out_shape
@@ -544,68 +666,55 @@ def optimal_tiling_conv2d(
     ci_in_grp = ci // groups
     co_in_grp = co // groups
 
-    est_result = _EstResult(_EstStatus.FAILED, 0, LCN_EX.LCN_1X)
+    est_result = EstResult(EstStatus.FAILED, 0, LCN_EX.LCN_1X)
 
     # Tile the conv2d in g, h, w dimensions (channels will be followed by groups)
-    best_n_tile_ghw = (0, 0, 0)
-    best_tile_size_ghw = (0, 0, 0)
+    best_n_tl_ghw = (0, 0, 0)
+    best_tl_size_ghw = (0, 0, 0)
 
-    for g_tl in range(1, groups + 1):
-        n_tile_g = math.ceil(groups / g_tl)
+    # NOTE: Make sure candidate `g_tl` is a factor of `groups`
+    for g_tl in get_factors(groups):
+        n_tl_g = math.ceil(groups / g_tl)
 
         for ho_tl, wo_tl in _traverse_tile_size2d(ho, wo, traverse_order):
-            o_tile_size_ghw = (g_tl, ho_tl, wo_tl)
-            hi_tl, wi_tl = _i_tile_hw_conv2d((ho_tl, wo_tl), ksize, stride)
-
-            i_tile_size = (g_tl, ci_in_grp, hi_tl, wi_tl)
-            o_tile_size = (g_tl, co_in_grp, ho_tl, wo_tl)
+            o_tl_size_ghw = (g_tl, ho_tl, wo_tl)
+            o_tl_size_chw = tile_size_ghw2chw(o_tl_size_ghw, co_in_grp)
+            i_tl_size_chw = tile_size_o_ghw2i_chw(
+                o_tl_size_ghw, ci_in_grp, ksize, stride
+            )
 
             est = operator_core_cost_estimate(
-                i_tile_size, o_tile_size, core_n_fanin_base, core_n_fanout_base
+                i_tl_size_chw, o_tl_size_chw, core_n_fanin_base, core_n_fanout_base
             )
-            if est.status != _EstStatus.SUCCESS:
+            if est.status != EstStatus.SUCCESS:
                 continue
 
-            # Even if there are incomplete tile, treat them as a `o_tile_size` block for calculating
+            # Even if there are incomplete tile, treat them as a `o_tl_size_ghw` block for calculating
             # resource costs.
-            n_tile_h = math.ceil(ho / ho_tl)
-            n_tile_w = math.ceil(wo / wo_tl)
-            n_tile_ghw = (n_tile_g, n_tile_h, n_tile_w)
+            n_tl_h = math.ceil(ho / ho_tl)
+            n_tl_w = math.ceil(wo / wo_tl)
+            n_tl_ghw = (n_tl_g, n_tl_h, n_tl_w)
 
-            total_n_core = est.n_core * shape2num(n_tile_ghw)
+            total_n_core = int(est.n_core * np.prod(n_tl_ghw))
             if total_n_core > HwConfig.N_CORE_OFFLINE:
                 continue
 
             # If this is the first successful estimation or the total number of cores is less than
             # the previous one, update the result.
             if (
-                est_result.status == _EstStatus.FAILED
+                est_result.status == EstStatus.FAILED
                 or total_n_core < est_result.n_core
             ):
                 est_result.status = est.status
                 est_result.n_core = total_n_core
                 est_result.lcn = est.lcn
-                best_n_tile_ghw = n_tile_ghw
-                best_tile_size_ghw = o_tile_size_ghw
+                best_n_tl_ghw = n_tl_ghw
+                best_tl_size_ghw = o_tl_size_ghw
 
             # TODO After finding an available tile size, we should also consider the
             # #N of cores for copying the overlap between the adjacent input tiles.
 
-    return est_result, best_tile_size_ghw, best_n_tile_ghw
-
-
-def _n_tile_ghw_by_tile_size(
-    out_shape_hw: Size2Type, groups: int, tile_size: TileSize3d
-) -> TileSize3d:
-    """Compute the number of blocks in each dimension of g, h, w by given the tile size."""
-    ho, wo = out_shape_hw
-    g_tl, ho_tl, wo_tl = tile_size
-
-    n_tile_g = math.ceil(groups / g_tl)
-    n_tile_h = math.ceil(ho / ho_tl)
-    n_tile_w = math.ceil(wo / wo_tl)
-
-    return (n_tile_g, n_tile_h, n_tile_w)
+    return est_result, best_tl_size_ghw, best_n_tl_ghw
 
 
 def _tile_range2d_check(
@@ -646,54 +755,11 @@ def _tile_range3d_check(
         )
 
 
-def _conv1d_tile_unroll(
-    kernel: WeightType,
-    stride: Size1Type,
-    groups: int,
-    g_start: int,
-    g_tile: int,
-    i_tile_l: Size1Type,
-    o_tile_l: Size1Type,
-    i_tile_padding: Size2Type,
-) -> np.ndarray:
-    _, ci_in_grp, kl = kernel.shape
-    kernel = kernel.reshape(groups, -1, ci_in_grp, kl)
-    k_tile = kernel[g_start : g_start + g_tile]
-    k_tile = k_tile.reshape(-1, ci_in_grp, kl)
-
-    return _conv1d_unroll_asymmetric_padding(
-        i_tile_l, o_tile_l, k_tile, stride, i_tile_padding, g_tile
-    )
-
-
-def _conv2d_tile_unroll(
-    kernel: WeightType,
-    stride: Size2Type,
-    groups: int,
-    g_start: int,
-    g_tile: int,
-    i_tile_hw: Size2Type,
-    o_tile_hw: Size2Type,
-    i_tile_padding: Size4Type,
-) -> np.ndarray:
-    _, ci_in_grp, kh, kw = kernel.shape
-    kernel = kernel.reshape(groups, -1, ci_in_grp, kh, kw)
-    k_tile = kernel[g_start : g_start + g_tile]
-    k_tile = k_tile.reshape(-1, ci_in_grp, kh, kw)
-
-    return _conv2d_unroll_asymmetric_padding(
-        i_tile_hw, o_tile_hw, k_tile, stride, i_tile_padding, g_tile
-    )
-
-
-def _conv1d_tiling_visitor(
-    n_tile: TileSize2d,
-    tile_size2d: TileSize2d,
-    groups: int,
-    lo: int,
+def _conv1d_o_tile_visitor(
+    n_tl_ghw: TileSize2d, tile_size2d: TileSize2d, groups: int, lo: int
 ) -> Generator[tuple[TileSize2d, TileSize2d, TileSize2d], None, None]:
     """Visit all tiles in order of g, l & yield the starting indices & tile sizes of each tile."""
-    n_g, n_l = n_tile
+    n_g, n_l = n_tl_ghw
 
     g_tl = lo_tl = -1
     g_start = 0
@@ -708,12 +774,8 @@ def _conv1d_tiling_visitor(
         g_start += g_tl
 
 
-def _conv2d_tiling_visitor(
-    n_tile: TileSize3d,
-    tile_size3d: TileSize3d,
-    groups: int,
-    ho: int,
-    wo: int,
+def _conv2d_o_tile_visitor(
+    n_tile: TileSize3d, tile_size3d: TileSize3d, groups: int, ho: int, wo: int
 ) -> Generator[tuple[TileSize3d, TileSize3d, TileSize3d], None, None]:
     """Visit all tiles in order of g, h, w & yield the starting indices & tile sizes of each tile."""
     n_g, n_h, n_w = n_tile
@@ -745,8 +807,8 @@ def conv1d_tile_by_tile_size(
     stride: Size1Type,
     padding: Size1Type,
     groups: int,
-    conv1d_tile_size: TileSize2d,
-    n_tile: TileSize2d,
+    o_tile_size: TileSize2d,
+    n_tl_ghw: TileSize2d,
 ) -> tuple[np.ndarray, np.ndarray]:
     ci, li = in_shape
     (lo,) = out_shape_l
@@ -754,35 +816,30 @@ def conv1d_tile_by_tile_size(
     ksize = (kl,)
 
     ci_in_grp = ci // groups
-    tiles = np.zeros(n_tile, dtype=object)
-    copy_times = np.zeros((groups, ci_in_grp, li), dtype=np.uint16)
+    tiles = np.zeros(n_tl_ghw, dtype=object)
+    copy_times = np.zeros((groups, ci_in_grp, li), dtype=np.uint8)
 
-    for tile_idx, (g_start, lo_start), (g_tl, lo_tl) in _conv1d_tiling_visitor(
-        n_tile, conv1d_tile_size, groups, lo
+    for tl_idx, (g_start, lo_start), (g_tl, lo_tl) in _conv1d_o_tile_visitor(
+        n_tl_ghw, o_tile_size, groups, lo
     ):
         li_tl, li_start, paddings = _eff_input_tile_size1d(
-            (li,),
-            ksize,
-            stride,
-            padding,
-            lo_tl,
-            lo_start,
+            (li,), ksize, stride, padding, lo_tl, lo_start
         )
         _tile_range2d_check(g_tl, lo_tl, g_start, lo_start, groups, lo)
         _tile_range2d_check(g_tl, li_tl, g_start, li_start, groups, li)
         # Extract input & output tile indices
-        i_tile_idx = TileSliceConv1d(
+        i_tl_slice = TileSliceConv1d(
             g_start, g_start + g_tl, li_start, li_start + li_tl
         )
-        o_tile_idx = TileSliceConv1d(
+        o_tl_slice = TileSliceConv1d(
             g_start, g_start + g_tl, lo_start, lo_start + lo_tl
         )
         # Get unrolled kernel for each tile
-        k_tile_unrolled = _conv1d_tile_unroll(
+        k_tl_unrolled = conv1d_tiled_kernel_unroll(
             kernel, stride, groups, g_start, g_tl, (li_tl,), (lo_tl,), paddings
         )
-        tiles[tile_idx] = (i_tile_idx, o_tile_idx, k_tile_unrolled)
-        copy_times[i_tile_idx.to_slice()] += 1
+        tiles[tl_idx] = (i_tl_slice, o_tl_slice, k_tl_unrolled)
+        copy_times[i_tl_slice.slice_range] += 1
 
     return tiles, copy_times.reshape(in_shape)
 
@@ -794,23 +851,22 @@ def conv2d_tile_by_tile_size(
     stride: Size2Type,
     padding: Size2Type,
     groups: int,
-    conv2d_tile_size: TileSize3d,
-    n_tile: TileSize3d,
+    o_tile_size: TileSize3d,
+    n_tl_ghw: TileSize3d,
 ) -> tuple[np.ndarray, np.ndarray]:
-    ci, hi, wi = in_shape
+    _, hi, wi = in_shape
     ho, wo = out_shape_hw
-    _, _, kh, kw = kernel.shape
+    _, ci_in_grp, kh, kw = kernel.shape
     ksize = (kh, kw)
 
-    ci_in_grp = ci // groups
-    tiles = np.zeros(n_tile, dtype=object)
-    copy_times = np.zeros((groups, ci_in_grp, hi, wi), dtype=np.uint16)
+    tiles = np.zeros(n_tl_ghw, dtype=object)
+    copy_times = np.zeros((groups, ci_in_grp, hi, wi), dtype=np.uint8)
 
     for (
-        tile_idx,
+        tl_idx,
         (g_start, ho_start, wo_start),
         (g_tl, ho_tl, wo_tl),
-    ) in _conv2d_tiling_visitor(n_tile, conv2d_tile_size, groups, ho, wo):
+    ) in _conv2d_o_tile_visitor(n_tl_ghw, o_tile_size, groups, wo, wo):
         (hi_tl, wi_tl), (hi_start, wi_start), paddings = _eff_input_tile_size2d(
             (hi, wi),
             ksize,
@@ -826,7 +882,7 @@ def conv2d_tile_by_tile_size(
             g_tl, hi_tl, wi_tl, g_start, hi_start, wi_start, groups, hi, wi
         )
         # Extract input & output tile indices
-        i_tile_idx = TileSliceConv2d(
+        i_tl_slice = TileSliceConv2d(
             g_start,
             g_start + g_tl,
             hi_start,
@@ -834,7 +890,7 @@ def conv2d_tile_by_tile_size(
             wi_start,
             wi_start + wi_tl,
         )
-        o_tile_idx = TileSliceConv2d(
+        o_tl_slice = TileSliceConv2d(
             g_start,
             g_start + g_tl,
             ho_start,
@@ -843,7 +899,7 @@ def conv2d_tile_by_tile_size(
             wo_start + wo_tl,
         )
         # Get unrolled kernel for each tile
-        k_tile_unrolled = _conv2d_tile_unroll(
+        k_tl_unrolled = conv2d_tiled_kernel_unroll(
             kernel,
             stride,
             groups,
@@ -853,10 +909,369 @@ def conv2d_tile_by_tile_size(
             (ho_tl, wo_tl),
             paddings,
         )
-        tiles[tile_idx] = (i_tile_idx, o_tile_idx, k_tile_unrolled)
-        copy_times[i_tile_idx.to_slice()] += 1
+        tiles[tl_idx] = (i_tl_slice, o_tl_slice, k_tl_unrolled)
+        copy_times[i_tl_slice.slice_range] += 1
 
     return tiles, copy_times.reshape(in_shape)
+
+
+INVALID_ADDR_IDX = -1
+
+
+def _invalid_addr_idx_value(zero_as_invalid_addr: bool):
+    return 0 if zero_as_invalid_addr else INVALID_ADDR_IDX
+
+
+INDEX_DTYPE_WITH_INVALID = np.int32  # -1 as invalid idx
+INDEX_DTYPE_ZERO_AS_INVALID = INDEX_DTYPE
+
+# For conv1d, index map array is in shape:
+#   (#N of tiles in C-dim, #N of tiles in L-dim, C in tile, L in tile)
+# For conv2d, index map array is in shape:
+#   (#N of tiles in C-dim, #N of tiles in H-dim, #N of tiles in W-dim, C in tile, H in tile, W in tile)
+IndexMapArrayType = NDArray[
+    Union[INDEX_DTYPE_WITH_INVALID, INDEX_DTYPE_ZERO_AS_INVALID]
+]
+
+
+def _cast_size2type(shape: SizeAnyType) -> Size2Type:
+    return cast(Size2Type, shape)
+
+
+def _cast_size3type(shape: SizeAnyType) -> Size3Type:
+    return cast(Size3Type, shape)
+
+
+def creat_index_map(
+    shape: SizeAnyType, zero_as_invalid_addr: bool = False
+) -> IndexMapArrayType:
+    if zero_as_invalid_addr:
+        return np.arange(
+            1, np.prod(shape) + 1, dtype=INDEX_DTYPE_ZERO_AS_INVALID
+        ).reshape(shape)
+    else:
+        return np.arange(np.prod(shape), dtype=INDEX_DTYPE_WITH_INVALID).reshape(shape)
+
+
+def create_idx_map_with_pad(
+    shape: SizeAnyType,
+    tl_padding: SizeAnyType,
+    conv_padding: Optional[SizeAnyType] = None,
+    zero_as_invalid_addr: bool = False,
+) -> IndexMapArrayType:
+    """Create an index map with tiling padding & conv padding."""
+    assert len(shape) == len(tl_padding)
+    if conv_padding is None:
+        conv_p = (0,) * len(shape)
+    else:
+        conv_p = (0,) + conv_padding
+        assert len(shape) == len(conv_p)
+
+    idx_map = creat_index_map(shape, zero_as_invalid_addr)
+    padding = tuple((p1, p1 + p2) for p1, p2 in zip(conv_p, tl_padding))
+
+    mask_value = _invalid_addr_idx_value(zero_as_invalid_addr)
+    return np.pad(idx_map, padding, constant_values=mask_value)
+
+
+def _o_divisible_tiling_pad(
+    shape: SizeAnyType, inner_shape: SizeAnyType
+) -> SizeAnyType:
+    assert len(shape) == len(inner_shape)
+    # Pad in +C, +H, +W directions to make the shape divisible by the tile shape
+    return tuple(math.ceil(s / t) * t - s for s, t in zip(shape, inner_shape))
+
+
+def _i_divisible_tiling_pad(
+    shape: SizeAnyType,
+    inner_shape: SizeAnyType,
+    tile_shape: SizeAnyType,
+    ksize: SizeAnyType,
+    stride: SizeAnyType,
+    padding: SizeAnyType,
+) -> SizeAnyType:
+    assert len(shape) == len(inner_shape)
+    assert len(shape) - 1 == len(ksize) == len(stride) == len(padding)
+
+    tl_pad_c = 0  # XXX Now, assume that no pad on C dimension
+
+    return (tl_pad_c,) + tuple(
+        max((tl * i - (tl - 1) * (k - s) - (l + 2 * p)), 0)
+        for tl, i, k, s, l, p in zip(
+            tile_shape[1:], inner_shape[1:], ksize, stride, shape[1:], padding
+        )
+    )
+
+
+def _tile_range_check(shape: SizeAnyType, inner_shape: SizeAnyType) -> None:
+    assert len(shape) == len(inner_shape)
+    assert all(s >= t for s, t in zip(shape, inner_shape))
+
+
+def get_tile_shape(shape: SizeAnyType, inner_shape: SizeAnyType) -> SizeAnyType:
+    """Return the number of tiles for each dimension."""
+    assert len(shape) == len(inner_shape)
+    # Pad in +X, +Y, +Z directions to make the shape divisible by the tile shape
+    return tuple(math.ceil(s / t) for s, t in zip(shape, inner_shape))
+
+
+def make_output_conv_tiled_idx_map(
+    shape: SizeAnyType, inner_shape: SizeAnyType, zero_as_invalid_addr: bool = False
+) -> IndexMapArrayType:
+    """Tile the output index map for a convolution.
+
+    Return:
+        The tiled output index map is in shape:
+        - conv1d: (#N of tiles in C-dim, #N of tiles in L-dim, C in tile, L in tile).
+        - conv2d: (#N of tiles in C-dim, #N of tiles in H-dim, #N of tiles in W-dim, C in tile, H in    \
+            tile, W in tile).
+
+    Example:
+        A feature map of shape (8, 8) is tiled with an inner shape(or tile size) of (4, 4). (2, 2) is   \
+            the tile shape.
+    """
+    _tile_range_check(shape, inner_shape)
+    tl_padding = _o_divisible_tiling_pad(shape, inner_shape)
+
+    tl_optim_log.debug(
+        f"Output feature map shape: {shape}\n"
+        + f"Inner shape: {inner_shape}\n"
+        + f"Tiling padding: {tl_padding}\n"
+        + f"Index map windows stride: {inner_shape}"
+    )
+
+    idx_map = create_idx_map_with_pad(shape, tl_padding, None, zero_as_invalid_addr)
+    strides = tuple(slice(None, None, st) for st in inner_shape)
+    return sliding_window_view(idx_map, inner_shape)[strides]
+
+
+def make_input_conv_tiled_idx_map(
+    shape: SizeAnyType,
+    o_inner_shape: SizeAnyType,
+    tile_shape: SizeAnyType,
+    i_inner_ch: int,
+    ksize: SizeAnyType,
+    stride: SizeAnyType,
+    padding: SizeAnyType,
+    zero_as_invalid_addr: bool = False,
+) -> IndexMapArrayType:
+    """Tile the input index map for a convolution.
+
+    Return:
+        The tiled input index map is in shape:
+        - conv1d: (#N of tiles in C-dim, #N of tiles in L-dim, C in tile, L in tile).
+        - conv2d: (#N of tiles in C-dim, #N of tiles in H-dim, #N of tiles in W-dim, C in tile, H in tile, W in tile).
+    """
+    # output inner shape hw -> input inner shape hw
+    inner_shape = (i_inner_ch,) + _i_tile_hw_conv(o_inner_shape[1:], ksize, stride)
+    _tile_range_check(shape, inner_shape)
+
+    tl_padding = _i_divisible_tiling_pad(
+        shape, inner_shape, tile_shape, ksize, stride, padding
+    )
+
+    idx_map_windows_stride = (i_inner_ch,) + tuple(
+        o * s for o, s in zip(o_inner_shape[1:], stride)
+    )
+
+    tl_optim_log.debug(
+        f"Input feature map shape: {shape}\n"
+        + f"Inner shape: {inner_shape}\n"
+        + f"Conv padding: {padding}\n"
+        + f"Tiling padding: {tl_padding}\n"
+        + f"Index map windows stride: {idx_map_windows_stride}"
+    )
+
+    idx_map = create_idx_map_with_pad(shape, tl_padding, padding, zero_as_invalid_addr)
+    strides = tuple(slice(None, None, st) for st in idx_map_windows_stride)
+    return sliding_window_view(idx_map, inner_shape)[strides]
+
+
+@overload
+def make_conv_tiled_idx_map(
+    in_shape: Size2Type,
+    out_shape: Size2Type,
+    o_inner_shape: Size2Type,
+    ksize: Size1Type,
+    stride: Size1Type,
+    padding: Size1Type,
+    groups: int = 1,
+    zero_as_invalid_addr: bool = False,
+) -> tuple[IndexMapArrayType, IndexMapArrayType, NDArray[np.intp]]: ...
+
+
+@overload
+def make_conv_tiled_idx_map(
+    in_shape: Size3Type,
+    out_shape: Size3Type,
+    o_inner_shape: Size3Type,
+    ksize: Size2Type,
+    stride: Size2Type,
+    padding: Size2Type,
+    groups: int = 1,
+    zero_as_invalid_addr: bool = False,
+) -> tuple[IndexMapArrayType, IndexMapArrayType, NDArray[np.intp]]: ...
+
+
+def make_conv_tiled_idx_map(
+    in_shape: Union[Size2Type, Size3Type],
+    out_shape: Union[Size2Type, Size3Type],
+    o_inner_shape: Union[Size2Type, Size3Type],
+    ksize: Union[Size1Type, Size2Type],
+    stride: Union[Size1Type, Size2Type],
+    padding: Union[Size1Type, Size2Type],
+    groups: int = 1,
+    zero_as_invalid_addr: bool = False,
+) -> tuple[IndexMapArrayType, IndexMapArrayType, NDArray[np.intp]]:
+    assert len(in_shape) == len(out_shape)
+    assert len(ksize) == len(in_shape) - 1
+
+    ci = in_shape[0]
+    co = out_shape[0]
+    assert (
+        ci % groups == 0 and co % groups == 0
+    ), f"Input & output channels {ci}, {co} must be divisible by groups {groups}."
+    ci_in_grp = ci // groups
+    co_in_grp = co // groups
+
+    # Calculate the #N of groups inside the tile
+    g_tl = o_inner_shape[0]
+    assert (
+        groups % g_tl == 0
+    ), f"The #N of groups inside the tile {g_tl} must be divisible by the #N of groups {groups}."
+    i_inner_ch = ci_in_grp * g_tl
+
+    # Output inner shape: ghw -> chw or gl -> cl
+    o_inner_shape = (co_in_grp * g_tl,) + o_inner_shape[1:]
+    tl_shape = get_tile_shape(out_shape, o_inner_shape)
+
+    o_tiled_idx_map = make_output_conv_tiled_idx_map(
+        out_shape, o_inner_shape, zero_as_invalid_addr
+    )
+    i_tiled_idx_map = make_input_conv_tiled_idx_map(
+        in_shape,
+        o_inner_shape,
+        tl_shape,
+        i_inner_ch,
+        ksize,
+        stride,
+        padding,
+        zero_as_invalid_addr,
+    )
+
+    # Record the #N of copies for each pixel in the input feature map
+    copy_times = get_tiled_conv_copy_times(
+        i_tiled_idx_map, in_shape, zero_as_invalid_addr
+    )
+
+    return i_tiled_idx_map, o_tiled_idx_map, copy_times
+
+
+def make_conv1d_kernel_tiled_unrolled(
+    kernel: WeightType,
+    stride: Size1Type,
+    groups: int,
+    g_tile: int,
+    tile_shape: Size2Type,
+    i_tile_size: Size2Type,
+    o_tile_size: Size2Type,
+) -> WeightType:
+    """Unroll the 1d convolution kernel in tiles."""
+    if groups == 1:
+        return conv1d_tiled_kernel_unroll_no_pad(
+            kernel, stride, i_tile_size[1:], o_tile_size[1:]
+        )
+
+    tl_unrolled_shape = (np.prod(i_tile_size), np.prod(o_tile_size))
+    k_tiles = np.zeros(tile_shape + tl_unrolled_shape, dtype=kernel.dtype)
+
+    for tl_idx in np.ndindex(tile_shape):
+        g_start = tl_idx[0] * g_tile
+        k_tiles[tl_idx] = conv1d_tiled_kernel_unroll_no_pad_multi_grp(
+            kernel, stride, groups, g_start, g_tile, i_tile_size[1:], o_tile_size[1:]
+        )
+
+    return k_tiles
+
+
+def make_conv2d_kernel_tiled_unrolled(
+    kernel: WeightType,
+    stride: Size2Type,
+    groups: int,
+    g_tile: int,
+    tile_shape: Size3Type,
+    i_tile_size: Size3Type,
+    o_tile_size: Size3Type,
+) -> WeightType:
+    """Unroll the 2d convolution kernel in tiles."""
+    if groups == 1:
+        return conv2d_tiled_kernel_unroll_no_pad(
+            kernel, stride, i_tile_size[1:], o_tile_size[1:]
+        )
+
+    tl_unrolled_shape = (np.prod(i_tile_size), np.prod(o_tile_size))
+    k_tiles = np.zeros(tile_shape + tl_unrolled_shape, dtype=kernel.dtype)
+
+    for tl_idx in np.ndindex(tile_shape):
+        g_start = tl_idx[0] * g_tile
+        k_tiles[tl_idx] = conv2d_tiled_kernel_unroll_no_pad_multi_grp(
+            kernel, stride, groups, g_start, g_tile, i_tile_size[1:], o_tile_size[1:]
+        )
+
+    return k_tiles
+
+
+def compact_and_flatten_idx_map(
+    idx_map: IndexMapArrayType, zero_as_invalid_addr: bool = False
+):
+    """Remove the invalid values from the index map & return a flattened array."""
+    if zero_as_invalid_addr:
+        return idx_map[idx_map > 0] - 1
+    else:
+        return idx_map[idx_map > INVALID_ADDR_IDX].astype(INDEX_DTYPE_ZERO_AS_INVALID)
+
+
+def get_tiled_conv_copy_times(
+    idx_map: IndexMapArrayType,
+    in_shape: Union[Size2Type, Size3Type],
+    zero_as_invalid_addr: bool = False,
+) -> NDArray[np.intp]:
+    valid_addr = compact_and_flatten_idx_map(idx_map, zero_as_invalid_addr)
+    return np.bincount(valid_addr, minlength=np.prod(in_shape)).reshape(in_shape)
+
+
+@overload
+def conv1d_tiling_optimize(
+    in_shape: Size2Type,
+    kernel: WeightType,
+    stride: _Size1Type,
+    padding: _Size1Type,
+    groups: int,
+    core_n_fanin_base: int,
+    core_n_fanout_base: int,
+    out_shape: Optional[Size2Type] = None,
+    traverse_order: Literal["all", "even"] = "all",
+    zero_as_invalid_addr: bool = False,
+    compact_idx_map: Literal[True] = True,
+) -> tuple[EstResult, np.ndarray, np.ndarray]: ...
+
+
+@overload
+def conv1d_tiling_optimize(
+    in_shape: Size2Type,
+    kernel: WeightType,
+    stride: _Size1Type,
+    padding: _Size1Type,
+    groups: int,
+    core_n_fanin_base: int,
+    core_n_fanout_base: int,
+    out_shape: Optional[Size2Type] = None,
+    traverse_order: Literal["all", "even"] = "all",
+    zero_as_invalid_addr: bool = False,
+    compact_idx_map: Literal[False] = False,
+) -> tuple[
+    EstResult, IndexMapArrayType, IndexMapArrayType, WeightType, NDArray[np.intp]
+]: ...
 
 
 def conv1d_tiling_optimize(
@@ -868,15 +1283,24 @@ def conv1d_tiling_optimize(
     core_n_fanin_base: int,
     core_n_fanout_base: int,
     out_shape: Optional[Size2Type] = None,
-) -> tuple[_EstResult, np.ndarray, np.ndarray]:
+    traverse_order: Literal["all", "even"] = "all",
+    zero_as_invalid_addr: bool = False,
+    compact_idx_map: bool = False,
+):
     """Tile the 1d convolution by the optimal tile size.
 
-    Returns:
-        est_result (EstCoreCostResult): the result of the estimation, including the status, #N of cores & LCN.
-        tiles (np.ndarray): the tiled 1d convolution in tile format.
-        copy_times (np.ndarray): the copy times for the input feature map due to the overlap between adjacent tiles.
+    Args:
+        core_n_fanin_base (int): the base #N of cores for the input feature map.
+        core_n_fanout_base (int): the base #N of cores for the output feature map.
+        out_shape (Size2Type): the shape of output feature map. Optional.
+        traverse_order ("all" or "even"): the order to traverse the possible optimal output \
+            feature map. Default is "all".
+        zero_as_invalid_addr (bool): whether to use 0 or `INVALID_ADDR_IDX` to represent    \
+            invalid addresses.
+        compact_idx_map (bool): whether to return the index maps in compact format or not.  \
+            Default is false.
     """
-    ci, li = in_shape
+    _, li = in_shape
     co, ci_in_grp, kl = kernel.shape
     ksize = (kl,)
     stride = _single(stride)
@@ -889,9 +1313,7 @@ def conv1d_tiling_optimize(
         _co, lo = out_shape
         assert _co == co
 
-    _group_ch_check(ci, co, groups, ci_in_grp)
-
-    est_result, conv1d_tile_size, n_tile_ghw = optimal_tiling_conv1d(
+    est_result, o_tl_size, n_tl_gl = optimal_tiling_conv1d(
         in_shape,
         out_shape,
         ksize,
@@ -899,32 +1321,95 @@ def conv1d_tiling_optimize(
         groups,
         core_n_fanin_base,
         core_n_fanout_base,
+        traverse_order,
     )
-    if est_result.status != _EstStatus.SUCCESS:
+    if est_result.status != EstStatus.SUCCESS:
         tl_optim_log.debug(
             "Failed to find a valid tiling. Maybe the operator is too large to fit in."
         )
-        return est_result, np.empty(n_tile_ghw, dtype=object), np.empty(in_shape)
+        if compact_idx_map:
+            return est_result, np.empty(n_tl_gl, dtype=object), np.empty(in_shape)
+        else:
+            return (
+                est_result,
+                np.empty(0, dtype=INDEX_DTYPE_ZERO_AS_INVALID),
+                np.empty(0, dtype=INDEX_DTYPE_ZERO_AS_INVALID),
+                np.empty(0, dtype=kernel.dtype),
+                np.empty(0, dtype=np.intp),
+            )
     else:
         tl_optim_log.debug(
             f"Conv1d tiling success.\n"
-            + f"\tEstimated optimal tile size: {conv1d_tile_size}, n_tile_ghw: {n_tile_ghw}.\n"
-            + f"\tEstimated cost cores in total: {est_result.n_core}, lcn for each tile: {est_result.lcn.name}."
+            + f"\tEstimated optimal tile size: {o_tl_size}, n_tl_gl: {n_tl_gl}.\n"
+            + f"\tEstimated cost cores in total: {est_result.n_core}, "
+            + f"lcn for each tile: {est_result.lcn.name}."
         )
 
-    return (
-        est_result,
-        *conv1d_tile_by_tile_size(
+    if compact_idx_map:
+        return (
+            est_result,
+            *conv1d_tile_by_tile_size(
+                in_shape, (lo,), kernel, stride, padding, groups, o_tl_size, n_tl_gl
+            ),
+        )
+    else:
+        i_tiled_idx_map, o_tiled_idx_map, copy_times = make_conv_tiled_idx_map(
             in_shape,
-            (lo,),
-            kernel,
+            out_shape,
+            o_tl_size,
+            ksize,
             stride,
             padding,
             groups,
-            conv1d_tile_size,
-            n_tile_ghw,
-        ),
-    )
+            zero_as_invalid_addr,
+        )
+        assert n_tl_gl == i_tiled_idx_map.shape[:2]
+
+        tl_shape = _cast_size2type(i_tiled_idx_map.shape[:2])
+        # #N of channels in a tile / #N of channels in a group -> #N of groups in a tile
+        g_tl = i_tiled_idx_map.shape[2] // ci_in_grp
+        i_tl_size = _cast_size2type(i_tiled_idx_map.shape[-2:])
+        o_tl_size = _cast_size2type(o_tiled_idx_map.shape[-2:])
+
+        k_tiles = make_conv1d_kernel_tiled_unrolled(
+            kernel, stride, groups, g_tl, tl_shape, i_tl_size, o_tl_size
+        )
+
+        return (est_result, i_tiled_idx_map, o_tiled_idx_map, k_tiles, copy_times)
+
+
+@overload
+def conv2d_tiling_optimize(
+    in_shape: Size3Type,
+    kernel: WeightType,
+    stride: _Size2Type,
+    padding: _Size2Type,
+    groups: int,
+    core_n_fanin_base: int,
+    core_n_fanout_base: int,
+    out_shape: Optional[Size3Type] = None,
+    traverse_order: Literal["all", "Lshape", "even"] = "all",
+    zero_as_invalid_addr: bool = False,
+    compact_idx_map: Literal[True] = True,
+) -> tuple[EstResult, np.ndarray, np.ndarray]: ...
+
+
+@overload
+def conv2d_tiling_optimize(
+    in_shape: Size3Type,
+    kernel: WeightType,
+    stride: _Size2Type,
+    padding: _Size2Type,
+    groups: int,
+    core_n_fanin_base: int,
+    core_n_fanout_base: int,
+    out_shape: Optional[Size3Type] = None,
+    traverse_order: Literal["all", "Lshape", "even"] = "all",
+    zero_as_invalid_addr: bool = False,
+    compact_idx_map: Literal[False] = False,
+) -> tuple[
+    EstResult, IndexMapArrayType, IndexMapArrayType, WeightType, NDArray[np.intp]
+]: ...
 
 
 def conv2d_tiling_optimize(
@@ -936,13 +1421,22 @@ def conv2d_tiling_optimize(
     core_n_fanin_base: int,
     core_n_fanout_base: int,
     out_shape: Optional[Size3Type] = None,
-) -> tuple[_EstResult, np.ndarray, np.ndarray]:
+    traverse_order: Literal["all", "Lshape", "even"] = "all",
+    zero_as_invalid_addr: bool = False,
+    compact_idx_map: bool = False,
+):
     """Tile the 2d convolution by the optimal tile size.
 
-    Returns:
-        est_result (EstCoreCostResult): the result of the estimation, including the status, #N of cores & LCN.
-        tiles (np.ndarray): the tiled 2d convolution in tile format.
-        copy_times (np.ndarray): the copy times for the input feature map due to the overlap between adjacent tiles.
+    Args:
+        core_n_fanin_base (int): the base #N of cores for the input feature map.
+        core_n_fanout_base (int): the base #N of cores for the output feature map.
+        out_shape (Size3Type): the shape of output feature map. Optional.
+        traverse_order ("all", "Lshape" or "even"): the order to traverse the possible      \
+            optimal output feature map. Default is "all".
+        zero_as_invalid_addr (bool): whether to use 0 or `INVALID_ADDR_IDX` to represent    \
+            invalid addresses.
+        compact_idx_map (bool): whether to return the index maps in compact format or not.  \
+            Default is false.
     """
     ci, hi, wi = in_shape
     co, ci_in_grp, kh, kw = kernel.shape
@@ -957,9 +1451,9 @@ def conv2d_tiling_optimize(
         _co, ho, wo = out_shape
         assert _co == co
 
-    _group_ch_check(ci, co, groups, ci_in_grp)
+    group_ch_check(ci, co, groups, ci_in_grp)
 
-    est_result, conv2d_tile_size, n_tile_ghw = optimal_tiling_conv2d(
+    est_result, o_tl_size, n_tl_ghw = optimal_tiling_conv2d(
         in_shape,
         out_shape,
         ksize,
@@ -967,314 +1461,57 @@ def conv2d_tiling_optimize(
         groups,
         core_n_fanin_base,
         core_n_fanout_base,
+        traverse_order,
     )
-    if est_result.status != _EstStatus.SUCCESS:
+    if est_result.status != EstStatus.SUCCESS:
         tl_optim_log.debug(
             "Failed to find a valid tiling. Maybe the operator is too large to fit in."
         )
-        return est_result, np.empty(n_tile_ghw, dtype=object), np.empty(in_shape)
+        if compact_idx_map:
+            return est_result, np.empty(n_tl_ghw, dtype=object), np.empty(in_shape)
+        else:
+            return (
+                est_result,
+                np.empty(0, dtype=INDEX_DTYPE_ZERO_AS_INVALID),
+                np.empty(0, dtype=INDEX_DTYPE_ZERO_AS_INVALID),
+                np.empty(0, dtype=kernel.dtype),
+                np.empty(0, dtype=np.intp),
+            )
     else:
         tl_optim_log.debug(
             f"Conv2d tiling success.\n"
-            + f"\tEstimated optimal tile size: {conv2d_tile_size}, n_tile_ghw: {n_tile_ghw}.\n"
+            + f"\tEstimated optimal tile size: {o_tl_size}, n_tl_ghw: {n_tl_ghw}.\n"
             + f"\tEstimated cost cores in total: {est_result.n_core}, lcn for each tile: {est_result.lcn.name}."
         )
 
-    return (
-        est_result,
-        *conv2d_tile_by_tile_size(
+    if compact_idx_map:
+        return (
+            est_result,
+            *conv2d_tile_by_tile_size(
+                in_shape, (ho, wo), kernel, stride, padding, groups, o_tl_size, n_tl_ghw
+            ),
+        )
+    else:
+        i_tiled_idx_map, o_tiled_idx_map, copy_times = make_conv_tiled_idx_map(
             in_shape,
-            (ho, wo),
-            kernel,
+            out_shape,
+            o_tl_size,
+            ksize,
             stride,
             padding,
             groups,
-            conv2d_tile_size,
-            n_tile_ghw,
-        ),
-    )
+            zero_as_invalid_addr,
+        )
+        assert n_tl_ghw == i_tiled_idx_map.shape[:3]
 
+        tl_shape = _cast_size3type(i_tiled_idx_map.shape[:3])
+        # #N of channels in a tile / #N of channels in a group -> #N of groups in a tile
+        g_tl = i_tiled_idx_map.shape[3] // ci_in_grp
+        i_tl_size = _cast_size3type(i_tiled_idx_map.shape[-3:])
+        o_tl_size = _cast_size3type(o_tiled_idx_map.shape[-3:])
 
-def count_copy_times_conv_by_tiles(
-    conv_tiles: np.ndarray, in_shape: Union[Size2Type, Size3Type], groups: int
-) -> np.ndarray:
-    """Calculate the copy times for 1d/2d input feature map due to the overlap between adjacent tiles."""
-    copt_times = np.zeros(in_shape, dtype=np.uint8).reshape(groups, -1, *in_shape[1:])
+        k_tiles = make_conv2d_kernel_tiled_unrolled(
+            kernel, stride, groups, g_tl, tl_shape, i_tl_size, o_tl_size
+        )
 
-    for _, (i_blk_idx, _, _) in np.ndenumerate(conv_tiles):
-        copt_times[i_blk_idx.to_slice()] += 1
-
-    return copt_times
-
-
-"""Used for testing only"""
-
-
-def conv_in_tile_format(
-    x: np.ndarray,
-    out_shape: Union[Size2Type, Size3Type],
-    groups: int,
-    conv_tiles: np.ndarray,
-) -> SynOutType:
-    """Calculate the output of a 1d/2d convolution in tile format."""
-    assert x.ndim == len(
-        out_shape
-    ), f"Input shape {x.shape} and output shape {out_shape} must have the same number of dimensions."
-    ci = x.shape[0]
-    co = out_shape[0]
-
-    assert (
-        ci % groups == 0 and co % groups == 0
-    ), f"Input & output channels {ci}, {co} must be divisible by groups {groups}."
-    ci_in_grp = ci // groups
-    co_in_grp = co // groups
-
-    i_idx_n = np.prod(x.shape)
-    o_idx_n = np.prod(out_shape)
-    _assert_max_index(i_idx_n, o_idx_n)
-
-    x_gchw = x.reshape(groups, ci_in_grp, *x.shape[1:])
-    out = np.zeros((groups, co_in_grp, *out_shape[1:]), dtype=np.int64)
-
-    for _, (i_blk_idx, o_blk_idx, k_tile_unrolled) in np.ndenumerate(conv_tiles):
-        x = x_gchw[i_blk_idx.to_slice()]
-        o = x.ravel().astype(np.int64) @ k_tile_unrolled
-
-        out[o_blk_idx.to_slice()] = o.reshape(o_blk_idx.to_shape())
-
-    return out.reshape(out_shape).astype(VOLTAGE_DTYPE)
-
-
-def conv1d_unroll_tiled_by_tiles(
-    in_shape: Size2Type,
-    kernel: np.ndarray,
-    stride: Size1Type,
-    padding: Size1Type,
-    groups: int,
-    tile_size: Optional[TileSize2d] = None,
-) -> Generator[np.ndarray, None, None]:
-    """Unroll the tiled 1d convolution kernel by tiles. Return a generator of unrolled kernels."""
-    ci, li = in_shape
-    co, ci_in_grp, kl = kernel.shape
-    out_shape = _conv1d_oshape((li,), (kl,), stride, padding)
-    (lo,) = out_shape
-
-    _group_ch_check(ci, co, groups, ci_in_grp)
-
-    if tile_size is None:
-        g_tl, lo_tl = groups, lo
-    else:
-        g_tl, lo_tl = tile_size
-
-    for g_start in range(0, groups, g_tl):
-        # Acctual tile length of g dimension
-        g_tl_ = _eff_step(g_start, g_tl, groups)
-
-        for lo_start in range(0, lo, lo_tl):
-            # Acctual tile length of h dimension
-            lo_tl_ = _eff_step(lo_start, lo_tl, lo)
-
-            li_tl, _, paddings = _eff_input_tile_size1d(
-                (li,), (kl,), stride, padding, lo_tl_, lo_start
-            )
-            # Get unrolled kernel for each tile & yield it
-            yield _conv1d_tile_unroll(
-                kernel,
-                stride,
-                groups,
-                g_start,
-                g_tl_,
-                (li_tl,),
-                (lo_tl_,),
-                paddings,
-            )
-
-
-def conv2d_unroll_tiled_by_tiles(
-    in_shape: Size3Type,
-    kernel: np.ndarray,
-    stride: Size2Type,
-    padding: Size2Type,
-    groups: int,
-    tile_size: Optional[TileSize3d] = None,
-) -> Generator[np.ndarray, None, None]:
-    """Unroll the tiled 2d convolution kernel by tiles. Return a generator of unrolled kernels."""
-    ci, hi, wi = in_shape
-    co, ci_in_grp, kh, kw = kernel.shape
-    out_shape = _conv2d_oshape((hi, wi), (kh, kw), stride, padding)
-    ho, wo = out_shape
-
-    _group_ch_check(ci, co, groups, ci_in_grp)
-
-    if tile_size is None:
-        g_tl, ho_tl, wo_tl = groups, ho, wo
-    else:
-        g_tl, ho_tl, wo_tl = tile_size
-
-    for g_start in range(0, groups, g_tl):
-        # Acctual tile length of g dimension
-        g_tl_ = _eff_step(g_start, g_tl, groups)
-
-        for ho_start in range(0, ho, ho_tl):
-            # Acctual tile length of h dimension
-            ho_tl_ = _eff_step(ho_start, ho_tl, ho)
-
-            for wo_start in range(0, wo, wo_tl):
-                # Acctual tile length of w dimension
-                wo_tl_ = _eff_step(wo_start, wo_tl, wo)
-
-                (hi_tl, wi_tl), _, paddings = _eff_input_tile_size2d(
-                    (hi, wi),
-                    (kh, kw),
-                    stride,
-                    padding,
-                    (ho_tl_, wo_tl_),
-                    (ho_start, wo_start),
-                )
-                # Get unrolled kernel for each tile & yield it
-                yield _conv2d_tile_unroll(
-                    kernel,
-                    stride,
-                    groups,
-                    g_start,
-                    g_tl_,
-                    (hi_tl, wi_tl),
-                    (ho_tl_, wo_tl_),
-                    paddings,
-                )
-
-
-def conv1d_unroll_tiled_from_full_kernel(  # Slower
-    in_shape: Size2Type,
-    kernel: np.ndarray,
-    stride: Size1Type,
-    padding: Size1Type,
-    groups: int,
-    conv1d_tile_size: Optional[TileSize2d] = None,
-) -> Generator[np.ndarray, None, None]:
-    """Unroll the tiled 1d convolution kernel from the full unrolled kernel matrix. Return a generator  \
-        of unrolled kernels.
-    """
-    ci, li = in_shape
-    co, ci_in_grp, kl = kernel.shape
-    out_shape = _conv1d_oshape((li,), (kl,), stride, padding)
-    (lo,) = out_shape
-
-    _group_ch_check(ci, co, groups, ci_in_grp)
-    co_in_grp = co // groups
-
-    if conv1d_tile_size is None:
-        g_tl = groups
-        lo_tl = lo
-    else:
-        g_tl, lo_tl = conv1d_tile_size
-
-    # Full unrolled kernel matrix
-    k_full_ur = _conv1d_unroll((li,), out_shape, kernel, stride, padding, groups)
-
-    for g_start in range(0, groups, g_tl):
-        g_tl_ = _eff_step(g_start, g_tl, groups)
-        ci_blk = g_tl_ * ci_in_grp
-        co_blk = g_tl_ * co_in_grp
-        ci_start = g_start * ci_in_grp
-        co_start = g_start * co_in_grp
-        ci = ci_start + np.arange(ci_blk)
-        co = co_start + np.arange(co_blk)
-
-        for lo_start in range(0, lo, lo_tl):
-            lo_tl_ = _eff_step(lo_start, lo_tl, lo)
-
-            li_start, li_end, _ = _eff_input_tile_size1d(
-                (li,), (kl,), stride, padding, lo_tl_, lo_start
-            )
-
-            l = np.arange(li_start, li_end)
-            input_idx = (ci[:, np.newaxis] * li + l[np.newaxis, :]).ravel()
-            # input_idx = np.ravel_multi_index(np.ix_(ci, l), (ci_blk, li)).ravel()
-
-            lo_pos = lo_start + np.arange(lo_tl_)
-
-            output_idx = (co[:, np.newaxis] * lo + lo_pos[np.newaxis, :]).ravel()
-            # output_idx = np.ravel_multi_index(np.ix_(co, lo_pos), (co_blk, lo)).ravel()
-
-            yield k_full_ur[np.ix_(input_idx, output_idx)]
-
-
-def conv2d_unroll_tiled_from_full_kernel(  # Slower
-    in_shape: Size3Type,
-    kernel: np.ndarray,
-    stride: Size2Type,
-    padding: Size2Type,
-    groups: int,
-    conv2d_tile_size: Optional[TileSize3d] = None,
-) -> Generator[np.ndarray, None, None]:
-    """Unroll the tiled 2d convolution kernel from the full unrolled kernel matrix. Return a generator  \
-        of unrolled kernels.
-    """
-    ci, hi, wi = in_shape
-    co, ci_in_grp, kh, kw = kernel.shape
-    out_shape = _conv2d_oshape((hi, wi), (kh, kw), stride, padding)
-    ho, wo = out_shape
-
-    _group_ch_check(ci, co, groups, ci_in_grp)
-    co_in_grp = co // groups
-
-    if conv2d_tile_size is None:
-        g_tl = groups
-        ho_tl = ho
-        wo_tl = wo
-    else:
-        g_tl, ho_tl, wo_tl = conv2d_tile_size
-
-    # Full unrolled kernel matrix
-    k_full_ur = _conv2d_unroll((hi, wi), out_shape, kernel, stride, padding, groups)
-
-    for g_start in range(0, groups, g_tl):
-        g_tl_ = _eff_step(g_start, g_tl, groups)
-        ci_blk = g_tl_ * ci_in_grp
-        co_blk = g_tl_ * co_in_grp
-        ci_start = g_start * ci_in_grp
-        co_start = g_start * co_in_grp
-        ci = ci_start + np.arange(ci_blk)
-        co = co_start + np.arange(co_blk)
-
-        for ho_start in range(0, ho, ho_tl):
-            ho_tl_ = _eff_step(ho_start, ho_tl, ho)
-
-            for wo_start in range(0, wo, wo_tl):
-                wo_tl_ = _eff_step(wo_start, wo_tl, wo)
-
-                (hi_start, hi_end), (wi_start, wi_end), _ = _eff_input_tile_size2d(
-                    (hi, wi),
-                    (kh, kw),
-                    stride,
-                    padding,
-                    (ho_tl_, wo_tl_),
-                    (ho_start, wo_start),
-                )
-
-                h = np.arange(hi_start, hi_end)
-                w = np.arange(wi_start, wi_end)
-
-                input_idx = (
-                    ci[:, np.newaxis, np.newaxis] * hi * wi
-                    + h[np.newaxis, :, np.newaxis] * wi
-                    + w[np.newaxis, np.newaxis, :]
-                ).ravel()
-                # input_idx = np.ravel_multi_index(
-                #     np.ix_(ci, h, w), (ci_blk, hi, wi)
-                # ).ravel()
-
-                ho_pos = ho_start + np.arange(ho_tl_)
-                wo_pos = wo_start + np.arange(wo_tl_)
-
-                output_idx = (
-                    co[:, np.newaxis, np.newaxis] * ho * wo
-                    + ho_pos[np.newaxis, :, np.newaxis] * wo
-                    + wo_pos[np.newaxis, np.newaxis, :]
-                ).ravel()
-                # output_idx = np.ravel_multi_index(
-                #     np.ix_(co, ho_pos, wo_pos), (co_blk, ho, wo)
-                # ).ravel()
-
-                yield k_full_ur[np.ix_(input_idx, output_idx)]
+        return (est_result, i_tiled_idx_map, o_tiled_idx_map, k_tiles, copy_times)
