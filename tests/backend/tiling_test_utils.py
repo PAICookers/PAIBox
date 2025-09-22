@@ -209,11 +209,11 @@ def conv1d_unroll_tiled_from_full_kernel(  # Slower
         for lo_start in range(0, lo, lo_tl):
             lo_tl_ = _eff_step(lo_start, lo_tl, lo)
 
-            li_start, li_end, _ = _eff_input_tile_size1d(
+            li_tl, li_start, _ = _eff_input_tile_size1d(
                 (li,), (kl,), stride, padding, lo_tl_, lo_start
             )
 
-            l = np.arange(li_start, li_end)
+            l = np.arange(li_start, li_start + li_tl)
             input_idx = (ci[:, np.newaxis] * li + l[np.newaxis, :]).ravel()
             # input_idx = np.ravel_multi_index(np.ix_(ci, l), (ci_blk, li)).ravel()
 
@@ -269,7 +269,7 @@ def conv2d_unroll_tiled_from_full_kernel(  # Slower
             for wo_start in range(0, wo, wo_tl):
                 wo_tl_ = _eff_step(wo_start, wo_tl, wo)
 
-                (hi_start, hi_end), (wi_start, wi_end), _ = _eff_input_tile_size2d(
+                (hi_tl, wi_tl), (hi_start, wi_start), _ = _eff_input_tile_size2d(
                     (hi, wi),
                     (kh, kw),
                     stride,
@@ -278,8 +278,8 @@ def conv2d_unroll_tiled_from_full_kernel(  # Slower
                     (ho_start, wo_start),
                 )
 
-                h = np.arange(hi_start, hi_end)
-                w = np.arange(wi_start, wi_end)
+                h = np.arange(hi_start, hi_start + hi_tl)
+                w = np.arange(wi_start, wi_start + wi_tl)
 
                 input_idx = (
                     ci[:, np.newaxis, np.newaxis] * hi * wi

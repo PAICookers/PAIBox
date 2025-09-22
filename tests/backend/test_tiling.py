@@ -117,19 +117,25 @@ class TestConvKernelUnrollingPerf:
 
         kernel = np.arange(np.prod(k_shape)).reshape(k_shape)
 
-        unroll_tiles1 = conv1d_unroll_tiled_by_tiles(
+        tl_unrolled1 = conv1d_unroll_tiled_by_tiles(
             in_shape, kernel, stride, padding, groups, (g_tl, lo_tl)
         )
-        unroll_tiles2 = conv1d_unroll_tiled_from_full_kernel(
+        tl_unrolled2 = conv1d_unroll_tiled_from_full_kernel(
             in_shape, kernel, stride, padding, groups, (g_tl, lo_tl)
         )
 
         def run_conv1d_unroll_tiled_by_tiles():
-            for _ in unroll_tiles1:
+            g1 = conv1d_unroll_tiled_by_tiles(
+                in_shape, kernel, stride, padding, groups, (g_tl, lo_tl)
+            )
+            for _ in g1:
                 pass
 
         def run_conv1d_unroll_tiled_from_full_kernel():
-            for _ in unroll_tiles2:
+            g2 = conv1d_unroll_tiled_from_full_kernel(
+                in_shape, kernel, stride, padding, groups, (g_tl, lo_tl)
+            )
+            for _ in g2:
                 pass
 
         if not is_ci_env():
@@ -141,8 +147,9 @@ class TestConvKernelUnrollingPerf:
                 + f"conv1d_unroll_tiled_from_full_kernel: {t2 / n}"
             )
 
-        for k_tile_ur1, k_tile_ur2 in zip(unroll_tiles1, unroll_tiles2):
-            assert np.array_equal(k_tile_ur1, k_tile_ur2)
+        for t1, t2 in zip(tl_unrolled1, tl_unrolled2):
+            assert t1.size > 0 and t2.size > 0
+            assert np.array_equal(t1, t2)
 
     @pytest.mark.parametrize(
         "in_shape, co, ksize, stride, padding, groups, tile_size",
@@ -169,19 +176,25 @@ class TestConvKernelUnrollingPerf:
 
         kernel = np.arange(np.prod(k_shape)).reshape(k_shape)
 
-        unroll_tiles1 = conv2d_unroll_tiled_by_tiles(
+        tl_unrolled1 = conv2d_unroll_tiled_by_tiles(
             in_shape, kernel, stride, padding, groups, (g_tl, ho_tl, wo_tl)
         )
-        unroll_tiles2 = conv2d_unroll_tiled_from_full_kernel(
+        tl_unrolled2 = conv2d_unroll_tiled_from_full_kernel(
             in_shape, kernel, stride, padding, groups, (g_tl, ho_tl, wo_tl)
         )
 
         def run_conv2d_unroll_tiled_by_tiles():
-            for _ in unroll_tiles1:
+            g1 = conv2d_unroll_tiled_by_tiles(
+                in_shape, kernel, stride, padding, groups, (g_tl, ho_tl, wo_tl)
+            )
+            for _ in g1:
                 pass
 
         def run_conv2d_unroll_tiled_from_full_kernel():
-            for _ in unroll_tiles2:
+            g2 = conv2d_unroll_tiled_from_full_kernel(
+                in_shape, kernel, stride, padding, groups, (g_tl, ho_tl, wo_tl)
+            )
+            for _ in g2:
                 pass
 
         if not is_ci_env():
@@ -193,8 +206,9 @@ class TestConvKernelUnrollingPerf:
                 + f"conv2d_unroll_tiled_from_full_kernel: {t2 / n}"
             )
 
-        for k_tile_ur1, k_tile_ur2 in zip(unroll_tiles1, unroll_tiles2):
-            assert np.array_equal(k_tile_ur1, k_tile_ur2)
+        for t1, t2 in zip(tl_unrolled1, tl_unrolled2):
+            assert t1.size > 0 and t2.size > 0
+            assert np.array_equal(t1, t2)
 
 
 def idx_map_dtype_check(arr: np.ndarray, zero_as_invalid_addr: bool) -> None:
