@@ -226,12 +226,12 @@ class AxonSegment:
 
     n_axon: int
     """#N of axons."""
-    addr_width: int
-    """The range of axon address is [addr_offset, addr_offset + addr_width)."""
     addr_offset: int
-    """The offset of the assigned address."""
-    start_offset: int
-    """"The start offset of the source slice."""
+    """The offset of the assigned axon."""
+    neu_slice_start: int
+    """The starting index of the neuron slice corresponding to the axon segment."""
+    fanin_base: int
+    """The base number of fan-in connections per neuron in the core."""
 
 
 if hasattr(CoreMode, "is_iw8"):

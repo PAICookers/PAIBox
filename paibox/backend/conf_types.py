@@ -1,8 +1,8 @@
 import sys
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass, fields
 from enum import Enum
 from typing import Any, NamedTuple, TypedDict, Union
-
+from abc import abstractmethod
 import numpy as np
 from numpy.typing import NDArray
 from paicorelib import (
@@ -11,6 +11,12 @@ from paicorelib import (
     Coord,
     InputWidthFormat,
     MaxPoolingEnable,
+    CoreReg,
+    NeuDestInfo,
+    OnlineCoreReg,
+    OnlineNeuAttrs,
+    OnlineNeuConf,
+    OnlineNeuDestInfo,
     OfflineCoreReg,
     OfflineNeuAttrs,
     OfflineNeuConf,
@@ -18,6 +24,7 @@ from paicorelib import (
     SNNModeEnable,
     SpikeWidthFormat,
     WeightWidth,
+    NeuAttrs,
     get_replication_id,
 )
 
@@ -86,15 +93,42 @@ if hasattr(framelib.types, "FrameArrayType"):
     FrameArrayType = framelib.types.FrameArrayType
 else:
     FrameArrayType = NDArray[FRAME_DTYPE]
+    
+def asdict_shallow(obj):
+    if not is_dataclass(obj):
+        raise TypeError("asdict_shallow() should be called on dataclass instances")
+    return {f.name: getattr(obj, f.name) for f in fields(obj)}
 
-
-class CoreConfig(NamedTuple):
+@dataclass(frozen=True)
+class CoreConfig:
     """Configurations of core."""
 
     _extra_params = ("name",)
     """Extra parameters for debugging."""
 
     name: str
+
+    def _asdict(self) -> dict[str, Any]:
+        return asdict_shallow(self)
+
+    def export(self) -> CoreReg:
+        raise NotImplementedError("Subclasses must implement export method.")
+
+    def to_json(self) -> dict[str, Any]:
+        """Dump the configs into json for debugging."""
+        dict_ = self.export().model_dump(by_alias=True)
+
+        for var in self._extra_params:
+            dict_[var] = getattr(self, var)
+
+        return dict_
+    
+
+
+@dataclass(frozen=True)
+class OfflineCoreConfig(CoreConfig):
+    """Configurations of offline core."""
+
     weight_width: WeightWidth
     lcn: LCN_EX
     input_width: InputWidthFormat
@@ -105,20 +139,37 @@ class CoreConfig(NamedTuple):
     tick_wait_end: int
     snn_en: SNNModeEnable
     target_lcn: LCN_EX
-    test_chip_addr: Coord
+    test_chip_addr: ChipCoord
 
     def export(self) -> OfflineCoreReg:
         return OfflineCoreReg.model_validate(self._asdict(), strict=True)
 
-    def to_json(self) -> dict[str, Any]:
-        """Dump the configs into json for debugging."""
-        dict_ = self.export().model_dump(by_alias=True)
-
-        for var in self._extra_params:
-            dict_[var] = getattr(self, var)
-
-        return dict_
-
+@dataclass(frozen=True)
+class OnlineCoreConfig(CoreConfig):
+    """Configurations of online core."""
+    
+    weight_width: WeightWidth
+    lcn: LCN_EX
+    lateral_inhi_value: int
+    weight_decay_value: int
+    upper_weight: int
+    lower_weight: int
+    neuron_start: int
+    neuron_end: int
+    inhi_core_x_ex: Coord
+    inhi_core_y_ex: Coord
+    tick_wait_start: int
+    tick_wait_end: int
+    lut_random_en: bool
+    decay_random_en: bool
+    leak_order: bool
+    online_mode_en: bool
+    test_chip_addr: ChipCoord
+    random_seed: int
+    
+    def export(self) -> OnlineCoreReg:
+        return OnlineCoreReg.model_validate(self._asdict(), strict=True)
+    
 
 @dataclass(frozen=True)
 class NeuronDest:
@@ -135,10 +186,9 @@ class NeuronDest:
     addr_core_y_ex: int
     addr_chip_x: int
     addr_chip_y: int
-
-    def export(self) -> OfflineNeuDestInfo:
-        return OfflineNeuDestInfo.model_validate(asdict(self), strict=True)
-
+    def export(self) -> NeuDestInfo:
+        raise NotImplementedError("Subclasses must implement export method.")
+    
     def to_json(self) -> dict[str, Any]:
         """Dump the configs into json for debugging."""
         dict_ = self.export().model_dump(by_alias=True)
@@ -147,6 +197,19 @@ class NeuronDest:
             dict_[var] = getattr(self, var)
 
         return dict_
+
+@dataclass(frozen=True)
+class OfflineNeuronDest(NeuronDest):
+    def export(self) -> OfflineNeuDestInfo:
+        return OfflineNeuDestInfo.model_validate(asdict(self), strict=True)
+
+    
+    
+#Online version neuron destination
+@dataclass(frozen=True)
+class OnlineNeuronDest(NeuronDest):
+    def export(self) -> OnlineNeuDestInfo:
+        return OnlineNeuDestInfo.model_validate(asdict(self), strict=True)
 
 
 @dataclass(frozen=True)
@@ -158,6 +221,9 @@ class InputNeuronDest(NeuronDest):
         dict_ |= {"lcn": self.lcn}
 
         return dict_
+    
+    def export(self) -> OfflineNeuDestInfo:
+        return OfflineNeuDestInfo.model_validate(asdict(self), strict=True)
 
 
 class OutputNeuronDest(NamedTuple):
@@ -171,10 +237,9 @@ class OutputNeuronDest(NamedTuple):
     start: AxonCoord
     end: AxonCoord
 
-
 @dataclass(frozen=True)
-class OfflineNeuConfig:
-    """Extra parameters for debugging."""
+class NeuConfig:
+    """Configuration of neuron."""
 
     neu_seg: NeuSegment
     """Neuron segment."""
@@ -185,6 +250,36 @@ class OfflineNeuConfig:
     dest_chip_coord: Coord
     """Coordinate of the chip of the destination axons."""
 
+    @abstractmethod
+    def __getitem__(self, s: slice) -> "NeuConfig":
+        pass
+    
+    @abstractmethod
+    def export(self) -> Union[OfflineNeuConf, OnlineNeuConf]:
+        """Export the neuron configuration."""
+        pass
+    
+    @abstractmethod
+    def to_json(self) -> Union[str, bytes]:
+        """Dump the configs into json for debugging."""
+        pass
+    
+    @property
+    @abstractmethod
+    def neuron_attrs(self) -> NeuAttrs:
+        """Return the neuron attributes."""
+        pass
+    
+    @property
+    @abstractmethod
+    def neuron_dest_info(self) -> NeuDestInfo:
+        """Return the neuron destination information."""
+        pass
+
+
+
+@dataclass(frozen=True)
+class OfflineNeuConfig(NeuConfig):
     def __getitem__(self, s: slice) -> "OfflineNeuConfig":
         return OfflineNeuConfig(
             self.neu_seg[s],
@@ -219,7 +314,7 @@ class OfflineNeuConfig:
     @property
     def neuron_dest_info(self) -> OfflineNeuDestInfo:
         base_coord, dest_rid = get_replication_id(self.dest_core_coords)
-        dest_info = NeuronDest(
+        dest_info = OfflineNeuronDest(
             [coord.tick_relative for coord in self.axon_coords],
             [coord.addr_axon for coord in self.axon_coords],
             base_coord.x,
@@ -231,11 +326,76 @@ class OfflineNeuConfig:
         )
         return OfflineNeuDestInfo.model_validate(asdict(dest_info), strict=True)
 
+@dataclass(frozen=True)
+class OnlineNeuConfig(NeuConfig):
+    def __getitem__(self, s: slice) -> "OnlineNeuConfig":
+        return OnlineNeuConfig(
+            self.neu_seg[s],
+            self.axon_coords[s],
+            self.dest_core_coords,
+            self.dest_chip_coord,
+        )
 
-class CorePlmConfig(NamedTuple):
+    def export(self) -> OnlineNeuConf:
+        return OnlineNeuConf(attrs=self.neuron_attrs, dest_info=self.neuron_dest_info)
+
+    def to_json(self) -> Union[str, bytes]:
+        """Dump the configs into json for debugging."""
+        dict_ = {
+            "n_neuron": self.neu_seg.n_neuron,
+            "addr_offset": self.neu_seg.offset,
+            "addr_occupied": self.neu_seg.occupied_addr,
+        }
+        dict_ |= self.export().model_dump(by_alias=True)
+
+        if _USE_ORJSON:
+            return orjson.dumps(
+                dict_, option=orjson.OPT_INDENT_2 | orjson.OPT_SERIALIZE_NUMPY
+            )
+        else:
+            return json.dumps(dict_, indent=2, cls=PAIConfigJsonEncoder)
+
+    @property
+    def neuron_attrs(self) -> OnlineNeuAttrs:
+        return OnlineNeuAttrs.model_validate(self.neu_seg.attrs, strict=True)
+
+    @property
+    def neuron_dest_info(self) -> OnlineNeuDestInfo:
+        base_coord, dest_rid = get_replication_id(self.dest_core_coords)
+        dest_info = OnlineNeuronDest(
+            [coord.tick_relative for coord in self.axon_coords],
+            [coord.addr_axon for coord in self.axon_coords],
+            base_coord.x,
+            base_coord.y,
+            dest_rid.x,
+            dest_rid.y,
+            self.dest_chip_coord.x,
+            self.dest_chip_coord.y,
+        )
+        return OnlineNeuDestInfo.model_validate(asdict(dest_info), strict=True)
+
+@dataclass(frozen=True)
+class CorePlmConfig():
     _extra_params = ()
     """Extra parameters for debugging."""
+    
+    def export(self) -> dict[str, Any]:
+        """Export the core PLM configuration."""
+        raise NotImplementedError("Subclasses must implement export method.")
 
+
+    def to_json(self) -> dict[str, Any]:
+        """Dump the configs into json for debugging."""
+        dict_ = self.export()
+
+        for var in self._extra_params:
+            dict_[var] = getattr(self, var)
+
+        return dict_
+
+
+@dataclass(frozen=True)
+class OfflineCorePlmConfig(CorePlmConfig):
     random_seed: int
     weight_ram: WRAMPackedType
     params_reg: OfflineCoreReg
@@ -246,7 +406,7 @@ class CorePlmConfig(NamedTuple):
         cls,
         random_seed: int,
         weight_ram: WRAMPackedType,
-        core_cfg: CoreConfig,
+        core_cfg: OfflineCoreConfig,
         neuron_cfg: dict[Neuron, OfflineNeuConfig],
     ):
         return cls(
@@ -272,18 +432,44 @@ class CorePlmConfig(NamedTuple):
 
         return dict_
 
-    def to_json(self) -> dict[str, Any]:
-        """Dump the configs into json for debugging."""
-        dict_ = self.export()
+    
+@dataclass(frozen=True)
+class OnlineCorePlmConfig(CorePlmConfig):
+    
+    weight_ram: WRAMPackedType
+    core_params: OnlineCoreReg
+    neuron_configs: dict[Neuron, OnlineNeuConfig]
+    
+    @classmethod
+    def encapsulate(
+        cls,
+        weight_ram: WRAMPackedType,
+        core_cfg: OnlineCoreConfig,
+        neuron_cfg: dict[Neuron, OnlineNeuConfig],
+    ):
+        return cls(
+            weight_ram,
+            OnlineCoreReg.model_validate(core_cfg._asdict(), strict=True),
+            neuron_cfg,
+        )
+    
+    def export(self) -> dict[str, Any]:
+        dict_ = {
+            "name": self.core_params.name,
+            "neuron_rams": dict(),
+            **self.core_params.model_dump(by_alias=True),
+        }
 
-        for var in self._extra_params:
-            dict_[var] = getattr(self, var)
+        for neu, neu_cfg in self.neuron_configs.items():
+            if _USE_ORJSON:
+                dict_["neuron_rams"][neu.name] = orjson.loads(neu_cfg.to_json())
+            else:
+                dict_["neuron_rams"][neu.name] = json.loads(neu_cfg.to_json())
 
         return dict_
 
-
 InputNodeConf: TypeAlias = dict[NodeName, InputNeuronDest]
-OutputDestConf: TypeAlias = dict[NodeName, dict[Coord, OfflineNeuDestInfo]]
+OutputDestConf: TypeAlias = dict[NodeName, dict[Coord, NeuDestInfo]]
 CorePlmConfInChip: TypeAlias = dict[Coord, CorePlmConfig]
 CorePlmConf: TypeAlias = dict[ChipCoord, CorePlmConfInChip]
 CoreConfInChip: TypeAlias = dict[Coord, CoreConfig]

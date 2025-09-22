@@ -6,7 +6,7 @@ from typing import Literal, Optional
 
 import numpy as np
 import pytest
-from paicorelib import LCN_EX, Coord, CoreMode, HwConfig, OffCoreCfg, OfflineNeuAttrs
+from paicorelib import LCN_EX, Coord, CoreMode, HwConfig, OfflineNeuAttrs, OffCoreCfg
 from paicorelib import ReplicationId as RId
 from paicorelib import WeightWidth as WW
 from paicorelib.framelib import OfflineFrameGen
@@ -137,10 +137,8 @@ else:
     W_BITORDER = "little"
 
 N_BIT_PACKED_WEIGHT = np.iinfo(WRAM_PACKED_DTYPE).bits
-if hasattr(CorePlacement, "WRAM_BASE_SHAPE"):
-    WRAM_BASE_SHAPE = CorePlacement.WRAM_BASE_SHAPE
-else:
-    WRAM_BASE_SHAPE = (OffCoreCfg.ADDR_AXON_MAX + 1, OffCoreCfg.ADDR_RAM_MAX + 1)
+WRAM_BASE_SHAPE = (OffCoreCfg.ADDR_AXON_MAX + 1, OffCoreCfg.ADDR_RAM_MAX + 1)
+WRAM_BASE_SHAPE = (OffCoreCfg.WEIGHT_RAM_SHAPE[1], OffCoreCfg.WEIGHT_RAM_SHAPE[0])
 
 
 NEURON_PARAMS_BIT_LENGTH = 214
@@ -308,14 +306,12 @@ class TestWeightUnpackAndPack:
 
 
 class TestWeightRamMapping:
-    @pytest.mark.parametrize("expected_row", [3, 5, 7])
-    def test_nfold_weight(self, expected_row):
+    def test_nfold_weight(self):
         """A prototype function of `CorePlacement._nfold_weight` to test the weight folding."""
         original_matrix = np.arange(1, 25, dtype=WEIGHT_DTYPE).reshape(8, 3)
         nfold = 3
 
-        assert nfold <= expected_row
-        result = CorePlacement._nfold_weight(original_matrix, expected_row, nfold)
+        result = CorePlacement._nfold_weight(original_matrix, nfold)
 
         expected_folded = np.array(
             [
@@ -325,9 +321,8 @@ class TestWeightRamMapping:
             ],
             dtype=WEIGHT_DTYPE,
         )
-        expected = np.pad(expected_folded, ((0, expected_row - nfold), (0, 0)))
 
-        assert np.array_equal(result, expected)
+        assert np.array_equal(result, expected_folded)
 
     @pytest.mark.parametrize(
         "shape, wp, lcn_ex",
@@ -357,19 +352,12 @@ class TestWeightRamMapping:
         # Check the shape[1] is legal
         assert shape[1] <= _get_max_fanout(iw, wp + lcn_ex)
 
-        if shape[0] % nfold > 0:
-            expected_h = shape[0] // nfold + 1
-        else:
-            expected_h = shape[0] // nfold
-
-        expected_shape = (expected_h, shape[1] * nfold)
-
         # Generate the original weight with shape
         _low, _high = _nbit_limit(nbit)
         test_weight = fixed_rng.integers(_low, _high, size=shape, dtype=WEIGHT_DTYPE)
 
         # 1. Fold, return the folded weight after padding.
-        w_folded = CorePlacement._nfold_weight(test_weight, expected_shape[0], nfold)
+        w_folded = CorePlacement._nfold_weight(test_weight, nfold)
 
         # 2. Map to the WRAM.
         wram_unpacked = np.zeros(WRAM_BASE_SHAPE, dtype=WRAM_UNPACKED_DTYPE)
@@ -415,19 +403,12 @@ class TestWeightRamMapping:
         # Check the shape[1] is legal
         assert shape[1] <= _get_max_fanout(iw, wp + lcn_ex)
 
-        if shape[0] % nfold > 0:
-            expected_h = shape[0] // nfold + 1
-        else:
-            expected_h = shape[0] // nfold
-
-        expected_shape = (expected_h, shape[1] * nfold)
-
         # Generate the original weight with shape
         _low, _high = _nbit_limit(nbit)
         test_weight = fixed_rng.integers(_low, _high, size=shape, dtype=WEIGHT_DTYPE)
 
         # 1. Fold, return the folded weight after padding.
-        w_folded = CorePlacement._nfold_weight(test_weight, expected_shape[0], nfold)
+        w_folded = CorePlacement._nfold_weight(test_weight, nfold)
 
         # 2. Map to the NRAM.
         # (1152, 512)
@@ -580,19 +561,12 @@ class TestWeightRamMapping:
         nbit = 1 << wp
         nfold = 1 << lcn_ex
 
-        if shape[0] % nfold > 0:
-            expected_h = shape[0] // nfold + 1
-        else:
-            expected_h = shape[0] // nfold
-
-        expected_shape = (expected_h, shape[1] * nfold)
-
         # Generate the original weight with shape
         _low, _high = _nbit_limit(nbit)
         test_weight = fixed_rng.integers(_low, _high, size=shape, dtype=WEIGHT_DTYPE)
 
         # 1. Fold, return the folded weight after padding.
-        w_folded = CorePlacement._nfold_weight(test_weight, expected_shape[0], nfold)
+        w_folded = CorePlacement._nfold_weight(test_weight, nfold)
 
         # 2. Map to the NRAM.
         with expectation:

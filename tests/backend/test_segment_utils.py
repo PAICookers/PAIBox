@@ -3,12 +3,13 @@ from math import ceil
 import pytest
 
 import paibox as pb
-from paibox.backend._slice import NeuronSlice
+from paibox.backend._slice import NeuronSlice, SourceSliceType
 from paibox.backend.segment_utils import (
     aligned_coords,
     get_axon_segments,
     get_neu_segments,
 )
+from paibox.components import Neuron
 from paibox.exceptions import ResourceError
 
 from .conftest import TestData
@@ -88,19 +89,19 @@ class TestGetNeuronSegments:
         [pb.LIF(2222, 1), pb.LIF(2378, 1)],
     ],
 )
-def test_get_axon_segments(axons):
+def test_get_axon_segments(axons: list[Neuron]):
     from .conftest import n_axon2lcn_ex_proto
 
     lcn_ex = n_axon2lcn_ex_proto(sum(axon.num_out for axon in axons), 1152)
 
     tr_max = 1 << lcn_ex
 
-    axon_slices = [NeuronSlice(axon) for axon in axons]
+    axon_slices:list[SourceSliceType] = [NeuronSlice(axon) for axon in axons]
 
     axon_segs = get_axon_segments(axon_slices, tr_max, 1152)
 
     for axon_seg in axon_segs.values():
-        assert axon_seg.addr_offset <= 1152
+        assert axon_seg.addr_offset <= 1152 * tr_max
 
 
 @pytest.mark.parametrize(
@@ -110,17 +111,20 @@ def test_get_axon_segments(axons):
         [pb.LIF(1151 * 2, 2), pb.LIF(1153 * 2, 2)],
     ],
 )
-def test_get_axon_segments_boundary(axons):
+def test_get_axon_segments_boundary(axons: list[Neuron]):
     """Illegal boundary cases."""
     from .conftest import n_axon2lcn_ex_proto
 
     lcn_ex = n_axon2lcn_ex_proto(sum(axon.num_out for axon in axons), 1152)
     tr_max = 1 << lcn_ex
 
-    axon_slices = [NeuronSlice(axon) for axon in axons]
+    axon_slices:list[SourceSliceType] = [NeuronSlice(axon) for axon in axons]
 
-    with pytest.raises(ResourceError):
-        axon_segs = get_axon_segments(axon_slices, tr_max, 1152)
+    axon_segs = get_axon_segments(axon_slices, tr_max, 1152)
+    
+    last_slice = axon_slices[-1]
+    last_seg = axon_segs[last_slice]
+    assert last_seg.addr_offset + last_seg.n_axon == (tr_max * 1152)
 
 
 @pytest.mark.parametrize(
