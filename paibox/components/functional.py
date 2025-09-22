@@ -37,8 +37,8 @@ from .neuron.neurons import *
 from .neuron.utils import NeuFireState, v_overflow
 from .projection import InputProj
 from .synapses import ConnType, Conv2dSemiFoldedSyn, FullConnSyn, MaxPoolSyn
-from .synapses.conv_types import _Size1Type, _Size2Type, Size2Type
-from .synapses.conv_utils import _conv1d_oshape, group_ch_check, _pair
+from .synapses.conv_types import Size2Type, _Size1Type, _Size2Type
+from .synapses.conv_utils import _conv1d_oshape, _pair, group_ch_check
 
 if sys.version_info >= (3, 13):
     from warnings import deprecated

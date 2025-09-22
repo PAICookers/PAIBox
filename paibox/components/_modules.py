@@ -39,10 +39,10 @@ from .synapses.conv_types import SizeAnyType, _Size1Type, _Size2Type
 from .synapses.conv_utils import (
     _conv1d_oshape,
     _conv2d_oshape,
-    fm_ndim1_check,
-    fm_ndim2_check,
     _pair,
     _single,
+    fm_ndim1_check,
+    fm_ndim2_check,
 )
 from .synapses.transforms import (
     Conv1dForward,

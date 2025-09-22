@@ -1,24 +1,26 @@
 import itertools
-import pytest
 import timeit
-import numpy as np
 from collections.abc import Sequence
 from typing import Union
 
-from paicorelib import OffCoreCfg, CoreMode
+import numpy as np
+import pytest
+from paicorelib import CoreMode, OffCoreCfg
+
 from paibox._logging import set_logs
 from paibox.backend.tiling import *
 from paibox.backend.tiling import get_tile_shape
 from paibox.components.synapses.conv_utils import (
+    SizeAnyType,
     _conv1d_oshape,
     _conv2d_oshape,
     _pair,
     _single,
-    SizeAnyType,
     conv1d_faster,
     conv2d_faster,
 )
 from tests.utils import gen_random_array, is_ci_env
+
 from .tiling_test_utils import *
 
 set_logs(tiling_optim=True)

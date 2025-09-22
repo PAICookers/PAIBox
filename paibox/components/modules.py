@@ -15,8 +15,8 @@ from paibox.types import NEUOUT_U8_DTYPE, NeuOutType, VoltageType
 from paibox.utils import check_elem_unique, shape2num
 
 from .neuron.utils import (
-    RTModeKwds,
     NeuFireState,
+    RTModeKwds,
     _input_width_format,
     _spike_width_format,
 )

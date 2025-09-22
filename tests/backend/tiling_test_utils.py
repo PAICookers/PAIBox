@@ -1,32 +1,30 @@
 from collections.abc import Callable, Generator
-import numpy as np
-
 from typing import Optional, Union, overload
 
-from paibox.components.synapses.conv_utils import (
-    group_ch_check,
-    _conv1d_oshape,
-    _conv1d_unroll,
-    _conv2d_oshape,
-    _conv2d_unroll,
-)
-from paibox.components.synapses.conv_types import Size1Type, Size2Type, Size3Type
-from paibox.types import VOLTAGE_DTYPE, SynOutType, WeightType
+import numpy as np
 
 from paibox.backend.kernel_unrolling import *
 from paibox.backend.tiling import (
     INDEX_DTYPE_WITH_INVALID,
+    IndexMapArrayType,
     TileSize2d,
     TileSize3d,
+    _cast_size2type,
+    _cast_size3type,
     _eff_input_tile_size1d,
     _eff_input_tile_size2d,
     _eff_step,
-    IndexMapArrayType,
     _invalid_addr_idx_value,
-    _cast_size2type,
-    _cast_size3type,
 )
-
+from paibox.components.synapses.conv_types import Size1Type, Size2Type, Size3Type
+from paibox.components.synapses.conv_utils import (
+    _conv1d_oshape,
+    _conv1d_unroll,
+    _conv2d_oshape,
+    _conv2d_unroll,
+    group_ch_check,
+)
+from paibox.types import VOLTAGE_DTYPE, SynOutType, WeightType
 
 __all__ = [
     "conv1d_unroll_tiled_by_tiles",

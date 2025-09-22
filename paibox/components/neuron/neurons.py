@@ -336,9 +336,7 @@ class ANNBypassNeuron(ANNNeuron):
         name: Optional[str] = None,
         **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
-        super().__init__(
-            shape, bias=0, keep_shape=keep_shape, name=name, **kwargs
-        )
+        super().__init__(shape, bias=0, keep_shape=keep_shape, name=name, **kwargs)
 
 
 def _bias_to_leak_v(bias: DataType) -> Union[LeakVType, int]:

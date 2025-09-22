@@ -1,39 +1,38 @@
+import math
 from collections.abc import Generator, Sequence
 from dataclasses import dataclass
 from enum import IntEnum, unique
-import math
+from typing import ClassVar, Literal, Optional, TypeVar, Union, cast, overload
+
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 from numpy.typing import NDArray
-
-from typing import ClassVar, Optional, Literal, TypeVar, Union, cast, overload
-
 from paicorelib import LCN_EX, HwConfig
+
 from paibox import _logging
-from paibox.components.synapses.conv_utils import (
-    INDEX_DTYPE,
-    group_ch_check,
-    _conv1d_oshape,
-    _conv2d_oshape,
-    _pair,
-    _quadruple,
-    _single,
-)
 from paibox.components.synapses.conv_types import (
-    _Size1Type,
-    _Size2Type,
-    _Size4Type,
     Size1Type,
     Size2Type,
     Size3Type,
     Size4Type,
     SizeAnyType,
+    _Size1Type,
+    _Size2Type,
+    _Size4Type,
+)
+from paibox.components.synapses.conv_utils import (
+    INDEX_DTYPE,
+    _conv1d_oshape,
+    _conv2d_oshape,
+    _pair,
+    _quadruple,
+    _single,
+    group_ch_check,
 )
 from paibox.types import Shape, WeightType
 from paibox.utils import shape2num
 
 from .kernel_unrolling import *
-
 
 __all__ = [
     # Types
@@ -1339,7 +1338,7 @@ def conv1d_tiling_optimize(
             )
     else:
         tl_optim_log.debug(
-            f"Conv1d tiling success.\n"
+            "Conv1d tiling success.\n"
             + f"\tEstimated optimal tile size: {o_tl_size}, n_tl_gl: {n_tl_gl}.\n"
             + f"\tEstimated cost cores in total: {est_result.n_core}, "
             + f"lcn for each tile: {est_result.lcn.name}."
@@ -1479,7 +1478,7 @@ def conv2d_tiling_optimize(
             )
     else:
         tl_optim_log.debug(
-            f"Conv2d tiling success.\n"
+            "Conv2d tiling success.\n"
             + f"\tEstimated optimal tile size: {o_tl_size}, n_tl_ghw: {n_tl_ghw}.\n"
             + f"\tEstimated cost cores in total: {est_result.n_core}, lcn for each tile: {est_result.lcn.name}."
         )

@@ -218,7 +218,7 @@ def _conv1d_unroll_asymmetric_padding(
     groups: int = 1,
 ) -> WeightType:
     """Optimized version of conv1d kernel unrolling using vectorization & indexing.
-    
+
     NOTE: the padding argument is a tuple of 2 values, (pl, pr) specifying the padding for the left & right \
         sides of the input.
     """

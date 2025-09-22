@@ -40,8 +40,8 @@ from paibox.utils import (
 from .utils import (
     BIT_TRUNC_MAX,
     NEG_THRES_MAX,
-    RTModeKwds,
     NeuFireState,
+    RTModeKwds,
     _input_width_format,
     _leak_v_check,
     _mask,

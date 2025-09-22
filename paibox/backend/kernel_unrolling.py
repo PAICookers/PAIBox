@@ -1,12 +1,11 @@
+from paibox.components.synapses.conv_types import Size1Type, Size2Type, Size4Type
 from paibox.components.synapses.conv_utils import (
     _conv1d_unroll,
     _conv1d_unroll_asymmetric_padding,
     _conv2d_unroll,
     _conv2d_unroll_asymmetric_padding,
 )
-from paibox.components.synapses.conv_types import Size1Type, Size2Type, Size4Type
 from paibox.types import WeightType
-
 
 __all__ = [
     "conv1d_tiled_kernel_unroll",
