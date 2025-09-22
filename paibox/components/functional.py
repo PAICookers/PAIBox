@@ -37,7 +37,7 @@ from .neuron.neurons import *
 from .neuron.utils import ThresholdMode, vjt_overflow
 from .projection import InputProj
 from .synapses import ConnType, Conv2dSemiFoldedSyn, FullConnSyn, MaxPoolSyn
-from .synapses.conv_types import _Size1Type, _Size2Type
+from .synapses.conv_types import _Size1Type, _Size2Type, Size2Type
 from .synapses.conv_utils import _conv1d_oshape, group_ch_check, _pair
 
 if sys.version_info >= (3, 13):
@@ -1025,12 +1025,12 @@ class Conv2dSemiFolded(_SemiFoldedModule):
     ) -> BuiltComponentType:
         assert len(self.source[0].shape_out) == 2
         # if len(self.source[0].shape_out) != 2:
-        #     ci, hi, in_w = _fm_ndim2_check(
+        #     ci, hi, in_w = fm_ndim2_check(
         #         self.source[0].shape_out, "CHW"
         #     )
         #     self.source[0].shape_change((ci, hi))
         ci, hi = self.source[0].shape_out
-        _, ci, _, kw = self.kernel.shape
+        _, _, _, kw = self.kernel.shape
         _, wo = self.shape_out
 
         self._oflow_format = SemiFoldedDataFlowFormat(
@@ -1305,7 +1305,7 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
     ) -> BuiltComponentType:
         assert len(self.source[0].shape_out) == 2
         # if len(self.source[0].shape_out) != 2:
-        #     ci, hi, in_w = _fm_ndim2_check(
+        #     ci, hi, in_w = fm_ndim2_check(
         #         self.source[0].shape_out, "CHW"
         #     )
         #     self.source[0].shape_change((ci, hi))
@@ -1780,28 +1780,21 @@ def _delay_mapping_mask(h: int, ci: int) -> WeightType:
 
 
 def _poo2d_semifolded_mapping_mask(
-    ci: int,
-    hi: int,
-    wo: int,
-    kh: int,
-    stride: tuple[int, int],
-    padding: tuple[int, int],
+    ci: int, hi: int, wo: int, kh: int, stride: Size2Type, padding: Size2Type
 ) -> WeightType:
     co = ci
+    _, sw = stride
+    ph, _ = padding
 
     m = np.zeros((ci * hi, co * wo), dtype=WEIGHT_DTYPE)
-    m_block = np.zeros((hi + 2 * padding[0], wo), dtype=WEIGHT_DTYPE)
+    m_block = np.zeros((hi + 2 * ph, wo), dtype=WEIGHT_DTYPE)
 
     for j in range(wo):
-        m_block[j * stride[1] : j * stride[1] + kh, j] = 1
+        m_block[j * sw : j * sw + kh, j] = 1
 
-    if padding[0] > 0:
+    if ph > 0:
         m_block = np.delete(
-            m_block,
-            np.hstack(
-                (np.arange(padding[0]), np.arange(hi + padding[0], hi + 2 * padding[0]))
-            ),
-            axis=0,
+            m_block, np.hstack((np.arange(ph), np.arange(hi + ph, hi + 2 * ph))), axis=0
         )
 
     for i in range(co):

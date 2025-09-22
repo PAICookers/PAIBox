@@ -39,8 +39,8 @@ from .synapses.conv_types import SizeAnyType, _Size1Type, _Size2Type
 from .synapses.conv_utils import (
     _conv1d_oshape,
     _conv2d_oshape,
-    _fm_ndim1_check,
-    _fm_ndim2_check,
+    fm_ndim1_check,
+    fm_ndim2_check,
     _pair,
     _single,
 )
@@ -296,7 +296,7 @@ class _SpikingPool1d(_SpikingPoolNd):
     ) -> None:
         """Basic 1d spiking pooling."""
         _pool_type_check(pool_type)
-        ci, il = _fm_ndim1_check(neuron.shape_out, "CL")
+        ci, il = fm_ndim1_check(neuron.shape_out, "CL")
 
         _ksize = _single(kernel_size)
         _stride = _single(stride) if stride is not None else _ksize
@@ -378,7 +378,7 @@ class _SpikingPool1dWithV(FunctionalModuleWithV):
         **kwargs,
     ) -> None:
         """Basic 1d spiking pooling with voltage at the previous timestep."""
-        ci, il = _fm_ndim1_check(neuron.shape_out, "CL")
+        ci, il = fm_ndim1_check(neuron.shape_out, "CL")
 
         _ksize = _single(kernel_size)
         _kernel = np.ones((ci, ci, *_ksize), dtype=WEIGHT_DTYPE)
@@ -458,7 +458,7 @@ class _SpikingPool2d(_SpikingPoolNd):
     ) -> None:
         """Basic 2d spiking pooling."""
         _pool_type_check(pool_type)
-        ci, hi, wi = _fm_ndim2_check(neuron.shape_out, "CHW")
+        ci, hi, wi = fm_ndim2_check(neuron.shape_out, "CHW")
 
         _ksize = _pair(kernel_size)
         _stride = _pair(stride) if stride is not None else _ksize
@@ -544,7 +544,7 @@ class _SpikingPool2dWithV(FunctionalModuleWithV):
         NOTE: This is not a regular average pooling operator. It is just to correspond to the operators \
             that appear in PAIFLOW.
         """
-        ci, hi, wi = _fm_ndim2_check(neuron.shape_out, "CHW")
+        ci, hi, wi = fm_ndim2_check(neuron.shape_out, "CHW")
 
         _ksize = _pair(kernel_size)
         _kernel = np.ones((ci, ci, *_ksize), dtype=WEIGHT_DTYPE)
@@ -646,7 +646,7 @@ class _Pool1d(_PoolNd):
     ) -> None:
         """Basic 1d ANN pooling."""
         _pool_type_check(pool_type)
-        ci, li = _fm_ndim1_check(neuron_s.shape_out, "CL")
+        ci, li = fm_ndim1_check(neuron_s.shape_out, "CL")
 
         ksize = _single(kernel_size)
         s = _single(stride) if stride is not None else ksize
@@ -690,7 +690,7 @@ class _Pool2d(_PoolNd):
     ) -> None:
         """Basic 2d ANN pooling."""
         _pool_type_check(pool_type)
-        ci, hi, wi = _fm_ndim2_check(neuron_s.shape_out, "CHW")
+        ci, hi, wi = fm_ndim2_check(neuron_s.shape_out, "CHW")
 
         ksize = _pair(kernel_size)
         s = _pair(stride) if stride is not None else ksize

@@ -65,7 +65,7 @@ def group_ch_check(ci: int, co: int, groups: int, ci_in_grp: int) -> None:
     assert ci == ci_in_grp * groups
 
 
-def _fm_ndim1_check(fm_shape: SizeAnyType, fm_order: _Order2d) -> Size2Type:
+def fm_ndim1_check(fm_shape: SizeAnyType, fm_order: _Order2d) -> Size2Type:
     if len(fm_shape) < 1 or len(fm_shape) > 2:
         raise ShapeError(f"expected shape of 1 or 2, but got {len(fm_shape)}.")
 
@@ -80,7 +80,7 @@ def _fm_ndim1_check(fm_shape: SizeAnyType, fm_order: _Order2d) -> Size2Type:
     return channels, l
 
 
-def _fm_ndim2_check(fm_shape: SizeAnyType, fm_order: _Order3d) -> Size3Type:
+def fm_ndim2_check(fm_shape: SizeAnyType, fm_order: _Order3d) -> Size3Type:
     if len(fm_shape) < 2 or len(fm_shape) > 3:
         raise ShapeError(f"expected shape of 2 or 3, but got {len(fm_shape)}.")
 
@@ -408,36 +408,34 @@ def _conv2d_semifolded_unroll(
     padding: Size2Type,
     groups: int = 1,
 ) -> WeightType:
-    co, ck, kh = kernel.shape
-    ci = groups * ck
-    hi = in_shape[1] + 2 * padding[0]
-    _, ho = out_shape
-    w_np = np.zeros((ci * in_shape[1], co * ho), dtype=kernel.dtype)
+    ci, hi = in_shape
+    co, ho = out_shape
+    _, ci_in_grp, kh = kernel.shape
+
+    _, sw = stride
+    ph, _ = padding
+
+    hi_pad = hi + 2 * ph
+    w_np = np.zeros((ci * hi, co * ho), dtype=kernel.dtype)
 
     co_in_grp = co // groups
     for g in range(groups):
         for i in range(co_in_grp):
-            for j in range(ck):
+            for j in range(ci_in_grp):
                 # Must recreate `w_block` every time because some rows will be deleted.
-                w_block = np.zeros((hi, ho), dtype=kernel.dtype)
+                w_block = np.zeros((hi_pad, ho), dtype=kernel.dtype)
                 for k in range(ho):
-                    w_block[k * stride[1] : k * stride[1] + kh, k] = kernel[
-                        g * co_in_grp + i, j, :
-                    ]
+                    w_block[k * sw : k * sw + kh, k] = kernel[g * co_in_grp + i, j, :]
 
-                if padding[0] > 0:  # H direction
+                if ph > 0:
                     w_block = np.delete(
                         w_block,
-                        np.hstack(
-                            (np.arange(padding[0]), np.arange(hi - padding[0], hi))
-                        ),
+                        np.hstack((np.arange(ph), np.arange(hi_pad - ph, hi_pad))),
                         axis=0,
                     )
 
                 w_np[
-                    g * ck * in_shape[1]
-                    + j * in_shape[1] : g * ck * in_shape[1]
-                    + (j + 1) * in_shape[1],
+                    g * ci_in_grp * hi + j * hi : g * ci_in_grp * hi + (j + 1) * hi,
                     g * ho * co_in_grp + i * ho : g * ho * co_in_grp + (i + 1) * ho,
                 ] = w_block
 

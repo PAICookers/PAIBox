@@ -15,8 +15,8 @@ from .conv_types import Size1Type, Size2Type, _KOrder3d, _KOrder4d
 from .conv_utils import (
     _conv1d_oshape,
     _conv2d_oshape,
-    _fm_ndim1_check,
-    _fm_ndim2_check,
+    fm_ndim1_check,
+    fm_ndim2_check,
     group_ch_check,
 )
 from .transforms import (
@@ -276,7 +276,7 @@ class Conv1dSyn(FullConnectedSyn):
             _kernel = kernel
 
         co, ci_in_grp, k = _kernel.shape
-        ci, li = _fm_ndim1_check(source.shape_out, "CL")
+        ci, li = fm_ndim1_check(source.shape_out, "CL")
         (lo,) = _conv1d_oshape((li,), (k,), stride, padding, dilation)
 
         group_ch_check(ci, co, groups, ci_in_grp)
@@ -316,7 +316,7 @@ class Conv2dSyn(FullConnectedSyn):
             _kernel = kernel
 
         co, ci_in_grp, kh, kw = _kernel.shape
-        ci, hi, wi = _fm_ndim2_check(source.shape_out, "CHW")
+        ci, hi, wi = fm_ndim2_check(source.shape_out, "CHW")
         ho, wo = _conv2d_oshape((hi, wi), (kh, kw), stride, padding, dilation)
 
         group_ch_check(ci, co, groups, ci_in_grp)
@@ -341,8 +341,8 @@ class Conv2dSemiFoldedSyn(FullConnectedSyn):
         source: Union[NeuDyn, InputProj],
         dest: Neuron,
         kernel: np.ndarray,
-        stride: tuple[int, int],
-        padding: tuple[int, int],
+        stride: Size2Type,
+        padding: Size2Type,
         groups: int,
         order: _KOrder3d,
         name: Optional[str] = None,
@@ -412,7 +412,7 @@ class ConvTranspose1dSyn(FullConnectedSyn):
         # O,I,L
         co, in_channels, k = _kernel.shape
         # C,L
-        ci, li = _fm_ndim1_check(source.shape_out, "CL")
+        ci, li = fm_ndim1_check(source.shape_out, "CL")
         lo = (
             (li - 1) * stride[0]
             - 2 * padding[0]
@@ -440,10 +440,10 @@ class ConvTranspose2dSyn(FullConnectedSyn):
         source: Union[NeuDyn, InputProj],
         dest: Neuron,
         kernel: np.ndarray,
-        stride: tuple[int, int],
-        padding: tuple[int, int],
-        dilation: tuple[int, int],
-        output_padding: tuple[int, int],
+        stride: Size2Type,
+        padding: Size2Type,
+        dilation: Size2Type,
+        output_padding: Size2Type,
         order: _KOrder4d,
         name: Optional[str] = None,
     ) -> None:
@@ -462,7 +462,7 @@ class ConvTranspose2dSyn(FullConnectedSyn):
         # O,I,H,W
         co, in_channels, kh, kw = _kernel.shape
         # C,H,W
-        ci, hi, wi = _fm_ndim2_check(source.shape_out, "CHW")
+        ci, hi, wi = fm_ndim2_check(source.shape_out, "CHW")
         ho = (
             (hi - 1) * stride[0]
             - 2 * padding[0]
