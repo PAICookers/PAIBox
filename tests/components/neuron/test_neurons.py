@@ -10,8 +10,8 @@ from paicorelib import LCM, LDM, LIM, NTM, RM, SIM, CoreMode, OfflineNeuAttrs
 import paibox as pb
 from paibox.components import Neuron
 from paibox.components.neuron.base import MetaNeuron
-from paibox.components.neuron.utils import VJT_MAX, VJT_MIN
-from paibox.components.neuron.utils import ThresholdMode as TM
+from paibox.components.neuron.utils import V_MAX, V_MIN
+from paibox.components.neuron.utils import NeuFireState as TM
 from paibox.exceptions import ShapeError
 from paibox.types import NEUOUT_U8_DTYPE, VoltageType
 from paibox.utils import as_shape, shape2num
@@ -218,11 +218,11 @@ class TestNeuronBehavior:
     @pytest.mark.parametrize(
         "ntm, thr_mode, reset_mode, expected",
         [
-            (NTM.MODE_RESET, TM.EXCEED_POSITIVE, RM.MODE_NORMAL, np.array([5])),
-            (NTM.MODE_RESET, TM.EXCEED_POSITIVE, RM.MODE_NONRESET, np.array([10])),
-            (NTM.MODE_RESET, TM.EXCEED_NEGATIVE, RM.MODE_NORMAL, np.array([-5])),
-            (NTM.MODE_RESET, TM.EXCEED_NEGATIVE, RM.MODE_NONRESET, np.array([10])),
-            (NTM.MODE_SATURATION, TM.EXCEED_NEGATIVE, RM.MODE_NONRESET, np.array([-3])),
+            (NTM.MODE_RESET, TM.FIRING_POS, RM.MODE_NORMAL, np.array([5])),
+            (NTM.MODE_RESET, TM.FIRING_POS, RM.MODE_NONRESET, np.array([10])),
+            (NTM.MODE_RESET, TM.FIRING_NEG, RM.MODE_NORMAL, np.array([-5])),
+            (NTM.MODE_RESET, TM.FIRING_NEG, RM.MODE_NONRESET, np.array([10])),
+            (NTM.MODE_SATURATION, TM.FIRING_NEG, RM.MODE_NONRESET, np.array([-3])),
         ],
     )
     def test_neuronal_reset(self, ntm, thr_mode, reset_mode, expected):
@@ -259,14 +259,14 @@ class TestNeuronBehavior:
         "incoming_v, expected_v, expected_spike",
         [
             (
-                np.array([VJT_MAX + 1], dtype=np.int32),
-                np.array([VJT_MIN + 1], dtype=np.int32),
+                np.array([V_MAX + 1], dtype=np.int32),
+                np.array([V_MIN + 1], dtype=np.int32),
                 # Exceeded the positive threshold but no spike
                 np.array([False], dtype=np.bool_),
             ),
             (
-                np.array([VJT_MIN - 1], dtype=np.int32),
-                np.array([VJT_MAX - 1], dtype=np.int32),
+                np.array([V_MIN - 1], dtype=np.int32),
+                np.array([V_MAX - 1], dtype=np.int32),
                 # Exceeded the negative threshold but no spike
                 np.array([False], dtype=np.bool_),
             ),
@@ -275,8 +275,8 @@ class TestNeuronBehavior:
     )
     def test_vjt_overflow(self, incoming_v, expected_v, expected_spike):
         pb.FRONTEND_ENV["t"] = 0
-        neg_thres = VJT_MIN
-        pos_thres = VJT_MAX
+        neg_thres = V_MIN
+        pos_thres = V_MAX
 
         n1 = Neuron(
             1,
@@ -673,7 +673,7 @@ from paibox.components.neuron.neurons import ANNNeuron
 
 class TestANNNeuron:
     def test_ANNNeuron(self):
-        n1 = ANNNeuron(1, 0, 8)
+        n1 = ANNNeuron(1, 0, bit_trunc=8)
 
         incoming_v = np.random.randint(-128, 128, size=(20, 1), dtype=np.int32)
 
@@ -709,7 +709,7 @@ class TestANNNeuron:
         ids=["8_bit", "9_bit"],
     )
     def test_ANNNeuron_bit_trunc(self, bit_trunc, expected_v):
-        n1 = ANNNeuron(1, -10, bit_trunc)
+        n1 = ANNNeuron(1, -10, bit_trunc=bit_trunc)
 
         incoming_v = np.array([20, 400, 1000, 100, 120, 478, 0, -10], dtype=np.int32)
 
@@ -730,7 +730,7 @@ class TestNeuronAllModes:
     def _ann_vjt_func(vj: VoltageType, neuron: Neuron) -> NDArray[NEUOUT_U8_DTYPE]:
         return np.where(
             vj >= neuron.pos_threshold,
-            MetaNeuron._truncate(vj, neuron.bit_truncation),
+            MetaNeuron._truncate(vj, neuron.bit_trunc),
             0,
         ).astype(NEUOUT_U8_DTYPE)
 

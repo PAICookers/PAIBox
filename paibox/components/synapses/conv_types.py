@@ -6,11 +6,13 @@ _TupleAnyType = Union[T, tuple[T, ...]]
 _Tuple1Type = Union[T, tuple[T]]
 _Tuple2Type = Union[T, tuple[T, T]]
 _Tuple3Type = Union[T, tuple[T, T, T]]
+_Tuple4Type = Union[T, tuple[T, T, T, T]]
 
 _SizeAnyType = _TupleAnyType[int]
 _Size1Type = _Tuple1Type[int]
 _Size2Type = _Tuple2Type[int]
 _Size3Type = _Tuple3Type[int]
+_Size4Type = _Tuple4Type[int]
 
 SizeAnyType = tuple[int, ...]
 Size1Type = tuple[int]

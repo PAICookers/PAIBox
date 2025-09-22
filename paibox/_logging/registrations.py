@@ -35,3 +35,6 @@ register_artifact("routing_group_info")
 
 # placement
 register_artifact("core_block_info")
+
+# Tiling optimization
+register_artifact("tiling_optim")

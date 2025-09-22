@@ -32,23 +32,17 @@ from .modules import (
 )
 from .neuron import Neuron
 from .neuron.neurons import *
-from .neuron.utils import ThresholdMode, vjt_overflow
+from .neuron.utils import NeuFireState, v_overflow
 from .projection import InputProj
 from .synapses import ConnType, FullConnSyn
-from .synapses.conv_types import (
-    Size1Type,
-    Size2Type,
-    SizeAnyType,
-    _Size1Type,
-    _Size2Type,
-)
+from .synapses.conv_types import SizeAnyType, _Size1Type, _Size2Type
 from .synapses.conv_utils import (
     _conv1d_oshape,
     _conv2d_oshape,
-    _fm_ndim1_check,
-    _fm_ndim2_check,
     _pair,
     _single,
+    fm_ndim1_check,
+    fm_ndim2_check,
 )
 from .synapses.transforms import (
     Conv1dForward,
@@ -302,7 +296,7 @@ class _SpikingPool1d(_SpikingPoolNd):
     ) -> None:
         """Basic 1d spiking pooling."""
         _pool_type_check(pool_type)
-        ci, il = _fm_ndim1_check(neuron.shape_out, "CL")
+        ci, il = fm_ndim1_check(neuron.shape_out, "CL")
 
         _ksize = _single(kernel_size)
         _stride = _single(stride) if stride is not None else _ksize
@@ -384,7 +378,7 @@ class _SpikingPool1dWithV(FunctionalModuleWithV):
         **kwargs,
     ) -> None:
         """Basic 1d spiking pooling with voltage at the previous timestep."""
-        ci, il = _fm_ndim1_check(neuron.shape_out, "CL")
+        ci, il = fm_ndim1_check(neuron.shape_out, "CL")
 
         _ksize = _single(kernel_size)
         _kernel = np.ones((ci, ci, *_ksize), dtype=WEIGHT_DTYPE)
@@ -417,7 +411,7 @@ class _SpikingPool1dWithV(FunctionalModuleWithV):
         return _spike_func_avg_pool(vjt, self.pos_thres)
 
     def synaptic_integr(self, x1: NeuOutType, vjt_pre: VoltageType) -> VoltageType:
-        return vjt_overflow(vjt_pre + self.tfm(x1).ravel())
+        return v_overflow(vjt_pre + self.tfm(x1).ravel())
 
     def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
         n1_p1d = IF(
@@ -464,7 +458,7 @@ class _SpikingPool2d(_SpikingPoolNd):
     ) -> None:
         """Basic 2d spiking pooling."""
         _pool_type_check(pool_type)
-        ci, hi, wi = _fm_ndim2_check(neuron.shape_out, "CHW")
+        ci, hi, wi = fm_ndim2_check(neuron.shape_out, "CHW")
 
         _ksize = _pair(kernel_size)
         _stride = _pair(stride) if stride is not None else _ksize
@@ -550,7 +544,7 @@ class _SpikingPool2dWithV(FunctionalModuleWithV):
         NOTE: This is not a regular average pooling operator. It is just to correspond to the operators \
             that appear in PAIFLOW.
         """
-        ci, hi, wi = _fm_ndim2_check(neuron.shape_out, "CHW")
+        ci, hi, wi = fm_ndim2_check(neuron.shape_out, "CHW")
 
         _ksize = _pair(kernel_size)
         _kernel = np.ones((ci, ci, *_ksize), dtype=WEIGHT_DTYPE)
@@ -584,7 +578,7 @@ class _SpikingPool2dWithV(FunctionalModuleWithV):
         return _spike_func_avg_pool(vjt, self.pos_thres)
 
     def synaptic_integr(self, x1: NeuOutType, vjt_pre: VoltageType) -> VoltageType:
-        return vjt_overflow(vjt_pre + self.tfm(x1).ravel())
+        return v_overflow(vjt_pre + self.tfm(x1).ravel())
 
     def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
         n1_p2d = IF(
@@ -652,7 +646,7 @@ class _Pool1d(_PoolNd):
     ) -> None:
         """Basic 1d ANN pooling."""
         _pool_type_check(pool_type)
-        ci, li = _fm_ndim1_check(neuron_s.shape_out, "CL")
+        ci, li = fm_ndim1_check(neuron_s.shape_out, "CL")
 
         ksize = _single(kernel_size)
         s = _single(stride) if stride is not None else ksize
@@ -667,7 +661,7 @@ class _Pool1d(_PoolNd):
 
         (lo,) = _conv1d_oshape((li,), ksize, s, p)
         k = ksize[0]
-        assert 0 <= p[0] <= k / 2 and 0 <= p[0] <= k / 2
+        assert 0 <= p[0] <= k
 
         self.tfm = _Pool1dForward(ci, (li,), (lo,), ksize, s, p, pool_type)
         super().__init__(
@@ -696,7 +690,7 @@ class _Pool2d(_PoolNd):
     ) -> None:
         """Basic 2d ANN pooling."""
         _pool_type_check(pool_type)
-        ci, hi, wi = _fm_ndim2_check(neuron_s.shape_out, "CHW")
+        ci, hi, wi = fm_ndim2_check(neuron_s.shape_out, "CHW")
 
         ksize = _pair(kernel_size)
         s = _pair(stride) if stride is not None else ksize
@@ -712,7 +706,7 @@ class _Pool2d(_PoolNd):
         ho, wo = _conv2d_oshape((hi, wi), ksize, s, p)
         kh, kw = ksize
         ph, pw = p
-        assert 0 <= ph <= kh / 2 and 0 <= pw <= kw / 2
+        assert 0 <= ph <= kh and 0 <= pw <= kw
 
         self.tfm = _Pool2dForward(ci, (hi, wi), (ho, wo), ksize, s, p, pool_type)
         super().__init__(
@@ -726,12 +720,12 @@ def _spike_func_avg_pool(
     # Fire
     thres_mode = np.where(
         vjt >= pos_thres,
-        ThresholdMode.EXCEED_POSITIVE,
-        np.where(vjt < 0, ThresholdMode.EXCEED_NEGATIVE, ThresholdMode.NOT_EXCEEDED),
+        NeuFireState.FIRING_POS,
+        np.where(vjt < 0, NeuFireState.FIRING_NEG, NeuFireState.NOT_FIRING),
     )
-    spike = thres_mode == ThresholdMode.EXCEED_POSITIVE
+    spike = thres_mode == NeuFireState.FIRING_POS
     # Reset
-    v_reset = np.where(thres_mode == ThresholdMode.EXCEED_POSITIVE, 0, vjt)
+    v_reset = np.where(thres_mode == NeuFireState.FIRING_POS, 0, vjt)
 
     return spike.astype(NEUOUT_U8_DTYPE), v_reset
 

@@ -12,9 +12,9 @@ from paibox.components.synapses.conv_types import (
 from paibox.components.synapses.conv_utils import (
     _conv1d_oshape,
     _conv2d_oshape,
-    _group_ch_check,
     _pair,
     _single,
+    group_ch_check,
 )
 from paibox.types import (
     NEUOUT_U8_DTYPE,
@@ -57,7 +57,7 @@ def conv1d_golden(
     co, ci_in_grp, kl = kernel.shape
     ci, il = x.shape
 
-    _group_ch_check(ci, co, groups, ci_in_grp)
+    group_ch_check(ci, co, groups, ci_in_grp)
     co_in_grp = co // groups
 
     stride = _single(stride)
@@ -112,7 +112,7 @@ def conv2d_golden(
     co, ci_in_grp, kh, kw = kernel.shape
     ci, hi, wi = x.shape
 
-    _group_ch_check(ci, co, groups, ci_in_grp)
+    group_ch_check(ci, co, groups, ci_in_grp)
     co_in_grp = co // groups
 
     stride = _pair(stride)

@@ -1305,11 +1305,7 @@ class TestFunctionalModules:
             for i_pool in range(n_pool):
                 x = ann_bit_trunc(
                     _pool_op[pool_type](
-                        x,
-                        _pair(ksizes[i_pool]),
-                        _pair(strides[i_pool]),
-                        paddings[i_pool],
-                        0,
+                        x, ksizes[i_pool], strides[i_pool], paddings[i_pool]
                     )
                 )
                 assert np.array_equal(

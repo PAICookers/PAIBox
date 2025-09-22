@@ -278,6 +278,7 @@ class _LogSettingsKwds(TypedDict, total=False):
     coord_assign: bool
     collect_neuron_dest: bool
     routing_group_info: bool
+    tiling_optim: bool
 
 
 # Add a default log level or state for each log or artifact name in the above dictionary.
@@ -291,6 +292,7 @@ DEFAULT_LOG_SETTINGS: _LogSettingsKwds = {
     "coord_assign": True,
     "collect_neuron_dest": True,
     "routing_group_info": True,
+    "tiling_optim": True,
 }
 
 

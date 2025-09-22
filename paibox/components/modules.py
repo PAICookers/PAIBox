@@ -15,8 +15,8 @@ from paibox.types import NEUOUT_U8_DTYPE, NeuOutType, VoltageType
 from paibox.utils import check_elem_unique, shape2num
 
 from .neuron.utils import (
+    NeuFireState,
     RTModeKwds,
-    ThresholdMode,
     _input_width_format,
     _spike_width_format,
 )
@@ -373,7 +373,7 @@ class FunctionalModuleWithV(FunctionalModule):
     """Functional module with two operands.
 
     NOTE: Compared to `FunctionalModule`, the difference is that it takes the \
-        membrane potential voltage into consideration.
+        voltage voltage into consideration.
     """
 
     def __init__(
@@ -387,9 +387,9 @@ class FunctionalModuleWithV(FunctionalModule):
         super().__init__(
             *operands, shape_out=shape_out, keep_shape=keep_shape, name=name, **kwargs
         )
-        self.set_memory("_vjt", np.zeros((self.num_out,), dtype=np.int32))
+        self.set_memory("_v0", np.zeros((self.num_out,), dtype=np.int32))
         self.thres_mode = np.full(
-            (self.num_out,), ThresholdMode.NOT_EXCEEDED, dtype=np.uint8
+            (self.num_out,), NeuFireState.NOT_FIRING, dtype=np.uint8
         )
 
     def synaptic_integr(self, *args, **kwargs) -> VoltageType:
@@ -407,8 +407,8 @@ class FunctionalModuleWithV(FunctionalModule):
 
         if self.is_outputing():
             synin = self.synin_deque.popleft()  # Pop the left of the deque.
-            incoming_v = self.synaptic_integr(*synin, self._vjt)
-            _is, self._vjt = self.spike_func(incoming_v)
+            incoming_v = self.synaptic_integr(*synin, self._v0)
+            _is, self._v0 = self.spike_func(incoming_v)
             self._neu_out = _is.ravel()
 
             idx = (
@@ -420,7 +420,7 @@ class FunctionalModuleWithV(FunctionalModule):
 
     @property
     def voltage(self) -> VoltageType:
-        return self._vjt.reshape(self.varshape)
+        return self._v0.reshape(self.varshape)
 
 
 class FunctionalModule2to1WithV(FunctionalModuleWithV):
