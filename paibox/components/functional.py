@@ -34,7 +34,7 @@ from .modules import (
 from .neuron import Neuron
 from .neuron.base import MetaNeuron
 from .neuron.neurons import *
-from .neuron.utils import ThresholdMode, vjt_overflow
+from .neuron.utils import NeuFireState, v_overflow
 from .projection import InputProj
 from .synapses import ConnType, Conv2dSemiFoldedSyn, FullConnSyn, MaxPoolSyn
 from .synapses.conv_types import _Size1Type, _Size2Type, Size2Type
@@ -865,7 +865,7 @@ class Linear(_LinearBase):
         neuron_d = ANNNeuron(
             self.shape_out,
             self.bias,
-            self.bit_trunc,
+            bit_trunc=self.bit_trunc,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
             tick_wait_end=self.tick_wait_end,
@@ -912,7 +912,7 @@ class LinearSemiFolded(_LinearBase, _SemiFoldedModule):
         n_linear = ANNNeuron(
             self.shape_out,
             self.bias,
-            self.bit_trunc,
+            bit_trunc=self.bit_trunc,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start + 1,
             tick_wait_end=self.tick_wait_end,
@@ -1051,7 +1051,7 @@ class Conv2dSemiFolded(_SemiFoldedModule):
         n_conv2d = ANNNeuron(
             self.shape_out,
             self.bias,
-            self.bit_trunc,
+            bit_trunc=self.bit_trunc,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start + 1,
             tick_wait_end=twe,
@@ -1672,36 +1672,17 @@ def _spike_func_sadd_ssub(
     # Fire
     thres_mode = np.where(
         vjt >= pos_thres,
-        ThresholdMode.EXCEED_POSITIVE,
-        np.where(vjt < 0, ThresholdMode.EXCEED_NEGATIVE, ThresholdMode.NOT_EXCEEDED),
+        NeuFireState.FIRING_POS,
+        np.where(vjt < 0, NeuFireState.FIRING_NEG, NeuFireState.NOT_FIRING),
     )
     # Reset
     if reset_v is None:
-        v_reset = np.where(
-            thres_mode == ThresholdMode.EXCEED_POSITIVE, vjt - pos_thres, vjt
-        )
+        v_reset = np.where(thres_mode == NeuFireState.FIRING_POS, vjt - pos_thres, vjt)
     else:
-        v_reset = np.where(thres_mode == ThresholdMode.EXCEED_POSITIVE, reset_v, vjt)
+        v_reset = np.where(thres_mode == NeuFireState.FIRING_POS, reset_v, vjt)
 
     # Spike
-    spike = thres_mode == ThresholdMode.EXCEED_POSITIVE
-
-    return spike.astype(NEUOUT_U8_DTYPE), v_reset
-
-
-def _spike_func_avg_pool(
-    vjt: VoltageType, pos_thres: int
-) -> tuple[NeuOutType, VoltageType]:
-    """Function `spike_func()` in spiking addition & subtraction."""
-    # Fire
-    thres_mode = np.where(
-        vjt >= pos_thres,
-        ThresholdMode.EXCEED_POSITIVE,
-        np.where(vjt < 0, ThresholdMode.EXCEED_NEGATIVE, ThresholdMode.NOT_EXCEEDED),
-    )
-    spike = thres_mode == ThresholdMode.EXCEED_POSITIVE
-    # Reset
-    v_reset = np.where(thres_mode == ThresholdMode.EXCEED_POSITIVE, 0, vjt)
+    spike = thres_mode == NeuFireState.FIRING_POS
 
     return spike.astype(NEUOUT_U8_DTYPE), v_reset
 
@@ -1713,7 +1694,7 @@ def _sum_inputs_sadd_ssub(
     incoming_v = (
         vjt_pre + x1.astype(VOLTAGE_DTYPE) * f1 + x2.astype(VOLTAGE_DTYPE) * f2
     ).astype(VOLTAGE_DTYPE)
-    return vjt_overflow(incoming_v, strict)
+    return v_overflow(incoming_v, strict)
 
 
 def _shape_check(shape: tuple[int, ...], ndim: int) -> tuple[int, ...]:

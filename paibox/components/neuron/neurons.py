@@ -39,7 +39,7 @@ class IF(Neuron):
     def __init__(
         self,
         shape: Shape,
-        threshold: int,
+        threshold: int = 1,
         reset_v: Optional[int] = None,
         neg_threshold: Optional[int] = None,
         *,
@@ -51,7 +51,7 @@ class IF(Neuron):
 
         Args:
             - shape: shape of neurons.
-            - threshold: when the membrane potential exceeds the threshold, neurons will fire.
+            - threshold: when the voltage exceeds the threshold, neurons will fire.
             - reset_v: if not specified, neurons will do soft reset after firing, v - threshold. If \
                 specified, neurons will do hard reset after firing, v = reset_v.
             - neg_threshold: signed negative theshold. If not specified, it will be the smallest    \
@@ -93,7 +93,7 @@ class LIF(Neuron):
     def __init__(
         self,
         shape: Shape,
-        threshold: int,
+        threshold: int = 1,
         reset_v: Optional[int] = None,
         leak_v: int = 0,
         bias: DataType = 0,
@@ -107,12 +107,12 @@ class LIF(Neuron):
 
         Args:
             - shape: shape of neurons.
-            - threshold: when the membrane potential exceeds the threshold, neurons will fire.
+            - threshold: when the voltage exceeds the threshold, neurons will fire.
             - reset_v: if not specified, neurons will do soft reset after firing, v - threshold. If \
                 specified, neurons will do hard reset after firing, v = reset_v.
-            - leak_v: the signed leak voltage will be added directly to the membrane potential.
-                - If it is positive, the membrane potential will increase.
-                - If is is negative, the membrane potential will decrease.
+            - leak_v: the signed leak voltage will be added directly to the voltage.
+                - If it is positive, the voltage will increase.
+                - If is is negative, the voltage will decrease.
                 - The final leak_v is leak_v + bias (default=0).
             - bias: if a signed bias is given, it will be added to `leak_v`. The neuron will leak   \
                 before threshold comparison. `leak_v` will also be considered now.
@@ -148,7 +148,7 @@ class TonicSpiking(Neuron):
     def __init__(
         self,
         shape: Shape,
-        fire_step: int,
+        fire_step: int = 1,
         *,
         keep_shape: bool = True,
         name: Optional[str] = None,
@@ -187,7 +187,7 @@ class PhasicSpiking(Neuron):
             - shape: shape of neurons.
             - fire_step: after `N` spikes, the neuron will fire positively.
             - neg_floor: signed negative floor. once fired, the neurons will remain at this negative\
-                membrane potential. Default is -10.
+                voltage. Default is -10.
             - keep_shape: whether to maintain shape in the simulation. Default is `True`.
             - name: name of the neuron. Optional.
         """
@@ -285,9 +285,9 @@ class StoreVoltageNeuron(Neuron):
 
         Args:
             - shape: shape of neurons.
-            - leak_v: the signed leak voltage will be added directly to the membrane potential.
-                - If it is positive, the membrane potential will increase.
-                - If is is negative, the membrane potential will decrease.
+            - leak_v: the signed leak voltage will be added directly to the voltage.
+                - If it is positive, the voltage will increase.
+                - If is is negative, the voltage will decrease.
                 - The final leak_v is leak_v + bias (default=0).
             - bias: if a signed bias is given, it will be added to `leak_v`. The neuron will leak   \
                 before threshold comparison. `leak_v` will also be considered now.
@@ -311,14 +311,13 @@ class ANNNeuron(LIF):
         self,
         shape: Shape,
         bias: DataType = 0,
-        bit_truncation: int = 8,
         *,
         keep_shape: bool = True,
         name: Optional[str] = None,
         **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """General neuron used in ANN mode. Positive threshold = 1, negative threshold = 0."""
-        kwargs["bit_trunc"] = bit_truncation
+        kwargs.setdefault("bit_trunc", 8)
         kwargs.setdefault("input_width", 8)
         kwargs.setdefault("spike_width", 8)
         kwargs.setdefault("snn_en", False)
@@ -338,7 +337,7 @@ class ANNBypassNeuron(ANNNeuron):
         **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         super().__init__(
-            shape, bias=0, bit_truncation=8, keep_shape=keep_shape, name=name, **kwargs
+            shape, bias=0, keep_shape=keep_shape, name=name, **kwargs
         )
 
 

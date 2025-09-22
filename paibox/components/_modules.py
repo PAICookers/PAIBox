@@ -32,7 +32,7 @@ from .modules import (
 )
 from .neuron import Neuron
 from .neuron.neurons import *
-from .neuron.utils import ThresholdMode, vjt_overflow
+from .neuron.utils import NeuFireState, v_overflow
 from .projection import InputProj
 from .synapses import ConnType, FullConnSyn
 from .synapses.conv_types import SizeAnyType, _Size1Type, _Size2Type
@@ -411,7 +411,7 @@ class _SpikingPool1dWithV(FunctionalModuleWithV):
         return _spike_func_avg_pool(vjt, self.pos_thres)
 
     def synaptic_integr(self, x1: NeuOutType, vjt_pre: VoltageType) -> VoltageType:
-        return vjt_overflow(vjt_pre + self.tfm(x1).ravel())
+        return v_overflow(vjt_pre + self.tfm(x1).ravel())
 
     def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
         n1_p1d = IF(
@@ -578,7 +578,7 @@ class _SpikingPool2dWithV(FunctionalModuleWithV):
         return _spike_func_avg_pool(vjt, self.pos_thres)
 
     def synaptic_integr(self, x1: NeuOutType, vjt_pre: VoltageType) -> VoltageType:
-        return vjt_overflow(vjt_pre + self.tfm(x1).ravel())
+        return v_overflow(vjt_pre + self.tfm(x1).ravel())
 
     def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
         n1_p2d = IF(
@@ -720,12 +720,12 @@ def _spike_func_avg_pool(
     # Fire
     thres_mode = np.where(
         vjt >= pos_thres,
-        ThresholdMode.EXCEED_POSITIVE,
-        np.where(vjt < 0, ThresholdMode.EXCEED_NEGATIVE, ThresholdMode.NOT_EXCEEDED),
+        NeuFireState.FIRING_POS,
+        np.where(vjt < 0, NeuFireState.FIRING_NEG, NeuFireState.NOT_FIRING),
     )
-    spike = thres_mode == ThresholdMode.EXCEED_POSITIVE
+    spike = thres_mode == NeuFireState.FIRING_POS
     # Reset
-    v_reset = np.where(thres_mode == ThresholdMode.EXCEED_POSITIVE, 0, vjt)
+    v_reset = np.where(thres_mode == NeuFireState.FIRING_POS, 0, vjt)
 
     return spike.astype(NEUOUT_U8_DTYPE), v_reset
 
