@@ -4,6 +4,8 @@ from functools import partial
 from math import ceil
 from typing import Literal
 
+from paicorelib import OffCoreCfg, OnCoreCfg
+
 from paibox.components import Neuron
 from paibox.exceptions import ParameterInvalidWarning, ResourceError
 
@@ -16,8 +18,6 @@ from .types import (
     NeuSegOfCorePlm,
     NeuSliceType,
 )
-
-from paicorelib import OnCoreCfg, OffCoreCfg
 
 
 def _place_seperately(
@@ -293,7 +293,7 @@ def aligned_coords(
 
     NOTE: Axons are described in a tuple (tick_relative, axon_addr). Axis 'tr' is used as the row   \
         coordinates while axis 'axon' is used as the column coordinates.
-    
+
     AxonSegment with `n_axon`, `addr_offset` represents a segment of axons address A[offset:offset+n_axon].
 
     tr=0                A[0]            A[1]                ... A[FAN_IN_BASE-1]

@@ -96,7 +96,7 @@ def test_get_axon_segments(axons: list[Neuron]):
 
     tr_max = 1 << lcn_ex
 
-    axon_slices:list[SourceSliceType] = [NeuronSlice(axon) for axon in axons]
+    axon_slices: list[SourceSliceType] = [NeuronSlice(axon) for axon in axons]
 
     axon_segs = get_axon_segments(axon_slices, tr_max, 1152)
 
@@ -118,10 +118,10 @@ def test_get_axon_segments_boundary(axons: list[Neuron]):
     lcn_ex = n_axon2lcn_ex_proto(sum(axon.num_out for axon in axons), 1152)
     tr_max = 1 << lcn_ex
 
-    axon_slices:list[SourceSliceType] = [NeuronSlice(axon) for axon in axons]
+    axon_slices: list[SourceSliceType] = [NeuronSlice(axon) for axon in axons]
 
     axon_segs = get_axon_segments(axon_slices, tr_max, 1152)
-    
+
     last_slice = axon_slices[-1]
     last_seg = axon_segs[last_slice]
     assert last_seg.addr_offset + last_seg.n_axon == (tr_max * 1152)

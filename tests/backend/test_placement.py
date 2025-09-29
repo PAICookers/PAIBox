@@ -6,7 +6,7 @@ from typing import Literal, Optional
 
 import numpy as np
 import pytest
-from paicorelib import LCN_EX, Coord, CoreMode, HwConfig, OfflineNeuAttrs, OffCoreCfg
+from paicorelib import LCN_EX, Coord, CoreMode, HwConfig, OffCoreCfg, OfflineNeuAttrs
 from paicorelib import ReplicationId as RId
 from paicorelib import WeightWidth as WW
 from paicorelib.framelib import OfflineFrameGen

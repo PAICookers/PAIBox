@@ -181,7 +181,7 @@ class RoutingGroup:
 
         self.target_chip_idx: Union[int, None] = None
         """The index of the target chip for this routing group."""
-        
+
         self.online = self.core_blocks[0].online
         """Whether the routing group is in online mode."""
 
@@ -501,7 +501,8 @@ class RoutingGroup:
         tabs = "\t" * indents
 
         _logger.debug(
-            tabs + f"{self}(root: {self.is_root}, target_chip: {self.target_chip_idx}, {self.n_core_required} cores):"
+            tabs
+            + f"{self}(root: {self.is_root}, target_chip: {self.target_chip_idx}, {self.n_core_required} cores):"
         )
         _logger.debug(
             tabs + f"Global axons: {[str(axon) for axon in self.global_axons]}"
@@ -513,7 +514,7 @@ class RoutingGroup:
 
         for elem in self.routing_elems:
             elem.dump(indents + 1, father_logger=_logger)
-        
+
         if indents == 0:
             _logger.debug("")
 
@@ -540,7 +541,7 @@ class RoutingGroup:
                 )
             else:
                 elem.dump_routing_result(indents + 1, father_logger=_logger)
-        
+
         if indents == 0:
             _logger.debug("")
 
@@ -558,7 +559,7 @@ class RoutingManager:
         self.n_core_total: int = 0
         self.n_core_occupied: int = 0
         self.n_core_per_chip = self._default_n_core_per_chip()
-        
+
         self.routing_state_stack: deque[dict] = deque()
         self.cur_start = 0
         self.cur_child_size = HwConfig.N_CORE_MAX_INCHIP
@@ -612,16 +613,17 @@ class RoutingManager:
                     if succ_cb in next_rg.iter_nested_cb():
                         self.succ_rgrps[rg].append(next_rg)
                         break
-        
-    def check_valid(self,
-                    n_core_incoming,
-                    online,
+
+    def check_valid(
+        self,
+        n_core_incoming,
+        online,
     ) -> bool:
         if online and n_core_incoming > HwConfig.N_CORE_ONLINE:
             raise ResourceError(
                 f"the online routing group({n_core_incoming}) exceeds the hardware limit."
             )
-        
+
         if not online and n_core_incoming > HwConfig.N_CORE_MAX_INCHIP / 2:
             raise ResourceError(
                 f"the offline routing group({n_core_incoming}) exceeds the hardware limit."
@@ -632,7 +634,7 @@ class RoutingManager:
     def pop_to_top(self):
         while len(self.routing_state_stack) > 0:
             self.stack_pop()
-    
+
     def stack_push(self, child_index: int = -1):
         if child_index != -1:
             if child_index < 0 or child_index >= len(self.cur_child_state):
@@ -651,18 +653,20 @@ class RoutingManager:
                 f"the all children with {self.cur_child_size} cores \
                     at {self.cur_start} are all occupied."
             )
-        self.routing_state_stack.append({
-            'cur_start': self.cur_start,
-            'cur_child_size': self.cur_child_size,
-            'cur_child_state': self.cur_child_state.copy(),
-            'cur_end': self.cur_end,
-            'child_index': child_index
-        })
+        self.routing_state_stack.append(
+            {
+                "cur_start": self.cur_start,
+                "cur_child_size": self.cur_child_size,
+                "cur_child_state": self.cur_child_state.copy(),
+                "cur_end": self.cur_end,
+                "child_index": child_index,
+            }
+        )
         self.cur_start = self.cur_start + self.cur_child_size * child_index
         self.cur_child_size = self.cur_child_size // HwConfig.N_SUB_ROUTING_NODE
         self.cur_child_state = [0] * HwConfig.N_SUB_ROUTING_NODE
         self.cur_end = self.cur_start + self.cur_child_size * len(self.cur_child_state)
-    
+
     def stack_pop(self):
         if len(self.routing_state_stack) == 0:
             raise ResourceError(
@@ -672,23 +676,26 @@ class RoutingManager:
         empty_core_num = self.available_child_num * self.cur_child_size
         self.n_core_occupied += empty_core_num
         self.n_core_per_chip[self.cur_chip_index] += empty_core_num
-   
-        self.cur_start = deque_state['cur_start']
-        self.cur_child_size = deque_state['cur_child_size']
-        self.cur_child_state = deque_state['cur_child_state']
-        self.cur_end = deque_state['cur_end']
-        child_index = deque_state['child_index']
+
+        self.cur_start = deque_state["cur_start"]
+        self.cur_child_size = deque_state["cur_child_size"]
+        self.cur_child_state = deque_state["cur_child_state"]
+        self.cur_end = deque_state["cur_end"]
+        child_index = deque_state["child_index"]
         self.cur_child_state[child_index] = 1
 
     @property
     def in_online(self) -> bool:
-        return self.cur_start % HwConfig.N_CORE_MAX_INCHIP >= ONLINE_CORES_BASE_COORD \
-            and self.cur_end % HwConfig.N_CORE_MAX_INCHIP <= ONLINE_CORES_BASE_COORD + HwConfig.N_CORE_ONLINE
-            
+        return (
+            self.cur_start % HwConfig.N_CORE_MAX_INCHIP >= ONLINE_CORES_BASE_COORD
+            and self.cur_end % HwConfig.N_CORE_MAX_INCHIP
+            <= ONLINE_CORES_BASE_COORD + HwConfig.N_CORE_ONLINE
+        )
+
     @property
     def cur_chip_index(self) -> int:
         return self.cur_start // HwConfig.N_CORE_MAX_INCHIP
-    
+
     @property
     def max_group_size(self) -> int:
         if self.cur_child_size == HwConfig.N_CORE_MAX_INCHIP:
@@ -697,30 +704,43 @@ class RoutingManager:
             else:
                 return 0
         else:
-            if self.cur_child_state[0] == 0 and self.cur_child_state[1] == 0 or \
-                self.cur_child_state[2] == 0 and self.cur_child_state[3] == 0:
+            if (
+                self.cur_child_state[0] == 0
+                and self.cur_child_state[1] == 0
+                or self.cur_child_state[2] == 0
+                and self.cur_child_state[3] == 0
+            ):
                 return self.cur_child_size * 2
             elif 0 in self.cur_child_state:
                 return self.cur_child_size
             else:
                 return 0
-    
+
     @property
     def available_child_num(self) -> int:
         return self.cur_child_state.count(0)
 
-    def insert_incoming(self, n_core_incoming: int, target_chip_idx: int, online: bool) -> tuple[int, int, list[Direction]]:
+    def insert_incoming(
+        self, n_core_incoming: int, target_chip_idx: int, online: bool
+    ) -> tuple[int, int, list[Direction]]:
         if self.max_group_size < n_core_incoming:
             # cur level cannot hold the incoming group, try previous level
             self.stack_pop()
-            return self.try_get_insert_location(n_core_incoming, target_chip_idx, online)
+            return self.try_get_insert_location(
+                n_core_incoming, target_chip_idx, online
+            )
 
         elif self.cur_child_size > n_core_incoming:
             # the child level can hold the incoming group, go deeper
             self.stack_push()
-            return self.try_get_insert_location(n_core_incoming, target_chip_idx, online)
+            return self.try_get_insert_location(
+                n_core_incoming, target_chip_idx, online
+            )
 
-        elif self.cur_child_size == n_core_incoming or self.cur_child_size * 2 == n_core_incoming:
+        elif (
+            self.cur_child_size == n_core_incoming
+            or self.cur_child_size * 2 == n_core_incoming
+        ):
             if self.cur_child_size == n_core_incoming:
                 child_index = self.cur_child_state.index(0)
             else:
@@ -738,16 +758,29 @@ class RoutingManager:
             core_end = core_start + n_core_incoming
 
             if online:
-                if not (core_start >= ONLINE_CORES_BASE_COORD and core_end <= ONLINE_CORES_BASE_COORD + HwConfig.N_CORE_ONLINE):
+                if not (
+                    core_start >= ONLINE_CORES_BASE_COORD
+                    and core_end <= ONLINE_CORES_BASE_COORD + HwConfig.N_CORE_ONLINE
+                ):
                     self.stack_pop()
-                    return self.try_get_insert_location(n_core_incoming, target_chip_idx, online)
+                    return self.try_get_insert_location(
+                        n_core_incoming, target_chip_idx, online
+                    )
             else:
-                overlap_online = core_end > ONLINE_CORES_BASE_COORD and core_start < ONLINE_CORES_BASE_COORD + HwConfig.N_CORE_ONLINE
+                overlap_online = (
+                    core_end > ONLINE_CORES_BASE_COORD
+                    and core_start < ONLINE_CORES_BASE_COORD + HwConfig.N_CORE_ONLINE
+                )
                 if overlap_online:
                     self.stack_pop()
-                    return self.try_get_insert_location(n_core_incoming, target_chip_idx, online)
+                    return self.try_get_insert_location(
+                        n_core_incoming, target_chip_idx, online
+                    )
 
-            if target_chip_idx != NEU_TARGET_CHIP_NOT_SET and target_chip_idx != self.cur_chip_index:
+            if (
+                target_chip_idx != NEU_TARGET_CHIP_NOT_SET
+                and target_chip_idx != self.cur_chip_index
+            ):
                 raise ResourceError(
                     f"the target chip {target_chip_idx} is not the current chip {self.cur_chip_index}."
                 )
@@ -758,7 +791,7 @@ class RoutingManager:
             self.cur_child_state[child_index] = 1
             if n_core_incoming == self.cur_child_size * 2:
                 self.cur_child_state[child_index + 1] = 1
-            
+
             routing_idx = core_loc % HwConfig.N_CORE_MAX_INCHIP
             # From L0 to L4
             routing_path = []
@@ -766,9 +799,7 @@ class RoutingManager:
                 routing_idx, re = divmod(routing_idx, HwConfig.N_SUB_ROUTING_NODE)
                 routing_path.append(DIREC_IDX[re])
 
-            return core_loc, \
-                   self.cur_chip_index, \
-                   routing_path
+            return core_loc, self.cur_chip_index, routing_path
         else:
             raise ResourceError(
                 f"incoming group size {n_core_incoming} is not supported"
@@ -788,10 +819,12 @@ class RoutingManager:
             self.stack_push(target_chip_idx)
             return
 
-    def insert_online(self, n_core_incoming: int, target_chip_idx: int=NEU_TARGET_CHIP_NOT_SET) -> tuple[int, int, list[Direction]]:
+    def insert_online(
+        self, n_core_incoming: int, target_chip_idx: int = NEU_TARGET_CHIP_NOT_SET
+    ) -> tuple[int, int, list[Direction]]:
         self.move_to_chip(target_chip_idx)
 
-         # not in online area, try to move to online area
+        # not in online area, try to move to online area
         if not self.in_online:
             cur_chip_index = self.cur_start // HwConfig.N_CORE_MAX_INCHIP
             if self.online_state[cur_chip_index] == 1:
@@ -802,24 +835,30 @@ class RoutingManager:
             else:
                 # the online cores in this chip are available, move stack until online cores
                 while not self.in_online:
-                    if self.cur_end % HwConfig.N_CORE_MAX_INCHIP <= ONLINE_CORES_BASE_COORD:
+                    if (
+                        self.cur_end % HwConfig.N_CORE_MAX_INCHIP
+                        <= ONLINE_CORES_BASE_COORD
+                    ):
                         self.stack_pop()
                     else:
-                        online_child_index = (ONLINE_CORES_BASE_COORD - self.cur_start % HwConfig.N_CORE_MAX_INCHIP) // self.cur_child_size
+                        online_child_index = (
+                            ONLINE_CORES_BASE_COORD
+                            - self.cur_start % HwConfig.N_CORE_MAX_INCHIP
+                        ) // self.cur_child_size
                         self.stack_push(online_child_index)
                 return self.insert_online(n_core_incoming, target_chip_idx)
-        
+
         else:
             self.online_state[self.cur_start // HwConfig.N_CORE_MAX_INCHIP] = 1
             return self.insert_incoming(n_core_incoming, target_chip_idx, True)
-            
-            
-    def insert_offline(self, n_core_incoming: int, target_chip_idx: int=NEU_TARGET_CHIP_NOT_SET) -> tuple[int, int, list[Direction]]:
+
+    def insert_offline(
+        self, n_core_incoming: int, target_chip_idx: int = NEU_TARGET_CHIP_NOT_SET
+    ) -> tuple[int, int, list[Direction]]:
         self.move_to_chip(target_chip_idx)
         while self.in_online:
             self.stack_pop()
         return self.insert_incoming(n_core_incoming, target_chip_idx, False)
-                    
 
     def try_get_insert_location(
         self,

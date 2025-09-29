@@ -1587,7 +1587,10 @@ class TestData:
                 1,
                 1 << 2,
                 True,
-                [AxonCoord((120 + i)//144, 8 * ((120 + i) % 144)) for i in range(5, 35)],
+                [
+                    AxonCoord((120 + i) // 144, 8 * ((120 + i) % 144))
+                    for i in range(5, 35)
+                ],
             ),
         ],
     )

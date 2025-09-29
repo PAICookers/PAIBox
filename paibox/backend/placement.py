@@ -37,16 +37,16 @@ from ._slice import (
     covered_by,
 )
 from .conf_types import (
-    OfflineCoreConfig, 
-    CoreConfInChip, 
-    CorePlmConfig, 
-    OfflineNeuConfig, 
-    OfflineCorePlmConfig, 
-    CoreConfig, 
-    NeuConfig, 
-    OnlineNeuConfig, 
+    CoreConfig,
+    CoreConfInChip,
+    CorePlmConfig,
+    NeuConfig,
+    OfflineCoreConfig,
+    OfflineCorePlmConfig,
+    OfflineNeuConfig,
     OnlineCoreConfig,
     OnlineCorePlmConfig,
+    OnlineNeuConfig,
 )
 from .context import _BACKEND_CONTEXT
 from .segment_utils import aligned_coords, get_axon_segments, get_neu_segments
@@ -150,34 +150,40 @@ class CoreBlock(CoreAbstract):
 
         self._lcn_locked = False
         self._neurons_grouped = False
-        
+
     @abstractmethod
     def core_plm_alloc(self) -> None:
         pass
-    
+
     @property
     @abstractmethod
     def n_fanin_base(self) -> int:
         pass
-    
+
     @property
     @abstractmethod
     def n_fanout(self) -> int:
         pass
-    
+
     @property
     @abstractmethod
     def n_neuron_repl(self) -> int:
         pass
-    
+
     @classmethod
-    def build(cls, *synapses: EdgeSlice, online: bool = False, seed: int = 0, rt_mode: CoreMode = CoreMode.MODE_SNN):
+    def build(
+        cls,
+        *synapses: EdgeSlice,
+        online: bool = False,
+        seed: int = 0,
+        rt_mode: CoreMode = CoreMode.MODE_SNN,
+    ):
         """Group synapses & build `CoreBlock`."""
         if online:
             return OnlineCoreBlock.build(*synapses, seed=seed)
         else:
             return OfflineCoreBlock.build(*synapses, rt_mode=rt_mode, seed=seed)
-    
+
     def group_neurons(
         self, optim_target: Literal["latency", "core", "both"] = "both"
     ) -> None:
@@ -190,7 +196,7 @@ class CoreBlock(CoreAbstract):
         )
 
         self._neurons_grouped = True
-    
+
     def _get_syn_of(
         self, src: SourceSliceType, dest: DestSliceType
     ) -> Optional[EdgeSlice]:
@@ -277,7 +283,7 @@ class CoreBlock(CoreAbstract):
     @property
     def lcn_ex(self) -> LCN_EX:
         return self._lcn_ex
-    
+
     @property
     def max_lcn_ex(self) -> LCN_EX:
         return LCN_EX.LCN_64X if not self.online else LCN_EX.LCN_8X
@@ -423,17 +429,18 @@ class CoreBlock(CoreAbstract):
             w_of_neu_seg = w_of_dest[:, sub_slice].copy()
             w_of_neu_seg.setflags(write=False)
             w_of_neu_segs.append(w_of_neu_seg)
-        
+
         raw_weight = np.hstack(w_of_neu_segs)
         raw_weight = np.pad(
-            raw_weight, 
+            raw_weight,
             (
                 (0, self.n_fanin_base * self.n_timeslot - raw_weight.shape[0]),
-                (0, self.n_fanout - raw_weight.shape[1])
-             ), 
-            'constant',
-            constant_values=0)
-            
+                (0, self.n_fanout - raw_weight.shape[1]),
+            ),
+            "constant",
+            constant_values=0,
+        )
+
         return raw_weight
 
     def __len__(self) -> int:
@@ -503,12 +510,13 @@ class CoreBlock(CoreAbstract):
         _logger.debug(ind1 + "Edges:")
         for edge in self.obj:
             _logger.debug(ind2 + str(edge))
-        
+
         if indents == 0:
             _logger.debug("")
 
     def _start_core_coord_repr(self) -> str:
         return _1st_core_coord_repr(self.core_coords)
+
 
 class OfflineCoreBlock(CoreBlock):
     def __init__(
@@ -550,7 +558,6 @@ class OfflineCoreBlock(CoreBlock):
 
         return self.dest[0].pool_max
 
-
     @property
     def n_fanout(self) -> int:
         """The fan-out of cores."""
@@ -559,7 +566,7 @@ class OfflineCoreBlock(CoreBlock):
             if self.rt_mode.is_snn
             else FANOUT_IW8[self.dendrite_comb_rate]
         )
-    
+
     @property
     def n_neuron_repl(self) -> int:
         """The number of neurons that need to be repeatedly placed on the neuron address space.
@@ -588,7 +595,9 @@ class OfflineCoreBlock(CoreBlock):
 
 class OnlineCoreBlock(CoreBlock):
     """A core block in online mode."""
+
     """The input width and spike width are both 1-bit fixed."""
+
     def __init__(
         self,
         *parents: EdgeSlice,
@@ -597,7 +606,7 @@ class OnlineCoreBlock(CoreBlock):
     ) -> None:
         super().__init__(*parents, seed=seed, name=name)
         self.online = True
-    
+
     def core_plm_alloc(self) -> None:
         """Allocate `CoreBlock` to physical cores."""
         if not self._lcn_locked:
@@ -605,14 +614,14 @@ class OnlineCoreBlock(CoreBlock):
 
         for i, coord in enumerate(self.core_coords):
             self.core_placements[coord] = OnlineCorePlacement.build(self, i)
-        
+
     @property
     def n_fanin_base(self) -> int:
         """The fan-in of cores."""
-        
+
         """online mode is not supported in CoreMode yet"""
         return OnCoreCfg.N_FANIN_PER_DENDRITE_MAX
-    
+
     @property
     def n_fanout(self) -> int:
         """The fan-out of cores."""
@@ -631,7 +640,7 @@ class OnlineCoreBlock(CoreBlock):
                  N[0] N[1] ... N[15] N[16] ...
         """
         return 1 << self.dendrite_comb_rate
-    
+
     @classmethod
     def build(cls, *synapses: EdgeSlice, seed: int = 0):
         """Group synapses & build `CoreBlock`."""
@@ -642,59 +651,60 @@ class OnlineCoreBlock(CoreBlock):
             )
 
         return cls(*synapses, seed=seed)
-    
+
     @property
     def lateral_inhi_value(self) -> int:
         raise NotImplementedError
-    
+
     @property
     def weight_decay_value(self) -> int:
         raise NotImplementedError
-    
+
     @property
     def upper_weight(self) -> int:
         raise NotImplementedError
-    
+
     @property
     def lower_weight(self) -> int:
         raise NotImplementedError
-    
+
     @property
     def neuron_start(self) -> int:
         return 0
-    
+
     @property
     def neuron_end(self) -> int:
         return self.n_neuron
-    
+
     @property
     def inhi_core_x_ex(self) -> Coord:
         raise NotImplementedError
-    
+
     @property
     def inhi_core_y_ex(self) -> Coord:
         raise NotImplementedError
-    
+
     @property
     def lut_random_en(self) -> bool:
         raise NotImplementedError
-    
+
     @property
     def decay_random_en(self) -> bool:
         raise NotImplementedError
-    
+
     @property
     def leak_order(self) -> bool:
         raise NotImplementedError
-    
+
     @property
     def online_mode_en(self) -> bool:
         raise NotImplementedError
-    
+
     @property
     def random_seed(self) -> int:
         """Random seed, legal integer, no more than uint64."""
         return self.seed
+
 
 @dataclass
 class SliceDest:
@@ -858,6 +868,7 @@ class SourceDest(UserList[SliceDestPair]):
 
         return _repr
 
+
 class CorePlacement(CoreAbstract):
     _parent: CoreBlock
     coord: Coord
@@ -866,9 +877,10 @@ class CorePlacement(CoreAbstract):
     raw_weight: WeightType
     """The folded weights."""
     neu_segs_of_cplm: NeuSegOfCorePlm
+
     def __init__(
         self,
-        parent:CoreBlock,
+        parent: CoreBlock,
         routing_coord: Coord,
         n_neuron: int,
         raw_weight: WeightType,
@@ -895,16 +907,14 @@ class CorePlacement(CoreAbstract):
     @abstractmethod
     def build(cls, parent: CoreBlock, idx: int) -> "CorePlacement":
         pass
-    
+
     @abstractmethod
     def export_core_config(self) -> CoreConfig:
         pass
-    
+
     @overload
     @abstractmethod
-    def export_neu_config(
-        self, neu_seg: NeuSegment, source_dest: SourceDest
-    ) -> None:
+    def export_neu_config(self, neu_seg: NeuSegment, source_dest: SourceDest) -> None:
         pass
 
     @overload
@@ -922,26 +932,26 @@ class CorePlacement(CoreAbstract):
         output_core_coord: Optional[Coord] = None,
     ) -> None:
         pass
-    
+
     @abstractmethod
     def export_core_plm_config(self) -> CorePlmConfig:
         pass
-    
+
     @property
     @abstractmethod
     def neu_configs(self) -> dict[Neuron, NeuConfig]:
         pass
-    
+
     @property
     @abstractmethod
     def parent(self) -> CoreBlock:
         pass
-    
+
     def _fold_raw_weight(self, raw_weight: WeightType) -> WeightType:
         """Fold the weights into LCN-sized blocks."""
         return self._nfold_weight(raw_weight, self.n_timeslot)
-    
-    @staticmethod    
+
+    @staticmethod
     def _nfold_weight(raw_weight: np.ndarray, n_fold: int) -> np.ndarray:
         raw_row, raw_col = raw_weight.shape
         n_row_folded, r = divmod(raw_row, n_fold)
@@ -958,9 +968,15 @@ class CorePlacement(CoreAbstract):
         w_folded = w.transpose(1, 2, 0).reshape(n_row_folded, raw_col * n_fold)
 
         return w_folded.astype(WEIGHT_DTYPE, copy=False)
-    
+
     @staticmethod
-    def _weight_ram_mapping(raw_weight: np.ndarray, weight_width: int, n_timeslot: int, n_u64_per_wram_addr: int, online:bool) -> WRAMPackedType:
+    def _weight_ram_mapping(
+        raw_weight: np.ndarray,
+        weight_width: int,
+        n_timeslot: int,
+        n_u64_per_wram_addr: int,
+        online: bool,
+    ) -> WRAMPackedType:
         """Map the raw weights to the weight RAM(WRAM). The mapping is different for 1 & 8-bit input widths.
 
         NOTE: When the input width is 1-bit, no neurons need to be mapped to the WRAM. When the input width is 8-bit,   \
@@ -998,9 +1014,9 @@ class CorePlacement(CoreAbstract):
         # reshape 成 (M, N * weight_width)
         M, N = arr.shape
         w_unpacked = bits.reshape(M, N * weight_width)
-        
+
         # shape = (N*weight_width, M)
-        unpacked_T = w_unpacked.T  
+        unpacked_T = w_unpacked.T
 
         # 扁平化 + 补 0 (按 64bit 对齐)
         flat = unpacked_T.ravel()
@@ -1011,12 +1027,12 @@ class CorePlacement(CoreAbstract):
         # packbits -> uint8，再视图转 uint64
         packed = np.packbits(flat, bitorder=HwConfig.WEIGHT_BITORDER)
         packed64 = packed.view(WRAM_PACKED_DTYPE)
-        
+
         # pad packed64 to shape (x * N_U64_ON_WRAM_ADDR,)
         pad_len = (-len(packed64)) % n_u64_per_wram_addr
         if pad_len > 0:
             packed64 = np.pad(packed64, (0, pad_len), constant_values=0)
-        
+
         # reshape to (x, N_U64_ON_WRAM_ADDR)
         w_packed = packed64.reshape(-1, n_u64_per_wram_addr)
         if online:
@@ -1024,7 +1040,7 @@ class CorePlacement(CoreAbstract):
 
         w_packed.setflags(write=False)
         return w_packed
-    
+
     @staticmethod
     def _weight_pack(w_unpacked: WRAMUnpackedType) -> WRAMPackedType:
         """Convert the unpacked weights into a mapping form, corresponding to the WRAM address. Each address contains   \
@@ -1056,7 +1072,7 @@ class CorePlacement(CoreAbstract):
         # TODO If the assertion is useless, remove it.
         assert w_packed_u64.shape[1] == OfflineCorePlacement.N_U64_ON_WRAM_ADDR
         return w_packed_u64
-    
+
     @property
     def shape(self) -> tuple[int, int]:
         return (len(self.source), len(self.dest))
@@ -1119,32 +1135,37 @@ class CorePlacement(CoreAbstract):
 
     @property
     def weight_ram(self) -> WRAMPackedType:
-        N_U64_ON_WRAM_ADDR = OnlineCorePlacement.N_U64_ON_WRAM_ADDR if self.online else OfflineCorePlacement.N_U64_ON_WRAM_ADDR
+        N_U64_ON_WRAM_ADDR = (
+            OnlineCorePlacement.N_U64_ON_WRAM_ADDR
+            if self.online
+            else OfflineCorePlacement.N_U64_ON_WRAM_ADDR
+        )
         return CorePlacement._weight_ram_mapping(
             self.raw_weight,
             self.weight_width,
             self.n_timeslot,
             N_U64_ON_WRAM_ADDR,
-            self.online
+            self.online,
         )
 
     @property
     def n_core_required(self):
         return 1
-    
+
     @property
     def online(self) -> bool:
         return self.parent.online
 
     def __len__(self) -> int:
         return self.n_core_required
-    
-    
+
 
 class OfflineCorePlacement(CorePlacement):
     _neu_configs: dict[Neuron, OfflineNeuConfig] = dict()
 
-    N_U64_ON_WRAM_ADDR: ClassVar[int] = OffCoreCfg.WEIGHT_RAM_SHAPE[1] // N_BIT_PACKED_WEIGHT
+    N_U64_ON_WRAM_ADDR: ClassVar[int] = (
+        OffCoreCfg.WEIGHT_RAM_SHAPE[1] // N_BIT_PACKED_WEIGHT
+    )
     """The number of u64 at each address of weight RAM."""
 
     @classmethod
@@ -1302,11 +1323,11 @@ class OfflineCorePlacement(CorePlacement):
         return OfflineCorePlmConfig.encapsulate(
             self.parent.seed, self.weight_ram, core_param, self.neu_configs
         )
-        
+
     @property
     def pool_max(self) -> MaxPoolingEnable:
         return self.parent.pool_max
-            
+
     @property
     def neu_configs(self) -> dict[Neuron, OfflineNeuConfig]:
         """The neuron configurations of the core placement."""
@@ -1322,21 +1343,24 @@ class OfflineCorePlacement(CorePlacement):
                 f"Parent must be an instance of OfflineCoreBlock, but got {type(self._parent)}."
             )
 
+
 class OnlineCorePlacement(CorePlacement):
     _neu_configs: dict[Neuron, OnlineNeuConfig] = dict()
 
-    N_U64_ON_WRAM_ADDR: ClassVar[int] = OnCoreCfg.WEIGHT_RAM_SHAPE[1] // N_BIT_PACKED_WEIGHT
+    N_U64_ON_WRAM_ADDR: ClassVar[int] = (
+        OnCoreCfg.WEIGHT_RAM_SHAPE[1] // N_BIT_PACKED_WEIGHT
+    )
     """The number of u64 at each address of weight RAM."""
-    
+
     @classmethod
     def build(cls, parent: OnlineCoreBlock, idx: int):
         coord = parent.core_coords[idx]
         n_neuron = parent.n_neuron_of_plm[idx]
         raw_weight = parent.get_raw_weight_of_coord(idx)
         neu_segs_of_cplm = parent.neuron_segs_of_cb[idx]
-        
+
         return cls(parent, coord, n_neuron, raw_weight, neu_segs_of_cplm)
-    
+
     def export_core_config(self) -> OnlineCoreConfig:
         cb_config = OnlineCoreConfig(
             self.name,
@@ -1357,10 +1381,10 @@ class OnlineCorePlacement(CorePlacement):
             self.leak_order,
             self.online_mode_en,
             _BACKEND_CONTEXT.test_chip_addr,
-            self.random_seed
+            self.random_seed,
         )
         return cb_config
-    
+
     @overload
     def export_neu_config(
         self, neu_seg: NeuSegment, source_dest: SourceDest
@@ -1395,7 +1419,7 @@ class OnlineCorePlacement(CorePlacement):
         else:
             # neu_seg is a part of an output node
             assert isinstance(output_core_coord, Coord)
-            
+
             # online core as a output node, the target is offline core
             # but online core's target lcn should below LCN_8X,
             # so the max index should be 1152 * 8 = 9216
@@ -1419,71 +1443,70 @@ class OnlineCorePlacement(CorePlacement):
             )
 
             self.neu_configs[neu_seg.target] = config
-    
+
     def export_core_plm_config(self) -> OnlineCorePlmConfig:
         core_param = self.export_core_config()
         return OnlineCorePlmConfig.encapsulate(
             self.weight_ram, core_param, self.neu_configs
         )
-    
+
     @property
     def lateral_inhi_value(self) -> int:
         return self.parent.lateral_inhi_value
-    
+
     @property
     def weight_decay_value(self) -> int:
         return self.parent.weight_decay_value
-    
+
     @property
     def upper_weight(self) -> int:
         return self.parent.upper_weight
-    
+
     @property
     def lower_weight(self) -> int:
         return self.parent.lower_weight
-    
+
     @property
     def neuron_start(self) -> int:
         return self.parent.neuron_start
-    
+
     @property
     def neuron_end(self) -> int:
         return self.parent.neuron_end
-    
+
     @property
     def inhi_core_x_ex(self) -> Coord:
         return self.parent.inhi_core_x_ex
-    
+
     @property
     def inhi_core_y_ex(self) -> Coord:
         return self.parent.inhi_core_y_ex
-    
+
     @property
     def lut_random_en(self) -> bool:
         return self.parent.lut_random_en
-    
+
     @property
     def decay_random_en(self) -> bool:
         return self.parent.decay_random_en
-    
+
     @property
     def leak_order(self) -> bool:
         return self.parent.leak_order
-    
+
     @property
     def online_mode_en(self) -> bool:
         return self.parent.online_mode_en
-    
+
     @property
     def random_seed(self) -> int:
         return self.random_seed
-    
-    
+
     @property
     def neu_configs(self) -> dict[Neuron, OnlineNeuConfig]:
         """The neuron configurations of the core placement."""
         return self._neu_configs
-    
+
     @property
     def parent(self) -> OnlineCoreBlock:
         """The parent core block."""
@@ -1494,25 +1517,27 @@ class OnlineCorePlacement(CorePlacement):
                 f"Parent must be an instance of OnlineCoreBlock, but got {type(self._parent)}."
             )
 
+
 class EmptyCorePlacement(CoreAbstract):
     def __init__(self, coord: Coord, name: Optional[str] = None) -> None:
         super().__init__(name)
         self.coord = coord
-    
+
     @abstractmethod
     def export_core_config(self) -> CoreConfig:
         pass
-    
+
     @abstractmethod
     def export_core_plm_config(self) -> CorePlmConfig:
         pass
-    
+
     @classmethod
     def build(cls, coord: Coord, online: bool):
         if online:
             return EmptyOnlineCorePlacement(coord)
         else:
             return EmptyOfflineCorePlacement(coord)
+
 
 class EmptyOfflineCorePlacement(EmptyCorePlacement):
     """Empty core placement."""
@@ -1556,6 +1581,7 @@ class EmptyOfflineCorePlacement(EmptyCorePlacement):
     def n_core_required(self) -> int:
         return 1
 
+
 class EmptyOnlineCorePlacement(EmptyCorePlacement):
     """Empty core placement."""
 
@@ -1567,24 +1593,24 @@ class EmptyOnlineCorePlacement(EmptyCorePlacement):
     def export_core_config(self) -> OnlineCoreConfig:
         cb_config = OnlineCoreConfig(
             self.name,
-            WW.WEIGHT_WIDTH_1BIT,               # weight_precision
-            LCN_EX.LCN_1X,                      # lcn_extension
-            0,                                  # lateral_inhi_value
-            0,                                  # weight_decay_value
-            0,                                  # upper_weight
-            0,                                  # lower_weight
-            0,                                  # neuron_start
-            0,                                  # neuron_end
-            _COORD_UNSET,                       # inhi_core_x_ex
-            _COORD_UNSET,                       # inhi_core_y_ex
-            0,                                  # tick_wait_start
-            0,                                  # tick_wait_end
-            False,                              # lut_random_en
-            False,                              # decay_random_en
-            False,                              # leak_order
-            False,                              # online_mode_en
-            _BACKEND_CONTEXT.test_chip_addr,    # test_chip_addr
-            0                                   # random_seed
+            WW.WEIGHT_WIDTH_1BIT,  # weight_precision
+            LCN_EX.LCN_1X,  # lcn_extension
+            0,  # lateral_inhi_value
+            0,  # weight_decay_value
+            0,  # upper_weight
+            0,  # lower_weight
+            0,  # neuron_start
+            0,  # neuron_end
+            _COORD_UNSET,  # inhi_core_x_ex
+            _COORD_UNSET,  # inhi_core_y_ex
+            0,  # tick_wait_start
+            0,  # tick_wait_end
+            False,  # lut_random_en
+            False,  # decay_random_en
+            False,  # leak_order
+            False,  # online_mode_en
+            _BACKEND_CONTEXT.test_chip_addr,  # test_chip_addr
+            0,  # random_seed
         )
         return cb_config
 
@@ -1600,6 +1626,7 @@ class EmptyOnlineCorePlacement(EmptyCorePlacement):
     @property
     def n_core_required(self) -> int:
         return 1
+
 
 def max_lcn_of_cb(cb: list[CoreBlock]) -> LCN_EX:
     """Get the max LCN extenion of given core blocks."""

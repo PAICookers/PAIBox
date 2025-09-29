@@ -4,15 +4,15 @@ import numpy as np
 import pytest
 from paicorelib import (
     LCN_EX,
-    Coord,
     ChipCoord,
+    Coord,
     CoordOffset,
     CoreMode,
     HwConfig,
     MaxPoolingEnable,
+    NeuDestInfo,
     OffCoreCfg,
     OffRegDefs,
-    NeuDestInfo,
 )
 from paicorelib import WeightWidth as WW
 
@@ -20,11 +20,11 @@ import paibox as pb
 from paibox.backend.conf_exporting import *
 from paibox.backend.conf_types import (
     CoreConfig,
-    OfflineCoreConfig,
     CorePlmConfig,
-    OfflineCorePlmConfig,
     GraphInfo,
     InputNeuronDest,
+    OfflineCoreConfig,
+    OfflineCorePlmConfig,
     OfflineNeuConfig,
     OfflineNeuDestInfo,
 )
@@ -177,7 +177,7 @@ def setup_clist_for_used_L2(monkeypatch):
 
 class TestConfExporting:
     def test_export_core_params_json(self, ensure_dump_dir):
-        core_params:dict[ChipCoord, dict[Coord, CoreConfig]] = {
+        core_params: dict[ChipCoord, dict[Coord, CoreConfig]] = {
             ChipCoord(1, 1): {
                 Coord(0, 0): _gen_random_core_config(),
                 Coord(0, 1): _gen_random_core_config(),
@@ -202,7 +202,9 @@ class TestConfExporting:
 
     @pytest.mark.parametrize("n_neuron", [100, 200, 300])
     def test_export_output_conf_json(self, ensure_dump_dir, n_neuron):
-        oconf: dict[str, dict[Coord, NeuDestInfo]] = {"n1": {Coord(3, 2): _gen_random_neuron_dest_info(n_neuron)}}
+        oconf: dict[str, dict[Coord, NeuDestInfo]] = {
+            "n1": {Coord(3, 2): _gen_random_neuron_dest_info(n_neuron)}
+        }
         export_output_conf_json(oconf, ensure_dump_dir)
 
     @pytest.mark.parametrize("n_neuron", [100, 200, 300])

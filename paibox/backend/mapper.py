@@ -340,7 +340,7 @@ class Mapper:
 
         NOTE: The LCN of all successor core blocks of any core block must be the same. Meanwhile,   \
             the `target_lcn` of the core block is equal to that LCN.
-        """ 
+        """
         # the core in the same neighbor list should have the same lcn_ex
         neighbor_lists: list[list[CoreBlock]] = list()
         for input_cbs in self.input_core_blocks.values():
@@ -353,9 +353,9 @@ class Mapper:
                 neighbor_list.append(cb)
             if len(neighbor_list) > 1:
                 neighbor_lists.append(neighbor_list)
-        
+
         # merge neighbors
-        merged_lists:list[set[CoreBlock]] = []
+        merged_lists: list[set[CoreBlock]] = []
         visited = set()
 
         for i, neighbor_set in enumerate(neighbor_lists):
@@ -377,7 +377,6 @@ class Mapper:
                         changed = True  # 有新合并就继续 while
 
             merged_lists.append(merged)
-        
 
         # set lcn_ex for merged neighbors
         for merged_list in merged_lists:
@@ -386,7 +385,7 @@ class Mapper:
                 # online core's lcn_ex limit check
                 # happends in cb.lcn_ex setter
                 cb.lcn_ex = max_lcn_ex
-        
+
         # Set the target LCN of each core block
         for cb in self.core_blocks:
             succ_cbs = self.succ_core_blocks[cb]
@@ -444,7 +443,7 @@ class Mapper:
         log.info(
             "################################### Required Cores Set ###################################"
         )
-        
+
         for rg in self.routing_mgr.ordered_rgrps:
             rg.dump()
 
@@ -453,10 +452,16 @@ class Mapper:
         # self.ordered_rgrps = toposort(self.succ_rgrps)
 
         # Calculate the consumption of required physical cores.
-        n_avail_offline_cores = HwConfig.N_CORE_OFFLINE * _BACKEND_CONTEXT.n_target_chips
+        n_avail_offline_cores = (
+            HwConfig.N_CORE_OFFLINE * _BACKEND_CONTEXT.n_target_chips
+        )
         n_avail_online_cores = HwConfig.N_CORE_ONLINE * _BACKEND_CONTEXT.n_target_chips
-        n_offline_core_required = sum(cb.n_core_required if not cb.online else 0 for cb in self.core_blocks)
-        n_online_core_required = sum(cb.n_core_required if cb.online else 0 for cb in self.core_blocks)
+        n_offline_core_required = sum(
+            cb.n_core_required if not cb.online else 0 for cb in self.core_blocks
+        )
+        n_online_core_required = sum(
+            cb.n_core_required if cb.online else 0 for cb in self.core_blocks
+        )
 
         self.n_core_required = n_offline_core_required + n_online_core_required
 
@@ -466,12 +471,16 @@ class Mapper:
 
         if n_offline_core_required > n_avail_offline_cores:
             raise ResourceError(
-                OUT_OF_CORE_RESOURCE_TEXT.format(n_offline_core_required, n_avail_offline_cores)
+                OUT_OF_CORE_RESOURCE_TEXT.format(
+                    n_offline_core_required, n_avail_offline_cores
+                )
             )
 
         if n_online_core_required > n_avail_online_cores:
             raise ResourceError(
-                OUT_OF_CORE_RESOURCE_TEXT.format(n_online_core_required, n_avail_online_cores)
+                OUT_OF_CORE_RESOURCE_TEXT.format(
+                    n_online_core_required, n_avail_online_cores
+                )
             )
 
         for rg in self.routing_mgr.ordered_rgrps:

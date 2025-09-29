@@ -5,10 +5,15 @@ from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
-from paicorelib import ChipCoord, HwConfig, OffCoreCfg, RoutingCoord, Coord, OnCoreCfg
-from paicorelib.framelib import OfflineFrameGen, OnlineFrameGen, OnlineConfigFrame3, OfflineConfigFrame3
-from paicorelib.framelib.utils import _mask, np2bin, np2npy, np2txt
+from paicorelib import ChipCoord, Coord, HwConfig, OffCoreCfg, OnCoreCfg, RoutingCoord
+from paicorelib.framelib import (
+    OfflineConfigFrame3,
+    OfflineFrameGen,
+    OnlineConfigFrame3,
+    OnlineFrameGen,
+)
 from paicorelib.framelib.types import LUT_DTYPE, LUTDataType
+from paicorelib.framelib.utils import _mask, np2bin, np2npy, np2txt
 
 from paibox.components import Neuron
 from paibox.utils import reverse_8bit
@@ -17,16 +22,16 @@ from .conf_types import (
     _USE_ORJSON,
     FRAME_DTYPE,
     CoreConf,
-    OfflineCoreConfig,
-    OnlineCoreConfig,
-    OfflineCorePlmConfig,
-    OnlineCorePlmConfig,
     CorePlmConf,
     FrameArrayType,
     GraphInfo,
     InputNodeConf,
     NeuPhyLocMap,
+    OfflineCoreConfig,
+    OfflineCorePlmConfig,
     OfflineNeuConfig,
+    OnlineCoreConfig,
+    OnlineCorePlmConfig,
     OnlineNeuConfig,
     OutputDestConf,
     _gh_info2exported_gh_info,
@@ -58,7 +63,11 @@ __all__ = [
     "get_clk_en_L2_dict",
     "get_neuron_phy_loc",
 ]
-def gen_offline_config_frames(core_plm_conf: OfflineCorePlmConfig, chip_coord: ChipCoord, core_coord: Coord):
+
+
+def gen_offline_config_frames(
+    core_plm_conf: OfflineCorePlmConfig, chip_coord: ChipCoord, core_coord: Coord
+):
     # 1. Only one config frame type I for each physical core.
     config_frame_type1 = OfflineFrameGen.gen_config_frame1(
         chip_coord, core_coord, _RID_UNSET, core_plm_conf.random_seed
@@ -95,11 +104,7 @@ def gen_offline_config_frames(core_plm_conf: OfflineCorePlmConfig, chip_coord: C
             # Only happens in ANN mode, where the repeat=1
             assert neu_conf.neu_seg.repeat == 1
 
-            if (
-                n_on_nram := OffCoreCfg.ADDR_RAM_MAX
-                + 1
-                - neu_conf.neu_seg.offset
-            ) > 0:
+            if (n_on_nram := OffCoreCfg.ADDR_RAM_MAX + 1 - neu_conf.neu_seg.offset) > 0:
                 # Place in the NRAM partially
                 neu_on_nram_conf = neu_conf[:n_on_nram]
                 config_frame_type3.append(
@@ -169,26 +174,27 @@ def gen_offline_config_frames(core_plm_conf: OfflineCorePlmConfig, chip_coord: C
         )
 
         _concat_frames.append(config_frame_type4_n.value)
-    
+
     return _concat_frames
-        
+
+
 def gen_online_config_frames(
     core_plm_conf: OnlineCorePlmConfig, chip_coord: ChipCoord, core_coord: Coord
 ) -> list[FrameArrayType]:
-    default_lut:LUTDataType = np.zeros(59, dtype=LUT_DTYPE)
+    default_lut: LUTDataType = np.zeros(59, dtype=LUT_DTYPE)
     config_frame_type1 = OnlineFrameGen.gen_config_frame1(
         chip_coord, core_coord, _RID_UNSET, default_lut
     )
-    
+
     config_frame_type2 = OnlineFrameGen.gen_config_frame2(
         chip_coord, core_coord, _RID_UNSET, core_plm_conf.core_params
     )
-    
+
     # 3. Iterate all the neuron segments inside the physical core.
     config_frame_type3: list[OnlineConfigFrame3] = []
-    
+
     wight_width = core_plm_conf.core_params.weight_width
-    
+
     # online neuron config never need to store in WRAM
     for neu_conf in core_plm_conf.neuron_configs.values():
         config_frame_type3.append(
@@ -218,8 +224,7 @@ def gen_online_config_frames(
         config_frame_type2.value,
         frame3,
     ]
-    
-    
+
     if core_plm_conf.core_params.neuron_end > core_plm_conf.core_params.neuron_start:
         # Weight part
         config_frame_type4_w = OnlineFrameGen.gen_config_frame4(
@@ -247,13 +252,9 @@ def gen_config_frames_by_coreconf(
     for chip_coord, conf_inchip in config_dict.items():
         for core_coord, v in conf_inchip.items():
             if isinstance(v, OfflineCorePlmConfig):
-                _concat_frames = gen_offline_config_frames(
-                    v, chip_coord, core_coord
-                )
+                _concat_frames = gen_offline_config_frames(v, chip_coord, core_coord)
             elif isinstance(v, OnlineCorePlmConfig):
-                _concat_frames = gen_online_config_frames(
-                    v, chip_coord, core_coord
-                )
+                _concat_frames = gen_online_config_frames(v, chip_coord, core_coord)
             else:
                 raise TypeError(
                     f"Unsupported core configuration type: {type(v)}. "
