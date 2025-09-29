@@ -4,11 +4,13 @@ import numpy as np
 import pytest
 from paicorelib import (
     LCN_EX,
+    ChipCoord,
     Coord,
     CoordOffset,
     CoreMode,
     HwConfig,
     MaxPoolingEnable,
+    NeuDestInfo,
     OffCoreCfg,
     OffRegDefs,
 )
@@ -21,6 +23,8 @@ from paibox.backend.conf_types import (
     CorePlmConfig,
     GraphInfo,
     InputNeuronDest,
+    OfflineCoreConfig,
+    OfflineCorePlmConfig,
     OfflineNeuConfig,
     OfflineNeuDestInfo,
 )
@@ -39,7 +43,7 @@ TICK_WAIT_END_MAX = OffRegDefs.TICK_WAIT_END_MAX
 TICK_WAIT_START_MAX = OffRegDefs.TICK_WAIT_START_MAX
 
 
-def _gen_random_core_config() -> CoreConfig:
+def _gen_random_core_config() -> OfflineCoreConfig:
     wp = random.choice(list(WW))
     lcn_ex = random.choice(list(LCN_EX))
 
@@ -52,7 +56,7 @@ def _gen_random_core_config() -> CoreConfig:
     target_lcn = random.choice(list(LCN_EX))
     test_chip_addr = Coord(random.randint(0, 31), random.randint(0, 31))
 
-    return CoreConfig(
+    return OfflineCoreConfig(
         "mock_core",
         wp,
         lcn_ex,
@@ -150,7 +154,7 @@ def _gen_random_core_plm_config(n_neuron: int) -> CorePlmConfig:
     reset_v = random.randint(-5, 5)
     neuron = pb.IF((n_neuron,), thres, reset_v)
 
-    cpc = CorePlmConfig.encapsulate(
+    cpc = OfflineCorePlmConfig.encapsulate(
         random.randint(0, 1000),
         np.random.randint(
             np.iinfo(np.uint64).min,
@@ -173,12 +177,12 @@ def setup_clist_for_used_L2(monkeypatch):
 
 class TestConfExporting:
     def test_export_core_params_json(self, ensure_dump_dir):
-        core_params = {
-            Coord(1, 1): {
+        core_params: dict[ChipCoord, dict[Coord, CoreConfig]] = {
+            ChipCoord(1, 1): {
                 Coord(0, 0): _gen_random_core_config(),
                 Coord(0, 1): _gen_random_core_config(),
             },
-            Coord(2, 2): {Coord(0, 0): _gen_random_core_config()},
+            ChipCoord(2, 2): {Coord(0, 0): _gen_random_core_config()},
         }
 
         export_core_params_json(core_params, ensure_dump_dir)
@@ -198,7 +202,9 @@ class TestConfExporting:
 
     @pytest.mark.parametrize("n_neuron", [100, 200, 300])
     def test_export_output_conf_json(self, ensure_dump_dir, n_neuron):
-        oconf = {"n1": {Coord(3, 2): _gen_random_neuron_dest_info(n_neuron)}}
+        oconf: dict[str, dict[Coord, NeuDestInfo]] = {
+            "n1": {Coord(3, 2): _gen_random_neuron_dest_info(n_neuron)}
+        }
         export_output_conf_json(oconf, ensure_dump_dir)
 
     @pytest.mark.parametrize("n_neuron", [100, 200, 300])

@@ -1472,19 +1472,19 @@ class TestData:
             # iw1
             (
                 slice(5, 8),
-                AxonSegment(12, 3, 0, 0),
+                AxonSegment(12, 0, 0, 1152),
                 1,
                 1 << 1,
                 False,
                 [
-                    AxonCoord(1, 2),
-                    AxonCoord(2, 0),
-                    AxonCoord(2, 1),
+                    AxonCoord(0, 5),
+                    AxonCoord(0, 6),
+                    AxonCoord(0, 7),
                 ],
             ),
             (
                 slice(0, 3),
-                AxonSegment(12, 3, 0, 0),
+                AxonSegment(12, 0, 0, 1152),
                 2,
                 1 << 1,
                 False,
@@ -1492,57 +1492,55 @@ class TestData:
             ),
             (
                 slice(1, 5),
-                AxonSegment(12, 3, 0, 0),
+                AxonSegment(12, 0, 0, 1152),
                 2,
                 1 << 2,
                 False,
                 [
                     AxonCoord(4 + 0, 1),
                     AxonCoord(4 + 0, 2),
-                    AxonCoord(4 + 1, 0),
-                    AxonCoord(4 + 1, 1),
+                    AxonCoord(4 + 0, 3),
+                    AxonCoord(4 + 0, 4),
                 ],
             ),
             (
                 slice(1, 6),
-                AxonSegment(12, 3, 0, 0),
+                AxonSegment(12, 0, 0, 1152),
                 4,
                 1 << 3,
                 False,
                 [
                     AxonCoord(24 + 0, 1),
                     AxonCoord(24 + 0, 2),
-                    AxonCoord(24 + 1, 0),
-                    AxonCoord(24 + 1, 1),
-                    AxonCoord(24 + 1, 2),
+                    AxonCoord(24 + 0, 3),
+                    AxonCoord(24 + 0, 4),
+                    AxonCoord(24 + 0, 5),
                 ],
             ),
             (
                 slice(3, 10),
-                AxonSegment(16, 4, 4, 0),
+                AxonSegment(16, 64, 0, 1152),
                 4,
                 1 << 4,
                 False,
-                [AxonCoord(48 + 0, 4 + 3)]
-                + [AxonCoord(48 + 1, 4 + i) for i in range(4)]
-                + [AxonCoord(48 + 2, 4 + 0), AxonCoord(48 + 2, 4 + 1)],
+                [AxonCoord(48 + 0, 64 + i) for i in range(3, 10)],
             ),
             # iw8
             (
                 slice(5, 8),
-                AxonSegment(12, 3, 0, 0),
+                AxonSegment(12, 0, 0, 144),
                 1,
                 1 << 1,
                 True,
                 [
-                    AxonCoord(1, 8 * 2),
-                    AxonCoord(2, 8 * 0),
-                    AxonCoord(2, 8 * 1),
+                    AxonCoord(0, 8 * 5),
+                    AxonCoord(0, 8 * 6),
+                    AxonCoord(0, 8 * 7),
                 ],
             ),
             (
                 slice(0, 3),
-                AxonSegment(12, 3, 0, 0),
+                AxonSegment(12, 0, 0, 144),
                 2,
                 1 << 1,
                 True,
@@ -1550,50 +1548,49 @@ class TestData:
             ),
             (
                 slice(1, 5),
-                AxonSegment(12, 3, 0, 0),
+                AxonSegment(12, 0, 0, 144),
                 2,
                 1 << 2,
                 True,
                 [
                     AxonCoord(4 + 0, 8 * 1),
                     AxonCoord(4 + 0, 8 * 2),
-                    AxonCoord(4 + 1, 8 * 0),
-                    AxonCoord(4 + 1, 8 * 1),
+                    AxonCoord(4 + 0, 8 * 3),
+                    AxonCoord(4 + 0, 8 * 4),
                 ],
             ),
             (
                 slice(1, 6),
-                AxonSegment(12, 3, 0, 0),
+                AxonSegment(12, 0, 0, 144),
                 4,
                 1 << 3,
                 True,
                 [
                     AxonCoord(24 + 0, 8 * 1),
                     AxonCoord(24 + 0, 8 * 2),
-                    AxonCoord(24 + 1, 8 * 0),
-                    AxonCoord(24 + 1, 8 * 1),
-                    AxonCoord(24 + 1, 8 * 2),
+                    AxonCoord(24 + 0, 8 * 3),
+                    AxonCoord(24 + 0, 8 * 4),
+                    AxonCoord(24 + 0, 8 * 5),
                 ],
             ),
             (
                 slice(5, 15),
-                AxonSegment(16, 8, 16, 0),
+                AxonSegment(16, 32, 0, 144),
                 1,
                 1 << 1,
                 True,
-                [AxonCoord(0, 8 * (16 + i)) for i in range(5, 8)]
-                + [AxonCoord(1, 8 * (16 + i)) for i in range(7)],
+                [AxonCoord(0, 8 * (32 + i)) for i in range(5, 15)],
             ),
             (
                 slice(5, 35),
-                AxonSegment(40, 10, 10, 0),
+                AxonSegment(40, 120, 0, 144),
                 1,
                 1 << 2,
                 True,
-                [AxonCoord(0, 8 * (10 + i)) for i in range(5, 10)]
-                + [AxonCoord(1, 8 * (10 + i)) for i in range(10)]
-                + [AxonCoord(2, 8 * (10 + i)) for i in range(10)]
-                + [AxonCoord(3, 8 * (10 + i)) for i in range(5)],
+                [
+                    AxonCoord((120 + i) // 144, 8 * ((120 + i) % 144))
+                    for i in range(5, 35)
+                ],
             ),
         ],
     )

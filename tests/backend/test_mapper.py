@@ -231,19 +231,17 @@ class TestMapperDeployment:
         mapper.build(*nets)
         graph_info = mapper.compile(use_exp_features=True)
 
-        assert graph_info["n_core_occupied"] == n_networks
-
         rtotal = sum(mapper.routing_mgr.n_core_per_chip)
         r1 = mapper.routing_mgr.n_core_per_chip[0]
 
-        if n_networks > 1008:
+        if n_networks > ONLINE_CORES_BASE_COORD:
             r2 = mapper.routing_mgr.n_core_per_chip[1]
+            assert graph_info["n_core_occupied"] == n_networks + HwConfig.N_CORE_ONLINE
             assert rtotal == r1 + r2
             assert r1 == 1024
             assert r2 == n_networks - 1008
-        elif n_networks > ONLINE_CORES_BASE_COORD:
-            assert rtotal == r1 == n_networks + 16
         else:
+            assert graph_info["n_core_occupied"] == n_networks
             assert rtotal == r1 == n_networks
 
         mapper.export(fp=ensure_dump_dir)

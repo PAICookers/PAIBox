@@ -2,7 +2,7 @@ import itertools
 import logging
 import math
 import sys
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Generator, Iterable
 from functools import cached_property
 from typing import Any, ClassVar, Optional, Union, cast
@@ -182,6 +182,9 @@ class RoutingGroup:
         self.target_chip_idx: Union[int, None] = None
         """The index of the target chip for this routing group."""
 
+        self.online = self.core_blocks[0].online
+        """Whether the routing group is in online mode."""
+
         if is_root:
             self.init_with_multicast_axons()
             self.set_cb_ordered_ax()
@@ -267,10 +270,6 @@ class RoutingGroup:
         # Due to the chip's NoC architecture, data can only be multicast to cores that are an integer power
         # of 2.
         self.n_core_required = 1 << (n_core_used - 1).bit_length()  # required actually
-
-        # This is the amount of cores required actually.
-        assert n_core_used > 0
-        self.n_core_required = 1 << (n_core_used - 1).bit_length()
 
         # If there are ordered routing groups, the final waste is the tail waste of the last routing group,
         # otherwise it is 0.
@@ -456,7 +455,7 @@ class RoutingGroup:
 
         # Allocate empty core placements for the wasted coordinates.
         for coord in self.wasted_coords:
-            self.wasted_core_plm[coord] = EmptyCorePlacement.build(coord)
+            self.wasted_core_plm[coord] = EmptyCorePlacement.build(coord, self.online)
 
     def get_wasted_cplm_config(self) -> CorePlmConfInChip:
         return {
@@ -502,7 +501,8 @@ class RoutingGroup:
         tabs = "\t" * indents
 
         _logger.debug(
-            tabs + f"{self}(root: {self.is_root}, {self.n_core_required} cores):"
+            tabs
+            + f"{self}(root: {self.is_root}, target_chip: {self.target_chip_idx}, {self.n_core_required} cores):"
         )
         _logger.debug(
             tabs + f"Global axons: {[str(axon) for axon in self.global_axons]}"
@@ -514,6 +514,9 @@ class RoutingGroup:
 
         for elem in self.routing_elems:
             elem.dump(indents + 1, father_logger=_logger)
+
+        if indents == 0:
+            _logger.debug("")
 
     def dump_routing_result(
         self, indents: int = 0, father_logger: Optional[logging.Logger] = None
@@ -539,6 +542,9 @@ class RoutingGroup:
             else:
                 elem.dump_routing_result(indents + 1, father_logger=_logger)
 
+        if indents == 0:
+            _logger.debug("")
+
     def _start_core_coord_repr(self) -> str:
         return _1st_core_coord_repr(self.assigned_coords)
 
@@ -551,13 +557,27 @@ class RoutingManager:
             through the serial port to reduce power consumption.
         """
         self.n_core_total: int = 0
+        self.n_core_occupied: int = 0
         self.n_core_per_chip = self._default_n_core_per_chip()
+
+        self.routing_state_stack: deque[dict] = deque()
+        self.cur_start = 0
+        self.cur_child_size = HwConfig.N_CORE_MAX_INCHIP
+        self.cur_child_state = [0] * len(self.chip_list)
+        self.cur_end = self.cur_start + self.cur_child_size * len(self.cur_child_state)
+        self.online_state = [0] * len(self.chip_list)
 
         self.routing_grps: list[RoutingGroup] = []
         self.succ_rgrps: dict[RoutingGroup, list[RoutingGroup]] = defaultdict(list)
 
     def clear(self) -> None:
         self.n_core_total = 0
+        self.n_core_occupied = 0
+        self.cur_start = 0
+        self.cur_child_size = HwConfig.N_CORE_MAX_INCHIP
+        self.cur_child_state = [0] * len(self.chip_list)
+        self.cur_end = self.cur_start + self.cur_child_size * len(self.cur_child_state)
+        self.online_state = [0] * len(self.chip_list)
         self._clear_n_core_per_chip()
         self._clear_used_L2_clusters()
         self.routing_grps.clear()
@@ -593,6 +613,264 @@ class RoutingManager:
                     if succ_cb in next_rg.iter_nested_cb():
                         self.succ_rgrps[rg].append(next_rg)
                         break
+
+    def check_valid(
+        self,
+        n_core_incoming,
+        online,
+    ) -> bool:
+        if online and n_core_incoming > HwConfig.N_CORE_ONLINE:
+            raise ResourceError(
+                f"the online routing group({n_core_incoming}) exceeds the hardware limit."
+            )
+
+        if not online and n_core_incoming > HwConfig.N_CORE_MAX_INCHIP / 2:
+            raise ResourceError(
+                f"the offline routing group({n_core_incoming}) exceeds the hardware limit."
+            )
+
+        return True
+
+    def pop_to_top(self):
+        while len(self.routing_state_stack) > 0:
+            self.stack_pop()
+
+    def stack_push(self, child_index: int = -1):
+        if child_index != -1:
+            if child_index < 0 or child_index >= len(self.cur_child_state):
+                raise ResourceError(
+                    f"the child_index {child_index} is out of range [0, {len(self.cur_child_state)})."
+                )
+            elif self.cur_child_state[child_index] == 1:
+                raise ResourceError(
+                    f"the child with {self.cur_child_size} cores at {self.cur_start + self.cur_child_size * child_index} is already occupied."
+                )
+            child_index = child_index
+        elif 0 in self.cur_child_state:
+            child_index = self.cur_child_state.index(0)
+        else:
+            raise ResourceError(
+                f"the all children with {self.cur_child_size} cores \
+                    at {self.cur_start} are all occupied."
+            )
+        self.routing_state_stack.append(
+            {
+                "cur_start": self.cur_start,
+                "cur_child_size": self.cur_child_size,
+                "cur_child_state": self.cur_child_state.copy(),
+                "cur_end": self.cur_end,
+                "child_index": child_index,
+            }
+        )
+        self.cur_start = self.cur_start + self.cur_child_size * child_index
+        self.cur_child_size = self.cur_child_size // HwConfig.N_SUB_ROUTING_NODE
+        self.cur_child_state = [0] * HwConfig.N_SUB_ROUTING_NODE
+        self.cur_end = self.cur_start + self.cur_child_size * len(self.cur_child_state)
+
+    def stack_pop(self):
+        if len(self.routing_state_stack) == 0:
+            raise ResourceError(
+                "the number of cores required by the routing group exceeds the hardware limit."
+            )
+        deque_state = self.routing_state_stack.pop()
+        empty_core_num = self.available_child_num * self.cur_child_size
+        self.n_core_occupied += empty_core_num
+        self.n_core_per_chip[self.cur_chip_index] += empty_core_num
+
+        self.cur_start = deque_state["cur_start"]
+        self.cur_child_size = deque_state["cur_child_size"]
+        self.cur_child_state = deque_state["cur_child_state"]
+        self.cur_end = deque_state["cur_end"]
+        child_index = deque_state["child_index"]
+        self.cur_child_state[child_index] = 1
+
+    @property
+    def in_online(self) -> bool:
+        return (
+            self.cur_start % HwConfig.N_CORE_MAX_INCHIP >= ONLINE_CORES_BASE_COORD
+            and self.cur_end % HwConfig.N_CORE_MAX_INCHIP
+            <= ONLINE_CORES_BASE_COORD + HwConfig.N_CORE_ONLINE
+        )
+
+    @property
+    def cur_chip_index(self) -> int:
+        return self.cur_start // HwConfig.N_CORE_MAX_INCHIP
+
+    @property
+    def max_group_size(self) -> int:
+        if self.cur_child_size == HwConfig.N_CORE_MAX_INCHIP:
+            if 0 in self.cur_child_state:
+                return HwConfig.N_CORE_MAX_INCHIP // 2
+            else:
+                return 0
+        else:
+            if (
+                self.cur_child_state[0] == 0
+                and self.cur_child_state[1] == 0
+                or self.cur_child_state[2] == 0
+                and self.cur_child_state[3] == 0
+            ):
+                return self.cur_child_size * 2
+            elif 0 in self.cur_child_state:
+                return self.cur_child_size
+            else:
+                return 0
+
+    @property
+    def available_child_num(self) -> int:
+        return self.cur_child_state.count(0)
+
+    def insert_incoming(
+        self, n_core_incoming: int, target_chip_idx: int, online: bool
+    ) -> tuple[int, int, list[Direction]]:
+        if self.max_group_size < n_core_incoming:
+            # cur level cannot hold the incoming group, try previous level
+            self.stack_pop()
+            return self.try_get_insert_location(
+                n_core_incoming, target_chip_idx, online
+            )
+
+        elif self.cur_child_size > n_core_incoming:
+            # the child level can hold the incoming group, go deeper
+            self.stack_push()
+            return self.try_get_insert_location(
+                n_core_incoming, target_chip_idx, online
+            )
+
+        elif (
+            self.cur_child_size == n_core_incoming
+            or self.cur_child_size * 2 == n_core_incoming
+        ):
+            if self.cur_child_size == n_core_incoming:
+                child_index = self.cur_child_state.index(0)
+            else:
+                if self.cur_child_state[0] == 0 and self.cur_child_state[1] == 0:
+                    child_index = 0
+                elif self.cur_child_state[2] == 0 and self.cur_child_state[3] == 0:
+                    child_index = 2
+                else:
+                    raise ResourceError(
+                        f"the maximum incoming group size {self.max_group_size} is not correct."
+                    )
+
+            core_loc = self.cur_start + self.cur_child_size * child_index
+            core_start = core_loc % HwConfig.N_CORE_MAX_INCHIP
+            core_end = core_start + n_core_incoming
+
+            if online:
+                if not (
+                    core_start >= ONLINE_CORES_BASE_COORD
+                    and core_end <= ONLINE_CORES_BASE_COORD + HwConfig.N_CORE_ONLINE
+                ):
+                    self.stack_pop()
+                    return self.try_get_insert_location(
+                        n_core_incoming, target_chip_idx, online
+                    )
+            else:
+                overlap_online = (
+                    core_end > ONLINE_CORES_BASE_COORD
+                    and core_start < ONLINE_CORES_BASE_COORD + HwConfig.N_CORE_ONLINE
+                )
+                if overlap_online:
+                    self.stack_pop()
+                    return self.try_get_insert_location(
+                        n_core_incoming, target_chip_idx, online
+                    )
+
+            if (
+                target_chip_idx != NEU_TARGET_CHIP_NOT_SET
+                and target_chip_idx != self.cur_chip_index
+            ):
+                raise ResourceError(
+                    f"the target chip {target_chip_idx} is not the current chip {self.cur_chip_index}."
+                )
+
+            self.n_core_occupied += n_core_incoming
+            self.n_core_per_chip[self.cur_chip_index] += n_core_incoming
+
+            self.cur_child_state[child_index] = 1
+            if n_core_incoming == self.cur_child_size * 2:
+                self.cur_child_state[child_index + 1] = 1
+
+            routing_idx = core_loc % HwConfig.N_CORE_MAX_INCHIP
+            # From L0 to L4
+            routing_path = []
+            for _ in range(MAX_ROUTING_PATH_LENGTH):
+                routing_idx, re = divmod(routing_idx, HwConfig.N_SUB_ROUTING_NODE)
+                routing_path.append(DIREC_IDX[re])
+
+            return core_loc, self.cur_chip_index, routing_path
+        else:
+            raise ResourceError(
+                f"incoming group size {n_core_incoming} is not supported"
+            )
+
+    def move_to_chip(self, target_chip_idx: int):
+        if target_chip_idx == NEU_TARGET_CHIP_NOT_SET:
+            return
+        elif target_chip_idx < 0 or target_chip_idx >= len(self.chip_list):
+            raise ResourceError(
+                f"the target chip {target_chip_idx} is out of range [0, {len(self.chip_list)})."
+            )
+        elif self.cur_chip_index == target_chip_idx:
+            return
+        else:
+            self.pop_to_top()
+            self.stack_push(target_chip_idx)
+            return
+
+    def insert_online(
+        self, n_core_incoming: int, target_chip_idx: int = NEU_TARGET_CHIP_NOT_SET
+    ) -> tuple[int, int, list[Direction]]:
+        self.move_to_chip(target_chip_idx)
+
+        # not in online area, try to move to online area
+        if not self.in_online:
+            cur_chip_index = self.cur_start // HwConfig.N_CORE_MAX_INCHIP
+            if self.online_state[cur_chip_index] == 1:
+                # the online cores in this chip are already occupied, try other chip
+                self.pop_to_top()
+                self.stack_push()
+                return self.insert_online(n_core_incoming, target_chip_idx)
+            else:
+                # the online cores in this chip are available, move stack until online cores
+                while not self.in_online:
+                    if (
+                        self.cur_end % HwConfig.N_CORE_MAX_INCHIP
+                        <= ONLINE_CORES_BASE_COORD
+                    ):
+                        self.stack_pop()
+                    else:
+                        online_child_index = (
+                            ONLINE_CORES_BASE_COORD
+                            - self.cur_start % HwConfig.N_CORE_MAX_INCHIP
+                        ) // self.cur_child_size
+                        self.stack_push(online_child_index)
+                return self.insert_online(n_core_incoming, target_chip_idx)
+
+        else:
+            self.online_state[self.cur_start // HwConfig.N_CORE_MAX_INCHIP] = 1
+            return self.insert_incoming(n_core_incoming, target_chip_idx, True)
+
+    def insert_offline(
+        self, n_core_incoming: int, target_chip_idx: int = NEU_TARGET_CHIP_NOT_SET
+    ) -> tuple[int, int, list[Direction]]:
+        self.move_to_chip(target_chip_idx)
+        while self.in_online:
+            self.stack_pop()
+        return self.insert_incoming(n_core_incoming, target_chip_idx, False)
+
+    def try_get_insert_location(
+        self,
+        n_core_incoming: int,
+        target_chip_idx: int = NEU_TARGET_CHIP_NOT_SET,
+        online: bool = False,
+    ) -> tuple[int, int, list[Direction]]:
+        self.check_valid(n_core_incoming, online)
+        if online:
+            return self.insert_online(n_core_incoming, target_chip_idx)
+        else:
+            return self.insert_offline(n_core_incoming, target_chip_idx)
 
     def get_insert_location(
         self,
@@ -695,8 +973,8 @@ class RoutingManager:
         if rgrp.target_chip_idx is None:
             raise ValueError("The 'target_chip_idx' of the routing group is not set.")
 
-        core_insert_loc, chip_idx_loc, rpath_start = self.get_insert_location(
-            n_core_cost, n_tail_waste, rgrp.target_chip_idx
+        core_insert_loc, chip_idx_loc, rpath_start = self.try_get_insert_location(
+            n_core_cost, rgrp.target_chip_idx, rgrp.online
         )
 
         allocated_coords: list[Coord] = []
@@ -715,24 +993,6 @@ class RoutingManager:
         """Allocate core placements for all core blocks in all routing groups."""
         for rg in self.ordered_rgrps:
             rg.allocate_cp()
-
-    def get_n_core_occupied(self) -> int:
-        """Get the #N of cores occupied by all routing groups. Online cores are not counted."""
-        n_chip_full_used, remaining = divmod(
-            self.n_core_total, HwConfig.N_CORE_MAX_INCHIP
-        )
-        occupied = n_chip_full_used * HwConfig.N_CORE_OFFLINE
-
-        if remaining <= ONLINE_CORES_BASE_COORD:
-            occupied += remaining
-        elif remaining <= ONLINE_CORES_BASE_COORD + HwConfig.N_CORE_ONLINE:
-            # When the wasted cores of the last routing group in the chip overlap with the online cores.
-            occupied += ONLINE_CORES_BASE_COORD
-        else:
-            # Online cores were all counted incorrectly.
-            occupied += remaining - HwConfig.N_CORE_ONLINE
-
-        return occupied
 
     @cached_property
     def ordered_rgrps(self) -> list[RoutingGroup]:

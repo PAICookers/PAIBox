@@ -38,6 +38,7 @@ from .placement import CoreBlock, SourceDest, aligned_coords, max_lcn_of_cb
 from .routing import RoutingGroup, RoutingManager
 from .succ_group import *
 from .types import (
+    AxonCoord,
     DestNodeType,
     NeuSegment,
     NodeDegree,
@@ -340,24 +341,60 @@ class Mapper:
         NOTE: The LCN of all successor core blocks of any core block must be the same. Meanwhile,   \
             the `target_lcn` of the core block is equal to that LCN.
         """
-        # Adjust the `lcn_ex` of the input core blocks for each input node
+        # the core in the same neighbor list should have the same lcn_ex
+        neighbor_lists: list[list[CoreBlock]] = list()
         for input_cbs in self.input_core_blocks.values():
-            if len(input_cbs) > 1:
-                max_lcn_ex = max_lcn_of_cb(input_cbs)
-                for icb in input_cbs:
-                    icb.lcn_ex = max_lcn_ex
+            neighbor_lists.append(input_cbs)
+        for cb in self.core_blocks:
+            neighbor_list = self.succ_core_blocks[cb].copy()
+            if cb.online:
+                # the online core's lcn is same with target_lcn
+                # so it should have the same lcn_ex with its succ
+                neighbor_list.append(cb)
+            if len(neighbor_list) > 1:
+                neighbor_lists.append(neighbor_list)
 
+        # merge neighbors
+        merged_lists: list[set[CoreBlock]] = []
+        visited = set()
+
+        for i, neighbor_set in enumerate(neighbor_lists):
+            if i in visited:
+                continue
+            # 当前合并集合
+            merged = set(neighbor_set)
+            changed = True
+            visited.add(i)
+
+            while changed:
+                changed = False
+                for j in range(len(neighbor_lists)):
+                    if j in visited:
+                        continue
+                    if not merged.isdisjoint(neighbor_lists[j]):
+                        merged.update(neighbor_lists[j])
+                        visited.add(j)
+                        changed = True  # 有新合并就继续 while
+
+            merged_lists.append(merged)
+
+        # set lcn_ex for merged neighbors
+        for merged_list in merged_lists:
+            max_lcn_ex = max_lcn_of_cb(list(merged_list))
+            for cb in merged_list:
+                # online core's lcn_ex limit check
+                # happends in cb.lcn_ex setter
+                cb.lcn_ex = max_lcn_ex
+
+        # Set the target LCN of each core block
         for cb in self.core_blocks:
             succ_cbs = self.succ_core_blocks[cb]
-            if succ_cbs:
-                max_lcn_ex = (
-                    max_lcn_of_cb(succ_cbs) if len(succ_cbs) > 1 else succ_cbs[0].lcn_ex
-                )
-                if len(succ_cbs) > 1:
-                    for scb in succ_cbs:
-                        scb.lcn_ex = max_lcn_ex
-
-                cb.target_lcn = max_lcn_ex
+            if len(succ_cbs) > 0:
+                # the lcn_ex of the successor core blocks have been adjusted to the same
+                # use the first successor core block's lcn_ex as the target_lcn
+                # the online core's lcn_ex is same with target_lcn
+                # this limit also satisfied by the above code
+                cb.target_lcn = succ_cbs[0].lcn_ex
 
             cb._lcn_locked = True
 
@@ -396,7 +433,6 @@ class Mapper:
                 )
 
             rg.set_core_required()
-            rg.dump()
 
         log.info(
             "################################### Neuron Grouping Finished ###################################"
@@ -408,23 +444,43 @@ class Mapper:
             "################################### Required Cores Set ###################################"
         )
 
+        for rg in self.routing_mgr.ordered_rgrps:
+            rg.dump()
+
         # Optimize the order of routing groups
         # self.routing_grps = reorder_routing_groups(self.succ_rgrps)
         # self.ordered_rgrps = toposort(self.succ_rgrps)
 
         # Calculate the consumption of required physical cores.
-        n_avail_cores = HwConfig.N_CORE_OFFLINE * _BACKEND_CONTEXT.n_target_chips
-        n_core_required = sum(cb.n_core_required for cb in self.core_blocks)
+        n_avail_offline_cores = (
+            HwConfig.N_CORE_OFFLINE * _BACKEND_CONTEXT.n_target_chips
+        )
+        n_avail_online_cores = HwConfig.N_CORE_ONLINE * _BACKEND_CONTEXT.n_target_chips
+        n_offline_core_required = sum(
+            cb.n_core_required if not cb.online else 0 for cb in self.core_blocks
+        )
+        n_online_core_required = sum(
+            cb.n_core_required if cb.online else 0 for cb in self.core_blocks
+        )
 
-        self.n_core_required = n_core_required
+        self.n_core_required = n_offline_core_required + n_online_core_required
 
         # If only estimate the core usage, the rest of the steps are not performed.
         if core_estimate_only:
             return None
 
-        if n_core_required > n_avail_cores:
+        if n_offline_core_required > n_avail_offline_cores:
             raise ResourceError(
-                OUT_OF_CORE_RESOURCE_TEXT.format(n_avail_cores, n_core_required)
+                OUT_OF_CORE_RESOURCE_TEXT.format(
+                    n_offline_core_required, n_avail_offline_cores
+                )
+            )
+
+        if n_online_core_required > n_avail_online_cores:
+            raise ResourceError(
+                OUT_OF_CORE_RESOURCE_TEXT.format(
+                    n_online_core_required, n_avail_online_cores
+                )
             )
 
         for rg in self.routing_mgr.ordered_rgrps:
@@ -437,7 +493,7 @@ class Mapper:
             rg.dump_routing_result()
 
         # Online cores are not counted in the number of occupied cores.
-        self.n_core_occupied = self.routing_mgr.get_n_core_occupied()
+        self.n_core_occupied = self.routing_mgr.n_core_occupied
 
     def collect_neuron_dest(self) -> None:
         """Collect the destination details for neuron slices in each core block."""
@@ -748,8 +804,8 @@ class Mapper:
             print(
                 f"{neuron.name}[{slice}] dest: {slice_dest.base_coord}, {slice_dest.rid}\n"
                 f"N:                {slice_dest.dest_axon.n_axon}\n"
-                f"Address width:    {slice_dest.dest_axon.addr_width}\n"
-                f"Address offset:   {slice_dest.dest_axon.addr_offset}"
+                f"Address offset:   {slice_dest.dest_axon.addr_offset}\n"
+                f"Fanin_base:       {slice_dest.dest_axon.fanin_base}"
             )
 
         # for cb in self.core_blocks:
