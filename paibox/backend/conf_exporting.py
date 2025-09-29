@@ -181,9 +181,8 @@ def gen_offline_config_frames(
 def gen_online_config_frames(
     core_plm_conf: OnlineCorePlmConfig, chip_coord: ChipCoord, core_coord: Coord
 ) -> list[FrameArrayType]:
-    default_lut: LUTDataType = np.zeros(59, dtype=LUT_DTYPE)
     config_frame_type1 = OnlineFrameGen.gen_config_frame1(
-        chip_coord, core_coord, _RID_UNSET, default_lut
+        chip_coord, core_coord, _RID_UNSET, core_plm_conf.lut
     )
 
     config_frame_type2 = OnlineFrameGen.gen_config_frame2(

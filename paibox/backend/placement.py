@@ -21,6 +21,7 @@ from paicorelib import ReplicationId as RId
 from paicorelib import WeightWidth as WW
 from paicorelib.framelib import OfflineFrameGen
 from paicorelib.routing_defs import get_replication_id
+from paicorelib.framelib.types import LUT_DTYPE, LUTDataType
 
 from paibox import _logging
 from paibox.base import PAIBoxObject
@@ -698,6 +699,10 @@ class OnlineCoreBlock(CoreBlock):
 
     @property
     def online_mode_en(self) -> bool:
+        raise NotImplementedError
+
+    @property
+    def lut(self) -> LUTDataType:
         raise NotImplementedError
 
     @property
@@ -1447,7 +1452,7 @@ class OnlineCorePlacement(CorePlacement):
     def export_core_plm_config(self) -> OnlineCorePlmConfig:
         core_param = self.export_core_config()
         return OnlineCorePlmConfig.encapsulate(
-            self.weight_ram, core_param, self.neu_configs
+            self.weight_ram, core_param, self.lut, self.neu_configs
         )
 
     @property
@@ -1497,6 +1502,10 @@ class OnlineCorePlacement(CorePlacement):
     @property
     def online_mode_en(self) -> bool:
         return self.parent.online_mode_en
+
+    @property
+    def lut(self) -> LUTDataType:
+        return self.parent.lut
 
     @property
     def random_seed(self) -> int:
@@ -1617,7 +1626,7 @@ class EmptyOnlineCorePlacement(EmptyCorePlacement):
     def export_core_plm_config(self) -> OnlineCorePlmConfig:
         core_param = self.export_core_config()
         # For empty core placements, we don't care WRAM & neurons cfg.
-        return OnlineCorePlmConfig.encapsulate(self._EMPTY_WRAM, core_param, {})  # type: ignore
+        return OnlineCorePlmConfig.encapsulate(self._EMPTY_WRAM, core_param, np.zeros(60, dtype=LUT_DTYPE), {})  # type: ignore
 
     @classmethod
     def build(cls, coord: Coord):

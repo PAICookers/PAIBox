@@ -6,6 +6,7 @@ from typing import Any, NamedTuple, TypedDict, Union
 
 import numpy as np
 from numpy.typing import NDArray
+from paicorelib.framelib.types import LUT_DTYPE, LUTDataType
 from paicorelib import (
     LCN_EX,
     ChipCoord,
@@ -443,6 +444,7 @@ class OnlineCorePlmConfig(CorePlmConfig):
 
     weight_ram: WRAMPackedType
     core_params: OnlineCoreReg
+    lut: LUTDataType
     neuron_configs: dict[Neuron, OnlineNeuConfig]
 
     @classmethod
@@ -450,11 +452,13 @@ class OnlineCorePlmConfig(CorePlmConfig):
         cls,
         weight_ram: WRAMPackedType,
         core_cfg: OnlineCoreConfig,
+        lut: LUTDataType,
         neuron_cfg: dict[Neuron, OnlineNeuConfig],
     ):
         return cls(
             weight_ram,
             OnlineCoreReg.model_validate(core_cfg._asdict(), strict=True),
+            lut,
             neuron_cfg,
         )
 
