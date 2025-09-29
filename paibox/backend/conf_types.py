@@ -6,7 +6,6 @@ from typing import Any, NamedTuple, TypedDict, Union
 
 import numpy as np
 from numpy.typing import NDArray
-from paicorelib.framelib.types import LUT_DTYPE, LUTDataType
 from paicorelib import (
     LCN_EX,
     ChipCoord,
@@ -29,6 +28,7 @@ from paicorelib import (
     WeightWidth,
     get_replication_id,
 )
+from paicorelib.framelib.types import LUT_DTYPE, LUTDataType
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias

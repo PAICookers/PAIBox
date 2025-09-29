@@ -20,8 +20,8 @@ from paicorelib import (
 from paicorelib import ReplicationId as RId
 from paicorelib import WeightWidth as WW
 from paicorelib.framelib import OfflineFrameGen
-from paicorelib.routing_defs import get_replication_id
 from paicorelib.framelib.types import LUT_DTYPE, LUTDataType
+from paicorelib.routing_defs import get_replication_id
 
 from paibox import _logging
 from paibox.base import PAIBoxObject
