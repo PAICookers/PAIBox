@@ -260,7 +260,7 @@ class TestNetwork_Principles:
         assert np.array_equal(
             sim.data[net.probe2][-1][:10],
             np.array(
-                [[0], [0], [0], [1], [0], [1], [0], [1], [0], [1]], dtype=np.bool_
+                [[0], [0], [0], [1], [0], [1], [0], [1], [0], [1]], dtype=np.bool
             ),
         )
 

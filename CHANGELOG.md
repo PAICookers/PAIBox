@@ -31,7 +31,7 @@
 
 - 提高 `numpy` 依赖版本至 `^1.24.0`
 - 修复神经元输入累加错误
-- 修复当权重为 `np.bool_` 且关闭权重精度优化选项( `weight_bit_optimization` )后，仍视为 `np.int8` 的错误
+- 修复当权重为 `np.bool` 且关闭权重精度优化选项( `weight_bit_optimization` )后，仍视为 `np.int8` 的错误
 - 支持混合精度权重的部署
 
 ## v1.0.0rc1

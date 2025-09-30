@@ -1134,25 +1134,25 @@ class TestData:
             (
                 ((0, 2), (0, 2)),
                 1,
-                (np.bool_, np.bool_),
+                (np.bool, np.bool),
                 WW.WEIGHT_WIDTH_1BIT,
             ),
             (
                 ((0, 2), (0, 2)),
                 -1,
-                (np.bool_, np.bool_),
+                (np.bool, np.bool),
                 WW.WEIGHT_WIDTH_2BIT,
             ),
             (
                 ((0, 2), (0, 2)),
                 1,
-                (np.bool_, np.int8),
+                (np.bool, np.int8),
                 WW.WEIGHT_WIDTH_1BIT,
             ),
             (
                 ((0, 2), (0, 2)),
                 -2,
-                (np.int8, np.bool_),
+                (np.int8, np.bool),
                 WW.WEIGHT_WIDTH_2BIT,
             ),
             (
@@ -1164,19 +1164,19 @@ class TestData:
             (
                 ((0, 2), (-2, 2)),
                 -8,
-                (np.bool_, np.int8),
+                (np.bool, np.int8),
                 WW.WEIGHT_WIDTH_4BIT,
             ),
             (
                 ((0, 2), (-2, 2)),
                 7,
-                (np.bool_, np.int8),
+                (np.bool, np.int8),
                 WW.WEIGHT_WIDTH_4BIT,
             ),
             (
                 ((0, 2), (-128, 128)),
                 127,
-                (np.bool_, np.int8),
+                (np.bool, np.int8),
                 WW.WEIGHT_WIDTH_8BIT,
             ),
             (

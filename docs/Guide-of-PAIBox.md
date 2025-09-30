@@ -454,7 +454,7 @@ T = 20
 
 le = pb.simulator.LatencyEncoder(T, "linear")
 
-out_spike = np.zeros((T, N), dtype=np.bool_)
+out_spike = np.zeros((T, N), dtype=np.bool)
 for t in range(T):
     out_spike[t] = le(x)
 ```
@@ -700,13 +700,13 @@ s3 = pb.FullConn(p2d, n2, conn_type=pb.SynConnType.One2One)
 脉冲加减法与数的加减法存在差异。对脉冲进行加减，运算结果将在较长时间步上体现。例如，在 `T=1` 时刻两神经元均输出1，则将在 `T=2,3` 时刻产生输出脉冲。以下为脉冲加减法运算示例。其中，输入为 `T=12` 脉冲序列，输出为 `T=20` 脉冲序列。
 
 ```python
-inpa = np.array([1, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1, 1], np.bool_)
-inpb = np.array([0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0], np.bool_)
+inpa = np.array([1, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1, 1], np.bool)
+inpb = np.array([0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0], np.bool)
 
 # 脉冲加结果
->>> np.array([0, 1, 0, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0], np.bool_)
+>>> np.array([0, 1, 0, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0], np.bool)
 # 脉冲减结果
->>> np.array([0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0], np.bool_)
+>>> np.array([0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0], np.bool)
 ```
 
 `SpikingAdd`，`SpikingSub` 的使用方式与逻辑运算模块基本相同，对于 `SpikingAdd`，其内部运算原理为：
