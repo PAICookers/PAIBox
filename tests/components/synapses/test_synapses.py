@@ -5,9 +5,11 @@ import pytest
 from paicorelib import WeightWidth as WW
 
 import paibox as pb
+from paibox._logging import set_logs
 from paibox.components import FullConnectedSyn
+from paibox.components.synapses.lut import LUT_DTYPE
 from paibox.exceptions import RegisterError, ShapeError
-from paibox.types import WEIGHT_DTYPE
+from paibox.types import NEUOUT_U8_DTYPE, WEIGHT_DTYPE
 from paibox.utils import shape2num
 from tests.utils import gen_random_array
 
@@ -389,7 +391,7 @@ class TestConv:
         )
 
 
-class TestConvTranspose2d:
+class TestConvTranspose:
     def test_ConvTranspose1d_instance(self):
         in_shape = (14,)
         ksize = (5,)
@@ -517,3 +519,89 @@ class TestConvTranspose2d:
             ci * shape2num(in_shape),
             co * shape2num(out_shape),
         )
+
+
+class TestSTDPSynapse:
+    @pytest.fixture(autouse=True)
+    def enable_stdp_logging(self):
+        set_logs(stdp=True)
+
+    def test_STDPFullConn_update(self):
+        # Use neurons to instantiate synapse but don't update them
+        n1 = pb.STDPNeuron(
+            (3,),
+            10,
+            reset_v=0,
+            leak_v=-1,
+            bias=0,
+            neg_threshold=-3,
+            lateral_inhi_value=-1,
+        )
+        n2 = pb.STDPNeuron(
+            (3,),
+            10,
+            reset_v=0,
+            leak_v=-1,
+            bias=0,
+            neg_threshold=-3,
+            lateral_inhi_value=-1,
+        )
+
+        shape = (n1.num_out, n2.num_in)
+        w = np.zeros(shape, dtype=WEIGHT_DTYPE)
+        lut = np.zeros((60,), dtype=LUT_DTYPE)
+        lut[:30] = -1
+        lut[30:] = 1
+        s1 = pb.STDPFullConn(n1, n2, w, weight_decay=-2, lut=lut)
+        s1.learn()
+
+        l = 12
+        pre_spike = np.zeros((l, n1.num_out), dtype=NEUOUT_U8_DTYPE)
+        pre_spike[1] = [1, 0, 0]
+        pre_spike[6] = [0, 1, 1]
+        pre_spike[9] = [0, 0, 1]
+        pre_spike[11] = [1, 1, 0]
+
+        post_spike = np.zeros((l, n2.num_in), dtype=NEUOUT_U8_DTYPE)
+        post_spike[2] = [1, 0, 0]
+        post_spike[8] = [1, 1, 1]
+        post_spike[11] = [0, 1, 1]
+
+        exp_w = np.zeros_like(s1.weights)
+        for ts in range(l):
+            s1.update_spike_counter(pre_spike[ts], post_spike[ts])
+            s1.update_weight(s1.weights)
+
+            # At ts=1, axon #0 LTD, others no learning. No weight decay.
+            if ts == 1:
+                exp_w[0, :] += -1
+                assert np.array_equal(s1.weights, exp_w)
+
+            # At ts=2, neu #0 LTP, others no learning. neu #0 weight decayed(-2).
+            if ts == 2:
+                exp_w[:, 0] += 1 - 2
+                assert np.array_equal(s1.weights, exp_w)
+
+            # At ts=6, axon #1#2 LTD, others no learning. No weight decay.
+            if ts == 6:
+                exp_w[1:3, :] += -1
+                assert np.array_equal(s1.weights, exp_w)
+
+            # At ts=8, all neurons LTP, others no learning. All weights decayed.
+            if ts == 8:
+                exp_w[:, :] += 1 - 2
+                assert np.array_equal(s1.weights, exp_w)
+
+            # At ts=9, axon #2 LTD, others no learning. No weight decay.
+            if ts == 9:
+                exp_w[2, :] += -1
+                assert np.array_equal(s1.weights, exp_w)
+
+            # At ts=11, axon #0#1 neu #0 LTD, neu #1#2 LTP, others no learning. axon #2 neu #1#2 weight decayed.
+            if ts == 11:
+                exp_w[0:2, 0] += -1  # LTD
+                exp_w[:, 1:3] += 1  # LTP
+                exp_w[2, 1:3] += -2  # weight decay
+                assert np.array_equal(s1.weights, exp_w)
+
+            print(f"ts={ts}, exp_w\n", exp_w)
