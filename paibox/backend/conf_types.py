@@ -28,6 +28,7 @@ from paicorelib import (
     WeightWidth,
     get_replication_id,
 )
+from paicorelib.framelib.types import LUT_DTYPE, LUTDataType
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias
@@ -443,6 +444,7 @@ class OnlineCorePlmConfig(CorePlmConfig):
 
     weight_ram: WRAMPackedType
     core_params: OnlineCoreReg
+    lut: LUTDataType
     neuron_configs: dict[Neuron, OnlineNeuConfig]
 
     @classmethod
@@ -450,11 +452,13 @@ class OnlineCorePlmConfig(CorePlmConfig):
         cls,
         weight_ram: WRAMPackedType,
         core_cfg: OnlineCoreConfig,
+        lut: LUTDataType,
         neuron_cfg: dict[Neuron, OnlineNeuConfig],
     ):
         return cls(
             weight_ram,
             OnlineCoreReg.model_validate(core_cfg._asdict(), strict=True),
+            lut,
             neuron_cfg,
         )
 
