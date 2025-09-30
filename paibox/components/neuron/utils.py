@@ -4,6 +4,8 @@ from typing import Literal, TypedDict, Union
 
 import numpy as np
 from paicorelib import (
+    OnCoreCfg,
+    OffCoreCfg,
     InputWidthFormat,
     MaxPoolingEnable,
     OffRAMDefs,
@@ -15,7 +17,7 @@ from paicorelib.framelib.utils import _mask
 from paibox.exceptions import FunctionalError, PAIBoxWarning
 from paibox.types import (
     NEUOUT_U8_DTYPE,
-    SPIKE_DTYPE,
+    NEUOUT_SPIKE_DTYPE,
     VOLTAGE_DTYPE,
     LeakVType,
     VoltageType,
@@ -98,9 +100,9 @@ def _spike_width_format(swf: Union[L[1, 8], SpikeWidthFormat]) -> SpikeWidthForm
 
 def _get_neu_out_dtype(
     swf: SpikeWidthFormat,
-) -> type[Union[SPIKE_DTYPE, NEUOUT_U8_DTYPE]]:
+) -> type[Union[NEUOUT_SPIKE_DTYPE, NEUOUT_U8_DTYPE]]:
     if swf is SpikeWidthFormat.WIDTH_1BIT:
-        return SPIKE_DTYPE
+        return NEUOUT_SPIKE_DTYPE
     else:
         return NEUOUT_U8_DTYPE
 

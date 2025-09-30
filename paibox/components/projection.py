@@ -83,7 +83,7 @@ class InputProj(Projection):
     def update(self, *args, **kwargs) -> NeuOutType:
         _input = self._get_neumeric_input(**kwargs)
 
-        if isinstance(_input, (int, np.bool_, np.integer)):
+        if isinstance(_input, (int, np.bool, np.integer)):
             self._neu_out = np.full_like(self._neu_out, _input, dtype=NEUOUT_U8_DTYPE)
         elif isinstance(_input, np.ndarray):
             if _input.size != self._neu_out.size:
@@ -94,7 +94,7 @@ class InputProj(Projection):
         else:
             # should never be reached
             raise TypeError(
-                f"expected type int, np.bool_, np.integer or np.ndarray, "
+                f"expected type int, np.bool, np.integer or np.ndarray, "
                 f"but got {_input}, type {type(_input)}."
             )
 
@@ -144,9 +144,9 @@ class InputProj(Projection):
     @input.setter
     def input(self, value: DataType) -> None:
         """Set the input at the beginning of running the simulation."""
-        if not isinstance(value, (int, np.bool_, np.integer, np.ndarray)):
+        if not isinstance(value, (int, np.bool, np.integer, np.ndarray)):
             raise TypeError(
-                f"expected type int, np.bool_, np.integer or np.ndarray, "
+                f"expected type int, np.bool, np.integer or np.ndarray, "
                 f"but got {value}, type {type(value)}."
             )
 
