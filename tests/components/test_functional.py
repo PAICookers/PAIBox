@@ -1321,3 +1321,54 @@ class TestFunctionalModules:
 
         with pytest.raises(ShapeError):
             p = pb.MaxPool1d(n2, 67, padding=1)
+
+    def test_STDPLinear_learning_mode_switch(self):
+        from tests.shared_networks import STDPLinearNet
+
+        ifeat1, ifeat2, ofeat = 100, 32, 10
+        w1 = np.ones((ifeat1, ifeat2), dtype=WEIGHT_DTYPE)
+        w2 = np.ones((ifeat2, ofeat), dtype=WEIGHT_DTYPE)
+
+        net = STDPLinearNet(ifeat1, ifeat2, ofeat, w1, w2)
+
+        sim = pb.Simulator(net)
+        prob_syn1 = pb.Probe(net.s1, "weights")
+        prob_syn2 = pb.Probe(net.s2, "weights")
+        sim.add_probe(prob_syn1)
+        sim.add_probe(prob_syn2)
+
+        inp = np.random.randint(0, 2, size=ifeat1, dtype=NEUOUT_U8_DTYPE)
+        net.input.input = inp
+
+        sim.reset()
+
+        # s1 & s2 are in inference mode
+        net.eval()
+        sim.run(1)
+        w1_1 = sim.data[prob_syn1][-1]
+        w2_1 = sim.data[prob_syn2][-1]
+
+        # s1 & s2 are in learning mode
+        net.learn()
+        sim.run(50)  # Long enought to fire for layer1
+        w1_2 = sim.data[prob_syn1][-1]
+        w2_2 = sim.data[prob_syn2][-1]
+        assert not np.array_equal(w1_2, w1_1)
+        assert not np.array_equal(w2_2, w2_1)
+
+        # s1 & s2 are in inference mode
+        net.eval()
+        sim.run(20)
+        w1_3 = sim.data[prob_syn1][-1]
+        w2_3 = sim.data[prob_syn2][-1]
+        assert np.array_equal(w1_3, w1_2)
+        assert np.array_equal(w2_3, w2_2)
+
+        # Only s1 is in learning mode
+        net.s1.learn()
+        net.s2.eval()
+        sim.run(20)
+        w1_4 = sim.data[prob_syn1][-1]
+        w2_4 = sim.data[prob_syn2][-1]
+        assert not np.array_equal(w1_4, w1_3)
+        assert np.array_equal(w2_4, w2_3)
