@@ -12,7 +12,7 @@ else:
 from paicorelib import WeightWidth as WW
 
 from .collector import Collector
-from .mixin import ReceiveInputProj, StatusMemory, TimeRelatedNode
+from .mixin import ReceiveInputProj, StatusMemory, TimeRelatedNode, MixIn
 from .naming import get_unique_name, is_name_unique
 from .node import NodeDict, NodeList
 from .types import WeightType
@@ -408,3 +408,18 @@ class SynSys(DynamicSys):
     @property
     def num_dendrite(self) -> int:
         return np.count_nonzero(np.any(self.connectivity, axis=0))
+
+
+def is_learnable(obj: Any) -> bool:
+    """Check if the object is the subclass of `LearnableSys`."""
+    return issubclass(type(obj), LearnableSys)
+
+
+class LearnableSys(MixIn):
+    learning: bool
+
+    def learn(self, mode: bool = True) -> None:
+        self.learning = mode
+
+    def eval(self) -> None:
+        self.learn(False)
