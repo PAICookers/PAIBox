@@ -30,7 +30,7 @@ from .modules import (
     set_rt_mode_ann,
     set_rt_mode_snn,
 )
-from .neuron import Neuron
+from .neuron import OfflineNeuron
 from .neuron.neurons import *
 from .neuron.utils import NeuFireState, v_overflow
 from .projection import InputProj
@@ -326,7 +326,7 @@ class _SpikingPool1d(_SpikingPoolNd):
 
     def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
         if self.tfm.pool_type == "avg":
-            n1_p1d = Neuron(
+            n1_p1d = OfflineNeuron(
                 self.shape_out,
                 leak_v=1 - self.tfm.threshold,
                 neg_threshold=0,
@@ -351,7 +351,7 @@ class _SpikingPool1d(_SpikingPoolNd):
         syn1 = FullConnSyn(
             self.source[0],
             n1_p1d,
-            weights=self.tfm.connectivity.astype(np.bool_),
+            weights=self.tfm.connectivity.astype(np.bool),
             conn_type=ConnType.All2All,
             name=f"s0_{self.name}",
         )
@@ -429,7 +429,7 @@ class _SpikingPool1dWithV(FunctionalModuleWithV):
         syn1 = FullConnSyn(
             self.source[0],
             n1_p1d,
-            weights=self.tfm.connectivity.astype(np.bool_),
+            weights=self.tfm.connectivity.astype(np.bool),
             conn_type=ConnType.All2All,
             name=f"s0_{self.name}",
         )
@@ -488,7 +488,7 @@ class _SpikingPool2d(_SpikingPoolNd):
 
     def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
         if self.tfm.pool_type == "avg":
-            n1_p2d = Neuron(
+            n1_p2d = OfflineNeuron(
                 self.shape_out,
                 leak_v=1 - self.tfm.threshold,
                 neg_threshold=0,
@@ -513,7 +513,7 @@ class _SpikingPool2d(_SpikingPoolNd):
         syn1 = FullConnSyn(
             self.source[0],
             n1_p2d,
-            weights=self.tfm.connectivity.astype(np.bool_),
+            weights=self.tfm.connectivity.astype(np.bool),
             conn_type=ConnType.All2All,
             name=f"s0_{self.name}",
         )
@@ -597,7 +597,7 @@ class _SpikingPool2dWithV(FunctionalModuleWithV):
         syn1 = FullConnSyn(
             self.source[0],
             n1_p2d,
-            weights=self.tfm.connectivity.astype(np.bool_),
+            weights=self.tfm.connectivity.astype(np.bool),
             conn_type=ConnType.All2All,
             name=f"s0_{self.name}",
         )

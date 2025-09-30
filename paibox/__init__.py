@@ -47,6 +47,9 @@ from .components.neuron.neurons import SpikingRelu as SpikingRelu
 from .components.neuron.neurons import TonicSpiking as TonicSpiking
 from .components.neuron.neurons import StoreVoltageNeuron as StoreVoltageNeuron
 
+# STDP neurons in SNN mode only
+from .components.neuron.neurons import STDPNeuron as STDPNeuron
+
 # Input projection
 from .components.projection import InputProj as InputProj
 
@@ -60,6 +63,7 @@ from .components.synapses.synapses import ConvTranspose1d as ConvTranspose1d
 from .components.synapses.synapses import ConvTranspose2d as ConvTranspose2d
 from .components.synapses.synapses import FullConn as FullConn
 from .components.synapses.synapses import MatMul2d as MatMul2d
+from .components.synapses.synapses import STDPFullConn as STDPFullConn
 
 # Network
 from .network import DynSysGroup as DynSysGroup
@@ -89,7 +93,7 @@ except Exception:
 from . import tools
 
 # Minimum required version of paicorelib
-__plib_minimum_version__ = "1.4.0"
+__plib_minimum_version__ = "1.5.0"
 
 try:
     import paicorelib as plib

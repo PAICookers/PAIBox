@@ -4,7 +4,7 @@ from typing import Optional, Union
 
 import numpy as np
 
-from .base import DynamicSys, SynSys
+from .base import DynamicSys, SynSys, LearnableSys
 from .collector import Collector
 from .components import NeuModule, Neuron, Projection
 from .components._modules import SemiFoldedDataFlowFormat, _SemiFoldedModule
@@ -77,6 +77,14 @@ class DynSysGroup(DynamicSys, Container):
 
     def __call__(self, **kwargs) -> None:
         return self.update(**kwargs)
+
+    def learn(self, mode: bool = True) -> None:
+        nodes = self.components
+        for node in nodes.subset(LearnableSys).values():
+            node.learn(mode)
+
+    def eval(self) -> None:
+        self.learn(False)
 
     def build_modules(
         self,
