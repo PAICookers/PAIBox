@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 
 import numpy as np
@@ -24,7 +23,7 @@ def _out_bypass1(t, data1, *args, **kwargs):
 
 
 class TestOnBoard_WRAMMapping:
-    def test_001(self, ensure_test_item_dirs):
+    def test_001(self, ensure_test_item_dirs, fixed_rng):
         class Net001(pb.Network):
             def __init__(self, w):
                 super().__init__()
@@ -107,7 +106,7 @@ class TestOnBoard_WRAMMapping:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_002(self, ensure_test_item_dirs):
+    def test_002(self, ensure_test_item_dirs, fixed_rng):
         class Net002(pb.Network):
             def __init__(self, w):
                 super().__init__()
@@ -183,7 +182,7 @@ class TestOnBoard_WRAMMapping:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_003(self, ensure_test_item_dirs):
+    def test_003(self, ensure_test_item_dirs, fixed_rng):
         class Net003(pb.Network):
             def __init__(self, w):
                 super().__init__()
@@ -261,7 +260,7 @@ class TestOnBoard_WRAMMapping:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_004(self, ensure_test_item_dirs):
+    def test_004(self, ensure_test_item_dirs, fixed_rng):
         class Net004(pb.Network):
             def __init__(self, w):
                 super().__init__()
@@ -337,7 +336,7 @@ class TestOnBoard_WRAMMapping:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_005(self, ensure_test_item_dirs):
+    def test_005(self, ensure_test_item_dirs, fixed_rng):
         class Net005(pb.Network):
             def __init__(self, w1, w2):
                 super().__init__()
@@ -451,7 +450,7 @@ class TestOnBoard_WRAMMapping:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_006(self, ensure_test_item_dirs):
+    def test_006(self, ensure_test_item_dirs, fixed_rng):
         class Net006(pb.Network):
             def __init__(self, w1, w2):
                 super().__init__()
@@ -560,7 +559,7 @@ class TestOnBoard_WRAMMapping:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_007(self, ensure_test_item_dirs):
+    def test_007(self, ensure_test_item_dirs, fixed_rng):
         class Net007(pb.Network):
             def __init__(self, w1):
                 super().__init__()
@@ -638,7 +637,7 @@ class TestOnBoard_WRAMMapping:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_008(self, ensure_test_item_dirs):
+    def test_008(self, ensure_test_item_dirs, fixed_rng):
         class Net008(pb.Network):
             def __init__(self, w1, w2):
                 super().__init__()
@@ -745,7 +744,7 @@ class TestOnBoard_WRAMMapping:
 
 
 class TestOnBoard_SpikingOp:
-    def test_001_Conv1d(self, ensure_test_item_dirs):
+    def test_001_Conv1d(self, ensure_test_item_dirs, fixed_rng):
         class Net001(pb.Network):
             def __init__(self, w1):
                 super().__init__()
@@ -783,10 +782,10 @@ class TestOnBoard_SpikingOp:
             # W=8, disable weight bit optimization
             weight1 = fixed_rng.integers(-10, 12, size=ksize, dtype=np.int8)
             inpdata1 = fixed_rng.integers(
-                0, 1, size=(sim_time,) + shape1, dtype=np.bool_, endpoint=True
+                0, 1, size=(sim_time,) + shape1, dtype=np.bool, endpoint=True
             )
             # Shape of reference result is sim_time * refdata
-            refresult1 = np.zeros((sim_time,) + out_shape, dtype=np.bool_)
+            refresult1 = np.zeros((sim_time,) + out_shape, dtype=np.bool)
 
         network = Net001(weight1)
         sim = pb.Simulator(network, start_time_zero=False)
@@ -827,7 +826,7 @@ class TestOnBoard_SpikingOp:
 
 
 class TestOnBoard_SemiFoldedOp:
-    def test_001_Conv2dSemiFolded(self, ensure_test_item_dirs):
+    def test_001_Conv2dSemiFolded(self, ensure_test_item_dirs, fixed_rng):
         class Net001(pb.DynSysGroup):
             def __init__(self, w1):
                 super().__init__()
@@ -900,7 +899,7 @@ class TestOnBoard_SemiFoldedOp:
 
     # 对比test002-005系列
     # weight正常
-    def test_002_Conv2dSemiFolded(self, ensure_test_item_dirs):
+    def test_002_Conv2dSemiFolded(self, ensure_test_item_dirs, fixed_rng):
         class Net002(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
@@ -973,7 +972,7 @@ class TestOnBoard_SemiFoldedOp:
         print(f"Test {TEST_NAME} end")
 
     # weight全为1
-    def test_003_Conv2dSemiFolded(self, ensure_test_item_dirs):
+    def test_003_Conv2dSemiFolded(self, ensure_test_item_dirs, fixed_rng):
         class Net003(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
@@ -1047,7 +1046,7 @@ class TestOnBoard_SemiFoldedOp:
         print(f"Test {TEST_NAME} end")
 
     # 扇入扩展， weight全正1
-    def test_004_Conv2dSemiFolded(self, ensure_test_item_dirs):
+    def test_004_Conv2dSemiFolded(self, ensure_test_item_dirs, fixed_rng):
         class Net004(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
@@ -1122,7 +1121,7 @@ class TestOnBoard_SemiFoldedOp:
         print(f"Test {TEST_NAME} end")
 
     # 扇入扩展
-    def test_005_Conv2dSemiFolded(self, ensure_test_item_dirs):
+    def test_005_Conv2dSemiFolded(self, ensure_test_item_dirs, fixed_rng):
         class Net005(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
@@ -1197,7 +1196,7 @@ class TestOnBoard_SemiFoldedOp:
         print(f"Test {TEST_NAME} end")
 
     # 对比006-009
-    def test_006_Conv2dSemiFolded(self, ensure_test_item_dirs):
+    def test_006_Conv2dSemiFolded(self, ensure_test_item_dirs, fixed_rng):
         class Net006(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
@@ -1270,7 +1269,7 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_007_Conv2dSemiFolded(self, ensure_test_item_dirs):
+    def test_007_Conv2dSemiFolded(self, ensure_test_item_dirs, fixed_rng):
         class Net007(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
@@ -1344,7 +1343,7 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_008_Conv2dSemiFolded(self, ensure_test_item_dirs):
+    def test_008_Conv2dSemiFolded(self, ensure_test_item_dirs, fixed_rng):
         class Net008(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
@@ -1418,7 +1417,7 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_009_Conv2dSemiFolded(self, ensure_test_item_dirs):
+    def test_009_Conv2dSemiFolded(self, ensure_test_item_dirs, fixed_rng):
         class Net009(pb.DynSysGroup):
             def __init__(self, w2):
                 super().__init__()
@@ -1489,7 +1488,7 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_010_MaxPool2dSemiFolded(self, ensure_test_item_dirs):
+    def test_010_MaxPool2dSemiFolded(self, ensure_test_item_dirs, fixed_rng):
         class Net010(pb.DynSysGroup):
             def __init__(self, ksize):
                 super().__init__()
@@ -1559,7 +1558,7 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_011_AvgPool2dSemiFolded(self, ensure_test_item_dirs):
+    def test_011_AvgPool2dSemiFolded(self, ensure_test_item_dirs, fixed_rng):
         class Net011(pb.DynSysGroup):
             def __init__(self, ksize):
                 super().__init__()
@@ -1629,7 +1628,7 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_012_Conv2dSemiFoldedNet(self, ensure_test_item_dirs):
+    def test_012_Conv2dSemiFoldedNet(self, ensure_test_item_dirs, fixed_rng):
         class Net012(pb.DynSysGroup):
             def __init__(self, w1, w2, w3):
                 super().__init__()
@@ -1724,7 +1723,7 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_013_Conv2dSemiFoldedNet(self, ensure_test_item_dirs):
+    def test_013_Conv2dSemiFoldedNet(self, ensure_test_item_dirs, fixed_rng):
         class Net013(pb.DynSysGroup):
             def __init__(self, w1, w2, w3):
                 super().__init__()
@@ -1816,7 +1815,7 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_014_CNNSemiFoldedNet(self, ensure_test_item_dirs):
+    def test_014_CNNSemiFoldedNet(self, ensure_test_item_dirs, fixed_rng):
         class Net014(pb.DynSysGroup):
             def __init__(self, w1, w2, w3):
                 super().__init__()
@@ -1916,7 +1915,7 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_015_Conv2dSemiFoldedNet(self, ensure_test_item_dirs):
+    def test_015_Conv2dSemiFoldedNet(self, ensure_test_item_dirs, fixed_rng):
         class Net015(pb.DynSysGroup):
             def __init__(self, w1, w2, w3):
                 super().__init__()
@@ -2016,7 +2015,7 @@ class TestOnBoard_SemiFoldedOp:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_016_Conv2dSemiFoldedNet(self, ensure_test_item_dirs):
+    def test_016_Conv2dSemiFoldedNet(self, ensure_test_item_dirs, fixed_rng):
         class Net016(pb.DynSysGroup):
             def __init__(self, w1, w2):
                 super().__init__()
@@ -2108,7 +2107,7 @@ class TestOnBoard_SemiFoldedOp:
 
 class TestOnBoard_ReadNeuronVoltage:
     # Test cases for reading neuron voltage. Don't care the weights.
-    def test_001_one_onode(self, ensure_test_item_dirs):
+    def test_001_one_onode(self, ensure_test_item_dirs, fixed_rng):
         # 1 output node on 4 cores
         class Net001(pb.Network):
             def __init__(self, w1):
@@ -2141,7 +2140,7 @@ class TestOnBoard_ReadNeuronVoltage:
         if not USE_EXISTING_DATA:
             print("Generating new data")
             inpdata1 = fixed_rng.integers(
-                0, 1, size=(sim_time, 100), endpoint=True, dtype=np.bool_
+                0, 1, size=(sim_time, 100), endpoint=True, dtype=np.bool
             )
             weight1 = fixed_rng.integers(-8, 10, size=(100, 200), dtype=np.int8)
             # Shape of reference result is sim_time * refdata
@@ -2179,7 +2178,7 @@ class TestOnBoard_ReadNeuronVoltage:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_002_one_onode_lcn(self, ensure_test_item_dirs):
+    def test_002_one_onode_lcn(self, ensure_test_item_dirs, fixed_rng):
         # 1 output node on 4 cores, lcn > 1
         class Net002(pb.Network):
             def __init__(self, w1):
@@ -2212,7 +2211,7 @@ class TestOnBoard_ReadNeuronVoltage:
         if not USE_EXISTING_DATA:
             print("Generating new data")
             inpdata1 = fixed_rng.integers(
-                0, 1, size=(sim_time, 2000), endpoint=True, dtype=np.bool_
+                0, 1, size=(sim_time, 2000), endpoint=True, dtype=np.bool
             )
             weight1 = fixed_rng.integers(-9, 10, size=(2000, 100), dtype=np.int8)
             # Shape of reference result is sim_time * refdata
@@ -2249,7 +2248,7 @@ class TestOnBoard_ReadNeuronVoltage:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_003_one_onode_lcn_ann(self, ensure_test_item_dirs):
+    def test_003_one_onode_lcn_ann(self, ensure_test_item_dirs, fixed_rng):
         # 1 output node on 4 cores, lcn > 1, ANN mode
         class Net003(pb.Network):
             def __init__(self, w1):
@@ -2317,7 +2316,7 @@ class TestOnBoard_ReadNeuronVoltage:
 
         print(f"Test {TEST_NAME} end")
 
-    def test_004_one2one(self, ensure_test_item_dirs):
+    def test_004_one2one(self, ensure_test_item_dirs, fixed_rng):
         # 1 output node on 4 cores
         class Net001(pb.Network):
             def __init__(self, w1):
@@ -2349,8 +2348,8 @@ class TestOnBoard_ReadNeuronVoltage:
 
         if not USE_EXISTING_DATA:
             print("Generating new data")
-            inpdata1 = np.ones((sim_time, 2), dtype=np.bool_)
-            weight1 = np.array([[1, 0], [0, 1]], dtype=np.bool_)
+            inpdata1 = np.ones((sim_time, 2), dtype=np.bool)
+            weight1 = np.array([[1, 0], [0, 1]], dtype=np.bool)
             # Shape of reference result is sim_time * refdata
             # The result is the voltage of n1
             refresult1 = np.zeros((sim_time, 2), dtype=VOLTAGE_DTYPE)
