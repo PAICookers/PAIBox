@@ -19,7 +19,7 @@ class SuccGroup(UserList[EdgeType]):
         super().__init__(_edges)
 
     def iter_nodes_and_edges(self) -> Generator[tuple[NodeType, EdgeType], None, None]:
-        return iter((cast(NodeType, e.dest), e) for e in self)
+        return iter((cast(NodeType, e.target), e) for e in self)
 
     def remove_node(self, node: NodeType):
         """Create a new `SuccGroup` without the edges belonging to the given node. If the node is   \
@@ -42,7 +42,7 @@ class SuccGroup(UserList[EdgeType]):
 
     @property
     def nodes(self) -> list[NodeType]:
-        return [cast(NodeType, e.dest) for e in self]
+        return [cast(NodeType, e.target) for e in self]
 
     def __eq__(self, other: "SuccGroup") -> bool:
         """Compare the included edges, but don’t care about the order."""

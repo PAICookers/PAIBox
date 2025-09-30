@@ -141,7 +141,7 @@ class PAIGraph:
             {
                 edge.name: edge
                 for edge in raw_edges.values()
-                if edge.source.name in self.nodes and edge.dest.name in self.nodes
+                if edge.source.name in self.nodes and edge.target.name in self.nodes
             }
         )
         self.succ_dg = cast(NodeAdjDictType, pruned_succ_dg)
@@ -209,7 +209,7 @@ class PAIGraph:
         succ_dg: NodeAdjDictType = {n: dict() for n in nodes}  # record all nodes
 
         for edge in edges:
-            u, v = edge.source.name, edge.dest.name
+            u, v = edge.source.name, edge.target.name
 
             if u not in nodes:
                 raise GraphConnectionError(
@@ -218,7 +218,7 @@ class PAIGraph:
 
             if v not in nodes:
                 raise GraphConnectionError(
-                    f"the dest neuron {v} of {edge.name} is not included in the graph."
+                    f"the target neuron {v} of {edge.name} is not included in the graph."
                 )
 
             succ_dg[u][v] = EdgeAttr(edge, edge.source.delay_relative)

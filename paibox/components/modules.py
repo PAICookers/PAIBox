@@ -138,10 +138,6 @@ class NeuModule(NeuDyn, BuildingModule):
         return self.module_intf.operands
 
     @property
-    def dest(self) -> list[Union["FullConnectedSyn", "NeuModule"]]:
-        return self.module_intf.output  # will be deprecated at anytime in the future.
-
-    @property
     def target(self) -> list[Union["FullConnectedSyn", "NeuModule"]]:
         return self.module_intf.output
 
@@ -217,7 +213,7 @@ class FunctionalModule(NeuModule):
         synin = []
 
         for op in self.source:
-            # Retrieve the spike at index `timestamp` of the dest neurons
+            # Retrieve the spike at index `timestamp` of the target neurons
             if self.is_working():
                 if isinstance(op, InputProj):
                     synin.append(op.output)
@@ -225,7 +221,7 @@ class FunctionalModule(NeuModule):
                     idx = self.timestamp % OffCoreCfg.N_TIMESLOT_MAX
                     synin.append(op.delay_registers[idx])
             else:
-                # Retrieve 0 to the dest neurons if it is not working
+                # Retrieve 0 to the target neurons if it is not working
                 synin.append(np.zeros_like(op.spike))
 
         self.synin_deque.append(synin)  # Append to the right of the deque.
