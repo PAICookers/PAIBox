@@ -4,10 +4,8 @@ from functools import partial
 from math import ceil
 from typing import Literal
 
-from paicorelib import OffCoreCfg, OnCoreCfg
-
 from paibox.components import Neuron
-from paibox.exceptions import ParameterInvalidWarning, ResourceError
+from paibox.exceptions import ParamInvalidWarning, ResourceError
 
 from ._slice import *
 from .types import (
@@ -93,7 +91,7 @@ def _get_nsg_opt_core(
         warnings.warn(
             "when grouping neurons with 'core' optimization, unrolling "
             "factor greater than 1 is invalid. Modified to 1.",
-            ParameterInvalidWarning,
+            ParamInvalidWarning,
         )
 
     neu_segs_basic = _place_seperately(seg_slices_dict, repl_prop)

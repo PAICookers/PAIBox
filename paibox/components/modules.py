@@ -7,7 +7,7 @@ from functools import partial
 from typing import Callable, ClassVar, Literal, Optional, TypeVar, Union
 
 import numpy as np
-from paicorelib import CoreMode, HwConfig, OffCoreCfg, SNNModeEnable, get_core_mode
+from paicorelib import CoreMode, OffCoreCfg, SNNModeEnable, get_core_mode
 
 from paibox.base import NeuDyn
 from paibox.exceptions import NotSupportedError, RegisterError, ShapeError
@@ -439,13 +439,13 @@ class FunctionalModule2to1WithV(FunctionalModuleWithV):
 
 
 L = Literal
-_T = TypeVar("_T", bound=NeuModule)
+NMT = TypeVar("NMT", bound=NeuModule)
 
 
 def set_rt_mode(
     input_width: L[1, 8], spike_width: L[1, 8], snn_en: L[0, 1]
-) -> Callable[[type[_T]], type[_T]]:
-    def wrapper(cls: type[_T]) -> type[_T]:
+) -> Callable[[type[NMT]], type[NMT]]:
+    def wrapper(cls: type[NMT]) -> type[NMT]:
         iw = _input_width_format(input_width)
         sw = _spike_width_format(spike_width)
         sen = SNNModeEnable(snn_en)
