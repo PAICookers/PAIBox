@@ -12,7 +12,7 @@ else:
 from paicorelib import WeightWidth as WW
 
 from .collector import Collector
-from .mixin import ReceiveInputProj, StatusMemory, TimeRelatedNode, MixIn
+from .mixin import MixIn, ReceiveInputProj, StatusMemory, TimeRelatedNode
 from .naming import get_unique_name, is_name_unique
 from .node import NodeDict, NodeList
 from .types import WeightType

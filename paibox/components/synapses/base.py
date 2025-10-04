@@ -5,7 +5,7 @@ from paicorelib import WeightWidth as WW
 
 from paibox.base import NeuDyn, SynSys
 from paibox.exceptions import RegisterError, ShapeError
-from paibox.types import DataType, NeuOutType, SynOutType, WeightType, VOLTAGE_DTYPE
+from paibox.types import VOLTAGE_DTYPE, DataType, NeuOutType, SynOutType, WeightType
 
 from ..modules import BuildingModule
 from ..neuron import Neuron

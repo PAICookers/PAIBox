@@ -5,7 +5,7 @@ from typing import Any
 
 import numpy as np
 import pytest
-from paicorelib import Coord, RM, LCM, LDM, NTM, SIM, LIM
+from paicorelib import LCM, LDM, LIM, NTM, RM, SIM, Coord
 from paicorelib import ReplicationId as RId
 from paicorelib.framelib.frame_defs import FrameHeader as FH
 from paicorelib.framelib.frame_defs import OfflineWorkFrame1Format as Off_WF1F

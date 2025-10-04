@@ -6,11 +6,9 @@ from typing import ClassVar, Optional, Union
 
 import numpy as np
 from numpy.typing import ArrayLike
-from paicorelib import NTM, RM, LCM
+from paicorelib import LCM, NTM, RM
 
 from paibox.base import NeuDyn, NodeList
-from .neuron.base import bit_truncate
-from .synapses.synapses import STDPFullConn
 from paibox.exceptions import PAIBoxDeprecationWarning, ShapeError
 from paibox.types import (
     NEUOUT_U8_DTYPE,
@@ -36,6 +34,7 @@ from .modules import (
     set_rt_mode_snn,
 )
 from .neuron import OfflineNeuron
+from .neuron.base import bit_truncate
 from .neuron.neurons import *
 from .neuron.neurons import STDPNeuron
 from .neuron.utils import NeuFireState, v_overflow
@@ -43,6 +42,7 @@ from .projection import InputProj
 from .synapses import ConnType, Conv2dSemiFoldedSyn, FullConnSyn, MaxPoolSyn
 from .synapses.conv_types import Size2Type, _Size1Type, _Size2Type
 from .synapses.conv_utils import _conv1d_oshape, _pair, group_ch_check
+from .synapses.synapses import STDPFullConn
 
 if sys.version_info >= (3, 13):
     from warnings import deprecated

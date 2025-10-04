@@ -1,11 +1,8 @@
 import warnings
-import numpy as np
-from numpy.typing import ArrayLike
 from typing import Any, ClassVar, Optional, TypedDict, Union
 
-from .base import FullConnectedSyn
-from .weight_dtype import weight_width2range
-from .lut import LUT
+import numpy as np
+from numpy.typing import ArrayLike
 
 from paibox._logging import get_artifact_logger
 from paibox.base import LearnableSys
@@ -13,6 +10,9 @@ from paibox.exceptions import ParamNotSimulatedWarning
 from paibox.types import WEIGHT_DTYPE, NeuOutType, WeightType
 from paibox.utils import arg_check_pos
 
+from .base import FullConnectedSyn
+from .lut import LUT
+from .weight_dtype import weight_width2range
 
 syn_stdp_log = get_artifact_logger(__name__, "stdp")
 

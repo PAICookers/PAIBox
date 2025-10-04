@@ -1,5 +1,5 @@
-from enum import Enum
 import json
+from enum import Enum
 from typing import Any, Literal
 
 import numpy as np
@@ -14,8 +14,8 @@ from paicorelib import (
     CoreMode,
     OfflineNeuAttrs,
     OnlineNeuAttrs,
-    WeightWidth as WW,
 )
+from paicorelib import WeightWidth as WW
 
 import paibox as pb
 from paibox.components import OfflineNeuron

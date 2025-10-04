@@ -7,18 +7,17 @@ The runtime dose not depend on any modules of PAIBox.
 """
 
 import sys
-import numpy as np
-
-from numpy.typing import ArrayLike, NDArray
 from typing import Any, Literal, Optional, Union, cast, overload
 
+import numpy as np
+from numpy.typing import ArrayLike, NDArray
 from paicorelib import ChipCoord, Coord, CoordLike
 from paicorelib import ReplicationId as RId
 from paicorelib import RIdLike, to_coordoffset
 from paicorelib.framelib import OfflineFrameGen, OfflineTestInFrame3, OfflineWorkFrame1
-from paicorelib.framelib.frame_defs import FramePackageType as FPType
 from paicorelib.framelib.frame_defs import FrameFormat as FF
 from paicorelib.framelib.frame_defs import FrameHeader as FH
+from paicorelib.framelib.frame_defs import FramePackageType as FPType
 from paicorelib.framelib.frame_defs import OfflineConfigFrame3Format as Off_NRAMF
 from paicorelib.framelib.frame_defs import OfflineWorkFrame1Format as Off_WF1F
 from paicorelib.framelib.types import DataArrayType, FrameArrayType
@@ -26,12 +25,11 @@ from paicorelib.framelib.utils import framearray_header_check
 from paicorelib.hw_defs import HwOfflineCoreParams as OffCoreParams
 
 from .types import (
-    NeuSegAddrKeys,
     CoreNeuSegLocType,
     InputProjInfoKeys,
+    NeuSegAddrKeys,
     coordstr_to_tuple,
 )
-
 
 if sys.version_info >= (3, 13):
     from warnings import deprecated

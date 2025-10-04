@@ -1,7 +1,6 @@
 import numpy as np
 import pytest
 
-
 from paibox.components.synapses.lut import LUT, LUT_LEN
 
 

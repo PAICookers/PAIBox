@@ -2,6 +2,7 @@ from typing import Any, Optional, Union
 
 import numpy as np
 from numpy.typing import ArrayLike
+
 from paibox.base import NeuDyn
 from paibox.types import DataType, NeuOutType, SynOutType
 

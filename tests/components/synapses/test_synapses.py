@@ -1,6 +1,6 @@
+import json
 from contextlib import nullcontext
 from enum import Enum
-import json
 
 import numpy as np
 import pytest
@@ -13,7 +13,7 @@ from paibox.components.synapses.lut import LUT_DTYPE
 from paibox.exceptions import RegisterError, ShapeError
 from paibox.types import NEUOUT_U8_DTYPE, WEIGHT_DTYPE
 from paibox.utils import shape2num
-from tests.utils import gen_random_array, file_not_exist_fail
+from tests.utils import file_not_exist_fail, gen_random_array
 
 
 class SynCfgJsonEncoder(json.JSONEncoder):

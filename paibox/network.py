@@ -4,7 +4,7 @@ from typing import Optional, Union
 
 import numpy as np
 
-from .base import DynamicSys, SynSys, LearnableSys
+from .base import DynamicSys, LearnableSys, SynSys
 from .collector import Collector
 from .components import NeuModule, Neuron, Projection
 from .components._modules import SemiFoldedDataFlowFormat, _SemiFoldedModule

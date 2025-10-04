@@ -1,5 +1,6 @@
 import numpy as np
 from paicorelib import WeightWidth as WW
+
 from paibox.types import WeightType
 
 MAX_INT1 = 1

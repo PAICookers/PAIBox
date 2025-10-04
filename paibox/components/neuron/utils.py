@@ -4,11 +4,11 @@ from typing import Literal, TypedDict, Union
 
 import numpy as np
 from paicorelib import (
-    OnCoreCfg,
-    OffCoreCfg,
     InputWidthFormat,
     MaxPoolingEnable,
+    OffCoreCfg,
     OffRAMDefs,
+    OnCoreCfg,
     SNNModeEnable,
     SpikeWidthFormat,
 )
@@ -17,8 +17,8 @@ from paicorelib.framelib.utils import _mask
 from paibox.base import NeuDyn, is_learnable
 from paibox.exceptions import FunctionalError, PAIBoxWarning
 from paibox.types import (
-    NEUOUT_U8_DTYPE,
     NEUOUT_SPIKE_DTYPE,
+    NEUOUT_U8_DTYPE,
     VOLTAGE_DTYPE,
     LeakVType,
     VoltageType,

@@ -17,11 +17,11 @@ from paibox.components.synapses.conv_utils import (
     group_ch_check,
 )
 from paibox.types import (
-    NEUOUT_U8_DTYPE,
     NEUOUT_SPIKE_DTYPE,
+    NEUOUT_U8_DTYPE,
     VOLTAGE_DTYPE,
-    NeuOutType,
     NeuOutSpikeType,
+    NeuOutType,
     SynOutType,
     VoltageType,
 )

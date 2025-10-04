@@ -18,7 +18,7 @@ from paicorelib import (
 )
 
 from paibox.base import DataFlowFormat, LearnableSys, NeuDyn, is_learnable
-from paibox.exceptions import ConfigInvalidError, ShapeError, ParamNotSimulatedWarning
+from paibox.exceptions import ConfigInvalidError, ParamNotSimulatedWarning, ShapeError
 from paibox.types import (
     NEUOUT_U8_DTYPE,
     VOLTAGE_DTYPE,
@@ -653,7 +653,7 @@ class OnlineNeuron(Neuron, LearnableSys):
         self.lateral_inhi_value = lateral_inhi_value  # s32
 
         self.init_delay_registers()
-        
+
         # Common stateful variables
         # NOTE: The latertal inhibition will reset when receiving workframe type I-2.
         self.set_memory("is_lateral_inhi", False)

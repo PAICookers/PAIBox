@@ -51,7 +51,9 @@ class StatefulEncoder(Encoder, StatusMemory):
         self.set_memory("spike", None)
         self.set_memory("t", 0)
 
-    def __call__(self, x: Optional[np.ndarray] = None, *args, **kwargs) -> NeuOutSpikeType:
+    def __call__(
+        self, x: Optional[np.ndarray] = None, *args, **kwargs
+    ) -> NeuOutSpikeType:
         # If there is no encoded spike but there is an input, encode the input
         if self.spike is None:
             if x is None:

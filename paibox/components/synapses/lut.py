@@ -1,12 +1,12 @@
 import warnings
-import numpy as np
-from numpy.typing import ArrayLike
 from typing import Optional, Union, overload
 
-from paibox.exceptions import ParamNotSimulatedWarning, PAIBoxWarning
+import numpy as np
+from numpy.typing import ArrayLike
 from paicorelib import OnCoreCfg
 from paicorelib.framelib.types import LUT_DTYPE, LUTDataType
 
+from paibox.exceptions import PAIBoxWarning, ParamNotSimulatedWarning
 
 LUT_LEN = OnCoreCfg.LUT_LEN
 
