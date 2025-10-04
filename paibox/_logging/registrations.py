@@ -6,9 +6,12 @@ BACKEND_MODULES = [
     "paibox.backend.routing",
     "paibox.backend.placement",
     "paibox.backend.conf_exporting",
+    "paibox.backend.tiling",
 ]
 
 COMPONENTS = [
+    "paibox.components.functional",
+    "paibox.components.projection",
     "paibox.components.neuron.base",
     "paibox.components.neuron.neurons",
     "paibox.components.synapses.base",
@@ -17,11 +20,11 @@ COMPONENTS = [
 
 register_log("paibox", "paibox")
 register_log("backend", BACKEND_MODULES)
-register_log(
-    "components",
-    ["paibox.components.functional", "paibox.components.projection", *COMPONENTS],
-)
+register_log("components", COMPONENTS)
 register_log("sim", "simulator")
+
+# STDP
+register_artifact("stdp")
 
 # mapper
 register_artifact("build_core_blocks")

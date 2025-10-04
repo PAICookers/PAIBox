@@ -4,7 +4,7 @@ from typing import Generic, Optional, Protocol, TypeVar, Union, cast, runtime_ch
 
 from paicorelib import MaxPoolingEnable, WeightWidth
 
-from paibox.components import InputProj, Neuron, NeuronSubView
+from paibox.components import InputProj, Neuron
 from paibox.types import WeightType
 
 from .types import EdgeType, NodeType
@@ -159,10 +159,6 @@ class NeuronSlice(NodeSlice[Neuron]):
     def target_chip_idx(self) -> int:
         return self.target.target_chip_idx
 
-    @property
-    def view(self) -> NeuronSubView:
-        return NeuronSubView(self.target, self.index)
-
 
 class EdgeSlice(PartitionedSlice):
     """EdgeSlice records the slices corresponding to the two end nodes of the target synapse."""
@@ -178,7 +174,7 @@ class EdgeSlice(PartitionedSlice):
     ) -> None:
         self.target = target
         self.in_index = _idx2slice(target.source, in_index)
-        self.out_index = _idx2slice(target.dest, out_index)
+        self.out_index = _idx2slice(target.target, out_index)
 
     @property
     def source(self) -> Union[InputSlice, NeuronSlice]:
@@ -189,7 +185,7 @@ class EdgeSlice(PartitionedSlice):
 
     @property
     def dest(self) -> NeuronSlice:
-        return NeuronSlice(cast(Neuron, self.target.dest), self.out_index)
+        return NeuronSlice(cast(Neuron, self.target.target), self.out_index)
 
     @property
     def weight_width(self) -> WeightWidth:
@@ -202,7 +198,7 @@ class EdgeSlice(PartitionedSlice):
     def __str__(self) -> str:
         return (
             f"{type(self).__name__} {self.target.name}"
-            + f"({self.target.source.name} -> {self.target.dest.name})"
+            + f"({self.target.source.name} -> {self.target.target.name})"
             + f"[{self.in_index.start}:{self.in_index.stop}]"
             + f"[{self.out_index.start}:{self.out_index.stop}]"
         )
