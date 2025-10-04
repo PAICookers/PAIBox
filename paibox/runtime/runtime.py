@@ -7,29 +7,31 @@ The runtime dose not depend on any modules of PAIBox.
 """
 
 import sys
+import numpy as np
+
+from numpy.typing import ArrayLike, NDArray
 from typing import Any, Literal, Optional, Union, cast, overload
 
-import numpy as np
-from numpy.typing import NDArray
-from paicorelib import ChipCoord, Coord, CoordLike, HwConfig
+from paicorelib import ChipCoord, Coord, CoordLike
 from paicorelib import ReplicationId as RId
 from paicorelib import RIdLike, to_coordoffset
+from paicorelib.framelib import OfflineFrameGen, OfflineTestInFrame3, OfflineWorkFrame1
+from paicorelib.framelib.frame_defs import FramePackageType as FPType
 from paicorelib.framelib.frame_defs import FrameFormat as FF
 from paicorelib.framelib.frame_defs import FrameHeader as FH
 from paicorelib.framelib.frame_defs import OfflineConfigFrame3Format as Off_NRAMF
 from paicorelib.framelib.frame_defs import OfflineWorkFrame1Format as Off_WF1F
-from paicorelib.framelib.frame_gen import OfflineFrameGen
-from paicorelib.framelib.frames import (
-    _L_PACKAGE_TYPE_CONF_TESTOUT,
-    OfflineTestInFrame3,
-    OfflineWorkFrame1,
-)
-from paicorelib.framelib.types import ArrayType, DataArrayType, FrameArrayType
+from paicorelib.framelib.types import DataArrayType, FrameArrayType
 from paicorelib.framelib.utils import framearray_header_check
+from paicorelib.hw_defs import HwOfflineCoreParams as OffCoreParams
 
-from paibox.runtime.types import NeuSegAddrKeys
+from .types import (
+    NeuSegAddrKeys,
+    CoreNeuSegLocType,
+    InputProjInfoKeys,
+    coordstr_to_tuple,
+)
 
-from .types import *
 
 if sys.version_info >= (3, 13):
     from warnings import deprecated
@@ -51,20 +53,17 @@ PayloadDataType = NDArray[PAYLOAD_DATA_DTYPE]
 VOLTAGE_DTYPE = np.int32
 VoltageType = NDArray[VOLTAGE_DTYPE]
 
-if hasattr(HwConfig, "N_TIMESLOT_MAX"):
-    MAX_TIMESLOT = HwConfig.N_TIMESLOT_MAX - 1  # Start from 0
-else:
-    MAX_TIMESLOT = 255
-
+MAX_TIMESLOT = OffCoreParams.N_TIMESLOT_MAX - 1  # Start from 0
 # Use the key to represent the length expansion multiple of the output node.
 LENGTH_EX_MULTIPLE_KEY = "tick_relative"
 _RID_UNSET = RId(0, 0)
 
 
-def max_timeslot_check(timestep: int, raw_ts: ArrayType) -> None:
-    if timestep * max(raw_ts) > MAX_TIMESLOT:
+def max_timeslot_check(timestep: int, raw_ts: ArrayLike) -> None:
+    max_raw_ts = np.max(raw_ts)
+    if timestep * max_raw_ts > MAX_TIMESLOT:
         raise ValueError(
-            f"{timestep}*{max(raw_ts)} out of max timeslot ({MAX_TIMESLOT})"
+            f"{timestep}*{max_raw_ts} out of max timeslot ({MAX_TIMESLOT})"
         )
 
 
@@ -119,8 +118,8 @@ class PAIBoxRuntime:
         chip_coord: Optional[CoordLike] = None,
         core_coord: Optional[CoordLike] = None,
         rid: Optional[RIdLike] = None,
-        timeslots: Optional[ArrayType] = None,
-        axons: Optional[ArrayType] = None,
+        timeslots: Optional[ArrayLike] = None,
+        axons: Optional[ArrayLike] = None,
     ) -> FrameArrayType: ...
 
     @staticmethod
@@ -129,8 +128,8 @@ class PAIBoxRuntime:
         chip_coord: Optional[CoordLike] = None,
         core_coord: Optional[CoordLike] = None,
         rid: Optional[RIdLike] = None,
-        timeslots: Optional[ArrayType] = None,
-        axons: Optional[ArrayType] = None,
+        timeslots: Optional[ArrayLike] = None,
+        axons: Optional[ArrayLike] = None,
         *,
         input_proj_info: Optional[dict[str, Any]] = None,
     ) -> Union[FrameArrayType, list[FrameArrayType]]:
@@ -184,20 +183,20 @@ class PAIBoxRuntime:
         assert axons is not None
 
         max_timeslot_check(timestep, timeslots)
+        axons_expanded = np.tile(axons, timestep)
 
         # For example:
         # [0, 1, 1, 1, 2, 2] with T = 3 ->
         # [0, 1, 1, 1, 2, 2,
         #  3, 4, 4, 4, 5, 5,
         #  6, 7, 7, 7, 8, 8]
-        interval = max(timeslots) - min(timeslots) + 1
-
-        ts = []
-        for i in range(timestep):
-            ts.extend([elem + i * interval for elem in timeslots])
+        interval = np.max(timeslots) - np.min(timeslots) + 1
+        ts_expanded = np.concatenate(
+            [timeslots + i * interval for i in range(timestep)]
+        )
 
         return OfflineWorkFrame1.concat_frame_dest(
-            chip_coord, core_coord, rid, axons * timestep, ts
+            chip_coord, core_coord, rid, axons_expanded, ts_expanded
         )
 
     @overload
@@ -332,7 +331,7 @@ class PAIBoxRuntime:
         chip_coord: CoordLike,
         core_coord: CoordLike,
         rid: RIdLike,
-        axons: ArrayType,
+        axons: ArrayLike,
     ) -> FrameArrayType: ...
 
     @staticmethod
@@ -341,7 +340,7 @@ class PAIBoxRuntime:
         chip_coord: Optional[CoordLike] = None,
         core_coord: Optional[CoordLike] = None,
         rid: Optional[RIdLike] = None,
-        axons: Optional[ArrayType] = None,
+        axons: Optional[ArrayLike] = None,
         *,
         output_dest_info: Optional[dict[str, Any]] = None,
     ) -> Union[FrameArrayType, list[FrameArrayType]]:
@@ -402,13 +401,14 @@ class PAIBoxRuntime:
         assert rid is not None
         assert axons is not None
 
+        axons = np.array(axons)
+        axons_expanded = np.tile(axons, timestep)
+
         # [i]*len(addr_axon) for i in [0, timestep)
-        ts = []
-        for i in range(timestep):
-            ts.extend([i] * len(axons))
+        ts_expanded = np.concatenate([[i] * len(axons) for i in range(timestep)])
 
         oframes_info = OfflineWorkFrame1.concat_frame_dest(
-            chip_coord, core_coord, rid, axons * timestep, ts
+            chip_coord, core_coord, rid, axons_expanded, ts_expanded
         )
 
         oframes_info.sort()  # in-place sort to save memory
@@ -670,7 +670,7 @@ def decode_partial_voltage(
         == FH((start_frame >> FF.GENERAL_HEADER_OFFSET) & FF.GENERAL_HEADER_MASK)
         and (start_frame >> FF.GENERAL_PACKAGE_TYPE_OFFSET)
         & FF.GENERAL_PACKAGE_TYPE_MASK
-        == _L_PACKAGE_TYPE_CONF_TESTOUT
+        == FPType.CONF_TESTOUT
     ):
         raise ValueError("Invalid test output frame type III")
 
@@ -678,8 +678,8 @@ def decode_partial_voltage(
         start_frame >> FF.GENERAL_CORE_ADDR_OFFSET
     ) & FF.GENERAL_CORE_ADDR_MASK
     neu_addr = (
-        start_frame >> FF.GENERAL_PACKAGE_SRAM_ADDR_OFFSET
-    ) & FF.GENERAL_PACKAGE_SRAM_ADDR_MASK
+        start_frame >> FF.GENERAL_PACKAGE_NEU_START_ADDR_OFFSET
+    ) & FF.GENERAL_PACKAGE_NEU_START_ADDR_MASK
     n_package = (
         start_frame >> FF.GENERAL_PACKAGE_NUM_OFFSET
     ) & FF.GENERAL_PACKAGE_NUM_MASK
@@ -710,8 +710,8 @@ def decode_partial_voltage(
 
     # Get the voltage of neuron[0]. Slice starting from 1 to skip the start frame.
     v_array_idx0 = (
-        int(otframe3[1]) >> Off_NRAMF.VJT_PRE_OFFSET
-    ) & Off_NRAMF.VJT_PRE_MASK
+        int(otframe3[1]) >> Off_NRAMF.VOLTAGE_OFFSET
+    ) & Off_NRAMF.VOLTAGE_MASK
 
     # See comments in `gen_read_neuron_attrs_frames()` above.
     logic_idx = nseg_addr["idx_offset"] + (
@@ -731,8 +731,8 @@ def decode_partial_voltage(
     start_logic_idx_2nd = logic_idx + 1 if interval > 1 else logic_idx + 2
 
     v_array = (
-        otframe3[start_idx_2nd : end_idx_2nd : 4 * interval] >> Off_NRAMF.VJT_PRE_OFFSET
-    ) & Off_NRAMF.VJT_PRE_MASK
+        otframe3[start_idx_2nd : end_idx_2nd : 4 * interval] >> Off_NRAMF.VOLTAGE_OFFSET
+    ) & Off_NRAMF.VOLTAGE_MASK
 
     assert v_array.size == n_neu_proc - 1
 
