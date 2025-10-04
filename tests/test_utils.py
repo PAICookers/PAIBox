@@ -1,6 +1,10 @@
+from pathlib import Path
+
 import pytest
 
 from paibox.utils import *
+
+from .utils import make_dump_dir
 
 
 @pytest.mark.parametrize("a,b, expected", [(1, 0, 1), (1, 2, -1), (3, 3, 0)])
@@ -106,3 +110,15 @@ def test_check_elem_same():
 
     assert check_elem_same(d.val for d in d1) == False
     assert check_elem_same(d.val for d in d2) == True
+
+
+def test_ensure_dump_dir_in_ci(monkeypatch, tmp_path_factory):
+    monkeypatch.setenv("CI_ENV", "true")
+    p = make_dump_dir(tmp_path_factory)
+    assert p.is_dir()
+    assert tmp_path_factory.getbasetemp() in p.parents
+
+    monkeypatch.delenv("CI_ENV")
+    p2 = make_dump_dir(tmp_path_factory)
+    assert p2.is_dir()
+    assert p2.parent.is_relative_to(Path.cwd())  # Under the current working dir

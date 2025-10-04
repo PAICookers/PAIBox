@@ -1,15 +1,15 @@
 from typing import ClassVar, Optional, Union
 
 import numpy as np
-from paicorelib import OffCoreCfg
 from paicorelib import WeightWidth as WW
 
 from paibox.base import NeuDyn, SynSys
 from paibox.exceptions import RegisterError, ShapeError
-from paibox.types import DataType, NeuOutType, SynOutType, WeightType
+from paibox.types import VOLTAGE_DTYPE, DataType, NeuOutType, SynOutType, WeightType
 
 from ..modules import BuildingModule
 from ..neuron import Neuron
+from ..neuron.utils import get_delay_reg_len
 from ..projection import InputProj
 from .conv_types import Size1Type, Size2Type, _KOrder3d, _KOrder4d
 from .conv_utils import (
@@ -51,6 +51,9 @@ class FullConnectedSyn(SynSys):
     _n_copied: int = 0
     """Counter of copies."""
 
+    synin: np.ndarray
+    """The input of the synapse at every timestep."""
+
     def __init__(
         self,
         source: Union[NeuDyn, InputProj],
@@ -61,7 +64,7 @@ class FullConnectedSyn(SynSys):
         self._source = source
         self._target = target
 
-        self.set_memory("_synout", np.zeros((self.num_out,), dtype=np.int32))
+        self.set_memory("_synout", np.zeros((self.num_out,), dtype=VOLTAGE_DTYPE))
 
         # Register itself with the master nodes of target.
         target.register_master(RIGISTER_MASTER_KEY_FORMAT.format(self.name), self)
@@ -74,17 +77,17 @@ class FullConnectedSyn(SynSys):
         return self.update(*args, **kwargs)
 
     def update(self, x: Optional[NeuOutType] = None, *args, **kwargs) -> SynOutType:
-        # Retrieve the output at [timestamp] of the dest neurons
-        if self.dest.is_working():
+        # Retrieve the output at [timestamp] of the target neurons
+        if self.target.is_working():
             if isinstance(self.source, InputProj):
                 synin = self.source.output if x is None else np.atleast_1d(x)
             else:
-                idx = self.dest.timestamp % OffCoreCfg.N_TIMESLOT_MAX
+                idx = self.target.timestamp % get_delay_reg_len(self.source)
                 synin = (
                     self.source.delay_registers[idx] if x is None else np.atleast_1d(x)
                 )
         else:
-            # Retrieve 0 to the dest neurons if it is not working
+            # Retrieve 0 to the target neurons if it is not working
             if isinstance(self.source, InputProj):
                 synin = np.zeros_like(
                     self.source.output if x is None else np.atleast_1d(x)
@@ -94,12 +97,12 @@ class FullConnectedSyn(SynSys):
                     self.source.delay_registers[0] if x is None else np.atleast_1d(x)
                 )
 
+        self.synin = synin
         self._synout = self.comm(synin).ravel()
 
         return self._synout
 
     def reset_state(self, *args, **kwargs) -> None:
-        # TODO Add other initialization methods in the future.
         self.reset_memory()  # Call reset of `StatusMemory`.
 
     def __copy__(self) -> "FullConnSyn":
@@ -110,7 +113,7 @@ class FullConnectedSyn(SynSys):
 
         return FullConnSyn(
             self.source,
-            self.dest,
+            self.target,
             self.connectivity,
             ConnType.All2All,
             f"{self.name}_copied_{self._n_copied}",
@@ -167,16 +170,6 @@ class FullConnectedSyn(SynSys):
         )
 
     @property
-    def dest(self) -> NeuDyn:
-        # TODO To maintain compatibility, the dest attribute is preserved.
-        # Will be removed in a future version.
-        return self._target
-
-    @dest.setter
-    def dest(self, target: NeuDyn) -> None:
-        self.target = target
-
-    @property
     def shape_in(self) -> tuple[int, ...]:
         return self._source.shape_out
 
@@ -206,7 +199,7 @@ class FullConnectedSyn(SynSys):
 
     @property
     def connectivity(self) -> WeightType:
-        """The connectivity matrix in `np.bool_` or `np.int8` format."""
+        """The connectivity matrix in `np.bool` or `np.int8` format."""
         return self.comm.connectivity
 
 
@@ -224,9 +217,9 @@ class FullConnSyn(FullConnectedSyn):
         if conn_type is ConnType.One2One:
             comm = OneToOne(_check_equal(self.num_in, self.num_out), weights)
         elif conn_type is ConnType.Identity:
-            if not isinstance(weights, (int, np.bool_, np.integer)):
+            if not isinstance(weights, (int, np.bool, np.integer)):
                 raise TypeError(
-                    f"expected type int, np.bool_, np.integer, but got type {type(weights)}."
+                    f"expected type int, np.bool, np.integer, but got type {type(weights)}."
                 )
             comm = Identity(_check_equal(self.num_in, self.num_out), weights)
         elif conn_type is ConnType.All2All:
@@ -254,7 +247,7 @@ class Conv1dSyn(FullConnectedSyn):
     def __init__(
         self,
         source: Union[NeuDyn, InputProj],
-        dest: Neuron,
+        target: Neuron,
         kernel: np.ndarray,
         stride: Size1Type,
         padding: Size1Type,
@@ -263,7 +256,7 @@ class Conv1dSyn(FullConnectedSyn):
         order: _KOrder3d,
         name: Optional[str] = None,
     ) -> None:
-        super().__init__(source, dest, name)
+        super().__init__(source, target, name)
 
         if kernel.ndim != self._spatial_ndim + 2:
             raise ShapeError(
@@ -281,8 +274,10 @@ class Conv1dSyn(FullConnectedSyn):
 
         group_ch_check(ci, co, groups, ci_in_grp)
 
-        if (_output_size := co * lo) != dest.num_in:
-            raise ShapeError(f"output size mismatch: {_output_size} != {dest.num_in}.")
+        if (_output_size := co * lo) != target.num_in:
+            raise ShapeError(
+                f"output size mismatch: {_output_size} != {target.num_in}."
+            )
 
         self.comm = Conv1dForward((li,), (lo,), _kernel, stride, padding, groups=groups)
 
@@ -294,7 +289,7 @@ class Conv2dSyn(FullConnectedSyn):
     def __init__(
         self,
         source: Union[NeuDyn, InputProj],
-        dest: Neuron,
+        target: Neuron,
         kernel: np.ndarray,
         stride: Size2Type,
         padding: Size2Type,
@@ -303,7 +298,7 @@ class Conv2dSyn(FullConnectedSyn):
         order: _KOrder4d,
         name: Optional[str] = None,
     ) -> None:
-        super().__init__(source, dest, name)
+        super().__init__(source, target, name)
 
         if kernel.ndim != self._spatial_ndim + 2:
             raise ShapeError(
@@ -321,10 +316,10 @@ class Conv2dSyn(FullConnectedSyn):
 
         group_ch_check(ci, co, groups, ci_in_grp)
 
-        if (_output_size := co * ho * wo) != dest.num_in:
+        if (_output_size := co * ho * wo) != target.num_in:
             raise ShapeError(
                 f"output size mismatch: {_output_size} ({co}*{ho}*{wo}) "
-                f"!= {dest.num_in}."
+                f"!= {target.num_in}."
             )
 
         self.comm = Conv2dForward(
@@ -339,7 +334,7 @@ class Conv2dSemiFoldedSyn(FullConnectedSyn):
     def __init__(
         self,
         source: Union[NeuDyn, InputProj],
-        dest: Neuron,
+        target: Neuron,
         kernel: np.ndarray,
         stride: Size2Type,
         padding: Size2Type,
@@ -347,7 +342,7 @@ class Conv2dSemiFoldedSyn(FullConnectedSyn):
         order: _KOrder3d,
         name: Optional[str] = None,
     ) -> None:
-        super().__init__(source, dest, name)
+        super().__init__(source, target, name)
 
         if kernel.ndim != self._spatial_ndim + 2:
             raise ShapeError(
@@ -371,10 +366,10 @@ class Conv2dSemiFoldedSyn(FullConnectedSyn):
             in_ch_mismatch_text += f" ({groups}*{ci_in_grp})." if groups > 1 else "."
             raise ShapeError(in_ch_mismatch_text)
 
-        if (_output_size := co * ho) != dest.num_in:
+        if (_output_size := co * ho) != target.num_in:
             raise ShapeError(
                 f"output size mismatch: {_output_size} ({co}*{ho}) "
-                f"!= {dest.num_in}."
+                f"!= {target.num_in}."
             )
 
         self.comm = Conv2dSemiFoldedForward(
@@ -388,7 +383,7 @@ class ConvTranspose1dSyn(FullConnectedSyn):
     def __init__(
         self,
         source: Union[NeuDyn, InputProj],
-        dest: Neuron,
+        target: Neuron,
         kernel: np.ndarray,
         stride: tuple[int],
         padding: tuple[int],
@@ -397,7 +392,7 @@ class ConvTranspose1dSyn(FullConnectedSyn):
         order: _KOrder3d,
         name: Optional[str] = None,
     ) -> None:
-        super().__init__(source, dest, name)
+        super().__init__(source, target, name)
 
         if kernel.ndim != self._spatial_ndim + 2:
             raise ShapeError(
@@ -424,8 +419,10 @@ class ConvTranspose1dSyn(FullConnectedSyn):
         if ci != in_channels:
             raise ShapeError(f"input channels mismatch: {ci} != {in_channels}.")
 
-        if (_output_size := co * lo) != dest.num_in:
-            raise ShapeError(f"output size mismatch: {_output_size} != {dest.num_in}.")
+        if (_output_size := co * lo) != target.num_in:
+            raise ShapeError(
+                f"output size mismatch: {_output_size} != {target.num_in}."
+            )
 
         self.comm = ConvTranspose1dForward(
             (li,), (lo,), _kernel, stride, padding, output_padding=output_padding
@@ -438,7 +435,7 @@ class ConvTranspose2dSyn(FullConnectedSyn):
     def __init__(
         self,
         source: Union[NeuDyn, InputProj],
-        dest: Neuron,
+        target: Neuron,
         kernel: np.ndarray,
         stride: Size2Type,
         padding: Size2Type,
@@ -447,7 +444,7 @@ class ConvTranspose2dSyn(FullConnectedSyn):
         order: _KOrder4d,
         name: Optional[str] = None,
     ) -> None:
-        super().__init__(source, dest, name)
+        super().__init__(source, target, name)
 
         if kernel.ndim != self._spatial_ndim + 2:
             raise ShapeError(
@@ -481,8 +478,10 @@ class ConvTranspose2dSyn(FullConnectedSyn):
         if ci != in_channels:
             raise ShapeError(f"input channels mismatch: {ci} != {in_channels}.")
 
-        if (_output_size := co * ho * wo) != dest.num_in:
-            raise ShapeError(f"output size mismatch: {_output_size} != {dest.num_in}.")
+        if (_output_size := co * ho * wo) != target.num_in:
+            raise ShapeError(
+                f"output size mismatch: {_output_size} != {target.num_in}."
+            )
 
         self.comm = ConvTranspose2dForward(
             (hi, wi),
@@ -502,9 +501,9 @@ class MaxPoolSyn(FullConnectedSyn):
     def __init__(
         self,
         source: Union[NeuDyn, InputProj],
-        dest: Neuron,
+        target: Neuron,
         weights: DataType = 1,
         name: Optional[str] = None,
     ) -> None:
-        super().__init__(source, dest, name)
+        super().__init__(source, target, name)
         self.comm = CompareMax((self.num_in, self.num_out), weights)

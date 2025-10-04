@@ -1,9 +1,10 @@
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import numpy as np
+from numpy.typing import ArrayLike
 
 from paibox.base import NeuDyn
-from paibox.types import DataType
+from paibox.types import DataType, NeuOutType, SynOutType
 
 from ..neuron import Neuron
 from ..projection import InputProj
@@ -16,6 +17,7 @@ from .base import (
 )
 from .conv_types import _KOrder3d, _KOrder4d, _Size1Type, _Size2Type
 from .conv_utils import _pair, _single
+from .learning import STDPLearner
 from .transforms import ConnType
 
 __all__ = [
@@ -25,6 +27,7 @@ __all__ = [
     "Conv2d",
     "ConvTranspose1d",
     "ConvTranspose2d",
+    "STDPFullConn",
 ]
 
 
@@ -32,7 +35,7 @@ class FullConn(FullConnSyn):
     def __init__(
         self,
         source: Union[NeuDyn, InputProj],
-        dest: NeuDyn,
+        target: NeuDyn,
         weights: DataType = 1,
         *,
         conn_type: ConnType = ConnType.All2All,
@@ -42,19 +45,19 @@ class FullConn(FullConnSyn):
 
         Args:
             - source: source neuron.
-            - dest: destination neuron.
+            - target: destination neuron.
             - weights: weights of the synapses. It can be a scalar or `np.ndarray`.
             - conn_type: the type of connection.
             - name: name of the full-connected synapses. Optional.
         """
-        super().__init__(source, dest, weights, conn_type, name=name)
+        super().__init__(source, target, weights, conn_type, name=name)
 
 
 class MatMul2d(FullConnSyn):
     def __init__(
         self,
         source: Union[NeuDyn, InputProj],
-        dest: NeuDyn,
+        target: NeuDyn,
         weights: np.ndarray,
         name: Optional[str] = None,
     ) -> None:
@@ -62,18 +65,18 @@ class MatMul2d(FullConnSyn):
 
         Args:
             - source: source neuron.
-            - dest: destination neuron.
+            - target: destination neuron.
             - weights: weights of the synapses.
             - name: name of the matmul2d. Optional.
         """
-        super().__init__(source, dest, weights, ConnType.MatConn, name)
+        super().__init__(source, target, weights, ConnType.MatConn, name)
 
 
 class Conv1d(Conv1dSyn):
     def __init__(
         self,
         source: Union[Neuron, InputProj],
-        dest: Neuron,
+        target: Neuron,
         kernel: np.ndarray,
         *,
         stride: _Size1Type = 1,
@@ -87,7 +90,7 @@ class Conv1d(Conv1dSyn):
 
         Args:
             - source: source neuron. The dimensions need to be expressed explicitly as (C,L).
-            - dest: destination neuron.
+            - target: destination neuron.
             - kernel: convolution kernel. Its dimension order is either (O,I,L) or (I,O,L), depending on the    \
                 argument `kernel_order`.
             - stride: the step size of the kernel sliding. It can be a scalar or an integer.
@@ -105,7 +108,7 @@ class Conv1d(Conv1dSyn):
 
         super().__init__(
             source,
-            dest,
+            target,
             kernel,
             _single(stride),
             _single(padding),
@@ -120,7 +123,7 @@ class Conv2d(Conv2dSyn):
     def __init__(
         self,
         source: Union[Neuron, InputProj],
-        dest: Neuron,
+        target: Neuron,
         kernel: np.ndarray,
         stride: _Size2Type = 1,
         padding: _Size2Type = 0,
@@ -133,7 +136,7 @@ class Conv2d(Conv2dSyn):
 
         Args:
             - source: source neuron. The dimensions need to be expressed explicitly as (C,H,W).
-            - dest: destination neuron.
+            - target: destination neuron.
             - kernel: convolution kernel. Its dimension order is either (O,I,H,W) or (I,O,H,W), depending on the\
                 argument `kernel_order`.
             - stride: the step size of the kernel sliding. It can be a scalar or a tuple of 2 integers.
@@ -151,7 +154,7 @@ class Conv2d(Conv2dSyn):
 
         super().__init__(
             source,
-            dest,
+            target,
             kernel,
             _pair(stride),
             _pair(padding),
@@ -166,7 +169,7 @@ class ConvTranspose1d(ConvTranspose1dSyn):
     def __init__(
         self,
         source: Union[Neuron, InputProj],
-        dest: Neuron,
+        target: Neuron,
         kernel: np.ndarray,
         *,
         stride: _Size1Type = 1,
@@ -179,7 +182,7 @@ class ConvTranspose1d(ConvTranspose1dSyn):
 
         Args:
             - source: source neuron. The dimensions need to be expressed explicitly as (C,L).
-            - dest: destination neuron.
+            - target: destination neuron.
             - kernel: convolution kernel. Its dimension order is either (O,I,L) or (I,O,L), depending on the    \
                 argument `kernel_order`.
             - stride: stride of the convolution. It can be a scalar or an integer.
@@ -198,7 +201,7 @@ class ConvTranspose1d(ConvTranspose1dSyn):
 
         super().__init__(
             source,
-            dest,
+            target,
             kernel,
             _single(stride),
             _single(padding),
@@ -213,7 +216,7 @@ class ConvTranspose2d(ConvTranspose2dSyn):
     def __init__(
         self,
         source: Union[Neuron, InputProj],
-        dest: Neuron,
+        target: Neuron,
         kernel: np.ndarray,
         *,
         stride: _Size2Type = 1,
@@ -227,7 +230,7 @@ class ConvTranspose2d(ConvTranspose2dSyn):
         Args:
             - source: source neuron. The dimensions need to be expressed explicitly as (C,H,W) or (H,W,C). The  \
                 feature map dimension order is specified by `fm_order`.
-            - dest: destination neuron.
+            - target: destination neuron.
             - kernel: convolution kernel. Its dimension order must be (O,I,H,W) or (I,O,H,W), depending on the  \
                 argument `kernel_order`.
             - stride: stride of the convolution. It can be a scalar or a tuple of 2 integers.
@@ -248,7 +251,7 @@ class ConvTranspose2d(ConvTranspose2dSyn):
 
         super().__init__(
             source,
-            dest,
+            target,
             kernel,
             _pair(stride),
             _pair(padding),
@@ -257,3 +260,53 @@ class ConvTranspose2d(ConvTranspose2dSyn):
             kernel_order,
             name,
         )
+
+
+class STDPFullConn(STDPLearner, FullConn):
+    def __init__(
+        self,
+        source: Union[NeuDyn, InputProj],
+        target: Neuron,
+        weights: DataType,
+        weight_decay: int = 0,
+        upper_weight: Optional[int] = None,
+        lower_weight: Optional[int] = None,
+        weight_decay_random: bool = False,
+        lut: Optional[ArrayLike] = None,
+        lut_offset: Optional[int] = None,
+        lut_random: Union[bool, ArrayLike] = False,
+        random_seed: int = 1,
+        *,
+        learn_by_default: bool = True,
+        name: Optional[str] = None,
+    ) -> None:
+        super(STDPLearner, self).__init__(source, target, weights, name=name)
+        super().__init__(
+            self,
+            weight_decay,
+            upper_weight,
+            lower_weight,
+            weight_decay_random,
+            lut,
+            lut_offset,
+            lut_random,
+            random_seed,
+            learn_by_default,
+        )
+
+    def update(self, x: Optional[NeuOutType] = None, *args, **kwargs) -> SynOutType:
+        synout = super(STDPLearner, self).update(x)
+        if self.target.is_working() and self.learning:
+            super().step(self.synin, self.target.spike)
+
+        return synout
+
+    def reset_state(self, *args, **kwargs) -> None:
+        super().reset_state(*args, **kwargs)
+        super(STDPLearner, self).reset_state(*args, **kwargs)
+
+    def attrs(self, for_copy: bool = False) -> dict[str, Any]:
+        attrs = {}
+        attrs |= super().attrs(for_copy)
+
+        return attrs

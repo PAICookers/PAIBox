@@ -31,7 +31,7 @@ class LockedAttrOverwriteError(PAIBoxError, ValueError):
     pass
 
 
-class ParameterInvalidWarning(PAIBoxWarning):
+class ParamInvalidWarning(PAIBoxWarning):
     """Parameter is invalid due to some reason."""
 
     pass
@@ -124,5 +124,11 @@ class TruncationWarning(PAIBoxWarning):
 
 class AutoOptimizationWarning(PAIBoxWarning):
     """Parameters are optimized automatically by PAIBox."""
+
+    pass
+
+
+class ParamNotSimulatedWarning(PAIBoxWarning):
+    """Parameter will not be simulated."""
 
     pass

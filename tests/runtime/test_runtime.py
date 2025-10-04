@@ -5,7 +5,7 @@ from typing import Any
 
 import numpy as np
 import pytest
-from paicorelib import Coord
+from paicorelib import LCM, LDM, LIM, NTM, RM, SIM, Coord
 from paicorelib import ReplicationId as RId
 from paicorelib.framelib.frame_defs import FrameHeader as FH
 from paicorelib.framelib.frame_defs import OfflineWorkFrame1Format as Off_WF1F
@@ -21,7 +21,7 @@ except ImportError:
 
 from tests.utils import file_not_exist_fail
 
-TEST_CONF_DIR = Path(__file__).parent / "test_data"
+TEST_DATA_CFG_DIR = Path(__file__).parent / "test_data"
 
 
 def test_get_length_ex_onode():
@@ -57,7 +57,7 @@ def test_get_length_ex_onode():
 
 class TestRuntime:
     def test_gen_input_frames_info_by_dict(self):
-        fp = TEST_CONF_DIR / "input_proj_info1.json"
+        fp = TEST_DATA_CFG_DIR / "input_proj_info1.json"
         file_not_exist_fail(fp)
 
         with open(fp, "r") as f:
@@ -282,7 +282,7 @@ class TestRuntime:
         print(f"n_axons: {n_axons}, n_ts: {n_ts}, time: {t/100:.5f}s")
 
     def test_gen_output_frames_info_by_dict1(self):
-        fp = TEST_CONF_DIR / "output_dest_info1.json"
+        fp = TEST_DATA_CFG_DIR / "output_dest_info1.json"
         file_not_exist_fail(fp)
 
         with open(fp, "r") as f:
@@ -297,7 +297,7 @@ class TestRuntime:
         assert sum(part.size for part in common_part) == 800
 
     def test_gen_output_frames_info_by_dict2(self):
-        fp = TEST_CONF_DIR / "output_dest_info2.json"
+        fp = TEST_DATA_CFG_DIR / "output_dest_info2.json"
         file_not_exist_fail(fp)
 
         with open(fp, "r") as f:
@@ -331,7 +331,7 @@ class TestRuntime:
         assert n_ex_onode == 3
 
     def test_gen_output_frames_info(self):
-        fp = TEST_CONF_DIR / "output_dest_info.json"
+        fp = TEST_DATA_CFG_DIR / "output_dest_info.json"
         file_not_exist_fail(fp)
 
         with open(fp, "r") as f:
@@ -374,7 +374,7 @@ class TestRuntime:
         assert np.array_equal(data, expected)
 
     def test_gen_output_frames_info_more1152(self):
-        fp = TEST_CONF_DIR / "output_dest_info_more1152.json"
+        fp = TEST_DATA_CFG_DIR / "output_dest_info_more1152.json"
         file_not_exist_fail(fp)
 
         with open(fp, "r") as f:
@@ -416,7 +416,7 @@ class TestRuntime:
         assert np.array_equal(data, expected)
 
     def test_gen_output_frames_info_more1152_multi_onodes(self):
-        fp = TEST_CONF_DIR / "output_dest_info_more1152_multi.json"
+        fp = TEST_DATA_CFG_DIR / "output_dest_info_more1152_multi.json"
         file_not_exist_fail(fp)
 
         with open(fp, "r") as f:
@@ -473,7 +473,7 @@ class TestRuntime:
 
     def test_decode_zero_oframes(self):
         # Even if zero output frames are given, it should be decoded correctly.
-        fp = TEST_CONF_DIR / "output_dest_info_more1152.json"
+        fp = TEST_DATA_CFG_DIR / "output_dest_info_more1152.json"
         file_not_exist_fail(fp)
 
         with open(fp, "r") as f:
@@ -495,7 +495,7 @@ from paicorelib import __version__ as plib_version
 
 
 def get_neu_phy_files() -> list[Path]:
-    return list(TEST_CONF_DIR.glob("neuron_phy_loc[0-9]*.json"))
+    return list(TEST_DATA_CFG_DIR.glob("neuron_phy_loc[0-9]*.json"))
 
 
 def _shuffle_otframe3(otframe3: list[OfflineTestOutFrame3]):
@@ -514,7 +514,7 @@ def get_n_neuron_from_phy_loc(neu_phy_loc: dict[str, dict[str, Any]]) -> int:
 
 
 def get_contiguous_reading_models_dir() -> list[Path]:
-    return list((TEST_CONF_DIR / "contiguous_reading_models").glob("model[0-9]*"))
+    return list((TEST_DATA_CFG_DIR / "contiguous_reading_models").glob("model[0-9]*"))
 
 
 """If necessary, enable the following variable to recompile the actual networks for contiguous voltage  \
@@ -540,7 +540,7 @@ class Net2_triu_1b(pb.Network):
         super().__init__()
         self.inp1 = pb.InputProj(None, (n,))
         self.n1 = pb.IF((n,), 10000)
-        w = np.triu(np.ones((n, n), dtype=np.bool_), k=0)  # w1
+        w = np.triu(np.ones((n, n), dtype=np.bool), k=0)  # w1
         self.s1 = pb.FullConn(self.inp1, self.n1, w)
 
 
@@ -557,18 +557,18 @@ class TestReadNeuronVoltage:
     )  # ramdon, read only
 
     neu_attrs = dict(
-        reset_mode=1,
+        reset_mode=RM.MODE_NORMAL,
         reset_v=0,
-        leak_post=0,
-        threshold_mask_ctrl=0,
-        threshold_neg_mode=0,
-        threshold_neg=100,
-        threshold_pos=100,
-        leak_reversal_flag=0,
-        leak_det_stoch=0,
+        leak_comparison=LCM.LEAK_BEFORE_COMP,
+        thres_mask_bits=0,
+        neg_thres_mode=NTM.MODE_RESET,
+        neg_threshold=100,
+        pos_threshold=100,
+        leak_direction=LDM.MODE_FORWARD,
+        leak_integration_mode=LIM.MODE_DETERMINISTIC,
         leak_v=3,
-        weight_det_stoch=0,
-        bit_truncate=8,
+        syn_integration_mode=SIM.MODE_DETERMINISTIC,
+        bit_trunc=8,
         voltage=0,  # voltage will be set
     )
 
@@ -607,7 +607,7 @@ class TestReadNeuronVoltage:
         reason=f"requires paicorelib >= {REQUIRED_PLIB_VERSION}",
     )
     def test_decode_voltage_onebyone1(self, monkeypatch):
-        fp = TEST_CONF_DIR / "neuron_phy_loc1.json"
+        fp = TEST_DATA_CFG_DIR / "neuron_phy_loc1.json"
         file_not_exist_fail(fp)
 
         with open(fp, "r") as f:
@@ -655,7 +655,7 @@ class TestReadNeuronVoltage:
         reason=f"requires paicorelib >= {REQUIRED_PLIB_VERSION}",
     )
     def test_decode_voltage_onebyone2(self, monkeypatch):
-        fp = TEST_CONF_DIR / "neuron_phy_loc2.json"
+        fp = TEST_DATA_CFG_DIR / "neuron_phy_loc2.json"
         file_not_exist_fail(fp)
 
         with open(fp, "r") as f:
@@ -757,5 +757,5 @@ class TestReadNeuronVoltage:
         mapper.build(net)
         mapper.compile(weight_bit_optimization=wbit_opt)
         mapper.export(
-            fp=TEST_CONF_DIR / "real_models" / f"model{idx}", read_voltage=net.n1
+            fp=TEST_DATA_CFG_DIR / "real_models" / f"model{idx}", read_voltage=net.n1
         )

@@ -1,7 +1,6 @@
 import os
 import sys
 import tempfile
-from pathlib import Path
 from typing import Any, Optional, TypedDict
 
 import numpy as np
@@ -13,7 +12,7 @@ from paibox.components import Neuron
 from paibox.naming import clear_name_cache
 
 from .shared_networks import *
-from .utils import *
+from .utils import is_ci_env, make_dump_dir, measure_time
 
 if sys.version_info >= (3, 11):
     from typing import NotRequired
@@ -43,33 +42,17 @@ def pytest_runtest_setup(item: pytest.Item):
 
 
 @pytest.fixture(scope="module")
-def ensure_dump_dir():
-    p = Path(__file__).parent / "debug"
-
-    if not p.is_dir():
-        p.mkdir(parents=True, exist_ok=True)
-    else:
-        for f in p.iterdir():
-            f.unlink()
-
+def ensure_dump_dir(request, tmp_path_factory):
+    p = make_dump_dir(request.path.parent, tmp_path_factory)
     yield p
 
 
 @pytest.fixture(scope="module")
-def ensure_dump_dir_and_clean():
-    p = Path(__file__).parent / "debug"
-
-    if not p.is_dir():
-        p.mkdir(parents=True, exist_ok=True)
-    else:
-        for f in p.iterdir():
-            f.unlink()
-
+def ensure_dump_dir_and_clean(request, tmp_path_factory):
+    p = make_dump_dir(request.path.parent, tmp_path_factory)
     yield p
-
-    # Clean up
     for f in p.iterdir():
-        f.unlink()
+        f.unlink(missing_ok=True)
 
 
 @pytest.fixture

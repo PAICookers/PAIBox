@@ -442,6 +442,33 @@ class ANNNetwork(pb.Network):
         self.fc1 = pb.FullConn(self.n3, self.n4, w4)
 
 
+class STDPLinearNet(pb.Network):
+    def __init__(
+        self,
+        in_feature1: int,
+        in_features2: int,
+        out_features: int,
+        weight1: np.ndarray,
+        weight2: np.ndarray,
+    ):
+        super().__init__()
+        self.input = pb.InputProj(input=None, shape_out=in_feature1)
+
+        lut1 = np.zeros((60,), dtype=np.int8)
+        lut1[:30] = -1
+        lut1[30:] = 1
+
+        self.n1 = pb.STDPNeuron(in_features2, 10, lateral_inhi_value=1)
+        self.n2 = pb.STDPNeuron(out_features, 1, -1)
+
+        self.s1 = pb.STDPFullConn(self.input, self.n1, weight1, lut=lut1)
+
+        lut2 = np.zeros((60,), dtype=np.int8)
+        lut2[:30] = -2
+        lut2[30:] = 2
+        self.s2 = pb.STDPFullConn(self.n1, self.n2, weight2, lut=lut2)
+
+
 @pytest.fixture(scope="class")
 def build_BitwiseAND_Net():
     return FunctionalModule_2to1_Net("and")

@@ -131,12 +131,12 @@ def get_artifact_logger(module_name: str, artifact_name: str) -> logging.Logger:
     log = logging.getLogger(name)
     log.artifact_name = artifact_name  # type: ignore[attr-defined]
     log_registry._register_artifact_log(name)
-    _configure_artifact_log(log)
+    configure_artifact_log(log)
 
     return log
 
 
-def _configure_artifact_log(log: logging.Logger) -> None:
+def configure_artifact_log(log: logging.Logger) -> None:
     # If the artifact is off by default, then it should only be logged when explicitly
     # enabled; set propagate to False so that this artifact is not propagated
     # to its ancestor logger
@@ -264,13 +264,14 @@ def _init_logs(log_file_name: Optional[Union[str, Path]] = None) -> None:
     # NOTE: this must happen last since the levels of ancestor loggers are taken into account.
     for artifact_log_qname in log_registry.get_artifact_log_names():
         log = logging.getLogger(artifact_log_qname)
-        _configure_artifact_log(log)
+        configure_artifact_log(log)
 
 
 # Add it to this dictionary if registering a new log in `registrations.py`.
 class _LogSettingsKwds(TypedDict, total=False):
     paibox: Optional[int]
     backend: Optional[int]
+    components: Optional[int]
     sim: Optional[int]
     build_core_blocks: bool
     lcn_ex_adjustment: bool
@@ -279,12 +280,14 @@ class _LogSettingsKwds(TypedDict, total=False):
     collect_neuron_dest: bool
     routing_group_info: bool
     tiling_optim: bool
+    stdp: bool
 
 
 # Add a default log level or state for each log or artifact name in the above dictionary.
 DEFAULT_LOG_SETTINGS: _LogSettingsKwds = {
     "paibox": logging.INFO,
     "backend": logging.INFO,
+    "components": logging.INFO,
     "sim": logging.INFO,
     "build_core_blocks": True,
     "lcn_ex_adjustment": True,
@@ -293,6 +296,7 @@ DEFAULT_LOG_SETTINGS: _LogSettingsKwds = {
     "collect_neuron_dest": True,
     "routing_group_info": True,
     "tiling_optim": True,
+    "stdp": True,
 }
 
 

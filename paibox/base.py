@@ -12,7 +12,7 @@ else:
 from paicorelib import WeightWidth as WW
 
 from .collector import Collector
-from .mixin import ReceiveInputProj, StatusMemory, TimeRelatedNode
+from .mixin import MixIn, ReceiveInputProj, StatusMemory, TimeRelatedNode
 from .naming import get_unique_name, is_name_unique
 from .node import NodeDict, NodeList
 from .types import WeightType
@@ -220,6 +220,9 @@ class DynamicSys(PAIBoxObject, StatusMemory):
     def reset_state(self, *args, **kwargs):
         raise NotImplementedError
 
+    def attrs(self, *args, **kwargs) -> dict[str, Any]:
+        raise NotImplementedError
+
     @property
     def shape_in(self) -> tuple[int, ...]:
         """Actual shape of input."""
@@ -408,3 +411,18 @@ class SynSys(DynamicSys):
     @property
     def num_dendrite(self) -> int:
         return np.count_nonzero(np.any(self.connectivity, axis=0))
+
+
+def is_learnable(obj: Any) -> bool:
+    """Check if the object is the subclass of `LearnableSys`."""
+    return issubclass(type(obj), LearnableSys)
+
+
+class LearnableSys(MixIn):
+    learning: bool
+
+    def learn(self, mode: bool = True) -> None:
+        self.learning = mode
+
+    def eval(self) -> None:
+        self.learn(False)

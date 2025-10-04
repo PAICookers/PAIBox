@@ -50,8 +50,8 @@ class TestFunctionalModules:
         bitwise = 10
         sim = pb.Simulator(net, start_time_zero=False)
 
-        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool_)
-        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool_)
+        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool)
+        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool)
 
         # data2 will input to inp2 which is connected with the AND module.
         for i in range(N_TEST):
@@ -68,9 +68,9 @@ class TestFunctionalModules:
         bitwise = 10
         sim = pb.Simulator(net, start_time_zero=False)
 
-        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool_)
-        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool_)
-        inpc = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool_)
+        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool)
+        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool)
+        inpc = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool)
 
         for t in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[t], data2=inpb[t], data3=inpc[t])
@@ -110,8 +110,8 @@ class TestFunctionalModules:
         probe_func = pb.Probe(generated[func][0], "spike")
         sim2.add_probe(probe_func)
 
-        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool_)
-        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool_)
+        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool)
+        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool)
 
         for i in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[i], data2=inpb[i])
@@ -151,7 +151,7 @@ class TestFunctionalModules:
         probe_func = pb.Probe(generated[func][0], "spike")
         sim2.add_probe(probe_func)
 
-        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool_)
+        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool)
 
         for i in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[i])
@@ -191,8 +191,8 @@ class TestFunctionalModules:
         probe_func = pb.Probe(generated[func][0], "spike")
         sim2.add_probe(probe_func)
 
-        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool_)
-        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool_)
+        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool)
+        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool)
 
         for i in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[i], data2=inpb[i])
@@ -232,8 +232,8 @@ class TestFunctionalModules:
         probe_func = pb.Probe(generated[func][1], "spike")
         sim2.add_probe(probe_func)
 
-        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool_)
-        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool_)
+        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool)
+        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool)
 
         for i in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[i], data2=inpb[i])
@@ -273,7 +273,7 @@ class TestFunctionalModules:
         probe_func = pb.Probe(generated[func][func.chain_level - 1], "spike")
         sim2.add_probe(probe_func)
 
-        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool_)
+        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool)
 
         for i in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[i])
@@ -314,13 +314,13 @@ class TestFunctionalModules:
         sim2.add_probe(probe_func)
 
         _base_a = np.array(
-            [1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0] + [0] * 8, dtype=np.bool_
+            [1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0] + [0] * 8, dtype=np.bool
         )
         _base_b = np.array(
-            [0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 1] + [0] * 8, dtype=np.bool_
+            [0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 1] + [0] * 8, dtype=np.bool
         )
         _base_expected = np.array(
-            [0, 1, 0, 1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0], dtype=np.bool_
+            [0, 1, 0, 1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0], dtype=np.bool
         )
 
         inpa = np.tile(_base_a, (10, 1)).T  # 20 * 12
@@ -365,13 +365,13 @@ class TestFunctionalModules:
         sim2.add_probe(probe_func)
 
         _base_a = np.array(
-            [1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 1, 1] + [0] * 8, dtype=np.bool_
+            [1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 1, 1] + [0] * 8, dtype=np.bool
         )
         _base_b = np.array(
-            [0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0] + [0] * 8, dtype=np.bool_
+            [0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0] + [0] * 8, dtype=np.bool
         )
         _base_expected = np.array(
-            [0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0], dtype=np.bool_
+            [0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0], dtype=np.bool
         )
 
         inpa = np.tile(_base_a, (10, 1)).T  # 20 * 12
@@ -434,7 +434,7 @@ class TestFunctionalModules:
 
         # Use binomial distribution to generate a sparse matrix with more zeros
         inpa = np.random.binomial(1, p_binomial, size=(N_TEST,) + fm_shape).astype(
-            np.bool_
+            np.bool
         )
 
         for i in range(N_TEST):
@@ -516,7 +516,7 @@ class TestFunctionalModules:
 
         # Use binomial distribution to generate a sparse matrix with more zeros
         inpa = np.random.binomial(1, p_binomial, size=(N_TEST,) + fm_shape).astype(
-            np.bool_
+            np.bool
         )
 
         for i in range(N_TEST):
@@ -609,7 +609,7 @@ class TestFunctionalModules:
 
         # Use binomial distribution to generate a sparse matrix with more zeros
         inpa = np.random.binomial(1, p_binomial, size=(N_TEST,) + fm_shape).astype(
-            np.bool_
+            np.bool
         )
 
         for i in range(N_TEST):
@@ -671,7 +671,7 @@ class TestFunctionalModules:
 
         # Use binomial distribution to generate a sparse matrix with more zeros
         inpa = np.random.binomial(1, p_binomial, size=(N_TEST,) + fm_shape).astype(
-            np.bool_
+            np.bool
         )
 
         for i in range(N_TEST):
@@ -707,7 +707,7 @@ class TestFunctionalModules:
         probe_t2d = pb.Probe(generated[t2d][0], "spike")
         sim2.add_probe(probe_t2d)
 
-        inpa = np.random.randint(0, 2, size=(N_TEST,) + as_shape(shape), dtype=np.bool_)
+        inpa = np.random.randint(0, 2, size=(N_TEST,) + as_shape(shape), dtype=np.bool)
 
         for i in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[i])
@@ -760,7 +760,7 @@ class TestFunctionalModules:
         if len(shape) == 2:
             shape = (1,) + shape
 
-        inpa = np.random.randint(0, 2, size=(N_TEST,) + as_shape(shape), dtype=np.bool_)
+        inpa = np.random.randint(0, 2, size=(N_TEST,) + as_shape(shape), dtype=np.bool)
 
         for i in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[i])
@@ -1321,3 +1321,54 @@ class TestFunctionalModules:
 
         with pytest.raises(ShapeError):
             p = pb.MaxPool1d(n2, 67, padding=1)
+
+    def test_STDPLinear_learning_mode_switch(self):
+        from tests.shared_networks import STDPLinearNet
+
+        ifeat1, ifeat2, ofeat = 100, 32, 10
+        w1 = np.ones((ifeat1, ifeat2), dtype=WEIGHT_DTYPE)
+        w2 = np.ones((ifeat2, ofeat), dtype=WEIGHT_DTYPE)
+
+        net = STDPLinearNet(ifeat1, ifeat2, ofeat, w1, w2)
+
+        sim = pb.Simulator(net)
+        prob_syn1 = pb.Probe(net.s1, "weights")
+        prob_syn2 = pb.Probe(net.s2, "weights")
+        sim.add_probe(prob_syn1)
+        sim.add_probe(prob_syn2)
+
+        inp = np.random.randint(0, 2, size=ifeat1, dtype=NEUOUT_U8_DTYPE)
+        net.input.input = inp
+
+        sim.reset()
+
+        # s1 & s2 are in inference mode
+        net.eval()
+        sim.run(1)
+        w1_1 = sim.data[prob_syn1][-1]
+        w2_1 = sim.data[prob_syn2][-1]
+
+        # s1 & s2 are in learning mode
+        net.learn()
+        sim.run(50)  # Long enought to fire for layer1
+        w1_2 = sim.data[prob_syn1][-1]
+        w2_2 = sim.data[prob_syn2][-1]
+        assert not np.array_equal(w1_2, w1_1)
+        assert not np.array_equal(w2_2, w2_1)
+
+        # s1 & s2 are in inference mode
+        net.eval()
+        sim.run(20)
+        w1_3 = sim.data[prob_syn1][-1]
+        w2_3 = sim.data[prob_syn2][-1]
+        assert np.array_equal(w1_3, w1_2)
+        assert np.array_equal(w2_3, w2_2)
+
+        # Only s1 is in learning mode
+        net.s1.learn()
+        net.s2.eval()
+        sim.run(20)
+        w1_4 = sim.data[prob_syn1][-1]
+        w2_4 = sim.data[prob_syn2][-1]
+        assert not np.array_equal(w1_4, w1_3)
+        assert np.array_equal(w2_4, w2_3)

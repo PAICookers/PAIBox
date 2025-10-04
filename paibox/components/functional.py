@@ -5,7 +5,8 @@ from functools import partial
 from typing import ClassVar, Optional, Union
 
 import numpy as np
-from paicorelib import NTM, RM
+from numpy.typing import ArrayLike
+from paicorelib import LCM, NTM, RM
 
 from paibox.base import NeuDyn, NodeList
 from paibox.exceptions import PAIBoxDeprecationWarning, ShapeError
@@ -16,6 +17,7 @@ from paibox.types import (
     DataType,
     IntScalarType,
     NeuOutType,
+    Shape,
     VoltageType,
     WeightType,
 )
@@ -31,14 +33,16 @@ from .modules import (
     set_rt_mode_ann,
     set_rt_mode_snn,
 )
-from .neuron import Neuron
-from .neuron.base import MetaNeuron
+from .neuron import OfflineNeuron
+from .neuron.base import bit_truncate
 from .neuron.neurons import *
+from .neuron.neurons import STDPNeuron
 from .neuron.utils import NeuFireState, v_overflow
 from .projection import InputProj
 from .synapses import ConnType, Conv2dSemiFoldedSyn, FullConnSyn, MaxPoolSyn
 from .synapses.conv_types import Size2Type, _Size1Type, _Size2Type
 from .synapses.conv_utils import _conv1d_oshape, _pair, group_ch_check
+from .synapses.synapses import STDPFullConn
 
 if sys.version_info >= (3, 13):
     from warnings import deprecated
@@ -72,6 +76,7 @@ __all__ = [
     "AvgPool1d",
     "AvgPool2d",
     "AvgPool2dSemiFolded",
+    "STDPLinear",
 ]
 
 
@@ -297,7 +302,7 @@ class BitwiseXOR(FunctionalModule2to1):
         syn1 = FullConnSyn(
             self.source[0],
             n1_aux,
-            np.hstack([-1 * identity, identity], casting="safe", dtype=np.int8),
+            np.hstack([(-1) * identity, identity], casting="safe", dtype=np.int8),
             ConnType.All2All,
             name=f"s0_{self.name}",
         )
@@ -305,7 +310,7 @@ class BitwiseXOR(FunctionalModule2to1):
         syn2 = FullConnSyn(
             self.source[1],
             n1_aux,
-            np.hstack([identity, -1 * identity], casting="safe", dtype=np.int8),
+            np.hstack([identity, (-1) * identity], casting="safe", dtype=np.int8),
             ConnType.All2All,
             name=f"s1_{self.name}",
         )
@@ -685,7 +690,7 @@ class SpikingSub(FunctionalModule2to1WithV):
         )
 
     def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
-        n1_ssub = Neuron(
+        n1_ssub = OfflineNeuron(
             self.shape_out,
             reset_mode=RM.MODE_LINEAR,
             neg_thres_mode=NTM.MODE_SATURATION,
@@ -857,7 +862,7 @@ class Linear(_LinearBase):
     def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
         output = x1 @ self.weights.astype(VOLTAGE_DTYPE)
         output = output + self.bias
-        output = np.where(output >= 1, MetaNeuron._truncate(output, self.bit_trunc), 0)
+        output = np.where(output >= 1, bit_truncate(output, self.bit_trunc), 0)
 
         return output.astype(NEUOUT_U8_DTYPE)
 
@@ -1665,6 +1670,98 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
         return generated
 
 
+@set_rt_mode_snn()
+class STDPLinear(FunctionalModule):
+    def __init__(
+        self,
+        neuron_s: Union[NeuDyn, InputProj],
+        out_features: Shape,
+        weights: np.ndarray,
+        bias: DataType = 0,
+        pos_threshold: int = 1,
+        reset_v: int = 0,
+        leak_v: int = 0,
+        leak_comparison: LCM = LCM.LEAK_BEFORE_COMP,
+        neg_threshold: int = 0,
+        lateral_inhi_value: int = 0,
+        init_v: Union[int, np.ndarray] = 0,
+        weight_decay: int = 0,
+        upper_weight: Optional[int] = None,
+        lower_weight: Optional[int] = None,
+        weight_decay_random: bool = False,
+        lut: Optional[ArrayLike] = None,
+        lut_offset: Optional[int] = None,
+        *,
+        learn_by_default: bool = True,
+        keep_shape: bool = False,
+        name: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            neuron_s,
+            shape_out=as_shape(out_features),
+            keep_shape=keep_shape,
+            name=name,
+            **kwargs,
+        )
+        # Neuron attributes
+        self.pos_threshold = pos_threshold
+        self.reset_v = reset_v
+        self.leak_v = leak_v
+        self.leak_comparison = leak_comparison
+        self.neg_threshold = neg_threshold
+        self.lateral_inhi_value = lateral_inhi_value
+        self.init_v = init_v
+        # Synapse attributes
+        self.weights = weights
+        self.weight_decay = weight_decay
+        self.bias = bias
+        self.upper_weight = upper_weight
+        self.lower_weight = lower_weight
+        self.weight_decay_random = weight_decay_random
+        self.lut = lut
+        self.lut_offset = lut_offset
+        self.learn_by_default = learn_by_default
+
+    def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
+        n1 = STDPNeuron(
+            self.shape_out,
+            self.pos_threshold,
+            self.reset_v,
+            self.leak_v,
+            self.bias,
+            self.leak_comparison,
+            self.neg_threshold,
+            self.lateral_inhi_value,
+            self.init_v,
+            learn_by_default=self.learn_by_default,
+            delay=self.delay_relative,
+            tick_wait_start=self.tick_wait_start,
+            tick_wait_end=self.tick_wait_end,
+            keep_shape=self.keep_shape,
+            name=f"n0_{self.name}",
+        )
+
+        syn1 = STDPFullConn(
+            self.source[0],
+            n1,
+            self.weights,
+            self.weight_decay,
+            self.upper_weight,
+            self.lower_weight,
+            self.weight_decay_random,
+            self.lut,
+            self.lut_offset,
+            learn_by_default=self.learn_by_default,
+            name=f"s0_{self.name}",
+        )
+
+        generated = [n1, syn1]
+        self._rebuild_out_intf(network, n1, *generated, **build_options)
+
+        return generated
+
+
 def _spike_func_sadd_ssub(
     vjt: VoltageType, pos_thres: int, reset_v: Optional[int] = None
 ) -> tuple[NeuOutType, VoltageType]:
@@ -1719,7 +1816,7 @@ def _transpose2d_mapping(op_shape: tuple[int, ...]) -> WeightType:
     Return: transposed index matrix with shape (X*Y, Y*X).
     """
     size = shape2num(op_shape)
-    mt = np.zeros((size, size), dtype=np.bool_)
+    mt = np.zeros((size, size), dtype=np.bool)
 
     for idx in np.ndindex(op_shape):
         mt[idx[0] * op_shape[1] + idx[1], idx[1] * op_shape[0] + idx[0]] = 1
@@ -1740,7 +1837,7 @@ def _transpose3d_mapping(
     Return: transposed index matrix with shape (N, N) where N=X*Y*Z.
     """
     size = shape2num(op_shape)
-    mt = np.zeros((size, size), dtype=np.bool_)
+    mt = np.zeros((size, size), dtype=np.bool)
 
     shape_t = tuple(op_shape[i] for i in axes)
 

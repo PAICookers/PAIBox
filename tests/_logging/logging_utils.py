@@ -3,16 +3,16 @@ import logging
 import pytest
 
 from paibox import _logging
-from paibox._logging.base import DEFAULT_LOG_SETTINGS
+from paibox._logging import DEFAULT_LOG_SETTINGS
 
 
 def _set_log_state_from_mark(request):
     mark = request.node.get_closest_marker("make_settings_test")
     if mark:
         if mark.kwargs:
-            _logging.base.set_logs(**mark.kwargs)
+            _logging.set_logs(**mark.kwargs)
         else:
-            _logging.base.set_logs(**DEFAULT_LOG_SETTINGS)
+            _logging.set_logs(**DEFAULT_LOG_SETTINGS)
 
     return mark
 

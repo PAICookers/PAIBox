@@ -786,7 +786,7 @@ class TestWeightRamMapping:
             RId(0, 0),
             0,
             n_extra_neurons,
-            OfflineNeuAttrs.model_validate(extra_neurons.attrs(all=False)),
+            OfflineNeuAttrs.model_validate(extra_neurons.attrs()),
             dest_info,
             1,
         )
@@ -841,7 +841,7 @@ class TestWeightRamMapping:
         return result
 
     def test_weight_ram_mapping_8bits(self):
-        binary_conn = np.zeros((6, 8 * 5), dtype=np.bool_)
+        binary_conn = np.zeros((6, 8 * 5), dtype=np.bool)
         wp = WW.WEIGHT_WIDTH_8BIT
 
         array = np.random.randint(-128, 128, size=(4, 4), dtype=WEIGHT_DTYPE)
@@ -859,7 +859,7 @@ class TestWeightRamMapping:
             assert expected == r
 
     def test_weight_ram_mapping_4bits(self):
-        binary_conn = np.zeros((6, 4 * 5), dtype=np.bool_)
+        binary_conn = np.zeros((6, 4 * 5), dtype=np.bool)
         wp = WW.WEIGHT_WIDTH_4BIT
 
         array = np.random.randint(-8, 8, size=(4, 4), dtype=WEIGHT_DTYPE)
@@ -882,7 +882,7 @@ class TestWeightRamMapping:
             assert expected == r
 
     def test_weight_ram_mapping_2bits(self):
-        binary_conn = np.zeros((6, 4 * 5), dtype=np.bool_)
+        binary_conn = np.zeros((6, 4 * 5), dtype=np.bool)
         wp = WW.WEIGHT_WIDTH_2BIT
 
         array = np.random.randint(-2, 2, size=(4, 4), dtype=WEIGHT_DTYPE)

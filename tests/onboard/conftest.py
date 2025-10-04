@@ -20,7 +20,7 @@ def ensure_test_root_dirs(request: pytest.FixtureRequest):
     (test_dir / "config").mkdir(exist_ok=True)
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def ensure_test_item_dirs(request: pytest.FixtureRequest):
     """Create data & config directories for every test module."""
     test_dir = request.path.parent
@@ -44,6 +44,6 @@ def ensure_test_item_dirs(request: pytest.FixtureRequest):
     return data_subdir, config_subdir
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def fixed_rng() -> np.random.Generator:
     return np.random.default_rng(42)

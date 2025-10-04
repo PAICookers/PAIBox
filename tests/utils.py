@@ -47,7 +47,7 @@ def gen_random_array(
     if rng is None:
         rng = np.random.default_rng()
 
-    if dtype_ == np.bool_:
+    if dtype_ == np.bool:
         return rng.integers(0, 2, shape, dtype_)
     else:
         return rng.integers(
@@ -55,5 +55,25 @@ def gen_random_array(
         )
 
 
+CI_INDICATORS = ["CI", "CI_ENV", "GITHUB_ACTIONS"]
+
+
 def is_ci_env() -> bool:
-    return os.getenv("CI_ENV", None) is not None
+    return any(os.getenv(var) for var in CI_INDICATORS)
+
+
+def make_dump_dir(
+    test_path: Path, temp_path_fac: pytest.TempPathFactory, dir_name: str = "debug"
+) -> Path:
+    if is_ci_env():
+        p = temp_path_fac.mktemp(dir_name)
+    else:
+        p = test_path / dir_name
+
+    if not p.is_dir():
+        p.mkdir(parents=True, exist_ok=True)
+    else:
+        for f in p.iterdir():
+            f.unlink(missing_ok=True)
+
+    return p

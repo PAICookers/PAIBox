@@ -1,1 +1,1 @@
-from .base import Neuron, NeuronSubView
+from .base import Neuron, OfflineNeuron, OnlineNeuron, bit_truncate
