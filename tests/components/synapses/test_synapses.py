@@ -1,4 +1,6 @@
 from contextlib import nullcontext
+from enum import Enum
+import json
 
 import numpy as np
 import pytest
@@ -11,7 +13,18 @@ from paibox.components.synapses.lut import LUT_DTYPE
 from paibox.exceptions import RegisterError, ShapeError
 from paibox.types import NEUOUT_U8_DTYPE, WEIGHT_DTYPE
 from paibox.utils import shape2num
-from tests.utils import gen_random_array
+from tests.utils import gen_random_array, file_not_exist_fail
+
+
+class SynCfgJsonEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, np.ndarray):
+            return o.tolist()
+        elif isinstance(o, np.integer):
+            return int(o)
+        elif isinstance(o, Enum):
+            return o.value
+        return super().default(o)
 
 
 class TestFullConnectedSyn:
@@ -605,3 +618,38 @@ class TestSTDPSynapse:
                 assert np.array_equal(s1.weights, exp_w)
 
             print(f"ts={ts}, exp_w\n", exp_w)
+
+    def test_attrs_export(self, ensure_dump_dir):
+        n1 = pb.STDPNeuron(
+            (3,),
+            10,
+            reset_v=0,
+            leak_v=-1,
+            bias=0,
+            neg_threshold=-3,
+            lateral_inhi_value=-1,
+        )
+        n2 = pb.STDPNeuron(
+            (3,),
+            10,
+            reset_v=0,
+            leak_v=-1,
+            bias=0,
+            neg_threshold=-3,
+            lateral_inhi_value=-1,
+        )
+
+        shape = (n1.num_out, n2.num_in)
+        w = np.zeros(shape, dtype=WEIGHT_DTYPE)
+        lut = np.zeros((60,), dtype=LUT_DTYPE)
+        lut[:30] = -1
+        lut[30:] = 1
+        s1 = pb.STDPFullConn(n1, n2, w, weight_decay=-2, lut=lut)
+
+        attrs = s1.attrs()
+
+        fp = ensure_dump_dir / f"stdp_syn{s1.name}.json"
+        file_not_exist_fail(fp)
+
+        with open(fp, "w") as f:
+            json.dump({s1.name: attrs}, f, indent=2, cls=SynCfgJsonEncoder)

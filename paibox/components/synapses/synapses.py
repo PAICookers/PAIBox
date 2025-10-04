@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -303,3 +303,9 @@ class STDPFullConn(STDPLearner, FullConn):
     def reset_state(self, *args, **kwargs) -> None:
         super().reset_state(*args, **kwargs)
         super(STDPLearner, self).reset_state(*args, **kwargs)
+
+    def attrs(self, for_copy: bool = False) -> dict[str, Any]:
+        attrs = {}
+        attrs |= super().attrs(for_copy)
+
+        return attrs

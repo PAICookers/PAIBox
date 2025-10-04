@@ -1,3 +1,4 @@
+from enum import Enum
 import json
 from typing import Any, Literal
 
@@ -33,10 +34,14 @@ from paibox.utils import as_shape, shape2num
 from tests.utils import file_not_exist_fail
 
 
-class PAIConfigJsonEncoder(json.JSONEncoder):
+class NeuCfgJsonEncoder(json.JSONEncoder):
     def default(self, o):
         if isinstance(o, np.ndarray):
             return o.tolist()
+        elif isinstance(o, np.integer):
+            return int(o)
+        elif isinstance(o, Enum):
+            return o.value
         return super().default(o)
 
 
@@ -770,7 +775,7 @@ class TestOfflineNeuron:
         file_not_exist_fail(fp2)
 
         with open(fp2, "w") as f:
-            json.dump({n2.name: attrs_dict}, f, indent=2, cls=PAIConfigJsonEncoder)
+            json.dump({n2.name: attrs_dict}, f, indent=2, cls=NeuCfgJsonEncoder)
 
 
 class TestOnlineNeuron:
@@ -811,7 +816,7 @@ class TestOnlineNeuron:
         file_not_exist_fail(fp)
 
         with open(fp, "w") as f:
-            json.dump({n1.name: attrs_dict}, f, indent=2, cls=PAIConfigJsonEncoder)
+            json.dump({n1.name: attrs_dict}, f, indent=2, cls=NeuCfgJsonEncoder)
 
         # leak_v is an array
         n2 = pb.STDPNeuron(
@@ -829,7 +834,7 @@ class TestOnlineNeuron:
         file_not_exist_fail(fp2)
 
         with open(fp2, "w") as f:
-            json.dump({n2.name: attrs_dict}, f, indent=2, cls=PAIConfigJsonEncoder)
+            json.dump({n2.name: attrs_dict}, f, indent=2, cls=NeuCfgJsonEncoder)
 
 
 class TestSpecialTypeNeuron:

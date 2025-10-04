@@ -153,7 +153,8 @@ class STDPLearner(LearnableSys):
             "upper_weight": self.upper_weight,
             "lower_weight": self.lower_weight,
             "lut": self.lut.lut,
-            "lut_random_en": self.lut.lut_random_en,
+            # np.bool -> np.uint8
+            "lut_random_en": self.lut.lut_random_en.astype(np.uint8),
             "decay_random_en": self.weight_decay_random,
             "random_seed": self.random_seed,
             "online_mode_en": self.learn_by_default,  # init value

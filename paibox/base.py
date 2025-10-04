@@ -220,6 +220,9 @@ class DynamicSys(PAIBoxObject, StatusMemory):
     def reset_state(self, *args, **kwargs):
         raise NotImplementedError
 
+    def attrs(self, *args, **kwargs) -> dict[str, Any]:
+        raise NotImplementedError
+
     @property
     def shape_in(self) -> tuple[int, ...]:
         """Actual shape of input."""
