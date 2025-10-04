@@ -13,7 +13,6 @@ dependencies = [
     "paicorelib (>=1.5.0a1,<1.6.0)",
 ]
 maintainers = [
-    { name = "Hongtu Xia", email = "hongtux@pku.edu.cn" },
     { name = "Siyuan Gao", email = "siyuan-gao@outlook.com" },
     { name = "Zhaoyang Hao", email = "hzyang2218@gmail.com" },
     { name = "Ziru Pan", email = "zrpan@stu.pku.edu.cn" },
@@ -55,8 +54,9 @@ optional = true
 pytest = ">=8.0"
 pytest-md = ">=0.2"
 pytest-cov = ">=6.0"
+pytest-xdist = ">=3.7.0"
 orjson = ">=3.10"
-paicorelib = {version = "^1.5.0a1", allow-prereleases = true}
+paicorelib = { version = ">=1.5.0a3", allow-prereleases = true }
 
 [tool.poetry.group.dev.dependencies]
 orjson = ">=3.10"
@@ -64,7 +64,7 @@ orjson = ">=3.10"
 [tool.pytest.ini_options]
 minversion = "8.0.0"
 testpaths = ["tests"]
-addopts = "--cov=paibox --cov-report=term"
+addopts = ["--cov=paibox", "--cov-report=term", "-nauto"]
 
 [[tool.poetry.source]]
 name = "tsinghua"

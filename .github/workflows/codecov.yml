@@ -45,7 +45,7 @@ jobs:
 
       - name: Run pytest
         run: |
-          poetry run pytest --cov-append --cov-report=xml --junitxml=junit.xml
+          poetry run pytest --cov-append --cov-report=xml --junitxml=junit.xml -n auto
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
