@@ -1,10 +1,10 @@
+from collections.abc import Sequence
 import sys
 from typing import Optional, Union
 
 import numpy as np
 from paicorelib import LCM, LDM, NTM, RM, OffRAMDefs
 
-from paibox.exceptions import PAIBoxDeprecationWarning
 from paibox.types import LEAK_V_DTYPE, DataType, LeakVType, Shape
 
 from .base import OfflineNeuron, OnlineNeuron
@@ -15,10 +15,6 @@ if sys.version_info >= (3, 11):
 else:
     from typing_extensions import Unpack
 
-if sys.version_info >= (3, 13):
-    from warnings import deprecated
-else:
-    from typing_extensions import deprecated
 
 __all__ = [
     "IF",
@@ -253,15 +249,6 @@ class BypassNeuron(OfflineNeuron):
         NOTE: positive threshold = 1, negative threshold = 0, reset_v = 0, and leak_v = 0.
         """
         super().__init__(shape, neg_threshold=0, name=name, **kwargs)
-
-
-@deprecated(
-    "'SpikingRelu' is deprecated in version 1.2.0 and will "
-    "be removed in version 1.3.0. Use 'BypassNeuron' instead.",
-    category=PAIBoxDeprecationWarning,
-)
-class SpikingRelu(BypassNeuron):
-    pass
 
 
 class StoreVoltageNeuron(OfflineNeuron):

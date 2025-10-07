@@ -665,9 +665,9 @@ class Net(pb.DynSysGroup):
 ```python
 ksize = (3, 3)
 stride = None # default is ksize
-n1 = pb.SpikingRelu(shape, tick_wait_start=1)
+n1 = pb.BypassNeuron(shape, tick_wait_start=1)
 p2d = pb.SpikingMaxPool2d(n1, ksize, stride=None, padding=(1,1), tick_wait_start=2)
-n2 = pb.SpikingRelu(p2d.shape_out, delay=1, tick_wait_start=3)
+n2 = pb.BypassNeuron(p2d.shape_out, delay=1, tick_wait_start=3)
 s3 = pb.FullConn(p2d, n2, conn_type=pb.SynConnType.One2One)
 ```
 
@@ -732,25 +732,6 @@ sub1 = pb.SpikingSub(n1, n2, overflow_strict=False, delay=1, tick_wait_start=2) 
 - `pos_thres`：正阈值。默认为1，仅在 `SpikingAdd` 中使用。
 - `reset_v`：复位电位，可选参数。当指定时，神经元在发放后，进行硬复位( `v=resetv` )；当未指定时，进行软复位( `v-=pos_thres` )。默认进行软复位，仅在 `SpikingAdd` 中使用。
 - `overflow_strict`：是否严格检查运算结果溢出。如果启用，则在仿真中，当脉冲加、减运算结果溢出时将报错。默认为 `False`。
-
-### 2D/3D转置
-
-⚠️ 即将弃用
-
-PAIBox 提供了转置模块 `Transpose2d`，`Transpose3d`，用于实现二维、三维矩阵的转置。对于转置，需要**指定**输入神经元的尺寸、转置顺序（仅三维转置需要）。使用方法与逻辑运算模块相同：
-
-```python
-n1 = pb.IF((32, 16), 1, 0, delay=1, tick_wait_start=1)
-t2d = pb.Transpose2d(n1, tick_wait_start=2)
-
-n2 = pb.IF((32, 16, 24), 1, 0, delay=1, tick_wait_start=1)
-t3d = pb.Transpose3d(n2, axes=(1, 2, 0), tick_wait_start=2)
-```
-
-其中：
-
-- `neuron`：待转置其输出脉冲的神经元。对于二维转置，支持输入尺寸为1或2维；对于三维转置，支持输入尺寸为2或3维。尺寸不足时，自动补1。
-- `axes`：（仅三维转置）如果指定，则必须是包含 `[0,1,…,N-1]` 排列的元组或列表，其中 `N` 是矩阵的轴（维度）数。返回数组的第 `i` 轴将对应于输入的编号为 `axes[i]` 的轴。若未指定，则默认为 `range(N)[::-1]`，这将反转轴的顺序。具体参数含义参见：[numpy.transpose](https://numpy.org/doc/1.26/reference/generated/numpy.transpose.html#numpy.transpose)
 
 ### 线性层
 

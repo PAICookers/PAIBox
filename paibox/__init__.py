@@ -31,8 +31,6 @@ from .components.functional import SpikingAvgPool2dWithV as SpikingAvgPool2dWith
 from .components.functional import SpikingMaxPool1d as SpikingMaxPool1d
 from .components.functional import SpikingMaxPool2d as SpikingMaxPool2d
 from .components.functional import SpikingSub as SpikingSub
-from .components.functional import Transpose2d as Transpose2d
-from .components.functional import Transpose3d as Transpose3d
 
 # Recued neurons in ANN mode only
 from .components.neuron.neurons import ANNBypassNeuron as ANNBypassNeuron

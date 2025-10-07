@@ -45,7 +45,7 @@ from .utils import (
 __all__ = ["Neuron", "OfflineNeuron", "OnlineNeuron", "bit_truncate"]
 
 L = Literal
-NEU_TARGET_CHIP_NOT_SET = -1
+NEU_TARGET_CHIP_UNSET = -1
 
 
 def _neg_thres_check(th: Optional[int], signed: bool) -> int:
@@ -127,7 +127,7 @@ class Neuron(NeuDyn):
         self._twe = arg_check_non_neg(tick_wait_end, "'tick_wait_end'")
         self._uf = arg_check_pos(unrolling_factor, "'unrolling_factor'")
         self.target_chip_idx = (
-            NEU_TARGET_CHIP_NOT_SET
+            NEU_TARGET_CHIP_UNSET
             if target_chip is None
             else arg_check_pos(target_chip, "'target_chip'")
         )

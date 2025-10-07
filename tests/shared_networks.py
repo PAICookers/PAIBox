@@ -220,40 +220,6 @@ class SpikingPool2d_Net(_SpikingPoolNd_Net):
         )
 
 
-class TransposeModule_T2d_Net(pb.DynSysGroup):
-    def __init__(self, shape):
-        super().__init__()
-
-        self.inp1 = pb.InputProj(input=_out_bypass1, shape_out=shape)
-        self.n1 = pb.IF(shape, 1, 0, tick_wait_start=1)
-        self.s1 = pb.FullConn(self.inp1, self.n1, conn_type=pb.SynConnType.One2One)
-        self.t2d = pb.Transpose2d(self.n1, tick_wait_start=2)
-        self.n2 = pb.BypassNeuron(
-            shape, tick_wait_start=self.t2d.tick_wait_start + self.t2d.external_delay
-        )
-        self.s2 = pb.FullConn(self.t2d, self.n2, conn_type=pb.SynConnType.One2One)
-
-        self.probe1 = pb.Probe(self.t2d, "spike")
-        self.probe2 = pb.Probe(self.n2, "spike")
-
-
-class TransposeModule_T3d_Net(pb.DynSysGroup):
-    def __init__(self, shape, axes):
-        super().__init__()
-
-        self.inp1 = pb.InputProj(input=_out_bypass1, shape_out=shape)
-        self.n1 = pb.IF(shape, 1, 0, tick_wait_start=1)
-        self.s1 = pb.FullConn(self.inp1, self.n1, conn_type=pb.SynConnType.One2One)
-        self.t3d = pb.Transpose3d(self.n1, axes=axes, tick_wait_start=2)
-        self.n2 = pb.BypassNeuron(
-            shape, tick_wait_start=self.t3d.tick_wait_start + self.t3d.external_delay
-        )
-        self.s2 = pb.FullConn(self.t3d, self.n2, conn_type=pb.SynConnType.One2One)
-
-        self.probe1 = pb.Probe(self.t3d, "spike")
-        self.probe2 = pb.Probe(self.n2, "spike")
-
-
 class Conv2dSemiFolded_FC_ChainNetN(pb.DynSysGroup):
     def __init__(self, shape, kernels, strides, paddings, out_features, weight, groups):
         super().__init__()
