@@ -1249,7 +1249,7 @@ class TestFunctionalModules:
 
         # s1 & s2 are in inference mode
         net.eval()
-        sim.run(1)
+        sim.run(2)
         w1_1 = sim.data[prob_syn1][-1]
         w2_1 = sim.data[prob_syn2][-1]
 
