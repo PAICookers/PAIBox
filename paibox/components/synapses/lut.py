@@ -8,6 +8,8 @@ from paicorelib.framelib.types import LUT_DTYPE, LUTDataType
 
 from paibox.exceptions import PAIBoxWarning, ParamNotSimulatedWarning
 
+__all__ = ["LUT"]
+
 LUT_LEN = OnCoreCfg.LUT_LEN
 
 

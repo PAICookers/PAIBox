@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 import warnings
 from typing import Any, Literal, Optional, Union
 
@@ -17,7 +18,7 @@ from paicorelib import (
     get_core_mode,
 )
 
-from paibox.base import DataFlowFormat, LearnableSys, NeuDyn, is_learnable
+from paibox.base import DataFlowFormat, NeuDyn, is_learnable
 from paibox.exceptions import ConfigInvalidError, ParamNotSimulatedWarning, ShapeError
 from paibox.types import (
     NEUOUT_U8_DTYPE,
@@ -42,7 +43,7 @@ from .utils import (
     v_overflow,
 )
 
-__all__ = ["Neuron", "OfflineNeuron", "OnlineNeuron", "bit_truncate"]
+__all__ = ["Neuron", "OfflineNeuron", "OnlineNeuron"]
 
 L = Literal
 NEU_TARGET_CHIP_UNSET = -1
@@ -278,6 +279,9 @@ class Neuron(NeuDyn):
                 attrs[k] = v.ravel()[index]
 
         return attrs
+
+    def has_spike(self) -> bool:
+        return bool(np.any(self.spike > 0))
 
     @property
     def shape_in(self) -> tuple[int, ...]:
@@ -599,7 +603,7 @@ class OfflineNeuron(Neuron):
         return attrs
 
 
-class OnlineNeuron(Neuron, LearnableSys):
+class OnlineNeuron(Neuron):
     # XXX reserve these parameters for the time being
     rt_mode_kwds = {
         "input_width": InputWidthFormat.WIDTH_1BIT,
@@ -619,7 +623,9 @@ class OnlineNeuron(Neuron, LearnableSys):
         lateral_inhi_value: int = 0,
         init_v: Union[int, np.ndarray] = 0,
         *,
-        learn_by_default: bool = True,
+        lateral_inhi_target: Optional[
+            Union["OnlineNeuron", Sequence["OnlineNeuron"]]
+        ] = None,
         delay: int = 1,
         tick_wait_start: int = 1,
         tick_wait_end: int = 0,
@@ -655,19 +661,46 @@ class OnlineNeuron(Neuron, LearnableSys):
         self.init_delay_registers()
 
         # Common stateful variables
-        # NOTE: The latertal inhibition will reset when receiving workframe type I-2.
-        self.set_memory("is_lateral_inhi", False)
+        # NOTE: Lateral inhibition can be performed in both inference & learning mode.
+        # NOTE: The latertal inhibition will reset when receiving type I-2 work frame.
+        self.set_memory("need_lateral_inhi", False)
+        self.set_memory("source_lateral_inhi_flag", 0)  # controlled by the source
 
         # Auxiliary attributes or variables.
-        self.learn(learn_by_default)
+        self.lateral_inhi_source: set[OnlineNeuron] = set()
+        self.lateral_inhi_target: set[OnlineNeuron] = set()
+
+        # NOTE: Self is always a lateral inhibition source & target. However, when `lateral_inhi_value` == 0 & the only
+        # target is the layer itself, no need to multicast the lateral inhibition.
+        self.lateral_inhi_source.add(self)
+        self.lateral_inhi_target.add(self)
+
+        if lateral_inhi_target is not None:
+            self.set_lateral_inhi_target(lateral_inhi_target)
+
+    def set_lateral_inhi_target(
+        self, target: Union["OnlineNeuron", Sequence["OnlineNeuron"]]
+    ) -> None:
+        """Set the lateral inhibition targets of the current layer. In order to support recursive lateral inhibition,   \
+            it should be called after all the target neurons are created.
+        """
+        if isinstance(target, OnlineNeuron):
+            self.lateral_inhi_target.add(target)
+            target.lateral_inhi_source.add(self)
+        else:
+            for t in target:
+                t.lateral_inhi_source.add(t)
+
+            self.lateral_inhi_target.update(target)
 
     def _aux_pre_hook(self, *args, **kwargs) -> None:
         """Pre-hook before the entire update."""
-        pass
+        # Before the entire update, update the lateral inhibition status
+        self._update_lateral_inhi_status()
 
     def _aux_post_hook(self, *args, **kwargs) -> None:
         """Post-hook after the entire update."""
-        self._update_lateral_inhi(*args)
+        self._update_target_lateral_inhi_status(*args)
 
     def _neuronal_charge(
         self, incoming_v: VoltageType, v_pre: VoltageType
@@ -677,7 +710,7 @@ class OnlineNeuron(Neuron, LearnableSys):
 
     def _neuronal_leak(self, v: VoltageType) -> VoltageType:
         v += self.leak_v
-        if self.learning and self.is_lateral_inhi:
+        if self.need_lateral_inhi:
             v += self.lateral_inhi_value
 
         return v_overflow(v, self.overflow_strict)
@@ -692,9 +725,19 @@ class OnlineNeuron(Neuron, LearnableSys):
         v[spike] = self.reset_v
         return v
 
-    def _update_lateral_inhi(self, spike: NeuOutType) -> None:
-        if self.learning:
-            self.is_lateral_inhi = bool(np.any(spike > 0))
+    def _update_lateral_inhi_status(self) -> None:
+        """Update lateral inhibition status of the current neuron."""
+        # NOTE: As long as the online cores receive any type I-4 work frames, do lateral inhibition.
+        self.need_lateral_inhi = self.source_lateral_inhi_flag > 0
+        self.source_lateral_inhi_flag = 0
+
+    def _update_target_lateral_inhi_status(self, spike: NeuOutType) -> None:
+        """Update lateral inhibition status of the current neuron & its targets."""
+        # NOTE: If the online cores generate a spike, type I-4 work frames will be sent to the targets.
+        # NOTE: Use the spike at **current** timestep, instead of `self.spike` which is the spike at last timestep.
+        has_spike = int(np.any(spike > 0))
+        for t in self.lateral_inhi_target:
+            t.source_lateral_inhi_flag += has_spike
 
     def step(
         self, incoming_v: VoltageType, v_pre: VoltageType, *args, **kwargs

@@ -6,7 +6,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 from paicorelib import LCM, NTM, RM
 
-from paibox.base import NeuDyn, NodeList
+from paibox.base import LearnableSys, NeuDyn, NodeList
 from paibox.exceptions import ShapeError
 from paibox.types import (
     NEUOUT_U8_DTYPE,
@@ -30,16 +30,14 @@ from .modules import (
     set_rt_mode_ann,
     set_rt_mode_snn,
 )
-from .neuron import OfflineNeuron
+from .neuron import *
 from .neuron.base import bit_truncate
-from .neuron.neurons import *
-from .neuron.neurons import STDPNeuron
 from .neuron.utils import NeuFireState, v_overflow
 from .projection import InputProj
 from .synapses import ConnType, Conv2dSemiFoldedSyn, FullConnSyn, MaxPoolSyn
 from .synapses.conv_types import Size2Type, _Size1Type, _Size2Type
 from .synapses.conv_utils import _conv1d_oshape, _pair, group_ch_check
-from .synapses.synapses import STDPFullConn
+from .synapses import STDPFullConn
 
 if typing.TYPE_CHECKING:
     from paibox.network import DynSysGroup
@@ -1532,7 +1530,7 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
 
 
 @set_rt_mode_snn()
-class STDPLinear(FunctionalModule):
+class STDPLinear(FunctionalModule, LearnableSys):
     def __init__(
         self,
         neuron_s: Union[NeuDyn, InputProj],
@@ -1583,9 +1581,10 @@ class STDPLinear(FunctionalModule):
         self.lut = lut
         self.lut_offset = lut_offset
         self.learn_by_default = learn_by_default
+        self.learn(self.learn_by_default)
 
     def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
-        n1 = STDPNeuron(
+        n1 = STDPLIF(
             self.shape_out,
             self.pos_threshold,
             self.reset_v,
@@ -1595,7 +1594,6 @@ class STDPLinear(FunctionalModule):
             self.neg_threshold,
             self.lateral_inhi_value,
             self.init_v,
-            learn_by_default=self.learn_by_default,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
             tick_wait_end=self.tick_wait_end,

@@ -26,7 +26,7 @@ __all__ = [
     "Always1Neuron",
     "ANNBypassNeuron",
     "ANNNeuron",
-    "STDPNeuron",
+    "STDPLIF",
 ]
 
 POS_THRES_MAX = OffRAMDefs.POS_THRES_MAX
@@ -314,7 +314,7 @@ class ANNBypassNeuron(ANNNeuron):
         super().__init__(shape, bias=0, name=name, **kwargs)
 
 
-class STDPNeuron(OnlineNeuron):
+class STDPLIF(OnlineNeuron):
     def __init__(
         self,
         shape: Shape,
@@ -327,7 +327,9 @@ class STDPNeuron(OnlineNeuron):
         lateral_inhi_value: int = 0,
         init_v: Union[int, np.ndarray] = 0,
         *,
-        learn_by_default: bool = True,
+        lateral_inhi_target: Optional[
+            Union[OnlineNeuron, Sequence[OnlineNeuron]]
+        ] = None,
         name: Optional[str] = None,
         **kwargs: Unpack[CommonExtraNeuAttrKwds],
     ) -> None:
@@ -340,7 +342,7 @@ class STDPNeuron(OnlineNeuron):
             leak_comparison,
             lateral_inhi_value,
             init_v,
-            learn_by_default=learn_by_default,
+            lateral_inhi_target=lateral_inhi_target,
             name=name,
             **kwargs,
         )
