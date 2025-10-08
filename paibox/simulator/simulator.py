@@ -1,12 +1,11 @@
 import copy
-import warnings
 from typing import Any, Optional
 
 import numpy as np
 
 from paibox.base import DynamicSys, PAIBoxObject
 from paibox.context import _FRONTEND_CONTEXT
-from paibox.exceptions import PAIBoxDeprecationWarning, SimulationError
+from paibox.exceptions import SimulationError
 
 __all__ = ["Probe", "Simulator"]
 
@@ -88,21 +87,12 @@ class Simulator(PAIBoxObject):
         self._add_inner_probes()
         self.reset()
 
-    def run(self, duration: int, reset: bool = False, **kwargs) -> None:
+    def run(self, duration: int, reset: bool = False) -> None:
         """
-        Arguments:
-            - duration: duration of the simulation.
-            - reset: whether to reset the state of components in the model. Default is `False`.
-            - kwargs：determined by the parameter format of the input node. It will be deprecated, \
-                please use 'FRONTEND_ENV.save()' instead.
+        Args:
+            duration (int): duration of the simulation.
+            reset (bool): whether to reset the state of components in the model. Default is `False`.
         """
-        if kwargs:
-            warnings.warn(
-                "passing extra arguments through 'run()' will be deprecated. "
-                "Use 'FRONTEND_ENV.save()' instead.",
-                PAIBoxDeprecationWarning,
-            )
-
         if duration < 1:
             raise SimulationError(f"duration must be positive, but got {duration}.")
 
@@ -117,7 +107,7 @@ class Simulator(PAIBoxObject):
         if reset:
             self.target.reset_state()
 
-        self._run_step(indices, **kwargs)
+        self._run_step(indices)
 
         self._sim_data["ts"].extend(indices * self.dt)
         self._ts += n_steps
@@ -145,10 +135,10 @@ class Simulator(PAIBoxObject):
         else:
             raise KeyError(f"probe '{probe.name}' does not exist.")
 
-    def _run_step(self, indices: list[int], **kwargs) -> None:
+    def _run_step(self, indices: list[int]) -> None:
         for idx in indices:
             _FRONTEND_CONTEXT["t"] = idx
-            self.target.update(**kwargs)
+            self.target.update()
             self._update_probes()
 
     def _destroy_probes(self):

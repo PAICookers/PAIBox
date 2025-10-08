@@ -1,7 +1,6 @@
 import itertools
 import logging
 import math
-import sys
 from collections import defaultdict, deque
 from collections.abc import Generator, Iterable
 from functools import cached_property
@@ -16,13 +15,8 @@ from paicorelib.routing_defs import MAX_ROUTING_PATH_LENGTH
 
 from paibox import _logging
 from paibox.components import MatMul2d
-from paibox.components.neuron.base import NEU_TARGET_CHIP_NOT_SET
-from paibox.exceptions import (
-    NotSupportedError,
-    PAIBoxDeprecationWarning,
-    ResourceError,
-    RoutingError,
-)
+from paibox.components.neuron.base import NEU_TARGET_CHIP_UNSET
+from paibox.exceptions import NotSupportedError, ResourceError, RoutingError
 from paibox.utils import check_elem_same
 
 from ._slice import *
@@ -32,12 +26,6 @@ from .graph_utils import toposort
 from .placement import CoreBlock, EmptyCorePlacement
 from .succ_group import MergedSuccGroup
 from .types import EdgeType, NodeType, _1st_core_coord_repr
-
-if sys.version_info >= (3, 13):
-    from warnings import deprecated
-else:
-    from typing_extensions import deprecated
-
 
 __all__ = ["RoutingGroup", "RoutingManager"]
 
@@ -778,7 +766,7 @@ class RoutingManager:
                     )
 
             if (
-                target_chip_idx != NEU_TARGET_CHIP_NOT_SET
+                target_chip_idx != NEU_TARGET_CHIP_UNSET
                 and target_chip_idx != self.cur_chip_index
             ):
                 raise ResourceError(
@@ -806,7 +794,7 @@ class RoutingManager:
             )
 
     def move_to_chip(self, target_chip_idx: int):
-        if target_chip_idx == NEU_TARGET_CHIP_NOT_SET:
+        if target_chip_idx == NEU_TARGET_CHIP_UNSET:
             return
         elif target_chip_idx < 0 or target_chip_idx >= len(self.chip_list):
             raise ResourceError(
@@ -820,7 +808,7 @@ class RoutingManager:
             return
 
     def insert_online(
-        self, n_core_incoming: int, target_chip_idx: int = NEU_TARGET_CHIP_NOT_SET
+        self, n_core_incoming: int, target_chip_idx: int = NEU_TARGET_CHIP_UNSET
     ) -> tuple[int, int, list[Direction]]:
         self.move_to_chip(target_chip_idx)
 
@@ -853,7 +841,7 @@ class RoutingManager:
             return self.insert_incoming(n_core_incoming, target_chip_idx, True)
 
     def insert_offline(
-        self, n_core_incoming: int, target_chip_idx: int = NEU_TARGET_CHIP_NOT_SET
+        self, n_core_incoming: int, target_chip_idx: int = NEU_TARGET_CHIP_UNSET
     ) -> tuple[int, int, list[Direction]]:
         self.move_to_chip(target_chip_idx)
         while self.in_online:
@@ -863,7 +851,7 @@ class RoutingManager:
     def try_get_insert_location(
         self,
         n_core_incoming: int,
-        target_chip_idx: int = NEU_TARGET_CHIP_NOT_SET,
+        target_chip_idx: int = NEU_TARGET_CHIP_UNSET,
         online: bool = False,
     ) -> tuple[int, int, list[Direction]]:
         self.check_valid(n_core_incoming, online)
@@ -876,7 +864,7 @@ class RoutingManager:
         self,
         n_core_incoming: int,
         n_core_wasted: int,
-        target_chip_idx: int = NEU_TARGET_CHIP_NOT_SET,
+        target_chip_idx: int = NEU_TARGET_CHIP_UNSET,
     ) -> tuple[int, int, list[Direction]]:
         """Look for the insertion location for the incoming routing group.
 
@@ -909,10 +897,7 @@ class RoutingManager:
 
         core_loc = n_core_aligned
         chip_idx_loc = core_loc // HwConfig.N_CORE_MAX_INCHIP
-        if (
-            target_chip_idx > NEU_TARGET_CHIP_NOT_SET
-            and chip_idx_loc != target_chip_idx
-        ):
+        if target_chip_idx > NEU_TARGET_CHIP_UNSET and chip_idx_loc != target_chip_idx:
             if chip_idx_loc > target_chip_idx:
                 raise ResourceError(
                     f"the target chip {target_chip_idx} is not routable, "
@@ -1016,15 +1001,6 @@ class RoutingManager:
     def _clear_n_core_per_chip(self) -> None:
         for i in range(len(self.n_core_per_chip)):
             self.n_core_per_chip[i] = 0
-
-
-@deprecated(
-    "'RoutingRoot' is deprecated in version 1.2.0 and will be "
-    "removed in version 1.3.0. Use `RoutingManager` instead.",
-    category=PAIBoxDeprecationWarning,
-)
-class RoutingRoot(RoutingManager):
-    pass
 
 
 def _nearest_multiple_above(a: int, x: int) -> int:

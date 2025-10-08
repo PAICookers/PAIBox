@@ -419,7 +419,10 @@ def is_learnable(obj: Any) -> bool:
 
 
 class LearnableSys(MixIn):
+    """Mix-in for learnable system."""
+
     learning: bool
+    learn_by_default: bool
 
     def learn(self, mode: bool = True) -> None:
         self.learning = mode

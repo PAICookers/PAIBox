@@ -1,5 +1,5 @@
 import warnings
-from typing import Any, ClassVar, Optional, TypedDict, Union
+from typing import Any, Optional, TypedDict, Union
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -14,7 +14,10 @@ from .base import FullConnectedSyn
 from .lut import LUT
 from .weight_dtype import weight_width2range
 
+__all__ = ["STDPSyn"]
+
 syn_stdp_log = get_artifact_logger(__name__, "stdp")
+
 
 SPIKE_CNT_DTYPE = np.uint8
 SPIKE_CNT_BIT_MAX = 5
@@ -22,9 +25,7 @@ PRE_CNT_MAX = (1 << SPIKE_CNT_BIT_MAX) - 1
 POST_CNT_MAX = PRE_CNT_MAX
 
 
-class STDPLearner(LearnableSys):
-    CFLAG_ENABLE_WP_OPTIMIZATION: ClassVar[bool] = False
-
+class STDPSyn(LearnableSys):
     def __init__(
         self,
         syn: FullConnectedSyn,
@@ -36,6 +37,7 @@ class STDPLearner(LearnableSys):
         lut_offset: Optional[int] = None,
         lut_random: Union[bool, ArrayLike] = False,
         random_seed: int = 1,
+        plasticity_range: Optional[Union[int, tuple[int, int]]] = None,
         learn_by_default: bool = True,
     ) -> None:
         self.syn = syn
@@ -52,7 +54,25 @@ class STDPLearner(LearnableSys):
         self._set_weight_range(upper_weight, lower_weight)
         self.lut = LUT(lut, lut_offset, lut_random)
 
-        self.plasticity_range = (0, syn.num_in)  # Fixed
+        # XXX Currently, fixed.
+        if plasticity_range is None:
+            p_range = (0, syn.num_in)
+        elif isinstance(plasticity_range, int):
+            if plasticity_range < 0 or plasticity_range > syn.num_in:
+                raise ValueError(
+                    f"'plasticity_range' must be an integer between 0 & {syn.num_in}, "
+                    + f"but got {plasticity_range}."
+                )
+            p_range = (0, plasticity_range)
+        else:
+            if not 0 <= plasticity_range[0] <= plasticity_range[1] <= syn.num_in:
+                raise ValueError(
+                    f"'plasticity_range' must be a tuple of two integers between 0 & {syn.num_in},"
+                    f"but got {plasticity_range}."
+                )
+            p_range = plasticity_range
+
+        self.plasticity_range = p_range
         # XXX This feature needs LFSR support
         self.random_seed = arg_check_pos(random_seed, "random seed")  # must >0
 

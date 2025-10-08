@@ -541,7 +541,7 @@ class TestSTDPSynapse:
 
     def test_STDPFullConn_update(self):
         # Use neurons to instantiate synapse but don't update them
-        n1 = pb.STDPNeuron(
+        n1 = pb.STDPLIF(
             (3,),
             10,
             reset_v=0,
@@ -550,7 +550,7 @@ class TestSTDPSynapse:
             neg_threshold=-3,
             lateral_inhi_value=-1,
         )
-        n2 = pb.STDPNeuron(
+        n2 = pb.STDPLIF(
             (3,),
             10,
             reset_v=0,
@@ -620,7 +620,7 @@ class TestSTDPSynapse:
             print(f"ts={ts}, exp_w\n", exp_w)
 
     def test_attrs_export(self, ensure_dump_dir):
-        n1 = pb.STDPNeuron(
+        n1 = pb.STDPLIF(
             (3,),
             10,
             reset_v=0,
@@ -628,8 +628,9 @@ class TestSTDPSynapse:
             bias=0,
             neg_threshold=-3,
             lateral_inhi_value=-1,
+            tick_wait_start=1,
         )
-        n2 = pb.STDPNeuron(
+        n2 = pb.STDPLIF(
             (3,),
             10,
             reset_v=0,
@@ -637,6 +638,7 @@ class TestSTDPSynapse:
             bias=0,
             neg_threshold=-3,
             lateral_inhi_value=-1,
+            tick_wait_start=2,
         )
 
         shape = (n1.num_out, n2.num_in)

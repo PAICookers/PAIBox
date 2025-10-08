@@ -1,4 +1,4 @@
-from typing import Any, Optional, Union
+from typing import Any, ClassVar, Optional, Union
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -6,7 +6,7 @@ from numpy.typing import ArrayLike
 from paibox.base import NeuDyn
 from paibox.types import DataType, NeuOutType, SynOutType
 
-from ..neuron import Neuron
+from ..neuron import Neuron, OnlineNeuron
 from ..projection import InputProj
 from .base import (
     Conv1dSyn,
@@ -17,7 +17,7 @@ from .base import (
 )
 from .conv_types import _KOrder3d, _KOrder4d, _Size1Type, _Size2Type
 from .conv_utils import _pair, _single
-from .learning import STDPLearner
+from .learning import STDPSyn
 from .transforms import ConnType
 
 __all__ = [
@@ -262,11 +262,13 @@ class ConvTranspose2d(ConvTranspose2dSyn):
         )
 
 
-class STDPFullConn(STDPLearner, FullConn):
+class STDPFullConn(STDPSyn, FullConnSyn):
+    CFLAG_ENABLE_WP_OPTIMIZATION: ClassVar[bool] = False
+
     def __init__(
         self,
         source: Union[NeuDyn, InputProj],
-        target: Neuron,
+        target: OnlineNeuron,
         weights: DataType,
         weight_decay: int = 0,
         upper_weight: Optional[int] = None,
@@ -276,11 +278,12 @@ class STDPFullConn(STDPLearner, FullConn):
         lut_offset: Optional[int] = None,
         lut_random: Union[bool, ArrayLike] = False,
         random_seed: int = 1,
+        plasticity_range: Optional[Union[int, tuple[int, int]]] = None,
         *,
         learn_by_default: bool = True,
         name: Optional[str] = None,
     ) -> None:
-        super(STDPLearner, self).__init__(source, target, weights, name=name)
+        super(STDPSyn, self).__init__(source, target, weights, ConnType.MatConn, name)
         super().__init__(
             self,
             weight_decay,
@@ -291,11 +294,12 @@ class STDPFullConn(STDPLearner, FullConn):
             lut_offset,
             lut_random,
             random_seed,
+            plasticity_range,
             learn_by_default,
         )
 
     def update(self, x: Optional[NeuOutType] = None, *args, **kwargs) -> SynOutType:
-        synout = super(STDPLearner, self).update(x)
+        synout = super(STDPSyn, self).update(x)
         if self.target.is_working() and self.learning:
             super().step(self.synin, self.target.spike)
 
@@ -303,7 +307,7 @@ class STDPFullConn(STDPLearner, FullConn):
 
     def reset_state(self, *args, **kwargs) -> None:
         super().reset_state(*args, **kwargs)
-        super(STDPLearner, self).reset_state(*args, **kwargs)
+        super(STDPSyn, self).reset_state(*args, **kwargs)
 
     def attrs(self, for_copy: bool = False) -> dict[str, Any]:
         attrs = {}

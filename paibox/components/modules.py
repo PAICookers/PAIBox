@@ -1,7 +1,6 @@
 import sys
 import typing
 from collections import deque
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from functools import partial
 from typing import Callable, ClassVar, Literal, Optional, TypeVar, Union
@@ -324,45 +323,6 @@ class FunctionalModule2to1(FunctionalModule):
     @property
     def varshape(self) -> tuple[int, ...]:
         return self.shape_out if self.keep_shape else (self.num_out,)
-
-
-class TransposeModule(FunctionalModule):
-    inherent_delay = 0
-
-    def __init__(
-        self,
-        neuron: Union[NeuDyn, InputProj],
-        shape_in: tuple[int, ...],
-        axes: Optional[Sequence[int]] = None,
-        keep_shape: bool = True,
-        name: Optional[str] = None,
-        **kwargs,
-    ) -> None:
-        if axes is None:
-            axes = range(len(shape_in))[::-1]
-
-        axes = tuple(axes)
-
-        if not check_elem_unique(axes):
-            raise ValueError("repeated axis in transpose.")
-
-        if len(axes) != len(shape_in):
-            raise ValueError("axes don't match array.")
-
-        if keep_shape:
-            shape_out = tuple(shape_in[i] for i in axes)
-        else:
-            shape_out = (neuron.num_out,)
-
-        self._shape_in = shape_in
-        self.axes = axes
-        super().__init__(
-            neuron, shape_out=shape_out, keep_shape=keep_shape, name=name, **kwargs
-        )
-
-    @property
-    def shape_in(self) -> tuple[int, ...]:
-        return self._shape_in
 
 
 class FunctionalModuleWithV(FunctionalModule):

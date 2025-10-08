@@ -31,24 +31,21 @@ from .components.functional import SpikingAvgPool2dWithV as SpikingAvgPool2dWith
 from .components.functional import SpikingMaxPool1d as SpikingMaxPool1d
 from .components.functional import SpikingMaxPool2d as SpikingMaxPool2d
 from .components.functional import SpikingSub as SpikingSub
-from .components.functional import Transpose2d as Transpose2d
-from .components.functional import Transpose3d as Transpose3d
 
 # Recued neurons in ANN mode only
-from .components.neuron.neurons import ANNBypassNeuron as ANNBypassNeuron
-from .components.neuron.neurons import ANNNeuron as ANNNeuron
+from .components.neuron import ANNBypassNeuron as ANNBypassNeuron
+from .components.neuron import ANNNeuron as ANNNeuron
 
 # Reduced neurons
-from .components.neuron.neurons import IF as IF
-from .components.neuron.neurons import LIF as LIF
-from .components.neuron.neurons import BypassNeuron as BypassNeuron
-from .components.neuron.neurons import PhasicSpiking as PhasicSpiking
-from .components.neuron.neurons import SpikingRelu as SpikingRelu
-from .components.neuron.neurons import TonicSpiking as TonicSpiking
-from .components.neuron.neurons import StoreVoltageNeuron as StoreVoltageNeuron
+from .components.neuron import IF as IF
+from .components.neuron import LIF as LIF
+from .components.neuron import BypassNeuron as BypassNeuron
+from .components.neuron import PhasicSpiking as PhasicSpiking
+from .components.neuron import TonicSpiking as TonicSpiking
+from .components.neuron import StoreVoltageNeuron as StoreVoltageNeuron
 
 # STDP neurons in SNN mode only
-from .components.neuron.neurons import STDPNeuron as STDPNeuron
+from .components.neuron import STDPLIF as STDPLIF
 
 # Input projection
 from .components.projection import InputProj as InputProj
@@ -57,13 +54,15 @@ from .components.projection import InputProj as InputProj
 from .components.synapses import ConnType as SynConnType
 
 # Synapses
-from .components.synapses.synapses import Conv1d as Conv1d
-from .components.synapses.synapses import Conv2d as Conv2d
-from .components.synapses.synapses import ConvTranspose1d as ConvTranspose1d
-from .components.synapses.synapses import ConvTranspose2d as ConvTranspose2d
-from .components.synapses.synapses import FullConn as FullConn
-from .components.synapses.synapses import MatMul2d as MatMul2d
-from .components.synapses.synapses import STDPFullConn as STDPFullConn
+from .components.synapses import Conv1d as Conv1d
+from .components.synapses import Conv2d as Conv2d
+from .components.synapses import ConvTranspose1d as ConvTranspose1d
+from .components.synapses import ConvTranspose2d as ConvTranspose2d
+from .components.synapses import FullConn as FullConn
+from .components.synapses import MatMul2d as MatMul2d
+
+# STDP synapses
+from .components.synapses import STDPFullConn as STDPFullConn
 
 # Network
 from .network import DynSysGroup as DynSysGroup

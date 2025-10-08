@@ -1,6 +1,4 @@
-import sys
 import typing
-from collections.abc import Sequence
 from functools import partial
 from typing import ClassVar, Optional, Union
 
@@ -8,8 +6,8 @@ import numpy as np
 from numpy.typing import ArrayLike
 from paicorelib import LCM, NTM, RM
 
-from paibox.base import NeuDyn, NodeList
-from paibox.exceptions import PAIBoxDeprecationWarning, ShapeError
+from paibox.base import LearnableSys, NeuDyn, NodeList
+from paibox.exceptions import ShapeError
 from paibox.types import (
     NEUOUT_U8_DTYPE,
     VOLTAGE_DTYPE,
@@ -29,25 +27,22 @@ from .modules import (
     FunctionalModule,
     FunctionalModule2to1,
     FunctionalModule2to1WithV,
-    TransposeModule,
     set_rt_mode_ann,
     set_rt_mode_snn,
 )
-from .neuron import OfflineNeuron
+from .neuron import *
 from .neuron.base import bit_truncate
-from .neuron.neurons import *
-from .neuron.neurons import STDPNeuron
 from .neuron.utils import NeuFireState, v_overflow
 from .projection import InputProj
-from .synapses import ConnType, Conv2dSemiFoldedSyn, FullConnSyn, MaxPoolSyn
+from .synapses import (
+    ConnType,
+    Conv2dSemiFoldedSyn,
+    FullConnSyn,
+    MaxPoolSyn,
+    STDPFullConn,
+)
 from .synapses.conv_types import Size2Type, _Size1Type, _Size2Type
 from .synapses.conv_utils import _conv1d_oshape, _pair, group_ch_check
-from .synapses.synapses import STDPFullConn
-
-if sys.version_info >= (3, 13):
-    from warnings import deprecated
-else:
-    from typing_extensions import deprecated
 
 if typing.TYPE_CHECKING:
     from paibox.network import DynSysGroup
@@ -65,8 +60,6 @@ __all__ = [
     "SpikingAvgPool2dWithV",
     "SpikingMaxPool2d",
     "SpikingSub",
-    "Transpose2d",
-    "Transpose3d",
     "Linear",
     "LinearSemiFolded",
     "Conv2dSemiFolded",
@@ -720,135 +713,6 @@ class SpikingSub(FunctionalModule2to1WithV):
 
         generated = [n1_ssub, syn1, syn2]
         self._rebuild_out_intf(network, n1_ssub, *generated, **build_options)
-
-        return generated
-
-
-@deprecated(
-    "'Transpose2d' will be removed in version 1.2.0. Use 'MatMul2d' instead.",
-    category=PAIBoxDeprecationWarning,
-)
-@set_rt_mode_snn()
-class Transpose2d(TransposeModule):
-    inherent_delay = 0
-
-    def __init__(
-        self,
-        neuron: Union[NeuDyn, InputProj],
-        *,
-        keep_shape: bool = True,
-        name: Optional[str] = None,
-        **kwargs,
-    ) -> None:
-        """2d transpose module.
-
-        Args:
-            - neuron: the neuron of which output spike will be transposed.
-
-        NOTE: the inherent delay of the module is 0.
-        """
-        super().__init__(
-            neuron,
-            _shape_ndim2_check(neuron.shape_out),
-            (1, 0),
-            keep_shape=keep_shape,
-            name=name,
-            **kwargs,
-        )
-
-    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
-        _x1 = x1.reshape(self.shape_in)
-
-        return _x1.T
-
-    def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
-        n1_t2d = BypassNeuron(
-            self.shape_out,
-            delay=self.delay_relative,
-            tick_wait_start=self.tick_wait_start,
-            tick_wait_end=self.tick_wait_end,
-            keep_shape=self.keep_shape,
-            name=f"n0_{self.name}",
-            **self.rt_mode_kwds,
-        )
-
-        syn1 = FullConnSyn(
-            self.source[0],
-            n1_t2d,
-            _transpose2d_mapping(self.shape_in),
-            ConnType.All2All,
-            name=f"s0_{self.name}",
-        )
-
-        generated = [n1_t2d, syn1]
-        self._rebuild_out_intf(network, n1_t2d, *generated, **build_options)
-
-        return generated
-
-
-@deprecated(
-    "'Transpose3d' will be removed in version 1.2.0. Use 'MatMul2d' instead.",
-    category=PAIBoxDeprecationWarning,
-)
-@set_rt_mode_snn()
-class Transpose3d(TransposeModule):
-    inherent_delay = 0
-
-    def __init__(
-        self,
-        neuron: Union[NeuDyn, InputProj],
-        axes: Optional[Sequence[int]] = None,
-        *,
-        keep_shape: bool = True,
-        name: Optional[str] = None,
-        **kwargs,
-    ) -> None:
-        """3d transpose module.
-
-        Args:
-            - neuron: the neuron of which output spike will be transposed.
-            - axes: If specified, it must be a tuple or list which contains a permutation of [0, 1, …, N-1] \
-                where N is the number of axes of output shape of neuron. If not specified, defaults to      \
-                `range(ndim)[::-1]`, where `ndim` is the dimension of the output shape, which reverses the  \
-                order of the axes.
-
-        NOTE: the inherent delay of the module is 0.
-        """
-        super().__init__(
-            neuron,
-            _shape_ndim3_check(neuron.shape_out),
-            axes,
-            keep_shape=keep_shape,
-            name=name,
-            **kwargs,
-        )
-
-    def spike_func(self, x1: NeuOutType, **kwargs) -> NeuOutType:
-        _x1 = x1.reshape(self.shape_in)
-
-        return _x1.transpose(self.axes)
-
-    def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
-        n1_t3d = BypassNeuron(
-            self.shape_out,
-            delay=self.delay_relative,
-            tick_wait_start=self.tick_wait_start,
-            tick_wait_end=self.tick_wait_end,
-            keep_shape=self.keep_shape,
-            name=f"n0_{self.name}",
-            **self.rt_mode_kwds,
-        )
-
-        syn1 = FullConnSyn(
-            self.source[0],
-            n1_t3d,
-            _transpose3d_mapping(self.shape_in, self.axes),
-            ConnType.All2All,
-            name=f"s0_{self.name}",
-        )
-
-        generated = [n1_t3d, syn1]
-        self._rebuild_out_intf(network, n1_t3d, *generated, **build_options)
 
         return generated
 
@@ -1671,7 +1535,7 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
 
 
 @set_rt_mode_snn()
-class STDPLinear(FunctionalModule):
+class STDPLinear(FunctionalModule, LearnableSys):
     def __init__(
         self,
         neuron_s: Union[NeuDyn, InputProj],
@@ -1722,9 +1586,10 @@ class STDPLinear(FunctionalModule):
         self.lut = lut
         self.lut_offset = lut_offset
         self.learn_by_default = learn_by_default
+        self.learn(self.learn_by_default)
 
     def build(self, network: "DynSysGroup", **build_options) -> BuiltComponentType:
-        n1 = STDPNeuron(
+        n1 = STDPLIF(
             self.shape_out,
             self.pos_threshold,
             self.reset_v,
@@ -1734,7 +1599,6 @@ class STDPLinear(FunctionalModule):
             self.neg_threshold,
             self.lateral_inhi_value,
             self.init_v,
-            learn_by_default=self.learn_by_default,
             delay=self.delay_relative,
             tick_wait_start=self.tick_wait_start,
             tick_wait_end=self.tick_wait_end,

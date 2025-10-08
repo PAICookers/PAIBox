@@ -1,10 +1,10 @@
 import sys
+from collections.abc import Sequence
 from typing import Optional, Union
 
 import numpy as np
 from paicorelib import LCM, LDM, NTM, RM, OffRAMDefs
 
-from paibox.exceptions import PAIBoxDeprecationWarning
 from paibox.types import LEAK_V_DTYPE, DataType, LeakVType, Shape
 
 from .base import OfflineNeuron, OnlineNeuron
@@ -15,10 +15,6 @@ if sys.version_info >= (3, 11):
 else:
     from typing_extensions import Unpack
 
-if sys.version_info >= (3, 13):
-    from warnings import deprecated
-else:
-    from typing_extensions import deprecated
 
 __all__ = [
     "IF",
@@ -30,7 +26,7 @@ __all__ = [
     "Always1Neuron",
     "ANNBypassNeuron",
     "ANNNeuron",
-    "STDPNeuron",
+    "STDPLIF",
 ]
 
 POS_THRES_MAX = OffRAMDefs.POS_THRES_MAX
@@ -255,15 +251,6 @@ class BypassNeuron(OfflineNeuron):
         super().__init__(shape, neg_threshold=0, name=name, **kwargs)
 
 
-@deprecated(
-    "'SpikingRelu' is deprecated in version 1.2.0 and will "
-    "be removed in version 1.3.0. Use 'BypassNeuron' instead.",
-    category=PAIBoxDeprecationWarning,
-)
-class SpikingRelu(BypassNeuron):
-    pass
-
-
 class StoreVoltageNeuron(OfflineNeuron):
     def __init__(
         self,
@@ -327,7 +314,7 @@ class ANNBypassNeuron(ANNNeuron):
         super().__init__(shape, bias=0, name=name, **kwargs)
 
 
-class STDPNeuron(OnlineNeuron):
+class STDPLIF(OnlineNeuron):
     def __init__(
         self,
         shape: Shape,
@@ -340,7 +327,9 @@ class STDPNeuron(OnlineNeuron):
         lateral_inhi_value: int = 0,
         init_v: Union[int, np.ndarray] = 0,
         *,
-        learn_by_default: bool = True,
+        lateral_inhi_target: Optional[
+            Union[OnlineNeuron, Sequence[OnlineNeuron]]
+        ] = None,
         name: Optional[str] = None,
         **kwargs: Unpack[CommonExtraNeuAttrKwds],
     ) -> None:
@@ -353,7 +342,7 @@ class STDPNeuron(OnlineNeuron):
             leak_comparison,
             lateral_inhi_value,
             init_v,
-            learn_by_default=learn_by_default,
+            lateral_inhi_target=lateral_inhi_target,
             name=name,
             **kwargs,
         )

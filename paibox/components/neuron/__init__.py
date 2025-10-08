@@ -1,1 +1,2 @@
-from .base import Neuron, OfflineNeuron, OnlineNeuron, bit_truncate
+from .base import *
+from .neurons import *

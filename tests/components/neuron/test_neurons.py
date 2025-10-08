@@ -102,7 +102,7 @@ def test_neuron_copy():
     assert n1._tws != n1_copy._tws
     assert id(n1.voltage) != id(n1_copy.voltage)
 
-    n2 = pb.STDPNeuron(
+    n2 = pb.STDPLIF(
         (4, 4), 10, -1, -2, 0, neg_threshold=-10, lateral_inhi_value=-1, init_v=3
     )
     n2_copy = n2.copy()
@@ -780,28 +780,84 @@ class TestOfflineNeuron:
 
 class TestOnlineNeuron:
     def test_neuron_lateral_inhi(self):
-        n1 = pb.STDPNeuron(
+        n1 = pb.STDPLIF(
             (4, 4),
             10,
-            0,
-            -1,
-            0,
+            leak_v=-1,
             neg_threshold=-10,
             lateral_inhi_value=-2,
             init_v=np.ones((4, 4), dtype=VOLTAGE_DTYPE),
         )
-        n1.learn()
 
         incoming_v = np.full(n1.num_out, 3, dtype=VOLTAGE_DTYPE)
         for i in range(4):
             pb.FRONTEND_ENV["t"] += 1
             n1.update(incoming_v)
 
-            if np.any(n1.spike) > 0:
+            if n1.has_spike():
                 assert i == 3  # First spike at 4
 
+    def test_neuron_lateral_inhi_multi_layers(self):
+        # 3 layers. n1 inhibits n2 and n2 inhibits n1 & n3
+        class InhiNetwork(pb.Network):
+            def __init__(self):
+                super().__init__()
+                self.input1 = pb.InputProj(input=None, shape_out=(50,))
+                self.n1 = pb.STDPLIF(
+                    50,
+                    1,
+                    0,
+                    -1,
+                    0,
+                    neg_threshold=-10,
+                    lateral_inhi_value=-2,
+                    tick_wait_start=1,
+                )
+                self.n3 = pb.STDPLIF(
+                    10, 1, lateral_inhi_value=-3, init_v=1, tick_wait_start=3
+                )
+                self.n2 = pb.STDPLIF(
+                    36,
+                    1,
+                    -3,
+                    -1,
+                    lateral_inhi_value=-1,
+                    lateral_inhi_target=[self.n1, self.n3],
+                    tick_wait_start=2,
+                )
+                self.n1.set_lateral_inhi_target(self.n2)
+
+                self.s1 = pb.STDPFullConn(
+                    self.input1,
+                    self.n1,
+                    np.ones((self.input1.num_out, self.n1.num_in), dtype=np.int8),
+                )
+                self.s2 = pb.STDPFullConn(
+                    self.n1,
+                    self.n2,
+                    np.ones((self.n1.num_out, self.n2.num_in), dtype=np.int8),
+                )
+                self.s3 = pb.STDPFullConn(
+                    self.n2,
+                    self.n3,
+                    np.ones((self.n2.num_out, self.n3.num_in), dtype=np.int8),
+                )
+
+        net = InhiNetwork()
+        sim = pb.Simulator(net)
+
+        net.input1.input = np.ones((50,), dtype=VOLTAGE_DTYPE)
+
+        while 1:
+            sim.run(1)
+            if net.n2.has_spike() > 0:
+                sim.run(1)
+                assert net.n1.need_lateral_inhi == True
+                assert net.n3.need_lateral_inhi == True
+                break
+
     def test_attrs_export(self, ensure_dump_dir):
-        n1 = pb.STDPNeuron(
+        n1 = pb.STDPLIF(
             (100,), 3, reset_v=0, leak_v=-2, init_v=np.arange(100, dtype=VOLTAGE_DTYPE)
         )
 
@@ -819,9 +875,7 @@ class TestOnlineNeuron:
             json.dump({n1.name: attrs_dict}, f, indent=2, cls=NeuCfgJsonEncoder)
 
         # leak_v is an array
-        n2 = pb.STDPNeuron(
-            (4, 4, 4), 3, reset_v=0, leak_v=-2, bias=np.arange(4), init_v=1
-        )
+        n2 = pb.STDPLIF((4, 4, 4), 3, reset_v=0, leak_v=-2, bias=np.arange(4), init_v=1)
 
         attrs = OnlineNeuAttrs.model_validate(
             n2._slice_attrs(slice(2 * 4 * 4 - 10, 3 * 4 * 4 + 2, 1)),

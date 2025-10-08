@@ -15,7 +15,7 @@ from paibox.components.synapses.conv_utils import (
 from paibox.exceptions import ShapeError
 from paibox.network import DynSysGroup
 from paibox.types import NEUOUT_U8_DTYPE, VOLTAGE_DTYPE, WEIGHT_DTYPE
-from paibox.utils import as_shape, shape2num, typical_round
+from paibox.utils import shape2num, typical_round
 
 from .conftest import *  # import test data
 from .utils import (
@@ -692,101 +692,6 @@ class TestFunctionalModules:
         mapper.compile()
         mapper.export(fp=ensure_dump_dir)
 
-    @pytest.mark.skipif(hasattr(pb.Transpose2d, "__deprecated__"), reason="deprecated")
-    @pytest.mark.parametrize("shape", [(32, 16), (1, 32), (64,), (128, 1), 48])
-    def test_Transpose2d(self, shape):
-        from tests.shared_networks import TransposeModule_T2d_Net
-
-        net1 = TransposeModule_T2d_Net(shape)
-        net2 = TransposeModule_T2d_Net(shape)
-        t2d = net2.t2d
-        generated = net2.build_modules()
-        sim1 = pb.Simulator(net1, start_time_zero=False)
-        sim2 = pb.Simulator(net2, start_time_zero=False)
-
-        probe_t2d = pb.Probe(generated[t2d][0], "spike")
-        sim2.add_probe(probe_t2d)
-
-        inpa = np.random.randint(0, 2, size=(N_TEST,) + as_shape(shape), dtype=np.bool)
-
-        for i in range(N_TEST):
-            pb.FRONTEND_ENV.save(data1=inpa[i])
-            sim1.run(1)
-            sim2.run(1)
-
-        for i in range(2, N_TEST):
-            expected = inpa[i - 1].T.ravel()
-            assert np.array_equal(sim1.data[net1.probe1][i], expected)
-            assert np.array_equal(sim2.data[probe_t2d][i], expected)
-
-        for i in range(3, N_TEST):
-            expected = inpa[i - 2].T.ravel()
-            assert np.array_equal(sim1.data[net1.probe2][i], expected)
-
-    @pytest.mark.skipif(hasattr(pb.Transpose2d, "__deprecated__"), reason="deprecated")
-    def test_Transpose2d_mapping(self, ensure_dump_dir):
-        from tests.shared_networks import TransposeModule_T2d_Net
-
-        net1 = TransposeModule_T2d_Net((32, 16))
-
-        mapper = pb.Mapper()
-        mapper.build(net1)
-        mapper.compile()
-        mapper.export(fp=ensure_dump_dir)
-
-    @pytest.mark.skipif(hasattr(pb.Transpose2d, "__deprecated__"), reason="deprecated")
-    @pytest.mark.parametrize(
-        "shape, axes",
-        [
-            ((32, 16, 24), (1, 2, 0)),
-            ((12, 32, 32), None),
-            ((28, 28), (2, 0, 1)),
-            ((128, 1, 24), (0, 2, 1)),
-        ],
-    )
-    def test_Transpose3d(self, shape, axes):
-        from tests.shared_networks import TransposeModule_T3d_Net
-
-        net1 = TransposeModule_T3d_Net(shape, axes)
-        net2 = TransposeModule_T3d_Net(shape, axes)
-        t3d = net2.t3d
-        generated = net2.build_modules()
-        sim1 = pb.Simulator(net1, start_time_zero=False)
-        sim2 = pb.Simulator(net2, start_time_zero=False)
-
-        probe_t3d = pb.Probe(generated[t3d][0], "spike")
-        sim2.add_probe(probe_t3d)
-
-        if len(shape) == 2:
-            shape = (1,) + shape
-
-        inpa = np.random.randint(0, 2, size=(N_TEST,) + as_shape(shape), dtype=np.bool)
-
-        for i in range(N_TEST):
-            pb.FRONTEND_ENV.save(data1=inpa[i])
-            sim1.run(1)
-            sim2.run(1)
-
-        for i in range(2, N_TEST):
-            expected = inpa[i - 1].transpose(axes).ravel()
-            assert np.array_equal(sim1.data[net1.probe1][i], expected)
-            assert np.array_equal(sim2.data[probe_t3d][i], expected)
-
-        for i in range(3, N_TEST):
-            expected = inpa[i - 2].transpose(axes).ravel()
-            assert np.array_equal(sim1.data[net1.probe2][i], expected)
-
-    @pytest.mark.skipif(hasattr(pb.Transpose2d, "__deprecated__"), reason="deprecated")
-    def test_Transpose3d_mapping(self, ensure_dump_dir):
-        from tests.shared_networks import TransposeModule_T3d_Net
-
-        net1 = TransposeModule_T3d_Net((28, 28), (2, 0, 1))
-
-        mapper = pb.Mapper()
-        mapper.build(net1)
-        mapper.compile()
-        mapper.export(fp=ensure_dump_dir)
-
     @pytest.mark.parametrize(
         conv2d_semifolded_fc_chainnet_data["args"],
         conv2d_semifolded_fc_chainnet_data["data"],
@@ -1344,7 +1249,7 @@ class TestFunctionalModules:
 
         # s1 & s2 are in inference mode
         net.eval()
-        sim.run(1)
+        sim.run(2)
         w1_1 = sim.data[prob_syn1][-1]
         w2_1 = sim.data[prob_syn2][-1]
 
