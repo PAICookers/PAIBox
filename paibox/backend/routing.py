@@ -27,7 +27,6 @@ from .placement import CoreBlock, EmptyCorePlacement
 from .succ_group import MergedSuccGroup
 from .types import EdgeType, NodeType, _1st_core_coord_repr
 
-
 __all__ = ["RoutingGroup", "RoutingManager"]
 
 rt_grp_log = _logging.get_artifact_logger(__name__, "routing_group_info")

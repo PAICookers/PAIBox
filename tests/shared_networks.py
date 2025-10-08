@@ -419,9 +419,7 @@ class STDPLinearNet(pb.Network):
         lut1[:30] = -1
         lut1[30:] = 1
 
-        self.n1 = pb.STDPLIF(
-            in_features2, 10, lateral_inhi_value=1, tick_wait_start=1
-        )
+        self.n1 = pb.STDPLIF(in_features2, 10, lateral_inhi_value=1, tick_wait_start=1)
         self.n2 = pb.STDPLIF(out_features, 1, -1, tick_wait_start=2)
 
         self.s1 = pb.STDPFullConn(self.input, self.n1, weight1, lut=lut1)

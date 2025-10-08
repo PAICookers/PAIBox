@@ -1,5 +1,5 @@
-from collections.abc import Sequence
 import warnings
+from collections.abc import Sequence
 from typing import Any, Literal, Optional, Union
 
 import numpy as np

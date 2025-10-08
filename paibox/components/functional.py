@@ -34,10 +34,15 @@ from .neuron import *
 from .neuron.base import bit_truncate
 from .neuron.utils import NeuFireState, v_overflow
 from .projection import InputProj
-from .synapses import ConnType, Conv2dSemiFoldedSyn, FullConnSyn, MaxPoolSyn
+from .synapses import (
+    ConnType,
+    Conv2dSemiFoldedSyn,
+    FullConnSyn,
+    MaxPoolSyn,
+    STDPFullConn,
+)
 from .synapses.conv_types import Size2Type, _Size1Type, _Size2Type
 from .synapses.conv_utils import _conv1d_oshape, _pair, group_ch_check
-from .synapses import STDPFullConn
 
 if typing.TYPE_CHECKING:
     from paibox.network import DynSysGroup
