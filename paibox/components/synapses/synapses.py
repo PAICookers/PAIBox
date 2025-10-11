@@ -1,5 +1,4 @@
-from typing import Any, ClassVar, Optional, Union
-
+from typing import ClassVar, Optional, Union
 import numpy as np
 from numpy.typing import ArrayLike
 
@@ -297,6 +296,8 @@ class STDPFullConn(STDPSyn, FullConnSyn):
             plasticity_range,
             learn_by_default,
         )
+        # Store synapse's attributes to the target neuron.
+        self.target._set_syn_attrs(**self.attrs())
 
     def update(self, x: Optional[NeuOutType] = None, *args, **kwargs) -> SynOutType:
         synout = super(STDPSyn, self).update(x)
@@ -308,9 +309,3 @@ class STDPFullConn(STDPSyn, FullConnSyn):
     def reset_state(self, *args, **kwargs) -> None:
         super().reset_state(*args, **kwargs)
         super(STDPSyn, self).reset_state(*args, **kwargs)
-
-    def attrs(self, for_copy: bool = False) -> dict[str, Any]:
-        attrs = {}
-        attrs |= super().attrs(for_copy)
-
-        return attrs

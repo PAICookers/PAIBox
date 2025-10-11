@@ -1,14 +1,15 @@
 import warnings
-from typing import Any, Optional, TypedDict, Union
+from typing import Optional, TypedDict, Union
 
 import numpy as np
-from numpy.typing import ArrayLike
+from numpy.typing import ArrayLike, NDArray
 
 from paibox._logging import get_artifact_logger
 from paibox.base import LearnableSys
 from paibox.exceptions import ParamNotSimulatedWarning
 from paibox.types import WEIGHT_DTYPE, NeuOutType, WeightType
 from paibox.utils import arg_check_pos
+from paicorelib import LUTDataType
 
 from .base import FullConnectedSyn
 from .lut import LUT
@@ -23,6 +24,21 @@ SPIKE_CNT_DTYPE = np.uint8
 SPIKE_CNT_BIT_MAX = 5
 PRE_CNT_MAX = (1 << SPIKE_CNT_BIT_MAX) - 1
 POST_CNT_MAX = PRE_CNT_MAX
+
+
+class STDPSynAttrKwds(TypedDict):
+    """Attributes of `STDPSyn` but stored in online neurons."""
+
+    weight_decay_value: WEIGHT_DTYPE
+    upper_weight: int
+    lower_weight: int
+    lut: LUTDataType
+    lut_random_en: NDArray[np.uint8]
+    decay_random_en: bool
+    random_seed: int
+    online_mode_en: bool
+    plasticity_start: int
+    plasticity_end: int
 
 
 class STDPSyn(LearnableSys):
@@ -167,32 +183,19 @@ class STDPSyn(LearnableSys):
         # Finally, clip the weight to the range
         np.clip(w, self.lower_weight, self.upper_weight, out=w)
 
-    def attrs(self, for_copy: bool = False) -> dict[str, Any]:
-        attrs = {
-            "weight_decay_value": self.weight_decay,
-            "upper_weight": self.upper_weight,
-            "lower_weight": self.lower_weight,
-            "lut": self.lut.lut,
+    def attrs(self) -> STDPSynAttrKwds:
+        attrs = STDPSynAttrKwds(
+            weight_decay_value=self.weight_decay,
+            upper_weight=self.upper_weight,
+            lower_weight=self.lower_weight,
+            lut=self.lut.lut,
             # np.bool -> np.uint8
-            "lut_random_en": self.lut.lut_random_en.astype(np.uint8),
-            "decay_random_en": self.weight_decay_random,
-            "random_seed": self.random_seed,
-            "online_mode_en": self.learn_by_default,  # init value
+            lut_random_en=self.lut.lut_random_en.astype(np.uint8),
+            decay_random_en=self.weight_decay_random,
+            random_seed=self.random_seed,
+            online_mode_en=self.learn_by_default,  # init value
             # Attributes for the online neurons
-            "plasticity_start": self.plasticity_range[0],
-            "plasticity_end": self.plasticity_range[1],
-        }
-
+            plasticity_start=self.plasticity_range[0],
+            plasticity_end=self.plasticity_range[1],
+        )
         return attrs
-
-
-class STDPSynAttrKwds(TypedDict, total=False):
-    weight_decay: int
-    upper_weight: Optional[int]
-    lower_weight: Optional[int]
-    weight_decay_random: bool
-    lut: Optional[ArrayLike]
-    lut_offset: Optional[int]
-    lut_random: Union[bool, ArrayLike]
-    random_seed: int
-    learn_by_default: bool

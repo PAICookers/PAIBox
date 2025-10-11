@@ -1,8 +1,10 @@
-import warnings
 from collections.abc import Sequence
-from typing import Any, Literal, Optional, Union
+import sys
+import warnings
+from typing import Any, ClassVar, Literal, Optional, Union, TYPE_CHECKING
 
 import numpy as np
+from numpy.typing import NDArray
 from paicorelib import (
     LCM,
     LDM,
@@ -16,6 +18,7 @@ from paicorelib import (
     SNNModeEnable,
     SpikeWidthFormat,
     get_core_mode,
+    LUTDataType,
 )
 
 from paibox.base import DataFlowFormat, NeuDyn, is_learnable
@@ -23,13 +26,13 @@ from paibox.exceptions import ConfigInvalidError, ParamNotSimulatedWarning, Shap
 from paibox.types import (
     NEUOUT_U8_DTYPE,
     VOLTAGE_DTYPE,
+    WEIGHT_DTYPE,
     LeakVType,
     NeuOutType,
     Shape,
     VoltageType,
 )
 from paibox.utils import arg_check_non_neg, arg_check_pos, as_shape, shape2num
-
 from .utils import (
     BIT_TRUNC_MAX,
     NEG_THRES_MAX,
@@ -42,6 +45,14 @@ from .utils import (
     get_delay_reg_len,
     v_overflow,
 )
+
+if sys.version_info >= (3, 11):
+    from typing import Unpack
+else:
+    from typing_extensions import Unpack
+
+if TYPE_CHECKING:
+    from ..synapses.learning import STDPSynAttrKwds
 
 __all__ = ["Neuron", "OfflineNeuron", "OnlineNeuron"]
 
@@ -64,6 +75,7 @@ class Neuron(NeuDyn):
 
     rt_mode_kwds: RTModeKwds
     mode: CoreMode
+    online: ClassVar[bool]
 
     def __init__(
         self,
@@ -342,6 +354,8 @@ def bit_truncate(v: VoltageType, bit: int = 8) -> VoltageType:
 
 
 class OfflineNeuron(Neuron):
+    online: ClassVar[bool] = False
+
     def __init__(
         self,
         shape: Shape,
@@ -604,13 +618,25 @@ class OfflineNeuron(Neuron):
 
 
 class OnlineNeuron(Neuron):
-    # XXX reserve these parameters for the time being
     rt_mode_kwds = {
         "input_width": InputWidthFormat.WIDTH_1BIT,
         "spike_width": SpikeWidthFormat.WIDTH_1BIT,
         "snn_en": SNNModeEnable.ENABLE,
     }
     mode = CoreMode.MODE_SNN
+    online: ClassVar[bool] = True
+
+    # STDP synapse's attributes
+    weight_decay_value: WEIGHT_DTYPE
+    upper_weight: int
+    lower_weight: int
+    lut: LUTDataType
+    lut_random_en: NDArray[np.uint8]
+    decay_random_en: bool
+    random_seed: int
+    online_mode_en: bool
+    plasticity_start: int
+    plasticity_end: int
 
     def __init__(
         self,
@@ -678,6 +704,9 @@ class OnlineNeuron(Neuron):
         if lateral_inhi_target is not None:
             self.set_lateral_inhi_target(lateral_inhi_target)
 
+        # Wether `_set_syn_attrs` is called by source STDP synapse for at least one time.
+        self.syn_attrs_set = False
+
     def set_lateral_inhi_target(
         self, target: Union["OnlineNeuron", Sequence["OnlineNeuron"]]
     ) -> None:
@@ -692,6 +721,21 @@ class OnlineNeuron(Neuron):
                 t.lateral_inhi_source.add(t)
 
             self.lateral_inhi_target.update(target)
+
+    def _set_syn_attrs(self, **kwargs: Unpack["STDPSynAttrKwds"]) -> None:
+        """Set the synapse attributes called by the source STDP synapse only."""
+        for k, v in kwargs.items():
+            if k not in self.__annotations__:
+                raise ValueError(f"'{k}' is not a valid annotation.")
+            elif hasattr(self, k):
+                if (cur_v := getattr(self, k)) != v:
+                    raise ValueError(
+                        f"Synapse's attribute '{k}' already exists, but with a different value: {cur_v} != {v}"
+                    )
+            else:
+                setattr(self, k, v)
+
+        self.syn_attrs_set = True
 
     def _aux_pre_hook(self, *args, **kwargs) -> None:
         """Pre-hook before the entire update."""
@@ -784,5 +828,19 @@ class OnlineNeuron(Neuron):
             "lateral_inhi_value": self.lateral_inhi_value,
             "neg_threshold": self.neg_threshold,  # signed int
         }
+        if self.syn_attrs_set:
+            attrs |= {
+                # Attributes of source STDP synapse `STDPSynAttrKwds`
+                "weight_decay_value": self.weight_decay_value,
+                "upper_weight": self.upper_weight,
+                "lower_weight": self.lower_weight,
+                "lut": self.lut,
+                "lut_random_en": self.lut_random_en,
+                "decay_random_en": self.decay_random_en,
+                "random_seed": self.random_seed,
+                "online_mode_en": self.online_mode_en,
+                "plasticity_start": self.plasticity_start,
+                "plasticity_end": self.plasticity_end,
+            }
         attrs |= super().attrs(for_copy)
         return attrs

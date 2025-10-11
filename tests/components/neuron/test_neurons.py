@@ -15,7 +15,7 @@ from paicorelib import (
     OfflineNeuAttrs,
     OnlineNeuAttrs,
 )
-from paicorelib import WeightWidth as WW
+from paicorelib import WeightWidth as WW, LUT_DTYPE
 
 import paibox as pb
 from paibox.components import OfflineNeuron
@@ -889,6 +889,40 @@ class TestOnlineNeuron:
 
         with open(fp2, "w") as f:
             json.dump({n2.name: attrs_dict}, f, indent=2, cls=NeuCfgJsonEncoder)
+
+    def test_attrs_stdp_syn_export(self, ensure_dump_dir):
+        n1 = pb.IF(100)
+        n2 = pb.STDPLIF(
+            (100,), 3, leak_v=-2, init_v=np.arange(100, dtype=VOLTAGE_DTYPE)
+        )
+        lut = np.zeros((60,), dtype=LUT_DTYPE)
+        lut[:30] = -1
+        lut[30:] = 2
+        s1 = pb.STDPFullConn(
+            n1,
+            n2,
+            np.ones((n1.num_out, n2.num_in), dtype=np.int8),
+            upper_weight=99,
+            lower_weight=-100,
+            weight_decay=-1,
+            lut=lut,
+            random_seed=2,
+        )
+
+        attrs = n2.attrs()
+        assert attrs["weight_decay_value"] == -1
+        assert attrs["upper_weight"] == 99
+
+        # Check `n2._set_syn_attrs`
+        n3 = pb.IF(100)
+        with pytest.raises(ValueError):
+            s2 = pb.STDPFullConn(
+                n3, n2, np.ones((n1.num_out, n2.num_in), dtype=np.int8), lut=lut
+            )
+
+        # Set an invalid attribute to n2
+        with pytest.raises(ValueError):
+            n2._set_syn_attrs(weight_decay=-1)  # type: ignore
 
 
 class TestSpecialTypeNeuron:
