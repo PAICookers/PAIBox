@@ -4,7 +4,7 @@ from typing import Generic, Optional, Protocol, TypeVar, Union, cast, runtime_ch
 
 from paicorelib import MaxPoolingEnable, WeightWidth
 
-from paibox.components import InputProj, Neuron, OnlineNeuron, OfflineNeuron
+from paibox.components import InputProj, Neuron, OfflineNeuron, OnlineNeuron
 from paibox.types import WeightType
 
 from .types import EdgeType, NodeType
@@ -157,14 +157,14 @@ class NeuronSlice(NodeSlice[Neuron]):
             return self.target.pool_max
         else:
             raise ValueError("OnlineNeuron don't have pool_max")
-    
+
     @property
     def lateral_inhi_target(self) -> set[OnlineNeuron]:
         if isinstance(self.target, OnlineNeuron):
             return self.target.lateral_inhi_target
         else:
             raise ValueError("OfflineNeuron don't have later_inhi_target")
-    
+
     @property
     def lateral_inhi_source(self) -> set[OnlineNeuron]:
         if isinstance(self.target, OnlineNeuron):

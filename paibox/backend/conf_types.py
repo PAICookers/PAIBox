@@ -3,16 +3,17 @@ from abc import abstractmethod
 from dataclasses import asdict, dataclass, fields, is_dataclass
 from enum import Enum
 from typing import Any, NamedTuple, TypedDict, Union
-from paibox.types import WEIGHT_DTYPE
+
 import numpy as np
 from numpy.typing import NDArray
 from paicorelib import (
     LCN_EX,
-    LeakOrder,
     ChipCoord,
     Coord,
     CoreReg,
+    DecayRandomEnable,
     InputWidthFormat,
+    LeakOrder,
     MaxPoolingEnable,
     NeuAttrs,
     NeuDestInfo,
@@ -21,17 +22,18 @@ from paicorelib import (
     OfflineNeuConf,
     OfflineNeuDestInfo,
     OnlineCoreReg,
+    OnlineModeEnable,
     OnlineNeuAttrs,
     OnlineNeuConf,
     OnlineNeuDestInfo,
-    OnlineModeEnable,
     SNNModeEnable,
     SpikeWidthFormat,
     WeightWidth,
-    DecayRandomEnable,
     get_replication_id,
 )
 from paicorelib.framelib.types import LUT_DTYPE, LUTDataType
+
+from paibox.types import WEIGHT_DTYPE
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias
@@ -338,14 +340,14 @@ class OfflineNeuConfig(NeuConfig):
 @dataclass(frozen=True)
 class OnlineNeuConfig(NeuConfig):
     weight_width: WeightWidth
-    
+
     def __getitem__(self, s: slice) -> "OnlineNeuConfig":
         return OnlineNeuConfig(
             self.neu_seg[s],
             self.axon_coords[s],
             self.dest_core_coords,
             self.dest_chip_coord,
-            self.weight_width
+            self.weight_width,
         )
 
     def export(self) -> OnlineNeuConf:
@@ -369,7 +371,9 @@ class OnlineNeuConfig(NeuConfig):
 
     @property
     def neuron_attrs(self) -> OnlineNeuAttrs:
-        return OnlineNeuAttrs.model_validate(self.neu_seg.attrs, strict=True, context={"weight_width": self.weight_width})
+        return OnlineNeuAttrs.model_validate(
+            self.neu_seg.attrs, strict=True, context={"weight_width": self.weight_width}
+        )
 
     @property
     def neuron_dest_info(self) -> OnlineNeuDestInfo:

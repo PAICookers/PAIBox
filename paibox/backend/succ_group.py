@@ -1,6 +1,6 @@
 from collections import UserList, defaultdict
 from collections.abc import Generator, Iterable
-from typing import cast, Optional
+from typing import Optional, cast
 
 from ..utils import check_elem_same
 from .types import EdgeType, NodeType
@@ -60,8 +60,14 @@ __all__ = ["SuccGroup", "MergedSuccGroup"]
 
 #         return _repr
 
+
 class SuccGroup:
-    def __init__(self,  edges: list[EdgeType], nodes: list[NodeType] = [], group_type: str = "data") -> None:
+    def __init__(
+        self,
+        edges: list[EdgeType],
+        nodes: list[NodeType] = [],
+        group_type: str = "data",
+    ) -> None:
         if group_type == "data" and len(nodes) == 0:
             self.raw_edges = set(edges)
             self.raw_nodes = set([cast(NodeType, e.target) for e in self.raw_edges])
@@ -75,28 +81,28 @@ class SuccGroup:
         for e in edges:
             target = cast(NodeType, e.target)
             self.edges_dict[target].append(e)
-    
+
     @property
     def input(self) -> Optional[NodeType]:
         if len(self.raw_edges) == 0:
             return None
         return cast(NodeType, next(iter(self.raw_edges)).source)
-    
+
     @property
     def nodes(self) -> list[NodeType]:
         return list(self.raw_nodes)
-    
+
     @property
     def edges(self) -> list[EdgeType]:
         return list(self.raw_edges)
-    
+
     def remove_node(self, node: NodeType) -> "SuccGroup":
         if self.group_type == "inhi":
             raise ValueError("Cannot remove node from inhi group.")
         new_nodes = self.raw_nodes - {node}
         new_edges = self.raw_edges - set(self.edges_dict.get(node, []))
         return SuccGroup(list(new_edges), list(new_nodes), group_type=self.group_type)
-    
+
     def reserve_node(self, reserve_nodes: set[NodeType]) -> Optional["SuccGroup"]:
         new_nodes = self.raw_nodes.intersection(reserve_nodes)
         if len(new_nodes) == 0:
@@ -105,24 +111,26 @@ class SuccGroup:
         for n in new_nodes:
             new_edges.update(self.edges_dict.get(n, []))
         return SuccGroup(list(new_edges), list(new_nodes), group_type=self.group_type)
-            
-    
+
     def __eq__(self, other: "SuccGroup") -> bool:
         return self.raw_edges == other.raw_edges and self.raw_nodes == other.raw_nodes
 
     def __hash__(self) -> int:
         return hash((frozenset(self.raw_edges), frozenset(self.raw_nodes)))
 
-    def __str__(self, ind1 = "\t") -> str:
+    def __str__(self, ind1="\t") -> str:
         _repr = f"{ind1}{self.__class__.__name__}:\n"
-        
+
         ind1 += "\t"
         for node, edges in self.edges_dict.items():
             if self.group_type == "inhi":
                 _repr += ind1 + f"Inhi node: {node.name}\n"
             else:
                 for edge in edges:
-                    _repr += ind1 + f"Edge {edge.name}: {edge.source.name} -> {edge.target.name}\n"
+                    _repr += (
+                        ind1
+                        + f"Edge {edge.name}: {edge.source.name} -> {edge.target.name}\n"
+                    )
 
         return _repr
 
@@ -153,14 +161,14 @@ class MergedSuccGroup(UserList[SuccGroup]):
             self.add_group(a)
 
         return to_remove
-    
+
     def reserve_node(self, reserve_nodes: set[NodeType]) -> "MergedSuccGroup":
         new_sgrps = []
         for sgrp in self:
             new_sgrp = sgrp.reserve_node(reserve_nodes)
             if new_sgrp is not None:
                 new_sgrps.append(new_sgrp)
-        
+
         return MergedSuccGroup(new_sgrps)
 
     @property
@@ -169,7 +177,7 @@ class MergedSuccGroup(UserList[SuccGroup]):
         for g in self:
             if g.input is not None:
                 result.append(g.input)
-            
+
         return result
 
     @property

@@ -24,13 +24,13 @@ class GraphNodeConstrs(Constraints):
         "tick_wait_end",
     ]
     """Node attributes that are actually the parameters of the cores."""
-    
+
     online_node_constr_attrs: ClassVar[list[NodeConstrsAttr]] = [
         "tick_wait_start",
         "tick_wait_end",
         "lateral_inhi_target",
         "lateral_inhi_source",
-        "lateral_inhi_value"
+        "lateral_inhi_value",
     ]
 
     @classmethod

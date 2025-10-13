@@ -3,8 +3,7 @@ from typing import Optional, Union, overload
 
 import numpy as np
 from numpy.typing import ArrayLike
-from paicorelib import OnCoreCfg
-from paicorelib import LUT_DTYPE, LUTDataType
+from paicorelib import LUT_DTYPE, LUTDataType, OnCoreCfg
 
 from paibox.exceptions import PAIBoxWarning, ParamNotSimulatedWarning
 

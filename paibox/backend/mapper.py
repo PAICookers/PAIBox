@@ -6,7 +6,7 @@ from copy import copy
 from pathlib import Path
 from typing import Literal, Optional, Union, cast
 
-from paicorelib import ChipCoord, CoordOffset, HwConfig, Coord, ReplicationId
+from paicorelib import ChipCoord, Coord, CoordOffset, HwConfig, ReplicationId
 
 from paibox import _logging
 from paibox.base import SynSys
@@ -34,7 +34,14 @@ from .graph_utils import (
     merge_overlapping_sets,
 )
 from .graphs import PAIGraph
-from .placement import CoreBlock, SourceDest, aligned_coords, max_lcn_of_cb, OnlineCoreBlock, get_replication_id
+from .placement import (
+    CoreBlock,
+    OnlineCoreBlock,
+    SourceDest,
+    aligned_coords,
+    get_replication_id,
+    max_lcn_of_cb,
+)
 from .routing import RoutingGroup, RoutingManager
 from .succ_group import *
 from .types import (
@@ -246,15 +253,15 @@ class Mapper:
         """Build core blocks based on partitioned edges."""
         # Graph partitioning
         merged_sgrps = self.graph.graph_partition()
-        
+
         for merged_sgrp in merged_sgrps:
             log.info(merged_sgrp)
-        
+
         merged_sgrps = merge_cycles(merged_sgrps)
-        
+
         for merged_sgrp in merged_sgrps:
             log.debug(merged_sgrp)
-        
+
         # Build routing groups
         raw_rgrps: list[RoutingGroup] = []
         for msgrp in merged_sgrps:
@@ -510,20 +517,22 @@ class Mapper:
                 self.neuron_dest[source_slice.target].add_dest(
                     source_slice, axon_seg, cb
                 )
-        
+
         inhi_dest_coords: dict[OnlineCoreBlock, list[Coord]] = defaultdict(list)
         online_cbs: list[OnlineCoreBlock] = list()
         for cb in self.core_blocks:
             if not cb.online:
                 continue
             online_cbs.append(cast(OnlineCoreBlock, cb))
-        
+
         for cb_source in online_cbs:
             for cb_dest in online_cbs:
                 # a coreblock must inhi itself
-                if not cb_source.laterl_inhi_target.isdisjoint(cb_dest.laterl_inhi_source):
+                if not cb_source.laterl_inhi_target.isdisjoint(
+                    cb_dest.laterl_inhi_source
+                ):
                     inhi_dest_coords[cb_source].extend(cb_dest.core_coords)
-        
+
         for cb, dest_coords in inhi_dest_coords.items():
             _, rid = get_replication_id(dest_coords)
             cb.inhi_rid = rid

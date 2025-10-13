@@ -6,7 +6,13 @@ from typing import Any, Optional, Union, cast
 
 from paibox.base import DataFlowFormat
 from paibox.collector import Collector
-from paibox.components import FullConnectedSyn, InputProj, NeuModule, Neuron, OnlineNeuron
+from paibox.components import (
+    FullConnectedSyn,
+    InputProj,
+    NeuModule,
+    Neuron,
+    OnlineNeuron,
+)
 from paibox.components.functional import LinearSemiFolded
 from paibox.exceptions import (
     GraphBuildError,
@@ -298,11 +304,13 @@ class PAIGraph:
             if succ_nodes := self.succ_dg[nn]:
                 succ_edges = [e_attr.edge for e_attr in succ_nodes.values()]
                 succ_grps.append(SuccGroup(succ_edges, [], group_type="data"))
-        
+
         for node in self.nodes.subset(Neuron).values():
             if node.online:
                 node = cast(OnlineNeuron, node)
-                inhi_group = SuccGroup([], list(node.lateral_inhi_target), group_type="inhi")
+                inhi_group = SuccGroup(
+                    [], list(node.lateral_inhi_target), group_type="inhi"
+                )
                 succ_grps.append(inhi_group)
 
         def dfs(sgrp: SuccGroup, msgrp: MergedSuccGroup) -> None:

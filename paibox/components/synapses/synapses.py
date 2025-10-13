@@ -1,4 +1,5 @@
 from typing import ClassVar, Optional, Union
+
 import numpy as np
 from numpy.typing import ArrayLike
 

@@ -8,6 +8,7 @@ from paicorelib import (
     LCM,
     LDM,
     LIM,
+    LUT_DTYPE,
     NTM,
     RM,
     SIM,
@@ -15,7 +16,7 @@ from paicorelib import (
     OfflineNeuAttrs,
     OnlineNeuAttrs,
 )
-from paicorelib import WeightWidth as WW, LUT_DTYPE
+from paicorelib import WeightWidth as WW
 
 import paibox as pb
 from paibox.components import OfflineNeuron

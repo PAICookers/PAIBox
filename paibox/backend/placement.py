@@ -4,22 +4,23 @@ import warnings
 from abc import ABC, abstractmethod
 from collections import UserList
 from dataclasses import dataclass, field
-from typing import ClassVar, Literal, NamedTuple, Optional, overload, cast
+from typing import ClassVar, Literal, NamedTuple, Optional, cast, overload
+
 import numpy as np
 from numpy.typing import NDArray
 from paicorelib import (
+    LCM,
     LCN_EX,
-    LeakOrder,
     ChipCoord,
     Coord,
     CoreMode,
+    DecayRandomEnable,
     HwConfig,
+    LeakOrder,
     MaxPoolingEnable,
     OffCoreCfg,
     OnCoreCfg,
     OnlineModeEnable,
-    DecayRandomEnable,
-    LCM
 )
 from paicorelib import ReplicationId as RId
 from paicorelib import WeightWidth as WW
@@ -659,20 +660,19 @@ class OnlineCoreBlock(CoreBlock):
             seed = 1
 
         return cls(*synapses, seed=seed)
-    
+
     @property
     def first_neuron(self) -> OnlineNeuron:
         online_neu = cast(OnlineNeuron, self.dest[0].target)
         return online_neu
-    
+
     @property
     def laterl_inhi_target(self) -> set[OnlineNeuron]:
         return self.first_neuron.lateral_inhi_target
-    
+
     @property
     def laterl_inhi_source(self) -> set[OnlineNeuron]:
         return self.first_neuron.lateral_inhi_source
-    
 
     @property
     def lateral_inhi_value(self) -> int:
@@ -1448,7 +1448,11 @@ class OnlineCorePlacement(CorePlacement):
                     is_iw8(dest.rt_mode),
                 )
                 config = OnlineNeuConfig(
-                    seg, axon_coords, dest.dest_coords, dest.dest_chip_coord, self.weight_width
+                    seg,
+                    axon_coords,
+                    dest.dest_coords,
+                    dest.dest_chip_coord,
+                    self.weight_width,
                 )
                 self.neu_configs[seg.target] = config
         else:
@@ -1475,7 +1479,7 @@ class OnlineCorePlacement(CorePlacement):
                 [output_core_coord],
                 # output chip coordinate for output node
                 _BACKEND_CONTEXT.output_chip_addr,
-                self.weight_width
+                self.weight_width,
             )
 
             self.neu_configs[neu_seg.target] = config

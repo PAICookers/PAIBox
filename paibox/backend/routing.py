@@ -296,7 +296,7 @@ class RoutingGroup:
     def optimize_routing_elems(self) -> list["RoutingGroup"]:
         if self.online:
             return [self]
-        
+
         # Optimize unordered elements by recursively optimizing sub-routing groups
         optim_unordered: UnorderedElemsType = []
         for elem in self.unordered_elems:
@@ -395,15 +395,13 @@ class RoutingGroup:
                 cbs += elem.core_blocks
 
         return cbs
-    
-    
 
     @classmethod
     def build(
         cls, merged_sgrp: MergedSuccGroup, is_root: bool = False
     ) -> "RoutingGroup":
         sub_nodes: set[NodeType] = set()
-        
+
         online_values = {n.online for n in merged_sgrp.nodes}
         if len(online_values) != 1:
             raise NotSupportedError(
@@ -414,11 +412,10 @@ class RoutingGroup:
         # If an input node in the merged groups is an output node of the merged groups, the node is
         # recorded and called a subordinate node.
         global_nodes = set(merged_sgrp.nodes)
-        raw_inhi_groups:list[set[NodeType]] = []
+        raw_inhi_groups: list[set[NodeType]] = []
         raw_data_groups: list[set[NodeType]] = []
-        
-        
-        def print_nodes(nodes:set[NodeType]):
+
+        def print_nodes(nodes: set[NodeType]):
             print([node.name for node in nodes])
 
         def filter_sets(sets: list[set]) -> list[set]:
@@ -430,10 +427,12 @@ class RoutingGroup:
                         continue
                     # 若部分相交但不是子集关系
                     if not (a.issubset(b) or b.issubset(a) or a.isdisjoint(b)):
-                        raise ValueError(f"Can not support inhi {a} and {b} with partial overlap.")
+                        raise ValueError(
+                            f"Can not support inhi {a} and {b} with partial overlap."
+                        )
 
             # 去掉子集（保留最大集）
-            filtered:list[set] = []
+            filtered: list[set] = []
             for s in sets:
                 print_nodes(s)
                 if not any(s < other for other in sets):
@@ -447,7 +446,7 @@ class RoutingGroup:
                         filtered.append(s)
 
             return filtered
-        
+
         def merge_sets(sets: list[set]) -> list[set]:
             visited: set[int] = set()
 
@@ -476,11 +475,11 @@ class RoutingGroup:
             else:
                 if group.input in merged_sgrp.nodes:
                     raw_data_groups.append(set(group.nodes))
-        
+
         filtered_inhi_groups = filter_sets(raw_inhi_groups)
         merged_data_groups = merge_sets(raw_data_groups)
-        
-        inhi_groups:list[set[NodeType]] = []
+
+        inhi_groups: list[set[NodeType]] = []
 
         for inhi_group in filtered_inhi_groups:
             independent = True
@@ -490,25 +489,21 @@ class RoutingGroup:
                     independent = False
             if independent:
                 inhi_groups.append(inhi_group)
-        
+
         data_groups = merge_sets(merged_data_groups)
-        
-        
-        
+
         if len(data_groups) == 1 and merged_data_groups[0] == global_nodes:
-            raise ValueError(f"Cannot make groups {data_group} and {inhi_groups} independent.")
-        
+            raise ValueError(
+                f"Cannot make groups {data_group} and {inhi_groups} independent."
+            )
+
         remaining_nodes = global_nodes.copy()
         for group in data_groups:
             remaining_nodes -= group
-        
+
         for group in inhi_groups:
             remaining_nodes -= group
-        
-        
-        
-        
-        
+
         # print("raw data nodes:")
         # for g in raw_data_groups:
         #     print_nodes(g)
@@ -518,8 +513,7 @@ class RoutingGroup:
         # print("data nodes:")
         # for g in data_groups:
         #     print_nodes(g)
-        
-        
+
         # print("raw inhi nodes:")
         # for g in raw_inhi_groups:
         #     print_nodes(g)
@@ -531,12 +525,14 @@ class RoutingGroup:
         #     print_nodes(g)
         # print("remaining nodes:")
         # print_nodes(remaining_nodes)
-        
+
         data_msgrps = [merged_sgrp.reserve_node(g) for g in data_groups]
         inhi_msgrps = [merged_sgrp.reserve_node(g) for g in inhi_groups]
         remaining_msgrp = merged_sgrp.reserve_node(remaining_nodes)
-        
-        data_msgrp_graph: dict[MergedSuccGroup, list[MergedSuccGroup]] = defaultdict(list)
+
+        data_msgrp_graph: dict[MergedSuccGroup, list[MergedSuccGroup]] = defaultdict(
+            list
+        )
         for i in range(len(data_msgrps)):
             cur_node = data_msgrps[i]
             data_msgrp_graph[cur_node] = []
@@ -546,25 +542,25 @@ class RoutingGroup:
                 succ_node = data_msgrps[j]
                 if not set(succ_node.inputs).isdisjoint(cur_node.nodes):
                     data_msgrp_graph[cur_node].append(succ_node)
-        
+
         data_msgrps = toposort(data_msgrp_graph)
-        
+
         # print("after toposort the result is: ")
         # for data_msgrp in data_msgrps:
         #     print(data_msgrp)
-        
+
         ordered_elems: OrderedElemsType = []
         unordered_elems: UnorderedElemsType = []
         for msgrp in data_msgrps:
             if len(msgrp) > 0:
                 data_rgrp = RoutingGroup.build(msgrp)
                 ordered_elems.append(data_rgrp)
-        
+
         for msgrp in inhi_msgrps:
             if len(msgrp.nodes) > 0:
                 inhi_rgrp = RoutingGroup.build(msgrp)
                 unordered_elems.append(inhi_rgrp)
-        
+
         if len(remaining_msgrp.nodes) > 0:
             unordered_elems.extend(build_elements(remaining_msgrp, online))
 
@@ -959,10 +955,10 @@ class RoutingManager:
             else:
                 # the online cores in this chip are available, move stack until online cores
                 while not self.in_online:
-                    cur_end_in_chip = (self.cur_end - 1) % HwConfig.N_CORE_MAX_INCHIP + 1
-                    if (
-                        cur_end_in_chip <= ONLINE_CORES_BASE_COORD
-                    ):
+                    cur_end_in_chip = (
+                        self.cur_end - 1
+                    ) % HwConfig.N_CORE_MAX_INCHIP + 1
+                    if cur_end_in_chip <= ONLINE_CORES_BASE_COORD:
                         self.stack_pop()
                     else:
                         online_child_index = (

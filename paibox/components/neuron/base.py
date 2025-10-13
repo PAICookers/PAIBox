@@ -1,7 +1,7 @@
-from collections.abc import Sequence
 import sys
 import warnings
-from typing import Any, ClassVar, Literal, Optional, Union, TYPE_CHECKING
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -14,11 +14,11 @@ from paicorelib import (
     SIM,
     CoreMode,
     InputWidthFormat,
+    LUTDataType,
     MaxPoolingEnable,
     SNNModeEnable,
     SpikeWidthFormat,
     get_core_mode,
-    LUTDataType,
 )
 
 from paibox.base import DataFlowFormat, NeuDyn, is_learnable
@@ -33,6 +33,7 @@ from paibox.types import (
     VoltageType,
 )
 from paibox.utils import arg_check_non_neg, arg_check_pos, as_shape, shape2num
+
 from .utils import (
     BIT_TRUNC_MAX,
     NEG_THRES_MAX,
@@ -355,6 +356,7 @@ def bit_truncate(v: VoltageType, bit: int = 8) -> VoltageType:
 
 class OfflineNeuron(Neuron):
     online: ClassVar[bool] = False
+
     def __init__(
         self,
         shape: Shape,
