@@ -1,4 +1,5 @@
 from typing import ClassVar, Optional, Union
+
 import numpy as np
 from numpy.typing import ArrayLike
 
@@ -263,6 +264,7 @@ class ConvTranspose2d(ConvTranspose2dSyn):
 
 class STDPFullConn(STDPSyn, FullConnSyn):
     CFLAG_ENABLE_WP_OPTIMIZATION: ClassVar[bool] = False
+    online: ClassVar[bool] = True
 
     def __init__(
         self,

@@ -11,7 +11,9 @@ from paicorelib import (
     ChipCoord,
     Coord,
     CoreReg,
+    DecayRandomEnable,
     InputWidthFormat,
+    LeakOrder,
     MaxPoolingEnable,
     NeuAttrs,
     NeuDestInfo,
@@ -20,6 +22,7 @@ from paicorelib import (
     OfflineNeuConf,
     OfflineNeuDestInfo,
     OnlineCoreReg,
+    OnlineModeEnable,
     OnlineNeuAttrs,
     OnlineNeuConf,
     OnlineNeuDestInfo,
@@ -29,6 +32,8 @@ from paicorelib import (
     get_replication_id,
 )
 from paicorelib.framelib.types import LUT_DTYPE, LUTDataType
+
+from paibox.types import WEIGHT_DTYPE
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias
@@ -160,14 +165,14 @@ class OnlineCoreConfig(CoreConfig):
     lower_weight: int
     neuron_start: int
     neuron_end: int
-    inhi_core_x_ex: Coord
-    inhi_core_y_ex: Coord
+    inhi_core_x_ex: int
+    inhi_core_y_ex: int
     tick_wait_start: int
     tick_wait_end: int
-    lut_random_en: bool
-    decay_random_en: bool
-    leak_order: bool
-    online_mode_en: bool
+    lut_random_en: NDArray[np.uint8]
+    decay_random_en: DecayRandomEnable
+    leak_order: LeakOrder
+    online_mode_en: OnlineModeEnable
     test_chip_addr: ChipCoord
     random_seed: int
 
@@ -334,12 +339,15 @@ class OfflineNeuConfig(NeuConfig):
 
 @dataclass(frozen=True)
 class OnlineNeuConfig(NeuConfig):
+    weight_width: WeightWidth
+
     def __getitem__(self, s: slice) -> "OnlineNeuConfig":
         return OnlineNeuConfig(
             self.neu_seg[s],
             self.axon_coords[s],
             self.dest_core_coords,
             self.dest_chip_coord,
+            self.weight_width,
         )
 
     def export(self) -> OnlineNeuConf:
@@ -363,7 +371,9 @@ class OnlineNeuConfig(NeuConfig):
 
     @property
     def neuron_attrs(self) -> OnlineNeuAttrs:
-        return OnlineNeuAttrs.model_validate(self.neu_seg.attrs, strict=True)
+        return OnlineNeuAttrs.model_validate(
+            self.neu_seg.attrs, strict=True, context={"weight_width": self.weight_width}
+        )
 
     @property
     def neuron_dest_info(self) -> OnlineNeuDestInfo:
