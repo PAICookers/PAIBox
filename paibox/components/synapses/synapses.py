@@ -263,6 +263,7 @@ class ConvTranspose2d(ConvTranspose2dSyn):
 
 class STDPFullConn(STDPSyn, FullConnSyn):
     CFLAG_ENABLE_WP_OPTIMIZATION: ClassVar[bool] = False
+    online: ClassVar[bool] = True
 
     def __init__(
         self,

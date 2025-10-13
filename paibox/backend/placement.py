@@ -4,11 +4,12 @@ import warnings
 from abc import ABC, abstractmethod
 from collections import UserList
 from dataclasses import dataclass, field
-from typing import ClassVar, Literal, NamedTuple, Optional, overload
-
+from typing import ClassVar, Literal, NamedTuple, Optional, overload, cast
 import numpy as np
+from numpy.typing import NDArray
 from paicorelib import (
     LCN_EX,
+    LeakOrder,
     ChipCoord,
     Coord,
     CoreMode,
@@ -16,6 +17,9 @@ from paicorelib import (
     MaxPoolingEnable,
     OffCoreCfg,
     OnCoreCfg,
+    OnlineModeEnable,
+    DecayRandomEnable,
+    LCM
 )
 from paicorelib import ReplicationId as RId
 from paicorelib import WeightWidth as WW
@@ -25,7 +29,7 @@ from paicorelib.routing_defs import get_replication_id
 
 from paibox import _logging
 from paibox.base import PAIBoxObject
-from paibox.components import Neuron
+from paibox.components import Neuron, OnlineNeuron
 from paibox.exceptions import GraphBuildError, ResourceError, TruncationWarning
 from paibox.types import WEIGHT_DTYPE, WeightType
 from paibox.utils import check_attr_same
@@ -607,6 +611,7 @@ class OnlineCoreBlock(CoreBlock):
     ) -> None:
         super().__init__(*parents, seed=seed, name=name)
         self.online = True
+        self.inhi_rid = Coord(0, 0)
 
     def core_plm_alloc(self) -> None:
         """Allocate `CoreBlock` to physical cores."""
@@ -643,31 +648,47 @@ class OnlineCoreBlock(CoreBlock):
         return 1 << self.dendrite_comb_rate
 
     @classmethod
-    def build(cls, *synapses: EdgeSlice, seed: int = 0):
+    def build(cls, *synapses: EdgeSlice, seed: int = 1):
         """Group synapses & build `CoreBlock`."""
         if seed > (1 << 64) - 1:
             warnings.warn(
                 f"random seed {seed} is too large, truncated into 64 bits.",
                 TruncationWarning,
             )
+        elif seed == 0:
+            seed = 1
 
         return cls(*synapses, seed=seed)
+    
+    @property
+    def first_neuron(self) -> OnlineNeuron:
+        online_neu = cast(OnlineNeuron, self.dest[0].target)
+        return online_neu
+    
+    @property
+    def laterl_inhi_target(self) -> set[OnlineNeuron]:
+        return self.first_neuron.lateral_inhi_target
+    
+    @property
+    def laterl_inhi_source(self) -> set[OnlineNeuron]:
+        return self.first_neuron.lateral_inhi_source
+    
 
     @property
     def lateral_inhi_value(self) -> int:
-        raise NotImplementedError
+        return self.first_neuron.lateral_inhi_value
 
     @property
     def weight_decay_value(self) -> int:
-        raise NotImplementedError
+        return int(self.first_neuron.weight_decay_value)
 
     @property
     def upper_weight(self) -> int:
-        raise NotImplementedError
+        return self.first_neuron.upper_weight
 
     @property
     def lower_weight(self) -> int:
-        raise NotImplementedError
+        return self.first_neuron.lower_weight
 
     @property
     def neuron_start(self) -> int:
@@ -678,32 +699,41 @@ class OnlineCoreBlock(CoreBlock):
         return self.n_neuron
 
     @property
-    def inhi_core_x_ex(self) -> Coord:
-        raise NotImplementedError
+    def inhi_core_x_ex(self) -> int:
+        return self.inhi_rid.x
 
     @property
-    def inhi_core_y_ex(self) -> Coord:
-        raise NotImplementedError
+    def inhi_core_y_ex(self) -> int:
+        return self.inhi_rid.y
 
     @property
-    def lut_random_en(self) -> bool:
-        raise NotImplementedError
+    def lut_random_en(self) -> NDArray[np.uint8]:
+        return self.first_neuron.lut_random_en
 
     @property
-    def decay_random_en(self) -> bool:
-        raise NotImplementedError
+    def decay_random_en(self) -> DecayRandomEnable:
+        if self.first_neuron.decay_random_en:
+            return DecayRandomEnable.ENABLE
+        else:
+            return DecayRandomEnable.DISABLE
 
     @property
-    def leak_order(self) -> bool:
-        raise NotImplementedError
+    def leak_order(self) -> LeakOrder:
+        if self.first_neuron.leak_comparison == LCM.LEAK_BEFORE_COMP:
+            return LeakOrder.LEAK_BEFORE_COMP
+        else:
+            return LeakOrder.LEAK_AFTER_COMP
 
     @property
-    def online_mode_en(self) -> bool:
-        raise NotImplementedError
+    def online_mode_en(self) -> OnlineModeEnable:
+        if self.first_neuron.online_mode_en:
+            return OnlineModeEnable.ENABLE
+        else:
+            return OnlineModeEnable.DISABLE
 
     @property
     def lut(self) -> LUTDataType:
-        raise NotImplementedError
+        return self.first_neuron.lut
 
     @property
     def random_seed(self) -> int:
@@ -782,7 +812,7 @@ class SourceDest(UserList[SliceDestPair]):
     """
 
     def add_dest(
-        self, dest_slice: SourceSliceType, dest_ax_seg: AxonSegment, cb: CoreBlock
+        self, source_slice: SourceSliceType, dest_ax_seg: AxonSegment, cb: CoreBlock
     ) -> None:
         """Using the information of core block `cb` where the axon segment is, record the slice info & destination details."""
         dest_coords = cb.core_coords.copy()
@@ -790,14 +820,14 @@ class SourceDest(UserList[SliceDestPair]):
         timeslot = cb.n_timeslot
         mode = cb.rt_mode
 
-        if dest_slice.index not in self.slices:
+        if source_slice.index not in self.slices:
             # Add the destination slice in record.
             d = SliceDest(dest_chip_coord, dest_ax_seg, timeslot, mode, dest_coords)
-            self.append(SliceDestPair(dest_slice.index, d))
+            self.append(SliceDestPair(source_slice.index, d))
         else:
             # When the destination slice has been recorded, the info of the destination axon segment &
             # the core block where it's located also needs to be the same as the recorded info.
-            idx = self.slices.index(dest_slice.index)
+            idx = self.slices.index(source_slice.index)
             d = self.dests[idx]
             _check_dest_attrs_same(d, dest_chip_coord, dest_ax_seg, timeslot, mode)
             # In this case, only the core coordinates of the core blocks where the destination slice
@@ -1418,7 +1448,7 @@ class OnlineCorePlacement(CorePlacement):
                     is_iw8(dest.rt_mode),
                 )
                 config = OnlineNeuConfig(
-                    seg, axon_coords, dest.dest_coords, dest.dest_chip_coord
+                    seg, axon_coords, dest.dest_coords, dest.dest_chip_coord, self.weight_width
                 )
                 self.neu_configs[seg.target] = config
         else:
@@ -1445,6 +1475,7 @@ class OnlineCorePlacement(CorePlacement):
                 [output_core_coord],
                 # output chip coordinate for output node
                 _BACKEND_CONTEXT.output_chip_addr,
+                self.weight_width
             )
 
             self.neu_configs[neu_seg.target] = config
@@ -1480,27 +1511,27 @@ class OnlineCorePlacement(CorePlacement):
         return self.parent.neuron_end
 
     @property
-    def inhi_core_x_ex(self) -> Coord:
+    def inhi_core_x_ex(self) -> int:
         return self.parent.inhi_core_x_ex
 
     @property
-    def inhi_core_y_ex(self) -> Coord:
+    def inhi_core_y_ex(self) -> int:
         return self.parent.inhi_core_y_ex
 
     @property
-    def lut_random_en(self) -> bool:
+    def lut_random_en(self) -> NDArray[np.uint8]:
         return self.parent.lut_random_en
 
     @property
-    def decay_random_en(self) -> bool:
+    def decay_random_en(self) -> DecayRandomEnable:
         return self.parent.decay_random_en
 
     @property
-    def leak_order(self) -> bool:
+    def leak_order(self) -> LeakOrder:
         return self.parent.leak_order
 
     @property
-    def online_mode_en(self) -> bool:
+    def online_mode_en(self) -> OnlineModeEnable:
         return self.parent.online_mode_en
 
     @property
@@ -1509,7 +1540,7 @@ class OnlineCorePlacement(CorePlacement):
 
     @property
     def random_seed(self) -> int:
-        return self.random_seed
+        return self.parent.random_seed
 
     @property
     def neu_configs(self) -> dict[Neuron, OnlineNeuConfig]:
@@ -1610,16 +1641,16 @@ class EmptyOnlineCorePlacement(EmptyCorePlacement):
             0,  # lower_weight
             0,  # neuron_start
             0,  # neuron_end
-            _COORD_UNSET,  # inhi_core_x_ex
-            _COORD_UNSET,  # inhi_core_y_ex
+            0,  # inhi_core_x_ex
+            0,  # inhi_core_y_ex
             0,  # tick_wait_start
             0,  # tick_wait_end
-            False,  # lut_random_en
-            False,  # decay_random_en
-            False,  # leak_order
-            False,  # online_mode_en
+            np.zeros(60, dtype=np.uint8),  # lut_random_en
+            DecayRandomEnable.DISABLE,  # decay_random_en
+            LeakOrder.LEAK_BEFORE_COMP,  # leak_order
+            OnlineModeEnable.DISABLE,  # online_mode_en
             _BACKEND_CONTEXT.test_chip_addr,  # test_chip_addr
-            0,  # random_seed
+            1,  # random_seed
         )
         return cb_config
 

@@ -14,7 +14,7 @@ from .types import EdgeAttr, NodeDegree, NodeName, NodeType
 if typing.TYPE_CHECKING:
     from .routing import RoutingGroup
 
-_NT = TypeVar("_NT", CoreBlock, NodeName, "RoutingGroup", MergedSuccGroup)
+_NT = TypeVar("_NT", CoreBlock, NodeName, "RoutingGroup", MergedSuccGroup, int)
 _T = TypeVar("_T")
 
 

@@ -47,6 +47,7 @@ def _check_equal(num_in: int, num_out: int) -> int:
 
 
 class FullConnectedSyn(SynSys):
+    online: ClassVar[bool] = False
     comm: Transform
     _n_copied: int = 0
     """Counter of copies."""

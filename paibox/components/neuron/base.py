@@ -355,7 +355,6 @@ def bit_truncate(v: VoltageType, bit: int = 8) -> VoltageType:
 
 class OfflineNeuron(Neuron):
     online: ClassVar[bool] = False
-
     def __init__(
         self,
         shape: Shape,

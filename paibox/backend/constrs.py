@@ -18,29 +18,45 @@ class Constraints:
 
 
 class GraphNodeConstrs(Constraints):
-    node_constr_attrs: ClassVar[list[NodeConstrsAttr]] = [
+    offline_node_constr_attrs: ClassVar[list[NodeConstrsAttr]] = [
         "pool_max",
         "tick_wait_start",
         "tick_wait_end",
     ]
     """Node attributes that are actually the parameters of the cores."""
+    
+    online_node_constr_attrs: ClassVar[list[NodeConstrsAttr]] = [
+        "tick_wait_start",
+        "tick_wait_end",
+        "lateral_inhi_target",
+        "lateral_inhi_source",
+        "lateral_inhi_value"
+    ]
 
     @classmethod
     def set_constr_attr(cls, attr: NodeConstrsAttr) -> None:
-        if attr not in cls.node_constr_attrs:
-            cls.node_constr_attrs.append(attr)
+        if attr not in cls.offline_node_constr_attrs:
+            cls.offline_node_constr_attrs.append(attr)
+        if attr not in cls.online_node_constr_attrs:
+            cls.online_node_constr_attrs.append(attr)
 
     @classmethod
     def remove_constr_attr(cls, attr: NodeConstrsAttr, strict: bool = False) -> None:
-        if attr in cls.node_constr_attrs:
-            cls.node_constr_attrs.remove(attr)
+        if attr in cls.offline_node_constr_attrs:
+            cls.offline_node_constr_attrs.remove(attr)
+        elif strict:
+            raise ValueError(
+                f"attribute {attr} not found in constraint attributes list."
+            )
+        if attr in cls.online_node_constr_attrs:
+            cls.online_node_constr_attrs.remove(attr)
         elif strict:
             raise ValueError(
                 f"attribute {attr} not found in constraint attributes list."
             )
 
     @staticmethod
-    def apply_constrs(raw_nodes: list[NodeType]) -> list[list[NodeIdx]]:
+    def apply_constrs(raw_nodes: list[NodeType], online: bool) -> list[list[NodeIdx]]:
         """Group the nodes by the constraints of the nodes.
 
         Args:
@@ -53,7 +69,12 @@ class GraphNodeConstrs(Constraints):
 
         for i, node in enumerate(raw_nodes):
             key_lst = []
-            for attr in GraphNodeConstrs.node_constr_attrs:
+            node_constr_attrs = (
+                GraphNodeConstrs.online_node_constr_attrs
+                if online
+                else GraphNodeConstrs.offline_node_constr_attrs
+            )
+            for attr in node_constr_attrs:
                 if (v := getattr(node, attr, None)) is None:
                     raise AttributeError(f"node {node.name} has no attribute {attr}.")
 
