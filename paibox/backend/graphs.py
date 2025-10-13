@@ -32,10 +32,10 @@ from .graph_utils import (
     reverse_edges,
     toposort,
 )
+from .group import BaseGroup, DataGroup, InhiGroup, MergedGroup
 from .placement import CoreBlock
 from .routing import RoutingGroup
 from .segment_utils import get_neu_segments
-from .succ_group import *
 from .types import *
 
 __all__ = ["PAIGraph"]
@@ -296,26 +296,23 @@ class PAIGraph:
         if not self.has_built:
             raise GraphBuildError("the graph hasn't been built yet.")
 
-    def graph_partition(self) -> list[MergedSuccGroup]:
+    def graph_partition(self) -> list[MergedGroup]:
         """Graph partition."""
         # Build the `SuccGroup` for each node in the graph.
-        succ_grps: list[SuccGroup] = []
+        grps: list[BaseGroup] = []
         for nn in iter_toposort(self.succ_dg):
             if succ_nodes := self.succ_dg[nn]:
                 succ_edges = [e_attr.edge for e_attr in succ_nodes.values()]
-                succ_grps.append(SuccGroup(succ_edges, [], group_type="data"))
+                grps.append(DataGroup(succ_edges))
 
         for node in self.nodes.subset(Neuron).values():
             if node.online:
                 node = cast(OnlineNeuron, node)
-                inhi_group = SuccGroup(
-                    [], list(node.lateral_inhi_target), group_type="inhi"
-                )
-                succ_grps.append(inhi_group)
+                grps.append(InhiGroup(list(node.lateral_inhi_target)))
 
-        def dfs(sgrp: SuccGroup, msgrp: MergedSuccGroup) -> None:
+        def dfs(sgrp: BaseGroup, msgrp: MergedGroup) -> None:
             # Union-find sets. If the nodes of two `succ_grps` have intersection, merge them.
-            for other_sgrp in succ_grps:
+            for other_sgrp in grps:
                 if other_sgrp not in visited and not set(sgrp.nodes).isdisjoint(
                     other_sgrp.nodes
                 ):
@@ -324,16 +321,16 @@ class PAIGraph:
                     dfs(other_sgrp, msgrp)
 
         # Merge
-        merged_sgrps: list[MergedSuccGroup] = []
-        visited: set[SuccGroup] = set()
-        for sgrp in succ_grps:
+        merged_grps: list[MergedGroup] = []
+        visited: set[BaseGroup] = set()
+        for sgrp in grps:
             if sgrp not in visited:
-                m = MergedSuccGroup([sgrp])
+                m = MergedGroup([sgrp])
                 visited.add(sgrp)
                 dfs(sgrp, m)
-                merged_sgrps.append(m)
+                merged_grps.append(m)
 
-        return merged_sgrps
+        return merged_grps
 
     def multicast_optim(
         self,
