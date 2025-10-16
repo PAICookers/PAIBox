@@ -62,6 +62,10 @@ try:
             return o.model_dump(by_alias=True)
         elif isinstance(o, OfflineNeuDestInfo):
             return o.model_dump(by_alias=True)
+        elif isinstance(o, OnlineNeuAttrs):
+            return o.model_dump(by_alias=True)
+        elif isinstance(o, OnlineNeuDestInfo):
+            return o.model_dump(by_alias=True)
 
         raise TypeError(f"type {type(o)} not defined in custom Json encoder.")
 
