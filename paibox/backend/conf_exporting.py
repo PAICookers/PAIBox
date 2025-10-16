@@ -188,13 +188,19 @@ def gen_online_config_frames(
     config_frame_type2 = OnlineFrameGen.gen_config_frame2(
         chip_coord, core_coord, _RID_UNSET, core_plm_conf.core_params
     )
-    
+
     config_frame_type2_enable = OnlineFrameGen.gen_config_frame2(
-        chip_coord, core_coord, _RID_UNSET, core_plm_conf.core_params.model_copy(update={"online_mode_en": 1})
+        chip_coord,
+        core_coord,
+        _RID_UNSET,
+        core_plm_conf.core_params.model_copy(update={"online_mode_en": 1}),
     )
-    
+
     config_frame_type2_disable = OnlineFrameGen.gen_config_frame2(
-        chip_coord, core_coord, _RID_UNSET, core_plm_conf.core_params.model_copy(update={"online_mode_en": 0})
+        chip_coord,
+        core_coord,
+        _RID_UNSET,
+        core_plm_conf.core_params.model_copy(update={"online_mode_en": 0}),
     )
 
     # 3. Iterate all the neuron segments inside the physical core.
@@ -243,10 +249,10 @@ def gen_online_config_frames(
             core_plm_conf.weight_ram,
         )
         _concat_frames.append(config_frame_type4_w.value)
-    
+
     enable_frames = [config_frame_type2_enable.value]
     disable_frames = [config_frame_type2_disable.value]
-    
+
     return _concat_frames, enable_frames, disable_frames
 
 
@@ -267,7 +273,9 @@ def gen_config_frames_by_coreconf(
             if isinstance(v, OfflineCorePlmConfig):
                 _concat_frames = gen_offline_config_frames(v, chip_coord, core_coord)
             elif isinstance(v, OnlineCorePlmConfig):
-                _concat_frames, enable_frames, disable_frames = gen_online_config_frames(v, chip_coord, core_coord)
+                _concat_frames, enable_frames, disable_frames = (
+                    gen_online_config_frames(v, chip_coord, core_coord)
+                )
             else:
                 raise TypeError(
                     f"Unsupported core configuration type: {type(v)}. "
@@ -277,11 +285,11 @@ def gen_config_frames_by_coreconf(
             frame_arrays_total[chip_coord].append(
                 np.hstack(_concat_frames, casting="no")
             )
-            
+
             enable_frames_total[chip_coord].append(
                 np.hstack(enable_frames, casting="no")
             )
-            
+
             disable_frames_total[chip_coord].append(
                 np.hstack(disable_frames, casting="no")
             )
@@ -302,11 +310,11 @@ def gen_config_frames_by_coreconf(
             for chip, frame_arrays_onchip in frame_arrays_total.items():
                 f = np.hstack(frame_arrays_onchip, casting="no")
                 _write_to_f(f"config_chip{chip.address}_cores_all", f)
-            
+
             for chip, enable_arrays_onchip in enable_frames_total.items():
                 f = np.hstack(enable_arrays_onchip, casting="no")
                 _write_to_f(f"config_chip{chip.address}_cores_enable", f)
-            
+
             for chip, disable_arrays_onchip in disable_frames_total.items():
                 f = np.hstack(disable_arrays_onchip, casting="no")
                 _write_to_f(f"config_chip{chip.address}_cores_disable", f)
@@ -317,13 +325,13 @@ def gen_config_frames_by_coreconf(
 
             f = np.hstack(_fa_list, casting="no")
             _write_to_f("config_all", f)
-            
+
             _enable_list = []
             for f in enable_frames_total.values():
                 _enable_list.extend(f)
             f = np.hstack(_enable_list, casting="no")
             _write_to_f("config_enable_all", f)
-            
+
             _disable_list = []
             for f in disable_frames_total.values():
                 _disable_list.extend(f)
