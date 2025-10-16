@@ -27,11 +27,7 @@ from .conf_types import (
     OutputDestConf,
 )
 from .context import _BACKEND_CONTEXT, set_cflag
-from .graph_utils import (
-    get_node_degrees,
-    get_succ_cb_by_node,
-    merge_cycles
-)
+from .graph_utils import get_node_degrees, get_succ_cb_by_node, merge_cycles
 from .graphs import PAIGraph
 from .group import *
 from .placement import (
@@ -899,6 +895,7 @@ def _fp_check(fp: Optional[Union[str, Path]] = None) -> Path:
         _fp.mkdir(parents=True, exist_ok=True)
 
     return _fp
+
 
 def _calculate_core_consumption(order_rgs: list[RoutingGroup]) -> int:
     n_core_consumption: int = 0

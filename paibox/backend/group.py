@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from collections import UserList, defaultdict
 from collections.abc import Generator, Iterable
 from typing import Optional, cast
+
 from ..utils import check_elem_same
 from .types import EdgeType, NodeType
 

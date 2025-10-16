@@ -233,6 +233,7 @@ def find_cycles(directed_edges: Mapping[_NT, Sequence[_NT]]) -> list[list[_NT]]:
 
     return cycles
 
+
 def merge_cycles(merged_sgrps: list[MergedGroup]) -> list[MergedGroup]:
     """Detects cycles among merged successor groups & merges them into a minimal set of     \
         disjoint groups.

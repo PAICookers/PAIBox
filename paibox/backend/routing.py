@@ -22,7 +22,7 @@ from paibox.utils import check_elem_same
 from ._slice import *
 from .conf_types import CorePlmConfInChip
 from .constrs import GraphNodeConstrs
-from .graph_utils import toposort, merge_cycles
+from .graph_utils import merge_cycles, toposort
 from .group import DataGroup, InhiGroup, MergedGroup
 from .placement import CoreBlock, EmptyCorePlacement
 from .types import EdgeType, NodeType, _1st_core_coord_repr
@@ -512,21 +512,19 @@ class RoutingGroup:
 
         data_mgrps = [merged_grp.reserve_node(g) for g in final_data_groups]
         data_mgrps = merge_cycles(data_mgrps)
-        
+
         print("data merged groups:")
         for data_mgrp in data_mgrps:
             print_nodes(data_mgrp.nodes)
-        
+
         inhi_mgrps = [merged_grp.reserve_node(g) for g in final_inhi_groups]
         print("data merged groups:")
         for inhi_mgrp in inhi_mgrps:
             print_nodes(inhi_mgrp.nodes)
-        
-        
+
         remain_mgrp = merged_grp.reserve_node(remain_nodes)
         print("remain merged group:")
         print_nodes(remain_mgrp.nodes)
-        
 
         merged_data_grp_graph: dict[MergedGroup, list[MergedGroup]] = defaultdict(list)
         for i in range(len(data_mgrps)):
