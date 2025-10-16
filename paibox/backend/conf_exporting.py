@@ -5,7 +5,15 @@ from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
-from paicorelib import ChipCoord, Coord, HwConfig, OffCoreCfg, OnCoreCfg, RoutingCoord, OnlineModeEnable
+from paicorelib import (
+    ChipCoord,
+    Coord,
+    HwConfig,
+    OffCoreCfg,
+    OnCoreCfg,
+    OnlineModeEnable,
+    RoutingCoord,
+)
 from paicorelib.framelib import (
     OfflineConfigFrame3,
     OfflineFrameGen,
@@ -193,14 +201,18 @@ def gen_online_config_frames(
         chip_coord,
         core_coord,
         _RID_UNSET,
-        core_plm_conf.core_params.model_copy(update={"online_mode_en": OnlineModeEnable.ENABLE}),
+        core_plm_conf.core_params.model_copy(
+            update={"online_mode_en": OnlineModeEnable.ENABLE}
+        ),
     )
 
     config_frame_type2_disable = OnlineFrameGen.gen_config_frame2(
         chip_coord,
         core_coord,
         _RID_UNSET,
-        core_plm_conf.core_params.model_copy(update={"online_mode_en": OnlineModeEnable.DISABLE}),
+        core_plm_conf.core_params.model_copy(
+            update={"online_mode_en": OnlineModeEnable.DISABLE}
+        ),
     )
 
     # 3. Iterate all the neuron segments inside the physical core.
