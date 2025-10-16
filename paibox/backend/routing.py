@@ -22,9 +22,9 @@ from paibox.utils import check_elem_same
 from ._slice import *
 from .conf_types import CorePlmConfInChip
 from .constrs import GraphNodeConstrs
-from .graph_utils import toposort
+from .graph_utils import merge_cycles, toposort
+from .group import DataGroup, InhiGroup, MergedGroup
 from .placement import CoreBlock, EmptyCorePlacement
-from .succ_group import MergedSuccGroup
 from .types import EdgeType, NodeType, _1st_core_coord_repr
 
 __all__ = ["RoutingGroup", "RoutingManager"]
@@ -48,7 +48,7 @@ def MatMul2d_slices(mat_mul: MatMul2d) -> tuple[list[slice], list[slice]]:
 
 
 def build_elements(
-    merged_sgrp: MergedSuccGroup, online: bool
+    merged_sgrp: MergedGroup, online: bool
 ) -> list[Union[CoreBlock, "RoutingGroup"]]:
     nodes = list(merged_sgrp.nodes)
     elements: list[Union[CoreBlock, "RoutingGroup"]] = []
@@ -397,12 +397,9 @@ class RoutingGroup:
         return cbs
 
     @classmethod
-    def build(
-        cls, merged_sgrp: MergedSuccGroup, is_root: bool = False
-    ) -> "RoutingGroup":
-        sub_nodes: set[NodeType] = set()
+    def build(cls, merged_grp: MergedGroup, is_root: bool = False) -> "RoutingGroup":
 
-        online_values = {n.online for n in merged_sgrp.nodes}
+        online_values = {n.online for n in merged_grp.nodes}
         if len(online_values) != 1:
             raise NotSupportedError(
                 "Mixed online and offline nodes in a routing group is not supported."
@@ -411,7 +408,7 @@ class RoutingGroup:
 
         # If an input node in the merged groups is an output node of the merged groups, the node is
         # recorded and called a subordinate node.
-        global_nodes = set(merged_sgrp.nodes)
+        global_nodes = set(merged_grp.nodes)
         raw_inhi_groups: list[set[NodeType]] = []
         raw_data_groups: list[set[NodeType]] = []
 
@@ -434,14 +431,12 @@ class RoutingGroup:
             # 去掉子集（保留最大集）
             filtered: list[set] = []
             for s in sets:
-                print_nodes(s)
                 if not any(s < other for other in sets):
                     exist = False
                     for seen in filtered:
                         if seen.issubset(s) and s.issubset(seen):
                             exist = True
                             break
-                    print("exist:", exist)
                     if not exist:
                         filtered.append(s)
 
@@ -467,83 +462,82 @@ class RoutingGroup:
 
             return merged_sets
 
-        for group in merged_sgrp:
-            if group.group_type == "inhi":
+        for group in merged_grp:
+            if isinstance(group, InhiGroup):
                 if global_nodes == set(group.nodes):
                     continue
                 raw_inhi_groups.append(set(group.nodes))
             else:
-                if group.input in merged_sgrp.nodes:
+                if group.input in merged_grp.nodes:
                     raw_data_groups.append(set(group.nodes))
 
-        filtered_inhi_groups = filter_sets(raw_inhi_groups)
-        merged_data_groups = merge_sets(raw_data_groups)
+        processed_inhi_groups = filter_sets(raw_inhi_groups)
+        processed_data_groups = merge_sets(raw_data_groups)
 
-        inhi_groups: list[set[NodeType]] = []
+        final_inhi_groups: list[set[NodeType]] = []
 
-        for inhi_group in filtered_inhi_groups:
+        for inhi_group in processed_inhi_groups:
             independent = True
-            for data_group in merged_data_groups:
+            for data_group in processed_data_groups:
                 if not inhi_group.isdisjoint(data_group):
                     data_group.update(inhi_group)
                     independent = False
             if independent:
-                inhi_groups.append(inhi_group)
+                final_inhi_groups.append(inhi_group)
 
-        data_groups = merge_sets(merged_data_groups)
+        final_data_groups = merge_sets(processed_data_groups)
 
-        if len(data_groups) == 1 and merged_data_groups[0] == global_nodes:
+        if len(final_data_groups) == 1 and final_data_groups[0] == global_nodes:
             raise ValueError(
-                f"Cannot make groups {data_group} and {inhi_groups} independent."
+                f"Cannot make groups {data_group} and {final_inhi_groups} independent."
             )
 
-        remaining_nodes = global_nodes.copy()
-        for group in data_groups:
-            remaining_nodes -= group
+        remain_nodes = global_nodes.copy()
+        for group in final_data_groups:
+            remain_nodes -= group
 
-        for group in inhi_groups:
-            remaining_nodes -= group
+        for group in final_inhi_groups:
+            remain_nodes -= group
 
-        # print("raw data nodes:")
-        # for g in raw_data_groups:
-        #     print_nodes(g)
-        # print("merged data nodes:")
-        # for g in merged_data_groups:
-        #     print_nodes(g)
-        # print("data nodes:")
-        # for g in data_groups:
-        #     print_nodes(g)
+        print("raw data nodes:")
+        for g in raw_data_groups:
+            print_nodes(g)
 
-        # print("raw inhi nodes:")
-        # for g in raw_inhi_groups:
-        #     print_nodes(g)
-        # print("filtered inhi nodes:")
-        # for g in filtered_inhi_groups:
-        #     print_nodes(g)
-        # print("inhi nodes:")
-        # for g in inhi_groups:
-        #     print_nodes(g)
-        # print("remaining nodes:")
-        # print_nodes(remaining_nodes)
+        print("raw inhi nodes:")
+        for g in raw_inhi_groups:
+            print_nodes(g)
 
-        data_msgrps = [merged_sgrp.reserve_node(g) for g in data_groups]
-        inhi_msgrps = [merged_sgrp.reserve_node(g) for g in inhi_groups]
-        remaining_msgrp = merged_sgrp.reserve_node(remaining_nodes)
+        print("remaining nodes:")
+        print_nodes(remain_nodes)
 
-        data_msgrp_graph: dict[MergedSuccGroup, list[MergedSuccGroup]] = defaultdict(
-            list
-        )
-        for i in range(len(data_msgrps)):
-            cur_node = data_msgrps[i]
-            data_msgrp_graph[cur_node] = []
-            for j in range(len(data_msgrps)):
+        data_mgrps = [merged_grp.reserve_node(g) for g in final_data_groups]
+        data_mgrps = merge_cycles(data_mgrps)
+
+        print("data merged groups:")
+        for data_mgrp in data_mgrps:
+            print_nodes(data_mgrp.nodes)
+
+        inhi_mgrps = [merged_grp.reserve_node(g) for g in final_inhi_groups]
+        print("data merged groups:")
+        for inhi_mgrp in inhi_mgrps:
+            print_nodes(inhi_mgrp.nodes)
+
+        remain_mgrp = merged_grp.reserve_node(remain_nodes)
+        print("remain merged group:")
+        print_nodes(remain_mgrp.nodes)
+
+        merged_data_grp_graph: dict[MergedGroup, list[MergedGroup]] = defaultdict(list)
+        for i in range(len(data_mgrps)):
+            cur_node = data_mgrps[i]
+            merged_data_grp_graph[cur_node] = []
+            for j in range(len(data_mgrps)):
                 if j == i:
                     continue
-                succ_node = data_msgrps[j]
+                succ_node = data_mgrps[j]
                 if not set(succ_node.inputs).isdisjoint(cur_node.nodes):
-                    data_msgrp_graph[cur_node].append(succ_node)
+                    merged_data_grp_graph[cur_node].append(succ_node)
 
-        data_msgrps = toposort(data_msgrp_graph)
+        data_mgrps = toposort(merged_data_grp_graph)
 
         # print("after toposort the result is: ")
         # for data_msgrp in data_msgrps:
@@ -551,18 +545,18 @@ class RoutingGroup:
 
         ordered_elems: OrderedElemsType = []
         unordered_elems: UnorderedElemsType = []
-        for msgrp in data_msgrps:
+        for msgrp in data_mgrps:
             if len(msgrp) > 0:
                 data_rgrp = RoutingGroup.build(msgrp)
                 ordered_elems.append(data_rgrp)
 
-        for msgrp in inhi_msgrps:
+        for msgrp in inhi_mgrps:
             if len(msgrp.nodes) > 0:
                 inhi_rgrp = RoutingGroup.build(msgrp)
                 unordered_elems.append(inhi_rgrp)
 
-        if len(remaining_msgrp.nodes) > 0:
-            unordered_elems.extend(build_elements(remaining_msgrp, online))
+        if len(remain_mgrp.nodes) > 0:
+            unordered_elems.extend(build_elements(remain_mgrp, online))
 
         return cls(unordered_elems, ordered_elems, is_root)
 

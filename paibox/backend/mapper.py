@@ -27,13 +27,9 @@ from .conf_types import (
     OutputDestConf,
 )
 from .context import _BACKEND_CONTEXT, set_cflag
-from .graph_utils import (
-    find_cycles,
-    get_node_degrees,
-    get_succ_cb_by_node,
-    merge_overlapping_sets,
-)
+from .graph_utils import get_node_degrees, get_succ_cb_by_node, merge_cycles
 from .graphs import PAIGraph
+from .group import *
 from .placement import (
     CoreBlock,
     OnlineCoreBlock,
@@ -43,7 +39,6 @@ from .placement import (
     max_lcn_of_cb,
 )
 from .routing import RoutingGroup, RoutingManager
-from .succ_group import *
 from .types import (
     AxonCoord,
     DestNodeType,
@@ -252,20 +247,22 @@ class Mapper:
     def build_core_blocks(self) -> None:
         """Build core blocks based on partitioned edges."""
         # Graph partitioning
-        merged_sgrps = self.graph.graph_partition()
+        merged_grps = self.graph.graph_partition()
 
-        for merged_sgrp in merged_sgrps:
-            log.info(merged_sgrp)
+        for merged_grp in merged_grps:
+            log.info(merged_grp)
 
-        merged_sgrps = merge_cycles(merged_sgrps)
-
-        for merged_sgrp in merged_sgrps:
-            log.debug(merged_sgrp)
+        merged_grps = merge_cycles(merged_grps)
+        log.info(
+            "################################### merge_cycles ###################################"
+        )
+        for merged_grp in merged_grps:
+            log.info(merged_grp)
 
         # Build routing groups
         raw_rgrps: list[RoutingGroup] = []
-        for msgrp in merged_sgrps:
-            raw_rgrps.append(RoutingGroup.build(msgrp, is_root=True))
+        for mgrp in merged_grps:
+            raw_rgrps.append(RoutingGroup.build(mgrp, is_root=True))
 
         # Record the optimized routing groups in the routing manager
         self.routing_mgr.optimize_rgrps(raw_rgrps)
@@ -898,41 +895,6 @@ def _fp_check(fp: Optional[Union[str, Path]] = None) -> Path:
         _fp.mkdir(parents=True, exist_ok=True)
 
     return _fp
-
-
-def merge_cycles(merged_sgrps: list[MergedSuccGroup]) -> list[MergedSuccGroup]:
-    """Detects cycles among merged successor groups & merges them into a minimal set of     \
-        disjoint groups.
-
-    Args:
-        merged_sgrps (list[MergedSuccGroup]): A list of already merged successor groups to  \
-            be analyzed for cycles.
-
-    Returns:
-        out (list[MergedSuccGroup]): A new list of merged successor groups with detected    \
-            cycles resolved.
-    """
-    succ_merged_sgrps: dict[MergedSuccGroup, list[MergedSuccGroup]] = defaultdict(list)
-
-    for cur_m, next_m in itertools.combinations(merged_sgrps, 2):
-        # (cur_m, (m2, m3, ...)), (m2, (m3, m4, ...)), ...
-        if not cur_m.nodes.isdisjoint(next_m.inputs):
-            succ_merged_sgrps[cur_m].append(next_m)
-
-        if not next_m.nodes.isdisjoint(cur_m.inputs):
-            succ_merged_sgrps[next_m].append(cur_m)
-
-    cycles = find_cycles(succ_merged_sgrps)
-    merged_cycles = merge_overlapping_sets(cycles)
-
-    merged: list[MergedSuccGroup] = []
-    remaining = set(merged_sgrps)
-    for mc in merged_cycles:
-        merged.append(MergedSuccGroup.merge(mc))
-        remaining.difference_update(mc)
-
-    merged.extend(remaining)
-    return merged
 
 
 def _calculate_core_consumption(order_rgs: list[RoutingGroup]) -> int:

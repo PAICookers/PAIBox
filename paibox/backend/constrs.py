@@ -31,6 +31,13 @@ class GraphNodeConstrs(Constraints):
         "lateral_inhi_target",
         "lateral_inhi_source",
         "lateral_inhi_value",
+        "weight_decay_value",
+        "upper_weight",
+        "lower_weight",
+        "lut_random_en",
+        "decay_random_en",
+        "leak_comparison",
+        "online_mode_en",
     ]
 
     @classmethod
