@@ -1,14 +1,13 @@
 from typing import Optional
 
 import pytest
-from paicorelib import HwConfig
 
 import paibox as pb
 from paibox.backend.graph_utils import *
 from paibox.backend.graphs import PAIGraph
 from paibox.backend.types import *
 from paibox.components import Neuron
-from paibox.exceptions import GraphBuildError, GraphConnectionError, NotSupportedError
+from paibox.exceptions import GraphBuildError, GraphConnectionError
 
 
 class TestPAIGraph:

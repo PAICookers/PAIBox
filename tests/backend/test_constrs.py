@@ -1,5 +1,3 @@
-import pytest
-
 import paibox as pb
 from paibox.backend.constrs import GraphNodeConstrs
 
