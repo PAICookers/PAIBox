@@ -19,6 +19,9 @@ from paicorelib import (
     SNNModeEnable,
     SpikeWidthFormat,
     get_core_mode,
+    OnlineModeEnable,
+    DecayRandomEnable,
+    LeakOrder,
 )
 
 from paibox.base import DataFlowFormat, NeuDyn, is_learnable
@@ -633,9 +636,9 @@ class OnlineNeuron(Neuron):
     lower_weight: int
     lut: LUTDataType
     lut_random_en: NDArray[np.uint8]
-    decay_random_en: bool
+    decay_random_en: DecayRandomEnable
     random_seed: int
-    online_mode_en: bool
+    online_mode_en: OnlineModeEnable
     plasticity_start: int
     plasticity_end: int
 
@@ -646,7 +649,7 @@ class OnlineNeuron(Neuron):
         leak_v: Union[int, LeakVType] = 0,
         neg_threshold: Optional[int] = None,
         pos_threshold: int = 1,
-        leak_comparison: LCM = LCM.LEAK_BEFORE_COMP,
+        leak_comparison: LeakOrder = LeakOrder.LEAK_BEFORE_COMP,
         lateral_inhi_value: int = 0,
         init_v: Union[int, np.ndarray] = 0,
         *,
@@ -794,7 +797,7 @@ class OnlineNeuron(Neuron):
         v_charged = self._neuronal_charge(incoming_v, v_pre)
 
         # 2. Leak & fire
-        if self.leak_comparison is LCM.LEAK_BEFORE_COMP:
+        if self.leak_comparison is LeakOrder.LEAK_BEFORE_COMP:
             v_leaked = self._neuronal_leak(v_charged)
             spike = self._neuronal_fire(v_leaked)
         else:
@@ -840,8 +843,6 @@ class OnlineNeuron(Neuron):
                 "decay_random_en": self.decay_random_en,
                 "random_seed": self.random_seed,
                 "online_mode_en": self.online_mode_en,
-                "plasticity_start": self.plasticity_start,
-                "plasticity_end": self.plasticity_end,
             }
         attrs |= super().attrs(for_copy)
         return attrs

@@ -264,7 +264,6 @@ class ConvTranspose2d(ConvTranspose2dSyn):
 
 class STDPFullConn(STDPSyn, FullConnSyn):
     CFLAG_ENABLE_WP_OPTIMIZATION: ClassVar[bool] = False
-    online: ClassVar[bool] = True
 
     def __init__(
         self,
@@ -279,7 +278,6 @@ class STDPFullConn(STDPSyn, FullConnSyn):
         lut_offset: Optional[int] = None,
         lut_random: Union[bool, ArrayLike] = False,
         random_seed: int = 1,
-        plasticity_range: Optional[Union[int, tuple[int, int]]] = None,
         *,
         learn_by_default: bool = True,
         name: Optional[str] = None,
@@ -295,7 +293,6 @@ class STDPFullConn(STDPSyn, FullConnSyn):
             lut_offset,
             lut_random,
             random_seed,
-            plasticity_range,
             learn_by_default,
         )
         # Store synapse's attributes to the target neuron.
