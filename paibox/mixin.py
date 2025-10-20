@@ -100,7 +100,7 @@ class Container(MixIn):
                 for c in child:
                     if not isinstance(c, child_type):
                         raise ValueError(
-                            f"expect type {child_type.__name__}, but got {type(c)}."
+                            f"expect type {child_type.__name__}, but got {type(c).__name__}."
                         )
                     elems[self._get_elem_name((c))] = c
 
@@ -108,18 +108,18 @@ class Container(MixIn):
                 for k, v in child.items():
                     if not isinstance(v, child_type):
                         raise ValueError(
-                            f"expect type {child_type.__name__}, but got {type(c)}."
+                            f"expect type {child_type.__name__}, but got {type(c).__name__}."
                         )
                     elems[k] = v
             else:
                 raise TypeError(
-                    f"expect elements in dict, list or tuple, but got {type(child)}."
+                    f"expect elements in dict, list or tuple, but got {type(child).__name__}."
                 )
 
         for k, v in children_as_dict.items():
             if not isinstance(v, child_type):
                 raise ValueError(
-                    f"expect type {child_type.__name__}, but got {type(v)}."
+                    f"expect type {child_type.__name__}, but got {type(v).__name__}."
                 )
             elems[k] = v
 

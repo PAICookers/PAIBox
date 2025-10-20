@@ -232,7 +232,7 @@ class Sequential(DynamicSys, Container):
             return Sequential(**dict(tuple(self.children.items())[item]))
 
         raise TypeError(
-            f"expected type str, int or slice, but got {item}, type {type(item)}."
+            f"expected type str, int or slice, but got {type(item).__name__}."
         )
 
     def __len__(self) -> int:

@@ -11,7 +11,9 @@ from paibox.backend.conf_exporting import *
 from paibox.backend.mapper import merge_cycles
 from paibox.exceptions import ResourceError
 
-from .conftest import TestData
+from .backend_testcase import BackendTestCase as TCase
+from tests.shared_networks import STDPLinearNet
+from tests.utils import make_test, gen_random_array
 
 
 class TestGraphInfo:
@@ -487,10 +489,7 @@ class TestMapper_Compile:
 
 
 class TestMapper_cflags:
-    @pytest.mark.parametrize(
-        TestData.cflags_weight_bit_opt_data["args"],
-        TestData.cflags_weight_bit_opt_data["data"],
-    )
+    @make_test(TCase.cflags_weight_bit_opt_data)
     def test_cflags_weight_bit_opt(self, range, scalar, dtype, expected_wp_opt):
         # s1, s2, s3 will be grouped in one core block.
         class Net(pb.Network):

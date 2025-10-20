@@ -95,7 +95,7 @@ class InputProj(Projection):
             # should never be reached
             raise TypeError(
                 f"expected type int, np.bool, np.integer or np.ndarray, "
-                f"but got {_input}, type {type(_input)}."
+                f"but got {_input}, type {type(_input).__name__}."
             )
 
         return self._neu_out
@@ -147,7 +147,7 @@ class InputProj(Projection):
         if not isinstance(value, (int, np.bool, np.integer, np.ndarray)):
             raise TypeError(
                 f"expected type int, np.bool, np.integer or np.ndarray, "
-                f"but got {value}, type {type(value)}."
+                f"but got {value}, type {type(value).__name__}."
             )
 
         self._num_input = value

@@ -1,8 +1,8 @@
-from tests.conftest import ParametrizedTestData
+from tests.utils import ParamTestCase
 
-conv2d_semifolded_fc_chainnet_data = ParametrizedTestData(
-    args="ishape_chw, n_conv, kshape_oihw, stride, padding, out_features, groups",
-    data=[
+conv2d_semifolded_fc_chainnet_data = ParamTestCase(
+    argnames="ishape_chw, n_conv, kshape_oihw, stride, padding, out_features, groups",
+    argvalues=[
         # n_conv = 1
         (
             (3, 11, 11),
@@ -219,9 +219,9 @@ conv2d_semifolded_fc_chainnet_data = ParametrizedTestData(
 )
 
 
-pool2d_semifolded_fc_chainnet_data = ParametrizedTestData(
-    args="ishape_chw, n_pool, kshape_hw, stride, padding, out_features, pool_type",
-    data=[
+pool2d_semifolded_fc_chainnet_data = ParamTestCase(
+    argnames="ishape_chw, n_pool, kshape_hw, stride, padding, out_features, pool_type",
+    argvalues=[
         # n_pool = 1
         ((3, 16, 16), 1, [2], [2], [1], (10,), "avg"),
         # n_pool = 2
@@ -264,9 +264,9 @@ pool2d_semifolded_fc_chainnet_data = ParametrizedTestData(
 )
 
 
-spiking_pool1d_data = ParametrizedTestData(
-    args="shape, channels, ksize, stride, padding, threshold, fm_order, pool_type, p_binomial",
-    data=[
+spiking_pool1d_data = ParamTestCase(
+    argnames="shape, channels, ksize, stride, padding, threshold, fm_order, pool_type, p_binomial",
+    argvalues=[
         ((24,), 3, (3,), 3, 0, None, "CL", "avg", 0.7),
         ((12,), 1, (2,), None, 0, None, "CL", "avg", 0.5),
         ((32,), 8, (3,), None, 0, 3, "CL", "avg", 0.6),
@@ -286,9 +286,9 @@ spiking_pool1d_data = ParametrizedTestData(
     ],
 )
 
-spiking_pool2d_data = ParametrizedTestData(
-    args="shape, channels, ksize, stride, padding, threshold, fm_order, pool_type, p_binomial",
-    data=[
+spiking_pool2d_data = ParamTestCase(
+    argnames="shape, channels, ksize, stride, padding, threshold, fm_order, pool_type, p_binomial",
+    argvalues=[
         ((24, 24), 3, (3, 3), 3, 0, None, "CHW", "avg", 0.7),
         ((12, 12), 1, (2, 3), None, 0, None, "CHW", "avg", 0.5),
         ((32, 32), 8, (3, 3), None, 0, 3, "CHW", "avg", 0.6),
@@ -309,9 +309,9 @@ spiking_pool2d_data = ParametrizedTestData(
 )
 
 
-ann_pool1d_data = ParametrizedTestData(
-    args="ishape_cl, n_pool, kshape_l, stride, padding, out_features, pool_type",
-    data=[
+ann_pool1d_data = ParamTestCase(
+    argnames="ishape_cl, n_pool, kshape_l, stride, padding, out_features, pool_type",
+    argvalues=[
         # n_pool = 1
         ((1, 8), 1, [2], [2], [1], (10,), "max"),
         ((3, 16), 1, [2], [2], [1], (10,), "avg"),
@@ -323,9 +323,9 @@ ann_pool1d_data = ParametrizedTestData(
     ],
 )
 
-ann_pool2d_data = ParametrizedTestData(
-    args="ishape_chw, n_pool, kshape_hw, stride, padding, out_features, pool_type",
-    data=[
+ann_pool2d_data = ParamTestCase(
+    argnames="ishape_chw, n_pool, kshape_hw, stride, padding, out_features, pool_type",
+    argvalues=[
         # n_pool = 1
         ((1, 8, 8), 1, [2], [2], [1], (10,), "max"),
         ((3, 16, 16), 1, [2], [2], [1], (10,), "avg"),

@@ -12,8 +12,7 @@ from paibox.components.synapses.conv_utils import (
     conv2d_faster,
 )
 from tests.components.utils import conv1d_golden, conv2d_golden
-from tests.conftest import ParametrizedTestData
-from tests.utils import gen_random_array, is_ci_env
+from tests.utils import ParamTestCase, gen_random_array, is_ci_env, make_test
 
 try:
     from paibox.components.synapses.conv_utils import conv1d_faster_legacy
@@ -23,9 +22,9 @@ except ImportError:
     skip_conv1d_faster_test = True
 
 
-test_conv1d_faster_data = ParametrizedTestData(
-    args="in_shape, co, ksize, stride, padding, dilation, groups",
-    data=[
+test_conv1d_faster_data = ParamTestCase(
+    argnames="in_shape, co, ksize, stride, padding, dilation, groups",
+    argvalues=[
         ((16, 2048), 32, (128,), (20,), (50,), (8,), 1),
         ((64, 512), 32, (16,), (8,), (0,), (1,), 4),
     ],
@@ -36,9 +35,7 @@ test_conv1d_faster_data = ParametrizedTestData(
     skip_conv1d_faster_test,
     reason="Legacy function 'conv1d_faster_legacy' is removed",
 )
-@pytest.mark.parametrize(
-    test_conv1d_faster_data["args"], test_conv1d_faster_data["data"]
-)
+@make_test(test_conv1d_faster_data)
 def test_conv1d_perf(in_shape, co, ksize, stride, padding, dilation, groups, fixed_rng):
     ci = in_shape[0]
     oshape = _conv1d_oshape(in_shape[1:], ksize, stride, padding, dilation)
@@ -80,9 +77,9 @@ except ImportError:
     skip_conv1d_unroll_test = True
 
 
-test_conv1d_unroll_data = ParametrizedTestData(
-    args="in_shape, ci, co, ksize, stride, padding, groups",
-    data=[
+test_conv1d_unroll_data = ParamTestCase(
+    argnames="in_shape, ci, co, ksize, stride, padding, groups",
+    argvalues=[
         ((32,), 8, 16, (3,), (1,), (2,), 1),
         ((240,), 16, 32, (40,), (5,), (0,), 1),
         ((480,), 16, 32, (32,), (16,), (8,), 4),
@@ -95,9 +92,7 @@ test_conv1d_unroll_data = ParametrizedTestData(
     skip_conv1d_unroll_test,
     reason="Legacy function '_conv1d_unroll_legacy' is removed",
 )
-@pytest.mark.parametrize(
-    test_conv1d_unroll_data["args"], test_conv1d_unroll_data["data"]
-)
+@make_test(test_conv1d_unroll_data)
 def test_conv1d_unroll_perf(
     in_shape, ci, co, ksize, stride, padding, groups, fixed_rng
 ):
@@ -129,9 +124,7 @@ def test_conv1d_unroll_perf(
     assert np.array_equal(r_opt, r_legacy)
 
 
-@pytest.mark.parametrize(
-    test_conv1d_unroll_data["args"], test_conv1d_unroll_data["data"]
-)
+@make_test(test_conv1d_unroll_data)
 def test_conv1d_unroll(in_shape, ci, co, ksize, stride, padding, groups, fixed_rng):
     oshape = _conv1d_oshape(in_shape, ksize, stride, padding)
     assert ci % groups == 0 and co % groups == 0
@@ -158,9 +151,9 @@ except ImportError:
     skip_conv2d_faster_test = True
 
 
-test_conv2d_faster_data = ParametrizedTestData(
-    args="in_shape, co, ksize, stride, padding, dilation, groups",
-    data=[
+test_conv2d_faster_data = ParamTestCase(
+    argnames="in_shape, co, ksize, stride, padding, dilation, groups",
+    argvalues=[
         ((16, 64, 64), 32, (3, 3), (1, 1), (1, 1), (2, 2), 4),
         ((24, 32, 32), 24, (4, 4), (2, 2), (2, 1), (1, 1), 2),
         ((16, 24, 24), 8, (3, 3), (1, 2), (0, 0), (1, 1), 1),
@@ -172,9 +165,7 @@ test_conv2d_faster_data = ParametrizedTestData(
 @pytest.mark.skipif(
     skip_conv2d_faster_test, reason="Legacy function 'conv2d_faster_legacy' is removed"
 )
-@pytest.mark.parametrize(
-    test_conv2d_faster_data["args"], test_conv2d_faster_data["data"]
-)
+@make_test(test_conv2d_faster_data)
 def test_conv2d_perf(in_shape, co, ksize, stride, padding, dilation, groups, fixed_rng):
     ci = in_shape[0]
     oshape = _conv2d_oshape(in_shape[1:], ksize, stride, padding, dilation)
@@ -216,9 +207,9 @@ except ImportError:
     skip_conv2d_unroll_test = True
 
 
-test_conv2d_unroll_data = ParametrizedTestData(
-    args="in_shape, ci, co, ksize, stride, padding, groups",
-    data=[
+test_conv2d_unroll_data = ParamTestCase(
+    argnames="in_shape, ci, co, ksize, stride, padding, groups",
+    argvalues=[
         ((16, 16), 4, 16, (3, 3), (1, 1), (0, 0), 1),
         ((32, 32), 16, 32, (3, 3), (1, 1), (1, 1), 1),
         ((32, 32), 32, 8, (4, 4), (2, 2), (0, 0), 2),
@@ -231,9 +222,7 @@ test_conv2d_unroll_data = ParametrizedTestData(
     skip_conv2d_unroll_test,
     reason="Legacy function '_conv2d_unroll_legacy' is removed",
 )
-@pytest.mark.parametrize(
-    test_conv2d_unroll_data["args"], test_conv2d_unroll_data["data"]
-)
+@make_test(test_conv2d_unroll_data)
 def test_conv2d_unroll_perf(
     in_shape, ci, co, ksize, stride, padding, groups, fixed_rng
 ):
@@ -265,9 +254,7 @@ def test_conv2d_unroll_perf(
     assert np.array_equal(r_opt, r_legacy)
 
 
-@pytest.mark.parametrize(
-    test_conv2d_unroll_data["args"], test_conv2d_unroll_data["data"]
-)
+@make_test(test_conv2d_unroll_data)
 def test_conv2d_unroll(in_shape, ci, co, ksize, stride, padding, groups, fixed_rng):
     oshape = _conv2d_oshape(in_shape, ksize, stride, padding)
     assert ci % groups == 0 and co % groups == 0

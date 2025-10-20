@@ -23,7 +23,7 @@ from ._slice import *
 from .conf_types import CorePlmConfInChip
 from .constrs import GraphNodeConstrs
 from .graph_utils import merge_cycles, toposort
-from .group import DataGroup, InhiGroup, MergedGroup
+from .group import InhiGroup, MergedGroup
 from .placement import CoreBlock, EmptyCorePlacement
 from .types import EdgeType, NodeType, _1st_core_coord_repr
 
@@ -764,8 +764,7 @@ class RoutingManager:
             child_index = self.cur_child_state.index(0)
         else:
             raise ResourceError(
-                f"the all children with {self.cur_child_size} cores \
-                    at {self.cur_start} are all occupied."
+                f"the all children with {self.cur_child_size} cores at {self.cur_start} are all occupied."
             )
         self.routing_state_stack.append(
             {

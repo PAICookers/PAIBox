@@ -5,6 +5,11 @@ if sys.version_info >= (3, 8):
     from typing import TypedDict
 else:
     from typing_extensions import TypedDict
+    
+if sys.version_info >= (3, 11):
+    from typing import NotRequired
+else:
+    from typing_extensions import NotRequired
 
 from paicorelib.coordinate import Coord, CoordTuple
 
@@ -35,26 +40,20 @@ class NeuSegAddrKeys(TypedDict):
 NeuPhyLoc = dict[ChipCoordStr, dict[CoordStr, list[NeuSegAddrKeys]]]
 CoreNeuSegLocType = dict[Coord, NeuSegAddrKeys]
 
-import paicorelib.framelib.types as ftypes
 
-if hasattr(ftypes, "DestInfoKeys"):
-    InputProjInfoKeys = ftypes.DestInfoKeys  # type: ignore
-    OutputDestInfoKeys = ftypes.DestInfoKeys  # type: ignore
-else:
+class InputProjInfoKeys(TypedDict):
+    addr_chip_x: int
+    addr_chip_y: int
+    addr_core_x: int
+    addr_core_y: int
+    addr_core_x_ex: int
+    addr_core_y_ex: int
+    tick_relative: list[int]
+    addr_axon: list[int]
+    lcn: NotRequired[int]
 
-    class InputProjInfoKeys(TypedDict):
-        addr_chip_x: int
-        addr_chip_y: int
-        addr_core_x: int
-        addr_core_y: int
-        addr_core_x_ex: int
-        addr_core_y_ex: int
-        tick_relative: list[int]
-        addr_axon: list[int]
 
-    OutputDestInfoKeys = InputProjInfoKeys
-
-del ftypes
+OutputDestInfoKeys = InputProjInfoKeys
 
 InputProjInfo = dict[NodeName, InputProjInfoKeys]
 OutputDestInfo = dict[NodeName, dict[CoordStr, OutputDestInfoKeys]]

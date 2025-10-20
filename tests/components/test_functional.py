@@ -17,7 +17,7 @@ from paibox.network import DynSysGroup
 from paibox.types import NEUOUT_U8_DTYPE, VOLTAGE_DTYPE, WEIGHT_DTYPE
 from paibox.utils import shape2num, typical_round
 
-from .conftest import *  # import test data
+from .functional_testcase import *
 from .utils import (
     ann_bit_trunc,
     avgpool1d_golden,
@@ -25,6 +25,7 @@ from .utils import (
     maxpool1d_golden,
     maxpool2d_golden,
 )
+from tests.utils import make_test
 
 
 def _assert_build_fmodule(
@@ -402,7 +403,7 @@ class TestFunctionalModules:
         mapper.compile()
         mapper.export(fp=ensure_dump_dir)
 
-    @pytest.mark.parametrize(spiking_pool1d_data["args"], spiking_pool1d_data["data"])
+    @make_test(spiking_pool1d_data)
     def test_SpikingPool1d(
         self,
         shape,
@@ -484,7 +485,7 @@ class TestFunctionalModules:
         mapper.compile()
         mapper.export(fp=ensure_dump_dir)
 
-    @pytest.mark.parametrize(spiking_pool2d_data["args"], spiking_pool2d_data["data"])
+    @make_test(spiking_pool2d_data)
     def test_SpikingPool2d(
         self,
         shape,
@@ -692,10 +693,7 @@ class TestFunctionalModules:
         mapper.compile()
         mapper.export(fp=ensure_dump_dir)
 
-    @pytest.mark.parametrize(
-        conv2d_semifolded_fc_chainnet_data["args"],
-        conv2d_semifolded_fc_chainnet_data["data"],
-    )
+    @make_test(conv2d_semifolded_fc_chainnet_data)
     def test_Conv2dSemiFolded_FC_ChainNet(
         self,
         ishape_chw,
@@ -855,10 +853,7 @@ class TestFunctionalModules:
                 == linear.tick_wait_start + linear._oflow_format.t_last_vld
             )
 
-    @pytest.mark.parametrize(
-        pool2d_semifolded_fc_chainnet_data["args"],
-        pool2d_semifolded_fc_chainnet_data["data"],
-    )
+    @make_test(pool2d_semifolded_fc_chainnet_data)
     def test_Pool2dSemiFolded_FC_ChainNet(
         self,
         ishape_chw,
@@ -1045,7 +1040,7 @@ class TestFunctionalModules:
         for i in range(N_TEST):
             assert np.array_equal(sim1.data[net1.probe1][i], sim2.data[probe_linear][i])
 
-    @pytest.mark.parametrize(ann_pool1d_data["args"], ann_pool1d_data["data"])
+    @make_test(ann_pool1d_data)
     def test_ANNPool1d(
         self,
         ishape_cl,
@@ -1130,7 +1125,7 @@ class TestFunctionalModules:
                     x.ravel(), sim1.data[probe_pool_list[i_pool]][2 * i_pool]
                 )
 
-    @pytest.mark.parametrize(ann_pool2d_data["args"], ann_pool2d_data["data"])
+    @make_test(ann_pool2d_data)
     def test_ANNPool2d(
         self,
         ishape_chw,

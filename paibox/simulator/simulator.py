@@ -65,7 +65,7 @@ class Simulator(PAIBoxObject):
         """
         if not isinstance(target, DynamicSys):
             raise SimulationError(
-                f"target must be an instance of {DynamicSys.__name__}, but got {target}, {type(target)}."
+                f"target must be an instance of {DynamicSys.__name__}, but got {target}, {type(target).__name__}."
             )
 
         super().__init__(name)

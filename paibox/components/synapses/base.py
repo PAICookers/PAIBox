@@ -47,7 +47,6 @@ def _check_equal(num_in: int, num_out: int) -> int:
 
 
 class FullConnectedSyn(SynSys):
-    online: ClassVar[bool] = False
     comm: Transform
     _n_copied: int = 0
     """Counter of copies."""
@@ -220,7 +219,7 @@ class FullConnSyn(FullConnectedSyn):
         elif conn_type is ConnType.Identity:
             if not isinstance(weights, (int, np.bool, np.integer)):
                 raise TypeError(
-                    f"expected type int, np.bool, np.integer, but got type {type(weights)}."
+                    f"expected type int, np.bool, np.integer, but got type {type(weights).__name__}."
                 )
             comm = Identity(_check_equal(self.num_in, self.num_out), weights)
         elif conn_type is ConnType.All2All:
@@ -228,7 +227,7 @@ class FullConnSyn(FullConnectedSyn):
         else:  # MatConn
             if not isinstance(weights, np.ndarray):
                 raise TypeError(
-                    f"expected type np.ndarray, but got type {type(weights)}."
+                    f"expected type np.ndarray, but got type {type(weights).__name__}."
                 )
             if len(self.shape_in) > 2:
                 raise ShapeError(

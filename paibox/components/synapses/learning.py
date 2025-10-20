@@ -10,6 +10,7 @@ from paibox.base import LearnableSys
 from paibox.exceptions import ParamNotSimulatedWarning
 from paibox.types import WEIGHT_DTYPE, NeuOutType, WeightType
 from paibox.utils import arg_check_pos
+from paicorelib import OnlineModeEnable, DecayRandomEnable
 
 from .base import FullConnectedSyn
 from .lut import LUT
@@ -26,7 +27,7 @@ PRE_CNT_MAX = (1 << SPIKE_CNT_BIT_MAX) - 1
 POST_CNT_MAX = PRE_CNT_MAX
 
 
-class STDPSynAttrKwds(TypedDict):
+class STDPSynAttrKwds(TypedDict, total=False):
     """Attributes of `STDPSyn` but stored in online neurons."""
 
     weight_decay_value: WEIGHT_DTYPE
@@ -34,9 +35,10 @@ class STDPSynAttrKwds(TypedDict):
     lower_weight: int
     lut: LUTDataType
     lut_random_en: NDArray[np.uint8]
-    decay_random_en: bool
+    decay_random_en: Union[bool, DecayRandomEnable]
     random_seed: int
-    online_mode_en: bool
+    online_mode_en: Union[bool, OnlineModeEnable]
+    # NOTE: 'plasticity_start/end' is unset, use the default values in ram model.
     plasticity_start: int
     plasticity_end: int
 
@@ -53,12 +55,11 @@ class STDPSyn(LearnableSys):
         lut_offset: Optional[int] = None,
         lut_random: Union[bool, ArrayLike] = False,
         random_seed: int = 1,
-        plasticity_range: Optional[Union[int, tuple[int, int]]] = None,
         learn_by_default: bool = True,
     ) -> None:
         self.syn = syn
         self.weight_decay = WEIGHT_DTYPE(weight_decay)
-        self.weight_decay_random = weight_decay_random
+        self.weight_decay_random = DecayRandomEnable(weight_decay_random)
 
         # XXX This feature needs LFSR support
         if weight_decay_random:
@@ -69,26 +70,6 @@ class STDPSyn(LearnableSys):
 
         self._set_weight_range(upper_weight, lower_weight)
         self.lut = LUT(lut, lut_offset, lut_random)
-
-        # XXX Currently, fixed.
-        if plasticity_range is None:
-            p_range = (0, syn.num_in)
-        elif isinstance(plasticity_range, int):
-            if plasticity_range < 0 or plasticity_range > syn.num_in:
-                raise ValueError(
-                    f"'plasticity_range' must be an integer between 0 & {syn.num_in}, "
-                    + f"but got {plasticity_range}."
-                )
-            p_range = (0, plasticity_range)
-        else:
-            if not 0 <= plasticity_range[0] <= plasticity_range[1] <= syn.num_in:
-                raise ValueError(
-                    f"'plasticity_range' must be a tuple of two integers between 0 & {syn.num_in},"
-                    f"but got {plasticity_range}."
-                )
-            p_range = plasticity_range
-
-        self.plasticity_range = p_range
         # XXX This feature needs LFSR support
         self.random_seed = arg_check_pos(random_seed, "random seed")  # must >0
 
@@ -193,9 +174,6 @@ class STDPSyn(LearnableSys):
             lut_random_en=self.lut.lut_random_en.astype(np.uint8),
             decay_random_en=self.weight_decay_random,
             random_seed=self.random_seed,
-            online_mode_en=self.learn_by_default,  # init value
-            # Attributes for the online neurons
-            plasticity_start=self.plasticity_range[0],
-            plasticity_end=self.plasticity_range[1],
+            online_mode_en=OnlineModeEnable(self.learn_by_default),
         )
         return attrs
