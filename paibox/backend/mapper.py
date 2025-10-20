@@ -6,11 +6,11 @@ from copy import copy
 from pathlib import Path
 from typing import Literal, Optional, Union, cast
 
-from paicorelib import ChipCoord, Coord, CoordOffset, HwConfig, ReplicationId
+from paicorelib import ChipCoord, Coord, CoordOffset, HwConfig
 
 from paibox import _logging
 from paibox.base import SynSys
-from paibox.components import Neuron, OnlineNeuron
+from paibox.components import Neuron
 from paibox.exceptions import CompileError, ConfigInvalidError, ResourceError
 from paibox.network import DynSysGroup
 
@@ -152,8 +152,9 @@ class Mapper:
             core_estimate_only (bool): only do the core estimation, without allocation. Default is false.
             weight_bit_optimization (bool): whether to optimize weight width. For example, weights declared as  \
                 INT8 are treated as smaller width based on their actual values (when the weight are all between \
-                [-8, 7], they can be treated as INT4). By default, it is specified by the corresponding compile \
-                option in the backend configuration item. Default is true.
+                [-8, 7], they can be treated as INT4).
+                This option is not applicable to online cores since their weights will be updated during learning.
+                By default, it is specified by the corresponding compile option in the backend configuration item.
             grouping_optim_target ("latency", "core", "both"): specify the optimization goal of neuron grouping,\
                 which can be `latency`, `core` or `both` which respectively represent the optimization goal of  \
                 delay/throughput, occupied cores, or both. The default is specified by the corresponding        \
@@ -590,6 +591,7 @@ class Mapper:
         return _graph_info
 
     def _set_global_cflags(self) -> None:
+        # NOTE: learnable synapses are not configured for weight width optimization.
         SynSys.CFLAG_ENABLE_WP_OPTIMIZATION = _BACKEND_CONTEXT.cflags["enable_wp_opt"]
 
     def _inpproj_config_export(self) -> InputNodeConf:

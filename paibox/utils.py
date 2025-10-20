@@ -25,7 +25,7 @@ def check_elem_unique(obj: Any) -> bool:
 
         return True
 
-    raise TypeError(f"unsupported type: {type(obj)}.")
+    raise TypeError(f"unsupported type: {type(obj).__name__}.")
 
 
 def count_unique_elem(obj: Iterable[Any]) -> int:
@@ -59,7 +59,7 @@ def check_elem_same(obj: Any) -> bool:
     if isinstance(obj, dict):
         return len(set(obj.values())) == 1
 
-    raise TypeError(f"unsupported type: {type(obj)}.")
+    raise TypeError(f"unsupported type: {type(obj).__name__}.")
 
 
 def is_nested_obj(obj_on_top: Any) -> bool:

@@ -29,7 +29,7 @@ class Collector(dict[_KT, _VT]):
     ) -> Union["Collector[_KT, _VT]", "Collector[_KT, _T]"]:
         if not isinstance(other, (MutableMapping, list, tuple)):
             raise TypeError(
-                f"expected a collector, dict, list or sequence, but got {other}, type {type(other)}."
+                f"expected a collector, dict, list or sequence, but got {type(other).__name__}."
             )
 
         if isinstance(other, MutableMapping):
@@ -74,7 +74,7 @@ class Collector(dict[_KT, _VT]):
     ) -> Union["Collector[_KT, _VT]", "Collector[str, _T]"]:
         if not isinstance(other, (MutableMapping, list, tuple)):
             raise TypeError(
-                f"expected a collector, dict, list or sequence, but got {other}, type {type(other)}."
+                f"expected a collector, dict, list or sequence, but got {other}, type {type(other).__name__}."
             )
 
         gather = type(self)(self)

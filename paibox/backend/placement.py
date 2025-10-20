@@ -1,5 +1,4 @@
 import logging
-import math
 import warnings
 from abc import ABC, abstractmethod
 from collections import UserList
@@ -9,7 +8,6 @@ from typing import ClassVar, Literal, NamedTuple, Optional, cast, overload
 import numpy as np
 from numpy.typing import NDArray
 from paicorelib import (
-    LCM,
     LCN_EX,
     ChipCoord,
     Coord,
@@ -31,6 +29,7 @@ from paicorelib.routing_defs import get_replication_id
 from paibox import _logging
 from paibox.base import PAIBoxObject
 from paibox.components import Neuron, OnlineNeuron
+from paibox.components.synapses.lut import LUT_LEN
 from paibox.exceptions import GraphBuildError, ResourceError, TruncationWarning
 from paibox.types import WEIGHT_DTYPE, WeightType
 from paibox.utils import check_attr_same
@@ -704,24 +703,15 @@ class OnlineCoreBlock(CoreBlock):
 
     @property
     def decay_random_en(self) -> DecayRandomEnable:
-        if self.first_neuron.decay_random_en:
-            return DecayRandomEnable.ENABLE
-        else:
-            return DecayRandomEnable.DISABLE
+        return self.first_neuron.decay_random_en
 
     @property
     def leak_order(self) -> LeakOrder:
-        if self.first_neuron.leak_comparison == LCM.LEAK_BEFORE_COMP:
-            return LeakOrder.LEAK_BEFORE_COMP
-        else:
-            return LeakOrder.LEAK_AFTER_COMP
+        return self.first_neuron.leak_comparison
 
     @property
     def online_mode_en(self) -> OnlineModeEnable:
-        if self.first_neuron.online_mode_en:
-            return OnlineModeEnable.ENABLE
-        else:
-            return OnlineModeEnable.DISABLE
+        return self.first_neuron.online_mode_en
 
     @property
     def lut(self) -> LUTDataType:
@@ -1367,7 +1357,7 @@ class OfflineCorePlacement(CorePlacement):
             return self._parent
         else:
             raise TypeError(
-                f"Parent must be an instance of OfflineCoreBlock, but got {type(self._parent)}."
+                f"Parent must be an instance of {OfflineCoreBlock.__name__}, but got {type(self._parent).__name__}."
             )
 
 
@@ -1550,7 +1540,7 @@ class OnlineCorePlacement(CorePlacement):
             return self._parent
         else:
             raise TypeError(
-                f"Parent must be an instance of OnlineCoreBlock, but got {type(self._parent)}."
+                f"Parent must be an instance of {OnlineCoreBlock.__name__}, but got {type(self._parent).__name__}."
             )
 
 
@@ -1576,7 +1566,7 @@ class EmptyCorePlacement(CoreAbstract):
 
 
 class EmptyOfflineCorePlacement(EmptyCorePlacement):
-    """Empty core placement."""
+    """Empty offline core placement."""
 
     _EMPTY_WRAM: int = 0
 
@@ -1589,8 +1579,8 @@ class EmptyOfflineCorePlacement(EmptyCorePlacement):
         # fmt: off
         cb_config = OfflineCoreConfig(
             self.name,                          # name of the core
-            WW.WEIGHT_WIDTH_1BIT,               # weight_precision
-            LCN_EX.LCN_1X,                      # lcn_extension
+            WW.WEIGHT_WIDTH_1BIT,               # weight_width
+            LCN_EX.LCN_1X,                      # lcn
             _mode_params[0],                    # input_width_format
             _mode_params[1],                    # spike_width_format
             0,                                  # num_dendrite
@@ -1619,7 +1609,7 @@ class EmptyOfflineCorePlacement(EmptyCorePlacement):
 
 
 class EmptyOnlineCorePlacement(EmptyCorePlacement):
-    """Empty core placement."""
+    """Empty online core placement."""
 
     _EMPTY_WRAM: int = 0
 
@@ -1627,33 +1617,37 @@ class EmptyOnlineCorePlacement(EmptyCorePlacement):
         super().__init__(coord, name)
 
     def export_core_config(self) -> OnlineCoreConfig:
+        # fmt: off
         cb_config = OnlineCoreConfig(
             self.name,
-            WW.WEIGHT_WIDTH_1BIT,  # weight_precision
-            LCN_EX.LCN_1X,  # lcn_extension
-            0,  # lateral_inhi_value
-            0,  # weight_decay_value
-            0,  # upper_weight
-            0,  # lower_weight
-            0,  # neuron_start
-            0,  # neuron_end
-            0,  # inhi_core_x_ex
-            0,  # inhi_core_y_ex
-            0,  # tick_wait_start
-            0,  # tick_wait_end
-            np.zeros(60, dtype=np.uint8),  # lut_random_en
-            DecayRandomEnable.DISABLE,  # decay_random_en
-            LeakOrder.LEAK_BEFORE_COMP,  # leak_order
-            OnlineModeEnable.DISABLE,  # online_mode_en
-            _BACKEND_CONTEXT.test_chip_addr,  # test_chip_addr
-            1,  # random_seed
+            WW.WEIGHT_WIDTH_1BIT,               # weight_width
+            LCN_EX.LCN_1X,                      # lcn
+            0,                                  # lateral_inhi_value
+            0,                                  # weight_decay_value
+            0,                                  # upper_weight
+            0,                                  # lower_weight
+            0,                                  # neuron_start
+            0,                                  # neuron_end
+            0,                                  # inhi_core_x_ex
+            0,                                  # inhi_core_y_ex
+            0,                                  # tick_wait_start
+            0,                                  # tick_wait_end
+            np.zeros(LUT_LEN, dtype=np.uint8),  # lut_random_en
+            DecayRandomEnable.DISABLE,          # decay_random_en
+            LeakOrder.LEAK_BEFORE_COMP,         # leak_order
+            OnlineModeEnable.DISABLE,           # online_mode_en
+            _BACKEND_CONTEXT.test_chip_addr,    # test_chip_addr
+            1,                                  # random_seed
         )
+        # fmt: on
         return cb_config
 
     def export_core_plm_config(self) -> OnlineCorePlmConfig:
         core_param = self.export_core_config()
         # For empty core placements, we don't care WRAM & neurons cfg.
-        return OnlineCorePlmConfig.encapsulate(self._EMPTY_WRAM, core_param, np.zeros(60, dtype=LUT_DTYPE), {})  # type: ignore
+        return OnlineCorePlmConfig.encapsulate(
+            self._EMPTY_WRAM, core_param, np.zeros(LUT_LEN, dtype=LUT_DTYPE), {}  # type: ignore
+        )
 
     @classmethod
     def build(cls, coord: Coord):

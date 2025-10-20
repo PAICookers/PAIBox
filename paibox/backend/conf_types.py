@@ -31,9 +31,7 @@ from paicorelib import (
     WeightWidth,
     get_replication_id,
 )
-from paicorelib.framelib.types import LUT_DTYPE, LUTDataType
-
-from paibox.types import WEIGHT_DTYPE
+from paicorelib.framelib.types import LUTDataType
 
 if sys.version_info >= (3, 10):
     from typing import TypeAlias
@@ -67,7 +65,7 @@ try:
         elif isinstance(o, OnlineNeuDestInfo):
             return o.model_dump(by_alias=True)
 
-        raise TypeError(f"type {type(o)} not defined in custom Json encoder.")
+        raise TypeError(f"type {type(o).__name__} not defined in custom Json encoder.")
 
 except ModuleNotFoundError:
     import json
@@ -95,15 +93,8 @@ except ModuleNotFoundError:
 # Prevent import errors caused by changes in type definitions in paicorelib.
 from paicorelib import framelib
 
-if hasattr(framelib.types, "FRAME_DTYPE"):
-    FRAME_DTYPE = framelib.types.FRAME_DTYPE
-else:
-    FRAME_DTYPE = np.uint64
-
-if hasattr(framelib.types, "FrameArrayType"):
-    FrameArrayType = framelib.types.FrameArrayType
-else:
-    FrameArrayType = NDArray[FRAME_DTYPE]
+FRAME_DTYPE = framelib.types.FRAME_DTYPE
+FrameArrayType = NDArray[FRAME_DTYPE]
 
 
 def asdict_shallow(obj):
