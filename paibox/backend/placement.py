@@ -691,14 +691,6 @@ class OnlineCoreBlock(CoreBlock):
         return self.first_neuron.lower_weight
 
     @property
-    def neuron_start(self) -> int:
-        return 0
-
-    @property
-    def neuron_end(self) -> int:
-        return self.n_neuron
-
-    @property
     def inhi_core_x_ex(self) -> int:
         return self.inhi_rid.x
 
@@ -1508,11 +1500,11 @@ class OnlineCorePlacement(CorePlacement):
 
     @property
     def neuron_start(self) -> int:
-        return self.parent.neuron_start
+        return 0
 
     @property
     def neuron_end(self) -> int:
-        return self.parent.neuron_end
+        return self.n_neuron - 1
 
     @property
     def inhi_core_x_ex(self) -> int:
