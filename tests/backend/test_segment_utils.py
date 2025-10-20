@@ -10,9 +10,8 @@ from paibox.backend.segment_utils import (
     get_neu_segments,
 )
 from paibox.components import Neuron
-from paibox.exceptions import ResourceError
-
-from .conftest import TestData
+from tests.utils import make_test
+from .backend_testcase import BackendTestCase as TCase
 
 
 class TestGetNeuronSegments:
@@ -46,10 +45,7 @@ class TestGetNeuronSegments:
     def _get_interval(wp, lcn_ex) -> int:
         return (1 << wp) * (1 << lcn_ex)
 
-    @pytest.mark.parametrize(
-        TestData.neu_segs_latency_test_data["args"],
-        TestData.neu_segs_latency_test_data["data"],
-    )
+    @make_test(TCase.neu_segs_latency_testcase)
     def test_get_neu_segments_latency(self, neurons, capacity, wp, lcn_ex, expected):
         neuron_slices = [NeuronSlice(neuron) for neuron in neurons]
         neu_segs = get_neu_segments(
@@ -57,10 +53,7 @@ class TestGetNeuronSegments:
         )
         assert neu_segs == expected
 
-    @pytest.mark.parametrize(
-        TestData.neu_segs_core_test_data["args"],
-        TestData.neu_segs_core_test_data["data"],
-    )
+    @make_test(TCase.neu_segs_core_testcase)
     def test_get_neu_segments_core(self, neurons, capacity, wp, lcn_ex, expected):
         neuron_slices = [NeuronSlice(neuron) for neuron in neurons]
         neu_segs = get_neu_segments(
@@ -68,10 +61,7 @@ class TestGetNeuronSegments:
         )
         assert neu_segs == expected
 
-    @pytest.mark.parametrize(
-        TestData.neu_segs_both_test_data["args"],
-        TestData.neu_segs_both_test_data["data"],
-    )
+    @make_test(TCase.neu_segs_both_testcase)
     def test_get_neu_segments_both(self, neurons, capacity, wp, lcn_ex, expected):
         neuron_slices = [NeuronSlice(neuron) for neuron in neurons]
         neu_segs = get_neu_segments(
@@ -127,9 +117,6 @@ def test_get_axon_segments_boundary(axons: list[Neuron]):
     assert last_seg.addr_offset + last_seg.n_axon == (tr_max * 1152)
 
 
-@pytest.mark.parametrize(
-    TestData.aligned_coords_test_data["args"],
-    TestData.aligned_coords_test_data["data"],
-)
+@make_test(TCase.aligned_coords_testcase)
 def test_aligned_coords(neu_index, axon_seg, delay, n_timeslot, is_iw8, expected):
     assert aligned_coords(neu_index, axon_seg, delay, n_timeslot, is_iw8) == expected
