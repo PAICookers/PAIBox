@@ -817,6 +817,8 @@ class RoutingManager:
                 return HwConfig.N_CORE_MAX_INCHIP // 2
             else:
                 return 0
+        elif 1 not in self.cur_child_state:
+            return self.cur_child_size * len(self.cur_child_state)
         else:
             if (
                 self.cur_child_state[0] == 0
@@ -854,14 +856,22 @@ class RoutingManager:
         elif (
             self.cur_child_size == n_core_incoming
             or self.cur_child_size * 2 == n_core_incoming
+            or self.cur_child_size * 4 == n_core_incoming
         ):
             if self.cur_child_size == n_core_incoming:
                 child_index = self.cur_child_state.index(0)
-            else:
+            elif self.cur_child_size * 2 == n_core_incoming:
                 if self.cur_child_state[0] == 0 and self.cur_child_state[1] == 0:
                     child_index = 0
                 elif self.cur_child_state[2] == 0 and self.cur_child_state[3] == 0:
                     child_index = 2
+                else:
+                    raise ResourceError(
+                        f"the maximum incoming group size {self.max_group_size} is not correct."
+                    )
+            elif self.cur_child_size * 4 == n_core_incoming:
+                if self.cur_child_state == [0, 0, 0, 0]:
+                    child_index = 0
                 else:
                     raise ResourceError(
                         f"the maximum incoming group size {self.max_group_size} is not correct."
@@ -902,9 +912,9 @@ class RoutingManager:
             self.n_core_occupied += n_core_incoming
             self.n_core_per_chip[self.cur_chip_index] += n_core_incoming
 
-            self.cur_child_state[child_index] = 1
-            if n_core_incoming == self.cur_child_size * 2:
-                self.cur_child_state[child_index + 1] = 1
+            occuried_child_num = n_core_incoming // self.cur_child_size
+            for i in range(occuried_child_num):
+                self.cur_child_state[child_index + i] = 1
 
             routing_idx = core_loc % HwConfig.N_CORE_MAX_INCHIP
             # From L0 to L4
