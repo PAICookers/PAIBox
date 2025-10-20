@@ -288,6 +288,15 @@ def gen_config_frames_by_coreconf(
                 _concat_frames, enable_frames, disable_frames = (
                     gen_online_config_frames(v, chip_coord, core_coord)
                 )
+
+                enable_frames_total[chip_coord].append(
+                    np.hstack(enable_frames, casting="no")
+                )
+
+                disable_frames_total[chip_coord].append(
+                    np.hstack(disable_frames, casting="no")
+                )
+
             else:
                 raise TypeError(
                     f"Unsupported core configuration type: {type(v)}. "
@@ -296,14 +305,6 @@ def gen_config_frames_by_coreconf(
 
             frame_arrays_total[chip_coord].append(
                 np.hstack(_concat_frames, casting="no")
-            )
-
-            enable_frames_total[chip_coord].append(
-                np.hstack(enable_frames, casting="no")
-            )
-
-            disable_frames_total[chip_coord].append(
-                np.hstack(disable_frames, casting="no")
             )
 
     if write_to_file:
@@ -341,14 +342,16 @@ def gen_config_frames_by_coreconf(
             _enable_list = []
             for f in enable_frames_total.values():
                 _enable_list.extend(f)
-            f = np.hstack(_enable_list, casting="no")
-            _write_to_f("config_enable_all", f)
+            if len(_enable_list) > 0:
+                f = np.hstack(_enable_list, casting="no")
+                _write_to_f("config_enable_all", f)
 
             _disable_list = []
             for f in disable_frames_total.values():
                 _disable_list.extend(f)
-            f = np.hstack(_disable_list, casting="no")
-            _write_to_f("config_disable_all", f)
+            if len(_disable_list) > 0:
+                f = np.hstack(_disable_list, casting="no")
+                _write_to_f("config_disable_all", f)
 
     return frame_arrays_total
 
