@@ -11,9 +11,9 @@ del paicorelib
 
 # Version check for standablone scenario
 # In case of breaking changes in paicorelib, maximum allowed version is set here.
-MAX_SUPPORT_PLIB_VER = "1.5.0"
-from paicorelib import __version__ as plib_ver
+MAX_SUPPORT_PLIB_VER = "1.6.0"
 from packaging import version as pkg_version
+from paicorelib import __version__ as plib_ver
 
 if plib_ver is not None:
     if pkg_version.parse(plib_ver) >= pkg_version.parse(MAX_SUPPORT_PLIB_VER):
