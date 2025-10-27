@@ -16,6 +16,7 @@ from paibox.exceptions import ShapeError
 from paibox.network import DynSysGroup
 from paibox.types import NEUOUT_U8_DTYPE, VOLTAGE_DTYPE, WEIGHT_DTYPE
 from paibox.utils import shape2num, typical_round
+from tests.utils import make_test
 
 from .functional_testcase import *
 from .utils import (
@@ -25,7 +26,6 @@ from .utils import (
     maxpool1d_golden,
     maxpool2d_golden,
 )
-from tests.utils import make_test
 
 
 def _assert_build_fmodule(

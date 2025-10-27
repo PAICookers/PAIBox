@@ -10,10 +10,10 @@ from paibox.backend._slice import node_sl_lst_overlap
 from paibox.backend.conf_exporting import *
 from paibox.backend.mapper import merge_cycles
 from paibox.exceptions import ResourceError
+from tests.shared_networks import STDPLinearNet
+from tests.utils import gen_random_array, make_test
 
 from .backend_testcase import BackendTestCase as TCase
-from tests.shared_networks import STDPLinearNet
-from tests.utils import make_test, gen_random_array
 
 
 class TestGraphInfo:

@@ -9,7 +9,7 @@ import paibox as pb
 from paibox.backend.types import AxonCoord, AxonSegment, NeuSegment
 from paibox.exceptions import ResourceError
 from paibox.node import NodeList
-from tests.utils import TestCase, ParamTestCase
+from tests.utils import ParamTestCase, TestCase
 
 
 class NetForTest1(pb.Network):

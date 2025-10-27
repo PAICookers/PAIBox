@@ -10,25 +10,27 @@ from typing import Any, Literal, Optional, Union, cast, overload
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
-from paicorelib import ChipCoord, Coord, CoordLike
-from paicorelib import RIdLike, OffCoreCfg, OnCoreCfg, to_coordoffset
-from paicorelib.framelib import (
-    OfflineFrameGen,
-    OnlineFrameGen,
-    OfflineTestInFrame3,
-    OfflineWorkFrame1,
-    OnlineWorkFrame1_1,
-    OfflineTestOutFrame3 as Off_ToF3,
+from paicorelib import (
+    ChipCoord,
+    Coord,
+    CoordLike,
+    OffCoreCfg,
+    OnCoreCfg,
+    RIdLike,
+    to_coordoffset,
 )
+from paicorelib.framelib import OfflineFrameGen, OfflineTestInFrame3
+from paicorelib.framelib import OfflineTestOutFrame3 as Off_ToF3
+from paicorelib.framelib import OfflineWorkFrame1, OnlineFrameGen, OnlineWorkFrame1_1
 from paicorelib.framelib.frame_defs import FrameFormat as FF
 from paicorelib.framelib.frame_defs import FrameHeader as FH
 from paicorelib.framelib.frame_defs import FramePackageType as FPType
 from paicorelib.framelib.frame_defs import OfflineConfigFrame3Format as Off_NRAMF
 from paicorelib.framelib.frame_defs import OfflineWorkFrame1Format as Off_WF1F
-from paicorelib.framelib.frame_defs import OnlineWorkFrame1Format_1 as On_WF1_1F
 from paicorelib.framelib.frame_defs import OnlineConfigFrame3Format_WW1 as ON_NRAMF_WW1
 from paicorelib.framelib.frame_defs import OnlineConfigFrame3Format_WWn as ON_NRAMF_WWn
-from paicorelib.framelib.types import DataArrayType, FrameArrayType, PAYLOAD_DATA_DTYPE
+from paicorelib.framelib.frame_defs import OnlineWorkFrame1Format_1 as On_WF1_1F
+from paicorelib.framelib.types import PAYLOAD_DATA_DTYPE, DataArrayType, FrameArrayType
 from paicorelib.framelib.utils import framearray_header_check
 from paicorelib.routing_defs import _rid_unset
 

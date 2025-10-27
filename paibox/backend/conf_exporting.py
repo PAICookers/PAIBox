@@ -10,14 +10,14 @@ from paicorelib import (
     ChipCoord,
     Coord,
     OffCoreCfg,
-    OnlineModeEnable,
-    RoutingCoord,
     OfflineConfigFrame3,
     OfflineFrameGen,
     OnlineConfigFrame3,
     OnlineFrameGen,
+    OnlineModeEnable,
 )
 from paicorelib import ReplicationId as RId
+from paicorelib import RoutingCoord
 from paicorelib.framelib.utils import _mask, np2bin, np2npy, np2txt
 
 from paibox.components import Neuron

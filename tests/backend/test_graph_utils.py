@@ -6,8 +6,8 @@ import pytest
 
 from paibox.backend.graph_utils import *
 from paibox.exceptions import GraphHasCycleError
-
 from tests.utils import make_test
+
 from .backend_testcase import BackendTestCase as TCase
 
 

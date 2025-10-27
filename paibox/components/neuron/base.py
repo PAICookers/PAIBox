@@ -13,15 +13,15 @@ from paicorelib import (
     RM,
     SIM,
     CoreMode,
+    DecayRandomEnable,
     InputWidthFormat,
+    LeakOrder,
     LUTDataType,
     MaxPoolingEnable,
+    OnlineModeEnable,
     SNNModeEnable,
     SpikeWidthFormat,
     get_core_mode,
-    OnlineModeEnable,
-    DecayRandomEnable,
-    LeakOrder,
 )
 
 from paibox.base import DataFlowFormat, NeuDyn, is_learnable
