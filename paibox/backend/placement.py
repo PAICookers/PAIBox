@@ -462,6 +462,7 @@ class CoreBlock(CoreAbstract):
         _repr += ind1 + f"lcn_ex: {self.lcn_ex}\n"
         _repr += ind1 + f"weight_width: {self.weight_width}\n"
         _repr += ind1 + f"fan_out: {self.n_fanout}\n"
+        _repr += ind1 + f"mode: {self.rt_mode.name}\n"
 
         _repr += ind1 + "dests:\n"
         for dest in self.dest:
@@ -503,6 +504,7 @@ class CoreBlock(CoreAbstract):
         _logger.debug(ind1 + f"Weight width: {self.weight_width}")
         _logger.debug(ind1 + f"fan_out: {self.n_fanout}")
         _logger.debug(ind1 + f"Online: {self.online}")
+        _logger.debug(ind1 + f"Mode: {self.rt_mode.name}")
 
         _logger.debug(ind1 + "Axons:")
         for axon in self.ordered_axons:
@@ -989,7 +991,7 @@ class CorePlacement(CoreAbstract):
     @staticmethod
     def _weight_ram_mapping(
         raw_weight: np.ndarray,
-        weight_width: int,
+        weight_width: WW,
         n_timeslot: int,
         n_u64_per_wram_addr: int,
         online: bool,
@@ -1017,6 +1019,9 @@ class CorePlacement(CoreAbstract):
 
             This function only processes the weight part, that is, returns W1+W2 = W[:x2,:].
         """
+
+        weight_bit_num = 1 << weight_width
+
         w_folded = CorePlacement._nfold_weight(raw_weight, n_timeslot)
 
         # 转成 uint8 保留补码
@@ -1025,14 +1030,14 @@ class CorePlacement(CoreAbstract):
         # 展开为 bit (低位优先)
         bits = np.unpackbits(arr[:, :, None], axis=2, bitorder=HwConfig.WEIGHT_BITORDER)
 
-        # 只保留低 weight_width 位
-        bits = bits[:, :, :weight_width]
+        # 只保留低 weight_bit_num 位
+        bits = bits[:, :, :weight_bit_num]
 
-        # reshape 成 (M, N * weight_width)
+        # reshape 成 (M, N * weight_bit_num)
         M, N = arr.shape
-        w_unpacked = bits.reshape(M, N * weight_width)
+        w_unpacked = bits.reshape(M, N * weight_bit_num)
 
-        # shape = (N*weight_width, M)
+        # shape = (N * weight_bit_num, M)
         unpacked_T = w_unpacked.T
 
         # 扁平化 + 补 0 (按 64bit 对齐)
@@ -1184,6 +1189,20 @@ class OfflineCorePlacement(CorePlacement):
         OffCoreCfg.WEIGHT_RAM_SHAPE[1] // N_BIT_PACKED_WEIGHT
     )
     """The number of u64 at each address of weight RAM."""
+
+    def __init__(
+        self,
+        parent: OfflineCoreBlock,
+        routing_coord: Coord,
+        n_neuron: int,
+        raw_weight: WeightType,
+        neu_segs_of_cplm: NeuSegOfCorePlm,
+        name: Optional[str] = None,
+    ) -> None:
+        self._neu_configs = dict()
+        super().__init__(
+            parent, routing_coord, n_neuron, raw_weight, neu_segs_of_cplm, name
+        )
 
     @classmethod
     def build(cls, parent: OfflineCoreBlock, idx: int):
@@ -1368,6 +1387,20 @@ class OnlineCorePlacement(CorePlacement):
         OnCoreCfg.WEIGHT_RAM_SHAPE[1] // N_BIT_PACKED_WEIGHT
     )
     """The number of u64 at each address of weight RAM."""
+
+    def __init__(
+        self,
+        parent: OnlineCoreBlock,
+        routing_coord: Coord,
+        n_neuron: int,
+        raw_weight: WeightType,
+        neu_segs_of_cplm: NeuSegOfCorePlm,
+        name: Optional[str] = None,
+    ) -> None:
+        self._neu_configs = dict()
+        super().__init__(
+            parent, routing_coord, n_neuron, raw_weight, neu_segs_of_cplm, name
+        )
 
     @classmethod
     def build(cls, parent: OnlineCoreBlock, idx: int):

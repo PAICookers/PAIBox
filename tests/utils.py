@@ -1,16 +1,16 @@
-from collections.abc import Callable, Sequence
 import os
 import time
 import tracemalloc
+from collections.abc import Callable, Sequence
 from contextlib import contextmanager
 from importlib.metadata import version
-from packaging import version as pkg_version
 from pathlib import Path
-from typing import Any, Generator, Optional, Union, NamedTuple
+from typing import Any, Generator, NamedTuple, Optional, Union
 
 import numpy as np
 import pytest
 from numpy.typing import DTypeLike
+from packaging import version as pkg_version
 
 from paibox.types import Shape
 from paibox.utils import as_shape

@@ -6,7 +6,6 @@ from typing import Any
 
 import numpy as np
 import pytest
-from paicorelib import __version__ as plib_ver
 from paicorelib import (
     LCM,
     LDM,
@@ -16,21 +15,23 @@ from paicorelib import (
     SIM,
     ChipCoord,
     Coord,
-    OnCoreCfg,
     OffCoreCfg,
+    OnCoreCfg,
 )
 from paicorelib import ReplicationId as RId
+from paicorelib import __version__ as plib_ver
 from paicorelib.framelib.frame_defs import FrameHeader as FH
 from paicorelib.framelib.frame_defs import OfflineWorkFrame1Format as Off_WF1F
 from paicorelib.framelib.frame_defs import OnlineWorkFrame1Format_1 as On_WF1_1F
 from paicorelib.framelib.frame_gen import OfflineFrameGen
 from paicorelib.framelib.frames import OfflineTestOutFrame3
-from paicorelib.framelib.utils import print_frame
 from paicorelib.framelib.types import FRAME_DTYPE, PAYLOAD_DATA_DTYPE
+from paicorelib.framelib.utils import print_frame
+
 from tests.utils import (
     file_not_exist_fail,
-    skip_if_version_less_than,
     skip_if_in_ci_env,
+    skip_if_version_less_than,
 )
 
 try:
@@ -40,10 +41,9 @@ except ImportError:
 
 from paibox.runtime.runtime import (
     LENGTH_EX_MULTIPLE_KEY,
-    get_length_ex_onode,
     VOLTAGE_DTYPE,
+    get_length_ex_onode,
 )
-
 
 TEST_DATA_CFG_DIR = Path(__file__).parent / "test_data"
 

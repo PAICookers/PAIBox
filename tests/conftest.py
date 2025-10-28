@@ -8,12 +8,10 @@ import paibox as pb
 from paibox.base import SynSys
 from paibox.naming import clear_name_cache
 
-from .shared_networks import *
-from .utils import is_ci_env, make_dump_dir, measure_time
-
-
 # Import the logging hooks from logging_utils
 from ._logging.logging_utils import captured_logs, log_settings_patch
+from .shared_networks import *
+from .utils import is_ci_env, make_dump_dir, measure_time
 
 
 # Add custom markers to eliminate pytest warning

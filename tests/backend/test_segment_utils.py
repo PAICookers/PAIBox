@@ -11,6 +11,7 @@ from paibox.backend.segment_utils import (
 )
 from paibox.components import Neuron
 from tests.utils import make_test
+
 from .backend_testcase import BackendTestCase as TCase
 
 

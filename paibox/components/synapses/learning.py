@@ -3,14 +3,13 @@ from typing import Optional, TypedDict, Union
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
-from paicorelib import LUTDataType
+from paicorelib import DecayRandomEnable, LUTDataType, OnlineModeEnable
 
 from paibox._logging import get_artifact_logger
 from paibox.base import LearnableSys
 from paibox.exceptions import ParamNotSimulatedWarning
 from paibox.types import WEIGHT_DTYPE, NeuOutType, WeightType
 from paibox.utils import arg_check_pos
-from paicorelib import OnlineModeEnable, DecayRandomEnable
 
 from .base import FullConnectedSyn
 from .lut import LUT
