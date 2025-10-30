@@ -226,7 +226,7 @@ s1= pb.FullConn(source=n1, dest=n2, weights=weight1, conn_type=pb.SynConnType.Al
   n1 = pb.IF(shape=5, threshold=1)
   n2 = pb.IF(shape=5, threshold=1)
   s1 = pb.FullConn(source=n1, dest=n2, conn_type=pb.SynConnType.One2One, weights=np.arange(1, 6, dtype=np.int8), name='s1')
-
+  
   print(s1.weights)
   >>>
   [[1, 0, 0, 0, 0],
@@ -1054,7 +1054,7 @@ mapper.clear()
    # Read
    BACKEND_CONFIG.output_dir
    >>> Path.cwd() # Default is your current working directory
-
+   
    # Modify
    BACKEND_CONFIG.output_dir = "path/to/my/output"
    ```
@@ -1137,7 +1137,7 @@ mapper.clear()
    }
    ```
 
-4. 计算核配置信息，`core_params.json`
+4. 计算核配置信息，根据计算核类型不同分为在线核和离线核两类，`core_params.json`
 
    ```json
    {
@@ -1155,24 +1155,30 @@ mapper.clear()
          "target_LCN": 0,
          "test_chip_addr": 32,
          "n_repeat_nram": 1,
-         "name": "CorePlacement_0"
+         "name": "OfflineCorePlacement_0"
        },
-       "(0,1)": {
-         "weight_width": 0,
-         "LCN": 0,
-         "input_width": 0,
-         "spike_width": 0,
-         "num_dendrite": 50,
-         "pool_max": 0,
-         "tick_wait_start": 2,
-         "tick_wait_end": 0,
-         "snn_en": 1,
-         "target_LCN": 0,
-         "test_chip_addr": 32,
-         "n_repeat_nram": 1,
-         "name": "CorePlacement_1"
+      	...
+       "(28,28)": {
+         "bit_select": 3,
+         "group_select": 0,
+         "lateral_inhi_value": 1,
+         "weight_decay_value": 0,
+         "upper_weight": 127,
+         "lower_weight": -128,
+         "neuron_start": 0,
+         "neuron_end": 99,
+         "inhi_core_x_star": 0,
+         "inhi_core_y_star": 0,
+         "core_start_time": 1,
+         "core_hold_time": 0,
+         "lut_random_en": 0,
+         "decay_random_en": 0,
+         "leakage_order": 0,
+         "online_mode_en": 1,
+         "test_address": 32,
+         "random_seed": 1,
+         "name": "OnlineCorePlacement_0"
        },
-       "(1,0)": {...}
      },
      "(0,1)": {...}
    }
@@ -1222,3 +1228,15 @@ mapper.clear()
      }
    }
    ```
+
+6. 二进制配置帧文件，`config.bin`包含配置计算核参数，神经元参数和权重。在文件内部的排列方式为依次排放每个计算核的所有配置帧，如下所示
+
+   | core (0,0)的所有配置帧 | core (0,1)的所有配置帧 | ...  | core(m, n)的所有配置 |
+   | :--------------------: | :--------------------: | :--: | :------------------: |
+
+   每个计算核的配置帧按配置帧类型依次排布，如core(0,0)的所有配置帧按以下方式排布
+
+   | 配置帧1型 * 3 | 配置帧数2型 * 3 | 配置帧3型若干（根据需要配置的神经元数目决定） | 配置帧数4型若干（根据需要配置的权重大小决定） |
+   | :-----------: | :-------------: | :-------------------------------------------: | :-------------------------------------------: |
+
+7. 二进制配置帧文件，`config_learn_dis_all.bin`和`config_learn_en_all.bin`，仅包含在线核配置帧2型，用于快速开启和关闭在线核的在线学习功能
