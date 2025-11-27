@@ -11,6 +11,7 @@ from paicorelib import (
     ChipCoord,
     Coord,
     CoreReg,
+    CoreType,
     DecayRandomEnable,
     InputWidthFormat,
     LeakOrder,
@@ -514,6 +515,10 @@ class GraphInfo(_ExportedGraphInfo):
 
     input: InputNodeConf
     output: OutputDestConf
+
+    """Whether the output node is online type."""
+    output_type: dict[NodeName, CoreType]
+
     members: CorePlmConf
 
 

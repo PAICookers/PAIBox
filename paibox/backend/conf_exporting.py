@@ -9,6 +9,7 @@ import numpy as np
 from paicorelib import (
     ChipCoord,
     Coord,
+    CoreType,
     OffCoreCfg,
     OfflineConfigFrame3,
     OfflineFrameGen,
@@ -17,7 +18,9 @@ from paicorelib import (
     OnlineModeEnable,
 )
 from paicorelib import ReplicationId as RId
-from paicorelib import RoutingCoord
+from paicorelib import (
+    RoutingCoord,
+)
 from paicorelib.framelib.utils import _mask, np2bin, np2npy, np2txt
 
 from paibox.components import Neuron
@@ -40,7 +43,7 @@ from .conf_types import (
 )
 from .context import _BACKEND_CONTEXT
 from .placement import CoreBlock, OfflineCorePlacement
-from .types import _RID_UNSET
+from .types import _RID_UNSET, NodeName
 
 if _USE_ORJSON:
     import orjson
@@ -383,14 +386,30 @@ def export_input_conf_json(input_conf_info: InputNodeConf, fp: Path) -> None:
             json.dump(_valid_conf, f, indent=2)
 
 
-def export_output_conf_json(output_conf_info: OutputDestConf, fp: Path) -> None:
+def export_output_conf_json(
+    output_conf_info: OutputDestConf,
+    output_type_info: dict[NodeName, CoreType],
+    fp: Path,
+) -> None:
     _full_fp = _with_suffix_json(fp, _BACKEND_CONTEXT["output_conf_json"])
     _valid_conf = {}
 
+    def coretype2str(ct: CoreType) -> str:
+        if ct == CoreType.OFFLINE:
+            return "offline"
+        elif ct == CoreType.ONLINE:
+            return "online"
+        else:
+            raise ValueError(f"Unknown CoreType: {ct}")
+
     for dest, dest_info in output_conf_info.items():
         _valid_conf[dest] = {}
+        _valid_conf[dest]["type"] = coretype2str(
+            output_type_info.get(dest, CoreType.OFFLINE)
+        )
+        _valid_conf[dest]["coords"] = {}
         for k, v in dest_info.items():
-            _valid_conf[dest][str(k)] = v
+            _valid_conf[dest]["coords"][str(k)] = v
 
     if _USE_ORJSON:
         with open(_full_fp, "wb") as f:
@@ -492,7 +511,7 @@ def export_graph_info(
     # Export the configurations of input nodes
     export_input_conf_json(gh_info["input"], fp)
     # Export the configurations of output destinations
-    export_output_conf_json(gh_info["output"], fp)
+    export_output_conf_json(gh_info["output"], gh_info["output_type"], fp)
     export_aux_gh_info(gh_info, fp, export_clk_en_L2)
 
     if export_core_placements:

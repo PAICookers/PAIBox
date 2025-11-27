@@ -6,7 +6,7 @@ from copy import copy
 from pathlib import Path
 from typing import Literal, Optional, Union, cast
 
-from paicorelib import ChipCoord, Coord, CoordOffset, HwConfig
+from paicorelib import ChipCoord, Coord, CoordOffset, CoreType, HwConfig
 
 from paibox import _logging
 from paibox.base import SynSys
@@ -44,6 +44,7 @@ from .types import (
     DestNodeType,
     NeuSegment,
     NodeDegree,
+    NodeName,
     NodeType,
     SourceNodeType,
     is_iw8,
@@ -226,6 +227,7 @@ class Mapper:
                 name=self.graph.graph_name_repr,
                 input={},
                 output={},
+                output_type={},
                 members={},
                 inherent_timestep=self.graph.get_global_t_1st_vld(),
                 output_flow_format=self.graph.get_output_flow_format(),
@@ -566,12 +568,13 @@ class Mapper:
             )
 
         input_nodes_info = self._inpproj_config_export()
-        output_dest_info = self._member_cb_and_onode_config_export()
+        output_dest_info, output_type_info = self._member_cb_and_onode_config_export()
 
         _graph_info = GraphInfo(
             name=self.graph.graph_name_repr,
             input=input_nodes_info,
             output=output_dest_info,
+            output_type=output_type_info,
             members=self.core_plm_config,  # The configuration of physical cores is in `core_plm_config`
             inherent_timestep=self.graph.get_global_t_1st_vld(),
             output_flow_format=self.graph.get_output_flow_format(),
@@ -647,7 +650,9 @@ class Mapper:
 
         return input_nodes_info
 
-    def _member_cb_and_onode_config_export(self) -> OutputDestConf:
+    def _member_cb_and_onode_config_export(
+        self,
+    ) -> tuple[OutputDestConf, dict[NodeName, CoreType]]:
         """Export configuration & output destinations inormation for core blocks.
 
         Description:
@@ -674,6 +679,7 @@ class Mapper:
         }
         """
         output_dest_info: OutputDestConf = defaultdict(dict)
+        output_type_info: dict[NodeName, CoreType] = dict()
         # Shallow copy
         ocoord = copy(_BACKEND_CONTEXT["output_core_addr_start"])
         o_nodes = list(self.graph.onodes.values())
@@ -708,6 +714,11 @@ class Mapper:
                             output_dest_info[neu_seg.target.name][core_plm.coord] = (
                                 core_plm.neu_configs[neu_seg.target].neuron_dest_info
                             )
+                            output_type_info[neu_seg.target.name] = (
+                                CoreType.ONLINE
+                                if neu_seg.target.online
+                                else CoreType.OFFLINE
+                            )
 
                         else:
                             raise ValueError(
@@ -722,7 +733,7 @@ class Mapper:
             # Generate default configurations for wasted core placements of the routing group
             self.core_plm_config[rg.chip_coord].update(rg.get_wasted_cplm_config())
 
-        return output_dest_info
+        return output_dest_info, output_type_info
 
     def export(
         self,
