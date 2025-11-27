@@ -52,7 +52,7 @@ IF 神经元实现了经典的“积分-发射”模型，其调用方式及参�
 ```python
 import paibox as pb
 
-n1 = pb.IF(shape=10, threshold=127, reset_v=0, neg_threshold=-100, delay=1, 
+n1 = pb.IF(shape=10, threshold=127, reset_v=0, neg_threshold=-100, delay=1,
            tick_wait_start=1, tick_wait_end=0, keep_shape=True, name='n1')
 ```
 
@@ -177,7 +177,6 @@ n1 = pb.ANNBypassNeuron(shape=128, name='n1')
 - `lateral_inhi_target`：侧抑制目标神经元，可以选取单个或若干个 `STDPLIF` 作为目标。自身总是为侧抑制目标，默认为 `None`，即不指定其他侧抑制目标神经元。
 
 其余参数含义参见 `LIF`。
-
 
 ### 突触
 
@@ -1025,9 +1024,7 @@ mapper.clear()
          "(0,0)": [128, 0, 0, 0, 0, 0, 0, 0],
          "(0,1)": [128, 0, 0, 0, 0, 0, 0, 0]
        },
-       "target_chip_list": [
-         0, 1
-       ]
+       "target_chip_list": [0, 1]
      }
    }
    ```
@@ -1164,7 +1161,6 @@ mapper.clear()
    ```
 
 6. 二进制配置帧文件，`config.bin` 包含配置计算核参数，神经元参数与权重。其排列方式为依次排列每个计算核的所有配置帧：
-
    1. 芯片(0,0)核(0,0)的所有配置帧
    2. 芯片(0,0)核(0,1)的所有配置帧
    3. 芯片(0,0)核(m,n)的所有配置帧
@@ -1174,7 +1170,6 @@ mapper.clear()
    7. ……
 
    每个计算核的配置帧按配置帧类型依次排布，如核(0,0)的所有配置帧按以下顺序排布：
-
    1. 配置帧1型，共三帧
    2. 配置帧2型，共三帧
    3. 配置帧3型若干（根据需配置的神经元数目决定）

@@ -18,9 +18,7 @@ from paicorelib import (
     OnlineModeEnable,
 )
 from paicorelib import ReplicationId as RId
-from paicorelib import (
-    RoutingCoord,
-)
+from paicorelib import RoutingCoord
 from paicorelib.framelib.utils import _mask, np2bin, np2npy, np2txt
 
 from paibox.components import Neuron
