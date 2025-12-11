@@ -15,116 +15,113 @@ import paibox as pb
 from paibox.backend.placement import (
     FANOUT_IW8,
     CorePlacement,
-    SliceDest,
-    SliceDestPair,
+    DestInfo,
     SourceDest,
 )
 from paibox.backend.types import (
     WRAM_PACKED_DTYPE,
     WRAM_UNPACKED_DTYPE,
-    AxonSegment,
-    NeuSegment,
+    AxonCoord,
+    Custom_Index,
+    DendriteSegment,
     WRAMPackedType,
     WRAMUnpackedType,
 )
 from paibox.exceptions import ResourceError
 from paibox.types import WEIGHT_DTYPE, WeightType
 
+from .backend_testcase import _gen_custom_index
 from .test_conf_exporting import _gen_random_neuron_dest_info
 
 
-def _gen_slice_dest():
+def _gen_dest_info():
     ch_coord = Coord(2, 1)
-    d_ax = AxonSegment(100, 50, 10, 0)
+    d_ax = AxonCoord(2, 50)
     ts = 2
-    rt_mode = CoreMode.MODE_ANN
     dest_coords = [Coord(0, 0), Coord(1, 0), Coord(2, 0)]
 
-    return SliceDest(ch_coord, d_ax, ts, rt_mode, dest_coords)
+    return DestInfo(ch_coord, d_ax, ts, dest_coords)
 
 
 class TestSliceDest:
     def test_str_format(self, capsys):
         # rid & base_coord not set
-        sl_dest = _gen_slice_dest()
+        dest_info = _gen_dest_info()
         with capsys.disabled():
             print("\n")
-            print(sl_dest)
+            print(dest_info)
 
         # Set rid & base_coord
-        sl_dest.set_rid()
+        dest_info.set_rid()
         with capsys.disabled():
-            print(str(sl_dest))
+            print(str(dest_info))
 
 
 class TestSourceDest:
     def test_get_slice_dest(self):
-        sl_dest1 = SliceDest(
+        dest_info1 = DestInfo(
             Coord(0, 0),
-            AxonSegment(100, 50, 0, 0),
+            AxonCoord(4, 50),
             2,
-            CoreMode.MODE_ANN,
             [Coord(0, 1), Coord(1, 0)],
         )
-        sl_dest2 = SliceDest(
+        dest_info2 = DestInfo(
             Coord(0, 0),
-            AxonSegment(100, 50, 100, 100),
+            AxonCoord(4, 51),
             2,
-            CoreMode.MODE_ANN,
             [Coord(1, 0), Coord(1, 1)],
         )
-        sl_dest3 = SliceDest(
+        dest_info3 = DestInfo(
             Coord(0, 0),
-            AxonSegment(100, 50, 100, 200),
+            AxonCoord(4, 52),
             2,
-            CoreMode.MODE_ANN,
             [Coord(2, 0), Coord(2, 1)],
         )
-        sl_dest4 = SliceDest(
+        dest_info4 = DestInfo(
             Coord(0, 0),
-            AxonSegment(100, 50, 100, 300),
+            AxonCoord(4, 53),
             2,
-            CoreMode.MODE_ANN,
             [Coord(0, 2), Coord(1, 2)],
         )
 
-        dest_pair1 = SliceDestPair(slice(0, 100), sl_dest1)
-        dest_pair2 = SliceDestPair(slice(100, 200), sl_dest2)
-        dest_pair3 = SliceDestPair(slice(200, 300), sl_dest3)
-        dest_pair4 = SliceDestPair(slice(300, 400), sl_dest4)
+        source_dests = SourceDest()
+        source_dests.dest_info = {
+            Custom_Index(41, 0): dest_info1,
+            Custom_Index(42, 0): dest_info2,
+            Custom_Index(43, 0): dest_info3,
+            Custom_Index(44, 0): dest_info4,
+        }
 
-        source_dests = SourceDest([dest_pair3, dest_pair2, dest_pair4, dest_pair1])
-        source_dests.set_slice_dest_rid()
-        source_dests.sort_slice_dest_pairs()
+        source_dests.set_dest_rid()
+        source_dests.sort_dest_info()
 
-        neu_seg1 = NeuSegment(pb.ANNNeuron(100), slice(150, 250), 0)
+        neu_seg1 = DendriteSegment(pb.ANNNeuron(100), _gen_custom_index(41, 44), 0)
 
-        dest_pairs = source_dests.get_slice_dest_pairs(neu_seg1)
-        dests = [d.dest for d in dest_pairs]
+        dest_pairs = source_dests.devide_dest_info(neu_seg1)
 
-        assert len(dest_pairs) == 2
-        assert sl_dest2 in dests
-        assert sl_dest3 in dests
+        dest_core_infos = [dest_core_info for _, dest_core_info, _ in dest_pairs]
 
-        neu_seg2 = NeuSegment(pb.ANNNeuron(100), slice(300, 400), 100)
-        dest_pairs = source_dests.get_slice_dest_pairs(neu_seg2)
-        dests = [d.dest for d in dest_pairs]
+        assert len(dest_pairs) == 3
+        assert dest_info1.dest_core_info in dest_core_infos
+        assert dest_info2.dest_core_info in dest_core_infos
+        assert dest_info3.dest_core_info in dest_core_infos
+
+        neu_seg2 = DendriteSegment(pb.ANNNeuron(100), _gen_custom_index(44, 45), 100)
+        dest_pairs = source_dests.devide_dest_info(neu_seg2)
+        dest_core_infos = [dest_core_info for _, dest_core_info, _ in dest_pairs]
 
         assert len(dest_pairs) == 1
-        assert sl_dest4 in dests
+        assert dest_info4.dest_core_info in dest_core_infos
 
     def test_str_format(self, capsys):
-        sl_dest1 = _gen_slice_dest()
-        sl_dest1.set_rid()
-        sl_dest2 = _gen_slice_dest()
-        sl_dest2.set_rid()
+        dest_info1 = _gen_dest_info()
+        dest_info2 = _gen_dest_info()
 
-        source_dest = SourceDest(
-            [
-                SliceDestPair(slice(100, 200), sl_dest1),
-                SliceDestPair(slice(200, 300), sl_dest2),
-            ]
-        )
+        source_dest = SourceDest()
+        source_dest.dest_info = {
+            Custom_Index(10, 0): dest_info1,
+            Custom_Index(20, 0): dest_info2,
+        }
 
         with capsys.disabled():
             print("\n")

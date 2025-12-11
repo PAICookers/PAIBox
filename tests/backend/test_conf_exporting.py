@@ -15,6 +15,9 @@ from paicorelib import (
     OffRegDefs,
 )
 from paicorelib import WeightWidth as WW
+from paicorelib import (
+    get_replication_id,
+)
 
 import paibox as pb
 from paibox.backend.conf_exporting import *
@@ -28,10 +31,11 @@ from paibox.backend.conf_types import (
     OfflineNeuConfig,
     OfflineNeuDestInfo,
 )
-from paibox.backend.types import AxonCoord, NeuSegment
+from paibox.backend.types import AxonCoord, DendriteSegment
 from paibox.base import DataFlowFormat
 from tests.utils import file_not_exist_fail
 
+from .backend_testcase import _gen_custom_index
 from .conftest import gen_random_used_lx
 
 try:
@@ -86,16 +90,17 @@ def _gen_random_neuron_config(
     test_chip_addr = Coord(random.randint(0, 31), random.randint(0, 31))
 
     _n_start = random.randint(0, 10)
-    nseg = NeuSegment(
-        neuron, slice(_n_start, 1 * n_per_channel + _n_start), offset, interval
+    nseg = DendriteSegment(
+        neuron, _gen_custom_index(_n_start, 1 * n_per_channel), offset, interval
     )
 
     axon_coords = [AxonCoord(0, i) for i in range(nseg.n_neuron)]
     dest_coords = [dest_coord_start, dest_coord_start + CoordOffset(0, 1)]
     pb.BACKEND_CONFIG.test_chip_addr = test_chip_addr
+    base_coord, rid = get_replication_id(dest_coords)
 
     return OfflineNeuConfig(
-        nseg, axon_coords, dest_coords, pb.BACKEND_CONFIG.test_chip_addr
+        nseg, axon_coords, base_coord, rid, pb.BACKEND_CONFIG.test_chip_addr
     )
 
 
@@ -295,23 +300,32 @@ class TestConfExporting:
 @pytest.mark.parametrize(
     "index, offset, expected",
     [
-        (slice(0, 200), 100, (slice(0, 200), None)),
-        (slice(200, 400), 512, (None, slice(200, 400))),
-        (slice(0, 600), 100, (slice(0, 412), slice(412, 600))),
-        (slice(100, 400), 300, (slice(100, 312), slice(312, 400))),
+        (_gen_custom_index(0, 200), 100, (_gen_custom_index(0, 200), None)),
+        (_gen_custom_index(200, 400), 512, (None, _gen_custom_index(200, 400))),
+        (
+            _gen_custom_index(0, 600),
+            100,
+            (_gen_custom_index(0, 412), _gen_custom_index(412, 600)),
+        ),
+        (
+            _gen_custom_index(100, 400),
+            300,
+            (_gen_custom_index(100, 312), _gen_custom_index(312, 400)),
+        ),
     ],
 )
 def test_OfflineNeuConfig_mapped_on_ram(index, offset, expected):
-    n = index.stop - index.start
+    n = len(index)
     neuron = pb.ANNNeuron((n,), bias=9, keep_shape=True)
     dest_coord_start = Coord(random.randint(0, 10), random.randint(0, 10))
 
-    nseg = NeuSegment(neuron, index, offset)
+    nseg = DendriteSegment(neuron, index, offset)
     axon_coords = [AxonCoord(0, i) for i in range(n)]
     dest_coords = [dest_coord_start, dest_coord_start + CoordOffset(0, 1)]
+    base_coord, rid = get_replication_id(dest_coords)
 
     neu_config1 = OfflineNeuConfig(
-        nseg, axon_coords, dest_coords, pb.BACKEND_CONFIG.test_chip_addr
+        nseg, axon_coords, base_coord, rid, pb.BACKEND_CONFIG.test_chip_addr
     )
 
     if (

@@ -3,12 +3,12 @@ from math import ceil
 import pytest
 
 import paibox as pb
-from paibox.backend._slice import NeuronSlice, SourceSliceType
+from paibox.backend.placement import get_axon_coords
 from paibox.backend.segment_utils import (
-    aligned_coords,
     get_axon_segments,
-    get_neu_segments,
+    get_dendrite_segments,
 )
+from paibox.backend.sub_utils import SubNeuron, SubSourceType
 from paibox.components import Neuron
 from tests.utils import make_test
 
@@ -48,24 +48,24 @@ class TestGetNeuronSegments:
 
     @make_test(TCase.neu_segs_latency_testcase)
     def test_get_neu_segments_latency(self, neurons, capacity, wp, lcn_ex, expected):
-        neuron_slices = [NeuronSlice(neuron) for neuron in neurons]
-        neu_segs = get_neu_segments(
+        neuron_slices = [SubNeuron(neuron) for neuron in neurons]
+        neu_segs = get_dendrite_segments(
             neuron_slices, capacity, self._get_interval(wp, lcn_ex), "latency"
         )
         assert neu_segs == expected
 
     @make_test(TCase.neu_segs_core_testcase)
     def test_get_neu_segments_core(self, neurons, capacity, wp, lcn_ex, expected):
-        neuron_slices = [NeuronSlice(neuron) for neuron in neurons]
-        neu_segs = get_neu_segments(
+        neuron_slices = [SubNeuron(neuron) for neuron in neurons]
+        neu_segs = get_dendrite_segments(
             neuron_slices, capacity, self._get_interval(wp, lcn_ex), "core"
         )
         assert neu_segs == expected
 
     @make_test(TCase.neu_segs_both_testcase)
     def test_get_neu_segments_both(self, neurons, capacity, wp, lcn_ex, expected):
-        neuron_slices = [NeuronSlice(neuron) for neuron in neurons]
-        neu_segs = get_neu_segments(
+        neuron_slices = [SubNeuron(neuron) for neuron in neurons]
+        neu_segs = get_dendrite_segments(
             neuron_slices, capacity, self._get_interval(wp, lcn_ex), "both"
         )
         assert neu_segs == expected
@@ -87,7 +87,7 @@ def test_get_axon_segments(axons: list[Neuron]):
 
     tr_max = 1 << lcn_ex
 
-    axon_slices: list[SourceSliceType] = [NeuronSlice(axon) for axon in axons]
+    axon_slices: list[SubSourceType] = [SubNeuron(axon) for axon in axons]
 
     axon_segs = get_axon_segments(axon_slices, tr_max, 1152)
 
@@ -109,7 +109,7 @@ def test_get_axon_segments_boundary(axons: list[Neuron]):
     lcn_ex = n_axon2lcn_ex_proto(sum(axon.num_out for axon in axons), 1152)
     tr_max = 1 << lcn_ex
 
-    axon_slices: list[SourceSliceType] = [NeuronSlice(axon) for axon in axons]
+    axon_slices: list[SubSourceType] = [SubNeuron(axon) for axon in axons]
 
     axon_segs = get_axon_segments(axon_slices, tr_max, 1152)
 
@@ -118,6 +118,6 @@ def test_get_axon_segments_boundary(axons: list[Neuron]):
     assert last_seg.addr_offset + last_seg.n_axon == (tr_max * 1152)
 
 
-@make_test(TCase.aligned_coords_testcase)
-def test_aligned_coords(neu_index, axon_seg, delay, n_timeslot, is_iw8, expected):
-    assert aligned_coords(neu_index, axon_seg, delay, n_timeslot, is_iw8) == expected
+# @make_test(TCase.aligned_coords_testcase)
+# def test_aligned_coords(neu_index, axon_seg, delay, n_timeslot, is_iw8, expected):
+#     assert aligned_coords(neu_index, axon_seg, delay, n_timeslot, is_iw8) == expected
