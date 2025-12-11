@@ -7,9 +7,10 @@ from typing import ClassVar, Literal, Optional, TypeVar, Union, cast, overload
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 from numpy.typing import NDArray
-from paicorelib import LCN_EX, HwConfig
+from paicorelib import LCN_EX, HwConfig, OffCoreCfg, OnCoreCfg
 
 from paibox import _logging
+from paibox.components import Conv2d
 from paibox.components.synapses.conv_types import (
     Size1Type,
     Size2Type,
@@ -60,6 +61,7 @@ __all__ = [
     # Functions for optimizing tiling for conv
     "conv1d_tiling_optimize",
     "conv2d_tiling_optimize",
+    "conv2d_optimize",
 ]
 
 tl_optim_log = _logging.get_artifact_logger(__name__, "tiling_optim")
@@ -1514,3 +1516,45 @@ def conv2d_tiling_optimize(
         )
 
         return (est_result, i_tiled_idx_map, o_tiled_idx_map, k_tiles, copy_times)
+
+
+def conv2d_optimize(
+    conv2d_edge: Conv2d,
+    online: bool = False,
+):
+    in_shape = conv2d_edge.shape_in
+    kernel = conv2d_edge.weights
+    stride = conv2d_edge.comm.stride
+    padding = conv2d_edge.comm.padding
+    groups = conv2d_edge.comm.groups
+    out_shape = conv2d_edge.shape_out
+    if online:
+        core_base_fanin = OnCoreCfg.ADDR_AXON_MAX
+        core_base_fanout = OnCoreCfg.N_DENDRITE_MAX
+    else:
+        core_base_fanin = OffCoreCfg.ADDR_AXON_MAX
+        core_base_fanout = OffCoreCfg.N_DENDRITE_MAX_SNN
+
+    if len(in_shape) == 3:
+        in_shape = _cast_size3type(in_shape)
+    else:
+        raise ValueError("Only 2D convolution is supported in conv2d_optimize.")
+
+    if len(out_shape) == 3:
+        out_shape = _cast_size3type(out_shape)
+    else:
+        raise ValueError("Only 2D convolution is supported in conv2d_optimize.")
+
+    return conv2d_tiling_optimize(
+        in_shape,
+        kernel,
+        stride,
+        padding,
+        groups,
+        core_base_fanin,
+        core_base_fanout,
+        out_shape,
+        traverse_order="all",
+        zero_as_invalid_addr=False,
+        compact_idx_map=False,
+    )

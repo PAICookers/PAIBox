@@ -7,35 +7,37 @@ from typing import Literal
 from paibox.components import Neuron
 from paibox.exceptions import ParamInvalidWarning, ResourceError
 
-from ._slice import *
+from .sub_utils import *
 from .types import (
-    AxonCoord,
     AxonSegment,
-    NeuSegment,
-    NeuSegOfCoreBlock,
-    NeuSegOfCorePlm,
-    NeuSliceType,
+    CoreAllocationOfCoreBlock,
+    DendriteSegment,
+    SubNeuOfCorePlm,
+    SubNeuType,
 )
 
 
 def _place_seperately(
-    seg_slices_dict: dict[Neuron, list[NeuSliceType]], repl_prop: int
-) -> NeuSegOfCoreBlock:
-    neu_segs_of_cb: NeuSegOfCoreBlock = []
+    seg_slices_dict: dict[Neuron, list[SubNeuType]], repl_prop: int
+) -> CoreAllocationOfCoreBlock:
+    neu_segs_of_cb: CoreAllocationOfCoreBlock = []
 
     for neu, seg_slices in seg_slices_dict.items():
         neu_segs_of_cb.extend(
-            [[NeuSegment(neu, seg_slice, 0, repl_prop)] for seg_slice in seg_slices]
+            [
+                [DendriteSegment(neu, seg_slice, 0, repl_prop)]
+                for seg_slice in seg_slices
+            ]
         )
 
     return neu_segs_of_cb
 
 
 def _coarse_group(
-    neu: NeuronSlice,
+    neu: SubNeuron,
     capacity: int,
     load_type: Literal["average", "max_capacity"],
-) -> list[NeuSliceType]:
+) -> list[SubNeuType]:
     """Group neurons with 'average' or 'maximum capacity' load type.
 
     NOTE: Group neuron seperately, like [N1], [N2], ..., [Nn]. For each neuron, \
@@ -59,7 +61,7 @@ def _coarse_group(
 
         return [capacity] * (n_part - 1) + [rest]
 
-    neu_seg_slices: list[NeuSliceType] = []
+    sub_neus: list[SubNeuType] = []
     n_neuron = neu.num_out
 
     if load_type == "average":
@@ -68,18 +70,18 @@ def _coarse_group(
     else:
         dist = _max_capacity_load(n_neuron)
 
-    _sum = neu.index.start
+    offset = 0
     for d in dist:
-        neu_seg_slices.append(slice(_sum, _sum + d, 1))
-        _sum += d
+        sub_neus.append(neu.index[offset : offset + d])
+        offset += d
 
-    return neu_seg_slices
+    return sub_neus
 
 
 def _get_nsg_opt_core(
-    seg_slices_dict: dict[Neuron, list[NeuSliceType]], capacity: int, repl_prop: int
-) -> NeuSegOfCoreBlock:
-    neu_segs_of_cb: NeuSegOfCoreBlock = []  # The final result
+    seg_slices_dict: dict[Neuron, list[SubNeuType]], capacity: int, repl_prop: int
+) -> CoreAllocationOfCoreBlock:
+    neu_segs_of_cb: CoreAllocationOfCoreBlock = []  # The final result
     raise_warning = False
 
     for neu in seg_slices_dict:
@@ -113,7 +115,7 @@ def _get_nsg_opt_core(
     cur_n_neuron = 0
     n_cur_reg = 0
 
-    def backtrack(i: int, cur_addr_offset: int, taken: NeuSegOfCorePlm) -> None:
+    def backtrack(i: int, cur_addr_offset: int, taken: SubNeuOfCorePlm) -> None:
         nonlocal n_core_req_max
         nonlocal cur_n_neuron
         nonlocal n_cur_reg
@@ -127,14 +129,14 @@ def _get_nsg_opt_core(
             return
         else:
             taken.append(
-                NeuSegment(
+                DendriteSegment(
                     neu_segs_not_full[n_cur_reg].target,
                     neu_segs_not_full[n_cur_reg].index,
                     cur_addr_offset,
                     repl_prop,
                 )
             )
-            cur_addr_offset += neu_segs_not_full[n_cur_reg].n_occupied_in_addr
+            cur_addr_offset += neu_segs_not_full[n_cur_reg].n_neuron
             cur_n_neuron += neu_segs_not_full[n_cur_reg].n_neuron
             n_cur_reg += 1
 
@@ -152,20 +154,18 @@ def _get_nsg_opt_core(
 
 
 def _get_neu_slices(
-    neu_groups: list[NeuronSlice],
+    neu_groups: list[SubNeuron],
     capacity: int,
     load_type: Literal["average", "max_capacity"],
-) -> dict[Neuron, list[NeuSliceType]]:
+) -> dict[Neuron, list[SubNeuType]]:
     """Group the neuron groups by category with load balancing optimization.
 
     NOTE: Use load balancing optimization automatically.
     """
-    seg_slices_dict: dict[Neuron, list[NeuSliceType]] = defaultdict(list)
+    seg_slices_dict: dict[Neuron, list[SubNeuType]] = defaultdict(list)
 
-    for neu_slice in neu_groups:
-        seg_slices_dict[neu_slice.target] = _coarse_group(
-            neu_slice, capacity, load_type
-        )
+    for sub_neu in neu_groups:
+        seg_slices_dict[sub_neu.target] = _coarse_group(sub_neu, capacity, load_type)
 
     return seg_slices_dict
 
@@ -175,65 +175,68 @@ _get_neu_slices_opt_latency = partial(_get_neu_slices, load_type="average")
 
 
 def _dense_reorganized(
-    seg_slices_dict: dict[Neuron, list[NeuSliceType]], capacity: int, repl_prop: int
-) -> NeuSegOfCoreBlock:
+    sub_neu_dict: dict[Neuron, list[SubNeuType]], capacity: int, repl_prop: int
+) -> CoreAllocationOfCoreBlock:
     """Reorganize densely. Based on the result of 'latency' method, use greedy algorithm to \
         reorganize the incomplete neuron segments for saving cores.
     """
 
-    def _find_neu_in_segs_of_cplm(neu: Neuron, seg_of_cplm: NeuSegOfCorePlm) -> bool:
-        return any(neu == s.target for s in seg_of_cplm)
+    def _find_neu_in_subneus_of_cplm(
+        neu: Neuron, sub_neu_of_cplm: SubNeuOfCorePlm
+    ) -> bool:
+        return any(neu == s.target for s in sub_neu_of_cplm)
 
     # If there is only one type of neuron segment slices, place seperately.
-    if len(seg_slices_dict) == 1:
-        return _place_seperately(seg_slices_dict, repl_prop)
+    if len(sub_neu_dict) == 1:
+        return _place_seperately(sub_neu_dict, repl_prop)
 
-    neu_segs_of_cb: NeuSegOfCoreBlock = []  # The final result
-    _seg_slices_sorted_list = sorted(
-        seg_slices_dict.items(), key=lambda items: len(items[1]), reverse=True
+    cplms_of_cb: CoreAllocationOfCoreBlock = []  # The final result
+    _sub_neu_sorted_list = sorted(
+        sub_neu_dict.items(), key=lambda items: len(items[1]), reverse=True
     )
     # Neuron slices on index 0 requires the most cores
-    _max_core_req_neu, _max_core_req_seg_slices = _seg_slices_sorted_list[0]
+    _max_core_req_neu, _max_core_req_sub_neus = _sub_neu_sorted_list[0]
 
-    _max_seg_slices_of_cplm = [
-        [NeuSegment(_max_core_req_neu, seg_slice, 0, repl_prop)]
-        for seg_slice in _max_core_req_seg_slices
+    _max_sub_neus_of_cplm = [
+        [DendriteSegment(_max_core_req_neu, sub_neu, 0, repl_prop)]
+        for sub_neu in _max_core_req_sub_neus
     ]
-    neu_segs_of_cb.extend(_max_seg_slices_of_cplm)
+    cplms_of_cb.extend(_max_sub_neus_of_cplm)
 
-    seg_slices_sorted = dict(_seg_slices_sorted_list[1:])
-    for neu, seg_slices in seg_slices_sorted.items():
-        for seg_slice in seg_slices:
+    sub_neus_sorted = dict(_sub_neu_sorted_list[1:])
+    for neu, sub_neus_to_allocate in sub_neus_sorted.items():
+        for sub_neu_to_allocate in sub_neus_to_allocate:
             require_new_cplm = True
 
-            for seg_of_cplm in neu_segs_of_cb:
-                cur_addr_offset = sum([seg.n_occupied_in_addr for seg in seg_of_cplm])
-                cur_n_neuron = sum([seg.n_neuron for seg in seg_of_cplm])
-
+            for cplm in cplms_of_cb:
+                cur_n_neuron = sum([sub_neu.n_neuron for sub_neu in cplm])
                 # Available to place & insert for the first time
+
                 if (
-                    cur_n_neuron + seg_slice.stop - seg_slice.start
-                ) <= capacity and not _find_neu_in_segs_of_cplm(neu, seg_of_cplm):
-                    # FIXME Necessary check not _find_neu_in_segs_of_cplm?
-                    neu_seg = NeuSegment(neu, seg_slice, cur_addr_offset, repl_prop)
-                    seg_of_cplm.append(neu_seg)
+                    cur_n_neuron + len(sub_neu_to_allocate)
+                ) <= capacity and not _find_neu_in_subneus_of_cplm(neu, cplm):
+                    cur_addr_offset = sum([sub_neu.n_neuron for sub_neu in cplm])
+                    neu_seg = DendriteSegment(
+                        neu, sub_neu_to_allocate, cur_addr_offset, repl_prop
+                    )
+                    cplm.append(neu_seg)
 
                     require_new_cplm = False
                     break
 
             if require_new_cplm:
-                neu_seg = NeuSegment(neu, seg_slice, 0, repl_prop)
-                neu_segs_of_cb.append([neu_seg])
+                neu_seg = DendriteSegment(neu, sub_neu_to_allocate, 0, repl_prop)
+                cplms_of_cb.append([neu_seg])
 
-    return neu_segs_of_cb
+    return cplms_of_cb
 
 
-def get_neu_segments(
-    neu_groups: list[NeuronSlice],
+def get_dendrite_segments(
+    neu_groups: list[SubNeuron],
     capacity: int,
     repl_prop: int,
     optim_target: Literal["latency", "core", "both"],
-) -> NeuSegOfCoreBlock:
+) -> CoreAllocationOfCoreBlock:
     """Get the neuron segments with a optimization strategy.
 
     Args:
@@ -244,21 +247,21 @@ def get_neu_segments(
             'core' strategy intends to optimize the consumption of cores.
     """
     if optim_target == "core":
-        seg_slices_dict = _get_neu_slices_opt_core(neu_groups, capacity)
-        return _get_nsg_opt_core(seg_slices_dict, capacity, repl_prop)
+        sub_neu_dict = _get_neu_slices_opt_core(neu_groups, capacity)
+        return _get_nsg_opt_core(sub_neu_dict, capacity, repl_prop)
 
     else:
-        seg_slices_dict = _get_neu_slices_opt_latency(neu_groups, capacity)
+        sub_neu_dict = _get_neu_slices_opt_latency(neu_groups, capacity)
 
         if optim_target == "latency":
-            return _place_seperately(seg_slices_dict, repl_prop)
+            return _place_seperately(sub_neu_dict, repl_prop)
         else:
-            return _dense_reorganized(seg_slices_dict, capacity, repl_prop)
+            return _dense_reorganized(sub_neu_dict, capacity, repl_prop)
 
 
 def get_axon_segments(
-    axons: list[SourceSliceType], tr_max: int, fanin_base: int
-) -> dict[SourceSliceType, AxonSegment]:
+    axons: list[SubSourceType], tr_max: int, fanin_base: int
+) -> dict[SubSourceType, AxonSegment]:
     """Divide axons into segments by group to fit the hardware constraints.
 
     Args:
@@ -266,10 +269,10 @@ def get_axon_segments(
     """
     max_n_axon = tr_max * fanin_base
     offset = 0
-    axon_segments: dict[SourceSliceType, AxonSegment] = dict()
+    axon_segments: dict[SubSourceType, AxonSegment] = dict()
 
     for ax in axons:
-        axon_segments[ax] = AxonSegment(ax.num_out, offset, ax.index.start, fanin_base)
+        axon_segments[ax] = AxonSegment(ax.num_out, offset, fanin_base)
         if ax.num_out + offset > max_n_axon:
             raise ResourceError(
                 f"The axon segment {ax} exceeds the maximum capacity of axons in a core, "
@@ -278,41 +281,3 @@ def get_axon_segments(
         offset += ax.num_out
 
     return axon_segments
-
-
-def aligned_coords(
-    neu_index: NeuSliceType,
-    axon_seg: AxonSegment,
-    delay: int,
-    dest_n_timeslot: int,
-    is_iw8: bool,
-) -> list[AxonCoord]:
-    """Find the axon segments aligned with the index of neuron segment.
-
-    NOTE: Axons are described in a tuple (tick_relative, axon_addr). Axis 'tr' is used as the row   \
-        coordinates while axis 'axon' is used as the column coordinates.
-
-    AxonSegment with `n_axon`, `addr_offset` represents a segment of axons address A[offset:offset+n_axon].
-
-    tr=0                A[0]            A[1]                ... A[FAN_IN_BASE-1]
-    tr=1                A[FAN_IN_BASE]  A[FAN_IN_BASE + 1]  ... A[2*FAN_IN_BASE-1]
-    ...
-    tr=MAX_TIMESLOT-1   A[(MAX_TIMESLOT-1)*FAN_IN_BASE]     ... A[MAX_TIMESLOT*FAN_IN_BASE-1]
-
-    When the input width is 8 bits, each A[x] occupies 8 bits. The interval of axons is 8.
-    """
-    axon_coords: list[AxonCoord] = []
-    tr_base = dest_n_timeslot * (delay - 1)
-
-    _addr_interval = 8 if is_iw8 else 1
-    fanin_base = axon_seg.fanin_base
-    axon_addr_start = neu_index.start - axon_seg.neu_slice_start + axon_seg.addr_offset
-    axon_addr_end = neu_index.stop - axon_seg.neu_slice_start + axon_seg.addr_offset
-
-    for axon_addr in range(axon_addr_start, axon_addr_end):
-        tick_relative = axon_addr // fanin_base + tr_base
-        addr_axon = (axon_addr % fanin_base) * _addr_interval
-        coord = AxonCoord.build(tick_relative, addr_axon)
-        axon_coords.append(coord)
-
-    return axon_coords

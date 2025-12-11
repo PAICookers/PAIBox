@@ -6,6 +6,8 @@ from collections.abc import Generator, Iterable
 from functools import cached_property
 from typing import Any, ClassVar, Optional, Union, cast
 
+import numpy as np
+from numpy.typing import NDArray
 from paicorelib import ONLINE_CORES_BASE_COORD
 from paicorelib import ROUTING_DIRECTIONS_IDX as DIREC_IDX
 from paicorelib import ChipCoord, Coord, CoreMode, HwConfig, RoutingCoord
@@ -14,17 +16,18 @@ from paicorelib import RoutingLevel as Level
 from paicorelib.routing_defs import MAX_ROUTING_PATH_LENGTH
 
 from paibox import _logging
-from paibox.components import MatMul2d
+from paibox.components import Conv2d, InputProj, MatMul2d
 from paibox.components.neuron.base import NEU_TARGET_CHIP_UNSET
 from paibox.exceptions import NotSupportedError, ResourceError, RoutingError
 from paibox.utils import check_elem_same
 
-from ._slice import *
 from .conf_types import CorePlmConfInChip
 from .constrs import GraphNodeConstrs
 from .graph_utils import merge_cycles, toposort
 from .group import InhiGroup, MergedGroup
 from .placement import CoreBlock, EmptyCorePlacement
+from .sub_utils import *
+from .tiling import conv2d_optimize, optimal_tiling_conv2d
 from .types import EdgeType, NodeType, _1st_core_coord_repr
 
 __all__ = ["RoutingGroup", "RoutingManager"]
@@ -47,6 +50,16 @@ def MatMul2d_slices(mat_mul: MatMul2d) -> tuple[list[slice], list[slice]]:
     return input_slices, output_slices
 
 
+def flatten_last_n_dims(x: np.ndarray, n=3):
+    return x.reshape(x.shape[:-n] + (-1,))
+
+
+def flatten_array(x: NDArray) -> NDArray:
+    assert x.ndim == 6
+    y = x.reshape(np.prod(x.shape[:3]), np.prod(x.shape[3:]))
+    return y
+
+
 def build_elements(
     merged_sgrp: MergedGroup, online: bool
 ) -> list[Union[CoreBlock, "RoutingGroup"]]:
@@ -57,33 +70,90 @@ def build_elements(
     if any(mode != node.mode for node in nodes):
         raise NotSupportedError("mixed mode is not supported.")
 
-    # Optimize weight in single operator, like 'Mat2d'.
+    def simple_build(edges: Iterable[EdgeType]) -> None:
+        sub_edges = [SubEdge(edge) for edge in edges]
+        elements.append(CoreBlock.build(*sub_edges, rt_mode=mode, online=online))
+
+    print(
+        f"build elements for merged group with nodes: {[node.name for node in nodes]}"
+    )
+    # Optimize weight in single operator, like 'Mat2d', 'Conv2d'.
     if len(nodes) == 1:
         edges = merged_sgrp.outputs[nodes[0]]
         # find edges with divisible weight
         divisible_edge = None
-        for edge in edges:
-            # only one edge is allowed to have divisible weight
-            if isinstance(edge, MatMul2d):
-                divisible_edge = edge
-                break
-        # TODO we can judge whether optimization is needed here
-        if divisible_edge is None:
-            edge_slices = [EdgeSlice(edge) for edge in edges]
-            elements.append(CoreBlock.build(*edge_slices, rt_mode=mode, online=online))
+        if len(edges) > 1:
+            for edge in edges:
+                # only one edge is allowed to have divisible weight
+                if isinstance(edge, MatMul2d):
+                    divisible_edge = edge
+                    break
+            # TODO we can judge whether optimization is needed here
+            if divisible_edge is None:
+                simple_build(edges)
+            else:
+                input_slices, output_slices = MatMul2d_slices(divisible_edge)
+                for input_slice, output_slice in zip(input_slices, output_slices):
+                    sub_edges: list[SubEdge] = []
+                    in_raw_index = list(range(input_slice.start, input_slice.stop))
+                    out_raw_index = list(range(output_slice.start, output_slice.stop))
+                    for edge in edges:
+                        if edge == divisible_edge:
+                            sub_edges.append(
+                                SubEdge(
+                                    edge,
+                                    in_raw_index=in_raw_index,
+                                    out_raw_index=out_raw_index,
+                                )
+                            )
+                        else:
+                            sub_edges.append(
+                                SubEdge(
+                                    edge, in_raw_index=None, out_raw_index=out_raw_index
+                                )
+                            )
+                    core_block = CoreBlock.build(
+                        *sub_edges, rt_mode=mode, online=online
+                    )
+                    routing_group = RoutingGroup([core_block], [])
+                    elements.append(routing_group)
 
         else:
-            input_slices, output_slices = MatMul2d_slices(divisible_edge)
-            for input_slice, output_slice in zip(input_slices, output_slices):
-                edge_slices: list[EdgeSlice] = []
-                for edge in edges:
-                    if edge == divisible_edge:
-                        edge_slices.append(EdgeSlice(edge, input_slice, output_slice))
-                    else:
-                        edge_slices.append(EdgeSlice(edge, None, output_slice))
-                core_block = CoreBlock.build(*edge_slices, rt_mode=mode, online=online)
-                routing_group = RoutingGroup([core_block], [])
-                elements.append(routing_group)
+            edge = edges[0]
+            if isinstance(edge, Conv2d) and not isinstance(edge.source, InputProj):
+                est_result, i_tiled_idx_map, o_tiled_idx_map, k_tiles, copy_times = (
+                    conv2d_optimize(edge, online)
+                )
+                input_index_map = flatten_array(i_tiled_idx_map)
+                output_index_map = flatten_array(o_tiled_idx_map)
+
+                input_mask = input_index_map != -1
+                output_mask = output_index_map != -1
+
+                copy_count = np.zeros(
+                    copy_times.size, dtype=copy_times.dtype
+                )  # 展平 + 初始化
+                sub_edges = []
+
+                for i in range(input_index_map.shape[0]):
+                    in_idx = input_index_map[i][input_mask[i]]
+                    out_idx = output_index_map[i][output_mask[i]]
+                    in_copy_id = copy_count[in_idx].copy()  # 取当前 copy id
+
+                    sub_edge = SubEdge(
+                        edge,
+                        in_raw_index=in_idx.tolist(),
+                        in_copy_id=in_copy_id.tolist(),
+                        out_raw_index=out_idx.tolist(),
+                    )
+
+                    core_block = CoreBlock.build(sub_edge, rt_mode=mode, online=online)
+                    routing_group = RoutingGroup([core_block], [])
+                    elements.append(routing_group)
+                    np.add.at(copy_count, in_idx, 1)
+            else:
+                simple_build(edges)
+
     else:
         # TODO More constraints for nodes can be called here.
         # TODO weight can be optimized between operators.
@@ -93,13 +163,9 @@ def build_elements(
 
         for idx_in_cb in idx_in_cbs:
             edges_set: set[EdgeType] = set()
-
             for i in idx_in_cb:
                 edges_set.update(merged_sgrp.outputs[nodes[i]])
-
-            edge_slices = [EdgeSlice(edge) for edge in edges_set]
-            core_block = CoreBlock.build(*edge_slices, rt_mode=mode, online=online)
-            elements.append(core_block)
+            simple_build(edges_set)
 
     return elements
 
@@ -157,9 +223,9 @@ class RoutingGroup:
         self.wasted_core_plm: dict[Coord, EmptyCorePlacement] = {}
         """Wasted core placements"""
 
-        self.global_axons: list[SourceSliceType] = []
+        self.global_axons: list[SubSourceType] = []
         """Multicast axons inheritted from the parent routing group."""
-        self.private_axons: list[SourceSliceType] = []
+        self.private_axons: list[SubSourceType] = []
         """Multicast axons valid only within this routing group."""
 
         # Status options
@@ -190,11 +256,11 @@ class RoutingGroup:
         self.target_chip_idx = self.core_blocks[0].dest[0].target_chip_idx
 
     def init_with_multicast_axons(
-        self, multicast_axons: list[SourceSliceType] = []
+        self, multicast_axons: list[SubSourceType] = []
     ) -> None:
         """Initialize the routing group with multicast axons."""
         self.global_axons = multicast_axons
-        used_axons: set[SourceSliceType] = set()
+        used_axons: set[SubSourceType] = set()
 
         for elem in self.routing_elems:
             for ax in elem.axons:
@@ -340,7 +406,7 @@ class RoutingGroup:
     ) -> tuple[list["RoutingGroup"], OrderedElemsType]:
         ordered_grps: list["RoutingGroup"] = []
         remaining: OrderedElemsType = []
-        remaining_inputs: set[SourceSliceType] = set()
+        remaining_inputs: set[SubSourceType] = set()
 
         for elem in reversed(ordered_elems):
             # One element uses the private axons of the current routing group.
@@ -499,32 +565,12 @@ class RoutingGroup:
         for group in final_inhi_groups:
             remain_nodes -= group
 
-        print("raw data nodes:")
-        for g in raw_data_groups:
-            print_nodes(g)
-
-        print("raw inhi nodes:")
-        for g in raw_inhi_groups:
-            print_nodes(g)
-
-        print("remaining nodes:")
-        print_nodes(remain_nodes)
-
         data_mgrps = [merged_grp.reserve_node(g) for g in final_data_groups]
         data_mgrps = merge_cycles(data_mgrps)
 
-        print("data merged groups:")
-        for data_mgrp in data_mgrps:
-            print_nodes(data_mgrp.nodes)
-
         inhi_mgrps = [merged_grp.reserve_node(g) for g in final_inhi_groups]
-        print("data merged groups:")
-        for inhi_mgrp in inhi_mgrps:
-            print_nodes(inhi_mgrp.nodes)
 
         remain_mgrp = merged_grp.reserve_node(remain_nodes)
-        print("remain merged group:")
-        print_nodes(remain_mgrp.nodes)
 
         merged_data_grp_graph: dict[MergedGroup, list[MergedGroup]] = defaultdict(list)
         for i in range(len(data_mgrps)):
