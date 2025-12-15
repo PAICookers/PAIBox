@@ -48,13 +48,7 @@ from .conf_types import (
 )
 from .context import _BACKEND_CONTEXT
 from .segment_utils import get_axon_segments, get_dendrite_segments
-from .sub_utils import (
-    SubDestType,
-    SubEdge,
-    SubNode,
-    SubSourceType,
-    list_to_str,
-)
+from .sub_utils import SubDestType, SubEdge, SubNode, SubSourceType, list_to_str
 from .types import (
     _COORD_UNSET,
     _RID_UNSET,

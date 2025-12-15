@@ -1,9 +1,5 @@
 import paibox as pb
-from paibox.backend.sub_utils import (
-    SubEdge,
-    SubNeuron,
-    sub_node_overlap,
-)
+from paibox.backend.sub_utils import SubEdge, SubNeuron, sub_node_overlap
 
 from .backend_testcase import _gen_custom_index
 

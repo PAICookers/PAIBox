@@ -28,12 +28,7 @@ from paicorelib import (
     OnlineNeuDestInfo,
 )
 from paicorelib import ReplicationId as RId
-from paicorelib import (
-    SNNModeEnable,
-    SpikeWidthFormat,
-    WeightWidth,
-    get_replication_id,
-)
+from paicorelib import SNNModeEnable, SpikeWidthFormat, WeightWidth, get_replication_id
 from paicorelib.framelib.types import LUTDataType
 
 if sys.version_info >= (3, 10):

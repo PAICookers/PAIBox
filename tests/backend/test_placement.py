@@ -12,12 +12,7 @@ from paicorelib import WeightWidth as WW
 from paicorelib.framelib import OfflineFrameGen
 
 import paibox as pb
-from paibox.backend.placement import (
-    FANOUT_IW8,
-    CorePlacement,
-    DestInfo,
-    SourceDest,
-)
+from paibox.backend.placement import FANOUT_IW8, CorePlacement, DestInfo, SourceDest
 from paibox.backend.types import (
     WRAM_PACKED_DTYPE,
     WRAM_UNPACKED_DTYPE,

@@ -4,10 +4,7 @@ import pytest
 
 import paibox as pb
 from paibox.backend.placement import get_axon_coords
-from paibox.backend.segment_utils import (
-    get_axon_segments,
-    get_dendrite_segments,
-)
+from paibox.backend.segment_utils import get_axon_segments, get_dendrite_segments
 from paibox.backend.sub_utils import SubNeuron, SubSourceType
 from paibox.components import Neuron
 from tests.utils import make_test
