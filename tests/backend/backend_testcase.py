@@ -6,7 +6,7 @@ from paicorelib import LCN_EX, RoutingCoord, RoutingDirection
 from paicorelib import WeightWidth as WW
 
 import paibox as pb
-from paibox.backend.types import AxonCoord, AxonSegment, NeuSegment
+from paibox.backend.types import AxonCoord, AxonSegment, Custom_Index, DendriteSegment
 from paibox.exceptions import ResourceError
 from paibox.node import NodeList
 from tests.utils import ParamTestCase, TestCase
@@ -739,6 +739,10 @@ def _gen_neurons_for_neu_segs():
     return [pb.LIF(p[0], p[1], unrolling_factor=p[2]) for p in _neu_params]
 
 
+def _gen_custom_index(start: int, end: int, step: int = 1) -> list[Custom_Index]:
+    return [Custom_Index(i, 0) for i in range(start, end, step)]
+
+
 _nl = _gen_neurons_for_neu_segs()
 _nc = _gen_neurons_for_neu_segs()
 _nb = _gen_neurons_for_neu_segs()
@@ -1077,10 +1081,10 @@ class BackendTestCase(TestCase):
                 WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
-                    [NeuSegment(_nl[0], slice(0, 300, 1), 0)],
-                    [NeuSegment(_nl[0], slice(300, 600, 1), 0)],
-                    [NeuSegment(_nl[1], slice(0, 400, 1), 0)],
-                    [NeuSegment(_nl[1], slice(400, 800, 1), 0)],
+                    [DendriteSegment(_nl[0], _gen_custom_index(0, 300, 1), 0)],
+                    [DendriteSegment(_nl[0], _gen_custom_index(300, 600, 1), 0)],
+                    [DendriteSegment(_nl[1], _gen_custom_index(0, 400, 1), 0)],
+                    [DendriteSegment(_nl[1], _gen_custom_index(400, 800, 1), 0)],
                 ],
             ),
             (
@@ -1089,13 +1093,13 @@ class BackendTestCase(TestCase):
                 WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
-                    [NeuSegment(_nl[0], slice(0, 200, 1), 0, 2)],
-                    [NeuSegment(_nl[0], slice(200, 400, 1), 0, 2)],
-                    [NeuSegment(_nl[0], slice(400, 600, 1), 0, 2)],
-                    [NeuSegment(_nl[1], slice(0, 200, 1), 0, 2)],
-                    [NeuSegment(_nl[1], slice(200, 400, 1), 0, 2)],
-                    [NeuSegment(_nl[1], slice(400, 600, 1), 0, 2)],
-                    [NeuSegment(_nl[1], slice(600, 800, 1), 0, 2)],
+                    [DendriteSegment(_nl[0], _gen_custom_index(0, 200, 1), 0, 2)],
+                    [DendriteSegment(_nl[0], _gen_custom_index(200, 400, 1), 0, 2)],
+                    [DendriteSegment(_nl[0], _gen_custom_index(400, 600, 1), 0, 2)],
+                    [DendriteSegment(_nl[1], _gen_custom_index(0, 200, 1), 0, 2)],
+                    [DendriteSegment(_nl[1], _gen_custom_index(200, 400, 1), 0, 2)],
+                    [DendriteSegment(_nl[1], _gen_custom_index(400, 600, 1), 0, 2)],
+                    [DendriteSegment(_nl[1], _gen_custom_index(600, 800, 1), 0, 2)],
                 ],
             ),
             (
@@ -1104,10 +1108,26 @@ class BackendTestCase(TestCase):
                 WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
-                    [NeuSegment(_nl[2], slice(80 * 0, 80 * 1, 1), 0, 2)],
-                    [NeuSegment(_nl[2], slice(80 * 1, 80 * 2, 1), 0, 2)],
-                    [NeuSegment(_nl[2], slice(80 * 2, 80 * 3, 1), 0, 2)],
-                    [NeuSegment(_nl[2], slice(80 * 3, 80 * 4, 1), 0, 2)],
+                    [
+                        DendriteSegment(
+                            _nl[2], _gen_custom_index(80 * 0, 80 * 1, 1), 0, 2
+                        )
+                    ],
+                    [
+                        DendriteSegment(
+                            _nl[2], _gen_custom_index(80 * 1, 80 * 2, 1), 0, 2
+                        )
+                    ],
+                    [
+                        DendriteSegment(
+                            _nl[2], _gen_custom_index(80 * 2, 80 * 3, 1), 0, 2
+                        )
+                    ],
+                    [
+                        DendriteSegment(
+                            _nl[2], _gen_custom_index(80 * 3, 80 * 4, 1), 0, 2
+                        )
+                    ],
                 ],
             ),
             (
@@ -1116,10 +1136,18 @@ class BackendTestCase(TestCase):
                 WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
-                    [NeuSegment(_nl[0], slice(0, 300, 1), 0)],
-                    [NeuSegment(_nl[0], slice(300, 600, 1), 0)],
-                    [NeuSegment(_nl[2], slice(160 * 0, 160 * 1, 1), 0)],
-                    [NeuSegment(_nl[2], slice(160 * 1, 160 * 2, 1), 0)],
+                    [DendriteSegment(_nl[0], _gen_custom_index(0, 300, 1), 0)],
+                    [DendriteSegment(_nl[0], _gen_custom_index(300, 600, 1), 0)],
+                    [
+                        DendriteSegment(
+                            _nl[2], _gen_custom_index(160 * 0, 160 * 1, 1), 0
+                        )
+                    ],
+                    [
+                        DendriteSegment(
+                            _nl[2], _gen_custom_index(160 * 1, 160 * 2, 1), 0
+                        )
+                    ],
                 ],
             ),
             (
@@ -1128,13 +1156,37 @@ class BackendTestCase(TestCase):
                 WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
-                    [NeuSegment(_nl[3], slice(67 * 0, 67 * 1, 1), 0, 2)],
-                    [NeuSegment(_nl[3], slice(67 * 1, 67 * 2, 1), 0, 2)],
-                    [NeuSegment(_nl[3], slice(67 * 2, 200, 1), 0, 2)],
-                    [NeuSegment(_nl[4], slice(75 * 0, 75 * 1, 1), 0, 2)],
-                    [NeuSegment(_nl[4], slice(75 * 1, 75 * 2, 1), 0, 2)],
-                    [NeuSegment(_nl[4], slice(75 * 2, 75 * 3, 1), 0, 2)],
-                    [NeuSegment(_nl[4], slice(75 * 3, 75 * 4, 1), 0, 2)],
+                    [
+                        DendriteSegment(
+                            _nl[3], _gen_custom_index(67 * 0, 67 * 1, 1), 0, 2
+                        )
+                    ],
+                    [
+                        DendriteSegment(
+                            _nl[3], _gen_custom_index(67 * 1, 67 * 2, 1), 0, 2
+                        )
+                    ],
+                    [DendriteSegment(_nl[3], _gen_custom_index(67 * 2, 200, 1), 0, 2)],
+                    [
+                        DendriteSegment(
+                            _nl[4], _gen_custom_index(75 * 0, 75 * 1, 1), 0, 2
+                        )
+                    ],
+                    [
+                        DendriteSegment(
+                            _nl[4], _gen_custom_index(75 * 1, 75 * 2, 1), 0, 2
+                        )
+                    ],
+                    [
+                        DendriteSegment(
+                            _nl[4], _gen_custom_index(75 * 2, 75 * 3, 1), 0, 2
+                        )
+                    ],
+                    [
+                        DendriteSegment(
+                            _nl[4], _gen_custom_index(75 * 3, 75 * 4, 1), 0, 2
+                        )
+                    ],
                 ],
             ),
         ],
@@ -1149,11 +1201,11 @@ class BackendTestCase(TestCase):
                 WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
-                    [NeuSegment(_nc[0], slice(0, 512, 1), 0)],
-                    [NeuSegment(_nc[1], slice(0, 512, 1), 0)],
+                    [DendriteSegment(_nc[0], _gen_custom_index(0, 512, 1), 0)],
+                    [DendriteSegment(_nc[1], _gen_custom_index(0, 512, 1), 0)],
                     [
-                        NeuSegment(_nc[1], slice(512, 800, 1), 0),
-                        NeuSegment(_nc[0], slice(512, 600, 1), 288),
+                        DendriteSegment(_nc[1], _gen_custom_index(512, 800, 1), 0),
+                        DendriteSegment(_nc[0], _gen_custom_index(512, 600, 1), 288),
                     ],
                 ],
             ),
@@ -1163,14 +1215,38 @@ class BackendTestCase(TestCase):
                 WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
-                    [NeuSegment(_nc[0], slice(256 * 0, 256 * 1, 1), 0, 2)],
-                    [NeuSegment(_nc[0], slice(256 * 1, 256 * 2, 1), 0, 2)],
-                    [NeuSegment(_nc[1], slice(256 * 0, 256 * 1, 1), 0, 2)],
-                    [NeuSegment(_nc[1], slice(256 * 1, 256 * 2, 1), 0, 2)],
-                    [NeuSegment(_nc[1], slice(256 * 2, 256 * 3, 1), 0, 2)],
                     [
-                        NeuSegment(_nc[0], slice(256 * 2, 600, 1), 0, 2),
-                        NeuSegment(_nc[1], slice(256 * 3, 800, 1), 88 * 2, 2),
+                        DendriteSegment(
+                            _nc[0], _gen_custom_index(256 * 0, 256 * 1, 1), 0, 2
+                        )
+                    ],
+                    [
+                        DendriteSegment(
+                            _nc[0], _gen_custom_index(256 * 1, 256 * 2, 1), 0, 2
+                        )
+                    ],
+                    [
+                        DendriteSegment(
+                            _nc[1], _gen_custom_index(256 * 0, 256 * 1, 1), 0, 2
+                        )
+                    ],
+                    [
+                        DendriteSegment(
+                            _nc[1], _gen_custom_index(256 * 1, 256 * 2, 1), 0, 2
+                        )
+                    ],
+                    [
+                        DendriteSegment(
+                            _nc[1], _gen_custom_index(256 * 2, 256 * 3, 1), 0, 2
+                        )
+                    ],
+                    [
+                        DendriteSegment(
+                            _nc[0], _gen_custom_index(256 * 2, 600, 1), 0, 2
+                        ),
+                        DendriteSegment(
+                            _nc[1], _gen_custom_index(256 * 3, 800, 1), 88, 2
+                        ),
                     ],
                 ],
             ),
@@ -1181,10 +1257,10 @@ class BackendTestCase(TestCase):
                 LCN_EX.LCN_2X,
                 [
                     # Place the neuron segments with full capacity first
-                    [NeuSegment(_nc[4], slice(0, 256, 1), 0, 2)],
+                    [DendriteSegment(_nc[4], _gen_custom_index(0, 256, 1), 0, 2)],
                     [
-                        NeuSegment(_nc[3], slice(0, 200, 1), 0, 2),
-                        NeuSegment(_nc[4], slice(256, 300, 1), 200 * 2, 2),
+                        DendriteSegment(_nc[3], _gen_custom_index(0, 200, 1), 0, 2),
+                        DendriteSegment(_nc[4], _gen_custom_index(256, 300, 1), 200, 2),
                     ],
                 ],
             ),
@@ -1194,8 +1270,8 @@ class BackendTestCase(TestCase):
                 WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
-                    [NeuSegment(_nc[6], slice(0, 500, 1), 0, 1)],
-                    [NeuSegment(_nc[5], slice(0, 400, 1), 0, 1)],
+                    [DendriteSegment(_nc[6], _gen_custom_index(0, 500, 1), 0, 1)],
+                    [DendriteSegment(_nc[5], _gen_custom_index(0, 400, 1), 0, 1)],
                 ],
             ),
         ],
@@ -1210,10 +1286,10 @@ class BackendTestCase(TestCase):
                 WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_1X,
                 [
-                    [NeuSegment(_nb[0], slice(0, 300, 1), 0)],
-                    [NeuSegment(_nb[0], slice(300, 600, 1), 0)],
-                    [NeuSegment(_nb[1], slice(0, 400, 1), 0)],
-                    [NeuSegment(_nb[1], slice(400, 800, 1), 0)],
+                    [DendriteSegment(_nb[0], _gen_custom_index(0, 300, 1), 0)],
+                    [DendriteSegment(_nb[0], _gen_custom_index(300, 600, 1), 0)],
+                    [DendriteSegment(_nb[1], _gen_custom_index(0, 400, 1), 0)],
+                    [DendriteSegment(_nb[1], _gen_custom_index(400, 800, 1), 0)],
                 ],
             ),
             (
@@ -1222,13 +1298,13 @@ class BackendTestCase(TestCase):
                 WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
-                    [NeuSegment(_nb[1], slice(0, 200, 1), 0, 2)],
-                    [NeuSegment(_nb[1], slice(200, 400, 1), 0, 2)],
-                    [NeuSegment(_nb[1], slice(400, 600, 1), 0, 2)],
-                    [NeuSegment(_nb[1], slice(600, 800, 1), 0, 2)],
-                    [NeuSegment(_nb[0], slice(0, 200, 1), 0, 2)],
-                    [NeuSegment(_nb[0], slice(200, 400, 1), 0, 2)],
-                    [NeuSegment(_nb[0], slice(400, 600, 1), 0, 2)],
+                    [DendriteSegment(_nb[1], _gen_custom_index(0, 200, 1), 0, 2)],
+                    [DendriteSegment(_nb[1], _gen_custom_index(200, 400, 1), 0, 2)],
+                    [DendriteSegment(_nb[1], _gen_custom_index(400, 600, 1), 0, 2)],
+                    [DendriteSegment(_nb[1], _gen_custom_index(600, 800, 1), 0, 2)],
+                    [DendriteSegment(_nb[0], _gen_custom_index(0, 200, 1), 0, 2)],
+                    [DendriteSegment(_nb[0], _gen_custom_index(200, 400, 1), 0, 2)],
+                    [DendriteSegment(_nb[0], _gen_custom_index(400, 600, 1), 0, 2)],
                 ],
             ),
             (
@@ -1237,10 +1313,26 @@ class BackendTestCase(TestCase):
                 WW.WEIGHT_WIDTH_1BIT,
                 LCN_EX.LCN_2X,
                 [
-                    [NeuSegment(_nb[2], slice(80 * 0, 80 * 1, 1), 0, 2)],
-                    [NeuSegment(_nb[2], slice(80 * 1, 80 * 2, 1), 0, 2)],
-                    [NeuSegment(_nb[2], slice(80 * 2, 80 * 3, 1), 0, 2)],
-                    [NeuSegment(_nb[2], slice(80 * 3, 80 * 4, 1), 0, 2)],
+                    [
+                        DendriteSegment(
+                            _nb[2], _gen_custom_index(80 * 0, 80 * 1, 1), 0, 2
+                        )
+                    ],
+                    [
+                        DendriteSegment(
+                            _nb[2], _gen_custom_index(80 * 1, 80 * 2, 1), 0, 2
+                        )
+                    ],
+                    [
+                        DendriteSegment(
+                            _nb[2], _gen_custom_index(80 * 2, 80 * 3, 1), 0, 2
+                        )
+                    ],
+                    [
+                        DendriteSegment(
+                            _nb[2], _gen_custom_index(80 * 3, 80 * 4, 1), 0, 2
+                        )
+                    ],
                 ],
             ),
             (
@@ -1250,22 +1342,36 @@ class BackendTestCase(TestCase):
                 LCN_EX.LCN_2X,
                 [
                     [
-                        NeuSegment(_nb[2], slice(80 * 0, 80 * 1, 1), 0, 2),
-                        # offset = 160
-                        NeuSegment(_nb[3], slice(67 * 0, 67 * 1, 1), 160, 2),
+                        DendriteSegment(
+                            _nb[2], _gen_custom_index(80 * 0, 80 * 1, 1), 0, 2
+                        ),
+                        # offset = 80
+                        DendriteSegment(
+                            _nb[3], _gen_custom_index(67 * 0, 67 * 1, 1), 80, 2
+                        ),
                     ],
                     [
-                        NeuSegment(_nb[2], slice(80 * 1, 80 * 2, 1), 0, 2),
-                        # offset = 160
-                        NeuSegment(_nb[3], slice(67 * 1, 67 * 2, 1), 160, 2),
+                        DendriteSegment(
+                            _nb[2], _gen_custom_index(80 * 1, 80 * 2, 1), 0, 2
+                        ),
+                        # offset = 80
+                        DendriteSegment(
+                            _nb[3], _gen_custom_index(67 * 1, 67 * 2, 1), 80, 2
+                        ),
                     ],
                     [
-                        NeuSegment(_nb[2], slice(80 * 2, 80 * 3, 1), 0, 2),
-                        # offset = 160
-                        NeuSegment(_nb[3], slice(67 * 2, 200, 1), 160, 2),
+                        DendriteSegment(
+                            _nb[2], _gen_custom_index(80 * 2, 80 * 3, 1), 0, 2
+                        ),
+                        # offset = 80
+                        DendriteSegment(
+                            _nb[3], _gen_custom_index(67 * 2, 200, 1), 80, 2
+                        ),
                     ],
                     [
-                        NeuSegment(_nb[2], slice(80 * 3, 80 * 4, 1), 0, 2),
+                        DendriteSegment(
+                            _nb[2], _gen_custom_index(80 * 3, 80 * 4, 1), 0, 2
+                        ),
                     ],
                 ],
             ),
@@ -1276,40 +1382,58 @@ class BackendTestCase(TestCase):
                 LCN_EX.LCN_2X,
                 [
                     [
-                        NeuSegment(_nb[2], slice(80 * 0, 80 * 1, 1), 0, 2),
+                        DendriteSegment(
+                            _nb[2], _gen_custom_index(80 * 0, 80 * 1, 1), 0, 2
+                        ),
                         # offset = 160
-                        NeuSegment(_nb[4], slice(75 * 0, 75 * 1, 1), 160, 2),
+                        DendriteSegment(
+                            _nb[4], _gen_custom_index(75 * 0, 75 * 1, 1), 80, 2
+                        ),
                         # offset = 160 + 150
-                        NeuSegment(
+                        DendriteSegment(
                             _nb[3],
-                            slice(67 * 0, 67 * 1, 1),
-                            160 + 150,
+                            _gen_custom_index(67 * 0, 67 * 1, 1),
+                            80 + 75,
                             2,
                         ),
                     ],
                     [
-                        NeuSegment(_nb[2], slice(80 * 1, 80 * 2, 1), 0, 2),
+                        DendriteSegment(
+                            _nb[2], _gen_custom_index(80 * 1, 80 * 2, 1), 0, 2
+                        ),
                         # offset = 160
-                        NeuSegment(_nb[4], slice(75 * 1, 75 * 2, 1), 160, 2),
+                        DendriteSegment(
+                            _nb[4], _gen_custom_index(75 * 1, 75 * 2, 1), 80, 2
+                        ),
                         # offset = 160 + 150
-                        NeuSegment(
+                        DendriteSegment(
                             _nb[3],
-                            slice(67 * 1, 67 * 2, 1),
-                            160 + 150,
+                            _gen_custom_index(67 * 1, 67 * 2, 1),
+                            80 + 75,
                             2,
                         ),
                     ],
                     [
-                        NeuSegment(_nb[2], slice(80 * 2, 80 * 3, 1), 0, 2),
+                        DendriteSegment(
+                            _nb[2], _gen_custom_index(80 * 2, 80 * 3, 1), 0, 2
+                        ),
                         # offset = 160
-                        NeuSegment(_nb[4], slice(75 * 2, 75 * 3, 1), 160, 2),
+                        DendriteSegment(
+                            _nb[4], _gen_custom_index(75 * 2, 75 * 3, 1), 80, 2
+                        ),
                         # offset = 160 + 150
-                        NeuSegment(_nb[3], slice(67 * 2, 200, 1), 160 + 150, 2),
+                        DendriteSegment(
+                            _nb[3], _gen_custom_index(67 * 2, 200, 1), 80 + 75, 2
+                        ),
                     ],
                     [
-                        NeuSegment(_nb[2], slice(80 * 3, 80 * 4, 1), 0, 2),
+                        DendriteSegment(
+                            _nb[2], _gen_custom_index(80 * 3, 80 * 4, 1), 0, 2
+                        ),
                         # offset = 160
-                        NeuSegment(_nb[4], slice(75 * 3, 75 * 4, 1), 160, 2),
+                        DendriteSegment(
+                            _nb[4], _gen_custom_index(75 * 3, 75 * 4, 1), 80, 2
+                        ),
                     ],
                 ],
             ),
@@ -1320,150 +1444,166 @@ class BackendTestCase(TestCase):
                 LCN_EX.LCN_2X,
                 [
                     [
-                        NeuSegment(_nb[4], slice(75 * 0, 75 * 1, 1), 0, 2),
-                        NeuSegment(_nb[3], slice(67 * 0, 67 * 1, 1), 150, 2),
+                        DendriteSegment(
+                            _nb[4], _gen_custom_index(75 * 0, 75 * 1, 1), 0, 2
+                        ),
+                        DendriteSegment(
+                            _nb[3], _gen_custom_index(67 * 0, 67 * 1, 1), 75, 2
+                        ),
                     ],
                     [
-                        NeuSegment(_nb[4], slice(75 * 1, 75 * 2, 1), 0, 2),
-                        NeuSegment(_nb[3], slice(67 * 1, 67 * 2, 1), 150, 2),
+                        DendriteSegment(
+                            _nb[4], _gen_custom_index(75 * 1, 75 * 2, 1), 0, 2
+                        ),
+                        DendriteSegment(
+                            _nb[3], _gen_custom_index(67 * 1, 67 * 2, 1), 75, 2
+                        ),
                     ],
                     [
-                        NeuSegment(_nb[4], slice(75 * 2, 75 * 3, 1), 0, 2),
-                        NeuSegment(_nb[3], slice(67 * 2, 200, 1), 150, 2),
+                        DendriteSegment(
+                            _nb[4], _gen_custom_index(75 * 2, 75 * 3, 1), 0, 2
+                        ),
+                        DendriteSegment(
+                            _nb[3], _gen_custom_index(67 * 2, 200, 1), 75, 2
+                        ),
                     ],
-                    [NeuSegment(_nb[4], slice(75 * 3, 75 * 4, 1), 0, 2)],
+                    [
+                        DendriteSegment(
+                            _nb[4], _gen_custom_index(75 * 3, 75 * 4, 1), 0, 2
+                        )
+                    ],
                 ],
             ),
         ],
     )
-    aligned_coords_testcase = ParamTestCase(
-        argnames="neu_index, axon_seg, delay, n_timeslot, is_iw8, expected",
-        argvalues=[
-            # iw1
-            (
-                slice(5, 8),
-                AxonSegment(12, 0, 0, 1152),
-                1,
-                1 << 1,
-                False,
-                [
-                    AxonCoord(0, 5),
-                    AxonCoord(0, 6),
-                    AxonCoord(0, 7),
-                ],
-            ),
-            (
-                slice(0, 3),
-                AxonSegment(12, 0, 0, 1152),
-                2,
-                1 << 1,
-                False,
-                [AxonCoord(2 + 0, i) for i in range(3)],
-            ),
-            (
-                slice(1, 5),
-                AxonSegment(12, 0, 0, 1152),
-                2,
-                1 << 2,
-                False,
-                [
-                    AxonCoord(4 + 0, 1),
-                    AxonCoord(4 + 0, 2),
-                    AxonCoord(4 + 0, 3),
-                    AxonCoord(4 + 0, 4),
-                ],
-            ),
-            (
-                slice(1, 6),
-                AxonSegment(12, 0, 0, 1152),
-                4,
-                1 << 3,
-                False,
-                [
-                    AxonCoord(24 + 0, 1),
-                    AxonCoord(24 + 0, 2),
-                    AxonCoord(24 + 0, 3),
-                    AxonCoord(24 + 0, 4),
-                    AxonCoord(24 + 0, 5),
-                ],
-            ),
-            (
-                slice(3, 10),
-                AxonSegment(16, 64, 0, 1152),
-                4,
-                1 << 4,
-                False,
-                [AxonCoord(48 + 0, 64 + i) for i in range(3, 10)],
-            ),
-            # iw8
-            (
-                slice(5, 8),
-                AxonSegment(12, 0, 0, 144),
-                1,
-                1 << 1,
-                True,
-                [
-                    AxonCoord(0, 8 * 5),
-                    AxonCoord(0, 8 * 6),
-                    AxonCoord(0, 8 * 7),
-                ],
-            ),
-            (
-                slice(0, 3),
-                AxonSegment(12, 0, 0, 144),
-                2,
-                1 << 1,
-                True,
-                [AxonCoord(2 + 0, 8 * i) for i in range(3)],
-            ),
-            (
-                slice(1, 5),
-                AxonSegment(12, 0, 0, 144),
-                2,
-                1 << 2,
-                True,
-                [
-                    AxonCoord(4 + 0, 8 * 1),
-                    AxonCoord(4 + 0, 8 * 2),
-                    AxonCoord(4 + 0, 8 * 3),
-                    AxonCoord(4 + 0, 8 * 4),
-                ],
-            ),
-            (
-                slice(1, 6),
-                AxonSegment(12, 0, 0, 144),
-                4,
-                1 << 3,
-                True,
-                [
-                    AxonCoord(24 + 0, 8 * 1),
-                    AxonCoord(24 + 0, 8 * 2),
-                    AxonCoord(24 + 0, 8 * 3),
-                    AxonCoord(24 + 0, 8 * 4),
-                    AxonCoord(24 + 0, 8 * 5),
-                ],
-            ),
-            (
-                slice(5, 15),
-                AxonSegment(16, 32, 0, 144),
-                1,
-                1 << 1,
-                True,
-                [AxonCoord(0, 8 * (32 + i)) for i in range(5, 15)],
-            ),
-            (
-                slice(5, 35),
-                AxonSegment(40, 120, 0, 144),
-                1,
-                1 << 2,
-                True,
-                [
-                    AxonCoord((120 + i) // 144, 8 * ((120 + i) % 144))
-                    for i in range(5, 35)
-                ],
-            ),
-        ],
-    )
+    # aligned_coords_testcase = ParamTestCase(
+    #     argnames="neu_index, axon_seg, delay, n_timeslot, is_iw8, expected",
+    #     argvalues=[
+    #         # iw1
+    #         (
+    #             slice(5, 8),
+    #             AxonSegment(12, 0, 0, 1152),
+    #             1,
+    #             1 << 1,
+    #             False,
+    #             [
+    #                 AxonCoord(0, 5),
+    #                 AxonCoord(0, 6),
+    #                 AxonCoord(0, 7),
+    #             ],
+    #         ),
+    #         (
+    #             slice(0, 3),
+    #             AxonSegment(12, 0, 0, 1152),
+    #             2,
+    #             1 << 1,
+    #             False,
+    #             [AxonCoord(2 + 0, i) for i in range(3)],
+    #         ),
+    #         (
+    #             slice(1, 5),
+    #             AxonSegment(12, 0, 0, 1152),
+    #             2,
+    #             1 << 2,
+    #             False,
+    #             [
+    #                 AxonCoord(4 + 0, 1),
+    #                 AxonCoord(4 + 0, 2),
+    #                 AxonCoord(4 + 0, 3),
+    #                 AxonCoord(4 + 0, 4),
+    #             ],
+    #         ),
+    #         (
+    #             slice(1, 6),
+    #             AxonSegment(12, 0, 0, 1152),
+    #             4,
+    #             1 << 3,
+    #             False,
+    #             [
+    #                 AxonCoord(24 + 0, 1),
+    #                 AxonCoord(24 + 0, 2),
+    #                 AxonCoord(24 + 0, 3),
+    #                 AxonCoord(24 + 0, 4),
+    #                 AxonCoord(24 + 0, 5),
+    #             ],
+    #         ),
+    #         (
+    #             slice(3, 10),
+    #             AxonSegment(16, 64, 0, 1152),
+    #             4,
+    #             1 << 4,
+    #             False,
+    #             [AxonCoord(48 + 0, 64 + i) for i in range(3, 10)],
+    #         ),
+    #         # iw8
+    #         (
+    #             slice(5, 8),
+    #             AxonSegment(12, 0, 0, 144),
+    #             1,
+    #             1 << 1,
+    #             True,
+    #             [
+    #                 AxonCoord(0, 8 * 5),
+    #                 AxonCoord(0, 8 * 6),
+    #                 AxonCoord(0, 8 * 7),
+    #             ],
+    #         ),
+    #         (
+    #             slice(0, 3),
+    #             AxonSegment(12, 0, 0, 144),
+    #             2,
+    #             1 << 1,
+    #             True,
+    #             [AxonCoord(2 + 0, 8 * i) for i in range(3)],
+    #         ),
+    #         (
+    #             slice(1, 5),
+    #             AxonSegment(12, 0, 0, 144),
+    #             2,
+    #             1 << 2,
+    #             True,
+    #             [
+    #                 AxonCoord(4 + 0, 8 * 1),
+    #                 AxonCoord(4 + 0, 8 * 2),
+    #                 AxonCoord(4 + 0, 8 * 3),
+    #                 AxonCoord(4 + 0, 8 * 4),
+    #             ],
+    #         ),
+    #         (
+    #             slice(1, 6),
+    #             AxonSegment(12, 0, 0, 144),
+    #             4,
+    #             1 << 3,
+    #             True,
+    #             [
+    #                 AxonCoord(24 + 0, 8 * 1),
+    #                 AxonCoord(24 + 0, 8 * 2),
+    #                 AxonCoord(24 + 0, 8 * 3),
+    #                 AxonCoord(24 + 0, 8 * 4),
+    #                 AxonCoord(24 + 0, 8 * 5),
+    #             ],
+    #         ),
+    #         (
+    #             slice(5, 15),
+    #             AxonSegment(16, 32, 0, 144),
+    #             1,
+    #             1 << 1,
+    #             True,
+    #             [AxonCoord(0, 8 * (32 + i)) for i in range(5, 15)],
+    #         ),
+    #         (
+    #             slice(5, 35),
+    #             AxonSegment(40, 120, 0, 144),
+    #             1,
+    #             1 << 2,
+    #             True,
+    #             [
+    #                 AxonCoord((120 + i) // 144, 8 * ((120 + i) % 144))
+    #                 for i in range(5, 35)
+    #             ],
+    #         ),
+    #     ],
+    # )
     prune_disconn_graph_testcase = ParamTestCase(
         argnames="graph, start_nodes, expected_graph, disconn_nodes",
         argvalues=[

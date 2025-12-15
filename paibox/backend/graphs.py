@@ -35,7 +35,7 @@ from .graph_utils import (
 from .group import BaseGroup, DataGroup, InhiGroup, MergedGroup
 from .placement import CoreBlock
 from .routing import RoutingGroup
-from .segment_utils import get_neu_segments
+from .segment_utils import get_dendrite_segments
 from .types import *
 
 __all__ = ["PAIGraph"]
@@ -387,7 +387,7 @@ class PAIGraph:
             pred_cb_dest.append(node.copy())
 
             n_core_required_after_copy = len(
-                get_neu_segments(
+                get_dendrite_segments(
                     pred_cb_dest,
                     pred_cb.n_fanout,
                     pred_cb.n_neuron_repl,
@@ -403,7 +403,7 @@ class PAIGraph:
             for i in range(ONLY_SUPPORT_N_SUCC):
                 dest = [self._raw_nodes[succ_nn[i]]]
                 n_core_after_split[i] = len(
-                    get_neu_segments(
+                    get_dendrite_segments(
                         dest,  # type: ignore
                         succ_cb.n_fanout,
                         succ_cb.n_neuron_repl,

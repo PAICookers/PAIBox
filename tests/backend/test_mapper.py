@@ -6,9 +6,9 @@ from paicorelib import ONLINE_CORES_BASE_COORD, Coord, HwConfig, OffCoreCfg
 from paicorelib import WeightWidth as WW
 
 import paibox as pb
-from paibox.backend._slice import node_sl_lst_overlap
 from paibox.backend.conf_exporting import *
 from paibox.backend.mapper import merge_cycles
+from paibox.backend.sub_utils import sub_node_overlap
 from paibox.exceptions import ResourceError
 from tests.shared_networks import STDPLinearNet
 from tests.utils import gen_random_array, make_test
@@ -351,14 +351,14 @@ class TestMapper_Compile:
         mapper.compile(grouping_optim_target="core")
 
         for cb in mapper.core_blocks:
-            if node_sl_lst_overlap(net.n1, cb.dest):
+            if sub_node_overlap(net.n1, cb.dest):
                 assert cb.n_core_required == ceil(
                     net.n1.num_out / OffCoreCfg.N_DENDRITE_MAX_SNN
                 )
-            elif node_sl_lst_overlap(net.n2, cb.dest):
+            elif sub_node_overlap(net.n2, cb.dest):
                 assert cb.n_core_required == 1 + 1
 
-            elif node_sl_lst_overlap(net.n4, cb.dest):
+            elif sub_node_overlap(net.n4, cb.dest):
                 assert cb.n_core_required == ceil(
                     net.n4.num_out / OffCoreCfg.N_DENDRITE_MAX_SNN
                 )
@@ -394,11 +394,11 @@ class TestMapper_Compile:
         mapper.build(net)
         mapper.compile()
         for cb in mapper.core_blocks:
-            if node_sl_lst_overlap(net.n3, cb.dest):
+            if sub_node_overlap(net.n3, cb.dest):
                 assert len(cb.ordered_axons) > len(cb.source)
-            elif node_sl_lst_overlap(net.n4, cb.dest):
+            elif sub_node_overlap(net.n4, cb.dest):
                 assert len(cb.ordered_axons) > len(cb.source)
-            elif node_sl_lst_overlap(net.n5, cb.dest):
+            elif sub_node_overlap(net.n5, cb.dest):
                 assert len(cb.ordered_axons) > len(cb.source)
             else:
                 assert len(cb.ordered_axons) == len(cb.source)
@@ -460,9 +460,9 @@ class TestMapper_Compile:
         mapper.build(net)
         mapper.compile()
         for cb in mapper.core_blocks:
-            if node_sl_lst_overlap(net.n3, cb.dest):
+            if sub_node_overlap(net.n3, cb.dest):
                 assert len(cb.ordered_axons) == 2
-            if node_sl_lst_overlap(net.n4, cb.dest):
+            if sub_node_overlap(net.n4, cb.dest):
                 assert len(cb.ordered_axons) == 3
 
     def test_set_target_chip(self, build_example_net1, monkeypatch):

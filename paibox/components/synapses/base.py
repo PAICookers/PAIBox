@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import ClassVar, Optional, Union
 
 import numpy as np
@@ -197,7 +198,7 @@ class FullConnectedSyn(SynSys):
     def weight_width(self) -> WW:
         return self.comm._get_weight_width(self.CFLAG_ENABLE_WP_OPTIMIZATION)
 
-    @property
+    @cached_property
     def connectivity(self) -> WeightType:
         """The connectivity matrix in `np.bool` or `np.int8` format."""
         return self.comm.connectivity

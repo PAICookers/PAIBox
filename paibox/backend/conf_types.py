@@ -26,11 +26,9 @@ from paicorelib import (
     OnlineNeuAttrs,
     OnlineNeuConf,
     OnlineNeuDestInfo,
-    SNNModeEnable,
-    SpikeWidthFormat,
-    WeightWidth,
-    get_replication_id,
 )
+from paicorelib import ReplicationId as RId
+from paicorelib import SNNModeEnable, SpikeWidthFormat, WeightWidth, get_replication_id
 from paicorelib.framelib.types import LUTDataType
 
 if sys.version_info >= (3, 10):
@@ -46,7 +44,7 @@ else:
 from paibox.base import DataFlowFormat
 from paibox.components import Neuron
 
-from .types import AxonCoord, NeuSegAddr, NeuSegment, NodeName, WRAMPackedType
+from .types import AxonCoord, DendriteSegment, NeuSegAddr, NodeName, WRAMPackedType
 
 try:
     import orjson
@@ -247,12 +245,14 @@ class OutputNeuronDest(NamedTuple):
 class NeuConfig:
     """Configuration of neuron."""
 
-    neu_seg: NeuSegment
+    neu_seg: DendriteSegment
     """Neuron segment."""
     axon_coords: list[AxonCoord]
     """The destination axon segments."""
-    dest_core_coords: list[Coord]
+    base_coord: Coord
     """Coordinates of the core of the destination axons."""
+    dest_rid: RId
+    """Replication ID of the core of the destination axons."""
     dest_chip_coord: Coord
     """Coordinate of the chip of the destination axons."""
 
@@ -289,7 +289,8 @@ class OfflineNeuConfig(NeuConfig):
         return OfflineNeuConfig(
             self.neu_seg[s],
             self.axon_coords[s],
-            self.dest_core_coords,
+            self.base_coord,
+            self.dest_rid,
             self.dest_chip_coord,
         )
 
@@ -318,14 +319,13 @@ class OfflineNeuConfig(NeuConfig):
 
     @property
     def neuron_dest_info(self) -> OfflineNeuDestInfo:
-        base_coord, dest_rid = get_replication_id(self.dest_core_coords)
         dest_info = OfflineNeuronDest(
             [coord.tick_relative for coord in self.axon_coords],
             [coord.addr_axon for coord in self.axon_coords],
-            base_coord.x,
-            base_coord.y,
-            dest_rid.x,
-            dest_rid.y,
+            self.base_coord.x,
+            self.base_coord.y,
+            self.dest_rid.x,
+            self.dest_rid.y,
             self.dest_chip_coord.x,
             self.dest_chip_coord.y,
         )
@@ -340,7 +340,8 @@ class OnlineNeuConfig(NeuConfig):
         return OnlineNeuConfig(
             self.neu_seg[s],
             self.axon_coords[s],
-            self.dest_core_coords,
+            self.base_coord,
+            self.dest_rid,
             self.dest_chip_coord,
             self.weight_width,
         )
@@ -372,14 +373,13 @@ class OnlineNeuConfig(NeuConfig):
 
     @property
     def neuron_dest_info(self) -> OnlineNeuDestInfo:
-        base_coord, dest_rid = get_replication_id(self.dest_core_coords)
         dest_info = OnlineNeuronDest(
             [coord.tick_relative for coord in self.axon_coords],
             [coord.addr_axon for coord in self.axon_coords],
-            base_coord.x,
-            base_coord.y,
-            dest_rid.x,
-            dest_rid.y,
+            self.base_coord.x,
+            self.base_coord.y,
+            self.dest_rid.x,
+            self.dest_rid.y,
             self.dest_chip_coord.x,
             self.dest_chip_coord.y,
         )

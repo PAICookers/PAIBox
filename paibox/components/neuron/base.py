@@ -280,7 +280,9 @@ class Neuron(NeuDyn):
         return attrs
 
     def _slice_attrs(
-        self, index: Union[int, slice, tuple[Union[int, slice]]], for_copy: bool = False
+        self,
+        index: Union[int, slice, list[int], tuple[Union[int, slice]]],
+        for_copy: bool = False,
     ) -> dict[str, Any]:
         """Slice the vector variables in the target.
 

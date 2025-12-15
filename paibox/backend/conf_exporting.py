@@ -221,7 +221,7 @@ def gen_online_config_frames(
     wight_width = core_plm_conf.core_params.weight_width
 
     # online neuron config never need to store in WRAM
-    for neu_conf in core_plm_conf.neuron_configs.values():
+    for neu_conf in core_plm_conf.neuron_configs:
         config_frame_type3.append(
             OnlineFrameGen.gen_config_frame3(
                 chip_coord,
@@ -623,7 +623,7 @@ def get_neuron_phy_loc(
     locations: NeuPhyLocMap = defaultdict(lambda: defaultdict(dict))
 
     for cb in core_blocks:
-        for core_coord, neu_segs in zip(cb.core_coords, cb.neuron_segs_of_cb):
+        for core_coord, neu_segs in zip(cb.core_coords, cb.core_allocation_of_cb):
             for seg in neu_segs:
                 if (neu_name := seg.target.name) in names:
                     locations[neu_name][cb.chip_coord][core_coord] = seg.neu_seg_addr
