@@ -5,9 +5,9 @@ import pytest
 from paibox.utils import (
     check_elem_same,
     fn_sgn,
-    typical_round,
-    reverse_16bit,
     reverse_8bit,
+    reverse_16bit,
+    typical_round,
 )
 
 from .utils import make_dump_dir

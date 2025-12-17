@@ -11,7 +11,6 @@ from .exceptions import NotSupportedError
 from .mixin import Container
 from .node import NodeDict, NodeList
 
-
 __all__ = ["DynSysGroup", "Network"]
 
 

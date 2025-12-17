@@ -21,6 +21,7 @@ from paibox.exceptions import (
 )
 from paibox.network import DynSysGroup
 from paibox.utils import check_elem_unique
+
 from .graph_utils import (
     get_node_degrees,
     get_pred_dg_by_succ_dg,
@@ -33,14 +34,14 @@ from .group import BaseGroup, DataGroup, InhiGroup, MergedGroup
 from .placement import CoreBlock
 from .routing import RoutingGroup
 from .types import (
-    NodeName,
+    DestNodeType,
     EdgeAttr,
     EdgeName,
     EdgeType,
+    NodeDegree,
+    NodeName,
     NodeType,
     SourceNodeType,
-    DestNodeType,
-    NodeDegree,
 )
 
 __all__ = ["PAIGraph"]

@@ -31,7 +31,7 @@ from .modules import (
     set_rt_mode_snn,
 )
 from .neuron import OfflineNeuron
-from .neuron.neurons import BypassNeuron, IF
+from .neuron.neurons import IF, BypassNeuron
 from .neuron.utils import NeuFireState, v_overflow
 from .projection import InputProj
 from .synapses import ConnType, FullConnSyn

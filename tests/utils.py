@@ -1,6 +1,4 @@
-import numpy as np
 import os
-import pytest
 import time
 import tracemalloc
 from collections.abc import Callable, Generator, Sequence
@@ -9,6 +7,8 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import Any, NamedTuple
 
+import numpy as np
+import pytest
 from numpy.typing import DTypeLike
 from packaging import version as pkg_version
 

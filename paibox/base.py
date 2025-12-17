@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from typing import Any, ClassVar, Literal
 
 import numpy as np
-
 from paicorelib import WeightWidth as WW
 
 from .collector import Collector

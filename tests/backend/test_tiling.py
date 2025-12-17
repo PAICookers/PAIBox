@@ -1,6 +1,7 @@
 import itertools
 import timeit
 from collections.abc import Sequence
+
 import numpy as np
 import pytest
 from paicorelib import CoreMode, OffCoreCfg
@@ -9,20 +10,20 @@ from paibox._logging import set_logs
 from paibox.backend.tiling import (
     EstCoreCostStatus,
     TileSliceConv2d,
-    conv1d_tiling_optimize,
-    conv2d_tiling_optimize,
     conv1d_tile_by_tile_size,
+    conv1d_tiling_optimize,
     conv2d_tile_by_tile_size,
-    make_input_conv_tiled_idx_map,
-    make_output_conv_tiled_idx_map,
-    optimal_lcn_matmul2d,
-    make_conv_tiled_idx_map,
+    conv2d_tiling_optimize,
+    get_tile_shape,
     make_conv1d_kernel_tiled_unrolled,
     make_conv2d_kernel_tiled_unrolled,
+    make_conv_tiled_idx_map,
+    make_input_conv_tiled_idx_map,
+    make_output_conv_tiled_idx_map,
     operator_core_cost_estimate,
+    optimal_lcn_matmul2d,
     optimal_tiling_conv2d,
 )
-from paibox.backend.tiling import get_tile_shape
 from paibox.components.synapses.conv_utils import (
     SizeAnyType,
     _conv1d_oshape,
@@ -36,8 +37,8 @@ from tests.utils import gen_random_array, is_ci_env
 
 from .tiling_test_utils import (
     conv1d_unroll_tiled_by_tiles,
-    conv2d_unroll_tiled_by_tiles,
     conv1d_unroll_tiled_from_full_kernel,
+    conv2d_unroll_tiled_by_tiles,
     conv2d_unroll_tiled_from_full_kernel,
     tiled_vmm_conv1d,
     tiled_vmm_conv2d,

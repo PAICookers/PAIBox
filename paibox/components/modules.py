@@ -2,7 +2,7 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import partial
-from typing import ClassVar, Literal, TypeAlias, TypeVar, TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar, Literal, TypeAlias, TypeVar
 
 import numpy as np
 from paicorelib import CoreMode, OffCoreCfg, SNNModeEnable, get_core_mode

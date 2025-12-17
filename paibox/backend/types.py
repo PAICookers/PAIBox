@@ -4,7 +4,6 @@ from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
-
 from paicorelib import Coord, CoreMode, HwConfig, OffCoreCfg
 from paicorelib import ReplicationId as RId
 from paicorelib.routing_defs import MAX_ROUTING_PATH_LENGTH

@@ -7,7 +7,7 @@ from typing import Literal
 from paibox.components import Neuron
 from paibox.exceptions import ParamInvalidWarning, ResourceError
 
-from .sub_utils import SubSourceType, SubNeuron
+from .sub_utils import SubNeuron, SubSourceType
 from .types import (
     AxonSegment,
     CoreAllocationOfCoreBlock,

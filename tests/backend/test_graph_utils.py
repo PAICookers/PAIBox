@@ -1,17 +1,17 @@
 import graphlib
-import pytest
 import random
 from collections import defaultdict
 from contextlib import nullcontext
 
+import pytest
 
 from paibox.backend.graph_utils import (
+    find_cycles,
+    iter_toposort,
+    merge_overlapping_sets,
+    prune_disconn_graph,
     reverse_edges,
     toposort,
-    iter_toposort,
-    prune_disconn_graph,
-    find_cycles,
-    merge_overlapping_sets,
 )
 from paibox.backend.types import NodeName
 from paibox.exceptions import GraphHasCycleError

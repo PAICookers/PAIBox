@@ -2,12 +2,12 @@ import pytest
 
 import paibox as pb
 from paibox.backend.graph_utils import (
-    get_pred_dg_by_succ_dg,
     get_node_degrees,
+    get_pred_dg_by_succ_dg,
     toposort,
 )
 from paibox.backend.graphs import PAIGraph
-from paibox.backend.types import NodeName, EdgeName, NodeDegree
+from paibox.backend.types import EdgeName, NodeDegree, NodeName
 from paibox.components import Neuron
 from paibox.exceptions import GraphBuildError, GraphConnectionError
 

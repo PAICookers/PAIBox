@@ -340,7 +340,7 @@ class STDPLIF(OnlineNeuron):
                 shape as the neuron's shape.
             - lateral_inhi_target: the target online learning neurons for lateral inhibition. It    \
                 can be a single neuron or a sequence of neurons.
-        
+
         Other arguments are the same as `LIF`.
         """
         super().__init__(

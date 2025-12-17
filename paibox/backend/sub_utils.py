@@ -10,7 +10,6 @@ from paibox.types import WeightType
 
 from .types import CustomIndex, EdgeType, NodeType
 
-
 __all__ = [
     "SubEdge",
     "SubNode",

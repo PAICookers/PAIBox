@@ -19,12 +19,12 @@ from paicorelib import get_replication_id
 
 import paibox as pb
 from paibox.backend.conf_exporting import (
-    export_output_conf_json,
     export_aux_gh_info,
     export_core_params_json,
-    export_neuconf_json,
     export_core_plm_conf_json,
     export_input_conf_json,
+    export_neuconf_json,
+    export_output_conf_json,
     export_used_L2_clusters,
     get_clk_en_L2_dict,
 )

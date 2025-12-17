@@ -23,14 +23,14 @@ from paibox.utils import arg_check_pos, as_shape, shape2num
 
 from ._modules import (
     SemiFoldedDataFlowFormat,
-    _SpikingPool1d,
-    _SpikingPool2d,
-    _SpikingPool1dWithV,
-    _SpikingPool2dWithV,
+    _LinearBase,
     _Pool1d,
     _Pool2d,
     _SemiFoldedModule,
-    _LinearBase,
+    _SpikingPool1d,
+    _SpikingPool1dWithV,
+    _SpikingPool2d,
+    _SpikingPool2dWithV,
 )
 from .modules import (
     BuiltComponentType,
@@ -43,11 +43,11 @@ from .modules import (
 from .neuron import (
     IF,
     LIF,
-    BypassNeuron,
-    ANNNeuron,
-    ANNBypassNeuron,
-    OfflineNeuron,
     STDPLIF,
+    ANNBypassNeuron,
+    ANNNeuron,
+    BypassNeuron,
+    OfflineNeuron,
 )
 from .neuron.base import bit_truncate
 from .neuron.utils import NeuFireState, v_overflow

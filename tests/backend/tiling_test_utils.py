@@ -5,9 +5,9 @@ import numpy as np
 
 from paibox.backend.kernel_unrolling import (
     conv1d_tiled_kernel_unroll,
-    conv2d_tiled_kernel_unroll,
     conv1d_tiled_kernel_unroll_no_pad,
     conv1d_tiled_kernel_unroll_no_pad_multi_grp,
+    conv2d_tiled_kernel_unroll,
     conv2d_tiled_kernel_unroll_no_pad,
     conv2d_tiled_kernel_unroll_no_pad_multi_grp,
 )

@@ -15,13 +15,13 @@ from paibox.exceptions import CompileError, ConfigInvalidError, ResourceError
 from paibox.network import DynSysGroup
 
 from .conf_exporting import (
+    export_core_params_json,
+    export_graph_info,
+    export_neuron_phy_loc,
     gen_config_frames_by_coreconf,
     get_clk_en_L2_dict,
-    export_graph_info,
-    export_core_params_json,
     get_neuron_phy_loc,
 )
-from .conf_exporting import export_neuron_phy_loc
 from .conf_types import (
     CoreConf,
     CorePlmConf,

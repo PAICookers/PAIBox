@@ -22,9 +22,9 @@ from .functional_testcase import (
     ann_pool1d_data,
     ann_pool2d_data,
     conv2d_semifolded_fc_chainnet_data,
+    pool2d_semifolded_fc_chainnet_data,
     spiking_pool1d_data,
     spiking_pool2d_data,
-    pool2d_semifolded_fc_chainnet_data,
 )
 from .utils import (
     ann_bit_trunc,

@@ -1,14 +1,14 @@
 import math
+from typing import Literal
+
 import numpy as np
 import pytest
 from paicorelib import LCN_EX, HwConfig
 from paicorelib import WeightWidth as WW
-from typing import Literal
 
 from paibox.backend.placement import FANOUT_IW8
 from paibox.backend.types import WRAM_UNPACKED_DTYPE, WRAMUnpackedType
 from paibox.types import WEIGHT_DTYPE, WeightType
-
 
 fixed_rng = np.random.default_rng(42)
 

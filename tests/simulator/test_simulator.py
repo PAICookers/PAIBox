@@ -4,10 +4,10 @@ import pytest
 import paibox as pb
 
 from .sim_networks import (
-    Net1,
-    Net2_with_multi_inpproj_func,
-    Net2_with_multi_inpproj_encoder,
     Conv2d_Net,
+    Net1,
+    Net2_with_multi_inpproj_encoder,
+    Net2_with_multi_inpproj_func,
 )
 
 
