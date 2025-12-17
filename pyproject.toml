@@ -5,12 +5,11 @@ description = "Toolchain of PAICORE"
 authors = [{ name = "Ziru Pan", email = "zrpan@stu.pku.edu.cn" }]
 license = { text = "GPL-3.0-or-later" }
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
-    "numpy (>=2.0.0,<3.0.0)",
-    "numpy (>=2.1.0,<3.0.0); python_version >= '3.10'",
+    "numpy (>=2.1.0,<3.0.0)",
     "pydantic (>=2.0.3,<3.0.0)",
-    "paicorelib (>=1.5.0a1,<1.6.0)",
+    "paicorelib (>=1.5.1,<1.6.0); platform_machine != 'armv7l'",
 ]
 maintainers = [
     { name = "Siyuan Gao", email = "siyuan-gao@outlook.com" },
@@ -23,7 +22,6 @@ classifiers = [
     "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -31,7 +29,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Compilers",
 ]
-keywords = ["PAICORE", "neuromorphic-chip", "Toolchain", "brain-inspired-ai"]
+keywords = ["PAICORE", "neuromorphic-chip", "toolchain", "brain-inspired-ai"]
 
 [project.urls]
 repository = "https://github.com/PAICookers/PAIBox"
@@ -40,9 +38,16 @@ documentation = "https://github.com/PAICookers/PAIBox#readme"
 
 [tool.poetry]
 packages = [{ include = "paibox" }]
+include = ["docs/Guide-of-PAIBox.md", "docs/Support-Ops.md"]
 
-# Includes the document
-include = ["docs/Guide-of-PAIBox.md", "CHANGELOG.md"]
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=7.0",
+    "pytest-md>=0.2",
+    "pytest-xdist>=3.7.0",
+    "orjson>=3.10",
+]
 
 [tool.poetry.group.test]
 optional = true
@@ -53,13 +58,21 @@ optional = true
 [tool.poetry.group.test.dependencies]
 pytest = ">=8.0"
 pytest-md = ">=0.2"
-pytest-cov = ">=6.0"
+pytest-cov = ">=7.0"
 pytest-xdist = ">=3.7.0"
 orjson = ">=3.10"
-paicorelib = { version = ">=1.5.0a3", allow-prereleases = true }
 
 [tool.poetry.group.dev.dependencies]
 orjson = ">=3.10"
+
+[tool.uv]
+package = true
+python-preference = "system"
+environments = ["platform_machine != 'armv7l'"]
+
+[tool.uv.build-backend]
+module-name = "paibox"
+module-root = ""
 
 [tool.pytest.ini_options]
 minversion = "8.0.0"
@@ -70,6 +83,11 @@ addopts = ["--cov=paibox", "--cov-report=term", "-nauto"]
 name = "tsinghua"
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 priority = "primary"
+
+[[tool.uv.index]]
+name = "tsinghua"
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
