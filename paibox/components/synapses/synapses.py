@@ -1,4 +1,4 @@
-from typing import ClassVar, Optional, Union
+from typing import ClassVar
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -34,12 +34,12 @@ __all__ = [
 class FullConn(FullConnSyn):
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
+        source: NeuDyn | InputProj,
         target: NeuDyn,
         weights: DataType = 1,
         *,
         conn_type: ConnType = ConnType.All2All,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         """Full-connected synapses.
 
@@ -48,7 +48,7 @@ class FullConn(FullConnSyn):
             - target: destination neuron.
             - weights: weights of the synapses. It can be a scalar or `np.ndarray`.
             - conn_type: the type of connection.
-            - name: name of the full-connected synapses. Optional.
+            - name: name of the full-connected synapses.
         """
         super().__init__(source, target, weights, conn_type, name=name)
 
@@ -56,10 +56,10 @@ class FullConn(FullConnSyn):
 class MatMul2d(FullConnSyn):
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
+        source: NeuDyn | InputProj,
         target: NeuDyn,
         weights: np.ndarray,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         """MatMul2d synapses.
 
@@ -67,7 +67,7 @@ class MatMul2d(FullConnSyn):
             - source: source neuron.
             - target: destination neuron.
             - weights: weights of the synapses.
-            - name: name of the matmul2d. Optional.
+            - name: name of the matmul2d.
         """
         super().__init__(source, target, weights, ConnType.MatConn, name)
 
@@ -75,7 +75,7 @@ class MatMul2d(FullConnSyn):
 class Conv1d(Conv1dSyn):
     def __init__(
         self,
-        source: Union[Neuron, InputProj],
+        source: Neuron | InputProj,
         target: Neuron,
         kernel: np.ndarray,
         *,
@@ -84,7 +84,7 @@ class Conv1d(Conv1dSyn):
         dilation: _Size1Type = 1,
         groups: int = 1,
         kernel_order: _KOrder3d = "OIL",
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         """1d convolution synapses in fully-unrolled format.
 
@@ -99,7 +99,7 @@ class Conv1d(Conv1dSyn):
             - groups: number of groups in the convolution.
             - kernel_order: dimension order of kernel, (O,I,L) or (I,O,L). (O,I,L) stands for (output channels, \
                 input channels, length).
-            - name: name of the 1d convolution. Optional.
+            - name: name of the 1d convolution.
 
         NOTE: See https://pytorch.org/docs/stable/generated/torch.nn.Conv1d.html#torch.nn.Conv1d for details.
         """
@@ -122,7 +122,7 @@ class Conv1d(Conv1dSyn):
 class Conv2d(Conv2dSyn):
     def __init__(
         self,
-        source: Union[Neuron, InputProj],
+        source: Neuron | InputProj,
         target: Neuron,
         kernel: np.ndarray,
         stride: _Size2Type = 1,
@@ -130,7 +130,7 @@ class Conv2d(Conv2dSyn):
         dilation: _Size2Type = 1,
         groups: int = 1,
         kernel_order: _KOrder4d = "OIHW",
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         """2d convolution synapses in fully-unrolled format.
 
@@ -145,7 +145,7 @@ class Conv2d(Conv2dSyn):
             - groups: number of groups in the convolution.
             - kernel_order: dimension order of kernel, (O,I,H,W) or (I,O,H,W). (O,I,H,W) stands for (output     \
                 channels, input channels, height, width).
-            - name: name of the 2d convolution. Optional.
+            - name: name of the 2d convolution.
 
         NOTE: See https://pytorch.org/docs/stable/generated/torch.nn.Conv2d.html#torch.nn.Conv2d for details.
         """
@@ -168,7 +168,7 @@ class Conv2d(Conv2dSyn):
 class ConvTranspose1d(ConvTranspose1dSyn):
     def __init__(
         self,
-        source: Union[Neuron, InputProj],
+        source: Neuron | InputProj,
         target: Neuron,
         kernel: np.ndarray,
         *,
@@ -176,7 +176,7 @@ class ConvTranspose1d(ConvTranspose1dSyn):
         padding: _Size1Type = 0,
         output_padding: _Size1Type = 0,
         kernel_order: _KOrder3d = "OIL",
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         """1d transposed convolution synapses in fully-unrolled format.
 
@@ -191,7 +191,7 @@ class ConvTranspose1d(ConvTranspose1dSyn):
                 an integer.
             - kernel_order: dimension order of kernel, (O,I,L) or (I,O,L). (O,I,L) stands for (output channels, \
                 input channels, length).
-            - name: name of the 1d transposed convolution. Optional.
+            - name: name of the 1d transposed convolution.
 
         NOTE: See https://pytorch.org/docs/stable/generated/torch.nn.ConvTranspose1d.html#torch.nn.ConvTranspose1d  \
             for details.
@@ -215,7 +215,7 @@ class ConvTranspose1d(ConvTranspose1dSyn):
 class ConvTranspose2d(ConvTranspose2dSyn):
     def __init__(
         self,
-        source: Union[Neuron, InputProj],
+        source: Neuron | InputProj,
         target: Neuron,
         kernel: np.ndarray,
         *,
@@ -223,7 +223,7 @@ class ConvTranspose2d(ConvTranspose2dSyn):
         padding: _Size2Type = 0,
         output_padding: _Size2Type = 0,
         kernel_order: _KOrder4d = "OIHW",
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         """2d transposed convolution synapses in fully-unrolled format.
 
@@ -241,7 +241,7 @@ class ConvTranspose2d(ConvTranspose2dSyn):
                 consistent, (C,H,W) or (H,W,C).
             - kernel_order: dimension order of kernel, (O,I,H,W) or (I,O,H,W). (O,I,H,W) stands for (output     \
                 channels, input channels, height, width).
-            - name: name of the 2d transposed convolution. Optional.
+            - name: name of the 2d transposed convolution.
 
         NOTE: See https://pytorch.org/docs/stable/generated/torch.nn.ConvTranspose2d.html#torch.nn.ConvTranspose2d  \
             for details.
@@ -267,20 +267,20 @@ class STDPFullConn(STDPSyn, FullConnSyn):
 
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
+        source: NeuDyn | InputProj,
         target: OnlineNeuron,
         weights: DataType,
         weight_decay: int = 0,
-        upper_weight: Optional[int] = None,
-        lower_weight: Optional[int] = None,
+        upper_weight: int | None = None,
+        lower_weight: int | None = None,
         weight_decay_random: bool = False,
-        lut: Optional[ArrayLike] = None,
-        lut_offset: Optional[int] = None,
-        lut_random: Union[bool, ArrayLike] = False,
+        lut: ArrayLike | None = None,
+        lut_offset: int | None = None,
+        lut_random: bool | ArrayLike = False,
         random_seed: int = 1,
         *,
         learn_by_default: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         super(STDPSyn, self).__init__(source, target, weights, ConnType.MatConn, name)
         super().__init__(
@@ -298,7 +298,7 @@ class STDPFullConn(STDPSyn, FullConnSyn):
         # Store synapse's attributes to the target neuron.
         self.target._set_syn_attrs(**self.attrs())
 
-    def update(self, x: Optional[NeuOutType] = None, *args, **kwargs) -> SynOutType:
+    def update(self, x: NeuOutType | None = None, *args, **kwargs) -> SynOutType:
         synout = super(STDPSyn, self).update(x)
         if self.target.is_working() and self.learning:
             super().step(self.synin, self.target.spike)

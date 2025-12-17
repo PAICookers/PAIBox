@@ -32,7 +32,6 @@ from paibox.types import (
     VoltageType,
 )
 from paibox.utils import as_shape, shape2num
-from tests.utils import file_not_exist_fail
 
 
 class NeuCfgJsonEncoder(json.JSONEncoder):
@@ -48,21 +47,21 @@ class NeuCfgJsonEncoder(json.JSONEncoder):
 
 def test_NeuronParams_check():
     with pytest.raises(ValueError):
-        n1 = pb.LIF((100,), threshold=-1)
+        _ = pb.LIF((100,), threshold=-1)
 
     with pytest.raises(ValueError):
-        n2 = pb.IF((100,), 1, delay=-1)
+        _ = pb.IF((100,), 1, delay=-1)
 
     with pytest.raises(ValueError):
-        n3 = pb.IF((100,), 1, delay=1, tick_wait_start=-1, tick_wait_end=100)
+        _ = pb.IF((100,), 1, delay=1, tick_wait_start=-1, tick_wait_end=100)
 
     with pytest.raises(ShapeError):
-        n4 = pb.LIF((10, 20), 1, bias=np.ones((100,)))
+        _ = pb.LIF((10, 20), 1, bias=np.ones((100,)))
 
     # If CoreMode specifies all configurations, there will be no invalid situations.
     if len(CoreMode) < 8:
         with pytest.raises(ValueError):
-            n5 = pb.LIF((100,), 10, input_width=8, spike_width=8, snn_en=True)
+            _ = pb.LIF((100,), 10, input_width=8, spike_width=8, snn_en=True)
 
 
 def test_neuron_keep_shape():
@@ -329,13 +328,13 @@ class TestOfflineNeuron:
                 np.array([V_MAX + 1], dtype=VOLTAGE_DTYPE),
                 np.array([V_MIN + 1], dtype=VOLTAGE_DTYPE),
                 # Exceeded the positive threshold but no spike
-                np.array([False], dtype=np.bool),
+                np.array([False], dtype=bool),
             ),
             (
                 np.array([V_MIN - 1], dtype=VOLTAGE_DTYPE),
                 np.array([V_MAX - 1], dtype=VOLTAGE_DTYPE),
                 # Exceeded the negative threshold but no spike
-                np.array([False], dtype=np.bool),
+                np.array([False], dtype=bool),
             ),
         ],
         ids=["positive overflow", "negative overflow"],
@@ -372,9 +371,7 @@ class TestOfflineNeuron:
         n1 = pb.IF(1, 5, 2)
 
         incoming_v = np.array([2, -1, 3, 5, 1, 2, 4, -2], dtype=np.int8)
-        expected_spike = np.array(
-            [[0], [0], [0], [1], [0], [1], [1], [0]], dtype=np.bool
-        )
+        expected_spike = np.array([[0], [0], [0], [1], [0], [1], [1], [0]], dtype=bool)
         expected_vol = np.array(
             [[2], [1], [4], [2], [3], [2], [2], [0]], dtype=VOLTAGE_DTYPE
         )
@@ -390,9 +387,7 @@ class TestOfflineNeuron:
         n1 = pb.IF(1, 5, None)
 
         incoming_v = np.array([2, -1, 3, 5, 1, 2, 4, -2], dtype=np.int8)
-        expected_spike = np.array(
-            [[0], [0], [0], [1], [1], [0], [1], [0]], dtype=np.bool
-        )
+        expected_spike = np.array([[0], [0], [0], [1], [1], [0], [1], [0]], dtype=bool)
         expected_vol = np.array(
             [[2], [1], [4], [4], [0], [2], [1], [-1]], dtype=VOLTAGE_DTYPE
         )
@@ -409,9 +404,7 @@ class TestOfflineNeuron:
         n1 = pb.LIF(shape=1, threshold=5, reset_v=2, leak_v=-1)
 
         incoming_v = np.array([2, -1, 3, 5, 1, 2, 4, -2], dtype=np.int8)
-        expected_spike = np.array(
-            [[0], [0], [0], [1], [0], [0], [1], [0]], dtype=np.bool
-        )
+        expected_spike = np.array([[0], [0], [0], [1], [0], [0], [1], [0]], dtype=bool)
         expected_vol = np.array(
             [[1], [-1], [1], [2], [2], [3], [2], [-1]], dtype=VOLTAGE_DTYPE
         )
@@ -427,9 +420,7 @@ class TestOfflineNeuron:
         n1 = pb.LIF(1, 5, reset_v=None, leak_v=-1)
 
         incoming_v = np.array([2, -1, 3, 5, 1, 2, 4, -2], dtype=np.int8)
-        expected_spike = np.array(
-            [[0], [0], [0], [1], [0], [0], [0], [0]], dtype=np.bool
-        )
+        expected_spike = np.array([[0], [0], [0], [1], [0], [0], [0], [0]], dtype=bool)
         expected_vol = np.array(
             [[1], [-1], [1], [0], [0], [1], [4], [1]], dtype=VOLTAGE_DTYPE
         )
@@ -446,8 +437,8 @@ class TestOfflineNeuron:
         n1 = pb.LIF(shape=1, threshold=6, reset_v=1, leak_v=0, bias=2)
         assert n1.leak_v == n1.bias == 2
 
-        incoming_v = np.array([1, 1, 0, 1, 0, 1], dtype=np.bool)
-        expected_spike = np.array([[0], [1], [0], [1], [0], [1]], dtype=np.bool)
+        incoming_v = np.array([1, 1, 0, 1, 0, 1], dtype=bool)
+        expected_spike = np.array([[0], [1], [0], [1], [0], [1]], dtype=bool)
         expected_vol = np.array([[3], [1], [3], [1], [3], [1]], dtype=VOLTAGE_DTYPE)
 
         for i in range(incoming_v.size):
@@ -466,7 +457,7 @@ class TestOfflineNeuron:
             bias=np.array([1, 2, 2], dtype=VOLTAGE_DTYPE),
         )
 
-        incoming_v = np.array([[[0, 0], [1, 1], [0, 0]]], dtype=np.bool)
+        incoming_v = np.array([[[0, 0], [1, 1], [0, 0]]], dtype=bool)
         expected_vol = np.array([[[3, 3], [3, 3], [0, 0]]], dtype=VOLTAGE_DTYPE)
 
         for _ in range(3):
@@ -480,8 +471,8 @@ class TestOfflineNeuron:
         n1 = pb.LIF(shape=1, threshold=6, leak_v=-1, bias=2)
         assert n1.leak_v == n1.bias == 1
 
-        incoming_v = np.array([1, 1, 0, 1, 0, 1], dtype=np.bool)
-        expected_spike = np.array([[0], [0], [0], [1], [0], [0]], dtype=np.bool)
+        incoming_v = np.array([1, 1, 0, 1, 0, 1], dtype=bool)
+        expected_spike = np.array([[0], [0], [0], [1], [0], [0]], dtype=bool)
         expected_vol = np.array([[2], [4], [5], [1], [2], [4]], dtype=VOLTAGE_DTYPE)
 
         for i in range(incoming_v.size):
@@ -494,9 +485,9 @@ class TestOfflineNeuron:
     def test_TonicSpiking(self):
         n1 = pb.TonicSpiking(1, fire_step=3)
 
-        incoming_v = np.array([1, 1, 1, 1, 0, 1, 0, 1, 0, 1], dtype=np.bool)
+        incoming_v = np.array([1, 1, 1, 1, 0, 1, 0, 1, 0, 1], dtype=bool)
         expected_spike = np.array(
-            [[0], [0], [1], [0], [0], [0], [0], [1], [0], [0]], dtype=np.bool
+            [[0], [0], [1], [0], [0], [0], [0], [1], [0], [0]], dtype=bool
         )
         expected_vol = np.array(
             [[1], [2], [0], [1], [1], [2], [2], [0], [0], [1]], dtype=VOLTAGE_DTYPE
@@ -512,9 +503,9 @@ class TestOfflineNeuron:
     def test_PhasicSpiking(self):
         n1 = pb.PhasicSpiking(1, fire_step=3, neg_floor=-2)
 
-        incoming_v = np.array([1, 1, 1, 1, 0, 1, 0, 1, 0, 1], dtype=np.bool)
+        incoming_v = np.array([1, 1, 1, 1, 0, 1, 0, 1, 0, 1], dtype=bool)
         expected_spike = np.array(
-            [[0], [0], [1], [0], [0], [0], [0], [0], [0], [0]], dtype=np.bool
+            [[0], [0], [1], [0], [0], [0], [0], [0], [0], [0]], dtype=bool
         )
         expected_vol = np.array(
             [[2], [4], [-3], [-2], [-2], [-2], [-2], [-2], [-2], [-2]],
@@ -531,7 +522,7 @@ class TestOfflineNeuron:
     def test_BypassNeuron(self):
         n1 = pb.BypassNeuron(1, **_snn_kwds)
 
-        incoming_v = np.random.randint(0, 2, size=(20, 1), dtype=np.bool)
+        incoming_v = np.random.randint(0, 2, size=(20, 1), dtype=bool)
 
         for i in range(incoming_v.size):
             pb.FRONTEND_ENV["t"] += 1
@@ -543,7 +534,7 @@ class TestOfflineNeuron:
         net = build_Net2
         sim = pb.Simulator(net)
 
-        _always_spike = np.full((net.n1.num_out,), 1, dtype=np.bool)
+        _always_spike = np.full((net.n1.num_out,), 1, dtype=bool)
 
         for i in range(10):
             sim.run(1)
@@ -758,8 +749,6 @@ class TestOfflineNeuron:
         attrs_dict = attrs.model_dump(by_alias=True)
 
         fp = ensure_dump_dir / f"ram_model_{n1.name}.json"
-        file_not_exist_fail(fp)
-
         with open(fp, "w") as f:
             json.dump({n1.name: attrs_dict}, f, indent=2)
 
@@ -773,8 +762,6 @@ class TestOfflineNeuron:
         attrs_dict = attrs.model_dump(by_alias=True)
 
         fp2 = ensure_dump_dir / f"ram_model_{n2.name}.json"
-        file_not_exist_fail(fp2)
-
         with open(fp2, "w") as f:
             json.dump({n2.name: attrs_dict}, f, indent=2, cls=NeuCfgJsonEncoder)
 
@@ -853,8 +840,8 @@ class TestOnlineNeuron:
             sim.run(1)
             if net.n2.has_spike() > 0:
                 sim.run(1)
-                assert net.n1.need_lateral_inhi == True
-                assert net.n3.need_lateral_inhi == True
+                assert net.n1.need_lateral_inhi
+                assert net.n3.need_lateral_inhi
                 break
 
     def test_attrs_export(self, ensure_dump_dir):
@@ -870,8 +857,6 @@ class TestOnlineNeuron:
         attrs_dict = attrs.model_dump(by_alias=True)
 
         fp = ensure_dump_dir / f"ram_model_{n1.name}.json"
-        file_not_exist_fail(fp)
-
         with open(fp, "w") as f:
             json.dump({n1.name: attrs_dict}, f, indent=2, cls=NeuCfgJsonEncoder)
 
@@ -886,12 +871,10 @@ class TestOnlineNeuron:
         attrs_dict = attrs.model_dump(by_alias=True)
 
         fp2 = ensure_dump_dir / f"ram_model_{n2.name}.json"
-        file_not_exist_fail(fp2)
-
         with open(fp2, "w") as f:
             json.dump({n2.name: attrs_dict}, f, indent=2, cls=NeuCfgJsonEncoder)
 
-    def test_attrs_stdp_syn_export(self, ensure_dump_dir):
+    def test_attrs_stdp_syn_export(self):
         n1 = pb.IF(100)
         n2 = pb.STDPLIF(
             (100,), 3, leak_v=-2, init_v=np.arange(100, dtype=VOLTAGE_DTYPE)
@@ -917,7 +900,7 @@ class TestOnlineNeuron:
         # Check `n2._set_syn_attrs`
         n3 = pb.IF(100)
         with pytest.raises(ValueError):
-            s2 = pb.STDPFullConn(
+            _ = pb.STDPFullConn(
                 n3, n2, np.ones((n1.num_out, n2.num_in), dtype=np.int8), lut=lut
             )
 

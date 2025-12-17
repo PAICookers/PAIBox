@@ -550,19 +550,8 @@ def get_clk_en_L2_dict(
 
         return clk_en
 
-    if sys.version_info >= (3, 10):
-        iterator = zip(chip_list, used_L2, strict=True)
-    else:
-        if len(chip_list) != len(used_L2):
-            raise ValueError(
-                "the length of chip list & used L2 clusters must be equal, "
-                f"but {len(chip_list)} != {len(used_L2)}."
-            )
-
-        iterator = zip(chip_list, used_L2)
-
     clk_en_L2_dict = dict()
-    for chip_addr, used_L2_inchip in iterator:
+    for chip_addr, used_L2_inchip in zip(chip_list, used_L2, strict=True):
         clk_en_L2_dict[chip_addr] = to_clk_en_L2_u8(used_L2_inchip)
 
     return clk_en_L2_dict

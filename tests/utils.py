@@ -1,14 +1,14 @@
+import numpy as np
 import os
+import pytest
 import time
 import tracemalloc
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any, Generator, NamedTuple, Optional, Union
+from typing import Any, NamedTuple
 
-import numpy as np
-import pytest
 from numpy.typing import DTypeLike
 from packaging import version as pkg_version
 
@@ -19,9 +19,9 @@ from paibox.utils import as_shape
 class ParamTestCase(NamedTuple):
     """Parametrized test cases."""
 
-    argnames: Union[str, tuple[str, ...]]
+    argnames: str | tuple[str, ...]
     argvalues: Sequence[Any]
-    ids: Optional[Sequence[str]] = None
+    ids: Sequence[str] | None = None
 
 
 def make_test(
@@ -61,21 +61,28 @@ def measure_peak_memory(func, *args, **kwargs) -> float:
     return peak / (1024 << 1)  # MiB
 
 
-def file_not_exist_fail(_fp: Union[str, Path]) -> None:
+def file_not_exist_fail(_fp: str | Path) -> None:
     """Raise a `pytest.fail` if the file does not exist."""
     fp = Path(_fp)
-    if Path.is_file(fp) and not fp.exists():
-        pytest.fail(f"Test file {fp} does not exist.")
+    if (not Path.is_file(fp)) or (not fp.exists()):
+        pytest.fail(f"{fp} is not a file or does not exist.")
+
+
+def dir_not_exist_fail(_fp: str | Path) -> None:
+    """Raise a `pytest.fail` if the directory does not exist."""
+    fp = Path(_fp)
+    if (not Path.is_dir(fp)) or (not fp.exists()):
+        pytest.fail(f"{fp} is not a directory or does not exist.")
 
 
 def gen_random_array(
-    shape_: Shape, dtype: DTypeLike, rng: Optional[np.random.Generator] = None
+    shape_: Shape, dtype: DTypeLike, rng: np.random.Generator | None = None
 ):
     shape = as_shape(shape_)
     if rng is None:
         rng = np.random.default_rng()
 
-    if np.issubdtype(dtype, np.bool):
+    if np.issubdtype(dtype, bool):
         return rng.integers(0, 1, shape, dtype, endpoint=True)
     else:
         return rng.integers(
@@ -127,3 +134,12 @@ def skip_if_version_greater_than(
         pkg_version.parse(current) > pkg_version.parse(max_version),
         reason=f"requires {lib_name} <= {max_version}, but installed version is {current}",
     )
+
+
+def skip_if_method_removed(
+    cls, method: str, reason: str | None = None
+) -> pytest.MarkDecorator:
+    if reason is None:
+        reason = f"method '{method}' has been removed from {cls.__name__}"
+
+    return pytest.mark.skipif(not hasattr(cls, method), reason=reason)

@@ -1,6 +1,6 @@
 import typing
 from functools import partial
-from typing import ClassVar, Optional, Union
+from typing import ClassVar
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -21,7 +21,17 @@ from paibox.types import (
 )
 from paibox.utils import arg_check_pos, as_shape, shape2num
 
-from ._modules import *
+from ._modules import (
+    SemiFoldedDataFlowFormat,
+    _SpikingPool1d,
+    _SpikingPool2d,
+    _SpikingPool1dWithV,
+    _SpikingPool2dWithV,
+    _Pool1d,
+    _Pool2d,
+    _SemiFoldedModule,
+    _LinearBase,
+)
 from .modules import (
     BuiltComponentType,
     FunctionalModule,
@@ -30,7 +40,15 @@ from .modules import (
     set_rt_mode_ann,
     set_rt_mode_snn,
 )
-from .neuron import *
+from .neuron import (
+    IF,
+    LIF,
+    BypassNeuron,
+    ANNNeuron,
+    ANNBypassNeuron,
+    OfflineNeuron,
+    STDPLIF,
+)
 from .neuron.base import bit_truncate
 from .neuron.utils import NeuFireState, v_overflow
 from .projection import InputProj
@@ -79,11 +97,11 @@ class BitwiseAND(FunctionalModule2to1):
 
     def __init__(
         self,
-        neuron_a: Union[NeuDyn, InputProj],
-        neuron_b: Union[NeuDyn, InputProj],
+        neuron_a: NeuDyn | InputProj,
+        neuron_b: NeuDyn | InputProj,
         *,
         keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         """Bitwise AND module. Do a bitwise AND of the output spike of two neurons & output.
@@ -99,7 +117,7 @@ class BitwiseAND(FunctionalModule2to1):
                 the latency & the higher the throughput. Default is 1.
             - keep_shape: whether to maintain size information when recording data in the simulation.       \
                 Default is `False`.
-            - name: name of the module. Optional.
+            - name: name of the module.
 
         NOTE: the inherent delay of the module is 0. It means that under the default delay(=1) setting, the \
             input data is input at time T, and the result output at time T+1.
@@ -146,10 +164,10 @@ class BitwiseNOT(FunctionalModule):
 
     def __init__(
         self,
-        neuron: Union[NeuDyn, InputProj],
+        neuron: NeuDyn | InputProj,
         *,
         keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         """Bitwise NOT module. Do a bitwise NOT of the output spike of one neuron & output.
@@ -205,11 +223,11 @@ class BitwiseOR(FunctionalModule2to1):
 
     def __init__(
         self,
-        neuron_a: Union[NeuDyn, InputProj],
-        neuron_b: Union[NeuDyn, InputProj],
+        neuron_a: NeuDyn | InputProj,
+        neuron_b: NeuDyn | InputProj,
         *,
         keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         """Bitwise OR module. Do a bitwise OR of the output spike of two neurons & output.
@@ -255,11 +273,11 @@ class BitwiseXOR(FunctionalModule2to1):
 
     def __init__(
         self,
-        neuron_a: Union[NeuDyn, InputProj],
-        neuron_b: Union[NeuDyn, InputProj],
+        neuron_a: NeuDyn | InputProj,
+        neuron_b: NeuDyn | InputProj,
         *,
         keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         """Bitwise XOR module. Do a bitwise XOR of the output spike of two neurons & output.
@@ -340,15 +358,15 @@ class SpikingAdd(FunctionalModule2to1WithV):
 
     def __init__(
         self,
-        neuron_a: Union[NeuDyn, InputProj],
-        neuron_b: Union[NeuDyn, InputProj],
+        neuron_a: NeuDyn | InputProj,
+        neuron_b: NeuDyn | InputProj,
         factor_a: IntScalarType = 1,
         factor_b: IntScalarType = 1,
         pos_thres: IntScalarType = 1,
-        reset_v: Optional[int] = None,
+        reset_v: int | None = None,
         *,
         keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         overflow_strict: bool = False,
         **kwargs,
     ) -> None:
@@ -423,14 +441,14 @@ class SpikingAdd(FunctionalModule2to1WithV):
 class SpikingAvgPool1d(_SpikingPool1d):
     def __init__(
         self,
-        neuron: Union[NeuDyn, InputProj],
+        neuron: NeuDyn | InputProj,
         kernel_size: _Size1Type,
-        stride: Optional[_Size1Type] = None,
+        stride: _Size1Type | None = None,
         padding: _Size1Type = 0,
-        threshold: Optional[int] = None,
+        threshold: int | None = None,
         *,
         keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         """1d average pooling for spike. The input feature map is in 'CL' order by default.
@@ -462,14 +480,14 @@ class SpikingAvgPool1d(_SpikingPool1d):
 class SpikingAvgPool1dWithV(_SpikingPool1dWithV):
     def __init__(
         self,
-        neuron: Union[NeuDyn, InputProj],
+        neuron: NeuDyn | InputProj,
         kernel_size: _Size1Type,
-        stride: Optional[_Size1Type] = None,
+        stride: _Size1Type | None = None,
         padding: _Size1Type = 0,
-        threshold: Optional[int] = None,
+        threshold: int | None = None,
         *,
         keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         """1d average pooling for spike with voltage at the previous timestep. The input feature map is in  \
@@ -494,13 +512,13 @@ class SpikingAvgPool1dWithV(_SpikingPool1dWithV):
 class SpikingMaxPool1d(_SpikingPool1d):
     def __init__(
         self,
-        neuron: Union[NeuDyn, InputProj],
+        neuron: NeuDyn | InputProj,
         kernel_size: _Size1Type,
-        stride: Optional[_Size1Type] = None,
+        stride: _Size1Type | None = None,
         padding: _Size1Type = 0,
         *,
         keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         """1d max pooling for spike. The input feature map is in 'CL' order by default.
@@ -529,15 +547,15 @@ class SpikingMaxPool1d(_SpikingPool1d):
 class SpikingAvgPool2d(_SpikingPool2d):
     def __init__(
         self,
-        neuron: Union[NeuDyn, InputProj],
+        neuron: NeuDyn | InputProj,
         kernel_size: _Size2Type,
-        stride: Optional[_Size2Type] = None,
+        stride: _Size2Type | None = None,
         padding: _Size2Type = 0,
-        threshold: Optional[int] = None,
+        threshold: int | None = None,
         # fm_order: _Order3d = "CHW",
         *,
         keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         """2d average pooling for spike. The input feature map is in 'CHW' order by default.
@@ -569,14 +587,14 @@ class SpikingAvgPool2d(_SpikingPool2d):
 class SpikingAvgPool2dWithV(_SpikingPool2dWithV):
     def __init__(
         self,
-        neuron: Union[NeuDyn, InputProj],
+        neuron: NeuDyn | InputProj,
         kernel_size: _Size2Type,
-        stride: Optional[_Size2Type] = None,
+        stride: _Size2Type | None = None,
         padding: _Size2Type = 0,
-        threshold: Optional[int] = None,
+        threshold: int | None = None,
         *,
         keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         """2d average pooling for spike with voltage at the previous timestep. The input feature map is in  \
@@ -608,14 +626,14 @@ class SpikingMaxPool2d(_SpikingPool2d):
 
     def __init__(
         self,
-        neuron: Union[NeuDyn, InputProj],
+        neuron: NeuDyn | InputProj,
         kernel_size: _Size2Type,
-        stride: Optional[_Size2Type] = None,
+        stride: _Size2Type | None = None,
         padding: _Size2Type = 0,
         # fm_order: _Order3d = "CHW",
         *,
         keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         """2d max pooling for spike. The input feature map is in 'CHW' order by default.
@@ -650,11 +668,11 @@ class SpikingSub(FunctionalModule2to1WithV):
 
     def __init__(
         self,
-        neuron_a: Union[NeuDyn, InputProj],
-        neuron_b: Union[NeuDyn, InputProj],
+        neuron_a: NeuDyn | InputProj,
+        neuron_b: NeuDyn | InputProj,
         *,
         keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         overflow_strict: bool = False,
         **kwargs,
     ) -> None:
@@ -835,7 +853,7 @@ class Conv2dSemiFolded(_SemiFoldedModule):
 
     def __init__(
         self,
-        neuron_s: Union[NeuDyn, InputProj],
+        neuron_s: NeuDyn | InputProj,
         kernel: np.ndarray,
         stride: _Size2Type = 1,
         padding: _Size2Type = 0,
@@ -844,7 +862,7 @@ class Conv2dSemiFolded(_SemiFoldedModule):
         bit_trunc: int = 8,
         *,
         keep_shape: bool = False,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         """2d semi-folded convolution for ANN mode.
@@ -1020,14 +1038,14 @@ class Conv2dSemiFolded(_SemiFoldedModule):
 class MaxPool1d(_Pool1d):
     def __init__(
         self,
-        neuron_s: Union[NeuDyn, InputProj],
+        neuron_s: NeuDyn | InputProj,
         kernel_size: _Size1Type,
-        stride: Optional[_Size1Type] = None,
+        stride: _Size1Type | None = None,
         padding: _Size1Type = 0,
         bit_trunc: int = 8,
         *,
         keep_shape: bool = False,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         """1d max pooling for ANN mode.
@@ -1077,14 +1095,14 @@ class MaxPool1d(_Pool1d):
 class MaxPool2d(_Pool2d):
     def __init__(
         self,
-        neuron_s: Union[NeuDyn, InputProj],
+        neuron_s: NeuDyn | InputProj,
         kernel_size: _Size2Type,
-        stride: Optional[_Size2Type] = None,
+        stride: _Size2Type | None = None,
         padding: _Size2Type = 0,
-        bit_trunc: Optional[int] = 8,
+        bit_trunc: int | None = 8,
         *,
         keep_shape: bool = False,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         """2d max pooling for ANN mode.
@@ -1134,13 +1152,13 @@ class MaxPool2d(_Pool2d):
 class MaxPool2dSemiFolded(_SemiFoldedModule):
     def __init__(
         self,
-        neuron_s: Union[NeuDyn, InputProj],
+        neuron_s: NeuDyn | InputProj,
         kernel_size: _Size2Type,
-        stride: Optional[_Size2Type] = None,
+        stride: _Size2Type | None = None,
         bit_trunc: int = 8,
         *,
         keep_shape: bool = False,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         """2d semi-folded max pooling for ANN mode.
@@ -1250,14 +1268,14 @@ class MaxPool2dSemiFolded(_SemiFoldedModule):
 class AvgPool1d(_Pool1d):
     def __init__(
         self,
-        neuron_s: Union[NeuDyn, InputProj],
+        neuron_s: NeuDyn | InputProj,
         kernel_size: _Size1Type,
-        stride: Optional[_Size1Type] = None,
+        stride: _Size1Type | None = None,
         padding: _Size1Type = 0,
-        bit_trunc: Optional[int] = None,
+        bit_trunc: int | None = None,
         *,
         keep_shape: bool = False,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         """1d average pooling for ANN mode.
@@ -1310,14 +1328,14 @@ class AvgPool1d(_Pool1d):
 class AvgPool2d(_Pool2d):
     def __init__(
         self,
-        neuron_s: Union[NeuDyn, InputProj],
+        neuron_s: NeuDyn | InputProj,
         kernel_size: _Size2Type,
-        stride: Optional[_Size2Type] = None,
+        stride: _Size2Type | None = None,
         padding: _Size2Type = 0,
-        bit_trunc: Optional[int] = None,
+        bit_trunc: int | None = None,
         *,
         keep_shape: bool = False,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         """2d average pooling for ANN mode.
@@ -1370,14 +1388,14 @@ class AvgPool2d(_Pool2d):
 class AvgPool2dSemiFolded(_SemiFoldedModule):
     def __init__(
         self,
-        neuron_s: Union[NeuDyn, InputProj],
+        neuron_s: NeuDyn | InputProj,
         kernel_size: _Size2Type,
-        stride: Optional[_Size2Type] = None,
+        stride: _Size2Type | None = None,
         padding: _Size2Type = 0,
-        bit_trunc: Optional[int] = None,
+        bit_trunc: int | None = None,
         *,
         keep_shape: bool = False,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         """2d semi-folded average pooling for ANN mode.
@@ -1538,7 +1556,7 @@ class AvgPool2dSemiFolded(_SemiFoldedModule):
 class STDPLinear(FunctionalModule, LearnableSys):
     def __init__(
         self,
-        neuron_s: Union[NeuDyn, InputProj],
+        neuron_s: NeuDyn | InputProj,
         out_features: Shape,
         weights: np.ndarray,
         bias: DataType = 0,
@@ -1548,17 +1566,17 @@ class STDPLinear(FunctionalModule, LearnableSys):
         leak_comparison: LCM = LCM.LEAK_BEFORE_COMP,
         neg_threshold: int = 0,
         lateral_inhi_value: int = 0,
-        init_v: Union[int, np.ndarray] = 0,
+        init_v: int | np.ndarray = 0,
         weight_decay: int = 0,
-        upper_weight: Optional[int] = None,
-        lower_weight: Optional[int] = None,
+        upper_weight: int | None = None,
+        lower_weight: int | None = None,
         weight_decay_random: bool = False,
-        lut: Optional[ArrayLike] = None,
-        lut_offset: Optional[int] = None,
+        lut: ArrayLike | None = None,
+        lut_offset: int | None = None,
         *,
         learn_by_default: bool = True,
         keep_shape: bool = False,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -1627,7 +1645,7 @@ class STDPLinear(FunctionalModule, LearnableSys):
 
 
 def _spike_func_sadd_ssub(
-    vjt: VoltageType, pos_thres: int, reset_v: Optional[int] = None
+    vjt: VoltageType, pos_thres: int, reset_v: int | None = None
 ) -> tuple[NeuOutType, VoltageType]:
     """Function `spike_func()` in spiking addition & subtraction."""
     # Fire
@@ -1680,7 +1698,7 @@ def _transpose2d_mapping(op_shape: tuple[int, ...]) -> WeightType:
     Return: transposed index matrix with shape (X*Y, Y*X).
     """
     size = shape2num(op_shape)
-    mt = np.zeros((size, size), dtype=np.bool)
+    mt = np.zeros((size, size), dtype=bool)
 
     for idx in np.ndindex(op_shape):
         mt[idx[0] * op_shape[1] + idx[1], idx[1] * op_shape[0] + idx[0]] = 1
@@ -1701,7 +1719,7 @@ def _transpose3d_mapping(
     Return: transposed index matrix with shape (N, N) where N=X*Y*Z.
     """
     size = shape2num(op_shape)
-    mt = np.zeros((size, size), dtype=np.bool)
+    mt = np.zeros((size, size), dtype=bool)
 
     shape_t = tuple(op_shape[i] for i in axes)
 

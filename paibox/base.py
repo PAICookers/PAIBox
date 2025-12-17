@@ -1,13 +1,7 @@
-import sys
 from dataclasses import dataclass
-from typing import Any, ClassVar, Literal, Optional
+from typing import Any, ClassVar, Literal
 
 import numpy as np
-
-if sys.version_info >= (3, 10):
-    from typing import TypeAlias
-else:
-    from typing_extensions import TypeAlias
 
 from paicorelib import WeightWidth as WW
 
@@ -21,13 +15,13 @@ from .utils import arg_check_non_neg, arg_check_pos
 __all__ = []
 
 
-_IdPathType: TypeAlias = tuple[int, int]
+_IdPathType = tuple[int, int]
 
 
 class PAIBoxObject:
     __avoid_name_conflict__: ClassVar[bool] = False
 
-    def __init__(self, name: Optional[str] = None) -> None:
+    def __init__(self, name: str | None = None) -> None:
         self._name = self._unique_name(name)
 
     def __eq__(self, other: "PAIBoxObject") -> bool:
@@ -39,14 +33,12 @@ class PAIBoxObject:
         if self is other:
             return True
 
-        return type(self) == type(other) and self._name == other._name
+        return type(self) is type(other) and self._name == other._name
 
     def __hash__(self) -> int:
         return hash((type(self), self._name))
 
-    def _unique_name(
-        self, name: Optional[str] = None, _type: Optional[str] = None
-    ) -> str:
+    def _unique_name(self, name: str | None = None, _type: str | None = None) -> str:
         if name is None:
             if _type is None:
                 __type = self.__class__.__name__
@@ -90,7 +82,7 @@ class PAIBoxObject:
         level: int = -1,
         include_self: bool = False,
         _lid: int = 0,
-        _paths: Optional[set[_IdPathType]] = None,
+        _paths: set[_IdPathType] | None = None,
     ) -> Collector[str, "PAIBoxObject"]:
         if _paths is None:
             _paths = set()
@@ -207,7 +199,7 @@ class DynamicSys(PAIBoxObject, StatusMemory):
     """To indicate whether the backend will take the object into account
         when the network topology information is first constructed"""
 
-    def __init__(self, name: Optional[str] = None) -> None:
+    def __init__(self, name: str | None = None) -> None:
         super().__init__(name)
         super(PAIBoxObject, self).__init__()
 
@@ -346,7 +338,7 @@ class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
     _oflow_format: DataFlowFormat
     """The format of output data stream"""
 
-    def __init__(self, name: Optional[str] = None) -> None:
+    def __init__(self, name: str | None = None) -> None:
         super().__init__(name)
         self.master_nodes = NodeDict()
 

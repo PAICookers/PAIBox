@@ -6,12 +6,11 @@ from paicorelib import ONLINE_CORES_BASE_COORD, Coord, HwConfig, OffCoreCfg
 from paicorelib import WeightWidth as WW
 
 import paibox as pb
-from paibox.backend.conf_exporting import *
+from paibox.backend.conf_exporting import export_core_plm_conf_json
 from paibox.backend.mapper import merge_cycles
 from paibox.backend.sub_utils import sub_node_overlap
 from paibox.exceptions import ResourceError
-from tests.shared_networks import STDPLinearNet
-from tests.utils import gen_random_array, make_test
+from tests.utils import make_test, measure_time
 
 from .backend_testcase import BackendTestCase as TCase
 
@@ -154,7 +153,7 @@ class TestMapperDeployment:
     def test_export_config_json(self, ensure_dump_dir, compile_simple_net):
         """Export all the configs into json"""
         mapper = compile_simple_net
-        assert mapper.graph.has_built == True
+        assert mapper.graph.has_built
 
         assert len(mapper.core_blocks) == 3  # 3 layers
         assert mapper.graph_info["inherent_timestep"] == 3
@@ -163,7 +162,7 @@ class TestMapperDeployment:
 
     def test_find_neuron(self, compile_simple_net):
         mapper: pb.Mapper = compile_simple_net
-        assert mapper.graph.has_built == True
+        assert mapper.graph.has_built
 
         mapper.find_neuron(mapper.graph.target_networks[0].n3)
 
@@ -171,7 +170,7 @@ class TestMapperDeployment:
 
     def test_find_axon(self, compile_simple_net):
         mapper = compile_simple_net
-        assert mapper.graph.has_built == True
+        assert mapper.graph.has_built
 
         mapper.find_axon(mapper.graph.target_networks[0].n2)
 
@@ -292,7 +291,7 @@ class TestMapperDeployment:
 
         mapper = pb.Mapper()
         mapper.build(net)
-        graph_info = mapper.compile()
+        _ = mapper.compile()
         mapper.export(fp=ensure_dump_dir, use_hw_sim=False)
 
         assert 1
@@ -543,9 +542,6 @@ class TestMapper_cflags:
 
         assert graph_info["n_core_required"] > 0
         assert graph_info["members"] == {}
-
-
-from tests.utils import measure_time
 
 
 class TestMapper_Multichip:

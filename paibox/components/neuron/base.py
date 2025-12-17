@@ -1,7 +1,7 @@
 import sys
 import warnings
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import numpy as np
 from numpy.typing import NDArray
@@ -64,7 +64,7 @@ L = Literal
 NEU_TARGET_CHIP_UNSET = -1
 
 
-def _neg_thres_check(th: Optional[int], signed: bool) -> int:
+def _neg_thres_check(th: int | None, signed: bool) -> int:
     if th is None:
         return -NEG_THRES_MAX
     elif signed:
@@ -85,18 +85,18 @@ class Neuron(NeuDyn):
         self,
         shape: Shape,
         reset_v: int = 0,
-        leak_v: Union[int, LeakVType] = 0,
+        leak_v: int | LeakVType = 0,
         pos_threshold: int = 1,
         leak_comparison: LCM = LCM.LEAK_BEFORE_COMP,
-        init_v: Union[int, np.ndarray] = 0,
+        init_v: int | np.ndarray = 0,
         delay: int = 1,
         tick_wait_start: int = 1,
         tick_wait_end: int = 0,
-        target_chip: Optional[int] = None,
+        target_chip: int | None = None,
         unrolling_factor: int = 1,
         overflow_strict: bool = False,
         keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         super().__init__(name)
         """Stateless attributes. Scalar."""
@@ -152,13 +152,11 @@ class Neuron(NeuDyn):
         self._oflow_format = DataFlowFormat(0, is_local_time=True)
 
     def __call__(
-        self, x: Optional[np.ndarray] = None, *args, **kwargs
-    ) -> Optional[NeuOutType]:
+        self, x: np.ndarray | None = None, *args, **kwargs
+    ) -> NeuOutType | None:
         return self.update(x, *args, **kwargs)
 
-    def update(
-        self, x: Optional[np.ndarray] = None, *args, **kwargs
-    ) -> Optional[NeuOutType]:
+    def update(self, x: np.ndarray | None = None, *args, **kwargs) -> NeuOutType | None:
         raise NotImplementedError("Subclasses must implement this method")
 
     def step(
@@ -190,9 +188,9 @@ class Neuron(NeuDyn):
 
     def set_oflow_format(
         self,
-        t_1st_vld: Optional[int] = None,
-        interval: Optional[int] = None,
-        n_vld: Optional[int] = None,
+        t_1st_vld: int | None = None,
+        interval: int | None = None,
+        n_vld: int | None = None,
         *,
         format_type: type[DataFlowFormat] = DataFlowFormat,
     ) -> None:
@@ -281,7 +279,7 @@ class Neuron(NeuDyn):
 
     def _slice_attrs(
         self,
-        index: Union[int, slice, list[int], tuple[Union[int, slice]]],
+        index: int | slice | list[int] | tuple[int | slice],
         for_copy: bool = False,
     ) -> dict[str, Any]:
         """Slice the vector variables in the target.
@@ -338,7 +336,7 @@ class Neuron(NeuDyn):
         return self.v.reshape(self.varshape)
 
     @property
-    def bias(self) -> Union[int, LeakVType]:
+    def bias(self) -> int | LeakVType:
         return self.leak_v
 
     @property
@@ -370,26 +368,26 @@ class OfflineNeuron(Neuron):
         leak_comparison: LCM = LCM.LEAK_BEFORE_COMP,
         thres_mask_bits: int = 0,
         neg_thres_mode: NTM = NTM.MODE_RESET,
-        neg_threshold: Optional[int] = None,
+        neg_threshold: int | None = None,
         pos_threshold: int = 1,
         leak_direction: LDM = LDM.MODE_FORWARD,
-        leak_integration_mode: Union[L[0, 1], bool, LIM] = LIM.MODE_DETERMINISTIC,
-        leak_v: Union[int, LeakVType] = 0,
-        syn_integration_mode: Union[L[0, 1], bool, SIM] = SIM.MODE_DETERMINISTIC,
+        leak_integration_mode: L[0, 1] | bool | LIM = LIM.MODE_DETERMINISTIC,
+        leak_v: int | LeakVType = 0,
+        syn_integration_mode: L[0, 1] | bool | SIM = SIM.MODE_DETERMINISTIC,
         bit_trunc: int = 8,
         *,
         delay: int = 1,
         tick_wait_start: int = 1,
         tick_wait_end: int = 0,
-        input_width: Union[L[1, 8], InputWidthFormat] = InputWidthFormat.WIDTH_1BIT,
-        spike_width: Union[L[1, 8], SpikeWidthFormat] = SpikeWidthFormat.WIDTH_1BIT,
-        snn_en: Union[bool, SNNModeEnable] = True,
-        pool_max: Union[bool, MaxPoolingEnable] = False,
-        target_chip: Optional[int] = None,
+        input_width: L[1, 8] | InputWidthFormat = InputWidthFormat.WIDTH_1BIT,
+        spike_width: L[1, 8] | SpikeWidthFormat = SpikeWidthFormat.WIDTH_1BIT,
+        snn_en: bool | SNNModeEnable = True,
+        pool_max: bool | MaxPoolingEnable = False,
+        target_chip: int | None = None,
         unrolling_factor: int = 1,
         overflow_strict: bool = False,
         keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -586,9 +584,7 @@ class OfflineNeuron(Neuron):
         else:
             return v_truncated, v_reset
 
-    def update(
-        self, x: Optional[np.ndarray] = None, *args, **kwargs
-    ) -> Optional[NeuOutType]:
+    def update(self, x: np.ndarray | None = None, *args, **kwargs) -> NeuOutType | None:
         # Priority order is a must.
         # The neuron doesn't work if `tws = 0` & done working
         # until `t - tws + 1 > twe` under the condition `twe > 0`.
@@ -648,24 +644,22 @@ class OnlineNeuron(Neuron):
         self,
         shape: Shape,
         reset_v: int = 0,
-        leak_v: Union[int, LeakVType] = 0,
-        neg_threshold: Optional[int] = None,
+        leak_v: int | LeakVType = 0,
+        neg_threshold: int | None = None,
         pos_threshold: int = 1,
         leak_comparison: LeakOrder = LeakOrder.LEAK_BEFORE_COMP,
         lateral_inhi_value: int = 0,
-        init_v: Union[int, np.ndarray] = 0,
+        init_v: int | np.ndarray = 0,
         *,
-        lateral_inhi_target: Optional[
-            Union["OnlineNeuron", Sequence["OnlineNeuron"]]
-        ] = None,
+        lateral_inhi_target: "OnlineNeuron | Sequence[OnlineNeuron] | None" = None,
         delay: int = 1,
         tick_wait_start: int = 1,
         tick_wait_end: int = 0,
-        target_chip: Optional[int] = None,
+        target_chip: int | None = None,
         unrolling_factor: int = 1,
         overflow_strict: bool = False,
         keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -714,7 +708,7 @@ class OnlineNeuron(Neuron):
         self.syn_attrs_set = False
 
     def set_lateral_inhi_target(
-        self, target: Union["OnlineNeuron", Sequence["OnlineNeuron"]]
+        self, target: "OnlineNeuron | Sequence[OnlineNeuron]"
     ) -> None:
         """Set the lateral inhibition targets of the current layer. In order to support recursive lateral inhibition,   \
             it should be called after all the target neurons are created.
@@ -813,9 +807,7 @@ class OnlineNeuron(Neuron):
 
         return spike, v_reset
 
-    def update(
-        self, x: Optional[np.ndarray] = None, *args, **kwargs
-    ) -> Optional[NeuOutType]:
+    def update(self, x: np.ndarray | None = None, *args, **kwargs) -> NeuOutType | None:
         if not self.is_working():
             self._neu_out.fill(0)
             return None

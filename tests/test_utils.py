@@ -2,7 +2,13 @@ from pathlib import Path
 
 import pytest
 
-from paibox.utils import *
+from paibox.utils import (
+    check_elem_same,
+    fn_sgn,
+    typical_round,
+    reverse_16bit,
+    reverse_8bit,
+)
 
 from .utils import make_dump_dir
 
@@ -108,8 +114,8 @@ def test_check_elem_same():
     d1 = [TestObj(1), TestObj(1), TestObj(1), TestObj(-1)]
     d2 = [TestObj(-1), TestObj(-1), TestObj(-1), TestObj(-1)]
 
-    assert check_elem_same(d.val for d in d1) == False
-    assert check_elem_same(d.val for d in d2) == True
+    assert not check_elem_same(d.val for d in d1)
+    assert check_elem_same(d.val for d in d2)
 
 
 def test_ensure_dump_dir_in_ci(monkeypatch, tmp_path_factory, request):
@@ -118,7 +124,7 @@ def test_ensure_dump_dir_in_ci(monkeypatch, tmp_path_factory, request):
     assert p.is_dir()
     assert tmp_path_factory.getbasetemp() in p.parents
 
-    monkeypatch.delenv("CI_ENV")
+    monkeypatch.delenv("CI_ENV", raising=False)
     p2 = make_dump_dir(request.path.parent, tmp_path_factory)
     assert p2.is_dir()
-    assert p2.parent.is_relative_to(Path.cwd())  # Under the current working dir
+    assert p2 == request.path.parent / "debug"

@@ -18,7 +18,14 @@ from paibox.types import NEUOUT_U8_DTYPE, VOLTAGE_DTYPE, WEIGHT_DTYPE
 from paibox.utils import shape2num, typical_round
 from tests.utils import make_test
 
-from .functional_testcase import *
+from .functional_testcase import (
+    ann_pool1d_data,
+    ann_pool2d_data,
+    conv2d_semifolded_fc_chainnet_data,
+    spiking_pool1d_data,
+    spiking_pool2d_data,
+    pool2d_semifolded_fc_chainnet_data,
+)
 from .utils import (
     ann_bit_trunc,
     avgpool1d_golden,
@@ -51,8 +58,8 @@ class TestFunctionalModules:
         bitwise = 10
         sim = pb.Simulator(net, start_time_zero=False)
 
-        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool)
-        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool)
+        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=bool)
+        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=bool)
 
         # data2 will input to inp2 which is connected with the AND module.
         for i in range(N_TEST):
@@ -69,9 +76,9 @@ class TestFunctionalModules:
         bitwise = 10
         sim = pb.Simulator(net, start_time_zero=False)
 
-        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool)
-        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool)
-        inpc = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool)
+        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=bool)
+        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=bool)
+        inpc = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=bool)
 
         for t in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[t], data2=inpb[t], data3=inpc[t])
@@ -111,8 +118,8 @@ class TestFunctionalModules:
         probe_func = pb.Probe(generated[func][0], "spike")
         sim2.add_probe(probe_func)
 
-        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool)
-        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool)
+        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=bool)
+        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=bool)
 
         for i in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[i], data2=inpb[i])
@@ -152,7 +159,7 @@ class TestFunctionalModules:
         probe_func = pb.Probe(generated[func][0], "spike")
         sim2.add_probe(probe_func)
 
-        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool)
+        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=bool)
 
         for i in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[i])
@@ -192,8 +199,8 @@ class TestFunctionalModules:
         probe_func = pb.Probe(generated[func][0], "spike")
         sim2.add_probe(probe_func)
 
-        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool)
-        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool)
+        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=bool)
+        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=bool)
 
         for i in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[i], data2=inpb[i])
@@ -233,8 +240,8 @@ class TestFunctionalModules:
         probe_func = pb.Probe(generated[func][1], "spike")
         sim2.add_probe(probe_func)
 
-        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool)
-        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool)
+        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=bool)
+        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=bool)
 
         for i in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[i], data2=inpb[i])
@@ -274,7 +281,7 @@ class TestFunctionalModules:
         probe_func = pb.Probe(generated[func][func.chain_level - 1], "spike")
         sim2.add_probe(probe_func)
 
-        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool)
+        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=bool)
 
         for i in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[i])
@@ -314,14 +321,10 @@ class TestFunctionalModules:
         probe_func = pb.Probe(generated[func][0], "spike")
         sim2.add_probe(probe_func)
 
-        _base_a = np.array(
-            [1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0] + [0] * 8, dtype=np.bool
-        )
-        _base_b = np.array(
-            [0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 1] + [0] * 8, dtype=np.bool
-        )
+        _base_a = np.array([1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0] + [0] * 8, dtype=bool)
+        _base_b = np.array([0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 1] + [0] * 8, dtype=bool)
         _base_expected = np.array(
-            [0, 1, 0, 1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0], dtype=np.bool
+            [0, 1, 0, 1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0], dtype=bool
         )
 
         inpa = np.tile(_base_a, (10, 1)).T  # 20 * 12
@@ -365,14 +368,10 @@ class TestFunctionalModules:
         probe_func = pb.Probe(generated[func][0], "spike")
         sim2.add_probe(probe_func)
 
-        _base_a = np.array(
-            [1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 1, 1] + [0] * 8, dtype=np.bool
-        )
-        _base_b = np.array(
-            [0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0] + [0] * 8, dtype=np.bool
-        )
+        _base_a = np.array([1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 1, 1] + [0] * 8, dtype=bool)
+        _base_b = np.array([0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0] + [0] * 8, dtype=bool)
         _base_expected = np.array(
-            [0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0], dtype=np.bool
+            [0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0], dtype=bool
         )
 
         inpa = np.tile(_base_a, (10, 1)).T  # 20 * 12
@@ -434,9 +433,7 @@ class TestFunctionalModules:
         sim2.add_probe(probe_p1d)
 
         # Use binomial distribution to generate a sparse matrix with more zeros
-        inpa = np.random.binomial(1, p_binomial, size=(N_TEST,) + fm_shape).astype(
-            np.bool
-        )
+        inpa = np.random.binomial(1, p_binomial, size=(N_TEST,) + fm_shape).astype(bool)
 
         for i in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[i])
@@ -516,9 +513,7 @@ class TestFunctionalModules:
         sim2.add_probe(probe_p2d)
 
         # Use binomial distribution to generate a sparse matrix with more zeros
-        inpa = np.random.binomial(1, p_binomial, size=(N_TEST,) + fm_shape).astype(
-            np.bool
-        )
+        inpa = np.random.binomial(1, p_binomial, size=(N_TEST,) + fm_shape).astype(bool)
 
         for i in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[i])
@@ -570,11 +565,11 @@ class TestFunctionalModules:
     def test_SpikingPoolNd_ksize_check(self):
         n1 = pb.IF((3, 32, 32), 1)
         with pytest.raises(ShapeError):
-            p = pb.SpikingMaxPool2d(n1, 33)
+            _ = pb.SpikingMaxPool2d(n1, 33)
 
         n2 = pb.IF((3, 64), 1)
         with pytest.raises(ShapeError):
-            p = pb.SpikingAvgPool1d(n2, 67, padding=1)
+            _ = pb.SpikingAvgPool1d(n2, 67, padding=1)
 
     @pytest.mark.parametrize(
         "shape, channels, ksize, stride, padding, threshold, p_binomial",
@@ -609,9 +604,7 @@ class TestFunctionalModules:
         sim2.add_probe(probe_p1d)
 
         # Use binomial distribution to generate a sparse matrix with more zeros
-        inpa = np.random.binomial(1, p_binomial, size=(N_TEST,) + fm_shape).astype(
-            np.bool
-        )
+        inpa = np.random.binomial(1, p_binomial, size=(N_TEST,) + fm_shape).astype(bool)
 
         for i in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[i])
@@ -671,9 +664,7 @@ class TestFunctionalModules:
         sim2.add_probe(probe_p2d)
 
         # Use binomial distribution to generate a sparse matrix with more zeros
-        inpa = np.random.binomial(1, p_binomial, size=(N_TEST,) + fm_shape).astype(
-            np.bool
-        )
+        inpa = np.random.binomial(1, p_binomial, size=(N_TEST,) + fm_shape).astype(bool)
 
         for i in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[i])
@@ -1215,12 +1206,12 @@ class TestFunctionalModules:
     def test_ANNPoolNd_ksize_check(self):
         n1 = pb.ANNNeuron((3, 32, 32))
         with pytest.raises(ShapeError):
-            p = pb.MaxPool2d(n1, 33)
+            _ = pb.MaxPool2d(n1, 33)
 
         n2 = pb.ANNNeuron((3, 64))
 
         with pytest.raises(ShapeError):
-            p = pb.MaxPool1d(n2, 67, padding=1)
+            _ = pb.MaxPool1d(n2, 67, padding=1)
 
     def test_STDPLinear_learning_mode_switch(self):
         from tests.shared_networks import STDPLinearNet

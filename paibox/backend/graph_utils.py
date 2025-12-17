@@ -1,8 +1,8 @@
 import itertools
 import typing
 from collections import defaultdict, deque
-from collections.abc import Iterable, Mapping, Sequence
-from typing import Any, Generator, TypeVar, Union
+from collections.abc import Generator, Iterable, Mapping, Sequence
+from typing import Any, TypeVar
 
 from paibox.exceptions import GraphHasCycleError, GraphNotSupportedError
 
@@ -162,7 +162,7 @@ def reverse_edges2(
 
 
 def get_node_degrees(
-    succ_edges: Mapping[_NT, Union[Sequence[_NT], Mapping[_NT, Any]]],
+    succ_edges: Mapping[_NT, Sequence[_NT] | Mapping[_NT, Any]],
 ) -> dict[_NT, NodeDegree]:
     degree = defaultdict(NodeDegree)
     in_degrees = defaultdict(int)

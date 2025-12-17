@@ -2,7 +2,7 @@ import sys
 from abc import abstractmethod
 from dataclasses import asdict, dataclass, fields, is_dataclass
 from enum import Enum
-from typing import Any, NamedTuple, TypedDict, Union
+from typing import Any, NamedTuple, TypedDict
 
 import numpy as np
 from numpy.typing import NDArray
@@ -28,13 +28,8 @@ from paicorelib import (
     OnlineNeuDestInfo,
 )
 from paicorelib import ReplicationId as RId
-from paicorelib import SNNModeEnable, SpikeWidthFormat, WeightWidth, get_replication_id
+from paicorelib import SNNModeEnable, SpikeWidthFormat, WeightWidth
 from paicorelib.framelib.types import LUTDataType
-
-if sys.version_info >= (3, 10):
-    from typing import TypeAlias
-else:
-    from typing_extensions import TypeAlias
 
 if sys.version_info >= (3, 11):
     from typing import NotRequired
@@ -261,12 +256,12 @@ class NeuConfig:
         pass
 
     @abstractmethod
-    def export(self) -> Union[OfflineNeuConf, OnlineNeuConf]:
+    def export(self) -> OfflineNeuConf | OnlineNeuConf:
         """Export the neuron configuration."""
         pass
 
     @abstractmethod
-    def to_json(self) -> Union[str, bytes]:
+    def to_json(self) -> str | bytes:
         """Dump the configs into json for debugging."""
         pass
 
@@ -297,7 +292,7 @@ class OfflineNeuConfig(NeuConfig):
     def export(self) -> OfflineNeuConf:
         return OfflineNeuConf(attrs=self.neuron_attrs, dest_info=self.neuron_dest_info)
 
-    def to_json(self) -> Union[str, bytes]:
+    def to_json(self) -> str | bytes:
         """Dump the configs into json for debugging."""
         dict_ = {
             "n_neuron": self.neu_seg.n_neuron,
@@ -311,7 +306,7 @@ class OfflineNeuConfig(NeuConfig):
                 dict_, option=orjson.OPT_INDENT_2 | orjson.OPT_SERIALIZE_NUMPY
             )
         else:
-            return json.dumps(dict_, indent=2, cls=PAIConfigJsonEncoder)
+            return json.dumps(dict_, cls=PAIConfigJsonEncoder, indent=2)
 
     @property
     def neuron_attrs(self) -> OfflineNeuAttrs:
@@ -349,7 +344,7 @@ class OnlineNeuConfig(NeuConfig):
     def export(self) -> OnlineNeuConf:
         return OnlineNeuConf(attrs=self.neuron_attrs, dest_info=self.neuron_dest_info)
 
-    def to_json(self) -> Union[str, bytes]:
+    def to_json(self) -> str | bytes:
         """Dump the configs into json for debugging."""
         dict_ = {
             "n_neuron": self.neu_seg.n_neuron,
@@ -363,7 +358,7 @@ class OnlineNeuConfig(NeuConfig):
                 dict_, option=orjson.OPT_INDENT_2 | orjson.OPT_SERIALIZE_NUMPY
             )
         else:
-            return json.dumps(dict_, indent=2, cls=PAIConfigJsonEncoder)
+            return json.dumps(dict_, cls=PAIConfigJsonEncoder, indent=2)
 
     @property
     def neuron_attrs(self) -> OnlineNeuAttrs:
@@ -483,17 +478,17 @@ class OnlineCorePlmConfig(CorePlmConfig):
         return dict_
 
 
-InputNodeConf: TypeAlias = dict[NodeName, InputNeuronDest]
-OutputDestConf: TypeAlias = dict[NodeName, dict[Coord, NeuDestInfo]]
-CorePlmConfInChip: TypeAlias = dict[Coord, CorePlmConfig]
-CorePlmConf: TypeAlias = dict[ChipCoord, CorePlmConfInChip]
-CoreConfInChip: TypeAlias = dict[Coord, CoreConfig]
-CoreConf: TypeAlias = dict[ChipCoord, CoreConfInChip]
+InputNodeConf = dict[NodeName, InputNeuronDest]
+OutputDestConf = dict[NodeName, dict[Coord, NeuDestInfo]]
+CorePlmConfInChip = dict[Coord, CorePlmConfig]
+CorePlmConf = dict[ChipCoord, CorePlmConfInChip]
+CoreConfInChip = dict[Coord, CoreConfig]
+CoreConf = dict[ChipCoord, CoreConfInChip]
 
 # Only one segment of a neuron is placed on a core
-NeuPhyLocChipLoc: TypeAlias = dict[Coord, NeuSegAddr]
-NeuPhyLoc: TypeAlias = dict[ChipCoord, NeuPhyLocChipLoc]
-NeuPhyLocMap: TypeAlias = dict[NodeName, NeuPhyLoc]
+NeuPhyLocChipLoc = dict[Coord, NeuSegAddr]
+NeuPhyLoc = dict[ChipCoord, NeuPhyLocChipLoc]
+NeuPhyLocMap = dict[NodeName, NeuPhyLoc]
 
 
 class _ExportedGraphInfo(TypedDict):

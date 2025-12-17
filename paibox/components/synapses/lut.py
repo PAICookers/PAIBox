@@ -1,5 +1,5 @@
 import warnings
-from typing import Optional, Union, overload
+from typing import overload
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -17,9 +17,9 @@ class LUT:
 
     def __init__(
         self,
-        lut: Optional[ArrayLike] = None,
-        offset: Optional[int] = None,
-        lut_random: Union[bool, ArrayLike] = False,
+        lut: ArrayLike | None = None,
+        offset: int | None = None,
+        lut_random: bool | ArrayLike = False,
     ) -> None:
         if lut is None:
             lut = np.zeros((LUT_LEN,), dtype=LUT_DTYPE)
@@ -52,9 +52,9 @@ class LUT:
 
         # TODO This feature needs LFSR support
         if isinstance(lut_random, bool):
-            self.lut_random_en = np.full(self.size, lut_random, dtype=np.bool)
+            self.lut_random_en = np.full(self.size, lut_random, dtype=bool)
         else:
-            lut_random_en = np.asarray(lut_random, dtype=np.bool)
+            lut_random_en = np.asarray(lut_random, dtype=bool)
             if lut_random_en.size != self.size:
                 raise ValueError(
                     f"LUT random enable array must be of size {self.size}, but got {lut_random_en.size}"
@@ -72,12 +72,10 @@ class LUT:
     @overload
     def __getitem__(self, index: np.ndarray) -> LUTDataType: ...
 
-    def __getitem__(
-        self, index: Union[int, np.ndarray]
-    ) -> Union[LUT_DTYPE, LUTDataType]:
+    def __getitem__(self, index: int | np.ndarray) -> LUT_DTYPE | LUTDataType:
         return self.lut[np.clip(index + self.offset, 0, self.size - 1)]
 
-    def lookup(self, index: Union[int, np.ndarray]) -> Union[LUT_DTYPE, LUTDataType]:
+    def lookup(self, index: int | np.ndarray) -> LUT_DTYPE | LUTDataType:
         return self.__getitem__(index)
 
     @property

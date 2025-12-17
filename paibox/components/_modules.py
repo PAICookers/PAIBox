@@ -1,6 +1,6 @@
 import math
 import typing
-from typing import Literal, Optional, Union
+from typing import Literal
 
 import numpy as np
 from paicorelib import OffCoreCfg
@@ -31,7 +31,7 @@ from .modules import (
     set_rt_mode_snn,
 )
 from .neuron import OfflineNeuron
-from .neuron.neurons import *
+from .neuron.neurons import BypassNeuron, IF
 from .neuron.utils import NeuFireState, v_overflow
 from .projection import InputProj
 from .synapses import ConnType, FullConnSyn
@@ -73,11 +73,11 @@ __all__ = [
 class _DelayChainBase(FunctionalModule):
     def __init__(
         self,
-        neuron: Union[NeuDyn, InputProj],
+        neuron: NeuDyn | InputProj,
         chain_level: int = 1,
         *,
         keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         """Delay chain. It will add extra neurons (and identity synapses) as buffer.
@@ -182,10 +182,10 @@ class _SemiFoldedModule(FunctionalModule):
 
     def __init__(
         self,
-        neuron_s: Union[NeuDyn, InputProj],
+        neuron_s: NeuDyn | InputProj,
         shape_out: tuple[int, ...],
         keep_shape: bool = False,
-        name: Optional[str] = None,
+        name: str | None = None,
         rin_buffer_option: bool = False,
         **kwargs,
     ) -> None:
@@ -227,14 +227,14 @@ class _SemiFoldedModule(FunctionalModule):
 class _LinearBase(FunctionalModule):
     def __init__(
         self,
-        neuron_s: Union[NeuDyn, InputProj],
+        neuron_s: NeuDyn | InputProj,
         out_features: Shape,
         weights: np.ndarray,
         bias: DataType = 0,
         bit_trunc: int = 8,
         *,
         keep_shape: bool = False,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         """Basic linear layer for ANN mode.
@@ -266,10 +266,10 @@ class _SpikingPoolNd(FunctionalModule):
 
     def __init__(
         self,
-        neuron: Union[NeuDyn, InputProj],
+        neuron: NeuDyn | InputProj,
         shape_out: SizeAnyType,
         keep_shape: bool,
-        name: Optional[str],
+        name: str | None,
         **kwargs,
     ) -> None:
         """Basic Nd pooling."""
@@ -284,14 +284,14 @@ class _SpikingPool1d(_SpikingPoolNd):
 
     def __init__(
         self,
-        neuron: Union[NeuDyn, InputProj],
+        neuron: NeuDyn | InputProj,
         kernel_size: _Size1Type,
         pool_type: Literal["avg", "max"],
-        stride: Optional[_Size1Type] = None,
+        stride: _Size1Type | None = None,
         padding: _Size1Type = 0,
-        threshold: Optional[int] = None,
+        threshold: int | None = None,
         keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         """Basic 1d spiking pooling."""
@@ -351,7 +351,7 @@ class _SpikingPool1d(_SpikingPoolNd):
         syn1 = FullConnSyn(
             self.source[0],
             n1_p1d,
-            weights=self.tfm.connectivity.astype(np.bool),
+            weights=self.tfm.connectivity.astype(bool),
             conn_type=ConnType.All2All,
             name=f"s0_{self.name}",
         )
@@ -368,13 +368,13 @@ class _SpikingPool1dWithV(FunctionalModuleWithV):
 
     def __init__(
         self,
-        neuron: Union[NeuDyn, InputProj],
+        neuron: NeuDyn | InputProj,
         kernel_size: _Size1Type,
-        stride: Optional[_Size1Type] = None,
+        stride: _Size1Type | None = None,
         padding: _Size1Type = 0,
-        pos_thres: Optional[int] = None,
+        pos_thres: int | None = None,
         keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         """Basic 1d spiking pooling with voltage at the previous timestep."""
@@ -429,7 +429,7 @@ class _SpikingPool1dWithV(FunctionalModuleWithV):
         syn1 = FullConnSyn(
             self.source[0],
             n1_p1d,
-            weights=self.tfm.connectivity.astype(np.bool),
+            weights=self.tfm.connectivity.astype(bool),
             conn_type=ConnType.All2All,
             name=f"s0_{self.name}",
         )
@@ -445,15 +445,15 @@ class _SpikingPool2d(_SpikingPoolNd):
 
     def __init__(
         self,
-        neuron: Union[NeuDyn, InputProj],
+        neuron: NeuDyn | InputProj,
         kernel_size: _Size2Type,
         pool_type: Literal["avg", "max"],
-        stride: Optional[_Size2Type] = None,
+        stride: _Size2Type | None = None,
         padding: _Size2Type = 0,
-        threshold: Optional[int] = None,
+        threshold: int | None = None,
         # fm_order: _Order3d = "CHW",
         keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         """Basic 2d spiking pooling."""
@@ -513,7 +513,7 @@ class _SpikingPool2d(_SpikingPoolNd):
         syn1 = FullConnSyn(
             self.source[0],
             n1_p2d,
-            weights=self.tfm.connectivity.astype(np.bool),
+            weights=self.tfm.connectivity.astype(bool),
             conn_type=ConnType.All2All,
             name=f"s0_{self.name}",
         )
@@ -530,13 +530,13 @@ class _SpikingPool2dWithV(FunctionalModuleWithV):
 
     def __init__(
         self,
-        neuron: Union[NeuDyn, InputProj],
+        neuron: NeuDyn | InputProj,
         kernel_size: _Size2Type,
-        stride: Optional[_Size2Type] = None,
+        stride: _Size2Type | None = None,
         padding: _Size2Type = 0,
-        pos_thres: Optional[int] = None,
+        pos_thres: int | None = None,
         keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         """Basic 2d spiking pooling with voltage at the previous timestep.
@@ -597,7 +597,7 @@ class _SpikingPool2dWithV(FunctionalModuleWithV):
         syn1 = FullConnSyn(
             self.source[0],
             n1_p2d,
-            weights=self.tfm.connectivity.astype(np.bool),
+            weights=self.tfm.connectivity.astype(bool),
             conn_type=ConnType.All2All,
             name=f"s0_{self.name}",
         )
@@ -616,10 +616,10 @@ class _PoolNd(FunctionalModule):
 
     def __init__(
         self,
-        neuron_s: Union[NeuDyn, InputProj],
+        neuron_s: NeuDyn | InputProj,
         shape_out: SizeAnyType,
         keep_shape: bool,
-        name: Optional[str],
+        name: str | None,
         **kwargs,
     ) -> None:
         """Basic Nd pooling."""
@@ -634,14 +634,14 @@ class _Pool1d(_PoolNd):
 
     def __init__(
         self,
-        neuron_s: Union[NeuDyn, InputProj],
+        neuron_s: NeuDyn | InputProj,
         kernel_size: _Size1Type,
         pool_type: Literal["avg", "max"],
-        stride: Optional[_Size1Type] = None,
+        stride: _Size1Type | None = None,
         padding: _Size1Type = 0,
-        bit_trunc: Optional[int] = None,
+        bit_trunc: int | None = None,
         keep_shape: bool = False,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         """Basic 1d ANN pooling."""
@@ -678,14 +678,14 @@ class _Pool2d(_PoolNd):
 
     def __init__(
         self,
-        neuron_s: Union[NeuDyn, InputProj],
+        neuron_s: NeuDyn | InputProj,
         kernel_size: _Size2Type,
         pool_type: Literal["avg", "max"],
-        stride: Optional[_Size2Type] = None,
+        stride: _Size2Type | None = None,
         padding: _Size2Type = 0,
-        bit_trunc: Optional[int] = None,
+        bit_trunc: int | None = None,
         keep_shape: bool = False,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         """Basic 2d ANN pooling."""

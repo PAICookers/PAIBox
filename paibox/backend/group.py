@@ -1,9 +1,8 @@
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from collections import UserList, defaultdict
-from collections.abc import Generator, Iterable
-from typing import Optional, cast
+from collections.abc import Iterable
+from typing import cast
 
-from ..utils import check_elem_same
 from .types import EdgeType, NodeType
 
 __all__ = ["BaseGroup", "InhiGroup", "DataGroup", "MergedGroup"]
@@ -20,7 +19,7 @@ class BaseGroup:
 
     @property
     @abstractmethod
-    def input(self) -> Optional[NodeType]:
+    def input(self) -> NodeType | None:
         pass
 
     @property
@@ -86,7 +85,7 @@ class DataGroup(BaseGroup):
             self.edges_dict[target].append(e)
 
     @property
-    def input(self) -> Optional[NodeType]:
+    def input(self) -> NodeType | None:
         return cast(NodeType, next(iter(self.raw_edges)).source)
 
     @property

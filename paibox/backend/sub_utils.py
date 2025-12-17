@@ -1,8 +1,6 @@
-import sys
 from collections import defaultdict
 from collections.abc import Sequence
-from functools import cached_property
-from typing import Generic, Optional, Protocol, TypeVar, Union, cast, runtime_checkable
+from typing import Generic, Protocol, TypeVar, cast
 
 import numpy as np
 from paicorelib import MaxPoolingEnable, WeightWidth
@@ -10,12 +8,7 @@ from paicorelib import MaxPoolingEnable, WeightWidth
 from paibox.components import InputProj, Neuron, OfflineNeuron, OnlineNeuron
 from paibox.types import WeightType
 
-from .types import Custom_Index, EdgeType, NodeType
-
-if sys.version_info >= (3, 10):
-    from typing import TypeAlias
-else:
-    from typing_extensions import TypeAlias
+from .types import CustomIndex, EdgeType, NodeType
 
 
 __all__ = [
@@ -41,21 +34,21 @@ class _HasAttrNumOut(Protocol):
 
 def get_index(
     target: _HasAttrNumOut,
-    index: Optional[list[int]] = None,
-    copy_id: Optional[list[int]] = None,
-    custom_index: Optional[list[Custom_Index]] = None,
-) -> tuple[list[Custom_Index], bool]:
+    index: list[int] | None = None,
+    copy_id: list[int] | None = None,
+    custom_index: list[CustomIndex] | None = None,
+) -> tuple[list[CustomIndex], bool]:
     _nmax = target.num_out
     if custom_index is not None:
         return custom_index, any(c.copy_id for c in custom_index)
     elif index is None and copy_id is None:
-        return [Custom_Index(i, 0) for i in range(_nmax)], False
+        return [CustomIndex(i, 0) for i in range(_nmax)], False
     elif index is not None and copy_id is None:
-        return [Custom_Index(i, 0) for i in index], False
+        return [CustomIndex(i, 0) for i in index], False
     elif index is not None and copy_id is not None:
         assert len(index) == len(copy_id), "index and copy_id must have the same length"
         contain_copy = any(c for c in copy_id)
-        return [Custom_Index(i, c) for i, c in zip(index, copy_id)], contain_copy
+        return [CustomIndex(i, c) for i, c in zip(index, copy_id)], contain_copy
     else:
         raise ValueError("index is None but copy_id is not None")
 
@@ -90,9 +83,9 @@ class SubNode(SubNodeBase, Generic[_NT]):
     def __init__(
         self,
         target: _NT,
-        raw_index: Optional[list[int]] = None,
-        copy_id: Optional[list[int]] = None,
-        custom_index: Optional[list[Custom_Index]] = None,
+        raw_index: list[int] | None = None,
+        copy_id: list[int] | None = None,
+        custom_index: list[CustomIndex] | None = None,
     ) -> None:
         self.target = target
 
@@ -118,11 +111,11 @@ class SubNode(SubNodeBase, Generic[_NT]):
     def handle_copy(self, copy_map: dict[int, list[int]]) -> None:
         """copy_list: dict[index, list[copy_id]]"""
         for raw_index, copy_id_list in copy_map.items():
-            if Custom_Index(raw_index, 0) in self.custom_index_set:
+            if CustomIndex(raw_index, 0) in self.custom_index_set:
                 for copy_id in copy_id_list:
-                    if Custom_Index(raw_index, copy_id) not in self.custom_index_set:
-                        self.index.append(Custom_Index(raw_index, copy_id))
-                        self.custom_index_set.add(Custom_Index(raw_index, copy_id))
+                    if CustomIndex(raw_index, copy_id) not in self.custom_index_set:
+                        self.index.append(CustomIndex(raw_index, copy_id))
+                        self.custom_index_set.add(CustomIndex(raw_index, copy_id))
                         self.raw_index_list.append(raw_index)
 
     def __str__(self) -> str:
@@ -192,12 +185,12 @@ class SubEdge:
     def __init__(
         self,
         target: EdgeType,
-        in_raw_index: Optional[list[int]] = None,
-        in_copy_id: Optional[list[int]] = None,
-        in_custom_index: Optional[list[Custom_Index]] = None,
-        out_raw_index: Optional[list[int]] = None,
-        out_copy_id: Optional[list[int]] = None,
-        out_custom_index: Optional[list[Custom_Index]] = None,
+        in_raw_index: list[int] | None = None,
+        in_copy_id: list[int] | None = None,
+        in_custom_index: list[CustomIndex] | None = None,
+        out_raw_index: list[int] | None = None,
+        out_copy_id: list[int] | None = None,
+        out_custom_index: list[CustomIndex] | None = None,
     ) -> None:
         self.target = target
         self.source = self.get_source(in_raw_index, in_copy_id, in_custom_index)
@@ -205,10 +198,10 @@ class SubEdge:
 
     def get_source(
         self,
-        in_raw_index: Optional[list[int]] = None,
-        in_copy_id: Optional[list[int]] = None,
-        in_custom_index: Optional[list[Custom_Index]] = None,
-    ) -> Union[SubInput, SubNeuron]:
+        in_raw_index: list[int] | None = None,
+        in_copy_id: list[int] | None = None,
+        in_custom_index: list[CustomIndex] | None = None,
+    ) -> SubInput | SubNeuron:
         if isinstance(self.target.source, InputProj):
             return SubInput(
                 self.target.source,
@@ -226,9 +219,9 @@ class SubEdge:
 
     def get_dest(
         self,
-        out_raw_index: Optional[list[int]] = None,
-        out_copy_id: Optional[list[int]] = None,
-        out_custom_index: Optional[list[Custom_Index]] = None,
+        out_raw_index: list[int] | None = None,
+        out_copy_id: list[int] | None = None,
+        out_custom_index: list[CustomIndex] | None = None,
     ) -> SubNeuron:
         return SubNeuron(
             cast(Neuron, self.target.target),
@@ -275,20 +268,20 @@ class SubEdge:
         return hash((self.target, self.source, self.dest))
 
 
-SubEdgeType: TypeAlias = SubEdge
-SubNodeType: TypeAlias = Union[SubInput, SubNeuron]
-SubSourceType: TypeAlias = SubNodeType
-SubDestType: TypeAlias = SubNeuron
+SubEdgeType = SubEdge
+SubNodeType = SubInput | SubNeuron
+SubSourceType = SubNodeType
+SubDestType = SubNeuron
 
 
 def sub_node_overlap(
-    sub_node_a: Union[NodeType, SubNodeType, Sequence[SubNodeType]],
-    sub_node_b: Union[NodeType, SubNodeType, Sequence[SubNodeType]],
+    sub_node_a: NodeType | SubNodeType | Sequence[SubNodeType],
+    sub_node_b: NodeType | SubNodeType | Sequence[SubNodeType],
 ) -> bool:
     """Check whether a single node, sub node or list of sub nodes overlaps with another one."""
 
     def to_sequence(
-        node_or_subnode: Union[NodeType, SubNodeType, Sequence[SubNodeType]],
+        node_or_subnode: NodeType | SubNodeType | Sequence[SubNodeType],
     ) -> Sequence[SubNodeType]:
         if isinstance(node_or_subnode, Sequence):
             return node_or_subnode
@@ -304,7 +297,7 @@ def sub_node_overlap(
 
     def to_group(
         sub_node_seq: Sequence[SubNodeType],
-    ) -> dict[int, list[set[Custom_Index]]]:
+    ) -> dict[int, list[set[CustomIndex]]]:
         group = defaultdict(list)
         for sub_node in sub_node_seq:
             group[id(sub_node.target)].append(sub_node.custom_index_set)

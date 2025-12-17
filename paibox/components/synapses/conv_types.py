@@ -1,12 +1,12 @@
-from typing import Literal, TypeVar, Union
+from typing import Literal, TypeVar
 
 T = TypeVar("T")
 
-_TupleAnyType = Union[T, tuple[T, ...]]
-_Tuple1Type = Union[T, tuple[T]]
-_Tuple2Type = Union[T, tuple[T, T]]
-_Tuple3Type = Union[T, tuple[T, T, T]]
-_Tuple4Type = Union[T, tuple[T, T, T, T]]
+_TupleAnyType = T | tuple[T, ...]
+_Tuple1Type = T | tuple[T]
+_Tuple2Type = T | tuple[T, T]
+_Tuple3Type = T | tuple[T, T, T]
+_Tuple4Type = T | tuple[T, T, T, T]
 
 _SizeAnyType = _TupleAnyType[int]
 _Size1Type = _Tuple1Type[int]

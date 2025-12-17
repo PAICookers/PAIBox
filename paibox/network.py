@@ -1,6 +1,4 @@
-import sys
 from collections.abc import Sequence
-from typing import Optional, Union
 
 import numpy as np
 
@@ -13,11 +11,6 @@ from .exceptions import NotSupportedError
 from .mixin import Container
 from .node import NodeDict, NodeList
 
-if sys.version_info >= (3, 10):
-    from typing import TypeAlias
-else:
-    from typing_extensions import TypeAlias
-
 
 __all__ = ["DynSysGroup", "Network"]
 
@@ -27,7 +20,7 @@ class DynSysGroup(DynamicSys, Container):
         self,
         *components_as_tuple,
         component_type: type = DynamicSys,
-        name: Optional[str] = None,
+        name: str | None = None,
         **components_as_dict,
     ) -> None:
         super().__init__(name)
@@ -88,8 +81,8 @@ class DynSysGroup(DynamicSys, Container):
 
     def build_modules(
         self,
-        pred_dg_semi_ops: Optional[dict[str, list[str]]] = None,
-        ordered_semi_ops: Optional[list[NeuModule]] = None,
+        pred_dg_semi_ops: dict[str, list[str]] | None = None,
+        ordered_semi_ops: list[NeuModule] | None = None,
         **build_options,
     ) -> dict[NeuModule, BuiltComponentType]:
         """Build the functional modules in the network.
@@ -192,16 +185,11 @@ class DynSysGroup(DynamicSys, Container):
         return self.nodes().subset(DynamicSys).unique().not_subset(DynSysGroup)
 
 
-Network: TypeAlias = DynSysGroup
+Network = DynSysGroup
 
 
 class Sequential(DynamicSys, Container):
-    def __init__(
-        self,
-        *components,
-        name: Optional[str] = None,
-        **kwargs,
-    ) -> None:
+    def __init__(self, *components, name: str | None = None, **kwargs) -> None:
         super().__init__(name)
         self.children = NodeDict(self.elem_format(DynamicSys, *components))
 
@@ -215,7 +203,7 @@ class Sequential(DynamicSys, Container):
         for child in self.children.values():
             child.reset_state()
 
-    def __getitem__(self, item: Union[str, int, slice]):
+    def __getitem__(self, item: str | int | slice):
         if isinstance(item, str):
             if item in self.children:
                 return self.children[item]

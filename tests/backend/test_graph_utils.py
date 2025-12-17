@@ -1,10 +1,19 @@
 import graphlib
+import pytest
 import random
+from collections import defaultdict
 from contextlib import nullcontext
 
-import pytest
 
-from paibox.backend.graph_utils import *
+from paibox.backend.graph_utils import (
+    reverse_edges,
+    toposort,
+    iter_toposort,
+    prune_disconn_graph,
+    find_cycles,
+    merge_overlapping_sets,
+)
+from paibox.backend.types import NodeName
 from paibox.exceptions import GraphHasCycleError
 from tests.utils import make_test
 
@@ -116,7 +125,7 @@ class TestTopoSort:
         INP3 -> N2
         """
         with pytest.raises(GraphHasCycleError):
-            ordered = toposort(edges)
+            _ = toposort(edges)
 
     @pytest.mark.parametrize(
         # Using test cases with a unique topological sort order, otherwise

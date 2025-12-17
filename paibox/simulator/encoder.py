@@ -1,5 +1,5 @@
 import math
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 import numpy as np
 from numpy.typing import NDArray
@@ -24,10 +24,10 @@ MAXINT = np.iinfo(np.int32).max
 
 
 class Encoder:
-    def __init__(self, seed: Optional[int] = None) -> None:
+    def __init__(self, seed: int | None = None) -> None:
         self.rng = self._get_rng(seed)
 
-    def _get_rng(self, seed: Optional[int] = None) -> np.random.RandomState:
+    def _get_rng(self, seed: int | None = None) -> np.random.RandomState:
         _seed = np.random.randint(MAXINT) if seed is None else seed
         return np.random.RandomState(_seed)
 
@@ -40,7 +40,7 @@ class StatelessEncoder(Encoder):
 
 
 class StatefulEncoder(Encoder, StatusMemory):
-    def __init__(self, T: int, seed: Optional[int] = None) -> None:
+    def __init__(self, T: int, seed: int | None = None) -> None:
         super().__init__(seed)
         super(Encoder, self).__init__()
 
@@ -51,9 +51,7 @@ class StatefulEncoder(Encoder, StatusMemory):
         self.set_memory("spike", None)
         self.set_memory("t", 0)
 
-    def __call__(
-        self, x: Optional[np.ndarray] = None, *args, **kwargs
-    ) -> NeuOutSpikeType:
+    def __call__(self, x: np.ndarray | None = None, *args, **kwargs) -> NeuOutSpikeType:
         # If there is no encoded spike but there is an input, encode the input
         if self.spike is None:
             if x is None:
@@ -115,13 +113,13 @@ class LatencyEncoder(StatefulEncoder):
             t_f = ((self.T - 1.0) * (1.0 - x)).round().astype(np.int64)
 
         indices = t_f.ravel()
-        spike = np.eye(self.T, dtype=np.bool)[indices]
+        spike = np.eye(self.T, dtype=bool)[indices]
         # [*, T] -> [T, *]
         self.spike = np.moveaxis(spike, -1, 0)
 
 
 class PoissonEncoder(StatelessEncoder):
-    def __init__(self, seed: Optional[int] = None, **kwargs) -> None:
+    def __init__(self, seed: int | None = None, **kwargs) -> None:
         """Poisson encoder.
 
         NOTE: The output shape of the poisson encoder depends on the input shape.
@@ -129,7 +127,7 @@ class PoissonEncoder(StatelessEncoder):
         super().__init__(seed, **kwargs)
 
     def __call__(self, x: np.ndarray, *args, **kwargs) -> NeuOutSpikeType:
-        return np.less_equal(self.rng.random(x.shape), x).astype(np.bool)
+        return np.less_equal(self.rng.random(x.shape), x).astype(bool)
 
 
 class DirectEncoder(StatelessEncoder):

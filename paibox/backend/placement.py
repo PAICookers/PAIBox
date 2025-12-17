@@ -1,9 +1,8 @@
 import logging
 import warnings
 from abc import ABC, abstractmethod
-from collections import UserList
 from dataclasses import dataclass, field
-from typing import ClassVar, Literal, NamedTuple, Optional, Union, cast, overload
+from typing import ClassVar, Literal, cast, overload
 
 import numpy as np
 from numpy.typing import NDArray
@@ -48,7 +47,7 @@ from .conf_types import (
 )
 from .context import _BACKEND_CONTEXT
 from .segment_utils import get_axon_segments, get_dendrite_segments
-from .sub_utils import SubDestType, SubEdge, SubNode, SubSourceType, list_to_str
+from .sub_utils import SubDestType, SubEdge, SubSourceType, list_to_str
 from .types import (
     _COORD_UNSET,
     _RID_UNSET,
@@ -58,7 +57,7 @@ from .types import (
     AxonCoord,
     AxonSegment,
     CoreAllocationOfCoreBlock,
-    Custom_Index,
+    CustomIndex,
     DendriteSegment,
     DestNodeType,
     SubNeuOfCorePlm,
@@ -120,12 +119,7 @@ class CoreBlock(CoreAbstract):
     """
     online: bool = False
 
-    def __init__(
-        self,
-        *parents: SubEdge,
-        seed: int,
-        name: Optional[str] = None,
-    ) -> None:
+    def __init__(self, *parents: SubEdge, seed: int, name: str | None = None) -> None:
         """Core blocks in SNN mode.
 
         Args:
@@ -181,7 +175,7 @@ class CoreBlock(CoreAbstract):
         """Single CoreBlock should not contain different SubNeurons from the same Neuron.
         if there are different SubNeurons should be merged into one SubNeuron before building CoreBlock.
         """
-        sub_neus: dict[Neuron, set[Custom_Index]] = dict()
+        sub_neus: dict[Neuron, set[CustomIndex]] = dict()
         for syn in synapses:
             sub_neu = syn.dest
             if sub_neu.target in sub_neus:
@@ -213,7 +207,7 @@ class CoreBlock(CoreAbstract):
 
         self._neurons_grouped = True
 
-    def _get_syn_of(self, src: SubSourceType, dest: SubDestType) -> Optional[SubEdge]:
+    def _get_syn_of(self, src: SubSourceType, dest: SubDestType) -> SubEdge | None:
         for syn in self.obj:
             if syn.source == src and syn.dest == dest:
                 return syn
@@ -507,7 +501,7 @@ class CoreBlock(CoreAbstract):
         return cb_config
 
     def dump(
-        self, indents: int = 0, father_logger: Optional[logging.Logger] = None
+        self, indents: int = 0, father_logger: logging.Logger | None = None
     ) -> None:
         _logger = cb_log if father_logger is None else father_logger
 
@@ -543,11 +537,7 @@ class CoreBlock(CoreAbstract):
 
 class OfflineCoreBlock(CoreBlock):
     def __init__(
-        self,
-        *parents: SubEdge,
-        seed: int,
-        mode: CoreMode,
-        name: Optional[str] = None,
+        self, *parents: SubEdge, seed: int, mode: CoreMode, name: str | None = None
     ) -> None:
         super().__init__(*parents, seed=seed, name=name)
         self.rt_mode = mode
@@ -621,12 +611,7 @@ class OnlineCoreBlock(CoreBlock):
 
     """The input width and spike width are both 1-bit fixed."""
 
-    def __init__(
-        self,
-        *parents: SubEdge,
-        seed: int,
-        name: Optional[str] = None,
-    ) -> None:
+    def __init__(self, *parents: SubEdge, seed: int, name: str | None = None) -> None:
         super().__init__(*parents, seed=seed, name=name)
         self.online = True
         self.inhi_rid = Coord(0, 0)
@@ -901,7 +886,7 @@ class SourceDest:
     """
 
     def __init__(self) -> None:
-        self.dest_info: dict[Custom_Index, DestInfo] = dict()
+        self.dest_info: dict[CustomIndex, DestInfo] = dict()
 
     def add_dest(
         self, sub_source: SubSourceType, dest_ax_seg: AxonSegment, cb_of_dest: CoreBlock
@@ -972,7 +957,7 @@ class SourceDest:
         dest_axon_coods: list[AxonCoord] = list()
 
         for i, (custom_index, dest_info) in enumerate(self.dest_info.items()):
-            if Custom_Index(i, 0) != custom_index:
+            if CustomIndex(i, 0) != custom_index:
                 raise ValueError(
                     "The custom index is not continuous, divided destination."
                 )
@@ -991,7 +976,7 @@ class SourceDest:
         """According to the given neuron segment, find the corresponding destination details."""
         # devide the dest_info according to the given indexs, if two dest_info have the same DestCoreInfo,
         # they will be add to the same group and their custom_index will be merged.
-        dest_info_groups: dict[DestCoreInfo, list[Custom_Index]] = dict()
+        dest_info_groups: dict[DestCoreInfo, list[CustomIndex]] = dict()
         for custom_index in neu_seg.index:
             if custom_index not in self.dest_info:
                 raise ValueError(f"custom index {custom_index} not in dest_info.")
@@ -1029,7 +1014,7 @@ class CorePlacement(CoreAbstract):
         n_neuron: int,
         raw_weight: WeightType,
         neu_segs_of_cplm: SubNeuOfCorePlm,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         """
         Arguments:
@@ -1074,8 +1059,8 @@ class CorePlacement(CoreAbstract):
     def export_neu_config(
         self,
         neu_seg: DendriteSegment,
-        source_dest: Optional[SourceDest] = None,
-        output_core_coord: Optional[Coord] = None,
+        source_dest: SourceDest | None = None,
+        output_core_coord: Coord | None = None,
     ) -> None:
         pass
 
@@ -1327,7 +1312,7 @@ class OfflineCorePlacement(CorePlacement):
         n_neuron: int,
         raw_weight: WeightType,
         neu_segs_of_cplm: SubNeuOfCorePlm,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         self._neu_configs = dict()
         super().__init__(
@@ -1441,12 +1426,12 @@ class OfflineCorePlacement(CorePlacement):
     def export_neu_config(
         self,
         neu_seg: DendriteSegment,
-        source_dest: Optional[SourceDest] = None,
-        output_core_coord: Optional[Coord] = None,
+        source_dest: SourceDest | None = None,
+        output_core_coord: Coord | None = None,
     ) -> None:
-        if not neu_seg in self.neu_segs_of_cplm:
+        if neu_seg not in self.neu_segs_of_cplm:
             raise ValueError(
-                f"The given neu_seg {neu_seg} is not in the neu_segs_of_cplm of this core placement."
+                f"The given neu_seg {neu_seg} is not in the 'neu_segs_of_cplm' of this core placement."
             )
         """Export the neuron configuration."""
         if isinstance(source_dest, SourceDest):
@@ -1528,7 +1513,7 @@ class OnlineCorePlacement(CorePlacement):
         n_neuron: int,
         raw_weight: WeightType,
         neu_segs_of_cplm: SubNeuOfCorePlm,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         self._neu_configs = dict()
         super().__init__(
@@ -1581,12 +1566,12 @@ class OnlineCorePlacement(CorePlacement):
     def export_neu_config(
         self,
         neu_seg: DendriteSegment,
-        source_dest: Optional[SourceDest] = None,
-        output_core_coord: Optional[Coord] = None,
+        source_dest: SourceDest | None = None,
+        output_core_coord: Coord | None = None,
     ) -> None:
-        if not neu_seg in self.neu_segs_of_cplm:
+        if neu_seg not in self.neu_segs_of_cplm:
             raise ValueError(
-                f"The given neu_seg {neu_seg} is not in the neu_segs_of_cplm of this core placement."
+                f"The given neu_seg {neu_seg} is not in the 'neu_segs_of_cplm' of this core placement."
             )
 
         """Export the neuron configuration."""
@@ -1713,7 +1698,7 @@ class OnlineCorePlacement(CorePlacement):
 
 
 class EmptyCorePlacement(CoreAbstract):
-    def __init__(self, coord: Coord, name: Optional[str] = None) -> None:
+    def __init__(self, coord: Coord, name: str | None = None) -> None:
         super().__init__(name)
         self.coord = coord
 
@@ -1738,7 +1723,7 @@ class EmptyOfflineCorePlacement(EmptyCorePlacement):
 
     _EMPTY_WRAM: int = 0
 
-    def __init__(self, coord: Coord, name: Optional[str] = None) -> None:
+    def __init__(self, coord: Coord, name: str | None = None) -> None:
         super().__init__(coord, name)
 
     def export_core_config(self) -> OfflineCoreConfig:
@@ -1781,7 +1766,7 @@ class EmptyOnlineCorePlacement(EmptyCorePlacement):
 
     _EMPTY_WRAM: int = 0
 
-    def __init__(self, coord: Coord, name: Optional[str] = None) -> None:
+    def __init__(self, coord: Coord, name: str | None = None) -> None:
         super().__init__(coord, name)
 
     def export_core_config(self) -> OnlineCoreConfig:

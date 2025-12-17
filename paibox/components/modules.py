@@ -1,9 +1,8 @@
-import sys
-import typing
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import partial
-from typing import Callable, ClassVar, Literal, Optional, TypeVar, Union
+from typing import ClassVar, Literal, TypeAlias, TypeVar, TYPE_CHECKING
 
 import numpy as np
 from paicorelib import CoreMode, OffCoreCfg, SNNModeEnable, get_core_mode
@@ -21,21 +20,17 @@ from .neuron.utils import (
 )
 from .projection import InputProj
 
-if sys.version_info >= (3, 10):
-    from typing import TypeAlias
-else:
-    from typing_extensions import TypeAlias
-
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from paibox.network import DynSysGroup
 
     from .neuron import Neuron
     from .synapses import FullConnectedSyn
 
+
 __all__ = ["BuildingModule"]
 
-MultiInputsType: TypeAlias = list[NeuOutType]  # Type of inputs of `NeuModule`.
-BuiltComponentType: TypeAlias = list[Union["FullConnectedSyn", "Neuron"]]
+BuiltComponentType: TypeAlias = "list[FullConnectedSyn | Neuron]"
+MultiInputsType = list[NeuOutType]  # Type of inputs of `NeuModule`.
 
 
 @dataclass
@@ -44,8 +39,8 @@ class ModuleIntf:
         gets input and where it outputs. This information will be used when building the module.
     """
 
-    operands: list[Union[NeuDyn, InputProj]] = field(default_factory=list)
-    output: list[Union["FullConnectedSyn", "NeuModule"]] = field(default_factory=list)
+    operands: list[NeuDyn | InputProj] = field(default_factory=list)
+    output: "list[FullConnectedSyn| NeuModule]" = field(default_factory=list)
 
     @property
     def num_in(self) -> int:
@@ -63,19 +58,19 @@ class BuildingModule:
         """Construct the actual basic components and add to the network. Called in the backend ONLY."""
         raise NotImplementedError
 
-    def register_operand(self, *op: Union[NeuDyn, InputProj]) -> None:
+    def register_operand(self, *op: NeuDyn | InputProj) -> None:
         """Register operands to the interface."""
         self.module_intf.operands.extend(op)
 
-    def unregister_operand(self, op: Union[NeuDyn, InputProj]) -> None:
+    def unregister_operand(self, op: NeuDyn | InputProj) -> None:
         """Remove a operand from the interface."""
         self.module_intf.operands.remove(op)
 
-    def register_output(self, *output: Union["FullConnectedSyn", "NeuModule"]) -> None:
+    def register_output(self, *output: "FullConnectedSyn| NeuModule") -> None:
         """Register the output."""
         self.module_intf.output.append(*output)
 
-    def unregister_output(self, output: Union["FullConnectedSyn", "NeuModule"]) -> None:
+    def unregister_output(self, output: "FullConnectedSyn|NeuModule") -> None:
         """Remove an output."""
         self.module_intf.output.remove(output)
 
@@ -105,7 +100,7 @@ class NeuModule(NeuDyn, BuildingModule):
         tick_wait_end: int,
         unrolling_factor: int,
         keep_shape: bool,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         super().__init__(name)
         self.module_intf = ModuleIntf()
@@ -133,11 +128,11 @@ class NeuModule(NeuDyn, BuildingModule):
         return (self.timestamp - self.inherent_delay) >= 0
 
     @property
-    def source(self) -> list[Union[NeuDyn, InputProj]]:
+    def source(self) -> list[NeuDyn | InputProj]:
         return self.module_intf.operands
 
     @property
-    def target(self) -> list[Union["FullConnectedSyn", "NeuModule"]]:
+    def target(self) -> "list[FullConnectedSyn| NeuModule]":
         return self.module_intf.output
 
     @property
@@ -153,10 +148,10 @@ class FunctionalModule(NeuModule):
 
     def __init__(
         self,
-        *operands: Union[NeuDyn, InputProj],
+        *operands: NeuDyn | InputProj,
         shape_out: tuple[int, ...],
         keep_shape: bool,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         kwargs.setdefault("delay", 1)
@@ -225,7 +220,7 @@ class FunctionalModule(NeuModule):
 
         self.synin_deque.append(synin)  # Append to the right of the deque.
 
-    def update(self, *args, **kwargs) -> Optional[NeuOutType]:
+    def update(self, *args, **kwargs) -> NeuOutType | None:
         if not self.is_working():
             self._neu_out.fill(0)
             return None
@@ -246,7 +241,7 @@ class FunctionalModule(NeuModule):
         self,
         network: "DynSysGroup",
         out_neuron: "Neuron",
-        *generated: Union[NeuDyn, "FullConnectedSyn"],
+        *generated: "NeuDyn | FullConnectedSyn",
         **build_options,
     ) -> None:
         from .synapses import FullConnectedSyn
@@ -300,10 +295,10 @@ class FunctionalModule2to1(FunctionalModule):
 
     def __init__(
         self,
-        neuron_a: Union[NeuDyn, InputProj],
-        neuron_b: Union[NeuDyn, InputProj],
+        neuron_a: NeuDyn | InputProj,
+        neuron_b: NeuDyn | InputProj,
         keep_shape: bool = False,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         if neuron_a.num_out != neuron_b.num_out:
@@ -334,10 +329,10 @@ class FunctionalModuleWithV(FunctionalModule):
 
     def __init__(
         self,
-        *operands: Union[NeuDyn, InputProj],
+        *operands: NeuDyn | InputProj,
         shape_out: tuple[int, ...],
         keep_shape: bool = False,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -354,7 +349,7 @@ class FunctionalModuleWithV(FunctionalModule):
             "'synaptic_integr' should be implemented in the subclasses."
         )
 
-    def update(self, *args, **kwargs) -> Optional[NeuOutType]:
+    def update(self, *args, **kwargs) -> NeuOutType | None:
         if not self.is_working():
             self._neu_out.fill(0)
             return None
@@ -382,10 +377,10 @@ class FunctionalModuleWithV(FunctionalModule):
 class FunctionalModule2to1WithV(FunctionalModuleWithV):
     def __init__(
         self,
-        neuron_a: Union[NeuDyn, InputProj],
-        neuron_b: Union[NeuDyn, InputProj],
+        neuron_a: NeuDyn | InputProj,
+        neuron_b: NeuDyn | InputProj,
         keep_shape: bool = False,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -422,8 +417,8 @@ set_rt_mode_ann = partial(set_rt_mode, input_width=8, spike_width=8, snn_en=0)
 
 
 def _shape_check2(
-    neuron_a: Union[NeuDyn, InputProj],
-    neuron_b: Union[NeuDyn, InputProj],
+    neuron_a: NeuDyn | InputProj,
+    neuron_b: NeuDyn | InputProj,
     keep_shape: bool,
 ) -> tuple[int, ...]:
     if keep_shape:

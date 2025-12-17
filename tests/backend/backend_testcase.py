@@ -1,12 +1,11 @@
 import random
-from typing import Optional
 
 import numpy as np
 from paicorelib import LCN_EX, RoutingCoord, RoutingDirection
 from paicorelib import WeightWidth as WW
 
 import paibox as pb
-from paibox.backend.types import AxonCoord, AxonSegment, Custom_Index, DendriteSegment
+from paibox.backend.types import CustomIndex, DendriteSegment
 from paibox.exceptions import ResourceError
 from paibox.node import NodeList
 from tests.utils import ParamTestCase, TestCase
@@ -488,7 +487,7 @@ class Network_with_container(pb.DynSysGroup):
 class ReusedStruct(pb.Network):
     """Reused structure: pre_n -> syn -> post_n, 8-bit"""
 
-    def __init__(self, tws: int = 1, name: Optional[str] = None):
+    def __init__(self, tws: int = 1, name: str | None = None):
         super().__init__(name=name)
 
         self.pre_n = pb.LIF((10,), 10, 2, tick_wait_start=tws)
@@ -503,7 +502,7 @@ class ReusedStruct(pb.Network):
 class Nested_Net_level_2(pb.DynSysGroup):
     """Level 2 nested network: inp1 -> s1 -> ReusedStruct -> s2 -> ReusedStruct"""
 
-    def __init__(self, tws: int = 1, name: Optional[str] = None):
+    def __init__(self, tws: int = 1, name: str | None = None):
         self.inp1 = pb.InputProj(1, shape_out=(10,))
         subnet1 = ReusedStruct(tws=tws, name="Named_Reused_0")
         subnet2 = ReusedStruct(tws=tws + 2, name="Named_Reused_1")
@@ -739,8 +738,8 @@ def _gen_neurons_for_neu_segs():
     return [pb.LIF(p[0], p[1], unrolling_factor=p[2]) for p in _neu_params]
 
 
-def _gen_custom_index(start: int, end: int, step: int = 1) -> list[Custom_Index]:
-    return [Custom_Index(i, 0) for i in range(start, end, step)]
+def _gen_custom_index(start: int, end: int, step: int = 1) -> list[CustomIndex]:
+    return [CustomIndex(i, 0) for i in range(start, end, step)]
 
 
 _nl = _gen_neurons_for_neu_segs()
@@ -1012,25 +1011,25 @@ class BackendTestCase(TestCase):
             (
                 ((0, 2), (0, 2)),
                 1,
-                (np.bool, np.bool),
+                (bool, bool),
                 WW.WEIGHT_WIDTH_1BIT,
             ),
             (
                 ((0, 2), (0, 2)),
                 -1,
-                (np.bool, np.bool),
+                (bool, bool),
                 WW.WEIGHT_WIDTH_2BIT,
             ),
             (
                 ((0, 2), (0, 2)),
                 1,
-                (np.bool, np.int8),
+                (bool, np.int8),
                 WW.WEIGHT_WIDTH_1BIT,
             ),
             (
                 ((0, 2), (0, 2)),
                 -2,
-                (np.int8, np.bool),
+                (np.int8, bool),
                 WW.WEIGHT_WIDTH_2BIT,
             ),
             (
@@ -1042,19 +1041,19 @@ class BackendTestCase(TestCase):
             (
                 ((0, 2), (-2, 2)),
                 -8,
-                (np.bool, np.int8),
+                (bool, np.int8),
                 WW.WEIGHT_WIDTH_4BIT,
             ),
             (
                 ((0, 2), (-2, 2)),
                 7,
-                (np.bool, np.int8),
+                (bool, np.int8),
                 WW.WEIGHT_WIDTH_4BIT,
             ),
             (
                 ((0, 2), (-128, 128)),
                 127,
-                (np.bool, np.int8),
+                (bool, np.int8),
                 WW.WEIGHT_WIDTH_8BIT,
             ),
             (

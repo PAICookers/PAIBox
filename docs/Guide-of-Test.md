@@ -15,7 +15,7 @@ poetry install --with test
 若使用conda等，则手动安装如下依赖至Python虚拟环境：
 
 ```toml
-python = "^3.9"
+python = "^3.10"
 pytest = "^8.0.0"
 ```
 

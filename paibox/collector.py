@@ -1,14 +1,13 @@
+from collections import UserDict
 from collections.abc import Callable, MutableMapping, Sequence
-from typing import TypeVar, Union, overload
+from typing import TypeVar, overload
 
 _T = TypeVar("_T")
 _KT = TypeVar("_KT")
 _VT = TypeVar("_VT")
 
-# XXX: use collections.UserDict[_KT, _VT] in 3.9+
 
-
-class Collector(dict[_KT, _VT]):
+class Collector(UserDict[_KT, _VT]):
     def __setitem__(self, key, value) -> None:
         if key in self:
             if id(self[key]) != id(value):
@@ -25,8 +24,8 @@ class Collector(dict[_KT, _VT]):
     def update(self, other: Sequence[_T]) -> "Collector[_KT, _T]": ...
 
     def update(
-        self, other: Union[MutableMapping[_KT, _VT], Sequence[_T]]
-    ) -> Union["Collector[_KT, _VT]", "Collector[_KT, _T]"]:
+        self, other: MutableMapping[_KT, _VT] | Sequence[_T]
+    ) -> "Collector[_KT, _VT] | Collector[_KT, _T]":
         if not isinstance(other, (MutableMapping, list, tuple)):
             raise TypeError(
                 f"expected a collector, dict, list or sequence, but got {type(other).__name__}."
@@ -37,7 +36,7 @@ class Collector(dict[_KT, _VT]):
         else:
             l = len(self)
             for i, v in enumerate(other):
-                self[f"_{l+i}"] = v  # type: ignore
+                self[f"_{l+i}"] = v
 
         return self
 
@@ -48,8 +47,8 @@ class Collector(dict[_KT, _VT]):
     def __add__(self, other: Sequence[_T]) -> "Collector[_KT, _T]": ...
 
     def __add__(
-        self, other: Union[MutableMapping[_KT, _VT], Sequence[_T]]
-    ) -> Union["Collector[_KT, _VT]", "Collector[_KT, _T]"]:
+        self, other: MutableMapping[_KT, _VT] | Sequence[_T]
+    ) -> "Collector[_KT, _VT] | Collector[_KT, _T]":
         """Merging two dicts.
 
         Arguments:
@@ -70,8 +69,8 @@ class Collector(dict[_KT, _VT]):
     def __sub__(self, other: Sequence[_T]) -> "Collector[str, _T]": ...
 
     def __sub__(
-        self, other: Union[MutableMapping[_KT, _VT], Sequence[_T]]
-    ) -> Union["Collector[_KT, _VT]", "Collector[str, _T]"]:
+        self, other: MutableMapping[_KT, _VT] | Sequence[_T]
+    ) -> "Collector[_KT, _VT] | Collector[str, _T]":
         if not isinstance(other, (MutableMapping, list, tuple)):
             raise TypeError(
                 f"expected a collector, dict, list or sequence, but got {other}, type {type(other).__name__}."

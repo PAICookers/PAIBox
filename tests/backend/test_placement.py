@@ -2,11 +2,11 @@ import math
 import sys
 from contextlib import nullcontext
 from functools import partial
-from typing import Literal, Optional
+from typing import Literal
 
 import numpy as np
 import pytest
-from paicorelib import LCN_EX, Coord, CoreMode, HwConfig, OffCoreCfg, OfflineNeuAttrs
+from paicorelib import LCN_EX, Coord, HwConfig, OffCoreCfg, OfflineNeuAttrs
 from paicorelib import ReplicationId as RId
 from paicorelib import WeightWidth as WW
 from paicorelib.framelib import OfflineFrameGen
@@ -17,7 +17,7 @@ from paibox.backend.types import (
     WRAM_PACKED_DTYPE,
     WRAM_UNPACKED_DTYPE,
     AxonCoord,
-    Custom_Index,
+    CustomIndex,
     DendriteSegment,
     WRAMPackedType,
     WRAMUnpackedType,
@@ -81,10 +81,10 @@ class TestSourceDest:
 
         source_dests = SourceDest()
         source_dests.dest_info = {
-            Custom_Index(41, 0): dest_info1,
-            Custom_Index(42, 0): dest_info2,
-            Custom_Index(43, 0): dest_info3,
-            Custom_Index(44, 0): dest_info4,
+            CustomIndex(41, 0): dest_info1,
+            CustomIndex(42, 0): dest_info2,
+            CustomIndex(43, 0): dest_info3,
+            CustomIndex(44, 0): dest_info4,
         }
 
         source_dests.set_dest_rid()
@@ -114,8 +114,8 @@ class TestSourceDest:
 
         source_dest = SourceDest()
         source_dest.dest_info = {
-            Custom_Index(10, 0): dest_info1,
-            Custom_Index(20, 0): dest_info2,
+            CustomIndex(10, 0): dest_info1,
+            CustomIndex(20, 0): dest_info2,
         }
 
         with capsys.disabled():
@@ -137,7 +137,7 @@ NEURON_PARAMS_BIT_LENGTH = 214
 N_NEURON_PARAM_IN_COL = OffCoreCfg.N_FANIN_PER_DENDRITE_MAX // NEURON_PARAMS_BIT_LENGTH
 
 
-def _packbits_ref(bits: np.ndarray, count: Optional[int] = None) -> np.int8:
+def _packbits_ref(bits: np.ndarray, count: int | None = None) -> np.int8:
     """Pack unsigned bits (from LSB to MSB) into a signed integer.
 
     Args:
@@ -562,7 +562,7 @@ class TestWeightRamMapping:
 
         # 2. Map to the NRAM.
         with expectation:
-            w_mapped = self._weight_ram_mapping(w_folded, nbit, nfold, iw)
+            _ = self._weight_ram_mapping(w_folded, nbit, nfold, iw)
 
     @staticmethod
     def _weight_ram_mapping_iw8(
@@ -757,7 +757,7 @@ class TestWeightRamMapping:
         assert wp + lcn_ex <= 2
 
         n_extra_neurons = shape[1] - WRAM_BASE_SHAPE[1]
-        wram_neurons = self._gen_wram_for_neurons(n_extra_neurons, wp, lcn_ex)
+        _ = self._gen_wram_for_neurons(n_extra_neurons, wp, lcn_ex)
 
     @staticmethod
     def _gen_wram_for_neurons(
@@ -833,7 +833,7 @@ class TestWeightRamMapping:
         return result
 
     def test_weight_ram_mapping_8bits(self):
-        binary_conn = np.zeros((6, 8 * 5), dtype=np.bool)
+        binary_conn = np.zeros((6, 8 * 5), dtype=bool)
         wp = WW.WEIGHT_WIDTH_8BIT
 
         array = np.random.randint(-128, 128, size=(4, 4), dtype=WEIGHT_DTYPE)
@@ -851,7 +851,7 @@ class TestWeightRamMapping:
             assert expected == r
 
     def test_weight_ram_mapping_4bits(self):
-        binary_conn = np.zeros((6, 4 * 5), dtype=np.bool)
+        binary_conn = np.zeros((6, 4 * 5), dtype=bool)
         wp = WW.WEIGHT_WIDTH_4BIT
 
         array = np.random.randint(-8, 8, size=(4, 4), dtype=WEIGHT_DTYPE)
@@ -874,7 +874,7 @@ class TestWeightRamMapping:
             assert expected == r
 
     def test_weight_ram_mapping_2bits(self):
-        binary_conn = np.zeros((6, 4 * 5), dtype=np.bool)
+        binary_conn = np.zeros((6, 4 * 5), dtype=bool)
         wp = WW.WEIGHT_WIDTH_2BIT
 
         array = np.random.randint(-2, 2, size=(4, 4), dtype=WEIGHT_DTYPE)

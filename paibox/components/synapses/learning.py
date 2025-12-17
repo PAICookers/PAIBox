@@ -1,5 +1,5 @@
 import warnings
-from typing import Optional, TypedDict, Union
+from typing import TypedDict
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -34,9 +34,9 @@ class STDPSynAttrKwds(TypedDict, total=False):
     lower_weight: int
     lut: LUTDataType
     lut_random_en: NDArray[np.uint8]
-    decay_random_en: Union[bool, DecayRandomEnable]
+    decay_random_en: bool | DecayRandomEnable
     random_seed: int
-    online_mode_en: Union[bool, OnlineModeEnable]
+    online_mode_en: bool | OnlineModeEnable
     # NOTE: 'plasticity_start/end' is unset, use the default values in ram model.
     plasticity_start: int
     plasticity_end: int
@@ -47,12 +47,12 @@ class STDPSyn(LearnableSys):
         self,
         syn: FullConnectedSyn,
         weight_decay: int = 0,
-        upper_weight: Optional[int] = None,
-        lower_weight: Optional[int] = None,
+        upper_weight: int | None = None,
+        lower_weight: int | None = None,
         weight_decay_random: bool = False,
-        lut: Optional[ArrayLike] = None,
-        lut_offset: Optional[int] = None,
-        lut_random: Union[bool, ArrayLike] = False,
+        lut: ArrayLike | None = None,
+        lut_offset: int | None = None,
+        lut_random: bool | ArrayLike = False,
         random_seed: int = 1,
         learn_by_default: bool = True,
     ) -> None:
@@ -81,7 +81,7 @@ class STDPSyn(LearnableSys):
         self.learn(learn_by_default)
 
     def _set_weight_range(
-        self, upper_weight: Optional[int], lower_weight: Optional[int]
+        self, upper_weight: int | None, lower_weight: int | None
     ) -> None:
         _min, _max = weight_width2range[self.syn.weight_width]
         if upper_weight is None:
@@ -169,7 +169,7 @@ class STDPSyn(LearnableSys):
             upper_weight=self.upper_weight,
             lower_weight=self.lower_weight,
             lut=self.lut.lut,
-            # np.bool -> np.uint8
+            # bool -> np.uint8
             lut_random_en=self.lut.lut_random_en.astype(np.uint8),
             decay_random_en=self.weight_decay_random,
             random_seed=self.random_seed,

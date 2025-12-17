@@ -1,4 +1,4 @@
-from typing import Optional, Union, overload
+from typing import overload
 
 import numpy as np
 
@@ -307,7 +307,7 @@ def convtranspose2d_golden(
 def maxpool1d_golden(
     x: NeuOutSpikeType,
     ksize: _Size1Type,
-    stride: Optional[_Size1Type],
+    stride: _Size1Type | None,
     padding: _Size1Type,
     fm_order: str = "CL",
 ) -> NeuOutSpikeType: ...
@@ -317,19 +317,19 @@ def maxpool1d_golden(
 def maxpool1d_golden(
     x: NeuOutType,
     ksize: _Size1Type,
-    stride: Optional[_Size1Type],
+    stride: _Size1Type | None,
     padding: _Size1Type,
     fm_order: str = "CL",
 ) -> SynOutType: ...
 
 
 def maxpool1d_golden(
-    x: Union[NeuOutType, NeuOutSpikeType],
+    x: NeuOutType | NeuOutSpikeType,
     ksize: _Size1Type,
-    stride: Optional[_Size1Type],
+    stride: _Size1Type | None,
     padding: _Size1Type,
     fm_order: str = "CL",
-) -> Union[SynOutType, NeuOutSpikeType]:
+) -> SynOutType | NeuOutSpikeType:
     if fm_order == "LC":
         _x = x.T
     else:
@@ -368,7 +368,7 @@ def maxpool1d_golden(
 def maxpool2d_golden(
     x: NeuOutSpikeType,
     ksize: _Size2Type,
-    stride: Optional[_Size2Type],
+    stride: _Size2Type | None,
     padding: _Size2Type,
     fm_order: str = "CHW",
 ) -> NeuOutSpikeType: ...
@@ -378,19 +378,19 @@ def maxpool2d_golden(
 def maxpool2d_golden(
     x: NeuOutType,
     ksize: _Size2Type,
-    stride: Optional[_Size2Type],
+    stride: _Size2Type | None,
     padding: _Size2Type,
     fm_order: str = "CHW",
 ) -> SynOutType: ...
 
 
 def maxpool2d_golden(
-    x: Union[NeuOutType, NeuOutSpikeType],
+    x: NeuOutType | NeuOutSpikeType,
     ksize: _Size2Type,
-    stride: Optional[_Size2Type],
+    stride: _Size2Type | None,
     padding: _Size2Type,
     fm_order: str = "CHW",
-) -> Union[SynOutType, NeuOutSpikeType]:
+) -> SynOutType | NeuOutSpikeType:
     if fm_order == "HWC":
         _x = x.transpose(2, 0, 1)
     else:
@@ -432,7 +432,7 @@ def maxpool2d_golden(
 def avgpool1d_golden(
     x: NeuOutSpikeType,
     ksize: _Size1Type,
-    stride: Optional[_Size1Type],
+    stride: _Size1Type | None,
     padding: _Size1Type,
     threshold: int,
     fm_order: str = "CL",
@@ -443,7 +443,7 @@ def avgpool1d_golden(
 def avgpool1d_golden(
     x: NeuOutType,
     ksize: _Size1Type,
-    stride: Optional[_Size1Type],
+    stride: _Size1Type | None,
     padding: _Size1Type,
     threshold=None,
     fm_order: str = "CL",
@@ -451,13 +451,13 @@ def avgpool1d_golden(
 
 
 def avgpool1d_golden(
-    x: Union[NeuOutType, NeuOutSpikeType],
+    x: NeuOutType | NeuOutSpikeType,
     ksize: _Size1Type,
-    stride: Optional[_Size1Type] = None,
+    stride: _Size1Type | None = None,
     padding: _Size1Type = 0,
-    threshold: Optional[int] = None,
+    threshold: int | None = None,
     fm_order: str = "CL",
-) -> Union[SynOutType, NeuOutSpikeType]:
+) -> SynOutType | NeuOutSpikeType:
     if fm_order == "LC":
         _x = x.T
     else:
@@ -503,7 +503,7 @@ def avgpool1d_golden(
 def avgpool2d_golden(
     x: NeuOutSpikeType,
     ksize: _Size2Type,
-    stride: Optional[_Size2Type] = None,
+    stride: _Size2Type | None = None,
     padding: _Size2Type = 0,
     threshold: int = 1,
     fm_order: str = "CHW",
@@ -514,7 +514,7 @@ def avgpool2d_golden(
 def avgpool2d_golden(
     x: NeuOutType,
     ksize: _Size2Type,
-    stride: Optional[_Size2Type] = None,
+    stride: _Size2Type | None = None,
     padding: _Size2Type = 0,
     threshold=None,
     fm_order: str = "CHW",
@@ -522,13 +522,13 @@ def avgpool2d_golden(
 
 
 def avgpool2d_golden(
-    x: Union[NeuOutType, NeuOutSpikeType],
+    x: NeuOutType | NeuOutSpikeType,
     ksize: _Size2Type,
-    stride: Optional[_Size2Type] = None,
+    stride: _Size2Type | None = None,
     padding: _Size2Type = 0,
-    threshold: Optional[int] = None,
+    threshold: int | None = None,
     fm_order: str = "CHW",
-) -> Union[SynOutType, NeuOutSpikeType]:
+) -> SynOutType | NeuOutSpikeType:
     if fm_order == "HWC":
         _x = x.transpose(2, 0, 1)
     else:

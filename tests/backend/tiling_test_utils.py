@@ -1,9 +1,16 @@
 from collections.abc import Callable, Generator
-from typing import Optional, Union, overload
+from typing import overload
 
 import numpy as np
 
-from paibox.backend.kernel_unrolling import *
+from paibox.backend.kernel_unrolling import (
+    conv1d_tiled_kernel_unroll,
+    conv2d_tiled_kernel_unroll,
+    conv1d_tiled_kernel_unroll_no_pad,
+    conv1d_tiled_kernel_unroll_no_pad_multi_grp,
+    conv2d_tiled_kernel_unroll_no_pad,
+    conv2d_tiled_kernel_unroll_no_pad_multi_grp,
+)
 from paibox.backend.tiling import (
     INDEX_DTYPE_WITH_INVALID,
     IndexMapArrayType,
@@ -39,7 +46,7 @@ __all__ = [
 
 def tiled_vmm_conv_compact(
     x: np.ndarray,
-    out_shape: Union[Size2Type, Size3Type],
+    out_shape: Size2Type | Size3Type,
     groups: int,
     conv_tiles: np.ndarray,
 ) -> SynOutType:
@@ -74,7 +81,7 @@ def conv1d_unroll_tiled_by_tiles(
     stride: Size1Type,
     padding: Size1Type,
     groups: int,
-    tile_size: Optional[TileSize2d] = None,
+    tile_size: TileSize2d | None = None,
 ) -> Generator[np.ndarray, None, None]:
     """Unroll the tiled 1d convolution kernel by tiles. Return a generator of unrolled kernels."""
     ci, li = in_shape
@@ -119,7 +126,7 @@ def conv2d_unroll_tiled_by_tiles(
     stride: Size2Type,
     padding: Size2Type,
     groups: int,
-    tile_size: Optional[TileSize3d] = None,
+    tile_size: TileSize3d | None = None,
 ) -> Generator[np.ndarray, None, None]:
     """Unroll the tiled 2d convolution kernel by tiles. Return a generator of unrolled kernels."""
     ci, hi, wi = in_shape
@@ -173,7 +180,7 @@ def conv1d_unroll_tiled_from_full_kernel(  # Slower
     stride: Size1Type,
     padding: Size1Type,
     groups: int,
-    o_tile_size: Optional[TileSize2d] = None,
+    o_tile_size: TileSize2d | None = None,
 ) -> Generator[np.ndarray, None, None]:
     """Unroll the tiled 1d convolution kernel from the full unrolled kernel matrix. Return a generator  \
         of unrolled kernels.
@@ -211,8 +218,8 @@ def conv1d_unroll_tiled_from_full_kernel(  # Slower
                 (li,), (kl,), stride, padding, lo_tl_, lo_start
             )
 
-            l = np.arange(li_start, li_start + li_tl)
-            input_idx = (ci[:, np.newaxis] * li + l[np.newaxis, :]).ravel()
+            len = np.arange(li_start, li_start + li_tl)
+            input_idx = (ci[:, np.newaxis] * li + len[np.newaxis, :]).ravel()
             # input_idx = np.ravel_multi_index(np.ix_(ci, l), (ci_blk, li)).ravel()
 
             lo_pos = lo_start + np.arange(lo_tl_)
@@ -229,7 +236,7 @@ def conv2d_unroll_tiled_from_full_kernel(  # Slower
     stride: Size2Type,
     padding: Size2Type,
     groups: int,
-    o_tile_size: Optional[TileSize3d] = None,
+    o_tile_size: TileSize3d | None = None,
 ) -> Generator[np.ndarray, None, None]:
     """Unroll the tiled 2d convolution kernel from the full unrolled kernel matrix. Return a generator  \
         of unrolled kernels.
@@ -365,14 +372,14 @@ def _tiled_vmm_conv(
 
 def _tiled_vmm_conv(
     x: np.ndarray,
-    out_shape: Union[Size2Type, Size3Type],
+    out_shape: Size2Type | Size3Type,
     i_tiled_idx_map: IndexMapArrayType,
     o_tiled_idx_map: IndexMapArrayType,
-    tile_shape: Union[Size2Type, Size3Type],
-    o_tile_shape: Union[Size2Type, Size3Type],
-    get_k_tl_unrolled_hdlr: Union[
-        Callable[[Size2Type], np.ndarray], Callable[[Size3Type], np.ndarray]
-    ],
+    tile_shape: Size2Type | Size3Type,
+    o_tile_shape: Size2Type | Size3Type,
+    get_k_tl_unrolled_hdlr: (
+        Callable[[Size2Type], np.ndarray] | Callable[[Size3Type], np.ndarray]
+    ),
     zero_as_invalid_addr: bool,
 ) -> SynOutType:
     out = np.zeros(out_shape, dtype=np.int64)
@@ -401,7 +408,7 @@ def tiled_vmm_conv1d(
     i_tiled_idx_map: IndexMapArrayType,
     o_tiled_idx_map: IndexMapArrayType,
     zero_as_invalid_addr: bool = False,
-    k_tiles_unrolled: Optional[WeightType] = None,
+    k_tiles_unrolled: WeightType | None = None,
 ) -> SynOutType:
     """Calculate the output of a 1d convolution in tile format."""
     assert x.ndim == len(out_shape) == 2
@@ -471,7 +478,7 @@ def tiled_vmm_conv2d(
     i_tiled_idx_map: IndexMapArrayType,
     o_tiled_idx_map: IndexMapArrayType,
     zero_as_invalid_addr: bool = False,
-    k_tiles_unrolled: Optional[WeightType] = None,
+    k_tiles_unrolled: WeightType | None = None,
 ) -> SynOutType:
     """Calculate the output of a 2d convolution in tile format."""
     assert x.ndim == len(out_shape) == 3

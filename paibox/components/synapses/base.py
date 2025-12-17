@@ -1,5 +1,5 @@
 from functools import cached_property
-from typing import ClassVar, Optional, Union
+from typing import ClassVar
 
 import numpy as np
 from paicorelib import WeightWidth as WW
@@ -56,10 +56,7 @@ class FullConnectedSyn(SynSys):
     """The input of the synapse at every timestep."""
 
     def __init__(
-        self,
-        source: Union[NeuDyn, InputProj],
-        target: NeuDyn,
-        name: Optional[str] = None,
+        self, source: NeuDyn | InputProj, target: NeuDyn, name: str | None = None
     ) -> None:
         super().__init__(name)
         self._source = source
@@ -77,7 +74,7 @@ class FullConnectedSyn(SynSys):
     def __call__(self, *args, **kwargs) -> SynOutType:
         return self.update(*args, **kwargs)
 
-    def update(self, x: Optional[NeuOutType] = None, *args, **kwargs) -> SynOutType:
+    def update(self, x: NeuOutType | None = None, *args, **kwargs) -> SynOutType:
         # Retrieve the output at [timestamp] of the target neurons
         if self.target.is_working():
             if isinstance(self.source, InputProj):
@@ -121,9 +118,7 @@ class FullConnectedSyn(SynSys):
         )
 
     def copy(
-        self,
-        source: Optional[Union[NeuDyn, InputProj]] = None,
-        target: Optional[NeuDyn] = None,
+        self, source: NeuDyn | InputProj | None = None, target: NeuDyn | None = None
     ) -> "FullConnSyn":
         copied = self.__copy__()
         if isinstance(source, (NeuDyn, InputProj)):
@@ -135,11 +130,11 @@ class FullConnectedSyn(SynSys):
         return copied
 
     @property
-    def source(self) -> Union[NeuDyn, InputProj]:
+    def source(self) -> NeuDyn | InputProj:
         return self._source
 
     @source.setter
-    def source(self, source: Union[NeuDyn, InputProj]) -> None:
+    def source(self, source: NeuDyn | InputProj) -> None:
         """Set a new source neuron."""
         if source.num_out != self.num_in:
             raise RegisterError(
@@ -200,27 +195,27 @@ class FullConnectedSyn(SynSys):
 
     @cached_property
     def connectivity(self) -> WeightType:
-        """The connectivity matrix in `np.bool` or `np.int8` format."""
+        """The connectivity matrix in `bool` or `np.int8` format."""
         return self.comm.connectivity
 
 
 class FullConnSyn(FullConnectedSyn):
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
+        source: NeuDyn | InputProj,
         target: NeuDyn,
         weights: DataType,
         conn_type: ConnType,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         super().__init__(source, target, name)
 
         if conn_type is ConnType.One2One:
             comm = OneToOne(_check_equal(self.num_in, self.num_out), weights)
         elif conn_type is ConnType.Identity:
-            if not isinstance(weights, (int, np.bool, np.integer)):
+            if not isinstance(weights, (int, bool, np.integer)):
                 raise TypeError(
-                    f"expected type int, np.bool, np.integer, but got type {type(weights).__name__}."
+                    f"expected type int, bool, np.integer, but got type {type(weights).__name__}."
                 )
             comm = Identity(_check_equal(self.num_in, self.num_out), weights)
         elif conn_type is ConnType.All2All:
@@ -247,7 +242,7 @@ class Conv1dSyn(FullConnectedSyn):
 
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
+        source: NeuDyn | InputProj,
         target: Neuron,
         kernel: np.ndarray,
         stride: Size1Type,
@@ -255,7 +250,7 @@ class Conv1dSyn(FullConnectedSyn):
         dilation: Size1Type,
         groups: int,
         order: _KOrder3d,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         super().__init__(source, target, name)
 
@@ -289,7 +284,7 @@ class Conv2dSyn(FullConnectedSyn):
 
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
+        source: NeuDyn | InputProj,
         target: Neuron,
         kernel: np.ndarray,
         stride: Size2Type,
@@ -297,7 +292,7 @@ class Conv2dSyn(FullConnectedSyn):
         dilation: Size2Type,
         groups: int,
         order: _KOrder4d,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         super().__init__(source, target, name)
 
@@ -334,14 +329,14 @@ class Conv2dSemiFoldedSyn(FullConnectedSyn):
 
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
+        source: NeuDyn | InputProj,
         target: Neuron,
         kernel: np.ndarray,
         stride: Size2Type,
         padding: Size2Type,
         groups: int,
         order: _KOrder3d,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         super().__init__(source, target, name)
 
@@ -383,7 +378,7 @@ class ConvTranspose1dSyn(FullConnectedSyn):
 
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
+        source: NeuDyn | InputProj,
         target: Neuron,
         kernel: np.ndarray,
         stride: tuple[int],
@@ -391,7 +386,7 @@ class ConvTranspose1dSyn(FullConnectedSyn):
         dilation: tuple[int],
         output_padding: tuple[int],
         order: _KOrder3d,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         super().__init__(source, target, name)
 
@@ -435,7 +430,7 @@ class ConvTranspose2dSyn(FullConnectedSyn):
 
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
+        source: NeuDyn | InputProj,
         target: Neuron,
         kernel: np.ndarray,
         stride: Size2Type,
@@ -443,7 +438,7 @@ class ConvTranspose2dSyn(FullConnectedSyn):
         dilation: Size2Type,
         output_padding: Size2Type,
         order: _KOrder4d,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         super().__init__(source, target, name)
 
@@ -501,10 +496,10 @@ class MaxPoolSyn(FullConnectedSyn):
 
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
+        source: NeuDyn | InputProj,
         target: Neuron,
         weights: DataType = 1,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         super().__init__(source, target, name)
         self.comm = CompareMax((self.num_in, self.num_out), weights)

@@ -2,7 +2,7 @@ import math
 from collections.abc import Generator, Sequence
 from dataclasses import dataclass
 from enum import IntEnum, unique
-from typing import ClassVar, Literal, Optional, TypeVar, Union, cast, overload
+from typing import ClassVar, Literal, TypeVar, cast, overload
 
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
@@ -33,7 +33,14 @@ from paibox.components.synapses.conv_utils import (
 from paibox.types import Shape, WeightType
 from paibox.utils import shape2num
 
-from .kernel_unrolling import *
+from .kernel_unrolling import (
+    conv1d_tiled_kernel_unroll,
+    conv1d_tiled_kernel_unroll_no_pad,
+    conv1d_tiled_kernel_unroll_no_pad_multi_grp,
+    conv2d_tiled_kernel_unroll,
+    conv2d_tiled_kernel_unroll_no_pad,
+    conv2d_tiled_kernel_unroll_no_pad_multi_grp,
+)
 
 __all__ = [
     # Types
@@ -930,9 +937,7 @@ INDEX_DTYPE_ZERO_AS_INVALID = INDEX_DTYPE
 #   (#N of tiles in C-dim, #N of tiles in L-dim, C in tile, L in tile)
 # For conv2d, index map array is in shape:
 #   (#N of tiles in C-dim, #N of tiles in H-dim, #N of tiles in W-dim, C in tile, H in tile, W in tile)
-IndexMapArrayType = NDArray[
-    Union[INDEX_DTYPE_WITH_INVALID, INDEX_DTYPE_ZERO_AS_INVALID]
-]
+IndexMapArrayType = NDArray[INDEX_DTYPE_WITH_INVALID | INDEX_DTYPE_ZERO_AS_INVALID]
 
 
 def _cast_size2type(shape: SizeAnyType) -> Size2Type:
@@ -957,7 +962,7 @@ def creat_index_map(
 def create_idx_map_with_pad(
     shape: SizeAnyType,
     tl_padding: SizeAnyType,
-    conv_padding: Optional[SizeAnyType] = None,
+    conv_padding: SizeAnyType | None = None,
     zero_as_invalid_addr: bool = False,
 ) -> IndexMapArrayType:
     """Create an index map with tiling padding & conv padding."""
@@ -1115,12 +1120,12 @@ def make_conv_tiled_idx_map(
 
 
 def make_conv_tiled_idx_map(
-    in_shape: Union[Size2Type, Size3Type],
-    out_shape: Union[Size2Type, Size3Type],
-    o_inner_shape: Union[Size2Type, Size3Type],
-    ksize: Union[Size1Type, Size2Type],
-    stride: Union[Size1Type, Size2Type],
-    padding: Union[Size1Type, Size2Type],
+    in_shape: Size2Type | Size3Type,
+    out_shape: Size2Type | Size3Type,
+    o_inner_shape: Size2Type | Size3Type,
+    ksize: Size1Type | Size2Type,
+    stride: Size1Type | Size2Type,
+    padding: Size1Type | Size2Type,
     groups: int = 1,
     zero_as_invalid_addr: bool = False,
 ) -> tuple[IndexMapArrayType, IndexMapArrayType, NDArray[np.intp]]:
@@ -1234,7 +1239,7 @@ def compact_and_flatten_idx_map(
 
 def get_tiled_conv_copy_times(
     idx_map: IndexMapArrayType,
-    in_shape: Union[Size2Type, Size3Type],
+    in_shape: Size2Type | Size3Type,
     zero_as_invalid_addr: bool = False,
 ) -> NDArray[np.intp]:
     valid_addr = compact_and_flatten_idx_map(idx_map, zero_as_invalid_addr)
@@ -1250,7 +1255,7 @@ def conv1d_tiling_optimize(
     groups: int,
     core_n_fanin_base: int,
     core_n_fanout_base: int,
-    out_shape: Optional[Size2Type] = None,
+    out_shape: Size2Type | None = None,
     traverse_order: Literal["all", "even"] = "all",
     zero_as_invalid_addr: bool = False,
     compact_idx_map: Literal[True] = True,
@@ -1266,7 +1271,7 @@ def conv1d_tiling_optimize(
     groups: int,
     core_n_fanin_base: int,
     core_n_fanout_base: int,
-    out_shape: Optional[Size2Type] = None,
+    out_shape: Size2Type | None = None,
     traverse_order: Literal["all", "even"] = "all",
     zero_as_invalid_addr: bool = False,
     compact_idx_map: Literal[False] = False,
@@ -1283,7 +1288,7 @@ def conv1d_tiling_optimize(
     groups: int,
     core_n_fanin_base: int,
     core_n_fanout_base: int,
-    out_shape: Optional[Size2Type] = None,
+    out_shape: Size2Type | None = None,
     traverse_order: Literal["all", "even"] = "all",
     zero_as_invalid_addr: bool = False,
     compact_idx_map: bool = False,
@@ -1293,7 +1298,7 @@ def conv1d_tiling_optimize(
     Args:
         core_n_fanin_base (int): the base #N of cores for the input feature map.
         core_n_fanout_base (int): the base #N of cores for the output feature map.
-        out_shape (Size2Type): the shape of output feature map. Optional.
+        out_shape (Size2Type, optional): the shape of output feature map.
         traverse_order ("all" or "even"): the order to traverse the possible optimal output \
             feature map. Default is "all".
         zero_as_invalid_addr (bool): whether to use 0 or `INVALID_ADDR_IDX` to represent    \
@@ -1388,7 +1393,7 @@ def conv2d_tiling_optimize(
     groups: int,
     core_n_fanin_base: int,
     core_n_fanout_base: int,
-    out_shape: Optional[Size3Type] = None,
+    out_shape: Size3Type | None = None,
     traverse_order: Literal["all", "Lshape", "even"] = "all",
     zero_as_invalid_addr: bool = False,
     compact_idx_map: Literal[True] = True,
@@ -1404,7 +1409,7 @@ def conv2d_tiling_optimize(
     groups: int,
     core_n_fanin_base: int,
     core_n_fanout_base: int,
-    out_shape: Optional[Size3Type] = None,
+    out_shape: Size3Type | None = None,
     traverse_order: Literal["all", "Lshape", "even"] = "all",
     zero_as_invalid_addr: bool = False,
     compact_idx_map: Literal[False] = False,
@@ -1421,7 +1426,7 @@ def conv2d_tiling_optimize(
     groups: int,
     core_n_fanin_base: int,
     core_n_fanout_base: int,
-    out_shape: Optional[Size3Type] = None,
+    out_shape: Size3Type | None = None,
     traverse_order: Literal["all", "Lshape", "even"] = "all",
     zero_as_invalid_addr: bool = False,
     compact_idx_map: bool = False,
@@ -1431,7 +1436,7 @@ def conv2d_tiling_optimize(
     Args:
         core_n_fanin_base (int): the base #N of cores for the input feature map.
         core_n_fanout_base (int): the base #N of cores for the output feature map.
-        out_shape (Size3Type): the shape of output feature map. Optional.
+        out_shape (Size3Type, optional): the shape of output feature map.
         traverse_order ("all", "Lshape" or "even"): the order to traverse the possible      \
             optimal output feature map. Default is "all".
         zero_as_invalid_addr (bool): whether to use 0 or `INVALID_ADDR_IDX` to represent    \

@@ -1,16 +1,10 @@
-import sys
 from collections import defaultdict
 from typing import ClassVar
 
 from .types import NodeType
 
-if sys.version_info >= (3, 10):
-    from typing import TypeAlias
-else:
-    from typing_extensions import TypeAlias
-
-NodeIdx: TypeAlias = int
-NodeConstrsAttr: TypeAlias = str
+NodeIdx = int
+NodeConstrsAttr = str
 
 
 class Constraints:

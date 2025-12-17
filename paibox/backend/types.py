@@ -1,15 +1,9 @@
-import sys
 from dataclasses import dataclass
 from enum import Enum, auto, unique
-from typing import Any, Union
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
-
-if sys.version_info >= (3, 10):
-    from typing import TypeAlias
-else:
-    from typing_extensions import TypeAlias
 
 from paicorelib import Coord, CoreMode, HwConfig, OffCoreCfg
 from paicorelib import ReplicationId as RId
@@ -35,19 +29,19 @@ __all__ = [
     "AxonSegment",
 ]
 
-NodeName: TypeAlias = str
-EdgeName: TypeAlias = str
-NodeType: TypeAlias = Union[InputProj, Neuron]
-EdgeType: TypeAlias = FullConnectedSyn
-SourceNodeType: TypeAlias = NodeType
-DestNodeType: TypeAlias = Neuron
+NodeName = str
+EdgeName = str
+NodeType = InputProj | Neuron
+EdgeType = FullConnectedSyn
+SourceNodeType = NodeType
+DestNodeType = Neuron
 
 WRAM_UNPACKED_DTYPE = np.uint8
 WRAM_PACKED_DTYPE = np.uint64  # Type of one frame of data package
 # Type of unpacked weight in WRAM
-WRAMUnpackedType: TypeAlias = NDArray[WRAM_UNPACKED_DTYPE]
+WRAMUnpackedType = NDArray[WRAM_UNPACKED_DTYPE]
 # Type of packed weight in WRAM
-WRAMPackedType: TypeAlias = NDArray[WRAM_PACKED_DTYPE]
+WRAMPackedType = NDArray[WRAM_PACKED_DTYPE]
 N_BIT_PACKED_WEIGHT = np.iinfo(WRAM_PACKED_DTYPE).bits
 
 # TODO `Coord` will be called as read-only object in the future.
@@ -95,12 +89,12 @@ class EdgeAttr:  # TODO FIXME distance?
     distance: int
 
 
-class Custom_Index:
+class CustomIndex:
     def __init__(self, index: int, copy_id: int) -> None:
         self.index = index
         self.copy_id = copy_id
 
-    def __eq__(self, other: "Custom_Index") -> bool:
+    def __eq__(self, other: "CustomIndex") -> bool:
         return self.index == other.index and self.copy_id == other.copy_id
 
     def __str__(self) -> str:
@@ -112,13 +106,13 @@ class Custom_Index:
     def __hash__(self) -> int:
         return hash((self.index, self.copy_id))
 
-    def __lt__(self, other: "Custom_Index") -> bool:
+    def __lt__(self, other: "CustomIndex") -> bool:
         if self.copy_id == other.copy_id:
             return self.index < other.index
         return self.copy_id < other.copy_id
 
 
-SubNeuType: TypeAlias = list[Custom_Index]
+SubNeuType = list[CustomIndex]
 
 
 @dataclass(frozen=True)
@@ -223,8 +217,8 @@ class DendriteSegment:
         return NeuSegAddr(self.n_neuron, self.offset, self.repeat)
 
 
-SubNeuOfCorePlm: TypeAlias = list[DendriteSegment]
-CoreAllocationOfCoreBlock: TypeAlias = list[SubNeuOfCorePlm]
+SubNeuOfCorePlm = list[DendriteSegment]
+CoreAllocationOfCoreBlock = list[SubNeuOfCorePlm]
 
 
 @dataclass(frozen=True)

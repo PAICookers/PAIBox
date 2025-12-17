@@ -1,6 +1,6 @@
 import warnings
 from enum import Enum, auto, unique
-from typing import Literal, Optional
+from typing import Literal
 
 import numpy as np
 from paicorelib import WeightWidth as WW
@@ -68,16 +68,16 @@ def _set_coarse_dtype(raw_w: DataType) -> WeightType:
     """Convert raw weights to `np.ndarray` coarsely (without optimization).
 
     Description:
-        - For weights of type `bool` or `np.bool`, set `np.int8` as the dtype.
+        - For weights of type `bool` or `bool`, set `np.int8` as the dtype.
         - For integer scalar weight, set the dtype according to its value.
         - For array weights, set the dtype according to its minimum & maximum values. For weights in the\
             range of int8, the dtype when declared will be followed (i.e. not optimized).
 
     NOTE: Only when the weight is input in integer scalar form, the weight precision will be optimized  \
-        automatically. 0/1 is treated as np.bool while others are treated as int8. The weights must not   \
+        automatically. 0/1 is treated as bool while others are treated as int8. The weights must not   \
         exceed the range of int8.
     """
-    if isinstance(raw_w, (bool, np.bool, int, np.integer)):
+    if isinstance(raw_w, (bool, bool, int, np.integer)):
         if raw_w > MAX_INT8 or raw_w < MIN_INT8:
             raise ValueError(f"weight out of range int8, got {raw_w}.")
 
@@ -97,7 +97,7 @@ def _set_coarse_dtype(raw_w: DataType) -> WeightType:
             AutoOptimizationWarning,
         )
         _dtype = WEIGHT_DTYPE
-    elif _array.dtype in (np.bool, WEIGHT_DTYPE):
+    elif _array.dtype in (bool, WEIGHT_DTYPE):
         _dtype = WEIGHT_DTYPE
     else:
         raise TypeError(f"weight must be bool or int8, but got {_array.dtype}.")
@@ -519,7 +519,7 @@ class _PoolNdForward(Transform):
         stride: SizeAnyType,
         padding: SizeAnyType,
         pool_type: Literal["avg", "max"],
-        threshold: Optional[int] = None,
+        threshold: int | None = None,
     ) -> None:
         self.channels = channels
         self.in_shape = in_shape

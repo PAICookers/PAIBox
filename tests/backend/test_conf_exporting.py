@@ -18,7 +18,16 @@ from paicorelib import WeightWidth as WW
 from paicorelib import get_replication_id
 
 import paibox as pb
-from paibox.backend.conf_exporting import *
+from paibox.backend.conf_exporting import (
+    export_output_conf_json,
+    export_aux_gh_info,
+    export_core_params_json,
+    export_neuconf_json,
+    export_core_plm_conf_json,
+    export_input_conf_json,
+    export_used_L2_clusters,
+    get_clk_en_L2_dict,
+)
 from paibox.backend.conf_types import (
     CoreConfig,
     CorePlmConfig,
@@ -249,7 +258,7 @@ class TestConfExporting:
 
         unused_gh_info = {"input": {}, "output": {}, "members": {}}
         aux_gh_info = GraphInfo(
-            **unused_gh_info,
+            **unused_gh_info,  # type: ignore
             **{
                 "name": "test_export_aux_gh_info",
                 "n_core_occupied": 100,

@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Literal
 
 import numpy as np
 
@@ -122,7 +122,7 @@ class Network_with_multi_inodes_onodes(pb.Network):
 class Nested_Net_L1(pb.DynSysGroup):
     """Level 1 nested network: pre_n -> syn -> post_n"""
 
-    def __init__(self, name: Optional[str] = None):
+    def __init__(self, name: str | None = None):
         super().__init__(name=name)
 
         self.pre_n = pb.LIF((10,), 10)
@@ -140,7 +140,7 @@ class Nested_Net_L1(pb.DynSysGroup):
 class Nested_Net_L2(pb.DynSysGroup):
     """Level 2 nested network: n1 -> s1 -> subnet1 -> s2 -> subnet2"""
 
-    def __init__(self, name: Optional[str] = None):
+    def __init__(self, name: str | None = None):
         super().__init__(name=name)
 
         self.n1 = pb.IF((10,), 1)

@@ -1,16 +1,16 @@
 import pytest
 
 import paibox as pb
-from paibox.backend.types import Custom_Index, DendriteSegment
+from paibox.backend.types import CustomIndex, DendriteSegment
 
 
 class TestNeuSegment:
     def test_NeuSegment_getitem(self):
         n1 = pb.ANNNeuron(200)
 
-        def get_custom_index(index_slice: slice) -> list[Custom_Index]:
+        def get_custom_index(index_slice: slice) -> list[CustomIndex]:
             return [
-                Custom_Index(i, 0) for i in range(index_slice.start, index_slice.stop)
+                CustomIndex(i, 0) for i in range(index_slice.start, index_slice.stop)
             ]
 
         neu_seg1 = DendriteSegment(n1, get_custom_index(slice(0, 120)), 0)

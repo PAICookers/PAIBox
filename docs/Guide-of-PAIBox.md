@@ -4,9 +4,8 @@
 
 ```toml
 python = ">=3.10"
-pydantic = ">=2.10.0,<3.0.0"
 numpy = ">=2.1.0,<3.0.0"
-paicorelib = ">=1.5.0,<1.6.0"
+paicorelib = ">=1.5.1,<1.6.0"
 ```
 
 可选依赖：
@@ -634,13 +633,13 @@ s3 = pb.FullConn(p2d, n2, conn_type=pb.SynConnType.One2One)
 脉冲加减法与数的加减法存在差异。对脉冲进行加减，运算结果将在较长时间步上体现。例如，在 `T=1` 时刻两神经元均输出1，则将在 `T=2,3` 时刻产生输出脉冲。以下为脉冲加减法运算示例。其中，输入为 `T=12` 脉冲序列，输出为 `T=20` 脉冲序列。
 
 ```python
-inpa = np.array([1, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1, 1], np.bool)
-inpb = np.array([0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0], np.bool)
+inpa = np.array([1, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1, 1], bool)
+inpb = np.array([0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0], bool)
 
 # 脉冲加结果
->>> np.array([0, 1, 0, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0], np.bool)
+>>> np.array([0, 1, 0, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0], bool)
 # 脉冲减结果
->>> np.array([0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0], np.bool)
+>>> np.array([0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0], bool)
 ```
 
 `SpikingAdd`，`SpikingSub` 的使用方式与逻辑运算模块基本相同，对于 `SpikingAdd`，其内部运算原理为：
@@ -779,11 +778,10 @@ for i in range(5):
 有时网络中会重复出现类似的结构，这时先构建子网络，再多次例化复用是个不错的选择。
 
 ```python
-from typing import Optional
 import paibox as pb
 
 class ReusedStructure(pb.Network):
-    def __init__(self, weight, tws, name: Optional[str] = None):
+    def __init__(self, weight, tws, name: str | None = None):
         super().__init__(name=name)
 
         self.pre_n = pb.LIF((10,), 10, tick_wait_start=tws)
@@ -1161,6 +1159,7 @@ mapper.clear()
    ```
 
 6. 二进制配置帧文件，`config.bin` 包含配置计算核参数，神经元参数与权重。其排列方式为依次排列每个计算核的所有配置帧：
+
    1. 芯片(0,0)核(0,0)的所有配置帧
    2. 芯片(0,0)核(0,1)的所有配置帧
    3. 芯片(0,0)核(m,n)的所有配置帧
@@ -1170,6 +1169,7 @@ mapper.clear()
    7. ……
 
    每个计算核的配置帧按配置帧类型依次排布，如核(0,0)的所有配置帧按以下顺序排布：
+
    1. 配置帧1型，共三帧
    2. 配置帧2型，共三帧
    3. 配置帧3型若干（根据需配置的神经元数目决定）

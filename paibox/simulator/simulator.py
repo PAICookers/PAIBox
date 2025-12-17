@@ -1,5 +1,5 @@
 import copy
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 
@@ -14,17 +14,13 @@ class Probe(PAIBoxObject):
     target: PAIBoxObject
 
     def __init__(
-        self,
-        target: PAIBoxObject,
-        attr: str,
-        *,
-        name: Optional[str] = None,
+        self, target: PAIBoxObject, attr: str, *, name: str | None = None
     ) -> None:
         """
         Arguments:
             - target: the target that needs to be monitored.
             - attr: the attribute that needs to be monitored.
-            - name: the name of the probe. Optional.
+            - name: the name of the probe.
         """
         self.attr = attr
         self._check_attr(target)
@@ -55,7 +51,7 @@ class Simulator(PAIBoxObject):
         self,
         target: DynamicSys,
         start_time_zero: bool = False,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         """
         Arguments:

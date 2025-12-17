@@ -4,7 +4,7 @@ from collections import defaultdict
 from collections.abc import Sequence
 from copy import copy
 from pathlib import Path
-from typing import Literal, Optional, Union, cast
+from typing import Literal, cast
 
 from paicorelib import ChipCoord, Coord, CoordOffset, HwConfig
 
@@ -14,7 +14,13 @@ from paibox.components import Neuron
 from paibox.exceptions import CompileError, ConfigInvalidError, ResourceError
 from paibox.network import DynSysGroup
 
-from .conf_exporting import *
+from .conf_exporting import (
+    gen_config_frames_by_coreconf,
+    get_clk_en_L2_dict,
+    export_graph_info,
+    export_core_params_json,
+    get_neuron_phy_loc,
+)
 from .conf_exporting import export_neuron_phy_loc
 from .conf_types import (
     CoreConf,
@@ -28,7 +34,6 @@ from .conf_types import (
 from .context import _BACKEND_CONTEXT, set_cflag
 from .graph_utils import get_node_degrees, get_succ_cb_by_node, merge_cycles
 from .graphs import PAIGraph
-from .group import *
 from .placement import (
     CoreBlock,
     OnlineCoreBlock,
@@ -118,8 +123,6 @@ class Mapper:
         set_cflag(enable_wp_opt=True)
         set_cflag(grouping_optim_target="both")
         set_cflag(no_twisted_branch=True)
-        set_cflag(multicast_optim=False)
-        set_cflag(multicast_optim_nodes=())
 
     def build(self, *networks: DynSysGroup, **build_options) -> None:
         """Build the directed graph based on given networks. More than one networks in one graph is supported.
@@ -141,7 +144,6 @@ class Mapper:
         weight_bit_optimization: bool = True,
         grouping_optim_target: Literal["latency", "core", "both"] = "both",
         no_twisted_branch: bool = False,
-        multicast_optim: Union[bool, Sequence[NodeType]] = False,
         **kwargs,
     ) -> GraphInfo:
         """Compile the network with optimization options.
@@ -170,28 +172,11 @@ class Mapper:
                 I -> A -> B -> C
                   -> A'------>
 
-            multicast_optim (bool, Sequence[NodeType]): whether to perform multicast optimization. If true, the \
-                optimization is performed on all nodes in the network. If passing a node list, the optimization \
-                is attempted on the specified nodes only. Default is false.
-                TODO A description of it is to be added
-
         Return: network information after compilation in dictionary format.
         """
         set_cflag(enable_wp_opt=weight_bit_optimization)
         set_cflag(grouping_optim_target=grouping_optim_target)
         set_cflag(no_twisted_branch=no_twisted_branch)
-
-        # True, to optimize all nodes. A sequence, to optimize specified nodes
-        if isinstance(multicast_optim, bool):
-            set_cflag(multicast_optim=multicast_optim)
-        elif isinstance(multicast_optim, Sequence):
-            _mul_optim_nodes = tuple(node.name for node in multicast_optim)
-
-            if any(node not in self.graph.nodes for node in _mul_optim_nodes):
-                raise ValueError("not all specified nodes are in the graph.")
-
-            set_cflag(multicast_optim=True)
-            set_cflag(multicast_optim_nodes=_mul_optim_nodes)
 
         self._core_estimate_only = core_estimate_only
 
@@ -741,11 +726,9 @@ class Mapper:
         self,
         write_to_file: bool = True,
         *,
-        fp: Optional[Union[str, Path]] = None,
+        fp: str | Path | None = None,
         format: Literal["txt", "bin", "npy"] = "bin",
-        read_voltage: Optional[
-            Union[str, Neuron, Sequence[str], Sequence[Neuron]]
-        ] = None,
+        read_voltage: str | Neuron | Sequence[str] | Sequence[Neuron] | None = None,
         split_by_chip: bool = False,
         export_clk_en_L2: bool = False,
         use_hw_sim: bool = True,
@@ -798,7 +781,7 @@ class Mapper:
         # Retrieve the neuron's physical locations if specified
         if read_voltage is not None:
 
-            def _convert_to_neuron(_neu: Union[str, DestNodeType]) -> DestNodeType:
+            def _convert_to_neuron(_neu: str | DestNodeType) -> DestNodeType:
                 if isinstance(_neu, DestNodeType):
                     return _neu
 
@@ -818,9 +801,7 @@ class Mapper:
 
         return config_dict
 
-    def find_neuron(
-        self, neuron: Union[Neuron, SubNeuron], *, verbose: int = 0
-    ) -> None:
+    def find_neuron(self, neuron: Neuron | SubNeuron, *, verbose: int = 0) -> None:
         self._build_check()
         sub_neu = neuron if isinstance(neuron, SubNeuron) else SubNeuron(neuron)
         name = sub_neu.target.name
@@ -883,7 +864,7 @@ def _cb_routable(
     return False
 
 
-def _fp_check(fp: Optional[Union[str, Path]] = None) -> Path:
+def _fp_check(fp: str | Path | None = None) -> Path:
     if fp is not None:
         _fp = Path(fp)
     else:

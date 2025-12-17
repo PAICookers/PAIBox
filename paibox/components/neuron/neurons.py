@@ -1,6 +1,5 @@
 import sys
 from collections.abc import Sequence
-from typing import Optional, Union
 
 import numpy as np
 from paicorelib import LCM, LDM, NTM, RM, OffRAMDefs
@@ -32,7 +31,7 @@ __all__ = [
 POS_THRES_MAX = OffRAMDefs.POS_THRES_MAX
 
 
-def _bias_to_leak_v(bias: DataType) -> Union[LeakVType, int]:
+def _bias_to_leak_v(bias: DataType) -> LeakVType | int:
     if isinstance(bias, np.ndarray):
         return np.atleast_1d(bias).astype(LEAK_V_DTYPE)
     else:
@@ -44,10 +43,10 @@ class IF(OfflineNeuron):
         self,
         shape: Shape,
         threshold: int = 1,
-        reset_v: Optional[int] = None,
-        neg_threshold: Optional[int] = None,
+        reset_v: int | None = None,
+        neg_threshold: int | None = None,
         *,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """IF neuron.
@@ -68,7 +67,7 @@ class IF(OfflineNeuron):
                 modules are expanded. The larger the value, the more cores required for deployment, \
                 but the lower the latency & the higher the throughput. Default is 1.
             - keep_shape: whether to maintain shape in the simulation. Default is `True`.
-            - name: name of the neuron. Optional.
+            - name: name of the neuron.
         """
         if isinstance(reset_v, int):
             # Hard reset
@@ -96,12 +95,12 @@ class LIF(OfflineNeuron):
         self,
         shape: Shape,
         threshold: int = 1,
-        reset_v: Optional[int] = None,
+        reset_v: int | None = None,
         leak_v: int = 0,
         bias: DataType = 0,
-        neg_threshold: Optional[int] = None,
+        neg_threshold: int | None = None,
         *,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """LIF neuron.
@@ -120,7 +119,7 @@ class LIF(OfflineNeuron):
             - neg_threshold: signed negative theshold. If not specified, it will be the smallest    \
                 negative integer allowed by the hardware.
             - keep_shape: whether to maintain shape in the simulation. Default is `True`.
-            - name: name of the neuron. Optional.
+            - name: name of the neuron.
         """
         if isinstance(reset_v, int):
             # Hard reset
@@ -150,7 +149,7 @@ class TonicSpiking(OfflineNeuron):
         shape: Shape,
         fire_step: int = 1,
         *,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """Tonic spiking neuron.
@@ -159,7 +158,7 @@ class TonicSpiking(OfflineNeuron):
             - shape: shape of neurons.
             - fire_step: every `N` spike, the neuron will fire positively.
             - keep_shape: whether to maintain shape in the simulation. Default is `True`.
-            - name: name of the neuron. Optional.
+            - name: name of the neuron.
 
         NOTE: The neuron receives `N` spikes and fires, then it will reset to 0.
         """
@@ -173,7 +172,7 @@ class PhasicSpiking(OfflineNeuron):
         fire_step: int,
         neg_floor: int = -10,
         *,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """Phasic spiking neuron. Once the neuron receives `N` spikes and fires, it will reset to   \
@@ -185,7 +184,7 @@ class PhasicSpiking(OfflineNeuron):
             - neg_floor: signed negative floor. once fired, the neurons will remain at this negative\
                 voltage. Default is -10.
             - keep_shape: whether to maintain shape in the simulation. Default is `True`.
-            - name: name of the neuron. Optional.
+            - name: name of the neuron.
         """
         leak_v = 1
         super().__init__(
@@ -206,7 +205,7 @@ class Always1Neuron(OfflineNeuron):
         self,
         shape: Shape,
         *,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """A neuron that always outputs 1 as long as it starts working.
@@ -214,7 +213,7 @@ class Always1Neuron(OfflineNeuron):
         Args:
             - shape: shape of neurons.
             - keep_shape: whether to maintain shape in the simulation. Default is `True`.
-            - name: name of the neuron. Optional.
+            - name: name of the neuron.
 
         FIXME There must be a forward synapse connected to it, otherwise the backend will go wrong. \
             Therefore, Always1Neuron is not exported to pb.__init__.
@@ -236,7 +235,7 @@ class BypassNeuron(OfflineNeuron):
         self,
         shape: Shape,
         *,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """Bypass neuron. Output is equal to input.
@@ -244,7 +243,7 @@ class BypassNeuron(OfflineNeuron):
         Args:
             - shape: shape of neurons.
             - keep_shape: whether to maintain shape in the simulation. Default is `True`.
-            - name: name of the neuron. Optional.
+            - name: name of the neuron.
 
         NOTE: positive threshold = 1, negative threshold = 0, reset_v = 0, and leak_v = 0.
         """
@@ -258,7 +257,7 @@ class StoreVoltageNeuron(OfflineNeuron):
         leak_v: int = 0,
         bias: DataType = 0,
         *,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """The neuron that stores the voltage and never fires nor resets.
@@ -272,7 +271,7 @@ class StoreVoltageNeuron(OfflineNeuron):
             - bias: if a signed bias is given, it will be added to `leak_v`. The neuron will leak   \
                 before threshold comparison. `leak_v` will also be considered now.
             - keep_shape: whether to maintain shape in the simulation. Default is `True`.
-            - name: name of the neuron. Optional.
+            - name: name of the neuron.
         """
         super().__init__(
             shape,
@@ -291,7 +290,7 @@ class ANNNeuron(LIF):
         shape: Shape,
         bias: DataType = 0,
         *,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """General neuron used in ANN mode. Positive threshold = 1, negative threshold = 0."""
@@ -308,7 +307,7 @@ class ANNBypassNeuron(ANNNeuron):
         self,
         shape: Shape,
         *,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         super().__init__(shape, bias=0, name=name, **kwargs)
@@ -323,16 +322,27 @@ class STDPLIF(OnlineNeuron):
         leak_v: int = 0,
         bias: DataType = 0,
         leak_comparison: LCM = LCM.LEAK_BEFORE_COMP,
-        neg_threshold: Optional[int] = None,
+        neg_threshold: int | None = None,
         lateral_inhi_value: int = 0,
-        init_v: Union[int, np.ndarray] = 0,
+        init_v: int | np.ndarray = 0,
         *,
-        lateral_inhi_target: Optional[
-            Union[OnlineNeuron, Sequence[OnlineNeuron]]
-        ] = None,
-        name: Optional[str] = None,
+        lateral_inhi_target: OnlineNeuron | Sequence[OnlineNeuron] | None = None,
+        name: str | None = None,
         **kwargs: Unpack[CommonExtraNeuAttrKwds],
     ) -> None:
+        """STDP LIF neuron.
+
+        Args:
+            - leak_comparison: leak comparison mode. Default is leaking before comparison.
+            - lateral_inhi_value: the lateral inhibition value. If lateral inhibition is ocurred,   \
+                the lateral inhibition value will be added to the voltage before threshold.
+            - init_v: initial voltage of neurons. It can be a scalar or a numpy array with the same \
+                shape as the neuron's shape.
+            - lateral_inhi_target: the target online learning neurons for lateral inhibition. It    \
+                can be a single neuron or a sequence of neurons.
+        
+        Other arguments are the same as `LIF`.
+        """
         super().__init__(
             shape,
             reset_v,

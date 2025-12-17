@@ -3,7 +3,12 @@ import pytest
 
 import paibox as pb
 
-from .sim_networks import *
+from .sim_networks import (
+    Net1,
+    Net2_with_multi_inpproj_func,
+    Net2_with_multi_inpproj_encoder,
+    Conv2d_Net,
+)
 
 
 class TestSimulator:
@@ -22,14 +27,14 @@ class TestSimulator:
         sim.run(10)
 
         inp_state = sim.data[probe_outside]
-        assert type(inp_state) == np.ndarray
+        assert isinstance(inp_state, np.ndarray)
 
         inp_state2 = sim.get_raw(probe_outside)
-        assert type(inp_state2) == list
+        assert isinstance(inp_state2, list)
 
         # Get the data at time=5
         inp_state_at_t = sim.get_raw_at_t(probe_outside, t=5)
-        assert type(inp_state_at_t) == np.ndarray
+        assert isinstance(inp_state_at_t, np.ndarray)
 
     def test_sim_behavior(self):
         net = Net1(100)
@@ -47,10 +52,10 @@ class TestSimulator:
         d = sim.get_raw_at_t(probe, 9)
 
         with pytest.raises(IndexError):
-            d = sim.get_raw_at_t(probe, 10)
+            _ = sim.get_raw_at_t(probe, 10)
 
         with pytest.raises(IndexError):
-            d = sim.get_raw_at_t(probe, -1)
+            _ = sim.get_raw_at_t(probe, -1)
 
         # Continue to run 5 timesteps
         net.inp.input = np.ones(100, dtype=np.int8)
@@ -68,9 +73,10 @@ class TestSimulator:
         d = sim2.get_raw_at_t(probe2, 10)
 
         with pytest.raises(IndexError):
-            d = sim2.get_raw_at_t(probe2, 11)
+            _ = sim2.get_raw_at_t(probe2, 11)
+
         with pytest.raises(IndexError):
-            d = sim2.get_raw_at_t(probe2, 0)
+            _ = sim2.get_raw_at_t(probe2, 0)
 
     def test_sim_specify_inputs_1(self):
         net = Net2_with_multi_inpproj_func(10)

@@ -4,7 +4,7 @@ import math
 from collections import defaultdict, deque
 from collections.abc import Generator, Iterable
 from functools import cached_property
-from typing import Any, ClassVar, Optional, Union, cast
+from typing import Any, ClassVar, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -26,8 +26,8 @@ from .constrs import GraphNodeConstrs
 from .graph_utils import merge_cycles, toposort
 from .group import InhiGroup, MergedGroup
 from .placement import CoreBlock, EmptyCorePlacement
-from .sub_utils import *
-from .tiling import conv2d_optimize, optimal_tiling_conv2d
+from .sub_utils import SubEdge, SubSourceType
+from .tiling import conv2d_optimize
 from .types import EdgeType, NodeType, _1st_core_coord_repr
 
 __all__ = ["RoutingGroup", "RoutingManager"]
@@ -62,9 +62,9 @@ def flatten_array(x: NDArray) -> NDArray:
 
 def build_elements(
     merged_sgrp: MergedGroup, online: bool
-) -> list[Union[CoreBlock, "RoutingGroup"]]:
+) -> "list[CoreBlock| RoutingGroup]":
     nodes = list(merged_sgrp.nodes)
-    elements: list[Union[CoreBlock, "RoutingGroup"]] = []
+    elements: "list[CoreBlock| RoutingGroup]" = []
 
     mode = cast(CoreMode, nodes[0].mode)
     if any(mode != node.mode for node in nodes):
@@ -170,7 +170,7 @@ def build_elements(
     return elements
 
 
-RoutingElemType = Union[CoreBlock, "RoutingGroup"]
+RoutingElemType = "CoreBlock | RoutingGroup"
 OrderedElemsType = list["RoutingGroup"]
 UnorderedElemsType = list[RoutingElemType]
 
@@ -233,7 +233,7 @@ class RoutingGroup:
         """Whether the coordinates of chip & cores are assigned."""
         self.is_root = is_root
 
-        self.target_chip_idx: Union[int, None] = None
+        self.target_chip_idx: int | None = None
         """The index of the target chip for this routing group."""
 
         self.online = self.core_blocks[0].online
@@ -654,7 +654,7 @@ class RoutingGroup:
         return f"{self.__class__.__name__}_{self._id}"
 
     def dump(
-        self, indents: int = 0, father_logger: Optional[logging.Logger] = None
+        self, indents: int = 0, father_logger: logging.Logger | None = None
     ) -> None:
         _logger = rt_grp_log if father_logger is None else father_logger
 
@@ -679,7 +679,7 @@ class RoutingGroup:
             _logger.debug("")
 
     def dump_routing_result(
-        self, indents: int = 0, father_logger: Optional[logging.Logger] = None
+        self, indents: int = 0, father_logger: logging.Logger | None = None
     ) -> None:
         _logger = rt_grp_log if father_logger is None else father_logger
 
@@ -1211,7 +1211,7 @@ def _routing_path_generator(
                 break
 
 
-def _all_lx_clusters(lx: Union[Level, int]) -> list[RoutingCoord]:
+def _all_lx_clusters(lx: Level | int) -> list[RoutingCoord]:
     return [
         RoutingCoord(*path)
         for path in itertools.product(DIREC_IDX, repeat=MAX_ROUTING_PATH_LENGTH - lx)
@@ -1219,11 +1219,11 @@ def _all_lx_clusters(lx: Union[Level, int]) -> list[RoutingCoord]:
 
 
 def get_unused_lx(
-    used_lx: list[RoutingCoord], lx: Union[Level, int] = Level.L2
+    used_lx: list[RoutingCoord], lx: Level | int = Level.L2
 ) -> list[RoutingCoord]:
     all_lx = _all_lx_clusters(lx)
 
-    for l in set(used_lx):  # make used_lx unduplicated
-        all_lx.remove(l)  # keep the rest clusters in order
+    for _lx in set(used_lx):  # make used_lx unduplicated
+        all_lx.remove(_lx)  # keep the rest clusters in order
 
     return all_lx

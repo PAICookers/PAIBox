@@ -51,7 +51,7 @@ class TestOnBoard_WRAMMapping:
             refresult1 = npz["refresult1"]
             print("Using the existing data file")
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
@@ -134,7 +134,7 @@ class TestOnBoard_WRAMMapping:
             refresult1 = npz["refresult1"]
             print("Using the existing data file")
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
@@ -210,7 +210,7 @@ class TestOnBoard_WRAMMapping:
             refresult1 = npz["refresult1"]
             print("Using the existing data file")
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
@@ -288,7 +288,7 @@ class TestOnBoard_WRAMMapping:
             refresult1 = npz["refresult1"]
             print("Using the existing data file")
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
@@ -378,7 +378,7 @@ class TestOnBoard_WRAMMapping:
             refresult1 = npz["refresult1"]
             print("Using the existing data file")
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
@@ -486,7 +486,7 @@ class TestOnBoard_WRAMMapping:
             refresult1 = npz["refresult1"]
             print("Using the existing data file")
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
@@ -588,7 +588,7 @@ class TestOnBoard_WRAMMapping:
             refresult1 = npz["refresult1"]
             print("Using the existing data file")
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
@@ -673,7 +673,7 @@ class TestOnBoard_WRAMMapping:
             refresult1 = npz["refresult1"]
             print("Using the existing data file")
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
@@ -774,7 +774,7 @@ class TestOnBoard_SpikingOp:
             refresult1 = npz["refresult1"]
             print("Using the existing data file")
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
@@ -782,10 +782,10 @@ class TestOnBoard_SpikingOp:
             # W=8, disable weight bit optimization
             weight1 = fixed_rng.integers(-10, 12, size=ksize, dtype=np.int8)
             inpdata1 = fixed_rng.integers(
-                0, 1, size=(sim_time,) + shape1, dtype=np.bool, endpoint=True
+                0, 1, size=(sim_time,) + shape1, dtype=bool, endpoint=True
             )
             # Shape of reference result is sim_time * refdata
-            refresult1 = np.zeros((sim_time,) + out_shape, dtype=np.bool)
+            refresult1 = np.zeros((sim_time,) + out_shape, dtype=bool)
 
         network = Net001(weight1)
         sim = pb.Simulator(network, start_time_zero=False)
@@ -853,7 +853,7 @@ class TestOnBoard_SemiFoldedOp:
             refresult1 = npz["refresult1"]
             print("Using the existing data file")
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
@@ -928,7 +928,7 @@ class TestOnBoard_SemiFoldedOp:
             print("input:", inpdata1)
             print("weight:", weight1)
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
@@ -1000,7 +1000,7 @@ class TestOnBoard_SemiFoldedOp:
             print("Using the existing data file")
             print("Input", inpdata1)
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
@@ -1075,7 +1075,7 @@ class TestOnBoard_SemiFoldedOp:
             print("Input", inpdata1)
             print("weight", weight1)
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
@@ -1150,7 +1150,7 @@ class TestOnBoard_SemiFoldedOp:
             print("Input", inpdata1)
             print("weight", weight1)
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
@@ -1225,7 +1225,7 @@ class TestOnBoard_SemiFoldedOp:
             print("Input:", inpdata1)
             print("weight:", weight1)
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
@@ -1298,7 +1298,7 @@ class TestOnBoard_SemiFoldedOp:
             print("Input:", inpdata1)
             print("weight:", weight1)
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
@@ -1372,7 +1372,7 @@ class TestOnBoard_SemiFoldedOp:
             print("Input:", inpdata1)
             print("weight:", weight1)
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
@@ -1444,7 +1444,7 @@ class TestOnBoard_SemiFoldedOp:
             refresult1 = npz["refresult1"]
             print("Using the existing data file")
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
@@ -1517,7 +1517,7 @@ class TestOnBoard_SemiFoldedOp:
             refresult1 = npz["refresult1"]
             print("Using the existing data file")
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
@@ -1587,7 +1587,7 @@ class TestOnBoard_SemiFoldedOp:
             refresult1 = npz["refresult1"]
             print("Using the existing data file")
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
@@ -1667,7 +1667,7 @@ class TestOnBoard_SemiFoldedOp:
             refresult1 = npz["refresult1"]
             print("Using the existing data file")
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
@@ -1759,7 +1759,7 @@ class TestOnBoard_SemiFoldedOp:
             refresult1 = npz["refresult1"]
             print("Using the existing data file")
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
@@ -1859,7 +1859,7 @@ class TestOnBoard_SemiFoldedOp:
             refresult1 = npz["refresult1"]
             print("Using the existing data file")
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
@@ -1959,7 +1959,7 @@ class TestOnBoard_SemiFoldedOp:
             refresult1 = npz["refresult1"]
             print("Using the existing data file")
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
@@ -2053,7 +2053,7 @@ class TestOnBoard_SemiFoldedOp:
             refresult1 = npz["refresult1"]
             print("Using the existing data file")
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
@@ -2134,13 +2134,13 @@ class TestOnBoard_ReadNeuronVoltage:
             refresult1 = npz["refresult1"]
             print("Using the existing data file")
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
             print("Generating new data")
             inpdata1 = fixed_rng.integers(
-                0, 1, size=(sim_time, 100), endpoint=True, dtype=np.bool
+                0, 1, size=(sim_time, 100), endpoint=True, dtype=bool
             )
             weight1 = fixed_rng.integers(-8, 10, size=(100, 200), dtype=np.int8)
             # Shape of reference result is sim_time * refdata
@@ -2205,13 +2205,13 @@ class TestOnBoard_ReadNeuronVoltage:
             refresult1 = npz["refresult1"]
             print("Using the existing data file")
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
             print("Generating new data")
             inpdata1 = fixed_rng.integers(
-                0, 1, size=(sim_time, 2000), endpoint=True, dtype=np.bool
+                0, 1, size=(sim_time, 2000), endpoint=True, dtype=bool
             )
             weight1 = fixed_rng.integers(-9, 10, size=(2000, 100), dtype=np.int8)
             # Shape of reference result is sim_time * refdata
@@ -2275,7 +2275,7 @@ class TestOnBoard_ReadNeuronVoltage:
             refresult1 = npz["refresult1"]
             print("Using the existing data file")
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
@@ -2343,13 +2343,13 @@ class TestOnBoard_ReadNeuronVoltage:
             refresult1 = npz["refresult1"]
             print("Using the existing data file")
             USE_EXISTING_DATA = True
-        except:
+        except Exception:
             pass
 
         if not USE_EXISTING_DATA:
             print("Generating new data")
-            inpdata1 = np.ones((sim_time, 2), dtype=np.bool)
-            weight1 = np.array([[1, 0], [0, 1]], dtype=np.bool)
+            inpdata1 = np.ones((sim_time, 2), dtype=bool)
+            weight1 = np.array([[1, 0], [0, 1]], dtype=bool)
             # Shape of reference result is sim_time * refdata
             # The result is the voltage of n1
             refresult1 = np.zeros((sim_time, 2), dtype=VOLTAGE_DTYPE)

@@ -1,14 +1,27 @@
 import itertools
 import timeit
 from collections.abc import Sequence
-from typing import Union
-
 import numpy as np
 import pytest
 from paicorelib import CoreMode, OffCoreCfg
 
 from paibox._logging import set_logs
-from paibox.backend.tiling import *
+from paibox.backend.tiling import (
+    EstCoreCostStatus,
+    TileSliceConv2d,
+    conv1d_tiling_optimize,
+    conv2d_tiling_optimize,
+    conv1d_tile_by_tile_size,
+    conv2d_tile_by_tile_size,
+    make_input_conv_tiled_idx_map,
+    make_output_conv_tiled_idx_map,
+    optimal_lcn_matmul2d,
+    make_conv_tiled_idx_map,
+    make_conv1d_kernel_tiled_unrolled,
+    make_conv2d_kernel_tiled_unrolled,
+    operator_core_cost_estimate,
+    optimal_tiling_conv2d,
+)
 from paibox.backend.tiling import get_tile_shape
 from paibox.components.synapses.conv_utils import (
     SizeAnyType,
@@ -21,7 +34,15 @@ from paibox.components.synapses.conv_utils import (
 )
 from tests.utils import gen_random_array, is_ci_env
 
-from .tiling_test_utils import *
+from .tiling_test_utils import (
+    conv1d_unroll_tiled_by_tiles,
+    conv2d_unroll_tiled_by_tiles,
+    conv1d_unroll_tiled_from_full_kernel,
+    conv2d_unroll_tiled_from_full_kernel,
+    tiled_vmm_conv1d,
+    tiled_vmm_conv2d,
+    tiled_vmm_conv_compact,
+)
 
 set_logs(tiling_optim=True)
 
@@ -72,10 +93,10 @@ class TestTilingOptimMatmul:
 def prepare_tiled_vmm_conv_perf_data(
     in_shape: SizeAnyType,
     co: int,
-    k_opt: Union[int, Sequence[int]],
-    s_opt: Union[int, Sequence[int]],
-    p_opt: Union[int, Sequence[int]],
-    g_opt: Union[int, Sequence[int]],
+    k_opt: int | Sequence[int],
+    s_opt: int | Sequence[int],
+    p_opt: int | Sequence[int],
+    g_opt: int | Sequence[int],
     tile_size: SizeAnyType,
 ):
     cfg = []
@@ -727,6 +748,7 @@ class TestConvTilingOptim:
             ((32, 64, 64), 32, (1, 1), 1, 0, 1, CoreMode.MODE_ANN),  # pointwise conv
             ((16, 64, 64), 16, (3, 3), 1, 0, 1, CoreMode.MODE_ANN),
         ],
+        ids=["snn1", "snn2", "ann1", "ann2", "ann3", "ann4"],
     )
     def test_optimal_tiling_conv2d(
         self, in_shape, co, ksize, stride, padding, groups, core_mode

@@ -66,7 +66,7 @@ from .components.synapses import STDPFullConn as STDPFullConn
 
 # Network
 from .network import DynSysGroup as DynSysGroup
-from .network import Network  # alias for DynSysGroup
+from .network import Network as Network  # alias for DynSysGroup
 
 # Auxiliary containers
 from .node import NodeDict as NodeDict
@@ -79,17 +79,17 @@ from .simulator import Simulator as Simulator
 # Log
 from . import _logging
 
-_logging._init_logs()
-
 # Version
 from importlib.metadata import version
+from .tools import PLIB_INSTALL_INTRO, PLIB_UPDATE_INTRO
+
+_logging._init_logs()
+
 
 try:
     __version__ = version("paibox")
 except Exception:
     __version__ = None
-
-from . import tools
 
 # Minimum required version of paicorelib
 __plib_minimum_version__ = "1.5.0"
@@ -97,12 +97,12 @@ __plib_minimum_version__ = "1.5.0"
 try:
     import paicorelib as plib
 
-    if plib.__version__ < __plib_minimum_version__:  # For paicorelib > 0.0.12
+    if plib.__version__ < __plib_minimum_version__:
         raise ImportError(
-            tools.PLIB_UPDATE_INTRO.format(__plib_minimum_version__, plib.__version__)
+            PLIB_UPDATE_INTRO.format(__plib_minimum_version__, plib.__version__)
         ) from None
 
-    del tools, plib
+    del plib
 
 except ModuleNotFoundError:
-    raise ModuleNotFoundError(tools.PLIB_INSTALL_INTRO) from None
+    raise ModuleNotFoundError(PLIB_INSTALL_INTRO) from None

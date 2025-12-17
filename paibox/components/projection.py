@@ -1,14 +1,8 @@
 import inspect
-import sys
 from collections.abc import Callable
-from typing import Literal, Optional, Union
+from typing import Literal, ParamSpec
 
 import numpy as np
-
-if sys.version_info >= (3, 10):
-    from typing import ParamSpec
-else:
-    from typing_extensions import ParamSpec
 
 from paibox.base import DynamicSys
 from paibox.context import _FRONTEND_CONTEXT
@@ -50,11 +44,11 @@ class InputProj(Projection):
 
     def __init__(
         self,
-        input: Optional[Union[DataType, Callable[P, DataType]]],
+        input: DataType | Callable[P, DataType] | None,
         shape_out: Shape,
         *,
         keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         """The input node of network.
 
@@ -62,7 +56,7 @@ class InputProj(Projection):
             - input: the input value of the projection node. It can be a numeric value or a callable function.
             - shape_out: the shape of the output.
             - keep_shape: wether to keep the shape when retieving the feature map.
-            - name: the name of the node. Optional.
+            - name: the name of the node.
         """
         super().__init__(name)
         # Compatible with previous version. Will be deprecated in the future.
@@ -83,7 +77,7 @@ class InputProj(Projection):
     def update(self, *args, **kwargs) -> NeuOutType:
         _input = self._get_neumeric_input(**kwargs)
 
-        if isinstance(_input, (int, np.bool, np.integer)):
+        if isinstance(_input, (int, bool, np.integer)):
             self._neu_out = np.full_like(self._neu_out, _input, dtype=NEUOUT_U8_DTYPE)
         elif isinstance(_input, np.ndarray):
             if _input.size != self._neu_out.size:
@@ -94,7 +88,7 @@ class InputProj(Projection):
         else:
             # should never be reached
             raise TypeError(
-                f"expected type int, np.bool, np.integer or np.ndarray, "
+                f"expected type int, bool, np.integer or np.ndarray, "
                 f"but got {_input}, type {type(_input).__name__}."
             )
 
@@ -144,9 +138,9 @@ class InputProj(Projection):
     @input.setter
     def input(self, value: DataType) -> None:
         """Set the input at the beginning of running the simulation."""
-        if not isinstance(value, (int, np.bool, np.integer, np.ndarray)):
+        if not isinstance(value, (int, bool, np.integer, np.ndarray)):
             raise TypeError(
-                f"expected type int, np.bool, np.integer or np.ndarray, "
+                f"expected type int, bool, np.integer or np.ndarray, "
                 f"but got {value}, type {type(value).__name__}."
             )
 

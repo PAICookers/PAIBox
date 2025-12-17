@@ -13,7 +13,7 @@ from paibox.components.synapses.lut import LUT_DTYPE
 from paibox.exceptions import RegisterError, ShapeError
 from paibox.types import NEUOUT_U8_DTYPE, WEIGHT_DTYPE
 from paibox.utils import shape2num
-from tests.utils import file_not_exist_fail, gen_random_array
+from tests.utils import gen_random_array
 
 
 class SynCfgJsonEncoder(json.JSONEncoder):
@@ -160,7 +160,7 @@ class TestFullConn:
     )
     def test_FullConn_One2One_scalar_illegal(self, n1, n2):
         with pytest.raises(ShapeError):
-            s1 = pb.FullConn(n1, n2, conn_type=pb.SynConnType.One2One)
+            _ = pb.FullConn(n1, n2, conn_type=pb.SynConnType.One2One)
 
     def test_FullConn_One2One_matrix(self):
         weight = np.array([2, 3, 4], np.int8)
@@ -232,12 +232,12 @@ class TestFullConn:
 
         # Wrong shape
         with pytest.raises(ShapeError):
-            s3 = pb.FullConn(
+            _ = pb.FullConn(
                 n1, n2, np.array([1, 2, 3]), conn_type=pb.SynConnType.All2All
             )
 
         with pytest.raises(ShapeError):
-            s3 = pb.FullConn(
+            _ = pb.FullConn(
                 n1,
                 n2,
                 np.array([[1, 2, 3], [4, 5, 6]]),
@@ -245,7 +245,7 @@ class TestFullConn:
             )
 
         with pytest.raises(ShapeError):
-            s3 = pb.FullConn(
+            _ = pb.FullConn(
                 n1,
                 n2,
                 np.array([[1, 2], [4, 5], [6, 7]]),
@@ -253,7 +253,7 @@ class TestFullConn:
             )
 
         with pytest.raises(ShapeError):
-            s3 = pb.FullConn(
+            _ = pb.FullConn(
                 n1,
                 n2,
                 np.array([[1, 2, 3], [4, 5, 6], [6, 7, 8], [1, 2, 3]]),
@@ -568,20 +568,20 @@ class TestSTDPSynapse:
         s1 = pb.STDPFullConn(n1, n2, w, weight_decay=-2, lut=lut)
         s1.learn()
 
-        l = 12
-        pre_spike = np.zeros((l, n1.num_out), dtype=NEUOUT_U8_DTYPE)
+        time = 12
+        pre_spike = np.zeros((time, n1.num_out), dtype=NEUOUT_U8_DTYPE)
         pre_spike[1] = [1, 0, 0]
         pre_spike[6] = [0, 1, 1]
         pre_spike[9] = [0, 0, 1]
         pre_spike[11] = [1, 1, 0]
 
-        post_spike = np.zeros((l, n2.num_in), dtype=NEUOUT_U8_DTYPE)
+        post_spike = np.zeros((time, n2.num_in), dtype=NEUOUT_U8_DTYPE)
         post_spike[2] = [1, 0, 0]
         post_spike[8] = [1, 1, 1]
         post_spike[11] = [0, 1, 1]
 
         exp_w = np.zeros_like(s1.weights)
-        for ts in range(l):
+        for ts in range(time):
             s1.update_spike_counter(pre_spike[ts], post_spike[ts])
             s1.update_weight(s1.weights)
 
@@ -651,7 +651,5 @@ class TestSTDPSynapse:
         attrs = s1.attrs()
 
         fp = ensure_dump_dir / f"stdp_syn{s1.name}.json"
-        file_not_exist_fail(fp)
-
         with open(fp, "w") as f:
             json.dump({s1.name: attrs}, f, indent=2, cls=SynCfgJsonEncoder)

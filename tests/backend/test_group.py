@@ -31,10 +31,8 @@ class TestDataGroup:
         n1 = pb.ANNNeuron(1)
         n2 = pb.ANNNeuron(1)
         n3 = pb.ANNNeuron(1)
-        n4 = pb.ANNNeuron(1)
         s1 = pb.FullConn(n1, n2)
         s2 = pb.FullConn(n1, n3)
-        s3 = pb.FullConn(n3, n2)
         grp1 = DataGroup([s1, s2])
 
         # Remove a non-existing node, return self
