@@ -1,14 +1,15 @@
-from typing import Optional
-
 import pytest
-from paicorelib import HwConfig
 
 import paibox as pb
-from paibox.backend.graph_utils import *
+from paibox.backend.graph_utils import (
+    get_node_degrees,
+    get_pred_dg_by_succ_dg,
+    toposort,
+)
 from paibox.backend.graphs import PAIGraph
-from paibox.backend.types import *
+from paibox.backend.types import EdgeName, NodeDegree, NodeName
 from paibox.components import Neuron
-from paibox.exceptions import GraphBuildError, GraphConnectionError, NotSupportedError
+from paibox.exceptions import GraphBuildError, GraphConnectionError
 
 
 class TestPAIGraph:
@@ -104,7 +105,7 @@ class TestGroupEdges:
         succ_edges: dict[NodeName, dict[NodeName, EdgeName]],
         degree: dict[NodeName, NodeDegree],
         *,
-        ordered_nodes: Optional[list[NodeName]] = None,
+        ordered_nodes: list[NodeName] | None = None,
     ) -> list[set[EdgeName]]:
         gh_parts = []
         rgid = 0

@@ -30,7 +30,7 @@ class TestRoutingGroup:
         mapper.compile()
 
         # 8+5+4, 8+8+4
-        assert mapper.routing_mgr.n_core_total >= mapper.n_core_required
+        assert mapper.routing_mgr.n_core_occupied >= mapper.n_core_required
 
     def test_RoutingGroup_instance2(self, monkeypatch, build_example_net2):
         net = build_example_net2
@@ -42,7 +42,7 @@ class TestRoutingGroup:
         mapper.build(net)
         mapper.compile()
 
-        assert mapper.routing_mgr.n_core_total >= mapper.n_core_required
+        assert mapper.routing_mgr.n_core_occupied >= mapper.n_core_required
 
     def test_RoutingGroup_instance3(self, build_example_net4):
         net = build_example_net4
@@ -53,7 +53,7 @@ class TestRoutingGroup:
         mapper.compile()
 
         assert len(mapper.core_blocks) == 3
-        assert mapper.routing_mgr.n_core_total >= mapper.n_core_required
+        assert mapper.routing_mgr.n_core_occupied >= mapper.n_core_required
 
     def test_RoutingGroup_instance4(self, monkeypatch, build_example_net4):
         net = build_example_net4
@@ -66,7 +66,7 @@ class TestRoutingGroup:
         mapper.compile()
 
         assert len(mapper.core_blocks) == 4
-        assert mapper.routing_mgr.n_core_total >= mapper.n_core_required
+        assert mapper.routing_mgr.n_core_occupied >= mapper.n_core_required
 
 
 class TestRoutingManager:
@@ -119,23 +119,6 @@ class TestRoutingManager:
             )
 
     @pytest.mark.parametrize(
-        "n, expected",
-        [
-            (800, 800),
-            (1000, 1000),
-            (1200, 1200 - 16),
-            (1900, 1900 - 16),
-            (2000, 2000 - 16),
-        ],
-    )
-    def test_get_n_core_occupied(self, n, expected):
-        rm = RoutingManager([Coord(0, 0), Coord(1, 0)])
-        rm.n_core_total = n
-        rm.n_core_per_chip[0] = n
-
-        assert rm.get_n_core_occupied() == expected
-
-    @pytest.mark.parametrize(
         # the multicast data can not send to online cores,
         # online cores can not be used for wasted cores
         "chips, to_insert, expected",
@@ -161,7 +144,7 @@ class TestRoutingManager:
                     (16, 2),
                     (8, 0),
                 ],
-                1008 + (256 + 16 + 16 + 8),
+                1024 + (256 + 16 + 16 + 8),
             ),
             (
                 2,
@@ -181,7 +164,7 @@ class TestRoutingManager:
                     # in chip#2
                     (64, 3),
                 ],
-                (944 + (32 + 16 + 16)) + (64),
+                (1024) + (64),
             ),
         ],
     )
@@ -189,10 +172,10 @@ class TestRoutingManager:
         chip_list = [Coord.from_addr(idx) for idx in range(chips)]
         rm = RoutingManager(chip_list)
 
-        for incoming, wasted in to_insert:
-            rm.get_insert_location(incoming, wasted)
+        for incoming, _ in to_insert:
+            rm.try_get_insert_location(incoming)
 
-        occupied = rm.get_n_core_occupied()
+        occupied = rm.n_core_occupied
         assert occupied == expected
 
 

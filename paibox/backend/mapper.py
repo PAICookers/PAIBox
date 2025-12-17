@@ -4,9 +4,9 @@ from collections import defaultdict
 from collections.abc import Sequence
 from copy import copy
 from pathlib import Path
-from typing import Literal, Optional, Union
+from typing import Literal, cast
 
-from paicorelib import ChipCoord, CoordOffset, HwConfig
+from paicorelib import ChipCoord, Coord, CoordOffset, HwConfig
 
 from paibox import _logging
 from paibox.base import SynSys
@@ -14,9 +14,14 @@ from paibox.components import Neuron
 from paibox.exceptions import CompileError, ConfigInvalidError, ResourceError
 from paibox.network import DynSysGroup
 
-from ._slice import NeuronSlice, node_sl_lst_overlap, sl_overlap
-from .conf_exporting import *
-from .conf_exporting import export_neuron_phy_loc
+from .conf_exporting import (
+    export_core_params_json,
+    export_graph_info,
+    export_neuron_phy_loc,
+    gen_config_frames_by_coreconf,
+    get_clk_en_L2_dict,
+    get_neuron_phy_loc,
+)
 from .conf_types import (
     CoreConf,
     CorePlmConf,
@@ -27,23 +32,24 @@ from .conf_types import (
     OutputDestConf,
 )
 from .context import _BACKEND_CONTEXT, set_cflag
-from .graph_utils import (
-    find_cycles,
-    get_node_degrees,
-    get_succ_cb_by_node,
-    merge_overlapping_sets,
-)
+from .graph_utils import get_node_degrees, get_succ_cb_by_node, merge_cycles
 from .graphs import PAIGraph
-from .placement import CoreBlock, SourceDest, aligned_coords, max_lcn_of_cb
+from .placement import (
+    CoreBlock,
+    OnlineCoreBlock,
+    SourceDest,
+    get_replication_id,
+    max_lcn_of_cb,
+)
 from .routing import RoutingGroup, RoutingManager
-from .succ_group import *
+from .sub_utils import SubNeuron, sub_node_overlap
 from .types import (
+    DendriteSegment,
     DestNodeType,
-    NeuSegment,
     NodeDegree,
     NodeType,
     SourceNodeType,
-    is_iw8,
+    _coord_to_bin_str,
 )
 
 __all__ = ["Mapper"]
@@ -117,8 +123,6 @@ class Mapper:
         set_cflag(enable_wp_opt=True)
         set_cflag(grouping_optim_target="both")
         set_cflag(no_twisted_branch=True)
-        set_cflag(multicast_optim=False)
-        set_cflag(multicast_optim_nodes=())
 
     def build(self, *networks: DynSysGroup, **build_options) -> None:
         """Build the directed graph based on given networks. More than one networks in one graph is supported.
@@ -140,7 +144,6 @@ class Mapper:
         weight_bit_optimization: bool = True,
         grouping_optim_target: Literal["latency", "core", "both"] = "both",
         no_twisted_branch: bool = False,
-        multicast_optim: Union[bool, Sequence[NodeType]] = False,
         **kwargs,
     ) -> GraphInfo:
         """Compile the network with optimization options.
@@ -149,8 +152,9 @@ class Mapper:
             core_estimate_only (bool): only do the core estimation, without allocation. Default is false.
             weight_bit_optimization (bool): whether to optimize weight width. For example, weights declared as  \
                 INT8 are treated as smaller width based on their actual values (when the weight are all between \
-                [-8, 7], they can be treated as INT4). By default, it is specified by the corresponding compile \
-                option in the backend configuration item. Default is true.
+                [-8, 7], they can be treated as INT4).
+                This option is not applicable to online cores since their weights will be updated during learning.
+                By default, it is specified by the corresponding compile option in the backend configuration item.
             grouping_optim_target ("latency", "core", "both"): specify the optimization goal of neuron grouping,\
                 which can be `latency`, `core` or `both` which respectively represent the optimization goal of  \
                 delay/throughput, occupied cores, or both. The default is specified by the corresponding        \
@@ -168,28 +172,11 @@ class Mapper:
                 I -> A -> B -> C
                   -> A'------>
 
-            multicast_optim (bool, Sequence[NodeType]): whether to perform multicast optimization. If true, the \
-                optimization is performed on all nodes in the network. If passing a node list, the optimization \
-                is attempted on the specified nodes only. Default is false.
-                TODO A description of it is to be added
-
         Return: network information after compilation in dictionary format.
         """
         set_cflag(enable_wp_opt=weight_bit_optimization)
         set_cflag(grouping_optim_target=grouping_optim_target)
         set_cflag(no_twisted_branch=no_twisted_branch)
-
-        # True, to optimize all nodes. A sequence, to optimize specified nodes
-        if isinstance(multicast_optim, bool):
-            set_cflag(multicast_optim=multicast_optim)
-        elif isinstance(multicast_optim, Sequence):
-            _mul_optim_nodes = tuple(node.name for node in multicast_optim)
-
-            if any(node not in self.graph.nodes for node in _mul_optim_nodes):
-                raise ValueError("not all specified nodes are in the graph.")
-
-            set_cflag(multicast_optim=True)
-            set_cflag(multicast_optim_nodes=_mul_optim_nodes)
 
         self._core_estimate_only = core_estimate_only
 
@@ -241,16 +228,44 @@ class Mapper:
     def untwist_branch_nodes(self) -> None:
         self.graph.untwist_branch_nodes()
 
+    def handle_copy_in_core_blocks(self) -> None:
+        copy_map: dict[NodeType, dict[int, list[int]]] = defaultdict(
+            lambda: defaultdict(list)
+        )
+        for cb in self.core_blocks:
+            for ax in cb.ordered_axons:
+                if ax.contain_copy:
+                    for idx in ax.index:
+                        if idx.copy_id > 0:
+                            copy_map[ax.target][idx.index].append(idx.copy_id)
+
+        # log.info("################################### Copy Map ###################################")
+        # for source_node, node_copy_map in copy_map.items():
+        #     log.info(f"source node {source_node.name} copy map: {node_copy_map}")
+
+        for cb in self.core_blocks:
+            for sub_edge in cb.obj:
+                sub_edge.handle_copy(copy_map[sub_edge.dest.target])
+
     def build_core_blocks(self) -> None:
         """Build core blocks based on partitioned edges."""
         # Graph partitioning
-        merged_sgrps = self.graph.graph_partition()
-        merged_sgrps = merge_cycles(merged_sgrps)
+        merged_grps = self.graph.graph_partition()
+
+        for merged_grp in merged_grps:
+            log.info(merged_grp)
+
+        merged_grps = merge_cycles(merged_grps)
+        log.info(
+            "################################### merge_cycles ###################################"
+        )
+        for merged_grp in merged_grps:
+            log.info(merged_grp)
 
         # Build routing groups
         raw_rgrps: list[RoutingGroup] = []
-        for msgrp in merged_sgrps:
-            raw_rgrps.append(RoutingGroup.build(msgrp, is_root=True))
+        for mgrp in merged_grps:
+            raw_rgrps.append(RoutingGroup.build(mgrp, is_root=True))
 
         # Record the optimized routing groups in the routing manager
         self.routing_mgr.optimize_rgrps(raw_rgrps)
@@ -268,6 +283,13 @@ class Mapper:
         # Retrive the core blocks from routing groups
         for rg in self.routing_mgr.routing_grps:
             self.core_blocks += rg.core_blocks
+
+        self.handle_copy_in_core_blocks()
+        log.info(
+            "################################### Copy Handled in Core Blocks ###################################"
+        )
+        for rg in self.routing_mgr.routing_grps:
+            rg.dump()
 
         log.info(
             "################################### Succ CoreBlock Set ###################################"
@@ -292,8 +314,7 @@ class Mapper:
         """
         # Impossible that the sucessor of one core block is itself (as a loop).
         assert all(
-            not node_sl_lst_overlap(cb.dest, cb.ordered_axons)
-            for cb in self.core_blocks
+            not sub_node_overlap(cb.dest, cb.ordered_axons) for cb in self.core_blocks
         )
 
         # Use `combinations` to traverse the core blocks pairs without duplication.
@@ -302,8 +323,8 @@ class Mapper:
             self.succ_core_blocks[cb] = []
 
         for cur_cb, next_cb in itertools.combinations(self.core_blocks, 2):
-            _ol_c2n = node_sl_lst_overlap(cur_cb.dest, next_cb.ordered_axons)
-            _ol_n2c = node_sl_lst_overlap(next_cb.dest, cur_cb.ordered_axons)
+            _ol_c2n = sub_node_overlap(cur_cb.dest, next_cb.ordered_axons)
+            _ol_n2c = sub_node_overlap(next_cb.dest, cur_cb.ordered_axons)
 
             if no_cb_cycle:
                 assert not (_ol_c2n and _ol_n2c)  # cannot be a cycle.
@@ -314,7 +335,7 @@ class Mapper:
                 self.succ_core_blocks[next_cb].append(cur_cb)
 
         for cur_cb, succ_cbs in self.succ_core_blocks.items():
-            build_cb_log.debug(f"{cur_cb.name} Succ:")
+            build_cb_log.debug(f"\n{cur_cb.name} Succ:")
             for cb in succ_cbs:
                 build_cb_log.debug(f"\t{cb.name}")
 
@@ -330,7 +351,7 @@ class Mapper:
             if len(succ_cb) > 0:
                 self.input_core_blocks[inode] = succ_cb
 
-            build_cb_log.debug(f"input core block of {inode.name}:")
+            build_cb_log.debug(f"\ninput core block of {inode.name}:")
             for cb in succ_cb:
                 build_cb_log.debug(f"\t{cb.name}")
 
@@ -340,24 +361,60 @@ class Mapper:
         NOTE: The LCN of all successor core blocks of any core block must be the same. Meanwhile,   \
             the `target_lcn` of the core block is equal to that LCN.
         """
-        # Adjust the `lcn_ex` of the input core blocks for each input node
+        # the core in the same neighbor list should have the same lcn_ex
+        neighbor_lists: list[list[CoreBlock]] = list()
         for input_cbs in self.input_core_blocks.values():
-            if len(input_cbs) > 1:
-                max_lcn_ex = max_lcn_of_cb(input_cbs)
-                for icb in input_cbs:
-                    icb.lcn_ex = max_lcn_ex
+            neighbor_lists.append(input_cbs)
+        for cb in self.core_blocks:
+            neighbor_list = self.succ_core_blocks[cb].copy()
+            if cb.online:
+                # the online core's lcn is same with target_lcn
+                # so it should have the same lcn_ex with its succ
+                neighbor_list.append(cb)
+            if len(neighbor_list) > 1:
+                neighbor_lists.append(neighbor_list)
 
+        # merge neighbors
+        merged_lists: list[set[CoreBlock]] = []
+        visited = set()
+
+        for i, neighbor_set in enumerate(neighbor_lists):
+            if i in visited:
+                continue
+            # 当前合并集合
+            merged = set(neighbor_set)
+            changed = True
+            visited.add(i)
+
+            while changed:
+                changed = False
+                for j in range(len(neighbor_lists)):
+                    if j in visited:
+                        continue
+                    if not merged.isdisjoint(neighbor_lists[j]):
+                        merged.update(neighbor_lists[j])
+                        visited.add(j)
+                        changed = True  # 有新合并就继续 while
+
+            merged_lists.append(merged)
+
+        # set lcn_ex for merged neighbors
+        for merged_list in merged_lists:
+            max_lcn_ex = max_lcn_of_cb(list(merged_list))
+            for cb in merged_list:
+                # online core's lcn_ex limit check
+                # happends in cb.lcn_ex setter
+                cb.lcn_ex = max_lcn_ex
+
+        # Set the target LCN of each core block
         for cb in self.core_blocks:
             succ_cbs = self.succ_core_blocks[cb]
-            if succ_cbs:
-                max_lcn_ex = (
-                    max_lcn_of_cb(succ_cbs) if len(succ_cbs) > 1 else succ_cbs[0].lcn_ex
-                )
-                if len(succ_cbs) > 1:
-                    for scb in succ_cbs:
-                        scb.lcn_ex = max_lcn_ex
-
-                cb.target_lcn = max_lcn_ex
+            if len(succ_cbs) > 0:
+                # the lcn_ex of the successor core blocks have been adjusted to the same
+                # use the first successor core block's lcn_ex as the target_lcn
+                # the online core's lcn_ex is same with target_lcn
+                # this limit also satisfied by the above code
+                cb.target_lcn = succ_cbs[0].lcn_ex
 
             cb._lcn_locked = True
 
@@ -396,7 +453,6 @@ class Mapper:
                 )
 
             rg.set_core_required()
-            rg.dump()
 
         log.info(
             "################################### Neuron Grouping Finished ###################################"
@@ -408,23 +464,43 @@ class Mapper:
             "################################### Required Cores Set ###################################"
         )
 
+        for rg in self.routing_mgr.ordered_rgrps:
+            rg.dump()
+
         # Optimize the order of routing groups
         # self.routing_grps = reorder_routing_groups(self.succ_rgrps)
         # self.ordered_rgrps = toposort(self.succ_rgrps)
 
         # Calculate the consumption of required physical cores.
-        n_avail_cores = HwConfig.N_CORE_OFFLINE * _BACKEND_CONTEXT.n_target_chips
-        n_core_required = sum(cb.n_core_required for cb in self.core_blocks)
+        n_avail_offline_cores = (
+            HwConfig.N_CORE_OFFLINE * _BACKEND_CONTEXT.n_target_chips
+        )
+        n_avail_online_cores = HwConfig.N_CORE_ONLINE * _BACKEND_CONTEXT.n_target_chips
+        n_offline_core_required = sum(
+            cb.n_core_required if not cb.online else 0 for cb in self.core_blocks
+        )
+        n_online_core_required = sum(
+            cb.n_core_required if cb.online else 0 for cb in self.core_blocks
+        )
 
-        self.n_core_required = n_core_required
+        self.n_core_required = n_offline_core_required + n_online_core_required
 
         # If only estimate the core usage, the rest of the steps are not performed.
         if core_estimate_only:
             return None
 
-        if n_core_required > n_avail_cores:
+        if n_offline_core_required > n_avail_offline_cores:
             raise ResourceError(
-                OUT_OF_CORE_RESOURCE_TEXT.format(n_avail_cores, n_core_required)
+                OUT_OF_CORE_RESOURCE_TEXT.format(
+                    n_offline_core_required, n_avail_offline_cores
+                )
+            )
+
+        if n_online_core_required > n_avail_online_cores:
+            raise ResourceError(
+                OUT_OF_CORE_RESOURCE_TEXT.format(
+                    n_online_core_required, n_avail_online_cores
+                )
             )
 
         for rg in self.routing_mgr.ordered_rgrps:
@@ -437,24 +513,41 @@ class Mapper:
             rg.dump_routing_result()
 
         # Online cores are not counted in the number of occupied cores.
-        self.n_core_occupied = self.routing_mgr.get_n_core_occupied()
+        self.n_core_occupied = self.routing_mgr.n_core_occupied
 
     def collect_neuron_dest(self) -> None:
         """Collect the destination details for neuron slices in each core block."""
         # Traverse all source node slices & their corresponding axon segments on the input axon side of core blocks.
         for cb in self.core_blocks:
-            for source_slice, axon_seg in cb.axon_segments.items():
-                self.neuron_dest[source_slice.target].add_dest(
-                    source_slice, axon_seg, cb
-                )
+            for sub_source, axon_seg in cb.axon_segments.items():
+                self.neuron_dest[sub_source.target].add_dest(sub_source, axon_seg, cb)
+
+        inhi_dest_coords: dict[OnlineCoreBlock, list[Coord]] = defaultdict(list)
+        online_cbs: list[OnlineCoreBlock] = list()
+        for cb in self.core_blocks:
+            if not cb.online:
+                continue
+            online_cbs.append(cast(OnlineCoreBlock, cb))
+
+        for cb_source in online_cbs:
+            for cb_dest in online_cbs:
+                # a coreblock must inhi itself
+                if not cb_source.laterl_inhi_target.isdisjoint(
+                    cb_dest.laterl_inhi_source
+                ):
+                    inhi_dest_coords[cb_source].extend(cb_dest.core_coords)
+
+        for cb, dest_coords in inhi_dest_coords.items():
+            _, rid = get_replication_id(dest_coords)
+            cb.inhi_rid = rid
 
         log.info(
             "################################ Neuron Dest Info Collected ################################"
         )
 
         for source, dest in self.neuron_dest.items():
-            dest.set_slice_dest_rid()
-            dest.sort_slice_dest_pairs()
+            dest.set_dest_rid()
+            dest.sort_dest_info()
 
             ndest_collect.debug(f"source: {source.name}")
             ndest_collect.debug(dest)
@@ -504,6 +597,7 @@ class Mapper:
         return _graph_info
 
     def _set_global_cflags(self) -> None:
+        # NOTE: learnable synapses are not configured for weight width optimization.
         SynSys.CFLAG_ENABLE_WP_OPTIMIZATION = _BACKEND_CONTEXT.cflags["enable_wp_opt"]
 
     def _inpproj_config_export(self) -> InputNodeConf:
@@ -533,26 +627,18 @@ class Mapper:
 
             dest = self.neuron_dest[inode]
             # TODO Input nodes can also be sliced, so additional information needs to be saved in the dictionary
-            slice_dest = dest.is_undivided_dest()
-
-            axon_coords = aligned_coords(
-                dest.slices[0],
-                slice_dest.dest_axon,
-                1,
-                slice_dest.timeslot,
-                is_iw8(slice_dest.rt_mode),
-            )
+            dest_core_info, axon_coords = dest.get_undivided_dest()
 
             inp_neuron_dest = InputNeuronDest(
                 [coord.tick_relative for coord in axon_coords],
                 [coord.addr_axon for coord in axon_coords],
-                slice_dest.base_coord.x,
-                slice_dest.base_coord.y,
-                slice_dest.rid.x,
-                slice_dest.rid.y,
-                slice_dest.dest_chip_coord.x,
-                slice_dest.dest_chip_coord.y,
-                slice_dest.timeslot,  # 1 << lcn_ex
+                dest_core_info.base_coord.x,
+                dest_core_info.base_coord.y,
+                dest_core_info.rid.x,
+                dest_core_info.rid.y,
+                dest_core_info.dest_chip_coord.x,
+                dest_core_info.dest_chip_coord.y,
+                dest_core_info.timeslot,  # 1 << lcn_ex
             )
 
             input_nodes_info[inode.name] = inp_neuron_dest
@@ -640,11 +726,9 @@ class Mapper:
         self,
         write_to_file: bool = True,
         *,
-        fp: Optional[Union[str, Path]] = None,
+        fp: str | Path | None = None,
         format: Literal["txt", "bin", "npy"] = "bin",
-        read_voltage: Optional[
-            Union[str, Neuron, Sequence[str], Sequence[Neuron]]
-        ] = None,
+        read_voltage: str | Neuron | Sequence[str] | Sequence[Neuron] | None = None,
         split_by_chip: bool = False,
         export_clk_en_L2: bool = False,
         use_hw_sim: bool = True,
@@ -697,7 +781,7 @@ class Mapper:
         # Retrieve the neuron's physical locations if specified
         if read_voltage is not None:
 
-            def _convert_to_neuron(_neu: Union[str, DestNodeType]) -> DestNodeType:
+            def _convert_to_neuron(_neu: str | DestNodeType) -> DestNodeType:
                 if isinstance(_neu, DestNodeType):
                     return _neu
 
@@ -717,25 +801,24 @@ class Mapper:
 
         return config_dict
 
-    def find_neuron(
-        self, neuron: Union[Neuron, NeuronSlice], *, verbose: int = 0
-    ) -> None:
+    def find_neuron(self, neuron: Neuron | SubNeuron, *, verbose: int = 0) -> None:
         self._build_check()
-        neu_slice = neuron if isinstance(neuron, NeuronSlice) else NeuronSlice(neuron)
-        name = neu_slice.target.name
+        sub_neu = neuron if isinstance(neuron, SubNeuron) else SubNeuron(neuron)
+        name = sub_neu.target.name
 
         for cb in self.core_blocks:
             # Find neuron in one or more core blocks.
-            if neu_slice.overlap(cb.dest):
+            if sub_node_overlap(sub_neu, cb.dest):
                 # NL_overlap(, cb.dest):
                 print(f"neurons {name} placed in {cb.name}, LCN_{1 << cb.lcn_ex}X")
                 for core_plm in cb.core_placements.values():
                     for neu_seg in core_plm.neu_segs_of_cplm:
-                        if neuron is neu_seg.target and sl_overlap(
-                            neu_slice.index, neu_seg.index
+                        if (
+                            neuron is neu_seg.target
+                            and sub_neu.custom_index_set.intersection(neu_seg.index)
                         ):
                             print(
-                                f"{name} placed in {core_plm.coord}\n"
+                                f"{name} placed in {_coord_to_bin_str(core_plm.coord)}\n"
                                 f"N:        {neu_seg.n_neuron}\n"
                                 f"Address:  {neu_seg._occupied_addr_repr}"
                             )
@@ -743,32 +826,14 @@ class Mapper:
     def find_axon(self, neuron: Neuron, *, verbose: int = 0) -> None:
         self._build_check()
         dest = self.neuron_dest[neuron]
-
-        for slice, slice_dest in zip(dest.slices, dest.dests):
-            print(
-                f"{neuron.name}[{slice}] dest: {slice_dest.base_coord}, {slice_dest.rid}\n"
-                f"N:                {slice_dest.dest_axon.n_axon}\n"
-                f"Address width:    {slice_dest.dest_axon.addr_width}\n"
-                f"Address offset:   {slice_dest.dest_axon.addr_offset}"
-            )
-
-        # for cb in self.core_blocks:
-        #     # Find neuron in one or more core blocks.
-        #     if neuron in cb.ordered_axons:
-        #         print(f"axons {neuron.name} placed in {cb.name}, LCN_{1 << cb.lcn_ex}X")
-        #         axon_segment = cb.axon_segments[neuron]
-        #         print(
-        #             f"{neuron.name} placed in {cb.core_coords}\n"
-        #             f"N:                {axon_segment.n_axon}\n"
-        #             f"Address width:    {axon_segment.addr_width}\n"
-        #             f"Address offset:   {axon_segment.addr_offset}"
-        #         )
+        print(f"{neuron.name} destinations:")
+        print(dest)
 
     def _build_check(self) -> None:
         return self.graph.build_check()
 
     def _find_dest_cb_by_nseg(
-        self, neu_seg: NeuSegment, cb: CoreBlock
+        self, neu_seg: DendriteSegment, cb: CoreBlock
     ) -> list[CoreBlock]:
         succ_cbs = self.succ_core_blocks[cb]
         dest_cb_of_nseg = [cb for cb in succ_cbs if neu_seg.target in cb.ordered_axons]
@@ -799,7 +864,7 @@ def _cb_routable(
     return False
 
 
-def _fp_check(fp: Optional[Union[str, Path]] = None) -> Path:
+def _fp_check(fp: str | Path | None = None) -> Path:
     if fp is not None:
         _fp = Path(fp)
     else:
@@ -809,41 +874,6 @@ def _fp_check(fp: Optional[Union[str, Path]] = None) -> Path:
         _fp.mkdir(parents=True, exist_ok=True)
 
     return _fp
-
-
-def merge_cycles(merged_sgrps: list[MergedSuccGroup]) -> list[MergedSuccGroup]:
-    """Detects cycles among merged successor groups & merges them into a minimal set of     \
-        disjoint groups.
-
-    Args:
-        merged_sgrps (list[MergedSuccGroup]): A list of already merged successor groups to  \
-            be analyzed for cycles.
-
-    Returns:
-        out (list[MergedSuccGroup]): A new list of merged successor groups with detected    \
-            cycles resolved.
-    """
-    succ_merged_sgrps: dict[MergedSuccGroup, list[MergedSuccGroup]] = defaultdict(list)
-
-    for cur_m, next_m in itertools.combinations(merged_sgrps, 2):
-        # (cur_m, (m2, m3, ...)), (m2, (m3, m4, ...)), ...
-        if not cur_m.nodes.isdisjoint(next_m.inputs):
-            succ_merged_sgrps[cur_m].append(next_m)
-
-        if not next_m.nodes.isdisjoint(cur_m.inputs):
-            succ_merged_sgrps[next_m].append(cur_m)
-
-    cycles = find_cycles(succ_merged_sgrps)
-    merged_cycles = merge_overlapping_sets(cycles)
-
-    merged: list[MergedSuccGroup] = []
-    remaining = set(merged_sgrps)
-    for mc in merged_cycles:
-        merged.append(MergedSuccGroup.merge(mc))
-        remaining.difference_update(mc)
-
-    merged.extend(remaining)
-    return merged
 
 
 def _calculate_core_consumption(order_rgs: list[RoutingGroup]) -> int:

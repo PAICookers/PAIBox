@@ -22,7 +22,7 @@ jobs:
   pytest:
     strategy:
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     env:
@@ -45,7 +45,7 @@ jobs:
 
       - name: Run pytest
         run: |
-          poetry run pytest --cov-append --cov-report=xml --junitxml=junit.xml
+          poetry run pytest --cov-append --cov-report=xml --junitxml=junit.xml -n auto
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5

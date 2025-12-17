@@ -2,129 +2,121 @@ import math
 import sys
 from contextlib import nullcontext
 from functools import partial
-from typing import Literal, Optional
+from typing import Literal
 
 import numpy as np
 import pytest
-from paicorelib import LCN_EX, Coord, CoreMode, HwConfig, OffCoreCfg, OfflineNeuAttrs
+from paicorelib import LCN_EX, Coord, HwConfig, OffCoreCfg, OfflineNeuAttrs
 from paicorelib import ReplicationId as RId
 from paicorelib import WeightWidth as WW
 from paicorelib.framelib import OfflineFrameGen
 
 import paibox as pb
-from paibox.backend.placement import (
-    FANOUT_IW8,
-    CorePlacement,
-    SliceDest,
-    SliceDestPair,
-    SourceDest,
-)
+from paibox.backend.placement import FANOUT_IW8, CorePlacement, DestInfo, SourceDest
 from paibox.backend.types import (
     WRAM_PACKED_DTYPE,
     WRAM_UNPACKED_DTYPE,
-    AxonSegment,
-    NeuSegment,
+    AxonCoord,
+    CustomIndex,
+    DendriteSegment,
     WRAMPackedType,
     WRAMUnpackedType,
 )
 from paibox.exceptions import ResourceError
 from paibox.types import WEIGHT_DTYPE, WeightType
 
+from .backend_testcase import _gen_custom_index
 from .test_conf_exporting import _gen_random_neuron_dest_info
 
 
-def _gen_slice_dest():
+def _gen_dest_info():
     ch_coord = Coord(2, 1)
-    d_ax = AxonSegment(100, 50, 10, 0)
+    d_ax = AxonCoord(2, 50)
     ts = 2
-    rt_mode = CoreMode.MODE_ANN
     dest_coords = [Coord(0, 0), Coord(1, 0), Coord(2, 0)]
 
-    return SliceDest(ch_coord, d_ax, ts, rt_mode, dest_coords)
+    return DestInfo(ch_coord, d_ax, ts, dest_coords)
 
 
 class TestSliceDest:
     def test_str_format(self, capsys):
         # rid & base_coord not set
-        sl_dest = _gen_slice_dest()
+        dest_info = _gen_dest_info()
         with capsys.disabled():
             print("\n")
-            print(sl_dest)
+            print(dest_info)
 
         # Set rid & base_coord
-        sl_dest.set_rid()
+        dest_info.set_rid()
         with capsys.disabled():
-            print(str(sl_dest))
+            print(str(dest_info))
 
 
 class TestSourceDest:
     def test_get_slice_dest(self):
-        sl_dest1 = SliceDest(
+        dest_info1 = DestInfo(
             Coord(0, 0),
-            AxonSegment(100, 50, 0, 0),
+            AxonCoord(4, 50),
             2,
-            CoreMode.MODE_ANN,
             [Coord(0, 1), Coord(1, 0)],
         )
-        sl_dest2 = SliceDest(
+        dest_info2 = DestInfo(
             Coord(0, 0),
-            AxonSegment(100, 50, 100, 100),
+            AxonCoord(4, 51),
             2,
-            CoreMode.MODE_ANN,
             [Coord(1, 0), Coord(1, 1)],
         )
-        sl_dest3 = SliceDest(
+        dest_info3 = DestInfo(
             Coord(0, 0),
-            AxonSegment(100, 50, 100, 200),
+            AxonCoord(4, 52),
             2,
-            CoreMode.MODE_ANN,
             [Coord(2, 0), Coord(2, 1)],
         )
-        sl_dest4 = SliceDest(
+        dest_info4 = DestInfo(
             Coord(0, 0),
-            AxonSegment(100, 50, 100, 300),
+            AxonCoord(4, 53),
             2,
-            CoreMode.MODE_ANN,
             [Coord(0, 2), Coord(1, 2)],
         )
 
-        dest_pair1 = SliceDestPair(slice(0, 100), sl_dest1)
-        dest_pair2 = SliceDestPair(slice(100, 200), sl_dest2)
-        dest_pair3 = SliceDestPair(slice(200, 300), sl_dest3)
-        dest_pair4 = SliceDestPair(slice(300, 400), sl_dest4)
+        source_dests = SourceDest()
+        source_dests.dest_info = {
+            CustomIndex(41, 0): dest_info1,
+            CustomIndex(42, 0): dest_info2,
+            CustomIndex(43, 0): dest_info3,
+            CustomIndex(44, 0): dest_info4,
+        }
 
-        source_dests = SourceDest([dest_pair3, dest_pair2, dest_pair4, dest_pair1])
-        source_dests.set_slice_dest_rid()
-        source_dests.sort_slice_dest_pairs()
+        source_dests.set_dest_rid()
+        source_dests.sort_dest_info()
 
-        neu_seg1 = NeuSegment(pb.ANNNeuron(100), slice(150, 250), 0)
+        neu_seg1 = DendriteSegment(pb.ANNNeuron(100), _gen_custom_index(41, 44), 0)
 
-        dest_pairs = source_dests.get_slice_dest_pairs(neu_seg1)
-        dests = [d.dest for d in dest_pairs]
+        dest_pairs = source_dests.devide_dest_info(neu_seg1)
 
-        assert len(dest_pairs) == 2
-        assert sl_dest2 in dests
-        assert sl_dest3 in dests
+        dest_core_infos = [dest_core_info for _, dest_core_info, _ in dest_pairs]
 
-        neu_seg2 = NeuSegment(pb.ANNNeuron(100), slice(300, 400), 100)
-        dest_pairs = source_dests.get_slice_dest_pairs(neu_seg2)
-        dests = [d.dest for d in dest_pairs]
+        assert len(dest_pairs) == 3
+        assert dest_info1.dest_core_info in dest_core_infos
+        assert dest_info2.dest_core_info in dest_core_infos
+        assert dest_info3.dest_core_info in dest_core_infos
+
+        neu_seg2 = DendriteSegment(pb.ANNNeuron(100), _gen_custom_index(44, 45), 100)
+        dest_pairs = source_dests.devide_dest_info(neu_seg2)
+        dest_core_infos = [dest_core_info for _, dest_core_info, _ in dest_pairs]
 
         assert len(dest_pairs) == 1
-        assert sl_dest4 in dests
+        assert dest_info4.dest_core_info in dest_core_infos
 
     def test_str_format(self, capsys):
-        sl_dest1 = _gen_slice_dest()
-        sl_dest1.set_rid()
-        sl_dest2 = _gen_slice_dest()
-        sl_dest2.set_rid()
+        dest_info1 = _gen_dest_info()
+        dest_info2 = _gen_dest_info()
 
-        source_dest = SourceDest(
-            [
-                SliceDestPair(slice(100, 200), sl_dest1),
-                SliceDestPair(slice(200, 300), sl_dest2),
-            ]
-        )
+        source_dest = SourceDest()
+        source_dest.dest_info = {
+            CustomIndex(10, 0): dest_info1,
+            CustomIndex(20, 0): dest_info2,
+        }
 
         with capsys.disabled():
             print("\n")
@@ -137,17 +129,15 @@ else:
     W_BITORDER = "little"
 
 N_BIT_PACKED_WEIGHT = np.iinfo(WRAM_PACKED_DTYPE).bits
-if hasattr(CorePlacement, "WRAM_BASE_SHAPE"):
-    WRAM_BASE_SHAPE = CorePlacement.WRAM_BASE_SHAPE
-else:
-    WRAM_BASE_SHAPE = (OffCoreCfg.ADDR_AXON_MAX + 1, OffCoreCfg.ADDR_RAM_MAX + 1)
+WRAM_BASE_SHAPE = (OffCoreCfg.ADDR_AXON_MAX + 1, OffCoreCfg.ADDR_RAM_MAX + 1)
+WRAM_BASE_SHAPE = (OffCoreCfg.WEIGHT_RAM_SHAPE[1], OffCoreCfg.WEIGHT_RAM_SHAPE[0])
 
 
 NEURON_PARAMS_BIT_LENGTH = 214
 N_NEURON_PARAM_IN_COL = OffCoreCfg.N_FANIN_PER_DENDRITE_MAX // NEURON_PARAMS_BIT_LENGTH
 
 
-def _packbits_ref(bits: np.ndarray, count: Optional[int] = None) -> np.int8:
+def _packbits_ref(bits: np.ndarray, count: int | None = None) -> np.int8:
     """Pack unsigned bits (from LSB to MSB) into a signed integer.
 
     Args:
@@ -308,14 +298,12 @@ class TestWeightUnpackAndPack:
 
 
 class TestWeightRamMapping:
-    @pytest.mark.parametrize("expected_row", [3, 5, 7])
-    def test_nfold_weight(self, expected_row):
+    def test_nfold_weight(self):
         """A prototype function of `CorePlacement._nfold_weight` to test the weight folding."""
         original_matrix = np.arange(1, 25, dtype=WEIGHT_DTYPE).reshape(8, 3)
         nfold = 3
 
-        assert nfold <= expected_row
-        result = CorePlacement._nfold_weight(original_matrix, expected_row, nfold)
+        result = CorePlacement._nfold_weight(original_matrix, nfold)
 
         expected_folded = np.array(
             [
@@ -325,9 +313,8 @@ class TestWeightRamMapping:
             ],
             dtype=WEIGHT_DTYPE,
         )
-        expected = np.pad(expected_folded, ((0, expected_row - nfold), (0, 0)))
 
-        assert np.array_equal(result, expected)
+        assert np.array_equal(result, expected_folded)
 
     @pytest.mark.parametrize(
         "shape, wp, lcn_ex",
@@ -357,19 +344,12 @@ class TestWeightRamMapping:
         # Check the shape[1] is legal
         assert shape[1] <= _get_max_fanout(iw, wp + lcn_ex)
 
-        if shape[0] % nfold > 0:
-            expected_h = shape[0] // nfold + 1
-        else:
-            expected_h = shape[0] // nfold
-
-        expected_shape = (expected_h, shape[1] * nfold)
-
         # Generate the original weight with shape
         _low, _high = _nbit_limit(nbit)
         test_weight = fixed_rng.integers(_low, _high, size=shape, dtype=WEIGHT_DTYPE)
 
         # 1. Fold, return the folded weight after padding.
-        w_folded = CorePlacement._nfold_weight(test_weight, expected_shape[0], nfold)
+        w_folded = CorePlacement._nfold_weight(test_weight, nfold)
 
         # 2. Map to the WRAM.
         wram_unpacked = np.zeros(WRAM_BASE_SHAPE, dtype=WRAM_UNPACKED_DTYPE)
@@ -415,19 +395,12 @@ class TestWeightRamMapping:
         # Check the shape[1] is legal
         assert shape[1] <= _get_max_fanout(iw, wp + lcn_ex)
 
-        if shape[0] % nfold > 0:
-            expected_h = shape[0] // nfold + 1
-        else:
-            expected_h = shape[0] // nfold
-
-        expected_shape = (expected_h, shape[1] * nfold)
-
         # Generate the original weight with shape
         _low, _high = _nbit_limit(nbit)
         test_weight = fixed_rng.integers(_low, _high, size=shape, dtype=WEIGHT_DTYPE)
 
         # 1. Fold, return the folded weight after padding.
-        w_folded = CorePlacement._nfold_weight(test_weight, expected_shape[0], nfold)
+        w_folded = CorePlacement._nfold_weight(test_weight, nfold)
 
         # 2. Map to the NRAM.
         # (1152, 512)
@@ -580,23 +553,16 @@ class TestWeightRamMapping:
         nbit = 1 << wp
         nfold = 1 << lcn_ex
 
-        if shape[0] % nfold > 0:
-            expected_h = shape[0] // nfold + 1
-        else:
-            expected_h = shape[0] // nfold
-
-        expected_shape = (expected_h, shape[1] * nfold)
-
         # Generate the original weight with shape
         _low, _high = _nbit_limit(nbit)
         test_weight = fixed_rng.integers(_low, _high, size=shape, dtype=WEIGHT_DTYPE)
 
         # 1. Fold, return the folded weight after padding.
-        w_folded = CorePlacement._nfold_weight(test_weight, expected_shape[0], nfold)
+        w_folded = CorePlacement._nfold_weight(test_weight, nfold)
 
         # 2. Map to the NRAM.
         with expectation:
-            w_mapped = self._weight_ram_mapping(w_folded, nbit, nfold, iw)
+            _ = self._weight_ram_mapping(w_folded, nbit, nfold, iw)
 
     @staticmethod
     def _weight_ram_mapping_iw8(
@@ -791,7 +757,7 @@ class TestWeightRamMapping:
         assert wp + lcn_ex <= 2
 
         n_extra_neurons = shape[1] - WRAM_BASE_SHAPE[1]
-        wram_neurons = self._gen_wram_for_neurons(n_extra_neurons, wp, lcn_ex)
+        _ = self._gen_wram_for_neurons(n_extra_neurons, wp, lcn_ex)
 
     @staticmethod
     def _gen_wram_for_neurons(
@@ -812,7 +778,7 @@ class TestWeightRamMapping:
             RId(0, 0),
             0,
             n_extra_neurons,
-            OfflineNeuAttrs.model_validate(extra_neurons.attrs(all=False)),
+            OfflineNeuAttrs.model_validate(extra_neurons.attrs()),
             dest_info,
             1,
         )
@@ -867,7 +833,7 @@ class TestWeightRamMapping:
         return result
 
     def test_weight_ram_mapping_8bits(self):
-        binary_conn = np.zeros((6, 8 * 5), dtype=np.bool_)
+        binary_conn = np.zeros((6, 8 * 5), dtype=bool)
         wp = WW.WEIGHT_WIDTH_8BIT
 
         array = np.random.randint(-128, 128, size=(4, 4), dtype=WEIGHT_DTYPE)
@@ -885,7 +851,7 @@ class TestWeightRamMapping:
             assert expected == r
 
     def test_weight_ram_mapping_4bits(self):
-        binary_conn = np.zeros((6, 4 * 5), dtype=np.bool_)
+        binary_conn = np.zeros((6, 4 * 5), dtype=bool)
         wp = WW.WEIGHT_WIDTH_4BIT
 
         array = np.random.randint(-8, 8, size=(4, 4), dtype=WEIGHT_DTYPE)
@@ -908,7 +874,7 @@ class TestWeightRamMapping:
             assert expected == r
 
     def test_weight_ram_mapping_2bits(self):
-        binary_conn = np.zeros((6, 4 * 5), dtype=np.bool_)
+        binary_conn = np.zeros((6, 4 * 5), dtype=bool)
         wp = WW.WEIGHT_WIDTH_2BIT
 
         array = np.random.randint(-2, 2, size=(4, 4), dtype=WEIGHT_DTYPE)

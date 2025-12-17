@@ -2,7 +2,6 @@ import sys
 from collections.abc import Iterable
 from functools import partial
 from itertools import repeat
-from typing import Optional, Union
 
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
@@ -53,7 +52,7 @@ INDEX_DTYPE = np.uint32
 MAX_INDEX = np.iinfo(INDEX_DTYPE).max
 
 
-def assert_max_index(*args: Union[int, np.integer]) -> None:
+def assert_max_index(*args: int | np.integer) -> None:
     for n in args:
         assert n <= MAX_INDEX, f"Number {n} exceeds max index {MAX_INDEX}"
 
@@ -70,14 +69,14 @@ def fm_ndim1_check(fm_shape: SizeAnyType, fm_order: _Order2d) -> Size2Type:
         raise ShapeError(f"expected shape of 1 or 2, but got {len(fm_shape)}.")
 
     if len(fm_shape) == 1:
-        channels, l = (1,) + fm_shape
+        channels, fm_len = (1,) + fm_shape
     else:
         if fm_order == "CL":
-            channels, l = fm_shape
+            channels, fm_len = fm_shape
         else:
-            l, channels = fm_shape
+            fm_len, channels = fm_shape
 
-    return channels, l
+    return channels, fm_len
 
 
 def fm_ndim2_check(fm_shape: SizeAnyType, fm_order: _Order3d) -> Size3Type:
@@ -109,13 +108,13 @@ def _conv1d_oshape(
     """Compute the output shape of a 1d convolution."""
     assert len(isize) == 1
 
-    l = isize[0]
+    in_l = isize[0]
     k = _single(ksize)[0]
     s = _single(stride)[0]
     p = _single(padding)[0]
     d = _single(dilation)[0]
 
-    ol = _conv_i2o(l, k, s, p, d)
+    ol = _conv_i2o(in_l, k, s, p, d)
     return (ol,)
 
 
@@ -454,7 +453,7 @@ def conv1d_faster_legacy(
     padding: _Size1Type = 0,
     dilation: _Size1Type = 1,
     groups: int = 1,
-    bias: Optional[WeightType] = None,
+    bias: WeightType | None = None,
 ) -> SynOutType:
     """Faster 1d convolution."""
     ci = x.shape[0]
@@ -507,7 +506,7 @@ def conv1d_faster(
     padding: _Size1Type = 0,
     dilation: _Size1Type = 1,
     groups: int = 1,
-    bias: Optional[WeightType] = None,
+    bias: WeightType | None = None,
 ) -> SynOutType:
     """Faster 2d convolution using im2col."""
     ci = x.shape[0]
@@ -551,7 +550,7 @@ def conv2d_faster_legacy(
     padding: _Size2Type = 0,
     dilation: _Size2Type = 1,
     groups: int = 1,
-    bias: Optional[WeightType] = None,
+    bias: WeightType | None = None,
 ) -> SynOutType:
     """Faster 2d convolution.
 
@@ -604,7 +603,7 @@ def conv2d_faster(
     padding: _Size2Type = 0,
     dilation: _Size2Type = 1,
     groups: int = 1,
-    bias: Optional[WeightType] = None,
+    bias: WeightType | None = None,
 ) -> SynOutType:
     """Faster 2d convolution using im2col."""
     ci = x.shape[0]
@@ -807,7 +806,7 @@ def _convtranspose1d_faster(
     stride: Size1Type,
     padding: Size1Type,
     output_padding: Size1Type,
-    bias: Optional[WeightType] = None,
+    bias: WeightType | None = None,
 ) -> SynOutType:
     # (C, L)
     xc, xl = x.shape
@@ -867,7 +866,7 @@ def _convtranspose2d_faster(
     stride: Size2Type,
     padding: Size2Type,
     output_padding: Size2Type,
-    bias: Optional[WeightType] = None,
+    bias: WeightType | None = None,
 ) -> SynOutType:
     # (C, H, W)
     xc, xh, xw = x.shape
@@ -1077,7 +1076,7 @@ def im2col_indices_1d(
     padding: Size1Type = (0,),
     dilation: Size1Type = (1,),
     groups: int = 1,
-    out_shape: Optional[Size1Type] = None,
+    out_shape: Size1Type | None = None,
 ):
     x_padded = np.pad(x, ((0, 0), (padding[0], padding[0])), mode="constant")
     if out_shape is None:
@@ -1098,7 +1097,7 @@ def im2col_indices_2d(
     padding: Size2Type = (0, 0),
     dilation: Size2Type = (1, 1),
     groups: int = 1,
-    out_shape: Optional[Size2Type] = None,
+    out_shape: Size2Type | None = None,
 ):
     """An implementation of im2col based on some fancy indexing"""
     x_padded = np.pad(

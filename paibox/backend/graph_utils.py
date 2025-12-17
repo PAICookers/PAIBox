@@ -1,20 +1,20 @@
 import itertools
 import typing
 from collections import defaultdict, deque
-from collections.abc import Iterable, Mapping, Sequence
-from typing import Any, Generator, TypeVar, Union
+from collections.abc import Generator, Iterable, Mapping, Sequence
+from typing import Any, TypeVar
 
 from paibox.exceptions import GraphHasCycleError, GraphNotSupportedError
 
-from ._slice import node_sl_lst_overlap
+from .group import MergedGroup
 from .placement import CoreBlock
-from .succ_group import MergedSuccGroup
+from .sub_utils import sub_node_overlap
 from .types import EdgeAttr, NodeDegree, NodeName, NodeType
 
 if typing.TYPE_CHECKING:
     from .routing import RoutingGroup
 
-_NT = TypeVar("_NT", CoreBlock, NodeName, "RoutingGroup", MergedSuccGroup)
+_NT = TypeVar("_NT", CoreBlock, NodeName, "RoutingGroup", MergedGroup)
 _T = TypeVar("_T")
 
 
@@ -162,7 +162,7 @@ def reverse_edges2(
 
 
 def get_node_degrees(
-    succ_edges: Mapping[_NT, Union[Sequence[_NT], Mapping[_NT, Any]]],
+    succ_edges: Mapping[_NT, Sequence[_NT] | Mapping[_NT, Any]],
 ) -> dict[_NT, NodeDegree]:
     degree = defaultdict(NodeDegree)
     in_degrees = defaultdict(int)
@@ -232,6 +232,49 @@ def find_cycles(directed_edges: Mapping[_NT, Sequence[_NT]]) -> list[list[_NT]]:
             dfs(node)
 
     return cycles
+
+
+def merge_cycles(merged_sgrps: list[MergedGroup]) -> list[MergedGroup]:
+    """Detects cycles among merged successor groups & merges them into a minimal set of     \
+        disjoint groups.
+
+    Args:
+        merged_sgrps (list[MergedSuccGroup]): A list of already merged successor groups to  \
+            be analyzed for cycles.
+
+    Returns:
+        out (list[MergedSuccGroup]): A new list of merged successor groups with detected    \
+            cycles resolved.
+    """
+    succ_merged_grps: dict[MergedGroup, list[MergedGroup]] = defaultdict(list)
+
+    for cur_m, next_m in itertools.combinations(merged_sgrps, 2):
+        # (cur_m, (m2, m3, ...)), (m2, (m3, m4, ...)), ...
+        if not cur_m.nodes.isdisjoint(next_m.inputs):
+            succ_merged_grps[cur_m].append(next_m)
+
+        if not next_m.nodes.isdisjoint(cur_m.inputs):
+            succ_merged_grps[next_m].append(cur_m)
+
+    cycles = find_cycles(succ_merged_grps)
+    merged_cycles = merge_overlapping_sets(cycles)
+
+    merged: list[MergedGroup] = []
+    # remaining = set(merged_sgrps)
+    # for mc in merged_cycles:
+    #     merged.append(MergedGroup.merge(mc))
+    #     remaining.difference_update(mc)
+
+    # merged.extend(remaining)
+    # return merged
+    all_merged = set()
+    for mc in merged_cycles:
+        merged_mg = MergedGroup.merge(mc)
+        merged.append(merged_mg)
+        all_merged.update(mc)
+    remaining = [mg for mg in merged_sgrps if mg not in all_merged]
+    merged.extend(remaining)
+    return merged
 
 
 def merge_overlapping_sets(sets: Sequence[Sequence[_NT]]) -> list[list[_NT]]:
@@ -436,7 +479,7 @@ def get_shortest_path(
 def get_succ_cb_by_node(
     node: NodeType, core_blocks: Sequence[CoreBlock]
 ) -> list[CoreBlock]:
-    return [cb for cb in core_blocks if node_sl_lst_overlap(node, cb.ordered_axons)]
+    return [cb for cb in core_blocks if sub_node_overlap(node, cb.ordered_axons)]
 
 
 def get_pred_cb_by_succ_cb(

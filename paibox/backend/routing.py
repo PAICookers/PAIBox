@@ -1,12 +1,13 @@
 import itertools
 import logging
 import math
-import sys
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Generator, Iterable
 from functools import cached_property
-from typing import Any, ClassVar, Optional, Union, cast
+from typing import Any, ClassVar, cast
 
+import numpy as np
+from numpy.typing import NDArray
 from paicorelib import ONLINE_CORES_BASE_COORD
 from paicorelib import ROUTING_DIRECTIONS_IDX as DIREC_IDX
 from paicorelib import ChipCoord, Coord, CoreMode, HwConfig, RoutingCoord
@@ -15,29 +16,19 @@ from paicorelib import RoutingLevel as Level
 from paicorelib.routing_defs import MAX_ROUTING_PATH_LENGTH
 
 from paibox import _logging
-from paibox.components import MatMul2d
-from paibox.components.neuron.base import NEU_TARGET_CHIP_NOT_SET
-from paibox.exceptions import (
-    NotSupportedError,
-    PAIBoxDeprecationWarning,
-    ResourceError,
-    RoutingError,
-)
+from paibox.components import Conv2d, InputProj, MatMul2d
+from paibox.components.neuron.base import NEU_TARGET_CHIP_UNSET
+from paibox.exceptions import NotSupportedError, ResourceError, RoutingError
 from paibox.utils import check_elem_same
 
-from ._slice import *
 from .conf_types import CorePlmConfInChip
 from .constrs import GraphNodeConstrs
-from .graph_utils import toposort
+from .graph_utils import merge_cycles, toposort
+from .group import InhiGroup, MergedGroup
 from .placement import CoreBlock, EmptyCorePlacement
-from .succ_group import MergedSuccGroup
+from .sub_utils import SubEdge, SubSourceType
+from .tiling import conv2d_optimize
 from .types import EdgeType, NodeType, _1st_core_coord_repr
-
-if sys.version_info >= (3, 13):
-    from warnings import deprecated
-else:
-    from typing_extensions import deprecated
-
 
 __all__ = ["RoutingGroup", "RoutingManager"]
 
@@ -59,64 +50,127 @@ def MatMul2d_slices(mat_mul: MatMul2d) -> tuple[list[slice], list[slice]]:
     return input_slices, output_slices
 
 
+def flatten_last_n_dims(x: np.ndarray, n=3):
+    return x.reshape(x.shape[:-n] + (-1,))
+
+
+def flatten_array(x: NDArray) -> NDArray:
+    assert x.ndim == 6
+    y = x.reshape(np.prod(x.shape[:3]), np.prod(x.shape[3:]))
+    return y
+
+
 def build_elements(
-    merged_sgrp: MergedSuccGroup,
-) -> list[Union[CoreBlock, "RoutingGroup"]]:
+    merged_sgrp: MergedGroup, online: bool
+) -> "list[CoreBlock| RoutingGroup]":
     nodes = list(merged_sgrp.nodes)
-    elements: list[Union[CoreBlock, "RoutingGroup"]] = []
+    elements: "list[CoreBlock| RoutingGroup]" = []
 
     mode = cast(CoreMode, nodes[0].mode)
     if any(mode != node.mode for node in nodes):
         raise NotSupportedError("mixed mode is not supported.")
 
-    # Optimize weight in single operator, like 'Mat2d'.
+    def simple_build(edges: Iterable[EdgeType]) -> None:
+        sub_edges = [SubEdge(edge) for edge in edges]
+        elements.append(CoreBlock.build(*sub_edges, rt_mode=mode, online=online))
+
+    print(
+        f"build elements for merged group with nodes: {[node.name for node in nodes]}"
+    )
+    # Optimize weight in single operator, like 'Mat2d', 'Conv2d'.
     if len(nodes) == 1:
         edges = merged_sgrp.outputs[nodes[0]]
         # find edges with divisible weight
         divisible_edge = None
-        for edge in edges:
-            # only one edge is allowed to have divisible weight
-            if isinstance(edge, MatMul2d):
-                divisible_edge = edge
-                break
-        # TODO we can judge whether optimization is needed here
-        if divisible_edge is None:
-            edge_slices = [EdgeSlice(edge) for edge in edges]
-            elements.append(CoreBlock.build(*edge_slices, rt_mode=mode))
+        if len(edges) > 1:
+            for edge in edges:
+                # only one edge is allowed to have divisible weight
+                if isinstance(edge, MatMul2d):
+                    divisible_edge = edge
+                    break
+            # TODO we can judge whether optimization is needed here
+            if divisible_edge is None:
+                simple_build(edges)
+            else:
+                input_slices, output_slices = MatMul2d_slices(divisible_edge)
+                for input_slice, output_slice in zip(input_slices, output_slices):
+                    sub_edges: list[SubEdge] = []
+                    in_raw_index = list(range(input_slice.start, input_slice.stop))
+                    out_raw_index = list(range(output_slice.start, output_slice.stop))
+                    for edge in edges:
+                        if edge == divisible_edge:
+                            sub_edges.append(
+                                SubEdge(
+                                    edge,
+                                    in_raw_index=in_raw_index,
+                                    out_raw_index=out_raw_index,
+                                )
+                            )
+                        else:
+                            sub_edges.append(
+                                SubEdge(
+                                    edge, in_raw_index=None, out_raw_index=out_raw_index
+                                )
+                            )
+                    core_block = CoreBlock.build(
+                        *sub_edges, rt_mode=mode, online=online
+                    )
+                    routing_group = RoutingGroup([core_block], [])
+                    elements.append(routing_group)
 
         else:
-            input_slices, output_slices = MatMul2d_slices(divisible_edge)
-            for input_slice, output_slice in zip(input_slices, output_slices):
-                edge_slices: list[EdgeSlice] = []
-                for edge in edges:
-                    if edge == divisible_edge:
-                        edge_slices.append(EdgeSlice(edge, input_slice, output_slice))
-                    else:
-                        edge_slices.append(EdgeSlice(edge, None, output_slice))
-                core_block = CoreBlock.build(*edge_slices, rt_mode=mode)
-                routing_group = RoutingGroup([core_block], [])
-                elements.append(routing_group)
+            edge = edges[0]
+            if isinstance(edge, Conv2d) and not isinstance(edge.source, InputProj):
+                est_result, i_tiled_idx_map, o_tiled_idx_map, k_tiles, copy_times = (
+                    conv2d_optimize(edge, online)
+                )
+                input_index_map = flatten_array(i_tiled_idx_map)
+                output_index_map = flatten_array(o_tiled_idx_map)
+
+                input_mask = input_index_map != -1
+                output_mask = output_index_map != -1
+
+                copy_count = np.zeros(
+                    copy_times.size, dtype=copy_times.dtype
+                )  # 展平 + 初始化
+                sub_edges = []
+
+                for i in range(input_index_map.shape[0]):
+                    in_idx = input_index_map[i][input_mask[i]]
+                    out_idx = output_index_map[i][output_mask[i]]
+                    in_copy_id = copy_count[in_idx].copy()  # 取当前 copy id
+
+                    sub_edge = SubEdge(
+                        edge,
+                        in_raw_index=in_idx.tolist(),
+                        in_copy_id=in_copy_id.tolist(),
+                        out_raw_index=out_idx.tolist(),
+                    )
+
+                    core_block = CoreBlock.build(sub_edge, rt_mode=mode, online=online)
+                    routing_group = RoutingGroup([core_block], [])
+                    elements.append(routing_group)
+                    np.add.at(copy_count, in_idx, 1)
+            else:
+                simple_build(edges)
+
     else:
         # TODO More constraints for nodes can be called here.
         # TODO weight can be optimized between operators.
-        idx_in_cbs = GraphNodeConstrs.apply_constrs(nodes)
+        idx_in_cbs = GraphNodeConstrs.apply_constrs(nodes, online)
         # if len(idx_of_sg) == 0:
         #     idx_of_sg = [list(range(len(nodes)))]
 
         for idx_in_cb in idx_in_cbs:
             edges_set: set[EdgeType] = set()
-
             for i in idx_in_cb:
                 edges_set.update(merged_sgrp.outputs[nodes[i]])
-
-            edge_slices = [EdgeSlice(edge) for edge in edges_set]
-            core_block = CoreBlock.build(*edge_slices, rt_mode=mode)
-            elements.append(core_block)
+            simple_build(edges_set)
 
     return elements
 
 
-RoutingElemType = Union[CoreBlock, "RoutingGroup"]
+RoutingElemType = "CoreBlock | RoutingGroup"
 OrderedElemsType = list["RoutingGroup"]
 UnorderedElemsType = list[RoutingElemType]
 
@@ -169,9 +223,9 @@ class RoutingGroup:
         self.wasted_core_plm: dict[Coord, EmptyCorePlacement] = {}
         """Wasted core placements"""
 
-        self.global_axons: list[SourceSliceType] = []
+        self.global_axons: list[SubSourceType] = []
         """Multicast axons inheritted from the parent routing group."""
-        self.private_axons: list[SourceSliceType] = []
+        self.private_axons: list[SubSourceType] = []
         """Multicast axons valid only within this routing group."""
 
         # Status options
@@ -179,8 +233,11 @@ class RoutingGroup:
         """Whether the coordinates of chip & cores are assigned."""
         self.is_root = is_root
 
-        self.target_chip_idx: Union[int, None] = None
+        self.target_chip_idx: int | None = None
         """The index of the target chip for this routing group."""
+
+        self.online = self.core_blocks[0].online
+        """Whether the routing group is in online mode."""
 
         if is_root:
             self.init_with_multicast_axons()
@@ -199,11 +256,11 @@ class RoutingGroup:
         self.target_chip_idx = self.core_blocks[0].dest[0].target_chip_idx
 
     def init_with_multicast_axons(
-        self, multicast_axons: list[SourceSliceType] = []
+        self, multicast_axons: list[SubSourceType] = []
     ) -> None:
         """Initialize the routing group with multicast axons."""
         self.global_axons = multicast_axons
-        used_axons: set[SourceSliceType] = set()
+        used_axons: set[SubSourceType] = set()
 
         for elem in self.routing_elems:
             for ax in elem.axons:
@@ -268,10 +325,6 @@ class RoutingGroup:
         # of 2.
         self.n_core_required = 1 << (n_core_used - 1).bit_length()  # required actually
 
-        # This is the amount of cores required actually.
-        assert n_core_used > 0
-        self.n_core_required = 1 << (n_core_used - 1).bit_length()
-
         # If there are ordered routing groups, the final waste is the tail waste of the last routing group,
         # otherwise it is 0.
         n_tail_waste_by_rg = (
@@ -307,6 +360,9 @@ class RoutingGroup:
         return self.assigned_coords, self.wasted_coords
 
     def optimize_routing_elems(self) -> list["RoutingGroup"]:
+        if self.online:
+            return [self]
+
         # Optimize unordered elements by recursively optimizing sub-routing groups
         optim_unordered: UnorderedElemsType = []
         for elem in self.unordered_elems:
@@ -350,7 +406,7 @@ class RoutingGroup:
     ) -> tuple[list["RoutingGroup"], OrderedElemsType]:
         ordered_grps: list["RoutingGroup"] = []
         remaining: OrderedElemsType = []
-        remaining_inputs: set[SourceSliceType] = set()
+        remaining_inputs: set[SubSourceType] = set()
 
         for elem in reversed(ordered_elems):
             # One element uses the private axons of the current routing group.
@@ -407,45 +463,148 @@ class RoutingGroup:
         return cbs
 
     @classmethod
-    def build(
-        cls, merged_sgrp: MergedSuccGroup, is_root: bool = False
-    ) -> "RoutingGroup":
-        msgrp = MergedSuccGroup()
-        remaining = MergedSuccGroup()
-        sub_nodes: set[NodeType] = set()
+    def build(cls, merged_grp: MergedGroup, is_root: bool = False) -> "RoutingGroup":
+
+        online_values = {n.online for n in merged_grp.nodes}
+        if len(online_values) != 1:
+            raise NotSupportedError(
+                "Mixed online and offline nodes in a routing group is not supported."
+            )
+        online = online_values.pop()
 
         # If an input node in the merged groups is an output node of the merged groups, the node is
         # recorded and called a subordinate node.
-        for group in merged_sgrp:
-            if group.input in merged_sgrp.nodes:
-                sub_nodes.update(group.nodes)
+        global_nodes = set(merged_grp.nodes)
+        raw_inhi_groups: list[set[NodeType]] = []
+        raw_data_groups: list[set[NodeType]] = []
 
-        remaining_nodes = set(merged_sgrp.nodes) - sub_nodes
+        def print_nodes(nodes: set[NodeType]):
+            print([node.name for node in nodes])
 
-        for group in merged_sgrp:
-            if not sub_nodes.isdisjoint(group.nodes):
-                msgrp.add_group(group)
-            if not remaining_nodes.isdisjoint(group.nodes):
-                remaining.add_group(group)
+        def filter_sets(sets: list[set]) -> list[set]:
+            """去掉子集集合，并确保任意两集合要么包含要么不相交"""
+            # 先检查两两关系是否合法
+            for i, a in enumerate(sets):
+                for j, b in enumerate(sets):
+                    if i >= j:
+                        continue
+                    # 若部分相交但不是子集关系
+                    if not (a.issubset(b) or b.issubset(a) or a.isdisjoint(b)):
+                        raise ValueError(
+                            f"Can not support inhi {a} and {b} with partial overlap."
+                        )
 
-        # remaining.nodes &= remaining_nodes
-        for node in remaining.nodes - remaining_nodes:
-            remaining.remove_node(node)
+            # 去掉子集（保留最大集）
+            filtered: list[set] = []
+            for s in sets:
+                if not any(s < other for other in sets):
+                    exist = False
+                    for seen in filtered:
+                        if seen.issubset(s) and s.issubset(seen):
+                            exist = True
+                            break
+                    if not exist:
+                        filtered.append(s)
 
-        # msgrp.nodes &= sub_nodes
-        for node in msgrp.nodes - sub_nodes:
-            msgrp.remove_node(node)
+            return filtered
 
-        # Build the subordinate routing groups if there are any subordinate nodes.
-        if len(msgrp.nodes) > 0:
-            sub_rgrp = RoutingGroup.build(msgrp)
-            ordered_rgrp = [sub_rgrp]
-        else:
-            ordered_rgrp = []
+        def merge_sets(sets: list[set]) -> list[set]:
+            visited: set[int] = set()
 
-        unordered_elems = build_elements(remaining)
+            def dfs(i: int, merged_s: set):
+                for j, other in enumerate(sets):
+                    if j not in visited and not sets[i].isdisjoint(other):
+                        visited.add(j)
+                        merged_s.update(other)
+                        dfs(j, merged_s)
 
-        return cls(unordered_elems, ordered_rgrp, is_root)
+            merged_sets: list[set] = []
+            for i, s in enumerate(sets):
+                if i not in visited:
+                    visited.add(i)
+                    merged_s = set(s)
+                    dfs(i, merged_s)
+                    merged_sets.append(merged_s)
+
+            return merged_sets
+
+        for group in merged_grp:
+            if isinstance(group, InhiGroup):
+                if global_nodes == set(group.nodes):
+                    continue
+                raw_inhi_groups.append(set(group.nodes))
+            else:
+                if group.input in merged_grp.nodes:
+                    raw_data_groups.append(set(group.nodes))
+
+        processed_inhi_groups = filter_sets(raw_inhi_groups)
+        processed_data_groups = merge_sets(raw_data_groups)
+
+        final_inhi_groups: list[set[NodeType]] = []
+
+        for inhi_group in processed_inhi_groups:
+            independent = True
+            for data_group in processed_data_groups:
+                if not inhi_group.isdisjoint(data_group):
+                    data_group.update(inhi_group)
+                    independent = False
+            if independent:
+                final_inhi_groups.append(inhi_group)
+
+        final_data_groups = merge_sets(processed_data_groups)
+
+        if len(final_data_groups) == 1 and final_data_groups[0] == global_nodes:
+            raise ValueError(
+                f"Cannot make groups {data_group} and {final_inhi_groups} independent."
+            )
+
+        remain_nodes = global_nodes.copy()
+        for group in final_data_groups:
+            remain_nodes -= group
+
+        for group in final_inhi_groups:
+            remain_nodes -= group
+
+        data_mgrps = [merged_grp.reserve_node(g) for g in final_data_groups]
+        data_mgrps = merge_cycles(data_mgrps)
+
+        inhi_mgrps = [merged_grp.reserve_node(g) for g in final_inhi_groups]
+
+        remain_mgrp = merged_grp.reserve_node(remain_nodes)
+
+        merged_data_grp_graph: dict[MergedGroup, list[MergedGroup]] = defaultdict(list)
+        for i in range(len(data_mgrps)):
+            cur_node = data_mgrps[i]
+            merged_data_grp_graph[cur_node] = []
+            for j in range(len(data_mgrps)):
+                if j == i:
+                    continue
+                succ_node = data_mgrps[j]
+                if not set(succ_node.inputs).isdisjoint(cur_node.nodes):
+                    merged_data_grp_graph[cur_node].append(succ_node)
+
+        data_mgrps = toposort(merged_data_grp_graph)
+
+        # print("after toposort the result is: ")
+        # for data_msgrp in data_msgrps:
+        #     print(data_msgrp)
+
+        ordered_elems: OrderedElemsType = []
+        unordered_elems: UnorderedElemsType = []
+        for msgrp in data_mgrps:
+            if len(msgrp) > 0:
+                data_rgrp = RoutingGroup.build(msgrp)
+                ordered_elems.append(data_rgrp)
+
+        for msgrp in inhi_mgrps:
+            if len(msgrp.nodes) > 0:
+                inhi_rgrp = RoutingGroup.build(msgrp)
+                unordered_elems.append(inhi_rgrp)
+
+        if len(remain_mgrp.nodes) > 0:
+            unordered_elems.extend(build_elements(remain_mgrp, online))
+
+        return cls(unordered_elems, ordered_elems, is_root)
 
     def allocate_cp(self) -> None:
         if not self.is_assigned:
@@ -456,7 +615,7 @@ class RoutingGroup:
 
         # Allocate empty core placements for the wasted coordinates.
         for coord in self.wasted_coords:
-            self.wasted_core_plm[coord] = EmptyCorePlacement.build(coord)
+            self.wasted_core_plm[coord] = EmptyCorePlacement.build(coord, self.online)
 
     def get_wasted_cplm_config(self) -> CorePlmConfInChip:
         return {
@@ -495,14 +654,15 @@ class RoutingGroup:
         return f"{self.__class__.__name__}_{self._id}"
 
     def dump(
-        self, indents: int = 0, father_logger: Optional[logging.Logger] = None
+        self, indents: int = 0, father_logger: logging.Logger | None = None
     ) -> None:
         _logger = rt_grp_log if father_logger is None else father_logger
 
         tabs = "\t" * indents
 
         _logger.debug(
-            tabs + f"{self}(root: {self.is_root}, {self.n_core_required} cores):"
+            tabs
+            + f"{self}(root: {self.is_root}, target_chip: {self.target_chip_idx}, {self.n_core_required} cores):"
         )
         _logger.debug(
             tabs + f"Global axons: {[str(axon) for axon in self.global_axons]}"
@@ -515,8 +675,11 @@ class RoutingGroup:
         for elem in self.routing_elems:
             elem.dump(indents + 1, father_logger=_logger)
 
+        if indents == 0:
+            _logger.debug("")
+
     def dump_routing_result(
-        self, indents: int = 0, father_logger: Optional[logging.Logger] = None
+        self, indents: int = 0, father_logger: logging.Logger | None = None
     ) -> None:
         _logger = rt_grp_log if father_logger is None else father_logger
 
@@ -539,6 +702,9 @@ class RoutingGroup:
             else:
                 elem.dump_routing_result(indents + 1, father_logger=_logger)
 
+        if indents == 0:
+            _logger.debug("")
+
     def _start_core_coord_repr(self) -> str:
         return _1st_core_coord_repr(self.assigned_coords)
 
@@ -551,13 +717,27 @@ class RoutingManager:
             through the serial port to reduce power consumption.
         """
         self.n_core_total: int = 0
+        self.n_core_occupied: int = 0
         self.n_core_per_chip = self._default_n_core_per_chip()
+
+        self.routing_state_stack: deque[dict] = deque()
+        self.cur_start = 0
+        self.cur_child_size = HwConfig.N_CORE_MAX_INCHIP
+        self.cur_child_state = [0] * len(self.chip_list)
+        self.cur_end = self.cur_start + self.cur_child_size * len(self.cur_child_state)
+        self.online_state = [0] * len(self.chip_list)
 
         self.routing_grps: list[RoutingGroup] = []
         self.succ_rgrps: dict[RoutingGroup, list[RoutingGroup]] = defaultdict(list)
 
     def clear(self) -> None:
         self.n_core_total = 0
+        self.n_core_occupied = 0
+        self.cur_start = 0
+        self.cur_child_size = HwConfig.N_CORE_MAX_INCHIP
+        self.cur_child_state = [0] * len(self.chip_list)
+        self.cur_end = self.cur_start + self.cur_child_size * len(self.cur_child_state)
+        self.online_state = [0] * len(self.chip_list)
         self._clear_n_core_per_chip()
         self._clear_used_L2_clusters()
         self.routing_grps.clear()
@@ -594,11 +774,278 @@ class RoutingManager:
                         self.succ_rgrps[rg].append(next_rg)
                         break
 
+    def check_valid(
+        self,
+        n_core_incoming,
+        online,
+    ) -> bool:
+        if online and n_core_incoming > HwConfig.N_CORE_ONLINE:
+            raise ResourceError(
+                f"the online routing group({n_core_incoming}) exceeds the hardware limit."
+            )
+
+        if not online and n_core_incoming > HwConfig.N_CORE_MAX_INCHIP / 2:
+            raise ResourceError(
+                f"the offline routing group({n_core_incoming}) exceeds the hardware limit."
+            )
+
+        return True
+
+    def pop_to_top(self):
+        while len(self.routing_state_stack) > 0:
+            self.stack_pop()
+
+    def stack_push(self, child_index: int = -1):
+        if child_index != -1:
+            if child_index < 0 or child_index >= len(self.cur_child_state):
+                raise ResourceError(
+                    f"the child_index {child_index} is out of range [0, {len(self.cur_child_state)})."
+                )
+            elif self.cur_child_state[child_index] == 1:
+                raise ResourceError(
+                    f"the child with {self.cur_child_size} cores at {self.cur_start + self.cur_child_size * child_index} is already occupied."
+                )
+            child_index = child_index
+        elif 0 in self.cur_child_state:
+            child_index = self.cur_child_state.index(0)
+        else:
+            raise ResourceError(
+                f"the all children with {self.cur_child_size} cores at {self.cur_start} are all occupied."
+            )
+        self.routing_state_stack.append(
+            {
+                "cur_start": self.cur_start,
+                "cur_child_size": self.cur_child_size,
+                "cur_child_state": self.cur_child_state.copy(),
+                "cur_end": self.cur_end,
+                "child_index": child_index,
+            }
+        )
+        self.cur_start = self.cur_start + self.cur_child_size * child_index
+        self.cur_child_size = self.cur_child_size // HwConfig.N_SUB_ROUTING_NODE
+        self.cur_child_state = [0] * HwConfig.N_SUB_ROUTING_NODE
+        self.cur_end = self.cur_start + self.cur_child_size * len(self.cur_child_state)
+
+    def stack_pop(self):
+        if len(self.routing_state_stack) == 0:
+            raise ResourceError(
+                "the number of cores required by the routing group exceeds the hardware limit."
+            )
+        deque_state = self.routing_state_stack.pop()
+        empty_core_num = self.available_child_num * self.cur_child_size
+        self.n_core_occupied += empty_core_num
+        self.n_core_per_chip[self.cur_chip_index] += empty_core_num
+
+        self.cur_start = deque_state["cur_start"]
+        self.cur_child_size = deque_state["cur_child_size"]
+        self.cur_child_state = deque_state["cur_child_state"]
+        self.cur_end = deque_state["cur_end"]
+        child_index = deque_state["child_index"]
+        self.cur_child_state[child_index] = 1
+
+    @property
+    def in_online(self) -> bool:
+        return (
+            self.cur_start % HwConfig.N_CORE_MAX_INCHIP >= ONLINE_CORES_BASE_COORD
+            and ((self.cur_end - 1) % HwConfig.N_CORE_MAX_INCHIP + 1)
+            <= ONLINE_CORES_BASE_COORD + HwConfig.N_CORE_ONLINE
+        )
+
+    @property
+    def cur_chip_index(self) -> int:
+        return self.cur_start // HwConfig.N_CORE_MAX_INCHIP
+
+    @property
+    def max_group_size(self) -> int:
+        if self.cur_child_size == HwConfig.N_CORE_MAX_INCHIP:
+            if 0 in self.cur_child_state:
+                return HwConfig.N_CORE_MAX_INCHIP // 2
+            else:
+                return 0
+        elif 1 not in self.cur_child_state:
+            return self.cur_child_size * len(self.cur_child_state)
+        else:
+            if (
+                self.cur_child_state[0] == 0
+                and self.cur_child_state[1] == 0
+                or self.cur_child_state[2] == 0
+                and self.cur_child_state[3] == 0
+            ):
+                return self.cur_child_size * 2
+            elif 0 in self.cur_child_state:
+                return self.cur_child_size
+            else:
+                return 0
+
+    @property
+    def available_child_num(self) -> int:
+        return self.cur_child_state.count(0)
+
+    def insert_incoming(
+        self, n_core_incoming: int, target_chip_idx: int, online: bool
+    ) -> tuple[int, int, list[Direction]]:
+        if self.max_group_size < n_core_incoming:
+            # cur level cannot hold the incoming group, try previous level
+            self.stack_pop()
+            return self.try_get_insert_location(
+                n_core_incoming, target_chip_idx, online
+            )
+
+        elif self.cur_child_size > n_core_incoming:
+            # the child level can hold the incoming group, go deeper
+            self.stack_push()
+            return self.try_get_insert_location(
+                n_core_incoming, target_chip_idx, online
+            )
+
+        elif (
+            self.cur_child_size == n_core_incoming
+            or self.cur_child_size * 2 == n_core_incoming
+            or self.cur_child_size * 4 == n_core_incoming
+        ):
+            if self.cur_child_size == n_core_incoming:
+                child_index = self.cur_child_state.index(0)
+            elif self.cur_child_size * 2 == n_core_incoming:
+                if self.cur_child_state[0] == 0 and self.cur_child_state[1] == 0:
+                    child_index = 0
+                elif self.cur_child_state[2] == 0 and self.cur_child_state[3] == 0:
+                    child_index = 2
+                else:
+                    raise ResourceError(
+                        f"the maximum incoming group size {self.max_group_size} is not correct."
+                    )
+            elif self.cur_child_size * 4 == n_core_incoming:
+                if self.cur_child_state == [0, 0, 0, 0]:
+                    child_index = 0
+                else:
+                    raise ResourceError(
+                        f"the maximum incoming group size {self.max_group_size} is not correct."
+                    )
+
+            core_loc = self.cur_start + self.cur_child_size * child_index
+            core_start = core_loc % HwConfig.N_CORE_MAX_INCHIP
+            core_end = core_start + n_core_incoming
+
+            if online:
+                if not (
+                    core_start >= ONLINE_CORES_BASE_COORD
+                    and core_end <= ONLINE_CORES_BASE_COORD + HwConfig.N_CORE_ONLINE
+                ):
+                    self.stack_pop()
+                    return self.try_get_insert_location(
+                        n_core_incoming, target_chip_idx, online
+                    )
+            else:
+                overlap_online = (
+                    core_end > ONLINE_CORES_BASE_COORD
+                    and core_start < ONLINE_CORES_BASE_COORD + HwConfig.N_CORE_ONLINE
+                )
+                if overlap_online:
+                    self.stack_pop()
+                    return self.try_get_insert_location(
+                        n_core_incoming, target_chip_idx, online
+                    )
+
+            if (
+                target_chip_idx != NEU_TARGET_CHIP_UNSET
+                and target_chip_idx != self.cur_chip_index
+            ):
+                raise ResourceError(
+                    f"the target chip {target_chip_idx} is not the current chip {self.cur_chip_index}."
+                )
+
+            self.n_core_occupied += n_core_incoming
+            self.n_core_per_chip[self.cur_chip_index] += n_core_incoming
+
+            occuried_child_num = n_core_incoming // self.cur_child_size
+            for i in range(occuried_child_num):
+                self.cur_child_state[child_index + i] = 1
+
+            routing_idx = core_loc % HwConfig.N_CORE_MAX_INCHIP
+            # From L0 to L4
+            routing_path = []
+            for _ in range(MAX_ROUTING_PATH_LENGTH):
+                routing_idx, re = divmod(routing_idx, HwConfig.N_SUB_ROUTING_NODE)
+                routing_path.append(DIREC_IDX[re])
+
+            return core_loc, self.cur_chip_index, routing_path
+        else:
+            raise ResourceError(
+                f"incoming group size {n_core_incoming} is not supported"
+            )
+
+    def move_to_chip(self, target_chip_idx: int):
+        if target_chip_idx == NEU_TARGET_CHIP_UNSET:
+            return
+        elif target_chip_idx < 0 or target_chip_idx >= len(self.chip_list):
+            raise ResourceError(
+                f"the target chip {target_chip_idx} is out of range [0, {len(self.chip_list)})."
+            )
+        elif self.cur_chip_index == target_chip_idx:
+            return
+        else:
+            self.pop_to_top()
+            self.stack_push(target_chip_idx)
+            return
+
+    def insert_online(
+        self, n_core_incoming: int, target_chip_idx: int = NEU_TARGET_CHIP_UNSET
+    ) -> tuple[int, int, list[Direction]]:
+        self.move_to_chip(target_chip_idx)
+
+        # not in online area, try to move to online area
+        if not self.in_online:
+            cur_chip_index = self.cur_start // HwConfig.N_CORE_MAX_INCHIP
+            if self.online_state[cur_chip_index] == 1:
+                # the online cores in this chip are already occupied, try other chip
+                self.pop_to_top()
+                self.stack_push()
+                return self.insert_online(n_core_incoming, target_chip_idx)
+            else:
+                # the online cores in this chip are available, move stack until online cores
+                while not self.in_online:
+                    cur_end_in_chip = (
+                        self.cur_end - 1
+                    ) % HwConfig.N_CORE_MAX_INCHIP + 1
+                    if cur_end_in_chip <= ONLINE_CORES_BASE_COORD:
+                        self.stack_pop()
+                    else:
+                        online_child_index = (
+                            ONLINE_CORES_BASE_COORD
+                            - self.cur_start % HwConfig.N_CORE_MAX_INCHIP
+                        ) // self.cur_child_size
+                        self.stack_push(online_child_index)
+                return self.insert_online(n_core_incoming, target_chip_idx)
+
+        else:
+            self.online_state[self.cur_start // HwConfig.N_CORE_MAX_INCHIP] = 1
+            return self.insert_incoming(n_core_incoming, target_chip_idx, True)
+
+    def insert_offline(
+        self, n_core_incoming: int, target_chip_idx: int = NEU_TARGET_CHIP_UNSET
+    ) -> tuple[int, int, list[Direction]]:
+        self.move_to_chip(target_chip_idx)
+        while self.in_online:
+            self.stack_pop()
+        return self.insert_incoming(n_core_incoming, target_chip_idx, False)
+
+    def try_get_insert_location(
+        self,
+        n_core_incoming: int,
+        target_chip_idx: int = NEU_TARGET_CHIP_UNSET,
+        online: bool = False,
+    ) -> tuple[int, int, list[Direction]]:
+        self.check_valid(n_core_incoming, online)
+        if online:
+            return self.insert_online(n_core_incoming, target_chip_idx)
+        else:
+            return self.insert_offline(n_core_incoming, target_chip_idx)
+
     def get_insert_location(
         self,
         n_core_incoming: int,
         n_core_wasted: int,
-        target_chip_idx: int = NEU_TARGET_CHIP_NOT_SET,
+        target_chip_idx: int = NEU_TARGET_CHIP_UNSET,
     ) -> tuple[int, int, list[Direction]]:
         """Look for the insertion location for the incoming routing group.
 
@@ -631,10 +1078,7 @@ class RoutingManager:
 
         core_loc = n_core_aligned
         chip_idx_loc = core_loc // HwConfig.N_CORE_MAX_INCHIP
-        if (
-            target_chip_idx > NEU_TARGET_CHIP_NOT_SET
-            and chip_idx_loc != target_chip_idx
-        ):
+        if target_chip_idx > NEU_TARGET_CHIP_UNSET and chip_idx_loc != target_chip_idx:
             if chip_idx_loc > target_chip_idx:
                 raise ResourceError(
                     f"the target chip {target_chip_idx} is not routable, "
@@ -695,8 +1139,8 @@ class RoutingManager:
         if rgrp.target_chip_idx is None:
             raise ValueError("The 'target_chip_idx' of the routing group is not set.")
 
-        core_insert_loc, chip_idx_loc, rpath_start = self.get_insert_location(
-            n_core_cost, n_tail_waste, rgrp.target_chip_idx
+        core_insert_loc, chip_idx_loc, rpath_start = self.try_get_insert_location(
+            n_core_cost, rgrp.target_chip_idx, rgrp.online
         )
 
         allocated_coords: list[Coord] = []
@@ -715,24 +1159,6 @@ class RoutingManager:
         """Allocate core placements for all core blocks in all routing groups."""
         for rg in self.ordered_rgrps:
             rg.allocate_cp()
-
-    def get_n_core_occupied(self) -> int:
-        """Get the #N of cores occupied by all routing groups. Online cores are not counted."""
-        n_chip_full_used, remaining = divmod(
-            self.n_core_total, HwConfig.N_CORE_MAX_INCHIP
-        )
-        occupied = n_chip_full_used * HwConfig.N_CORE_OFFLINE
-
-        if remaining <= ONLINE_CORES_BASE_COORD:
-            occupied += remaining
-        elif remaining <= ONLINE_CORES_BASE_COORD + HwConfig.N_CORE_ONLINE:
-            # When the wasted cores of the last routing group in the chip overlap with the online cores.
-            occupied += ONLINE_CORES_BASE_COORD
-        else:
-            # Online cores were all counted incorrectly.
-            occupied += remaining - HwConfig.N_CORE_ONLINE
-
-        return occupied
 
     @cached_property
     def ordered_rgrps(self) -> list[RoutingGroup]:
@@ -756,15 +1182,6 @@ class RoutingManager:
     def _clear_n_core_per_chip(self) -> None:
         for i in range(len(self.n_core_per_chip)):
             self.n_core_per_chip[i] = 0
-
-
-@deprecated(
-    "'RoutingRoot' is deprecated in version 1.2.0 and will be "
-    "removed in version 1.3.0. Use `RoutingManager` instead.",
-    category=PAIBoxDeprecationWarning,
-)
-class RoutingRoot(RoutingManager):
-    pass
 
 
 def _nearest_multiple_above(a: int, x: int) -> int:
@@ -794,7 +1211,7 @@ def _routing_path_generator(
                 break
 
 
-def _all_lx_clusters(lx: Union[Level, int]) -> list[RoutingCoord]:
+def _all_lx_clusters(lx: Level | int) -> list[RoutingCoord]:
     return [
         RoutingCoord(*path)
         for path in itertools.product(DIREC_IDX, repeat=MAX_ROUTING_PATH_LENGTH - lx)
@@ -802,11 +1219,11 @@ def _all_lx_clusters(lx: Union[Level, int]) -> list[RoutingCoord]:
 
 
 def get_unused_lx(
-    used_lx: list[RoutingCoord], lx: Union[Level, int] = Level.L2
+    used_lx: list[RoutingCoord], lx: Level | int = Level.L2
 ) -> list[RoutingCoord]:
     all_lx = _all_lx_clusters(lx)
 
-    for l in set(used_lx):  # make used_lx unduplicated
-        all_lx.remove(l)  # keep the rest clusters in order
+    for _lx in set(used_lx):  # make used_lx unduplicated
+        all_lx.remove(_lx)  # keep the rest clusters in order
 
     return all_lx

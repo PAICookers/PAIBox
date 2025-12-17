@@ -1,12 +1,17 @@
-import math
 import warnings
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Optional, Union, cast
+from typing import Any, cast
 
 from paibox.base import DataFlowFormat
 from paibox.collector import Collector
-from paibox.components import FullConnectedSyn, InputProj, NeuModule, Neuron
+from paibox.components import (
+    FullConnectedSyn,
+    InputProj,
+    NeuModule,
+    Neuron,
+    OnlineNeuron,
+)
 from paibox.components.functional import LinearSemiFolded
 from paibox.exceptions import (
     GraphBuildError,
@@ -17,7 +22,6 @@ from paibox.exceptions import (
 from paibox.network import DynSysGroup
 from paibox.utils import check_elem_unique
 
-from .context import _BACKEND_CONTEXT
 from .graph_utils import (
     get_node_degrees,
     get_pred_dg_by_succ_dg,
@@ -26,11 +30,19 @@ from .graph_utils import (
     reverse_edges,
     toposort,
 )
+from .group import BaseGroup, DataGroup, InhiGroup, MergedGroup
 from .placement import CoreBlock
 from .routing import RoutingGroup
-from .segment_utils import get_neu_segments
-from .succ_group import *
-from .types import *
+from .types import (
+    DestNodeType,
+    EdgeAttr,
+    EdgeName,
+    EdgeType,
+    NodeDegree,
+    NodeName,
+    NodeType,
+    SourceNodeType,
+)
 
 __all__ = ["PAIGraph"]
 
@@ -141,7 +153,7 @@ class PAIGraph:
             {
                 edge.name: edge
                 for edge in raw_edges.values()
-                if edge.source.name in self.nodes and edge.dest.name in self.nodes
+                if edge.source.name in self.nodes and edge.target.name in self.nodes
             }
         )
         self.succ_dg = cast(NodeAdjDictType, pruned_succ_dg)
@@ -209,7 +221,7 @@ class PAIGraph:
         succ_dg: NodeAdjDictType = {n: dict() for n in nodes}  # record all nodes
 
         for edge in edges:
-            u, v = edge.source.name, edge.dest.name
+            u, v = edge.source.name, edge.target.name
 
             if u not in nodes:
                 raise GraphConnectionError(
@@ -218,7 +230,7 @@ class PAIGraph:
 
             if v not in nodes:
                 raise GraphConnectionError(
-                    f"the dest neuron {v} of {edge.name} is not included in the graph."
+                    f"the target neuron {v} of {edge.name} is not included in the graph."
                 )
 
             succ_dg[u][v] = EdgeAttr(edge, edge.source.delay_relative)
@@ -290,17 +302,23 @@ class PAIGraph:
         if not self.has_built:
             raise GraphBuildError("the graph hasn't been built yet.")
 
-    def graph_partition(self) -> list[MergedSuccGroup]:
+    def graph_partition(self) -> list[MergedGroup]:
         """Graph partition."""
         # Build the `SuccGroup` for each node in the graph.
-        succ_grps: list[SuccGroup] = []
+        grps: list[BaseGroup] = []
         for nn in iter_toposort(self.succ_dg):
             if succ_nodes := self.succ_dg[nn]:
-                succ_grps.append(SuccGroup(e.edge for e in succ_nodes.values()))
+                succ_edges = [e_attr.edge for e_attr in succ_nodes.values()]
+                grps.append(DataGroup(succ_edges))
 
-        def dfs(sgrp: SuccGroup, msgrp: MergedSuccGroup) -> None:
+        for node in self.nodes.subset(Neuron).values():
+            if node.online:
+                node = cast(OnlineNeuron, node)
+                grps.append(InhiGroup(list(node.lateral_inhi_target)))
+
+        def dfs(sgrp: BaseGroup, msgrp: MergedGroup) -> None:
             # Union-find sets. If the nodes of two `succ_grps` have intersection, merge them.
-            for other_sgrp in succ_grps:
+            for other_sgrp in grps:
                 if other_sgrp not in visited and not set(sgrp.nodes).isdisjoint(
                     other_sgrp.nodes
                 ):
@@ -309,113 +327,16 @@ class PAIGraph:
                     dfs(other_sgrp, msgrp)
 
         # Merge
-        merged_sgrps: list[MergedSuccGroup] = []
-        visited: set[SuccGroup] = set()
-        for sgrp in succ_grps:
+        merged_grps: list[MergedGroup] = []
+        visited: set[BaseGroup] = set()
+        for sgrp in grps:
             if sgrp not in visited:
-                m = MergedSuccGroup([sgrp])
+                m = MergedGroup([sgrp])
                 visited.add(sgrp)
                 dfs(sgrp, m)
-                merged_sgrps.append(m)
+                merged_grps.append(m)
 
-        return merged_sgrps
-
-    def multicast_optim(
-        self,
-        core_blocks: list[CoreBlock],
-        routing_groups: list[RoutingGroup],
-        optim_nodes: tuple[NodeName, ...] = (),
-    ) -> bool:
-        """Multicast optimization.
-
-        NOTE: Only applies to a node that only has 2 successors, and they belong to the same core block.
-        """
-        raise NotImplementedError
-
-        "the following code is not used, but it may be useful in the future."
-        ONLY_SUPPORT_N_SUCC = 2
-
-        def _roundup_to_pow2(n: int) -> int:
-            assert n > 0
-            return 1 if n < 1 else 2 ** math.ceil(math.log(n, 2))
-
-        is_optimized = False
-
-        if optim_nodes == ():
-            _optim_nodes = list(reversed(self.ordered_nodes))
-        else:
-            _optim_nodes = optim_nodes
-
-        # visit ordered nodes for end to front
-        for node_name in filter(lambda node: isinstance(node, Neuron), _optim_nodes):
-            node = self._raw_nodes[node_name]
-
-            succ_nn = list(self.succ_dg[node_name].keys())
-            if len(succ_nn) != ONLY_SUPPORT_N_SUCC:
-                continue
-
-            succ_cbs = get_succ_cb_by_node(node, core_blocks)
-            pred_cbs = get_pred_cb_by_node(node, core_blocks)
-
-            # the node to be optimized can only has one successor core block & predecessor core block.
-            if len(succ_cbs) != 1 or len(pred_cbs) != 1:
-                continue
-
-            succ_cb = succ_cbs[0]
-            pred_cb = pred_cbs[0]
-
-            if set(d.name for d in succ_cb.dest) != set(succ_nn):
-                continue
-
-            pred_rg = self._find_rg_by_cb(pred_cb, routing_groups)
-            succ_rg = self._find_rg_by_cb(succ_cb, routing_groups)
-
-            # The expected previous core block will add a new replicated node.
-            pred_cb_dest = pred_cb.dest.copy()
-            pred_cb_dest.append(node.copy())
-
-            n_core_required_after_copy = len(
-                get_neu_segments(
-                    pred_cb_dest,
-                    pred_cb.n_fanout,
-                    pred_cb.n_neuron_repl,
-                    _BACKEND_CONTEXT.cflags["grouping_optim_target"],
-                )
-            )
-            pred_rg_n_core = pred_rg.n_core_required
-            pred_rg_n_core_after_copy = (
-                pred_rg_n_core - pred_cb.n_core_required + n_core_required_after_copy
-            )
-
-            n_core_after_split = [0] * ONLY_SUPPORT_N_SUCC
-            for i in range(ONLY_SUPPORT_N_SUCC):
-                dest = [self._raw_nodes[succ_nn[i]]]
-                n_core_after_split[i] = len(
-                    get_neu_segments(
-                        dest,  # type: ignore
-                        succ_cb.n_fanout,
-                        succ_cb.n_neuron_repl,
-                        _BACKEND_CONTEXT.cflags["grouping_optim_target"],
-                    )
-                )
-
-            # 2^log2(#N of source rg) + 2^log2(#N of dest rg)
-            n_core_before = _roundup_to_pow2(pred_rg_n_core) + _roundup_to_pow2(
-                succ_rg.n_core_required
-            )
-            # 2^log2(#N of source rg after copy) + sum(2^log2(#N of dest rg[i]))
-            n_core_after = _roundup_to_pow2(pred_rg_n_core_after_copy) + sum(
-                _roundup_to_pow2(n) for n in n_core_after_split
-            )
-
-            # TODO actually here is: n_core_after < n_core_before
-            if True:
-                if not is_optimized:
-                    is_optimized = True
-
-                self._copy_node(node, keep_pred_conn=True, grab_succ_nodes=succ_nn[-1])
-
-        return is_optimized
+        return merged_grps
 
     def _copy_node(
         self,
@@ -423,8 +344,8 @@ class PAIGraph:
         *,
         keep_pred_conn: bool = False,
         keep_succ_conn: bool = False,
-        grab_pred_nodes: Union[NodeName, Sequence[NodeName]] = (),
-        grab_succ_nodes: Union[NodeName, Sequence[NodeName]] = (),
+        grab_pred_nodes: NodeName | Sequence[NodeName] = (),
+        grab_succ_nodes: NodeName | Sequence[NodeName] = (),
         update: bool = True,
     ) -> NodeType:
         def _copy_pred_conn(
@@ -565,14 +486,14 @@ class PAIGraph:
 
         return copied
 
-    def get_neu_by_name(self, name: NodeName) -> Optional[DestNodeType]:
+    def get_neu_by_name(self, name: NodeName) -> DestNodeType | None:
         for neu in self.nodes.exclude(InputProj):
             if name == neu:
                 return cast(DestNodeType, self.nodes[neu])
 
         return None
 
-    def get_synapse_by_name(self, name: EdgeName) -> Optional[EdgeType]:
+    def get_synapse_by_name(self, name: EdgeName) -> EdgeType | None:
         for syn in self.edges:
             if name == syn:
                 return self.edges[syn].edge

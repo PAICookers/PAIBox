@@ -1,12 +1,11 @@
 import copy
-import warnings
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 
 from paibox.base import DynamicSys, PAIBoxObject
 from paibox.context import _FRONTEND_CONTEXT
-from paibox.exceptions import PAIBoxDeprecationWarning, SimulationError
+from paibox.exceptions import SimulationError
 
 __all__ = ["Probe", "Simulator"]
 
@@ -15,17 +14,13 @@ class Probe(PAIBoxObject):
     target: PAIBoxObject
 
     def __init__(
-        self,
-        target: PAIBoxObject,
-        attr: str,
-        *,
-        name: Optional[str] = None,
+        self, target: PAIBoxObject, attr: str, *, name: str | None = None
     ) -> None:
         """
         Arguments:
             - target: the target that needs to be monitored.
             - attr: the attribute that needs to be monitored.
-            - name: the name of the probe. Optional.
+            - name: the name of the probe.
         """
         self.attr = attr
         self._check_attr(target)
@@ -56,7 +51,7 @@ class Simulator(PAIBoxObject):
         self,
         target: DynamicSys,
         start_time_zero: bool = False,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         """
         Arguments:
@@ -66,7 +61,7 @@ class Simulator(PAIBoxObject):
         """
         if not isinstance(target, DynamicSys):
             raise SimulationError(
-                f"target must be an instance of {DynamicSys.__name__}, but got {target}, {type(target)}."
+                f"target must be an instance of {DynamicSys.__name__}, but got {target}, {type(target).__name__}."
             )
 
         super().__init__(name)
@@ -88,21 +83,12 @@ class Simulator(PAIBoxObject):
         self._add_inner_probes()
         self.reset()
 
-    def run(self, duration: int, reset: bool = False, **kwargs) -> None:
+    def run(self, duration: int, reset: bool = False) -> None:
         """
-        Arguments:
-            - duration: duration of the simulation.
-            - reset: whether to reset the state of components in the model. Default is `False`.
-            - kwargs：determined by the parameter format of the input node. It will be deprecated, \
-                please use 'FRONTEND_ENV.save()' instead.
+        Args:
+            duration (int): duration of the simulation.
+            reset (bool): whether to reset the state of components in the model. Default is `False`.
         """
-        if kwargs:
-            warnings.warn(
-                "passing extra arguments through 'run()' will be deprecated. "
-                "Use 'FRONTEND_ENV.save()' instead.",
-                PAIBoxDeprecationWarning,
-            )
-
         if duration < 1:
             raise SimulationError(f"duration must be positive, but got {duration}.")
 
@@ -117,7 +103,7 @@ class Simulator(PAIBoxObject):
         if reset:
             self.target.reset_state()
 
-        self._run_step(indices, **kwargs)
+        self._run_step(indices)
 
         self._sim_data["ts"].extend(indices * self.dt)
         self._ts += n_steps
@@ -145,10 +131,10 @@ class Simulator(PAIBoxObject):
         else:
             raise KeyError(f"probe '{probe.name}' does not exist.")
 
-    def _run_step(self, indices: list[int], **kwargs) -> None:
+    def _run_step(self, indices: list[int]) -> None:
         for idx in indices:
             _FRONTEND_CONTEXT["t"] = idx
-            self.target.update(**kwargs)
+            self.target.update()
             self._update_probes()
 
     def _destroy_probes(self):

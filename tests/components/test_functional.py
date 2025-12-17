@@ -15,9 +15,17 @@ from paibox.components.synapses.conv_utils import (
 from paibox.exceptions import ShapeError
 from paibox.network import DynSysGroup
 from paibox.types import NEUOUT_U8_DTYPE, VOLTAGE_DTYPE, WEIGHT_DTYPE
-from paibox.utils import as_shape, shape2num, typical_round
+from paibox.utils import shape2num, typical_round
+from tests.utils import make_test
 
-from .conftest import *  # import test data
+from .functional_testcase import (
+    ann_pool1d_data,
+    ann_pool2d_data,
+    conv2d_semifolded_fc_chainnet_data,
+    pool2d_semifolded_fc_chainnet_data,
+    spiking_pool1d_data,
+    spiking_pool2d_data,
+)
 from .utils import (
     ann_bit_trunc,
     avgpool1d_golden,
@@ -50,8 +58,8 @@ class TestFunctionalModules:
         bitwise = 10
         sim = pb.Simulator(net, start_time_zero=False)
 
-        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool_)
-        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool_)
+        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=bool)
+        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=bool)
 
         # data2 will input to inp2 which is connected with the AND module.
         for i in range(N_TEST):
@@ -68,9 +76,9 @@ class TestFunctionalModules:
         bitwise = 10
         sim = pb.Simulator(net, start_time_zero=False)
 
-        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool_)
-        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool_)
-        inpc = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool_)
+        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=bool)
+        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=bool)
+        inpc = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=bool)
 
         for t in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[t], data2=inpb[t], data3=inpc[t])
@@ -110,8 +118,8 @@ class TestFunctionalModules:
         probe_func = pb.Probe(generated[func][0], "spike")
         sim2.add_probe(probe_func)
 
-        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool_)
-        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool_)
+        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=bool)
+        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=bool)
 
         for i in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[i], data2=inpb[i])
@@ -151,7 +159,7 @@ class TestFunctionalModules:
         probe_func = pb.Probe(generated[func][0], "spike")
         sim2.add_probe(probe_func)
 
-        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool_)
+        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=bool)
 
         for i in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[i])
@@ -191,8 +199,8 @@ class TestFunctionalModules:
         probe_func = pb.Probe(generated[func][0], "spike")
         sim2.add_probe(probe_func)
 
-        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool_)
-        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool_)
+        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=bool)
+        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=bool)
 
         for i in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[i], data2=inpb[i])
@@ -232,8 +240,8 @@ class TestFunctionalModules:
         probe_func = pb.Probe(generated[func][1], "spike")
         sim2.add_probe(probe_func)
 
-        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool_)
-        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool_)
+        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=bool)
+        inpb = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=bool)
 
         for i in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[i], data2=inpb[i])
@@ -273,7 +281,7 @@ class TestFunctionalModules:
         probe_func = pb.Probe(generated[func][func.chain_level - 1], "spike")
         sim2.add_probe(probe_func)
 
-        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=np.bool_)
+        inpa = np.random.randint(0, 2, size=(N_TEST, bitwise), dtype=bool)
 
         for i in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[i])
@@ -313,14 +321,10 @@ class TestFunctionalModules:
         probe_func = pb.Probe(generated[func][0], "spike")
         sim2.add_probe(probe_func)
 
-        _base_a = np.array(
-            [1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0] + [0] * 8, dtype=np.bool_
-        )
-        _base_b = np.array(
-            [0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 1] + [0] * 8, dtype=np.bool_
-        )
+        _base_a = np.array([1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0] + [0] * 8, dtype=bool)
+        _base_b = np.array([0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 1] + [0] * 8, dtype=bool)
         _base_expected = np.array(
-            [0, 1, 0, 1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0], dtype=np.bool_
+            [0, 1, 0, 1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0], dtype=bool
         )
 
         inpa = np.tile(_base_a, (10, 1)).T  # 20 * 12
@@ -364,14 +368,10 @@ class TestFunctionalModules:
         probe_func = pb.Probe(generated[func][0], "spike")
         sim2.add_probe(probe_func)
 
-        _base_a = np.array(
-            [1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 1, 1] + [0] * 8, dtype=np.bool_
-        )
-        _base_b = np.array(
-            [0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0] + [0] * 8, dtype=np.bool_
-        )
+        _base_a = np.array([1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 1, 1] + [0] * 8, dtype=bool)
+        _base_b = np.array([0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0] + [0] * 8, dtype=bool)
         _base_expected = np.array(
-            [0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0], dtype=np.bool_
+            [0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0], dtype=bool
         )
 
         inpa = np.tile(_base_a, (10, 1)).T  # 20 * 12
@@ -402,7 +402,7 @@ class TestFunctionalModules:
         mapper.compile()
         mapper.export(fp=ensure_dump_dir)
 
-    @pytest.mark.parametrize(spiking_pool1d_data["args"], spiking_pool1d_data["data"])
+    @make_test(spiking_pool1d_data)
     def test_SpikingPool1d(
         self,
         shape,
@@ -433,9 +433,7 @@ class TestFunctionalModules:
         sim2.add_probe(probe_p1d)
 
         # Use binomial distribution to generate a sparse matrix with more zeros
-        inpa = np.random.binomial(1, p_binomial, size=(N_TEST,) + fm_shape).astype(
-            np.bool_
-        )
+        inpa = np.random.binomial(1, p_binomial, size=(N_TEST,) + fm_shape).astype(bool)
 
         for i in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[i])
@@ -484,7 +482,7 @@ class TestFunctionalModules:
         mapper.compile()
         mapper.export(fp=ensure_dump_dir)
 
-    @pytest.mark.parametrize(spiking_pool2d_data["args"], spiking_pool2d_data["data"])
+    @make_test(spiking_pool2d_data)
     def test_SpikingPool2d(
         self,
         shape,
@@ -515,9 +513,7 @@ class TestFunctionalModules:
         sim2.add_probe(probe_p2d)
 
         # Use binomial distribution to generate a sparse matrix with more zeros
-        inpa = np.random.binomial(1, p_binomial, size=(N_TEST,) + fm_shape).astype(
-            np.bool_
-        )
+        inpa = np.random.binomial(1, p_binomial, size=(N_TEST,) + fm_shape).astype(bool)
 
         for i in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[i])
@@ -569,11 +565,11 @@ class TestFunctionalModules:
     def test_SpikingPoolNd_ksize_check(self):
         n1 = pb.IF((3, 32, 32), 1)
         with pytest.raises(ShapeError):
-            p = pb.SpikingMaxPool2d(n1, 33)
+            _ = pb.SpikingMaxPool2d(n1, 33)
 
         n2 = pb.IF((3, 64), 1)
         with pytest.raises(ShapeError):
-            p = pb.SpikingAvgPool1d(n2, 67, padding=1)
+            _ = pb.SpikingAvgPool1d(n2, 67, padding=1)
 
     @pytest.mark.parametrize(
         "shape, channels, ksize, stride, padding, threshold, p_binomial",
@@ -608,9 +604,7 @@ class TestFunctionalModules:
         sim2.add_probe(probe_p1d)
 
         # Use binomial distribution to generate a sparse matrix with more zeros
-        inpa = np.random.binomial(1, p_binomial, size=(N_TEST,) + fm_shape).astype(
-            np.bool_
-        )
+        inpa = np.random.binomial(1, p_binomial, size=(N_TEST,) + fm_shape).astype(bool)
 
         for i in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[i])
@@ -670,9 +664,7 @@ class TestFunctionalModules:
         sim2.add_probe(probe_p2d)
 
         # Use binomial distribution to generate a sparse matrix with more zeros
-        inpa = np.random.binomial(1, p_binomial, size=(N_TEST,) + fm_shape).astype(
-            np.bool_
-        )
+        inpa = np.random.binomial(1, p_binomial, size=(N_TEST,) + fm_shape).astype(bool)
 
         for i in range(N_TEST):
             pb.FRONTEND_ENV.save(data1=inpa[i])
@@ -692,105 +684,7 @@ class TestFunctionalModules:
         mapper.compile()
         mapper.export(fp=ensure_dump_dir)
 
-    @pytest.mark.skipif(hasattr(pb.Transpose2d, "__deprecated__"), reason="deprecated")
-    @pytest.mark.parametrize("shape", [(32, 16), (1, 32), (64,), (128, 1), 48])
-    def test_Transpose2d(self, shape):
-        from tests.shared_networks import TransposeModule_T2d_Net
-
-        net1 = TransposeModule_T2d_Net(shape)
-        net2 = TransposeModule_T2d_Net(shape)
-        t2d = net2.t2d
-        generated = net2.build_modules()
-        sim1 = pb.Simulator(net1, start_time_zero=False)
-        sim2 = pb.Simulator(net2, start_time_zero=False)
-
-        probe_t2d = pb.Probe(generated[t2d][0], "spike")
-        sim2.add_probe(probe_t2d)
-
-        inpa = np.random.randint(0, 2, size=(N_TEST,) + as_shape(shape), dtype=np.bool_)
-
-        for i in range(N_TEST):
-            pb.FRONTEND_ENV.save(data1=inpa[i])
-            sim1.run(1)
-            sim2.run(1)
-
-        for i in range(2, N_TEST):
-            expected = inpa[i - 1].T.ravel()
-            assert np.array_equal(sim1.data[net1.probe1][i], expected)
-            assert np.array_equal(sim2.data[probe_t2d][i], expected)
-
-        for i in range(3, N_TEST):
-            expected = inpa[i - 2].T.ravel()
-            assert np.array_equal(sim1.data[net1.probe2][i], expected)
-
-    @pytest.mark.skipif(hasattr(pb.Transpose2d, "__deprecated__"), reason="deprecated")
-    def test_Transpose2d_mapping(self, ensure_dump_dir):
-        from tests.shared_networks import TransposeModule_T2d_Net
-
-        net1 = TransposeModule_T2d_Net((32, 16))
-
-        mapper = pb.Mapper()
-        mapper.build(net1)
-        mapper.compile()
-        mapper.export(fp=ensure_dump_dir)
-
-    @pytest.mark.skipif(hasattr(pb.Transpose2d, "__deprecated__"), reason="deprecated")
-    @pytest.mark.parametrize(
-        "shape, axes",
-        [
-            ((32, 16, 24), (1, 2, 0)),
-            ((12, 32, 32), None),
-            ((28, 28), (2, 0, 1)),
-            ((128, 1, 24), (0, 2, 1)),
-        ],
-    )
-    def test_Transpose3d(self, shape, axes):
-        from tests.shared_networks import TransposeModule_T3d_Net
-
-        net1 = TransposeModule_T3d_Net(shape, axes)
-        net2 = TransposeModule_T3d_Net(shape, axes)
-        t3d = net2.t3d
-        generated = net2.build_modules()
-        sim1 = pb.Simulator(net1, start_time_zero=False)
-        sim2 = pb.Simulator(net2, start_time_zero=False)
-
-        probe_t3d = pb.Probe(generated[t3d][0], "spike")
-        sim2.add_probe(probe_t3d)
-
-        if len(shape) == 2:
-            shape = (1,) + shape
-
-        inpa = np.random.randint(0, 2, size=(N_TEST,) + as_shape(shape), dtype=np.bool_)
-
-        for i in range(N_TEST):
-            pb.FRONTEND_ENV.save(data1=inpa[i])
-            sim1.run(1)
-            sim2.run(1)
-
-        for i in range(2, N_TEST):
-            expected = inpa[i - 1].transpose(axes).ravel()
-            assert np.array_equal(sim1.data[net1.probe1][i], expected)
-            assert np.array_equal(sim2.data[probe_t3d][i], expected)
-
-        for i in range(3, N_TEST):
-            expected = inpa[i - 2].transpose(axes).ravel()
-            assert np.array_equal(sim1.data[net1.probe2][i], expected)
-
-    @pytest.mark.skipif(hasattr(pb.Transpose2d, "__deprecated__"), reason="deprecated")
-    def test_Transpose3d_mapping(self, ensure_dump_dir):
-        from tests.shared_networks import TransposeModule_T3d_Net
-
-        net1 = TransposeModule_T3d_Net((28, 28), (2, 0, 1))
-
-        mapper = pb.Mapper()
-        mapper.build(net1)
-        mapper.compile()
-        mapper.export(fp=ensure_dump_dir)
-
-    @pytest.mark.parametrize(
-        conv2d_semifolded_fc_chainnet_data["args"],
-        conv2d_semifolded_fc_chainnet_data["data"],
-    )
+    @make_test(conv2d_semifolded_fc_chainnet_data)
     def test_Conv2dSemiFolded_FC_ChainNet(
         self,
         ishape_chw,
@@ -950,10 +844,7 @@ class TestFunctionalModules:
                 == linear.tick_wait_start + linear._oflow_format.t_last_vld
             )
 
-    @pytest.mark.parametrize(
-        pool2d_semifolded_fc_chainnet_data["args"],
-        pool2d_semifolded_fc_chainnet_data["data"],
-    )
+    @make_test(pool2d_semifolded_fc_chainnet_data)
     def test_Pool2dSemiFolded_FC_ChainNet(
         self,
         ishape_chw,
@@ -1140,7 +1031,7 @@ class TestFunctionalModules:
         for i in range(N_TEST):
             assert np.array_equal(sim1.data[net1.probe1][i], sim2.data[probe_linear][i])
 
-    @pytest.mark.parametrize(ann_pool1d_data["args"], ann_pool1d_data["data"])
+    @make_test(ann_pool1d_data)
     def test_ANNPool1d(
         self,
         ishape_cl,
@@ -1225,7 +1116,7 @@ class TestFunctionalModules:
                     x.ravel(), sim1.data[probe_pool_list[i_pool]][2 * i_pool]
                 )
 
-    @pytest.mark.parametrize(ann_pool2d_data["args"], ann_pool2d_data["data"])
+    @make_test(ann_pool2d_data)
     def test_ANNPool2d(
         self,
         ishape_chw,
@@ -1315,9 +1206,60 @@ class TestFunctionalModules:
     def test_ANNPoolNd_ksize_check(self):
         n1 = pb.ANNNeuron((3, 32, 32))
         with pytest.raises(ShapeError):
-            p = pb.MaxPool2d(n1, 33)
+            _ = pb.MaxPool2d(n1, 33)
 
         n2 = pb.ANNNeuron((3, 64))
 
         with pytest.raises(ShapeError):
-            p = pb.MaxPool1d(n2, 67, padding=1)
+            _ = pb.MaxPool1d(n2, 67, padding=1)
+
+    def test_STDPLinear_learning_mode_switch(self):
+        from tests.shared_networks import STDPLinearNet
+
+        ifeat1, ifeat2, ofeat = 100, 32, 10
+        w1 = np.ones((ifeat1, ifeat2), dtype=WEIGHT_DTYPE)
+        w2 = np.ones((ifeat2, ofeat), dtype=WEIGHT_DTYPE)
+
+        net = STDPLinearNet(ifeat1, ifeat2, ofeat, w1, w2)
+
+        sim = pb.Simulator(net)
+        prob_syn1 = pb.Probe(net.s1, "weights")
+        prob_syn2 = pb.Probe(net.s2, "weights")
+        sim.add_probe(prob_syn1)
+        sim.add_probe(prob_syn2)
+
+        inp = np.random.randint(0, 2, size=ifeat1, dtype=NEUOUT_U8_DTYPE)
+        net.input.input = inp
+
+        sim.reset()
+
+        # s1 & s2 are in inference mode
+        net.eval()
+        sim.run(2)
+        w1_1 = sim.data[prob_syn1][-1]
+        w2_1 = sim.data[prob_syn2][-1]
+
+        # s1 & s2 are in learning mode
+        net.learn()
+        sim.run(50)  # Long enought to fire for layer1
+        w1_2 = sim.data[prob_syn1][-1]
+        w2_2 = sim.data[prob_syn2][-1]
+        assert not np.array_equal(w1_2, w1_1)
+        assert not np.array_equal(w2_2, w2_1)
+
+        # s1 & s2 are in inference mode
+        net.eval()
+        sim.run(20)
+        w1_3 = sim.data[prob_syn1][-1]
+        w2_3 = sim.data[prob_syn2][-1]
+        assert np.array_equal(w1_3, w1_2)
+        assert np.array_equal(w2_3, w2_2)
+
+        # Only s1 is in learning mode
+        net.s1.learn()
+        net.s2.eval()
+        sim.run(20)
+        w1_4 = sim.data[prob_syn1][-1]
+        w2_4 = sim.data[prob_syn2][-1]
+        assert not np.array_equal(w1_4, w1_3)
+        assert np.array_equal(w2_4, w2_3)

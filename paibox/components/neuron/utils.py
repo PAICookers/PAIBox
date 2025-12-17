@@ -1,21 +1,24 @@
 import warnings
 from enum import IntEnum, unique
-from typing import Literal, TypedDict, Union
+from typing import Literal, TypedDict
 
 import numpy as np
 from paicorelib import (
     InputWidthFormat,
     MaxPoolingEnable,
+    OffCoreCfg,
     OffRAMDefs,
+    OnCoreCfg,
     SNNModeEnable,
     SpikeWidthFormat,
 )
 from paicorelib.framelib.utils import _mask
 
+from paibox.base import NeuDyn, is_learnable
 from paibox.exceptions import FunctionalError, PAIBoxWarning
 from paibox.types import (
+    NEUOUT_SPIKE_DTYPE,
     NEUOUT_U8_DTYPE,
-    SPIKE_DTYPE,
     VOLTAGE_DTYPE,
     LeakVType,
     VoltageType,
@@ -64,7 +67,7 @@ def v_overflow(v: VoltageType, strict: bool = False) -> VoltageType:
     ).astype(VOLTAGE_DTYPE)
 
 
-def _leak_v_check(leak_v: Union[int, LeakVType]) -> None:
+def _leak_v_check(leak_v: int | LeakVType) -> None:
     if isinstance(leak_v, int):
         if leak_v > LEAK_V_MAX or leak_v < LEAK_V_MIN:
             raise FunctionalError(LEAK_V_OVERFLOW_TEXT)
@@ -76,7 +79,7 @@ def _leak_v_check(leak_v: Union[int, LeakVType]) -> None:
 L = Literal
 
 
-def _input_width_format(iwf: Union[L[1, 8], InputWidthFormat]) -> InputWidthFormat:
+def _input_width_format(iwf: L[1, 8] | InputWidthFormat) -> InputWidthFormat:
     if isinstance(iwf, InputWidthFormat):
         return iwf
 
@@ -86,7 +89,7 @@ def _input_width_format(iwf: Union[L[1, 8], InputWidthFormat]) -> InputWidthForm
         return InputWidthFormat.WIDTH_8BIT
 
 
-def _spike_width_format(swf: Union[L[1, 8], SpikeWidthFormat]) -> SpikeWidthFormat:
+def _spike_width_format(swf: L[1, 8] | SpikeWidthFormat) -> SpikeWidthFormat:
     if isinstance(swf, SpikeWidthFormat):
         return swf
 
@@ -98,11 +101,15 @@ def _spike_width_format(swf: Union[L[1, 8], SpikeWidthFormat]) -> SpikeWidthForm
 
 def _get_neu_out_dtype(
     swf: SpikeWidthFormat,
-) -> type[Union[SPIKE_DTYPE, NEUOUT_U8_DTYPE]]:
+) -> type[NEUOUT_SPIKE_DTYPE | NEUOUT_U8_DTYPE]:
     if swf is SpikeWidthFormat.WIDTH_1BIT:
-        return SPIKE_DTYPE
+        return NEUOUT_SPIKE_DTYPE
     else:
         return NEUOUT_U8_DTYPE
+
+
+def get_delay_reg_len(neu: NeuDyn) -> int:
+    return OnCoreCfg.N_TIMESLOT_MAX if is_learnable(neu) else OffCoreCfg.N_TIMESLOT_MAX
 
 
 class RTModeKwds(TypedDict):
@@ -113,20 +120,26 @@ class RTModeKwds(TypedDict):
     snn_en: SNNModeEnable
 
 
-class ExtraNeuAttrKwds(TypedDict, total=False):
-    """A typed keywords for extra neuron attributes."""
+class CommonExtraNeuAttrKwds(TypedDict, total=False):
+    """A typed keywords for extra attributes."""
 
-    bit_trunc: int  # For ANNNeuron
+    keep_shape: bool
     delay: int
     tick_wait_start: int
     tick_wait_end: int
-    input_width: Union[L[1, 8], InputWidthFormat]
-    spike_width: Union[L[1, 8], SpikeWidthFormat]
-    snn_en: Union[bool, SNNModeEnable]
-    pool_max: Union[bool, MaxPoolingEnable]
     unrolling_factor: int
     overflow_strict: bool
     target_chip: int
+
+
+class ExtraNeuAttrKwds(CommonExtraNeuAttrKwds, total=False):
+    """A typed keywords for runtime mode. Only for checking if necessary."""
+
+    bit_trunc: int  # For ANNNeuron
+    input_width: L[1, 8] | InputWidthFormat
+    spike_width: L[1, 8] | SpikeWidthFormat
+    snn_en: bool | SNNModeEnable
+    pool_max: bool | MaxPoolingEnable
 
 
 @unique

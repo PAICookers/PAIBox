@@ -241,12 +241,12 @@ class TestNetwork_Principles:
         # _delay = 1, default
         # Spike at T - tws + 1 = pos * N
         sim.run(10)
-        assert sim.data[net.probe3][7] == True
+        assert sim.data[net.probe3][7]
         sim.reset()
 
         monkeypatch.setattr(net.n1, "_tws", 3)
         sim.run(10)
-        assert sim.data[net.probe3][8] == True
+        assert sim.data[net.probe3][8]
         sim.reset()
 
     def test_exp_group(self, build_NotNested_Net_Exp):
@@ -259,9 +259,7 @@ class TestNetwork_Principles:
         # T = 10, (10, 1)
         assert np.array_equal(
             sim.data[net.probe2][-1][:10],
-            np.array(
-                [[0], [0], [0], [1], [0], [1], [0], [1], [0], [1]], dtype=np.bool_
-            ),
+            np.array([[0], [0], [0], [1], [0], [1], [0], [1], [0], [1]], dtype=bool),
         )
 
         sim.reset()

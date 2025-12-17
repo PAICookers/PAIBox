@@ -1,5 +1,5 @@
 from collections.abc import Iterable, Sequence
-from typing import Any, Optional, TypeVar
+from typing import Any, TypeVar
 
 import numpy as np
 
@@ -25,7 +25,7 @@ def check_elem_unique(obj: Any) -> bool:
 
         return True
 
-    raise TypeError(f"unsupported type: {type(obj)}.")
+    raise TypeError(f"unsupported type: {type(obj).__name__}.")
 
 
 def count_unique_elem(obj: Iterable[Any]) -> int:
@@ -59,7 +59,7 @@ def check_elem_same(obj: Any) -> bool:
     if isinstance(obj, dict):
         return len(set(obj.values())) == 1
 
-    raise TypeError(f"unsupported type: {type(obj)}.")
+    raise TypeError(f"unsupported type: {type(obj).__name__}.")
 
 
 def is_nested_obj(obj_on_top: Any) -> bool:
@@ -155,32 +155,32 @@ def reverse_16bit(x: int) -> int:
     return ((x >> 8) | (x << 8)) & 0xFFFF
 
 
-def _get_desc(desc: Optional[str] = None) -> str:
+def _get_desc(desc: str | None = None) -> str:
     return "value" if desc is None else desc
 
 
-def arg_check_pos(arg: int, desc: Optional[str] = None) -> int:
+def arg_check_pos(arg: int, desc: str | None = None) -> int:
     if arg < 1:
         raise ValueError(f"{_get_desc(desc)} must be positive, but got {arg}.")
 
     return arg
 
 
-def arg_check_non_pos(arg: int, desc: Optional[str] = None) -> int:
+def arg_check_non_pos(arg: int, desc: str | None = None) -> int:
     if arg > 0:
         raise ValueError(f"{_get_desc(desc)} must be non-positive, but got {arg}.")
 
     return arg
 
 
-def arg_check_neg(arg: int, desc: Optional[str] = None) -> int:
+def arg_check_neg(arg: int, desc: str | None = None) -> int:
     if arg > -1:
         raise ValueError(f"{_get_desc(desc)} must be negative, but got {arg}.")
 
     return arg
 
 
-def arg_check_non_neg(arg: int, desc: Optional[str] = None) -> int:
+def arg_check_non_neg(arg: int, desc: str | None = None) -> int:
     if arg < 0:
         raise ValueError(f"{_get_desc(desc)} must be non-negative, but got {arg}.")
 

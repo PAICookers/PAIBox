@@ -1,8 +1,8 @@
-from typing import Optional, Union, overload
+from typing import overload
 
 import numpy as np
 
-from paibox.components.neuron.base import MetaNeuron
+from paibox.components.neuron.base import bit_truncate
 from paibox.components.synapses.conv_types import (
     Size1Type,
     Size2Type,
@@ -17,11 +17,11 @@ from paibox.components.synapses.conv_utils import (
     group_ch_check,
 )
 from paibox.types import (
+    NEUOUT_SPIKE_DTYPE,
     NEUOUT_U8_DTYPE,
-    SPIKE_DTYPE,
     VOLTAGE_DTYPE,
+    NeuOutSpikeType,
     NeuOutType,
-    SpikeType,
     SynOutType,
     VoltageType,
 )
@@ -40,7 +40,7 @@ __all__ = [
 
 
 def ann_bit_trunc(v_array: VoltageType, bit_trunc: int = 8) -> NeuOutType:
-    return np.where(v_array <= 0, 0, MetaNeuron._truncate(v_array, bit_trunc)).astype(
+    return np.where(v_array <= 0, 0, bit_truncate(v_array, bit_trunc)).astype(
         NEUOUT_U8_DTYPE
     )
 
@@ -305,31 +305,31 @@ def convtranspose2d_golden(
 
 @overload
 def maxpool1d_golden(
-    x: SpikeType,
+    x: NeuOutSpikeType,
     ksize: _Size1Type,
-    stride: Optional[_Size1Type],
+    stride: _Size1Type | None,
     padding: _Size1Type,
     fm_order: str = "CL",
-) -> SpikeType: ...
+) -> NeuOutSpikeType: ...
 
 
 @overload
 def maxpool1d_golden(
     x: NeuOutType,
     ksize: _Size1Type,
-    stride: Optional[_Size1Type],
+    stride: _Size1Type | None,
     padding: _Size1Type,
     fm_order: str = "CL",
 ) -> SynOutType: ...
 
 
 def maxpool1d_golden(
-    x: Union[NeuOutType, SpikeType],
+    x: NeuOutType | NeuOutSpikeType,
     ksize: _Size1Type,
-    stride: Optional[_Size1Type],
+    stride: _Size1Type | None,
     padding: _Size1Type,
     fm_order: str = "CL",
-) -> Union[SynOutType, SpikeType]:
+) -> SynOutType | NeuOutSpikeType:
     if fm_order == "LC":
         _x = x.T
     else:
@@ -350,7 +350,7 @@ def maxpool1d_golden(
         # Treat the result as voltage since it will be turncated later.
         out = np.zeros((co, ol), dtype=VOLTAGE_DTYPE)
     else:
-        out = np.zeros((co, ol), dtype=SPIKE_DTYPE)
+        out = np.zeros((co, ol), dtype=NEUOUT_SPIKE_DTYPE)
 
     if p > 0:
         x_padded = np.pad(_x, ((0, 0), (p, p)))
@@ -366,31 +366,31 @@ def maxpool1d_golden(
 
 @overload
 def maxpool2d_golden(
-    x: SpikeType,
+    x: NeuOutSpikeType,
     ksize: _Size2Type,
-    stride: Optional[_Size2Type],
+    stride: _Size2Type | None,
     padding: _Size2Type,
     fm_order: str = "CHW",
-) -> SpikeType: ...
+) -> NeuOutSpikeType: ...
 
 
 @overload
 def maxpool2d_golden(
     x: NeuOutType,
     ksize: _Size2Type,
-    stride: Optional[_Size2Type],
+    stride: _Size2Type | None,
     padding: _Size2Type,
     fm_order: str = "CHW",
 ) -> SynOutType: ...
 
 
 def maxpool2d_golden(
-    x: Union[NeuOutType, SpikeType],
+    x: NeuOutType | NeuOutSpikeType,
     ksize: _Size2Type,
-    stride: Optional[_Size2Type],
+    stride: _Size2Type | None,
     padding: _Size2Type,
     fm_order: str = "CHW",
-) -> Union[SynOutType, SpikeType]:
+) -> SynOutType | NeuOutSpikeType:
     if fm_order == "HWC":
         _x = x.transpose(2, 0, 1)
     else:
@@ -411,7 +411,7 @@ def maxpool2d_golden(
         # Treat the result as voltage since it will be turncated later.
         out = np.zeros((co, ho, wo), dtype=VOLTAGE_DTYPE)
     else:
-        out = np.zeros((co, ho, wo), dtype=SPIKE_DTYPE)
+        out = np.zeros((co, ho, wo), dtype=NEUOUT_SPIKE_DTYPE)
 
     if ph > 0 or pw > 0:
         x_padded = np.pad(_x, ((0, 0), (ph, ph), (pw, pw)))
@@ -430,20 +430,20 @@ def maxpool2d_golden(
 
 @overload
 def avgpool1d_golden(
-    x: SpikeType,
+    x: NeuOutSpikeType,
     ksize: _Size1Type,
-    stride: Optional[_Size1Type],
+    stride: _Size1Type | None,
     padding: _Size1Type,
     threshold: int,
     fm_order: str = "CL",
-) -> SpikeType: ...
+) -> NeuOutSpikeType: ...
 
 
 @overload
 def avgpool1d_golden(
     x: NeuOutType,
     ksize: _Size1Type,
-    stride: Optional[_Size1Type],
+    stride: _Size1Type | None,
     padding: _Size1Type,
     threshold=None,
     fm_order: str = "CL",
@@ -451,13 +451,13 @@ def avgpool1d_golden(
 
 
 def avgpool1d_golden(
-    x: Union[NeuOutType, SpikeType],
+    x: NeuOutType | NeuOutSpikeType,
     ksize: _Size1Type,
-    stride: Optional[_Size1Type] = None,
+    stride: _Size1Type | None = None,
     padding: _Size1Type = 0,
-    threshold: Optional[int] = None,
+    threshold: int | None = None,
     fm_order: str = "CL",
-) -> Union[SynOutType, SpikeType]:
+) -> SynOutType | NeuOutSpikeType:
     if fm_order == "LC":
         _x = x.T
     else:
@@ -487,7 +487,7 @@ def avgpool1d_golden(
             out[c, i] = np.sum(x_padded[c, s * i : s * i + kl])
 
     if threshold:
-        assert x.dtype == SPIKE_DTYPE
+        assert x.dtype == NEUOUT_SPIKE_DTYPE
         out_aft_thres = out >= threshold
     else:
         # Use the bit truncation method to simulate the behavior of the hardware.
@@ -496,25 +496,25 @@ def avgpool1d_golden(
     if x.dtype == NEUOUT_U8_DTYPE:
         return out_aft_thres.astype(VOLTAGE_DTYPE)
     else:
-        return out_aft_thres.astype(SPIKE_DTYPE)
+        return out_aft_thres.astype(NEUOUT_SPIKE_DTYPE)
 
 
 @overload
 def avgpool2d_golden(
-    x: SpikeType,
+    x: NeuOutSpikeType,
     ksize: _Size2Type,
-    stride: Optional[_Size2Type] = None,
+    stride: _Size2Type | None = None,
     padding: _Size2Type = 0,
     threshold: int = 1,
     fm_order: str = "CHW",
-) -> SpikeType: ...
+) -> NeuOutSpikeType: ...
 
 
 @overload
 def avgpool2d_golden(
     x: NeuOutType,
     ksize: _Size2Type,
-    stride: Optional[_Size2Type] = None,
+    stride: _Size2Type | None = None,
     padding: _Size2Type = 0,
     threshold=None,
     fm_order: str = "CHW",
@@ -522,13 +522,13 @@ def avgpool2d_golden(
 
 
 def avgpool2d_golden(
-    x: Union[NeuOutType, SpikeType],
+    x: NeuOutType | NeuOutSpikeType,
     ksize: _Size2Type,
-    stride: Optional[_Size2Type] = None,
+    stride: _Size2Type | None = None,
     padding: _Size2Type = 0,
-    threshold: Optional[int] = None,
+    threshold: int | None = None,
     fm_order: str = "CHW",
-) -> Union[SynOutType, SpikeType]:
+) -> SynOutType | NeuOutSpikeType:
     if fm_order == "HWC":
         _x = x.transpose(2, 0, 1)
     else:
@@ -560,7 +560,7 @@ def avgpool2d_golden(
                 )
 
     if threshold:
-        assert x.dtype == SPIKE_DTYPE
+        assert x.dtype == NEUOUT_SPIKE_DTYPE
         out_aft_thres = out >= threshold
     else:
         # Use the bit truncation method to simulate the behavior of the hardware.
@@ -569,4 +569,4 @@ def avgpool2d_golden(
     if x.dtype == NEUOUT_U8_DTYPE:
         return out_aft_thres.astype(VOLTAGE_DTYPE)
     else:
-        return out_aft_thres.astype(SPIKE_DTYPE)
+        return out_aft_thres.astype(NEUOUT_SPIKE_DTYPE)

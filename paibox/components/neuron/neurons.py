@@ -1,24 +1,19 @@
 import sys
-from typing import Optional, Union
+from collections.abc import Sequence
 
 import numpy as np
-from paicorelib import LDM, NTM, RM, OffRAMDefs
+from paicorelib import LCM, LDM, NTM, RM, OffRAMDefs
 
-from paibox.exceptions import PAIBoxDeprecationWarning
 from paibox.types import LEAK_V_DTYPE, DataType, LeakVType, Shape
 
-from .base import Neuron
-from .utils import LEAK_V_MAX, ExtraNeuAttrKwds
+from .base import OfflineNeuron, OnlineNeuron
+from .utils import LEAK_V_MAX, CommonExtraNeuAttrKwds, ExtraNeuAttrKwds
 
 if sys.version_info >= (3, 11):
     from typing import Unpack
 else:
     from typing_extensions import Unpack
 
-if sys.version_info >= (3, 13):
-    from warnings import deprecated
-else:
-    from typing_extensions import deprecated
 
 __all__ = [
     "IF",
@@ -30,21 +25,28 @@ __all__ = [
     "Always1Neuron",
     "ANNBypassNeuron",
     "ANNNeuron",
+    "STDPLIF",
 ]
 
 POS_THRES_MAX = OffRAMDefs.POS_THRES_MAX
 
 
-class IF(Neuron):
+def _bias_to_leak_v(bias: DataType) -> LeakVType | int:
+    if isinstance(bias, np.ndarray):
+        return np.atleast_1d(bias).astype(LEAK_V_DTYPE)
+    else:
+        return int(bias)
+
+
+class IF(OfflineNeuron):
     def __init__(
         self,
         shape: Shape,
         threshold: int = 1,
-        reset_v: Optional[int] = None,
-        neg_threshold: Optional[int] = None,
+        reset_v: int | None = None,
+        neg_threshold: int | None = None,
         *,
-        keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """IF neuron.
@@ -65,7 +67,7 @@ class IF(Neuron):
                 modules are expanded. The larger the value, the more cores required for deployment, \
                 but the lower the latency & the higher the throughput. Default is 1.
             - keep_shape: whether to maintain shape in the simulation. Default is `True`.
-            - name: name of the neuron. Optional.
+            - name: name of the neuron.
         """
         if isinstance(reset_v, int):
             # Hard reset
@@ -83,24 +85,22 @@ class IF(Neuron):
             neg_thres_mode=NTM.MODE_SATURATION,
             neg_threshold=neg_threshold,
             pos_threshold=threshold,
-            keep_shape=keep_shape,
             name=name,
             **kwargs,
         )
 
 
-class LIF(Neuron):
+class LIF(OfflineNeuron):
     def __init__(
         self,
         shape: Shape,
         threshold: int = 1,
-        reset_v: Optional[int] = None,
+        reset_v: int | None = None,
         leak_v: int = 0,
         bias: DataType = 0,
-        neg_threshold: Optional[int] = None,
+        neg_threshold: int | None = None,
         *,
-        keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """LIF neuron.
@@ -119,7 +119,7 @@ class LIF(Neuron):
             - neg_threshold: signed negative theshold. If not specified, it will be the smallest    \
                 negative integer allowed by the hardware.
             - keep_shape: whether to maintain shape in the simulation. Default is `True`.
-            - name: name of the neuron. Optional.
+            - name: name of the neuron.
         """
         if isinstance(reset_v, int):
             # Hard reset
@@ -138,20 +138,18 @@ class LIF(Neuron):
             neg_threshold=neg_threshold,
             pos_threshold=threshold,
             leak_v=leak_v + _bias_to_leak_v(bias),
-            keep_shape=keep_shape,
             name=name,
             **kwargs,
         )
 
 
-class TonicSpiking(Neuron):
+class TonicSpiking(OfflineNeuron):
     def __init__(
         self,
         shape: Shape,
         fire_step: int = 1,
         *,
-        keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """Tonic spiking neuron.
@@ -160,24 +158,21 @@ class TonicSpiking(Neuron):
             - shape: shape of neurons.
             - fire_step: every `N` spike, the neuron will fire positively.
             - keep_shape: whether to maintain shape in the simulation. Default is `True`.
-            - name: name of the neuron. Optional.
+            - name: name of the neuron.
 
         NOTE: The neuron receives `N` spikes and fires, then it will reset to 0.
         """
-        super().__init__(
-            shape, pos_threshold=fire_step, keep_shape=keep_shape, name=name, **kwargs
-        )
+        super().__init__(shape, pos_threshold=fire_step, name=name, **kwargs)
 
 
-class PhasicSpiking(Neuron):
+class PhasicSpiking(OfflineNeuron):
     def __init__(
         self,
         shape: Shape,
         fire_step: int,
         neg_floor: int = -10,
         *,
-        keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """Phasic spiking neuron. Once the neuron receives `N` spikes and fires, it will reset to   \
@@ -189,7 +184,7 @@ class PhasicSpiking(Neuron):
             - neg_floor: signed negative floor. once fired, the neurons will remain at this negative\
                 voltage. Default is -10.
             - keep_shape: whether to maintain shape in the simulation. Default is `True`.
-            - name: name of the neuron. Optional.
+            - name: name of the neuron.
         """
         leak_v = 1
         super().__init__(
@@ -200,19 +195,17 @@ class PhasicSpiking(Neuron):
             pos_threshold=(1 + leak_v) * fire_step,
             leak_direction=LDM.MODE_REVERSAL,
             leak_v=leak_v,
-            keep_shape=keep_shape,
             name=name,
             **kwargs,
         )
 
 
-class Always1Neuron(Neuron):
+class Always1Neuron(OfflineNeuron):
     def __init__(
         self,
         shape: Shape,
         *,
-        keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """A neuron that always outputs 1 as long as it starts working.
@@ -220,7 +213,7 @@ class Always1Neuron(Neuron):
         Args:
             - shape: shape of neurons.
             - keep_shape: whether to maintain shape in the simulation. Default is `True`.
-            - name: name of the neuron. Optional.
+            - name: name of the neuron.
 
         FIXME There must be a forward synapse connected to it, otherwise the backend will go wrong. \
             Therefore, Always1Neuron is not exported to pb.__init__.
@@ -232,19 +225,17 @@ class Always1Neuron(Neuron):
             neg_threshold=0,
             pos_threshold=0,
             leak_v=LEAK_V_MAX,
-            keep_shape=keep_shape,
             name=name,
             **kwargs,
         )
 
 
-class BypassNeuron(Neuron):
+class BypassNeuron(OfflineNeuron):
     def __init__(
         self,
         shape: Shape,
         *,
-        keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """Bypass neuron. Output is equal to input.
@@ -252,33 +243,21 @@ class BypassNeuron(Neuron):
         Args:
             - shape: shape of neurons.
             - keep_shape: whether to maintain shape in the simulation. Default is `True`.
-            - name: name of the neuron. Optional.
+            - name: name of the neuron.
 
         NOTE: positive threshold = 1, negative threshold = 0, reset_v = 0, and leak_v = 0.
         """
-        super().__init__(
-            shape, neg_threshold=0, keep_shape=keep_shape, name=name, **kwargs
-        )
+        super().__init__(shape, neg_threshold=0, name=name, **kwargs)
 
 
-@deprecated(
-    "'SpikingRelu' is deprecated in version 1.2.0 and will "
-    "be removed in version 1.3.0. Use 'BypassNeuron' instead.",
-    category=PAIBoxDeprecationWarning,
-)
-class SpikingRelu(BypassNeuron):
-    pass
-
-
-class StoreVoltageNeuron(Neuron):
+class StoreVoltageNeuron(OfflineNeuron):
     def __init__(
         self,
         shape: Shape,
         leak_v: int = 0,
         bias: DataType = 0,
         *,
-        keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """The neuron that stores the voltage and never fires nor resets.
@@ -292,7 +271,7 @@ class StoreVoltageNeuron(Neuron):
             - bias: if a signed bias is given, it will be added to `leak_v`. The neuron will leak   \
                 before threshold comparison. `leak_v` will also be considered now.
             - keep_shape: whether to maintain shape in the simulation. Default is `True`.
-            - name: name of the neuron. Optional.
+            - name: name of the neuron.
         """
         super().__init__(
             shape,
@@ -300,7 +279,6 @@ class StoreVoltageNeuron(Neuron):
             neg_thres_mode=NTM.MODE_RESET,
             leak_v=leak_v + _bias_to_leak_v(bias),
             pos_threshold=POS_THRES_MAX,
-            keep_shape=keep_shape,
             name=name,
             **kwargs,
         )
@@ -312,8 +290,7 @@ class ANNNeuron(LIF):
         shape: Shape,
         bias: DataType = 0,
         *,
-        keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
         """General neuron used in ANN mode. Positive threshold = 1, negative threshold = 0."""
@@ -322,9 +299,7 @@ class ANNNeuron(LIF):
         kwargs.setdefault("spike_width", 8)
         kwargs.setdefault("snn_en", False)
 
-        super().__init__(
-            shape, 1, bias=bias, keep_shape=keep_shape, name=name, **kwargs
-        )
+        super().__init__(shape, 1, bias=bias, name=name, **kwargs)
 
 
 class ANNBypassNeuron(ANNNeuron):
@@ -332,15 +307,52 @@ class ANNBypassNeuron(ANNNeuron):
         self,
         shape: Shape,
         *,
-        keep_shape: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs: Unpack[ExtraNeuAttrKwds],
     ) -> None:
-        super().__init__(shape, bias=0, keep_shape=keep_shape, name=name, **kwargs)
+        super().__init__(shape, bias=0, name=name, **kwargs)
 
 
-def _bias_to_leak_v(bias: DataType) -> Union[LeakVType, int]:
-    if isinstance(bias, np.ndarray):
-        return np.atleast_1d(bias).astype(LEAK_V_DTYPE)
-    else:
-        return int(bias)
+class STDPLIF(OnlineNeuron):
+    def __init__(
+        self,
+        shape: Shape,
+        threshold: int = 1,
+        reset_v: int = 0,
+        leak_v: int = 0,
+        bias: DataType = 0,
+        leak_comparison: LCM = LCM.LEAK_BEFORE_COMP,
+        neg_threshold: int | None = None,
+        lateral_inhi_value: int = 0,
+        init_v: int | np.ndarray = 0,
+        *,
+        lateral_inhi_target: OnlineNeuron | Sequence[OnlineNeuron] | None = None,
+        name: str | None = None,
+        **kwargs: Unpack[CommonExtraNeuAttrKwds],
+    ) -> None:
+        """STDP LIF neuron.
+
+        Args:
+            - leak_comparison: leak comparison mode. Default is leaking before comparison.
+            - lateral_inhi_value: the lateral inhibition value. If lateral inhibition is ocurred,   \
+                the lateral inhibition value will be added to the voltage before threshold.
+            - init_v: initial voltage of neurons. It can be a scalar or a numpy array with the same \
+                shape as the neuron's shape.
+            - lateral_inhi_target: the target online learning neurons for lateral inhibition. It    \
+                can be a single neuron or a sequence of neurons.
+
+        Other arguments are the same as `LIF`.
+        """
+        super().__init__(
+            shape,
+            reset_v,
+            leak_v + _bias_to_leak_v(bias),
+            neg_threshold,
+            threshold,
+            leak_comparison,
+            lateral_inhi_value,
+            init_v,
+            lateral_inhi_target=lateral_inhi_target,
+            name=name,
+            **kwargs,
+        )

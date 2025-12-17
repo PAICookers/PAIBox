@@ -1,13 +1,23 @@
 import graphlib
 import random
+from collections import defaultdict
 from contextlib import nullcontext
 
 import pytest
 
-from paibox.backend.graph_utils import *
+from paibox.backend.graph_utils import (
+    find_cycles,
+    iter_toposort,
+    merge_overlapping_sets,
+    prune_disconn_graph,
+    reverse_edges,
+    toposort,
+)
+from paibox.backend.types import NodeName
 from paibox.exceptions import GraphHasCycleError
+from tests.utils import make_test
 
-from .conftest import TestData
+from .backend_testcase import BackendTestCase as TCase
 
 
 def _generate_random_dag(num_nodes: int):
@@ -41,11 +51,7 @@ class TestTopoSort:
         with pytest.raises(KeyError):
             r = reverse_edges(incomplete_edges)
 
-    @pytest.mark.parametrize(
-        TestData.toposort_data["args"],
-        TestData.toposort_data["data"],
-        ids=TestData.toposort_data["ids"],  # type: ignore
-    )
+    @make_test(TCase.toposort_data)
     def test_toposort(self, nodes):
         """
         Test #1: one input 1
@@ -119,7 +125,7 @@ class TestTopoSort:
         INP3 -> N2
         """
         with pytest.raises(GraphHasCycleError):
-            ordered = toposort(edges)
+            _ = toposort(edges)
 
     @pytest.mark.parametrize(
         # Using test cases with a unique topological sort order, otherwise
@@ -168,11 +174,7 @@ class TestTopoSort:
                 list(iter_toposort(graph))
 
 
-@pytest.mark.parametrize(
-    TestData.prune_disconn_graph_test_data["args"],
-    TestData.prune_disconn_graph_test_data["data"],
-    ids=TestData.prune_disconn_graph_test_data["ids"],  # type: ignore
-)
+@make_test(TCase.prune_disconn_graph_testcase)
 def test_prune_disconn_graph(graph, start_nodes, expected_graph, disconn_nodes):
     new_graph, disconn = prune_disconn_graph(graph, start_nodes, forward_only=False)
 
@@ -248,11 +250,7 @@ class TestDAGPathDistance:
         path.reverse()
         return path, distance
 
-    @pytest.mark.parametrize(
-        TestData.get_longest_path_data["args"],
-        TestData.get_longest_path_data["data"],
-        ids=TestData.get_longest_path_data["ids"],  # type:ignore
-    )
+    @make_test(TCase.get_longest_path_data)
     def test_get_longest_path_proto(self, edges, expected_path, expected_distance):
         ordered = toposort(edges)
         path, distance = self.get_longest_path_proto(edges, ordered)
@@ -308,11 +306,7 @@ class TestDAGPathDistance:
         path.reverse()
         return path, distance
 
-    @pytest.mark.parametrize(
-        TestData.get_shortest_path_data["args"],
-        TestData.get_shortest_path_data["data"],
-        ids=TestData.get_shortest_path_data["ids"],  # type:ignore
-    )
+    @make_test(TCase.get_shortest_path_data)
     def test_get_shortest_path_proto(
         self, edges, inodes, expected_path, expected_distance
     ):

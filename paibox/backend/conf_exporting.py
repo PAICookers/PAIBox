@@ -3,10 +3,21 @@ from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
+from typing import cast
 
 import numpy as np
-from paicorelib import ChipCoord, HwConfig, OffCoreCfg, RoutingCoord
-from paicorelib.framelib import OfflineFrameGen
+from paicorelib import (
+    ChipCoord,
+    Coord,
+    OffCoreCfg,
+    OfflineConfigFrame3,
+    OfflineFrameGen,
+    OnlineConfigFrame3,
+    OnlineFrameGen,
+    OnlineModeEnable,
+)
+from paicorelib import ReplicationId as RId
+from paicorelib import RoutingCoord
 from paicorelib.framelib.utils import _mask, np2bin, np2npy, np2txt
 
 from paibox.components import Neuron
@@ -21,12 +32,14 @@ from .conf_types import (
     GraphInfo,
     InputNodeConf,
     NeuPhyLocMap,
+    OfflineCorePlmConfig,
     OfflineNeuConfig,
+    OnlineCorePlmConfig,
     OutputDestConf,
     _gh_info2exported_gh_info,
 )
 from .context import _BACKEND_CONTEXT
-from .placement import CoreBlock, CorePlacement
+from .placement import CoreBlock, OfflineCorePlacement
 from .types import _RID_UNSET
 
 if _USE_ORJSON:
@@ -54,6 +67,208 @@ __all__ = [
 ]
 
 
+def gen_offline_config_frames(
+    core_plm_conf: OfflineCorePlmConfig,
+    chip_coord: ChipCoord,
+    core_coord: Coord,
+    core_rid: RId = _RID_UNSET,
+):
+    # 1. Only one config frame type I for each physical core.
+    config_frame_type1 = OfflineFrameGen.gen_config_frame1(
+        chip_coord, core_coord, core_rid, core_plm_conf.random_seed
+    )
+
+    # 2. Only one config frame type II for each physical core.
+    config_frame_type2 = OfflineFrameGen.gen_config_frame2(
+        chip_coord, core_coord, core_rid, core_plm_conf.params_reg
+    )
+
+    # 3. Iterate all the neuron segments inside the physical core.
+    config_frame_type3: list[OfflineConfigFrame3] = []
+    neu_conf_on_wram: list[OfflineNeuConfig] = []
+
+    for neu_conf in core_plm_conf.neuron_configs.values():
+        if (
+            neu_conf.neu_seg.offset + neu_conf.neu_seg.n_neuron
+            <= OffCoreCfg.ADDR_RAM_MAX + 1
+        ):
+            # Place in the NRAM
+            config_frame_type3.append(
+                OfflineFrameGen.gen_config_frame3(
+                    chip_coord,
+                    core_coord,
+                    core_rid,
+                    neu_conf.neu_seg.offset,
+                    neu_conf.neu_seg.n_neuron,  # #N of logical neurons
+                    neu_conf.neuron_attrs,
+                    neu_conf.neuron_dest_info,
+                    neu_conf.neu_seg.repeat,
+                )
+            )
+        else:
+            # Only happens in ANN mode, where the repeat=1
+            assert neu_conf.neu_seg.repeat == 1
+
+            if (n_on_nram := OffCoreCfg.ADDR_RAM_MAX + 1 - neu_conf.neu_seg.offset) > 0:
+                # Place in the NRAM partially
+                neu_on_nram_conf = neu_conf[:n_on_nram]
+                config_frame_type3.append(
+                    OfflineFrameGen.gen_config_frame3(
+                        chip_coord,
+                        core_coord,
+                        core_rid,
+                        neu_on_nram_conf.neu_seg.offset,
+                        neu_on_nram_conf.neu_seg.n_neuron,
+                        neu_on_nram_conf.neuron_attrs,
+                        neu_on_nram_conf.neuron_dest_info,
+                        neu_on_nram_conf.neu_seg.repeat,
+                    )
+                )
+                # Place the rest in the WRAM
+                neu_conf_on_wram.append(neu_conf[n_on_nram:])
+            else:
+                # Place in the WRAM totally
+                neu_conf_on_wram.append(neu_conf)
+
+    if config_frame_type3:
+        frame3 = np.concatenate(
+            [f.value for f in config_frame_type3],
+            dtype=FRAME_DTYPE,
+            casting="no",
+        )
+    else:
+        frame3 = np.array([], dtype=FRAME_DTYPE)
+
+    _concat_frames = [
+        config_frame_type1.value,
+        config_frame_type2.value,
+        frame3,
+    ]
+    # 4. Only one config frame type IV for each physical core.
+    if core_plm_conf.params_reg.num_dendrite > 0:
+        # Weight part
+        config_frame_type4_w = OfflineFrameGen.gen_config_frame4(
+            chip_coord,
+            core_coord,
+            core_rid,
+            0,
+            core_plm_conf.weight_ram.size,
+            core_plm_conf.weight_ram,
+        )
+
+        _concat_frames.append(config_frame_type4_w.value)
+
+    # Extra neurons part
+    if neu_conf_on_wram:
+        # Only the part that is mapped to the neuron parameters is returned.
+        neu_on_wram = OfflineCorePlacement.neu_params_mapping(neu_conf_on_wram)
+        assert (
+            core_plm_conf.weight_ram.shape[0] + neu_on_wram.shape[0]
+            <= OffCoreCfg.WEIGHT_RAM_SHAPE[0]
+        )
+
+        config_frame_type4_n = OfflineFrameGen.gen_config_frame4(
+            chip_coord,
+            core_coord,
+            core_rid,
+            # `core_plm_conf.weigh_ram` already contains the mapped & unallocated parts for weight mapping,
+            # so `neu_on_wram` can be placed next to it.
+            core_plm_conf.weight_ram.shape[0],
+            neu_on_wram.size,
+            neu_on_wram,
+        )
+
+        _concat_frames.append(config_frame_type4_n.value)
+
+    return _concat_frames
+
+
+def gen_online_config_frames(
+    core_plm_conf: OnlineCorePlmConfig,
+    chip_coord: ChipCoord,
+    core_coord: Coord,
+    core_rid: RId = _RID_UNSET,
+) -> tuple[list[FrameArrayType], FrameArrayType, FrameArrayType]:
+    config_frame_type1 = OnlineFrameGen.gen_config_frame1(
+        chip_coord, core_coord, core_rid, core_plm_conf.lut
+    )
+
+    config_frame_type2 = OnlineFrameGen.gen_config_frame2(
+        chip_coord, core_coord, core_rid, core_plm_conf.core_params
+    )
+
+    config_frame_type2_enable = OnlineFrameGen.gen_config_frame2(
+        chip_coord,
+        core_coord,
+        core_rid,
+        core_plm_conf.core_params.model_copy(
+            update={"online_mode_en": OnlineModeEnable.ENABLE}
+        ),
+    )
+
+    config_frame_type2_disable = OnlineFrameGen.gen_config_frame2(
+        chip_coord,
+        core_coord,
+        core_rid,
+        core_plm_conf.core_params.model_copy(
+            update={"online_mode_en": OnlineModeEnable.DISABLE}
+        ),
+    )
+
+    # 3. Iterate all the neuron segments inside the physical core.
+    config_frame_type3: list[OnlineConfigFrame3] = []
+
+    wight_width = core_plm_conf.core_params.weight_width
+
+    # online neuron config never need to store in WRAM
+    for neu_conf in core_plm_conf.neuron_configs:
+        config_frame_type3.append(
+            OnlineFrameGen.gen_config_frame3(
+                chip_coord,
+                core_coord,
+                core_rid,
+                neu_conf.neu_seg.offset,
+                neu_conf.neu_seg.n_neuron,
+                neu_conf.neuron_attrs,
+                neu_conf.neuron_dest_info,
+                wight_width,
+            )
+        )
+
+    if config_frame_type3:
+        frame3 = np.concatenate(
+            [f.value for f in config_frame_type3],
+            dtype=FRAME_DTYPE,
+            casting="no",
+        )
+    else:
+        frame3 = np.array([], dtype=FRAME_DTYPE)
+
+    _concat_frames = [
+        config_frame_type1.value,
+        config_frame_type2.value,
+        frame3,
+    ]
+
+    if core_plm_conf.core_params.neuron_end > core_plm_conf.core_params.neuron_start:
+        # Weight part
+        config_frame_type4_w = OnlineFrameGen.gen_config_frame4(
+            chip_coord,
+            core_coord,
+            core_rid,
+            0,
+            core_plm_conf.weight_ram.size,
+            core_plm_conf.weight_ram,
+        )
+        _concat_frames.append(config_frame_type4_w.value)
+
+    return (
+        _concat_frames,
+        config_frame_type2_enable.value,
+        config_frame_type2_disable.value,
+    )
+
+
 def gen_config_frames_by_coreconf(
     config_dict: CorePlmConf,
     write_to_file: bool,
@@ -62,124 +277,26 @@ def gen_config_frames_by_coreconf(
     split_by_chip: bool,
 ) -> dict[ChipCoord, list[FrameArrayType]]:
     """Generate configuration frames by given the `CorePlmConf`."""
-    frame_arrays_total: dict[ChipCoord, list[FrameArrayType]] = defaultdict(list)
+    frames_arr_total: dict[ChipCoord, list[FrameArrayType]] = defaultdict(list)
+    learn_en_total: dict[ChipCoord, list[FrameArrayType]] = defaultdict(list)
+    learn_dis_total: dict[ChipCoord, list[FrameArrayType]] = defaultdict(list)
 
     for chip_coord, conf_inchip in config_dict.items():
         for core_coord, v in conf_inchip.items():
-            # 1. Only one config frame type I for each physical core.
-            config_frame_type1 = OfflineFrameGen.gen_config_frame1(
-                chip_coord, core_coord, _RID_UNSET, v.random_seed
-            )
-
-            # 2. Only one config frame type II for each physical core.
-            config_frame_type2 = OfflineFrameGen.gen_config_frame2(
-                chip_coord, core_coord, _RID_UNSET, v.params_reg
-            )
-
-            # 3. Iterate all the neuron segments inside the physical core.
-            config_frame_type3 = []
-            neu_conf_on_wram: list[OfflineNeuConfig] = []
-
-            for neu_conf in v.neuron_configs.values():
-                if (
-                    neu_conf.neu_seg.offset + neu_conf.neu_seg.n_neuron
-                    <= OffCoreCfg.ADDR_RAM_MAX + 1
-                ):
-                    # Place in the NRAM
-                    config_frame_type3.append(
-                        OfflineFrameGen.gen_config_frame3(
-                            chip_coord,
-                            core_coord,
-                            _RID_UNSET,
-                            neu_conf.neu_seg.offset,
-                            neu_conf.neu_seg.n_neuron,  # #N of logical neurons
-                            neu_conf.neuron_attrs,
-                            neu_conf.neuron_dest_info,
-                            neu_conf.neu_seg.repeat,
-                        )
+            if core_coord.is_type_online():
+                _concat_frames, learn_en_frame, learn_dis_frame = (
+                    gen_online_config_frames(
+                        cast(OnlineCorePlmConfig, v), chip_coord, core_coord
                     )
-                else:
-                    # Only happens in ANN mode, where the repeat=1
-                    assert neu_conf.neu_seg.repeat == 1
-
-                    if (
-                        n_on_nram := OffCoreCfg.ADDR_RAM_MAX
-                        + 1
-                        - neu_conf.neu_seg.offset
-                    ) > 0:
-                        # Place in the NRAM partially
-                        neu_on_nram_conf = neu_conf[:n_on_nram]
-                        config_frame_type3.append(
-                            OfflineFrameGen.gen_config_frame3(
-                                chip_coord,
-                                core_coord,
-                                _RID_UNSET,
-                                neu_on_nram_conf.neu_seg.offset,
-                                neu_on_nram_conf.neu_seg.n_neuron,
-                                neu_on_nram_conf.neuron_attrs,
-                                neu_on_nram_conf.neuron_dest_info,
-                                neu_on_nram_conf.neu_seg.repeat,
-                            )
-                        )
-                        # Place the rest in the WRAM
-                        neu_conf_on_wram.append(neu_conf[n_on_nram:])
-                    else:
-                        # Place in the WRAM totally
-                        neu_conf_on_wram.append(neu_conf)
-
-            if config_frame_type3:
-                frame3 = np.concatenate(
-                    [f.value for f in config_frame_type3],
-                    dtype=FRAME_DTYPE,
-                    casting="no",
                 )
+                learn_en_total[chip_coord].append(learn_en_frame)
+                learn_dis_total[chip_coord].append(learn_dis_frame)
             else:
-                frame3 = np.array([], dtype=FRAME_DTYPE)
-
-            _concat_frames = [
-                config_frame_type1.value,
-                config_frame_type2.value,
-                frame3,
-            ]
-            # 4. Only one config frame type IV for each physical core.
-            if v.params_reg.num_dendrite > 0:
-                # Weight part
-                config_frame_type4_w = OfflineFrameGen.gen_config_frame4(
-                    chip_coord,
-                    core_coord,
-                    _RID_UNSET,
-                    0,
-                    v.weight_ram.size,
-                    v.weight_ram,
+                _concat_frames = gen_offline_config_frames(
+                    cast(OfflineCorePlmConfig, v), chip_coord, core_coord
                 )
 
-                _concat_frames.append(config_frame_type4_w.value)
-
-            # Extra neurons part
-            if neu_conf_on_wram:
-                # Only the part that is mapped to the neuron parameters is returned.
-                neu_on_wram = CorePlacement.neu_params_mapping(neu_conf_on_wram)
-                assert (
-                    v.weight_ram.shape[0] + neu_on_wram.shape[0]
-                    <= CorePlacement.WRAM_BASE_SHAPE[1]
-                )
-
-                config_frame_type4_n = OfflineFrameGen.gen_config_frame4(
-                    chip_coord,
-                    core_coord,
-                    _RID_UNSET,
-                    # `v.weigh_ram` already contains the mapped & unallocated parts for weight mapping,
-                    # so `neu_on_wram` can be placed next to it.
-                    v.weight_ram.shape[0],
-                    neu_on_wram.size,
-                    neu_on_wram,
-                )
-
-                _concat_frames.append(config_frame_type4_n.value)
-
-            frame_arrays_total[chip_coord].append(
-                np.hstack(_concat_frames, casting="no")
-            )
+            frames_arr_total[chip_coord].append(np.hstack(_concat_frames, casting="no"))
 
     if write_to_file:
 
@@ -194,18 +311,43 @@ def gen_config_frames_by_coreconf(
                     np2txt(_fp, array)
 
         if split_by_chip:
-            for chip, frame_arrays_onchip in frame_arrays_total.items():
+            for chip, frame_arrays_onchip in frames_arr_total.items():
                 f = np.hstack(frame_arrays_onchip, casting="no")
                 _write_to_f(f"config_chip{chip.address}_cores_all", f)
+
+            for chip, enable_arrays_onchip in learn_en_total.items():
+                f = np.hstack(enable_arrays_onchip, casting="no")
+                _write_to_f(f"config_chip{chip.address}_cores_learn_en", f)
+
+            for chip, disable_arrays_onchip in learn_dis_total.items():
+                f = np.hstack(disable_arrays_onchip, casting="no")
+                _write_to_f(f"config_chip{chip.address}_cores_learn_dis", f)
         else:
-            _fa_list = []
-            for f in frame_arrays_total.values():
-                _fa_list.extend(f)
+            if len(frames_arr_total) > 0:
+                _fa_list = []
+                for f in frames_arr_total.values():
+                    _fa_list.extend(f)
 
-            f = np.hstack(_fa_list, casting="no")
-            _write_to_f("config_all", f)
+                f = np.hstack(_fa_list, casting="no")
+                _write_to_f("config_all", f)
 
-    return frame_arrays_total
+            if len(learn_en_total) > 0:
+                _enable_list = []
+                for f in learn_en_total.values():
+                    _enable_list.extend(f)
+
+                f = np.hstack(_enable_list, casting="no")
+                _write_to_f("config_learn_en_all", f)
+
+            if len(learn_dis_total) > 0:
+                _disable_list = []
+                for f in learn_dis_total.values():
+                    _disable_list.extend(f)
+
+                f = np.hstack(_disable_list, casting="no")
+                _write_to_f("config_learn_dis_all", f)
+
+    return frames_arr_total
 
 
 def _with_suffix_json(fp: Path, fname: str) -> Path:
@@ -323,7 +465,9 @@ def export_aux_gh_info(
                 str(k): v for k, v in clk_en_L2_dict.items()
             }
         if lst := misc.get("target_chip_list"):  # list of ChipCoord
-            aux_gh_info_dict["misc"]["target_chip_list"] = lst
+            aux_gh_info_dict["misc"]["target_chip_list"] = [
+                chip_coord.address for chip_coord in lst
+            ]
 
     if _USE_ORJSON:
         with open(_full_fp, "wb") as f:
@@ -406,19 +550,8 @@ def get_clk_en_L2_dict(
 
         return clk_en
 
-    if sys.version_info >= (3, 10):
-        iterator = zip(chip_list, used_L2, strict=True)
-    else:
-        if len(chip_list) != len(used_L2):
-            raise ValueError(
-                "the length of chip list & used L2 clusters must be equal, "
-                f"but {len(chip_list)} != {len(used_L2)}."
-            )
-
-        iterator = zip(chip_list, used_L2)
-
     clk_en_L2_dict = dict()
-    for chip_addr, used_L2_inchip in iterator:
+    for chip_addr, used_L2_inchip in zip(chip_list, used_L2, strict=True):
         clk_en_L2_dict[chip_addr] = to_clk_en_L2_u8(used_L2_inchip)
 
     return clk_en_L2_dict
@@ -479,7 +612,7 @@ def get_neuron_phy_loc(
     locations: NeuPhyLocMap = defaultdict(lambda: defaultdict(dict))
 
     for cb in core_blocks:
-        for core_coord, neu_segs in zip(cb.core_coords, cb.neuron_segs_of_cb):
+        for core_coord, neu_segs in zip(cb.core_coords, cb.core_allocation_of_cb):
             for seg in neu_segs:
                 if (neu_name := seg.target.name) in names:
                     locations[neu_name][cb.chip_coord][core_coord] = seg.neu_seg_addr

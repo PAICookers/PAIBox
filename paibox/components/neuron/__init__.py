@@ -1,1 +1,2 @@
-from .base import Neuron, NeuronSubView
+from .base import *
+from .neurons import *

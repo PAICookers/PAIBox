@@ -2,7 +2,7 @@ import typing
 from collections.abc import Sequence
 from copy import deepcopy
 from functools import wraps
-from typing import Any, Optional, TypeVar
+from typing import Any, TypeVar
 
 import numpy as np
 
@@ -100,7 +100,7 @@ class Container(MixIn):
                 for c in child:
                     if not isinstance(c, child_type):
                         raise ValueError(
-                            f"expect type {child_type.__name__}, but got {type(c)}."
+                            f"expect type {child_type.__name__}, but got {type(c).__name__}."
                         )
                     elems[self._get_elem_name((c))] = c
 
@@ -108,18 +108,18 @@ class Container(MixIn):
                 for k, v in child.items():
                     if not isinstance(v, child_type):
                         raise ValueError(
-                            f"expect type {child_type.__name__}, but got {type(c)}."
+                            f"expect type {child_type.__name__}, but got {type(c).__name__}."
                         )
                     elems[k] = v
             else:
                 raise TypeError(
-                    f"expect elements in dict, list or tuple, but got {type(child)}."
+                    f"expect elements in dict, list or tuple, but got {type(child).__name__}."
                 )
 
         for k, v in children_as_dict.items():
             if not isinstance(v, child_type):
                 raise ValueError(
-                    f"expect type {child_type.__name__}, but got {type(v)}."
+                    f"expect type {child_type.__name__}, but got {type(v).__name__}."
                 )
             elems[k] = v
 
@@ -141,10 +141,10 @@ class ReceiveInputProj(MixIn):
 
         self.master_nodes[key] = master_target
 
-    def unregister_master(self, key: str) -> Optional["FullConnectedSyn"]:
+    def unregister_master(self, key: str) -> "FullConnectedSyn | None":
         return self.master_nodes.pop(key, None)
 
-    def get_master_node(self, key: str) -> Optional["FullConnectedSyn"]:
+    def get_master_node(self, key: str) -> "FullConnectedSyn | None":
         return self.master_nodes.get(key, None)
 
     def sum_inputs(self, *args, **kwargs) -> VoltageType:
@@ -203,7 +203,7 @@ class StatusMemory(MixIn):
         self._memories[name] = value
         self.set_reset_value(name, value)
 
-    def reset_memory(self, name: Optional[str] = None) -> None:
+    def reset_memory(self, name: str | None = None) -> None:
         if isinstance(name, str):
             if name in self._memories:
                 self._memories[name] = deepcopy(self._memories_rv[name])

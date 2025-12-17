@@ -6,7 +6,12 @@ from paibox.components.synapses.conv_utils import _conv1d_oshape, _conv2d_oshape
 from paibox.exceptions import AutoOptimizationWarning
 from paibox.types import VOLTAGE_DTYPE, WEIGHT_DTYPE
 from paibox.utils import shape2num
-from tests.components.utils import *
+from tests.components.utils import (
+    conv1d_golden,
+    conv2d_golden,
+    convtranspose1d_golden,
+    convtranspose2d_golden,
+)
 from tests.utils import gen_random_array
 
 
@@ -15,7 +20,7 @@ class TestTransforms:
         "weight",
         [
             np.array([1, 2, 3], dtype=np.int8),
-            np.array([1, 0, 1], dtype=np.bool_),
+            np.array([1, 0, 1], dtype=bool),
             np.array([True, False]),
             np.array([True, False], dtype=np.int8),
             10,
@@ -64,13 +69,13 @@ class TestTransforms:
     )
     def test_weight_dtype_convert_illegal(self, weight):
         with pytest.raises((TypeError, ValueError)):
-            t = tfm.Transform(weight)
+            _ = tfm.Transform(weight)
 
     @pytest.mark.parametrize(
         "weight",
         [
             (np.array([1, 2, 3], dtype=np.int8)),
-            (np.array([1, 0, 1], dtype=np.bool_)),
+            (np.array([1, 0, 1], dtype=bool)),
             (np.array([1, 0, 1], dtype=np.int8)),
             (10),
             (np.int8(-1)),
@@ -130,7 +135,7 @@ class TestTransforms:
         """Test `AllToAll` when weight is a scalar"""
 
         num_in, num_out = 10, 20
-        x = gen_random_array((num_in,), np.bool_)
+        x = gen_random_array((num_in,), bool)
         f = tfm.AllToAll((num_in, num_out), weight)
         y = f(x)
         expected = np.full((num_out,), np.sum(x, axis=None), dtype=np.int32) * weight
@@ -147,27 +152,27 @@ class TestTransforms:
         [
             (
                 (3, 4),
-                gen_random_array((3,), np.bool_),
-                gen_random_array((3, 4), np.bool_),
+                gen_random_array((3,), bool),
+                gen_random_array((3, 4), bool),
             ),
             (
                 (10, 20),
-                gen_random_array((10,), np.bool_),
+                gen_random_array((10,), bool),
                 gen_random_array((10, 20), np.int8),
             ),
             (
                 (20, 10),
-                gen_random_array((20,), np.bool_),
-                gen_random_array((20, 10), np.bool_),
+                gen_random_array((20,), bool),
+                gen_random_array((20, 10), bool),
             ),
             (
                 (2, 2),
-                np.array([1, 1], dtype=np.bool_),
+                np.array([1, 1], dtype=bool),
                 np.array([[1, 2], [3, 4]], dtype=np.int8),
             ),
             (
                 (2, 2),
-                np.array([1, 1], dtype=np.bool_),
+                np.array([1, 1], dtype=bool),
                 np.array([[127, 0], [3, -128]], dtype=np.int8),
             ),
         ],
@@ -191,10 +196,10 @@ class TestTransforms:
                 np.arange(12, dtype=np.int8).reshape(3, 4),
                 np.array([[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]], dtype=np.int8),
             ),
-            (gen_random_array((10,), np.bool_), gen_random_array((10, 20), np.int8)),
-            (np.ones((20, 10), dtype=np.bool_), gen_random_array((20, 10), np.bool_)),
+            (gen_random_array((10,), bool), gen_random_array((10, 20), np.int8)),
+            (np.ones((20, 10), dtype=bool), gen_random_array((20, 10), bool)),
             (
-                np.array((1, 1), dtype=np.bool_),
+                np.array((1, 1), dtype=bool),
                 np.array([[127, 0], [3, -128]], dtype=np.int8),
             ),
         ],
@@ -232,20 +237,20 @@ class TestTransforms:
     @pytest.mark.parametrize(
         "xdtype, in_shape, in_channels, out_channels, ksize, stride, padding, groups, kdtype",
         [
-            (np.bool_, (8,), 16, 8, (3,), (1,), (1,), 2, np.int8),
-            (np.bool_, (28,), 16, 8, (3,), (1,), (1,), 4, np.bool_),
-            (np.bool_, (28,), 24, 12, (3,), (2,), (2,), 3, np.bool_),
-            (np.bool_, (28,), 24, 12, (5,), (2,), (2,), 6, np.bool_),
-            (np.bool_, (16,), 8, 16, (3,), (2,), (0,), 8, np.bool_),
-            (np.bool_, (28,), 16, 8, (3,), (1,), (0,), 1, np.int8),
-            (np.bool_, (28,), 24, 12, (3,), (2,), (0,), 1, np.int8),
-            (np.bool_, (28,), 24, 12, (5,), (2,), (0,), 4, np.int8),
-            (np.bool_, (16,), 8, 16, (3,), (2,), (0,), 2, np.int8),
+            (bool, (8,), 16, 8, (3,), (1,), (1,), 2, np.int8),
+            (bool, (28,), 16, 8, (3,), (1,), (1,), 4, bool),
+            (bool, (28,), 24, 12, (3,), (2,), (2,), 3, bool),
+            (bool, (28,), 24, 12, (5,), (2,), (2,), 6, bool),
+            (bool, (16,), 8, 16, (3,), (2,), (0,), 8, bool),
+            (bool, (28,), 16, 8, (3,), (1,), (0,), 1, np.int8),
+            (bool, (28,), 24, 12, (3,), (2,), (0,), 1, np.int8),
+            (bool, (28,), 24, 12, (5,), (2,), (0,), 4, np.int8),
+            (bool, (16,), 8, 16, (3,), (2,), (0,), 2, np.int8),
             (np.uint8, (8,), 16, 8, (3,), (1,), (1,), 2, np.int8),
-            (np.uint8, (28,), 16, 8, (3,), (1,), (1,), 4, np.bool_),
-            (np.uint8, (28,), 24, 12, (3,), (2,), (2,), 3, np.bool_),
-            (np.int8, (28,), 24, 12, (5,), (2,), (2,), 3, np.bool_),
-            (np.int8, (16,), 8, 16, (3,), (2,), (0,), 8, np.bool_),
+            (np.uint8, (28,), 16, 8, (3,), (1,), (1,), 4, bool),
+            (np.uint8, (28,), 24, 12, (3,), (2,), (2,), 3, bool),
+            (np.int8, (28,), 24, 12, (5,), (2,), (2,), 3, bool),
+            (np.int8, (16,), 8, 16, (3,), (2,), (0,), 8, bool),
             (np.int8, (28,), 16, 8, (3,), (1,), (0,), 1, np.int8),
             (np.int8, (28,), 24, 12, (3,), (2,), (0,), 1, np.int8),
             (np.int8, (28,), 24, 12, (5,), (2,), (0,), 4, np.int8),
@@ -299,15 +304,15 @@ class TestTransforms:
     @pytest.mark.parametrize(
         "xdtype, in_shape, in_channels, out_channels, ksize, stride, padding, groups, kdtype",
         [
-            (np.bool_, (28, 28), 16, 8, (3, 3), (1, 1), (1, 1), 2, np.bool_),
-            (np.bool_, (28, 28), 24, 12, (3, 3), (2, 2), (2, 1), 3, np.bool_),
-            (np.bool_, (28, 28), 16, 8, (3, 3), (1, 1), (2, 3), 8, np.bool_),
-            (np.bool_, (28, 28), 24, 12, (3, 3), (2, 2), (0, 0), 1, np.int8),
-            (np.bool_, (28, 28), 24, 12, (5, 5), (2, 1), (0, 0), 4, np.int8),
-            (np.bool_, (8, 8), 8, 16, (3, 3), (2, 2), (1, 1), 1, np.int8),
-            (np.uint8, (28, 28), 16, 8, (3, 3), (1, 1), (1, 1), 8, np.bool_),
-            (np.uint8, (28, 28), 24, 12, (3, 3), (2, 2), (2, 1), 1, np.bool_),
-            (np.int8, (28, 28), 16, 8, (3, 3), (1, 1), (2, 3), 4, np.bool_),
+            (bool, (28, 28), 16, 8, (3, 3), (1, 1), (1, 1), 2, bool),
+            (bool, (28, 28), 24, 12, (3, 3), (2, 2), (2, 1), 3, bool),
+            (bool, (28, 28), 16, 8, (3, 3), (1, 1), (2, 3), 8, bool),
+            (bool, (28, 28), 24, 12, (3, 3), (2, 2), (0, 0), 1, np.int8),
+            (bool, (28, 28), 24, 12, (5, 5), (2, 1), (0, 0), 4, np.int8),
+            (bool, (8, 8), 8, 16, (3, 3), (2, 2), (1, 1), 1, np.int8),
+            (np.uint8, (28, 28), 16, 8, (3, 3), (1, 1), (1, 1), 8, bool),
+            (np.uint8, (28, 28), 24, 12, (3, 3), (2, 2), (2, 1), 1, bool),
+            (np.int8, (28, 28), 16, 8, (3, 3), (1, 1), (2, 3), 4, bool),
             (np.int8, (28, 28), 24, 12, (3, 3), (2, 2), (0, 0), 12, np.int8),
             (np.int8, (28, 28), 24, 12, (5, 5), (2, 1), (0, 0), 3, np.int8),
             (np.int8, (8, 8), 8, 16, (3, 3), (2, 2), (1, 1), 2, np.int8),
@@ -361,18 +366,18 @@ class TestTransforms:
     @pytest.mark.parametrize(
         "xdtype, in_shape, in_channels, out_channels, ksize, stride, padding, output_padding, kdtype",
         [
-            (np.bool_, (28,), 16, 8, (3,), (1,), (0,), (0,), np.bool_),
-            (np.bool_, (28,), 24, 12, (3,), (2,), (2,), (2,), np.bool_),
-            (np.bool_, (28,), 24, 12, (5,), (2,), (0,), (1,), np.bool_),
-            (np.bool_, (16,), 8, 16, (3,), (2,), (1,), (0,), np.bool_),
-            (np.bool_, (28,), 16, 8, (3,), (3,), (0,), (0,), np.int8),
-            (np.bool_, (28,), 24, 12, (3,), (2,), (3,), (0,), np.int8),
-            (np.bool_, (28,), 24, 12, (5,), (2,), (0,), (0,), np.int8),
-            (np.bool_, (16,), 8, 16, (3,), (2,), (1,), (1,), np.int8),
-            (np.uint8, (28,), 16, 8, (3,), (1,), (0,), (0,), np.bool_),
-            (np.uint8, (28,), 24, 12, (3,), (2,), (2,), (2,), np.bool_),
-            (np.uint8, (28,), 24, 12, (5,), (2,), (0,), (1,), np.bool_),
-            (np.uint8, (16,), 8, 16, (3,), (2,), (1,), (0,), np.bool_),
+            (bool, (28,), 16, 8, (3,), (1,), (0,), (0,), bool),
+            (bool, (28,), 24, 12, (3,), (2,), (2,), (2,), bool),
+            (bool, (28,), 24, 12, (5,), (2,), (0,), (1,), bool),
+            (bool, (16,), 8, 16, (3,), (2,), (1,), (0,), bool),
+            (bool, (28,), 16, 8, (3,), (3,), (0,), (0,), np.int8),
+            (bool, (28,), 24, 12, (3,), (2,), (3,), (0,), np.int8),
+            (bool, (28,), 24, 12, (5,), (2,), (0,), (0,), np.int8),
+            (bool, (16,), 8, 16, (3,), (2,), (1,), (1,), np.int8),
+            (np.uint8, (28,), 16, 8, (3,), (1,), (0,), (0,), bool),
+            (np.uint8, (28,), 24, 12, (3,), (2,), (2,), (2,), bool),
+            (np.uint8, (28,), 24, 12, (5,), (2,), (0,), (1,), bool),
+            (np.uint8, (16,), 8, 16, (3,), (2,), (1,), (0,), bool),
             (np.int8, (28,), 16, 8, (3,), (3,), (0,), (0,), np.int8),
             (np.int8, (28,), 24, 12, (3,), (2,), (3,), (0,), np.int8),
             (np.int8, (28,), 24, 12, (5,), (2,), (0,), (0,), np.int8),
@@ -431,21 +436,21 @@ class TestTransforms:
     @pytest.mark.parametrize(
         "xdtype, in_shape, in_channels, out_channels, ksize, stride, padding, output_padding, kdtype",
         [
-            (np.bool_, (12, 12), 16, 8, (3, 3), (1, 1), (1, 1), (1, 1), np.bool_),
-            (np.bool_, (12, 12), 24, 12, (3, 3), (2, 2), (2, 2), (1, 0), np.bool_),
-            (np.bool_, (12, 12), 16, 8, (3, 3), (1, 1), (0, 0), (0, 0), np.bool_),
-            (np.bool_, (12, 12), 24, 12, (3, 3), (2, 2), (1, 2), (0, 1), np.int8),
-            (np.bool_, (10, 10), 24, 12, (5, 5), (2, 1), (1, 1), (2, 2), np.int8),
-            (np.bool_, (16, 16), 8, 16, (3, 3), (2, 2), (1, 3), (2, 0), np.int8),
-            (np.uint8, (12, 12), 16, 8, (3, 3), (1, 1), (1, 1), (1, 1), np.bool_),
-            (np.uint8, (12, 12), 24, 12, (3, 3), (2, 2), (2, 2), (1, 0), np.bool_),
-            (np.int8, (12, 12), 16, 8, (3, 3), (1, 1), (0, 0), (0, 0), np.bool_),
+            (bool, (12, 12), 16, 8, (3, 3), (1, 1), (1, 1), (1, 1), bool),
+            (bool, (12, 12), 24, 12, (3, 3), (2, 2), (2, 2), (1, 0), bool),
+            (bool, (12, 12), 16, 8, (3, 3), (1, 1), (0, 0), (0, 0), bool),
+            (bool, (12, 12), 24, 12, (3, 3), (2, 2), (1, 2), (0, 1), np.int8),
+            (bool, (10, 10), 24, 12, (5, 5), (2, 1), (1, 1), (2, 2), np.int8),
+            (bool, (16, 16), 8, 16, (3, 3), (2, 2), (1, 3), (2, 0), np.int8),
+            (np.uint8, (12, 12), 16, 8, (3, 3), (1, 1), (1, 1), (1, 1), bool),
+            (np.uint8, (12, 12), 24, 12, (3, 3), (2, 2), (2, 2), (1, 0), bool),
+            (np.int8, (12, 12), 16, 8, (3, 3), (1, 1), (0, 0), (0, 0), bool),
             (np.int8, (12, 12), 24, 12, (3, 3), (2, 2), (1, 2), (0, 1), np.int8),
             (np.int8, (10, 10), 24, 12, (5, 5), (2, 1), (1, 1), (2, 2), np.int8),
             (np.int8, (16, 16), 8, 16, (3, 3), (2, 2), (1, 3), (2, 0), np.int8),
-            # ((28, 28), 16, 8, (3, 3), (1, 1), (0, 0), "HWC", np.bool_),
-            # ((24, 32), 8, 8, (3, 4), (2, 1), (0, 0), "HWC", np.bool_),
-            # ((24, 24), 8, 16, (7, 7), (2, 2), (0, 0), "HWC", np.bool_),
+            # ((28, 28), 16, 8, (3, 3), (1, 1), (0, 0), "HWC", bool),
+            # ((24, 32), 8, 8, (3, 4), (2, 1), (0, 0), "HWC", bool),
+            # ((24, 24), 8, 16, (7, 7), (2, 2), (0, 0), "HWC", bool),
             # ((32, 16), 4, 12, (5, 7), (1, 2), (0, 0), "HWC", np.int8),
             # ((24, 24), 8, 16, (7, 7), (2, 2), (0, 0), "HWC", np.int8),
             # ((32, 16), 4, 12, (5, 7), (1, 2), (0, 0), "HWC", np.int8),

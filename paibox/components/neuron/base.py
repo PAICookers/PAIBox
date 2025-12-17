@@ -1,8 +1,10 @@
+import sys
 import warnings
-from collections.abc import Iterable
-from typing import Any, Literal, NoReturn, Optional, Union
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import numpy as np
+from numpy.typing import NDArray
 from paicorelib import (
     LCM,
     LDM,
@@ -11,31 +13,29 @@ from paicorelib import (
     RM,
     SIM,
     CoreMode,
+    DecayRandomEnable,
     InputWidthFormat,
+    LeakOrder,
+    LUTDataType,
     MaxPoolingEnable,
-    OffCoreCfg,
+    OnlineModeEnable,
     SNNModeEnable,
     SpikeWidthFormat,
     get_core_mode,
 )
 
-from paibox.base import DataFlowFormat, NeuDyn
-from paibox.exceptions import ConfigInvalidError, PAIBoxWarning, ShapeError
+from paibox.base import DataFlowFormat, NeuDyn, is_learnable
+from paibox.exceptions import ConfigInvalidError, ParamNotSimulatedWarning, ShapeError
 from paibox.types import (
     NEUOUT_U8_DTYPE,
     VOLTAGE_DTYPE,
+    WEIGHT_DTYPE,
     LeakVType,
     NeuOutType,
     Shape,
     VoltageType,
 )
-from paibox.utils import (
-    arg_check_non_neg,
-    arg_check_non_pos,
-    arg_check_pos,
-    as_shape,
-    shape2num,
-)
+from paibox.utils import arg_check_non_neg, arg_check_pos, as_shape, shape2num
 
 from .utils import (
     BIT_TRUNC_MAX,
@@ -46,91 +46,86 @@ from .utils import (
     _leak_v_check,
     _mask,
     _spike_width_format,
+    get_delay_reg_len,
     v_overflow,
 )
 
-__all__ = ["Neuron"]
+if sys.version_info >= (3, 11):
+    from typing import Unpack
+else:
+    from typing_extensions import Unpack
+
+if TYPE_CHECKING:
+    from ..synapses.learning import STDPSynAttrKwds
+
+__all__ = ["Neuron", "OfflineNeuron", "OnlineNeuron"]
 
 L = Literal
-NEU_TARGET_CHIP_NOT_SET = -1
+NEU_TARGET_CHIP_UNSET = -1
 
 
-class MetaNeuron:
-    """Meta neuron"""
+def _neg_thres_check(th: int | None, signed: bool) -> int:
+    if th is None:
+        return -NEG_THRES_MAX
+    elif signed:
+        return th
+    else:
+        return th if th < 0 else -th
+
+
+class Neuron(NeuDyn):
+    _n_copied = 0
+    """Counter of copies."""
 
     rt_mode_kwds: RTModeKwds
     mode: CoreMode
+    online: ClassVar[bool]
 
     def __init__(
         self,
         shape: Shape,
-        reset_mode: RM,
-        reset_v: int,
-        leak_comparison: LCM,
-        threshold_mask_bits: int,
-        neg_thres_mode: NTM,
-        neg_threshold: int,
-        pos_threshold: int,
-        leak_direction: LDM,
-        leak_integr: LIM,
-        leak_v: Union[int, LeakVType],
-        synaptic_integr: SIM,
-        bit_trunc: int,
-        input_width: InputWidthFormat,
-        spike_width: SpikeWidthFormat,
-        snn_en: SNNModeEnable,
-        pool_max: MaxPoolingEnable,
-        overflow_strict: bool,
-        keep_shape: bool = False,
+        reset_v: int = 0,
+        leak_v: int | LeakVType = 0,
+        pos_threshold: int = 1,
+        leak_comparison: LCM = LCM.LEAK_BEFORE_COMP,
+        init_v: int | np.ndarray = 0,
+        delay: int = 1,
+        tick_wait_start: int = 1,
+        tick_wait_end: int = 0,
+        target_chip: int | None = None,
+        unrolling_factor: int = 1,
+        overflow_strict: bool = False,
+        keep_shape: bool = True,
+        name: str | None = None,
     ) -> None:
+        super().__init__(name)
         """Stateless attributes. Scalar."""
         # Basic attributes.
         self.keep_shape = keep_shape
         self._shape = as_shape(shape)
         self._n_neuron = shape2num(self._shape)
 
-        self.rt_mode_kwds = {
-            "input_width": input_width,
-            "spike_width": spike_width,
-            "snn_en": snn_en,
-        }
-        # check whether the mode is valid
-        self.mode = get_core_mode(input_width, spike_width, snn_en)
-
-        if pool_max and self.mode != CoreMode.MODE_ANN:
-            raise ConfigInvalidError(
-                f"max pooling is only supported in {CoreMode.MODE_ANN.name}, "
-                f"but got {self.mode.name}."
-            )
-
-        self.pool_max = pool_max
-
-        # DO NOT modify the names of the following variables.
-        # They will be exported to the parameter verification model.
-        self.reset_mode = reset_mode
-        self.reset_v = reset_v  # Signed 30-bit
+        # Core parameters, common to all neuron types
+        self.reset_v = reset_v
+        self.pos_threshold = arg_check_non_neg(pos_threshold, "'pos_threshold'")
         self.leak_comparison = leak_comparison
-        self.threshold_mask_bits = threshold_mask_bits
-        self.neg_thres_mode = neg_thres_mode
-        self.neg_threshold = (-1) * neg_threshold  # Unsigned 29-bit
-        self.pos_threshold = pos_threshold  # Unsigned 29-bit
-        self.leak_direction = leak_direction
-        self.leak_integr = leak_integr
-        self.synaptic_integr = synaptic_integr
-        self.bit_trunc = bit_trunc  # Unsigned 5-bit
-
-        # Auxiliary attributes or variables.
-        self._thres_mask = _mask(threshold_mask_bits)
-        self.thres_mode = self.init_param(NeuFireState.NOT_FIRING)
         self.overflow_strict = overflow_strict
+        self.v0 = (
+            self.init_voltage(init_v)
+            if isinstance(init_v, int)
+            else init_v.astype(VOLTAGE_DTYPE).ravel()
+        )
 
-        if isinstance(leak_v, int) or leak_v.size == 1:
-            # np.array([x]) is treated as a scalar.
+        # Handle leak_v parameter
+        if isinstance(leak_v, int) or (hasattr(leak_v, "size") and leak_v.size == 1):
             self.leak_v = int(leak_v)
         elif np.prod(leak_v.shape) == np.prod(self._shape):
-            # leak with shape (32,32) == (1,32,32) is allowed.
             self.leak_v = leak_v.ravel()
-        elif leak_v.ndim == 1 and leak_v.shape[0] == self._shape[0]:
+        elif (
+            hasattr(leak_v, "ndim")
+            and leak_v.ndim == 1
+            and leak_v.shape[0] == self._shape[0]
+        ):
             self.leak_v = np.repeat(leak_v, shape2num(self._shape[1:])).ravel()
         else:
             raise ShapeError(
@@ -139,403 +134,63 @@ class MetaNeuron:
 
         _leak_v_check(self.leak_v)
 
-        if self.synaptic_integr is SIM.MODE_STOCHASTIC:
-            warnings.warn(
-                f"mode {SIM.MODE_STOCHASTIC.name} is configurated "
-                f"but will not be simulated.",
-                PAIBoxWarning,
-            )
-
-        if self.leak_integr is LIM.MODE_STOCHASTIC:
-            warnings.warn(
-                f"mode {LIM.MODE_STOCHASTIC.name} is configurated "
-                f"but will not be simulated.",
-                PAIBoxWarning,
-            )
-
-        if threshold_mask_bits > 0:
-            warnings.warn(
-                "random threshold is configurated but will not be simulated.",
-                PAIBoxWarning,
-            )
-
-        if bit_trunc > BIT_TRUNC_MAX:
-            raise ValueError(
-                f"'bit_trunc' should be less than or equal to {BIT_TRUNC_MAX}, but got {bit_trunc}."
-            )
-
-    def _neuronal_charge(
-        self, incoming_v: VoltageType, v_pre: VoltageType
-    ) -> VoltageType:
-        r"""1. Synaptic integration.
-
-        Description:
-            _rho_w_ij: Random synaptic integration enable, 0 or 1.
-
-            If synaptic integration mode is deterministic, then
-                `vjt` = `v_pre` + \sum^{N-1}_{i=0} * x_i(t) * w_{i,j} (incoming_v)
-            else (stochastic)
-                `vjt` = `v_pre` + `_rho_w_ij` * \sum^{N-1}_{i=0} * x_i(t) * w_{i,j}
-        """
-        if incoming_v.ndim == 2:
-            _v = np.sum(incoming_v, axis=1)
-        else:
-            _v = incoming_v
-
-        if self.rt_mode_kwds["snn_en"]:
-            v_charged = v_pre + _v
-        else:
-            # SNN_EN=0, the previous voltage is unused
-            v_charged = _v
-
-        return v_overflow(v_charged, self.overflow_strict)
-
-    def _neuronal_leak(self, v: VoltageType) -> VoltageType:
-        r"""2. Leak integration.
-
-        2.1 Leak direction, forward or reversal.
-            If leak direction is `MODE_FORWARD`, the `_ld` is 1, else is \sgn{`v`}.
-
-        2.2 Random leak.
-            If leak integration is `MODE_DETERMINISTIC`, then
-                `v` = `v` + `_ld` * `leak_v`
-            else (`MODE_STOCHASTIC`)
-                if abs(`leak_v`) >= `_rho_j_lambda`, then
-                    `_F` = 1
-                else
-                    `_F` = 0
-
-                `v` = `v` + \sgn{`leak_v`}* `_ld` * `_F`
-        """
-        if self.rt_mode_kwds["snn_en"]:
-            if self.leak_direction is LDM.MODE_FORWARD:
-                _ld = 1
-            else:
-                _ld = np.sign(v)
-
-            v_leaked = v + _ld * self.leak_v
-        else:
-            v_leaked = v + self.bias
-
-        return v_overflow(v_leaked, self.overflow_strict)
-
-    def _neuronal_fire(self, v: VoltageType) -> NeuOutType:
-        r"""3. Threshold comparison.
-
-        3.1 Random threshold.
-            `_v_th_rand` = `_rho_j_T` & `_thres_mask`
-
-        3.2 Fire.
-            If negative threshold mode is `MODE_RESET`, then
-                `_v_th_neg` = `neg_threshold` + `_v_th_rand`
-            else
-                `_v_th_neg` = `neg_threshold`
-
-            If `vjt` >= `_pos_threshold` + `_v_th_rand`, then
-                `spike` = 1
-            else if `vjt` < -`_v_th_neg`, then
-                `spike` = 0
-            else
-                `spike` = 0
-        """
-        self.thres_mode = np.where(
-            v >= self.pos_threshold,
-            NeuFireState.FIRING_POS,
-            np.where(
-                v + self.neg_threshold < 0,
-                NeuFireState.FIRING_NEG,
-                NeuFireState.NOT_FIRING,
-            ),
-        )
-
-        spike = self.thres_mode == NeuFireState.FIRING_POS
-        return spike.astype(NEUOUT_U8_DTYPE)
-
-    def _neuronal_reset(self, v: VoltageType) -> VoltageType:
-        r"""4. Reset.
-
-        If `thres_mode` is `FIRING_POS`
-            If reset mode is `MODE_NORMAL`, then
-                `v` = `reset_v`
-            else if reset mode is `MODE_LINEAR`, then
-                `v` = `v` - `_pos_threshold` - `_v_th_rand`
-            else (`MODE_NONRESET`)
-                `v` = `v`
-
-        else if `thres_mode` is `FIRING_NEG`
-            If negative threshold mode is `MODE_RESET`, then
-                If reset mode is `MODE_NORMAL`, then
-                    `v` = -`reset_v`
-                else if reset mode is `MODE_LINEAR`, then
-                    `v` = `v` + (`neg_threshold` + `_v_th_rand`)
-                else
-                    `v` = `v`
-            else (`MODE_SATURATION`)
-                `v` = `neg_threshold`
-
-        else (not beyond the threshold)
-            `v` = `v`
-        """
-
-        def _when_exceed_pos() -> VoltageType:
-            if self.reset_mode is RM.MODE_NORMAL:
-                return np.full_like(v, self.reset_v)
-            elif self.reset_mode is RM.MODE_LINEAR:
-                return v - self.pos_threshold
-            else:  # RM.MODE_NONRESET
-                return v
-
-        def _when_exceed_neg() -> VoltageType:
-            if self.neg_thres_mode is NTM.MODE_RESET:
-                if self.reset_mode is RM.MODE_NORMAL:
-                    return np.full_like(v, -self.reset_v)
-                elif self.reset_mode is RM.MODE_LINEAR:
-                    return v + self.neg_threshold
-                else:  # RM.MODE_NONRESET
-                    return v
-            else:
-                return np.full_like(v, -self.neg_threshold)
-
-        # USE "=="!
-        v_reset = np.where(
-            self.thres_mode == NeuFireState.FIRING_POS,
-            _when_exceed_pos(),
-            np.where(self.thres_mode == NeuFireState.FIRING_NEG, _when_exceed_neg(), v),
-        )
-
-        return v_reset.astype(VOLTAGE_DTYPE)
-
-    def _bit_truncate(self, v: VoltageType) -> NeuOutType:
-        r"""Bit Truncation.
-
-        If spiking width format is `WIDTH_1BIT`, then
-            if `v` >= `_pos_threshold`, then
-                `_yj` = 1
-            else
-                `_yj` = 0
-        else (`WIDTH_8BIT`)
-            `v` >= `_pos_threshold`, then
-                `_yj` = `y_truncated`
-            else
-                `_yj` = 0
-
-        NOTE: output under x-bit truncation
-            _bit_trunc  Position of truncation
-                0                   8'd0
-                1                [0], 7'd0
-                2               [1:0], 6'd0
-                X             [X-1:0], {8-X}'d0
-                7               [6:0], 1'd0
-                8                  [7:0]
-               ...                  ...
-                X                [X-1:X-8]
-
-            If the MSB of voltage is greater than the truncation bit, return 8'd255.
-        """
-        v_truncated = np.where(
-            self.thres_mode == NeuFireState.FIRING_POS,
-            self._truncate(v, self.bit_trunc),
-            self.init_v(),
-        )
-        return v_truncated.astype(NEUOUT_U8_DTYPE)
-
-    def _aux_pre_hook(self) -> None:
-        """Pre-hook before the entire update."""
-        pass
-
-    def _aux_post_hook(self) -> None:
-        """Post-hook after the entire update."""
-        # Reset the auxiliary threshold mode
-        self.thres_mode = self.init_param(NeuFireState.NOT_FIRING)
-
-    def update(
-        self, incoming_v: VoltageType, v_pre: VoltageType
-    ) -> tuple[NeuOutType, VoltageType]:
-        """Update at one timestep."""
-        self._aux_pre_hook()
-
-        # 1. Charge
-        v_charged = self._neuronal_charge(incoming_v, v_pre)
-
-        # 2. Leak & fire
-        if self.leak_comparison is LCM.LEAK_BEFORE_COMP:
-            v_leaked = self._neuronal_leak(v_charged)
-            spike = self._neuronal_fire(v_leaked)
-        else:
-            spike = self._neuronal_fire(v_charged)
-            v_leaked = self._neuronal_leak(v_charged)
-
-        # 3. Reset. Reset is performed in all modes.
-        v_reset = self._neuronal_reset(v_leaked)
-
-        if self.rt_mode_kwds["spike_width"] is SpikeWidthFormat.WIDTH_8BIT:
-            # Althought the truncated voltage is of type VOLTAGE_DTYPE, its value <= uint8.
-            # The voltage to truncate is the one before neuronal reset.
-            v_truncated = self._bit_truncate(v_leaked)
-
-        self._aux_post_hook()
-
-        if self.rt_mode_kwds["spike_width"] is SpikeWidthFormat.WIDTH_1BIT:
-            # When output width is 1 bit, bit truncation is not performed.
-            return spike, v_reset
-        else:
-            return v_truncated, v_reset
-
-    def init_param(self, param: Any) -> np.ndarray:
-        return np.full((self._n_neuron,), param)
-
-    @staticmethod
-    def _truncate(v: VoltageType, bit_trunc: int) -> VoltageType:
-        def _truncate_below_u8(vt):
-            if bit_trunc == 0:
-                return 0
-            elif bit_trunc < 8:
-                return (vt << (8 - bit_trunc)) & _mask(8)
-            else:
-                return (vt >> (bit_trunc - 8)) & _mask(8)
-
-        # Saturate truncation
-        return np.where((v >> bit_trunc) > 0, _mask(8), _truncate_below_u8(v))
-
-    def init_v(self) -> VoltageType:
-        return self.init_param(0).astype(VOLTAGE_DTYPE)
-
-    def init_neu_out(self) -> NeuOutType:
-        return self.init_param(0).astype(NEUOUT_U8_DTYPE)
-
-    @property
-    def varshape(self) -> tuple[int, ...]:
-        return self._shape if self.keep_shape else (self._n_neuron,)
-
-    @property
-    def bias(self) -> Union[int, LeakVType]:
-        return self.leak_v
-
-
-class Neuron(MetaNeuron, NeuDyn):
-    _n_copied = 0
-    """Counter of copies."""
-
-    def __init__(
-        self,
-        shape: Shape,
-        reset_mode: RM = RM.MODE_NORMAL,
-        reset_v: int = 0,
-        leak_comparison: LCM = LCM.LEAK_BEFORE_COMP,
-        thres_mask_bits: int = 0,
-        neg_thres_mode: NTM = NTM.MODE_RESET,
-        neg_threshold: Optional[int] = None,
-        pos_threshold: int = 1,
-        leak_direction: LDM = LDM.MODE_FORWARD,
-        leak_integration_mode: Union[L[0, 1], bool, LIM] = LIM.MODE_DETERMINISTIC,
-        leak_v: Union[int, LeakVType] = 0,
-        syn_integration_mode: Union[L[0, 1], bool, SIM] = SIM.MODE_DETERMINISTIC,
-        bit_trunc: int = 8,
-        *,
-        delay: int = 1,
-        tick_wait_start: int = 1,
-        tick_wait_end: int = 0,
-        input_width: Union[L[1, 8], InputWidthFormat] = InputWidthFormat.WIDTH_1BIT,
-        spike_width: Union[L[1, 8], SpikeWidthFormat] = SpikeWidthFormat.WIDTH_1BIT,
-        snn_en: Union[bool, SNNModeEnable] = True,
-        pool_max: Union[bool, MaxPoolingEnable] = False,
-        unrolling_factor: int = 1,
-        overflow_strict: bool = False,
-        keep_shape: bool = True,
-        target_chip: int = NEU_TARGET_CHIP_NOT_SET,
-        name: Optional[str] = None,
-    ) -> None:
-        if neg_threshold is None:
-            neg_threshold = -NEG_THRES_MAX
-
-        if neg_threshold > 0:
-            # XXX *(-1) if passing a negative threshold > 0
-            neg_threshold = (-1) * neg_threshold
-
-        super().__init__(
-            shape,
-            reset_mode,
-            reset_v,
-            leak_comparison,
-            thres_mask_bits,
-            neg_thres_mode,
-            arg_check_non_pos(neg_threshold, "negative threshold"),
-            arg_check_non_neg(pos_threshold, "positive threshold"),
-            leak_direction,
-            LIM(leak_integration_mode),
-            leak_v,
-            SIM(syn_integration_mode),
-            arg_check_non_neg(bit_trunc, "bit of tuncation"),
-            _input_width_format(input_width),
-            _spike_width_format(spike_width),
-            SNNModeEnable(snn_en),
-            MaxPoolingEnable(pool_max),
-            overflow_strict,
-            keep_shape,
-        )
-        super(MetaNeuron, self).__init__(name)
-
-        """Stateful attributes. Vector."""
-        self.set_memory("_v0", self.init_v())  # Initial voltage is fixed at 0.
+        # Common stateful attributes
+        self.set_memory("v", self.v0)
         self.set_memory("_neu_out", self.init_neu_out())
-        self.set_memory(
-            "delay_registers",
-            np.zeros(
-                (OffCoreCfg.N_TIMESLOT_MAX,) + self._neu_out.shape,
-                dtype=NEUOUT_U8_DTYPE,
-            ),
-        )
 
-        """Non-stateful attributes."""
+        # Non-stateful attributes.
         self._delay = arg_check_pos(delay, "'delay'")
         self._tws = arg_check_non_neg(tick_wait_start, "'tick_wait_start'")
         self._twe = arg_check_non_neg(tick_wait_end, "'tick_wait_end'")
         self._uf = arg_check_pos(unrolling_factor, "'unrolling_factor'")
-        self.target_chip_idx = target_chip
+        self.target_chip_idx = (
+            NEU_TARGET_CHIP_UNSET
+            if target_chip is None
+            else arg_check_pos(target_chip, "'target_chip'")
+        )
         # Default dataflow is infinite and continuous, starting at tws+0.
         self._oflow_format = DataFlowFormat(0, is_local_time=True)
 
-    def __len__(self) -> int:
-        return self._n_neuron
-
     def __call__(
-        self, x: Optional[np.ndarray] = None, *args, **kwargs
-    ) -> Optional[NeuOutType]:
+        self, x: np.ndarray | None = None, *args, **kwargs
+    ) -> NeuOutType | None:
         return self.update(x, *args, **kwargs)
 
-    def update(
-        self, x: Optional[np.ndarray] = None, *args, **kwargs
-    ) -> Optional[NeuOutType]:
-        # Priority order is a must.
-        # The neuron doesn't work if `tws = 0` & done working
-        # until `t - tws + 1 > twe` under the condition `twe > 0`.
-        if not self.is_working():
-            self._neu_out.fill(0)
-            return None
+    def update(self, x: np.ndarray | None = None, *args, **kwargs) -> NeuOutType | None:
+        raise NotImplementedError("Subclasses must implement this method")
 
-        if x is None:
-            if self.pool_max:
-                x = self.max_inputs()
-            else:
-                x = self.sum_inputs()
-        else:
-            x = np.atleast_1d(x)
+    def step(
+        self, incoming_v: VoltageType, v_pre: VoltageType, *args, **kwargs
+    ) -> tuple[NeuOutType, VoltageType]:
+        raise NotImplementedError("Subclasses must implement this method")
 
-        self._neu_out, self._v0 = super().update(x, self._v0)
+    def put_out_in_delay_reg(self, neu_out: NeuOutType) -> None:
+        idx = (self.timestamp + self.delay_relative - 1) % self.delay_reg_len
+        self.delay_registers[idx] = neu_out.copy()
 
-        idx = (self.timestamp + self.delay_relative - 1) % OffCoreCfg.N_TIMESLOT_MAX
-        self.delay_registers[idx] = self._neu_out.copy()
+    def init_param(self, val: Any) -> np.ndarray:
+        return np.full((self._n_neuron,), val)
 
-        return self._neu_out
+    def init_voltage(self, v: int) -> VoltageType:
+        return self.init_param(v).astype(VOLTAGE_DTYPE)
+
+    def init_neu_out(self) -> NeuOutType:
+        return self.init_param(0).astype(NEUOUT_U8_DTYPE)
+
+    def init_delay_registers(self) -> None:
+        self.set_memory(
+            "delay_registers",
+            np.zeros((self.delay_reg_len,) + self.output.shape, dtype=NEUOUT_U8_DTYPE),
+        )
 
     def reset_state(self, *args, **kwargs) -> None:
         self.reset_memory()  # Call reset of `StatusMemory`.
 
     def set_oflow_format(
         self,
-        t_1st_vld: Optional[int] = None,
-        interval: Optional[int] = None,
-        n_vld: Optional[int] = None,
+        t_1st_vld: int | None = None,
+        interval: int | None = None,
+        n_vld: int | None = None,
         *,
         format_type: type[DataFlowFormat] = DataFlowFormat,
     ) -> None:
@@ -576,11 +231,14 @@ class Neuron(MetaNeuron, NeuDyn):
         self._oflow_format.n_vld = n_vld
         self._oflow_format._check_after_assign(self.tick_wait_start, self.end_tick)
 
-    def __copy__(self) -> "Neuron":
+    def __len__(self) -> int:
+        return self._n_neuron
+
+    def __copy__(self):
         """Same as `__deepcopy__`."""
         return self.__deepcopy__()
 
-    def __deepcopy__(self, memo=None) -> "Neuron":
+    def __deepcopy__(self, memo=None):
         """Deepcopy a neuron.
 
         NOTE: It simply reinitializes a neuron with the parameters of the original neuron.
@@ -588,31 +246,25 @@ class Neuron(MetaNeuron, NeuDyn):
         """
         self._n_copied += 1
 
-        return Neuron(
-            **self.attrs(all=True),
+        neu_type = OnlineNeuron if is_learnable(self) else OfflineNeuron
+
+        return neu_type(
+            **self.attrs(for_copy=True),
             name=f"{self.name}_copied_{self._n_copied}",
         )
 
-    def copy(self) -> "Neuron":
+    def copy(self):
         return self.__deepcopy__()
 
-    def attrs(self, all: bool) -> dict[str, Any]:
+    def attrs(self, for_copy: bool = False) -> dict[str, Any]:
         attrs = {
-            "reset_mode": self.reset_mode,
             "reset_v": self.reset_v,
-            "leak_comparison": self.leak_comparison,
-            "thres_mask_bits": self.threshold_mask_bits,
-            "neg_thres_mode": self.neg_thres_mode,
-            "neg_threshold": self.neg_threshold,
-            "pos_threshold": self.pos_threshold,
-            "leak_direction": self.leak_direction,
-            "leak_integration_mode": self.leak_integr,
             "leak_v": self.leak_v,
-            "syn_integration_mode": self.synaptic_integr,
-            "bit_trunc": self.bit_trunc,
+            "pos_threshold": self.pos_threshold,
+            "leak_comparison": self.leak_comparison,
+            "init_v": self.v0,
         }
-
-        if all:
+        if for_copy:
             attrs |= {
                 "shape": self._shape,
                 "keep_shape": self.keep_shape,
@@ -627,48 +279,25 @@ class Neuron(MetaNeuron, NeuDyn):
 
     def _slice_attrs(
         self,
-        index: Union[int, slice, tuple[Union[int, slice]]],
-        all: bool = False,
-        with_shape: bool = False,
+        index: int | slice | list[int] | tuple[int | slice],
+        for_copy: bool = False,
     ) -> dict[str, Any]:
         """Slice the vector variables in the target.
 
         NOTE: since it does not participate in the simulation, all stateful attributes can be left \
             unrecorded.
         """
-        attrs = self.attrs(all)
+        attrs = self.attrs(for_copy)
 
         for k, v in attrs.items():
             # Flatten the array-like attributes
             if isinstance(v, np.ndarray):
-                if with_shape:
-                    attrs[k] = v.reshape(self.varshape)[index]
-                else:
-                    attrs[k] = v.ravel()[index]
+                attrs[k] = v.ravel()[index]
 
         return attrs
 
-    def __getitem__(self, index) -> "NeuronSubView":
-        return NeuronSubView(self, index)
-
-    def shape_change(self, new_shape: Shape) -> None:
-        # print(self.name,"shape change")
-        self._n_neuron = shape2num(new_shape)
-        self._shape = as_shape(new_shape)
-        self._v0 = self.init_param(0).astype(np.int32)
-        self.set_reset_value("_v0", self._v0)
-        self._inner_spike = self.init_param(0).astype(np.bool_)
-        self.set_reset_value("_inner_spike", self._inner_spike)
-        self.vj = self.init_param(0).astype(np.int32)
-        self.set_reset_value("vj", self.vj)
-        self.y = self.init_param(0).astype(np.int32)
-        self.set_reset_value("y", self.y)
-        self.delay_registers = np.zeros(
-            (OffCoreCfg.N_TIMESLOT_MAX,) + self._inner_spike.shape, dtype=np.bool_
-        )
-        self.set_reset_value("delay_registers", self.delay_registers)
-
-        return
+    def has_spike(self) -> bool:
+        return bool(np.any(self.spike > 0))
 
     @property
     def shape_in(self) -> tuple[int, ...]:
@@ -677,6 +306,10 @@ class Neuron(MetaNeuron, NeuDyn):
     @property
     def shape_out(self) -> tuple[int, ...]:
         return self._shape
+
+    @property
+    def varshape(self) -> tuple[int, ...]:
+        return self._shape if self.keep_shape else (self._n_neuron,)
 
     @property
     def num_in(self) -> int:
@@ -700,57 +333,510 @@ class Neuron(MetaNeuron, NeuDyn):
 
     @property
     def voltage(self) -> VoltageType:
-        return self._v0.reshape(self.varshape)
+        return self.v.reshape(self.varshape)
+
+    @property
+    def bias(self) -> int | LeakVType:
+        return self.leak_v
+
+    @property
+    def delay_reg_len(self) -> int:
+        return get_delay_reg_len(self)
 
 
-class NeuronSubView(Neuron):
-    __gh_build_ignore__ = True
+def bit_truncate(v: VoltageType, bit: int = 8) -> VoltageType:
+    def _truncate_below_u8(vt):
+        if bit == 0:
+            return 0
+        elif bit < 8:
+            return (vt << (8 - bit)) & _mask(8)
+        else:
+            return (vt >> (bit - 8)) & _mask(8)
+
+    # Saturate truncation
+    return np.where((v >> bit) > 0, _mask(8), _truncate_below_u8(v))
+
+
+class OfflineNeuron(Neuron):
+    online: ClassVar[bool] = False
 
     def __init__(
         self,
-        target: Neuron,
-        index: Union[int, slice, tuple[Union[int, slice]]],
-        name: Optional[str] = None,
+        shape: Shape,
+        reset_mode: RM = RM.MODE_NORMAL,
+        reset_v: int = 0,
+        leak_comparison: LCM = LCM.LEAK_BEFORE_COMP,
+        thres_mask_bits: int = 0,
+        neg_thres_mode: NTM = NTM.MODE_RESET,
+        neg_threshold: int | None = None,
+        pos_threshold: int = 1,
+        leak_direction: LDM = LDM.MODE_FORWARD,
+        leak_integration_mode: L[0, 1] | bool | LIM = LIM.MODE_DETERMINISTIC,
+        leak_v: int | LeakVType = 0,
+        syn_integration_mode: L[0, 1] | bool | SIM = SIM.MODE_DETERMINISTIC,
+        bit_trunc: int = 8,
+        *,
+        delay: int = 1,
+        tick_wait_start: int = 1,
+        tick_wait_end: int = 0,
+        input_width: L[1, 8] | InputWidthFormat = InputWidthFormat.WIDTH_1BIT,
+        spike_width: L[1, 8] | SpikeWidthFormat = SpikeWidthFormat.WIDTH_1BIT,
+        snn_en: bool | SNNModeEnable = True,
+        pool_max: bool | MaxPoolingEnable = False,
+        target_chip: int | None = None,
+        unrolling_factor: int = 1,
+        overflow_strict: bool = False,
+        keep_shape: bool = True,
+        name: str | None = None,
+        **kwargs,
     ) -> None:
-        if isinstance(index, (int, slice)):
-            index = (index,)
-
-        if len(index) > len(target.varshape):
-            raise ValueError(
-                f"index {index} is too long for target's shape {target.varshape}."
-            )
-
-        self.target = target
-        self.index = index
-
-        shape = []
-        for i, idx in enumerate(self.index):
-            if isinstance(idx, int):
-                shape.append(1)
-            elif isinstance(idx, slice):
-                shape.append(len(range(target.varshape[i])[idx]))
-            elif not isinstance(idx, Iterable):
-                raise TypeError(
-                    f"the index should be an iterable, but got {type(idx)}."
-                )
-            else:
-                shape.append(len(idx))
-
-        shape += list(target.varshape[len(self.index) :])
-
         super().__init__(
             shape,
-            **target._slice_attrs(self.index, with_shape=True),
-            keep_shape=target.keep_shape,
-            name=name,
+            reset_v,
+            leak_v,
+            pos_threshold,
+            leak_comparison,
+            0,  # Fixed to 0 for offline neuron
+            delay,
+            tick_wait_start,
+            tick_wait_end,
+            target_chip,
+            unrolling_factor,
+            overflow_strict,
+            keep_shape,
+            name,
         )
 
-    def update(self, *args, **kwargs) -> NoReturn:
-        raise NotImplementedError(
-            f"{NeuronSubView.__name__} {self.name} cannot be updated."
+        # DO NOT modify the names of the following variables.
+        # They will be exported to the parameter verification model.
+        self.reset_mode = reset_mode
+        # u29, but here always a negative int
+        self.neg_threshold = _neg_thres_check(neg_threshold, signed=False)
+        self.threshold_mask_bits = thres_mask_bits
+        self.neg_thres_mode = neg_thres_mode
+        self.leak_direction = leak_direction
+        self.leak_integr = LIM(leak_integration_mode)
+        self.synaptic_integr = SIM(syn_integration_mode)
+        self.bit_trunc = arg_check_non_neg(bit_trunc, "bit truncation")  # u5
+        self.pool_max = MaxPoolingEnable(pool_max)
+
+        iw = _input_width_format(input_width)
+        sw = _spike_width_format(spike_width)
+        snn_en = SNNModeEnable(snn_en)
+
+        self.rt_mode_kwds = {"input_width": iw, "spike_width": sw, "snn_en": snn_en}
+        self.mode = get_core_mode(iw, sw, snn_en)
+
+        if pool_max and self.mode != CoreMode.MODE_ANN:
+            raise ConfigInvalidError(
+                f"max pooling is only supported in {CoreMode.MODE_ANN.name}, "
+                f"but got {self.mode.name}."
+            )
+
+        if self.synaptic_integr is SIM.MODE_STOCHASTIC:
+            warnings.warn(
+                f"mode {SIM.MODE_STOCHASTIC.name} is configurated "
+                f"but will not be simulated.",
+                ParamNotSimulatedWarning,
+            )
+
+        if self.leak_integr is LIM.MODE_STOCHASTIC:
+            warnings.warn(
+                f"mode {LIM.MODE_STOCHASTIC.name} is configurated "
+                f"but will not be simulated.",
+                ParamNotSimulatedWarning,
+            )
+
+        if self.threshold_mask_bits > 0:
+            warnings.warn(
+                "random threshold is configurated but will not be simulated.",
+                ParamNotSimulatedWarning,
+            )
+
+        if self.bit_trunc > BIT_TRUNC_MAX:
+            raise ValueError(
+                f"'bit_trunc' should be less than or equal to {BIT_TRUNC_MAX}, but got {self.bit_trunc}."
+            )
+
+        self.init_delay_registers()
+
+        # Auxiliary attributes or variables.
+        self.thres_mode = self.init_param(NeuFireState.NOT_FIRING)
+        self.overflow_strict = overflow_strict
+
+    def _neuronal_charge(
+        self, incoming_v: VoltageType, v_pre: VoltageType
+    ) -> VoltageType:
+        if incoming_v.ndim == 2:
+            _v = np.sum(incoming_v, axis=1)
+        else:
+            _v = incoming_v
+
+        if self.rt_mode_kwds["snn_en"]:
+            v_charged = v_pre + _v
+        else:
+            # SNN_EN=0, the previous voltage is unused
+            v_charged = _v
+
+        return v_overflow(v_charged, self.overflow_strict)
+
+    def _neuronal_leak(self, v: VoltageType) -> VoltageType:
+        if self.rt_mode_kwds["snn_en"]:
+            if self.leak_direction is LDM.MODE_FORWARD:
+                _ld = 1
+            else:
+                _ld = np.sign(v)
+
+            v_leaked = v + _ld * self.leak_v
+        else:
+            v_leaked = v + self.bias
+
+        return v_overflow(v_leaked, self.overflow_strict)
+
+    def _neuronal_fire(self, v: VoltageType) -> NeuOutType:
+        self.thres_mode = np.where(
+            v >= self.pos_threshold,
+            NeuFireState.FIRING_POS,
+            np.where(
+                v < self.neg_threshold,
+                NeuFireState.FIRING_NEG,
+                NeuFireState.NOT_FIRING,
+            ),
         )
 
-    def reset_state(self, *args, **kwargs) -> NoReturn:
-        raise NotImplementedError(
-            f"{NeuronSubView.__name__} {self.name} cannot be reset."
+        return (v >= self.pos_threshold).astype(NEUOUT_U8_DTYPE)
+
+    def _neuronal_reset(self, v: VoltageType) -> VoltageType:
+        def _when_exceed_pos() -> VoltageType:
+            if self.reset_mode is RM.MODE_NORMAL:
+                return np.full_like(v, self.reset_v)
+            elif self.reset_mode is RM.MODE_LINEAR:
+                return v - self.pos_threshold
+            else:  # RM.MODE_NONRESET
+                return v
+
+        def _when_exceed_neg() -> VoltageType:
+            if self.neg_thres_mode is NTM.MODE_RESET:
+                if self.reset_mode is RM.MODE_NORMAL:
+                    return np.full_like(v, -self.reset_v)
+                elif self.reset_mode is RM.MODE_LINEAR:
+                    return v - self.neg_threshold
+                else:  # RM.MODE_NONRESET
+                    return v
+            else:  # NTM.MODE_SATURATION
+                return np.full_like(v, self.neg_threshold)
+
+        # USE "=="!
+        v_reset = np.where(
+            self.thres_mode == NeuFireState.FIRING_POS,
+            _when_exceed_pos(),
+            np.where(self.thres_mode == NeuFireState.FIRING_NEG, _when_exceed_neg(), v),
         )
+
+        return v_reset.astype(VOLTAGE_DTYPE)
+
+    def _bit_truncate(self, v: VoltageType) -> NeuOutType:
+        v_truncated = np.where(
+            self.thres_mode == NeuFireState.FIRING_POS,
+            bit_truncate(v, self.bit_trunc),
+            self.v0,
+        )
+        return v_truncated.astype(NEUOUT_U8_DTYPE)
+
+    def _aux_pre_hook(self, *args, **kwargs) -> None:
+        """Pre-hook before the entire update."""
+        pass
+
+    def _aux_post_hook(self, *args, **kwargs) -> None:
+        """Post-hook after the entire update."""
+        # Reset the auxiliary threshold mode
+        self.thres_mode.fill(NeuFireState.NOT_FIRING)
+
+    def step(
+        self, incoming_v: VoltageType, v_pre: VoltageType, *args, **kwargs
+    ) -> tuple[NeuOutType, VoltageType]:
+        """Update at one timestep."""
+        self._aux_pre_hook(*args, **kwargs)
+
+        # 1. Charge
+        v_charged = self._neuronal_charge(incoming_v, v_pre)
+
+        # 2. Leak & fire
+        if self.leak_comparison is LCM.LEAK_BEFORE_COMP:
+            v_leaked = self._neuronal_leak(v_charged)
+            spike = self._neuronal_fire(v_leaked)
+        else:
+            spike = self._neuronal_fire(v_charged)
+            v_leaked = self._neuronal_leak(v_charged)
+
+        # 3. Reset. Reset is performed in all modes.
+        v_reset = self._neuronal_reset(v_leaked)
+
+        if self.rt_mode_kwds["spike_width"] is SpikeWidthFormat.WIDTH_8BIT:
+            # Althought the truncated voltage is of type VOLTAGE_DTYPE, its value <= uint8.
+            # The voltage to truncate is the one before neuronal reset.
+            v_truncated = self._bit_truncate(v_leaked)
+
+        self._aux_post_hook(*args, **kwargs)
+
+        if self.rt_mode_kwds["spike_width"] is SpikeWidthFormat.WIDTH_1BIT:
+            return spike, v_reset
+        else:
+            return v_truncated, v_reset
+
+    def update(self, x: np.ndarray | None = None, *args, **kwargs) -> NeuOutType | None:
+        # Priority order is a must.
+        # The neuron doesn't work if `tws = 0` & done working
+        # until `t - tws + 1 > twe` under the condition `twe > 0`.
+        if not self.is_working():
+            self._neu_out.fill(0)
+            return None
+
+        if x is None:
+            if self.pool_max:
+                x = self.max_inputs()
+            else:
+                x = self.sum_inputs()
+        else:
+            x = np.atleast_1d(x)
+
+        self._neu_out, self.v = self.step(x, self.v)
+        self.put_out_in_delay_reg(self._neu_out)
+        return self._neu_out
+
+    def attrs(self, for_copy: bool = False) -> dict[str, Any]:
+        attrs = {
+            "reset_mode": self.reset_mode,
+            "neg_threshold": (-1) * self.neg_threshold,  # negative -> unsigned
+            "thres_mask_bits": self.threshold_mask_bits,
+            "neg_thres_mode": self.neg_thres_mode,
+            "leak_direction": self.leak_direction,
+            "leak_integration_mode": self.leak_integr,
+            "syn_integration_mode": self.synaptic_integr,
+            "bit_trunc": self.bit_trunc,
+        }
+        attrs |= super().attrs(for_copy)
+        return attrs
+
+
+class OnlineNeuron(Neuron):
+    rt_mode_kwds = {
+        "input_width": InputWidthFormat.WIDTH_1BIT,
+        "spike_width": SpikeWidthFormat.WIDTH_1BIT,
+        "snn_en": SNNModeEnable.ENABLE,
+    }
+    mode = CoreMode.MODE_SNN
+    online: ClassVar[bool] = True
+
+    # STDP synapse's attributes
+    weight_decay_value: WEIGHT_DTYPE
+    upper_weight: int
+    lower_weight: int
+    lut: LUTDataType
+    lut_random_en: NDArray[np.uint8]
+    decay_random_en: DecayRandomEnable
+    random_seed: int
+    online_mode_en: OnlineModeEnable
+    plasticity_start: int
+    plasticity_end: int
+
+    def __init__(
+        self,
+        shape: Shape,
+        reset_v: int = 0,
+        leak_v: int | LeakVType = 0,
+        neg_threshold: int | None = None,
+        pos_threshold: int = 1,
+        leak_comparison: LeakOrder = LeakOrder.LEAK_BEFORE_COMP,
+        lateral_inhi_value: int = 0,
+        init_v: int | np.ndarray = 0,
+        *,
+        lateral_inhi_target: "OnlineNeuron | Sequence[OnlineNeuron] | None" = None,
+        delay: int = 1,
+        tick_wait_start: int = 1,
+        tick_wait_end: int = 0,
+        target_chip: int | None = None,
+        unrolling_factor: int = 1,
+        overflow_strict: bool = False,
+        keep_shape: bool = True,
+        name: str | None = None,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            shape,
+            reset_v,
+            leak_v,
+            pos_threshold,
+            leak_comparison,
+            init_v,
+            delay,
+            tick_wait_start,
+            tick_wait_end,
+            target_chip,
+            unrolling_factor,
+            overflow_strict,
+            keep_shape,
+            name,
+        )
+
+        # DO NOT modify the names of the following variables.
+        # They will be exported to the parameter verification model.
+        self.neg_threshold = _neg_thres_check(neg_threshold, signed=True)  # s32
+        self.lateral_inhi_value = lateral_inhi_value  # s32
+
+        self.init_delay_registers()
+
+        # Common stateful variables
+        # NOTE: Lateral inhibition can be performed in both inference & learning mode.
+        # NOTE: The latertal inhibition will reset when receiving type I-2 work frame.
+        self.set_memory("need_lateral_inhi", False)
+        self.set_memory("source_lateral_inhi_flag", 0)  # controlled by the source
+
+        # Auxiliary attributes or variables.
+        self.lateral_inhi_source: set[OnlineNeuron] = set()
+        self.lateral_inhi_target: set[OnlineNeuron] = set()
+
+        # NOTE: Self is always a lateral inhibition source & target. However, when `lateral_inhi_value` == 0 & the only
+        # target is the layer itself, no need to multicast the lateral inhibition.
+        self.lateral_inhi_source.add(self)
+        self.lateral_inhi_target.add(self)
+
+        if lateral_inhi_target is not None:
+            self.set_lateral_inhi_target(lateral_inhi_target)
+
+        # Wether `_set_syn_attrs` is called by source STDP synapse for at least one time.
+        self.syn_attrs_set = False
+
+    def set_lateral_inhi_target(
+        self, target: "OnlineNeuron | Sequence[OnlineNeuron]"
+    ) -> None:
+        """Set the lateral inhibition targets of the current layer. In order to support recursive lateral inhibition,   \
+            it should be called after all the target neurons are created.
+        """
+        if isinstance(target, OnlineNeuron):
+            self.lateral_inhi_target.add(target)
+            target.lateral_inhi_source.add(self)
+        else:
+            for t in target:
+                t.lateral_inhi_source.add(t)
+
+            self.lateral_inhi_target.update(target)
+
+    def _set_syn_attrs(self, **kwargs: Unpack["STDPSynAttrKwds"]) -> None:
+        """Set the synapse attributes called by the source STDP synapse only."""
+        for k, v in kwargs.items():
+            if k not in self.__annotations__:
+                raise ValueError(f"'{k}' is not a valid annotation.")
+            elif hasattr(self, k):
+                if (cur_v := getattr(self, k)) != v:
+                    raise ValueError(
+                        f"Synapse's attribute '{k}' already exists, but with a different value: {cur_v} != {v}"
+                    )
+            else:
+                setattr(self, k, v)
+
+        self.syn_attrs_set = True
+
+    def _aux_pre_hook(self, *args, **kwargs) -> None:
+        """Pre-hook before the entire update."""
+        # Before the entire update, update the lateral inhibition status
+        self._update_lateral_inhi_status()
+
+    def _aux_post_hook(self, *args, **kwargs) -> None:
+        """Post-hook after the entire update."""
+        self._update_target_lateral_inhi_status(*args)
+
+    def _neuronal_charge(
+        self, incoming_v: VoltageType, v_pre: VoltageType
+    ) -> VoltageType:
+        v = v_pre + incoming_v
+        return v_overflow(v, self.overflow_strict)
+
+    def _neuronal_leak(self, v: VoltageType) -> VoltageType:
+        v += self.leak_v
+        if self.need_lateral_inhi:
+            v += self.lateral_inhi_value
+
+        return v_overflow(v, self.overflow_strict)
+
+    def _neuronal_fire(self, v: VoltageType) -> NeuOutType:
+        # NOTE: The negative threshold is **signed** int
+        v[v < self.neg_threshold] = self.neg_threshold
+        spike = (v >= self.pos_threshold).astype(NEUOUT_U8_DTYPE)
+        return spike
+
+    def _neuronal_reset(self, v: VoltageType, spike: NeuOutType) -> VoltageType:
+        v[spike] = self.reset_v
+        return v
+
+    def _update_lateral_inhi_status(self) -> None:
+        """Update lateral inhibition status of the current neuron."""
+        # NOTE: As long as the online cores receive any type I-4 work frames, do lateral inhibition.
+        self.need_lateral_inhi = self.source_lateral_inhi_flag > 0
+        self.source_lateral_inhi_flag = 0
+
+    def _update_target_lateral_inhi_status(self, spike: NeuOutType) -> None:
+        """Update lateral inhibition status of the current neuron & its targets."""
+        # NOTE: If the online cores generate a spike, type I-4 work frames will be sent to the targets.
+        # NOTE: Use the spike at **current** timestep, instead of `self.spike` which is the spike at last timestep.
+        has_spike = int(np.any(spike > 0))
+        for t in self.lateral_inhi_target:
+            t.source_lateral_inhi_flag += has_spike
+
+    def step(
+        self, incoming_v: VoltageType, v_pre: VoltageType, *args, **kwargs
+    ) -> tuple[NeuOutType, VoltageType]:
+        """Update at one timestep."""
+        self._aux_pre_hook(*args, **kwargs)
+
+        # 1. Charge
+        v_charged = self._neuronal_charge(incoming_v, v_pre)
+
+        # 2. Leak & fire
+        if self.leak_comparison is LeakOrder.LEAK_BEFORE_COMP:
+            v_leaked = self._neuronal_leak(v_charged)
+            spike = self._neuronal_fire(v_leaked)
+        else:
+            spike = self._neuronal_fire(v_charged)
+            v_leaked = self._neuronal_leak(v_charged)
+
+        # 3. Reset
+        v_reset = self._neuronal_reset(v_leaked, spike)
+
+        self._aux_post_hook(spike)
+
+        return spike, v_reset
+
+    def update(self, x: np.ndarray | None = None, *args, **kwargs) -> NeuOutType | None:
+        if not self.is_working():
+            self._neu_out.fill(0)
+            return None
+
+        if x is None:
+            x = self.sum_inputs()
+        else:
+            x = np.atleast_1d(x)
+
+        self._neu_out, self.v = self.step(x, self.v)
+        self.put_out_in_delay_reg(self._neu_out)
+        return self._neu_out
+
+    def attrs(self, for_copy: bool = False) -> dict[str, Any]:
+        attrs = {
+            "lateral_inhi_value": self.lateral_inhi_value,
+            "neg_threshold": self.neg_threshold,  # signed int
+        }
+        if self.syn_attrs_set:
+            attrs |= {
+                # Attributes of source STDP synapse `STDPSynAttrKwds`
+                "weight_decay_value": self.weight_decay_value,
+                "upper_weight": self.upper_weight,
+                "lower_weight": self.lower_weight,
+                "lut": self.lut,
+                "lut_random_en": self.lut_random_en,
+                "decay_random_en": self.decay_random_en,
+                "random_seed": self.random_seed,
+                "online_mode_en": self.online_mode_en,
+            }
+        attrs |= super().attrs(for_copy)
+        return attrs
