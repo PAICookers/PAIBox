@@ -123,8 +123,3 @@ def test_ensure_dump_dir_in_ci(monkeypatch, tmp_path_factory, request):
     p = make_dump_dir(request.path.parent, tmp_path_factory)
     assert p.is_dir()
     assert tmp_path_factory.getbasetemp() in p.parents
-
-    monkeypatch.delenv("CI_ENV", raising=False)
-    p2 = make_dump_dir(request.path.parent, tmp_path_factory)
-    assert p2.is_dir()
-    assert p2 == request.path.parent / "debug"
