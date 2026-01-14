@@ -3,6 +3,8 @@ import math
 import torch
 import torch.nn as nn
 
+from paicorelib.framelib.utils import _mask
+
 __all__ = [
     "LutActivation",
     "LutAdaptiveActivation",
@@ -18,8 +20,8 @@ __all__ = [
 class LutActivation(nn.Module):
     def __init__(
         self,
-        min_val: int = -2147483648,
-        max_val: int = 2147483647,
+        min_val: int = ~_mask(31),
+        max_val: int = _mask(31),
         output_sign: int = 0,
     ):
         """
@@ -60,7 +62,8 @@ class LutActivation(nn.Module):
         step = (self.max_val - self.min_val) / 256.0
         # Round thresholds to nearest integer
         thresholds = [round(self.min_val + (i + 1) * step) for i in range(255)]
-        self.thresholds.copy_(torch.tensor(thresholds, dtype=self.thresholds.dtype))
+        self.thresholds.copy_(torch.tensor(
+            thresholds, dtype=self.thresholds.dtype))
         return step
 
     def generate_lut(self):
@@ -120,9 +123,11 @@ class LutReLU(LutActivation):
         else:
             # Fallback to uniform if range is all positive or all negative
             step = (self.max_val - self.min_val) / 256.0
-            thresholds = [round(self.min_val + (i + 1) * step) for i in range(255)]
+            thresholds = [round(self.min_val + (i + 1) * step)
+                          for i in range(255)]
 
-        self.thresholds.copy_(torch.tensor(thresholds, dtype=self.thresholds.dtype))
+        self.thresholds.copy_(torch.tensor(
+            thresholds, dtype=self.thresholds.dtype))
 
         # Calculate Scale
         # ReLU mapping:
@@ -156,7 +161,8 @@ class LutReLU(LutActivation):
             val_floor = int(val)
             values.append(self._clamp_value(val_floor))
 
-        self.lut_values.copy_(torch.tensor(values, dtype=self.lut_values.dtype))
+        self.lut_values.copy_(torch.tensor(
+            values, dtype=self.lut_values.dtype))
 
 
 class LutLinear(LutActivation):
@@ -190,7 +196,8 @@ class LutLinear(LutActivation):
 
             values.append(self._clamp_value(val))
 
-        self.lut_values.copy_(torch.tensor(values, dtype=self.lut_values.dtype))
+        self.lut_values.copy_(torch.tensor(
+            values, dtype=self.lut_values.dtype))
 
 
 class LutAdaptiveActivation(LutActivation):
@@ -201,8 +208,8 @@ class LutAdaptiveActivation(LutActivation):
 
     def __init__(
         self,
-        min_val: int = -2147483648,
-        max_val: int = 2147483647,
+        min_val: int = ~_mask(31),
+        max_val: int = _mask(31),
         output_sign: int = 0,
         act_range: float = 10.0,
     ):
@@ -276,7 +283,8 @@ class LutAdaptiveActivation(LutActivation):
             t_in = max(self.min_val, min(self.max_val, t_in))
             thresholds.append(round(t_in))
 
-        self.thresholds.copy_(torch.tensor(thresholds, dtype=self.thresholds.dtype))
+        self.thresholds.copy_(torch.tensor(
+            thresholds, dtype=self.thresholds.dtype))
 
         # 3. Compute LUT values
         full_boundaries = [self.min_val] + thresholds + [self.max_val]
@@ -308,7 +316,8 @@ class LutAdaptiveActivation(LutActivation):
 
             values.append(self._clamp_value(val))
 
-        self.lut_values.copy_(torch.tensor(values, dtype=self.lut_values.dtype))
+        self.lut_values.copy_(torch.tensor(
+            values, dtype=self.lut_values.dtype))
 
 
 class LutSigmoid(LutAdaptiveActivation):
