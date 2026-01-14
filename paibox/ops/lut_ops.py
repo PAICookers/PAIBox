@@ -1,24 +1,27 @@
-import torch
-import torch.nn as nn
 import math
 
+import torch
+import torch.nn as nn
+
 __all__ = [
-    'LutActivation',
-    'LutAdaptiveActivation',
-    'LutReLU',
-    'LutLinear',
-    'LutSigmoid',
-    'LutTanh',
-    'LutSoftsign',
-    'LutAdaptiveReLU',
+    "LutActivation",
+    "LutAdaptiveActivation",
+    "LutReLU",
+    "LutLinear",
+    "LutSigmoid",
+    "LutTanh",
+    "LutSoftsign",
+    "LutAdaptiveReLU",
 ]
 
 
 class LutActivation(nn.Module):
-    def __init__(self,
-                 min_val: int = -2147483648,
-                 max_val: int = 2147483647,
-                 output_sign: int = 0):
+    def __init__(
+        self,
+        min_val: int = -2147483648,
+        max_val: int = 2147483647,
+        output_sign: int = 0,
+    ):
         """
         Base class for LUT-based activation functions.
         Approximates activation using a Lookup Table with 256 bins.
@@ -35,8 +38,8 @@ class LutActivation(nn.Module):
 
         # Register buffers for thresholds (255 values) and LUT values (256 values)
         # 255 thresholds separate the 256 bins.
-        self.register_buffer('thresholds', torch.zeros(255))
-        self.register_buffer('lut_values', torch.zeros(256))
+        self.register_buffer("thresholds", torch.zeros(255))
+        self.register_buffer("lut_values", torch.zeros(256))
 
         # Generate the LUT on initialization
         self.generate_lut()
@@ -57,8 +60,7 @@ class LutActivation(nn.Module):
         step = (self.max_val - self.min_val) / 256.0
         # Round thresholds to nearest integer
         thresholds = [round(self.min_val + (i + 1) * step) for i in range(255)]
-        self.thresholds.copy_(torch.tensor(
-            thresholds, dtype=self.thresholds.dtype))
+        self.thresholds.copy_(torch.tensor(thresholds, dtype=self.thresholds.dtype))
         return step
 
     def generate_lut(self):
@@ -118,11 +120,9 @@ class LutReLU(LutActivation):
         else:
             # Fallback to uniform if range is all positive or all negative
             step = (self.max_val - self.min_val) / 256.0
-            thresholds = [round(self.min_val + (i + 1) * step)
-                          for i in range(255)]
+            thresholds = [round(self.min_val + (i + 1) * step) for i in range(255)]
 
-        self.thresholds.copy_(torch.tensor(
-            thresholds, dtype=self.thresholds.dtype))
+        self.thresholds.copy_(torch.tensor(thresholds, dtype=self.thresholds.dtype))
 
         # Calculate Scale
         # ReLU mapping:
@@ -142,7 +142,7 @@ class LutReLU(LutActivation):
 
         for i in range(256):
             low = full_boundaries[i]
-            high = full_boundaries[i+1]
+            high = full_boundaries[i + 1]
             if low >= high:
                 mid_input = low
             else:
@@ -156,8 +156,7 @@ class LutReLU(LutActivation):
             val_floor = int(val)
             values.append(self._clamp_value(val_floor))
 
-        self.lut_values.copy_(torch.tensor(
-            values, dtype=self.lut_values.dtype))
+        self.lut_values.copy_(torch.tensor(values, dtype=self.lut_values.dtype))
 
 
 class LutLinear(LutActivation):
@@ -191,8 +190,7 @@ class LutLinear(LutActivation):
 
             values.append(self._clamp_value(val))
 
-        self.lut_values.copy_(torch.tensor(
-            values, dtype=self.lut_values.dtype))
+        self.lut_values.copy_(torch.tensor(values, dtype=self.lut_values.dtype))
 
 
 class LutAdaptiveActivation(LutActivation):
@@ -201,11 +199,13 @@ class LutAdaptiveActivation(LutActivation):
     This ensures better precision in regions where the function changes rapidly.
     """
 
-    def __init__(self,
-                 min_val: int = -2147483648,
-                 max_val: int = 2147483647,
-                 output_sign: int = 0,
-                 act_range: float = 10.0):
+    def __init__(
+        self,
+        min_val: int = -2147483648,
+        max_val: int = 2147483647,
+        output_sign: int = 0,
+        act_range: float = 10.0,
+    ):
         self.act_range = act_range
         super().__init__(min_val, max_val, output_sign)
 
@@ -276,8 +276,7 @@ class LutAdaptiveActivation(LutActivation):
             t_in = max(self.min_val, min(self.max_val, t_in))
             thresholds.append(round(t_in))
 
-        self.thresholds.copy_(torch.tensor(
-            thresholds, dtype=self.thresholds.dtype))
+        self.thresholds.copy_(torch.tensor(thresholds, dtype=self.thresholds.dtype))
 
         # 3. Compute LUT values
         full_boundaries = [self.min_val] + thresholds + [self.max_val]
@@ -285,7 +284,7 @@ class LutAdaptiveActivation(LutActivation):
 
         for i in range(256):
             low = full_boundaries[i]
-            high = full_boundaries[i+1]
+            high = full_boundaries[i + 1]
             if low >= high:
                 mid_input = low
             else:
@@ -309,8 +308,7 @@ class LutAdaptiveActivation(LutActivation):
 
             values.append(self._clamp_value(val))
 
-        self.lut_values.copy_(torch.tensor(
-            values, dtype=self.lut_values.dtype))
+        self.lut_values.copy_(torch.tensor(values, dtype=self.lut_values.dtype))
 
 
 class LutSigmoid(LutAdaptiveActivation):

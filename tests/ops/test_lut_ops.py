@@ -1,23 +1,21 @@
-
 import math
-import torch
-import pytest
-import matplotlib.pyplot as plt
-from paibox.ops.lut_ops import (
-    LutReLU,
-    LutLinear,
-    LutSigmoid,
-    LutTanh,
-    LutSoftsign
-)
+
 import matplotlib
-matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import pytest
+import torch
+
+from paibox.ops.lut_ops import LutLinear, LutReLU, LutSigmoid, LutSoftsign, LutTanh
+
+matplotlib.use("Agg")
 
 # Toggle for plotting and CSV export
 ENABLE_VISUALIZATION = False
 
 
-def plot_activation(activation_cls, name, min_val, max_val, output_sign, plot_range=None):
+def plot_activation(
+    activation_cls, name, min_val, max_val, output_sign, plot_range=None
+):
     if not ENABLE_VISUALIZATION:
         return
 
@@ -25,7 +23,8 @@ def plot_activation(activation_cls, name, min_val, max_val, output_sign, plot_ra
 
     # Initialize implementation
     activation = activation_cls(
-        min_val=min_val, max_val=max_val, output_sign=output_sign)
+        min_val=min_val, max_val=max_val, output_sign=output_sign
+    )
 
     if plot_range is None:
         plot_min, plot_max = min_val, max_val
@@ -41,11 +40,12 @@ def plot_activation(activation_cls, name, min_val, max_val, output_sign, plot_ra
 
     # Plot
     plt.figure(figsize=(10, 6))
-    plt.plot(x.numpy(), y.numpy(), label=f'{name} (LUT)')
+    plt.plot(x.numpy(), y.numpy(), label=f"{name} (LUT)")
     plt.title(
-        f'{name} Activation (LUT Approximation)\nRange: [{min_val}, {max_val}], Output Sign: {output_sign}')
-    plt.xlabel('Input')
-    plt.ylabel('Output (8-bit quantized)')
+        f"{name} Activation (LUT Approximation)\nRange: [{min_val}, {max_val}], Output Sign: {output_sign}"
+    )
+    plt.xlabel("Input")
+    plt.ylabel("Output (8-bit quantized)")
     plt.grid(True, alpha=0.3)
     plt.legend()
 
@@ -66,7 +66,8 @@ def export_lut_table(activation_cls, name, min_val, max_val, output_sign):
 
     # Initialize
     activation = activation_cls(
-        min_val=min_val, max_val=max_val, output_sign=output_sign)
+        min_val=min_val, max_val=max_val, output_sign=output_sign
+    )
 
     thresholds = activation.thresholds.tolist()
     lut_values = activation.lut_values.tolist()
@@ -77,7 +78,7 @@ def export_lut_table(activation_cls, name, min_val, max_val, output_sign):
     # (With Bin 0 being [min_val, thresholds[0]), and Bin 255 being [thresholds[254], max_val])
     # For export, let's use the start value of the bin range as "Membrane_Potential".
 
-    with open(filename, 'w') as f:
+    with open(filename, "w") as f:
         f.write("Membrane_Potential,Output_Value\n")
 
         # Bin 0
@@ -87,7 +88,7 @@ def export_lut_table(activation_cls, name, min_val, max_val, output_sign):
 
         # Bins 1 to 255
         for i in range(1, 256):
-            current_threshold = thresholds[i-1]
+            current_threshold = thresholds[i - 1]
             val = int(lut_values[i])
             f.write(f"{(current_threshold)},{val}\n")
 
@@ -163,11 +164,14 @@ class TestLutLinear:
 
 
 class TestAdaptiveActivations:
-    @pytest.mark.parametrize("act_cls, func, min_v, max_v", [
-        (LutSigmoid, lambda x: 1 / (1 + math.exp(-x)), -500, 500),
-        (LutTanh, math.tanh, -500, 500),
-        (LutSoftsign, lambda x: x / (1 + abs(x)), -500, 500)
-    ])
+    @pytest.mark.parametrize(
+        "act_cls, func, min_v, max_v",
+        [
+            (LutSigmoid, lambda x: 1 / (1 + math.exp(-x)), -500, 500),
+            (LutTanh, math.tanh, -500, 500),
+            (LutSoftsign, lambda x: x / (1 + abs(x)), -500, 500),
+        ],
+    )
     def test_shape(self, act_cls, func, min_v, max_v):
         # Use unsigned for sigmoid (0-1 -> 0-255)
         # Use signed for others (-1-1 -> -128-127)
@@ -177,14 +181,13 @@ class TestAdaptiveActivations:
             target_min = 0
             # Generate visualization for Sigmoid
             plot_activation(LutSigmoid, "Sigmoid", min_v, max_v, output_sign=0)
-            export_lut_table(LutSigmoid, "Sigmoid",
-                             min_v, max_v, output_sign=0)
+            export_lut_table(LutSigmoid, "Sigmoid", min_v, max_v, output_sign=0)
         else:
             lut = act_cls(min_val=min_v, max_val=max_v, output_sign=1)
             target_scale = 127.0  # Tanh/Softsign map to ~[-127, 127]
             target_min = -128
             # Generate visualization for others
-            act_name = act_cls.__name__.replace('Lut', '')
+            act_name = act_cls.__name__.replace("Lut", "")
             plot_activation(act_cls, act_name, min_v, max_v, output_sign=1)
             export_lut_table(act_cls, act_name, min_v, max_v, output_sign=1)
 
