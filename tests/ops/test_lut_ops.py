@@ -1,18 +1,14 @@
-
-import os
 import math
-import torch
-import pytest
-import matplotlib.pyplot as plt
-from paibox.ops.lut_ops import (
-    LutReLU,
-    LutLinear,
-    LutSigmoid,
-    LutTanh,
-    LutSoftsign
-)
+import os
+
 import matplotlib
-matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import pytest
+import torch
+
+from paibox.ops.lut_ops import LutLinear, LutReLU, LutSigmoid, LutSoftsign, LutTanh
+
+matplotlib.use("Agg")
 
 # Toggle for plotting and CSV export
 ENABLE_VISUALIZATION = False
@@ -61,8 +57,7 @@ def plot_activation(
     # Plot
     plt.figure(figsize=(10, 6))
     if is_float:
-        plt.plot(x.numpy(), y.float().numpy(),
-                 label=f"{name} ({mode_str} LUT)")
+        plt.plot(x.numpy(), y.float().numpy(), label=f"{name} ({mode_str} LUT)")
     else:
         plt.plot(x.numpy(), y.numpy(), label=f"{name} ({mode_str} LUT)")
 
@@ -76,26 +71,25 @@ def plot_activation(
 
     # Save plot
     suffix = "_float" if is_float else ""
-    filename = os.path.join(
-        OUTPUT_DIR, f"lut_activation_{name.lower()}{suffix}.png")
+    filename = os.path.join(OUTPUT_DIR, f"lut_activation_{name.lower()}{suffix}.png")
     plt.savefig(filename)
     plt.close()
 
     print(f"Saved to {filename}")
 
 
-def export_lut_table(activation_cls, name, min_val, max_val, output_sign, is_float=False):
+def export_lut_table(
+    activation_cls, name, min_val, max_val, output_sign, is_float=False
+):
     if not ENABLE_VISUALIZATION:
         return
 
     ensure_output_dir()
 
     suffix = "_float" if is_float else ""
-    filename = os.path.join(
-        OUTPUT_DIR, f"lut_table_{name.lower()}{suffix}.csv")
+    filename = os.path.join(OUTPUT_DIR, f"lut_table_{name.lower()}{suffix}.csv")
     mode_str = "Float" if is_float else "Int"
-    print(
-        f"Exporting LUT table for {name} ({mode_str}) to {filename}...", end=" ")
+    print(f"Exporting LUT table for {name} ({mode_str}) to {filename}...", end=" ")
 
     # Initialize
     try:
@@ -172,13 +166,12 @@ class TestLutReLU:
         # Float mode
         min_val = -10
         max_val = 10
-        lut = LutReLU(min_val=min_val, max_val=max_val,
-                      output_sign=0, is_float=True)
+        lut = LutReLU(min_val=min_val, max_val=max_val, output_sign=0, is_float=True)
 
-        plot_activation(LutReLU, "ReLU", min_val, max_val,
-                        output_sign=0, is_float=True)
-        export_lut_table(LutReLU, "ReLU", min_val, max_val,
-                         output_sign=0, is_float=True)
+        plot_activation(LutReLU, "ReLU", min_val, max_val, output_sign=0, is_float=True)
+        export_lut_table(
+            LutReLU, "ReLU", min_val, max_val, output_sign=0, is_float=True
+        )
 
         input_tensor = torch.tensor([-5.0, 5.0, 7.58])
         output = lut(input_tensor)
@@ -216,13 +209,14 @@ class TestLutLinear:
     def test_linear_mapping_float(self):
         min_val = -100
         max_val = 100
-        lut = LutLinear(min_val=min_val, max_val=max_val,
-                        output_sign=1, is_float=True)
+        lut = LutLinear(min_val=min_val, max_val=max_val, output_sign=1, is_float=True)
 
-        plot_activation(LutLinear, "Linear", min_val,
-                        max_val, output_sign=1, is_float=True)
-        export_lut_table(LutLinear, "Linear", min_val,
-                         max_val, output_sign=1, is_float=True)
+        plot_activation(
+            LutLinear, "Linear", min_val, max_val, output_sign=1, is_float=True
+        )
+        export_lut_table(
+            LutLinear, "Linear", min_val, max_val, output_sign=1, is_float=True
+        )
 
         input_tensor = torch.tensor([-50.0, 0.0, 50.0])
         output = lut(input_tensor)
@@ -241,36 +235,45 @@ class TestLutLinear:
 
 
 class TestAdaptiveActivations:
-    @pytest.mark.parametrize("act_cls, func, min_v, max_v", [
-        (LutSigmoid, lambda x: 1 / (1 + math.exp(-x)), -500, 500),
-        (LutTanh, math.tanh, -500, 500),
-        (LutSoftsign, lambda x: x / (1 + abs(x)), -500, 500)
-    ])
+    @pytest.mark.parametrize(
+        "act_cls, func, min_v, max_v",
+        [
+            (LutSigmoid, lambda x: 1 / (1 + math.exp(-x)), -500, 500),
+            (LutTanh, math.tanh, -500, 500),
+            (LutSoftsign, lambda x: x / (1 + abs(x)), -500, 500),
+        ],
+    )
     @pytest.mark.parametrize("is_float", [False, True])
     def test_shape(self, act_cls, func, min_v, max_v, is_float):
         # Use unsigned for sigmoid (0-1 -> 0-255)
         # Use signed for others (-1-1 -> -128-127)
         if act_cls == LutSigmoid:
-            lut = act_cls(min_val=min_v, max_val=max_v,
-                          output_sign=0, is_float=is_float)
+            lut = act_cls(
+                min_val=min_v, max_val=max_v, output_sign=0, is_float=is_float
+            )
             target_scale = 255.0
             target_min = 0
             # Generate visualization for Sigmoid
-            plot_activation(LutSigmoid, "Sigmoid", min_v, max_v,
-                            output_sign=0, is_float=is_float)
-            export_lut_table(LutSigmoid, "Sigmoid",
-                             min_v, max_v, output_sign=0, is_float=is_float)
+            plot_activation(
+                LutSigmoid, "Sigmoid", min_v, max_v, output_sign=0, is_float=is_float
+            )
+            export_lut_table(
+                LutSigmoid, "Sigmoid", min_v, max_v, output_sign=0, is_float=is_float
+            )
         else:
-            lut = act_cls(min_val=min_v, max_val=max_v,
-                          output_sign=1, is_float=is_float)
+            lut = act_cls(
+                min_val=min_v, max_val=max_v, output_sign=1, is_float=is_float
+            )
             target_scale = 127.0  # Tanh/Softsign map to ~[-127, 127]
             target_min = -128
             # Generate visualization for others
-            act_name = act_cls.__name__.replace('Lut', '')
-            plot_activation(act_cls, act_name, min_v, max_v,
-                            output_sign=1, is_float=is_float)
-            export_lut_table(act_cls, act_name, min_v, max_v,
-                             output_sign=1, is_float=is_float)
+            act_name = act_cls.__name__.replace("Lut", "")
+            plot_activation(
+                act_cls, act_name, min_v, max_v, output_sign=1, is_float=is_float
+            )
+            export_lut_table(
+                act_cls, act_name, min_v, max_v, output_sign=1, is_float=is_float
+            )
 
         # Test monotonic behavior
         x = torch.linspace(min_v, max_v, 50)
@@ -315,8 +318,7 @@ class TestAdaptiveActivations:
         assert lut(torch.tensor([490.0])).item() >= 250
 
     def test_sigmoid_range_float(self):
-        lut = LutSigmoid(min_val=-500, max_val=500,
-                         output_sign=0, is_float=True)
+        lut = LutSigmoid(min_val=-500, max_val=500, output_sign=0, is_float=True)
         assert lut(torch.tensor([-490.0])).item() <= 0.01
         assert lut(torch.tensor([490.0])).item() >= 0.99
 
@@ -340,8 +342,7 @@ class TestAdaptiveActivations:
         assert lut(torch.tensor([490.0])).item() >= 110
 
     def test_softsign_range_float(self):
-        lut = LutSoftsign(min_val=-500, max_val=500,
-                          output_sign=1, is_float=True)
+        lut = LutSoftsign(min_val=-500, max_val=500, output_sign=1, is_float=True)
         # Softsign(-490) ~ -1
         assert lut(torch.tensor([-490.0])).item() <= -0.9
         assert lut(torch.tensor([490.0])).item() >= 0.9

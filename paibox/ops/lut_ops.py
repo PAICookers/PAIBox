@@ -2,7 +2,6 @@ import math
 
 import torch
 import torch.nn as nn
-
 from paicorelib.utils import _mask
 
 __all__ = [
@@ -42,10 +41,8 @@ class LutActivation(nn.Module):
         # Register buffers for thresholds (256 values) and LUT values (256 values)
         # 256 thresholds separate the 256 bins.
         if self.is_float:
-            self.register_buffer("thresholds", torch.zeros(
-                256, dtype=torch.float32))
-            self.register_buffer("lut_values", torch.zeros(
-                256, dtype=torch.bfloat16))
+            self.register_buffer("thresholds", torch.zeros(256, dtype=torch.float32))
+            self.register_buffer("lut_values", torch.zeros(256, dtype=torch.bfloat16))
         else:
             self.register_buffer("thresholds", torch.zeros(256))
             self.register_buffer("lut_values", torch.zeros(256))
@@ -72,8 +69,7 @@ class LutActivation(nn.Module):
         step = (self.max_val - self.min_val) / 256.0
         # Round thresholds to nearest integer
         thresholds = [self.min_val + i * step for i in range(256)]
-        self.thresholds.copy_(torch.tensor(
-            thresholds, dtype=self.thresholds.dtype))
+        self.thresholds.copy_(torch.tensor(thresholds, dtype=self.thresholds.dtype))
         return step
 
     def generate_lut(self):
@@ -126,8 +122,7 @@ class LutReLU(LutActivation):
             step = (self.max_val - self.min_val) / 256.0
             thresholds = [self.min_val + i * step for i in range(256)]
 
-        self.thresholds.copy_(torch.tensor(
-            thresholds, dtype=self.thresholds.dtype))
+        self.thresholds.copy_(torch.tensor(thresholds, dtype=self.thresholds.dtype))
 
         if self.is_float:
             self.lut_values.copy_(torch.relu(self.thresholds))
@@ -167,8 +162,7 @@ class LutReLU(LutActivation):
             val_floor = int(val)
             values.append(self._clamp_value(val_floor))
 
-        self.lut_values.copy_(torch.tensor(
-            values, dtype=self.lut_values.dtype))
+        self.lut_values.copy_(torch.tensor(values, dtype=self.lut_values.dtype))
 
         self.thresholds.round_()
 
@@ -208,8 +202,7 @@ class LutLinear(LutActivation):
 
             values.append(self._clamp_value(val))
 
-        self.lut_values.copy_(torch.tensor(
-            values, dtype=self.lut_values.dtype))
+        self.lut_values.copy_(torch.tensor(values, dtype=self.lut_values.dtype))
 
         self.thresholds.round_()
 
@@ -271,7 +264,9 @@ class LutAdaptiveActivation(LutActivation):
         output_scale_func = self.get_output_scale_func()
 
         if self.is_float:
-            def output_scale_func(x): return x
+
+            def output_scale_func(x):
+                return x
 
         # 1. Determine thresholds in the normalized domain `[-act_range, act_range]`
         # We want outputs uniformly distributed in [y_min, y_max]
@@ -309,8 +304,7 @@ class LutAdaptiveActivation(LutActivation):
             else:
                 thresholds.append(round(t_in))
 
-        self.thresholds.copy_(torch.tensor(
-            thresholds, dtype=self.thresholds.dtype))
+        self.thresholds.copy_(torch.tensor(thresholds, dtype=self.thresholds.dtype))
 
         # 3. Compute LUT values
         full_boundaries = thresholds + [self.max_val]
@@ -343,8 +337,7 @@ class LutAdaptiveActivation(LutActivation):
 
             values.append(self._clamp_value(val))
 
-        self.lut_values.copy_(torch.tensor(
-            values, dtype=self.lut_values.dtype))
+        self.lut_values.copy_(torch.tensor(values, dtype=self.lut_values.dtype))
 
         if not self.is_float:
             self.thresholds.round_()
