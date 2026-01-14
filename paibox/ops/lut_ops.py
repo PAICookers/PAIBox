@@ -3,17 +3,15 @@ import math
 import torch
 import torch.nn as nn
 
-from paicorelib.framelib.utils import _mask
+from paicorelib.utils import _mask
 
 __all__ = [
     "LutActivation",
-    "LutAdaptiveActivation",
     "LutReLU",
     "LutLinear",
     "LutSigmoid",
     "LutTanh",
     "LutSoftsign",
-    "LutAdaptiveReLU",
 ]
 
 
@@ -23,6 +21,7 @@ class LutActivation(nn.Module):
         min_val: int = ~_mask(31),
         max_val: int = _mask(31),
         output_sign: int = 0,
+        is_float: bool = False,
     ):
         """
         Base class for LUT-based activation functions.
@@ -32,22 +31,33 @@ class LutActivation(nn.Module):
             min_val: Minimum input value for the range subdivision.
             max_val: Maximum input value for the range subdivision.
             output_sign: 0 for unsigned output [0, 255], 1 for signed output [-128, 127].
+            is_float: If True, thresholds are float32 and lut_values are bf16 without quantization.
         """
         super().__init__()
         self.min_val = float(min_val)
         self.max_val = float(max_val)
         self.output_sign = output_sign
+        self.is_float = is_float
 
-        # Register buffers for thresholds (255 values) and LUT values (256 values)
-        # 255 thresholds separate the 256 bins.
-        self.register_buffer("thresholds", torch.zeros(255))
-        self.register_buffer("lut_values", torch.zeros(256))
+        # Register buffers for thresholds (256 values) and LUT values (256 values)
+        # 256 thresholds separate the 256 bins.
+        if self.is_float:
+            self.register_buffer("thresholds", torch.zeros(
+                256, dtype=torch.float32))
+            self.register_buffer("lut_values", torch.zeros(
+                256, dtype=torch.bfloat16))
+        else:
+            self.register_buffer("thresholds", torch.zeros(256))
+            self.register_buffer("lut_values", torch.zeros(256))
 
         # Generate the LUT on initialization
         self.generate_lut()
 
     def _clamp_value(self, value: float) -> int:
         """Clamps the value to the target 8-bit range."""
+        if self.is_float:
+            return value
+
         if self.output_sign == 0:
             # Unsigned: 0 to 255
             return max(0, min(255, int(round(value))))
@@ -58,10 +68,10 @@ class LutActivation(nn.Module):
     def _generate_uniform_thresholds(self):
         """Generates uniformly spaced thresholds between min_val and max_val."""
         # 256 bins -> 256 steps.
-        # Thresholds are at min + step, min + 2*step, ... min + 255*step
+        # Thresholds are at min, min + step, ... min + 255*step
         step = (self.max_val - self.min_val) / 256.0
         # Round thresholds to nearest integer
-        thresholds = [round(self.min_val + (i + 1) * step) for i in range(255)]
+        thresholds = [self.min_val + i * step for i in range(256)]
         self.thresholds.copy_(torch.tensor(
             thresholds, dtype=self.thresholds.dtype))
         return step
@@ -76,11 +86,13 @@ class LutActivation(nn.Module):
         1. Finds the bin index for each input element.
         2. Retrieves the output value from the LUT.
         """
-        # torch.bucketize finds indices such that self.thresholds[i-1] < x <= self.thresholds[i]
-        # (with right=True).
-        # If x <= thresholds[0], index is 0.
-        # This matches the behavior where thresholds represent the upper bound of the bin.
+        # torch.bucketize with right=True finds indices such that self.thresholds[i-1] <= x < self.thresholds[i]
+        # We subtract 1 to match the logic:
+        # If x falls in bin [thresholds[i], thresholds[i+1]), bucketize returns i+1.
+        # (i+1) - 1 = i. So we get index i, which corresponds to that bin's value.
         indices = torch.bucketize(x, self.thresholds, right=True)
+        indices = indices - 1
+        indices = indices.clamp(0, 255)
         return self.lut_values[indices]
 
 
@@ -92,42 +104,34 @@ class LutReLU(LutActivation):
         # To avoid wasting bins on the negative side (which all map to 0),
         # we concentrate the thresholds in the positive region [0, max_val].
 
-        # Strategy:
-        # Bin 0: Covers [min_val, 0].
-        # Bins 1-255: Uniformly divide [0, max_val].
-
         thresholds = []
 
         # Assuming standard case where min_val < 0 and max_val > 0.
         if self.min_val < 0 and self.max_val > 0:
-            # 1. First threshold at 0.
-            # Ranges:
-            # Bin 0: [min_val, 0) -> Output 0
-            # Bin 1: [0, t1) -> Output > 0
-            # ...
-
-            # We have 255 thresholds to place.
-            # Let's place one at 0 (or very close to it).
+            # Strategy:
+            # t[0] = min_val (covers negative range start)
+            # t[1] = 0 (positive start)
+            thresholds.append(float(self.min_val))
             thresholds.append(0.0)
 
-            # Remaining 254 thresholds divide [0, max_val] uniformly.
-            # This creates 255 intervals in [0, max_val].
-            # Total bins: 1 (negative) + 255 (positive) = 256. Perfect.
-
-            num_pos_intervals = 255
-            step = self.max_val / num_pos_intervals
-            for i in range(1, 255):  # 1 to 254 (254 thresholds)
-                t = round(i * step)
+            # Remaining 254 thresholds in (0, max_val]
+            num_pos = 254
+            step = self.max_val / num_pos
+            for i in range(1, num_pos + 1):
+                t = i * step
                 thresholds.append(t)
 
         else:
             # Fallback to uniform if range is all positive or all negative
             step = (self.max_val - self.min_val) / 256.0
-            thresholds = [round(self.min_val + (i + 1) * step)
-                          for i in range(255)]
+            thresholds = [self.min_val + i * step for i in range(256)]
 
         self.thresholds.copy_(torch.tensor(
             thresholds, dtype=self.thresholds.dtype))
+
+        if self.is_float:
+            self.lut_values.copy_(torch.relu(self.thresholds))
+            return
 
         # Calculate Scale
         # ReLU mapping:
@@ -142,7 +146,8 @@ class LutReLU(LutActivation):
             scale = 0.0
 
         # Compute LUT Values based on bins defined by thresholds
-        full_boundaries = [self.min_val] + thresholds + [self.max_val]
+        # Note: thresholds[0] is typically min_val, so we don't need to prepend it
+        full_boundaries = thresholds + [self.max_val]
         values = []
 
         for i in range(256):
@@ -156,6 +161,7 @@ class LutReLU(LutActivation):
             # ReLU function
             val = max(0.0, mid_input)
             val = val * scale
+
             # Use floor to avoid even/odd steps from banker's rounding at x.5
             # This ensures smooth 0, 1, 2... steps instead of 0, 2, 2, 4...
             val_floor = int(val)
@@ -163,6 +169,8 @@ class LutReLU(LutActivation):
 
         self.lut_values.copy_(torch.tensor(
             values, dtype=self.lut_values.dtype))
+
+        self.thresholds.round_()
 
 
 class LutLinear(LutActivation):
@@ -172,6 +180,10 @@ class LutLinear(LutActivation):
         # - Usually implies linear mapping from input range to output range.
 
         step = self._generate_uniform_thresholds()
+
+        if self.is_float:
+            self.lut_values.copy_(self.thresholds)
+            return
 
         # Mapping [min_val, max_val] -> [-128, 127]
         # Slope = (OutMax - OutMin) / (InMax - InMin)
@@ -199,6 +211,8 @@ class LutLinear(LutActivation):
         self.lut_values.copy_(torch.tensor(
             values, dtype=self.lut_values.dtype))
 
+        self.thresholds.round_()
+
 
 class LutAdaptiveActivation(LutActivation):
     """
@@ -212,9 +226,15 @@ class LutAdaptiveActivation(LutActivation):
         max_val: int = _mask(31),
         output_sign: int = 0,
         act_range: float = 10.0,
+        is_float: bool = False,
     ):
-        self.act_range = act_range
-        super().__init__(min_val, max_val, output_sign)
+        if is_float:
+            self.act_range = max(abs(float(min_val)), abs(float(max_val)))
+            if self.act_range == 0:
+                self.act_range = 10.0
+        else:
+            self.act_range = act_range
+        super().__init__(min_val, max_val, output_sign, is_float=is_float)
 
     def get_math_range(self):
         """Returns the output range of the mathematical function (min, max)."""
@@ -250,11 +270,14 @@ class LutAdaptiveActivation(LutActivation):
         forward_func = self.get_forward_func()
         output_scale_func = self.get_output_scale_func()
 
+        if self.is_float:
+            def output_scale_func(x): return x
+
         # 1. Determine thresholds in the normalized domain `[-act_range, act_range]`
         # We want outputs uniformly distributed in [y_min, y_max]
 
         normalized_thresholds = []
-        for i in range(1, 256):
+        for i in range(256):
             # Fraction of the full range
             frac = i / 256.0
             p = y_min + frac * (y_max - y_min)
@@ -281,13 +304,16 @@ class LutAdaptiveActivation(LutActivation):
         for t_norm in normalized_thresholds:
             t_in = self.min_val + (t_norm + R) * scale
             t_in = max(self.min_val, min(self.max_val, t_in))
-            thresholds.append(round(t_in))
+            if self.is_float:
+                thresholds.append(t_in)
+            else:
+                thresholds.append(round(t_in))
 
         self.thresholds.copy_(torch.tensor(
             thresholds, dtype=self.thresholds.dtype))
 
         # 3. Compute LUT values
-        full_boundaries = [self.min_val] + thresholds + [self.max_val]
+        full_boundaries = thresholds + [self.max_val]
         values = []
 
         for i in range(256):
@@ -304,10 +330,11 @@ class LutAdaptiveActivation(LutActivation):
             # Evaluate function
             # Handle out of range for math functions if needed (e.g. exp overflow)
             # Usually strict bounds [-R, R] prevent this if R is reasonable (<=10)
-            if mid_norm > 20:
-                mid_norm = 20
-            elif mid_norm < -20:
-                mid_norm = -20
+            if not self.is_float:
+                if mid_norm > 20:
+                    mid_norm = 20
+                elif mid_norm < -20:
+                    mid_norm = -20
 
             y_val = forward_func(mid_norm)
 
@@ -318,6 +345,9 @@ class LutAdaptiveActivation(LutActivation):
 
         self.lut_values.copy_(torch.tensor(
             values, dtype=self.lut_values.dtype))
+
+        if not self.is_float:
+            self.thresholds.round_()
 
 
 class LutSigmoid(LutAdaptiveActivation):
@@ -374,45 +404,3 @@ class LutSoftsign(LutAdaptiveActivation):
     def get_output_scale_func(self):
         # Range (-1, 1) -> (-127, 127)
         return lambda x: x * 127.0
-
-
-class LutAdaptiveReLU(LutAdaptiveActivation):
-    def get_math_range(self):
-        # ReLU range: [max(0, min_val), max(0, max_val)]
-        # If max_val < 0, range is [0, 0]
-        y_min = max(0.0, self.min_val)
-        y_max = max(0.0, self.max_val)
-        return (y_min, y_max)
-
-    def _get_scale(self):
-        rng = self.max_val - self.min_val
-        if rng <= 0:
-            return 1.0
-        return rng / (2.0 * self.act_range)
-
-    def get_forward_func(self):
-        scale = self._get_scale()
-        # f(x_norm) -> y_real
-        # x_norm domain is [-act_range, act_range] approx
-        # x_real = min_val + (x_norm + act_range) * scale
-        return lambda x_norm: max(0.0, self.min_val + (x_norm + self.act_range) * scale)
-
-    def get_inverse_func(self):
-        scale = self._get_scale()
-        # f^-1(y_real) -> x_norm
-        # For ReLU, if y > 0, x = y.
-        # So x_real = y_real.
-        # x_norm = (x_real - min_val)/scale - act_range
-        return lambda y_real: (y_real - self.min_val) / scale - self.act_range
-
-    def get_output_scale_func(self):
-        # We need to map y_real to quantized int [0..255] or [-128..127]
-        # Standard logic: map max_val to max_int (if linear)
-        if self.max_val > 0:
-            if self.output_sign == 0:
-                s = 255.0 / self.max_val
-            else:
-                s = 127.0 / self.max_val
-        else:
-            s = 0.0
-        return lambda y: y * s
