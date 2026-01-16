@@ -221,7 +221,7 @@ def gen_online_config_frames(
     wight_width = core_plm_conf.core_params.weight_width
 
     # online neuron config never need to store in WRAM
-    for neu_conf in core_plm_conf.neuron_configs:
+    for neu_conf in core_plm_conf.neuron_configs.values():
         config_frame_type3.append(
             OnlineFrameGen.gen_config_frame3(
                 chip_coord,
