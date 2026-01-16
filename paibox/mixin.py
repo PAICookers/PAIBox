@@ -47,7 +47,6 @@ def check(attr):
     """Decorate function with this to check whether the object has an attribute with the given name."""
 
     def decorator(method):
-
         @wraps(method)
         def wrapper(self, *args, **kwargs):
             if hasattr(self, attr):

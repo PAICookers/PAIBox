@@ -8,9 +8,15 @@ from typing import Any, ClassVar, cast
 
 import numpy as np
 from numpy.typing import NDArray
-from paicorelib import ONLINE_CORES_BASE_COORD
+from paicorelib import (
+    ONLINE_CORES_BASE_COORD,
+    ChipCoord,
+    Coord,
+    CoreMode,
+    HwConfig,
+    RoutingCoord,
+)
 from paicorelib import ROUTING_DIRECTIONS_IDX as DIREC_IDX
-from paicorelib import ChipCoord, Coord, CoreMode, HwConfig, RoutingCoord
 from paicorelib import RoutingDirection as Direction
 from paicorelib import RoutingLevel as Level
 from paicorelib.routing_defs import MAX_ROUTING_PATH_LENGTH
@@ -464,7 +470,6 @@ class RoutingGroup:
 
     @classmethod
     def build(cls, merged_grp: MergedGroup, is_root: bool = False) -> "RoutingGroup":
-
         online_values = {n.online for n in merged_grp.nodes}
         if len(online_values) != 1:
             raise NotSupportedError(
@@ -1090,7 +1095,7 @@ class RoutingManager:
 
         if chip_idx_loc >= len(self.chip_list):
             raise ResourceError(
-                f"the number of required chips exceeds the limit {len(self.chip_list)} ({chip_idx_loc+1})."
+                f"the number of required chips exceeds the limit {len(self.chip_list)} ({chip_idx_loc + 1})."
             )
 
         self.n_core_total = n_core_aligned + n_core_incoming

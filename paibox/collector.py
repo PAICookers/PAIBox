@@ -36,7 +36,7 @@ class Collector(UserDict[_KT, _VT]):
         else:
             l = len(self)
             for i, v in enumerate(other):
-                self[f"_{l+i}"] = v
+                self[f"_{l + i}"] = v
 
         return self
 

@@ -1799,7 +1799,10 @@ class EmptyOnlineCorePlacement(EmptyCorePlacement):
         core_param = self.export_core_config()
         # For empty core placements, we don't care WRAM & neurons cfg.
         return OnlineCorePlmConfig.encapsulate(
-            self._EMPTY_WRAM, core_param, np.zeros(LUT_LEN, dtype=LUT_DTYPE), {}  # type: ignore
+            self._EMPTY_WRAM,
+            core_param,
+            np.zeros(LUT_LEN, dtype=LUT_DTYPE),
+            {},  # type: ignore
         )
 
     @classmethod

@@ -13,9 +13,9 @@ from paicorelib import (
     NeuDestInfo,
     OffCoreCfg,
     OffRegDefs,
+    get_replication_id,
 )
 from paicorelib import WeightWidth as WW
-from paicorelib import get_replication_id
 
 import paibox as pb
 from paibox.backend.conf_exporting import (
