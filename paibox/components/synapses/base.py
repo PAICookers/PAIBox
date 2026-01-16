@@ -1,18 +1,25 @@
-from typing import ClassVar, Optional, Union
+from functools import cached_property
+from typing import ClassVar
 
 import numpy as np
-from paicorelib import HwConfig
 from paicorelib import WeightWidth as WW
 
 from paibox.base import NeuDyn, SynSys
 from paibox.exceptions import RegisterError, ShapeError
-from paibox.types import DataType, NeuOutType, SynOutType, WeightType
+from paibox.types import VOLTAGE_DTYPE, DataType, NeuOutType, SynOutType, WeightType
 
 from ..modules import BuildingModule
 from ..neuron import Neuron
+from ..neuron.utils import get_delay_reg_len
 from ..projection import InputProj
-from .conv_types import _KOrder3d, _KOrder4d
-from .conv_utils import _fm_ndim1_check, _fm_ndim2_check
+from .conv_types import Size1Type, Size2Type, _KOrder3d, _KOrder4d
+from .conv_utils import (
+    _conv1d_oshape,
+    _conv2d_oshape,
+    fm_ndim1_check,
+    fm_ndim2_check,
+    group_ch_check,
+)
 from .transforms import (
     AllToAll,
     CompareMax,
@@ -45,17 +52,17 @@ class FullConnectedSyn(SynSys):
     _n_copied: int = 0
     """Counter of copies."""
 
+    synin: np.ndarray
+    """The input of the synapse at every timestep."""
+
     def __init__(
-        self,
-        source: Union[NeuDyn, InputProj],
-        target: NeuDyn,
-        name: Optional[str] = None,
+        self, source: NeuDyn | InputProj, target: NeuDyn, name: str | None = None
     ) -> None:
         super().__init__(name)
         self._source = source
         self._target = target
 
-        self.set_memory("_synout", np.zeros((self.num_out,), dtype=np.int32))
+        self.set_memory("_synout", np.zeros((self.num_out,), dtype=VOLTAGE_DTYPE))
 
         # Register itself with the master nodes of target.
         target.register_master(RIGISTER_MASTER_KEY_FORMAT.format(self.name), self)
@@ -67,18 +74,18 @@ class FullConnectedSyn(SynSys):
     def __call__(self, *args, **kwargs) -> SynOutType:
         return self.update(*args, **kwargs)
 
-    def update(self, x: Optional[NeuOutType] = None, *args, **kwargs) -> SynOutType:
-        # Retrieve the output at [timestamp] of the dest neurons
-        if self.dest.is_working():
+    def update(self, x: NeuOutType | None = None, *args, **kwargs) -> SynOutType:
+        # Retrieve the output at [timestamp] of the target neurons
+        if self.target.is_working():
             if isinstance(self.source, InputProj):
                 synin = self.source.output if x is None else np.atleast_1d(x)
             else:
-                idx = self.dest.timestamp % HwConfig.N_TIMESLOT_MAX
+                idx = self.target.timestamp % get_delay_reg_len(self.source)
                 synin = (
                     self.source.delay_registers[idx] if x is None else np.atleast_1d(x)
                 )
         else:
-            # Retrieve 0 to the dest neurons if it is not working
+            # Retrieve 0 to the target neurons if it is not working
             if isinstance(self.source, InputProj):
                 synin = np.zeros_like(
                     self.source.output if x is None else np.atleast_1d(x)
@@ -88,12 +95,12 @@ class FullConnectedSyn(SynSys):
                     self.source.delay_registers[0] if x is None else np.atleast_1d(x)
                 )
 
+        self.synin = synin
         self._synout = self.comm(synin).ravel()
 
         return self._synout
 
     def reset_state(self, *args, **kwargs) -> None:
-        # TODO Add other initialization methods in the future.
         self.reset_memory()  # Call reset of `StatusMemory`.
 
     def __copy__(self) -> "FullConnSyn":
@@ -104,16 +111,14 @@ class FullConnectedSyn(SynSys):
 
         return FullConnSyn(
             self.source,
-            self.dest,
+            self.target,
             self.connectivity,
             ConnType.All2All,
             f"{self.name}_copied_{self._n_copied}",
         )
 
     def copy(
-        self,
-        source: Optional[Union[NeuDyn, InputProj]] = None,
-        target: Optional[NeuDyn] = None,
+        self, source: NeuDyn | InputProj | None = None, target: NeuDyn | None = None
     ) -> "FullConnSyn":
         copied = self.__copy__()
         if isinstance(source, (NeuDyn, InputProj)):
@@ -125,11 +130,11 @@ class FullConnectedSyn(SynSys):
         return copied
 
     @property
-    def source(self) -> Union[NeuDyn, InputProj]:
+    def source(self) -> NeuDyn | InputProj:
         return self._source
 
     @source.setter
-    def source(self, source: Union[NeuDyn, InputProj]) -> None:
+    def source(self, source: NeuDyn | InputProj) -> None:
         """Set a new source neuron."""
         if source.num_out != self.num_in:
             raise RegisterError(
@@ -161,16 +166,6 @@ class FullConnectedSyn(SynSys):
         )
 
     @property
-    def dest(self) -> NeuDyn:
-        # TODO To maintain compatibility, the dest attribute is preserved.
-        # Will be removed in a future version.
-        return self._target
-
-    @dest.setter
-    def dest(self, target: NeuDyn) -> None:
-        self.target = target
-
-    @property
     def shape_in(self) -> tuple[int, ...]:
         return self._source.shape_out
 
@@ -198,29 +193,29 @@ class FullConnectedSyn(SynSys):
     def weight_width(self) -> WW:
         return self.comm._get_weight_width(self.CFLAG_ENABLE_WP_OPTIMIZATION)
 
-    @property
+    @cached_property
     def connectivity(self) -> WeightType:
-        """The connectivity matrix in `np.bool_` or `np.int8` format."""
+        """The connectivity matrix in `bool` or `np.int8` format."""
         return self.comm.connectivity
 
 
 class FullConnSyn(FullConnectedSyn):
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
+        source: NeuDyn | InputProj,
         target: NeuDyn,
         weights: DataType,
         conn_type: ConnType,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         super().__init__(source, target, name)
 
         if conn_type is ConnType.One2One:
             comm = OneToOne(_check_equal(self.num_in, self.num_out), weights)
         elif conn_type is ConnType.Identity:
-            if not isinstance(weights, (int, np.bool_, np.integer)):
+            if not isinstance(weights, (int, bool, np.integer)):
                 raise TypeError(
-                    f"expected type int, np.bool_, np.integer, but got type {type(weights)}."
+                    f"expected type int, bool, np.integer, but got type {type(weights).__name__}."
                 )
             comm = Identity(_check_equal(self.num_in, self.num_out), weights)
         elif conn_type is ConnType.All2All:
@@ -228,7 +223,7 @@ class FullConnSyn(FullConnectedSyn):
         else:  # MatConn
             if not isinstance(weights, np.ndarray):
                 raise TypeError(
-                    f"expected type np.ndarray, but got type {type(weights)}."
+                    f"expected type np.ndarray, but got type {type(weights).__name__}."
                 )
             if len(self.shape_in) > 2:
                 raise ShapeError(
@@ -242,21 +237,22 @@ class FullConnSyn(FullConnectedSyn):
 
 
 class Conv1dSyn(FullConnectedSyn):
+    comm: Conv1dForward
     _spatial_ndim: ClassVar[int] = 1
 
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
-        dest: Neuron,
+        source: NeuDyn | InputProj,
+        target: Neuron,
         kernel: np.ndarray,
-        stride: tuple[int],
-        padding: tuple[int],
-        dilation: tuple[int],
+        stride: Size1Type,
+        padding: Size1Type,
+        dilation: Size1Type,
         groups: int,
         order: _KOrder3d,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
-        super().__init__(source, dest, name)
+        super().__init__(source, target, name)
 
         if kernel.ndim != self._spatial_ndim + 2:
             raise ShapeError(
@@ -266,45 +262,39 @@ class Conv1dSyn(FullConnectedSyn):
         if order == "IOL":
             _kernel = np.swapaxes(kernel, 0, 1)
         else:
-            _kernel = kernel.copy()
+            _kernel = kernel
 
-        # O,I,L
-        o_ch, grp_in_ch, kernel_l = _kernel.shape
-        # C,L
-        in_ch, in_l = _fm_ndim1_check(source.shape_out, "CL")
-        out_l = (in_l + 2 * padding[0] - dilation[0] * (kernel_l - 1) - 1) // stride[
-            0
-        ] + 1
+        co, ci_in_grp, k = _kernel.shape
+        ci, li = fm_ndim1_check(source.shape_out, "CL")
+        (lo,) = _conv1d_oshape((li,), (k,), stride, padding, dilation)
 
-        if in_ch != (_cur_in_ch := groups * grp_in_ch):
-            in_ch_mismatch_text = f"input channels mismatch: {in_ch} != {_cur_in_ch}"
-            in_ch_mismatch_text += f" ({groups}*{grp_in_ch})." if groups > 1 else "."
-            raise ShapeError(in_ch_mismatch_text)
+        group_ch_check(ci, co, groups, ci_in_grp)
 
-        if (_output_size := o_ch * out_l) != dest.num_in:
-            raise ShapeError(f"output size mismatch: {_output_size} != {dest.num_in}.")
+        if (_output_size := co * lo) != target.num_in:
+            raise ShapeError(
+                f"output size mismatch: {_output_size} != {target.num_in}."
+            )
 
-        self.comm = Conv1dForward(
-            (in_l,), (out_l,), _kernel, stride, padding, groups=groups
-        )
+        self.comm = Conv1dForward((li,), (lo,), _kernel, stride, padding, groups=groups)
 
 
 class Conv2dSyn(FullConnectedSyn):
+    comm: Conv2dForward
     _spatial_ndim: ClassVar[int] = 2
 
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
-        dest: Neuron,
+        source: NeuDyn | InputProj,
+        target: Neuron,
         kernel: np.ndarray,
-        stride: tuple[int, int],
-        padding: tuple[int, int],
-        dilation: tuple[int, int],
+        stride: Size2Type,
+        padding: Size2Type,
+        dilation: Size2Type,
         groups: int,
         order: _KOrder4d,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
-        super().__init__(source, dest, name)
+        super().__init__(source, target, name)
 
         if kernel.ndim != self._spatial_ndim + 2:
             raise ShapeError(
@@ -314,50 +304,41 @@ class Conv2dSyn(FullConnectedSyn):
         if order == "IOHW":
             _kernel = np.swapaxes(kernel, 0, 1)
         else:
-            _kernel = kernel.copy()
+            _kernel = kernel
 
-        # O,I,H,W
-        o_ch, grp_in_ch, kernel_h, kernel_w = _kernel.shape
-        # C,H,W
-        in_ch, in_h, in_w = _fm_ndim2_check(source.shape_out, "CHW")
-        out_h = (in_h + 2 * padding[0] - dilation[0] * (kernel_h - 1) - 1) // stride[
-            0
-        ] + 1
-        out_w = (in_w + 2 * padding[1] - dilation[1] * (kernel_w - 1) - 1) // stride[
-            1
-        ] + 1
+        co, ci_in_grp, kh, kw = _kernel.shape
+        ci, hi, wi = fm_ndim2_check(source.shape_out, "CHW")
+        ho, wo = _conv2d_oshape((hi, wi), (kh, kw), stride, padding, dilation)
 
-        if in_ch != (_cur_in_ch := groups * grp_in_ch):
-            in_ch_mismatch_text = f"input channels mismatch: {in_ch} != {_cur_in_ch}"
-            in_ch_mismatch_text += f" ({groups}*{grp_in_ch})." if groups > 1 else "."
-            raise ShapeError(in_ch_mismatch_text)
+        group_ch_check(ci, co, groups, ci_in_grp)
 
-        if (_output_size := o_ch * out_h * out_w) != dest.num_in:
+        if (_output_size := co * ho * wo) != target.num_in:
             raise ShapeError(
-                f"output size mismatch: {_output_size} ({o_ch}*{out_h}*{out_w}) "
-                f"!= {dest.num_in}."
+                f"output size mismatch: {_output_size} ({co}*{ho}*{wo}) "
+                f"!= {target.num_in}."
             )
 
         self.comm = Conv2dForward(
-            (in_h, in_w), (out_h, out_w), _kernel, stride, padding, groups=groups
+            (hi, wi), (ho, wo), _kernel, stride, padding, groups=groups
         )
 
 
 class Conv2dSemiFoldedSyn(FullConnectedSyn):
+    comm: Conv2dSemiFoldedForward
     _spatial_ndim: ClassVar[int] = 1
 
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
-        dest: Neuron,
+        source: NeuDyn | InputProj,
+        target: Neuron,
         kernel: np.ndarray,
-        stride: tuple[int, int],
-        padding: tuple[int, int],
+        stride: Size2Type,
+        padding: Size2Type,
         groups: int,
         order: _KOrder3d,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
-        super().__init__(source, dest, name)
+        super().__init__(source, target, name)
 
         if kernel.ndim != self._spatial_ndim + 2:
             raise ShapeError(
@@ -370,25 +351,24 @@ class Conv2dSemiFoldedSyn(FullConnectedSyn):
             _kernel = kernel.copy()
 
         # O,I,H
-        o_ch, grp_in_ch, kernel_h = _kernel.shape
+        co, ci_in_grp, kh = _kernel.shape
         # I,H
         assert len(source.shape_out) == 2
-        in_ch, in_h = source.shape_out
-        out_h = (in_h + 2 * padding[0] - kernel_h) // stride[0] + 1
+        ci, hi = source.shape_out
+        ho = (hi + 2 * padding[0] - kh) // stride[0] + 1
 
-        if in_ch != (_cur_in_ch := groups * grp_in_ch):
-            in_ch_mismatch_text = f"input channels mismatch: {in_ch} != {_cur_in_ch}"
-            in_ch_mismatch_text += f" ({groups}*{grp_in_ch})." if groups > 1 else "."
+        if ci != (_cur_in_ch := groups * ci_in_grp):
+            in_ch_mismatch_text = f"input channels mismatch: {ci} != {_cur_in_ch}"
+            in_ch_mismatch_text += f" ({groups}*{ci_in_grp})." if groups > 1 else "."
             raise ShapeError(in_ch_mismatch_text)
 
-        if (_output_size := o_ch * out_h) != dest.num_in:
+        if (_output_size := co * ho) != target.num_in:
             raise ShapeError(
-                f"output size mismatch: {_output_size} ({o_ch}*{out_h}) "
-                f"!= {dest.num_in}."
+                f"output size mismatch: {_output_size} ({co}*{ho}) != {target.num_in}."
             )
 
         self.comm = Conv2dSemiFoldedForward(
-            (in_ch, in_h), (o_ch, out_h), _kernel, stride, padding, groups=groups
+            (ci, hi), (co, ho), _kernel, stride, padding, groups=groups
         )
 
 
@@ -397,17 +377,17 @@ class ConvTranspose1dSyn(FullConnectedSyn):
 
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
-        dest: Neuron,
+        source: NeuDyn | InputProj,
+        target: Neuron,
         kernel: np.ndarray,
         stride: tuple[int],
         padding: tuple[int],
         dilation: tuple[int],
         output_padding: tuple[int],
         order: _KOrder3d,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
-        super().__init__(source, dest, name)
+        super().__init__(source, target, name)
 
         if kernel.ndim != self._spatial_ndim + 2:
             raise ShapeError(
@@ -420,25 +400,27 @@ class ConvTranspose1dSyn(FullConnectedSyn):
             _kernel = kernel.copy()
 
         # O,I,L
-        o_ch, in_channels, kernel_l = _kernel.shape
+        co, in_channels, k = _kernel.shape
         # C,L
-        in_ch, in_l = _fm_ndim1_check(source.shape_out, "CL")
-        out_l = (
-            (in_l - 1) * stride[0]
+        ci, li = fm_ndim1_check(source.shape_out, "CL")
+        lo = (
+            (li - 1) * stride[0]
             - 2 * padding[0]
-            + dilation[0] * (kernel_l - 1)
+            + dilation[0] * (k - 1)
             + output_padding[0]
             + 1
         )
 
-        if in_ch != in_channels:
-            raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
+        if ci != in_channels:
+            raise ShapeError(f"input channels mismatch: {ci} != {in_channels}.")
 
-        if (_output_size := o_ch * out_l) != dest.num_in:
-            raise ShapeError(f"output size mismatch: {_output_size} != {dest.num_in}.")
+        if (_output_size := co * lo) != target.num_in:
+            raise ShapeError(
+                f"output size mismatch: {_output_size} != {target.num_in}."
+            )
 
         self.comm = ConvTranspose1dForward(
-            (in_l,), (out_l,), _kernel, stride, padding, output_padding=output_padding
+            (li,), (lo,), _kernel, stride, padding, output_padding=output_padding
         )
 
 
@@ -447,17 +429,17 @@ class ConvTranspose2dSyn(FullConnectedSyn):
 
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
-        dest: Neuron,
+        source: NeuDyn | InputProj,
+        target: Neuron,
         kernel: np.ndarray,
-        stride: tuple[int, int],
-        padding: tuple[int, int],
-        dilation: tuple[int, int],
-        output_padding: tuple[int, int],
+        stride: Size2Type,
+        padding: Size2Type,
+        dilation: Size2Type,
+        output_padding: Size2Type,
         order: _KOrder4d,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
-        super().__init__(source, dest, name)
+        super().__init__(source, target, name)
 
         if kernel.ndim != self._spatial_ndim + 2:
             raise ShapeError(
@@ -470,33 +452,35 @@ class ConvTranspose2dSyn(FullConnectedSyn):
             _kernel = kernel.copy()
 
         # O,I,H,W
-        o_ch, in_channels, kernel_h, kernel_w = _kernel.shape
+        co, in_channels, kh, kw = _kernel.shape
         # C,H,W
-        in_ch, in_h, in_w = _fm_ndim2_check(source.shape_out, "CHW")
-        out_h = (
-            (in_h - 1) * stride[0]
+        ci, hi, wi = fm_ndim2_check(source.shape_out, "CHW")
+        ho = (
+            (hi - 1) * stride[0]
             - 2 * padding[0]
-            + dilation[0] * (kernel_h - 1)
+            + dilation[0] * (kh - 1)
             + output_padding[0]
             + 1
         )
-        out_w = (
-            (in_w - 1) * stride[1]
+        wo = (
+            (wi - 1) * stride[1]
             - 2 * padding[1]
-            + dilation[1] * (kernel_w - 1)
+            + dilation[1] * (kw - 1)
             + output_padding[1]
             + 1
         )
 
-        if in_ch != in_channels:
-            raise ShapeError(f"input channels mismatch: {in_ch} != {in_channels}.")
+        if ci != in_channels:
+            raise ShapeError(f"input channels mismatch: {ci} != {in_channels}.")
 
-        if (_output_size := o_ch * out_h * out_w) != dest.num_in:
-            raise ShapeError(f"output size mismatch: {_output_size} != {dest.num_in}.")
+        if (_output_size := co * ho * wo) != target.num_in:
+            raise ShapeError(
+                f"output size mismatch: {_output_size} != {target.num_in}."
+            )
 
         self.comm = ConvTranspose2dForward(
-            (in_h, in_w),
-            (out_h, out_w),
+            (hi, wi),
+            (ho, wo),
             _kernel,
             stride,
             padding,
@@ -507,12 +491,14 @@ class ConvTranspose2dSyn(FullConnectedSyn):
 class MaxPoolSyn(FullConnectedSyn):
     """Max pooling synapses. Only used when input width is 8-bit."""
 
+    comm: CompareMax
+
     def __init__(
         self,
-        source: Union[NeuDyn, InputProj],
-        dest: Neuron,
+        source: NeuDyn | InputProj,
+        target: Neuron,
         weights: DataType = 1,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
-        super().__init__(source, dest, name)
+        super().__init__(source, target, name)
         self.comm = CompareMax((self.num_in, self.num_out), weights)

@@ -24,3 +24,12 @@ class TestLogging:
 
         log = logging.getLogger("paibox.backend.placement")
         assert log.level == logging.WARNING
+
+    @pytest.mark.make_settings_test(**{"coord_assign": True})
+    @pytest.mark.usefixtures("log_settings_patch")
+    def test_CoreBlock_str_format(self, captured_logs, build_example_net1):
+        mapper = pb.Mapper()
+        mapper.build(build_example_net1)
+        mapper.compile()
+
+        assert is_log_record(captured_logs, ".__coord_assign")

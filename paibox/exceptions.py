@@ -25,7 +25,13 @@ class ConfigInvalidError(PAIBoxError, ValueError):
     pass
 
 
-class ParameterInvalidWarning(PAIBoxWarning):
+class LockedAttrOverwriteError(PAIBoxError, ValueError):
+    """Locked attribute cannot be overwritten."""
+
+    pass
+
+
+class ParamInvalidWarning(PAIBoxWarning):
     """Parameter is invalid due to some reason."""
 
     pass
@@ -64,6 +70,12 @@ class NotSupportedError(PAIBoxError, NotImplementedError):
 
 class GraphNotSupportedError(GraphBuildError, NotSupportedError):
     """Eception for unsupported structures of graph."""
+
+    pass
+
+
+class GraphHasCycleError(GraphNotSupportedError):
+    """Exception for graph with cycles."""
 
     pass
 
@@ -112,5 +124,11 @@ class TruncationWarning(PAIBoxWarning):
 
 class AutoOptimizationWarning(PAIBoxWarning):
     """Parameters are optimized automatically by PAIBox."""
+
+    pass
+
+
+class ParamNotSimulatedWarning(PAIBoxWarning):
+    """Parameter will not be simulated."""
 
     pass

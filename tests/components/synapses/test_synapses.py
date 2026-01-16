@@ -1,14 +1,30 @@
+import json
 from contextlib import nullcontext
+from enum import Enum
 
 import numpy as np
 import pytest
 from paicorelib import WeightWidth as WW
 
 import paibox as pb
+from paibox._logging import set_logs
 from paibox.components import FullConnectedSyn
+from paibox.components.synapses.lut import LUT_DTYPE
 from paibox.exceptions import RegisterError, ShapeError
-from paibox.types import WEIGHT_DTYPE
+from paibox.types import NEUOUT_U8_DTYPE, WEIGHT_DTYPE
 from paibox.utils import shape2num
+from tests.utils import gen_random_array
+
+
+class SynCfgJsonEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, np.ndarray):
+            return o.tolist()
+        elif isinstance(o, np.integer):
+            return int(o)
+        elif isinstance(o, Enum):
+            return o.value
+        return super().default(o)
 
 
 class TestFullConnectedSyn:
@@ -144,7 +160,7 @@ class TestFullConn:
     )
     def test_FullConn_One2One_scalar_illegal(self, n1, n2):
         with pytest.raises(ShapeError):
-            s1 = pb.FullConn(n1, n2, conn_type=pb.SynConnType.One2One)
+            _ = pb.FullConn(n1, n2, conn_type=pb.SynConnType.One2One)
 
     def test_FullConn_One2One_matrix(self):
         weight = np.array([2, 3, 4], np.int8)
@@ -216,12 +232,12 @@ class TestFullConn:
 
         # Wrong shape
         with pytest.raises(ShapeError):
-            s3 = pb.FullConn(
+            _ = pb.FullConn(
                 n1, n2, np.array([1, 2, 3]), conn_type=pb.SynConnType.All2All
             )
 
         with pytest.raises(ShapeError):
-            s3 = pb.FullConn(
+            _ = pb.FullConn(
                 n1,
                 n2,
                 np.array([[1, 2, 3], [4, 5, 6]]),
@@ -229,7 +245,7 @@ class TestFullConn:
             )
 
         with pytest.raises(ShapeError):
-            s3 = pb.FullConn(
+            _ = pb.FullConn(
                 n1,
                 n2,
                 np.array([[1, 2], [4, 5], [6, 7]]),
@@ -237,7 +253,7 @@ class TestFullConn:
             )
 
         with pytest.raises(ShapeError):
-            s3 = pb.FullConn(
+            _ = pb.FullConn(
                 n1,
                 n2,
                 np.array([[1, 2, 3], [4, 5, 6], [6, 7, 8], [1, 2, 3]]),
@@ -270,24 +286,20 @@ class TestMatMul2d:
 class TestConv:
     def test_Conv1d_instance(self):
         in_shape = (32,)
-        kernel_size = (5,)
+        ksize = (5,)
         stride = 2
         padding = 1
         groups = 2
         out_shape = ((32 + 2 - 5) // 2 + 1,)
-        in_channels = 8
-        out_channels = 16
-        korder = "IOL"
+        ci = 8
+        co = 16
+        ci_in_grp = ci // groups
+        korder = "OIL"
 
-        n1 = pb.IF((in_channels,) + in_shape, 3)  # CL
-        n2 = pb.IF((out_channels,) + out_shape, 3)
+        n1 = pb.IF((ci,) + in_shape, 3)  # CL
+        n2 = pb.IF((co,) + out_shape, 3)
 
-        weight = np.random.randint(
-            -128,
-            128,
-            size=(in_channels // groups, out_channels) + kernel_size,
-            dtype=np.int8,
-        )
+        weight = gen_random_array((co, ci_in_grp) + ksize, np.int8)
         s1 = pb.Conv1d(
             n1,
             n2,
@@ -298,34 +310,31 @@ class TestConv:
             groups=groups,
         )
 
-        assert s1.num_in == in_channels * shape2num(in_shape)
+        assert s1.num_in == ci * shape2num(in_shape)
         assert s1.connectivity.dtype == WEIGHT_DTYPE
         assert s1.connectivity.shape == (
-            in_channels // groups * shape2num(in_shape),
-            out_channels * shape2num(out_shape),
+            ci * shape2num(in_shape),
+            co * shape2num(out_shape),
         )
 
     def test_Conv2d_instance(self):
         in_shape = (32, 32)
-        kernel_size = (5, 5)
+        ksize = (5, 5)
         padding = (1, 1)
         stride = 2
-        groups = 2
+        groups = 4
         out_shape = ((32 + 2 - 5) // 2 + 1, (32 + 2 - 5) // 2 + 1)
-        in_channels = 8
-        out_channels = 16
+        ci = 8
+        co = 16
+        ci_in_grp = ci // groups
         korder = "IOHW"
 
-        n1 = pb.IF((in_channels,) + in_shape, 3)  # CHW
+        n1 = pb.IF((ci,) + in_shape, 3)
         # Strict output shape is no need
-        n2 = pb.IF((out_channels * out_shape[0] * out_shape[1],), 3)
+        n2 = pb.IF((co * out_shape[0] * out_shape[1],), 3)
 
-        weight = np.random.randint(
-            -8,
-            8,
-            size=(in_channels // groups, out_channels) + kernel_size,
-            dtype=np.int32,
-        )
+        # korder
+        weight = gen_random_array((ci_in_grp, co) + ksize, np.int8)
         s1 = pb.Conv2d(
             n1,
             n2,
@@ -336,91 +345,81 @@ class TestConv:
             groups=groups,
         )
 
-        assert s1.num_in == in_channels * shape2num(in_shape)
+        assert s1.num_in == ci * shape2num(in_shape)
         assert s1.connectivity.dtype == WEIGHT_DTYPE
         assert s1.connectivity.shape == (
-            in_channels // groups * shape2num(in_shape),
-            out_channels * shape2num(out_shape),
+            ci * shape2num(in_shape),
+            co * shape2num(out_shape),
         )
 
     def test_Conv1d_inchannel_omitted(self):
         in_shape = (32,)
-        kernel_size = (5,)
+        ksize = (5,)
         stride = 2
         out_shape = ((32 - 5) // 2 + 1,)
         groups = 1
-        in_channels = 1  # omit it
-        out_channels = 4
+        ci = 1  # omit it
+        co = 4
+        ci_in_grp = ci // groups
         korder = "IOL"
 
-        n1 = pb.IF(in_shape, 3)  # HW, (in_channels=1)
-        n2 = pb.IF((out_channels,) + out_shape, 3)
+        n1 = pb.IF(in_shape, 3)  # HW, (ci=1)
+        n2 = pb.IF((co,) + out_shape, 3)
 
-        weight = np.random.randint(
-            -128,
-            128,
-            size=(in_channels // groups, out_channels) + kernel_size,
-            dtype=np.int64,
-        )
+        weight = gen_random_array((ci_in_grp, co) + ksize, np.int8)
         s1 = pb.Conv1d(
             n1, n2, weight, stride=stride, kernel_order=korder, groups=groups
         )
 
-        assert s1.num_in == in_channels * shape2num(in_shape)
+        assert s1.num_in == ci * shape2num(in_shape)
         assert s1.connectivity.dtype == WEIGHT_DTYPE
         assert s1.connectivity.shape == (
-            in_channels // groups * shape2num(in_shape),
-            out_channels * shape2num(out_shape),
+            ci * shape2num(in_shape),
+            co * shape2num(out_shape),
         )
 
     def test_Conv2d_inchannel_omitted(self):
         in_shape = (32, 32)
-        kernel_size = (5, 5)
+        ksize = (5, 5)
         stride = 2
         groups = 1
         out_shape = ((32 - 5) // 2 + 1, (32 - 5) // 2 + 1)
-        in_channels = 1  # omit it
-        out_channels = 4
+        ci = 1  # omit it
+        co = 4
+        ci_in_grp = ci // groups
         korder = "IOHW"
 
-        n1 = pb.IF(in_shape, 3)  # HW, (in_channels=1)
-        n2 = pb.IF((out_channels,) + out_shape, 3)
+        n1 = pb.IF(in_shape, 3)  # HW, (ci=1)
+        n2 = pb.IF((co,) + out_shape, 3)
 
-        weight = np.random.randint(
-            -128,
-            128,
-            size=(in_channels // groups, out_channels) + kernel_size,
-            dtype=np.int8,
-        )
+        weight = gen_random_array((ci_in_grp, co) + ksize, np.int8)
         s1 = pb.Conv2d(
             n1, n2, weight, stride=stride, kernel_order=korder, groups=groups
         )
 
-        assert s1.num_in == in_channels * shape2num(in_shape)
+        assert s1.num_in == ci * shape2num(in_shape)
         assert s1.connectivity.shape == (
-            in_channels // groups * shape2num(in_shape),
-            out_channels * shape2num(out_shape),
+            ci * shape2num(in_shape),
+            co * shape2num(out_shape),
         )
 
 
-class TestConvTranspose2d:
+class TestConvTranspose:
     def test_ConvTranspose1d_instance(self):
         in_shape = (14,)
-        kernel_size = (5,)
+        ksize = (5,)
         stride = 2
         padding = 1
         output_padding = 1
         out_shape = ((14 - 1) * 2 + 5 - 2 * 1 + 1,)
-        in_channels = 16
-        out_channels = 8
+        ci = 16
+        co = 8
         korder = "IOL"
 
-        n1 = pb.IF((in_channels,) + in_shape, 3)  # CL
-        n2 = pb.IF((out_channels * out_shape[0],), 3)
+        n1 = pb.IF((ci,) + in_shape, 3)  # CL
+        n2 = pb.IF((co * out_shape[0],), 3)
 
-        weight = np.random.randint(
-            -128, 128, size=(in_channels, out_channels) + kernel_size, dtype=np.int8
-        )
+        weight = np.random.randint(-128, 128, size=(ci, co) + ksize, dtype=np.int8)
         s1 = pb.ConvTranspose1d(
             n1,
             n2,
@@ -431,30 +430,28 @@ class TestConvTranspose2d:
             kernel_order=korder,
         )
 
-        assert s1.num_in == in_channels * shape2num(in_shape)
+        assert s1.num_in == ci * shape2num(in_shape)
         assert s1.connectivity.dtype == WEIGHT_DTYPE
         assert s1.connectivity.shape == (
-            in_channels * shape2num(in_shape),
-            out_channels * shape2num(out_shape),
+            ci * shape2num(in_shape),
+            co * shape2num(out_shape),
         )
 
     def test_ConvTranspose2d_instance(self):
         in_shape = (14, 14)
-        kernel_size = (5, 5)
+        ksize = (5, 5)
         stride = 2
         padding = 1
         output_padding = 1
         out_shape = ((14 - 1) * 2 + 5 - 2 + 1, (14 - 1) * 2 + 5 - 2 + 1)
-        in_channels = 8
-        out_channels = 16
+        ci = 8
+        co = 16
         korder = "IOHW"
 
-        n1 = pb.IF((in_channels,) + in_shape, 3)  # CHW
-        n2 = pb.IF((out_channels,) + out_shape, 3)
+        n1 = pb.IF((ci,) + in_shape, 3)  # CHW
+        n2 = pb.IF((co,) + out_shape, 3)
 
-        weight = np.random.randint(
-            -8, 8, size=(in_channels, out_channels) + kernel_size, dtype=np.int32
-        )
+        weight = np.random.randint(-8, 8, size=(ci, co) + ksize, dtype=np.int32)
         s1 = pb.ConvTranspose2d(
             n1,
             n2,
@@ -465,30 +462,28 @@ class TestConvTranspose2d:
             kernel_order=korder,
         )
 
-        assert s1.num_in == in_channels * shape2num(in_shape)
+        assert s1.num_in == ci * shape2num(in_shape)
         assert s1.connectivity.dtype == WEIGHT_DTYPE
         assert s1.connectivity.shape == (
-            in_channels * shape2num(in_shape),
-            out_channels * shape2num(out_shape),
+            ci * shape2num(in_shape),
+            co * shape2num(out_shape),
         )
 
     def test_ConvTranspose1d_inchannel_omitted(self):
         in_shape = (14,)
-        kernel_size = (5,)
+        ksize = (5,)
         stride = 2
         padding = 1
         output_padding = 1
         out_shape = ((14 - 1) * 2 + 5 - 2 * 1 + 1,)
-        in_channels = 1  # omit it
-        out_channels = 4
+        ci = 1  # omit it
+        co = 4
         korder = "IOL"
 
-        n1 = pb.IF(in_shape, 3)  # L, (in_channels=1)
-        n2 = pb.IF((out_channels,) + out_shape, 3)
+        n1 = pb.IF(in_shape, 3)  # L, (ci=1)
+        n2 = pb.IF((co,) + out_shape, 3)
 
-        weight = np.random.randint(
-            -128, 128, size=(in_channels, out_channels) + kernel_size, dtype=np.int64
-        )
+        weight = np.random.randint(-128, 128, size=(ci, co) + ksize, dtype=np.int64)
         s1 = pb.ConvTranspose1d(
             n1,
             n2,
@@ -499,30 +494,28 @@ class TestConvTranspose2d:
             kernel_order=korder,
         )
 
-        assert s1.num_in == in_channels * shape2num(in_shape)
+        assert s1.num_in == ci * shape2num(in_shape)
         assert s1.connectivity.dtype == WEIGHT_DTYPE
         assert s1.connectivity.shape == (
-            in_channels * shape2num(in_shape),
-            out_channels * shape2num(out_shape),
+            ci * shape2num(in_shape),
+            co * shape2num(out_shape),
         )
 
     def test_ConvTranspose2d_inchannel_omitted(self):
         in_shape = (14, 14)
-        kernel_size = (5, 5)
+        ksize = (5, 5)
         stride = 2
         padding = 1
         output_padding = 1
         out_shape = ((14 - 1) * 2 + 5 - 2 + 1, (14 - 1) * 2 + 5 - 2 + 1)
-        in_channels = 1  # omit it
-        out_channels = 4
+        ci = 1  # omit it
+        co = 4
         korder = "IOHW"
 
-        n1 = pb.IF(in_shape, 3)  # HW, (in_channels=1)
-        n2 = pb.IF((out_channels,) + out_shape, 3)
+        n1 = pb.IF(in_shape, 3)  # HW, (ci=1)
+        n2 = pb.IF((co,) + out_shape, 3)
 
-        weight = np.random.randint(
-            -128, 128, size=(in_channels, out_channels) + kernel_size, dtype=np.int8
-        )
+        weight = np.random.randint(-128, 128, size=(ci, co) + ksize, dtype=np.int8)
         s1 = pb.ConvTranspose2d(
             n1,
             n2,
@@ -533,9 +526,130 @@ class TestConvTranspose2d:
             kernel_order=korder,
         )
 
-        assert s1.num_in == in_channels * shape2num(in_shape)
+        assert s1.num_in == ci * shape2num(in_shape)
         assert s1.connectivity.dtype == WEIGHT_DTYPE
         assert s1.connectivity.shape == (
-            in_channels * shape2num(in_shape),
-            out_channels * shape2num(out_shape),
+            ci * shape2num(in_shape),
+            co * shape2num(out_shape),
         )
+
+
+class TestSTDPSynapse:
+    @pytest.fixture(autouse=True)
+    def enable_stdp_logging(self):
+        set_logs(stdp=True)
+
+    def test_STDPFullConn_update(self):
+        # Use neurons to instantiate synapse but don't update them
+        n1 = pb.STDPLIF(
+            (3,),
+            10,
+            reset_v=0,
+            leak_v=-1,
+            bias=0,
+            neg_threshold=-3,
+            lateral_inhi_value=-1,
+        )
+        n2 = pb.STDPLIF(
+            (3,),
+            10,
+            reset_v=0,
+            leak_v=-1,
+            bias=0,
+            neg_threshold=-3,
+            lateral_inhi_value=-1,
+        )
+
+        shape = (n1.num_out, n2.num_in)
+        w = np.zeros(shape, dtype=WEIGHT_DTYPE)
+        lut = np.zeros((60,), dtype=LUT_DTYPE)
+        lut[:30] = -1
+        lut[30:] = 1
+        s1 = pb.STDPFullConn(n1, n2, w, weight_decay=-2, lut=lut)
+        s1.learn()
+
+        time = 12
+        pre_spike = np.zeros((time, n1.num_out), dtype=NEUOUT_U8_DTYPE)
+        pre_spike[1] = [1, 0, 0]
+        pre_spike[6] = [0, 1, 1]
+        pre_spike[9] = [0, 0, 1]
+        pre_spike[11] = [1, 1, 0]
+
+        post_spike = np.zeros((time, n2.num_in), dtype=NEUOUT_U8_DTYPE)
+        post_spike[2] = [1, 0, 0]
+        post_spike[8] = [1, 1, 1]
+        post_spike[11] = [0, 1, 1]
+
+        exp_w = np.zeros_like(s1.weights)
+        for ts in range(time):
+            s1.update_spike_counter(pre_spike[ts], post_spike[ts])
+            s1.update_weight(s1.weights)
+
+            # At ts=1, axon #0 LTD, others no learning. No weight decay.
+            if ts == 1:
+                exp_w[0, :] += -1
+                assert np.array_equal(s1.weights, exp_w)
+
+            # At ts=2, neu #0 LTP, others no learning. neu #0 weight decayed(-2).
+            if ts == 2:
+                exp_w[:, 0] += 1 - 2
+                assert np.array_equal(s1.weights, exp_w)
+
+            # At ts=6, axon #1#2 LTD, others no learning. No weight decay.
+            if ts == 6:
+                exp_w[1:3, :] += -1
+                assert np.array_equal(s1.weights, exp_w)
+
+            # At ts=8, all neurons LTP, others no learning. All weights decayed.
+            if ts == 8:
+                exp_w[:, :] += 1 - 2
+                assert np.array_equal(s1.weights, exp_w)
+
+            # At ts=9, axon #2 LTD, others no learning. No weight decay.
+            if ts == 9:
+                exp_w[2, :] += -1
+                assert np.array_equal(s1.weights, exp_w)
+
+            # At ts=11, axon #0#1 neu #0 LTD, neu #1#2 LTP, others no learning. axon #2 neu #1#2 weight decayed.
+            if ts == 11:
+                exp_w[0:2, 0] += -1  # LTD
+                exp_w[:, 1:3] += 1  # LTP
+                exp_w[2, 1:3] += -2  # weight decay
+                assert np.array_equal(s1.weights, exp_w)
+
+            print(f"ts={ts}, exp_w\n", exp_w)
+
+    def test_attrs_export(self, ensure_dump_dir):
+        n1 = pb.STDPLIF(
+            (3,),
+            10,
+            reset_v=0,
+            leak_v=-1,
+            bias=0,
+            neg_threshold=-3,
+            lateral_inhi_value=-1,
+            tick_wait_start=1,
+        )
+        n2 = pb.STDPLIF(
+            (3,),
+            10,
+            reset_v=0,
+            leak_v=-1,
+            bias=0,
+            neg_threshold=-3,
+            lateral_inhi_value=-1,
+            tick_wait_start=2,
+        )
+
+        shape = (n1.num_out, n2.num_in)
+        w = np.zeros(shape, dtype=WEIGHT_DTYPE)
+        lut = np.zeros((60,), dtype=LUT_DTYPE)
+        lut[:30] = -1
+        lut[30:] = 1
+        s1 = pb.STDPFullConn(n1, n2, w, weight_decay=-2, lut=lut)
+
+        attrs = s1.attrs()
+
+        fp = ensure_dump_dir / f"stdp_syn{s1.name}.json"
+        with open(fp, "w") as f:
+            json.dump({s1.name: attrs}, f, indent=2, cls=SynCfgJsonEncoder)

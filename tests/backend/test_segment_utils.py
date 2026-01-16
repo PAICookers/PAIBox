@@ -3,14 +3,12 @@ from math import ceil
 import pytest
 
 import paibox as pb
-from paibox.backend.segment_utils import (
-    aligned_coords,
-    get_axon_segments,
-    get_neu_segments,
-)
-from paibox.exceptions import ResourceError
+from paibox.backend.segment_utils import get_axon_segments, get_dendrite_segments
+from paibox.backend.sub_utils import SubNeuron, SubSourceType
+from paibox.components import Neuron
+from tests.utils import make_test
 
-from .conftest import TestData
+from .backend_testcase import BackendTestCase as TCase
 
 
 class TestGetNeuronSegments:
@@ -44,33 +42,27 @@ class TestGetNeuronSegments:
     def _get_interval(wp, lcn_ex) -> int:
         return (1 << wp) * (1 << lcn_ex)
 
-    @pytest.mark.parametrize(
-        TestData.neu_segs_latency_test_data["args"],
-        TestData.neu_segs_latency_test_data["data"],
-    )
+    @make_test(TCase.neu_segs_latency_testcase)
     def test_get_neu_segments_latency(self, neurons, capacity, wp, lcn_ex, expected):
-        neu_segs = get_neu_segments(
-            neurons, capacity, self._get_interval(wp, lcn_ex), "latency"
+        neuron_slices = [SubNeuron(neuron) for neuron in neurons]
+        neu_segs = get_dendrite_segments(
+            neuron_slices, capacity, self._get_interval(wp, lcn_ex), "latency"
         )
         assert neu_segs == expected
 
-    @pytest.mark.parametrize(
-        TestData.neu_segs_core_test_data["args"],
-        TestData.neu_segs_core_test_data["data"],
-    )
+    @make_test(TCase.neu_segs_core_testcase)
     def test_get_neu_segments_core(self, neurons, capacity, wp, lcn_ex, expected):
-        neu_segs = get_neu_segments(
-            neurons, capacity, self._get_interval(wp, lcn_ex), "core"
+        neuron_slices = [SubNeuron(neuron) for neuron in neurons]
+        neu_segs = get_dendrite_segments(
+            neuron_slices, capacity, self._get_interval(wp, lcn_ex), "core"
         )
         assert neu_segs == expected
 
-    @pytest.mark.parametrize(
-        TestData.neu_segs_both_test_data["args"],
-        TestData.neu_segs_both_test_data["data"],
-    )
+    @make_test(TCase.neu_segs_both_testcase)
     def test_get_neu_segments_both(self, neurons, capacity, wp, lcn_ex, expected):
-        neu_segs = get_neu_segments(
-            neurons, capacity, self._get_interval(wp, lcn_ex), "both"
+        neuron_slices = [SubNeuron(neuron) for neuron in neurons]
+        neu_segs = get_dendrite_segments(
+            neuron_slices, capacity, self._get_interval(wp, lcn_ex), "both"
         )
         assert neu_segs == expected
 
@@ -84,17 +76,19 @@ class TestGetNeuronSegments:
         [pb.LIF(2222, 1), pb.LIF(2378, 1)],
     ],
 )
-def test_get_axon_segments(axons):
+def test_get_axon_segments(axons: list[Neuron]):
     from .conftest import n_axon2lcn_ex_proto
 
     lcn_ex = n_axon2lcn_ex_proto(sum(axon.num_out for axon in axons), 1152)
 
     tr_max = 1 << lcn_ex
 
-    axon_segs = get_axon_segments(axons, tr_max, 1152)
+    axon_slices: list[SubSourceType] = [SubNeuron(axon) for axon in axons]
+
+    axon_segs = get_axon_segments(axon_slices, tr_max, 1152)
 
     for axon_seg in axon_segs.values():
-        assert axon_seg.addr_offset <= 1152
+        assert axon_seg.addr_offset <= 1152 * tr_max
 
 
 @pytest.mark.parametrize(
@@ -104,20 +98,22 @@ def test_get_axon_segments(axons):
         [pb.LIF(1151 * 2, 2), pb.LIF(1153 * 2, 2)],
     ],
 )
-def test_get_axon_segments_boundary(axons):
+def test_get_axon_segments_boundary(axons: list[Neuron]):
     """Illegal boundary cases."""
     from .conftest import n_axon2lcn_ex_proto
 
     lcn_ex = n_axon2lcn_ex_proto(sum(axon.num_out for axon in axons), 1152)
     tr_max = 1 << lcn_ex
 
-    with pytest.raises(ResourceError):
-        axon_segs = get_axon_segments(axons, tr_max, 1152)
+    axon_slices: list[SubSourceType] = [SubNeuron(axon) for axon in axons]
+
+    axon_segs = get_axon_segments(axon_slices, tr_max, 1152)
+
+    last_slice = axon_slices[-1]
+    last_seg = axon_segs[last_slice]
+    assert last_seg.addr_offset + last_seg.n_axon == (tr_max * 1152)
 
 
-@pytest.mark.parametrize(
-    TestData.aligned_coords_test_data["args"],
-    TestData.aligned_coords_test_data["data"],
-)
-def test_aligned_coords(neu_index, axon_seg, delay, n_timeslot, is_iw8, expected):
-    assert aligned_coords(neu_index, axon_seg, delay, n_timeslot, is_iw8) == expected
+# @make_test(TCase.aligned_coords_testcase)
+# def test_aligned_coords(neu_index, axon_seg, delay, n_timeslot, is_iw8, expected):
+#     assert aligned_coords(neu_index, axon_seg, delay, n_timeslot, is_iw8) == expected

@@ -29,12 +29,11 @@ class TestEncoder:
         le1 = pb.simulator.LatencyEncoder(T, "linear")
         le2 = pb.simulator.LatencyEncoder(T, "log")
 
-        out_spike1 = np.zeros((T, N), dtype=np.bool_)
-        out_spike2 = np.zeros((T, N), dtype=np.bool_)
+        out_spike1 = np.zeros((T, N), dtype=bool)
+        out_spike2 = np.zeros((T, N), dtype=bool)
         for t in range(T):
             out_spike1[t] = le1(x)
             out_spike2[t] = le2(x)
-        assert 1
 
     def test_PoissonEncoder(self, fixed_rng: np.random.Generator):
         seed = 1
@@ -83,4 +82,4 @@ class TestEncoder:
         for t in range(20):
             out_spike = de(x)
             assert out_spike.shape == out_shape
-            assert out_spike.dtype == np.bool_
+            assert out_spike.dtype == bool

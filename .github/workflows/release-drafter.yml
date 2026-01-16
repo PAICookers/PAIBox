@@ -6,7 +6,7 @@ on:
       - v*
   pull_request:
     branches:
-      - master
+      - main
     types: [opened, reopened, synchronize]
 
 permissions:
@@ -19,21 +19,18 @@ jobs:
       pull-requests: write
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
-          ref: master
+          ref: main
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
 
-      - name: Setup Poetry
-        uses: abatilo/actions-poetry@v4
+      - name: Install Python 3.13
+        run: uv python install 3.13
 
-      - name: Update poetry.lock
-        run: poetry update --lock
-
-      - run: echo "TAG_NAME=v$(poetry version -s)" >> $GITHUB_ENV
+      - name: Set tag name
+        run: echo "TAG_NAME=v$(uv version --short)" >> $GITHUB_ENV
 
       - uses: release-drafter/release-drafter@v6
         with:

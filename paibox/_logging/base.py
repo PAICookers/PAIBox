@@ -4,7 +4,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, TypedDict, Union
+from typing import TypedDict
 from weakref import WeakSet
 
 from paibox.exceptions import RegisterError
@@ -49,7 +49,7 @@ class LogRegistry:
         return alias in self.log_alias_to_log_names
 
     def _register_artifact_name(
-        self, name: str, desc: Optional[str], off_by_default: bool
+        self, name: str, desc: str | None, off_by_default: bool
     ) -> None:
         self.artifact_names.add(name)
         self.artifact_desc[name] = desc if desc is not None else ""
@@ -58,7 +58,7 @@ class LogRegistry:
         if off_by_default:
             self.off_by_default_artifact_names.add(name)
 
-    def _register_log(self, alias: str, log_names: Union[str, list[str]]) -> None:
+    def _register_log(self, alias: str, log_names: str | list[str]) -> None:
         if isinstance(log_names, str):
             log_names = [log_names]
 
@@ -91,7 +91,7 @@ class LogState:
     def is_artifact_enabled(self, name: str) -> bool:
         return name in self.artifact_names
 
-    def enable_log(self, log_name: Union[str, list[str]], log_level: int) -> None:
+    def enable_log(self, log_name: str | list[str], log_level: int) -> None:
         if isinstance(log_name, str):
             log_name = [log_name]
 
@@ -110,12 +110,12 @@ log_registry = LogRegistry()
 log_state = LogState()
 
 
-def register_log(short_name: str, log_names: Union[str, list[str]]) -> None:
+def register_log(short_name: str, log_names: str | list[str]) -> None:
     log_registry._register_log(short_name, log_names)
 
 
 def register_artifact(
-    setting_name: str, desc: Optional[str] = None, off_by_default: bool = True
+    setting_name: str, desc: str | None = None, off_by_default: bool = True
 ) -> None:
     log_registry._register_artifact_name(setting_name, desc, off_by_default)
 
@@ -131,12 +131,12 @@ def get_artifact_logger(module_name: str, artifact_name: str) -> logging.Logger:
     log = logging.getLogger(name)
     log.artifact_name = artifact_name  # type: ignore[attr-defined]
     log_registry._register_artifact_log(name)
-    _configure_artifact_log(log)
+    configure_artifact_log(log)
 
     return log
 
 
-def _configure_artifact_log(log: logging.Logger) -> None:
+def configure_artifact_log(log: logging.Logger) -> None:
     # If the artifact is off by default, then it should only be logged when explicitly
     # enabled; set propagate to False so that this artifact is not propagated
     # to its ancestor logger
@@ -230,7 +230,7 @@ def _set_log_state(state) -> None:
     log_state = state
 
 
-def _init_logs(log_file_name: Optional[Union[str, Path]] = None) -> None:
+def _init_logs(log_file_name: str | Path | None = None) -> None:
     _reset_logs()
     # _update_log_state_from_env()
 
@@ -264,33 +264,39 @@ def _init_logs(log_file_name: Optional[Union[str, Path]] = None) -> None:
     # NOTE: this must happen last since the levels of ancestor loggers are taken into account.
     for artifact_log_qname in log_registry.get_artifact_log_names():
         log = logging.getLogger(artifact_log_qname)
-        _configure_artifact_log(log)
+        configure_artifact_log(log)
 
 
 # Add it to this dictionary if registering a new log in `registrations.py`.
 class _LogSettingsKwds(TypedDict, total=False):
-    paibox: Optional[int]
-    backend: Optional[int]
-    sim: Optional[int]
+    paibox: int | None
+    backend: int | None
+    components: int | None
+    sim: int | None
     build_core_blocks: bool
     lcn_ex_adjustment: bool
     cb_axon_grouping: bool
     coord_assign: bool
-    get_dest: bool
+    collect_neuron_dest: bool
     routing_group_info: bool
+    tiling_optim: bool
+    stdp: bool
 
 
 # Add a default log level or state for each log or artifact name in the above dictionary.
 DEFAULT_LOG_SETTINGS: _LogSettingsKwds = {
     "paibox": logging.INFO,
     "backend": logging.INFO,
+    "components": logging.INFO,
     "sim": logging.INFO,
     "build_core_blocks": True,
     "lcn_ex_adjustment": True,
     "cb_axon_grouping": True,
     "coord_assign": True,
-    "get_dest": True,
+    "collect_neuron_dest": True,
     "routing_group_info": True,
+    "tiling_optim": True,
+    "stdp": True,
 }
 
 

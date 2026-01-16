@@ -1,6 +1,6 @@
 import warnings
 from enum import Enum, auto, unique
-from typing import Literal, Optional
+from typing import Literal
 
 import numpy as np
 from paicorelib import WeightWidth as WW
@@ -19,9 +19,7 @@ from paibox.utils import is_shape, shape2num, typical_round
 
 from .conv_types import Size1Type, Size2Type, SizeAnyType, _SizeAnyType
 from .conv_utils import (
-    _conv1d_faster,
     _conv1d_unroll,
-    _conv2d_faster,
     _conv2d_semifolded_unroll,
     _conv2d_unroll,
     _convtranspose1d_faster,
@@ -32,7 +30,10 @@ from .conv_utils import (
     _func_pool2d,
     _pool1d_kernel_unroll,
     _pool2d_kernel_unroll,
+    conv1d_faster,
+    conv2d_faster,
 )
+from .weight_dtype import MAX_INT8, MIN_INT8, get_weight_width
 
 __all__ = [
     "OneToOne",
@@ -46,16 +47,6 @@ __all__ = [
     "ConvTranspose2dForward",
     "CompareMax",
 ]
-
-
-MAX_INT1 = np.int8(1)
-MIN_INT1 = np.int8(0)
-MAX_INT2 = np.int8(1)
-MIN_INT2 = np.int8(-2)
-MAX_INT4 = np.int8(7)
-MIN_INT4 = np.int8(-8)
-MAX_INT8 = np.iinfo(np.int8).max
-MIN_INT8 = np.iinfo(np.int8).min
 
 
 @unique
@@ -77,16 +68,16 @@ def _set_coarse_dtype(raw_w: DataType) -> WeightType:
     """Convert raw weights to `np.ndarray` coarsely (without optimization).
 
     Description:
-        - For weights of type `bool` or `np.bool_`, set `np.int8` as the dtype.
+        - For weights of type `bool` or `bool`, set `np.int8` as the dtype.
         - For integer scalar weight, set the dtype according to its value.
         - For array weights, set the dtype according to its minimum & maximum values. For weights in the\
             range of int8, the dtype when declared will be followed (i.e. not optimized).
 
     NOTE: Only when the weight is input in integer scalar form, the weight precision will be optimized  \
-        automatically. 0/1 is treated as bool_ while others are treated as int8. The weights must not   \
+        automatically. 0/1 is treated as bool while others are treated as int8. The weights must not   \
         exceed the range of int8.
     """
-    if isinstance(raw_w, (bool, np.bool_, int, np.integer)):
+    if isinstance(raw_w, (bool, bool, int, np.integer)):
         if raw_w > MAX_INT8 or raw_w < MIN_INT8:
             raise ValueError(f"weight out of range int8, got {raw_w}.")
 
@@ -106,29 +97,12 @@ def _set_coarse_dtype(raw_w: DataType) -> WeightType:
             AutoOptimizationWarning,
         )
         _dtype = WEIGHT_DTYPE
-    elif _array.dtype in (np.bool_, WEIGHT_DTYPE):
+    elif _array.dtype in (bool, WEIGHT_DTYPE):
         _dtype = WEIGHT_DTYPE
     else:
         raise TypeError(f"weight must be bool or int8, but got {_array.dtype}.")
 
     return _array.astype(_dtype, casting="same_kind")
-
-
-def _get_weight_width_inner(weight: WeightType, enable_wp_opt: bool) -> WW:
-    """Get the actual width of the weight."""
-    _max, _min = np.max(weight), np.min(weight)
-
-    if enable_wp_opt:
-        if _max <= MAX_INT1 and _min >= MIN_INT1:
-            return WW.WEIGHT_WIDTH_1BIT
-        elif _max <= MAX_INT2 and _min >= MIN_INT2:
-            return WW.WEIGHT_WIDTH_2BIT
-        elif _max <= MAX_INT4 and _min >= MIN_INT4:
-            return WW.WEIGHT_WIDTH_4BIT
-        else:
-            return WW.WEIGHT_WIDTH_8BIT
-    else:
-        return WW.WEIGHT_WIDTH_8BIT
 
 
 class Transform:
@@ -145,7 +119,7 @@ class Transform:
         )
 
     def _get_weight_width(self, enable_wp_opt: bool) -> WW:
-        return _get_weight_width_inner(self.weights, enable_wp_opt)
+        return get_weight_width(self.weights, enable_wp_opt)
 
     @property
     def connectivity(self) -> WeightType:
@@ -345,9 +319,11 @@ class _ConvNdForward(Transform):
 
         super().__init__(kernel)
 
+    @property
+    def ksize(self): ...
+
 
 class Conv1dForward(_ConvNdForward):
-
     in_shape: Size1Type
     out_shape: Size1Type
     stride: Size1Type
@@ -363,8 +339,13 @@ class Conv1dForward(_ConvNdForward):
         # else:
         _x = x.reshape((cin,) + self.in_shape)
 
-        return _conv1d_faster(
-            _x, self.out_shape, self.weights, self.stride, self.padding, self.groups
+        return conv1d_faster(
+            _x,
+            self.out_shape,
+            self.weights,
+            self.stride,
+            self.padding,
+            groups=self.groups,
         )
 
     @property
@@ -378,9 +359,12 @@ class Conv1dForward(_ConvNdForward):
             self.groups,
         )
 
+    @property
+    def ksize(self) -> Size1Type:
+        return (self.weights.shape[-1],)
+
 
 class Conv2dForward(_ConvNdForward):
-
     in_shape: Size2Type
     out_shape: Size2Type
     stride: Size2Type
@@ -396,8 +380,13 @@ class Conv2dForward(_ConvNdForward):
         # else:
         _x = x.reshape((cin,) + self.in_shape)
 
-        return _conv2d_faster(
-            _x, self.out_shape, self.weights, self.stride, self.padding, self.groups
+        return conv2d_faster(
+            _x,
+            self.out_shape,
+            self.weights,
+            self.stride,
+            self.padding,
+            groups=self.groups,
         )
 
     @property
@@ -410,6 +399,10 @@ class Conv2dForward(_ConvNdForward):
             self.padding,
             self.groups,
         )
+
+    @property
+    def ksize(self) -> Size2Type:
+        return self.weights.shape[-2:]  # type: ignore
 
 
 class Conv2dSemiFoldedForward(_ConvNdForward):
@@ -432,6 +425,10 @@ class Conv2dSemiFoldedForward(_ConvNdForward):
             self.padding,
             self.groups,
         )
+
+    @property
+    def ksize(self) -> Size1Type:
+        return (self.weights.shape[-1],)
 
 
 class ConvTranspose1dForward(_ConvNdForward):
@@ -517,10 +514,10 @@ class _PoolNdForward(Transform):
         in_shape: SizeAnyType,
         out_shape: SizeAnyType,
         kernel_size: SizeAnyType,
-        stride: _SizeAnyType,
-        padding: _SizeAnyType,
+        stride: SizeAnyType,
+        padding: SizeAnyType,
         pool_type: Literal["avg", "max"],
-        threshold: Optional[int] = None,
+        threshold: int | None = None,
     ) -> None:
         self.channels = channels
         self.in_shape = in_shape

@@ -1,5 +1,3 @@
-import pytest
-
 import paibox as pb
 from paibox.backend.constrs import GraphNodeConstrs
 
@@ -13,10 +11,10 @@ class TestGraphNodeConstrs:
         n5 = pb.LIF(10, 3, tick_wait_start=2, tick_wait_end=0, name="n5")
         n6 = pb.LIF(10, 3, tick_wait_start=1, tick_wait_end=3, name="n6")
 
-        constr = GraphNodeConstrs.apply_constrs([n1, n2, n3, n4, n5, n6])
+        constr = GraphNodeConstrs.apply_constrs([n1, n2, n3, n4, n5, n6], False)
         assert len(constr) == 4
 
-        constr = GraphNodeConstrs.apply_constrs([n4, n5])
+        constr = GraphNodeConstrs.apply_constrs([n4, n5], False)
         assert len(constr) == 1
 
     def test_apply_constraints(self):
@@ -38,7 +36,7 @@ class TestGraphNodeConstrs:
         )
 
         constr = GraphNodeConstrs.apply_constrs(
-            [n1, n2, n3, n4, n5, n6, n7, n8, n9, n10]
+            [n1, n2, n3, n4, n5, n6, n7, n8, n9, n10], False
         )
 
         assert len(constr) == 6

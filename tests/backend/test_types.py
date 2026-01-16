@@ -1,30 +1,44 @@
+import pytest
+
 import paibox as pb
-from paibox.backend.types import MergedSuccGroup, SuccGroup
+from paibox.backend.types import CustomIndex, DendriteSegment
 
 
-class TestMergedSuccGroup:
+class TestNeuSegment:
+    def test_NeuSegment_getitem(self):
+        n1 = pb.ANNNeuron(200)
 
-    def test_MergedSuccGroup_inputs(self):
-        """
-        n1 -> s1 -> n2
-           -> s2 -> n3
-        n4 -> s3 ->
-           -> s4 -> n5
-        """
-        n1 = pb.ANNNeuron(1)
-        n2 = pb.ANNNeuron(1)
-        n3 = pb.ANNNeuron(1)
-        n4 = pb.ANNNeuron(1)
-        n5 = pb.ANNNeuron(1)
-        s1 = pb.FullConn(n1, n2)
-        s2 = pb.FullConn(n1, n3)
-        s3 = pb.FullConn(n4, n3)
-        s4 = pb.FullConn(n4, n5)
+        def get_custom_index(index_slice: slice) -> list[CustomIndex]:
+            return [
+                CustomIndex(i, 0) for i in range(index_slice.start, index_slice.stop)
+            ]
 
-        sgrp1 = SuccGroup(n1, [n2, n3], [s1, s2])
-        sgrp2 = SuccGroup(n4, [n3, n5], [s3, s4])
+        neu_seg1 = DendriteSegment(n1, get_custom_index(slice(0, 120)), 0)
+        neu_seg2 = DendriteSegment(n1, get_custom_index(slice(120, 160)), 120)
+        neu_seg3 = DendriteSegment(n1, get_custom_index(slice(160, 200)), 160)
 
-        msgrp = MergedSuccGroup(sgrp1, sgrp2)
+        # out of range
+        with pytest.raises(IndexError):
+            result = neu_seg1[50:150]
 
-        # don't care the order
-        assert set(msgrp.outputs.keys()) == set([n2, n3, n5])
+        with pytest.raises(IndexError):
+            result = neu_seg1[130:]
+
+        result = neu_seg2[10:20]
+        assert result.index[0].index == 120 + 10
+        assert result.index[-1].index == 120 + 20 - 1
+        assert result.offset == 120 + 10
+
+        result = neu_seg2[:30]
+        assert result.index[0].index == 120
+        assert result.index[-1].index == 120 + 30 - 1
+        assert result.offset == 120
+
+        result = neu_seg3[20:]
+        assert result.index[0].index == 160 + 20
+        assert result.index[-1].index == 200 - 1
+        assert result.offset == 160 + 20
+
+        # cannot pass an integer
+        with pytest.raises(Exception):
+            result = neu_seg3[0]  # type: ignore

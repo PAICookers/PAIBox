@@ -22,12 +22,12 @@ def test_backend_context(monkeypatch):
 
     pb.BACKEND_CONFIG.save("strkey", False, 12345, "ABC", a=1, b=2, c=3)
     assert pb.BACKEND_CONFIG["b"] == 2
-    assert pb.BACKEND_CONFIG.load("strkey") == False
+    assert not pb.BACKEND_CONFIG.load("strkey")
 
     cflags = pb.BACKEND_CONFIG.cflags
     cflags["op1"] = True
 
-    assert pb.BACKEND_CONFIG.cflags["op1"] == True
+    assert pb.BACKEND_CONFIG.cflags["op1"]
 
     monkeypatch.setitem(pb.BACKEND_CONFIG.cflags, "op2", 999)
     assert pb.BACKEND_CONFIG.cflags["op2"] == 999

@@ -1,6 +1,14 @@
 import pytest
 
-from paibox.utils import *
+from paibox.utils import (
+    check_elem_same,
+    fn_sgn,
+    reverse_8bit,
+    reverse_16bit,
+    typical_round,
+)
+
+from .utils import make_dump_dir
 
 
 @pytest.mark.parametrize("a,b, expected", [(1, 0, 1), (1, 2, -1), (3, 3, 0)])
@@ -57,7 +65,7 @@ def test_slice_by_index(s1, idx, expected):
     else:
         _idx = idx
         if _idx > n_s1 - 1:
-            raise ValueError(f"index out of range: {idx} > {n_s1-1}")
+            raise ValueError(f"index out of range: {idx} > {n_s1 - 1}")
 
     start = s1.start + _idx
     end = start + 1
@@ -104,5 +112,12 @@ def test_check_elem_same():
     d1 = [TestObj(1), TestObj(1), TestObj(1), TestObj(-1)]
     d2 = [TestObj(-1), TestObj(-1), TestObj(-1), TestObj(-1)]
 
-    assert check_elem_same(d.val for d in d1) == False
-    assert check_elem_same(d.val for d in d2) == True
+    assert not check_elem_same(d.val for d in d1)
+    assert check_elem_same(d.val for d in d2)
+
+
+def test_ensure_dump_dir_in_ci(monkeypatch, tmp_path_factory, request):
+    monkeypatch.setenv("CI_ENV", "true")
+    p = make_dump_dir(request.path.parent, tmp_path_factory)
+    assert p.is_dir()
+    assert tmp_path_factory.getbasetemp() in p.parents

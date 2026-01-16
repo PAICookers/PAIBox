@@ -1,37 +1,36 @@
-import sys
-import typing
 from collections import deque
-from collections.abc import Sequence
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import partial
-from typing import Callable, ClassVar, Literal, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, ClassVar, Literal, TypeAlias, TypeVar
 
 import numpy as np
-from paicorelib import TM, CoreMode, HwConfig, SNNModeEnable, get_core_mode
+from paicorelib import CoreMode, OffCoreCfg, SNNModeEnable, get_core_mode
 
 from paibox.base import NeuDyn
 from paibox.exceptions import NotSupportedError, RegisterError, ShapeError
 from paibox.types import NEUOUT_U8_DTYPE, NeuOutType, VoltageType
 from paibox.utils import check_elem_unique, shape2num
 
-from .neuron.utils import RTModeKwds, _input_width_format, _spike_width_format
+from .neuron.utils import (
+    NeuFireState,
+    RTModeKwds,
+    _input_width_format,
+    _spike_width_format,
+)
 from .projection import InputProj
 
-if sys.version_info >= (3, 10):
-    from typing import TypeAlias
-else:
-    from typing_extensions import TypeAlias
-
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from paibox.network import DynSysGroup
 
     from .neuron import Neuron
     from .synapses import FullConnectedSyn
 
+
 __all__ = ["BuildingModule"]
 
-MultiInputsType: TypeAlias = list[NeuOutType]  # Type of inputs of `NeuModule`.
-BuiltComponentType: TypeAlias = list[Union["FullConnectedSyn", "Neuron"]]
+BuiltComponentType: TypeAlias = "list[FullConnectedSyn | Neuron]"
+MultiInputsType = list[NeuOutType]  # Type of inputs of `NeuModule`.
 
 
 @dataclass
@@ -40,8 +39,8 @@ class ModuleIntf:
         gets input and where it outputs. This information will be used when building the module.
     """
 
-    operands: list[Union[NeuDyn, InputProj]] = field(default_factory=list)
-    output: list[Union["FullConnectedSyn", "NeuModule"]] = field(default_factory=list)
+    operands: list[NeuDyn | InputProj] = field(default_factory=list)
+    output: "list[FullConnectedSyn| NeuModule]" = field(default_factory=list)
 
     @property
     def num_in(self) -> int:
@@ -59,19 +58,19 @@ class BuildingModule:
         """Construct the actual basic components and add to the network. Called in the backend ONLY."""
         raise NotImplementedError
 
-    def register_operand(self, *op: Union[NeuDyn, InputProj]) -> None:
+    def register_operand(self, *op: NeuDyn | InputProj) -> None:
         """Register operands to the interface."""
         self.module_intf.operands.extend(op)
 
-    def unregister_operand(self, op: Union[NeuDyn, InputProj]) -> None:
+    def unregister_operand(self, op: NeuDyn | InputProj) -> None:
         """Remove a operand from the interface."""
         self.module_intf.operands.remove(op)
 
-    def register_output(self, *output: Union["FullConnectedSyn", "NeuModule"]) -> None:
+    def register_output(self, *output: "FullConnectedSyn| NeuModule") -> None:
         """Register the output."""
         self.module_intf.output.append(*output)
 
-    def unregister_output(self, output: Union["FullConnectedSyn", "NeuModule"]) -> None:
+    def unregister_output(self, output: "FullConnectedSyn|NeuModule") -> None:
         """Remove an output."""
         self.module_intf.output.remove(output)
 
@@ -101,7 +100,7 @@ class NeuModule(NeuDyn, BuildingModule):
         tick_wait_end: int,
         unrolling_factor: int,
         keep_shape: bool,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         super().__init__(name)
         self.module_intf = ModuleIntf()
@@ -129,15 +128,11 @@ class NeuModule(NeuDyn, BuildingModule):
         return (self.timestamp - self.inherent_delay) >= 0
 
     @property
-    def source(self) -> list[Union[NeuDyn, InputProj]]:
+    def source(self) -> list[NeuDyn | InputProj]:
         return self.module_intf.operands
 
     @property
-    def dest(self) -> list[Union["FullConnectedSyn", "NeuModule"]]:
-        return self.module_intf.output  # will be deprecated at anytime in the future.
-
-    @property
-    def target(self) -> list[Union["FullConnectedSyn", "NeuModule"]]:
+    def target(self) -> "list[FullConnectedSyn| NeuModule]":
         return self.module_intf.output
 
     @property
@@ -153,10 +148,10 @@ class FunctionalModule(NeuModule):
 
     def __init__(
         self,
-        *operands: Union[NeuDyn, InputProj],
+        *operands: NeuDyn | InputProj,
         shape_out: tuple[int, ...],
         keep_shape: bool,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         kwargs.setdefault("delay", 1)
@@ -192,7 +187,8 @@ class FunctionalModule(NeuModule):
         self.set_memory(
             "delay_registers",
             np.zeros(
-                (HwConfig.N_TIMESLOT_MAX,) + self._neu_out.shape, dtype=NEUOUT_U8_DTYPE
+                (OffCoreCfg.N_TIMESLOT_MAX,) + self._neu_out.shape,
+                dtype=NEUOUT_U8_DTYPE,
             ),
         )
         # Set a deque for the `synin` to implement the delay of `inherent_delay` for the module.
@@ -211,20 +207,20 @@ class FunctionalModule(NeuModule):
         synin = []
 
         for op in self.source:
-            # Retrieve the spike at index `timestamp` of the dest neurons
+            # Retrieve the spike at index `timestamp` of the target neurons
             if self.is_working():
                 if isinstance(op, InputProj):
                     synin.append(op.output)
                 else:
-                    idx = self.timestamp % HwConfig.N_TIMESLOT_MAX
+                    idx = self.timestamp % OffCoreCfg.N_TIMESLOT_MAX
                     synin.append(op.delay_registers[idx])
             else:
-                # Retrieve 0 to the dest neurons if it is not working
+                # Retrieve 0 to the target neurons if it is not working
                 synin.append(np.zeros_like(op.spike))
 
         self.synin_deque.append(synin)  # Append to the right of the deque.
 
-    def update(self, *args, **kwargs) -> Optional[NeuOutType]:
+    def update(self, *args, **kwargs) -> NeuOutType | None:
         if not self.is_working():
             self._neu_out.fill(0)
             return None
@@ -236,7 +232,7 @@ class FunctionalModule(NeuModule):
             self._neu_out = self.spike_func(*synin).ravel()
             idx = (
                 self.timestamp - self.inherent_delay + self.delay_relative - 1
-            ) % HwConfig.N_TIMESLOT_MAX
+            ) % OffCoreCfg.N_TIMESLOT_MAX
             self.delay_registers[idx] = self._neu_out.copy()
 
         return self._neu_out
@@ -245,7 +241,7 @@ class FunctionalModule(NeuModule):
         self,
         network: "DynSysGroup",
         out_neuron: "Neuron",
-        *generated: Union[NeuDyn, "FullConnectedSyn"],
+        *generated: "NeuDyn | FullConnectedSyn",
         **build_options,
     ) -> None:
         from .synapses import FullConnectedSyn
@@ -299,10 +295,10 @@ class FunctionalModule2to1(FunctionalModule):
 
     def __init__(
         self,
-        neuron_a: Union[NeuDyn, InputProj],
-        neuron_b: Union[NeuDyn, InputProj],
+        neuron_a: NeuDyn | InputProj,
+        neuron_b: NeuDyn | InputProj,
         keep_shape: bool = False,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         if neuron_a.num_out != neuron_b.num_out:
@@ -324,65 +320,28 @@ class FunctionalModule2to1(FunctionalModule):
         return self.shape_out if self.keep_shape else (self.num_out,)
 
 
-class TransposeModule(FunctionalModule):
-    inherent_delay = 0
-
-    def __init__(
-        self,
-        neuron: Union[NeuDyn, InputProj],
-        shape_in: tuple[int, ...],
-        axes: Optional[Sequence[int]] = None,
-        keep_shape: bool = True,
-        name: Optional[str] = None,
-        **kwargs,
-    ) -> None:
-        if axes is None:
-            axes = range(len(shape_in))[::-1]
-
-        axes = tuple(axes)
-
-        if not check_elem_unique(axes):
-            raise ValueError("repeated axis in transpose.")
-
-        if len(axes) != len(shape_in):
-            raise ValueError("axes don't match array.")
-
-        if keep_shape:
-            shape_out = tuple(shape_in[i] for i in axes)
-        else:
-            shape_out = (neuron.num_out,)
-
-        self._shape_in = shape_in
-        self.axes = axes
-        super().__init__(
-            neuron, shape_out=shape_out, keep_shape=keep_shape, name=name, **kwargs
-        )
-
-    @property
-    def shape_in(self) -> tuple[int, ...]:
-        return self._shape_in
-
-
 class FunctionalModuleWithV(FunctionalModule):
     """Functional module with two operands.
 
     NOTE: Compared to `FunctionalModule`, the difference is that it takes the \
-        membrane potential voltage into consideration.
+        voltage voltage into consideration.
     """
 
     def __init__(
         self,
-        *operands: Union[NeuDyn, InputProj],
+        *operands: NeuDyn | InputProj,
         shape_out: tuple[int, ...],
         keep_shape: bool = False,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         super().__init__(
             *operands, shape_out=shape_out, keep_shape=keep_shape, name=name, **kwargs
         )
-        self.set_memory("_vjt", np.zeros((self.num_out,), dtype=np.int32))
-        self.thres_mode = np.full((self.num_out,), TM.NOT_EXCEEDED, dtype=np.uint8)
+        self.set_memory("_v0", np.zeros((self.num_out,), dtype=np.int32))
+        self.thres_mode = np.full(
+            (self.num_out,), NeuFireState.NOT_FIRING, dtype=np.uint8
+        )
 
     def synaptic_integr(self, *args, **kwargs) -> VoltageType:
         """Functions used to describe synaptic integration of the module."""
@@ -390,7 +349,7 @@ class FunctionalModuleWithV(FunctionalModule):
             "'synaptic_integr' should be implemented in the subclasses."
         )
 
-    def update(self, *args, **kwargs) -> Optional[NeuOutType]:
+    def update(self, *args, **kwargs) -> NeuOutType | None:
         if not self.is_working():
             self._neu_out.fill(0)
             return None
@@ -399,29 +358,29 @@ class FunctionalModuleWithV(FunctionalModule):
 
         if self.is_outputing():
             synin = self.synin_deque.popleft()  # Pop the left of the deque.
-            incoming_v = self.synaptic_integr(*synin, self._vjt)
-            _is, self._vjt = self.spike_func(incoming_v)
+            incoming_v = self.synaptic_integr(*synin, self._v0)
+            _is, self._v0 = self.spike_func(incoming_v)
             self._neu_out = _is.ravel()
 
             idx = (
                 self.timestamp - self.inherent_delay + self.delay_relative - 1
-            ) % HwConfig.N_TIMESLOT_MAX
+            ) % OffCoreCfg.N_TIMESLOT_MAX
             self.delay_registers[idx] = self._neu_out.copy()
 
         return self._neu_out
 
     @property
     def voltage(self) -> VoltageType:
-        return self._vjt.reshape(self.varshape)
+        return self._v0.reshape(self.varshape)
 
 
 class FunctionalModule2to1WithV(FunctionalModuleWithV):
     def __init__(
         self,
-        neuron_a: Union[NeuDyn, InputProj],
-        neuron_b: Union[NeuDyn, InputProj],
+        neuron_a: NeuDyn | InputProj,
+        neuron_b: NeuDyn | InputProj,
         keep_shape: bool = False,
-        name: Optional[str] = None,
+        name: str | None = None,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -435,13 +394,13 @@ class FunctionalModule2to1WithV(FunctionalModuleWithV):
 
 
 L = Literal
-_T = TypeVar("_T", bound=NeuModule)
+NMT = TypeVar("NMT", bound=NeuModule)
 
 
 def set_rt_mode(
     input_width: L[1, 8], spike_width: L[1, 8], snn_en: L[0, 1]
-) -> Callable[[type[_T]], type[_T]]:
-    def wrapper(cls: type[_T]) -> type[_T]:
+) -> Callable[[type[NMT]], type[NMT]]:
+    def wrapper(cls: type[NMT]) -> type[NMT]:
         iw = _input_width_format(input_width)
         sw = _spike_width_format(spike_width)
         sen = SNNModeEnable(snn_en)
@@ -458,8 +417,8 @@ set_rt_mode_ann = partial(set_rt_mode, input_width=8, spike_width=8, snn_en=0)
 
 
 def _shape_check2(
-    neuron_a: Union[NeuDyn, InputProj],
-    neuron_b: Union[NeuDyn, InputProj],
+    neuron_a: NeuDyn | InputProj,
+    neuron_b: NeuDyn | InputProj,
     keep_shape: bool,
 ) -> tuple[int, ...]:
     if keep_shape:

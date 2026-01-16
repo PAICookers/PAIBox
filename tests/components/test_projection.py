@@ -98,21 +98,6 @@ class TestInputProj:
         assert len(sim3.data[prob3]) == 10
         assert sim3.data[prob3][0].shape == (100,)
 
-    def test_passing_args_through_run(self):
-        def fakeout_with_args(*args, bias, **kwargs):
-            return np.ones((10, 10), dtype=np.int8) * bias
-
-        inp = pb.InputProj(
-            input=fakeout_with_args, shape_out=(10, 10), keep_shape=False
-        )
-        prob = pb.simulator.Probe(inp, "output")
-        sim = pb.Simulator(inp)
-        sim.add_probe(prob)
-
-        FRONTEND_ENV.clear_all()
-        with pytest.warns(DeprecationWarning):
-            sim.run(10, bias=3)
-
     def test_input_PoissonEncoder(self):
         # Normalized data
         input_data1 = np.random.rand(10, 10).astype(np.float32)

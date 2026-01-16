@@ -2,14 +2,17 @@ from math import ceil
 
 import numpy as np
 import pytest
-from paicorelib import ONLINE_CORES_BASE_COORD, Coord, HwConfig
+from paicorelib import ONLINE_CORES_BASE_COORD, Coord, HwConfig, OffCoreCfg
 from paicorelib import WeightWidth as WW
 
 import paibox as pb
-from paibox.backend.conf_exporting import *
+from paibox.backend.conf_exporting import export_core_plm_conf_json
+from paibox.backend.mapper import merge_cycles
+from paibox.backend.sub_utils import sub_node_overlap
 from paibox.exceptions import ResourceError
+from tests.utils import make_test, measure_time
 
-from .conftest import TestData
+from .backend_testcase import BackendTestCase as TCase
 
 
 class TestGraphInfo:
@@ -150,7 +153,7 @@ class TestMapperDeployment:
     def test_export_config_json(self, ensure_dump_dir, compile_simple_net):
         """Export all the configs into json"""
         mapper = compile_simple_net
-        assert mapper.graph.has_built == True
+        assert mapper.graph.has_built
 
         assert len(mapper.core_blocks) == 3  # 3 layers
         assert mapper.graph_info["inherent_timestep"] == 3
@@ -159,17 +162,17 @@ class TestMapperDeployment:
 
     def test_find_neuron(self, compile_simple_net):
         mapper: pb.Mapper = compile_simple_net
-        assert mapper.graph.has_built == True
+        assert mapper.graph.has_built
 
-        mapper.find_neuron(mapper.graph._raw_networks[0].n3)
+        mapper.find_neuron(mapper.graph.target_networks[0].n3)
 
         assert 1
 
     def test_find_axon(self, compile_simple_net):
         mapper = compile_simple_net
-        assert mapper.graph.has_built == True
+        assert mapper.graph.has_built
 
-        mapper.find_axon(mapper.graph._raw_networks[0].n2)
+        mapper.find_axon(mapper.graph.target_networks[0].n2)
 
         assert 1
 
@@ -177,10 +180,11 @@ class TestMapperDeployment:
         net: pb.Network = build_Network_with_container
         mapper = pb.Mapper()
         mapper.build(net)
+        assert len(mapper.graph.nodes) == 4
+
         mapper.compile()
 
-        assert len(mapper.graph.nodes.keys()) == 4
-        # Input projectioon is discnnected!
+        # The input node is isolated
         assert len(mapper.graph_info["input"]) == 0
         assert len(mapper.graph_info["output"]) == 1
 
@@ -228,19 +232,17 @@ class TestMapperDeployment:
         mapper.build(*nets)
         graph_info = mapper.compile(use_exp_features=True)
 
-        assert graph_info["n_core_occupied"] == n_networks
-
         rtotal = sum(mapper.routing_mgr.n_core_per_chip)
         r1 = mapper.routing_mgr.n_core_per_chip[0]
 
-        if n_networks > 1008:
+        if n_networks > ONLINE_CORES_BASE_COORD:
             r2 = mapper.routing_mgr.n_core_per_chip[1]
+            assert graph_info["n_core_occupied"] == n_networks + HwConfig.N_CORE_ONLINE
             assert rtotal == r1 + r2
             assert r1 == 1024
             assert r2 == n_networks - 1008
-        elif n_networks > ONLINE_CORES_BASE_COORD:
-            assert rtotal == r1 == n_networks + 16
         else:
+            assert graph_info["n_core_occupied"] == n_networks
             assert rtotal == r1 == n_networks
 
         mapper.export(fp=ensure_dump_dir)
@@ -289,7 +291,7 @@ class TestMapperDeployment:
 
         mapper = pb.Mapper()
         mapper.build(net)
-        graph_info = mapper.compile()
+        _ = mapper.compile()
         mapper.export(fp=ensure_dump_dir, use_hw_sim=False)
 
         assert 1
@@ -314,7 +316,7 @@ class TestMapper_Export:
         mapper.compile()
         mapper.export(fp=ensure_dump_dir)
 
-        assert len(mapper.routing_groups[1].wasted_coords) == 2
+        assert len(mapper.routing_mgr.ordered_rgrps[1].wasted_coords) == 2
 
 
 class TestMapper_Compile:
@@ -348,16 +350,16 @@ class TestMapper_Compile:
         mapper.compile(grouping_optim_target="core")
 
         for cb in mapper.core_blocks:
-            if net.n1 in cb.dest:
+            if sub_node_overlap(net.n1, cb.dest):
                 assert cb.n_core_required == ceil(
-                    net.n1.num_out / HwConfig.N_DENDRITE_MAX_SNN
+                    net.n1.num_out / OffCoreCfg.N_DENDRITE_MAX_SNN
                 )
-            elif net.n2 in cb.dest:
+            elif sub_node_overlap(net.n2, cb.dest):
                 assert cb.n_core_required == 1 + 1
 
-            elif net.n4 in cb.dest:
+            elif sub_node_overlap(net.n4, cb.dest):
                 assert cb.n_core_required == ceil(
-                    net.n4.num_out / HwConfig.N_DENDRITE_MAX_SNN
+                    net.n4.num_out / OffCoreCfg.N_DENDRITE_MAX_SNN
                 )
 
     def test_grouping_optim_both(self, monkeypatch, build_example_net4):
@@ -373,54 +375,16 @@ class TestMapper_Compile:
 
         assert (
             mapper.core_blocks[0].n_core_required
-            == ceil(net.n1.num_out / HwConfig.N_DENDRITE_MAX_SNN) * 2
+            == ceil(net.n1.num_out / OffCoreCfg.N_DENDRITE_MAX_SNN) * 2
         )
 
         assert mapper.core_blocks[1].n_core_required == ceil(
-            net.n2.num_out / HwConfig.N_DENDRITE_MAX_SNN
-        ) * 3 + ceil(net.n3.num_out / HwConfig.N_DENDRITE_MAX_SNN)
+            net.n2.num_out / OffCoreCfg.N_DENDRITE_MAX_SNN
+        ) * 3 + ceil(net.n3.num_out / OffCoreCfg.N_DENDRITE_MAX_SNN)
 
         assert (
             mapper.core_blocks[2].n_core_required
-            == ceil(net.n4.num_out / HwConfig.N_DENDRITE_MAX_SNN) * 4
-        )
-
-    def test_gh_multicast_optim(self):
-        class Net(pb.Network):
-            def __init__(self):
-                super().__init__()
-                self.inp1 = pb.InputProj(input=None, shape_out=(400,), name="inp1")
-                self.n0 = pb.IF(400, 3, name="n0")
-                self.n1 = pb.IF(400, 3, name="n1")
-                self.n2 = pb.IF(800, 3, name="n2")
-                self.n3 = pb.IF(400, 4, name="n3")
-                self.n4 = pb.IF(300, 4, name="n4")
-                self.s0 = pb.FullConn(
-                    self.inp1, self.n0, conn_type=pb.SynConnType.One2One, name="s0"
-                )
-                self.s1 = pb.FullConn(
-                    self.n0, self.n1, conn_type=pb.SynConnType.One2One, name="s1"
-                )
-                self.s2 = pb.FullConn(
-                    self.n1, self.n2, conn_type=pb.SynConnType.All2All, name="s2"
-                )
-                self.s3 = pb.FullConn(
-                    self.n2, self.n3, conn_type=pb.SynConnType.All2All, name="s3"
-                )
-                self.s4 = pb.FullConn(
-                    self.n0, self.n4, conn_type=pb.SynConnType.All2All, name="s4"
-                )
-                self.s5 = pb.FullConn(
-                    self.n4, self.n2, conn_type=pb.SynConnType.All2All, name="s5"
-                )
-
-        net = Net()
-        mapper = pb.Mapper()
-        mapper.build(net)
-        graph_info = mapper.compile(
-            weight_bit_optimization=False,
-            grouping_optim_target="latency",
-            multicast_optim=[net.n0],
+            == ceil(net.n4.num_out / OffCoreCfg.N_DENDRITE_MAX_SNN) * 4
         )
 
     def test_ordered_axons(self, build_example_net5):
@@ -428,12 +392,66 @@ class TestMapper_Compile:
         mapper = pb.Mapper()
         mapper.build(net)
         mapper.compile()
-        nodes_with_empty_axons = [net.n3, net.n4, net.n5]
         for cb in mapper.core_blocks:
-            if cb.dest[0] in nodes_with_empty_axons:
+            if sub_node_overlap(net.n3, cb.dest):
+                assert len(cb.ordered_axons) > len(cb.source)
+            elif sub_node_overlap(net.n4, cb.dest):
+                assert len(cb.ordered_axons) > len(cb.source)
+            elif sub_node_overlap(net.n5, cb.dest):
                 assert len(cb.ordered_axons) > len(cb.source)
             else:
                 assert len(cb.ordered_axons) == len(cb.source)
+
+    def test_merge_cycles(self, build_example_net5):
+        net = build_example_net5
+        mapper = pb.Mapper()
+        mapper.build(net)
+        merged_sgrps_with_cycle = mapper.graph.graph_partition()
+        """merged_sgrps_with_cycle:
+
+        MergedSuccGroup:
+              Nodes: n2, n6
+              Group of n1:
+                      Edge s0: n1 -> n2
+                      Edge s5: n1 -> n6
+              Group of n5:
+                      Edge s4: n5 -> n6
+
+        MergedSuccGroup:
+              Nodes: n5, n3
+              Group of n2:
+                      Edge s1: n2 -> n3
+                      Edge s6: n2 -> n5
+              Group of n4:
+                      Edge s3: n4 -> n5
+
+        MergedSuccGroup:
+              Nodes: n4
+              Group of n3:
+                      Edge s2: n3 -> n4
+        """
+        assert len(merged_sgrps_with_cycle) == 3
+
+        """
+        MergedSuccGroup:
+              Nodes: n2, n6, n3, n4, n5
+              Group of n1:
+                      Edge s0: n1 -> n2
+                      Edge s5: n1 -> n6
+              Group of n5:
+                      Edge s4: n5 -> n6
+              Group of n2:
+                      Edge s1: n2 -> n3
+                      Edge s6: n2 -> n5
+              Group of n4:
+                      Edge s3: n4 -> n5
+              Group of n3:
+                      Edge s2: n3 -> n4
+        """
+
+        merged_sgrps = merge_cycles(merged_sgrps_with_cycle)
+
+        assert len(merged_sgrps) == 1
 
     def test_partition(self, build_example_net6):
         net = build_example_net6
@@ -441,9 +459,9 @@ class TestMapper_Compile:
         mapper.build(net)
         mapper.compile()
         for cb in mapper.core_blocks:
-            if net.n3 in cb.dest:
+            if sub_node_overlap(net.n3, cb.dest):
                 assert len(cb.ordered_axons) == 2
-            if net.n4 in cb.dest:
+            if sub_node_overlap(net.n4, cb.dest):
                 assert len(cb.ordered_axons) == 3
 
     def test_set_target_chip(self, build_example_net1, monkeypatch):
@@ -470,10 +488,7 @@ class TestMapper_Compile:
 
 
 class TestMapper_cflags:
-    @pytest.mark.parametrize(
-        TestData.cflags_weight_bit_opt_data["args"],
-        TestData.cflags_weight_bit_opt_data["data"],
-    )
+    @make_test(TCase.cflags_weight_bit_opt_data)
     def test_cflags_weight_bit_opt(self, range, scalar, dtype, expected_wp_opt):
         # s1, s2, s3 will be grouped in one core block.
         class Net(pb.Network):
@@ -527,9 +542,6 @@ class TestMapper_cflags:
 
         assert graph_info["n_core_required"] > 0
         assert graph_info["members"] == {}
-
-
-from tests.utils import measure_time
 
 
 class TestMapper_Multichip:

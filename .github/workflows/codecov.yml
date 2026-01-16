@@ -3,10 +3,10 @@ name: Pytest & code coverage
 on:
   push:
     branches:
-      - master
+      - main
   pull_request:
     branches:
-      - master
+      - main
       - "dev*"
     paths:
       - "paibox/**"
@@ -14,6 +14,7 @@ on:
       - ".github/workflows/codecov.yml"
       - "pyproject.toml"
       - "poetry.lock"
+      - "uv.lock"
 
 permissions:
   contents: read
@@ -22,40 +23,37 @@ jobs:
   pytest:
     strategy:
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      CI_ENV: "true"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - name: Install uv and set the Python version
+        uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Setup poetry
-        uses: abatilo/actions-poetry@v4
+      - name: Install the project
+        run: uv sync --locked --dev
 
-      - name: Install test dependencies
-        run: |
-          poetry install --with test
+      - name: Run tests
+        run: uv run --frozen pytest --cov --cov-branch --cov-report=xml --junitxml=junit.xml -n auto
 
-      - name: Run pytest
-        run: |
-          poetry run pytest --cov-append --cov-report=xml --junitxml=junit.xml
-
-      - name: Upload coverage to Codecov
+      - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
         with:
           fail_ci_if_error: true
-          flags: unittests
+          report_type: coverage
           token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Upload test results to Codecov
         if: ${{ !cancelled() }}
-        uses: codecov/test-results-action@v1
+        uses: codecov/codecov-action@v5
         with:
           fail_ci_if_error: true
-          flags: unittests
+          report_type: test_results
           token: ${{ secrets.CODECOV_TOKEN }}
