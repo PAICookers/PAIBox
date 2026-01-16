@@ -12,7 +12,6 @@ from paicorelib import (
     SNNModeEnable,
     SpikeWidthFormat,
 )
-from paicorelib.framelib.utils import _mask
 
 from paibox.base import NeuDyn, is_learnable
 from paibox.exceptions import FunctionalError, PAIBoxWarning
@@ -38,6 +37,10 @@ SIGNED_PARAM_OVERFLOW_TEXT = "{0} overflow, beyond the range of {1}-bit signed i
 V_OVERFLOW_TEXT = SIGNED_PARAM_OVERFLOW_TEXT.format("voltage", V_BIT_MAX)
 LEAK_V_OVERFLOW_TEXT = SIGNED_PARAM_OVERFLOW_TEXT.format("leak voltage", LEAK_V_BIT_MAX)
 V_RANGE_LIMIT = V_MAX - V_MIN
+
+
+def _mask(mask_bit: int) -> int:
+    return (1 << mask_bit) - 1
 
 
 def _is_v_overflow(v: VoltageType, strict: bool = False) -> bool:
