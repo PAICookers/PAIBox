@@ -5,6 +5,7 @@
 ```toml
 python = ">=3.10"
 numpy = ">=2.1.0,<3.0.0"
+pydantic = ">=2.0.3,<3.0.0"
 paicorelib = ">=1.5.1,<1.6.0"
 ```
 
@@ -1173,4 +1174,4 @@ mapper.clear()
    3. 配置帧3型若干（根据需配置的神经元数目决定）
    4. 配置帧4型若干（根据需配置的权重数目决定）
 
-7. 二进制配置帧文件，`config_learn_dis_all.bin` 与 `config_learn_en_all.bin`，仅包含所有在线核配置帧2型，用于快速切换在线核的学习/推理模式。
+7. 二进制配置帧文件，`config_learn_dis_all.bin` 与 `config_learn_en_all.bin`，仅包含所有在线核配置帧2型，用于切换在线核的工作模式（学习/推理）。
