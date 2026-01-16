@@ -55,6 +55,11 @@ if sys.version_info >= (3, 11):
 else:
     from typing_extensions import Unpack
 
+if sys.version_info >= (3, 14):
+    from annotationlib import get_annotations
+else:
+    from typing_extensions import get_annotations
+
 if TYPE_CHECKING:
     from ..synapses.learning import STDPSynAttrKwds
 
@@ -724,8 +729,10 @@ class OnlineNeuron(Neuron):
 
     def _set_syn_attrs(self, **kwargs: Unpack["STDPSynAttrKwds"]) -> None:
         """Set the synapse attributes called by the source STDP synapse only."""
+        annotations = get_annotations(OnlineNeuron)
+
         for k, v in kwargs.items():
-            if k not in self.__annotations__:
+            if k not in annotations:
                 raise ValueError(f"'{k}' is not a valid annotation.")
             elif hasattr(self, k):
                 if (cur_v := getattr(self, k)) != v:
