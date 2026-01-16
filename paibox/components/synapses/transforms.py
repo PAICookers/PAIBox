@@ -324,7 +324,6 @@ class _ConvNdForward(Transform):
 
 
 class Conv1dForward(_ConvNdForward):
-
     in_shape: Size1Type
     out_shape: Size1Type
     stride: Size1Type
@@ -366,7 +365,6 @@ class Conv1dForward(_ConvNdForward):
 
 
 class Conv2dForward(_ConvNdForward):
-
     in_shape: Size2Type
     out_shape: Size2Type
     stride: Size2Type

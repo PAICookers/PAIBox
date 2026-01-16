@@ -9,7 +9,6 @@ __all__ = ["BaseGroup", "InhiGroup", "DataGroup", "MergedGroup"]
 
 
 class BaseGroup:
-
     def __init__(self, nodes: list[NodeType]) -> None:
         self.raw_nodes = set(nodes)
 

@@ -325,7 +325,6 @@ class DataFlowFormat:
 
 
 class NeuDyn(DynamicSys, ReceiveInputProj, TimeRelatedNode):
-
     _delay: int
     _tws: int
     """tick_wait_start"""

@@ -364,8 +364,7 @@ class Conv2dSemiFoldedSyn(FullConnectedSyn):
 
         if (_output_size := co * ho) != target.num_in:
             raise ShapeError(
-                f"output size mismatch: {_output_size} ({co}*{ho}) "
-                f"!= {target.num_in}."
+                f"output size mismatch: {_output_size} ({co}*{ho}) != {target.num_in}."
             )
 
         self.comm = Conv2dSemiFoldedForward(

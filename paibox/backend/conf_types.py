@@ -26,9 +26,11 @@ from paicorelib import (
     OnlineNeuAttrs,
     OnlineNeuConf,
     OnlineNeuDestInfo,
+    SNNModeEnable,
+    SpikeWidthFormat,
+    WeightWidth,
 )
 from paicorelib import ReplicationId as RId
-from paicorelib import SNNModeEnable, SpikeWidthFormat, WeightWidth
 from paicorelib.framelib.types import LUTDataType
 
 if sys.version_info >= (3, 11):
@@ -441,7 +443,6 @@ class OfflineCorePlmConfig(CorePlmConfig):
 
 @dataclass(frozen=True)
 class OnlineCorePlmConfig(CorePlmConfig):
-
     weight_ram: WRAMPackedType
     core_params: OnlineCoreReg
     lut: LUTDataType

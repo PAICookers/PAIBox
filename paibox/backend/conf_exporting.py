@@ -1,4 +1,3 @@
-import sys
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import asdict
@@ -15,9 +14,9 @@ from paicorelib import (
     OnlineConfigFrame3,
     OnlineFrameGen,
     OnlineModeEnable,
+    RoutingCoord,
 )
 from paicorelib import ReplicationId as RId
-from paicorelib import RoutingCoord
 from paicorelib.framelib.utils import _mask, np2bin, np2npy, np2txt
 
 from paibox.components import Neuron

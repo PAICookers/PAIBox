@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from paibox.utils import (
@@ -67,7 +65,7 @@ def test_slice_by_index(s1, idx, expected):
     else:
         _idx = idx
         if _idx > n_s1 - 1:
-            raise ValueError(f"index out of range: {idx} > {n_s1-1}")
+            raise ValueError(f"index out of range: {idx} > {n_s1 - 1}")
 
     start = s1.start + _idx
     end = start + 1

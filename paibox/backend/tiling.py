@@ -798,10 +798,14 @@ def _conv2d_o_tile_visitor(
                 g_tl, ho_tl, wo_tl = _eff_tile_size3d(
                     (g_start, ho_start, wo_start), tile_size3d, (groups, ho, wo)
                 )
-                yield (g_idx, ho_idx, wo_idx), (g_start, ho_start, wo_start), (
-                    g_tl,
-                    ho_tl,
-                    wo_tl,
+                yield (
+                    (g_idx, ho_idx, wo_idx),
+                    (g_start, ho_start, wo_start),
+                    (
+                        g_tl,
+                        ho_tl,
+                        wo_tl,
+                    ),
                 )
                 wo_start += wo_tl
             ho_start += ho_tl
