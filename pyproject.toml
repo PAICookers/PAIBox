@@ -28,6 +28,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Compilers",
 ]
@@ -40,7 +41,6 @@ documentation = "https://github.com/PAICookers/PAIBox#readme"
 
 [tool.poetry]
 packages = [{ include = "paibox" }]
-include = ["docs/Guide-of-PAIBox.md", "docs/Support-Ops.md"]
 
 [dependency-groups]
 dev = [
@@ -50,22 +50,6 @@ dev = [
     "pytest-xdist>=3.7.0",
     "orjson>=3.10",
 ]
-
-[tool.poetry.group.test]
-optional = true
-
-[tool.poetry.group.dev]
-optional = true
-
-[tool.poetry.group.test.dependencies]
-pytest = ">=8.0"
-pytest-md = ">=0.2"
-pytest-cov = ">=7.0"
-pytest-xdist = ">=3.7.0"
-orjson = ">=3.10"
-
-[tool.poetry.group.dev.dependencies]
-orjson = ">=3.10"
 
 [tool.uv]
 package = true
@@ -79,7 +63,7 @@ module-root = ""
 [tool.pytest.ini_options]
 minversion = "8.0.0"
 testpaths = ["tests"]
-addopts = ["--cov=paibox", "--cov-report=term", "-nauto"]
+addopts = ["--cov=paibox", "--cov-branch", "--cov-report=term", "-nauto"]
 
 [[tool.poetry.source]]
 name = "tsinghua"
@@ -94,3 +78,22 @@ default = true
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+
+[tool.ruff.lint]
+select = [
+    "E", # pycodestyle errors
+    "W", # pycodestyle warnings
+    "F", # Pyflakes
+    "I", # isort
+]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = [
+    "I001", # unsorted imports
+]
+'paibox/__init__.py' = [
+    "E402", # module level import not at top of cell
+    "F401", # unused import
+]
