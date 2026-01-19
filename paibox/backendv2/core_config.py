@@ -1,14 +1,14 @@
 from paicorelib import (
-    SNNMode,
-    PoolingMode,
+    LCN_EX,
     AddPotentialMode,
-    ZeroOutputMode,
+    CSCAccelerateMode,
     InputSignMode,
     OutputSignMode,
+    PoolingMode,
+    SNNMode,
     WeightSignMode,
-    CSCAccelerateMode,
     WeightWidth,
-    LCN_EX,
+    ZeroOutputMode,
 )
 
 
@@ -22,6 +22,7 @@ class Default_Core_Config:
         self.add_potential: AddPotentialMode = AddPotentialMode.NORMAL
         self.csc_accelerate: CSCAccelerateMode = CSCAccelerateMode.DISABLE
 
+
 # this core configs are automatically set by backend according to routing and allocation result
 class Auto_Core_Config:
     def __init__(self):
@@ -31,6 +32,7 @@ class Auto_Core_Config:
         self.test_core_y: int = 0
         self.global_send: int = 0
         self.global_receive: int = 0
+
 
 # this core configs are inherited from frontend's compute op nodes, backend can not modify them except weight_width
 # weigth_width can be modified by backend for optimization, if don't change, set weight_width in Manual_Core_Config to the same value
@@ -48,6 +50,7 @@ class Inherited_Core_Config:
         self.tick_start: int = 0
         self.tick_duration: int = 0
         self.tick_initial: int = 0
+
 
 # these core configs can be set for optimization requirements
 class Manual_Core_Config:
