@@ -172,7 +172,9 @@ class PAIBoxLogsFormatter(logging.Formatter):
         record.asctime = self.formatTime(record, "%H:%M:%S")
 
         shortlevel = log_level_to_abbr.get(record.levelname, record.levelname)
-        prefix = f"[{shortlevel} {record.asctime} {record.lineno}]{record.artifactprefix}"  # type: ignore[attr-defined]
+        prefix = (
+            f"[{shortlevel} {record.asctime} {record.lineno}]{record.artifactprefix}"  # type: ignore[attr-defined]
+        )
 
         lines = s.split("\n")
         return "\n".join(f"{prefix} {l}" for l in lines)
@@ -281,6 +283,8 @@ class _LogSettingsKwds(TypedDict, total=False):
     routing_group_info: bool
     tiling_optim: bool
     stdp: bool
+    fx_converter: int | None
+    fuse: bool
 
 
 # Add a default log level or state for each log or artifact name in the above dictionary.
@@ -297,6 +301,8 @@ DEFAULT_LOG_SETTINGS: _LogSettingsKwds = {
     "routing_group_info": True,
     "tiling_optim": True,
     "stdp": True,
+    "fx_converter": logging.INFO,
+    "fuse": True,
 }
 
 
