@@ -4,9 +4,10 @@ import torch
 from spikingjelly.activation_based import functional as sF
 from spikingjelly.activation_based import neuron
 from torch import fx, nn
-from torch.fx.experimental.optimization import fuse
 from torch.fx.node import Argument, Target
 from torch.fx.passes.shape_prop import ShapeProp
+
+from paibox.fx_converter.fuse import fuse_conv_bn
 
 
 class NeuronAsOpTracer(fx.Tracer):
@@ -54,7 +55,7 @@ def remove_dropout_and_fuse_conv_bn(m: nn.Module) -> fx.GraphModule:
     gm = trace_spikingjelly_model(m)
     m = DropoutRemover(gm).transform()
     m.graph.print_tabular()
-    m = fuse(m, inplace=True, no_trace=True)
+    m = fuse_conv_bn(m, inplace=True, no_trace=True)
     return m  # type: ignore
 
 
