@@ -18,6 +18,7 @@ from paicorelib import (
     LeakOrder,
     LUTDataType,
     MaxPoolingEnable,
+    OfflineNeuRegLim,
     OnlineModeEnable,
     SNNModeEnable,
     SpikeWidthFormat,
@@ -38,8 +39,8 @@ from paibox.types import (
 from paibox.utils import arg_check_non_neg, arg_check_pos, as_shape, shape2num
 
 from .utils import (
-    BIT_TRUNC_MAX,
-    NEG_THRES_MAX,
+    # BIT_TRUNC_MAX,
+    # NEG_THRES_MAX,
     NeuFireState,
     RTModeKwds,
     _input_width_format,
@@ -71,7 +72,7 @@ NEU_TARGET_CHIP_UNSET = -1
 
 def _neg_thres_check(th: int | None, signed: bool) -> int:
     if th is None:
-        return -NEG_THRES_MAX
+        return -OfflineNeuRegLim.NEG_THRES_MAX
     elif signed:
         return th
     else:
@@ -458,9 +459,9 @@ class OfflineNeuron(Neuron):
                 ParamNotSimulatedWarning,
             )
 
-        if self.bit_trunc > BIT_TRUNC_MAX:
+        if self.bit_trunc > OfflineNeuRegLim.BIT_TRUNC_MAX:
             raise ValueError(
-                f"'bit_trunc' should be less than or equal to {BIT_TRUNC_MAX}, but got {self.bit_trunc}."
+                f"'bit_trunc' should be less than or equal to {OfflineNeuRegLim.BIT_TRUNC_MAX}, but got {self.bit_trunc}."
             )
 
         self.init_delay_registers()
