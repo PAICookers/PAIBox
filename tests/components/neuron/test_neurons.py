@@ -14,6 +14,7 @@ from paicorelib import (
     SIM,
     CoreMode,
     OfflineNeuAttrs,
+    OfflineNeuRegLim,
     OnlineNeuAttrs,
 )
 from paicorelib import WeightWidth as WW
@@ -21,7 +22,6 @@ from paicorelib import WeightWidth as WW
 import paibox as pb
 from paibox.components import OfflineNeuron
 from paibox.components.neuron.base import bit_truncate
-from paibox.components.neuron.utils import V_MAX, V_MIN
 from paibox.components.neuron.utils import NeuFireState as TM
 from paibox.exceptions import ShapeError
 from paibox.types import (
@@ -325,14 +325,14 @@ class TestOfflineNeuron:
         "incoming_v, expected_v, expected_spike",
         [
             (
-                np.array([V_MAX + 1], dtype=VOLTAGE_DTYPE),
-                np.array([V_MIN + 1], dtype=VOLTAGE_DTYPE),
+                np.array([OfflineNeuRegLim.VOLTAGE_MAX + 1], dtype=VOLTAGE_DTYPE),
+                np.array([OfflineNeuRegLim.VOLTAGE_MIN + 1], dtype=VOLTAGE_DTYPE),
                 # Exceeded the positive threshold but no spike
                 np.array([False], dtype=bool),
             ),
             (
-                np.array([V_MIN - 1], dtype=VOLTAGE_DTYPE),
-                np.array([V_MAX - 1], dtype=VOLTAGE_DTYPE),
+                np.array([OfflineNeuRegLim.VOLTAGE_MIN - 1], dtype=VOLTAGE_DTYPE),
+                np.array([OfflineNeuRegLim.VOLTAGE_MAX - 1], dtype=VOLTAGE_DTYPE),
                 # Exceeded the negative threshold but no spike
                 np.array([False], dtype=bool),
             ),
@@ -341,8 +341,8 @@ class TestOfflineNeuron:
     )
     def test_vjt_overflow(self, incoming_v, expected_v, expected_spike):
         pb.FRONTEND_ENV["t"] = 0
-        neg_thres = V_MIN
-        pos_thres = V_MAX
+        neg_thres = OfflineNeuRegLim.VOLTAGE_MIN
+        pos_thres = OfflineNeuRegLim.VOLTAGE_MAX
 
         n1 = OfflineNeuron(
             1,

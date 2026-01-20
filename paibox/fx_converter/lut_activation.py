@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 from paicorelib.utils import _mask
 
+from .ir_base import PAIIR
+
 __all__ = [
     "LutActivation",
     "LutReLU",
@@ -14,14 +16,14 @@ __all__ = [
 ]
 
 
-class LutActivation(nn.Module):
+class LutActivation(nn.Module, PAIIR):
     def __init__(
         self,
         min_val: int = ~_mask(31),
         max_val: int = _mask(31),
         output_sign: int = 0,
         is_float: bool = False,
-    ):
+    ) -> None:
         """
         Base class for LUT-based activation functions.
         Approximates activation using a Lookup Table with 256 bins.
@@ -50,7 +52,7 @@ class LutActivation(nn.Module):
         # Generate the LUT on initialization
         self.generate_lut()
 
-    def _clamp_value(self, value: float) -> int:
+    def _clamp_value(self, value: float) -> int | float:
         """Clamps the value to the target 8-bit range."""
         if self.is_float:
             return value
@@ -62,7 +64,7 @@ class LutActivation(nn.Module):
             # Signed: -128 to 127
             return max(-128, min(127, int(round(value))))
 
-    def _generate_uniform_thresholds(self):
+    def _generate_uniform_thresholds(self) -> float:
         """Generates uniformly spaced thresholds between min_val and max_val."""
         # 256 bins -> 256 steps.
         # Thresholds are at min, min + step, ... min + 255*step
@@ -93,7 +95,7 @@ class LutActivation(nn.Module):
 
 
 class LutReLU(LutActivation):
-    def generate_lut(self):
+    def generate_lut(self) -> None:
         # ReLU behaves differently for x < 0 and x > 0.
         # x < 0: Output is always 0.
         # x > 0: Output is linear.
@@ -168,7 +170,7 @@ class LutReLU(LutActivation):
 
 
 class LutLinear(LutActivation):
-    def generate_lut(self):
+    def generate_lut(self) -> None:
         # Linear (Liner) Requirement:
         # - Map all int (the interval [min_val, max_val]) to -128 * 127.
         # - Usually implies linear mapping from input range to output range.

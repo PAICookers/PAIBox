@@ -290,7 +290,9 @@ def optimal_lcn_matmul2d(
     n_fanin_patch, n_fanout_patch = shape_b
     n_patch = shape_a[0]
 
-    for lcn in LCN_EX.__members__.values():
+    candidate_lcn = list(LCN_EX)[:-1]
+
+    for lcn in candidate_lcn:
         fin_capacity = core_n_fanin_base << lcn
         fout_capacity = core_n_fanout_base >> lcn
 

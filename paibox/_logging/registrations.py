@@ -18,6 +18,7 @@ COMPONENTS = [
     "paibox.components.synapses.synapses",
 ]
 
+
 register_log("paibox", "paibox")
 register_log("backend", BACKEND_MODULES)
 register_log("components", COMPONENTS)
@@ -41,3 +42,11 @@ register_artifact("core_block_info")
 
 # Tiling optimization
 register_artifact("tiling_optim")
+
+# Fusion passes
+FX_CONVERTERS = [
+    "paibox.fx_converter.fuse",
+]
+
+register_log("fx_converter", FX_CONVERTERS)
+register_artifact("fuse")

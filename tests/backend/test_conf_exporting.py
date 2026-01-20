@@ -12,7 +12,7 @@ from paicorelib import (
     MaxPoolingEnable,
     NeuDestInfo,
     OffCoreCfg,
-    OffRegDefs,
+    OfflineCoreRegLim,
     get_replication_id,
 )
 from paicorelib import WeightWidth as WW
@@ -50,13 +50,13 @@ try:
 except ModuleNotFoundError:
     import json
 
-TICK_WAIT_END_MAX = OffRegDefs.TICK_WAIT_END_MAX
-TICK_WAIT_START_MAX = OffRegDefs.TICK_WAIT_START_MAX
+TICK_WAIT_END_MAX = OfflineCoreRegLim.TICK_WAIT_END_MAX
+TICK_WAIT_START_MAX = OfflineCoreRegLim.TICK_WAIT_START_MAX
 
 
 def _gen_random_core_config() -> OfflineCoreConfig:
     wp = random.choice(list(WW))
-    lcn_ex = random.choice(list(LCN_EX))
+    lcn_ex = random.choice(list(LCN_EX)[:-1])
 
     iwf, swf, sme = random.choice(list(CoreMode)).conf
 
@@ -64,7 +64,7 @@ def _gen_random_core_config() -> OfflineCoreConfig:
     mpe = random.choice(list(MaxPoolingEnable))
     tws = random.randint(0, TICK_WAIT_START_MAX)
     twe = random.randint(0, TICK_WAIT_END_MAX)
-    target_lcn = random.choice(list(LCN_EX))
+    target_lcn = random.choice(list(LCN_EX)[:-1])
     test_chip_addr = Coord(random.randint(0, 31), random.randint(0, 31))
 
     return OfflineCoreConfig(
