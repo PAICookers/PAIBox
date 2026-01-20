@@ -67,7 +67,9 @@ class NeuronV2(MemoryModule, PAIIR):
         """Offline neuron model for chip v2.5."""
         super().__init__()
         _thres_neg = (
-            thres_neg if thres_neg is not None else -9999
+            thres_neg
+            if thres_neg is not None
+            else -9999
             # OfflineNeuRegLimV2.THRES_NEG_MIN
         )
         self.reset_mode = reset_mode
