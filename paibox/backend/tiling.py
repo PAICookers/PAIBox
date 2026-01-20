@@ -589,9 +589,9 @@ def optimal_tiling_conv1d(
     ci, _ = in_shape
     co, lo = out_shape
 
-    assert ci % groups == 0 and co % groups == 0, (
-        f"Input & output channels {ci}, {co} must be divisible by groups {groups}."
-    )
+    assert (
+        ci % groups == 0 and co % groups == 0
+    ), f"Input & output channels {ci}, {co} must be divisible by groups {groups}."
     ci_in_grp = ci // groups
     co_in_grp = co // groups
 
@@ -670,9 +670,9 @@ def optimal_tiling_conv2d(
     ci, _, _ = in_shape
     co, ho, wo = out_shape
 
-    assert ci % groups == 0 and co % groups == 0, (
-        f"Input & output channels {ci}, {co} must be divisible by groups {groups}."
-    )
+    assert (
+        ci % groups == 0 and co % groups == 0
+    ), f"Input & output channels {ci}, {co} must be divisible by groups {groups}."
     ci_in_grp = ci // groups
     co_in_grp = co // groups
 
@@ -1140,17 +1140,17 @@ def make_conv_tiled_idx_map(
 
     ci = in_shape[0]
     co = out_shape[0]
-    assert ci % groups == 0 and co % groups == 0, (
-        f"Input & output channels {ci}, {co} must be divisible by groups {groups}."
-    )
+    assert (
+        ci % groups == 0 and co % groups == 0
+    ), f"Input & output channels {ci}, {co} must be divisible by groups {groups}."
     ci_in_grp = ci // groups
     co_in_grp = co // groups
 
     # Calculate the #N of groups inside the tile
     g_tl = o_inner_shape[0]
-    assert groups % g_tl == 0, (
-        f"The #N of groups inside the tile {g_tl} must be divisible by the #N of groups {groups}."
-    )
+    assert (
+        groups % g_tl == 0
+    ), f"The #N of groups inside the tile {g_tl} must be divisible by the #N of groups {groups}."
     i_inner_ch = ci_in_grp * g_tl
 
     # Output inner shape: ghw -> chw or gl -> cl
