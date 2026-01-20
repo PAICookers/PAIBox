@@ -2,12 +2,12 @@ import sys
 from collections.abc import Sequence
 
 import numpy as np
-from paicorelib import LCM, LDM, NTM, RM, OffRAMDefs
+from paicorelib import LCM, LDM, NTM, RM, OfflineNeuRegLim
 
 from paibox.types import LEAK_V_DTYPE, DataType, LeakVType, Shape
 
 from .base import OfflineNeuron, OnlineNeuron
-from .utils import LEAK_V_MAX, CommonExtraNeuAttrKwds, ExtraNeuAttrKwds
+from .utils import CommonExtraNeuAttrKwds, ExtraNeuAttrKwds
 
 if sys.version_info >= (3, 11):
     from typing import Unpack
@@ -27,8 +27,6 @@ __all__ = [
     "ANNNeuron",
     "STDPLIF",
 ]
-
-POS_THRES_MAX = OffRAMDefs.POS_THRES_MAX
 
 
 def _bias_to_leak_v(bias: DataType) -> LeakVType | int:
@@ -224,7 +222,7 @@ class Always1Neuron(OfflineNeuron):
             neg_thres_mode=NTM.MODE_SATURATION,
             neg_threshold=0,
             pos_threshold=0,
-            leak_v=LEAK_V_MAX,
+            leak_v=OfflineNeuRegLim.LEAK_V_MAX,
             name=name,
             **kwargs,
         )
@@ -278,7 +276,7 @@ class StoreVoltageNeuron(OfflineNeuron):
             reset_mode=RM.MODE_NONRESET,
             neg_thres_mode=NTM.MODE_RESET,
             leak_v=leak_v + _bias_to_leak_v(bias),
-            pos_threshold=POS_THRES_MAX,
+            pos_threshold=OfflineNeuRegLim.POS_THRES_MAX,
             name=name,
             **kwargs,
         )
