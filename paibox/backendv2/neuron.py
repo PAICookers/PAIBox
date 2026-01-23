@@ -2,17 +2,20 @@ from __future__ import annotations
 
 from typing import Optional
 
+import numpy as np
+from core_config import Inherited_Core_Config
 from paicorelib import (
-    FoldedNeuAttrsV2Part1,
+    FRAME_DTYPE,
+    FrameArrayType,
     NeuDestInfoV2,
     OfflineCoreRegV2,
-    OfflineFoldedNeuAttrsV2Part2,
+    OfflineFrameGenV2,
     OfflineNeuDestInfoV2,
+    OfflineNeuFoldedAttrsV2Part1,
+    OfflineNeuFoldedAttrsV2Part2,
     OfflineNeuFullAttrsV2Part1,
     OfflineNeuFullAttrsV2Part2,
 )
-
-from core_config import Inherited_Core_Config
 
 
 class CoreOpNode:
@@ -69,8 +72,8 @@ class OfflineNeuronPlacement(NeuronPlacement):
     def __init__(self):
         self.neu_attrs_part1: Optional[OfflineNeuFullAttrsV2Part1] = None
         self.neu_attrs_part2: Optional[OfflineNeuFullAttrsV2Part2] = None
-        self.folded_neu_attrs_part1: Optional[FoldedNeuAttrsV2Part1] = None
-        self.folded_neu_attrs_part2s: list[OfflineFoldedNeuAttrsV2Part2] = []
+        self.folded_neu_attrs_part1: Optional[OfflineNeuFoldedAttrsV2Part1] = None
+        self.folded_neu_attrs_part2s: list[OfflineNeuFoldedAttrsV2Part2] = []
 
     def n_sram_required(self) -> int:
         n_sram = 0
@@ -83,5 +86,19 @@ class OfflineNeuronPlacement(NeuronPlacement):
         n_sram += len(self.folded_neu_attrs_part2s)
         return n_sram
 
-    def to_package(self):
-        raise NotImplementedError("to_package method is not implemented yet.")
+    def to_package(self) -> FrameArrayType:
+        if self.dest_info is None:
+            raise ValueError("dest_info has not been set yet.")
+
+        half_neu, full_neu, fold_neu = OfflineFrameGenV2.gen_config_frame3_pkg_neu(
+            dest_info=self.dest_info,
+            full_attrs1=self.neu_attrs_part1,
+            full_attrs2=self.neu_attrs_part2,
+            folded_attrs1=self.folded_neu_attrs_part1,
+            folded_attrs2_=self.folded_neu_attrs_part2s,
+        )
+
+        frame_list: FrameArrayType = np.concatenate(
+            [half_neu, full_neu, fold_neu], axis=0
+        ).astype(FRAME_DTYPE)
+        return frame_list

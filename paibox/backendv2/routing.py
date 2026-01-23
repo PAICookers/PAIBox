@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Optional
 
 import numpy as np
+from coreplacement import CorePlacement, EmptyOfflineCorePlacementV2
+from neuron import Neuron
 from paicorelib import (
     LCN_EX,
     AERPacketZXYCopy,
@@ -10,9 +12,6 @@ from paicorelib import (
     OfflineNeuDestInfoV2,
     find_coordxy_shortest_path,
 )
-
-from coreplacement import CorePlacement, EmptyOfflineCorePlacementV2
-from neuron import Neuron
 
 FANIN_BASE = 512
 
