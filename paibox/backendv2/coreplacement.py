@@ -3,9 +3,16 @@ from __future__ import annotations
 from abc import abstractmethod
 from typing import Optional
 
-from paicorelib import CoordXY, OfflineCoreRegV2
-
+import numpy as np
 from neuron import NeuronPlacement, OfflineNeuronPlacement
+from paicorelib import (
+    FRAME_DTYPE,
+    CoordXY,
+    FrameArrayType,
+    OfflineCoreRegV2,
+    OfflineFrameGenV2,
+    find_coordxy_shortest_path,
+)
 from routing import RoutingGroup
 from weight import Weight
 
@@ -43,6 +50,10 @@ class CorePlacement:
             raise ValueError("coord has not been set yet.")
         return self._coord
 
+    @abstractmethod
+    def to_frame(self) -> tuple[FrameArrayType, FrameArrayType]:
+        pass
+
 
 class EmptyOfflineCorePlacementV2(CorePlacement):
     def __init__(self):
@@ -64,16 +75,32 @@ class OfflineCorePlamentV2(CorePlacement):
             n_sram += weight.n_sram_required()
         return n_sram
 
-    def to_frame(self):
-        packages = []
+    def to_frame(self) -> tuple[FrameArrayType, FrameArrayType]:
+        pkt_offset, _ = find_coordxy_shortest_path(self.coord)
+
+        # frame_type_1: core config
+        frame_type1 = OfflineFrameGenV2.gen_config_frame1(
+            pkt_offset=pkt_offset,
+            core_reg_=self.core_config,
+        )
+
+        package_arrays: list[FrameArrayType] = []
         for neu in self.neus:
-            packages.extend(neu.to_package())
+            package_arrays.append(neu.to_package())
+
         for weight in self.weights:
-            packages.extend(weight.to_package())
+            package_arrays.append(weight.to_package())
 
-        def gen_frame():
-            raise NotImplementedError("gen_frame method is not implemented yet.")
+        packages = np.concatenate(package_arrays, axis=0).astype(FRAME_DTYPE)
 
-        start_frame = gen_frame()
+        start_frame = OfflineFrameGenV2.gen_config_frame3_pkg_header(
+            pkt_offset=pkt_offset,
+            start_addr=0,
+            n_package=len(packages),
+        )
 
-        raise NotImplementedError("to_frame method is not implemented yet.")
+        frame_type3 = np.concatenate([start_frame, packages], axis=0).astype(
+            FRAME_DTYPE
+        )
+
+        return frame_type1, frame_type3
