@@ -1,7 +1,14 @@
 from __future__ import annotations
 
+from paicorelib import FRAME_DTYPE, FrameArrayType
 from route_solver import route_solve
 from routing import RoutingGroup, toposort_for_rg
+
+
+def export_single_framearray(frame_array: FrameArrayType, file_path: str) -> None:
+    with open(file_path, "a") as f:
+        for frame in frame_array:
+            f.write(f"{frame:016x}\n")
 
 
 class Mapper:
@@ -14,7 +21,13 @@ class Mapper:
         )
 
     def set_rough_dest(self):
-        raise NotImplementedError("set_rough_dest method is not implemented yet.")
+        # determine which routing group each neuron sends to
+        for rg in self.routing_groups:
+            for neu in rg.raw_neus:
+                for dest_rg in self.routing_groups:
+                    if neu in dest_rg.input_list:
+                        rg.dests[neu] = dest_rg
+                        break
 
     def routing(self):
         self.routing_groups, next_rg_group = toposort_for_rg(self.routing_groups)
@@ -36,11 +49,19 @@ class Mapper:
         for rg in self.routing_groups:
             rg.set_detail_dest()
 
-    def export(self):
-        raise NotImplementedError("export method is not implemented yet.")
+    def export(self, output_path: str):
+        frame1_path = output_path + "/frame_type1.txt"
+        frame3_path = output_path + "/frame_type3.txt"
+        for rg in self.routing_groups:
+            for core_placement in rg.core_placements:
+                core_frame_type1, core_frame_type3 = core_placement.to_frame()
+                # export core_frame_type1 and core_frame_type3 to output_path
+                # framearray is np.ndarray of np.uint64 with shape (n_frames, )
+                # print each frame with 16 hex digits each line
+                export_single_framearray(core_frame_type1, frame1_path)
+                export_single_framearray(core_frame_type3, frame3_path)
 
     def compile(self):
-
         # determine raw_neus in routing groups, other properties remain unset
         self.routing_groups = self.generate_routing_groups()
 
@@ -58,4 +79,4 @@ class Mapper:
         self.set_detail_dest()
 
         # export to hardware executable format
-        self.export()
+        self.export(output_path="./output")

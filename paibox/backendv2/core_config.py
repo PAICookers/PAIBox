@@ -2,11 +2,9 @@ from paicorelib import (
     LCN_EX,
     AddPotentialMode,
     CSCAccelerateMode,
-    InputSignMode,
-    OutputSignMode,
+    DataSign,
     PoolingMode,
     SNNMode,
-    WeightSignMode,
     WeightWidth,
     ZeroOutputMode,
 )
@@ -41,11 +39,11 @@ class Inherited_Core_Config:
         self.snn_ann: SNNMode = SNNMode.SNN
         self.max_pooling: PoolingMode = PoolingMode.MAX
         self.zero_output: ZeroOutputMode = ZeroOutputMode.DISABLE
-        self.input_sign: InputSignMode = InputSignMode.SIGNED
+        self.input_sign: DataSign = DataSign.SIGNED
         self.input_width: WeightWidth = WeightWidth.WEIGHT_WIDTH_1BIT
-        self.output_sign: OutputSignMode = OutputSignMode.SIGNED
+        self.output_sign: DataSign = DataSign.SIGNED
         self.output_width: WeightWidth = WeightWidth.WEIGHT_WIDTH_1BIT
-        self.weight_sign: WeightSignMode = WeightSignMode.SIGNED
+        self.weight_sign: DataSign = DataSign.SIGNED
         self.weight_width: WeightWidth = WeightWidth.WEIGHT_WIDTH_1BIT
         self.tick_start: int = 0
         self.tick_duration: int = 0

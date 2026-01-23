@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+from typing import Literal
+
+import numpy as np
+from paicorelib import FRAME_DTYPE, FrameArrayType, OfflineFrameGenV2
+
 N_WEIGHTS_PER_SRAM = {1: 7, 2: 7, 4: 6, 8: 5}
 
 
 class Weight:
     def __init__(self):
         self.raw_weights: list[int] = []  # the raw weight
-        self.weight_width: int = 0  # bit width of each weight
+        self.weight_width: Literal[1, 2, 4, 8] = 1  # bit width of each weight
         self.compress: bool = False  # whether the weight is compressed
 
         # processed weights remove zero at the end if not compressed
@@ -29,5 +34,10 @@ class Weight:
                 )
             return (n_non_zero + n_weight_per_sram - 1) // n_weight_per_sram
 
-    def to_package(self):
-        raise NotImplementedError("to_package method is not implemented yet.")
+    def to_package(self) -> FrameArrayType:
+        frames = OfflineFrameGenV2.gen_config_frame3_weight_pkg(
+            weight=np.array(self.processed_weights),
+            weight_width=self.weight_width,
+            csc_compress=self.compress,
+        )
+        return frames
