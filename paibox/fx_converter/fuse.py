@@ -17,6 +17,7 @@ from .opset import (
     IMPLICIT_SUM_OPS,
     SUPPORTED_ACT_OPS,
     SUPPORTED_COMP_OPS,
+    SUPPORTED_CONV_OPS,
     SUPPORTED_NEU_OPS,
 )
 
@@ -112,7 +113,8 @@ def fuse_compute_act(gm: fx.GraphModule) -> fx.GraphModule:
 
                 modules[fused.name] = fused
                 with new_graph.inserting_after(node):
-                    new_node = new_graph.call_module(fused.name, args=node_prev.args)
+                    new_node = new_graph.call_module(
+                        fused.name, args=node_prev.args)
 
                 node.replace_all_uses_with(new_node)
                 new_graph.erase_node(node)
@@ -176,6 +178,15 @@ def fuse_implicit_add(gm: fx.GraphModule) -> fx.GraphModule:
 
                 # TODO check the previous nodes are supported comp ops & of same type: conv & conv, maxpool & maxpool, etc.
                 # But max pool & avg pool fusion may not make sense.
+                # Ensure previous nodes are supported linear ops (Conv, Linear)
+                valid_ops = True
+                for op in add_prev_nodes:
+                    if not isinstance(modules[op.target], tuple(SUPPORTED_CONV_OPS)):
+                        valid_ops = False
+                        break
+                if not valid_ops:
+                    continue
+
                 assert isinstance(node.target, str)
                 fused = CoreOpNode.build(
                     add_prev_nodes, node, modules, OpLoc.OFFLINE_CORE
@@ -188,7 +199,8 @@ def fuse_implicit_add(gm: fx.GraphModule) -> fx.GraphModule:
                     conv_args.extend(op.args)
 
                 with new_graph.inserting_after(node):
-                    new_node = new_graph.call_module(fused.name, args=tuple(conv_args))
+                    new_node = new_graph.call_module(
+                        fused.name, args=tuple(conv_args))
 
                 node.replace_all_uses_with(new_node)
                 new_graph.erase_node(node)
