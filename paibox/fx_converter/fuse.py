@@ -113,8 +113,7 @@ def fuse_compute_act(gm: fx.GraphModule) -> fx.GraphModule:
 
                 modules[fused.name] = fused
                 with new_graph.inserting_after(node):
-                    new_node = new_graph.call_module(
-                        fused.name, args=node_prev.args)
+                    new_node = new_graph.call_module(fused.name, args=node_prev.args)
 
                 node.replace_all_uses_with(new_node)
                 new_graph.erase_node(node)
@@ -199,8 +198,7 @@ def fuse_implicit_add(gm: fx.GraphModule) -> fx.GraphModule:
                     conv_args.extend(op.args)
 
                 with new_graph.inserting_after(node):
-                    new_node = new_graph.call_module(
-                        fused.name, args=tuple(conv_args))
+                    new_node = new_graph.call_module(fused.name, args=tuple(conv_args))
 
                 node.replace_all_uses_with(new_node)
                 new_graph.erase_node(node)

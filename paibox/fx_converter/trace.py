@@ -48,8 +48,7 @@ def propagate_tensor_shape(gm: fx.GraphModule, *input: torch.Tensor) -> None:
     shape_prop.propagate(*input)
 
     for node in gm.graph.nodes:
-        print(node.name, node.meta["tensor_meta"].dtype,
-              node.meta["tensor_meta"].shape)
+        print(node.name, node.meta["tensor_meta"].dtype, node.meta["tensor_meta"].shape)
 
 
 def remove_dropout_and_fuse_conv_bn(m: nn.Module) -> fx.GraphModule:

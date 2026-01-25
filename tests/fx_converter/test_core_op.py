@@ -1,12 +1,12 @@
-
 import unittest
 from unittest.mock import MagicMock
+
 import torch
 import torch.nn as nn
 from torch import fx
+
 from paibox.fx_converter.core_op import CoreOpNode, OpLoc
-from paibox.fx_converter.lut_activation import LutActivation, LutReLU
-from paibox.fx_converter.neuron import NeuronV2
+from paibox.fx_converter.lut_activation import LutReLU
 
 
 class TestCoreOpNode(unittest.TestCase):
@@ -82,7 +82,8 @@ class TestCoreOpNode(unittest.TestCase):
         module_dict = dict(gm.named_modules())
 
         core_op = CoreOpNode.build(
-            [fc_node], relu_node, module_dict, OpLoc.OFFLINE_CORE)
+            [fc_node], relu_node, module_dict, OpLoc.OFFLINE_CORE
+        )
 
         self.assertIsInstance(core_op, CoreOpNode)
         self.assertEqual(len(core_op.op1), 1)

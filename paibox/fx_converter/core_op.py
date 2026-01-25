@@ -79,8 +79,7 @@ class CoreOpNode(nn.Module, PAIIR):
         op1 = []
         for i_node in i_nodes:
             if not is_node_supported_comp(i_node, modules):
-                raise TypeError(
-                    f"unsupported module: {torch.typename(i_node)}")
+                raise TypeError(f"unsupported module: {torch.typename(i_node)}")
 
             op1.append(modules[i_node.target])
 
@@ -111,12 +110,14 @@ class CoreOpNode(nn.Module, PAIIR):
                         input_widths.append(mod.output_width)
 
         # 确定 input_sign: 只要有一个输入是有符号的 (SIGNED=1)，整体就是有符号的；否则为 UNSIGNED=0
-        in_sign = InputSignMode.SIGNED if (
-            input_signs and max(input_signs) == InputSignMode.SIGNED) else InputSignMode.UNSIGNED
+        in_sign = (
+            InputSignMode.SIGNED
+            if (input_signs and max(input_signs) == InputSignMode.SIGNED)
+            else InputSignMode.UNSIGNED
+        )
 
         # 确定 input_width: 取最大位宽，默认 8
-        in_width = max(
-            input_widths) if input_widths else WeightWidth.WEIGHT_WIDTH_8BIT
+        in_width = max(input_widths) if input_widths else WeightWidth.WEIGHT_WIDTH_8BIT
 
         # 将推断出的属性通过 kwargs 传递给构造函数，如果 kwargs 已有通过优先使用
         if "input_sign" not in kwargs:
@@ -171,10 +172,10 @@ class CoreOpNode(nn.Module, PAIIR):
 
         # input_sign & input_width
         # Default checked during build
-        self.input_sign = InputSignMode(kwargs.get(
-            "input_sign", InputSignMode.SIGNED))
-        self.input_width = WeightWidth(kwargs.get(
-            "input_width", WeightWidth.WEIGHT_WIDTH_8BIT))
+        self.input_sign = InputSignMode(kwargs.get("input_sign", InputSignMode.SIGNED))
+        self.input_width = WeightWidth(
+            kwargs.get("input_width", WeightWidth.WEIGHT_WIDTH_8BIT)
+        )
 
         # weight_sign & weight_width
         self.weight_sign = WeightSignMode.SIGNED
