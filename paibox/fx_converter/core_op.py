@@ -4,11 +4,16 @@ from typing import Any, ClassVar, Literal
 import torch
 from paicorelib import (
     AddPotentialMode,
+    InputSignMode,
+    OutputSignMode,
     OutputType,
     PoolingMode,
     SNNMode,
+    ThresholdNegMode,
+    WeightSignMode,
     ZeroOutputMode,
 )
+from paicorelib.core_defs import WeightWidth
 from spikingjelly.activation_based.neuron import IFNode, LIFNode
 from torch import fx, nn
 
@@ -55,8 +60,10 @@ class CoreOpNode(nn.Module, PAIIR):
             raise ValueError(
                 f"number of signs ({len(implicit_sum_signs)}) must match number of ops ({len(self.op1)})"
             )
+        else:
+            signs = implicit_sum_signs
 
-        self.register_buffer("signs", torch.tensor(signs, dtype=torch.bool))
+        self.register_buffer("signs", torch.tensor(signs, dtype=torch.int8))
 
         self._paser_core_attrs(**kwargs)
 
@@ -72,9 +79,55 @@ class CoreOpNode(nn.Module, PAIIR):
         op1 = []
         for i_node in i_nodes:
             if not is_node_supported_comp(i_node, modules):
-                raise TypeError(f"unsupported module: {torch.typename(i_node)}")
+                raise TypeError(
+                    f"unsupported module: {torch.typename(i_node)}")
 
             op1.append(modules[i_node.target])
+
+        # -----------------------------
+        # 推断输入规格 (input specs)
+        # -----------------------------
+        # 逻辑：
+        # 1. 查看所有计算节点(i_nodes, 例如Conv/Linear)的每前置输入节点。
+        # 2. 如果前置节点是 CoreOpNode 或其他有 output_sign/width 属性的节点，则收集其属性。
+        # 3. 如果任一输入是有符号的 (output_sign=1)，则当前节点的输入也被认为是有符号的。
+        # 4. 输入位宽取所有输入来源中的最大值。
+
+        input_signs = []
+        input_widths = []
+
+        # 遍历所有输入计算节点（如 Conv, Linear）
+        for comp_node in i_nodes:
+            # 遍历每个计算节点的输入（即上游来源）
+            # all_input_nodes 包含了所有输入，包括 Tensor 输入
+            for inp in comp_node.all_input_nodes:
+                if inp.target in modules:
+                    mod = modules[inp.target]
+                    # 检查上游模块是否有 output_sign 属性
+                    if hasattr(mod, "output_sign"):
+                        input_signs.append(mod.output_sign)
+                    # 检查上游模块是否有 output_width 属性
+                    if hasattr(mod, "output_width"):
+                        input_widths.append(mod.output_width)
+
+        # 确定 input_sign: 只要有一个输入是有符号的 (SIGNED=1)，整体就是有符号的；否则为 UNSIGNED=0
+        in_sign = InputSignMode.SIGNED if (
+            input_signs and max(input_signs) == InputSignMode.SIGNED) else InputSignMode.UNSIGNED
+
+        # 确定 input_width: 取最大位宽，默认 8
+        in_width = max(
+            input_widths) if input_widths else WeightWidth.WEIGHT_WIDTH_8BIT
+
+        # 将推断出的属性通过 kwargs 传递给构造函数，如果 kwargs 已有通过优先使用
+        if "input_sign" not in kwargs:
+            kwargs["input_sign"] = in_sign
+        if "input_width" not in kwargs:
+            kwargs["input_width"] = in_width
+
+        # Filter out arguments that are not for neuron constructors
+        neu_kwargs = kwargs.copy()
+        neu_kwargs.pop("input_sign", None)
+        neu_kwargs.pop("input_width", None)
 
         assert isinstance(o_node.target, str)
         m_op2 = modules[o_node.target]
@@ -84,19 +137,19 @@ class CoreOpNode(nn.Module, PAIIR):
         elif isinstance(m_op2, nn.Sigmoid):
             op2 = LutSigmoid()
         elif isinstance(m_op2, IFNode):
-            op2 = SJIFNode(m_op2.v_threshold, m_op2.v_reset, **kwargs)
+            op2 = SJIFNode(m_op2.v_threshold, m_op2.v_reset, **neu_kwargs)
         elif isinstance(m_op2, LIFNode):
             op2 = SJLIFNode(
                 m_op2.tau,
                 m_op2.decay_input,
                 m_op2.v_threshold,
                 m_op2.v_reset,
-                **kwargs,
+                **neu_kwargs,
             )
         else:
             raise TypeError(f"unsupported module: {torch.typename(m_op2)}")
 
-        return cls(op1, op2, None, op_loc)
+        return cls(op1, op2, None, op_loc, **kwargs)
 
     def _paser_core_attrs(self, **kwargs) -> None:
         self.snn_ann = (
@@ -116,13 +169,42 @@ class CoreOpNode(nn.Module, PAIIR):
             self.zero_output = ZeroOutputMode.DISABLE
             self.output_type = OutputType.VALUE
 
-        # TODO Need pass these attributes from outside
-        # input_sign
-        # input_width
-        # output_sign
-        # output_width
-        # weight_sign
-        # weight_width
+        # input_sign & input_width
+        # Default checked during build
+        self.input_sign = InputSignMode(kwargs.get(
+            "input_sign", InputSignMode.SIGNED))
+        self.input_width = WeightWidth(kwargs.get(
+            "input_width", WeightWidth.WEIGHT_WIDTH_8BIT))
+
+        # weight_sign & weight_width
+        self.weight_sign = WeightSignMode.SIGNED
+        self.weight_width = WeightWidth.WEIGHT_WIDTH_8BIT
+
+        # output_sign & output_width
+        if isinstance(self.op2, LutActivation):
+            # For ANN activations
+            # ReLU, Sigmoid (0-1) are unsigned
+            if isinstance(self.op2, (LutReLU, LutSigmoid)):
+                self.output_sign = OutputSignMode.UNSIGNED
+                self.output_width = WeightWidth.WEIGHT_WIDTH_8BIT
+            # Tanh, Softsign (-1-1) are signed
+            else:
+                self.output_sign = OutputSignMode.SIGNED
+                self.output_width = WeightWidth.WEIGHT_WIDTH_8BIT
+        elif isinstance(self.op2, (SJIFNode, SJLIFNode)):
+            self.output_sign = OutputSignMode.UNSIGNED
+            self.output_width = WeightWidth.WEIGHT_WIDTH_1BIT
+        elif isinstance(self.op2, NeuronV2):
+            if self.op2.thres_neg_mode == ThresholdNegMode.FIRE:
+                self.output_sign = OutputSignMode.SIGNED
+                self.output_width = WeightWidth.WEIGHT_WIDTH_2BIT
+            else:
+                self.output_sign = OutputSignMode.UNSIGNED
+                self.output_width = WeightWidth.WEIGHT_WIDTH_1BIT
+        else:
+            # Fallback
+            self.output_sign = OutputSignMode.SIGNED
+            self.output_width = 8
 
     def forward(self, *xs: torch.Tensor) -> torch.Tensor:
         s = 0

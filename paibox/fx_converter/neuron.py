@@ -215,7 +215,8 @@ class NeuronV2(MemoryModule, PAIIR):
                 )
 
         attrs = self.get_extra_state()
-        attrs["leak_v"] += bias
+        if bias is not None:
+            attrs["leak_v"] += bias
         return attrs
 
     def get_extra_state(self) -> dict[str, Any]:
