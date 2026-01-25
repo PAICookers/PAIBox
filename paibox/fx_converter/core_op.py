@@ -204,7 +204,7 @@ class CoreOpNode(nn.Module, PAIIR):
         else:
             # Fallback
             self.output_sign = OutputSignMode.SIGNED
-            self.output_width = 8
+            self.output_width = WeightWidth.WEIGHT_WIDTH_8BIT
 
     def forward(self, *xs: torch.Tensor) -> torch.Tensor:
         s = 0
