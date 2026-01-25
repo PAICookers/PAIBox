@@ -1,9 +1,10 @@
 from spikingjelly.activation_based import neuron
 from torch import nn
+import torch
 
 from paibox._logging import DEFAULT_LOG_SETTINGS, set_logs
 from paibox.fx_converter.fuse import apply_fuse_passes, fuse_compute_act
-from paibox.fx_converter.trace import trace_spikingjelly_model
+from paibox.fx_converter.trace import trace_spikingjelly_model, propagate_tensor_shape
 from paibox.fx_converter.core_op import CoreOpNode
 import pprint
 
@@ -19,7 +20,8 @@ class TestFusionPass:
                 self.lif = neuron.LIFNode()
                 self.relu = nn.ReLU()
                 self.bn = nn.BatchNorm2d(16)  # unused
-                self.maxpool = nn.MaxPool2d(2)  # unused
+                self.maxpool = nn.MaxPool2d(
+                    kernel_size=3, stride=1, padding=1)  # unused
 
             def forward(self, x):
                 x1 = self.conv(x)
@@ -32,10 +34,12 @@ class TestFusionPass:
 
         m = M()
         gm = trace_spikingjelly_model(m)
+
         print(gm.graph.print_tabular())
 
         gm2 = apply_fuse_passes(gm)
         print(gm2.code)
+        propagate_tensor_shape(gm2, torch.randn(1, 3, 32, 32))
 
         print("\n=== test_fuse_compute_act Exported Attributes Inspection ===")
         for name, module in gm2.named_modules():
@@ -65,8 +69,11 @@ class TestFusionPass:
         m = M()
 
         gm = trace_spikingjelly_model(m)
+
         gm = apply_fuse_passes(gm)
         print(gm.code)
+        propagate_tensor_shape(gm, torch.randn(
+            1, 3, 32, 32), torch.randn(1, 3, 32, 32))
 
         print("\n=== test_fuse_implicit_add Exported Attributes Inspection ===")
         for name, module in gm.named_modules():
@@ -103,6 +110,7 @@ class TestFusionPass:
         gm = fuse_compute_act(gm)
         gm.graph.print_tabular()
         print(gm.code)
+        propagate_tensor_shape(gm, torch.randn(1, 4, 32, 32))
 
         print("\n=== Exported Attributes Inspection ===")
         for name, module in gm.named_modules():

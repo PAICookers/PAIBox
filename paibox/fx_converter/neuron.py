@@ -142,10 +142,15 @@ class NeuronV2(MemoryModule, PAIIR):
 
     def neuronal_reset(self, spike: Tensor) -> None:
         self.v = self._pos_thres_reset(self.v, spike)
-        neg_spike = (self.v - self.thres_neg) <= 0
+        neg_spike = ((self.v - self.thres_neg) <= 0).to(torch.float)
         self.v = self._neg_thres_reset(self.v, neg_spike)
 
     def _leak_tau_shift(self, v: Tensor) -> Tensor:
+        if v.is_floating_point():
+            if self.leak_tau >= 0:
+                return v * (2.0**self.leak_tau)
+            else:
+                return v / (2.0**-self.leak_tau)
         if self.leak_tau >= 0:
             return v << self.leak_tau
         else:

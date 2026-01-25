@@ -209,7 +209,7 @@ class CoreOpNode(nn.Module, PAIIR):
     def forward(self, *xs: torch.Tensor) -> torch.Tensor:
         s = 0
         for sign, op, x in zip(self.signs, self.op1, xs, strict=True):
-            output = op(x)
+            output = op(x.float())
             s += sign * output
 
         return self.op2(s)
