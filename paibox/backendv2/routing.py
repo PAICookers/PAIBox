@@ -3,14 +3,19 @@ from __future__ import annotations
 from typing import Optional
 
 import numpy as np
-from coreplacement import CorePlacement, EmptyOfflineCorePlacementV2
-from neuron import Neuron
+from coreplacement import CorePlacement, EmptyOfflineCorePlacementV2,OfflineCorePlamentV2
+from neuron import Neuron,OfflineNeuronPlacement
+from weight import Weight
+
 from paicorelib import (
     LCN_EX,
     AERPacketZXYCopy,
     CoordXY,
     OfflineNeuDestInfoV2,
     find_coordxy_shortest_path,
+    NeuronType,
+    WeightCompressType,
+
 )
 
 FANIN_BASE = 512
@@ -62,11 +67,91 @@ class RoutingGroup:
         # all the attrs in neu_attrs_part2 are valid except weight compress, you should set weight compress according to your weight storage strategy
         # inherited core_config are valid except weight_width, you can set weight_width larger than or equal to the original value for optimization
 
-        for neu in self.raw_neus:
+        weights = get_raw_weights(self.raw_neus, self.input_list)
+
+        col_nnz = np.count_nonzero(weights, axis=0)
+        sorted_indices = np.argsort(-col_nnz)
+        
+        self.input_list = [self.input_list[i] for i in sorted_indices]
+        weights = weights[:, sorted_indices]
+
+        self.core_placements = []
+        current_core: Optional[OfflineCorePlamentV2] = None
+        
+        last_full_attrs = None 
+
+        for i, neu in enumerate(self.raw_neus):
+
             attrs = neu.attrs_part2()
             inherited_core_config = neu.core_config()
-            target_lcn = self.dests[neu].lcn
-            lcn = self.lcn
+            
+            w_row = weights[i]
+
+            w_dense = Weight(w_row, WeightCompressType.DENSE)
+            w_sparse = Weight(w_row, WeightCompressType.SPARSE)
+            
+           
+            if w_sparse.n_sram_required() < w_dense.n_sram_required():
+                selected_weight = w_sparse
+                attrs.weight_compress = WeightCompressType.SPARSE
+            else:
+                selected_weight = w_dense
+                attrs.weight_compress = WeightCompressType.DENSE
+
+   
+            if current_core is not None and last_full_attrs is not None and attrs == last_full_attrs:
+                neuron_type = NeuronType.HALF
+            else:
+                neuron_type = NeuronType.FULL
+            
+   
+            neu_placement = OfflineNeuronPlacement(neu, attrs)
+            
+            if hasattr(neu_placement, 'neuron_type'):
+                neu_placement.neuron_type = neuron_type
+
+
+            neu_sram_req = neu_placement.n_sram_required()
+            weight_sram_req = selected_weight.n_sram_required()
+            total_req = neu_sram_req + weight_sram_req
+            
+            # Check for core overflow
+            if current_core is None or (current_core.n_sram_required() + total_req > 4096):
+                
+                # Check for single-neuron overflow
+                if total_req > 4096:
+                     raise NotImplementedError(
+                        f"Neuron {i} requires {total_req} SRAM lines, exceeding the 4096 limit. "
+                        "Large input splitting logic is required."
+                    )
+                
+                if current_core is not None:
+                    self.core_placements.append(current_core)
+                
+                current_core = OfflineCorePlamentV2()
+                current_core._core_config = inherited_core_config
+                
+                # Force the first neuron in a new core to be FULL (no predecessor to reuse).
+                if neuron_type == NeuronType.HALF:
+                    neuron_type = NeuronType.FULL
+                    if hasattr(neu_placement, 'neuron_type'):
+                        neu_placement.neuron_type = NeuronType.FULL
+                
+                last_full_attrs = attrs
+            
+            elif neuron_type == NeuronType.FULL:
+                last_full_attrs = attrs
+            
+            current_core.neus.append(neu_placement)
+            current_core.weights.append(selected_weight)
+            
+            idx = len(current_core.neus) - 1
+            current_core.neu_weight_map[idx] = idx
+
+        if current_core is not None:
+            self.core_placements.append(current_core)
+        
+        self.n_core_required = len(self.core_placements)
 
         # implement your core placement generation logic here
         # you need to create OfflineCorePlamentV2 instances, set their properties including:
@@ -89,7 +174,7 @@ class RoutingGroup:
         # 2. you can reorder the input_list, to move as many as possible zero weights to the end of each weight row, so that you can reduce the weight storage requirement
         # ... etc.
 
-        raise NotImplementedError("allocate_neurons method is not implemented yet.")
+        #raise NotImplementedError("allocate_neurons method is not implemented yet.")
 
     def assign_coord(self, coords: list[CoordXY], copy_config: AERPacketZXYCopy):
         assert len(coords) >= len(
