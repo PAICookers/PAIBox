@@ -42,10 +42,10 @@ def trace_spikingjelly_model(m: nn.Module) -> fx.GraphModule:
     return traced
 
 
-def propagate_tensor_shape(gm: fx.GraphModule, input: torch.Tensor) -> None:
+def propagate_tensor_shape(gm: fx.GraphModule, *input: torch.Tensor) -> None:
     # TODO dtype?
     shape_prop = ShapeProp(gm)
-    shape_prop.propagate(input)
+    shape_prop.propagate(*input)
 
     for node in gm.graph.nodes:
         print(node.name, node.meta["tensor_meta"].dtype, node.meta["tensor_meta"].shape)

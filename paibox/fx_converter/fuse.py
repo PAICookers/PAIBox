@@ -17,6 +17,7 @@ from .opset import (
     IMPLICIT_SUM_OPS,
     SUPPORTED_ACT_OPS,
     SUPPORTED_COMP_OPS,
+    SUPPORTED_CONV_OPS,
     SUPPORTED_NEU_OPS,
 )
 
@@ -176,6 +177,15 @@ def fuse_implicit_add(gm: fx.GraphModule) -> fx.GraphModule:
 
                 # TODO check the previous nodes are supported comp ops & of same type: conv & conv, maxpool & maxpool, etc.
                 # But max pool & avg pool fusion may not make sense.
+                # Ensure previous nodes are supported linear ops (Conv, Linear)
+                valid_ops = True
+                for op in add_prev_nodes:
+                    if not isinstance(modules[op.target], tuple(SUPPORTED_CONV_OPS)):
+                        valid_ops = False
+                        break
+                if not valid_ops:
+                    continue
+
                 assert isinstance(node.target, str)
                 fused = CoreOpNode.build(
                     add_prev_nodes, node, modules, OpLoc.OFFLINE_CORE
