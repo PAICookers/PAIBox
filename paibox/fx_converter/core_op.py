@@ -20,7 +20,6 @@ from paicorelib import (
 from paicorelib.core_defs import WeightWidth
 from spikingjelly.activation_based.neuron import IFNode, LIFNode
 
-from ._namespace import _IRNamespace
 from .ir_base import PAIIR, OpLoc
 from .lut_activation import LutActivation, LutReLU, LutSigmoid
 from .neuron import NeuronV2, SJIFNode, SJLIFNode
@@ -65,7 +64,7 @@ class BaseCoreOp(nn.Module, PAIIR):
         op_loc: OpLoc = OpLoc.OFFLINE_CORE,
     ):
         super().__init__()
-        nn.Module.__init__(self)
+        super(nn.Module, self).__init__()
         self.core_params = core_params
         self.neuron_params = neuron_params
         self.compute_params = compute_params
@@ -162,7 +161,6 @@ class SeqCoreOp(BaseCoreOp):
         i_node: fx.Node,
         o_node: fx.Node,
         modules: dict[str, fx.GraphModule],
-        namespace: _IRNamespace,
         op_loc: OpLoc = OpLoc.OFFLINE_CORE,
         **kwargs,
     ):
@@ -235,7 +233,6 @@ class SeqCoreOp(BaseCoreOp):
         neuron_params.output_type = OutputType.VALUE  # Default for Seq
 
         op = cls(op1, op2, core_params, neuron_params, compute_params, op_loc)
-        op.name = namespace.create_name(op)
         return op
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -265,7 +262,6 @@ class AccumCoreOp(BaseCoreOp):
         i_nodes: Sequence[fx.Node],
         o_node: fx.Node,
         modules: dict[str, fx.GraphModule],
-        namespace: _IRNamespace,
         op_loc: OpLoc = OpLoc.OFFLINE_CORE,
         implicit_sum_signs: list[Literal[1, -1]] | None = None,
         **kwargs,
@@ -346,7 +342,6 @@ class AccumCoreOp(BaseCoreOp):
         neuron_params.output_type = OutputType.VALUE
 
         op = cls(ops, op2, core_params, neuron_params, compute_params, op_loc)
-        op.name = namespace.create_name(op)
         return op
 
     def forward(self, *xs: torch.Tensor) -> torch.Tensor:
@@ -375,7 +370,6 @@ class CalcCoreOp(BaseCoreOp):
         cls,
         node: fx.Node,
         modules: dict[str, fx.GraphModule],
-        namespace: _IRNamespace,
         op_loc: OpLoc = OpLoc.OFFLINE_CORE,
         **kwargs,
     ):
@@ -409,7 +403,6 @@ class CalcCoreOp(BaseCoreOp):
         neuron_params.output_type = OutputType.POTENTIAL
 
         op = cls(core_params, neuron_params, compute_params, op_loc)
-        op.name = namespace.create_name(op)
         return op
 
     def forward(self, *xs: torch.Tensor) -> torch.Tensor:
@@ -436,7 +429,6 @@ class SingleConvMaxOp(BaseCoreOp):
         cls,
         node: fx.Node,
         modules: dict[str, fx.GraphModule],
-        namespace: _IRNamespace,
         op_loc: OpLoc = OpLoc.OFFLINE_CORE,
         **kwargs,
     ):
@@ -470,7 +462,6 @@ class SingleConvMaxOp(BaseCoreOp):
         neuron_params.output_type = OutputType.POTENTIAL  # As requested
 
         ret = cls(op, core_params, neuron_params, compute_params, op_loc)
-        ret.name = namespace.create_name(ret)
         return ret
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -493,7 +484,6 @@ class SingleNeuLUTOp(BaseCoreOp):
         cls,
         node: fx.Node,
         modules: dict[str, fx.GraphModule],
-        namespace: _IRNamespace,
         op_loc: OpLoc = OpLoc.OFFLINE_CORE,
         **kwargs,
     ):
@@ -581,7 +571,6 @@ class SingleNeuLUTOp(BaseCoreOp):
         neuron_params.output_type = OutputType.VALUE
 
         op = cls(op2, core_params, neuron_params, compute_params, op_loc)
-        op.name = namespace.create_name(op)
         return op
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

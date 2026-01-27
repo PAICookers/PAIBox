@@ -118,9 +118,6 @@ def fuse_compute_act(gm: fx.GraphModule) -> fx.GraphModule:
                 pass
     new_graph = copy.deepcopy(gm.graph)
 
-    namespace = _IRNamespace()
-    namespace._used_names.update(modules.keys())
-
     for pattern in patterns:
         for node in new_graph.nodes:
             if matches_module_pattern(pattern, node, modules):
@@ -129,7 +126,7 @@ def fuse_compute_act(gm: fx.GraphModule) -> fx.GraphModule:
                     continue
 
                 fused = SeqCoreOp.build(
-                    node_prev, node, modules, namespace, OpLoc.OFFLINE_CORE
+                    node_prev, node, modules, OpLoc.OFFLINE_CORE
                 )
 
                 modules[fused.name] = fused
@@ -185,9 +182,6 @@ def fuse_implicit_add(gm: fx.GraphModule) -> fx.GraphModule:
     modules = dict(gm.named_modules())
     new_graph = copy.deepcopy(gm.graph)
 
-    namespace = _IRNamespace()
-    namespace._used_names.update(modules.keys())
-
     for pattern in patterns:
         for node in new_graph.nodes:
             if matches_func_module_pattern(pattern, node, modules):
@@ -213,7 +207,7 @@ def fuse_implicit_add(gm: fx.GraphModule) -> fx.GraphModule:
 
                 assert isinstance(node.target, str)
                 fused = AccumCoreOp.build(
-                    add_prev_nodes, node, modules, namespace, OpLoc.OFFLINE_CORE
+                    add_prev_nodes, node, modules, OpLoc.OFFLINE_CORE
                 )
                 modules[fused.name] = fused
 
@@ -240,9 +234,6 @@ def fuse_standalone_conv_max(gm: fx.GraphModule) -> fx.GraphModule:
     modules = dict(gm.named_modules())
     new_graph = copy.deepcopy(gm.graph)
 
-    namespace = _IRNamespace()
-    namespace._used_names.update(modules.keys())
-
     for node in new_graph.nodes:
         if node.op == "call_module" and node.target in modules:
             module = modules[node.target]
@@ -254,7 +245,7 @@ def fuse_standalone_conv_max(gm: fx.GraphModule) -> fx.GraphModule:
                 # wait, create_file overwrote everything so I am defining this function now.
 
                 fused = SingleConvMaxOp.build(
-                    node, modules, namespace, OpLoc.OFFLINE_CORE)
+                    node, modules, OpLoc.OFFLINE_CORE)
                 modules[fused.name] = fused
 
                 with new_graph.inserting_after(node):
@@ -297,9 +288,6 @@ def fuse_standalone_neu(gm: fx.GraphModule) -> fx.GraphModule:
     modules = dict(gm.named_modules())
     new_graph = copy.deepcopy(gm.graph)
 
-    namespace = _IRNamespace()
-    namespace._used_names.update(modules.keys())
-
     for node in new_graph.nodes:
         if node.op == "call_module" and node.target in modules:
             module = modules[node.target]
@@ -309,7 +297,7 @@ def fuse_standalone_neu(gm: fx.GraphModule) -> fx.GraphModule:
 
             if is_neu or is_act:
                 fused = SingleNeuLUTOp.build(
-                    node, modules, namespace, OpLoc.OFFLINE_CORE)
+                    node, modules, OpLoc.OFFLINE_CORE)
                 modules[fused.name] = fused
 
                 with new_graph.inserting_after(node):
@@ -329,13 +317,10 @@ def fuse_calc_op(gm: fx.GraphModule) -> fx.GraphModule:
     modules = dict(gm.named_modules())
     new_graph = copy.deepcopy(gm.graph)
 
-    namespace = _IRNamespace()
-    namespace._used_names.update(modules.keys())
-
     for node in new_graph.nodes:
         if node.op == "call_function" and node.target in IMPLICIT_SUM_OPS:
             fused = CalcCoreOp.build(
-                node, modules, namespace, OpLoc.OFFLINE_CORE)
+                node, modules, OpLoc.OFFLINE_CORE)
             modules[fused.name] = fused
 
             with new_graph.inserting_after(node):
