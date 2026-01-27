@@ -11,7 +11,8 @@ from torch.nn.utils.fusion import fuse_conv_bn_eval, fuse_linear_bn_eval
 
 from paibox import _logging
 
-from .core_op import CoreOpNode, SeqCoreOpNode
+from ._namespace import _IRNamespace
+from .core_op import AccumCoreOp, CalcCoreOp, SeqCoreOp, SingleConvMaxOp, SingleNeuLUTOp
 from .ir_base import PAIIR, OpLoc
 from .opset import (
     IMPLICIT_SUM_OPS,
@@ -45,6 +46,15 @@ def fuse_conv_bn(
     else:
         fx_model = model
     modules = dict(fx_model.named_modules())
+
+    # Ensure all call_module targets are present in modules
+    for node in fx_model.graph.nodes:
+        if node.op == "call_module" and node.target not in modules:
+            try:
+                modules[node.target] = fx_model.get_submodule(node.target)
+            except AttributeError:
+                pass
+
     new_graph = copy.deepcopy(fx_model.graph)
 
     for pattern in patterns:
@@ -66,7 +76,7 @@ def fuse_conv_bn(
                 new_graph.erase_node(node)
 
     new_graph.lint()
-    return fx.GraphModule(fx_model, new_graph)
+    return fx.GraphModule(modules, new_graph)
 
 
 def _parent_name(target: str) -> tuple[str, str]:
@@ -98,7 +108,18 @@ def fuse_compute_act(gm: fx.GraphModule) -> fx.GraphModule:
         (c, n) for c in SUPPORTED_COMP_OPS for n in SUPPORTED_NEU_OPS
     ]
     modules = dict(gm.named_modules())
+
+    # Ensure all call_module targets are present in modules (handle flattened modules)
+    for node in gm.graph.nodes:
+        if node.op == "call_module" and node.target not in modules:
+            try:
+                modules[node.target] = gm.get_submodule(node.target)
+            except AttributeError:
+                pass
     new_graph = copy.deepcopy(gm.graph)
+
+    namespace = _IRNamespace()
+    namespace._used_names.update(modules.keys())
 
     for pattern in patterns:
         for node in new_graph.nodes:
@@ -107,13 +128,14 @@ def fuse_compute_act(gm: fx.GraphModule) -> fx.GraphModule:
                 if len(node_prev.users) > 1:
                     continue
 
-                fused = SeqCoreOpNode.build(
-                    node_prev, node, modules, OpLoc.OFFLINE_CORE
+                fused = SeqCoreOp.build(
+                    node_prev, node, modules, namespace, OpLoc.OFFLINE_CORE
                 )
 
                 modules[fused.name] = fused
                 with new_graph.inserting_after(node):
-                    new_node = new_graph.call_module(fused.name, args=node_prev.args)
+                    new_node = new_graph.call_module(
+                        fused.name, args=node_prev.args)
 
                 node.replace_all_uses_with(new_node)
                 new_graph.erase_node(node)
@@ -163,6 +185,9 @@ def fuse_implicit_add(gm: fx.GraphModule) -> fx.GraphModule:
     modules = dict(gm.named_modules())
     new_graph = copy.deepcopy(gm.graph)
 
+    namespace = _IRNamespace()
+    namespace._used_names.update(modules.keys())
+
     for pattern in patterns:
         for node in new_graph.nodes:
             if matches_func_module_pattern(pattern, node, modules):
@@ -187,8 +212,8 @@ def fuse_implicit_add(gm: fx.GraphModule) -> fx.GraphModule:
                     continue
 
                 assert isinstance(node.target, str)
-                fused = CoreOpNode.build(
-                    add_prev_nodes, node, modules, OpLoc.OFFLINE_CORE
+                fused = AccumCoreOp.build(
+                    add_prev_nodes, node, modules, namespace, OpLoc.OFFLINE_CORE
                 )
                 modules[fused.name] = fused
 
@@ -198,7 +223,8 @@ def fuse_implicit_add(gm: fx.GraphModule) -> fx.GraphModule:
                     conv_args.extend(op.args)
 
                 with new_graph.inserting_after(node):
-                    new_node = new_graph.call_module(fused.name, args=tuple(conv_args))
+                    new_node = new_graph.call_module(
+                        fused.name, args=tuple(conv_args))
 
                 node.replace_all_uses_with(new_node)
                 new_graph.erase_node(node)
@@ -210,13 +236,130 @@ def fuse_implicit_add(gm: fx.GraphModule) -> fx.GraphModule:
     return fx.GraphModule(modules, new_graph)
 
 
+def fuse_standalone_conv_max(gm: fx.GraphModule) -> fx.GraphModule:
+    modules = dict(gm.named_modules())
+    new_graph = copy.deepcopy(gm.graph)
+
+    namespace = _IRNamespace()
+    namespace._used_names.update(modules.keys())
+
+    for node in new_graph.nodes:
+        if node.op == "call_module" and node.target in modules:
+            module = modules[node.target]
+            if isinstance(module, tuple(SUPPORTED_COMP_OPS)):
+                # Check if it is already fused by previous steps (it shouldn'be because strict matching)
+                # But if some other pass wrapped it, we skip.
+                # Since we iterate original modules and graph, and we are mutating new_graph,
+                # we should be careful.
+                # wait, create_file overwrote everything so I am defining this function now.
+
+                fused = SingleConvMaxOp.build(
+                    node, modules, namespace, OpLoc.OFFLINE_CORE)
+                modules[fused.name] = fused
+
+                with new_graph.inserting_after(node):
+                    new_node = new_graph.call_module(
+                        fused.name, args=node.args)
+
+                node.replace_all_uses_with(new_node)
+                # Do not erase node immediately if it is referenced?
+                # replace_all_uses_with replaces usages.
+                # Note: node is from new_graph iteration.
+
+                new_graph.erase_node(node)
+                fuse_log.debug(
+                    f"Wrapped standalone conv {node.name} with {fused.name}")
+
+    new_graph.lint()
+    return fx.GraphModule(modules, new_graph)
+
+
+def fuse_identity(gm: fx.GraphModule) -> fx.GraphModule:
+    """
+    Removes nn.Identity nodes from the graph.
+    """
+    modules = dict(gm.named_modules())
+    new_graph = copy.deepcopy(gm.graph)
+
+    for node in new_graph.nodes:
+        if node.op == "call_module" and isinstance(modules.get(node.target), nn.Identity):
+            # Replace all uses of the identity node with its input
+            if node.args:
+                node.replace_all_uses_with(node.args[0])
+            new_graph.erase_node(node)
+            fuse_log.debug(f"Removed identity node: {node.name}")
+
+    new_graph.lint()
+    return fx.GraphModule(modules, new_graph)
+
+
+def fuse_standalone_neu(gm: fx.GraphModule) -> fx.GraphModule:
+    modules = dict(gm.named_modules())
+    new_graph = copy.deepcopy(gm.graph)
+
+    namespace = _IRNamespace()
+    namespace._used_names.update(modules.keys())
+
+    for node in new_graph.nodes:
+        if node.op == "call_module" and node.target in modules:
+            module = modules[node.target]
+            # Check for supported neurons OR activations (ANN neurons)
+            is_neu = isinstance(module, tuple(SUPPORTED_NEU_OPS))
+            is_act = isinstance(module, tuple(SUPPORTED_ACT_OPS))
+
+            if is_neu or is_act:
+                fused = SingleNeuLUTOp.build(
+                    node, modules, namespace, OpLoc.OFFLINE_CORE)
+                modules[fused.name] = fused
+
+                with new_graph.inserting_after(node):
+                    new_node = new_graph.call_module(
+                        fused.name, args=node.args)
+
+                node.replace_all_uses_with(new_node)
+                new_graph.erase_node(node)
+                fuse_log.debug(
+                    f"Wrapped standalone neu {node.name} with {fused.name}")
+
+    new_graph.lint()
+    return fx.GraphModule(modules, new_graph)
+
+
+def fuse_calc_op(gm: fx.GraphModule) -> fx.GraphModule:
+    modules = dict(gm.named_modules())
+    new_graph = copy.deepcopy(gm.graph)
+
+    namespace = _IRNamespace()
+    namespace._used_names.update(modules.keys())
+
+    for node in new_graph.nodes:
+        if node.op == "call_function" and node.target in IMPLICIT_SUM_OPS:
+            fused = CalcCoreOp.build(
+                node, modules, namespace, OpLoc.OFFLINE_CORE)
+            modules[fused.name] = fused
+
+            with new_graph.inserting_after(node):
+                new_node = new_graph.call_module(fused.name, args=node.args)
+
+            node.replace_all_uses_with(new_node)
+            new_graph.erase_node(node)
+            fuse_log.debug(f"Fused calc op {node.name} into {fused.name}")
+
+    new_graph.lint()
+    return fx.GraphModule(modules, new_graph)
+
+
 _FUSE_PASSES: list[Callable[[fx.GraphModule], fx.GraphModule]] = []
 
 
 def apply_fuse_passes(gm: fx.GraphModule) -> fx.GraphModule:
     _FUSE_PASSES.clear()
+    _FUSE_PASSES.append(fuse_identity)
     _FUSE_PASSES.append(fuse_compute_act)
     _FUSE_PASSES.append(fuse_implicit_add)
+    _FUSE_PASSES.append(fuse_standalone_conv_max)
+    _FUSE_PASSES.append(fuse_standalone_neu)
+    _FUSE_PASSES.append(fuse_calc_op)
 
     gm = fuse_conv_bn(gm, inplace=True, no_trace=True)  # type: ignore
 
@@ -224,5 +367,6 @@ def apply_fuse_passes(gm: fx.GraphModule) -> fx.GraphModule:
         fuse_log.debug(f"Applying fuse pass #{i}: {fuse.__name__}")
         gm = fuse(gm)
         gm.graph.print_tabular()
+        print("\n")
 
     return gm

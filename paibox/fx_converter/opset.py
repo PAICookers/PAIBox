@@ -9,12 +9,13 @@ SUPPORTED_CONV_OPS = [
     nn.Conv1d,
     nn.Conv2d,
     nn.Linear,
+    nn.AvgPool1d,
+    nn.AvgPool2d,
 ]
 SUPPORTED_POOL_OPS = [
     nn.MaxPool1d,
     nn.MaxPool2d,
-    nn.AvgPool1d,
-    nn.AvgPool2d,
+
 ]
 SUPPORTED_COMP_OPS = SUPPORTED_CONV_OPS + SUPPORTED_POOL_OPS
 

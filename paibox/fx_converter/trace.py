@@ -38,8 +38,47 @@ def trace_spikingjelly_model(m: nn.Module) -> fx.GraphModule:
     tracer = NeuronAsOpTracer()
     traced_graph = tracer.trace(m)
     traced = fx.GraphModule(m, traced_graph)
+    flatten_module_hierarchy(traced)
     traced.graph.lint()
     return traced
+
+
+def flatten_module_hierarchy(gm: fx.GraphModule) -> fx.GraphModule:
+    """
+    Flattens the module hierarchy by lifting all submodules referenced in the graph
+    to the top-level GraphModule. This eliminates chain usage like `self.seq.0(x)`
+    or `getattr(self.seq, '0')(x)`.
+    """
+    nodes_to_modify = {}
+
+    for node in gm.graph.nodes:
+        if node.op == 'call_module':
+            target = node.target
+            if isinstance(target, str) and '.' in target:
+                nodes_to_modify[node] = target
+
+    for node, old_target in nodes_to_modify.items():
+        submod = gm.get_submodule(old_target)
+
+        # New name construction
+        new_target_name = old_target.replace('.', '_')
+
+        # Check collision
+        if hasattr(gm, new_target_name):
+            existing = getattr(gm, new_target_name)
+            if existing is not submod:
+                count = 1
+                while hasattr(gm, f"{new_target_name}_{count}"):
+                    count += 1
+                new_target_name = f"{new_target_name}_{count}"
+
+        # Add to top level
+        gm.add_module(new_target_name, submod)
+        # Update node
+        node.target = new_target_name
+
+    gm.recompile()
+    return gm
 
 
 def propagate_tensor_shape(gm: fx.GraphModule, *input: torch.Tensor) -> None:
@@ -48,7 +87,8 @@ def propagate_tensor_shape(gm: fx.GraphModule, *input: torch.Tensor) -> None:
     shape_prop.propagate(*input)
 
     for node in gm.graph.nodes:
-        print(node.name, node.meta["tensor_meta"].dtype, node.meta["tensor_meta"].shape)
+        print(node.name, node.meta["tensor_meta"].dtype,
+              node.meta["tensor_meta"].shape)
 
 
 def remove_dropout_and_fuse_conv_bn(m: nn.Module) -> fx.GraphModule:
