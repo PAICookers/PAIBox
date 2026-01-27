@@ -30,6 +30,18 @@ class DropoutRemover(torch.fx.Transformer):
             return super().call_module(target, args, kwargs)
 
 
+class IdentityRemover(torch.fx.Transformer):
+    def call_module(
+        self, target: Target, args: tuple[Argument, ...], kwargs: dict[str, Any]
+    ) -> Any:
+        assert isinstance(target, str)
+        if isinstance(self.submodules[target], nn.Identity):
+            assert len(args) == 1
+            return args[0]
+        else:
+            return super().call_module(target, args, kwargs)
+
+
 def trace_spikingjelly_model(m: nn.Module) -> fx.GraphModule:
     m.eval()
     m.requires_grad_(False)
@@ -38,14 +50,13 @@ def trace_spikingjelly_model(m: nn.Module) -> fx.GraphModule:
     tracer = NeuronAsOpTracer()
     traced_graph = tracer.trace(m)
     traced = fx.GraphModule(m, traced_graph)
-    flatten_module_hierarchy(traced)
     traced.graph.lint()
     return traced
 
 
-def flatten_module_hierarchy(gm: fx.GraphModule) -> fx.GraphModule:
+def flatten_module_sequential(gm: fx.GraphModule) -> fx.GraphModule:
     """
-    Flattens the module hierarchy by lifting all submodules referenced in the graph
+    Flattens the module sequential by lifting all submodules referenced in the graph
     to the top-level GraphModule. This eliminates chain usage like `self.seq.0(x)`
     or `getattr(self.seq, '0')(x)`.
     """
@@ -91,25 +102,11 @@ def propagate_tensor_shape(gm: fx.GraphModule, *input: torch.Tensor) -> None:
               node.meta["tensor_meta"].shape)
 
 
-def remove_dropout_and_fuse_conv_bn(m: nn.Module) -> fx.GraphModule:
-    gm = trace_spikingjelly_model(m)
-    m = DropoutRemover(gm).transform()
+def remove_dropout_identity_and_fuse_conv_bn(m: nn.Module) -> fx.GraphModule:
+    m = trace_spikingjelly_model(m)
+    m = DropoutRemover(m).transform()
+    m = IdentityRemover(m).transform()
     m.graph.print_tabular()
     m = fuse_conv_bn(m, inplace=True, no_trace=True)
+    flatten_module_sequential(m)
     return m  # type: ignore
-
-
-def trace_spikingjelly_model_with_shape(
-    m: nn.Module, input: torch.Tensor
-) -> fx.GraphModule:
-    m.eval()
-    sF.reset_net(m)
-
-    tracer = NeuronAsOpTracer()
-    traced_graph = tracer.trace(m)
-    traced = fx.GraphModule(m, traced_graph)
-    traced.graph.lint()
-
-    propagate_tensor_shape(traced, input)
-
-    return traced

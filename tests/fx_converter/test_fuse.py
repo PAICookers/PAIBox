@@ -7,8 +7,8 @@ from torch import nn
 from paibox._logging import DEFAULT_LOG_SETTINGS, set_logs
 from paibox.fx_converter.core_op import BaseCoreOp
 from paibox.fx_converter.fuse import apply_fuse_passes, fuse_compute_act
-from paibox.fx_converter.trace import propagate_tensor_shape, trace_spikingjelly_model
-
+from paibox.fx_converter.trace import propagate_tensor_shape
+from paibox.fx_converter.trace import remove_dropout_identity_and_fuse_conv_bn
 set_logs(**DEFAULT_LOG_SETTINGS)
 
 
@@ -37,7 +37,7 @@ class TestFusionPass:
                 return x1 + x2
 
         m = M()
-        gm = trace_spikingjelly_model(m)
+        gm = remove_dropout_identity_and_fuse_conv_bn(m)
         print("Original Graph:")
         print(gm.graph.print_tabular())
         print("doing fuse_compute_act...")
@@ -75,7 +75,7 @@ class TestFusionPass:
 
         m = M()
 
-        gm = trace_spikingjelly_model(m)
+        gm = remove_dropout_identity_and_fuse_conv_bn(m)
 
         gm = apply_fuse_passes(gm)
         print(gm.code)
@@ -104,7 +104,7 @@ class TestFusionPass:
                 return self.conv(x)
 
         m = M()
-        gm = trace_spikingjelly_model(m)
+        gm = remove_dropout_identity_and_fuse_conv_bn(m)
         gm = apply_fuse_passes(gm)
 
         print("\n=== test_fuse_standalone_conv Exported Attributes Inspection ===")
@@ -137,7 +137,7 @@ class TestFusionPass:
 
         m = M()
 
-        gm = trace_spikingjelly_model(m)
+        gm = remove_dropout_identity_and_fuse_conv_bn(m)
         gm.graph.print_tabular()
 
         print("Fusing to core op")
@@ -252,7 +252,7 @@ class TestFusionPass:
         m = Stage2Block(in_c=32, out_c=32)
 
         print("\n=== test_spiking_inverted_residual trace ===")
-        gm = trace_spikingjelly_model(m)
+        gm = remove_dropout_identity_and_fuse_conv_bn(m)
         print("Original Graph:")
         print(gm.graph.print_tabular())
 
@@ -274,64 +274,64 @@ class TestFusionPass:
                 print(">> Compute Attributes:")
                 pprint.pprint(comp_attrs, indent=2)
 
-    # def test_sppf_snn(self):
-    #     class SPPFSNN(nn.Module):
-    #         def __init__(self, in_c, out_c, k=5):
-    #             super().__init__()
-    #             self.cv1 = nn.Sequential(
-    #                 neuron.LIFNode(detach_reset=True),
-    #                 nn.Conv2d(in_c, in_c // 2, 1, 1, 0, bias=False),
-    #                 nn.BatchNorm2d(in_c // 2)
-    #             )
-    #             self.cv2 = nn.Sequential(
-    #                 neuron.LIFNode(detach_reset=True),
-    #                 nn.Conv2d(in_c * 2, out_c, 1, 1, 0, bias=False),
-    #                 nn.BatchNorm2d(out_c)
-    #             )
-    #             self.m = nn.MaxPool2d(kernel_size=k, stride=1, padding=k // 2)
-    #             self.lif = neuron.LIFNode(detach_reset=True)
+    def test_sppf_snn(self):
+        class SPPFSNN(nn.Module):
+            def __init__(self, in_c, out_c, k=5):
+                super().__init__()
+                self.cv1 = nn.Sequential(
+                    neuron.LIFNode(detach_reset=True),
+                    nn.Conv2d(in_c, in_c // 2, 1, 1, 0, bias=False),
+                    nn.BatchNorm2d(in_c // 2)
+                )
+                self.cv2 = nn.Sequential(
+                    neuron.LIFNode(detach_reset=True),
+                    nn.Conv2d(in_c * 2, out_c, 1, 1, 0, bias=False),
+                    nn.BatchNorm2d(out_c)
+                )
+                self.m = nn.MaxPool2d(kernel_size=k, stride=1, padding=k // 2)
+                self.lif = neuron.LIFNode(detach_reset=True)
 
-    #         def forward(self, x):
-    #             x = self.cv1(x)
-    #             y1 = self.m(x)
-    #             y2 = self.m(y1)
-    #             y3 = self.m(y2)
-    #             return self.cv2(torch.cat((x, y1, y2, y3), 1))
+            def forward(self, x):
+                x = self.cv1(x)
+                y1 = self.m(x)
+                y2 = self.m(y1)
+                y3 = self.m(y2)
+                return self.cv2(torch.cat((x, y1, y2, y3), 1))
 
-    #     print("\n=== test_sppf_snn trace ===")
-    #     # in_c needs to be divisible by 2.
-    #     m = SPPFSNN(in_c=32, out_c=64)
+        print("\n=== test_sppf_snn trace ===")
+        # in_c needs to be divisible by 2.
+        m = SPPFSNN(in_c=32, out_c=64)
 
-    #     gm = trace_spikingjelly_model(m)
-    #     print("Original Graph:")
-    #     print(gm.graph.print_tabular())
-    #     print("Original shape:")
+        gm = remove_dropout_identity_and_fuse_conv_bn(m)
+        print("Original Graph:")
+        print(gm.graph.print_tabular())
+        print("Original shape:")
 
-    #     propagate_tensor_shape(gm, torch.randn(1, 32, 64, 64))
+        propagate_tensor_shape(gm, torch.randn(1, 32, 64, 64))
 
-    #     print("doing fuse...")
-    #     gm = apply_fuse_passes(gm)
-    #     print("Fused Code:")
-    #     print(gm.code)
+        print("doing fuse...")
+        gm = apply_fuse_passes(gm)
+        print("Fused Code:")
+        print(gm.code)
 
-    #     # in_c=32, out_c=64.
-    #     # cv1: 32 -> 16.
-    #     # x becomes 16 channels.
-    #     # m: 16 -> 16.
-    #     # y1, y2, y3 all 16 channels.
-    #     # cat: 16*4 = 64 channels.
-    #     # cv2 input channels: in_c * 2 = 32 * 2 = 64. Matches cat output.
+        # in_c=32, out_c=64.
+        # cv1: 32 -> 16.
+        # x becomes 16 channels.
+        # m: 16 -> 16.
+        # y1, y2, y3 all 16 channels.
+        # cat: 16*4 = 64 channels.
+        # cv2 input channels: in_c * 2 = 32 * 2 = 64. Matches cat output.
 
-    #     propagate_tensor_shape(gm, torch.randn(1, 32, 64, 64))
+        propagate_tensor_shape(gm, torch.randn(1, 32, 64, 64))
 
-    #     print("\n=== test_sppf_snn Exported Attributes Inspection ===")
-    #     for name, module in gm.named_modules():
-    #         if isinstance(module, BaseCoreOp):
-    #             core_attrs, neu_attrs, comp_attrs = module.get_attrs()
-    #             print(f"\n[Node: {name} ({type(module).__name__})]")
-    #             print(">> Core Attributes:")
-    #             pprint.pprint(core_attrs, indent=2)
-    #             print(">> Neuron Attributes:")
-    #             pprint.pprint(neu_attrs, indent=2)
-    #             print(">> Compute Attributes:")
-    #             pprint.pprint(comp_attrs, indent=2)
+        print("\n=== test_sppf_snn Exported Attributes Inspection ===")
+        for name, module in gm.named_modules():
+            if isinstance(module, BaseCoreOp):
+                core_attrs, neu_attrs, comp_attrs = module.get_attrs()
+                print(f"\n[Node: {name} ({type(module).__name__})]")
+                print(">> Core Attributes:")
+                pprint.pprint(core_attrs, indent=2)
+                print(">> Neuron Attributes:")
+                pprint.pprint(neu_attrs, indent=2)
+                print(">> Compute Attributes:")
+                pprint.pprint(comp_attrs, indent=2)

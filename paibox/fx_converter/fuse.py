@@ -265,25 +265,6 @@ def fuse_standalone_conv_max(gm: fx.GraphModule) -> fx.GraphModule:
     return fx.GraphModule(modules, new_graph)
 
 
-def fuse_identity(gm: fx.GraphModule) -> fx.GraphModule:
-    """
-    Removes nn.Identity nodes from the graph.
-    """
-    modules = dict(gm.named_modules())
-    new_graph = copy.deepcopy(gm.graph)
-
-    for node in new_graph.nodes:
-        if node.op == "call_module" and isinstance(modules.get(node.target), nn.Identity):
-            # Replace all uses of the identity node with its input
-            if node.args:
-                node.replace_all_uses_with(node.args[0])
-            new_graph.erase_node(node)
-            fuse_log.debug(f"Removed identity node: {node.name}")
-
-    new_graph.lint()
-    return fx.GraphModule(modules, new_graph)
-
-
 def fuse_standalone_neu(gm: fx.GraphModule) -> fx.GraphModule:
     modules = dict(gm.named_modules())
     new_graph = copy.deepcopy(gm.graph)
@@ -339,7 +320,6 @@ _FUSE_PASSES: list[Callable[[fx.GraphModule], fx.GraphModule]] = []
 
 def apply_fuse_passes(gm: fx.GraphModule) -> fx.GraphModule:
     _FUSE_PASSES.clear()
-    _FUSE_PASSES.append(fuse_identity)
     _FUSE_PASSES.append(fuse_compute_act)
     _FUSE_PASSES.append(fuse_implicit_add)
     _FUSE_PASSES.append(fuse_standalone_conv_max)
