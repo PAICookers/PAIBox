@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import Optional
 
 import numpy as np
-from coreplacement import CorePlacement, EmptyOfflineCorePlacementV2,OfflineCorePlamentV2
-from neuron import Neuron,OfflineNeuronPlacement
-from weight import Weight
+from .coreplacement import CorePlacement, EmptyOfflineCorePlacementV2,OfflineCorePlamentV2
+from .neuron import Neuron,OfflineNeuronPlacement
+from .weight import Weight
 
 from paicorelib import (
     LCN_EX,
@@ -15,6 +15,9 @@ from paicorelib import (
     find_coordxy_shortest_path,
     NeuronType,
     WeightCompressType,
+    OfflineCoreRegV2,
+    OfflineNeuFullAttrsV2Part1,
+    OfflineNeuFullAttrsV2Part2
 
 )
 
@@ -69,88 +72,127 @@ class RoutingGroup:
 
         weights = get_raw_weights(self.raw_neus, self.input_list)
 
-        col_nnz = np.count_nonzero(weights, axis=0)
-        sorted_indices = np.argsort(-col_nnz)
-        
-        self.input_list = [self.input_list[i] for i in sorted_indices]
-        weights = weights[:, sorted_indices]
+        # 1. Grouping Phase
+        groups = []
+        for i, neu in enumerate(self.raw_neus):
+            cfg = neu.core_config()
+            t_lcn = self.dests[neu].lcn
+            lcn = self.lcn
+            w_row = weights[i]
+            
+            match_group = None
+            for g in groups:
+                if g['config'] == cfg and g['target_lcn'] == t_lcn and g['lcn'] == lcn:
+                    match_group = g
+                    break
+            
+            if match_group:
+                match_group['items'].append((neu, w_row, i))
+            else:
+                groups.append({
+                    'config': cfg,
+                    'target_lcn': t_lcn,
+                    'lcn': lcn,
+                    'items': [(neu, w_row, i)]
+                })
 
         self.core_placements = []
-        current_core: Optional[OfflineCorePlamentV2] = None
-        
-        last_full_attrs = None 
 
-        for i, neu in enumerate(self.raw_neus):
+        def create_new_core_for_group(config):
+            new_core = OfflineCorePlamentV2()
+            
+            target_fields = OfflineCoreRegV2.model_fields.keys()
+            
+            init_data = {}
+            for field_name in target_fields:
+                if hasattr(config, field_name):
+                    init_data[field_name] = getattr(config, field_name)
+                else:
+                    if field_name == "neuron_number":
+                        init_data[field_name] = 0
+                    elif field_name in ["axon_skew", "test_core_xy", "test_core_x", "test_core_y"]:
+                        init_data[field_name] = 0
+                    elif field_name in ["global_send", "global_receive", "tick_start", "tick_duration", "tick_initial"]:
+                        init_data[field_name] = 0
+                    elif field_name in ["busy_cycle", "delay_cycle", "width_cycle"]:
+                        init_data[field_name] = 2  # gt=1 约束
+            
+            try:
+                reg_config = OfflineCoreRegV2(**init_data)
+            except Exception as e:
+                raise ValueError(f"Failed to initialize OfflineCoreRegV2. \nConfig: {config}\nError: {e}")
 
-            attrs = neu.attrs_part2()
-            inherited_core_config = neu.core_config()
-            
-            w_row = weights[i]
+            new_core._core_config = reg_config
+            return new_core
 
-            w_dense = Weight(w_row, WeightCompressType.DENSE)
-            w_sparse = Weight(w_row, WeightCompressType.SPARSE)
+        # 2. Allocation Phase
+        for group in groups:
+            group_config = group['config']
+            group_items = group['items']
             
-           
-            if w_sparse.n_sram_required() < w_dense.n_sram_required():
-                selected_weight = w_sparse
-                attrs.weight_compress = WeightCompressType.SPARSE
-            else:
-                selected_weight = w_dense
-                attrs.weight_compress = WeightCompressType.DENSE
+            # Initialize the first core for the current group
+            current_core = create_new_core_for_group(group_config)
+            
+            last_full_attrs = None
+            
+            for neu, w_row, original_idx in group_items:
+                attrs = neu.attrs_part2()
+                
+                # Weight Strategy
+                current_weight_width = group_config.weight_width
+                w_dense = Weight(w_row, WeightCompressType.DENSE, current_weight_width)
+                w_sparse = Weight(w_row, WeightCompressType.SPARSE, current_weight_width)
 
-   
-            if current_core is not None and last_full_attrs is not None and attrs == last_full_attrs:
-                neuron_type = NeuronType.HALF
-            else:
-                neuron_type = NeuronType.FULL
-            
-   
-            neu_placement = OfflineNeuronPlacement(neu, attrs)
-            
-            if hasattr(neu_placement, 'neuron_type'):
+                if w_sparse.n_sram_required() < w_dense.n_sram_required():
+                    selected_weight = w_sparse
+                    attrs.weight_compress = WeightCompressType.SPARSE
+                else:
+                    selected_weight = w_dense
+                    attrs.weight_compress = WeightCompressType.DENSE
+
+                # Neuron Type (Full/Half)
+                if len(current_core.neus) > 0 and last_full_attrs is not None and attrs == last_full_attrs:
+                    neuron_type = NeuronType.HALF
+                else:
+                    neuron_type = NeuronType.FULL
+
+                # Create Placement
+                neu_placement = OfflineNeuronPlacement(neu, attrs)
                 neu_placement.neuron_type = neuron_type
 
-
-            neu_sram_req = neu_placement.n_sram_required()
-            weight_sram_req = selected_weight.n_sram_required()
-            total_req = neu_sram_req + weight_sram_req
-            
-            # Check for core overflow
-            if current_core is None or (current_core.n_sram_required() + total_req > 4096):
+                # SRAM Check
+                neu_sram_req = neu_placement.n_sram_required()
+                weight_sram_req = selected_weight.n_sram_required()
+                total_req = neu_sram_req + weight_sram_req
                 
-                # Check for single-neuron overflow
-                if total_req > 4096:
-                     raise NotImplementedError(
-                        f"Neuron {i} requires {total_req} SRAM lines, exceeding the 4096 limit. "
-                        "Large input splitting logic is required."
-                    )
-                
-                if current_core is not None:
-                    self.core_placements.append(current_core)
-                
-                current_core = OfflineCorePlamentV2()
-                current_core._core_config = inherited_core_config
-                
-                # Force the first neuron in a new core to be FULL (no predecessor to reuse).
-                if neuron_type == NeuronType.HALF:
+                if current_core.n_sram_required() + total_req > 4096:
+                    if total_req > 4096:
+                         raise NotImplementedError(
+                            f"Neuron {original_idx} requires {total_req} SRAM lines."
+                        )
+                    
+                    if len(current_core.neus) > 0:
+                        self.core_placements.append(current_core)
+                    
+                    # Create new core with inheritance
+                    current_core = create_new_core_for_group(group_config)
+                    
                     neuron_type = NeuronType.FULL
-                    if hasattr(neu_placement, 'neuron_type'):
-                        neu_placement.neuron_type = NeuronType.FULL
+                    neu_placement.neuron_type = NeuronType.FULL
+                    last_full_attrs = attrs
                 
-                last_full_attrs = attrs
+                elif neuron_type == NeuronType.FULL:
+                    last_full_attrs = attrs
+                
+                current_core.neus.append(neu_placement)
+                current_core.weights.append(selected_weight)
+                
+                idx = len(current_core.neus) - 1
+                current_core.neu_weight_map[idx] = idx
             
-            elif neuron_type == NeuronType.FULL:
-                last_full_attrs = attrs
-            
-            current_core.neus.append(neu_placement)
-            current_core.weights.append(selected_weight)
-            
-            idx = len(current_core.neus) - 1
-            current_core.neu_weight_map[idx] = idx
+            if len(current_core.neus) > 0:
+                self.core_placements.append(current_core)
 
-        if current_core is not None:
-            self.core_placements.append(current_core)
-        
         self.n_core_required = len(self.core_placements)
 
         # implement your core placement generation logic here

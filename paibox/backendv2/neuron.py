@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 import numpy as np
-from core_config import Inherited_Core_Config
+from .core_config import Inherited_Core_Config
 from paicorelib import (
     FRAME_DTYPE,
     FrameArrayType,
@@ -15,6 +15,7 @@ from paicorelib import (
     OfflineNeuFoldedAttrsV2Part2,
     OfflineNeuFullAttrsV2Part1,
     OfflineNeuFullAttrsV2Part2,
+    NeuronType,
 )
 
 
@@ -69,11 +70,13 @@ class NeuronPlacement:
 
 
 class OfflineNeuronPlacement(NeuronPlacement):
-    def __init__(self):
+    def __init__(self, neu, attrs):
+        super().__init__(neu)
         self.neu_attrs_part1: Optional[OfflineNeuFullAttrsV2Part1] = None
-        self.neu_attrs_part2: Optional[OfflineNeuFullAttrsV2Part2] = None
+        self.neu_attrs_part2: Optional[OfflineNeuFullAttrsV2Part2] = attrs
         self.folded_neu_attrs_part1: Optional[OfflineNeuFoldedAttrsV2Part1] = None
         self.folded_neu_attrs_part2s: list[OfflineNeuFoldedAttrsV2Part2] = []
+        self.neuron_type = NeuronType.FULL
 
     def n_sram_required(self) -> int:
         n_sram = 0
