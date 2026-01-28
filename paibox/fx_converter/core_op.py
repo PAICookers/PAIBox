@@ -24,23 +24,28 @@ from .ir_base import PAIIR, OpLoc
 from .lut_activation import LutActivation, LutReLU, LutSigmoid
 from .neuron import NeuronV2, SJIFNode, SJLIFNode
 from .opset import is_node_supported_comp, SUPPORTED_POOL_OPS
+from .clac_params import NeuV2ClacParams as NeuronParams
+from .clac_params import OfflineCoreCalcParamsV2 as CoreParams
 
 __all__ = ["SeqCoreOp", "AccumCoreOp",
            "SingleConvMaxOp", "SingleNeuLUTOp", "CalcCoreOp"]
 
 
-@dataclass
-class CoreParams:
-    snn_ann: int | SNNMode = SNNMode.SNN
-    max_pooling: int | PoolingMode = PoolingMode.AVERAGE
-    add_potential: int | AddPotentialMode = AddPotentialMode.NORMAL
-    zero_output: int | ZeroOutputMode = ZeroOutputMode.DISABLE
-    input_sign: int | InputSignMode = InputSignMode.SIGNED
-    input_width: int | WeightWidth = WeightWidth.WEIGHT_WIDTH_8BIT
-    output_sign: int | OutputSignMode = OutputSignMode.SIGNED
-    output_width: int | WeightWidth = WeightWidth.WEIGHT_WIDTH_8BIT
-    weight_sign: int | WeightSignMode = WeightSignMode.SIGNED
-    weight_width: int | WeightWidth = WeightWidth.WEIGHT_WIDTH_8BIT
+# @dataclass
+# class CoreParams:
+#     snn_ann: int | SNNMode = SNNMode.SNN
+#     max_pooling: int | PoolingMode = PoolingMode.AVERAGE
+#     add_potential: int | AddPotentialMode = AddPotentialMode.NORMAL
+#     zero_output: int | ZeroOutputMode = ZeroOutputMode.DISABLE
+#     input_sign: int | InputSignMode = InputSignMode.SIGNED
+#     input_width: int | WeightWidth = WeightWidth.WEIGHT_WIDTH_8BIT
+#     output_sign: int | OutputSignMode = OutputSignMode.SIGNED
+#     output_width: int | WeightWidth = WeightWidth.WEIGHT_WIDTH_8BIT
+#     weight_sign: int | WeightSignMode = WeightSignMode.SIGNED
+#     weight_width: int | WeightWidth = WeightWidth.WEIGHT_WIDTH_8BIT
+#     tick_start: int = 1
+#     tick_duration: int = 0
+#     tick_initial: int = 0
 
 
 @dataclass
@@ -49,9 +54,9 @@ class ComputeParams:
     op_signs: list[int] | None = None
 
 
-@dataclass
-class NeuronParams:
-    output_type: int | OutputType = OutputType.VALUE
+# @dataclass
+# class NeuronParams:
+#     output_type: int | OutputType = OutputType.VALUE
 
 
 class BaseCoreOp(nn.Module, PAIIR):
@@ -71,14 +76,28 @@ class BaseCoreOp(nn.Module, PAIIR):
         self.neuron_op = neuron_op or nn.Identity()
         self.op_loc = op_loc
 
+        for attr in ["tick_start", "tick_duration", "tick_initial"]:
+            if hasattr(self.neuron_op, attr):
+                setattr(self.core_params, attr, getattr(self.neuron_op, attr))
+
     def get_attrs(self) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
         neu_attrs = (
             self.neuron_op.get_attrs()
             if hasattr(self.neuron_op, "get_attrs")
             else {}
         )
-        neu_params_dict = asdict(self.neuron_params)
-        neu_attrs.update(neu_params_dict)
+
+        if not neu_attrs:
+            neu_attrs = asdict(self.neuron_params)
+
+        if "output_type" not in neu_attrs:
+            neu_attrs["output_type"] = getattr(
+                self.neuron_params, "output_type", OutputType.VALUE
+            )
+
+        for attr in ["tick_start", "tick_duration", "tick_initial"]:
+            if attr in neu_attrs:
+                neu_attrs.pop(attr)
 
         core_attrs = asdict(self.core_params)
         comp_attrs = asdict(self.compute_params)

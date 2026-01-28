@@ -19,6 +19,7 @@ from paicorelib import (
     WeightSignMode,
     WeightWidth,
     ZeroOutputMode,
+    OutputType,
 )
 from torch import Tensor
 
@@ -33,20 +34,21 @@ class ClacParams:
 
 @dataclass
 class NeuV2ClacParams(ClacParams):
-    reset_mode: RM
-    reset_v: float
-    thres_neg_mode: ThresholdNegMode
-    thres_pos_mode: ThresholdPosMode
-    thres_neg: float
-    thres_pos: float
-    lateral_inhi: LateralInhibitionMode
-    leak_multi_sequence: LeakMultiComparisonOrder
-    leak_multi_input: LeakMultiInputMode
-    leak_multi_mode: LeakMultiMode
-    leak_add_mode: LeakAddMode
-    leak_tau: int
-    leak_v: float | Tensor
-    init_v: float
+    reset_mode: RM = RM.MODE_NORMAL
+    reset_v: float = 0.0
+    thres_neg_mode: ThresholdNegMode = ThresholdNegMode.FIRE
+    thres_pos_mode: ThresholdPosMode = ThresholdPosMode.FIRE
+    thres_neg: float = -99999.0  # OfflineNeuRegLimV2.THRES_NEG_MIN
+    thres_pos: float = 0.0
+    lateral_inhi: LateralInhibitionMode = LateralInhibitionMode.DISABLE
+    leak_multi_sequence: LeakMultiComparisonOrder = LeakMultiComparisonOrder.AFTER_COMPARE
+    leak_multi_input: LeakMultiInputMode = LeakMultiInputMode.DISABLE
+    leak_multi_mode: LeakMultiMode = LeakMultiMode.DISABLE
+    leak_add_mode: LeakAddMode = LeakAddMode.FORWARD
+    leak_tau: int = 0
+    leak_v: float = 0.0
+    init_v: float = 0.0
+    output_type: OutputType = OutputType.VALUE
 
     @classmethod
     def default(cls):
@@ -65,6 +67,7 @@ class NeuV2ClacParams(ClacParams):
             0,
             0,
             0,
+            OutputType.VALUE,
         )
 
 
@@ -74,37 +77,19 @@ class CoreClacParams(ClacParams):
 
 @dataclass
 class OfflineCoreCalcParamsV2(CoreClacParams):
-    snn_ann: SNNMode
-    max_pooling: PoolingMode
-    add_potential: AddPotentialMode
-    zero_output: ZeroOutputMode
-    input_sign: InputSignMode
-    input_width: InputWidthFormat
-    output_sign: OutputSignMode
-    output_width: OutputWidthFormat
-    weight_sign: WeightSignMode
-    weight_width: WeightWidth
-    tick_start: int
-    tick_duration: int
-    tick_initial: int
-
-    @classmethod
-    def default(cls):
-        return OfflineCoreCalcParamsV2(
-            SNNMode.SNN,
-            PoolingMode.AVERAGE,
-            AddPotentialMode.NORMAL,
-            ZeroOutputMode.DISABLE,
-            InputSignMode.UNSIGNED,
-            InputWidthFormat.WIDTH_1BIT,
-            OutputSignMode.UNSIGNED,
-            OutputWidthFormat.WIDTH_1BIT,
-            WeightSignMode.SIGNED,
-            WeightWidth.WEIGHT_WIDTH_8BIT,
-            1,
-            0,
-            0,
-        )
+    snn_ann: int | SNNMode = SNNMode.SNN
+    max_pooling: int | PoolingMode = PoolingMode.AVERAGE
+    add_potential: int | AddPotentialMode = AddPotentialMode.NORMAL
+    zero_output: int | ZeroOutputMode = ZeroOutputMode.DISABLE
+    input_sign: int | InputSignMode = InputSignMode.SIGNED
+    input_width: int | WeightWidth = WeightWidth.WEIGHT_WIDTH_8BIT
+    output_sign: int | OutputSignMode = OutputSignMode.SIGNED
+    output_width: int | WeightWidth = WeightWidth.WEIGHT_WIDTH_8BIT
+    weight_sign: int | WeightSignMode = WeightSignMode.SIGNED
+    weight_width: int | WeightWidth = WeightWidth.WEIGHT_WIDTH_8BIT
+    tick_start: int = 1
+    tick_duration: int = 0
+    tick_initial: int = 0
 
 
 class OnlineCoreV2CalcParamsKwds(TypedDict, total=False):
