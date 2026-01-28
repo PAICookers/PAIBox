@@ -11,7 +11,6 @@ from torch.nn.utils.fusion import fuse_conv_bn_eval, fuse_linear_bn_eval
 
 from paibox import _logging
 
-from ._namespace import _IRNamespace
 from .core_op import AccumCoreOp, CalcCoreOp, SeqCoreOp, SingleConvMaxOp, SingleNeuLUTOp
 from .ir_base import PAIIR, OpLoc
 from .opset import (
@@ -125,14 +124,11 @@ def fuse_compute_act(gm: fx.GraphModule) -> fx.GraphModule:
                 if len(node_prev.users) > 1:
                     continue
 
-                fused = SeqCoreOp.build(
-                    node_prev, node, modules, OpLoc.OFFLINE_CORE
-                )
+                fused = SeqCoreOp.build(node_prev, node, modules, OpLoc.OFFLINE_CORE)
 
                 modules[fused.name] = fused
                 with new_graph.inserting_after(node):
-                    new_node = new_graph.call_module(
-                        fused.name, args=node_prev.args)
+                    new_node = new_graph.call_module(fused.name, args=node_prev.args)
 
                 node.replace_all_uses_with(new_node)
                 new_graph.erase_node(node)
@@ -217,8 +213,7 @@ def fuse_implicit_add(gm: fx.GraphModule) -> fx.GraphModule:
                     conv_args.extend(op.args)
 
                 with new_graph.inserting_after(node):
-                    new_node = new_graph.call_module(
-                        fused.name, args=tuple(conv_args))
+                    new_node = new_graph.call_module(fused.name, args=tuple(conv_args))
 
                 node.replace_all_uses_with(new_node)
                 new_graph.erase_node(node)
@@ -244,13 +239,11 @@ def fuse_standalone_conv_max(gm: fx.GraphModule) -> fx.GraphModule:
                 # we should be careful.
                 # wait, create_file overwrote everything so I am defining this function now.
 
-                fused = SingleConvMaxOp.build(
-                    node, modules, OpLoc.OFFLINE_CORE)
+                fused = SingleConvMaxOp.build(node, modules, OpLoc.OFFLINE_CORE)
                 modules[fused.name] = fused
 
                 with new_graph.inserting_after(node):
-                    new_node = new_graph.call_module(
-                        fused.name, args=node.args)
+                    new_node = new_graph.call_module(fused.name, args=node.args)
 
                 node.replace_all_uses_with(new_node)
                 # Do not erase node immediately if it is referenced?
@@ -258,8 +251,7 @@ def fuse_standalone_conv_max(gm: fx.GraphModule) -> fx.GraphModule:
                 # Note: node is from new_graph iteration.
 
                 new_graph.erase_node(node)
-                fuse_log.debug(
-                    f"Wrapped standalone conv {node.name} with {fused.name}")
+                fuse_log.debug(f"Wrapped standalone conv {node.name} with {fused.name}")
 
     new_graph.lint()
     return fx.GraphModule(modules, new_graph)
@@ -277,18 +269,15 @@ def fuse_standalone_neu(gm: fx.GraphModule) -> fx.GraphModule:
             is_act = isinstance(module, tuple(SUPPORTED_ACT_OPS))
 
             if is_neu or is_act:
-                fused = SingleNeuLUTOp.build(
-                    node, modules, OpLoc.OFFLINE_CORE)
+                fused = SingleNeuLUTOp.build(node, modules, OpLoc.OFFLINE_CORE)
                 modules[fused.name] = fused
 
                 with new_graph.inserting_after(node):
-                    new_node = new_graph.call_module(
-                        fused.name, args=node.args)
+                    new_node = new_graph.call_module(fused.name, args=node.args)
 
                 node.replace_all_uses_with(new_node)
                 new_graph.erase_node(node)
-                fuse_log.debug(
-                    f"Wrapped standalone neu {node.name} with {fused.name}")
+                fuse_log.debug(f"Wrapped standalone neu {node.name} with {fused.name}")
 
     new_graph.lint()
     return fx.GraphModule(modules, new_graph)
@@ -300,8 +289,7 @@ def fuse_calc_op(gm: fx.GraphModule) -> fx.GraphModule:
 
     for node in new_graph.nodes:
         if node.op == "call_function" and node.target in IMPLICIT_SUM_OPS:
-            fused = CalcCoreOp.build(
-                node, modules, OpLoc.OFFLINE_CORE)
+            fused = CalcCoreOp.build(node, modules, OpLoc.OFFLINE_CORE)
             modules[fused.name] = fused
 
             with new_graph.inserting_after(node):

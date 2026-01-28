@@ -7,8 +7,11 @@ from torch import nn
 from paibox._logging import DEFAULT_LOG_SETTINGS, set_logs
 from paibox.fx_converter.core_op import BaseCoreOp
 from paibox.fx_converter.fuse import apply_fuse_passes, fuse_compute_act
-from paibox.fx_converter.trace import propagate_tensor_shape
-from paibox.fx_converter.trace import remove_dropout_identity_and_fuse_conv_bn
+from paibox.fx_converter.trace import (
+    propagate_tensor_shape,
+    remove_dropout_identity_and_fuse_conv_bn,
+)
+
 set_logs(**DEFAULT_LOG_SETTINGS)
 
 
@@ -79,8 +82,7 @@ class TestFusionPass:
 
         gm = apply_fuse_passes(gm)
         print(gm.code)
-        propagate_tensor_shape(gm, torch.randn(
-            1, 3, 32, 32), torch.randn(1, 3, 32, 32))
+        propagate_tensor_shape(gm, torch.randn(1, 3, 32, 32), torch.randn(1, 3, 32, 32))
 
         print("\n=== test_fuse_implicit_add Exported Attributes Inspection ===")
         for name, module in gm.named_modules():
@@ -165,7 +167,15 @@ class TestFusionPass:
             Structure: body.0 -> body.1 -> body.2.0 -> body.2.1 -> body.2.2
             """
 
-            def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, bias=False):
+            def __init__(
+                self,
+                in_channels,
+                out_channels,
+                kernel_size,
+                stride=1,
+                padding=0,
+                bias=False,
+            ):
                 super().__init__()
                 # Simplified functional equivalent matching the trace hierarchy
                 self.body = nn.Sequential(
@@ -174,9 +184,15 @@ class TestFusionPass:
                     nn.Sequential(  # 2
                         nn.Identity(),  # 2.0
                         nn.Identity(),  # 2.1
-                        nn.Conv2d(in_channels, out_channels, kernel_size,
-                                  stride, padding, bias=bias)  # 2.2
-                    )
+                        nn.Conv2d(
+                            in_channels,
+                            out_channels,
+                            kernel_size,
+                            stride,
+                            padding,
+                            bias=bias,
+                        ),  # 2.2
+                    ),
                 )
 
             def forward(self, x):
@@ -191,14 +207,15 @@ class TestFusionPass:
 
                 self.lif2 = neuron.LIFNode(detach_reset=True)
                 self.dwconv2 = nn.Conv2d(
-                    hidden_c, hidden_c, 3, stride, 1, groups=hidden_c, bias=False)
+                    hidden_c, hidden_c, 3, stride, 1, groups=hidden_c, bias=False
+                )
                 self.bn2 = nn.BatchNorm2d(hidden_c)
 
                 self.lif3 = neuron.LIFNode(detach_reset=True)
                 self.pwconv3 = RepConv(hidden_c, out_c, 1, 1, 0)
                 self.bn3 = nn.BatchNorm2d(out_c)
 
-                self.use_res_connect = (stride == 1 and in_c == out_c)
+                self.use_res_connect = stride == 1 and in_c == out_c
 
             def forward(self, x):
                 identity = x
@@ -222,8 +239,7 @@ class TestFusionPass:
         class Stage2Block(nn.Module):
             def __init__(self, in_c, out_c):
                 super().__init__()
-                self.Conv = SpikingInvertedResidual(
-                    in_c, in_c // 2, out_c, stride=1)
+                self.Conv = SpikingInvertedResidual(in_c, in_c // 2, out_c, stride=1)
 
                 # Channels need to be inferred.
                 # Assuming standard Bottleneck expansion
@@ -281,12 +297,12 @@ class TestFusionPass:
                 self.cv1 = nn.Sequential(
                     neuron.LIFNode(detach_reset=True),
                     nn.Conv2d(in_c, in_c // 2, 1, 1, 0, bias=False),
-                    nn.BatchNorm2d(in_c // 2)
+                    nn.BatchNorm2d(in_c // 2),
                 )
                 self.cv2 = nn.Sequential(
                     neuron.LIFNode(detach_reset=True),
                     nn.Conv2d(in_c * 2, out_c, 1, 1, 0, bias=False),
-                    nn.BatchNorm2d(out_c)
+                    nn.BatchNorm2d(out_c),
                 )
                 self.m = nn.MaxPool2d(kernel_size=k, stride=1, padding=k // 2)
                 self.lif = neuron.LIFNode(detach_reset=True)

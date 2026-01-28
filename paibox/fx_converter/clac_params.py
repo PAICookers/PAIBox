@@ -12,6 +12,7 @@ from paicorelib import (
     LeakMultiInputMode,
     LeakMultiMode,
     OutputSignMode,
+    OutputType,
     PoolingMode,
     SNNMode,
     ThresholdNegMode,
@@ -19,9 +20,7 @@ from paicorelib import (
     WeightSignMode,
     WeightWidth,
     ZeroOutputMode,
-    OutputType,
 )
-from torch import Tensor
 
 OutputWidthFormat = InputWidthFormat
 
@@ -41,7 +40,9 @@ class NeuV2ClacParams(ClacParams):
     thres_neg: float = -99999.0  # OfflineNeuRegLimV2.THRES_NEG_MIN
     thres_pos: float = 0.0
     lateral_inhi: LateralInhibitionMode = LateralInhibitionMode.DISABLE
-    leak_multi_sequence: LeakMultiComparisonOrder = LeakMultiComparisonOrder.AFTER_COMPARE
+    leak_multi_sequence: LeakMultiComparisonOrder = (
+        LeakMultiComparisonOrder.AFTER_COMPARE
+    )
     leak_multi_input: LeakMultiInputMode = LeakMultiInputMode.DISABLE
     leak_multi_mode: LeakMultiMode = LeakMultiMode.DISABLE
     leak_add_mode: LeakAddMode = LeakAddMode.FORWARD

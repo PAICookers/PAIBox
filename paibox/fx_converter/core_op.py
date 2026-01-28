@@ -1,11 +1,9 @@
+import operator
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
-import operator
 from typing import Any, ClassVar, Literal
 
 import torch
-from torch import fx, nn
-
 from paicorelib import (
     AddPotentialMode,
     InputSignMode,
@@ -14,21 +12,25 @@ from paicorelib import (
     PoolingMode,
     SNNMode,
     ThresholdNegMode,
-    WeightSignMode,
-    ZeroOutputMode,
 )
 from paicorelib.core_defs import WeightWidth
 from spikingjelly.activation_based.neuron import IFNode, LIFNode
+from torch import fx, nn
 
+from .clac_params import NeuV2ClacParams as NeuronParams
+from .clac_params import OfflineCoreCalcParamsV2 as CoreParams
 from .ir_base import PAIIR, OpLoc
 from .lut_activation import LutActivation, LutReLU, LutSigmoid
 from .neuron import NeuronV2, SJIFNode, SJLIFNode
-from .opset import is_node_supported_comp, SUPPORTED_POOL_OPS
-from .clac_params import NeuV2ClacParams as NeuronParams
-from .clac_params import OfflineCoreCalcParamsV2 as CoreParams
+from .opset import SUPPORTED_POOL_OPS, is_node_supported_comp
 
-__all__ = ["SeqCoreOp", "AccumCoreOp",
-           "SingleConvMaxOp", "SingleNeuLUTOp", "CalcCoreOp"]
+__all__ = [
+    "SeqCoreOp",
+    "AccumCoreOp",
+    "SingleConvMaxOp",
+    "SingleNeuLUTOp",
+    "CalcCoreOp",
+]
 
 
 @dataclass
@@ -60,9 +62,7 @@ class BaseCoreOp(nn.Module, PAIIR):
 
     def get_attrs(self) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
         neu_attrs = (
-            self.neuron_op.get_attrs()
-            if hasattr(self.neuron_op, "get_attrs")
-            else {}
+            self.neuron_op.get_attrs() if hasattr(self.neuron_op, "get_attrs") else {}
         )
 
         if not neu_attrs:
@@ -132,9 +132,7 @@ def infer_input_specs(
         else InputSignMode.UNSIGNED
     )
 
-    in_width = (
-        max(input_widths) if input_widths else WeightWidth.WEIGHT_WIDTH_8BIT
-    )
+    in_width = max(input_widths) if input_widths else WeightWidth.WEIGHT_WIDTH_8BIT
     return in_sign, in_width
 
 
@@ -266,8 +264,7 @@ class AccumCoreOp(BaseCoreOp):
         ops = []
         for i_node in i_nodes:
             if not is_node_supported_comp(i_node, modules):
-                raise TypeError(
-                    f"unsupported module: {torch.typename(i_node)}")
+                raise TypeError(f"unsupported module: {torch.typename(i_node)}")
             ops.append(modules[i_node.target])
 
         if implicit_sum_signs is None:

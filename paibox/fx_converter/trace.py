@@ -63,16 +63,16 @@ def flatten_module_sequential(gm: fx.GraphModule) -> fx.GraphModule:
     nodes_to_modify = {}
 
     for node in gm.graph.nodes:
-        if node.op == 'call_module':
+        if node.op == "call_module":
             target = node.target
-            if isinstance(target, str) and '.' in target:
+            if isinstance(target, str) and "." in target:
                 nodes_to_modify[node] = target
 
     for node, old_target in nodes_to_modify.items():
         submod = gm.get_submodule(old_target)
 
         # New name construction
-        new_target_name = old_target.replace('.', '_')
+        new_target_name = old_target.replace(".", "_")
 
         # Check collision
         if hasattr(gm, new_target_name):
@@ -98,8 +98,7 @@ def propagate_tensor_shape(gm: fx.GraphModule, *input: torch.Tensor) -> None:
     shape_prop.propagate(*input)
 
     for node in gm.graph.nodes:
-        print(node.name, node.meta["tensor_meta"].dtype,
-              node.meta["tensor_meta"].shape)
+        print(node.name, node.meta["tensor_meta"].dtype, node.meta["tensor_meta"].shape)
 
 
 def remove_dropout_identity_and_fuse_conv_bn(m: nn.Module) -> fx.GraphModule:
