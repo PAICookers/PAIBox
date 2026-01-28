@@ -3,11 +3,11 @@ from __future__ import annotations
 from typing import Optional
 
 import numpy as np
-from .core_config import Inherited_Core_Config
 from paicorelib import (
     FRAME_DTYPE,
     FrameArrayType,
     NeuDestInfoV2,
+    NeuronType,
     OfflineCoreRegV2,
     OfflineFrameGenV2,
     OfflineNeuDestInfoV2,
@@ -15,8 +15,9 @@ from paicorelib import (
     OfflineNeuFoldedAttrsV2Part2,
     OfflineNeuFullAttrsV2Part1,
     OfflineNeuFullAttrsV2Part2,
-    NeuronType,
 )
+
+from .core_config import Inherited_Core_Config
 
 
 class CoreOpNode:

@@ -1,20 +1,24 @@
 from __future__ import annotations
 
-from typing import Literal,Union
+from typing import Literal, Union
 
 import numpy as np
-from paicorelib import FRAME_DTYPE, FrameArrayType, OfflineFrameGenV2,WeightCompressType
-
+from paicorelib import (
+    FRAME_DTYPE,
+    FrameArrayType,
+    OfflineFrameGenV2,
+    WeightCompressType,
+)
 
 N_WEIGHTS_PER_SRAM = {1: 7, 2: 7, 4: 6, 8: 5}
 
 
 class Weight:
     def __init__(
-        self, 
-        data: Union[np.ndarray, list[int]], 
-        compress_type: WeightCompressType, 
-        weight_width: int
+        self,
+        data: Union[np.ndarray, list[int]],
+        compress_type: WeightCompressType,
+        weight_width: int,
     ):
         if isinstance(data, np.ndarray):
             self.raw_weights: list[int] = data.tolist()
@@ -25,8 +29,9 @@ class Weight:
             raise ValueError(f"Unsupported weight width: {weight_width}")
         self.weight_width = weight_width
 
-     
-        self.compress: bool = (compress_type == WeightCompressType.SPARSE)  # whether the weight is compressed
+        self.compress: bool = (
+            compress_type == WeightCompressType.SPARSE
+        )  # whether the weight is compressed
 
         # processed weights remove zero at the end if not compressed
         self.processed_weights: list[int] = self.raw_weights.copy()
