@@ -31,32 +31,10 @@ __all__ = ["SeqCoreOp", "AccumCoreOp",
            "SingleConvMaxOp", "SingleNeuLUTOp", "CalcCoreOp"]
 
 
-# @dataclass
-# class CoreParams:
-#     snn_ann: int | SNNMode = SNNMode.SNN
-#     max_pooling: int | PoolingMode = PoolingMode.AVERAGE
-#     add_potential: int | AddPotentialMode = AddPotentialMode.NORMAL
-#     zero_output: int | ZeroOutputMode = ZeroOutputMode.DISABLE
-#     input_sign: int | InputSignMode = InputSignMode.SIGNED
-#     input_width: int | WeightWidth = WeightWidth.WEIGHT_WIDTH_8BIT
-#     output_sign: int | OutputSignMode = OutputSignMode.SIGNED
-#     output_width: int | WeightWidth = WeightWidth.WEIGHT_WIDTH_8BIT
-#     weight_sign: int | WeightSignMode = WeightSignMode.SIGNED
-#     weight_width: int | WeightWidth = WeightWidth.WEIGHT_WIDTH_8BIT
-#     tick_start: int = 1
-#     tick_duration: int = 0
-#     tick_initial: int = 0
-
-
 @dataclass
 class ComputeParams:
     # Operation signs for accumulation (e.g., [1, 1] for add, [1, -1] for sub)
     op_signs: list[int] | None = None
-
-
-# @dataclass
-# class NeuronParams:
-#     output_type: int | OutputType = OutputType.VALUE
 
 
 class BaseCoreOp(nn.Module, PAIIR):
