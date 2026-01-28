@@ -4,7 +4,6 @@ from abc import abstractmethod
 from typing import Optional
 
 import numpy as np
-from .neuron import NeuronPlacement, OfflineNeuronPlacement
 from paicorelib import (
     FRAME_DTYPE,
     CoordXY,
@@ -13,7 +12,10 @@ from paicorelib import (
     OfflineFrameGenV2,
     find_coordxy_shortest_path,
 )
-#from .routing import RoutingGroup
+
+from .neuron import NeuronPlacement, OfflineNeuronPlacement
+
+# from .routing import RoutingGroup
 from .weight import Weight
 
 
