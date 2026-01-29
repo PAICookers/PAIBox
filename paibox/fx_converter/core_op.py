@@ -1,4 +1,6 @@
+import operator
 from collections.abc import Sequence
+from dataclasses import asdict, dataclass
 from typing import Any, ClassVar, Literal
 
 import torch
@@ -10,62 +12,244 @@ from paicorelib import (
     PoolingMode,
     SNNMode,
     ThresholdNegMode,
-    WeightSignMode,
-    ZeroOutputMode,
 )
 from paicorelib.core_defs import WeightWidth
 from spikingjelly.activation_based.neuron import IFNode, LIFNode
 from torch import fx, nn
 
+from .clac_params import NeuV2ClacParams as NeuronParams
+from .clac_params import OfflineCoreCalcParamsV2 as CoreParams
 from .ir_base import PAIIR, OpLoc
 from .lut_activation import LutActivation, LutReLU, LutSigmoid
 from .neuron import NeuronV2, SJIFNode, SJLIFNode
-from .opset import is_node_supported_comp
+from .opset import SUPPORTED_POOL_OPS, is_node_supported_comp
+
+__all__ = [
+    "SeqCoreOp",
+    "AccumCoreOp",
+    "SingleConvMaxOp",
+    "SingleNeuLUTOp",
+    "CalcCoreOp",
+]
 
 
-class CoreOpNode(nn.Module, PAIIR):
-    _attrs_to_save: tuple[str, ...] = (
-        "snn_ann",
-        "max_pooling",
-        "add_potential",
-        "zero_output",
-        "input_sign",
-        "input_width",
-        "output_sign",
-        "output_width",
-        "weight_sign",
-        "weight_width",
-        # "tick_start", # ?
-        # "tick_duration", # ?
-        # "tick_initial", # ?
-    )
+@dataclass
+class ComputeParams:
+    # Operation signs for accumulation (e.g., [1, 1] for add, [1, -1] for sub)
+    op_signs: list[int] | None = None
 
+
+class BaseCoreOp(nn.Module, PAIIR):
     def __init__(
         self,
-        i_ops: Sequence[nn.Module],
-        o_op: LutActivation | NeuronV2,
-        implicit_sum_signs: list[Literal[1, -1]] | None = None,  # TODO
+        core_params: CoreParams,
+        neuron_params: NeuronParams,
+        compute_params: ComputeParams,
+        neuron_op: nn.Module | None,
         op_loc: OpLoc = OpLoc.OFFLINE_CORE,
-        **kwargs,
-    ) -> None:
+    ):
         super().__init__()
         super(nn.Module, self).__init__()
+        self.core_params = core_params
+        self.neuron_params = neuron_params
+        self.compute_params = compute_params
+        self.neuron_op = neuron_op or nn.Identity()
         self.op_loc = op_loc
-        self.op1 = nn.ModuleList(i_ops)
-        self.op2 = o_op
 
-        if implicit_sum_signs is None:
-            signs = [1 for _ in self.op1]
-        elif len(implicit_sum_signs) != len(self.op1):
-            raise ValueError(
-                f"number of signs ({len(implicit_sum_signs)}) must match number of ops ({len(self.op1)})"
+        for attr in ["tick_start", "tick_duration", "tick_initial"]:
+            if hasattr(self.neuron_op, attr):
+                setattr(self.core_params, attr, getattr(self.neuron_op, attr))
+
+    def get_attrs(self) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+        neu_attrs = (
+            self.neuron_op.get_attrs() if hasattr(self.neuron_op, "get_attrs") else {}
+        )
+
+        if not neu_attrs:
+            neu_attrs = asdict(self.neuron_params)
+
+        if "output_type" not in neu_attrs:
+            neu_attrs["output_type"] = getattr(
+                self.neuron_params, "output_type", OutputType.VALUE
+            )
+
+        for attr in ["tick_start", "tick_duration", "tick_initial"]:
+            if attr in neu_attrs:
+                neu_attrs.pop(attr)
+
+        core_attrs = asdict(self.core_params)
+        comp_attrs = asdict(self.compute_params)
+
+        return core_attrs, neu_attrs, comp_attrs
+
+    def extra_repr(self) -> str:
+        return f"op_loc={self.op_loc.name}"
+
+
+def infer_input_specs(
+    i_nodes: Sequence[fx.Node], modules: dict[str, Any]
+) -> tuple[InputSignMode, WeightWidth]:
+    input_signs = []
+    input_widths = []
+
+    for node in i_nodes:
+        if isinstance(node, fx.Node):
+            # If the node itself is a CoreOp (already fused module), check its output specs directly
+            if node.target in modules:
+                mod = modules[node.target]
+                if hasattr(mod, "core_params"):
+                    input_signs.append(mod.core_params.output_sign)
+                    input_widths.append(mod.core_params.output_width)
+                    continue  # Found specs for this input, move to next node
+                elif hasattr(mod, "output_sign"):
+                    input_signs.append(mod.output_sign)
+                    if hasattr(mod, "output_width"):
+                        input_widths.append(mod.output_width)
+                    continue
+
+            # Fallback: Check input nodes of the compute node (original logic)
+            # This logic seems to assume i_nodes are Compute Ops (like Conv) and we look at THEIR inputs.
+            # But in SeqCoreOp.build(i_node, o_node), i_node is the Compute Op.
+            # Its input specs should determine the 'input_sign/width' of the SeqCoreOp.
+
+            for inp in node.all_input_nodes:
+                if inp.target in modules:
+                    mod = modules[inp.target]
+                    if hasattr(mod, "core_params"):
+                        input_signs.append(mod.core_params.output_sign)
+                        input_widths.append(mod.core_params.output_width)
+                    elif hasattr(mod, "output_sign"):
+                        input_signs.append(mod.output_sign)
+                        if hasattr(mod, "output_width"):
+                            input_widths.append(mod.output_width)
+                    elif isinstance(mod, (IFNode, LIFNode, SJIFNode, SJLIFNode)):
+                        input_signs.append(InputSignMode.UNSIGNED)
+                        input_widths.append(WeightWidth.WEIGHT_WIDTH_1BIT)
+
+    in_sign = (
+        InputSignMode.SIGNED
+        if (input_signs and max(input_signs) == InputSignMode.SIGNED)
+        else InputSignMode.UNSIGNED
+    )
+
+    in_width = max(input_widths) if input_widths else WeightWidth.WEIGHT_WIDTH_8BIT
+    return in_sign, in_width
+
+
+class SeqCoreOp(BaseCoreOp):
+    def __init__(
+        self,
+        op1: nn.Module,
+        op2: nn.Module,
+        core_params: CoreParams,
+        neuron_params: NeuronParams,
+        compute_params: ComputeParams,
+        op_loc: OpLoc = OpLoc.OFFLINE_CORE,
+    ):
+        super().__init__(core_params, neuron_params, compute_params, op2, op_loc)
+        self.op1 = op1
+        self.register_buffer("sign", torch.tensor([1], dtype=torch.int8))
+
+    @classmethod
+    def build(
+        cls,
+        i_node: fx.Node,
+        o_node: fx.Node,
+        modules: dict[str, fx.GraphModule],
+        op_loc: OpLoc = OpLoc.OFFLINE_CORE,
+        **kwargs,
+    ):
+        if not is_node_supported_comp(i_node, modules):
+            raise TypeError(f"unsupported module: {torch.typename(i_node)}")
+
+        op1 = modules[i_node.target]
+        m_op2 = modules[o_node.target]
+
+        in_sign, in_width = infer_input_specs([i_node], modules)
+
+        neu_kwargs = kwargs.copy()
+
+        # Determine neuron
+        if isinstance(m_op2, nn.ReLU):
+            op2 = LutReLU()
+        elif isinstance(m_op2, nn.Sigmoid):
+            op2 = LutSigmoid()
+        elif isinstance(m_op2, IFNode):
+            op2 = SJIFNode(m_op2.v_threshold, m_op2.v_reset, **neu_kwargs)
+        elif isinstance(m_op2, LIFNode):
+            op2 = SJLIFNode(
+                m_op2.tau,
+                m_op2.decay_input,
+                m_op2.v_threshold,
+                m_op2.v_reset,
+                **neu_kwargs,
             )
         else:
-            signs = implicit_sum_signs
+            raise TypeError(f"unsupported module: {torch.typename(m_op2)}")
 
-        self.register_buffer("signs", torch.tensor(signs, dtype=torch.int8))
+        core_params = CoreParams()
+        core_params.input_sign = in_sign
+        core_params.input_width = in_width
+        core_params.snn_ann = (
+            SNNMode.ANN if isinstance(op2, LutActivation) else SNNMode.SNN
+        )
+        core_params.max_pooling = (
+            PoolingMode.MAX
+            if isinstance(op1, (nn.MaxPool1d, nn.MaxPool2d))
+            else PoolingMode.AVERAGE
+        )
 
-        self._paser_core_attrs(**kwargs)
+        compute_params = ComputeParams()
+        compute_params.op_signs = [1]
+
+        if isinstance(op2, (SJIFNode, SJLIFNode)):
+            core_params.output_sign = OutputSignMode.UNSIGNED
+            core_params.output_width = WeightWidth.WEIGHT_WIDTH_1BIT
+        elif isinstance(op2, NeuronV2):
+            if op2.thres_neg_mode == ThresholdNegMode.FIRE:
+                core_params.output_sign = OutputSignMode.SIGNED
+                core_params.output_width = WeightWidth.WEIGHT_WIDTH_2BIT
+            else:
+                core_params.output_sign = OutputSignMode.UNSIGNED
+                core_params.output_width = WeightWidth.WEIGHT_WIDTH_1BIT
+        elif isinstance(op2, (LutReLU, LutSigmoid)):
+            core_params.output_sign = OutputSignMode.UNSIGNED
+            core_params.output_width = WeightWidth.WEIGHT_WIDTH_8BIT
+        else:
+            core_params.output_sign = OutputSignMode.SIGNED
+            core_params.output_width = WeightWidth.WEIGHT_WIDTH_8BIT
+
+        # Set user params
+        for k, v in kwargs.items():
+            if hasattr(core_params, k):
+                setattr(core_params, k, v)
+
+        neuron_params = NeuronParams()
+        neuron_params.output_type = OutputType.VALUE  # Default for Seq
+
+        op = cls(op1, op2, core_params, neuron_params, compute_params, op_loc)
+        return op
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out = self.op1(x.float())
+        return self.neuron_op(out)
+
+
+class AccumCoreOp(BaseCoreOp):
+    def __init__(
+        self,
+        ops: Sequence[nn.Module],
+        op2: nn.Module,
+        core_params: CoreParams,
+        neuron_params: NeuronParams,
+        compute_params: ComputeParams,
+        op_loc: OpLoc = OpLoc.OFFLINE_CORE,
+    ):
+        super().__init__(core_params, neuron_params, compute_params, op2, op_loc)
+        self.ops = nn.ModuleList(ops)
+        self.register_buffer(
+            "signs", torch.tensor(compute_params.op_signs, dtype=torch.int8)
+        )
 
     @classmethod
     def build(
@@ -73,65 +257,29 @@ class CoreOpNode(nn.Module, PAIIR):
         i_nodes: Sequence[fx.Node],
         o_node: fx.Node,
         modules: dict[str, fx.GraphModule],
-        op_loc: OpLoc,
+        op_loc: OpLoc = OpLoc.OFFLINE_CORE,
+        implicit_sum_signs: list[Literal[1, -1]] | None = None,
         **kwargs,
     ):
-        op1 = []
+        ops = []
         for i_node in i_nodes:
             if not is_node_supported_comp(i_node, modules):
                 raise TypeError(f"unsupported module: {torch.typename(i_node)}")
+            ops.append(modules[i_node.target])
 
-            op1.append(modules[i_node.target])
+        if implicit_sum_signs is None:
+            signs = [1 for _ in ops]
+        elif len(implicit_sum_signs) != len(ops):
+            raise ValueError(
+                f"number of signs ({len(implicit_sum_signs)}) must match number of ops ({len(ops)})"
+            )
+        else:
+            signs = implicit_sum_signs
 
-        # -----------------------------
-        # 推断输入规格 (input specs)
-        # -----------------------------
-        # 逻辑：
-        # 1. 查看所有计算节点(i_nodes, 例如Conv/Linear)的每前置输入节点。
-        # 2. 如果前置节点是 CoreOpNode 或其他有 output_sign/width 属性的节点，则收集其属性。
-        # 3. 如果任一输入是有符号的 (output_sign=1)，则当前节点的输入也被认为是有符号的。
-        # 4. 输入位宽取所有输入来源中的最大值。
+        in_sign, in_width = infer_input_specs(i_nodes, modules)
 
-        input_signs = []
-        input_widths = []
-
-        # 遍历所有输入计算节点（如 Conv, Linear）
-        for comp_node in i_nodes:
-            # 遍历每个计算节点的输入（即上游来源）
-            # all_input_nodes 包含了所有输入，包括 Tensor 输入
-            for inp in comp_node.all_input_nodes:
-                if inp.target in modules:
-                    mod = modules[inp.target]
-                    # 检查上游模块是否有 output_sign 属性
-                    if hasattr(mod, "output_sign"):
-                        input_signs.append(mod.output_sign)
-                    # 检查上游模块是否有 output_width 属性
-                    if hasattr(mod, "output_width"):
-                        input_widths.append(mod.output_width)
-
-        # 确定 input_sign: 只要有一个输入是有符号的 (SIGNED=1)，整体就是有符号的；否则为 UNSIGNED=0
-        in_sign = (
-            InputSignMode.SIGNED
-            if (input_signs and max(input_signs) == InputSignMode.SIGNED)
-            else InputSignMode.UNSIGNED
-        )
-
-        # 确定 input_width: 取最大位宽，默认 8
-        in_width = max(input_widths) if input_widths else WeightWidth.WEIGHT_WIDTH_8BIT
-
-        # 将推断出的属性通过 kwargs 传递给构造函数，如果 kwargs 已有通过优先使用
-        if "input_sign" not in kwargs:
-            kwargs["input_sign"] = in_sign
-        if "input_width" not in kwargs:
-            kwargs["input_width"] = in_width
-
-        # Filter out arguments that are not for neuron constructors
-        neu_kwargs = kwargs.copy()
-        neu_kwargs.pop("input_sign", None)
-        neu_kwargs.pop("input_width", None)
-
-        assert isinstance(o_node.target, str)
         m_op2 = modules[o_node.target]
+        neu_kwargs = kwargs.copy()
 
         if isinstance(m_op2, nn.ReLU):
             op2 = LutReLU()
@@ -150,111 +298,277 @@ class CoreOpNode(nn.Module, PAIIR):
         else:
             raise TypeError(f"unsupported module: {torch.typename(m_op2)}")
 
-        return cls(op1, op2, None, op_loc, **kwargs)
-
-    def _paser_core_attrs(self, **kwargs) -> None:
-        self.snn_ann = (
-            SNNMode.ANN if isinstance(self.op2, LutActivation) else SNNMode.SNN
+        core_params = CoreParams()
+        core_params.input_sign = in_sign
+        core_params.input_width = in_width
+        core_params.snn_ann = (
+            SNNMode.ANN if isinstance(op2, LutActivation) else SNNMode.SNN
         )
-        self.max_pooling = (
-            PoolingMode.MAX
-            if isinstance(self.op1[0], (nn.MaxPool1d, nn.MaxPool2d))
-            else PoolingMode.AVERAGE
-        )
-        self.add_potential = AddPotentialMode.NORMAL
-        if self.add_potential == AddPotentialMode.DIRECT_ADD:
-            self.zero_output = ZeroOutputMode.ENABLE
-            # this is neuron's attribute
-            self.output_type = OutputType.POTENTIAL
-        else:
-            self.zero_output = ZeroOutputMode.DISABLE
-            self.output_type = OutputType.VALUE
+        core_params.max_pooling = PoolingMode.AVERAGE
+        if len(ops) > 0 and isinstance(ops[0], (nn.MaxPool1d, nn.MaxPool2d)):
+            core_params.max_pooling = PoolingMode.MAX
 
-        # input_sign & input_width
-        # Default checked during build
-        self.input_sign = InputSignMode(kwargs.get("input_sign", InputSignMode.SIGNED))
-        self.input_width = WeightWidth(
-            kwargs.get("input_width", WeightWidth.WEIGHT_WIDTH_8BIT)
-        )
+        compute_params = ComputeParams()
+        compute_params.op_signs = signs
 
-        # weight_sign & weight_width
-        self.weight_sign = WeightSignMode.SIGNED
-        self.weight_width = WeightWidth.WEIGHT_WIDTH_8BIT
-
-        # output_sign & output_width
-        if isinstance(self.op2, LutActivation):
-            # For ANN activations
-            # ReLU, Sigmoid (0-1) are unsigned
-            if isinstance(self.op2, (LutReLU, LutSigmoid)):
-                self.output_sign = OutputSignMode.UNSIGNED
-                self.output_width = WeightWidth.WEIGHT_WIDTH_8BIT
-            # Tanh, Softsign (-1-1) are signed
+        if isinstance(op2, (SJIFNode, SJLIFNode)):
+            core_params.output_sign = OutputSignMode.UNSIGNED
+            core_params.output_width = WeightWidth.WEIGHT_WIDTH_1BIT
+        elif isinstance(op2, NeuronV2):
+            if op2.thres_neg_mode == ThresholdNegMode.FIRE:
+                core_params.output_sign = OutputSignMode.SIGNED
+                core_params.output_width = WeightWidth.WEIGHT_WIDTH_2BIT
             else:
-                self.output_sign = OutputSignMode.SIGNED
-                self.output_width = WeightWidth.WEIGHT_WIDTH_8BIT
-        elif isinstance(self.op2, (SJIFNode, SJLIFNode)):
-            self.output_sign = OutputSignMode.UNSIGNED
-            self.output_width = WeightWidth.WEIGHT_WIDTH_1BIT
-        elif isinstance(self.op2, NeuronV2):
-            if self.op2.thres_neg_mode == ThresholdNegMode.FIRE:
-                self.output_sign = OutputSignMode.SIGNED
-                self.output_width = WeightWidth.WEIGHT_WIDTH_2BIT
-            else:
-                self.output_sign = OutputSignMode.UNSIGNED
-                self.output_width = WeightWidth.WEIGHT_WIDTH_1BIT
+                core_params.output_sign = OutputSignMode.UNSIGNED
+                core_params.output_width = WeightWidth.WEIGHT_WIDTH_1BIT
+        elif isinstance(op2, (LutReLU, LutSigmoid)):
+            core_params.output_sign = OutputSignMode.UNSIGNED
+            core_params.output_width = WeightWidth.WEIGHT_WIDTH_8BIT
         else:
-            # Fallback
-            self.output_sign = OutputSignMode.SIGNED
-            self.output_width = WeightWidth.WEIGHT_WIDTH_8BIT
+            core_params.output_sign = OutputSignMode.SIGNED
+            core_params.output_width = WeightWidth.WEIGHT_WIDTH_8BIT
+
+        for k, v in kwargs.items():
+            if hasattr(core_params, k):
+                setattr(core_params, k, v)
+
+        neuron_params = NeuronParams()
+        neuron_params.output_type = OutputType.VALUE
+
+        op = cls(ops, op2, core_params, neuron_params, compute_params, op_loc)
+        return op
 
     def forward(self, *xs: torch.Tensor) -> torch.Tensor:
         s = 0
-        for sign, op, x in zip(self.signs, self.op1, xs, strict=True):
+        for sign, op, x in zip(self.signs, self.ops, xs):
             output = op(x.float())
             s += sign * output
+        return self.neuron_op(s)
 
-        return self.op2(s)
 
-    def get_attrs(self) -> tuple[dict[str, Any], dict[str, Any]]:
-        if isinstance(self.op2, LutActivation):
-            # XXX do we need configurate neuron if this core is in ANN mode?
-            neu_attrs = SJIFNode().get_attrs()
+class CalcCoreOp(BaseCoreOp):
+    def __init__(
+        self,
+        core_params: CoreParams,
+        neuron_params: NeuronParams,
+        compute_params: ComputeParams,
+        op_loc: OpLoc = OpLoc.OFFLINE_CORE,
+    ):
+        super().__init__(core_params, neuron_params, compute_params, None, op_loc)
+        self.register_buffer(
+            "signs", torch.tensor(compute_params.op_signs, dtype=torch.int8)
+        )
+
+    @classmethod
+    def build(
+        cls,
+        node: fx.Node,
+        modules: dict[str, fx.GraphModule],
+        op_loc: OpLoc = OpLoc.OFFLINE_CORE,
+        **kwargs,
+    ):
+        in_sign, in_width = infer_input_specs(node.all_input_nodes, modules)
+
+        # Determine signs based on operation type
+        if node.target in [operator.add, torch.add]:
+            signs = [1, 1]
+        elif node.target in [operator.sub, torch.sub]:
+            signs = [1, -1]
         else:
-            neu_attrs = self.op2.get_attrs()
+            # Default or fallback
+            signs = [1, 1]
 
-        core_attrs = {}
-        for attr in self._attrs_to_save:
-            core_attrs[attr] = getattr(self, attr)
+        core_params = CoreParams()
+        core_params.input_sign = in_sign
+        core_params.input_width = in_width
+        core_params.snn_ann = SNNMode.ANN
+        core_params.max_pooling = PoolingMode.AVERAGE
+        core_params.add_potential = AddPotentialMode.DIRECT_ADD
 
-        return core_attrs, neu_attrs
+        compute_params = ComputeParams()
+        compute_params.op_signs = signs
 
-    def extra_repr(self) -> str:
-        return f"op_loc={self.op_loc.name}"
+        # Set user params
+        for k, v in kwargs.items():
+            if hasattr(core_params, k):
+                setattr(core_params, k, v)
+
+        neuron_params = NeuronParams()
+        neuron_params.output_type = OutputType.POTENTIAL
+
+        op = cls(core_params, neuron_params, compute_params, op_loc)
+        return op
+
+    def forward(self, *xs: torch.Tensor) -> torch.Tensor:
+        s = 0
+        for sign, x in zip(self.signs, xs):
+            s += sign * x.float()
+        return self.neuron_op(s)
 
 
-class SeqCoreOpNode(CoreOpNode):
+class SingleConvMaxOp(BaseCoreOp):
+    def __init__(
+        self,
+        op: nn.Module,
+        core_params: CoreParams,
+        neuron_params: NeuronParams,
+        compute_params: ComputeParams,
+        op_loc: OpLoc = OpLoc.OFFLINE_CORE,
+    ):
+        super().__init__(core_params, neuron_params, compute_params, None, op_loc)
+        self.op = op
+
     @classmethod
     def build(
         cls,
-        i_node: fx.Node,
-        o_node: fx.Node,
+        node: fx.Node,
         modules: dict[str, fx.GraphModule],
-        op_loc: OpLoc,
+        op_loc: OpLoc = OpLoc.OFFLINE_CORE,
         **kwargs,
     ):
-        return super().build([i_node], o_node, modules, op_loc, **kwargs)
+        if not is_node_supported_comp(node, modules):
+            raise TypeError(f"unsupported module: {torch.typename(node)}")
+
+        op = modules[node.target]
+        in_sign, in_width = infer_input_specs([node], modules)
+
+        core_params = CoreParams()
+        core_params.input_sign = in_sign
+        core_params.input_width = in_width
+        core_params.snn_ann = SNNMode.ANN
+        core_params.max_pooling = (
+            PoolingMode.MAX
+            if isinstance(op, tuple(SUPPORTED_POOL_OPS))
+            else PoolingMode.AVERAGE
+        )
+
+        compute_params = ComputeParams()
+        compute_params.op_signs = [1]
+
+        core_params.output_sign = OutputSignMode.SIGNED
+        core_params.output_width = WeightWidth.WEIGHT_WIDTH_8BIT
+
+        for k, v in kwargs.items():
+            if hasattr(core_params, k):
+                setattr(core_params, k, v)
+
+        neuron_params = NeuronParams()
+        neuron_params.output_type = OutputType.POTENTIAL  # As requested
+
+        ret = cls(op, core_params, neuron_params, compute_params, op_loc)
+        return ret
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.op(x.float())
 
 
-class OfflineSeqCoreOpNode(SeqCoreOpNode):
+class SingleNeuLUTOp(BaseCoreOp):
+    def __init__(
+        self,
+        op2: nn.Module,
+        core_params: CoreParams,
+        neuron_params: NeuronParams,
+        compute_params: ComputeParams,
+        op_loc: OpLoc = OpLoc.OFFLINE_CORE,
+    ):
+        super().__init__(core_params, neuron_params, compute_params, op2, op_loc)
+
     @classmethod
     def build(
         cls,
-        i_node: fx.Node,
-        o_node: fx.Node,
+        node: fx.Node,
         modules: dict[str, fx.GraphModule],
+        op_loc: OpLoc = OpLoc.OFFLINE_CORE,
         **kwargs,
     ):
-        return super().build(i_node, o_node, modules, OpLoc.OFFLINE_CORE, **kwargs)
+        m_op2 = modules[node.target]
+        op_prev = node.all_input_nodes[0]
+        # Since op_prev might not be a module (e.g., placeholder), we need a helper or handle it.
+        # infer_input_specs expects a sequence of nodes (typically compute nodes).
+        # We can pass [op_prev] or just treat input as unknown if not a module.
+        # Wait, infer_input_specs iterates all_input_nodes of the passed node.
+        # So we should pass a dummy node whose input is op_prev?
+        # No, infer_input_specs logic: `for comp_node in i_nodes: for inp in comp_node.all_input_nodes:`
+        # That logic assumes i_nodes is the current layer (like Conv) and looks at its inputs.
+        # Here we don't have a Conv. We are the Neuron. Our input is op_prev.
+        # But we want to know the specs of op_prev.
+        # So we can look at op_prev directly.
+
+        in_sign = InputSignMode.SIGNED
+        in_width = WeightWidth.WEIGHT_WIDTH_8BIT
+
+        if op_prev.target in modules:
+            mod = modules[op_prev.target]
+            if hasattr(mod, "core_params"):
+                in_sign = mod.core_params.output_sign
+                in_width = mod.core_params.output_width
+            elif hasattr(mod, "output_sign"):
+                in_sign = mod.output_sign
+                if hasattr(mod, "output_width"):
+                    in_width = mod.output_width
+
+        # Determine neuron
+        neu_kwargs = kwargs.copy()
+        if isinstance(m_op2, nn.ReLU):
+            op2 = LutReLU()
+        elif isinstance(m_op2, nn.Sigmoid):
+            op2 = LutSigmoid()
+        elif isinstance(m_op2, IFNode):
+            op2 = SJIFNode(m_op2.v_threshold, m_op2.v_reset, **neu_kwargs)
+        elif isinstance(m_op2, LIFNode):
+            op2 = SJLIFNode(
+                m_op2.tau,
+                m_op2.decay_input,
+                m_op2.v_threshold,
+                m_op2.v_reset,
+                **neu_kwargs,
+            )
+        else:
+            raise TypeError(f"unsupported module: {torch.typename(m_op2)}")
+
+        core_params = CoreParams()
+        core_params.input_sign = in_sign
+        core_params.input_width = in_width
+        core_params.snn_ann = (
+            SNNMode.ANN if isinstance(op2, LutActivation) else SNNMode.SNN
+        )
+        core_params.max_pooling = PoolingMode.AVERAGE
+        core_params.add_potential = AddPotentialMode.DIRECT_ADD
+
+        compute_params = ComputeParams()
+        compute_params.op_signs = [1]  # Identity
+
+        if isinstance(op2, (SJIFNode, SJLIFNode)):
+            core_params.output_sign = OutputSignMode.UNSIGNED
+            core_params.output_width = WeightWidth.WEIGHT_WIDTH_1BIT
+        elif isinstance(op2, NeuronV2):
+            if op2.thres_neg_mode == ThresholdNegMode.FIRE:
+                core_params.output_sign = OutputSignMode.SIGNED
+                core_params.output_width = WeightWidth.WEIGHT_WIDTH_2BIT
+            else:
+                core_params.output_sign = OutputSignMode.UNSIGNED
+                core_params.output_width = WeightWidth.WEIGHT_WIDTH_1BIT
+        elif isinstance(op2, (LutReLU, LutSigmoid)):
+            core_params.output_sign = OutputSignMode.UNSIGNED
+            core_params.output_width = WeightWidth.WEIGHT_WIDTH_8BIT
+        else:
+            # Default fallback
+            core_params.output_sign = OutputSignMode.SIGNED
+            core_params.output_width = WeightWidth.WEIGHT_WIDTH_8BIT
+
+        # Set user params
+        for k, v in kwargs.items():
+            if hasattr(core_params, k):
+                setattr(core_params, k, v)
+
+        neuron_params = NeuronParams()
+        neuron_params.output_type = OutputType.VALUE
+
+        op = cls(op2, core_params, neuron_params, compute_params, op_loc)
+        return op
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.neuron_op(x.float())
 
 
 class CPUOpNode(nn.Module, PAIIR):
