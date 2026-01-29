@@ -6,7 +6,7 @@ from torch import nn
 
 from paibox._logging import DEFAULT_LOG_SETTINGS, set_logs
 from paibox.fx_converter.core_op import BaseCoreOp
-from paibox.fx_converter.fuse import apply_fuse_passes, fuse_compute_act
+from paibox.fx_converter.fuse import apply_passes, fuse_compute_act
 from paibox.fx_converter.trace import (
     propagate_tensor_shape,
     remove_dropout_identity_and_fuse_conv_bn,
@@ -44,7 +44,7 @@ class TestFusionPass:
         print("Original Graph:")
         print(gm.graph.print_tabular())
         print("doing fuse_compute_act...")
-        gm2 = apply_fuse_passes(gm)
+        gm2 = apply_passes(gm)
         print("Fused Code:")
         print(gm2.code)
         propagate_tensor_shape(gm2, torch.randn(1, 3, 32, 32))
@@ -80,7 +80,7 @@ class TestFusionPass:
 
         gm = remove_dropout_identity_and_fuse_conv_bn(m)
 
-        gm = apply_fuse_passes(gm)
+        gm = apply_passes(gm)
         print(gm.code)
         propagate_tensor_shape(gm, torch.randn(1, 3, 32, 32), torch.randn(1, 3, 32, 32))
 
@@ -107,7 +107,7 @@ class TestFusionPass:
 
         m = M()
         gm = remove_dropout_identity_and_fuse_conv_bn(m)
-        gm = apply_fuse_passes(gm)
+        gm = apply_passes(gm)
 
         print("\n=== test_fuse_standalone_conv Exported Attributes Inspection ===")
         for name, module in gm.named_modules():
@@ -201,17 +201,17 @@ class TestFusionPass:
         class SpikingInvertedResidual(nn.Module):
             def __init__(self, in_c, hidden_c, out_c, stride=1):
                 super().__init__()
-                self.lif1 = neuron.LIFNode(detach_reset=True)
+                self.lif1 = neuron.LIFNode()
                 self.pwconv1 = nn.Conv2d(in_c, hidden_c, 1, 1, 0, bias=False)
                 self.bn1 = nn.BatchNorm2d(hidden_c)
 
-                self.lif2 = neuron.LIFNode(detach_reset=True)
+                self.lif2 = neuron.LIFNode()
                 self.dwconv2 = nn.Conv2d(
                     hidden_c, hidden_c, 3, stride, 1, groups=hidden_c, bias=False
                 )
                 self.bn2 = nn.BatchNorm2d(hidden_c)
 
-                self.lif3 = neuron.LIFNode(detach_reset=True)
+                self.lif3 = neuron.LIFNode()
                 self.pwconv3 = RepConv(hidden_c, out_c, 1, 1, 0)
                 self.bn3 = nn.BatchNorm2d(out_c)
 
@@ -243,11 +243,11 @@ class TestFusionPass:
 
                 # Channels need to be inferred.
                 # Assuming standard Bottleneck expansion
-                self.lif1 = neuron.LIFNode(detach_reset=True)
+                self.lif1 = neuron.LIFNode()
                 self.conv1 = RepConv(out_c, out_c * 3, 1, 1, 0)
                 self.bn1 = nn.BatchNorm2d(out_c * 3)
 
-                self.lif2 = neuron.LIFNode(detach_reset=True)
+                self.lif2 = neuron.LIFNode()
                 self.conv2 = RepConv(out_c * 3, out_c, 1, 1, 0)
                 self.bn2 = nn.BatchNorm2d(out_c)
 
@@ -273,7 +273,7 @@ class TestFusionPass:
         print(gm.graph.print_tabular())
 
         print("doing fuse_compute_act...")
-        gm = apply_fuse_passes(gm)
+        gm = apply_passes(gm)
         print("Fused Code:")
         print(gm.code)
         propagate_tensor_shape(gm, torch.randn(1, 32, 32, 32))
@@ -295,17 +295,13 @@ class TestFusionPass:
             def __init__(self, in_c, out_c, k=5):
                 super().__init__()
                 self.cv1 = nn.Sequential(
-                    neuron.LIFNode(detach_reset=True),
-                    nn.Conv2d(in_c, in_c // 2, 1, 1, 0, bias=False),
-                    nn.BatchNorm2d(in_c // 2),
+                    nn.Conv2d(in_c, in_c // 2, 1, 1, 0, bias=False), neuron.LIFNode()
                 )
                 self.cv2 = nn.Sequential(
-                    neuron.LIFNode(detach_reset=True),
-                    nn.Conv2d(in_c * 2, out_c, 1, 1, 0, bias=False),
-                    nn.BatchNorm2d(out_c),
+                    nn.Conv2d(in_c * 2, out_c, 1, 1, 0, bias=False), neuron.LIFNode()
                 )
-                self.m = nn.MaxPool2d(kernel_size=k, stride=1, padding=k // 2)
-                self.lif = neuron.LIFNode(detach_reset=True)
+                self.m = nn.MaxPool2d(k, 1, k // 2)
+                self.lif = neuron.LIFNode()
 
             def forward(self, x):
                 x = self.cv1(x)
@@ -326,7 +322,7 @@ class TestFusionPass:
         propagate_tensor_shape(gm, torch.randn(1, 32, 64, 64))
 
         print("doing fuse...")
-        gm = apply_fuse_passes(gm)
+        gm = apply_passes(gm)
         print("Fused Code:")
         print(gm.code)
 

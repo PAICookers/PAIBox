@@ -1,7 +1,9 @@
 import copy
+import operator
 from collections.abc import Callable
 from typing import Any
 
+import torch
 from torch import fx, nn
 from torch.fx.experimental.optimization import (
     matches_module_pattern,
@@ -11,20 +13,24 @@ from torch.nn.utils.fusion import fuse_conv_bn_eval, fuse_linear_bn_eval
 
 from paibox import _logging
 
-from .core_op import AccumCoreOp, CalcCoreOp, SeqCoreOp, SingleConvMaxOp, SingleNeuLUTOp
+from ..exceptions import NotSupportedError
+from .core_op import AccumCoreOp, CalcCoreOp, SeqCoreOp, SingleCompOp, SingleNeuLUTOp
 from .ir_base import PAIIR, OpLoc
+from .match_utils import matches_func_module_pattern, matches_function_pattern
 from .opset import (
-    IMPLICIT_SUM_OPS,
-    SUPPORTED_ACT_OPS,
-    SUPPORTED_COMP_OPS,
+    ADD_OR_SUB_OPS,
     SUPPORTED_CONV_OPS,
-    SUPPORTED_NEU_OPS,
+    is_node_supported_comp,
+    is_node_supported_neu_act,
+    make_add_act_patterns,
+    make_comp_act_patterns,
 )
 
 fuse_log = _logging.get_artifact_logger(__name__, "fuse")
 
 
 # NOTE: in case of the arguments of fuse() is changing, define it here.
+# torch.fx.experimental.optimization.fuse()
 def fuse_conv_bn(
     model: nn.Module, inplace: bool = False, no_trace: bool = False
 ) -> nn.Module:
@@ -45,15 +51,6 @@ def fuse_conv_bn(
     else:
         fx_model = model
     modules = dict(fx_model.named_modules())
-
-    # Ensure all call_module targets are present in modules
-    for node in fx_model.graph.nodes:
-        if node.op == "call_module" and node.target not in modules:
-            try:
-                modules[node.target] = fx_model.get_submodule(node.target)
-            except AttributeError:
-                pass
-
     new_graph = copy.deepcopy(fx_model.graph)
 
     for pattern in patterns:
@@ -103,9 +100,7 @@ def replace_node_module_with_ir(
 
 
 def fuse_compute_act(gm: fx.GraphModule) -> fx.GraphModule:
-    patterns = [(c, a) for c in SUPPORTED_COMP_OPS for a in SUPPORTED_ACT_OPS] + [
-        (c, n) for c in SUPPORTED_COMP_OPS for n in SUPPORTED_NEU_OPS
-    ]
+    patterns = make_comp_act_patterns()
     modules = dict(gm.named_modules())
 
     # Ensure all call_module targets are present in modules (handle flattened modules)
@@ -142,39 +137,27 @@ def fuse_compute_act(gm: fx.GraphModule) -> fx.GraphModule:
     return fx.GraphModule(modules, new_graph)
 
 
-def matches_func_module_pattern(
-    pattern: tuple[Callable, type], node: fx.Node, modules: dict[str, Any]
-) -> bool:
-    """Match a pattern of (function, module) in fx graph."""
-    if len(node.args) == 0:
+def nodes_have_same_type(nodes: list[fx.Node], modules: dict[str, Any]) -> bool:
+    if not nodes:
+        return True
+
+    assert isinstance(nodes[0].target, str)
+    if nodes[0].target not in modules:
         return False
 
-    if not isinstance(node.args[0], fx.Node):
-        return False
-    if node.args[0].op != "call_function":
-        return False
-    if not callable(node.args[0].target):
-        return False
-    if node.args[0].target is not pattern[0]:
-        return False
+    first_module_type = type(modules[nodes[0].target])
+    for node in nodes[1:]:
+        if node.target not in modules:
+            return False
 
-    if not isinstance(node, fx.Node):
-        return False
-    if node.op != "call_module":
-        return False
-    if not isinstance(node.target, str):
-        return False
-    if node.target not in modules:
-        return False
-    if type(modules[node.target]) is not pattern[1]:
-        return False
+        assert isinstance(node.target, str)
+        if type(modules[node.target]) is not first_module_type:
+            return False
     return True
 
 
 def fuse_implicit_add(gm: fx.GraphModule) -> fx.GraphModule:
-    patterns = [(op, n) for op in IMPLICIT_SUM_OPS for n in SUPPORTED_NEU_OPS] + [
-        (op, a) for op in IMPLICIT_SUM_OPS for a in SUPPORTED_ACT_OPS
-    ]
+    patterns = make_add_act_patterns()
     modules = dict(gm.named_modules())
     new_graph = copy.deepcopy(gm.graph)
 
@@ -183,16 +166,12 @@ def fuse_implicit_add(gm: fx.GraphModule) -> fx.GraphModule:
             if matches_func_module_pattern(pattern, node, modules):
                 add_node = node.all_input_nodes[0]
                 if len(add_node.users) > 1:
-                    continue
+                    raise NotSupportedError("'add' node must be used only once")
 
                 add_prev_nodes = add_node.all_input_nodes
-                if len(add_prev_nodes) > 2 or len(add_prev_nodes) == 1:
-                    # TODO more complicated case: add_1(o1, o2), add_2(add_1, o3)
-                    continue
+                assert len(add_prev_nodes) == 2
 
-                # TODO check the previous nodes are supported comp ops & of same type: conv & conv, maxpool & maxpool, etc.
-                # But max pool & avg pool fusion may not make sense.
-                # Ensure previous nodes are supported linear ops (Conv, Linear)
+                # Ensure previous nodes are supported ops
                 valid_ops = True
                 for op in add_prev_nodes:
                     if not isinstance(modules[op.target], tuple(SUPPORTED_CONV_OPS)):
@@ -201,10 +180,21 @@ def fuse_implicit_add(gm: fx.GraphModule) -> fx.GraphModule:
                 if not valid_ops:
                     continue
 
+                # check the previous nodes are of same type
+                # TODO support ops with different types: conv + maxpool?
+                if not nodes_have_same_type(add_prev_nodes, modules):
+                    raise NotSupportedError("operands of 'add' must be same type")
+
                 assert isinstance(node.target, str)
-                fused = AccumCoreOp.build(
-                    add_prev_nodes, node, modules, OpLoc.OFFLINE_CORE
-                )
+                if node.target in (operator.add, torch.add):
+                    fused = AccumCoreOp.build(
+                        add_prev_nodes, node, modules, (1, 1), OpLoc.OFFLINE_CORE
+                    )
+                else:  # sub
+                    fused = AccumCoreOp.build(
+                        add_prev_nodes, node, modules, (1, -1), OpLoc.OFFLINE_CORE
+                    )
+
                 modules[fused.name] = fused
 
                 # Merge arguments
@@ -225,33 +215,28 @@ def fuse_implicit_add(gm: fx.GraphModule) -> fx.GraphModule:
     return fx.GraphModule(modules, new_graph)
 
 
-def fuse_standalone_conv_max(gm: fx.GraphModule) -> fx.GraphModule:
+def fuse_standalone_comp(gm: fx.GraphModule) -> fx.GraphModule:
     modules = dict(gm.named_modules())
     new_graph = copy.deepcopy(gm.graph)
 
     for node in new_graph.nodes:
-        if node.op == "call_module" and node.target in modules:
-            module = modules[node.target]
-            if isinstance(module, tuple(SUPPORTED_COMP_OPS)):
-                # Check if it is already fused by previous steps (it shouldn'be because strict matching)
-                # But if some other pass wrapped it, we skip.
-                # Since we iterate original modules and graph, and we are mutating new_graph,
-                # we should be careful.
-                # wait, create_file overwrote everything so I am defining this function now.
+        if is_node_supported_comp(node, modules):
+            if len(node.all_input_nodes) > 1:
+                raise NotSupportedError(
+                    "standalone computing node must have only one input"
+                )
 
-                fused = SingleConvMaxOp.build(node, modules, OpLoc.OFFLINE_CORE)
-                modules[fused.name] = fused
+            fused = SingleCompOp.build(node, modules, OpLoc.OFFLINE_CORE)
+            modules[fused.name] = fused
 
-                with new_graph.inserting_after(node):
-                    new_node = new_graph.call_module(fused.name, args=node.args)
+            with new_graph.inserting_after(node):
+                new_node = new_graph.call_module(fused.name, args=node.args)
 
-                node.replace_all_uses_with(new_node)
-                # Do not erase node immediately if it is referenced?
-                # replace_all_uses_with replaces usages.
-                # Note: node is from new_graph iteration.
-
-                new_graph.erase_node(node)
-                fuse_log.debug(f"Wrapped standalone conv {node.name} with {fused.name}")
+            node.replace_all_uses_with(new_node)
+            new_graph.erase_node(node)
+            fuse_log.debug(
+                f"Wrapped standalone computing node {node.name} with {fused.name}"
+            )
 
     new_graph.lint()
     return fx.GraphModule(modules, new_graph)
@@ -262,22 +247,23 @@ def fuse_standalone_neu(gm: fx.GraphModule) -> fx.GraphModule:
     new_graph = copy.deepcopy(gm.graph)
 
     for node in new_graph.nodes:
-        if node.op == "call_module" and node.target in modules:
-            module = modules[node.target]
-            # Check for supported neurons OR activations (ANN neurons)
-            is_neu = isinstance(module, tuple(SUPPORTED_NEU_OPS))
-            is_act = isinstance(module, tuple(SUPPORTED_ACT_OPS))
+        if is_node_supported_neu_act(node, modules):
+            if len(node.all_input_nodes) > 1:
+                raise NotSupportedError(
+                    "standalone neuron or activation node must have only one input"
+                )
 
-            if is_neu or is_act:
-                fused = SingleNeuLUTOp.build(node, modules, OpLoc.OFFLINE_CORE)
-                modules[fused.name] = fused
+            fused = SingleNeuLUTOp.build(node, modules, OpLoc.OFFLINE_CORE)
+            modules[fused.name] = fused
 
-                with new_graph.inserting_after(node):
-                    new_node = new_graph.call_module(fused.name, args=node.args)
+            with new_graph.inserting_after(node):
+                new_node = new_graph.call_module(fused.name, args=node.args)
 
-                node.replace_all_uses_with(new_node)
-                new_graph.erase_node(node)
-                fuse_log.debug(f"Wrapped standalone neu {node.name} with {fused.name}")
+            node.replace_all_uses_with(new_node)
+            new_graph.erase_node(node)
+            fuse_log.debug(
+                f"Wrapped standalone neuron/activation node {node.name} with {fused.name}"
+            )
 
     new_graph.lint()
     return fx.GraphModule(modules, new_graph)
@@ -288,7 +274,7 @@ def fuse_calc_op(gm: fx.GraphModule) -> fx.GraphModule:
     new_graph = copy.deepcopy(gm.graph)
 
     for node in new_graph.nodes:
-        if node.op == "call_function" and node.target in IMPLICIT_SUM_OPS:
+        if node.op == "call_function" and node.target in ADD_OR_SUB_OPS:
             fused = CalcCoreOp.build(node, modules, OpLoc.OFFLINE_CORE)
             modules[fused.name] = fused
 
@@ -303,21 +289,57 @@ def fuse_calc_op(gm: fx.GraphModule) -> fx.GraphModule:
     return fx.GraphModule(modules, new_graph)
 
 
+def remove_shape_nodes(gm: fx.GraphModule) -> fx.GraphModule:
+    """Remove those nodes for calculating shape"""
+    new_graph = copy.deepcopy(gm.graph)
+    nodes_to_remove = set()
+
+    for node in new_graph.nodes:
+        # check op getitem
+        if matches_function_pattern((getattr, operator.getitem), node):
+            op_getattr = node.args[0]
+            assert isinstance(op_getattr, fx.Node)
+            if len(op_getattr.args) == 2 and op_getattr.args[1] == "shape":
+                # like x.shape
+                nodes_to_remove.add(node)
+                nodes_to_remove.add(op_getattr)
+
+        # Check op floordiv/mul & remove
+        elif matches_function_pattern((operator.getitem, operator.floordiv), node):
+            nodes_to_remove.add(node)
+
+        elif matches_function_pattern((operator.getitem, operator.mul), node):
+            nodes_to_remove.add(node)
+
+        elif node.op == "call_method" and node.target in ["flatten", "contiguous"]:
+            nodes_to_remove.add(node)
+
+        elif node.op == "call_method" and node.target in ["reshape", "view"]:
+            nodes_to_remove.add(node)
+
+    for node in nodes_to_remove:
+        node.replace_all_uses_with(node.args[0])
+        new_graph.erase_node(node)
+        fuse_log.debug(f"Removed node '{node.name}'")
+
+    new_graph.lint()
+    return fx.GraphModule(gm, new_graph)
+
+
 _FUSE_PASSES: list[Callable[[fx.GraphModule], fx.GraphModule]] = []
 
 
-def apply_fuse_passes(gm: fx.GraphModule) -> fx.GraphModule:
+def apply_passes(gm: fx.GraphModule) -> fx.GraphModule:
     _FUSE_PASSES.clear()
+    _FUSE_PASSES.append(remove_shape_nodes)
     _FUSE_PASSES.append(fuse_compute_act)
     _FUSE_PASSES.append(fuse_implicit_add)
-    _FUSE_PASSES.append(fuse_standalone_conv_max)
+    _FUSE_PASSES.append(fuse_standalone_comp)
     _FUSE_PASSES.append(fuse_standalone_neu)
     _FUSE_PASSES.append(fuse_calc_op)
 
-    gm = fuse_conv_bn(gm, inplace=True, no_trace=True)  # type: ignore
-
     for i, fuse in enumerate(_FUSE_PASSES):
-        fuse_log.debug(f"Applying fuse pass #{i}: {fuse.__name__}")
+        fuse_log.debug(f"Applying pass #{i}: {fuse.__name__}")
         gm = fuse(gm)
         gm.graph.print_tabular()
         print("\n")
