@@ -1,43 +1,39 @@
-from dataclasses import asdict, dataclass
-from typing import Any, TypedDict
+from dataclasses import dataclass
+from typing import TypedDict
 
 from paicorelib import (
     RM,
     AddPotentialMode,
-    InputSignMode,
-    InputWidthFormat,
+    DataSign,
+    DataWidth,
     LateralInhibitionMode,
     LeakAddMode,
     LeakMultiComparisonOrder,
     LeakMultiInputMode,
     LeakMultiMode,
-    OutputSignMode,
     OutputType,
     PoolingMode,
     SNNMode,
     ThresholdNegMode,
     ThresholdPosMode,
-    WeightSignMode,
-    WeightWidth,
     ZeroOutputMode,
 )
 
-OutputWidthFormat = InputWidthFormat
+__all__ = ["ClacParams", "CoreClacParams", "NeuV2ClacParams", "OfflineCoreV2CalcParams"]
 
 
 @dataclass
 class ClacParams:
-    def make_dict(self) -> dict[str, Any]:
-        return asdict(self)
+    pass
 
 
 @dataclass
 class NeuV2ClacParams(ClacParams):
     reset_mode: RM = RM.MODE_NORMAL
     reset_v: float = 0.0
-    thres_neg_mode: ThresholdNegMode = ThresholdNegMode.FIRE
+    thres_neg_mode: ThresholdNegMode = ThresholdNegMode.FLOOR
     thres_pos_mode: ThresholdPosMode = ThresholdPosMode.FIRE
-    thres_neg: float = -99999.0  # OfflineNeuRegLimV2.THRES_NEG_MIN
+    thres_neg: float = -99999.0
     thres_pos: float = 0.0
     lateral_inhi: LateralInhibitionMode = LateralInhibitionMode.DISABLE
     leak_multi_sequence: LeakMultiComparisonOrder = (
@@ -58,7 +54,7 @@ class NeuV2ClacParams(ClacParams):
             0,
             ThresholdNegMode.FIRE,
             ThresholdPosMode.FIRE,
-            -99999,  # OfflineNeuRegLimV2.THRES_NEG_MIN,
+            -99999.0,
             0,
             LateralInhibitionMode.DISABLE,
             LeakMultiComparisonOrder.AFTER_COMPARE,
@@ -77,17 +73,17 @@ class CoreClacParams(ClacParams):
 
 
 @dataclass
-class OfflineCoreCalcParamsV2(CoreClacParams):
+class OfflineCoreV2CalcParams(CoreClacParams):
     snn_ann: int | SNNMode = SNNMode.SNN
     max_pooling: int | PoolingMode = PoolingMode.AVERAGE
     add_potential: int | AddPotentialMode = AddPotentialMode.NORMAL
     zero_output: int | ZeroOutputMode = ZeroOutputMode.DISABLE
-    input_sign: int | InputSignMode = InputSignMode.SIGNED
-    input_width: int | WeightWidth = WeightWidth.WEIGHT_WIDTH_8BIT
-    output_sign: int | OutputSignMode = OutputSignMode.SIGNED
-    output_width: int | WeightWidth = WeightWidth.WEIGHT_WIDTH_8BIT
-    weight_sign: int | WeightSignMode = WeightSignMode.SIGNED
-    weight_width: int | WeightWidth = WeightWidth.WEIGHT_WIDTH_8BIT
+    input_sign: int | DataSign = DataSign.SIGNED
+    input_width: int | DataWidth = DataWidth.WIDTH_8BIT
+    output_sign: int | DataSign = DataSign.SIGNED
+    output_width: int | DataWidth = DataWidth.WIDTH_8BIT
+    weight_sign: int | DataSign = DataSign.SIGNED
+    weight_width: int | DataWidth = DataWidth.WIDTH_8BIT
     tick_start: int = 1
     tick_duration: int = 0
     tick_initial: int = 0
@@ -101,12 +97,12 @@ class OnlineCoreV2CalcParamsKwds(TypedDict, total=False):
     zero_output: bool | ZeroOutputMode
     work_mode: bool  # differ
     input_core: bool  # differ
-    input_sign: bool | InputSignMode
-    input_width: InputWidthFormat
-    output_sign: bool | OutputSignMode
-    output_width: OutputWidthFormat
-    weight_sign: bool | WeightSignMode
-    weight_width: WeightWidth
+    input_sign: bool | DataSign
+    input_width: DataWidth
+    output_sign: bool | DataSign
+    output_width: DataWidth
+    weight_sign: bool | DataSign
+    weight_width: DataWidth
     tick_start: int
     tick_duration: int
     tick_initial: int
