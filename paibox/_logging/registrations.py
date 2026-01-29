@@ -50,3 +50,5 @@ FX_CONVERTERS = [
 
 register_log("fx_converter", FX_CONVERTERS)
 register_artifact("fuse")
+register_artifact("trace")
+register_artifact("layout_annotate")
