@@ -19,6 +19,8 @@ from torch import Tensor
 from ..exceptions import NotSupportedError
 from .ir_base import PAIIR
 
+__all__ = ["NeuronV2", "SJIFNode", "SJLIFNode"]
+
 
 class NeuronV2(MemoryModule, PAIIR):
     _attrs_to_save: tuple[str, ...] = (
@@ -36,16 +38,13 @@ class NeuronV2(MemoryModule, PAIIR):
         "leak_tau",
         "leak_v",
         "init_v",
-        "tick_start",
-        "tick_duration",
-        "tick_initial",
     )
 
     def __init__(
         self,
         reset_mode: RM = RM.MODE_NORMAL,
         reset_v: float = 0,
-        thres_neg_mode: ThresholdNegMode = ThresholdNegMode.FIRE,
+        thres_neg_mode: ThresholdNegMode = ThresholdNegMode.FLOOR,
         thres_pos_mode: ThresholdPosMode = ThresholdPosMode.FIRE,
         thres_neg: float | None = None,
         thres_pos: float = 0,
@@ -66,12 +65,7 @@ class NeuronV2(MemoryModule, PAIIR):
     ) -> None:
         """Offline neuron model for chip v2.5."""
         super().__init__()
-        _thres_neg = (
-            thres_neg
-            if thres_neg is not None
-            else -9999
-            # OfflineNeuRegLimV2.THRES_NEG_MIN
-        )
+        _thres_neg = thres_neg if thres_neg is not None else -9999
         self.reset_mode = reset_mode
         self.reset_v = reset_v
         self.thres_neg_mode = thres_neg_mode
@@ -83,6 +77,8 @@ class NeuronV2(MemoryModule, PAIIR):
         self.leak_multi_input = LeakMultiInputMode(leak_multi_input)
         self.leak_multi_mode = LeakMultiMode(leak_multi_mode)
         self.leak_add_mode = leak_add_mode
+
+        assert self.thres_pos >= self.thres_neg
 
         if leak_tau_shift is None:
             self.leak_tau = self._get_tau_exponent(tau)
@@ -97,7 +93,7 @@ class NeuronV2(MemoryModule, PAIIR):
         self.tick_initial = tick_initial
 
         self.register_memory("v", init_v)
-        self._any_spike = False  # whether any spike has been fired at last timestep
+        self._any_pos_spike = False  # Any positive spikes at last timestep
 
     def forward(self, x: Tensor) -> Tensor:
         return self.single_step_forward(x)
@@ -107,19 +103,27 @@ class NeuronV2(MemoryModule, PAIIR):
             init_v = self.v
             self.v = torch.full_like(x.data, init_v)
 
-        if self.lateral_inhi == LateralInhibitionMode.ENABLE and self._any_spike:
-            # Lateral inhibition. Voltage starts accumulating at reset_v
-            self.v = torch.full_like(x.data, self.reset_v)
+        if self.lateral_inhi == LateralInhibitionMode.ENABLE and self._any_pos_spike:
+            # Lateral inhibition. Voltage starts accumulating at `reset_v`
+            self.v.fill_(self.reset_v)
 
         self.neuronal_charge(x)
-        spike = self.neuronal_fire()
+        pos_reset_mask, neg_reset_mask = self.neuronal_fire()
 
-        self.neuronal_reset(spike)
+        self.neuronal_reset(pos_reset_mask, neg_reset_mask)
+
+        spike = torch.zeros_like(self.v, dtype=torch.int8)
+        if self.thres_pos_mode == ThresholdPosMode.FIRE:
+            spike += torch.where(pos_reset_mask.bool(), 1, 0)
+
+        if self.thres_neg_mode == ThresholdNegMode.FIRE:
+            spike -= torch.where(neg_reset_mask.bool(), 1, 0)
+
+        self._any_pos_spike = torch.any(spike > 0)
 
         if self.leak_multi_sequence == LeakMultiComparisonOrder.AFTER_COMPARE:
             self.v = self._leak_multi()
 
-        self._any_spike = torch.any(spike)
         return spike
 
     def neuronal_charge(self, x: Tensor) -> None:
@@ -137,13 +141,14 @@ class NeuronV2(MemoryModule, PAIIR):
         if self.leak_multi_sequence == LeakMultiComparisonOrder.BEFORE_COMPARE:
             self.v = self._leak_multi()
 
-    def neuronal_fire(self) -> Tensor:
-        return ((self.v - self.thres_pos) >= 0).to(torch.int8)
+    def neuronal_fire(self) -> tuple[Tensor, Tensor]:
+        pos_reset_mask = ((self.v - self.thres_pos) >= 0).to(torch.int8)
+        neg_reset_mask = ((self.v - self.thres_neg) <= 0).to(torch.int8)
+        return pos_reset_mask, neg_reset_mask
 
-    def neuronal_reset(self, spike: Tensor) -> None:
-        self.v = self._pos_thres_reset(self.v, spike)
-        neg_spike = ((self.v - self.thres_neg) <= 0).to(torch.float)
-        self.v = self._neg_thres_reset(self.v, neg_spike)
+    def neuronal_reset(self, pos_reset_mask: Tensor, neg_reset_mask: Tensor) -> None:
+        self.v = self._pos_thres_reset(self.v, pos_reset_mask)
+        self.v = self._neg_thres_reset(self.v, neg_reset_mask)
 
     def _leak_tau_shift(self, v: Tensor) -> Tensor:
         if v.is_floating_point():
@@ -162,27 +167,27 @@ class NeuronV2(MemoryModule, PAIIR):
         else:
             return self.v - self._leak_tau_shift(self.v)
 
-    def _pos_thres_reset(self, v: Tensor, spike: Tensor) -> Tensor:
+    def _pos_thres_reset(self, v: Tensor, mask: Tensor) -> Tensor:
         if self.thres_pos_mode == ThresholdPosMode.FIRE:
-            if self.reset_mode == RM.MODE_NORMAL:
-                return (1 - spike) * v + spike * self.reset_v  # hard reset
-            elif self.reset_mode == RM.MODE_LINEAR:
-                return v - spike * self.thres_pos  # soft reset
+            if self.reset_mode == RM.MODE_NORMAL:  # hard reset
+                return (1 - mask) * v - mask * self.reset_v
+            elif self.reset_mode == RM.MODE_LINEAR:  # soft reset
+                return v - mask * self.thres_pos
             else:
                 return v
         else:  # CEILING
-            return (1 - spike) * v + spike * self.thres_pos
+            return (1 - mask) * v + mask * self.thres_pos
 
-    def _neg_thres_reset(self, v: Tensor, spike: Tensor) -> Tensor:
+    def _neg_thres_reset(self, v: Tensor, mask: Tensor) -> Tensor:
         if self.thres_neg_mode == ThresholdNegMode.FIRE:
-            if self.reset_mode == RM.MODE_NORMAL:
-                return (1 - spike) * v - spike * self.reset_v  # hard reset
-            elif self.reset_mode == RM.MODE_LINEAR:
-                return v - spike * self.thres_neg  # soft reset
+            if self.reset_mode == RM.MODE_NORMAL:  # hard reset
+                return (1 - mask) * v - mask * self.reset_v
+            elif self.reset_mode == RM.MODE_LINEAR:  # soft reset
+                return v - mask * self.thres_neg
             else:
                 return v
         else:  # FLOOR
-            return (1 - spike) * v - spike * self.thres_neg
+            return (1 - mask) * v - mask * self.thres_neg
 
     @staticmethod
     def _get_tau_exponent(tau: float) -> int:
@@ -267,7 +272,6 @@ class SJLIFNode(NeuronV2):
         leak_multi_mode = (
             LeakMultiMode.ENABLE if v_reset != 0 else LeakMultiMode.DISABLE
         )
-
         super().__init__(
             reset_mode=reset_mode,
             reset_v=v_reset,
