@@ -7,7 +7,13 @@ from torch import fx, nn
 from torch.fx.node import Argument, Target
 from torch.fx.passes.shape_prop import ShapeProp
 
+from paibox import _logging
 from paibox.fx_converter.fuse import fuse_conv_bn
+
+from ..exceptions import NotSupportedError
+from .opset import IGNORED_MODULES
+
+trace_log = _logging.get_artifact_logger(__name__, "trace")
 
 
 class NeuronAsOpTracer(fx.Tracer):
@@ -18,40 +24,39 @@ class NeuronAsOpTracer(fx.Tracer):
         return super().is_leaf_module(m, module_qualified_name)
 
 
-class DropoutRemover(torch.fx.Transformer):
+class IgnoredModuleRemover(torch.fx.Transformer):
     def call_module(
         self, target: Target, args: tuple[Argument, ...], kwargs: dict[str, Any]
     ) -> Any:
         assert isinstance(target, str)
-        if isinstance(self.submodules[target], nn.Dropout):
+        if isinstance(self.submodules[target], tuple(IGNORED_MODULES)):
             assert len(args) == 1
             return args[0]
         else:
             return super().call_module(target, args, kwargs)
 
 
-class IdentityRemover(torch.fx.Transformer):
-    def call_module(
-        self, target: Target, args: tuple[Argument, ...], kwargs: dict[str, Any]
-    ) -> Any:
-        assert isinstance(target, str)
-        if isinstance(self.submodules[target], nn.Identity):
-            assert len(args) == 1
-            return args[0]
-        else:
-            return super().call_module(target, args, kwargs)
-
-
-def trace_spikingjelly_model(m: nn.Module) -> fx.GraphModule:
+def trace_spikingjelly_model(
+    m: nn.Module, concrete_args: dict[str, Any] | None = None
+) -> fx.GraphModule:
     m.eval()
+    m.cpu()
     m.requires_grad_(False)
     sF.reset_net(m)
 
-    tracer = NeuronAsOpTracer()
-    traced_graph = tracer.trace(m)
-    traced = fx.GraphModule(m, traced_graph)
-    traced.graph.lint()
-    return traced
+    traced_graph = NeuronAsOpTracer().trace(m, concrete_args)
+    gm = fx.GraphModule(m, traced_graph)
+    # Remove ignored modules from the graph
+    traced = IgnoredModuleRemover(gm).transform()
+    # Eliminate dead code
+    return eliminate_dead_code(traced)
+
+
+def eliminate_dead_code(gm: fx.GraphModule) -> fx.GraphModule:
+    gm.graph.eliminate_dead_code()
+    gm.graph.lint()
+    gm.recompile()
+    return gm
 
 
 def flatten_module_sequential(gm: fx.GraphModule) -> fx.GraphModule:
@@ -93,18 +98,27 @@ def flatten_module_sequential(gm: fx.GraphModule) -> fx.GraphModule:
 
 
 def propagate_tensor_shape(gm: fx.GraphModule, *input: torch.Tensor) -> None:
-    # TODO dtype?
+    for i in input:
+        if (batch := i.shape[0]) != 1:
+            raise NotSupportedError(
+                f"only support batch size 1 for now, but got {batch}"
+            )
+
     shape_prop = ShapeProp(gm)
     shape_prop.propagate(*input)
 
     for node in gm.graph.nodes:
-        print(node.name, node.meta["tensor_meta"].dtype, node.meta["tensor_meta"].shape)
+        if "tensor_meta" in node.meta:
+            print(
+                node.name,
+                node.meta["tensor_meta"].dtype,
+                node.meta["tensor_meta"].shape,
+            )
 
 
 def remove_dropout_identity_and_fuse_conv_bn(m: nn.Module) -> fx.GraphModule:
     m = trace_spikingjelly_model(m)
-    m = DropoutRemover(m).transform()
-    m = IdentityRemover(m).transform()
+    m = IgnoredModuleRemover(m).transform()
     m.graph.print_tabular()
     m = fuse_conv_bn(m, inplace=True, no_trace=True)
     flatten_module_sequential(m)
