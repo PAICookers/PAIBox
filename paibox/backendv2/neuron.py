@@ -8,76 +8,84 @@ from paicorelib import (
     FrameArrayType,
     NeuDestInfoV2,
     NeuronType,
-    OfflineCoreRegV2,
     OfflineFrameGenV2,
     OfflineNeuDestInfoV2,
     OfflineNeuFoldedAttrsV2Part1,
     OfflineNeuFoldedAttrsV2Part2,
     OfflineNeuFullAttrsV2Part1,
     OfflineNeuFullAttrsV2Part2,
+    OutputType,
 )
 
-from .core_config import Inherited_Core_Config
-
-
-class CoreOpNode:
-    def attrs_part2(self) -> OfflineNeuFullAttrsV2Part2:
-        raise NotImplementedError("attrs_part2 method is not implemented yet.")
-
-    def core_config(self) -> Inherited_Core_Config:
-        raise NotImplementedError("core_config method is not implemented yet.")
-
-    def __hash__(self) -> int:
-        return hash(id(self))
-
-
-class CustomIndex:
-    def __init__(self):
-        self.idx = 0
-
-    def __hash__(self) -> int:
-        return hash(self.idx)
+from .core_config import Frontend_Core_Config
+from .op_node import CoreOpNode, CustomIndex, InputNode
 
 
 class Neuron:
-    def __init__(
-        self, target: Optional[CoreOpNode] = None, index: Optional[CustomIndex] = None
-    ):
-        if target is None or index is None:
-            raise ValueError("target and index must be provided.")
+    def __init__(self, target: CoreOpNode, index: CustomIndex):
         self.target = target
         self.index = index
 
     def attrs_part2(self) -> OfflineNeuFullAttrsV2Part2:
-        if self.target is not None:
-            return self.target.attrs_part2()
-        else:
-            raise ValueError("target has not been set yet.")
+        return self.target.attrs_part2()
 
-    def core_config(self) -> Inherited_Core_Config:
-        if self.target is not None:
-            return self.target.core_config()
-        else:
-            raise ValueError("target has not been set yet.")
+    def output_type(self) -> OutputType:
+        return self.target.output_type()
+
+    def core_config(self) -> Frontend_Core_Config:
+        return self.target.core_config()
 
     def __hash__(self) -> int:
         return hash((self.index, self.target))
 
+    def __eq__(self, value: "Neuron") -> bool:
+        return self.index == value.index and self.target is value.target
+
+    def __str__(self) -> str:
+        return f"{self.target.name}[{self.index.idx}]"
+
+    def __repr__(self) -> str:
+        return self.__str__()
+
+
+class InputElem:
+    def __init__(self, target: InputNode, index: CustomIndex):
+        self.target = target
+        self.index = index
+
+    def __hash__(self) -> int:
+        return hash((self.index, self.target))
+
+    def __eq__(self, value: "InputElem") -> bool:
+        return self.index == value.index and self.target is value.target
+
+    def __str__(self) -> str:
+        return f"{self.target.name}[{self.index.idx}]"
+
+    def __repr__(self) -> str:
+        return self.__str__()
+
 
 class NeuronPlacement:
-    def __init__(self) -> None:
-        self.raw_neus: list[Neuron] = []
-        self.dest_info: Optional[OfflineNeuDestInfoV2] = None
+    def __init__(self, neu: list[Neuron]) -> None:
+        self.raw_neus: list[Neuron] = neu
+        self.dest_info: Optional[NeuDestInfoV2] = None
 
 
 class OfflineNeuronPlacement(NeuronPlacement):
-    def __init__(self, neu, attrs):
+    def __init__(
+        self,
+        neu: list[Neuron],
+        attrs_part1: OfflineNeuFullAttrsV2Part1,
+        attrs_part2: OfflineNeuFullAttrsV2Part2,
+    ):
         super().__init__(neu)
-        self.neu_attrs_part1: Optional[OfflineNeuFullAttrsV2Part1] = None
-        self.neu_attrs_part2: Optional[OfflineNeuFullAttrsV2Part2] = attrs
+        self.neu_attrs_part1: OfflineNeuFullAttrsV2Part1 = attrs_part1
+        self.neu_attrs_part2: Optional[OfflineNeuFullAttrsV2Part2] = (
+            attrs_part2 if attrs_part1.neuron_type == NeuronType.FULL else None
+        )
         self.folded_neu_attrs_part1: Optional[OfflineNeuFoldedAttrsV2Part1] = None
         self.folded_neu_attrs_part2s: list[OfflineNeuFoldedAttrsV2Part2] = []
-        self.neuron_type = NeuronType.FULL
 
     def n_sram_required(self) -> int:
         n_sram = 0
@@ -93,6 +101,8 @@ class OfflineNeuronPlacement(NeuronPlacement):
     def to_package(self) -> FrameArrayType:
         if self.dest_info is None:
             raise ValueError("dest_info has not been set yet.")
+        if not isinstance(self.dest_info, OfflineNeuDestInfoV2):
+            raise TypeError("dest_info must be of type OfflineNeuDestInfoV2.")
 
         half_neu, full_neu, fold_neu = OfflineFrameGenV2.gen_config_frame3_pkg_neu(
             dest_info=self.dest_info,
@@ -106,3 +116,7 @@ class OfflineNeuronPlacement(NeuronPlacement):
             [half_neu, full_neu, fold_neu], axis=0
         ).astype(FRAME_DTYPE)
         return frame_list
+
+    @property
+    def neuron_type(self) -> NeuronType:
+        return self.neu_attrs_part1.neuron_type

@@ -5,12 +5,18 @@ from typing import Literal, Union
 import numpy as np
 from paicorelib import (
     FRAME_DTYPE,
+    DataWidth,
     FrameArrayType,
     OfflineFrameGenV2,
     WeightCompressType,
 )
 
-N_WEIGHTS_PER_SRAM = {1: 7, 2: 7, 4: 6, 8: 5}
+N_WEIGHTS_PER_SRAM = {
+    DataWidth.WIDTH_1BIT: 7,
+    DataWidth.WIDTH_2BIT: 7,
+    DataWidth.WIDTH_4BIT: 6,
+    DataWidth.WIDTH_8BIT: 5,
+}
 
 
 class Weight:
@@ -18,15 +24,13 @@ class Weight:
         self,
         data: Union[np.ndarray, list[int]],
         compress_type: WeightCompressType,
-        weight_width: int,
+        weight_width: DataWidth,
     ):
         if isinstance(data, np.ndarray):
             self.raw_weights: list[int] = data.tolist()
         else:
             self.raw_weights: list[int] = list(data)
 
-        if weight_width not in (1, 2, 4, 8):
-            raise ValueError(f"Unsupported weight width: {weight_width}")
         self.weight_width = weight_width
 
         self.compress: bool = (
@@ -41,7 +45,7 @@ class Weight:
 
     def n_sram_required(self) -> int:
         if not self.compress:
-            return (len(self.processed_weights) * self.weight_width + 127) // 128
+            return (len(self.processed_weights) * (2**self.weight_width) + 127) // 128
 
         else:
             # non zero weight in raw weights

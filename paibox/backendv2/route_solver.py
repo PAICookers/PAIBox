@@ -40,13 +40,13 @@ def get_shapes_by_area() -> (
     for coord in itertools.product(range(0, 5), range(0, 5), range(0, 5)):
         n = aer_packet_area(coord)
         copy_config = AERPacketZXYCopy(*coord)
+        copy_configs[n].append(copy_config.copy())
         packet = AERPacket(ncopy=copy_config)
         covered = aer_packet_walk(packet)
         n_covered = len(covered)
 
         assert n == n_covered
         shapes[n].append(covered)
-        copy_configs[n].append(copy_config)
 
     return shapes, copy_configs
 
@@ -117,6 +117,7 @@ def print_route_result(
 
 
 SHAPES_BY_AREA, COPY_CONFIGS = get_shapes_by_area()
+MAX_AREA = max(SHAPES_BY_AREA.keys())
 
 
 def route_solve(
@@ -129,7 +130,13 @@ def route_solve(
     placement_area = []
 
     for area_id, area in enumerate(areas):
-        shapes = SHAPES_BY_AREA.get(area, [])
+
+        shapes = []
+        for selected_area in range(area, MAX_AREA + 1):
+            if selected_area in SHAPES_BY_AREA:
+                shapes = SHAPES_BY_AREA[selected_area]
+                break
+
         for shape_id, shape in enumerate(shapes):
             for h in HIVE:
                 shifted = [
@@ -137,6 +144,7 @@ def route_solve(
                 ]  # (h_row + s_row, h_col + s_col)
                 if all(c in HIVE for c in shifted):
                     placement_dict = {
+                        "actual_area": selected_area,
                         "area_id": area_id,
                         "shape_id": shape_id,
                         "cells": [HIVE_INDEX[c] for c in shifted],
@@ -248,7 +256,7 @@ def route_solve(
         for i in range(N):
             if solver.Value(x[i]) == 1:
                 p = placements[i]
-                copy_config = COPY_CONFIGS[areas[p["area_id"]]][p["shape_id"]]
+                copy_config = COPY_CONFIGS[p["actual_area"]][p["shape_id"]]
                 copy_configs.append(copy_config)
                 coords.append([CoordXY(r, c) for r, c in p["absolute_coords"]])
     else:
