@@ -182,16 +182,17 @@ class BaseCoreOp(nn.Module, PAIIR):
     @abstractmethod
     def build(cls, *args, **kwargs): ...
 
-    def get_attrs(self) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    def get_attrs(self) -> tuple[dict[str, Any], NeuronParams, dict[str, Any]]:
         core_attrs = asdict(self.core_params)
 
         if self.neuron_params is not None:
-            neu_attrs = asdict(self.neuron_params)
+            neu_attrs = self.neuron_params
         elif isinstance(self.neuron_op, NeuronV2):
-            neu_attrs = self.neuron_op.get_attrs()
-            neu_attrs.setdefault("output_type", OutputType.VALUE)
+            neu_attrs_dict = self.neuron_op.get_attrs()
+            neu_attrs_dict.setdefault("output_type", OutputType.VALUE)
+            neu_attrs = NeuronParams(**neu_attrs_dict)
         else:  # Use default parameters
-            neu_attrs = asdict(NeuronParams())
+            neu_attrs = NeuronParams()
 
         if self.compute_params is not None:
             comp_attrs = asdict(self.compute_params)

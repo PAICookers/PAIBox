@@ -157,3 +157,5 @@ debug
 *.drawio
 
 .idea/
+
+output/
