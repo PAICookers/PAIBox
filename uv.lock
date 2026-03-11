@@ -1072,9 +1072,6 @@ dev = [
     { name = "torch", version = "2.9.1", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "python_full_version >= '3.12' and platform_machine != 'armv7l' and sys_platform == 'darwin'" },
     { name = "torch", version = "2.9.1+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "python_full_version >= '3.12' and platform_machine != 'armv7l' and sys_platform != 'darwin'" },
 ]
-optional = [
-    { name = "tabulate", marker = "platform_machine != 'armv7l'" },
-]
 
 [package.metadata]
 requires-dist = [{ name = "numpy", specifier = ">=2.1.0,<3.0.0" }]
@@ -1092,7 +1089,6 @@ dev = [
     { name = "torch", marker = "python_full_version < '3.12'", specifier = ">=2.0.0,<2.2.0", index = "https://download.pytorch.org/whl/cpu" },
     { name = "torch", marker = "python_full_version >= '3.12'", specifier = ">=2.2.0", index = "https://download.pytorch.org/whl/cpu" },
 ]
-optional = [{ name = "tabulate", specifier = ">=0.9.0" }]
 
 [[package]]
 name = "paicorelib"
