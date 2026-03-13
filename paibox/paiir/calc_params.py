@@ -29,7 +29,7 @@ from torch import Tensor
 __all__ = ["LutData", "OfflineCoreParams", "NeuronParams", "OnlineCoreParams"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class LutData:
     """LUT lookup table data for ANN mode offline cores.
 
@@ -40,6 +40,20 @@ class LutData:
     thresholds: Tensor  # shape (256,), bin boundaries
     values: Tensor  # shape (256,), output values
     is_float: bool = False  # True for float32 thresholds / bfloat16 values
+
+    def _tensor_hash(self, t: Tensor) -> int:
+        # detach + cpu 保证可序列化
+        t = t.detach().cpu().contiguous()
+        return hash((tuple(t.shape), str(t.dtype), t.numpy().tobytes()))
+
+    def __hash__(self) -> int:
+        return hash(
+            (
+                self._tensor_hash(self.thresholds),
+                self._tensor_hash(self.values),
+                self.is_float,
+            )
+        )
 
 
 # Chip register limits
@@ -140,7 +154,7 @@ class NeuronParams:
     leak_multi_mode: LeakMultiMode = LeakMultiMode.DISABLE
     leak_add_mode: LeakAddMode = LeakAddMode.FORWARD
     leak_tau: int = 0
-    leak_v: float = 0.0
+    leak_v: float | Tensor = 0.0
     init_v: float = 0.0
     output_type: OutputType = OutputType.VALUE
 

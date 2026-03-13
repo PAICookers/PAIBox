@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 
 from paicorelib import (
     LCN_EX,
@@ -12,6 +13,8 @@ from paicorelib import (
     SNNMode,
     ZeroOutputMode,
 )
+
+from paibox.paiir import LutData
 
 TEST_DEST_CORE = CoordXY(0, 0)
 
@@ -60,6 +63,7 @@ class Frontend_Core_Config:
     tick_start: int = 1
     tick_duration: int = 0
     tick_initial: int = 0
+    lut_data: Optional[LutData] = None
 
 
 def to_core_reg(

@@ -18,7 +18,7 @@ from paicorelib import (
 )
 
 from .core_config import Frontend_Core_Config
-from .op_node import CoreOpNode, CustomIndex, InputNode
+from .op_node import CoreOpNode, CustomIndex, InNode
 
 
 class Neuron:
@@ -27,7 +27,7 @@ class Neuron:
         self.index = index
 
     def attrs_part2(self) -> OfflineNeuFullAttrsV2Part2:
-        return self.target.attrs_part2()
+        return self.target.attrs_part2(self.index.idx)
 
     def output_type(self) -> OutputType:
         return self.target.output_type()
@@ -49,7 +49,7 @@ class Neuron:
 
 
 class InputElem:
-    def __init__(self, target: InputNode, index: CustomIndex):
+    def __init__(self, target: InNode, index: CustomIndex):
         self.target = target
         self.index = index
 
