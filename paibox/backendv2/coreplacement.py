@@ -6,12 +6,17 @@ from typing import Optional
 import numpy as np
 from paicorelib import (
     FRAME_DTYPE,
+    LUT_ACTIVATION_DTYPE,
+    LUT_POTENTIAL_DTYPE,
     CoordXY,
     DataWidth,
     FrameArrayType,
+    LUTActivationType,
+    LUTPotentialType,
     NeuronType,
     OfflineCoreRegV2,
     OfflineFrameGenV2,
+    SNNMode,
     find_coordxy_shortest_path,
 )
 
@@ -66,7 +71,9 @@ class CorePlacement:
         return self._coord
 
     @abstractmethod
-    def to_frame(self) -> tuple[FrameArrayType, FrameArrayType]:
+    def to_frame(
+        self,
+    ) -> tuple[FrameArrayType, Optional[FrameArrayType], FrameArrayType]:
         pass
 
     @abstractmethod
@@ -142,7 +149,9 @@ class OfflineCorePlacementV2(CorePlacement):
         self.auto_core_config.test_core_x = pkt_offset.x
         self.auto_core_config.test_core_y = pkt_offset.y
 
-    def to_frame(self) -> tuple[FrameArrayType, FrameArrayType]:
+    def to_frame(
+        self,
+    ) -> tuple[FrameArrayType, Optional[FrameArrayType], FrameArrayType]:
         pkt_offset, _ = find_coordxy_shortest_path(self.coord)
 
         # frame_type_1: core config
@@ -150,6 +159,21 @@ class OfflineCorePlacementV2(CorePlacement):
             pkt_offset=pkt_offset,
             core_reg_=self.core_config,
         )
+
+        frame_type2: Optional[FrameArrayType] = None
+        # frame_type_2: lut config
+        if self.frontend_core_config.lut_data is not None:
+            # assert self.frontend_core_config.snn_ann == SNNMode.ANN, "lut_data should only be provided for ANN mode"
+            potential_tensor = self.frontend_core_config.lut_data.thresholds
+            activation_tensor = self.frontend_core_config.lut_data.values
+            potentials = potential_tensor.numpy()
+            activations = activation_tensor.numpy()
+
+            frame_type2 = OfflineFrameGenV2.gen_config_frame2(
+                pkt_offset=pkt_offset,
+                potentials=potentials,
+                activations=activations,
+            )
 
         package_arrays: list[FrameArrayType] = []
         for neu in self.neus:
@@ -170,7 +194,7 @@ class OfflineCorePlacementV2(CorePlacement):
             FRAME_DTYPE
         )
 
-        return frame_type1, frame_type3
+        return frame_type1, frame_type2, frame_type3
 
 
 class EmptyOfflineCorePlacementV2(OfflineCorePlacementV2):

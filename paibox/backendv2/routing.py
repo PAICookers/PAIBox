@@ -26,6 +26,7 @@ from .coreplacement import (
     OfflineCorePlacementV2,
 )
 from .neuron import InputElem, Neuron, OfflineNeuronPlacement
+from .op_node import CoreOpNode, InNode
 from .weight import Weight
 
 FANIN_BASE = 512
@@ -37,7 +38,7 @@ def get_raw_weights(
     # emplement your own weight retrieval logic here
     # raw_neu and input_neu are both single neuron at an index of a CoreOpNode or InputNode
     # the shape of the complete core op node or input node can be found in raw_neu.target.shape or input_neu.target.shape
-    # the index of the elem in flatten is neu.index.idx or elem.index.idx 
+    # the index of the elem in flatten is neu.index.idx or elem.index.idx
     for neu in raw_neus:
         neu.target.shape
         neu.index.idx
@@ -47,7 +48,7 @@ def get_raw_weights(
 
     n_output = len(raw_neus)
     n_input = len(input_neus)
-    
+
     # weight's shape should be (n_output, n_input)
     weights = np.zeros((n_output, n_input), dtype=np.int32)
     for i, neu in enumerate(raw_neus):
@@ -56,26 +57,39 @@ def get_raw_weights(
             # weights[i, j] should be the weight from input_neus[j] to raw_neus[i]
             # which is the weight from elem.target to neu.target
             # at the corresponding indices elem.index.idx and neu.index.idx
-            
+
             # if there is no weight connection, set weights[i, j] to 0
-            # for now, we can only consider the neu.target.raw_node is a SeqCoreOp
-            # at PAIBox/paibox/fx_converter/core_op.py:208
             
-            # if neu.target.predecessors contains elem.target
-            # then the weight is decided by neu.target.raw_node.op1
-            # op1 is can be linear or conv2d
-            # for linear the weight from neu.target to elem.target can be found in op1.weight
+            # the weight of neu.target 
+            neu.target.weights 
+            # is the weights for 
+            neu.target.predecessors 
+            # to neu.target
+            # the order of weights corresponds to the order of predecessors, which can be CoreOpNode or InNode
             
-            # for conv2d the weight from neu.target to elem.target 
-            # should be the unfolded weight of the conv2d
-            # (you can ask how to convert conv2d to a matrix multiplication for more details)
+            # you can get the nn.Module for weight unfold, also in the same order of predecessors and weights, from
+            neu.target.comps
             
+            # for different comp, the weight should be handled differently
+            
+            # for conv2d, neu.target.raw_node.weights returns a kernel of the conv2d
+            # you need to unfold the kernel according to the conv2d parameters to get the weight between input_neu.target and raw_neu.target
+            
+            # for (max and average)pooling, the weight is None,
+            # you also need to unfold the kernel to get the weight between input_neu.target and raw_neu.target, and set the weight value to 1 
+            
+            # if comp is liner or None, the weight is the direct weight between input_neu.target and raw_neu.target, you can directly use it without unfold
+            
+            
+            # when you get the weight from input_neu.target to neu.target, you can set weights[i, j] 
+            # weights[i, j] = weight_from_input_to_neu[elem.index.idx, neu.index.idx]
+
             # the neu.target and elem.target are mostly same in raw_neus and input_neus
             # so you can cache the weight matrix for each unique target node to accelerate the process
-            
-            # there is a simple test example at PAIBox/test.py
-            
-            weights[i, j] = -1 # unset weight value  
+
+            # there is a simple test example at PAIBox/test_paiir.py
+
+            weights[i, j] = -1  # unset weight value
 
     return weights
 
@@ -85,10 +99,22 @@ class RoutingGroup:
 
     # core_blocks in the same routing group share the same following properties
     # lcn, input_sign, input_width
-    def __init__(self, raw_neus: list[Neuron], input_list: list[Neuron | InputElem]):
+    def __init__(
+        self,
+        raw_neus: list[Neuron],
+        input_list: list[Neuron | InputElem],
+        nodes: Optional[set[CoreOpNode]] = None,
+        input_nodes: Optional[set[CoreOpNode | InNode]] = None,
+    ):
         self.id: int = type(self)._counter
         type(self)._counter += 1
         self.name: str = f"RG_{self.id}"
+
+        # for better optimization, if nodes and input_nodes are provided,
+        # it means the raw_neus and input_list are all neu and input_elem generated from these nodes,
+        # so we can directly get the weight matrix for this routing group without checking the connection between each raw_neu and input_elem
+        self.nodes = nodes
+        self.input_nodes = input_nodes
 
         # set by generate_routing_groups
         self.raw_neus: list[Neuron] = raw_neus

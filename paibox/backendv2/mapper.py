@@ -6,27 +6,49 @@ from typing import TextIO
 from paicorelib import LCN_EX, AERPacketZXYCopy, CoordXY, FrameArrayType
 from torch.fx import GraphModule
 
-from .op_node import CoreOpNode, InputNode, build_nodes
+from paibox.paiir import PAIIRGraph
+
+from .op_node import CoreOpNode, InNode, build_nodes
 from .rg_build import build_routing_groups
 from .route_solver import route_solve
 from .routing import RoutingGroup, toposort_for_rg
 
 
-def export_single_framearray(frame_array: FrameArrayType, file: TextIO) -> None:
+def export_single_framearray(
+    frame_array: FrameArrayType, file: TextIO, prefix: str = ""
+) -> None:
     for frame in frame_array:
-        file.write(f"{frame:016x}\n")
+        hex_str = f"{frame:016x}"
+        hex_str = "_".join(hex_str[i : i + 4] for i in range(0, 16, 4))
+        file.write(f"{prefix}{hex_str}\n")
+
+def export_framearray_to_bit(
+    frame_array: FrameArrayType, file: TextIO, prefix: str = ""
+) -> None:
+    for frame in frame_array:
+        # mask 取高32位和低32位
+        high32 = (frame >> 32) & 0xFFFFFFFF
+        low32 = frame & 0xFFFFFFFF
+        # 转成二进制字符串，每32位补0
+        high_bin = f"{high32:032b}"
+        low_bin = f"{low32:032b}"
+        # 每16位加下划线，可读性更好
+        high_bin = "_".join(high_bin[i:i+16] for i in range(0, 32, 16))
+        low_bin = "_".join(low_bin[i:i+16] for i in range(0, 32, 16))
+        # 输出到一行
+        file.write(f"{prefix}0b{high_bin},0b{low_bin},\n")
 
 
 class Mapper:
     def __init__(self):
         self.routing_groups: list[RoutingGroup] = []
-        self.nodes: list[CoreOpNode | InputNode] = []
+        self.nodes: list[CoreOpNode | InNode] = []
         self.output_routing_group: RoutingGroup = RoutingGroup([], [])
         self.output_routing_group._base_coord = CoordXY(0, 0)
         self.output_routing_group._multicast_config = AERPacketZXYCopy(z=0, x=0, y=0)
 
-    def generate_routing_groups(self, torch_graph: GraphModule):
-        self.nodes = build_nodes(torch_graph)
+    def generate_routing_groups(self, pai_graph: PAIIRGraph):
+        self.nodes = build_nodes(pai_graph)
         self.routing_groups = build_routing_groups(self.nodes)
 
     def set_rough_dest(self):
@@ -73,26 +95,76 @@ class Mapper:
         for rg in self.routing_groups:
             rg.set_auto_core_config()
 
+    def export_cheader_file(self, output_path: str):
+        os.makedirs(output_path, exist_ok=True)
+        frame1_path = output_path + "/frame_type1.h"
+        frame2_path = output_path + "/frame_type2.h"
+        frame3_path = output_path + "/frame_type3.h"
+        with (
+            open(frame1_path, "w") as frame1_file,
+            open(frame2_path, "w") as frame2_file,
+            open(frame3_path, "w") as frame3_file,
+        ):
+            frame1_file.write("volatile unsigned int config_frame1[] __attribute__((section(\".large_const_data\"))) ={\n")
+            frame2_file.write("volatile unsigned int config_frame2[] __attribute__((section(\".large_const_data\"))) ={\n")
+            frame3_file.write("volatile unsigned int config_frame3[] __attribute__((section(\".large_const_data\"))) ={\n")
+            for rg in self.routing_groups:
+                for core_placement in rg.core_placements:
+                    core_frame_type1, core_frame_type2, core_frame_type3 = (
+                        core_placement.to_frame()
+                    )
+                    # export core_frame_type1 and core_frame_type3 to output_path
+                    export_framearray_to_bit(core_frame_type1, frame1_file, "\t0x")
+                    if core_frame_type2 is not None:
+                        export_framearray_to_bit(core_frame_type2, frame2_file, "\t0x")
+                    export_framearray_to_bit(core_frame_type3, frame3_file, "\t0x")
+
+            frame1_file.write("};\n")
+            frame2_file.write("};\n")
+            frame3_file.write("};\n")
+
     def export(self, output_path: str):
         os.makedirs(output_path, exist_ok=True)
         frame1_path = output_path + "/frame_type1.txt"
+        frame2_path = output_path + "/frame_type2.txt"
         frame3_path = output_path + "/frame_type3.txt"
         with (
             open(frame1_path, "w") as frame1_file,
+            open(frame2_path, "w") as frame2_file,
             open(frame3_path, "w") as frame3_file,
         ):
             for rg in self.routing_groups:
                 for core_placement in rg.core_placements:
-                    core_frame_type1, core_frame_type3 = core_placement.to_frame()
+                    frame1_file.write(
+                        f"# Core at coord ({core_placement.coord.x}, {core_placement.coord.y}):\n"
+                    )
+                    frame2_file.write(
+                        f"# Core at coord ({core_placement.coord.x}, {core_placement.coord.y}):\n"
+                    )
+                    frame3_file.write(
+                        f"# Core at coord ({core_placement.coord.x}, {core_placement.coord.y}):\n"
+                    )
+
+                    core_frame_type1, core_frame_type2, core_frame_type3 = (
+                        core_placement.to_frame()
+                    )
                     # export core_frame_type1 and core_frame_type3 to output_path
                     # framearray is np.ndarray of np.uint64 with shape (n_frames, )
                     # print each frame with 16 hex digits each line
-                    export_single_framearray(core_frame_type1, frame1_file)
-                    export_single_framearray(core_frame_type3, frame3_file)
+                    export_single_framearray(
+                        core_frame_type1, frame1_file, prefix="\t0x"
+                    )
+                    if core_frame_type2 is not None:
+                        export_single_framearray(
+                            core_frame_type2, frame2_file, prefix="\t0x"
+                        )
+                    export_single_framearray(
+                        core_frame_type3, frame3_file, prefix="\t0x"
+                    )
 
-    def compile(self, torch_graph: GraphModule):
+    def compile(self, pai_graph: PAIIRGraph):
         # determine raw_neus in routing groups, other properties remain unset
-        self.generate_routing_groups(torch_graph)
+        self.generate_routing_groups(pai_graph)
 
         print(self.routing_groups)
 
@@ -121,3 +193,4 @@ class Mapper:
 
         # export to hardware executable format
         self.export(output_path="./output")
+        self.export_cheader_file(output_path="./output")
