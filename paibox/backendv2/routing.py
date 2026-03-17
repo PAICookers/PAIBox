@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 import numpy as np
+import torch
 from paicorelib import (
     LCN_EX,
     AERPacketZXYCopy,
@@ -18,6 +19,8 @@ from paicorelib import (
     WeightCompressType,
     find_coordxy_shortest_path,
 )
+from torch import Tensor, nn
+from torch.nn import functional as F
 
 from .core_config import Backend_Core_Config, Frontend_Core_Config
 from .coreplacement import (
@@ -28,68 +31,444 @@ from .coreplacement import (
 from .neuron import InputElem, Neuron, OfflineNeuronPlacement
 from .op_node import CoreOpNode, InNode
 from .weight import Weight
+from ..paiir import AccumulateOp, AddOp, SequentialOp, StandaloneActOp, StandaloneCompOp
 
 FANIN_BASE = 512
+
+
+def feature_shape(shape: torch.Size | tuple[int, ...]) -> tuple[int, ...]:
+    # Backend weight extraction works on feature dimensions only.
+    # The leading batch dimension is stripped and must stay equal to 1.
+    feature_shape = tuple(shape)
+    if len(feature_shape) > 1:
+        batch = feature_shape[0]
+        if batch != 1:
+            raise NotImplementedError(
+                f"Only batch size 1 is supported, but got shape {feature_shape}."
+            )
+        feature_shape = feature_shape[1:]
+
+    return feature_shape
+
+
+def to_nd_tuple(value: int | tuple[int, ...], ndim: int) -> tuple[int, ...]:
+    if isinstance(value, tuple):
+        if len(value) != ndim:
+            raise ValueError(f"Expected a tuple of length {ndim}, but got {value}.")
+        return value
+
+    return (value,) * ndim
+
+
+def ensure_target_components(target: CoreOpNode) -> None:
+    # Lazily reconstruct per-predecessor comps/weights so routing can
+    # query them even if node initialization did not populate them yet.
+    if not target.predecessors:
+        return
+
+    if len(target.comps) == len(target.predecessors) and len(target.weights) == len(
+        target.predecessors
+    ):
+        return
+
+    raw_node = target.raw_node
+    if isinstance(raw_node, SequentialOp):
+        target.comps = [raw_node.comp]
+    elif isinstance(raw_node, AccumulateOp):
+        target.comps = list(raw_node.comps)
+    elif isinstance(raw_node, StandaloneCompOp):
+        target.comps = [raw_node.comp]
+    elif isinstance(raw_node, StandaloneActOp):
+        target.comps = [None]
+    elif isinstance(raw_node, AddOp):
+        target.comps = [None] * len(raw_node.signs)
+    else:
+        raise NotImplementedError(f"Unsupported node type: {type(raw_node)}")
+
+    raw_weights = raw_node.weights
+    if raw_weights is None:
+        target.weights = [None] * len(target.comps)
+    else:
+        target.weights = list(raw_weights)
+
+
+def path_signs(target: CoreOpNode) -> list[int]:
+    # Accumulate/Add nodes may encode subtraction through per-path signs.
+    raw_node = target.raw_node
+    if isinstance(raw_node, (AccumulateOp, AddOp)):
+        return list(raw_node.signs)
+
+    return [1] * len(target.predecessors)
+
+
+def direct_weight_matrix(
+    weight: Tensor, input_shape: tuple[int, ...], output_shape: tuple[int, ...], sign: int
+) -> np.ndarray:
+    # Linear/identity-like paths already expose a dense [out, in] matrix.
+    matrix = np.asarray(weight.detach().cpu(), dtype=np.int32)
+    n_input = int(np.prod(input_shape))
+    n_output = int(np.prod(output_shape))
+
+    if matrix.shape != (n_output, n_input):
+        raise ValueError(
+            f"Direct weight shape mismatch: expected {(n_output, n_input)}, got {matrix.shape}."
+        )
+
+    if sign != 1:
+        matrix = sign * matrix
+
+    return matrix
+
+
+def unfold_input_indices_2d(
+    channels: int,
+    spatial_shape: tuple[int, int],
+    kernel_size: tuple[int, int],
+    stride: tuple[int, int],
+    padding: tuple[int, int],
+    dilation: tuple[int, int],
+) -> torch.Tensor:
+    # Build a lookup table from each sliding-window position back to the
+    # flattened input indices. Zero means "came from padding".
+    height, width = spatial_shape
+    n_input = channels * height * width
+    input_ids = torch.arange(1, n_input + 1, dtype=torch.float64).reshape(
+        1, channels, height, width
+    )
+    patches = F.unfold(
+        input_ids,
+        kernel_size=kernel_size,
+        dilation=dilation,
+        padding=padding,
+        stride=stride,
+    )
+    return patches.to(torch.int64).squeeze(0)
+
+
+def conv2d_weight_matrix(
+    weight: Tensor,
+    input_shape: tuple[int, int, int],
+    output_shape: tuple[int, int, int],
+    stride: tuple[int, int],
+    padding: tuple[int, int],
+    dilation: tuple[int, int],
+    groups: int,
+    sign: int,
+) -> np.ndarray:
+    # Expand a Conv2d kernel into a full dense matrix with shape [out, in],
+    # where rows are flattened output neurons and columns are flattened inputs.
+    in_channels, height, width = input_shape
+    out_channels, out_height, out_width = output_shape
+    kernel = np.asarray(weight.detach().cpu(), dtype=np.int32)
+    _, in_channels_per_group, kernel_height, kernel_width = kernel.shape
+
+    if in_channels != in_channels_per_group * groups:
+        raise ValueError(
+            f"Conv groups mismatch: input channels {in_channels}, kernel channels {in_channels_per_group}, groups {groups}."
+        )
+
+    out_channels_per_group = out_channels // groups
+    out_size = out_height * out_width
+    n_input = in_channels * height * width
+    matrix = np.zeros((out_channels * out_size, n_input), dtype=np.int32)
+
+    patches = unfold_input_indices_2d(
+        in_channels,
+        (height, width),
+        (kernel_height, kernel_width),
+        stride,
+        padding,
+        dilation,
+    ).cpu().numpy()
+
+    if patches.shape[1] != out_size:
+        raise ValueError(
+            f"Conv unfold mismatch: expected {out_size} output positions, got {patches.shape[1]}."
+        )
+
+    row_offsets = np.tile(
+        np.arange(out_size, dtype=np.int64),
+        in_channels_per_group * kernel_height * kernel_width,
+    )
+
+    for out_channel in range(out_channels):
+        group_idx = out_channel // out_channels_per_group
+        patch_start = group_idx * in_channels_per_group * kernel_height * kernel_width
+        patch_end = patch_start + in_channels_per_group * kernel_height * kernel_width
+
+        # Scatter each kernel coefficient to the input positions that feed the
+        # corresponding flattened output locations.
+        flat_cols = patches[patch_start:patch_end].reshape(-1)
+        valid = flat_cols > 0
+        flat_rows = row_offsets[valid]
+        flat_values = np.repeat(kernel[out_channel].reshape(-1), out_size)[valid]
+        matrix[out_channel * out_size + flat_rows, flat_cols[valid] - 1] = flat_values
+
+    if sign != 1:
+        matrix *= sign
+
+    return matrix
+
+
+def pool2d_weight_matrix(
+    channels: int,
+    input_shape: tuple[int, int, int],
+    output_shape: tuple[int, int, int],
+    kernel_size: tuple[int, int],
+    stride: tuple[int, int],
+    padding: tuple[int, int],
+    dilation: tuple[int, int],
+    sign: int,
+) -> np.ndarray:
+    # Pooling has no explicit weight tensor, but connectivity still forms a
+    # dense [out, in] matrix. Every valid input in the pooling window gets 1.
+    in_channels, height, width = input_shape
+    out_channels, out_height, out_width = output_shape
+    if in_channels != channels or out_channels != channels:
+        raise ValueError(
+            f"Pooling channel mismatch: input={in_channels}, output={out_channels}, channels={channels}."
+        )
+
+    out_size = out_height * out_width
+    n_input = in_channels * height * width
+    matrix = np.zeros((out_channels * out_size, n_input), dtype=np.int32)
+
+    patches = unfold_input_indices_2d(
+        in_channels,
+        (height, width),
+        kernel_size,
+        stride,
+        padding,
+        dilation,
+    ).cpu().numpy()
+
+    if patches.shape[1] != out_size:
+        raise ValueError(
+            f"Pooling unfold mismatch: expected {out_size} output positions, got {patches.shape[1]}."
+        )
+
+    kernel_elems = int(np.prod(kernel_size))
+    row_offsets = np.tile(np.arange(out_size, dtype=np.int64), kernel_elems)
+
+    for channel in range(channels):
+        patch_start = channel * kernel_elems
+        patch_end = patch_start + kernel_elems
+
+        flat_cols = patches[patch_start:patch_end].reshape(-1)
+        valid = flat_cols > 0
+        matrix[channel * out_size + row_offsets[valid], flat_cols[valid] - 1] = sign
+
+    return matrix
+
+
+def conv1d_weight_matrix(
+    weight: Tensor,
+    input_shape: tuple[int, int],
+    output_shape: tuple[int, int],
+    stride: tuple[int],
+    padding: tuple[int],
+    dilation: tuple[int],
+    groups: int,
+    sign: int,
+) -> np.ndarray:
+    # Reuse the 2D expansion path by treating 1D signals as H=1 feature maps.
+    in_channels, in_length = input_shape
+    out_channels, out_length = output_shape
+    kernel = weight.reshape(weight.shape[0], weight.shape[1], 1, weight.shape[2])
+    return conv2d_weight_matrix(
+        kernel,
+        (in_channels, 1, in_length),
+        (out_channels, 1, out_length),
+        (1, stride[0]),
+        (0, padding[0]),
+        (1, dilation[0]),
+        groups,
+        sign,
+    )
+
+
+def pool1d_weight_matrix(
+    channels: int,
+    input_shape: tuple[int, int],
+    output_shape: tuple[int, int],
+    kernel_size: tuple[int],
+    stride: tuple[int],
+    padding: tuple[int],
+    dilation: tuple[int],
+    sign: int,
+) -> np.ndarray:
+    # Reuse the 2D pooling expansion path by treating 1D signals as H=1 maps.
+    in_channels, in_length = input_shape
+    out_channels, out_length = output_shape
+    return pool2d_weight_matrix(
+        channels,
+        (in_channels, 1, in_length),
+        (out_channels, 1, out_length),
+        (1, kernel_size[0]),
+        (1, stride[0]),
+        (0, padding[0]),
+        (1, dilation[0]),
+        sign,
+    )
+
+
+def expanded_path_weight_matrix(
+    predecessor: CoreOpNode | InNode,
+    target: CoreOpNode,
+    comp: Optional[nn.Module],
+    weight: Optional[Tensor],
+    sign: int,
+) -> np.ndarray:
+    # Convert one predecessor path into a dense [out, in] matrix, choosing
+    # the correct expansion strategy from the comp type.
+    input_shape = feature_shape(predecessor.shape)
+    output_shape = feature_shape(target.shape)
+
+    if weight is not None and (comp is None or isinstance(comp, nn.Linear) or weight.ndim == 2):
+        return direct_weight_matrix(weight, input_shape, output_shape, sign)
+
+    if isinstance(comp, nn.Conv1d):
+        return conv1d_weight_matrix(
+            weight,
+            input_shape,
+            output_shape,
+            to_nd_tuple(comp.stride, 1),
+            to_nd_tuple(comp.padding, 1),
+            to_nd_tuple(comp.dilation, 1),
+            comp.groups,
+            sign,
+        )
+
+    if isinstance(comp, nn.Conv2d):
+        return conv2d_weight_matrix(
+            weight,
+            input_shape,
+            output_shape,
+            to_nd_tuple(comp.stride, 2),
+            to_nd_tuple(comp.padding, 2),
+            to_nd_tuple(comp.dilation, 2),
+            comp.groups,
+            sign,
+        )
+
+    if isinstance(comp, nn.MaxPool1d):
+        if comp.ceil_mode:
+            raise NotImplementedError("MaxPool1d with ceil_mode=True is not supported.")
+
+        return pool1d_weight_matrix(
+            input_shape[0],
+            input_shape,
+            output_shape,
+            to_nd_tuple(comp.kernel_size, 1),
+            to_nd_tuple(comp.stride or comp.kernel_size, 1),
+            to_nd_tuple(comp.padding, 1),
+            to_nd_tuple(comp.dilation, 1),
+            sign,
+        )
+
+    if isinstance(comp, nn.AvgPool1d):
+        if comp.ceil_mode:
+            raise NotImplementedError("AvgPool1d with ceil_mode=True is not supported.")
+
+        return pool1d_weight_matrix(
+            input_shape[0],
+            input_shape,
+            output_shape,
+            to_nd_tuple(comp.kernel_size, 1),
+            to_nd_tuple(comp.stride or comp.kernel_size, 1),
+            to_nd_tuple(comp.padding, 1),
+            (1,),
+            sign,
+        )
+
+    if isinstance(comp, nn.MaxPool2d):
+        if comp.ceil_mode:
+            raise NotImplementedError("MaxPool2d with ceil_mode=True is not supported.")
+
+        return pool2d_weight_matrix(
+            input_shape[0],
+            input_shape,
+            output_shape,
+            to_nd_tuple(comp.kernel_size, 2),
+            to_nd_tuple(comp.stride or comp.kernel_size, 2),
+            to_nd_tuple(comp.padding, 2),
+            to_nd_tuple(comp.dilation, 2),
+            sign,
+        )
+
+    if isinstance(comp, nn.AvgPool2d):
+        if comp.ceil_mode:
+            raise NotImplementedError("AvgPool2d with ceil_mode=True is not supported.")
+
+        return pool2d_weight_matrix(
+            input_shape[0],
+            input_shape,
+            output_shape,
+            to_nd_tuple(comp.kernel_size, 2),
+            to_nd_tuple(comp.stride or comp.kernel_size, 2),
+            to_nd_tuple(comp.padding, 2),
+            (1, 1),
+            sign,
+        )
+
+    raise NotImplementedError(
+        f"Unsupported weight expansion for comp {type(comp)} with weight {type(weight)}."
+    )
 
 
 def get_raw_weights(
     raw_neus: list[Neuron], input_neus: list[Neuron | InputElem]
 ) -> np.ndarray:
-    # emplement your own weight retrieval logic here
-    # raw_neu and input_neu are both single neuron at an index of a CoreOpNode or InputNode
-    # the shape of the complete core op node or input node can be found in raw_neu.target.shape or input_neu.target.shape
-    # the index of the elem in flatten is neu.index.idx or elem.index.idx
-    for neu in raw_neus:
-        neu.target.shape
-        neu.index.idx
-    for elem in input_neus:
-        elem.target.shape
-        elem.index.idx
-
+    # Return a dense routing-group weight matrix with shape
+    # [number of output neurons, number of input elements].
     n_output = len(raw_neus)
     n_input = len(input_neus)
-
-    # weight's shape should be (n_output, n_input)
     weights = np.zeros((n_output, n_input), dtype=np.int32)
+
+    # Cache expanded matrices per target node and predecessor node because
+    # many raw neurons share the same source/target pair.
+    target_cache: dict[CoreOpNode, dict[CoreOpNode | InNode, np.ndarray]] = {}
+
+    for neu in raw_neus:
+        target = neu.target
+        if target in target_cache:
+            continue
+
+        ensure_target_components(target)
+        signs = path_signs(target)
+        path_matrices: dict[CoreOpNode | InNode, np.ndarray] = {}
+
+        for predecessor, comp, weight, sign in zip(
+            target.predecessors,
+            target.comps,
+            target.weights,
+            signs,
+        ):
+            # Each predecessor contributes one dense [target_out, pred_out] block.
+            matrix = expanded_path_weight_matrix(
+                predecessor,
+                target,
+                comp,
+                weight,
+                sign,
+            )
+            if predecessor in path_matrices:
+                path_matrices[predecessor] = path_matrices[predecessor] + matrix
+            else:
+                path_matrices[predecessor] = matrix
+
+        target_cache[target] = path_matrices
+
     for i, neu in enumerate(raw_neus):
+        path_matrices = target_cache[neu.target]
         for j, elem in enumerate(input_neus):
-            # set weight value according to your logic
-            # weights[i, j] should be the weight from input_neus[j] to raw_neus[i]
-            # which is the weight from elem.target to neu.target
-            # at the corresponding indices elem.index.idx and neu.index.idx
+            matrix = path_matrices.get(elem.target)
+            if matrix is None:
+                # No edge from this input node to the current output neuron.
+                continue
 
-            # if there is no weight connection, set weights[i, j] to 0
-            
-            # the weight of neu.target 
-            neu.target.weights 
-            # is the weights for 
-            neu.target.predecessors 
-            # to neu.target
-            # the order of weights corresponds to the order of predecessors, which can be CoreOpNode or InNode
-            
-            # you can get the nn.Module for weight unfold, also in the same order of predecessors and weights, from
-            neu.target.comps
-            
-            # for different comp, the weight should be handled differently
-            
-            # for conv2d, neu.target.raw_node.weights returns a kernel of the conv2d
-            # you need to unfold the kernel according to the conv2d parameters to get the weight between input_neu.target and raw_neu.target
-            
-            # for (max and average)pooling, the weight is None,
-            # you also need to unfold the kernel to get the weight between input_neu.target and raw_neu.target, and set the weight value to 1 
-            
-            # if comp is liner or None, the weight is the direct weight between input_neu.target and raw_neu.target, you can directly use it without unfold
-            
-            
-            # when you get the weight from input_neu.target to neu.target, you can set weights[i, j] 
-            # weights[i, j] = weight_from_input_to_neu[elem.index.idx, neu.index.idx]
-
-            # the neu.target and elem.target are mostly same in raw_neus and input_neus
-            # so you can cache the weight matrix for each unique target node to accelerate the process
-
-            # there is a simple test example at PAIBox/test_paiir.py
-
-            weights[i, j] = -1  # unset weight value
+            # Both neuron and input indices are already flattened indices.
+            weights[i, j] = matrix[neu.index.idx, elem.index.idx]
 
     return weights
 
