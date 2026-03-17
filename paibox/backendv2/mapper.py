@@ -4,7 +4,6 @@ import os
 from typing import TextIO
 
 from paicorelib import LCN_EX, AERPacketZXYCopy, CoordXY, FrameArrayType
-from torch.fx import GraphModule
 
 from paibox.paiir import PAIIRGraph
 
@@ -22,6 +21,7 @@ def export_single_framearray(
         hex_str = "_".join(hex_str[i : i + 4] for i in range(0, 16, 4))
         file.write(f"{prefix}{hex_str}\n")
 
+
 def export_framearray_to_bit(
     frame_array: FrameArrayType, file: TextIO, prefix: str = ""
 ) -> None:
@@ -33,8 +33,8 @@ def export_framearray_to_bit(
         high_bin = f"{high32:032b}"
         low_bin = f"{low32:032b}"
         # 每16位加下划线，可读性更好
-        high_bin = "_".join(high_bin[i:i+16] for i in range(0, 32, 16))
-        low_bin = "_".join(low_bin[i:i+16] for i in range(0, 32, 16))
+        high_bin = "_".join(high_bin[i : i + 16] for i in range(0, 32, 16))
+        low_bin = "_".join(low_bin[i : i + 16] for i in range(0, 32, 16))
         # 输出到一行
         file.write(f"{prefix}0b{high_bin},0b{low_bin},\n")
 
@@ -105,9 +105,15 @@ class Mapper:
             open(frame2_path, "w") as frame2_file,
             open(frame3_path, "w") as frame3_file,
         ):
-            frame1_file.write("volatile unsigned int config_frame1[] __attribute__((section(\".large_const_data\"))) ={\n")
-            frame2_file.write("volatile unsigned int config_frame2[] __attribute__((section(\".large_const_data\"))) ={\n")
-            frame3_file.write("volatile unsigned int config_frame3[] __attribute__((section(\".large_const_data\"))) ={\n")
+            frame1_file.write(
+                'volatile unsigned int config_frame1[] __attribute__((section(".large_const_data"))) ={\n'
+            )
+            frame2_file.write(
+                'volatile unsigned int config_frame2[] __attribute__((section(".large_const_data"))) ={\n'
+            )
+            frame3_file.write(
+                'volatile unsigned int config_frame3[] __attribute__((section(".large_const_data"))) ={\n'
+            )
             for rg in self.routing_groups:
                 for core_placement in rg.core_placements:
                     core_frame_type1, core_frame_type2, core_frame_type3 = (

@@ -12,16 +12,11 @@
 # export_single_framearray(random_array, "output_frames.txt")
 
 
-import pprint
-
 import torch
 from spikingjelly.activation_based import neuron
 from torch import nn
 
-from paibox._logging import DEFAULT_LOG_SETTINGS, set_logs
-from paibox.backendv2.op_node import CoreOpNode, build_nodes
-from paibox.fx_converter.core_op import BaseCoreOp
-from paibox.fx_converter.fuse import apply_passes, fuse_compute_act
+from paibox.fx_converter.fuse import fuse_compute_act
 from paibox.fx_converter.trace import (
     propagate_tensor_shape,
     remove_dropout_identity_and_fuse_conv_bn,

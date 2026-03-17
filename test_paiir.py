@@ -1,13 +1,8 @@
-import pytest
 import torch
-from paicorelib import DataSign, DataWidth
-from spikingjelly.activation_based import neuron as sj
 from torch import Tensor, nn
 
 from paibox.backendv2.mapper import Mapper
-from paibox.paiir import CompileConfig, PAIIRGraph, compile_to_paiir
-from paibox.paiir.exceptions import UnsupportedOpError, UnsupportedOpWarning
-from paibox.paiir.op_node import AccumulateOp, ConcatOp, SequentialOp
+from paibox.paiir import compile_to_paiir
 
 
 def make_img_3ch_32x32() -> Tensor:

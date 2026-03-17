@@ -6,17 +6,12 @@ from typing import Optional
 import numpy as np
 from paicorelib import (
     FRAME_DTYPE,
-    LUT_ACTIVATION_DTYPE,
-    LUT_POTENTIAL_DTYPE,
     CoordXY,
     DataWidth,
     FrameArrayType,
-    LUTActivationType,
-    LUTPotentialType,
     NeuronType,
     OfflineCoreRegV2,
     OfflineFrameGenV2,
-    SNNMode,
     find_coordxy_shortest_path,
 )
 

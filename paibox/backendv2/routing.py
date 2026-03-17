@@ -11,17 +11,15 @@ from paicorelib import (
     DataWidth,
     FoldType,
     NeuronType,
-    OfflineCoreRegV2,
     OfflineNeuDestInfoV2,
     OfflineNeuFullAttrsV2Part1,
-    OfflineNeuFullAttrsV2Part2,
-    OutputType,
     WeightCompressType,
     find_coordxy_shortest_path,
 )
 from torch import Tensor, nn
 from torch.nn import functional as F
 
+from ..paiir import AccumulateOp, AddOp, SequentialOp, StandaloneActOp, StandaloneCompOp
 from .core_config import Backend_Core_Config, Frontend_Core_Config
 from .coreplacement import (
     CorePlacement,
@@ -31,7 +29,6 @@ from .coreplacement import (
 from .neuron import InputElem, Neuron, OfflineNeuronPlacement
 from .op_node import CoreOpNode, InNode
 from .weight import Weight
-from ..paiir import AccumulateOp, AddOp, SequentialOp, StandaloneActOp, StandaloneCompOp
 
 FANIN_BASE = 512
 
@@ -102,7 +99,10 @@ def path_signs(target: CoreOpNode) -> list[int]:
 
 
 def direct_weight_matrix(
-    weight: Tensor, input_shape: tuple[int, ...], output_shape: tuple[int, ...], sign: int
+    weight: Tensor,
+    input_shape: tuple[int, ...],
+    output_shape: tuple[int, ...],
+    sign: int,
 ) -> np.ndarray:
     # Linear/identity-like paths already expose a dense [out, in] matrix.
     matrix = np.asarray(weight.detach().cpu(), dtype=np.int32)
@@ -172,14 +172,18 @@ def conv2d_weight_matrix(
     n_input = in_channels * height * width
     matrix = np.zeros((out_channels * out_size, n_input), dtype=np.int32)
 
-    patches = unfold_input_indices_2d(
-        in_channels,
-        (height, width),
-        (kernel_height, kernel_width),
-        stride,
-        padding,
-        dilation,
-    ).cpu().numpy()
+    patches = (
+        unfold_input_indices_2d(
+            in_channels,
+            (height, width),
+            (kernel_height, kernel_width),
+            stride,
+            padding,
+            dilation,
+        )
+        .cpu()
+        .numpy()
+    )
 
     if patches.shape[1] != out_size:
         raise ValueError(
@@ -233,14 +237,18 @@ def pool2d_weight_matrix(
     n_input = in_channels * height * width
     matrix = np.zeros((out_channels * out_size, n_input), dtype=np.int32)
 
-    patches = unfold_input_indices_2d(
-        in_channels,
-        (height, width),
-        kernel_size,
-        stride,
-        padding,
-        dilation,
-    ).cpu().numpy()
+    patches = (
+        unfold_input_indices_2d(
+            in_channels,
+            (height, width),
+            kernel_size,
+            stride,
+            padding,
+            dilation,
+        )
+        .cpu()
+        .numpy()
+    )
 
     if patches.shape[1] != out_size:
         raise ValueError(
@@ -324,7 +332,9 @@ def expanded_path_weight_matrix(
     input_shape = feature_shape(predecessor.shape)
     output_shape = feature_shape(target.shape)
 
-    if weight is not None and (comp is None or isinstance(comp, nn.Linear) or weight.ndim == 2):
+    if weight is not None and (
+        comp is None or isinstance(comp, nn.Linear) or weight.ndim == 2
+    ):
         return direct_weight_matrix(weight, input_shape, output_shape, sign)
 
     if isinstance(comp, nn.Conv1d):
@@ -733,7 +743,7 @@ class RoutingGroup:
             dest_strs = dest_strs[:3] + ["..."] + dest_strs[-3:]
         info_str += f"  Number of Neurons: {len(self.raw_neus)}\n"
         info_str += f"  Number of Inputs: {len(self.input_list)}\n"
-        info_str += f"  Dests:\n    " + "\n    ".join(dest_strs) + "\n"
+        info_str += "  Dests:\n    " + "\n    ".join(dest_strs) + "\n"
         info_str += f"  LCN: {self.lcn.name}\n"
         info_str += f"  Number of Core Placements: {len(self.core_placements)}\n"
         if self._base_coord is not None:

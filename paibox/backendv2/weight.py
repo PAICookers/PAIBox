@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from typing import Literal, Union
+from typing import Union
 
 import numpy as np
 from paicorelib import (
-    FRAME_DTYPE,
     DataWidth,
     FrameArrayType,
     OfflineFrameGenV2,

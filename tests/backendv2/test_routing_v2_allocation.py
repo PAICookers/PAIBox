@@ -1,19 +1,16 @@
-from unittest.mock import MagicMock, PropertyMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
-from paicorelib import OfflineCoreRegV2, WeightCompressType
+from paicorelib import WeightCompressType
 
-from paibox.backendv2.coreplacement import OfflineCorePlamentV2
-from paibox.backendv2.neuron import NeuronType, OfflineNeuronPlacement
+from paibox.backendv2.neuron import NeuronType
 from paibox.backendv2.routing import RoutingGroup
 
 # 模拟导入 (防止环境缺失)
-from paibox.backendv2.weight import Weight
 
 
 class TestRoutingGroupAllocation:
-
     @pytest.fixture
     def mock_deps(self):
         """Mock external dependencies."""
@@ -28,7 +25,6 @@ class TestRoutingGroupAllocation:
             ) as mock_core_placement_cls,
             patch("paibox.backendv2.routing.OfflineCoreRegV2") as mock_reg_v2_cls,
         ):
-
             # [修复 1] 正确模拟 Pydantic 的 model_fields
             # 让 model_fields 表现为一个字典，这样 .keys() 就能正常工作
             mock_fields = {
@@ -38,7 +34,13 @@ class TestRoutingGroupAllocation:
             }
             mock_reg_v2_cls.model_fields = mock_fields
 
-            yield mock_weight_cls, mock_neu_placement_cls, mock_core_placement_cls, mock_reg_v2_cls, mock_get_weights
+            yield (
+                mock_weight_cls,
+                mock_neu_placement_cls,
+                mock_core_placement_cls,
+                mock_reg_v2_cls,
+                mock_get_weights,
+            )
 
     def create_mock_neuron(self, weight_width=1, core_config_id=1, config_obj=None):
         """Helper to create a mock neuron."""

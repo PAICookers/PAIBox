@@ -2,31 +2,24 @@ from typing import Optional
 
 import torch
 from paicorelib import (
-    DataSign,
-    DataWidth,
     OfflineNeuFullAttrsV2Part2,
     OutputType,
-    PoolingMode,
     SNNMode,
     WeightCompressType,
-    ZeroOutputMode,
 )
-from torch import nn, Tensor
+from torch import Tensor, nn
 
-from ..fx_converter.clac_params import NeuV2ClacParams, OfflineCoreV2CalcParams
-from ..fx_converter.core_op import BaseCoreOp
 from ..paiir import (
+    AccumulateOp,
     InputNode,
     LutData,
     OfflineCoreOp,
     OfflineCoreParams,
     OutputNode,
     PAIIRGraph,
-    PAIIRNode,
     SequentialOp,
-    AccumulateOp,
+    StandaloneActOp,
     StandaloneCompOp,
-    StandaloneActOp
 )
 from .core_config import Frontend_Core_Config
 
@@ -97,13 +90,12 @@ class CoreOpNode:
         self.predecessors: list[CoreOpNode | InNode] = []
         self.comps: list[Optional[nn.Module]] = []
         self.weights: list[Optional[Tensor]] = []
-        
+
         self.frontend_core_config: Frontend_Core_Config = get_frontend_core_conf(
             raw_node.core_params, raw_node.lut_data
         )
-        
-    
-    def set_comps_and_weights(self)-> None:
+
+    def set_comps_and_weights(self) -> None:
         """Set self.comps based on the type of raw_node."""
         if isinstance(self.raw_node, SequentialOp):
             self.comps = [self.raw_node.comp]
@@ -121,8 +113,6 @@ class CoreOpNode:
             self.weights = list(weights)
         else:
             self.weights = [None]
-        
-        
 
     def __hash__(self) -> int:
         return hash(id(self))
