@@ -506,9 +506,9 @@ class TestRegisterNeuron:
         test_inputs = torch.tensor([-100, -2, -1, 0, 1, 2, 3, 4, 5, 20, 100])
         ref_outputs = torch.round(torch.clamp(test_inputs, 0, 4))
         lut_outputs = seq_nodes[0].act(test_inputs)
-        assert torch.equal(lut_outputs, ref_outputs), (
-            f"LUT mismatch: expected {ref_outputs.tolist()}, got {lut_outputs.tolist()}"
-        )
+        assert torch.equal(
+            lut_outputs, ref_outputs
+        ), f"LUT mismatch: expected {ref_outputs.tolist()}, got {lut_outputs.tolist()}"
 
 
 class TestSplitCoreAvgPoolIF:

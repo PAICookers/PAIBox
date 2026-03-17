@@ -400,12 +400,12 @@ class TestPropagateEdgeConsistency:
             src = fused.nodes[edge.src]
             dst = fused.nodes[edge.dst]
             if isinstance(src, OfflineCoreOp) and isinstance(dst, OfflineCoreOp):
-                assert src.core_params.output_sign == dst.core_params.input_sign, (
-                    f"Sign mismatch at edge {edge.src} -> {edge.dst}"
-                )
-                assert src.core_params.output_width == dst.core_params.input_width, (
-                    f"Width mismatch at edge {edge.src} -> {edge.dst}"
-                )
+                assert (
+                    src.core_params.output_sign == dst.core_params.input_sign
+                ), f"Sign mismatch at edge {edge.src} -> {edge.dst}"
+                assert (
+                    src.core_params.output_width == dst.core_params.input_width
+                ), f"Width mismatch at edge {edge.src} -> {edge.dst}"
 
     def test_two_layer_ann(self):
         """Conv-ReLU -> Conv-Sigmoid: edge format consistency."""

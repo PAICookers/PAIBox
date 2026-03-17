@@ -86,10 +86,13 @@ class PAIIRGraph:
 
     def predecessors(self, name: str) -> list[str]:
         """Return predecessor node names, sorted by ``dst_port``."""
-        return [e.src for e in sorted(
-            (e for e in self.edges if e.dst == name),
-            key=lambda e: e.dst_port,
-        )]
+        return [
+            e.src
+            for e in sorted(
+                (e for e in self.edges if e.dst == name),
+                key=lambda e: e.dst_port,
+            )
+        ]
 
     def successors(self, name: str) -> list[str]:
         """Return successor node names."""

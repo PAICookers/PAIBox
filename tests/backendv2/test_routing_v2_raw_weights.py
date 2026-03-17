@@ -16,8 +16,8 @@ from paibox.backendv2.neuron import InputElem, Neuron
 from paibox.backendv2.op_node import CoreOpNode, CustomIndex, InNode
 from paibox.backendv2.routing import get_raw_weights
 from paibox.paiir import (
-    ANNNodeV25,
     AccumulateOp,
+    ANNNodeV25,
     LutReLU,
     StandaloneActOp,
     StandaloneCompOp,
@@ -56,7 +56,9 @@ def test_get_raw_weights_linear_with_unconnected_inputs():
     target = CoreOpNode("linear", linear, linear.output_shape)
     target.predecessors = [source]
 
-    weights = get_raw_weights(_neurons(target), _input_elems(source) + _input_elems(unrelated))
+    weights = get_raw_weights(
+        _neurons(target), _input_elems(source) + _input_elems(unrelated)
+    )
 
     expected = np.array(
         [

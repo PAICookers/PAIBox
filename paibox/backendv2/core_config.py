@@ -73,7 +73,6 @@ def to_core_reg(
     frontend_conf: Frontend_Core_Config,
     coord: CoordXY,
 ) -> OfflineCoreRegV2:
-
     core_reg = OfflineCoreRegV2(
         name=f"core_reg_at_({coord.x},{coord.y})",
         snn_ann=frontend_conf.snn_ann,

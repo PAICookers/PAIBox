@@ -123,14 +123,12 @@ MAX_AREA = max(SHAPES_BY_AREA.keys())
 def route_solve(
     areas=[1], next_area_id={}, io_target=(0, 0), input_area_ids=[], output_area_ids=[]
 ):
-
     num_areas = len(areas)
     placements = []
     placement_cells = []
     placement_area = []
 
     for area_id, area in enumerate(areas):
-
         shapes = []
         for selected_area in range(area, MAX_AREA + 1):
             if selected_area in SHAPES_BY_AREA:

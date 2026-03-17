@@ -367,9 +367,9 @@ def _fx_graph_to_paiir(
                 fx_to_ir[node.name] = ir_node.name
             elif node.target in CAT_OPS:
                 raw_dim = node.kwargs.get("dim", 0)
-                assert isinstance(raw_dim, int), (
-                    f"cat dim must be int, got {type(raw_dim)}"
-                )
+                assert isinstance(
+                    raw_dim, int
+                ), f"cat dim must be int, got {type(raw_dim)}"
                 ir_node = ConcatOp(dim=raw_dim)
                 _fill_shape_dims(ir_node, node)
                 paiir_graph.add_node(ir_node)

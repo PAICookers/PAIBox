@@ -79,25 +79,33 @@ class TestCompensateAvgPoolNeuron:
     def test_lif_decay_input_true_r0(self):
         """theta' = theta * window_size."""
         params = NeuronParams(thres_pos=1.0, reset_v=0.0)
-        result = compensate_avgpool_neuron(params, window_size=4, decay_input=True, tau=2.0)
+        result = compensate_avgpool_neuron(
+            params, window_size=4, decay_input=True, tau=2.0
+        )
         assert result.thres_pos == 4.0
 
     def test_lif_decay_input_false_r0(self):
         """theta' = theta * window_size / tau."""
         params = NeuronParams(thres_pos=1.0, reset_v=0.0)
-        result = compensate_avgpool_neuron(params, window_size=4, decay_input=False, tau=2.0)
+        result = compensate_avgpool_neuron(
+            params, window_size=4, decay_input=False, tau=2.0
+        )
         assert result.thres_pos == 2.0
 
     def test_lif_nonzero_reset(self):
         """theta' = r + (theta - r) * window_size."""
         params = NeuronParams(thres_pos=3.0, reset_v=1.0)
-        result = compensate_avgpool_neuron(params, window_size=4, decay_input=True, tau=2.0)
+        result = compensate_avgpool_neuron(
+            params, window_size=4, decay_input=True, tau=2.0
+        )
         assert result.thres_pos == 1.0 + (3.0 - 1.0) * 4  # = 9.0
 
     def test_thres_neg_also_compensated(self):
         """Both positive and negative thresholds are compensated."""
         params = NeuronParams(thres_pos=2.0, thres_neg=-4.0, reset_v=0.0)
-        result = compensate_avgpool_neuron(params, window_size=4, decay_input=True, tau=1.0)
+        result = compensate_avgpool_neuron(
+            params, window_size=4, decay_input=True, tau=1.0
+        )
         assert result.thres_pos == 8.0
         assert result.thres_neg == -16.0
 

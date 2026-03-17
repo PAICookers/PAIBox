@@ -70,17 +70,17 @@ graph = compile_to_paiir(model, x, compile_config=cfg, strict=False)
 
 `compile_to_paiir` 完整参数：
 
-| 参数 | 类型 | 说明 |
-|---|---|---|
-| `model` | `nn.Module` | PyTorch 模型 |
-| `*sample_inputs` | `Tensor` | 示例输入（batch_size 必须为 1），用于推断形状和维度 |
-| `tick_duration` | `int \| None` | 全局工作时长，默认 0（常开） |
-| `auto_reset` | `bool \| None` | 工作周期结束后自动复位，默认 True |
-| `tick_overrides` | `dict[str, TickOverride] \| None` | 按节点名指定时序覆盖 |
-| `input_formats` | `dict[str, DataFormat] \| None` | 按 InputNode 名指定输入数据格式 |
-| `compile_config` | `CompileConfig \| None` | 配置对象（关键字参数优先级更高） |
-| `concrete_args` | `dict[str, Any] \| None` | 传递给 `fx.Tracer.trace` 的具体参数 |
-| `strict` | `bool` | True = 遇到不支持的算子时报错；False = 警告并跳过 |
+| 参数             | 类型                              | 说明                                                |
+| ---------------- | --------------------------------- | --------------------------------------------------- |
+| `model`          | `nn.Module`                       | PyTorch 模型                                        |
+| `*sample_inputs` | `Tensor`                          | 示例输入（batch_size 必须为 1），用于推断形状和维度 |
+| `tick_duration`  | `int \| None`                     | 全局工作时长，默认 0（常开）                        |
+| `auto_reset`     | `bool \| None`                    | 工作周期结束后自动复位，默认 True                   |
+| `tick_overrides` | `dict[str, TickOverride] \| None` | 按节点名指定时序覆盖                                |
+| `input_formats`  | `dict[str, DataFormat] \| None`   | 按 InputNode 名指定输入数据格式                     |
+| `compile_config` | `CompileConfig \| None`           | 配置对象（关键字参数优先级更高）                    |
+| `concrete_args`  | `dict[str, Any] \| None`          | 传递给 `fx.Tracer.trace` 的具体参数                 |
+| `strict`         | `bool`                            | True = 遇到不支持的算子时报错；False = 警告并跳过   |
 
 ### 分步编译
 
@@ -282,23 +282,23 @@ params: NeuronParams = op.neuron_params
 
 关键字段：
 
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `reset_mode` | `RM` | `MODE_NORMAL`（硬复位）/ `MODE_LINEAR`（软复位） |
-| `reset_v` | `float` | 复位电压 |
-| `thres_pos` | `float` | 正阈值 |
-| `thres_neg` | `float` | 负阈值 |
-| `thres_pos_mode` | `ThresholdPosMode` | `FIRE`（触发）/ `CEILING`（截断） |
-| `thres_neg_mode` | `ThresholdNegMode` | `FIRE`（触发）/ `FLOOR`（截断） |
-| `leak_tau` | `int` | 移位指数（正 = 左移放大，负 = 右移衰减） |
-| `leak_v` | `float` | 加性漏电压（含融合后的 bias） |
-| `init_v` | `float` | 初始膜电位 |
-| `output_type` | `OutputType` | 输出类型 |
-| `lateral_inhi` | `LateralInhibitionMode` | 侧抑制 |
-| `leak_multi_sequence` | `LeakMultiComparisonOrder` | 乘性漏执行顺序 |
-| `leak_multi_input` | `LeakMultiInputMode` | 输入是否参与乘性漏 |
-| `leak_multi_mode` | `LeakMultiMode` | 乘性漏模式 |
-| `leak_add_mode` | `LeakAddMode` | 加性漏方向 |
+| 字段                  | 类型                       | 说明                                             |
+| --------------------- | -------------------------- | ------------------------------------------------ |
+| `reset_mode`          | `RM`                       | `MODE_NORMAL`（硬复位）/ `MODE_LINEAR`（软复位） |
+| `reset_v`             | `float`                    | 复位电压                                         |
+| `thres_pos`           | `float`                    | 正阈值                                           |
+| `thres_neg`           | `float`                    | 负阈值                                           |
+| `thres_pos_mode`      | `ThresholdPosMode`         | `FIRE`（触发）/ `CEILING`（截断）                |
+| `thres_neg_mode`      | `ThresholdNegMode`         | `FIRE`（触发）/ `FLOOR`（截断）                  |
+| `leak_tau`            | `int`                      | 移位指数（正 = 左移放大，负 = 右移衰减）         |
+| `leak_v`              | `float`                    | 加性漏电压（含融合后的 bias）                    |
+| `init_v`              | `float`                    | 初始膜电位                                       |
+| `output_type`         | `OutputType`               | 输出类型                                         |
+| `lateral_inhi`        | `LateralInhibitionMode`    | 侧抑制                                           |
+| `leak_multi_sequence` | `LeakMultiComparisonOrder` | 乘性漏执行顺序                                   |
+| `leak_multi_input`    | `LeakMultiInputMode`       | 输入是否参与乘性漏                               |
+| `leak_multi_mode`     | `LeakMultiMode`            | 乘性漏模式                                       |
+| `leak_add_mode`       | `LeakAddMode`              | 加性漏方向                                       |
 
 > **bias 融合**：`SequentialOp` 和 `AccumulateOp` 的 `neuron_params` 已将 Conv/Linear 的 bias 融合到 `leak_v` 中，后端无需额外处理。
 
@@ -555,6 +555,7 @@ class OfflineCoreParams:
 ```
 
 时序参数的寄存器限制：
+
 - `tick_start`: 16-bit 无符号，[0, 65535]
 - `tick_duration`: 32-bit 无符号，[0, 4294967295]
 - `tick_initial`: 16-bit 无符号，[0, 65535]
@@ -595,12 +596,12 @@ class LutData:
 
 输出格式（由激活模块决定）：
 
-| 模式 | 条件 | 输出格式 |
-|---|---|---|
-| SNN | `thres_neg_mode == FIRE` | SIGNED, WIDTH_2BIT（{-1, 0, +1}） |
-| SNN | `thres_neg_mode == FLOOR` | UNSIGNED, WIDTH_1BIT（{0, 1}） |
-| ANN | `output_sign == 1` | SIGNED, WIDTH_8BIT（[-128, 127]） |
-| ANN | `output_sign == 0` | UNSIGNED, WIDTH_8BIT（[0, 255]） |
+| 模式 | 条件                      | 输出格式                          |
+| ---- | ------------------------- | --------------------------------- |
+| SNN  | `thres_neg_mode == FIRE`  | SIGNED, WIDTH_2BIT（{-1, 0, +1}） |
+| SNN  | `thres_neg_mode == FLOOR` | UNSIGNED, WIDTH_1BIT（{0, 1}）    |
+| ANN  | `output_sign == 1`        | SIGNED, WIDTH_8BIT（[-128, 127]） |
+| ANN  | `output_sign == 0`        | UNSIGNED, WIDTH_8BIT（[0, 255]）  |
 
 权重格式：从量化权重的实际值范围推断最窄的 `(DataSign, DataWidth)` 组合。
 
