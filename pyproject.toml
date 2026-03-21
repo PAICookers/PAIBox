@@ -6,10 +6,7 @@ authors = [{ name = "Ziru Pan", email = "zrpan@stu.pku.edu.cn" }]
 license = { text = "GPL-3.0-or-later" }
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = [
-    "numpy (>=2.1.0,<3.0.0)",
-    "paicorelib (>=1.5.1,<1.6.0); platform_machine != 'armv7l'",
-]
+dependencies = ["numpy (>=2.1.0,<3.0.0)"]
 maintainers = [
     { name = "Hongjian Wen", email = "221900303@smail.nju.edu.cn" },
     { name = "Siyuan Gao", email = "siyuan-gao@outlook.com" },
@@ -47,13 +44,12 @@ dev = [
     "pytest-md>=0.2",
     "pytest-xdist>=3.7.0",
     "orjson>=3.10",
-    "paicorelib",
+    "paicorelib>=2.0.0a1 ; platform_machine != 'armv7l'",
     "torch>=2.0.0,<2.2.0 ; python_full_version < '3.12'",
     "torch>=2.2.0 ; python_full_version >= '3.12'",
     "spikingjelly>=0.0.0.0.12",
     "tabulate>=0.9.0",
 ]
-optional = ["tabulate>=0.9.0"]
 
 [tool.uv]
 package = true
@@ -67,11 +63,16 @@ module-root = ""
 [tool.pytest.ini_options]
 minversion = "8.0.0"
 testpaths = ["tests"]
-addopts = ["--cov=paibox", "--cov-branch", "--cov-report=term", "-nauto"]
+addopts = ["--cov=paibox", "--cov-branch"] #, "--cov-report=term", "-nauto"]
 
 [[tool.poetry.source]]
 name = "tsinghua"
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+priority = "primary"
+
+[[tool.poetry.source]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
 priority = "primary"
 
 [[tool.uv.index]]
@@ -85,29 +86,9 @@ url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
 
 [tool.uv.sources]
-paicorelib = { git = "https://github.com/PAICookers/PAIlib", branch = "dev" }
 torch = { index = "pytorch-cpu" }
 
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
-
-
-[tool.ruff.lint]
-select = [
-    "E", # pycodestyle errors
-    "W", # pycodestyle warnings
-    "F", # Pyflakes
-    "I", # isort
-]
-ignore = ["E501"]
-
-[tool.ruff.lint.per-file-ignores]
-"__init__.py" = [
-    "I001", # unsorted imports
-]
-'paibox/__init__.py' = [
-    "E402", # module level import not at top of cell
-    "F401", # unused import
-]

@@ -1,0 +1,589 @@
+"""Operator IR nodes for chip deployment.
+
+Each :class:`OfflineCoreOp` represents a computation unit that maps to a single
+chip offline core (v2.0 or v2.5): a compute operation plus a neuron / activation.
+The IR is version-agnostic; the backend handles target-specific lowering.
+
+Node types:
+
+- :class:`SequentialOp` -- compute -> neuron/lut
+- :class:`AccumulateOp` -- multi-path compute -> add/sub -> neuron/lut
+- :class:`AddOp` -- element-wise add/sub (potential output)
+- :class:`StandaloneCompOp` -- compute only (potential output)
+- :class:`StandaloneActOp` -- neuron/lut only
+"""
+
+import math
+from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING, ClassVar
+
+import torch
+from paicorelib import AddPotentialMode, OutputType, PoolingMode
+from torch import Tensor, nn
+
+from ..nn import SumPool1d, SumPool2d
+from .calc_params import LutData, NeuronParams, OfflineCoreParams, OnlineCoreParams
+from .core_neuron import CoreNeuronV25
+from .ir_base import PAIIRNode
+
+if TYPE_CHECKING:
+    from ..pipeline.avgpool.metadata import AvgPoolDeployMetadata
+
+__all__ = [
+    "OpNode",
+    "OfflineCoreOp",
+    "SequentialOp",
+    "AccumulateOp",
+    "AddOp",
+    "ConcatOp",
+    "ReshapeOp",
+    "StandaloneCompOp",
+    "StandaloneActOp",
+    "OnlineCoreOp",
+    "CPUOp",
+]
+
+
+def _ensure_float(x: Tensor) -> Tensor:
+    """Convert int8/uint8 tensor to float32 for PyTorch ops.
+
+    Used for chip-accurate simulation: inputs are quantized (int8/uint8)
+    but PyTorch conv/linear require floating-point tensors.
+    """
+    return x if x.is_floating_point() else x.to(torch.float32)
+
+
+def _get_bias(comp: nn.Module) -> Tensor | None:
+    """Extract the bias tensor from a compute module, or ``None``."""
+    bias = getattr(comp, "bias", None)
+    if isinstance(bias, Tensor):
+        return bias.data
+    return None
+
+
+def _get_weight_tensor(comp: nn.Module) -> Tensor | None:
+    """Extract the graph-side weight tensor from a compute module.
+
+    Prefer a raw exported weight tensor when a converter preserved one
+    explicitly. Fall back to the runtime ``weight`` parameter for standard
+    PyTorch modules. For function-form conv2d lowering, ``raw_weight`` carries
+    the original FX-exported weight expression, while ``weight`` may only exist
+    as an ``nn.Conv2d`` compatibility surface.
+    """
+    for attr in ("raw_weight", "weight_int8", "weight"):
+        weight = getattr(comp, attr, None)
+        if isinstance(weight, Tensor):
+            return weight.data
+    return None
+
+
+def _get_pooling_mode(comp: nn.Module) -> PoolingMode:
+    """Infer pooling mode from the compute operation."""
+    if isinstance(comp, (nn.MaxPool1d, nn.MaxPool2d)):
+        return PoolingMode.MAX
+    return PoolingMode.AVERAGE
+
+
+def _is_avgpool(comp: nn.Module) -> bool:
+    """Check if a compute module is an average pooling operation."""
+    return isinstance(comp, (nn.AvgPool1d, nn.AvgPool2d))
+
+
+def _is_sumpool(comp: nn.Module) -> bool:
+    """Check if a compute module is a sum pooling operation."""
+    return isinstance(comp, (SumPool1d, SumPool2d))
+
+
+def _get_pool_window_size(comp: nn.Module) -> int:
+    """Return the number of elements in the pooling window (product of kernel dimensions)."""
+    assert isinstance(comp, (nn.AvgPool1d, nn.AvgPool2d, SumPool1d, SumPool2d))
+    ks = comp.kernel_size
+    if isinstance(ks, int):
+        # 1D pooling: single int -> (k,)
+        # 2D pooling: single int means (k, k)
+        if isinstance(comp, (nn.AvgPool2d, SumPool2d)):
+            ks = (ks, ks)
+        else:
+            ks = (ks,)
+    return math.prod(ks)
+
+
+def _tensor_value_range(tensor: Tensor) -> tuple[int, int]:
+    """Return integer min/max after applying the same int8 cast used by export paths."""
+    qt = tensor.detach().to(torch.int8)
+    return int(qt.min().item()), int(qt.max().item())
+
+
+class OpNode(nn.Module, PAIIRNode):
+    """Abstract base class for all operator IR nodes.
+
+    Provides shape and axis-ordering metadata shared by all operator
+    variants (offline core, online core, CPU fallback, etc.).
+
+    Class attributes:
+        deploy: Whether this node should be deployed to a chip core.
+            Set to False for simulation-only ops (e.g., ReshapeOp).
+
+    Attributes:
+        input_shapes: Tensor shapes at each input port.
+        output_shape: Output tensor shape.
+        input_dims: Axis ordering at each input port.
+        output_dims: Output axis ordering.
+    """
+
+    deploy: ClassVar[bool] = True  # Whether to deploy to chip
+
+    def __init__(self) -> None:
+        super().__init__()
+        super(nn.Module, self).__init__()
+
+        # Shape info, populated during graph construction
+        self.input_shapes: list[tuple[int, ...]] = []
+        self.output_shape: tuple[int, ...] = ()
+
+        # Axis ordering, populated by DimsProp
+        self.input_dims: list[tuple[int, ...]] = []
+        self.output_dims: tuple[int, ...] = ()
+
+    def extra_repr(self) -> str:
+        parts = [f"name='{self.name}'"]
+        if self.input_shapes:
+            parts.append(f"input_shapes={self.input_shapes}")
+        if self.output_shape:
+            parts.append(f"output_shape={self.output_shape}")
+        return ", ".join(parts)
+
+
+class RoutingOp(OpNode):
+    """Base class for routing-only operations.
+
+    Routing operations (concat, reshape, transpose, etc.) do not map to
+    any offline core. They are used for:
+
+    1. **Simulation**: Execute tensor transformations for accurate shape
+       propagation between compute layers.
+    2. **Deployment**: Provide metadata to the backend for correct memory
+       layout and axon routing.
+
+    On chip, routing operations are implicit - they affect memory layout
+    interpretation but require no actual computation.
+
+    Class attributes:
+        deploy: False - routing ops are not deployed to any core.
+
+    Subclasses:
+    - :class:`ConcatOp` - concatenation
+    - :class:`ReshapeOp` - reshape/flatten/view
+    """
+
+    deploy: ClassVar[bool] = False
+
+
+class OfflineCoreOp(OpNode):
+    """Base class for offline-core operators.
+
+    A single OfflineCoreOp represents the complete computation executed on one
+    offline core.  Both v2.0 and v2.5 chips have offline cores with the same
+    computational pattern (weight matrix * input + neuron/LUT); the backend
+    handles version-specific parameter encoding.
+
+    Attributes:
+        core_params: Offline core configuration.
+    """
+
+    def __init__(self, core_params: OfflineCoreParams | None = None) -> None:
+        super().__init__()
+        self.core_params = core_params or OfflineCoreParams()
+
+    def _make_identity_weight(self) -> Tensor:
+        """Create identity weight matrix matching output dimensions."""
+        assert self.output_shape, "output_shape must be set before accessing weights"
+        n = math.prod(self.output_shape[1:])  # exclude batch dim
+        return torch.eye(n, dtype=torch.int8)
+
+    @property
+    def weights(self) -> list[Tensor] | None:
+        """Weight tensors, one per input path.
+
+        Subclasses with compute modules return their raw parameter tensors.
+        Weightless ops (pool etc.) return ``None``; pass-through ops
+        (StandaloneActOp, AddOp) return identity matrices.
+        """
+        return [self._make_identity_weight()]
+
+    def get_weight_value_range(self) -> tuple[int, int] | None:
+        """Cheap min/max summary for weight-format inference.
+
+        Default offline-core behavior is identity pass-through, so the value range
+        is always ``[0, 1]`` without materializing the full identity matrix.
+        """
+        return 0, 1
+
+    @property
+    def neuron_params(self) -> NeuronParams:
+        """Neuron configuration for the backend.
+
+        Default: potential output (no neuron/activation).
+        """
+        return NeuronParams(output_type=OutputType.POTENTIAL)
+
+    @property
+    def lut_data(self) -> LutData | None:
+        """LUT table data for ANN mode.
+
+        Default: None (no LUT).
+        """
+        return None
+
+
+class SequentialOp(OfflineCoreOp):
+    """Sequential computation: compute -> activation.
+
+    Standard pattern of a compute operation followed by a neuron or LUT
+    activation, e.g. ``Conv2d -> LIFNodeV25`` or ``Linear -> LutReLU``.
+
+    Args:
+        comp: Compute operation (Conv2d, Linear, MaxPool2d, etc.).
+        act: Neuron or LUT activation.
+        core_params: Offline core parameters (SNN mode and pooling mode
+            are inferred automatically when not provided).
+    """
+
+    comp: nn.Module
+    act: CoreNeuronV25
+    avgpool_deploy_metadata: "AvgPoolDeployMetadata | None"
+
+    def __init__(
+        self,
+        comp: nn.Module,
+        act: CoreNeuronV25,
+        core_params: OfflineCoreParams | None = None,
+    ) -> None:
+        core_params = core_params or OfflineCoreParams()
+        core_params.snn_mode = act.snn_mode
+        core_params.pooling_mode = _get_pooling_mode(comp)
+
+        super().__init__(core_params)
+        self.comp = comp
+        self.act = act
+        self.avgpool_deploy_metadata = None
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.act(self.comp(_ensure_float(x)))
+
+    @property
+    def weights(self) -> list[Tensor] | None:
+        w = _get_weight_tensor(self.comp)
+        if isinstance(w, Tensor):
+            return [w.to(torch.int8)]
+        return None
+
+    def get_weight_value_range(self) -> tuple[int, int] | None:
+        w = _get_weight_tensor(self.comp)
+        if isinstance(w, Tensor):
+            return _tensor_value_range(w)
+        return None
+
+    @property
+    def lut_data(self) -> LutData | None:
+        """LUT table data for backend export."""
+        return self.act.export_lut()
+
+    @property
+    def neuron_params(self) -> NeuronParams:
+        """Neuron configuration for the backend."""
+        return self.act.to_neuron_params(bias=_get_bias(self.comp))
+
+    def extra_repr(self) -> str:
+        return f"{super().extra_repr()}, comp={type(self.comp).__name__}, act={type(self.act).__name__}"
+
+
+class AccumulateOp(OfflineCoreOp):
+    """Multi-path accumulation: comps -> add/sub -> activation.
+
+    Accumulates outputs of multiple compute operations with per-path signs,
+    then feeds the result into a neuron / activation.
+    E.g. ``Conv_a(x1) + Conv_b(x2) -> LIFNodeV25``.
+
+    Args:
+        comps: List of compute operations (one per input path).
+        act: Neuron or LUT activation.
+        op_signs: Per-path sign. ``(1, 1)`` = add, ``(1, -1)`` = subtract.
+        core_params: Offline core parameters.
+    """
+
+    def __init__(
+        self,
+        comps: Sequence[nn.Module],
+        act: CoreNeuronV25,
+        op_signs: tuple[int, ...] | None = None,
+        core_params: OfflineCoreParams | None = None,
+    ) -> None:
+        if op_signs is None:
+            op_signs = (1,) * len(comps)
+        if len(op_signs) != len(comps):
+            raise ValueError(
+                f"'op_signs' length ({len(op_signs)}) != comps length ({len(comps)})"
+            )
+
+        core_params = core_params or OfflineCoreParams()
+        core_params.snn_mode = act.snn_mode
+        core_params.pooling_mode = _get_pooling_mode(comps[0])
+
+        super().__init__(core_params)
+        self.comps = nn.ModuleList(comps)
+        self.act = act
+        self.signs = tuple(op_signs)
+
+    def forward(self, *xs: Tensor) -> Tensor:
+        acc: Tensor | None = None
+        for sign, op, x in zip(self.signs, self.comps, xs):
+            term = sign * op(_ensure_float(x))
+            acc = term if acc is None else acc + term
+
+        assert acc is not None, "AccumulateOp requires at least one input"
+        return self.act(acc)
+
+    @property
+    def weights(self) -> list[Tensor] | None:
+        result = []
+        for comp in self.comps:
+            w = _get_weight_tensor(comp)
+            if isinstance(w, Tensor):
+                result.append(w.to(torch.int8))
+            else:
+                return None
+        return result
+
+    def get_weight_value_range(self) -> tuple[int, int] | None:
+        ranges: list[tuple[int, int]] = []
+        for comp in self.comps:
+            w = _get_weight_tensor(comp)
+            if not isinstance(w, Tensor):
+                return None
+            ranges.append(_tensor_value_range(w))
+
+        if not ranges:
+            return None
+
+        return min(lo for lo, _ in ranges), max(hi for _, hi in ranges)
+
+    @property
+    def lut_data(self) -> LutData | None:
+        """LUT table data for backend export."""
+        return self.act.export_lut()
+
+    @property
+    def neuron_params(self) -> NeuronParams:
+        """Neuron configuration with fused bias from all compute ops."""
+        fused_bias: Tensor | None = None
+        for sign, comp in zip(self.signs, self.comps):
+            b = _get_bias(comp)
+            if b is not None:
+                term = sign * b
+                fused_bias = term if fused_bias is None else fused_bias + term
+
+        return self.act.to_neuron_params(bias=fused_bias)
+
+    def extra_repr(self) -> str:
+        ops = ", ".join(type(op).__name__ for op in self.comps)
+        return f"{super().extra_repr()}, comps=[{ops}], signs={self.signs}, act={type(self.act).__name__}"
+
+
+class AddOp(OfflineCoreOp):
+    """Element-wise add / subtract.
+
+    Outputs membrane potential (not spikes).
+    Maps to ``AddPotentialMode.DIRECT_ADD`` on chip.
+
+    Args:
+        op_signs: ``(1, 1)`` for add, ``(1, -1)`` for subtract.
+        core_params: Offline core parameters.
+    """
+
+    def __init__(
+        self,
+        op_signs: tuple[int, int] = (1, 1),
+        core_params: OfflineCoreParams | None = None,
+    ) -> None:
+        core_params = core_params or OfflineCoreParams()
+        core_params.add_potential = AddPotentialMode.DIRECT_ADD
+
+        super().__init__(core_params)
+        self.signs = tuple(op_signs)
+
+    def forward(self, *xs: Tensor) -> Tensor:
+        acc: Tensor = torch.zeros([1])
+        for sign, x in zip(self.signs, xs):
+            acc += sign * x
+
+        return acc
+
+    @property
+    def weights(self) -> list[Tensor]:
+        eye = self._make_identity_weight()
+        return [eye] * len(self.signs)
+
+    def extra_repr(self) -> str:
+        return f"{super().extra_repr()}, signs={self.signs}"
+
+
+class ConcatOp(RoutingOp):
+    """Order-preserving concatenation along a given dimension.
+
+    A routing-only operation that does not map to any offline core.
+    The backend uses the port-ordered predecessor list and ``dim`` to
+    determine axon address ranges for the destination core.
+
+    Input ordering is defined by ``dst_port`` on each incoming edge and
+    is preserved by :meth:`PAIIRGraph.predecessors`.
+
+    Args:
+        dim: Concatenation dimension (typically 1 for channel-dim).
+    """
+
+    def __init__(self, dim: int = 1) -> None:
+        super().__init__()
+        self.dim = dim
+
+    def forward(self, *xs: Tensor) -> Tensor:
+        return torch.cat(xs, dim=self.dim)
+
+    def extra_repr(self) -> str:
+        return f"{super().extra_repr()}, dim={self.dim}"
+
+
+class ReshapeOp(RoutingOp):
+    """Reshape operation (flatten, view, reshape).
+
+    Used for simulation to correctly transform tensor shapes between
+    layers (e.g., AvgPool output -> Linear input).
+
+    On chip, reshape is implicit - only the memory layout interpretation
+    changes, no actual computation occurs.
+
+    Args:
+        shape_fn: Function that computes output shape from input shape.
+                  If None, defaults to flatten (all dims after batch).
+    """
+
+    def __init__(
+        self, shape_fn: Callable[[torch.Size], torch.Size] | None = None
+    ) -> None:
+        super().__init__()
+        self.shape_fn = shape_fn
+
+    def forward(self, x: Tensor) -> Tensor:
+        if self.shape_fn is None:
+            return x.flatten()
+
+        new_shape = self.shape_fn(x.shape)
+        return x.reshape(new_shape)
+
+
+class StandaloneCompOp(OfflineCoreOp):
+    """Standalone compute operation (no activation).
+
+    Contains only a compute operation (Conv2d, Linear, Pool, etc.) and
+    outputs membrane potential.
+
+    Args:
+        comp: The compute operation.
+        core_params: Offline core parameters.
+    """
+
+    comp: nn.Module
+
+    def __init__(
+        self, comp: nn.Module, core_params: OfflineCoreParams | None = None
+    ) -> None:
+        core_params = core_params or OfflineCoreParams()
+        core_params.pooling_mode = _get_pooling_mode(comp)
+
+        super().__init__(core_params)
+        self.comp = comp
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.comp(_ensure_float(x))
+
+    @property
+    def weights(self) -> list[Tensor] | None:
+        w = _get_weight_tensor(self.comp)
+        if isinstance(w, Tensor):
+            return [w.to(torch.int8)]
+        return None
+
+    def get_weight_value_range(self) -> tuple[int, int] | None:
+        w = _get_weight_tensor(self.comp)
+        if isinstance(w, Tensor):
+            return _tensor_value_range(w)
+        return None
+
+    def extra_repr(self) -> str:
+        return f"{super().extra_repr()}, comp={type(self.comp).__name__}"
+
+
+class StandaloneActOp(OfflineCoreOp):
+    """Standalone activation operation (no compute).
+
+    Contains only a neuron or LUT activation function.
+
+    Args:
+        act: Neuron or LUT activation.
+        core_params: Offline core parameters.
+    """
+
+    act: CoreNeuronV25
+
+    def __init__(
+        self, act: CoreNeuronV25, core_params: OfflineCoreParams | None = None
+    ) -> None:
+        core_params = core_params or OfflineCoreParams()
+        core_params.snn_mode = act.snn_mode
+
+        super().__init__(core_params)
+        self.act = act
+
+    def forward(self, x: Tensor) -> Tensor:
+        if self.act.lut is None and not x.is_floating_point():
+            # Standalone spike neurons integrate into a signed membrane domain
+            # even when the predecessor emits unsigned VALUEs (for example
+            # split-core AvgPool). Cast here so membrane initialization and
+            # FLOOR/negative-threshold handling do not inherit an unsigned dtype.
+            x = x.to(torch.int32)
+        return self.act(x)
+
+    @property
+    def lut_data(self) -> LutData | None:
+        """LUT table data for backend export."""
+        return self.act.export_lut()
+
+    @property
+    def neuron_params(self) -> NeuronParams:
+        """Neuron configuration for the backend."""
+        return self.act.to_neuron_params()
+
+    def extra_repr(self) -> str:
+        return f"{super().extra_repr()}, act={type(self.act).__name__}"
+
+
+class OnlineCoreOp(OpNode):
+    """Placeholder for online (learning) core operators.
+
+    Both v2.0 and v2.5 chips have online cores supporting STDP-based
+    on-chip learning. The backend handles version-specific configuration.
+    """
+
+    def __init__(self, core_params: OnlineCoreParams | None = None) -> None:
+        super().__init__()
+        self.core_params = core_params or OnlineCoreParams()
+
+
+class CPUOp(OpNode):
+    """Placeholder for CPU fallback operators.
+
+    Maps to the integrated RISC-V CPU available on v2.5 chips.
+    The backend must verify that the target chip has a CPU.
+    """
+
+    pass

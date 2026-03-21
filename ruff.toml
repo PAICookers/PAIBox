@@ -1,0 +1,17 @@
+[lint]
+select = [
+    "E", # pycodestyle errors
+    "W", # pycodestyle warnings
+    "F", # Pyflakes
+    "I", # isort
+]
+ignore = ["E501"]
+
+[lint.per-file-ignores]
+"__init__.py" = [
+    "I001", # unsorted imports
+]
+'paibox/__init__.py' = [
+    "E402", # module level import not at top of cell
+    "F401", # unused import
+]

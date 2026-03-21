@@ -1,0 +1,632 @@
+"""PAIIR graph-level pass entrypoints.
+
+This module remains the public facade for the compilation pipeline. AvgPool-
+specific implementation details live under :mod:`paibox.paiir.pipeline.avgpool`,
+while generic graph validation, data-format propagation, and scheduling remain
+here.
+
+Two validation stages live in this module:
+
+- :func:`validate_graph` runs early, immediately after node fusion. It may
+  remove disconnected graph fragments and checks only the structural
+  invariants required by later passes.
+- :func:`validate_compiled_graph` runs at the end of compilation. It assumes
+  all compile-time annotations should already be populated and validates the
+  final graph that will be returned to callers.
+"""
+
+import warnings
+from typing import TypedDict
+
+import torch
+from paicorelib import DataSign, DataWidth, SNNMode
+
+from ..exceptions import GraphCleanupWarning, GraphValidationError
+from ..ir.graph import PAIIRGraph
+from ..ir.ir_base import InputNode, OutputNode, PAIIRNode
+from ..ir.op_node import (
+    AccumulateOp,
+    AddOp,
+    ConcatOp,
+    OfflineCoreOp,
+    OpNode,
+    ReshapeOp,
+    SequentialOp,
+    StandaloneActOp,
+    StandaloneCompOp,
+    _is_avgpool,
+)
+from .avgpool import calibrate_avgpool_thresholds
+from .avgpool.calibration import CalibrationResult
+from .avgpool.fusion import _try_handle_avgpool_activation
+from .data_format import (
+    DataFormat,
+    infer_output_format,
+    infer_weight_format,
+    merge_data_formats,
+)
+from .fusion_utils import _materialize_shared_sequential
+
+__all__ = [
+    "assign_tick_params",
+    "calibrate_avgpool_thresholds",
+    "CalibrationResult",
+    "fuse_to_offline_cores",
+    "propagate_data_format",
+    "TickOverride",
+    "validate_compiled_graph",
+    "validate_graph",
+]
+
+
+def fuse_to_offline_cores(
+    graph: PAIIRGraph,
+    enable_split_avgpool_lif: bool = False,
+    enable_avgpool_calibration: bool = False,
+) -> PAIIRGraph:
+    """Fuse atomic PAIIR nodes into offline-core units."""
+    consumed: set[str] = set()
+    node_remap: dict[str, str] = {}
+    port_remap: dict[str, int] = {}
+    fused_nodes: dict[str, PAIIRNode] = {}
+
+    for name in graph.topo_sort():
+        node = graph.nodes[name]
+        if not isinstance(node, StandaloneActOp):
+            continue
+        if name in consumed:
+            continue
+
+        result = _try_handle_avgpool_activation(
+            graph,
+            name,
+            consumed,
+            node_remap,
+            enable_split_avgpool_lif=enable_split_avgpool_lif,
+            enable_avgpool_calibration=enable_avgpool_calibration,
+        )
+        if result is not None:
+            if isinstance(result, list):
+                for fused in result:
+                    fused_nodes[fused.name] = fused
+            else:
+                fused_nodes[result.name] = result
+            continue
+
+        result = _try_fuse_sequential(graph, name, consumed, node_remap)
+        if result is not None:
+            fused_nodes[result.name] = result
+            continue
+
+        result = _try_fuse_accumulate(graph, name, consumed, node_remap, port_remap)
+        if result is not None:
+            fused_nodes[result.name] = result
+            continue
+
+    new_graph = PAIIRGraph(graph.name)
+    for name in graph.topo_sort():
+        if name in consumed:
+            fused_name = node_remap.get(name)
+            if fused_name and fused_name in fused_nodes:
+                new_graph.add_node(fused_nodes.pop(fused_name))
+            continue
+        new_graph.add_node(graph.nodes[name])
+        node_remap[name] = name
+
+    _rebuild_edges(graph, new_graph, node_remap, port_remap)
+    return new_graph
+
+
+def _try_fuse_sequential(
+    graph: PAIIRGraph, act_name: str, consumed: set[str], node_remap: dict[str, str]
+) -> SequentialOp | None:
+    """Try to fuse ``StandaloneCompOp -> StandaloneActOp``."""
+    act_node = graph.nodes[act_name]
+    assert isinstance(act_node, StandaloneActOp)
+
+    preds = graph.predecessors(act_name)
+    if len(preds) != 1:
+        return None
+
+    pred_name = preds[0]
+    if pred_name in consumed:
+        return None
+
+    pred = graph.nodes[pred_name]
+    if not isinstance(pred, StandaloneCompOp):
+        return None
+
+    if len(graph.successors(pred_name)) != 1:
+        return None
+
+    # AvgPool patterns are handled first by the dedicated AvgPool fusion logic,
+    # which may choose shared-core or split-core depending on activation type
+    # and deployment constraints. Skip here to avoid bypassing that policy.
+    if _is_avgpool(pred.comp):
+        return None
+
+    return _materialize_shared_sequential(
+        pred_name, pred, act_name, act_node, consumed, node_remap
+    )
+
+
+def _try_fuse_accumulate(
+    graph: PAIIRGraph,
+    act_name: str,
+    consumed: set[str],
+    node_remap: dict[str, str],
+    port_remap: dict[str, int],
+) -> AccumulateOp | None:
+    """Try to fuse ``CompOps -> AddOp -> ActivationOp``."""
+    act_node = graph.nodes[act_name]
+    assert isinstance(act_node, StandaloneActOp)
+
+    preds = graph.predecessors(act_name)
+    if len(preds) != 1:
+        return None
+
+    add_name = preds[0]
+    if add_name in consumed:
+        return None
+
+    add_node = graph.nodes[add_name]
+    if not isinstance(add_node, AddOp):
+        return None
+
+    if len(graph.successors(add_name)) != 1:
+        return None
+
+    comp_preds = graph.predecessors(add_name)
+    if any(p in consumed for p in comp_preds):
+        return None
+    if not all(isinstance(graph.nodes[p], StandaloneCompOp) for p in comp_preds):
+        return None
+    if not all(len(graph.successors(p)) == 1 for p in comp_preds):
+        return None
+
+    comps = [graph.nodes[p].comp for p in comp_preds]  # type: ignore[union-attr]
+    op_signs = add_node.signs
+
+    fused = AccumulateOp(comps=comps, act=act_node.act, op_signs=op_signs)
+    fused.input_shapes = []
+    fused.input_dims = []
+    for p in comp_preds:
+        fused.input_shapes.extend(graph.nodes[p].input_shapes)  # type: ignore[union-attr]
+        fused.input_dims.extend(graph.nodes[p].input_dims)  # type: ignore[union-attr]
+    fused.output_shape = act_node.output_shape
+    fused.output_dims = act_node.output_dims
+
+    consumed.add(act_name)
+    consumed.add(add_name)
+    node_remap[act_name] = fused.name
+    node_remap[add_name] = fused.name
+    for i, p in enumerate(comp_preds):
+        consumed.add(p)
+        node_remap[p] = fused.name
+        port_remap[p] = i
+
+    return fused
+
+
+def _rebuild_edges(
+    old_graph: PAIIRGraph,
+    new_graph: PAIIRGraph,
+    node_remap: dict[str, str],
+    port_remap: dict[str, int],
+) -> None:
+    """Rebuild edges in the new graph, remapping consumed nodes."""
+    seen: set[tuple[str, str, int]] = set()
+    for edge in old_graph.edges:
+        src = node_remap.get(edge.src, edge.src)
+        dst = node_remap.get(edge.dst, edge.dst)
+        if src == dst:
+            continue
+
+        port = port_remap.get(edge.dst, edge.dst_port)
+        key = (src, dst, port)
+        if key in seen:
+            continue
+
+        seen.add(key)
+        new_graph.add_edge(src, dst, dst_port=port)
+
+
+def validate_graph(graph: PAIIRGraph) -> None:
+    """Validate and clean up a fused PAIIR graph.
+
+    This is the *mid-pipeline* structural validation step. It is intentionally
+    limited to checks that make sense before data-format propagation and tick
+    assignment run. In particular, it may remove disconnected nodes produced by
+    earlier bypass / fusion decisions.
+
+    Use :func:`validate_compiled_graph` for the final post-pass validation of a
+    fully compiled graph.
+    """
+    errors: list[str] = []
+    to_remove: list[str] = []
+    missing_shape_nodes: list[str] = []
+
+    if not graph.input_nodes():
+        errors.append("graph has no input node")
+    if not graph.output_nodes():
+        errors.append("graph has no output node")
+
+    for name, node in graph.nodes.items():
+        preds = graph.predecessors(name)
+        succs = graph.successors(name)
+
+        if isinstance(node, InputNode):
+            if preds:
+                errors.append(
+                    f"InputNode '{name}' has predecessors {preds} (expected none)"
+                )
+            elif not succs:
+                to_remove.append(name)
+        elif isinstance(node, OutputNode):
+            if succs:
+                errors.append(
+                    f"OutputNode '{name}' has successors {succs} (expected none)"
+                )
+            elif not preds:
+                to_remove.append(name)
+        elif isinstance(node, OpNode):
+            if not preds or not succs:
+                to_remove.append(name)
+            elif not node.output_shape:
+                missing_shape_nodes.append(name)
+
+    if missing_shape_nodes:
+        names = ", ".join(missing_shape_nodes)
+        errors.append(
+            f"{len(missing_shape_nodes)} OpNode(s) missing shape info "
+            f"(pass sample_inputs to torch_to_paiir): {names}"
+        )
+
+    for name, node in graph.nodes.items():
+        if not isinstance(node, OfflineCoreOp):
+            continue
+        _validate_lut_mode_consistency(errors, name, node)
+
+    if errors:
+        raise GraphValidationError(errors)
+
+    if to_remove:
+        for name in to_remove:
+            _remove_node(graph, name)
+        warnings.warn(GraphCleanupWarning(to_remove))
+
+    if not graph.input_nodes():
+        raise GraphValidationError(
+            ["graph has no input node after cleanup (all were disconnected)"]
+        )
+    if not graph.output_nodes():
+        raise GraphValidationError(
+            ["graph has no output node after cleanup (all were disconnected)"]
+        )
+
+
+def validate_compiled_graph(graph: PAIIRGraph) -> None:
+    """Validate a fully compiled graph before returning it to callers.
+
+    This is the *final* compile-stage validation step. Unlike
+    :func:`validate_graph`, it does not perform cleanup. Instead it verifies the
+    invariants that should hold after all compile-time passes have run:
+
+    - every node lies on some input-to-output path
+    - every :class:`OpNode` has shape and dims metadata
+    - every :class:`OfflineCoreOp` has propagated data formats
+    - every :class:`OfflineCoreOp` has valid tick parameters
+    """
+    errors: list[str] = []
+
+    input_nodes = graph.input_nodes()
+    output_nodes = graph.output_nodes()
+    if not input_nodes:
+        errors.append("graph has no input node")
+    if not output_nodes:
+        errors.append("graph has no output node")
+
+    reachable_from_inputs = _collect_reachable_nodes(
+        graph, [node.name for node in input_nodes], reverse=False
+    )
+    reachable_to_outputs = _collect_reachable_nodes(
+        graph, [node.name for node in output_nodes], reverse=True
+    )
+    valid_path_nodes = reachable_from_inputs & reachable_to_outputs
+    missing_path_nodes = sorted(set(graph.nodes) - valid_path_nodes)
+    if missing_path_nodes:
+        names = ", ".join(missing_path_nodes)
+        errors.append(f"nodes not on any input-to-output path: {names}")
+
+    for name, node in graph.nodes.items():
+        preds = graph.predecessors(name)
+        succs = graph.successors(name)
+
+        if isinstance(node, InputNode):
+            if preds:
+                errors.append(
+                    f"InputNode '{name}' has predecessors {preds} (expected none)"
+                )
+            if not succs:
+                errors.append(f"InputNode '{name}' is disconnected from the graph")
+            continue
+
+        if isinstance(node, OutputNode):
+            if succs:
+                errors.append(
+                    f"OutputNode '{name}' has successors {succs} (expected none)"
+                )
+            if not preds:
+                errors.append(f"OutputNode '{name}' is disconnected from the graph")
+            continue
+
+        if not isinstance(node, OpNode):
+            continue
+
+        if not preds:
+            errors.append(f"OpNode '{name}' has no predecessors")
+        if not succs:
+            errors.append(f"OpNode '{name}' has no successors")
+        if not node.input_shapes or any(not shape for shape in node.input_shapes):
+            errors.append(f"OpNode '{name}' is missing input_shapes")
+        if not node.output_shape:
+            errors.append(f"OpNode '{name}' is missing output_shape")
+        if not node.input_dims or any(not dims for dims in node.input_dims):
+            errors.append(f"OpNode '{name}' is missing input_dims")
+        if not node.output_dims:
+            errors.append(f"OpNode '{name}' is missing output_dims")
+
+        if not isinstance(node, OfflineCoreOp):
+            continue
+
+        _validate_lut_mode_consistency(errors, name, node)
+
+        try:
+            node.core_params.validate_data_formats()
+        except ValueError as exc:
+            errors.append(f"'{name}' {exc}")
+
+        try:
+            node.core_params.validate_tick_params()
+        except ValueError as exc:
+            errors.append(f"'{name}' {exc}")
+
+    if errors:
+        raise GraphValidationError(errors)
+
+
+def _remove_node(graph: PAIIRGraph, name: str) -> None:
+    """Remove a node and all its edges from the graph."""
+    del graph.nodes[name]
+    graph.edges = [e for e in graph.edges if e.src != name and e.dst != name]
+
+
+def _collect_reachable_nodes(
+    graph: PAIIRGraph, start_names: list[str], reverse: bool
+) -> set[str]:
+    """Collect nodes reachable from *start_names* in forward or reverse mode."""
+    seen: set[str] = set()
+    stack = list(start_names)
+
+    while stack:
+        name = stack.pop()
+        if name in seen or name not in graph.nodes:
+            continue
+        seen.add(name)
+        neighbors = graph.predecessors(name) if reverse else graph.successors(name)
+        stack.extend(neighbors)
+
+    return seen
+
+
+def _validate_lut_mode_consistency(
+    errors: list[str], name: str, node: OfflineCoreOp
+) -> None:
+    act = getattr(node, "act", None)
+    if act is None:
+        return
+
+    has_lut = act.lut is not None
+    if has_lut and node.core_params.snn_mode != SNNMode.ANN:
+        errors.append(
+            f"'{name}' has LUT activation but snn_mode is "
+            f"{node.core_params.snn_mode!r} (expected SNNMode.ANN)"
+        )
+    elif not has_lut and node.core_params.snn_mode != SNNMode.SNN:
+        errors.append(
+            f"'{name}' has no LUT activation but snn_mode is "
+            f"{node.core_params.snn_mode!r} (expected SNNMode.SNN)"
+        )
+
+
+_DEFAULT_SNN_INPUT: DataFormat = (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)
+_DEFAULT_ANN_INPUT: DataFormat = (DataSign.SIGNED, DataWidth.WIDTH_8BIT)
+_WEIGHTLESS_WEIGHT_FORMAT: DataFormat = (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)
+
+
+def propagate_data_format(
+    graph: PAIIRGraph, input_formats: dict[str, DataFormat] | None = None
+) -> None:
+    """Infer and fill data format parameters on every :class:`OfflineCoreOp`."""
+    if input_formats is None:
+        input_formats = {}
+
+    input_node_names = {
+        n for n, node in graph.nodes.items() if isinstance(node, InputNode)
+    }
+    for name in input_formats:
+        if name not in input_node_names:
+            warnings.warn(
+                f"input_formats key '{name}' does not match any InputNode in the graph"
+            )
+
+    resolved: dict[str, DataFormat] = {}
+
+    for name in graph.topo_sort():
+        node = graph.nodes[name]
+
+        if isinstance(node, InputNode):
+            resolved[name] = (
+                input_formats[name]
+                if name in input_formats
+                else _infer_input_node_default(graph, name)
+            )
+            continue
+        if isinstance(node, OutputNode):
+            continue
+        if isinstance(node, (ConcatOp, ReshapeOp)):
+            continue
+        if not isinstance(node, OfflineCoreOp):
+            continue
+
+        out_fmt = _infer_node_output_format(node)
+        node.core_params.set_output_format(out_fmt)
+        resolved[name] = out_fmt
+
+        w_fmt = _infer_node_weight_format(node)
+        node.core_params.set_weight_format(w_fmt)
+
+    for name in graph.topo_sort():
+        node = graph.nodes[name]
+
+        if isinstance(node, (InputNode, OutputNode)):
+            if isinstance(node, OutputNode):
+                preds = graph.predecessors(name)
+                if preds and preds[0] in resolved:
+                    resolved[name] = resolved[preds[0]]
+            continue
+
+        if isinstance(node, ConcatOp):
+            pred_formats = [
+                resolved[p] for p in graph.predecessors(name) if p in resolved
+            ]
+            if pred_formats:
+                resolved[node.name] = merge_data_formats(pred_formats)
+            continue
+
+        if isinstance(node, ReshapeOp):
+            preds = graph.predecessors(name)
+            if preds and preds[0] in resolved:
+                resolved[name] = resolved[preds[0]]
+            continue
+
+        if not isinstance(node, OfflineCoreOp):
+            continue
+
+        pred_formats = [resolved[p] for p in graph.predecessors(name) if p in resolved]
+        in_fmt = merge_data_formats(pred_formats)
+        node.core_params.set_input_format(in_fmt)
+
+
+def _infer_input_node_default(graph: PAIIRGraph, name: str) -> DataFormat:
+    succs = graph.successors(name)
+    for succ_name in succs:
+        succ = graph.nodes[succ_name]
+        if isinstance(succ, OfflineCoreOp):
+            if succ.core_params.snn_mode == SNNMode.SNN:
+                return _DEFAULT_SNN_INPUT
+            return _DEFAULT_ANN_INPUT
+    return _DEFAULT_ANN_INPUT
+
+
+def _infer_node_output_format(node: OfflineCoreOp) -> DataFormat:
+    act = getattr(node, "act", None)
+    if act is not None:
+        return infer_output_format(act)
+    return DataSign.SIGNED, DataWidth.WIDTH_8BIT
+
+
+def _infer_node_weight_format(node: OfflineCoreOp) -> DataFormat:
+    weight_range = node.get_weight_value_range()
+    if weight_range is not None:
+        w_min, w_max = weight_range
+        return infer_weight_format(w_min, w_max)
+
+    weights = node.weights
+    if weights is None:
+        return _WEIGHTLESS_WEIGHT_FORMAT
+
+    all_weights = torch.cat([w.flatten() for w in weights])
+    w_min = int(all_weights.min().item())
+    w_max = int(all_weights.max().item())
+    return infer_weight_format(w_min, w_max)
+
+
+class TickOverride(TypedDict, total=False):
+    """Per-node timing override for :func:`assign_tick_params`."""
+
+    tick_start: int
+    tick_duration: int
+    auto_reset: bool
+
+
+def _validate_overrides(graph: PAIIRGraph, overrides: dict[str, TickOverride]) -> None:
+    for name, ovr in overrides.items():
+        if name not in graph.nodes:
+            raise KeyError(
+                f"overrides key '{name}' does not match any node in the graph"
+            )
+        if "tick_start" in ovr and ovr["tick_start"] < 0:
+            raise ValueError(
+                f"overrides['{name}']['tick_start'] must be non-negative, "
+                f"got {ovr['tick_start']}"
+            )
+        if "tick_duration" in ovr and ovr["tick_duration"] < 0:
+            raise ValueError(
+                f"overrides['{name}']['tick_duration'] must be non-negative, "
+                f"got {ovr['tick_duration']}"
+            )
+
+
+def assign_tick_params(
+    graph: PAIIRGraph,
+    tick_duration: int = 0,
+    auto_reset: bool = True,
+    overrides: dict[str, TickOverride] | None = None,
+) -> None:
+    """Assign timing parameters on every :class:`OfflineCoreOp`."""
+    if tick_duration < 0:
+        raise ValueError(f"'tick_duration' must be non-negative, got {tick_duration}")
+    if overrides is None:
+        overrides = {}
+
+    _validate_overrides(graph, overrides)
+
+    depth: dict[str, int] = {}
+    for name in graph.topo_sort():
+        node = graph.nodes[name]
+        if isinstance(node, InputNode):
+            depth[name] = 0
+            continue
+
+        preds = graph.predecessors(name)
+        pred_depth = max(depth.get(p, 0) for p in preds) if preds else 0
+        depth[name] = pred_depth if isinstance(node, ConcatOp) else pred_depth + 1
+
+    for name in graph.topo_sort():
+        node = graph.nodes[name]
+        if not isinstance(node, OfflineCoreOp):
+            continue
+
+        cp = node.core_params
+        ovr = overrides.get(name, {})
+
+        if "tick_start" in ovr:
+            cp.tick_start = ovr["tick_start"]
+        elif cp.tick_start is None:
+            cp.tick_start = depth[name]
+
+        if "tick_duration" in ovr:
+            cp.tick_duration = ovr["tick_duration"]
+        elif cp.tick_duration == 0 and tick_duration != 0:
+            cp.tick_duration = tick_duration
+
+        if cp.snn_mode == SNNMode.ANN:
+            cp.tick_initial = 1
+        else:
+            node_auto_reset = ovr.get("auto_reset", auto_reset)
+            cp.tick_initial = (
+                cp.tick_duration if node_auto_reset and cp.tick_duration > 0 else 0
+            )
+
+        cp.validate_tick_params()
