@@ -90,6 +90,7 @@ class CoreOpNode:
         self.predecessors: list[CoreOpNode | InNode] = []
         self.comps: list[Optional[nn.Module]] = []
         self.weights: list[Optional[Tensor]] = []
+        self.set_comps_and_weights()
 
         self.frontend_core_config: Frontend_Core_Config = get_frontend_core_conf(
             raw_node.core_params, raw_node.lut_data
@@ -109,6 +110,7 @@ class CoreOpNode:
             raise NotImplementedError(f"Unsupported node type: {type(self.raw_node)}")
 
         weights = self.raw_node.weights
+        print(f"Setting comps and weights for node {self.name} \n\tcomps: {self.comps} \n\traw weights: {weights}")
         if weights is not None:
             self.weights = list(weights)
         else:

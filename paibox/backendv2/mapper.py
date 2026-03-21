@@ -32,10 +32,6 @@ def export_framearray_to_bit(
         # 转成二进制字符串，每32位补0
         high_bin = f"{high32:032b}"
         low_bin = f"{low32:032b}"
-        # 每16位加下划线，可读性更好
-        high_bin = "_".join(high_bin[i : i + 16] for i in range(0, 32, 16))
-        low_bin = "_".join(low_bin[i : i + 16] for i in range(0, 32, 16))
-        # 输出到一行
         file.write(f"{prefix}0b{high_bin},0b{low_bin},\n")
 
 
@@ -120,10 +116,10 @@ class Mapper:
                         core_placement.to_frame()
                     )
                     # export core_frame_type1 and core_frame_type3 to output_path
-                    export_framearray_to_bit(core_frame_type1, frame1_file, "\t0x")
+                    export_framearray_to_bit(core_frame_type1, frame1_file, "\t")
                     if core_frame_type2 is not None:
-                        export_framearray_to_bit(core_frame_type2, frame2_file, "\t0x")
-                    export_framearray_to_bit(core_frame_type3, frame3_file, "\t0x")
+                        export_framearray_to_bit(core_frame_type2, frame2_file, "\t")
+                    export_framearray_to_bit(core_frame_type3, frame3_file, "\t")
 
             frame1_file.write("};\n")
             frame2_file.write("};\n")
