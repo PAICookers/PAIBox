@@ -1,20 +1,37 @@
+import math
+
 import pytest
 import torch
-from paicorelib import RM, LeakMultiInputMode, OutputType, PoolingMode, SNNMode
+from paicorelib import (
+    RM,
+    DataSign,
+    DataWidth,
+    LeakMultiComparisonOrder,
+    LeakMultiInputMode,
+    LeakMultiMode,
+    OutputType,
+    PoolingMode,
+    SNNMode,
+)
 from torch import nn
 
-from paibox.paiir.calc_params import NeuronParams
-from paibox.paiir.core_neuron import ANNNodeV25, IFNodeV25, LIFNodeV25
-from paibox.paiir.graph import PAIIRGraph
-from paibox.paiir.ir_base import InputNode, OutputNode
-from paibox.paiir.lut_activation import LutReLU, LutSigmoid
-from paibox.paiir.op_node import (
+from paibox.paiir.ir.calc_params import NeuronParams
+from paibox.paiir.ir.core_neuron import ANNNodeV25, IFNodeV25, LIFNodeV25
+from paibox.paiir.ir.graph import PAIIRGraph
+from paibox.paiir.ir.ir_base import InputNode, OutputNode
+from paibox.paiir.ir.lut_activation import LutReLU, LutSigmoid
+from paibox.paiir.ir.op_node import (
     AccumulateOp,
     AddOp,
     SequentialOp,
     StandaloneActOp,
     StandaloneCompOp,
 )
+from paibox.paiir.pipeline.avgpool import (
+    apply_avgpool_lut_compensation,
+    apply_avgpool_snn_compensation,
+)
+from paibox.paiir.pipeline.passes import _infer_node_weight_format
 
 
 class TestSequentialOp:
@@ -145,6 +162,28 @@ class TestPAIIRGraph:
         assert order.index(b.name) < order.index(add.name)
         assert order.index(add.name) < order.index(out.name)
 
+    def test_summary_prefers_comp_and_act_type_names(self, capsys):
+        graph = PAIIRGraph("summary_labels")
+        inp = InputNode(shape=(1, 4))
+        comp = StandaloneCompOp(nn.Linear(4, 8))
+        act = StandaloneActOp(IFNodeV25())
+        out = OutputNode()
+
+        for node in (inp, comp, act, out):
+            graph.add_node(node)
+
+        graph.add_edge(inp.name, comp.name)
+        graph.add_edge(comp.name, act.name)
+        graph.add_edge(act.name, out.name)
+
+        graph.summary()
+        captured = capsys.readouterr().out
+
+        assert f"{inp.name} (InputNode)" in captured
+        assert f"{comp.name} (Linear)" in captured
+        assert f"{act.name} (IFNodeV25)" in captured
+        assert f"{out.name} (OutputNode)" in captured
+
 
 class TestWeights:
     """Test weights property on OpNode subclasses."""
@@ -154,6 +193,7 @@ class TestWeights:
         op = SequentialOp(comp=conv, act=ANNNodeV25(lut=LutReLU()))
         op.output_shape = (1, 8, 8, 8)
         ws = op.weights
+        assert ws is not None
         assert len(ws) == 1
         assert ws[0].dtype == torch.int8
         assert ws[0].shape == conv.weight.shape
@@ -170,6 +210,7 @@ class TestWeights:
         op = AccumulateOp(comps=[conv1, conv2], act=IFNodeV25(), op_signs=(1, 1))
         op.output_shape = (1, 8, 8, 8)
         ws = op.weights
+        assert ws is not None
         assert len(ws) == 2
         assert ws[0].shape == conv1.weight.shape
         assert ws[1].shape == conv2.weight.shape
@@ -179,6 +220,7 @@ class TestWeights:
         op = StandaloneActOp(act=ANNNodeV25(lut=LutReLU()))
         op.output_shape = (1, 16)
         ws = op.weights
+        assert ws is not None
         assert len(ws) == 1
         assert ws[0].shape == (16, 16)
         assert torch.equal(ws[0], torch.eye(16, dtype=torch.int8))
@@ -188,6 +230,7 @@ class TestWeights:
         op = StandaloneCompOp(comp=linear)
         op.output_shape = (1, 8)
         ws = op.weights
+        assert ws is not None
         assert len(ws) == 1
         assert ws[0].dtype == torch.int8
         assert ws[0].shape == linear.weight.shape
@@ -211,6 +254,36 @@ class TestWeights:
         op = StandaloneActOp(act=ANNNodeV25(lut=LutReLU()))
         with pytest.raises(AssertionError, match="output_shape"):
             _ = op.weights
+
+    def test_standalone_act_weight_format_does_not_materialize_identity(
+        self, monkeypatch
+    ):
+        op = StandaloneActOp(act=ANNNodeV25(lut=LutReLU()))
+        op.output_shape = (1, 1024, 1024)
+
+        def fail_identity():
+            raise AssertionError("identity weight should not be materialized")
+
+        monkeypatch.setattr(op, "_make_identity_weight", fail_identity)
+
+        assert _infer_node_weight_format(op) == (
+            DataSign.UNSIGNED,
+            DataWidth.WIDTH_1BIT,
+        )
+
+    def test_add_weight_format_does_not_materialize_identity(self, monkeypatch):
+        op = AddOp(op_signs=(1, -1))
+        op.output_shape = (1, 1024, 1024)
+
+        def fail_identity():
+            raise AssertionError("identity weight should not be materialized")
+
+        monkeypatch.setattr(op, "_make_identity_weight", fail_identity)
+
+        assert _infer_node_weight_format(op) == (
+            DataSign.UNSIGNED,
+            DataWidth.WIDTH_1BIT,
+        )
 
 
 class TestNeuronParams:
@@ -311,8 +384,10 @@ class TestAvgPoolCompensation:
         assert torch.equal(data.thresholds, baseline.thresholds)
 
     def test_sequential_avgpool_lif_compensates_threshold(self):
-        """AvgPool + LIF: neuron threshold is compensated."""
+        """AvgPool + LIF: neuron threshold is compensated via apply_avgpool_snn_compensation."""
         op = SequentialOp(comp=nn.AvgPool2d(3), act=LIFNodeV25(tau=2, v_threshold=1.0))
+        # Apply compensation (window_size=9 for 3x3 pool)
+        apply_avgpool_snn_compensation(op.act, window_size=9, decay_input=True)
         params = op.neuron_params
         # LIFNodeV25 default decay_input=True -> leak_multi_input=ENABLE
         # k=3, window_size=9, factor=9 (decay_input=True)
@@ -321,8 +396,19 @@ class TestAvgPoolCompensation:
         assert params.leak_multi_input == LeakMultiInputMode.ENABLE
 
     def test_sequential_avgpool_neuron_params_leak_set(self):
-        """AvgPool sets leak_tau on neuron_params."""
+        """AvgPool + LUT sets leak_tau for division-by-shift."""
         op = SequentialOp(comp=nn.AvgPool2d(2), act=ANNNodeV25(lut=LutReLU()))
+        # Apply compensation (window_size=4 for 2x2 pool)
+        assert op.act.lut is not None
+        apply_avgpool_lut_compensation(op.act.lut, window_size=4)
+        # Set leak params for division-by-shift (as done during AvgPool fusion)
+        N = round(math.log2(4))
+        op.act.leak_tau = -N
+        op.act.leak_multi_input = LeakMultiInputMode.ENABLE
+        op.act.leak_multi_mode = LeakMultiMode.DISABLE
+        op.act.leak_multi_sequence = LeakMultiComparisonOrder.AFTER_COMPARE
+
         params = op.neuron_params
+        # For ANN mode with power-of-2 window_size, leak_tau = -log2(window_size) = -2
         assert params.leak_tau == -2
         assert params.leak_multi_input == LeakMultiInputMode.ENABLE

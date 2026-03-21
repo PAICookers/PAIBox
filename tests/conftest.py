@@ -7,6 +7,7 @@ import pytest
 import paibox as pb
 from paibox.base import SynSys
 from paibox.naming import clear_name_cache
+from paibox.paiir.ir.ir_base import _ir_namespace
 
 # Import the logging hooks from logging_utils
 from ._logging.logging_utils import captured_logs, log_settings_patch  # noqa: F401
@@ -69,6 +70,14 @@ def context_reset():
     _reset_context()
     yield
     _reset_context()
+
+
+@pytest.fixture(autouse=True)
+def reset_ir_namespace():
+    """Reset PAIIR IR namespace before each test to ensure stable node naming."""
+    _ir_namespace.clear()
+    yield
+    _ir_namespace.clear()
 
 
 @pytest.fixture

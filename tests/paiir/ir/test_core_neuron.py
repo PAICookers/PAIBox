@@ -4,8 +4,8 @@ from paicorelib import RM
 from spikingjelly.activation_based import functional
 from torch import nn
 
-from paibox.paiir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
-from paibox.paiir.lut_activation import LutReLU
+from paibox.paiir.ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
+from paibox.paiir.ir.lut_activation import LutReLU
 
 
 class TestIFNodeV25:
@@ -54,6 +54,23 @@ class TestIFNodeV25:
         n.reset()
         assert n.v == 0
 
+    def test_init_v_matches_v_reset(self):
+        """Initial membrane potential matches v_reset (SpikingJelly convention)."""
+        # Hard reset with v_reset=0.0 -> init_v=0.0
+        n1 = IFNodeV25(v_threshold=1.0, v_reset=0.0)
+        assert n1.v == 0.0
+        assert n1.init_v == 0.0
+
+        # Hard reset with v_reset=1.0 -> init_v=1.0
+        n2 = IFNodeV25(v_threshold=1.0, v_reset=1.0)
+        assert n2.v == 1.0
+        assert n2.init_v == 1.0
+
+        # Soft reset (v_reset=None) -> init_v=0.0
+        n3 = IFNodeV25(v_threshold=1.0, v_reset=None)
+        assert n3.v == 0.0
+        assert n3.init_v == 0.0
+
 
 class TestLIFNodeV25:
     def test_tau_must_gt_1(self):
@@ -67,7 +84,7 @@ class TestLIFNodeV25:
         assert n.leak_tau == -2  # log2(4) = 2, right shift
 
     def test_tau_non_power_warns(self):
-        """Non-power-of-2 tau emits a warning and rounds up."""
+        """Non-power-of-2 tau emits a warning and rounds to nearest."""
         with pytest.warns(UserWarning, match="not a power of 2"):
             LIFNodeV25(tau=3)
 
@@ -90,6 +107,23 @@ class TestLIFNodeV25:
         # decay_input=False: v = 0 + 4 = 4
         # leak: v - (v>>1) = 4 - 2 = 2
         assert n.v.item() == 2
+
+    def test_init_v_matches_v_reset(self):
+        """Initial membrane potential matches v_reset (SpikingJelly convention)."""
+        # Hard reset with v_reset=0.0 -> init_v=0.0
+        n1 = LIFNodeV25(tau=2, v_threshold=1.0, v_reset=0.0)
+        assert n1.v == 0.0
+        assert n1.init_v == 0.0
+
+        # Hard reset with v_reset=1.0 -> init_v=1.0
+        n2 = LIFNodeV25(tau=2, v_threshold=1.0, v_reset=1.0)
+        assert n2.v == 1.0
+        assert n2.init_v == 1.0
+
+        # Soft reset (v_reset=None) -> init_v=0.0
+        n3 = LIFNodeV25(tau=2, v_threshold=1.0, v_reset=None)
+        assert n3.v == 0.0
+        assert n3.init_v == 0.0
 
 
 class TestNeuronV25InNetwork:

@@ -6,18 +6,17 @@ from paicorelib import DataSign, DataWidth, ThresholdNegMode
 from spikingjelly.activation_based import neuron as sj
 from torch import nn
 
-from paibox.paiir.converter import torch_to_paiir
-from paibox.paiir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
-from paibox.paiir.data_format import (
+from paibox.paiir.ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
+from paibox.paiir.ir.lut_activation import LutReLU, LutSigmoid, LutTanh
+from paibox.paiir.ir.op_node import AccumulateOp, OfflineCoreOp, StandaloneActOp
+from paibox.paiir.lowering.converter import torch_to_paiir
+from paibox.paiir.pipeline.data_format import (
     infer_output_format,
     infer_weight_format,
     merge_data_formats,
 )
-from paibox.paiir.lut_activation import LutReLU, LutSigmoid, LutTanh
-from paibox.paiir.op_node import AccumulateOp, OfflineCoreOp, StandaloneActOp
-from paibox.paiir.passes import fuse_to_offline_cores, propagate_data_format
-
-from .conftest import convert_fuse_propagate, find_nodes
+from paibox.paiir.pipeline.passes import fuse_to_offline_cores, propagate_data_format
+from tests.paiir.conftest import convert_fuse_propagate, find_nodes
 
 
 class TestInferOutputFormat:

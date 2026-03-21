@@ -2,7 +2,7 @@ import torch
 from torch import fx, nn
 from torch.fx.passes.shape_prop import ShapeProp
 
-from paibox.paiir.dims_prop import DimsProp
+from paibox.paiir.lowering.dims_prop import DimsProp
 
 
 def _propagate(model: nn.Module, *inputs: torch.Tensor) -> fx.GraphModule:

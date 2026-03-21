@@ -3,7 +3,7 @@ import math
 import pytest
 import torch
 
-from paibox.paiir.lut_activation import (
+from paibox.paiir.ir.lut_activation import (
     LutCustom,
     LutLinear,
     LutReLU,

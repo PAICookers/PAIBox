@@ -1,27 +1,18 @@
 from typing import TypeVar
 
-import pytest
 import torch
 from spikingjelly.activation_based import neuron as sj
 from torch import Tensor, nn
 
-from paibox.paiir.converter import torch_to_paiir
-from paibox.paiir.data_format import DataFormat
-from paibox.paiir.graph import PAIIRGraph
-from paibox.paiir.ir_base import PAIIRNode, _ir_namespace
-from paibox.paiir.lut_activation import LutCustom
-from paibox.paiir.op_node import OfflineCoreOp
-from paibox.paiir.passes import fuse_to_offline_cores, propagate_data_format
+from paibox.paiir.ir.graph import PAIIRGraph
+from paibox.paiir.ir.ir_base import PAIIRNode
+from paibox.paiir.ir.lut_activation import LutCustom
+from paibox.paiir.ir.op_node import OfflineCoreOp
+from paibox.paiir.lowering.converter import torch_to_paiir
+from paibox.paiir.pipeline.data_format import DataFormat
+from paibox.paiir.pipeline.passes import fuse_to_offline_cores, propagate_data_format
 
 _T = TypeVar("_T", bound=PAIIRNode)
-
-
-@pytest.fixture(autouse=True)
-def reset_ir_namespace():
-    """Reset IR namespace before each test to ensure consistent node naming."""
-    _ir_namespace.clear()
-    yield
-    _ir_namespace.clear()
 
 
 class SNNTwoLayer(nn.Module):
@@ -114,11 +105,11 @@ class MultiInputMerge(nn.Module):
 class SNNWithAvgPoolIF(nn.Module):
     """Conv-IF -> AvgPool-IF: split-core deployment pattern."""
 
-    def __init__(self):
+    def __init__(self, kernel_size: int):
         super().__init__()
         self.conv = nn.Conv2d(3, 16, 3, padding=1)
         self.if1 = sj.IFNode(v_threshold=1.0)
-        self.pool = nn.AvgPool2d(3)
+        self.pool = nn.AvgPool2d(kernel_size)
         self.if2 = sj.IFNode(v_threshold=1.0)
 
     def forward(self, x):
@@ -126,19 +117,54 @@ class SNNWithAvgPoolIF(nn.Module):
         return self.if2(self.pool(x))
 
 
-class AvgPool2IF(nn.Module):
-    """Conv-IF -> AvgPool(2x2)-IF: power-of-2 window for no threshold compensation."""
+class SNNWithAvgPool1dIF(nn.Module):
+    """Conv1d-IF -> AvgPool1d-IF: 1D pooling for parametric window size tests.
 
-    def __init__(self):
+    AvgPool1d(kernel_size) has window_size = kernel_size, making it easy to
+    test various window sizes with a single dimension. Uses Conv1d to maintain
+    3D tensor shape (batch, channels, length) expected by AvgPool1d.
+    """
+
+    def __init__(self, kernel_size: int):
         super().__init__()
-        self.conv = nn.Conv2d(3, 16, 3, padding=1)
+        self.conv = nn.Conv1d(1, 1, 3, padding=1)
         self.if1 = sj.IFNode(v_threshold=1.0)
-        self.pool = nn.AvgPool2d(2)
+        self.pool = nn.AvgPool1d(kernel_size)
         self.if2 = sj.IFNode(v_threshold=1.0)
 
     def forward(self, x):
         x = self.if1(self.conv(x))
         return self.if2(self.pool(x))
+
+
+class SNNWithAvgPoolLIF(nn.Module):
+    """Conv-IF -> AvgPool-LIF: shared-core by default, split-core candidate."""
+
+    def __init__(self, kernel_size: int, tau: float = 4.0):
+        super().__init__()
+        self.conv = nn.Conv2d(3, 16, 3, padding=1)
+        self.if1 = sj.IFNode(v_threshold=1.0)
+        self.pool = nn.AvgPool2d(kernel_size)
+        self.lif2 = sj.LIFNode(tau=tau, v_threshold=1.0)
+
+    def forward(self, x):
+        x = self.if1(self.conv(x))
+        return self.lif2(self.pool(x))
+
+
+class SNNWithAvgPool1dLIF(nn.Module):
+    """Conv1d-IF -> AvgPool1d-LIF: 1D fixture for split-core LIF tests."""
+
+    def __init__(self, kernel_size: int, tau: float = 4.0):
+        super().__init__()
+        self.conv = nn.Conv1d(1, 1, 3, padding=1)
+        self.if1 = sj.IFNode(v_threshold=1.0)
+        self.pool = nn.AvgPool1d(kernel_size)
+        self.lif2 = sj.LIFNode(tau=tau, v_threshold=1.0)
+
+    def forward(self, x):
+        x = self.if1(self.conv(x))
+        return self.lif2(self.pool(x))
 
 
 class SimpleCNN(nn.Module):
@@ -200,17 +226,6 @@ class ANNResidualSubtract(nn.Module):
 
     def forward(self, x):
         return self.tanh(self.linear_a(x) - self.linear_b(x))
-
-
-class StandaloneConv(nn.Module):
-    """Single conv, no activation: edge case."""
-
-    def __init__(self):
-        super().__init__()
-        self.conv = nn.Conv2d(3, 8, 3)
-
-    def forward(self, x):
-        return self.conv(x)
 
 
 class SPPFBlock(nn.Module):
@@ -303,6 +318,11 @@ def make_img_3ch_32x32() -> Tensor:
 def make_vec_8d() -> Tensor:
     """8-dimensional vector, for linear layer tests."""
     return torch.randn(1, 8)
+
+
+def make_vec_64d() -> Tensor:
+    """64-dimensional vector, for AvgPool1d tests with various kernel sizes."""
+    return torch.randn(1, 1, 64)
 
 
 def make_img_16ch_8x8() -> Tensor:

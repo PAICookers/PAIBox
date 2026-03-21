@@ -5,12 +5,11 @@ import torch
 from paicorelib import SNNMode
 from torch import nn
 
-from paibox.paiir.calc_params import OfflineCoreParams
-from paibox.paiir.converter import register_neuron, torch_to_paiir
-from paibox.paiir.core_neuron import ANNNodeV25, LIFNodeV25
 from paibox.paiir.exceptions import UnsupportedOpError, UnsupportedOpWarning
-from paibox.paiir.lut_activation import LutCustom, LutReLU, LutSigmoid, LutTanh
-from paibox.paiir.op_node import (
+from paibox.paiir.ir.calc_params import OfflineCoreParams
+from paibox.paiir.ir.core_neuron import ANNNodeV25, LIFNodeV25
+from paibox.paiir.ir.lut_activation import LutCustom, LutReLU, LutSigmoid, LutTanh
+from paibox.paiir.ir.op_node import (
     AccumulateOp,
     AddOp,
     ConcatOp,
@@ -19,17 +18,18 @@ from paibox.paiir.op_node import (
     StandaloneActOp,
     StandaloneCompOp,
 )
-from paibox.paiir.passes import (
+from paibox.paiir.lowering.converter import register_neuron, torch_to_paiir
+from paibox.paiir.nn import SumPool2d
+from paibox.paiir.pipeline.avgpool import AvgPoolDeployMetadata
+from paibox.paiir.pipeline.passes import (
     assign_tick_params,
     fuse_to_offline_cores,
     propagate_data_format,
 )
-
-from .conftest import (
+from tests.paiir.conftest import (
     ANNClassifier,
     ANNConvBNReLU,
     ANNResidualSubtract,
-    AvgPool2IF,
     MultiInputMerge,
     SNNDepthwiseSeparable,
     SNNFlattenTransition,
@@ -37,7 +37,6 @@ from .conftest import (
     SNNWithAvgPoolIF,
     SNNWithMaxPool,
     SPPFBlock,
-    StandaloneConv,
     UnsupportedSinModel,
     convert_and_fuse,
     find_first,
@@ -57,7 +56,7 @@ class TestSNNConversion:
 
     def test_two_layer_snn(self):
         """Conv-LIF -> Conv-IF: two SequentialOps after fusion."""
-        from .conftest import SNNTwoLayer
+        from tests.paiir.conftest import SNNTwoLayer
 
         model = SNNTwoLayer()
         fused = convert_and_fuse(model, make_img_3ch_8x8())
@@ -192,7 +191,7 @@ class TestComplexPatterns:
 
     def test_standalone_conv(self):
         """Conv with no activation stays StandaloneCompOp."""
-        model = StandaloneConv()
+        model = nn.Conv2d(3, 8, 3)
         fused = convert_and_fuse(model, make_img_3ch_8x8())
 
         comp_nodes = find_nodes(fused, StandaloneCompOp)
@@ -246,7 +245,7 @@ class TestShapeAndDims:
 
     def test_shape_propagation(self):
         """Shapes propagate correctly through a two-layer SNN."""
-        from .conftest import SNNTwoLayer
+        from tests.paiir.conftest import SNNTwoLayer
 
         model = SNNTwoLayer()
         fused = convert_and_fuse(model, make_img_3ch_8x8())
@@ -258,7 +257,7 @@ class TestShapeAndDims:
 
     def test_no_sample_input(self):
         """Converter works without sample input, shapes default to ()."""
-        from .conftest import SNNTwoLayer
+        from tests.paiir.conftest import SNNTwoLayer
 
         model = SNNTwoLayer()
         unfused = torch_to_paiir(model)
@@ -271,7 +270,7 @@ class TestShapeAndDims:
 
     def test_dims_identity(self):
         """Identity dims for standard conv/linear (no transpose)."""
-        from .conftest import SNNTwoLayer
+        from tests.paiir.conftest import SNNTwoLayer
 
         model = SNNTwoLayer()
         fused = convert_and_fuse(model, make_img_3ch_8x8())
@@ -314,7 +313,7 @@ class TestAssignTickParams:
     @pytest.fixture
     def fused_snn(self):
         """Fixture: fused SNNTwoLayer graph."""
-        from .conftest import SNNTwoLayer
+        from tests.paiir.conftest import SNNTwoLayer
 
         return convert_and_fuse(SNNTwoLayer(), make_img_3ch_8x8())
 
@@ -446,7 +445,7 @@ class TestAssignTickParams:
 
     def test_override_unknown_node_raises(self):
         """Override key for non-existent node raises KeyError."""
-        from .conftest import SNNTwoLayer
+        from tests.paiir.conftest import SNNTwoLayer
 
         fused = convert_and_fuse(SNNTwoLayer(), make_img_3ch_8x8())
         with pytest.raises(KeyError, match="does not match any node"):
@@ -480,7 +479,7 @@ class TestRegisterNeuron:
 
     def test_register_custom_neuron(self):
         """Register MultiSpike4 -> compile a model -> verify graph structure."""
-        from .conftest import MultiSpike4
+        from tests.paiir.conftest import MultiSpike4
 
         register_neuron(
             MultiSpike4, converter=lambda _: ANNNodeV25(make_multispike4_lut())
@@ -515,74 +514,173 @@ class TestSplitCoreAvgPoolIF:
     """Test split-core deployment for AvgPool + IFNodeV25 pattern."""
 
     def test_split_core_structure(self):
-        """AvgPool + IF splits into SequentialOp(AvgPool, ANN) + StandaloneActOp(IF)."""
-        model = SNNWithAvgPoolIF()
+        """AvgPool + IF splits into SequentialOp(SumPool, ANN) + StandaloneActOp(IF)."""
+        model = SNNWithAvgPoolIF(3)
         fused = convert_and_fuse(model, make_img_3ch_9x9())
 
         # First layer: Conv + IF -> SequentialOp
         seq_nodes = find_nodes(fused, SequentialOp)
-        assert len(seq_nodes) == 2  # Conv+IF and AvgPool+ANN
+        assert len(seq_nodes) == 2  # Conv+IF and SumPool+ANN
 
-        avgpool_cores = [n for n in seq_nodes if isinstance(n.comp, nn.AvgPool2d)]
-        assert len(avgpool_cores) == 1
+        # Split-core uses SumPool, not AvgPool
+        sumpool_cores = [n for n in seq_nodes if isinstance(n.comp, SumPool2d)]
+        assert len(sumpool_cores) == 1
 
         # Split-core: standalone IF
         standalone_acts = find_nodes(fused, StandaloneActOp)
         assert len(standalone_acts) == 1
 
     def test_core1_is_ann_with_identity_lut(self):
-        """Core 1 (AvgPool core) operates in ANN mode with identity LUT."""
-        model = SNNWithAvgPoolIF()
+        """Core 1 (SumPool core) operates in ANN mode with scaled LUT.
+
+        Split-core uses SumPool (sum domain), so LUT thresholds are scaled
+        by window_size during fusion.
+        """
+        model = SNNWithAvgPoolIF(3)
         fused = convert_and_fuse(model, make_img_3ch_9x9())
 
         seq_nodes = find_nodes(fused, SequentialOp)
-        avgpool_core = [n for n in seq_nodes if isinstance(n.comp, nn.AvgPool2d)][0]
+        sumpool_core = [n for n in seq_nodes if isinstance(n.comp, SumPool2d)][0]
 
-        assert avgpool_core.core_params.snn_mode == SNNMode.ANN
-        assert avgpool_core.act.lut is not None
-        assert isinstance(avgpool_core.act.lut, LutCustom)
+        assert sumpool_core.core_params.snn_mode == SNNMode.ANN
+        assert sumpool_core.act.lut is not None
+        assert sumpool_core.act.leak_tau == 0
 
-        # Identity LUT: output == input in the non-negative range.
-        # Predecessor is IFNodeV25 (unsigned spikes), so AvgPool sum >= 0.
-        test_vals = torch.arange(0, 128)
-        outputs, _ = avgpool_core.act.lut.lookup(test_vals.float())
-        assert torch.equal(outputs, test_vals)
+        # LUT thresholds are scaled to sum domain (window_size = 9 for 3x3 pool)
+        # Identity LUT: thresholds [0, 1, 2, ...] scaled to [0, 9, 18, ...]
+        assert sumpool_core.act.lut.thresholds[1] == 9
 
-    def test_core2_has_compensated_threshold(self):
-        """Core 2 (IF core) has threshold compensated for 3x3 pool shift error."""
-        model = SNNWithAvgPoolIF()
+        # Deployed LUT is the same (already in sum domain)
+        lut_data = sumpool_core.lut_data
+        assert lut_data is not None
+        assert lut_data.thresholds[1] == 9
+
+    def test_core2_no_compensation_needed(self):
+        """Core 2 (IF core) uses original threshold, no compensation.
+
+        Core 1's LUT handles the domain conversion, so Core 2 receives
+        correct values and needs no adjustment.
+        """
+        model = SNNWithAvgPoolIF(3)
         fused = convert_and_fuse(model, make_img_3ch_9x9())
 
         standalone_acts = find_nodes(fused, StandaloneActOp)
         assert len(standalone_acts) == 1
         if_core = standalone_acts[0]
 
-        # window_size = 9 (3x3 pool), factor = 9/8 = 1.125
-        # Original threshold = 1.0, reset_v = 0.0
-        # theta' = 0 + (1 - 0) * 1.125 = 1.125
-        assert if_core.act.thres_pos == pytest.approx(1.125)
+        # Original threshold unchanged
+        assert if_core.act.thres_pos == 1.0
         assert if_core.act.lut is None
 
     def test_edge_connectivity(self):
         """Core 1 -> Core 2 edge exists in the fused graph."""
-        model = SNNWithAvgPoolIF()
+        model = SNNWithAvgPoolIF(3)
         fused = convert_and_fuse(model, make_img_3ch_9x9())
 
         seq_nodes = find_nodes(fused, SequentialOp)
-        avgpool_core = [n for n in seq_nodes if isinstance(n.comp, nn.AvgPool2d)][0]
+        sumpool_core = [n for n in seq_nodes if isinstance(n.comp, SumPool2d)][0]
 
         standalone_acts = find_nodes(fused, StandaloneActOp)
         if_core = standalone_acts[0]
 
-        # Check that avgpool_core -> if_core edge exists
-        succs = fused.successors(avgpool_core.name)
+        # Check that sumpool_core -> if_core edge exists
+        succs = fused.successors(sumpool_core.name)
         assert if_core.name in succs
 
-    def test_window_size_power_of_2_no_threshold_compensation(self):
-        """When window_size is power of 2, IF threshold is unchanged."""
-        model = AvgPool2IF()
+    def test_window_size_power_of_2_lut_compensation(self):
+        """LUT thresholds are scaled by window_size for split-core.
+
+        For window_size=4 (2x2 pool), LUT threshold is scaled from 1 to 4.
+        Core 2 IF needs no compensation.
+        """
+        model = SNNWithAvgPoolIF(2)
         fused = convert_and_fuse(model, make_img_3ch_8x8())
 
+        seq_nodes = find_nodes(fused, SequentialOp)
+        sumpool_core = [n for n in seq_nodes if isinstance(n.comp, SumPool2d)][0]
+
+        # LUT thresholds are scaled to sum domain (window_size = 4 for 2x2 pool)
+        assert sumpool_core.act.lut is not None
+        assert sumpool_core.act.lut.thresholds[1] == 4
+
+        # Deployed LUT is the same (already in sum domain)
+        lut_data = sumpool_core.lut_data
+        assert lut_data is not None
+        assert lut_data.thresholds[1] == 4
+
+        # Core 2 has no compensation
         standalone_acts = find_nodes(fused, StandaloneActOp)
-        assert len(standalone_acts) == 1
-        assert standalone_acts[0].act.thres_pos == pytest.approx(1.0)
+        if_core = standalone_acts[0]
+        assert if_core.act.thres_pos == 1.0
+
+
+class TestAvgPoolDeploymentWriteback:
+    def test_shared_core_lif_records_avgpool_deploy_metadata(self):
+        import spikingjelly.activation_based.neuron as sj
+
+        class AvgPoolLIFNoDecay(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = nn.Conv2d(3, 3, 3, padding=1)
+                self.if1 = sj.IFNode(v_threshold=1.0)
+                self.pool = nn.AvgPool2d(3)
+                self.lif2 = sj.LIFNode(
+                    tau=4.0,
+                    decay_input=False,
+                    v_threshold=1.0,
+                    v_reset=0.0,
+                )
+
+            def forward(self, x):
+                x = self.if1(self.conv(x))
+                return self.lif2(self.pool(x))
+
+        unfused = torch_to_paiir(AvgPoolLIFNoDecay(), torch.randn(1, 3, 9, 9))
+        fused = fuse_to_offline_cores(unfused, enable_split_avgpool_lif=False)
+
+        avgpool_lif_nodes = [
+            node
+            for node in find_nodes(fused, SequentialOp)
+            if isinstance(node.comp, nn.AvgPool2d) and node.act.has_lif_dynamics
+        ]
+        assert len(avgpool_lif_nodes) == 1
+
+        shared_lif = avgpool_lif_nodes[0]
+        assert isinstance(shared_lif.avgpool_deploy_metadata, AvgPoolDeployMetadata)
+        assert shared_lif.avgpool_deploy_metadata.source_decay_input is False
+        assert shared_lif.avgpool_deploy_metadata.uses_calibration is False
+
+    def test_split_core_lif_is_scaled_during_fusion(self):
+        import spikingjelly.activation_based.neuron as sj
+
+        class AvgPoolLIFNoDecay(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = nn.Conv2d(3, 3, 3, padding=1)
+                self.if1 = sj.IFNode(v_threshold=1.0)
+                self.pool = nn.AvgPool2d(2)
+                self.lif2 = sj.LIFNode(
+                    tau=5.0, decay_input=False, v_threshold=1.0, v_reset=0.0
+                )
+
+            def forward(self, x):
+                x = self.if1(self.conv(x))
+                return self.lif2(self.pool(x))
+
+        unfused = torch_to_paiir(AvgPoolLIFNoDecay(), torch.randn(1, 3, 8, 8))
+        fused = fuse_to_offline_cores(unfused, enable_split_avgpool_lif=True)
+
+        act_nodes = find_nodes(fused, StandaloneActOp)
+        assert len(act_nodes) == 1
+        split_lif = act_nodes[0]
+        split_core1 = [
+            n for n in find_nodes(fused, SequentialOp) if isinstance(n.comp, SumPool2d)
+        ]
+        assert len(split_core1) == 1
+        assert split_core1[0].avgpool_deploy_metadata is None
+
+        # Fusion rewrites topology and immediately moves Core 2 into the
+        # split-core sum domain (window_size=4).
+        assert split_lif.act.thres_pos == 4
+        assert split_lif.act.reset_v == 0
+        assert split_lif.act.init_v == 0

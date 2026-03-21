@@ -2,20 +2,21 @@
 
 import pytest
 import torch
-from paicorelib import SNNMode
+from paicorelib import DataSign, DataWidth, SNNMode
 from spikingjelly.activation_based import neuron as sj
 from torch import nn
 
-from paibox.paiir.converter import torch_to_paiir
-from paibox.paiir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25
-from paibox.paiir.graph import PAIIRGraph
-from paibox.paiir.ir_base import InputNode, OutputNode
-from paibox.paiir.lut_activation import LutReLU
-from paibox.paiir.op_node import SequentialOp
-from paibox.paiir.passes import (
+from paibox.paiir.ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25
+from paibox.paiir.ir.graph import PAIIRGraph
+from paibox.paiir.ir.ir_base import InputNode, OutputNode
+from paibox.paiir.ir.lut_activation import LutReLU
+from paibox.paiir.ir.op_node import SequentialOp
+from paibox.paiir.lowering.converter import torch_to_paiir
+from paibox.paiir.pipeline.passes import (
     GraphCleanupWarning,
     GraphValidationError,
     fuse_to_offline_cores,
+    validate_compiled_graph,
     validate_graph,
 )
 
@@ -322,3 +323,76 @@ class TestSNNModeLUTConsistency:
             GraphValidationError, match="no LUT activation.*SNNMode.SNN"
         ):
             validate_graph(graph)
+
+
+class TestValidateCompiledGraph:
+    def _build_compiled_graph(self) -> tuple[PAIIRGraph, SequentialOp]:
+        graph = PAIIRGraph("compiled")
+        inp = InputNode(shape=(1, 8))
+        op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
+        op.input_shapes = [(1, 8)]
+        op.output_shape = (1, 4)
+        op.input_dims = [(0, 1)]
+        op.output_dims = (0, 1)
+        op.core_params.set_input_format((DataSign.SIGNED, DataWidth.WIDTH_8BIT))
+        op.core_params.set_output_format((DataSign.UNSIGNED, DataWidth.WIDTH_1BIT))
+        op.core_params.set_weight_format((DataSign.SIGNED, DataWidth.WIDTH_8BIT))
+        op.core_params.tick_start = 1
+        op.core_params.tick_duration = 0
+        op.core_params.tick_initial = 0
+        out = OutputNode()
+        graph.add_node(inp)
+        graph.add_node(op)
+        graph.add_node(out)
+        graph.add_edge(inp.name, op.name)
+        graph.add_edge(op.name, out.name)
+        return graph, op
+
+    def test_valid_compiled_graph_passes(self):
+        graph, _ = self._build_compiled_graph()
+        validate_compiled_graph(graph)
+
+    def test_missing_data_format_assignment_raises(self):
+        graph, op = self._build_compiled_graph()
+        op.core_params._input_format_assigned = False
+
+        with pytest.raises(GraphValidationError, match="missing propagated data format"):
+            validate_compiled_graph(graph)
+
+    def test_catches_nodes_not_on_any_input_to_output_path(self):
+        graph, _ = self._build_compiled_graph()
+        branch = SequentialOp(nn.Linear(8, 4), IFNodeV25())
+        dead_end = SequentialOp(nn.Linear(4, 2), IFNodeV25())
+
+        branch.input_shapes = [(1, 8)]
+        branch.output_shape = (1, 4)
+        branch.input_dims = [(0, 1)]
+        branch.output_dims = (0, 1)
+        dead_end.input_shapes = [(1, 4)]
+        dead_end.output_shape = (1, 2)
+        dead_end.input_dims = [(0, 1)]
+        dead_end.output_dims = (0, 1)
+
+        for node in (branch, dead_end):
+            node.core_params.set_input_format((DataSign.SIGNED, DataWidth.WIDTH_8BIT))
+            node.core_params.set_output_format(
+                (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)
+            )
+            node.core_params.set_weight_format(
+                (DataSign.SIGNED, DataWidth.WIDTH_8BIT)
+            )
+            node.core_params.tick_start = 1
+            node.core_params.tick_duration = 0
+            node.core_params.tick_initial = 0
+
+        inp = graph.input_nodes()[0]
+        graph.add_node(branch)
+        graph.add_node(dead_end)
+        graph.add_edge(inp.name, branch.name)
+        graph.add_edge(branch.name, dead_end.name)
+
+        with pytest.warns(GraphCleanupWarning):
+            validate_graph(graph)
+
+        with pytest.raises(GraphValidationError, match="nodes not on any input-to-output path"):
+            validate_compiled_graph(graph)
