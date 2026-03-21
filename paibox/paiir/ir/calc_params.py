@@ -35,7 +35,7 @@ __all__ = [
 ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class LutData:
     """LUT lookup table data for ANN mode offline cores.
 
@@ -46,6 +46,20 @@ class LutData:
     thresholds: Tensor  # shape (256,), bin boundaries
     values: Tensor  # shape (256,), output values
     is_float: bool = False  # True for float32 thresholds / bfloat16 values
+
+    def _tensor_hash(self, t: Tensor) -> int:
+        # detach + cpu 保证可序列化
+        t = t.detach().cpu().contiguous()
+        return hash((tuple(t.shape), str(t.dtype), t.numpy().tobytes()))
+
+    def __hash__(self) -> int:
+        return hash(
+            (
+                self._tensor_hash(self.thresholds),
+                self._tensor_hash(self.values),
+                self.is_float,
+            )
+        )
 
 
 # Chip register limits
