@@ -110,7 +110,9 @@ class CoreOpNode:
             raise NotImplementedError(f"Unsupported node type: {type(self.raw_node)}")
 
         weights = self.raw_node.weights
-        print(f"Setting comps and weights for node {self.name} \n\tcomps: {self.comps} \n\traw weights: {weights}")
+        print(
+            f"Setting comps and weights for node {self.name} \n\tcomps: {self.comps} \n\traw weights: {weights}"
+        )
         if weights is not None:
             self.weights = list(weights)
         else:

@@ -18,8 +18,12 @@ class SimpleCNN(nn.Module):
         self.conv1 = nn.Conv2d(1, 1, 3, padding=1)
         self.relu = nn.ReLU()
         self.conv2 = nn.Conv2d(1, 1, 3, padding=1)
-        self.conv1.weight.data = torch.arange(1, 10, dtype=torch.float32).reshape(1, 1, 3, 3)
-        self.conv2.weight.data = torch.arange(10, 19, dtype=torch.float32).reshape(1, 1, 3, 3)
+        self.conv1.weight.data = torch.arange(1, 10, dtype=torch.float32).reshape(
+            1, 1, 3, 3
+        )
+        self.conv2.weight.data = torch.arange(10, 19, dtype=torch.float32).reshape(
+            1, 1, 3, 3
+        )
         print("conv1 weight:", self.conv1.weight)
         print("conv2 weight:", self.conv2.weight)
 
