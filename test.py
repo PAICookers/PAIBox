@@ -13,14 +13,13 @@
 
 
 import torch
-from spikingjelly.activation_based import neuron
-from torch import nn
-
 from paibox.fx_converter.fuse import fuse_compute_act
 from paibox.fx_converter.trace import (
     propagate_tensor_shape,
     remove_dropout_identity_and_fuse_conv_bn,
 )
+from spikingjelly.activation_based import neuron
+from torch import nn
 
 
 class M(nn.Module):
