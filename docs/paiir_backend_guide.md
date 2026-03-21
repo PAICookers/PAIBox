@@ -22,6 +22,28 @@ PAIIR（PAIBox Intermediate Representation）是 PAIBox 工具链的中间表示
 - **精确映射**：每个 `OfflineCoreOp` 对应芯片上的一个离线计算核
 - **信息完备**：编译后的计算图包含权重、神经元参数、LUT 数据、数据格式、时序等部署所需的全部信息
 
+## 包结构速览
+
+当前 `paiir` 已按职责拆分为以下子包：
+
+```text
+paibox.paiir/
+├── ir/         # IR 实体：节点、图、神经元、LUT、参数
+├── lowering/   # PyTorch / FX -> PAIIR 构图
+├── pipeline/   # 编译流水、graph pass、数据格式、AvgPool 部署策略
+└── nn/         # 可复用运行时模块（如 SumPool1d / SumPool2d）
+```
+
+对后端开发者来说，通常有两类入口：
+
+- **公共入口**：从 `paibox.paiir` 顶层导入 `compile_to_paiir`、`PAIIRGraph`、`OfflineCoreOp` 等稳定 API
+- **内部扩展入口**：从 `paibox.paiir.pipeline.passes`、`paibox.paiir.ir.*` 等模块导入更细粒度的类型与 pass
+
+补充说明：
+
+- `paibox.paiir.pipeline.passes` 是当前编译 pass 的公共入口
+- `paibox.paiir.pipeline.pass_manager` 目前仍是实验性基础设施，不驱动默认 `compile_to_paiir()` 路径
+
 ## 编译流程与 API
 
 ### 编译流程概览
@@ -38,6 +60,10 @@ PyTorch 模型
     ▼  ④ propagate_data_format() — 两阶段数据格式推理（输出/权重 → 输入传播）
     │
     ▼  ⑤ assign_tick_params()    — 基于 DAG 深度分配时序参数
+    │
+    ▼  ⑥ calibrate_avgpool_thresholds() — 可选 AvgPool 阈值细化
+    │
+    ▼  ⑦ validate_compiled_graph() — 编译完成后的最终校验
     │
     ▼
 PAIIRGraph (就绪，可交付后端)
@@ -81,6 +107,8 @@ graph = compile_to_paiir(model, x, compile_config=cfg, strict=False)
 | `compile_config` | `CompileConfig \| None` | 配置对象（关键字参数优先级更高） |
 | `concrete_args` | `dict[str, Any] \| None` | 传递给 `fx.Tracer.trace` 的具体参数 |
 | `strict` | `bool` | True = 遇到不支持的算子时报错；False = 警告并跳过 |
+| `enable_avgpool_calibration` | `bool \| None` | 是否启用共享核 AvgPool+LIF 阈值细化，默认关闭 |
+| `enable_split_avgpool_lif` | `bool \| None` | 是否允许条件式 AvgPool+LIF 分核部署，默认关闭 |
 
 ### 分步编译
 
@@ -88,11 +116,13 @@ graph = compile_to_paiir(model, x, compile_config=cfg, strict=False)
 
 ```python
 from paibox.paiir import torch_to_paiir
-from paibox.paiir.passes import (
+from paibox.paiir.pipeline.passes import (
     fuse_to_offline_cores,
     validate_graph,
     propagate_data_format,
     assign_tick_params,
+    calibrate_avgpool_thresholds,
+    validate_compiled_graph,
 )
 
 # ① FX 追踪 + 1:1 节点映射
@@ -109,9 +139,19 @@ propagate_data_format(graph)
 
 # ⑤ 时序参数分配（原地填充 tick_start / tick_duration / tick_initial）
 assign_tick_params(graph, tick_duration=100, auto_reset=True)
+
+# ⑥ 可选：共享核 AvgPool+LIF 阈值细化
+calibrate_avgpool_thresholds(graph)
+
+# ⑦ 最终校验（检查形状、数据格式、tick 参数与连通性）
+validate_compiled_graph(graph)
 ```
 
-> **注意**：各阶段的 pass 函数（`fuse_to_offline_cores` 等）不在 `paibox.paiir` 的顶层导出中，需要从 `paibox.paiir.passes` 导入。
+> **注意 1**：各阶段的 pass 函数（`fuse_to_offline_cores` 等）不在 `paibox.paiir` 的顶层导出中，需要从 `paibox.paiir.pipeline.passes` 导入。
+>
+> **注意 2**：`validate_graph()` 与 `validate_compiled_graph()` 的职责不同：
+> - `validate_graph()` 用于融合后的中途结构清理与基础校验
+> - `validate_compiled_graph()` 用于所有编译期注解填充完成后的最终验收
 
 ## 核心数据结构
 
@@ -157,7 +197,11 @@ PAIIRNode (基类，自动分配唯一 name)
     └── CPUOp           — CPU 回退（占位符，仅 v2.5）
 ```
 
-融合后的正常图中主要出现 `SequentialOp`、`AccumulateOp`、`AddOp`、`ConcatOp` 四种算子。`StandaloneCompOp` 和 `StandaloneActOp` 通常在融合后不再独立存在（特殊情况除外，如 AvgPool 分核部署中 `StandaloneActOp` 作为第二核保留）。
+融合后的正常图中主要出现 `SequentialOp`、`AccumulateOp`、`AddOp`、`ConcatOp` 四种算子。`StandaloneCompOp` 和 `StandaloneActOp` 通常在融合后不再独立存在，但在以下场景中仍可能保留：
+
+- `strict=False` 下的部分旁路图结构
+- AvgPool 条件式分核部署中，`StandaloneActOp` 作为第二核保留
+- 某些尚未进一步融合的中间编译状态
 
 ## 计算图遍历与查询
 
@@ -171,8 +215,8 @@ output_nodes: list[OutputNode] = graph.output_nodes()
 # 拓扑排序（返回节点名列表，保证依赖顺序）
 ordered_names: list[str] = graph.topo_sort()
 
-# 打印图摘要
-print(graph.summary())
+# 打印图摘要（直接输出到 stdout，不返回字符串）
+graph.summary()
 ```
 
 ### 节点级查询
@@ -271,8 +315,10 @@ weights: list[Tensor] | None = op.weights
 
 - `SequentialOp`：返回 `[weight_tensor]`（int8），单个权重；池化操作返回 `None`（无权重）
 - `AccumulateOp`：返回 `[w0, w1, ...]`（int8），与 `comps` 一一对应；若任一 comp 无权重则返回 `None`
-- `AddOp`：返回单位矩阵列表（路由用）
-- `StandaloneActOp`：返回单位矩阵（恒等映射）
+- `AddOp`：返回单位矩阵列表（IR 便捷视图，用于表达恒等路由）
+- `StandaloneActOp`：返回单位矩阵（IR 便捷视图，用于表达恒等映射）
+
+> **注意**：`AddOp` / `StandaloneActOp` 上看到的单位矩阵并不是训练态真实参数，而是 IR 侧为了统一“按输入路径取权重”接口而生成的恒等权重视图。后端在做真实部署映射时，应优先使用算子语义（加法、纯激活），而不是把这些单位矩阵当成需要落盘的模型权重。
 
 #### 3. 神经元参数（neuron_params）
 
@@ -480,7 +526,7 @@ def extract_topology(graph):
 ```python
 def debug_graph(graph):
     """打印图的完整信息用于调试"""
-    print(graph.summary())
+    graph.summary()
     print()
 
     for name in graph.topo_sort():
@@ -568,7 +614,7 @@ class NeuronParams:
     reset_v: float = 0.0
     thres_neg_mode: ThresholdNegMode = ThresholdNegMode.FLOOR
     thres_pos_mode: ThresholdPosMode = ThresholdPosMode.FIRE
-    thres_neg: float = -99999.0
+    thres_neg: float = -131072
     thres_pos: float = 0.0
     lateral_inhi: LateralInhibitionMode = LateralInhibitionMode.DISABLE
     leak_multi_sequence: LeakMultiComparisonOrder = LeakMultiComparisonOrder.AFTER_COMPARE
@@ -605,3 +651,12 @@ class LutData:
 权重格式：从量化权重的实际值范围推断最窄的 `(DataSign, DataWidth)` 组合。
 
 输入格式：从前驱节点的输出格式传播；多输入取最宽表示（sign 取 SIGNED 若任一为 SIGNED，width 取最大值）。
+
+## 当前功能边界说明
+
+面向后端使用时，建议将当前 `paiir` 的输出理解为“编译完成、可供部署侧消费的 IR 图”，但同时注意以下边界：
+
+- `strict=True` 才表示遇到不支持算子会立即失败
+- `strict=False` 下图中可能存在被旁路的 unsupported 节点，此时返回图适合做结构分析或部分验证，但不应自动等价理解为“全图已严格支持”
+- `graph.summary()`、`graph.predecessors()`、`graph.successors()`、`core_params`、`neuron_params`、`lut_data` 等接口，是后端读取部署信息的主要入口
+- 若需要扩展编译流程，请优先在 `paibox.paiir.pipeline.passes` 中新增或调整 pass；`pass_manager` 目前不驱动默认编译路径
