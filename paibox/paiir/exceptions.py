@@ -7,6 +7,7 @@ __all__ = [
     "GraphValidationError",
     "PAIIRError",
     "PAIIRWarning",
+    "UnsupportedFusionError",
     "UnsupportedOpError",
     "UnsupportedOpWarning",
 ]
@@ -35,13 +36,29 @@ class UnsupportedOpError(PAIIRError):
         operator_desc: A description of the unsupported operator.
     """
 
-    def __init__(self, node_name: str, operator_desc: str):
+    def __init__(self, node_name: str, operator_desc: str) -> None:
         self.node_name = node_name
         self.operator_desc = operator_desc
         super().__init__(
             f"Unsupported operator '{operator_desc}' at node '{node_name}'. "
             f"Use register_neuron() to add a converter, or set strict=False to bypass."
         )
+
+
+class UnsupportedFusionError(PAIIRError):
+    """Raised when an unsupported operator combination or configuration is encountered.
+
+    This exception indicates that while individual operators are valid, their
+    combination or input configuration is not supported by the PAIIR fusion
+    pipeline.
+
+    Attributes:
+        fusion_desc: A description of the unsupported fusion scenario.
+    """
+
+    def __init__(self, fusion_desc: str) -> None:
+        self.fusion_desc = fusion_desc
+        super().__init__(f"Unsupported fusion configuration: {fusion_desc}")
 
 
 class PAIIRWarning(PAIBoxWarning):
@@ -62,7 +79,7 @@ class UnsupportedOpWarning(PAIIRWarning):
             all unsupported operators that were bypassed.
     """
 
-    def __init__(self, unsupported_ops: list[tuple[str, str]]):
+    def __init__(self, unsupported_ops: list[tuple[str, str]]) -> None:
         self.unsupported_ops = unsupported_ops
         ops_list = "\n".join(f"  - {name}: {desc}" for name, desc in unsupported_ops)
         super().__init__(

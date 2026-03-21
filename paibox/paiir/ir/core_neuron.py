@@ -48,8 +48,8 @@ from spikingjelly.activation_based import surrogate
 from spikingjelly.activation_based.base import MemoryModule
 from torch import Tensor
 
-from ..exceptions import AutoOptimizationWarning
-from .calc_params import LutData, NeuronParams
+from ...exceptions import AutoOptimizationWarning
+from .calc_params import DEFAULT_NEG_THRESHOLD, LutData, NeuronParams
 from .lut_activation import LutActivation
 
 __all__ = ["CoreNeuronV25", "ANNNodeV25", "IFNodeV25", "LIFNodeV25"]
@@ -140,7 +140,7 @@ class CoreNeuronV25(MemoryModule):
             self.thres_neg_mode = ThresholdNegMode.FLOOR
 
         self.thres_pos = thres_pos
-        self.thres_neg = thres_neg if thres_neg is not None else -99999
+        self.thres_neg = thres_neg if thres_neg is not None else DEFAULT_NEG_THRESHOLD
         self.lateral_inhi = LateralInhibitionMode(lateral_inhi)
         self.leak_multi_sequence = leak_multi_sequence
         self.leak_multi_input = LeakMultiInputMode(leak_multi_input)
@@ -155,7 +155,7 @@ class CoreNeuronV25(MemoryModule):
         # tau -> leak_tau (right-shift exponent)
         # Keep the original tau for compensation passes that need the
         # precise value (e.g. AvgPool threshold compensation).
-        self._original_tau = tau
+        self.tau = tau
         if leak_tau_shift is not None:
             self.leak_tau = leak_tau_shift
         else:
@@ -177,6 +177,20 @@ class CoreNeuronV25(MemoryModule):
     def snn_mode(self) -> SNNMode:
         """Return the chip SNN/ANN mode based on LUT presence."""
         return SNNMode.SNN if self.lut is None else SNNMode.ANN
+
+    @property
+    def is_snn(self) -> bool:
+        return self.snn_mode == SNNMode.SNN
+
+    @property
+    def has_if_dynamics(self) -> bool:
+        """Return True for spike neurons without leak dynamics."""
+        return self.is_snn and self.tau <= 1
+
+    @property
+    def has_lif_dynamics(self) -> bool:
+        """Return True for spike neurons with leak dynamics."""
+        return self.is_snn and self.tau > 1
 
     @property
     def output_sign(self) -> int:
@@ -382,7 +396,7 @@ class CoreNeuronV25(MemoryModule):
 
         log2_tau = math.log2(tau)
 
-        if log2_tau == int(log2_tau):
+        if log2_tau.is_integer():
             exponent = int(log2_tau)
         else:
             exponent = math.ceil(log2_tau)
@@ -457,11 +471,13 @@ class IFNodeV25(CoreNeuronV25):
             **kwargs: Forwarded to :class:`CoreNeuronV25`.
         """
         reset_v, reset_mode = _resolve_reset(v_reset)
+
         super().__init__(
             reset_mode=reset_mode,
             reset_v=reset_v,
             thres_pos=v_threshold,
-            leak_tau_shift=0,
+            tau=1,  # leak_tau_shift=0,
+            init_v=reset_v,  # Match SpikingJelly: init_v = v_reset
             surrogate_function=surrogate_function,
             detach_reset=detach_reset,
             **kwargs,
@@ -506,6 +522,7 @@ class LIFNodeV25(CoreNeuronV25):
             tau=tau,
             leak_multi_input=decay_input,
             leak_multi_mode=leak_multi_mode,
+            init_v=reset_v,  # Match SpikingJelly: init_v = v_reset
             surrogate_function=surrogate_function,
             detach_reset=detach_reset,
             **kwargs,
@@ -520,7 +537,7 @@ class ANNNodeV25(CoreNeuronV25):
         """ANN activation node using LUT lookup.
 
         Convenience wrapper for ANN mode that takes only a
-        :class:`~paibox.paiir.lut_activation.LutActivation` and hides
+        :class:`~paibox.paiir.ir.lut_activation.LutActivation` and hides
         SNN-specific parameters.
 
         Args:

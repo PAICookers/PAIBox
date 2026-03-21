@@ -2,7 +2,7 @@
 
 Discretise continuous activation functions into 256-bin lookup tables,
 simulating the v2.5 chip LUT computation. Used as the ``lut`` component
-inside :class:`~paibox.paiir.core_neuron.CoreNeuronV25` for ANN mode.
+inside :class:`~paibox.paiir.ir.core_neuron.CoreNeuronV25` for ANN mode.
 
 Example::
 

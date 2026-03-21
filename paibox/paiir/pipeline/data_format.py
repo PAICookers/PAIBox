@@ -12,7 +12,7 @@ from collections.abc import Sequence
 
 from paicorelib import DataSign, DataWidth, ThresholdNegMode
 
-from .core_neuron import CoreNeuronV25
+from ..ir.core_neuron import CoreNeuronV25
 
 __all__ = [
     "DataFormat",
@@ -55,16 +55,17 @@ def infer_output_format(act: CoreNeuronV25) -> tuple[DataSign, DataWidth]:
     - ANN mode with ``output_sign == 0``:
       outputs [0, 255] -> ``UNSIGNED, WIDTH_8BIT``.
     """
-    if act.lut is None:
+    if act.is_snn:
         # SNN mode
         if act.thres_neg_mode == ThresholdNegMode.FIRE:
-            return DataSign.SIGNED, DataWidth.WIDTH_2BIT
+            return DataSign.SIGNED, DataWidth.WIDTH_2BIT  # including negative spike
         return DataSign.UNSIGNED, DataWidth.WIDTH_1BIT
     else:
         # ANN mode
-        if act.lut.output_sign == 1:
+        if act.output_sign == 1:
             return DataSign.SIGNED, DataWidth.WIDTH_8BIT
-        return DataSign.UNSIGNED, DataWidth.WIDTH_8BIT
+        else:
+            return DataSign.UNSIGNED, DataWidth.WIDTH_8BIT
 
 
 def infer_weight_format(weight_min: int, weight_max: int) -> tuple[DataSign, DataWidth]:

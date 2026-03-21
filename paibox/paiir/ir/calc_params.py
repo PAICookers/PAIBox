@@ -5,7 +5,7 @@ The IR is version-agnostic; the backend translates these parameters to
 chip-specific register values (v2.0 or v2.5).
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from paicorelib import (
     RM,
@@ -26,7 +26,13 @@ from paicorelib import (
 )
 from torch import Tensor
 
-__all__ = ["LutData", "OfflineCoreParams", "NeuronParams", "OnlineCoreParams"]
+__all__ = [
+    "DEFAULT_NEG_THRESHOLD",
+    "LutData",
+    "OfflineCoreParams",
+    "NeuronParams",
+    "OnlineCoreParams",
+]
 
 
 @dataclass
@@ -47,6 +53,10 @@ _TICK_START_MAX = (1 << 16) - 1  # 16-bit unsigned
 _TICK_DURATION_MAX = (1 << 32) - 1  # 32-bit unsigned
 _TICK_INITIAL_MAX = (1 << 16) - 1  # 16-bit unsigned
 
+# Default negative threshold sentinel for single-sided spike neurons such as
+# SpikingJelly-compatible IF/LIF. Chosen as a nearby power-of-two magnitude.
+DEFAULT_NEG_THRESHOLD = -(1 << 17)
+
 
 @dataclass
 class OfflineCoreParams:
@@ -58,7 +68,7 @@ class OfflineCoreParams:
     Timing parameters:
 
     - ``tick_start``: Which sync_all to start working at. ``None`` means
-      auto-assigned by :func:`~paibox.paiir.passes.assign_tick_params`.
+      auto-assigned by :func:`~paibox.paiir.pipeline.passes.assign_tick_params`.
       0 = never start (disabled), N > 0 = start at Nth sync_all.
     - ``tick_duration``: How many sync_all cycles to work. 0 = always
       working, N > 0 = work for N time steps then stop.
@@ -81,15 +91,38 @@ class OfflineCoreParams:
     tick_start: int | None = None
     tick_duration: int = 0
     tick_initial: int = 0
+    _input_format_assigned: bool = field(default=False, init=False, repr=False)
+    _output_format_assigned: bool = field(default=False, init=False, repr=False)
+    _weight_format_assigned: bool = field(default=False, init=False, repr=False)
 
     def set_input_format(self, fmt: tuple[DataSign, DataWidth]) -> None:
         self.input_sign, self.input_width = fmt
+        self._input_format_assigned = True
 
     def set_output_format(self, fmt: tuple[DataSign, DataWidth]) -> None:
         self.output_sign, self.output_width = fmt
+        self._output_format_assigned = True
 
     def set_weight_format(self, fmt: tuple[DataSign, DataWidth]) -> None:
         self.weight_sign, self.weight_width = fmt
+        self._weight_format_assigned = True
+
+    def validate_data_formats(self) -> None:
+        """Validate that all data-format fields were explicitly assigned."""
+        missing: list[str] = []
+        if not self._input_format_assigned:
+            missing.append("input_format")
+        if not self._output_format_assigned:
+            missing.append("output_format")
+        if not self._weight_format_assigned:
+            missing.append("weight_format")
+
+        if missing:
+            missing_str = ", ".join(missing)
+            raise ValueError(
+                f"missing propagated data format(s): {missing_str}. "
+                "Run propagate_data_format() first."
+            )
 
     def validate_tick_params(self) -> None:
         """Validate tick parameters against chip register limits.
@@ -122,7 +155,7 @@ class NeuronParams:
     """Neuron parameter set.
 
     Full configuration of an offline-core neuron, corresponding 1:1 to
-    :class:`~paibox.paiir.core_neuron.CoreNeuronV25` attributes.  The backend maps
+    :class:`~paibox.paiir.ir.core_neuron.CoreNeuronV25` attributes.  The backend maps
     these to chip-specific register layouts.
     """
 
@@ -130,7 +163,7 @@ class NeuronParams:
     reset_v: float = 0.0
     thres_neg_mode: ThresholdNegMode = ThresholdNegMode.FLOOR
     thres_pos_mode: ThresholdPosMode = ThresholdPosMode.FIRE
-    thres_neg: float = -99999.0
+    thres_neg: float = DEFAULT_NEG_THRESHOLD
     thres_pos: float = 0.0
     lateral_inhi: LateralInhibitionMode = LateralInhibitionMode.DISABLE
     leak_multi_sequence: LeakMultiComparisonOrder = (
@@ -140,7 +173,7 @@ class NeuronParams:
     leak_multi_mode: LeakMultiMode = LeakMultiMode.DISABLE
     leak_add_mode: LeakAddMode = LeakAddMode.FORWARD
     leak_tau: int = 0
-    leak_v: float = 0.0
+    leak_v: float | Tensor = 0.0
     init_v: float = 0.0
     output_type: OutputType = OutputType.VALUE
 

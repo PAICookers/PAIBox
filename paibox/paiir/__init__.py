@@ -23,58 +23,54 @@ Quick start::
     )
 """
 
-# Chip-accurate operators (public API)
-from .core_neuron import (
+# Chip-accurate operators and IR entities (public API)
+from .ir import (
     ANNNodeV25,
+    AccumulateOp,
+    AddOp,
+    CPUOp,
+    ConcatOp,
     CoreNeuronV25,
+    Edge,
     IFNodeV25,
+    InputNode,
     LIFNodeV25,
-)
-from .lut_activation import (
     LutActivation,
     LutAdaptiveActivation,
     LutCustom,
+    LutData,
     LutLinear,
     LutReLU,
     LutSigmoid,
     LutSoftsign,
     LutTanh,
-)
-
-# IR base types
-from .ir_base import InputNode, OutputNode, PAIIRNode
-
-# Graph
-from .graph import Edge, PAIIRGraph
-
-# Core operator IR nodes
-from .op_node import (
-    AccumulateOp,
-    AddOp,
-    ConcatOp,
-    CPUOp,
+    NeuronParams,
     OfflineCoreOp,
+    OfflineCoreParams,
     OnlineCoreOp,
+    OnlineCoreParams,
     OpNode,
+    OutputNode,
+    PAIIRGraph,
+    PAIIRNode,
     SequentialOp,
     StandaloneActOp,
     StandaloneCompOp,
 )
 
-# Parameter definitions
-from .calc_params import LutData, NeuronParams, OfflineCoreParams, OnlineCoreParams
-
-# Data format inference
-from .data_format import (
+# Data format inference and compile pipeline
+from .pipeline import (
+    CompileConfig,
     DataFormat,
+    compile_to_paiir,
     infer_output_format,
     infer_weight_format,
     merge_data_formats,
 )
 
-# Conversion and passes
-from .converter import register_neuron, torch_to_paiir
-from .compile import compile_to_paiir, CompileConfig
+# Conversion entrypoints
+from .lowering import register_neuron, torch_to_paiir
+
 
 __all__ = [
     # Chip-accurate operators
