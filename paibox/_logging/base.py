@@ -283,10 +283,6 @@ class _LogSettingsKwds(TypedDict, total=False):
     routing_group_info: bool
     tiling_optim: bool
     stdp: bool
-    fx_converter: int | None
-    fuse: bool
-    trace: bool
-    layout_annotate: bool
 
 
 # Add a default log level or state for each log or artifact name in the above dictionary.
@@ -303,10 +299,6 @@ DEFAULT_LOG_SETTINGS: _LogSettingsKwds = {
     "routing_group_info": True,
     "tiling_optim": True,
     "stdp": True,
-    "fx_converter": logging.INFO,
-    "fuse": True,
-    "trace": True,
-    "layout_annotate": True,
 }
 
 
