@@ -247,9 +247,9 @@ class TestCompensationEffectiveness:
         chip_norm = v_chip_ss / thres_comp
         model_norm = v_model_ss / thres
 
-        assert torch.allclose(chip_norm, model_norm, atol=0.01), (
-            f"Normalized voltages don't match: chip={chip_norm:.4f}, model={model_norm:.4f}"
-        )
+        assert torch.allclose(
+            chip_norm, model_norm, atol=0.01
+        ), f"Normalized voltages don't match: chip={chip_norm:.4f}, model={model_norm:.4f}"
 
     @pytest.mark.parametrize("tau", [2, 4, 8])
     def test_power_of_2_identical_normalized_trajectory(self, tau):
@@ -431,9 +431,9 @@ class TestFiringRateCompensation:
             match_rate = matched / len(model_times)
 
         # For power-of-2 τ, match rate should be high but not 100%
-        assert match_rate > 0.80, (
-            f"Spike match rate too low for tau={tau}: {match_rate:.1%}"
-        )
+        assert (
+            match_rate > 0.80
+        ), f"Spike match rate too low for tau={tau}: {match_rate:.1%}"
 
     @pytest.mark.parametrize("tau", [3, 5, 6, 7])
     def test_non_power_of_2_spike_timing_bounded(self, tau):
@@ -470,9 +470,9 @@ class TestFiringRateCompensation:
             match_rate = matched / len(model_times)
 
         # Typical values with thres=4: tau=3 -> ~98%, tau=5/6/7 -> ~82-86%
-        assert match_rate > 0.75, (
-            f"Spike match rate too low for tau={tau}: {match_rate:.1%}"
-        )
+        assert (
+            match_rate > 0.75
+        ), f"Spike match rate too low for tau={tau}: {match_rate:.1%}"
 
 
 class TestResetVCompensation:
@@ -571,9 +571,9 @@ class TestResetVCompensation:
             match_rate = matched / len(model_times)
 
         # Lower threshold for reset_v ≠ 0 due to hardware limitation
-        assert match_rate > 0.65, (
-            f"Spike match rate too low for tau={tau}, reset_v={reset_v}: {match_rate:.1%}"
-        )
+        assert (
+            match_rate > 0.65
+        ), f"Spike match rate too low for tau={tau}, reset_v={reset_v}: {match_rate:.1%}"
 
 
 class TestDecayInputFalseCompensation:
@@ -658,9 +658,9 @@ class TestDecayInputFalseCompensation:
             )
             match_rate = matched / len(model_times)
 
-        assert match_rate > 0.90, (
-            f"Spike match rate too low for tau={tau} (decay_input=False): {match_rate:.1%}"
-        )
+        assert (
+            match_rate > 0.90
+        ), f"Spike match rate too low for tau={tau} (decay_input=False): {match_rate:.1%}"
 
     @pytest.mark.parametrize("tau, reset_v", [(3, 1), (5, 1), (6, 2)])
     def test_decay_input_false_with_reset_v_bounded(self, tau, reset_v):

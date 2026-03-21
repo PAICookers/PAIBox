@@ -356,7 +356,9 @@ class TestValidateCompiledGraph:
         graph, op = self._build_compiled_graph()
         op.core_params._input_format_assigned = False
 
-        with pytest.raises(GraphValidationError, match="missing propagated data format"):
+        with pytest.raises(
+            GraphValidationError, match="missing propagated data format"
+        ):
             validate_compiled_graph(graph)
 
     def test_catches_nodes_not_on_any_input_to_output_path(self):
@@ -378,9 +380,7 @@ class TestValidateCompiledGraph:
             node.core_params.set_output_format(
                 (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)
             )
-            node.core_params.set_weight_format(
-                (DataSign.SIGNED, DataWidth.WIDTH_8BIT)
-            )
+            node.core_params.set_weight_format((DataSign.SIGNED, DataWidth.WIDTH_8BIT))
             node.core_params.tick_start = 1
             node.core_params.tick_duration = 0
             node.core_params.tick_initial = 0
@@ -394,5 +394,7 @@ class TestValidateCompiledGraph:
         with pytest.warns(GraphCleanupWarning):
             validate_graph(graph)
 
-        with pytest.raises(GraphValidationError, match="nodes not on any input-to-output path"):
+        with pytest.raises(
+            GraphValidationError, match="nodes not on any input-to-output path"
+        ):
             validate_compiled_graph(graph)

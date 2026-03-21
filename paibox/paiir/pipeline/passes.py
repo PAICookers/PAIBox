@@ -413,9 +413,7 @@ def _collect_reachable_nodes(
         if name in seen or name not in graph.nodes:
             continue
         seen.add(name)
-        neighbors = (
-            graph.predecessors(name) if reverse else graph.successors(name)
-        )
+        neighbors = graph.predecessors(name) if reverse else graph.successors(name)
         stack.extend(neighbors)
 
     return seen

@@ -332,7 +332,9 @@ class FunctionalQuantizedConvWithShapeReshape(nn.Module):
         flat = expanded.flatten(0, 1)
         w = self.weight_int8.to(flat.dtype) * self.weight_scale
         y = F.conv2d(flat, w, self.bias, stride=1, padding=1, dilation=1, groups=1)
-        y = y.reshape(expanded.shape[0], expanded.shape[1], -1, y.shape[-2], y.shape[-1])
+        y = y.reshape(
+            expanded.shape[0], expanded.shape[1], -1, y.shape[-2], y.shape[-1]
+        )
         return self.relu(y)
 
 
@@ -373,7 +375,9 @@ class TestFunctionalConv2d:
             strict=False,
         )
 
-        seq_nodes = [node for node in graph.nodes.values() if isinstance(node, SequentialOp)]
+        seq_nodes = [
+            node for node in graph.nodes.values() if isinstance(node, SequentialOp)
+        ]
         assert len(seq_nodes) == 1
         assert graph.predecessors("ReshapeOp_0") == ["InputNode_0"]
         assert graph.predecessors(seq_nodes[0].name) == ["ReshapeOp_0"]
@@ -659,11 +663,11 @@ class TestAvgPoolCalibration:
         model = AvgPoolLIF()
         monkeypatch = pytest.MonkeyPatch()
         monkeypatch.setattr(
-            compile_mod, "calibrate_avgpool_thresholds", fake_calibrate_avgpool_thresholds
+            compile_mod,
+            "calibrate_avgpool_thresholds",
+            fake_calibrate_avgpool_thresholds,
         )
-        graph = compile_to_paiir(
-            model, make_vec_64d(), enable_avgpool_calibration=True
-        )
+        graph = compile_to_paiir(model, make_vec_64d(), enable_avgpool_calibration=True)
         monkeypatch.undo()
 
         # Verify calibration ran
@@ -709,9 +713,13 @@ class TestAvgPoolCalibration:
                 return self.lif(self.avgpool(x))
 
         monkeypatch.setattr(
-            avgpool_fusion, "select_avgpool_lif_candidate", fake_select_avgpool_lif_candidate
+            avgpool_fusion,
+            "select_avgpool_lif_candidate",
+            fake_select_avgpool_lif_candidate,
         )
-        monkeypatch.setattr(compile_mod, "calibrate_avgpool_thresholds", lambda graph: {})
+        monkeypatch.setattr(
+            compile_mod, "calibrate_avgpool_thresholds", lambda graph: {}
+        )
 
         graph = compile_to_paiir(
             AvgPoolLIF(), make_vec_64d(), enable_avgpool_calibration=True
@@ -720,7 +728,9 @@ class TestAvgPoolCalibration:
         assert calls == [True]
         seq_nodes = find_nodes(graph, SequentialOp)
         avgpool_node = next(
-            node for node in seq_nodes if hasattr(node, "comp") and isinstance(node.comp, nn.AvgPool1d)
+            node
+            for node in seq_nodes
+            if hasattr(node, "comp") and isinstance(node.comp, nn.AvgPool1d)
         )
         assert isinstance(avgpool_node.avgpool_deploy_metadata, AvgPoolDeployMetadata)
         assert avgpool_node.avgpool_deploy_metadata.uses_calibration is True
@@ -749,7 +759,9 @@ class TestAvgPoolCalibration:
         model = AvgPoolLIF()
         config = CompileConfig(enable_avgpool_calibration=True)
         monkeypatch.setattr(
-            compile_mod, "calibrate_avgpool_thresholds", fake_calibrate_avgpool_thresholds
+            compile_mod,
+            "calibrate_avgpool_thresholds",
+            fake_calibrate_avgpool_thresholds,
         )
         graph = compile_to_paiir(model, make_vec_64d(), compile_config=config)
 
@@ -779,9 +791,7 @@ class TestAvgPoolCalibration:
                 return self.lif(self.avgpool(x))
 
         model = AvgPoolLIF()
-        graph = compile_to_paiir(
-            model, make_vec_64d(), enable_avgpool_calibration=True
-        )
+        graph = compile_to_paiir(model, make_vec_64d(), enable_avgpool_calibration=True)
 
         seq_nodes = find_nodes(graph, SequentialOp)
         for node in seq_nodes:
@@ -792,7 +802,9 @@ class TestAvgPoolCalibration:
 
         pytest.fail("No AvgPool+LIF SequentialOp node found")
 
-    def test_shared_core_node_marked_uncalibrated_skips_calibration_pass(self, monkeypatch):
+    def test_shared_core_node_marked_uncalibrated_skips_calibration_pass(
+        self, monkeypatch
+    ):
         def fake_select_avgpool_lif_candidate(
             act,
             pred_out_width,
@@ -822,7 +834,9 @@ class TestAvgPoolCalibration:
                 return self.lif(self.avgpool(x))
 
         monkeypatch.setattr(
-            avgpool_fusion, "select_avgpool_lif_candidate", fake_select_avgpool_lif_candidate
+            avgpool_fusion,
+            "select_avgpool_lif_candidate",
+            fake_select_avgpool_lif_candidate,
         )
 
         graph = compile_to_paiir(
@@ -831,7 +845,9 @@ class TestAvgPoolCalibration:
 
         seq_nodes = find_nodes(graph, SequentialOp)
         avgpool_node = next(
-            node for node in seq_nodes if hasattr(node, "comp") and isinstance(node.comp, nn.AvgPool1d)
+            node
+            for node in seq_nodes
+            if hasattr(node, "comp") and isinstance(node.comp, nn.AvgPool1d)
         )
         assert avgpool_node.avgpool_deploy_metadata is not None
         assert avgpool_node.avgpool_deploy_metadata.uses_calibration is False
@@ -869,7 +885,9 @@ class TestAvgPoolCalibration:
                 return self.lif(self.avgpool(x))
 
         monkeypatch.setattr(
-            avgpool_fusion, "select_avgpool_lif_candidate", fake_select_avgpool_lif_candidate
+            avgpool_fusion,
+            "select_avgpool_lif_candidate",
+            fake_select_avgpool_lif_candidate,
         )
 
         graph = compile_to_paiir(
@@ -878,7 +896,9 @@ class TestAvgPoolCalibration:
 
         seq_nodes = find_nodes(graph, SequentialOp)
         avgpool_node = next(
-            node for node in seq_nodes if hasattr(node, "comp") and isinstance(node.comp, nn.AvgPool1d)
+            node
+            for node in seq_nodes
+            if hasattr(node, "comp") and isinstance(node.comp, nn.AvgPool1d)
         )
         assert avgpool_node.avgpool_deploy_metadata is not None
         assert avgpool_node.avgpool_deploy_metadata.uses_calibration is True
@@ -931,7 +951,9 @@ class TestAvgPoolCalibration:
         # Config says True, kwarg says False -> kwarg wins (no calibration)
         config = CompileConfig(enable_avgpool_calibration=True)
         monkeypatch.setattr(
-            compile_mod, "calibrate_avgpool_thresholds", fake_calibrate_avgpool_thresholds
+            compile_mod,
+            "calibrate_avgpool_thresholds",
+            fake_calibrate_avgpool_thresholds,
         )
         graph = compile_to_paiir(
             model,

@@ -269,6 +269,7 @@ def score_avgpool_lif_candidates(
     ]
 
     if try_calibration:
+
         def simulate_shared_calibrated(probe_sum_input: torch.Tensor) -> torch.Tensor:
             best_thres = calibrate_avgpool_threshold(
                 act,
@@ -293,6 +294,7 @@ def score_avgpool_lif_candidates(
         )
 
     if allow_split_lif and _split_lif_exact_sum_feasible(pred_out_width, window_size):
+
         def simulate_split_core(probe_sum_input: torch.Tensor) -> torch.Tensor:
             return _simulate_split_core_candidate(
                 act, window_size, probe_sum_input, decay_input

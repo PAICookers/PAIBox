@@ -172,9 +172,7 @@ class PAIBoxLogsFormatter(logging.Formatter):
         record.asctime = self.formatTime(record, "%H:%M:%S")
 
         shortlevel = log_level_to_abbr.get(record.levelname, record.levelname)
-        prefix = (
-            f"[{shortlevel} {record.asctime} {record.lineno}]{record.artifactprefix}"  # type: ignore[attr-defined]
-        )
+        prefix = f"[{shortlevel} {record.asctime} {record.lineno}]{record.artifactprefix}"  # type: ignore[attr-defined]
 
         lines = s.split("\n")
         return "\n".join(f"{prefix} {l}" for l in lines)

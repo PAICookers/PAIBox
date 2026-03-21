@@ -145,9 +145,9 @@ class TestNonlinearActivations:
         x = torch.linspace(-5, 5, 20)
         y = lut(x)
         ref = torch.tensor([ref_fn(xi.item()) for xi in x])
-        assert torch.allclose(y.float(), ref, atol=0.15), (
-            f"{cls.__name__} max error = {(y.float() - ref).abs().max().item():.4f}"
-        )
+        assert torch.allclose(
+            y.float(), ref, atol=0.15
+        ), f"{cls.__name__} max error = {(y.float() - ref).abs().max().item():.4f}"
 
     @pytest.mark.parametrize("cls, ref_fn, sign, scale", _NONLINEAR_PARAMS)
     def test_int_accuracy(self, cls, ref_fn, sign, scale):
@@ -162,18 +162,20 @@ class TestNonlinearActivations:
 
         for xn, yi in zip(norm_points, y.tolist()):
             expected = ref_fn(xn) * scale
-            assert abs(yi - expected) <= 15, (
-                f"{cls.__name__}: at x_norm={xn}, got {yi}, expected ~{expected:.1f}"
-            )
+            assert (
+                abs(yi - expected) <= 15
+            ), f"{cls.__name__}: at x_norm={xn}, got {yi}, expected ~{expected:.1f}"
 
     @pytest.mark.parametrize("cls, ref_fn, sign, scale", _NONLINEAR_PARAMS)
-    def test_threshold_density_near_zero(self, cls, ref_fn, sign, scale):  # noqa: ARG002
+    def test_threshold_density_near_zero(
+        self, cls, ref_fn, sign, scale
+    ):  # noqa: ARG002
         """Non-uniform binning concentrates thresholds near x=0."""
         thresholds = cls(min_val=-500, max_val=500, output_sign=sign).thresholds
         inner_count = ((thresholds >= -50) & (thresholds <= 50)).sum().item()
-        assert inner_count > 50, (
-            f"{cls.__name__}: only {inner_count} thresholds in [-50, 50]"
-        )
+        assert (
+            inner_count > 50
+        ), f"{cls.__name__}: only {inner_count} thresholds in [-50, 50]"
 
     @pytest.mark.parametrize("cls, ref_fn, sign, scale", _NONLINEAR_PARAMS)
     def test_saturation(self, cls, ref_fn, sign, scale):  # noqa: ARG002

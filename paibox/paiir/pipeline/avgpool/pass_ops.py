@@ -30,7 +30,10 @@ def calibrate_avgpool_thresholds(
 
         window_size = _get_pool_window_size(node.comp)
         avgpool_deploy_metadata = node.avgpool_deploy_metadata
-        if avgpool_deploy_metadata is not None and not avgpool_deploy_metadata.uses_calibration:
+        if (
+            avgpool_deploy_metadata is not None
+            and not avgpool_deploy_metadata.uses_calibration
+        ):
             continue
         source_decay_input = (
             avgpool_deploy_metadata.source_decay_input
