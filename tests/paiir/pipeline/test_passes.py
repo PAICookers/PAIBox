@@ -340,6 +340,7 @@ class TestShapeAndDims:
         for node in seq_nodes:
             assert node.output_dims in [(0, 1, 2, 3), (0, 1)]
 
+
 class TestAssignTickParams:
     """Test assign_tick_params pass."""
 
@@ -505,6 +506,7 @@ class TestAssignTickParams:
         cp = OfflineCoreParams(**params)
         with pytest.raises(ValueError, match=error_match):
             cp.validate_tick_params()
+
 
 class TestValidGraphs:
     """Well-formed graphs should pass validation without errors."""
@@ -1116,5 +1118,3 @@ class TestSignalDomain:
 
         with pytest.raises(GraphValidationError, match="AccumulateOp"):
             validate_deployable_graph(graph)
-
-

@@ -1,4 +1,3 @@
-
 import pytest
 from torch import nn
 
@@ -132,5 +131,3 @@ class TestPAIIRGraph:
         assert f"{comp.name} (Linear)" in captured
         assert f"{act.name} (IFNodeV25)" in captured
         assert f"{out.name} (OutputNode)" in captured
-
-

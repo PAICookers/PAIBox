@@ -409,6 +409,7 @@ class TestFunctionalConv2d:
         assert shape_getattrs
         assert all(node in ctx.aux_bypass_nodes for node in shape_getattrs)
 
+
 # Parametric test values: kernel_size for AvgPool1d
 AVGPOOL1D_KERNEL_SIZES = [1, 2, 3, 4, 5, 8, 9, 16]
 

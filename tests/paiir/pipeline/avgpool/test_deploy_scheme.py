@@ -123,8 +123,6 @@ class TestSplitCoreAvgPoolIF:
         assert if_core.act.thres_pos == 1.0
 
 
-
-
 class TestAvgPoolDeploymentWriteback:
     def test_shared_core_lif_records_avgpool_deploy_metadata(self):
 
@@ -146,7 +144,9 @@ class TestAvgPoolDeploymentWriteback:
                 return self.lif2(self.pool(x))
 
         unfused = torch_to_paiir(AvgPoolLIFNoDecay(), torch.randn(1, 3, 9, 9))
-        fused = fuse_to_offline_cores(specialize_general_adds(unfused), enable_split_avgpool_lif=False)
+        fused = fuse_to_offline_cores(
+            specialize_general_adds(unfused), enable_split_avgpool_lif=False
+        )
 
         avgpool_lif_nodes = [
             node
@@ -177,7 +177,9 @@ class TestAvgPoolDeploymentWriteback:
                 return self.lif2(self.pool(x))
 
         unfused = torch_to_paiir(AvgPoolLIFNoDecay(), torch.randn(1, 3, 8, 8))
-        fused = fuse_to_offline_cores(specialize_general_adds(unfused), enable_split_avgpool_lif=True)
+        fused = fuse_to_offline_cores(
+            specialize_general_adds(unfused), enable_split_avgpool_lif=True
+        )
 
         act_nodes = find_nodes(fused, StandaloneActOp)
         assert len(act_nodes) == 1
@@ -193,4 +195,3 @@ class TestAvgPoolDeploymentWriteback:
         assert split_lif.act.thres_pos == 4
         assert split_lif.act.reset_v == 0
         assert split_lif.act.init_v == 0
-

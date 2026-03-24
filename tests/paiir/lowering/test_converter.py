@@ -36,7 +36,6 @@ class TestStrictMode:
         assert len(graph.nodes) > 0
 
 
-
 class TestRegisterNeuron:
     """Test register_neuron() API for custom neuron registration."""
 
@@ -71,5 +70,3 @@ class TestRegisterNeuron:
         assert torch.equal(
             lut_outputs, ref_outputs
         ), f"LUT mismatch: expected {ref_outputs.tolist()}, got {lut_outputs.tolist()}"
-
-

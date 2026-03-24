@@ -59,8 +59,8 @@ class TestRoutingGroupAllocation:
             config.snn_ann = 1
             config._id = core_config_id
             # 默认 Config 比较基于 ID (模拟不同对象)
-            config.__eq__.side_effect = lambda other: config._id == getattr(
-                other, "_id", -1
+            config.__eq__.side_effect = lambda other: (
+                config._id == getattr(other, "_id", -1)
             )
 
         neu.core_config.return_value = config

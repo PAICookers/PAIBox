@@ -416,9 +416,11 @@ def _build_general_add_node(
                     AddOperandSpec(
                         coeff,
                         AddOperandKind.CONST,
-                        const_value=const_value.detach().clone()
-                        if isinstance(const_value, Tensor)
-                        else const_value,
+                        const_value=(
+                            const_value.detach().clone()
+                            if isinstance(const_value, Tensor)
+                            else const_value
+                        ),
                     )
                 )
                 return True
@@ -435,9 +437,11 @@ def _build_general_add_node(
                 AddOperandSpec(
                     coeff,
                     AddOperandKind.CONST,
-                    const_value=raw_value.detach().clone()
-                    if isinstance(raw_value, Tensor)
-                    else raw_value,
+                    const_value=(
+                        raw_value.detach().clone()
+                        if isinstance(raw_value, Tensor)
+                        else raw_value
+                    ),
                 )
             )
             return True

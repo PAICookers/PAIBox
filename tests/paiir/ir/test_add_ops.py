@@ -1,4 +1,3 @@
-
 import pytest
 import torch
 
@@ -19,5 +18,3 @@ class TestPotentialAddOp:
     def test_requires_two_paths(self):
         with pytest.raises(ValueError, match="at least two signed input paths"):
             PotentialAddOp(op_signs=(1,))
-
-
