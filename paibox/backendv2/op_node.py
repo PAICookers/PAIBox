@@ -17,6 +17,7 @@ from ..paiir import (
     OfflineCoreParams,
     OutputNode,
     PAIIRGraph,
+    PotentialAddOp,
     SequentialOp,
     StandaloneActOp,
     StandaloneCompOp,
@@ -106,6 +107,8 @@ class CoreOpNode:
             self.comps = [self.raw_node.comp]
         elif isinstance(self.raw_node, StandaloneActOp):
             self.comps = [None]
+        elif isinstance(self.raw_node, PotentialAddOp):
+            self.comps = [None] * len(self.raw_node.signs)
         else:
             raise NotImplementedError(f"Unsupported node type: {type(self.raw_node)}")
 

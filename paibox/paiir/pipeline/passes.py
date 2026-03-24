@@ -19,14 +19,14 @@ import warnings
 from typing import TypedDict
 
 import torch
-from paicorelib import DataSign, DataWidth, SNNMode
+from paicorelib import DataSign, DataWidth, OutputType, SNNMode
 
 from ..exceptions import GraphCleanupWarning, GraphValidationError
+from ..ir.add_ops import GeneralAddOp, PotentialAddOp
 from ..ir.graph import PAIIRGraph
 from ..ir.ir_base import InputNode, OutputNode, PAIIRNode
 from ..ir.op_node import (
     AccumulateOp,
-    AddOp,
     ConcatOp,
     OfflineCoreOp,
     OpNode,
@@ -36,6 +36,7 @@ from ..ir.op_node import (
     StandaloneCompOp,
     _is_avgpool,
 )
+from ..ir.signal_domain import SignalDomain
 from .avgpool import calibrate_avgpool_thresholds
 from .avgpool.calibration import CalibrationResult
 from .avgpool.fusion import _try_handle_avgpool_activation
@@ -52,11 +53,71 @@ __all__ = [
     "calibrate_avgpool_thresholds",
     "CalibrationResult",
     "fuse_to_offline_cores",
+    "propagate_signal_domain",
     "propagate_data_format",
+    "specialize_general_adds",
     "TickOverride",
     "validate_compiled_graph",
+    "validate_deployable_graph",
     "validate_graph",
 ]
+
+_DEPLOYABLE_GRAPH_NODE_TYPES = (
+    InputNode,
+    OutputNode,
+    ReshapeOp,
+    ConcatOp,
+    SequentialOp,
+    AccumulateOp,
+    PotentialAddOp,
+    StandaloneCompOp,
+    StandaloneActOp,
+)
+
+
+def specialize_general_adds(graph: PAIIRGraph) -> PAIIRGraph:
+    """Rewrite deployable expression-layer add nodes into deployable add IR.
+
+    Only the narrow same-shape, tensor-only, no-broadcast subset is
+    specialized. More general add semantics remain as :class:`GeneralAddOp`
+    and must be handled before deployment or rejected at deployability
+    validation time.
+    """
+    specialized_graph = graph.clone_shallow()
+
+    for name in graph.topo_sort():
+        if name not in specialized_graph.nodes:
+            continue
+        node = specialized_graph.nodes[name]
+
+        if isinstance(node, GeneralAddOp):
+            specialized = _try_specialize_general_add(node)
+            if specialized is not None:
+                specialized.input_shapes = list(node.input_shapes)
+                specialized.output_shape = node.output_shape
+                specialized.input_dims = list(node.input_dims)
+                specialized.output_dims = node.output_dims
+                specialized_graph.replace_node(name, specialized)
+
+    return specialized_graph
+
+
+def _try_specialize_general_add(node: GeneralAddOp) -> PotentialAddOp | None:
+    if node.has_const_operands or node.has_broadcasted_operands:
+        return None
+
+    if len(node.tensor_operands) < 2:
+        return None
+
+    coeffs = node.tensor_coeffs
+    if any(coeff not in (-1, 1) for coeff in coeffs):
+        return None
+
+    if node.output_shape and node.input_shapes:
+        if any(shape != node.output_shape for shape in node.input_shapes):
+            return None
+
+    return PotentialAddOp(op_signs=tuple(int(coeff) for coeff in coeffs))
 
 
 def fuse_to_offline_cores(
@@ -157,7 +218,7 @@ def _try_fuse_accumulate(
     node_remap: dict[str, str],
     port_remap: dict[str, int],
 ) -> AccumulateOp | None:
-    """Try to fuse ``CompOps -> AddOp -> ActivationOp``."""
+    """Try to fuse ``CompOps -> PotentialAddOp -> ActivationOp``."""
     act_node = graph.nodes[act_name]
     assert isinstance(act_node, StandaloneActOp)
 
@@ -170,7 +231,7 @@ def _try_fuse_accumulate(
         return None
 
     add_node = graph.nodes[add_name]
-    if not isinstance(add_node, AddOp):
+    if not isinstance(add_node, PotentialAddOp):
         return None
 
     if len(graph.successors(add_name)) != 1:
@@ -283,6 +344,8 @@ def validate_graph(graph: PAIIRGraph) -> None:
         )
 
     for name, node in graph.nodes.items():
+        if isinstance(node, PotentialAddOp):
+            _validate_potential_add_contract(errors, graph, name, node)
         if not isinstance(node, OfflineCoreOp):
             continue
         _validate_lut_mode_consistency(errors, name, node)
@@ -349,6 +412,8 @@ def validate_compiled_graph(graph: PAIIRGraph) -> None:
                 )
             if not succs:
                 errors.append(f"InputNode '{name}' is disconnected from the graph")
+            if node.output_domain is None:
+                errors.append(f"InputNode '{name}' is missing output_domain")
             continue
 
         if isinstance(node, OutputNode):
@@ -358,6 +423,8 @@ def validate_compiled_graph(graph: PAIIRGraph) -> None:
                 )
             if not preds:
                 errors.append(f"OutputNode '{name}' is disconnected from the graph")
+            if node.output_domain is None:
+                errors.append(f"OutputNode '{name}' is missing output_domain")
             continue
 
         if not isinstance(node, OpNode):
@@ -375,6 +442,11 @@ def validate_compiled_graph(graph: PAIIRGraph) -> None:
             errors.append(f"OpNode '{name}' is missing input_dims")
         if not node.output_dims:
             errors.append(f"OpNode '{name}' is missing output_dims")
+        if node.output_domain is None:
+            errors.append(f"OpNode '{name}' is missing output_domain")
+
+        if isinstance(node, PotentialAddOp):
+            _validate_potential_add_contract(errors, graph, name, node)
 
         if not isinstance(node, OfflineCoreOp):
             continue
@@ -395,10 +467,206 @@ def validate_compiled_graph(graph: PAIIRGraph) -> None:
         raise GraphValidationError(errors)
 
 
+def propagate_signal_domain(graph: PAIIRGraph) -> None:
+    """Infer and fill ``output_domain`` for every node in the graph."""
+    errors: list[str] = []
+
+    for name in graph.topo_sort():
+        node = graph.nodes[name]
+
+        if isinstance(node, InputNode):
+            # Current minimal policy: external feeds enter the IR in VALUE
+            # domain. This is intentionally conservative and may need to be
+            # revisited if future frontends support explicit membrane-domain
+            # inputs or richer input-domain annotations.
+            node.output_domain = SignalDomain.VALUE
+            continue
+
+        preds = graph.predecessors(name)
+        pred_domains = [graph.nodes[p].output_domain for p in preds]
+        if any(domain is None for domain in pred_domains):
+            errors.append(
+                f"{type(node).__name__} '{name}' predecessor output_domain is missing"
+            )
+            continue
+
+        known_pred_domains = [domain for domain in pred_domains if domain is not None]
+
+        if isinstance(node, OutputNode):
+            if known_pred_domains:
+                node.output_domain = known_pred_domains[0]
+            continue
+
+        if isinstance(node, ReshapeOp):
+            if known_pred_domains:
+                node.output_domain = known_pred_domains[0]
+            continue
+
+        if isinstance(node, ConcatOp):
+            if known_pred_domains and any(
+                domain != known_pred_domains[0] for domain in known_pred_domains
+            ):
+                errors.append(
+                    f"ConcatOp '{name}' all predecessor domains must match, got "
+                    f"{[domain.name for domain in known_pred_domains]}"
+                )
+                continue
+            if known_pred_domains:
+                node.output_domain = known_pred_domains[0]
+            continue
+
+        if isinstance(node, GeneralAddOp):
+            if known_pred_domains and any(
+                domain != known_pred_domains[0] for domain in known_pred_domains
+            ):
+                errors.append(
+                    f"GeneralAddOp '{name}' mixed tensor operand domains are not supported, got "
+                    f"{[domain.name for domain in known_pred_domains]}"
+                )
+                continue
+            if known_pred_domains:
+                node.output_domain = known_pred_domains[0]
+            elif node.has_const_operands:
+                node.output_domain = SignalDomain.VALUE
+            else:
+                errors.append(f"GeneralAddOp '{name}' cannot infer output_domain")
+            continue
+
+        if isinstance(node, PotentialAddOp):
+            if known_pred_domains and any(
+                domain is not SignalDomain.POTENTIAL for domain in known_pred_domains
+            ):
+                errors.append(
+                    f"PotentialAddOp '{name}' all predecessor domains must be POTENTIAL, got "
+                    f"{[domain.name for domain in known_pred_domains]}"
+                )
+                continue
+            node.output_domain = SignalDomain.POTENTIAL
+            continue
+
+        if isinstance(node, OfflineCoreOp):
+            node.output_domain = _infer_output_signal_domain(node)
+            continue
+
+    if errors:
+        raise GraphValidationError(errors)
+
+
+def _infer_output_signal_domain(node: OfflineCoreOp) -> SignalDomain:
+    if node.neuron_params.output_type == OutputType.POTENTIAL:
+        return SignalDomain.POTENTIAL
+    return SignalDomain.VALUE
+
+
+def validate_deployable_graph(graph: PAIIRGraph) -> None:
+    """Validate that a compiled graph contains only backend-ready IR nodes."""
+    errors: list[str] = []
+
+    for name, node in graph.nodes.items():
+        if isinstance(node, GeneralAddOp):
+            errors.append(
+                f"GeneralAddOp '{name}' expression-layer add must be specialized before deployment"
+            )
+            continue
+
+        if not isinstance(node, _DEPLOYABLE_GRAPH_NODE_TYPES):
+            errors.append(
+                f"{type(node).__name__} '{name}' is not part of the backend-ready PAIIR subset"
+            )
+            continue
+
+        if isinstance(node, PotentialAddOp):
+            pred_domains = [
+                graph.nodes[p].output_domain for p in graph.predecessors(name)
+            ]
+            if any(domain is None for domain in pred_domains):
+                errors.append(
+                    f"PotentialAddOp '{name}' predecessor output_domain is missing"
+                )
+            else:
+                known_pred_domains = [
+                    domain for domain in pred_domains if domain is not None
+                ]
+                if any(
+                    domain is not SignalDomain.POTENTIAL
+                    for domain in known_pred_domains
+                ):
+                    errors.append(
+                        f"PotentialAddOp '{name}' all predecessor domains must be POTENTIAL, got "
+                        f"{[domain.name for domain in known_pred_domains]}"
+                    )
+
+        if isinstance(node, ConcatOp):
+            pred_domains = [
+                graph.nodes[p].output_domain for p in graph.predecessors(name)
+            ]
+            if any(domain is None for domain in pred_domains):
+                errors.append(f"ConcatOp '{name}' predecessor output_domain is missing")
+            else:
+                known_pred_domains = [
+                    domain for domain in pred_domains if domain is not None
+                ]
+                if known_pred_domains and any(
+                    domain != known_pred_domains[0] for domain in known_pred_domains
+                ):
+                    errors.append(
+                        f"ConcatOp '{name}' all predecessor domains must match, got "
+                        f"{[domain.name for domain in known_pred_domains]}"
+                    )
+
+        if isinstance(node, AccumulateOp):
+            preds = graph.predecessors(name)
+            expected_paths = len(node.comps)
+            signs = list(node.signs)
+            weights = node.weights
+
+            if expected_paths < 2:
+                errors.append(
+                    f"AccumulateOp '{name}' must define at least two compute paths"
+                )
+
+            if len(preds) != expected_paths:
+                errors.append(
+                    f"AccumulateOp '{name}' has {len(preds)} predecessor(s) but "
+                    f"{expected_paths} compute path(s)"
+                )
+
+            if len(signs) != expected_paths:
+                errors.append(
+                    f"AccumulateOp '{name}' has {len(signs)} sign entries but "
+                    f"{expected_paths} compute path(s)"
+                )
+
+            if any(sign not in (-1, 1) for sign in signs):
+                errors.append(
+                    f"AccumulateOp '{name}' signs must be +/-1 only, got {tuple(signs)}"
+                )
+
+            if node.input_shapes and len(node.input_shapes) != expected_paths:
+                errors.append(
+                    f"AccumulateOp '{name}' has {len(node.input_shapes)} input_shapes but "
+                    f"{expected_paths} compute path(s)"
+                )
+
+            if node.input_dims and len(node.input_dims) != expected_paths:
+                errors.append(
+                    f"AccumulateOp '{name}' has {len(node.input_dims)} input_dims but "
+                    f"{expected_paths} compute path(s)"
+                )
+
+            if weights is not None and len(weights) != expected_paths:
+                errors.append(
+                    f"AccumulateOp '{name}' has {len(weights)} weight tensors but "
+                    f"{expected_paths} compute path(s)"
+                )
+
+    if errors:
+        raise GraphValidationError(errors)
+
+
 def _remove_node(graph: PAIIRGraph, name: str) -> None:
     """Remove a node and all its edges from the graph."""
-    del graph.nodes[name]
-    graph.edges = [e for e in graph.edges if e.src != name and e.dst != name]
+    graph.remove_node(name)
 
 
 def _collect_reachable_nodes(
@@ -417,6 +685,40 @@ def _collect_reachable_nodes(
         stack.extend(neighbors)
 
     return seen
+
+
+def _validate_potential_add_contract(
+    errors: list[str], graph: PAIIRGraph, name: str, node: PotentialAddOp
+) -> None:
+    preds = graph.predecessors(name)
+    expected_paths = len(node.signs)
+
+    if expected_paths < 2:
+        errors.append(
+            f"PotentialAddOp '{name}' must define at least two signed input paths"
+        )
+
+    if len(preds) != expected_paths:
+        errors.append(
+            f"PotentialAddOp '{name}' has {len(preds)} predecessor(s) but "
+            f"{expected_paths} sign/path entries"
+        )
+
+    if node.input_shapes and len(node.input_shapes) != expected_paths:
+        errors.append(
+            f"PotentialAddOp '{name}' has {len(node.input_shapes)} input_shapes but "
+            f"{expected_paths} sign/path entries"
+        )
+
+    if node.output_shape and node.input_shapes:
+        mismatched = [
+            shape for shape in node.input_shapes if shape != node.output_shape
+        ]
+        if mismatched:
+            errors.append(
+                f"PotentialAddOp '{name}' requires same-shape operands, got "
+                f"input_shapes={node.input_shapes}, output_shape={node.output_shape}"
+            )
 
 
 def _validate_lut_mode_consistency(

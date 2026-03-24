@@ -19,7 +19,13 @@ from paicorelib import (
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from ..paiir import AccumulateOp, AddOp, SequentialOp, StandaloneActOp, StandaloneCompOp
+from ..paiir import (
+    AccumulateOp,
+    PotentialAddOp,
+    SequentialOp,
+    StandaloneActOp,
+    StandaloneCompOp,
+)
 from .core_config import Backend_Core_Config, Frontend_Core_Config
 from .coreplacement import (
     CorePlacement,
@@ -77,7 +83,7 @@ def ensure_target_components(target: CoreOpNode) -> None:
         target.comps = [raw_node.comp]
     elif isinstance(raw_node, StandaloneActOp):
         target.comps = [None]
-    elif isinstance(raw_node, AddOp):
+    elif isinstance(raw_node, PotentialAddOp):
         target.comps = [None] * len(raw_node.signs)
     else:
         raise NotImplementedError(f"Unsupported node type: {type(raw_node)}")
@@ -92,7 +98,7 @@ def ensure_target_components(target: CoreOpNode) -> None:
 def path_signs(target: CoreOpNode) -> list[int]:
     # Accumulate/Add nodes may encode subtraction through per-path signs.
     raw_node = target.raw_node
-    if isinstance(raw_node, (AccumulateOp, AddOp)):
+    if isinstance(raw_node, (AccumulateOp, PotentialAddOp)):
         return list(raw_node.signs)
 
     return [1] * len(target.predecessors)

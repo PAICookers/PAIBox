@@ -8,9 +8,10 @@ Node types:
 
 - :class:`SequentialOp` -- compute -> neuron/lut
 - :class:`AccumulateOp` -- multi-path compute -> add/sub -> neuron/lut
-- :class:`AddOp` -- element-wise add/sub (potential output)
 - :class:`StandaloneCompOp` -- compute only (potential output)
 - :class:`StandaloneActOp` -- neuron/lut only
+
+Add-specific IR nodes live in :mod:`paibox.paiir.ir.add_ops`.
 """
 
 import math
@@ -18,7 +19,7 @@ from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, ClassVar
 
 import torch
-from paicorelib import AddPotentialMode, OutputType, PoolingMode
+from paicorelib import OutputType, PoolingMode
 from torch import Tensor, nn
 
 from ..nn import SumPool1d, SumPool2d
@@ -34,7 +35,6 @@ __all__ = [
     "OfflineCoreOp",
     "SequentialOp",
     "AccumulateOp",
-    "AddOp",
     "ConcatOp",
     "ReshapeOp",
     "StandaloneCompOp",
@@ -207,7 +207,7 @@ class OfflineCoreOp(OpNode):
 
         Subclasses with compute modules return their raw parameter tensors.
         Weightless ops (pool etc.) return ``None``; pass-through ops
-        (StandaloneActOp, AddOp) return identity matrices.
+        (StandaloneActOp, PotentialAddOp) return identity matrices.
         """
         return [self._make_identity_weight()]
 
@@ -388,44 +388,6 @@ class AccumulateOp(OfflineCoreOp):
     def extra_repr(self) -> str:
         ops = ", ".join(type(op).__name__ for op in self.comps)
         return f"{super().extra_repr()}, comps=[{ops}], signs={self.signs}, act={type(self.act).__name__}"
-
-
-class AddOp(OfflineCoreOp):
-    """Element-wise add / subtract.
-
-    Outputs membrane potential (not spikes).
-    Maps to ``AddPotentialMode.DIRECT_ADD`` on chip.
-
-    Args:
-        op_signs: ``(1, 1)`` for add, ``(1, -1)`` for subtract.
-        core_params: Offline core parameters.
-    """
-
-    def __init__(
-        self,
-        op_signs: tuple[int, int] = (1, 1),
-        core_params: OfflineCoreParams | None = None,
-    ) -> None:
-        core_params = core_params or OfflineCoreParams()
-        core_params.add_potential = AddPotentialMode.DIRECT_ADD
-
-        super().__init__(core_params)
-        self.signs = tuple(op_signs)
-
-    def forward(self, *xs: Tensor) -> Tensor:
-        acc: Tensor = torch.zeros([1])
-        for sign, x in zip(self.signs, xs):
-            acc += sign * x
-
-        return acc
-
-    @property
-    def weights(self) -> list[Tensor]:
-        eye = self._make_identity_weight()
-        return [eye] * len(self.signs)
-
-    def extra_repr(self) -> str:
-        return f"{super().extra_repr()}, signs={self.signs}"
 
 
 class ConcatOp(RoutingOp):
