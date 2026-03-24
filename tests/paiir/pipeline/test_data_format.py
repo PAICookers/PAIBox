@@ -15,7 +15,11 @@ from paibox.paiir.pipeline.data_format import (
     infer_weight_format,
     merge_data_formats,
 )
-from paibox.paiir.pipeline.passes import fuse_to_offline_cores, propagate_data_format
+from paibox.paiir.pipeline.passes import (
+    fuse_to_offline_cores,
+    propagate_data_format,
+    specialize_general_adds,
+)
 from tests.paiir.conftest import convert_fuse_propagate, find_nodes
 
 
@@ -195,7 +199,7 @@ class TestPropagateDataFormatSNN:
                 return self.ifn(self.conv(x))
 
         unfused = torch_to_paiir(Model(), torch.randn(1, 3, 8, 8))
-        fused = fuse_to_offline_cores(unfused)
+        fused = fuse_to_offline_cores(specialize_general_adds(unfused))
 
         inp_name = fused.input_nodes()[0].name
         custom_fmt = {inp_name: (DataSign.SIGNED, DataWidth.WIDTH_8BIT)}

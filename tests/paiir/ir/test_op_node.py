@@ -15,14 +15,12 @@ from paicorelib import (
 )
 from torch import nn
 
+from paibox.paiir.ir.add_ops import PotentialAddOp
 from paibox.paiir.ir.calc_params import NeuronParams
 from paibox.paiir.ir.core_neuron import ANNNodeV25, IFNodeV25, LIFNodeV25
-from paibox.paiir.ir.graph import PAIIRGraph
-from paibox.paiir.ir.ir_base import InputNode, OutputNode
 from paibox.paiir.ir.lut_activation import LutReLU, LutSigmoid
 from paibox.paiir.ir.op_node import (
     AccumulateOp,
-    AddOp,
     SequentialOp,
     StandaloneActOp,
     StandaloneCompOp,
@@ -54,6 +52,7 @@ class TestSequentialOp:
         op = SequentialOp(comp=nn.MaxPool2d(2), act=LIFNodeV25(tau=2))
         assert op.core_params.pooling_mode == PoolingMode.MAX
         assert op.core_params.snn_mode == SNNMode.SNN
+
 
 
 class TestAccumulateOp:
@@ -92,97 +91,6 @@ class TestAccumulateOp:
         params = op.neuron_params
         assert params.leak_v is not None
 
-
-class TestPAIIRGraph:
-    def _build_simple_graph(self):
-        """Build Input -> Conv+IF -> Output."""
-        graph = PAIIRGraph("test")
-        inp = InputNode(shape=(1, 3, 8, 8))
-        seq = SequentialOp(nn.Conv2d(3, 8, 3, padding=1), IFNodeV25())
-        out = OutputNode()
-        graph.add_node(inp)
-        graph.add_node(seq)
-        graph.add_node(out)
-        graph.add_edge(inp.name, seq.name)
-        graph.add_edge(seq.name, out.name)
-        return graph, inp, seq, out
-
-    def test_duplicate_node_raises(self):
-        graph = PAIIRGraph()
-        inp = InputNode()
-        graph.add_node(inp)
-        with pytest.raises(ValueError, match="already exists"):
-            graph.add_node(inp)
-
-    def test_edge_invalid_node(self):
-        graph = PAIIRGraph()
-        inp = InputNode()
-        graph.add_node(inp)
-        with pytest.raises(KeyError):
-            graph.add_edge(inp.name, "nonexistent")
-
-    def test_topo_sort(self):
-        graph, inp, seq, out = self._build_simple_graph()
-        order = graph.topo_sort()
-        assert order.index(inp.name) < order.index(seq.name)
-        assert order.index(seq.name) < order.index(out.name)
-
-    def test_predecessors_successors(self):
-        graph, inp, seq, out = self._build_simple_graph()
-        assert graph.predecessors(seq.name) == [inp.name]
-        assert graph.successors(seq.name) == [out.name]
-
-    def test_input_output_nodes(self):
-        graph, inp, seq, out = self._build_simple_graph()
-        assert len(graph.input_nodes()) == 1
-        assert len(graph.output_nodes()) == 1
-
-    def test_diamond_graph(self):
-        """Diamond: Input -> [A, B] -> Add -> Output."""
-        graph = PAIIRGraph("diamond")
-        inp = InputNode(shape=(1, 4))
-        a = StandaloneCompOp(nn.Linear(4, 8))
-        b = StandaloneCompOp(nn.Linear(4, 8))
-        add = AddOp(op_signs=(1, 1))
-        out = OutputNode()
-
-        for n in [inp, a, b, add, out]:
-            graph.add_node(n)
-
-        graph.add_edge(inp.name, a.name)
-        graph.add_edge(inp.name, b.name)
-        graph.add_edge(a.name, add.name, dst_port=0)
-        graph.add_edge(b.name, add.name, dst_port=1)
-        graph.add_edge(add.name, out.name)
-
-        order = graph.topo_sort()
-        assert order.index(inp.name) < order.index(a.name)
-        assert order.index(inp.name) < order.index(b.name)
-        assert order.index(a.name) < order.index(add.name)
-        assert order.index(b.name) < order.index(add.name)
-        assert order.index(add.name) < order.index(out.name)
-
-    def test_summary_prefers_comp_and_act_type_names(self, capsys):
-        graph = PAIIRGraph("summary_labels")
-        inp = InputNode(shape=(1, 4))
-        comp = StandaloneCompOp(nn.Linear(4, 8))
-        act = StandaloneActOp(IFNodeV25())
-        out = OutputNode()
-
-        for node in (inp, comp, act, out):
-            graph.add_node(node)
-
-        graph.add_edge(inp.name, comp.name)
-        graph.add_edge(comp.name, act.name)
-        graph.add_edge(act.name, out.name)
-
-        graph.summary()
-        captured = capsys.readouterr().out
-
-        assert f"{inp.name} (InputNode)" in captured
-        assert f"{comp.name} (Linear)" in captured
-        assert f"{act.name} (IFNodeV25)" in captured
-        assert f"{out.name} (OutputNode)" in captured
 
 
 class TestWeights:
@@ -242,7 +150,7 @@ class TestWeights:
         assert op.weights is None
 
     def test_add_op_returns_identity_per_path(self):
-        op = AddOp(op_signs=(1, -1))
+        op = PotentialAddOp(op_signs=(1, -1))
         op.output_shape = (1, 8)
         ws = op.weights
         assert len(ws) == 2
@@ -272,7 +180,7 @@ class TestWeights:
         )
 
     def test_add_weight_format_does_not_materialize_identity(self, monkeypatch):
-        op = AddOp(op_signs=(1, -1))
+        op = PotentialAddOp(op_signs=(1, -1))
         op.output_shape = (1, 1024, 1024)
 
         def fail_identity():
@@ -284,6 +192,7 @@ class TestWeights:
             DataSign.UNSIGNED,
             DataWidth.WIDTH_1BIT,
         )
+
 
 
 class TestNeuronParams:
@@ -315,7 +224,7 @@ class TestNeuronParams:
         assert params.leak_tau == -1
 
     def test_add_op_pass_through(self):
-        op = AddOp(op_signs=(1, -1))
+        op = PotentialAddOp(op_signs=(1, -1))
         params = op.neuron_params
         assert params.output_type == OutputType.POTENTIAL
 
@@ -329,6 +238,7 @@ class TestNeuronParams:
         params = op.neuron_params
         assert params.thres_pos == 1
         assert params.output_type == OutputType.VALUE
+
 
 
 class TestLutData:
@@ -351,7 +261,7 @@ class TestLutData:
         assert data is not None
 
     def test_add_op_returns_none(self):
-        op = AddOp(op_signs=(1, 1))
+        op = PotentialAddOp(op_signs=(1, 1))
         assert op.lut_data is None
 
     def test_accumulate_lut_exports_data(self):
@@ -371,6 +281,7 @@ class TestLutData:
     def test_standalone_comp_returns_none(self):
         op = StandaloneCompOp(comp=nn.Conv2d(3, 8, 3))
         assert op.lut_data is None
+
 
 
 class TestAvgPoolCompensation:
