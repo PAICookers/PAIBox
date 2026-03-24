@@ -4,6 +4,7 @@ import pytest
 import torch
 from paicorelib import (
     RM,
+    AddPotentialMode,
     DataSign,
     DataWidth,
     LeakMultiComparisonOrder,
@@ -16,7 +17,7 @@ from paicorelib import (
 from torch import nn
 
 from paibox.paiir.ir.add_ops import PotentialAddOp
-from paibox.paiir.ir.calc_params import NeuronParams
+from paibox.paiir.ir.calc_params import NeuronParams, OfflineCoreParams
 from paibox.paiir.ir.core_neuron import ANNNodeV25, IFNodeV25, LIFNodeV25
 from paibox.paiir.ir.lut_activation import LutReLU, LutSigmoid
 from paibox.paiir.ir.op_node import (
@@ -53,6 +54,29 @@ class TestSequentialOp:
         assert op.core_params.pooling_mode == PoolingMode.MAX
         assert op.core_params.snn_mode == SNNMode.SNN
 
+    def test_public_ctor_does_not_accept_core_params(self):
+        with pytest.raises(TypeError, match="core_params"):
+            SequentialOp(
+                comp=nn.Linear(16, 10), act=IFNodeV25(), core_params=OfflineCoreParams()
+            )
+
+    def test_override_compile_state_preserves_prepared_compile_state(self):
+        base = OfflineCoreParams(tick_start=5, tick_duration=9, tick_initial=13)
+        base.set_input_format((DataSign.UNSIGNED, DataWidth.WIDTH_1BIT))
+        base.set_output_format((DataSign.SIGNED, DataWidth.WIDTH_8BIT))
+        base.set_weight_format((DataSign.SIGNED, DataWidth.WIDTH_8BIT))
+
+        op = SequentialOp(comp=nn.MaxPool2d(2), act=IFNodeV25())
+        op.override_compile_state(base)
+
+        assert op.core_params.tick_start == 5
+        assert op.core_params.tick_duration == 9
+        assert op.core_params.tick_initial == 13
+        assert op.core_params.input_sign == DataSign.UNSIGNED
+        assert op.core_params.input_width == DataWidth.WIDTH_1BIT
+        assert op.core_params.snn_mode == SNNMode.SNN
+        assert op.core_params.pooling_mode == PoolingMode.MAX
+        op.core_params.validate_data_formats()
 
 
 class TestAccumulateOp:
@@ -90,7 +114,6 @@ class TestAccumulateOp:
         op = AccumulateOp(comps=[conv1, conv2], act=IFNodeV25(1), op_signs=(1, 1))
         params = op.neuron_params
         assert params.leak_v is not None
-
 
 
 class TestWeights:
@@ -158,6 +181,42 @@ class TestWeights:
         assert torch.equal(ws[0], expected)
         assert torch.equal(ws[1], expected)
 
+    def test_public_add_ctor_does_not_accept_core_params(self):
+        with pytest.raises(TypeError, match="core_params"):
+            PotentialAddOp(op_signs=(1, -1), core_params=OfflineCoreParams())
+
+    def test_override_compile_state_preserves_add_compile_state(self):
+        base = OfflineCoreParams(tick_start=3, tick_duration=7, tick_initial=11)
+        base.set_input_format((DataSign.SIGNED, DataWidth.WIDTH_8BIT))
+        base.set_output_format((DataSign.SIGNED, DataWidth.WIDTH_8BIT))
+        base.set_weight_format((DataSign.UNSIGNED, DataWidth.WIDTH_1BIT))
+
+        op = PotentialAddOp(op_signs=(1, -1))
+        op.override_compile_state(base)
+
+        assert op.core_params.tick_start == 3
+        assert op.core_params.tick_duration == 7
+        assert op.core_params.tick_initial == 11
+        assert op.core_params.add_potential.name == "DIRECT_ADD"
+        assert op.core_params.weight_sign == DataSign.UNSIGNED
+        assert op.core_params.weight_width == DataWidth.WIDTH_1BIT
+        op.core_params.validate_data_formats()
+
+    def test_override_compile_state_keeps_semantic_fields(self):
+        base = OfflineCoreParams()
+        base.snn_mode = SNNMode.ANN
+        base.pooling_mode = PoolingMode.AVERAGE
+        base.add_potential = AddPotentialMode.NORMAL
+
+        seq = SequentialOp(comp=nn.MaxPool2d(2), act=IFNodeV25())
+        seq.override_compile_state(base)
+        assert seq.core_params.snn_mode == SNNMode.SNN
+        assert seq.core_params.pooling_mode == PoolingMode.MAX
+
+        add = PotentialAddOp(op_signs=(1, 1))
+        add.override_compile_state(base)
+        assert add.core_params.add_potential.name == "DIRECT_ADD"
+
     def test_weights_before_output_shape_raises(self):
         op = StandaloneActOp(act=ANNNodeV25(lut=LutReLU()))
         with pytest.raises(AssertionError, match="output_shape"):
@@ -192,7 +251,6 @@ class TestWeights:
             DataSign.UNSIGNED,
             DataWidth.WIDTH_1BIT,
         )
-
 
 
 class TestNeuronParams:
@@ -240,7 +298,6 @@ class TestNeuronParams:
         assert params.output_type == OutputType.VALUE
 
 
-
 class TestLutData:
     def test_sequential_lut_exports_data(self):
         op = SequentialOp(
@@ -281,7 +338,6 @@ class TestLutData:
     def test_standalone_comp_returns_none(self):
         op = StandaloneCompOp(comp=nn.Conv2d(3, 8, 3))
         assert op.lut_data is None
-
 
 
 class TestAvgPoolCompensation:

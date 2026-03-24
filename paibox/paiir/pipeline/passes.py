@@ -34,12 +34,12 @@ from ..ir.op_node import (
     SequentialOp,
     StandaloneActOp,
     StandaloneCompOp,
-    _is_avgpool,
 )
 from ..ir.signal_domain import SignalDomain
 from .avgpool import calibrate_avgpool_thresholds
 from .avgpool.calibration import CalibrationResult
 from .avgpool.fusion import _try_handle_avgpool_activation
+from .avgpool.utils import _is_avgpool
 from .data_format import (
     DataFormat,
     infer_output_format,

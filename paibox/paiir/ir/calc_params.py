@@ -121,6 +121,27 @@ class OfflineCoreParams:
         self.weight_sign, self.weight_width = fmt
         self._weight_format_assigned = True
 
+    def override_compile_state_from(self, other: "OfflineCoreParams") -> None:
+        """Copy non-semantic compile-time state from another params object.
+
+        Semantic mode fields such as ``snn_mode``, ``pooling_mode``, and
+        ``add_potential`` are intentionally left untouched so the receiving
+        node keeps the values derived from its own operator semantics.
+        """
+        self.zero_output = other.zero_output
+        self.input_sign = other.input_sign
+        self.input_width = other.input_width
+        self.output_sign = other.output_sign
+        self.output_width = other.output_width
+        self.weight_sign = other.weight_sign
+        self.weight_width = other.weight_width
+        self.tick_start = other.tick_start
+        self.tick_duration = other.tick_duration
+        self.tick_initial = other.tick_initial
+        self._input_format_assigned = other._input_format_assigned
+        self._output_format_assigned = other._output_format_assigned
+        self._weight_format_assigned = other._weight_format_assigned
+
     def validate_data_formats(self) -> None:
         """Validate that all data-format fields were explicitly assigned."""
         missing: list[str] = []

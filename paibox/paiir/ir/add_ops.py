@@ -220,13 +220,14 @@ class PotentialAddOp(OfflineCoreOp):
     - all operands must be aligned element-wise in the same shape/layout
     - each path uses a fixed sign in ``{-1, +1}``
     - the result remains in the membrane-potential domain
+
+    The public constructor derives semantic core parameters from ``op_signs``.
+    Advanced callers that need to preserve prepared compile-time state should
+    construct the node normally, then call
+    :meth:`OfflineCoreOp.override_compile_state`.
     """
 
-    def __init__(
-        self,
-        op_signs: tuple[int, ...] = (1, 1),
-        core_params: OfflineCoreParams | None = None,
-    ) -> None:
+    def __init__(self, op_signs: tuple[int, ...] = (1, 1)) -> None:
         if len(op_signs) < 2:
             raise ValueError(
                 f"{self.__class__.__name__} requires at least two signed input paths"
@@ -236,7 +237,7 @@ class PotentialAddOp(OfflineCoreOp):
                 f"{self.__class__.__name__} signs must be +/-1 only, got {op_signs}"
             )
 
-        core_params = core_params or OfflineCoreParams()
+        core_params = OfflineCoreParams()
         core_params.add_potential = AddPotentialMode.DIRECT_ADD
 
         super().__init__(core_params)

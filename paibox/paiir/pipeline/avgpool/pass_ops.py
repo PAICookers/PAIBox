@@ -3,8 +3,9 @@
 from paicorelib import LeakMultiInputMode
 
 from ...ir.graph import PAIIRGraph
-from ...ir.op_node import SequentialOp, _get_pool_window_size, _is_avgpool
+from ...ir.op_node import SequentialOp
 from .calibration import CalibrationResult, calibrate_avgpool_threshold
+from .utils import _get_pool_window_size, _is_avgpool
 
 __all__ = ["calibrate_avgpool_thresholds"]
 
