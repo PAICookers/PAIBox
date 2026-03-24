@@ -147,14 +147,9 @@ class TestWeights:
         assert ws[1].shape == conv2.weight.shape
         assert all(w.dtype == torch.int8 for w in ws)
 
-    def test_standalone_act_returns_identity(self):
+    def test_standalone_act_returns_none(self):
         op = StandaloneActOp(act=ANNNodeV25(lut=LutReLU()))
-        op.output_shape = (1, 16)
-        ws = op.weights
-        assert ws is not None
-        assert len(ws) == 1
-        assert ws[0].shape == (16, 16)
-        assert torch.equal(ws[0], torch.eye(16, dtype=torch.int8))
+        assert op.weights is None
 
     def test_standalone_comp_linear_returns_weight(self):
         linear = nn.Linear(4, 8, bias=False)
@@ -172,14 +167,9 @@ class TestWeights:
         op.output_shape = (1, 3, 4, 4)
         assert op.weights is None
 
-    def test_add_op_returns_identity_per_path(self):
+    def test_add_op_returns_none(self):
         op = PotentialAddOp(op_signs=(1, -1))
-        op.output_shape = (1, 8)
-        ws = op.weights
-        assert len(ws) == 2
-        expected = torch.eye(8, dtype=torch.int8)
-        assert torch.equal(ws[0], expected)
-        assert torch.equal(ws[1], expected)
+        assert op.weights is None
 
     def test_public_add_ctor_does_not_accept_core_params(self):
         with pytest.raises(TypeError, match="core_params"):
@@ -217,35 +207,22 @@ class TestWeights:
         add.override_compile_state(base)
         assert add.core_params.add_potential.name == "DIRECT_ADD"
 
-    def test_weights_before_output_shape_raises(self):
+    def test_weightless_ops_do_not_require_output_shape_for_weights(self):
         op = StandaloneActOp(act=ANNNodeV25(lut=LutReLU()))
-        with pytest.raises(AssertionError, match="output_shape"):
-            _ = op.weights
+        assert op.weights is None
 
-    def test_standalone_act_weight_format_does_not_materialize_identity(
-        self, monkeypatch
-    ):
+    def test_standalone_act_weight_format_uses_implicit_identity_range(self):
         op = StandaloneActOp(act=ANNNodeV25(lut=LutReLU()))
         op.output_shape = (1, 1024, 1024)
-
-        def fail_identity():
-            raise AssertionError("identity weight should not be materialized")
-
-        monkeypatch.setattr(op, "_make_identity_weight", fail_identity)
 
         assert _infer_node_weight_format(op) == (
             DataSign.UNSIGNED,
             DataWidth.WIDTH_1BIT,
         )
 
-    def test_add_weight_format_does_not_materialize_identity(self, monkeypatch):
+    def test_add_weight_format_uses_implicit_identity_range(self):
         op = PotentialAddOp(op_signs=(1, -1))
         op.output_shape = (1, 1024, 1024)
-
-        def fail_identity():
-            raise AssertionError("identity weight should not be materialized")
-
-        monkeypatch.setattr(op, "_make_identity_weight", fail_identity)
 
         assert _infer_node_weight_format(op) == (
             DataSign.UNSIGNED,

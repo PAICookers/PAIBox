@@ -119,7 +119,7 @@ class CoreOpNode:
         if weights is not None:
             self.weights = list(weights)
         else:
-            self.weights = [None]
+            self.weights = [None] * len(self.comps)
 
     def __hash__(self) -> int:
         return hash(id(self))

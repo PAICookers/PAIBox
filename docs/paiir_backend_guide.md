@@ -339,18 +339,28 @@ cp.tick_initial: int              # 自动复位周期（0 = 不复位）
 cp.validate_tick_params()         # 越界或未分配时抛出 ValueError
 ```
 
-#### 2. 权重（weights）
+#### 2. 原始参数权重（weights）
 
 ```python
-weights: list[Tensor] | None = op.weights
+raw_weights: list[Tensor] | None = op.weights
 ```
 
-- `SequentialOp`：返回 `[weight_tensor]`（int8），单个权重；池化操作返回 `None`（无权重）
-- `AccumulateOp`：返回 `[w0, w1, ...]`（int8），与 `comps` 一一对应；若任一 comp 无权重则返回 `None`
-- `PotentialAddOp`：返回单位矩阵列表（IR 便捷视图，用于表达恒等路由）
-- `StandaloneActOp`：返回单位矩阵（IR 便捷视图，用于表达恒等映射）
+- `SequentialOp`：若 `comp` 自带显式参数（如 Conv / Linear），返回 `[weight_tensor]`（int8）；池化返回 `None`
+- `AccumulateOp`：返回 `[w0, w1, ...]`（int8），与 `comps` 一一对应；若任一 comp 无显式参数则返回 `None`
+- `PotentialAddOp`：返回 `None`
+- `StandaloneActOp`：返回 `None`
 
-> **注意**：`PotentialAddOp` / `StandaloneActOp` 上看到的单位矩阵并不是训练态真实参数，而是 IR 侧为了统一“按输入路径取权重”接口而生成的恒等权重视图。后端在做真实部署映射时，应优先使用算子语义（加法、纯激活），而不是把这些单位矩阵当成需要落盘的模型权重。
+> `op.weights` 现在只表示 IR 图侧“算子自身携带的显式参数张量”，不再承担统一部署矩阵接口的职责。
+>
+> 后端如果需要真正的 `[out, in]` 路径矩阵，应在 lowering / routing 阶段按算子语义单独物化：
+>
+> - Conv：由 kernel 展开为 dense matrix
+> - Pool：由 `kernel_size / stride / padding / dilation` 合成窗口连接矩阵
+> - `StandaloneActOp` / `PotentialAddOp`：在 `comp is None` 时按路径语义合成 signed identity matrix
+>
+> 因此，不要把 `op.weights` 直接理解为“最终部署权重矩阵”。
+>
+> 另外，`get_weight_value_range()` 仍可为无显式参数的直通类节点返回隐式传输系数范围（当前为 `[0, 1]`），用于 `weight_format` 推断；这与 `weights is None` 并不矛盾。
 
 #### 3. 神经元参数（neuron_params）
 
@@ -408,7 +418,7 @@ from paibox.paiir import SequentialOp
 seq: SequentialOp
 seq.comp: nn.Module        # 计算模块（Conv2d / Linear / MaxPool2d / AvgPool2d 等）
 seq.act: CoreNeuronV25     # 激活模块
-seq.weights                # list[Tensor] | None
+seq.weights                # list[Tensor] | None，原始参数张量；池化通常为 None
 seq.neuron_params          # NeuronParams（含 bias 融合、AvgPool 补偿）
 seq.lut_data               # LutData | None（含 AvgPool LUT 补偿）
 ```
@@ -422,7 +432,7 @@ acc: AccumulateOp
 acc.comps: nn.ModuleList   # 计算模块列表
 acc.signs: tuple[int, ...] # 各路径符号，(1, 1) = 加，(1, -1) = 减
 acc.act: CoreNeuronV25     # 激活模块
-acc.weights                # list[Tensor] | None，与 comps 一一对应
+acc.weights                # list[Tensor] | None，原始参数张量，与 comps 一一对应
 acc.neuron_params          # NeuronParams（多路径 bias 按 signs 融合）
 acc.lut_data               # LutData | None
 ```
@@ -444,7 +454,7 @@ from paibox.paiir import PotentialAddOp
 
 add: PotentialAddOp
 add.signs: tuple[int, ...]  # 输入符号
-add.weights                  # list[Tensor]，单位矩阵
+add.weights                  # None（无原始参数）
 # neuron_params 为默认直通配置（output_type=POTENTIAL）
 ```
 
@@ -453,6 +463,8 @@ add.weights                  # list[Tensor]，单位矩阵
 - 所有前驱路径都必须是逐元素同形状的 `POTENTIAL` 域输入
 - `len(graph.predecessors(add.name)) == len(add.signs)`
 - 当前符号语义只允许 `+/-1`
+
+> backendv2 若要为 `PotentialAddOp` 构造部署矩阵，应根据 `signs` 和路径对齐关系自行合成 signed identity matrix，而不是从 `add.weights` 读取。
 
 #### ConcatOp
 
@@ -514,7 +526,8 @@ def extract_cores(graph):
             "predecessors": graph.predecessors(name),
             "successors": graph.successors(name),
             # 数据
-            "weights": node.weights,
+            "raw_weights": node.weights,
+            "weight_value_range": node.get_weight_value_range(),
             "neuron_params": node.neuron_params,
             "lut_data": node.lut_data,
         }
@@ -590,15 +603,23 @@ def debug_graph(graph):
         print(f"  Weight: {cp.weight_sign.name} {cp.weight_width.name}")
         print(f"  Timing: start={cp.tick_start}, duration={cp.tick_duration}, initial={cp.tick_initial}")
 
-        if node.weights:
-            for i, w in enumerate(node.weights):
-                print(f"  Weight[{i}]: shape={tuple(w.shape)}, range=[{w.min().item()}, {w.max().item()}]")
+        raw_weights = node.weights
+        if raw_weights is not None:
+            for i, w in enumerate(raw_weights):
+                print(
+                    f"  RawWeight[{i}]: shape={tuple(w.shape)}, "
+                    f"range=[{w.min().item()}, {w.max().item()}]"
+                )
+        else:
+            print(f"  RawWeight: None, implicit_range={node.get_weight_value_range()}")
 
         if node.lut_data:
             lut = node.lut_data
             print(f"  LUT: {lut.thresholds.shape}, is_float={lut.is_float}")
         print()
 ```
+
+若要调试 backend 最终使用的 dense path matrix，请查看 backend routing / lowering 阶段的展开逻辑；该矩阵不直接存放在 `OfflineCoreOp.weights` 中。
 
 ## 附录：关键类型参考
 
