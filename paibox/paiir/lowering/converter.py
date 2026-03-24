@@ -37,24 +37,12 @@ from torch import Tensor, fx, nn
 from torch.fx.passes.shape_prop import ShapeProp
 
 from ..exceptions import UnsupportedOpError, UnsupportedOpWarning
+from ..ir.add_ops import AddOperandKind, AddOperandSpec, GeneralAddOp
 from ..ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
 from ..ir.graph import PAIIRGraph
 from ..ir.ir_base import InputNode, OutputNode
-from ..ir.lut_activation import (
-    LutActivation,
-    LutReLU,
-    LutSigmoid,
-    LutSoftsign,
-    LutTanh,
-)
-from ..ir.op_node import (
-    AddOp,
-    ConcatOp,
-    OpNode,
-    ReshapeOp,
-    StandaloneActOp,
-    StandaloneCompOp,
-)
+from ..ir.lut_activation import LutActivation, LutReLU, LutSigmoid, LutSoftsign, LutTanh
+from ..ir.op_node import ConcatOp, OpNode, ReshapeOp, StandaloneActOp, StandaloneCompOp
 from .dims_prop import DimsProp, DimsType
 
 __all__ = ["torch_to_paiir", "register_neuron"]
@@ -364,6 +352,132 @@ def _resolve_constant_value(
     return None, set()
 
 
+def _resolve_add_coefficient(gm: fx.GraphModule, value: Any) -> int | None:
+    def _normalize_scalar(scalar: Any) -> int | None:
+        if isinstance(scalar, bool):
+            return int(scalar)
+        if isinstance(scalar, int):
+            return scalar
+        if isinstance(scalar, float) and scalar.is_integer():
+            return int(scalar)
+        return None
+
+    normalized = _normalize_scalar(value)
+    if normalized is not None:
+        return normalized
+
+    resolved, _ = _resolve_constant_value(gm, value)
+    normalized = _normalize_scalar(resolved)
+    if normalized is not None:
+        return normalized
+    if isinstance(resolved, Tensor) and resolved.numel() == 1:
+        scalar = resolved.detach().cpu().item()
+        normalized = _normalize_scalar(scalar)
+        if normalized is not None:
+            return normalized
+    return None
+
+
+def _build_general_add_node(
+    gm: fx.GraphModule, node: fx.Node, *, subtract: bool
+) -> tuple[GeneralAddOp, tuple[fx.Node, ...]] | None:
+    if node.op == "call_method":
+        lhs_raw = _get_call_arg(node, 0, "input")
+        rhs_raw = _get_call_arg(node, 1, "other")
+        alpha_raw = node.kwargs.get("alpha", 1)
+    else:
+        normalized_kwargs = _get_normalized_call_kwargs(node, gm)
+        if (
+            normalized_kwargs is not None
+            and {"input", "other"} <= normalized_kwargs.keys()
+        ):
+            lhs_raw = normalized_kwargs.get("input")
+            rhs_raw = normalized_kwargs.get("other")
+            alpha_raw = normalized_kwargs.get("alpha", 1)
+        else:
+            lhs_raw = _get_call_arg(node, 0, "input")
+            rhs_raw = _get_call_arg(node, 1, "other")
+            alpha_raw = _get_call_arg(node, 2, "alpha", 1)
+
+    alpha = _resolve_add_coefficient(gm, alpha_raw)
+    if alpha is None:
+        return None
+
+    operand_specs: list[AddOperandSpec] = []
+    tensor_inputs: list[fx.Node] = []
+
+    def append_operand(raw_value: Any, coeff: int) -> bool:
+        if isinstance(raw_value, fx.Node):
+            const_value, _ = _resolve_constant_value(gm, raw_value)
+            if const_value is not None and isinstance(
+                const_value, (Tensor, int, float)
+            ):
+                operand_specs.append(
+                    AddOperandSpec(
+                        coeff,
+                        AddOperandKind.CONST,
+                        const_value=(
+                            const_value.detach().clone()
+                            if isinstance(const_value, Tensor)
+                            else const_value
+                        ),
+                    )
+                )
+                return True
+
+            tensor_port = len(tensor_inputs)
+            tensor_inputs.append(raw_value)
+            operand_specs.append(
+                AddOperandSpec(coeff, AddOperandKind.TENSOR, tensor_port)
+            )
+            return True
+
+        if isinstance(raw_value, (Tensor, int, float)):
+            operand_specs.append(
+                AddOperandSpec(
+                    coeff,
+                    AddOperandKind.CONST,
+                    const_value=(
+                        raw_value.detach().clone()
+                        if isinstance(raw_value, Tensor)
+                        else raw_value
+                    ),
+                )
+            )
+            return True
+
+        return False
+
+    if not append_operand(lhs_raw, 1):
+        return None
+    rhs_coeff = -alpha if subtract else alpha
+    if not append_operand(rhs_raw, rhs_coeff):
+        return None
+
+    return GeneralAddOp(operand_specs), tuple(tensor_inputs)
+
+
+def _lower_general_add_ir(
+    gm: fx.GraphModule,
+    paiir_graph: PAIIRGraph,
+    node: fx.Node,
+    ctx: "_LoweringContext",
+    strict: bool,
+    *,
+    subtract: bool,
+    description: str,
+) -> None:
+    built = _build_general_add_node(gm, node, subtract=subtract)
+    if built is None:
+        _mark_unsupported(ctx, node, description, strict)
+        return
+
+    ir_node, input_override = built
+    _register_ir_node(
+        paiir_graph, ctx, node, ir_node, input_nodes_override=input_override
+    )
+
+
 def _match_quantized_conv_weight_expr(
     gm: fx.GraphModule, value: Any
 ) -> tuple[Tensor, Tensor | float | int | None, set[fx.Node]] | None:
@@ -421,7 +535,8 @@ def _match_quantized_conv_weight_expr(
 
 
 def _build_functional_conv2d_node(
-    gm: fx.GraphModule, node: fx.Node
+    gm: fx.GraphModule,
+    node: fx.Node,
 ) -> tuple[OpNode, set[fx.Node]] | None:
     """Build a PAIIR compute node for a supported function-form ``conv2d``."""
     if node.op != "call_function" or not _is_conv2d_target(node.target):
@@ -461,7 +576,6 @@ def _build_functional_conv2d_node(
         weight, bias_value, stride, padding, dilation, groups, weight_scale
     )
     ir_node = StandaloneCompOp(comp=comp)
-    _fill_shape_dims(ir_node, node)
     return ir_node, aux_nodes | bias_nodes
 
 
@@ -475,9 +589,14 @@ def _get_output_shape(node: fx.Node) -> tuple[int, ...]:
     return ()
 
 
-def _get_input_shapes(node: fx.Node) -> list[tuple[int, ...]]:
+def _get_input_shapes(
+    node: fx.Node, input_nodes: tuple[fx.Node, ...] | None = None
+) -> list[tuple[int, ...]]:
     """Extract input shapes from an FX node's predecessor meta."""
-    return [_get_output_shape(inp) for inp in node.all_input_nodes]
+    source_nodes = (
+        input_nodes if input_nodes is not None else tuple(node.all_input_nodes)
+    )
+    return [_get_output_shape(inp) for inp in source_nodes]
 
 
 def _get_output_dims(node: fx.Node) -> DimsType:
@@ -485,9 +604,14 @@ def _get_output_dims(node: fx.Node) -> DimsType:
     return node.meta.get(DimsProp.KEY, ())
 
 
-def _get_input_dims(node: fx.Node) -> list[DimsType]:
+def _get_input_dims(
+    node: fx.Node, input_nodes: tuple[fx.Node, ...] | None = None
+) -> list[DimsType]:
     """Get input dims from an FX node's predecessor meta."""
-    return [_get_output_dims(inp) for inp in node.all_input_nodes]
+    source_nodes = (
+        input_nodes if input_nodes is not None else tuple(node.all_input_nodes)
+    )
+    return [_get_output_dims(inp) for inp in source_nodes]
 
 
 class _PAIIRTracer(fx.Tracer):
@@ -611,11 +735,16 @@ def _is_bypass_module(mod: nn.Module) -> bool:
     return isinstance(mod, BYPASS_MODULE_TYPES)
 
 
-def _fill_shape_dims(ir_node: OpNode, fx_node: fx.Node) -> None:
+def _fill_shape_dims(
+    ir_node: OpNode,
+    fx_node: fx.Node,
+    *,
+    input_nodes_override: tuple[fx.Node, ...] | None = None,
+) -> None:
     """Copy shape and axis-ordering info from FX node meta into a PAIIR node."""
-    ir_node.input_shapes = _get_input_shapes(fx_node)
+    ir_node.input_shapes = _get_input_shapes(fx_node, input_nodes_override)
     ir_node.output_shape = _get_output_shape(fx_node)
-    ir_node.input_dims = _get_input_dims(fx_node)
+    ir_node.input_dims = _get_input_dims(fx_node, input_nodes_override)
     ir_node.output_dims = _get_output_dims(fx_node)
 
 
@@ -629,6 +758,9 @@ class _LoweringContext:
     ignored_nodes: set[fx.Node] = field(default_factory=set)
     unsupported_ops: list[tuple[str, str]] = field(default_factory=list)
     prebuilt_ir_nodes: dict[fx.Node, OpNode] = field(default_factory=dict)
+    input_nodes_overrides: dict[fx.Node, tuple[fx.Node, ...]] = field(
+        default_factory=dict
+    )
 
 
 def _iter_output_args(node: fx.Node) -> tuple[Any, ...]:
@@ -645,9 +777,20 @@ def _register_ir_node(
     ir_node: OpNode,
     *,
     fill_meta: bool = True,
+    input_nodes_override: tuple[fx.Node, ...] | None = None,
 ) -> None:
+    """Register an IR node produced from an FX node.
+
+    By default, the IR node inherits shape/dims metadata directly from the FX
+    node via :func:`_fill_shape_dims`.
+
+    ``fill_meta=False`` is kept as an explicit extension hook for future
+    lowering paths where metadata should be populated later or from a source
+    other than the current FX node. The current converter paths all use the
+    default behavior.
+    """
     if fill_meta:
-        _fill_shape_dims(ir_node, fx_node)
+        _fill_shape_dims(ir_node, fx_node, input_nodes_override=input_nodes_override)
     paiir_graph.add_node(ir_node)
     ctx.fx_to_ir[fx_node.name] = ir_node.name
 
@@ -715,6 +858,8 @@ def _apply_module_lowering_rule(
         return False
 
     torch_module = gm.get_submodule(str(node.target))
+    input_override = ctx.input_nodes_overrides.get(node)
+
     if _is_bypass_module(torch_module):
         ctx.bypass_nodes.add(node)
         return True
@@ -722,7 +867,9 @@ def _apply_module_lowering_rule(
     if (mod_type := type(torch_module)) in module_map:
         ir_node = module_map[mod_type](torch_module)
         if isinstance(ir_node, OpNode):
-            _register_ir_node(paiir_graph, ctx, node, ir_node)
+            _register_ir_node(
+                paiir_graph, ctx, node, ir_node, input_nodes_override=input_override
+            )
         else:
             ctx.bypass_nodes.add(node)
         return True
@@ -733,7 +880,11 @@ def _apply_module_lowering_rule(
 
 
 def _apply_builtin_function_lowering_rule(
-    paiir_graph: PAIIRGraph, node: fx.Node, ctx: _LoweringContext, strict: bool
+    gm: fx.GraphModule,
+    paiir_graph: PAIIRGraph,
+    node: fx.Node,
+    ctx: _LoweringContext,
+    strict: bool,
 ) -> bool:
     if node.op != "call_function":
         return False
@@ -744,16 +895,31 @@ def _apply_builtin_function_lowering_rule(
 
     if node in ctx.prebuilt_ir_nodes:
         _register_ir_node(
-            paiir_graph, ctx, node, ctx.prebuilt_ir_nodes[node], fill_meta=False
+            paiir_graph,
+            ctx,
+            node,
+            ctx.prebuilt_ir_nodes[node],
+            input_nodes_override=ctx.input_nodes_overrides.get(node),
         )
         return True
 
-    if node.target in ADD_OPS:
-        _register_ir_node(paiir_graph, ctx, node, AddOp(op_signs=(1, 1)))
-        return True
+    if node.target in ADD_OPS or node.target in SUB_OPS:
+        if node.target in ADD_OPS:
+            subtract = False
+            description = "add with unsupported alpha/operand form"
+        else:
+            subtract = True
+            description = "sub with unsupported alpha/operand form"
 
-    if node.target in SUB_OPS:
-        _register_ir_node(paiir_graph, ctx, node, AddOp(op_signs=(1, -1)))
+        _lower_general_add_ir(
+            gm,
+            paiir_graph,
+            node,
+            ctx,
+            strict,
+            subtract=subtract,
+            description=description,
+        )
         return True
 
     if node.target in CAT_OPS:
@@ -778,6 +944,7 @@ def _apply_builtin_function_lowering_rule(
 
 
 def _apply_builtin_method_lowering_rule(
+    gm: fx.GraphModule,
     paiir_graph: PAIIRGraph,
     node: fx.Node,
     ctx: _LoweringContext,
@@ -790,12 +957,16 @@ def _apply_builtin_method_lowering_rule(
         ctx.bypass_nodes.add(node)
         return True
 
-    if node.target == "add":
-        _register_ir_node(paiir_graph, ctx, node, AddOp(op_signs=(1, 1)))
-        return True
-
-    if node.target == "sub":
-        _register_ir_node(paiir_graph, ctx, node, AddOp(op_signs=(1, -1)))
+    if node.target == "add" or node.target == "sub":
+        _lower_general_add_ir(
+            gm,
+            paiir_graph,
+            node,
+            ctx,
+            strict,
+            subtract=(node.target == "sub"),
+            description=f"method '{node.target}' with unsupported alpha/operand form",
+        )
         return True
 
     if node.target == "flatten":
@@ -830,13 +1001,16 @@ def _lower_graph(
             _create_output_nodes(paiir_graph, ctx, node)
             continue
 
+        if node in ctx.ignored_nodes or node in ctx.bypass_nodes:
+            continue
+
         if _apply_module_lowering_rule(gm, paiir_graph, node, ctx, module_map, strict):
             continue
 
-        if _apply_builtin_function_lowering_rule(paiir_graph, node, ctx, strict):
+        if _apply_builtin_function_lowering_rule(gm, paiir_graph, node, ctx, strict):
             continue
 
-        if _apply_builtin_method_lowering_rule(paiir_graph, node, ctx, strict):
+        if _apply_builtin_method_lowering_rule(gm, paiir_graph, node, ctx, strict):
             continue
 
         if node.op == "get_attr":
@@ -897,7 +1071,8 @@ def _wire_graph(
             continue
 
         dst_name = ctx.fx_to_ir[node.name]
-        for port_idx, inp_node in enumerate(node.all_input_nodes):
+        source_nodes = ctx.input_nodes_overrides.get(node, tuple(node.all_input_nodes))
+        for port_idx, inp_node in enumerate(source_nodes):
             for src in resolver.resolve(inp_node):
                 paiir_graph.add_edge(src, dst_name, dst_port=port_idx)
 

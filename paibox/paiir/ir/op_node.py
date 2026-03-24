@@ -8,33 +8,29 @@ Node types:
 
 - :class:`SequentialOp` -- compute -> neuron/lut
 - :class:`AccumulateOp` -- multi-path compute -> add/sub -> neuron/lut
-- :class:`AddOp` -- element-wise add/sub (potential output)
 - :class:`StandaloneCompOp` -- compute only (potential output)
 - :class:`StandaloneActOp` -- neuron/lut only
+
+Add-specific IR nodes live in :mod:`paibox.paiir.ir.add_ops`.
 """
 
 import math
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, ClassVar
+from typing import ClassVar
 
 import torch
-from paicorelib import AddPotentialMode, OutputType, PoolingMode
+from paicorelib import OutputType, PoolingMode
 from torch import Tensor, nn
 
-from ..nn import SumPool1d, SumPool2d
 from .calc_params import LutData, NeuronParams, OfflineCoreParams, OnlineCoreParams
 from .core_neuron import CoreNeuronV25
 from .ir_base import PAIIRNode
-
-if TYPE_CHECKING:
-    from ..pipeline.avgpool.metadata import AvgPoolDeployMetadata
 
 __all__ = [
     "OpNode",
     "OfflineCoreOp",
     "SequentialOp",
     "AccumulateOp",
-    "AddOp",
     "ConcatOp",
     "ReshapeOp",
     "StandaloneCompOp",
@@ -84,30 +80,6 @@ def _get_pooling_mode(comp: nn.Module) -> PoolingMode:
     return PoolingMode.AVERAGE
 
 
-def _is_avgpool(comp: nn.Module) -> bool:
-    """Check if a compute module is an average pooling operation."""
-    return isinstance(comp, (nn.AvgPool1d, nn.AvgPool2d))
-
-
-def _is_sumpool(comp: nn.Module) -> bool:
-    """Check if a compute module is a sum pooling operation."""
-    return isinstance(comp, (SumPool1d, SumPool2d))
-
-
-def _get_pool_window_size(comp: nn.Module) -> int:
-    """Return the number of elements in the pooling window (product of kernel dimensions)."""
-    assert isinstance(comp, (nn.AvgPool1d, nn.AvgPool2d, SumPool1d, SumPool2d))
-    ks = comp.kernel_size
-    if isinstance(ks, int):
-        # 1D pooling: single int -> (k,)
-        # 2D pooling: single int means (k, k)
-        if isinstance(comp, (nn.AvgPool2d, SumPool2d)):
-            ks = (ks, ks)
-        else:
-            ks = (ks,)
-    return math.prod(ks)
-
-
 def _tensor_value_range(tensor: Tensor) -> tuple[int, int]:
     """Return integer min/max after applying the same int8 cast used by export paths."""
     qt = tensor.detach().to(torch.int8)
@@ -131,7 +103,7 @@ class OpNode(nn.Module, PAIIRNode):
         output_dims: Output axis ordering.
     """
 
-    deploy: ClassVar[bool] = True  # Whether to deploy to chip
+    deploy: ClassVar[bool] = True
 
     def __init__(self) -> None:
         super().__init__()
@@ -195,6 +167,10 @@ class OfflineCoreOp(OpNode):
         super().__init__()
         self.core_params = core_params or OfflineCoreParams()
 
+    def override_compile_state(self, other: OfflineCoreParams) -> None:
+        """Override non-semantic compile-time state from another params object."""
+        self.core_params.override_compile_state_from(other)
+
     def _make_identity_weight(self) -> Tensor:
         """Create identity weight matrix matching output dimensions."""
         assert self.output_shape, "output_shape must be set before accessing weights"
@@ -207,7 +183,7 @@ class OfflineCoreOp(OpNode):
 
         Subclasses with compute modules return their raw parameter tensors.
         Weightless ops (pool etc.) return ``None``; pass-through ops
-        (StandaloneActOp, AddOp) return identity matrices.
+        (StandaloneActOp, PotentialAddOp) return identity matrices.
         """
         return [self._make_identity_weight()]
 
@@ -245,21 +221,19 @@ class SequentialOp(OfflineCoreOp):
     Args:
         comp: Compute operation (Conv2d, Linear, MaxPool2d, etc.).
         act: Neuron or LUT activation.
-        core_params: Offline core parameters (SNN mode and pooling mode
-            are inferred automatically when not provided).
+
+    The public constructor derives semantic core parameters from ``comp`` and
+    ``act``. Advanced callers that need to preserve prepared compile-time
+    state should construct the node normally, then call
+    :meth:`OfflineCoreOp.override_compile_state`.
     """
 
     comp: nn.Module
     act: CoreNeuronV25
-    avgpool_deploy_metadata: "AvgPoolDeployMetadata | None"
+    avgpool_deploy_metadata: object | None
 
-    def __init__(
-        self,
-        comp: nn.Module,
-        act: CoreNeuronV25,
-        core_params: OfflineCoreParams | None = None,
-    ) -> None:
-        core_params = core_params or OfflineCoreParams()
+    def __init__(self, comp: nn.Module, act: CoreNeuronV25) -> None:
+        core_params = OfflineCoreParams()
         core_params.snn_mode = act.snn_mode
         core_params.pooling_mode = _get_pooling_mode(comp)
 
@@ -309,7 +283,11 @@ class AccumulateOp(OfflineCoreOp):
         comps: List of compute operations (one per input path).
         act: Neuron or LUT activation.
         op_signs: Per-path sign. ``(1, 1)`` = add, ``(1, -1)`` = subtract.
-        core_params: Offline core parameters.
+
+    The public constructor derives semantic core parameters from ``comps`` and
+    ``act``. Advanced callers that need to preserve prepared compile-time
+    state should construct the node normally, then call
+    :meth:`OfflineCoreOp.override_compile_state`.
     """
 
     def __init__(
@@ -317,7 +295,6 @@ class AccumulateOp(OfflineCoreOp):
         comps: Sequence[nn.Module],
         act: CoreNeuronV25,
         op_signs: tuple[int, ...] | None = None,
-        core_params: OfflineCoreParams | None = None,
     ) -> None:
         if op_signs is None:
             op_signs = (1,) * len(comps)
@@ -326,7 +303,7 @@ class AccumulateOp(OfflineCoreOp):
                 f"'op_signs' length ({len(op_signs)}) != comps length ({len(comps)})"
             )
 
-        core_params = core_params or OfflineCoreParams()
+        core_params = OfflineCoreParams()
         core_params.snn_mode = act.snn_mode
         core_params.pooling_mode = _get_pooling_mode(comps[0])
 
@@ -390,44 +367,6 @@ class AccumulateOp(OfflineCoreOp):
         return f"{super().extra_repr()}, comps=[{ops}], signs={self.signs}, act={type(self.act).__name__}"
 
 
-class AddOp(OfflineCoreOp):
-    """Element-wise add / subtract.
-
-    Outputs membrane potential (not spikes).
-    Maps to ``AddPotentialMode.DIRECT_ADD`` on chip.
-
-    Args:
-        op_signs: ``(1, 1)`` for add, ``(1, -1)`` for subtract.
-        core_params: Offline core parameters.
-    """
-
-    def __init__(
-        self,
-        op_signs: tuple[int, int] = (1, 1),
-        core_params: OfflineCoreParams | None = None,
-    ) -> None:
-        core_params = core_params or OfflineCoreParams()
-        core_params.add_potential = AddPotentialMode.DIRECT_ADD
-
-        super().__init__(core_params)
-        self.signs = tuple(op_signs)
-
-    def forward(self, *xs: Tensor) -> Tensor:
-        acc: Tensor = torch.zeros([1])
-        for sign, x in zip(self.signs, xs):
-            acc += sign * x
-
-        return acc
-
-    @property
-    def weights(self) -> list[Tensor]:
-        eye = self._make_identity_weight()
-        return [eye] * len(self.signs)
-
-    def extra_repr(self) -> str:
-        return f"{super().extra_repr()}, signs={self.signs}"
-
-
 class ConcatOp(RoutingOp):
     """Order-preserving concatenation along a given dimension.
 
@@ -489,15 +428,17 @@ class StandaloneCompOp(OfflineCoreOp):
 
     Args:
         comp: The compute operation.
-        core_params: Offline core parameters.
+
+    The public constructor derives semantic core parameters from ``comp``.
+    Advanced callers that need to preserve prepared compile-time state should
+    construct the node normally, then call
+    :meth:`OfflineCoreOp.override_compile_state`.
     """
 
     comp: nn.Module
 
-    def __init__(
-        self, comp: nn.Module, core_params: OfflineCoreParams | None = None
-    ) -> None:
-        core_params = core_params or OfflineCoreParams()
+    def __init__(self, comp: nn.Module) -> None:
+        core_params = OfflineCoreParams()
         core_params.pooling_mode = _get_pooling_mode(comp)
 
         super().__init__(core_params)
@@ -530,15 +471,17 @@ class StandaloneActOp(OfflineCoreOp):
 
     Args:
         act: Neuron or LUT activation.
-        core_params: Offline core parameters.
+
+    The public constructor derives semantic core parameters from ``act``.
+    Advanced callers that need to preserve prepared compile-time state should
+    construct the node normally, then call
+    :meth:`OfflineCoreOp.override_compile_state`.
     """
 
     act: CoreNeuronV25
 
-    def __init__(
-        self, act: CoreNeuronV25, core_params: OfflineCoreParams | None = None
-    ) -> None:
-        core_params = core_params or OfflineCoreParams()
+    def __init__(self, act: CoreNeuronV25) -> None:
+        core_params = OfflineCoreParams()
         core_params.snn_mode = act.snn_mode
 
         super().__init__(core_params)

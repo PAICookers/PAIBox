@@ -10,7 +10,11 @@ from paibox.paiir.ir.lut_activation import LutCustom
 from paibox.paiir.ir.op_node import OfflineCoreOp
 from paibox.paiir.lowering.converter import torch_to_paiir
 from paibox.paiir.pipeline.data_format import DataFormat
-from paibox.paiir.pipeline.passes import fuse_to_offline_cores, propagate_data_format
+from paibox.paiir.pipeline.passes import (
+    fuse_to_offline_cores,
+    propagate_data_format,
+    specialize_general_adds,
+)
 
 _T = TypeVar("_T", bound=PAIIRNode)
 
@@ -353,6 +357,7 @@ def offline_nodes(graph: PAIIRGraph) -> list[OfflineCoreOp]:
 def convert_and_fuse(model: nn.Module, *sample_inputs: Tensor) -> PAIIRGraph:
     """Trace a PyTorch model to PAIIR and fuse."""
     unfused = torch_to_paiir(model, *sample_inputs)
+    unfused = specialize_general_adds(unfused)
     return fuse_to_offline_cores(unfused)
 
 

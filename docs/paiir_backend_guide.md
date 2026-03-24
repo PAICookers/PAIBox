@@ -51,22 +51,28 @@ paibox.paiir/
 ```
 PyTorch 模型
     │
-    ▼  ① torch_to_paiir()      — FX 追踪，1:1 节点映射（无融合）
+    ▼  ① torch_to_paiir()           — FX 追踪，表达层 1:1 节点映射
     │
-    ▼  ② fuse_to_offline_cores() — 融合原子节点为离线核单元
+    ▼  ② specialize_general_adds()  — 将可部署的 GeneralAddOp 收紧为 PotentialAddOp
     │
-    ▼  ③ validate_graph()        — 结构验证 + 自动清理断联节点
+    ▼  ③ fuse_to_offline_cores()    — 融合原子节点为离线核单元
     │
-    ▼  ④ propagate_data_format() — 两阶段数据格式推理（输出/权重 → 输入传播）
+    ▼  ④ validate_graph()           — 结构验证 + 自动清理断联节点
     │
-    ▼  ⑤ assign_tick_params()    — 基于 DAG 深度分配时序参数
+    ▼  ⑤ propagate_signal_domain()  — 标注 VALUE / POTENTIAL 语义域
     │
-    ▼  ⑥ calibrate_avgpool_thresholds() — 可选 AvgPool 阈值细化
+    ▼  ⑥ propagate_data_format()    — 两阶段数据格式推理（输出/权重 → 输入传播）
     │
-    ▼  ⑦ validate_compiled_graph() — 编译完成后的最终校验
+    ▼  ⑦ assign_tick_params()       — 基于 DAG 深度分配时序参数
+    │
+    ▼  ⑧ calibrate_avgpool_thresholds() — 可选 AvgPool 阈值细化
+    │
+    ▼  ⑨ validate_compiled_graph()  — 编译完成后的结构/元信息校验
+    │
+    ▼  ⑩ validate_deployable_graph() — backend-ready 子集与契约校验
     │
     ▼
-PAIIRGraph (就绪，可交付后端)
+PAIIRGraph (backend-ready，可交付后端)
 ```
 
 ### 一站式编译接口
@@ -117,34 +123,49 @@ graph = compile_to_paiir(model, x, compile_config=cfg, strict=False)
 ```python
 from paibox.paiir import torch_to_paiir
 from paibox.paiir.pipeline.passes import (
+    specialize_general_adds,
     fuse_to_offline_cores,
     validate_graph,
+    propagate_signal_domain,
     propagate_data_format,
     assign_tick_params,
     calibrate_avgpool_thresholds,
     validate_compiled_graph,
+    validate_deployable_graph,
 )
 
-# ① FX 追踪 + 1:1 节点映射
+# ① FX 追踪 + 表达层 1:1 节点映射
 graph = torch_to_paiir(model, sample_input)
 
-# ② 算子融合（返回新图）
+# torch_to_paiir() 的输出仍可能包含 GeneralAddOp，
+# 适合前端检查 / 仿真，但还不是 backend-ready 图。
+
+# ② 将可部署的 GeneralAddOp 收紧为 PotentialAddOp
+graph = specialize_general_adds(graph)
+
+# ③ 算子融合（返回新图）
 graph = fuse_to_offline_cores(graph)
 
-# ③ 结构验证（原地修改，断联节点自动移除并发出警告）
+# ④ 结构验证（原地修改，断联节点自动移除并发出警告）
 validate_graph(graph)
 
-# ④ 数据格式推理（原地填充 core_params 中的数据格式字段）
+# ⑤ 信号域传播（原地填充 output_domain）
+propagate_signal_domain(graph)
+
+# ⑥ 数据格式推理（原地填充 core_params 中的数据格式字段）
 propagate_data_format(graph)
 
-# ⑤ 时序参数分配（原地填充 tick_start / tick_duration / tick_initial）
+# ⑦ 时序参数分配（原地填充 tick_start / tick_duration / tick_initial）
 assign_tick_params(graph, tick_duration=100, auto_reset=True)
 
-# ⑥ 可选：共享核 AvgPool+LIF 阈值细化
+# ⑧ 可选：共享核 AvgPool+LIF 阈值细化
 calibrate_avgpool_thresholds(graph)
 
-# ⑦ 最终校验（检查形状、数据格式、tick 参数与连通性）
+# ⑨ 元信息校验（形状、数据格式、tick 参数与连通性）
 validate_compiled_graph(graph)
+
+# ⑩ backend-ready 子集校验（禁止残留 GeneralAddOp 等表达层节点）
+validate_deployable_graph(graph)
 ```
 
 > **注意 1**：各阶段的 pass 函数（`fuse_to_offline_cores` 等）不在 `paibox.paiir` 的顶层导出中，需要从 `paibox.paiir.pipeline.passes` 导入。
@@ -190,7 +211,7 @@ PAIIRNode (基类，自动分配唯一 name)
     ├── OfflineCoreOp (离线核，映射到芯片核心)
     │   ├── SequentialOp      — comp -> act（最常见）
     │   ├── AccumulateOp      — comps -> add/sub -> act（多路径融合）
-    │   ├── AddOp             — 纯加法/减法（输出膜电位，无激活）
+    │   ├── PotentialAddOp             — 纯加法/减法（输出膜电位，无激活）
     │   ├── StandaloneCompOp  — 纯计算（融合前的中间状态）
     │   └── StandaloneActOp   — 纯激活（融合前的中间状态）
     ├── ConcatOp        — 路由拼接（非核操作，不占用核资源）
@@ -198,7 +219,9 @@ PAIIRNode (基类，自动分配唯一 name)
     └── CPUOp           — CPU 回退（占位符，仅 v2.5）
 ```
 
-融合后的正常图中主要出现 `SequentialOp`、`AccumulateOp`、`AddOp`、`ConcatOp` 四种算子。`StandaloneCompOp` 和 `StandaloneActOp` 通常在融合后不再独立存在，但在以下场景中仍可能保留：
+融合后的正常图中主要出现 `SequentialOp`、`AccumulateOp`、`PotentialAddOp`、`ConcatOp` 四种算子。`StandaloneCompOp` 和 `StandaloneActOp` 通常在融合后不再独立存在，但在以下场景中仍可能保留：
+
+前端表达层还可能出现 `GeneralAddOp`，用于忠实表示 PyTorch 的通用 `add/sub` 语义；但它不属于 backend-ready 子集。只要图是通过 `compile_to_paiir()` 生成的，`validate_deployable_graph()` 会确保这类表达层节点已经被收紧或拒绝。
 
 - `strict=False` 下的部分旁路图结构
 - AvgPool 条件式分核部署中，`StandaloneActOp` 作为第二核保留
@@ -270,9 +293,17 @@ node.input_shapes: list[tuple[int, ...]]   # 各输入端口的张量形状
 node.output_shape: tuple[int, ...]         # 输出张量形状
 node.input_dims: list[tuple[int, ...]]     # 各输入端口的轴顺序
 node.output_dims: tuple[int, ...]          # 输出轴顺序
+node.output_domain                         # SignalDomain.VALUE / POTENTIAL
 ```
 
 轴顺序 `(0, 1, 2, 3)` 表示标准 NCHW；如果模型中有 `transpose` / `permute` 操作，轴顺序会相应改变，后端可据此决定数据排布。
+
+`output_domain` 是图级语义注解：
+
+- `SignalDomain.VALUE`：值域输出
+- `SignalDomain.POTENTIAL`：膜电位域输出
+
+后端应把它视为节点输出语义，而不是直接等同于芯片寄存器里的 `OutputType`。对有 `neuron_params` 的离线核节点，两者通常一致；对 `InputNode`、`OutputNode`、`ConcatOp`、`GeneralAddOp` 这类非神经元节点，则只能使用 `SignalDomain`。
 
 ### OfflineCoreOp：离线核参数
 
@@ -316,10 +347,10 @@ weights: list[Tensor] | None = op.weights
 
 - `SequentialOp`：返回 `[weight_tensor]`（int8），单个权重；池化操作返回 `None`（无权重）
 - `AccumulateOp`：返回 `[w0, w1, ...]`（int8），与 `comps` 一一对应；若任一 comp 无权重则返回 `None`
-- `AddOp`：返回单位矩阵列表（IR 便捷视图，用于表达恒等路由）
+- `PotentialAddOp`：返回单位矩阵列表（IR 便捷视图，用于表达恒等路由）
 - `StandaloneActOp`：返回单位矩阵（IR 便捷视图，用于表达恒等映射）
 
-> **注意**：`AddOp` / `StandaloneActOp` 上看到的单位矩阵并不是训练态真实参数，而是 IR 侧为了统一“按输入路径取权重”接口而生成的恒等权重视图。后端在做真实部署映射时，应优先使用算子语义（加法、纯激活），而不是把这些单位矩阵当成需要落盘的模型权重。
+> **注意**：`PotentialAddOp` / `StandaloneActOp` 上看到的单位矩阵并不是训练态真实参数，而是 IR 侧为了统一“按输入路径取权重”接口而生成的恒等权重视图。后端在做真实部署映射时，应优先使用算子语义（加法、纯激活），而不是把这些单位矩阵当成需要落盘的模型权重。
 
 #### 3. 神经元参数（neuron_params）
 
@@ -396,16 +427,32 @@ acc.neuron_params          # NeuronParams（多路径 bias 按 signs 融合）
 acc.lut_data               # LutData | None
 ```
 
-#### AddOp
+后端可依赖的最小契约：
+
+- `graph.predecessors(acc.name)`、`acc.comps`、`acc.signs` 必须一一对应
+- `len(graph.predecessors(acc.name)) == len(acc.comps) == len(acc.signs)`
+- 若 `acc.weights is not None`，则 `len(acc.weights) == len(acc.comps)`
+- 若 `input_shapes` / `input_dims` 已填充，则它们的长度也应与 `acc.comps` 一致
+- 当前符号语义只允许 `+/-1`
+
+> **后端注意**：当前 backendv2 会并行消费 predecessor / comp / weight / sign 列表；如果这些列表长度不一致，Python `zip(...)` 会静默截断。因此上面的结构一致性应视为 backend-ready 图的硬约束，而不是“最好满足”的建议。
+
+#### PotentialAddOp
 
 ```python
-from paibox.paiir import AddOp
+from paibox.paiir import PotentialAddOp
 
-add: AddOp
+add: PotentialAddOp
 add.signs: tuple[int, ...]  # 输入符号
 add.weights                  # list[Tensor]，单位矩阵
 # neuron_params 为默认直通配置（output_type=POTENTIAL）
 ```
+
+后端可依赖的最小契约：
+
+- 所有前驱路径都必须是逐元素同形状的 `POTENTIAL` 域输入
+- `len(graph.predecessors(add.name)) == len(add.signs)`
+- 当前符号语义只允许 `+/-1`
 
 #### ConcatOp
 

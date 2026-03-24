@@ -4,13 +4,14 @@ Provides a directed acyclic graph container for organising IR nodes and
 their connections, plus simulation methods for chip-accurate inference.
 """
 
-from collections import deque
+import graphlib
 from dataclasses import dataclass
 from typing import Any
 
 import torch
 from torch import Tensor, nn
 
+from .add_ops import GeneralAddOp
 from .core_neuron import CoreNeuronV25
 from .ir_base import InputNode, OutputNode, PAIIRNode
 from .op_node import ConcatOp, OfflineCoreOp, OpNode, ReshapeOp
@@ -18,7 +19,7 @@ from .op_node import ConcatOp, OfflineCoreOp, OpNode, ReshapeOp
 __all__ = ["Edge", "PAIIRGraph"]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Edge:
     """A directed edge in the computation graph.
 
@@ -26,12 +27,22 @@ class Edge:
         src: Source node name.
         dst: Destination node name.
         dst_port: Input port index on the destination node (for multi-input
-            nodes such as :class:`AccumulateOp` or :class:`AddOp`).
+            nodes such as :class:`GeneralAddOp`, :class:`AccumulateOp`, or
+            :class:`PotentialAddOp`).
     """
 
     src: str
     dst: str
     dst_port: int = 0
+
+
+@dataclass(slots=True)
+class _GraphIndex:
+    """Derived graph structure used by query helpers."""
+
+    pred_edges_by_dst: dict[str, tuple[Edge, ...]]
+    succ_edges_by_src: dict[str, tuple[Edge, ...]]
+    topo_order: tuple[str, ...] | None = None
 
 
 class PAIIRGraph:
@@ -59,14 +70,100 @@ class PAIIRGraph:
         self.name = name
         self.nodes: dict[str, PAIIRNode] = {}
         self.edges: list[Edge] = []
+        self._index: _GraphIndex | None = None
         self._sim_step: int = 0
         self._active_counts: dict[str, int] = {}
+
+    def _invalidate_structure(self) -> None:
+        self._index = None
+
+    def _build_index(self) -> _GraphIndex:
+        pred_edges: dict[str, list[Edge]] = {name: [] for name in self.nodes}
+        succ_edges: dict[str, list[Edge]] = {name: [] for name in self.nodes}
+
+        for edge in self.edges:
+            pred_edges.setdefault(edge.dst, []).append(edge)
+            succ_edges.setdefault(edge.src, []).append(edge)
+
+        for incoming in pred_edges.values():
+            incoming.sort(key=lambda edge: edge.dst_port)
+
+        return _GraphIndex(
+            {name: tuple(pred_edges.get(name, ())) for name in self.nodes},
+            {name: tuple(succ_edges.get(name, ())) for name in self.nodes},
+        )
+
+    def _get_index(self) -> _GraphIndex:
+        if self._index is None:
+            self._index = self._build_index()
+
+        return self._index
+
+    def _get_topo_order(self) -> tuple[str, ...]:
+        index = self._get_index()
+        if index.topo_order is None:
+            predecessor_map = {
+                name: tuple(edge.src for edge in index.pred_edges_by_dst.get(name, ()))
+                for name in self.nodes
+            }
+            sorter = graphlib.TopologicalSorter(predecessor_map)
+            index.topo_order = tuple(sorter.static_order())
+
+        return index.topo_order
 
     def add_node(self, node: PAIIRNode) -> None:
         """Add a node to the graph."""
         if node.name in self.nodes:
             raise ValueError(f"node '{node.name}' already exists in graph")
         self.nodes[node.name] = node
+        self._invalidate_structure()
+
+    def replace_node(self, old_name: str, new_node: PAIIRNode) -> None:
+        """Replace a node while preserving graph connectivity.
+
+        All incoming/outgoing edges that referenced ``old_name`` are rewritten to
+        the replacement node's current name.
+        """
+        if old_name not in self.nodes:
+            raise KeyError(f"node '{old_name}' not found in graph")
+
+        new_name = new_node.name
+        if new_name != old_name and new_name in self.nodes:
+            raise ValueError(f"node '{new_name}' already exists in graph")
+
+        self.nodes.pop(old_name)
+        self.nodes[new_name] = new_node
+        self.edges = [
+            Edge(
+                new_name if edge.src == old_name else edge.src,
+                new_name if edge.dst == old_name else edge.dst,
+                edge.dst_port,
+            )
+            for edge in self.edges
+        ]
+        self._invalidate_structure()
+
+    def clone_shallow(self) -> "PAIIRGraph":
+        """Return a shallow copy of the graph structure.
+
+        Node objects are shared; the node/edge containers and simulation
+        bookkeeping are copied.
+        """
+        cloned = PAIIRGraph(self.name)
+        cloned.nodes = dict(self.nodes)
+        cloned.edges = list(self.edges)
+        cloned._sim_step = self._sim_step
+        cloned._active_counts = dict(self._active_counts)
+        return cloned
+
+    def remove_node(self, name: str) -> None:
+        """Remove a node and all incoming/outgoing edges."""
+        if name not in self.nodes:
+            raise KeyError(f"node '{name}' not found in graph")
+
+        self.nodes.pop(name)
+        self.edges = [e for e in self.edges if e.src != name and e.dst != name]
+        self._invalidate_structure()
 
     def add_edge(self, src: str, dst: str, dst_port: int = 0) -> None:
         """Add a directed edge.
@@ -81,6 +178,7 @@ class PAIIRGraph:
         if dst not in self.nodes:
             raise KeyError(f"destination node '{dst}' not found in graph")
         self.edges.append(Edge(src=src, dst=dst, dst_port=dst_port))
+        self._invalidate_structure()
 
     def input_nodes(self) -> list[InputNode]:
         """Return all input nodes."""
@@ -92,27 +190,21 @@ class PAIIRGraph:
 
     def predecessors(self, name: str) -> list[str]:
         """Return predecessor node names, sorted by ``dst_port``."""
-        return [
-            e.src
-            for e in sorted(
-                (e for e in self.edges if e.dst == name),
-                key=lambda e: e.dst_port,
-            )
-        ]
+        index = self._get_index()
+        return [edge.src for edge in index.pred_edges_by_dst.get(name, ())]
 
     def successors(self, name: str) -> list[str]:
         """Return successor node names."""
-        return [e.dst for e in self.edges if e.src == name]
+        index = self._get_index()
+        return [edge.dst for edge in index.succ_edges_by_src.get(name, ())]
 
     def incoming_edges(self, name: str) -> list[Edge]:
         """Return all edges going *into* the given node, sorted by port."""
-        edges = [e for e in self.edges if e.dst == name]
-        edges.sort(key=lambda e: e.dst_port)
-        return edges
+        return list(self._get_index().pred_edges_by_dst.get(name, ()))
 
     def outgoing_edges(self, name: str) -> list[Edge]:
         """Return all edges going *out of* the given node."""
-        return [e for e in self.edges if e.src == name]
+        return list(self._get_index().succ_edges_by_src.get(name, ()))
 
     def topo_sort(self) -> list[str]:
         """Topological sort. Returns an ordered list of node names.
@@ -120,24 +212,7 @@ class PAIIRGraph:
         Raises:
             ValueError: If the graph contains a cycle.
         """
-        in_degree: dict[str, int] = {name: 0 for name in self.nodes}
-        for edge in self.edges:
-            in_degree[edge.dst] = in_degree.get(edge.dst, 0) + 1
-
-        queue = deque(name for name, deg in in_degree.items() if deg == 0)
-        result: list[str] = []
-
-        while queue:
-            node = queue.popleft()
-            result.append(node)
-            for succ in self.successors(node):
-                in_degree[succ] -= 1
-                if in_degree[succ] == 0:
-                    queue.append(succ)
-
-        if len(result) != len(self.nodes):
-            raise ValueError("graph contains a cycle")
-        return result
+        return list(self._get_topo_order())
 
     def _summary_node_label(self, node: PAIIRNode) -> str:
         """Return the human-readable type label used by :meth:`summary`.
@@ -361,15 +436,15 @@ class PAIIRGraph:
 
             # Collect predecessor tensors ordered by dst_port.
             # predecessors() returns names sorted by dst_port, so xs[i]
-            # corresponds to input port i of multi-input nodes (AccumulateOp,
-            # AddOp, ConcatOp).
+            # corresponds to input port i of multi-input nodes (GeneralAddOp,
+            # AccumulateOp, PotentialAddOp, ConcatOp).
             pred_names = self.predecessors(name)
             xs = [node_outputs[p] for p in pred_names]
 
-            if isinstance(node, (ConcatOp, ReshapeOp)):
+            if isinstance(node, (ConcatOp, ReshapeOp, GeneralAddOp)):
                 # Routing/shape transformation operation.
-                # Does not map to any offline core.
-                # Executes tensor transformation for simulation.
+                # Or frontend/general expression operation.
+                # Executes tensor transformation / expression evaluation for simulation.
                 node_outputs[name] = node(*xs)
                 continue
 

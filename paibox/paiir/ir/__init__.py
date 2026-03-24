@@ -14,6 +14,13 @@ from .calc_params import LutData, NeuronParams, OfflineCoreParams, OnlineCorePar
 from .core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
 from .graph import Edge, PAIIRGraph
 from .ir_base import InputNode, OutputNode, PAIIRNode
+from .signal_domain import SignalDomain
+from .add_ops import (
+    AddOperandKind,
+    AddOperandSpec,
+    GeneralAddOp,
+    PotentialAddOp,
+)
 from .lut_activation import (
     LutActivation,
     LutAdaptiveActivation,
@@ -26,7 +33,6 @@ from .lut_activation import (
 )
 from .op_node import (
     AccumulateOp,
-    AddOp,
     CPUOp,
     ConcatOp,
     OfflineCoreOp,
@@ -40,8 +46,9 @@ from .op_node import (
 
 __all__ = [
     "ANNNodeV25",
+    "AddOperandKind",
+    "AddOperandSpec",
     "AccumulateOp",
-    "AddOp",
     "CPUOp",
     "ConcatOp",
     "CoreNeuronV25",
@@ -59,6 +66,7 @@ __all__ = [
     "LutSoftsign",
     "LutTanh",
     "NeuronParams",
+    "GeneralAddOp",
     "OfflineCoreOp",
     "OfflineCoreParams",
     "OnlineCoreOp",
@@ -67,8 +75,10 @@ __all__ = [
     "OutputNode",
     "PAIIRGraph",
     "PAIIRNode",
+    "PotentialAddOp",
     "ReshapeOp",
     "SequentialOp",
+    "SignalDomain",
     "StandaloneActOp",
     "StandaloneCompOp",
 ]

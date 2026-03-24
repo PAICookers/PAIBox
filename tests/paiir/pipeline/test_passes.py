@@ -1,0 +1,1120 @@
+"""Tests for `paibox.paiir.pipeline.passes`.
+
+This file intentionally groups compile-time pass behavior that is implemented
+in `PAIBox/paibox/paiir/pipeline/passes.py`:
+
+- add specialization / fusion
+- tick assignment
+- validation / deployability checks
+- signal-domain propagation
+"""
+
+import pytest
+import torch
+from paicorelib import DataSign, DataWidth, SNNMode
+from spikingjelly.activation_based import neuron as sj
+from torch import nn
+
+from paibox.paiir.ir.add_ops import AddOperandKind, GeneralAddOp, PotentialAddOp
+from paibox.paiir.ir.calc_params import OfflineCoreParams
+from paibox.paiir.ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
+from paibox.paiir.ir.graph import PAIIRGraph
+from paibox.paiir.ir.ir_base import InputNode, OutputNode
+from paibox.paiir.ir.lut_activation import LutReLU, LutSigmoid, LutTanh
+from paibox.paiir.ir.op_node import (
+    AccumulateOp,
+    ConcatOp,
+    CPUOp,
+    OfflineCoreOp,
+    SequentialOp,
+    StandaloneActOp,
+    StandaloneCompOp,
+)
+from paibox.paiir.ir.signal_domain import SignalDomain
+from paibox.paiir.lowering.converter import torch_to_paiir
+from paibox.paiir.pipeline.compile import compile_to_paiir
+from paibox.paiir.pipeline.passes import (
+    GraphCleanupWarning,
+    GraphValidationError,
+    assign_tick_params,
+    fuse_to_offline_cores,
+    propagate_data_format,
+    propagate_signal_domain,
+    specialize_general_adds,
+    validate_compiled_graph,
+    validate_deployable_graph,
+    validate_graph,
+)
+from tests.paiir.conftest import (
+    ANNClassifier,
+    ANNConvBNReLU,
+    ANNResidualSubtract,
+    MultiInputMerge,
+    SNNDepthwiseSeparable,
+    SNNFlattenTransition,
+    SNNResidualAdd,
+    SNNWithMaxPool,
+    SPPFBlock,
+    convert_and_fuse,
+    find_first,
+    find_node_names,
+    find_nodes,
+    make_img_1ch_4x4,
+    make_img_3ch_8x8,
+    make_img_16ch_8x8,
+    make_vec_8d,
+)
+
+
+class TestSNNConversion:
+    """Test SNN network conversion through the full pipeline."""
+
+    def test_two_layer_snn(self):
+        """Conv-LIF -> Conv-IF: two SequentialOps after fusion."""
+        from tests.paiir.conftest import SNNTwoLayer
+
+        model = SNNTwoLayer()
+        fused = convert_and_fuse(model, make_img_3ch_8x8())
+
+        seq_nodes = find_nodes(fused, SequentialOp)
+        assert len(seq_nodes) == 2
+
+        comp_types = {type(n.comp) for n in seq_nodes}
+        assert comp_types == {nn.Conv2d}
+        act_types = sorted(type(n.act).__name__ for n in seq_nodes)
+        assert act_types == ["IFNodeV25", "LIFNodeV25"]
+
+        assert find_nodes(fused, StandaloneCompOp) == []
+        assert find_nodes(fused, StandaloneActOp) == []
+
+    def test_residual_add(self):
+        """Two conv branches + add + LIF: AccumulateOp after fusion."""
+        model = SNNResidualAdd()
+        fused = convert_and_fuse(model, make_img_3ch_8x8())
+
+        accum_nodes = find_nodes(fused, AccumulateOp)
+        assert len(accum_nodes) == 1
+        assert len(accum_nodes[0].comps) == 2
+        assert isinstance(accum_nodes[0].act, LIFNodeV25)
+        assert accum_nodes[0].signs == (1, 1)
+
+        assert find_nodes(fused, PotentialAddOp) == []
+        assert find_nodes(fused, StandaloneCompOp) == []
+
+    def test_maxpool_chain(self):
+        """Conv-LIF -> MaxPool-LIF: pooling mode inferred."""
+        model = SNNWithMaxPool()
+        fused = convert_and_fuse(model, make_img_3ch_8x8())
+
+        seq_nodes = find_nodes(fused, SequentialOp)
+        assert len(seq_nodes) == 2
+
+        pool_ops = [n for n in seq_nodes if isinstance(n.comp, nn.MaxPool2d)]
+        assert len(pool_ops) == 1
+
+        from paicorelib import PoolingMode
+
+        assert pool_ops[0].core_params.pooling_mode == PoolingMode.MAX
+
+    def test_depthwise_separable(self):
+        """DWConv-LIF -> PWConv-LIF: grouped conv handled."""
+        model = SNNDepthwiseSeparable()
+        fused = convert_and_fuse(model, make_img_16ch_8x8())
+
+        seq_nodes = find_nodes(fused, SequentialOp)
+        assert len(seq_nodes) == 2
+
+        conv_ops = [n for n in seq_nodes if isinstance(n.comp, nn.Conv2d)]
+        groups = sorted([n.comp.groups for n in conv_ops])
+        assert groups == [1, 16]
+
+    def test_flatten_transition(self):
+        """Conv-IF -> flatten -> Linear-IF: flatten bypassed."""
+        model = SNNFlattenTransition()
+        fused = convert_and_fuse(model, make_img_1ch_4x4())
+
+        seq_nodes = find_nodes(fused, SequentialOp)
+        assert len(seq_nodes) == 2
+
+        comp_types = sorted(type(n.comp).__name__ for n in seq_nodes)
+        assert comp_types == ["Conv2d", "Linear"]
+
+
+class TestANNConversion:
+    """Test ANN network conversion through the full pipeline."""
+
+    def test_classifier_head(self):
+        """Conv-ReLU -> AvgPool -> flatten -> Linear-Sigmoid."""
+        model = ANNClassifier()
+        fused = convert_and_fuse(model, make_img_3ch_8x8())
+
+        seq_nodes = find_nodes(fused, SequentialOp)
+        assert len(seq_nodes) >= 2
+
+        lut_types = {type(n.act.lut) for n in seq_nodes if n.act.lut is not None}
+        assert LutReLU in lut_types
+        assert LutSigmoid in lut_types
+
+    def test_conv_bn_relu(self):
+        """Conv-BN-ReLU chain: BN bypassed, Conv fuses with ReLU."""
+        model = ANNConvBNReLU()
+        model.eval()
+        fused = convert_and_fuse(model, make_img_3ch_8x8())
+
+        seq_nodes = find_nodes(fused, SequentialOp)
+        assert len(seq_nodes) == 2
+        assert all(isinstance(n.act.lut, LutReLU) for n in seq_nodes)
+
+        for node in fused.nodes.values():
+            if hasattr(node, "comp"):
+                assert not isinstance(node.comp, (nn.BatchNorm1d, nn.BatchNorm2d))
+
+    def test_subtract_branch(self):
+        """Two linear branches with subtraction -> tanh."""
+        model = ANNResidualSubtract()
+        fused = convert_and_fuse(model, make_vec_8d())
+
+        accum_nodes = find_nodes(fused, AccumulateOp)
+        assert len(accum_nodes) == 1
+        assert accum_nodes[0].signs == (1, -1)
+        assert isinstance(accum_nodes[0].act.lut, LutTanh)
+
+
+class TestComplexPatterns:
+    """Test complex/real-world network patterns."""
+
+    def test_multi_input(self):
+        """Two separate inputs merged by add + LIF."""
+        model = MultiInputMerge()
+        unfused = torch_to_paiir(model, make_img_3ch_8x8(), make_img_3ch_8x8())
+        fused = fuse_to_offline_cores(specialize_general_adds(unfused))
+
+        assert len(fused.input_nodes()) == 2
+
+        accum_nodes = find_nodes(fused, AccumulateOp)
+        assert len(accum_nodes) == 1
+        assert len(accum_nodes[0].comps) == 2
+
+    def test_general_add_preserves_constant_operand(self):
+        class AddScalar(nn.Module):
+            def forward(self, x):
+                return x + 1
+
+        x = make_img_3ch_8x8()
+        graph = torch_to_paiir(AddScalar(), x, strict=False)
+
+        general_add = find_first(graph, GeneralAddOp)
+        assert general_add.has_const_operands
+        assert [operand.kind for operand in general_add.operands] == [
+            AddOperandKind.TENSOR,
+            AddOperandKind.CONST,
+        ]
+        assert [
+            general_add.is_operand_broadcasted(operand)
+            for operand in general_add.operands
+        ] == [
+            False,
+            True,
+        ]
+
+        y_ref = AddScalar()(x)
+        y_ir = graph.forward(x)
+        assert torch.allclose(y_ir, y_ref)
+
+    def test_general_add_specializes_to_potential_add(self):
+        model = MultiInputMerge()
+        unfused = torch_to_paiir(model, make_img_3ch_8x8(), make_img_3ch_8x8())
+        assert find_nodes(unfused, GeneralAddOp)
+
+        fused = fuse_to_offline_cores(specialize_general_adds(unfused))
+        accum_nodes = find_nodes(fused, AccumulateOp)
+        assert len(accum_nodes) == 1
+        assert find_nodes(fused, GeneralAddOp) == []
+
+    def test_sppf_block(self):
+        """SPPF: cascaded MaxPool with shared module, cat merge."""
+        model = SPPFBlock()
+        unfused = torch_to_paiir(model, make_img_16ch_8x8())
+
+        comp_nodes = find_nodes(unfused, StandaloneCompOp)
+        pool_nodes = [n for n in comp_nodes if isinstance(n.comp, nn.MaxPool2d)]
+        assert len(pool_nodes) >= 3
+
+    def test_standalone_conv(self):
+        """Conv with no activation stays StandaloneCompOp."""
+        model = nn.Conv2d(3, 8, 3)
+        fused = convert_and_fuse(model, make_img_3ch_8x8())
+
+        comp_nodes = find_nodes(fused, StandaloneCompOp)
+        assert len(comp_nodes) == 1
+        assert isinstance(comp_nodes[0].comp, nn.Conv2d)
+
+    def test_concat_op(self):
+        """torch.cat creates ConcatOp with correct dim and port ordering."""
+
+        class M(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv1 = nn.Conv2d(3, 4, 1)
+                self.conv2 = nn.Conv2d(3, 4, 1)
+                self.conv3 = nn.Conv2d(8, 2, 1)
+                self.relu = nn.ReLU()
+
+            def forward(self, x):
+                a = self.conv1(x)
+                b = self.conv2(x)
+                c = torch.cat([a, b], dim=1)
+                return self.relu(self.conv3(c))
+
+        model = M()
+        unfused = torch_to_paiir(model, make_img_3ch_8x8())
+
+        # Check ConcatOp exists
+        concat_nodes = find_nodes(unfused, ConcatOp)
+        assert len(concat_nodes) == 1
+        assert concat_nodes[0].dim == 1
+
+        # Check port ordering: conv1 -> port 0, conv2 -> port 1
+        concat_name = find_node_names(unfused, ConcatOp)[0]
+        preds = unfused.predecessors(concat_name)
+        assert len(preds) == 2
+
+        fused = fuse_to_offline_cores(specialize_general_adds(unfused))
+        propagate_data_format(fused)
+        assign_tick_params(fused)
+
+        # Verify data format propagation through ConcatOp
+        assert all(
+            node.core_params.input_sign is not None
+            for node in fused.nodes.values()
+            if isinstance(node, OfflineCoreOp)
+        )
+
+
+class TestShapeAndDims:
+    """Test shape and dims propagation."""
+
+    def test_shape_propagation(self):
+        """Shapes propagate correctly through a two-layer SNN."""
+        from tests.paiir.conftest import SNNTwoLayer
+
+        model = SNNTwoLayer()
+        fused = convert_and_fuse(model, make_img_3ch_8x8())
+
+        seq_nodes = find_nodes(fused, SequentialOp)
+        for node in seq_nodes:
+            assert node.output_shape != ()
+            assert all(s != () for s in node.input_shapes)
+
+    def test_no_sample_input(self):
+        """Converter works without sample input, shapes default to ()."""
+        from tests.paiir.conftest import SNNTwoLayer
+
+        model = SNNTwoLayer()
+        unfused = torch_to_paiir(model)
+        fused = fuse_to_offline_cores(specialize_general_adds(unfused))
+
+        seq_nodes = find_nodes(fused, SequentialOp)
+        assert len(seq_nodes) == 2
+        for node in seq_nodes:
+            assert node.output_shape == ()
+
+    def test_dims_identity(self):
+        """Identity dims for standard conv/linear (no transpose)."""
+        from tests.paiir.conftest import SNNTwoLayer
+
+        model = SNNTwoLayer()
+        fused = convert_and_fuse(model, make_img_3ch_8x8())
+
+        seq_nodes = find_nodes(fused, SequentialOp)
+        for node in seq_nodes:
+            assert node.output_dims == (0, 1, 2, 3)
+
+    def test_flatten_dims(self):
+        """flatten resets dims to identity."""
+        model = SNNFlattenTransition()
+        fused = convert_and_fuse(model, make_img_1ch_4x4())
+
+        seq_nodes = find_nodes(fused, SequentialOp)
+        assert len(seq_nodes) == 2
+        for node in seq_nodes:
+            assert node.output_dims in [(0, 1, 2, 3), (0, 1)]
+
+
+class TestAssignTickParams:
+    """Test assign_tick_params pass."""
+
+    @pytest.fixture
+    def fused_snn(self):
+        """Fixture: fused SNNTwoLayer graph."""
+        from tests.paiir.conftest import SNNTwoLayer
+
+        return convert_and_fuse(SNNTwoLayer(), make_img_3ch_8x8())
+
+    def test_tick_start_from_depth(self, fused_snn):
+        """tick_start is assigned based on DAG depth."""
+        assign_tick_params(fused_snn)
+
+        seq_nodes = find_nodes(fused_snn, SequentialOp)
+        assert len(seq_nodes) == 2
+
+        for node in seq_nodes:
+            assert node.core_params.tick_start is not None
+            assert node.core_params.tick_start >= 1
+
+        tick_starts = sorted([n.core_params.tick_start for n in seq_nodes])
+        assert tick_starts[0] < tick_starts[1]
+
+    def test_tick_start_explicit_override(self, fused_snn):
+        """User-set tick_start is preserved by the pass."""
+        first_op = find_first(fused_snn, SequentialOp)
+        first_op.core_params.tick_start = 42
+
+        assign_tick_params(fused_snn)
+        assert first_op.core_params.tick_start == 42
+
+    @pytest.mark.parametrize(
+        "tick_duration, expected",
+        [(0, 0), (100, 100)],
+        ids=["default_always_working", "global_override"],
+    )
+    def test_tick_duration(self, fused_snn, tick_duration, expected):
+        """tick_duration: default (0) or graph-level override applied to all nodes."""
+        assign_tick_params(fused_snn, tick_duration=tick_duration)
+
+        for node in fused_snn.nodes.values():
+            if isinstance(node, SequentialOp):
+                assert node.core_params.tick_duration == expected
+
+    def test_tick_duration_per_node_override_via_core_params(self, fused_snn):
+        """Per-node tick_duration set on core_params takes priority."""
+        first_op = find_first(fused_snn, SequentialOp)
+        first_op.core_params.tick_duration = 50
+
+        assign_tick_params(fused_snn, tick_duration=100)
+        assert first_op.core_params.tick_duration == 50
+
+    @pytest.mark.parametrize(
+        "tick_duration, auto_reset, expected_initial",
+        [(100, True, 100), (0, True, 0), (100, False, 0)],
+        ids=["reset_with_duration", "reset_always_working", "no_reset"],
+    )
+    def test_auto_reset(self, fused_snn, tick_duration, auto_reset, expected_initial):
+        """auto_reset controls tick_initial derivation from tick_duration."""
+        assign_tick_params(
+            fused_snn, tick_duration=tick_duration, auto_reset=auto_reset
+        )
+
+        for node in fused_snn.nodes.values():
+            if isinstance(node, SequentialOp):
+                assert node.core_params.tick_initial == expected_initial
+
+    def test_tick_override_tick_start(self, fused_snn):
+        """overrides dict can set tick_start for a specific node."""
+        seq_names = find_node_names(fused_snn, SequentialOp)
+        assert len(seq_names) == 2
+
+        assign_tick_params(fused_snn, overrides={seq_names[0]: {"tick_start": 10}})
+
+        seq_nodes = find_nodes(fused_snn, SequentialOp)
+        by_name = {n.name: n for n in seq_nodes}
+        assert by_name[seq_names[0]].core_params.tick_start == 10
+        assert by_name[seq_names[1]].core_params.tick_start is not None
+        assert by_name[seq_names[1]].core_params.tick_start != 10
+
+    def test_tick_override_duration_and_auto_reset(self, fused_snn):
+        """overrides dict can set tick_duration and auto_reset per-node."""
+        seq_names = find_node_names(fused_snn, SequentialOp)
+
+        assign_tick_params(
+            fused_snn,
+            tick_duration=100,
+            auto_reset=True,
+            overrides={seq_names[0]: {"tick_duration": 200, "auto_reset": False}},
+        )
+
+        seq_nodes = find_nodes(fused_snn, SequentialOp)
+        by_name = {n.name: n for n in seq_nodes}
+
+        cp0 = by_name[seq_names[0]].core_params
+        assert cp0.tick_duration == 200
+        assert cp0.tick_initial == 0
+
+        cp1 = by_name[seq_names[1]].core_params
+        assert cp1.tick_duration == 100
+        assert cp1.tick_initial == 100
+
+    def test_residual_tick_start(self):
+        """Residual (AccumulateOp) gets correct tick_start."""
+        fused = convert_and_fuse(SNNResidualAdd(), make_img_3ch_8x8())
+        assign_tick_params(fused)
+
+        accum_ops = find_nodes(fused, AccumulateOp)
+        assert len(accum_ops) == 1
+        assert accum_ops[0].core_params.tick_start == 1
+
+    @pytest.mark.parametrize(
+        "kwargs, error_match",
+        [
+            ({"tick_duration": -1}, "tick_duration.*must be non-negative"),
+            ({"tick_start": -5}, "tick_start.*non-negative"),
+        ],
+        ids=["negative_graph_duration", "negative_override_start"],
+    )
+    def test_negative_param_raises(self, fused_snn, kwargs, error_match):
+        """Negative tick parameters raise ValueError immediately."""
+        if "tick_duration" in kwargs:
+            with pytest.raises(ValueError, match=error_match):
+                assign_tick_params(fused_snn, tick_duration=kwargs["tick_duration"])
+        else:
+            seq_name = find_node_names(fused_snn, SequentialOp)[0]
+            with pytest.raises(ValueError, match=error_match):
+                assign_tick_params(fused_snn, overrides={seq_name: kwargs})
+
+    def test_override_negative_tick_duration_raises(self, fused_snn):
+        """Negative tick_duration in overrides raises immediately."""
+        seq_name = find_node_names(fused_snn, SequentialOp)[0]
+        with pytest.raises(ValueError, match="tick_duration.*non-negative"):
+            assign_tick_params(fused_snn, overrides={seq_name: {"tick_duration": -10}})
+
+    def test_override_unknown_node_raises(self):
+        """Override key for non-existent node raises KeyError."""
+        from tests.paiir.conftest import SNNTwoLayer
+
+        fused = convert_and_fuse(SNNTwoLayer(), make_img_3ch_8x8())
+        with pytest.raises(KeyError, match="does not match any node"):
+            assign_tick_params(fused, overrides={"nonexistent_node": {"tick_start": 1}})
+
+    def test_validate_tick_params_unassigned(self):
+        """validate_tick_params raises if tick_start is still None."""
+        cp = OfflineCoreParams()
+        assert cp.tick_start is None
+        with pytest.raises(ValueError, match="tick_start is None"):
+            cp.validate_tick_params()
+
+    @pytest.mark.parametrize(
+        "params, error_match",
+        [
+            ({"tick_start": -1}, "tick_start"),
+            ({"tick_start": 1, "tick_duration": -1}, "tick_duration"),
+            ({"tick_start": 1, "tick_initial": -1}, "tick_initial"),
+        ],
+        ids=["negative_start", "negative_duration", "negative_initial"],
+    )
+    def test_validate_tick_params_out_of_range(self, params, error_match):
+        """validate_tick_params raises on out-of-range values."""
+        cp = OfflineCoreParams(**params)
+        with pytest.raises(ValueError, match=error_match):
+            cp.validate_tick_params()
+
+
+class TestValidGraphs:
+    """Well-formed graphs should pass validation without errors."""
+
+    def test_simple_snn(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = nn.Conv2d(3, 16, 3, padding=1)
+                self.ifn = sj.IFNode()
+
+            def forward(self, x):
+                return self.ifn(self.conv(x))
+
+        unfused = torch_to_paiir(Model(), torch.randn(1, 3, 8, 8))
+        fused = fuse_to_offline_cores(specialize_general_adds(unfused))
+        validate_graph(fused)
+
+    def test_two_layer_ann(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = nn.Conv2d(3, 16, 3, padding=1)
+                self.relu = nn.ReLU()
+                self.linear = nn.Linear(16 * 8 * 8, 10)
+                self.sigmoid = nn.Sigmoid()
+
+            def forward(self, x):
+                x = self.relu(self.conv(x))
+                x = x.flatten(1)
+                return self.sigmoid(self.linear(x))
+
+        unfused = torch_to_paiir(Model(), torch.randn(1, 3, 8, 8))
+        fused = fuse_to_offline_cores(specialize_general_adds(unfused))
+        validate_graph(fused)
+
+    def test_residual_snn(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv_a = nn.Conv2d(3, 16, 3, padding=1)
+                self.conv_b = nn.Conv2d(3, 16, 3, padding=1)
+                self.lif = sj.LIFNode(tau=2.0)
+
+            def forward(self, x):
+                return self.lif(self.conv_a(x) + self.conv_b(x))
+
+        unfused = torch_to_paiir(Model(), torch.randn(1, 3, 8, 8))
+        fused = fuse_to_offline_cores(specialize_general_adds(unfused))
+        validate_graph(fused)
+
+
+class TestUnrecoverableErrors:
+    def test_no_input_node(self):
+        graph = PAIIRGraph("no_input")
+        op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
+        op.input_shapes = [(1, 8)]
+        op.output_shape = (1, 4)
+        out = OutputNode()
+        graph.add_node(op)
+        graph.add_node(out)
+        graph.add_edge(op.name, out.name)
+
+        with pytest.raises(GraphValidationError, match="no input node"):
+            validate_graph(graph)
+
+    def test_no_output_node(self):
+        graph = PAIIRGraph("no_output")
+        inp = InputNode(shape=(1, 8))
+        op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
+        op.input_shapes = [(1, 8)]
+        op.output_shape = (1, 4)
+        graph.add_node(inp)
+        graph.add_node(op)
+        graph.add_edge(inp.name, op.name)
+
+        with pytest.raises(GraphValidationError, match="no output node"):
+            validate_graph(graph)
+
+    def test_input_has_predecessors(self):
+        """InputNode with predecessors is a structural error."""
+        graph = PAIIRGraph("bad_input")
+        inp = InputNode(shape=(1, 8))
+        op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
+        op.input_shapes = [(1, 8)]
+        op.output_shape = (1, 4)
+        out = OutputNode()
+        graph.add_node(inp)
+        graph.add_node(op)
+        graph.add_node(out)
+        graph.add_edge(inp.name, op.name)
+        graph.add_edge(op.name, out.name)
+        # Manually add an invalid edge pointing into the InputNode
+        graph.add_edge(op.name, inp.name)
+
+        with pytest.raises(GraphValidationError, match="has predecessors"):
+            validate_graph(graph)
+
+    def test_output_has_successors(self):
+        """OutputNode with successors is a structural error."""
+        graph = PAIIRGraph("bad_output")
+        inp = InputNode(shape=(1, 8))
+        op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
+        op.input_shapes = [(1, 8)]
+        op.output_shape = (1, 4)
+        out = OutputNode()
+        graph.add_node(inp)
+        graph.add_node(op)
+        graph.add_node(out)
+        graph.add_edge(inp.name, op.name)
+        graph.add_edge(op.name, out.name)
+        # Manually add an invalid edge going out of the OutputNode
+        graph.add_edge(out.name, op.name)
+
+        with pytest.raises(GraphValidationError, match="has successors"):
+            validate_graph(graph)
+
+    def test_collects_all_errors(self):
+        """Multiple unrecoverable errors reported at once."""
+        graph = PAIIRGraph("multiple_errors")
+        # No InputNode, no OutputNode
+        op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
+        op.input_shapes = [(1, 8)]
+        op.output_shape = (1, 4)
+        graph.add_node(op)
+
+        with pytest.raises(GraphValidationError) as exc_info:
+            validate_graph(graph)
+
+        err = exc_info.value
+        assert len(err.errors) >= 2  # no input + no output
+
+    def test_general_add_is_valid_expression_graph(self):
+        class AddScalar(nn.Module):
+            def forward(self, x):
+                return x + 1
+
+        graph = torch_to_paiir(AddScalar(), torch.randn(1, 3, 8, 8), strict=False)
+        assert any(isinstance(node, GeneralAddOp) for node in graph.nodes.values())
+        validate_graph(graph)
+
+    def test_compile_rejects_unspecialized_general_add(self):
+        class AddScalar(nn.Module):
+            def forward(self, x):
+                return x + 1
+
+        with pytest.raises(GraphValidationError, match="GeneralAddOp"):
+            compile_to_paiir(AddScalar(), torch.randn(1, 3, 8, 8), strict=False)
+
+    def test_compile_rejects_broadcast_general_add(self):
+        class AddBroadcast(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.bias = nn.Parameter(torch.ones(1, 3, 1, 1))
+
+            def forward(self, x):
+                return x + self.bias
+
+        with pytest.raises(GraphValidationError, match="GeneralAddOp"):
+            compile_to_paiir(AddBroadcast(), torch.randn(1, 3, 8, 8), strict=False)
+
+
+class TestAutoCleanup:
+    def test_orphan_op_removed_with_warning(self):
+        """Orphan OpNode is removed and a warning is emitted."""
+        graph = PAIIRGraph("orphan_op")
+        inp = InputNode(shape=(1, 8))
+        op1 = SequentialOp(nn.Linear(8, 4), IFNodeV25())
+        op1.input_shapes = [(1, 8)]
+        op1.output_shape = (1, 4)
+        op2 = SequentialOp(nn.Linear(8, 4), IFNodeV25())  # orphan
+        op2.input_shapes = [(1, 8)]
+        op2.output_shape = (1, 4)
+        out = OutputNode()
+        graph.add_node(inp)
+        graph.add_node(op1)
+        graph.add_node(op2)
+        graph.add_node(out)
+        graph.add_edge(inp.name, op1.name)
+        graph.add_edge(op1.name, out.name)
+
+        with pytest.warns(GraphCleanupWarning, match="disconnected"):
+            validate_graph(graph)
+
+        assert op2.name not in graph.nodes
+        assert (
+            len([n for n in graph.nodes.values() if isinstance(n, SequentialOp)]) == 1
+        )
+
+    def test_dead_end_op_removed(self):
+        """OpNode with input but no output is removed."""
+        graph = PAIIRGraph("dead_end")
+        inp = InputNode(shape=(1, 8))
+        op1 = SequentialOp(nn.Linear(8, 4), IFNodeV25())
+        op1.input_shapes = [(1, 8)]
+        op1.output_shape = (1, 4)
+        op2 = SequentialOp(nn.Linear(4, 2), IFNodeV25())  # dead end
+        op2.input_shapes = [(1, 4)]
+        op2.output_shape = (1, 2)
+        out = OutputNode()
+        graph.add_node(inp)
+        graph.add_node(op1)
+        graph.add_node(op2)
+        graph.add_node(out)
+        graph.add_edge(inp.name, op1.name)
+        graph.add_edge(op1.name, op2.name)
+        graph.add_edge(op1.name, out.name)
+
+        with pytest.warns(GraphCleanupWarning):
+            validate_graph(graph)
+
+        assert op2.name not in graph.nodes
+        # Edge from op1 -> op2 should also be removed
+        assert all(e.dst != op2.name for e in graph.edges)
+
+    def test_disconnected_input_removed(self):
+        """Disconnected InputNode is removed with warning."""
+        graph = PAIIRGraph("disconnected_input")
+        inp1 = InputNode(shape=(1, 8))
+        inp2 = InputNode(shape=(1, 8))  # disconnected
+        op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
+        op.input_shapes = [(1, 8)]
+        op.output_shape = (1, 4)
+        out = OutputNode()
+        graph.add_node(inp1)
+        graph.add_node(inp2)
+        graph.add_node(op)
+        graph.add_node(out)
+        graph.add_edge(inp1.name, op.name)
+        graph.add_edge(op.name, out.name)
+
+        with pytest.warns(GraphCleanupWarning):
+            validate_graph(graph)
+
+        assert inp2.name not in graph.nodes
+        assert len(graph.input_nodes()) == 1
+
+    def test_disconnected_output_removed(self):
+        """Disconnected OutputNode is removed with warning."""
+        graph = PAIIRGraph("disconnected_output")
+        inp = InputNode(shape=(1, 8))
+        op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
+        op.input_shapes = [(1, 8)]
+        op.output_shape = (1, 4)
+        out1 = OutputNode()
+        out2 = OutputNode()  # disconnected
+        graph.add_node(inp)
+        graph.add_node(op)
+        graph.add_node(out1)
+        graph.add_node(out2)
+        graph.add_edge(inp.name, op.name)
+        graph.add_edge(op.name, out1.name)
+
+        with pytest.warns(GraphCleanupWarning):
+            validate_graph(graph)
+
+        assert out2.name not in graph.nodes
+        assert len(graph.output_nodes()) == 1
+
+    def test_all_inputs_disconnected_raises_after_cleanup(self):
+        """If all InputNodes are disconnected, cleanup leaves no inputs -> error."""
+        graph = PAIIRGraph("all_disconnected")
+        inp = InputNode(shape=(1, 8))  # disconnected
+        op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
+        op.input_shapes = [(1, 8)]
+        op.output_shape = (1, 4)
+        out = OutputNode()
+        graph.add_node(inp)
+        graph.add_node(op)
+        graph.add_node(out)
+        graph.add_edge(op.name, out.name)
+        # inp has no edges, op has no predecessors -> both will be removed
+
+        # First the orphan nodes are removed, then post-cleanup check fails
+        with pytest.raises(GraphValidationError, match="no input node after cleanup"):
+            with pytest.warns(GraphCleanupWarning):
+                validate_graph(graph)
+
+
+class TestSNNModeLUTConsistency:
+    """Validate that snn_mode matches LUT presence on OfflineCoreOp nodes."""
+
+    def _build_graph(self, act: CoreNeuronV25) -> PAIIRGraph:
+        """Build a minimal valid graph with a single SequentialOp."""
+        graph = PAIIRGraph("test")
+        inp = InputNode(shape=(1, 8))
+        op = SequentialOp(nn.Linear(8, 4), act)
+        op.input_shapes = [(1, 8)]
+        op.output_shape = (1, 4)
+        out = OutputNode()
+        graph.add_node(inp)
+        graph.add_node(op)
+        graph.add_node(out)
+        graph.add_edge(inp.name, op.name)
+        graph.add_edge(op.name, out.name)
+        return graph
+
+    def test_snn_mode_correct(self):
+        """SNN neuron with snn_mode=SNN passes validation."""
+        graph = self._build_graph(IFNodeV25())
+        validate_graph(graph)
+
+    def test_ann_mode_correct(self):
+        """ANN neuron (LUT) with snn_mode=ANN passes validation."""
+        graph = self._build_graph(ANNNodeV25(lut=LutReLU()))
+        validate_graph(graph)
+
+    def test_lut_with_snn_mode_raises(self):
+        """LUT activation but snn_mode=SNN raises GraphValidationError."""
+        act = ANNNodeV25(lut=LutReLU())
+        graph = self._build_graph(act)
+
+        # Force snn_mode mismatch
+        op = next(n for n in graph.nodes.values() if isinstance(n, SequentialOp))
+        op.core_params.snn_mode = SNNMode.SNN
+
+        with pytest.raises(GraphValidationError, match="LUT activation.*SNNMode.ANN"):
+            validate_graph(graph)
+
+    def test_no_lut_with_ann_mode_raises(self):
+        """No LUT but snn_mode=ANN raises GraphValidationError."""
+        act = IFNodeV25()
+        graph = self._build_graph(act)
+
+        # Force snn_mode mismatch
+        op = next(n for n in graph.nodes.values() if isinstance(n, SequentialOp))
+        op.core_params.snn_mode = SNNMode.ANN
+
+        with pytest.raises(
+            GraphValidationError, match="no LUT activation.*SNNMode.SNN"
+        ):
+            validate_graph(graph)
+
+
+class TestValidateCompiledGraph:
+    def _build_compiled_graph(self) -> tuple[PAIIRGraph, SequentialOp]:
+        graph = PAIIRGraph("compiled")
+        inp = InputNode(shape=(1, 8))
+        op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
+        op.input_shapes = [(1, 8)]
+        op.output_shape = (1, 4)
+        op.input_dims = [(0, 1)]
+        op.output_dims = (0, 1)
+        op.core_params.set_input_format((DataSign.SIGNED, DataWidth.WIDTH_8BIT))
+        op.core_params.set_output_format((DataSign.UNSIGNED, DataWidth.WIDTH_1BIT))
+        op.core_params.set_weight_format((DataSign.SIGNED, DataWidth.WIDTH_8BIT))
+        op.core_params.tick_start = 1
+        op.core_params.tick_duration = 0
+        op.core_params.tick_initial = 0
+        out = OutputNode()
+        inp.output_domain = SignalDomain.VALUE
+        op.output_domain = SignalDomain.VALUE
+        out.output_domain = SignalDomain.VALUE
+        graph.add_node(inp)
+        graph.add_node(op)
+        graph.add_node(out)
+        graph.add_edge(inp.name, op.name)
+        graph.add_edge(op.name, out.name)
+        return graph, op
+
+    def test_valid_compiled_graph_passes(self):
+        graph, _ = self._build_compiled_graph()
+        validate_compiled_graph(graph)
+
+    def test_missing_data_format_assignment_raises(self):
+        graph, op = self._build_compiled_graph()
+        op.core_params._input_format_assigned = False
+
+        with pytest.raises(
+            GraphValidationError, match="missing propagated data format"
+        ):
+            validate_compiled_graph(graph)
+
+    def test_catches_nodes_not_on_any_input_to_output_path(self):
+        graph, _ = self._build_compiled_graph()
+        branch = SequentialOp(nn.Linear(8, 4), IFNodeV25())
+        dead_end = SequentialOp(nn.Linear(4, 2), IFNodeV25())
+
+        branch.input_shapes = [(1, 8)]
+        branch.output_shape = (1, 4)
+        branch.input_dims = [(0, 1)]
+        branch.output_dims = (0, 1)
+        dead_end.input_shapes = [(1, 4)]
+        dead_end.output_shape = (1, 2)
+        dead_end.input_dims = [(0, 1)]
+        dead_end.output_dims = (0, 1)
+
+        for node in (branch, dead_end):
+            node.core_params.set_input_format((DataSign.SIGNED, DataWidth.WIDTH_8BIT))
+            node.core_params.set_output_format(
+                (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)
+            )
+            node.core_params.set_weight_format((DataSign.SIGNED, DataWidth.WIDTH_8BIT))
+            node.core_params.tick_start = 1
+            node.core_params.tick_duration = 0
+            node.core_params.tick_initial = 0
+            node.output_domain = SignalDomain.VALUE
+
+        inp = graph.input_nodes()[0]
+        graph.add_node(branch)
+        graph.add_node(dead_end)
+        graph.add_edge(inp.name, branch.name)
+        graph.add_edge(branch.name, dead_end.name)
+
+        with pytest.warns(GraphCleanupWarning):
+            validate_graph(graph)
+
+        with pytest.raises(
+            GraphValidationError, match="nodes not on any input-to-output path"
+        ):
+            validate_compiled_graph(graph)
+
+
+class TestValidateDeployableGraph:
+    def test_rejects_non_backend_ready_node_type(self):
+        graph = PAIIRGraph("non_backend_ready")
+        inp = InputNode(shape=(1, 8))
+        cpu = CPUOp()
+        out = OutputNode()
+
+        inp.output_domain = SignalDomain.VALUE
+        cpu.output_domain = SignalDomain.VALUE
+        out.output_domain = SignalDomain.VALUE
+
+        graph.add_node(inp)
+        graph.add_node(cpu)
+        graph.add_node(out)
+        graph.add_edge(inp.name, cpu.name)
+        graph.add_edge(cpu.name, out.name)
+
+        with pytest.raises(GraphValidationError, match="CPUOp"):
+            validate_deployable_graph(graph)
+
+    def test_rechecks_potential_add_predecessor_domains(self):
+        from paibox.paiir.ir.add_ops import PotentialAddOp
+
+        graph = PAIIRGraph("bad_potential_add_domain")
+        inp_a = InputNode(shape=(1, 4))
+        inp_b = InputNode(shape=(1, 4))
+        add = PotentialAddOp(op_signs=(1, 1))
+        out = OutputNode()
+
+        inp_a.output_domain = SignalDomain.VALUE
+        inp_b.output_domain = SignalDomain.VALUE
+        add.output_domain = SignalDomain.POTENTIAL
+        out.output_domain = SignalDomain.POTENTIAL
+
+        graph.add_node(inp_a)
+        graph.add_node(inp_b)
+        graph.add_node(add)
+        graph.add_node(out)
+        graph.add_edge(inp_a.name, add.name, dst_port=0)
+        graph.add_edge(inp_b.name, add.name, dst_port=1)
+        graph.add_edge(add.name, out.name)
+
+        with pytest.raises(GraphValidationError, match="PotentialAddOp"):
+            validate_deployable_graph(graph)
+
+    def test_rechecks_concat_predecessor_domains(self):
+        graph = PAIIRGraph("bad_concat_domain")
+        inp_a = InputNode(shape=(1, 4))
+        inp_b = InputNode(shape=(1, 4))
+        cat = ConcatOp(dim=1)
+        out = OutputNode()
+
+        inp_a.output_domain = SignalDomain.VALUE
+        inp_b.output_domain = SignalDomain.POTENTIAL
+        cat.output_domain = SignalDomain.VALUE
+        out.output_domain = SignalDomain.VALUE
+
+        graph.add_node(inp_a)
+        graph.add_node(inp_b)
+        graph.add_node(cat)
+        graph.add_node(out)
+        graph.add_edge(inp_a.name, cat.name, dst_port=0)
+        graph.add_edge(inp_b.name, cat.name, dst_port=1)
+        graph.add_edge(cat.name, out.name)
+
+        with pytest.raises(GraphValidationError, match="ConcatOp"):
+            validate_deployable_graph(graph)
+
+    def test_rechecks_accumulate_path_counts(self):
+        graph = PAIIRGraph("bad_accumulate_counts")
+        inp_a = InputNode(shape=(1, 4))
+        inp_b = InputNode(shape=(1, 4))
+        acc = AccumulateOp(
+            comps=[nn.Linear(4, 4), nn.Linear(4, 4)],
+            act=IFNodeV25(),
+            op_signs=(1, 1),
+        )
+        out = OutputNode()
+
+        inp_a.output_domain = SignalDomain.VALUE
+        inp_b.output_domain = SignalDomain.VALUE
+        acc.output_domain = SignalDomain.VALUE
+        out.output_domain = SignalDomain.VALUE
+        acc.input_shapes = [(1, 4)]
+        acc.output_shape = (1, 4)
+        acc.input_dims = [(0, 1)]
+        acc.output_dims = (0, 1)
+
+        graph.add_node(inp_a)
+        graph.add_node(inp_b)
+        graph.add_node(acc)
+        graph.add_node(out)
+        graph.add_edge(inp_a.name, acc.name, dst_port=0)
+        graph.add_edge(inp_b.name, acc.name, dst_port=1)
+        graph.add_edge(acc.name, out.name)
+
+        with pytest.raises(GraphValidationError, match="AccumulateOp"):
+            validate_deployable_graph(graph)
+
+
+class AddScalarDomain(nn.Module):
+    def forward(self, x):
+        return x + 1
+
+
+class ValueBranchAdd(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv_a = nn.Conv2d(3, 4, 1)
+        self.conv_b = nn.Conv2d(3, 4, 1)
+        self.if_a = sj.IFNode(v_threshold=1.0)
+        self.if_b = sj.IFNode(v_threshold=1.0)
+
+    def forward(self, x):
+        return self.if_a(self.conv_a(x)) + self.if_b(self.conv_b(x))
+
+
+class TestSignalDomain:
+    def test_general_add_from_scalar_propagates_value_domain(self):
+        graph = torch_to_paiir(AddScalarDomain(), torch.randn(1, 3, 8, 8), strict=False)
+
+        propagate_signal_domain(graph)
+
+        add = find_first(graph, GeneralAddOp)
+        out = graph.output_nodes()[0]
+        assert graph.input_nodes()[0].output_domain == SignalDomain.VALUE
+        assert add.output_domain == SignalDomain.VALUE
+        assert out.output_domain == SignalDomain.VALUE
+
+    def test_potential_add_from_residual_comp_propagates_potential_domain(self):
+        class MembraneAdd(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv_a = nn.Conv2d(3, 4, 1)
+                self.conv_b = nn.Conv2d(3, 4, 1)
+
+            def forward(self, x):
+                return self.conv_a(x) + self.conv_b(x)
+
+        unfused = torch_to_paiir(MembraneAdd(), torch.randn(1, 3, 8, 8))
+        fused = fuse_to_offline_cores(specialize_general_adds(unfused))
+
+        propagate_signal_domain(fused)
+
+        add = find_first(fused, PotentialAddOp)
+        out = fused.output_nodes()[0]
+        assert add.output_domain == SignalDomain.POTENTIAL
+        assert out.output_domain == SignalDomain.POTENTIAL
+
+    def test_accumulate_with_activation_propagates_value_domain(self):
+        unfused = torch_to_paiir(SNNResidualAdd(), make_img_3ch_8x8())
+        fused = fuse_to_offline_cores(specialize_general_adds(unfused))
+
+        propagate_signal_domain(fused)
+
+        accum = find_first(fused, AccumulateOp)
+        out = fused.output_nodes()[0]
+        assert accum.output_domain == SignalDomain.VALUE
+        assert out.output_domain == SignalDomain.VALUE
+
+    def test_potential_add_rejects_value_domain_inputs(self):
+        unfused = torch_to_paiir(ValueBranchAdd(), torch.randn(1, 3, 8, 8))
+        fused = fuse_to_offline_cores(specialize_general_adds(unfused))
+
+        with pytest.raises(GraphValidationError, match="PotentialAddOp"):
+            propagate_signal_domain(fused)
+
+    def test_rechecks_accumulate_signs(self):
+        graph = PAIIRGraph("bad_accumulate_signs")
+        inp_a = InputNode(shape=(1, 4))
+        inp_b = InputNode(shape=(1, 4))
+        acc = AccumulateOp(
+            comps=[nn.Linear(4, 4), nn.Linear(4, 4)],
+            act=IFNodeV25(),
+            op_signs=(1, 1),
+        )
+        out = OutputNode()
+
+        inp_a.output_domain = SignalDomain.VALUE
+        inp_b.output_domain = SignalDomain.VALUE
+        acc.output_domain = SignalDomain.VALUE
+        out.output_domain = SignalDomain.VALUE
+        acc.input_shapes = [(1, 4), (1, 4)]
+        acc.output_shape = (1, 4)
+        acc.input_dims = [(0, 1), (0, 1)]
+        acc.output_dims = (0, 1)
+        acc.signs = (1, 0)
+
+        graph.add_node(inp_a)
+        graph.add_node(inp_b)
+        graph.add_node(acc)
+        graph.add_node(out)
+        graph.add_edge(inp_a.name, acc.name, dst_port=0)
+        graph.add_edge(inp_b.name, acc.name, dst_port=1)
+        graph.add_edge(acc.name, out.name)
+
+        with pytest.raises(GraphValidationError, match="AccumulateOp"):
+            validate_deployable_graph(graph)

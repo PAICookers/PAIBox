@@ -22,8 +22,6 @@ from ...ir.op_node import (
     SequentialOp,
     StandaloneActOp,
     StandaloneCompOp,
-    _get_pool_window_size,
-    _is_avgpool,
 )
 from ...nn import SumPool1d, SumPool2d
 from ..data_format import infer_output_format
@@ -35,6 +33,7 @@ from .compensation import (
 )
 from .deploy_scheme import AvgPoolDeployScheme, select_avgpool_lif_candidate
 from .metadata import AvgPoolDeployMetadata
+from .utils import _get_pool_window_size, _is_avgpool
 
 __all__ = [
     "_try_handle_avgpool_activation",
