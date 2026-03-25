@@ -362,9 +362,7 @@ def expanded_path_weight_matrix(
     if comp is None:
         return identity_weight_matrix(input_shape, output_shape, sign)
 
-    if weight is not None and (
-        isinstance(comp, nn.Linear) or weight.ndim == 2
-    ):
+    if weight is not None and (isinstance(comp, nn.Linear) or weight.ndim == 2):
         return direct_weight_matrix(weight, input_shape, output_shape, sign)
 
     if isinstance(comp, nn.Conv1d):
