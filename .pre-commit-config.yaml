@@ -54,3 +54,8 @@ repos:
     hooks:
       - id: poetry-check
       - id: poetry-install
+
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.11.0
+    hooks:
+      - id: uv-lock

@@ -14,7 +14,6 @@ Node types:
 Add-specific IR nodes live in :mod:`paibox.paiir.ir.add_ops`.
 """
 
-import math
 from collections.abc import Callable, Sequence
 from typing import ClassVar
 
@@ -171,27 +170,27 @@ class OfflineCoreOp(OpNode):
         """Override non-semantic compile-time state from another params object."""
         self.core_params.override_compile_state_from(other)
 
-    def _make_identity_weight(self) -> Tensor:
-        """Create identity weight matrix matching output dimensions."""
-        assert self.output_shape, "output_shape must be set before accessing weights"
-        n = math.prod(self.output_shape[1:])  # exclude batch dim
-        return torch.eye(n, dtype=torch.int8)
-
     @property
     def weights(self) -> list[Tensor] | None:
-        """Weight tensors, one per input path.
+        """Raw parameter weight tensors, one per input path.
 
-        Subclasses with compute modules return their raw parameter tensors.
-        Weightless ops (pool etc.) return ``None``; pass-through ops
-        (StandaloneActOp, PotentialAddOp) return identity matrices.
+        This property is graph-side operator metadata only. It returns explicit
+        parameter tensors owned by the op itself and does not synthesize
+        backend-expanded connectivity matrices.
+
+        Subclasses with parameter-bearing compute modules return their raw
+        parameter tensors. Pooling ops, activation-only ops, and add/pass-through
+        ops return ``None``.
         """
-        return [self._make_identity_weight()]
+        return None
 
     def get_weight_value_range(self) -> tuple[int, int] | None:
         """Cheap min/max summary for weight-format inference.
 
-        Default offline-core behavior is identity pass-through, so the value range
-        is always ``[0, 1]`` without materializing the full identity matrix.
+        Default offline-core behavior is pass-through-like, so the implicit
+        transfer-coefficient range is ``[0, 1]`` without materializing any
+        dense identity matrix. This is compile-time export metadata rather than
+        the range of :attr:`weights`.
         """
         return 0, 1
 

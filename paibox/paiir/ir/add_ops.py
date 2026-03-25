@@ -260,9 +260,8 @@ class PotentialAddOp(OfflineCoreOp):
         return acc
 
     @property
-    def weights(self) -> list[Tensor]:
-        eye = self._make_identity_weight()
-        return [eye] * len(self.signs)
+    def weights(self) -> list[Tensor] | None:
+        return None
 
     def extra_repr(self) -> str:
         return f"{super().extra_repr()}, signs={self.signs}"

@@ -126,6 +126,27 @@ def direct_weight_matrix(
     return matrix
 
 
+def identity_weight_matrix(
+    input_shape: tuple[int, ...],
+    output_shape: tuple[int, ...],
+    sign: int,
+) -> np.ndarray:
+    # Activation-only / add-only paths do not own raw parameter tensors, but
+    # backend routing still needs their implicit identity connectivity.
+    n_input = int(np.prod(input_shape))
+    n_output = int(np.prod(output_shape))
+    if n_input != n_output:
+        raise ValueError(
+            f"Identity path shape mismatch: input has {n_input} elems, output has {n_output}."
+        )
+
+    matrix = np.eye(n_output, dtype=np.int32)
+    if sign != 1:
+        matrix *= sign
+
+    return matrix
+
+
 def unfold_input_indices_2d(
     channels: int,
     spatial_shape: tuple[int, int],
@@ -338,9 +359,10 @@ def expanded_path_weight_matrix(
     input_shape = feature_shape(predecessor.shape)
     output_shape = feature_shape(target.shape)
 
-    if weight is not None and (
-        comp is None or isinstance(comp, nn.Linear) or weight.ndim == 2
-    ):
+    if comp is None:
+        return identity_weight_matrix(input_shape, output_shape, sign)
+
+    if weight is not None and (isinstance(comp, nn.Linear) or weight.ndim == 2):
         return direct_weight_matrix(weight, input_shape, output_shape, sign)
 
     if isinstance(comp, nn.Conv1d):
