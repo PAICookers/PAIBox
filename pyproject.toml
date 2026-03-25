@@ -43,13 +43,14 @@ dev = [
     "pytest-cov>=7.0",
     "pytest-md>=0.2",
     "pytest-xdist>=3.7.0",
-    "orjson>=3.10",
-    "paicorelib>=2.0.0a1 ; platform_machine != 'armv7l'",
+    "orjson>=3.11.6",
+    "paicorelib>=2.0.0a2 ; platform_machine != 'armv7l'",
     "torch>=2.0.0,<2.2.0 ; python_full_version < '3.12'",
     "torch>=2.2.0 ; python_full_version >= '3.12'",
     "spikingjelly>=0.0.0.0.12",
     "tabulate>=0.9.0",
-    "ortools==9.14.6026"
+    "ortools==9.14.6206 ; python_full_version < '3.14'",
+    "ortools==9.15.6755 ; python_full_version >= '3.14'",
 ]
 
 [tool.uv]
@@ -60,6 +61,12 @@ environments = ["platform_machine != 'armv7l'"]
 [tool.uv.build-backend]
 module-name = "paibox"
 module-root = ""
+
+[tool.poetry.group.dev.dependencies]
+torch = [
+    { version = ">=2.0.0,<2.2.0", python = "<3.12", source = "pytorch-cpu" },
+    { version = ">=2.2.0", python = ">=3.12", source = "pytorch-cpu" },
+]
 
 [tool.pytest.ini_options]
 minversion = "8.0.0"
@@ -74,7 +81,7 @@ priority = "primary"
 [[tool.poetry.source]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
-priority = "primary"
+priority = "explicit"
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
