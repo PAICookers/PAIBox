@@ -1,5 +1,4 @@
 from .op_node import (
-    BaseNode,
     CoreOpNode,
     CustomIndex,
     DestNode,

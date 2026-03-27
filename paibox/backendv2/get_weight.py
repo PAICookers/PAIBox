@@ -653,7 +653,7 @@ def group_shift_weights_optimized(
 
     for i in track(
         range(n_weights),
-        description=f"weight optimization",
+        description="weight optimization",
         total=len(range(n_weights)),
     ):
         row = matrix[i]
