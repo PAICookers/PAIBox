@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from typing import Optional
+from abc import abstractmethod
+from typing import List, Optional
 
 import numpy as np
-import torch
 from paicorelib import (
     LCN_EX,
+    AddPotentialMode,
     AERPacketZXYCopy,
     CoordXY,
     DataWidth,
@@ -13,518 +14,182 @@ from paicorelib import (
     NeuronType,
     OfflineNeuDestInfoV2,
     OfflineNeuFullAttrsV2Part1,
+    OfflineNeuFullAttrsV2Part2,
     WeightCompressType,
     find_coordxy_shortest_path,
 )
-from torch import Tensor, nn
-from torch.nn import functional as F
+from rich.progress import track
 
-from ..paiir import (
-    AccumulateOp,
-    PotentialAddOp,
-    SequentialOp,
-    StandaloneActOp,
-    StandaloneCompOp,
-)
 from .core_config import Backend_Core_Config, Frontend_Core_Config
 from .coreplacement import (
     CorePlacement,
     EmptyOfflineCorePlacementV2,
     OfflineCorePlacementV2,
 )
-from .neuron import InputElem, Neuron, OfflineNeuronPlacement
-from .op_node import CoreOpNode, InNode
-from .weight import Weight
+from .get_weight import (
+    choose_weight_strategy,
+    get_raw_weights,
+    group_shift_weights_optimized,
+    reorder_by_base_weight,
+    weight_info,
+)
+from .neuron import OfflineNeuronPlacement
+from .op_node import (
+    CoreOpNode,
+    Neuron,
+    ReorderElem,
+    ReorderNode,
+    SourceElem,
+    SourceNode,
+)
 
 FANIN_BASE = 512
 
 
-def feature_shape(shape: torch.Size | tuple[int, ...]) -> tuple[int, ...]:
-    # Backend weight extraction works on feature dimensions only.
-    # The leading batch dimension is stripped and must stay equal to 1.
-    feature_shape = tuple(shape)
-    if len(feature_shape) > 1:
-        batch = feature_shape[0]
-        if batch != 1:
-            raise NotImplementedError(
-                f"Only batch size 1 is supported, but got shape {feature_shape}."
-            )
-        feature_shape = feature_shape[1:]
+class Group:
+    def __init__(self):
+        self.dests: dict[Neuron | ReorderElem, "RoutingGroup|ReorderGroup"] = {}
 
-    return feature_shape
+    def set_lcn(self) -> None:
+        pass
 
+    def allocate_neurons(self) -> None:
+        pass
 
-def to_nd_tuple(value: int | tuple[int, ...], ndim: int) -> tuple[int, ...]:
-    if isinstance(value, tuple):
-        if len(value) != ndim:
-            raise ValueError(f"Expected a tuple of length {ndim}, but got {value}.")
-        return value
-
-    return (value,) * ndim
+    @abstractmethod
+    def get_lcn(self, _: Neuron | ReorderElem) -> LCN_EX:
+        pass
 
 
-def ensure_target_components(target: CoreOpNode) -> None:
-    # Lazily reconstruct per-predecessor comps/weights so routing can
-    # query them even if node initialization did not populate them yet.
-    if not target.predecessors:
-        return
+class ReorderGroup(Group):
+    reorder_group_counter = 0
 
-    if len(target.comps) == len(target.predecessors) and len(target.weights) == len(
-        target.predecessors
+    def __init__(
+        self,
+        raw_neus: list[ReorderElem],
+        input_list: list[SourceElem],
+        nodes: Optional[set[ReorderNode]] = None,
+        input_nodes: Optional[set[SourceNode]] = None,
     ):
-        return
+        super().__init__()
+        self.id: int = type(self).reorder_group_counter
+        type(self).reorder_group_counter += 1
+        self.name: str = f"ReorderG_{self.id}"
 
-    raw_node = target.raw_node
-    if isinstance(raw_node, SequentialOp):
-        target.comps = [raw_node.comp]
-    elif isinstance(raw_node, AccumulateOp):
-        target.comps = list(raw_node.comps)
-    elif isinstance(raw_node, StandaloneCompOp):
-        target.comps = [raw_node.comp]
-    elif isinstance(raw_node, StandaloneActOp):
-        target.comps = [None]
-    elif isinstance(raw_node, PotentialAddOp):
-        target.comps = [None] * len(raw_node.signs)
-    else:
-        raise NotImplementedError(f"Unsupported node type: {type(raw_node)}")
-
-    raw_weights = raw_node.weights
-    if raw_weights is None:
-        target.weights = [None] * len(target.comps)
-    else:
-        target.weights = list(raw_weights)
-
-
-def path_signs(target: CoreOpNode) -> list[int]:
-    # Accumulate/Add nodes may encode subtraction through per-path signs.
-    raw_node = target.raw_node
-    if isinstance(raw_node, (AccumulateOp, PotentialAddOp)):
-        return list(raw_node.signs)
-
-    return [1] * len(target.predecessors)
-
-
-def direct_weight_matrix(
-    weight: Tensor,
-    input_shape: tuple[int, ...],
-    output_shape: tuple[int, ...],
-    sign: int,
-) -> np.ndarray:
-    # Linear/identity-like paths already expose a dense [out, in] matrix.
-    matrix = np.asarray(weight.detach().cpu(), dtype=np.int32)
-    n_input = int(np.prod(input_shape))
-    n_output = int(np.prod(output_shape))
-
-    if matrix.shape != (n_output, n_input):
-        raise ValueError(
-            f"Direct weight shape mismatch: expected {(n_output, n_input)}, got {matrix.shape}."
+        self.nodes: Optional[set[ReorderNode]] = nodes
+        self.input_nodes: Optional[set[SourceNode]] = input_nodes
+        self.input_set: set[SourceElem] = set(input_list)
+        self.raw_neus: list[ReorderElem] = raw_neus
+        self.input_list: list[SourceElem] = (
+            input_list  # input_list can be reordered later
         )
+        self.input_set: set[SourceElem] = set(input_list)
 
-    if sign != 1:
-        matrix = sign * matrix
+        # set by mapper.set_rough_dest()
+        # self.dests: dict[ReorderElem, "RoutingGroup|ReorderGroup"] = {}
 
-    return matrix
+        assert len(raw_neus) == len(
+            input_list
+        ), "raw_neus and input_list must have the same length for ReorderGroup"
+        self.reorder_map: dict[SourceElem, ReorderElem] = dict()
+        self.set_reorder_map()
 
+    def set_reorder_map(self) -> None:
+        assert self.nodes is not None, "nodes must be provided for ReorderGroup"
+        for node in self.nodes:
+            reorder_map = node.get_reorder_info()
+            self.reorder_map.update(reorder_map)
+        assert (
+            set(self.reorder_map.keys()) == self.input_set
+        ), "reorder_map keys must match input_set"
+        assert set(self.reorder_map.values()) == set(
+            self.raw_neus
+        ), "reorder_map values must match raw_neus"
 
-def identity_weight_matrix(
-    input_shape: tuple[int, ...],
-    output_shape: tuple[int, ...],
-    sign: int,
-) -> np.ndarray:
-    # Activation-only / add-only paths do not own raw parameter tensors, but
-    # backend routing still needs their implicit identity connectivity.
-    n_input = int(np.prod(input_shape))
-    n_output = int(np.prod(output_shape))
-    if n_input != n_output:
-        raise ValueError(
-            f"Identity path shape mismatch: input has {n_input} elems, output has {n_output}."
-        )
+    def reorder_axon(self, elem: ReorderElem | Neuron) -> SourceElem:
+        out_elem = self.reorder_map[elem]
+        return self.get_axon(out_elem)
 
-    matrix = np.eye(n_output, dtype=np.int32)
-    if sign != 1:
-        matrix *= sign
+    def get_axon(self, elem: ReorderElem) -> SourceElem:
+        dest_group = self.dests[elem]
+        if isinstance(dest_group, ReorderGroup):
+            return dest_group.reorder_axon(elem)
+        return elem
 
-    return matrix
+    def reorder_dest(self, elem: ReorderElem | Neuron) -> "RoutingGroup":
+        out_elem = self.reorder_map[elem]
+        return self.get_dest(out_elem)
 
+    def get_dest(self, elem: ReorderElem) -> "RoutingGroup":
+        dest_group = self.dests[elem]
+        if isinstance(dest_group, ReorderGroup):
+            return dest_group.reorder_dest(self.reorder_map[elem])
+        return dest_group
 
-def unfold_input_indices_2d(
-    channels: int,
-    spatial_shape: tuple[int, int],
-    kernel_size: tuple[int, int],
-    stride: tuple[int, int],
-    padding: tuple[int, int],
-    dilation: tuple[int, int],
-) -> torch.Tensor:
-    # Build a lookup table from each sliding-window position back to the
-    # flattened input indices. Zero means "came from padding".
-    height, width = spatial_shape
-    n_input = channels * height * width
-    input_ids = torch.arange(1, n_input + 1, dtype=torch.float64).reshape(
-        1, channels, height, width
-    )
-    patches = F.unfold(
-        input_ids,
-        kernel_size=kernel_size,
-        dilation=dilation,
-        padding=padding,
-        stride=stride,
-    )
-    return patches.to(torch.int64).squeeze(0)
+    def reorder_dest_info(
+        self, elem: ReorderElem | Neuron
+    ) -> tuple["RoutingGroup", int]:
+        out_elem = self.reorder_map[elem]
+        return self.get_dest_info(out_elem)
 
+    def get_dest_info(self, elem: ReorderElem | Neuron) -> tuple["RoutingGroup", int]:
+        dest_group = self.dests[elem]
+        if isinstance(dest_group, ReorderGroup):
+            return dest_group.reorder_dest_info(elem)
+        return dest_group, dest_group.input_list.index(elem)
 
-def conv2d_weight_matrix(
-    weight: Tensor,
-    input_shape: tuple[int, int, int],
-    output_shape: tuple[int, int, int],
-    stride: tuple[int, int],
-    padding: tuple[int, int],
-    dilation: tuple[int, int],
-    groups: int,
-    sign: int,
-) -> np.ndarray:
-    # Expand a Conv2d kernel into a full dense matrix with shape [out, in],
-    # where rows are flattened output neurons and columns are flattened inputs.
-    in_channels, height, width = input_shape
-    out_channels, out_height, out_width = output_shape
-    kernel = np.asarray(weight.detach().cpu(), dtype=np.int32)
-    _, in_channels_per_group, kernel_height, kernel_width = kernel.shape
+    def info(self) -> str:
+        info_str = f"{self.name}:\n"
+        # if too many dests, only show first 3 and last 3
+        dest_strs = []
+        for neu in self.raw_neus:
+            dest_rg, index = self.get_dest_info(neu)
+            dest_strs.append(f"{str(neu)} -> {dest_rg.name}[{index}]")
+        if len(dest_strs) > 6:
+            dest_strs = dest_strs[:3] + ["..."] + dest_strs[-3:]
+        info_str += f"  Number of Neurons: {len(self.raw_neus)}\n"
+        info_str += f"  Number of Inputs: {len(self.input_list)}\n"
+        info_str += "  Dests:\n    " + "\n    ".join(dest_strs) + "\n"
+        return info_str
 
-    if in_channels != in_channels_per_group * groups:
-        raise ValueError(
-            f"Conv groups mismatch: input channels {in_channels}, kernel channels {in_channels_per_group}, groups {groups}."
-        )
+    def routing_summary(self) -> str:
+        summary_str = f"Reorder Group {self.name} No Summary\n"
+        return summary_str
 
-    out_channels_per_group = out_channels // groups
-    out_size = out_height * out_width
-    n_input = in_channels * height * width
-    matrix = np.zeros((out_channels * out_size, n_input), dtype=np.int32)
+    def __hash__(self):
+        # use hash of each raw_neu to identify routing group
+        return hash(tuple(sorted([hash(neu) for neu in self.raw_neus])))
 
-    patches = (
-        unfold_input_indices_2d(
-            in_channels,
-            (height, width),
-            (kernel_height, kernel_width),
-            stride,
-            padding,
-            dilation,
-        )
-        .cpu()
-        .numpy()
-    )
+    def __str__(self) -> str:
+        neu_strs = [str(neu) for neu in self.raw_neus]
+        # if too many neurons, only show first 3 and last 3
+        if len(neu_strs) > 6:
+            neu_strs = neu_strs[:3] + ["..."] + neu_strs[-3:]
+        # if too many inputs, only show first 3 and last 3
+        input_strs = [str(neu) for neu in self.input_list]
+        if len(input_strs) > 6:
+            input_strs = input_strs[:3] + ["..."] + input_strs[-3:]
+        return f"\n{self.name}(\nraw_neus=[{', '.join(neu_strs)}], \ninput_list=[{', '.join(input_strs)}])\n"
 
-    if patches.shape[1] != out_size:
-        raise ValueError(
-            f"Conv unfold mismatch: expected {out_size} output positions, got {patches.shape[1]}."
-        )
-
-    row_offsets = np.tile(
-        np.arange(out_size, dtype=np.int64),
-        in_channels_per_group * kernel_height * kernel_width,
-    )
-
-    for out_channel in range(out_channels):
-        group_idx = out_channel // out_channels_per_group
-        patch_start = group_idx * in_channels_per_group * kernel_height * kernel_width
-        patch_end = patch_start + in_channels_per_group * kernel_height * kernel_width
-
-        # Scatter each kernel coefficient to the input positions that feed the
-        # corresponding flattened output locations.
-        flat_cols = patches[patch_start:patch_end].reshape(-1)
-        valid = flat_cols > 0
-        flat_rows = row_offsets[valid]
-        flat_values = np.repeat(kernel[out_channel].reshape(-1), out_size)[valid]
-        matrix[out_channel * out_size + flat_rows, flat_cols[valid] - 1] = flat_values
-
-    if sign != 1:
-        matrix *= sign
-
-    return matrix
+    def __repr__(self) -> str:
+        return self.__str__()
 
 
-def pool2d_weight_matrix(
-    channels: int,
-    input_shape: tuple[int, int, int],
-    output_shape: tuple[int, int, int],
-    kernel_size: tuple[int, int],
-    stride: tuple[int, int],
-    padding: tuple[int, int],
-    dilation: tuple[int, int],
-    sign: int,
-) -> np.ndarray:
-    # Pooling has no explicit weight tensor, but connectivity still forms a
-    # dense [out, in] matrix. Every valid input in the pooling window gets 1.
-    in_channels, height, width = input_shape
-    out_channels, out_height, out_width = output_shape
-    if in_channels != channels or out_channels != channels:
-        raise ValueError(
-            f"Pooling channel mismatch: input={in_channels}, output={out_channels}, channels={channels}."
-        )
-
-    out_size = out_height * out_width
-    n_input = in_channels * height * width
-    matrix = np.zeros((out_channels * out_size, n_input), dtype=np.int32)
-
-    patches = (
-        unfold_input_indices_2d(
-            in_channels,
-            (height, width),
-            kernel_size,
-            stride,
-            padding,
-            dilation,
-        )
-        .cpu()
-        .numpy()
-    )
-
-    if patches.shape[1] != out_size:
-        raise ValueError(
-            f"Pooling unfold mismatch: expected {out_size} output positions, got {patches.shape[1]}."
-        )
-
-    kernel_elems = int(np.prod(kernel_size))
-    row_offsets = np.tile(np.arange(out_size, dtype=np.int64), kernel_elems)
-
-    for channel in range(channels):
-        patch_start = channel * kernel_elems
-        patch_end = patch_start + kernel_elems
-
-        flat_cols = patches[patch_start:patch_end].reshape(-1)
-        valid = flat_cols > 0
-        matrix[channel * out_size + row_offsets[valid], flat_cols[valid] - 1] = sign
-
-    return matrix
-
-
-def conv1d_weight_matrix(
-    weight: Tensor,
-    input_shape: tuple[int, int],
-    output_shape: tuple[int, int],
-    stride: tuple[int],
-    padding: tuple[int],
-    dilation: tuple[int],
-    groups: int,
-    sign: int,
-) -> np.ndarray:
-    # Reuse the 2D expansion path by treating 1D signals as H=1 feature maps.
-    in_channels, in_length = input_shape
-    out_channels, out_length = output_shape
-    kernel = weight.reshape(weight.shape[0], weight.shape[1], 1, weight.shape[2])
-    return conv2d_weight_matrix(
-        kernel,
-        (in_channels, 1, in_length),
-        (out_channels, 1, out_length),
-        (1, stride[0]),
-        (0, padding[0]),
-        (1, dilation[0]),
-        groups,
-        sign,
-    )
-
-
-def pool1d_weight_matrix(
-    channels: int,
-    input_shape: tuple[int, int],
-    output_shape: tuple[int, int],
-    kernel_size: tuple[int],
-    stride: tuple[int],
-    padding: tuple[int],
-    dilation: tuple[int],
-    sign: int,
-) -> np.ndarray:
-    # Reuse the 2D pooling expansion path by treating 1D signals as H=1 maps.
-    in_channels, in_length = input_shape
-    out_channels, out_length = output_shape
-    return pool2d_weight_matrix(
-        channels,
-        (in_channels, 1, in_length),
-        (out_channels, 1, out_length),
-        (1, kernel_size[0]),
-        (1, stride[0]),
-        (0, padding[0]),
-        (1, dilation[0]),
-        sign,
-    )
-
-
-def expanded_path_weight_matrix(
-    predecessor: CoreOpNode | InNode,
-    target: CoreOpNode,
-    comp: Optional[nn.Module],
-    weight: Optional[Tensor],
-    sign: int,
-) -> np.ndarray:
-    # Convert one predecessor path into a dense [out, in] matrix, choosing
-    # the correct expansion strategy from the comp type.
-    input_shape = feature_shape(predecessor.shape)
-    output_shape = feature_shape(target.shape)
-
-    if comp is None:
-        return identity_weight_matrix(input_shape, output_shape, sign)
-
-    if weight is not None and (isinstance(comp, nn.Linear) or weight.ndim == 2):
-        return direct_weight_matrix(weight, input_shape, output_shape, sign)
-
-    if isinstance(comp, nn.Conv1d):
-        return conv1d_weight_matrix(
-            weight,
-            input_shape,
-            output_shape,
-            to_nd_tuple(comp.stride, 1),
-            to_nd_tuple(comp.padding, 1),
-            to_nd_tuple(comp.dilation, 1),
-            comp.groups,
-            sign,
-        )
-
-    if isinstance(comp, nn.Conv2d):
-        return conv2d_weight_matrix(
-            weight,
-            input_shape,
-            output_shape,
-            to_nd_tuple(comp.stride, 2),
-            to_nd_tuple(comp.padding, 2),
-            to_nd_tuple(comp.dilation, 2),
-            comp.groups,
-            sign,
-        )
-
-    if isinstance(comp, nn.MaxPool1d):
-        if comp.ceil_mode:
-            raise NotImplementedError("MaxPool1d with ceil_mode=True is not supported.")
-
-        return pool1d_weight_matrix(
-            input_shape[0],
-            input_shape,
-            output_shape,
-            to_nd_tuple(comp.kernel_size, 1),
-            to_nd_tuple(comp.stride or comp.kernel_size, 1),
-            to_nd_tuple(comp.padding, 1),
-            to_nd_tuple(comp.dilation, 1),
-            sign,
-        )
-
-    if isinstance(comp, nn.AvgPool1d):
-        if comp.ceil_mode:
-            raise NotImplementedError("AvgPool1d with ceil_mode=True is not supported.")
-
-        return pool1d_weight_matrix(
-            input_shape[0],
-            input_shape,
-            output_shape,
-            to_nd_tuple(comp.kernel_size, 1),
-            to_nd_tuple(comp.stride or comp.kernel_size, 1),
-            to_nd_tuple(comp.padding, 1),
-            (1,),
-            sign,
-        )
-
-    if isinstance(comp, nn.MaxPool2d):
-        if comp.ceil_mode:
-            raise NotImplementedError("MaxPool2d with ceil_mode=True is not supported.")
-
-        return pool2d_weight_matrix(
-            input_shape[0],
-            input_shape,
-            output_shape,
-            to_nd_tuple(comp.kernel_size, 2),
-            to_nd_tuple(comp.stride or comp.kernel_size, 2),
-            to_nd_tuple(comp.padding, 2),
-            to_nd_tuple(comp.dilation, 2),
-            sign,
-        )
-
-    if isinstance(comp, nn.AvgPool2d):
-        if comp.ceil_mode:
-            raise NotImplementedError("AvgPool2d with ceil_mode=True is not supported.")
-
-        return pool2d_weight_matrix(
-            input_shape[0],
-            input_shape,
-            output_shape,
-            to_nd_tuple(comp.kernel_size, 2),
-            to_nd_tuple(comp.stride or comp.kernel_size, 2),
-            to_nd_tuple(comp.padding, 2),
-            (1, 1),
-            sign,
-        )
-
-    raise NotImplementedError(
-        f"Unsupported weight expansion for comp {type(comp)} with weight {type(weight)}."
-    )
-
-
-def get_raw_weights(
-    raw_neus: list[Neuron], input_neus: list[Neuron | InputElem]
-) -> np.ndarray:
-    # Return a dense routing-group weight matrix with shape
-    # [number of output neurons, number of input elements].
-    n_output = len(raw_neus)
-    n_input = len(input_neus)
-    weights = np.zeros((n_output, n_input), dtype=np.int32)
-
-    # Cache expanded matrices per target node and predecessor node because
-    # many raw neurons share the same source/target pair.
-    target_cache: dict[CoreOpNode, dict[CoreOpNode | InNode, np.ndarray]] = {}
-
-    for neu in raw_neus:
-        target = neu.target
-        if target in target_cache:
-            continue
-
-        ensure_target_components(target)
-        signs = path_signs(target)
-        path_matrices: dict[CoreOpNode | InNode, np.ndarray] = {}
-
-        for predecessor, comp, weight, sign in zip(
-            target.predecessors,
-            target.comps,
-            target.weights,
-            signs,
-        ):
-            # Each predecessor contributes one dense [target_out, pred_out] block.
-            matrix = expanded_path_weight_matrix(
-                predecessor,
-                target,
-                comp,
-                weight,
-                sign,
-            )
-            if predecessor in path_matrices:
-                path_matrices[predecessor] = path_matrices[predecessor] + matrix
-            else:
-                path_matrices[predecessor] = matrix
-
-        target_cache[target] = path_matrices
-
-    for i, neu in enumerate(raw_neus):
-        path_matrices = target_cache[neu.target]
-        for j, elem in enumerate(input_neus):
-            matrix = path_matrices.get(elem.target)
-            if matrix is None:
-                # No edge from this input node to the current output neuron.
-                continue
-
-            # Both neuron and input indices are already flattened indices.
-            weights[i, j] = matrix[neu.index.idx, elem.index.idx]
-
-    return weights
-
-
-class RoutingGroup:
-    _counter = 0
+class RoutingGroup(Group):
+    routing_group_counter = 0
 
     # core_blocks in the same routing group share the same following properties
     # lcn, input_sign, input_width
     def __init__(
         self,
         raw_neus: list[Neuron],
-        input_list: list[Neuron | InputElem],
+        input_list: list[SourceElem],
         nodes: Optional[set[CoreOpNode]] = None,
-        input_nodes: Optional[set[CoreOpNode | InNode]] = None,
+        input_nodes: Optional[set[SourceNode]] = None,
     ):
-        self.id: int = type(self)._counter
-        type(self)._counter += 1
+        super().__init__()
+        self.id: int = type(self).routing_group_counter
+        type(self).routing_group_counter += 1
         self.name: str = f"RG_{self.id}"
 
         # for better optimization, if nodes and input_nodes are provided,
@@ -535,16 +200,20 @@ class RoutingGroup:
 
         # set by generate_routing_groups
         self.raw_neus: list[Neuron] = raw_neus
-        self.input_list: list[Neuron | InputElem] = (
+        self.input_list: list[SourceElem] = (
             input_list  # input_list can be reordered later
         )
-        self.input_set: set[Neuron | InputElem] = set(input_list)
+        self.input_set: set[SourceElem] = set(input_list)
 
         # set by mapper.set_rough_dest()
-        self.dests: dict[Neuron, "RoutingGroup"] = {}
+        # self.dests: dict[Neuron, "RoutingGroup|ReorderGroup"] = {}
         self.lcn: LCN_EX = LCN_EX.LCN_1X
 
         # self.core_blocks: list[CoreBlock] = []
+        self.last_full_attrs: Optional[OfflineNeuFullAttrsV2Part2] = None
+        self.last_dest_group: Optional[RoutingGroup] = None
+        self.last_dest_index: Optional[int] = None
+
         self.core_placements: list[CorePlacement] = []
         self.n_core_required: int = -1
 
@@ -552,19 +221,293 @@ class RoutingGroup:
         self.assigned_cores: dict[CoordXY, CorePlacement] = {}
         self._multicast_config: Optional[AERPacketZXYCopy] = None
         self._base_coord: Optional[CoordXY] = None
+        self.input_bit_num: int = 0
 
     def set_lcn(self):
         input_widths: set[DataWidth] = set(
             [neu.core_config().input_width for neu in self.raw_neus]
         )
+        add_potentials: set[AddPotentialMode] = set(
+            [neu.core_config().add_potential for neu in self.raw_neus]
+        )
         assert (
-            len(input_widths) == 1
-        ), "All neurons in the routing group must have the same input width."
-        # if input width, input sign weight are different, need to split routing group before calling this function
-        input_width = input_widths.pop()
-        max_axon_addr = len(self.input_list) * (2**input_width)
+            len(add_potentials) == 1
+        ), "All neurons in the routing group must have the same add potential mode."
+        add_potential = add_potentials.pop()
+        if add_potential == AddPotentialMode.NORMAL:
+            assert (
+                len(input_widths) == 1
+            ), "All neurons in the routing group must have the same input width."
+            # if input width, input sign weight are different, need to split routing group before calling this function
+            input_width = input_widths.pop()
+            self.input_bit_num = 2**input_width
+        else:
+            # if add potential mode is not normal
+            self.input_bit_num = 32  # use 32 bit to transmit potential value
+            max_axon_addr = len(self.input_list) * 32
+
+        max_axon_addr = len(self.input_list) * self.input_bit_num
         lcn = ((max_axon_addr - 1) // FANIN_BASE).bit_length()
         self.lcn = LCN_EX(lcn)
+
+    def get_axon(self, neu: Neuron) -> SourceElem:
+        dest_group = self.dests[neu]
+        if isinstance(dest_group, ReorderGroup):
+            return dest_group.reorder_axon(neu)
+        return neu
+
+    def get_dest_info(self, neu: Neuron) -> tuple["RoutingGroup", int]:
+        dest_group = self.dests[neu]
+        if isinstance(dest_group, ReorderGroup):
+            return dest_group.reorder_dest_info(neu)
+        return dest_group, dest_group.input_list.index(neu)
+
+    def get_dest(self, neu: Neuron) -> "RoutingGroup":
+        dest_group = self.dests[neu]
+        if isinstance(dest_group, ReorderGroup):
+            return dest_group.reorder_dest(neu)
+        return dest_group
+
+    def try_store_neuron(
+        self,
+        neu: Neuron,
+        stored_base_weight: dict[int, tuple[int, WeightCompressType]],
+        current_core: OfflineCorePlacementV2,
+        weight_info: weight_info,
+        base_weights: List[np.ndarray],
+        frontend_core_conf: Frontend_Core_Config,
+        backend_core_conf: Backend_Core_Config,
+    ) -> OfflineCorePlacementV2:
+        # print("\ttrying to store neuron", neu)
+        attrs_part2 = neu.attrs_part2()
+        # Weight Strategy
+        if weight_info.index not in stored_base_weight:
+            # 这个 base weight 还没有存储过，需要存储
+            current_weight_width = frontend_core_conf.weight_width
+            base_weight = base_weights[weight_info.index]
+            current_weight_width = frontend_core_conf.weight_width
+            selected_weight, weight_compress = choose_weight_strategy(
+                base_weight,
+                current_weight_width,
+                frontend_core_conf.input_width,
+                frontend_core_conf.add_potential,
+            )
+            weight_sram_req = selected_weight.n_sram_required()
+            attrs_part2.weight_compress = weight_compress
+            if weight_sram_req > 4096:
+                raise NotImplementedError(
+                    f"Base weight {weight_info.index} requires {weight_sram_req} SRAM lines, which exceeds the limit."
+                )
+            elif current_core.n_sram_required() + weight_sram_req > 4096:
+                # 当前 core 放不下了，需要换 core
+                if len(current_core.neus) > 0:
+                    # print(f"0: current_core({id(current_core)})_sram: {current_core.n_sram_required()}")
+                    # print(f"allocate a new core")
+                    self.core_placements.append(current_core)
+                current_core = OfflineCorePlacementV2(
+                    frontend_core_conf, backend_core_conf
+                )
+                self.last_full_attrs = None  # 换 core 了，之前的 neuron attrs 不算了
+                stored_base_weight.clear()  # 换 core 了，之前存储的 base weight 不算了
+            # print(
+            #     f"Storing base weight {weight_info.index} in core {id(current_core)} with compression {weight_compress} cost {weight_sram_req} SRAM lines."
+            # )
+            current_core.weights.append(selected_weight)
+            stored_base_weight[weight_info.index] = (
+                len(current_core.weights) - 1,
+                weight_compress,
+            )  # 存储这个 base weight 的位置和压缩方式
+
+        # 这个 neu 的 base weight 已经存储过了，直接复用
+        base_weight_idx, weight_compress = stored_base_weight[weight_info.index]
+        attrs_part2.weight_compress = weight_compress
+        neuron_type = (
+            NeuronType.HALF if attrs_part2 == self.last_full_attrs else NeuronType.FULL
+        )
+        output_type = neu.output_type()
+
+        input_width = frontend_core_conf.input_width
+        weight_skew = weight_info.offset * (2**input_width)
+        attrs_part1 = OfflineNeuFullAttrsV2Part1(
+            weight_skew=weight_skew,
+            weight_address_start=0,  # 之后会统一设置
+            weight_address_end=0,  # 之后会统一设置
+            fold_type=FoldType.UNFOLDED,
+            neuron_type=neuron_type,
+            output_type=output_type,
+        )
+        neu_placement = OfflineNeuronPlacement([neu], attrs_part1, attrs_part2)
+        neu_sram_req = neu_placement.n_sram_required()
+        if neu_sram_req > 4096:
+            raise NotImplementedError(
+                f"Neuron {neu} requires {neu_sram_req} SRAM lines, which exceeds the limit."
+            )
+        elif current_core.n_sram_required() + neu_sram_req > 4096:
+            if len(current_core.neus) == 0:
+                raise NotImplementedError(
+                    f"Neuron {neu} with its weight cannot fit into an empty core."
+                )
+            self.core_placements.append(current_core)
+            # print(f"1: current_core({id(current_core)})_sram: {current_core.n_sram_required()}")
+            # print(f"allocate a new core")
+            current_core = OfflineCorePlacementV2(frontend_core_conf, backend_core_conf)
+            self.last_full_attrs = None  # 换 core 了，之前的 neuron attrs 不算了
+            stored_base_weight.clear()  # 换 core 了，之前存储的 base weight 不算了
+            return self.try_store_neuron(
+                neu,
+                stored_base_weight,
+                current_core,
+                weight_info,
+                base_weights,
+                frontend_core_conf,
+                backend_core_conf,
+            )
+        else:
+            if neuron_type == NeuronType.FULL:
+                self.last_full_attrs = attrs_part2
+            current_core.neus.append(neu_placement)
+            # current_core.weights.append(selected_weight)  # weight 已经存储过了，不需要重复存储
+            idx = len(current_core.neus) - 1
+            current_core.neu_weight_map[idx] = (
+                base_weight_idx  # 这个 neu 使用的 weight 是 base_weight_idx
+            )
+        return current_core
+
+    def place_neurons_optimal(
+        self,
+        frontend_core_conf: Frontend_Core_Config,
+        backend_core_conf: Backend_Core_Config,
+        group_items: list[tuple[Neuron, np.ndarray]],
+        block_id: int = 0,
+    ):
+        weights_of_group = [item[1] for item in group_items]
+        weight_infos, base_weights = group_shift_weights_optimized(weights_of_group)
+        # reorder group_items making the ones with the same base weight together, to improve weight storage efficiency
+        reordered_items, reordered_infos = reorder_by_base_weight(
+            group_items, weight_infos
+        )
+
+        # with open(f"{self.name}_weight_base.txt", "w") as f:
+        #     for weight in base_weights:
+        #         f.write(" ".join(map(str, weight)) + "\n")
+        #     for info in reordered_infos:
+        #         f.write(f"index: {info.index}, offset: {info.offset}\n")
+
+        current_core = OfflineCorePlacementV2(frontend_core_conf, backend_core_conf)
+        self.last_full_attrs = None
+        stored_base_weight: dict[int, tuple[int, WeightCompressType]] = (
+            {}
+        )  # map from base weight index to the index of core's weight list where it's stored
+
+        description = f"allocating {self.name} block [{block_id}]"
+        for (neu, weight_of_neu), weight_info in track(
+            zip(reordered_items, reordered_infos),
+            description=description,
+            total=len(reordered_items),  # 明确指定总数，确保进度条计算准确
+        ):
+            current_core = self.try_store_neuron(
+                neu,
+                stored_base_weight,
+                current_core,
+                weight_info,
+                base_weights,
+                frontend_core_conf,
+                backend_core_conf,
+            )
+        if len(current_core.neus) > 0:
+            self.core_placements.append(current_core)
+
+    def place_neurons_raw(
+        self,
+        frontend_core_conf: Frontend_Core_Config,
+        backend_core_conf: Backend_Core_Config,
+        group_items: list[tuple[Neuron, np.ndarray]],
+    ):
+        current_core = OfflineCorePlacementV2(frontend_core_conf, backend_core_conf)
+
+        self.last_full_attrs = None
+
+        for neu, weight_of_neu in group_items:
+            attrs_part2 = neu.attrs_part2()
+
+            # Weight Strategy
+            current_weight_width = frontend_core_conf.weight_width
+            selected_weight, attrs_part2.weight_compress = choose_weight_strategy(
+                weight_of_neu,
+                current_weight_width,
+                frontend_core_conf.input_width,
+                frontend_core_conf.add_potential,
+            )
+
+            neuron_type = (
+                NeuronType.HALF
+                if attrs_part2 == self.last_full_attrs
+                else NeuronType.FULL
+            )
+            output_type = neu.output_type()
+            attrs_part1 = OfflineNeuFullAttrsV2Part1(
+                weight_skew=0,
+                weight_address_start=0,
+                weight_address_end=0,
+                fold_type=FoldType.UNFOLDED,
+                neuron_type=neuron_type,
+                output_type=output_type,
+            )
+            neu_placement = OfflineNeuronPlacement([neu], attrs_part1, attrs_part2)
+
+            # SRAM Check
+            neu_sram_req = neu_placement.n_sram_required()
+            weight_sram_req = selected_weight.n_sram_required()
+            total_req = neu_sram_req + weight_sram_req
+
+            if total_req > 4096:
+                raise NotImplementedError(
+                    f"Neuron {neu} with its weight requires {total_req} SRAM lines."
+                )
+
+            if current_core.n_sram_required() + total_req > 4096:
+                if len(current_core.neus) > 0:
+                    self.core_placements.append(current_core)
+
+                # Create new core with inheritance
+                current_core = OfflineCorePlacementV2(
+                    frontend_core_conf, backend_core_conf
+                )
+                neuron_type = NeuronType.FULL
+                neu_placement.neu_attrs_part1.neuron_type = NeuronType.FULL
+                self.last_full_attrs = attrs_part2
+
+            elif neuron_type == NeuronType.FULL:
+                self.last_full_attrs = attrs_part2
+
+            # print(f"Neuron {neu} assigned type {neu_placement.neuron_type}.")
+            current_core.neus.append(neu_placement)
+            current_core.weights.append(selected_weight)
+
+            idx = len(current_core.neus) - 1
+            current_core.neu_weight_map[idx] = idx
+
+        if len(current_core.neus) > 0:
+            self.core_placements.append(current_core)
+
+    def cached_dest_info(self, neu: Neuron) -> tuple["RoutingGroup", int]:
+        use_cache = False
+        if self.last_dest_group is not None and self.last_dest_index is not None:
+            dest_axon = self.get_axon(neu)
+            next_index = self.last_dest_index + 1
+            if next_index < len(self.last_dest_group.input_list):
+                if self.last_dest_group.input_list[next_index] == dest_axon:
+                    use_cache = True
+                    self.last_dest_index = next_index
+
+        if not use_cache:
+            self.last_dest_group, self.last_dest_index = self.get_dest_info(neu)
+
+        assert (
+            self.last_dest_group is not None and self.last_dest_index is not None
+        ), "Dest group and index should not be None after calling get_dest_info."
+
+        return self.last_dest_group, self.last_dest_index
 
     def allocate_neurons(self):
         """core placement generation"""
@@ -572,7 +515,20 @@ class RoutingGroup:
         # all the attrs in neu_attrs_part2 are valid except weight compress, you should set weight compress according to your weight storage strategy
         # inherited core_config are valid except weight_width, you can set weight_width larger than or equal to the original value for optimization
 
+        if self.nodes is not None and self.input_nodes is not None:
+            node = list(self.nodes)[0]
+            # print(f"kernel weight from node {node.name}:\n", node.weights[0])
+
         weights = get_raw_weights(self.raw_neus, self.input_list)
+
+        # print(f"weight of routing group {self.name}:\n", weights)
+        print(f"weight shape of routing group {self.name}: {weights.shape}")
+
+        # print compelet weights into file for debug
+        # with open(f"{self.name}_weights.txt", "w") as f:
+        #     weights_transposed = weights.T
+        #     for row in weights_transposed:
+        #         f.write(" ".join(map(str, row)) + "\n")
 
         print(
             f"Allocating neurons for Routing Group {self.name} with {len(self.raw_neus)} neurons."
@@ -585,9 +541,10 @@ class RoutingGroup:
         ] = {}
         for i, neu in enumerate(self.raw_neus):
             frontend_core_conf = neu.core_config()
+            dest_rg = self.get_dest(neu)
             backend_core_conf = Backend_Core_Config(
                 lcn=self.lcn,
-                target_lcn=self.dests[neu].lcn,
+                target_lcn=dest_rg.lcn,
             )
             weight_of_neu = weights[i]
             key = (frontend_core_conf, backend_core_conf)
@@ -596,83 +553,25 @@ class RoutingGroup:
             core_groups[key].append((neu, weight_of_neu))
 
         self.core_placements: list[CorePlacement] = []
+        print(f"grouping finished, number of core groups: {len(core_groups)}")
 
         # 2. Allocation Phase
-        for key, group_items in core_groups.items():
+        for i, (key, group_items) in enumerate(core_groups.items()):
+            # print(f"\n\nAllocating group with frontend_core_conf={key[0]}")
+            # print(f"backend_core_conf={key[1]}")
+            # print(f"Neu of this group: {[str(item[0]) for item in group_items]}")
+            print(f"Number of neurons in this group: {len(group_items)}")
             frontend_core_conf, backend_core_conf = key
             # Initialize the first core for the current group
             current_core = OfflineCorePlacementV2(frontend_core_conf, backend_core_conf)
 
-            last_full_attrs = None
-
-            for neu, weight_of_neu in group_items:
-                attrs_part2 = neu.attrs_part2()
-
-                # Weight Strategy
-                current_weight_width = frontend_core_conf.weight_width
-                w_dense = Weight(
-                    weight_of_neu, WeightCompressType.DENSE, current_weight_width
-                )
-                w_sparse = Weight(
-                    weight_of_neu, WeightCompressType.SPARSE, current_weight_width
-                )
-
-                if w_sparse.n_sram_required() < w_dense.n_sram_required():
-                    selected_weight = w_sparse
-                    attrs_part2.weight_compress = WeightCompressType.SPARSE
-                else:
-                    selected_weight = w_dense
-                    attrs_part2.weight_compress = WeightCompressType.DENSE
-
-                neuron_type = (
-                    NeuronType.HALF
-                    if attrs_part2 == last_full_attrs
-                    else NeuronType.FULL
-                )
-                output_type = neu.output_type()
-                attrs_part1 = OfflineNeuFullAttrsV2Part1(
-                    weight_skew=0,
-                    weight_address_start=0,
-                    weight_address_end=0,
-                    fold_type=FoldType.UNFOLDED,
-                    neuron_type=neuron_type,
-                    output_type=output_type,
-                )
-                neu_placement = OfflineNeuronPlacement([neu], attrs_part1, attrs_part2)
-
-                # SRAM Check
-                neu_sram_req = neu_placement.n_sram_required()
-                weight_sram_req = selected_weight.n_sram_required()
-                total_req = neu_sram_req + weight_sram_req
-
-                if total_req > 4096:
-                    raise NotImplementedError(
-                        f"Neuron {neu} with its weight requires {total_req} SRAM lines."
-                    )
-
-                if current_core.n_sram_required() + total_req > 4096:
-                    self.core_placements.append(current_core)
-
-                    # Create new core with inheritance
-                    current_core = OfflineCorePlacementV2(
-                        frontend_core_conf, backend_core_conf
-                    )
-                    neuron_type = NeuronType.FULL
-                    neu_placement.neu_attrs_part1.neuron_type = NeuronType.FULL
-                    last_full_attrs = attrs_part2
-
-                elif neuron_type == NeuronType.FULL:
-                    last_full_attrs = attrs_part2
-
-                # print(f"Neuron {neu} assigned type {neu_placement.neuron_type}.")
-                current_core.neus.append(neu_placement)
-                current_core.weights.append(selected_weight)
-
-                idx = len(current_core.neus) - 1
-                current_core.neu_weight_map[idx] = idx
-
-            if len(current_core.neus) > 0:
-                self.core_placements.append(current_core)
+            self.last_full_attrs = None
+            self.place_neurons_optimal(
+                frontend_core_conf, backend_core_conf, group_items, i
+            )
+            print(
+                f"Number of cores after allocating this group: {len(self.core_placements)}"
+            )
 
         self.n_core_required = len(self.core_placements)
 
@@ -699,15 +598,14 @@ class RoutingGroup:
                 # for folded neuron placement, it may contain multiple raw_neus
                 # but we only need to set dest_info for the first raw_neu
                 main_neu = neu_placement.raw_neus[0]
-                dest_routing_group = self.dests[main_neu]
 
+                dest_routing_group, axon_addr_logic = self.cached_dest_info(main_neu)
                 dest_coord = dest_routing_group.base_coord
                 coord_copy = dest_routing_group.multicast_config
-                axon_addr_logic = dest_routing_group.input_list.index(main_neu)
 
                 # the input width of all cores in dest routing group should be the same,
                 # so we can use the output width of this core as the input width of dest routing group
-                axon_addr_count = axon_addr_logic * (2**core_placement.output_width)
+                axon_addr_count = axon_addr_logic * dest_routing_group.input_bit_num
 
                 addr_axon = axon_addr_count % FANIN_BASE
                 tick_relative = axon_addr_count // FANIN_BASE
@@ -765,9 +663,15 @@ class RoutingGroup:
         info_str = f"{self.name}:\n"
         # if too many dests, only show first 3 and last 3
         dest_strs = []
-        for neu, dest_rg in self.dests.items():
-            dest_strs.append(f"{str(neu)} -> {dest_rg.name}")
-        if len(dest_strs) > 6:
+        if len(self.raw_neus) > 6:
+            print_neus = self.raw_neus[:3] + self.raw_neus[-3:]
+        else:
+            print_neus = self.raw_neus
+
+        for i, neu in enumerate(print_neus):
+            dest_rg, index = self.get_dest_info(neu)
+            dest_strs.append(f"{str(neu)} -> {dest_rg.name}[{index}]")
+        if len(self.raw_neus) > 6:
             dest_strs = dest_strs[:3] + ["..."] + dest_strs[-3:]
         info_str += f"  Number of Neurons: {len(self.raw_neus)}\n"
         info_str += f"  Number of Inputs: {len(self.input_list)}\n"
@@ -786,21 +690,36 @@ class RoutingGroup:
             summary_str += f"  Core Placement {i} at {core_placement.coord}:\n"
             summary_str += f"    Number of Neurons: {len(core_placement.neus)}\n"
             summary_str += f"    Number of Weights: {len(core_placement.weights)}\n"
+            summary_str += (
+                f"    Neuron SRAM Required: {core_placement.neuron_sram_required()}\n"
+            )
+            summary_str += (
+                f"    Weight SRAM Required: {core_placement.weight_sram_required()}\n"
+            )
+            summary_str += (
+                f"    Total SRAM Required: {core_placement.n_sram_required()}\n"
+            )
         return summary_str
 
 
 def toposort_for_rg(
-    routing_groups: list[RoutingGroup],
+    groups: list[ReorderGroup | RoutingGroup],
 ) -> tuple[list[RoutingGroup], dict[int, list[int]]]:
     """topological sort for routing groups based on their dests"""
     from collections import defaultdict, deque
 
+    routing_groups = [rg for rg in groups if isinstance(rg, RoutingGroup)]
+
     indegree = {rg: 0 for rg in routing_groups}
+
+    for rg in indegree.keys():
+        print(f"Routing Group {rg.name} has indegree {indegree[rg]} before sorting.")
     graph = defaultdict(list)
 
     for rg in routing_groups:
-        for dest_rg in rg.dests.values():
-            if dest_rg not in routing_groups:
+        for neu in rg.raw_neus:
+            dest_rg = rg.get_dest(neu)
+            if dest_rg not in routing_groups or dest_rg == rg:
                 continue
             graph[rg].append(dest_rg)
             indegree[dest_rg] += 1

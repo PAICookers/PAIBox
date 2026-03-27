@@ -14,56 +14,9 @@ from paicorelib import (
     OfflineNeuFoldedAttrsV2Part2,
     OfflineNeuFullAttrsV2Part1,
     OfflineNeuFullAttrsV2Part2,
-    OutputType,
 )
 
-from .core_config import Frontend_Core_Config
-from .op_node import CoreOpNode, CustomIndex, InNode
-
-
-class Neuron:
-    def __init__(self, target: CoreOpNode, index: CustomIndex):
-        self.target = target
-        self.index = index
-
-    def attrs_part2(self) -> OfflineNeuFullAttrsV2Part2:
-        return self.target.attrs_part2(self.index.idx)
-
-    def output_type(self) -> OutputType:
-        return self.target.output_type()
-
-    def core_config(self) -> Frontend_Core_Config:
-        return self.target.core_config()
-
-    def __hash__(self) -> int:
-        return hash((self.index, self.target))
-
-    def __eq__(self, value: "Neuron") -> bool:
-        return self.index == value.index and self.target is value.target
-
-    def __str__(self) -> str:
-        return f"{self.target.name}[{self.index.idx}]"
-
-    def __repr__(self) -> str:
-        return self.__str__()
-
-
-class InputElem:
-    def __init__(self, target: InNode, index: CustomIndex):
-        self.target = target
-        self.index = index
-
-    def __hash__(self) -> int:
-        return hash((self.index, self.target))
-
-    def __eq__(self, value: "InputElem") -> bool:
-        return self.index == value.index and self.target is value.target
-
-    def __str__(self) -> str:
-        return f"{self.target.name}[{self.index.idx}]"
-
-    def __repr__(self) -> str:
-        return self.__str__()
+from .op_node import Neuron
 
 
 class NeuronPlacement:

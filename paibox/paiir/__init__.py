@@ -56,6 +56,7 @@ from .ir import (
     PAIIRGraph,
     PAIIRNode,
     PotentialAddOp,
+    ReshapeOp,
     SequentialOp,
     SignalDomain,
     StandaloneActOp,
