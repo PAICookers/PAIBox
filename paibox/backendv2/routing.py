@@ -9,6 +9,7 @@ from paicorelib import (
     AddPotentialMode,
     AERPacketZXYCopy,
     CoordXY,
+    CoordZXYOffset,
     DataWidth,
     FoldType,
     NeuronType,
@@ -84,6 +85,9 @@ class ReorderGroup(Group):
             input_list  # input_list can be reordered later
         )
         self.input_set: set[SourceElem] = set(input_list)
+        self.index_map: dict[SourceElem, int] = {
+            elem: i for i, elem in enumerate(input_list)
+        }
 
         # set by mapper.set_rough_dest()
         # self.dests: dict[ReorderElem, "RoutingGroup|ReorderGroup"] = {}
@@ -136,7 +140,9 @@ class ReorderGroup(Group):
         dest_group = self.dests[elem]
         if isinstance(dest_group, ReorderGroup):
             return dest_group.reorder_dest_info(elem)
-        return dest_group, dest_group.input_list.index(elem)
+        dest_axon = dest_group.index_map.get(elem, -1)
+        assert dest_axon >= 0, f"Neuron {elem} not found in dest_group's index_map"
+        return dest_group, dest_axon
 
     def info(self) -> str:
         info_str = f"{self.name}:\n"
@@ -201,10 +207,11 @@ class RoutingGroup(Group):
         # set by generate_routing_groups
         self.raw_neus: list[Neuron] = raw_neus
         self.input_list: list[SourceElem] = (
-            input_list  # input_list can be reordered later
+            input_list  # input_list can not be reordered
         )
         self.input_set: set[SourceElem] = set(input_list)
-
+        self.index_map: dict[SourceElem, int] = {}
+        self.set_index_map()
         # set by mapper.set_rough_dest()
         # self.dests: dict[Neuron, "RoutingGroup|ReorderGroup"] = {}
         self.lcn: LCN_EX = LCN_EX.LCN_1X
@@ -222,6 +229,9 @@ class RoutingGroup(Group):
         self._multicast_config: Optional[AERPacketZXYCopy] = None
         self._base_coord: Optional[CoordXY] = None
         self.input_bit_num: int = 0
+
+    def set_index_map(self):
+        self.index_map = {elem: i for i, elem in enumerate(self.input_list)}
 
     def set_lcn(self):
         input_widths: set[DataWidth] = set(
@@ -260,7 +270,12 @@ class RoutingGroup(Group):
         dest_group = self.dests[neu]
         if isinstance(dest_group, ReorderGroup):
             return dest_group.reorder_dest_info(neu)
-        return dest_group, dest_group.input_list.index(neu)
+        dest_axon = dest_group.index_map.get(neu, -1)
+        assert (
+            len(dest_group.index_map) != 0
+        ), f"Dest group {dest_group.name} has empty index_map, cannot find dest axon for neuron {neu}"
+        assert dest_axon >= 0, f"Neuron {neu} not found in dest_group's index_map"
+        return dest_group, dest_axon
 
     def get_dest(self, neu: Neuron) -> "RoutingGroup":
         dest_group = self.dests[neu]
@@ -292,16 +307,16 @@ class RoutingGroup(Group):
                 frontend_core_conf.input_width,
                 frontend_core_conf.add_potential,
             )
-            weight_sram_req = selected_weight.n_sram_required()
+            weight_sram_req = selected_weight.n_sram_required
             attrs_part2.weight_compress = weight_compress
             if weight_sram_req > 4096:
                 raise NotImplementedError(
                     f"Base weight {weight_info.index} requires {weight_sram_req} SRAM lines, which exceeds the limit."
                 )
-            elif current_core.n_sram_required() + weight_sram_req > 4096:
+            elif current_core.n_sram_required + weight_sram_req > 4096:
                 # 当前 core 放不下了，需要换 core
                 if len(current_core.neus) > 0:
-                    # print(f"0: current_core({id(current_core)})_sram: {current_core.n_sram_required()}")
+                    # print(f"0: current_core({id(current_core)})_sram: {current_core.n_sram_required}")
                     # print(f"allocate a new core")
                     self.core_placements.append(current_core)
                 current_core = OfflineCorePlacementV2(
@@ -337,18 +352,18 @@ class RoutingGroup(Group):
             output_type=output_type,
         )
         neu_placement = OfflineNeuronPlacement([neu], attrs_part1, attrs_part2)
-        neu_sram_req = neu_placement.n_sram_required()
+        neu_sram_req = neu_placement.n_sram_required
         if neu_sram_req > 4096:
             raise NotImplementedError(
                 f"Neuron {neu} requires {neu_sram_req} SRAM lines, which exceeds the limit."
             )
-        elif current_core.n_sram_required() + neu_sram_req > 4096:
+        elif current_core.n_sram_required + neu_sram_req > 4096:
             if len(current_core.neus) == 0:
                 raise NotImplementedError(
                     f"Neuron {neu} with its weight cannot fit into an empty core."
                 )
             self.core_placements.append(current_core)
-            # print(f"1: current_core({id(current_core)})_sram: {current_core.n_sram_required()}")
+            # print(f"1: current_core({id(current_core)})_sram: {current_core.n_sram_required}")
             # print(f"allocate a new core")
             current_core = OfflineCorePlacementV2(frontend_core_conf, backend_core_conf)
             self.last_full_attrs = None  # 换 core 了，之前的 neuron attrs 不算了
@@ -456,8 +471,8 @@ class RoutingGroup(Group):
             neu_placement = OfflineNeuronPlacement([neu], attrs_part1, attrs_part2)
 
             # SRAM Check
-            neu_sram_req = neu_placement.n_sram_required()
-            weight_sram_req = selected_weight.n_sram_required()
+            neu_sram_req = neu_placement.n_sram_required
+            weight_sram_req = selected_weight.n_sram_required
             total_req = neu_sram_req + weight_sram_req
 
             if total_req > 4096:
@@ -465,7 +480,7 @@ class RoutingGroup(Group):
                     f"Neuron {neu} with its weight requires {total_req} SRAM lines."
                 )
 
-            if current_core.n_sram_required() + total_req > 4096:
+            if current_core.n_sram_required + total_req > 4096:
                 if len(current_core.neus) > 0:
                     self.core_placements.append(current_core)
 
@@ -489,25 +504,6 @@ class RoutingGroup(Group):
 
         if len(current_core.neus) > 0:
             self.core_placements.append(current_core)
-
-    def cached_dest_info(self, neu: Neuron) -> tuple["RoutingGroup", int]:
-        use_cache = False
-        if self.last_dest_group is not None and self.last_dest_index is not None:
-            dest_axon = self.get_axon(neu)
-            next_index = self.last_dest_index + 1
-            if next_index < len(self.last_dest_group.input_list):
-                if self.last_dest_group.input_list[next_index] == dest_axon:
-                    use_cache = True
-                    self.last_dest_index = next_index
-
-        if not use_cache:
-            self.last_dest_group, self.last_dest_index = self.get_dest_info(neu)
-
-        assert (
-            self.last_dest_group is not None and self.last_dest_index is not None
-        ), "Dest group and index should not be None after calling get_dest_info."
-
-        return self.last_dest_group, self.last_dest_index
 
     def allocate_neurons(self):
         """core placement generation"""
@@ -592,14 +588,19 @@ class RoutingGroup(Group):
         self._multicast_config = copy_config
 
     def set_detail_dest(self):
-        for core_placement in self.core_placements:
+        for core_placement in track(
+            self.core_placements,
+            description=f"Setting Detail Destinations for {self.name}",
+            total=len(self.core_placements),
+        ):
             for neu_placement in core_placement.neus:
                 # mostly each neu_placement contains only one raw_neu
                 # for folded neuron placement, it may contain multiple raw_neus
                 # but we only need to set dest_info for the first raw_neu
                 main_neu = neu_placement.raw_neus[0]
 
-                dest_routing_group, axon_addr_logic = self.cached_dest_info(main_neu)
+                dest_routing_group, axon_addr_logic = self.get_dest_info(main_neu)
+                assert axon_addr_logic >= 0, "axon_addr_logic should be non-negative"
                 dest_coord = dest_routing_group.base_coord
                 coord_copy = dest_routing_group.multicast_config
 
@@ -691,13 +692,13 @@ class RoutingGroup(Group):
             summary_str += f"    Number of Neurons: {len(core_placement.neus)}\n"
             summary_str += f"    Number of Weights: {len(core_placement.weights)}\n"
             summary_str += (
-                f"    Neuron SRAM Required: {core_placement.neuron_sram_required()}\n"
+                f"    Neuron SRAM Required: {core_placement.neuron_sram_required}\n"
             )
             summary_str += (
-                f"    Weight SRAM Required: {core_placement.weight_sram_required()}\n"
+                f"    Weight SRAM Required: {core_placement.weight_sram_required}\n"
             )
             summary_str += (
-                f"    Total SRAM Required: {core_placement.n_sram_required()}\n"
+                f"    Total SRAM Required: {core_placement.n_sram_required}\n"
             )
         return summary_str
 

@@ -39,8 +39,9 @@ class OfflineNeuronPlacement(NeuronPlacement):
         )
         self.folded_neu_attrs_part1: Optional[OfflineNeuFoldedAttrsV2Part1] = None
         self.folded_neu_attrs_part2s: list[OfflineNeuFoldedAttrsV2Part2] = []
+        self.n_sram_required: int = self.n_sram_required_()
 
-    def n_sram_required(self) -> int:
+    def n_sram_required_(self) -> int:
         n_sram = 0
         if self.neu_attrs_part1 is not None:
             n_sram += 1

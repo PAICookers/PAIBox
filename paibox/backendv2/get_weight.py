@@ -103,7 +103,7 @@ def direct_weight_matrix(
     sign: int,
 ) -> np.ndarray:
     # Linear/identity-like paths already expose a dense [out, in] matrix.
-    matrix = np.asarray(weight.detach().cpu(), dtype=np.int32)
+    matrix = np.asarray(weight.detach().cpu(), dtype=np.int16)
     n_input = int(np.prod(input_shape))
     n_output = int(np.prod(output_shape))
 
@@ -132,7 +132,7 @@ def identity_weight_matrix(
             f"Identity path shape mismatch: input has {n_input} elems, output has {n_output}."
         )
 
-    matrix = np.eye(n_output, dtype=np.int32)
+    matrix = np.eye(n_output, dtype=np.int16)
     if sign != 1:
         matrix *= sign
 
@@ -178,7 +178,7 @@ def conv2d_weight_matrix(
     # where rows are flattened output neurons and columns are flattened inputs.
     in_channels, height, width = input_shape
     out_channels, out_height, out_width = output_shape
-    kernel = np.asarray(weight.detach().cpu(), dtype=np.int32)
+    kernel = np.asarray(weight.detach().cpu(), dtype=np.int16)
     _, in_channels_per_group, kernel_height, kernel_width = kernel.shape
 
     if in_channels != in_channels_per_group * groups:
@@ -189,7 +189,7 @@ def conv2d_weight_matrix(
     out_channels_per_group = out_channels // groups
     out_size = out_height * out_width
     n_input = in_channels * height * width
-    matrix = np.zeros((out_channels * out_size, n_input), dtype=np.int32)
+    matrix = np.zeros((out_channels * out_size, n_input), dtype=np.int16)
 
     patches = (
         unfold_input_indices_2d(
@@ -254,7 +254,7 @@ def pool2d_weight_matrix(
 
     out_size = out_height * out_width
     n_input = in_channels * height * width
-    matrix = np.zeros((out_channels * out_size, n_input), dtype=np.int32)
+    matrix = np.zeros((out_channels * out_size, n_input), dtype=np.int16)
 
     patches = (
         unfold_input_indices_2d(
@@ -492,54 +492,114 @@ def build_weights(
             weights[i, js] = matrix[neu_idx, idxs]
 
 
-def build_weights_fully_vectorized(
+from collections import defaultdict
+
+import numpy as np
+from numba import njit
+
+
+@njit
+def _fill_weights_numba(
+    weights,
+    matrices,
+    out_i_arrays,
+    out_idx_arrays,
+    in_j_arrays,
+    in_idx_arrays,
+):
+    n_tasks = len(matrices)
+
+    for t in range(n_tasks):
+        matrix = matrices[t]
+
+        out_is = out_i_arrays[t]
+        out_idxs = out_idx_arrays[t]
+
+        in_js = in_j_arrays[t]
+        in_idxs = in_idx_arrays[t]
+
+        # 双循环（Numba会编译成高效代码）
+        for oi in range(out_is.shape[0]):
+            i = out_is[oi]
+            mi = out_idxs[oi]
+
+            for ij in range(in_js.shape[0]):
+                j = in_js[ij]
+                mj = in_idxs[ij]
+
+                weights[i, j] = matrix[mi, mj]
+
+
+def build_weights_numba(
     raw_neus: list[Neuron],
     input_neus: list[SourceElem],
     target_cache: dict[CoreOpNode, dict[SourceNode, np.ndarray]],
     weights: np.ndarray,
-) -> None:
-
-    # 1. 对输入神经元进行分组 (保持一维数组)
+):
+    # -------- 1. input grouping --------
     input_group = defaultdict(list)
     for j, elem in enumerate(input_neus):
         input_group[elem.target].append((j, elem.index.idx))
 
     input_map = {}
     for tgt, elems in input_group.items():
-        js = np.fromiter((j for j, _ in elems), dtype=np.int64)
-        idxs = np.fromiter((idx for _, idx in elems), dtype=np.int64)
+        js = np.fromiter((j for j, _ in elems), dtype=np.int32)
+        idxs = np.fromiter((idx for _, idx in elems), dtype=np.int32)
         input_map[tgt] = (js, idxs)
 
-    # 2. 对输出神经元进行分组 (转换为列向量，为广播做准备)
+    # -------- 2. output grouping --------
     output_group = defaultdict(list)
     for i, neu in enumerate(raw_neus):
         output_group[neu.target].append((i, neu.index.idx))
 
     output_map = {}
     for tgt, elems in output_group.items():
-        # np.newaxis (或 None) 将 1D 数组转为 2D 列向量，shape 变为 (N, 1)
-        i_arr = np.fromiter((i for i, _ in elems), dtype=np.int64)[:, np.newaxis]
-        neu_idx_arr = np.fromiter((idx for _, idx in elems), dtype=np.int64)[
-            :, np.newaxis
-        ]
-        output_map[tgt] = (i_arr, neu_idx_arr)
+        is_ = np.fromiter((i for i, _ in elems), dtype=np.int32)
+        idxs = np.fromiter((idx for _, idx in elems), dtype=np.int32)
+        output_map[tgt] = (is_, idxs)
 
-    # 3. 基于 target 类型组合进行块级别的高级索引赋值
-    for out_tgt, (is_col, neu_idxs_col) in output_map.items():
+    # -------- 3. flatten cache + 构建任务 --------
+    matrices = []
+    out_i_arrays = []
+    out_idx_arrays = []
+    in_j_arrays = []
+    in_idx_arrays = []
+
+    for out_tgt, (out_is, out_idxs) in output_map.items():
         path_matrices = target_cache.get(out_tgt)
         if path_matrices is None:
             continue
 
-        for in_tgt, (js_row, in_idxs_row) in input_map.items():
+        for in_tgt, (in_js, in_idxs) in input_map.items():
             matrix = path_matrices.get(in_tgt)
             if matrix is None:
                 continue
 
-            # 【魔法在这里】：
-            # is_col 是 (N, 1)，js_row 是 (M,)
-            # NumPy 会自动将其广播为一个 N x M 的网格坐标
-            # 同理，neu_idxs_col 和 in_idxs_row 也会广播，从 matrix 中提取对应的 N x M 子矩阵
-            weights[is_col, js_row] = matrix[neu_idxs_col, in_idxs_row]
+            matrices.append(matrix)
+            out_i_arrays.append(out_is)
+            out_idx_arrays.append(out_idxs)
+            in_j_arrays.append(in_js)
+            in_idx_arrays.append(in_idxs)
+
+    if not matrices:
+        return
+
+    # -------- 4. 转为 numba 可用结构 --------
+    matrices = list(matrices)
+    out_i_arrays = list(out_i_arrays)
+    out_idx_arrays = list(out_idx_arrays)
+    in_j_arrays = list(in_j_arrays)
+    in_idx_arrays = list(in_idx_arrays)
+
+    # -------- 5. 调用 numba --------
+    _fill_weights_numba(
+        weights,
+        matrices,
+        out_i_arrays,
+        out_idx_arrays,
+        in_j_arrays,
+        in_idx_arrays,
+    )
 
 
 def get_raw_weights(raw_neus: list[Neuron], input_neus: list[SourceElem]) -> np.ndarray:
@@ -547,7 +607,7 @@ def get_raw_weights(raw_neus: list[Neuron], input_neus: list[SourceElem]) -> np.
     # [number of output neurons, number of input elements].
     n_output = len(raw_neus)
     n_input = len(input_neus)
-    weights = np.zeros((n_output, n_input), dtype=np.int32)
+    weights = np.zeros((n_output, n_input), dtype=np.int16)
 
     # Cache expanded matrices per target node and predecessor node because
     # many raw neurons share the same source/target pair.
@@ -583,7 +643,7 @@ def get_raw_weights(raw_neus: list[Neuron], input_neus: list[SourceElem]) -> np.
 
         target_cache[target] = path_matrices
 
-    build_weights_fully_vectorized(
+    build_weights_numba(
         raw_neus,
         input_neus,
         target_cache,
@@ -613,7 +673,7 @@ def choose_weight_strategy(
         add_potential,
     )
 
-    if w_sparse.n_sram_required() < w_dense.n_sram_required():
+    if w_sparse.n_sram_required < w_dense.n_sram_required:
         return w_sparse, WeightCompressType.SPARSE
     else:
         return w_dense, WeightCompressType.DENSE
