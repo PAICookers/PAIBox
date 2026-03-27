@@ -46,11 +46,11 @@ class Backend_Core_Config:
     lcn: LCN_EX = LCN_EX.LCN_1X
     target_lcn: LCN_EX = LCN_EX.LCN_1X
     axon_skew: int = 0
-    add_potential: AddPotentialMode = AddPotentialMode.NORMAL
 
 
 @dataclass(frozen=True)
 class Frontend_Core_Config:
+    add_potential: AddPotentialMode = AddPotentialMode.NORMAL
     snn_ann: SNNMode = SNNMode.SNN
     max_pooling: PoolingMode = PoolingMode.AVERAGE
     zero_output: ZeroOutputMode = ZeroOutputMode.DISABLE
@@ -77,7 +77,7 @@ def to_core_reg(
         name=f"core_reg_at_({coord.x},{coord.y})",
         snn_ann=frontend_conf.snn_ann,
         max_pooling=frontend_conf.max_pooling,
-        add_potential=backend_conf.add_potential,
+        add_potential=frontend_conf.add_potential,
         zero_output=frontend_conf.zero_output,
         input_sign=frontend_conf.input_sign,
         input_width=frontend_conf.input_width,

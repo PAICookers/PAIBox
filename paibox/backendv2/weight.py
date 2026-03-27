@@ -4,6 +4,7 @@ from typing import Union
 
 import numpy as np
 from paicorelib import (
+    AddPotentialMode,
     DataWidth,
     FrameArrayType,
     OfflineFrameGenV2,
@@ -24,13 +25,27 @@ class Weight:
         data: Union[np.ndarray, list[int]],
         compress_type: WeightCompressType,
         weight_width: DataWidth,
+        input_width: DataWidth,
+        AddPotential: AddPotentialMode = AddPotentialMode.NORMAL,
     ):
+        if AddPotential == AddPotentialMode.DIRECT_ADD:
+            # in direct add mode, weight width should be at least 4 bit to avoid overflow
+            weight_width = DataWidth.WIDTH_1BIT
+            input_width = DataWidth.WIDTH_32BIT
+            if isinstance(data, list):
+                data = np.array(data, dtype=np.int16)
+            data = data.astype(np.int16)  # ensure weight is in int16 to avoid overflow
+            data = np.repeat(
+                data, 32
+            )  # each one in original weight repeat 32 times to form mask for direct add mode
+
         if isinstance(data, np.ndarray):
             self.raw_weights: list[int] = data.tolist()
         else:
             self.raw_weights: list[int] = list(data)
 
         self.weight_width = weight_width
+        self.input_width = input_width
 
         self.compress: bool = (
             compress_type == WeightCompressType.SPARSE
@@ -59,6 +74,7 @@ class Weight:
     def to_package(self) -> FrameArrayType:
         frames = OfflineFrameGenV2.gen_config_frame3_weight_pkg(
             weight=np.array(self.processed_weights),
+            input_width=self.input_width,
             weight_width=self.weight_width,
             csc_compress=self.compress,
         )

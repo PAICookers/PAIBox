@@ -79,6 +79,18 @@ class CorePlacement:
     def set_auto_core_config(self) -> None:
         pass
 
+    @abstractmethod
+    def n_sram_required(self) -> int:
+        pass
+
+    @abstractmethod
+    def neuron_sram_required(self) -> int:
+        pass
+
+    @abstractmethod
+    def weight_sram_required(self) -> int:
+        pass
+
 
 class OfflineCorePlacementV2(CorePlacement):
     def __init__(
@@ -97,6 +109,18 @@ class OfflineCorePlacementV2(CorePlacement):
         n_sram = 0
         for neu in self.neus:
             n_sram += neu.n_sram_required()
+        for weight in self.weights:
+            n_sram += weight.n_sram_required()
+        return n_sram
+
+    def neuron_sram_required(self) -> int:
+        n_sram = 0
+        for neu in self.neus:
+            n_sram += neu.n_sram_required()
+        return n_sram
+
+    def weight_sram_required(self) -> int:
+        n_sram = 0
         for weight in self.weights:
             n_sram += weight.n_sram_required()
         return n_sram

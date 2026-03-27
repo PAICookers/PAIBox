@@ -7,10 +7,10 @@ from paicorelib import LCN_EX, AERPacketZXYCopy, CoordXY, FrameArrayType
 
 from paibox.paiir import PAIIRGraph
 
-from .op_node import CoreOpNode, InNode, build_nodes
-from .rg_build import build_routing_groups
+from .op_node import SourceNode, build_nodes
+from .rg_build import build_groups
 from .route_solver import route_solve
-from .routing import RoutingGroup, toposort_for_rg
+from .routing import ReorderGroup, RoutingGroup, toposort_for_rg
 
 
 def export_single_framearray(
@@ -37,34 +37,43 @@ def export_framearray_to_bit(
 
 class Mapper:
     def __init__(self):
+        self.groups: list[RoutingGroup | ReorderGroup] = []
         self.routing_groups: list[RoutingGroup] = []
-        self.nodes: list[CoreOpNode | InNode] = []
+        self.nodes: list[SourceNode] = []
         self.output_routing_group: RoutingGroup = RoutingGroup([], [])
         self.output_routing_group._base_coord = CoordXY(0, 0)
         self.output_routing_group._multicast_config = AERPacketZXYCopy(z=0, x=0, y=0)
 
     def generate_routing_groups(self, pai_graph: PAIIRGraph):
         self.nodes = build_nodes(pai_graph)
-        self.routing_groups = build_routing_groups(self.nodes)
+        self.groups = build_groups(self.nodes)
 
     def set_rough_dest(self):
         # determine which routing group each neuron sends to
-        for rg in self.routing_groups:
-            rg.set_lcn()
-            for neu in rg.raw_neus:
-                for dest_rg in self.routing_groups:
+        for group in self.groups:
+            group.set_lcn()
+            for neu in group.raw_neus:
+                # print(f"\nSetting rough dest for neuron {neu} in group {group.name}:")
+                dest_found = False
+                for dest_grp in self.groups:
+                    # print(f"\tChecking if neuron {neu} sends to group {dest_grp.name}")
+                    # print(f"Group {dest_grp.name} has input set: {dest_grp.input_set}")
                     # use set to accelerate lookup
-                    if neu in dest_rg.input_set:
-                        rg.dests[neu] = dest_rg
+                    if neu in dest_grp.input_set:
+                        # print(f"\tDest Found: Neuron {neu} sends to group {dest_grp.name}")
+                        dest_found = True
+                        group.dests[neu] = dest_grp
                         break
-                rg.dests[neu] = self.output_routing_group
-                self.output_routing_group.input_list.append(neu)
+                if not dest_found:
+                    self.output_routing_group.input_list.append(neu)
+                    group.dests[neu] = self.output_routing_group
 
         self.output_routing_group.input_set = set(self.output_routing_group.input_list)
+        # print("Output Routing Group Input List:", self.output_routing_group.input_list)
         self.output_routing_group.lcn = LCN_EX.LCN_128X
 
     def routing(self):
-        self.routing_groups, next_rg_group = toposort_for_rg(self.routing_groups)
+        self.routing_groups, next_rg_group = toposort_for_rg(self.groups)
 
         areas = [rg.n_core_required for rg in self.routing_groups]
         copy_configs, coords = route_solve(
@@ -168,27 +177,27 @@ class Mapper:
         # determine raw_neus in routing groups, other properties remain unset
         self.generate_routing_groups(pai_graph)
 
-        print(self.routing_groups)
+        print(self.groups)
 
         # determine which rg each neuron sends to
         # dests and input_list set
         # other properties remain unset
         self.set_rough_dest()
 
-        for rg in self.routing_groups:
+        for rg in self.groups:
             rg.allocate_neurons()
 
-        for rg in self.routing_groups:
+        for rg in self.groups:
             print(rg.info())
 
         # set core placements' coord, and generate detailed dest info for each neuron
         self.routing()
 
-        for rg in self.routing_groups:
+        for rg in self.groups:
             print(rg.info())
 
         self.set_detail_dest()
-        for rg in self.routing_groups:
+        for rg in self.groups:
             print(rg.routing_summary())
 
         self.set_auto_core_config()
