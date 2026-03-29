@@ -15,11 +15,13 @@ Two validation stages live in this module:
   final graph that will be returned to callers.
 """
 
+import math
 import warnings
-from typing import TypedDict
+from typing import TypedDict, TypeGuard
 
 import torch
 from paicorelib import DataSign, DataWidth, OutputType, SNNMode
+from torch import nn
 
 from ..exceptions import GraphCleanupWarning, GraphValidationError
 from ..ir.add_ops import GeneralAddOp, PotentialAddOp
@@ -35,6 +37,7 @@ from ..ir.op_node import (
     StandaloneActOp,
     StandaloneCompOp,
 )
+from ..ir.reshape_semantics import shape_after_dims
 from ..ir.signal_domain import SignalDomain
 from .avgpool import calibrate_avgpool_thresholds
 from .avgpool.calibration import CalibrationResult
@@ -445,6 +448,12 @@ def validate_compiled_graph(graph: PAIIRGraph) -> None:
         if node.output_domain is None:
             errors.append(f"OpNode '{name}' is missing output_domain")
 
+        if isinstance(node, ConcatOp):
+            _validate_concat_contract(errors, graph, name, node)
+
+        if isinstance(node, ReshapeOp):
+            _validate_reshape_contract(errors, graph, name, node)
+
         if isinstance(node, PotentialAddOp):
             _validate_potential_add_contract(errors, graph, name, node)
 
@@ -465,6 +474,133 @@ def validate_compiled_graph(graph: PAIIRGraph) -> None:
 
     if errors:
         raise GraphValidationError(errors)
+
+
+def _get_node_output_shape(node: PAIIRNode) -> tuple[int, ...]:
+    if isinstance(node, InputNode):
+        return node.shape
+    if isinstance(node, OutputNode):
+        return node.shape
+    if isinstance(node, OpNode):
+        return node.output_shape
+    return ()
+
+
+def _validate_concat_contract(
+    errors: list[str], graph: PAIIRGraph, name: str, node: ConcatOp
+) -> None:
+    preds = graph.predecessors(name)
+    pred_shapes = [_get_node_output_shape(graph.nodes[p]) for p in preds]
+
+    if len(preds) < 1:
+        errors.append(f"ConcatOp '{name}' must define at least one input path")
+        return
+
+    if node.input_shapes and len(node.input_shapes) != len(preds):
+        errors.append(
+            f"ConcatOp '{name}' has {len(node.input_shapes)} input_shapes but "
+            f"{len(preds)} predecessor(s)"
+        )
+        return
+
+    if node.input_shapes:
+        mismatched = [
+            (pred, pred_shape, expected_shape)
+            for pred, pred_shape, expected_shape in zip(
+                preds, pred_shapes, node.input_shapes
+            )
+            if pred_shape and pred_shape != expected_shape
+        ]
+        if mismatched:
+            details = ", ".join(
+                f"{pred}: pred_output_shape={pred_shape}, input_shape={expected_shape}"
+                for pred, pred_shape, expected_shape in mismatched
+            )
+            errors.append(f"ConcatOp '{name}' predecessor shape mismatch: {details}")
+            return
+
+        ranks = {len(shape) for shape in node.input_shapes if shape}
+        if len(ranks) > 1:
+            errors.append(
+                f"ConcatOp '{name}' requires same-rank operands, got {node.input_shapes}"
+            )
+            return
+
+        if ranks:
+            rank = next(iter(ranks))
+            dim = node.dim if node.dim >= 0 else node.dim + rank
+            if dim < 0 or dim >= rank:
+                errors.append(
+                    f"ConcatOp '{name}' has invalid concat dim={node.dim} for rank {rank}"
+                )
+                return
+
+            base_shape = list(node.input_shapes[0])
+            concat_extent = 0
+            for shape in node.input_shapes:
+                if any(
+                    shape[axis] != base_shape[axis]
+                    for axis in range(rank)
+                    if axis != dim
+                ):
+                    errors.append(
+                        f"ConcatOp '{name}' non-concat dims differ across inputs: {node.input_shapes}"
+                    )
+                    return
+                concat_extent += shape[dim]
+
+            expected_output = tuple(
+                concat_extent if axis == dim else base_shape[axis]
+                for axis in range(rank)
+            )
+            if node.output_shape and expected_output != node.output_shape:
+                errors.append(
+                    f"ConcatOp '{name}' output_shape mismatch: "
+                    f"expected {expected_output}, got {node.output_shape}"
+                )
+
+
+def _validate_reshape_contract(
+    errors: list[str], graph: PAIIRGraph, name: str, node: ReshapeOp
+) -> None:
+    preds = graph.predecessors(name)
+    if len(preds) != 1:
+        errors.append(
+            f"ReshapeOp '{name}' must have exactly one predecessor, got {len(preds)}"
+        )
+        return
+
+    pred_shape = _get_node_output_shape(graph.nodes[preds[0]])
+    if node.input_shapes and len(node.input_shapes) != 1:
+        errors.append(
+            f"ReshapeOp '{name}' has {len(node.input_shapes)} input_shapes (expected 1)"
+        )
+        return
+
+    if node.input_shapes and pred_shape:
+        expected_input_shape = node.input_shapes[0]
+        if pred_shape != expected_input_shape:
+            logical_pred_shape = None
+            if len(node.input_dims) == 1:
+                logical_pred_shape = shape_after_dims(pred_shape, node.input_dims[0])
+
+            if logical_pred_shape != expected_input_shape:
+                details = f"pred_output_shape={pred_shape}, input_shape={expected_input_shape}"
+                if logical_pred_shape is not None:
+                    details += f", pred_shape_after_input_dims={logical_pred_shape}"
+                errors.append(
+                    f"ReshapeOp '{name}' predecessor shape mismatch: {details}"
+                )
+                return
+
+    if node.input_shapes and node.output_shape:
+        in_numel = math.prod(node.input_shapes[0])
+        out_numel = math.prod(node.output_shape)
+        if in_numel != out_numel:
+            errors.append(
+                f"ReshapeOp '{name}' changes element count: "
+                f"input_shape={node.input_shapes[0]}, output_shape={node.output_shape}"
+            )
 
 
 def propagate_signal_domain(graph: PAIIRGraph) -> None:
@@ -542,6 +678,11 @@ def propagate_signal_domain(graph: PAIIRGraph) -> None:
                 )
                 continue
             node.output_domain = SignalDomain.POTENTIAL
+            continue
+
+        if _is_standalone_maxpool(node):
+            if known_pred_domains:
+                node.output_domain = known_pred_domains[0]
             continue
 
         if isinstance(node, OfflineCoreOp):
@@ -746,24 +887,72 @@ _DEFAULT_ANN_INPUT: DataFormat = (DataSign.SIGNED, DataWidth.WIDTH_8BIT)
 _WEIGHTLESS_WEIGHT_FORMAT: DataFormat = (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)
 
 
+def _is_standalone_maxpool(node: PAIIRNode) -> TypeGuard[StandaloneCompOp]:
+    return isinstance(node, StandaloneCompOp) and isinstance(
+        node.comp, (nn.MaxPool1d, nn.MaxPool2d)
+    )
+
+
+def _is_format_transparent_routing_node(
+    node: PAIIRNode
+) -> TypeGuard[ConcatOp | ReshapeOp]:
+    """Return whether *node* preserves scalar data format across routing."""
+    return isinstance(node, (ConcatOp, ReshapeOp))
+
+
 def propagate_data_format(
     graph: PAIIRGraph, input_formats: dict[str, DataFormat] | None = None
 ) -> None:
-    """Infer and fill data format parameters on every :class:`OfflineCoreOp`."""
+    """Infer and write data-format fields on every :class:`OfflineCoreOp`.
+
+    This pass fills the three backend-facing format groups stored in
+    :class:`~paibox.paiir.ir.calc_params.OfflineCoreParams`:
+
+    - ``input_sign`` / ``input_width``
+    - ``output_sign`` / ``output_width``
+    - ``weight_sign`` / ``weight_width``
+
+    The propagation is intentionally split into two topological passes:
+
+    1. Seed an effective format for every external input, then assign each
+       deployable core's intrinsic output format and weight format.
+    2. Propagate those resolved formats through routing-only nodes
+       (:class:`ConcatOp`, :class:`ReshapeOp`, :class:`OutputNode`) and finally
+       back-fill each deployable core's input format from its predecessors.
+
+    The ordering matters because a core's input format depends on the already
+    resolved output formats of its predecessors, while many cores can determine
+    their own output format directly from their activation semantics.
+
+    Args:
+        graph: Fused PAIIR graph whose node connectivity has already been
+            validated.
+        input_formats: Optional mapping from ``InputNode`` name to explicit
+            external input format. Any omitted input falls back to
+            :func:`_infer_input_node_default`.
+    """
     if input_formats is None:
         input_formats = {}
 
     input_node_names = {
         n for n, node in graph.nodes.items() if isinstance(node, InputNode)
     }
+    # Warn early if the caller passed a boundary-name override that does not
+    # correspond to the current graph, but keep processing valid entries.
     for name in input_formats:
         if name not in input_node_names:
             warnings.warn(
                 f"input_formats key '{name}' does not match any InputNode in the graph"
             )
 
+    # Effective data format per graph node, including routing-only nodes and
+    # graph boundaries. This is separate from `core_params`, which only exists
+    # on deployable offline-core operators.
     resolved: dict[str, DataFormat] = {}
 
+    # Pass 1: establish each deployable core's own output and weight formats.
+    # This gives later consumers a stable predecessor-output view before we
+    # compute per-core input formats.
     for name in graph.topo_sort():
         node = graph.nodes[name]
 
@@ -776,29 +965,39 @@ def propagate_data_format(
             continue
         if isinstance(node, OutputNode):
             continue
-        if isinstance(node, (ConcatOp, ReshapeOp)):
+        if _is_format_transparent_routing_node(node):
+            # Routing nodes have no `core_params`; their effective formats are
+            # propagated in the second pass after predecessor outputs are known.
             continue
         if not isinstance(node, OfflineCoreOp):
             continue
 
-        out_fmt = _infer_node_output_format(node)
+        pred_formats = _collect_effective_predecessor_formats(graph, name, resolved)
+        out_fmt = _infer_node_output_format(node, pred_formats)
         node.core_params.set_output_format(out_fmt)
         resolved[name] = out_fmt
 
         w_fmt = _infer_node_weight_format(node)
         node.core_params.set_weight_format(w_fmt)
 
+    # Pass 2: thread those resolved formats through non-deploy routing nodes
+    # and then back-fill each deployable core's input format from predecessor
+    # outputs.
     for name in graph.topo_sort():
         node = graph.nodes[name]
 
         if isinstance(node, (InputNode, OutputNode)):
             if isinstance(node, OutputNode):
+                # Output nodes are pure pass-through graph boundaries: they
+                # inherit the effective format of their sole predecessor.
                 preds = graph.predecessors(name)
                 if preds and preds[0] in resolved:
                     resolved[name] = resolved[preds[0]]
             continue
 
         if isinstance(node, ConcatOp):
+            # Concat preserves element encoding and therefore resolves to the
+            # merged predecessor format.
             pred_formats = [
                 resolved[p] for p in graph.predecessors(name) if p in resolved
             ]
@@ -807,6 +1006,7 @@ def propagate_data_format(
             continue
 
         if isinstance(node, ReshapeOp):
+            # Reshape/view/flatten do not change the scalar representation.
             preds = graph.predecessors(name)
             if preds and preds[0] in resolved:
                 resolved[name] = resolved[preds[0]]
@@ -820,6 +1020,34 @@ def propagate_data_format(
         node.core_params.set_input_format(in_fmt)
 
 
+def _collect_effective_predecessor_formats(
+    graph: PAIIRGraph, node_name: str, resolved: dict[str, DataFormat]
+) -> list[DataFormat]:
+    formats: list[DataFormat] = []
+    for pred_name in graph.predecessors(node_name):
+        formats.extend(_collect_effective_node_formats(graph, pred_name, resolved))
+
+    return formats
+
+
+def _collect_effective_node_formats(
+    graph: PAIIRGraph,
+    node_name: str,
+    resolved: dict[str, DataFormat],
+) -> list[DataFormat]:
+    if node_name in resolved:
+        return [resolved[node_name]]
+
+    node = graph.nodes[node_name]
+    if _is_format_transparent_routing_node(node):
+        formats: list[DataFormat] = []
+        for pred_name in graph.predecessors(node_name):
+            formats.extend(_collect_effective_node_formats(graph, pred_name, resolved))
+        return formats
+
+    return []
+
+
 def _infer_input_node_default(graph: PAIIRGraph, name: str) -> DataFormat:
     succs = graph.successors(name)
     for succ_name in succs:
@@ -831,7 +1059,16 @@ def _infer_input_node_default(graph: PAIIRGraph, name: str) -> DataFormat:
     return _DEFAULT_ANN_INPUT
 
 
-def _infer_node_output_format(node: OfflineCoreOp) -> DataFormat:
+def _infer_node_output_format(
+    node: OfflineCoreOp, pred_formats: list[DataFormat] | None = None
+) -> DataFormat:
+    if _is_standalone_maxpool(node):
+        if not pred_formats:
+            raise ValueError(
+                f"Standalone MaxPool '{node.name}' requires predecessor format"
+            )
+        return merge_data_formats(pred_formats)
+
     act = getattr(node, "act", None)
     if act is not None:
         return infer_output_format(act)
