@@ -1,16 +1,7 @@
 import torch
 from torch import fx, nn
-from torch.fx.passes.shape_prop import ShapeProp
 
-from paibox.paiir.lowering.dims_prop import DimsProp
-
-
-def _propagate(model: nn.Module, *inputs: torch.Tensor) -> fx.GraphModule:
-    """Trace, run ShapeProp, then DimsProp. Returns the GraphModule."""
-    gm = fx.symbolic_trace(model)
-    ShapeProp(gm).propagate(*inputs)
-    DimsProp().propagate(gm)
-    return gm
+from tests.paiir.tracing import trace_with_fx_shape_and_dims as _propagate
 
 
 def _output_dims(gm: fx.GraphModule) -> tuple[int, ...]:
@@ -184,6 +175,42 @@ class TestDimsProp:
         gm = _propagate(M(), torch.randn(2, 3, 4))
         assert _output_dims(gm) == (0, 1)
 
+    def test_view_as_resets_to_identity(self):
+        class M(nn.Module):
+            def forward(self, x: torch.Tensor, ref: torch.Tensor) -> torch.Tensor:
+                return x.view_as(ref)
+
+        gm = _propagate(M(), torch.randn(1, 3, 2, 2), torch.randn(1, 12))
+        assert _output_dims(gm) == (0, 1)
+        assert _node_dims(gm, "view_as") == (0, 1)
+
+    def test_function_unsqueeze_resets_to_identity(self):
+        class M(nn.Module):
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return torch.unsqueeze(x, 1)
+
+        gm = _propagate(M(), torch.randn(1, 2, 3))
+        assert _output_dims(gm) == (0, 1, 2, 3)
+        assert _node_dims(gm, "unsqueeze") == (0, 1, 2, 3)
+
+    def test_method_squeeze_resets_to_identity(self):
+        class M(nn.Module):
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return x.squeeze(1)
+
+        gm = _propagate(M(), torch.randn(1, 1, 2, 3))
+        assert _output_dims(gm) == (0, 1, 2)
+        assert _node_dims(gm, "squeeze") == (0, 1, 2)
+
+    def test_function_squeeze_resets_to_identity(self):
+        class M(nn.Module):
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return torch.squeeze(x, 1)
+
+        gm = _propagate(M(), torch.randn(1, 1, 2, 3))
+        assert _output_dims(gm) == (0, 1, 2)
+        assert _node_dims(gm, "squeeze") == (0, 1, 2)
+
     def test_contiguous_inherits_dims(self):
         """contiguous() preserves dims from input (no layout change)."""
 
@@ -244,7 +271,7 @@ class TestDimsProp:
                 self.register_buffer("buf", torch.randn(3, 4))
 
             def forward(self, x: torch.Tensor) -> torch.Tensor:
-                return x + self.buf
+                return x + self.buf  # type: ignore
 
         gm = _propagate(M(), torch.randn(3, 4))
         for node in gm.graph.nodes:

@@ -13,9 +13,11 @@ from paibox.paiir.ir.op_node import (
     AccumulateOp,
     ConcatOp,
     OfflineCoreOp,
+    ReshapeOp,
     SequentialOp,
     StandaloneCompOp,
 )
+from paibox.paiir.pipeline.passes import GraphCleanupWarning
 from tests.paiir.conftest import MultiInputMerge, find_nodes
 
 
@@ -690,13 +692,35 @@ class TestMultiLayerSNN:
     def test_flatten_linear_transition(self) -> None:
         """SNNFlattenTransition: Conv -> flatten -> Linear.
 
-        Tests spatial-to-dense transition in SNN context.
-
-        Note: Currently skipped because PAIIR does not capture flatten/reshape
-        operations between Conv and Linear. The graph structure expects the
-        Linear input shape (1, 128) but receives (1, 8, 4, 4) from the Conv.
+        Tests spatial-to-dense transition in SNN context now that flatten is
+        materialized as a routing ``ReshapeOp`` for graph simulation.
         """
-        pytest.skip("PAIIR does not capture flatten operations between Conv and Linear")
+        from tests.paiir.conftest import SNNFlattenTransition
+
+        model = SNNFlattenTransition()
+        _set_quantized_weights(model)
+
+        x_compile = torch.randn(1, 1, 4, 4)
+        x_int8 = torch.randint(0, 2, (1, 1, 4, 4), dtype=torch.int8)
+
+        sj_out = _run_snn_reference(model, x_int8)
+        assert torch.is_tensor(sj_out)
+
+        graph = compile_to_paiir(model, x_compile)
+        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
+        assert len(reshape_nodes) == 1
+
+        graph.reset()
+        max_tick_start = max(
+            n.core_params.tick_start
+            for n in graph.nodes.values()
+            if isinstance(n, OfflineCoreOp) and n.core_params.tick_start is not None
+        )
+        for _ in range(max_tick_start):
+            paiir_out = graph.step(x_int8)
+
+        assert torch.is_tensor(paiir_out)
+        assert torch.equal(paiir_out, sj_out)
 
     def test_depthwise_separable(self) -> None:
         """SNNDepthwiseSeparable: DWConv -> PWConv.
@@ -1178,4 +1202,446 @@ class TestStandaloneOpSimulation:
         paiir_out = graph.step(x_int8)
 
         assert torch.is_tensor(paiir_out)
+        assert torch.equal(paiir_out, pytorch_out)
+
+    def test_view_and_view_as_routing_before_linear(self) -> None:
+        """`view(size(0), -1)` and `view_as(...)` execute as routing ops."""
+
+        class ViewLinear(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.linear = nn.Linear(12, 4, bias=False)
+
+            def forward(self, x: Tensor) -> Tensor:
+                x = x.view(x.size(0), -1)
+                x = x.view_as(x)
+                return self.linear(x)
+
+        model = ViewLinear()
+        _set_quantized_weights(model)
+
+        x_compile = torch.randn(1, 3, 2, 2)
+        x_int8 = torch.randint(-128, 128, (1, 3, 2, 2), dtype=torch.int8)
+
+        model.eval()
+        with torch.no_grad():
+            pytorch_out = model(x_int8.float())
+
+        graph = compile_to_paiir(model, x_compile)
+        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
+        assert len(reshape_nodes) == 2
+
+        graph.reset()
+        max_tick_start = max(
+            n.core_params.tick_start
+            for n in graph.nodes.values()
+            if isinstance(n, OfflineCoreOp) and n.core_params.tick_start is not None
+        )
+        for _ in range(max_tick_start):
+            paiir_out = graph.step(x_int8)
+
+        assert torch.is_tensor(paiir_out)
+        assert torch.equal(paiir_out, pytorch_out)
+
+    def test_view_as_reference_path_before_linear(self) -> None:
+        """`view_as(ref)` uses only the data tensor as the runtime graph input."""
+
+        class ViewAsReferenceFromFlatten(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.linear = nn.Linear(12, 4, bias=False)
+
+            def forward(self, x: Tensor) -> Tensor:
+                ref = x.flatten(1)
+                y = x.view_as(ref)
+                return self.linear(y)
+
+        model = ViewAsReferenceFromFlatten()
+        _set_quantized_weights(model)
+
+        x_compile = torch.randn(1, 3, 2, 2)
+        x_int8 = torch.randint(-128, 128, (1, 3, 2, 2), dtype=torch.int8)
+
+        model.eval()
+        with torch.no_grad():
+            pytorch_out = model(x_int8.float())
+
+        with pytest.warns(GraphCleanupWarning, match="disconnected"):
+            graph = compile_to_paiir(model, x_compile)
+        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
+        assert len(reshape_nodes) == 1
+
+        graph.reset()
+        max_tick_start = max(
+            n.core_params.tick_start
+            for n in graph.nodes.values()
+            if isinstance(n, OfflineCoreOp) and n.core_params.tick_start is not None
+        )
+        for _ in range(max_tick_start):
+            paiir_out = graph.step(x_int8)
+
+        assert torch.is_tensor(paiir_out)
+        assert torch.equal(paiir_out, pytorch_out)
+
+    def test_view_shape_arithmetic_before_linear(self) -> None:
+        """Shape arithmetic feeding `view(...)` is treated as shape-only aux graph."""
+
+        class ViewShapeArithmetic(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.linear = nn.Linear(24, 5, bias=False)
+
+            def forward(self, x: Tensor) -> Tensor:
+                batch = x.size(0) + x.size(1) - x.size(1)
+                features = (x.size(1) * x.size(2) * x.size(3)) // batch
+                return self.linear(x.view(batch, features))
+
+        model = ViewShapeArithmetic()
+        _set_quantized_weights(model)
+
+        x_compile = torch.randn(1, 2, 3, 4)
+        x_int8 = torch.randint(-128, 128, (1, 2, 3, 4), dtype=torch.int8)
+
+        model.eval()
+        with torch.no_grad():
+            pytorch_out = model(x_int8.float())
+
+        graph = compile_to_paiir(model, x_compile)
+        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
+        assert len(reshape_nodes) == 1
+
+        graph.reset()
+        max_tick_start = max(
+            n.core_params.tick_start
+            for n in graph.nodes.values()
+            if isinstance(n, OfflineCoreOp) and n.core_params.tick_start is not None
+        )
+        for _ in range(max_tick_start):
+            paiir_out = graph.step(x_int8)
+
+        assert torch.is_tensor(paiir_out)
+        assert torch.equal(paiir_out, pytorch_out)
+
+    def test_function_unsqueeze_before_linear(self) -> None:
+        """Function-form `torch.unsqueeze(...)` executes as a routing op."""
+
+        class FunctionUnsqueezeLinear(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.linear = nn.Linear(6, 4, bias=False)
+
+            def forward(self, x: Tensor) -> Tensor:
+                x = torch.unsqueeze(x, 1)
+                x = x.flatten(1)
+                return self.linear(x)
+
+        model = FunctionUnsqueezeLinear()
+        _set_quantized_weights(model)
+
+        x_compile = torch.randn(1, 2, 3)
+        x_int8 = torch.randint(-128, 128, (1, 2, 3), dtype=torch.int8)
+
+        model.eval()
+        with torch.no_grad():
+            pytorch_out = model(x_int8.float())
+
+        graph = compile_to_paiir(model, x_compile)
+        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
+        assert len(reshape_nodes) == 2
+
+        graph.reset()
+        max_tick_start = max(
+            n.core_params.tick_start
+            for n in graph.nodes.values()
+            if isinstance(n, OfflineCoreOp) and n.core_params.tick_start is not None
+        )
+        for _ in range(max_tick_start):
+            paiir_out = graph.step(x_int8)
+
+        assert torch.is_tensor(paiir_out)
+        assert torch.equal(paiir_out, pytorch_out)
+
+    def test_tuple_repeat_all_ones_before_linear(self) -> None:
+        """Tuple-form identity `repeat((1,...))` executes as a routing no-op."""
+
+        class TupleRepeatLinear(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.linear = nn.Linear(6, 4, bias=False)
+
+            def forward(self, x: Tensor) -> Tensor:
+                x = x.repeat((1, 1, 1))
+                x = x.flatten(1)
+                return self.linear(x)
+
+        model = TupleRepeatLinear()
+        _set_quantized_weights(model)
+
+        x_compile = torch.randn(1, 2, 3)
+        x_int8 = torch.randint(-128, 128, (1, 2, 3), dtype=torch.int8)
+
+        model.eval()
+        with torch.no_grad():
+            pytorch_out = model(x_int8.float())
+
+        graph = compile_to_paiir(model, x_compile)
+        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
+        assert len(reshape_nodes) == 2
+
+        graph.reset()
+        max_tick_start = max(
+            n.core_params.tick_start
+            for n in graph.nodes.values()
+            if isinstance(n, OfflineCoreOp) and n.core_params.tick_start is not None
+        )
+        for _ in range(max_tick_start):
+            paiir_out = graph.step(x_int8)
+
+        assert torch.is_tensor(paiir_out)
+        assert torch.equal(paiir_out, pytorch_out)
+
+    def test_method_squeeze_before_linear(self) -> None:
+        """Method-form `squeeze(...)` executes as a routing op."""
+
+        class MethodSqueezeLinear(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.linear = nn.Linear(6, 4, bias=False)
+
+            def forward(self, x: Tensor) -> Tensor:
+                x = x.squeeze(1)
+                x = x.flatten(1)
+                return self.linear(x)
+
+        model = MethodSqueezeLinear()
+        _set_quantized_weights(model)
+
+        x_compile = torch.randn(1, 1, 2, 3)
+        x_int8 = torch.randint(-128, 128, (1, 1, 2, 3), dtype=torch.int8)
+
+        model.eval()
+        with torch.no_grad():
+            pytorch_out = model(x_int8.float())
+
+        graph = compile_to_paiir(model, x_compile)
+        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
+        assert len(reshape_nodes) == 2
+
+        graph.reset()
+        max_tick_start = max(
+            n.core_params.tick_start
+            for n in graph.nodes.values()
+            if isinstance(n, OfflineCoreOp) and n.core_params.tick_start is not None
+        )
+        for _ in range(max_tick_start):
+            paiir_out = graph.step(x_int8)
+
+        assert torch.is_tensor(paiir_out)
+        assert torch.equal(paiir_out, pytorch_out)
+
+    def test_function_squeeze_before_linear(self) -> None:
+        """Function-form `torch.squeeze(...)` executes as a routing op."""
+
+        class FunctionSqueezeLinear(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.linear = nn.Linear(6, 4, bias=False)
+
+            def forward(self, x: Tensor) -> Tensor:
+                x = torch.squeeze(x, 1)
+                x = x.flatten(1)
+                return self.linear(x)
+
+        model = FunctionSqueezeLinear()
+        _set_quantized_weights(model)
+
+        x_compile = torch.randn(1, 1, 2, 3)
+        x_int8 = torch.randint(-128, 128, (1, 1, 2, 3), dtype=torch.int8)
+
+        model.eval()
+        with torch.no_grad():
+            pytorch_out = model(x_int8.float())
+
+        graph = compile_to_paiir(model, x_compile)
+        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
+        assert len(reshape_nodes) == 2
+
+        graph.reset()
+        max_tick_start = max(
+            n.core_params.tick_start
+            for n in graph.nodes.values()
+            if isinstance(n, OfflineCoreOp) and n.core_params.tick_start is not None
+        )
+        for _ in range(max_tick_start):
+            paiir_out = graph.step(x_int8)
+
+        assert torch.is_tensor(paiir_out)
+        assert torch.equal(paiir_out, pytorch_out)
+
+    def test_transpose_then_flatten_before_linear(self) -> None:
+        """Bypassed transpose metadata is materialized at the downstream reshape op."""
+
+        class TransposeFlattenLinear(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.linear = nn.Linear(6, 4, bias=False)
+
+            def forward(self, x: Tensor) -> Tensor:
+                return self.linear(x.transpose(1, 2).flatten(1))
+
+        model = TransposeFlattenLinear()
+        _set_quantized_weights(model)
+
+        x_compile = torch.randn(1, 2, 3)
+        x_int8 = torch.randint(-128, 128, (1, 2, 3), dtype=torch.int8)
+
+        model.eval()
+        with torch.no_grad():
+            pytorch_out = model(x_int8.float())
+
+        graph = compile_to_paiir(model, x_compile)
+        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
+        assert len(reshape_nodes) == 1
+
+        graph.reset()
+        max_tick_start = max(
+            n.core_params.tick_start
+            for n in graph.nodes.values()
+            if isinstance(n, OfflineCoreOp) and n.core_params.tick_start is not None
+        )
+        for _ in range(max_tick_start):
+            paiir_out = graph.step(x_int8)
+
+        assert torch.is_tensor(paiir_out)
+        assert torch.equal(paiir_out, pytorch_out)
+
+    def test_permute_then_reshape_before_linear(self) -> None:
+        """Bypassed permute metadata is materialized at the downstream reshape op."""
+
+        class PermuteReshapeLinear(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.linear = nn.Linear(24, 5, bias=False)
+
+            def forward(self, x: Tensor) -> Tensor:
+                x = x.permute(0, 2, 3, 1)
+                x = x.reshape(x.size(0), -1)
+                return self.linear(x)
+
+        model = PermuteReshapeLinear()
+        _set_quantized_weights(model)
+
+        x_compile = torch.randn(1, 2, 3, 4)
+        x_int8 = torch.randint(-128, 128, (1, 2, 3, 4), dtype=torch.int8)
+
+        model.eval()
+        with torch.no_grad():
+            pytorch_out = model(x_int8.float())
+
+        graph = compile_to_paiir(model, x_compile)
+        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
+        assert len(reshape_nodes) == 1
+
+        graph.reset()
+        max_tick_start = max(
+            n.core_params.tick_start
+            for n in graph.nodes.values()
+            if isinstance(n, OfflineCoreOp) and n.core_params.tick_start is not None
+        )
+        for _ in range(max_tick_start):
+            paiir_out = graph.step(x_int8)
+
+        assert torch.is_tensor(paiir_out)
+        assert torch.equal(paiir_out, pytorch_out)
+
+    def test_flatten_then_reshape_chain_before_linear(self) -> None:
+        """Chained `flatten -> reshape(size arithmetic) -> flatten -> Linear` simulates."""
+
+        class FlattenReshapeLinear(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.linear = nn.Linear(24, 5, bias=False)
+
+            def forward(self, x: Tensor) -> Tensor:
+                x = x.flatten(1)
+                x = x.reshape(x.size(0), 2, x.size(1) // 2)
+                x = x.flatten(1)
+                return self.linear(x)
+
+        model = FlattenReshapeLinear()
+        _set_quantized_weights(model)
+
+        x_compile = torch.randn(1, 2, 3, 4)
+        x_int8 = torch.randint(-128, 128, (1, 2, 3, 4), dtype=torch.int8)
+
+        model.eval()
+        with torch.no_grad():
+            pytorch_out = model(x_int8.float())
+
+        graph = compile_to_paiir(model, x_compile)
+        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
+        assert len(reshape_nodes) == 3
+
+        graph.reset()
+        max_tick_start = max(
+            n.core_params.tick_start
+            for n in graph.nodes.values()
+            if isinstance(n, OfflineCoreOp) and n.core_params.tick_start is not None
+        )
+        for _ in range(max_tick_start):
+            paiir_out = graph.step(x_int8)
+
+        assert torch.is_tensor(paiir_out)
+        assert torch.equal(paiir_out, pytorch_out)
+
+    @pytest.mark.parametrize("dtype", [torch.uint8, torch.int8], ids=["uint8", "int8"])
+    def test_standalone_maxpool_preserves_integer_dtype(
+        self, dtype: torch.dtype
+    ) -> None:
+        model = nn.MaxPool2d(2, 2)
+
+        x_compile = torch.randn(1, 1, 4, 4)
+        x_int = torch.arange(16, dtype=dtype).reshape(1, 1, 4, 4)
+
+        with torch.no_grad():
+            pytorch_out = model(x_int)
+
+        graph = compile_to_paiir(model, x_compile)
+
+        standalone_ops = [
+            n for n in graph.nodes.values() if isinstance(n, StandaloneCompOp)
+        ]
+        assert len(standalone_ops) == 1
+
+        graph.reset()
+        paiir_out = graph.step(x_int)
+
+        assert torch.is_tensor(paiir_out)
+        assert paiir_out.dtype == dtype
+        assert torch.equal(paiir_out, pytorch_out)
+
+    @pytest.mark.parametrize("dtype", [torch.uint8, torch.int8], ids=["uint8", "int8"])
+    def test_standalone_maxpool1d_preserves_integer_dtype(
+        self, dtype: torch.dtype
+    ) -> None:
+        model = nn.MaxPool1d(2, 2)
+
+        x_compile = torch.randn(1, 1, 8)
+        x_int = torch.arange(8, dtype=dtype).reshape(1, 1, 8)
+
+        with torch.no_grad():
+            pytorch_out = model(x_int.to(torch.float32)).to(dtype)
+
+        graph = compile_to_paiir(model, x_compile)
+
+        standalone_ops = [
+            n for n in graph.nodes.values() if isinstance(n, StandaloneCompOp)
+        ]
+        assert len(standalone_ops) == 1
+
+        graph.reset()
+        paiir_out = graph.step(x_int)
+
+        assert torch.is_tensor(paiir_out)
+        assert paiir_out.dtype == dtype
         assert torch.equal(paiir_out, pytorch_out)
