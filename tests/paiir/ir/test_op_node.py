@@ -26,7 +26,7 @@ from paibox.paiir.ir.op_node import (
     StandaloneActOp,
     StandaloneCompOp,
 )
-from paibox.paiir.pipeline.avgpool import (
+from paibox.paiir.pipeline.avgpool.compensation import (
     apply_avgpool_lut_compensation,
     apply_avgpool_snn_compensation,
 )

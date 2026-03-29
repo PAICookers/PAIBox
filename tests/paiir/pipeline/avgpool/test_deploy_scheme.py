@@ -8,7 +8,7 @@ from torch import nn
 from paibox.paiir.ir.op_node import SequentialOp, StandaloneActOp
 from paibox.paiir.lowering.converter import torch_to_paiir
 from paibox.paiir.nn import SumPool2d
-from paibox.paiir.pipeline.avgpool import AvgPoolDeployMetadata
+from paibox.paiir.pipeline.avgpool.metadata import AvgPoolDeployMetadata
 from paibox.paiir.pipeline.passes import fuse_to_offline_cores, specialize_general_adds
 from tests.paiir.conftest import (
     SNNWithAvgPoolIF,

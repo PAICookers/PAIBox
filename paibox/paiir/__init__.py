@@ -26,52 +26,22 @@ Quick start::
 # Chip-accurate operators and IR entities (public API)
 from .ir import (
     ANNNodeV25,
-    AddOperandKind,
-    AddOperandSpec,
-    AccumulateOp,
-    CPUOp,
-    ConcatOp,
     CoreNeuronV25,
-    Edge,
-    GeneralAddOp,
     IFNodeV25,
-    InputNode,
     LIFNodeV25,
     LutActivation,
     LutAdaptiveActivation,
     LutCustom,
-    LutData,
     LutLinear,
     LutReLU,
     LutSigmoid,
     LutSoftsign,
     LutTanh,
-    NeuronParams,
-    OfflineCoreOp,
-    OfflineCoreParams,
-    OnlineCoreOp,
-    OnlineCoreParams,
-    OpNode,
-    OutputNode,
     PAIIRGraph,
-    PAIIRNode,
-    PotentialAddOp,
-    ReshapeOp,
-    SequentialOp,
-    SignalDomain,
-    StandaloneActOp,
-    StandaloneCompOp,
 )
 
-# Data format inference and compile pipeline
-from .pipeline import (
-    CompileConfig,
-    DataFormat,
-    compile_to_paiir,
-    infer_output_format,
-    infer_weight_format,
-    merge_data_formats,
-)
+# Compile entrypoints
+from .pipeline import CompileConfig, compile_to_paiir
 
 # Conversion entrypoints
 from .lowering import register_neuron, torch_to_paiir
@@ -90,38 +60,8 @@ __all__ = [
     "LutSigmoid",
     "LutTanh",
     "LutSoftsign",
-    # IR base types
-    "PAIIRNode",
-    "InputNode",
-    "OutputNode",
     # Graph
-    "Edge",
     "PAIIRGraph",
-    # Core operator IR nodes
-    "AddOperandKind",
-    "AddOperandSpec",
-    "GeneralAddOp",
-    "OpNode",
-    "OfflineCoreOp",
-    "SequentialOp",
-    "AccumulateOp",
-    "PotentialAddOp",
-    "ConcatOp",
-    "StandaloneCompOp",
-    "StandaloneActOp",
-    "SignalDomain",
-    "OnlineCoreOp",
-    "CPUOp",
-    # Parameters
-    "LutData",
-    "OfflineCoreParams",
-    "NeuronParams",
-    "OnlineCoreParams",
-    # Data format inference
-    "DataFormat",
-    "infer_output_format",
-    "infer_weight_format",
-    "merge_data_formats",
     # Conversion and passes
     "register_neuron",
     "torch_to_paiir",

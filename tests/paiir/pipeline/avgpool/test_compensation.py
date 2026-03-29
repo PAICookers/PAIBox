@@ -9,15 +9,17 @@ from paibox.paiir.pipeline.avgpool import (
     AvgPoolDeployScheme,
     AvgPoolLIFCandidateScore,
     CalibrationResult,
-    apply_avgpool_leak_params,
     calibrate_avgpool_threshold,
+    score_avgpool_lif_candidates,
+    select_avgpool_lif_candidate,
+    select_avgpool_lif_deployment,
+)
+from paibox.paiir.pipeline.avgpool.compensation import (
+    apply_avgpool_leak_params,
     compensate_avgpool_lut,
     compensate_avgpool_lut_for_sumpool,
     compensate_avgpool_neuron,
     compensate_sumpool_neuron,
-    score_avgpool_lif_candidates,
-    select_avgpool_lif_candidate,
-    select_avgpool_lif_deployment,
 )
 
 
