@@ -91,6 +91,25 @@ def _map_comp(mod: nn.Module, **kwargs) -> OpNode:
     return StandaloneCompOp(comp=mod, **kwargs)
 
 
+def _has_nonzero_padding(padding: Any) -> bool:
+    if isinstance(padding, tuple):
+        return any(int(p) != 0 for p in padding)
+    return int(padding) != 0
+
+
+def _unsupported_avgpool_description(mod: nn.Module) -> str | None:
+    if not isinstance(mod, (nn.AvgPool1d, nn.AvgPool2d)):
+        return None
+
+    if mod.count_include_pad is False and _has_nonzero_padding(mod.padding):
+        return (
+            f"nn.Module '{type(mod).__name__}' with count_include_pad=False and "
+            "padding>0"
+        )
+
+    return None
+
+
 def _map_sj_ifnode(mod: nn.Module, **kwargs) -> OpNode:
     assert isinstance(mod, neuron.IFNode)
     return StandaloneActOp(act=IFNodeV25(mod.v_threshold, mod.v_reset, **kwargs))
@@ -790,6 +809,12 @@ def _apply_module_lowering_rule(
 
     if _is_lowering_bypass_module(torch_module):
         ctx.bypass_nodes.add(node)
+        return True
+
+    if (
+        unsupported_avgpool := _unsupported_avgpool_description(torch_module)
+    ) is not None:
+        _mark_unsupported(ctx, node, unsupported_avgpool, strict)
         return True
 
     if (mod_type := type(torch_module)) in module_map:

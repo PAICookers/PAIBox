@@ -68,6 +68,34 @@ class PoolAfterReshape(nn.Module):
         return self.pool(x)
 
 
+class UnsupportedCountIncludePadAvgPool2d(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.pool = nn.AvgPool2d(
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            count_include_pad=False,
+        )
+
+    def forward(self, x):
+        return self.pool(x)
+
+
+class SupportedNoPaddingCountIncludePadAvgPool2d(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.pool = nn.AvgPool2d(
+            kernel_size=3,
+            stride=1,
+            padding=0,
+            count_include_pad=False,
+        )
+
+    def forward(self, x):
+        return self.pool(x)
+
+
 class TestPackageExports:
     def test_public_packages_reexport_compile_symbols(self):
         paiir_mod = importlib.import_module("paibox.paiir")
@@ -488,6 +516,28 @@ class TestStrictMode:
     def test_non_strict_warns(self):
         with pytest.warns(UnsupportedOpWarning):
             compile_to_paiir(UnsupportedSoftmax(), torch.randn(1, 10), strict=False)
+
+    def test_strict_raises_for_count_include_pad_false_with_padding(self):
+        with pytest.raises(UnsupportedOpError, match="count_include_pad=False"):
+            compile_to_paiir(
+                UnsupportedCountIncludePadAvgPool2d(),
+                make_img_3ch_8x8(),
+                strict=True,
+            )
+
+    def test_padding_free_count_include_pad_false_still_compiles(self):
+        graph = compile_to_paiir(
+            SupportedNoPaddingCountIncludePadAvgPool2d(),
+            make_img_3ch_8x8(),
+            strict=True,
+        )
+
+        pool_nodes = [
+            node
+            for node in graph.nodes.values()
+            if isinstance(node, StandaloneCompOp) and isinstance(node.comp, nn.AvgPool2d)
+        ]
+        assert len(pool_nodes) == 1
 
 
 class FunctionalQuantizedConv(nn.Module):
