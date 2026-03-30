@@ -14,7 +14,7 @@ from paicorelib import (
     ZeroOutputMode,
 )
 
-from paibox.paiir import LutData
+from paibox.paiir.ir.calc_params import LutData
 
 TEST_DEST_CORE = CoordXY(0, 0)
 

@@ -182,7 +182,7 @@ validate_deployable_graph(graph)
 计算图容器，管理节点和有向边。
 
 ```python
-from paibox.paiir import PAIIRGraph
+from paibox.paiir.ir.graph import PAIIRGraph
 
 graph.name: str                        # 图名称
 graph.nodes: dict[str, PAIIRNode]      # 节点字典，key = 节点名
@@ -192,7 +192,7 @@ graph.edges: list[Edge]                # 有向边列表
 ### Edge
 
 ```python
-from paibox.paiir import Edge
+from paibox.paiir.ir.graph import Edge
 
 @dataclass(frozen=True)
 class Edge:
@@ -262,7 +262,8 @@ out_edges: list[Edge] = graph.outgoing_edges("node_name")
 ### 遍历模式
 
 ```python
-from paibox.paiir import OfflineCoreOp, InputNode, OutputNode
+from paibox.paiir.ir.ir_base import InputNode, OutputNode
+from paibox.paiir.ir.op_node import OfflineCoreOp
 
 # 按拓扑序遍历，筛选 OfflineCoreOp
 for name in graph.topo_sort():
@@ -413,7 +414,7 @@ SNN 模式下 `lut_data` 为 `None`。
 #### SequentialOp
 
 ```python
-from paibox.paiir import SequentialOp
+from paibox.paiir.ir.op_node import SequentialOp
 
 seq: SequentialOp
 seq.comp: nn.Module        # 计算模块（Conv2d / Linear / MaxPool2d / AvgPool2d 等）
@@ -426,7 +427,7 @@ seq.lut_data               # LutData | None（含 AvgPool LUT 补偿）
 #### AccumulateOp
 
 ```python
-from paibox.paiir import AccumulateOp
+from paibox.paiir.ir.op_node import AccumulateOp
 
 acc: AccumulateOp
 acc.comps: nn.ModuleList   # 计算模块列表
@@ -450,7 +451,7 @@ acc.lut_data               # LutData | None
 #### PotentialAddOp
 
 ```python
-from paibox.paiir import PotentialAddOp
+from paibox.paiir.ir.add_ops import PotentialAddOp
 
 add: PotentialAddOp
 add.signs: tuple[int, ...]  # 输入符号
@@ -469,7 +470,7 @@ add.weights                  # None（无原始参数）
 #### ConcatOp
 
 ```python
-from paibox.paiir import ConcatOp
+from paibox.paiir.ir.op_node import ConcatOp
 
 cat: ConcatOp
 cat.dim: int  # 拼接维度（通常为 1，即 channel 维）
@@ -485,15 +486,9 @@ input_names = graph.predecessors(cat.name)  # 已按 dst_port 排序
 ### 示例 1：提取部署所需的全部核信息
 
 ```python
-from paibox.paiir import (
-    compile_to_paiir,
-    OfflineCoreOp,
-    SequentialOp,
-    AccumulateOp,
-    ConcatOp,
-    InputNode,
-    OutputNode,
-)
+from paibox.paiir import compile_to_paiir
+from paibox.paiir.ir.ir_base import InputNode, OutputNode
+from paibox.paiir.ir.op_node import AccumulateOp, ConcatOp, OfflineCoreOp, SequentialOp
 
 
 def extract_cores(graph):

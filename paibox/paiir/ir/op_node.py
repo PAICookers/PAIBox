@@ -15,7 +15,7 @@ Add-specific IR nodes live in :mod:`paibox.paiir.ir.add_ops`.
 """
 
 from collections.abc import Callable, Sequence
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 import torch
 from paicorelib import OutputType, PoolingMode
@@ -24,6 +24,10 @@ from torch import Tensor, nn
 from .calc_params import LutData, NeuronParams, OfflineCoreParams, OnlineCoreParams
 from .core_neuron import CoreNeuronV25
 from .ir_base import PAIIRNode
+from .reshape_semantics import materialize_logical_layout
+
+if TYPE_CHECKING:
+    from ..pipeline.avgpool.metadata import AvgPoolDeployMetadata
 
 __all__ = [
     "OpNode",
@@ -46,6 +50,39 @@ def _ensure_float(x: Tensor) -> Tensor:
     but PyTorch conv/linear require floating-point tensors.
     """
     return x if x.is_floating_point() else x.to(torch.float32)
+
+
+def _run_comp(comp: nn.Module, x: Tensor) -> Tensor:
+    """Execute one compute module with the closest chip-side dtype semantics.
+
+    MaxPool preserves its discrete VALUE-domain code directly on chip, and
+    PyTorch supports integer execution for some MaxPool kernels on CPU. Keep
+    the incoming dtype where possible so standalone/preceding-value MaxPool
+    simulation does not spuriously widen into float.
+
+    ``MaxPool1d`` is a special case on the current PyTorch CPU build: integer
+    ``Byte``/``Char`` inputs raise ``NotImplementedError``. For that case we
+    execute the pool in float32 and cast the exact max values back to the
+    original integer dtype.
+
+    Other compute ops such as Conv/Linear still require floating-point tensors
+    in PyTorch and therefore use :func:`_ensure_float`.
+    """
+    if isinstance(comp, nn.MaxPool1d):
+        if x.is_floating_point():
+            return comp(x)
+        return comp(x.to(torch.float32)).to(x.dtype)
+
+    if isinstance(comp, nn.MaxPool2d):
+        return comp(x)
+    return comp(_ensure_float(x))
+
+
+def _prepare_act_input(act: CoreNeuronV25, x: Tensor) -> Tensor:
+    """Normalize activation input into a membrane-safe dtype when needed."""
+    if act.lut is None and not x.is_floating_point():
+        return x.to(torch.int32)
+    return x
 
 
 def _get_bias(comp: nn.Module) -> Tensor | None:
@@ -229,7 +266,7 @@ class SequentialOp(OfflineCoreOp):
 
     comp: nn.Module
     act: CoreNeuronV25
-    avgpool_deploy_metadata: object | None
+    avgpool_deploy_metadata: "AvgPoolDeployMetadata | None"
 
     def __init__(self, comp: nn.Module, act: CoreNeuronV25) -> None:
         core_params = OfflineCoreParams()
@@ -242,7 +279,7 @@ class SequentialOp(OfflineCoreOp):
         self.avgpool_deploy_metadata = None
 
     def forward(self, x: Tensor) -> Tensor:
-        return self.act(self.comp(_ensure_float(x)))
+        return self.act(_prepare_act_input(self.act, _run_comp(self.comp, x)))
 
     @property
     def weights(self) -> list[Tensor] | None:
@@ -314,11 +351,11 @@ class AccumulateOp(OfflineCoreOp):
     def forward(self, *xs: Tensor) -> Tensor:
         acc: Tensor | None = None
         for sign, op, x in zip(self.signs, self.comps, xs):
-            term = sign * op(_ensure_float(x))
+            term = sign * _run_comp(op, x)
             acc = term if acc is None else acc + term
 
         assert acc is not None, "AccumulateOp requires at least one input"
-        return self.act(acc)
+        return self.act(_prepare_act_input(self.act, acc))
 
     @property
     def weights(self) -> list[Tensor] | None:
@@ -412,6 +449,9 @@ class ReshapeOp(RoutingOp):
         self.shape_fn = shape_fn
 
     def forward(self, x: Tensor) -> Tensor:
+        if len(self.input_dims) == 1:
+            x = materialize_logical_layout(x, self.input_dims[0])
+
         if self.shape_fn is None:
             return x.flatten()
 
@@ -444,7 +484,7 @@ class StandaloneCompOp(OfflineCoreOp):
         self.comp = comp
 
     def forward(self, x: Tensor) -> Tensor:
-        return self.comp(_ensure_float(x))
+        return _run_comp(self.comp, x)
 
     @property
     def weights(self) -> list[Tensor] | None:
@@ -487,13 +527,11 @@ class StandaloneActOp(OfflineCoreOp):
         self.act = act
 
     def forward(self, x: Tensor) -> Tensor:
-        if self.act.lut is None and not x.is_floating_point():
-            # Standalone spike neurons integrate into a signed membrane domain
-            # even when the predecessor emits unsigned VALUEs (for example
-            # split-core AvgPool). Cast here so membrane initialization and
-            # FLOOR/negative-threshold handling do not inherit an unsigned dtype.
-            x = x.to(torch.int32)
-        return self.act(x)
+        # Standalone spike neurons integrate into a signed membrane domain
+        # even when the predecessor emits unsigned VALUEs (for example
+        # split-core AvgPool). Cast here so membrane initialization and
+        # FLOOR/negative-threshold handling do not inherit a narrow integer dtype.
+        return self.act(_prepare_act_input(self.act, x))
 
     @property
     def lut_data(self) -> LutData | None:

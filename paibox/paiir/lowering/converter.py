@@ -25,6 +25,7 @@ Example::
     graph = torch_to_paiir(model)
 """
 
+import math
 import operator
 import warnings
 from collections.abc import Callable
@@ -43,16 +44,35 @@ from ..ir.graph import PAIIRGraph
 from ..ir.ir_base import InputNode, OutputNode
 from ..ir.lut_activation import LutActivation, LutReLU, LutSigmoid, LutSoftsign, LutTanh
 from ..ir.op_node import ConcatOp, OpNode, ReshapeOp, StandaloneActOp, StandaloneCompOp
+from ..ir.reshape_semantics import RESHAPE_LEAF_MODULE_TYPES
+from .conv_lowering import (
+    build_conv_ir_node,
+    extract_functional_conv_spec,
+    extract_module_conv_spec,
+)
 from .dims_prop import DimsProp, DimsType
+from .shape_analysis import (
+    ReshapeSinkInfo,
+    ShapeAnalysisResult,
+    analyze_shape_helpers,
+)
 
 __all__ = ["torch_to_paiir", "register_neuron"]
 
 ModuleMapper = dict[type[nn.Module], Callable[[nn.Module], OpNode]]
 """Module mapping type: ``nn.Module`` subclass -> converter function returning an :class:`OpNode`."""
 
-# Modules that are kept as leaf nodes but produce no PAIIR node (bypass).
-# Note: Flatten is a bypass - it changes tensor shape but is handled via shape propagation.
-BYPASS_MODULE_TYPES = (nn.BatchNorm1d, nn.BatchNorm2d, nn.Flatten)
+# Modules that are kept in the FX graph but intentionally disappear from PAIIR
+# data flow during lowering.
+LOWERING_BYPASS_MODULE_TYPES = (nn.BatchNorm1d, nn.BatchNorm2d)
+
+# Modules that should remain leaf nodes during FX tracing so lowering can decide
+# how to handle them later.
+#
+# - BatchNorm stays a true bypass at lowering time.
+# - Flatten is preserved as a leaf for tracing, but lowering materializes it as
+#   a ``ReshapeOp`` so graph-level simulation keeps the shape transition.
+TRACE_LEAF_MODULE_TYPES = LOWERING_BYPASS_MODULE_TYPES + RESHAPE_LEAF_MODULE_TYPES
 
 # Modules removed by _EraseModuleTransformer: each call_module node is replaced
 # by its input, leaving no trace in the graph after dead-code elimination.
@@ -64,88 +84,30 @@ CAT_OPS = (torch.cat,)
 
 # Known bypass targets (shape/dim ops that don't need IR nodes)
 KNOWN_BYPASS_FUNCS = (operator.getitem,)
-KNOWN_BYPASS_METHODS = (
-    "flatten",
-    "reshape",
-    "view",
-    "contiguous",
-    "transpose",
-    "permute",
-)
-
-
-class FunctionalConv2d(nn.Conv2d):
-    """Thin ``nn.Conv2d`` adapter for FX graphs that materialize ``torch.conv2d``.
-
-    This adapter is intentionally graph-first: it preserves the original
-    exported quantized weight tensor and convolution hyperparameters so PAIIR
-    can reconstruct the FX graph semantics accurately. Quantization parameters
-    are kept only as optional metadata; exact dequantized simulation is not the
-    priority here because the chip backend cannot execute dequantization.
-
-    Preserved metadata:
-
-    - ``raw_weight``: exported graph-side quantized weight tensor
-    - ``scale``: optional quantization scale observed in the FX graph
-    - ``zero_point``: optional quantization zero-point, defaulting to ``0``
-    """
-
-    def __init__(
-        self,
-        weight: Tensor,
-        bias: Tensor | None,
-        stride: int | tuple[int, int] = 1,
-        padding: int | tuple[int, int] = 0,
-        dilation: int | tuple[int, int] = 1,
-        groups: int = 1,
-        weight_scale: Tensor | float | int | None = None,
-        weight_zero_point: Tensor | int | None = None,
-    ) -> None:
-        raw_weight = weight.detach().clone()
-        scale = torch.as_tensor(
-            1.0 if weight_scale is None else weight_scale, dtype=torch.float32
-        ).detach()
-        zero_point = torch.as_tensor(
-            0 if weight_zero_point is None else weight_zero_point, dtype=torch.int32
-        ).detach()
-
-        kernel_size = tuple(int(v) for v in raw_weight.shape[-2:])
-        in_channels = int(raw_weight.shape[1]) * groups
-        out_channels = int(raw_weight.shape[0])
-
-        super().__init__(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            kernel_size=kernel_size,
-            stride=stride,
-            padding=padding,
-            dilation=dilation,
-            groups=groups,
-            bias=bias is not None,
-        )
-
-        with torch.no_grad():
-            # Keep the native Conv2d surface available for downstream code, but
-            # do not treat this float-cast compatibility weight as authoritative
-            # graph information.
-            self.weight.copy_(raw_weight.to(self.weight.dtype))
-            self.weight.requires_grad_(False)
-            if bias is not None and self.bias is not None:
-                self.bias.copy_(bias.detach().to(self.bias.dtype))
-                self.bias.requires_grad_(False)
-
-        self.register_buffer("raw_weight", raw_weight)
-        self.register_buffer("scale", scale)
-        self.register_buffer("zero_point", zero_point)
-
-    @property
-    def weight_scale(self) -> Tensor:
-        """Compatibility alias for customer exports that use ``weight_scale``."""
-        return self.scale
+KNOWN_BYPASS_METHODS = ("size", "contiguous", "transpose", "permute")
 
 
 def _map_comp(mod: nn.Module, **kwargs) -> OpNode:
     return StandaloneCompOp(comp=mod, **kwargs)
+
+
+def _has_nonzero_padding(padding: Any) -> bool:
+    if isinstance(padding, tuple):
+        return any(int(p) != 0 for p in padding)
+    return int(padding) != 0
+
+
+def _unsupported_avgpool_description(mod: nn.Module) -> str | None:
+    if not isinstance(mod, (nn.AvgPool1d, nn.AvgPool2d)):
+        return None
+
+    if mod.count_include_pad is False and _has_nonzero_padding(mod.padding):
+        return (
+            f"nn.Module '{type(mod).__name__}' with count_include_pad=False and "
+            "padding>0"
+        )
+
+    return None
 
 
 def _map_sj_ifnode(mod: nn.Module, **kwargs) -> OpNode:
@@ -210,10 +172,6 @@ def _propagate_dims(gm: fx.GraphModule) -> None:
     DimsProp().propagate(gm)
 
 
-def _is_conv2d_target(target: Any) -> bool:
-    return getattr(target, "__name__", "") == "conv2d"
-
-
 def _is_dtype_getattr(node: fx.Node) -> bool:
     return (
         node.op == "call_function"
@@ -223,13 +181,54 @@ def _is_dtype_getattr(node: fx.Node) -> bool:
     )
 
 
-def _is_shape_getattr(node: fx.Node) -> bool:
-    return (
-        node.op == "call_function"
-        and node.target is getattr
-        and len(node.args) >= 2
-        and node.args[1] == "shape"
+def _make_fixed_shape_fn(
+    target_shape: tuple[int, ...],
+) -> Callable[[torch.Size], torch.Size]:
+    return lambda _input_shape, target=target_shape: torch.Size(target)
+
+
+def _normalize_dim(ndim: int, dim: int) -> int:
+    return dim if dim >= 0 else dim + ndim
+
+
+def _flatten_output_shape(
+    input_shape: torch.Size, start_dim: int, end_dim: int
+) -> torch.Size:
+    ndim = len(input_shape)
+    if ndim == 0:
+        return torch.Size((1,))
+
+    start = _normalize_dim(ndim, start_dim)
+    end = _normalize_dim(ndim, end_dim)
+    if start < 0 or end < 0 or start >= ndim or end >= ndim or start > end:
+        raise ValueError(
+            f"invalid flatten range start_dim={start_dim}, end_dim={end_dim}, ndim={ndim}"
+        )
+
+    flat_size = math.prod(input_shape[start : end + 1])
+    return torch.Size((*input_shape[:start], flat_size, *input_shape[end + 1 :]))
+
+
+def _make_flatten_shape_fn(
+    start_dim: int = 0, end_dim: int = -1
+) -> Callable[[torch.Size], torch.Size]:
+    return lambda input_shape, s=start_dim, e=end_dim: _flatten_output_shape(
+        input_shape, s, e
     )
+
+
+def _build_reshape_op(
+    output_shape: tuple[int, ...],
+    shape_fn: Callable[[torch.Size], torch.Size] | None = None,
+) -> ReshapeOp | None:
+    """Create a ``ReshapeOp`` from analyzed shape metadata or a shape function."""
+    if shape_fn is not None:
+        return ReshapeOp(shape_fn)
+
+    if output_shape:
+        return ReshapeOp(shape_fn=_make_fixed_shape_fn(output_shape))
+
+    return None
 
 
 def _resolve_attr_value(gm: fx.GraphModule, target: str) -> Any:
@@ -251,7 +250,7 @@ def _infer_normalize_arg_type(value: Any) -> Any:
     if isinstance(value, tuple):
         return tuple(type(item) for item in value)
     if isinstance(value, list):
-        return list[type(value[0])] if value else list[Any]
+        return list[Any]
     return type(value)
 
 
@@ -289,38 +288,6 @@ def _resolve_to_aux_nodes(
                 return None, False
             extra_nodes |= extra
     return extra_nodes, True
-
-
-def _collect_shape_aux_nodes(gm: fx.GraphModule) -> set[fx.Node]:
-    """Collect FX nodes that participate only in tensor-shape arithmetic.
-
-    These nodes are needed to validate reshape/view argument expressions but
-    must not reappear as tensor predecessors when wiring the PAIIR data-flow
-    graph. Otherwise shape queries such as ``x.shape[...]`` leak the original
-    input tensor back into unrelated compute/activation nodes.
-    """
-    shape_aux_nodes = {node for node in gm.graph.nodes if _is_shape_getattr(node)}
-    changed = True
-    while changed:
-        changed = False
-        for node in gm.graph.nodes:
-            if node in shape_aux_nodes:
-                continue
-
-            if node.op == "call_function" and node.target is operator.getitem:
-                if any(inp in shape_aux_nodes for inp in node.all_input_nodes):
-                    shape_aux_nodes.add(node)
-                    changed = True
-                    continue
-
-            if node.op == "call_function" and node.target is operator.floordiv:
-                if node.all_input_nodes and all(
-                    inp in shape_aux_nodes for inp in node.all_input_nodes
-                ):
-                    shape_aux_nodes.add(node)
-                    changed = True
-
-    return shape_aux_nodes
 
 
 def _resolve_constant_value(
@@ -478,107 +445,6 @@ def _lower_general_add_ir(
     )
 
 
-def _match_quantized_conv_weight_expr(
-    gm: fx.GraphModule, value: Any
-) -> tuple[Tensor, Tensor | float | int | None, set[fx.Node]] | None:
-    """Match the quantized-weight expression used by customer functional convs.
-
-    Supported forms are intentionally narrow and mirror the exported
-    ``QuantizedConv2d.forward()`` pattern:
-
-    - ``get_attr(weight_int8)``
-    - ``weight_expr.to(x.dtype)``
-    - ``weight_expr * constant`` or ``constant * weight_expr``
-
-    Returns the raw graph-side weight tensor, an optional scale-like metadata
-    factor collected from ``mul(...)``, and the FX nodes that belong to this
-    auxiliary weight-construction expression. This is a pattern matcher for the
-    current functional-conv export style, not a general FX expression evaluator.
-    """
-    if isinstance(value, fx.Node):
-        if value.op == "get_attr":
-            resolved = _resolve_attr_value(gm, str(value.target))
-            if isinstance(resolved, Tensor):
-                return resolved.detach().clone(), None, {value}
-            return None
-
-        if value.op == "call_method" and value.target == "to" and value.args:
-            extracted = _match_quantized_conv_weight_expr(gm, value.args[0])
-            if extracted is None:
-                return None
-            weight, scale, nodes = extracted
-            extra_nodes, ok = _resolve_to_aux_nodes(gm, value)
-            if not ok or extra_nodes is None:
-                return None
-            return weight, scale, nodes | extra_nodes
-
-        if value.op == "call_function" and value.target in (operator.mul, torch.mul):
-            lhs = _match_quantized_conv_weight_expr(gm, value.args[0])
-            rhs = _match_quantized_conv_weight_expr(gm, value.args[1])
-            lhs_const, lhs_nodes = _resolve_constant_value(gm, value.args[0])
-            rhs_const, rhs_nodes = _resolve_constant_value(gm, value.args[1])
-
-            # Only accept weight_expr * constant. Ordinary tensor-tensor mul
-            # should stay visible as a separate FX operator instead of being
-            # absorbed into a conv-weight pattern.
-            if lhs is not None and rhs_const is not None:
-                weight, scale, nodes = lhs
-                merged_scale = rhs_const if scale is None else scale * rhs_const
-                return weight, merged_scale, nodes | rhs_nodes | {value}
-
-            if rhs is not None and lhs_const is not None:
-                weight, scale, nodes = rhs
-                merged_scale = lhs_const if scale is None else scale * lhs_const
-                return weight, merged_scale, nodes | lhs_nodes | {value}
-
-    return None
-
-
-def _build_functional_conv2d_node(
-    gm: fx.GraphModule,
-    node: fx.Node,
-) -> tuple[OpNode, set[fx.Node]] | None:
-    """Build a PAIIR compute node for a supported function-form ``conv2d``."""
-    if node.op != "call_function" or not _is_conv2d_target(node.target):
-        return None
-
-    normalized_kwargs = _get_normalized_call_kwargs(node, gm)
-    if normalized_kwargs is not None:
-        input_arg = normalized_kwargs.get("input")
-        weight_arg = normalized_kwargs.get("weight")
-        bias_arg = normalized_kwargs.get("bias")
-        stride = normalized_kwargs.get("stride", 1)
-        padding = normalized_kwargs.get("padding", 0)
-        dilation = normalized_kwargs.get("dilation", 1)
-        groups = normalized_kwargs.get("groups", 1)
-    else:
-        input_arg = _get_call_arg(node, 0, "input")
-        weight_arg = _get_call_arg(node, 1, "weight")
-        bias_arg = _get_call_arg(node, 2, "bias")
-        stride = _get_call_arg(node, 3, "stride", 1)
-        padding = _get_call_arg(node, 4, "padding", 0)
-        dilation = _get_call_arg(node, 5, "dilation", 1)
-        groups = _get_call_arg(node, 6, "groups", 1)
-
-    if not isinstance(input_arg, fx.Node) or not isinstance(groups, int):
-        return None
-
-    weight_spec = _match_quantized_conv_weight_expr(gm, weight_arg)
-    if weight_spec is None:
-        return None
-
-    weight, weight_scale, aux_nodes = weight_spec
-    bias_value, bias_nodes = _resolve_constant_value(gm, bias_arg)
-    if bias_value is not None and not isinstance(bias_value, Tensor):
-        return None
-
-    comp = FunctionalConv2d(
-        weight, bias_value, stride, padding, dilation, groups, weight_scale
-    )
-    ir_node = StandaloneCompOp(comp=comp)
-    return ir_node, aux_nodes | bias_nodes
-
-
 def _get_output_shape(node: fx.Node) -> tuple[int, ...]:
     """Extract output shape from an FX node's meta."""
     meta = node.meta.get("tensor_meta")
@@ -612,6 +478,31 @@ def _get_input_dims(
         input_nodes if input_nodes is not None else tuple(node.all_input_nodes)
     )
     return [_get_output_dims(inp) for inp in source_nodes]
+
+
+def _build_flatten_ir_node(
+    data_input: fx.Node, start_dim: int, end_dim: int
+) -> tuple[ReshapeOp, tuple[fx.Node, ...]] | None:
+    """Build the normalized PAIIR form for any flatten-style operation."""
+    return (
+        ReshapeOp(shape_fn=_make_flatten_shape_fn(start_dim, end_dim)),
+        (data_input,),
+    )
+
+
+def _build_reshape_like_ir_node(
+    sink_info: ReshapeSinkInfo,
+) -> tuple[ReshapeOp, tuple[fx.Node, ...]] | None:
+    """Lower one analyzed reshape sink to ``ReshapeOp`` and its data input."""
+    if sink_info.kind == "flatten":
+        return _build_flatten_ir_node(
+            sink_info.data_input, sink_info.start_dim, sink_info.end_dim
+        )
+
+    ir_node = _build_reshape_op(sink_info.output_shape)
+    if ir_node is None:
+        return None
+    return ir_node, (sink_info.data_input,)
 
 
 class _PAIIRTracer(fx.Tracer):
@@ -711,8 +602,8 @@ def torch_to_paiir(
     if type(model) in full_map:
         model = nn.Sequential(model)
 
-    # Leaf types = module_map keys + bypass types
-    leaf_types = tuple(full_map.keys()) + BYPASS_MODULE_TYPES
+    # Leaf types = module_map keys + modules that need special post-trace handling.
+    leaf_types = tuple(full_map.keys()) + TRACE_LEAF_MODULE_TYPES
     tracer = _PAIIRTracer(custom_leaf_modules=leaf_types)
     traced = tracer.trace(model, concrete_args)
     gm = fx.GraphModule(tracer.root, traced)
@@ -731,8 +622,9 @@ def torch_to_paiir(
     return _fx_graph_to_paiir(gm, full_map, strict)
 
 
-def _is_bypass_module(mod: nn.Module) -> bool:
-    return isinstance(mod, BYPASS_MODULE_TYPES)
+def _is_lowering_bypass_module(mod: nn.Module) -> bool:
+    """Return whether *mod* should be elided during PAIIR lowering."""
+    return isinstance(mod, LOWERING_BYPASS_MODULE_TYPES)
 
 
 def _fill_shape_dims(
@@ -753,6 +645,7 @@ class _LoweringContext:
     """Shared lowering state for ``FX -> PAIIR`` conversion."""
 
     fx_to_ir: dict[str, str] = field(default_factory=dict)
+    shape_analysis: ShapeAnalysisResult | None = None
     bypass_nodes: set[fx.Node] = field(default_factory=set)
     aux_bypass_nodes: set[fx.Node] = field(default_factory=set)
     ignored_nodes: set[fx.Node] = field(default_factory=set)
@@ -791,6 +684,13 @@ def _register_ir_node(
     """
     if fill_meta:
         _fill_shape_dims(ir_node, fx_node, input_nodes_override=input_nodes_override)
+
+    if input_nodes_override is not None:
+        # Persist the normalized data-input view for the later edge-wiring pass.
+        # Without this, shape-only FX operands such as ``view_as(ref)`` still
+        # appear in ``all_input_nodes`` and can be mis-wired as real data preds.
+        ctx.input_nodes_overrides[fx_node] = input_nodes_override
+
     paiir_graph.add_node(ir_node)
     ctx.fx_to_ir[fx_node.name] = ir_node.name
 
@@ -805,21 +705,34 @@ def _mark_unsupported(
 
 
 def _apply_shape_aux_rule(gm: fx.GraphModule, ctx: _LoweringContext) -> None:
-    ctx.aux_bypass_nodes |= _collect_shape_aux_nodes(gm)
+    """Pre-mark reshape-size helper nodes so they never enter PAIIR data flow."""
+    analysis = analyze_shape_helpers(gm)
+    ctx.shape_analysis = analysis
+    ctx.aux_bypass_nodes |= analysis.aux_nodes
+
+
+def _get_reshape_sink_info(
+    ctx: _LoweringContext, node: fx.Node
+) -> ReshapeSinkInfo | None:
+    analysis = ctx.shape_analysis
+    if analysis is None:
+        return None
+    return analysis.sink_for(node)
 
 
 def _apply_functional_conv_rule(gm: fx.GraphModule, ctx: _LoweringContext) -> None:
-    # Pre-identify function-form conv2d nodes and the helper nodes that build
+    # Pre-identify function-form conv nodes and the helper nodes that build
     # their weight expressions, so lowering can materialize the conv itself
     # while edge wiring ignores these helper nodes as real data producers.
     for node in gm.graph.nodes:
-        built = _build_functional_conv2d_node(gm, node)
-        if built is None:
+        spec = extract_functional_conv_spec(gm, node)
+        if spec is None:
             continue
 
-        ir_node, aux_nodes = built
+        ir_node, input_override = build_conv_ir_node(spec)
         ctx.prebuilt_ir_nodes[node] = ir_node
-        ctx.aux_bypass_nodes |= aux_nodes
+        ctx.input_nodes_overrides[node] = input_override
+        ctx.aux_bypass_nodes |= set(spec.aux_nodes)
 
 
 def _analyze_graph(gm: fx.GraphModule, ctx: _LoweringContext) -> None:
@@ -860,8 +773,48 @@ def _apply_module_lowering_rule(
     torch_module = gm.get_submodule(str(node.target))
     input_override = ctx.input_nodes_overrides.get(node)
 
-    if _is_bypass_module(torch_module):
+    conv_spec = extract_module_conv_spec(node, torch_module)
+    if conv_spec is not None:
+        ir_node, conv_input_override = build_conv_ir_node(conv_spec)
+        _register_ir_node(
+            paiir_graph,
+            ctx,
+            node,
+            ir_node,
+            input_nodes_override=conv_input_override,
+        )
+        return True
+
+    sink_info = _get_reshape_sink_info(ctx, node)
+    if sink_info is not None:
+        built = _build_reshape_like_ir_node(sink_info)
+        if built is None:
+            _mark_unsupported(
+                ctx,
+                node,
+                f"nn.Module '{type(torch_module).__name__}' with unsupported reshape arguments",
+                strict,
+            )
+            return True
+
+        ir_node, reshape_override = built
+        _register_ir_node(
+            paiir_graph,
+            ctx,
+            node,
+            ir_node,
+            input_nodes_override=reshape_override,
+        )
+        return True
+
+    if _is_lowering_bypass_module(torch_module):
         ctx.bypass_nodes.add(node)
+        return True
+
+    if (
+        unsupported_avgpool := _unsupported_avgpool_description(torch_module)
+    ) is not None:
+        _mark_unsupported(ctx, node, unsupported_avgpool, strict)
         return True
 
     if (mod_type := type(torch_module)) in module_map:
@@ -928,6 +881,29 @@ def _apply_builtin_function_lowering_rule(
         _register_ir_node(paiir_graph, ctx, node, ConcatOp(dim=raw_dim))
         return True
 
+    sink_info = _get_reshape_sink_info(ctx, node)
+    if sink_info is not None:
+        built = _build_reshape_like_ir_node(sink_info)
+        if built is None:
+            func_name = getattr(node.target, "__name__", str(node.target))
+            _mark_unsupported(
+                ctx,
+                node,
+                f"function '{func_name}' with unsupported reshape arguments",
+                strict,
+            )
+            return True
+
+        ir_node, input_override = built
+        _register_ir_node(
+            paiir_graph,
+            ctx,
+            node,
+            ir_node,
+            input_nodes_override=input_override,
+        )
+        return True
+
     if node.target in KNOWN_BYPASS_FUNCS:
         ctx.bypass_nodes.add(node)
         return True
@@ -969,10 +945,26 @@ def _apply_builtin_method_lowering_rule(
         )
         return True
 
-    if node.target == "flatten":
-        # flatten method - create ReshapeOp for simulation
-        # On chip, flatten is implicit (no computation)
-        _register_ir_node(paiir_graph, ctx, node, ReshapeOp())
+    sink_info = _get_reshape_sink_info(ctx, node)
+    if sink_info is not None:
+        built = _build_reshape_like_ir_node(sink_info)
+        if built is None:
+            _mark_unsupported(
+                ctx,
+                node,
+                f"method '{node.target}' with unsupported reshape arguments",
+                strict,
+            )
+            return True
+
+        ir_node, input_override = built
+        _register_ir_node(
+            paiir_graph,
+            ctx,
+            node,
+            ir_node,
+            input_nodes_override=input_override,
+        )
         return True
 
     if node.target in KNOWN_BYPASS_METHODS:

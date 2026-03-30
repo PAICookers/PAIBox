@@ -102,7 +102,7 @@ def _make_eval_sum_input_bank(
 
 def _shared_core_baseline_threshold(
     act: CoreNeuronV25,
-    window_size: int,
+    avg_divisor: int,
     decay_input: bool,
 ) -> int:
     """Return the analytically compensated shared-core threshold."""
@@ -113,7 +113,7 @@ def _shared_core_baseline_threshold(
             reset_v=act.reset_v,
             init_v=act.init_v,
         ),
-        window_size,
+        avg_divisor,
         decay_input,
         act.tau,
     )
@@ -141,7 +141,7 @@ def _simulate_shared_core_candidate(
 
 def _simulate_split_core_candidate(
     act: CoreNeuronV25,
-    window_size: int,
+    avg_divisor: int,
     probe_sum_input: torch.Tensor,
     decay_input: bool,
 ) -> torch.Tensor:
@@ -153,7 +153,7 @@ def _simulate_split_core_candidate(
             reset_v=act.reset_v,
             init_v=act.init_v,
         ),
-        window_size,
+        avg_divisor,
     )
     return _simulate_quantized_lif(
         probe_sum_input,
@@ -171,6 +171,7 @@ def _score_candidate_over_probes(
     uses_calibration: bool,
     act: CoreNeuronV25,
     window_size: int,
+    avg_divisor: int,
     probe_sum_inputs: Sequence[torch.Tensor],
     decay_input: bool,
     resource_cost: float,
@@ -185,7 +186,7 @@ def _score_candidate_over_probes(
 
     for probe_sum_input in probe_sum_inputs:
         ref_spikes = _simulate_ideal_lif(
-            probe_sum_input / window_size,
+            probe_sum_input / avg_divisor,
             act.tau,
             act.thres_pos,
             act.reset_v,
@@ -220,6 +221,7 @@ def score_avgpool_lif_candidates(
     window_size: int,
     allow_split_lif: bool = False,
     try_calibration: bool = False,
+    avg_divisor: int | None = None,
     *,
     n_probe_steps: int = _LIF_PROBE_STEPS,
     probe_seeds: tuple[int, ...] | None = None,
@@ -246,11 +248,13 @@ def score_avgpool_lif_candidates(
     - quality: compare mean firing-rate errors against the ideal reference
     - cost: a fixed resource penalty for split-core execution
     """
+    if avg_divisor is None:
+        avg_divisor = window_size
     decay_input = act.leak_multi_input == LeakMultiInputMode.ENABLE
     probe_sum_inputs = _make_eval_sum_input_bank(
         pred_out_width, window_size, n_probe_steps, probe_seeds
     )
-    baseline_thres = _shared_core_baseline_threshold(act, window_size, decay_input)
+    baseline_thres = _shared_core_baseline_threshold(act, avg_divisor, decay_input)
 
     def simulate_shared_baseline(probe_sum_input: torch.Tensor) -> torch.Tensor:
         return _simulate_shared_core_candidate(act, probe_sum_input, baseline_thres)
@@ -261,6 +265,7 @@ def score_avgpool_lif_candidates(
             False,
             act,
             window_size,
+            avg_divisor,
             probe_sum_inputs,
             decay_input,
             0.0,
@@ -275,7 +280,8 @@ def score_avgpool_lif_candidates(
                 act,
                 window_size,
                 baseline_thres,
-                probe_sum_input,
+                avg_divisor=avg_divisor,
+                calibration_input=probe_sum_input,
                 decay_input=decay_input,
             ).best_thres
             return _simulate_shared_core_candidate(act, probe_sum_input, best_thres)
@@ -286,6 +292,7 @@ def score_avgpool_lif_candidates(
                 True,
                 act,
                 window_size,
+                avg_divisor,
                 probe_sum_inputs,
                 decay_input,
                 0.0,
@@ -297,7 +304,7 @@ def score_avgpool_lif_candidates(
 
         def simulate_split_core(probe_sum_input: torch.Tensor) -> torch.Tensor:
             return _simulate_split_core_candidate(
-                act, window_size, probe_sum_input, decay_input
+                act, avg_divisor, probe_sum_input, decay_input
             )
 
         candidates.append(
@@ -306,6 +313,7 @@ def score_avgpool_lif_candidates(
                 False,
                 act,
                 window_size,
+                avg_divisor,
                 probe_sum_inputs,
                 decay_input,
                 _SPLIT_CORE_RESOURCE_COST,
@@ -322,6 +330,7 @@ def select_avgpool_lif_candidate(
     window_size: int,
     allow_split_lif: bool = False,
     try_calibration: bool = False,
+    avg_divisor: int | None = None,
     *,
     n_probe_steps: int = _LIF_PROBE_STEPS,
     probe_seeds: tuple[int, ...] | None = None,
@@ -333,6 +342,7 @@ def select_avgpool_lif_candidate(
         window_size,
         allow_split_lif,
         try_calibration,
+        avg_divisor,
         n_probe_steps=n_probe_steps,
         probe_seeds=probe_seeds,
     )
@@ -352,6 +362,7 @@ def select_avgpool_lif_deployment(
     window_size: int,
     allow_split_lif: bool = False,
     try_calibration: bool = False,
+    avg_divisor: int | None = None,
     *,
     n_probe_steps: int = _LIF_PROBE_STEPS,
     probe_seeds: tuple[int, ...] | None = None,
@@ -374,6 +385,7 @@ def select_avgpool_lif_deployment(
         window_size,
         allow_split_lif,
         try_calibration,
+        avg_divisor,
         n_probe_steps=n_probe_steps,
         probe_seeds=probe_seeds,
     )

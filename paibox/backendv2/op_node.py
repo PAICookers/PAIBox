@@ -9,15 +9,13 @@ from paicorelib import (
 )
 from torch import Tensor, nn
 
-from ..paiir import (
+from ..paiir.ir.add_ops import PotentialAddOp
+from ..paiir.ir.calc_params import LutData, OfflineCoreParams
+from ..paiir.ir.graph import PAIIRGraph
+from ..paiir.ir.ir_base import InputNode, OutputNode
+from ..paiir.ir.op_node import (
     AccumulateOp,
-    InputNode,
-    LutData,
     OfflineCoreOp,
-    OfflineCoreParams,
-    OutputNode,
-    PAIIRGraph,
-    PotentialAddOp,
     ReshapeOp,
     SequentialOp,
     StandaloneActOp,

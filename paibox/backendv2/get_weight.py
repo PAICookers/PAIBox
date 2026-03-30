@@ -15,7 +15,7 @@ from rich.progress import track
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from ..paiir import (
+from ..paiir.ir import (
     AccumulateOp,
     PotentialAddOp,
     SequentialOp,

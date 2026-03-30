@@ -109,6 +109,7 @@ def calibrate_avgpool_threshold(
     act: CoreNeuronV25,
     window_size: int,
     baseline_thres: int,
+    avg_divisor: int | None = None,
     calibration_input: Tensor | None = None,
     n_steps: int = 32,
     input_range: tuple[int, int] | None = None,
@@ -124,6 +125,8 @@ def calibrate_avgpool_threshold(
     """
     if baseline_thres < 0:
         raise ValueError(f"baseline_thres must be non-negative, got {baseline_thres}")
+    if avg_divisor is None:
+        avg_divisor = window_size
 
     if calibration_input is None:
         if input_range is None:
@@ -146,7 +149,7 @@ def calibrate_avgpool_threshold(
     # Reference branch: the same sampled sequence interpreted in the AvgPool
     # domain, i.e. divide the sampled sum-domain current back by window_size.
     ref_spikes = _simulate_ideal_lif(
-        calibration_input / window_size,
+        calibration_input / avg_divisor,
         tau,
         act.thres_pos,
         reset_v,

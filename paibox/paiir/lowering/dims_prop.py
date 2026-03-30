@@ -14,13 +14,14 @@ from typing import cast
 import torch
 from torch import fx
 
+from ..ir.reshape_semantics import is_dims_reset_target
+
 __all__ = ["DimsProp", "DimsType"]
 
 DimsType = tuple[int, ...]
 
 TRANSPOSE_TARGETS = {torch.transpose, "transpose", "transpose_"}
 PERMUTE_TARGETS = {torch.permute, "permute", "permute_"}
-RESHAPE_TARGETS = {"flatten", "reshape", "view"}
 CONTIGUOUS_TARGETS = {"contiguous", "contiguous_"}
 
 
@@ -71,7 +72,7 @@ class DimsProp:
                 return self._handle_transpose(node)
             if node.target in PERMUTE_TARGETS:
                 return self._handle_permute(node)
-            if node.target in RESHAPE_TARGETS:
+            if is_dims_reset_target(node.target):
                 return self._identity(node)
             if node.target in CONTIGUOUS_TARGETS:
                 return self._inherit(node)

@@ -7,7 +7,7 @@ from torch import nn
 from paibox.paiir.exceptions import UnsupportedOpError, UnsupportedOpWarning
 from paibox.paiir.ir.core_neuron import ANNNodeV25
 from paibox.paiir.ir.lut_activation import LutCustom
-from paibox.paiir.ir.op_node import SequentialOp
+from paibox.paiir.ir.op_node import SequentialOp, StandaloneCompOp
 from paibox.paiir.lowering.converter import register_neuron, torch_to_paiir
 from tests.paiir.conftest import (
     UnsupportedSinModel,
@@ -17,6 +17,34 @@ from tests.paiir.conftest import (
     make_multispike4_lut,
     make_vec_8d,
 )
+
+
+class UnsupportedCountIncludePadAvgPool2d(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.pool = nn.AvgPool2d(
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            count_include_pad=False,
+        )
+
+    def forward(self, x):
+        return self.pool(x)
+
+
+class SupportedNoPaddingCountIncludePadAvgPool2d(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.pool = nn.AvgPool2d(
+            kernel_size=3,
+            stride=1,
+            padding=0,
+            count_include_pad=False,
+        )
+
+    def forward(self, x):
+        return self.pool(x)
 
 
 class TestStrictMode:
@@ -34,6 +62,29 @@ class TestStrictMode:
         with pytest.warns(UnsupportedOpWarning, match="unsupported"):
             graph = torch_to_paiir(model, make_img_3ch_8x8(), strict=False)
         assert len(graph.nodes) > 0
+
+    def test_strict_mode_rejects_count_include_pad_false_with_padding(self):
+        model = UnsupportedCountIncludePadAvgPool2d()
+        with pytest.raises(UnsupportedOpError, match="count_include_pad=False"):
+            torch_to_paiir(model, make_img_3ch_8x8(), strict=True)
+
+    def test_non_strict_mode_warns_for_count_include_pad_false_with_padding(self):
+        model = UnsupportedCountIncludePadAvgPool2d()
+        with pytest.warns(UnsupportedOpWarning, match="count_include_pad=False"):
+            graph = torch_to_paiir(model, make_img_3ch_8x8(), strict=False)
+        assert len(graph.nodes) > 0
+
+    def test_padding_free_count_include_pad_false_is_allowed(self):
+        model = SupportedNoPaddingCountIncludePadAvgPool2d()
+        graph = torch_to_paiir(model, make_img_3ch_8x8(), strict=True)
+
+        pool_nodes = [
+            node
+            for node in graph.nodes.values()
+            if isinstance(node, StandaloneCompOp)
+            and isinstance(node.comp, nn.AvgPool2d)
+        ]
+        assert len(pool_nodes) == 1
 
 
 class TestRegisterNeuron:

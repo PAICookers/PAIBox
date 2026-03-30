@@ -33,18 +33,18 @@ from .compensation import (
 )
 from .deploy_scheme import AvgPoolDeployScheme, select_avgpool_lif_candidate
 from .metadata import AvgPoolDeployMetadata
-from .utils import _get_pool_window_size, _is_avgpool
+from .utils import _get_avgpool_divisor, _get_pool_window_size, _is_avgpool
 
 __all__ = [
     "_try_handle_avgpool_activation",
 ]
 
 
-def _prepare_shared_avgpool_ann_params(act: ANNNodeV25, window_size: int) -> None:
+def _prepare_shared_avgpool_ann_params(act: ANNNodeV25, avg_divisor: int) -> None:
     """Write shared-core ANN AvgPool deployment parameters into the live node."""
     assert act.lut is not None
-    apply_avgpool_lut_compensation(act.lut, window_size)
-    shift = round(math.log2(window_size))
+    apply_avgpool_lut_compensation(act.lut, avg_divisor)
+    shift = round(math.log2(avg_divisor))
     act.leak_tau = -shift
     act.leak_multi_input = LeakMultiInputMode.ENABLE
     act.leak_multi_mode = LeakMultiMode.DISABLE
@@ -52,7 +52,7 @@ def _prepare_shared_avgpool_ann_params(act: ANNNodeV25, window_size: int) -> Non
 
 
 def _prepare_shared_avgpool_lif_params(
-    node: SequentialOp, window_size: int, uses_calibration: bool
+    node: SequentialOp, avg_divisor: int, uses_calibration: bool
 ) -> None:
     """Write shared-core LIF deployment params or calibration prerequisites."""
     source_decay_input = node.act.leak_multi_input == LeakMultiInputMode.ENABLE
@@ -61,17 +61,17 @@ def _prepare_shared_avgpool_lif_params(
     )
     apply_avgpool_snn_compensation(
         node.act,
-        window_size,
+        avg_divisor,
         decay_input=source_decay_input,
         calibrated=uses_calibration,
     )
 
 
 def _prepare_split_avgpool_lif_core2_params(
-    act_node: StandaloneActOp, window_size: int
+    act_node: StandaloneActOp, avg_divisor: int
 ) -> None:
     """Write split-core LIF Core 2 params into the sum domain."""
-    apply_sumpool_snn_compensation(act_node.act, window_size)
+    apply_sumpool_snn_compensation(act_node.act, avg_divisor)
 
 
 def _infer_avgpool_pred_output_format(
@@ -102,7 +102,7 @@ def _infer_avgpool_pred_output_format(
 
 
 def _build_split_avgpool_core1_lut(
-    out_width: DataWidth, window_size: int, *, emit_exact_sum_code: bool
+    out_width: DataWidth, avg_divisor: int, *, emit_exact_sum_code: bool
 ) -> LutCustom:
     """Build the Core 1 LUT used by split-core AvgPool deployment."""
     if emit_exact_sum_code:
@@ -128,7 +128,7 @@ def _build_split_avgpool_core1_lut(
         # IF split-core path: Core 1 converts the pooled sum into the downstream
         # IF input domain. The LUT therefore behaves like a thresholded mapper
         # rather than a raw sum pass-through.
-        thresholds = torch.arange(256, dtype=torch.int32) * window_size
+        thresholds = torch.arange(256, dtype=torch.int32) * avg_divisor
         values = torch.cat(
             [torch.zeros(1, dtype=torch.int8), torch.ones(255, dtype=torch.int8)]
         )
@@ -188,22 +188,21 @@ def _try_handle_avgpool_activation(
     if not act_node.act.is_snn:
         # ANN activations only need static AvgPool gain compensation, so the
         # regular shared-core SequentialOp remains the preferred topology.
+        avg_divisor = _get_avgpool_divisor(pred.comp)
         shared = _materialize_shared_sequential(
             pred_name, pred, act_name, act_node, consumed, node_remap
         )
-        _prepare_shared_avgpool_ann_params(
-            cast(ANNNodeV25, shared.act), _get_pool_window_size(pred.comp)
-        )
+        _prepare_shared_avgpool_ann_params(cast(ANNNodeV25, shared.act), avg_divisor)
         return shared
 
     if act_node.act.has_if_dynamics:
         # IF must split: shared-core AvgPool would enable leak on the neuron
         # datapath and turn the downstream behavior into LIF-like dynamics.
         _, out_width = _infer_avgpool_pred_output_format(graph, pred_name)
-        window_size = _get_pool_window_size(pred.comp)
+        avg_divisor = _get_avgpool_divisor(pred.comp)
 
         core1_lut = _build_split_avgpool_core1_lut(
-            out_width, window_size, emit_exact_sum_code=False
+            out_width, avg_divisor, emit_exact_sum_code=False
         )
         return _materialize_split_avgpool_pair(
             pred_name, pred, act_name, act_node, consumed, node_remap, core1_lut
@@ -216,16 +215,18 @@ def _try_handle_avgpool_activation(
         )
 
     _, out_width = _infer_avgpool_pred_output_format(graph, pred_name)
-    window_size = _get_pool_window_size(pred.comp)
+    sum_window_size = _get_pool_window_size(pred.comp)
+    avg_divisor = _get_avgpool_divisor(pred.comp)
 
     # LIF is the only case where both shared-core & split-core can be valid.
     # Delegate the final topology choice to the AvgPool deployment policy.
     best_candidate = select_avgpool_lif_candidate(
         act_node.act,
         out_width,
-        window_size,
+        sum_window_size,
         enable_split_avgpool_lif,
         try_calibration=enable_avgpool_calibration,
+        avg_divisor=avg_divisor,
     )
     if best_candidate.scheme == AvgPoolDeployScheme.SHARED_CORE:
         # Default/compatible case: keep AvgPool and LIF on the same core and
@@ -234,18 +235,18 @@ def _try_handle_avgpool_activation(
             pred_name, pred, act_name, act_node, consumed, node_remap
         )
         _prepare_shared_avgpool_lif_params(
-            shared, window_size, best_candidate.uses_calibration
+            shared, avg_divisor, best_candidate.uses_calibration
         )
         return shared
 
     # SPLIT_CORE_LIF_EXACT_SUM
     core1_lut = _build_split_avgpool_core1_lut(
-        out_width, window_size, emit_exact_sum_code=True
+        out_width, avg_divisor, emit_exact_sum_code=True
     )
     split_pair = _materialize_split_avgpool_pair(
         pred_name, pred, act_name, act_node, consumed, node_remap, core1_lut
     )
-    _prepare_split_avgpool_lif_core2_params(act_node, window_size)
+    _prepare_split_avgpool_lif_core2_params(act_node, avg_divisor)
     return split_pair
 
 

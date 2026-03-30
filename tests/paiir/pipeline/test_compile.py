@@ -1,3 +1,4 @@
+import importlib
 import warnings
 
 import pytest
@@ -9,31 +10,25 @@ from torch import nn
 
 import paibox.paiir.pipeline.avgpool.fusion as avgpool_fusion
 import paibox.paiir.pipeline.compile as compile_mod
-from paibox.paiir import CompileConfig, compile_to_paiir
+from paibox.paiir import CompileConfig, LIFNodeV25, compile_to_paiir, torch_to_paiir
 from paibox.paiir.exceptions import UnsupportedOpError, UnsupportedOpWarning
 from paibox.paiir.ir.op_node import (
     AccumulateOp,
     ConcatOp,
+    ReshapeOp,
     SequentialOp,
     StandaloneActOp,
     StandaloneCompOp,
 )
-from paibox.paiir.lowering.converter import (
-    _DEFAULT_MODULE_MAP,
-    BYPASS_MODULE_TYPES,
-    _analyze_graph,
-    _EraseModuleTransformer,
-    _LoweringContext,
-    _PAIIRTracer,
-    _propagate_dims,
-    _propagate_shapes,
-)
+from paibox.paiir.lowering.converter import _analyze_graph, _LoweringContext
 from paibox.paiir.nn import SumPool1d, SumPool2d
 from paibox.paiir.pipeline.avgpool import (
-    AvgPoolDeployMetadata,
     AvgPoolDeployScheme,
     AvgPoolLIFCandidateScore,
+    calibrate_avgpool_threshold,
 )
+from paibox.paiir.pipeline.avgpool.metadata import AvgPoolDeployMetadata
+from paibox.paiir.pipeline.passes import GraphCleanupWarning
 from tests.paiir.conftest import (
     ANNClassifier,
     SimpleCNN,
@@ -49,6 +44,7 @@ from tests.paiir.conftest import (
     make_vec_64d,
     offline_nodes,
 )
+from tests.paiir.tracing import trace_for_lowering
 
 
 class ConcatModel(nn.Module):
@@ -61,6 +57,60 @@ class ConcatModel(nn.Module):
 
     def forward(self, x):
         return self.relu(self.conv3(torch.cat([self.conv1(x), self.conv2(x)], dim=1)))
+
+
+class PoolAfterReshape(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.pool = nn.MaxPool2d(2, 2)
+
+    def forward(self, x):
+        x = x.reshape(x.shape)
+        return self.pool(x)
+
+
+class UnsupportedCountIncludePadAvgPool2d(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.pool = nn.AvgPool2d(
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            count_include_pad=False,
+        )
+
+    def forward(self, x):
+        return self.pool(x)
+
+
+class SupportedNoPaddingCountIncludePadAvgPool2d(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.pool = nn.AvgPool2d(
+            kernel_size=3,
+            stride=1,
+            padding=0,
+            count_include_pad=False,
+        )
+
+    def forward(self, x):
+        return self.pool(x)
+
+
+class TestPackageExports:
+    def test_public_packages_reexport_compile_symbols(self):
+        paiir_mod = importlib.import_module("paibox.paiir")
+        pipeline_mod = importlib.import_module("paibox.paiir.pipeline")
+        avgpool_mod = importlib.import_module("paibox.paiir.pipeline.avgpool")
+
+        assert paiir_mod.compile_to_paiir is compile_mod.compile_to_paiir
+        assert paiir_mod.torch_to_paiir is torch_to_paiir
+        assert pipeline_mod.CompileConfig is CompileConfig
+        assert pipeline_mod.compile_to_paiir is compile_mod.compile_to_paiir
+        assert avgpool_mod.calibrate_avgpool_threshold is not None
+        assert not hasattr(paiir_mod, "OfflineCoreOp")
+        assert not hasattr(pipeline_mod, "DataFormat")
+        assert not hasattr(avgpool_mod, "AvgPoolDeployMetadata")
 
 
 class TestCompileBasic:
@@ -94,6 +144,174 @@ class TestCompileBasic:
         concat_nodes = find_nodes(graph, ConcatOp)
         assert len(concat_nodes) == 1
         assert concat_nodes[0].dim == 1
+
+    def test_transpose_then_flatten_before_linear_compiles(self):
+        class TransposeFlattenLinear(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(6, 4, bias=False)
+
+            def forward(self, x):
+                return self.linear(x.transpose(1, 2).flatten(1))
+
+        graph = compile_to_paiir(TransposeFlattenLinear(), torch.randn(1, 2, 3))
+
+        reshape_nodes = find_nodes(graph, ReshapeOp)
+        linear_nodes = [
+            node
+            for node in find_nodes(graph, StandaloneCompOp)
+            if isinstance(node.comp, nn.Linear)
+        ]
+
+        assert len(reshape_nodes) == 1
+        assert len(linear_nodes) == 1
+        assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
+        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[0].name]
+
+    def test_permute_then_reshape_before_linear_compiles(self):
+        class PermuteReshapeLinear(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(24, 5, bias=False)
+
+            def forward(self, x):
+                x = x.permute(0, 2, 3, 1)
+                x = x.reshape(x.size(0), -1)
+                return self.linear(x)
+
+        graph = compile_to_paiir(PermuteReshapeLinear(), torch.randn(1, 2, 3, 4))
+
+        reshape_nodes = find_nodes(graph, ReshapeOp)
+        linear_nodes = [
+            node
+            for node in find_nodes(graph, StandaloneCompOp)
+            if isinstance(node.comp, nn.Linear)
+        ]
+
+        assert len(reshape_nodes) == 1
+        assert len(linear_nodes) == 1
+        assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
+        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[0].name]
+
+    def test_maxpool_after_reshape_compiles(self):
+        graph = compile_to_paiir(PoolAfterReshape(), make_img_3ch_8x8())
+
+        reshape_nodes = find_nodes(graph, ReshapeOp)
+        pool_nodes = [
+            node
+            for node in find_nodes(graph, StandaloneCompOp)
+            if isinstance(node.comp, nn.MaxPool2d)
+        ]
+
+        assert len(reshape_nodes) == 1
+        assert len(pool_nodes) == 1
+        assert graph.predecessors(pool_nodes[0].name) == [reshape_nodes[0].name]
+        assert pool_nodes[0].core_params.input_sign is not None
+        assert pool_nodes[0].core_params.input_width is not None
+
+    def test_function_unsqueeze_before_linear_compiles(self):
+        class FunctionUnsqueezeLinear(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(6, 4, bias=False)
+
+            def forward(self, x):
+                x = torch.unsqueeze(x, 1)
+                x = x.flatten(1)
+                return self.linear(x)
+
+        graph = compile_to_paiir(FunctionUnsqueezeLinear(), torch.randn(1, 2, 3))
+
+        reshape_nodes = find_nodes(graph, ReshapeOp)
+        linear_nodes = [
+            node
+            for node in find_nodes(graph, StandaloneCompOp)
+            if isinstance(node.comp, nn.Linear)
+        ]
+
+        assert len(reshape_nodes) == 2
+        assert len(linear_nodes) == 1
+        assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
+        assert graph.predecessors(reshape_nodes[1].name) == [reshape_nodes[0].name]
+        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[1].name]
+
+    def test_tuple_repeat_all_ones_before_linear_compiles(self):
+        class TupleRepeatLinear(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(6, 4, bias=False)
+
+            def forward(self, x):
+                x = x.repeat((1, 1, 1))
+                x = x.flatten(1)
+                return self.linear(x)
+
+        graph = compile_to_paiir(TupleRepeatLinear(), torch.randn(1, 2, 3))
+
+        reshape_nodes = find_nodes(graph, ReshapeOp)
+        linear_nodes = [
+            node
+            for node in find_nodes(graph, StandaloneCompOp)
+            if isinstance(node.comp, nn.Linear)
+        ]
+
+        assert len(reshape_nodes) == 2
+        assert len(linear_nodes) == 1
+        assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
+        assert graph.predecessors(reshape_nodes[1].name) == [reshape_nodes[0].name]
+        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[1].name]
+
+    def test_method_squeeze_before_linear_compiles(self):
+        class MethodSqueezeLinear(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(6, 4, bias=False)
+
+            def forward(self, x):
+                x = x.squeeze(1)
+                x = x.flatten(1)
+                return self.linear(x)
+
+        graph = compile_to_paiir(MethodSqueezeLinear(), torch.randn(1, 1, 2, 3))
+
+        reshape_nodes = find_nodes(graph, ReshapeOp)
+        linear_nodes = [
+            node
+            for node in find_nodes(graph, StandaloneCompOp)
+            if isinstance(node.comp, nn.Linear)
+        ]
+
+        assert len(reshape_nodes) == 2
+        assert len(linear_nodes) == 1
+        assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
+        assert graph.predecessors(reshape_nodes[1].name) == [reshape_nodes[0].name]
+        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[1].name]
+
+    def test_function_squeeze_before_linear_compiles(self):
+        class FunctionSqueezeLinear(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(6, 4, bias=False)
+
+            def forward(self, x):
+                x = torch.squeeze(x, 1)
+                x = x.flatten(1)
+                return self.linear(x)
+
+        graph = compile_to_paiir(FunctionSqueezeLinear(), torch.randn(1, 1, 2, 3))
+
+        reshape_nodes = find_nodes(graph, ReshapeOp)
+        linear_nodes = [
+            node
+            for node in find_nodes(graph, StandaloneCompOp)
+            if isinstance(node.comp, nn.Linear)
+        ]
+
+        assert len(reshape_nodes) == 2
+        assert len(linear_nodes) == 1
+        assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
+        assert graph.predecessors(reshape_nodes[1].name) == [reshape_nodes[0].name]
+        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[1].name]
 
 
 class TestDataFormat:
@@ -255,22 +473,18 @@ class TestCompileConfig:
     """CompileConfig and parameter precedence."""
 
     def test_config_applies(self):
-        from paibox.paiir.ir.op_node import StandaloneCompOp
-
         config = CompileConfig(tick_duration=50, auto_reset=False)
         sample_input = make_img_3ch_8x8()
         graph = compile_to_paiir(ANNClassifier(), sample_input, compile_config=config)
 
         for node in offline_nodes(graph):
             assert node.core_params.tick_duration == 50
-            # 有激活函数的节点 tick_initial=1，StandaloneCompOp 无激活函数故为 0
             if isinstance(node, (SequentialOp, AccumulateOp, StandaloneActOp)):
                 assert node.core_params.tick_initial == 1
             elif isinstance(node, StandaloneCompOp):
                 assert node.core_params.tick_initial == 0
 
     def test_explicit_kwarg_overrides_config(self):
-        from paibox.paiir.ir.op_node import StandaloneCompOp
 
         config = CompileConfig(tick_duration=50, auto_reset=False)
         sample_input = make_img_3ch_8x8()
@@ -300,6 +514,29 @@ class TestStrictMode:
         with pytest.warns(UnsupportedOpWarning):
             compile_to_paiir(UnsupportedSoftmax(), torch.randn(1, 10), strict=False)
 
+    def test_strict_raises_for_count_include_pad_false_with_padding(self):
+        with pytest.raises(UnsupportedOpError, match="count_include_pad=False"):
+            compile_to_paiir(
+                UnsupportedCountIncludePadAvgPool2d(),
+                make_img_3ch_8x8(),
+                strict=True,
+            )
+
+    def test_padding_free_count_include_pad_false_still_compiles(self):
+        graph = compile_to_paiir(
+            SupportedNoPaddingCountIncludePadAvgPool2d(),
+            make_img_3ch_8x8(),
+            strict=True,
+        )
+
+        pool_nodes = [
+            node
+            for node in graph.nodes.values()
+            if isinstance(node, StandaloneCompOp)
+            and isinstance(node.comp, nn.AvgPool2d)
+        ]
+        assert len(pool_nodes) == 1
+
 
 class FunctionalQuantizedConv(nn.Module):
     def __init__(self):
@@ -314,6 +551,21 @@ class FunctionalQuantizedConv(nn.Module):
     def forward(self, x):
         w = self.weight_int8.to(x.dtype) * self.weight_scale
         return F.conv2d(x, w, self.bias, stride=1, padding=1, dilation=1, groups=1)
+
+
+class FunctionalQuantizedConv1d(nn.Module):
+    def __init__(self):
+        super().__init__()
+        weight = torch.randint(-8, 8, (4, 3, 3), dtype=torch.int8)
+        bias = torch.randn(4)
+        scale = torch.tensor(0.125)
+        self.register_buffer("weight_int8", weight)
+        self.register_buffer("weight_scale", scale)
+        self.register_buffer("bias", bias)
+
+    def forward(self, x):
+        w = self.weight_int8.to(x.dtype) * self.weight_scale
+        return F.conv1d(x, w, self.bias, stride=1, padding=1, dilation=1, groups=1)
 
 
 class FunctionalQuantizedConvWithShapeReshape(nn.Module):
@@ -338,18 +590,7 @@ class FunctionalQuantizedConvWithShapeReshape(nn.Module):
         return self.relu(y)
 
 
-class TestFunctionalConv2d:
-    @staticmethod
-    def _trace_for_lowering(model: nn.Module, sample_input: torch.Tensor):
-        leaf_types = tuple(_DEFAULT_MODULE_MAP.keys()) + BYPASS_MODULE_TYPES
-        tracer = _PAIIRTracer(custom_leaf_modules=leaf_types)
-        traced = tracer.trace(model)
-        gm = torch.fx.GraphModule(tracer.root, traced)
-        gm = _EraseModuleTransformer(gm).transform()
-        _propagate_shapes(gm, sample_input)
-        _propagate_dims(gm)
-        return gm
-
+class TestFunctionalConv:
     def test_quantized_functional_conv2d_supported_in_strict_mode(self):
         model = FunctionalQuantizedConv()
         with warnings.catch_warnings(record=True) as caught:
@@ -359,8 +600,7 @@ class TestFunctionalConv2d:
         comp_nodes = [
             node
             for node in graph.nodes.values()
-            if isinstance(node, StandaloneCompOp)
-            and type(node.comp).__name__ == "FunctionalConv2d"
+            if isinstance(node, StandaloneCompOp) and isinstance(node.comp, nn.Conv2d)
         ]
         assert len(comp_nodes) == 1
         assert isinstance(comp_nodes[0].comp, nn.Conv2d)
@@ -368,23 +608,97 @@ class TestFunctionalConv2d:
         assert graph.predecessors(comp_nodes[0].name) == ["InputNode_0"]
         assert not any("conv2d" in str(w.message) for w in caught)
 
+    def test_quantized_functional_conv1d_supported_in_strict_mode(self):
+        model = FunctionalQuantizedConv1d()
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            graph = compile_to_paiir(model, torch.randn(1, 3, 16), strict=True)
+
+        comp_nodes = [
+            node
+            for node in graph.nodes.values()
+            if isinstance(node, StandaloneCompOp) and isinstance(node.comp, nn.Conv1d)
+        ]
+        assert len(comp_nodes) == 1
+        assert isinstance(comp_nodes[0].comp, nn.Conv1d)
+        assert torch.equal(comp_nodes[0].comp.raw_weight, model.weight_int8)
+        assert graph.predecessors(comp_nodes[0].name) == ["InputNode_0"]
+        assert not any("conv1d" in str(w.message) for w in caught)
+
     def test_shape_only_reshape_args_do_not_become_data_predecessors(self):
-        graph = compile_to_paiir(
+        graph = torch_to_paiir(
             FunctionalQuantizedConvWithShapeReshape(),
             torch.randn(1, 3, 8, 8),
             strict=False,
         )
+        graph.summary()
 
-        seq_nodes = [
-            node for node in graph.nodes.values() if isinstance(node, SequentialOp)
+        reshape_nodes = [
+            node for node in graph.nodes.values() if node.name == "ReshapeOp_0"
         ]
-        assert len(seq_nodes) == 1
+        comp_nodes = [
+            node
+            for node in graph.nodes.values()
+            if isinstance(node, StandaloneCompOp) and isinstance(node.comp, nn.Conv2d)
+        ]
+        assert len(reshape_nodes) == 1
+        assert len(comp_nodes) == 1
         assert graph.predecessors("ReshapeOp_0") == ["InputNode_0"]
-        assert graph.predecessors(seq_nodes[0].name) == ["ReshapeOp_0"]
+        assert graph.predecessors("ReshapeOp_1") == ["ReshapeOp_0"]
+        assert graph.predecessors("ReshapeOp_2") == ["ReshapeOp_1"]
+        assert graph.predecessors(comp_nodes[0].name) == ["ReshapeOp_2"]
+
+    def test_unsqueeze_repeat_all_ones_compile_path_succeeds(self):
+        graph = compile_to_paiir(
+            FunctionalQuantizedConvWithShapeReshape(),
+            torch.randn(1, 3, 8, 8),
+            strict=True,
+        )
+
+        reshape_nodes = find_nodes(graph, ReshapeOp)
+        comp_nodes = [
+            node
+            for node in graph.nodes.values()
+            if isinstance(node, StandaloneCompOp) and isinstance(node.comp, nn.Conv2d)
+        ]
+
+        assert reshape_nodes
+        assert comp_nodes
+        assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
+
+    def test_view_as_reference_path_does_not_become_data_predecessor(self):
+        class ViewAsReferenceFromFlatten(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(12, 4, bias=False)
+
+            def forward(self, x):
+                ref = x.flatten(1)
+                y = x.view_as(ref)
+                return self.linear(y)
+
+        model = ViewAsReferenceFromFlatten()
+
+        with pytest.warns(GraphCleanupWarning, match="disconnected"):
+            graph = compile_to_paiir(model, torch.randn(1, 3, 2, 2))
+
+        reshape_nodes = [
+            node for node in graph.nodes.values() if isinstance(node, ReshapeOp)
+        ]
+        comp_nodes = [
+            node
+            for node in graph.nodes.values()
+            if isinstance(node, StandaloneCompOp) and isinstance(node.comp, nn.Linear)
+        ]
+
+        assert len(reshape_nodes) == 1
+        assert len(comp_nodes) == 1
+        assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
+        assert graph.predecessors(comp_nodes[0].name) == [reshape_nodes[0].name]
 
     def test_analysis_prebuilds_functional_conv_and_marks_shape_aux_nodes(self):
         sample = torch.randn(1, 3, 8, 8)
-        gm = self._trace_for_lowering(FunctionalQuantizedConvWithShapeReshape(), sample)
+        gm = trace_for_lowering(FunctionalQuantizedConvWithShapeReshape(), sample)
         ctx = _LoweringContext()
 
         _analyze_graph(gm, ctx)
@@ -408,6 +722,29 @@ class TestFunctionalConv2d:
         ]
         assert shape_getattrs
         assert all(node in ctx.aux_bypass_nodes for node in shape_getattrs)
+        assert ctx.shape_analysis is not None
+        reshape_nodes = [
+            node
+            for node in gm.graph.nodes
+            if ctx.shape_analysis.sink_for(node) is not None
+        ]
+        assert reshape_nodes
+
+    def test_analysis_prebuilds_functional_conv1d_node(self):
+        sample = torch.randn(1, 3, 16)
+        gm = trace_for_lowering(FunctionalQuantizedConv1d(), sample)
+        ctx = _LoweringContext()
+
+        _analyze_graph(gm, ctx)
+
+        conv_nodes = [
+            node
+            for node in gm.graph.nodes
+            if node.op == "call_function"
+            and getattr(node.target, "__name__", "") == "conv1d"
+        ]
+        assert len(conv_nodes) == 1
+        assert conv_nodes[0] in ctx.prebuilt_ir_nodes
 
 
 # Parametric test values: kernel_size for AvgPool1d
@@ -423,8 +760,6 @@ class TestAvgPool1dCompilation:
     @pytest.mark.parametrize("kernel_size", AVGPOOL1D_KERNEL_SIZES)
     def test_avgpool1d_split_core_fusion(self, kernel_size):
         """Verify AvgPool1d-IF is fused into split-core deployment."""
-        from paibox.paiir.ir.op_node import StandaloneActOp
-
         model = SNNWithAvgPool1dIF(kernel_size)
         graph = compile_to_paiir(model, make_vec_64d())
 
@@ -523,10 +858,7 @@ class TestAvgPoolLIFSplitCore:
                 self.if1 = sj.IFNode(v_threshold=1.0)
                 self.pool = nn.AvgPool2d(2)
                 self.lif2 = sj.LIFNode(
-                    tau=5.0,
-                    decay_input=False,
-                    v_threshold=1.0,
-                    v_reset=0.0,
+                    tau=5.0, decay_input=False, v_threshold=1.0, v_reset=0.0
                 )
 
             def forward(self, x):
@@ -689,15 +1021,11 @@ class TestAvgPoolCalibration:
             window_size,
             allow_split_lif=False,
             try_calibration=False,
+            avg_divisor=None,
         ):
             calls.append(try_calibration)
             return AvgPoolLIFCandidateScore(
-                AvgPoolDeployScheme.SHARED_CORE,
-                True,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
+                AvgPoolDeployScheme.SHARED_CORE, True, 0.0, 0.0, 0.0, 0.0
             )
 
         class AvgPoolLIF(nn.Module):
@@ -811,14 +1139,10 @@ class TestAvgPoolCalibration:
             window_size,
             allow_split_lif=False,
             try_calibration=False,
+            avg_divisor=None,
         ):
             return AvgPoolLIFCandidateScore(
-                AvgPoolDeployScheme.SHARED_CORE,
-                False,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
+                AvgPoolDeployScheme.SHARED_CORE, False, 0.0, 0.0, 0.0, 0.0
             )
 
         class AvgPoolLIFNoDecay(nn.Module):
@@ -862,14 +1186,10 @@ class TestAvgPoolCalibration:
             window_size,
             allow_split_lif=False,
             try_calibration=False,
+            avg_divisor=None,
         ):
             return AvgPoolLIFCandidateScore(
-                AvgPoolDeployScheme.SHARED_CORE,
-                True,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
+                AvgPoolDeployScheme.SHARED_CORE, True, 0.0, 0.0, 0.0, 0.0
             )
 
         class AvgPoolLIFNoDecay(nn.Module):
@@ -906,9 +1226,6 @@ class TestAvgPoolCalibration:
 
     def test_calibration_search_range(self):
         """Calibration searches in correct range around baseline."""
-        from paibox.paiir import LIFNodeV25
-        from paibox.paiir.pipeline.avgpool import calibrate_avgpool_threshold
-
         # Test the calibration function directly
         act = LIFNodeV25(tau=9.0, v_threshold=1.0)
         window_size = 4
