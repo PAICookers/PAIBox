@@ -45,6 +45,11 @@ from ..ir.ir_base import InputNode, OutputNode
 from ..ir.lut_activation import LutActivation, LutReLU, LutSigmoid, LutSoftsign, LutTanh
 from ..ir.op_node import ConcatOp, OpNode, ReshapeOp, StandaloneActOp, StandaloneCompOp
 from ..ir.reshape_semantics import RESHAPE_LEAF_MODULE_TYPES
+from .conv_lowering import (
+    build_conv_ir_node,
+    extract_functional_conv_spec,
+    extract_module_conv_spec,
+)
 from .dims_prop import DimsProp, DimsType
 from .shape_analysis import (
     ReshapeSinkInfo,
@@ -80,66 +85,6 @@ CAT_OPS = (torch.cat,)
 # Known bypass targets (shape/dim ops that don't need IR nodes)
 KNOWN_BYPASS_FUNCS = (operator.getitem,)
 KNOWN_BYPASS_METHODS = ("size", "contiguous", "transpose", "permute")
-
-
-class FunctionalConv2d(nn.Conv2d):
-    """Thin ``nn.Conv2d`` adapter for FX graphs that materialize ``torch.conv2d``.
-
-    This adapter is intentionally graph-first: it preserves the original
-    exported quantized weight tensor and convolution hyperparameters so PAIIR
-    can reconstruct the FX graph semantics accurately. Quantization parameters
-    are kept only as optional metadata; exact dequantized simulation is not the
-    priority here because the chip backend cannot execute dequantization.
-    """
-
-    def __init__(
-        self,
-        weight: Tensor,
-        bias: Tensor | None,
-        stride: int | tuple[int, int] = 1,
-        padding: int | tuple[int, int] = 0,
-        dilation: int | tuple[int, int] = 1,
-        groups: int = 1,
-        weight_scale: Tensor | float | int | None = None,
-        weight_zero_point: Tensor | int | None = None,
-    ) -> None:
-        raw_weight = weight.detach().clone()
-        scale = torch.as_tensor(
-            1.0 if weight_scale is None else weight_scale, dtype=torch.float32
-        ).detach()
-        zero_point = torch.as_tensor(
-            0 if weight_zero_point is None else weight_zero_point, dtype=torch.int32
-        ).detach()
-
-        kernel_size = tuple(int(v) for v in raw_weight.shape[-2:])
-        in_channels = int(raw_weight.shape[1]) * groups
-        out_channels = int(raw_weight.shape[0])
-
-        super().__init__(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            kernel_size=kernel_size,
-            stride=stride,
-            padding=padding,
-            dilation=dilation,
-            groups=groups,
-            bias=bias is not None,
-        )
-
-        with torch.no_grad():
-            self.weight.copy_(raw_weight.to(self.weight.dtype))
-            self.weight.requires_grad_(False)
-            if bias is not None and self.bias is not None:
-                self.bias.copy_(bias.detach().to(self.bias.dtype))
-                self.bias.requires_grad_(False)
-
-        self.register_buffer("raw_weight", raw_weight)
-        self.register_buffer("scale", scale)
-        self.register_buffer("zero_point", zero_point)
-
-    @property
-    def weight_scale(self) -> Tensor:
-        return self.scale
 
 
 def _map_comp(mod: nn.Module, **kwargs) -> OpNode:
@@ -206,10 +151,6 @@ def _propagate_dims(gm: fx.GraphModule) -> None:
     for determining the number of dimensions).
     """
     DimsProp().propagate(gm)
-
-
-def _is_conv2d_target(target: Any) -> bool:
-    return getattr(target, "__name__", "") == "conv2d"
 
 
 def _is_dtype_getattr(node: fx.Node) -> bool:
@@ -483,91 +424,6 @@ def _lower_general_add_ir(
     _register_ir_node(
         paiir_graph, ctx, node, ir_node, input_nodes_override=input_override
     )
-
-
-def _match_quantized_conv_weight_expr(
-    gm: fx.GraphModule, value: Any
-) -> tuple[Tensor, Tensor | float | int | None, set[fx.Node]] | None:
-    """Match the quantized-weight expression used by customer functional convs."""
-    if isinstance(value, fx.Node):
-        if value.op == "get_attr":
-            resolved = _resolve_attr_value(gm, str(value.target))
-            if isinstance(resolved, Tensor):
-                return resolved.detach().clone(), None, {value}
-            return None
-
-        if value.op == "call_method" and value.target == "to" and value.args:
-            extracted = _match_quantized_conv_weight_expr(gm, value.args[0])
-            if extracted is None:
-                return None
-            weight, scale, nodes = extracted
-            extra_nodes, ok = _resolve_to_aux_nodes(gm, value)
-            if not ok or extra_nodes is None:
-                return None
-            return weight, scale, nodes | extra_nodes
-
-        if value.op == "call_function" and value.target in (operator.mul, torch.mul):
-            lhs = _match_quantized_conv_weight_expr(gm, value.args[0])
-            rhs = _match_quantized_conv_weight_expr(gm, value.args[1])
-            lhs_const, lhs_nodes = _resolve_constant_value(gm, value.args[0])
-            rhs_const, rhs_nodes = _resolve_constant_value(gm, value.args[1])
-
-            if lhs is not None and rhs_const is not None:
-                weight, scale, nodes = lhs
-                merged_scale = rhs_const if scale is None else scale * rhs_const
-                return weight, merged_scale, nodes | rhs_nodes | {value}
-
-            if rhs is not None and lhs_const is not None:
-                weight, scale, nodes = rhs
-                merged_scale = lhs_const if scale is None else scale * lhs_const
-                return weight, merged_scale, nodes | lhs_nodes | {value}
-
-    return None
-
-
-def _build_functional_conv2d_node(
-    gm: fx.GraphModule,
-    node: fx.Node,
-) -> tuple[OpNode, set[fx.Node]] | None:
-    """Build a PAIIR compute node for a supported function-form ``conv2d``."""
-    if node.op != "call_function" or not _is_conv2d_target(node.target):
-        return None
-
-    normalized_kwargs = _get_normalized_call_kwargs(node, gm)
-    if normalized_kwargs is not None:
-        input_arg = normalized_kwargs.get("input")
-        weight_arg = normalized_kwargs.get("weight")
-        bias_arg = normalized_kwargs.get("bias")
-        stride = normalized_kwargs.get("stride", 1)
-        padding = normalized_kwargs.get("padding", 0)
-        dilation = normalized_kwargs.get("dilation", 1)
-        groups = normalized_kwargs.get("groups", 1)
-    else:
-        input_arg = _get_call_arg(node, 0, "input")
-        weight_arg = _get_call_arg(node, 1, "weight")
-        bias_arg = _get_call_arg(node, 2, "bias")
-        stride = _get_call_arg(node, 3, "stride", 1)
-        padding = _get_call_arg(node, 4, "padding", 0)
-        dilation = _get_call_arg(node, 5, "dilation", 1)
-        groups = _get_call_arg(node, 6, "groups", 1)
-
-    if not isinstance(input_arg, fx.Node) or not isinstance(groups, int):
-        return None
-
-    weight_spec = _match_quantized_conv_weight_expr(gm, weight_arg)
-    if weight_spec is None:
-        return None
-
-    weight, weight_scale, aux_nodes = weight_spec
-    bias_value, bias_nodes = _resolve_constant_value(gm, bias_arg)
-    if bias_value is not None and not isinstance(bias_value, Tensor):
-        return None
-
-    comp = FunctionalConv2d(
-        weight, bias_value, stride, padding, dilation, groups, weight_scale
-    )
-    ir_node = StandaloneCompOp(comp=comp)
-    return ir_node, aux_nodes | bias_nodes
 
 
 def _get_output_shape(node: fx.Node) -> tuple[int, ...]:
@@ -850,13 +706,14 @@ def _apply_functional_conv_rule(gm: fx.GraphModule, ctx: _LoweringContext) -> No
     # their weight expressions, so lowering can materialize the conv itself
     # while edge wiring ignores these helper nodes as real data producers.
     for node in gm.graph.nodes:
-        built = _build_functional_conv2d_node(gm, node)
-        if built is None:
+        spec = extract_functional_conv_spec(gm, node)
+        if spec is None:
             continue
 
-        ir_node, aux_nodes = built
+        ir_node, input_override = build_conv_ir_node(spec)
         ctx.prebuilt_ir_nodes[node] = ir_node
-        ctx.aux_bypass_nodes |= aux_nodes
+        ctx.input_nodes_overrides[node] = input_override
+        ctx.aux_bypass_nodes |= set(spec.aux_nodes)
 
 
 def _analyze_graph(gm: fx.GraphModule, ctx: _LoweringContext) -> None:
@@ -896,6 +753,18 @@ def _apply_module_lowering_rule(
 
     torch_module = gm.get_submodule(str(node.target))
     input_override = ctx.input_nodes_overrides.get(node)
+
+    conv_spec = extract_module_conv_spec(node, torch_module)
+    if conv_spec is not None:
+        ir_node, conv_input_override = build_conv_ir_node(conv_spec)
+        _register_ir_node(
+            paiir_graph,
+            ctx,
+            node,
+            ir_node,
+            input_nodes_override=conv_input_override,
+        )
+        return True
 
     sink_info = _get_reshape_sink_info(ctx, node)
     if sink_info is not None:
