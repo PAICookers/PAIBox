@@ -57,7 +57,9 @@ class Weight:
         while len(self.processed_weights) > 0 and self.processed_weights[-1] == 0:
             self.processed_weights.pop()
 
-    def n_sram_required(self) -> int:
+        self.n_sram_required = self.n_sram_required_()
+
+    def n_sram_required_(self) -> int:
         if not self.compress:
             return (len(self.processed_weights) * (2**self.weight_width) + 127) // 128
 

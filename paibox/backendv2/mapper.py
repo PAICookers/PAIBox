@@ -69,6 +69,7 @@ class Mapper:
                     group.dests[neu] = self.output_routing_group
 
         self.output_routing_group.input_set = set(self.output_routing_group.input_list)
+        self.output_routing_group.set_index_map()
         # print("Output Routing Group Input List:", self.output_routing_group.input_list)
         self.output_routing_group.lcn = LCN_EX.LCN_128X
 

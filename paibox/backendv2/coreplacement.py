@@ -79,14 +79,17 @@ class CorePlacement:
     def set_auto_core_config(self) -> None:
         pass
 
+    @property
     @abstractmethod
     def n_sram_required(self) -> int:
         pass
 
+    @property
     @abstractmethod
     def neuron_sram_required(self) -> int:
         pass
 
+    @property
     @abstractmethod
     def weight_sram_required(self) -> int:
         pass
@@ -105,24 +108,27 @@ class OfflineCorePlacementV2(CorePlacement):
         self.auto_core_config: Auto_Core_Config = Auto_Core_Config()
         self.neus: list[OfflineNeuronPlacement] = []
 
+    @property
     def n_sram_required(self) -> int:
         n_sram = 0
         for neu in self.neus:
-            n_sram += neu.n_sram_required()
+            n_sram += neu.n_sram_required
         for weight in self.weights:
-            n_sram += weight.n_sram_required()
+            n_sram += weight.n_sram_required
         return n_sram
 
+    @property
     def neuron_sram_required(self) -> int:
         n_sram = 0
         for neu in self.neus:
-            n_sram += neu.n_sram_required()
+            n_sram += neu.n_sram_required
         return n_sram
 
+    @property
     def weight_sram_required(self) -> int:
         n_sram = 0
         for weight in self.weights:
-            n_sram += weight.n_sram_required()
+            n_sram += weight.n_sram_required
         return n_sram
 
     @property
@@ -143,11 +149,11 @@ class OfflineCorePlacementV2(CorePlacement):
     def set_weight_address(self) -> None:
         current_address = 0
         for neu in self.neus:
-            current_address += neu.n_sram_required()
+            current_address += neu.n_sram_required
         weight_start_address = [current_address]
         for weight in self.weights:
             weight_start_address.append(
-                weight_start_address[-1] + weight.n_sram_required()
+                weight_start_address[-1] + weight.n_sram_required
             )
         for i, neu in enumerate(self.neus):
             weight_idx = self.neu_weight_map[i]
