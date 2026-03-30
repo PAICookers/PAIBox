@@ -9,7 +9,6 @@ from paicorelib import (
     AddPotentialMode,
     AERPacketZXYCopy,
     CoordXY,
-    CoordZXYOffset,
     DataWidth,
     FoldType,
     NeuronType,

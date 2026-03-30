@@ -492,9 +492,6 @@ def build_weights(
             weights[i, js] = matrix[neu_idx, idxs]
 
 
-from collections import defaultdict
-
-import numpy as np
 from numba import njit
 
 
