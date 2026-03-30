@@ -8,6 +8,7 @@ from spikingjelly.activation_based import functional as sF
 from spikingjelly.activation_based import neuron as sj
 from torch import Tensor, nn
 
+import paibox.paiir.pipeline.avgpool.fusion as avgpool_fusion
 from paibox.paiir import compile_to_paiir
 from paibox.paiir.ir.op_node import (
     AccumulateOp,
@@ -16,6 +17,10 @@ from paibox.paiir.ir.op_node import (
     ReshapeOp,
     SequentialOp,
     StandaloneCompOp,
+)
+from paibox.paiir.pipeline.avgpool import (
+    AvgPoolDeployScheme,
+    AvgPoolLIFCandidateScore,
 )
 from paibox.paiir.pipeline.passes import GraphCleanupWarning
 from tests.paiir.conftest import MultiInputMerge, find_nodes
@@ -820,14 +825,69 @@ class TestMultiLayerSNN:
         assert paiir_out.shape == sj_out.shape
         assert torch.equal(paiir_out, sj_out)
 
-    def test_avgpool_lif_split_core_snn(self) -> None:
+    def test_avgpool_if_snn_with_divisor_override(self) -> None:
+        class AvgPoolIFDivisorOne(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = nn.Conv2d(3, 3, 3, padding=1)
+                self.if1 = sj.IFNode(v_threshold=1.0)
+                self.pool = nn.AvgPool2d(2, divisor_override=1)
+                self.if2 = sj.IFNode(v_threshold=1.0)
+
+            def forward(self, x):
+                x = self.if1(self.conv(x))
+                return self.if2(self.pool(x))
+
+        model = AvgPoolIFDivisorOne()
+        _set_quantized_weights(model)
+
+        x_compile = torch.randn(1, 3, 8, 8)
+        x_int8 = _make_snn_input()
+
+        sj_out = _run_snn_reference(model, x_int8)
+        assert torch.is_tensor(sj_out)
+
+        graph = compile_to_paiir(model, x_compile)
+        graph.reset()
+
+        max_tick_start = max(
+            n.core_params.tick_start
+            for n in graph.nodes.values()
+            if isinstance(n, OfflineCoreOp) and n.core_params.tick_start is not None
+        )
+        for _ in range(max_tick_start):
+            paiir_out = graph.step(x_int8)
+
+        assert torch.is_tensor(paiir_out)
+        assert paiir_out.shape == sj_out.shape
+        assert torch.equal(paiir_out, sj_out)
+
+    def test_avgpool_lif_split_core_snn(self, monkeypatch) -> None:
         """Split-core AvgPool+LIF matches reference when exact-sum coding is enabled.
 
-        Use a configuration where the score-based selector actually prefers the
-        split-core path. With tau=4 the chip leak shift is exact, so any
-        remaining mismatch would come from the split-core construction itself.
+        Force the split-core path explicitly so this test validates split-core
+        simulation semantics rather than score-tie or heuristic selection.
         """
+
         kernel_size = 2
+
+        def fake_select_avgpool_lif_candidate(
+            act,
+            pred_out_width,
+            window_size,
+            allow_split_lif=False,
+            try_calibration=False,
+            avg_divisor=None,
+        ):
+            return AvgPoolLIFCandidateScore(
+                AvgPoolDeployScheme.SPLIT_CORE_LIF_EXACT_SUM, False, 0.0, 0.0, 0.0, 0.0
+            )
+
+        monkeypatch.setattr(
+            avgpool_fusion,
+            "select_avgpool_lif_candidate",
+            fake_select_avgpool_lif_candidate,
+        )
 
         class AvgPoolLIFNoDecay(nn.Module):
             def __init__(self):

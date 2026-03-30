@@ -50,8 +50,11 @@ def compensate_avgpool_lut(lut: LutData, window_size: int) -> LutData:
     scaled = lut.thresholds.float() * scale
     if not lut.is_float:
         scaled.round_()
-    lut.thresholds = scaled.to(lut.thresholds.dtype)
-    return lut
+    return LutData(
+        thresholds=scaled.to(lut.thresholds.dtype),
+        values=lut.values,
+        is_float=lut.is_float,
+    )
 
 
 def compensate_avgpool_neuron(
@@ -80,8 +83,11 @@ def compensate_avgpool_neuron(
 
 def compensate_avgpool_lut_for_sumpool(lut: LutData, window_size: int) -> LutData:
     """Move a LUT from AvgPool domain into SumPool domain."""
-    lut.thresholds = lut.thresholds * window_size
-    return lut
+    return LutData(
+        thresholds=lut.thresholds * window_size,
+        values=lut.values,
+        is_float=lut.is_float,
+    )
 
 
 def compensate_sumpool_neuron(

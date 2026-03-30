@@ -1,6 +1,7 @@
 import pytest
 import torch
 from paicorelib import DataWidth, LeakMultiInputMode, LeakMultiMode
+from torch import nn
 
 import paibox.paiir.pipeline.avgpool.deploy_scheme as deploy_scheme_mod
 from paibox.paiir.ir.calc_params import LutData, NeuronParams
@@ -20,6 +21,10 @@ from paibox.paiir.pipeline.avgpool.compensation import (
     compensate_avgpool_lut_for_sumpool,
     compensate_avgpool_neuron,
     compensate_sumpool_neuron,
+)
+from paibox.paiir.pipeline.avgpool.utils import (
+    _get_avgpool_divisor,
+    _get_pool_window_size,
 )
 
 
@@ -48,6 +53,13 @@ class TestAvgPoolLeakParams:
         params = apply_avgpool_leak_params(params, window_size=9, is_ann=False)
         assert params.leak_tau == -2  # unchanged
         assert params.leak_multi_input == LeakMultiInputMode.ENABLE
+
+
+class TestAvgPoolUtils:
+    def test_avgpool_divisor_can_differ_from_window_size(self):
+        pool = nn.AvgPool2d(2, divisor_override=1)
+        assert _get_pool_window_size(pool) == 4
+        assert _get_avgpool_divisor(pool) == 1
 
 
 class TestCompensateAvgPoolLut:
@@ -309,6 +321,25 @@ class TestSelectAvgPoolLIFDeployment:
         assert candidate.rate_error == pytest.approx(
             sum(per_probe_errors) / len(per_probe_errors)
         )
+
+    def test_avg_divisor_changes_candidate_scoring(self):
+        act = make_lif_node(tau=4.0, decay_input=True)
+
+        candidates_default = score_avgpool_lif_candidates(
+            act=act,
+            pred_out_width=DataWidth.WIDTH_1BIT,
+            window_size=4,
+            allow_split_lif=False,
+        )
+        candidates_divisor_one = score_avgpool_lif_candidates(
+            act=act,
+            pred_out_width=DataWidth.WIDTH_1BIT,
+            window_size=4,
+            allow_split_lif=False,
+            avg_divisor=1,
+        )
+
+        assert candidates_default != candidates_divisor_one
 
     def test_select_avgpool_lif_candidate_returns_full_winner(self):
         act = make_lif_node(tau=5.0, decay_input=False)

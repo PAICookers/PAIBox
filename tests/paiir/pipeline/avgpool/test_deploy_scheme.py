@@ -122,6 +122,30 @@ class TestSplitCoreAvgPoolIF:
         if_core = standalone_acts[0]
         assert if_core.act.thres_pos == 1.0
 
+    def test_divisor_override_controls_split_core_if_lut_scaling(self):
+        class AvgPoolIFDivisorOne(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = nn.Conv2d(3, 16, 3, padding=1)
+                self.if1 = sj.IFNode(v_threshold=1.0)
+                self.pool = nn.AvgPool2d(2, divisor_override=1)
+                self.if2 = sj.IFNode(v_threshold=1.0)
+
+            def forward(self, x):
+                x = self.if1(self.conv(x))
+                return self.if2(self.pool(x))
+
+        fused = convert_and_fuse(AvgPoolIFDivisorOne(), make_img_3ch_8x8())
+
+        seq_nodes = find_nodes(fused, SequentialOp)
+        sumpool_core = [n for n in seq_nodes if isinstance(n.comp, SumPool2d)][0]
+        assert sumpool_core.act.lut is not None
+        assert sumpool_core.act.lut.thresholds[1] == 1
+
+        standalone_acts = find_nodes(fused, StandaloneActOp)
+        assert len(standalone_acts) == 1
+        assert standalone_acts[0].act.thres_pos == 1.0
+
 
 class TestAvgPoolDeploymentWriteback:
     def test_shared_core_lif_records_avgpool_deploy_metadata(self):

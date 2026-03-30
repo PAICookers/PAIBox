@@ -5,7 +5,7 @@ from paicorelib import LeakMultiInputMode
 from ...ir.graph import PAIIRGraph
 from ...ir.op_node import SequentialOp
 from .calibration import CalibrationResult, calibrate_avgpool_threshold
-from .utils import _get_pool_window_size, _is_avgpool
+from .utils import _get_avgpool_divisor, _get_pool_window_size, _is_avgpool
 
 __all__ = ["calibrate_avgpool_thresholds"]
 
@@ -29,7 +29,8 @@ def calibrate_avgpool_thresholds(
         if not node.act.has_lif_dynamics:
             continue
 
-        window_size = _get_pool_window_size(node.comp)
+        sum_window_size = _get_pool_window_size(node.comp)
+        avg_divisor = _get_avgpool_divisor(node.comp)
         avgpool_deploy_metadata = node.avgpool_deploy_metadata
         if (
             avgpool_deploy_metadata is not None
@@ -43,16 +44,19 @@ def calibrate_avgpool_thresholds(
         )
         # Baseline starts from the analytic shared-core rule; the calibration
         # sweep only searches a neighbourhood around this integer threshold.
-        factor = window_size if source_decay_input else window_size / node.act.tau
+        factor = avg_divisor if source_decay_input else avg_divisor / node.act.tau
         baseline = round(
             node.act.reset_v + (node.act.thres_pos - node.act.reset_v) * factor
         )
-        node_input_range = input_range if input_range is not None else (0, window_size)
+        node_input_range = (
+            input_range if input_range is not None else (0, sum_window_size)
+        )
 
         result = calibrate_avgpool_threshold(
             node.act,
-            window_size,
+            sum_window_size,
             baseline,
+            avg_divisor=avg_divisor,
             n_steps=n_steps,
             input_range=node_input_range,
             search_ratio=search_ratio,

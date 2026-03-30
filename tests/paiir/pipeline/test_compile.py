@@ -10,7 +10,7 @@ from torch import nn
 
 import paibox.paiir.pipeline.avgpool.fusion as avgpool_fusion
 import paibox.paiir.pipeline.compile as compile_mod
-from paibox.paiir import CompileConfig, compile_to_paiir, torch_to_paiir
+from paibox.paiir import CompileConfig, LIFNodeV25, compile_to_paiir, torch_to_paiir
 from paibox.paiir.exceptions import UnsupportedOpError, UnsupportedOpWarning
 from paibox.paiir.ir.op_node import (
     AccumulateOp,
@@ -25,6 +25,7 @@ from paibox.paiir.nn import SumPool1d, SumPool2d
 from paibox.paiir.pipeline.avgpool import (
     AvgPoolDeployScheme,
     AvgPoolLIFCandidateScore,
+    calibrate_avgpool_threshold,
 )
 from paibox.paiir.pipeline.avgpool.metadata import AvgPoolDeployMetadata
 from paibox.paiir.pipeline.passes import GraphCleanupWarning
@@ -472,22 +473,18 @@ class TestCompileConfig:
     """CompileConfig and parameter precedence."""
 
     def test_config_applies(self):
-        from paibox.paiir.ir.op_node import StandaloneCompOp
-
         config = CompileConfig(tick_duration=50, auto_reset=False)
         sample_input = make_img_3ch_8x8()
         graph = compile_to_paiir(ANNClassifier(), sample_input, compile_config=config)
 
         for node in offline_nodes(graph):
             assert node.core_params.tick_duration == 50
-            # 有激活函数的节点 tick_initial=1，StandaloneCompOp 无激活函数故为 0
             if isinstance(node, (SequentialOp, AccumulateOp, StandaloneActOp)):
                 assert node.core_params.tick_initial == 1
             elif isinstance(node, StandaloneCompOp):
                 assert node.core_params.tick_initial == 0
 
     def test_explicit_kwarg_overrides_config(self):
-        from paibox.paiir.ir.op_node import StandaloneCompOp
 
         config = CompileConfig(tick_duration=50, auto_reset=False)
         sample_input = make_img_3ch_8x8()
@@ -535,7 +532,8 @@ class TestStrictMode:
         pool_nodes = [
             node
             for node in graph.nodes.values()
-            if isinstance(node, StandaloneCompOp) and isinstance(node.comp, nn.AvgPool2d)
+            if isinstance(node, StandaloneCompOp)
+            and isinstance(node.comp, nn.AvgPool2d)
         ]
         assert len(pool_nodes) == 1
 
@@ -602,8 +600,7 @@ class TestFunctionalConv:
         comp_nodes = [
             node
             for node in graph.nodes.values()
-            if isinstance(node, StandaloneCompOp)
-            and isinstance(node.comp, nn.Conv2d)
+            if isinstance(node, StandaloneCompOp) and isinstance(node.comp, nn.Conv2d)
         ]
         assert len(comp_nodes) == 1
         assert isinstance(comp_nodes[0].comp, nn.Conv2d)
@@ -620,8 +617,7 @@ class TestFunctionalConv:
         comp_nodes = [
             node
             for node in graph.nodes.values()
-            if isinstance(node, StandaloneCompOp)
-            and isinstance(node.comp, nn.Conv1d)
+            if isinstance(node, StandaloneCompOp) and isinstance(node.comp, nn.Conv1d)
         ]
         assert len(comp_nodes) == 1
         assert isinstance(comp_nodes[0].comp, nn.Conv1d)
@@ -643,8 +639,7 @@ class TestFunctionalConv:
         comp_nodes = [
             node
             for node in graph.nodes.values()
-            if isinstance(node, StandaloneCompOp)
-            and isinstance(node.comp, nn.Conv2d)
+            if isinstance(node, StandaloneCompOp) and isinstance(node.comp, nn.Conv2d)
         ]
         assert len(reshape_nodes) == 1
         assert len(comp_nodes) == 1
@@ -664,8 +659,7 @@ class TestFunctionalConv:
         comp_nodes = [
             node
             for node in graph.nodes.values()
-            if isinstance(node, StandaloneCompOp)
-            and isinstance(node.comp, nn.Conv2d)
+            if isinstance(node, StandaloneCompOp) and isinstance(node.comp, nn.Conv2d)
         ]
 
         assert reshape_nodes
@@ -766,8 +760,6 @@ class TestAvgPool1dCompilation:
     @pytest.mark.parametrize("kernel_size", AVGPOOL1D_KERNEL_SIZES)
     def test_avgpool1d_split_core_fusion(self, kernel_size):
         """Verify AvgPool1d-IF is fused into split-core deployment."""
-        from paibox.paiir.ir.op_node import StandaloneActOp
-
         model = SNNWithAvgPool1dIF(kernel_size)
         graph = compile_to_paiir(model, make_vec_64d())
 
@@ -866,10 +858,7 @@ class TestAvgPoolLIFSplitCore:
                 self.if1 = sj.IFNode(v_threshold=1.0)
                 self.pool = nn.AvgPool2d(2)
                 self.lif2 = sj.LIFNode(
-                    tau=5.0,
-                    decay_input=False,
-                    v_threshold=1.0,
-                    v_reset=0.0,
+                    tau=5.0, decay_input=False, v_threshold=1.0, v_reset=0.0
                 )
 
             def forward(self, x):
@@ -1032,15 +1021,11 @@ class TestAvgPoolCalibration:
             window_size,
             allow_split_lif=False,
             try_calibration=False,
+            avg_divisor=None,
         ):
             calls.append(try_calibration)
             return AvgPoolLIFCandidateScore(
-                AvgPoolDeployScheme.SHARED_CORE,
-                True,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
+                AvgPoolDeployScheme.SHARED_CORE, True, 0.0, 0.0, 0.0, 0.0
             )
 
         class AvgPoolLIF(nn.Module):
@@ -1154,14 +1139,10 @@ class TestAvgPoolCalibration:
             window_size,
             allow_split_lif=False,
             try_calibration=False,
+            avg_divisor=None,
         ):
             return AvgPoolLIFCandidateScore(
-                AvgPoolDeployScheme.SHARED_CORE,
-                False,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
+                AvgPoolDeployScheme.SHARED_CORE, False, 0.0, 0.0, 0.0, 0.0
             )
 
         class AvgPoolLIFNoDecay(nn.Module):
@@ -1205,14 +1186,10 @@ class TestAvgPoolCalibration:
             window_size,
             allow_split_lif=False,
             try_calibration=False,
+            avg_divisor=None,
         ):
             return AvgPoolLIFCandidateScore(
-                AvgPoolDeployScheme.SHARED_CORE,
-                True,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
+                AvgPoolDeployScheme.SHARED_CORE, True, 0.0, 0.0, 0.0, 0.0
             )
 
         class AvgPoolLIFNoDecay(nn.Module):
@@ -1249,9 +1226,6 @@ class TestAvgPoolCalibration:
 
     def test_calibration_search_range(self):
         """Calibration searches in correct range around baseline."""
-        from paibox.paiir import LIFNodeV25
-        from paibox.paiir.pipeline.avgpool import calibrate_avgpool_threshold
-
         # Test the calibration function directly
         act = LIFNodeV25(tau=9.0, v_threshold=1.0)
         window_size = 4
