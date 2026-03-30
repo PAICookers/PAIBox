@@ -8,7 +8,13 @@ from torch import nn
 
 from paibox.paiir.ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
 from paibox.paiir.ir.lut_activation import LutReLU, LutSigmoid, LutTanh
-from paibox.paiir.ir.op_node import AccumulateOp, OfflineCoreOp, StandaloneActOp
+from paibox.paiir.ir.op_node import (
+    AccumulateOp,
+    OfflineCoreOp,
+    SequentialOp,
+    StandaloneActOp,
+    StandaloneCompOp,
+)
 from paibox.paiir.lowering.converter import torch_to_paiir
 from paibox.paiir.pipeline.data_format import (
     infer_output_format,
@@ -251,6 +257,47 @@ class TestPropagateDataFormatANN:
         assert second.core_params.input_width == DataWidth.WIDTH_8BIT
         assert second.core_params.output_sign == DataSign.UNSIGNED
         assert second.core_params.output_width == DataWidth.WIDTH_8BIT
+
+    @pytest.mark.parametrize(
+        "input_format",
+        [
+            (DataSign.UNSIGNED, DataWidth.WIDTH_8BIT),
+            (DataSign.SIGNED, DataWidth.WIDTH_8BIT),
+            (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT),
+        ],
+        ids=["u8", "i8", "u1"],
+    )
+    def test_standalone_maxpool_preserves_predecessor_format(self, input_format):
+        class MaxPoolConvRelu(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.pool = nn.MaxPool2d(2, 2)
+                self.conv = nn.Conv2d(3, 4, 3, padding=1, bias=False)
+                self.relu = nn.ReLU()
+
+            def forward(self, x):
+                return self.relu(self.conv(self.pool(x)))
+
+        unfused = torch_to_paiir(MaxPoolConvRelu(), torch.randn(1, 3, 8, 8))
+        fused = fuse_to_offline_cores(specialize_general_adds(unfused))
+
+        inp_name = fused.input_nodes()[0].name
+        propagate_data_format(fused, input_formats={inp_name: input_format})
+
+        pool = next(
+            node
+            for node in fused.nodes.values()
+            if isinstance(node, StandaloneCompOp) and isinstance(node.comp, nn.MaxPool2d)
+        )
+        conv = next(
+            node
+            for node in fused.nodes.values()
+            if isinstance(node, SequentialOp) and isinstance(node.comp, nn.Conv2d)
+        )
+
+        assert (pool.core_params.input_sign, pool.core_params.input_width) == input_format
+        assert (pool.core_params.output_sign, pool.core_params.output_width) == input_format
+        assert (conv.core_params.input_sign, conv.core_params.input_width) == input_format
 
     def test_subtract_tanh(self):
         """Two linear branches with subtraction -> tanh: UNSIGNED 8BIT."""

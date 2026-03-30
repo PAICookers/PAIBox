@@ -26,6 +26,7 @@ from paibox.paiir.ir.op_node import (
     ConcatOp,
     CPUOp,
     OfflineCoreOp,
+    ReshapeOp,
     SequentialOp,
     StandaloneActOp,
     StandaloneCompOp,
@@ -129,12 +130,14 @@ class TestSNNConversion:
         assert groups == [1, 16]
 
     def test_flatten_transition(self):
-        """Conv-IF -> flatten -> Linear-IF: flatten bypassed."""
+        """Conv-IF -> flatten -> Linear-IF: flatten is preserved as ReshapeOp."""
         model = SNNFlattenTransition()
         fused = convert_and_fuse(model, make_img_1ch_4x4())
 
         seq_nodes = find_nodes(fused, SequentialOp)
         assert len(seq_nodes) == 2
+        reshape_nodes = find_nodes(fused, ReshapeOp)
+        assert len(reshape_nodes) == 1
 
         comp_types = sorted(type(n.comp).__name__ for n in seq_nodes)
         assert comp_types == ["Conv2d", "Linear"]
@@ -212,10 +215,7 @@ class TestComplexPatterns:
         assert [
             general_add.is_operand_broadcasted(operand)
             for operand in general_add.operands
-        ] == [
-            False,
-            True,
-        ]
+        ] == [False, True]
 
         y_ref = AddScalar()(x)
         y_ir = graph.forward(x)
@@ -919,6 +919,36 @@ class TestValidateCompiledGraph:
         ):
             validate_compiled_graph(graph)
 
+    def test_rejects_concat_predecessor_shape_mismatch(self):
+        graph = PAIIRGraph("bad_concat_shapes")
+        inp_a = InputNode(shape=(1, 2, 4, 4))
+        inp_b = InputNode(shape=(1, 2, 4))
+        cat = ConcatOp(dim=1)
+        out = OutputNode()
+
+        inp_a.output_domain = SignalDomain.VALUE
+        inp_b.output_domain = SignalDomain.VALUE
+        cat.output_domain = SignalDomain.VALUE
+        out.output_domain = SignalDomain.VALUE
+
+        cat.input_shapes = [(1, 32), (1, 8)]
+        cat.output_shape = (1, 40)
+        cat.input_dims = [(0, 1), (0, 1)]
+        cat.output_dims = (0, 1)
+
+        graph.add_node(inp_a)
+        graph.add_node(inp_b)
+        graph.add_node(cat)
+        graph.add_node(out)
+        graph.add_edge(inp_a.name, cat.name, dst_port=0)
+        graph.add_edge(inp_b.name, cat.name, dst_port=1)
+        graph.add_edge(cat.name, out.name)
+
+        with pytest.raises(
+            GraphValidationError, match="ConcatOp .*predecessor shape mismatch"
+        ):
+            validate_compiled_graph(graph)
+
 
 class TestValidateDeployableGraph:
     def test_rejects_non_backend_ready_node_type(self):
@@ -1038,6 +1068,56 @@ class ValueBranchAdd(nn.Module):
 
 
 class TestSignalDomain:
+    def test_standalone_maxpool_preserves_value_domain(self):
+        class ValueMaxPool(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.relu = nn.ReLU()
+                self.pool = nn.MaxPool2d(2)
+
+            def forward(self, x):
+                return self.pool(self.relu(x))
+
+        unfused = torch_to_paiir(ValueMaxPool(), torch.randn(1, 3, 8, 8))
+        fused = fuse_to_offline_cores(specialize_general_adds(unfused))
+
+        propagate_signal_domain(fused)
+
+        pool = next(
+            node
+            for node in fused.nodes.values()
+            if isinstance(node, StandaloneCompOp)
+            and isinstance(node.comp, nn.MaxPool2d)
+        )
+        out = fused.output_nodes()[0]
+        assert pool.output_domain == SignalDomain.VALUE
+        assert out.output_domain == SignalDomain.VALUE
+
+    def test_standalone_maxpool_preserves_potential_domain(self):
+        class PotentialMaxPool(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = nn.Conv2d(3, 4, 1)
+                self.pool = nn.MaxPool2d(2)
+
+            def forward(self, x):
+                return self.pool(self.conv(x))
+
+        unfused = torch_to_paiir(PotentialMaxPool(), torch.randn(1, 3, 8, 8))
+        fused = fuse_to_offline_cores(specialize_general_adds(unfused))
+
+        propagate_signal_domain(fused)
+
+        pool = next(
+            node
+            for node in fused.nodes.values()
+            if isinstance(node, StandaloneCompOp)
+            and isinstance(node.comp, nn.MaxPool2d)
+        )
+        out = fused.output_nodes()[0]
+        assert pool.output_domain == SignalDomain.POTENTIAL
+        assert out.output_domain == SignalDomain.POTENTIAL
+
     def test_general_add_from_scalar_propagates_value_domain(self):
         graph = torch_to_paiir(AddScalarDomain(), torch.randn(1, 3, 8, 8), strict=False)
 
