@@ -44,9 +44,7 @@ def _get_functional_conv_spec(target: Any) -> _FunctionalConvLoweringSpec | None
     return _FUNCTIONAL_CONV_SPECS.get(getattr(target, "__name__", ""))
 
 
-def extract_module_conv_spec(
-    node: fx.Node, module: nn.Module
-) -> ConvSpec | None:
+def extract_module_conv_spec(node: fx.Node, module: nn.Module) -> ConvSpec | None:
     if not isinstance(module, (nn.Conv1d, nn.Conv2d)):
         return None
     if not node.args or not isinstance(node.args[0], fx.Node):
@@ -255,9 +253,7 @@ def _build_functional_conv_module(
     return conv
 
 
-def extract_functional_conv_spec(
-    gm: fx.GraphModule, node: fx.Node
-) -> ConvSpec | None:
+def extract_functional_conv_spec(gm: fx.GraphModule, node: fx.Node) -> ConvSpec | None:
     """Extract a normalized conv spec from a function-form conv FX node."""
     spec = _get_functional_conv_spec(node.target)
     if node.op != "call_function" or spec is None:

@@ -287,7 +287,8 @@ class TestPropagateDataFormatANN:
         pool = next(
             node
             for node in fused.nodes.values()
-            if isinstance(node, StandaloneCompOp) and isinstance(node.comp, nn.MaxPool2d)
+            if isinstance(node, StandaloneCompOp)
+            and isinstance(node.comp, nn.MaxPool2d)
         )
         conv = next(
             node
@@ -295,9 +296,18 @@ class TestPropagateDataFormatANN:
             if isinstance(node, SequentialOp) and isinstance(node.comp, nn.Conv2d)
         )
 
-        assert (pool.core_params.input_sign, pool.core_params.input_width) == input_format
-        assert (pool.core_params.output_sign, pool.core_params.output_width) == input_format
-        assert (conv.core_params.input_sign, conv.core_params.input_width) == input_format
+        assert (
+            pool.core_params.input_sign,
+            pool.core_params.input_width,
+        ) == input_format
+        assert (
+            pool.core_params.output_sign,
+            pool.core_params.output_width,
+        ) == input_format
+        assert (
+            conv.core_params.input_sign,
+            conv.core_params.input_width,
+        ) == input_format
 
     def test_subtract_tanh(self):
         """Two linear branches with subtraction -> tanh: UNSIGNED 8BIT."""

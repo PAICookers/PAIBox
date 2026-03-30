@@ -81,7 +81,8 @@ class TestStrictMode:
         pool_nodes = [
             node
             for node in graph.nodes.values()
-            if isinstance(node, StandaloneCompOp) and isinstance(node.comp, nn.AvgPool2d)
+            if isinstance(node, StandaloneCompOp)
+            and isinstance(node.comp, nn.AvgPool2d)
         ]
         assert len(pool_nodes) == 1
 

@@ -205,10 +205,7 @@ def _build_reshape_sink_info(
 
         if node.target in UNSQUEEZE_FUNCTION_TARGETS:
             return ReshapeSinkInfo(
-                "reshape",
-                data_input,
-                (),
-                _extract_tensor_output_shape(node)
+                "reshape", data_input, (), _extract_tensor_output_shape(node)
             )
 
         if node.target in RESHAPE_FUNCTION_TARGETS:

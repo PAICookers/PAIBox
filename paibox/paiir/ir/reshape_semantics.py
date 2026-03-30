@@ -4,6 +4,7 @@ This module intentionally stays small and function-oriented. It centralizes
 target classification and pure shape/dims helpers for reshape-like operators
 without introducing another object layer.
 """
+
 from collections.abc import Iterable
 from typing import Any
 

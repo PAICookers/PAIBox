@@ -894,7 +894,7 @@ def _is_standalone_maxpool(node: PAIIRNode) -> TypeGuard[StandaloneCompOp]:
 
 
 def _is_format_transparent_routing_node(
-    node: PAIIRNode
+    node: PAIIRNode,
 ) -> TypeGuard[ConcatOp | ReshapeOp]:
     """Return whether *node* preserves scalar data format across routing."""
     return isinstance(node, (ConcatOp, ReshapeOp))

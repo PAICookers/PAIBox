@@ -192,9 +192,7 @@ def _try_handle_avgpool_activation(
         shared = _materialize_shared_sequential(
             pred_name, pred, act_name, act_node, consumed, node_remap
         )
-        _prepare_shared_avgpool_ann_params(
-            cast(ANNNodeV25, shared.act), avg_divisor
-        )
+        _prepare_shared_avgpool_ann_params(cast(ANNNodeV25, shared.act), avg_divisor)
         return shared
 
     if act_node.act.has_if_dynamics:
