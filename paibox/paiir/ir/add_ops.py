@@ -72,10 +72,10 @@ class AddOperandSpec:
         )
 
 
-def _constant_shape(value: Tensor | int | float) -> tuple[int, ...]:
+def _constant_shape(value: Tensor | int | float) -> torch.Size:
     if isinstance(value, Tensor):
-        return tuple(value.shape)
-    return ()
+        return value.shape
+    return torch.Size()
 
 
 def _constant_dims(value: Tensor | int | float) -> tuple[int, ...]:
@@ -125,11 +125,11 @@ class GeneralAddOp(OpNode):
     def has_const_operands(self) -> bool:
         return any(operand.kind is AddOperandKind.CONST for operand in self.operands)
 
-    def operand_shape(self, operand: AddOperandSpec) -> tuple[int, ...]:
+    def operand_shape(self, operand: AddOperandSpec) -> torch.Size:
         if operand.kind is AddOperandKind.TENSOR:
             assert operand.tensor_port is not None
             if operand.tensor_port >= len(self.input_shapes):
-                return ()
+                return torch.Size()
             return self.input_shapes[operand.tensor_port]
 
         assert operand.const_value is not None

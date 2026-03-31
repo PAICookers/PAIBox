@@ -156,6 +156,16 @@ _DEFAULT_MODULE_MAP: ModuleMapper = {
 
 
 def _propagate_shapes(gm: fx.GraphModule, *inputs: Tensor) -> None:
+    """Populate FX ``tensor_meta`` using the real traced module.
+
+    We intentionally keep this on plain ``ShapeProp`` rather than adding a
+    fake/meta execution path here. PAIIR lowering commonly includes native
+    neuron/LUT modules and custom registered neuron types whose forwards use
+    data-dependent state updates, while later compile passes still require
+    real weight values. A fake/meta branch would therefore need exclusions for
+    common project modules without covering enough of the compile cost to
+    justify the extra complexity and maintenance burden.
+    """
     ShapeProp(gm).propagate(*inputs)
 
 
@@ -182,9 +192,9 @@ def _is_dtype_getattr(node: fx.Node) -> bool:
 
 
 def _make_fixed_shape_fn(
-    target_shape: tuple[int, ...],
+    target_shape: torch.Size,
 ) -> Callable[[torch.Size], torch.Size]:
-    return lambda _input_shape, target=target_shape: torch.Size(target)
+    return lambda _input_shape, target=target_shape: target
 
 
 def _normalize_dim(ndim: int, dim: int) -> int:
@@ -218,7 +228,7 @@ def _make_flatten_shape_fn(
 
 
 def _build_reshape_op(
-    output_shape: tuple[int, ...],
+    output_shape: torch.Size,
     shape_fn: Callable[[torch.Size], torch.Size] | None = None,
 ) -> ReshapeOp | None:
     """Create a ``ReshapeOp`` from analyzed shape metadata or a shape function."""
@@ -445,19 +455,19 @@ def _lower_general_add_ir(
     )
 
 
-def _get_output_shape(node: fx.Node) -> tuple[int, ...]:
+def _get_output_shape(node: fx.Node) -> torch.Size:
     """Extract output shape from an FX node's meta."""
     meta = node.meta.get("tensor_meta")
     if meta is None:
-        return ()
+        return torch.Size()
     if hasattr(meta, "shape"):
-        return tuple(meta.shape)
-    return ()
+        return torch.Size(meta.shape)
+    return torch.Size()
 
 
 def _get_input_shapes(
     node: fx.Node, input_nodes: tuple[fx.Node, ...] | None = None
-) -> list[tuple[int, ...]]:
+) -> list[torch.Size]:
     """Extract input shapes from an FX node's predecessor meta."""
     source_nodes = (
         input_nodes if input_nodes is not None else tuple(node.all_input_nodes)
@@ -753,7 +763,7 @@ def _create_output_nodes(
     paiir_graph: PAIIRGraph, ctx: _LoweringContext, node: fx.Node
 ) -> None:
     for i, arg in enumerate(_iter_output_args(node)):
-        out_shape = _get_output_shape(arg) if isinstance(arg, fx.Node) else ()
+        out_shape = _get_output_shape(arg) if isinstance(arg, fx.Node) else torch.Size()
         ir_node = OutputNode(shape=out_shape)
         paiir_graph.add_node(ir_node)
         ctx.fx_to_ir[f"{node.name}_{i}"] = ir_node.name

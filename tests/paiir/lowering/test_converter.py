@@ -10,6 +10,7 @@ from paibox.paiir.ir.lut_activation import LutCustom
 from paibox.paiir.ir.op_node import SequentialOp, StandaloneCompOp
 from paibox.paiir.lowering.converter import register_neuron, torch_to_paiir
 from tests.paiir.conftest import (
+    MultiSpike4,
     UnsupportedSinModel,
     convert_and_fuse,
     find_nodes,
@@ -92,8 +93,6 @@ class TestRegisterNeuron:
 
     def test_register_custom_neuron(self):
         """Register MultiSpike4 -> compile a model -> verify graph structure."""
-        from tests.paiir.conftest import MultiSpike4
-
         register_neuron(
             MultiSpike4, converter=lambda _: ANNNodeV25(make_multispike4_lut())
         )

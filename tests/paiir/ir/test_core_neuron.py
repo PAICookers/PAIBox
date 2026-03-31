@@ -1,6 +1,6 @@
 import pytest
 import torch
-from paicorelib import RM
+from paicorelib import RM, ThresholdPosMode
 from spikingjelly.activation_based import functional
 from torch import nn
 
@@ -423,8 +423,6 @@ class TestCoreNeuronV25ANN:
         neuron.eval()
         # Large positive input should be clamped by CEILING (thres_pos_mode default is FIRE not CEILING)
         # Use CEILING mode explicitly
-        from paicorelib import ThresholdPosMode
-
         neuron.thres_pos_mode = ThresholdPosMode.CEILING
         x = torch.tensor([[1000.0]])
         neuron(x)

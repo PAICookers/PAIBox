@@ -306,38 +306,31 @@ def validate_graph(graph: PAIIRGraph) -> None:
     Use :func:`validate_compiled_graph` for the final post-pass validation of a
     fully compiled graph.
     """
-    errors: list[str] = []
-    to_remove: list[str] = []
-    missing_shape_nodes: list[str] = []
+    graph.lint(allow_disconnected=True)
+
+    to_remove = graph.disconnected_nodes()
+    if to_remove:
+        for name in to_remove:
+            _remove_node(graph, name)
+        warnings.warn(GraphCleanupWarning(to_remove))
 
     if not graph.input_nodes():
-        errors.append("graph has no input node")
+        raise GraphValidationError(
+            ["graph has no input node after cleanup (all were disconnected)"]
+        )
     if not graph.output_nodes():
-        errors.append("graph has no output node")
+        raise GraphValidationError(
+            ["graph has no output node after cleanup (all were disconnected)"]
+        )
+
+    graph.lint()
+
+    errors: list[str] = []
+    missing_shape_nodes: list[str] = []
 
     for name, node in graph.nodes.items():
-        preds = graph.predecessors(name)
-        succs = graph.successors(name)
-
-        if isinstance(node, InputNode):
-            if preds:
-                errors.append(
-                    f"InputNode '{name}' has predecessors {preds} (expected none)"
-                )
-            elif not succs:
-                to_remove.append(name)
-        elif isinstance(node, OutputNode):
-            if succs:
-                errors.append(
-                    f"OutputNode '{name}' has successors {succs} (expected none)"
-                )
-            elif not preds:
-                to_remove.append(name)
-        elif isinstance(node, OpNode):
-            if not preds or not succs:
-                to_remove.append(name)
-            elif not node.output_shape:
-                missing_shape_nodes.append(name)
+        if isinstance(node, OpNode) and not node.output_shape:
+            missing_shape_nodes.append(name)
 
     if missing_shape_nodes:
         names = ", ".join(missing_shape_nodes)
@@ -356,20 +349,6 @@ def validate_graph(graph: PAIIRGraph) -> None:
     if errors:
         raise GraphValidationError(errors)
 
-    if to_remove:
-        for name in to_remove:
-            _remove_node(graph, name)
-        warnings.warn(GraphCleanupWarning(to_remove))
-
-    if not graph.input_nodes():
-        raise GraphValidationError(
-            ["graph has no input node after cleanup (all were disconnected)"]
-        )
-    if not graph.output_nodes():
-        raise GraphValidationError(
-            ["graph has no output node after cleanup (all were disconnected)"]
-        )
-
 
 def validate_compiled_graph(graph: PAIIRGraph) -> None:
     """Validate a fully compiled graph before returning it to callers.
@@ -383,49 +362,17 @@ def validate_compiled_graph(graph: PAIIRGraph) -> None:
     - every :class:`OfflineCoreOp` has propagated data formats
     - every :class:`OfflineCoreOp` has valid tick parameters
     """
+    graph.lint()
+
     errors: list[str] = []
 
-    input_nodes = graph.input_nodes()
-    output_nodes = graph.output_nodes()
-    if not input_nodes:
-        errors.append("graph has no input node")
-    if not output_nodes:
-        errors.append("graph has no output node")
-
-    reachable_from_inputs = _collect_reachable_nodes(
-        graph, [node.name for node in input_nodes], reverse=False
-    )
-    reachable_to_outputs = _collect_reachable_nodes(
-        graph, [node.name for node in output_nodes], reverse=True
-    )
-    valid_path_nodes = reachable_from_inputs & reachable_to_outputs
-    missing_path_nodes = sorted(set(graph.nodes) - valid_path_nodes)
-    if missing_path_nodes:
-        names = ", ".join(missing_path_nodes)
-        errors.append(f"nodes not on any input-to-output path: {names}")
-
     for name, node in graph.nodes.items():
-        preds = graph.predecessors(name)
-        succs = graph.successors(name)
-
         if isinstance(node, InputNode):
-            if preds:
-                errors.append(
-                    f"InputNode '{name}' has predecessors {preds} (expected none)"
-                )
-            if not succs:
-                errors.append(f"InputNode '{name}' is disconnected from the graph")
             if node.output_domain is None:
                 errors.append(f"InputNode '{name}' is missing output_domain")
             continue
 
         if isinstance(node, OutputNode):
-            if succs:
-                errors.append(
-                    f"OutputNode '{name}' has successors {succs} (expected none)"
-                )
-            if not preds:
-                errors.append(f"OutputNode '{name}' is disconnected from the graph")
             if node.output_domain is None:
                 errors.append(f"OutputNode '{name}' is missing output_domain")
             continue
@@ -433,10 +380,6 @@ def validate_compiled_graph(graph: PAIIRGraph) -> None:
         if not isinstance(node, OpNode):
             continue
 
-        if not preds:
-            errors.append(f"OpNode '{name}' has no predecessors")
-        if not succs:
-            errors.append(f"OpNode '{name}' has no successors")
         if not node.input_shapes or any(not shape for shape in node.input_shapes):
             errors.append(f"OpNode '{name}' is missing input_shapes")
         if not node.output_shape:
@@ -476,14 +419,14 @@ def validate_compiled_graph(graph: PAIIRGraph) -> None:
         raise GraphValidationError(errors)
 
 
-def _get_node_output_shape(node: PAIIRNode) -> tuple[int, ...]:
+def _get_node_output_shape(node: PAIIRNode) -> torch.Size:
     if isinstance(node, InputNode):
         return node.shape
     if isinstance(node, OutputNode):
         return node.shape
     if isinstance(node, OpNode):
         return node.output_shape
-    return ()
+    return torch.Size()
 
 
 def _validate_concat_contract(
@@ -808,24 +751,6 @@ def validate_deployable_graph(graph: PAIIRGraph) -> None:
 def _remove_node(graph: PAIIRGraph, name: str) -> None:
     """Remove a node and all its edges from the graph."""
     graph.remove_node(name)
-
-
-def _collect_reachable_nodes(
-    graph: PAIIRGraph, start_names: list[str], reverse: bool
-) -> set[str]:
-    """Collect nodes reachable from *start_names* in forward or reverse mode."""
-    seen: set[str] = set()
-    stack = list(start_names)
-
-    while stack:
-        name = stack.pop()
-        if name in seen or name not in graph.nodes:
-            continue
-        seen.add(name)
-        neighbors = graph.predecessors(name) if reverse else graph.successors(name)
-        stack.extend(neighbors)
-
-    return seen
 
 
 def _validate_potential_add_contract(
