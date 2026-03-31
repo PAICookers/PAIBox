@@ -23,7 +23,19 @@ from paibox.paiir.pipeline.avgpool import (
     AvgPoolLIFCandidateScore,
 )
 from paibox.paiir.pipeline.passes import GraphCleanupWarning
-from tests.paiir.conftest import MultiInputMerge, find_nodes
+from tests.paiir.conftest import (
+    ANNClassifier,
+    ANNResidualSubtract,
+    MultiInputMerge,
+    SNNDepthwiseSeparable,
+    SNNFlattenTransition,
+    SNNResidualAdd,
+    SNNTwoLayer,
+    SNNWithAvgPoolIF,
+    SNNWithMaxPool,
+    SPPFBlock,
+    find_nodes,
+)
 
 
 def _make_snn_input(
@@ -667,8 +679,6 @@ class TestMultiLayerSNN:
         For multi-layer networks, the output is available at step = max(tick_start).
         This is because each layer's tick_start is assigned based on DAG depth.
         """
-        from tests.paiir.conftest import SNNTwoLayer
-
         model = SNNTwoLayer()
         _set_quantized_weights(model)
 
@@ -700,8 +710,6 @@ class TestMultiLayerSNN:
         Tests spatial-to-dense transition in SNN context now that flatten is
         materialized as a routing ``ReshapeOp`` for graph simulation.
         """
-        from tests.paiir.conftest import SNNFlattenTransition
-
         model = SNNFlattenTransition()
         _set_quantized_weights(model)
 
@@ -732,8 +740,6 @@ class TestMultiLayerSNN:
 
         Verifies grouped conv handling in multi-layer SNN.
         """
-        from tests.paiir.conftest import SNNDepthwiseSeparable
-
         model = SNNDepthwiseSeparable()
         _set_quantized_weights(model)
 
@@ -763,8 +769,6 @@ class TestMultiLayerSNN:
 
         Verifies MaxPool fusion in multi-layer SNN context.
         """
-        from tests.paiir.conftest import SNNWithMaxPool
-
         model = SNNWithMaxPool()
         _set_quantized_weights(model)
 
@@ -799,8 +803,6 @@ class TestMultiLayerSNN:
         Both power-of-2 and non-power-of-2 kernels should match SpikingJelly exactly,
         since Core 1 passes through the true sum and Core 2 compensates with window_size.
         """
-        from tests.paiir.conftest import SNNWithAvgPoolIF
-
         model = SNNWithAvgPoolIF(kernel_size)
         _set_quantized_weights(model)
 
@@ -950,8 +952,6 @@ class TestMultiLayerANN:
             "The multi-step execution pattern is implemented correctly."
         )
 
-        from tests.paiir.conftest import ANNClassifier
-
         model = ANNClassifier()
         _set_quantized_weights(model)
 
@@ -996,8 +996,6 @@ class TestAccumulateOpSimulation:
 
         Verifies signs=(1, 1) accumulation, exact match with SpikingJelly.
         """
-        from tests.paiir.conftest import SNNResidualAdd
-
         model = SNNResidualAdd()
         _set_quantized_weights(model)
 
@@ -1033,9 +1031,6 @@ class TestAccumulateOpSimulation:
             "LUT Tanh requires input domain mapping fix. "
             "The AccumulateOp structure is verified correctly."
         )
-
-        from paibox.paiir.ir.op_node import AccumulateOp
-        from tests.paiir.conftest import ANNResidualSubtract
 
         model = ANNResidualSubtract()
         _set_quantized_weights(model)
@@ -1073,8 +1068,6 @@ class TestAccumulateOpSimulation:
 
         Tests multiple InputNodes handling in accumulation context.
         """
-        from paibox.paiir.ir.op_node import AccumulateOp
-
         model = MultiInputMerge()
         _set_quantized_weights(model)
 
@@ -1114,8 +1107,6 @@ class TestConcatOpSimulation:
 
         Need to run max_tick_start=5 steps to get final output.
         """
-        from tests.paiir.conftest import SPPFBlock
-
         model = SPPFBlock()
         _set_quantized_weights(model)
 
@@ -1289,7 +1280,7 @@ class TestStandaloneOpSimulation:
 
         graph = compile_to_paiir(model, x_compile)
         reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 2
+        assert len(reshape_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
@@ -1407,7 +1398,7 @@ class TestStandaloneOpSimulation:
 
         graph = compile_to_paiir(model, x_compile)
         reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 2
+        assert len(reshape_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
@@ -1446,7 +1437,7 @@ class TestStandaloneOpSimulation:
 
         graph = compile_to_paiir(model, x_compile)
         reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 2
+        assert len(reshape_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
@@ -1485,7 +1476,7 @@ class TestStandaloneOpSimulation:
 
         graph = compile_to_paiir(model, x_compile)
         reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 2
+        assert len(reshape_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
@@ -1524,7 +1515,7 @@ class TestStandaloneOpSimulation:
 
         graph = compile_to_paiir(model, x_compile)
         reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 2
+        assert len(reshape_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
@@ -1615,7 +1606,11 @@ class TestStandaloneOpSimulation:
         assert torch.equal(paiir_out, pytorch_out)
 
     def test_flatten_then_reshape_chain_before_linear(self) -> None:
-        """Chained `flatten -> reshape(size arithmetic) -> flatten -> Linear` simulates."""
+        """Chained `flatten -> reshape(size arithmetic) -> flatten -> Linear` simulates.
+
+        The pre-fusion layout canonicalization pass now collapses the reshape
+        chain to a single effective `ReshapeOp`.
+        """
 
         class FlattenReshapeLinear(nn.Module):
             def __init__(self) -> None:
@@ -1640,7 +1635,7 @@ class TestStandaloneOpSimulation:
 
         graph = compile_to_paiir(model, x_compile)
         reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 3
+        assert len(reshape_nodes) == 1
 
         graph.reset()
         max_tick_start = max(

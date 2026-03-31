@@ -146,8 +146,8 @@ class OpNode(nn.Module, PAIIRNode):
         super(nn.Module, self).__init__()
 
         # Shape info, populated during graph construction
-        self.input_shapes: list[tuple[int, ...]] = []
-        self.output_shape: tuple[int, ...] = ()
+        self.input_shapes: list[torch.Size] = []
+        self.output_shape: torch.Size = torch.Size()
 
         # Axis ordering, populated by DimsProp
         self.input_dims: list[tuple[int, ...]] = []

@@ -11,7 +11,7 @@ in `PAIBox/paibox/paiir/pipeline/passes.py`:
 
 import pytest
 import torch
-from paicorelib import DataSign, DataWidth, SNNMode
+from paicorelib import DataSign, DataWidth, PoolingMode, SNNMode
 from spikingjelly.activation_based import neuron as sj
 from torch import nn
 
@@ -54,6 +54,7 @@ from tests.paiir.conftest import (
     SNNDepthwiseSeparable,
     SNNFlattenTransition,
     SNNResidualAdd,
+    SNNTwoLayer,
     SNNWithMaxPool,
     SPPFBlock,
     convert_and_fuse,
@@ -72,8 +73,6 @@ class TestSNNConversion:
 
     def test_two_layer_snn(self):
         """Conv-LIF -> Conv-IF: two SequentialOps after fusion."""
-        from tests.paiir.conftest import SNNTwoLayer
-
         model = SNNTwoLayer()
         fused = convert_and_fuse(model, make_img_3ch_8x8())
 
@@ -112,8 +111,6 @@ class TestSNNConversion:
 
         pool_ops = [n for n in seq_nodes if isinstance(n.comp, nn.MaxPool2d)]
         assert len(pool_ops) == 1
-
-        from paicorelib import PoolingMode
 
         assert pool_ops[0].core_params.pooling_mode == PoolingMode.MAX
 
@@ -219,6 +216,7 @@ class TestComplexPatterns:
 
         y_ref = AddScalar()(x)
         y_ir = graph.forward(x)
+        assert torch.is_tensor(y_ir)
         assert torch.allclose(y_ir, y_ref)
 
     def test_general_add_specializes_to_potential_add(self):
@@ -296,8 +294,6 @@ class TestShapeAndDims:
 
     def test_shape_propagation(self):
         """Shapes propagate correctly through a two-layer SNN."""
-        from tests.paiir.conftest import SNNTwoLayer
-
         model = SNNTwoLayer()
         fused = convert_and_fuse(model, make_img_3ch_8x8())
 
@@ -308,8 +304,6 @@ class TestShapeAndDims:
 
     def test_no_sample_input(self):
         """Converter works without sample input, shapes default to ()."""
-        from tests.paiir.conftest import SNNTwoLayer
-
         model = SNNTwoLayer()
         unfused = torch_to_paiir(model)
         fused = fuse_to_offline_cores(specialize_general_adds(unfused))
@@ -317,12 +311,10 @@ class TestShapeAndDims:
         seq_nodes = find_nodes(fused, SequentialOp)
         assert len(seq_nodes) == 2
         for node in seq_nodes:
-            assert node.output_shape == ()
+            assert node.output_shape == torch.Size()
 
     def test_dims_identity(self):
         """Identity dims for standard conv/linear (no transpose)."""
-        from tests.paiir.conftest import SNNTwoLayer
-
         model = SNNTwoLayer()
         fused = convert_and_fuse(model, make_img_3ch_8x8())
 
@@ -347,8 +339,6 @@ class TestAssignTickParams:
     @pytest.fixture
     def fused_snn(self):
         """Fixture: fused SNNTwoLayer graph."""
-        from tests.paiir.conftest import SNNTwoLayer
-
         return convert_and_fuse(SNNTwoLayer(), make_img_3ch_8x8())
 
     def test_tick_start_from_depth(self, fused_snn):
@@ -479,8 +469,6 @@ class TestAssignTickParams:
 
     def test_override_unknown_node_raises(self):
         """Override key for non-existent node raises KeyError."""
-        from tests.paiir.conftest import SNNTwoLayer
-
         fused = convert_and_fuse(SNNTwoLayer(), make_img_3ch_8x8())
         with pytest.raises(KeyError, match="does not match any node"):
             assign_tick_params(fused, overrides={"nonexistent_node": {"tick_start": 1}})
@@ -563,8 +551,8 @@ class TestUnrecoverableErrors:
     def test_no_input_node(self):
         graph = PAIIRGraph("no_input")
         op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
-        op.input_shapes = [(1, 8)]
-        op.output_shape = (1, 4)
+        op.input_shapes = [torch.Size((1, 8))]
+        op.output_shape = torch.Size((1, 4))
         out = OutputNode()
         graph.add_node(op)
         graph.add_node(out)
@@ -575,10 +563,10 @@ class TestUnrecoverableErrors:
 
     def test_no_output_node(self):
         graph = PAIIRGraph("no_output")
-        inp = InputNode(shape=(1, 8))
+        inp = InputNode(shape=torch.Size((1, 8)))
         op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
-        op.input_shapes = [(1, 8)]
-        op.output_shape = (1, 4)
+        op.input_shapes = [torch.Size((1, 8))]
+        op.output_shape = torch.Size((1, 4))
         graph.add_node(inp)
         graph.add_node(op)
         graph.add_edge(inp.name, op.name)
@@ -589,10 +577,10 @@ class TestUnrecoverableErrors:
     def test_input_has_predecessors(self):
         """InputNode with predecessors is a structural error."""
         graph = PAIIRGraph("bad_input")
-        inp = InputNode(shape=(1, 8))
+        inp = InputNode(shape=torch.Size((1, 8)))
         op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
-        op.input_shapes = [(1, 8)]
-        op.output_shape = (1, 4)
+        op.input_shapes = [torch.Size((1, 8))]
+        op.output_shape = torch.Size((1, 4))
         out = OutputNode()
         graph.add_node(inp)
         graph.add_node(op)
@@ -608,10 +596,10 @@ class TestUnrecoverableErrors:
     def test_output_has_successors(self):
         """OutputNode with successors is a structural error."""
         graph = PAIIRGraph("bad_output")
-        inp = InputNode(shape=(1, 8))
+        inp = InputNode(shape=torch.Size((1, 8)))
         op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
-        op.input_shapes = [(1, 8)]
-        op.output_shape = (1, 4)
+        op.input_shapes = [torch.Size((1, 8))]
+        op.output_shape = torch.Size((1, 4))
         out = OutputNode()
         graph.add_node(inp)
         graph.add_node(op)
@@ -629,8 +617,8 @@ class TestUnrecoverableErrors:
         graph = PAIIRGraph("multiple_errors")
         # No InputNode, no OutputNode
         op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
-        op.input_shapes = [(1, 8)]
-        op.output_shape = (1, 4)
+        op.input_shapes = [torch.Size((1, 8))]
+        op.output_shape = torch.Size((1, 4))
         graph.add_node(op)
 
         with pytest.raises(GraphValidationError) as exc_info:
@@ -673,13 +661,13 @@ class TestAutoCleanup:
     def test_orphan_op_removed_with_warning(self):
         """Orphan OpNode is removed and a warning is emitted."""
         graph = PAIIRGraph("orphan_op")
-        inp = InputNode(shape=(1, 8))
+        inp = InputNode(shape=torch.Size((1, 8)))
         op1 = SequentialOp(nn.Linear(8, 4), IFNodeV25())
-        op1.input_shapes = [(1, 8)]
-        op1.output_shape = (1, 4)
+        op1.input_shapes = [torch.Size((1, 8))]
+        op1.output_shape = torch.Size((1, 4))
         op2 = SequentialOp(nn.Linear(8, 4), IFNodeV25())  # orphan
-        op2.input_shapes = [(1, 8)]
-        op2.output_shape = (1, 4)
+        op2.input_shapes = [torch.Size((1, 8))]
+        op2.output_shape = torch.Size((1, 4))
         out = OutputNode()
         graph.add_node(inp)
         graph.add_node(op1)
@@ -699,13 +687,13 @@ class TestAutoCleanup:
     def test_dead_end_op_removed(self):
         """OpNode with input but no output is removed."""
         graph = PAIIRGraph("dead_end")
-        inp = InputNode(shape=(1, 8))
+        inp = InputNode(shape=torch.Size((1, 8)))
         op1 = SequentialOp(nn.Linear(8, 4), IFNodeV25())
-        op1.input_shapes = [(1, 8)]
-        op1.output_shape = (1, 4)
+        op1.input_shapes = [torch.Size((1, 8))]
+        op1.output_shape = torch.Size((1, 4))
         op2 = SequentialOp(nn.Linear(4, 2), IFNodeV25())  # dead end
-        op2.input_shapes = [(1, 4)]
-        op2.output_shape = (1, 2)
+        op2.input_shapes = [torch.Size((1, 4))]
+        op2.output_shape = torch.Size((1, 2))
         out = OutputNode()
         graph.add_node(inp)
         graph.add_node(op1)
@@ -725,11 +713,11 @@ class TestAutoCleanup:
     def test_disconnected_input_removed(self):
         """Disconnected InputNode is removed with warning."""
         graph = PAIIRGraph("disconnected_input")
-        inp1 = InputNode(shape=(1, 8))
-        inp2 = InputNode(shape=(1, 8))  # disconnected
+        inp1 = InputNode(shape=torch.Size((1, 8)))
+        inp2 = InputNode(shape=torch.Size((1, 8)))  # disconnected
         op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
-        op.input_shapes = [(1, 8)]
-        op.output_shape = (1, 4)
+        op.input_shapes = [torch.Size((1, 8))]
+        op.output_shape = torch.Size((1, 4))
         out = OutputNode()
         graph.add_node(inp1)
         graph.add_node(inp2)
@@ -747,10 +735,10 @@ class TestAutoCleanup:
     def test_disconnected_output_removed(self):
         """Disconnected OutputNode is removed with warning."""
         graph = PAIIRGraph("disconnected_output")
-        inp = InputNode(shape=(1, 8))
+        inp = InputNode(shape=torch.Size((1, 8)))
         op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
-        op.input_shapes = [(1, 8)]
-        op.output_shape = (1, 4)
+        op.input_shapes = [torch.Size((1, 8))]
+        op.output_shape = torch.Size((1, 4))
         out1 = OutputNode()
         out2 = OutputNode()  # disconnected
         graph.add_node(inp)
@@ -769,10 +757,10 @@ class TestAutoCleanup:
     def test_all_inputs_disconnected_raises_after_cleanup(self):
         """If all InputNodes are disconnected, cleanup leaves no inputs -> error."""
         graph = PAIIRGraph("all_disconnected")
-        inp = InputNode(shape=(1, 8))  # disconnected
+        inp = InputNode(shape=torch.Size((1, 8)))  # disconnected
         op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
-        op.input_shapes = [(1, 8)]
-        op.output_shape = (1, 4)
+        op.input_shapes = [torch.Size((1, 8))]
+        op.output_shape = torch.Size((1, 4))
         out = OutputNode()
         graph.add_node(inp)
         graph.add_node(op)
@@ -792,10 +780,10 @@ class TestSNNModeLUTConsistency:
     def _build_graph(self, act: CoreNeuronV25) -> PAIIRGraph:
         """Build a minimal valid graph with a single SequentialOp."""
         graph = PAIIRGraph("test")
-        inp = InputNode(shape=(1, 8))
+        inp = InputNode(shape=torch.Size((1, 8)))
         op = SequentialOp(nn.Linear(8, 4), act)
-        op.input_shapes = [(1, 8)]
-        op.output_shape = (1, 4)
+        op.input_shapes = [torch.Size((1, 8))]
+        op.output_shape = torch.Size((1, 4))
         out = OutputNode()
         graph.add_node(inp)
         graph.add_node(op)
@@ -844,10 +832,10 @@ class TestSNNModeLUTConsistency:
 class TestValidateCompiledGraph:
     def _build_compiled_graph(self) -> tuple[PAIIRGraph, SequentialOp]:
         graph = PAIIRGraph("compiled")
-        inp = InputNode(shape=(1, 8))
+        inp = InputNode(shape=torch.Size((1, 8)))
         op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
-        op.input_shapes = [(1, 8)]
-        op.output_shape = (1, 4)
+        op.input_shapes = [torch.Size((1, 8))]
+        op.output_shape = torch.Size((1, 4))
         op.input_dims = [(0, 1)]
         op.output_dims = (0, 1)
         op.core_params.set_input_format((DataSign.SIGNED, DataWidth.WIDTH_8BIT))
@@ -885,12 +873,12 @@ class TestValidateCompiledGraph:
         branch = SequentialOp(nn.Linear(8, 4), IFNodeV25())
         dead_end = SequentialOp(nn.Linear(4, 2), IFNodeV25())
 
-        branch.input_shapes = [(1, 8)]
-        branch.output_shape = (1, 4)
+        branch.input_shapes = [torch.Size((1, 8))]
+        branch.output_shape = torch.Size((1, 4))
         branch.input_dims = [(0, 1)]
         branch.output_dims = (0, 1)
-        dead_end.input_shapes = [(1, 4)]
-        dead_end.output_shape = (1, 2)
+        dead_end.input_shapes = [torch.Size((1, 4))]
+        dead_end.output_shape = torch.Size((1, 2))
         dead_end.input_dims = [(0, 1)]
         dead_end.output_dims = (0, 1)
 
@@ -911,9 +899,6 @@ class TestValidateCompiledGraph:
         graph.add_edge(inp.name, branch.name)
         graph.add_edge(branch.name, dead_end.name)
 
-        with pytest.warns(GraphCleanupWarning):
-            validate_graph(graph)
-
         with pytest.raises(
             GraphValidationError, match="nodes not on any input-to-output path"
         ):
@@ -921,8 +906,8 @@ class TestValidateCompiledGraph:
 
     def test_rejects_concat_predecessor_shape_mismatch(self):
         graph = PAIIRGraph("bad_concat_shapes")
-        inp_a = InputNode(shape=(1, 2, 4, 4))
-        inp_b = InputNode(shape=(1, 2, 4))
+        inp_a = InputNode(shape=torch.Size((1, 2, 4, 4)))
+        inp_b = InputNode(shape=torch.Size((1, 2, 4)))
         cat = ConcatOp(dim=1)
         out = OutputNode()
 
@@ -931,8 +916,8 @@ class TestValidateCompiledGraph:
         cat.output_domain = SignalDomain.VALUE
         out.output_domain = SignalDomain.VALUE
 
-        cat.input_shapes = [(1, 32), (1, 8)]
-        cat.output_shape = (1, 40)
+        cat.input_shapes = [torch.Size((1, 32)), torch.Size((1, 8))]
+        cat.output_shape = torch.Size((1, 40))
         cat.input_dims = [(0, 1), (0, 1)]
         cat.output_dims = (0, 1)
 
@@ -953,7 +938,7 @@ class TestValidateCompiledGraph:
 class TestValidateDeployableGraph:
     def test_rejects_non_backend_ready_node_type(self):
         graph = PAIIRGraph("non_backend_ready")
-        inp = InputNode(shape=(1, 8))
+        inp = InputNode(shape=torch.Size((1, 8)))
         cpu = CPUOp()
         out = OutputNode()
 
@@ -971,11 +956,9 @@ class TestValidateDeployableGraph:
             validate_deployable_graph(graph)
 
     def test_rechecks_potential_add_predecessor_domains(self):
-        from paibox.paiir.ir.add_ops import PotentialAddOp
-
         graph = PAIIRGraph("bad_potential_add_domain")
-        inp_a = InputNode(shape=(1, 4))
-        inp_b = InputNode(shape=(1, 4))
+        inp_a = InputNode(shape=torch.Size((1, 4)))
+        inp_b = InputNode(shape=torch.Size((1, 4)))
         add = PotentialAddOp(op_signs=(1, 1))
         out = OutputNode()
 
@@ -997,8 +980,8 @@ class TestValidateDeployableGraph:
 
     def test_rechecks_concat_predecessor_domains(self):
         graph = PAIIRGraph("bad_concat_domain")
-        inp_a = InputNode(shape=(1, 4))
-        inp_b = InputNode(shape=(1, 4))
+        inp_a = InputNode(shape=torch.Size((1, 4)))
+        inp_b = InputNode(shape=torch.Size((1, 4)))
         cat = ConcatOp(dim=1)
         out = OutputNode()
 
@@ -1020,8 +1003,8 @@ class TestValidateDeployableGraph:
 
     def test_rechecks_accumulate_path_counts(self):
         graph = PAIIRGraph("bad_accumulate_counts")
-        inp_a = InputNode(shape=(1, 4))
-        inp_b = InputNode(shape=(1, 4))
+        inp_a = InputNode(shape=torch.Size((1, 4)))
+        inp_b = InputNode(shape=torch.Size((1, 4)))
         acc = AccumulateOp(
             comps=[nn.Linear(4, 4), nn.Linear(4, 4)],
             act=IFNodeV25(),
@@ -1033,8 +1016,8 @@ class TestValidateDeployableGraph:
         inp_b.output_domain = SignalDomain.VALUE
         acc.output_domain = SignalDomain.VALUE
         out.output_domain = SignalDomain.VALUE
-        acc.input_shapes = [(1, 4)]
-        acc.output_shape = (1, 4)
+        acc.input_shapes = [torch.Size((1, 4))]
+        acc.output_shape = torch.Size((1, 4))
         acc.input_dims = [(0, 1)]
         acc.output_dims = (0, 1)
 
@@ -1169,8 +1152,8 @@ class TestSignalDomain:
 
     def test_rechecks_accumulate_signs(self):
         graph = PAIIRGraph("bad_accumulate_signs")
-        inp_a = InputNode(shape=(1, 4))
-        inp_b = InputNode(shape=(1, 4))
+        inp_a = InputNode(shape=torch.Size((1, 4)))
+        inp_b = InputNode(shape=torch.Size((1, 4)))
         acc = AccumulateOp(
             comps=[nn.Linear(4, 4), nn.Linear(4, 4)],
             act=IFNodeV25(),
@@ -1182,8 +1165,8 @@ class TestSignalDomain:
         inp_b.output_domain = SignalDomain.VALUE
         acc.output_domain = SignalDomain.VALUE
         out.output_domain = SignalDomain.VALUE
-        acc.input_shapes = [(1, 4), (1, 4)]
-        acc.output_shape = (1, 4)
+        acc.input_shapes = [torch.Size((1, 4)), torch.Size((1, 4))]
+        acc.output_shape = torch.Size((1, 4))
         acc.input_dims = [(0, 1), (0, 1)]
         acc.output_dims = (0, 1)
         acc.signs = (1, 0)

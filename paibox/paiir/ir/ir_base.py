@@ -1,5 +1,7 @@
 """PAIIR base types: node base class and graph boundary nodes."""
 
+import torch
+
 from ._namespace import IRNamespace
 from .signal_domain import SignalDomain
 
@@ -31,7 +33,7 @@ class PAIIRNode:
 class InputNode(PAIIRNode):
     """Graph input placeholder carrying shape information."""
 
-    def __init__(self, shape: tuple[int, ...] = ()) -> None:
+    def __init__(self, shape: torch.Size = torch.Size()) -> None:
         super().__init__()
         self.shape = shape
 
@@ -39,6 +41,6 @@ class InputNode(PAIIRNode):
 class OutputNode(PAIIRNode):
     """Graph output node."""
 
-    def __init__(self, shape: tuple[int, ...] = ()) -> None:
+    def __init__(self, shape: torch.Size = torch.Size()) -> None:
         super().__init__()
         self.shape = shape

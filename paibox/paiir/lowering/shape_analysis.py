@@ -23,15 +23,8 @@ from ..ir.reshape_semantics import (
     is_identity_repeat_values,
 )
 
-__all__ = [
-    "FLATTEN_FUNCTION_TARGETS",
-    "RESHAPE_FUNCTION_TARGETS",
-    "RESHAPE_LEAF_MODULE_TYPES",
-    "RESHAPE_METHOD_NAMES",
-    "ShapeAnalysisResult",
-    "ReshapeSinkInfo",
-    "analyze_shape_helpers",
-]
+__all__ = ["ShapeAnalysisResult", "ReshapeSinkInfo", "analyze_shape_helpers"]
+
 _SHAPE_EXPR_FUNCTION_TARGETS = (
     operator.getitem,
     operator.add,
@@ -72,7 +65,7 @@ class ReshapeSinkInfo:
     kind: Literal["flatten", "reshape"]
     data_input: fx.Node
     shape_seed_nodes: tuple[fx.Node, ...]
-    output_shape: tuple[int, ...]
+    output_shape: torch.Size
     start_dim: int = 0
     end_dim: int = -1
 
@@ -257,17 +250,17 @@ def _iter_nested_fx_nodes(value: Any) -> list[fx.Node]:
     return []
 
 
-def _extract_tensor_output_shape(node: fx.Node) -> tuple[int, ...]:
+def _extract_tensor_output_shape(node: fx.Node) -> torch.Size:
     """Return output tensor shape using Torch-propagated metadata when available."""
     tensor_meta = node.meta.get("tensor_meta")
     if tensor_meta is not None and hasattr(tensor_meta, "shape"):
-        return tuple(tensor_meta.shape)
+        return torch.Size(tensor_meta.shape)
 
     val = node.meta.get("val")
     if isinstance(val, torch.Tensor):
-        return tuple(val.shape)
+        return val.shape
 
-    return ()
+    return torch.Size()
 
 
 def _get_call_arg(node: fx.Node, index: int, name: str, default: Any = None) -> Any:

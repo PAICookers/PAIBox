@@ -203,9 +203,9 @@ class TestCompileBasic:
             if isinstance(node.comp, nn.MaxPool2d)
         ]
 
-        assert len(reshape_nodes) == 1
+        assert len(reshape_nodes) == 0
         assert len(pool_nodes) == 1
-        assert graph.predecessors(pool_nodes[0].name) == [reshape_nodes[0].name]
+        assert graph.predecessors(pool_nodes[0].name) == ["InputNode_0"]
         assert pool_nodes[0].core_params.input_sign is not None
         assert pool_nodes[0].core_params.input_width is not None
 
@@ -229,11 +229,10 @@ class TestCompileBasic:
             if isinstance(node.comp, nn.Linear)
         ]
 
-        assert len(reshape_nodes) == 2
+        assert len(reshape_nodes) == 1
         assert len(linear_nodes) == 1
         assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
-        assert graph.predecessors(reshape_nodes[1].name) == [reshape_nodes[0].name]
-        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[1].name]
+        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[0].name]
 
     def test_tuple_repeat_all_ones_before_linear_compiles(self):
         class TupleRepeatLinear(nn.Module):
@@ -255,11 +254,10 @@ class TestCompileBasic:
             if isinstance(node.comp, nn.Linear)
         ]
 
-        assert len(reshape_nodes) == 2
+        assert len(reshape_nodes) == 1
         assert len(linear_nodes) == 1
         assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
-        assert graph.predecessors(reshape_nodes[1].name) == [reshape_nodes[0].name]
-        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[1].name]
+        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[0].name]
 
     def test_method_squeeze_before_linear_compiles(self):
         class MethodSqueezeLinear(nn.Module):
@@ -281,11 +279,10 @@ class TestCompileBasic:
             if isinstance(node.comp, nn.Linear)
         ]
 
-        assert len(reshape_nodes) == 2
+        assert len(reshape_nodes) == 1
         assert len(linear_nodes) == 1
         assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
-        assert graph.predecessors(reshape_nodes[1].name) == [reshape_nodes[0].name]
-        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[1].name]
+        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[0].name]
 
     def test_function_squeeze_before_linear_compiles(self):
         class FunctionSqueezeLinear(nn.Module):
@@ -307,11 +304,10 @@ class TestCompileBasic:
             if isinstance(node.comp, nn.Linear)
         ]
 
-        assert len(reshape_nodes) == 2
+        assert len(reshape_nodes) == 1
         assert len(linear_nodes) == 1
         assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
-        assert graph.predecessors(reshape_nodes[1].name) == [reshape_nodes[0].name]
-        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[1].name]
+        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[0].name]
 
 
 class TestDataFormat:
@@ -664,7 +660,8 @@ class TestFunctionalConv:
 
         assert reshape_nodes
         assert comp_nodes
-        assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
+        assert graph.predecessors(comp_nodes[0].name) == ["InputNode_0"]
+        assert graph.predecessors(reshape_nodes[0].name) == [comp_nodes[0].name]
 
     def test_view_as_reference_path_does_not_become_data_predecessor(self):
         class ViewAsReferenceFromFlatten(nn.Module):

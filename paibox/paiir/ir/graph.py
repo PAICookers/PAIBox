@@ -11,6 +11,7 @@ from typing import Any
 import torch
 from torch import Tensor, nn
 
+from ..exceptions import GraphValidationError
 from .add_ops import GeneralAddOp
 from .core_neuron import CoreNeuronV25
 from .ir_base import InputNode, OutputNode, PAIIRNode
@@ -54,7 +55,7 @@ class PAIIRGraph:
     Example::
 
         graph = PAIIRGraph("my_model")
-        inp = InputNode(shape=(1, 3, 32, 32))
+        inp = InputNode(shape=torch.Size((1, 3, 32, 32)))
         graph.add_node(inp)
 
         op = SequentialOp(nn.Conv2d(3, 16, 3), LIFNodeV25())
@@ -110,6 +111,147 @@ class PAIIRGraph:
             index.topo_order = tuple(sorter.static_order())
 
         return index.topo_order
+
+    def _collect_reachable_nodes(
+        self, start_names: list[str], *, reverse: bool
+    ) -> set[str]:
+        """Collect nodes reachable from *start_names* in one graph direction."""
+        seen: set[str] = set()
+        stack = list(start_names)
+
+        while stack:
+            name = stack.pop()
+            if name in seen or name not in self.nodes:
+                continue
+            seen.add(name)
+            neighbors = self.predecessors(name) if reverse else self.successors(name)
+            stack.extend(neighbors)
+
+        return seen
+
+    def nodes_on_input_output_paths(self) -> set[str]:
+        """Return nodes that lie on at least one input-to-output path."""
+        reachable_from_inputs = self._collect_reachable_nodes(
+            [node.name for node in self.input_nodes()], reverse=False
+        )
+        reachable_to_outputs = self._collect_reachable_nodes(
+            [node.name for node in self.output_nodes()], reverse=True
+        )
+        return reachable_from_inputs & reachable_to_outputs
+
+    def disconnected_nodes(self) -> list[str]:
+        """Return node names that are not on any input-to-output path."""
+        return sorted(set(self.nodes) - self.nodes_on_input_output_paths())
+
+    def lint(self, *, allow_disconnected: bool = False) -> None:
+        """Validate structural graph invariants.
+
+        Checks graph/container consistency (node names, edge endpoints,
+        duplicate edges, boundary-node constraints, acyclicity), and by default
+        also rejects nodes that do not lie on any input-to-output path.
+
+        Args:
+            allow_disconnected: When True, skip the input-to-output reachability
+                check. This is useful for mid-pipeline cleanup stages that still
+                intend to prune disconnected fragments.
+        """
+        errors: list[str] = []
+
+        input_nodes = self.input_nodes()
+        output_nodes = self.output_nodes()
+        if not input_nodes:
+            errors.append("graph has no input node")
+        if not output_nodes:
+            errors.append("graph has no output node")
+
+        seen_names: set[str] = set()
+        for key, node in self.nodes.items():
+            if key != node.name:
+                errors.append(
+                    f"graph node key '{key}' does not match node.name '{node.name}'"
+                )
+            if node.name in seen_names:
+                errors.append(f"node redefines name '{node.name}'")
+            seen_names.add(node.name)
+
+        seen_edges: set[Edge] = set()
+        incoming_src_by_port: dict[tuple[str, int], str] = {}
+        edge_endpoint_errors = False
+
+        for edge in self.edges:
+            if edge.src not in self.nodes:
+                errors.append(
+                    f"edge {edge.src!r} -> {edge.dst!r} references missing source node"
+                )
+                edge_endpoint_errors = True
+
+            if edge.dst not in self.nodes:
+                errors.append(
+                    f"edge {edge.src!r} -> {edge.dst!r} references missing destination node"
+                )
+                edge_endpoint_errors = True
+
+            if edge.dst_port < 0:
+                errors.append(
+                    f"edge {edge.src!r} -> {edge.dst!r} has negative dst_port={edge.dst_port}"
+                )
+
+            if edge in seen_edges:
+                errors.append(
+                    f"duplicate edge {edge.src!r} -> {edge.dst!r} "
+                    f"(dst_port={edge.dst_port})"
+                )
+            else:
+                seen_edges.add(edge)
+
+            port_key = (edge.dst, edge.dst_port)
+            existing_src = incoming_src_by_port.get(port_key)
+            if existing_src is None:
+                incoming_src_by_port[port_key] = edge.src
+            elif existing_src != edge.src:
+                errors.append(
+                    f"node '{edge.dst}' has multiple incoming edges on "
+                    f"dst_port {edge.dst_port}: '{existing_src}' and '{edge.src}'"
+                )
+
+        if not edge_endpoint_errors:
+            try:
+                self.topo_sort()
+            except graphlib.CycleError as exc:
+                cycle = exc.args[1] if len(exc.args) > 1 else ()
+                if cycle:
+                    cycle_desc = " -> ".join(str(name) for name in cycle)
+                    errors.append(f"graph contains a cycle: {cycle_desc}")
+                else:
+                    errors.append("graph contains a cycle")
+
+            for name, node in self.nodes.items():
+                preds = self.predecessors(name)
+                succs = self.successors(name)
+
+                if isinstance(node, InputNode) and preds:
+                    errors.append(
+                        f"InputNode '{name}' has predecessors {preds} (expected none)"
+                    )
+
+                if isinstance(node, OutputNode) and succs:
+                    errors.append(
+                        f"OutputNode '{name}' has successors {succs} (expected none)"
+                    )
+
+        if (
+            not allow_disconnected
+            and input_nodes
+            and output_nodes
+            and not edge_endpoint_errors
+        ):
+            disconnected = self.disconnected_nodes()
+            if disconnected:
+                names = ", ".join(disconnected)
+                errors.append(f"nodes not on any input-to-output path: {names}")
+
+        if errors:
+            raise GraphValidationError(errors)
 
     def add_node(self, node: PAIIRNode) -> None:
         """Add a node to the graph."""
@@ -177,8 +319,77 @@ class PAIIRGraph:
             raise KeyError(f"source node '{src}' not found in graph")
         if dst not in self.nodes:
             raise KeyError(f"destination node '{dst}' not found in graph")
-        self.edges.append(Edge(src=src, dst=dst, dst_port=dst_port))
+        self.edges.append(Edge(src, dst, dst_port))
         self._invalidate_structure()
+
+    def replace_all_uses_with(
+        self, old_name: str, new_name: str, *, delete_old: bool = False
+    ) -> None:
+        """Rewrite every outgoing use of ``old_name`` to ``new_name``.
+
+        The destination node and destination port are preserved. Duplicate edges
+        created by the rewrite are removed. ``old_name`` remains in the graph
+        unless ``delete_old`` is explicitly requested.
+        """
+        if old_name not in self.nodes:
+            raise KeyError(f"node '{old_name}' not found in graph")
+        if new_name not in self.nodes:
+            raise KeyError(f"node '{new_name}' not found in graph")
+        if old_name == new_name:
+            return
+
+        new_edges: list[Edge] = []
+        seen: set[Edge] = set()
+        for edge in self.edges:
+            updated = (
+                Edge(new_name, edge.dst, edge.dst_port)
+                if edge.src == old_name
+                else edge
+            )
+            if updated in seen:
+                continue
+            seen.add(updated)
+            new_edges.append(updated)
+
+        self.edges = new_edges
+        self._invalidate_structure()
+        if delete_old:
+            self.remove_node(old_name)
+
+    def remove_node_and_reconnect(
+        self, name: str, *, source_name: str | None = None
+    ) -> None:
+        """Remove a node and reconnect one predecessor to all of its outgoing uses.
+
+        If ``source_name`` is omitted, the node must have exactly one predecessor.
+        When provided explicitly, ``source_name`` must be one of the removed
+        node's predecessors.
+        """
+        if name not in self.nodes:
+            raise KeyError(f"node '{name}' not found in graph")
+
+        preds = self.predecessors(name)
+        if source_name is None:
+            if len(preds) != 1:
+                raise ValueError(
+                    f"node '{name}' must have exactly one predecessor to reconnect"
+                )
+            source_name = preds[0]
+        elif source_name not in self.nodes:
+            raise KeyError(f"source node '{source_name}' not found in graph")
+        elif source_name not in preds:
+            raise ValueError(
+                f"source node '{source_name}' is not a predecessor of '{name}'"
+            )
+
+        outgoing = self.outgoing_edges(name)
+        self.remove_node(name)
+
+        for edge in outgoing:
+            candidate = Edge(source_name, edge.dst, edge.dst_port)
+            if candidate in self.edges:
+                continue
+            self.add_edge(source_name, edge.dst, edge.dst_port)
 
     def input_nodes(self) -> list[InputNode]:
         """Return all input nodes."""
@@ -280,9 +491,10 @@ class PAIIRGraph:
     def verify_before_sim(self) -> None:
         """Verify that the graph is ready for simulation.
 
-        Checks that all :class:`OfflineCoreOp` nodes have the required
-        tick parameters for correct simulation.  Call before running
-        simulation to catch configuration errors early.
+        First checks structural graph integrity via :meth:`lint`, then checks
+        that all :class:`OfflineCoreOp` nodes have the required tick parameters
+        for correct simulation. Call before running simulation to catch
+        configuration errors early.
 
         Required parameters:
         - ``tick_start``: Must be set (not None)
@@ -294,6 +506,11 @@ class PAIIRGraph:
             RuntimeError: If any verification check fails.
         """
         errors: list[str] = []
+
+        try:
+            self.lint()
+        except GraphValidationError as exc:
+            errors.extend(exc.errors)
 
         for name, node in self.nodes.items():
             if not isinstance(node, OfflineCoreOp):
