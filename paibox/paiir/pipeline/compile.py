@@ -52,6 +52,8 @@ from torch import Tensor, nn
 from ..ir.graph import PAIIRGraph
 from ..lowering.converter import torch_to_paiir
 from .data_format import DataFormat
+from .layout_chain_canonicalization import canonicalize_layout_chains
+from .layout_cross_node_elision import elide_layout_invisible_reshapes
 from .passes import (
     TickOverride,
     assign_tick_params,
@@ -213,39 +215,45 @@ def compile_to_paiir(
         model, *sample_inputs, concrete_args=concrete_args, strict=strict
     )
 
-    # Step 2: Narrow expression-layer add nodes into deployable add IR where possible.
+    # Step 2: Canonicalize local layout-only routing chains.
+    graph = canonicalize_layout_chains(graph)
+
+    # Step 3: Narrow expression-layer add nodes into deployable add IR where possible.
     graph = specialize_general_adds(graph)
 
-    # Step 3: Choose topology, fuse atomic nodes, and prepare AvgPool deployment
+    # Step 4: Elide chip-invisible reshape wrappers around eligible nodes.
+    graph = elide_layout_invisible_reshapes(graph)
+
+    # Step 5: Choose topology, fuse atomic nodes, and prepare AvgPool deployment
     graph = fuse_to_offline_cores(
         graph, _enable_split_avgpool_lif, _enable_avgpool_calibration
     )
 
-    # Step 4: Early validation on the fused graph. This stage is allowed to
+    # Step 6: Early validation on the fused graph. This stage is allowed to
     # clean up disconnected regions and enforces only the invariants needed
     # before later passes run.
     validate_graph(graph)
 
-    # Step 5: Infer semantic output domains
+    # Step 7: Infer semantic output domains
     propagate_signal_domain(graph)
 
-    # Step 6: Infer and fill data format parameters
+    # Step 8: Infer and fill data format parameters
     propagate_data_format(graph, _input_formats)
 
-    # Step 7: Assign timing parameters
+    # Step 9: Assign timing parameters
     assign_tick_params(graph, _tick_duration, _auto_reset, tick_overrides)
 
-    # Step 8: Calibrate AvgPool+LIF thresholds (experimental, off by default)
+    # Step 10: Calibrate AvgPool+LIF thresholds (experimental, off by default)
     if _enable_avgpool_calibration:
         calibrate_avgpool_thresholds(graph)
 
-    # Step 9: Final validation after all compile-time annotations are filled.
+    # Step 11: Final validation after all compile-time annotations are filled.
     # Unlike validate_graph(), this stage assumes the graph is in its final
     # compiled form and checks shape/dims completeness, propagated signal
     # domains, propagated data formats, tick parameters, and connectivity.
     validate_compiled_graph(graph)
 
-    # Step 10: The backend only accepts deployable IR nodes. Expression-layer
+    # Step 12: The backend only accepts deployable IR nodes. Expression-layer
     # nodes such as GeneralAddOp must have been specialized away by now.
     validate_deployable_graph(graph)
 
