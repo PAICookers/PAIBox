@@ -31,9 +31,7 @@ def _reshape(
 class TestLayoutChainCanonicalization:
     def test_singleton_axis_dims_permutation_is_layout_invisible(self):
         assert is_layout_invisible_dims(torch.Size((1, 3, 4)), (1, 0, 2))
-        assert is_layout_invisible_dims(
-            torch.Size((1, 1, 64, 40, 40)), (1, 0, 2, 3, 4)
-        )
+        assert is_layout_invisible_dims(torch.Size((1, 1, 64, 40, 40)), (1, 0, 2, 3, 4))
         assert not is_layout_invisible_dims(torch.Size((2, 3, 4)), (1, 0, 2))
 
     def test_collapses_three_identity_reshape_nodes(self):
