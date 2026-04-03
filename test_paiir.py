@@ -7,7 +7,7 @@ from paibox.paiir import compile_to_paiir
 
 def make_img_3ch_32x32() -> Tensor:
     """3-channel 32x32 image, standard larger input."""
-    return torch.randn(1, 3, 10, 10)
+    return torch.randn(1, 3, 12, 12)
 
 
 class SimpleCNN(nn.Module):
@@ -15,20 +15,22 @@ class SimpleCNN(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.conv1 = nn.Conv2d(1, 1, 3, padding=1)
+        self.conv1 = nn.Conv2d(3, 3, 3, padding=1)
         self.relu = nn.ReLU()
-        self.conv2 = nn.Conv2d(1, 1, 3, padding=1)
-        self.conv1.weight.data = torch.arange(1, 10, dtype=torch.float32).reshape(
-            1, 1, 3, 3
+        self.conv2 = nn.Conv2d(3, 1, 3, padding=1)
+        self.conv1.weight.data = torch.arange(1, 3*3*3*3+1, dtype=torch.float32).reshape(
+            3, 3, 3, 3
         )
-        self.conv2.weight.data = torch.arange(10, 19, dtype=torch.float32).reshape(
-            1, 1, 3, 3
+        self.conv2.weight.data = torch.arange(10, 1*3*3*3+10, dtype=torch.float32).reshape(
+            1, 3, 3, 3
         )
         print("conv1 weight:", self.conv1.weight)
         print("conv2 weight:", self.conv2.weight)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.relu(self.conv1(x))
+        # x = x.flatten()
+        # x = x.reshape(1, 3, 8, 18)
         return self.conv2(x)
 
 

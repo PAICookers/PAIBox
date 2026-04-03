@@ -359,13 +359,24 @@ def expanded_path_weight_matrix(
 
     if isinstance(comp, nn.Conv1d):
         assert weight is not None
+        assert not isinstance(
+            comp.padding, str
+        ), "Unsupported padding mode for weight extraction."
+        stride = to_nd_tuple(comp.stride, 1)
+        padding = to_nd_tuple(comp.padding, 1)
+        dilation = to_nd_tuple(comp.dilation, 1)
+        assert len(input_shape) == 2
+        assert len(output_shape) == 2
+        assert len(stride) == 1
+        assert len(padding) == 1
+        assert len(dilation) == 1
         return conv1d_weight_matrix(
             weight,
             input_shape,
             output_shape,
-            to_nd_tuple(comp.stride, 1),
-            to_nd_tuple(comp.padding, 1),
-            to_nd_tuple(comp.dilation, 1),
+            stride,
+            padding,
+            dilation,
             comp.groups,
             sign,
         )
@@ -374,13 +385,25 @@ def expanded_path_weight_matrix(
         print(
             f"Expanding Conv2d weight from {input_shape} to {output_shape} with stride={comp.stride}, padding={comp.padding}, dilation={comp.dilation}, groups={comp.groups}."
         )
+        assert weight is not None
+        assert not isinstance(
+            comp.padding, str
+        ), "Unsupported padding mode for weight extraction."
+        stride = to_nd_tuple(comp.stride, 2)
+        padding = to_nd_tuple(comp.padding, 2)
+        dilation = to_nd_tuple(comp.dilation, 2)
+        assert len(input_shape) == 3
+        assert len(output_shape) == 3
+        assert len(stride) == 2
+        assert len(padding) == 2
+        assert len(dilation) == 2
         return conv2d_weight_matrix(
             weight,
             input_shape,
             output_shape,
-            to_nd_tuple(comp.stride, 2),
-            to_nd_tuple(comp.padding, 2),
-            to_nd_tuple(comp.dilation, 2),
+            stride,
+            padding,
+            dilation,
             comp.groups,
             sign,
         )
@@ -389,28 +412,47 @@ def expanded_path_weight_matrix(
         if comp.ceil_mode:
             raise NotImplementedError("MaxPool1d with ceil_mode=True is not supported.")
 
+        kernel_size = to_nd_tuple(comp.kernel_size, 1)
+        stride = to_nd_tuple(comp.stride or comp.kernel_size, 1)
+        padding = to_nd_tuple(comp.padding, 1)
+        dilation = to_nd_tuple(comp.dilation, 1)
+        assert len(input_shape) == 2
+        assert len(output_shape) == 2
+        assert len(kernel_size) == 1
+        assert len(stride) == 1
+        assert len(padding) == 1
+        assert len(dilation) == 1
+
         return pool1d_weight_matrix(
             input_shape[0],
             input_shape,
             output_shape,
-            to_nd_tuple(comp.kernel_size, 1),
-            to_nd_tuple(comp.stride or comp.kernel_size, 1),
-            to_nd_tuple(comp.padding, 1),
-            to_nd_tuple(comp.dilation, 1),
+            kernel_size,
+            stride,
+            padding,
+            dilation,
             sign,
         )
 
     if isinstance(comp, nn.AvgPool1d):
         if comp.ceil_mode:
             raise NotImplementedError("AvgPool1d with ceil_mode=True is not supported.")
+        kernel_size = to_nd_tuple(comp.kernel_size, 1)
+        stride = to_nd_tuple(comp.stride or comp.kernel_size, 1)
+        padding = to_nd_tuple(comp.padding, 1)
+        assert len(input_shape) == 2
+        assert len(output_shape) == 2
+        assert len(kernel_size) == 1
+        assert len(stride) == 1
+        assert len(padding) == 1
 
         return pool1d_weight_matrix(
             input_shape[0],
             input_shape,
             output_shape,
-            to_nd_tuple(comp.kernel_size, 1),
-            to_nd_tuple(comp.stride or comp.kernel_size, 1),
-            to_nd_tuple(comp.padding, 1),
+            kernel_size,
+            stride,
+            padding,
             (1,),
             sign,
         )
@@ -418,29 +460,47 @@ def expanded_path_weight_matrix(
     if isinstance(comp, nn.MaxPool2d):
         if comp.ceil_mode:
             raise NotImplementedError("MaxPool2d with ceil_mode=True is not supported.")
+        kernel_size = to_nd_tuple(comp.kernel_size, 2)
+        stride = to_nd_tuple(comp.stride or comp.kernel_size, 2)
+        padding = to_nd_tuple(comp.padding, 2)
+        dilation = to_nd_tuple(comp.dilation, 2)
+        assert len(input_shape) == 3
+        assert len(output_shape) == 3
+        assert len(kernel_size) == 2
+        assert len(stride) == 2
+        assert len(padding) == 2
+        assert len(dilation) == 2
 
         return pool2d_weight_matrix(
             input_shape[0],
             input_shape,
             output_shape,
-            to_nd_tuple(comp.kernel_size, 2),
-            to_nd_tuple(comp.stride or comp.kernel_size, 2),
-            to_nd_tuple(comp.padding, 2),
-            to_nd_tuple(comp.dilation, 2),
+            kernel_size,
+            stride,
+            padding,
+            dilation,
             sign,
         )
 
     if isinstance(comp, nn.AvgPool2d):
         if comp.ceil_mode:
             raise NotImplementedError("AvgPool2d with ceil_mode=True is not supported.")
+        kernel_size = to_nd_tuple(comp.kernel_size, 2)
+        stride = to_nd_tuple(comp.stride or comp.kernel_size, 2)
+        padding = to_nd_tuple(comp.padding, 2)
+        assert len(input_shape) == 3
+        assert len(output_shape) == 3
+        assert len(kernel_size) == 2
+        assert len(stride) == 2
+        assert len(padding) == 2
 
         return pool2d_weight_matrix(
             input_shape[0],
             input_shape,
             output_shape,
-            to_nd_tuple(comp.kernel_size, 2),
-            to_nd_tuple(comp.stride or comp.kernel_size, 2),
-            to_nd_tuple(comp.padding, 2),
+            kernel_size,
+            stride,
+            padding,
             (1, 1),
             sign,
         )
@@ -677,14 +737,14 @@ def choose_weight_strategy(
 
 
 @dataclass
-class weight_info:
+class WeightInfo:
     index: int  # 对应 base weight 的索引
     offset: int  # 左移了多少位
 
 
 def group_shift_weights_optimized(
     raw_weights: list[np.ndarray],
-) -> Tuple[List[weight_info], List[np.ndarray]]:
+) -> Tuple[List[WeightInfo], List[np.ndarray]]:
     if not raw_weights:
         return [], []
 
@@ -734,39 +794,20 @@ def group_shift_weights_optimized(
         else:
             idx = key_to_index[key]
 
-        infos.append(weight_info(index=idx, offset=offset))
+        infos.append(WeightInfo(index=idx, offset=offset))
 
     return infos, base_weights
 
 
 def reorder_by_base_weight(
-    group_items: list[tuple[Neuron, np.ndarray]], weights_info: List[weight_info]
-) -> Tuple[list[tuple[Neuron, np.ndarray]], List[weight_info]]:
-    """
-    按 base weight（weights_info.index）对 group_items 做稳定分组重排
+    group_items: list[tuple[Neuron, np.ndarray]], weights_info: List[WeightInfo]
+) -> Tuple[list[tuple[Neuron, np.ndarray]], List[WeightInfo]]:
 
-    参数：
-        group_items: List[Any]
-        weights_info: List[weight_info]
+    paired = list(zip(group_items, weights_info))
 
-    返回：
-        reordered_items: List[Any]
-        reordered_infos: List[weight_info]
-    """
+    paired_sorted = sorted(paired, key=lambda x: (x[1].index, x[1].offset))
 
-    # 分桶（稳定）
-    buckets = defaultdict(list)
-
-    for item, info in zip(group_items, weights_info):
-        buckets[info.index].append((item, info))
-
-    # 按 base index 顺序拼接
-    reordered_items = []
-    reordered_infos = []
-
-    for base_idx in sorted(buckets.keys()):
-        for item, info in buckets[base_idx]:
-            reordered_items.append(item)
-            reordered_infos.append(info)
+    reordered_items = [p[0] for p in paired_sorted]
+    reordered_infos = [p[1] for p in paired_sorted]
 
     return reordered_items, reordered_infos
