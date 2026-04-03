@@ -3,14 +3,20 @@ from __future__ import annotations
 import os
 from typing import TextIO
 
-from paicorelib import LCN_EX, AERPacketZXYCopy, CoordXY, FrameArrayType
+from paicorelib import FrameArrayType
 
 from paibox.paiir import PAIIRGraph
 
-from .op_node import SourceNode, build_nodes
+from .op_node import AllNode, InputElem, Neuron, RemapElem, build_nodes
 from .rg_build import build_groups
 from .route_solver import route_solve
-from .routing import ReorderGroup, RoutingGroup, toposort_for_rg
+from .routing import (
+    InputGroup,
+    OutputGroup,
+    RemapGroup,
+    RoutingGroup,
+    toposort_for_rg,
+)
 
 
 def export_single_framearray(
@@ -23,55 +29,83 @@ def export_single_framearray(
 
 
 def export_framearray_to_bit(
-    frame_array: FrameArrayType, file: TextIO, prefix: str = ""
+    frame_array: FrameArrayType,
+    file: TextIO,
+    prefix: str = "",
+    base: str = "bin",  # 新增参数："bin" 或 "hex"
 ) -> None:
     for frame in frame_array:
         # mask 取高32位和低32位
         high32 = (frame >> 32) & 0xFFFFFFFF
         low32 = frame & 0xFFFFFFFF
-        # 转成二进制字符串，每32位补0
-        high_bin = f"{high32:032b}"
-        low_bin = f"{low32:032b}"
-        file.write(f"{prefix}0b{high_bin},0b{low_bin},\n")
+
+        if base == "bin":
+            high_str = f"0b{high32:032b}"
+            low_str = f"0b{low32:032b}"
+        elif base == "hex":
+            high_str = f"0x{high32:08X}"
+            low_str = f"0x{low32:08X}"
+        else:
+            raise ValueError("base must be 'bin' or 'hex'")
+
+        file.write(f"{prefix}{high_str},{low_str},\n")
 
 
 class Mapper:
     def __init__(self):
-        self.groups: list[RoutingGroup | ReorderGroup] = []
+        self.groups: list[RoutingGroup | RemapGroup] = []
         self.routing_groups: list[RoutingGroup] = []
-        self.nodes: list[SourceNode] = []
-        self.output_routing_group: RoutingGroup = RoutingGroup([], [])
-        self.output_routing_group._base_coord = CoordXY(0, 0)
-        self.output_routing_group._multicast_config = AERPacketZXYCopy(z=0, x=0, y=0)
+        self.nodes: list[AllNode] = []
+        self.output_groups: list[OutputGroup] = []
+        self.input_groups: list[InputGroup] = []
 
     def generate_routing_groups(self, pai_graph: PAIIRGraph):
         self.nodes = build_nodes(pai_graph)
-        self.groups = build_groups(self.nodes)
+        self.groups, self.input_groups, self.output_groups = build_groups(self.nodes)
 
     def set_rough_dest(self):
         # determine which routing group each neuron sends to
-        for group in self.groups:
-            group.set_lcn()
-            for neu in group.raw_neus:
-                # print(f"\nSetting rough dest for neuron {neu} in group {group.name}:")
+        source_groups: list[InputGroup | RemapGroup | RoutingGroup] = []
+        source_groups.extend(self.input_groups)
+        source_groups.extend(self.groups)
+
+        dest_groups: list[RemapGroup | RoutingGroup | OutputGroup] = []
+        dest_groups.extend(self.groups)
+        dest_groups.extend(self.output_groups)
+
+        for grp in self.groups:
+            if isinstance(grp, RoutingGroup):
+                grp.set_lcn()
+
+        for src_grp in source_groups:
+            for elem in src_grp.raw_elems:
                 dest_found = False
-                for dest_grp in self.groups:
+                # print(f"\nSetting rough dest for neuron {neu} in group {group.name}:")
+                for dest_grp in dest_groups:
                     # print(f"\tChecking if neuron {neu} sends to group {dest_grp.name}")
                     # print(f"Group {dest_grp.name} has input set: {dest_grp.input_set}")
                     # use set to accelerate lookup
-                    if neu in dest_grp.input_set:
+                    if elem in dest_grp.input_set:
                         # print(f"\tDest Found: Neuron {neu} sends to group {dest_grp.name}")
                         dest_found = True
-                        group.dests[neu] = dest_grp
+                        if isinstance(elem, RemapElem):
+                            assert isinstance(src_grp, RemapGroup)
+                            src_grp.dests[elem] = dest_grp
+                        elif isinstance(elem, InputElem):
+                            assert isinstance(src_grp, InputGroup)
+                            src_grp.dests[elem] = dest_grp
+                        elif isinstance(elem, Neuron):
+                            assert isinstance(src_grp, RoutingGroup)
+                            src_grp.dests[elem] = dest_grp
+                        else:
+                            raise TypeError(
+                                f"Unsupported element type: {type(elem)} in group {src_grp.name}"
+                            )
                         break
                 if not dest_found:
-                    self.output_routing_group.input_list.append(neu)
-                    group.dests[neu] = self.output_routing_group
-
-        self.output_routing_group.input_set = set(self.output_routing_group.input_list)
-        self.output_routing_group.set_index_map()
-        # print("Output Routing Group Input List:", self.output_routing_group.input_list)
-        self.output_routing_group.lcn = LCN_EX.LCN_128X
+                    raise ValueError(
+                        f"Dest not found for neuron {elem} in group {src_grp.name}"
+                    )
 
     def routing(self):
         self.routing_groups, next_rg_group = toposort_for_rg(self.groups)
@@ -96,12 +130,14 @@ class Mapper:
     def set_detail_dest(self):
         for rg in self.routing_groups:
             rg.set_detail_dest()
+        for in_grp in self.input_groups:
+            in_grp.set_detail_dest()
 
     def set_auto_core_config(self):
         for rg in self.routing_groups:
             rg.set_auto_core_config()
 
-    def export_cheader_file(self, output_path: str):
+    def export_cheader_file(self, output_path: str, base: str = "bin"):
         os.makedirs(output_path, exist_ok=True)
         frame1_path = output_path + "/frame_type1.h"
         frame2_path = output_path + "/frame_type2.h"
@@ -126,10 +162,16 @@ class Mapper:
                         core_placement.to_frame()
                     )
                     # export core_frame_type1 and core_frame_type3 to output_path
-                    export_framearray_to_bit(core_frame_type1, frame1_file, "\t")
+                    export_framearray_to_bit(
+                        core_frame_type1, frame1_file, "\t", base=base
+                    )
                     if core_frame_type2 is not None:
-                        export_framearray_to_bit(core_frame_type2, frame2_file, "\t")
-                    export_framearray_to_bit(core_frame_type3, frame3_file, "\t")
+                        export_framearray_to_bit(
+                            core_frame_type2, frame2_file, "\t", base=base
+                        )
+                    export_framearray_to_bit(
+                        core_frame_type3, frame3_file, "\t", base=base
+                    )
 
             frame1_file.write("};\n")
             frame2_file.write("};\n")
@@ -174,35 +216,65 @@ class Mapper:
                         core_frame_type3, frame3_file, prefix="\t0x"
                     )
 
-    def compile(self, pai_graph: PAIIRGraph):
+    def compile(
+        self,
+        pai_graph: PAIIRGraph,
+        base: str = "bin",  # 新增参数，指定导出格式
+        output_path: str = "./output",
+    ) -> None:
         # determine raw_neus in routing groups, other properties remain unset
         self.generate_routing_groups(pai_graph)
 
-        print(self.groups)
+        all_groups: list[RoutingGroup | InputGroup | OutputGroup | RemapGroup] = []
+        all_groups.extend(self.input_groups)
+        all_groups.extend(self.groups)
+        all_groups.extend(self.output_groups)
+        for grp in all_groups:
+            print(grp)
 
         # determine which rg each neuron sends to
         # dests and input_list set
         # other properties remain unset
         self.set_rough_dest()
 
-        for rg in self.groups:
+        for grp in all_groups:
+            print(grp.info())
+
+        self.routing_groups = [
+            grp for grp in self.groups if isinstance(grp, RoutingGroup)
+        ]
+
+        for rg in self.routing_groups:
             rg.allocate_neurons()
 
-        for rg in self.groups:
+        for rg in all_groups:
             print(rg.info())
 
         # set core placements' coord, and generate detailed dest info for each neuron
         self.routing()
 
-        for rg in self.groups:
-            print(rg.info())
+        print("\nAfter routing:")
+        for grp in all_groups:
+            print(grp.info())
 
         self.set_detail_dest()
-        for rg in self.groups:
+        for rg in all_groups:
             print(rg.routing_summary())
 
         self.set_auto_core_config()
 
         # export to hardware executable format
-        self.export(output_path="./output")
-        self.export_cheader_file(output_path="./output")
+        self.export(output_path=output_path)
+        self.export_cheader_file(output_path=output_path, base=base)
+
+        # for in_grp in self.input_groups:
+        #     for elem, dest in in_grp.dest_infos.items():
+        #         print(
+        #             f"Input element {elem}({elem.output_bit_num} bits) sends to dest \n\t{dest}"
+        #         )
+
+        # for out_grp in self.output_groups:
+        #     for coord, bit_map in out_grp.axon_bit_map.items():
+        #         print(f"Output from coord {coord} receives bits:")
+        #         for bit_count, elem in bit_map:
+        #             print(f"\t[{bit_count}]{elem}({elem.output_bit_num} bits)")

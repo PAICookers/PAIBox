@@ -1,7 +1,9 @@
+from abc import abstractmethod
 from typing import Generic, List, Optional, TypeVar, Union
 
 import torch
 from paicorelib import (
+    AddPotentialMode,
     OfflineNeuFullAttrsV2Part2,
     OutputType,
     SNNMode,
@@ -76,6 +78,25 @@ class BaseNode(Generic[T_Raw]):
         self.raw_node = raw_node
         self.successors: List["DestNode"] = []
         self.predecessors: List["SourceNode"] = []
+        self.predecessors_set: set["SourceNode"] = (
+            set()
+        )  # 用于快速判断是否有某个 predecessor
+        self.successors_set: set["DestNode"] = set()  # 用于快速判断是否有某个 successor
+        self.input_bit_num_: int = -1  # 初始化为 -1，表示未设置
+        self.output_bit_num_: int = -1  # 初始化为 -1，表示未设置
+        self.io_setted: bool = False  # 标记输入输出位数是否已设置
+
+    @property
+    def input_bit_num(self) -> int:
+        return self.input_bit_num_
+
+    @property
+    def output_bit_num(self) -> int:
+        return self.output_bit_num_
+
+    @abstractmethod
+    def set_io_bit_num(self, direction: int):
+        pass
 
     def __hash__(self) -> int:
         return hash(id(self))
@@ -91,17 +112,39 @@ class InNode(BaseNode["InputNode"]):
     def __init__(self, name: str, raw_node: "InputNode", shape: tuple[int, ...]):
         super().__init__(name, shape, raw_node)
 
+    def set_io_bit_num(self, direction: int):
+        assert (
+            direction == 1
+        ), "InNode should only call set_io_bit_num with direction 1 (from successors)"
+        succ_input_bit_nums = set([succ.input_bit_num for succ in self.successors])
+        assert (
+            len(succ_input_bit_nums) == 1
+        ), "All successors must have the same input bit num"
+
+        self.output_bit_num_ = succ_input_bit_nums.pop()
+
 
 class OutNode(BaseNode["OutputNode"]):
     def __init__(self, name: str, raw_node: "OutputNode", shape: tuple[int, ...]):
         super().__init__(name, shape, raw_node)
+
+    def set_io_bit_num(self, direction: int):
+        assert (
+            direction == 0
+        ), "OutNode should only call set_io_bit_num with direction 0 (from predecessors)"
+        pred_output_bit_nums = set([pred.output_bit_num for pred in self.predecessors])
+        assert (
+            len(pred_output_bit_nums) == 1
+        ), "All predecessors must have the same output bit num"
+
+        self.input_bit_num_ = pred_output_bit_nums.pop()
 
 
 class ReorderNode(BaseNode["ReshapeOp"]):
     def __init__(self, name: str, raw_node: "ReshapeOp", shape: tuple[int, ...]):
         super().__init__(name, shape, raw_node)
 
-    def get_reorder_info(self) -> dict["SourceElem", "ReorderElem"]:
+    def get_reorder_info(self) -> dict["SourceElem", "RemapElem"]:
         if isinstance(self.raw_node, ReshapeOp):
             assert (
                 len(self.predecessors) == 1
@@ -111,15 +154,39 @@ class ReorderNode(BaseNode["ReshapeOp"]):
             assert (
                 pred_len == self.shape.numel()
             ), "Total number of elements must match for reshape"
-            reorder_map: dict["SourceElem", "ReorderElem"] = {}
+            reorder_map: dict["SourceElem", "RemapElem"] = {}
             for i in range(pred_len):
                 pred_elem = get_elem(pred, i)
-                reorder_elem = ReorderElem(self, CustomIndex(i))
+                reorder_elem = RemapElem(self, CustomIndex(i))
                 reorder_map[pred_elem] = reorder_elem
             return reorder_map
         else:
             raise NotImplementedError(
                 f"Unsupported node type for ReorderNode: {type(self.raw_node)}"
+            )
+
+    def set_io_bit_num(self, direction: int):
+        if direction == 1:
+            # Get input bit num from successors
+            succ_input_bit_nums = set([succ.input_bit_num for succ in self.successors])
+            assert (
+                len(succ_input_bit_nums) == 1
+            ), "All successors must have the same input bit num"
+            self.output_bit_num_ = succ_input_bit_nums.pop()
+            self.input_bit_num_ = self.output_bit_num_
+        elif direction == 0:
+            # Get output bit num from predecessors
+            pred_output_bit_nums = set(
+                [pred.output_bit_num for pred in self.predecessors]
+            )
+            assert (
+                len(pred_output_bit_nums) == 1
+            ), "All predecessors must have the same output bit num"
+            self.input_bit_num_ = pred_output_bit_nums.pop()
+            self.output_bit_num_ = self.input_bit_num_
+        else:
+            raise ValueError(
+                "Direction must be 0 (from successors) or 1 (from predecessors)"
             )
 
 
@@ -138,7 +205,6 @@ class CoreOpNode(BaseNode["OfflineCoreOp"]):
         self.frontend_core_config: "Frontend_Core_Config" = get_frontend_core_conf(
             raw_node.core_params, lut_data
         )
-        print(f"lut data for node {self.name}: {lut_data}")
         self.set_comps_and_weights()
 
     def set_comps_and_weights(self) -> None:
@@ -198,16 +264,32 @@ class CoreOpNode(BaseNode["OfflineCoreOp"]):
     def core_config(self) -> "Frontend_Core_Config":
         return self.frontend_core_config
 
+    def set_io_bit_num(self, direction: int):
+
+        assert (
+            direction == -1
+        ), "CoreOpNode should not call set_io_bit_num with direction 0 or 1, as its input and output bit num are determined by its own configuration rather than predecessors or successors"
+        if self.core_config().add_potential == AddPotentialMode.NORMAL:
+            input_bit_num = 2 ** self.core_config().input_width
+        else:
+            input_bit_num = 32
+        self.input_bit_num_ = input_bit_num
+        if self.output_type() == OutputType.VALUE:
+            output_bit_num = 2 ** self.core_config().output_width
+        else:
+            output_bit_num = 32
+        self.output_bit_num_ = output_bit_num
+
 
 # 类型定义 1：包含三个 Node
 SourceNode = Union[InNode, ReorderNode, CoreOpNode]
 # 类型定义 2：不包含 Input
-DestNode = Union[ReorderNode, CoreOpNode]
+DestNode = Union[ReorderNode, CoreOpNode, OutNode]
 
 AllNode = Union[InNode, ReorderNode, CoreOpNode, OutNode]
 
 
-T = TypeVar("T")
+T = TypeVar("T", CoreOpNode, ReorderNode, InNode)
 
 
 class BaseElem(Generic[T]):
@@ -232,13 +314,16 @@ class BaseElem(Generic[T]):
     def __repr__(self) -> str:
         return self.__str__()
 
+    @property
+    def input_bit_num(self) -> int:
+        return self.target.input_bit_num
+
+    @property
+    def output_bit_num(self) -> int:
+        return self.target.output_bit_num
+
 
 # --- 子类实现 ---
-
-
-class PaddingElem(BaseElem["None"]):
-    def __init__(self, index: "CustomIndex"):
-        pass
 
 
 class Neuron(BaseElem["CoreOpNode"]):
@@ -253,7 +338,7 @@ class Neuron(BaseElem["CoreOpNode"]):
         return self.target.core_config()
 
 
-class ReorderElem(BaseElem["ReorderNode"]):
+class RemapElem(BaseElem["ReorderNode"]):
     # 如果没有特有方法，直接 pass 即可
     pass
 
@@ -262,23 +347,23 @@ class InputElem(BaseElem["InNode"]):
     pass
 
 
-AllElem = Union[Neuron, ReorderElem, InputElem]
-SourceElem = AllElem
-CoreElem = Union[Neuron, ReorderElem]
+AllElem = Union[Neuron, RemapElem, InputElem]
+SourceElem = Union[Neuron, RemapElem, InputElem]
+CoreElem = Union[Neuron, RemapElem]
 
 
 def get_elem(Node: BaseNode, idx: int) -> "SourceElem":
     if isinstance(Node, InNode):
         return InputElem(Node, CustomIndex(idx))
     elif isinstance(Node, ReorderNode):
-        return ReorderElem(Node, CustomIndex(idx))
+        return RemapElem(Node, CustomIndex(idx))
     elif isinstance(Node, CoreOpNode):
         return Neuron(Node, CustomIndex(idx))
     else:
         raise NotImplementedError(f"Unsupported node type: {type(Node)}")
 
 
-def build_nodes(graph: PAIIRGraph) -> list[SourceNode]:
+def build_nodes(graph: PAIIRGraph) -> list[AllNode]:
     nodes: list[AllNode] = []
     nodes_map: dict[str, AllNode] = {}
     for raw_node in graph.nodes.values():
@@ -296,16 +381,16 @@ def build_nodes(graph: PAIIRGraph) -> list[SourceNode]:
         nodes.append(node)
 
     for node_name, cur_node in nodes_map.items():
-        if isinstance(cur_node, OutNode):
-            continue
+        # if isinstance(cur_node, OutNode):
+        #     continue
         succ_node_names = graph.successors(node_name)
         for succ_name in succ_node_names:
             succ_node = nodes_map[succ_name]
-            if isinstance(succ_node, OutNode):
-                continue
+            # if isinstance(succ_node, OutNode):
+            #     continue
             assert isinstance(succ_node, DestNode)
             cur_node.successors.append(succ_node)
-        if isinstance(cur_node, CoreOpNode | ReorderNode):
+        if not isinstance(cur_node, InNode):
             pred_node_names = graph.predecessors(node_name)
             for pred_name in pred_node_names:
                 pred_node = nodes_map[pred_name]
@@ -315,13 +400,43 @@ def build_nodes(graph: PAIIRGraph) -> list[SourceNode]:
                     )
                 cur_node.predecessors.append(pred_node)
 
-    filtered_nodes = [node for node in nodes if not isinstance(node, OutNode)]
+    unset_nodes = set(nodes)
+    node_to_process: list[tuple[AllNode, int]] = [
+        (node, -1) for node in nodes if isinstance(node, CoreOpNode)
+    ]
+    unset_nodes -= set(node for node, _ in node_to_process)
+    assert (
+        len(node_to_process) > 0
+    ), "There should be at least one CoreOpNode to dictate the input/output bit num for the whole graph"
+    while unset_nodes or len(node_to_process) > 0:
+        assert (
+            len(node_to_process) > 0
+        ), "There is a cycle in the graph or some nodes are not connected to CoreOpNodes"
+        node, direction = node_to_process.pop(0)
+        node.set_io_bit_num(direction)
+        for succ in node.successors:
+            # all predecessors of succ have been set_io_bit_num, so we can set_io_bit_num for succ
+            if succ in unset_nodes and all(
+                pred not in unset_nodes for pred in succ.predecessors
+            ):
+                unset_nodes.remove(succ)
+                node_to_process.append((succ, 0))
+        for pred in node.predecessors:
+            # all successors of pred have been set_io_bit_num, so we can set_io_bit_num for pred
+            if pred in unset_nodes and all(
+                succ not in unset_nodes for succ in pred.successors
+            ):
+                unset_nodes.remove(pred)
+                node_to_process.append((pred, 1))
 
-    for node in filtered_nodes:
+    for node in nodes:
         print(f"Node {node.name}({node.shape}):")
         print(f"\tPredecessors: {[pred.name for pred in node.predecessors]}")
         print(f"\tSuccessors: {[succ.name for succ in node.successors]}")
+        print(
+            f"\tInput bit num: {node.input_bit_num}, Output bit num: {node.output_bit_num}"
+        )
 
     # raise NotImplementedError("Not support output node")
 
-    return filtered_nodes
+    return nodes
