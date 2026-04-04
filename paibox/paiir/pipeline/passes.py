@@ -25,15 +25,17 @@ from torch import nn
 
 from ..exceptions import GraphCleanupWarning, GraphValidationError
 from ..ir.add_ops import GeneralAddOp, PotentialAddOp
-from ..ir.graph import PAIIRGraph
+from ..ir.graph import Edge, PAIIRGraph
 from ..ir.ir_base import InputNode, OutputNode, PAIIRNode
 from ..ir.op_node import (
     AccumulateOp,
     ConcatOp,
+    infer_split_output_shapes,
     OfflineCoreOp,
     OpNode,
     ReshapeOp,
     SequentialOp,
+    SplitOp,
     StandaloneActOp,
     StandaloneCompOp,
 )
@@ -329,7 +331,13 @@ def validate_graph(graph: PAIIRGraph) -> None:
     missing_shape_nodes: list[str] = []
 
     for name, node in graph.nodes.items():
-        if isinstance(node, OpNode) and not node.output_shape:
+        if not isinstance(node, OpNode):
+            continue
+        if isinstance(node, SplitOp):
+            if not node.output_shapes:
+                missing_shape_nodes.append(name)
+            continue
+        if not node.output_shape:
             missing_shape_nodes.append(name)
 
     if missing_shape_nodes:
@@ -342,6 +350,8 @@ def validate_graph(graph: PAIIRGraph) -> None:
     for name, node in graph.nodes.items():
         if isinstance(node, PotentialAddOp):
             _validate_potential_add_contract(errors, graph, name, node)
+        if isinstance(node, SplitOp):
+            _validate_split_contract(errors, graph, name, node)
         if not isinstance(node, OfflineCoreOp):
             continue
         _validate_lut_mode_consistency(errors, name, node)
@@ -378,6 +388,18 @@ def validate_compiled_graph(graph: PAIIRGraph) -> None:
             continue
 
         if not isinstance(node, OpNode):
+            continue
+
+        if isinstance(node, SplitOp):
+            if not node.input_shapes or any(not shape for shape in node.input_shapes):
+                errors.append(f"SplitOp '{name}' is missing input_shapes")
+            if not node.input_dims or any(not dims for dims in node.input_dims):
+                errors.append(f"SplitOp '{name}' is missing input_dims")
+            if not node.output_dims:
+                errors.append(f"SplitOp '{name}' is missing output_dims")
+            if node.output_domain is None:
+                errors.append(f"SplitOp '{name}' is missing output_domain")
+            _validate_split_contract(errors, graph, name, node)
             continue
 
         if not node.input_shapes or any(not shape for shape in node.input_shapes):
@@ -429,11 +451,24 @@ def _get_node_output_shape(node: PAIIRNode) -> torch.Size:
     return torch.Size()
 
 
+def _get_edge_output_shape(graph: PAIIRGraph, edge: Edge) -> torch.Size:
+    node = graph.nodes[edge.src]
+    if isinstance(node, SplitOp):
+        output_index = node.successor_output_index.get((edge.dst, edge.dst_port))
+        if output_index is None:
+            return torch.Size()
+        if output_index < 0 or output_index >= len(node.output_shapes):
+            return torch.Size()
+        return node.output_shapes[output_index]
+    return _get_node_output_shape(node)
+
+
 def _validate_concat_contract(
     errors: list[str], graph: PAIIRGraph, name: str, node: ConcatOp
 ) -> None:
-    preds = graph.predecessors(name)
-    pred_shapes = [_get_node_output_shape(graph.nodes[p]) for p in preds]
+    incoming = graph.incoming_edges(name)
+    preds = [edge.src for edge in incoming]
+    pred_shapes = [_get_edge_output_shape(graph, edge) for edge in incoming]
 
     if len(preds) < 1:
         errors.append(f"ConcatOp '{name}' must define at least one input path")
@@ -506,14 +541,15 @@ def _validate_concat_contract(
 def _validate_reshape_contract(
     errors: list[str], graph: PAIIRGraph, name: str, node: ReshapeOp
 ) -> None:
-    preds = graph.predecessors(name)
+    incoming = graph.incoming_edges(name)
+    preds = [edge.src for edge in incoming]
     if len(preds) != 1:
         errors.append(
             f"ReshapeOp '{name}' must have exactly one predecessor, got {len(preds)}"
         )
         return
 
-    pred_shape = _get_node_output_shape(graph.nodes[preds[0]])
+    pred_shape = _get_edge_output_shape(graph, incoming[0])
     if node.input_shapes and len(node.input_shapes) != 1:
         errors.append(
             f"ReshapeOp '{name}' has {len(node.input_shapes)} input_shapes (expected 1)"
@@ -543,6 +579,79 @@ def _validate_reshape_contract(
             errors.append(
                 f"ReshapeOp '{name}' changes element count: "
                 f"input_shape={node.input_shapes[0]}, output_shape={node.output_shape}"
+            )
+
+
+def _validate_split_contract(
+    errors: list[str], graph: PAIIRGraph, name: str, node: SplitOp
+) -> None:
+    incoming = graph.incoming_edges(name)
+    preds = [edge.src for edge in incoming]
+    if len(preds) != 1:
+        errors.append(
+            f"SplitOp '{name}' must have exactly one predecessor, got {len(preds)}"
+        )
+        return
+
+    pred_shape = _get_edge_output_shape(graph, incoming[0])
+    if node.input_shapes and len(node.input_shapes) != 1:
+        errors.append(
+            f"SplitOp '{name}' has {len(node.input_shapes)} input_shapes (expected 1)"
+        )
+        return
+
+    if node.input_shapes and pred_shape and pred_shape != node.input_shapes[0]:
+        errors.append(
+            f"SplitOp '{name}' predecessor shape mismatch: "
+            f"pred_output_shape={pred_shape}, input_shape={node.input_shapes[0]}"
+        )
+        return
+
+    if len(node.input_dims) == 1 and node.output_dims != node.input_dims[0]:
+        errors.append(
+            f"SplitOp '{name}' output_dims must match input_dims[0], got "
+            f"input_dims={node.input_dims[0]}, output_dims={node.output_dims}"
+        )
+        return
+
+    if not node.input_shapes or not node.input_shapes[0]:
+        return
+
+    input_shape = node.input_shapes[0]
+    try:
+        expected_outputs = infer_split_output_shapes(input_shape, node.sections, node.dim)
+    except ValueError as exc:
+        errors.append(
+            f"SplitOp '{name}' has invalid split spec: {exc}"
+        )
+        return
+
+    if node.output_shapes != expected_outputs:
+        errors.append(
+            f"SplitOp '{name}' output_shapes mismatch: "
+            f"expected {expected_outputs}, got {node.output_shapes}"
+        )
+
+    outgoing = {(edge.dst, edge.dst_port) for edge in graph.outgoing_edges(name)}
+    mapping_keys = set(node.successor_output_index)
+
+    missing_keys = outgoing - mapping_keys
+    if missing_keys:
+        errors.append(
+            f"SplitOp '{name}' is missing successor_output_index entries for {sorted(missing_keys)}"
+        )
+
+    extra_keys = mapping_keys - outgoing
+    if extra_keys:
+        errors.append(
+            f"SplitOp '{name}' has stale successor_output_index entries for {sorted(extra_keys)}"
+        )
+
+    for key, output_index in node.successor_output_index.items():
+        if output_index < 0 or output_index >= len(expected_outputs):
+            errors.append(
+                f"SplitOp '{name}' successor_output_index[{key}]={output_index} exceeds "
+                f"{len(expected_outputs)} split output(s)"
             )
 
 
@@ -577,6 +686,11 @@ def propagate_signal_domain(graph: PAIIRGraph) -> None:
             continue
 
         if isinstance(node, ReshapeOp):
+            if known_pred_domains:
+                node.output_domain = known_pred_domains[0]
+            continue
+
+        if isinstance(node, SplitOp):
             if known_pred_domains:
                 node.output_domain = known_pred_domains[0]
             continue
@@ -650,6 +764,12 @@ def validate_deployable_graph(graph: PAIIRGraph) -> None:
         if isinstance(node, GeneralAddOp):
             errors.append(
                 f"GeneralAddOp '{name}' expression-layer add must be specialized before deployment"
+            )
+            continue
+
+        if isinstance(node, SplitOp):
+            errors.append(
+                f"SplitOp '{name}' is frontend-only IR and is not part of the backend-ready PAIIR subset"
             )
             continue
 
@@ -820,9 +940,9 @@ def _is_standalone_maxpool(node: PAIIRNode) -> TypeGuard[StandaloneCompOp]:
 
 def _is_format_transparent_routing_node(
     node: PAIIRNode,
-) -> TypeGuard[ConcatOp | ReshapeOp]:
+) -> TypeGuard[ConcatOp | ReshapeOp | SplitOp]:
     """Return whether *node* preserves scalar data format across routing."""
-    return isinstance(node, (ConcatOp, ReshapeOp))
+    return isinstance(node, (ConcatOp, ReshapeOp, SplitOp))
 
 
 def propagate_data_format(
@@ -842,7 +962,7 @@ def propagate_data_format(
     1. Seed an effective format for every external input, then assign each
        deployable core's intrinsic output format and weight format.
     2. Propagate those resolved formats through routing-only nodes
-       (:class:`ConcatOp`, :class:`ReshapeOp`, :class:`OutputNode`) and finally
+       (:class:`ConcatOp`, :class:`ReshapeOp`, :class:`SplitOp`, :class:`OutputNode`) and finally
        back-fill each deployable core's input format from its predecessors.
 
     The ordering matters because a core's input format depends on the already
@@ -932,6 +1052,12 @@ def propagate_data_format(
 
         if isinstance(node, ReshapeOp):
             # Reshape/view/flatten do not change the scalar representation.
+            preds = graph.predecessors(name)
+            if preds and preds[0] in resolved:
+                resolved[name] = resolved[preds[0]]
+            continue
+
+        if isinstance(node, SplitOp):
             preds = graph.predecessors(name)
             if preds and preds[0] in resolved:
                 resolved[name] = resolved[preds[0]]
@@ -1065,7 +1191,9 @@ def assign_tick_params(
 
         preds = graph.predecessors(name)
         pred_depth = max(depth.get(p, 0) for p in preds) if preds else 0
-        depth[name] = pred_depth if isinstance(node, ConcatOp) else pred_depth + 1
+        depth[name] = (
+            pred_depth if isinstance(node, (ConcatOp, SplitOp)) else pred_depth + 1
+        )
 
     for name in graph.topo_sort():
         node = graph.nodes[name]

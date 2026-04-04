@@ -10,6 +10,7 @@ import torch
 from torch import Tensor, fx, nn
 
 from ..ir.op_node import StandaloneCompOp
+from .fx_utils import get_call_arg
 
 __all__ = [
     "ConvSpec",
@@ -66,12 +67,6 @@ def _resolve_attr_value(gm: fx.GraphModule, target: str) -> Any:
     for atom in target.split("."):
         value = getattr(value, atom)
     return value
-
-
-def _get_call_arg(node: fx.Node, index: int, name: str, default: Any = None) -> Any:
-    if len(node.args) > index:
-        return node.args[index]
-    return node.kwargs.get(name, default)
 
 
 def _infer_normalize_arg_type(value: Any) -> Any:
@@ -269,13 +264,13 @@ def extract_functional_conv_spec(gm: fx.GraphModule, node: fx.Node) -> ConvSpec 
         dilation = normalized_kwargs.get("dilation", 1)
         groups = normalized_kwargs.get("groups", 1)
     else:
-        input_arg = _get_call_arg(node, 0, "input")
-        weight_arg = _get_call_arg(node, 1, "weight")
-        bias_arg = _get_call_arg(node, 2, "bias")
-        stride = _get_call_arg(node, 3, "stride", 1)
-        padding = _get_call_arg(node, 4, "padding", 0)
-        dilation = _get_call_arg(node, 5, "dilation", 1)
-        groups = _get_call_arg(node, 6, "groups", 1)
+        input_arg = get_call_arg(node, 0, "input")
+        weight_arg = get_call_arg(node, 1, "weight")
+        bias_arg = get_call_arg(node, 2, "bias")
+        stride = get_call_arg(node, 3, "stride", 1)
+        padding = get_call_arg(node, 4, "padding", 0)
+        dilation = get_call_arg(node, 5, "dilation", 1)
+        groups = get_call_arg(node, 6, "groups", 1)
 
     if not isinstance(input_arg, fx.Node) or not isinstance(groups, int):
         return None

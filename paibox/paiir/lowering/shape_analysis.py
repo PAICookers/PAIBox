@@ -22,6 +22,7 @@ from ..ir.reshape_semantics import (
     UNSQUEEZE_FUNCTION_TARGETS,
     is_identity_repeat_values,
 )
+from .fx_utils import get_call_arg
 
 __all__ = ["ShapeAnalysisResult", "ReshapeSinkInfo", "analyze_shape_helpers"]
 
@@ -140,8 +141,8 @@ def _build_reshape_sink_info(
                 data_input,
                 (),
                 _extract_tensor_output_shape(node),
-                _get_call_arg(node, 1, "start_dim", 0),
-                _get_call_arg(node, 2, "end_dim", -1),
+                get_call_arg(node, 1, "start_dim", 0),
+                get_call_arg(node, 2, "end_dim", -1),
             )
 
         if node.target == "unsqueeze":
@@ -184,8 +185,8 @@ def _build_reshape_sink_info(
                 data_input,
                 (),
                 _extract_tensor_output_shape(node),
-                _get_call_arg(node, 1, "start_dim", 0),
-                _get_call_arg(node, 2, "end_dim", -1),
+                get_call_arg(node, 1, "start_dim", 0),
+                get_call_arg(node, 2, "end_dim", -1),
             )
 
         if node.target in SQUEEZE_FUNCTION_TARGETS:
@@ -261,12 +262,6 @@ def _extract_tensor_output_shape(node: fx.Node) -> torch.Size:
         return val.shape
 
     return torch.Size()
-
-
-def _get_call_arg(node: fx.Node, index: int, name: str, default: Any = None) -> Any:
-    if len(node.args) > index:
-        return node.args[index]
-    return node.kwargs.get(name, default)
 
 
 def _collect_shape_aux_nodes(
@@ -356,15 +351,15 @@ def _infer_call_function_shape_expr_kind(
 ) -> ShapeExprKind:
     """Infer shape-expression kind for a call_function node from its semantics."""
     if node.target is operator.getitem:
-        base_kind = _shape_expr_kind_from_value(_get_call_arg(node, 0, "input"), cache)
-        index_kind = _shape_expr_kind_from_value(_get_call_arg(node, 1, "index"), cache)
+        base_kind = _shape_expr_kind_from_value(get_call_arg(node, 0, "input"), cache)
+        index_kind = _shape_expr_kind_from_value(get_call_arg(node, 1, "index"), cache)
         if base_kind == "shape_container" and index_kind in {"scalar", "unknown"}:
             return "scalar"
         return "unknown"
 
     if node.target in _SHAPE_EXPR_UNARY_FUNCTION_TARGETS:
         operand_kind = _shape_expr_kind_from_value(
-            _get_call_arg(node, 0, "input"), cache
+            get_call_arg(node, 0, "input"), cache
         )
         return "scalar" if operand_kind == "scalar" else "unknown"
 

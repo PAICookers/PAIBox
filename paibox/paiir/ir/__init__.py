@@ -40,6 +40,7 @@ from .op_node import (
     OpNode,
     ReshapeOp,
     SequentialOp,
+    SplitOp,
     StandaloneActOp,
     StandaloneCompOp,
 )
@@ -79,6 +80,7 @@ __all__ = [
     "ReshapeOp",
     "SequentialOp",
     "SignalDomain",
+    "SplitOp",
     "StandaloneActOp",
     "StandaloneCompOp",
 ]

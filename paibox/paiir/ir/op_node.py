@@ -10,6 +10,7 @@ Node types:
 - :class:`AccumulateOp` -- multi-path compute -> add/sub -> neuron/lut
 - :class:`StandaloneCompOp` -- compute only (potential output)
 - :class:`StandaloneActOp` -- neuron/lut only
+- routing ops such as :class:`ConcatOp`, :class:`SplitOp`, and :class:`ReshapeOp`
 
 Add-specific IR nodes live in :mod:`paibox.paiir.ir.add_ops`.
 """
@@ -30,11 +31,13 @@ if TYPE_CHECKING:
     from ..pipeline.avgpool.metadata import AvgPoolDeployMetadata
 
 __all__ = [
+    "infer_split_output_shapes",
     "OpNode",
     "OfflineCoreOp",
     "SequentialOp",
     "AccumulateOp",
     "ConcatOp",
+    "SplitOp",
     "ReshapeOp",
     "StandaloneCompOp",
     "StandaloneActOp",
@@ -181,6 +184,7 @@ class RoutingOp(OpNode):
 
     Subclasses:
     - :class:`ConcatOp` - concatenation
+    - :class:`SplitOp` - split branch selection
     - :class:`ReshapeOp` - reshape/flatten/view
     """
 
@@ -426,6 +430,94 @@ class ConcatOp(RoutingOp):
 
     def extra_repr(self) -> str:
         return f"{super().extra_repr()}, dim={self.dim}"
+
+
+def infer_split_output_shapes(
+    input_shape: torch.Size,
+    sections: int | tuple[int, ...],
+    dim: int,
+) -> tuple[torch.Size, ...]:
+    rank = len(input_shape)
+    split_dim = dim if dim >= 0 else dim + rank
+    if split_dim < 0 or split_dim >= rank:
+        raise ValueError(f"invalid split dim={dim} for rank {rank}")
+
+    input_extent = input_shape[split_dim]
+    if isinstance(sections, tuple):
+        if sum(sections) != input_extent:
+            raise ValueError(
+                f"split sections sum to {sum(sections)}, expected {input_extent}"
+            )
+        sizes = sections
+    else:
+        if sections <= 0:
+            raise ValueError(f"split size must be positive, got {sections}")
+        sizes = []
+        start = 0
+        while start < input_extent:
+            sizes.append(min(sections, input_extent - start))
+            start += sections
+        if not sizes:
+            sizes = [0]
+
+    output_shapes: list[torch.Size] = []
+    for size in sizes:
+        shape = list(input_shape)
+        shape[split_dim] = size
+        output_shapes.append(torch.Size(shape))
+
+    return tuple(output_shapes)
+
+
+class SplitOp(RoutingOp):
+    """Represent one static ``torch.split`` producer with multiple logical outputs.
+
+    ``SplitOp`` is a frontend-only routing placeholder. It keeps the original
+    split producer as one graph node and records which successor input consumes
+    which split branch.
+
+    Args:
+        sections: Static ``torch.split`` partition spec.
+        dim: Split dimension.
+    """
+
+    sections: int | tuple[int, ...]
+    output_shapes: tuple[torch.Size, ...]
+    successor_output_index: dict[tuple[str, int], int]
+
+    def __init__(self, sections: int | Sequence[int], dim: int = 0) -> None:
+        super().__init__()
+
+        if isinstance(sections, int):
+            self.sections = sections
+        else:
+            self.sections = tuple(sections)
+
+        self.dim = dim
+        self.output_shapes = ()
+        self.successor_output_index = {}
+
+    def output_index_for(self, successor_name: str, dst_port: int) -> int:
+        key = (successor_name, dst_port)
+        if key not in self.successor_output_index:
+            raise KeyError(
+                f"missing split output mapping for successor={successor_name!r}, "
+                f"dst_port={dst_port}"
+            )
+        return self.successor_output_index[key]
+
+    def forward(self, x: Tensor) -> tuple[Tensor, ...]:
+        sections = (
+            list(self.sections) if isinstance(self.sections, tuple) else self.sections
+        )
+        return tuple(torch.split(x, sections, self.dim))
+
+    def extra_repr(self) -> str:
+        return (
+            f"{super().extra_repr()}, sections={self.sections}, dim={self.dim}, "
+            f"output_shapes={self.output_shapes}, "
+            f"successor_output_index={self.successor_output_index}"
+        )
 
 
 class ReshapeOp(RoutingOp):

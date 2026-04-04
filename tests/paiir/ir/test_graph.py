@@ -203,8 +203,10 @@ class TestPAIIRGraph:
         graph = PAIIRGraph("summary_labels")
         inp = InputNode(shape=torch.Size((1, 4)))
         comp = StandaloneCompOp(nn.Linear(4, 8))
+        comp.output_shape = torch.Size((1, 8))
         act = StandaloneActOp(IFNodeV25())
-        out = OutputNode()
+        act.output_shape = torch.Size((1, 8))
+        out = OutputNode(shape=torch.Size((1, 8)))
 
         for node in (inp, comp, act, out):
             graph.add_node(node)
@@ -216,7 +218,7 @@ class TestPAIIRGraph:
         graph.summary()
         captured = capsys.readouterr().out
 
-        assert f"{inp.name} (InputNode)" in captured
-        assert f"{comp.name} (Linear)" in captured
-        assert f"{act.name} (IFNodeV25)" in captured
-        assert f"{out.name} (OutputNode)" in captured
+        assert f"{inp.name} (InputNode) (4,)" in captured
+        assert f"{comp.name} (Linear) (8,)" in captured
+        assert f"{act.name} (IFNodeV25) (8,)" in captured
+        assert f"{out.name} (OutputNode) (8,)" in captured

@@ -15,9 +15,11 @@ from ..exceptions import GraphValidationError
 from .add_ops import GeneralAddOp
 from .core_neuron import CoreNeuronV25
 from .ir_base import InputNode, OutputNode, PAIIRNode
-from .op_node import ConcatOp, OfflineCoreOp, OpNode, ReshapeOp
+from .op_node import ConcatOp, OfflineCoreOp, OpNode, ReshapeOp, SplitOp
 
 __all__ = ["Edge", "PAIIRGraph"]
+
+NodeOutput = Tensor | tuple[Tensor, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -458,6 +460,23 @@ class PAIIRGraph:
 
         return type(node).__name__
 
+    @staticmethod
+    def _summary_shape_without_batch(shape: torch.Size) -> tuple[int, ...]:
+        if not shape:
+            return ()
+        if len(shape) >= 5 and shape[1] == 1:
+            return (shape[0], *shape[2:])
+        if shape[0] == 1:
+            return tuple(shape[1:])
+        return tuple(shape)
+
+    def _summary_node_shape(self, node: PAIIRNode) -> torch.Size:
+        if isinstance(node, (InputNode, OutputNode)):
+            return node.shape
+        if isinstance(node, OpNode):
+            return node.output_shape
+        return torch.Size()
+
     def summary(self) -> None:
         """Generate a text summary of the graph."""
         lines = [
@@ -468,10 +487,15 @@ class PAIIRGraph:
             f"  Outputs: {[n.name for n in self.output_nodes()]}",
             "",
         ]
-        for name, node in self.nodes.items():
+        for name in self.topo_sort():
+            node = self.nodes[name]
             preds = self.predecessors(name)
             succs = self.successors(name)
-            lines.append(f"  {name} ({self._summary_node_label(node)})")
+            line = f"  {name} ({self._summary_node_label(node)})"
+            shape = self._summary_node_shape(node)
+            if shape:
+                line += f" {self._summary_shape_without_batch(shape)}"
+            lines.append(line)
             if preds:
                 lines.append(f"    <- {preds}")
             if succs:
@@ -590,6 +614,27 @@ class PAIIRGraph:
             return torch.zeros(shape)
         return torch.zeros(())
 
+    def _resolve_edge_tensor(
+        self, edge: Edge, node_outputs: dict[str, NodeOutput]
+    ) -> Tensor:
+        value = node_outputs[edge.src]
+        if torch.is_tensor(value):
+            return value
+
+        src_node = self.nodes[edge.src]
+        if not isinstance(src_node, SplitOp):
+            raise RuntimeError(
+                f"node '{edge.src}' produced multiple outputs, but only SplitOp is supported as a graph-internal multi-output node"
+            )
+
+        output_index = src_node.output_index_for(edge.dst, edge.dst_port)
+        if output_index < 0 or output_index >= len(value):
+            raise RuntimeError(
+                f"SplitOp '{edge.src}' output_index={output_index} is invalid for successor '{edge.dst}' dst_port={edge.dst_port}"
+            )
+
+        return value[output_index]
+
     def step(self, *inputs: Tensor) -> Tensor | tuple[Tensor, ...]:
         """Execute one time step (one sync_all cycle) through the graph.
 
@@ -627,7 +672,7 @@ class PAIIRGraph:
             self._active_counts = {name: 0 for name in self.nodes}
 
         self._sim_step += 1
-        node_outputs: dict[str, Tensor] = {}
+        node_outputs: dict[str, NodeOutput] = {}
 
         # --- Phase 1: bind external inputs to InputNodes ---
         input_nodes = self.input_nodes()
@@ -646,19 +691,18 @@ class PAIIRGraph:
                 continue
 
             if isinstance(node, OutputNode):
-                # Pass-through: each OutputNode has exactly one predecessor
-                preds = self.predecessors(name)
-                node_outputs[name] = node_outputs[preds[0]]
+                incoming = self.incoming_edges(name)
+                node_outputs[name] = self._resolve_edge_tensor(incoming[0], node_outputs)
                 continue
 
             # Collect predecessor tensors ordered by dst_port.
             # predecessors() returns names sorted by dst_port, so xs[i]
             # corresponds to input port i of multi-input nodes (GeneralAddOp,
             # AccumulateOp, PotentialAddOp, ConcatOp).
-            pred_names = self.predecessors(name)
-            xs = [node_outputs[p] for p in pred_names]
+            incoming = self.incoming_edges(name)
+            xs = [self._resolve_edge_tensor(edge, node_outputs) for edge in incoming]
 
-            if isinstance(node, (ConcatOp, ReshapeOp, GeneralAddOp)):
+            if isinstance(node, (ConcatOp, ReshapeOp, SplitOp, GeneralAddOp)):
                 # Routing/shape transformation operation.
                 # Or frontend/general expression operation.
                 # Executes tensor transformation / expression evaluation for simulation.
