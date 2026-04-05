@@ -12,7 +12,7 @@ from typing import Any
 import torch
 from torch import fx
 
-from ..ir.op_node import SplitOp, infer_split_output_shapes
+from ..ir.op_node import SplitOp
 from .dims_prop import DimsType
 from .fx_utils import (
     get_call_arg,
@@ -144,7 +144,7 @@ def describe_unsupported_split_like(
 def apply_split_analysis_rule(
     gm: fx.GraphModule,
     split_producers: dict[fx.Node, SplitProducerInfo],
-    split_getitems: dict[fx.Node, tuple[SplitProducerInfo, int]],
+    split_consumers: dict[fx.Node, tuple[SplitProducerInfo, int]],
 ) -> None:
     for node in gm.graph.nodes:
         if not is_split_like_node(node):
@@ -158,19 +158,16 @@ def apply_split_analysis_rule(
         for user in node.users:
             output_index = _extract_split_getitem_index(user, node)
             assert output_index is not None
-            split_getitems[user] = (split_info, output_index)
+            split_consumers[user] = (split_info, output_index)
 
 
 def build_split_ir_node(
     split_info: SplitProducerInfo,
 ) -> tuple[SplitOp, tuple[fx.Node, ...]]:
     ir_node = SplitOp(split_info.sections, split_info.dim)
-    input_shape = get_output_shape(split_info.data_input)
-    ir_node.input_shapes = [input_shape]
-    if input_shape:
-        ir_node.output_shapes = infer_split_output_shapes(
-            input_shape, ir_node.sections, ir_node.dim
-        )
+    # The SplitOp itself records only the split contract. Per-consumer branch
+    # selection is attached later on outgoing edges via `src_port`.
+    ir_node.input_shapes = [get_output_shape(split_info.data_input)]
     ir_node.input_dims = [get_output_dims(split_info.data_input)]
     ir_node.output_dims = ir_node.input_dims[0] if ir_node.input_dims else ()
     return ir_node, (split_info.data_input,)

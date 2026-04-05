@@ -31,7 +31,6 @@ if TYPE_CHECKING:
     from ..pipeline.avgpool.metadata import AvgPoolDeployMetadata
 
 __all__ = [
-    "infer_split_output_shapes",
     "OpNode",
     "OfflineCoreOp",
     "SequentialOp",
@@ -91,7 +90,7 @@ def _prepare_act_input(act: CoreNeuronV25, x: Tensor) -> Tensor:
 def _get_bias(comp: nn.Module) -> Tensor | None:
     """Extract the bias tensor from a compute module, or ``None``."""
     bias = getattr(comp, "bias", None)
-    if isinstance(bias, Tensor):
+    if torch.is_tensor(bias):
         return bias.data
     return None
 
@@ -107,7 +106,7 @@ def _get_weight_tensor(comp: nn.Module) -> Tensor | None:
     """
     for attr in ("raw_weight", "weight_int8", "weight"):
         weight = getattr(comp, attr, None)
-        if isinstance(weight, Tensor):
+        if torch.is_tensor(weight):
             return weight.data
     return None
 
@@ -288,13 +287,13 @@ class SequentialOp(OfflineCoreOp):
     @property
     def weights(self) -> list[Tensor] | None:
         w = _get_weight_tensor(self.comp)
-        if isinstance(w, Tensor):
+        if torch.is_tensor(w):
             return [w.to(torch.int8)]
         return None
 
     def get_weight_value_range(self) -> tuple[int, int] | None:
         w = _get_weight_tensor(self.comp)
-        if isinstance(w, Tensor):
+        if torch.is_tensor(w):
             return _tensor_value_range(w)
         return None
 
@@ -366,7 +365,7 @@ class AccumulateOp(OfflineCoreOp):
         result = []
         for comp in self.comps:
             w = _get_weight_tensor(comp)
-            if isinstance(w, Tensor):
+            if torch.is_tensor(w):
                 result.append(w.to(torch.int8))
             else:
                 return None
@@ -376,7 +375,7 @@ class AccumulateOp(OfflineCoreOp):
         ranges: list[tuple[int, int]] = []
         for comp in self.comps:
             w = _get_weight_tensor(comp)
-            if not isinstance(w, Tensor):
+            if not torch.is_tensor(w):
                 return None
             ranges.append(_tensor_value_range(w))
 
@@ -432,49 +431,12 @@ class ConcatOp(RoutingOp):
         return f"{super().extra_repr()}, dim={self.dim}"
 
 
-def infer_split_output_shapes(
-    input_shape: torch.Size,
-    sections: int | tuple[int, ...],
-    dim: int,
-) -> tuple[torch.Size, ...]:
-    rank = len(input_shape)
-    split_dim = dim if dim >= 0 else dim + rank
-    if split_dim < 0 or split_dim >= rank:
-        raise ValueError(f"invalid split dim={dim} for rank {rank}")
-
-    input_extent = input_shape[split_dim]
-    if isinstance(sections, tuple):
-        if sum(sections) != input_extent:
-            raise ValueError(
-                f"split sections sum to {sum(sections)}, expected {input_extent}"
-            )
-        sizes = sections
-    else:
-        if sections <= 0:
-            raise ValueError(f"split size must be positive, got {sections}")
-        sizes = []
-        start = 0
-        while start < input_extent:
-            sizes.append(min(sections, input_extent - start))
-            start += sections
-        if not sizes:
-            sizes = [0]
-
-    output_shapes: list[torch.Size] = []
-    for size in sizes:
-        shape = list(input_shape)
-        shape[split_dim] = size
-        output_shapes.append(torch.Size(shape))
-
-    return tuple(output_shapes)
-
-
 class SplitOp(RoutingOp):
     """Represent one static ``torch.split`` producer with multiple logical outputs.
 
     ``SplitOp`` is a frontend-only routing placeholder. It keeps the original
-    split producer as one graph node and records which successor input consumes
-    which split branch.
+    split producer as one graph node. Downstream branch selection is expressed
+    on outgoing edges via ``Edge.src_port`` rather than node-local metadata.
 
     Args:
         sections: Static ``torch.split`` partition spec.
@@ -482,42 +444,26 @@ class SplitOp(RoutingOp):
     """
 
     sections: int | tuple[int, ...]
-    output_shapes: tuple[torch.Size, ...]
-    successor_output_index: dict[tuple[str, int], int]
 
     def __init__(self, sections: int | Sequence[int], dim: int = 0) -> None:
         super().__init__()
-
         if isinstance(sections, int):
             self.sections = sections
         else:
             self.sections = tuple(sections)
 
         self.dim = dim
-        self.output_shapes = ()
-        self.successor_output_index = {}
-
-    def output_index_for(self, successor_name: str, dst_port: int) -> int:
-        key = (successor_name, dst_port)
-        if key not in self.successor_output_index:
-            raise KeyError(
-                f"missing split output mapping for successor={successor_name!r}, "
-                f"dst_port={dst_port}"
-            )
-        return self.successor_output_index[key]
 
     def forward(self, x: Tensor) -> tuple[Tensor, ...]:
         sections = (
             list(self.sections) if isinstance(self.sections, tuple) else self.sections
         )
+        # Simulation returns the full split result. Downstream consumers pick
+        # their branch through the edge's `src_port`.
         return tuple(torch.split(x, sections, self.dim))
 
     def extra_repr(self) -> str:
-        return (
-            f"{super().extra_repr()}, sections={self.sections}, dim={self.dim}, "
-            f"output_shapes={self.output_shapes}, "
-            f"successor_output_index={self.successor_output_index}"
-        )
+        return f"{super().extra_repr()}, sections={self.sections}, dim={self.dim}"
 
 
 class ReshapeOp(RoutingOp):
@@ -581,13 +527,13 @@ class StandaloneCompOp(OfflineCoreOp):
     @property
     def weights(self) -> list[Tensor] | None:
         w = _get_weight_tensor(self.comp)
-        if isinstance(w, Tensor):
+        if torch.is_tensor(w):
             return [w.to(torch.int8)]
         return None
 
     def get_weight_value_range(self) -> tuple[int, int] | None:
         w = _get_weight_tensor(self.comp)
-        if isinstance(w, Tensor):
+        if torch.is_tensor(w):
             return _tensor_value_range(w)
         return None
 

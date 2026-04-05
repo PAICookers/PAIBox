@@ -44,14 +44,7 @@ from ..ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
 from ..ir.graph import PAIIRGraph
 from ..ir.ir_base import InputNode, OutputNode
 from ..ir.lut_activation import LutActivation, LutReLU, LutSigmoid, LutSoftsign, LutTanh
-from ..ir.op_node import (
-    ConcatOp,
-    OpNode,
-    ReshapeOp,
-    SplitOp,
-    StandaloneActOp,
-    StandaloneCompOp,
-)
+from ..ir.op_node import ConcatOp, OpNode, ReshapeOp, StandaloneActOp, StandaloneCompOp
 from ..ir.reshape_semantics import RESHAPE_LEAF_MODULE_TYPES
 from .conv_lowering import (
     build_conv_ir_node,
@@ -723,7 +716,7 @@ class _LoweringContext:
     unsupported_ops: list[tuple[str, str]] = field(default_factory=list)
     prebuilt_ir_nodes: dict[fx.Node, OpNode] = field(default_factory=dict)
     split_producers: dict[fx.Node, SplitProducerInfo] = field(default_factory=dict)
-    split_getitems: dict[fx.Node, tuple[SplitProducerInfo, int]] = field(
+    split_consumers: dict[fx.Node, tuple[SplitProducerInfo, int]] = field(
         default_factory=dict
     )
     input_nodes_overrides: dict[fx.Node, tuple[fx.Node, ...]] = field(
@@ -813,7 +806,7 @@ def _apply_functional_conv_rule(gm: fx.GraphModule, ctx: _LoweringContext) -> No
 def _analyze_graph(gm: fx.GraphModule, ctx: _LoweringContext) -> None:
     """Run non-mutating lowering analysis rules."""
     _apply_shape_aux_rule(gm, ctx)
-    apply_split_analysis_rule(gm, ctx.split_producers, ctx.split_getitems)
+    apply_split_analysis_rule(gm, ctx.split_producers, ctx.split_consumers)
     _apply_functional_conv_rule(gm, ctx)
 
 
@@ -948,8 +941,8 @@ def _apply_builtin_function_lowering_rule(
             _mark_unsupported(ctx, node, describe_unsupported_split_like(node), strict)
         return True
 
-    split_getitem = ctx.split_getitems.get(node)
-    if split_getitem is not None:
+    split_consumer = ctx.split_consumers.get(node)
+    if split_consumer is not None:
         ctx.bypass_nodes.add(node)
         return True
 
@@ -1127,13 +1120,26 @@ def _emit_unsupported_warnings(ctx: _LoweringContext, strict: bool) -> None:
         warnings.warn(UnsupportedOpWarning(ctx.unsupported_ops), stacklevel=2)
 
 
+@dataclass(frozen=True, slots=True)
+class _ResolvedEndpoint:
+    """One resolved source endpoint for a graph edge being wired.
+
+    `name` identifies the source IR node. `src_port` identifies which logical
+    output of that source should feed the destination edge. Ordinary single-
+    output nodes always resolve with ``src_port=0``.
+    """
+
+    name: str
+    src_port: int = 0
+
+
 class _SourceResolver:
-    """Resolve FX predecessors into real PAIIR source nodes."""
+    """Resolve FX predecessors into source endpoints for graph wiring."""
 
     def __init__(self, ctx: _LoweringContext) -> None:
         self.ctx = ctx
 
-    def resolve(self, node: fx.Node) -> set[str]:
+    def resolve(self, node: fx.Node) -> set[_ResolvedEndpoint]:
         if node in self.ctx.ignored_nodes:
             return set()
 
@@ -1143,39 +1149,28 @@ class _SourceResolver:
             # functional conv picks up bogus duplicate predecessors.
             return set()
 
+        split_consumer = self.ctx.split_consumers.get(node)
+        if split_consumer is not None:
+            producer = node.args[0]
+            if isinstance(producer, fx.Node) and producer.name in self.ctx.fx_to_ir:
+                _, output_index = split_consumer
+                # Split getitem nodes are bypass-only selectors. They resolve to
+                # the single SplitOp producer plus the chosen source branch.
+                return {
+                    _ResolvedEndpoint(self.ctx.fx_to_ir[producer.name], output_index)
+                }
+            return set()
+
         if node in self.ctx.bypass_nodes:
-            sources: set[str] = set()
+            sources: set[_ResolvedEndpoint] = set()
             for inp in node.all_input_nodes:
                 sources |= self.resolve(inp)
             return sources
 
         if node.name in self.ctx.fx_to_ir:
-            return {self.ctx.fx_to_ir[node.name]}
+            return {_ResolvedEndpoint(self.ctx.fx_to_ir[node.name])}
 
         return set()
-
-
-def _record_split_successor_mapping(
-    paiir_graph: PAIIRGraph,
-    ctx: _LoweringContext,
-    input_node: fx.Node,
-    src_name: str,
-    dst_name: str,
-    dst_port: int,
-) -> None:
-    split_getitem = ctx.split_getitems.get(input_node)
-    if split_getitem is None:
-        return
-
-    _split_info, output_index = split_getitem
-    src_node = paiir_graph.nodes.get(src_name)
-    if not isinstance(src_node, SplitOp):
-        raise RuntimeError(
-            f"expected split source '{src_name}' to resolve to SplitOp, got "
-            f"{type(src_node).__name__ if src_node is not None else 'missing'}"
-        )
-
-    src_node.successor_output_index[(dst_name, dst_port)] = output_index
 
 
 def _wire_graph(
@@ -1192,10 +1187,9 @@ def _wire_graph(
                 dst_name = ctx.fx_to_ir[f"{node.name}_{i}"]
                 if isinstance(arg, fx.Node):
                     for src in resolver.resolve(arg):
-                        paiir_graph.add_edge(src, dst_name)
-                        _record_split_successor_mapping(
-                            paiir_graph, ctx, arg, src, dst_name, 0
-                        )
+                        # Direct split outputs keep one SplitOp node in the
+                        # graph; `src_port` carries the selected branch.
+                        paiir_graph.add_edge(src.name, dst_name, src_port=src.src_port)
             continue
 
         if node.name not in ctx.fx_to_ir:
@@ -1205,9 +1199,10 @@ def _wire_graph(
         source_nodes = ctx.input_nodes_overrides.get(node, tuple(node.all_input_nodes))
         for port_idx, inp_node in enumerate(source_nodes):
             for src in resolver.resolve(inp_node):
-                paiir_graph.add_edge(src, dst_name, dst_port=port_idx)
-                _record_split_successor_mapping(
-                    paiir_graph, ctx, inp_node, src, dst_name, port_idx
+                # `src_port` preserves split branch identity while `dst_port`
+                # continues to mean destination input slot.
+                paiir_graph.add_edge(
+                    src.name, dst_name, dst_port=port_idx, src_port=src.src_port
                 )
 
 

@@ -167,16 +167,13 @@ class TestSplitLowering:
         assert graph.predecessors(split.name) == [input_name]
         assert split.sections == (2, 3)
         assert split.dim == 1
-        assert split.output_shapes == (
-            torch.Size((1, 2, 4, 4)),
-            torch.Size((1, 3, 4, 4)),
-        )
         assert len(comp_nodes) == 2
         assert {tuple(graph.predecessors(node.name)) for node in comp_nodes} == {
             (split.name,),
         }
-        assert split.successor_output_index == {
-            (node.name, 0): 0 if node.comp.in_channels == 2 else 1
+        outgoing = sorted(graph.outgoing_edges(split.name), key=lambda edge: edge.dst)
+        assert {(edge.dst, edge.dst_port, edge.src_port) for edge in outgoing} == {
+            (node.name, 0, 0 if node.comp.in_channels == 2 else 1)
             for node in comp_nodes
         }
 
@@ -195,11 +192,10 @@ class TestSplitLowering:
 
         assert len(split_nodes) == 1
         assert split_nodes[0].sections == 2
-        assert split_nodes[0].output_shapes == (
-            torch.Size((1, 2, 3, 3)),
-            torch.Size((1, 2, 3, 3)),
-        )
-        assert split_nodes[0].successor_output_index == {(output_name, 0): 0}
+        outgoing = graph.outgoing_edges(split_nodes[0].name)
+        assert [(edge.dst, edge.dst_port, edge.src_port) for edge in outgoing] == [
+            (output_name, 0, 0)
+        ]
         assert graph.predecessors(output_name) == [split_nodes[0].name]
 
     def test_method_split_with_sections_list_is_canonicalized(self):
@@ -217,11 +213,10 @@ class TestSplitLowering:
 
         assert len(split_nodes) == 1
         assert split_nodes[0].sections == (1, 3)
-        assert split_nodes[0].output_shapes == (
-            torch.Size((1, 1, 3, 3)),
-            torch.Size((1, 3, 3, 3)),
-        )
-        assert split_nodes[0].successor_output_index == {(output_name, 0): 1}
+        outgoing = graph.outgoing_edges(split_nodes[0].name)
+        assert [(edge.dst, edge.dst_port, edge.src_port) for edge in outgoing] == [
+            (output_name, 0, 1)
+        ]
 
     def test_split_direct_outputs_materialize_single_split_node(self):
         class Model(nn.Module):
@@ -237,15 +232,12 @@ class TestSplitLowering:
         assert len(split_nodes) == 1
         assert len(output_nodes) == 2
         split = split_nodes[0]
-        assert split.output_shapes == (
-            torch.Size((1, 2, 4, 4)),
-            torch.Size((1, 3, 4, 4)),
-        )
         assert all(graph.predecessors(node.name) == [split.name] for node in output_nodes)
-        assert split.successor_output_index == {
-            (output_nodes[0].name, 0): 0,
-            (output_nodes[1].name, 0): 1,
-        }
+        outgoing = sorted(graph.outgoing_edges(split.name), key=lambda edge: edge.dst)
+        assert [(edge.dst, edge.dst_port, edge.src_port) for edge in outgoing] == [
+            (output_nodes[0].name, 0, 0),
+            (output_nodes[1].name, 0, 1),
+        ]
 
     def test_split_after_pending_permute_is_rejected(self):
         class Model(nn.Module):

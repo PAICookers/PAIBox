@@ -18,7 +18,7 @@ from torch import nn
 from paibox.paiir.ir.add_ops import AddOperandKind, GeneralAddOp, PotentialAddOp
 from paibox.paiir.ir.calc_params import OfflineCoreParams
 from paibox.paiir.ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
-from paibox.paiir.ir.graph import PAIIRGraph
+from paibox.paiir.ir.graph import Edge, PAIIRGraph
 from paibox.paiir.ir.ir_base import InputNode, OutputNode
 from paibox.paiir.ir.lut_activation import LutReLU, LutSigmoid, LutTanh
 from paibox.paiir.ir.op_node import (
@@ -936,9 +936,9 @@ class TestValidateCompiledGraph:
             validate_compiled_graph(graph)
 
     def test_rejects_split_output_shape_mismatch(self):
-        graph = PAIIRGraph("bad_split_shape")
+        graph = PAIIRGraph("bad_split_spec")
         inp = InputNode(shape=torch.Size((1, 5)))
-        split = SplitOp(sections=(2, 3), dim=1)
+        split = SplitOp(sections=(2, 4), dim=1)
         out = OutputNode()
 
         inp.output_domain = SignalDomain.VALUE
@@ -946,19 +946,17 @@ class TestValidateCompiledGraph:
         out.output_domain = SignalDomain.VALUE
 
         split.input_shapes = [torch.Size((1, 5))]
-        split.output_shapes = (torch.Size((1, 2)), torch.Size((1, 4)))
         split.input_dims = [(0, 1)]
         split.output_dims = (0, 1)
-        split.successor_output_index = {(out.name, 0): 1}
 
         graph.add_node(inp)
         graph.add_node(split)
         graph.add_node(out)
         graph.add_edge(inp.name, split.name)
-        graph.add_edge(split.name, out.name)
+        graph.add_edge(split.name, out.name, src_port=1)
 
         with pytest.raises(
-            GraphValidationError, match="SplitOp .*output_shapes mismatch"
+            GraphValidationError, match="invalid split spec"
         ):
             validate_compiled_graph(graph)
 
@@ -974,10 +972,8 @@ class TestSplitPassBehavior:
         out = OutputNode(shape=torch.Size((1, 2)))
 
         split.input_shapes = [torch.Size((1, 4))]
-        split.output_shapes = (torch.Size((1, 2)), torch.Size((1, 2)))
         split.input_dims = [(0, 1)]
         split.output_dims = (0, 1)
-        split.successor_output_index = {(act.name, 0): 0}
 
         act.input_shapes = [torch.Size((1, 2))]
         act.output_shape = torch.Size((1, 2))
@@ -989,7 +985,7 @@ class TestSplitPassBehavior:
         graph.add_node(act)
         graph.add_node(out)
         graph.add_edge(inp.name, split.name)
-        graph.add_edge(split.name, act.name)
+        graph.add_edge(split.name, act.name, src_port=0)
         graph.add_edge(act.name, out.name)
         return graph, inp, split, act
 
@@ -1013,12 +1009,17 @@ class TestSplitPassBehavior:
 
         assert act.core_params.tick_start == 1
 
-    def test_validate_split_requires_successor_mapping_for_each_edge(self):
+    def test_validate_split_rejects_out_of_range_src_port(self):
         graph, _, split, _ = self._build_split_routing_graph()
-        split.successor_output_index = {}
+        graph.edges = [
+            edge
+            if edge.src != split.name
+            else Edge(src=edge.src, dst=edge.dst, src_port=2, dst_port=edge.dst_port)
+            for edge in graph.edges
+        ]
 
         with pytest.raises(
-            GraphValidationError, match="missing successor_output_index entries"
+            GraphValidationError, match="src_port=2"
         ):
             validate_graph(graph)
 
@@ -1057,7 +1058,7 @@ class TestValidateDeployableGraph:
         graph.add_node(split)
         graph.add_node(out)
         graph.add_edge(inp.name, split.name)
-        graph.add_edge(split.name, out.name)
+        graph.add_edge(split.name, out.name, src_port=0)
 
         with pytest.raises(GraphValidationError, match="frontend-only IR"):
             validate_deployable_graph(graph)

@@ -30,7 +30,6 @@ from ..ir.ir_base import InputNode, OutputNode, PAIIRNode
 from ..ir.op_node import (
     AccumulateOp,
     ConcatOp,
-    infer_split_output_shapes,
     OfflineCoreOp,
     OpNode,
     ReshapeOp,
@@ -41,6 +40,7 @@ from ..ir.op_node import (
 )
 from ..ir.reshape_semantics import shape_after_dims
 from ..ir.signal_domain import SignalDomain
+from ..ir.utils import infer_split_output_shapes
 from .avgpool import calibrate_avgpool_thresholds
 from .avgpool.calibration import CalibrationResult
 from .avgpool.fusion import _try_handle_avgpool_activation
@@ -334,7 +334,7 @@ def validate_graph(graph: PAIIRGraph) -> None:
         if not isinstance(node, OpNode):
             continue
         if isinstance(node, SplitOp):
-            if not node.output_shapes:
+            if not node.input_shapes or any(not shape for shape in node.input_shapes):
                 missing_shape_nodes.append(name)
             continue
         if not node.output_shape:
@@ -451,15 +451,38 @@ def _get_node_output_shape(node: PAIIRNode) -> torch.Size:
     return torch.Size()
 
 
-def _get_edge_output_shape(graph: PAIIRGraph, edge: Edge) -> torch.Size:
+def _try_get_edge_output_shape(graph: PAIIRGraph, edge: Edge) -> torch.Size:
+    """Best-effort shape probe for one concrete graph edge.
+
+    This helper is intentionally non-throwing: validation code uses it to
+    assemble richer error messages later, so malformed split metadata falls
+    back to ``torch.Size()`` instead of aborting early.
+    """
     node = graph.nodes[edge.src]
     if isinstance(node, SplitOp):
-        output_index = node.successor_output_index.get((edge.dst, edge.dst_port))
-        if output_index is None:
+        if not node.input_shapes or not node.input_shapes[0]:
             return torch.Size()
-        if output_index < 0 or output_index >= len(node.output_shapes):
+
+        input_shape = node.input_shapes[0]
+        rank = len(input_shape)
+        split_dim = node.dim if node.dim >= 0 else node.dim + rank
+        if split_dim < 0 or split_dim >= rank:
             return torch.Size()
-        return node.output_shapes[output_index]
+
+        input_extent = input_shape[split_dim]
+        if isinstance(node.sections, tuple):
+            if sum(node.sections) != input_extent:
+                return torch.Size()
+        elif node.sections <= 0:
+            return torch.Size()
+
+        # Split branch shapes are derived on demand rather than persisted on
+        # the node because the backend does not consume them directly.
+        output_shapes = infer_split_output_shapes(input_shape, node.sections, node.dim)
+        if edge.src_port < 0 or edge.src_port >= len(output_shapes):
+            return torch.Size()
+        return output_shapes[edge.src_port]
+
     return _get_node_output_shape(node)
 
 
@@ -468,7 +491,7 @@ def _validate_concat_contract(
 ) -> None:
     incoming = graph.incoming_edges(name)
     preds = [edge.src for edge in incoming]
-    pred_shapes = [_get_edge_output_shape(graph, edge) for edge in incoming]
+    pred_shapes = [_try_get_edge_output_shape(graph, edge) for edge in incoming]
 
     if len(preds) < 1:
         errors.append(f"ConcatOp '{name}' must define at least one input path")
@@ -549,7 +572,7 @@ def _validate_reshape_contract(
         )
         return
 
-    pred_shape = _get_edge_output_shape(graph, incoming[0])
+    pred_shape = _try_get_edge_output_shape(graph, incoming[0])
     if node.input_shapes and len(node.input_shapes) != 1:
         errors.append(
             f"ReshapeOp '{name}' has {len(node.input_shapes)} input_shapes (expected 1)"
@@ -593,7 +616,7 @@ def _validate_split_contract(
         )
         return
 
-    pred_shape = _get_edge_output_shape(graph, incoming[0])
+    pred_shape = _try_get_edge_output_shape(graph, incoming[0])
     if node.input_shapes and len(node.input_shapes) != 1:
         errors.append(
             f"SplitOp '{name}' has {len(node.input_shapes)} input_shapes (expected 1)"
@@ -619,38 +642,18 @@ def _validate_split_contract(
 
     input_shape = node.input_shapes[0]
     try:
-        expected_outputs = infer_split_output_shapes(input_shape, node.sections, node.dim)
-    except ValueError as exc:
-        errors.append(
-            f"SplitOp '{name}' has invalid split spec: {exc}"
+        expected_outputs = infer_split_output_shapes(
+            input_shape, node.sections, node.dim
         )
+    except ValueError as e:
+        errors.append(f"SplitOp '{name}' has invalid split spec: {e}")
         return
 
-    if node.output_shapes != expected_outputs:
-        errors.append(
-            f"SplitOp '{name}' output_shapes mismatch: "
-            f"expected {expected_outputs}, got {node.output_shapes}"
-        )
-
-    outgoing = {(edge.dst, edge.dst_port) for edge in graph.outgoing_edges(name)}
-    mapping_keys = set(node.successor_output_index)
-
-    missing_keys = outgoing - mapping_keys
-    if missing_keys:
-        errors.append(
-            f"SplitOp '{name}' is missing successor_output_index entries for {sorted(missing_keys)}"
-        )
-
-    extra_keys = mapping_keys - outgoing
-    if extra_keys:
-        errors.append(
-            f"SplitOp '{name}' has stale successor_output_index entries for {sorted(extra_keys)}"
-        )
-
-    for key, output_index in node.successor_output_index.items():
-        if output_index < 0 or output_index >= len(expected_outputs):
+    for edge in graph.outgoing_edges(name):
+        if edge.src_port < 0 or edge.src_port >= len(expected_outputs):
             errors.append(
-                f"SplitOp '{name}' successor_output_index[{key}]={output_index} exceeds "
+                f"SplitOp '{name}' edge to '{edge.dst}' "
+                f"(dst_port={edge.dst_port}, src_port={edge.src_port}) exceeds "
                 f"{len(expected_outputs)} split output(s)"
             )
 

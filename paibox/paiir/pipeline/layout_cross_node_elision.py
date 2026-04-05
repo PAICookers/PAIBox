@@ -83,7 +83,7 @@ def _try_elide_comp_act_reshape_sandwich(graph: PAIIRGraph, act_name: str) -> bo
 
     graph.replace_all_uses_with(post_name, act_name, delete_old=True)
     graph.remove_node(pre_name)
-    graph.add_edge(comp_name, act_name, 0)
+    graph.add_edge(comp_name, act_name, dst_port=0)
 
     return True
 

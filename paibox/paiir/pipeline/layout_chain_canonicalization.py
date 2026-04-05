@@ -95,7 +95,7 @@ def _try_collapse_adjacent_reshapes(graph: PAIIRGraph, first_name: str) -> bool:
     composed.output_dims = second.output_dims
 
     graph.add_node(composed)
-    graph.add_edge(graph.predecessors(first_name)[0], composed.name, 0)
+    graph.add_edge(graph.predecessors(first_name)[0], composed.name, dst_port=0)
     graph.replace_all_uses_with(second_name, composed.name, delete_old=True)
 
     graph.remove_node(first_name)
