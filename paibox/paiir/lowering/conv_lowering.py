@@ -148,7 +148,7 @@ def _match_quantized_functional_conv_weight_expr(
     if isinstance(value, fx.Node):
         if value.op == "get_attr":
             resolved = _resolve_attr_value(gm, str(value.target))
-            if isinstance(resolved, Tensor):
+            if torch.is_tensor(resolved):
                 return resolved.detach().clone(), None, {value}
             return None
 
@@ -281,7 +281,7 @@ def extract_functional_conv_spec(gm: fx.GraphModule, node: fx.Node) -> ConvSpec 
 
     weight, weight_scale, aux_nodes = weight_spec
     bias_value, bias_nodes = _resolve_constant_value(gm, bias_arg)
-    if bias_value is not None and not isinstance(bias_value, Tensor):
+    if bias_value is not None and not torch.is_tensor(bias_value):
         return None
 
     module = _build_functional_conv_module(

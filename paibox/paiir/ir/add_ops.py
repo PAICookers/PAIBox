@@ -73,13 +73,13 @@ class AddOperandSpec:
 
 
 def _constant_shape(value: Tensor | int | float) -> torch.Size:
-    if isinstance(value, Tensor):
+    if torch.is_tensor(value):
         return value.shape
     return torch.Size()
 
 
 def _constant_dims(value: Tensor | int | float) -> tuple[int, ...]:
-    if isinstance(value, Tensor):
+    if torch.is_tensor(value):
         return tuple(range(value.ndim))
     return ()
 
@@ -171,11 +171,11 @@ class GeneralAddOp(OpNode):
             else:
                 assert operand.const_value is not None
                 value = operand.const_value
-                if isinstance(value, Tensor) and ref_tensor is not None:
+                if torch.is_tensor(value) and ref_tensor is not None:
                     value = value.to(device=ref_tensor.device)
 
             term = operand.coeff * value
-            if not isinstance(term, Tensor):
+            if not torch.is_tensor(term):
                 if acc is not None:
                     term = torch.as_tensor(term, dtype=acc.dtype, device=acc.device)
                 elif ref_tensor is not None:

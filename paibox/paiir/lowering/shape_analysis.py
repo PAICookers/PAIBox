@@ -258,7 +258,7 @@ def _extract_tensor_output_shape(node: fx.Node) -> torch.Size:
         return torch.Size(tensor_meta.shape)
 
     val = node.meta.get("val")
-    if isinstance(val, torch.Tensor):
+    if torch.is_tensor(val):
         return val.shape
 
     return torch.Size()
