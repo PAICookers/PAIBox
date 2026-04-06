@@ -1239,7 +1239,9 @@ class TestSplitOpSimulation:
         x = torch.randint(-8, 8, (1, 5, 4, 4), dtype=torch.int8)
         graph = torch_to_paiir(model, x.float())
 
-        split_nodes = [node for node in graph.nodes.values() if isinstance(node, SplitOp)]
+        split_nodes = [
+            node for node in graph.nodes.values() if isinstance(node, SplitOp)
+        ]
         assert len(split_nodes) == 1
 
         model.eval()
@@ -1263,8 +1265,12 @@ class TestSplitOpSimulation:
         x = torch.randn(1, 5, 4, 4)
 
         graph = torch_to_paiir(model, x)
-        split_nodes = [node for node in graph.nodes.values() if isinstance(node, SplitOp)]
-        concat_nodes = [node for node in graph.nodes.values() if isinstance(node, ConcatOp)]
+        split_nodes = [
+            node for node in graph.nodes.values() if isinstance(node, SplitOp)
+        ]
+        concat_nodes = [
+            node for node in graph.nodes.values() if isinstance(node, ConcatOp)
+        ]
 
         assert len(split_nodes) == 1
         assert len(concat_nodes) == 1
@@ -1287,7 +1293,9 @@ class TestSplitOpSimulation:
         x = torch.randn(1, 5, 4, 4)
 
         graph = torch_to_paiir(model, x)
-        split_nodes = [node for node in graph.nodes.values() if isinstance(node, SplitOp)]
+        split_nodes = [
+            node for node in graph.nodes.values() if isinstance(node, SplitOp)
+        ]
         output_nodes = graph.output_nodes()
 
         assert len(split_nodes) == 1

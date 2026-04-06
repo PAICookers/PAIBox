@@ -1518,7 +1518,7 @@
 ## Review
 
 - `tags` / `ctags` purpose in the root [Makefile](/home/kafcoppelia/WORK/PAIRV/Makefile#L63):
-  - the recipe runs `ctags -o tags \`find . -name '*.[chS]' -print\`` and then symlinks `ctags -> tags`
+  - the recipe runs `ctags -o tags \`find . -name '\*.[chS]' -print\``and then symlinks`ctags -> tags`
   - this generates an editor navigation index for tools such as Vim/Emacs/older IDE integrations so you can jump to symbol definitions quickly
   - it is not part of the compile, link, upload, or debug flow at all
   - retention judgment:
@@ -2113,7 +2113,7 @@
 - Because Python can reuse freed object ids, a newly created `StandaloneCompOp` could inherit a stale cached name such as `GeneralAddOp_9` from an earlier, already-destroyed `GeneralAddOp` instance.
 - That is why the log could contain lines like:
   - `GeneralAddOp_9 (Conv2d)`
-  even though the current node was not a `GeneralAddOp` semantically.
+    even though the current node was not a `GeneralAddOp` semantically.
 - Fixed [IRNamespace](/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/paibox/paiir/ir/_namespace.py) to use a `WeakKeyDictionary` keyed by the live object itself instead of raw `id(obj)`.
 - Added a direct user-facing regression in [test_widerface_t1_backbone_sz160_paiir.py](/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/tests/user/test_widerface_t1_backbone_sz160_paiir.py):
   - the exported log must not contain `GeneralAddOp_`
@@ -3516,7 +3516,7 @@
   - `./.venv/bin/python -m py_compile tests/user/dualcnn.py`
     - result: exit code `0`
 - `ruff check tests/user/dualcnn.py`
-    - result: `All checks passed!`
+  - result: `All checks passed!`
 
 # Shape-Helper Detection Refactor Plan
 
@@ -3745,7 +3745,7 @@
 
 ## Review
 
-- Updated [pipeline/__init__.py](/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/paibox/paiir/pipeline/__init__.py) and [avgpool/__init__.py](/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/paibox/paiir/pipeline/avgpool/__init__.py) to use lazy exports via `__getattr__`, which removes the package import cycle triggered when `op_node.py` imports `pipeline.avgpool.metadata`.
+- Updated [pipeline/**init**.py](/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/paibox/paiir/pipeline/__init__.py) and [avgpool/**init**.py](/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/paibox/paiir/pipeline/avgpool/__init__.py) to use lazy exports via `__getattr__`, which removes the package import cycle triggered when `op_node.py` imports `pipeline.avgpool.metadata`.
 - Updated [dualcnn.py](/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/tests/user/dualcnn.py) so the compile helper now builds one paired wrapper module `forward(x2d, x1d) -> (conv2d_last(x2d), conv1d_last(x1d))` instead of compiling the two layers separately.
 - The new helper `compile_last_conv_pair_with_paiir_and_backendv2(...)`:
   - compiles the paired wrapper through `compile_to_paiir(...)` with two sample inputs
@@ -3808,12 +3808,12 @@
 ## Review
 
 - Package/API surface by layer:
-  - [paibox/paiir/__init__.py](/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/paibox/paiir/__init__.py) is the public convenience facade. It eagerly re-exports IR types from `ir/`, compile/data-format APIs from `pipeline/`, and lowering entrypoints from `lowering/`.
-  - [paibox/paiir/ir/__init__.py](/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/paibox/paiir/ir/__init__.py) is a cohesive IR subpackage facade. Its eager export pattern is defensible because the subpackage contents are tightly related and already mutually coupled.
-  - [paibox/paiir/lowering/__init__.py](/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/paibox/paiir/lowering/__init__.py) is a thin frontend-lowering facade and looks structurally fine.
-  - [paibox/paiir/nn/__init__.py](/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/paibox/paiir/nn/__init__.py) is minimal and fine.
-  - [paibox/paiir/pipeline/__init__.py](/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/paibox/paiir/pipeline/__init__.py) is now a lazy facade via `__getattr__`, which is the right shape for a package that otherwise risks import cycles between compile/passes/data-format and IR modules.
-  - [paibox/paiir/pipeline/avgpool/__init__.py](/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/paibox/paiir/pipeline/avgpool/__init__.py) also uses lazy exports; this is appropriate because its submodules participate in the same cycle-prone compile-time surface.
+  - [paibox/paiir/**init**.py](/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/paibox/paiir/__init__.py) is the public convenience facade. It eagerly re-exports IR types from `ir/`, compile/data-format APIs from `pipeline/`, and lowering entrypoints from `lowering/`.
+  - [paibox/paiir/ir/**init**.py](/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/paibox/paiir/ir/__init__.py) is a cohesive IR subpackage facade. Its eager export pattern is defensible because the subpackage contents are tightly related and already mutually coupled.
+  - [paibox/paiir/lowering/**init**.py](/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/paibox/paiir/lowering/__init__.py) is a thin frontend-lowering facade and looks structurally fine.
+  - [paibox/paiir/nn/**init**.py](/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/paibox/paiir/nn/__init__.py) is minimal and fine.
+  - [paibox/paiir/pipeline/**init**.py](/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/paibox/paiir/pipeline/__init__.py) is now a lazy facade via `__getattr__`, which is the right shape for a package that otherwise risks import cycles between compile/passes/data-format and IR modules.
+  - [paibox/paiir/pipeline/avgpool/**init**.py](/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/paibox/paiir/pipeline/avgpool/__init__.py) also uses lazy exports; this is appropriate because its submodules participate in the same cycle-prone compile-time surface.
 - Import audit:
   - `from paibox.paiir import compile_to_paiir` succeeds.
   - `from paibox.paiir.pipeline import compile_to_paiir` succeeds.
@@ -3822,7 +3822,7 @@
 - Design assessment:
   - [pipeline/compile.py](/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/paibox/paiir/pipeline/compile.py) is conceptually in the right place. Its job is to orchestrate compile-time passes, so it belongs to `pipeline/`, not the package root.
   - Moving the implementation file to `paibox/paiir/compile.py` would blur layering by mixing the root package facade with pass orchestration internals.
-  - The better improvement is to keep the implementation in `pipeline/compile.py` and, if desired, make [paibox/paiir/__init__.py](/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/paibox/paiir/__init__.py) a lazy facade too, for consistency with `pipeline/` and to reduce import-time coupling.
+  - The better improvement is to keep the implementation in `pipeline/compile.py` and, if desired, make [paibox/paiir/**init**.py](/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/paibox/paiir/__init__.py) a lazy facade too, for consistency with `pipeline/` and to reduce import-time coupling.
 - Recommendation:
   - keep `compile_to_paiir` implemented in `pipeline/compile.py`
   - keep re-exporting it from `paibox.paiir` as the primary user-facing import path
@@ -3888,7 +3888,7 @@
     - result: exit code `0`
     - output confirms paired compile path still produces `2` inputs and `2` outputs
 - [paiir_summary.log](/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/tests/user/debug/dualcnn_last_conv_pair_compile/paiir_summary.log)
-    - result: both branches now lower as `SequentialOp (Conv2d -> ANNNodeV25)` and `SequentialOp (Conv1d -> ANNNodeV25)`, which confirms the added `ReLU` is represented in the compiled paired subnetwork
+  - result: both branches now lower as `SequentialOp (Conv2d -> ANNNodeV25)` and `SequentialOp (Conv1d -> ANNNodeV25)`, which confirms the added `ReLU` is represented in the compiled paired subnetwork
 
 # DualCNN Full-Network PAIIR Compile Helper
 
@@ -4249,9 +4249,9 @@
 ## Review
 
 - In progress.
-    - latest simplification:
-      - `test_last_conv_pair(...)` now only checks whether the chosen conv sizes can be compiled
-      - it no longer copies real weights from the original model and no longer quantizes the pair
+  - latest simplification:
+    - `test_last_conv_pair(...)` now only checks whether the chosen conv sizes can be compiled
+    - it no longer copies real weights from the original model and no longer quantizes the pair
 
 # Weekly Summary and PPT Outline (2026-03-23 to 2026-03-28)
 
@@ -4491,7 +4491,7 @@
   - `ruff check paibox/paiir/pipeline/avgpool/utils.py paibox/paiir/pipeline/avgpool/fusion.py paibox/paiir/pipeline/avgpool/pass_ops.py tests/paiir/pipeline/avgpool/test_compensation.py`
     - result: `All checks passed!`
 - `./.venv/bin/pytest tests/paiir/pipeline/avgpool/test_compensation.py -q -k 'avgpool_semantics or avg_divisor_changes_candidate_scoring'`
-    - result: `2 passed, 39 deselected`
+  - result: `2 passed, 39 deselected`
   - `./.venv/bin/pytest tests/paiir/pipeline/avgpool/test_deploy_scheme.py -q -k 'divisor_override_controls_split_core_if_lut_scaling'`
     - result: `1 passed, 7 deselected`
 

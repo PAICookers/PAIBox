@@ -135,9 +135,9 @@ class TestRegisterNeuron:
         test_inputs = torch.tensor([-100, -2, -1, 0, 1, 2, 3, 4, 5, 20, 100])
         ref_outputs = torch.round(torch.clamp(test_inputs, 0, 4))
         lut_outputs = seq_nodes[0].act(test_inputs)
-        assert torch.equal(lut_outputs, ref_outputs), (
-            f"LUT mismatch: expected {ref_outputs.tolist()}, got {lut_outputs.tolist()}"
-        )
+        assert torch.equal(
+            lut_outputs, ref_outputs
+        ), f"LUT mismatch: expected {ref_outputs.tolist()}, got {lut_outputs.tolist()}"
 
 
 class TestSplitLowering:
@@ -155,7 +155,9 @@ class TestSplitLowering:
         graph = torch_to_paiir(Model().eval(), torch.randn(1, 5, 4, 4))
 
         input_name = graph.input_nodes()[0].name
-        split_nodes = [node for node in graph.nodes.values() if isinstance(node, SplitOp)]
+        split_nodes = [
+            node for node in graph.nodes.values() if isinstance(node, SplitOp)
+        ]
         comp_nodes = [
             node
             for node in graph.nodes.values()
@@ -226,13 +228,17 @@ class TestSplitLowering:
 
         graph = torch_to_paiir(Model().eval(), torch.randn(1, 5, 4, 4))
 
-        split_nodes = [node for node in graph.nodes.values() if isinstance(node, SplitOp)]
+        split_nodes = [
+            node for node in graph.nodes.values() if isinstance(node, SplitOp)
+        ]
         output_nodes = graph.output_nodes()
 
         assert len(split_nodes) == 1
         assert len(output_nodes) == 2
         split = split_nodes[0]
-        assert all(graph.predecessors(node.name) == [split.name] for node in output_nodes)
+        assert all(
+            graph.predecessors(node.name) == [split.name] for node in output_nodes
+        )
         outgoing = sorted(graph.outgoing_edges(split.name), key=lambda edge: edge.dst)
         assert [(edge.dst, edge.dst_port, edge.src_port) for edge in outgoing] == [
             (output_nodes[0].name, 0, 0),

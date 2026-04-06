@@ -955,9 +955,7 @@ class TestValidateCompiledGraph:
         graph.add_edge(inp.name, split.name)
         graph.add_edge(split.name, out.name, src_port=1)
 
-        with pytest.raises(
-            GraphValidationError, match="invalid split spec"
-        ):
+        with pytest.raises(GraphValidationError, match="invalid split spec"):
             validate_compiled_graph(graph)
 
 
@@ -1012,15 +1010,17 @@ class TestSplitPassBehavior:
     def test_validate_split_rejects_out_of_range_src_port(self):
         graph, _, split, _ = self._build_split_routing_graph()
         graph.edges = [
-            edge
-            if edge.src != split.name
-            else Edge(src=edge.src, dst=edge.dst, src_port=2, dst_port=edge.dst_port)
+            (
+                edge
+                if edge.src != split.name
+                else Edge(
+                    src=edge.src, dst=edge.dst, src_port=2, dst_port=edge.dst_port
+                )
+            )
             for edge in graph.edges
         ]
 
-        with pytest.raises(
-            GraphValidationError, match="src_port=2"
-        ):
+        with pytest.raises(GraphValidationError, match="src_port=2"):
             validate_graph(graph)
 
 
