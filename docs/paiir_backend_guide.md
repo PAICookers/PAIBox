@@ -198,8 +198,17 @@ from paibox.paiir.ir.graph import Edge
 class Edge:
     src: str       # 源节点名
     dst: str       # 目标节点名
-    dst_port: int  # 目标端口号（默认 0，多输入节点用于保持顺序）
+    src_port: int  # 源节点输出端口号（默认 0，单输出节点恒为 0）
+    dst_port: int  # 目标节点输入端口号（默认 0，多输入节点用于保持顺序）
 ```
+
+补充说明：
+
+- 对大多数单输出节点，`src_port` 恒为 `0`
+- `dst_port` 仍然表示目标节点的输入槽位
+- 当前 `SplitOp` 是图内唯一的多输出特例，split 的分支选择通过 `Edge.src_port` 表达
+  - 例如 `SplitOp --(src_port=0)--> conv_left`
+  - `SplitOp --(src_port=1)--> conv_right`
 
 ### 节点类型层次
 
@@ -226,6 +235,13 @@ PAIIRNode (基类，自动分配唯一 name)
 - `strict=False` 下的部分旁路图结构
 - AvgPool 条件式分核部署中，`StandaloneActOp` 作为第二核保留
 - 某些尚未进一步融合的中间编译状态
+
+当前前端 lowering 还可能保留 `SplitOp`，但要注意：
+
+- `SplitOp` 是 frontend-only IR
+- 它可以出现在 `torch_to_paiir()` 或 compile 中途图里
+- `validate_deployable_graph()` 之后的 backend-ready 图不允许残留 `SplitOp`
+- 因此后端如果只消费 `compile_to_paiir()` 的最终结果，默认不需要实现 `SplitOp` 的真实部署逻辑
 
 ## 计算图遍历与查询
 
@@ -258,6 +274,12 @@ in_edges: list[Edge] = graph.incoming_edges("node_name")
 # 输出边
 out_edges: list[Edge] = graph.outgoing_edges("node_name")
 ```
+
+如果你需要读取 split 相关的分支连接关系，请优先使用 `incoming_edges()` / `outgoing_edges()` 而不是只看 `predecessors()`：
+
+- `predecessors()` 只保留节点名，不包含 `src_port`
+- `incoming_edges()` / `outgoing_edges()` 保留完整的边端口信息
+- 对 `SplitOp` 而言，`src_port` 就是“该边携带第几个 split 分支”
 
 ### 遍历模式
 

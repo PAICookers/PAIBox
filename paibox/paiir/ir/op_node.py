@@ -10,6 +10,7 @@ Node types:
 - :class:`AccumulateOp` -- multi-path compute -> add/sub -> neuron/lut
 - :class:`StandaloneCompOp` -- compute only (potential output)
 - :class:`StandaloneActOp` -- neuron/lut only
+- routing ops such as :class:`ConcatOp`, :class:`SplitOp`, and :class:`ReshapeOp`
 
 Add-specific IR nodes live in :mod:`paibox.paiir.ir.add_ops`.
 """
@@ -35,6 +36,7 @@ __all__ = [
     "SequentialOp",
     "AccumulateOp",
     "ConcatOp",
+    "SplitOp",
     "ReshapeOp",
     "StandaloneCompOp",
     "StandaloneActOp",
@@ -88,7 +90,7 @@ def _prepare_act_input(act: CoreNeuronV25, x: Tensor) -> Tensor:
 def _get_bias(comp: nn.Module) -> Tensor | None:
     """Extract the bias tensor from a compute module, or ``None``."""
     bias = getattr(comp, "bias", None)
-    if isinstance(bias, Tensor):
+    if torch.is_tensor(bias):
         return bias.data
     return None
 
@@ -104,7 +106,7 @@ def _get_weight_tensor(comp: nn.Module) -> Tensor | None:
     """
     for attr in ("raw_weight", "weight_int8", "weight"):
         weight = getattr(comp, attr, None)
-        if isinstance(weight, Tensor):
+        if torch.is_tensor(weight):
             return weight.data
     return None
 
@@ -181,6 +183,7 @@ class RoutingOp(OpNode):
 
     Subclasses:
     - :class:`ConcatOp` - concatenation
+    - :class:`SplitOp` - split branch selection
     - :class:`ReshapeOp` - reshape/flatten/view
     """
 
@@ -284,13 +287,13 @@ class SequentialOp(OfflineCoreOp):
     @property
     def weights(self) -> list[Tensor] | None:
         w = _get_weight_tensor(self.comp)
-        if isinstance(w, Tensor):
+        if torch.is_tensor(w):
             return [w.to(torch.int8)]
         return None
 
     def get_weight_value_range(self) -> tuple[int, int] | None:
         w = _get_weight_tensor(self.comp)
-        if isinstance(w, Tensor):
+        if torch.is_tensor(w):
             return _tensor_value_range(w)
         return None
 
@@ -362,7 +365,7 @@ class AccumulateOp(OfflineCoreOp):
         result = []
         for comp in self.comps:
             w = _get_weight_tensor(comp)
-            if isinstance(w, Tensor):
+            if torch.is_tensor(w):
                 result.append(w.to(torch.int8))
             else:
                 return None
@@ -372,7 +375,7 @@ class AccumulateOp(OfflineCoreOp):
         ranges: list[tuple[int, int]] = []
         for comp in self.comps:
             w = _get_weight_tensor(comp)
-            if not isinstance(w, Tensor):
+            if not torch.is_tensor(w):
                 return None
             ranges.append(_tensor_value_range(w))
 
@@ -426,6 +429,41 @@ class ConcatOp(RoutingOp):
 
     def extra_repr(self) -> str:
         return f"{super().extra_repr()}, dim={self.dim}"
+
+
+class SplitOp(RoutingOp):
+    """Represent one static ``torch.split`` producer with multiple logical outputs.
+
+    ``SplitOp`` is a frontend-only routing placeholder. It keeps the original
+    split producer as one graph node. Downstream branch selection is expressed
+    on outgoing edges via ``Edge.src_port`` rather than node-local metadata.
+
+    Args:
+        sections: Static ``torch.split`` partition spec.
+        dim: Split dimension.
+    """
+
+    sections: int | tuple[int, ...]
+
+    def __init__(self, sections: int | Sequence[int], dim: int = 0) -> None:
+        super().__init__()
+        if isinstance(sections, int):
+            self.sections = sections
+        else:
+            self.sections = tuple(sections)
+
+        self.dim = dim
+
+    def forward(self, x: Tensor) -> tuple[Tensor, ...]:
+        sections = (
+            list(self.sections) if isinstance(self.sections, tuple) else self.sections
+        )
+        # Simulation returns the full split result. Downstream consumers pick
+        # their branch through the edge's `src_port`.
+        return tuple(torch.split(x, sections, self.dim))
+
+    def extra_repr(self) -> str:
+        return f"{super().extra_repr()}, sections={self.sections}, dim={self.dim}"
 
 
 class ReshapeOp(RoutingOp):
@@ -489,13 +527,13 @@ class StandaloneCompOp(OfflineCoreOp):
     @property
     def weights(self) -> list[Tensor] | None:
         w = _get_weight_tensor(self.comp)
-        if isinstance(w, Tensor):
+        if torch.is_tensor(w):
             return [w.to(torch.int8)]
         return None
 
     def get_weight_value_range(self) -> tuple[int, int] | None:
         w = _get_weight_tensor(self.comp)
-        if isinstance(w, Tensor):
+        if torch.is_tensor(w):
             return _tensor_value_range(w)
         return None
 

@@ -91,9 +91,9 @@ class TestPAIIRGraph:
 
         graph.add_edge(inp.name, a.name)
         graph.add_edge(inp.name, b.name)
-        graph.add_edge(a.name, out1.name)
-        graph.add_edge(a.name, out2.name)
-        graph.add_edge(b.name, out2.name)
+        graph.add_edge(a.name, out1.name, src_port=1)
+        graph.add_edge(a.name, out2.name, src_port=1)
+        graph.add_edge(b.name, out2.name, src_port=1)
 
         graph.replace_all_uses_with(a.name, b.name)
 
@@ -102,6 +102,10 @@ class TestPAIIRGraph:
         assert graph.predecessors(out1.name) == [b.name]
         assert graph.predecessors(out2.name) == [b.name]
         assert len(graph.outgoing_edges(b.name)) == 2
+        assert any(
+            edge.dst == out1.name and edge.src_port == 1
+            for edge in graph.outgoing_edges(b.name)
+        )
 
     def test_remove_node_and_reconnect(self):
         graph = PAIIRGraph("remove_reconnect")
@@ -113,7 +117,7 @@ class TestPAIIRGraph:
         for node in (inp, reshape, out1, out2):
             graph.add_node(node)
 
-        graph.add_edge(inp.name, reshape.name)
+        graph.add_edge(inp.name, reshape.name, src_port=1)
         graph.add_edge(reshape.name, out1.name)
         graph.add_edge(reshape.name, out2.name)
 
@@ -122,6 +126,7 @@ class TestPAIIRGraph:
         assert reshape.name not in graph.nodes
         assert graph.predecessors(out1.name) == [inp.name]
         assert graph.predecessors(out2.name) == [inp.name]
+        assert all(edge.src_port == 1 for edge in graph.outgoing_edges(inp.name))
 
     def test_remove_node_and_reconnect_rejects_non_predecessor_source(self):
         graph = PAIIRGraph("remove_reconnect_source_validation")
@@ -146,7 +151,7 @@ class TestPAIIRGraph:
 
     def test_lint_rejects_edge_with_missing_endpoint(self):
         graph, _, _, out = self._build_simple_graph()
-        graph.edges.append(Edge("missing_node", out.name))
+        graph.edges.append(Edge(src="missing_node", dst=out.name))
 
         with pytest.raises(GraphValidationError, match="missing source node"):
             graph.lint()
@@ -203,8 +208,10 @@ class TestPAIIRGraph:
         graph = PAIIRGraph("summary_labels")
         inp = InputNode(shape=torch.Size((1, 4)))
         comp = StandaloneCompOp(nn.Linear(4, 8))
+        comp.output_shape = torch.Size((1, 8))
         act = StandaloneActOp(IFNodeV25())
-        out = OutputNode()
+        act.output_shape = torch.Size((1, 8))
+        out = OutputNode(shape=torch.Size((1, 8)))
 
         for node in (inp, comp, act, out):
             graph.add_node(node)
@@ -216,7 +223,7 @@ class TestPAIIRGraph:
         graph.summary()
         captured = capsys.readouterr().out
 
-        assert f"{inp.name} (InputNode)" in captured
-        assert f"{comp.name} (Linear)" in captured
-        assert f"{act.name} (IFNodeV25)" in captured
-        assert f"{out.name} (OutputNode)" in captured
+        assert f"{inp.name} (InputNode) (4,)" in captured
+        assert f"{comp.name} (Linear) (8,)" in captured
+        assert f"{act.name} (IFNodeV25) (8,)" in captured
+        assert f"{out.name} (OutputNode) (8,)" in captured

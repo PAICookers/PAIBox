@@ -9,13 +9,14 @@ from spikingjelly.activation_based import neuron as sj
 from torch import Tensor, nn
 
 import paibox.paiir.pipeline.avgpool.fusion as avgpool_fusion
-from paibox.paiir import compile_to_paiir
+from paibox.paiir import compile_to_paiir, torch_to_paiir
 from paibox.paiir.ir.op_node import (
     AccumulateOp,
     ConcatOp,
     OfflineCoreOp,
     ReshapeOp,
     SequentialOp,
+    SplitOp,
     StandaloneCompOp,
 )
 from paibox.paiir.pipeline.avgpool import (
@@ -1218,6 +1219,97 @@ class TestConcatOpSimulation:
                 atol=1.0,  # Allow small quantization error
                 msg=f"Segment {i} mismatch: PAIIR concat order may differ from PyTorch",
             )
+
+
+class TestSplitOpSimulation:
+    def test_unfused_split_branch_tuple_matches_pytorch(self) -> None:
+        class SplitBranchModel(nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.conv_left = nn.Conv2d(2, 4, 1, bias=False)
+                self.conv_right = nn.Conv2d(3, 4, 1, bias=False)
+
+            def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
+                left, right = torch.split(x, [2, 3], dim=1)
+                return self.conv_left(left), self.conv_right(right)
+
+        model = SplitBranchModel().eval()
+        _set_quantized_weights(model)
+
+        x = torch.randint(-8, 8, (1, 5, 4, 4), dtype=torch.int8)
+        graph = torch_to_paiir(model, x.float())
+
+        split_nodes = [
+            node for node in graph.nodes.values() if isinstance(node, SplitOp)
+        ]
+        assert len(split_nodes) == 1
+
+        model.eval()
+        with torch.no_grad():
+            pytorch_out = model(x.float())
+
+        paiir_out = graph.forward(x)
+
+        assert isinstance(paiir_out, tuple)
+        assert len(paiir_out) == 2
+        torch.testing.assert_close(paiir_out[0].to(torch.float32), pytorch_out[0])
+        torch.testing.assert_close(paiir_out[1].to(torch.float32), pytorch_out[1])
+
+    def test_unfused_split_then_concat_matches_pytorch(self) -> None:
+        class SplitConcatModel(nn.Module):
+            def forward(self, x: Tensor) -> Tensor:
+                left, right = torch.split(x, [2, 3], dim=1)
+                return torch.cat([right, left], dim=1)
+
+        model = SplitConcatModel().eval()
+        x = torch.randn(1, 5, 4, 4)
+
+        graph = torch_to_paiir(model, x)
+        split_nodes = [
+            node for node in graph.nodes.values() if isinstance(node, SplitOp)
+        ]
+        concat_nodes = [
+            node for node in graph.nodes.values() if isinstance(node, ConcatOp)
+        ]
+
+        assert len(split_nodes) == 1
+        assert len(concat_nodes) == 1
+
+        with torch.no_grad():
+            pytorch_out = model(x)
+
+        paiir_out = graph.forward(x)
+
+        assert torch.is_tensor(paiir_out)
+        torch.testing.assert_close(paiir_out, pytorch_out)
+
+    def test_direct_split_outputs_match_pytorch_with_single_split_node(self) -> None:
+        class SplitOutputModel(nn.Module):
+            def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
+                left, right = torch.split(x, [2, 3], dim=1)
+                return left, right
+
+        model = SplitOutputModel().eval()
+        x = torch.randn(1, 5, 4, 4)
+
+        graph = torch_to_paiir(model, x)
+        split_nodes = [
+            node for node in graph.nodes.values() if isinstance(node, SplitOp)
+        ]
+        output_nodes = graph.output_nodes()
+
+        assert len(split_nodes) == 1
+        assert len(output_nodes) == 2
+
+        with torch.no_grad():
+            pytorch_out = model(x)
+
+        paiir_out = graph.forward(x)
+
+        assert isinstance(paiir_out, tuple)
+        assert len(paiir_out) == 2
+        torch.testing.assert_close(paiir_out[0], pytorch_out[0])
+        torch.testing.assert_close(paiir_out[1], pytorch_out[1])
 
 
 class TestStandaloneOpSimulation:

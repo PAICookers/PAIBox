@@ -11,7 +11,11 @@ from torch import nn
 import paibox.paiir.pipeline.avgpool.fusion as avgpool_fusion
 import paibox.paiir.pipeline.compile as compile_mod
 from paibox.paiir import CompileConfig, LIFNodeV25, compile_to_paiir, torch_to_paiir
-from paibox.paiir.exceptions import UnsupportedOpError, UnsupportedOpWarning
+from paibox.paiir.exceptions import (
+    GraphValidationError,
+    UnsupportedOpError,
+    UnsupportedOpWarning,
+)
 from paibox.paiir.ir.op_node import (
     AccumulateOp,
     ConcatOp,
@@ -742,6 +746,21 @@ class TestFunctionalConv:
         ]
         assert len(conv_nodes) == 1
         assert conv_nodes[0] in ctx.prebuilt_ir_nodes
+
+
+class TestSplitCompilation:
+    def test_compile_to_paiir_rejects_frontend_only_split_op(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = nn.Conv2d(2, 4, 1, bias=False)
+
+            def forward(self, x):
+                left, _right = torch.split(x, [2, 3], dim=1)
+                return self.conv(left)
+
+        with pytest.raises(GraphValidationError, match="frontend-only IR"):
+            compile_to_paiir(Model().eval(), torch.randn(1, 5, 4, 4))
 
 
 # Parametric test values: kernel_size for AvgPool1d

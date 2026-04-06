@@ -18,7 +18,7 @@ from torch import nn
 from paibox.paiir.ir.add_ops import AddOperandKind, GeneralAddOp, PotentialAddOp
 from paibox.paiir.ir.calc_params import OfflineCoreParams
 from paibox.paiir.ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
-from paibox.paiir.ir.graph import PAIIRGraph
+from paibox.paiir.ir.graph import Edge, PAIIRGraph
 from paibox.paiir.ir.ir_base import InputNode, OutputNode
 from paibox.paiir.ir.lut_activation import LutReLU, LutSigmoid, LutTanh
 from paibox.paiir.ir.op_node import (
@@ -28,6 +28,7 @@ from paibox.paiir.ir.op_node import (
     OfflineCoreOp,
     ReshapeOp,
     SequentialOp,
+    SplitOp,
     StandaloneActOp,
     StandaloneCompOp,
 )
@@ -934,6 +935,94 @@ class TestValidateCompiledGraph:
         ):
             validate_compiled_graph(graph)
 
+    def test_rejects_split_output_shape_mismatch(self):
+        graph = PAIIRGraph("bad_split_spec")
+        inp = InputNode(shape=torch.Size((1, 5)))
+        split = SplitOp(sections=(2, 4), dim=1)
+        out = OutputNode()
+
+        inp.output_domain = SignalDomain.VALUE
+        split.output_domain = SignalDomain.VALUE
+        out.output_domain = SignalDomain.VALUE
+
+        split.input_shapes = [torch.Size((1, 5))]
+        split.input_dims = [(0, 1)]
+        split.output_dims = (0, 1)
+
+        graph.add_node(inp)
+        graph.add_node(split)
+        graph.add_node(out)
+        graph.add_edge(inp.name, split.name)
+        graph.add_edge(split.name, out.name, src_port=1)
+
+        with pytest.raises(GraphValidationError, match="invalid split spec"):
+            validate_compiled_graph(graph)
+
+
+class TestSplitPassBehavior:
+    def _build_split_routing_graph(
+        self,
+    ) -> tuple[PAIIRGraph, InputNode, SplitOp, StandaloneActOp]:
+        graph = PAIIRGraph("split_routing")
+        inp = InputNode(shape=torch.Size((1, 4)))
+        split = SplitOp(sections=2, dim=1)
+        act = StandaloneActOp(IFNodeV25())
+        out = OutputNode(shape=torch.Size((1, 2)))
+
+        split.input_shapes = [torch.Size((1, 4))]
+        split.input_dims = [(0, 1)]
+        split.output_dims = (0, 1)
+
+        act.input_shapes = [torch.Size((1, 2))]
+        act.output_shape = torch.Size((1, 2))
+        act.input_dims = [(0, 1)]
+        act.output_dims = (0, 1)
+
+        graph.add_node(inp)
+        graph.add_node(split)
+        graph.add_node(act)
+        graph.add_node(out)
+        graph.add_edge(inp.name, split.name)
+        graph.add_edge(split.name, act.name, src_port=0)
+        graph.add_edge(act.name, out.name)
+        return graph, inp, split, act
+
+    def test_signal_domain_and_data_format_propagate_through_split(self):
+        graph, inp, split, act = self._build_split_routing_graph()
+
+        propagate_signal_domain(graph)
+        propagate_data_format(
+            graph, input_formats={inp.name: (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)}
+        )
+
+        assert split.output_domain is SignalDomain.VALUE
+        assert act.output_domain is SignalDomain.VALUE
+        assert act.core_params.input_sign == DataSign.UNSIGNED
+        assert act.core_params.input_width == DataWidth.WIDTH_1BIT
+
+    def test_assign_tick_params_treats_split_as_zero_depth(self):
+        graph, _, _, act = self._build_split_routing_graph()
+
+        assign_tick_params(graph)
+
+        assert act.core_params.tick_start == 1
+
+    def test_validate_split_rejects_out_of_range_src_port(self):
+        graph, _, split, _ = self._build_split_routing_graph()
+        graph.edges = [
+            (
+                edge
+                if edge.src != split.name
+                else Edge(
+                    src=edge.src, dst=edge.dst, src_port=2, dst_port=edge.dst_port
+                )
+            )
+            for edge in graph.edges
+        ]
+
+        with pytest.raises(GraphValidationError, match="src_port=2"):
+            validate_graph(graph)
+
 
 class TestValidateDeployableGraph:
     def test_rejects_non_backend_ready_node_type(self):
@@ -953,6 +1042,25 @@ class TestValidateDeployableGraph:
         graph.add_edge(cpu.name, out.name)
 
         with pytest.raises(GraphValidationError, match="CPUOp"):
+            validate_deployable_graph(graph)
+
+    def test_rejects_frontend_only_split_op(self):
+        graph = PAIIRGraph("frontend_split")
+        inp = InputNode(shape=torch.Size((1, 4)))
+        split = SplitOp(sections=2, dim=1)
+        out = OutputNode()
+
+        inp.output_domain = SignalDomain.VALUE
+        split.output_domain = SignalDomain.VALUE
+        out.output_domain = SignalDomain.VALUE
+
+        graph.add_node(inp)
+        graph.add_node(split)
+        graph.add_node(out)
+        graph.add_edge(inp.name, split.name)
+        graph.add_edge(split.name, out.name, src_port=0)
+
+        with pytest.raises(GraphValidationError, match="frontend-only IR"):
             validate_deployable_graph(graph)
 
     def test_rechecks_potential_add_predecessor_domains(self):

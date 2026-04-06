@@ -15,9 +15,11 @@ from ..exceptions import GraphValidationError
 from .add_ops import GeneralAddOp
 from .core_neuron import CoreNeuronV25
 from .ir_base import InputNode, OutputNode, PAIIRNode
-from .op_node import ConcatOp, OfflineCoreOp, OpNode, ReshapeOp
+from .op_node import ConcatOp, OfflineCoreOp, OpNode, ReshapeOp, SplitOp
 
 __all__ = ["Edge", "PAIIRGraph"]
+
+NodeOutput = Tensor | tuple[Tensor, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +29,9 @@ class Edge:
     Attributes:
         src: Source node name.
         dst: Destination node name.
+        src_port: Output port index on the source node. Single-output nodes
+            always use ``0``. Multi-output nodes such as :class:`SplitOp`
+            use this to identify which logical branch flows along the edge.
         dst_port: Input port index on the destination node (for multi-input
             nodes such as :class:`GeneralAddOp`, :class:`AccumulateOp`, or
             :class:`PotentialAddOp`).
@@ -34,6 +39,7 @@ class Edge:
 
     src: str
     dst: str
+    src_port: int = 0
     dst_port: int = 0
 
 
@@ -87,7 +93,7 @@ class PAIIRGraph:
             succ_edges.setdefault(edge.src, []).append(edge)
 
         for incoming in pred_edges.values():
-            incoming.sort(key=lambda edge: edge.dst_port)
+            incoming.sort(key=lambda edge: (edge.dst_port, edge.src_port, edge.src))
 
         return _GraphIndex(
             {name: tuple(pred_edges.get(name, ())) for name in self.nodes},
@@ -175,7 +181,7 @@ class PAIIRGraph:
             seen_names.add(node.name)
 
         seen_edges: set[Edge] = set()
-        incoming_src_by_port: dict[tuple[str, int], str] = {}
+        incoming_src_by_port: dict[tuple[str, int], Edge] = {}
         edge_endpoint_errors = False
 
         for edge in self.edges:
@@ -196,22 +202,29 @@ class PAIIRGraph:
                     f"edge {edge.src!r} -> {edge.dst!r} has negative dst_port={edge.dst_port}"
                 )
 
+            if edge.src_port < 0:
+                errors.append(
+                    f"edge {edge.src!r} -> {edge.dst!r} has negative src_port={edge.src_port}"
+                )
+
             if edge in seen_edges:
                 errors.append(
                     f"duplicate edge {edge.src!r} -> {edge.dst!r} "
-                    f"(dst_port={edge.dst_port})"
+                    f"(dst_port={edge.dst_port}, src_port={edge.src_port})"
                 )
             else:
                 seen_edges.add(edge)
 
             port_key = (edge.dst, edge.dst_port)
-            existing_src = incoming_src_by_port.get(port_key)
-            if existing_src is None:
-                incoming_src_by_port[port_key] = edge.src
-            elif existing_src != edge.src:
+            existing_edge = incoming_src_by_port.get(port_key)
+            if existing_edge is None:
+                incoming_src_by_port[port_key] = edge
+            elif existing_edge != edge:
                 errors.append(
                     f"node '{edge.dst}' has multiple incoming edges on "
-                    f"dst_port {edge.dst_port}: '{existing_src}' and '{edge.src}'"
+                    f"dst_port {edge.dst_port}: "
+                    f"('{existing_edge.src}', src_port={existing_edge.src_port}) and "
+                    f"('{edge.src}', src_port={edge.src_port})"
                 )
 
         if not edge_endpoint_errors:
@@ -277,9 +290,10 @@ class PAIIRGraph:
         self.nodes[new_name] = new_node
         self.edges = [
             Edge(
-                new_name if edge.src == old_name else edge.src,
-                new_name if edge.dst == old_name else edge.dst,
-                edge.dst_port,
+                src=new_name if edge.src == old_name else edge.src,
+                dst=new_name if edge.dst == old_name else edge.dst,
+                src_port=edge.src_port,
+                dst_port=edge.dst_port,
             )
             for edge in self.edges
         ]
@@ -307,19 +321,22 @@ class PAIIRGraph:
         self.edges = [e for e in self.edges if e.src != name and e.dst != name]
         self._invalidate_structure()
 
-    def add_edge(self, src: str, dst: str, dst_port: int = 0) -> None:
+    def add_edge(
+        self, src: str, dst: str, *, src_port: int = 0, dst_port: int = 0
+    ) -> None:
         """Add a directed edge.
 
         Args:
             src: Source node name.
             dst: Destination node name.
+            src_port: Output port index on the source node.
             dst_port: Input port index on the destination node.
         """
         if src not in self.nodes:
             raise KeyError(f"source node '{src}' not found in graph")
         if dst not in self.nodes:
             raise KeyError(f"destination node '{dst}' not found in graph")
-        self.edges.append(Edge(src, dst, dst_port))
+        self.edges.append(Edge(src, dst, src_port, dst_port))
         self._invalidate_structure()
 
     def replace_all_uses_with(
@@ -342,7 +359,7 @@ class PAIIRGraph:
         seen: set[Edge] = set()
         for edge in self.edges:
             updated = (
-                Edge(new_name, edge.dst, edge.dst_port)
+                Edge(new_name, edge.dst, edge.src_port, edge.dst_port)
                 if edge.src == old_name
                 else edge
             )
@@ -382,14 +399,23 @@ class PAIIRGraph:
                 f"source node '{source_name}' is not a predecessor of '{name}'"
             )
 
+        incoming = self.incoming_edges(name)
         outgoing = self.outgoing_edges(name)
         self.remove_node(name)
 
+        source_src_port = 0
+        for edge in incoming:
+            if edge.src == source_name:
+                source_src_port = edge.src_port
+                break
+
         for edge in outgoing:
-            candidate = Edge(source_name, edge.dst, edge.dst_port)
+            candidate = Edge(source_name, edge.dst, source_src_port, edge.dst_port)
             if candidate in self.edges:
                 continue
-            self.add_edge(source_name, edge.dst, edge.dst_port)
+            self.add_edge(
+                source_name, edge.dst, src_port=source_src_port, dst_port=edge.dst_port
+            )
 
     def input_nodes(self) -> list[InputNode]:
         """Return all input nodes."""
@@ -458,6 +484,23 @@ class PAIIRGraph:
 
         return type(node).__name__
 
+    @staticmethod
+    def _summary_shape_without_batch(shape: torch.Size) -> tuple[int, ...]:
+        if not shape:
+            return ()
+        if len(shape) >= 5 and shape[1] == 1:
+            return (shape[0], *shape[2:])
+        if shape[0] == 1:
+            return tuple(shape[1:])
+        return tuple(shape)
+
+    def _summary_node_shape(self, node: PAIIRNode) -> torch.Size:
+        if isinstance(node, (InputNode, OutputNode)):
+            return node.shape
+        if isinstance(node, OpNode):
+            return node.output_shape
+        return torch.Size()
+
     def summary(self) -> None:
         """Generate a text summary of the graph."""
         lines = [
@@ -468,10 +511,15 @@ class PAIIRGraph:
             f"  Outputs: {[n.name for n in self.output_nodes()]}",
             "",
         ]
-        for name, node in self.nodes.items():
+        for name in self.topo_sort():
+            node = self.nodes[name]
             preds = self.predecessors(name)
             succs = self.successors(name)
-            lines.append(f"  {name} ({self._summary_node_label(node)})")
+            line = f"  {name} ({self._summary_node_label(node)})"
+            shape = self._summary_node_shape(node)
+            if shape:
+                line += f" {self._summary_shape_without_batch(shape)}"
+            lines.append(line)
             if preds:
                 lines.append(f"    <- {preds}")
             if succs:
@@ -590,7 +638,35 @@ class PAIIRGraph:
             return torch.zeros(shape)
         return torch.zeros(())
 
-    def step(self, *inputs: Tensor) -> Tensor | tuple[Tensor, ...]:
+    def _resolve_edge_tensor(
+        self, edge: Edge, node_outputs: dict[str, NodeOutput]
+    ) -> Tensor:
+        value = node_outputs[edge.src]
+        if torch.is_tensor(value):
+            if edge.src_port != 0:
+                raise RuntimeError(
+                    f"edge '{edge.src}' -> '{edge.dst}' requests src_port={edge.src_port} "
+                    "from a single-output node"
+                )
+            return value
+
+        src_node = self.nodes[edge.src]
+        if not isinstance(src_node, SplitOp):
+            raise RuntimeError(
+                f"node '{edge.src}' produced multiple outputs, but only SplitOp is supported as a graph-internal multi-output node"
+            )
+
+        # SplitOp is the only internal tuple-output special case. `src_port`
+        # tells us which split branch this edge carries to the destination.
+        if edge.src_port < 0 or edge.src_port >= len(value):
+            raise RuntimeError(
+                f"SplitOp '{edge.src}' src_port={edge.src_port} is invalid for successor "
+                f"'{edge.dst}' dst_port={edge.dst_port}"
+            )
+
+        return value[edge.src_port]
+
+    def step(self, *inputs: Tensor) -> NodeOutput:
         """Execute one time step (one sync_all cycle) through the graph.
 
         Advances the internal simulation step counter by 1. Each
@@ -627,7 +703,7 @@ class PAIIRGraph:
             self._active_counts = {name: 0 for name in self.nodes}
 
         self._sim_step += 1
-        node_outputs: dict[str, Tensor] = {}
+        node_outputs: dict[str, NodeOutput] = {}
 
         # --- Phase 1: bind external inputs to InputNodes ---
         input_nodes = self.input_nodes()
@@ -646,19 +722,20 @@ class PAIIRGraph:
                 continue
 
             if isinstance(node, OutputNode):
-                # Pass-through: each OutputNode has exactly one predecessor
-                preds = self.predecessors(name)
-                node_outputs[name] = node_outputs[preds[0]]
+                incoming = self.incoming_edges(name)
+                node_outputs[name] = self._resolve_edge_tensor(
+                    incoming[0], node_outputs
+                )
                 continue
 
             # Collect predecessor tensors ordered by dst_port.
             # predecessors() returns names sorted by dst_port, so xs[i]
             # corresponds to input port i of multi-input nodes (GeneralAddOp,
             # AccumulateOp, PotentialAddOp, ConcatOp).
-            pred_names = self.predecessors(name)
-            xs = [node_outputs[p] for p in pred_names]
+            incoming = self.incoming_edges(name)
+            xs = [self._resolve_edge_tensor(edge, node_outputs) for edge in incoming]
 
-            if isinstance(node, (ConcatOp, ReshapeOp, GeneralAddOp)):
+            if isinstance(node, (ConcatOp, ReshapeOp, SplitOp, GeneralAddOp)):
                 # Routing/shape transformation operation.
                 # Or frontend/general expression operation.
                 # Executes tensor transformation / expression evaluation for simulation.
@@ -687,16 +764,22 @@ class PAIIRGraph:
             # completed-step count rather than a look-ahead value.
             self._active_counts[name] = self._active_counts.get(name, 0) + 1
 
-        results = [node_outputs[n.name] for n in self.output_nodes()]
+        results: list[Tensor] = []
+        for out_node in self.output_nodes():
+            value = node_outputs[out_node.name]
+            if not torch.is_tensor(value):
+                raise RuntimeError(
+                    f"OutputNode '{out_node.name}' resolved to non-tensor output"
+                )
+            results.append(value)
+
         return results[0] if len(results) == 1 else tuple(results)
 
-    def forward(self, *inputs: Tensor) -> Tensor | tuple[Tensor, ...]:
+    def forward(self, *inputs: Tensor) -> NodeOutput:
         """Alias for :meth:`step`."""
         return self.step(*inputs)
 
-    def run(
-        self, *inputs: Tensor, T: int, reset: bool = True
-    ) -> Tensor | tuple[Tensor, ...]:
+    def run(self, *inputs: Tensor, T: int, reset: bool = True) -> NodeOutput:
         """Run the graph for *T* time steps and return stacked outputs.
 
         Args:
@@ -713,12 +796,12 @@ class PAIIRGraph:
         if reset:
             self.reset()
 
-        output_steps: list[Tensor | tuple[Tensor, ...]] = []
+        output_steps: list[NodeOutput] = []
         for t in range(T):
             xs = tuple(x[t] for x in inputs)
             output_steps.append(self.step(*xs))
 
-        if isinstance(output_steps[0], Tensor):
+        if torch.is_tensor(output_steps[0]):
             return torch.stack(output_steps, dim=0)  # type: ignore[arg-type]
 
         return tuple(

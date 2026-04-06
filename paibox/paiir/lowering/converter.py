@@ -27,6 +27,7 @@ Example::
 
 import math
 import operator
+import sys
 import warnings
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -50,12 +51,33 @@ from .conv_lowering import (
     extract_functional_conv_spec,
     extract_module_conv_spec,
 )
-from .dims_prop import DimsProp, DimsType
+from .dims_prop import DimsProp
+from .fx_utils import (
+    get_call_arg,
+    get_fx_call_target_name,
+    get_input_dims,
+    get_input_shapes,
+    get_output_dims,
+    get_output_shape,
+)
 from .shape_analysis import (
     ReshapeSinkInfo,
     ShapeAnalysisResult,
     analyze_shape_helpers,
 )
+from .split_lowering import (
+    SplitProducerInfo,
+    apply_split_analysis_rule,
+    build_split_ir_node,
+    describe_unsupported_split_like,
+    is_split_like_node,
+)
+
+if sys.version_info >= (3, 13):
+    from warnings import deprecated
+else:
+    from typing_extensions import deprecated
+
 
 __all__ = ["torch_to_paiir", "register_neuron"]
 
@@ -112,13 +134,29 @@ def _unsupported_avgpool_description(mod: nn.Module) -> str | None:
 
 def _map_sj_ifnode(mod: nn.Module, **kwargs) -> OpNode:
     assert isinstance(mod, neuron.IFNode)
-    return StandaloneActOp(act=IFNodeV25(mod.v_threshold, mod.v_reset, **kwargs))
+    return StandaloneActOp(
+        act=IFNodeV25(
+            mod.v_threshold,
+            mod.v_reset,
+            mod.surrogate_function,
+            mod.detach_reset,
+            **kwargs,
+        )
+    )
 
 
 def _map_sj_lifnode(mod: nn.Module, **kwargs) -> OpNode:
     assert isinstance(mod, neuron.LIFNode)
     return StandaloneActOp(
-        act=LIFNodeV25(mod.tau, mod.decay_input, mod.v_threshold, mod.v_reset, **kwargs)
+        act=LIFNodeV25(
+            mod.tau,
+            mod.decay_input,
+            mod.v_threshold,
+            mod.v_reset,
+            mod.surrogate_function,
+            mod.detach_reset,
+            **kwargs,
+        )
     )
 
 
@@ -155,7 +193,60 @@ _DEFAULT_MODULE_MAP: ModuleMapper = {
 }
 
 
-def _propagate_shapes(gm: fx.GraphModule, *inputs: Tensor) -> None:
+try:
+    from spikingjelly.clock_driven import neuron as legacy_neuron
+except ImportError:  # pragma: no cover - depends on installed SJ version
+    legacy_neuron = None
+
+if legacy_neuron is not None:
+    legacy_if = legacy_neuron.IFNode
+    legacy_lif = legacy_neuron.LIFNode
+
+    @deprecated(
+        (
+            "SpikingJelly's legacy `spikingjelly.clock_driven.neuron.IFNode` usage "
+            "is deprecated; please migrate to "
+            "`spikingjelly.activation_based.neuron.IFNode`."
+        )
+    )
+    def _map_legacy_ifnode(mod: nn.Module, **kwargs) -> OpNode:
+        assert isinstance(mod, legacy_if)
+        return StandaloneActOp(
+            act=IFNodeV25(
+                mod.v_threshold,
+                mod.v_reset,
+                mod.surrogate_function,
+                mod.detach_reset,
+                **kwargs,
+            )
+        )
+
+    @deprecated(
+        (
+            "SpikingJelly's legacy `spikingjelly.clock_driven.neuron.LIFNode` usage "
+            "is deprecated; please migrate to "
+            "`spikingjelly.activation_based.neuron.LIFNode`."
+        )
+    )
+    def _map_legacy_lifnode(mod: nn.Module, **kwargs) -> OpNode:
+        assert isinstance(mod, legacy_lif)
+        return StandaloneActOp(
+            act=LIFNodeV25(
+                mod.tau,
+                mod.decay_input,
+                mod.v_threshold,
+                mod.v_reset,
+                mod.surrogate_function,
+                mod.detach_reset,
+                **kwargs,
+            )
+        )
+
+    _DEFAULT_MODULE_MAP[legacy_if] = _map_legacy_ifnode
+    _DEFAULT_MODULE_MAP[legacy_lif] = _map_legacy_lifnode
+
+
+def propagate_shapes(gm: fx.GraphModule, *inputs: Tensor) -> None:
     """Populate FX ``tensor_meta`` using the real traced module.
 
     We intentionally keep this on plain ``ShapeProp`` rather than adding a
@@ -169,7 +260,7 @@ def _propagate_shapes(gm: fx.GraphModule, *inputs: Tensor) -> None:
     ShapeProp(gm).propagate(*inputs)
 
 
-def _propagate_dims(gm: fx.GraphModule) -> None:
+def propagate_dims(gm: fx.GraphModule) -> None:
     """Propagate axis ordering through an FX graph.
 
     After propagation, ``node.meta["dims"]`` contains the output axis
@@ -180,6 +271,10 @@ def _propagate_dims(gm: fx.GraphModule) -> None:
     for determining the number of dimensions).
     """
     DimsProp().propagate(gm)
+
+
+_propagate_shapes = propagate_shapes
+_propagate_dims = propagate_dims
 
 
 def _is_dtype_getattr(node: fx.Node) -> bool:
@@ -246,12 +341,6 @@ def _resolve_attr_value(gm: fx.GraphModule, target: str) -> Any:
     for atom in target.split("."):
         value = getattr(value, atom)
     return value
-
-
-def _get_call_arg(node: fx.Node, index: int, name: str, default: Any = None) -> Any:
-    if len(node.args) > index:
-        return node.args[index]
-    return node.kwargs.get(name, default)
 
 
 def _infer_normalize_arg_type(value: Any) -> Any:
@@ -359,8 +448,8 @@ def _build_general_add_node(
     gm: fx.GraphModule, node: fx.Node, *, subtract: bool
 ) -> tuple[GeneralAddOp, tuple[fx.Node, ...]] | None:
     if node.op == "call_method":
-        lhs_raw = _get_call_arg(node, 0, "input")
-        rhs_raw = _get_call_arg(node, 1, "other")
+        lhs_raw = get_call_arg(node, 0, "input")
+        rhs_raw = get_call_arg(node, 1, "other")
         alpha_raw = node.kwargs.get("alpha", 1)
     else:
         normalized_kwargs = _get_normalized_call_kwargs(node, gm)
@@ -372,9 +461,9 @@ def _build_general_add_node(
             rhs_raw = normalized_kwargs.get("other")
             alpha_raw = normalized_kwargs.get("alpha", 1)
         else:
-            lhs_raw = _get_call_arg(node, 0, "input")
-            rhs_raw = _get_call_arg(node, 1, "other")
-            alpha_raw = _get_call_arg(node, 2, "alpha", 1)
+            lhs_raw = get_call_arg(node, 0, "input")
+            rhs_raw = get_call_arg(node, 1, "other")
+            alpha_raw = get_call_arg(node, 2, "alpha", 1)
 
     alpha = _resolve_add_coefficient(gm, alpha_raw)
     if alpha is None:
@@ -453,41 +542,6 @@ def _lower_general_add_ir(
     _register_ir_node(
         paiir_graph, ctx, node, ir_node, input_nodes_override=input_override
     )
-
-
-def _get_output_shape(node: fx.Node) -> torch.Size:
-    """Extract output shape from an FX node's meta."""
-    meta = node.meta.get("tensor_meta")
-    if meta is None:
-        return torch.Size()
-    if hasattr(meta, "shape"):
-        return torch.Size(meta.shape)
-    return torch.Size()
-
-
-def _get_input_shapes(
-    node: fx.Node, input_nodes: tuple[fx.Node, ...] | None = None
-) -> list[torch.Size]:
-    """Extract input shapes from an FX node's predecessor meta."""
-    source_nodes = (
-        input_nodes if input_nodes is not None else tuple(node.all_input_nodes)
-    )
-    return [_get_output_shape(inp) for inp in source_nodes]
-
-
-def _get_output_dims(node: fx.Node) -> DimsType:
-    """Get output dims from an FX node's meta."""
-    return node.meta.get(DimsProp.KEY, ())
-
-
-def _get_input_dims(
-    node: fx.Node, input_nodes: tuple[fx.Node, ...] | None = None
-) -> list[DimsType]:
-    """Get input dims from an FX node's predecessor meta."""
-    source_nodes = (
-        input_nodes if input_nodes is not None else tuple(node.all_input_nodes)
-    )
-    return [_get_output_dims(inp) for inp in source_nodes]
 
 
 def _build_flatten_ir_node(
@@ -626,8 +680,8 @@ def torch_to_paiir(
                     f"sample_inputs[{i}] has batch size {inp.shape[0]}, expected 1. "
                     f"Chip deployment processes one sample at a time."
                 )
-        _propagate_shapes(gm, *sample_inputs)
-        _propagate_dims(gm)
+        propagate_shapes(gm, *sample_inputs)
+        propagate_dims(gm)
 
     return _fx_graph_to_paiir(gm, full_map, strict)
 
@@ -644,10 +698,10 @@ def _fill_shape_dims(
     input_nodes_override: tuple[fx.Node, ...] | None = None,
 ) -> None:
     """Copy shape and axis-ordering info from FX node meta into a PAIIR node."""
-    ir_node.input_shapes = _get_input_shapes(fx_node, input_nodes_override)
-    ir_node.output_shape = _get_output_shape(fx_node)
-    ir_node.input_dims = _get_input_dims(fx_node, input_nodes_override)
-    ir_node.output_dims = _get_output_dims(fx_node)
+    ir_node.input_shapes = get_input_shapes(fx_node, input_nodes_override)
+    ir_node.output_shape = get_output_shape(fx_node)
+    ir_node.input_dims = get_input_dims(fx_node, input_nodes_override)
+    ir_node.output_dims = get_output_dims(fx_node)
 
 
 @dataclass
@@ -661,6 +715,10 @@ class _LoweringContext:
     ignored_nodes: set[fx.Node] = field(default_factory=set)
     unsupported_ops: list[tuple[str, str]] = field(default_factory=list)
     prebuilt_ir_nodes: dict[fx.Node, OpNode] = field(default_factory=dict)
+    split_producers: dict[fx.Node, SplitProducerInfo] = field(default_factory=dict)
+    split_consumers: dict[fx.Node, tuple[SplitProducerInfo, int]] = field(
+        default_factory=dict
+    )
     input_nodes_overrides: dict[fx.Node, tuple[fx.Node, ...]] = field(
         default_factory=dict
     )
@@ -748,13 +806,14 @@ def _apply_functional_conv_rule(gm: fx.GraphModule, ctx: _LoweringContext) -> No
 def _analyze_graph(gm: fx.GraphModule, ctx: _LoweringContext) -> None:
     """Run non-mutating lowering analysis rules."""
     _apply_shape_aux_rule(gm, ctx)
+    apply_split_analysis_rule(gm, ctx.split_producers, ctx.split_consumers)
     _apply_functional_conv_rule(gm, ctx)
 
 
 def _create_placeholder_node(
     paiir_graph: PAIIRGraph, ctx: _LoweringContext, node: fx.Node
 ) -> None:
-    ir_node = InputNode(shape=_get_output_shape(node))
+    ir_node = InputNode(shape=get_output_shape(node))
     paiir_graph.add_node(ir_node)
     ctx.fx_to_ir[node.name] = ir_node.name
 
@@ -763,7 +822,7 @@ def _create_output_nodes(
     paiir_graph: PAIIRGraph, ctx: _LoweringContext, node: fx.Node
 ) -> None:
     for i, arg in enumerate(_iter_output_args(node)):
-        out_shape = _get_output_shape(arg) if isinstance(arg, fx.Node) else torch.Size()
+        out_shape = get_output_shape(arg) if isinstance(arg, fx.Node) else torch.Size()
         ir_node = OutputNode(shape=out_shape)
         paiir_graph.add_node(ir_node)
         ctx.fx_to_ir[f"{node.name}_{i}"] = ir_node.name
@@ -866,6 +925,27 @@ def _apply_builtin_function_lowering_rule(
         )
         return True
 
+    if is_split_like_node(node):
+        if node in ctx.split_producers:
+            split_info = ctx.split_producers[node]
+            ir_node, input_override = build_split_ir_node(split_info)
+            _register_ir_node(
+                paiir_graph,
+                ctx,
+                node,
+                ir_node,
+                fill_meta=False,
+                input_nodes_override=input_override,
+            )
+        else:
+            _mark_unsupported(ctx, node, describe_unsupported_split_like(node), strict)
+        return True
+
+    split_consumer = ctx.split_consumers.get(node)
+    if split_consumer is not None:
+        ctx.bypass_nodes.add(node)
+        return True
+
     if node.target in ADD_OPS or node.target in SUB_OPS:
         if node.target in ADD_OPS:
             subtract = False
@@ -895,7 +975,7 @@ def _apply_builtin_function_lowering_rule(
     if sink_info is not None:
         built = _build_reshape_like_ir_node(sink_info)
         if built is None:
-            func_name = getattr(node.target, "__name__", str(node.target))
+            func_name = get_fx_call_target_name(node)
             _mark_unsupported(
                 ctx,
                 node,
@@ -924,7 +1004,7 @@ def _apply_builtin_function_lowering_rule(
         ctx.ignored_nodes.add(node)
         return True
 
-    func_name = getattr(node.target, "__name__", str(node.target))
+    func_name = get_fx_call_target_name(node)
     _mark_unsupported(ctx, node, f"function '{func_name}'", strict)
     return True
 
@@ -941,6 +1021,22 @@ def _apply_builtin_method_lowering_rule(
 
     if node in ctx.aux_bypass_nodes:
         ctx.bypass_nodes.add(node)
+        return True
+
+    if is_split_like_node(node):
+        if node in ctx.split_producers:
+            split_info = ctx.split_producers[node]
+            ir_node, input_override = build_split_ir_node(split_info)
+            _register_ir_node(
+                paiir_graph,
+                ctx,
+                node,
+                ir_node,
+                fill_meta=False,
+                input_nodes_override=input_override,
+            )
+        else:
+            _mark_unsupported(ctx, node, describe_unsupported_split_like(node), strict)
         return True
 
     if node.target == "add" or node.target == "sub":
@@ -1024,13 +1120,26 @@ def _emit_unsupported_warnings(ctx: _LoweringContext, strict: bool) -> None:
         warnings.warn(UnsupportedOpWarning(ctx.unsupported_ops), stacklevel=2)
 
 
+@dataclass(frozen=True, slots=True)
+class _ResolvedEndpoint:
+    """One resolved source endpoint for a graph edge being wired.
+
+    `name` identifies the source IR node. `src_port` identifies which logical
+    output of that source should feed the destination edge. Ordinary single-
+    output nodes always resolve with ``src_port=0``.
+    """
+
+    name: str
+    src_port: int = 0
+
+
 class _SourceResolver:
-    """Resolve FX predecessors into real PAIIR source nodes."""
+    """Resolve FX predecessors into source endpoints for graph wiring."""
 
     def __init__(self, ctx: _LoweringContext) -> None:
         self.ctx = ctx
 
-    def resolve(self, node: fx.Node) -> set[str]:
+    def resolve(self, node: fx.Node) -> set[_ResolvedEndpoint]:
         if node in self.ctx.ignored_nodes:
             return set()
 
@@ -1040,14 +1149,26 @@ class _SourceResolver:
             # functional conv picks up bogus duplicate predecessors.
             return set()
 
+        split_consumer = self.ctx.split_consumers.get(node)
+        if split_consumer is not None:
+            producer = node.args[0]
+            if isinstance(producer, fx.Node) and producer.name in self.ctx.fx_to_ir:
+                _, output_index = split_consumer
+                # Split getitem nodes are bypass-only selectors. They resolve to
+                # the single SplitOp producer plus the chosen source branch.
+                return {
+                    _ResolvedEndpoint(self.ctx.fx_to_ir[producer.name], output_index)
+                }
+            return set()
+
         if node in self.ctx.bypass_nodes:
-            sources: set[str] = set()
+            sources: set[_ResolvedEndpoint] = set()
             for inp in node.all_input_nodes:
                 sources |= self.resolve(inp)
             return sources
 
         if node.name in self.ctx.fx_to_ir:
-            return {self.ctx.fx_to_ir[node.name]}
+            return {_ResolvedEndpoint(self.ctx.fx_to_ir[node.name])}
 
         return set()
 
@@ -1066,7 +1187,9 @@ def _wire_graph(
                 dst_name = ctx.fx_to_ir[f"{node.name}_{i}"]
                 if isinstance(arg, fx.Node):
                     for src in resolver.resolve(arg):
-                        paiir_graph.add_edge(src, dst_name)
+                        # Direct split outputs keep one SplitOp node in the
+                        # graph; `src_port` carries the selected branch.
+                        paiir_graph.add_edge(src.name, dst_name, src_port=src.src_port)
             continue
 
         if node.name not in ctx.fx_to_ir:
@@ -1076,7 +1199,11 @@ def _wire_graph(
         source_nodes = ctx.input_nodes_overrides.get(node, tuple(node.all_input_nodes))
         for port_idx, inp_node in enumerate(source_nodes):
             for src in resolver.resolve(inp_node):
-                paiir_graph.add_edge(src, dst_name, dst_port=port_idx)
+                # `src_port` preserves split branch identity while `dst_port`
+                # continues to mean destination input slot.
+                paiir_graph.add_edge(
+                    src.name, dst_name, dst_port=port_idx, src_port=src.src_port
+                )
 
 
 def _fx_graph_to_paiir(
