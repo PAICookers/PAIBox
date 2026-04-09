@@ -5037,3 +5037,81 @@
   - current OR-Tools placement is a distance-minimizing placement heuristic over routing-group centers, plus non-overlap
   - the requested simultaneous pair set constraints (`rg1-rg2`, `rg3-rg4`, `rg1-rg3`, `rg2-rg4` all routeable together) are not hard-expressible in the current model as implemented
   - they would require new constraints and likely a richer routing-resource model or a post-placement feasibility checker coupled back into placement
+
+# TensorLayout Refactor On Latest Dev
+
+## Workspace Decision
+
+- [x] Use a dedicated worktree because this is a broad interface refactor touching IR, lowering, passes, tests, and docs.
+- [x] Work from `/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox-kafcoppelia-tensor-layout-refactor` on branch `codex/kafcoppelia/tensor-layout-refactor`, created from latest `origin/dev`.
+
+## Ownership
+
+- [x] Owner: Codex
+- [x] Branch: `codex/kafcoppelia/tensor-layout-refactor`
+- [x] Worktree: `/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox-kafcoppelia-tensor-layout-refactor`
+- [x] Allowed Files: `paibox/paiir/ir/**`, `paibox/paiir/lowering/**`, `paibox/paiir/pipeline/**`, `tests/paiir/**`, `docs/paiir_backend_guide.md`, `docs/paiir_compile_pass_design.md`, `docs/paiir_architecture_slides.md`, `tasks/todo.md`
+- [x] Blocked Files: `paibox/backendv2/**`, `tests/backendv2/**`, unrelated docs/tests outside the listed scope
+- [x] Dependencies: latest `origin/dev`, existing `Edge.src_port/dst_port` semantics, current FX lowering metadata flow, current graph simulation flow
+- [x] Verification: targeted `tests/paiir/ir/**` and `tests/paiir/pipeline/**`, plus focused compile-time smoke where needed
+
+## Plan
+
+- [x] Introduce `TensorLayout` and replace stored OpNode shape/dims fields with `input_layouts/output_layouts`.
+- [x] Update graph helpers and simulation to consume layouts while preserving `src_port/dst_port`.
+- [x] Update lowering and split lowering to populate layouts.
+- [x] Rewrite affected passes and layout passes to use layouts.
+- [x] Update `tests/paiir/**` to construct and assert layouts.
+- [x] Update the three PAIIR docs to document `TensorLayout` and backendv2 follow-up requirements.
+- [x] Run targeted verification and record the result.
+
+## Review
+
+- Added `TensorLayout` as an immutable `shape + dims` carrier in `paibox/paiir/ir/op_node.py`, exported via `paibox.paiir.ir`.
+- Replaced stored `OpNode` metadata fields with:
+  - `input_layouts: tuple[TensorLayout, ...]`
+  - `output_layouts: tuple[TensorLayout, ...]`
+  - `num_inputs` / `num_outputs`
+- Preserved `Edge.src_port` and `Edge.dst_port`; they remain the source-output index and destination-input slot respectively.
+- Updated routing/runtime behavior:
+  - `ReshapeOp.forward()` now reads `input_layouts[0].dims`
+  - graph helpers can read concrete edge layouts through `graph.get_edge_output_layout(...)`
+  - split branch selection still uses `src_port`
+- Updated lowering and passes:
+  - FX metadata copy now fills layouts rather than four separate shape/dims fields
+  - split lowering materializes one input layout plus per-branch output layouts
+  - fusion / layout passes / validation now consume `TensorLayout`
+- Updated targeted tests in `tests/paiir/ir/**` and `tests/paiir/pipeline/**` to construct and assert layouts directly.
+- Updated docs:
+  - refreshed `docs/paiir_backend_guide.md`
+  - added `docs/paiir_compile_pass_design.md`
+  - added `docs/paiir_architecture_slides.md`
+- Verification:
+  - `/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/.venv/bin/python -m py_compile paibox/paiir/ir/op_node.py paibox/paiir/ir/add_ops.py paibox/paiir/ir/graph.py paibox/paiir/lowering/fx_utils.py paibox/paiir/lowering/converter.py paibox/paiir/lowering/split_lowering.py paibox/paiir/pipeline/fusion_utils.py paibox/paiir/pipeline/layout_chain_canonicalization.py paibox/paiir/pipeline/layout_cross_node_elision.py paibox/paiir/pipeline/avgpool/fusion.py paibox/paiir/pipeline/passes.py`
+  - `/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/.venv/bin/pytest tests/paiir/ir tests/paiir/pipeline -q`
+  - result: `528 passed, 2 skipped`
+
+## Follow-up
+
+- [x] Improve `graph.summary()` so multi-output nodes print per-output layouts and edge port semantics clearly.
+- [x] Make `InputNode` / `OutputNode` carry explicit `TensorLayout` instead of only `shape`.
+- [x] Generalize graph runtime tuple-output handling from `SplitOp`-only to a node-output-count-based protocol.
+- [x] Add a compile/smoke example for `Split -> Concat -> Reshape` and write a stable summary log artifact for manual inspection.
+
+### Follow-up Review
+
+- `PAIIRGraph.format_summary()` now returns a stable summary string and `summary()` prints it.
+- This was later simplified per review: only `summary(verbose=...)` remains as the public summary API.
+- The summary now prints:
+  - explicit boundary layouts for `InputNode` / `OutputNode`
+  - per-input and per-output layouts for `OpNode`
+  - full edge port annotations (`src_port` / `dst_port`)
+- `InputNode` and `OutputNode` now store an explicit `layout: TensorLayout`; `shape`/`dims` are projections from that boundary layout.
+- `_resolve_edge_tensor()` no longer hard-codes `SplitOp` as the only tuple-output runtime node; it now accepts any `OpNode` whose metadata declares `num_outputs > 1`.
+- Added tests covering:
+  - explicit boundary layout lookup
+  - multi-output summary formatting
+  - generic multi-output routing runtime
+  - `torch_to_paiir` smoke for `Split -> Concat -> Reshape` summary rendering
+- Generated example summary log for direct inspection:
+  - `debug/paiir_split_concat_reshape.summary.log`
