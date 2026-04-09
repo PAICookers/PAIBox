@@ -5043,12 +5043,12 @@
 ## Workspace Decision
 
 - [x] Use a dedicated worktree because this is a broad interface refactor touching IR, lowering, passes, tests, and docs.
-- [x] Work from `/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox-kafcoppelia-tensor-layout-refactor` on branch `codex/kafcoppelia/tensor-layout-refactor`, created from latest `origin/dev`.
+- [x] Work from `/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox-kafcoppelia-tensor-layout-refactor` on branch `feat-paiir-tensor-layout-refactor`, created from latest `origin/dev`.
 
 ## Ownership
 
 - [x] Owner: Codex
-- [x] Branch: `codex/kafcoppelia/tensor-layout-refactor`
+- [x] Branch: `feat-paiir-tensor-layout-refactor`
 - [x] Worktree: `/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox-kafcoppelia-tensor-layout-refactor`
 - [x] Allowed Files: `paibox/paiir/ir/**`, `paibox/paiir/lowering/**`, `paibox/paiir/pipeline/**`, `tests/paiir/**`, `docs/paiir_backend_guide.md`, `docs/paiir_compile_pass_design.md`, `docs/paiir_architecture_slides.md`, `tasks/todo.md`
 - [x] Blocked Files: `paibox/backendv2/**`, `tests/backendv2/**`, unrelated docs/tests outside the listed scope
