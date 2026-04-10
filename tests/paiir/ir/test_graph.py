@@ -7,7 +7,14 @@ from paibox.paiir.ir.add_ops import PotentialAddOp
 from paibox.paiir.ir.core_neuron import IFNodeV25
 from paibox.paiir.ir.graph import Edge, PAIIRGraph
 from paibox.paiir.ir.ir_base import InputNode, OutputNode
-from paibox.paiir.ir.op_node import SequentialOp, StandaloneActOp, StandaloneCompOp
+from paibox.paiir.ir.op_node import (
+    RoutingOp,
+    SequentialOp,
+    SplitOp,
+    StandaloneActOp,
+    StandaloneCompOp,
+    TensorLayout,
+)
 
 
 class TestPAIIRGraph:
@@ -168,7 +175,7 @@ class TestPAIIRGraph:
 
     def test_verify_before_sim_reports_structural_lint_errors(self):
         graph, _, seq, _ = self._build_simple_graph()
-        seq.output_shape = torch.Size((1, 8, 8, 8))
+        seq.output_layouts = (TensorLayout(torch.Size((1, 8, 8, 8)), (0, 1, 2, 3)),)
         seq.core_params.tick_start = 1
         seq.core_params.tick_duration = 0
         seq.core_params.tick_initial = 0
@@ -208,9 +215,9 @@ class TestPAIIRGraph:
         graph = PAIIRGraph("summary_labels")
         inp = InputNode(shape=torch.Size((1, 4)))
         comp = StandaloneCompOp(nn.Linear(4, 8))
-        comp.output_shape = torch.Size((1, 8))
+        comp.output_layouts = (TensorLayout(torch.Size((1, 8)), (0, 1)),)
         act = StandaloneActOp(IFNodeV25())
-        act.output_shape = torch.Size((1, 8))
+        act.output_layouts = (TensorLayout(torch.Size((1, 8)), (0, 1)),)
         out = OutputNode(shape=torch.Size((1, 8)))
 
         for node in (inp, comp, act, out):
@@ -227,3 +234,72 @@ class TestPAIIRGraph:
         assert f"{comp.name} (Linear) (8,)" in captured
         assert f"{act.name} (IFNodeV25) (8,)" in captured
         assert f"{out.name} (OutputNode) (8,)" in captured
+
+    def test_boundary_layout_is_explicit_and_not_synthesized(self):
+        graph = PAIIRGraph("boundary_layout")
+        inp = InputNode(shape=torch.Size((1, 2, 3)), dims=(0, 2, 1))
+        out = OutputNode(shape=torch.Size((1, 2, 3)), dims=(0, 2, 1))
+        graph.add_node(inp)
+        graph.add_node(out)
+        graph.add_edge(inp.name, out.name)
+
+        assert graph.get_node_output_layout(inp.name) == inp.layout
+        assert graph.get_node_output_layout(out.name) == out.layout
+        assert graph.get_edge_output_layout(graph.edges[0]) == inp.layout
+
+    def test_summary_verbose_shows_multi_output_layouts_and_ports(self, capsys):
+        graph = PAIIRGraph("multi_output_summary")
+        inp = InputNode(shape=torch.Size((1, 4)), dims=(0, 1))
+        split = SplitOp(sections=2, dim=1)
+        split.input_layouts = (TensorLayout(torch.Size((1, 4)), (0, 1)),)
+        split.output_layouts = (
+            TensorLayout(torch.Size((1, 2)), (0, 1)),
+            TensorLayout(torch.Size((1, 2)), (0, 1)),
+        )
+        out_a = OutputNode(shape=torch.Size((1, 2)))
+        out_b = OutputNode(shape=torch.Size((1, 2)))
+
+        for node in (inp, split, out_a, out_b):
+            graph.add_node(node)
+        graph.add_edge(inp.name, split.name)
+        graph.add_edge(split.name, out_a.name, src_port=0)
+        graph.add_edge(split.name, out_b.name, src_port=1)
+
+        graph.summary(verbose=True)
+        summary = capsys.readouterr().out
+        assert "out[0] shape=(1, 2), dims=(0, 1)" in summary
+        assert "out[1] shape=(1, 2), dims=(0, 1)" in summary
+        assert "src_port=0 ->" in summary
+        assert "src_port=1 ->" in summary
+
+    def test_runtime_supports_generic_multi_output_routing_node(self):
+        class DuplicateOp(RoutingOp):
+            def __init__(self):
+                super().__init__()
+                self.input_layouts = (TensorLayout(torch.Size((1, 3)), (0, 1)),)
+                self.output_layouts = (
+                    TensorLayout(torch.Size((1, 3)), (0, 1)),
+                    TensorLayout(torch.Size((1, 3)), (0, 1)),
+                )
+
+            def forward(self, x: torch.Tensor):
+                return (x, x + 1)
+
+        graph = PAIIRGraph("generic_multi_output")
+        inp = InputNode(shape=torch.Size((1, 3)))
+        dup = DuplicateOp()
+        out_a = OutputNode(shape=torch.Size((1, 3)))
+        out_b = OutputNode(shape=torch.Size((1, 3)))
+
+        for node in (inp, dup, out_a, out_b):
+            graph.add_node(node)
+        graph.add_edge(inp.name, dup.name)
+        graph.add_edge(dup.name, out_a.name, src_port=0)
+        graph.add_edge(dup.name, out_b.name, src_port=1)
+
+        x = torch.tensor([[1.0, 2.0, 3.0]])
+        outputs = graph.step(x)
+        assert isinstance(outputs, tuple)
+        assert len(outputs) == 2
+        torch.testing.assert_close(outputs[0], x)
+        torch.testing.assert_close(outputs[1], x + 1)
