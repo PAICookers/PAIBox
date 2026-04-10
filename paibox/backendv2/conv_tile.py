@@ -6,13 +6,9 @@ import torch
 from paicorelib import LCN_EX
 
 from .op_node import (
-    AllNode,
     CustomIndex,
-    InputElem,
     Neuron,
-    RemapElem,
     SourceElem,
-    build_nodes,
     get_elem,
 )
 from .routing import (
