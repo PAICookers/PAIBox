@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from abc import abstractmethod
 from typing import AbstractSet, Generic, List, Optional, Sequence, TypeVar
 
 import numpy as np
@@ -116,7 +117,12 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
             set(nodes) if nodes is not None else None
         )
         self.raw_elems: list[SOURCE_ELEM] = list(raw_neus)
+        self.elem_set: set[SOURCE_ELEM] = set(raw_neus)
         self.dests: dict[SOURCE_ELEM, "RoutingGroup | OutputGroup| RemapGroup"] = {}
+
+    @abstractmethod
+    def add_elem(self, elem: SourceElem) -> Optional[SourceElem]:
+        pass
 
     def get_dest_info(
         self, elem: SOURCE_ELEM
@@ -235,7 +241,23 @@ class RemapGroup(
         SourceGroup.__init__(self, raw_elems, nodes)
         self.name: str = f"ReorderG_{self.id}"
         self.remap_dict: dict[SourceElem, RemapElem] = dict()
+        self.source_dict: dict[RemapElem, SourceElem] = dict()
         self.set_remap_dict()
+
+    def add_elem(self, elem: SourceElem) -> Optional[SourceElem]:
+        if not isinstance(elem, RemapElem):
+            raise TypeError("Only RemapElem can be added to RemapGroup")
+        self.raw_elems.append(elem)
+        self.elem_set.add(elem)
+        raw_elem = elem.origin_elem()
+        raw_input = self.source_dict[raw_elem]
+        copy_input = raw_input.copy(elem.index.copy_id)
+        self.input_list.append(copy_input)
+        self.input_set.add(copy_input)
+        self.remap_dict[copy_input] = elem
+        self.source_dict[elem] = copy_input
+        self.nodes = None
+        return copy_input
 
     def set_remap_dict(self) -> None:
         assert self.nodes is not None, "nodes must be provided for ReorderGroup"
@@ -248,6 +270,9 @@ class RemapGroup(
         assert set(self.remap_dict.values()) == set(
             self.raw_elems
         ), "reorder_map values must match raw_neus"
+
+        for src, dst in self.remap_dict.items():
+            self.source_dict[dst] = src
 
     def reorder_axon(self, elem: SourceElem) -> SourceElem:
         out_elem = self.remap_dict[elem]
@@ -312,6 +337,14 @@ class RoutingGroup(
         self.assigned_cores: dict[CoordXY, CorePlacement] = {}
         self._multicast_config: Optional[AERPacketZXYCopy] = None
         self._base_coord: Optional[CoordXY] = None
+
+    def add_elem(self, elem: SourceElem) -> Optional[SourceElem]:
+        if not isinstance(elem, Neuron):
+            raise TypeError("Only Neuron can be added to RoutingGroup")
+        self.raw_elems.append(elem)
+        self.elem_set.add(elem)
+        self.nodes = None
+        return None
 
     def set_lcn(self):
         intput_bit_nums: set[int] = set([neu.input_bit_num for neu in self.raw_elems])
@@ -722,6 +755,14 @@ class InputGroup(Group, SourceGroup[InputElem, InNode]):
         SourceGroup.__init__(self, raw_elems, nodes)
         self.name: str = f"InputG_{self.id}"
         self.dest_infos: dict[SourceElem, OfflineNeuDestInfoV2] = {}
+
+    def add_elem(self, elem: SourceElem) -> Optional[SourceElem]:
+        if not isinstance(elem, InputElem):
+            raise TypeError("Only InputElem can be added to InputGroup")
+        self.raw_elems.append(elem)
+        self.elem_set.add(elem)
+        self.nodes = None
+        return None
 
     def info(self) -> str:
         info_str = Group.info(self)
