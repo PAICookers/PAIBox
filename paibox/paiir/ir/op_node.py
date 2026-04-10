@@ -24,14 +24,16 @@ from torch import Tensor, nn
 
 from .calc_params import LutData, NeuronParams, OfflineCoreParams, OnlineCoreParams
 from .core_neuron import CoreNeuronV25
-from .ir_base import PAIIRNode
+from .ir_base import PAIIRNode, TensorLayout
 from .reshape_semantics import materialize_logical_layout
 
 if TYPE_CHECKING:
     from ..pipeline.avgpool.metadata import AvgPoolDeployMetadata
 
 __all__ = [
+    "TensorLayout",
     "OpNode",
+    "RoutingOp",
     "OfflineCoreOp",
     "SequentialOp",
     "AccumulateOp",
@@ -135,32 +137,34 @@ class OpNode(nn.Module, PAIIRNode):
             Set to False for simulation-only ops (e.g., ReshapeOp).
 
     Attributes:
-        input_shapes: Tensor shapes at each input port.
-        output_shape: Output tensor shape.
-        input_dims: Axis ordering at each input port.
-        output_dims: Output axis ordering.
+        input_layouts: Tensor layouts at each input port.
+        output_layouts: Tensor layouts at each output port.
     """
 
     deploy: ClassVar[bool] = True
+    input_layouts: tuple[TensorLayout, ...]
+    output_layouts: tuple[TensorLayout, ...]
 
     def __init__(self) -> None:
         super().__init__()
         super(nn.Module, self).__init__()
+        self.input_layouts = ()
+        self.output_layouts = ()
 
-        # Shape info, populated during graph construction
-        self.input_shapes: list[torch.Size] = []
-        self.output_shape: torch.Size = torch.Size()
+    @property
+    def num_inputs(self) -> int:
+        return len(self.input_layouts)
 
-        # Axis ordering, populated by DimsProp
-        self.input_dims: list[tuple[int, ...]] = []
-        self.output_dims: tuple[int, ...] = ()
+    @property
+    def num_outputs(self) -> int:
+        return len(self.output_layouts)
 
     def extra_repr(self) -> str:
         parts = [f"name='{self.name}'"]
-        if self.input_shapes:
-            parts.append(f"input_shapes={self.input_shapes}")
-        if self.output_shape:
-            parts.append(f"output_shape={self.output_shape}")
+        if self.input_layouts:
+            parts.append(f"input_layouts={self.input_layouts}")
+        if self.output_layouts:
+            parts.append(f"output_layouts={self.output_layouts}")
         return ", ".join(parts)
 
 
@@ -487,8 +491,8 @@ class ReshapeOp(RoutingOp):
         self.shape_fn = shape_fn
 
     def forward(self, x: Tensor) -> Tensor:
-        if len(self.input_dims) == 1:
-            x = materialize_logical_layout(x, self.input_dims[0])
+        if self.num_inputs == 1:
+            x = materialize_logical_layout(x, self.input_layouts[0].dims)
 
         if self.shape_fn is None:
             return x.flatten()

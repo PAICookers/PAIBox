@@ -10,6 +10,7 @@ from paibox.paiir.ir.op_node import (
     SequentialOp,
     StandaloneActOp,
     StandaloneCompOp,
+    TensorLayout,
 )
 from paibox.paiir.pipeline.layout_cross_node_elision import (
     elide_layout_invisible_reshapes,
@@ -25,10 +26,8 @@ def _reshape(
 ) -> ReshapeOp:
     target = torch.Size(output_shape)
     node = ReshapeOp(shape_fn=lambda _shape, bound=target: bound)
-    node.input_shapes = [torch.Size(input_shape)]
-    node.output_shape = target
-    node.input_dims = [input_dims]
-    node.output_dims = output_dims
+    node.input_layouts = (TensorLayout(torch.Size(input_shape), input_dims),)
+    node.output_layouts = (TensorLayout(target, output_dims),)
     return node
 
 
@@ -38,10 +37,8 @@ def _build_conv_reshape_act_reshape_graph(
     graph = PAIIRGraph("conv_reshape_act_reshape")
     inp = InputNode(shape=torch.Size((1, 3, 8, 8)))
     comp = StandaloneCompOp(nn.Conv2d(3, 4, 1))
-    comp.input_shapes = [inp.shape]
-    comp.output_shape = torch.Size((1, 4, 8, 8))
-    comp.input_dims = [(0, 1, 2, 3)]
-    comp.output_dims = (0, 1, 2, 3)
+    comp.input_layouts = (TensorLayout(inp.shape, (0, 1, 2, 3)),)
+    comp.output_layouts = (TensorLayout(torch.Size((1, 4, 8, 8)), (0, 1, 2, 3)),)
 
     pre = _reshape(
         (1, 4, 8, 8),
@@ -50,10 +47,8 @@ def _build_conv_reshape_act_reshape_graph(
         (0, 1, 2, 3, 4),
     )
     act = StandaloneActOp(ANNNodeV25(LutReLU()))
-    act.input_shapes = [pre.output_shape]
-    act.output_shape = pre.output_shape
-    act.input_dims = [pre.output_dims]
-    act.output_dims = pre.output_dims
+    act.input_layouts = pre.output_layouts
+    act.output_layouts = pre.output_layouts
     post = _reshape((1, 1, 4, 8, 8), (1, 4, 8, 8), (0, 1, 2, 3, 4), (0, 1, 2, 3))
     out = OutputNode(shape=torch.Size((1, 4, 8, 8)))
 

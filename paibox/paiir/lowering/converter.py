@@ -55,9 +55,8 @@ from .dims_prop import DimsProp
 from .fx_utils import (
     get_call_arg,
     get_fx_call_target_name,
-    get_input_dims,
-    get_input_shapes,
-    get_output_dims,
+    get_input_layouts,
+    get_output_layouts,
     get_output_shape,
 )
 from .shape_analysis import (
@@ -691,17 +690,15 @@ def _is_lowering_bypass_module(mod: nn.Module) -> bool:
     return isinstance(mod, LOWERING_BYPASS_MODULE_TYPES)
 
 
-def _fill_shape_dims(
+def _fill_layouts(
     ir_node: OpNode,
     fx_node: fx.Node,
     *,
     input_nodes_override: tuple[fx.Node, ...] | None = None,
 ) -> None:
-    """Copy shape and axis-ordering info from FX node meta into a PAIIR node."""
-    ir_node.input_shapes = get_input_shapes(fx_node, input_nodes_override)
-    ir_node.output_shape = get_output_shape(fx_node)
-    ir_node.input_dims = get_input_dims(fx_node, input_nodes_override)
-    ir_node.output_dims = get_output_dims(fx_node)
+    """Copy input/output layouts from FX node meta into a PAIIR node."""
+    ir_node.input_layouts = get_input_layouts(fx_node, input_nodes_override)
+    ir_node.output_layouts = get_output_layouts(fx_node)
 
 
 @dataclass
@@ -742,8 +739,8 @@ def _register_ir_node(
 ) -> None:
     """Register an IR node produced from an FX node.
 
-    By default, the IR node inherits shape/dims metadata directly from the FX
-    node via :func:`_fill_shape_dims`.
+    By default, the IR node inherits layout metadata directly from the FX
+    node via :func:`_fill_layouts`.
 
     ``fill_meta=False`` is kept as an explicit extension hook for future
     lowering paths where metadata should be populated later or from a source
@@ -751,7 +748,7 @@ def _register_ir_node(
     default behavior.
     """
     if fill_meta:
-        _fill_shape_dims(ir_node, fx_node, input_nodes_override=input_nodes_override)
+        _fill_layouts(ir_node, fx_node, input_nodes_override=input_nodes_override)
 
     if input_nodes_override is not None:
         # Persist the normalized data-input view for the later edge-wiring pass.

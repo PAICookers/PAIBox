@@ -42,16 +42,20 @@ def _try_remove_identity_reshape(graph: PAIIRGraph, name: str) -> bool:
     if len(preds) != 1:
         return False
 
-    if len(node.input_shapes) != 1 or not node.input_shapes[0] or not node.output_shape:
+    if node.num_inputs != 1 or node.num_outputs != 1:
         return False
 
-    if node.input_shapes[0] != node.output_shape:
+    input_layout = node.input_layouts[0]
+    output_layout = node.output_layouts[0]
+    if not input_layout.shape or not output_layout.shape:
         return False
 
-    input_dims = node.input_dims[0] if len(node.input_dims) == 1 else ()
-    if not is_layout_invisible_dims(node.input_shapes[0], input_dims):
+    if input_layout.shape != output_layout.shape:
         return False
-    if not is_layout_invisible_dims(node.output_shape, node.output_dims):
+
+    if not is_layout_invisible_dims(input_layout.shape, input_layout.dims):
+        return False
+    if not is_layout_invisible_dims(output_layout.shape, output_layout.dims):
         return False
 
     graph.remove_node_and_reconnect(name)
@@ -75,24 +79,18 @@ def _try_collapse_adjacent_reshapes(graph: PAIIRGraph, first_name: str) -> bool:
     if len(graph.predecessors(second_name)) != 1:
         return False
 
-    if (
-        len(first.input_shapes) != 1
-        or not first.input_shapes[0]
-        or not second.output_shape
-    ):
+    if first.num_inputs != 1 or first.num_outputs != 1:
         return False
 
-    if len(second.input_shapes) != 1 or not second.input_shapes[0]:
+    if second.num_inputs != 1 or second.num_outputs != 1:
         return False
 
-    if len(first.input_dims) != 1 or len(second.input_dims) != 1:
+    if not first.input_layouts[0].shape or not second.output_layouts[0].shape:
         return False
 
     composed = ReshapeOp(shape_fn=_compose_shape_fns([first, second]))
-    composed.input_shapes = list(first.input_shapes)
-    composed.output_shape = second.output_shape
-    composed.input_dims = list(first.input_dims)
-    composed.output_dims = second.output_dims
+    composed.input_layouts = first.input_layouts
+    composed.output_layouts = second.output_layouts
 
     graph.add_node(composed)
     graph.add_edge(graph.predecessors(first_name)[0], composed.name, dst_port=0)
@@ -108,8 +106,7 @@ def _compose_shape_fns(chain: list[ReshapeOp]) -> Callable[[torch.Size], torch.S
     def _composed(input_shape: torch.Size) -> torch.Size:
         current = input_shape
         for op in chain:
-            dims = op.input_dims[0] if len(op.input_dims) == 1 else ()
-            current = reshape_output_shape(current, dims, op.shape_fn)
+            current = reshape_output_shape(current, op.input_layouts[0].dims, op.shape_fn)
         return current
 
     return _composed

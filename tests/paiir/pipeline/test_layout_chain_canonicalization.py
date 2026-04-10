@@ -2,7 +2,7 @@ import torch
 
 from paibox.paiir.ir.graph import PAIIRGraph
 from paibox.paiir.ir.ir_base import InputNode, OutputNode
-from paibox.paiir.ir.op_node import ReshapeOp
+from paibox.paiir.ir.op_node import ReshapeOp, TensorLayout
 from paibox.paiir.ir.reshape_semantics import is_layout_invisible_dims
 from paibox.paiir.pipeline.layout_chain_canonicalization import (
     canonicalize_layout_chains,
@@ -21,10 +21,8 @@ def _reshape(
     output_dims: tuple[int, ...],
 ) -> ReshapeOp:
     node = ReshapeOp(shape_fn=_fixed_shape(output_shape))
-    node.input_shapes = [torch.Size(input_shape)]
-    node.output_shape = torch.Size(output_shape)
-    node.input_dims = [input_dims]
-    node.output_dims = output_dims
+    node.input_layouts = (TensorLayout(torch.Size(input_shape), input_dims),)
+    node.output_layouts = (TensorLayout(torch.Size(output_shape), output_dims),)
     return node
 
 
@@ -73,9 +71,8 @@ class TestLayoutChainCanonicalization:
         reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
         assert len(reshape_nodes) == 1
         reshape = reshape_nodes[0]
-        assert reshape.input_shapes == [(1, 2, 3)]
-        assert reshape.output_shape == (1, 6)
-        assert reshape.input_dims == [(0, 2, 1)]
+        assert reshape.input_layouts == (TensorLayout(torch.Size((1, 2, 3)), (0, 2, 1)),)
+        assert reshape.output_layouts == (TensorLayout(torch.Size((1, 6)), (0, 1)),)
 
     def test_removes_identity_shape_when_dims_only_swap_singleton_axes(self):
         graph = PAIIRGraph("reshape_singleton_dims")
@@ -112,6 +109,5 @@ class TestLayoutChainCanonicalization:
         reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
         assert len(reshape_nodes) == 1
         reshape = reshape_nodes[0]
-        assert reshape.input_shapes == [(1, 2, 3)]
-        assert reshape.output_shape == (1, 6)
-        assert reshape.input_dims == [(0, 2, 1)]
+        assert reshape.input_layouts == (TensorLayout(torch.Size((1, 2, 3)), (0, 2, 1)),)
+        assert reshape.output_layouts == (TensorLayout(torch.Size((1, 6)), (0, 1)),)

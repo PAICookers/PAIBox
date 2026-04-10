@@ -80,6 +80,20 @@ _DEPLOYABLE_GRAPH_NODE_TYPES = (
 )
 
 
+def _layout_shapes(node: OpNode) -> tuple[torch.Size, ...]:
+    return tuple(layout.shape for layout in node.input_layouts)
+
+
+def _layout_input_dims(node: OpNode) -> tuple[tuple[int, ...], ...]:
+    return tuple(layout.dims for layout in node.input_layouts)
+
+
+def _single_output_shape(node: OpNode) -> torch.Size:
+    if node.num_outputs != 1:
+        return torch.Size()
+    return node.output_layouts[0].shape
+
+
 def specialize_general_adds(graph: PAIIRGraph) -> PAIIRGraph:
     """Rewrite deployable expression-layer add nodes into deployable add IR.
 
@@ -98,10 +112,8 @@ def specialize_general_adds(graph: PAIIRGraph) -> PAIIRGraph:
         if isinstance(node, GeneralAddOp):
             specialized = _try_specialize_general_add(node)
             if specialized is not None:
-                specialized.input_shapes = list(node.input_shapes)
-                specialized.output_shape = node.output_shape
-                specialized.input_dims = list(node.input_dims)
-                specialized.output_dims = node.output_dims
+                specialized.input_layouts = node.input_layouts
+                specialized.output_layouts = node.output_layouts
                 specialized_graph.replace_node(name, specialized)
 
     return specialized_graph
@@ -118,8 +130,10 @@ def _try_specialize_general_add(node: GeneralAddOp) -> PotentialAddOp | None:
     if any(coeff not in (-1, 1) for coeff in coeffs):
         return None
 
-    if node.output_shape and node.input_shapes:
-        if any(shape != node.output_shape for shape in node.input_shapes):
+    output_shape = _single_output_shape(node)
+    input_shapes = _layout_shapes(node)
+    if output_shape and input_shapes:
+        if any(shape != output_shape for shape in input_shapes):
             return None
 
     return PotentialAddOp(op_signs=tuple(int(coeff) for coeff in coeffs))
@@ -254,13 +268,11 @@ def _try_fuse_accumulate(
     op_signs = add_node.signs
 
     fused = AccumulateOp(comps=comps, act=act_node.act, op_signs=op_signs)
-    fused.input_shapes = []
-    fused.input_dims = []
+    fused_input_layouts = []
     for p in comp_preds:
-        fused.input_shapes.extend(graph.nodes[p].input_shapes)  # type: ignore[union-attr]
-        fused.input_dims.extend(graph.nodes[p].input_dims)  # type: ignore[union-attr]
-    fused.output_shape = act_node.output_shape
-    fused.output_dims = act_node.output_dims
+        fused_input_layouts.extend(graph.nodes[p].input_layouts)  # type: ignore[union-attr]
+    fused.input_layouts = tuple(fused_input_layouts)
+    fused.output_layouts = act_node.output_layouts
 
     consumed.add(act_name)
     consumed.add(add_name)
@@ -334,10 +346,12 @@ def validate_graph(graph: PAIIRGraph) -> None:
         if not isinstance(node, OpNode):
             continue
         if isinstance(node, SplitOp):
-            if not node.input_shapes or any(not shape for shape in node.input_shapes):
+            if not node.input_layouts or any(
+                not layout.shape for layout in node.input_layouts
+            ):
                 missing_shape_nodes.append(name)
             continue
-        if not node.output_shape:
+        if not _single_output_shape(node):
             missing_shape_nodes.append(name)
 
     if missing_shape_nodes:
@@ -391,25 +405,37 @@ def validate_compiled_graph(graph: PAIIRGraph) -> None:
             continue
 
         if isinstance(node, SplitOp):
-            if not node.input_shapes or any(not shape for shape in node.input_shapes):
-                errors.append(f"SplitOp '{name}' is missing input_shapes")
-            if not node.input_dims or any(not dims for dims in node.input_dims):
-                errors.append(f"SplitOp '{name}' is missing input_dims")
-            if not node.output_dims:
-                errors.append(f"SplitOp '{name}' is missing output_dims")
+            if not node.input_layouts or any(
+                not layout.shape for layout in node.input_layouts
+            ):
+                errors.append(f"SplitOp '{name}' is missing input_layouts")
+            if not node.input_layouts or any(
+                not layout.dims for layout in node.input_layouts
+            ):
+                errors.append(f"SplitOp '{name}' is missing input layout dims")
+            if not node.output_layouts:
+                errors.append(f"SplitOp '{name}' is missing output_layouts")
             if node.output_domain is None:
                 errors.append(f"SplitOp '{name}' is missing output_domain")
             _validate_split_contract(errors, graph, name, node)
             continue
 
-        if not node.input_shapes or any(not shape for shape in node.input_shapes):
-            errors.append(f"OpNode '{name}' is missing input_shapes")
-        if not node.output_shape:
-            errors.append(f"OpNode '{name}' is missing output_shape")
-        if not node.input_dims or any(not dims for dims in node.input_dims):
-            errors.append(f"OpNode '{name}' is missing input_dims")
-        if not node.output_dims:
-            errors.append(f"OpNode '{name}' is missing output_dims")
+        if not node.input_layouts or any(
+            not layout.shape for layout in node.input_layouts
+        ):
+            errors.append(f"OpNode '{name}' is missing input_layouts")
+        if not node.output_layouts or any(
+            not layout.shape for layout in node.output_layouts
+        ):
+            errors.append(f"OpNode '{name}' is missing output_layouts")
+        if not node.input_layouts or any(
+            not layout.dims for layout in node.input_layouts
+        ):
+            errors.append(f"OpNode '{name}' is missing input layout dims")
+        if not node.output_layouts or any(
+            not layout.dims for layout in node.output_layouts
+        ):
+            errors.append(f"OpNode '{name}' is missing output layout dims")
         if node.output_domain is None:
             errors.append(f"OpNode '{name}' is missing output_domain")
 
@@ -447,7 +473,7 @@ def _get_node_output_shape(node: PAIIRNode) -> torch.Size:
     if isinstance(node, OutputNode):
         return node.shape
     if isinstance(node, OpNode):
-        return node.output_shape
+        return _single_output_shape(node)
     return torch.Size()
 
 
@@ -460,10 +486,10 @@ def _try_get_edge_output_shape(graph: PAIIRGraph, edge: Edge) -> torch.Size:
     """
     node = graph.nodes[edge.src]
     if isinstance(node, SplitOp):
-        if not node.input_shapes or not node.input_shapes[0]:
+        if node.num_inputs != 1 or not node.input_layouts[0].shape:
             return torch.Size()
 
-        input_shape = node.input_shapes[0]
+        input_shape = node.input_layouts[0].shape
         rank = len(input_shape)
         split_dim = node.dim if node.dim >= 0 else node.dim + rank
         if split_dim < 0 or split_dim >= rank:
@@ -478,10 +504,9 @@ def _try_get_edge_output_shape(graph: PAIIRGraph, edge: Edge) -> torch.Size:
 
         # Split branch shapes are derived on demand rather than persisted on
         # the node because the backend does not consume them directly.
-        output_shapes = infer_split_output_shapes(input_shape, node.sections, node.dim)
-        if edge.src_port < 0 or edge.src_port >= len(output_shapes):
+        if edge.src_port < 0 or edge.src_port >= node.num_outputs:
             return torch.Size()
-        return output_shapes[edge.src_port]
+        return node.output_layouts[edge.src_port].shape
 
     return _get_node_output_shape(node)
 
@@ -492,23 +517,25 @@ def _validate_concat_contract(
     incoming = graph.incoming_edges(name)
     preds = [edge.src for edge in incoming]
     pred_shapes = [_try_get_edge_output_shape(graph, edge) for edge in incoming]
+    input_shapes = _layout_shapes(node)
+    output_shape = _single_output_shape(node)
 
     if len(preds) < 1:
         errors.append(f"ConcatOp '{name}' must define at least one input path")
         return
 
-    if node.input_shapes and len(node.input_shapes) != len(preds):
+    if input_shapes and len(input_shapes) != len(preds):
         errors.append(
-            f"ConcatOp '{name}' has {len(node.input_shapes)} input_shapes but "
+            f"ConcatOp '{name}' has {len(input_shapes)} input layouts but "
             f"{len(preds)} predecessor(s)"
         )
         return
 
-    if node.input_shapes:
+    if input_shapes:
         mismatched = [
             (pred, pred_shape, expected_shape)
             for pred, pred_shape, expected_shape in zip(
-                preds, pred_shapes, node.input_shapes
+                preds, pred_shapes, input_shapes
             )
             if pred_shape and pred_shape != expected_shape
         ]
@@ -520,10 +547,10 @@ def _validate_concat_contract(
             errors.append(f"ConcatOp '{name}' predecessor shape mismatch: {details}")
             return
 
-        ranks = {len(shape) for shape in node.input_shapes if shape}
+        ranks = {len(shape) for shape in input_shapes if shape}
         if len(ranks) > 1:
             errors.append(
-                f"ConcatOp '{name}' requires same-rank operands, got {node.input_shapes}"
+                f"ConcatOp '{name}' requires same-rank operands, got {input_shapes}"
             )
             return
 
@@ -536,16 +563,16 @@ def _validate_concat_contract(
                 )
                 return
 
-            base_shape = list(node.input_shapes[0])
+            base_shape = list(input_shapes[0])
             concat_extent = 0
-            for shape in node.input_shapes:
+            for shape in input_shapes:
                 if any(
                     shape[axis] != base_shape[axis]
                     for axis in range(rank)
                     if axis != dim
                 ):
                     errors.append(
-                        f"ConcatOp '{name}' non-concat dims differ across inputs: {node.input_shapes}"
+                        f"ConcatOp '{name}' non-concat dims differ across inputs: {input_shapes}"
                     )
                     return
                 concat_extent += shape[dim]
@@ -554,10 +581,10 @@ def _validate_concat_contract(
                 concat_extent if axis == dim else base_shape[axis]
                 for axis in range(rank)
             )
-            if node.output_shape and expected_output != node.output_shape:
+            if output_shape and expected_output != output_shape:
                 errors.append(
                     f"ConcatOp '{name}' output_shape mismatch: "
-                    f"expected {expected_output}, got {node.output_shape}"
+                    f"expected {expected_output}, got {output_shape}"
                 )
 
 
@@ -573,18 +600,21 @@ def _validate_reshape_contract(
         return
 
     pred_shape = _try_get_edge_output_shape(graph, incoming[0])
-    if node.input_shapes and len(node.input_shapes) != 1:
+    input_shapes = _layout_shapes(node)
+    input_dims = _layout_input_dims(node)
+    output_shape = _single_output_shape(node)
+    if input_shapes and len(input_shapes) != 1:
         errors.append(
-            f"ReshapeOp '{name}' has {len(node.input_shapes)} input_shapes (expected 1)"
+            f"ReshapeOp '{name}' has {len(input_shapes)} input layouts (expected 1)"
         )
         return
 
-    if node.input_shapes and pred_shape:
-        expected_input_shape = node.input_shapes[0]
+    if input_shapes and pred_shape:
+        expected_input_shape = input_shapes[0]
         if pred_shape != expected_input_shape:
             logical_pred_shape = None
-            if len(node.input_dims) == 1:
-                logical_pred_shape = shape_after_dims(pred_shape, node.input_dims[0])
+            if len(input_dims) == 1:
+                logical_pred_shape = shape_after_dims(pred_shape, input_dims[0])
 
             if logical_pred_shape != expected_input_shape:
                 details = f"pred_output_shape={pred_shape}, input_shape={expected_input_shape}"
@@ -595,13 +625,13 @@ def _validate_reshape_contract(
                 )
                 return
 
-    if node.input_shapes and node.output_shape:
-        in_numel = math.prod(node.input_shapes[0])
-        out_numel = math.prod(node.output_shape)
+    if input_shapes and output_shape:
+        in_numel = math.prod(input_shapes[0])
+        out_numel = math.prod(output_shape)
         if in_numel != out_numel:
             errors.append(
                 f"ReshapeOp '{name}' changes element count: "
-                f"input_shape={node.input_shapes[0]}, output_shape={node.output_shape}"
+                f"input_shape={input_shapes[0]}, output_shape={output_shape}"
             )
 
 
@@ -617,30 +647,34 @@ def _validate_split_contract(
         return
 
     pred_shape = _try_get_edge_output_shape(graph, incoming[0])
-    if node.input_shapes and len(node.input_shapes) != 1:
+    input_shapes = _layout_shapes(node)
+    input_dims = _layout_input_dims(node)
+    if input_shapes and len(input_shapes) != 1:
         errors.append(
-            f"SplitOp '{name}' has {len(node.input_shapes)} input_shapes (expected 1)"
+            f"SplitOp '{name}' has {len(input_shapes)} input layouts (expected 1)"
         )
         return
 
-    if node.input_shapes and pred_shape and pred_shape != node.input_shapes[0]:
+    if input_shapes and pred_shape and pred_shape != input_shapes[0]:
         errors.append(
             f"SplitOp '{name}' predecessor shape mismatch: "
-            f"pred_output_shape={pred_shape}, input_shape={node.input_shapes[0]}"
+            f"pred_output_shape={pred_shape}, input_shape={input_shapes[0]}"
         )
         return
 
-    if len(node.input_dims) == 1 and node.output_dims != node.input_dims[0]:
+    if len(input_dims) == 1 and any(
+        layout.dims != input_dims[0] for layout in node.output_layouts
+    ):
         errors.append(
-            f"SplitOp '{name}' output_dims must match input_dims[0], got "
-            f"input_dims={node.input_dims[0]}, output_dims={node.output_dims}"
+            f"SplitOp '{name}' output layout dims must match input layout dims, got "
+            f"input_dims={input_dims[0]}, output_dims={[layout.dims for layout in node.output_layouts]}"
         )
         return
 
-    if not node.input_shapes or not node.input_shapes[0]:
+    if not input_shapes or not input_shapes[0]:
         return
 
-    input_shape = node.input_shapes[0]
+    input_shape = input_shapes[0]
     try:
         expected_outputs = infer_split_output_shapes(
             input_shape, node.sections, node.dim
@@ -648,6 +682,21 @@ def _validate_split_contract(
     except ValueError as e:
         errors.append(f"SplitOp '{name}' has invalid split spec: {e}")
         return
+
+    if node.output_layouts and len(node.output_layouts) != len(expected_outputs):
+        errors.append(
+            f"SplitOp '{name}' has {len(node.output_layouts)} output layouts but "
+            f"{len(expected_outputs)} split output(s) were inferred"
+        )
+        return
+
+    for idx, expected_shape in enumerate(expected_outputs):
+        if node.output_layouts and node.output_layouts[idx].shape != expected_shape:
+            errors.append(
+                f"SplitOp '{name}' output layout mismatch at result {idx}: "
+                f"expected {expected_shape}, got {node.output_layouts[idx].shape}"
+            )
+            return
 
     for edge in graph.outgoing_edges(name):
         if edge.src_port < 0 or edge.src_port >= len(expected_outputs):
@@ -659,7 +708,18 @@ def _validate_split_contract(
 
 
 def propagate_signal_domain(graph: PAIIRGraph) -> None:
-    """Infer and fill ``output_domain`` for every node in the graph."""
+    """Infer and fill node-level ``output_domain`` for every graph node.
+
+    ``output_domain`` is currently a single semantic value per node rather than
+    a per-output-port annotation. This is sufficient for the current IR because
+    routing-only nodes preserve the signal domain of their inputs:
+
+    - ``ReshapeOp`` inherits its sole predecessor domain
+    - ``SplitOp`` inherits its sole predecessor domain, and all split branches
+      therefore share that same domain
+    - ``ConcatOp`` requires all predecessors to agree on one domain, then
+      forwards that domain to its output
+    """
     errors: list[str] = []
 
     for name in graph.topo_sort():
@@ -849,15 +909,15 @@ def validate_deployable_graph(graph: PAIIRGraph) -> None:
                     f"AccumulateOp '{name}' signs must be +/-1 only, got {tuple(signs)}"
                 )
 
-            if node.input_shapes and len(node.input_shapes) != expected_paths:
+            if node.input_layouts and len(node.input_layouts) != expected_paths:
                 errors.append(
-                    f"AccumulateOp '{name}' has {len(node.input_shapes)} input_shapes but "
+                    f"AccumulateOp '{name}' has {len(node.input_layouts)} input layouts but "
                     f"{expected_paths} compute path(s)"
                 )
 
-            if node.input_dims and len(node.input_dims) != expected_paths:
+            if node.input_layouts and len(node.input_layouts) != expected_paths:
                 errors.append(
-                    f"AccumulateOp '{name}' has {len(node.input_dims)} input_dims but "
+                    f"AccumulateOp '{name}' has {len(node.input_layouts)} input layouts but "
                     f"{expected_paths} compute path(s)"
                 )
 
@@ -893,20 +953,20 @@ def _validate_potential_add_contract(
             f"{expected_paths} sign/path entries"
         )
 
-    if node.input_shapes and len(node.input_shapes) != expected_paths:
+    if node.input_layouts and len(node.input_layouts) != expected_paths:
         errors.append(
-            f"PotentialAddOp '{name}' has {len(node.input_shapes)} input_shapes but "
+            f"PotentialAddOp '{name}' has {len(node.input_layouts)} input layouts but "
             f"{expected_paths} sign/path entries"
         )
 
-    if node.output_shape and node.input_shapes:
-        mismatched = [
-            shape for shape in node.input_shapes if shape != node.output_shape
-        ]
+    input_shapes = _layout_shapes(node)
+    output_shape = _single_output_shape(node)
+    if output_shape and input_shapes:
+        mismatched = [shape for shape in input_shapes if shape != output_shape]
         if mismatched:
             errors.append(
                 f"PotentialAddOp '{name}' requires same-shape operands, got "
-                f"input_shapes={node.input_shapes}, output_shape={node.output_shape}"
+                f"input_shapes={input_shapes}, output_shape={output_shape}"
             )
 
 

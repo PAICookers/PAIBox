@@ -15,10 +15,8 @@ def _materialize_shared_sequential(
 ) -> SequentialOp:
     """Build and register a shared-core ``SequentialOp`` from comp + act."""
     fused = SequentialOp(pred.comp, act_node.act)
-    fused.input_shapes = pred.input_shapes
-    fused.output_shape = act_node.output_shape
-    fused.input_dims = pred.input_dims
-    fused.output_dims = act_node.output_dims
+    fused.input_layouts = pred.input_layouts
+    fused.output_layouts = act_node.output_layouts
 
     consumed.add(act_name)
     consumed.add(pred_name)
