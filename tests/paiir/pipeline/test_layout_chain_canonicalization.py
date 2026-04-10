@@ -71,7 +71,9 @@ class TestLayoutChainCanonicalization:
         reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
         assert len(reshape_nodes) == 1
         reshape = reshape_nodes[0]
-        assert reshape.input_layouts == (TensorLayout(torch.Size((1, 2, 3)), (0, 2, 1)),)
+        assert reshape.input_layouts == (
+            TensorLayout(torch.Size((1, 2, 3)), (0, 2, 1)),
+        )
         assert reshape.output_layouts == (TensorLayout(torch.Size((1, 6)), (0, 1)),)
 
     def test_removes_identity_shape_when_dims_only_swap_singleton_axes(self):
@@ -109,5 +111,7 @@ class TestLayoutChainCanonicalization:
         reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
         assert len(reshape_nodes) == 1
         reshape = reshape_nodes[0]
-        assert reshape.input_layouts == (TensorLayout(torch.Size((1, 2, 3)), (0, 2, 1)),)
+        assert reshape.input_layouts == (
+            TensorLayout(torch.Size((1, 2, 3)), (0, 2, 1)),
+        )
         assert reshape.output_layouts == (TensorLayout(torch.Size((1, 6)), (0, 1)),)

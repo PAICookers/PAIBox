@@ -106,7 +106,9 @@ def _compose_shape_fns(chain: list[ReshapeOp]) -> Callable[[torch.Size], torch.S
     def _composed(input_shape: torch.Size) -> torch.Size:
         current = input_shape
         for op in chain:
-            current = reshape_output_shape(current, op.input_layouts[0].dims, op.shape_fn)
+            current = reshape_output_shape(
+                current, op.input_layouts[0].dims, op.shape_fn
+            )
         return current
 
     return _composed

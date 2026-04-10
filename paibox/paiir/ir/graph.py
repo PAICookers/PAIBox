@@ -548,9 +548,13 @@ class PAIIRGraph:
             lines.append(line)
             if verbose:
                 if isinstance(node, InputNode):
-                    lines.append(f"    layout: {self._summary_layout_desc(node.layout)}")
+                    lines.append(
+                        f"    layout: {self._summary_layout_desc(node.layout)}"
+                    )
                 elif isinstance(node, OutputNode):
-                    lines.append(f"    layout: {self._summary_layout_desc(node.layout)}")
+                    lines.append(
+                        f"    layout: {self._summary_layout_desc(node.layout)}"
+                    )
                 elif isinstance(node, OpNode):
                     if node.input_layouts:
                         rendered_inputs = ", ".join(

@@ -1,6 +1,7 @@
 """PAIIR base types: node base class, tensor layout, and graph boundaries."""
 
 from dataclasses import dataclass
+
 import torch
 
 from ._namespace import IRNamespace

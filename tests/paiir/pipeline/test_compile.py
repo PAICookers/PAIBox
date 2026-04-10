@@ -761,16 +761,22 @@ class TestSplitCompilation:
         graph = torch_to_paiir(Model().eval(), sample)
         validate_graph(graph)
 
-        split_nodes = [node for node in graph.nodes.values() if isinstance(node, SplitOp)]
-        concat_nodes = [node for node in graph.nodes.values() if isinstance(node, ConcatOp)]
-        reshape_nodes = [node for node in graph.nodes.values() if isinstance(node, ReshapeOp)]
+        split_nodes = [
+            node for node in graph.nodes.values() if isinstance(node, SplitOp)
+        ]
+        concat_nodes = [
+            node for node in graph.nodes.values() if isinstance(node, ConcatOp)
+        ]
+        reshape_nodes = [
+            node for node in graph.nodes.values() if isinstance(node, ReshapeOp)
+        ]
 
         assert len(split_nodes) == 1
         assert len(concat_nodes) == 1
         assert len(reshape_nodes) == 1
 
-        from io import StringIO
         from contextlib import redirect_stdout
+        from io import StringIO
 
         buf = StringIO()
         with redirect_stdout(buf):
