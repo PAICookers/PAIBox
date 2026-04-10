@@ -214,9 +214,9 @@ class Edge:
 
 ```
 PAIIRNode (基类，自动分配唯一 name)
-├── InputNode         — 图输入占位符，携带 shape
-├── OutputNode        — 图输出节点，携带 shape
-└── OpNode (算子基类，携带形状与维度信息)
+├── InputNode         — 图输入占位符，携带边界 TensorLayout
+├── OutputNode        — 图输出节点，携带边界 TensorLayout
+└── OpNode (算子基类，携带 TensorLayout 元信息)
     ├── OfflineCoreOp (离线核，映射到芯片核心)
     │   ├── SequentialOp      — comp -> act（最常见）
     │   ├── AccumulateOp      — comps -> add/sub -> act（多路径融合）
@@ -255,8 +255,9 @@ output_nodes: list[OutputNode] = graph.output_nodes()
 # 拓扑排序（返回节点名列表，保证依赖顺序）
 ordered_names: list[str] = graph.topo_sort()
 
-# 打印图摘要（直接输出到 stdout，不返回字符串）
+# 打印图摘要；verbose=True 时包含 layout 与端口细节
 graph.summary()
+graph.summary(verbose=True)
 ```
 
 ### 节点级查询
@@ -292,9 +293,9 @@ for name in graph.topo_sort():
     node = graph.nodes[name]
 
     if isinstance(node, InputNode):
-        print(f"Input: {name}, shape={node.shape}")
+        print(f"Input: {name}, shape={node.shape}, dims={node.dims}")
     elif isinstance(node, OutputNode):
-        print(f"Output: {name}, shape={node.shape}")
+        print(f"Output: {name}, shape={node.shape}, dims={node.dims}")
     elif isinstance(node, OfflineCoreOp):
         # 后端关心的节点
         preds = graph.predecessors(name)
@@ -312,21 +313,42 @@ for name in graph.topo_sort():
 
 ```python
 node.name: str                             # 唯一名称
-node.input_shapes: list[tuple[int, ...]]   # 各输入端口的张量形状
-node.output_shape: tuple[int, ...]         # 输出张量形状
-node.input_dims: list[tuple[int, ...]]     # 各输入端口的轴顺序
-node.output_dims: tuple[int, ...]          # 输出轴顺序
+node.input_layouts: tuple[TensorLayout, ...]   # 各输入端口的 layout
+node.output_layouts: tuple[TensorLayout, ...]  # 各输出端口的 layout
+node.num_inputs: int                           # 输入端口数量
+node.num_outputs: int                          # 输出端口数量
 node.output_domain                         # SignalDomain.VALUE / POTENTIAL
 ```
 
+其中：
+
+```python
+@dataclass(frozen=True, slots=True)
+class TensorLayout:
+    shape: torch.Size
+    dims: tuple[int, ...]
+```
+
 轴顺序 `(0, 1, 2, 3)` 表示标准 NCHW；如果模型中有 `transpose` / `permute` 操作，轴顺序会相应改变，后端可据此决定数据排布。
+
+当前接口约定：
+
+- 单输出节点通常满足 `len(node.output_layouts) == 1`
+- 多输出节点（当前典型是 `SplitOp`）通过 `output_layouts[src_port]` 区分具体输出分支
+- 后端和 pass 应优先消费 `TensorLayout`，而不是旧的 `input_shapes / output_shape / input_dims / output_dims`
 
 `output_domain` 是图级语义注解：
 
 - `SignalDomain.VALUE`：值域输出
 - `SignalDomain.POTENTIAL`：膜电位域输出
 
-后端应把它视为节点输出语义，而不是直接等同于芯片寄存器里的 `OutputType`。对有 `neuron_params` 的离线核节点，两者通常一致；对 `InputNode`、`OutputNode`、`ConcatOp`、`GeneralAddOp` 这类非神经元节点，则只能使用 `SignalDomain`。
+当前 `output_domain` 按节点定义，是单值语义，不按输出端口拆分。对当前 routing-only 节点：
+
+- `ReshapeOp` 输出域继承其唯一输入
+- `SplitOp` 虽然是多输出，但所有 split 分支继承同一个输入域
+- `ConcatOp` 要求所有输入域一致，然后输出该共同域
+
+后端应把它视为节点输出语义，而不是直接等同于芯片寄存器里的 `OutputType`。对有 `neuron_params` 的离线核节点，两者通常一致；对 `InputNode`、`OutputNode`、`ConcatOp`、`SplitOp`、`ReshapeOp`、`GeneralAddOp` 这类非神经元或 routing 节点，则只能使用 `SignalDomain`。
 
 ### OfflineCoreOp：离线核参数
 
@@ -465,7 +487,7 @@ acc.lut_data               # LutData | None
 - `graph.predecessors(acc.name)`、`acc.comps`、`acc.signs` 必须一一对应
 - `len(graph.predecessors(acc.name)) == len(acc.comps) == len(acc.signs)`
 - 若 `acc.weights is not None`，则 `len(acc.weights) == len(acc.comps)`
-- 若 `input_shapes` / `input_dims` 已填充，则它们的长度也应与 `acc.comps` 一致
+- 若 `input_layouts` 已填充，则它们的长度也应与 `acc.comps` 一致
 - 当前符号语义只允许 `+/-1`
 
 > **后端注意**：当前 backendv2 会并行消费 predecessor / comp / weight / sign 列表；如果这些列表长度不一致，Python `zip(...)` 会静默截断。因此上面的结构一致性应视为 backend-ready 图的硬约束，而不是“最好满足”的建议。
@@ -526,8 +548,8 @@ def extract_cores(graph):
         core = {
             "name": name,
             "type": type(node).__name__,
-            "input_shapes": node.input_shapes,
-            "output_shape": node.output_shape,
+            "input_layouts": node.input_layouts,
+            "output_layouts": node.output_layouts,
             # 工作模式
             "snn_mode": cp.snn_mode,
             "pooling_mode": cp.pooling_mode,
@@ -745,5 +767,9 @@ class LutData:
 
 - `strict=True` 才表示遇到不支持算子会立即失败
 - `strict=False` 下图中可能存在被旁路的 unsupported 节点，此时返回图适合做结构分析或部分验证，但不应自动等价理解为“全图已严格支持”
-- `graph.summary()`、`graph.predecessors()`、`graph.successors()`、`core_params`、`neuron_params`、`lut_data` 等接口，是后端读取部署信息的主要入口
+- `graph.summary()`、`graph.predecessors()`、`graph.successors()`、`graph.get_edge_output_layout(...)`、`core_params`、`neuron_params`、`lut_data` 等接口，是后端读取部署信息的主要入口
 - 若需要扩展编译流程，请优先在 `paibox.paiir.pipeline.passes` 中新增或调整 pass；`pass_manager` 目前不驱动默认编译路径
+- 当前分支已经将 `OpNode` 的 shape/dims 正式接口切换为 `input_layouts/output_layouts`；`backendv2` 尚未适配这次接口变化，需要单独跟进
+- `Edge.src_port` 与 `Edge.dst_port` 仍然保留：
+  - `src_port` 表示源节点输出索引，`SplitOp` 依赖它选择分支
+  - `dst_port` 表示目标节点输入槽位，`ConcatOp` / `AccumulateOp` / `PotentialAddOp` 等依赖它保持输入顺序

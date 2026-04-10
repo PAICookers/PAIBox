@@ -31,6 +31,7 @@ from paibox.paiir.ir.op_node import (
     SplitOp,
     StandaloneActOp,
     StandaloneCompOp,
+    TensorLayout,
 )
 from paibox.paiir.ir.signal_domain import SignalDomain
 from paibox.paiir.lowering.converter import torch_to_paiir
@@ -67,6 +68,44 @@ from tests.paiir.conftest import (
     make_img_16ch_8x8,
     make_vec_8d,
 )
+
+
+def _layout(shape: tuple[int, ...] | torch.Size, dims: tuple[int, ...]) -> TensorLayout:
+    return TensorLayout(shape=torch.Size(shape), dims=dims)
+
+
+def _set_single_layouts(
+    node,
+    input_shape: tuple[int, ...] | torch.Size,
+    output_shape: tuple[int, ...] | torch.Size,
+    input_dims: tuple[int, ...] = (),
+    output_dims: tuple[int, ...] = (),
+) -> None:
+    node.input_layouts = (_layout(input_shape, input_dims),)
+    node.output_layouts = (_layout(output_shape, output_dims),)
+
+
+def _set_multi_input_single_output_layouts(
+    node,
+    input_shapes: list[tuple[int, ...] | torch.Size],
+    output_shape: tuple[int, ...] | torch.Size,
+    input_dims: list[tuple[int, ...]],
+    output_dims: tuple[int, ...],
+) -> None:
+    node.input_layouts = tuple(
+        _layout(shape, dims) for shape, dims in zip(input_shapes, input_dims)
+    )
+    node.output_layouts = (_layout(output_shape, output_dims),)
+
+
+def _set_split_layouts(
+    node: SplitOp,
+    input_shape: tuple[int, ...] | torch.Size,
+    output_shapes: list[tuple[int, ...] | torch.Size],
+    dims: tuple[int, ...],
+) -> None:
+    node.input_layouts = (_layout(input_shape, dims),)
+    node.output_layouts = tuple(_layout(shape, dims) for shape in output_shapes)
 
 
 class TestSNNConversion:
@@ -300,8 +339,8 @@ class TestShapeAndDims:
 
         seq_nodes = find_nodes(fused, SequentialOp)
         for node in seq_nodes:
-            assert node.output_shape != ()
-            assert all(s != () for s in node.input_shapes)
+            assert node.output_layouts[0].shape != ()
+            assert all(layout.shape != () for layout in node.input_layouts)
 
     def test_no_sample_input(self):
         """Converter works without sample input, shapes default to ()."""
@@ -312,7 +351,9 @@ class TestShapeAndDims:
         seq_nodes = find_nodes(fused, SequentialOp)
         assert len(seq_nodes) == 2
         for node in seq_nodes:
-            assert node.output_shape == torch.Size()
+            assert node.num_outputs == 1
+            assert node.output_layouts[0].shape == torch.Size()
+            assert node.output_layouts[0].dims == ()
 
     def test_dims_identity(self):
         """Identity dims for standard conv/linear (no transpose)."""
@@ -321,7 +362,7 @@ class TestShapeAndDims:
 
         seq_nodes = find_nodes(fused, SequentialOp)
         for node in seq_nodes:
-            assert node.output_dims == (0, 1, 2, 3)
+            assert node.output_layouts[0].dims == (0, 1, 2, 3)
 
     def test_flatten_dims(self):
         """flatten resets dims to identity."""
@@ -331,7 +372,7 @@ class TestShapeAndDims:
         seq_nodes = find_nodes(fused, SequentialOp)
         assert len(seq_nodes) == 2
         for node in seq_nodes:
-            assert node.output_dims in [(0, 1, 2, 3), (0, 1)]
+            assert node.output_layouts[0].dims in [(0, 1, 2, 3), (0, 1)]
 
 
 class TestAssignTickParams:
@@ -552,8 +593,7 @@ class TestUnrecoverableErrors:
     def test_no_input_node(self):
         graph = PAIIRGraph("no_input")
         op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
-        op.input_shapes = [torch.Size((1, 8))]
-        op.output_shape = torch.Size((1, 4))
+        _set_single_layouts(op, (1, 8), (1, 4), (0, 1), (0, 1))
         out = OutputNode()
         graph.add_node(op)
         graph.add_node(out)
@@ -566,8 +606,7 @@ class TestUnrecoverableErrors:
         graph = PAIIRGraph("no_output")
         inp = InputNode(shape=torch.Size((1, 8)))
         op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
-        op.input_shapes = [torch.Size((1, 8))]
-        op.output_shape = torch.Size((1, 4))
+        _set_single_layouts(op, (1, 8), (1, 4), (0, 1), (0, 1))
         graph.add_node(inp)
         graph.add_node(op)
         graph.add_edge(inp.name, op.name)
@@ -580,8 +619,7 @@ class TestUnrecoverableErrors:
         graph = PAIIRGraph("bad_input")
         inp = InputNode(shape=torch.Size((1, 8)))
         op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
-        op.input_shapes = [torch.Size((1, 8))]
-        op.output_shape = torch.Size((1, 4))
+        _set_single_layouts(op, (1, 8), (1, 4), (0, 1), (0, 1))
         out = OutputNode()
         graph.add_node(inp)
         graph.add_node(op)
@@ -599,8 +637,7 @@ class TestUnrecoverableErrors:
         graph = PAIIRGraph("bad_output")
         inp = InputNode(shape=torch.Size((1, 8)))
         op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
-        op.input_shapes = [torch.Size((1, 8))]
-        op.output_shape = torch.Size((1, 4))
+        _set_single_layouts(op, (1, 8), (1, 4), (0, 1), (0, 1))
         out = OutputNode()
         graph.add_node(inp)
         graph.add_node(op)
@@ -618,8 +655,7 @@ class TestUnrecoverableErrors:
         graph = PAIIRGraph("multiple_errors")
         # No InputNode, no OutputNode
         op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
-        op.input_shapes = [torch.Size((1, 8))]
-        op.output_shape = torch.Size((1, 4))
+        _set_single_layouts(op, (1, 8), (1, 4), (0, 1), (0, 1))
         graph.add_node(op)
 
         with pytest.raises(GraphValidationError) as exc_info:
@@ -664,11 +700,9 @@ class TestAutoCleanup:
         graph = PAIIRGraph("orphan_op")
         inp = InputNode(shape=torch.Size((1, 8)))
         op1 = SequentialOp(nn.Linear(8, 4), IFNodeV25())
-        op1.input_shapes = [torch.Size((1, 8))]
-        op1.output_shape = torch.Size((1, 4))
+        _set_single_layouts(op1, (1, 8), (1, 4), (0, 1), (0, 1))
         op2 = SequentialOp(nn.Linear(8, 4), IFNodeV25())  # orphan
-        op2.input_shapes = [torch.Size((1, 8))]
-        op2.output_shape = torch.Size((1, 4))
+        _set_single_layouts(op2, (1, 8), (1, 4), (0, 1), (0, 1))
         out = OutputNode()
         graph.add_node(inp)
         graph.add_node(op1)
@@ -690,11 +724,9 @@ class TestAutoCleanup:
         graph = PAIIRGraph("dead_end")
         inp = InputNode(shape=torch.Size((1, 8)))
         op1 = SequentialOp(nn.Linear(8, 4), IFNodeV25())
-        op1.input_shapes = [torch.Size((1, 8))]
-        op1.output_shape = torch.Size((1, 4))
+        _set_single_layouts(op1, (1, 8), (1, 4), (0, 1), (0, 1))
         op2 = SequentialOp(nn.Linear(4, 2), IFNodeV25())  # dead end
-        op2.input_shapes = [torch.Size((1, 4))]
-        op2.output_shape = torch.Size((1, 2))
+        _set_single_layouts(op2, (1, 4), (1, 2), (0, 1), (0, 1))
         out = OutputNode()
         graph.add_node(inp)
         graph.add_node(op1)
@@ -717,8 +749,7 @@ class TestAutoCleanup:
         inp1 = InputNode(shape=torch.Size((1, 8)))
         inp2 = InputNode(shape=torch.Size((1, 8)))  # disconnected
         op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
-        op.input_shapes = [torch.Size((1, 8))]
-        op.output_shape = torch.Size((1, 4))
+        _set_single_layouts(op, (1, 8), (1, 4), (0, 1), (0, 1))
         out = OutputNode()
         graph.add_node(inp1)
         graph.add_node(inp2)
@@ -738,8 +769,7 @@ class TestAutoCleanup:
         graph = PAIIRGraph("disconnected_output")
         inp = InputNode(shape=torch.Size((1, 8)))
         op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
-        op.input_shapes = [torch.Size((1, 8))]
-        op.output_shape = torch.Size((1, 4))
+        _set_single_layouts(op, (1, 8), (1, 4), (0, 1), (0, 1))
         out1 = OutputNode()
         out2 = OutputNode()  # disconnected
         graph.add_node(inp)
@@ -760,8 +790,7 @@ class TestAutoCleanup:
         graph = PAIIRGraph("all_disconnected")
         inp = InputNode(shape=torch.Size((1, 8)))  # disconnected
         op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
-        op.input_shapes = [torch.Size((1, 8))]
-        op.output_shape = torch.Size((1, 4))
+        _set_single_layouts(op, (1, 8), (1, 4), (0, 1), (0, 1))
         out = OutputNode()
         graph.add_node(inp)
         graph.add_node(op)
@@ -783,8 +812,7 @@ class TestSNNModeLUTConsistency:
         graph = PAIIRGraph("test")
         inp = InputNode(shape=torch.Size((1, 8)))
         op = SequentialOp(nn.Linear(8, 4), act)
-        op.input_shapes = [torch.Size((1, 8))]
-        op.output_shape = torch.Size((1, 4))
+        _set_single_layouts(op, (1, 8), (1, 4), (0, 1), (0, 1))
         out = OutputNode()
         graph.add_node(inp)
         graph.add_node(op)
@@ -835,10 +863,7 @@ class TestValidateCompiledGraph:
         graph = PAIIRGraph("compiled")
         inp = InputNode(shape=torch.Size((1, 8)))
         op = SequentialOp(nn.Linear(8, 4), IFNodeV25())
-        op.input_shapes = [torch.Size((1, 8))]
-        op.output_shape = torch.Size((1, 4))
-        op.input_dims = [(0, 1)]
-        op.output_dims = (0, 1)
+        _set_single_layouts(op, (1, 8), (1, 4), (0, 1), (0, 1))
         op.core_params.set_input_format((DataSign.SIGNED, DataWidth.WIDTH_8BIT))
         op.core_params.set_output_format((DataSign.UNSIGNED, DataWidth.WIDTH_1BIT))
         op.core_params.set_weight_format((DataSign.SIGNED, DataWidth.WIDTH_8BIT))
@@ -874,14 +899,8 @@ class TestValidateCompiledGraph:
         branch = SequentialOp(nn.Linear(8, 4), IFNodeV25())
         dead_end = SequentialOp(nn.Linear(4, 2), IFNodeV25())
 
-        branch.input_shapes = [torch.Size((1, 8))]
-        branch.output_shape = torch.Size((1, 4))
-        branch.input_dims = [(0, 1)]
-        branch.output_dims = (0, 1)
-        dead_end.input_shapes = [torch.Size((1, 4))]
-        dead_end.output_shape = torch.Size((1, 2))
-        dead_end.input_dims = [(0, 1)]
-        dead_end.output_dims = (0, 1)
+        _set_single_layouts(branch, (1, 8), (1, 4), (0, 1), (0, 1))
+        _set_single_layouts(dead_end, (1, 4), (1, 2), (0, 1), (0, 1))
 
         for node in (branch, dead_end):
             node.core_params.set_input_format((DataSign.SIGNED, DataWidth.WIDTH_8BIT))
@@ -917,10 +936,13 @@ class TestValidateCompiledGraph:
         cat.output_domain = SignalDomain.VALUE
         out.output_domain = SignalDomain.VALUE
 
-        cat.input_shapes = [torch.Size((1, 32)), torch.Size((1, 8))]
-        cat.output_shape = torch.Size((1, 40))
-        cat.input_dims = [(0, 1), (0, 1)]
-        cat.output_dims = (0, 1)
+        _set_multi_input_single_output_layouts(
+            cat,
+            [(1, 32), (1, 8)],
+            (1, 40),
+            [(0, 1), (0, 1)],
+            (0, 1),
+        )
 
         graph.add_node(inp_a)
         graph.add_node(inp_b)
@@ -945,9 +967,7 @@ class TestValidateCompiledGraph:
         split.output_domain = SignalDomain.VALUE
         out.output_domain = SignalDomain.VALUE
 
-        split.input_shapes = [torch.Size((1, 5))]
-        split.input_dims = [(0, 1)]
-        split.output_dims = (0, 1)
+        split.input_layouts = (_layout((1, 5), (0, 1)),)
 
         graph.add_node(inp)
         graph.add_node(split)
@@ -969,14 +989,8 @@ class TestSplitPassBehavior:
         act = StandaloneActOp(IFNodeV25())
         out = OutputNode(shape=torch.Size((1, 2)))
 
-        split.input_shapes = [torch.Size((1, 4))]
-        split.input_dims = [(0, 1)]
-        split.output_dims = (0, 1)
-
-        act.input_shapes = [torch.Size((1, 2))]
-        act.output_shape = torch.Size((1, 2))
-        act.input_dims = [(0, 1)]
-        act.output_dims = (0, 1)
+        _set_split_layouts(split, (1, 4), [(1, 2), (1, 2)], (0, 1))
+        _set_single_layouts(act, (1, 2), (1, 2), (0, 1), (0, 1))
 
         graph.add_node(inp)
         graph.add_node(split)
@@ -1124,10 +1138,7 @@ class TestValidateDeployableGraph:
         inp_b.output_domain = SignalDomain.VALUE
         acc.output_domain = SignalDomain.VALUE
         out.output_domain = SignalDomain.VALUE
-        acc.input_shapes = [torch.Size((1, 4))]
-        acc.output_shape = torch.Size((1, 4))
-        acc.input_dims = [(0, 1)]
-        acc.output_dims = (0, 1)
+        _set_single_layouts(acc, (1, 4), (1, 4), (0, 1), (0, 1))
 
         graph.add_node(inp_a)
         graph.add_node(inp_b)
@@ -1273,10 +1284,13 @@ class TestSignalDomain:
         inp_b.output_domain = SignalDomain.VALUE
         acc.output_domain = SignalDomain.VALUE
         out.output_domain = SignalDomain.VALUE
-        acc.input_shapes = [torch.Size((1, 4)), torch.Size((1, 4))]
-        acc.output_shape = torch.Size((1, 4))
-        acc.input_dims = [(0, 1), (0, 1)]
-        acc.output_dims = (0, 1)
+        _set_multi_input_single_output_layouts(
+            acc,
+            [(1, 4), (1, 4)],
+            (1, 4),
+            [(0, 1), (0, 1)],
+            (0, 1),
+        )
         acc.signs = (1, 0)
 
         graph.add_node(inp_a)

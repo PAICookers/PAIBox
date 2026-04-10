@@ -12,7 +12,8 @@ from typing import Any
 import torch
 from torch import fx
 
-from ..ir.op_node import SplitOp
+from ..ir.op_node import SplitOp, TensorLayout
+from ..ir.utils import infer_split_output_shapes
 from .dims_prop import DimsType
 from .fx_utils import (
     get_call_arg,
@@ -167,7 +168,16 @@ def build_split_ir_node(
     ir_node = SplitOp(split_info.sections, split_info.dim)
     # The SplitOp itself records only the split contract. Per-consumer branch
     # selection is attached later on outgoing edges via `src_port`.
-    ir_node.input_shapes = [get_output_shape(split_info.data_input)]
-    ir_node.input_dims = [get_output_dims(split_info.data_input)]
-    ir_node.output_dims = ir_node.input_dims[0] if ir_node.input_dims else ()
+    input_layout = TensorLayout(
+        shape=get_output_shape(split_info.data_input),
+        dims=get_output_dims(split_info.data_input),
+    )
+    ir_node.input_layouts = (input_layout,)
+    if input_layout.shape:
+        ir_node.output_layouts = tuple(
+            TensorLayout(shape=shape, dims=input_layout.dims)
+            for shape in infer_split_output_shapes(
+                input_layout.shape, split_info.sections, split_info.dim
+            )
+        )
     return ir_node, (split_info.data_input,)

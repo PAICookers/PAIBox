@@ -162,7 +162,7 @@ class TestTickActivityWindow:
             assert torch.all(outputs[step - 1] == 0), f"step {step} should be inactive"
 
         for step in active_steps:
-            assert outputs[step - 1].shape == seq_ops[0].output_shape
+            assert outputs[step - 1].shape == seq_ops[0].output_layouts[0].shape
 
 
 class TestTickInitial:

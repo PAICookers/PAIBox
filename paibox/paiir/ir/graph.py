@@ -14,8 +14,8 @@ from torch import Tensor, nn
 from ..exceptions import GraphValidationError
 from .add_ops import GeneralAddOp
 from .core_neuron import CoreNeuronV25
-from .ir_base import InputNode, OutputNode, PAIIRNode
-from .op_node import ConcatOp, OfflineCoreOp, OpNode, ReshapeOp, SplitOp
+from .ir_base import InputNode, OutputNode, PAIIRNode, TensorLayout
+from .op_node import OfflineCoreOp, OpNode, RoutingOp
 
 __all__ = ["Edge", "PAIIRGraph"]
 
@@ -497,12 +497,38 @@ class PAIIRGraph:
     def _summary_node_shape(self, node: PAIIRNode) -> torch.Size:
         if isinstance(node, (InputNode, OutputNode)):
             return node.shape
-        if isinstance(node, OpNode):
-            return node.output_shape
+        if isinstance(node, OpNode) and node.num_outputs == 1:
+            return node.output_layouts[0].shape
         return torch.Size()
 
-    def summary(self) -> None:
-        """Generate a text summary of the graph."""
+    @staticmethod
+    def _summary_layout_desc(layout: TensorLayout) -> str:
+        if not layout.shape:
+            return "shape=(), dims=()"
+        return f"shape={tuple(layout.shape)}, dims={layout.dims}"
+
+    def get_node_output_layout(self, name: str, port: int = 0) -> TensorLayout:
+        node = self.nodes[name]
+        if isinstance(node, InputNode):
+            return node.layout
+        if isinstance(node, OutputNode):
+            return node.layout
+        if isinstance(node, OpNode):
+            return node.output_layouts[port]
+        return TensorLayout()
+
+    def get_edge_output_layout(self, edge: Edge) -> TensorLayout:
+        return self.get_node_output_layout(edge.src, edge.src_port)
+
+    def summary(self, verbose: bool | int = False) -> None:
+        """Print a text summary of the graph.
+
+        Args:
+            verbose:
+                - ``False`` / ``0``: compact node/edge summary
+                - ``True`` / ``1``: include layouts and explicit edge ports
+        """
+        verbose = int(verbose)
         lines = [
             f"PAIIRGraph '{self.name}'",
             f"  Nodes: {len(self.nodes)}",
@@ -513,17 +539,58 @@ class PAIIRGraph:
         ]
         for name in self.topo_sort():
             node = self.nodes[name]
-            preds = self.predecessors(name)
-            succs = self.successors(name)
+            incoming = self.incoming_edges(name)
+            outgoing = self.outgoing_edges(name)
             line = f"  {name} ({self._summary_node_label(node)})"
             shape = self._summary_node_shape(node)
             if shape:
                 line += f" {self._summary_shape_without_batch(shape)}"
             lines.append(line)
-            if preds:
-                lines.append(f"    <- {preds}")
-            if succs:
-                lines.append(f"    -> {succs}")
+            if verbose:
+                if isinstance(node, InputNode):
+                    lines.append(
+                        f"    layout: {self._summary_layout_desc(node.layout)}"
+                    )
+                elif isinstance(node, OutputNode):
+                    lines.append(
+                        f"    layout: {self._summary_layout_desc(node.layout)}"
+                    )
+                elif isinstance(node, OpNode):
+                    if node.input_layouts:
+                        rendered_inputs = ", ".join(
+                            f"in[{i}] {self._summary_layout_desc(layout)}"
+                            for i, layout in enumerate(node.input_layouts)
+                        )
+                        lines.append(f"    {rendered_inputs}")
+                    if node.output_layouts:
+                        rendered_outputs = ", ".join(
+                            f"out[{i}] {self._summary_layout_desc(layout)}"
+                            for i, layout in enumerate(node.output_layouts)
+                        )
+                        lines.append(f"    {rendered_outputs}")
+                if incoming:
+                    lines.append(
+                        "    <- "
+                        + ", ".join(
+                            f"{edge.src}[src_port={edge.src_port}] -> dst_port={edge.dst_port}"
+                            for edge in incoming
+                        )
+                    )
+                if outgoing:
+                    lines.append(
+                        "    -> "
+                        + ", ".join(
+                            f"src_port={edge.src_port} -> {edge.dst}[dst_port={edge.dst_port}]"
+                            for edge in outgoing
+                        )
+                    )
+            else:
+                preds = self.predecessors(name)
+                succs = self.successors(name)
+                if preds:
+                    lines.append(f"    <- {preds}")
+                if succs:
+                    lines.append(f"    -> {succs}")
 
         print("\n".join(lines))
 
@@ -548,7 +615,7 @@ class PAIIRGraph:
         - ``tick_start``: Must be set (not None)
         - ``tick_duration``: Must be non-negative
         - ``tick_initial``: Must be non-negative
-        - ``output_shape``: Must be set for zero output generation
+        - output layout on port 0: Must be set for zero output generation
 
         Raises:
             RuntimeError: If any verification check fails.
@@ -582,9 +649,9 @@ class PAIIRGraph:
                     f"'{name}': tick_initial must be non-negative, got {cp.tick_initial}"
                 )
 
-            if not node.output_shape:
+            if node.num_outputs == 0 or not node.output_layouts[0].shape:
                 errors.append(
-                    f"'{name}': output_shape is not set. "
+                    f"'{name}': output layout is not set. "
                     "Pass sample_inputs to torch_to_paiir() for shape inference."
                 )
 
@@ -633,7 +700,7 @@ class PAIIRGraph:
 
     def _zero_output(self, node: OpNode) -> Tensor:
         """Return a zero tensor matching the node's expected output shape."""
-        shape = node.output_shape
+        shape = node.output_layouts[0].shape if node.num_outputs > 0 else torch.Size()
         if shape:
             return torch.zeros(shape)
         return torch.zeros(())
@@ -651,20 +718,28 @@ class PAIIRGraph:
             return value
 
         src_node = self.nodes[edge.src]
-        if not isinstance(src_node, SplitOp):
+        if not isinstance(src_node, OpNode) or src_node.num_outputs <= 1:
             raise RuntimeError(
-                f"node '{edge.src}' produced multiple outputs, but only SplitOp is supported as a graph-internal multi-output node"
+                f"node '{edge.src}' produced multiple outputs, but has no multi-output graph contract"
             )
 
-        # SplitOp is the only internal tuple-output special case. `src_port`
-        # tells us which split branch this edge carries to the destination.
+        if len(value) != src_node.num_outputs:
+            raise RuntimeError(
+                f"node '{edge.src}' produced {len(value)} runtime outputs, "
+                f"but metadata declares {src_node.num_outputs}"
+            )
+
         if edge.src_port < 0 or edge.src_port >= len(value):
             raise RuntimeError(
-                f"SplitOp '{edge.src}' src_port={edge.src_port} is invalid for successor "
+                f"node '{edge.src}' src_port={edge.src_port} is invalid for successor "
                 f"'{edge.dst}' dst_port={edge.dst_port}"
             )
-
-        return value[edge.src_port]
+        branch = value[edge.src_port]
+        if not torch.is_tensor(branch):
+            raise RuntimeError(
+                f"node '{edge.src}' output branch {edge.src_port} is not a tensor"
+            )
+        return branch
 
     def step(self, *inputs: Tensor) -> NodeOutput:
         """Execute one time step (one sync_all cycle) through the graph.
@@ -735,7 +810,7 @@ class PAIIRGraph:
             incoming = self.incoming_edges(name)
             xs = [self._resolve_edge_tensor(edge, node_outputs) for edge in incoming]
 
-            if isinstance(node, (ConcatOp, ReshapeOp, SplitOp, GeneralAddOp)):
+            if isinstance(node, (RoutingOp, GeneralAddOp)):
                 # Routing/shape transformation operation.
                 # Or frontend/general expression operation.
                 # Executes tensor transformation / expression evaluation for simulation.

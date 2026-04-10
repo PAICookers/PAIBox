@@ -13,7 +13,7 @@ and backend deployment:
 from .calc_params import LutData, NeuronParams, OfflineCoreParams, OnlineCoreParams
 from .core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
 from .graph import Edge, PAIIRGraph
-from .ir_base import InputNode, OutputNode, PAIIRNode
+from .ir_base import InputNode, OutputNode, PAIIRNode, TensorLayout
 from .signal_domain import SignalDomain
 from .add_ops import (
     AddOperandKind,
@@ -39,6 +39,7 @@ from .op_node import (
     OnlineCoreOp,
     OpNode,
     ReshapeOp,
+    RoutingOp,
     SequentialOp,
     SplitOp,
     StandaloneActOp,
@@ -78,9 +79,11 @@ __all__ = [
     "PAIIRNode",
     "PotentialAddOp",
     "ReshapeOp",
+    "RoutingOp",
     "SequentialOp",
     "SignalDomain",
     "SplitOp",
     "StandaloneActOp",
     "StandaloneCompOp",
+    "TensorLayout",
 ]

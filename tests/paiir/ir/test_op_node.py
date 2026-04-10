@@ -25,6 +25,7 @@ from paibox.paiir.ir.op_node import (
     SequentialOp,
     StandaloneActOp,
     StandaloneCompOp,
+    TensorLayout,
 )
 from paibox.paiir.pipeline.avgpool.compensation import (
     apply_avgpool_lut_compensation,
@@ -122,7 +123,7 @@ class TestWeights:
     def test_sequential_conv_returns_weight(self):
         conv = nn.Conv2d(3, 8, 3, padding=1)
         op = SequentialOp(comp=conv, act=ANNNodeV25(lut=LutReLU()))
-        op.output_shape = torch.Size((1, 8, 8, 8))
+        op.output_layouts = (TensorLayout(torch.Size((1, 8, 8, 8)), (0, 1, 2, 3)),)
         ws = op.weights
         assert ws is not None
         assert len(ws) == 1
@@ -132,14 +133,14 @@ class TestWeights:
     def test_sequential_pool_returns_none(self):
         """Weightless ops (pool etc.) return None, not identity matrices."""
         op = SequentialOp(comp=nn.MaxPool2d(2), act=IFNodeV25())
-        op.output_shape = torch.Size((1, 4, 4, 4))
+        op.output_layouts = (TensorLayout(torch.Size((1, 4, 4, 4)), (0, 1, 2, 3)),)
         assert op.weights is None
 
     def test_accumulate_returns_per_path_weights(self):
         conv1 = nn.Conv2d(3, 8, 3, padding=1)
         conv2 = nn.Conv2d(3, 8, 3, padding=1)
         op = AccumulateOp(comps=[conv1, conv2], act=IFNodeV25(), op_signs=(1, 1))
-        op.output_shape = torch.Size((1, 8, 8, 8))
+        op.output_layouts = (TensorLayout(torch.Size((1, 8, 8, 8)), (0, 1, 2, 3)),)
         ws = op.weights
         assert ws is not None
         assert len(ws) == 2
@@ -154,7 +155,7 @@ class TestWeights:
     def test_standalone_comp_linear_returns_weight(self):
         linear = nn.Linear(4, 8, bias=False)
         op = StandaloneCompOp(comp=linear)
-        op.output_shape = torch.Size((1, 8))
+        op.output_layouts = (TensorLayout(torch.Size((1, 8)), (0, 1)),)
         ws = op.weights
         assert ws is not None
         assert len(ws) == 1
@@ -164,7 +165,7 @@ class TestWeights:
     def test_standalone_comp_pool_returns_none(self):
         """Weightless ops (pool etc.) return None, not identity matrices."""
         op = StandaloneCompOp(comp=nn.AvgPool2d(2))
-        op.output_shape = torch.Size((1, 3, 4, 4))
+        op.output_layouts = (TensorLayout(torch.Size((1, 3, 4, 4)), (0, 1, 2, 3)),)
         assert op.weights is None
 
     def test_add_op_returns_none(self):
@@ -213,7 +214,7 @@ class TestWeights:
 
     def test_standalone_act_weight_format_uses_implicit_identity_range(self):
         op = StandaloneActOp(act=ANNNodeV25(lut=LutReLU()))
-        op.output_shape = torch.Size((1, 1024, 1024))
+        op.output_layouts = (TensorLayout(torch.Size((1, 1024, 1024)), (0, 1, 2)),)
 
         assert _infer_node_weight_format(op) == (
             DataSign.UNSIGNED,
@@ -222,7 +223,7 @@ class TestWeights:
 
     def test_add_weight_format_uses_implicit_identity_range(self):
         op = PotentialAddOp(op_signs=(1, -1))
-        op.output_shape = torch.Size((1, 1024, 1024))
+        op.output_layouts = (TensorLayout(torch.Size((1, 1024, 1024)), (0, 1, 2)),)
 
         assert _infer_node_weight_format(op) == (
             DataSign.UNSIGNED,

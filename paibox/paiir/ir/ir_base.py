@@ -1,13 +1,32 @@
-"""PAIIR base types: node base class and graph boundary nodes."""
+"""PAIIR base types: node base class, tensor layout, and graph boundaries."""
+
+from dataclasses import dataclass
 
 import torch
 
 from ._namespace import IRNamespace
 from .signal_domain import SignalDomain
 
-__all__ = ["PAIIRNode", "InputNode", "OutputNode"]
+__all__ = ["TensorLayout", "PAIIRNode", "InputNode", "OutputNode"]
 
 _ir_namespace = IRNamespace()
+
+
+@dataclass(frozen=True, slots=True)
+class TensorLayout:
+    """Immutable tensor metadata pairing shape with logical axis order."""
+
+    shape: torch.Size = torch.Size()
+    dims: tuple[int, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.shape and self.dims and len(self.shape) != len(self.dims):
+            raise ValueError(
+                f"shape rank {len(self.shape)} != dims rank {len(self.dims)}"
+            )
+
+    def __bool__(self) -> bool:
+        return bool(self.shape)
 
 
 class PAIIRNode:
@@ -15,6 +34,16 @@ class PAIIRNode:
 
     Each node is automatically assigned a unique name for identification
     within the computation graph.
+
+    ``output_domain`` is a node-level semantic annotation describing the signal
+    domain of the node's output:
+
+    - :class:`~paibox.paiir.ir.signal_domain.SignalDomain.VALUE`
+    - :class:`~paibox.paiir.ir.signal_domain.SignalDomain.POTENTIAL`
+
+    The current IR treats this as one value per node, not one value per output
+    port. This remains valid for today's multi-output ``SplitOp`` because all
+    split branches inherit the same output domain from the split input.
     """
 
     def __init__(self) -> None:
@@ -31,16 +60,40 @@ class PAIIRNode:
 
 
 class InputNode(PAIIRNode):
-    """Graph input placeholder carrying shape information."""
+    """Graph input placeholder carrying explicit boundary layout."""
 
-    def __init__(self, shape: torch.Size = torch.Size()) -> None:
+    def __init__(
+        self, shape: torch.Size = torch.Size(), dims: tuple[int, ...] | None = None
+    ) -> None:
         super().__init__()
-        self.shape = shape
+        if dims is None:
+            dims = tuple(range(len(shape))) if shape else ()
+        self.layout = TensorLayout(shape=shape, dims=dims)
+
+    @property
+    def shape(self) -> torch.Size:
+        return self.layout.shape
+
+    @property
+    def dims(self) -> tuple[int, ...]:
+        return self.layout.dims
 
 
 class OutputNode(PAIIRNode):
-    """Graph output node."""
+    """Graph output node carrying explicit boundary layout."""
 
-    def __init__(self, shape: torch.Size = torch.Size()) -> None:
+    def __init__(
+        self, shape: torch.Size = torch.Size(), dims: tuple[int, ...] | None = None
+    ) -> None:
         super().__init__()
-        self.shape = shape
+        if dims is None:
+            dims = tuple(range(len(shape))) if shape else ()
+        self.layout = TensorLayout(shape=shape, dims=dims)
+
+    @property
+    def shape(self) -> torch.Size:
+        return self.layout.shape
+
+    @property
+    def dims(self) -> tuple[int, ...]:
+        return self.layout.dims

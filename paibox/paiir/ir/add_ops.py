@@ -128,9 +128,9 @@ class GeneralAddOp(OpNode):
     def operand_shape(self, operand: AddOperandSpec) -> torch.Size:
         if operand.kind is AddOperandKind.TENSOR:
             assert operand.tensor_port is not None
-            if operand.tensor_port >= len(self.input_shapes):
+            if operand.tensor_port >= len(self.input_layouts):
                 return torch.Size()
-            return self.input_shapes[operand.tensor_port]
+            return self.input_layouts[operand.tensor_port].shape
 
         assert operand.const_value is not None
         return _constant_shape(operand.const_value)
@@ -138,16 +138,18 @@ class GeneralAddOp(OpNode):
     def operand_dims(self, operand: AddOperandSpec) -> tuple[int, ...]:
         if operand.kind is AddOperandKind.TENSOR:
             assert operand.tensor_port is not None
-            if operand.tensor_port >= len(self.input_dims):
+            if operand.tensor_port >= len(self.input_layouts):
                 return ()
-            return self.input_dims[operand.tensor_port]
+            return self.input_layouts[operand.tensor_port].dims
 
         assert operand.const_value is not None
         return _constant_dims(operand.const_value)
 
     def is_operand_broadcasted(self, operand: AddOperandSpec) -> bool:
         return (
-            bool(self.output_shape) and self.operand_shape(operand) != self.output_shape
+            self.num_outputs > 0
+            and bool(self.output_layouts[0].shape)
+            and self.operand_shape(operand) != self.output_layouts[0].shape
         )
 
     @property

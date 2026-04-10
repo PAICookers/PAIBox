@@ -21,6 +21,7 @@ from paibox.paiir.ir.op_node import (
     ConcatOp,
     ReshapeOp,
     SequentialOp,
+    SplitOp,
     StandaloneActOp,
     StandaloneCompOp,
 )
@@ -32,7 +33,7 @@ from paibox.paiir.pipeline.avgpool import (
     calibrate_avgpool_threshold,
 )
 from paibox.paiir.pipeline.avgpool.metadata import AvgPoolDeployMetadata
-from paibox.paiir.pipeline.passes import GraphCleanupWarning
+from paibox.paiir.pipeline.passes import GraphCleanupWarning, validate_graph
 from tests.paiir.conftest import (
     ANNClassifier,
     SimpleCNN,
@@ -749,6 +750,43 @@ class TestFunctionalConv:
 
 
 class TestSplitCompilation:
+    def test_torch_to_paiir_split_concat_reshape_summary_smoke(self):
+        class Model(nn.Module):
+            def forward(self, x):
+                left, right = torch.split(x, [2, 3], dim=1)
+                y = torch.cat([right, left], dim=1)
+                return y.reshape(y.shape[0], -1)
+
+        sample = torch.randn(1, 5, 4, 4)
+        graph = torch_to_paiir(Model().eval(), sample)
+        validate_graph(graph)
+
+        split_nodes = [
+            node for node in graph.nodes.values() if isinstance(node, SplitOp)
+        ]
+        concat_nodes = [
+            node for node in graph.nodes.values() if isinstance(node, ConcatOp)
+        ]
+        reshape_nodes = [
+            node for node in graph.nodes.values() if isinstance(node, ReshapeOp)
+        ]
+
+        assert len(split_nodes) == 1
+        assert len(concat_nodes) == 1
+        assert len(reshape_nodes) == 1
+
+        from contextlib import redirect_stdout
+        from io import StringIO
+
+        buf = StringIO()
+        with redirect_stdout(buf):
+            graph.summary(verbose=True)
+        summary = buf.getvalue()
+        assert "out[0] shape=(1, 2, 4, 4), dims=(0, 1, 2, 3)" in summary
+        assert "out[1] shape=(1, 3, 4, 4), dims=(0, 1, 2, 3)" in summary
+        assert "src_port=0 ->" in summary
+        assert "src_port=1 ->" in summary
+
     def test_compile_to_paiir_rejects_frontend_only_split_op(self):
         class Model(nn.Module):
             def __init__(self):

@@ -67,19 +67,19 @@ def _try_elide_comp_act_reshape_sandwich(graph: PAIIRGraph, act_name: str) -> bo
     if not _is_layout_invisible(pre) or not _is_layout_invisible(post):
         return False
 
-    if not comp.output_shape or pre.input_shapes != [comp.output_shape]:
+    if comp.num_outputs != 1 or not comp.output_layouts[0].shape:
         return False
-    if not pre.output_shape or act.input_shapes != [pre.output_shape]:
+    if pre.input_layouts != (comp.output_layouts[0],):
         return False
-    if not act.output_shape or post.input_shapes != [act.output_shape]:
+    if pre.num_outputs != 1 or pre.output_layouts != act.input_layouts:
         return False
-    if post.output_shape != comp.output_shape:
+    if act.num_outputs != 1 or act.output_layouts != post.input_layouts:
+        return False
+    if post.num_outputs != 1 or post.output_layouts[0] != comp.output_layouts[0]:
         return False
 
-    act.input_shapes = [comp.output_shape]
-    act.output_shape = comp.output_shape
-    act.input_dims = [comp.output_dims]
-    act.output_dims = comp.output_dims
+    act.input_layouts = (comp.output_layouts[0],)
+    act.output_layouts = (comp.output_layouts[0],)
 
     graph.replace_all_uses_with(post_name, act_name, delete_old=True)
     graph.remove_node(pre_name)
@@ -89,10 +89,14 @@ def _try_elide_comp_act_reshape_sandwich(graph: PAIIRGraph, act_name: str) -> bo
 
 
 def _is_layout_invisible(node: ReshapeOp) -> bool:
-    if len(node.input_shapes) != 1 or not node.input_shapes[0] or not node.output_shape:
+    if node.num_inputs != 1 or node.num_outputs != 1:
         return False
 
-    input_dims = node.input_dims[0] if len(node.input_dims) == 1 else ()
+    input_layout = node.input_layouts[0]
+    output_layout = node.output_layouts[0]
+    if not input_layout.shape or not output_layout.shape:
+        return False
+
     return is_layout_invisible_reshape(
-        node.input_shapes[0], node.output_shape, input_dims, node.output_dims
+        input_layout.shape, output_layout.shape, input_layout.dims, output_layout.dims
     )
