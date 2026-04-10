@@ -7,6 +7,7 @@ chip-specific register values (v2.0 or v2.5).
 
 from dataclasses import dataclass, field
 
+import torch
 from paicorelib import (
     RM,
     AddPotentialMode,
@@ -59,6 +60,15 @@ class LutData:
                 self._tensor_hash(self.values),
                 self.is_float,
             )
+        )
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, LutData):
+            return NotImplemented
+        return (
+            self.is_float == other.is_float
+            and torch.equal(self.thresholds, other.thresholds)
+            and torch.equal(self.values, other.values)
         )
 
 

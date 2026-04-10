@@ -17,6 +17,7 @@ from ..paiir.ir.graph import PAIIRGraph
 from ..paiir.ir.ir_base import InputNode, OutputNode
 from ..paiir.ir.op_node import (
     AccumulateOp,
+    ConcatOp,
     OfflineCoreOp,
     ReshapeOp,
     SequentialOp,
@@ -27,14 +28,21 @@ from .core_config import Frontend_Core_Config
 
 
 class CustomIndex:
-    def __init__(self, idx: int):
+    def __init__(self, idx: int, copy_id: int = 0):
         self.idx = idx
+        self.copy_id = copy_id
 
     def __hash__(self) -> int:
-        return hash(self.idx)
+        return hash((self.idx, self.copy_id))
 
     def __eq__(self, value: "CustomIndex") -> bool:
-        return self.idx == value.idx
+        return self.idx == value.idx and self.copy_id == value.copy_id
+
+    def __str__(self) -> str:
+        return f"(idx: {self.idx}, copy_id: {self.copy_id})"
+
+    def __repr__(self) -> str:
+        return self.__str__()
 
 
 def get_frontend_core_conf(
@@ -140,8 +148,11 @@ class OutNode(BaseNode["OutputNode"]):
         self.input_bit_num_ = pred_output_bit_nums.pop()
 
 
-class ReorderNode(BaseNode["ReshapeOp"]):
-    def __init__(self, name: str, raw_node: "ReshapeOp", shape: tuple[int, ...]):
+RemapOp = Union[ReshapeOp, ConcatOp]
+
+
+class ReorderNode(BaseNode[RemapOp]):
+    def __init__(self, name: str, raw_node: RemapOp, shape: tuple[int, ...]):
         super().__init__(name, shape, raw_node)
 
     def get_reorder_info(self) -> dict["SourceElem", "RemapElem"]:
@@ -159,6 +170,39 @@ class ReorderNode(BaseNode["ReshapeOp"]):
                 pred_elem = get_elem(pred, i)
                 reorder_elem = RemapElem(self, CustomIndex(i))
                 reorder_map[pred_elem] = reorder_elem
+            return reorder_map
+        elif isinstance(self.raw_node, ConcatOp):
+            reorder_map: dict["SourceElem", "RemapElem"] = {}
+            concat_dim = self.raw_node.dim
+            in_shapes = [pred.shape for pred in self.predecessors]
+            assert all(
+                shape[:concat_dim] == in_shapes[0][:concat_dim]
+                and shape[concat_dim + 1 :] == in_shapes[0][concat_dim + 1 :]
+                for shape in in_shapes
+            ), "All input shapes must match except for the concat dimension"
+            dim_offset = 0
+            for pred in self.predecessors:
+                # concat_dim 后面所有维度的元素数
+                inner = 1
+                for d in range(concat_dim + 1, len(pred.shape)):
+                    inner *= pred.shape[d]
+                # concat_dim 及之后所有维度的元素数（前驱）
+                pred_dim_stride = pred.shape[concat_dim] * inner
+                # 输出在 concat_dim 及之后的 stride
+                out_dim_stride = self.shape[concat_dim] * inner
+                pred_len = pred.shape.numel()
+                for i in range(pred_len):
+                    # 把 i 分解为: outer * pred_dim_stride + mid * inner + inner_idx
+                    outer = i // pred_dim_stride
+                    rem = i % pred_dim_stride
+                    mid = rem // inner
+                    inner_idx = rem % inner
+                    flat_idx = (
+                        outer * out_dim_stride + (mid + dim_offset) * inner + inner_idx
+                    )
+                    pred_elem = get_elem(pred, i)
+                    reorder_map[pred_elem] = RemapElem(self, CustomIndex(flat_idx))
+                dim_offset += pred.shape[concat_dim]
             return reorder_map
         else:
             raise NotImplementedError(
@@ -309,10 +353,13 @@ class BaseElem(Generic[T]):
 
     def __str__(self) -> str:
         # 假设所有 target 都有 .name 属性
-        return f"{getattr(self.target, 'name', 'Unknown')}[{self.index.idx}]"
+        return f"{getattr(self.target, 'name', 'Unknown')}[{self.index}]"
 
     def __repr__(self) -> str:
         return self.__str__()
+
+    def get_raw_elem(self) -> "SourceElem":
+        return get_elem(self.target, self.index.idx, 0)
 
     @property
     def input_bit_num(self) -> int:
@@ -337,14 +384,28 @@ class Neuron(BaseElem["CoreOpNode"]):
     def core_config(self) -> "Frontend_Core_Config":
         return self.target.core_config()
 
+    def copy(self, copy_id: int) -> "Neuron":
+        return Neuron(self.target, CustomIndex(self.index.idx, copy_id))
+
+    def origin_elem(self) -> "Neuron":
+        return self.copy(0)
+
 
 class RemapElem(BaseElem["ReorderNode"]):
     # 如果没有特有方法，直接 pass 即可
-    pass
+    def copy(self, copy_id: int) -> "RemapElem":
+        return RemapElem(self.target, CustomIndex(self.index.idx, copy_id))
+
+    def origin_elem(self) -> "RemapElem":
+        return self.copy(0)
 
 
 class InputElem(BaseElem["InNode"]):
-    pass
+    def copy(self, copy_id: int) -> "InputElem":
+        return InputElem(self.target, CustomIndex(self.index.idx, copy_id))
+
+    def origin_elem(self) -> "InputElem":
+        return self.copy(0)
 
 
 AllElem = Union[Neuron, RemapElem, InputElem]
@@ -352,13 +413,13 @@ SourceElem = Union[Neuron, RemapElem, InputElem]
 CoreElem = Union[Neuron, RemapElem]
 
 
-def get_elem(Node: BaseNode, idx: int) -> "SourceElem":
+def get_elem(Node: BaseNode, idx: int, copy_id: int = 0) -> "SourceElem":
     if isinstance(Node, InNode):
-        return InputElem(Node, CustomIndex(idx))
+        return InputElem(Node, CustomIndex(idx, copy_id))
     elif isinstance(Node, ReorderNode):
-        return RemapElem(Node, CustomIndex(idx))
+        return RemapElem(Node, CustomIndex(idx, copy_id))
     elif isinstance(Node, CoreOpNode):
-        return Neuron(Node, CustomIndex(idx))
+        return Neuron(Node, CustomIndex(idx, copy_id))
     else:
         raise NotImplementedError(f"Unsupported node type: {type(Node)}")
 
@@ -373,7 +434,7 @@ def build_nodes(graph: PAIIRGraph) -> list[AllNode]:
             node = InNode(raw_node.name, raw_node, raw_node.shape)
         elif isinstance(raw_node, OutputNode):
             node = OutNode(raw_node.name, raw_node, raw_node.shape)
-        elif isinstance(raw_node, ReshapeOp):
+        elif isinstance(raw_node, RemapOp):
             node = ReorderNode(raw_node.name, raw_node, raw_node.output_shape)
         else:
             raise NotImplementedError(f"Unsupported node type: {type(raw_node)}")

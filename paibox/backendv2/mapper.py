@@ -7,6 +7,7 @@ from paicorelib import FrameArrayType
 
 from paibox.paiir import PAIIRGraph
 
+from .conv_tile import tile_conv
 from .op_node import AllNode, InputElem, Neuron, RemapElem, build_nodes
 from .rg_build import build_groups
 from .route_solver import route_solve
@@ -235,6 +236,26 @@ class Mapper:
         # determine which rg each neuron sends to
         # dests and input_list set
         # other properties remain unset
+        all_groups = tile_conv(all_groups)
+        for grp in all_groups:
+            print(grp)
+
+        self.input_groups = []
+        self.groups = []
+        self.output_groups = []
+        for grp in all_groups:
+            if isinstance(grp, InputGroup):
+                self.input_groups.append(grp)
+            elif isinstance(grp, OutputGroup):
+                self.output_groups.append(grp)
+            elif isinstance(grp, RoutingGroup):
+                self.groups.append(grp)
+            elif isinstance(grp, RemapGroup):
+                self.groups.append(grp)
+            else:
+                raise TypeError(f"Unsupported group type: {type(grp)}")
+        # raise NotImplementedError("Conv tiling is not implemented yet.")
+
         self.set_rough_dest()
 
         for grp in all_groups:
