@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Optional
 
 import numpy as np
 from paicorelib import (
@@ -33,7 +32,7 @@ class CorePlacement:
     def __init__(
         self,
     ) -> None:
-        self._coord: Optional[CoordXY] = None
+        self._coord: CoordXY | None = None
         self.neus: list[NeuronPlacement] = (
             []
         )  # full or half neu, depending on neu allocation
@@ -68,7 +67,7 @@ class CorePlacement:
     @abstractmethod
     def to_frame(
         self,
-    ) -> tuple[FrameArrayType, Optional[FrameArrayType], FrameArrayType]:
+    ) -> tuple[FrameArrayType, FrameArrayType | None, FrameArrayType]:
         pass
 
     @abstractmethod
@@ -176,7 +175,7 @@ class OfflineCorePlacementV2(CorePlacement):
 
     def to_frame(
         self,
-    ) -> tuple[FrameArrayType, Optional[FrameArrayType], FrameArrayType]:
+    ) -> tuple[FrameArrayType, FrameArrayType | None, FrameArrayType]:
         pkt_offset, _ = find_coordxy_shortest_path(self.coord)
 
         # frame_type_1: core config
@@ -185,7 +184,7 @@ class OfflineCorePlacementV2(CorePlacement):
             core_reg_=self.core_config,
         )
 
-        frame_type2: Optional[FrameArrayType] = None
+        frame_type2: FrameArrayType | None = None
         # frame_type_2: lut config
         if self.frontend_core_config.lut_data is not None:
             # assert self.frontend_core_config.snn_ann == SNNMode.ANN, "lut_data should only be provided for ANN mode"

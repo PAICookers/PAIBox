@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Optional
 
 from paicorelib import (
     LCN_EX,
@@ -63,7 +62,7 @@ class Frontend_Core_Config:
     tick_start: int = 1
     tick_duration: int = 0
     tick_initial: int = 0
-    lut_data: Optional[LutData] = None
+    lut_data: LutData | None = None
 
 
 def to_core_reg(
