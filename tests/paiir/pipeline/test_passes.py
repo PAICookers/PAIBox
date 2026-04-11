@@ -11,7 +11,7 @@ in `PAIBox/paibox/paiir/pipeline/passes.py`:
 
 import pytest
 import torch
-from paicorelib import DataSign, DataWidth, PoolingMode, SNNMode
+from paicorelib import DataSign, DataWidth, OutputType, PoolingMode, SNNMode
 from spikingjelly.activation_based import neuron as sj
 from torch import nn
 
@@ -1193,6 +1193,7 @@ class TestSignalDomain:
         )
         out = fused.output_nodes()[0]
         assert pool.output_domain == SignalDomain.VALUE
+        assert pool.neuron_params.output_type == OutputType.VALUE
         assert out.output_domain == SignalDomain.VALUE
 
     def test_standalone_maxpool_preserves_potential_domain(self):
@@ -1218,6 +1219,7 @@ class TestSignalDomain:
         )
         out = fused.output_nodes()[0]
         assert pool.output_domain == SignalDomain.POTENTIAL
+        assert pool.neuron_params.output_type == OutputType.POTENTIAL
         assert out.output_domain == SignalDomain.POTENTIAL
 
     def test_general_add_from_scalar_propagates_value_domain(self):

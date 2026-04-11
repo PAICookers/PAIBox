@@ -456,6 +456,7 @@ def validate_compiled_graph(graph: PAIIRGraph) -> None:
             continue
 
         _validate_lut_mode_consistency(errors, name, node)
+        _validate_output_domain_consistency(errors, name, node)
 
         try:
             node.core_params.validate_data_formats()
@@ -469,6 +470,24 @@ def validate_compiled_graph(graph: PAIIRGraph) -> None:
 
     if errors:
         raise GraphValidationError(errors)
+
+
+def _validate_output_domain_consistency(
+    errors: list[str], name: str, node: OfflineCoreOp
+) -> None:
+    if (domain := node.output_domain) is None:
+        return
+
+    output_type = node.neuron_params.output_type
+    expected = (
+        OutputType.VALUE if domain is SignalDomain.VALUE else OutputType.POTENTIAL
+    )
+    if output_type != expected:
+        errors.append(
+            f"OfflineCoreOp '{name}' output_domain={domain.name} but "
+            f"neuron_params.output_type={output_type.name}"
+        )
+        return
 
 
 def _get_node_output_shape(node: PAIIRNode) -> torch.Size:
@@ -1157,10 +1176,18 @@ def _infer_node_output_format(
             )
         return merge_data_formats(pred_formats)
 
+    output_type = node.neuron_params.output_type
+    if output_type == OutputType.POTENTIAL:
+        return DataSign.SIGNED, DataWidth.WIDTH_32BIT
+
     act = getattr(node, "act", None)
-    if act is not None:
-        return infer_output_format(act)
-    return DataSign.SIGNED, DataWidth.WIDTH_8BIT
+    if act is None:
+        raise ValueError(
+            f"OfflineCoreOp '{node.name}' declares {output_type.name} output but has no "
+            "activation; nodes without act must emit POTENTIAL"
+        )
+
+    return infer_output_format(act)
 
 
 def _infer_node_weight_format(node: OfflineCoreOp) -> DataFormat:
