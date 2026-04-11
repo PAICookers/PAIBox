@@ -17,11 +17,10 @@ Two validation stages live in this module:
 
 import math
 import warnings
-from typing import TypedDict, TypeGuard
+from typing import TypedDict
 
 import torch
 from paicorelib import DataSign, DataWidth, OutputType, SNNMode
-from torch import nn
 
 from ..exceptions import GraphCleanupWarning, GraphValidationError
 from ..ir.add_ops import GeneralAddOp, PotentialAddOp
@@ -52,6 +51,11 @@ from .data_format import (
     merge_data_formats,
 )
 from .fusion_utils import _materialize_shared_sequential
+from .graph_utils import (
+    collect_effective_predecessor_values,
+    is_format_transparent_routing_node,
+    is_standalone_maxpool,
+)
 
 __all__ = [
     "assign_tick_params",
@@ -800,7 +804,7 @@ def propagate_signal_domain(graph: PAIIRGraph) -> None:
             node.output_domain = SignalDomain.POTENTIAL
             continue
 
-        if _is_standalone_maxpool(node):
+        if is_standalone_maxpool(node):
             if known_pred_domains:
                 node.output_domain = known_pred_domains[0]
             continue
@@ -995,19 +999,6 @@ _DEFAULT_ANN_INPUT: DataFormat = (DataSign.SIGNED, DataWidth.WIDTH_8BIT)
 _WEIGHTLESS_WEIGHT_FORMAT: DataFormat = (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)
 
 
-def _is_standalone_maxpool(node: PAIIRNode) -> TypeGuard[StandaloneCompOp]:
-    return isinstance(node, StandaloneCompOp) and isinstance(
-        node.comp, (nn.MaxPool1d, nn.MaxPool2d)
-    )
-
-
-def _is_format_transparent_routing_node(
-    node: PAIIRNode,
-) -> TypeGuard[ConcatOp | ReshapeOp | SplitOp]:
-    """Return whether *node* preserves scalar data format across routing."""
-    return isinstance(node, (ConcatOp, ReshapeOp, SplitOp))
-
-
 def propagate_data_format(
     graph: PAIIRGraph, input_formats: dict[str, DataFormat] | None = None
 ) -> None:
@@ -1073,7 +1064,7 @@ def propagate_data_format(
             continue
         if isinstance(node, OutputNode):
             continue
-        if _is_format_transparent_routing_node(node):
+        if is_format_transparent_routing_node(node):
             # Routing nodes have no `core_params`; their effective formats are
             # propagated in the second pass after predecessor outputs are known.
             continue
@@ -1137,29 +1128,12 @@ def propagate_data_format(
 def _collect_effective_predecessor_formats(
     graph: PAIIRGraph, node_name: str, resolved: dict[str, DataFormat]
 ) -> list[DataFormat]:
-    formats: list[DataFormat] = []
-    for pred_name in graph.predecessors(node_name):
-        formats.extend(_collect_effective_node_formats(graph, pred_name, resolved))
-
-    return formats
-
-
-def _collect_effective_node_formats(
-    graph: PAIIRGraph,
-    node_name: str,
-    resolved: dict[str, DataFormat],
-) -> list[DataFormat]:
-    if node_name in resolved:
-        return [resolved[node_name]]
-
-    node = graph.nodes[node_name]
-    if _is_format_transparent_routing_node(node):
-        formats: list[DataFormat] = []
-        for pred_name in graph.predecessors(node_name):
-            formats.extend(_collect_effective_node_formats(graph, pred_name, resolved))
-        return formats
-
-    return []
+    return collect_effective_predecessor_values(
+        graph,
+        node_name,
+        resolve=lambda _node, name: [resolved[name]] if name in resolved else None,
+        passthrough=is_format_transparent_routing_node,
+    )
 
 
 def _infer_input_node_default(graph: PAIIRGraph, name: str) -> DataFormat:
@@ -1176,7 +1150,7 @@ def _infer_input_node_default(graph: PAIIRGraph, name: str) -> DataFormat:
 def _infer_node_output_format(
     node: OfflineCoreOp, pred_formats: list[DataFormat] | None = None
 ) -> DataFormat:
-    if _is_standalone_maxpool(node):
+    if is_standalone_maxpool(node):
         if not pred_formats:
             raise ValueError(
                 f"Standalone MaxPool '{node.name}' requires predecessor format"

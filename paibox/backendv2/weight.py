@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Union
-
 import numpy as np
 from paicorelib import (
     AddPotentialMode,
@@ -22,7 +20,7 @@ N_WEIGHTS_PER_SRAM = {
 class Weight:
     def __init__(
         self,
-        data: Union[np.ndarray, list[int]],
+        data: np.ndarray | list[int],
         compress_type: WeightCompressType,
         weight_width: DataWidth,
         input_width: DataWidth,

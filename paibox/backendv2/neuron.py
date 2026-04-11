@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Optional
-
 import numpy as np
 from paicorelib import (
     FRAME_DTYPE,
@@ -22,7 +20,7 @@ from .op_node import Neuron
 class NeuronPlacement:
     def __init__(self, neu: list[Neuron]) -> None:
         self.raw_neus: list[Neuron] = neu
-        self.dest_info: Optional[NeuDestInfoV2] = None
+        self.dest_info: NeuDestInfoV2 | None = None
 
 
 class OfflineNeuronPlacement(NeuronPlacement):
@@ -34,10 +32,10 @@ class OfflineNeuronPlacement(NeuronPlacement):
     ):
         super().__init__(neu)
         self.neu_attrs_part1: OfflineNeuFullAttrsV2Part1 = attrs_part1
-        self.neu_attrs_part2: Optional[OfflineNeuFullAttrsV2Part2] = (
+        self.neu_attrs_part2: OfflineNeuFullAttrsV2Part2 | None = (
             attrs_part2 if attrs_part1.neuron_type == NeuronType.FULL else None
         )
-        self.folded_neu_attrs_part1: Optional[OfflineNeuFoldedAttrsV2Part1] = None
+        self.folded_neu_attrs_part1: OfflineNeuFoldedAttrsV2Part1 | None = None
         self.folded_neu_attrs_part2s: list[OfflineNeuFoldedAttrsV2Part2] = []
         self.n_sram_required: int = self.n_sram_required_()
 

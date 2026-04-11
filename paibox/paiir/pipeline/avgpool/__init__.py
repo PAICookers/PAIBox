@@ -9,6 +9,7 @@ from .deploy_scheme import (
     select_avgpool_lif_deployment,
 )
 from .pass_ops import calibrate_avgpool_thresholds
+from .standalone_rewrite import rewrite_standalone_avgpools
 
 __all__ = [
     "AvgPoolDeployScheme",
@@ -19,4 +20,5 @@ __all__ = [
     "score_avgpool_lif_candidates",
     "select_avgpool_lif_candidate",
     "select_avgpool_lif_deployment",
+    "rewrite_standalone_avgpools",
 ]

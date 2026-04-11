@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import AbstractSet, Generic, List, Optional, Sequence, TypeVar
+from collections.abc import Sequence, Set
+from typing import Generic, TypeVar
 
 import numpy as np
 from paicorelib import (
@@ -73,9 +74,9 @@ class DestGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
     def __init__(
         self,
         input_list: Sequence[SOURCE_ELEM],
-        input_nodes: Optional[AbstractSet[SOURCE_NODE]] = None,
+        input_nodes: Set[SOURCE_NODE] | None = None,
     ):
-        self.input_nodes: Optional[set[SOURCE_NODE]] = (
+        self.input_nodes: set[SOURCE_NODE] | None = (
             set(input_nodes) if input_nodes is not None else None
         )
         self.input_list: list[SOURCE_ELEM] = list(input_list)
@@ -111,17 +112,15 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
     def __init__(
         self,
         raw_neus: Sequence[SOURCE_ELEM],
-        nodes: Optional[AbstractSet[SOURCE_NODE]] = None,
+        nodes: Set[SOURCE_NODE] | None = None,
     ):
-        self.nodes: Optional[AbstractSet[SOURCE_NODE]] = (
-            set(nodes) if nodes is not None else None
-        )
+        self.nodes: Set[SOURCE_NODE] | None = set(nodes) if nodes is not None else None
         self.raw_elems: list[SOURCE_ELEM] = list(raw_neus)
         self.elem_set: set[SOURCE_ELEM] = set(raw_neus)
         self.dests: dict[SOURCE_ELEM, "RoutingGroup | OutputGroup| RemapGroup"] = {}
 
     @abstractmethod
-    def add_elem(self, elem: SourceElem) -> Optional[SourceElem]:
+    def add_elem(self, elem: SourceElem) -> SourceElem | None:
         pass
 
     def get_dest_info(
@@ -233,8 +232,8 @@ class RemapGroup(
         self,
         raw_elems: Sequence[RemapElem],
         input_list: Sequence[SourceElem],
-        nodes: Optional[AbstractSet[ReorderNode]] = None,
-        input_nodes: Optional[AbstractSet[SourceNode]] = None,
+        nodes: Set[ReorderNode] | None = None,
+        input_nodes: Set[SourceNode] | None = None,
     ):
         Group.__init__(self)
         DestGroup.__init__(self, input_list, input_nodes)
@@ -244,7 +243,7 @@ class RemapGroup(
         self.source_dict: dict[RemapElem, SourceElem] = dict()
         self.set_remap_dict()
 
-    def add_elem(self, elem: SourceElem) -> Optional[SourceElem]:
+    def add_elem(self, elem: SourceElem) -> SourceElem | None:
         if not isinstance(elem, RemapElem):
             raise TypeError("Only RemapElem can be added to RemapGroup")
         self.raw_elems.append(elem)
@@ -315,8 +314,8 @@ class RoutingGroup(
         self,
         raw_neus: Sequence[Neuron],
         input_list: Sequence[SourceElem],
-        nodes: Optional[AbstractSet[CoreOpNode]] = None,
-        input_nodes: Optional[AbstractSet[SourceNode]] = None,
+        nodes: Set[CoreOpNode] | None = None,
+        input_nodes: Set[SourceNode] | None = None,
     ):
         Group.__init__(self)
         DestGroup.__init__(self, input_list, input_nodes)
@@ -327,18 +326,18 @@ class RoutingGroup(
         self.input_bit_num: int = 0
 
         # self.core_blocks: list[CoreBlock] = []
-        self.last_full_attrs: Optional[OfflineNeuFullAttrsV2Part2] = None
-        self.last_dest_group: Optional[RoutingGroup] = None
-        self.last_dest_index: Optional[int] = None
+        self.last_full_attrs: OfflineNeuFullAttrsV2Part2 | None = None
+        self.last_dest_group: RoutingGroup | None = None
+        self.last_dest_index: int | None = None
 
         self.n_core_required: int = -1
         self.core_placements: list[CorePlacement] = []
 
         self.assigned_cores: dict[CoordXY, CorePlacement] = {}
-        self._multicast_config: Optional[AERPacketZXYCopy] = None
-        self._base_coord: Optional[CoordXY] = None
+        self._multicast_config: AERPacketZXYCopy | None = None
+        self._base_coord: CoordXY | None = None
 
-    def add_elem(self, elem: SourceElem) -> Optional[SourceElem]:
+    def add_elem(self, elem: SourceElem) -> SourceElem | None:
         if not isinstance(elem, Neuron):
             raise TypeError("Only Neuron can be added to RoutingGroup")
         self.raw_elems.append(elem)
@@ -374,7 +373,7 @@ class RoutingGroup(
         stored_base_weight: dict[int, tuple[int, WeightCompressType]],
         current_core: OfflineCorePlacementV2,
         weight_info: WeightInfo,
-        base_weights: List[np.ndarray],
+        base_weights: list[np.ndarray],
         frontend_core_conf: Frontend_Core_Config,
         backend_core_conf: Backend_Core_Config,
     ) -> OfflineCorePlacementV2:
@@ -749,14 +748,14 @@ class InputGroup(Group, SourceGroup[InputElem, InNode]):
     def __init__(
         self,
         raw_elems: Sequence[SourceElem],
-        nodes: Optional[AbstractSet[SourceNode]] = None,
+        nodes: Set[SourceNode] | None = None,
     ):
         Group.__init__(self)
         SourceGroup.__init__(self, raw_elems, nodes)
         self.name: str = f"InputG_{self.id}"
         self.dest_infos: dict[SourceElem, OfflineNeuDestInfoV2] = {}
 
-    def add_elem(self, elem: SourceElem) -> Optional[SourceElem]:
+    def add_elem(self, elem: SourceElem) -> SourceElem | None:
         if not isinstance(elem, InputElem):
             raise TypeError("Only InputElem can be added to InputGroup")
         self.raw_elems.append(elem)
@@ -843,7 +842,7 @@ class OutputGroup(Group, DestGroup[SourceElem, SourceNode]):
     def __init__(
         self,
         input_list: Sequence[SourceElem],
-        input_nodes: Optional[AbstractSet[SourceNode]] = None,
+        input_nodes: Set[SourceNode] | None = None,
     ):
         Group.__init__(self)
         DestGroup.__init__(self, input_list, input_nodes)

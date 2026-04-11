@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -343,8 +342,8 @@ def pool1d_weight_matrix(
 def expanded_path_weight_matrix(
     predecessor: SourceNode,
     target: CoreOpNode,
-    comp: Optional[nn.Module],
-    weight: Optional[Tensor],
+    comp: nn.Module | None,
+    weight: Tensor | None,
     sign: int,
 ) -> np.ndarray:
     # Convert one predecessor path into a dense [out, in] matrix, choosing
@@ -715,7 +714,7 @@ def choose_weight_strategy(
     weight_width: DataWidth,
     input_width: DataWidth,
     add_potential: AddPotentialMode,
-) -> Tuple[Weight, WeightCompressType]:
+) -> tuple[Weight, WeightCompressType]:
     w_dense = Weight(
         weight_of_neu,
         WeightCompressType.DENSE,
@@ -745,7 +744,7 @@ class WeightInfo:
 
 def group_shift_weights_optimized(
     raw_weights: list[np.ndarray],
-) -> Tuple[List[WeightInfo], List[np.ndarray]]:
+) -> tuple[list[WeightInfo], list[np.ndarray]]:
     if not raw_weights:
         return [], []
 
@@ -801,8 +800,8 @@ def group_shift_weights_optimized(
 
 
 def reorder_by_base_weight(
-    group_items: list[tuple[Neuron, np.ndarray]], weights_info: List[WeightInfo]
-) -> Tuple[list[tuple[Neuron, np.ndarray]], List[WeightInfo]]:
+    group_items: list[tuple[Neuron, np.ndarray]], weights_info: list[WeightInfo]
+) -> tuple[list[tuple[Neuron, np.ndarray]], list[WeightInfo]]:
 
     paired = list(zip(group_items, weights_info))
 
