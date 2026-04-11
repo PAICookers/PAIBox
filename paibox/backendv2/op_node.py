@@ -429,13 +429,15 @@ def build_nodes(graph: PAIIRGraph) -> list[AllNode]:
     nodes_map: dict[str, AllNode] = {}
     for raw_node in graph.nodes.values():
         if isinstance(raw_node, OfflineCoreOp):
-            node = CoreOpNode(raw_node.name, raw_node, raw_node.output_shape)
+            node = CoreOpNode(raw_node.name, raw_node, raw_node.output_layouts[0].shape)
         elif isinstance(raw_node, InputNode):
             node = InNode(raw_node.name, raw_node, raw_node.shape)
         elif isinstance(raw_node, OutputNode):
             node = OutNode(raw_node.name, raw_node, raw_node.shape)
         elif isinstance(raw_node, RemapOp):
-            node = ReorderNode(raw_node.name, raw_node, raw_node.output_shape)
+            node = ReorderNode(
+                raw_node.name, raw_node, raw_node.output_layouts[0].shape
+            )
         else:
             raise NotImplementedError(f"Unsupported node type: {type(raw_node)}")
         nodes_map[raw_node.name] = node
@@ -492,6 +494,10 @@ def build_nodes(graph: PAIIRGraph) -> list[AllNode]:
 
     for node in nodes:
         print(f"Node {node.name}({node.shape}):")
+        if isinstance(node, CoreOpNode):
+            print(
+                f"\tComps: {[type(comp).__name__ if comp is not None else None for comp in node.comps]}"
+            )
         print(f"\tPredecessors: {[pred.name for pred in node.predecessors]}")
         print(f"\tSuccessors: {[succ.name for succ in node.successors]}")
         print(

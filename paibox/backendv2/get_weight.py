@@ -22,6 +22,7 @@ from ..paiir.ir import (
     StandaloneActOp,
     StandaloneCompOp,
 )
+from ..paiir.nn.pool import SumPool1d, SumPool2d
 from .op_node import (
     CoreOpNode,
     Neuron,
@@ -434,7 +435,7 @@ def expanded_path_weight_matrix(
             sign,
         )
 
-    if isinstance(comp, nn.AvgPool1d):
+    if isinstance(comp, SumPool1d) or isinstance(comp, nn.AvgPool1d):
         if comp.ceil_mode:
             raise NotImplementedError("AvgPool1d with ceil_mode=True is not supported.")
         kernel_size = to_nd_tuple(comp.kernel_size, 1)
@@ -482,7 +483,7 @@ def expanded_path_weight_matrix(
             sign,
         )
 
-    if isinstance(comp, nn.AvgPool2d):
+    if isinstance(comp, nn.AvgPool2d) or isinstance(comp, SumPool2d):
         if comp.ceil_mode:
             raise NotImplementedError("AvgPool2d with ceil_mode=True is not supported.")
         kernel_size = to_nd_tuple(comp.kernel_size, 2)
