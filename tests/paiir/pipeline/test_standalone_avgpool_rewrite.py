@@ -1,0 +1,298 @@
+import pytest
+import torch
+from paicorelib import DataSign, DataWidth, ThresholdNegMode
+from spikingjelly.activation_based import neuron as sj
+from torch import nn
+
+from paibox.paiir import ANNNodeV25, IFNodeV25, LutLinear
+from paibox.paiir.ir.op_node import SequentialOp, StandaloneCompOp
+from paibox.paiir.lowering.converter import register_neuron
+from paibox.paiir.nn import SumPool2d
+from paibox.paiir.pipeline import compile_to_paiir
+from paibox.paiir.pipeline.data_format import infer_output_format
+
+
+class DirectStandaloneAvgPool(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.pool = nn.AvgPool2d(3, 3)
+
+    def forward(self, x):
+        return self.pool(x)
+
+
+class SpikeStandaloneAvgPool(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.conv = nn.Conv2d(1, 1, 1, bias=False)
+        self.if1 = sj.IFNode(v_threshold=1.0)
+        self.pool = nn.AvgPool2d(3, 3)
+
+    def forward(self, x):
+        return self.pool(self.if1(self.conv(x)))
+
+
+class PotentialStandaloneAvgPool(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.conv = nn.Conv2d(1, 1, 1, bias=False)
+        self.pool = nn.AvgPool2d(3, 3)
+
+    def forward(self, x):
+        return self.pool(self.conv(x))
+
+
+class SpikeStandaloneAvgPoolDivisorOverride(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.conv = nn.Conv2d(1, 1, 1, bias=False)
+        self.if1 = sj.IFNode(v_threshold=1.0)
+        self.pool = nn.AvgPool2d(3, 3, divisor_override=1)
+
+    def forward(self, x):
+        return self.pool(self.if1(self.conv(x)))
+
+
+class UnsignedAnnStandaloneAvgPool(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.conv = nn.Conv2d(1, 1, 1, bias=False)
+        self.relu = nn.ReLU()
+        self.pool = nn.AvgPool2d(3, 3)
+
+    def forward(self, x):
+        return self.pool(self.relu(self.conv(x)))
+
+
+class MixedModeStandaloneAvgPool(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.conv_snn = nn.Conv2d(1, 1, 1, bias=False)
+        self.if1 = sj.IFNode(v_threshold=1.0)
+        self.conv_ann = nn.Conv2d(1, 1, 1, bias=False)
+        self.relu = nn.ReLU()
+        self.pool = nn.AvgPool2d(3, 3)
+
+    def forward(self, x):
+        a = self.if1(self.conv_snn(x))
+        b = self.relu(self.conv_ann(x))
+        return self.pool(torch.cat((a, b), dim=1))
+
+
+class ResidualAnnStandaloneAvgPool(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.conv_a = nn.Conv2d(1, 1, 1, bias=False)
+        self.conv_b = nn.Conv2d(1, 1, 1, bias=False)
+        self.relu = nn.ReLU()
+        self.pool = nn.AvgPool2d(3, 3)
+
+    def forward(self, x):
+        y = self.conv_a(x) + self.conv_b(x)
+        return self.pool(self.relu(y))
+
+
+def _find_rewritten_avgpool_seq(graph) -> SequentialOp:
+    return next(
+        node
+        for node in graph.nodes.values()
+        if isinstance(node, SequentialOp) and isinstance(node.comp, SumPool2d)
+    )
+
+
+def _find_standalone_avgpool(graph) -> StandaloneCompOp:
+    return next(
+        node
+        for node in graph.nodes.values()
+        if isinstance(node, StandaloneCompOp) and isinstance(node.comp, nn.AvgPool2d)
+    )
+
+
+def test_direct_input_avgpool_stays_standalone_when_source_mode_is_unknown() -> None:
+    graph = compile_to_paiir(
+        DirectStandaloneAvgPool(),
+        torch.zeros(1, 1, 6, 6),
+        input_formats={"InputNode_0": (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)},
+    )
+
+    pool = _find_standalone_avgpool(graph)
+    assert isinstance(pool.comp, nn.AvgPool2d)
+
+
+def test_potential_predecessor_avgpool_stays_standalone() -> None:
+    model = PotentialStandaloneAvgPool().eval()
+    with torch.no_grad():
+        model.conv.weight.fill_(1)
+
+    graph = compile_to_paiir(model, torch.zeros(1, 1, 6, 6))
+
+    pool = _find_standalone_avgpool(graph)
+    assert isinstance(pool.comp, nn.AvgPool2d)
+
+
+def test_binary_majority_specializes_spike_predecessor_avgpool2d() -> None:
+    model = SpikeStandaloneAvgPool().eval()
+    with torch.no_grad():
+        model.conv.weight.fill_(1)
+
+    graph = compile_to_paiir(model, torch.zeros(1, 1, 6, 6))
+    seq = _find_rewritten_avgpool_seq(graph)
+
+    assert isinstance(seq.comp, SumPool2d)
+    assert isinstance(seq.act, IFNodeV25)
+    assert seq.act.thres_pos == 1
+    assert seq.act.leak_v == -4
+    assert seq.act.thres_neg_mode == ThresholdNegMode.FLOOR
+    assert seq.act.thres_neg == 0
+    assert infer_output_format(seq.act) == (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)
+    assert not any(
+        isinstance(node, StandaloneCompOp) and isinstance(node.comp, nn.AvgPool2d)
+        for node in graph.nodes.values()
+    )
+
+
+def test_binary_majority_forward_matches_manual_majority_rule() -> None:
+    model = SpikeStandaloneAvgPool().eval()
+    with torch.no_grad():
+        model.conv.weight.fill_(1)
+    graph = compile_to_paiir(model, torch.zeros(1, 1, 6, 6))
+    seq = _find_rewritten_avgpool_seq(graph)
+
+    x = torch.tensor(
+        [
+            [
+                [
+                    [1, 1, 1, 0, 0, 0],
+                    [1, 1, 0, 1, 1, 0],
+                    [0, 0, 0, 1, 0, 0],
+                    [1, 1, 1, 1, 1, 1],
+                    [0, 0, 0, 0, 1, 1],
+                    [0, 0, 0, 0, 0, 0],
+                ]
+            ]
+        ],
+        dtype=torch.int32,
+    )
+    seq.act.reset()
+    actual = seq(x).to(torch.int64)
+    expected = torch.tensor([[[[1, 0], [0, 1]]]], dtype=torch.int64)
+
+    assert torch.equal(actual, expected)
+
+
+def test_binary_majority_falls_back_to_standalone_when_divisor_differs() -> None:
+    model = SpikeStandaloneAvgPoolDivisorOverride().eval()
+    with torch.no_grad():
+        model.conv.weight.fill_(1)
+
+    graph = compile_to_paiir(model, torch.zeros(1, 1, 6, 6))
+
+    pool = _find_standalone_avgpool(graph)
+    assert isinstance(pool.comp, nn.AvgPool2d)
+
+
+def test_unsigned_ann_standalone_avgpool_rewrites_to_exact_ann_path() -> None:
+    graph = compile_to_paiir(UnsignedAnnStandaloneAvgPool(), torch.zeros(1, 1, 6, 6))
+    seq = _find_rewritten_avgpool_seq(graph)
+
+    assert isinstance(seq.comp, SumPool2d)
+    assert isinstance(seq.act, ANNNodeV25)
+    assert infer_output_format(seq.act) == (DataSign.UNSIGNED, DataWidth.WIDTH_8BIT)
+
+    x = torch.tensor(
+        [
+            [
+                [
+                    [0, 1, 2, 10, 20, 30],
+                    [3, 4, 5, 40, 50, 60],
+                    [6, 7, 8, 70, 80, 90],
+                    [100, 110, 120, 130, 140, 150],
+                    [160, 170, 180, 190, 200, 210],
+                    [220, 230, 240, 250, 255, 255],
+                ]
+            ]
+        ],
+        dtype=torch.int32,
+    )
+    seq.act.reset()
+    actual = seq(x).to(torch.int64)
+    expected = torch.round(nn.AvgPool2d(3, 3)(x.to(torch.float32))).to(torch.int64)
+
+    assert torch.equal(actual, expected)
+
+
+def test_signed_ann_standalone_avgpool_rewrites_to_exact_ann_path() -> None:
+    class SignedAnnIdentity(nn.Module):
+        def forward(self, x):
+            return x.to(torch.float32)
+
+    register_neuron(
+        SignedAnnIdentity,
+        converter=lambda _: ANNNodeV25(
+            LutLinear(min_val=-128, max_val=127, output_sign=1)
+        ),
+    )
+
+    class SignedAnnStandaloneAvgPool(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.conv = nn.Conv2d(1, 1, 1, bias=False)
+            self.signed_ann = SignedAnnIdentity()
+            self.pool = nn.AvgPool2d(3, 3)
+
+        def forward(self, x):
+            return self.pool(self.signed_ann(self.conv(x)))
+
+    graph = compile_to_paiir(SignedAnnStandaloneAvgPool(), torch.zeros(1, 1, 6, 6))
+    seq = _find_rewritten_avgpool_seq(graph)
+
+    assert isinstance(seq.comp, SumPool2d)
+    assert isinstance(seq.act, ANNNodeV25)
+    assert infer_output_format(seq.act) == (DataSign.SIGNED, DataWidth.WIDTH_8BIT)
+
+    x = torch.tensor(
+        [
+            [
+                [
+                    [-128, -120, -64, -10, 0, 10],
+                    [-127, -100, -32, -8, 8, 32],
+                    [-90, -45, -1, 1, 45, 90],
+                    [-70, -35, -5, 5, 35, 70],
+                    [-16, -8, -4, 4, 8, 16],
+                    [0, 20, 40, 60, 100, 127],
+                ]
+            ]
+        ],
+        dtype=torch.int32,
+    )
+    seq.act.reset()
+    actual = seq(x).to(torch.int64)
+    expected = torch.round(nn.AvgPool2d(3, 3)(x.to(torch.float32))).to(torch.int64)
+
+    assert torch.equal(actual, expected)
+
+
+def test_accumulate_ann_predecessor_avgpool_rewrites_to_exact_ann_path() -> None:
+    model = ResidualAnnStandaloneAvgPool().eval()
+    with torch.no_grad():
+        model.conv_a.weight.fill_(1)
+        model.conv_b.weight.fill_(1)
+
+    graph = compile_to_paiir(model, torch.zeros(1, 1, 6, 6))
+    seq = _find_rewritten_avgpool_seq(graph)
+
+    assert isinstance(seq.comp, SumPool2d)
+    assert isinstance(seq.act, ANNNodeV25)
+    assert infer_output_format(seq.act) == (DataSign.UNSIGNED, DataWidth.WIDTH_8BIT)
+
+
+def test_mixed_mode_standalone_avgpool_stays_standalone() -> None:
+    model = MixedModeStandaloneAvgPool().eval()
+    with torch.no_grad():
+        model.conv_snn.weight.fill_(1)
+        model.conv_ann.weight.fill_(1)
+
+    graph = compile_to_paiir(model, torch.zeros(1, 1, 6, 6))
+
+    pool = _find_standalone_avgpool(graph)
+    assert isinstance(pool.comp, nn.AvgPool2d)

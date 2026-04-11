@@ -6,9 +6,9 @@ PAIIR conversion pipeline:
 1. :func:`torch_to_paiir` -- FX trace and 1:1 node mapping
 2. :func:`specialize_general_adds` -- narrow expression-layer add nodes into deployable add IR where possible
 3. :func:`fuse_to_offline_cores` -- choose topology, rewrite nodes, and apply AvgPool deployment params
-4. :func:`validate_graph` -- early structural cleanup / validation on the fused graph
-5. :func:`propagate_signal_domain` -- infer semantic output domains
-6. :func:`propagate_data_format` -- infer and fill data format parameters
+4. analysis phase -- validate graph, infer signal domains, infer data formats
+5. standalone-topology rewrites that depend on those analyses
+6. re-run the analysis phase if a rewrite changed the graph
 7. :func:`assign_tick_params` -- assign timing parameters
 8. :func:`calibrate_avgpool_thresholds` -- optional AvgPool threshold refinement
 9. :func:`validate_compiled_graph` -- final post-pass validation before returning the graph
@@ -51,6 +51,7 @@ from torch import Tensor, nn
 
 from ..ir.graph import PAIIRGraph
 from ..lowering.converter import torch_to_paiir
+from .avgpool import rewrite_standalone_avgpools
 from .data_format import DataFormat
 from .layout_chain_canonicalization import canonicalize_layout_chains
 from .layout_cross_node_elision import elide_layout_invisible_reshapes
@@ -65,6 +66,10 @@ from .passes import (
     validate_compiled_graph,
     validate_deployable_graph,
     validate_graph,
+)
+from .rewrite_phase import (
+    AnalysisDependentRewritePass,
+    run_analysis_dependent_rewrite_phase,
 )
 
 __all__ = ["compile_to_paiir", "CompileConfig"]
@@ -117,10 +122,9 @@ def compile_to_paiir(
        into deployable add IR where possible
     3. :func:`fuse_to_offline_cores` -- choose topology, rewrite nodes, and
        apply AvgPool deployment params
-    4. :func:`validate_graph` -- structural cleanup / validation on the fused
-       graph, before later passes add compile-time annotations
-    5. :func:`propagate_signal_domain` -- infer semantic output domains
-    6. :func:`propagate_data_format` -- infer and fill data format parameters
+    4. analysis phase -- validate graph, infer signal domains, infer data formats
+    5. standalone AvgPool auto-rewrite that depends on those analyses
+    6. re-run the analysis phase if the rewrite changed the graph
     7. :func:`assign_tick_params` -- assign timing parameters
     8. :func:`calibrate_avgpool_thresholds` -- (experimental) refine shared-core
        AvgPool+LIF thresholds via offline integer search
@@ -160,7 +164,6 @@ def compile_to_paiir(
             split-core AvgPool+LIF deployment when exact sum-domain LUT coding
             is possible. Explicit kwarg overrides
             ``CompileConfig.enable_split_avgpool_lif``.
-
     Returns:
         A compiled :class:`PAIIRGraph` with fused nodes and all compile-time
         annotations filled.
@@ -229,33 +232,77 @@ def compile_to_paiir(
         graph, _enable_split_avgpool_lif, _enable_avgpool_calibration
     )
 
-    # Step 6: Early validation on the fused graph. This stage is allowed to
-    # clean up disconnected regions and enforces only the invariants needed
-    # before later passes run.
-    validate_graph(graph)
+    # Step 6: Run post-fusion rewrites that depend on graph analyses. This
+    # phase owns the "analyze -> rewrite -> re-analyze" control flow so future
+    # topology rewrites can be added without growing ad-hoc replay logic in the
+    # main compile function.
+    graph = _run_analysis_dependent_rewrite_phase(
+        graph, _input_formats, _post_fusion_rewrite_passes()
+    )
 
-    # Step 7: Infer semantic output domains
-    propagate_signal_domain(graph)
-
-    # Step 8: Infer and fill data format parameters
-    propagate_data_format(graph, _input_formats)
-
-    # Step 9: Assign timing parameters
+    # Step 7: Assign timing parameters
     assign_tick_params(graph, _tick_duration, _auto_reset, tick_overrides)
 
-    # Step 10: Calibrate AvgPool+LIF thresholds (experimental, off by default)
+    # Step 8: Calibrate AvgPool+LIF thresholds (experimental, off by default)
     if _enable_avgpool_calibration:
         calibrate_avgpool_thresholds(graph)
 
-    # Step 11: Final validation after all compile-time annotations are filled.
+    # Step 9: Final validation after all compile-time annotations are filled.
     # Unlike validate_graph(), this stage assumes the graph is in its final
     # compiled form and checks shape/dims completeness, propagated signal
     # domains, propagated data formats, tick parameters, and connectivity.
     validate_compiled_graph(graph)
 
-    # Step 12: The backend only accepts deployable IR nodes. Expression-layer
+    # Step 10: The backend only accepts deployable IR nodes. Expression-layer
     # nodes such as GeneralAddOp must have been specialized away by now.
     validate_deployable_graph(graph)
 
     graph.eval()
     return graph
+
+
+def _run_mid_compile_analyses(
+    graph: PAIIRGraph, input_formats: dict[str, DataFormat] | None
+) -> PAIIRGraph:
+    """Run the standard analysis phase for a topology-stable graph.
+
+    This helper gives compile-time rewrites one explicit place to "rewind" to
+    when they invalidate previously-computed graph annotations. Any pass that
+    rewrites topology after fusion but before scheduling can re-enter this
+    phase instead of manually remembering which analyses must be replayed.
+    """
+
+    validate_graph(graph)
+    propagate_signal_domain(graph)
+    propagate_data_format(graph, input_formats)
+    return graph
+
+
+def _post_fusion_rewrite_passes() -> tuple[AnalysisDependentRewritePass, ...]:
+    """Return the ordered post-fusion rewrite passes.
+
+    Keeping pass declaration separate from phase execution lets us add future
+    rewrites by appending one new spec instead of editing the replay logic.
+    """
+
+    return (
+        AnalysisDependentRewritePass(
+            name="rewrite_standalone_avgpools", func=rewrite_standalone_avgpools
+        ),
+    )
+
+
+def _run_analysis_dependent_rewrite_phase(
+    graph: PAIIRGraph,
+    input_formats: dict[str, DataFormat] | None,
+    rewrite_passes: tuple[AnalysisDependentRewritePass, ...],
+    max_rounds: int = 4,
+) -> PAIIRGraph:
+    """Run the post-fusion rewrite phase that depends on graph analyses."""
+
+    return run_analysis_dependent_rewrite_phase(
+        graph,
+        refresh_analyses=lambda g: _run_mid_compile_analyses(g, input_formats),
+        rewrite_passes=rewrite_passes,
+        max_rounds=max_rounds,
+    )
