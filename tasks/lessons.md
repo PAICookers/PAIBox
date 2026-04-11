@@ -1,5 +1,8 @@
 # Lessons
 
+- When a backend package cleanup is triggered by an interface migration such as `TensorLayout`, include the backend-focused regression tests in the adaptation scope instead of treating them as out-of-scope follow-up work.
+- When tightening `paibox.backendv2` public imports, keep `backendv2/__init__.py` minimal and only re-export `Mapper` unless the user explicitly asks to promote more backend internals.
+- When the user narrows the task to only `TensorLayout`-driven breakages, stop adapting unrelated backend tests or allocation logic and revert any exploratory changes outside that interface-migration scope.
 - When creating a new working branch for this project, use a simple task-style prefix such as `feat-...` or `bugfix-...` rather than nested names like `codex/...`.
 - When the user has not explicitly asked for a commit, keep code changes uncommitted and ask before creating any git commit, even on an isolated working branch.
 - When a helper is used to narrow graph-node unions inside compile passes, annotate it with a broad input type and `TypeGuard[...]` so static typing matches the control-flow narrowing.
@@ -58,3 +61,10 @@
 - When introducing indexed metadata containers such as `input_layouts` / `output_layouts`, avoid redundant accessor methods like `input_layout()` / `output_layout()` whose names add little and can blur the difference between one layout and the tuple of layouts; prefer direct indexed access or clearly prefixed getters.
 - When adding diagnostic APIs, prefer extending an existing obvious entrypoint such as `summary(verbose=...)` over introducing a second near-duplicate public method like `format_summary()` unless callers genuinely need separate machine-readable and printed forms.
 - When a single diagnostic entrypoint like `summary(verbose=...)` already exists, do not keep an extra private builder like `_summary_text()` unless it has real independent reuse; inline the behavior into the main method to keep the API and implementation shape aligned.
+- When the user explicitly forbids changes under `backendv2/**`, treat any design that depends on backendv2 support extensions as invalid and re-plan immediately around a pure-frontend solution.
+- When a policy selector does not need string-like behavior at runtime, prefer a plain `Enum` over subclassing `str, Enum`; keep string compatibility at parse boundaries only if needed.
+- When a compiler pass rewrites graph nodes rather than merely annotating them, name it as a rewrite/rewrite-mode flow rather than using vaguer “specialize/policy” names.
+- When a compile pipeline needs to re-run earlier analyses after topology rewrites, prefer a small phase abstraction tailored to that exact pattern over prematurely wiring the whole flow into a generic pass manager.
+- When compile-time graph queries start being reused across passes, collect them into a broadly named utility module such as `graph_utils.py` rather than leaving narrowly named one-off traversal files behind.
+- When a post-analysis rewrite is improving an already-deployable graph form, treat it as an opportunistic optimization: rewrite only when the source semantics are known well enough, and leave the original node untouched instead of turning unsupported cases into compile errors.
+- When inferring an upstream producer mode for a rewrite, key off propagated graph semantics such as `output_domain` plus activation-bearing offline-core behavior rather than hard-coding a small subclass list like `SequentialOp` / `StandaloneActOp`.
