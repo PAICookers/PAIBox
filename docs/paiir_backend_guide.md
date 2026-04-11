@@ -350,6 +350,13 @@ class TensorLayout:
 
 后端应把它视为节点输出语义，而不是直接等同于芯片寄存器里的 `OutputType`。对有 `neuron_params` 的离线核节点，两者通常一致；对 `InputNode`、`OutputNode`、`ConcatOp`、`SplitOp`、`ReshapeOp`、`GeneralAddOp` 这类非神经元或 routing 节点，则只能使用 `SignalDomain`。
 
+当前实现约定还更进一步：
+
+- `output_domain` 是 frontend graph 语义的 source of truth
+- 对 `OfflineCoreOp`，backend-visible `neuron_params.output_type` 应与 `output_domain` 保持一致
+- `validate_compiled_graph()` 会把这种一致性当作 compiled-graph 契约的一部分来检查
+- 因此后端若消费离线核节点，读取 `neuron_params.output_type` 时可以假设它已经与前端传播得到的 `output_domain` 对齐，而不需要自己再为 `StandaloneCompOp` / `StandaloneActOp` / `AccumulateOp` 等节点重复推断 VALUE/POTENTIAL 语义
+
 ### OfflineCoreOp：离线核参数
 
 每个 `OfflineCoreOp` 映射到芯片上的一个离线核。后端需要提取三类信息：
@@ -768,6 +775,7 @@ class LutData:
 - `strict=True` 才表示遇到不支持算子会立即失败
 - `strict=False` 下图中可能存在被旁路的 unsupported 节点，此时返回图适合做结构分析或部分验证，但不应自动等价理解为“全图已严格支持”
 - `graph.summary()`、`graph.predecessors()`、`graph.successors()`、`graph.get_edge_output_layout(...)`、`core_params`、`neuron_params`、`lut_data` 等接口，是后端读取部署信息的主要入口
+- 对 `OfflineCoreOp`，若 `output_domain` 与 `neuron_params.output_type` 不一致，`validate_compiled_graph()` 会直接报错；不要依赖这种不一致状态进入 backend
 - 若需要扩展编译流程，请优先在 `paibox.paiir.pipeline.passes` 中新增或调整 pass；`pass_manager` 目前不驱动默认编译路径
 - 当前分支已经将 `OpNode` 的 shape/dims 正式接口切换为 `input_layouts/output_layouts`；`backendv2` 尚未适配这次接口变化，需要单独跟进
 - `Edge.src_port` 与 `Edge.dst_port` 仍然保留：
