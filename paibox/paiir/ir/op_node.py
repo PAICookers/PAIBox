@@ -16,6 +16,7 @@ Add-specific IR nodes live in :mod:`paibox.paiir.ir.add_ops`.
 """
 
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from typing import TYPE_CHECKING, ClassVar
 
 import torch
@@ -26,6 +27,7 @@ from .calc_params import LutData, NeuronParams, OfflineCoreParams, OnlineCorePar
 from .core_neuron import CoreNeuronV25
 from .ir_base import PAIIRNode, TensorLayout
 from .reshape_semantics import materialize_logical_layout
+from .signal_domain import SignalDomain
 
 if TYPE_CHECKING:
     from ..pipeline.avgpool.metadata import AvgPoolDeployMetadata
@@ -214,6 +216,21 @@ class OfflineCoreOp(OpNode):
         """Override non-semantic compile-time state from another params object."""
         self.core_params.override_compile_state_from(other)
 
+    def _with_domain_derived_output_type(self, params: NeuronParams) -> NeuronParams:
+        """Derive backend-visible output type from propagated frontend domain.
+
+        ``output_domain`` is the frontend semantic source of truth for whether a
+        node emits VALUE- or POTENTIAL-domain data. When that annotation is
+        available, keep backend-visible ``output_type`` aligned with it.
+        """
+        if self.output_domain is None:
+            return params
+
+        if self.output_domain is SignalDomain.VALUE:
+            return replace(params, output_type=OutputType.VALUE)
+        else:
+            return replace(params, output_type=OutputType.POTENTIAL)
+
     @property
     def weights(self) -> list[Tensor] | None:
         """Raw parameter weight tensors, one per input path.
@@ -244,7 +261,9 @@ class OfflineCoreOp(OpNode):
 
         Default: potential output (no neuron/activation).
         """
-        return NeuronParams(output_type=OutputType.POTENTIAL)
+        return self._with_domain_derived_output_type(
+            NeuronParams(output_type=OutputType.POTENTIAL)
+        )
 
     @property
     def lut_data(self) -> LutData | None:
@@ -309,7 +328,9 @@ class SequentialOp(OfflineCoreOp):
     @property
     def neuron_params(self) -> NeuronParams:
         """Neuron configuration for the backend."""
-        return self.act.to_neuron_params(bias=_get_bias(self.comp))
+        return self._with_domain_derived_output_type(
+            self.act.to_neuron_params(bias=_get_bias(self.comp))
+        )
 
     def extra_repr(self) -> str:
         return f"{super().extra_repr()}, comp={type(self.comp).__name__}, act={type(self.act).__name__}"
@@ -403,7 +424,9 @@ class AccumulateOp(OfflineCoreOp):
                 term = sign * b
                 fused_bias = term if fused_bias is None else fused_bias + term
 
-        return self.act.to_neuron_params(bias=fused_bias)
+        return self._with_domain_derived_output_type(
+            self.act.to_neuron_params(bias=fused_bias)
+        )
 
     def extra_repr(self) -> str:
         ops = ", ".join(type(op).__name__ for op in self.comps)
@@ -541,6 +564,18 @@ class StandaloneCompOp(OfflineCoreOp):
             return _tensor_value_range(w)
         return None
 
+    @property
+    def neuron_params(self) -> NeuronParams:
+        """Backend-visible neuron metadata for standalone compute ops.
+
+        Standalone compute ops have no explicit activation stage, so their
+        backend-visible ``output_type`` must be derived from the propagated
+        graph semantic domain instead of using a hard-coded default.
+        """
+        return self._with_domain_derived_output_type(
+            NeuronParams(output_type=OutputType.POTENTIAL)
+        )
+
     def extra_repr(self) -> str:
         return f"{super().extra_repr()}, comp={type(self.comp).__name__}"
 
@@ -583,7 +618,7 @@ class StandaloneActOp(OfflineCoreOp):
     @property
     def neuron_params(self) -> NeuronParams:
         """Neuron configuration for the backend."""
-        return self.act.to_neuron_params()
+        return self._with_domain_derived_output_type(self.act.to_neuron_params())
 
     def extra_repr(self) -> str:
         return f"{super().extra_repr()}, act={type(self.act).__name__}"

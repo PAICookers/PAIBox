@@ -2,15 +2,20 @@
 
 import pytest
 import torch
-from paicorelib import DataSign, DataWidth, ThresholdNegMode
+from paicorelib import DataSign, DataWidth, OutputType, ThresholdNegMode
 from spikingjelly.activation_based import neuron as sj
 from torch import nn
 
+from paibox.paiir.ir.add_ops import PotentialAddOp
+from paibox.paiir.ir.calc_params import NeuronParams
 from paibox.paiir.ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
+from paibox.paiir.ir.graph import PAIIRGraph
+from paibox.paiir.ir.ir_base import InputNode, OutputNode
 from paibox.paiir.ir.lut_activation import LutReLU, LutSigmoid, LutTanh
 from paibox.paiir.ir.op_node import (
     AccumulateOp,
     OfflineCoreOp,
+    ReshapeOp,
     SequentialOp,
     StandaloneActOp,
     StandaloneCompOp,
@@ -328,6 +333,76 @@ class TestPropagateDataFormatANN:
         op = accum[0]
         assert op.core_params.output_sign == DataSign.UNSIGNED
         assert op.core_params.output_width == DataWidth.WIDTH_8BIT
+
+    def test_potential_width_propagates_through_routing_nodes(self):
+        graph = PAIIRGraph("potential_routing")
+        inp = InputNode(shape=torch.Size((1, 1, 4, 4)))
+        comp_main = StandaloneCompOp(nn.Conv2d(1, 1, 1, bias=False))
+        reshape_main = ReshapeOp(lambda _: torch.Size((1, 1, 1, 4, 4)))
+        act = StandaloneActOp(ANNNodeV25(lut=LutReLU()))
+        comp_skip = StandaloneCompOp(nn.Conv2d(1, 1, 1, bias=False))
+        reshape_skip = ReshapeOp(lambda _: torch.Size((1, 1, 1, 4, 4)))
+        add = PotentialAddOp((1, 1))
+        out = OutputNode(shape=torch.Size((1, 1, 1, 4, 4)))
+
+        for node in (
+            inp,
+            comp_main,
+            reshape_main,
+            act,
+            comp_skip,
+            reshape_skip,
+            add,
+            out,
+        ):
+            graph.add_node(node)
+
+        graph.add_edge(inp.name, comp_main.name)
+        graph.add_edge(comp_main.name, reshape_main.name)
+        graph.add_edge(reshape_main.name, act.name)
+        graph.add_edge(reshape_main.name, add.name)
+        graph.add_edge(inp.name, comp_skip.name)
+        graph.add_edge(comp_skip.name, reshape_skip.name)
+        graph.add_edge(reshape_skip.name, add.name)
+        graph.add_edge(add.name, out.name)
+
+        propagate_data_format(
+            graph, input_formats={inp.name: (DataSign.SIGNED, DataWidth.WIDTH_8BIT)}
+        )
+
+        assert comp_main.core_params.output_sign == DataSign.SIGNED
+        assert comp_main.core_params.output_width == DataWidth.WIDTH_32BIT
+        assert act.core_params.input_sign == DataSign.SIGNED
+        assert act.core_params.input_width == DataWidth.WIDTH_32BIT
+        assert act.core_params.output_width == DataWidth.WIDTH_8BIT
+        assert add.core_params.input_sign == DataSign.SIGNED
+        assert add.core_params.input_width == DataWidth.WIDTH_32BIT
+        assert add.core_params.output_width == DataWidth.WIDTH_32BIT
+
+    def test_value_output_without_activation_raises(self):
+        class ValueWithoutActOp(OfflineCoreOp):
+            @property
+            def neuron_params(self) -> NeuronParams:
+                return NeuronParams(output_type=OutputType.VALUE)
+
+        graph = PAIIRGraph("value_without_activation")
+        inp = InputNode(shape=torch.Size((1, 1, 4, 4)))
+        op = ValueWithoutActOp()
+        out = OutputNode(shape=torch.Size((1, 1, 4, 4)))
+
+        for node in (inp, op, out):
+            graph.add_node(node)
+
+        graph.add_edge(inp.name, op.name)
+        graph.add_edge(op.name, out.name)
+
+        with pytest.raises(
+            ValueError,
+            match="declares VALUE output but has no activation",
+        ):
+            propagate_data_format(
+                graph, input_formats={inp.name: (DataSign.SIGNED, DataWidth.WIDTH_8BIT)}
+            )
 
 
 class TestPropagateDataFormatResidual:

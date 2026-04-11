@@ -159,3 +159,14 @@ debug
 .idea/
 
 output/
+
+# Local task/session notes
+tasks/
+
+# Local agent/tooling files
+.claude/
+.qwen/
+.codex
+AGENTS.md
+CLAUDE.md
+QWEN.md
