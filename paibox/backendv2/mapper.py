@@ -7,7 +7,7 @@ from paicorelib import FrameArrayType
 
 from paibox.paiir import PAIIRGraph
 
-from .conv_tile import tile_conv
+from .group_tile import tile_groups
 from .op_node import AllNode, InputElem, Neuron, RemapElem, build_nodes
 from .rg_build import build_groups
 from .route_solver import route_solve
@@ -236,7 +236,7 @@ class Mapper:
         # determine which rg each neuron sends to
         # dests and input_list set
         # other properties remain unset
-        all_groups = tile_conv(all_groups)
+        all_groups = tile_groups(all_groups)
         for grp in all_groups:
             print(grp)
 
