@@ -17,11 +17,10 @@ Two validation stages live in this module:
 
 import math
 import warnings
-from typing import TypedDict, TypeGuard
+from typing import TypedDict
 
 import torch
 from paicorelib import DataSign, DataWidth, OutputType, SNNMode
-from torch import nn
 
 from ..exceptions import GraphCleanupWarning, GraphValidationError
 from ..ir.add_ops import GeneralAddOp, PotentialAddOp

@@ -121,13 +121,13 @@ class InNode(BaseNode["InputNode"]):
         super().__init__(name, shape, raw_node)
 
     def set_io_bit_num(self, direction: int):
-        assert direction == 1, (
-            "InNode should only call set_io_bit_num with direction 1 (from successors)"
-        )
+        assert (
+            direction == 1
+        ), "InNode should only call set_io_bit_num with direction 1 (from successors)"
         succ_input_bit_nums = set([succ.input_bit_num for succ in self.successors])
-        assert len(succ_input_bit_nums) == 1, (
-            "All successors must have the same input bit num"
-        )
+        assert (
+            len(succ_input_bit_nums) == 1
+        ), "All successors must have the same input bit num"
 
         self.output_bit_num_ = succ_input_bit_nums.pop()
 
@@ -137,13 +137,13 @@ class OutNode(BaseNode["OutputNode"]):
         super().__init__(name, shape, raw_node)
 
     def set_io_bit_num(self, direction: int):
-        assert direction == 0, (
-            "OutNode should only call set_io_bit_num with direction 0 (from predecessors)"
-        )
+        assert (
+            direction == 0
+        ), "OutNode should only call set_io_bit_num with direction 0 (from predecessors)"
         pred_output_bit_nums = set([pred.output_bit_num for pred in self.predecessors])
-        assert len(pred_output_bit_nums) == 1, (
-            "All predecessors must have the same output bit num"
-        )
+        assert (
+            len(pred_output_bit_nums) == 1
+        ), "All predecessors must have the same output bit num"
 
         self.input_bit_num_ = pred_output_bit_nums.pop()
 
@@ -157,22 +157,22 @@ class ReorderNode(BaseNode[RemapOp]):
 
     def get_reorder_info(self) -> dict["SourceElem", "RemapElem"]:
         if isinstance(self.raw_node, ReshapeOp):
-            assert len(self.predecessors) == 1, (
-                "ReshapeNode should have exactly one predecessor"
-            )
+            assert (
+                len(self.predecessors) == 1
+            ), "ReshapeNode should have exactly one predecessor"
             pred = self.predecessors[0]
             pred_len = pred.shape.numel()
-            assert pred_len == self.shape.numel(), (
-                "Total number of elements must match for reshape"
-            )
+            assert (
+                pred_len == self.shape.numel()
+            ), "Total number of elements must match for reshape"
 
             # Drive the real reshape op over an index tensor so backend reorder
             # routing follows the same logical-layout semantics as the IR.
             flat_indices = torch.arange(pred_len, dtype=torch.int64).reshape(pred.shape)
             reordered = self.raw_node(flat_indices).reshape(-1)
-            assert reordered.numel() == pred_len, (
-                "ReshapeOp index remap must preserve element count"
-            )
+            assert (
+                reordered.numel() == pred_len
+            ), "ReshapeOp index remap must preserve element count"
 
             reorder_map: dict["SourceElem", "RemapElem"] = {}
             for dst_idx, src_idx in enumerate(reordered.tolist()):
@@ -222,9 +222,9 @@ class ReorderNode(BaseNode[RemapOp]):
         if direction == 1:
             # Get input bit num from successors
             succ_input_bit_nums = set([succ.input_bit_num for succ in self.successors])
-            assert len(succ_input_bit_nums) == 1, (
-                "All successors must have the same input bit num"
-            )
+            assert (
+                len(succ_input_bit_nums) == 1
+            ), "All successors must have the same input bit num"
             self.output_bit_num_ = succ_input_bit_nums.pop()
             self.input_bit_num_ = self.output_bit_num_
         elif direction == 0:
@@ -285,9 +285,9 @@ class CoreOpNode(BaseNode["OfflineCoreOp"]):
         if isinstance(neu_attrs.leak_v, torch.Tensor):
             assert self.shape[0] == 1, "Batch size > 1 not supported for tensor leak_v"
             out_channel = self.shape[1]
-            assert neu_attrs.leak_v.numel() == out_channel, (
-                "leak_v tensor size mismatch"
-            )
+            assert (
+                neu_attrs.leak_v.numel() == out_channel
+            ), "leak_v tensor size mismatch"
             cur_channel = idx // (self.shape.numel() // self.shape[1])
             leak_v = neu_attrs.leak_v[cur_channel].item()
         else:
@@ -319,9 +319,9 @@ class CoreOpNode(BaseNode["OfflineCoreOp"]):
 
     def set_io_bit_num(self, direction: int):
 
-        assert direction == -1, (
-            "CoreOpNode should not call set_io_bit_num with direction 0 or 1, as its input and output bit num are determined by its own configuration rather than predecessors or successors"
-        )
+        assert (
+            direction == -1
+        ), "CoreOpNode should not call set_io_bit_num with direction 0 or 1, as its input and output bit num are determined by its own configuration rather than predecessors or successors"
         if self.core_config().add_potential == AddPotentialMode.NORMAL:
             input_bit_num = 2 ** self.core_config().input_width
         else:
@@ -477,13 +477,13 @@ def build_nodes(graph: PAIIRGraph) -> list[AllNode]:
         (node, -1) for node in nodes if isinstance(node, CoreOpNode)
     ]
     unset_nodes -= set(node for node, _ in node_to_process)
-    assert len(node_to_process) > 0, (
-        "There should be at least one CoreOpNode to dictate the input/output bit num for the whole graph"
-    )
+    assert (
+        len(node_to_process) > 0
+    ), "There should be at least one CoreOpNode to dictate the input/output bit num for the whole graph"
     while unset_nodes or len(node_to_process) > 0:
-        assert len(node_to_process) > 0, (
-            "There is a cycle in the graph or some nodes are not connected to CoreOpNodes"
-        )
+        assert (
+            len(node_to_process) > 0
+        ), "There is a cycle in the graph or some nodes are not connected to CoreOpNodes"
         node, direction = node_to_process.pop(0)
         node.set_io_bit_num(direction)
         for succ in node.successors:

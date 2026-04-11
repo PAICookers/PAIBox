@@ -1,4 +1,3 @@
-import pytest
 import torch
 from paicorelib import DataSign, DataWidth, ThresholdNegMode
 from spikingjelly.activation_based import neuron as sj

@@ -24,9 +24,7 @@ def test_rewrite_phase_replays_analyses_until_fixed_point() -> None:
     result = run_analysis_dependent_rewrite_phase(
         graph,
         refresh_analyses=refresh,
-        rewrite_passes=(
-            AnalysisDependentRewritePass("rewrite_once", rewrite_once),
-        ),
+        rewrite_passes=(AnalysisDependentRewritePass("rewrite_once", rewrite_once),),
     )
 
     assert result is not graph

@@ -114,9 +114,7 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
         raw_neus: Sequence[SOURCE_ELEM],
         nodes: Set[SOURCE_NODE] | None = None,
     ):
-        self.nodes: Set[SOURCE_NODE] | None = (
-            set(nodes) if nodes is not None else None
-        )
+        self.nodes: Set[SOURCE_NODE] | None = set(nodes) if nodes is not None else None
         self.raw_elems: list[SOURCE_ELEM] = list(raw_neus)
         self.elem_set: set[SOURCE_ELEM] = set(raw_neus)
         self.dests: dict[SOURCE_ELEM, "RoutingGroup | OutputGroup| RemapGroup"] = {}
