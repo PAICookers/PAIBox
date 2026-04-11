@@ -27,6 +27,7 @@ from paibox.paiir.ir.op_node import (
     StandaloneCompOp,
     TensorLayout,
 )
+from paibox.paiir.ir.signal_domain import SignalDomain
 from paibox.paiir.pipeline.avgpool.compensation import (
     apply_avgpool_lut_compensation,
     apply_avgpool_snn_compensation,
@@ -167,6 +168,15 @@ class TestWeights:
         op = StandaloneCompOp(comp=nn.AvgPool2d(2))
         op.output_layouts = (TensorLayout(torch.Size((1, 3, 4, 4)), (0, 1, 2, 3)),)
         assert op.weights is None
+
+    def test_standalone_comp_neuron_params_follow_output_domain(self):
+        op = StandaloneCompOp(comp=nn.MaxPool2d(2))
+
+        op.output_domain = SignalDomain.VALUE
+        assert op.neuron_params.output_type == OutputType.VALUE
+
+        op.output_domain = SignalDomain.POTENTIAL
+        assert op.neuron_params.output_type == OutputType.POTENTIAL
 
     def test_add_op_returns_none(self):
         op = PotentialAddOp(op_signs=(1, -1))
