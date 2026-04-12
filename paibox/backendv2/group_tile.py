@@ -398,7 +398,7 @@ def try_tile_group(
     print(f"Original input elements: {len(origin_grp.input_list)}")
     print(f"Tiled groups (num = {len(tiled_groups)}):")
     for grp in tiled_groups:
-        print(f"{grp.info("   ")}")
+        print(f"{grp.info('   ')}")
     return copied_input_elems, tiled_groups
 
 
