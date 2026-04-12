@@ -9,6 +9,8 @@ from paicorelib import LCN_EX
 
 from paibox.paiir.nn.pool import SumPool1d, SumPool2d
 
+from ..paiir.ir.add_ops import PotentialAddOp
+from ..paiir.ir.op_node import AccumulateOp, StandaloneActOp
 from .op_node import (
     CoreOpNode,
     CustomIndex,
@@ -43,6 +45,8 @@ TILE_COMP_TYPES = (
 )
 COMP_1D_TYPES = (torch.nn.Conv1d, SumPool1d, torch.nn.MaxPool1d)
 COMP_2D_TYPES = (torch.nn.Conv2d, SumPool2d, torch.nn.MaxPool2d)
+
+POTENTIAL_OP_TYPES = (PotentialAddOp, StandaloneActOp, AccumulateOp)
 
 
 @dataclass(frozen=True)
@@ -242,23 +246,10 @@ def build_tile_group(
     return copied_input_elems, tiled_groups
 
 
-def try_tile_group(
-    origin_grp: RoutingGroup,
+def try_tile_conv(
+    in_node: SourceNode,
+    out_node: CoreOpNode,
 ) -> tuple[list[SourceElem], list[RoutingGroup]]:
-    print(
-        f"try to tile group with input nodes {origin_grp.input_nodes} and output nodes {origin_grp.nodes}"
-    )
-    if origin_grp.input_nodes is None or origin_grp.nodes is None:
-        raise ValueError(
-            "Input nodes and output nodes of the group must be built before tiling."
-        )
-    if len(origin_grp.input_nodes) != 1 or len(origin_grp.nodes) != 1:
-        raise ValueError(
-            "Only groups with one input node and one output node are supported for tiling."
-        )
-    in_node = next(iter(origin_grp.input_nodes))
-    out_node = next(iter(origin_grp.nodes))
-
     if len(out_node.comps) != 1:
         raise ValueError(
             "Only groups with one output component are supported for tiling."
@@ -324,13 +315,90 @@ def try_tile_group(
         raise NotImplementedError(
             f"Unsupported component type for tiling: {type(comp)}"
         )
+    return copied_input_elems, tiled_groups
 
+
+def try_tile_potential(
+    in_nodes: list[SourceNode],
+    out_nodes: list[CoreOpNode],
+) -> tuple[list[SourceElem], list[RoutingGroup]]:
+
+    op_numel = out_nodes[0].shape.numel()
+    input_bit_num = in_nodes[0].output_bit_num
+    if not all(out_node.shape.numel() == op_numel for out_node in out_nodes):
+        raise ValueError(
+            "All output nodes must have the same number of elements for potential tiling."
+        )
+    if not all(in_node.shape == out_nodes[0].shape for in_node in in_nodes):
+        raise ValueError(
+            "Input nodes and output nodes must have the same shape for potential tiling."
+        )
+    if not all(in_node.output_bit_num == input_bit_num for in_node in in_nodes):
+        raise ValueError(
+            "All input nodes must have the same output bit num for potential tiling."
+        )
+    tile_groups: list[RoutingGroup] = []
+    max_fanin = FANIN_BASE * (2**MAX_LCN.value)
+    max_single_op_numel = max_fanin // (input_bit_num * len(in_nodes))
+    for start in range(0, op_numel, max_single_op_numel):
+        end = min(start + max_single_op_numel, op_numel)
+        tile_input_list = []
+        for in_node in in_nodes:
+            for idx in range(start, end):
+                tile_input_list.append(get_elem(in_node, idx))
+        tile_output_list = []
+        for out_node in out_nodes:
+            for idx in range(start, end):
+                tile_output_list.append(Neuron(out_node, CustomIndex(idx)))
+        tiled_group = RoutingGroup(
+            raw_neus=tile_output_list,
+            input_list=tile_input_list,
+        )
+        tile_groups.append(tiled_group)
+    return [], tile_groups
+
+
+def try_tile_group(
+    origin_grp: RoutingGroup,
+) -> tuple[list[SourceElem], list[RoutingGroup]]:
+    print(f"Trying to tile group out lcn limit {origin_grp.name}...")
+    print(f"input nodes {origin_grp.input_nodes} and output nodes {origin_grp.nodes}")
+    if origin_grp.input_nodes is None or origin_grp.nodes is None:
+        raise ValueError(
+            "Input nodes and output nodes of the group must be built before tiling."
+        )
+    if len(origin_grp.input_nodes) != len(origin_grp.nodes):
+        raise ValueError(
+            "Only groups with same number of input and output nodes are supported for tiling."
+        )
+
+    out_nodes = list(origin_grp.nodes)
+    in_nodes = list(origin_grp.input_nodes)
+
+    if len(out_nodes) == 1 and isinstance(out_nodes[0].comps[0], TileComp):
+        print("Trying to tile convolution/pooling group...")
+        copied_input_elems, tiled_groups = try_tile_conv(in_nodes[0], out_nodes[0])
+    elif all(
+        isinstance(out_node.raw_node, POTENTIAL_OP_TYPES) for out_node in out_nodes
+    ):
+        print("Trying to tile potential add group...")
+        copied_input_elems, tiled_groups = try_tile_potential(in_nodes, out_nodes)
+    else:
+        print([isinstance(out_node.comps[0], TileComp) for out_node in out_nodes])
+        print(
+            [
+                isinstance(out_node.raw_node, POTENTIAL_OP_TYPES)
+                for out_node in out_nodes
+            ]
+        )
+        raise ValueError(
+            "Only groups with one convolution/pooling output node or groups with potential add/standalone act output nodes are supported for tiling."
+        )
     print(f"Copied input elements: {len(copied_input_elems)}")
     print(f"Original input elements: {len(origin_grp.input_list)}")
-    print(f"Tiled groups: {len(tiled_groups)}")
+    print(f"Tiled groups (num = {len(tiled_groups)}):")
     for grp in tiled_groups:
-        print(f"Tiled group: {grp}")
-
+        print(f"{grp.info("   ")}")
     return copied_input_elems, tiled_groups
 
 

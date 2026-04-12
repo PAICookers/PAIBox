@@ -55,8 +55,8 @@ class Group:
         type(self).group_counter += 1
         self.name: str = f"Group_{self.id}"
 
-    def info(self) -> str:
-        info_str = f"{self.name}:"
+    def info(self, prefix: str = "") -> str:
+        info_str = f"{prefix}{self.name}:"
         return info_str
 
     def __str__(self) -> str:
@@ -287,10 +287,10 @@ class RemapGroup(
         out_elem = self.remap_dict[elem]
         return self.get_dest_info(out_elem)
 
-    def info(self) -> str:
-        info_str = Group.info(self)
-        info_str += DestGroup.info(self, prefix="  ")
-        info_str += SourceGroup.info(self, prefix="  ")
+    def info(self, prefix: str = "") -> str:
+        info_str = Group.info(self, prefix)
+        info_str += DestGroup.info(self, prefix=prefix + "  ")
+        info_str += SourceGroup.info(self, prefix=prefix + "  ")
         info_str += "\n"
         return info_str
 
@@ -703,9 +703,9 @@ class RoutingGroup(
             raise ValueError("base_coord has not been set yet.")
         return self._base_coord
 
-    def info(self) -> str:
-        info_str = Group.info(self)
-        prefix = "  "
+    def info(self, prefix: str = "") -> str:
+        info_str = Group.info(self, prefix)
+        prefix = prefix + "  "
         info_str += DestGroup.info(self, prefix=prefix)
         info_str += SourceGroup.info(self, prefix=prefix)
         info_str += f"\n{prefix}LCN: {self.lcn.name}"
@@ -727,7 +727,9 @@ class RoutingGroup(
         return info_str
 
     def routing_summary(self) -> str:
-        summary_str = f"{self.name} Routing Summary:\n"
+        summary_str = (
+            f"{self.name} Routing Summary ({len(self.core_placements)} cores):\n"
+        )
         for i, core_placement in enumerate(self.core_placements):
             summary_str += f"  Core Placement {i} at {core_placement.coord}:\n"
             summary_str += f"    Number of Neurons: {len(core_placement.neus)}\n"
@@ -763,9 +765,9 @@ class InputGroup(Group, SourceGroup[InputElem, InNode]):
         self.nodes = None
         return None
 
-    def info(self) -> str:
-        info_str = Group.info(self)
-        info_str += SourceGroup.info(self, prefix="  ")
+    def info(self, prefix: str = "") -> str:
+        info_str = Group.info(self, prefix=prefix)
+        info_str += SourceGroup.info(self, prefix=prefix + "  ")
         info_str += "\n"
         return info_str
 
@@ -853,9 +855,9 @@ class OutputGroup(Group, DestGroup[SourceElem, SourceNode]):
         self.lcn = LCN_EX.LCN_128X
         self.input_bit_num: int = 1
 
-    def info(self) -> str:
-        info_str = Group.info(self)
-        info_str += DestGroup.info(self, prefix="  ")
+    def info(self, prefix: str = "") -> str:
+        info_str = Group.info(self, prefix=prefix)
+        info_str += DestGroup.info(self, prefix=prefix + "  ")
         info_str += "\n"
         return info_str
 
@@ -891,19 +893,32 @@ def toposort_for_rg(
 
     routing_groups = [rg for rg in groups if isinstance(rg, RoutingGroup)]
 
+    print("Routing Groups before topological sort:")
+    for rg in routing_groups:
+        print(f"{rg.name}")
+
     indegree = {rg: 0 for rg in routing_groups}
 
     for rg in indegree.keys():
         print(f"Routing Group {rg.name} has indegree {indegree[rg]} before sorting.")
-    graph = defaultdict(list)
+    graph: dict[RoutingGroup, list[RoutingGroup]] = defaultdict(list)
 
     for rg in routing_groups:
         for neu in rg.raw_elems:
             dest_rg = rg.get_dest(neu)
+            print(f"Routing Group {rg.name} has neuron {neu} with dest {dest_rg.name}")
             if dest_rg not in routing_groups or dest_rg == rg:
                 continue
-            graph[rg].append(dest_rg)
-            indegree[dest_rg] += 1
+            if dest_rg not in graph[rg]:
+                graph[rg].append(dest_rg)
+                indegree[dest_rg] += 1
+
+    for rg in graph:
+        print(
+            f"Routing Group {rg.name} has edges to {[dest.name for dest in graph[rg]]}"
+        )
+    for rg in indegree.keys():
+        print(f"Routing Group {rg.name} has indegree {indegree[rg]} before sorting.")
 
     queue = deque([rg for rg in routing_groups if indegree[rg] == 0])
     sorted_rgs = []
@@ -917,6 +932,13 @@ def toposort_for_rg(
             indegree[neighbor] -= 1
             if indegree[neighbor] == 0:
                 queue.append(neighbor)
+    if len(sorted_rgs) != len(routing_groups):
+        for rg in routing_groups:
+            if rg not in sorted_rgs:
+                print(f"Routing Group {rg.name} is part of a cycle.")
+                sorted_rgs.append(
+                    rg
+                )  # add the remaining RGs to the end of sorted list, even though they are in cycle
 
     next_rg_id = {}
     for i, rg in enumerate(sorted_rgs):
