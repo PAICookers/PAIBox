@@ -237,8 +237,10 @@ class Mapper:
         # dests and input_list set
         # other properties remain unset
         all_groups = tile_groups(all_groups)
+
+        print("\nAll groups after tiling:")
         for grp in all_groups:
-            print(grp)
+            print(grp.info("   "))
 
         self.input_groups = []
         self.groups = []
