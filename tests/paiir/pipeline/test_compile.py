@@ -206,9 +206,7 @@ class TestCompileBasic:
                 x = x.transpose(1, 2)
                 return self.linear(torch.flatten(x, 1))
 
-        graph = compile_to_paiir(
-            TransposeFunctionFlattenLinear(), torch.randn(1, 2, 3)
-        )
+        graph = compile_to_paiir(TransposeFunctionFlattenLinear(), torch.randn(1, 2, 3))
 
         reshape_nodes = find_nodes(graph, ReshapeOp)
         linear_nodes = [

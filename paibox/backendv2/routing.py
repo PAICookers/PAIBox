@@ -68,6 +68,7 @@ class Group:
     def __hash__(self):
         return hash(id(self))
 
+
 SOURCE_ELEM = TypeVar("SOURCE_ELEM", bound=SourceElem)
 SOURCE_NODE = TypeVar("SOURCE_NODE", bound=SourceNode)
 
