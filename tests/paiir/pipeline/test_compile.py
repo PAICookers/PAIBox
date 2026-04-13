@@ -173,6 +173,55 @@ class TestCompileBasic:
         assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
         assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[0].name]
 
+    def test_function_flatten_before_linear_compiles(self):
+        class FunctionFlattenLinear(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(6, 4, bias=False)
+
+            def forward(self, x):
+                return self.linear(torch.flatten(x, 1))
+
+        graph = compile_to_paiir(FunctionFlattenLinear(), torch.randn(1, 2, 3))
+
+        reshape_nodes = find_nodes(graph, ReshapeOp)
+        linear_nodes = [
+            node
+            for node in find_nodes(graph, StandaloneCompOp)
+            if isinstance(node.comp, nn.Linear)
+        ]
+
+        assert len(reshape_nodes) == 1
+        assert len(linear_nodes) == 1
+        assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
+        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[0].name]
+
+    def test_transpose_then_function_flatten_before_linear_compiles(self):
+        class TransposeFunctionFlattenLinear(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(6, 4, bias=False)
+
+            def forward(self, x):
+                x = x.transpose(1, 2)
+                return self.linear(torch.flatten(x, 1))
+
+        graph = compile_to_paiir(
+            TransposeFunctionFlattenLinear(), torch.randn(1, 2, 3)
+        )
+
+        reshape_nodes = find_nodes(graph, ReshapeOp)
+        linear_nodes = [
+            node
+            for node in find_nodes(graph, StandaloneCompOp)
+            if isinstance(node.comp, nn.Linear)
+        ]
+
+        assert len(reshape_nodes) == 1
+        assert len(linear_nodes) == 1
+        assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
+        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[0].name]
+
     def test_permute_then_reshape_before_linear_compiles(self):
         class PermuteReshapeLinear(nn.Module):
             def __init__(self):
@@ -185,6 +234,57 @@ class TestCompileBasic:
                 return self.linear(x)
 
         graph = compile_to_paiir(PermuteReshapeLinear(), torch.randn(1, 2, 3, 4))
+
+        reshape_nodes = find_nodes(graph, ReshapeOp)
+        linear_nodes = [
+            node
+            for node in find_nodes(graph, StandaloneCompOp)
+            if isinstance(node.comp, nn.Linear)
+        ]
+
+        assert len(reshape_nodes) == 1
+        assert len(linear_nodes) == 1
+        assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
+        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[0].name]
+
+    def test_function_reshape_before_linear_compiles(self):
+        class FunctionReshapeLinear(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(24, 5, bias=False)
+
+            def forward(self, x):
+                x = torch.reshape(x, (x.size(0), -1))
+                return self.linear(x)
+
+        graph = compile_to_paiir(FunctionReshapeLinear(), torch.randn(1, 2, 3, 4))
+
+        reshape_nodes = find_nodes(graph, ReshapeOp)
+        linear_nodes = [
+            node
+            for node in find_nodes(graph, StandaloneCompOp)
+            if isinstance(node.comp, nn.Linear)
+        ]
+
+        assert len(reshape_nodes) == 1
+        assert len(linear_nodes) == 1
+        assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
+        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[0].name]
+
+    def test_permute_then_function_reshape_before_linear_compiles(self):
+        class PermuteFunctionReshapeLinear(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(24, 5, bias=False)
+
+            def forward(self, x):
+                x = x.permute(0, 2, 3, 1)
+                x = torch.reshape(x, (x.size(0), -1))
+                return self.linear(x)
+
+        graph = compile_to_paiir(
+            PermuteFunctionReshapeLinear(), torch.randn(1, 2, 3, 4)
+        )
 
         reshape_nodes = find_nodes(graph, ReshapeOp)
         linear_nodes = [

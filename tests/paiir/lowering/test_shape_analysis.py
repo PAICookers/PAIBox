@@ -32,6 +32,29 @@ class TestShapeAnalysis:
         assert sink.output_shape == (1, 60)
         assert analysis.aux_nodes == set()
 
+    def test_function_flatten_is_recorded_as_reshape_sink(self):
+        class M(nn.Module):
+            def forward(self, x):
+                return torch.flatten(x, 1)
+
+        gm = _trace_for_shape_analysis(M(), torch.randn(1, 3, 4, 5))
+        analysis = analyze_shape_helpers(gm)
+
+        flatten_node = next(
+            node
+            for node in gm.graph.nodes
+            if node.op == "call_function" and node.target is torch.flatten
+        )
+        sink = analysis.sink_for(flatten_node)
+        assert sink is not None
+
+        assert sink.kind == "flatten"
+        assert sink.data_input.op == "placeholder"
+        assert sink.start_dim == 1
+        assert sink.end_dim == -1
+        assert sink.shape_seed_nodes == ()
+        assert sink.output_shape == (1, 60)
+
     def test_function_unsqueeze_is_recorded_as_reshape_sink(self):
         class M(nn.Module):
             def forward(self, x):
@@ -94,6 +117,27 @@ class TestShapeAnalysis:
         assert sink.data_input.op == "placeholder"
         assert sink.shape_seed_nodes == ()
         assert sink.output_shape == (1, 2, 3)
+
+    def test_function_reshape_is_recorded_as_reshape_sink(self):
+        class M(nn.Module):
+            def forward(self, x):
+                return torch.reshape(x, (1, 6))
+
+        gm = _trace_for_shape_analysis(M(), torch.randn(1, 2, 3))
+        analysis = analyze_shape_helpers(gm)
+
+        reshape_node = next(
+            node
+            for node in gm.graph.nodes
+            if node.op == "call_function" and node.target is torch.reshape
+        )
+        sink = analysis.sink_for(reshape_node)
+        assert sink is not None
+
+        assert sink.kind == "reshape"
+        assert sink.data_input.op == "placeholder"
+        assert sink.shape_seed_nodes == ()
+        assert sink.output_shape == (1, 6)
 
     def test_tuple_repeat_all_ones_is_recorded_as_reshape_sink(self):
         class M(nn.Module):

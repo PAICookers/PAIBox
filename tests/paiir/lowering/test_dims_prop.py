@@ -159,6 +159,15 @@ class TestDimsProp:
         gm = _propagate(M(), torch.randn(2, 3, 4))
         assert _output_dims(gm) == (0, 1)
 
+    def test_function_flatten_resets_to_identity(self):
+        class M(nn.Module):
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return torch.flatten(x, 1)
+
+        gm = _propagate(M(), torch.randn(2, 3, 4))
+        assert _output_dims(gm) == (0, 1)
+        assert _node_dims(gm, "flatten") == (0, 1)
+
     def test_view_resets_to_identity(self):
         class M(nn.Module):
             def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -174,6 +183,15 @@ class TestDimsProp:
 
         gm = _propagate(M(), torch.randn(2, 3, 4))
         assert _output_dims(gm) == (0, 1)
+
+    def test_function_reshape_resets_to_identity(self):
+        class M(nn.Module):
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return torch.reshape(x, (6, 4))
+
+        gm = _propagate(M(), torch.randn(2, 3, 4))
+        assert _output_dims(gm) == (0, 1)
+        assert _node_dims(gm, "reshape") == (0, 1)
 
     def test_view_as_resets_to_identity(self):
         class M(nn.Module):
@@ -288,6 +306,29 @@ class TestDimsProp:
 
         gm = _propagate(M(), torch.randn(2, 3, 4))
         assert _output_dims(gm) == (0, 1)
+
+    def test_transpose_then_function_flatten(self):
+        """Function-form flatten must also reset non-identity dims."""
+
+        class M(nn.Module):
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                return torch.flatten(x.transpose(1, 2), 1)
+
+        gm = _propagate(M(), torch.randn(2, 3, 4))
+        assert _output_dims(gm) == (0, 1)
+        assert _node_dims(gm, "flatten") == (0, 1)
+
+    def test_permute_then_function_reshape(self):
+        """Function-form reshape must reset non-identity dims."""
+
+        class M(nn.Module):
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
+                y = x.permute(0, 2, 3, 1)
+                return torch.reshape(y, (y.size(0), -1))
+
+        gm = _propagate(M(), torch.randn(1, 2, 3, 4))
+        assert _output_dims(gm) == (0, 1)
+        assert _node_dims(gm, "reshape") == (0, 1)
 
     def test_conv_transpose_permute(self):
         """Conv (identity) -> transpose -> permute chain."""

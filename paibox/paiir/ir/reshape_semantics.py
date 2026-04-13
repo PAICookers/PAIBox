@@ -46,6 +46,8 @@ def is_squeeze_target(target: Any) -> bool:
 def is_dims_reset_target(target: Any) -> bool:
     return (
         target in RESHAPE_METHOD_NAMES
+        or target in FLATTEN_FUNCTION_TARGETS
+        or target in RESHAPE_FUNCTION_TARGETS
         or is_unsqueeze_target(target)
         or is_squeeze_target(target)
     )
