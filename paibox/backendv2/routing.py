@@ -65,6 +65,8 @@ class Group:
     def __repr__(self) -> str:
         return self.__str__()
 
+    def __hash__(self):
+        return hash(id(self))
 
 SOURCE_ELEM = TypeVar("SOURCE_ELEM", bound=SourceElem)
 SOURCE_NODE = TypeVar("SOURCE_NODE", bound=SourceNode)
@@ -169,10 +171,6 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
     def routing_summary(self) -> str:
         summary_str = "    Not Deploy Group\n"
         return summary_str
-
-    def __hash__(self):
-        # use hash of each raw_neu to identify routing group
-        return hash(tuple(sorted([hash(raw_elem) for raw_elem in self.raw_elems])))
 
     def __str__(self) -> str:
         info_str = "SourceGroup: \n" + self.info(prefix="  ")
@@ -298,9 +296,6 @@ class RemapGroup(
         summary_str = f"Reorder Group {self.name}:\n"
         summary_str += SourceGroup.routing_summary(self)
         return summary_str
-
-    def __hash__(self):
-        return SourceGroup.__hash__(self)
 
     def __str__(self) -> str:
         info_str = self.info()
@@ -719,9 +714,6 @@ class RoutingGroup(
         info_str += "\n"
         return info_str
 
-    def __hash__(self):
-        return SourceGroup.__hash__(self)
-
     def __str__(self) -> str:
         info_str = self.info()
         return info_str
@@ -775,9 +767,6 @@ class InputGroup(Group, SourceGroup[InputElem, InNode]):
         summary_str = f"Input Group {self.name}:\n"
         summary_str += SourceGroup.routing_summary(self)
         return summary_str
-
-    def __hash__(self):
-        return SourceGroup.__hash__(self)
 
     def __str__(self) -> str:
         info_str = self.info()
@@ -866,9 +855,6 @@ class OutputGroup(Group, DestGroup[SourceElem, SourceNode]):
         summary_str += "   Output Group is the final destination, no further routing.\n"
         return summary_str
 
-    def __hash__(self):
-        return DestGroup.__hash__(self)
-
     def __str__(self) -> str:
         info_str = self.info()
         return info_str
@@ -892,6 +878,7 @@ def toposort_for_rg(
     from collections import defaultdict, deque
 
     routing_groups = [rg for rg in groups if isinstance(rg, RoutingGroup)]
+    rg_set = set(routing_groups)
 
     print("Routing Groups before topological sort:")
     for rg in routing_groups:
@@ -902,23 +889,26 @@ def toposort_for_rg(
     for rg in indegree.keys():
         print(f"Routing Group {rg.name} has indegree {indegree[rg]} before sorting.")
     graph: dict[RoutingGroup, list[RoutingGroup]] = defaultdict(list)
+    graph_set: dict[RoutingGroup, set[RoutingGroup]] = defaultdict(set)
 
     for rg in routing_groups:
-        for neu in rg.raw_elems:
+        for neu in track(
+            rg.raw_elems,
+            description=f"Processing Routing Group {rg.name} ({len(rg.raw_elems)} neurons)",
+            total=len(rg.raw_elems),  # 明确指定总数，确保进度条计算准确
+        ):
             dest_rg = rg.get_dest(neu)
-            print(f"Routing Group {rg.name} has neuron {neu} with dest {dest_rg.name}")
-            if dest_rg not in routing_groups or dest_rg == rg:
+            if dest_rg not in rg_set or dest_rg is rg:
                 continue
-            if dest_rg not in graph[rg]:
+            if dest_rg not in graph_set[rg]:
                 graph[rg].append(dest_rg)
+                graph_set[rg].add(dest_rg)
                 indegree[dest_rg] += 1
 
     for rg in graph:
         print(
             f"Routing Group {rg.name} has edges to {[dest.name for dest in graph[rg]]}"
         )
-    for rg in indegree.keys():
-        print(f"Routing Group {rg.name} has indegree {indegree[rg]} before sorting.")
 
     queue = deque([rg for rg in routing_groups if indegree[rg] == 0])
     sorted_rgs = []
