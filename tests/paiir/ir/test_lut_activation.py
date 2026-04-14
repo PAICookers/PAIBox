@@ -13,7 +13,14 @@ from paibox.paiir.ir.lut_activation import (
     LutTanh,
 )
 
-_ALL_LUT_CLASSES = (LutReLU, LutReLUSymmetric, LutLinear, LutSigmoid, LutTanh, LutSoftsign)
+_ALL_LUT_CLASSES = (
+    LutReLU,
+    LutReLUSymmetric,
+    LutLinear,
+    LutSigmoid,
+    LutTanh,
+    LutSoftsign,
+)
 
 
 class TestLutActivationBase:
@@ -125,7 +132,9 @@ class TestLutReLUSymmetric:
         """Thresholds should be uniformly distributed across min_val and max_val."""
         lut = LutReLUSymmetric(min_val=-500, max_val=500, output_sign=1)
         diffs = (lut.thresholds[1:] - lut.thresholds[:-1]).float()
-        assert torch.allclose(diffs, torch.tensor([diffs[0].item()] * 255, dtype=torch.float32), atol=1.0)
+        assert torch.allclose(
+            diffs, torch.tensor([diffs[0].item()] * 255, dtype=torch.float32), atol=1.0
+        )
 
     def test_float_mode(self):
         """Float mode returns unquantized ReLU-like values."""
