@@ -7,12 +7,13 @@ from paibox.paiir.ir.lut_activation import (
     LutCustom,
     LutLinear,
     LutReLU,
+    LutReLUSymmetric,
     LutSigmoid,
     LutSoftsign,
     LutTanh,
 )
 
-_ALL_LUT_CLASSES = (LutReLU, LutLinear, LutSigmoid, LutTanh, LutSoftsign)
+_ALL_LUT_CLASSES = (LutReLU, LutReLUSymmetric, LutLinear, LutSigmoid, LutTanh, LutSoftsign)
 
 
 class TestLutActivationBase:
@@ -98,6 +99,37 @@ class TestLutReLU:
     def test_float_mode(self):
         """Float mode returns unquantized ReLU-like values."""
         lut = LutReLU(min_val=-10, max_val=10, output_sign=0, is_float=True)
+        y = lut(torch.tensor([-5, 0, 5]))
+        assert y[0] == 0
+        assert abs(y[2] - 5) < 0.5
+
+
+class TestLutReLUSymmetric:
+    def test_symmetric_behavior(self):
+        """Symmetric ReLU maps negatives to 0 but keeps uniform bins."""
+        lut = LutReLUSymmetric(min_val=-500, max_val=512, output_sign=1)
+        assert torch.all(lut(torch.tensor([-100, -1])) == 0)
+        y_pos = lut(torch.tensor([100, 200]))
+        assert torch.all(y_pos > 0)
+        assert y_pos[1] > y_pos[0]
+
+    @pytest.mark.parametrize("sign, max_out", [(0, 255), (1, 127)])
+    def test_output_range(self, sign, max_out):
+        """Output range respects sign mode."""
+        lut = LutReLUSymmetric(min_val=-500, max_val=500, output_sign=sign)
+        y = lut(torch.linspace(-500, 500, 100))
+        assert torch.all((y >= 0) & (y <= max_out))
+        assert lut(torch.tensor([500])).item() >= max_out - 5
+
+    def test_uniform_thresholds(self):
+        """Thresholds should be uniformly distributed across min_val and max_val."""
+        lut = LutReLUSymmetric(min_val=-500, max_val=500, output_sign=1)
+        diffs = (lut.thresholds[1:] - lut.thresholds[:-1]).float()
+        assert torch.allclose(diffs, torch.tensor([diffs[0].item()] * 255, dtype=torch.float32), atol=1.0)
+
+    def test_float_mode(self):
+        """Float mode returns unquantized ReLU-like values."""
+        lut = LutReLUSymmetric(min_val=-10, max_val=10, output_sign=1, is_float=True)
         y = lut(torch.tensor([-5, 0, 5]))
         assert y[0] == 0
         assert abs(y[2] - 5) < 0.5

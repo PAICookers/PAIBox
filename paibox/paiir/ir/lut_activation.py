@@ -32,6 +32,7 @@ __all__ = [
     "LutAdaptiveActivation",
     "LutCustom",
     "LutReLU",
+    "LutReLUSymmetric",
     "LutLinear",
     "LutSigmoid",
     "LutTanh",
@@ -180,6 +181,45 @@ class LutReLU(LutActivation):
         # Compute LUT values using the midpoint of each bin.
         # Use floor instead of round to avoid even/odd stepping artefacts
         # from banker's rounding at x.5 boundaries.
+        boundaries = torch.cat([thres_t, torch.tensor([self.max_val])])
+        low = boundaries[:-1]
+        high = boundaries[1:]
+        mids = torch.where(low < high, (low + high) / 2, low)
+        values = (mids.clamp(min=0) * scale).to(torch.int64)
+
+        if self.output_sign == 0:
+            values.clamp_(0, 255)
+        else:
+            values.clamp_(-128, 127)
+
+        return thres_t, values.float()
+
+
+class LutReLUSymmetric(LutActivation):
+    """
+    Symmetric version of LutReLU.
+    Unlike standard ReLU which maps negative values to 0 and shrinks the negative input bins,
+    this class allocates uniform bins across the entire [min_val, max_val] range to preserve
+    the negative input space (even though outputs for negative inputs are still 0).
+    It also defaults to outputting signed 8-bit integers (int8: [-128, 127]) if output_sign=1.
+    """
+
+    def generate_lut(self) -> tuple[Tensor, Tensor]:
+        # Uniformly allocate 256 bins across [min_val, max_val]
+        thres_t = torch.linspace(self.min_val, self.max_val, 256)
+
+        if self.is_float:
+            return thres_t, torch.relu(thres_t)
+
+        # Calculate Scale for the output mapping
+        # For symmetric Int8, mapping max_val to 127 or 255
+        scale = (
+            (255 if self.output_sign == 0 else 127) / self.max_val
+            if self.max_val > 0
+            else 0
+        )
+
+        # Compute LUT values using the midpoint of each bin.
         boundaries = torch.cat([thres_t, torch.tensor([self.max_val])])
         low = boundaries[:-1]
         high = boundaries[1:]
