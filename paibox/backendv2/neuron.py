@@ -64,9 +64,14 @@ class OfflineNeuronPlacement(NeuronPlacement):
             folded_attrs2_=self.folded_neu_attrs_part2s,
         )
 
-        frame_list: FrameArrayType = np.concatenate(
-            [half_neu, full_neu, fold_neu], axis=0
-        ).astype(FRAME_DTYPE)
+        if self.neuron_type == NeuronType.HALF:
+            frame_list: FrameArrayType = np.concatenate(
+                [half_neu, fold_neu], axis=0
+            ).astype(FRAME_DTYPE)
+        else:
+            frame_list: FrameArrayType = np.concatenate(
+                [full_neu, fold_neu], axis=0
+            ).astype(FRAME_DTYPE)
         return frame_list
 
     @property
