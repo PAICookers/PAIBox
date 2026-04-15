@@ -178,6 +178,62 @@ class Mapper:
             frame2_file.write("};\n")
             frame3_file.write("};\n")
 
+    def export_cheader_merge(self, output_path: str, base: str = "bin"):
+        os.makedirs(output_path, exist_ok=True)
+        frame_path = output_path + "/frame_type.h"
+        with (open(frame_path, "w") as frame_file,):
+            frame_file.write(
+                'volatile unsigned int config_frame[] __attribute__((section(".large_const_data"))) ={\n'
+            )
+            for rg in self.routing_groups:
+                for core_placement in rg.core_placements:
+                    core_frame_type1, core_frame_type2, core_frame_type3 = (
+                        core_placement.to_frame()
+                    )
+                    # export core_frame_type1 and core_frame_type3 to output_path
+                    export_framearray_to_bit(
+                        core_frame_type1, frame_file, "\t", base=base
+                    )
+                    if core_frame_type2 is not None:
+                        export_framearray_to_bit(
+                            core_frame_type2, frame_file, "\t", base=base
+                        )
+                    export_framearray_to_bit(
+                        core_frame_type3, frame_file, "\t", base=base
+                    )
+
+            frame_file.write("};\n")
+
+    def export_merge(self, output_path: str):
+        os.makedirs(output_path, exist_ok=True)
+        frame_path = output_path + "/frame_type.txt"
+        with (open(frame_path, "w") as frame_file,):
+            for rg in self.routing_groups:
+                for core_placement in rg.core_placements:
+                    frame_file.write(
+                        f"# Core at coord ({core_placement.coord.x}, {core_placement.coord.y}):\n"
+                    )
+
+                    core_frame_type1, core_frame_type2, core_frame_type3 = (
+                        core_placement.to_frame()
+                    )
+                    # export core_frame_type1 and core_frame_type3 to output_path
+                    # framearray is np.ndarray of np.uint64 with shape (n_frames, )
+                    # print each frame with 16 hex digits each line
+                    frame_file.write(f"\ttype1:\n")
+                    export_single_framearray(
+                        core_frame_type1, frame_file, prefix="\t\t0x"
+                    )
+                    frame_file.write(f"\ttype2:\n")
+                    if core_frame_type2 is not None:
+                        export_single_framearray(
+                            core_frame_type2, frame_file, prefix="\t\t0x"
+                        )
+                    frame_file.write(f"\ttype3:\n")
+                    export_single_framearray(
+                        core_frame_type3, frame_file, prefix="\t\t0x"
+                    )
+
     def export(self, output_path: str):
         os.makedirs(output_path, exist_ok=True)
         frame1_path = output_path + "/frame_type1.txt"
@@ -287,8 +343,11 @@ class Mapper:
         self.set_auto_core_config()
 
         # export to hardware executable format
+
         self.export(output_path=output_path)
+        self.export_merge(output_path=output_path)
         self.export_cheader_file(output_path=output_path, base=base)
+        self.export_cheader_merge(output_path=output_path, base=base)
 
         # for in_grp in self.input_groups:
         #     for elem, dest in in_grp.dest_infos.items():
