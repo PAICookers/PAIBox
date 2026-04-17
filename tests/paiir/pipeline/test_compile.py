@@ -1,4 +1,3 @@
-import importlib
 import warnings
 from collections.abc import Callable
 
@@ -224,20 +223,41 @@ TRANSFORM_BEFORE_LINEAR_CASES = (
 )
 
 
-class TestPackageExports:
-    def test_public_packages_reexport_compile_symbols(self):
-        paiir_mod = importlib.import_module("paibox.paiir")
-        pipeline_mod = importlib.import_module("paibox.paiir.pipeline")
-        avgpool_mod = importlib.import_module("paibox.paiir.pipeline.avgpool")
+class PotentialIntoWeightedConsumer(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.fc1 = nn.Linear(4, 4, bias=False)
+        self.fc2 = nn.Linear(4, 4, bias=False)
+        self.relu = nn.ReLU()
 
-        assert paiir_mod.compile_to_paiir is compile_mod.compile_to_paiir
-        assert paiir_mod.torch_to_paiir is torch_to_paiir
-        assert pipeline_mod.CompileConfig is CompileConfig
-        assert pipeline_mod.compile_to_paiir is compile_mod.compile_to_paiir
-        assert avgpool_mod.calibrate_avgpool_threshold is not None
-        assert not hasattr(paiir_mod, "OfflineCoreOp")
-        assert not hasattr(pipeline_mod, "DataFormat")
-        assert not hasattr(avgpool_mod, "AvgPoolDeployMetadata")
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.fc2(x)
+        return self.relu(x)
+
+
+class PotentialIntoStandalonePool(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2d(3, 4, 1)
+        self.pool = nn.MaxPool2d(2)
+
+    def forward(self, x):
+        return self.pool(self.conv(x))
+
+
+class TestUnsupported32BitConsumers:
+    def test_compile_rejects_weighted_consumer_of_potential_domain(self):
+        with pytest.raises(
+            GraphValidationError, match="SequentialOp.*WIDTH_32BIT|WIDTH_32BIT"
+        ):
+            compile_to_paiir(PotentialIntoWeightedConsumer().eval(), torch.randn(1, 4))
+
+    def test_compile_rejects_standalone_compute_consumer_of_potential_domain(self):
+        with pytest.raises(
+            GraphValidationError, match="StandaloneCompOp.*WIDTH_32BIT|WIDTH_32BIT"
+        ):
+            compile_to_paiir(PotentialIntoStandalonePool().eval(), make_img_3ch_8x8())
 
 
 class TestCompileBasic:

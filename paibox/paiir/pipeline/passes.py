@@ -20,7 +20,7 @@ import warnings
 from typing import TypedDict
 
 import torch
-from paicorelib import DataSign, DataWidth, OutputType, SNNMode
+from paicorelib import AddPotentialMode, DataSign, DataWidth, OutputType, SNNMode
 
 from ..exceptions import GraphCleanupWarning, GraphValidationError
 from ..ir.add_ops import GeneralAddOp, PotentialAddOp
@@ -457,6 +457,7 @@ def validate_compiled_graph(graph: PAIIRGraph) -> None:
 
         _validate_lut_mode_consistency(errors, name, node)
         _validate_output_domain_consistency(errors, name, node)
+        _validate_32bit_input_contract(errors, name, node)
 
         try:
             node.core_params.validate_data_formats()
@@ -488,6 +489,40 @@ def _validate_output_domain_consistency(
             f"neuron_params.output_type={output_type.name}"
         )
         return
+
+
+def _validate_32bit_input_contract(
+    errors: list[str], name: str, node: OfflineCoreOp
+) -> None:
+    """Reject unsupported 32-bit membrane-input consumers before backend export.
+
+    Backend frame packing only supports ``WIDTH_32BIT`` inputs for direct-add
+    style consumers. In the current deploy contract that means:
+
+    - ``PotentialAddOp``: explicit membrane add
+    - ``StandaloneActOp``: activation-only core fed by an implicit identity path
+
+    Other offline-core operators may still infer ``WIDTH_32BIT`` from a
+    predecessor's membrane-potential output, but the backend cannot export
+    those weighted-consumer shapes faithfully. Fail here with a clear compile-
+    time error instead of surfacing a later backend packing failure.
+    """
+    if node.core_params.input_width != DataWidth.WIDTH_32BIT:
+        return
+
+    if isinstance(node, (PotentialAddOp, StandaloneActOp)):
+        if node.core_params.add_potential != AddPotentialMode.DIRECT_ADD:
+            errors.append(
+                f"OfflineCoreOp '{name}' receives WIDTH_32BIT input but "
+                "add_potential is not AddPotentialMode.DIRECT_ADD"
+            )
+        return
+
+    errors.append(
+        f"OfflineCoreOp '{name}' ({type(node).__name__}) receives WIDTH_32BIT "
+        "membrane input, but only PotentialAddOp and StandaloneActOp are "
+        "deployable 32-bit input consumers in the current backend contract"
+    )
 
 
 def _get_node_output_shape(node: PAIIRNode) -> torch.Size:
@@ -1142,6 +1177,7 @@ def propagate_data_format(
         pred_formats = [resolved[p] for p in graph.predecessors(name) if p in resolved]
         in_fmt = merge_data_formats(pred_formats)
         node.core_params.set_input_format(in_fmt)
+        _derive_input_add_potential_mode(node, in_fmt)
 
 
 def _collect_effective_predecessor_formats(
@@ -1204,6 +1240,25 @@ def _infer_node_weight_format(node: OfflineCoreOp) -> DataFormat:
     w_min = int(all_weights.min().item())
     w_max = int(all_weights.max().item())
     return infer_weight_format(w_min, w_max)
+
+
+def _derive_input_add_potential_mode(node: OfflineCoreOp, input_format: DataFormat) -> None:
+    """Derive hardware add-potential mode from the resolved input format.
+
+    Standalone activation cores synthesize an implicit identity connectivity
+    path in the backend. When that path carries membrane potentials, the chip
+    expects direct membrane accumulation rather than normal weighted
+    accumulation. In practice the membrane domain is represented as signed
+    32-bit input format, so derive ``DIRECT_ADD`` from that resolved input.
+    """
+    if not isinstance(node, StandaloneActOp):
+        return
+
+    _, input_width = input_format
+    if input_width == DataWidth.WIDTH_32BIT:
+        node.core_params.add_potential = AddPotentialMode.DIRECT_ADD
+    else:
+        node.core_params.add_potential = AddPotentialMode.NORMAL
 
 
 class TickOverride(TypedDict, total=False):
