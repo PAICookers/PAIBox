@@ -69,5 +69,5 @@ def run_fixed_point_rewrite_phase(
             return graph
 
     raise RuntimeError(
-        "fixed-point rewrite phase did not converge within " f"{max_rounds} round(s)"
+        f"fixed-point rewrite phase did not converge within {max_rounds} round(s)"
     )
