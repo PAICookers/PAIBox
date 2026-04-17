@@ -271,7 +271,7 @@ class RemapNode(BaseNode[RemapOp]):
     def __init__(self, name: str, raw_node: RemapOp, shape: tuple[int, ...]):
         super().__init__(name, shape, raw_node)
 
-    def get_reorder_info(self) -> dict["SourceElem", "RemapElem"]:
+    def get_remap_info(self) -> dict["SourceElem", "RemapElem"]:
         if isinstance(self.raw_node, TransformOp):
             assert (
                 len(self.predecessors) == 1

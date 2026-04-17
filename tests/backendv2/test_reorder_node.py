@@ -11,7 +11,7 @@ from paibox.paiir.ir import (
 
 
 def _assert_reorder_map(source: InNode, reorder: RemapNode, expected: dict[int, int]):
-    reorder_map = reorder.get_reorder_info()
+    reorder_map = reorder.get_remap_info()
 
     for src_idx, dst_idx in expected.items():
         src_elem = get_elem(source, src_idx)
