@@ -242,6 +242,7 @@ def build_tile_group(
             raw_neus=tile_output_lists[t],
             input_list=tile_input_lists[t],
         )
+        tiled_group.recommand_lcn = MAX_LCN # recommend using max lcn for tiled groups to avoid further tiling
         tiled_groups.append(tiled_group)
     return copied_input_elems, tiled_groups
 

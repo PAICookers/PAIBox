@@ -169,8 +169,8 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
         info_str += f"\n{prefix}   ".join(dest_strs)
         return info_str
 
-    def routing_summary(self) -> str:
-        summary_str = "    Not Deploy Group\n"
+    def routing_summary(self, prefix: str = "") -> str:
+        summary_str = f"{prefix}    Not Deploy Group\n"
         return summary_str
 
     def __str__(self) -> str:
@@ -313,9 +313,9 @@ class RemapGroup(
         info_str += "\n"
         return info_str
 
-    def routing_summary(self) -> str:
-        summary_str = f"Remap Group {self.name}:\n"
-        summary_str += SourceGroup.routing_summary(self)
+    def routing_summary(self, prefix: str = "") -> str:
+        summary_str = f"{prefix}Remap Group {self.name}:\n"
+        summary_str += SourceGroup.routing_summary(self, prefix=prefix)
         return summary_str
 
     def __str__(self) -> str:
@@ -339,6 +339,7 @@ class RoutingGroup(
         self.name: str = f"RG_{self.id}"
 
         self.lcn: LCN_EX = LCN_EX.LCN_1X
+        self.recommand_lcn: Optional[LCN_EX] = None
         self.input_bit_num: int = 0
 
         # self.core_blocks: list[CoreBlock] = []
@@ -372,8 +373,8 @@ class RoutingGroup(
         assert (
             len(pred_output_bit_nums) == 1
         ), "All input elements in the routing group must have the same output bit num."
-        print(f"{self.raw_elems[0]}: input_bit_nums: {intput_bit_nums}")
-        print(f"{self.input_list[0]}: pred_output_bit_nums: {pred_output_bit_nums}")
+        # print(f"{self.raw_elems[0]}: input_bit_nums: {intput_bit_nums}")
+        # print(f"{self.input_list[0]}: pred_output_bit_nums: {pred_output_bit_nums}")
 
         self.input_bit_num = intput_bit_nums.pop()
         assert (
@@ -381,7 +382,10 @@ class RoutingGroup(
         ), "Input bit num of neurons must match output bit num of input elements."
         max_axon_addr = len(self.input_list) * self.input_bit_num
         lcn = ((max_axon_addr - 1) // FANIN_BASE).bit_length()
-        self.lcn = LCN_EX(lcn)
+        if self.recommand_lcn is not None and lcn < self.recommand_lcn.value:
+            self.lcn = self.recommand_lcn
+        else:
+            self.lcn = LCN_EX(lcn)
 
     def try_store_neuron(
         self,
@@ -409,6 +413,8 @@ class RoutingGroup(
             )
             weight_sram_req = selected_weight.n_sram_required
             attrs_part2.weight_compress = weight_compress
+            print(f"\tno zero elements in base weight {weight_info.index} is {np.count_nonzero(base_weight)}")
+            print(f"\tbase weight {weight_info.index} requires {weight_sram_req} SRAM lines with compression {weight_compress}.")
             if weight_sram_req > 4096:
                 raise NotImplementedError(
                     f"Base weight {weight_info.index} requires {weight_sram_req} SRAM lines, which exceeds the limit."
@@ -515,6 +521,7 @@ class RoutingGroup(
             {}
         )  # map from base weight index to the index of core's weight list where it's stored
 
+        print(f"\nallocating {self.name} block [{block_id}]")
         description = f"allocating {self.name} block [{block_id}]"
         for (neu, weight_of_neu), weight_info in track(
             zip(reordered_items, reordered_infos),
@@ -613,6 +620,7 @@ class RoutingGroup(
         # all the attrs in neu_attrs_part2 are valid except weight compress, you should set weight compress according to your weight storage strategy
         # inherited core_config are valid except weight_width, you can set weight_width larger than or equal to the original value for optimization
 
+        print(f"\nAllocating neurons for Routing Group {self.name}...")
         if self.nodes is not None and self.input_nodes is not None:
             node = list(self.nodes)[0]
             # print(f"kernel weight from node {node.name}:\n", node.weights[0])
@@ -620,17 +628,13 @@ class RoutingGroup(
         weights = get_raw_weights(self.raw_elems, self.input_list)
 
         # print(f"weight of routing group {self.name}:\n", weights)
-        print(f"weight shape of routing group {self.name}: {weights.shape}")
+        print(f"\tweight shape of routing group {self.name}: {weights.shape}")
 
         # print compelet weights into file for debug
         # with open(f"{self.name}_weights.txt", "w") as f:
         #     weights_transposed = weights.T
         #     for row in weights_transposed:
         #         f.write(" ".join(map(str, row)) + "\n")
-
-        print(
-            f"Allocating neurons for Routing Group {self.name} with {len(self.raw_elems)} neurons."
-        )
 
         # 1. Grouping Phase
         core_groups: dict[
@@ -651,14 +655,18 @@ class RoutingGroup(
             core_groups[key].append((neu, weight_of_neu))
 
         self.core_placements: list[CorePlacement] = []
-        print(f"grouping finished, number of core groups: {len(core_groups)}")
+        print(f"\tNumber of core blocks: {len(core_groups)}")
+        for key, group_items in core_groups.items():
+            print(f"\n\tCore block with {len(group_items)}:")
+            print(f"\t\tfrontend_core_conf={key[0]}")
+            print(f"\t\tbackend_core_conf={key[1]}")
 
         # 2. Allocation Phase
         for i, (key, group_items) in enumerate(core_groups.items()):
             # print(f"\n\nAllocating group with frontend_core_conf={key[0]}")
             # print(f"backend_core_conf={key[1]}")
             # print(f"Neu of this group: {[str(item[0]) for item in group_items]}")
-            print(f"Number of neurons in this group: {len(group_items)}")
+            print(f"\tNumber of neurons in this group: {len(group_items)}")
             frontend_core_conf, backend_core_conf = key
             # Initialize the first core for the current group
             current_core = OfflineCorePlacementV2(frontend_core_conf, backend_core_conf)
@@ -668,7 +676,7 @@ class RoutingGroup(
                 frontend_core_conf, backend_core_conf, group_items, i
             )
             print(
-                f"Number of cores after allocating this group: {len(self.core_placements)}"
+                f"\tNumber of cores after allocating this group: {len(self.core_placements)}"
             )
 
         self.n_core_required = len(self.core_placements)
@@ -741,22 +749,25 @@ class RoutingGroup(
         info_str = self.info()
         return info_str
 
-    def routing_summary(self) -> str:
+    def routing_summary(self, prefix: str = "") -> str:
         summary_str = (
-            f"{self.name} Routing Summary ({len(self.core_placements)} cores):\n"
+            f"{prefix}{self.name} Routing Summary ({len(self.core_placements)} cores):\n"
         )
         for i, core_placement in enumerate(self.core_placements):
-            summary_str += f"  Core Placement {i} at {core_placement.coord}:\n"
-            summary_str += f"    Number of Neurons: {len(core_placement.neus)}\n"
-            summary_str += f"    Number of Weights: {len(core_placement.weights)}\n"
+            if core_placement._coord is not None:
+                summary_str += f"{prefix}  Core Placement {i} at {core_placement.coord}:\n"
+            else:
+                summary_str += f"{prefix}  Core Placement {i} at Unassigned Coord:\n"
+            summary_str += f"{prefix}    Number of Neurons: {len(core_placement.neus)}\n"
+            summary_str += f"{prefix}    Number of Weights: {len(core_placement.weights)}\n"
             summary_str += (
-                f"    Neuron SRAM Required: {core_placement.neuron_sram_required}\n"
+                f"{prefix}    Neuron SRAM Required: {core_placement.neuron_sram_required}\n"
             )
             summary_str += (
-                f"    Weight SRAM Required: {core_placement.weight_sram_required}\n"
+                f"{prefix}    Weight SRAM Required: {core_placement.weight_sram_required}\n"
             )
             summary_str += (
-                f"    Total SRAM Required: {core_placement.n_sram_required}\n"
+                f"{prefix}    Total SRAM Required: {core_placement.n_sram_required}\n"
             )
         return summary_str
 
@@ -786,9 +797,9 @@ class InputGroup(Group, SourceGroup[InputElem, InNode]):
         info_str += "\n"
         return info_str
 
-    def routing_summary(self) -> str:
-        summary_str = f"Input Group {self.name}:\n"
-        summary_str += SourceGroup.routing_summary(self)
+    def routing_summary(self, prefix: str = "") -> str:
+        summary_str = f"{prefix}Input Group {self.name}:\n"
+        summary_str += SourceGroup.routing_summary(self, prefix=prefix)
         return summary_str
 
     def __str__(self) -> str:

@@ -339,8 +339,9 @@ class Mapper:
         for rg in self.routing_groups:
             rg.allocate_neurons()
 
+        print("\nAll groups after neuron allocation:")
         for rg in all_groups:
-            print(rg.info())
+            print(rg.routing_summary())
 
         # set core placements' coord, and generate detailed dest info for each neuron
         self.routing()

@@ -358,6 +358,9 @@ def expanded_path_weight_matrix(
         return direct_weight_matrix(weight, input_shape, output_shape, sign)
 
     if isinstance(comp, nn.Conv1d):
+        print(
+            f"\tExpanding Conv1d weight from {input_shape} to {output_shape} with stride={comp.stride}, padding={comp.padding}, dilation={comp.dilation}, groups={comp.groups}."
+        )
         assert weight is not None
         assert not isinstance(
             comp.padding, str
@@ -383,7 +386,7 @@ def expanded_path_weight_matrix(
 
     if isinstance(comp, nn.Conv2d):
         print(
-            f"Expanding Conv2d weight from {input_shape} to {output_shape} with stride={comp.stride}, padding={comp.padding}, dilation={comp.dilation}, groups={comp.groups}."
+            f"\tExpanding Conv2d weight from {input_shape} to {output_shape} with stride={comp.stride}, padding={comp.padding}, dilation={comp.dilation}, groups={comp.groups}."
         )
         assert weight is not None
         assert not isinstance(
@@ -409,6 +412,7 @@ def expanded_path_weight_matrix(
         )
 
     if isinstance(comp, nn.MaxPool1d):
+        print(f"\tExpanding MaxPool1d from {input_shape} to {output_shape} with kernel_size={comp.kernel_size}, stride={comp.stride}, padding={comp.padding}, dilation={comp.dilation}.")
         if comp.ceil_mode:
             raise NotImplementedError("MaxPool1d with ceil_mode=True is not supported.")
 
@@ -435,6 +439,7 @@ def expanded_path_weight_matrix(
         )
 
     if isinstance(comp, SumPool1d) or isinstance(comp, nn.AvgPool1d):
+        print(f"\tExpanding AvgPool1d from {input_shape} to {output_shape} with kernel_size={comp.kernel_size}, stride={comp.stride}, padding={comp.padding}, dilation={comp.dilation}.")
         if comp.ceil_mode:
             raise NotImplementedError("AvgPool1d with ceil_mode=True is not supported.")
         kernel_size = to_nd_tuple(comp.kernel_size, 1)
@@ -458,6 +463,7 @@ def expanded_path_weight_matrix(
         )
 
     if isinstance(comp, nn.MaxPool2d):
+        print(f"\tExpanding MaxPool2d from {input_shape} to {output_shape} with kernel_size={comp.kernel_size}, stride={comp.stride}, padding={comp.padding}, dilation={comp.dilation}.")
         if comp.ceil_mode:
             raise NotImplementedError("MaxPool2d with ceil_mode=True is not supported.")
         kernel_size = to_nd_tuple(comp.kernel_size, 2)
@@ -483,6 +489,7 @@ def expanded_path_weight_matrix(
         )
 
     if isinstance(comp, nn.AvgPool2d) or isinstance(comp, SumPool2d):
+        print(f"\tExpanding AvgPool2d from {input_shape} to {output_shape} with kernel_size={comp.kernel_size}, stride={comp.stride}, padding={comp.padding}, dilation={comp.dilation}.")
         if comp.ceil_mode:
             raise NotImplementedError("AvgPool2d with ceil_mode=True is not supported.")
         kernel_size = to_nd_tuple(comp.kernel_size, 2)
@@ -770,7 +777,7 @@ def group_shift_weights_optimized(
 
     for i in track(
         range(n_weights),
-        description="weight optimization",
+        description="computing base weights",
         total=len(range(n_weights)),
     ):
         row = matrix[i]
