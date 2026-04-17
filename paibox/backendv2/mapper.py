@@ -233,16 +233,16 @@ class Mapper:
                     # export core_frame_type1 and core_frame_type3 to output_path
                     # framearray is np.ndarray of np.uint64 with shape (n_frames, )
                     # print each frame with 16 hex digits each line
-                    frame_file.write(f"\ttype1:\n")
+                    frame_file.write("\ttype1:\n")
                     export_single_framearray(
                         core_frame_type1, frame_file, prefix="\t\t0x"
                     )
-                    frame_file.write(f"\ttype2:\n")
+                    frame_file.write("\ttype2:\n")
                     if core_frame_type2 is not None:
                         export_single_framearray(
                             core_frame_type2, frame_file, prefix="\t\t0x"
                         )
-                    frame_file.write(f"\ttype3:\n")
+                    frame_file.write("\ttype3:\n")
                     export_single_framearray(
                         core_frame_type3, frame_file, prefix="\t\t0x"
                     )
