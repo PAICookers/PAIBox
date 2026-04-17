@@ -10,13 +10,14 @@ Node types:
 - :class:`AccumulateOp` -- multi-path compute -> add/sub -> neuron/lut
 - :class:`StandaloneCompOp` -- compute only (potential output)
 - :class:`StandaloneActOp` -- neuron/lut only
-- routing ops such as :class:`ConcatOp`, :class:`SplitOp`, and :class:`ReshapeOp`
+- routing ops such as :class:`TransformOp`, :class:`ConcatOp`, and
+  :class:`SplitOp`
 
 Add-specific IR nodes live in :mod:`paibox.paiir.ir.add_ops`.
 """
 
 from collections.abc import Callable, Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, ClassVar
 
 import torch
@@ -41,7 +42,9 @@ __all__ = [
     "AccumulateOp",
     "ConcatOp",
     "SplitOp",
-    "ReshapeOp",
+    "TransformOp",
+    "LayoutStage",
+    "ShapeStage",
     "StandaloneCompOp",
     "StandaloneActOp",
     "OnlineCoreOp",
@@ -128,6 +131,31 @@ def _tensor_value_range(tensor: Tensor) -> tuple[int, int]:
     return int(qt.min().item()), int(qt.max().item())
 
 
+@dataclass(frozen=True, slots=True)
+class LayoutStage:
+    """One logical layout materialization step inside a transform op."""
+
+    dims: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ShapeStage:
+    """One shape-change step inside a transform op."""
+
+    shape_fn: Callable[[torch.Size], torch.Size] | None = None
+
+
+TransformStage = LayoutStage | ShapeStage
+
+
+def _apply_transform_stage(x: Tensor, stage: TransformStage) -> Tensor:
+    if isinstance(stage, LayoutStage):
+        return materialize_logical_layout(x, stage.dims)
+    if stage.shape_fn is None:
+        return x.flatten()
+    return x.reshape(stage.shape_fn(x.shape))
+
+
 class OpNode(nn.Module, PAIIRNode):
     """Abstract base class for all operator IR nodes.
 
@@ -136,7 +164,7 @@ class OpNode(nn.Module, PAIIRNode):
 
     Class attributes:
         deploy: Whether this node should be deployed to a chip core.
-            Set to False for simulation-only ops (e.g., ReshapeOp).
+            Set to False for simulation-only routing transforms.
 
     Attributes:
         input_layouts: Tensor layouts at each input port.
@@ -188,12 +216,38 @@ class RoutingOp(OpNode):
         deploy: False - routing ops are not deployed to any core.
 
     Subclasses:
+    - :class:`TransformOp` - ordered layout / shape reinterpretation
     - :class:`ConcatOp` - concatenation
     - :class:`SplitOp` - split branch selection
-    - :class:`ReshapeOp` - reshape/flatten/view
     """
 
     deploy: ClassVar[bool] = False
+
+
+class TransformOp(RoutingOp):
+    """Explicit tensor view/layout transform routing op.
+
+    ``TransformOp`` is the general PAIIR carrier for ordered tensor
+    reinterpretation steps that do not map to chip compute cores but do affect
+    graph-level simulation and backend remap construction.
+    """
+
+    stages: tuple[TransformStage, ...]
+
+    def __init__(self, stages: Sequence[TransformStage] = ()) -> None:
+        super().__init__()
+        self.stages = tuple(stages)
+
+    def forward(self, x: Tensor) -> Tensor:
+        for stage in self.stages:
+            x = _apply_transform_stage(x, stage)
+        return x
+
+    def extra_repr(self) -> str:
+        parts = [super().extra_repr()]
+        if self.stages:
+            parts.append(f"stages={self.stages}")
+        return ", ".join(parts)
 
 
 class OfflineCoreOp(OpNode):
@@ -491,37 +545,6 @@ class SplitOp(RoutingOp):
 
     def extra_repr(self) -> str:
         return f"{super().extra_repr()}, sections={self.sections}, dim={self.dim}"
-
-
-class ReshapeOp(RoutingOp):
-    """Reshape operation (flatten, view, reshape).
-
-    Used for simulation to correctly transform tensor shapes between
-    layers (e.g., AvgPool output -> Linear input).
-
-    On chip, reshape is implicit - only the memory layout interpretation
-    changes, no actual computation occurs.
-
-    Args:
-        shape_fn: Function that computes output shape from input shape.
-                  If None, defaults to flatten (all dims after batch).
-    """
-
-    def __init__(
-        self, shape_fn: Callable[[torch.Size], torch.Size] | None = None
-    ) -> None:
-        super().__init__()
-        self.shape_fn = shape_fn
-
-    def forward(self, x: Tensor) -> Tensor:
-        if self.num_inputs == 1:
-            x = materialize_logical_layout(x, self.input_layouts[0].dims)
-
-        if self.shape_fn is None:
-            return x.flatten()
-
-        new_shape = self.shape_fn(x.shape)
-        return x.reshape(new_shape)
 
 
 class StandaloneCompOp(OfflineCoreOp):

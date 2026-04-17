@@ -26,7 +26,6 @@ from paibox.paiir.ir.op_node import (
     ConcatOp,
     CPUOp,
     OfflineCoreOp,
-    ReshapeOp,
     SequentialOp,
     SplitOp,
     StandaloneActOp,
@@ -63,6 +62,7 @@ from tests.paiir.conftest import (
     find_first,
     find_node_names,
     find_nodes,
+    find_transform_nodes,
     make_img_1ch_4x4,
     make_img_3ch_8x8,
     make_img_16ch_8x8,
@@ -167,14 +167,14 @@ class TestSNNConversion:
         assert groups == [1, 16]
 
     def test_flatten_transition(self):
-        """Conv-IF -> flatten -> Linear-IF: flatten is preserved as ReshapeOp."""
+        """Conv-IF -> flatten -> Linear-IF: flatten is preserved as one transform node."""
         model = SNNFlattenTransition()
         fused = convert_and_fuse(model, make_img_1ch_4x4())
 
         seq_nodes = find_nodes(fused, SequentialOp)
         assert len(seq_nodes) == 2
-        reshape_nodes = find_nodes(fused, ReshapeOp)
-        assert len(reshape_nodes) == 1
+        transform_nodes = find_transform_nodes(fused)
+        assert len(transform_nodes) == 1
 
         comp_types = sorted(type(n.comp).__name__ for n in seq_nodes)
         assert comp_types == ["Conv2d", "Linear"]

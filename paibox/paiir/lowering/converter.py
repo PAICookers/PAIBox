@@ -29,13 +29,15 @@ import math
 import operator
 import sys
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any
 
 import torch
 from spikingjelly.activation_based import neuron
 from torch import Tensor, fx, nn
+from torch.fx.node import Argument, Target
 from torch.fx.passes.shape_prop import ShapeProp
 
 from ..exceptions import UnsupportedOpError, UnsupportedOpWarning
@@ -44,7 +46,15 @@ from ..ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
 from ..ir.graph import PAIIRGraph
 from ..ir.ir_base import InputNode, OutputNode
 from ..ir.lut_activation import LutActivation, LutReLU, LutSigmoid, LutSoftsign, LutTanh
-from ..ir.op_node import ConcatOp, OpNode, ReshapeOp, StandaloneActOp, StandaloneCompOp
+from ..ir.op_node import (
+    ConcatOp,
+    LayoutStage,
+    OpNode,
+    ShapeStage,
+    StandaloneActOp,
+    StandaloneCompOp,
+    TransformOp,
+)
 from ..ir.reshape_semantics import RESHAPE_LEAF_MODULE_TYPES
 from .conv_lowering import (
     build_conv_ir_node,
@@ -59,11 +69,7 @@ from .fx_utils import (
     get_output_layouts,
     get_output_shape,
 )
-from .shape_analysis import (
-    ReshapeSinkInfo,
-    ShapeAnalysisResult,
-    analyze_shape_helpers,
-)
+from .shape_analysis import ReshapeSinkInfo, ShapeAnalysisResult, analyze_shape_helpers
 from .split_lowering import (
     SplitProducerInfo,
     apply_split_analysis_rule,
@@ -92,7 +98,8 @@ LOWERING_BYPASS_MODULE_TYPES = (nn.BatchNorm1d, nn.BatchNorm2d)
 #
 # - BatchNorm stays a true bypass at lowering time.
 # - Flatten is preserved as a leaf for tracing, but lowering materializes it as
-#   a ``ReshapeOp`` so graph-level simulation keeps the shape transition.
+#   a shape-only ``TransformOp`` so graph-level simulation keeps the shape
+#   transition.
 TRACE_LEAF_MODULE_TYPES = LOWERING_BYPASS_MODULE_TYPES + RESHAPE_LEAF_MODULE_TYPES
 
 # Modules removed by _EraseModuleTransformer: each call_module node is replaced
@@ -105,7 +112,7 @@ CAT_OPS = (torch.cat,)
 
 # Known bypass targets (shape/dim ops that don't need IR nodes)
 KNOWN_BYPASS_FUNCS = (operator.getitem,)
-KNOWN_BYPASS_METHODS = ("size", "contiguous", "transpose", "permute")
+KNOWN_BYPASS_METHODS = ("size", "contiguous")
 
 
 def _map_comp(mod: nn.Module, **kwargs) -> OpNode:
@@ -212,8 +219,8 @@ if legacy_neuron is not None:
         assert isinstance(mod, legacy_if)
         return StandaloneActOp(
             act=IFNodeV25(
-                mod.v_threshold,
-                mod.v_reset,
+                mod.v_threshold,  # type: ignore
+                mod.v_reset,  # type: ignore
                 mod.surrogate_function,
                 mod.detach_reset,
                 **kwargs,
@@ -233,8 +240,8 @@ if legacy_neuron is not None:
             act=LIFNodeV25(
                 mod.tau,
                 mod.decay_input,
-                mod.v_threshold,
-                mod.v_reset,
+                mod.v_threshold,  # type: ignore
+                mod.v_reset,  # type: ignore
                 mod.surrogate_function,
                 mod.detach_reset,
                 **kwargs,
@@ -272,10 +279,6 @@ def propagate_dims(gm: fx.GraphModule) -> None:
     DimsProp().propagate(gm)
 
 
-_propagate_shapes = propagate_shapes
-_propagate_dims = propagate_dims
-
-
 def _is_dtype_getattr(node: fx.Node) -> bool:
     return (
         node.op == "call_function"
@@ -283,12 +286,6 @@ def _is_dtype_getattr(node: fx.Node) -> bool:
         and len(node.args) >= 2
         and node.args[1] == "dtype"
     )
-
-
-def _make_fixed_shape_fn(
-    target_shape: torch.Size,
-) -> Callable[[torch.Size], torch.Size]:
-    return lambda _input_shape, target=target_shape: target
 
 
 def _normalize_dim(ndim: int, dim: int) -> int:
@@ -313,26 +310,74 @@ def _flatten_output_shape(
     return torch.Size((*input_shape[:start], flat_size, *input_shape[end + 1 :]))
 
 
-def _make_flatten_shape_fn(
-    start_dim: int = 0, end_dim: int = -1
-) -> Callable[[torch.Size], torch.Size]:
-    return lambda input_shape, s=start_dim, e=end_dim: _flatten_output_shape(
-        input_shape, s, e
-    )
-
-
-def _build_reshape_op(
+def _build_shape_transform_op(
     output_shape: torch.Size,
     shape_fn: Callable[[torch.Size], torch.Size] | None = None,
-) -> ReshapeOp | None:
-    """Create a ``ReshapeOp`` from analyzed shape metadata or a shape function."""
+) -> TransformOp | None:
+    """Create a shape-only ``TransformOp`` from analyzed reshape metadata."""
     if shape_fn is not None:
-        return ReshapeOp(shape_fn)
+        return TransformOp((ShapeStage(shape_fn),))
 
     if output_shape:
-        return ReshapeOp(shape_fn=_make_fixed_shape_fn(output_shape))
+        return TransformOp((ShapeStage(lambda _: output_shape),))
 
     return None
+
+
+def _extract_int_dims(values: Sequence[object]) -> tuple[int, ...] | None:
+    dims: list[int] = []
+    for value in values:
+        if not isinstance(value, int):
+            return None
+        dims.append(value)
+    return tuple(dims)
+
+
+def _extract_permute_dims(node: fx.Node) -> tuple[int, ...] | None:
+    if node.op == "call_method":
+        if len(node.args) >= 2 and isinstance(node.args[1], (tuple, list)):
+            return _extract_int_dims(node.args[1])
+        dims = node.args[1:]
+        if dims:
+            extracted = _extract_int_dims(dims)
+            if extracted is not None:
+                return extracted
+        dims_kw = node.kwargs.get("dims")
+        if isinstance(dims_kw, (tuple, list)):
+            return _extract_int_dims(dims_kw)
+        return None
+
+    if len(node.args) >= 2 and isinstance(node.args[1], (tuple, list)):
+        return _extract_int_dims(node.args[1])
+
+    dims = node.args[1:]
+    if dims:
+        return _extract_int_dims(dims)
+    return None
+
+
+def _extract_transpose_dims(node: fx.Node) -> tuple[int, int] | None:
+    if (
+        len(node.args) >= 3
+        and isinstance(node.args[1], int)
+        and isinstance(node.args[2], int)
+    ):
+        return int(node.args[1]), int(node.args[2])
+    dim0 = node.kwargs.get("dim0")
+    dim1 = node.kwargs.get("dim1")
+    if isinstance(dim0, int) and isinstance(dim1, int):
+        return int(dim0), int(dim1)
+    return None
+
+
+def _build_layout_transform_op(
+    ndim: int, permute_dims: tuple[int, ...]
+) -> TransformOp | None:
+    if ndim <= 0 or len(permute_dims) != ndim:
+        return None
+    if sorted(permute_dims) != list(range(ndim)):
+        return None
+    return TransformOp((LayoutStage(permute_dims),))
 
 
 def _resolve_attr_value(gm: fx.GraphModule, target: str) -> Any:
@@ -545,27 +590,76 @@ def _lower_general_add_ir(
 
 def _build_flatten_ir_node(
     data_input: fx.Node, start_dim: int, end_dim: int
-) -> tuple[ReshapeOp, tuple[fx.Node, ...]] | None:
+) -> tuple[TransformOp, tuple[fx.Node, ...]]:
     """Build the normalized PAIIR form for any flatten-style operation."""
-    return (
-        ReshapeOp(shape_fn=_make_flatten_shape_fn(start_dim, end_dim)),
-        (data_input,),
-    )
+    return TransformOp(
+        (
+            ShapeStage(
+                partial(_flatten_output_shape, start_dim=start_dim, end_dim=end_dim)
+            ),
+        )
+    ), (data_input,)
 
 
 def _build_reshape_like_ir_node(
     sink_info: ReshapeSinkInfo,
-) -> tuple[ReshapeOp, tuple[fx.Node, ...]] | None:
-    """Lower one analyzed reshape sink to ``ReshapeOp`` and its data input."""
+) -> tuple[TransformOp, tuple[fx.Node, ...]] | None:
+    """Lower one analyzed reshape sink to a shape-only ``TransformOp``."""
     if sink_info.kind == "flatten":
         return _build_flatten_ir_node(
             sink_info.data_input, sink_info.start_dim, sink_info.end_dim
         )
 
-    ir_node = _build_reshape_op(sink_info.output_shape)
-    if ir_node is None:
+    ir_node = _build_shape_transform_op(sink_info.output_shape)
+    return None if ir_node is None else (ir_node, (sink_info.data_input,))
+
+
+def _build_layout_transform_ir_node(
+    node: fx.Node,
+) -> tuple[TransformOp, tuple[fx.Node, ...]] | None:
+    """Lower explicit permute/transpose nodes to a layout-only ``TransformOp``."""
+    if not node.args or not isinstance(node.args[0], fx.Node):
         return None
-    return ir_node, (sink_info.data_input,)
+
+    data_input = node.args[0]
+    output_shape = get_output_shape(node)
+    ndim = len(output_shape)
+
+    if node.target in {"permute", "permute_"} or node.target is torch.permute:
+        permute_dims = _extract_permute_dims(node)
+        if permute_dims is None:
+            return None
+        if ndim == 0:
+            ndim = len(permute_dims)
+        ir_node = _build_layout_transform_op(ndim, permute_dims)
+        if ir_node is None:
+            return None
+        return ir_node, (data_input,)
+
+    if node.target in {"transpose", "transpose_"} or node.target is torch.transpose:
+        transpose_dims = _extract_transpose_dims(node)
+        if transpose_dims is None:
+            return None
+
+        input_shape = get_output_shape(data_input)
+        if ndim == 0:
+            ndim = len(input_shape)
+        if ndim <= 0:
+            return None
+
+        dim0 = _normalize_dim(ndim, transpose_dims[0])
+        dim1 = _normalize_dim(ndim, transpose_dims[1])
+        transposed_dims = list(range(ndim))
+        transposed_dims[dim0], transposed_dims[dim1] = (
+            transposed_dims[dim1],
+            transposed_dims[dim0],
+        )
+        ir_node = _build_layout_transform_op(ndim, tuple(transposed_dims))
+        if ir_node is None:
+            return None
+        return ir_node, (data_input,)
+
+    return None
 
 
 class _PAIIRTracer(fx.Tracer):
@@ -594,8 +688,12 @@ class _EraseModuleTransformer(fx.Transformer):
     Dead-code elimination is run automatically so no orphaned nodes remain.
     """
 
-    def call_module(self, target: str, args: tuple, kwargs: dict):
-        if isinstance(self.submodules[target], ERASE_MODULE_TYPES):
+    def call_module(
+        self, target: Target, args: tuple[Argument, ...], kwargs: dict[str, Any]
+    ) -> Any:
+        if isinstance(target, str) and isinstance(
+            self.submodules[target], ERASE_MODULE_TYPES
+        ):
             return args[0]
         return super().call_module(target, args, kwargs)
 
@@ -843,11 +941,7 @@ def _apply_module_lowering_rule(
     if conv_spec is not None:
         ir_node, conv_input_override = build_conv_ir_node(conv_spec)
         _register_ir_node(
-            paiir_graph,
-            ctx,
-            node,
-            ir_node,
-            input_nodes_override=conv_input_override,
+            paiir_graph, ctx, node, ir_node, input_nodes_override=conv_input_override
         )
         return True
 
@@ -865,11 +959,7 @@ def _apply_module_lowering_rule(
 
         ir_node, reshape_override = built
         _register_ir_node(
-            paiir_graph,
-            ctx,
-            node,
-            ir_node,
-            input_nodes_override=reshape_override,
+            paiir_graph, ctx, node, ir_node, input_nodes_override=reshape_override
         )
         return True
 
@@ -968,6 +1058,14 @@ def _apply_builtin_function_lowering_rule(
         _register_ir_node(paiir_graph, ctx, node, ConcatOp(dim=raw_dim))
         return True
 
+    built_layout = _build_layout_transform_ir_node(node)
+    if built_layout is not None:
+        ir_node, input_override = built_layout
+        _register_ir_node(
+            paiir_graph, ctx, node, ir_node, input_nodes_override=input_override
+        )
+        return True
+
     sink_info = _get_reshape_sink_info(ctx, node)
     if sink_info is not None:
         built = _build_reshape_like_ir_node(sink_info)
@@ -983,11 +1081,7 @@ def _apply_builtin_function_lowering_rule(
 
         ir_node, input_override = built
         _register_ir_node(
-            paiir_graph,
-            ctx,
-            node,
-            ir_node,
-            input_nodes_override=input_override,
+            paiir_graph, ctx, node, ir_node, input_nodes_override=input_override
         )
         return True
 
@@ -1048,6 +1142,14 @@ def _apply_builtin_method_lowering_rule(
         )
         return True
 
+    built_layout = _build_layout_transform_ir_node(node)
+    if built_layout is not None:
+        ir_node, input_override = built_layout
+        _register_ir_node(
+            paiir_graph, ctx, node, ir_node, input_nodes_override=input_override
+        )
+        return True
+
     sink_info = _get_reshape_sink_info(ctx, node)
     if sink_info is not None:
         built = _build_reshape_like_ir_node(sink_info)
@@ -1062,11 +1164,7 @@ def _apply_builtin_method_lowering_rule(
 
         ir_node, input_override = built
         _register_ir_node(
-            paiir_graph,
-            ctx,
-            node,
-            ir_node,
-            input_nodes_override=input_override,
+            paiir_graph, ctx, node, ir_node, input_nodes_override=input_override
         )
         return True
 

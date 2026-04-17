@@ -36,8 +36,12 @@ paibox.paiir/
 
 对后端开发者来说，通常有两类入口：
 
-- **公共入口**：从 `paibox.paiir` 顶层导入 `compile_to_paiir`、`PAIIRGraph`、`OfflineCoreOp` 等稳定 API
+- **公共入口**：从 `paibox.paiir` 顶层导入 `compile_to_paiir`、`CompileConfig`、`PAIIRGraph`、`TransformOp` 等稳定 API
 - **内部扩展入口**：从 `paibox.paiir.pipeline.passes`、`paibox.paiir.ir.*` 等模块导入更细粒度的类型与 pass
+
+补充：
+
+- `OfflineCoreOp`、`SequentialOp`、`AccumulateOp` 等更细粒度 IR 类型当前通过 `paibox.paiir.ir` 暴露，而不是 `paibox.paiir` 顶层导出
 
 补充说明：
 
@@ -223,12 +227,13 @@ PAIIRNode (基类，自动分配唯一 name)
     │   ├── PotentialAddOp             — 纯加法/减法（输出膜电位，无激活）
     │   ├── StandaloneCompOp  — 纯计算（融合前的中间状态）
     │   └── StandaloneActOp   — 纯激活（融合前的中间状态）
+    ├── TransformOp     — 路由变换（layout / shape，非核操作，不占用核资源）
     ├── ConcatOp        — 路由拼接（非核操作，不占用核资源）
     ├── OnlineCoreOp    — 在线学习核（占位符）
     └── CPUOp           — CPU 回退（占位符，仅 v2.5）
 ```
 
-融合后的正常图中主要出现 `SequentialOp`、`AccumulateOp`、`PotentialAddOp`、`ConcatOp` 四种算子。`StandaloneCompOp` 和 `StandaloneActOp` 通常在融合后不再独立存在，但在以下场景中仍可能保留：
+融合后的正常图中主要出现 `SequentialOp`、`AccumulateOp`、`PotentialAddOp`、`TransformOp`、`ConcatOp` 五种算子。`StandaloneCompOp` 和 `StandaloneActOp` 通常在融合后不再独立存在，但在以下场景中仍可能保留：
 
 前端表达层还可能出现 `GeneralAddOp`，用于忠实表示 PyTorch 的通用 `add/sub` 语义；但它不属于 backend-ready 子集。只要图是通过 `compile_to_paiir()` 生成的，`validate_deployable_graph()` 会确保这类表达层节点已经被收紧或拒绝。
 
@@ -242,6 +247,8 @@ PAIIRNode (基类，自动分配唯一 name)
 - 它可以出现在 `torch_to_paiir()` 或 compile 中途图里
 - `validate_deployable_graph()` 之后的 backend-ready 图不允许残留 `SplitOp`
 - 因此后端如果只消费 `compile_to_paiir()` 的最终结果，默认不需要实现 `SplitOp` 的真实部署逻辑
+
+`TransformOp` 与 `SplitOp` 不同：它属于 backend-ready 图允许保留的 routing 节点。来自 `permute` / `transpose` / `flatten` / `reshape` / `view` / `squeeze` / `unsqueeze` 等变换在 compile 结束后仍可能以 `TransformOp` 形式存在，后端必须能消费它的 remap 语义，而不是假设这类节点都已在前端消失。
 
 ## 计算图遍历与查询
 
@@ -344,11 +351,11 @@ class TensorLayout:
 
 当前 `output_domain` 按节点定义，是单值语义，不按输出端口拆分。对当前 routing-only 节点：
 
-- `ReshapeOp` 输出域继承其唯一输入
+- `TransformOp` 输出域继承其唯一输入
 - `SplitOp` 虽然是多输出，但所有 split 分支继承同一个输入域
 - `ConcatOp` 要求所有输入域一致，然后输出该共同域
 
-后端应把它视为节点输出语义，而不是直接等同于芯片寄存器里的 `OutputType`。对有 `neuron_params` 的离线核节点，两者通常一致；对 `InputNode`、`OutputNode`、`ConcatOp`、`SplitOp`、`ReshapeOp`、`GeneralAddOp` 这类非神经元或 routing 节点，则只能使用 `SignalDomain`。
+后端应把它视为节点输出语义，而不是直接等同于芯片寄存器里的 `OutputType`。对有 `neuron_params` 的离线核节点，两者通常一致；对 `InputNode`、`OutputNode`、`ConcatOp`、`SplitOp`、`TransformOp`、`GeneralAddOp` 这类非神经元或 routing 节点，则只能使用 `SignalDomain`。
 
 当前实现约定还更进一步：
 
@@ -532,6 +539,41 @@ input_names = graph.predecessors(cat.name)  # 已按 dst_port 排序
 
 `ConcatOp` 不映射到任何芯片核，后端利用输入端口顺序和各前驱的输出形状来确定轴突地址范围。
 
+#### TransformOp
+
+```python
+from paibox.paiir.ir.op_node import LayoutStage, ShapeStage, TransformOp
+
+tr: TransformOp
+tr.stages: tuple[LayoutStage | ShapeStage, ...]
+tr.input_layouts[0]    # 输入 layout
+tr.output_layouts[0]   # 输出 layout
+```
+
+`TransformOp` 是当前 PAIIR 中统一承载 layout / shape 重解释的 routing 节点，不映射到任何芯片核。它的核心行为是按顺序执行 `stages`：
+
+- `LayoutStage(dims)`：按给定轴顺序物化逻辑 layout，底层调用 `materialize_logical_layout(...)`
+- `ShapeStage(shape_fn)`：根据当前张量 shape 做 reshape；若 `shape_fn is None`，语义是 flatten
+
+当前实现中，它的来源有两类：
+
+- layout-only：`permute` / `transpose` 在 lowering 时变成 `TransformOp((LayoutStage(...),))`
+- shape-only：`flatten` / `reshape` / `view` / `squeeze` / `unsqueeze` / identity `repeat` 在 lowering 时变成 `TransformOp((ShapeStage(...),))`
+
+compile 前半段还会对它做两类重写：
+
+- `canonicalize_transform_chains()`：合并相邻的 `TransformOp`，并删除 shape 与元素顺序都不变的 identity transform
+- `commute_pre_activation_transforms()`：把“保持扁平元素顺序不变”的前置 transform 从 `comp -> transform -> act` 交换到 `act` 后面，为融合创造机会
+
+后端可依赖的最小契约：
+
+- `TransformOp` 必须恰好有一个前驱
+- `input_layouts` / `output_layouts` 都必须完整，且输入输出元素总数一致
+- `output_domain` 继承其唯一前驱域
+- 不应把它映射到 OfflineCore；它只表示 routing / remap 语义
+
+backend 的正确消费方式不是手写匹配 `permute` / `reshape` 模式，而是像 `backendv2.RemapNode` 一样，直接对 index tensor 执行 `raw_node(flat_indices)`，再读取变换后的扁平索引映射。这样可以天然兼容单 stage 和多 stage 的组合 `TransformOp`。
+
 ## 完整示例
 
 ### 示例 1：提取部署所需的全部核信息
@@ -593,13 +635,17 @@ def extract_cores(graph):
 ### 示例 2：提取图的拓扑连接关系
 
 ```python
+from paibox.paiir.ir.ir_base import InputNode, OutputNode
+from paibox.paiir.ir.op_node import ConcatOp, OfflineCoreOp, TransformOp
+
+
 def extract_topology(graph):
     """提取图的拓扑连接，用于后端路由"""
     topology = {
         "inputs": [],
         "outputs": [],
         "cores": [],
-        "routing": [],  # ConcatOp
+        "routing": [],  # TransformOp / ConcatOp
         "edges": [],
     }
 
@@ -609,11 +655,13 @@ def extract_topology(graph):
             topology["inputs"].append({"name": name, "shape": node.shape})
         elif isinstance(node, OutputNode):
             topology["outputs"].append({"name": name, "shape": node.shape})
-        elif isinstance(node, ConcatOp):
+        elif isinstance(node, (TransformOp, ConcatOp)):
             topology["routing"].append({
                 "name": name,
-                "dim": node.dim,
+                "type": type(node).__name__,
                 "input_order": graph.predecessors(name),
+                "stages": getattr(node, "stages", None),
+                "dim": getattr(node, "dim", None),
             })
         elif isinstance(node, OfflineCoreOp):
             topology["cores"].append(name)
@@ -777,7 +825,6 @@ class LutData:
 - `graph.summary()`、`graph.predecessors()`、`graph.successors()`、`graph.get_edge_output_layout(...)`、`core_params`、`neuron_params`、`lut_data` 等接口，是后端读取部署信息的主要入口
 - 对 `OfflineCoreOp`，若 `output_domain` 与 `neuron_params.output_type` 不一致，`validate_compiled_graph()` 会直接报错；不要依赖这种不一致状态进入 backend
 - 若需要扩展编译流程，请优先在 `paibox.paiir.pipeline.passes` 中新增或调整 pass；`pass_manager` 目前不驱动默认编译路径
-- 当前分支已经将 `OpNode` 的 shape/dims 正式接口切换为 `input_layouts/output_layouts`；`backendv2` 尚未适配这次接口变化，需要单独跟进
 - `Edge.src_port` 与 `Edge.dst_port` 仍然保留：
   - `src_port` 表示源节点输出索引，`SplitOp` 依赖它选择分支
   - `dst_port` 表示目标节点输入槽位，`ConcatOp` / `AccumulateOp` / `PotentialAddOp` 等依赖它保持输入顺序
