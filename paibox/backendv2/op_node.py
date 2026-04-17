@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import Generic, TypeVar
+from typing import Generic, Optional, TypeVar, Union
 
 import torch
 from paicorelib import (
@@ -43,6 +43,122 @@ class CustomIndex:
 
     def __repr__(self) -> str:
         return self.__str__()
+
+
+class PaddingOp:
+    def __init__(
+        self,
+        name: str,
+        shape: tuple[int, ...],
+        padding: tuple[int, ...],
+    ):
+        self.name = name
+        self.inshape = torch.Size(shape)
+        self.outshape = torch.Size(self.compute_out_shape(self.inshape, padding))
+        self.shape = self.outshape
+        self.num_of_each_dim = []
+        for i in range(len(self.outshape)):
+            if i == 0:
+                self.num_of_each_dim.append(1)
+            else:
+                shape_index = len(self.outshape) - i
+                self.num_of_each_dim.append(
+                    self.outshape[shape_index] * self.num_of_each_dim[-1]
+                )
+        print(
+            f"PaddingOp {self.name} inshape: {self.inshape}, outshape: {self.outshape}, num_of_each_dim: {self.num_of_each_dim}"
+        )
+
+        self.padding = padding
+        self.remap_dict: dict[int, int] = {}
+        self.set_remap_dict()
+
+    def compute_out_shape(
+        self, inshape: tuple[int, ...], padding: tuple[int, ...]
+    ) -> tuple[int, ...]:
+        shape_list = list(inshape)
+        k = len(padding)
+        for i in range(k):
+            dim = -k + i
+            shape_list[dim] += 2 * padding[i]
+        outshape = tuple(shape_list)
+        return outshape
+
+    def next_in_idx(self, in_idx: list[int]) -> list[int]:
+        next_in_idx = in_idx.copy()
+        for dim in range(len(self.inshape)):
+            shape_index = len(self.inshape) - 1 - dim
+            if in_idx[dim] == self.inshape[shape_index] - 1:
+                next_in_idx[dim] = 0
+            else:
+                next_in_idx[dim] += 1
+                break
+        return next_in_idx
+
+    def set_remap_dict(self):
+        in_idx = [0] * len(self.inshape)
+        for i in range(self.inshape.numel()):
+            out_idx = in_idx.copy()
+            for j in range(len(self.padding)):
+                pad = self.padding[j]
+                out_idx[j] += pad
+            out_idx_flat = 0
+
+            for k, idx in enumerate(out_idx):
+                out_idx_flat += idx * self.num_of_each_dim[k]
+
+            self.remap_dict[i] = out_idx_flat
+            # print(f"PaddingOp {self.name} remap: {tuple(in_idx)} -> {out_idx}")
+            # print(f"PaddingOp {self.name} remap flat: {i} -> {out_idx_flat}")
+            in_idx = self.next_in_idx(in_idx)
+
+
+def conv2d_without_padding(old_conv: nn.Conv2d):
+    kernel_size = old_conv.kernel_size
+    stride = old_conv.stride
+    dilation = old_conv.dilation
+
+    assert (
+        len(kernel_size) == 2 and len(stride) == 2 and len(dilation) == 2
+    ), "Only 2D convolution is supported"
+    new_conv = nn.Conv2d(
+        in_channels=old_conv.in_channels,
+        out_channels=old_conv.out_channels,
+        kernel_size=kernel_size,
+        stride=stride,
+        padding=0,
+        dilation=dilation,
+        groups=old_conv.groups,
+        padding_mode=old_conv.padding_mode,
+    )
+    with torch.no_grad():
+        new_conv.weight.copy_(old_conv.weight)
+
+    return new_conv
+
+
+def conv1d_without_padding(old_conv: nn.Conv1d):
+    kernel_size = old_conv.kernel_size
+    stride = old_conv.stride
+    dilation = old_conv.dilation
+
+    assert (
+        len(kernel_size) == 1 and len(stride) == 1 and len(dilation) == 1
+    ), "Only 1D convolution is supported"
+    new_conv = nn.Conv1d(
+        in_channels=old_conv.in_channels,
+        out_channels=old_conv.out_channels,
+        kernel_size=kernel_size,
+        stride=stride,
+        padding=0,
+        dilation=dilation,
+        groups=old_conv.groups,
+        padding_mode=old_conv.padding_mode,
+    )
+    with torch.no_grad():
+        new_conv.weight.copy_(old_conv.weight)
+
+    return new_conv
 
 
 def get_frontend_core_conf(
@@ -148,14 +264,14 @@ class OutNode(BaseNode["OutputNode"]):
         self.input_bit_num_ = pred_output_bit_nums.pop()
 
 
-RemapOp = ReshapeOp | ConcatOp
+RemapOp = Union[ReshapeOp, ConcatOp, PaddingOp]
 
 
-class ReorderNode(BaseNode[RemapOp]):
+class RemapNode(BaseNode[RemapOp]):
     def __init__(self, name: str, raw_node: RemapOp, shape: tuple[int, ...]):
         super().__init__(name, shape, raw_node)
 
-    def get_reorder_info(self) -> dict["SourceElem", "RemapElem"]:
+    def get_remap_info(self) -> dict["SourceElem", "RemapElem"]:
         if isinstance(self.raw_node, ReshapeOp):
             assert (
                 len(self.predecessors) == 1
@@ -174,14 +290,14 @@ class ReorderNode(BaseNode[RemapOp]):
                 reordered.numel() == pred_len
             ), "ReshapeOp index remap must preserve element count"
 
-            reorder_map: dict["SourceElem", "RemapElem"] = {}
+            remap_info: dict["SourceElem", "RemapElem"] = {}
             for dst_idx, src_idx in enumerate(reordered.tolist()):
                 pred_elem = get_elem(pred, src_idx)
                 reorder_elem = RemapElem(self, CustomIndex(dst_idx))
-                reorder_map[pred_elem] = reorder_elem
-            return reorder_map
+                remap_info[pred_elem] = reorder_elem
+            return remap_info
         elif isinstance(self.raw_node, ConcatOp):
-            reorder_map: dict["SourceElem", "RemapElem"] = {}
+            remap_info: dict["SourceElem", "RemapElem"] = {}
             concat_dim = self.raw_node.dim
             in_shapes = [pred.shape for pred in self.predecessors]
             assert all(
@@ -210,9 +326,21 @@ class ReorderNode(BaseNode[RemapOp]):
                         outer * out_dim_stride + (mid + dim_offset) * inner + inner_idx
                     )
                     pred_elem = get_elem(pred, i)
-                    reorder_map[pred_elem] = RemapElem(self, CustomIndex(flat_idx))
+                    remap_info[pred_elem] = RemapElem(self, CustomIndex(flat_idx))
                 dim_offset += pred.shape[concat_dim]
-            return reorder_map
+            return remap_info
+        elif isinstance(self.raw_node, PaddingOp):
+            assert (
+                len(self.predecessors) == 1
+            ), "PaddingNode should have exactly one predecessor"
+            pred = self.predecessors[0]
+            pred_len = pred.shape.numel()
+            remap_info: dict["SourceElem", "RemapElem"] = {}
+            for i in range(pred_len):
+                pred_elem = get_elem(pred, i)
+                reorder_elem = RemapElem(self, CustomIndex(self.raw_node.remap_dict[i]))
+                remap_info[pred_elem] = reorder_elem
+            return remap_info
         else:
             raise NotImplementedError(
                 f"Unsupported node type for ReorderNode: {type(self.raw_node)}"
@@ -335,14 +463,14 @@ class CoreOpNode(BaseNode["OfflineCoreOp"]):
 
 
 # 类型定义 1：包含三个 Node
-SourceNode = InNode | ReorderNode | CoreOpNode
+SourceNode = Union[InNode, RemapNode, CoreOpNode]
 # 类型定义 2：不包含 Input
-DestNode = ReorderNode | CoreOpNode | OutNode
+DestNode = Union[RemapNode, CoreOpNode, OutNode]
 
-AllNode = InNode | ReorderNode | CoreOpNode | OutNode
+AllNode = Union[InNode, RemapNode, CoreOpNode, OutNode]
 
 
-T = TypeVar("T", CoreOpNode, ReorderNode, InNode)
+T = TypeVar("T", CoreOpNode, RemapNode, InNode)
 
 
 class BaseElem(Generic[T]):
@@ -400,7 +528,7 @@ class Neuron(BaseElem["CoreOpNode"]):
         return self.copy(0)
 
 
-class RemapElem(BaseElem["ReorderNode"]):
+class RemapElem(BaseElem["RemapNode"]):
     # 如果没有特有方法，直接 pass 即可
     def copy(self, copy_id: int) -> "RemapElem":
         return RemapElem(self.target, CustomIndex(self.index.idx, copy_id))
@@ -425,7 +553,7 @@ CoreElem = Neuron | RemapElem
 def get_elem(Node: BaseNode, idx: int, copy_id: int = 0) -> "SourceElem":
     if isinstance(Node, InNode):
         return InputElem(Node, CustomIndex(idx, copy_id))
-    elif isinstance(Node, ReorderNode):
+    elif isinstance(Node, RemapNode):
         return RemapElem(Node, CustomIndex(idx, copy_id))
     elif isinstance(Node, CoreOpNode):
         return Neuron(Node, CustomIndex(idx, copy_id))
@@ -433,45 +561,78 @@ def get_elem(Node: BaseNode, idx: int, copy_id: int = 0) -> "SourceElem":
         raise NotImplementedError(f"Unsupported node type: {type(Node)}")
 
 
-def build_nodes(graph: PAIIRGraph) -> list[AllNode]:
-    nodes: list[AllNode] = []
-    nodes_map: dict[str, AllNode] = {}
-    for raw_node in graph.nodes.values():
-        if isinstance(raw_node, OfflineCoreOp):
-            node = CoreOpNode(raw_node.name, raw_node, raw_node.output_layouts[0].shape)
-        elif isinstance(raw_node, InputNode):
-            node = InNode(raw_node.name, raw_node, raw_node.shape)
-        elif isinstance(raw_node, OutputNode):
-            node = OutNode(raw_node.name, raw_node, raw_node.shape)
-        elif isinstance(raw_node, RemapOp):
-            node = ReorderNode(
-                raw_node.name, raw_node, raw_node.output_layouts[0].shape
-            )
-        else:
-            raise NotImplementedError(f"Unsupported node type: {type(raw_node)}")
-        nodes_map[raw_node.name] = node
-        nodes.append(node)
+def insert_padding_nodes(nodes: list[AllNode]):
+    new_nodes: list[RemapNode] = []
+    for node in nodes:
+        if not isinstance(node, CoreOpNode):
+            continue
 
-    for node_name, cur_node in nodes_map.items():
-        # if isinstance(cur_node, OutNode):
-        #     continue
-        succ_node_names = graph.successors(node_name)
-        for succ_name in succ_node_names:
-            succ_node = nodes_map[succ_name]
-            # if isinstance(succ_node, OutNode):
-            #     continue
-            assert isinstance(succ_node, DestNode)
-            cur_node.successors.append(succ_node)
-        if not isinstance(cur_node, InNode):
-            pred_node_names = graph.predecessors(node_name)
-            for pred_name in pred_node_names:
-                pred_node = nodes_map[pred_name]
-                if isinstance(pred_node, OutNode):
-                    raise ValueError(
-                        f"CoreOpNode {cur_node.name} has OutNode {pred_node.name} as predecessor"
+        for i in range(len(node.comps)):
+            comp = node.comps[i]
+            if isinstance(comp, nn.Conv2d) or isinstance(comp, nn.Conv1d):
+                if isinstance(comp.padding, str):
+                    raise NotImplementedError(
+                        "String padding mode is not supported in this version"
                     )
-                cur_node.predecessors.append(pred_node)
+                if isinstance(comp, nn.Conv2d) and comp.padding == (0, 0):
+                    continue
+                if isinstance(comp, nn.Conv1d) and comp.padding == (0,):
+                    continue
 
+                padding_node: Optional[RemapNode] = None
+                for new_node in new_nodes:
+                    if new_node.name == f"{node.predecessors[i].name}_Padded":
+                        padding_node = new_node
+                        if new_node.raw_node.padding == comp.padding:
+                            break
+                        else:
+                            raise ValueError(
+                                f"Padding node {new_node.name} already exists with different padding {new_node.raw_node.padding} vs {comp.padding}"
+                            )
+
+                if padding_node is None:
+                    padding_op = PaddingOp(
+                        name=f"{node.predecessors[i].name}_Padded",
+                        shape=node.predecessors[i].shape,
+                        padding=comp.padding,
+                    )
+
+                    padding_node = RemapNode(
+                        name=padding_op.name,
+                        raw_node=padding_op,
+                        shape=padding_op.outshape,
+                    )
+
+                    # only set predecessor info when creating new padding node,
+                    # if the padding node already exists,
+                    # it must have been connected to the same predecessor
+                    padding_node.predecessors.append(node.predecessors[i])
+                    for j in range(len(node.predecessors[i].successors)):
+                        if node.predecessors[i].successors[j] is node:
+                            node.predecessors[i].successors[j] = padding_node
+                            break
+                else:
+                    for j in range(len(node.predecessors[i].successors)):
+                        if node.predecessors[i].successors[j] is node:
+                            # remove the existing connection to node
+                            node.predecessors[i].successors.pop(j)
+                            break
+
+                if isinstance(comp, nn.Conv2d):
+                    no_pad_conv = conv2d_without_padding(comp)
+                else:
+                    no_pad_conv = conv1d_without_padding(comp)
+
+                padding_node.successors.append(node)
+                node.comps[i] = no_pad_conv
+                node.predecessors[i] = padding_node
+                # weight remains the same, so no need to change node.weights[i]
+                new_nodes.append(padding_node)
+
+    nodes.extend(new_nodes)
+
+
+def set_io_bit_num(nodes: list[AllNode]):
     unset_nodes = set(nodes)
     node_to_process: list[tuple[AllNode, int]] = [
         (node, -1) for node in nodes if isinstance(node, CoreOpNode)
@@ -501,6 +662,44 @@ def build_nodes(graph: PAIIRGraph) -> list[AllNode]:
                 unset_nodes.remove(pred)
                 node_to_process.append((pred, 1))
 
+
+def build_nodes(graph: PAIIRGraph) -> list[AllNode]:
+    nodes: list[AllNode] = []
+    nodes_map: dict[str, AllNode] = {}
+    for raw_node in graph.nodes.values():
+        if isinstance(raw_node, OfflineCoreOp):
+            node = CoreOpNode(raw_node.name, raw_node, raw_node.output_layouts[0].shape)
+        elif isinstance(raw_node, InputNode):
+            node = InNode(raw_node.name, raw_node, raw_node.shape)
+        elif isinstance(raw_node, OutputNode):
+            node = OutNode(raw_node.name, raw_node, raw_node.shape)
+        elif isinstance(raw_node, RemapOp):
+            node = RemapNode(raw_node.name, raw_node, raw_node.output_layouts[0].shape)
+        else:
+            raise NotImplementedError(f"Unsupported node type: {type(raw_node)}")
+        nodes_map[raw_node.name] = node
+        nodes.append(node)
+
+    for node_name, cur_node in nodes_map.items():
+        # if isinstance(cur_node, OutNode):
+        #     continue
+        succ_node_names = graph.successors(node_name)
+        for succ_name in succ_node_names:
+            succ_node = nodes_map[succ_name]
+            # if isinstance(succ_node, OutNode):
+            #     continue
+            assert isinstance(succ_node, DestNode)
+            cur_node.successors.append(succ_node)
+        if not isinstance(cur_node, InNode):
+            pred_node_names = graph.predecessors(node_name)
+            for pred_name in pred_node_names:
+                pred_node = nodes_map[pred_name]
+                if isinstance(pred_node, OutNode):
+                    raise ValueError(
+                        f"CoreOpNode {cur_node.name} has OutNode {pred_node.name} as predecessor"
+                    )
+                cur_node.predecessors.append(pred_node)
+
     for node in nodes:
         print(f"Node {node.name}({node.shape}):")
         if isinstance(node, CoreOpNode):
@@ -509,10 +708,16 @@ def build_nodes(graph: PAIIRGraph) -> list[AllNode]:
             )
         print(f"\tPredecessors: {[pred.name for pred in node.predecessors]}")
         print(f"\tSuccessors: {[succ.name for succ in node.successors]}")
-        print(
-            f"\tInput bit num: {node.input_bit_num}, Output bit num: {node.output_bit_num}"
-        )
 
-    # raise NotImplementedError("Not support output node")
+    new_nodes: list[RemapNode] = []
+
+    insert_padding_nodes(nodes)
+
+    for node in nodes:
+        print(f"Node {node.name}({node.shape}):")
+        print(f"\tPredecessors: {[pred.name for pred in node.predecessors]}")
+        print(f"\tSuccessors: {[succ.name for succ in node.successors]}")
+
+    set_io_bit_num(nodes)
 
     return nodes
