@@ -15,10 +15,11 @@ from paibox.paiir.ir.lut_activation import LutReLU, LutSigmoid, LutTanh
 from paibox.paiir.ir.op_node import (
     AccumulateOp,
     OfflineCoreOp,
-    ReshapeOp,
     SequentialOp,
+    ShapeStage,
     StandaloneActOp,
     StandaloneCompOp,
+    TransformOp,
 )
 from paibox.paiir.lowering.converter import torch_to_paiir
 from paibox.paiir.pipeline.data_format import (
@@ -338,10 +339,14 @@ class TestPropagateDataFormatANN:
         graph = PAIIRGraph("potential_routing")
         inp = InputNode(shape=torch.Size((1, 1, 4, 4)))
         comp_main = StandaloneCompOp(nn.Conv2d(1, 1, 1, bias=False))
-        reshape_main = ReshapeOp(lambda _: torch.Size((1, 1, 1, 4, 4)))
+        reshape_main = TransformOp(
+            (ShapeStage(lambda _: torch.Size((1, 1, 1, 4, 4))),)
+        )
         act = StandaloneActOp(ANNNodeV25(lut=LutReLU()))
         comp_skip = StandaloneCompOp(nn.Conv2d(1, 1, 1, bias=False))
-        reshape_skip = ReshapeOp(lambda _: torch.Size((1, 1, 1, 4, 4)))
+        reshape_skip = TransformOp(
+            (ShapeStage(lambda _: torch.Size((1, 1, 1, 4, 4))),)
+        )
         add = PotentialAddOp((1, 1))
         out = OutputNode(shape=torch.Size((1, 1, 1, 4, 4)))
 

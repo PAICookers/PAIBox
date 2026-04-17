@@ -10,8 +10,8 @@ from paibox.paiir.lowering.converter import (
     TRACE_LEAF_MODULE_TYPES,
     _EraseModuleTransformer,
     _PAIIRTracer,
-    _propagate_dims,
-    _propagate_shapes,
+    propagate_dims,
+    propagate_shapes,
 )
 from paibox.paiir.lowering.dims_prop import DimsProp
 
@@ -54,6 +54,6 @@ def trace_for_lowering(
 
     gm = trace_with_paiir_tracer(model, concrete_args=concrete_args)
     gm = _EraseModuleTransformer(gm).transform()
-    _propagate_shapes(gm, *sample_inputs)
-    _propagate_dims(gm)
+    propagate_shapes(gm, *sample_inputs)
+    propagate_dims(gm)
     return gm

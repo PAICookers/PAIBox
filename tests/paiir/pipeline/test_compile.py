@@ -1,5 +1,6 @@
 import importlib
 import warnings
+from collections.abc import Callable
 
 import pytest
 import torch
@@ -19,8 +20,9 @@ from paibox.paiir.exceptions import (
 from paibox.paiir.ir.op_node import (
     AccumulateOp,
     ConcatOp,
-    ReshapeOp,
+    LayoutStage,
     SequentialOp,
+    ShapeStage,
     SplitOp,
     StandaloneActOp,
     StandaloneCompOp,
@@ -44,6 +46,7 @@ from tests.paiir.conftest import (
     SNNWithAvgPoolLIF,
     UnsupportedSoftmax,
     find_nodes,
+    find_transform_nodes,
     make_img_3ch_8x8,
     make_img_3ch_32x32,
     make_vec_64d,
@@ -102,6 +105,125 @@ class SupportedNoPaddingCountIncludePadAvgPool2d(nn.Module):
         return self.pool(x)
 
 
+def _make_linear_after_transform_model(
+    in_features: int,
+    transform_fn: Callable[[torch.Tensor], torch.Tensor],
+    *,
+    out_features: int = 4,
+) -> nn.Module:
+    class LinearAfterTransform(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.linear = nn.Linear(in_features, out_features, bias=False)
+
+        def forward(self, x):
+            return self.linear(transform_fn(x))
+
+    return LinearAfterTransform()
+
+
+def _assert_single_transform_before_linear(
+    graph, expected_stage_types: tuple[type[object], ...]
+) -> None:
+    transform_nodes = find_transform_nodes(graph)
+    linear_nodes = [
+        node
+        for node in find_nodes(graph, StandaloneCompOp)
+        if isinstance(node.comp, nn.Linear)
+    ]
+
+    assert len(transform_nodes) == 1
+    assert len(linear_nodes) == 1
+    assert graph.predecessors(transform_nodes[0].name) == ["InputNode_0"]
+    assert graph.predecessors(linear_nodes[0].name) == [transform_nodes[0].name]
+    assert (
+        tuple(type(stage) for stage in transform_nodes[0].stages)
+        == expected_stage_types
+    )
+
+
+TRANSFORM_BEFORE_LINEAR_CASES = (
+    pytest.param(
+        lambda: _make_linear_after_transform_model(
+            6, lambda x: x.transpose(1, 2).flatten(1)
+        ),
+        torch.randn(1, 2, 3),
+        (LayoutStage, ShapeStage),
+        id="transpose_then_flatten",
+    ),
+    pytest.param(
+        lambda: _make_linear_after_transform_model(6, lambda x: torch.flatten(x, 1)),
+        torch.randn(1, 2, 3),
+        (ShapeStage,),
+        id="function_flatten",
+    ),
+    pytest.param(
+        lambda: _make_linear_after_transform_model(
+            6, lambda x: torch.flatten(x.transpose(1, 2), 1)
+        ),
+        torch.randn(1, 2, 3),
+        (LayoutStage, ShapeStage),
+        id="transpose_then_function_flatten",
+    ),
+    pytest.param(
+        lambda: _make_linear_after_transform_model(
+            24, lambda x: x.permute(0, 2, 3, 1).reshape(x.size(0), -1)
+        ),
+        torch.randn(1, 2, 3, 4),
+        (LayoutStage, ShapeStage),
+        id="permute_then_reshape",
+    ),
+    pytest.param(
+        lambda: _make_linear_after_transform_model(
+            24, lambda x: torch.reshape(x, (x.size(0), -1))
+        ),
+        torch.randn(1, 2, 3, 4),
+        (ShapeStage,),
+        id="function_reshape",
+    ),
+    pytest.param(
+        lambda: _make_linear_after_transform_model(
+            24, lambda x: torch.reshape(x.permute(0, 2, 3, 1), (x.size(0), -1))
+        ),
+        torch.randn(1, 2, 3, 4),
+        (LayoutStage, ShapeStage),
+        id="permute_then_function_reshape",
+    ),
+    pytest.param(
+        lambda: _make_linear_after_transform_model(
+            6, lambda x: torch.unsqueeze(x, 1).flatten(1)
+        ),
+        torch.randn(1, 2, 3),
+        (ShapeStage, ShapeStage),
+        id="unsqueeze_then_flatten",
+    ),
+    pytest.param(
+        lambda: _make_linear_after_transform_model(
+            6, lambda x: x.repeat((1, 1, 1)).flatten(1)
+        ),
+        torch.randn(1, 2, 3),
+        (ShapeStage,),
+        id="repeat_all_ones_then_flatten",
+    ),
+    pytest.param(
+        lambda: _make_linear_after_transform_model(
+            6, lambda x: x.squeeze(1).flatten(1)
+        ),
+        torch.randn(1, 1, 2, 3),
+        (ShapeStage, ShapeStage),
+        id="method_squeeze_then_flatten",
+    ),
+    pytest.param(
+        lambda: _make_linear_after_transform_model(
+            6, lambda x: torch.squeeze(x, 1).flatten(1)
+        ),
+        torch.randn(1, 1, 2, 3),
+        (ShapeStage, ShapeStage),
+        id="function_squeeze_then_flatten",
+    ),
+)
+
+
 class TestPackageExports:
     def test_public_packages_reexport_compile_symbols(self):
         paiir_mod = importlib.import_module("paibox.paiir")
@@ -150,156 +272,41 @@ class TestCompileBasic:
         assert len(concat_nodes) == 1
         assert concat_nodes[0].dim == 1
 
-    def test_transpose_then_flatten_before_linear_compiles(self):
-        class TransposeFlattenLinear(nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.linear = nn.Linear(6, 4, bias=False)
+    @pytest.mark.parametrize(
+        ("model_factory", "sample_input", "expected_stage_types"),
+        TRANSFORM_BEFORE_LINEAR_CASES,
+    )
+    def test_transform_before_linear_compiles(
+        self,
+        model_factory: Callable[[], nn.Module],
+        sample_input: torch.Tensor,
+        expected_stage_types: tuple[type[object], ...],
+    ):
+        graph = compile_to_paiir(model_factory(), sample_input)
+        _assert_single_transform_before_linear(graph, expected_stage_types)
 
-            def forward(self, x):
-                return self.linear(x.transpose(1, 2).flatten(1))
-
-        graph = compile_to_paiir(TransposeFlattenLinear(), torch.randn(1, 2, 3))
-
-        reshape_nodes = find_nodes(graph, ReshapeOp)
-        linear_nodes = [
-            node
-            for node in find_nodes(graph, StandaloneCompOp)
-            if isinstance(node.comp, nn.Linear)
-        ]
-
-        assert len(reshape_nodes) == 1
-        assert len(linear_nodes) == 1
-        assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
-        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[0].name]
-
-    def test_function_flatten_before_linear_compiles(self):
-        class FunctionFlattenLinear(nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.linear = nn.Linear(6, 4, bias=False)
-
-            def forward(self, x):
-                return self.linear(torch.flatten(x, 1))
-
-        graph = compile_to_paiir(FunctionFlattenLinear(), torch.randn(1, 2, 3))
-
-        reshape_nodes = find_nodes(graph, ReshapeOp)
-        linear_nodes = [
-            node
-            for node in find_nodes(graph, StandaloneCompOp)
-            if isinstance(node.comp, nn.Linear)
-        ]
-
-        assert len(reshape_nodes) == 1
-        assert len(linear_nodes) == 1
-        assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
-        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[0].name]
-
-    def test_transpose_then_function_flatten_before_linear_compiles(self):
-        class TransposeFunctionFlattenLinear(nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.linear = nn.Linear(6, 4, bias=False)
-
-            def forward(self, x):
-                x = x.transpose(1, 2)
-                return self.linear(torch.flatten(x, 1))
-
-        graph = compile_to_paiir(TransposeFunctionFlattenLinear(), torch.randn(1, 2, 3))
-
-        reshape_nodes = find_nodes(graph, ReshapeOp)
-        linear_nodes = [
-            node
-            for node in find_nodes(graph, StandaloneCompOp)
-            if isinstance(node.comp, nn.Linear)
-        ]
-
-        assert len(reshape_nodes) == 1
-        assert len(linear_nodes) == 1
-        assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
-        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[0].name]
-
-    def test_permute_then_reshape_before_linear_compiles(self):
-        class PermuteReshapeLinear(nn.Module):
+    def test_shape_then_layout_then_flatten_before_linear_compiles(self):
+        class ReshapePermuteFlattenLinear(nn.Module):
             def __init__(self):
                 super().__init__()
                 self.linear = nn.Linear(24, 5, bias=False)
 
             def forward(self, x):
-                x = x.permute(0, 2, 3, 1)
-                x = x.reshape(x.size(0), -1)
+                x = x.reshape(x.size(0), 2, 2, 6)
+                x = x.permute(0, 3, 1, 2)
+                x = x.flatten(1)
                 return self.linear(x)
 
-        graph = compile_to_paiir(PermuteReshapeLinear(), torch.randn(1, 2, 3, 4))
+        graph = compile_to_paiir(ReshapePermuteFlattenLinear(), torch.randn(1, 2, 3, 4))
 
-        reshape_nodes = find_nodes(graph, ReshapeOp)
-        linear_nodes = [
-            node
-            for node in find_nodes(graph, StandaloneCompOp)
-            if isinstance(node.comp, nn.Linear)
-        ]
-
-        assert len(reshape_nodes) == 1
-        assert len(linear_nodes) == 1
-        assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
-        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[0].name]
-
-    def test_function_reshape_before_linear_compiles(self):
-        class FunctionReshapeLinear(nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.linear = nn.Linear(24, 5, bias=False)
-
-            def forward(self, x):
-                x = torch.reshape(x, (x.size(0), -1))
-                return self.linear(x)
-
-        graph = compile_to_paiir(FunctionReshapeLinear(), torch.randn(1, 2, 3, 4))
-
-        reshape_nodes = find_nodes(graph, ReshapeOp)
-        linear_nodes = [
-            node
-            for node in find_nodes(graph, StandaloneCompOp)
-            if isinstance(node.comp, nn.Linear)
-        ]
-
-        assert len(reshape_nodes) == 1
-        assert len(linear_nodes) == 1
-        assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
-        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[0].name]
-
-    def test_permute_then_function_reshape_before_linear_compiles(self):
-        class PermuteFunctionReshapeLinear(nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.linear = nn.Linear(24, 5, bias=False)
-
-            def forward(self, x):
-                x = x.permute(0, 2, 3, 1)
-                x = torch.reshape(x, (x.size(0), -1))
-                return self.linear(x)
-
-        graph = compile_to_paiir(
-            PermuteFunctionReshapeLinear(), torch.randn(1, 2, 3, 4)
+        _assert_single_transform_before_linear(
+            graph, (ShapeStage, LayoutStage, ShapeStage)
         )
-
-        reshape_nodes = find_nodes(graph, ReshapeOp)
-        linear_nodes = [
-            node
-            for node in find_nodes(graph, StandaloneCompOp)
-            if isinstance(node.comp, nn.Linear)
-        ]
-
-        assert len(reshape_nodes) == 1
-        assert len(linear_nodes) == 1
-        assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
-        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[0].name]
 
     def test_maxpool_after_reshape_compiles(self):
         graph = compile_to_paiir(PoolAfterReshape(), make_img_3ch_8x8())
 
-        reshape_nodes = find_nodes(graph, ReshapeOp)
+        reshape_nodes = find_transform_nodes(graph)
         pool_nodes = [
             node
             for node in find_nodes(graph, StandaloneCompOp)
@@ -311,106 +318,6 @@ class TestCompileBasic:
         assert graph.predecessors(pool_nodes[0].name) == ["InputNode_0"]
         assert pool_nodes[0].core_params.input_sign is not None
         assert pool_nodes[0].core_params.input_width is not None
-
-    def test_function_unsqueeze_before_linear_compiles(self):
-        class FunctionUnsqueezeLinear(nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.linear = nn.Linear(6, 4, bias=False)
-
-            def forward(self, x):
-                x = torch.unsqueeze(x, 1)
-                x = x.flatten(1)
-                return self.linear(x)
-
-        graph = compile_to_paiir(FunctionUnsqueezeLinear(), torch.randn(1, 2, 3))
-
-        reshape_nodes = find_nodes(graph, ReshapeOp)
-        linear_nodes = [
-            node
-            for node in find_nodes(graph, StandaloneCompOp)
-            if isinstance(node.comp, nn.Linear)
-        ]
-
-        assert len(reshape_nodes) == 1
-        assert len(linear_nodes) == 1
-        assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
-        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[0].name]
-
-    def test_tuple_repeat_all_ones_before_linear_compiles(self):
-        class TupleRepeatLinear(nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.linear = nn.Linear(6, 4, bias=False)
-
-            def forward(self, x):
-                x = x.repeat((1, 1, 1))
-                x = x.flatten(1)
-                return self.linear(x)
-
-        graph = compile_to_paiir(TupleRepeatLinear(), torch.randn(1, 2, 3))
-
-        reshape_nodes = find_nodes(graph, ReshapeOp)
-        linear_nodes = [
-            node
-            for node in find_nodes(graph, StandaloneCompOp)
-            if isinstance(node.comp, nn.Linear)
-        ]
-
-        assert len(reshape_nodes) == 1
-        assert len(linear_nodes) == 1
-        assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
-        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[0].name]
-
-    def test_method_squeeze_before_linear_compiles(self):
-        class MethodSqueezeLinear(nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.linear = nn.Linear(6, 4, bias=False)
-
-            def forward(self, x):
-                x = x.squeeze(1)
-                x = x.flatten(1)
-                return self.linear(x)
-
-        graph = compile_to_paiir(MethodSqueezeLinear(), torch.randn(1, 1, 2, 3))
-
-        reshape_nodes = find_nodes(graph, ReshapeOp)
-        linear_nodes = [
-            node
-            for node in find_nodes(graph, StandaloneCompOp)
-            if isinstance(node.comp, nn.Linear)
-        ]
-
-        assert len(reshape_nodes) == 1
-        assert len(linear_nodes) == 1
-        assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
-        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[0].name]
-
-    def test_function_squeeze_before_linear_compiles(self):
-        class FunctionSqueezeLinear(nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.linear = nn.Linear(6, 4, bias=False)
-
-            def forward(self, x):
-                x = torch.squeeze(x, 1)
-                x = x.flatten(1)
-                return self.linear(x)
-
-        graph = compile_to_paiir(FunctionSqueezeLinear(), torch.randn(1, 1, 2, 3))
-
-        reshape_nodes = find_nodes(graph, ReshapeOp)
-        linear_nodes = [
-            node
-            for node in find_nodes(graph, StandaloneCompOp)
-            if isinstance(node.comp, nn.Linear)
-        ]
-
-        assert len(reshape_nodes) == 1
-        assert len(linear_nodes) == 1
-        assert graph.predecessors(reshape_nodes[0].name) == ["InputNode_0"]
-        assert graph.predecessors(linear_nodes[0].name) == [reshape_nodes[0].name]
 
 
 class TestDataFormat:
@@ -732,20 +639,23 @@ class TestFunctionalConv:
         )
         graph.summary()
 
-        reshape_nodes = [
-            node for node in graph.nodes.values() if node.name == "ReshapeOp_0"
-        ]
+        transform_nodes = find_transform_nodes(graph)
         comp_nodes = [
             node
             for node in graph.nodes.values()
             if isinstance(node, StandaloneCompOp) and isinstance(node.comp, nn.Conv2d)
         ]
-        assert len(reshape_nodes) == 1
+        assert len(transform_nodes) == 4
         assert len(comp_nodes) == 1
-        assert graph.predecessors("ReshapeOp_0") == ["InputNode_0"]
-        assert graph.predecessors("ReshapeOp_1") == ["ReshapeOp_0"]
-        assert graph.predecessors("ReshapeOp_2") == ["ReshapeOp_1"]
-        assert graph.predecessors(comp_nodes[0].name) == ["ReshapeOp_2"]
+        pre_comp_transforms = transform_nodes[:3]
+        assert graph.predecessors(pre_comp_transforms[0].name) == ["InputNode_0"]
+        assert graph.predecessors(pre_comp_transforms[1].name) == [
+            pre_comp_transforms[0].name
+        ]
+        assert graph.predecessors(pre_comp_transforms[2].name) == [
+            pre_comp_transforms[1].name
+        ]
+        assert graph.predecessors(comp_nodes[0].name) == [pre_comp_transforms[2].name]
 
     def test_unsqueeze_repeat_all_ones_compile_path_succeeds(self):
         graph = compile_to_paiir(
@@ -754,17 +664,17 @@ class TestFunctionalConv:
             strict=True,
         )
 
-        reshape_nodes = find_nodes(graph, ReshapeOp)
-        comp_nodes = [
+        transform_nodes = find_transform_nodes(graph)
+        seq_nodes = [
             node
             for node in graph.nodes.values()
-            if isinstance(node, StandaloneCompOp) and isinstance(node.comp, nn.Conv2d)
+            if isinstance(node, SequentialOp) and isinstance(node.comp, nn.Conv2d)
         ]
 
-        assert reshape_nodes
-        assert comp_nodes
-        assert graph.predecessors(comp_nodes[0].name) == ["InputNode_0"]
-        assert graph.predecessors(reshape_nodes[0].name) == [comp_nodes[0].name]
+        assert len(transform_nodes) == 1
+        assert len(seq_nodes) == 1
+        assert graph.predecessors(seq_nodes[0].name) == [graph.input_nodes()[0].name]
+        assert graph.predecessors(transform_nodes[0].name) == [seq_nodes[0].name]
 
     def test_view_as_reference_path_does_not_become_data_predecessor(self):
         class ViewAsReferenceFromFlatten(nn.Module):
@@ -782,9 +692,7 @@ class TestFunctionalConv:
         with pytest.warns(GraphCleanupWarning, match="disconnected"):
             graph = compile_to_paiir(model, torch.randn(1, 3, 2, 2))
 
-        reshape_nodes = [
-            node for node in graph.nodes.values() if isinstance(node, ReshapeOp)
-        ]
+        reshape_nodes = find_transform_nodes(graph)
         comp_nodes = [
             node
             for node in graph.nodes.values()
@@ -865,9 +773,7 @@ class TestSplitCompilation:
         concat_nodes = [
             node for node in graph.nodes.values() if isinstance(node, ConcatOp)
         ]
-        reshape_nodes = [
-            node for node in graph.nodes.values() if isinstance(node, ReshapeOp)
-        ]
+        reshape_nodes = find_transform_nodes(graph)
 
         assert len(split_nodes) == 1
         assert len(concat_nodes) == 1

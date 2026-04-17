@@ -22,10 +22,13 @@ from paibox.paiir.ir.core_neuron import ANNNodeV25, IFNodeV25, LIFNodeV25
 from paibox.paiir.ir.lut_activation import LutReLU, LutSigmoid
 from paibox.paiir.ir.op_node import (
     AccumulateOp,
+    LayoutStage,
     SequentialOp,
+    ShapeStage,
     StandaloneActOp,
     StandaloneCompOp,
     TensorLayout,
+    TransformOp,
 )
 from paibox.paiir.ir.signal_domain import SignalDomain
 from paibox.paiir.pipeline.avgpool.compensation import (
@@ -33,6 +36,42 @@ from paibox.paiir.pipeline.avgpool.compensation import (
     apply_avgpool_snn_compensation,
 )
 from paibox.paiir.pipeline.passes import _infer_node_weight_format
+
+
+class TestTransformOp:
+    def test_layout_stage_materializes_permuted_layout(self):
+        op = TransformOp((LayoutStage((0, 2, 1)),))
+        x = torch.arange(6, dtype=torch.int64).reshape(1, 2, 3)
+
+        expected = x.permute(0, 2, 1)
+        assert torch.equal(op(x), expected)
+
+    def test_shape_stage_reshapes_without_reordering_flat_indices(self):
+        op = TransformOp((ShapeStage(lambda _: torch.Size((1, 3, 2))),))
+        x = torch.arange(6, dtype=torch.int64).reshape(1, 2, 3)
+
+        expected = x.reshape(1, 3, 2)
+        assert torch.equal(op(x), expected)
+
+    def test_shape_stage_without_shape_fn_flattens_tensor(self):
+        op = TransformOp((ShapeStage(None),))
+        x = torch.arange(6, dtype=torch.int64).reshape(1, 2, 3)
+
+        expected = x.flatten()
+        assert torch.equal(op(x), expected)
+
+    def test_mixed_stage_chain_preserves_declared_execution_order(self):
+        op = TransformOp(
+            (
+                LayoutStage((0, 2, 1)),
+                ShapeStage(lambda _: torch.Size((1, 2, 3))),
+                LayoutStage((0, 2, 1)),
+            )
+        )
+        x = torch.arange(6, dtype=torch.int64).reshape(1, 2, 3)
+
+        expected = x.permute(0, 2, 1).reshape(1, 2, 3).permute(0, 2, 1)
+        assert torch.equal(op(x), expected)
 
 
 class TestSequentialOp:

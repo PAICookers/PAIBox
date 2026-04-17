@@ -7,14 +7,14 @@ from torch import Tensor, nn
 from paibox.paiir.ir.graph import PAIIRGraph
 from paibox.paiir.ir.ir_base import PAIIRNode
 from paibox.paiir.ir.lut_activation import LutCustom
-from paibox.paiir.ir.op_node import OfflineCoreOp
+from paibox.paiir.ir.op_node import LayoutStage, OfflineCoreOp, ShapeStage, TransformOp
 from paibox.paiir.lowering.converter import torch_to_paiir
 from paibox.paiir.pipeline.data_format import DataFormat
 from paibox.paiir.pipeline.layout_chain_canonicalization import (
     canonicalize_layout_chains,
 )
 from paibox.paiir.pipeline.layout_cross_node_elision import (
-    elide_layout_invisible_reshapes,
+    commute_pre_activation_transforms,
 )
 from paibox.paiir.pipeline.passes import (
     fuse_to_offline_cores,
@@ -355,6 +355,25 @@ def find_first(graph: PAIIRGraph, node_type: type[_T]) -> _T:
     return next(n for n in graph.nodes.values() if isinstance(n, node_type))
 
 
+def make_transform(
+    input_shape: tuple[int, ...],
+    output_shape: tuple[int, ...],
+    input_dims: tuple[int, ...],
+) -> TransformOp:
+    """Build one simple transform-compatible test node."""
+    return TransformOp(
+        (
+            LayoutStage(input_dims),
+            ShapeStage(lambda _input_shape, bound=torch.Size(output_shape): bound),
+        )
+    )
+
+
+def find_transform_nodes(graph: PAIIRGraph) -> list[TransformOp]:
+    """Return all transform-like routing nodes in the graph."""
+    return [n for n in graph.nodes.values() if isinstance(n, TransformOp)]
+
+
 def offline_nodes(graph: PAIIRGraph) -> list[OfflineCoreOp]:
     """Return all OfflineCoreOp nodes."""
     return find_nodes(graph, OfflineCoreOp)
@@ -365,7 +384,7 @@ def convert_and_fuse(model: nn.Module, *sample_inputs: Tensor) -> PAIIRGraph:
     unfused = torch_to_paiir(model, *sample_inputs)
     unfused = canonicalize_layout_chains(unfused)
     unfused = specialize_general_adds(unfused)
-    unfused = elide_layout_invisible_reshapes(unfused)
+    unfused = commute_pre_activation_transforms(unfused)
     return fuse_to_offline_cores(unfused)
 
 

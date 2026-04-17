@@ -3,44 +3,44 @@ from torch import nn
 
 from paibox.paiir.ir.core_neuron import ANNNodeV25
 from paibox.paiir.ir.graph import PAIIRGraph
-from paibox.paiir.ir.ir_base import InputNode, OutputNode
+from paibox.paiir.ir.ir_base import InputNode, OutputNode, TensorLayout
 from paibox.paiir.ir.lut_activation import LutReLU
 from paibox.paiir.ir.op_node import (
-    ReshapeOp,
+    LayoutStage,
     SequentialOp,
+    ShapeStage,
     StandaloneActOp,
     StandaloneCompOp,
-    TensorLayout,
 )
 from paibox.paiir.pipeline.layout_cross_node_elision import (
-    elide_layout_invisible_reshapes,
+    commute_pre_activation_transforms,
 )
 from paibox.paiir.pipeline.passes import fuse_to_offline_cores
+from tests.paiir.conftest import find_transform_nodes, make_transform
 
 
-def _reshape(
+def _transform(
     input_shape: tuple[int, ...],
     output_shape: tuple[int, ...],
     input_dims: tuple[int, ...],
     output_dims: tuple[int, ...],
-) -> ReshapeOp:
-    target = torch.Size(output_shape)
-    node = ReshapeOp(shape_fn=lambda _shape, bound=target: bound)
+):
+    node = make_transform(input_shape, output_shape, input_dims)
     node.input_layouts = (TensorLayout(torch.Size(input_shape), input_dims),)
-    node.output_layouts = (TensorLayout(target, output_dims),)
+    node.output_layouts = (TensorLayout(torch.Size(output_shape), output_dims),)
     return node
 
 
-def _build_conv_reshape_act_reshape_graph(
+def _build_conv_reshape_act_graph(
     *, nonidentity_dims: tuple[int, ...] | None = None, shared_predecessor: bool = False
 ) -> PAIIRGraph:
-    graph = PAIIRGraph("conv_reshape_act_reshape")
+    graph = PAIIRGraph("conv_reshape_act")
     inp = InputNode(shape=torch.Size((1, 3, 8, 8)))
     comp = StandaloneCompOp(nn.Conv2d(3, 4, 1))
     comp.input_layouts = (TensorLayout(inp.shape, (0, 1, 2, 3)),)
     comp.output_layouts = (TensorLayout(torch.Size((1, 4, 8, 8)), (0, 1, 2, 3)),)
 
-    pre = _reshape(
+    pre = _transform(
         (1, 4, 8, 8),
         (1, 1, 4, 8, 8),
         nonidentity_dims or (0, 1, 2, 3),
@@ -49,16 +49,14 @@ def _build_conv_reshape_act_reshape_graph(
     act = StandaloneActOp(ANNNodeV25(LutReLU()))
     act.input_layouts = pre.output_layouts
     act.output_layouts = pre.output_layouts
-    post = _reshape((1, 1, 4, 8, 8), (1, 4, 8, 8), (0, 1, 2, 3, 4), (0, 1, 2, 3))
-    out = OutputNode(shape=torch.Size((1, 4, 8, 8)))
+    out = OutputNode(shape=torch.Size((1, 1, 4, 8, 8)))
 
-    for node in (inp, comp, pre, act, post, out):
+    for node in (inp, comp, pre, act, out):
         graph.add_node(node)
     graph.add_edge(inp.name, comp.name)
     graph.add_edge(comp.name, pre.name)
     graph.add_edge(pre.name, act.name)
-    graph.add_edge(act.name, post.name)
-    graph.add_edge(post.name, out.name)
+    graph.add_edge(act.name, out.name)
 
     if shared_predecessor:
         extra = OutputNode(shape=torch.Size((1, 1, 4, 8, 8)))
@@ -68,32 +66,60 @@ def _build_conv_reshape_act_reshape_graph(
     return graph
 
 
-class TestLayoutCrossNodeElision:
-    def test_elides_conv_reshape_act_reshape_sandwich(self):
-        graph = _build_conv_reshape_act_reshape_graph()
+def _stage_types(node) -> tuple[type[object], ...]:
+    return tuple(type(stage) for stage in node.stages)
 
-        elide_layout_invisible_reshapes(graph)
+
+class TestLayoutCrossNodeElision:
+    def test_commutes_pre_activation_transform_to_after_activation(self):
+        graph = _build_conv_reshape_act_graph()
+
+        commute_pre_activation_transforms(graph)
         fused = fuse_to_offline_cores(graph)
 
-        reshape_nodes = [n for n in fused.nodes.values() if isinstance(n, ReshapeOp)]
+        transform_nodes = find_transform_nodes(fused)
         seq_nodes = [n for n in fused.nodes.values() if isinstance(n, SequentialOp)]
 
-        assert reshape_nodes == []
         assert len(seq_nodes) == 1
+        assert len(transform_nodes) == 1
         assert isinstance(seq_nodes[0].comp, nn.Conv2d)
+        assert _stage_types(transform_nodes[0]) == (LayoutStage, ShapeStage)
+        assert fused.predecessors(transform_nodes[0].name) == [seq_nodes[0].name]
+        assert transform_nodes[0].input_layouts == seq_nodes[0].output_layouts
+        assert transform_nodes[0].output_layouts == (
+            TensorLayout(torch.Size((1, 1, 4, 8, 8)), (0, 1, 2, 3, 4)),
+        )
 
-    def test_keeps_nonidentity_dims_sandwich(self):
-        graph = _build_conv_reshape_act_reshape_graph(nonidentity_dims=(0, 2, 3, 1))
+    def test_keeps_nontransparent_pre_activation_transform(self):
+        graph = _build_conv_reshape_act_graph(nonidentity_dims=(0, 2, 3, 1))
 
-        elide_layout_invisible_reshapes(graph)
+        commute_pre_activation_transforms(graph)
 
-        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 2
+        comp_nodes = [
+            n for n in graph.nodes.values() if isinstance(n, StandaloneCompOp)
+        ]
+        transform_nodes = find_transform_nodes(graph)
+        act_nodes = [n for n in graph.nodes.values() if isinstance(n, StandaloneActOp)]
+        assert len(comp_nodes) == 1
+        assert len(transform_nodes) == 1
+        assert len(act_nodes) == 1
+        assert _stage_types(transform_nodes[0]) == (LayoutStage, ShapeStage)
+        assert graph.predecessors(transform_nodes[0].name) == [comp_nodes[0].name]
+        assert graph.predecessors(act_nodes[0].name) == [transform_nodes[0].name]
 
-    def test_keeps_shared_predecessor_reshape(self):
-        graph = _build_conv_reshape_act_reshape_graph(shared_predecessor=True)
+    def test_keeps_shared_pre_activation_transform(self):
+        graph = _build_conv_reshape_act_graph(shared_predecessor=True)
 
-        elide_layout_invisible_reshapes(graph)
+        commute_pre_activation_transforms(graph)
 
-        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 2
+        comp_nodes = [
+            n for n in graph.nodes.values() if isinstance(n, StandaloneCompOp)
+        ]
+        transform_nodes = find_transform_nodes(graph)
+        act_nodes = [n for n in graph.nodes.values() if isinstance(n, StandaloneActOp)]
+        assert len(comp_nodes) == 1
+        assert len(transform_nodes) == 1
+        assert len(act_nodes) == 1
+        assert _stage_types(transform_nodes[0]) == (LayoutStage, ShapeStage)
+        assert graph.predecessors(transform_nodes[0].name) == [comp_nodes[0].name]
+        assert graph.predecessors(act_nodes[0].name) == [transform_nodes[0].name]

@@ -14,7 +14,6 @@ from paibox.paiir.ir.op_node import (
     AccumulateOp,
     ConcatOp,
     OfflineCoreOp,
-    ReshapeOp,
     SequentialOp,
     SplitOp,
     StandaloneCompOp,
@@ -36,6 +35,7 @@ from tests.paiir.conftest import (
     SNNWithMaxPool,
     SPPFBlock,
     find_nodes,
+    find_transform_nodes,
 )
 
 
@@ -709,7 +709,7 @@ class TestMultiLayerSNN:
         """SNNFlattenTransition: Conv -> flatten -> Linear.
 
         Tests spatial-to-dense transition in SNN context now that flatten is
-        materialized as a routing ``ReshapeOp`` for graph simulation.
+        materialized as a routing ``TransformOp`` for graph simulation.
         """
         model = SNNFlattenTransition()
         _set_quantized_weights(model)
@@ -721,8 +721,8 @@ class TestMultiLayerSNN:
         assert torch.is_tensor(sj_out)
 
         graph = compile_to_paiir(model, x_compile)
-        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 1
+        transform_nodes = find_transform_nodes(graph)
+        assert len(transform_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
@@ -1371,8 +1371,8 @@ class TestStandaloneOpSimulation:
             pytorch_out = model(x_int8.float())
 
         graph = compile_to_paiir(model, x_compile)
-        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 1
+        transform_nodes = find_transform_nodes(graph)
+        assert len(transform_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
@@ -1411,8 +1411,8 @@ class TestStandaloneOpSimulation:
 
         with pytest.warns(GraphCleanupWarning, match="disconnected"):
             graph = compile_to_paiir(model, x_compile)
-        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 1
+        transform_nodes = find_transform_nodes(graph)
+        assert len(transform_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
@@ -1450,8 +1450,8 @@ class TestStandaloneOpSimulation:
             pytorch_out = model(x_int8.float())
 
         graph = compile_to_paiir(model, x_compile)
-        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 1
+        transform_nodes = find_transform_nodes(graph)
+        assert len(transform_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
@@ -1489,8 +1489,8 @@ class TestStandaloneOpSimulation:
             pytorch_out = model(x_int8.float())
 
         graph = compile_to_paiir(model, x_compile)
-        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 1
+        transform_nodes = find_transform_nodes(graph)
+        assert len(transform_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
@@ -1528,8 +1528,8 @@ class TestStandaloneOpSimulation:
             pytorch_out = model(x_int8.float())
 
         graph = compile_to_paiir(model, x_compile)
-        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 1
+        transform_nodes = find_transform_nodes(graph)
+        assert len(transform_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
@@ -1567,8 +1567,8 @@ class TestStandaloneOpSimulation:
             pytorch_out = model(x_int8.float())
 
         graph = compile_to_paiir(model, x_compile)
-        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 1
+        transform_nodes = find_transform_nodes(graph)
+        assert len(transform_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
@@ -1606,8 +1606,8 @@ class TestStandaloneOpSimulation:
             pytorch_out = model(x_int8.float())
 
         graph = compile_to_paiir(model, x_compile)
-        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 1
+        transform_nodes = find_transform_nodes(graph)
+        assert len(transform_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
@@ -1622,7 +1622,7 @@ class TestStandaloneOpSimulation:
         assert torch.equal(paiir_out, pytorch_out)
 
     def test_transpose_then_flatten_before_linear(self) -> None:
-        """Bypassed transpose metadata is materialized at the downstream reshape op."""
+        """Bypassed transpose metadata is materialized at the downstream transform."""
 
         class TransposeFlattenLinear(nn.Module):
             def __init__(self) -> None:
@@ -1643,8 +1643,8 @@ class TestStandaloneOpSimulation:
             pytorch_out = model(x_int8.float())
 
         graph = compile_to_paiir(model, x_compile)
-        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 1
+        transform_nodes = find_transform_nodes(graph)
+        assert len(transform_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
@@ -1659,7 +1659,7 @@ class TestStandaloneOpSimulation:
         assert torch.equal(paiir_out, pytorch_out)
 
     def test_permute_then_reshape_before_linear(self) -> None:
-        """Bypassed permute metadata is materialized at the downstream reshape op."""
+        """Bypassed permute metadata is materialized at the downstream transform."""
 
         class PermuteReshapeLinear(nn.Module):
             def __init__(self) -> None:
@@ -1682,8 +1682,8 @@ class TestStandaloneOpSimulation:
             pytorch_out = model(x_int8.float())
 
         graph = compile_to_paiir(model, x_compile)
-        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 1
+        transform_nodes = find_transform_nodes(graph)
+        assert len(transform_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
@@ -1701,7 +1701,7 @@ class TestStandaloneOpSimulation:
         """Chained `flatten -> reshape(size arithmetic) -> flatten -> Linear` simulates.
 
         The pre-fusion layout canonicalization pass now collapses the reshape
-        chain to a single effective `ReshapeOp`.
+        chain to a single effective routing `TransformOp`.
         """
 
         class FlattenReshapeLinear(nn.Module):
@@ -1726,8 +1726,8 @@ class TestStandaloneOpSimulation:
             pytorch_out = model(x_int8.float())
 
         graph = compile_to_paiir(model, x_compile)
-        reshape_nodes = [n for n in graph.nodes.values() if isinstance(n, ReshapeOp)]
-        assert len(reshape_nodes) == 1
+        transform_nodes = find_transform_nodes(graph)
+        assert len(transform_nodes) == 1
 
         graph.reset()
         max_tick_start = max(
