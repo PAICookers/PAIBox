@@ -7,7 +7,7 @@ from .op_node import (
     Neuron,
     OutNode,
     RemapElem,
-    ReorderNode,
+    RemapNode,
     SourceElem,
     SourceNode,
     get_elem,
@@ -45,7 +45,7 @@ def gen_ioelements(node: InNode) -> list[InputElem]:
     return ioelements
 
 
-def gen_reorder_elems(node: ReorderNode) -> list[RemapElem]:
+def gen_reorder_elems(node: RemapNode) -> list[RemapElem]:
     elems: list[RemapElem] = []
     # flatten the shape to get total number of neurons
     num_elem = node.shape.numel()
@@ -68,8 +68,8 @@ def build_routing_group(
     return rg
 
 
-def build_reorder_group(
-    nodes: set[ReorderNode], input_nodes: set[SourceNode]
+def build_remap_group(
+    nodes: set[RemapNode], input_nodes: set[SourceNode]
 ) -> RemapGroup:
     raw_neus: list[RemapElem] = []
     for node in nodes:
@@ -134,7 +134,7 @@ def build_groups(
 
     for node_set in node_sets:
         input_nodes: set[SourceNode] = set()
-        reorder_node_set: set[ReorderNode] = set()
+        remap_node_set: set[RemapNode] = set()
         routing_node_set: set[CoreOpNode] = set()
         input_node_set: set[InNode] = set()
         output_node_set: set[OutNode] = set()
@@ -143,8 +143,8 @@ def build_groups(
             print(f"\tProcessing node {node} in group building:")
             print(f"\t\tPredecessors: {node.predecessors}")
             print(f"\t\tSuccessors: {node.successors}")
-            if isinstance(node, ReorderNode):
-                reorder_node_set.add(node)
+            if isinstance(node, RemapNode):
+                remap_node_set.add(node)
             elif isinstance(node, CoreOpNode):
                 routing_node_set.add(node)
             elif isinstance(node, InNode):
@@ -154,7 +154,7 @@ def build_groups(
             input_nodes.update(node.predecessors)
 
         group_node_sets = {
-            "reorder_node_set": reorder_node_set,
+            "remap_node_set": remap_node_set,
             "routing_node_set": routing_node_set,
             "input_node_set": input_node_set,
             "output_node_set": output_node_set,
@@ -166,8 +166,8 @@ def build_groups(
         ), f"Expected exactly one non-empty node set for group building, but got: {non_empty_sets}"
         group_type, _ = non_empty_sets.popitem()
 
-        if group_type == "reorder_node_set":
-            group = build_reorder_group(reorder_node_set, input_nodes)
+        if group_type == "remap_node_set":
+            group = build_remap_group(remap_node_set, input_nodes)
             groups.append(group)
         elif group_type == "routing_node_set":
             group = build_routing_group(routing_node_set, input_nodes)

@@ -110,8 +110,16 @@ class Mapper:
 
     def routing(self):
         self.routing_groups, next_rg_group = toposort_for_rg(self.groups)
+        print("\nTrying to solve routing")
+        for rg in self.routing_groups:
+            print(f"\tRouting Group {rg.name} requires {rg.n_core_required} cores.")
 
         areas = [rg.n_core_required for rg in self.routing_groups]
+        print(f"\ttotal cores needed: {sum(areas)}")
+        if sum(areas) > 63:
+            raise ValueError(
+                f"Total cores needed {sum(areas)} exceeds the limit of 63."
+            )
         copy_configs, coords = route_solve(
             areas=areas,
             next_area_id=next_rg_group,
@@ -119,9 +127,14 @@ class Mapper:
             input_area_ids=[],
             output_area_ids=[],
         )
-        print("Routing result:")
-        print("Copy Configs:", copy_configs)
-        print("Coords:", coords)
+
+        print("\nRouting result:")
+        for rg, copy_config, rg_coords in zip(
+            self.routing_groups, copy_configs, coords
+        ):
+            print(f"\t{rg.name}({rg.n_core_required} cores):")
+            print(f"\t\tcopy: {copy_config}")
+            print(f"\t\tcoord: {rg_coords}")
 
         for rg, copy_config, rg_coords in zip(
             self.routing_groups, copy_configs, coords
@@ -220,16 +233,16 @@ class Mapper:
                     # export core_frame_type1 and core_frame_type3 to output_path
                     # framearray is np.ndarray of np.uint64 with shape (n_frames, )
                     # print each frame with 16 hex digits each line
-                    frame_file.write(f"\ttype1:\n")
+                    frame_file.write("\ttype1:\n")
                     export_single_framearray(
                         core_frame_type1, frame_file, prefix="\t\t0x"
                     )
-                    frame_file.write(f"\ttype2:\n")
+                    frame_file.write("\ttype2:\n")
                     if core_frame_type2 is not None:
                         export_single_framearray(
                             core_frame_type2, frame_file, prefix="\t\t0x"
                         )
-                    frame_file.write(f"\ttype3:\n")
+                    frame_file.write("\ttype3:\n")
                     export_single_framearray(
                         core_frame_type3, frame_file, prefix="\t\t0x"
                     )
@@ -336,9 +349,10 @@ class Mapper:
         for grp in all_groups:
             print(grp.info())
 
-        self.set_detail_dest()
         for rg in all_groups:
             print(rg.routing_summary())
+
+        self.set_detail_dest()
 
         self.set_auto_core_config()
 

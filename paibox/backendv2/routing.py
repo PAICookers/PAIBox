@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from collections.abc import Sequence, Set
-from typing import Generic, TypeVar
+from typing import AbstractSet, Generic, Optional, TypeVar
 
 import numpy as np
 from paicorelib import (
@@ -39,7 +39,7 @@ from .op_node import (
     InputElem,
     Neuron,
     RemapElem,
-    ReorderNode,
+    RemapNode,
     SourceElem,
     SourceNode,
 )
@@ -131,7 +131,7 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
     ) -> tuple["RoutingGroup | OutputGroup", int]:
         dest_group = self.dests[elem]
         if isinstance(dest_group, RemapGroup):
-            return dest_group.reorder_dest_info(elem)
+            return dest_group.remap_dest_info(elem)
         dest_axon = dest_group.index_map.get(elem, -1)
         assert dest_axon >= 0, f"Neuron {elem} not found in dest_group's index_map"
         return dest_group, dest_axon
@@ -139,13 +139,13 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
     def get_dest(self, elem: SOURCE_ELEM) -> "RoutingGroup | OutputGroup":
         dest_group = self.dests[elem]
         if isinstance(dest_group, RemapGroup):
-            return dest_group.reorder_dest(elem)
+            return dest_group.remap_dest(elem)
         return dest_group
 
     def get_axon(self, elem: SOURCE_ELEM) -> SourceElem:
         dest_group = self.dests[elem]
         if isinstance(dest_group, RemapGroup):
-            return dest_group.reorder_axon(elem)
+            return dest_group.remap_axon(elem)
         return elem
 
     def info(self, prefix: str = "") -> str:
@@ -223,21 +223,21 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
 
 
 class RemapGroup(
-    Group, DestGroup[SourceElem, SourceNode], SourceGroup[RemapElem, ReorderNode]
+    Group, DestGroup[SourceElem, SourceNode], SourceGroup[RemapElem, RemapNode]
 ):
-    reorder_group_counter = 0
+    remap_group_counter = 0
 
     def __init__(
         self,
         raw_elems: Sequence[RemapElem],
         input_list: Sequence[SourceElem],
-        nodes: Set[ReorderNode] | None = None,
-        input_nodes: Set[SourceNode] | None = None,
+        nodes: Optional[AbstractSet[RemapNode]] = None,
+        input_nodes: Optional[AbstractSet[SourceNode]] = None,
     ):
         Group.__init__(self)
         DestGroup.__init__(self, input_list, input_nodes)
         SourceGroup.__init__(self, raw_elems, nodes)
-        self.name: str = f"ReorderG_{self.id}"
+        self.name: str = f"RemapG_{self.id}"
         self.remap_dict: dict[SourceElem, RemapElem] = dict()
         self.source_dict: dict[RemapElem, SourceElem] = dict()
         self.set_remap_dict()
@@ -248,7 +248,9 @@ class RemapGroup(
         self.raw_elems.append(elem)
         self.elem_set.add(elem)
         raw_elem = elem.origin_elem()
-        raw_input = self.source_dict[raw_elem]
+        raw_input = self.source_dict.get(raw_elem, None)
+        if raw_input is None:
+            return None
         copy_input = raw_input.copy(elem.index.copy_id)
         self.input_list.append(copy_input)
         self.input_set.add(copy_input)
@@ -258,43 +260,61 @@ class RemapGroup(
         return copy_input
 
     def set_remap_dict(self) -> None:
-        assert self.nodes is not None, "nodes must be provided for ReorderGroup"
+        assert self.nodes is not None, "nodes must be provided for RemapGroup"
         for node in self.nodes:
-            reorder_map = node.get_reorder_info()
-            self.remap_dict.update(reorder_map)
+            remap_info = node.get_remap_info()
+            self.remap_dict.update(remap_info)
         assert (
             set(self.remap_dict.keys()) == self.input_set
-        ), "reorder_map keys must match input_set"
-        assert set(self.remap_dict.values()) == set(
-            self.raw_elems
-        ), "reorder_map values must match raw_neus"
+        ), "remap_info keys must match input_set"
+        assert set(self.remap_dict.values()).issubset(
+            set(self.raw_elems)
+        ), "remap_info values must match raw_neus"
 
         for src, dst in self.remap_dict.items():
             self.source_dict[dst] = src
 
-    def reorder_axon(self, elem: SourceElem) -> SourceElem:
+    def remap_axon(self, elem: SourceElem) -> SourceElem:
         out_elem = self.remap_dict[elem]
         return self.get_axon(out_elem)
 
-    def reorder_dest(self, elem: SourceElem) -> "RoutingGroup|OutputGroup":
+    def remap_dest(self, elem: SourceElem) -> "RoutingGroup|OutputGroup":
         out_elem = self.remap_dict[elem]
         return self.get_dest(out_elem)
 
-    def reorder_dest_info(
+    def remap_dest_info(
         self, elem: SourceElem
     ) -> tuple["RoutingGroup | OutputGroup", int]:
         out_elem = self.remap_dict[elem]
         return self.get_dest_info(out_elem)
 
+    def remap_info(self, prefix: str = "") -> str:
+        info_str = ""
+        remap_strs = []
+        if len(self.input_list) > 6:
+            print_remaps = self.input_list[:3] + self.input_list[-3:]
+        else:
+            print_remaps = self.input_list
+
+        for input in print_remaps:
+            remap_strs.append(f"{str(input)} -> {str(self.remap_dict[input])}")
+        if len(self.input_list) > 6:
+            remap_strs = remap_strs[:3] + ["..."] + remap_strs[-3:]
+        info_str += f"\n{prefix}Number of Remaps: {len(self.input_list)}"
+        info_str += f"\n{prefix}Remaps:\n{prefix}   "
+        info_str += f"\n{prefix}   ".join(remap_strs)
+        return info_str
+
     def info(self, prefix: str = "") -> str:
         info_str = Group.info(self, prefix)
         info_str += DestGroup.info(self, prefix=prefix + "  ")
         info_str += SourceGroup.info(self, prefix=prefix + "  ")
+        info_str += self.remap_info(prefix=prefix + "  ")
         info_str += "\n"
         return info_str
 
     def routing_summary(self) -> str:
-        summary_str = f"Reorder Group {self.name}:\n"
+        summary_str = f"Remap Group {self.name}:\n"
         summary_str += SourceGroup.routing_summary(self)
         return summary_str
 
@@ -481,7 +501,9 @@ class RoutingGroup(
             group_items, weight_infos
         )
 
-        # with open(f"{self.name}_weight_base.txt", "w") as f:
+        # import os
+        # os.makedirs("debug_padding", exist_ok=True)
+        # with open(f"debug_padding/{self.name}_weight_base.txt", "w") as f:
         #     for weight in base_weights:
         #         f.write(" ".join(map(str, weight)) + "\n")
         #     for info in reordered_infos:
@@ -881,23 +903,15 @@ def toposort_for_rg(
     routing_groups = [rg for rg in groups if isinstance(rg, RoutingGroup)]
     rg_set = set(routing_groups)
 
-    print("Routing Groups before topological sort:")
-    for rg in routing_groups:
-        print(f"{rg.name}")
-
     indegree = {rg: 0 for rg in routing_groups}
 
-    for rg in indegree.keys():
-        print(f"Routing Group {rg.name} has indegree {indegree[rg]} before sorting.")
     graph: dict[RoutingGroup, list[RoutingGroup]] = defaultdict(list)
     graph_set: dict[RoutingGroup, set[RoutingGroup]] = defaultdict(set)
 
     for rg in routing_groups:
-        for neu in track(
-            rg.raw_elems,
-            description=f"Processing Routing Group {rg.name} ({len(rg.raw_elems)} neurons)",
-            total=len(rg.raw_elems),  # 明确指定总数，确保进度条计算准确
-        ):
+        graph[rg] = []
+        graph_set[rg] = set()
+        for neu in rg.raw_elems:
             dest_rg = rg.get_dest(neu)
             if dest_rg not in rg_set or dest_rg is rg:
                 continue
@@ -906,10 +920,9 @@ def toposort_for_rg(
                 graph_set[rg].add(dest_rg)
                 indegree[dest_rg] += 1
 
+    print("\nRouting Group Graph:")
     for rg in graph:
-        print(
-            f"Routing Group {rg.name} has edges to {[dest.name for dest in graph[rg]]}"
-        )
+        print(f"\t{rg.name}: {[dest.name for dest in graph[rg]]}")
 
     queue = deque([rg for rg in routing_groups if indegree[rg] == 0])
     sorted_rgs = []
