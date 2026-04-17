@@ -1,10 +1,11 @@
-"""Helpers for analysis-dependent graph rewrite phases.
+"""Helpers for fixed-point graph rewrite phases.
 
 This module captures one recurring compile-time pattern:
 
-1. run a bundle of analyses on a topology-stable graph
-2. execute rewrite passes that depend on those analyses
-3. if any rewrite changes topology, refresh the analyses and try again
+1. start from a topology-stable graph
+2. execute an ordered set of rewrite passes
+3. if any rewrite changes topology, optionally refresh derived graph state
+4. repeat until the phase reaches a fixed point
 
 The design borrows the most useful parts of ``torch.fx`` pass orchestration:
 
@@ -14,7 +15,7 @@ The design borrows the most useful parts of ``torch.fx`` pass orchestration:
 
 Unlike ``torch.fx.passes.infra.PassManager``, this module stays intentionally
 small and tailored to the current PAIIR need: a handful of graph rewrites that
-must re-run prior analyses when they mutate topology.
+may need to re-run cleanup or analysis steps when they mutate topology.
 """
 
 from collections.abc import Callable
@@ -22,49 +23,38 @@ from dataclasses import dataclass
 
 from ..ir.graph import PAIIRGraph
 
-__all__ = [
-    "AnalysisDependentRewritePass",
-    "run_analysis_dependent_rewrite_phase",
-]
+__all__ = ["RewritePass", "run_fixed_point_rewrite_phase"]
 
 
 RewriteFunc = Callable[[PAIIRGraph], PAIIRGraph]
-AnalysisRefreshFunc = Callable[[PAIIRGraph], PAIIRGraph]
+RefreshFunc = Callable[[PAIIRGraph], PAIIRGraph]
 
 
 @dataclass(frozen=True, slots=True)
-class AnalysisDependentRewritePass:
-    """One topology rewrite that requires fresh analysis results first."""
+class RewritePass:
+    """One topology rewrite pass used inside a fixed-point rewrite phase."""
 
     name: str
     func: RewriteFunc
 
 
-def run_analysis_dependent_rewrite_phase(
+def _no_refresh(graph: PAIIRGraph) -> PAIIRGraph:
+    return graph
+
+
+def run_fixed_point_rewrite_phase(
     graph: PAIIRGraph,
-    *,
-    refresh_analyses: AnalysisRefreshFunc,
-    rewrite_passes: tuple[AnalysisDependentRewritePass, ...],
+    rewrite_passes: tuple[RewritePass, ...],
+    refresh_graph: RefreshFunc = _no_refresh,
     max_rounds: int = 4,
 ) -> PAIIRGraph:
-    """Run analysis-dependent rewrite passes to a fixed point.
+    """Run ordered topology rewrites until they reach a fixed point.
 
-    Args:
-        graph: The graph to rewrite.
-        refresh_analyses: Function that recomputes the analyses needed by the
-            rewrite passes and returns the refreshed graph.
-        rewrite_passes: Ordered rewrite pass specs.
-        max_rounds: Safety cap for fixed-point iteration.
-
-    Returns:
-        The rewritten graph, with analyses refreshed after the last mutation.
-
-    Raises:
-        RuntimeError: If the rewrite phase does not converge within
-            ``max_rounds``.
+    ``refresh_graph`` lets the phase re-run prerequisite analyses or cleanup
+    between rewrites. When omitted, the phase operates on plain topology
+    rewrites only.
     """
-
-    graph = refresh_analyses(graph)
+    graph = refresh_graph(graph)
 
     for _ in range(max_rounds):
         changed_in_round = False
@@ -72,13 +62,12 @@ def run_analysis_dependent_rewrite_phase(
             rewritten = rewrite_pass.func(graph)
             if rewritten is graph:
                 continue
-            graph = refresh_analyses(rewritten)
+            graph = refresh_graph(rewritten)
             changed_in_round = True
 
         if not changed_in_round:
             return graph
 
     raise RuntimeError(
-        "analysis-dependent rewrite phase did not converge within "
-        f"{max_rounds} round(s)"
+        "fixed-point rewrite phase did not converge within " f"{max_rounds} round(s)"
     )

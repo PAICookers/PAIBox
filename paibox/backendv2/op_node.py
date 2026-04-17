@@ -19,10 +19,10 @@ from ..paiir.ir.op_node import (
     AccumulateOp,
     ConcatOp,
     OfflineCoreOp,
-    ReshapeOp,
     SequentialOp,
     StandaloneActOp,
     StandaloneCompOp,
+    TransformOp,
 )
 from .core_config import Frontend_Core_Config
 
@@ -264,31 +264,31 @@ class OutNode(BaseNode["OutputNode"]):
         self.input_bit_num_ = pred_output_bit_nums.pop()
 
 
-RemapOp = Union[ReshapeOp, ConcatOp, PaddingOp]
+RemapOp = TransformOp | ConcatOp | PaddingOp
 
 
 class RemapNode(BaseNode[RemapOp]):
     def __init__(self, name: str, raw_node: RemapOp, shape: tuple[int, ...]):
         super().__init__(name, shape, raw_node)
 
-    def get_remap_info(self) -> dict["SourceElem", "RemapElem"]:
-        if isinstance(self.raw_node, ReshapeOp):
+    def get_reorder_info(self) -> dict["SourceElem", "RemapElem"]:
+        if isinstance(self.raw_node, TransformOp):
             assert (
                 len(self.predecessors) == 1
-            ), "ReshapeNode should have exactly one predecessor"
+            ), "TransformNode should have exactly one predecessor"
             pred = self.predecessors[0]
             pred_len = pred.shape.numel()
             assert (
                 pred_len == self.shape.numel()
-            ), "Total number of elements must match for reshape"
+            ), "Total number of elements must match for transform remap"
 
-            # Drive the real reshape op over an index tensor so backend reorder
-            # routing follows the same logical-layout semantics as the IR.
+            # Drive the routing transform over an index tensor so backend
+            # reorder follows the same logical-layout semantics as the IR.
             flat_indices = torch.arange(pred_len, dtype=torch.int64).reshape(pred.shape)
             reordered = self.raw_node(flat_indices).reshape(-1)
             assert (
                 reordered.numel() == pred_len
-            ), "ReshapeOp index remap must preserve element count"
+            ), "TransformOp index remap must preserve element count"
 
             remap_info: dict["SourceElem", "RemapElem"] = {}
             for dst_idx, src_idx in enumerate(reordered.tolist()):
@@ -343,7 +343,7 @@ class RemapNode(BaseNode[RemapOp]):
             return remap_info
         else:
             raise NotImplementedError(
-                f"Unsupported node type for ReorderNode: {type(self.raw_node)}"
+                f"Unsupported node type for RemapNode: {type(self.raw_node)}"
             )
 
     def set_io_bit_num(self, direction: int):
@@ -708,8 +708,6 @@ def build_nodes(graph: PAIIRGraph) -> list[AllNode]:
             )
         print(f"\tPredecessors: {[pred.name for pred in node.predecessors]}")
         print(f"\tSuccessors: {[succ.name for succ in node.successors]}")
-
-    new_nodes: list[RemapNode] = []
 
     insert_padding_nodes(nodes)
 

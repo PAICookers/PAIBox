@@ -31,11 +31,11 @@ from ..ir.op_node import (
     ConcatOp,
     OfflineCoreOp,
     OpNode,
-    ReshapeOp,
     SequentialOp,
     SplitOp,
     StandaloneActOp,
     StandaloneCompOp,
+    TransformOp,
 )
 from ..ir.reshape_semantics import shape_after_dims
 from ..ir.signal_domain import SignalDomain
@@ -74,7 +74,7 @@ __all__ = [
 _DEPLOYABLE_GRAPH_NODE_TYPES = (
     InputNode,
     OutputNode,
-    ReshapeOp,
+    TransformOp,
     ConcatOp,
     SequentialOp,
     AccumulateOp,
@@ -446,7 +446,7 @@ def validate_compiled_graph(graph: PAIIRGraph) -> None:
         if isinstance(node, ConcatOp):
             _validate_concat_contract(errors, graph, name, node)
 
-        if isinstance(node, ReshapeOp):
+        if isinstance(node, TransformOp):
             _validate_reshape_contract(errors, graph, name, node)
 
         if isinstance(node, PotentialAddOp):
@@ -612,13 +612,13 @@ def _validate_concat_contract(
 
 
 def _validate_reshape_contract(
-    errors: list[str], graph: PAIIRGraph, name: str, node: ReshapeOp
+    errors: list[str], graph: PAIIRGraph, name: str, node: TransformOp
 ) -> None:
     incoming = graph.incoming_edges(name)
     preds = [edge.src for edge in incoming]
     if len(preds) != 1:
         errors.append(
-            f"ReshapeOp '{name}' must have exactly one predecessor, got {len(preds)}"
+            f"{type(node).__name__} '{name}' must have exactly one predecessor, got {len(preds)}"
         )
         return
 
@@ -628,7 +628,7 @@ def _validate_reshape_contract(
     output_shape = _single_output_shape(node)
     if input_shapes and len(input_shapes) != 1:
         errors.append(
-            f"ReshapeOp '{name}' has {len(input_shapes)} input layouts (expected 1)"
+            f"{type(node).__name__} '{name}' has {len(input_shapes)} input layouts (expected 1)"
         )
         return
 
@@ -644,7 +644,7 @@ def _validate_reshape_contract(
                 if logical_pred_shape is not None:
                     details += f", pred_shape_after_input_dims={logical_pred_shape}"
                 errors.append(
-                    f"ReshapeOp '{name}' predecessor shape mismatch: {details}"
+                    f"{type(node).__name__} '{name}' predecessor shape mismatch: {details}"
                 )
                 return
 
@@ -653,7 +653,7 @@ def _validate_reshape_contract(
         out_numel = math.prod(output_shape)
         if in_numel != out_numel:
             errors.append(
-                f"ReshapeOp '{name}' changes element count: "
+                f"{type(node).__name__} '{name}' changes element count: "
                 f"input_shape={input_shapes[0]}, output_shape={output_shape}"
             )
 
@@ -737,7 +737,7 @@ def propagate_signal_domain(graph: PAIIRGraph) -> None:
     a per-output-port annotation. This is sufficient for the current IR because
     routing-only nodes preserve the signal domain of their inputs:
 
-    - ``ReshapeOp`` inherits its sole predecessor domain
+    - ``TransformOp`` inherits its sole predecessor domain
     - ``SplitOp`` inherits its sole predecessor domain, and all split branches
       therefore share that same domain
     - ``ConcatOp`` requires all predecessors to agree on one domain, then
@@ -771,7 +771,7 @@ def propagate_signal_domain(graph: PAIIRGraph) -> None:
                 node.output_domain = known_pred_domains[0]
             continue
 
-        if isinstance(node, ReshapeOp):
+        if isinstance(node, TransformOp):
             if known_pred_domains:
                 node.output_domain = known_pred_domains[0]
             continue
@@ -1035,7 +1035,7 @@ def propagate_data_format(
     1. Seed an effective format for every external input, then assign each
        deployable core's intrinsic output format and weight format.
     2. Propagate those resolved formats through routing-only nodes
-       (:class:`ConcatOp`, :class:`ReshapeOp`, :class:`SplitOp`, :class:`OutputNode`) and finally
+       (:class:`ConcatOp`, :class:`TransformOp`, :class:`SplitOp`, :class:`OutputNode`) and finally
        back-fill each deployable core's input format from its predecessors.
 
     The ordering matters because a core's input format depends on the already
@@ -1123,7 +1123,7 @@ def propagate_data_format(
                 resolved[node.name] = merge_data_formats(pred_formats)
             continue
 
-        if isinstance(node, ReshapeOp):
+        if isinstance(node, TransformOp):
             # Reshape/view/flatten do not change the scalar representation.
             preds = graph.predecessors(name)
             if preds and preds[0] in resolved:

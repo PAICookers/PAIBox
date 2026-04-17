@@ -3,7 +3,8 @@
 This module keeps shape reasoning separate from the main PAIIR lowering flow.
 It identifies reshape/flatten sinks, extracts the FX nodes that participate
 only in output-size computation, and returns analysis results that the
-converter can consume when building executable ``ReshapeOp`` routing nodes.
+converter can consume when building executable shape-only ``TransformOp``
+routing nodes.
 """
 
 import operator
@@ -53,7 +54,7 @@ class ReshapeSinkInfo:
         kind: The semantic reshape family. ``"flatten"`` means reshape driven by
             ``start_dim`` / ``end_dim``. ``"reshape"`` means the output shape is
             already available from FX metadata and the converter can materialize
-            a fixed-shape ``ReshapeOp``.
+            a fixed-shape ``TransformOp``.
         data_input: The real tensor input that should become the sole PAIIR
             predecessor.
         shape_seed_nodes: FX nodes that contribute only to output-size
@@ -76,8 +77,8 @@ class ShapeAnalysisResult:
     """Public analysis result consumed by the main converter pipeline.
 
     Attributes:
-        reshape_sinks: FX nodes that should lower to ``ReshapeOp`` and their
-            normalized sink metadata.
+        reshape_sinks: FX nodes that should lower to a shape-only
+            ``TransformOp`` and their normalized sink metadata.
         aux_nodes: FX nodes that participate only in reshape-size reasoning and
             must be ignored by PAIIR data-flow lowering/wiring.
     """

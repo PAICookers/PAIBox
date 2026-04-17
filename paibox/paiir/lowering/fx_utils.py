@@ -33,7 +33,7 @@ def get_fx_call_target_name(node: fx.Node) -> str:
     return str(node.target)
 
 
-def _get_output_shape(node: fx.Node) -> torch.Size:
+def get_output_shape(node: fx.Node) -> torch.Size:
     """Extract output shape from an FX node's tensor metadata."""
     meta = node.meta.get("tensor_meta")
     if meta is None:
@@ -43,17 +43,9 @@ def _get_output_shape(node: fx.Node) -> torch.Size:
     return torch.Size()
 
 
-def _get_output_dims(node: fx.Node) -> DimsType:
+def get_output_dims(node: fx.Node) -> DimsType:
     """Get output dims from an FX node's propagated layout metadata."""
     return node.meta.get(DimsProp.KEY, ())
-
-
-def get_output_shape(node: fx.Node) -> torch.Size:
-    return _get_output_shape(node)
-
-
-def get_output_dims(node: fx.Node) -> DimsType:
-    return _get_output_dims(node)
 
 
 def get_output_layouts(node: fx.Node) -> tuple[TensorLayout, ...]:
@@ -63,7 +55,7 @@ def get_output_layouts(node: fx.Node) -> tuple[TensorLayout, ...]:
     Tuple-valued nodes such as ``torch.split`` are handled by dedicated lowering
     paths and therefore typically do not call this helper.
     """
-    return (TensorLayout(shape=_get_output_shape(node), dims=_get_output_dims(node)),)
+    return (TensorLayout(shape=get_output_shape(node), dims=get_output_dims(node)),)
 
 
 def get_input_layouts(
@@ -74,7 +66,7 @@ def get_input_layouts(
         input_nodes if input_nodes is not None else tuple(node.all_input_nodes)
     )
     return tuple(
-        TensorLayout(shape=_get_output_shape(inp), dims=_get_output_dims(inp))
+        TensorLayout(shape=get_output_shape(inp), dims=get_output_dims(inp))
         for inp in source_nodes
     )
 
