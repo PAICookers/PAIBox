@@ -60,6 +60,22 @@ class ConcatModel(nn.Module):
         self.conv1 = nn.Conv2d(3, 4, 1)
         self.conv2 = nn.Conv2d(3, 4, 1)
         self.conv3 = nn.Conv2d(8, 2, 1)
+        self.relu1 = nn.ReLU()
+        self.relu2 = nn.ReLU()
+        self.relu3 = nn.ReLU()
+
+    def forward(self, x):
+        left = self.relu1(self.conv1(x))
+        right = self.relu2(self.conv2(x))
+        return self.relu3(self.conv3(torch.cat([left, right], dim=1)))
+
+
+class PotentialConcatIntoWeightedConsumer(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv1 = nn.Conv2d(3, 4, 1)
+        self.conv2 = nn.Conv2d(3, 4, 1)
+        self.conv3 = nn.Conv2d(8, 2, 1)
         self.relu = nn.ReLU()
 
     def forward(self, x):
@@ -258,6 +274,14 @@ class TestUnsupported32BitConsumers:
             GraphValidationError, match="StandaloneCompOp.*WIDTH_32BIT|WIDTH_32BIT"
         ):
             compile_to_paiir(PotentialIntoStandalonePool().eval(), make_img_3ch_8x8())
+
+    def test_compile_rejects_potential_concat_into_weighted_consumer(self):
+        with pytest.raises(
+            GraphValidationError, match="SequentialOp.*WIDTH_32BIT|WIDTH_32BIT"
+        ):
+            compile_to_paiir(
+                PotentialConcatIntoWeightedConsumer().eval(), make_img_3ch_8x8()
+            )
 
 
 class TestCompileBasic:
