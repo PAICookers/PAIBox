@@ -1242,7 +1242,9 @@ def _infer_node_weight_format(node: OfflineCoreOp) -> DataFormat:
     return infer_weight_format(w_min, w_max)
 
 
-def _derive_input_add_potential_mode(node: OfflineCoreOp, input_format: DataFormat) -> None:
+def _derive_input_add_potential_mode(
+    node: OfflineCoreOp, input_format: DataFormat
+) -> None:
     """Derive hardware add-potential mode from the resolved input format.
 
     Standalone activation cores synthesize an implicit identity connectivity
