@@ -359,7 +359,8 @@ class SequentialOp(OfflineCoreOp):
         self.avgpool_deploy_metadata = None
 
     def forward(self, x: Tensor) -> Tensor:
-        return self.act(_prepare_act_input(self.act, _run_comp(self.comp, x)))
+        x = _run_comp(self.comp, x)
+        return self.act(_prepare_act_input(self.act, x))
 
     @property
     def weights(self) -> list[Tensor] | None:
