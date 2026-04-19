@@ -284,7 +284,7 @@ def _materialize_split_avgpool_pair(
     core1_act = ANNNodeV25(core1_lut)
     core1 = SequentialOp(sumpool, core1_act)
     core1.input_layouts = pred.input_layouts
-    core1.output_layouts = act_node.output_layouts
+    core1.output_layouts = act_node.input_layouts
 
     consumed.add(pred_name)
     consumed.add(act_name)

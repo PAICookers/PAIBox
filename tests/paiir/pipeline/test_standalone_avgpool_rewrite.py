@@ -1,9 +1,11 @@
+import pytest
 import torch
 from paicorelib import DataSign, DataWidth, ThresholdNegMode
 from spikingjelly.activation_based import neuron as sj
 from torch import nn
 
 from paibox.paiir import ANNNodeV25, IFNodeV25, LutLinear
+from paibox.paiir.exceptions import GraphValidationError
 from paibox.paiir.ir.op_node import SequentialOp, StandaloneCompOp
 from paibox.paiir.lowering.converter import register_neuron
 from paibox.paiir.nn import SumPool2d
@@ -118,15 +120,15 @@ def test_direct_input_avgpool_stays_standalone_when_source_mode_is_unknown() -> 
     assert isinstance(pool.comp, nn.AvgPool2d)
 
 
-def test_potential_predecessor_avgpool_stays_standalone() -> None:
+def test_potential_predecessor_avgpool_is_rejected_by_32bit_contract() -> None:
     model = PotentialStandaloneAvgPool().eval()
     with torch.no_grad():
         model.conv.weight.fill_(1)
 
-    graph = compile_to_paiir(model, torch.zeros(1, 1, 6, 6))
-
-    pool = _find_standalone_avgpool(graph)
-    assert isinstance(pool.comp, nn.AvgPool2d)
+    with pytest.raises(
+        GraphValidationError, match="StandaloneCompOp.*WIDTH_32BIT|WIDTH_32BIT"
+    ):
+        compile_to_paiir(model, torch.zeros(1, 1, 6, 6))
 
 
 def test_binary_majority_specializes_spike_predecessor_avgpool2d() -> None:
