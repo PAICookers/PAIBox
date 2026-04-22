@@ -24,6 +24,7 @@ from paicorelib import AddPotentialMode, DataSign, DataWidth, OutputType, SNNMod
 
 from ..exceptions import GraphCleanupWarning, GraphValidationError
 from ..ir.add_ops import GeneralAddOp, PotentialAddOp
+from ..ir.core_neuron import CoreNeuronV25
 from ..ir.graph import Edge, PAIIRGraph
 from ..ir.ir_base import InputNode, OutputNode, PAIIRNode
 from ..ir.op_node import (
@@ -40,12 +41,14 @@ from ..ir.op_node import (
 from ..ir.reshape_semantics import shape_after_dims
 from ..ir.signal_domain import SignalDomain
 from ..ir.utils import infer_split_output_shapes
+from ..ir.value_code import code_range_for_data_format, merge_code_ranges
 from .avgpool import calibrate_avgpool_thresholds
 from .avgpool.calibration import CalibrationResult
 from .avgpool.fusion import _try_handle_avgpool_activation
 from .avgpool.utils import _is_avgpool
 from .data_format import (
     DataFormat,
+    infer_output_code_range,
     infer_output_format,
     infer_weight_format,
     merge_data_formats,
@@ -58,11 +61,12 @@ from .graph_utils import (
 )
 
 __all__ = [
+    "analyze_graph",
     "assign_tick_params",
     "calibrate_avgpool_thresholds",
     "CalibrationResult",
     "fuse_to_offline_cores",
-    "propagate_signal_domain",
+    "propagate_signal_semantics",
     "propagate_data_format",
     "specialize_general_adds",
     "TickOverride",
@@ -82,6 +86,16 @@ _DEPLOYABLE_GRAPH_NODE_TYPES = (
     StandaloneCompOp,
     StandaloneActOp,
 )
+
+
+def analyze_graph(
+    graph: PAIIRGraph, input_formats: dict[str, DataFormat] | None = None
+) -> PAIIRGraph:
+    """Run the standard compile-time graph analyses in dependency order."""
+    validate_graph(graph)
+    propagate_signal_semantics(graph, input_formats)
+    propagate_data_format(graph, input_formats)
+    return graph
 
 
 def _layout_shapes(node: OpNode) -> tuple[torch.Size, ...]:
@@ -396,12 +410,12 @@ def validate_compiled_graph(graph: PAIIRGraph) -> None:
 
     for name, node in graph.nodes.items():
         if isinstance(node, InputNode):
-            if node.output_domain is None:
+            if node.signal_semantics.output_domain is None:
                 errors.append(f"InputNode '{name}' is missing output_domain")
             continue
 
         if isinstance(node, OutputNode):
-            if node.output_domain is None:
+            if node.signal_semantics.output_domain is None:
                 errors.append(f"OutputNode '{name}' is missing output_domain")
             continue
 
@@ -419,7 +433,7 @@ def validate_compiled_graph(graph: PAIIRGraph) -> None:
                 errors.append(f"SplitOp '{name}' is missing input layout dims")
             if not node.output_layouts:
                 errors.append(f"SplitOp '{name}' is missing output_layouts")
-            if node.output_domain is None:
+            if node.signal_semantics.output_domain is None:
                 errors.append(f"SplitOp '{name}' is missing output_domain")
             _validate_split_contract(errors, graph, name, node)
             continue
@@ -440,7 +454,7 @@ def validate_compiled_graph(graph: PAIIRGraph) -> None:
             not layout.dims for layout in node.output_layouts
         ):
             errors.append(f"OpNode '{name}' is missing output layout dims")
-        if node.output_domain is None:
+        if node.signal_semantics.output_domain is None:
             errors.append(f"OpNode '{name}' is missing output_domain")
 
         if isinstance(node, ConcatOp):
@@ -476,7 +490,7 @@ def validate_compiled_graph(graph: PAIIRGraph) -> None:
 def _validate_output_domain_consistency(
     errors: list[str], name: str, node: OfflineCoreOp
 ) -> None:
-    if (domain := node.output_domain) is None:
+    if (domain := node.signal_semantics.output_domain) is None:
         return
 
     output_type = node.neuron_params.output_type
@@ -765,34 +779,49 @@ def _validate_split_contract(
             )
 
 
-def propagate_signal_domain(graph: PAIIRGraph) -> None:
-    """Infer and fill node-level ``output_domain`` for every graph node.
+def propagate_signal_semantics(
+    graph: PAIIRGraph, input_formats: dict[str, DataFormat] | None = None
+) -> None:
+    """Infer and fill node-level semantic annotations for every graph node.
 
-    ``output_domain`` is currently a single semantic value per node rather than
-    a per-output-port annotation. This is sufficient for the current IR because
-    routing-only nodes preserve the signal domain of their inputs:
+    This pass writes:
 
-    - ``TransformOp`` inherits its sole predecessor domain
-    - ``SplitOp`` inherits its sole predecessor domain, and all split branches
-      therefore share that same domain
-    - ``ConcatOp`` requires all predecessors to agree on one domain, then
-      forwards that domain to its output
+    - ``signal_semantics.output_domain``: coarse VALUE vs POTENTIAL semantics
+    - ``signal_semantics.known_code_range``: optional exact VALUE code range when derivable
     """
+    if input_formats is None:
+        input_formats = {}
+
+    input_node_names = {
+        n for n, node in graph.nodes.items() if isinstance(node, InputNode)
+    }
+    for name in input_formats:
+        if name not in input_node_names:
+            warnings.warn(
+                f"input_formats key '{name}' does not match any InputNode in the graph"
+            )
+
+    for node in graph.nodes.values():
+        node.signal_semantics.output_domain = None
+        node.signal_semantics.known_code_range = None
+
     errors: list[str] = []
 
     for name in graph.topo_sort():
         node = graph.nodes[name]
 
         if isinstance(node, InputNode):
-            # Current minimal policy: external feeds enter the IR in VALUE
-            # domain. This is intentionally conservative and may need to be
-            # revisited if future frontends support explicit membrane-domain
-            # inputs or richer input-domain annotations.
-            node.output_domain = SignalDomain.VALUE
+            _set_node_signal_semantics(
+                node,
+                SignalDomain.VALUE,
+                code_range_for_data_format(
+                    _resolve_input_node_format(graph, name, input_formats)
+                ),
+            )
             continue
 
         preds = graph.predecessors(name)
-        pred_domains = [graph.nodes[p].output_domain for p in preds]
+        pred_domains = [graph.nodes[p].signal_semantics.output_domain for p in preds]
         if any(domain is None for domain in pred_domains):
             errors.append(
                 f"{type(node).__name__} '{name}' predecessor output_domain is missing"
@@ -800,20 +829,33 @@ def propagate_signal_domain(graph: PAIIRGraph) -> None:
             continue
 
         known_pred_domains = [domain for domain in pred_domains if domain is not None]
+        pred_code_ranges = _present_predecessor_known_code_ranges(graph, preds)
 
         if isinstance(node, OutputNode):
             if known_pred_domains:
-                node.output_domain = known_pred_domains[0]
+                _set_node_signal_semantics(
+                    node,
+                    known_pred_domains[0],
+                    _single_predecessor_known_code_range(graph, name),
+                )
             continue
 
         if isinstance(node, TransformOp):
             if known_pred_domains:
-                node.output_domain = known_pred_domains[0]
+                _set_node_signal_semantics(
+                    node,
+                    known_pred_domains[0],
+                    _single_predecessor_known_code_range(graph, name),
+                )
             continue
 
         if isinstance(node, SplitOp):
             if known_pred_domains:
-                node.output_domain = known_pred_domains[0]
+                _set_node_signal_semantics(
+                    node,
+                    known_pred_domains[0],
+                    _single_predecessor_known_code_range(graph, name),
+                )
             continue
 
         if isinstance(node, ConcatOp):
@@ -826,7 +868,11 @@ def propagate_signal_domain(graph: PAIIRGraph) -> None:
                 )
                 continue
             if known_pred_domains:
-                node.output_domain = known_pred_domains[0]
+                _set_node_signal_semantics(
+                    node,
+                    known_pred_domains[0],
+                    _merged_predecessor_known_code_range(graph, name),
+                )
             continue
 
         if isinstance(node, GeneralAddOp):
@@ -839,9 +885,9 @@ def propagate_signal_domain(graph: PAIIRGraph) -> None:
                 )
                 continue
             if known_pred_domains:
-                node.output_domain = known_pred_domains[0]
+                _set_node_signal_semantics(node, known_pred_domains[0], None)
             elif node.has_const_operands:
-                node.output_domain = SignalDomain.VALUE
+                _set_node_signal_semantics(node, SignalDomain.VALUE, None)
             else:
                 errors.append(f"GeneralAddOp '{name}' cannot infer output_domain")
             continue
@@ -855,16 +901,33 @@ def propagate_signal_domain(graph: PAIIRGraph) -> None:
                     f"{[domain.name for domain in known_pred_domains]}"
                 )
                 continue
-            node.output_domain = SignalDomain.POTENTIAL
+            _set_node_signal_semantics(node, SignalDomain.POTENTIAL, None)
             continue
 
         if is_standalone_maxpool(node):
+            if known_pred_domains and any(
+                domain is not SignalDomain.VALUE for domain in known_pred_domains
+            ):
+                errors.append(
+                    f"Standalone MaxPool '{name}' requires VALUE-domain predecessor, got "
+                    f"{[domain.name for domain in known_pred_domains]}"
+                )
+                continue
             if known_pred_domains:
-                node.output_domain = known_pred_domains[0]
+                _set_node_signal_semantics(
+                    node,
+                    SignalDomain.VALUE,
+                    _merged_predecessor_known_code_range(graph, name),
+                )
             continue
 
         if isinstance(node, OfflineCoreOp):
-            node.output_domain = _infer_output_signal_domain(node)
+            domain = _infer_output_signal_domain(node)
+            _set_node_signal_semantics(
+                node,
+                domain,
+                _infer_node_known_code_range(node, domain, pred_code_ranges),
+            )
             continue
 
     if errors:
@@ -875,6 +938,73 @@ def _infer_output_signal_domain(node: OfflineCoreOp) -> SignalDomain:
     if node.neuron_params.output_type == OutputType.POTENTIAL:
         return SignalDomain.POTENTIAL
     return SignalDomain.VALUE
+
+
+def _set_node_signal_semantics(
+    node: PAIIRNode,
+    output_domain: SignalDomain,
+    known_code_range: tuple[int, int] | None,
+) -> None:
+    node.signal_semantics.output_domain = output_domain
+    node.signal_semantics.known_code_range = known_code_range
+
+
+def _resolve_input_node_format(
+    graph: PAIIRGraph, name: str, input_formats: dict[str, DataFormat]
+) -> DataFormat:
+    return (
+        input_formats[name]
+        if name in input_formats
+        else _infer_input_node_default(graph, name)
+    )
+
+
+def _single_predecessor_known_code_range(
+    graph: PAIIRGraph, node_name: str
+) -> tuple[int, int] | None:
+    preds = graph.predecessors(node_name)
+    if not preds:
+        return None
+    return graph.nodes[preds[0]].signal_semantics.known_code_range
+
+
+def _merged_predecessor_known_code_range(
+    graph: PAIIRGraph, node_name: str
+) -> tuple[int, int] | None:
+    preds = graph.predecessors(node_name)
+    pred_ranges = [graph.nodes[p].signal_semantics.known_code_range for p in preds]
+    if not preds or any(code_range is None for code_range in pred_ranges):
+        return None
+    return merge_code_ranges(
+        [code_range for code_range in pred_ranges if code_range is not None]
+    )
+
+
+def _present_predecessor_known_code_ranges(
+    graph: PAIIRGraph, preds: list[str]
+) -> list[tuple[int, int]]:
+    present: list[tuple[int, int]] = []
+    for pred_name in preds:
+        code_range = graph.nodes[pred_name].signal_semantics.known_code_range
+        if code_range is not None:
+            present.append(code_range)
+    return present
+
+
+def _infer_node_known_code_range(
+    node: OfflineCoreOp,
+    output_domain: SignalDomain,
+    pred_code_ranges: list[tuple[int, int]],
+) -> tuple[int, int] | None:
+    if output_domain is not SignalDomain.VALUE:
+        return None
+    if is_standalone_maxpool(node):
+        return merge_code_ranges(pred_code_ranges)
+
+    act = _get_node_act(node)
+    if act is None:
+        return None
+    return infer_output_code_range(act)
 
 
 def validate_deployable_graph(graph: PAIIRGraph) -> None:
@@ -902,7 +1032,8 @@ def validate_deployable_graph(graph: PAIIRGraph) -> None:
 
         if isinstance(node, PotentialAddOp):
             pred_domains = [
-                graph.nodes[p].output_domain for p in graph.predecessors(name)
+                graph.nodes[p].signal_semantics.output_domain
+                for p in graph.predecessors(name)
             ]
             if any(domain is None for domain in pred_domains):
                 errors.append(
@@ -923,7 +1054,8 @@ def validate_deployable_graph(graph: PAIIRGraph) -> None:
 
         if isinstance(node, ConcatOp):
             pred_domains = [
-                graph.nodes[p].output_domain for p in graph.predecessors(name)
+                graph.nodes[p].signal_semantics.output_domain
+                for p in graph.predecessors(name)
             ]
             if any(domain is None for domain in pred_domains):
                 errors.append(f"ConcatOp '{name}' predecessor output_domain is missing")
@@ -1031,7 +1163,7 @@ def _validate_potential_add_contract(
 def _validate_lut_mode_consistency(
     errors: list[str], name: str, node: OfflineCoreOp
 ) -> None:
-    act = getattr(node, "act", None)
+    act = _get_node_act(node)
     if act is None:
         return
 
@@ -1098,9 +1230,6 @@ def propagate_data_format(
                 f"input_formats key '{name}' does not match any InputNode in the graph"
             )
 
-    # Effective data format per graph node, including routing-only nodes and
-    # graph boundaries. This is separate from `core_params`, which only exists
-    # on deployable offline-core operators.
     resolved: dict[str, DataFormat] = {}
 
     # Pass 1: establish each deployable core's own output and weight formats.
@@ -1110,11 +1239,7 @@ def propagate_data_format(
         node = graph.nodes[name]
 
         if isinstance(node, InputNode):
-            resolved[name] = (
-                input_formats[name]
-                if name in input_formats
-                else _infer_input_node_default(graph, name)
-            )
+            resolved[name] = _resolve_input_node_format(graph, name, input_formats)
             continue
         if isinstance(node, OutputNode):
             continue
@@ -1216,7 +1341,7 @@ def _infer_node_output_format(
     if output_type == OutputType.POTENTIAL:
         return DataSign.SIGNED, DataWidth.WIDTH_32BIT
 
-    act = getattr(node, "act", None)
+    act = _get_node_act(node)
     if act is None:
         raise ValueError(
             f"OfflineCoreOp '{node.name}' declares {output_type.name} output but has no "
@@ -1261,6 +1386,11 @@ def _derive_input_add_potential_mode(
         node.core_params.add_potential = AddPotentialMode.DIRECT_ADD
     else:
         node.core_params.add_potential = AddPotentialMode.NORMAL
+
+
+def _get_node_act(node: OfflineCoreOp) -> CoreNeuronV25 | None:
+    act = getattr(node, "act", None)
+    return act if isinstance(act, CoreNeuronV25) else None
 
 
 class TickOverride(TypedDict, total=False):

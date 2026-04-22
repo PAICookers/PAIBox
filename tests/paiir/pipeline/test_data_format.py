@@ -36,6 +36,7 @@ from paibox.paiir.pipeline.data_format import (
 from paibox.paiir.pipeline.passes import (
     fuse_to_offline_cores,
     propagate_data_format,
+    propagate_signal_semantics,
     specialize_general_adds,
 )
 from tests.paiir.conftest import (
@@ -349,6 +350,7 @@ class TestPropagateDataFormatANN:
         fused = fuse_to_offline_cores(specialize_general_adds(unfused))
 
         inp_name = fused.input_nodes()[0].name
+        propagate_signal_semantics(fused, input_formats={inp_name: input_format})
         propagate_data_format(fused, input_formats={inp_name: input_format})
 
         pool = next(

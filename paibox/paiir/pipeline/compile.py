@@ -34,15 +34,13 @@ from .layout_chain_canonicalization import canonicalize_layout_chains
 from .layout_cross_node_elision import commute_pre_activation_transforms
 from .passes import (
     TickOverride,
+    analyze_graph,
     assign_tick_params,
     calibrate_avgpool_thresholds,
     fuse_to_offline_cores,
-    propagate_data_format,
-    propagate_signal_domain,
     specialize_general_adds,
     validate_compiled_graph,
     validate_deployable_graph,
-    validate_graph,
 )
 from .rewrite_phase import RewritePass, run_fixed_point_rewrite_phase
 
@@ -84,14 +82,14 @@ def compile_to_paiir(
        into deployable add IR where possible
     4. :func:`fuse_to_offline_cores` -- choose topology, rewrite nodes, and
        apply AvgPool deployment params
-    5. analysis phase -- validate graph, infer signal domains, infer data formats
+    5. analysis phase -- validate graph, infer signal semantics, infer data formats
     6. standalone AvgPool auto-rewrite that depends on those analyses
     7. re-run the analysis phase if a rewrite changed the graph
     8. :func:`assign_tick_params` -- assign timing parameters
     9. :func:`calibrate_avgpool_thresholds` -- (experimental) refine shared-core
        AvgPool+LIF thresholds via offline integer search
     10. :func:`validate_compiled_graph` -- final post-pass graph validation
-        after connectivity cleanup, signal-domain propagation, data-format
+        after connectivity cleanup, signal-semantics propagation, data-format
         propagation, and tick assignment
     11. :func:`validate_deployable_graph` -- ensure no frontend-only IR remains
     """
@@ -135,16 +133,6 @@ def compile_to_paiir(
     return graph
 
 
-def _run_mid_compile_analyses(
-    graph: PAIIRGraph, input_formats: dict[str, DataFormat] | None
-) -> PAIIRGraph:
-    """Run the standard analysis phase for a topology-stable graph."""
-    validate_graph(graph)
-    propagate_signal_domain(graph)
-    propagate_data_format(graph, input_formats)
-    return graph
-
-
 def _pre_fusion_rewrite_passes() -> tuple[RewritePass, ...]:
     """Return ordered topology rewrites that may interact before fusion."""
     return (
@@ -177,6 +165,6 @@ def _run_post_fusion_rewrite_phase(
     return run_fixed_point_rewrite_phase(
         graph,
         rewrite_passes,
-        lambda g: _run_mid_compile_analyses(g, input_formats),
+        lambda g: analyze_graph(g, input_formats),
         max_rounds,
     )

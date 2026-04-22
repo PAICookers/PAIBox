@@ -14,7 +14,7 @@ from .calc_params import LutData, NeuronParams, OfflineCoreParams, OnlineCorePar
 from .core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
 from .graph import Edge, PAIIRGraph
 from .ir_base import InputNode, OutputNode, PAIIRNode, TensorLayout
-from .signal_domain import SignalDomain
+from .signal_domain import SignalDomain, SignalSemantics
 from .add_ops import (
     AddOperandKind,
     AddOperandSpec,
@@ -85,6 +85,7 @@ __all__ = [
     "SequentialOp",
     "ShapeStage",
     "SignalDomain",
+    "SignalSemantics",
     "SplitOp",
     "StandaloneActOp",
     "StandaloneCompOp",

@@ -10,12 +10,20 @@ data-format groups in :class:`OfflineCoreParams`:
 
 from collections.abc import Sequence
 
+import torch
 from paicorelib import DataSign, DataWidth, ThresholdNegMode
 
 from ..ir.core_neuron import CoreNeuronV25
+from ..ir.value_code import (
+    SIGNED_VALUE_CODE_RANGES,
+    UNSIGNED_VALUE_CODE_RANGES,
+    fits_value_code_range,
+)
 
 __all__ = [
     "DataFormat",
+    "fits_value_code_range",
+    "infer_output_code_range",
     "infer_output_format",
     "infer_weight_format",
     "merge_data_formats",
@@ -24,27 +32,15 @@ __all__ = [
 
 DataFormat = tuple[DataSign, DataWidth]
 
-# Bit ranges for each DataWidth (signed)
-_SIGNED_RANGES: dict[DataWidth, tuple[int, int]] = {
-    DataWidth.WIDTH_1BIT: (-1, 0),
-    DataWidth.WIDTH_2BIT: (-2, 1),
-    DataWidth.WIDTH_4BIT: (-8, 7),
-    DataWidth.WIDTH_8BIT: (-128, 127),
-}
-
-# Bit ranges for each DataWidth (unsigned)
-_UNSIGNED_RANGES: dict[DataWidth, tuple[int, int]] = {
-    DataWidth.WIDTH_1BIT: (0, 1),
-    DataWidth.WIDTH_2BIT: (0, 3),
-    DataWidth.WIDTH_4BIT: (0, 15),
-    DataWidth.WIDTH_8BIT: (0, 255),
-}
-
 
 def _infer_narrowest_range_format(
     value_min: int, value_max: int, sign: DataSign, label: str
 ) -> tuple[DataSign, DataWidth]:
-    ranges = _SIGNED_RANGES if sign == DataSign.SIGNED else _UNSIGNED_RANGES
+    ranges = (
+        SIGNED_VALUE_CODE_RANGES
+        if sign == DataSign.SIGNED
+        else UNSIGNED_VALUE_CODE_RANGES
+    )
 
     for width, (lo, hi) in ranges.items():
         if lo <= value_min and value_max <= hi:
@@ -85,6 +81,28 @@ def infer_output_format(act: CoreNeuronV25) -> tuple[DataSign, DataWidth]:
     value_min = int(lut.lut_values.min().item())
     value_max = int(lut.lut_values.max().item())
     return _infer_narrowest_range_format(value_min, value_max, sign, "LUT activation")
+
+
+def infer_output_code_range(act: CoreNeuronV25) -> tuple[int, int] | None:
+    """Infer the exact integer VALUE-code range emitted by an activation."""
+    if act.is_snn:
+        if act.thres_neg_mode == ThresholdNegMode.FIRE:
+            return -1, 1
+        return 0, 1
+
+    lut = act.lut
+    if lut is None:
+        return None
+
+    values = lut.lut_values.detach().to(torch.float32)
+    if not torch.allclose(values, values.round()):
+        return None
+
+    value_min = int(values.min().item())
+    value_max = int(values.max().item())
+    if not fits_value_code_range(value_min, value_max):
+        return None
+    return value_min, value_max
 
 
 def infer_weight_format(weight_min: int, weight_max: int) -> tuple[DataSign, DataWidth]:

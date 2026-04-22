@@ -273,14 +273,14 @@ class OfflineCoreOp(OpNode):
     def _with_domain_derived_output_type(self, params: NeuronParams) -> NeuronParams:
         """Derive backend-visible output type from propagated frontend domain.
 
-        ``output_domain`` is the frontend semantic source of truth for whether a
+        ``signal_semantics.output_domain`` is the frontend semantic source of truth for whether a
         node emits VALUE- or POTENTIAL-domain data. When that annotation is
         available, keep backend-visible ``output_type`` aligned with it.
         """
-        if self.output_domain is None:
+        if self.signal_semantics.output_domain is None:
             return params
 
-        if self.output_domain is SignalDomain.VALUE:
+        if self.signal_semantics.output_domain is SignalDomain.VALUE:
             return replace(params, output_type=OutputType.VALUE)
         else:
             return replace(params, output_type=OutputType.POTENTIAL)

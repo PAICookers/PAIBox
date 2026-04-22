@@ -111,7 +111,7 @@ def _get_effective_value_source_mode(node: PAIIRNode) -> SNNMode | None:
     if not isinstance(node, OfflineCoreOp):
         return None
 
-    if node.output_domain is not SignalDomain.VALUE:
+    if node.signal_semantics.output_domain is not SignalDomain.VALUE:
         return None
 
     if isinstance(node, (SequentialOp, StandaloneActOp)):

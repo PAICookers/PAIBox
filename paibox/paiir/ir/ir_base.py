@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import torch
 
 from ._namespace import IRNamespace
-from .signal_domain import SignalDomain
+from .signal_domain import SignalSemantics
 
 __all__ = ["TensorLayout", "PAIIRNode", "InputNode", "OutputNode"]
 
@@ -35,27 +35,23 @@ class PAIIRNode:
     Each node is automatically assigned a unique name for identification
     within the computation graph.
 
-    ``output_domain`` is a node-level semantic annotation describing the signal
-    domain of the node's output:
-
-    - :class:`~paibox.paiir.ir.signal_domain.SignalDomain.VALUE`
-    - :class:`~paibox.paiir.ir.signal_domain.SignalDomain.POTENTIAL`
-
-    The current IR treats this as one value per node, not one value per output
-    port. This remains valid for today's multi-output ``SplitOp`` because all
-    split branches inherit the same output domain from the split input.
+    ``signal_semantics`` stores node-level compile-time signal semantics such
+    as the coarse VALUE/POTENTIAL domain and an optional exact VALUE code
+    range.
     """
 
     def __init__(self) -> None:
         self.name: str = _ir_namespace.create_name(self)
-        self.output_domain: SignalDomain | None = None
+        self.signal_semantics = SignalSemantics()
 
     def __repr__(self) -> str:
         parts = [f"name='{self.name}'"]
         if hasattr(self, "shape") and self.shape:
             parts.append(f"shape={self.shape}")
-        if self.output_domain is not None:
-            parts.append(f"output_domain={self.output_domain.name}")
+        if self.signal_semantics.output_domain is not None:
+            parts.append(f"output_domain={self.signal_semantics.output_domain.name}")
+        if self.signal_semantics.known_code_range is not None:
+            parts.append(f"known_code_range={self.signal_semantics.known_code_range}")
         return f"{self.__class__.__name__}({', '.join(parts)})"
 
 
