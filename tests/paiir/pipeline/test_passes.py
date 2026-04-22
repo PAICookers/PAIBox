@@ -6,7 +6,7 @@ in `PAIBox/paibox/paiir/pipeline/passes.py`:
 - add specialization / fusion
 - tick assignment
 - validation / deployability checks
-- signal-domain propagation
+- signal-semantics propagation
 """
 
 import pytest
@@ -15,7 +15,12 @@ from paicorelib import DataSign, DataWidth, OutputType, PoolingMode, SNNMode
 from spikingjelly.activation_based import neuron as sj
 from torch import nn
 
-from paibox.paiir.ir.add_ops import AddOperandKind, GeneralAddOp, PotentialAddOp
+from paibox.paiir.ir.add_ops import (
+    AddOperandKind,
+    AddOperandSpec,
+    GeneralAddOp,
+    PotentialAddOp,
+)
 from paibox.paiir.ir.calc_params import OfflineCoreParams
 from paibox.paiir.ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
 from paibox.paiir.ir.graph import Edge, PAIIRGraph
@@ -41,7 +46,7 @@ from paibox.paiir.pipeline.passes import (
     assign_tick_params,
     fuse_to_offline_cores,
     propagate_data_format,
-    propagate_signal_domain,
+    propagate_signal_semantics,
     specialize_general_adds,
     validate_compiled_graph,
     validate_deployable_graph,
@@ -871,9 +876,9 @@ class TestValidateCompiledGraph:
         op.core_params.tick_duration = 0
         op.core_params.tick_initial = 0
         out = OutputNode()
-        inp.output_domain = SignalDomain.VALUE
-        op.output_domain = SignalDomain.VALUE
-        out.output_domain = SignalDomain.VALUE
+        inp.signal_semantics.output_domain = SignalDomain.VALUE
+        op.signal_semantics.output_domain = SignalDomain.VALUE
+        out.signal_semantics.output_domain = SignalDomain.VALUE
         graph.add_node(inp)
         graph.add_node(op)
         graph.add_node(out)
@@ -911,7 +916,7 @@ class TestValidateCompiledGraph:
             node.core_params.tick_start = 1
             node.core_params.tick_duration = 0
             node.core_params.tick_initial = 0
-            node.output_domain = SignalDomain.VALUE
+            node.signal_semantics.output_domain = SignalDomain.VALUE
 
         inp = graph.input_nodes()[0]
         graph.add_node(branch)
@@ -931,10 +936,10 @@ class TestValidateCompiledGraph:
         cat = ConcatOp(dim=1)
         out = OutputNode()
 
-        inp_a.output_domain = SignalDomain.VALUE
-        inp_b.output_domain = SignalDomain.VALUE
-        cat.output_domain = SignalDomain.VALUE
-        out.output_domain = SignalDomain.VALUE
+        inp_a.signal_semantics.output_domain = SignalDomain.VALUE
+        inp_b.signal_semantics.output_domain = SignalDomain.VALUE
+        cat.signal_semantics.output_domain = SignalDomain.VALUE
+        out.signal_semantics.output_domain = SignalDomain.VALUE
 
         _set_multi_input_single_output_layouts(
             cat,
@@ -963,9 +968,9 @@ class TestValidateCompiledGraph:
         split = SplitOp(sections=(2, 4), dim=1)
         out = OutputNode()
 
-        inp.output_domain = SignalDomain.VALUE
-        split.output_domain = SignalDomain.VALUE
-        out.output_domain = SignalDomain.VALUE
+        inp.signal_semantics.output_domain = SignalDomain.VALUE
+        split.signal_semantics.output_domain = SignalDomain.VALUE
+        out.signal_semantics.output_domain = SignalDomain.VALUE
 
         split.input_layouts = (_layout((1, 5), (0, 1)),)
 
@@ -1004,13 +1009,16 @@ class TestSplitPassBehavior:
     def test_signal_domain_and_data_format_propagate_through_split(self):
         graph, inp, split, act = self._build_split_routing_graph()
 
-        propagate_signal_domain(graph)
+        propagate_signal_semantics(
+            graph,
+            input_formats={inp.name: (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)},
+        )
         propagate_data_format(
             graph, input_formats={inp.name: (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)}
         )
 
-        assert split.output_domain is SignalDomain.VALUE
-        assert act.output_domain is SignalDomain.VALUE
+        assert split.signal_semantics.output_domain is SignalDomain.VALUE
+        assert act.signal_semantics.output_domain is SignalDomain.VALUE
         assert act.core_params.input_sign == DataSign.UNSIGNED
         assert act.core_params.input_width == DataWidth.WIDTH_1BIT
 
@@ -1045,9 +1053,9 @@ class TestValidateDeployableGraph:
         cpu = CPUOp()
         out = OutputNode()
 
-        inp.output_domain = SignalDomain.VALUE
-        cpu.output_domain = SignalDomain.VALUE
-        out.output_domain = SignalDomain.VALUE
+        inp.signal_semantics.output_domain = SignalDomain.VALUE
+        cpu.signal_semantics.output_domain = SignalDomain.VALUE
+        out.signal_semantics.output_domain = SignalDomain.VALUE
 
         graph.add_node(inp)
         graph.add_node(cpu)
@@ -1064,9 +1072,9 @@ class TestValidateDeployableGraph:
         split = SplitOp(sections=2, dim=1)
         out = OutputNode()
 
-        inp.output_domain = SignalDomain.VALUE
-        split.output_domain = SignalDomain.VALUE
-        out.output_domain = SignalDomain.VALUE
+        inp.signal_semantics.output_domain = SignalDomain.VALUE
+        split.signal_semantics.output_domain = SignalDomain.VALUE
+        out.signal_semantics.output_domain = SignalDomain.VALUE
 
         graph.add_node(inp)
         graph.add_node(split)
@@ -1084,10 +1092,10 @@ class TestValidateDeployableGraph:
         add = PotentialAddOp(op_signs=(1, 1))
         out = OutputNode()
 
-        inp_a.output_domain = SignalDomain.VALUE
-        inp_b.output_domain = SignalDomain.VALUE
-        add.output_domain = SignalDomain.POTENTIAL
-        out.output_domain = SignalDomain.POTENTIAL
+        inp_a.signal_semantics.output_domain = SignalDomain.VALUE
+        inp_b.signal_semantics.output_domain = SignalDomain.VALUE
+        add.signal_semantics.output_domain = SignalDomain.POTENTIAL
+        out.signal_semantics.output_domain = SignalDomain.POTENTIAL
 
         graph.add_node(inp_a)
         graph.add_node(inp_b)
@@ -1107,10 +1115,10 @@ class TestValidateDeployableGraph:
         cat = ConcatOp(dim=1)
         out = OutputNode()
 
-        inp_a.output_domain = SignalDomain.VALUE
-        inp_b.output_domain = SignalDomain.POTENTIAL
-        cat.output_domain = SignalDomain.VALUE
-        out.output_domain = SignalDomain.VALUE
+        inp_a.signal_semantics.output_domain = SignalDomain.VALUE
+        inp_b.signal_semantics.output_domain = SignalDomain.POTENTIAL
+        cat.signal_semantics.output_domain = SignalDomain.VALUE
+        out.signal_semantics.output_domain = SignalDomain.VALUE
 
         graph.add_node(inp_a)
         graph.add_node(inp_b)
@@ -1134,10 +1142,10 @@ class TestValidateDeployableGraph:
         )
         out = OutputNode()
 
-        inp_a.output_domain = SignalDomain.VALUE
-        inp_b.output_domain = SignalDomain.VALUE
-        acc.output_domain = SignalDomain.VALUE
-        out.output_domain = SignalDomain.VALUE
+        inp_a.signal_semantics.output_domain = SignalDomain.VALUE
+        inp_b.signal_semantics.output_domain = SignalDomain.VALUE
+        acc.signal_semantics.output_domain = SignalDomain.VALUE
+        out.signal_semantics.output_domain = SignalDomain.VALUE
         _set_single_layouts(acc, (1, 4), (1, 4), (0, 1), (0, 1))
 
         graph.add_node(inp_a)
@@ -1169,7 +1177,55 @@ class ValueBranchAdd(nn.Module):
         return self.if_a(self.conv_a(x)) + self.if_b(self.conv_b(x))
 
 
-class TestSignalDomain:
+class TestSignalSemantics:
+    def test_input_node_sets_known_code_range_from_effective_input_format(self):
+        graph = PAIIRGraph("input_semantics")
+        inp = InputNode(shape=torch.Size((1, 4)))
+        out = OutputNode(shape=torch.Size((1, 4)))
+        graph.add_node(inp)
+        graph.add_node(out)
+        graph.add_edge(inp.name, out.name)
+
+        propagate_signal_semantics(
+            graph,
+            input_formats={inp.name: (DataSign.SIGNED, DataWidth.WIDTH_4BIT)},
+        )
+
+        assert inp.signal_semantics.output_domain is SignalDomain.VALUE
+        assert inp.signal_semantics.known_code_range == (-8, 7)
+        assert out.signal_semantics.output_domain is SignalDomain.VALUE
+        assert out.signal_semantics.known_code_range == (-8, 7)
+
+    def test_concat_known_code_range_requires_all_predecessors_known(self):
+        graph = PAIIRGraph("concat_known_code_range")
+        inp = InputNode(shape=torch.Size((1, 4)))
+        add = GeneralAddOp(
+            operands=(
+                AddOperandSpec(1, AddOperandKind.TENSOR, tensor_port=0),
+                AddOperandSpec(1, AddOperandKind.CONST, const_value=1),
+            )
+        )
+        cat = ConcatOp(dim=1)
+        out = OutputNode(shape=torch.Size((1, 8)))
+        for node in (inp, add, cat, out):
+            graph.add_node(node)
+        graph.add_edge(inp.name, add.name)
+        graph.add_edge(inp.name, cat.name, dst_port=0)
+        graph.add_edge(add.name, cat.name, dst_port=1)
+        graph.add_edge(cat.name, out.name)
+
+        propagate_signal_semantics(
+            graph,
+            input_formats={inp.name: (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)},
+        )
+
+        assert inp.signal_semantics.known_code_range == (0, 1)
+        assert add.signal_semantics.output_domain is SignalDomain.VALUE
+        assert add.signal_semantics.known_code_range is None
+        assert cat.signal_semantics.output_domain is SignalDomain.VALUE
+        assert cat.signal_semantics.known_code_range is None
+        assert out.signal_semantics.known_code_range is None
+
     def test_standalone_maxpool_preserves_value_domain(self):
         class ValueMaxPool(nn.Module):
             def __init__(self):
@@ -1183,7 +1239,7 @@ class TestSignalDomain:
         unfused = torch_to_paiir(ValueMaxPool(), torch.randn(1, 3, 8, 8))
         fused = fuse_to_offline_cores(specialize_general_adds(unfused))
 
-        propagate_signal_domain(fused)
+        propagate_signal_semantics(fused)
 
         pool = next(
             node
@@ -1192,11 +1248,13 @@ class TestSignalDomain:
             and isinstance(node.comp, nn.MaxPool2d)
         )
         out = fused.output_nodes()[0]
-        assert pool.output_domain == SignalDomain.VALUE
+        assert pool.signal_semantics.output_domain == SignalDomain.VALUE
+        assert pool.signal_semantics.known_code_range == (0, 254)
         assert pool.neuron_params.output_type == OutputType.VALUE
-        assert out.output_domain == SignalDomain.VALUE
+        assert out.signal_semantics.output_domain == SignalDomain.VALUE
+        assert out.signal_semantics.known_code_range == (0, 254)
 
-    def test_standalone_maxpool_preserves_potential_domain(self):
+    def test_standalone_maxpool_rejects_potential_domain(self):
         class PotentialMaxPool(nn.Module):
             def __init__(self):
                 super().__init__()
@@ -1209,29 +1267,32 @@ class TestSignalDomain:
         unfused = torch_to_paiir(PotentialMaxPool(), torch.randn(1, 3, 8, 8))
         fused = fuse_to_offline_cores(specialize_general_adds(unfused))
 
-        propagate_signal_domain(fused)
-
-        pool = next(
-            node
-            for node in fused.nodes.values()
-            if isinstance(node, StandaloneCompOp)
-            and isinstance(node.comp, nn.MaxPool2d)
-        )
-        out = fused.output_nodes()[0]
-        assert pool.output_domain == SignalDomain.POTENTIAL
-        assert pool.neuron_params.output_type == OutputType.POTENTIAL
-        assert out.output_domain == SignalDomain.POTENTIAL
+        with pytest.raises(GraphValidationError, match="Standalone MaxPool"):
+            propagate_signal_semantics(fused)
 
     def test_general_add_from_scalar_propagates_value_domain(self):
         graph = torch_to_paiir(AddScalarDomain(), torch.randn(1, 3, 8, 8), strict=False)
 
-        propagate_signal_domain(graph)
+        propagate_signal_semantics(
+            graph,
+            input_formats={
+                graph.input_nodes()[0].name: (
+                    DataSign.UNSIGNED,
+                    DataWidth.WIDTH_1BIT,
+                )
+            },
+        )
 
         add = find_first(graph, GeneralAddOp)
         out = graph.output_nodes()[0]
-        assert graph.input_nodes()[0].output_domain == SignalDomain.VALUE
-        assert add.output_domain == SignalDomain.VALUE
-        assert out.output_domain == SignalDomain.VALUE
+        assert (
+            graph.input_nodes()[0].signal_semantics.output_domain == SignalDomain.VALUE
+        )
+        assert graph.input_nodes()[0].signal_semantics.known_code_range == (0, 1)
+        assert add.signal_semantics.output_domain == SignalDomain.VALUE
+        assert add.signal_semantics.known_code_range is None
+        assert out.signal_semantics.output_domain == SignalDomain.VALUE
+        assert out.signal_semantics.known_code_range is None
 
     def test_potential_add_from_residual_comp_propagates_potential_domain(self):
         class MembraneAdd(nn.Module):
@@ -1246,30 +1307,34 @@ class TestSignalDomain:
         unfused = torch_to_paiir(MembraneAdd(), torch.randn(1, 3, 8, 8))
         fused = fuse_to_offline_cores(specialize_general_adds(unfused))
 
-        propagate_signal_domain(fused)
+        propagate_signal_semantics(fused)
 
         add = find_first(fused, PotentialAddOp)
         out = fused.output_nodes()[0]
-        assert add.output_domain == SignalDomain.POTENTIAL
-        assert out.output_domain == SignalDomain.POTENTIAL
+        assert add.signal_semantics.output_domain == SignalDomain.POTENTIAL
+        assert add.signal_semantics.known_code_range is None
+        assert out.signal_semantics.output_domain == SignalDomain.POTENTIAL
+        assert out.signal_semantics.known_code_range is None
 
     def test_accumulate_with_activation_propagates_value_domain(self):
         unfused = torch_to_paiir(SNNResidualAdd(), make_img_3ch_8x8())
         fused = fuse_to_offline_cores(specialize_general_adds(unfused))
 
-        propagate_signal_domain(fused)
+        propagate_signal_semantics(fused)
 
         accum = find_first(fused, AccumulateOp)
         out = fused.output_nodes()[0]
-        assert accum.output_domain == SignalDomain.VALUE
-        assert out.output_domain == SignalDomain.VALUE
+        assert accum.signal_semantics.output_domain == SignalDomain.VALUE
+        assert accum.signal_semantics.known_code_range == (0, 1)
+        assert out.signal_semantics.output_domain == SignalDomain.VALUE
+        assert out.signal_semantics.known_code_range == (0, 1)
 
     def test_potential_add_rejects_value_domain_inputs(self):
         unfused = torch_to_paiir(ValueBranchAdd(), torch.randn(1, 3, 8, 8))
         fused = fuse_to_offline_cores(specialize_general_adds(unfused))
 
         with pytest.raises(GraphValidationError, match="PotentialAddOp"):
-            propagate_signal_domain(fused)
+            propagate_signal_semantics(fused)
 
     def test_rechecks_accumulate_signs(self):
         graph = PAIIRGraph("bad_accumulate_signs")
@@ -1282,10 +1347,10 @@ class TestSignalDomain:
         )
         out = OutputNode()
 
-        inp_a.output_domain = SignalDomain.VALUE
-        inp_b.output_domain = SignalDomain.VALUE
-        acc.output_domain = SignalDomain.VALUE
-        out.output_domain = SignalDomain.VALUE
+        inp_a.signal_semantics.output_domain = SignalDomain.VALUE
+        inp_b.signal_semantics.output_domain = SignalDomain.VALUE
+        acc.signal_semantics.output_domain = SignalDomain.VALUE
+        out.signal_semantics.output_domain = SignalDomain.VALUE
         _set_multi_input_single_output_layouts(
             acc,
             [(1, 4), (1, 4)],

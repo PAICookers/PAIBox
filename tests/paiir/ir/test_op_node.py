@@ -211,10 +211,10 @@ class TestWeights:
     def test_standalone_comp_neuron_params_follow_output_domain(self):
         op = StandaloneCompOp(comp=nn.MaxPool2d(2))
 
-        op.output_domain = SignalDomain.VALUE
+        op.signal_semantics.output_domain = SignalDomain.VALUE
         assert op.neuron_params.output_type == OutputType.VALUE
 
-        op.output_domain = SignalDomain.POTENTIAL
+        op.signal_semantics.output_domain = SignalDomain.POTENTIAL
         assert op.neuron_params.output_type == OutputType.POTENTIAL
 
     def test_add_op_returns_none(self):
