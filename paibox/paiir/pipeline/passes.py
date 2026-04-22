@@ -61,6 +61,7 @@ from .graph_utils import (
 )
 
 __all__ = [
+    "analyze_graph",
     "assign_tick_params",
     "calibrate_avgpool_thresholds",
     "CalibrationResult",
@@ -85,6 +86,16 @@ _DEPLOYABLE_GRAPH_NODE_TYPES = (
     StandaloneCompOp,
     StandaloneActOp,
 )
+
+
+def analyze_graph(
+    graph: PAIIRGraph, input_formats: dict[str, DataFormat] | None = None
+) -> PAIIRGraph:
+    """Run the standard compile-time graph analyses in dependency order."""
+    validate_graph(graph)
+    propagate_signal_semantics(graph, input_formats)
+    propagate_data_format(graph, input_formats)
+    return graph
 
 
 def _layout_shapes(node: OpNode) -> tuple[torch.Size, ...]:
