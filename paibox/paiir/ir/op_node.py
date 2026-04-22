@@ -27,6 +27,14 @@ from torch import Tensor, nn
 from .calc_params import LutData, NeuronParams, OfflineCoreParams, OnlineCoreParams
 from .core_neuron import CoreNeuronV25
 from .ir_base import PAIIRNode, TensorLayout
+from .maxpool_export import (
+    MaxPoolExportKind,
+    build_identity_lut_data,
+    build_identity_lut_neuron_params,
+    build_spike_identity_neuron_params,
+    is_maxpool_comp,
+    refresh_maxpool_export_kind,
+)
 from .reshape_semantics import materialize_logical_layout
 from .signal_domain import SignalDomain
 
@@ -120,7 +128,7 @@ def _get_weight_tensor(comp: nn.Module) -> Tensor | None:
 
 def _get_pooling_mode(comp: nn.Module) -> PoolingMode:
     """Infer pooling mode from the compute operation."""
-    if isinstance(comp, (nn.MaxPool1d, nn.MaxPool2d)):
+    if is_maxpool_comp(comp):
         return PoolingMode.MAX
     return PoolingMode.AVERAGE
 
@@ -596,9 +604,43 @@ class StandaloneCompOp(OfflineCoreOp):
         backend-visible ``output_type`` must be derived from the propagated
         graph semantic domain instead of using a hard-coded default.
         """
+        if (
+            is_maxpool_comp(self.comp)
+            and self.signal_semantics.output_domain is SignalDomain.VALUE
+        ):
+            kind = refresh_maxpool_export_kind(self)
+            if kind in (MaxPoolExportKind.U_SPIKE, MaxPoolExportKind.S_SPIKE):
+                return self._with_domain_derived_output_type(
+                    build_spike_identity_neuron_params(kind)
+                )
+            if kind is MaxPoolExportKind.LUT:
+                return self._with_domain_derived_output_type(
+                    build_identity_lut_neuron_params(
+                        self.core_params.input_sign,
+                        self.core_params.input_width,
+                        self.signal_semantics.known_code_range,
+                    )
+                )
+
         return self._with_domain_derived_output_type(
             NeuronParams(output_type=OutputType.POTENTIAL)
         )
+
+    @property
+    def lut_data(self) -> LutData | None:
+        """Standalone MaxPool may synthesize an identity LUT for wider VALUE code."""
+        if (
+            is_maxpool_comp(self.comp)
+            and self.signal_semantics.output_domain is SignalDomain.VALUE
+        ):
+            export = refresh_maxpool_export_kind(self)
+            if export is MaxPoolExportKind.LUT:
+                return build_identity_lut_data(
+                    self.core_params.input_sign,
+                    self.core_params.input_width,
+                    self.signal_semantics.known_code_range,
+                )
+        return None
 
     def extra_repr(self) -> str:
         return f"{super().extra_repr()}, comp={type(self.comp).__name__}"

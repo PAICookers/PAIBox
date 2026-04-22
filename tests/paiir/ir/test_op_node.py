@@ -13,12 +13,14 @@ from paicorelib import (
     OutputType,
     PoolingMode,
     SNNMode,
+    ThresholdNegMode,
+    ThresholdPosMode,
 )
 from torch import nn
 
 from paibox.paiir.ir.add_ops import PotentialAddOp
 from paibox.paiir.ir.calc_params import NeuronParams, OfflineCoreParams
-from paibox.paiir.ir.core_neuron import ANNNodeV25, IFNodeV25, LIFNodeV25
+from paibox.paiir.ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
 from paibox.paiir.ir.lut_activation import LutReLU, LutSigmoid
 from paibox.paiir.ir.op_node import (
     AccumulateOp,
@@ -323,6 +325,58 @@ class TestNeuronParams:
         params = op.neuron_params
         assert params.thres_pos == 1
         assert params.output_type == OutputType.VALUE
+
+    def test_standalone_maxpool_unsigned_spike_bypass_neuron_params(self):
+        op = StandaloneCompOp(comp=nn.MaxPool2d(2))
+        op.signal_semantics.output_domain = SignalDomain.VALUE
+        op.core_params.set_input_format((DataSign.UNSIGNED, DataWidth.WIDTH_1BIT))
+
+        params = op.neuron_params
+        assert params.output_type == OutputType.VALUE
+        assert params.reset_mode == RM.MODE_NORMAL
+        assert params.reset_v == 0
+        assert params.thres_pos_mode == ThresholdPosMode.FIRE
+        assert params.thres_neg_mode == ThresholdNegMode.FLOOR
+        assert params.thres_pos == 1
+        assert params.thres_neg == 0
+        assert op.lut_data is None
+
+        act = CoreNeuronV25(
+            reset_mode=params.reset_mode,
+            reset_v=params.reset_v,
+            thres_pos_mode=params.thres_pos_mode,
+            thres_neg_mode=params.thres_neg_mode,
+            thres_pos=params.thres_pos,
+            thres_neg=params.thres_neg,
+            lateral_inhi=params.lateral_inhi,
+            leak_multi_sequence=params.leak_multi_sequence,
+            leak_multi_input=params.leak_multi_input,
+            leak_multi_mode=params.leak_multi_mode,
+            leak_add_mode=params.leak_add_mode,
+            leak_tau_shift=params.leak_tau,
+            leak_v=params.leak_v,
+            init_v=params.init_v,
+        )
+        outputs = [
+            int(act(torch.tensor([x], dtype=torch.float32)).item())
+            for x in [0, 1, 0, 1]
+        ]
+        assert outputs == [0, 1, 0, 1]
+        assert int(act.v.item()) == 0
+
+    def test_standalone_maxpool_wider_value_exports_identity_lut(self):
+        op = StandaloneCompOp(comp=nn.MaxPool2d(2))
+        op.signal_semantics.output_domain = SignalDomain.VALUE
+        op.core_params.set_input_format((DataSign.UNSIGNED, DataWidth.WIDTH_4BIT))
+
+        params = op.neuron_params
+        data = op.lut_data
+
+        assert params.output_type == OutputType.VALUE
+        assert data is not None
+        assert torch.equal(data.thresholds[:16], torch.arange(16, dtype=torch.int32))
+        assert torch.equal(data.values[:16], torch.arange(16, dtype=torch.uint8))
+        assert torch.all(data.values[16:] == 15)
 
 
 class TestLutData:

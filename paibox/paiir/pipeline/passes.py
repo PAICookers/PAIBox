@@ -17,7 +17,8 @@ Two validation stages live in this module:
 
 import math
 import warnings
-from typing import TypedDict
+from dataclasses import dataclass
+from typing import Literal, TypedDict
 
 import torch
 from paicorelib import AddPotentialMode, DataSign, DataWidth, OutputType, SNNMode
@@ -27,6 +28,7 @@ from ..ir.add_ops import GeneralAddOp, PotentialAddOp
 from ..ir.core_neuron import CoreNeuronV25
 from ..ir.graph import Edge, PAIIRGraph
 from ..ir.ir_base import InputNode, OutputNode, PAIIRNode
+from ..ir.maxpool_export import refresh_maxpool_export_kind
 from ..ir.op_node import (
     AccumulateOp,
     ConcatOp,
@@ -87,11 +89,67 @@ _DEPLOYABLE_GRAPH_NODE_TYPES = (
     StandaloneActOp,
 )
 
+KnownCodeRange = tuple[int, int] | None
+NodeSignal = tuple[SignalDomain, KnownCodeRange]
+
+
+@dataclass(frozen=True, slots=True)
+class _PredSignalFacts:
+    """Predecessor signal facts gathered once for one node.
+
+    The semantics pass repeatedly needs the same three views of predecessor
+    state:
+
+    - raw predecessor domains, which may still contain ``None``
+    - exact predecessor code ranges, which may also be partially unknown
+    - filtered/merged views consumed by operator-specific rules
+    """
+
+    domains: tuple[SignalDomain | None, ...]
+    code_ranges: tuple[KnownCodeRange, ...]
+
+    @property
+    def has_missing_domain(self) -> bool:
+        return any(domain is None for domain in self.domains)
+
+    @property
+    def known_domains(self) -> list[SignalDomain]:
+        return [domain for domain in self.domains if domain is not None]
+
+    @property
+    def present_code_ranges(self) -> list[tuple[int, int]]:
+        return [code_range for code_range in self.code_ranges if code_range is not None]
+
+    def single_domain(self) -> SignalDomain | None:
+        if not self.domains:
+            return None
+        return self.domains[0]
+
+    def single_code_range(self) -> KnownCodeRange:
+        if not self.code_ranges:
+            return None
+        return self.code_ranges[0]
+
+    def merged_code_range(self) -> KnownCodeRange:
+        if not self.code_ranges or any(
+            code_range is None for code_range in self.code_ranges
+        ):
+            return None
+        return merge_code_ranges(
+            [code_range for code_range in self.code_ranges if code_range is not None]
+        )
+
 
 def analyze_graph(
     graph: PAIIRGraph, input_formats: dict[str, DataFormat] | None = None
 ) -> PAIIRGraph:
-    """Run the standard compile-time graph analyses in dependency order."""
+    """Run the standard compile-time graph analyses in dependency order.
+
+    The public contract stays intentionally small: validate structure first,
+    then derive node-level signal semantics, then derive backend-facing data
+    formats. The implementation keeps semantics and data-format propagation as
+    two separate stages even though they share some operator-specific rules.
+    """
     validate_graph(graph)
     propagate_signal_semantics(graph, input_formats)
     propagate_data_format(graph, input_formats)
@@ -788,6 +846,11 @@ def propagate_signal_semantics(
 
     - ``signal_semantics.output_domain``: coarse VALUE vs POTENTIAL semantics
     - ``signal_semantics.known_code_range``: optional exact VALUE code range when derivable
+
+    The pass is intentionally operator-driven rather than format-driven:
+    routing-like nodes mostly forward predecessor annotations, while deployable
+    cores derive semantics from their own activation or from explicit operator
+    contracts such as standalone MaxPool.
     """
     if input_formats is None:
         input_formats = {}
@@ -815,118 +878,82 @@ def propagate_signal_semantics(
                 node,
                 SignalDomain.VALUE,
                 code_range_for_data_format(
-                    _resolve_input_node_format(graph, name, input_formats)
+                    _resolve_input_node_format(name, input_formats)
                 ),
             )
             continue
 
-        preds = graph.predecessors(name)
-        pred_domains = [graph.nodes[p].signal_semantics.output_domain for p in preds]
-        if any(domain is None for domain in pred_domains):
+        pred_facts = _gather_pred_signal_facts(graph, name)
+        if pred_facts.has_missing_domain:
             errors.append(
                 f"{type(node).__name__} '{name}' predecessor output_domain is missing"
             )
             continue
 
-        known_pred_domains = [domain for domain in pred_domains if domain is not None]
-        pred_code_ranges = _present_predecessor_known_code_ranges(graph, preds)
-
-        if isinstance(node, OutputNode):
-            if known_pred_domains:
-                _set_node_signal_semantics(
-                    node,
-                    known_pred_domains[0],
-                    _single_predecessor_known_code_range(graph, name),
-                )
-            continue
-
-        if isinstance(node, TransformOp):
-            if known_pred_domains:
-                _set_node_signal_semantics(
-                    node,
-                    known_pred_domains[0],
-                    _single_predecessor_known_code_range(graph, name),
-                )
-            continue
-
-        if isinstance(node, SplitOp):
-            if known_pred_domains:
-                _set_node_signal_semantics(
-                    node,
-                    known_pred_domains[0],
-                    _single_predecessor_known_code_range(graph, name),
-                )
+        if isinstance(node, (OutputNode, TransformOp, SplitOp)):
+            inferred = _infer_passthrough_signal_semantics(pred_facts)
+            if inferred is not None:
+                _set_node_signal_semantics(node, *inferred)
             continue
 
         if isinstance(node, ConcatOp):
-            if known_pred_domains and any(
-                domain != known_pred_domains[0] for domain in known_pred_domains
+            if pred_facts.known_domains and any(
+                domain != pred_facts.known_domains[0]
+                for domain in pred_facts.known_domains
             ):
                 errors.append(
                     f"ConcatOp '{name}' all predecessor domains must match, got "
-                    f"{[domain.name for domain in known_pred_domains]}"
+                    f"{[domain.name for domain in pred_facts.known_domains]}"
                 )
                 continue
-            if known_pred_domains:
-                _set_node_signal_semantics(
-                    node,
-                    known_pred_domains[0],
-                    _merged_predecessor_known_code_range(graph, name),
-                )
+            inferred = _infer_concat_signal_semantics(pred_facts)
+            if inferred is not None:
+                _set_node_signal_semantics(node, *inferred)
             continue
 
         if isinstance(node, GeneralAddOp):
-            if known_pred_domains and any(
-                domain != known_pred_domains[0] for domain in known_pred_domains
-            ):
+            inferred = _infer_general_add_signal_semantics(node, pred_facts)
+            if inferred is None:
+                errors.append(f"GeneralAddOp '{name}' cannot infer output_domain")
+            elif inferred is False:
                 errors.append(
                     f"GeneralAddOp '{name}' mixed tensor operand domains are not supported, got "
-                    f"{[domain.name for domain in known_pred_domains]}"
+                    f"{[domain.name for domain in pred_facts.known_domains]}"
                 )
-                continue
-            if known_pred_domains:
-                _set_node_signal_semantics(node, known_pred_domains[0], None)
-            elif node.has_const_operands:
-                _set_node_signal_semantics(node, SignalDomain.VALUE, None)
             else:
-                errors.append(f"GeneralAddOp '{name}' cannot infer output_domain")
+                _set_node_signal_semantics(node, *inferred)
             continue
 
         if isinstance(node, PotentialAddOp):
-            if known_pred_domains and any(
-                domain is not SignalDomain.POTENTIAL for domain in known_pred_domains
+            if pred_facts.known_domains and any(
+                domain is not SignalDomain.POTENTIAL
+                for domain in pred_facts.known_domains
             ):
                 errors.append(
                     f"PotentialAddOp '{name}' all predecessor domains must be POTENTIAL, got "
-                    f"{[domain.name for domain in known_pred_domains]}"
+                    f"{[domain.name for domain in pred_facts.known_domains]}"
                 )
                 continue
             _set_node_signal_semantics(node, SignalDomain.POTENTIAL, None)
             continue
 
         if is_standalone_maxpool(node):
-            if known_pred_domains and any(
-                domain is not SignalDomain.VALUE for domain in known_pred_domains
+            if pred_facts.known_domains and any(
+                domain is not SignalDomain.VALUE for domain in pred_facts.known_domains
             ):
                 errors.append(
                     f"Standalone MaxPool '{name}' requires VALUE-domain predecessor, got "
-                    f"{[domain.name for domain in known_pred_domains]}"
+                    f"{[domain.name for domain in pred_facts.known_domains]}"
                 )
                 continue
-            if known_pred_domains:
-                _set_node_signal_semantics(
-                    node,
-                    SignalDomain.VALUE,
-                    _merged_predecessor_known_code_range(graph, name),
-                )
+            inferred = _infer_standalone_maxpool_signal_semantics(pred_facts)
+            if inferred is not None:
+                _set_node_signal_semantics(node, *inferred)
             continue
 
         if isinstance(node, OfflineCoreOp):
-            domain = _infer_output_signal_domain(node)
             _set_node_signal_semantics(
-                node,
-                domain,
-                _infer_node_known_code_range(node, domain, pred_code_ranges),
+                node, *_infer_offline_core_signal_semantics(node, pred_facts)
             )
             continue
 
@@ -935,60 +962,91 @@ def propagate_signal_semantics(
 
 
 def _infer_output_signal_domain(node: OfflineCoreOp) -> SignalDomain:
+    """Infer the coarse output domain for a generic offline core."""
     if node.neuron_params.output_type == OutputType.POTENTIAL:
         return SignalDomain.POTENTIAL
     return SignalDomain.VALUE
 
 
 def _set_node_signal_semantics(
-    node: PAIIRNode,
-    output_domain: SignalDomain,
-    known_code_range: tuple[int, int] | None,
+    node: PAIIRNode, output_domain: SignalDomain, known_code_range: KnownCodeRange
 ) -> None:
+    """Write both signal-semantics fields together to keep them in sync."""
     node.signal_semantics.output_domain = output_domain
     node.signal_semantics.known_code_range = known_code_range
 
 
+def _gather_pred_signal_facts(graph: PAIIRGraph, node_name: str) -> _PredSignalFacts:
+    """Gather predecessor domains and exact code ranges for one node."""
+    preds = graph.predecessors(node_name)
+    return _PredSignalFacts(
+        domains=tuple(graph.nodes[p].signal_semantics.output_domain for p in preds),
+        code_ranges=tuple(
+            graph.nodes[p].signal_semantics.known_code_range for p in preds
+        ),
+    )
+
+
+def _infer_passthrough_signal_semantics(
+    pred_facts: _PredSignalFacts,
+) -> NodeSignal | None:
+    """Forward predecessor semantics through transparent single-input nodes."""
+    domain = pred_facts.single_domain()
+    if domain is None:
+        return None
+    return domain, pred_facts.single_code_range()
+
+
+def _infer_concat_signal_semantics(pred_facts: _PredSignalFacts) -> NodeSignal | None:
+    """Infer concat semantics once domain compatibility is already validated."""
+    if not pred_facts.known_domains:
+        return None
+    return pred_facts.known_domains[0], pred_facts.merged_code_range()
+
+
+def _infer_general_add_signal_semantics(
+    node: GeneralAddOp, pred_facts: _PredSignalFacts
+) -> tuple[SignalDomain, None] | Literal[False] | None:
+    """Infer coarse add semantics without attempting exact value-range algebra.
+
+    ``False`` is a sentinel for "mixed predecessor domains", letting the caller
+    preserve the existing error wording without duplicating the rule.
+    """
+    if pred_facts.known_domains and any(
+        domain != pred_facts.known_domains[0] for domain in pred_facts.known_domains
+    ):
+        return False
+    if pred_facts.known_domains:
+        return pred_facts.known_domains[0], None
+    if node.has_const_operands:
+        return SignalDomain.VALUE, None
+    return None
+
+
+def _infer_standalone_maxpool_signal_semantics(
+    pred_facts: _PredSignalFacts,
+) -> NodeSignal | None:
+    """Infer standalone MaxPool semantics from VALUE-domain predecessors."""
+    if not pred_facts.known_domains:
+        return None
+    return SignalDomain.VALUE, pred_facts.merged_code_range()
+
+
+def _infer_offline_core_signal_semantics(
+    node: OfflineCoreOp, pred_facts: _PredSignalFacts
+) -> NodeSignal:
+    """Infer semantics for generic deployable offline cores."""
+    domain = _infer_output_signal_domain(node)
+    return domain, _infer_node_known_code_range(
+        node, domain, pred_facts.present_code_ranges
+    )
+
+
 def _resolve_input_node_format(
-    graph: PAIIRGraph, name: str, input_formats: dict[str, DataFormat]
+    name: str, input_formats: dict[str, DataFormat]
 ) -> DataFormat:
-    return (
-        input_formats[name]
-        if name in input_formats
-        else _infer_input_node_default(graph, name)
-    )
-
-
-def _single_predecessor_known_code_range(
-    graph: PAIIRGraph, node_name: str
-) -> tuple[int, int] | None:
-    preds = graph.predecessors(node_name)
-    if not preds:
-        return None
-    return graph.nodes[preds[0]].signal_semantics.known_code_range
-
-
-def _merged_predecessor_known_code_range(
-    graph: PAIIRGraph, node_name: str
-) -> tuple[int, int] | None:
-    preds = graph.predecessors(node_name)
-    pred_ranges = [graph.nodes[p].signal_semantics.known_code_range for p in preds]
-    if not preds or any(code_range is None for code_range in pred_ranges):
-        return None
-    return merge_code_ranges(
-        [code_range for code_range in pred_ranges if code_range is not None]
-    )
-
-
-def _present_predecessor_known_code_ranges(
-    graph: PAIIRGraph, preds: list[str]
-) -> list[tuple[int, int]]:
-    present: list[tuple[int, int]] = []
-    for pred_name in preds:
-        code_range = graph.nodes[pred_name].signal_semantics.known_code_range
-        if code_range is not None:
-            present.append(code_range)
-    return present
+    """Resolve external input format from explicit overrides or fixed default."""
+    return input_formats[name] if name in input_formats else _DEFAULT_INPUT_FORMAT
 
 
 def _infer_node_known_code_range(
@@ -996,6 +1054,12 @@ def _infer_node_known_code_range(
     output_domain: SignalDomain,
     pred_code_ranges: list[tuple[int, int]],
 ) -> tuple[int, int] | None:
+    """Infer the exact VALUE code range emitted by one offline core.
+
+    The pass stays conservative: when a rule cannot guarantee an exact integer
+    output range, it returns ``None`` and lets later stages fall back to format
+    envelopes instead of pretending the range is known.
+    """
     if output_domain is not SignalDomain.VALUE:
         return None
     if is_standalone_maxpool(node):
@@ -1180,9 +1244,8 @@ def _validate_lut_mode_consistency(
         )
 
 
-_DEFAULT_SNN_INPUT: DataFormat = (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)
-_DEFAULT_ANN_INPUT: DataFormat = (DataSign.SIGNED, DataWidth.WIDTH_8BIT)
-_WEIGHTLESS_WEIGHT_FORMAT: DataFormat = (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)
+_DEFAULT_INPUT_FORMAT = (DataSign.SIGNED, DataWidth.WIDTH_8BIT)
+_WEIGHTLESS_WEIGHT_FORMAT = (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)
 
 
 def propagate_data_format(
@@ -1214,7 +1277,7 @@ def propagate_data_format(
             validated.
         input_formats: Optional mapping from ``InputNode`` name to explicit
             external input format. Any omitted input falls back to
-            :func:`_infer_input_node_default`.
+            a fixed signed 8-bit default.
     """
     if input_formats is None:
         input_formats = {}
@@ -1236,27 +1299,7 @@ def propagate_data_format(
     # This gives later consumers a stable predecessor-output view before we
     # compute per-core input formats.
     for name in graph.topo_sort():
-        node = graph.nodes[name]
-
-        if isinstance(node, InputNode):
-            resolved[name] = _resolve_input_node_format(graph, name, input_formats)
-            continue
-        if isinstance(node, OutputNode):
-            continue
-        if is_format_transparent_routing_node(node):
-            # Routing nodes have no `core_params`; their effective formats are
-            # propagated in the second pass after predecessor outputs are known.
-            continue
-        if not isinstance(node, OfflineCoreOp):
-            continue
-
-        pred_formats = _collect_effective_predecessor_formats(graph, name, resolved)
-        out_fmt = _infer_node_output_format(node, pred_formats)
-        node.core_params.set_output_format(out_fmt)
-        resolved[name] = out_fmt
-
-        w_fmt = _infer_node_weight_format(node)
-        node.core_params.set_weight_format(w_fmt)
+        _seed_node_data_formats(graph, name, resolved, input_formats)
 
     # Pass 2: thread those resolved formats through non-deploy routing nodes
     # and then back-fill each deployable core's input format from predecessor
@@ -1264,50 +1307,103 @@ def propagate_data_format(
     for name in graph.topo_sort():
         node = graph.nodes[name]
 
-        if isinstance(node, (InputNode, OutputNode)):
-            if isinstance(node, OutputNode):
-                # Output nodes are pure pass-through graph boundaries: they
-                # inherit the effective format of their sole predecessor.
-                preds = graph.predecessors(name)
-                if preds and preds[0] in resolved:
-                    resolved[name] = resolved[preds[0]]
-            continue
-
-        if isinstance(node, ConcatOp):
-            # Concat preserves element encoding and therefore resolves to the
-            # merged predecessor format.
-            pred_formats = [
-                resolved[p] for p in graph.predecessors(name) if p in resolved
-            ]
-            if pred_formats:
-                resolved[node.name] = merge_data_formats(pred_formats)
-            continue
-
-        if isinstance(node, TransformOp):
-            # Reshape/view/flatten do not change the scalar representation.
-            preds = graph.predecessors(name)
-            if preds and preds[0] in resolved:
-                resolved[name] = resolved[preds[0]]
-            continue
-
-        if isinstance(node, SplitOp):
-            preds = graph.predecessors(name)
-            if preds and preds[0] in resolved:
-                resolved[name] = resolved[preds[0]]
+        routing_fmt = _infer_routing_resolved_format(graph, name, node, resolved)
+        if routing_fmt is not None:
+            resolved[name] = routing_fmt
             continue
 
         if not isinstance(node, OfflineCoreOp):
             continue
 
-        pred_formats = [resolved[p] for p in graph.predecessors(name) if p in resolved]
-        in_fmt = merge_data_formats(pred_formats)
-        node.core_params.set_input_format(in_fmt)
-        _derive_input_add_potential_mode(node, in_fmt)
+        _update_offline_core_input_format(graph, name, node, resolved)
+
+
+def _seed_node_data_formats(
+    graph: PAIIRGraph,
+    node_name: str,
+    resolved: dict[str, DataFormat],
+    input_formats: dict[str, DataFormat]
+) -> None:
+    """Seed node-local output/weight formats before input back-fill starts."""
+    node = graph.nodes[node_name]
+
+    if isinstance(node, InputNode):
+        resolved[node_name] = _resolve_input_node_format(node_name, input_formats)
+        return
+    if isinstance(node, OutputNode):
+        return
+    if is_format_transparent_routing_node(node):
+        # Routing nodes have no `core_params`; their effective formats are
+        # propagated in the second pass after predecessor outputs are known.
+        return
+    if not isinstance(node, OfflineCoreOp):
+        return
+
+    pred_formats = _collect_effective_predecessor_formats(graph, node_name, resolved)
+    out_fmt = _infer_node_output_format(node, pred_formats)
+    node.core_params.set_output_format(out_fmt)
+    resolved[node_name] = out_fmt
+    node.core_params.set_weight_format(_infer_node_weight_format(node))
+
+
+def _infer_routing_resolved_format(
+    graph: PAIIRGraph,
+    node_name: str,
+    node: PAIIRNode,
+    resolved: dict[str, DataFormat]
+) -> DataFormat | None:
+    """Propagate already-resolved formats through non-deploy routing nodes."""
+    match node:
+        case InputNode():
+            return None
+        case OutputNode() | TransformOp() | SplitOp():
+            # Graph boundaries and shape-only routing preserve scalar encoding.
+            return _single_resolved_predecessor_format(graph, node_name, resolved)
+        case ConcatOp():
+            # Concat preserves element encoding and therefore resolves to the
+            # merged predecessor format.
+            pred_formats = _resolved_predecessor_formats(graph, node_name, resolved)
+            return merge_data_formats(pred_formats) if pred_formats else None
+        case _:
+            return None
+
+
+def _resolved_predecessor_formats(
+    graph: PAIIRGraph, node_name: str, resolved: dict[str, DataFormat]
+) -> list[DataFormat]:
+    """Return already-resolved direct predecessor formats for one node."""
+    return [resolved[p] for p in graph.predecessors(node_name) if p in resolved]
+
+
+def _single_resolved_predecessor_format(
+    graph: PAIIRGraph, node_name: str, resolved: dict[str, DataFormat]
+) -> DataFormat | None:
+    """Return the first resolved predecessor format for pass-through rules."""
+    pred_formats = _resolved_predecessor_formats(graph, node_name, resolved)
+    if not pred_formats:
+        return None
+    return pred_formats[0]
+
+
+def _update_offline_core_input_format(
+    graph: PAIIRGraph,
+    node_name: str,
+    node: OfflineCoreOp,
+    resolved: dict[str, DataFormat],
+) -> None:
+    """Back-fill one deployable core's input format and dependent config."""
+    pred_formats = _resolved_predecessor_formats(graph, node_name, resolved)
+    in_fmt = merge_data_formats(pred_formats)
+    node.core_params.set_input_format(in_fmt)
+    _derive_input_add_potential_mode(graph, node_name, node)
+    if is_standalone_maxpool(node):
+        refresh_maxpool_export_kind(node)
 
 
 def _collect_effective_predecessor_formats(
     graph: PAIIRGraph, node_name: str, resolved: dict[str, DataFormat]
 ) -> list[DataFormat]:
+    """Collect predecessor output formats through transparent routing nodes."""
     return collect_effective_predecessor_values(
         graph,
         node_name,
@@ -1316,20 +1412,10 @@ def _collect_effective_predecessor_formats(
     )
 
 
-def _infer_input_node_default(graph: PAIIRGraph, name: str) -> DataFormat:
-    succs = graph.successors(name)
-    for succ_name in succs:
-        succ = graph.nodes[succ_name]
-        if isinstance(succ, OfflineCoreOp):
-            if succ.core_params.snn_mode == SNNMode.SNN:
-                return _DEFAULT_SNN_INPUT
-            return _DEFAULT_ANN_INPUT
-    return _DEFAULT_ANN_INPUT
-
-
 def _infer_node_output_format(
     node: OfflineCoreOp, pred_formats: list[DataFormat] | None = None
 ) -> DataFormat:
+    """Infer the backend-facing output format for one offline core."""
     if is_standalone_maxpool(node):
         if not pred_formats:
             raise ValueError(
@@ -1352,6 +1438,7 @@ def _infer_node_output_format(
 
 
 def _infer_node_weight_format(node: OfflineCoreOp) -> DataFormat:
+    """Infer the backend-facing weight format for one offline core."""
     weight_range = node.get_weight_value_range()
     if weight_range is not None:
         w_min, w_max = weight_range
@@ -1368,27 +1455,29 @@ def _infer_node_weight_format(node: OfflineCoreOp) -> DataFormat:
 
 
 def _derive_input_add_potential_mode(
-    node: OfflineCoreOp, input_format: DataFormat
+    graph: PAIIRGraph, node_name: str, node: OfflineCoreOp
 ) -> None:
-    """Derive hardware add-potential mode from the resolved input format.
+    """Derive hardware add-potential mode from predecessor signal semantics.
 
     Standalone activation cores synthesize an implicit identity connectivity
     path in the backend. When that path carries membrane potentials, the chip
     expects direct membrane accumulation rather than normal weighted
-    accumulation. In practice the membrane domain is represented as signed
-    32-bit input format, so derive ``DIRECT_ADD`` from that resolved input.
+    accumulation.
     """
     if not isinstance(node, StandaloneActOp):
         return
 
-    _, input_width = input_format
-    if input_width == DataWidth.WIDTH_32BIT:
+    if (
+        _gather_pred_signal_facts(graph, node_name).single_domain()
+        is SignalDomain.POTENTIAL
+    ):
         node.core_params.add_potential = AddPotentialMode.DIRECT_ADD
     else:
         node.core_params.add_potential = AddPotentialMode.NORMAL
 
 
 def _get_node_act(node: OfflineCoreOp) -> CoreNeuronV25 | None:
+    """Return a node's activation object when the node actually has one."""
     act = getattr(node, "act", None)
     return act if isinstance(act, CoreNeuronV25) else None
 

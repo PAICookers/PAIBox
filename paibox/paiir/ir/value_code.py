@@ -40,9 +40,7 @@ def code_range_for_format(sign: DataSign, width: DataWidth) -> ValueCodeRange:
     return ranges[width]
 
 
-def code_range_for_data_format(
-    fmt: tuple[DataSign, DataWidth],
-) -> ValueCodeRange:
+def code_range_for_data_format(fmt: tuple[DataSign, DataWidth]) -> ValueCodeRange:
     sign, width = fmt
     return code_range_for_format(sign, width)
 
@@ -57,9 +55,7 @@ def fits_value_code_range(value_min: int, value_max: int) -> bool:
     return lo <= value_min and value_max <= hi
 
 
-def merge_code_ranges(
-    code_ranges: Sequence[ValueCodeRange],
-) -> ValueCodeRange | None:
+def merge_code_ranges(code_ranges: Sequence[ValueCodeRange]) -> ValueCodeRange | None:
     if not code_ranges:
         return None
     return min(lo for lo, _ in code_ranges), max(hi for _, hi in code_ranges)

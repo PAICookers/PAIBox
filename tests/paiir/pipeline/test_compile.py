@@ -271,7 +271,8 @@ class TestUnsupported32BitConsumers:
 
     def test_compile_rejects_standalone_compute_consumer_of_potential_domain(self):
         with pytest.raises(
-            GraphValidationError, match="StandaloneCompOp.*WIDTH_32BIT|WIDTH_32BIT"
+            GraphValidationError,
+            match="Standalone MaxPool .*VALUE-domain predecessor|WIDTH_32BIT",
         ):
             compile_to_paiir(PotentialIntoStandalonePool().eval(), make_img_3ch_8x8())
 
@@ -368,17 +369,22 @@ class TestDataFormat:
     """Verify data/weight sign & width are correctly inferred after compilation."""
 
     def test_snn_output_unsigned_1bit(self):
-        """SNN (IF/LIF default): output UNSIGNED 1BIT, input propagated."""
+        """SNN (IF/LIF default): fixed signed-8 input, spike outputs remain 1BIT."""
         graph = compile_to_paiir(SNNTwoLayer(), make_img_3ch_8x8())
 
-        for node in offline_nodes(graph):
-            cp = node.core_params
-            # SNN default: spike output is unsigned 1-bit
-            assert cp.output_sign == DataSign.UNSIGNED
-            assert cp.output_width == DataWidth.WIDTH_1BIT
-            # Input format must be filled
-            assert cp.input_sign == DataSign.UNSIGNED
-            assert cp.input_width == DataWidth.WIDTH_1BIT
+        nodes = offline_nodes(graph)
+        topo = graph.topo_sort()
+        first, second = sorted(nodes, key=lambda node: topo.index(node.name))
+
+        assert first.core_params.input_sign == DataSign.SIGNED
+        assert first.core_params.input_width == DataWidth.WIDTH_8BIT
+        assert first.core_params.output_sign == DataSign.UNSIGNED
+        assert first.core_params.output_width == DataWidth.WIDTH_1BIT
+
+        assert second.core_params.input_sign == DataSign.UNSIGNED
+        assert second.core_params.input_width == DataWidth.WIDTH_1BIT
+        assert second.core_params.output_sign == DataSign.UNSIGNED
+        assert second.core_params.output_width == DataWidth.WIDTH_1BIT
 
     def test_ann_output_8bit(self):
         """ANN (ReLU/Sigmoid): output 8BIT, sign matches activation."""
