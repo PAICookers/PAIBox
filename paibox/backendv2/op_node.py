@@ -377,11 +377,7 @@ class CoreOpNode(BaseNode["OfflineCoreOp"]):
         self.comps: list[nn.Module | None] = []
         self.weights: list[Tensor | None] = []
         # 初始化前端配置
-        lut_data: LutData | None = None
-        if isinstance(raw_node, SequentialOp):
-            lut = raw_node.act.lut
-            if lut is not None:
-                lut_data = lut.export_lut()
+        lut_data = raw_node.lut_data
 
         self.frontend_core_config: "Frontend_Core_Config" = get_frontend_core_conf(
             raw_node.core_params, lut_data
