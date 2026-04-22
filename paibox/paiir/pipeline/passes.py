@@ -1322,7 +1322,7 @@ def _seed_node_data_formats(
     graph: PAIIRGraph,
     node_name: str,
     resolved: dict[str, DataFormat],
-    input_formats: dict[str, DataFormat]
+    input_formats: dict[str, DataFormat],
 ) -> None:
     """Seed node-local output/weight formats before input back-fill starts."""
     node = graph.nodes[node_name]
@@ -1347,10 +1347,7 @@ def _seed_node_data_formats(
 
 
 def _infer_routing_resolved_format(
-    graph: PAIIRGraph,
-    node_name: str,
-    node: PAIIRNode,
-    resolved: dict[str, DataFormat]
+    graph: PAIIRGraph, node_name: str, node: PAIIRNode, resolved: dict[str, DataFormat]
 ) -> DataFormat | None:
     """Propagate already-resolved formats through non-deploy routing nodes."""
     match node:
