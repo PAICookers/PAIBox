@@ -16,8 +16,8 @@ from paicorelib import DataSign, DataWidth, ThresholdNegMode
 
 from ..ir.core_neuron import CoreNeuronV25
 from ..ir.value_code import (
-    SIGNED_VALUE_CODE_RANGES as _SIGNED_RANGES,
-    UNSIGNED_VALUE_CODE_RANGES as _UNSIGNED_RANGES,
+    SIGNED_VALUE_CODE_RANGES,
+    UNSIGNED_VALUE_CODE_RANGES,
     fits_value_code_range,
 )
 
@@ -36,7 +36,11 @@ DataFormat = tuple[DataSign, DataWidth]
 def _infer_narrowest_range_format(
     value_min: int, value_max: int, sign: DataSign, label: str
 ) -> tuple[DataSign, DataWidth]:
-    ranges = _SIGNED_RANGES if sign == DataSign.SIGNED else _UNSIGNED_RANGES
+    ranges = (
+        SIGNED_VALUE_CODE_RANGES
+        if sign == DataSign.SIGNED
+        else UNSIGNED_VALUE_CODE_RANGES
+    )
 
     for width, (lo, hi) in ranges.items():
         if lo <= value_min and value_max <= hi:
