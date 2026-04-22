@@ -35,8 +35,8 @@ from paibox.paiir.pipeline.data_format import (
 )
 from paibox.paiir.pipeline.passes import (
     fuse_to_offline_cores,
-    propagate_signal_semantics,
     propagate_data_format,
+    propagate_signal_semantics,
     specialize_general_adds,
 )
 from tests.paiir.conftest import (

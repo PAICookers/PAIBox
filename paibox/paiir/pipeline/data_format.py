@@ -11,7 +11,6 @@ data-format groups in :class:`OfflineCoreParams`:
 from collections.abc import Sequence
 
 import torch
-
 from paicorelib import DataSign, DataWidth, ThresholdNegMode
 
 from ..ir.core_neuron import CoreNeuronV25
@@ -32,6 +31,7 @@ __all__ = [
 
 
 DataFormat = tuple[DataSign, DataWidth]
+
 
 def _infer_narrowest_range_format(
     value_min: int, value_max: int, sign: DataSign, label: str

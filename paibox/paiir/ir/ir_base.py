@@ -49,13 +49,9 @@ class PAIIRNode:
         if hasattr(self, "shape") and self.shape:
             parts.append(f"shape={self.shape}")
         if self.signal_semantics.output_domain is not None:
-            parts.append(
-                f"output_domain={self.signal_semantics.output_domain.name}"
-            )
+            parts.append(f"output_domain={self.signal_semantics.output_domain.name}")
         if self.signal_semantics.known_code_range is not None:
-            parts.append(
-                f"known_code_range={self.signal_semantics.known_code_range}"
-            )
+            parts.append(f"known_code_range={self.signal_semantics.known_code_range}")
         return f"{self.__class__.__name__}({', '.join(parts)})"
 
 
