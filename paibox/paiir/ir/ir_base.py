@@ -35,9 +35,19 @@ class PAIIRNode:
     Each node is automatically assigned a unique name for identification
     within the computation graph.
 
-    ``signal_semantics`` stores node-level compile-time signal semantics such
-    as the coarse VALUE/POTENTIAL domain and an optional exact VALUE code
-    range.
+    ``signal_semantics.output_domain`` is a node-level semantic annotation
+    describing the signal domain of the node's output:
+
+    - :class:`~paibox.paiir.ir.signal_domain.SignalDomain.VALUE`
+    - :class:`~paibox.paiir.ir.signal_domain.SignalDomain.POTENTIAL`
+
+    The current IR treats this as one value per node, not one value per output
+    port. This remains valid for today's multi-output ``SplitOp`` because all
+    split branches inherit the same output domain from the split input.
+
+    ``signal_semantics.known_code_range`` stores an optional exact VALUE code
+    range for the node's output. ``None`` means the current compile-time
+    analyses cannot determine one precisely.
     """
 
     def __init__(self) -> None:

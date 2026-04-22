@@ -19,6 +19,7 @@ from paibox.paiir.pipeline.layout_cross_node_elision import (
 from paibox.paiir.pipeline.passes import (
     fuse_to_offline_cores,
     propagate_data_format,
+    propagate_signal_semantics,
     specialize_general_adds,
 )
 
@@ -393,7 +394,8 @@ def convert_fuse_propagate(
     *sample_inputs: Tensor,
     input_formats: dict[str, DataFormat] | None = None,
 ) -> PAIIRGraph:
-    """Full pipeline: trace -> fuse -> propagate data format."""
+    """Full pipeline: trace -> fuse -> propagate semantics and data format."""
     fused = convert_and_fuse(model, *sample_inputs)
+    propagate_signal_semantics(fused, input_formats=input_formats)
     propagate_data_format(fused, input_formats=input_formats)
     return fused

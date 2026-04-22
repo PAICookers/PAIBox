@@ -15,7 +15,13 @@ class SignalDomain(Enum):
 
 @dataclass(slots=True)
 class SignalSemantics:
-    """Node-level signal semantics derived during compilation."""
+    """Node-level signal semantics derived during compilation.
+
+    Attributes:
+        output_domain: Coarse VALUE/POTENTIAL domain annotation.
+        known_code_range: Exact VALUE code range when derivable; otherwise
+            ``None``.
+    """
 
     output_domain: SignalDomain | None = None
     known_code_range: tuple[int, int] | None = None

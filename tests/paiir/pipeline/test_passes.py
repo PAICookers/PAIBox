@@ -323,6 +323,7 @@ class TestComplexPatterns:
         assert len(preds) == 2
 
         fused = fuse_to_offline_cores(specialize_general_adds(unfused))
+        propagate_signal_semantics(fused)
         propagate_data_format(fused)
         assign_tick_params(fused)
 
@@ -983,6 +984,47 @@ class TestValidateCompiledGraph:
         with pytest.raises(GraphValidationError, match="invalid split spec"):
             validate_compiled_graph(graph)
 
+    def test_rejects_standalone_act_32bit_input_without_direct_add(self):
+        graph = PAIIRGraph("bad_standalone_act_direct_add")
+        inp = InputNode(shape=torch.Size((1, 4)))
+        comp = StandaloneCompOp(nn.Linear(4, 4, bias=False))
+        act = StandaloneActOp(ANNNodeV25(lut=LutReLU()))
+        out = OutputNode(shape=torch.Size((1, 4)))
+
+        _set_single_layouts(comp, (1, 4), (1, 4), (0, 1), (0, 1))
+        _set_single_layouts(act, (1, 4), (1, 4), (0, 1), (0, 1))
+
+        for node in (comp, act):
+            node.core_params.tick_start = 1
+            node.core_params.tick_duration = 0
+            node.core_params.tick_initial = 0
+
+        comp.core_params.set_input_format((DataSign.SIGNED, DataWidth.WIDTH_8BIT))
+        comp.core_params.set_output_format((DataSign.SIGNED, DataWidth.WIDTH_32BIT))
+        comp.core_params.set_weight_format((DataSign.SIGNED, DataWidth.WIDTH_8BIT))
+        act.core_params.set_input_format((DataSign.SIGNED, DataWidth.WIDTH_32BIT))
+        act.core_params.set_output_format((DataSign.UNSIGNED, DataWidth.WIDTH_8BIT))
+        act.core_params.set_weight_format((DataSign.UNSIGNED, DataWidth.WIDTH_1BIT))
+
+        inp.signal_semantics.output_domain = SignalDomain.VALUE
+        comp.signal_semantics.output_domain = SignalDomain.POTENTIAL
+        act.signal_semantics.output_domain = SignalDomain.VALUE
+        out.signal_semantics.output_domain = SignalDomain.VALUE
+
+        graph.add_node(inp)
+        graph.add_node(comp)
+        graph.add_node(act)
+        graph.add_node(out)
+        graph.add_edge(inp.name, comp.name)
+        graph.add_edge(comp.name, act.name)
+        graph.add_edge(act.name, out.name)
+
+        with pytest.raises(
+            GraphValidationError,
+            match="receives WIDTH_32BIT input but add_potential is not AddPotentialMode.DIRECT_ADD",
+        ):
+            validate_compiled_graph(graph)
+
 
 class TestSplitPassBehavior:
     def _build_split_routing_graph(
@@ -1195,6 +1237,21 @@ class TestSignalSemantics:
         assert inp.signal_semantics.known_code_range == (-8, 7)
         assert out.signal_semantics.output_domain is SignalDomain.VALUE
         assert out.signal_semantics.known_code_range == (-8, 7)
+
+    def test_input_node_default_known_code_range_uses_fixed_signed_8bit(self):
+        graph = PAIIRGraph("input_semantics_default")
+        inp = InputNode(shape=torch.Size((1, 4)))
+        out = OutputNode(shape=torch.Size((1, 4)))
+        graph.add_node(inp)
+        graph.add_node(out)
+        graph.add_edge(inp.name, out.name)
+
+        propagate_signal_semantics(graph)
+
+        assert inp.signal_semantics.output_domain is SignalDomain.VALUE
+        assert inp.signal_semantics.known_code_range == (-128, 127)
+        assert out.signal_semantics.output_domain is SignalDomain.VALUE
+        assert out.signal_semantics.known_code_range == (-128, 127)
 
     def test_concat_known_code_range_requires_all_predecessors_known(self):
         graph = PAIIRGraph("concat_known_code_range")
