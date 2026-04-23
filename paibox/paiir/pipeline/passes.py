@@ -47,7 +47,7 @@ from ..ir.value_code import code_range_for_data_format, merge_code_ranges
 from .avgpool import calibrate_avgpool_thresholds
 from .avgpool.calibration import CalibrationResult
 from .avgpool.fusion import _try_handle_avgpool_activation
-from .avgpool.utils import _is_avgpool
+from .avgpool.utils import is_avgpool
 from .data_format import (
     DataFormat,
     infer_output_code_range,
@@ -298,7 +298,7 @@ def _try_fuse_sequential(
     # AvgPool patterns are handled first by the dedicated AvgPool fusion logic,
     # which may choose shared-core or split-core depending on activation type
     # and deployment constraints. Skip here to avoid bypassing that policy.
-    if _is_avgpool(pred.comp):
+    if is_avgpool(pred.comp):
         return None
 
     return _materialize_shared_sequential(
@@ -951,6 +951,12 @@ def propagate_signal_semantics(
                 _set_node_signal_semantics(node, *inferred)
             continue
 
+        if isinstance(node, StandaloneCompOp) and is_avgpool(node.comp):
+            inferred = _infer_standalone_avgpool_signal_semantics(pred_facts)
+            if inferred is not None:
+                _set_node_signal_semantics(node, *inferred)
+                continue
+
         if isinstance(node, OfflineCoreOp):
             _set_node_signal_semantics(
                 node, *_infer_offline_core_signal_semantics(node, pred_facts)
@@ -1030,6 +1036,23 @@ def _infer_standalone_maxpool_signal_semantics(
     if not pred_facts.known_domains:
         return None
     return SignalDomain.VALUE, pred_facts.merged_code_range()
+
+
+def _infer_standalone_avgpool_signal_semantics(
+    pred_facts: _PredSignalFacts
+) -> NodeSignal | None:
+    """Infer standalone AvgPool semantics conservatively.
+
+    Standalone AvgPool computes a VALUE-domain average when its effective
+    sources already live in the VALUE domain, but we do not attempt to derive
+    an exact output code range here before the dedicated rewrite/materialization
+    logic runs.
+    """
+    if not pred_facts.known_domains:
+        return None
+    if any(domain is not SignalDomain.VALUE for domain in pred_facts.known_domains):
+        return None
+    return SignalDomain.VALUE, None
 
 
 def _infer_offline_core_signal_semantics(
@@ -1417,6 +1440,17 @@ def _infer_node_output_format(
         if not pred_formats:
             raise ValueError(
                 f"Standalone MaxPool '{node.name}' requires predecessor format"
+            )
+        return merge_data_formats(pred_formats)
+
+    if (
+        isinstance(node, StandaloneCompOp)
+        and is_avgpool(node.comp)
+        and node.signal_semantics.output_domain is SignalDomain.VALUE
+    ):
+        if not pred_formats:
+            raise ValueError(
+                f"Standalone AvgPool '{node.name}' requires predecessor format"
             )
         return merge_data_formats(pred_formats)
 

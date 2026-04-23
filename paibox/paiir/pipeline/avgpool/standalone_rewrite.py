@@ -1,7 +1,5 @@
 """Standalone AvgPool rewrite modes."""
 
-from __future__ import annotations
-
 import torch
 from paicorelib import DataSign, DataWidth, SNNMode, ThresholdNegMode
 from torch import nn
@@ -12,13 +10,12 @@ from ...ir.ir_base import InputNode, OutputNode, PAIIRNode
 from ...ir.lut_activation import LutCustom
 from ...ir.op_node import OfflineCoreOp, SequentialOp, StandaloneActOp, StandaloneCompOp
 from ...ir.signal_domain import SignalDomain
-from ...nn import SumPool1d, SumPool2d
 from ..graph_utils import (
     collect_effective_predecessor_values,
     is_format_transparent_routing_node,
     is_standalone_maxpool,
 )
-from .utils import _get_avgpool_divisor, _get_pool_window_size, _is_avgpool
+from .utils import build_sum_pool, get_avgpool_divisor, get_pool_window_size, is_avgpool
 
 __all__ = ["rewrite_standalone_avgpools"]
 
@@ -38,7 +35,7 @@ def rewrite_standalone_avgpools(graph: PAIIRGraph) -> PAIIRGraph:
 
     for name in graph.topo_sort():
         node = graph.nodes[name]
-        if not (isinstance(node, StandaloneCompOp) and _is_avgpool(node.comp)):
+        if not (isinstance(node, StandaloneCompOp) and is_avgpool(node.comp)):
             continue
 
         replacement = _rewrite_avgpool_node(graph, name, node)
@@ -56,7 +53,7 @@ def rewrite_standalone_avgpools(graph: PAIIRGraph) -> PAIIRGraph:
 def _rewrite_avgpool_node(
     graph: PAIIRGraph, node_name: str, node: StandaloneCompOp
 ) -> SequentialOp | None:
-    assert _is_avgpool(node.comp)
+    assert is_avgpool(node.comp)
 
     source_modes = _collect_effective_source_modes(graph, node_name)
     if len(source_modes) != 1:
@@ -69,7 +66,7 @@ def _rewrite_avgpool_node(
         DataSign.UNSIGNED,
         DataWidth.WIDTH_1BIT,
     ):
-        if _get_avgpool_divisor(node.comp) != _get_pool_window_size(node.comp):
+        if get_avgpool_divisor(node.comp) != get_pool_window_size(node.comp):
             return None
         return _build_binary_majority_avgpool(node.comp)
 
@@ -133,25 +130,15 @@ def _is_source_transparent_node(node: PAIIRNode) -> bool:
 
 
 def _build_binary_majority_avgpool(comp: nn.AvgPool1d | nn.AvgPool2d) -> SequentialOp:
-    window_size = _get_pool_window_size(comp)
-    divisor = _get_avgpool_divisor(comp)
+    window_size = get_pool_window_size(comp)
+    divisor = get_avgpool_divisor(comp)
     if divisor != window_size:
         raise ValueError(
             "binary-majority standalone AvgPool requires divisor == window_size, "
             f"got divisor={divisor}, window_size={window_size}"
         )
     threshold = window_size // 2 + 1
-
-    if isinstance(comp, nn.AvgPool1d):
-        sum_pool = SumPool1d(
-            comp.kernel_size, comp.stride, comp.padding, comp.ceil_mode
-        )
-    elif isinstance(comp, nn.AvgPool2d):
-        sum_pool = SumPool2d(
-            comp.kernel_size, comp.stride, comp.padding, comp.ceil_mode
-        )
-    else:  # pragma: no cover - guarded by caller
-        raise TypeError("binary_majority specialization requires AvgPool1d/2d")
+    sum_pool = build_sum_pool(comp)
 
     act = IFNodeV25(
         thres_neg_mode=ThresholdNegMode.FLOOR, leak_v=-(threshold - 1), thres_neg=0
@@ -162,19 +149,10 @@ def _build_binary_majority_avgpool(comp: nn.AvgPool1d | nn.AvgPool2d) -> Sequent
 def _build_exact_ann_avgpool(
     comp: nn.AvgPool1d | nn.AvgPool2d, input_format: tuple[DataSign, DataWidth]
 ) -> SequentialOp:
-    if isinstance(comp, nn.AvgPool1d):
-        sum_pool = SumPool1d(
-            comp.kernel_size, comp.stride, comp.padding, comp.ceil_mode
-        )
-    elif isinstance(comp, nn.AvgPool2d):
-        sum_pool = SumPool2d(
-            comp.kernel_size, comp.stride, comp.padding, comp.ceil_mode
-        )
-    else:  # pragma: no cover - guarded by caller
-        raise TypeError("exact ANN standalone AvgPool requires AvgPool1d/2d")
+    sum_pool = build_sum_pool(comp)
 
     lut = _build_exact_avg_round_lut(
-        _get_avgpool_divisor(comp), input_format, _get_pool_window_size(comp)
+        get_avgpool_divisor(comp), input_format, get_pool_window_size(comp)
     )
     return SequentialOp(sum_pool, ANNNodeV25(lut))
 

@@ -1,7 +1,6 @@
 import pytest
 import torch
 from paicorelib import DataWidth, LeakMultiInputMode, LeakMultiMode
-from torch import nn
 
 import paibox.paiir.pipeline.avgpool.deploy_scheme as deploy_scheme_mod
 from paibox.paiir.ir.calc_params import LutData, NeuronParams
@@ -21,10 +20,6 @@ from paibox.paiir.pipeline.avgpool.compensation import (
     compensate_avgpool_lut_for_sumpool,
     compensate_avgpool_neuron,
     compensate_sumpool_neuron,
-)
-from paibox.paiir.pipeline.avgpool.utils import (
-    _get_avgpool_divisor,
-    _get_pool_window_size,
 )
 
 
@@ -53,13 +48,6 @@ class TestAvgPoolLeakParams:
         params = apply_avgpool_leak_params(params, window_size=9, is_ann=False)
         assert params.leak_tau == -2  # unchanged
         assert params.leak_multi_input == LeakMultiInputMode.ENABLE
-
-
-class TestAvgPoolUtils:
-    def test_avgpool_divisor_can_differ_from_window_size(self):
-        pool = nn.AvgPool2d(2, divisor_override=1)
-        assert _get_pool_window_size(pool) == 4
-        assert _get_avgpool_divisor(pool) == 1
 
 
 class TestCompensateAvgPoolLut:

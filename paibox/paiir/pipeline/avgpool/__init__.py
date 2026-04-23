@@ -1,6 +1,7 @@
 """AvgPool-specific deployment logic for PAIIR."""
 
 from .calibration import CalibrationResult, calibrate_avgpool_threshold
+from .delayed_division import rewrite_delayed_avgpool_division
 from .deploy_scheme import (
     AvgPoolDeployScheme,
     AvgPoolLIFCandidateScore,
@@ -17,6 +18,7 @@ __all__ = [
     "CalibrationResult",
     "calibrate_avgpool_threshold",
     "calibrate_avgpool_thresholds",
+    "rewrite_delayed_avgpool_division",
     "score_avgpool_lif_candidates",
     "select_avgpool_lif_candidate",
     "select_avgpool_lif_deployment",

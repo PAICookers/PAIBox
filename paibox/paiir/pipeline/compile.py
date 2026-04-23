@@ -28,7 +28,7 @@ from torch import Tensor, nn
 
 from ..ir.graph import PAIIRGraph
 from ..lowering.converter import torch_to_paiir
-from .avgpool import rewrite_standalone_avgpools
+from .avgpool import rewrite_delayed_avgpool_division, rewrite_standalone_avgpools
 from .data_format import DataFormat
 from .layout_chain_canonicalization import canonicalize_layout_chains
 from .layout_cross_node_elision import commute_pre_activation_transforms
@@ -56,6 +56,7 @@ class CompileConfig:
     input_formats: dict[str, DataFormat] | None = None
     enable_avgpool_calibration: bool = False
     enable_split_avgpool_lif: bool = False
+    enable_delayed_avgpool_division: bool = True
 
 
 def compile_to_paiir(
@@ -70,6 +71,7 @@ def compile_to_paiir(
     strict: bool = True,
     enable_avgpool_calibration: bool | None = None,
     enable_split_avgpool_lif: bool | None = None,
+    enable_delayed_avgpool_division: bool | None = None,
 ) -> PAIIRGraph:
     """Compile a PyTorch model to a ready-to-deploy :class:`PAIIRGraph`.
 
@@ -83,15 +85,17 @@ def compile_to_paiir(
     4. :func:`fuse_to_offline_cores` -- choose topology, rewrite nodes, and
        apply AvgPool deployment params
     5. analysis phase -- validate graph, infer signal semantics, infer data formats
-    6. standalone AvgPool auto-rewrite that depends on those analyses
-    7. re-run the analysis phase if a rewrite changed the graph
-    8. :func:`assign_tick_params` -- assign timing parameters
-    9. :func:`calibrate_avgpool_thresholds` -- (experimental) refine shared-core
+    6. delayed AvgPool division rewrite when an exact-sum single-consumer chain
+       can materialize the divisor safely at a later endpoint
+    7. standalone AvgPool auto-rewrite that depends on those analyses
+    8. re-run the analysis phase if a rewrite changed the graph
+    9. :func:`assign_tick_params` -- assign timing parameters
+    10. :func:`calibrate_avgpool_thresholds` -- (experimental) refine shared-core
        AvgPool+LIF thresholds via offline integer search
-    10. :func:`validate_compiled_graph` -- final post-pass graph validation
+    11. :func:`validate_compiled_graph` -- final post-pass graph validation
         after connectivity cleanup, signal-semantics propagation, data-format
         propagation, and tick assignment
-    11. :func:`validate_deployable_graph` -- ensure no frontend-only IR remains
+    12. :func:`validate_deployable_graph` -- ensure no frontend-only IR remains
     """
     cfg = compile_config or CompileConfig()
     _tick_duration = tick_duration if tick_duration is not None else cfg.tick_duration
@@ -107,6 +111,11 @@ def compile_to_paiir(
         if enable_split_avgpool_lif is not None
         else cfg.enable_split_avgpool_lif
     )
+    _enable_delayed_avgpool_division = (
+        enable_delayed_avgpool_division
+        if enable_delayed_avgpool_division is not None
+        else cfg.enable_delayed_avgpool_division
+    )
 
     graph = torch_to_paiir(
         model, *sample_inputs, concrete_args=concrete_args, strict=strict
@@ -118,7 +127,9 @@ def compile_to_paiir(
         graph, _enable_split_avgpool_lif, _enable_avgpool_calibration
     )
     graph = _run_post_fusion_rewrite_phase(
-        graph, _input_formats, _post_fusion_rewrite_passes()
+        graph,
+        _input_formats,
+        _post_fusion_rewrite_passes(_enable_delayed_avgpool_division),
     )
 
     assign_tick_params(graph, _tick_duration, _auto_reset, tick_overrides)
@@ -150,9 +161,21 @@ def _run_pre_fusion_rewrite_phase(graph: PAIIRGraph, max_rounds: int = 4) -> PAI
     )
 
 
-def _post_fusion_rewrite_passes() -> tuple[RewritePass, ...]:
+def _post_fusion_rewrite_passes(
+    enable_delayed_avgpool_division: bool,
+) -> tuple[RewritePass, ...]:
     """Return the ordered post-fusion rewrite passes."""
-    return (RewritePass("rewrite_standalone_avgpools", rewrite_standalone_avgpools),)
+    passes: list[RewritePass] = []
+    if enable_delayed_avgpool_division:
+        passes.append(
+            RewritePass(
+                "rewrite_delayed_avgpool_division", rewrite_delayed_avgpool_division
+            )
+        )
+    passes.append(
+        RewritePass("rewrite_standalone_avgpools", rewrite_standalone_avgpools)
+    )
+    return tuple(passes)
 
 
 def _run_post_fusion_rewrite_phase(
