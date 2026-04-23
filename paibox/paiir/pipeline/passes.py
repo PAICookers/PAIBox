@@ -1039,7 +1039,7 @@ def _infer_standalone_maxpool_signal_semantics(
 
 
 def _infer_standalone_avgpool_signal_semantics(
-    pred_facts: _PredSignalFacts
+    pred_facts: _PredSignalFacts,
 ) -> NodeSignal | None:
     """Infer standalone AvgPool semantics conservatively.
 

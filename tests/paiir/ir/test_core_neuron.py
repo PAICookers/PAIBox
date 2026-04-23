@@ -130,7 +130,9 @@ class TestLIFNodeV25:
 
 class TestCoreNeuronCopying:
     def test_clone_preserves_config_but_resets_runtime_state(self):
-        neuron = IFNodeV25(v_threshold=10.0, v_reset=0.0, leak_v=torch.tensor([1.0, 2.0]))
+        neuron = IFNodeV25(
+            v_threshold=10.0, v_reset=0.0, leak_v=torch.tensor([1.0, 2.0])
+        )
         neuron(torch.tensor([[3.0, 4.0]]))
 
         cloned = neuron.clone()

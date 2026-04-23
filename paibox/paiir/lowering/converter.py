@@ -143,8 +143,7 @@ def _unsupported_avgpool_description(m: nn.Module) -> str | None:
 
     if m.count_include_pad is False and _has_nonzero_padding(m.padding):
         return (
-            f"nn.Module '{type(m).__name__}' with count_include_pad=False and "
-            "padding>0"
+            f"nn.Module '{type(m).__name__}' with count_include_pad=False and padding>0"
         )
 
     return None

@@ -6,9 +6,9 @@ from torch import Tensor, fx, nn
 from torch.fx.passes.shape_prop import ShapeProp
 
 from paibox.paiir.lowering.converter import (
-    _get_full_module_map,
     TRACE_LEAF_MODULE_TYPES,
     _EraseModuleTransformer,
+    _get_full_module_map,
     _PAIIRTracer,
     propagate_dims,
     propagate_shapes,
