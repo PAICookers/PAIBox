@@ -1,3 +1,4 @@
+import copy
 import math
 
 import pytest
@@ -79,6 +80,34 @@ class TestLutActivationBase:
             lut_set = set(lut.lut_values.tolist())
             for val in y.tolist():
                 assert val in lut_set, f"{cls.__name__}: {val} not in lut_values"
+
+
+class TestLutActivationCopying:
+    def test_deepcopy_rebuilds_relu_without_aliasing_buffers(self):
+        lut = LutReLU(min_val=-100, max_val=100, output_sign=0)
+
+        cloned = copy.deepcopy(lut)
+
+        assert isinstance(cloned, LutReLU)
+        assert cloned is not lut
+        assert torch.equal(cloned.thresholds, lut.thresholds)
+        assert torch.equal(cloned.lut_values, lut.lut_values)
+        assert cloned.thresholds is not lut.thresholds
+        assert cloned.lut_values is not lut.lut_values
+
+    def test_deepcopy_clones_custom_lut_without_aliasing_buffers(self):
+        thresholds = torch.arange(256, dtype=torch.float32)
+        values = torch.arange(256, dtype=torch.float32)
+        lut = LutCustom(thresholds, values, output_sign=0)
+
+        cloned = copy.deepcopy(lut)
+
+        assert isinstance(cloned, LutCustom)
+        assert cloned is not lut
+        assert torch.equal(cloned.thresholds, lut.thresholds)
+        assert torch.equal(cloned.lut_values, lut.lut_values)
+        assert cloned.thresholds is not lut.thresholds
+        assert cloned.lut_values is not lut.lut_values
 
 
 class TestLutReLU:

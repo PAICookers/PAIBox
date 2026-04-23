@@ -15,7 +15,7 @@ Example::
     # Register a custom neuron type before conversion
     register_neuron(
         MyNeuron,
-        converter=lambda mod: ANNNodeV25(LutCustom(...)),
+        converter=lambda m: ANNNodeV25(LutCustom(...)),
     )
 
     # With shape inference
@@ -25,6 +25,7 @@ Example::
     graph = torch_to_paiir(model)
 """
 
+import copy
 import math
 import operator
 import sys
@@ -32,7 +33,7 @@ import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from functools import partial
-from typing import Any
+from typing import Any, TypeVar
 
 import torch
 from spikingjelly.activation_based import neuron
@@ -45,7 +46,16 @@ from ..ir.add_ops import AddOperandKind, AddOperandSpec, GeneralAddOp
 from ..ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
 from ..ir.graph import PAIIRGraph
 from ..ir.ir_base import InputNode, OutputNode
-from ..ir.lut_activation import LutActivation, LutReLU, LutSigmoid, LutSoftsign, LutTanh
+from ..ir.lut_activation import (
+    LutActivation,
+    LutCustom,
+    LutLinear,
+    LutReLU,
+    LutReLUSymmetric,
+    LutSigmoid,
+    LutSoftsign,
+    LutTanh,
+)
 from ..ir.op_node import (
     ConcatOp,
     LayoutStage,
@@ -86,8 +96,14 @@ else:
 
 __all__ = ["torch_to_paiir", "register_neuron"]
 
-ModuleMapper = dict[type[nn.Module], Callable[[nn.Module], OpNode]]
+_M = TypeVar("_M", bound=nn.Module)
+
+
+ModuleMapper = dict[type[_M], Callable[[_M], OpNode]]
 """Module mapping type: ``nn.Module`` subclass -> converter function returning an :class:`OpNode`."""
+
+_USER_MODULE_MAP: ModuleMapper = {}
+"""User-registered module mappings layered on top of built-in lowering rules."""
 
 # Modules that are kept in the FX graph but intentionally disappear from PAIIR
 # data flow during lowering.
@@ -115,88 +131,129 @@ KNOWN_BYPASS_FUNCS = (operator.getitem,)
 KNOWN_BYPASS_METHODS = ("size", "contiguous")
 
 
-def _map_comp(mod: nn.Module, **kwargs) -> OpNode:
-    return StandaloneCompOp(comp=mod, **kwargs)
-
-
 def _has_nonzero_padding(padding: Any) -> bool:
     if isinstance(padding, tuple):
         return any(int(p) != 0 for p in padding)
     return int(padding) != 0
 
 
-def _unsupported_avgpool_description(mod: nn.Module) -> str | None:
-    if not isinstance(mod, (nn.AvgPool1d, nn.AvgPool2d)):
+def _unsupported_avgpool_description(m: nn.Module) -> str | None:
+    if not isinstance(m, (nn.AvgPool1d, nn.AvgPool2d)):
         return None
 
-    if mod.count_include_pad is False and _has_nonzero_padding(mod.padding):
+    if m.count_include_pad is False and _has_nonzero_padding(m.padding):
         return (
-            f"nn.Module '{type(mod).__name__}' with count_include_pad=False and "
+            f"nn.Module '{type(m).__name__}' with count_include_pad=False and "
             "padding>0"
         )
 
     return None
 
 
-def _map_sj_ifnode(mod: nn.Module, **kwargs) -> OpNode:
-    assert isinstance(mod, neuron.IFNode)
+def _map_comp(m: nn.Module, **kwargs) -> StandaloneCompOp:
+    return StandaloneCompOp(m, **kwargs)
+
+
+def _map_sj_ifnode(m: neuron.IFNode, **kwargs) -> StandaloneActOp:
     return StandaloneActOp(
-        act=IFNodeV25(
-            mod.v_threshold,
-            mod.v_reset,
-            mod.surrogate_function,
-            mod.detach_reset,
+        IFNodeV25(
+            m.v_threshold, m.v_reset, m.surrogate_function, m.detach_reset, **kwargs
+        )
+    )
+
+
+def _map_sj_lifnode(m: neuron.LIFNode, **kwargs) -> StandaloneActOp:
+    return StandaloneActOp(
+        LIFNodeV25(
+            m.tau,
+            m.decay_input,
+            m.v_threshold,
+            m.v_reset,
+            m.surrogate_function,
+            m.detach_reset,
             **kwargs,
         )
     )
 
 
-def _map_sj_lifnode(mod: nn.Module, **kwargs) -> OpNode:
-    assert isinstance(mod, neuron.LIFNode)
-    return StandaloneActOp(
-        act=LIFNodeV25(
-            mod.tau,
-            mod.decay_input,
-            mod.v_threshold,
-            mod.v_reset,
-            mod.surrogate_function,
-            mod.detach_reset,
-            **kwargs,
-        )
-    )
+def _build_standalone_act_mapper(
+    _: type[_M], cvt: Callable[[_M], CoreNeuronV25]
+) -> Callable[[_M], OpNode]:
+    def wrapper(m: _M) -> OpNode:
+        return StandaloneActOp(cvt(m))
+
+    return wrapper
 
 
-def _map_core_neuron(mod: nn.Module, **kwargs) -> OpNode:
-    assert isinstance(mod, CoreNeuronV25)
-    return StandaloneActOp(act=mod)
+_BUILTIN_PAIIR_LUT_MODULES = (
+    LutActivation,
+    LutCustom,
+    LutLinear,
+    LutReLU,
+    LutReLUSymmetric,
+    LutSigmoid,
+    LutTanh,
+    LutSoftsign,
+)
+
+_BUILTIN_PAIIR_NEURONS = (CoreNeuronV25, IFNodeV25, LIFNodeV25, ANNNodeV25)
 
 
-def _map_lut_activation(mod: nn.Module, **kwargs) -> OpNode:
-    assert isinstance(mod, LutActivation)
-    return StandaloneActOp(act=ANNNodeV25(mod))
+def _build_compute_module_map() -> ModuleMapper:
+    modules = [
+        nn.Conv1d,
+        nn.Conv2d,
+        nn.Linear,
+        nn.MaxPool1d,
+        nn.MaxPool2d,
+        nn.AvgPool1d,
+        nn.AvgPool2d,
+    ]
+    return dict.fromkeys(modules, _map_comp)
 
 
-_DEFAULT_MODULE_MAP: ModuleMapper = {
-    # Compute ops
-    nn.Conv1d: _map_comp,
-    nn.Conv2d: _map_comp,
-    nn.Linear: _map_comp,
-    nn.MaxPool1d: _map_comp,
-    nn.MaxPool2d: _map_comp,
-    nn.AvgPool1d: _map_comp,
-    nn.AvgPool2d: _map_comp,
-    # SJ neuron -> chip-accurate neuron (IFNodeV25/LIFNodeV25 are CoreNeuronV25 subclasses)
-    neuron.IFNode: _map_sj_ifnode,
-    neuron.LIFNode: _map_sj_lifnode,
-    # Standard activations -> ANNNodeV25 with LUT
-    nn.ReLU: lambda _: StandaloneActOp(act=ANNNodeV25(LutReLU())),
-    nn.Sigmoid: lambda _: StandaloneActOp(act=ANNNodeV25(LutSigmoid())),
-    nn.Tanh: lambda _: StandaloneActOp(act=ANNNodeV25(LutTanh())),
-    nn.Softsign: lambda _: StandaloneActOp(act=ANNNodeV25(LutSoftsign())),
-    # PAIIR activation ops (pass through)
-    CoreNeuronV25: _map_core_neuron,
-    LutActivation: _map_lut_activation,
-}
+def _build_spikingjelly_neuron_module_map() -> ModuleMapper:
+    return {neuron.IFNode: _map_sj_ifnode, neuron.LIFNode: _map_sj_lifnode}
+
+
+def _build_standard_activation_module_map() -> ModuleMapper:
+    return {
+        nn.ReLU: _build_standalone_act_mapper(nn.ReLU, lambda _: ANNNodeV25(LutReLU())),
+        nn.Sigmoid: _build_standalone_act_mapper(
+            nn.Sigmoid, lambda _: ANNNodeV25(LutSigmoid())
+        ),
+        nn.Tanh: _build_standalone_act_mapper(nn.Tanh, lambda _: ANNNodeV25(LutTanh())),
+        nn.Softsign: _build_standalone_act_mapper(
+            nn.Softsign, lambda _: ANNNodeV25(LutSoftsign())
+        ),
+    }
+
+
+def _build_builtin_paiir_lut_map() -> ModuleMapper:
+    return {
+        m: _build_standalone_act_mapper(m, lambda m: ANNNodeV25(copy.deepcopy(m)))
+        for m in _BUILTIN_PAIIR_LUT_MODULES
+    }
+
+
+def _build_builtin_paiir_neuron_map() -> ModuleMapper:
+    return {
+        m: _build_standalone_act_mapper(m, lambda m: m.clone())
+        for m in _BUILTIN_PAIIR_NEURONS
+    }
+
+
+def build_default_module_map() -> ModuleMapper:
+    return {
+        **_build_compute_module_map(),
+        **_build_spikingjelly_neuron_module_map(),
+        **_build_standard_activation_module_map(),
+        **_build_builtin_paiir_lut_map(),
+        **_build_builtin_paiir_neuron_map(),
+    }
+
+
+_DEFAULT_MODULE_MAP = build_default_module_map()
 
 
 try:
@@ -215,14 +272,13 @@ if legacy_neuron is not None:
             "`spikingjelly.activation_based.neuron.IFNode`."
         )
     )
-    def _map_legacy_ifnode(mod: nn.Module, **kwargs) -> OpNode:
-        assert isinstance(mod, legacy_if)
+    def _map_legacy_ifnode(m: legacy_if, **kwargs) -> StandaloneActOp:
         return StandaloneActOp(
             act=IFNodeV25(
-                mod.v_threshold,  # type: ignore
-                mod.v_reset,  # type: ignore
-                mod.surrogate_function,
-                mod.detach_reset,
+                m.v_threshold,  # type: ignore
+                m.v_reset,  # type: ignore
+                m.surrogate_function,
+                m.detach_reset,
                 **kwargs,
             )
         )
@@ -234,22 +290,26 @@ if legacy_neuron is not None:
             "`spikingjelly.activation_based.neuron.LIFNode`."
         )
     )
-    def _map_legacy_lifnode(mod: nn.Module, **kwargs) -> OpNode:
-        assert isinstance(mod, legacy_lif)
+    def _map_legacy_lifnode(m: legacy_lif, **kwargs) -> StandaloneActOp:
         return StandaloneActOp(
             act=LIFNodeV25(
-                mod.tau,
-                mod.decay_input,
-                mod.v_threshold,  # type: ignore
-                mod.v_reset,  # type: ignore
-                mod.surrogate_function,
-                mod.detach_reset,
+                m.tau,
+                m.decay_input,
+                m.v_threshold,  # type: ignore
+                m.v_reset,  # type: ignore
+                m.surrogate_function,
+                m.detach_reset,
                 **kwargs,
             )
         )
 
     _DEFAULT_MODULE_MAP[legacy_if] = _map_legacy_ifnode
     _DEFAULT_MODULE_MAP[legacy_lif] = _map_legacy_lifnode
+
+
+def _get_full_module_map() -> ModuleMapper:
+    """Return built-in lowering rules overlaid with user registrations."""
+    return {**_DEFAULT_MODULE_MAP, **_USER_MODULE_MAP}
 
 
 def propagate_shapes(gm: fx.GraphModule, *inputs: Tensor) -> None:
@@ -706,21 +766,20 @@ class _EraseModuleTransformer(fx.Transformer):
 
 
 def register_neuron(
-    module_type: type[nn.Module],
-    converter: Callable[[nn.Module], CoreNeuronV25],
+    module_type: type[_M], converter: Callable[[_M], CoreNeuronV25]
 ) -> None:
     """Register a custom neuron type for PAIIR conversion.
 
     The converter receives the PyTorch module and must return a
     :class:`CoreNeuronV25` with appropriate chip parameters.
     """
-    if module_type in _DEFAULT_MODULE_MAP:
+    if module_type in _USER_MODULE_MAP:
         raise ValueError(
             f"Module type {module_type} is already registered. "
             f"Overriding existing registrations is not allowed."
         )
 
-    _DEFAULT_MODULE_MAP[module_type] = lambda mod: StandaloneActOp(act=converter(mod))
+    _USER_MODULE_MAP[module_type] = _build_standalone_act_mapper(module_type, converter)
 
 
 def torch_to_paiir(
@@ -755,9 +814,9 @@ def torch_to_paiir(
             is encountered. See :exc:`~paibox.paiir.exceptions.UnsupportedOpError`.
     """
     model.eval()
-    full_map = {**_DEFAULT_MODULE_MAP}
+    full_map = _get_full_module_map()
 
-    # Edge case: root module itself is in module_map
+    # Edge case: root module itself is supported by the module map.
     # FX trace always decomposes the root module. Wrap in Sequential
     # so it becomes a submodule and is treated as a leaf module.
     if type(model) in full_map:
@@ -783,9 +842,9 @@ def torch_to_paiir(
     return _fx_graph_to_paiir(gm, full_map, strict)
 
 
-def _is_lowering_bypass_module(mod: nn.Module) -> bool:
-    """Return whether *mod* should be elided during PAIIR lowering."""
-    return isinstance(mod, LOWERING_BYPASS_MODULE_TYPES)
+def _is_lowering_bypass_module(m: nn.Module) -> bool:
+    """Return whether *m* should be elided during PAIIR lowering."""
+    return isinstance(m, LOWERING_BYPASS_MODULE_TYPES)
 
 
 def _fill_layouts(

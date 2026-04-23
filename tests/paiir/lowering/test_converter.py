@@ -9,7 +9,7 @@ from torch import nn
 
 from paibox.paiir.exceptions import UnsupportedOpError, UnsupportedOpWarning
 from paibox.paiir.ir.core_neuron import ANNNodeV25, IFNodeV25, LIFNodeV25
-from paibox.paiir.ir.lut_activation import LutCustom
+from paibox.paiir.ir.lut_activation import LutCustom, LutReLU
 from paibox.paiir.ir.op_node import (
     SequentialOp,
     SplitOp,
@@ -138,6 +138,123 @@ class TestRegisterNeuron:
         assert torch.equal(
             lut_outputs, ref_outputs
         ), f"LUT mismatch: expected {ref_outputs.tolist()}, got {lut_outputs.tolist()}"
+
+    def test_exact_registration_overrides_builtin_core_neuron_fallback(self):
+        register_neuron(
+            IFNodeV25, converter=lambda _: ANNNodeV25(make_multispike4_lut())
+        )
+
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(8, 4)
+                self.act = IFNodeV25()
+
+            def forward(self, x):
+                return self.act(self.linear(x))
+
+        graph = torch_to_paiir(Model().eval(), make_vec_8d())
+
+        lowered = _find_single_act(graph, ANNNodeV25)
+        assert isinstance(lowered.lut, LutCustom)
+
+
+class TestCoreNeuronV25Lowering:
+    def test_ifnodev25_lowers_without_registration_and_does_not_alias_state(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(8, 4)
+                self.act = IFNodeV25(v_threshold=2.0)
+
+            def forward(self, x):
+                return self.act(self.linear(x))
+
+        model = Model().eval()
+        graph = torch_to_paiir(model, make_vec_8d())
+
+        lowered = _find_single_act(graph, IFNodeV25)
+        assert lowered is not model.act
+        assert lowered.thres_pos == model.act.thres_pos
+        assert lowered.reset_mode == model.act.reset_mode
+        assert lowered.v == lowered.init_v
+
+        model.act(torch.full((1, 4), 1.0))
+        assert isinstance(model.act.v, torch.Tensor)
+        assert model.act.v.abs().sum().item() > 0
+        assert lowered.v == lowered.init_v
+
+    def test_lifnodev25_root_module_lowers_without_registration(self):
+        model = LIFNodeV25().eval()
+        graph = torch_to_paiir(model, torch.ones(1, 4))
+
+        lowered = _find_single_act(graph, LIFNodeV25)
+        assert lowered is not model
+        assert lowered.tau == model.tau
+        assert lowered.thres_pos == model.thres_pos
+
+    def test_annnodev25_lowers_without_registration_and_clones_lut(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(8, 4)
+                self.act = ANNNodeV25(make_multispike4_lut())
+
+            def forward(self, x):
+                return self.act(self.linear(x))
+
+        model = Model().eval()
+        graph = torch_to_paiir(model, make_vec_8d())
+
+        lowered = _find_single_act(graph, ANNNodeV25)
+        assert lowered is not model.act
+        assert lowered.lut is not None
+        assert model.act.lut is not None
+        assert lowered.lut is not model.act.lut
+        assert torch.equal(lowered.lut.thresholds, model.act.lut.thresholds)
+        assert torch.equal(lowered.lut.lut_values, model.act.lut.lut_values)
+        assert lowered.lut.thresholds is not model.act.lut.thresholds
+        assert lowered.lut.lut_values is not model.act.lut.lut_values
+
+
+class TestLutActivationLowering:
+    def test_direct_lut_module_lowers_without_registration_and_clones_lut(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(8, 4)
+                self.act = LutReLU(min_val=-16, max_val=16, output_sign=0)
+
+            def forward(self, x):
+                return self.act(self.linear(x))
+
+        model = Model().eval()
+        graph = torch_to_paiir(model, make_vec_8d())
+
+        lowered = _find_single_act(graph, ANNNodeV25)
+        assert lowered.lut is not None
+        assert isinstance(lowered.lut, LutReLU)
+        assert lowered.lut is not model.act
+        assert torch.equal(lowered.lut.thresholds, model.act.thresholds)
+        assert torch.equal(lowered.lut.lut_values, model.act.lut_values)
+        assert lowered.lut.thresholds is not model.act.thresholds
+        assert lowered.lut.lut_values is not model.act.lut_values
+
+    def test_root_lutcustom_module_lowers_without_registration(self):
+        thresholds = torch.arange(256, dtype=torch.float32)
+        values = torch.arange(256, dtype=torch.float32)
+        model = LutCustom(thresholds, values).eval()
+
+        graph = torch_to_paiir(model, torch.ones(1, 4))
+
+        lowered = _find_single_act(graph, ANNNodeV25)
+        assert lowered.lut is not None
+        assert isinstance(lowered.lut, LutCustom)
+        assert lowered.lut is not model
+        assert torch.equal(lowered.lut.thresholds, model.thresholds)
+        assert torch.equal(lowered.lut.lut_values, model.lut_values)
+        assert lowered.lut.thresholds is not model.thresholds
+        assert lowered.lut.lut_values is not model.lut_values
 
 
 class TestSplitLowering:

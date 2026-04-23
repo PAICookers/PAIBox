@@ -28,9 +28,11 @@ Example::
     )
 """
 
+import copy
 import math
 import warnings
 from collections.abc import Callable
+from typing import Any, TypeVar
 
 import torch
 from paicorelib import (
@@ -53,6 +55,8 @@ from .calc_params import DEFAULT_NEG_THRESHOLD, LutData, NeuronParams
 from .lut_activation import LutActivation
 
 __all__ = ["CoreNeuronV25", "ANNNodeV25", "IFNodeV25", "LIFNodeV25"]
+
+_T = TypeVar("_T", bound="CoreNeuronV25")
 
 
 class CoreNeuronV25(MemoryModule):
@@ -172,6 +176,45 @@ class CoreNeuronV25(MemoryModule):
 
         self.register_memory("v", init_v)
         self._any_pos_spike_at_last_ts = False
+
+    def reset(self) -> None:
+        self._any_pos_spike_at_last_ts = False
+        return super().reset()
+
+    @staticmethod
+    def _deepcopy_state_value(value, memo: dict[int, Any]):
+        if torch.is_tensor(value):
+            return value.detach().clone()
+        return copy.deepcopy(value, memo)
+
+    def clone(self):
+        cloned = self.__deepcopy__({})
+        cloned.reset()
+        return cloned
+
+    def __deepcopy__(self: _T, memo: dict[int, Any]) -> _T:
+        if id(self) in memo:
+            return memo[id(self)]  # type: ignore[return-value]
+
+        cls = type(self)
+        cloned = cls.__new__(cls)
+        memo[id(self)] = cloned
+
+        for name, value in self.__dict__.items():
+            if name in ("_memories", "_memories_rv"):
+                # MemoryModule stores runtime state in plain dicts rather than
+                # nn.Module buffers/parameters, so copy them entry-by-entry and
+                # bypass torch's unsupported non-leaf tensor deepcopy path.
+                copied = {
+                    key: self._deepcopy_state_value(mem_value, memo)
+                    for key, mem_value in value.items()
+                }
+            else:
+                copied = self._deepcopy_state_value(value, memo)
+
+            setattr(cloned, name, copied)
+
+        return cloned
 
     @property
     def snn_mode(self) -> SNNMode:

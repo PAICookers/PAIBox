@@ -1,5 +1,6 @@
 from typing import TypeVar
 
+import pytest
 import torch
 from spikingjelly.activation_based import neuron as sj
 from torch import Tensor, nn
@@ -8,7 +9,11 @@ from paibox.paiir.ir.graph import PAIIRGraph
 from paibox.paiir.ir.ir_base import PAIIRNode
 from paibox.paiir.ir.lut_activation import LutCustom
 from paibox.paiir.ir.op_node import LayoutStage, OfflineCoreOp, ShapeStage, TransformOp
-from paibox.paiir.lowering.converter import torch_to_paiir
+from paibox.paiir.lowering.converter import (
+    _DEFAULT_MODULE_MAP,
+    _USER_MODULE_MAP,
+    torch_to_paiir,
+)
 from paibox.paiir.pipeline.data_format import DataFormat
 from paibox.paiir.pipeline.layout_chain_canonicalization import (
     canonicalize_layout_chains,
@@ -24,6 +29,26 @@ from paibox.paiir.pipeline.passes import (
 )
 
 _T = TypeVar("_T", bound=PAIIRNode)
+
+
+@pytest.fixture(autouse=True)
+def restore_default_module_map():
+    """Restore the global neuron/module registry after each test.
+
+    Built-in lowering rules live in ``_DEFAULT_MODULE_MAP`` while
+    ``register_neuron(...)`` writes test/user overrides into
+    ``_USER_MODULE_MAP``. Tests that register custom neurons should not leak
+    those overrides into later tests.
+    """
+    original_default = dict(_DEFAULT_MODULE_MAP)
+    original_user = dict(_USER_MODULE_MAP)
+    try:
+        yield
+    finally:
+        _DEFAULT_MODULE_MAP.clear()
+        _DEFAULT_MODULE_MAP.update(original_default)
+        _USER_MODULE_MAP.clear()
+        _USER_MODULE_MAP.update(original_user)
 
 
 class SNNTwoLayer(nn.Module):
