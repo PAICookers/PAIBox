@@ -146,6 +146,13 @@ class ManualQuantLinear(nn.Module):
 
         self.weight_q = quantize_to_int(
             original_module.weight, s_w, z_w, -128, 127, torch.int8)
+        
+        s_accum = s_in * s_w
+        lut_scale = s_out / s_accum if s_accum != 0 else 0
+
+        self.lut = LutLinear(min_val=-lut_scale*128,
+                             max_val=lut_scale*127, output_sign=1)
+        
 
     def forward(self, x):
         if x.dtype == torch.float32:
@@ -159,6 +166,8 @@ class ManualQuantLinear(nn.Module):
         out_acc, out_scale = quantized_linear_asymmetric(
             x, self.weight_q, self.s_in, self.s_w, self.z_in, self.z_w, self.bias_val
         )
+
+        
         out_float = out_acc * out_scale
         return out_float
 
@@ -255,16 +264,6 @@ class ManualQuantConv2d(nn.Module):
             out_q = out_q.to(target_dtype)
 
         return out_q
-
-
-class ManualQuantStub(nn.Module):
-    def __init__(self, s_in, z_in):
-        super().__init__()
-        self.s_in = s_in
-        self.z_in = z_in
-
-    def forward(self, x):
-        return quantize_to_int(x, self.s_in, self.z_in, 0, 255, torch.uint8)
 
 
 class ManualIntAddResidual(nn.Module):

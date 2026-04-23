@@ -14,7 +14,7 @@ from simples.quantize_tools import (
     export_manual_model_params,
 )
 from simples.res_cifar10.model import ResNetCIFAR10
-from paibox.fx_converter.trace import propagate_tensor_shape
+from paibox.paiir.lowering.converter import propagate_shapes
 import os
 import sys
 import torch
@@ -176,9 +176,9 @@ def main():
     # 4. 转换模型
     print("\n[4] 正在将带 Observer 的 FX 模型转化为完全离线的自动 ManualQuant 模型...")
     manual_model = convert_fx_to_manual(
-        prepared_model, use_lut=True, activation_symmetric=symmetric)
+        prepared_model, activation_symmetric=symmetric)
 
-    propagate_tensor_shape(manual_model, example_inputs)
+    propagate_shapes(manual_model, example_inputs)
     print("生成的目标底层模型图结构：")
     manual_model.graph.print_tabular()
 

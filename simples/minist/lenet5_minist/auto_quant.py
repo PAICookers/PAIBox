@@ -121,7 +121,7 @@ def main():
     print("\n[4] 正在将带 Observer 的 FX 模型转化为完全离线的自动 ManualQuant 模型...")
     use_lut = True  # 是否开启基于查表的 ReLU，False 表示继续使用标准后端运算
     manual_model = convert_fx_to_manual(
-        prepared_model, use_lut=use_lut, activation_symmetric=is_activation_symmetric)
+        prepared_model, activation_symmetric=is_activation_symmetric)
 
     # 注册一个前向传播钩子，用于收集推理时每一层输出的极值
     activation_stats = {}

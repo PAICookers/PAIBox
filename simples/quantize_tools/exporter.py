@@ -1,7 +1,7 @@
 
 import os
 import torch
-from .ops import ManualQuantConvReLU2d, ManualQuantLinear, ManualQuantLinearReLU
+from .ops import ManualQuantConvReLU2d, ManualQuantLinear, ManualQuantLinearReLU, ManualQuantConv2d
 
 
 def export_manual_model_params(model, export_dir):
@@ -12,7 +12,7 @@ def export_manual_model_params(model, export_dir):
 
     count = 0
     for name, module in model.named_modules():
-        if isinstance(module, (ManualQuantConvReLU2d, ManualQuantLinear, ManualQuantLinearReLU)):
+        if isinstance(module, (ManualQuantConvReLU2d, ManualQuantLinear, ManualQuantLinearReLU, ManualQuantConv2d)):
             # 名字处理: features.0 -> features_0
             safe_name = name.replace(".", "_")
             print(f"Exporting layer: {name} -> {safe_name}")

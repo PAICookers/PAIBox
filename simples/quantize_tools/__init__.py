@@ -11,13 +11,14 @@ from .utils import (
 
 from .ops import (
     ManualQuantConvReLU2d,
-    ManualQuantLinear,
-    ManualQuantStub
+    ManualQuantLinear
 )
 
 from .converter import (
     FxGraphConverter,
-    convert_fx_to_manual
+    convert_fx_to_manual,
+    collect_quantized_layer_records,
+    export_quantized_model_summary,
 )
 
 from .exporter import export_manual_model_params
