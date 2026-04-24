@@ -358,6 +358,9 @@ def expanded_path_weight_matrix(
         return direct_weight_matrix(weight, input_shape, output_shape, sign)
 
     if isinstance(comp, nn.Conv1d):
+        print(
+            f"\tExpanding Conv1d weight from {input_shape} to {output_shape} with stride={comp.stride}, padding={comp.padding}, dilation={comp.dilation}, groups={comp.groups}."
+        )
         assert weight is not None
         assert not isinstance(
             comp.padding, str
@@ -383,7 +386,7 @@ def expanded_path_weight_matrix(
 
     if isinstance(comp, nn.Conv2d):
         print(
-            f"Expanding Conv2d weight from {input_shape} to {output_shape} with stride={comp.stride}, padding={comp.padding}, dilation={comp.dilation}, groups={comp.groups}."
+            f"\tExpanding Conv2d weight from {input_shape} to {output_shape} with stride={comp.stride}, padding={comp.padding}, dilation={comp.dilation}, groups={comp.groups}."
         )
         assert weight is not None
         assert not isinstance(
@@ -409,6 +412,9 @@ def expanded_path_weight_matrix(
         )
 
     if isinstance(comp, nn.MaxPool1d):
+        print(
+            f"\tExpanding MaxPool1d from {input_shape} to {output_shape} with kernel_size={comp.kernel_size}, stride={comp.stride}, padding={comp.padding}, dilation={comp.dilation}."
+        )
         if comp.ceil_mode:
             raise NotImplementedError("MaxPool1d with ceil_mode=True is not supported.")
 
@@ -435,6 +441,9 @@ def expanded_path_weight_matrix(
         )
 
     if isinstance(comp, SumPool1d) or isinstance(comp, nn.AvgPool1d):
+        print(
+            f"\tExpanding AvgPool1d from {input_shape} to {output_shape} with kernel_size={comp.kernel_size}, stride={comp.stride}, padding={comp.padding}, dilation={comp.dilation}."
+        )
         if comp.ceil_mode:
             raise NotImplementedError("AvgPool1d with ceil_mode=True is not supported.")
         kernel_size = to_nd_tuple(comp.kernel_size, 1)
@@ -458,6 +467,9 @@ def expanded_path_weight_matrix(
         )
 
     if isinstance(comp, nn.MaxPool2d):
+        print(
+            f"\tExpanding MaxPool2d from {input_shape} to {output_shape} with kernel_size={comp.kernel_size}, stride={comp.stride}, padding={comp.padding}, dilation={comp.dilation}."
+        )
         if comp.ceil_mode:
             raise NotImplementedError("MaxPool2d with ceil_mode=True is not supported.")
         kernel_size = to_nd_tuple(comp.kernel_size, 2)
@@ -483,6 +495,9 @@ def expanded_path_weight_matrix(
         )
 
     if isinstance(comp, nn.AvgPool2d) or isinstance(comp, SumPool2d):
+        print(
+            f"\tExpanding AvgPool2d from {input_shape} to {output_shape} with kernel_size={comp.kernel_size}, stride={comp.stride}, padding={comp.padding}, dilation={comp.dilation}."
+        )
         if comp.ceil_mode:
             raise NotImplementedError("AvgPool2d with ceil_mode=True is not supported.")
         kernel_size = to_nd_tuple(comp.kernel_size, 2)
@@ -743,7 +758,7 @@ class WeightInfo:
 
 
 def group_shift_weights_optimized(
-    raw_weights: list[np.ndarray],
+    raw_weights: list[np.ndarray], prefix: str = ""
 ) -> tuple[list[WeightInfo], list[np.ndarray]]:
     if not raw_weights:
         return [], []
@@ -770,7 +785,7 @@ def group_shift_weights_optimized(
 
     for i in track(
         range(n_weights),
-        description="weight optimization",
+        description=f"{prefix}computing base weights",
         total=len(range(n_weights)),
     ):
         row = matrix[i]
@@ -801,13 +816,13 @@ def group_shift_weights_optimized(
 
 def reorder_by_base_weight(
     group_items: list[tuple[Neuron, np.ndarray]], weights_info: list[WeightInfo]
-) -> tuple[list[tuple[Neuron, np.ndarray]], list[WeightInfo]]:
+) -> tuple[list[Neuron], list[WeightInfo]]:
 
     paired = list(zip(group_items, weights_info))
 
     paired_sorted = sorted(paired, key=lambda x: (x[1].index, x[1].offset))
 
-    reordered_items = [p[0] for p in paired_sorted]
+    reordered_neus = [p[0][0] for p in paired_sorted]
     reordered_infos = [p[1] for p in paired_sorted]
 
-    return reordered_items, reordered_infos
+    return reordered_neus, reordered_infos

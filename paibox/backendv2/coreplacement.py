@@ -165,8 +165,7 @@ class OfflineCorePlacementV2(CorePlacement):
     def set_auto_core_config(self) -> None:
         neuron_number = 0
         for neu in self.neus:
-            neu_count = 1 if neu.neuron_type == NeuronType.HALF else 2
-            neuron_number += neu_count
+            neuron_number += neu.n_sram_required
         self.auto_core_config.neuron_number = neuron_number
         pkt_offset, _ = find_coordxy_shortest_path(self.coord, TEST_DEST_CORE)
         self.auto_core_config.test_core_xy = pkt_offset.z
