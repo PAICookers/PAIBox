@@ -82,7 +82,7 @@ export_params :各个模块的权重和偏置
   
   加上上述的自动适配LUTLinear功能，我们可以完整的适配res-block
 
-  ps :由于现在的conv(+bn)自动设置为了输出激活值，因此可以适配conv1(conv2(x))的结构。
+  ps :由于现在的conv(+bn)自动设置为了输出激活值，因此可以适配conv1(conv2(x))的结构。liner没有添加LUT，因此不适配liner1(liner2(x))。经过测试conv1(conv2(x))结构精度损失较大，不推荐使用。
   
   
 
