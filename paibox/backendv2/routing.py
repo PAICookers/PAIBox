@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from collections.abc import Sequence, Set
-from typing import AbstractSet, Generic, Optional, TypeVar
+from collections import defaultdict, deque
+from collections.abc import Set
+from typing import AbstractSet, Generic, List, Optional, Sequence, TypeVar
 
 import numpy as np
 from paicorelib import (
@@ -12,6 +13,8 @@ from paicorelib import (
     FoldType,
     NeuronType,
     OfflineNeuDestInfoV2,
+    OfflineNeuFoldedAttrsV2Part1,
+    OfflineNeuFoldedAttrsV2Part2,
     OfflineNeuFullAttrsV2Part1,
     OfflineNeuFullAttrsV2Part2,
     WeightCompressType,
@@ -25,6 +28,7 @@ from .coreplacement import (
     EmptyOfflineCorePlacementV2,
     OfflineCorePlacementV2,
 )
+from .fold_neu import get_fold_info
 from .get_weight import (
     WeightInfo,
     choose_weight_strategy,
@@ -43,6 +47,7 @@ from .op_node import (
     SourceElem,
     SourceNode,
 )
+from .weight import Weight
 
 FANIN_BASE = 512
 
@@ -178,21 +183,26 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
         return info_str + "\n"
 
     def get_detail_dest(
-        self, elem: SOURCE_ELEM, self_coord: CoordXY = CoordXY(0, 0)
+        self, elems: list[SOURCE_ELEM], self_coord: CoordXY = CoordXY(0, 0)
     ) -> OfflineNeuDestInfoV2:
-        dest_routing_group = self.get_dest(elem)
-        axon_elem = self.get_axon(elem)
+        dest_routing_group = self.get_dest(elems[0])
+        axon_elem = self.get_axon(elems[0])
         if isinstance(dest_routing_group, RoutingGroup):
             axon_addr_logic = dest_routing_group.index_map.get(axon_elem, -1)
             assert axon_addr_logic >= 0, "axon_addr_logic should be non-negative"
             assert (
-                elem.output_bit_num == dest_routing_group.input_bit_num
+                elems[0].output_bit_num == dest_routing_group.input_bit_num
             ), "Output bit num of elem must match input bit num of dest routing group"
             axon_bit_count = axon_addr_logic * dest_routing_group.input_bit_num
         elif isinstance(dest_routing_group, OutputGroup):
-            axon_bit_count = dest_routing_group.axon_bit_allocator.allocate(
-                self_coord, elem
-            )
+            axon_bit_count = -1
+            for i, elem in enumerate(elems):
+                if i == 0:
+                    axon_bit_count = dest_routing_group.axon_bit_allocator.allocate(
+                        CoordXY(0, 0), elem
+                    )
+                else:
+                    dest_routing_group.axon_bit_allocator.allocate(CoordXY(0, 0), elem)
             assert axon_bit_count < FANIN_BASE * (
                 2**LCN_EX.LCN_128X.value
             ), "Total axon bit count for output group exceeds the maximum supported by LCN_128X"
@@ -413,8 +423,12 @@ class RoutingGroup(
             )
             weight_sram_req = selected_weight.n_sram_required
             attrs_part2.weight_compress = weight_compress
-            print(f"\tno zero elements in base weight {weight_info.index} is {np.count_nonzero(base_weight)}")
-            print(f"\tbase weight {weight_info.index} requires {weight_sram_req} SRAM lines with compression {weight_compress}.")
+            print(
+                f"\tno zero elements in base weight {weight_info.index} is {np.count_nonzero(base_weight)}"
+            )
+            print(
+                f"\tbase weight {weight_info.index} requires {weight_sram_req} SRAM lines with compression {weight_compress}."
+            )
             if weight_sram_req > 4096:
                 raise NotImplementedError(
                     f"Base weight {weight_info.index} requires {weight_sram_req} SRAM lines, which exceeds the limit."
@@ -493,41 +507,234 @@ class RoutingGroup(
             )
         return current_core
 
+    def try_to_fold_neuron(
+        self,
+        base_weights: List[np.ndarray],
+        ordered_neus: list[Neuron],
+        ordered_infos: list[WeightInfo],
+        frontend_core_conf: Frontend_Core_Config,
+        backend_core_conf: Backend_Core_Config,
+        prefix: str = "",
+    ):
+        folded_neurons: set[Neuron] = set()
+        buckets: dict[int, list[tuple[Neuron, WeightInfo]]] = defaultdict(
+            list[tuple[Neuron, WeightInfo]]
+        )
+        for neu, info in zip(ordered_neus, ordered_infos):
+            buckets[info.index].append((neu, info))
+        current_core = OfflineCorePlacementV2(frontend_core_conf, backend_core_conf)
+        stored_base_weight: dict[int, tuple[int, WeightCompressType]] = {}
+        weight_strategy_cache: dict[int, tuple[Weight, WeightCompressType]] = {}
+        for index, bucket in buckets.items():
+            neurons = [neu for neu, _ in bucket]
+            neu_nodes = [neu.target for neu in neurons]
+            if len(set(neu_nodes)) != 1:
+                # 这个 base weight 对应的 neurons 来自不同的 neuron nodes 上，暂时不考虑折叠
+                continue
+            sub_buckets: dict[
+                RoutingGroup | OutputGroup, list[tuple[Neuron, WeightInfo]]
+            ] = defaultdict(list[tuple[Neuron, WeightInfo]])
+            for neu, info in bucket:
+                dest_group = self.get_dest(neu)
+                sub_buckets[dest_group].append((neu, info))
+
+            for dest_group, sub_bucket in sub_buckets.items():
+                if isinstance(dest_group, OutputGroup):
+                    # OutputGroup 的 axon bit 依赖路由后坐标分配，当前阶段不做 fold
+                    continue
+                sub_neurons = [neu for neu, _ in sub_bucket]
+                weight_offsets = [info.offset for _, info in sub_bucket]
+                axon_addr_offsets = [self.get_dest_info(neu)[1] for neu in sub_neurons]
+
+                fold_info = get_fold_info(weight_offsets, axon_addr_offsets)
+                if fold_info is None:
+                    continue
+                ranges, fold_axon_skews, fold_weight_skews = fold_info
+                print(
+                    f"{prefix}Find fold neurons with base weight {index} "
+                    f"to dest group {dest_group.name}:"
+                )
+                print(f"{prefix}    fold_range: {ranges}")
+                print(f"{prefix}    fold_weight_skews: {fold_weight_skews}")
+                print(f"{prefix}    fold_axon_skews: {fold_axon_skews}")
+                skip_fold = False
+                for skew in fold_weight_skews:
+                    if skew * self.input_bit_num > 2047:
+                        print(
+                            f"{prefix}Fold weight skew {skew} is too large for input bit num {self.input_bit_num}, skipping fold."
+                        )
+                        skip_fold = True
+                        break
+                for skew in fold_axon_skews:
+                    if skew * dest_group.input_bit_num > 2047:
+                        print(
+                            f"{prefix}Fold axon skew {skew} is too large for input bit num {self.input_bit_num}, skipping fold."
+                        )
+                        skip_fold = True
+                        break
+                if skip_fold:
+                    continue
+
+                if index not in weight_strategy_cache:
+                    current_weight_width = frontend_core_conf.weight_width
+                    base_weight = base_weights[index]
+                    selected_weight, weight_compress = choose_weight_strategy(
+                        base_weight,
+                        current_weight_width,
+                        frontend_core_conf.input_width,
+                        frontend_core_conf.add_potential,
+                    )
+                    weight_strategy_cache[index] = (selected_weight, weight_compress)
+                selected_weight, weight_compress = weight_strategy_cache[index]
+                weight_sram_req = selected_weight.n_sram_required
+
+                attrs_part2 = sub_neurons[0].attrs_part2()
+                attrs_part2.weight_compress = weight_compress
+                neuron_type = NeuronType.FULL
+                output_type = sub_neurons[0].output_type()
+                attrs_part1 = OfflineNeuFullAttrsV2Part1(
+                    weight_skew=weight_offsets[0] * self.input_bit_num,
+                    weight_address_start=0,  # 之后会统一设置
+                    weight_address_end=0,  # 之后会统一设置
+                    fold_type=FoldType.FOLDED,
+                    neuron_type=neuron_type,
+                    output_type=output_type,
+                )
+
+                if isinstance(dest_group, OutputGroup):
+                    # if folded neurons send to output group,
+                    # axon skews should be all 1.
+                    assert fold_axon_skews == [
+                        1,
+                        1,
+                        1,
+                    ], "Folded neurons sending to output group should have axon skew of 1"
+
+                fold_attrs_part1 = OfflineNeuFoldedAttrsV2Part1(
+                    fold_axon_y=fold_axon_skews[0] * dest_group.input_bit_num,
+                    fold_axon_x=fold_axon_skews[1] * dest_group.input_bit_num,
+                    fold_axon_xy=fold_axon_skews[2] * dest_group.input_bit_num,
+                    fold_skew_y=fold_weight_skews[0] * self.input_bit_num,
+                    fold_skew_x=fold_weight_skews[1] * self.input_bit_num,
+                    fold_skew_xy=fold_weight_skews[2] * self.input_bit_num,
+                    fold_range_y=ranges[0],
+                    fold_range_x=ranges[1],
+                    fold_range_xy=ranges[2],
+                    fold_number=len(sub_neurons),
+                )
+                num_fold_part2 = (len(sub_neurons) - 1 + 3) // 4
+                fold_attrs_part2s = [
+                    OfflineNeuFoldedAttrsV2Part2() for _ in range(num_fold_part2)
+                ]
+                neu_placement = OfflineNeuronPlacement(
+                    sub_neurons,
+                    attrs_part1,
+                    attrs_part2,
+                    fold_attrs_part1,
+                    fold_attrs_part2s,
+                )
+                neu_sram_req = neu_placement.n_sram_required
+
+                added_weight_sram_req = (
+                    0 if index in stored_base_weight else weight_sram_req
+                )
+                total_sram_req = neu_sram_req + added_weight_sram_req
+                if total_sram_req > 4096:
+                    print(
+                        f"{prefix}Folding neurons with base weight {index} to dest group "
+                        f"{dest_group.name} requires {total_sram_req} SRAM lines, "
+                        "which exceeds the limit. Skipping folding."
+                    )
+                    continue
+
+                if current_core.n_sram_required + total_sram_req > 4096:
+                    if len(current_core.neus) > 0:
+                        self.core_placements.append(current_core)
+                    current_core = OfflineCorePlacementV2(
+                        frontend_core_conf, backend_core_conf
+                    )
+                    stored_base_weight.clear()
+                    added_weight_sram_req = weight_sram_req
+                    total_sram_req = neu_sram_req + added_weight_sram_req
+                    if total_sram_req > 4096:
+                        print(
+                            f"{prefix}Folding neurons with base weight {index} to dest group "
+                            f"{dest_group.name} requires {total_sram_req} SRAM lines, "
+                            "which exceeds the limit. Skipping folding."
+                        )
+                        continue
+
+                remaining_sram = 4096 - current_core.n_sram_required - total_sram_req
+                print(
+                    f"{prefix}core[{len(self.core_placements)}]:Folded neuron stored with base weight {index} "
+                    f"to dest group {dest_group.name}:"
+                )
+                print(f"{prefix}    num neurons: {len(sub_neurons)}")
+                print(f"{prefix}    num sram lines: {neu_sram_req}")
+                print(f"{prefix}    weight sram lines: {added_weight_sram_req}")
+                print(f"{prefix}    total sram lines: {total_sram_req}")
+                print(f"{prefix}    remaining sram lines: {remaining_sram}")
+
+                if index not in stored_base_weight:
+                    current_core.weights.append(selected_weight)
+                    stored_base_weight[index] = (
+                        len(current_core.weights) - 1,
+                        weight_compress,
+                    )
+                stored_weight_index, _ = stored_base_weight[index]
+                current_core.neus.append(neu_placement)
+                current_core.neu_weight_map[len(current_core.neus) - 1] = (
+                    stored_weight_index
+                )
+                folded_neurons.update(sub_neurons)
+
+        return folded_neurons, current_core, stored_base_weight
+
     def place_neurons_optimal(
         self,
         frontend_core_conf: Frontend_Core_Config,
         backend_core_conf: Backend_Core_Config,
         group_items: list[tuple[Neuron, np.ndarray]],
         block_id: int = 0,
+        prefix: str = "",
     ):
         weights_of_group = [item[1] for item in group_items]
-        weight_infos, base_weights = group_shift_weights_optimized(weights_of_group)
+        weight_infos, base_weights = group_shift_weights_optimized(
+            weights_of_group, prefix
+        )
         # reorder group_items making the ones with the same base weight together, to improve weight storage efficiency
-        reordered_items, reordered_infos = reorder_by_base_weight(
+        reordered_neus, reordered_infos = reorder_by_base_weight(
             group_items, weight_infos
         )
 
         # import os
-        # os.makedirs("debug_padding", exist_ok=True)
-        # with open(f"debug_padding/{self.name}_weight_base.txt", "w") as f:
+        # os.makedirs("debug_fold_256", exist_ok=True)
+        # with open(f"debug_fold_256/{self.name}_weight_base.txt", "w") as f:
         #     for weight in base_weights:
         #         f.write(" ".join(map(str, weight)) + "\n")
         #     for info in reordered_infos:
         #         f.write(f"index: {info.index}, offset: {info.offset}\n")
 
-        current_core = OfflineCorePlacementV2(frontend_core_conf, backend_core_conf)
-        self.last_full_attrs = None
-        stored_base_weight: dict[int, tuple[int, WeightCompressType]] = (
-            {}
-        )  # map from base weight index to the index of core's weight list where it's stored
+        print(f"{prefix}trying to fold neurons")
+        folded_neurons, current_core, stored_base_weight = self.try_to_fold_neuron(
+            base_weights,
+            reordered_neus,
+            reordered_infos,
+            frontend_core_conf,
+            backend_core_conf,
+            prefix=f"{prefix}    ",
+        )
 
-        print(f"\nallocating {self.name} block [{block_id}]")
-        description = f"allocating {self.name} block [{block_id}]"
-        for (neu, weight_of_neu), weight_info in track(
-            zip(reordered_items, reordered_infos),
+        # current_core = OfflineCorePlacementV2(frontend_core_conf, backend_core_conf)
+        self.last_full_attrs = None
+        description = f"{prefix}place unfolded neurons"
+        for neu, weight_info in track(
+            zip(reordered_neus, reordered_infos),
             description=description,
-            total=len(reordered_items),  # 明确指定总数，确保进度条计算准确
+            total=len(reordered_neus),  # 明确指定总数，确保进度条计算准确
         ):
+            if neu in folded_neurons:
+                continue
             current_core = self.try_store_neuron(
                 neu,
                 stored_base_weight,
@@ -540,80 +747,6 @@ class RoutingGroup(
         if len(current_core.neus) > 0:
             self.core_placements.append(current_core)
 
-    def place_neurons_raw(
-        self,
-        frontend_core_conf: Frontend_Core_Config,
-        backend_core_conf: Backend_Core_Config,
-        group_items: list[tuple[Neuron, np.ndarray]],
-        block_id: int = 0,
-    ):
-        current_core = OfflineCorePlacementV2(frontend_core_conf, backend_core_conf)
-
-        self.last_full_attrs = None
-
-        for neu, weight_of_neu in group_items:
-            attrs_part2 = neu.attrs_part2()
-
-            # Weight Strategy
-            current_weight_width = frontend_core_conf.weight_width
-            selected_weight, attrs_part2.weight_compress = choose_weight_strategy(
-                weight_of_neu,
-                current_weight_width,
-                frontend_core_conf.input_width,
-                frontend_core_conf.add_potential,
-            )
-
-            neuron_type = (
-                NeuronType.HALF
-                if attrs_part2 == self.last_full_attrs
-                else NeuronType.FULL
-            )
-            output_type = neu.output_type()
-            attrs_part1 = OfflineNeuFullAttrsV2Part1(
-                weight_skew=0,
-                weight_address_start=0,
-                weight_address_end=0,
-                fold_type=FoldType.UNFOLDED,
-                neuron_type=neuron_type,
-                output_type=output_type,
-            )
-            neu_placement = OfflineNeuronPlacement([neu], attrs_part1, attrs_part2)
-
-            # SRAM Check
-            neu_sram_req = neu_placement.n_sram_required
-            weight_sram_req = selected_weight.n_sram_required
-            total_req = neu_sram_req + weight_sram_req
-
-            if total_req > 4096:
-                raise NotImplementedError(
-                    f"Neuron {neu} with its weight requires {total_req} SRAM lines."
-                )
-
-            if current_core.n_sram_required + total_req > 4096:
-                if len(current_core.neus) > 0:
-                    self.core_placements.append(current_core)
-
-                # Create new core with inheritance
-                current_core = OfflineCorePlacementV2(
-                    frontend_core_conf, backend_core_conf
-                )
-                neuron_type = NeuronType.FULL
-                neu_placement.neu_attrs_part1.neuron_type = NeuronType.FULL
-                self.last_full_attrs = attrs_part2
-
-            elif neuron_type == NeuronType.FULL:
-                self.last_full_attrs = attrs_part2
-
-            # print(f"Neuron {neu} assigned type {neu_placement.neuron_type}.")
-            current_core.neus.append(neu_placement)
-            current_core.weights.append(selected_weight)
-
-            idx = len(current_core.neus) - 1
-            current_core.neu_weight_map[idx] = idx
-
-        if len(current_core.neus) > 0:
-            self.core_placements.append(current_core)
-
     def allocate_neurons(self):
         """core placement generation"""
         # you can get neu_attrs_part2, inherited_core_config, target_lcn, lcn for each neuron in self.raw_elems, like:
@@ -621,6 +754,7 @@ class RoutingGroup(
         # inherited core_config are valid except weight_width, you can set weight_width larger than or equal to the original value for optimization
 
         print(f"\nAllocating neurons for Routing Group {self.name}...")
+        prefix = "    "
         if self.nodes is not None and self.input_nodes is not None:
             node = list(self.nodes)[0]
             # print(f"kernel weight from node {node.name}:\n", node.weights[0])
@@ -628,7 +762,7 @@ class RoutingGroup(
         weights = get_raw_weights(self.raw_elems, self.input_list)
 
         # print(f"weight of routing group {self.name}:\n", weights)
-        print(f"\tweight shape of routing group {self.name}: {weights.shape}")
+        print(f"{prefix}weight shape of routing group {self.name}: {weights.shape}")
 
         # print compelet weights into file for debug
         # with open(f"{self.name}_weights.txt", "w") as f:
@@ -655,28 +789,32 @@ class RoutingGroup(
             core_groups[key].append((neu, weight_of_neu))
 
         self.core_placements: list[CorePlacement] = []
-        print(f"\tNumber of core blocks: {len(core_groups)}")
-        for key, group_items in core_groups.items():
-            print(f"\n\tCore block with {len(group_items)}:")
-            print(f"\t\tfrontend_core_conf={key[0]}")
-            print(f"\t\tbackend_core_conf={key[1]}")
+        print(f"{prefix}Number of core blocks: {len(core_groups)}")
+        # for key, group_items in core_groups.items():
+        #     print(f"\n\tCore block with {len(group_items)}:")
+        #     print(f"\t\tfrontend_core_conf={key[0]}")
+        #     print(f"\t\tbackend_core_conf={key[1]}")
 
         # 2. Allocation Phase
         for i, (key, group_items) in enumerate(core_groups.items()):
             # print(f"\n\nAllocating group with frontend_core_conf={key[0]}")
             # print(f"backend_core_conf={key[1]}")
             # print(f"Neu of this group: {[str(item[0]) for item in group_items]}")
-            print(f"\tNumber of neurons in this group: {len(group_items)}")
+            print(f"{prefix}allocating core_block[{i}] ({len(group_items)} neurons)...")
             frontend_core_conf, backend_core_conf = key
             # Initialize the first core for the current group
             current_core = OfflineCorePlacementV2(frontend_core_conf, backend_core_conf)
 
             self.last_full_attrs = None
             self.place_neurons_optimal(
-                frontend_core_conf, backend_core_conf, group_items, i
+                frontend_core_conf,
+                backend_core_conf,
+                group_items,
+                i,
+                prefix=f"{prefix}    ",
             )
             print(
-                f"\tNumber of cores after allocating this group: {len(self.core_placements)}"
+                f"{prefix}Number of cores of core_block[{i}]: {len(self.core_placements)}"
             )
 
         self.n_core_required = len(self.core_placements)
@@ -709,7 +847,7 @@ class RoutingGroup(
                 # but we only need to set dest_info for the first raw_neu
                 main_neu = neu_placement.raw_neus[0]
                 dest_info = self.get_detail_dest(
-                    main_neu, self_coord=core_placement.coord
+                    neu_placement.raw_neus, self_coord=core_placement.coord
                 )
                 neu_placement.dest_info = dest_info
 
@@ -750,22 +888,23 @@ class RoutingGroup(
         return info_str
 
     def routing_summary(self, prefix: str = "") -> str:
-        summary_str = (
-            f"{prefix}{self.name} Routing Summary ({len(self.core_placements)} cores):\n"
-        )
+        summary_str = f"{prefix}{self.name} Routing Summary ({len(self.core_placements)} cores):\n"
         for i, core_placement in enumerate(self.core_placements):
             if core_placement._coord is not None:
-                summary_str += f"{prefix}  Core Placement {i} at {core_placement.coord}:\n"
+                summary_str += (
+                    f"{prefix}  Core Placement {i} at {core_placement.coord}:\n"
+                )
             else:
                 summary_str += f"{prefix}  Core Placement {i} at Unassigned Coord:\n"
-            summary_str += f"{prefix}    Number of Neurons: {len(core_placement.neus)}\n"
-            summary_str += f"{prefix}    Number of Weights: {len(core_placement.weights)}\n"
+            summary_str += f"{prefix}    Number of Neurons: {sum([len(neu_placement.raw_neus) for neu_placement in core_placement.neus])}\n"
             summary_str += (
-                f"{prefix}    Neuron SRAM Required: {core_placement.neuron_sram_required}\n"
+                f"{prefix}    Number of Weights: {len(core_placement.weights)}\n"
             )
             summary_str += (
-                f"{prefix}    Weight SRAM Required: {core_placement.weight_sram_required}\n"
+                f"{prefix}    Number of Neuron Placements: {len(core_placement.neus)}\n"
             )
+            summary_str += f"{prefix}    Neuron SRAM Required: {core_placement.neuron_sram_required}\n"
+            summary_str += f"{prefix}    Weight SRAM Required: {core_placement.weight_sram_required}\n"
             summary_str += (
                 f"{prefix}    Total SRAM Required: {core_placement.n_sram_required}\n"
             )
@@ -808,7 +947,7 @@ class InputGroup(Group, SourceGroup[InputElem, InNode]):
 
     def set_detail_dest(self):
         for elem in self.raw_elems:
-            dest_info = self.get_detail_dest(elem)
+            dest_info = self.get_detail_dest([elem])
             self.dest_infos[elem] = dest_info
 
 
@@ -860,6 +999,10 @@ class OutputAxonAllocator:
             raise ValueError(
                 f"Unsupported output bit num {elem.output_bit_num} for element {elem}."
             )
+        if axon_bit >= FANIN_BASE * (2**LCN_EX.LCN_128X.value):
+            raise ValueError(
+                f"Axon bit {axon_bit} allocated for element {elem} exceeds the maximum supported axon bit {FANIN_BASE * (2 ** LCN_EX.LCN_128X.value)}."
+            )
         return axon_bit
 
 
@@ -884,9 +1027,11 @@ class OutputGroup(Group, DestGroup[SourceElem, SourceNode]):
         info_str += "\n"
         return info_str
 
-    def routing_summary(self) -> str:
-        summary_str = f"Output Group {self.name}:\n"
-        summary_str += "   Output Group is the final destination, no further routing.\n"
+    def routing_summary(self, prefix: str = "") -> str:
+        summary_str = f"{prefix}Output Group {self.name}:\n"
+        summary_str += (
+            f"{prefix}   Output Group is the final destination, no further routing.\n"
+        )
         return summary_str
 
     def __str__(self) -> str:
@@ -909,8 +1054,6 @@ def toposort_for_rg(
     groups: list[RemapGroup | RoutingGroup],
 ) -> tuple[list[RoutingGroup], dict[int, list[int]]]:
     """topological sort for routing groups based on their dests"""
-    from collections import defaultdict, deque
-
     routing_groups = [rg for rg in groups if isinstance(rg, RoutingGroup)]
     rg_set = set(routing_groups)
 

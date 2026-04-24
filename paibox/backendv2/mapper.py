@@ -290,7 +290,7 @@ class Mapper:
         self,
         pai_graph: PAIIRGraph,
         base: str = "bin",  # 新增参数，指定导出格式
-        output_path: str = "./output",
+        output_path: str | None = None,
     ) -> None:
         # determine raw_neus in routing groups, other properties remain unset
         self.generate_routing_groups(pai_graph)
@@ -347,18 +347,23 @@ class Mapper:
         self.routing()
 
         print("\nAfter routing:")
-        for grp in all_groups:
-            print(grp.info())
+        # for grp in all_groups:
+        #     print(grp.info())
 
         for rg in all_groups:
-            print(rg.routing_summary())
+            print(rg.routing_summary(prefix="    "))
 
         self.set_detail_dest()
 
         self.set_auto_core_config()
 
         # export to hardware executable format
-
+        if output_path is None:
+            env_output_path = os.environ.get("PAIBOX_OUTPUT_PATH")
+            if env_output_path is not None:
+                output_path = env_output_path
+            else:
+                output_path = "./output"
         self.export(output_path=output_path)
         self.export_merge(output_path=output_path)
         self.export_cheader_file(output_path=output_path, base=base)
