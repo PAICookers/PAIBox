@@ -35,18 +35,22 @@ $$ X_f \approx S_x \times (X_q - Z_x) $$
 ### 3.1 核心分解思想 (Linear / Conv2d 泛化)
 我们以操作函数 `Op()`（代表 `Linear(X, W)` 或 `Conv2d(X, W)` 等乘加过程）来描述。
 对于非对称量化，原本真正的计算过程为：
+
 $$ Y_{int} = Op(X_q - Z_x, W_q - Z_w) $$
 
 根据算子的线性分配律，这可以被无损拆解为四个独立的操作项：
+
 $$ Y_{acc} = \underbrace{Op(X_q, W_q)}_{\text{Term 1}} - \underbrace{Op(X_q, Z_w)}_{\text{Term 2}} - \underbrace{Op(Z_x, W_q)}_{\text{Term 3}} + \underbrace{Op(Z_x, Z_w)}_{\text{Term 4}} $$
 
 通过这四项分解，硬件底层只需要进行纯无符号与存储固定矩阵的操作。接下来详细解析这四项是如何使用原生结构（特别是矩阵与卷积）实现的。
 
 ### 3.2 Linear (全连接层) 的等效操作(@表示矩阵乘法，E表示所有元素都为1的矩阵)
 对于全连接操作，我们将 $Op$ 视作一般的内积/矩阵乘：
+
 $$ Y_{int} =(W-z_w*E_w)@(X-z_x*E_x)$$
-   即
-   $$ Y_{int} =\underbrace{W@X}_{\text{Term 1}}-\underbrace{z_w*E_w@X}_{\text{Term 2}}-\underbrace{z_x*W@E_x}_{\text{Term 3}} +\underbrace{z_w*z_xE_w@E_x}_{\text{Term 4}}$$
+即
+
+$$ Y_{int} =\underbrace{W@X}_{\text{Term 1}}-\underbrace{z_w*E_w@X}_{\text{Term 2}}-\underbrace{z_x*W@E_x}_{\text{Term 3}} +\underbrace{z_w*z_xE_w@E_x}_{\text{Term 4}}$$
 
 
 *   **Term 1**: $W@X$, core正常配置即可，
