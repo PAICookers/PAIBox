@@ -23,8 +23,8 @@ from ..ir.value_code import (
 __all__ = [
     "DataFormat",
     "fits_value_code_range",
-    "infer_output_code_range",
     "infer_output_format",
+    "infer_output_code_range",
     "infer_weight_format",
     "merge_data_formats",
 ]
@@ -84,7 +84,14 @@ def infer_output_format(act: CoreNeuronV25) -> tuple[DataSign, DataWidth]:
 
 
 def infer_output_code_range(act: CoreNeuronV25) -> tuple[int, int] | None:
-    """Infer the exact integer VALUE-code range emitted by an activation."""
+    """Infer the exact integer VALUE-code range emitted by an activation.
+
+    This is stricter than :func:`infer_output_format`:
+
+    - SNN activations return their exact spike code ranges
+    - ANN activations return ``None`` unless the LUT emits integer-like values
+      that fit on the existing 8-bit VALUE path
+    """
     if act.is_snn:
         if act.thres_neg_mode == ThresholdNegMode.FIRE:
             return -1, 1

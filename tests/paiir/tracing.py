@@ -6,9 +6,9 @@ from torch import Tensor, fx, nn
 from torch.fx.passes.shape_prop import ShapeProp
 
 from paibox.paiir.lowering.converter import (
-    _DEFAULT_MODULE_MAP,
     TRACE_LEAF_MODULE_TYPES,
     _EraseModuleTransformer,
+    _get_full_module_map,
     _PAIIRTracer,
     propagate_dims,
     propagate_shapes,
@@ -37,7 +37,7 @@ def trace_with_paiir_tracer(
     model: nn.Module, concrete_args: dict[str, Any] | None = None
 ) -> fx.GraphModule:
     """Trace with the project-specific PAIIR tracer configuration."""
-    leaf_types = tuple(_DEFAULT_MODULE_MAP.keys()) + TRACE_LEAF_MODULE_TYPES
+    leaf_types = tuple(_get_full_module_map().keys()) + TRACE_LEAF_MODULE_TYPES
     tracer = _PAIIRTracer(custom_leaf_modules=leaf_types)
     traced = tracer.trace(model, concrete_args)
     return fx.GraphModule(tracer.root, traced)

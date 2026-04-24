@@ -1,3 +1,5 @@
+import copy
+
 import pytest
 import torch
 from paicorelib import RM, ThresholdPosMode
@@ -5,7 +7,7 @@ from spikingjelly.activation_based import functional
 from torch import nn
 
 from paibox.paiir.ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
-from paibox.paiir.ir.lut_activation import LutReLU
+from paibox.paiir.ir.lut_activation import LutCustom, LutReLU
 
 
 class TestIFNodeV25:
@@ -124,6 +126,103 @@ class TestLIFNodeV25:
         n3 = LIFNodeV25(tau=2, v_threshold=1.0, v_reset=None)
         assert n3.v == 0.0
         assert n3.init_v == 0.0
+
+
+class TestCoreNeuronCopying:
+    def test_clone_preserves_config_but_resets_runtime_state(self):
+        neuron = IFNodeV25(
+            v_threshold=10.0, v_reset=0.0, leak_v=torch.tensor([1.0, 2.0])
+        )
+        neuron(torch.tensor([[3.0, 4.0]]))
+
+        cloned = neuron.clone()
+
+        assert isinstance(cloned, IFNodeV25)
+        assert cloned is not neuron
+        assert cloned.thres_pos == neuron.thres_pos
+        assert cloned.reset_mode == neuron.reset_mode
+        assert cloned.v == cloned.init_v
+        assert cloned._any_pos_spike_at_last_ts is False
+        if isinstance(neuron.leak_v, torch.Tensor):
+            assert isinstance(cloned.leak_v, torch.Tensor)
+            assert torch.equal(cloned.leak_v, neuron.leak_v)
+            assert cloned.leak_v is not neuron.leak_v
+        else:
+            assert cloned.leak_v == neuron.leak_v
+
+    def test_deepcopy_preserves_config_and_runtime_state(self):
+        neuron = IFNodeV25(
+            v_threshold=10.0,
+            v_reset=0.0,
+            thres_neg=0.0,
+            leak_v=torch.tensor([1.0, 2.0]),
+        )
+        neuron(torch.tensor([[3.0, 4.0]]))
+
+        cloned = copy.deepcopy(neuron)
+
+        assert isinstance(cloned, IFNodeV25)
+        assert cloned is not neuron
+        assert cloned.thres_pos == neuron.thres_pos
+        assert cloned.reset_mode == neuron.reset_mode
+        assert torch.equal(cloned.v, neuron.v)
+        assert cloned.v is not neuron.v
+        assert torch.equal(cloned.leak_v, neuron.leak_v)
+        assert cloned.leak_v is not neuron.leak_v
+
+    def test_clone_resets_runtime_state_for_lif(self):
+        neuron = LIFNodeV25(tau=2.0, v_threshold=5.0, v_reset=0.0, leak_v=1.0)
+        neuron(torch.tensor([[4.0]]))
+
+        cloned = neuron.clone()
+
+        assert isinstance(cloned, LIFNodeV25)
+        assert cloned is not neuron
+        assert cloned.tau == neuron.tau
+        assert cloned.thres_pos == neuron.thres_pos
+        assert cloned.leak_v == neuron.leak_v
+        assert cloned.v == cloned.init_v
+        assert cloned._any_pos_spike_at_last_ts is False
+
+    def test_ann_clone_clones_lut_without_aliasing(self):
+        thresholds = torch.arange(256, dtype=torch.float32)
+        values = torch.arange(256, dtype=torch.float32)
+        neuron = ANNNodeV25(LutCustom(thresholds, values), leak_v=2.0)
+
+        cloned = neuron.clone()
+
+        assert isinstance(cloned, ANNNodeV25)
+        assert cloned is not neuron
+        assert cloned.lut is not None
+        assert neuron.lut is not None
+        assert cloned.lut is not neuron.lut
+        assert torch.equal(cloned.lut.thresholds, neuron.lut.thresholds)
+        assert torch.equal(cloned.lut.lut_values, neuron.lut.lut_values)
+        assert cloned.lut.thresholds is not neuron.lut.thresholds
+        assert cloned.lut.lut_values is not neuron.lut.lut_values
+
+    def test_custom_subclass_clone_preserves_type_without_special_hook(self):
+        class CustomNeuron(CoreNeuronV25):
+            def __init__(self):
+                super().__init__()
+                self.scale = torch.tensor([2.0])
+
+            def forward(self, x):
+                return self.single_step_forward(x)
+
+            def single_step_forward(self, x):
+                return super().single_step_forward(x) * self.scale
+
+        neuron = CustomNeuron()
+        neuron(torch.tensor([[1.0]]))
+
+        cloned = neuron.clone()
+
+        assert isinstance(cloned, CustomNeuron)
+        assert cloned is not neuron
+        assert torch.equal(cloned.scale, neuron.scale)
+        assert cloned.scale is not neuron.scale
+        assert cloned.v == cloned.init_v
 
 
 class TestNeuronV25InNetwork:

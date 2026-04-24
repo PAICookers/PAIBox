@@ -5,7 +5,7 @@ from paicorelib import LeakMultiInputMode
 from ...ir.graph import PAIIRGraph
 from ...ir.op_node import SequentialOp
 from .calibration import CalibrationResult, calibrate_avgpool_threshold
-from .utils import _get_avgpool_divisor, _get_pool_window_size, _is_avgpool
+from .utils import get_avgpool_divisor, get_pool_window_size, is_avgpool
 
 __all__ = ["calibrate_avgpool_thresholds"]
 
@@ -24,13 +24,13 @@ def calibrate_avgpool_thresholds(
         node = graph.nodes[name]
         if not isinstance(node, SequentialOp):
             continue
-        if not _is_avgpool(node.comp):
+        if not is_avgpool(node.comp):
             continue
         if not node.act.has_lif_dynamics:
             continue
 
-        sum_window_size = _get_pool_window_size(node.comp)
-        avg_divisor = _get_avgpool_divisor(node.comp)
+        sum_window_size = get_pool_window_size(node.comp)
+        avg_divisor = get_avgpool_divisor(node.comp)
         avgpool_deploy_metadata = node.avgpool_deploy_metadata
         if (
             avgpool_deploy_metadata is not None
