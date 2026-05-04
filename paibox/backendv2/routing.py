@@ -1001,7 +1001,7 @@ class OutputAxonAllocator:
             )
         if axon_bit >= FANIN_BASE * (2**LCN_EX.LCN_128X.value):
             raise ValueError(
-                f"Axon bit {axon_bit} allocated for element {elem} exceeds the maximum supported axon bit {FANIN_BASE * (2 ** LCN_EX.LCN_128X.value)}."
+                f"Axon bit {axon_bit} allocated for element {elem} exceeds the maximum supported axon bit {FANIN_BASE * (2**LCN_EX.LCN_128X.value)}."
             )
         return axon_bit
 
