@@ -21,4 +21,9 @@ from .converter import (
     export_quantized_model_summary,
 )
 
+from .deploy import (
+    DeployLutReLU,
+    convert_manual_model_to_paiir_ready,
+)
+
 from .exporter import export_manual_model_params

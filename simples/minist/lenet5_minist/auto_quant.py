@@ -12,14 +12,19 @@ SimpleVGG (CIFAR-10) 自动对称量化脚本
 from model import LeNet5
 from train import build_dataloaders, evaluate, DATA_DIR
 from paibox.paiir.lowering.converter import propagate_shapes
+from paibox.paiir import compile_to_paiir
+from paibox.backendv2.mapper import Mapper
 from simples.quantize_tools import (
     convert_fx_to_manual,
     export_manual_model_params,
+    export_quantized_model_summary,
+    convert_manual_model_to_paiir_ready
 )
 import os
 import sys
 import torch
 import torch.nn as nn
+from torch import fx
 from torch.ao.quantization import (
     get_default_qconfig_mapping,
     QConfigMapping,
@@ -181,30 +186,17 @@ def main():
     export_manual_model_params(manual_model, export_dir)
     print(f"[Done] 量化提取文件已成功保存到: {export_dir}")
 
-    # 7. 打印量化后权重和偏置的极大极小值
-    print("\n[7] 打印量化后的参数及输出极值信息...")
-    if "NETWORK_INPUT" in activation_stats:
-        in_min = activation_stats["NETWORK_INPUT"]["min"]
-        in_max = activation_stats["NETWORK_INPUT"]["max"]
-        print(
-            f"Network Input              : min={in_min:.4f}, max={in_max:.4f}")
+    deploy_model = convert_manual_model_to_paiir_ready(manual_model)
+    deploy_model_graph = fx.symbolic_trace(deploy_model)  # 测试使用
+    deploy_model_graph.graph.print_tabular()  # 测试使用
 
-    for name, module in manual_model.named_modules():
-        if hasattr(module, 'weight_q') and module.weight_q is not None:
-            w_min, w_max = module.weight_q.min().item(), module.weight_q.max().item()
-            print(f"Layer [{name}] - Weight (Int8): min={w_min}, max={w_max}")
-            if hasattr(module, 'bias_val') and module.bias_val is not None:
-                accum_scale = module.s_in * module.s_w
-                if accum_scale != 0:
-                    bias_q = torch.round(module.bias_val / accum_scale).int()
-                    b_min, b_max = bias_q.min().item(), bias_q.max().item()
-                    print(f"    -> Bias (Int32) : min={b_min}, max={b_max}")
-
-            # 打印收集到的真实数据计算后（含 LUT 激活后）的输出极值
-            if name in activation_stats:
-                out_min = activation_stats[name]["min"]
-                out_max = activation_stats[name]["max"]
-                print(f"    -> Output       : min={out_min}, max={out_max}")
+    print(f"[8] 部署模型: ")
+    graph = compile_to_paiir(
+        deploy_model,
+        example_inputs,
+    )
+    mapper = Mapper()
+    mapper.compile(graph)
 
 
 if __name__ == "__main__":

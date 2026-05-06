@@ -11,12 +11,22 @@ ResNetCIFAR10 CIFAR-10 量化工作文档示例。
     7. 将量化模型的 state_dict 导出为 pth
 """
 
+from simples.minist.fc_minist.model import MNIST_FC
+from simples.quantize_tools import (
+    convert_fx_to_manual,
+    export_quantized_model_summary,
+    export_manual_model_params,
+    convert_manual_model_to_paiir_ready
+)
+from paibox.paiir import compile_to_paiir
+from paibox.backendv2.mapper import Mapper
 import json
 import os
 import sys
 
 import torch
 import torch.nn as nn
+from torch import fx
 import torchvision
 import torchvision.transforms as transforms
 from torch.ao.quantization import QConfig, MinMaxObserver, get_default_qconfig_mapping
@@ -30,16 +40,10 @@ for path in (REPO_ROOT, BASE_DIR):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-from simples.quantize_tools import (  
-    convert_fx_to_manual,
-    export_quantized_model_summary,
-    export_manual_model_params,
-)
-from simples.minist.fc_minist.model import MNIST_FC  
-
 
 DATA_DIR = os.path.join(REPO_ROOT, "data")
-SOURCE_CKPT = os.path.join(REPO_ROOT, "minist","fc_minist", "checkpoints", "best_model.pth")
+SOURCE_CKPT = os.path.join(
+    REPO_ROOT, "minist", "fc_minist", "checkpoints", "best_model.pth")
 OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
 MODEL_SUMMARY_JSON = os.path.join(OUTPUT_DIR, "quantized_model_layers.json")
 MODEL_GRAPH_TXT = os.path.join(OUTPUT_DIR, "quantized_model_graph.txt")
@@ -134,8 +138,6 @@ def get_quantization_config(symmetric: bool = True):
     return qconfig_mapping
 
 
-
-
 def load_fp32_model() -> MNIST_FC:
     if not os.path.exists(SOURCE_CKPT):
         raise FileNotFoundError(f"找不到预训练文件: {SOURCE_CKPT}")
@@ -190,14 +192,14 @@ def main() -> None:
         activation_symmetric=symmetric,
     )
 
-    print("[5.5] 测试量化前后精度对比 (MNIST测试集验证可能有一定耗时，请等待...)")
-    test_loader = build_test_loader(DATA_DIR)
-    fp32_acc = evaluate_model(fp32_model, test_loader, device)
-    quantized_acc = evaluate_model(quantized_model, test_loader, device)
-    print("="*50)
-    print(f"  => FP32 模型准确率: {fp32_acc:.2f}%")
-    print(f"  => 量化后模型准确率: {quantized_acc:.2f}%")
-    print("="*50)
+    # print("[5.5] 测试量化前后精度对比 (MNIST测试集验证可能有一定耗时，请等待...)")
+    # test_loader = build_test_loader(DATA_DIR)
+    # fp32_acc = evaluate_model(fp32_model, test_loader, device)
+    # quantized_acc = evaluate_model(quantized_model, test_loader, device)
+    # print("="*50)
+    # print(f"  => FP32 模型准确率: {fp32_acc:.2f}%")
+    # print(f"  => 量化后模型准确率: {quantized_acc:.2f}%")
+    # print("="*50)
 
     print("[6] 导出量化层参数 JSON 和计算图 TXT")
     export_quantized_model_summary(
@@ -212,6 +214,19 @@ def main() -> None:
     os.makedirs(EXPORT_PARAMS_DIR, exist_ok=True)
     export_manual_model_params(quantized_model, EXPORT_PARAMS_DIR)
     print(f"[完成] 权重及偏置已导出到: {EXPORT_PARAMS_DIR}")
+
+    deploy_model = convert_manual_model_to_paiir_ready(quantized_model)
+    # deploy_model_graph = fx.symbolic_trace(deploy_model) #测试使用
+    # deploy_model_graph.graph.print_tabular() #测试使用
+
+    print(f"[8] 部署模型: ")
+    graph = compile_to_paiir(
+        deploy_model,
+        example_inputs,
+    )
+    mapper = Mapper()
+    mapper.compile(graph)
+
 
 if __name__ == "__main__":
     main()
