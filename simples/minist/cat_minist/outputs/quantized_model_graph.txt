@@ -1,0 +1,32 @@
+=== Quantized Graph (Tabular) ===
+opcode         name        target                                                      args                         kwargs
+-------------  ----------  ----------------------------------------------------------  ---------------------------  ----------
+placeholder    x           x                                                           ()                           {}
+call_module    stem_0      mq_stem_0                                                   (x,)                         {}
+call_module    stem_2      stem.2                                                      (stem_0,)                    {}
+call_module    branch_a_0  mq_branch_a_0                                               (stem_2,)                    {}
+call_module    branch_b_0  mq_branch_b_0                                               (stem_2,)                    {}
+call_module    branch_b_2  mq_branch_b_2                                               (branch_b_0,)                {}
+call_function  cat         <built-in method cat of type object at 0x00007FFE3DBB5A80>  ([branch_a_0, branch_b_2],)  {'dim': 1}
+call_module    head_0      head.0                                                      (cat,)                       {}
+call_module    head_1      head.1                                                      (head_0,)                    {}
+call_module    head_2      mq_head_2                                                   (head_1,)                    {}
+call_module    head_4      mq_head_4                                                   (head_2,)                    {}
+output         output      output                                                      (head_4,)                    {}
+
+=== Generated Code ===
+
+
+
+def forward(self, x : torch.Tensor) -> torch.Tensor:
+    stem_0 = self.mq_stem_0(x);  x = None
+    stem_2 = getattr(self.stem, "2")(stem_0);  stem_0 = None
+    branch_a_0 = self.mq_branch_a_0(stem_2)
+    branch_b_0 = self.mq_branch_b_0(stem_2);  stem_2 = None
+    branch_b_2 = self.mq_branch_b_2(branch_b_0);  branch_b_0 = None
+    cat = torch.cat([branch_a_0, branch_b_2], dim = 1);  branch_a_0 = branch_b_2 = None
+    head_0 = getattr(self.head, "0")(cat);  cat = None
+    head_1 = getattr(self.head, "1")(head_0);  head_0 = None
+    head_2 = self.mq_head_2(head_1);  head_1 = None
+    head_4 = self.mq_head_4(head_2);  head_2 = None
+    return head_4
