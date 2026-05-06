@@ -8,7 +8,6 @@ from paicorelib import (
     CoordXY,
     DataWidth,
     FrameArrayType,
-    NeuronType,
     OfflineCoreRegV2,
     OfflineFrameGenV2,
     find_coordxy_shortest_path,
