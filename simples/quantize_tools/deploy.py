@@ -23,7 +23,7 @@ from .ops import (
 
 __all__ = [
     "DeployLutReLU",
-    "convert_manual_model_to_paiir_ready",
+    "convert_ready_paiir"
 ]
 
 
@@ -265,7 +265,7 @@ def _convert_manual_module(module: nn.Module) -> nn.Module:
     return module
 
 
-def convert_manual_model_to_paiir_ready(
+def convert_ready_paiir(
     manual_model: nn.Module,
 ) -> nn.Module:
     """Rewrite a manual quantized model into a standard PyTorch deploy model.

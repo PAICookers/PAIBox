@@ -1,0 +1,28 @@
+=== Quantized Graph (Tabular) ===
+opcode         name          target                                                          args             kwargs
+-------------  ------------  --------------------------------------------------------------  ---------------  --------
+placeholder    x             x                                                               ()               {}
+call_module    features_0    mq_features_0                                                   (x,)             {}
+call_module    features_2    features.2                                                      (features_0,)    {}
+call_module    features_3    mq_features_3                                                   (features_2,)    {}
+call_module    features_5    features.5                                                      (features_3,)    {}
+call_function  flatten       <built-in method flatten of type object at 0x00007FFE41535A80>  (features_5, 1)  {}
+call_module    classifier_0  mq_classifier_0                                                 (flatten,)       {}
+call_module    classifier_2  mq_classifier_2                                                 (classifier_0,)  {}
+call_module    classifier_4  mq_classifier_4                                                 (classifier_2,)  {}
+output         output        output                                                          (classifier_4,)  {}
+
+=== Generated Code ===
+
+
+
+def forward(self, x : torch.Tensor) -> torch.Tensor:
+    features_0 = self.mq_features_0(x);  x = None
+    features_2 = getattr(self.features, "2")(features_0);  features_0 = None
+    features_3 = self.mq_features_3(features_2);  features_2 = None
+    features_5 = getattr(self.features, "5")(features_3);  features_3 = None
+    flatten = torch.flatten(features_5, 1);  features_5 = None
+    classifier_0 = self.mq_classifier_0(flatten);  flatten = None
+    classifier_2 = self.mq_classifier_2(classifier_0);  classifier_0 = None
+    classifier_4 = self.mq_classifier_4(classifier_2);  classifier_2 = None
+    return classifier_4

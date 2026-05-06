@@ -1,0 +1,86 @@
+{
+  "model": "GraphModule",
+  "layer_count": 5,
+  "layers": [
+    {
+      "name": "mq_features_0",
+      "type": "ManualQuantConvReLU2d",
+      "input": {
+        "scale": 0.02230355495542992,
+        "zp": 0
+      },
+      "weight": {
+        "scale": 0.002591456053778529,
+        "zp": 0
+      },
+      "output": {
+        "scale": 0.031557747698205664,
+        "zp": 0
+      }
+    },
+    {
+      "name": "mq_features_3",
+      "type": "ManualQuantConvReLU2d",
+      "input": {
+        "scale": 0.031557747698205664,
+        "zp": 0
+      },
+      "weight": {
+        "scale": 0.0022612623870372772,
+        "zp": 0
+      },
+      "output": {
+        "scale": 0.03682782706313246,
+        "zp": 0
+      }
+    },
+    {
+      "name": "mq_classifier_0",
+      "type": "ManualQuantLinearReLU",
+      "input": {
+        "scale": 0.03682782706313246,
+        "zp": 0
+      },
+      "weight": {
+        "scale": 0.004293808247894049,
+        "zp": 0
+      },
+      "output": {
+        "scale": 0.06878172506497601,
+        "zp": 0
+      }
+    },
+    {
+      "name": "mq_classifier_2",
+      "type": "ManualQuantLinearReLU",
+      "input": {
+        "scale": 0.06878172506497601,
+        "zp": 0
+      },
+      "weight": {
+        "scale": 0.005104598123580217,
+        "zp": 0
+      },
+      "output": {
+        "scale": 0.13543627581258458,
+        "zp": 0
+      }
+    },
+    {
+      "name": "mq_classifier_4",
+      "type": "ManualQuantLinear",
+      "input": {
+        "scale": 0.13543627581258458,
+        "zp": 0
+      },
+      "weight": {
+        "scale": 0.010312356986105442,
+        "zp": 0
+      },
+      "output": {
+        "scale": 0.2508838383231576,
+        "zp": 0
+      }
+    }
+  ]
+}
