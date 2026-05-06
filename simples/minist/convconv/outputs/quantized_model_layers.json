@@ -1,0 +1,54 @@
+{
+  "model": "GraphModule",
+  "layer_count": 3,
+  "layers": [
+    {
+      "name": "mq_features_0",
+      "type": "ManualQuantConv2d",
+      "input": {
+        "scale": 0.02230355495542992,
+        "zp": 0
+      },
+      "weight": {
+        "scale": 0.012600761838257313,
+        "zp": 0
+      },
+      "output": {
+        "scale": 0.06370092376949281,
+        "zp": 0
+      }
+    },
+    {
+      "name": "mq_features_3",
+      "type": "ManualQuantConv2d",
+      "input": {
+        "scale": 0.06370092376949281,
+        "zp": 0
+      },
+      "weight": {
+        "scale": 0.0040867384523153305,
+        "zp": 0
+      },
+      "output": {
+        "scale": 0.0908605019877276,
+        "zp": 0
+      }
+    },
+    {
+      "name": "mq_classifier",
+      "type": "ManualQuantLinear",
+      "input": {
+        "scale": 0.0908605019877276,
+        "zp": 0
+      },
+      "weight": {
+        "scale": 0.001462631393224001,
+        "zp": 0
+      },
+      "output": {
+        "scale": 0.23551901869886505,
+        "zp": 0
+      }
+    }
+  ]
+}

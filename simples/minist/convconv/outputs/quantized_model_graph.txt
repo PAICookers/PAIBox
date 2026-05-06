@@ -1,0 +1,24 @@
+=== Quantized Graph (Tabular) ===
+opcode         name        target                                                          args             kwargs
+-------------  ----------  --------------------------------------------------------------  ---------------  --------
+placeholder    x           x                                                               ()               {}
+call_module    features_0  mq_features_0                                                   (x,)             {}
+call_module    features_2  features.2                                                      (features_0,)    {}
+call_module    features_3  mq_features_3                                                   (features_2,)    {}
+call_module    features_5  features.5                                                      (features_3,)    {}
+call_function  flatten     <built-in method flatten of type object at 0x00007FFE3DBB5A80>  (features_5, 1)  {}
+call_module    classifier  mq_classifier                                                   (flatten,)       {}
+output         output      output                                                          (classifier,)    {}
+
+=== Generated Code ===
+
+
+
+def forward(self, x : torch.Tensor) -> torch.Tensor:
+    features_0 = self.mq_features_0(x);  x = None
+    features_2 = getattr(self.features, "2")(features_0);  features_0 = None
+    features_3 = self.mq_features_3(features_2);  features_2 = None
+    features_5 = getattr(self.features, "5")(features_3);  features_3 = None
+    flatten = torch.flatten(features_5, 1);  features_5 = None
+    classifier = self.mq_classifier(flatten);  flatten = None
+    return classifier

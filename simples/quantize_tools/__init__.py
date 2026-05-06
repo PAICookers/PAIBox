@@ -24,7 +24,6 @@ from .converter import (
 from .deploy import (
     DeployLutReLU,
     convert_ready_paiir,
-    convert_manual_model_to_paiir_ready,
 )
 
 from .exporter import export_manual_model_params

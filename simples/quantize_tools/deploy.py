@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 
 from paibox.paiir import ANNNodeV25, register_neuron
-from paibox.paiir.ir.lut_activation import LutReLU, LutReLUSymmetric
+from paibox.paiir.ir.lut_activation import LutLinear, LutReLU, LutReLUSymmetric
 
 from .converter import convert_fx_to_manual
 from .ops import (
@@ -49,6 +49,26 @@ class DeployLutReLU(nn.Module):
         return torch.relu(x)
 
 
+class DeployLutLinear(nn.Module):
+    """Leaf activation that lowers to a calibrated LUT-based linear map."""
+
+    _is_leaf_module = True
+
+    def __init__(
+        self,
+        min_val: float,
+        max_val: float,
+        output_sign: int,
+    ) -> None:
+        super().__init__()
+        self.min_val = float(min_val)
+        self.max_val = float(max_val)
+        self.output_sign = int(output_sign)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x
+
+
 def _register_deploy_lut_relu() -> None:
     def _convert_deploy_lut_relu(mod: nn.Module) -> ANNNodeV25:
         deploy_mod = cast(DeployLutReLU, mod)
@@ -82,6 +102,26 @@ def _register_deploy_lut_relu() -> None:
 _register_deploy_lut_relu()
 
 
+def _register_deploy_lut_linear() -> None:
+    def _convert_deploy_lut_linear(mod: nn.Module) -> ANNNodeV25:
+        deploy_mod = cast(DeployLutLinear, mod)
+        return ANNNodeV25(
+            LutLinear(
+                min_val=float(deploy_mod.min_val),
+                max_val=float(deploy_mod.max_val),
+                output_sign=int(deploy_mod.output_sign),
+            )
+        )
+
+    try:
+        register_neuron(DeployLutLinear, _convert_deploy_lut_linear)
+    except ValueError:
+        pass
+
+
+_register_deploy_lut_linear()
+
+
 def _build_deploy_lut_relu(
     s_in: float,
     s_w: float,
@@ -104,6 +144,21 @@ def _build_deploy_lut_relu(
         max_val=lut_scale * 255.0,
         output_sign=0,
         is_symmetric=False,
+    )
+
+
+def _build_deploy_lut_linear(
+    s_in: float,
+    s_w: float,
+    s_out: float,
+) -> DeployLutLinear:
+    s_accum = s_in * s_w
+    lut_scale = s_out / s_accum if s_accum != 0 else 0.0
+
+    return DeployLutLinear(
+        min_val=-lut_scale * 128.0,
+        max_val=lut_scale * 127.0,
+        output_sign=1,
     )
 
 
@@ -197,6 +252,26 @@ def _make_conv_relu_block(
     )
 
 
+def _make_conv_linear_block(
+    module: ManualQuantConv2d,
+) -> nn.Sequential:
+    return nn.Sequential(
+        OrderedDict(
+            [
+                ("conv", _make_conv2d_like(module)),
+                (
+                    "act",
+                    _build_deploy_lut_linear(
+                        module.s_in,
+                        module.s_w,
+                        module.s_out,
+                    ),
+                ),
+            ]
+        )
+    )
+
+
 def _make_linear_relu_block(
     module: ManualQuantLinearReLU,
 ) -> nn.Sequential:
@@ -248,11 +323,11 @@ def _convert_manual_module(module: nn.Module) -> nn.Module:
     if isinstance(module, ManualQuantConvReLU2d):
         return _make_conv_relu_block(module)
 
+    if isinstance(module, ManualQuantConv2d):
+        return _make_conv_linear_block(module)
+
     if isinstance(module, ManualQuantLinearReLU):
         return _make_linear_relu_block(module)
-
-    if isinstance(module, ManualQuantConv2d):
-        return _make_conv2d_like(module)
 
     if isinstance(module, ManualQuantLinear):
         return _make_linear_like(module)
