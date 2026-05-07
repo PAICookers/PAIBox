@@ -544,9 +544,12 @@ class RoutingGroup(
 
             for dest_group, sub_bucket in sub_buckets.items():
                 if isinstance(dest_group, OutputGroup):
+                    print(f"{prefix} neurons with base weight [{index}]: dest is OutputGroup {dest_group.name}, skip fold.")
                     # OutputGroup 的 axon bit 依赖路由后坐标分配，当前阶段不做 fold
                     continue
                 sub_neurons = [neu for neu, _ in sub_bucket]
+                if len(sub_neurons) == 1:
+                    continue
                 weight_offsets = [info.offset for _, info in sub_bucket]
                 axon_addr_offsets = [self.get_dest_info(neu)[1] for neu in sub_neurons]
 
