@@ -124,8 +124,12 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
     ):
         self.nodes: Set[SOURCE_NODE] | None = set(nodes) if nodes is not None else None
         self.raw_elems: list[SOURCE_ELEM] = list(raw_neus)
+        self.used_elems: list[SOURCE_ELEM] = []
         self.elem_set: set[SOURCE_ELEM] = set(raw_neus)
         self.dests: dict[SOURCE_ELEM, "RoutingGroup | OutputGroup| RemapGroup"] = {}
+
+    def update_raw_elems(self):
+        self.raw_elems = self.used_elems
 
     @abstractmethod
     def add_elem(self, elem: SourceElem) -> SourceElem | None:

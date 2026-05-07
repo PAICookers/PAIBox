@@ -17,6 +17,7 @@ from .routing import (
     RemapGroup,
     RoutingGroup,
     toposort_for_rg,
+    SourceElem,
 )
 
 
@@ -79,6 +80,7 @@ class Mapper:
                 grp.set_lcn()
 
         for src_grp in source_groups:
+            useless_elems: list[SourceElem] = []
             for elem in src_grp.raw_elems:
                 dest_found = False
                 # print(f"\nSetting rough dest for neuron {neu} in group {group.name}:")
@@ -92,21 +94,36 @@ class Mapper:
                         if isinstance(elem, RemapElem):
                             assert isinstance(src_grp, RemapGroup)
                             src_grp.dests[elem] = dest_grp
+                            src_grp.used_elems.append(elem)
                         elif isinstance(elem, InputElem):
                             assert isinstance(src_grp, InputGroup)
                             src_grp.dests[elem] = dest_grp
+                            src_grp.used_elems.append(elem)
                         elif isinstance(elem, Neuron):
                             assert isinstance(src_grp, RoutingGroup)
                             src_grp.dests[elem] = dest_grp
+                            src_grp.used_elems.append(elem)
                         else:
                             raise TypeError(
                                 f"Unsupported element type: {type(elem)} in group {src_grp.name}"
                             )
                         break
                 if not dest_found:
-                    raise ValueError(
-                        f"Dest not found for neuron {elem} in group {src_grp.name}"
-                    )
+                    useless_elems.append(elem)
+            dest_strs: list[str] = []
+            if len(useless_elems) > 6:
+                print_elems = useless_elems[:3] + useless_elems[-3:]
+            else:
+                print_elems = useless_elems
+            for elem in print_elems:
+                dest_strs.append(str(elem))
+            if len(useless_elems) > 6:
+                dest_strs = dest_strs[:3] + ["..."] + dest_strs[-3:]
+            if len(useless_elems) > 0:
+                print(f"\nfound {len(useless_elems)} elements not used in group {src_grp.name}:")
+                print("    " + f"\n    ".join(dest_strs))
+
+            src_grp.update_raw_elems()
 
     def routing(self):
         self.routing_groups, next_rg_group = toposort_for_rg(self.groups)
