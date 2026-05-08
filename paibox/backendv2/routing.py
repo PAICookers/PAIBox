@@ -544,12 +544,14 @@ class RoutingGroup(
 
             for dest_group, sub_bucket in sub_buckets.items():
                 if isinstance(dest_group, OutputGroup):
-                    print(f"{prefix} neurons with base weight [{index}]: dest is OutputGroup {dest_group.name}, skip fold.")
+                    print(
+                        f"{prefix} neurons with base weight [{index}]: dest is OutputGroup {dest_group.name}, skip fold."
+                    )
                     # OutputGroup 的 axon bit 依赖路由后坐标分配，当前阶段不做 fold
                     continue
-                sub_neurons = [neu for neu, _ in sub_bucket]
-                if len(sub_neurons) == 1:
+                if len(sub_bucket) <= 1:
                     continue
+                sub_neurons = [neu for neu, _ in sub_bucket]
                 weight_offsets = [info.offset for _, info in sub_bucket]
                 axon_addr_offsets = [self.get_dest_info(neu)[1] for neu in sub_neurons]
 
@@ -558,7 +560,7 @@ class RoutingGroup(
                     continue
                 ranges, fold_axon_skews, fold_weight_skews = fold_info
                 print(
-                    f"{prefix}Find fold neurons with base weight {index} "
+                    f"{prefix}Find fold {len(sub_neurons)} neurons with base weight {index} "
                     f"to dest group {dest_group.name}:"
                 )
                 print(f"{prefix}    fold_range: {ranges}")
@@ -714,13 +716,15 @@ class RoutingGroup(
             group_items, weight_infos
         )
 
-        # import os
-        # os.makedirs("debug_fold_256", exist_ok=True)
-        # with open(f"debug_fold_256/{self.name}_weight_base.txt", "w") as f:
-        #     for weight in base_weights:
-        #         f.write(" ".join(map(str, weight)) + "\n")
-        #     for info in reordered_infos:
-        #         f.write(f"index: {info.index}, offset: {info.offset}\n")
+        import os
+
+        if os.environ.get("DUMP_WEIGHTS", None) == "1":
+            output_dir = os.environ.get("PAIBOX_OUTPUT_PATH", "./weights")
+            with open(f"{output_dir}/weights/{self.name}_weight_base.txt", "w") as f:
+                for weight in base_weights:
+                    f.write(" ".join(map(str, weight)) + "\n")
+                for info in reordered_infos:
+                    f.write(f"index: {info.index}, offset: {info.offset}\n")
 
         print(f"{prefix}trying to fold neurons")
         folded_neurons, current_core, stored_base_weight = self.try_to_fold_neuron(

@@ -7,6 +7,8 @@ from paicorelib import FrameArrayType
 
 from paibox.paiir import PAIIRGraph
 
+from .coreplacement import CorePlacement
+from .global_signal import set_global_signal
 from .group_tile import tile_groups
 from .op_node import AllNode, InputElem, Neuron, RemapElem, build_nodes
 from .rg_build import build_groups
@@ -16,8 +18,8 @@ from .routing import (
     OutputGroup,
     RemapGroup,
     RoutingGroup,
-    toposort_for_rg,
     SourceElem,
+    toposort_for_rg,
 )
 
 
@@ -60,6 +62,7 @@ class Mapper:
         self.nodes: list[AllNode] = []
         self.output_groups: list[OutputGroup] = []
         self.input_groups: list[InputGroup] = []
+        self.coreplacements: list[CorePlacement] = []
 
     def generate_routing_groups(self, pai_graph: PAIIRGraph):
         self.nodes = build_nodes(pai_graph)
@@ -120,8 +123,10 @@ class Mapper:
             if len(useless_elems) > 6:
                 dest_strs = dest_strs[:3] + ["..."] + dest_strs[-3:]
             if len(useless_elems) > 0:
-                print(f"\nfound {len(useless_elems)} elements not used in group {src_grp.name}:")
-                print("    " + f"\n    ".join(dest_strs))
+                print(
+                    f"\nfound {len(useless_elems)} elements not used in group {src_grp.name}:"
+                )
+                print("    " + "\n    ".join(dest_strs))
 
             src_grp.update_raw_elems()
 
@@ -187,19 +192,17 @@ class Mapper:
             frame3_file.write(
                 'volatile unsigned int config_frame3[] __attribute__((section(".large_const_data"))) ={\n'
             )
-            for rg in self.routing_groups:
-                for core_placement in rg.core_placements:
-                    core_frame_type1, core_frame_type2, core_frame_type3 = (
-                        core_placement.to_frame()
-                    )
-                    # export core_frame_type1 and core_frame_type3 to output_path
+            for core_placement in self.coreplacements:
+                core_frame_type1, core_frame_type2, core_frame_type3 = (
+                    core_placement.to_frame()
+                )
+                # export core_frame_type1 and core_frame_type3 to output_path
+                export_framearray_to_bit(core_frame_type1, frame1_file, "\t", base=base)
+                if core_frame_type2 is not None:
                     export_framearray_to_bit(
-                        core_frame_type1, frame1_file, "\t", base=base
+                        core_frame_type2, frame2_file, "\t", base=base
                     )
-                    if core_frame_type2 is not None:
-                        export_framearray_to_bit(
-                            core_frame_type2, frame2_file, "\t", base=base
-                        )
+                if core_frame_type3 is not None:
                     export_framearray_to_bit(
                         core_frame_type3, frame3_file, "\t", base=base
                     )
@@ -215,19 +218,17 @@ class Mapper:
             frame_file.write(
                 'volatile unsigned int config_frame[] __attribute__((section(".large_const_data"))) ={\n'
             )
-            for rg in self.routing_groups:
-                for core_placement in rg.core_placements:
-                    core_frame_type1, core_frame_type2, core_frame_type3 = (
-                        core_placement.to_frame()
-                    )
-                    # export core_frame_type1 and core_frame_type3 to output_path
+            for core_placement in self.coreplacements:
+                core_frame_type1, core_frame_type2, core_frame_type3 = (
+                    core_placement.to_frame()
+                )
+                # export core_frame_type1 and core_frame_type3 to output_path
+                export_framearray_to_bit(core_frame_type1, frame_file, "\t", base=base)
+                if core_frame_type2 is not None:
                     export_framearray_to_bit(
-                        core_frame_type1, frame_file, "\t", base=base
+                        core_frame_type2, frame_file, "\t", base=base
                     )
-                    if core_frame_type2 is not None:
-                        export_framearray_to_bit(
-                            core_frame_type2, frame_file, "\t", base=base
-                        )
+                if core_frame_type3 is not None:
                     export_framearray_to_bit(
                         core_frame_type3, frame_file, "\t", base=base
                     )
@@ -238,28 +239,26 @@ class Mapper:
         os.makedirs(output_path, exist_ok=True)
         frame_path = output_path + "/frame_type.txt"
         with (open(frame_path, "w") as frame_file,):
-            for rg in self.routing_groups:
-                for core_placement in rg.core_placements:
-                    frame_file.write(
-                        f"# Core at coord ({core_placement.coord.x}, {core_placement.coord.y}):\n"
-                    )
+            for core_placement in self.coreplacements:
+                frame_file.write(
+                    f"# Core at coord ({core_placement.coord.x}, {core_placement.coord.y}):\n"
+                )
 
-                    core_frame_type1, core_frame_type2, core_frame_type3 = (
-                        core_placement.to_frame()
-                    )
-                    # export core_frame_type1 and core_frame_type3 to output_path
-                    # framearray is np.ndarray of np.uint64 with shape (n_frames, )
-                    # print each frame with 16 hex digits each line
-                    frame_file.write("\ttype1:\n")
+                core_frame_type1, core_frame_type2, core_frame_type3 = (
+                    core_placement.to_frame()
+                )
+                # export core_frame_type1 and core_frame_type3 to output_path
+                # framearray is np.ndarray of np.uint64 with shape (n_frames, )
+                # print each frame with 16 hex digits each line
+                frame_file.write("\ttype1:\n")
+                export_single_framearray(core_frame_type1, frame_file, prefix="\t\t0x")
+                frame_file.write("\ttype2:\n")
+                if core_frame_type2 is not None:
                     export_single_framearray(
-                        core_frame_type1, frame_file, prefix="\t\t0x"
+                        core_frame_type2, frame_file, prefix="\t\t0x"
                     )
-                    frame_file.write("\ttype2:\n")
-                    if core_frame_type2 is not None:
-                        export_single_framearray(
-                            core_frame_type2, frame_file, prefix="\t\t0x"
-                        )
-                    frame_file.write("\ttype3:\n")
+                frame_file.write("\ttype3:\n")
+                if core_frame_type3 is not None:
                     export_single_framearray(
                         core_frame_type3, frame_file, prefix="\t\t0x"
                     )
@@ -274,34 +273,39 @@ class Mapper:
             open(frame2_path, "w") as frame2_file,
             open(frame3_path, "w") as frame3_file,
         ):
-            for rg in self.routing_groups:
-                for core_placement in rg.core_placements:
-                    frame1_file.write(
-                        f"# Core at coord ({core_placement.coord.x}, {core_placement.coord.y}):\n"
-                    )
-                    frame2_file.write(
-                        f"# Core at coord ({core_placement.coord.x}, {core_placement.coord.y}):\n"
-                    )
-                    frame3_file.write(
-                        f"# Core at coord ({core_placement.coord.x}, {core_placement.coord.y}):\n"
-                    )
+            for core_placement in self.coreplacements:
+                frame1_file.write(
+                    f"# Core at coord ({core_placement.coord.x}, {core_placement.coord.y}):\n"
+                )
+                frame2_file.write(
+                    f"# Core at coord ({core_placement.coord.x}, {core_placement.coord.y}):\n"
+                )
+                frame3_file.write(
+                    f"# Core at coord ({core_placement.coord.x}, {core_placement.coord.y}):\n"
+                )
 
-                    core_frame_type1, core_frame_type2, core_frame_type3 = (
-                        core_placement.to_frame()
-                    )
-                    # export core_frame_type1 and core_frame_type3 to output_path
-                    # framearray is np.ndarray of np.uint64 with shape (n_frames, )
-                    # print each frame with 16 hex digits each line
+                core_frame_type1, core_frame_type2, core_frame_type3 = (
+                    core_placement.to_frame()
+                )
+                # export core_frame_type1 and core_frame_type3 to output_path
+                # framearray is np.ndarray of np.uint64 with shape (n_frames, )
+                # print each frame with 16 hex digits each line
+                export_single_framearray(core_frame_type1, frame1_file, prefix="\t0x")
+                if core_frame_type2 is not None:
                     export_single_framearray(
-                        core_frame_type1, frame1_file, prefix="\t0x"
+                        core_frame_type2, frame2_file, prefix="\t0x"
                     )
-                    if core_frame_type2 is not None:
-                        export_single_framearray(
-                            core_frame_type2, frame2_file, prefix="\t0x"
-                        )
+                if core_frame_type3 is not None:
                     export_single_framearray(
                         core_frame_type3, frame3_file, prefix="\t0x"
                     )
+
+    def export_meta_info(self, output_path: str, info: dict):
+        os.makedirs(output_path, exist_ok=True)
+        meta_info_path = output_path + "/meta_info.txt"
+        with open(meta_info_path, "w") as meta_file:
+            for key, value in info.items():
+                meta_file.write(f"{key}: {value}\n")
 
     def compile(
         self,
@@ -372,15 +376,23 @@ class Mapper:
 
         self.set_detail_dest()
 
+        for rg in self.routing_groups:
+            self.coreplacements.extend(rg.core_placements)
+
         self.set_auto_core_config()
+
+        self.coreplacements, global_start_coord = set_global_signal(self.coreplacements)
 
         # export to hardware executable format
         if output_path is None:
             env_output_path = os.environ.get("PAIBOX_OUTPUT_PATH")
             if env_output_path is not None:
-                output_path = env_output_path
+                output_path = os.path.join(env_output_path, "frame_out")
             else:
                 output_path = "./output"
+        self.export_meta_info(
+            output_path=output_path, info={"global_start_coord": global_start_coord}
+        )
         self.export(output_path=output_path)
         self.export_merge(output_path=output_path)
         self.export_cheader_file(output_path=output_path, base=base)

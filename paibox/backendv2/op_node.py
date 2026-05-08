@@ -706,12 +706,14 @@ def build_nodes(graph: PAIIRGraph) -> list[AllNode]:
         print(f"\tSuccessors: {[succ.name for succ in node.successors]}")
 
     insert_padding_nodes(nodes)
+    set_io_bit_num(nodes)
 
     for node in nodes:
         print(f"Node {node.name}({node.shape}):")
         print(f"\tPredecessors: {[pred.name for pred in node.predecessors]}")
         print(f"\tSuccessors: {[succ.name for succ in node.successors]}")
-
-    set_io_bit_num(nodes)
+        print(
+            f"\tInput bit num: {node.input_bit_num}, Output bit num: {node.output_bit_num}"
+        )
 
     return nodes
