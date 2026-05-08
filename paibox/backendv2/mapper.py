@@ -126,7 +126,7 @@ class Mapper:
                 print(
                     f"\nfound {len(useless_elems)} elements not used in group {src_grp.name}:"
                 )
-                print("    " + f"\n    ".join(dest_strs))
+                print("    " + "\n    ".join(dest_strs))
 
             src_grp.update_raw_elems()
 
@@ -299,6 +299,7 @@ class Mapper:
                     export_single_framearray(
                         core_frame_type3, frame3_file, prefix="\t0x"
                     )
+
     def export_meta_info(self, output_path: str, info: dict):
         os.makedirs(output_path, exist_ok=True)
         meta_info_path = output_path + "/meta_info.txt"
@@ -389,7 +390,9 @@ class Mapper:
                 output_path = os.path.join(env_output_path, "frame_out")
             else:
                 output_path = "./output"
-        self.export_meta_info(output_path=output_path, info = {"global_start_coord": global_start_coord})
+        self.export_meta_info(
+            output_path=output_path, info={"global_start_coord": global_start_coord}
+        )
         self.export(output_path=output_path)
         self.export_merge(output_path=output_path)
         self.export_cheader_file(output_path=output_path, base=base)

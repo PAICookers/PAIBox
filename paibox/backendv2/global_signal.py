@@ -75,7 +75,7 @@ def path_points(a: tuple[int, int], b: tuple[int, int]):
                 chosen = (ddx, ddy)
                 break
         if chosen is None:
-            raise RuntimeError(f"No progress from {(cx,cy)} towards {b}")
+            raise RuntimeError(f"No progress from {(cx, cy)} towards {b}")
         cx, cy = cx + chosen[0], cy + chosen[1]
         pts.append((cx, cy))
     return pts
@@ -171,10 +171,12 @@ def print_solution(order, added, moves):
     print("added empty cores:", added)
     print("send dirctions:")
     for p, ds in moves.items():
-        print(f"  {p} -> {[DIRS_NAME[d]+f":{d}" for d in ds]}")
+        print(f"  {p} -> {[DIRS_NAME[d] + f':{d}' for d in ds]}")
 
 
-def set_global_signal(coreplacements: list[CorePlacement]) -> tuple[list[CorePlacement], CoordXY]:
+def set_global_signal(
+    coreplacements: list[CorePlacement],
+) -> tuple[list[CorePlacement], CoordXY]:
     # global signal 目前只包含 weight 地址范围,且所有 coreplacement 共用
     points: list[tuple[int, int]] = []
     cp_dict: dict[tuple[int, int], CorePlacement] = {}
@@ -190,21 +192,21 @@ def set_global_signal(coreplacements: list[CorePlacement]) -> tuple[list[CorePla
         cp_dict[p] = empty_cp
         coreplacements.append(empty_cp)
         print(f"Added global signal core at {p}")
-    
+
     receive_info = defaultdict(list)
-    
+
     for p, send_directions in send_info.items():
         for d in send_directions:
             dest = (p[0] + d[0], p[1] + d[1])
             receive_info[dest].append(RESERVE_DIRS[d])
-    
+
     print("\nSend Direction:")
     for p, send_dirs in send_info.items():
-        print(f"    {p}: {[DIRS_NAME[d]+f':{d}' for d in send_dirs]}")
-    
+        print(f"    {p}: {[DIRS_NAME[d] + f':{d}' for d in send_dirs]}")
+
     print("\nReceive Direction:")
     for p, recv_dirs in receive_info.items():
-        print(f"    {p}: {[DIRS_NAME[d]+f':{d}' for d in recv_dirs]}")
+        print(f"    {p}: {[DIRS_NAME[d] + f':{d}' for d in recv_dirs]}")
 
     for p, cp in cp_dict.items():
         send_directions = send_info.get(p, [])
