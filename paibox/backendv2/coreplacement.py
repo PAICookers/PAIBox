@@ -39,6 +39,7 @@ class CorePlacement:
             []
         )  # weight of each single neu, can reuse for different single neu
         self.neu_weight_map: dict[int, int] = {}  # map from neu index to weight index
+        self.auto_core_config: Auto_Core_Config = Auto_Core_Config()
 
     def max_input_num(self) -> int:
         max_input_num = 0
@@ -103,7 +104,6 @@ class OfflineCorePlacementV2(CorePlacement):
         self.frontend_core_config: Frontend_Core_Config = frontend_core_config
         self.backend_core_config: Backend_Core_Config = backend_core_config
         self.default_core_config: Default_Core_Config = Default_Core_Config()
-        self.auto_core_config: Auto_Core_Config = Auto_Core_Config()
         self.neus: list[OfflineNeuronPlacement] = []
 
     @property
@@ -220,4 +220,14 @@ class OfflineCorePlacementV2(CorePlacement):
 
 
 class EmptyOfflineCorePlacementV2(OfflineCorePlacementV2):
-    pass
+    def to_frame(
+        self,
+    ) -> tuple[FrameArrayType, FrameArrayType | None, FrameArrayType | None]:
+        pkt_offset, _ = find_coordxy_shortest_path(self.coord)
+
+        # frame_type_1: core config
+        frame_type1 = OfflineFrameGenV2.gen_config_frame1(
+            pkt_offset=pkt_offset,
+            core_reg_=self.core_config,
+        )
+        return frame_type1, None, None
