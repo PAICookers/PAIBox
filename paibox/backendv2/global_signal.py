@@ -1,6 +1,6 @@
 from collections import defaultdict
 
-from paicorelib.coordinate import CoordXY
+from paicorelib import CoordXY, CoordZXYOffset, find_coordxy_shortest_path
 
 from .coreplacement import CorePlacement, EmptyOfflineCorePlacementV2
 
@@ -176,8 +176,10 @@ def print_solution(order, added, moves):
 
 def set_global_signal(
     coreplacements: list[CorePlacement],
-) -> tuple[list[CorePlacement], CoordXY]:
+) -> tuple[list[CorePlacement], dict[int, CoordZXYOffset]]:
     # global signal 目前只包含 weight 地址范围,且所有 coreplacement 共用
+    # only one thread now, add support for multiple threads later if needed
+
     points: list[tuple[int, int]] = []
     cp_dict: dict[tuple[int, int], CorePlacement] = {}
     for cp in coreplacements:
@@ -225,6 +227,8 @@ def set_global_signal(
         print(
             f"Core at {p} global_send: {global_send:07b}, global_receive: {global_receive:07b}"
         )
-    start_coord = order[0]
+    start_coord = CoordXY(*order[0])
     print(f"Global signal start from {start_coord}")
-    return coreplacements, CoordXY(*start_coord)
+    start_coord_offset, _ = find_coordxy_shortest_path(start_coord)
+    print(f"Global signal relative offset: {start_coord_offset}")
+    return coreplacements, {0: start_coord_offset}

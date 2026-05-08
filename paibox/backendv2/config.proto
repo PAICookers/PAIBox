@@ -1,0 +1,95 @@
+syntax = "proto3";
+
+package io_export;
+
+message Shape {
+    repeated int32 size = 1;
+}
+
+message InputInfo {
+    optional string name = 1;
+    optional Shape shape = 2;
+}
+
+message OutputInfo {
+    optional string name = 1;
+    optional Shape shape = 2;
+}
+
+message InputEntry {
+    optional int32 idx = 1;
+    optional int32 copy_id = 2;
+    optional int32 bit_num = 3;
+    optional int32 tick_relative = 4;
+    optional int32 addr_axon = 5;
+    optional int32 addr_core_xy = 6;
+    optional int32 addr_core_x = 7;
+    optional int32 addr_core_y = 8;
+    optional int32 addr_copy_xy = 9;
+    optional int32 addr_copy_x = 10;
+    optional int32 addr_copy_y = 11;
+    optional int32 target_lcn = 12;
+}
+
+message OutputEntry {
+    optional int32 idx = 1;
+    optional int32 copy_id = 2;
+    optional int32 bit_num = 3;
+    optional int32 axon_addr = 4;
+}
+
+message Relative_Coord {
+    optional int32 xy = 1;
+    optional int32 x = 2;
+    optional int32 y = 3;
+}
+
+message InputEntryList {
+    repeated InputEntry entry = 1;
+}
+
+message OutputEntryList {
+    repeated OutputEntry entry = 1;
+}
+
+message InputInfoWithEntry{
+    optional string name = 1;
+    optional Shape shape = 2;
+    InputEntryList input_entry_list = 3;   
+}
+
+message OutputInfoWithEntry{
+    optional string name = 1;
+    optional Shape shape = 2;
+    OutputEntryList output_entry_list = 3;   
+}
+
+message InputInfoList {
+    repeated InputInfoWithEntry input_info = 1;
+}
+
+message OutputInfoList {
+    repeated OutputInfoWithEntry output_info = 1;
+}
+
+message IOConfigSingleThread {
+    optional int32 thread_id = 1;
+    optional Relative_Coord root_core = 2;
+    optional InputInfoList input_info_list = 3;
+    optional OutputInfoList output_info_list = 4;
+}
+
+message IOConfig {
+    repeated IOConfigSingleThread thread_io = 1;
+}
+
+message FrameList {
+    repeated uint32 frame = 1;
+}
+
+message Config {
+    int32 version = 1;
+    IOConfig io_config = 2;
+    FrameList frame_list = 3;
+}
+

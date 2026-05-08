@@ -1,12 +1,22 @@
 from __future__ import annotations
 
+import importlib.util
 import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from types import ModuleType
 from typing import TextIO
 
-from paicorelib import FrameArrayType
+import numpy as np
+import torch
+from google.protobuf import text_format
+from paicorelib import CoordZXYOffset, FrameArrayType, find_coordxy_shortest_path
 
 from paibox.paiir import PAIIRGraph
 
+from .config_pb2 import Config, InputInfoWithEntry, OutputInfoWithEntry
 from .coreplacement import CorePlacement
 from .global_signal import set_global_signal
 from .group_tile import tile_groups
@@ -55,6 +65,18 @@ def export_framearray_to_bit(
         file.write(f"{prefix}{high_str},{low_str},\n")
 
 
+def export_framearray_to_int32(
+    frame_array: FrameArrayType,
+) -> list[int]:
+    result = []
+    for frame in frame_array:
+        low32 = frame & 0xFFFFFFFF
+        high32 = (frame >> 32) & 0xFFFFFFFF
+        result.append(low32)
+        result.append(high32)
+    return result
+
+
 class Mapper:
     def __init__(self):
         self.groups: list[RoutingGroup | RemapGroup] = []
@@ -63,6 +85,7 @@ class Mapper:
         self.output_groups: list[OutputGroup] = []
         self.input_groups: list[InputGroup] = []
         self.coreplacements: list[CorePlacement] = []
+        self.global_starts: dict[int, CoordZXYOffset] = {}
 
     def generate_routing_groups(self, pai_graph: PAIIRGraph):
         self.nodes = build_nodes(pai_graph)
@@ -307,6 +330,174 @@ class Mapper:
             for key, value in info.items():
                 meta_file.write(f"{key}: {value}\n")
 
+    def _load_pb2_module(self, proto_path: str):
+        proto_dir = os.path.dirname(os.path.abspath(proto_path))
+        proto_name = os.path.splitext(os.path.basename(proto_path))[0]
+        out_dir = tempfile.mkdtemp(prefix="pb_gen_")
+
+        print(f"Compiling proto file {proto_path} to Python module...")
+        print(
+            f"Proto dir: {proto_dir}, Proto name: {proto_name}, Output dir: {out_dir}"
+        )
+
+        try:
+            subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "grpc_tools.protoc",
+                    f"--proto_path={proto_dir}",
+                    f"--python_out={out_dir}",
+                    proto_path,
+                ],
+                check=True,
+            )
+        except (FileNotFoundError, ModuleNotFoundError) as e:
+            raise RuntimeError("需要 grpcio-tools: pip install grpcio-tools") from e
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"protoc 编译失败: {e}") from e
+
+        pb2_file = os.path.join(out_dir, f"{proto_name}_pb2.py")
+        spec = importlib.util.spec_from_file_location(f"{proto_name}_pb2", pb2_file)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module
+
+    def export_proto(self, output_path: str):
+        os.makedirs(output_path, exist_ok=True)
+
+        pb_path = os.path.join(output_path, "config.pb")
+        pb_text_path = os.path.join(output_path, "config.txt")
+
+        current_file = os.path.abspath(__file__)
+        current_dir = os.path.dirname(current_file)
+
+        # 4. 需要复制的文件列表
+        files_to_copy = ["config.proto", "config_pb2.pyi", "config_pb2.py"]
+
+        # 5. 执行复制
+        for file_name in files_to_copy:
+            src_file = os.path.join(current_dir, file_name)
+            dest_file = os.path.join(output_path, file_name)
+
+            if os.path.exists(src_file):
+                shutil.copy2(src_file, dest_file)
+                print(f"已复制: {file_name} -> {output_path}")
+            else:
+                print(f"跳过: 未找到文件 {src_file}")
+
+        # proto_path = os.path.join(current_dir, "config.proto")
+        # pb2 = self._load_pb2_module(proto_path)
+        # cfg = pb2.Config()
+
+        cfg = Config()
+
+        cfg.version = 1
+
+        io_config = cfg.io_config
+
+        for thread_id, global_start in self.global_starts.items():
+            single_thread_io_config = io_config.thread_io.add()
+            single_thread_io_config.thread_id = 0
+            single_thread_io_config.root_core.xy = global_start.z
+            single_thread_io_config.root_core.x = global_start.x
+            single_thread_io_config.root_core.y = global_start.y
+
+            input_info_with_entry_dict: dict[str, InputInfoWithEntry] = {}
+
+            for in_grp in self.input_groups:
+                if in_grp.thread_id != thread_id:
+                    continue
+                for elem, dest in in_grp.dest_infos.items():
+                    input_name = elem.target.raw_node.name
+                    if input_name not in input_info_with_entry_dict:
+                        info_with_entry = (
+                            single_thread_io_config.input_info_list.input_info.add()
+                        )
+                        info_with_entry.name = input_name
+                        info_with_entry.shape.size.extend(list(elem.target.shape))
+                        input_info_with_entry_dict[input_name] = info_with_entry
+
+                    info_with_entry = input_info_with_entry_dict[input_name]
+                    entry_list = info_with_entry.input_entry_list
+                    entry = entry_list.entry.add()
+                    entry.idx = elem.index.idx
+                    entry.copy_id = elem.index.copy_id
+                    entry.bit_num = elem.output_bit_num
+                    entry.tick_relative = dest.tick_relative
+                    entry.addr_axon = dest.addr_axon
+                    entry.addr_core_xy = dest.addr_core_xy
+                    entry.addr_core_x = dest.addr_core_x
+                    entry.addr_core_y = dest.addr_core_y
+                    entry.addr_copy_xy = dest.addr_copy_xy
+                    entry.addr_copy_x = dest.addr_copy_x
+                    entry.addr_copy_y = dest.addr_copy_y
+                    entry.target_lcn = in_grp.dest_lcn[elem]
+
+            output_info_with_entry_dict: dict[str, OutputInfoWithEntry] = {}
+            for out_grp in self.output_groups:
+                if out_grp.thread_id != thread_id:
+                    continue
+                for bit_count, elem in sorted(
+                    out_grp.axon_bit_allocator.axon_infos, key=lambda item: item[0]
+                ):
+                    output_name = elem.target.raw_node.name
+                    if output_name not in output_info_with_entry_dict:
+                        info_with_entry = (
+                            single_thread_io_config.output_info_list.output_info.add()
+                        )
+                        info_with_entry.name = output_name
+                        info_with_entry.shape.size.extend(list(elem.target.shape))
+                        output_info_with_entry_dict[output_name] = info_with_entry
+
+                    info_with_entry = output_info_with_entry_dict[output_name]
+                    entry_list = info_with_entry.output_entry_list
+                    entry = entry_list.entry.add()
+                    entry.idx = elem.index.idx
+                    entry.copy_id = elem.index.copy_id
+                    entry.bit_num = elem.output_bit_num
+                    entry.axon_addr = bit_count
+
+        for core_placement in self.coreplacements:
+            core_frame_type1, core_frame_type2, core_frame_type3 = (
+                core_placement.to_frame()
+            )
+            cfg.frame_list.frame.extend(export_framearray_to_int32(core_frame_type1))
+            if core_frame_type2 is not None:
+                cfg.frame_list.frame.extend(
+                    export_framearray_to_int32(core_frame_type2)
+                )
+            if core_frame_type3 is not None:
+                cfg.frame_list.frame.extend(
+                    export_framearray_to_int32(core_frame_type3)
+                )
+
+        # 4) 序列化二进制
+        with open(pb_path, "wb") as f:
+            f.write(cfg.SerializeToString())
+
+        # 5) 序列化文本
+        with open(pb_text_path, "w") as f:
+            f.write(text_format.MessageToString(cfg))
+
+        return pb_path
+
+    def export_frame_numpy(self, output_path: str):
+        os.makedirs(output_path, exist_ok=True)
+        frames = []
+        for idx, core_placement in enumerate(self.coreplacements):
+            core_frame_type1, core_frame_type2, core_frame_type3 = (
+                core_placement.to_frame()
+            )
+            frames.append(core_frame_type1)
+            if core_frame_type2 is not None:
+                frames.append(core_frame_type2)
+            if core_frame_type3 is not None:
+                frames.append(core_frame_type3)
+        all_frames = np.concatenate(frames, axis=0)
+        np.save(os.path.join(output_path, "frames.npy"), all_frames)
+
     def compile(
         self,
         pai_graph: PAIIRGraph,
@@ -381,7 +572,10 @@ class Mapper:
 
         self.set_auto_core_config()
 
-        self.coreplacements, global_start_coord = set_global_signal(self.coreplacements)
+        self.coreplacements, self.global_starts = set_global_signal(self.coreplacements)
+        print(f"Global signal relative offset:")
+        for thread_id, offset in self.global_starts.items():
+            print(f"    Thread {thread_id}: {offset}")
 
         # export to hardware executable format
         if output_path is None:
@@ -390,22 +584,11 @@ class Mapper:
                 output_path = os.path.join(env_output_path, "frame_out")
             else:
                 output_path = "./output"
-        self.export_meta_info(
-            output_path=output_path, info={"global_start_coord": global_start_coord}
-        )
         self.export(output_path=output_path)
         self.export_merge(output_path=output_path)
         self.export_cheader_file(output_path=output_path, base=base)
         self.export_cheader_merge(output_path=output_path, base=base)
+        self.export_frame_numpy(output_path=output_path)
+        # self.export_io(output_path=output_path)
 
-        # for in_grp in self.input_groups:
-        #     for elem, dest in in_grp.dest_infos.items():
-        #         print(
-        #             f"Input element {elem}({elem.output_bit_num} bits) sends to dest \n\t{dest}"
-        #         )
-
-        # for out_grp in self.output_groups:
-        #     for coord, bit_map in out_grp.axon_bit_map.items():
-        #         print(f"Output from coord {coord} receives bits:")
-        #         for bit_count, elem in bit_map:
-        #             print(f"\t[{bit_count}]{elem}({elem.output_bit_num} bits)")
+        self.export_proto(output_path=output_path)

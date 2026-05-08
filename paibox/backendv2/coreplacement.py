@@ -67,7 +67,7 @@ class CorePlacement:
     @abstractmethod
     def to_frame(
         self,
-    ) -> tuple[FrameArrayType, FrameArrayType | None, FrameArrayType]:
+    ) -> tuple[FrameArrayType, FrameArrayType | None, FrameArrayType | None]:
         pass
 
     @abstractmethod
