@@ -1,0 +1,91 @@
+syntax = "proto3";
+
+package backendv2;
+
+message CoreOffset {
+    optional int32 xy = 1;
+    optional int32 x = 2;
+    optional int32 y = 3;
+}
+
+message CopyCount {
+    optional int32 xy = 1;
+    optional int32 x = 2;
+    optional int32 y = 3;
+}
+
+message InputEntry {
+    /* Logical element index within the exported input tensor. */
+    optional uint32 elem_idx = 1;
+    CoreOffset core_offset = 2;
+    CopyCount copy_count = 3;
+    optional uint32 tick_relative = 4;
+    optional uint32 addr_axon = 5;
+    optional uint32 target_lcn = 6;
+    /* Logical copy id introduced by tiling/folding; unrelated to Copy_XY / Copy_X / Copy_Y. */
+    optional uint32 copy_id = 7;
+    /* Bit width of the exported logical element. */
+    optional uint32 bit_width = 8;
+}
+
+message OutputEntry {
+    optional uint32 elem_idx = 1;
+    optional uint32 copy_id = 2;
+    optional uint32 bit_width = 3;
+    /* Flat output axon bit index allocated by OutputAxonAllocator. */
+    optional uint32 axon_bit_idx = 4;
+}
+
+message Shape {
+    repeated int32 size = 1;
+}
+
+message InputTensorMapping {
+    string name = 1;
+    Shape shape = 2;
+    repeated InputEntry entries = 3;
+}
+
+message OutputTensorMapping {
+    string name = 1;
+    Shape shape = 2;
+    repeated OutputEntry entries = 3;
+}
+
+message InputTensorMappings {
+    repeated InputTensorMapping items = 1;
+}
+
+message OutputTensorMappings {
+    repeated OutputTensorMapping items = 1;
+}
+
+message ThreadIOMapping {
+    optional uint32 thread_id = 1;
+    /* Relative offset of the group-thread global-signal root core. */
+    CoreOffset root_core_offset = 2;
+    InputTensorMappings input_mappings = 3;
+    OutputTensorMappings output_mappings = 4;
+}
+
+message IOMapping {
+    repeated ThreadIOMapping threads = 1;
+}
+
+message ConfigFrames {
+    enum WordOrder {
+        HIGH_FIRST = 0;
+        LOW_FIRST = 1;
+    }
+
+    /* Flattened 32-bit words split from exported 64-bit config frames. */
+    repeated uint32 words = 1;
+    /* Order of the 32-bit words within each logical 64-bit config frame. */
+    WordOrder word_order = 2;
+}
+
+message CompileArtifacts {
+    uint32 schema_version = 1;
+    IOMapping io_mapping = 2;
+    ConfigFrames config_frames = 3;
+}
