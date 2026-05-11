@@ -10,13 +10,23 @@ Pipeline:
 
 Example::
 
-    from paibox.paiir import torch_to_paiir, register_neuron, ANNNodeV25
+    from paibox.paiir import (
+        ANNNodeV25,
+        register_module,
+        register_neuron,
+        torch_to_paiir,
+    )
 
-    # Register a custom neuron type before conversion
+    # Register a custom neuron type before conversion. The converter may
+    # return a CoreNeuronV25 directly, or a LUT activation that is wrapped as
+    # ANNNodeV25 for deployment.
     register_neuron(
         MyNeuron,
         converter=lambda m: ANNNodeV25(LutCustom(...)),
     )
+
+    # Register a custom compute module by converting it into a canonical module
+    register_module(MyCustomConv, converter=lambda m: nn.Conv2d(...))
 
     # With shape inference
     graph = torch_to_paiir(model, torch.randn(1, 3, 32, 32))
@@ -33,7 +43,7 @@ import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from functools import partial
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 import torch
 from spikingjelly.activation_based import neuron
@@ -94,7 +104,7 @@ else:
     from typing_extensions import deprecated
 
 
-__all__ = ["torch_to_paiir", "register_neuron"]
+__all__ = ["torch_to_paiir", "register_module", "register_neuron"]
 
 _M = TypeVar("_M", bound=nn.Module)
 
@@ -137,7 +147,7 @@ def _has_nonzero_padding(padding: Any) -> bool:
     return int(padding) != 0
 
 
-def _unsupported_avgpool_description(m: nn.Module) -> str | None:
+def _describe_avgpool_lowering_issue(m: nn.Module) -> str | None:
     if not isinstance(m, (nn.AvgPool1d, nn.AvgPool2d)):
         return None
 
@@ -175,11 +185,82 @@ def _map_sj_lifnode(m: neuron.LIFNode, **kwargs) -> StandaloneActOp:
     )
 
 
+NeuronConverterResult = CoreNeuronV25 | LutActivation
+
+
+def _normalize_neuron_converter_result(
+    module_type: type[nn.Module], converted: NeuronConverterResult
+) -> CoreNeuronV25:
+    if isinstance(converted, CoreNeuronV25):
+        return converted.clone()
+
+    if isinstance(converted, LutActivation):
+        return ANNNodeV25(copy.deepcopy(converted))
+
+    raise TypeError(
+        "register_neuron converter must return a CoreNeuronV25 or "
+        f"LutActivation, got {type(converted).__name__} for {module_type.__name__}"
+    )
+
+
 def _build_standalone_act_mapper(
-    _: type[_M], cvt: Callable[[_M], CoreNeuronV25]
-) -> Callable[[_M], OpNode]:
-    def wrapper(m: _M) -> OpNode:
-        return StandaloneActOp(cvt(m))
+    module_type: type[_M], cvt: Callable[[_M], NeuronConverterResult]
+) -> Callable[[nn.Module], OpNode]:
+    def wrapper(m: nn.Module) -> OpNode:
+        if not isinstance(m, module_type):
+            raise TypeError(f"expected {module_type.__name__}, got {type(m).__name__}")
+        return StandaloneActOp(_normalize_neuron_converter_result(module_type, cvt(m)))
+
+    return wrapper
+
+
+def _ensure_supported_canonical_module(
+    module_type: type[nn.Module], canonical: nn.Module
+) -> nn.Module:
+    if not isinstance(canonical, nn.Module):
+        raise TypeError(
+            "register_module converter must return an nn.Module, "
+            f"got {type(canonical).__name__} for {module_type.__name__}"
+        )
+
+    if (
+        _is_lowering_bypass_module(canonical)
+        or type(canonical) not in _DEFAULT_MODULE_MAP
+    ):
+        raise TypeError(
+            "register_module converter must return a builtin canonical module "
+            "supported by PAIIR lowering, "
+            f"got unsupported {type(canonical).__name__}"
+        )
+
+    if (avgpool_issue := _describe_avgpool_lowering_issue(canonical)) is not None:
+        raise TypeError(
+            "register_module converter returned an unsupported "
+            f"canonical module: {avgpool_issue}"
+        )
+
+    return canonical
+
+
+def _map_supported_canonical_module(canonical: nn.Module) -> OpNode:
+    mapper = _DEFAULT_MODULE_MAP[type(canonical)]
+    ir_node = mapper(canonical)
+    if not isinstance(ir_node, OpNode):
+        raise TypeError(
+            "register_module converter returned a canonical module that lowers "
+            "as a bypass, which is not allowed"
+        )
+    return ir_node
+
+
+def _build_module_mapper(
+    module_type: type[_M], cvt: Callable[[_M], nn.Module]
+) -> Callable[[nn.Module], OpNode]:
+    def wrapper(m: nn.Module) -> OpNode:
+        if not isinstance(m, module_type):
+            raise TypeError(f"expected {module_type.__name__}, got {type(m).__name__}")
+        canonical = _ensure_supported_canonical_module(module_type, cvt(m))
+        return _map_supported_canonical_module(canonical)
 
     return wrapper
 
@@ -765,12 +846,14 @@ class _EraseModuleTransformer(fx.Transformer):
 
 
 def register_neuron(
-    module_type: type[_M], converter: Callable[[_M], CoreNeuronV25]
+    module_type: type[_M], converter: Callable[[_M], NeuronConverterResult]
 ) -> None:
-    """Register a custom neuron type for PAIIR conversion.
+    """Register a custom neuron/activation type for PAIIR conversion.
 
-    The converter receives the PyTorch module and must return a
-    :class:`CoreNeuronV25` with appropriate chip parameters.
+    This is the compatibility layer for deploy-facing neuron operators. The
+    converter receives the PyTorch module and must return either a
+    :class:`CoreNeuronV25` with appropriate chip parameters, or a
+    :class:`LutActivation` that will be wrapped as ``ANNNodeV25(lut)``.
     """
     if module_type in _USER_MODULE_MAP:
         raise ValueError(
@@ -779,6 +862,26 @@ def register_neuron(
         )
 
     _USER_MODULE_MAP[module_type] = _build_standalone_act_mapper(module_type, converter)
+
+
+def register_module(
+    module_type: type[_M], converter: Callable[[_M], nn.Module]
+) -> None:
+    """Register a custom module by converting it to a canonical module.
+
+    The converter receives the user module instance and must return a canonical
+    module already supported by PAIIR lowering, such as ``nn.Conv1d``,
+    ``nn.Conv2d``, ``nn.Linear``, pool modules, builtin activations, or PAIIR
+    neuron/LUT modules. This API intentionally does not guess field names or
+    quantization expressions from custom modules.
+    """
+    if module_type in _USER_MODULE_MAP:
+        raise ValueError(
+            f"Module type {module_type} is already registered. "
+            f"Overriding existing registrations is not allowed."
+        )
+
+    _USER_MODULE_MAP[module_type] = _build_module_mapper(module_type, converter)
 
 
 def torch_to_paiir(
@@ -1025,10 +1128,8 @@ def _apply_module_lowering_rule(
         ctx.bypass_nodes.add(node)
         return True
 
-    if (
-        unsupported_avgpool := _unsupported_avgpool_description(torch_module)
-    ) is not None:
-        _mark_unsupported(ctx, node, unsupported_avgpool, strict)
+    if (avgpool_issue := _describe_avgpool_lowering_issue(torch_module)) is not None:
+        _mark_unsupported(ctx, node, avgpool_issue, strict)
         return True
 
     if (mod_type := type(torch_module)) in module_map:

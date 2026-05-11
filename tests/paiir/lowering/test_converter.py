@@ -4,8 +4,9 @@ import warnings
 
 import pytest
 import torch
+import torch.nn.functional as F
 from spikingjelly.activation_based import neuron as sj
-from torch import nn
+from torch import Tensor, nn
 
 from paibox.paiir.exceptions import UnsupportedOpError, UnsupportedOpWarning
 from paibox.paiir.ir.core_neuron import ANNNodeV25, IFNodeV25, LIFNodeV25
@@ -16,7 +17,11 @@ from paibox.paiir.ir.op_node import (
     StandaloneActOp,
     StandaloneCompOp,
 )
-from paibox.paiir.lowering.converter import register_neuron, torch_to_paiir
+from paibox.paiir.lowering.converter import (
+    register_module,
+    register_neuron,
+    torch_to_paiir,
+)
 from tests.paiir.conftest import (
     MultiSpike4,
     UnsupportedSinModel,
@@ -135,9 +140,9 @@ class TestRegisterNeuron:
         test_inputs = torch.tensor([-100, -2, -1, 0, 1, 2, 3, 4, 5, 20, 100])
         ref_outputs = torch.round(torch.clamp(test_inputs, 0, 4))
         lut_outputs = seq_nodes[0].act(test_inputs)
-        assert torch.equal(
-            lut_outputs, ref_outputs
-        ), f"LUT mismatch: expected {ref_outputs.tolist()}, got {lut_outputs.tolist()}"
+        assert torch.equal(lut_outputs, ref_outputs), (
+            f"LUT mismatch: expected {ref_outputs.tolist()}, got {lut_outputs.tolist()}"
+        )
 
     def test_exact_registration_overrides_builtin_core_neuron_fallback(self):
         register_neuron(
@@ -157,6 +162,139 @@ class TestRegisterNeuron:
 
         lowered = _find_single_act(graph, ANNNodeV25)
         assert isinstance(lowered.lut, LutCustom)
+
+    def test_register_custom_lut_activation_as_neuron_compat_layer(self):
+        lut = make_multispike4_lut()
+        register_neuron(MultiSpike4, converter=lambda _: lut)
+
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(8, 4)
+                self.act = MultiSpike4()
+
+            def forward(self, x):
+                return self.act(self.linear(x))
+
+        graph = torch_to_paiir(Model().eval(), make_vec_8d())
+
+        lowered = _find_single_act(graph, ANNNodeV25)
+        assert lowered.lut is not None
+        assert isinstance(lowered.lut, LutCustom)
+        assert lowered.lut is not lut
+        assert torch.equal(lowered.lut.thresholds, lut.thresholds)
+        assert torch.equal(lowered.lut.lut_values, lut.lut_values)
+        assert lowered.lut.thresholds is not lut.thresholds
+        assert lowered.lut.lut_values is not lut.lut_values
+
+    def test_register_custom_core_neuron_converter_result_is_cloned(self):
+        neuron = IFNodeV25(v_threshold=2.0)
+        neuron(torch.full((1, 4), 1.0))
+        register_neuron(MultiSpike4, converter=lambda _: neuron)
+
+        graph = torch_to_paiir(MultiSpike4().eval(), make_vec_8d())
+
+        lowered = _find_single_act(graph, IFNodeV25)
+        assert lowered is not neuron
+        assert lowered.thres_pos == neuron.thres_pos
+        assert lowered.v == lowered.init_v
+
+
+class ExplicitQuantConv(nn.Module):
+    """Custom deploy module that requires register_module(...) to canonicalize it."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        weight = torch.randint(-8, 8, (4, 3, 3, 3), dtype=torch.int8)
+        bias = torch.randint(-16, 16, (4,), dtype=torch.int32)
+        scale = torch.tensor([0.25, 0.5, 0.75, 1.0], dtype=torch.float32)
+        self.register_buffer("weight_int8", weight)
+        self.register_buffer("bias_int32", bias)
+        self.register_buffer("weight_scale", scale)
+        self.stride = (1, 1)
+        self.padding = (1, 1)
+        self.dilation = (1, 1)
+        self.groups = 1
+
+    def forward(self, x: Tensor) -> Tensor:
+        weight = self.weight_int8.to(torch.float32) * self.weight_scale.view(
+            -1, 1, 1, 1
+        )  # type: ignore
+        bias = self.bias_int32.to(torch.float32)
+        return F.conv2d(
+            x,
+            weight,
+            bias,  # type: ignore
+            self.stride,
+            self.padding,
+            self.dilation,
+            self.groups,
+        )
+
+
+def _to_canonical_conv2d(m: nn.Module) -> nn.Module:
+    """Materialize a canonical Conv2d from ExplicitQuantConv's deploy buffers."""
+    assert isinstance(m, ExplicitQuantConv)
+    conv = nn.Conv2d(
+        in_channels=3,
+        out_channels=4,
+        kernel_size=3,
+        stride=m.stride,
+        padding=m.padding,
+        dilation=m.dilation,
+        groups=m.groups,
+        bias=True,
+    )
+    with torch.no_grad():
+        conv.weight.copy_(
+            m.weight_int8.to(conv.weight.dtype) * m.weight_scale.view(-1, 1, 1, 1)  # type: ignore
+        )
+        assert conv.bias is not None
+        conv.bias.copy_(m.bias_int32.to(conv.bias.dtype))  # type: ignore
+    return conv
+
+
+class TestRegisterCanonicalModule:
+    def test_register_custom_module_to_canonical_conv(self):
+        register_module(ExplicitQuantConv, _to_canonical_conv2d)
+
+        model = ExplicitQuantConv().eval()
+        graph = torch_to_paiir(model, make_img_3ch_8x8(), strict=True)
+
+        comp_nodes = [
+            node
+            for node in graph.nodes.values()
+            if isinstance(node, StandaloneCompOp) and isinstance(node.comp, nn.Conv2d)
+        ]
+        assert len(comp_nodes) == 1
+        comp = comp_nodes[0].comp
+        assert isinstance(comp, nn.Conv2d)
+        expected_weight = model.weight_int8.to(
+            comp.weight.dtype
+        ) * model.weight_scale.view(-1, 1, 1, 1)  # type: ignore
+        assert comp.weight.detach().equal(expected_weight)
+        assert comp.bias is not None
+        assert comp.bias.detach().equal(model.bias_int32.to(comp.bias.dtype))  # type: ignore
+        assert graph.predecessors(comp_nodes[0].name) == ["InputNode_0"]
+
+    def test_register_canonical_module_accepts_neuron_target(self):
+        register_module(MultiSpike4, lambda _: ANNNodeV25(make_multispike4_lut()))
+        graph = torch_to_paiir(MultiSpike4().eval(), make_vec_8d(), strict=True)
+
+        lowered = _find_single_act(graph, ANNNodeV25)
+        assert isinstance(lowered.lut, LutCustom)
+
+    def test_register_canonical_module_accepts_activation_target(self):
+        register_module(MultiSpike4, lambda _: nn.ReLU())
+        graph = torch_to_paiir(MultiSpike4().eval(), make_vec_8d(), strict=True)
+
+        lowered = _find_single_act(graph, ANNNodeV25)
+        assert isinstance(lowered.lut, LutReLU)
+
+    def test_register_canonical_module_rejects_duplicate_registration(self):
+        register_module(ExplicitQuantConv, _to_canonical_conv2d)
+        with pytest.raises(ValueError, match="already registered"):
+            register_module(ExplicitQuantConv, _to_canonical_conv2d)
 
 
 class TestCoreNeuronV25Lowering:
