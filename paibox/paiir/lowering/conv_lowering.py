@@ -1,13 +1,11 @@
 """Conv-family lowering helpers for both module-form and function-form convs."""
 
-from __future__ import annotations
-
-import operator
 from dataclasses import dataclass, field
 from typing import Any
 
 import torch
 from torch import Tensor, fx, nn
+from torch.nn.modules.utils import _pair, _single
 
 from ..ir.op_node import StandaloneCompOp
 from .fx_utils import get_call_arg
@@ -53,15 +51,6 @@ def extract_module_conv_spec(node: fx.Node, module: nn.Module) -> ConvSpec | Non
     return ConvSpec(node.args[0], module)
 
 
-def _is_dtype_getattr(node: fx.Node) -> bool:
-    return (
-        node.op == "call_function"
-        and node.target is getattr
-        and len(node.args) >= 2
-        and node.args[1] == "dtype"
-    )
-
-
 def _resolve_attr_value(gm: fx.GraphModule, target: str) -> Any:
     value: Any = gm
     for atom in target.split("."):
@@ -96,118 +85,103 @@ def _get_normalized_call_kwargs(
     return dict(normalized.kwargs)
 
 
-def _resolve_to_aux_nodes(
+def _is_dtype_getattr(node: fx.Node) -> bool:
+    return (
+        node.op == "call_function"
+        and node.target is getattr
+        and len(node.args) >= 2
+        and node.args[1] == "dtype"
+    )
+
+
+def _resolve_supported_to_call(
     gm: fx.GraphModule, node: fx.Node
-) -> tuple[set[fx.Node] | None, bool]:
-    extra_nodes = {node}
-    for arg in (*node.args[1:], *node.kwargs.values()):
-        if isinstance(arg, fx.Node) and _is_dtype_getattr(arg):
-            extra_nodes.add(arg)
-            continue
-        if isinstance(arg, fx.Node):
-            resolved, extra = _resolve_constant_value(gm, arg)
-            if resolved is None:
-                return None, False
-            extra_nodes |= extra
-    return extra_nodes, True
+) -> tuple[Any | None, set[fx.Node]]:
+    resolved, aux_nodes = _resolve_static_value(gm, node.args[0])
+    if resolved is None:
+        return None, set()
+
+    to_args = node.args[1:]
+    if not any(isinstance(arg, fx.Node) for arg in to_args) and not any(
+        isinstance(arg, fx.Node) for arg in node.kwargs.values()
+    ):
+        if torch.is_tensor(resolved):
+            converted = resolved.to(*to_args, **node.kwargs)  # pyright: ignore[reportCallIssue, reportArgumentType]
+            return converted, aux_nodes | {node}
+        return resolved, aux_nodes | {node}
+
+    # Keep function-form conv lowering intentionally narrow. We support only the
+    # common deploy wrapper pattern `tensor.to(x.dtype)`, and reject mixed
+    # static/dynamic `.to(...)` forms rather than trying to partially emulate
+    # every PyTorch cast combination.
+    if (
+        torch.is_tensor(resolved)
+        and len(to_args) == 1
+        and not node.kwargs
+        and isinstance(to_args[0], fx.Node)
+        and _is_dtype_getattr(to_args[0])
+    ):
+        return resolved, aux_nodes | {node, to_args[0]}
+
+    return None, set()
 
 
-def _resolve_constant_value(
+def _resolve_static_value(
     gm: fx.GraphModule, value: Any
 ) -> tuple[Any | None, set[fx.Node]]:
+    # Keep this helper narrow: function-form conv lowering accepts directly
+    # resolvable tensor values plus simple canonical tensor reshaping/casting.
+    # Quantization or custom weight expressions belong in register_module(...)
+    # converters, where the user states the intended canonical module.
     if isinstance(value, fx.Node):
         if value.op == "get_attr":
-            return _resolve_attr_value(gm, str(value.target)), {value}
+            resolved = _resolve_attr_value(gm, str(value.target))
+            if torch.is_tensor(resolved):
+                return resolved.detach().clone(), {value}
+            return resolved, {value}
         if value.op == "call_method" and value.target == "to" and value.args:
-            resolved, nodes = _resolve_constant_value(gm, value.args[0])
-            if resolved is None:
+            return _resolve_supported_to_call(gm, value)
+        if (
+            value.op == "call_method"
+            and value.target in {"view", "reshape"}
+            and value.args
+        ):
+            resolved, aux_nodes = _resolve_static_value(gm, value.args[0])
+            if resolved is None or not torch.is_tensor(resolved):
+                return None, set()
+            if any(isinstance(arg, fx.Node) for arg in value.args[1:]) or any(
+                isinstance(arg, fx.Node) for arg in value.kwargs.values()
+            ):
                 return None, set()
 
-            extra_nodes, ok = _resolve_to_aux_nodes(gm, value)
-            if not ok or extra_nodes is None:
-                return None, set()
-            return resolved, nodes | extra_nodes
-        if value.op == "call_function" and value.target in (operator.mul, torch.mul):
-            lhs, lhs_nodes = _resolve_constant_value(gm, value.args[0])
-            rhs, rhs_nodes = _resolve_constant_value(gm, value.args[1])
-            if lhs is None or rhs is None:
-                return None, set()
-            return lhs * rhs, lhs_nodes | rhs_nodes | {value}
+            tensor_method = getattr(resolved, str(value.target))
+            return (
+                tensor_method(*value.args[1:], **value.kwargs),
+                aux_nodes | {value},
+            )
         return None, set()
 
     if isinstance(value, (Tensor, int, float)):
+        if torch.is_tensor(value):
+            return value.detach().clone(), set()
         return value, set()
 
     return None, set()
 
 
-def _match_quantized_functional_conv_weight_expr(
+def _resolve_static_tensor_value(
     gm: fx.GraphModule, value: Any
-) -> tuple[Tensor, Tensor | float | int | None, set[fx.Node]] | None:
-    """Match the quantized-weight expression used by customer functional convs."""
-    if isinstance(value, fx.Node):
-        if value.op == "get_attr":
-            resolved = _resolve_attr_value(gm, str(value.target))
-            if torch.is_tensor(resolved):
-                return resolved.detach().clone(), None, {value}
-            return None
-
-        if value.op == "call_method" and value.target == "to" and value.args:
-            extracted = _match_quantized_functional_conv_weight_expr(gm, value.args[0])
-            if extracted is None:
-                return None
-            weight, scale, nodes = extracted
-            extra_nodes, ok = _resolve_to_aux_nodes(gm, value)
-            if not ok or extra_nodes is None:
-                return None
-            return weight, scale, nodes | extra_nodes
-
-        if value.op == "call_function" and value.target in (operator.mul, torch.mul):
-            lhs = _match_quantized_functional_conv_weight_expr(gm, value.args[0])
-            rhs = _match_quantized_functional_conv_weight_expr(gm, value.args[1])
-            lhs_const, lhs_nodes = _resolve_constant_value(gm, value.args[0])
-            rhs_const, rhs_nodes = _resolve_constant_value(gm, value.args[1])
-
-            if lhs is not None and rhs_const is not None:
-                weight, scale, nodes = lhs
-                merged_scale = rhs_const if scale is None else scale * rhs_const
-                return weight, merged_scale, nodes | rhs_nodes | {value}
-
-            if rhs is not None and lhs_const is not None:
-                weight, scale, nodes = rhs
-                merged_scale = lhs_const if scale is None else scale * lhs_const
-                return weight, merged_scale, nodes | lhs_nodes | {value}
-
+) -> tuple[Tensor, set[fx.Node]] | None:
+    resolved, aux_nodes = _resolve_static_value(gm, value)
+    if torch.is_tensor(resolved):
+        return resolved.detach().clone(), aux_nodes
     return None
 
 
-def _infer_functional_conv_channels_and_kernel(
-    weight: Tensor, groups: int, spatial_ndim: int
-) -> tuple[int, int, tuple[int, ...]]:
-    raw_weight = weight.detach()
-    kernel_size = tuple(int(v) for v in raw_weight.shape[-spatial_ndim:])
-    in_channels = int(raw_weight.shape[1]) * groups
-    out_channels = int(raw_weight.shape[0])
-    return in_channels, out_channels, kernel_size
-
-
-def _attach_functional_conv_metadata(
-    conv: nn.Conv1d | nn.Conv2d,
-    weight: Tensor,
-    weight_scale: Tensor | float | int | None,
-    weight_zero_point: Tensor | int | None,
-) -> None:
-    raw_weight = weight.detach().clone()
-    scale = torch.as_tensor(
-        1.0 if weight_scale is None else weight_scale, dtype=torch.float32
-    ).detach()
-    zero_point = torch.as_tensor(
-        0 if weight_zero_point is None else weight_zero_point, dtype=torch.int32
-    ).detach()
-
-    conv.register_buffer("raw_weight", raw_weight)
-    conv.register_buffer("scale", scale)
-    conv.register_buffer("zero_point", zero_point)
+def _infer_functional_conv_channels(weight: Tensor, groups: int) -> tuple[int, int]:
+    in_channels = int(weight.shape[1]) * groups
+    out_channels = int(weight.shape[0])
+    return in_channels, out_channels
 
 
 def _build_functional_conv_module(
@@ -218,33 +192,38 @@ def _build_functional_conv_module(
     padding: int | tuple[int, ...] = 0,
     dilation: int | tuple[int, ...] = 1,
     groups: int = 1,
-    weight_scale: Tensor | float | int | None = None,
-    weight_zero_point: Tensor | int | None = None,
-) -> nn.Conv1d | nn.Conv2d:
-    in_channels, out_channels, kernel_size = _infer_functional_conv_channels_and_kernel(
-        weight, groups, spatial_ndim=spec.spatial_ndim
-    )
+) -> nn.Conv1d | nn.Conv2d | None:
+    in_channels, out_channels = _infer_functional_conv_channels(weight, groups)
 
-    module_cls = nn.Conv1d if spec.spatial_ndim == 1 else nn.Conv2d
-    conv = module_cls(
-        in_channels=in_channels,
-        out_channels=out_channels,
-        kernel_size=kernel_size,
-        stride=stride,
-        padding=padding,
-        dilation=dilation,
-        groups=groups,
-        bias=bias is not None,
-    )
+    if spec.spatial_ndim == 1:
+        conv = nn.Conv1d(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=int(weight.shape[-1]),
+            stride=_single(stride),
+            padding=_single(padding),
+            dilation=_single(dilation),
+            groups=groups,
+            bias=bias is not None,
+        )
+    elif spec.spatial_ndim == 2:
+        conv = nn.Conv2d(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=(int(weight.shape[-2]), int(weight.shape[-1])),
+            stride=_pair(stride),
+            padding=_pair(padding),
+            dilation=_pair(dilation),
+            groups=groups,
+            bias=bias is not None,
+        )
+    else:
+        return None
 
     with torch.no_grad():
-        conv.weight.copy_(weight.detach().to(conv.weight.dtype))
-        conv.weight.requires_grad_(False)
+        _ = conv.weight.copy_(weight.detach().to(conv.weight.dtype))
         if bias is not None and conv.bias is not None:
-            conv.bias.copy_(bias.detach().to(conv.bias.dtype))
-            conv.bias.requires_grad_(False)
-
-    _attach_functional_conv_metadata(conv, weight, weight_scale, weight_zero_point)
+            _ = conv.bias.copy_(bias.detach().to(conv.bias.dtype))
     return conv
 
 
@@ -275,25 +254,24 @@ def extract_functional_conv_spec(gm: fx.GraphModule, node: fx.Node) -> ConvSpec 
     if not isinstance(input_arg, fx.Node) or not isinstance(groups, int):
         return None
 
-    weight_spec = _match_quantized_functional_conv_weight_expr(gm, weight_arg)
+    weight_spec = _resolve_static_tensor_value(gm, weight_arg)
     if weight_spec is None:
         return None
 
-    weight, weight_scale, aux_nodes = weight_spec
-    bias_value, bias_nodes = _resolve_constant_value(gm, bias_arg)
-    if bias_value is not None and not torch.is_tensor(bias_value):
-        return None
+    weight, aux_nodes = weight_spec
+    bias_value: Tensor | None = None
+    bias_nodes: set[fx.Node] = set()
+    if bias_arg is not None:
+        bias_spec = _resolve_static_tensor_value(gm, bias_arg)
+        if bias_spec is None:
+            return None
+        bias_value, bias_nodes = bias_spec
 
     module = _build_functional_conv_module(
-        spec,
-        weight,
-        bias_value,
-        stride,
-        padding,
-        dilation,
-        groups,
-        weight_scale,
+        spec, weight, bias_value, stride, padding, dilation, groups
     )
+    if module is None:
+        return None
     return ConvSpec(input_arg, module, frozenset(aux_nodes | bias_nodes))
 
 
