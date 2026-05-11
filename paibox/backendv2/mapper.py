@@ -16,7 +16,7 @@ from .global_signal import set_global_signal
 from .group_tile import tile_groups
 from .op_node import AllNode, InputElem, Neuron, RemapElem, build_nodes
 from .proto import PROTO_SCHEMA_VERSION
-from .proto.config_pb2 import (
+from .proto.compile_artifacts_pb2 import (
     CompileArtifacts,
     ConfigFrames,
     InputTensorMapping,
@@ -308,9 +308,9 @@ class Mapper:
         pb_path = proto_out_dir / "config.pb"
         pb_text_path = proto_out_dir / "config.json"
 
-        proto_files = ["config.proto"]
+        proto_files = ["compile_artifacts.proto"]
         if export_python and target_platform == "x86":
-            proto_files.extend(["config_pb2.py", "config_pb2.pyi"])
+            proto_files.extend(["compile_artifacts_pb2.py", "compile_artifacts_pb2.pyi"])
 
         for file_name in proto_files:
             src_file = proto_dir / file_name

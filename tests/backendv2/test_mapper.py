@@ -6,7 +6,7 @@ import pytest
 
 from paibox.backendv2.mapper import Mapper
 from paibox.backendv2.proto import PROTO_SCHEMA_VERSION
-from paibox.backendv2.proto.config_pb2 import CompileArtifacts, ConfigFrames
+from paibox.backendv2.proto.compile_artifacts_pb2 import CompileArtifacts, ConfigFrames
 from paibox.paiir import compile_to_paiir
 from tests.paiir.conftest import SimpleCNN, make_img_3ch_8x8
 from tests.utils import is_ci_env
@@ -57,9 +57,9 @@ def test_export_proto_real_workflow_keeps_pb_and_json(
 
     assert pb_path.exists()
     assert json_path.exists()
-    assert (proto_dir / "config.proto").exists()
-    assert (proto_dir / "config_pb2.py").exists()
-    assert (proto_dir / "config_pb2.pyi").exists()
+    assert (proto_dir / "compile_artifacts.proto").exists()
+    assert (proto_dir / "compile_artifacts_pb2.py").exists()
+    assert (proto_dir / "compile_artifacts_pb2.pyi").exists()
 
     artifacts = CompileArtifacts()
     artifacts.ParseFromString(pb_path.read_bytes())

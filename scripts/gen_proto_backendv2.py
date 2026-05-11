@@ -5,7 +5,7 @@ from pathlib import Path
 def main() -> None:
     repo_root = Path.cwd()
     proto_dir = repo_root / "paibox" / "backendv2" / "proto"
-    proto_file = proto_dir / "config.proto"
+    proto_file = proto_dir / "compile_artifacts.proto"
     subprocess.run(
         [
             "protoc",
