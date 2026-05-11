@@ -36,9 +36,9 @@ def restore_default_module_map():
     """Restore the global neuron/module registry after each test.
 
     Built-in lowering rules live in ``_DEFAULT_MODULE_MAP`` while
-    ``register_neuron(...)`` writes test/user overrides into
-    ``_USER_MODULE_MAP``. Tests that register custom neurons should not leak
-    those overrides into later tests.
+    ``register_neuron(...)`` and ``register_module(...)`` write
+    test/user overrides into ``_USER_MODULE_MAP``. Tests that register custom
+    lowering hooks should not leak those overrides into later tests.
     """
     original_default = dict(_DEFAULT_MODULE_MAP)
     original_user = dict(_USER_MODULE_MAP)

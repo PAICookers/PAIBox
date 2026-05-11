@@ -6,11 +6,17 @@ import torch
 import torch.nn.functional as F
 from paicorelib import DataSign, DataWidth
 from spikingjelly.activation_based import neuron as sj
-from torch import nn
+from torch import Tensor, nn
 
 import paibox.paiir.pipeline.avgpool.fusion as avgpool_fusion
 import paibox.paiir.pipeline.compile as compile_mod
-from paibox.paiir import CompileConfig, LIFNodeV25, compile_to_paiir, torch_to_paiir
+from paibox.paiir import (
+    CompileConfig,
+    LIFNodeV25,
+    compile_to_paiir,
+    register_module,
+    torch_to_paiir,
+)
 from paibox.paiir.exceptions import (
     GraphValidationError,
     UnsupportedOpError,
@@ -92,49 +98,42 @@ class PoolAfterReshape(nn.Module):
         return self.pool(x)
 
 
-class UnsupportedCountIncludePadAvgPool2d(nn.Module):
-    def __init__(self):
+class AvgPool2dWrapper(nn.Module):
+    def __init__(self, *, padding: int, count_include_pad: bool) -> None:
         super().__init__()
-        self.pool = nn.AvgPool2d(
-            kernel_size=3,
-            stride=1,
-            padding=1,
-            count_include_pad=False,
-        )
+        self.pool = nn.AvgPool2d(3, 1, padding, count_include_pad=count_include_pad)
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         return self.pool(x)
 
 
-class SupportedNoPaddingCountIncludePadAvgPool2d(nn.Module):
-    def __init__(self):
+class TransformThenLinear(nn.Module):
+    def __init__(
+        self,
+        in_features: int,
+        transform_fn: Callable[[Tensor], Tensor],
+        *,
+        out_features: int = 4,
+    ) -> None:
         super().__init__()
-        self.pool = nn.AvgPool2d(
-            kernel_size=3,
-            stride=1,
-            padding=0,
-            count_include_pad=False,
-        )
+        self.linear = nn.Linear(in_features, out_features, bias=False)
+        self.transform_fn = transform_fn
 
-    def forward(self, x):
-        return self.pool(x)
+    def forward(self, x: Tensor) -> Tensor:
+        return self.linear(self.transform_fn(x))
 
 
 def _make_linear_after_transform_model(
     in_features: int,
-    transform_fn: Callable[[torch.Tensor], torch.Tensor],
+    transform_fn: Callable[[Tensor], Tensor],
     *,
     out_features: int = 4,
 ) -> nn.Module:
-    class LinearAfterTransform(nn.Module):
-        def __init__(self) -> None:
-            super().__init__()
-            self.linear = nn.Linear(in_features, out_features, bias=False)
-
-        def forward(self, x):
-            return self.linear(transform_fn(x))
-
-    return LinearAfterTransform()
+    return TransformThenLinear(
+        in_features,
+        transform_fn,
+        out_features=out_features,
+    )
 
 
 def _assert_single_transform_before_linear(
@@ -155,6 +154,18 @@ def _assert_single_transform_before_linear(
         tuple(type(stage) for stage in transform_nodes[0].stages)
         == expected_stage_types
     )
+
+
+def _find_single_conv_comp(graph, conv_type: type[nn.Conv1d] | type[nn.Conv2d]):
+    comp_nodes = [
+        node
+        for node in graph.nodes.values()
+        if isinstance(node, StandaloneCompOp) and isinstance(node.comp, conv_type)
+    ]
+    assert len(comp_nodes) == 1
+    comp = comp_nodes[0].comp
+    assert isinstance(comp, conv_type)
+    return comp_nodes[0], comp
 
 
 TRANSFORM_BEFORE_LINEAR_CASES = (
@@ -573,14 +584,14 @@ class TestStrictMode:
     def test_strict_raises_for_count_include_pad_false_with_padding(self):
         with pytest.raises(UnsupportedOpError, match="count_include_pad=False"):
             compile_to_paiir(
-                UnsupportedCountIncludePadAvgPool2d(),
+                AvgPool2dWrapper(padding=1, count_include_pad=False),
                 make_img_3ch_8x8(),
                 strict=True,
             )
 
     def test_padding_free_count_include_pad_false_still_compiles(self):
         graph = compile_to_paiir(
-            SupportedNoPaddingCountIncludePadAvgPool2d(),
+            AvgPool2dWrapper(padding=0, count_include_pad=False),
             make_img_3ch_8x8(),
             strict=True,
         )
@@ -594,96 +605,231 @@ class TestStrictMode:
         assert len(pool_nodes) == 1
 
 
-class FunctionalQuantizedConv(nn.Module):
+class FunctionalDirectConv(nn.Module):
+    def __init__(self):
+        super().__init__()
+        weight = torch.randn(4, 3, 3, 3)
+        bias = torch.randn(4)
+        self.register_buffer("weight_buf", weight)
+        self.register_buffer("bias_buf", bias)
+
+    def forward(self, x):
+        return F.conv2d(
+            x,
+            self.weight_buf,  # type: ignore
+            self.bias_buf,  # type: ignore
+            stride=1,
+            padding=1,
+            dilation=1,
+            groups=1,
+        )
+
+
+class FunctionalDirectConv1d(nn.Module):
+    def __init__(self):
+        super().__init__()
+        weight = torch.randn(4, 3, 3)
+        bias = torch.randn(4)
+        self.register_buffer("weight_buf", weight)
+        self.register_buffer("bias_buf", bias)
+
+    def forward(self, x):
+        return F.conv1d(
+            x,
+            self.weight_buf,  # type: ignore
+            self.bias_buf,  # type: ignore
+            stride=1,
+            padding=1,
+            dilation=1,
+            groups=1,
+        )
+
+
+class FunctionalQuantizedConvExpression(nn.Module):
+    weight_int8_buf: Tensor
+    weight_scale_buf: Tensor
+    bias_buf: Tensor
+
     def __init__(self):
         super().__init__()
         weight = torch.randint(-8, 8, (4, 3, 3, 3), dtype=torch.int8)
         bias = torch.randn(4)
         scale = torch.tensor(0.125)
-        self.register_buffer("weight_int8", weight)
-        self.register_buffer("weight_scale", scale)
-        self.register_buffer("bias", bias)
+        self.register_buffer("weight_int8_buf", weight)
+        self.register_buffer("weight_scale_buf", scale)
+        self.register_buffer("bias_buf", bias)
+        self.weight_int8_buf = weight
+        self.weight_scale_buf = scale
+        self.bias_buf = bias
 
     def forward(self, x):
-        w = self.weight_int8.to(x.dtype) * self.weight_scale
-        return F.conv2d(x, w, self.bias, stride=1, padding=1, dilation=1, groups=1)
+        w = self.weight_int8_buf.to(x.dtype) * self.weight_scale_buf
+        return F.conv2d(x, w, self.bias_buf, stride=1, padding=1, dilation=1, groups=1)
 
 
-class FunctionalQuantizedConv1d(nn.Module):
-    def __init__(self):
-        super().__init__()
-        weight = torch.randint(-8, 8, (4, 3, 3), dtype=torch.int8)
-        bias = torch.randn(4)
-        scale = torch.tensor(0.125)
-        self.register_buffer("weight_int8", weight)
-        self.register_buffer("weight_scale", scale)
-        self.register_buffer("bias", bias)
+class FunctionalMixedDynamicToConvExpression(nn.Module):
+    weight_int8_buf: Tensor
+    bias_buf: Tensor
 
-    def forward(self, x):
-        w = self.weight_int8.to(x.dtype) * self.weight_scale
-        return F.conv1d(x, w, self.bias, stride=1, padding=1, dilation=1, groups=1)
-
-
-class FunctionalQuantizedConvWithShapeReshape(nn.Module):
     def __init__(self):
         super().__init__()
         weight = torch.randint(-8, 8, (4, 3, 3, 3), dtype=torch.int8)
         bias = torch.randn(4)
-        scale = torch.tensor(0.125)
-        self.register_buffer("weight_int8", weight)
-        self.register_buffer("weight_scale", scale)
-        self.register_buffer("bias", bias)
+        self.register_buffer("weight_int8_buf", weight)
+        self.register_buffer("bias_buf", bias)
+        self.weight_int8_buf = weight
+        self.bias_buf = bias
+
+    def forward(self, x):
+        w = self.weight_int8_buf.to(x.dtype, copy=False)
+        return F.conv2d(x, w, self.bias_buf, stride=1, padding=1, dilation=1, groups=1)
+
+
+class FunctionalDirectConvWithShapeReshape(nn.Module):
+    def __init__(self):
+        super().__init__()
+        weight = torch.randn(4, 3, 3, 3)
+        bias = torch.randn(4)
+        self.register_buffer("weight_buf", weight)
+        self.register_buffer("bias_buf", bias)
         self.relu = nn.ReLU()
 
     def forward(self, x):
         expanded = x.unsqueeze(0).repeat(1, 1, 1, 1, 1)
         flat = expanded.flatten(0, 1)
-        w = self.weight_int8.to(flat.dtype) * self.weight_scale
-        y = F.conv2d(flat, w, self.bias, stride=1, padding=1, dilation=1, groups=1)
+        y = F.conv2d(
+            flat,
+            self.weight_buf,  # type: ignore
+            self.bias_buf,  # type: ignore
+            stride=1,
+            padding=1,
+            dilation=1,
+            groups=1,
+        )
         y = y.reshape(
             expanded.shape[0], expanded.shape[1], -1, y.shape[-2], y.shape[-1]
         )
         return self.relu(y)
 
 
+class ExplicitQuantizedConvModule(nn.Module):
+    def __init__(self):
+        super().__init__()
+        weight_int8 = torch.randint(-8, 8, (4, 3, 3, 3), dtype=torch.int8)
+        bias_int32 = torch.randint(-16, 16, (4,), dtype=torch.int32)
+        weight_scale = torch.tensor([0.25, 0.5, 0.75, 1.0], dtype=torch.float32)
+        self.register_buffer("weight_int8_buf", weight_int8)
+        self.register_buffer("bias_int32_buf", bias_int32)
+        self.register_buffer("weight_scale_buf", weight_scale)
+        self.stride = (1, 1)
+        self.padding = (1, 1)
+        self.dilation = (1, 1)
+        self.groups = 1
+
+    def forward(self, x):
+        weight = self.weight_int8_buf.to(x.dtype) * self.weight_scale_buf.view(
+            -1, 1, 1, 1
+        )  # type: ignore
+        bias = self.bias_int32_buf.to(x.dtype)
+        return F.conv2d(
+            x,
+            weight,
+            bias,  # type: ignore
+            self.stride,
+            self.padding,
+            self.dilation,
+            self.groups,
+        )
+
+
+def _canonicalize_explicit_quantized_conv(module: nn.Module) -> nn.Module:
+    assert isinstance(module, ExplicitQuantizedConvModule)
+    conv = nn.Conv2d(
+        in_channels=3,
+        out_channels=4,
+        kernel_size=3,
+        stride=module.stride,
+        padding=module.padding,
+        dilation=module.dilation,
+        groups=module.groups,
+        bias=True,
+    )
+    with torch.no_grad():
+        conv.weight.copy_(
+            module.weight_int8_buf.to(conv.weight.dtype)
+            * module.weight_scale_buf.view(-1, 1, 1, 1)
+        )  # type: ignore
+        assert conv.bias is not None
+        conv.bias.copy_(module.bias_int32_buf.to(conv.bias.dtype))  # type: ignore
+        conv.weight.requires_grad_(False)
+        conv.bias.requires_grad_(False)
+    return conv
+
+
 class TestFunctionalConv:
-    def test_quantized_functional_conv2d_supported_in_strict_mode(self):
-        model = FunctionalQuantizedConv()
+    def test_direct_functional_conv2d_supported_in_strict_mode(self):
+        model = FunctionalDirectConv()
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             graph = compile_to_paiir(model, torch.randn(1, 3, 8, 8), strict=True)
 
-        comp_nodes = [
-            node
-            for node in graph.nodes.values()
-            if isinstance(node, StandaloneCompOp) and isinstance(node.comp, nn.Conv2d)
-        ]
-        assert len(comp_nodes) == 1
-        assert isinstance(comp_nodes[0].comp, nn.Conv2d)
-        assert torch.equal(comp_nodes[0].comp.raw_weight, model.weight_int8)
-        assert graph.predecessors(comp_nodes[0].name) == ["InputNode_0"]
+        comp_node, comp = _find_single_conv_comp(graph, nn.Conv2d)
+        assert comp.weight.detach().equal(model.weight_buf)  # type: ignore
+        assert comp.bias is not None
+        assert comp.bias.detach().equal(model.bias_buf)  # type: ignore
+        assert graph.predecessors(comp_node.name) == ["InputNode_0"]
         assert not any("conv2d" in str(w.message) for w in caught)
 
-    def test_quantized_functional_conv1d_supported_in_strict_mode(self):
-        model = FunctionalQuantizedConv1d()
+    def test_direct_functional_conv1d_supported_in_strict_mode(self):
+        model = FunctionalDirectConv1d()
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             graph = compile_to_paiir(model, torch.randn(1, 3, 16), strict=True)
 
-        comp_nodes = [
-            node
-            for node in graph.nodes.values()
-            if isinstance(node, StandaloneCompOp) and isinstance(node.comp, nn.Conv1d)
-        ]
-        assert len(comp_nodes) == 1
-        assert isinstance(comp_nodes[0].comp, nn.Conv1d)
-        assert torch.equal(comp_nodes[0].comp.raw_weight, model.weight_int8)
-        assert graph.predecessors(comp_nodes[0].name) == ["InputNode_0"]
+        comp_node, comp = _find_single_conv_comp(graph, nn.Conv1d)
+        assert comp.weight.detach().equal(model.weight_buf)  # type: ignore
+        assert comp.bias is not None
+        assert comp.bias.detach().equal(model.bias_buf)  # type: ignore
+        assert graph.predecessors(comp_node.name) == ["InputNode_0"]
         assert not any("conv1d" in str(w.message) for w in caught)
+
+    def test_functional_conv_quantized_weight_expression_is_unsupported(self):
+        model = FunctionalQuantizedConvExpression()
+
+        with pytest.raises(UnsupportedOpError):
+            compile_to_paiir(model, torch.randn(1, 3, 8, 8), strict=True)
+
+    def test_functional_conv_mixed_dynamic_to_is_unsupported(self):
+        model = FunctionalMixedDynamicToConvExpression()
+
+        with pytest.raises(UnsupportedOpError):
+            compile_to_paiir(model, torch.randn(1, 3, 8, 8), strict=True)
+
+    def test_registered_custom_conv_module_compiles_via_explicit_canonical_mapping(
+        self,
+    ):
+        register_module(
+            ExplicitQuantizedConvModule, _canonicalize_explicit_quantized_conv
+        )
+
+        model = ExplicitQuantizedConvModule().eval()
+        graph = compile_to_paiir(model, torch.randn(1, 3, 8, 8), strict=True)
+
+        _, comp = _find_single_conv_comp(graph, nn.Conv2d)
+        expected_weight = model.weight_int8_buf.to(
+            comp.weight.dtype
+        ) * model.weight_scale_buf.view(
+            -1, 1, 1, 1
+        )  # type: ignore
+        assert comp.weight.detach().equal(expected_weight)
+        assert comp.bias is not None
+        assert comp.bias.detach().equal(
+            model.bias_int32_buf.to(comp.bias.dtype)  # type: ignore
+        )
 
     def test_shape_only_reshape_args_do_not_become_data_predecessors(self):
         graph = torch_to_paiir(
-            FunctionalQuantizedConvWithShapeReshape(),
+            FunctionalDirectConvWithShapeReshape(),
             torch.randn(1, 3, 8, 8),
             strict=False,
         )
@@ -709,7 +855,7 @@ class TestFunctionalConv:
 
     def test_unsqueeze_repeat_all_ones_compile_path_succeeds(self):
         graph = compile_to_paiir(
-            FunctionalQuantizedConvWithShapeReshape(),
+            FunctionalDirectConvWithShapeReshape(),
             torch.randn(1, 3, 8, 8),
             strict=True,
         )
@@ -756,7 +902,7 @@ class TestFunctionalConv:
 
     def test_analysis_prebuilds_functional_conv_and_marks_shape_aux_nodes(self):
         sample = torch.randn(1, 3, 8, 8)
-        gm = trace_for_lowering(FunctionalQuantizedConvWithShapeReshape(), sample)
+        gm = trace_for_lowering(FunctionalDirectConvWithShapeReshape(), sample)
         ctx = _LoweringContext()
 
         _analyze_graph(gm, ctx)
@@ -790,7 +936,7 @@ class TestFunctionalConv:
 
     def test_analysis_prebuilds_functional_conv1d_node(self):
         sample = torch.randn(1, 3, 16)
-        gm = trace_for_lowering(FunctionalQuantizedConv1d(), sample)
+        gm = trace_for_lowering(FunctionalDirectConv1d(), sample)
         ctx = _LoweringContext()
 
         _analyze_graph(gm, ctx)

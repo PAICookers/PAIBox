@@ -113,16 +113,14 @@ def _get_bias(comp: nn.Module) -> Tensor | None:
 def _get_weight_tensor(comp: nn.Module) -> Tensor | None:
     """Extract the graph-side weight tensor from a compute module.
 
-    Prefer a raw exported weight tensor when a converter preserved one
-    explicitly. Fall back to the runtime ``weight`` parameter for standard
-    PyTorch modules. For function-form conv2d lowering, ``raw_weight`` carries
-    the original FX-exported weight expression, while ``weight`` may only exist
-    as an ``nn.Conv2d`` compatibility surface.
+    The PAIIR conv lowering contract now relies on canonical PyTorch module
+    parameters only. Function-form convs are materialized into standard
+    ``nn.Conv1d`` / ``nn.Conv2d`` modules before they reach graph-side weight
+    queries, so ``weight`` is the only supported source here.
     """
-    for attr in ("raw_weight", "weight_int8", "weight"):
-        weight = getattr(comp, attr, None)
-        if torch.is_tensor(weight):
-            return weight.data
+    weight = getattr(comp, "weight", None)
+    if torch.is_tensor(weight):
+        return weight.data
     return None
 
 
