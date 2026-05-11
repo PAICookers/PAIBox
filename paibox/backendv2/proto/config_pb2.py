@@ -4,6 +4,7 @@
 # source: config.proto
 # Protobuf Python Version: 5.27.1
 """Generated protocol buffer code."""
+
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import descriptor_pool as _descriptor_pool
 from google.protobuf import runtime_version as _runtime_version
@@ -11,53 +12,48 @@ from google.protobuf import symbol_database as _symbol_database
 from google.protobuf.internal import builder as _builder
 
 _runtime_version.ValidateProtobufRuntimeVersion(
-    _runtime_version.Domain.PUBLIC,
-    5,
-    27,
-    1,
-    '',
-    'config.proto'
+    _runtime_version.Domain.PUBLIC, 5, 27, 1, "", "config.proto"
 )
 # @@protoc_insertion_point(imports)
 
 _sym_db = _symbol_database.Default()
 
 
-
-
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0c\x63onfig.proto\x12\tbackendv2\"P\n\nCoreOffset\x12\x0f\n\x02xy\x18\x01 \x01(\x05H\x00\x88\x01\x01\x12\x0e\n\x01x\x18\x02 \x01(\x05H\x01\x88\x01\x01\x12\x0e\n\x01y\x18\x03 \x01(\x05H\x02\x88\x01\x01\x42\x05\n\x03_xyB\x04\n\x02_xB\x04\n\x02_y\"O\n\tCopyCount\x12\x0f\n\x02xy\x18\x01 \x01(\x05H\x00\x88\x01\x01\x12\x0e\n\x01x\x18\x02 \x01(\x05H\x01\x88\x01\x01\x12\x0e\n\x01y\x18\x03 \x01(\x05H\x02\x88\x01\x01\x42\x05\n\x03_xyB\x04\n\x02_xB\x04\n\x02_y\"\xca\x02\n\nInputEntry\x12\x15\n\x08\x65lem_idx\x18\x01 \x01(\rH\x00\x88\x01\x01\x12*\n\x0b\x63ore_offset\x18\x02 \x01(\x0b\x32\x15.backendv2.CoreOffset\x12(\n\ncopy_count\x18\x03 \x01(\x0b\x32\x14.backendv2.CopyCount\x12\x1a\n\rtick_relative\x18\x04 \x01(\rH\x01\x88\x01\x01\x12\x16\n\taddr_axon\x18\x05 \x01(\rH\x02\x88\x01\x01\x12\x17\n\ntarget_lcn\x18\x06 \x01(\rH\x03\x88\x01\x01\x12\x14\n\x07\x63opy_id\x18\x07 \x01(\rH\x04\x88\x01\x01\x12\x16\n\tbit_width\x18\x08 \x01(\rH\x05\x88\x01\x01\x42\x0b\n\t_elem_idxB\x10\n\x0e_tick_relativeB\x0c\n\n_addr_axonB\r\n\x0b_target_lcnB\n\n\x08_copy_idB\x0c\n\n_bit_width\"\xa5\x01\n\x0bOutputEntry\x12\x15\n\x08\x65lem_idx\x18\x01 \x01(\rH\x00\x88\x01\x01\x12\x14\n\x07\x63opy_id\x18\x02 \x01(\rH\x01\x88\x01\x01\x12\x16\n\tbit_width\x18\x03 \x01(\rH\x02\x88\x01\x01\x12\x19\n\x0c\x61xon_bit_idx\x18\x04 \x01(\rH\x03\x88\x01\x01\x42\x0b\n\t_elem_idxB\n\n\x08_copy_idB\x0c\n\n_bit_widthB\x0f\n\r_axon_bit_idx\"\x15\n\x05Shape\x12\x0c\n\x04size\x18\x01 \x03(\x05\"k\n\x12InputTensorMapping\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x1f\n\x05shape\x18\x02 \x01(\x0b\x32\x10.backendv2.Shape\x12&\n\x07\x65ntries\x18\x03 \x03(\x0b\x32\x15.backendv2.InputEntry\"m\n\x13OutputTensorMapping\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x1f\n\x05shape\x18\x02 \x01(\x0b\x32\x10.backendv2.Shape\x12\'\n\x07\x65ntries\x18\x03 \x03(\x0b\x32\x16.backendv2.OutputEntry\"C\n\x13InputTensorMappings\x12,\n\x05items\x18\x01 \x03(\x0b\x32\x1d.backendv2.InputTensorMapping\"E\n\x14OutputTensorMappings\x12-\n\x05items\x18\x01 \x03(\x0b\x32\x1e.backendv2.OutputTensorMapping\"\xda\x01\n\x0fThreadIOMapping\x12\x16\n\tthread_id\x18\x01 \x01(\rH\x00\x88\x01\x01\x12/\n\x10root_core_offset\x18\x02 \x01(\x0b\x32\x15.backendv2.CoreOffset\x12\x36\n\x0einput_mappings\x18\x03 \x01(\x0b\x32\x1e.backendv2.InputTensorMappings\x12\x38\n\x0foutput_mappings\x18\x04 \x01(\x0b\x32\x1f.backendv2.OutputTensorMappingsB\x0c\n\n_thread_id\"8\n\tIOMapping\x12+\n\x07threads\x18\x01 \x03(\x0b\x32\x1a.backendv2.ThreadIOMapping\"\x80\x01\n\x0c\x43onfigFrames\x12\r\n\x05words\x18\x01 \x03(\r\x12\x35\n\nword_order\x18\x02 \x01(\x0e\x32!.backendv2.ConfigFrames.WordOrder\"*\n\tWordOrder\x12\x0e\n\nHIGH_FIRST\x10\x00\x12\r\n\tLOW_FIRST\x10\x01\"\x84\x01\n\x10\x43ompileArtifacts\x12\x16\n\x0eschema_version\x18\x01 \x01(\r\x12(\n\nio_mapping\x18\x02 \x01(\x0b\x32\x14.backendv2.IOMapping\x12.\n\rconfig_frames\x18\x03 \x01(\x0b\x32\x17.backendv2.ConfigFramesb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(
+    b'\n\x0c\x63onfig.proto\x12\tbackendv2"P\n\nCoreOffset\x12\x0f\n\x02xy\x18\x01 \x01(\x05H\x00\x88\x01\x01\x12\x0e\n\x01x\x18\x02 \x01(\x05H\x01\x88\x01\x01\x12\x0e\n\x01y\x18\x03 \x01(\x05H\x02\x88\x01\x01\x42\x05\n\x03_xyB\x04\n\x02_xB\x04\n\x02_y"O\n\tCopyCount\x12\x0f\n\x02xy\x18\x01 \x01(\x05H\x00\x88\x01\x01\x12\x0e\n\x01x\x18\x02 \x01(\x05H\x01\x88\x01\x01\x12\x0e\n\x01y\x18\x03 \x01(\x05H\x02\x88\x01\x01\x42\x05\n\x03_xyB\x04\n\x02_xB\x04\n\x02_y"\xca\x02\n\nInputEntry\x12\x15\n\x08\x65lem_idx\x18\x01 \x01(\rH\x00\x88\x01\x01\x12*\n\x0b\x63ore_offset\x18\x02 \x01(\x0b\x32\x15.backendv2.CoreOffset\x12(\n\ncopy_count\x18\x03 \x01(\x0b\x32\x14.backendv2.CopyCount\x12\x1a\n\rtick_relative\x18\x04 \x01(\rH\x01\x88\x01\x01\x12\x16\n\taddr_axon\x18\x05 \x01(\rH\x02\x88\x01\x01\x12\x17\n\ntarget_lcn\x18\x06 \x01(\rH\x03\x88\x01\x01\x12\x14\n\x07\x63opy_id\x18\x07 \x01(\rH\x04\x88\x01\x01\x12\x16\n\tbit_width\x18\x08 \x01(\rH\x05\x88\x01\x01\x42\x0b\n\t_elem_idxB\x10\n\x0e_tick_relativeB\x0c\n\n_addr_axonB\r\n\x0b_target_lcnB\n\n\x08_copy_idB\x0c\n\n_bit_width"\xa5\x01\n\x0bOutputEntry\x12\x15\n\x08\x65lem_idx\x18\x01 \x01(\rH\x00\x88\x01\x01\x12\x14\n\x07\x63opy_id\x18\x02 \x01(\rH\x01\x88\x01\x01\x12\x16\n\tbit_width\x18\x03 \x01(\rH\x02\x88\x01\x01\x12\x19\n\x0c\x61xon_bit_idx\x18\x04 \x01(\rH\x03\x88\x01\x01\x42\x0b\n\t_elem_idxB\n\n\x08_copy_idB\x0c\n\n_bit_widthB\x0f\n\r_axon_bit_idx"\x15\n\x05Shape\x12\x0c\n\x04size\x18\x01 \x03(\x05"k\n\x12InputTensorMapping\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x1f\n\x05shape\x18\x02 \x01(\x0b\x32\x10.backendv2.Shape\x12&\n\x07\x65ntries\x18\x03 \x03(\x0b\x32\x15.backendv2.InputEntry"m\n\x13OutputTensorMapping\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x1f\n\x05shape\x18\x02 \x01(\x0b\x32\x10.backendv2.Shape\x12\'\n\x07\x65ntries\x18\x03 \x03(\x0b\x32\x16.backendv2.OutputEntry"C\n\x13InputTensorMappings\x12,\n\x05items\x18\x01 \x03(\x0b\x32\x1d.backendv2.InputTensorMapping"E\n\x14OutputTensorMappings\x12-\n\x05items\x18\x01 \x03(\x0b\x32\x1e.backendv2.OutputTensorMapping"\xda\x01\n\x0fThreadIOMapping\x12\x16\n\tthread_id\x18\x01 \x01(\rH\x00\x88\x01\x01\x12/\n\x10root_core_offset\x18\x02 \x01(\x0b\x32\x15.backendv2.CoreOffset\x12\x36\n\x0einput_mappings\x18\x03 \x01(\x0b\x32\x1e.backendv2.InputTensorMappings\x12\x38\n\x0foutput_mappings\x18\x04 \x01(\x0b\x32\x1f.backendv2.OutputTensorMappingsB\x0c\n\n_thread_id"8\n\tIOMapping\x12+\n\x07threads\x18\x01 \x03(\x0b\x32\x1a.backendv2.ThreadIOMapping"\x80\x01\n\x0c\x43onfigFrames\x12\r\n\x05words\x18\x01 \x03(\r\x12\x35\n\nword_order\x18\x02 \x01(\x0e\x32!.backendv2.ConfigFrames.WordOrder"*\n\tWordOrder\x12\x0e\n\nHIGH_FIRST\x10\x00\x12\r\n\tLOW_FIRST\x10\x01"\x84\x01\n\x10\x43ompileArtifacts\x12\x16\n\x0eschema_version\x18\x01 \x01(\r\x12(\n\nio_mapping\x18\x02 \x01(\x0b\x32\x14.backendv2.IOMapping\x12.\n\rconfig_frames\x18\x03 \x01(\x0b\x32\x17.backendv2.ConfigFramesb\x06proto3'
+)
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
-_builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'config_pb2', _globals)
+_builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, "config_pb2", _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
-  DESCRIPTOR._loaded_options = None
-  _globals['_COREOFFSET']._serialized_start=27
-  _globals['_COREOFFSET']._serialized_end=107
-  _globals['_COPYCOUNT']._serialized_start=109
-  _globals['_COPYCOUNT']._serialized_end=188
-  _globals['_INPUTENTRY']._serialized_start=191
-  _globals['_INPUTENTRY']._serialized_end=521
-  _globals['_OUTPUTENTRY']._serialized_start=524
-  _globals['_OUTPUTENTRY']._serialized_end=689
-  _globals['_SHAPE']._serialized_start=691
-  _globals['_SHAPE']._serialized_end=712
-  _globals['_INPUTTENSORMAPPING']._serialized_start=714
-  _globals['_INPUTTENSORMAPPING']._serialized_end=821
-  _globals['_OUTPUTTENSORMAPPING']._serialized_start=823
-  _globals['_OUTPUTTENSORMAPPING']._serialized_end=932
-  _globals['_INPUTTENSORMAPPINGS']._serialized_start=934
-  _globals['_INPUTTENSORMAPPINGS']._serialized_end=1001
-  _globals['_OUTPUTTENSORMAPPINGS']._serialized_start=1003
-  _globals['_OUTPUTTENSORMAPPINGS']._serialized_end=1072
-  _globals['_THREADIOMAPPING']._serialized_start=1075
-  _globals['_THREADIOMAPPING']._serialized_end=1293
-  _globals['_IOMAPPING']._serialized_start=1295
-  _globals['_IOMAPPING']._serialized_end=1351
-  _globals['_CONFIGFRAMES']._serialized_start=1354
-  _globals['_CONFIGFRAMES']._serialized_end=1482
-  _globals['_CONFIGFRAMES_WORDORDER']._serialized_start=1440
-  _globals['_CONFIGFRAMES_WORDORDER']._serialized_end=1482
-  _globals['_COMPILEARTIFACTS']._serialized_start=1485
-  _globals['_COMPILEARTIFACTS']._serialized_end=1617
+    DESCRIPTOR._loaded_options = None
+    _globals["_COREOFFSET"]._serialized_start = 27
+    _globals["_COREOFFSET"]._serialized_end = 107
+    _globals["_COPYCOUNT"]._serialized_start = 109
+    _globals["_COPYCOUNT"]._serialized_end = 188
+    _globals["_INPUTENTRY"]._serialized_start = 191
+    _globals["_INPUTENTRY"]._serialized_end = 521
+    _globals["_OUTPUTENTRY"]._serialized_start = 524
+    _globals["_OUTPUTENTRY"]._serialized_end = 689
+    _globals["_SHAPE"]._serialized_start = 691
+    _globals["_SHAPE"]._serialized_end = 712
+    _globals["_INPUTTENSORMAPPING"]._serialized_start = 714
+    _globals["_INPUTTENSORMAPPING"]._serialized_end = 821
+    _globals["_OUTPUTTENSORMAPPING"]._serialized_start = 823
+    _globals["_OUTPUTTENSORMAPPING"]._serialized_end = 932
+    _globals["_INPUTTENSORMAPPINGS"]._serialized_start = 934
+    _globals["_INPUTTENSORMAPPINGS"]._serialized_end = 1001
+    _globals["_OUTPUTTENSORMAPPINGS"]._serialized_start = 1003
+    _globals["_OUTPUTTENSORMAPPINGS"]._serialized_end = 1072
+    _globals["_THREADIOMAPPING"]._serialized_start = 1075
+    _globals["_THREADIOMAPPING"]._serialized_end = 1293
+    _globals["_IOMAPPING"]._serialized_start = 1295
+    _globals["_IOMAPPING"]._serialized_end = 1351
+    _globals["_CONFIGFRAMES"]._serialized_start = 1354
+    _globals["_CONFIGFRAMES"]._serialized_end = 1482
+    _globals["_CONFIGFRAMES_WORDORDER"]._serialized_start = 1440
+    _globals["_CONFIGFRAMES_WORDORDER"]._serialized_end = 1482
+    _globals["_COMPILEARTIFACTS"]._serialized_start = 1485
+    _globals["_COMPILEARTIFACTS"]._serialized_end = 1617
 # @@protoc_insertion_point(module_scope)
