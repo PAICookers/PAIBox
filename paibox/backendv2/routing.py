@@ -203,10 +203,10 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
             for i, elem in enumerate(elems):
                 if i == 0:
                     axon_bit_count = dest_routing_group.axon_bit_allocator.allocate(
-                        CoordXY(0, 0), elem
+                        elem
                     )
                 else:
-                    dest_routing_group.axon_bit_allocator.allocate(CoordXY(0, 0), elem)
+                    dest_routing_group.axon_bit_allocator.allocate(elem)
             assert axon_bit_count < FANIN_BASE * (
                 2**LCN_EX.LCN_128X.value
             ), "Total axon bit count for output group exceeds the maximum supported by LCN_128X"
@@ -932,6 +932,8 @@ class InputGroup(Group, SourceGroup[InputElem, InNode]):
         SourceGroup.__init__(self, raw_elems, nodes)
         self.name: str = f"InputG_{self.id}"
         self.dest_infos: dict[SourceElem, OfflineNeuDestInfoV2] = {}
+        self.dest_lcn: dict[SourceElem, LCN_EX] = {}
+        self.thread_id: int = 0
 
     def add_elem(self, elem: SourceElem) -> SourceElem | None:
         if not isinstance(elem, InputElem):
@@ -960,52 +962,48 @@ class InputGroup(Group, SourceGroup[InputElem, InNode]):
         for elem in self.raw_elems:
             dest_info = self.get_detail_dest([elem])
             self.dest_infos[elem] = dest_info
+            dest_rg = self.get_dest(elem)
+            self.dest_lcn[elem] = dest_rg.lcn
 
 
 class OutputAxonAllocator:
     def __init__(self):
-        self.axon_infos: dict[CoordXY, list[tuple[int, SourceElem]]] = {}
-        self.used_bits: dict[CoordXY, set[int]] = {}
-        self.lowest_free_bit: dict[CoordXY, int] = {}
+        self.axon_infos: list[tuple[int, SourceElem]] = []
+        self.used_bits: set[int] = set()
+        self.lowest_free_bit: int = 0
 
-    def get_next_free_bit(self, coord: CoordXY, start: int) -> int:
+    def get_next_free_bit(self, start: int) -> int:
         while True:
-            if start not in self.used_bits.get(coord, set()):
+            if start not in self.used_bits:
                 return start
             start += 1
 
-    def free_to_store_32bit(self, coord: CoordXY, start: int) -> bool:
+    def free_to_store_32bit(self, start: int) -> bool:
         for i in range(4):
-            if start + i * 8 in self.used_bits.get(coord, set()):
+            if start + i * 8 in self.used_bits:
                 return False
         return True
 
-    def allocate(self, coord: CoordXY, elem: SourceElem) -> int:
-        if coord not in self.axon_infos:
-            self.axon_infos[coord] = []
-            self.lowest_free_bit[coord] = 0
-            self.used_bits[coord] = set()
+    def allocate(self, elem: SourceElem) -> int:
         if elem.output_bit_num <= 8:
-            axon_bit = self.lowest_free_bit[coord]
-            self.used_bits[coord].add(axon_bit)
-            self.axon_infos[coord].append((axon_bit, elem))
-            next_free_bit = self.get_next_free_bit(coord, axon_bit + 1)
-            self.lowest_free_bit[coord] = next_free_bit
+            axon_bit = self.lowest_free_bit
+            self.used_bits.add(axon_bit)
+            self.axon_infos.append((axon_bit, elem))
+            next_free_bit = self.get_next_free_bit(axon_bit + 1)
+            self.lowest_free_bit = next_free_bit
         elif elem.output_bit_num == 32:
-            candidate_bit = self.lowest_free_bit[coord]
+            candidate_bit = self.lowest_free_bit
             while True:
-                if self.free_to_store_32bit(coord, candidate_bit):
+                if self.free_to_store_32bit(candidate_bit):
                     axon_bit = candidate_bit
                     for i in range(4):
-                        self.used_bits[coord].add(candidate_bit + i * 8)
-                    self.axon_infos[coord].append((axon_bit, elem))
-                    updated_free_bit = self.get_next_free_bit(
-                        coord, self.lowest_free_bit[coord]
-                    )
-                    self.lowest_free_bit[coord] = updated_free_bit
+                        self.used_bits.add(candidate_bit + i * 8)
+                    self.axon_infos.append((axon_bit, elem))
+                    updated_free_bit = self.get_next_free_bit(self.lowest_free_bit)
+                    self.lowest_free_bit = updated_free_bit
                     break
                 else:
-                    candidate_bit = self.get_next_free_bit(coord, candidate_bit + 1)
+                    candidate_bit = self.get_next_free_bit(candidate_bit + 1)
         else:
             raise ValueError(
                 f"Unsupported output bit num {elem.output_bit_num} for element {elem}."
@@ -1031,6 +1029,7 @@ class OutputGroup(Group, DestGroup[SourceElem, SourceNode]):
         self.axon_bit_allocator = OutputAxonAllocator()
         self.lcn = LCN_EX.LCN_128X
         self.input_bit_num: int = 1
+        self.thread_id: int = 0
 
     def info(self, prefix: str = "") -> str:
         info_str = Group.info(self, prefix=prefix)
