@@ -48,6 +48,54 @@ paibox.paiir/
 - `paibox.paiir.pipeline.passes` 是当前编译 pass 的公共入口
 - `paibox.paiir.pipeline.pass_manager` 目前仍是实验性基础设施，不驱动默认 `compile_to_paiir()` 路径
 
+## 前端 lowering 扩展点
+
+PAIIR 前端默认支持标准 PyTorch 模块和少量 canonical function-form 算子。自定义模块不要依赖 lowering 猜测字段名或量化表达式，应显式注册到受支持的 canonical 模块或神经元。
+
+### 自定义计算模块
+
+`register_module(...)` 用于把用户自定义 `nn.Module` 转换为 PAIIR 已支持的 canonical `nn.Module`，例如 `nn.Conv1d`、`nn.Conv2d`、`nn.Linear`、pooling 模块、标准激活模块或 PAIIR 神经元/LUT 模块。
+
+```python
+from torch import nn
+from paibox.paiir import register_module
+
+
+def to_canonical_conv(module: MyQuantConv) -> nn.Module:
+    conv = nn.Conv2d(
+        in_channels=module.in_channels,
+        out_channels=module.out_channels,
+        kernel_size=module.kernel_size,
+        stride=module.stride,
+        padding=module.padding,
+        dilation=module.dilation,
+        groups=module.groups,
+        bias=module.bias_int32 is not None,
+    )
+    # 在这里显式完成 int8 权重、scale、zero-point 等用户语义到
+    # canonical Conv2d.weight / Conv2d.bias 的转换。
+    return conv
+
+
+register_module(MyQuantConv, to_canonical_conv)
+```
+
+注册函数返回的模块必须已经是当前 PAIIR lowering 支持的模块；返回 bypass 模块或未知模块会报错。重复注册同一模块类型也会报错，避免全局 lowering 规则被静默覆盖。
+
+### 自定义神经元或 LUT 激活
+
+`register_neuron(...)` 是面向神经元/激活的兼容入口。converter 可以返回 `CoreNeuronV25`，也可以返回 `LutActivation`；后者会被包装为 `ANNNodeV25(lut)`。
+
+```python
+from paibox.paiir import ANNNodeV25, LutReLU, register_neuron
+
+register_neuron(MyActivation, lambda module: ANNNodeV25(LutReLU()))
+```
+
+### function-form conv 边界
+
+`F.conv1d` / `F.conv2d` 会在 lowering 分析阶段 materialize 为 canonical `nn.Conv1d` / `nn.Conv2d`，但只支持权重和 bias 能直接解析为静态 tensor 的形式，以及简单的 tensor `to` / `view` / `reshape` 辅助节点。形如 `weight_int8 * scale` 的用户量化表达式不在核心 functional conv lowering 中推断；应通过 `register_module(...)` 在用户 converter 中显式构造 canonical conv。
+
 ## 编译流程与 API
 
 ### 编译流程概览
