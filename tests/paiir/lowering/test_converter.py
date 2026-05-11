@@ -140,9 +140,9 @@ class TestRegisterNeuron:
         test_inputs = torch.tensor([-100, -2, -1, 0, 1, 2, 3, 4, 5, 20, 100])
         ref_outputs = torch.round(torch.clamp(test_inputs, 0, 4))
         lut_outputs = seq_nodes[0].act(test_inputs)
-        assert torch.equal(lut_outputs, ref_outputs), (
-            f"LUT mismatch: expected {ref_outputs.tolist()}, got {lut_outputs.tolist()}"
-        )
+        assert torch.equal(
+            lut_outputs, ref_outputs
+        ), f"LUT mismatch: expected {ref_outputs.tolist()}, got {lut_outputs.tolist()}"
 
     def test_exact_registration_overrides_builtin_core_neuron_fallback(self):
         register_neuron(
@@ -271,7 +271,9 @@ class TestRegisterCanonicalModule:
         assert isinstance(comp, nn.Conv2d)
         expected_weight = model.weight_int8.to(
             comp.weight.dtype
-        ) * model.weight_scale.view(-1, 1, 1, 1)  # type: ignore
+        ) * model.weight_scale.view(
+            -1, 1, 1, 1
+        )  # type: ignore
         assert comp.weight.detach().equal(expected_weight)
         assert comp.bias is not None
         assert comp.bias.detach().equal(model.bias_int32.to(comp.bias.dtype))  # type: ignore

@@ -310,7 +310,9 @@ class Mapper:
 
         proto_files = ["compile_artifacts.proto"]
         if export_python and target_platform == "x86":
-            proto_files.extend(["compile_artifacts_pb2.py", "compile_artifacts_pb2.pyi"])
+            proto_files.extend(
+                ["compile_artifacts_pb2.py", "compile_artifacts_pb2.pyi"]
+            )
 
         for file_name in proto_files:
             src_file = proto_dir / file_name

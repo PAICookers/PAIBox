@@ -43,7 +43,7 @@ import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from functools import partial
-from typing import Any, TypeVar, cast
+from typing import Any, TypeVar
 
 import torch
 from spikingjelly.activation_based import neuron

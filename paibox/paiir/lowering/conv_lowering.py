@@ -106,7 +106,9 @@ def _resolve_supported_to_call(
         isinstance(arg, fx.Node) for arg in node.kwargs.values()
     ):
         if torch.is_tensor(resolved):
-            converted = resolved.to(*to_args, **node.kwargs)  # pyright: ignore[reportCallIssue, reportArgumentType]
+            converted = resolved.to(
+                *to_args, **node.kwargs
+            )  # pyright: ignore[reportCallIssue, reportArgumentType]
             return converted, aux_nodes | {node}
         return resolved, aux_nodes | {node}
 
