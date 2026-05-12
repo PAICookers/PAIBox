@@ -169,7 +169,7 @@ class OpNode(nn.Module, PAIIRNode):
     variants (offline core, online core, CPU fallback, etc.).
 
     Class attributes:
-        deploy: Whether this node should be deployed to a chip core.
+        __deploy__: Whether this node should be deployed to a chip core.
             Set to False for simulation-only routing transforms.
 
     Attributes:
@@ -177,7 +177,7 @@ class OpNode(nn.Module, PAIIRNode):
         output_layouts: Tensor layouts at each output port.
     """
 
-    deploy: ClassVar[bool] = True
+    __deploy__: ClassVar[bool] = True
     input_layouts: tuple[TensorLayout, ...]
     output_layouts: tuple[TensorLayout, ...]
 
@@ -219,7 +219,7 @@ class RoutingOp(OpNode):
     interpretation but require no actual computation.
 
     Class attributes:
-        deploy: False - routing ops are not deployed to any core.
+        __deploy__: False - routing ops are not deployed to any core.
 
     Subclasses:
     - :class:`TransformOp` - ordered layout / shape reinterpretation
@@ -227,7 +227,7 @@ class RoutingOp(OpNode):
     - :class:`SplitOp` - split branch selection
     """
 
-    deploy: ClassVar[bool] = False
+    __deploy__: ClassVar[bool] = False
 
 
 class TransformOp(RoutingOp):
