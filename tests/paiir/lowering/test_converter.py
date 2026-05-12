@@ -9,7 +9,11 @@ from spikingjelly.activation_based import neuron as sj
 from torch import Tensor, nn
 
 from paibox.paiir.exceptions import UnsupportedOpError, UnsupportedOpWarning
-from paibox.paiir.ir.core_neuron import ANNNodeV25, IFNodeV25, LIFNodeV25
+from paibox.paiir.ir.core_neuron import (
+    ANNNodeV25,
+    IFNodeV25,
+    LIFNodeV25,
+)
 from paibox.paiir.ir.lut_activation import LutCustom, LutReLU
 from paibox.paiir.ir.op_node import (
     SequentialOp,
@@ -198,6 +202,60 @@ class TestRegisterNeuron:
         assert lowered is not neuron
         assert lowered.thres_pos == neuron.thres_pos
         assert lowered.v == lowered.init_v
+
+    def test_register_spikingjelly_per_channel_ifnode_lowers_to_deploy_only_act(self):
+        class _PerChannelThresholdMixin:
+            per_channel_threshold: Tensor
+
+            def _threshold_view(self) -> Tensor:
+                shape = [1] * self.v.ndim
+                shape[1] = self.per_channel_threshold.numel()
+                return self.per_channel_threshold.view(shape)
+
+            def neuronal_fire(self):
+                return self.surrogate_function(self.v - self._threshold_view())
+
+            def neuronal_reset(self, spike):
+                spike_d = spike.detach() if self.detach_reset else spike
+                if self.v_reset is None:
+                    self.v = self.v - spike_d * self._threshold_view()
+                else:
+                    self.v = spike_d * self.v_reset + (1.0 - spike_d) * self.v
+
+        class SpikingJellyPerChannelIFNode(_PerChannelThresholdMixin, sj.IFNode):
+            per_channel_threshold: Tensor
+
+            def __init__(self, thresholds: Tensor) -> None:
+                super().__init__(v_threshold=1.0, v_reset=0.0)
+                self.register_buffer("per_channel_threshold", thresholds)
+
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = nn.Linear(8, 4)
+                self.act = SpikingJellyPerChannelIFNode(
+                    torch.tensor([1.0, 2.0, 3.0, 4.0])
+                )
+
+            def forward(self, x):
+                return self.act(self.linear(x))
+
+        register_neuron(
+            SpikingJellyPerChannelIFNode,
+            lambda m: IFNodeV25(
+                m.per_channel_threshold, m.v_reset, m.surrogate_function, m.detach_reset
+            ),
+        )
+
+        fused = convert_and_fuse(Model(), make_vec_8d())
+        seq_nodes = find_nodes(fused, SequentialOp)
+        assert len(seq_nodes) == 1
+        assert isinstance(seq_nodes[0].act, IFNodeV25)
+        assert isinstance(seq_nodes[0].act.thres_pos, torch.Tensor)
+        assert torch.equal(
+            seq_nodes[0].act.thres_pos, torch.tensor([1.0, 2.0, 3.0, 4.0])
+        )
+        assert isinstance(seq_nodes[0].neuron_params.thres_pos, torch.Tensor)
 
 
 class ExplicitQuantConv(nn.Module):

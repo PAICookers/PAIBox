@@ -53,7 +53,12 @@ from torch.fx.passes.shape_prop import ShapeProp
 
 from ..exceptions import UnsupportedOpError, UnsupportedOpWarning
 from ..ir.add_ops import AddOperandKind, AddOperandSpec, GeneralAddOp
-from ..ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
+from ..ir.core_neuron import (
+    ANNNodeV25,
+    CoreNeuronV25,
+    IFNodeV25,
+    LIFNodeV25,
+)
 from ..ir.graph import PAIIRGraph
 from ..ir.ir_base import InputNode, OutputNode
 from ..ir.lut_activation import (
@@ -276,7 +281,12 @@ _BUILTIN_PAIIR_LUT_MODULES = (
     LutSoftsign,
 )
 
-_BUILTIN_PAIIR_NEURONS = (CoreNeuronV25, IFNodeV25, LIFNodeV25, ANNNodeV25)
+_BUILTIN_PAIIR_NEURONS = (
+    CoreNeuronV25,
+    IFNodeV25,
+    LIFNodeV25,
+    ANNNodeV25,
+)
 
 
 def _build_compute_module_map() -> ModuleMapper:

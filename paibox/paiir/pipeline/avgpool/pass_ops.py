@@ -1,5 +1,6 @@
 """AvgPool-related calibration pass operations."""
 
+import torch
 from paicorelib import LeakMultiInputMode
 
 from ...ir.graph import PAIIRGraph
@@ -28,6 +29,10 @@ def calibrate_avgpool_thresholds(
             continue
         if not node.act.has_lif_dynamics:
             continue
+        if isinstance(node.act.thres_pos, torch.Tensor):
+            raise ValueError(
+                "AvgPool threshold calibration does not support per-channel thres_pos"
+            )
 
         sum_window_size = get_pool_window_size(node.comp)
         avg_divisor = get_avgpool_divisor(node.comp)

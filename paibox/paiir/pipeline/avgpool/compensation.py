@@ -2,6 +2,7 @@
 
 import math
 
+import torch
 from paicorelib import LeakMultiComparisonOrder, LeakMultiInputMode, LeakMultiMode
 
 from ...ir.calc_params import LutData, NeuronParams
@@ -23,6 +24,11 @@ __all__ = [
 def _is_power_of_two(n: int) -> bool:
     """Return True when AvgPool division can be represented by an exact shift."""
     return n > 0 and (n & (n - 1)) == 0
+
+
+def _reject_channelwise_threshold(thres_pos: float | torch.Tensor) -> None:
+    if isinstance(thres_pos, torch.Tensor):
+        raise ValueError("AvgPool compensation does not support per-channel thres_pos")
 
 
 def apply_avgpool_leak_params(
@@ -71,6 +77,7 @@ def compensate_avgpool_neuron(
     Thresholds are therefore moved into the same working domain while keeping
     the reset voltage fixed.
     """
+    _reject_channelwise_threshold(params.thres_pos)
     reset_v = params.reset_v
     factor = window_size if decay_input else window_size / tau
     params.thres_pos = reset_v + (params.thres_pos - reset_v) * factor
@@ -98,6 +105,7 @@ def compensate_sumpool_neuron(
     Core 1 emits ``sum = window_size * avg`` in the split-core LIF path, so Core
     2 must run the neuron in that same scaled voltage domain.
     """
+    _reject_channelwise_threshold(params.thres_pos)
     params.thres_pos *= window_size
     params.thres_neg *= window_size
     params.reset_v *= window_size
@@ -134,6 +142,7 @@ def apply_avgpool_snn_compensation(
     calibrated: bool = False,
 ) -> None:
     """Write shared-core LIF compensation back into the live neuron module."""
+    _reject_channelwise_threshold(neuron.thres_pos)
     if not calibrated:
         reset_v = neuron.reset_v
         # Shared-core LIF runs in the sum domain, so thresholds move there while
@@ -155,6 +164,7 @@ def apply_sumpool_snn_compensation(
     neuron: CoreNeuronV25, window_size: int, *, is_float: bool = False
 ) -> None:
     """Write split-core SumPool + LIF scaling back into the live neuron module."""
+    _reject_channelwise_threshold(neuron.thres_pos)
     neuron.thres_pos *= window_size
     neuron.thres_neg *= window_size
     neuron.reset_v *= window_size
