@@ -27,6 +27,29 @@ from ..paiir.ir.op_node import (
 from .core_config import Frontend_Core_Config
 
 
+def _resolve_channel_param(
+    value: float | Tensor, idx: int, shape: torch.Size, name: str
+) -> float:
+    if not torch.is_tensor(value):
+        return value
+    if len(shape) < 2:
+        raise ValueError(f"{name} tensor requires an output channel dimension")
+    if shape[0] != 1:
+        raise ValueError(f"Batch size > 1 not supported for tensor {name}")
+    if value.ndim != 1:
+        raise ValueError(f"{name} tensor must be 1D, got shape={tuple(value.shape)}")
+
+    out_channel = shape[1]
+    if value.numel() != out_channel:
+        raise ValueError(
+            f"{name} tensor size mismatch: got {value.numel()}, expected {out_channel}"
+        )
+
+    channel_stride = shape.numel() // out_channel
+    cur_channel = idx // channel_stride
+    return value[cur_channel].item()
+
+
 class CustomIndex:
     def __init__(self, idx: int, copy_id: int = 0):
         self.idx = idx
@@ -406,16 +429,10 @@ class CoreOpNode(BaseNode["OfflineCoreOp"]):
 
     def attrs_part2(self, idx: int = 0) -> "OfflineNeuFullAttrsV2Part2":
         neu_attrs = self.raw_node.neuron_params
-        if isinstance(neu_attrs.leak_v, torch.Tensor):
-            assert self.shape[0] == 1, "Batch size > 1 not supported for tensor leak_v"
-            out_channel = self.shape[1]
-            assert (
-                neu_attrs.leak_v.numel() == out_channel
-            ), "leak_v tensor size mismatch"
-            cur_channel = idx // (self.shape.numel() // self.shape[1])
-            leak_v = neu_attrs.leak_v[cur_channel].item()
-        else:
-            leak_v = neu_attrs.leak_v
+        leak_v = _resolve_channel_param(neu_attrs.leak_v, idx, self.shape, "leak_v")
+        thres_pos = _resolve_channel_param(
+            neu_attrs.thres_pos, idx, self.shape, "thres_pos"
+        )
 
         return OfflineNeuFullAttrsV2Part2(
             reset_mode=neu_attrs.reset_mode,
@@ -423,7 +440,7 @@ class CoreOpNode(BaseNode["OfflineCoreOp"]):
             threshold_neg_mode=neu_attrs.thres_neg_mode,
             threshold_pos_mode=neu_attrs.thres_pos_mode,
             threshold_neg=round(neu_attrs.thres_neg),
-            threshold_pos=round(neu_attrs.thres_pos),
+            threshold_pos=round(thres_pos),
             lateral_inhibition=neu_attrs.lateral_inhi,
             leak_multi_sequence=neu_attrs.leak_multi_sequence,
             leak_multi_input=neu_attrs.leak_multi_input,

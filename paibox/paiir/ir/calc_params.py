@@ -209,7 +209,7 @@ class NeuronParams:
     thres_neg_mode: ThresholdNegMode = ThresholdNegMode.FLOOR
     thres_pos_mode: ThresholdPosMode = ThresholdPosMode.FIRE
     thres_neg: float = DEFAULT_NEG_THRESHOLD
-    thres_pos: float = 0.0
+    thres_pos: float | Tensor = 0.0
     lateral_inhi: LateralInhibitionMode = LateralInhibitionMode.DISABLE
     leak_multi_sequence: LeakMultiComparisonOrder = (
         LeakMultiComparisonOrder.AFTER_COMPARE

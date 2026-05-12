@@ -6,7 +6,12 @@ from paicorelib import RM, ThresholdPosMode
 from spikingjelly.activation_based import functional
 from torch import nn
 
-from paibox.paiir.ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
+from paibox.paiir.ir.core_neuron import (
+    ANNNodeV25,
+    CoreNeuronV25,
+    IFNodeV25,
+    LIFNodeV25,
+)
 from paibox.paiir.ir.lut_activation import LutCustom, LutReLU
 
 
@@ -126,6 +131,64 @@ class TestLIFNodeV25:
         n3 = LIFNodeV25(tau=2, v_threshold=1.0, v_reset=None)
         assert n3.v == 0.0
         assert n3.init_v == 0.0
+
+
+class TestPerChannelThreshold:
+    def test_if_node_per_channel_forward_uses_channel_thresholds(self):
+        node = IFNodeV25(torch.tensor([1.0, 2.0, 3.0]))
+        assert torch.equal(node.thres_pos, torch.tensor([1.0, 2.0, 3.0]))
+
+        x = torch.tensor(
+            [[[[0.5, 1.0]], [[1.9, 2.0]], [[2.9, 3.0]]]],
+            dtype=torch.float32,
+        )
+        spike = node(x)
+
+        assert spike.tolist() == [[[[0, 1]], [[0, 1]], [[0, 1]]]]
+
+    def test_if_node_per_channel_soft_reset_uses_channel_thresholds(self):
+        node = IFNodeV25(torch.tensor([1.0, 2.0]), v_reset=None)
+        spike = node(torch.tensor([[[[1.5]], [[2.5]]]], dtype=torch.float32))
+
+        assert spike.tolist() == [[[[1]], [[1]]]]
+        assert torch.equal(node.v, torch.tensor([[[[0.5]], [[0.5]]]]))
+
+    def test_lif_node_per_channel_forward_uses_channel_thresholds(self):
+        node = LIFNodeV25(
+            tau=2.0,
+            decay_input=False,
+            v_threshold=torch.tensor([1.0, 3.0]),
+            v_reset=0.0,
+        )
+
+        spike = node(torch.tensor([[[[1.0]], [[2.0]]]], dtype=torch.float32))
+
+        assert spike.tolist() == [[[[1]], [[0]]]]
+        assert torch.equal(node.v, torch.tensor([[[[0.0]], [[1.0]]]]))
+
+    def test_per_channel_nodes_reject_non_1d_thresholds(self):
+        with pytest.raises(ValueError, match="1D Tensor"):
+            IFNodeV25(torch.ones(1, 3))
+
+        with pytest.raises(ValueError, match="1D Tensor"):
+            LIFNodeV25(v_threshold=torch.ones(1, 3))
+
+    def test_per_channel_threshold_is_rejected_for_lut_nodes(self):
+        with pytest.raises(ValueError, match="only supported in SNN mode"):
+            ANNNodeV25(LutReLU(), thres_pos=torch.tensor([1.0, 2.0, 3.0]))
+
+    def test_backend_attrs_part2_resolves_threshold_by_channel(self):
+        from paibox.backendv2.op_node import CoreOpNode
+        from paibox.paiir.ir.op_node import StandaloneActOp
+
+        raw_node = StandaloneActOp(IFNodeV25(torch.tensor([1.0, 2.0, 3.0])))
+        raw_node.core_params.tick_start = 0
+        backend_node = CoreOpNode("act", raw_node, (1, 3, 2, 2))
+
+        assert backend_node.attrs_part2(0).threshold_pos == 1
+        assert backend_node.attrs_part2(3).threshold_pos == 1
+        assert backend_node.attrs_part2(4).threshold_pos == 2
+        assert backend_node.attrs_part2(8).threshold_pos == 3
 
 
 class TestCoreNeuronCopying:

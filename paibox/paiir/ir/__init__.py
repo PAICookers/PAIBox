@@ -11,7 +11,12 @@ and backend deployment:
 """
 
 from .calc_params import LutData, NeuronParams, OfflineCoreParams, OnlineCoreParams
-from .core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
+from .core_neuron import (
+    ANNNodeV25,
+    CoreNeuronV25,
+    IFNodeV25,
+    LIFNodeV25,
+)
 from .graph import Edge, PAIIRGraph
 from .ir_base import InputNode, OutputNode, PAIIRNode, TensorLayout
 from .signal_domain import SignalDomain, SignalSemantics

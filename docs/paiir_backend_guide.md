@@ -92,6 +92,20 @@ from paibox.paiir import ANNNodeV25, LutReLU, register_neuron
 register_neuron(MyActivation, lambda module: ANNNodeV25(LutReLU()))
 ```
 
+对于 SNN 神经元，converter 也可以直接返回 `IFNodeV25` / `LIFNodeV25`。当前
+`v_threshold` 已支持：
+
+- 标量 `float`：整层共享阈值
+- 1D `Tensor(shape=(C,))`：按输出 channel 的 per-channel 阈值
+
+后者会在 PAIIR 仿真中按 `N,C,...` 显式广播，并在 backend 导出时按输出
+channel 展开为每个 neuron 的标量 `threshold_pos`。当前导出契约限制为：
+
+- batch size 必须为 `1`
+- tensor 必须是 1D
+- `numel()` 必须等于输出 `shape[1]`
+- `lut` 与 tensor `thres_pos` 不可共存
+
 ### function-form conv 边界
 
 `F.conv1d` / `F.conv2d` 会在 lowering 分析阶段 materialize 为 canonical `nn.Conv1d` / `nn.Conv2d`，但只支持权重和 bias 能直接解析为静态 tensor 的形式，以及简单的 tensor `to` / `view` / `reshape` 辅助节点。形如 `weight_int8 * scale` 的用户量化表达式不在核心 functional conv lowering 中推断；应通过 `register_module(...)` 在用户 converter 中显式构造 canonical conv。
@@ -477,25 +491,29 @@ params: NeuronParams = op.neuron_params
 
 关键字段：
 
-| 字段                  | 类型                       | 说明                                             |
-| --------------------- | -------------------------- | ------------------------------------------------ |
-| `reset_mode`          | `RM`                       | `MODE_NORMAL`（硬复位）/ `MODE_LINEAR`（软复位） |
-| `reset_v`             | `float`                    | 复位电压                                         |
-| `thres_pos`           | `float`                    | 正阈值                                           |
-| `thres_neg`           | `float`                    | 负阈值                                           |
-| `thres_pos_mode`      | `ThresholdPosMode`         | `FIRE`（触发）/ `CEILING`（截断）                |
-| `thres_neg_mode`      | `ThresholdNegMode`         | `FIRE`（触发）/ `FLOOR`（截断）                  |
-| `leak_tau`            | `int`                      | 移位指数（正 = 左移放大，负 = 右移衰减）         |
-| `leak_v`              | `float`                    | 加性漏电压（含融合后的 bias）                    |
-| `init_v`              | `float`                    | 初始膜电位                                       |
-| `output_type`         | `OutputType`               | 输出类型                                         |
-| `lateral_inhi`        | `LateralInhibitionMode`    | 侧抑制                                           |
-| `leak_multi_sequence` | `LeakMultiComparisonOrder` | 乘性漏执行顺序                                   |
-| `leak_multi_input`    | `LeakMultiInputMode`       | 输入是否参与乘性漏                               |
-| `leak_multi_mode`     | `LeakMultiMode`            | 乘性漏模式                                       |
-| `leak_add_mode`       | `LeakAddMode`              | 加性漏方向                                       |
+| 字段                  | 类型                       | 说明                                                      |
+| --------------------- | -------------------------- | --------------------------------------------------------- |
+| `reset_mode`          | `RM`                       | `MODE_NORMAL`（硬复位）/ `MODE_LINEAR`（软复位）          |
+| `reset_v`             | `float`                    | 复位电压                                                  |
+| `thres_pos`           | `float \| Tensor`          | 正阈值；tensor 时表示 1D per-channel 阈值                 |
+| `thres_neg`           | `float`                    | 负阈值                                                    |
+| `thres_pos_mode`      | `ThresholdPosMode`         | `FIRE`（触发）/ `CEILING`（截断）                         |
+| `thres_neg_mode`      | `ThresholdNegMode`         | `FIRE`（触发）/ `FLOOR`（截断）                           |
+| `leak_tau`            | `int`                      | 移位指数（正 = 左移放大，负 = 右移衰减）                  |
+| `leak_v`              | `float \| Tensor`          | 加性漏电压（含融合后的 bias）；tensor 时为 1D per-channel |
+| `init_v`              | `float`                    | 初始膜电位                                                |
+| `output_type`         | `OutputType`               | 输出类型                                                  |
+| `lateral_inhi`        | `LateralInhibitionMode`    | 侧抑制                                                    |
+| `leak_multi_sequence` | `LeakMultiComparisonOrder` | 乘性漏执行顺序                                            |
+| `leak_multi_input`    | `LeakMultiInputMode`       | 输入是否参与乘性漏                                        |
+| `leak_multi_mode`     | `LeakMultiMode`            | 乘性漏模式                                                |
+| `leak_add_mode`       | `LeakAddMode`              | 加性漏方向                                                |
 
 > **bias 融合**：`SequentialOp` 和 `AccumulateOp` 的 `neuron_params` 已将 Conv/Linear 的 bias 融合到 `leak_v` 中，后端无需额外处理。
+
+> **per-channel 参数导出约束**：当前 backend 只支持 1D per-channel `thres_pos`
+> / `leak_v`，并按输出 tensor 的 channel 轴 `shape[1]` 解释；不支持
+> per-spatial、per-group、per-element 或 batch-dependent tensor。
 
 #### 4. LUT 数据（ANN 模式）
 

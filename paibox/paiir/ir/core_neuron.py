@@ -54,7 +54,12 @@ from ...exceptions import AutoOptimizationWarning
 from .calc_params import DEFAULT_NEG_THRESHOLD, LutData, NeuronParams
 from .lut_activation import LutActivation
 
-__all__ = ["CoreNeuronV25", "ANNNodeV25", "IFNodeV25", "LIFNodeV25"]
+__all__ = [
+    "CoreNeuronV25",
+    "ANNNodeV25",
+    "IFNodeV25",
+    "LIFNodeV25",
+]
 
 _T = TypeVar("_T", bound="CoreNeuronV25")
 
@@ -83,7 +88,7 @@ class CoreNeuronV25(MemoryModule):
         reset_v: float = 0,
         thres_pos_mode: ThresholdPosMode = ThresholdPosMode.FIRE,
         thres_neg_mode: ThresholdNegMode | None = None,
-        thres_pos: float = 0,
+        thres_pos: float | Tensor = 0,
         thres_neg: float | None = None,
         lateral_inhi: LateralInhibitionMode | bool = LateralInhibitionMode.DISABLE,
         leak_multi_sequence: LeakMultiComparisonOrder = LeakMultiComparisonOrder.AFTER_COMPARE,
@@ -114,7 +119,9 @@ class CoreNeuronV25(MemoryModule):
             reset_v: Hard-reset voltage.
             thres_pos_mode: Positive threshold mode.
             thres_neg_mode: Negative threshold mode.
-            thres_pos: Positive threshold.
+            thres_pos: Positive threshold. A scalar applies to the whole neuron
+                instance; a 1D tensor is interpreted as per-output-channel
+                threshold and is explicitly broadcast against ``N,C,...`` state.
             thres_neg: Negative threshold. ``None`` uses a very small default.
             lateral_inhi: Lateral inhibition mode.
             leak_multi_sequence: Order of multiplicative leak relative to
@@ -143,18 +150,16 @@ class CoreNeuronV25(MemoryModule):
         else:
             self.thres_neg_mode = ThresholdNegMode.FLOOR
 
-        self.thres_pos = thres_pos
+        self.thres_pos = _normalize_thres_pos(thres_pos)
         self.thres_neg = thres_neg if thres_neg is not None else DEFAULT_NEG_THRESHOLD
+        self.lut = lut
         self.lateral_inhi = LateralInhibitionMode(lateral_inhi)
         self.leak_multi_sequence = leak_multi_sequence
         self.leak_multi_input = LeakMultiInputMode(leak_multi_input)
         self.leak_multi_mode = LeakMultiMode(leak_multi_mode)
         self.leak_add_mode = leak_add_mode
 
-        if self.thres_pos < self.thres_neg:
-            raise ValueError(
-                f"'thres_pos' ({self.thres_pos}) must be >= 'thres_neg' ({self.thres_neg})"
-            )
+        self._validate_threshold_bounds()
 
         # tau -> leak_tau (right-shift exponent)
         # Keep the original tau for compensation passes that need the
@@ -170,9 +175,6 @@ class CoreNeuronV25(MemoryModule):
 
         self.surrogate_function = surrogate_function
         self.detach_reset = detach_reset
-
-        # LUT activation for ANN mode (stored as sub-module)
-        self.lut = lut
 
         self.register_memory("v", init_v)
         self._any_pos_spike_at_last_ts = False
@@ -295,10 +297,11 @@ class CoreNeuronV25(MemoryModule):
 
             # Fire: compare V against threshold (only for FIRE sides)
             if self.thres_pos_mode == ThresholdPosMode.FIRE:
+                pos_thres = self._thres_pos_for_v()
                 if self.training:
-                    pos_spike = self.surrogate_function(self.v - self.thres_pos)
+                    pos_spike = self.surrogate_function(self.v - pos_thres)
                 else:
-                    pos_spike = (self.v >= self.thres_pos).to(torch.int8)
+                    pos_spike = (self.v >= pos_thres).to(torch.int8)
                 output = output + pos_spike
                 pos_mask = (
                     pos_spike.detach().bool()
@@ -320,7 +323,12 @@ class CoreNeuronV25(MemoryModule):
 
             # Build per-element threshold for soft reset (only fired elements matter)
             thres = torch.zeros_like(self.v)
-            thres[pos_mask] = self.thres_pos
+            if self.thres_pos_mode == ThresholdPosMode.FIRE:
+                pos_thres = self._thres_pos_for_v()
+                if torch.is_tensor(pos_thres):
+                    thres = torch.where(pos_mask, pos_thres.expand_as(self.v), thres)
+                else:
+                    thres[pos_mask] = pos_thres
             thres[neg_mask] = self.thres_neg
             self.v = self._reset_v(self.v, pos_mask, neg_mask, thres)
 
@@ -345,7 +353,11 @@ class CoreNeuronV25(MemoryModule):
         LUT lookup step.
         """
         if self.thres_pos_mode == ThresholdPosMode.CEILING:
-            self.v.clamp_max_(self.thres_pos)
+            pos_thres = self._thres_pos_for_v()
+            if torch.is_tensor(pos_thres):
+                self.v = torch.minimum(self.v, pos_thres.expand_as(self.v))
+            else:
+                self.v.clamp_max_(pos_thres)
         if self.thres_neg_mode == ThresholdNegMode.FLOOR:
             self.v.clamp_min_(self.thres_neg)
 
@@ -432,6 +444,46 @@ class CoreNeuronV25(MemoryModule):
         else:
             return self.v - self._apply_tau_shift(self.v)
 
+    def _validate_threshold_bounds(self) -> None:
+        """Validate scalar/per-channel positive threshold configuration."""
+        if torch.is_tensor(self.thres_pos):
+            if self.lut is not None:
+                raise ValueError(
+                    "per-channel 'thres_pos' is only supported in SNN mode"
+                )
+            if torch.any(self.thres_pos < self.thres_neg).item():
+                raise ValueError(
+                    "all per-channel 'thres_pos' values "
+                    f"({self.thres_pos}) must be >= 'thres_neg' ({self.thres_neg})"
+                )
+            return
+
+        if self.thres_pos < self.thres_neg:
+            raise ValueError(
+                f"'thres_pos' ({self.thres_pos}) must be >= 'thres_neg' ({self.thres_neg})"
+            )
+
+    def _thres_pos_for_v(self) -> float | Tensor:
+        """Return scalar threshold or a channel-broadcast tensor for ``self.v``."""
+        if not torch.is_tensor(self.thres_pos):
+            return self.thres_pos
+        if not torch.is_tensor(self.v):
+            raise RuntimeError("per-channel 'thres_pos' requires tensor membrane state")
+        if self.v.ndim < 2:
+            raise ValueError(
+                "per-channel 'thres_pos' requires neuron state with a channel dimension"
+            )
+        if self.v.shape[1] != self.thres_pos.numel():
+            raise ValueError(
+                f"per-channel 'thres_pos' has {self.thres_pos.numel()} element(s) "
+                f"but neuron state channel count is {self.v.shape[1]}"
+            )
+
+        threshold = self.thres_pos.to(device=self.v.device)
+        return threshold.reshape(
+            _channel_broadcast_shape(self.v.ndim, threshold.numel())
+        )
+
     def _tau_to_shift(self, tau: float) -> int:
         """Convert time constant *tau* to a right-shift exponent."""
         if tau <= 1:
@@ -494,10 +546,35 @@ def _resolve_reset(v_reset: float | None) -> tuple[float, RM]:
     return v_reset, RM.MODE_NORMAL  # hard reset
 
 
+def _normalize_thres_pos(thres_pos: float | Tensor) -> float | Tensor:
+    if not torch.is_tensor(thres_pos):
+        return thres_pos
+    if thres_pos.ndim == 0:
+        return thres_pos.item()
+    return _validate_per_channel_threshold(thres_pos, name="thres_pos")
+
+
+def _channel_broadcast_shape(ndim: int, channel_count: int) -> tuple[int, ...]:
+    """Broadcast shape for applying a `(C,)` tensor across an `N,C,...` state."""
+    return (1, channel_count, *(1 for _ in range(ndim - 2)))
+
+
+def _validate_per_channel_threshold(v_threshold: Tensor, *, name: str) -> Tensor:
+    if not torch.is_tensor(v_threshold):
+        raise ValueError(f"{name} must be a 1D Tensor")
+    if v_threshold.ndim != 1:
+        raise ValueError(
+            f"{name} must be a 1D Tensor, got shape={tuple(v_threshold.shape)}"
+        )
+    if v_threshold.numel() == 0:
+        raise ValueError(f"{name} must not be empty")
+    return v_threshold.detach().clone()
+
+
 class IFNodeV25(CoreNeuronV25):
     def __init__(
         self,
-        v_threshold: float = 1.0,
+        v_threshold: float | Tensor = 1.0,
         v_reset: float | None = 0.0,
         surrogate_function: Callable = surrogate.Sigmoid(),
         detach_reset: bool = False,
@@ -531,7 +608,7 @@ class LIFNodeV25(CoreNeuronV25):
         self,
         tau: float = 2.0,
         decay_input: bool = True,
-        v_threshold: float = 1.0,
+        v_threshold: float | Tensor = 1.0,
         v_reset: float | None = 0.0,
         surrogate_function: Callable = surrogate.Sigmoid(),
         detach_reset: bool = False,

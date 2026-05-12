@@ -528,6 +528,12 @@ def validate_compiled_graph(graph: PAIIRGraph) -> None:
             continue
 
         _validate_lut_mode_consistency(errors, name, node)
+        _validate_per_channel_export_param_contract(
+            errors, name, node, node.neuron_params.thres_pos, "thres_pos"
+        )
+        _validate_per_channel_export_param_contract(
+            errors, name, node, node.neuron_params.leak_v, "leak_v"
+        )
         _validate_output_domain_consistency(errors, name, node)
         _validate_32bit_input_contract(errors, name, node)
 
@@ -561,6 +567,45 @@ def _validate_output_domain_consistency(
             f"neuron_params.output_type={output_type.name}"
         )
         return
+
+
+def _validate_per_channel_export_param_contract(
+    errors: list[str],
+    name: str,
+    node: OfflineCoreOp,
+    value: float | torch.Tensor,
+    param_name: str,
+) -> None:
+    if not torch.is_tensor(value):
+        return
+
+    output_shape = _single_output_shape(node)
+    if len(output_shape) < 2:
+        errors.append(
+            f"OfflineCoreOp '{name}' has per-channel {param_name} but "
+            f"output_shape={tuple(output_shape)} has no channel dimension"
+        )
+        return
+
+    if output_shape[0] != 1:
+        errors.append(
+            f"OfflineCoreOp '{name}' has per-channel {param_name} but "
+            f"batch size {output_shape[0]} is not supported"
+        )
+
+    if value.ndim != 1:
+        errors.append(
+            f"OfflineCoreOp '{name}' has per-channel {param_name} but "
+            f"shape={tuple(value.shape)} is not a 1D tensor"
+        )
+        return
+
+    channel_count = output_shape[1]
+    if value.numel() != channel_count:
+        errors.append(
+            f"OfflineCoreOp '{name}' {param_name} has {value.numel()} element(s) "
+            f"but output channel count is {channel_count}"
+        )
 
 
 def _validate_32bit_input_contract(

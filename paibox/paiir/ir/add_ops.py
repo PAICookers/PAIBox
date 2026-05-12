@@ -95,7 +95,7 @@ class GeneralAddOp(OpNode):
     :class:`PotentialAddOp`.
     """
 
-    deploy: ClassVar[bool] = False
+    __deploy__: ClassVar[bool] = False
 
     def __init__(self, operands: Sequence[AddOperandSpec]) -> None:
         super().__init__()
