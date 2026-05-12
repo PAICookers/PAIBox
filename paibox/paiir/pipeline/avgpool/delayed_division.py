@@ -295,7 +295,9 @@ def _lut_thresholds_within_bounds(lut: LutActivation | None, factor: int) -> boo
 
 def _neuron_params_within_bounds(act: CoreNeuronV25, factor: int) -> bool:
     if isinstance(act.thres_pos, torch.Tensor):
-        raise ValueError("Delayed AvgPool division does not support per-channel thres_pos")
+        raise ValueError(
+            "Delayed AvgPool division does not support per-channel thres_pos"
+        )
 
     threshold_values = (
         torch.tensor([act.thres_pos, act.thres_neg], dtype=torch.float64) * factor
@@ -396,7 +398,9 @@ def _scale_lut_thresholds(act: CoreNeuronV25, factor: int) -> None:
 def _scale_neuron(act: CoreNeuronV25, factor: int) -> None:
     """Scale all neuron voltage-domain parameters by the pending divisor."""
     if isinstance(act.thres_pos, torch.Tensor):
-        raise ValueError("Delayed AvgPool division does not support per-channel thres_pos")
+        raise ValueError(
+            "Delayed AvgPool division does not support per-channel thres_pos"
+        )
 
     act.thres_pos *= factor
     act.thres_neg *= factor

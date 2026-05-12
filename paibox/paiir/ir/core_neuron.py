@@ -326,9 +326,7 @@ class CoreNeuronV25(MemoryModule):
             if self.thres_pos_mode == ThresholdPosMode.FIRE:
                 pos_thres = self._thres_pos_for_v()
                 if torch.is_tensor(pos_thres):
-                    thres = torch.where(
-                        pos_mask, pos_thres.expand_as(self.v), thres
-                    )
+                    thres = torch.where(pos_mask, pos_thres.expand_as(self.v), thres)
                 else:
                     thres[pos_mask] = pos_thres
             thres[neg_mask] = self.thres_neg
@@ -470,9 +468,7 @@ class CoreNeuronV25(MemoryModule):
         if not torch.is_tensor(self.thres_pos):
             return self.thres_pos
         if not torch.is_tensor(self.v):
-            raise RuntimeError(
-                "per-channel 'thres_pos' requires tensor membrane state"
-            )
+            raise RuntimeError("per-channel 'thres_pos' requires tensor membrane state")
         if self.v.ndim < 2:
             raise ValueError(
                 "per-channel 'thres_pos' requires neuron state with a channel dimension"

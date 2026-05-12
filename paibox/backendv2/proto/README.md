@@ -18,12 +18,12 @@ output/
     compile_artifacts_pb2.pyi
 ```
 
-| 文件 | 用途 |
-| --- | --- |
-| `config.pb` | 二进制 protobuf，应用程序应优先读取此文件。 |
-| `config.json` | `config.pb` 的 JSON 展开，供人工检查和调试。 |
-| `compile_artifacts.proto` | schema 文件。 |
-| `compile_artifacts_pb2.py` | Python 生成代码，仅在 x86 导出且开启 `export_proto_python` 时复制。 |
+| 文件                        | 用途                                                                    |
+| --------------------------- | ----------------------------------------------------------------------- |
+| `config.pb`                 | 二进制 protobuf，应用程序应优先读取此文件。                             |
+| `config.json`               | `config.pb` 的 JSON 展开，供人工检查和调试。                            |
+| `compile_artifacts.proto`   | schema 文件。                                                           |
+| `compile_artifacts_pb2.py`  | Python 生成代码，仅在 x86 导出且开启 `export_proto_python` 时复制。     |
 | `compile_artifacts_pb2.pyi` | Python 类型标注文件，仅在 x86 导出且开启 `export_proto_python` 时复制。 |
 
 正式程序不要把 `config.json` 作为机器接口；它只用于调试和人工核对。
@@ -76,11 +76,11 @@ message CompileArtifacts {
 }
 ```
 
-| 字段 | 含义 |
-| --- | --- |
+| 字段             | 含义                                                    |
+| ---------------- | ------------------------------------------------------- |
 | `schema_version` | schema 版本。应用侧可用它判断当前程序是否支持该 `.pb`。 |
-| `io_mapping` | 逻辑 I/O 张量与芯片工作帧地址之间的映射。 |
-| `config_frames` | 编译生成的配置帧，按 32-bit word 展平保存。 |
+| `io_mapping`     | 逻辑 I/O 张量与芯片工作帧地址之间的映射。               |
+| `config_frames`  | 编译生成的配置帧，按 32-bit word 展平保存。             |
 
 ## 4. 配置帧
 
@@ -98,10 +98,10 @@ message ConfigFrames {
 
 `words` 是由 64-bit 配置帧拆分得到的 32-bit word 序列。`word_order` 表示每个 64-bit 配置帧内部两个 word 的排列顺序：
 
-| `word_order` | `words` 排列 |
-| --- | --- |
+| `word_order` | `words` 排列                                                      |
+| ------------ | ----------------------------------------------------------------- |
 | `HIGH_FIRST` | `[frame0.high32, frame0.low32, frame1.high32, frame1.low32, ...]` |
-| `LOW_FIRST` | `[frame0.low32, frame0.high32, frame1.low32, frame1.high32, ...]` |
+| `LOW_FIRST`  | `[frame0.low32, frame0.high32, frame1.low32, frame1.high32, ...]` |
 
 如果应用侧需要从 `config.pb` 还原 64-bit 配置帧，可使用如下逻辑。该示例未经过板端流程验证，仅供实现参考：
 
@@ -139,12 +139,12 @@ message ThreadIOMapping {
 }
 ```
 
-| 字段 | 含义 |
-| --- | --- |
-| `thread_id` | 硬件线程编号。一次编译若包含多个网络或多个线程域，可导出多个 `ThreadIOMapping`。 |
-| `root_core_offset` | 该线程内全局信号 root core 的相对偏移。 |
-| `input_mappings` | 输入逻辑张量到输入工作帧地址的映射。 |
-| `output_mappings` | 输出工作帧地址到输出逻辑张量的映射。 |
+| 字段               | 含义                                                                             |
+| ------------------ | -------------------------------------------------------------------------------- |
+| `thread_id`        | 硬件线程编号。一次编译若包含多个网络或多个线程域，可导出多个 `ThreadIOMapping`。 |
+| `root_core_offset` | 该线程内全局信号 root core 的相对偏移。                                          |
+| `input_mappings`   | 输入逻辑张量到输入工作帧地址的映射。                                             |
+| `output_mappings`  | 输出工作帧地址到输出逻辑张量的映射。                                             |
 
 `CoreOffset` 和 `CopyCount` 都包含 `xy/x/y` 三个分量：
 
@@ -185,18 +185,18 @@ message InputEntry {
 }
 ```
 
-| 字段 | 含义 |
-| --- | --- |
-| `name` | PAIIR 输入节点名。 |
-| `shape.size` | 逻辑输入张量 shape。 |
-| `elem_idx` | 输入张量按 C-order 展平后的元素下标。 |
-| `core_offset` | 输入工作帧目标 core 的相对偏移。 |
-| `copy_count` | AER 多播复制数量。 |
-| `tick_relative` | 后端分配出的相对 tick 段。 |
-| `addr_axon` | 后端分配出的 axon 地址低段。 |
-| `target_lcn` | 目标 core 的 LCN 编号，对应 `paicorelib.LCN_EX` 枚举值。 |
-| `copy_id` | tiling/folding 产生的逻辑 copy 编号，不等同于 `CopyCount`。 |
-| `bit_width` | 该逻辑输入元素的位宽。 |
+| 字段            | 含义                                                        |
+| --------------- | ----------------------------------------------------------- |
+| `name`          | PAIIR 输入节点名。                                          |
+| `shape.size`    | 逻辑输入张量 shape。                                        |
+| `elem_idx`      | 输入张量按 C-order 展平后的元素下标。                       |
+| `core_offset`   | 输入工作帧目标 core 的相对偏移。                            |
+| `copy_count`    | AER 多播复制数量。                                          |
+| `tick_relative` | 后端分配出的相对 tick 段。                                  |
+| `addr_axon`     | 后端分配出的 axon 地址低段。                                |
+| `target_lcn`    | 目标 core 的 LCN 编号，对应 `paicorelib.LCN_EX` 枚举值。    |
+| `copy_id`       | tiling/folding 产生的逻辑 copy 编号，不等同于 `CopyCount`。 |
+| `bit_width`     | 该逻辑输入元素的位宽。                                      |
 
 应用侧编码输入工作帧时，应按 `shape.size` 准备输入张量，并以 C-order 展平后使用 `elem_idx` 取值。
 
@@ -312,13 +312,13 @@ message OutputEntry {
 }
 ```
 
-| 字段 | 含义 |
-| --- | --- |
-| `name` | PAIIR 输出节点名。 |
-| `shape.size` | 逻辑输出张量 shape。 |
-| `elem_idx` | 输出张量按 C-order 展平后的元素下标。 |
-| `copy_id` | tiling/folding 产生的逻辑 copy 编号。 |
-| `bit_width` | 输出元素位宽。 |
+| 字段           | 含义                                               |
+| -------------- | -------------------------------------------------- |
+| `name`         | PAIIR 输出节点名。                                 |
+| `shape.size`   | 逻辑输出张量 shape。                               |
+| `elem_idx`     | 输出张量按 C-order 展平后的元素下标。              |
+| `copy_id`      | tiling/folding 产生的逻辑 copy 编号。              |
+| `bit_width`    | 输出元素位宽。                                     |
 | `axon_bit_idx` | 后端为该输出元素分配的平坦 output axon bit index。 |
 
 当前 `OutputEntry` 只能表示普通输出数据帧的地址标注与解码，即应用侧可通过 `axon_bit_idx` 把芯片返回的工作帧 payload 放回逻辑输出张量。它不能表示膜电平帧的地址信息，也不能描述膜电平帧的 4 帧基地址。因此，基于当前 schema，应用侧无法仅依赖 `config.pb` 完成膜电平帧定位或解码。
@@ -406,14 +406,14 @@ def collect_u32_le(decoded_by_axon: dict[int, int], base_axon_bit_idx: int) -> i
 
 `config.json` 使用 protobuf JSON 命名规则，会把 snake_case 字段转成 lowerCamelCase：
 
-| proto 字段 | JSON 字段 |
-| --- | --- |
-| `schema_version` | `schemaVersion` |
-| `io_mapping` | `ioMapping` |
-| `config_frames` | `configFrames` |
+| proto 字段         | JSON 字段        |
+| ------------------ | ---------------- |
+| `schema_version`   | `schemaVersion`  |
+| `io_mapping`       | `ioMapping`      |
+| `config_frames`    | `configFrames`   |
 | `root_core_offset` | `rootCoreOffset` |
-| `elem_idx` | `elemIdx` |
-| `addr_axon` | `addrAxon` |
-| `axon_bit_idx` | `axonBitIdx` |
+| `elem_idx`         | `elemIdx`        |
+| `addr_axon`        | `addrAxon`       |
+| `axon_bit_idx`     | `axonBitIdx`     |
 
 应用程序读取 `config.pb` 时使用 proto 字段名；人工查看 `config.json` 时使用 JSON 字段名。

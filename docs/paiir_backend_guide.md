@@ -491,23 +491,23 @@ params: NeuronParams = op.neuron_params
 
 关键字段：
 
-| 字段                  | 类型                       | 说明                                             |
-| --------------------- | -------------------------- | ------------------------------------------------ |
-| `reset_mode`          | `RM`                       | `MODE_NORMAL`（硬复位）/ `MODE_LINEAR`（软复位） |
-| `reset_v`             | `float`                    | 复位电压                                         |
-| `thres_pos`           | `float \| Tensor`         | 正阈值；tensor 时表示 1D per-channel 阈值        |
-| `thres_neg`           | `float`                    | 负阈值                                           |
-| `thres_pos_mode`      | `ThresholdPosMode`         | `FIRE`（触发）/ `CEILING`（截断）                |
-| `thres_neg_mode`      | `ThresholdNegMode`         | `FIRE`（触发）/ `FLOOR`（截断）                  |
-| `leak_tau`            | `int`                      | 移位指数（正 = 左移放大，负 = 右移衰减）         |
-| `leak_v`              | `float \| Tensor`         | 加性漏电压（含融合后的 bias）；tensor 时为 1D per-channel |
-| `init_v`              | `float`                    | 初始膜电位                                       |
-| `output_type`         | `OutputType`               | 输出类型                                         |
-| `lateral_inhi`        | `LateralInhibitionMode`    | 侧抑制                                           |
-| `leak_multi_sequence` | `LeakMultiComparisonOrder` | 乘性漏执行顺序                                   |
-| `leak_multi_input`    | `LeakMultiInputMode`       | 输入是否参与乘性漏                               |
-| `leak_multi_mode`     | `LeakMultiMode`            | 乘性漏模式                                       |
-| `leak_add_mode`       | `LeakAddMode`              | 加性漏方向                                       |
+| 字段                  | 类型                       | 说明                                                      |
+| --------------------- | -------------------------- | --------------------------------------------------------- |
+| `reset_mode`          | `RM`                       | `MODE_NORMAL`（硬复位）/ `MODE_LINEAR`（软复位）          |
+| `reset_v`             | `float`                    | 复位电压                                                  |
+| `thres_pos`           | `float \| Tensor`          | 正阈值；tensor 时表示 1D per-channel 阈值                 |
+| `thres_neg`           | `float`                    | 负阈值                                                    |
+| `thres_pos_mode`      | `ThresholdPosMode`         | `FIRE`（触发）/ `CEILING`（截断）                         |
+| `thres_neg_mode`      | `ThresholdNegMode`         | `FIRE`（触发）/ `FLOOR`（截断）                           |
+| `leak_tau`            | `int`                      | 移位指数（正 = 左移放大，负 = 右移衰减）                  |
+| `leak_v`              | `float \| Tensor`          | 加性漏电压（含融合后的 bias）；tensor 时为 1D per-channel |
+| `init_v`              | `float`                    | 初始膜电位                                                |
+| `output_type`         | `OutputType`               | 输出类型                                                  |
+| `lateral_inhi`        | `LateralInhibitionMode`    | 侧抑制                                                    |
+| `leak_multi_sequence` | `LeakMultiComparisonOrder` | 乘性漏执行顺序                                            |
+| `leak_multi_input`    | `LeakMultiInputMode`       | 输入是否参与乘性漏                                        |
+| `leak_multi_mode`     | `LeakMultiMode`            | 乘性漏模式                                                |
+| `leak_add_mode`       | `LeakAddMode`              | 加性漏方向                                                |
 
 > **bias 融合**：`SequentialOp` 和 `AccumulateOp` 的 `neuron_params` 已将 Conv/Linear 的 bias 融合到 `leak_v` 中，后端无需额外处理。
 
