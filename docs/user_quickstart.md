@@ -211,7 +211,7 @@ graph = compile_to_paiir(raw_quantized_model, sample_input)
 
 更稳妥的通用做法是先做一层“部署态重建”：
 
-1. 从量化模型中提取部署参数  
+1. 从量化模型中提取部署参数
    例如 `int8` 权重、`int32` 偏置、输入/输出 scale、requant 规则。
 2. 用当前 lowering 能识别的模块重建一个部署态 `nn.Module`
 3. 对不能直接表达的激活或 requant，使用 LUT 激活或 `register_neuron(...)`
@@ -308,19 +308,19 @@ print("frame_dir:", output_dir)
 
 高频参数如下：
 
-| 参数 | 作用 |
-| --- | --- |
-| `*sample_inputs` | 示例输入，参与 shape/dims 推断，`batch_size` 必须为 `1` |
-| `tick_duration` | 全局工作时长，`0` 表示常开 |
-| `auto_reset` | 工作周期结束后是否自动复位 |
-| `tick_overrides` | 按节点名覆盖局部时序 |
-| `input_formats` | 按 `InputNode` 名称指定输入数据格式 |
-| `compile_config` | 统一承载默认配置 |
-| `concrete_args` | 固定 FX tracing 时的非 Tensor 参数 |
-| `strict` | 遇到 unsupported op 时是否直接报错 |
-| `enable_avgpool_calibration` | 共享核 `AvgPool + LIF` 阈值细化开关 |
-| `enable_split_avgpool_lif` | 条件式 `AvgPool + LIF` 分核部署开关 |
-| `enable_delayed_avgpool_division` | AvgPool 延迟除法改写开关，默认开启 |
+| 参数                              | 作用                                                    |
+| --------------------------------- | ------------------------------------------------------- |
+| `*sample_inputs`                  | 示例输入，参与 shape/dims 推断，`batch_size` 必须为 `1` |
+| `tick_duration`                   | 全局工作时长，`0` 表示常开                              |
+| `auto_reset`                      | 工作周期结束后是否自动复位                              |
+| `tick_overrides`                  | 按节点名覆盖局部时序                                    |
+| `input_formats`                   | 按 `InputNode` 名称指定输入数据格式                     |
+| `compile_config`                  | 统一承载默认配置                                        |
+| `concrete_args`                   | 固定 FX tracing 时的非 Tensor 参数                      |
+| `strict`                          | 遇到 unsupported op 时是否直接报错                      |
+| `enable_avgpool_calibration`      | 共享核 `AvgPool + LIF` 阈值细化开关                     |
+| `enable_split_avgpool_lif`        | 条件式 `AvgPool + LIF` 分核部署开关                     |
+| `enable_delayed_avgpool_division` | AvgPool 延迟除法改写开关，默认开启                      |
 
 优先级为：
 
@@ -640,13 +640,13 @@ work_frames_to_header(frames, output_header, array_name="work_frame1")
 
 对于“量化后网络模型”的通用部署，推荐按下面的顺序做：
 
-1. 完成量化，并拿到部署所需的整数参数  
+1. 完成量化，并拿到部署所需的整数参数
    例如输入 scale、每层权重、偏置、输出 scale、requant/LUT 规则。
-2. 重建一个“部署态 PyTorch 模型”  
+2. 重建一个“部署态 PyTorch 模型”
    保持当前 lowering 可识别的模块表面，不直接依赖原始量化执行图。
-3. 用 `compile_to_paiir(..., strict=True)` 编译  
+3. 用 `compile_to_paiir(..., strict=True)` 编译
    同时保存 `graph.summary()`。
-4. 用 `Mapper.compile(...)` 导出平台相关帧文件与 `proto/` 目录  
+4. 用 `Mapper.compile(...)` 导出平台相关帧文件与 `proto/` 目录
    同时保存 `backendv2.log` 与 `proto/config.pb`。
 5. 如果板端需要输入工作帧，再从 `cfg_frame1.txt` 生成 `work_frame1.h`
 6. 向板端交付至少这几类文件

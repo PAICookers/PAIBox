@@ -293,7 +293,9 @@ class Mapper:
         frame_path = out / "cfg_frames.txt"
         with frame_path.open("w") as frame_file:
             for cp, frames in self._iter_frame_triplets():
-                frame_file.write(f"# Core at coord (X,Y)=({cp.coord.x},{cp.coord.y}):\n")
+                frame_file.write(
+                    f"# Core at coord (X,Y)=({cp.coord.x},{cp.coord.y}):\n"
+                )
                 _for_each_frame_type(
                     frames,
                     lambda idx, frame_array: (
@@ -458,12 +460,22 @@ class Mapper:
                 frames,
                 lambda idx, frame_array: (
                     typed_parts[idx - 1].append(frame_array),
-                    typed_counts.__setitem__(idx - 1, typed_counts[idx - 1] + len(frame_array)),
-                    merged_parts.append(frame_array) if merged_parts is not None else None,
+                    typed_counts.__setitem__(
+                        idx - 1, typed_counts[idx - 1] + len(frame_array)
+                    ),
+                    (
+                        merged_parts.append(frame_array)
+                        if merged_parts is not None
+                        else None
+                    ),
                 ),
             )
             if merged_parts is not None:
-                merged_count += sum(len(frame_array) for frame_array in frames if frame_array is not None)
+                merged_count += sum(
+                    len(frame_array)
+                    for frame_array in frames
+                    if frame_array is not None
+                )
 
         for idx, parts in enumerate(typed_parts, start=1):
             if parts:
