@@ -122,7 +122,7 @@ def iter_config_frame_u64(config_frames: ConfigFrames):
         yield (int(high32) << 32) | int(low32)
 ```
 
-如果应用侧已经使用 `frame_type*.h` 或 `frames.npy` 下发配置帧，通常不需要再从 `config.pb` 还原配置帧。
+如果应用侧已经使用 `cfg_frame*.h` 或 `cfg_frames.npy` 下发配置帧，通常不需要再从 `config.pb` 还原配置帧。
 
 ## 5. I/O 映射
 

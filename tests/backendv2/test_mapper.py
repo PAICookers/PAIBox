@@ -2,6 +2,7 @@ import json
 import shutil
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from paibox.backendv2.mapper import Mapper
@@ -22,9 +23,41 @@ def _export_simple_cnn_proto(export_root: Path, word_order: str) -> Path:
 
     graph = compile_to_paiir(SimpleCNN().eval(), make_img_3ch_8x8(), strict=True)
     mapper = Mapper()
-    mapper.compile(graph, export_dir, target_platform="x86", word_order=word_order)  # type: ignore[arg-type]
+    mapper.compile(
+        graph,
+        export_dir,
+        target_platform="x86",  # type: ignore[arg-type]
+        word_order=word_order,
+        debug=True,
+    )
 
     return export_dir / "proto"
+
+
+def _export_simple_cnn(
+    export_root: Path,
+    case_name: str,
+    *,
+    target_platform: str,
+    debug: bool,
+    export_merged_frames: bool = True,
+) -> Path:
+    export_dir = export_root / case_name
+    if export_dir.exists():
+        shutil.rmtree(export_dir)
+    export_dir.mkdir(parents=True, exist_ok=True)
+
+    graph = compile_to_paiir(SimpleCNN().eval(), make_img_3ch_8x8(), strict=True)
+    mapper = Mapper()
+    mapper.compile(
+        graph,
+        export_dir,
+        target_platform=target_platform,  # type: ignore[arg-type]
+        debug=debug,
+        export_merged_frames=export_merged_frames,
+    )
+
+    return export_dir
 
 
 @pytest.fixture(scope="module")
@@ -74,3 +107,59 @@ def test_export_proto_real_workflow_keeps_pb_and_json(
     assert payload["configFrames"]["wordOrder"] == expected_json_value
     assert len(payload["configFrames"]["words"]) > 0
     assert len(payload["ioMapping"]["threads"]) == 1
+
+
+def test_export_artifacts_all_platforms_when_requested(ensure_backendv2_debug_dir):
+    export_dir = _export_simple_cnn(
+        ensure_backendv2_debug_dir,
+        "all_platforms",
+        target_platform="all",
+        debug=False,
+    )
+
+    assert (export_dir / "cfg_frame1.npy").exists()
+    assert (export_dir / "cfg_frame2.npy").exists()
+    assert (export_dir / "cfg_frame3.npy").exists()
+    assert (export_dir / "cfg_frames.npy").exists()
+
+    assert (export_dir / "cfg_frame1.h").exists()
+    assert (export_dir / "cfg_frame2.h").exists()
+    assert (export_dir / "cfg_frame3.h").exists()
+    assert (export_dir / "cfg_frames.h").exists()
+
+    assert not (export_dir / "cfg_frame1.txt").exists()
+    assert not (export_dir / "proto" / "config.json").exists()
+
+    cfg_frame1 = np.load(export_dir / "cfg_frame1.npy")
+    assert cfg_frame1.dtype == np.dtype("<u8")
+
+
+def test_export_artifacts_debug_forces_all_platform_outputs(
+    ensure_backendv2_debug_dir,
+):
+    export_dir = _export_simple_cnn(
+        ensure_backendv2_debug_dir,
+        "debug_forces_all",
+        target_platform="riscv",
+        debug=True,
+    )
+
+    assert (export_dir / "cfg_frame1.txt").exists()
+    assert (export_dir / "cfg_frame2.txt").exists()
+    assert (export_dir / "cfg_frame3.txt").exists()
+    assert (export_dir / "cfg_frames.txt").exists()
+
+    assert (export_dir / "cfg_frame1.npy").exists()
+    assert (export_dir / "cfg_frame2.npy").exists()
+    assert (export_dir / "cfg_frame3.npy").exists()
+    assert (export_dir / "cfg_frames.npy").exists()
+
+    assert (export_dir / "cfg_frame1.h").exists()
+    assert (export_dir / "cfg_frame2.h").exists()
+    assert (export_dir / "cfg_frame3.h").exists()
+    assert (export_dir / "cfg_frames.h").exists()
+
+    assert (export_dir / "proto" / "config.pb").exists()
+    assert (export_dir / "proto" / "config.json").exists()
+    assert (export_dir / "proto" / "compile_artifacts_pb2.py").exists()
+    assert (export_dir / "proto" / "compile_artifacts_pb2.pyi").exists()
