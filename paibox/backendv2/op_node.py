@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import Generic, Optional, TypeVar, Union
+from typing import Generic, TypeVar
 
 import torch
 from paicorelib import (
@@ -476,11 +476,11 @@ class CoreOpNode(BaseNode["OfflineCoreOp"]):
 
 
 # 类型定义 1：包含三个 Node
-SourceNode = Union[InNode, RemapNode, CoreOpNode]
+SourceNode = InNode | RemapNode | CoreOpNode
 # 类型定义 2：不包含 Input
-DestNode = Union[RemapNode, CoreOpNode, OutNode]
+DestNode = RemapNode | CoreOpNode | OutNode
 
-AllNode = Union[InNode, RemapNode, CoreOpNode, OutNode]
+AllNode = InNode | RemapNode | CoreOpNode | OutNode
 
 
 T = TypeVar("T", CoreOpNode, RemapNode, InNode)
@@ -592,7 +592,7 @@ def insert_padding_nodes(nodes: list[AllNode]):
                 if isinstance(comp, nn.Conv1d) and comp.padding == (0,):
                     continue
 
-                padding_node: Optional[RemapNode] = None
+                padding_node: RemapNode | None = None
                 for new_node in new_nodes:
                     if new_node.name == f"{node.predecessors[i].name}_Padded":
                         padding_node = new_node

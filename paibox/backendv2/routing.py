@@ -1,9 +1,7 @@
-from __future__ import annotations
-
 from abc import abstractmethod
 from collections import defaultdict, deque
-from collections.abc import Set
-from typing import AbstractSet, Generic, List, Optional, Sequence, TypeVar
+from collections.abc import Sequence, Set
+from typing import Generic, TypeVar
 
 import numpy as np
 from paicorelib import (
@@ -245,8 +243,8 @@ class RemapGroup(
         self,
         raw_elems: Sequence[RemapElem],
         input_list: Sequence[SourceElem],
-        nodes: Optional[AbstractSet[RemapNode]] = None,
-        input_nodes: Optional[AbstractSet[SourceNode]] = None,
+        nodes: Set[RemapNode] | None = None,
+        input_nodes: Set[SourceNode] | None = None,
     ):
         Group.__init__(self)
         DestGroup.__init__(self, input_list, input_nodes)
@@ -353,13 +351,11 @@ class RoutingGroup(
         self.name: str = f"RG_{self.id}"
 
         self.lcn: LCN_EX = LCN_EX.LCN_1X
-        self.recommand_lcn: Optional[LCN_EX] = None
+        self.recommand_lcn: LCN_EX | None = None
         self.input_bit_num: int = 0
 
         # self.core_blocks: list[CoreBlock] = []
         self.last_full_attrs: OfflineNeuFullAttrsV2Part2 | None = None
-        self.last_dest_group: RoutingGroup | None = None
-        self.last_dest_index: int | None = None
 
         self.n_core_required: int = -1
         self.core_placements: list[CorePlacement] = []
@@ -513,7 +509,7 @@ class RoutingGroup(
 
     def try_to_fold_neuron(
         self,
-        base_weights: List[np.ndarray],
+        base_weights: list[np.ndarray],
         ordered_neus: list[Neuron],
         ordered_infos: list[WeightInfo],
         frontend_core_conf: Frontend_Core_Config,

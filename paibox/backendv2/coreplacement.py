@@ -28,9 +28,7 @@ from .weight import Weight
 
 
 class CorePlacement:
-    def __init__(
-        self,
-    ) -> None:
+    def __init__(self) -> None:
         self._coord: CoordXY | None = None
         self.neus: list[NeuronPlacement] = (
             []
@@ -177,10 +175,7 @@ class OfflineCorePlacementV2(CorePlacement):
         pkt_offset, _ = find_coordxy_shortest_path(self.coord)
 
         # frame_type_1: core config
-        frame_type1 = OfflineFrameGenV2.gen_config_frame1(
-            pkt_offset=pkt_offset,
-            core_reg_=self.core_config,
-        )
+        frame_type1 = OfflineFrameGenV2.gen_config_frame1(pkt_offset, self.core_config)
 
         frame_type2: FrameArrayType | None = None
         # frame_type_2: lut config
@@ -192,9 +187,7 @@ class OfflineCorePlacementV2(CorePlacement):
             activations = activation_tensor.numpy()
 
             frame_type2 = OfflineFrameGenV2.gen_config_frame2(
-                pkt_offset=pkt_offset,
-                potentials=potentials,
-                activations=activations,
+                pkt_offset, potentials, activations
             )
 
         package_arrays: list[FrameArrayType] = []
@@ -207,9 +200,7 @@ class OfflineCorePlacementV2(CorePlacement):
         packages = np.concatenate(package_arrays, axis=0).astype(FRAME_DTYPE)
 
         start_frame = OfflineFrameGenV2.gen_config_frame3_pkg_header(
-            pkt_offset=pkt_offset,
-            start_addr=0,
-            n_package=len(packages),
+            pkt_offset, 0, len(packages)
         )
 
         frame_type3 = np.concatenate([start_frame, packages], axis=0).astype(
@@ -226,8 +217,5 @@ class EmptyOfflineCorePlacementV2(OfflineCorePlacementV2):
         pkt_offset, _ = find_coordxy_shortest_path(self.coord)
 
         # frame_type_1: core config
-        frame_type1 = OfflineFrameGenV2.gen_config_frame1(
-            pkt_offset=pkt_offset,
-            core_reg_=self.core_config,
-        )
+        frame_type1 = OfflineFrameGenV2.gen_config_frame1(pkt_offset, self.core_config)
         return frame_type1, None, None

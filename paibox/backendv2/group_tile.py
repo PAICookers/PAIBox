@@ -1,8 +1,6 @@
-from __future__ import annotations
-
 from collections import deque
 from dataclasses import dataclass
-from typing import Literal, Union
+from typing import Literal
 
 import torch
 from paicorelib import LCN_EX
@@ -29,11 +27,11 @@ from .routing import (
 
 MAX_LCN = LCN_EX.LCN_128X
 
-Conv = Union[torch.nn.Conv1d, torch.nn.Conv2d]
-Pool = Union[SumPool1d, SumPool2d, torch.nn.MaxPool1d, torch.nn.MaxPool2d]
-TileComp = Union[Conv, Pool]
-Comp_1D = Union[torch.nn.Conv1d, SumPool1d, torch.nn.MaxPool1d]
-Comp_2D = Union[torch.nn.Conv2d, SumPool2d, torch.nn.MaxPool2d]
+Conv = torch.nn.Conv1d | torch.nn.Conv2d
+Pool = SumPool1d | SumPool2d | torch.nn.MaxPool1d | torch.nn.MaxPool2d
+TileComp = Conv | Pool
+Comp_1D = torch.nn.Conv1d | SumPool1d | torch.nn.MaxPool1d
+Comp_2D = torch.nn.Conv2d | SumPool2d | torch.nn.MaxPool2d
 Range1D = tuple[int, int]
 TILE_COMP_TYPES = (
     torch.nn.Conv1d,
