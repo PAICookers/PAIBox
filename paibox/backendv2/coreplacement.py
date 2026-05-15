@@ -166,7 +166,7 @@ class OfflineCorePlacementV2(CorePlacement):
         for neu in self.neus:
             neuron_number += neu.n_sram_required
         self.auto_core_config.neuron_number = neuron_number
-        pkt_offset, _ = find_coordxy_shortest_path(self.coord, TEST_DEST_CORE)
+        pkt_offset, _ = find_coordxy_shortest_path(TEST_DEST_CORE, self.coord)
         self.auto_core_config.test_core_xy = pkt_offset.z
         self.auto_core_config.test_core_x = pkt_offset.x
         self.auto_core_config.test_core_y = pkt_offset.y
