@@ -11,14 +11,14 @@ from paicorelib.routing_hexa import (
     aer_packet_walk,
 )
 
-ROW_START = 2
-ROW_END = 9
-COL_START = 0
-COL_END = 9
+X_START = 0
+X_END = 9
+Y_START = 2
+Y_END = 9
 
 HIVE = set()
-for i in range(ROW_START, ROW_END):
-    for j in range(COL_START, COL_END):
+for i in range(X_START, X_END):
+    for j in range(Y_START, Y_END):
         HIVE.add((i, j))
 
 HIVE_LIST = list(HIVE)
@@ -96,7 +96,7 @@ def print_route_result(
         print(f"  Area {p['area_id']} Shape {p['shape_id']}: {abs_coords}")
 
     print("\nVisualization (Numbers = Area ID, . = empty):")
-    grid = [["." for _ in range(COL_END)] for _ in range(ROW_END)]
+    grid = [["." for _ in range(Y_END)] for _ in range(X_END)]
     for (r, c), area_id_str in grid_map.items():
         grid[r][c] = area_id_str
     for r_idx, row in reversed(list(enumerate(grid))):
@@ -188,8 +188,8 @@ def route_solve(
     # break symmetry: the hive cell is a rectangle, so we can enforce an order on area placements
     # model.Add(sum(y[HIVE_INDEX[h]] for h in CANONICAL_SECTOR) >= 1)
 
-    cx = [model.NewIntVar(ROW_START, ROW_END - 1, f"cx_{i}") for i in range(num_areas)]
-    cy = [model.NewIntVar(COL_START, COL_END - 1, f"cy_{i}") for i in range(num_areas)]
+    cx = [model.NewIntVar(X_START, X_END - 1, f"cx_{i}") for i in range(num_areas)]
+    cy = [model.NewIntVar(Y_START, Y_END - 1, f"cy_{i}") for i in range(num_areas)]
 
     # assign center coordinate for each area based on selected placement
     for i, p in enumerate(placements):
@@ -204,32 +204,32 @@ def route_solve(
     total_distance = 0
     for i, next_list in next_area_id.items():
         for j in next_list:
-            dx[i, j] = model.NewIntVar(ROW_START, ROW_END - 1, f"dx_{i}_{j}")
-            dy[i, j] = model.NewIntVar(COL_START, COL_END - 1, f"dy_{i}_{j}")
+            dx[i, j] = model.NewIntVar(X_START, X_END - 1, f"dx_{i}_{j}")
+            dy[i, j] = model.NewIntVar(Y_START, Y_END - 1, f"dy_{i}_{j}")
             model.AddAbsEquality(dx[i, j], cx[j] - cx[i])
             model.AddAbsEquality(dy[i, j], cy[j] - cy[i])
             total_distance += dx[i, j] + dy[i, j]
 
     for input_area_id in input_area_ids:
-        dx_input = model.NewIntVar(ROW_START, ROW_END - 1, f"dx_input_{input_area_id}")
-        dy_input = model.NewIntVar(COL_START, COL_END - 1, f"dy_input_{input_area_id}")
+        dx_input = model.NewIntVar(X_START, X_END - 1, f"dx_input_{input_area_id}")
+        dy_input = model.NewIntVar(Y_START, Y_END - 1, f"dy_input_{input_area_id}")
         model.AddAbsEquality(dx_input, cx[input_area_id] - io_target[0])
         model.AddAbsEquality(dy_input, cy[input_area_id] - io_target[1])
         total_distance += dx_input + dy_input
 
     for output_area_id in output_area_ids:
         dx_output = model.NewIntVar(
-            ROW_START, ROW_END - 1, f"dx_output_{output_area_id}"
+            X_START, X_END - 1, f"dx_output_{output_area_id}"
         )
         dy_output = model.NewIntVar(
-            COL_START, COL_END - 1, f"dy_output_{output_area_id}"
+            Y_START, Y_END - 1, f"dy_output_{output_area_id}"
         )
         model.AddAbsEquality(dx_output, cx[output_area_id] - io_target[0])
         model.AddAbsEquality(dy_output, cy[output_area_id] - io_target[1])
         total_distance += dx_output + dy_output
 
     # Objective: maximize covered cells and minimize total distance
-    max_possible_distance = (ROW_END + COL_END) * num_areas * num_areas
+    max_possible_distance = (X_END + Y_END) * num_areas * num_areas
 
     weight_for_distance = 1
     weight_for_placement = max_possible_distance + 1
