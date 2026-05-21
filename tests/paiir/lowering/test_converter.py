@@ -726,7 +726,7 @@ class TestSpikingJellyLayerCanonicalization:
         model = Model().eval()
         with torch.no_grad():
             model.conv.weight.fill_(2.0)
-            model.conv.bias.fill_(3.0) # type: ignore
+            model.conv.bias.fill_(3.0)  # type: ignore
 
         graph = torch_to_paiir(model, make_img_3ch_8x8())
 
@@ -739,7 +739,7 @@ class TestSpikingJellyLayerCanonicalization:
         comp = conv_nodes[0].comp
         assert isinstance(comp, nn.Conv2d)
         assert torch.equal(comp.weight, model.conv.weight)
-        assert torch.equal(comp.bias, model.conv.bias) # type: ignore
+        assert torch.equal(comp.bias, model.conv.bias)  # type: ignore
 
     def test_linear_layer_lowers_to_canonical_linear(self):
         class Model(nn.Module):

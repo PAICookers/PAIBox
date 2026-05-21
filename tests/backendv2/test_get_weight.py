@@ -116,7 +116,11 @@ def test_expanded_path_weight_matrix_handles_adaptive_maxpool(case: ExpandedPath
     predecessor = _input_node("input", case.predecessor_shape)
     target = _core_node("pool", case.comp, case.target_shape)
     matrix = expanded_path_weight_matrix(
-        predecessor, target, target.raw_node.comp, None, 1  # type: ignore
+        predecessor,
+        target,
+        target.raw_node.comp,
+        None,
+        1,  # type: ignore
     )
 
     assert matrix.shape == case.expected_shape
