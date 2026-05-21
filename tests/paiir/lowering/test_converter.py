@@ -37,6 +37,7 @@ from tests.paiir.conftest import (
     make_multispike4_lut,
     make_vec_8d,
 )
+from tests.paiir.tracing import trace_with_paiir_tracer
 
 
 def _find_single_act(graph, act_type):
@@ -816,6 +817,54 @@ class TestSpikingJellyLayerCanonicalization:
             == 1
         )
 
+    def test_voting_layer_lowers_to_canonical_avgpool1d(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.vote = layer.VotingLayer(2, step_mode="m")
+
+            def forward(self, x):
+                return self.vote(x)
+
+        graph = torch_to_paiir(Model().eval(), make_vec_8d())
+
+        pool_nodes = [
+            node
+            for node in graph.nodes.values()
+            if isinstance(node, StandaloneCompOp)
+            and isinstance(node.comp, nn.AvgPool1d)
+        ]
+        assert len(pool_nodes) == 1
+        assert pool_nodes[0].comp.kernel_size == (2,)
+        assert pool_nodes[0].comp.stride == (2,)
+
+    def test_voting_layer_traces_as_leaf_without_exposed_squeeze_unsqueeze(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.vote = layer.VotingLayer(2, step_mode="m")
+
+            def forward(self, x):
+                return self.vote(x)
+
+        gm = trace_with_paiir_tracer(Model().eval())
+
+        vote_nodes = [
+            node
+            for node in gm.graph.nodes
+            if node.op == "call_module" and node.target == "vote"
+        ]
+        assert len(vote_nodes) == 1
+        assert not [
+            node
+            for node in gm.graph.nodes
+            if (
+                node.op == "call_function"
+                and node.target in (torch.squeeze, torch.unsqueeze)
+            )
+            or (node.op == "call_method" and node.target in {"squeeze", "unsqueeze"})
+        ]
+
     def test_dropout_layer_is_erased_in_eval_deploy_path(self):
         class Model(nn.Module):
             def __init__(self):
@@ -983,7 +1032,6 @@ class TestSpikingJellyLayerCanonicalization:
             (layer.BatchNorm2d(3), make_img_3ch_8x8()),
             (layer.ConvTranspose2d(3, 4, 3), make_img_3ch_8x8()),
             (layer.Conv3d(1, 1, 3), torch.randn(1, 1, 5, 5, 5)),
-            (layer.VotingLayer(2), make_vec_8d()),
             (layer.NeuNorm(3, 8, 8), make_img_3ch_8x8()),
         ],
     )

@@ -8,7 +8,8 @@ SJ_LAYER_ERASE_MODULE_TYPES = (layer.Dropout, layer.Dropout2d)
 # SJ layer types that lower correctly through Python MRO; no canonicalization needed.
 #
 # Conv1d/2d, Linear, MaxPool1d/2d, AvgPool1d/2d, and AdaptiveAvgPool1d/2d lower
-# through explicit module_map registration.
+# through explicit module_map registration. VotingLayer lowers through explicit
+# canonicalization to AvgPool1d.
 # Flatten lowers via reshape-sink handling.
 _SUPPORTED_SJ_LAYER_COMP_TYPES = (
     layer.Conv1d,
@@ -20,6 +21,7 @@ _SUPPORTED_SJ_LAYER_COMP_TYPES = (
     layer.AvgPool2d,
     layer.AdaptiveAvgPool1d,
     layer.AdaptiveAvgPool2d,
+    layer.VotingLayer,
 )
 
 _SUPPORTED_SJ_LAYER_TYPES = (

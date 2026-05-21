@@ -120,6 +120,15 @@ class SpikingJellyLayerCompileSmoke(nn.Module):
         return self.linear(self.flatten(self.pool(x)))
 
 
+class VotingLayerCompileSmoke(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.vote = sj_layer.VotingLayer(2, step_mode="m")
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.vote(x)
+
+
 class AdaptiveAvgPoolCompileSmoke(nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -375,6 +384,21 @@ class TestCompileBasic:
         comp_types = [type(node.comp) for node in find_nodes(graph, StandaloneCompOp)]
         assert any(issubclass(comp_type, nn.MaxPool2d) for comp_type in comp_types)
         assert any(issubclass(comp_type, nn.Linear) for comp_type in comp_types)
+
+    def test_VotingLayer_compile_smoke(self):
+        graph = compile_to_paiir(VotingLayerCompileSmoke(), torch.randn(1, 8))
+
+        pool_nodes = [
+            node
+            for node in find_nodes(graph, StandaloneCompOp)
+            if isinstance(node.comp, nn.AvgPool1d)
+        ]
+        assert len(pool_nodes) == 1
+        assert pool_nodes[0].comp.kernel_size == (2,)
+        assert pool_nodes[0].comp.stride == (2,)
+        assert graph.predecessors(pool_nodes[0].name) == ["InputNode_0"]
+        assert pool_nodes[0].core_params.input_sign is not None
+        assert pool_nodes[0].core_params.input_width is not None
 
     @pytest.mark.parametrize(
         ("model_factory", "sample_input", "expected_stage_types"),

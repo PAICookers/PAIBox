@@ -5,6 +5,7 @@ from typing import Literal
 import pytest
 import torch
 from spikingjelly.activation_based import functional as sF
+from spikingjelly.activation_based import layer
 from spikingjelly.activation_based import neuron as sj
 from torch import Tensor, nn
 
@@ -84,6 +85,15 @@ class SingleLayerANN(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         return self.relu(self.conv(x))
+
+
+class VotingLayerSimulation(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.vote = layer.VotingLayer(2, step_mode="s")
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.vote(x)
 
 
 def _compile_snn(
@@ -1608,6 +1618,34 @@ class TestStandaloneOpSimulation:
         graph = compile_to_paiir(model, x_compile)
         transform_nodes = find_transform_nodes(graph)
         assert len(transform_nodes) == 1
+
+        graph.reset()
+        max_tick_start = max(
+            n.core_params.tick_start
+            for n in graph.nodes.values()
+            if isinstance(n, OfflineCoreOp) and n.core_params.tick_start is not None
+        )
+        for _ in range(max_tick_start):
+            paiir_out = graph.step(x_int8)
+
+        assert torch.is_tensor(paiir_out)
+        assert torch.equal(paiir_out, pytorch_out)
+
+    def test_VotingLayer_matches_pytorch_for_2d_batch_one_input(self) -> None:
+        model = VotingLayerSimulation().eval()
+        x_compile = torch.randn(1, 8)
+        x_int8 = torch.randint(-128, 128, (1, 8), dtype=torch.int8)
+
+        with torch.no_grad():
+            pytorch_out = model(x_int8.float())
+
+        graph = compile_to_paiir(model, x_compile)
+        pool_nodes = [
+            node
+            for node in graph.nodes.values()
+            if isinstance(node, StandaloneCompOp) and isinstance(node.comp, nn.AvgPool1d)
+        ]
+        assert len(pool_nodes) == 1
 
         graph.reset()
         max_tick_start = max(

@@ -52,7 +52,7 @@ from typing import Any, TypeVar
 
 import torch
 from spikingjelly.activation_based import functional as sj_F
-from spikingjelly.activation_based import neuron
+from spikingjelly.activation_based import layer, neuron
 from spikingjelly.activation_based.base import StepModule
 from torch import Tensor, fx, nn
 from torch.fx.node import Argument, Target
@@ -362,6 +362,13 @@ def _build_spikingjelly_neuron_module_map() -> ModuleMapper:
     return {neuron.IFNode: _map_sj_ifnode, neuron.LIFNode: _map_sj_lifnode}
 
 
+def _map_sj_voting_layer(m: nn.Module, **kwargs) -> StandaloneCompOp:
+    if not isinstance(m, layer.VotingLayer):
+        raise TypeError(f"expected VotingLayer, got {type(m).__name__}")
+
+    return _map_comp(nn.AvgPool1d(m.voting_size, m.voting_size), **kwargs)
+
+
 def _build_standard_activation_module_map() -> ModuleMapper:
     return {
         nn.ReLU: _build_standalone_act_mapper(nn.ReLU, lambda _: ANNNodeV25(LutReLU())),
@@ -390,9 +397,9 @@ def _build_builtin_paiir_neuron_map() -> ModuleMapper:
 
 
 def _build_spikingjelly_layer_comp_map() -> ModuleMapper:
-    # These wrappers lower exactly like their torch.nn base types, but still need
-    # explicit registration because module_map uses exact type() keys.
-    return dict.fromkeys(_SUPPORTED_SJ_LAYER_COMP_TYPES, _map_comp)
+    module_map = dict.fromkeys(_SUPPORTED_SJ_LAYER_COMP_TYPES, _map_comp)
+    module_map[layer.VotingLayer] = _map_sj_voting_layer
+    return module_map  # type: ignore
 
 
 def build_default_module_map() -> ModuleMapper:
