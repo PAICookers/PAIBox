@@ -77,15 +77,15 @@ def _run_comp(comp: nn.Module, x: Tensor) -> Tensor:
     the incoming dtype where possible so standalone/preceding-value MaxPool
     simulation does not spuriously widen into float.
 
-    ``MaxPool1d`` is a special case on the current PyTorch CPU build: integer
-    ``Byte``/``Char`` inputs raise ``NotImplementedError``. For that case we
-    execute the pool in float32 and cast the exact max values back to the
-    original integer dtype.
+    Some MaxPool modules are special cases on the current PyTorch CPU build:
+    integer ``Byte``/``Char`` inputs raise ``NotImplementedError``. For those
+    cases we execute the pool in float32 and cast the exact max values back to
+    the original integer dtype.
 
     Other compute ops such as Conv/Linear still require floating-point tensors
     in PyTorch and therefore use :func:`_ensure_float`.
     """
-    if isinstance(comp, nn.MaxPool1d):
+    if isinstance(comp, (nn.MaxPool1d, nn.AdaptiveMaxPool1d, nn.AdaptiveMaxPool2d)):
         if x.is_floating_point():
             return comp(x)
         return comp(x.to(torch.float32)).to(x.dtype)

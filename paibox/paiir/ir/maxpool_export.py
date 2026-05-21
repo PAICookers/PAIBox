@@ -42,9 +42,21 @@ class MaxPoolExportKind(Enum):
     LUT = auto()
 
 
-def is_maxpool_comp(comp: nn.Module) -> TypeGuard[nn.MaxPool1d | nn.MaxPool2d]:
+def is_maxpool_comp(
+    comp: nn.Module,
+) -> TypeGuard[
+    nn.MaxPool1d | nn.MaxPool2d | nn.AdaptiveMaxPool1d | nn.AdaptiveMaxPool2d
+]:
     """Return whether ``comp`` is a standalone MaxPool compute op."""
-    return isinstance(comp, (nn.MaxPool1d, nn.MaxPool2d))
+    return isinstance(
+        comp,
+        (
+            nn.MaxPool1d,
+            nn.MaxPool2d,
+            nn.AdaptiveMaxPool1d,
+            nn.AdaptiveMaxPool2d,
+        ),
+    )
 
 
 def select_maxpool_export_kind(

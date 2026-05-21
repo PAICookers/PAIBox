@@ -59,7 +59,7 @@ from paibox.paiir import compile_to_paiir
 
 对于 ANN 量化模型，当前最稳妥的通用方式是：
 
-- 保留标准 `nn.Conv1d` / `nn.Conv2d` / `nn.Linear` / `nn.MaxPool*` / `nn.AvgPool*` / `nn.AdaptiveMaxPool*`
+- 保留标准 `nn.Conv1d` / `nn.Conv2d` / `nn.Linear` / `nn.MaxPool*` / `nn.AvgPool*` / `nn.AdaptiveMaxPool*` / `nn.AdaptiveAvgPool*`
 - 或保留当前支持的 `spikingjelly.activation_based.layer.X` wrapper，注意这和原生 `torch.nn.X` 支持面是两类入口
 - 或保留静态参数可解析的 `torch.nn.functional.conv1d/conv2d`
 - 把部署用的整数权重、偏置、scale、LUT 等信息固化到模块参数或 buffer 中
@@ -144,6 +144,8 @@ uv run python -c "import torch, spikingjelly, paicorelib, numba, paibox; print('
   - `nn.AvgPool2d`
   - `nn.AdaptiveMaxPool1d`
   - `nn.AdaptiveMaxPool2d`
+  - `nn.AdaptiveAvgPool1d`
+  - `nn.AdaptiveAvgPool2d`
 - 函数式卷积
   - `torch.nn.functional.conv1d`
   - `torch.nn.functional.conv2d`
@@ -156,8 +158,10 @@ uv run python -c "import torch, spikingjelly, paicorelib, numba, paibox; print('
   - `layer.MaxPool2d`
   - `layer.AvgPool1d`
   - `layer.AvgPool2d`
+  - `layer.AdaptiveAvgPool1d`
+  - `layer.AdaptiveAvgPool2d`
   - `layer.Flatten`
-  - 这些 wrapper 按当前 PAIIR 支持的普通模块路径 lowering；不要把原生 `nn.AdaptiveMaxPool1d/2d` 误写成 SJ `layer.AdaptiveMaxPool*` 支持
+  - 这些 wrapper 按当前 PAIIR 支持的普通模块路径 lowering；支持面与当前安装的 SpikingJelly `activation_based.layer` 模块实际提供的 wrapper 保持一致
 - 常见激活
   - `nn.ReLU`
   - `nn.Sigmoid`

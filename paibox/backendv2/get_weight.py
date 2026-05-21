@@ -339,31 +339,100 @@ def _adaptive_pool_window_bounds(
     return start, end
 
 
+def _adaptive_pool_bounds(
+    input_size: int, output_size: int
+) -> tuple[tuple[int, int], ...]:
+    return tuple(
+        _adaptive_pool_window_bounds(out_pos, input_size, output_size)
+        for out_pos in range(output_size)
+    )
+
+
+def _adaptive_pool1d_weight_matrix(
+    channels: int, input_length: int, output_length: int, sign: int
+) -> np.ndarray:
+    n_input = channels * input_length
+    matrix = np.zeros((channels * output_length, n_input), dtype=np.int16)
+    bounds = _adaptive_pool_bounds(input_length, output_length)
+
+    for channel in range(channels):
+        input_offset = channel * input_length
+        output_offset = channel * output_length
+        for out_pos, (start, end) in enumerate(bounds):
+            row = output_offset + out_pos
+            matrix[row, input_offset + start : input_offset + end] = sign
+
+    return matrix
+
+
+def _adaptive_pool2d_weight_matrix(
+    channels: int,
+    input_height: int,
+    input_width: int,
+    output_height: int,
+    output_width: int,
+    sign: int,
+) -> np.ndarray:
+    input_area = input_height * input_width
+    output_area = output_height * output_width
+    matrix = np.zeros((channels * output_area, channels * input_area), dtype=np.int16)
+    h_bounds = _adaptive_pool_bounds(input_height, output_height)
+    w_bounds = _adaptive_pool_bounds(input_width, output_width)
+
+    for channel in range(channels):
+        input_offset = channel * input_area
+        output_offset = channel * output_area
+        for out_h, (h_start, h_end) in enumerate(h_bounds):
+            row_base = output_offset + out_h * output_width
+            for out_w, (w_start, w_end) in enumerate(w_bounds):
+                row = row_base + out_w
+                for in_h in range(h_start, h_end):
+                    col_start = input_offset + in_h * input_width + w_start
+                    col_end = input_offset + in_h * input_width + w_end
+                    matrix[row, col_start:col_end] = sign
+
+    return matrix
+
+
+def _adaptive_pool_weight_matrix(
+    channels: int,
+    input_shape: tuple[int, ...],
+    output_shape: tuple[int, ...],
+    sign: int,
+    op_name: str,
+) -> np.ndarray:
+    in_channels, *input_spatial_shape = input_shape
+    out_channels, *output_spatial_shape = output_shape
+    if in_channels != channels or out_channels != channels:
+        raise ValueError(
+            f"{op_name} channel mismatch: input={in_channels}, output={out_channels}, channels={channels}."
+        )
+
+    match (tuple(input_spatial_shape), tuple(output_spatial_shape)):
+        case ((input_length,), (output_length,)):
+            return _adaptive_pool1d_weight_matrix(
+                channels, input_length, output_length, sign
+            )
+        case ((input_height, input_width), (output_height, output_width)):
+            return _adaptive_pool2d_weight_matrix(
+                channels, input_height, input_width, output_height, output_width, sign
+            )
+        case _:
+            raise ValueError(
+                "Adaptive pooling input/output spatial rank mismatch: "
+                f"input={tuple(input_spatial_shape)}, output={tuple(output_spatial_shape)}."
+            )
+
+
 def adaptive_maxpool1d_weight_matrix(
     channels: int,
     input_shape: tuple[int, int],
     output_shape: tuple[int, int],
     sign: int,
 ) -> np.ndarray:
-    in_channels, in_length = input_shape
-    out_channels, out_length = output_shape
-    if in_channels != channels or out_channels != channels:
-        raise ValueError(
-            f"AdaptiveMaxPool1d channel mismatch: input={in_channels}, output={out_channels}, channels={channels}."
-        )
-
-    n_input = in_channels * in_length
-    matrix = np.zeros((out_channels * out_length, n_input), dtype=np.int16)
-
-    for channel in range(channels):
-        for out_pos in range(out_length):
-            start, end = _adaptive_pool_window_bounds(out_pos, in_length, out_length)
-            row = channel * out_length + out_pos
-            for in_pos in range(start, end):
-                col = channel * in_length + in_pos
-                matrix[row, col] = sign
-
-    return matrix
+    return _adaptive_pool_weight_matrix(
+        channels, input_shape, output_shape, sign, "AdaptiveMaxPool1d"
+    )
 
 
 def adaptive_maxpool2d_weight_matrix(
@@ -372,31 +441,31 @@ def adaptive_maxpool2d_weight_matrix(
     output_shape: tuple[int, int, int],
     sign: int,
 ) -> np.ndarray:
-    in_channels, in_height, in_width = input_shape
-    out_channels, out_height, out_width = output_shape
-    if in_channels != channels or out_channels != channels:
-        raise ValueError(
-            f"AdaptiveMaxPool2d channel mismatch: input={in_channels}, output={out_channels}, channels={channels}."
-        )
+    return _adaptive_pool_weight_matrix(
+        channels, input_shape, output_shape, sign, "AdaptiveMaxPool2d"
+    )
 
-    out_size = out_height * out_width
-    n_input = in_channels * in_height * in_width
-    matrix = np.zeros((out_channels * out_size, n_input), dtype=np.int16)
 
-    for channel in range(channels):
-        for out_h in range(out_height):
-            h_start, h_end = _adaptive_pool_window_bounds(out_h, in_height, out_height)
-            for out_w in range(out_width):
-                w_start, w_end = _adaptive_pool_window_bounds(
-                    out_w, in_width, out_width
-                )
-                row = channel * out_size + out_h * out_width + out_w
-                for in_h in range(h_start, h_end):
-                    for in_w in range(w_start, w_end):
-                        col = channel * in_height * in_width + in_h * in_width + in_w
-                        matrix[row, col] = sign
+def adaptive_avgpool1d_weight_matrix(
+    channels: int,
+    input_shape: tuple[int, int],
+    output_shape: tuple[int, int],
+    sign: int,
+) -> np.ndarray:
+    return _adaptive_pool_weight_matrix(
+        channels, input_shape, output_shape, sign, "AdaptiveAvgPool1d"
+    )
 
-    return matrix
+
+def adaptive_avgpool2d_weight_matrix(
+    channels: int,
+    input_shape: tuple[int, int, int],
+    output_shape: tuple[int, int, int],
+    sign: int,
+) -> np.ndarray:
+    return _adaptive_pool_weight_matrix(
+        channels, input_shape, output_shape, sign, "AdaptiveAvgPool2d"
+    )
 
 
 def expanded_path_weight_matrix(
@@ -488,6 +557,26 @@ def expanded_path_weight_matrix(
         assert len(input_shape) == 3
         assert len(output_shape) == 3
         return adaptive_maxpool2d_weight_matrix(
+            input_shape[0], input_shape, output_shape, sign
+        )
+
+    if isinstance(comp, nn.AdaptiveAvgPool1d):
+        print(
+            f"\tExpanding AdaptiveAvgPool1d from {input_shape} to {output_shape} with output_size={comp.output_size}."
+        )
+        assert len(input_shape) == 2
+        assert len(output_shape) == 2
+        return adaptive_avgpool1d_weight_matrix(
+            input_shape[0], input_shape, output_shape, sign
+        )
+
+    if isinstance(comp, nn.AdaptiveAvgPool2d):
+        print(
+            f"\tExpanding AdaptiveAvgPool2d from {input_shape} to {output_shape} with output_size={comp.output_size}."
+        )
+        assert len(input_shape) == 3
+        assert len(output_shape) == 3
+        return adaptive_avgpool2d_weight_matrix(
             input_shape[0], input_shape, output_shape, sign
         )
 
