@@ -54,7 +54,7 @@ PAIIR 前端默认支持标准 PyTorch 模块、少量 canonical function-form �
 
 ### 自定义计算模块
 
-`register_module(...)` 用于把用户自定义 `nn.Module` 转换为 PAIIR 已支持的 canonical `nn.Module`，例如 `nn.Conv1d`、`nn.Conv2d`、`nn.Linear`、pooling 模块（含 `nn.AdaptiveMaxPool1d/2d`）、标准激活模块或 PAIIR 神经元/LUT 模块。
+`register_module(...)` 用于把用户自定义 `nn.Module` 转换为 PAIIR 已支持的 canonical `nn.Module`，例如 `nn.Conv1d`、`nn.Conv2d`、`nn.Linear`、pooling 模块（含 `nn.AdaptiveMaxPool1d/2d` 与 `nn.AdaptiveAvgPool1d/2d`）、标准激活模块或 PAIIR 神经元/LUT 模块。
 
 ```python
 from torch import nn
@@ -82,7 +82,7 @@ register_module(MyQuantConv, to_canonical_conv)
 
 注册函数返回的模块必须已经是当前 PAIIR lowering 支持的模块；返回 bypass 模块或未知模块会报错。重复注册同一模块类型也会报错，避免全局 lowering 规则被静默覆盖。
 
-SpikingJelly `activation_based.layer` wrapper 是另一类前端入口。当前支持的 wrapper 包括 `layer.Conv1d/2d`、`layer.Linear`、`layer.MaxPool1d/2d`、`layer.AvgPool1d/2d`、`layer.Flatten`；这些 wrapper 会按对应普通模块路径进入 PAIIR。原生 `nn.AdaptiveMaxPool1d/2d` 支持属于 `torch.nn` 模块路径，不应描述成 `layer.AdaptiveMaxPool*` 支持。
+SpikingJelly `activation_based.layer` wrapper 是另一类前端入口。当前支持的 wrapper 包括 `layer.Conv1d/2d`、`layer.Linear`、`layer.MaxPool1d/2d`、`layer.AvgPool1d/2d`、`layer.AdaptiveAvgPool1d/2d`、`layer.Flatten`；这些 wrapper 会按对应普通模块路径进入 PAIIR。注意这里讨论的是 SpikingJelly `activation_based.layer` 模块内实际存在的 wrapper；原生 `torch.nn` 模块支持属于另一类入口。
 
 ### 自定义神经元或 LUT 激活
 
@@ -479,7 +479,7 @@ raw_weights: list[Tensor] | None = op.weights
 >
 > - Conv：由 kernel 展开为 dense matrix
 > - Pool：由 `kernel_size / stride / padding / dilation` 合成窗口连接矩阵
-> - `nn.AdaptiveMaxPool1d/2d`：由 PyTorch adaptive pooling 的输出位置到输入窗口边界合成位置相关连接矩阵
+> - `nn.AdaptiveMaxPool1d/2d` / `nn.AdaptiveAvgPool1d/2d`：由 PyTorch adaptive pooling 的输出位置到输入窗口边界合成位置相关连接矩阵；矩阵只表达连接和符号，avgpool 的除法语义由后续补偿/解释路径处理
 > - `StandaloneActOp` / `PotentialAddOp`：在 `comp is None` 时按路径语义合成 signed identity matrix
 >
 > 因此，不要把 `op.weights` 直接理解为“最终部署权重矩阵”。
@@ -544,7 +544,7 @@ SNN 模式下 `lut_data` 为 `None`。
 from paibox.paiir.ir.op_node import SequentialOp
 
 seq: SequentialOp
-seq.comp: nn.Module        # 计算模块（Conv2d / Linear / MaxPool2d / AvgPool2d 等）
+seq.comp: nn.Module        # 计算模块（Conv2d / Linear / MaxPool2d / AvgPool2d / Adaptive*Pool2d 等）
 seq.act: CoreNeuronV25     # 激活模块
 seq.weights                # list[Tensor] | None，原始参数张量；池化通常为 None
 seq.neuron_params          # NeuronParams（含 bias 融合、AvgPool 补偿）
