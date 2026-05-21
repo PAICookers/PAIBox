@@ -128,9 +128,6 @@ ModuleMapper = dict[type[_M], Callable[[_M], OpNode]]
 _USER_MODULE_MAP: ModuleMapper = {}
 """User-registered module mappings layered on top of built-in lowering rules."""
 
-
-ADAPTIVE_MAXPOOL_MODULE_TYPES = (nn.AdaptiveMaxPool1d, nn.AdaptiveMaxPool2d)
-
 # Modules that are kept in the FX graph but intentionally disappear from PAIIR
 # data flow during lowering.
 LOWERING_BYPASS_MODULE_TYPES = (nn.BatchNorm1d, nn.BatchNorm2d)
@@ -176,7 +173,15 @@ def _describe_avgpool_lowering_issue(m: nn.Module) -> str | None:
 
 
 def _describe_maxpool_lowering_issue(m: nn.Module) -> str | None:
-    if not isinstance(m, (nn.MaxPool1d, nn.MaxPool2d)):
+    if not isinstance(
+        m,
+        (
+            nn.MaxPool1d,
+            nn.MaxPool2d,
+            nn.AdaptiveMaxPool1d,
+            nn.AdaptiveMaxPool2d,
+        ),
+    ):
         return None
 
     if m.return_indices:
@@ -209,42 +214,6 @@ def _set_sj_layer_step_mode_single(model: nn.Module) -> None:
             stacklevel=3,
         )
         sj_F.set_step_mode(model, "s")
-
-
-def _extract_adaptive_maxpool_ir_node(
-    node: fx.Node, m: nn.Module
-) -> tuple[StandaloneCompOp, tuple[fx.Node, ...]] | str | None:
-    """Extract an AdaptiveMaxPool module into a PAIIR standalone compute node.
-
-    Returns:
-        (StandaloneCompOp, inputs): The IR node and its input node.
-        str: Error message for an invalid AdaptiveMaxPool module.
-        None: The module is not AdaptiveMaxPool.
-    """
-    if not isinstance(m, ADAPTIVE_MAXPOOL_MODULE_TYPES):
-        return None
-    if not node.args or not isinstance(node.args[0], fx.Node):
-        return f"nn.Module '{type(m).__name__}' without a tensor input"
-
-    input_node = node.args[0]
-    input_shape = get_output_shape(input_node)
-
-    # Backend expansion requires a fixed spatial input shape.
-    if isinstance(m, nn.AdaptiveMaxPool1d):
-        ndim = 1
-    else:
-        ndim = 2
-
-    if len(input_shape) < ndim + 2:
-        return f"nn.Module '{type(m).__name__}' without a fixed input shape"
-
-    try:
-        _ = tuple(int(dim) for dim in input_shape[-ndim:])
-    except TypeError:
-        return f"nn.Module '{type(m).__name__}' without a static input shape"
-
-    ir_node = StandaloneCompOp(m)
-    return (ir_node, (input_node,))
 
 
 def _map_comp(m: nn.Module, **kwargs) -> StandaloneCompOp:
@@ -379,8 +348,12 @@ def _build_compute_module_map() -> ModuleMapper:
         nn.Linear,
         nn.MaxPool1d,
         nn.MaxPool2d,
+        nn.AdaptiveMaxPool1d,
+        nn.AdaptiveMaxPool2d,
         nn.AvgPool1d,
         nn.AvgPool2d,
+        nn.AdaptiveAvgPool1d,
+        nn.AdaptiveAvgPool2d,
     ]
     return dict.fromkeys(modules, _map_comp)
 
@@ -1207,22 +1180,6 @@ def _apply_module_lowering_rule(
 
     torch_module = gm.get_submodule(str(node.target))
     input_override = ctx.input_nodes_overrides.get(node)
-
-    adaptive_maxpool_result = _extract_adaptive_maxpool_ir_node(node, torch_module)
-    if adaptive_maxpool_result is not None:
-        if isinstance(adaptive_maxpool_result, str):
-            _mark_unsupported(ctx, node, adaptive_maxpool_result, strict)
-            return True
-
-        ir_node, adaptive_input_override = adaptive_maxpool_result
-        _register_ir_node(
-            paiir_graph,
-            ctx,
-            node,
-            ir_node,
-            input_nodes_override=adaptive_input_override,
-        )
-        return True
 
     sink_info = _get_reshape_sink_info(ctx, node)
     if sink_info is not None:

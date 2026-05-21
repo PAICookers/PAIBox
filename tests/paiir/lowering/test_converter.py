@@ -23,6 +23,7 @@ from paibox.paiir.ir.op_node import (
     StandaloneCompOp,
 )
 from paibox.paiir.lowering.converter import (
+    build_default_module_map,
     register_module,
     register_neuron,
     torch_to_paiir,
@@ -714,6 +715,14 @@ class TestLegacyClockDrivenCompatibility:
 
 
 class TestSpikingJellyLayerCanonicalization:
+    def test_adaptive_pool_modules_use_default_module_map(self):
+        module_map = build_default_module_map()
+
+        assert nn.AdaptiveMaxPool1d in module_map
+        assert nn.AdaptiveMaxPool2d in module_map
+        assert nn.AdaptiveAvgPool1d in module_map
+        assert nn.AdaptiveAvgPool2d in module_map
+
     def test_conv2d_layer_lowers_to_canonical_conv2d(self):
         class Model(nn.Module):
             def __init__(self):
@@ -891,19 +900,7 @@ class TestSpikingJellyLayerCanonicalization:
         assert len(pool_nodes) == 1
         assert pool_nodes[0].comp.output_size == 4
 
-    def test_sj_adaptive_avgpool2d_is_rejected_as_layer_wrapper(self):
-        class Model(nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.pool = layer.AdaptiveAvgPool2d((4, 4), step_mode="m")
-
-            def forward(self, x):
-                return self.pool(x)
-
-        with pytest.raises(UnsupportedOpError, match="AdaptiveAvgPool2d"):
-            torch_to_paiir(Model().eval(), torch.randn(1, 3, 7, 7))
-
-    def test_adaptive_avgpool2d_is_not_supported_in_this_slice(self):
+    def test_adaptive_avgpool2d_lowers_to_standalone_comp(self):
         class Model(nn.Module):
             def __init__(self):
                 super().__init__()
@@ -912,8 +909,72 @@ class TestSpikingJellyLayerCanonicalization:
             def forward(self, x):
                 return self.pool(x)
 
-        with pytest.raises(UnsupportedOpError, match="AdaptiveAvgPool2d"):
-            torch_to_paiir(Model().eval(), make_img_3ch_8x8())
+        graph = torch_to_paiir(Model().eval(), torch.randn(1, 3, 7, 7))
+
+        pool_nodes = [
+            node
+            for node in graph.nodes.values()
+            if isinstance(node, StandaloneCompOp)
+            and isinstance(node.comp, nn.AdaptiveAvgPool2d)
+        ]
+        assert len(pool_nodes) == 1
+        assert pool_nodes[0].comp.output_size == (4, 4)
+
+    def test_adaptive_avgpool1d_lowers_to_standalone_comp(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.pool = nn.AdaptiveAvgPool1d(4)
+
+            def forward(self, x):
+                return self.pool(x)
+
+        graph = torch_to_paiir(Model().eval(), torch.randn(1, 2, 7))
+
+        pool_nodes = [
+            node
+            for node in graph.nodes.values()
+            if isinstance(node, StandaloneCompOp)
+            and isinstance(node.comp, nn.AdaptiveAvgPool1d)
+        ]
+        assert len(pool_nodes) == 1
+        assert pool_nodes[0].comp.output_size == 4
+
+    @pytest.mark.parametrize(
+        ("module", "sample", "expected_type"),
+        [
+            (
+                layer.AdaptiveAvgPool1d(4, step_mode="m"),
+                torch.randn(1, 2, 7),
+                nn.AdaptiveAvgPool1d,
+            ),
+            (
+                layer.AdaptiveAvgPool2d((4, 4), step_mode="m"),
+                torch.randn(1, 3, 7, 7),
+                nn.AdaptiveAvgPool2d,
+            ),
+        ],
+        ids=["layer-adaptive-avgpool1d", "layer-adaptive-avgpool2d"],
+    )
+    def test_sj_adaptive_avgpool_layers_lower_to_standalone_comp(
+        self, module: nn.Module, sample: torch.Tensor, expected_type: type[nn.Module]
+    ):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.pool = module
+
+            def forward(self, x):
+                return self.pool(x)
+
+        graph = torch_to_paiir(Model().eval(), sample)
+
+        pool_nodes = [
+            node
+            for node in graph.nodes.values()
+            if isinstance(node, StandaloneCompOp) and isinstance(node.comp, expected_type)
+        ]
+        assert len(pool_nodes) == 1
 
     @pytest.mark.parametrize(
         ("module", "sample"),
