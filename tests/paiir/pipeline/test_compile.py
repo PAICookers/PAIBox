@@ -5,6 +5,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 from paicorelib import DataSign, DataWidth
+from spikingjelly.activation_based import layer as sj_layer
 from spikingjelly.activation_based import neuron as sj
 from torch import Tensor, nn
 
@@ -105,6 +106,17 @@ class AvgPool2dWrapper(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         return self.pool(x)
+
+
+class SpikingJellyLayerCompileSmoke(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.pool = sj_layer.MaxPool2d(2, step_mode="m")
+        self.flatten = sj_layer.Flatten(step_mode="m")
+        self.linear = sj_layer.Linear(3 * 4 * 4, 2, step_mode="m")
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.linear(self.flatten(self.pool(x)))
 
 
 class TransformThenLinear(nn.Module):
@@ -327,6 +339,13 @@ class TestCompileBasic:
         concat_nodes = find_nodes(graph, ConcatOp)
         assert len(concat_nodes) == 1
         assert concat_nodes[0].dim == 1
+
+    def test_spikingjelly_layer_compile_smoke(self):
+        graph = compile_to_paiir(SpikingJellyLayerCompileSmoke(), make_img_3ch_8x8())
+        # SJ layer wrappers lower via inheritance; comp is an nn.X subclass instance.
+        comp_types = [type(node.comp) for node in find_nodes(graph, StandaloneCompOp)]
+        assert any(issubclass(comp_type, nn.MaxPool2d) for comp_type in comp_types)
+        assert any(issubclass(comp_type, nn.Linear) for comp_type in comp_types)
 
     @pytest.mark.parametrize(
         ("model_factory", "sample_input", "expected_stage_types"),

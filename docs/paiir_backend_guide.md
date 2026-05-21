@@ -50,11 +50,11 @@ paibox.paiir/
 
 ## 前端 lowering 扩展点
 
-PAIIR 前端默认支持标准 PyTorch 模块和少量 canonical function-form 算子。自定义模块不要依赖 lowering 猜测字段名或量化表达式，应显式注册到受支持的 canonical 模块或神经元。
+PAIIR 前端默认支持标准 PyTorch 模块、少量 canonical function-form 算子，以及当前白名单内的 `spikingjelly.activation_based.layer.X` wrapper。自定义模块不要依赖 lowering 猜测字段名或量化表达式，应显式注册到受支持的 canonical 模块或神经元。
 
 ### 自定义计算模块
 
-`register_module(...)` 用于把用户自定义 `nn.Module` 转换为 PAIIR 已支持的 canonical `nn.Module`，例如 `nn.Conv1d`、`nn.Conv2d`、`nn.Linear`、pooling 模块、标准激活模块或 PAIIR 神经元/LUT 模块。
+`register_module(...)` 用于把用户自定义 `nn.Module` 转换为 PAIIR 已支持的 canonical `nn.Module`，例如 `nn.Conv1d`、`nn.Conv2d`、`nn.Linear`、pooling 模块（含 `nn.AdaptiveMaxPool1d/2d`）、标准激活模块或 PAIIR 神经元/LUT 模块。
 
 ```python
 from torch import nn
@@ -81,6 +81,8 @@ register_module(MyQuantConv, to_canonical_conv)
 ```
 
 注册函数返回的模块必须已经是当前 PAIIR lowering 支持的模块；返回 bypass 模块或未知模块会报错。重复注册同一模块类型也会报错，避免全局 lowering 规则被静默覆盖。
+
+SpikingJelly `activation_based.layer` wrapper 是另一类前端入口。当前支持的 wrapper 包括 `layer.Conv1d/2d`、`layer.Linear`、`layer.MaxPool1d/2d`、`layer.AvgPool1d/2d`、`layer.Flatten`；这些 wrapper 会按对应普通模块路径进入 PAIIR。原生 `nn.AdaptiveMaxPool1d/2d` 支持属于 `torch.nn` 模块路径，不应描述成 `layer.AdaptiveMaxPool*` 支持。
 
 ### 自定义神经元或 LUT 激活
 
@@ -477,6 +479,7 @@ raw_weights: list[Tensor] | None = op.weights
 >
 > - Conv：由 kernel 展开为 dense matrix
 > - Pool：由 `kernel_size / stride / padding / dilation` 合成窗口连接矩阵
+> - `nn.AdaptiveMaxPool1d/2d`：由 PyTorch adaptive pooling 的输出位置到输入窗口边界合成位置相关连接矩阵
 > - `StandaloneActOp` / `PotentialAddOp`：在 `comp is None` 时按路径语义合成 signed identity matrix
 >
 > 因此，不要把 `op.weights` 直接理解为“最终部署权重矩阵”。

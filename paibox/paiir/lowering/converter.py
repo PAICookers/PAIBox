@@ -2,11 +2,16 @@
 
 Pipeline:
 
-1. FX symbolic trace with registered module types + bypass types as leaf modules.
-2. ``_EraseModuleTransformer`` removes Dropout/Identity nodes from the graph.
-3. ``ShapeProp`` for tensor shape propagation (when *sample_inputs* given).
-4. ``DimsProp`` for axis ordering propagation (detects transpose/permute).
-5. 1:1 node mapping to PAIIR nodes (no fusion at this stage).
+1. ``copy.deepcopy`` the model; force ``step_mode='s'`` on all SpikingJelly
+   ``StepModule`` instances (original model is never modified).
+2. FX symbolic trace with registered module types + bypass types as leaf modules.
+3. ``_EraseModuleTransformer`` removes no-op modules (Dropout/Identity) from
+   the graph.
+4. ``ShapeProp`` for tensor shape propagation (when *sample_inputs* given).
+5. ``DimsProp`` for axis ordering propagation (detects transpose/permute).
+6. 1:1 node mapping to PAIIR nodes (no fusion at this stage).
+   Supported ``spikingjelly.activation_based.layer.X`` modules lower directly
+   via Python MRO; no canonicalization step required.
 
 Example::
 
@@ -46,19 +51,16 @@ from functools import partial
 from typing import Any, TypeVar
 
 import torch
+from spikingjelly.activation_based import functional as sj_F
 from spikingjelly.activation_based import neuron
+from spikingjelly.activation_based.base import StepModule
 from torch import Tensor, fx, nn
 from torch.fx.node import Argument, Target
 from torch.fx.passes.shape_prop import ShapeProp
 
 from ..exceptions import UnsupportedOpError, UnsupportedOpWarning
 from ..ir.add_ops import AddOperandKind, AddOperandSpec, GeneralAddOp
-from ..ir.core_neuron import (
-    ANNNodeV25,
-    CoreNeuronV25,
-    IFNodeV25,
-    LIFNodeV25,
-)
+from ..ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
 from ..ir.graph import PAIIRGraph
 from ..ir.ir_base import InputNode, OutputNode
 from ..ir.lut_activation import (
@@ -84,7 +86,6 @@ from ..ir.reshape_semantics import RESHAPE_LEAF_MODULE_TYPES
 from .conv_lowering import (
     build_conv_ir_node,
     extract_functional_conv_spec,
-    extract_module_conv_spec,
 )
 from .dims_prop import DimsProp
 from .fx_utils import (
@@ -95,6 +96,13 @@ from .fx_utils import (
     get_output_shape,
 )
 from .shape_analysis import ReshapeSinkInfo, ShapeAnalysisResult, analyze_shape_helpers
+from .sj_layers import (
+    _SUPPORTED_SJ_LAYER_COMP_TYPES,
+    SJ_LAYER_ERASE_MODULE_TYPES,
+    describe_sj_layer_module,
+    is_sj_layer_module,
+    is_supported_sj_layer_module,
+)
 from .split_lowering import (
     SplitProducerInfo,
     apply_split_analysis_rule,
@@ -120,6 +128,9 @@ ModuleMapper = dict[type[_M], Callable[[_M], OpNode]]
 _USER_MODULE_MAP: ModuleMapper = {}
 """User-registered module mappings layered on top of built-in lowering rules."""
 
+
+ADAPTIVE_MAXPOOL_MODULE_TYPES = (nn.AdaptiveMaxPool1d, nn.AdaptiveMaxPool2d)
+
 # Modules that are kept in the FX graph but intentionally disappear from PAIIR
 # data flow during lowering.
 LOWERING_BYPASS_MODULE_TYPES = (nn.BatchNorm1d, nn.BatchNorm2d)
@@ -135,7 +146,7 @@ TRACE_LEAF_MODULE_TYPES = LOWERING_BYPASS_MODULE_TYPES + RESHAPE_LEAF_MODULE_TYP
 
 # Modules removed by _EraseModuleTransformer: each call_module node is replaced
 # by its input, leaving no trace in the graph after dead-code elimination.
-ERASE_MODULE_TYPES = (nn.Dropout, nn.Identity)
+ERASE_MODULE_TYPES = (nn.Dropout, nn.Identity) + SJ_LAYER_ERASE_MODULE_TYPES
 
 ADD_OPS = (operator.add, torch.add)
 SUB_OPS = (operator.sub, torch.sub)
@@ -162,6 +173,78 @@ def _describe_avgpool_lowering_issue(m: nn.Module) -> str | None:
         )
 
     return None
+
+
+def _describe_maxpool_lowering_issue(m: nn.Module) -> str | None:
+    if not isinstance(m, (nn.MaxPool1d, nn.MaxPool2d)):
+        return None
+
+    if m.return_indices:
+        return f"nn.Module '{type(m).__name__}' with return_indices=True"
+
+    return None
+
+
+def _set_sj_layer_step_mode_single(model: nn.Module) -> None:
+    """Force step_mode='s' on all SpikingJelly StepModule instances in the model copy.
+
+    Covers sj_layer.X (compute wrappers) and neuron.IFNode/LIFNode (MemoryModule ->
+    StepModule), and any other StepModule subclass in the model.
+
+    Called before FX tracing so ShapeProp can execute SJ forwards safely.
+    Emits a warning if any module actually had step_mode != 's'.
+    """
+    multi_step_modules = [
+        type(m).__name__
+        for m in model.modules()
+        if isinstance(m, StepModule) and m.step_mode != "s"
+    ]
+    if multi_step_modules:
+        warnings.warn(
+            f"Model contains SpikingJelly modules with step_mode='m' "
+            f"({', '.join(multi_step_modules)}). "
+            f"step_mode has been set to 's' on the internal model copy for "
+            f"chip deployment. The original model is not modified.",
+            UserWarning,
+            stacklevel=3,
+        )
+        sj_F.set_step_mode(model, "s")
+
+
+def _extract_adaptive_maxpool_ir_node(
+    node: fx.Node, m: nn.Module
+) -> tuple[StandaloneCompOp, tuple[fx.Node, ...]] | str | None:
+    """Extract an AdaptiveMaxPool module into a PAIIR standalone compute node.
+
+    Returns:
+        (StandaloneCompOp, inputs): The IR node and its input node.
+        str: Error message for an invalid AdaptiveMaxPool module.
+        None: The module is not AdaptiveMaxPool.
+    """
+    if not isinstance(m, ADAPTIVE_MAXPOOL_MODULE_TYPES):
+        return None
+    if not node.args or not isinstance(node.args[0], fx.Node):
+        return f"nn.Module '{type(m).__name__}' without a tensor input"
+
+    input_node = node.args[0]
+    input_shape = get_output_shape(input_node)
+
+    # Backend expansion requires a fixed spatial input shape.
+    if isinstance(m, nn.AdaptiveMaxPool1d):
+        ndim = 1
+    else:
+        ndim = 2
+
+    if len(input_shape) < ndim + 2:
+        return f"nn.Module '{type(m).__name__}' without a fixed input shape"
+
+    try:
+        _ = tuple(int(dim) for dim in input_shape[-ndim:])
+    except TypeError:
+        return f"nn.Module '{type(m).__name__}' without a static input shape"
+
+    ir_node = StandaloneCompOp(m)
+    return (ir_node, (input_node,))
 
 
 def _map_comp(m: nn.Module, **kwargs) -> StandaloneCompOp:
@@ -333,10 +416,17 @@ def _build_builtin_paiir_neuron_map() -> ModuleMapper:
     }
 
 
+def _build_spikingjelly_layer_comp_map() -> ModuleMapper:
+    # These wrappers lower exactly like their torch.nn base types, but still need
+    # explicit registration because module_map uses exact type() keys.
+    return dict.fromkeys(_SUPPORTED_SJ_LAYER_COMP_TYPES, _map_comp)
+
+
 def build_default_module_map() -> ModuleMapper:
     return {
         **_build_compute_module_map(),
         **_build_spikingjelly_neuron_module_map(),
+        **_build_spikingjelly_layer_comp_map(),
         **_build_standard_activation_module_map(),
         **_build_builtin_paiir_lut_map(),
         **_build_builtin_paiir_neuron_map(),
@@ -813,8 +903,10 @@ def _build_layout_transform_ir_node(
 
 
 class _PAIIRTracer(fx.Tracer):
-    """Custom FX Tracer that treats registered, bypass, and erase types as
-    leaf modules so they are not traced into.
+    """Custom FX Tracer that treats known frontend modules as leaves.
+
+    SpikingJelly ``layer.X`` modules are always leaves. Supported ones lower
+    directly via Python MRO; unsupported ones fail through normal lowering.
     """
 
     def __init__(
@@ -824,6 +916,8 @@ class _PAIIRTracer(fx.Tracer):
         self.custom_leaf_modules = custom_leaf_modules
 
     def is_leaf_module(self, m: nn.Module, module_qualified_name: str) -> bool:
+        if is_sj_layer_module(m):
+            return True
         if self.custom_leaf_modules and isinstance(m, self.custom_leaf_modules):
             return True
         if getattr(m, "_is_leaf_module", False):
@@ -832,7 +926,7 @@ class _PAIIRTracer(fx.Tracer):
 
 
 class _EraseModuleTransformer(fx.Transformer):
-    """Remove ``ERASE_MODULE_TYPES`` (Dropout, Identity) nodes from a traced graph.
+    """Remove ``ERASE_MODULE_TYPES`` nodes from a traced graph.
 
     Each matching ``call_module`` node is replaced by its single input node.
     Dead-code elimination is run automatically so no orphaned nodes remain.
@@ -902,7 +996,7 @@ def torch_to_paiir(
 ) -> PAIIRGraph:
     """Convert a PyTorch model to a :class:`PAIIRGraph`.
 
-    Performs 1:1 node mapping only — no fusion.  Use
+    Performs 1:1 node mapping only; no fusion. Use
     :func:`fuse_to_offline_cores` afterwards to fuse nodes into
     offline-core units.
 
@@ -925,13 +1019,19 @@ def torch_to_paiir(
         UnsupportedOpError: If ``strict=True`` and an unsupported operator
             is encountered. See :exc:`~paibox.paiir.exceptions.UnsupportedOpError`.
     """
+    model = copy.deepcopy(model)
     model.eval()
+    # force 's' so ShapeProp can execute SJ forwards
+    _set_sj_layer_step_mode_single(model)
     full_map = _get_full_module_map()
 
-    # Edge case: root module itself is supported by the module map.
-    # FX trace always decomposes the root module. Wrap in Sequential
-    # so it becomes a submodule and is treated as a leaf module.
-    if type(model) in full_map:
+    # Edge case: FX trace always decomposes the root module. Wrap supported roots
+    # so they become submodules and are treated as leaf modules.
+    if (
+        type(model) in full_map
+        or isinstance(model, TRACE_LEAF_MODULE_TYPES)
+        or is_sj_layer_module(model)
+    ):
         model = nn.Sequential(model)
 
     # Leaf types = module_map keys + modules that need special post-trace handling.
@@ -1108,11 +1208,19 @@ def _apply_module_lowering_rule(
     torch_module = gm.get_submodule(str(node.target))
     input_override = ctx.input_nodes_overrides.get(node)
 
-    conv_spec = extract_module_conv_spec(node, torch_module)
-    if conv_spec is not None:
-        ir_node, conv_input_override = build_conv_ir_node(conv_spec)
+    adaptive_maxpool_result = _extract_adaptive_maxpool_ir_node(node, torch_module)
+    if adaptive_maxpool_result is not None:
+        if isinstance(adaptive_maxpool_result, str):
+            _mark_unsupported(ctx, node, adaptive_maxpool_result, strict)
+            return True
+
+        ir_node, adaptive_input_override = adaptive_maxpool_result
         _register_ir_node(
-            paiir_graph, ctx, node, ir_node, input_nodes_override=conv_input_override
+            paiir_graph,
+            ctx,
+            node,
+            ir_node,
+            input_nodes_override=adaptive_input_override,
         )
         return True
 
@@ -1134,8 +1242,18 @@ def _apply_module_lowering_rule(
         )
         return True
 
+    if is_sj_layer_module(torch_module) and not is_supported_sj_layer_module(
+        torch_module
+    ):
+        _mark_unsupported(ctx, node, describe_sj_layer_module(torch_module), strict)
+        return True
+
     if _is_lowering_bypass_module(torch_module):
         ctx.bypass_nodes.add(node)
+        return True
+
+    if (maxpool_issue := _describe_maxpool_lowering_issue(torch_module)) is not None:
+        _mark_unsupported(ctx, node, maxpool_issue, strict)
         return True
 
     if (avgpool_issue := _describe_avgpool_lowering_issue(torch_module)) is not None:

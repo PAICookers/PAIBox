@@ -218,12 +218,8 @@ def route_solve(
         total_distance += dx_input + dy_input
 
     for output_area_id in output_area_ids:
-        dx_output = model.NewIntVar(
-            X_START, X_END - 1, f"dx_output_{output_area_id}"
-        )
-        dy_output = model.NewIntVar(
-            Y_START, Y_END - 1, f"dy_output_{output_area_id}"
-        )
+        dx_output = model.NewIntVar(X_START, X_END - 1, f"dx_output_{output_area_id}")
+        dy_output = model.NewIntVar(Y_START, Y_END - 1, f"dy_output_{output_area_id}")
         model.AddAbsEquality(dx_output, cx[output_area_id] - io_target[0])
         model.AddAbsEquality(dy_output, cy[output_area_id] - io_target[1])
         total_distance += dx_output + dy_output

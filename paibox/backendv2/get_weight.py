@@ -5,11 +5,8 @@ from dataclasses import dataclass
 
 import numpy as np
 import torch
-from paicorelib import (
-    AddPotentialMode,
-    DataWidth,
-    WeightCompressType,
-)
+from numba import njit
+from paicorelib import AddPotentialMode, DataWidth, WeightCompressType
 from rich.progress import track
 from torch import Tensor, nn
 from torch.nn import functional as F
@@ -22,12 +19,7 @@ from ..paiir.ir import (
     StandaloneCompOp,
 )
 from ..paiir.nn.pool import SumPool1d, SumPool2d
-from .op_node import (
-    CoreOpNode,
-    Neuron,
-    SourceElem,
-    SourceNode,
-)
+from .op_node import CoreOpNode, Neuron, SourceElem, SourceNode
 from .weight import Weight
 
 
@@ -119,9 +111,7 @@ def direct_weight_matrix(
 
 
 def identity_weight_matrix(
-    input_shape: tuple[int, ...],
-    output_shape: tuple[int, ...],
-    sign: int,
+    input_shape: tuple[int, ...], output_shape: tuple[int, ...], sign: int
 ) -> np.ndarray:
     # Activation-only / add-only paths do not own raw parameter tensors, but
     # backend routing still needs their implicit identity connectivity.
@@ -154,13 +144,7 @@ def unfold_input_indices_2d(
     input_ids = torch.arange(1, n_input + 1, dtype=torch.float64).reshape(
         1, channels, height, width
     )
-    patches = F.unfold(
-        input_ids,
-        kernel_size=kernel_size,
-        dilation=dilation,
-        padding=padding,
-        stride=stride,
-    )
+    patches = F.unfold(input_ids, kernel_size, dilation, padding, stride)
     return patches.to(torch.int64).squeeze(0)
 
 
@@ -258,12 +242,7 @@ def pool2d_weight_matrix(
 
     patches = (
         unfold_input_indices_2d(
-            in_channels,
-            (height, width),
-            kernel_size,
-            stride,
-            padding,
-            dilation,
+            in_channels, (height, width), kernel_size, stride, padding, dilation
         )
         .cpu()
         .numpy()
@@ -339,6 +318,87 @@ def pool1d_weight_matrix(
     )
 
 
+def _adaptive_pool_window_bounds(
+    output_pos: int, input_size: int, output_size: int
+) -> tuple[int, int]:
+    if output_size <= 0:
+        raise ValueError(
+            f"Adaptive pooling output size must be positive, got {output_size}."
+        )
+    if input_size <= 0:
+        raise ValueError(
+            f"Adaptive pooling input size must be positive, got {input_size}."
+        )
+    if output_pos < 0 or output_pos >= output_size:
+        raise ValueError(
+            f"Adaptive pooling output position {output_pos} is outside [0, {output_size})."
+        )
+
+    start = output_pos * input_size // output_size
+    end = ((output_pos + 1) * input_size + output_size - 1) // output_size
+    return start, end
+
+
+def adaptive_maxpool1d_weight_matrix(
+    channels: int,
+    input_shape: tuple[int, int],
+    output_shape: tuple[int, int],
+    sign: int,
+) -> np.ndarray:
+    in_channels, in_length = input_shape
+    out_channels, out_length = output_shape
+    if in_channels != channels or out_channels != channels:
+        raise ValueError(
+            f"AdaptiveMaxPool1d channel mismatch: input={in_channels}, output={out_channels}, channels={channels}."
+        )
+
+    n_input = in_channels * in_length
+    matrix = np.zeros((out_channels * out_length, n_input), dtype=np.int16)
+
+    for channel in range(channels):
+        for out_pos in range(out_length):
+            start, end = _adaptive_pool_window_bounds(out_pos, in_length, out_length)
+            row = channel * out_length + out_pos
+            for in_pos in range(start, end):
+                col = channel * in_length + in_pos
+                matrix[row, col] = sign
+
+    return matrix
+
+
+def adaptive_maxpool2d_weight_matrix(
+    channels: int,
+    input_shape: tuple[int, int, int],
+    output_shape: tuple[int, int, int],
+    sign: int,
+) -> np.ndarray:
+    in_channels, in_height, in_width = input_shape
+    out_channels, out_height, out_width = output_shape
+    if in_channels != channels or out_channels != channels:
+        raise ValueError(
+            f"AdaptiveMaxPool2d channel mismatch: input={in_channels}, output={out_channels}, channels={channels}."
+        )
+
+    out_size = out_height * out_width
+    n_input = in_channels * in_height * in_width
+    matrix = np.zeros((out_channels * out_size, n_input), dtype=np.int16)
+
+    for channel in range(channels):
+        for out_h in range(out_height):
+            h_start, h_end = _adaptive_pool_window_bounds(out_h, in_height, out_height)
+            for out_w in range(out_width):
+                w_start, w_end = _adaptive_pool_window_bounds(
+                    out_w, in_width, out_width
+                )
+                row = channel * out_size + out_h * out_width + out_w
+                for in_h in range(h_start, h_end):
+                    for in_w in range(w_start, w_end):
+                        col = channel * in_height * in_width + in_h * in_width + in_w
+                        matrix[row, col] = sign
+
+    return matrix
+
+
 def expanded_path_weight_matrix(
     predecessor: SourceNode,
     target: CoreOpNode,
@@ -409,6 +469,26 @@ def expanded_path_weight_matrix(
             dilation,
             comp.groups,
             sign,
+        )
+
+    if isinstance(comp, nn.AdaptiveMaxPool1d):
+        print(
+            f"\tExpanding AdaptiveMaxPool1d from {input_shape} to {output_shape} with output_size={comp.output_size}."
+        )
+        assert len(input_shape) == 2
+        assert len(output_shape) == 2
+        return adaptive_maxpool1d_weight_matrix(
+            input_shape[0], input_shape, output_shape, sign
+        )
+
+    if isinstance(comp, nn.AdaptiveMaxPool2d):
+        print(
+            f"\tExpanding AdaptiveMaxPool2d from {input_shape} to {output_shape} with output_size={comp.output_size}."
+        )
+        assert len(input_shape) == 3
+        assert len(output_shape) == 3
+        return adaptive_maxpool2d_weight_matrix(
+            input_shape[0], input_shape, output_shape, sign
         )
 
     if isinstance(comp, nn.MaxPool1d):
@@ -567,9 +647,6 @@ def build_weights(
             weights[i, js] = matrix[neu_idx, idxs]
 
 
-from numba import njit
-
-
 @njit
 def _fill_weights_numba(
     weights,
@@ -695,18 +772,11 @@ def get_raw_weights(raw_neus: list[Neuron], input_neus: list[SourceElem]) -> np.
         path_matrices: dict[SourceNode, np.ndarray] = {}
 
         for predecessor, comp, weight, sign in zip(
-            target.predecessors,
-            target.comps,
-            target.weights,
-            signs,
+            target.predecessors, target.comps, target.weights, signs
         ):
             # Each predecessor contributes one dense [target_out, pred_out] block.
             matrix = expanded_path_weight_matrix(
-                predecessor,
-                target,
-                comp,
-                weight,
-                sign,
+                predecessor, target, comp, weight, sign
             )
             if predecessor in path_matrices:
                 path_matrices[predecessor] = path_matrices[predecessor] + matrix

@@ -5,6 +5,7 @@ import warnings
 import pytest
 import torch
 import torch.nn.functional as F
+from spikingjelly.activation_based import layer
 from spikingjelly.activation_based import neuron as sj
 from torch import Tensor, nn
 
@@ -619,7 +620,7 @@ class TestSpikingJellyNeuronAttributeForwarding:
         graph = torch_to_paiir(model, make_vec_8d())
 
         lowered = _find_single_act(graph, IFNodeV25)
-        assert lowered.surrogate_function is model.act.surrogate_function
+        assert type(lowered.surrogate_function) is type(model.act.surrogate_function)
         assert lowered.detach_reset is model.act.detach_reset
 
     def test_activation_based_lifnode_preserves_surrogate_and_detach_reset(self):
@@ -636,7 +637,7 @@ class TestSpikingJellyNeuronAttributeForwarding:
         graph = torch_to_paiir(model, make_vec_8d())
 
         lowered = _find_single_act(graph, LIFNodeV25)
-        assert lowered.surrogate_function is model.act.surrogate_function
+        assert type(lowered.surrogate_function) is type(model.act.surrogate_function)
         assert lowered.detach_reset is model.act.detach_reset
 
 
@@ -663,7 +664,7 @@ class TestLegacyClockDrivenCompatibility:
             graph = torch_to_paiir(model, make_vec_8d())
 
         lowered = _find_single_act(graph, IFNodeV25)
-        assert lowered.surrogate_function is model.act.surrogate_function
+        assert type(lowered.surrogate_function) is type(model.act.surrogate_function)
         assert lowered.detach_reset is model.act.detach_reset
 
     def test_clock_driven_lifnode_warns_and_lowers(self):
@@ -686,7 +687,7 @@ class TestLegacyClockDrivenCompatibility:
             graph = torch_to_paiir(model, make_vec_8d())
 
         lowered = _find_single_act(graph, LIFNodeV25)
-        assert lowered.surrogate_function is model.act.surrogate_function
+        assert type(lowered.surrogate_function) is type(model.act.surrogate_function)
         assert lowered.detach_reset is model.act.detach_reset
 
     def test_activation_based_lifnode_does_not_warn(self):
@@ -710,3 +711,243 @@ class TestLegacyClockDrivenCompatibility:
         ]
         lowered = _find_single_act(graph, LIFNodeV25)
         assert isinstance(lowered, LIFNodeV25)
+
+
+class TestSpikingJellyLayerCanonicalization:
+    def test_conv2d_layer_lowers_to_canonical_conv2d(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = layer.Conv2d(3, 4, 3, padding=1, bias=True, step_mode="m")
+
+            def forward(self, x):
+                return self.conv(x)
+
+        model = Model().eval()
+        with torch.no_grad():
+            model.conv.weight.fill_(2.0)
+            model.conv.bias.fill_(3.0)  # type: ignore
+
+        graph = torch_to_paiir(model, make_img_3ch_8x8())
+
+        conv_nodes = [
+            node
+            for node in graph.nodes.values()
+            if isinstance(node, StandaloneCompOp) and isinstance(node.comp, nn.Conv2d)
+        ]
+        assert len(conv_nodes) == 1
+        comp = conv_nodes[0].comp
+        assert isinstance(comp, nn.Conv2d)
+        assert torch.equal(comp.weight, model.conv.weight)
+        assert torch.equal(comp.bias, model.conv.bias)  # type: ignore
+
+    def test_linear_layer_lowers_to_canonical_linear(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = layer.Linear(8, 4, bias=True, step_mode="m")
+
+            def forward(self, x):
+                return self.linear(x)
+
+        model = Model().eval()
+        graph = torch_to_paiir(model, make_vec_8d())
+
+        linear_nodes = [
+            node
+            for node in graph.nodes.values()
+            if isinstance(node, StandaloneCompOp) and isinstance(node.comp, nn.Linear)
+        ]
+        assert len(linear_nodes) == 1
+        assert isinstance(linear_nodes[0].comp, nn.Linear)
+
+    def test_pool_and_flatten_layers_lower_to_canonical_nodes(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.maxpool = layer.MaxPool2d(2, step_mode="m")
+                self.avgpool = layer.AvgPool2d(2, step_mode="m")
+                self.flatten = layer.Flatten(start_dim=1, step_mode="m")
+
+            def forward(self, x):
+                return self.flatten(self.avgpool(self.maxpool(x)))
+
+        graph = torch_to_paiir(Model().eval(), make_img_3ch_8x8())
+
+        assert (
+            len(
+                [
+                    node
+                    for node in graph.nodes.values()
+                    if isinstance(node, StandaloneCompOp)
+                    and isinstance(node.comp, nn.MaxPool2d)
+                ]
+            )
+            == 1
+        )
+        assert (
+            len(
+                [
+                    node
+                    for node in graph.nodes.values()
+                    if isinstance(node, StandaloneCompOp)
+                    and isinstance(node.comp, nn.AvgPool2d)
+                ]
+            )
+            == 1
+        )
+        assert (
+            len(
+                [
+                    node
+                    for node in graph.nodes.values()
+                    if type(node).__name__ == "TransformOp"
+                ]
+            )
+            == 1
+        )
+
+    def test_dropout_layer_is_erased_in_eval_deploy_path(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.dropout = layer.Dropout(p=0.5, step_mode="m")
+                self.linear = nn.Linear(8, 4)
+
+            def forward(self, x):
+                return self.linear(self.dropout(x))
+
+        graph = torch_to_paiir(Model().eval(), make_vec_8d())
+
+        assert (
+            len(
+                [
+                    node
+                    for node in graph.nodes.values()
+                    if isinstance(node, StandaloneCompOp)
+                    and isinstance(node.comp, nn.Linear)
+                ]
+            )
+            == 1
+        )
+
+    def test_regular_adaptive_maxpool2d_lowers_to_standalone_comp(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.pool = nn.AdaptiveMaxPool2d((4, 4))
+
+            def forward(self, x):
+                return self.pool(x)
+
+        graph = torch_to_paiir(Model().eval(), make_img_3ch_8x8())
+
+        pool_nodes = [
+            node
+            for node in graph.nodes.values()
+            if isinstance(node, StandaloneCompOp)
+            and isinstance(node.comp, nn.AdaptiveMaxPool2d)
+        ]
+        assert len(pool_nodes) == 1
+        assert pool_nodes[0].comp.output_size == (4, 4)
+
+    def test_irregular_adaptive_maxpool2d_lowers_to_standalone_comp(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.pool = nn.AdaptiveMaxPool2d((4, 4))
+
+            def forward(self, x):
+                return self.pool(x)
+
+        graph = torch_to_paiir(Model().eval(), torch.randn(1, 3, 7, 7))
+
+        pool_nodes = [
+            node
+            for node in graph.nodes.values()
+            if isinstance(node, StandaloneCompOp)
+            and isinstance(node.comp, nn.AdaptiveMaxPool2d)
+        ]
+        assert len(pool_nodes) == 1
+        assert pool_nodes[0].comp.output_size == (4, 4)
+
+    def test_irregular_adaptive_maxpool1d_lowers_to_standalone_comp(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.pool = nn.AdaptiveMaxPool1d(4)
+
+            def forward(self, x):
+                return self.pool(x)
+
+        graph = torch_to_paiir(Model().eval(), torch.randn(1, 2, 7))
+
+        pool_nodes = [
+            node
+            for node in graph.nodes.values()
+            if isinstance(node, StandaloneCompOp)
+            and isinstance(node.comp, nn.AdaptiveMaxPool1d)
+        ]
+        assert len(pool_nodes) == 1
+        assert pool_nodes[0].comp.output_size == 4
+
+    def test_sj_adaptive_avgpool2d_is_rejected_as_layer_wrapper(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.pool = layer.AdaptiveAvgPool2d((4, 4), step_mode="m")
+
+            def forward(self, x):
+                return self.pool(x)
+
+        with pytest.raises(UnsupportedOpError, match="AdaptiveAvgPool2d"):
+            torch_to_paiir(Model().eval(), torch.randn(1, 3, 7, 7))
+
+    def test_adaptive_avgpool2d_is_not_supported_in_this_slice(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.pool = nn.AdaptiveAvgPool2d((4, 4))
+
+            def forward(self, x):
+                return self.pool(x)
+
+        with pytest.raises(UnsupportedOpError, match="AdaptiveAvgPool2d"):
+            torch_to_paiir(Model().eval(), make_img_3ch_8x8())
+
+    @pytest.mark.parametrize(
+        ("module", "sample"),
+        [
+            (layer.BatchNorm2d(3), make_img_3ch_8x8()),
+            (layer.ConvTranspose2d(3, 4, 3), make_img_3ch_8x8()),
+            (layer.Conv3d(1, 1, 3), torch.randn(1, 1, 5, 5, 5)),
+            (layer.VotingLayer(2), make_vec_8d()),
+            (layer.NeuNorm(3, 8, 8), make_img_3ch_8x8()),
+        ],
+    )
+    def test_unsupported_layer_modules_are_rejected_by_lowering(self, module, sample):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.module = module
+
+            def forward(self, x):
+                return self.module(x)
+
+        with pytest.raises(UnsupportedOpError, match="spikingjelly"):
+            torch_to_paiir(Model().eval(), sample)
+
+    def test_non_strict_unsupported_layer_warns_and_bypasses_during_lowering(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.module = layer.ConvTranspose2d(3, 3, 3, padding=1)
+
+            def forward(self, x):
+                return self.module(x)
+
+        with pytest.warns(UnsupportedOpWarning, match="spikingjelly"):
+            graph = torch_to_paiir(Model().eval(), make_img_3ch_8x8(), strict=False)
+
+        assert "InputNode_0" in graph.nodes
+        assert "OutputNode_0" in graph.nodes
