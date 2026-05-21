@@ -54,7 +54,13 @@ def is_order_preserving_transform_node(
 def is_standalone_maxpool(node: PAIIRNode) -> TypeGuard[StandaloneCompOp]:
     """Return whether *node* is a standalone MaxPool compute op."""
     return isinstance(node, StandaloneCompOp) and isinstance(
-        node.comp, (nn.MaxPool1d, nn.MaxPool2d)
+        node.comp,
+        (
+            nn.MaxPool1d,
+            nn.MaxPool2d,
+            nn.AdaptiveMaxPool1d,
+            nn.AdaptiveMaxPool2d,
+        ),
     )
 
 

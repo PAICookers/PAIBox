@@ -12,6 +12,7 @@ __all__ = [
     "get_avgpool_divisor",
     "get_pool_window_size",
     "is_avgpool",
+    "is_value_avgpool",
 ]
 
 
@@ -21,6 +22,23 @@ PoolWindowModule: TypeAlias = nn.AvgPool1d | nn.AvgPool2d | SumPool1d | SumPool2
 def is_avgpool(comp: nn.Module) -> TypeGuard[nn.AvgPool1d | nn.AvgPool2d]:
     """Check if a compute module is an average-pooling op."""
     return isinstance(comp, (nn.AvgPool1d, nn.AvgPool2d))
+
+
+def is_value_avgpool(
+    comp: nn.Module,
+) -> TypeGuard[
+    nn.AvgPool1d | nn.AvgPool2d | nn.AdaptiveAvgPool1d | nn.AdaptiveAvgPool2d
+]:
+    """Check if a compute module emits VALUE-domain average-pooling data."""
+    return isinstance(
+        comp,
+        (
+            nn.AvgPool1d,
+            nn.AvgPool2d,
+            nn.AdaptiveAvgPool1d,
+            nn.AdaptiveAvgPool2d,
+        ),
+    )
 
 
 def build_sum_pool(comp: nn.AvgPool1d | nn.AvgPool2d) -> SumPool1d | SumPool2d:

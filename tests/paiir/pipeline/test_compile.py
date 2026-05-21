@@ -33,6 +33,7 @@ from paibox.paiir.ir.op_node import (
     StandaloneActOp,
     StandaloneCompOp,
 )
+from paibox.paiir.ir.signal_domain import SignalDomain
 from paibox.paiir.lowering.converter import _analyze_graph, _LoweringContext
 from paibox.paiir.nn import SumPool1d, SumPool2d
 from paibox.paiir.pipeline.avgpool import (
@@ -117,6 +118,34 @@ class SpikingJellyLayerCompileSmoke(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         return self.linear(self.flatten(self.pool(x)))
+
+
+class AdaptiveAvgPoolCompileSmoke(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.pool = nn.AdaptiveAvgPool2d((4, 4))
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.pool(x)
+
+
+class AdaptiveAvgPoolRelu(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.pool = nn.AdaptiveAvgPool2d((4, 4))
+        self.relu = nn.ReLU()
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.relu(self.pool(x))
+
+
+class AdaptiveMaxPoolCompileSmoke(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.pool = nn.AdaptiveMaxPool2d((4, 4))
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.pool(x)
 
 
 class TransformThenLinear(nn.Module):
@@ -393,6 +422,52 @@ class TestCompileBasic:
         assert graph.predecessors(pool_nodes[0].name) == ["InputNode_0"]
         assert pool_nodes[0].core_params.input_sign is not None
         assert pool_nodes[0].core_params.input_width is not None
+
+    def test_adaptive_avgpool2d_standalone_compiles(self):
+        graph = compile_to_paiir(AdaptiveAvgPoolCompileSmoke(), torch.randn(1, 3, 7, 7))
+
+        pool_nodes = [
+            node
+            for node in find_nodes(graph, StandaloneCompOp)
+            if isinstance(node.comp, nn.AdaptiveAvgPool2d)
+        ]
+        assert len(pool_nodes) == 1
+        assert graph.predecessors(pool_nodes[0].name) == ["InputNode_0"]
+        assert pool_nodes[0].core_params.input_sign is not None
+        assert pool_nodes[0].core_params.input_width is not None
+
+    def test_adaptive_maxpool2d_standalone_compiles_as_value_maxpool(self):
+        graph = compile_to_paiir(AdaptiveMaxPoolCompileSmoke(), torch.randn(1, 3, 7, 7))
+
+        pool_nodes = [
+            node
+            for node in find_nodes(graph, StandaloneCompOp)
+            if isinstance(node.comp, nn.AdaptiveMaxPool2d)
+        ]
+        assert len(pool_nodes) == 1
+        assert graph.predecessors(pool_nodes[0].name) == ["InputNode_0"]
+        assert pool_nodes[0].signal_semantics.output_domain is SignalDomain.VALUE
+        assert pool_nodes[0].core_params.input_sign is not None
+        assert pool_nodes[0].core_params.input_width is not None
+
+    def test_adaptive_avgpool2d_relu_does_not_use_fixed_avgpool_fusion(self):
+        graph = compile_to_paiir(AdaptiveAvgPoolRelu(), torch.randn(1, 3, 7, 7))
+
+        pool_nodes = [
+            node
+            for node in find_nodes(graph, StandaloneCompOp)
+            if isinstance(node.comp, nn.AdaptiveAvgPool2d)
+        ]
+        act_nodes = find_nodes(graph, StandaloneActOp)
+        seq_nodes = [
+            node
+            for node in find_nodes(graph, SequentialOp)
+            if isinstance(node.comp, nn.AdaptiveAvgPool2d)
+        ]
+        assert len(pool_nodes) == 1
+        assert len(act_nodes) == 1
+        assert seq_nodes == []
+        assert graph.predecessors(act_nodes[0].name) == [pool_nodes[0].name]
 
 
 class TestDataFormat:
