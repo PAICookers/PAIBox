@@ -31,7 +31,9 @@ from paibox.paiir.ir.op_node import (
     ConcatOp,
     CPUOp,
     OfflineCoreOp,
+    PadOp,
     SequentialOp,
+    ShapeStage,
     SplitOp,
     StandaloneActOp,
     StandaloneCompOp,
@@ -863,6 +865,96 @@ class TestAssignTickParams:
         accum_ops = find_nodes(fused, AccumulateOp)
         assert len(accum_ops) == 1
         assert accum_ops[0].core_params.tick_start == 1
+
+    def _build_routing_then_act_graph(self, routing_node, output_shape):
+        graph = PAIIRGraph("routing_tick_depth")
+        inp = InputNode(shape=torch.Size((1, 4)))
+        act = StandaloneActOp(IFNodeV25())
+        out = OutputNode(shape=torch.Size(output_shape))
+
+        _set_single_layouts(routing_node, (1, 4), output_shape, (0, 1), (0, 1))
+        _set_single_layouts(act, output_shape, output_shape, (0, 1), (0, 1))
+
+        graph.add_node(inp)
+        graph.add_node(routing_node)
+        graph.add_node(act)
+        graph.add_node(out)
+        graph.add_edge(inp.name, routing_node.name)
+        graph.add_edge(routing_node.name, act.name)
+        graph.add_edge(act.name, out.name)
+        return graph, act
+
+    def test_transform_does_not_increase_tick_depth(self):
+        transform = TransformOp((ShapeStage(lambda _: torch.Size((1, 4))),))
+        graph, act = self._build_routing_then_act_graph(transform, (1, 4))
+
+        assign_tick_params(graph)
+
+        assert act.core_params.tick_start == 1
+
+    def test_chained_transforms_do_not_increase_tick_depth(self):
+        graph = PAIIRGraph("chained_transform_tick_depth")
+        inp = InputNode(shape=torch.Size((1, 4)))
+        transform_a = TransformOp((ShapeStage(lambda _: torch.Size((1, 4))),))
+        transform_b = TransformOp((ShapeStage(lambda _: torch.Size((1, 4))),))
+        act = StandaloneActOp(IFNodeV25())
+        out = OutputNode(shape=torch.Size((1, 4)))
+
+        _set_single_layouts(transform_a, (1, 4), (1, 4), (0, 1), (0, 1))
+        _set_single_layouts(transform_b, (1, 4), (1, 4), (0, 1), (0, 1))
+        _set_single_layouts(act, (1, 4), (1, 4), (0, 1), (0, 1))
+
+        graph.add_node(inp)
+        graph.add_node(transform_a)
+        graph.add_node(transform_b)
+        graph.add_node(act)
+        graph.add_node(out)
+        graph.add_edge(inp.name, transform_a.name)
+        graph.add_edge(transform_a.name, transform_b.name)
+        graph.add_edge(transform_b.name, act.name)
+        graph.add_edge(act.name, out.name)
+
+        assign_tick_params(graph)
+
+        assert act.core_params.tick_start == 1
+
+    def test_pad_does_not_increase_tick_depth(self):
+        graph, act = self._build_routing_then_act_graph(PadOp((1, 1)), (1, 6))
+
+        assign_tick_params(graph)
+
+        assert act.core_params.tick_start == 1
+
+    def test_concat_does_not_increase_tick_depth(self):
+        graph = PAIIRGraph("concat_tick_depth")
+        inp_a = InputNode(shape=torch.Size((1, 2)))
+        inp_b = InputNode(shape=torch.Size((1, 2)))
+        concat = ConcatOp(dim=1)
+        act = StandaloneActOp(IFNodeV25())
+        out = OutputNode(shape=torch.Size((1, 4)))
+
+        _set_multi_input_single_output_layouts(
+            concat,
+            [(1, 2), (1, 2)],
+            (1, 4),
+            [(0, 1), (0, 1)],
+            (0, 1),
+        )
+        _set_single_layouts(act, (1, 4), (1, 4), (0, 1), (0, 1))
+
+        graph.add_node(inp_a)
+        graph.add_node(inp_b)
+        graph.add_node(concat)
+        graph.add_node(act)
+        graph.add_node(out)
+        graph.add_edge(inp_a.name, concat.name, dst_port=0)
+        graph.add_edge(inp_b.name, concat.name, dst_port=1)
+        graph.add_edge(concat.name, act.name)
+        graph.add_edge(act.name, out.name)
+
+        assign_tick_params(graph)
+
+        assert act.core_params.tick_start == 1
 
     @pytest.mark.parametrize(
         "kwargs, error_match",

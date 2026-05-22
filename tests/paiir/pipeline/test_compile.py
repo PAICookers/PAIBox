@@ -27,6 +27,7 @@ from paibox.paiir.ir.op_node import (
     AccumulateOp,
     ConcatOp,
     LayoutStage,
+    PadOp,
     SequentialOp,
     ShapeStage,
     SplitOp,
@@ -492,6 +493,141 @@ class TestCompileBasic:
         assert len(act_nodes) == 1
         assert seq_nodes == []
         assert graph.predecessors(act_nodes[0].name) == [pool_nodes[0].name]
+
+
+class TestPadCompilation:
+    def test_symmetric_pad_before_conv2d_is_folded_into_conv_padding(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = nn.Conv2d(3, 4, 3, padding=(1, 1), bias=False)
+                self.relu = nn.ReLU()
+
+            def forward(self, x):
+                return self.relu(self.conv(F.pad(x, (1, 1, 2, 2))))
+
+        graph = compile_to_paiir(Model().eval(), make_img_3ch_8x8(), strict=True)
+
+        assert find_nodes(graph, PadOp) == []
+        seq_nodes = [
+            node
+            for node in find_nodes(graph, SequentialOp)
+            if isinstance(node.comp, nn.Conv2d)
+        ]
+        assert len(seq_nodes) == 1
+        assert seq_nodes[0].comp.padding == (3, 2)
+        assert graph.predecessors(seq_nodes[0].name) == ["InputNode_0"]
+
+    def test_symmetric_pad_before_conv1d_is_folded_into_conv_padding(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = nn.Conv1d(3, 4, 3, padding=1, bias=False)
+                self.relu = nn.ReLU()
+
+            def forward(self, x):
+                return self.relu(self.conv(F.pad(x, (2, 2))))
+
+        graph = compile_to_paiir(Model().eval(), torch.randn(1, 3, 16), strict=True)
+
+        assert find_nodes(graph, PadOp) == []
+        seq_nodes = [
+            node
+            for node in find_nodes(graph, SequentialOp)
+            if isinstance(node.comp, nn.Conv1d)
+        ]
+        assert len(seq_nodes) == 1
+        assert seq_nodes[0].comp.padding == (3,)
+        assert graph.predecessors(seq_nodes[0].name) == ["InputNode_0"]
+
+    def test_asymmetric_pad_before_conv_is_preserved_and_compiles(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = nn.Conv2d(3, 4, 3, padding=0, bias=False)
+                self.relu = nn.ReLU()
+
+            def forward(self, x):
+                return self.relu(self.conv(F.pad(x, (1, 2, 0, 1))))
+
+        graph = compile_to_paiir(Model().eval(), make_img_3ch_8x8(), strict=True)
+
+        pad_nodes = find_nodes(graph, PadOp)
+        seq_nodes = [
+            node
+            for node in find_nodes(graph, SequentialOp)
+            if isinstance(node.comp, nn.Conv2d)
+        ]
+        assert len(pad_nodes) == 1
+        assert len(seq_nodes) == 1
+        assert seq_nodes[0].comp.padding == (0, 0)
+        assert graph.predecessors(seq_nodes[0].name) == [pad_nodes[0].name]
+        assert pad_nodes[0].signal_semantics.known_code_range is not None
+        lo, hi = pad_nodes[0].signal_semantics.known_code_range
+        assert lo <= 0 <= hi
+
+    def test_pad_before_maxpool_is_preserved_and_compiles(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.pool = nn.MaxPool2d(2, 2)
+
+            def forward(self, x):
+                return self.pool(F.pad(x, (1, 2, 0, 1)))
+
+        graph = compile_to_paiir(Model().eval(), make_img_3ch_8x8(), strict=True)
+
+        pad_nodes = find_nodes(graph, PadOp)
+        pool_nodes = [
+            node
+            for node in find_nodes(graph, StandaloneCompOp)
+            if isinstance(node.comp, nn.MaxPool2d)
+        ]
+        assert len(pad_nodes) == 1
+        assert len(pool_nodes) == 1
+        assert graph.predecessors(pool_nodes[0].name) == [pad_nodes[0].name]
+
+    def test_direct_output_pad_is_preserved_and_compiles(self):
+        class Model(nn.Module):
+            def forward(self, x):
+                return F.pad(x, (0, 1, 2, 0))
+
+        graph = compile_to_paiir(Model().eval(), make_img_3ch_8x8(), strict=True)
+
+        pad_nodes = find_nodes(graph, PadOp)
+        assert len(pad_nodes) == 1
+        assert graph.predecessors(graph.output_nodes()[0].name) == [pad_nodes[0].name]
+        assert pad_nodes[0].output_layouts[0].shape == torch.Size((1, 3, 10, 9))
+
+    def test_multi_consumer_pad_is_preserved_and_compiles(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv1 = nn.Conv2d(3, 2, 3, padding=0, bias=False)
+                self.conv2 = nn.Conv2d(3, 2, 3, padding=0, bias=False)
+                self.relu1 = nn.ReLU()
+                self.relu2 = nn.ReLU()
+
+            def forward(self, x):
+                y = F.pad(x, (1, 1, 1, 1))
+                return torch.cat(
+                    [self.relu1(self.conv1(y)), self.relu2(self.conv2(y))],
+                    dim=1,
+                )
+
+        graph = compile_to_paiir(Model().eval(), make_img_3ch_8x8(), strict=True)
+
+        pad_nodes = find_nodes(graph, PadOp)
+        conv_nodes = [
+            node
+            for node in find_nodes(graph, SequentialOp)
+            if isinstance(node.comp, nn.Conv2d)
+        ]
+        assert len(pad_nodes) == 1
+        assert len(conv_nodes) == 2
+        assert sorted(graph.successors(pad_nodes[0].name)) == sorted(
+            node.name for node in conv_nodes
+        )
 
 
 class TestDataFormat:

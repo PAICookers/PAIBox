@@ -21,12 +21,16 @@ from torch import nn
 from paibox.paiir.ir.add_ops import PotentialAddOp
 from paibox.paiir.ir.calc_params import NeuronParams, OfflineCoreParams
 from paibox.paiir.ir.core_neuron import ANNNodeV25, CoreNeuronV25, IFNodeV25, LIFNodeV25
+from paibox.paiir.ir.ir_base import FormatFlow, OutputNode
 from paibox.paiir.ir.lut_activation import LutReLU, LutSigmoid
 from paibox.paiir.ir.op_node import (
     AccumulateOp,
+    ConcatOp,
     LayoutStage,
+    PadOp,
     SequentialOp,
     ShapeStage,
+    SplitOp,
     StandaloneActOp,
     StandaloneCompOp,
     TensorLayout,
@@ -38,6 +42,33 @@ from paibox.paiir.pipeline.avgpool.compensation import (
     apply_avgpool_snn_compensation,
 )
 from paibox.paiir.pipeline.passes import _infer_node_weight_format
+
+
+class TestNodeCapabilities:
+    def test_routing_nodes_declare_format_flow_and_zero_tick_depth(self):
+        routing_nodes = [TransformOp(), PadOp((1, 1)), SplitOp(sections=2, dim=1)]
+
+        for node in routing_nodes:
+            assert node.__format_flow__ is FormatFlow.PASS_THROUGH
+            assert node.__tick_depth__ == 0
+
+    def test_concat_declares_merge_format_flow_and_zero_tick_depth(self):
+        node = ConcatOp()
+
+        assert node.__format_flow__ is FormatFlow.MERGE
+        assert node.__tick_depth__ == 0
+
+    def test_graph_output_passes_format_without_tick_depth(self):
+        node = OutputNode()
+
+        assert node.__format_flow__ is FormatFlow.PASS_THROUGH
+        assert node.__tick_depth__ == 0
+
+    def test_offline_core_node_defaults_to_no_format_flow_and_one_tick_depth(self):
+        node = StandaloneCompOp(nn.Linear(4, 2))
+
+        assert node.__format_flow__ is FormatFlow.NONE
+        assert node.__tick_depth__ == 1
 
 
 class TestTransformOp:
