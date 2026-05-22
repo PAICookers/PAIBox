@@ -1643,7 +1643,8 @@ class TestStandaloneOpSimulation:
         pool_nodes = [
             node
             for node in graph.nodes.values()
-            if isinstance(node, StandaloneCompOp) and isinstance(node.comp, nn.AvgPool1d)
+            if isinstance(node, StandaloneCompOp)
+            and isinstance(node.comp, nn.AvgPool1d)
         ]
         assert len(pool_nodes) == 1
 
