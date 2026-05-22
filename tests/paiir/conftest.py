@@ -22,6 +22,7 @@ from paibox.paiir.pipeline.layout_cross_node_elision import (
     commute_pre_activation_transforms,
 )
 from paibox.paiir.pipeline.passes import (
+    flatten_general_add_chains,
     fuse_to_offline_cores,
     propagate_data_format,
     propagate_signal_semantics,
@@ -409,8 +410,9 @@ def convert_and_fuse(model: nn.Module, *sample_inputs: Tensor) -> PAIIRGraph:
     """Trace a PyTorch model to PAIIR and fuse."""
     unfused = torch_to_paiir(model, *sample_inputs)
     unfused = canonicalize_layout_chains(unfused)
-    unfused = specialize_general_adds(unfused)
     unfused = commute_pre_activation_transforms(unfused)
+    unfused = flatten_general_add_chains(unfused)
+    unfused = specialize_general_adds(unfused)
     return fuse_to_offline_cores(unfused)
 
 

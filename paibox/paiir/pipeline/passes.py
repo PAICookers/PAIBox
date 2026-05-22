@@ -17,6 +17,7 @@ Two validation stages live in this module:
 
 import math
 import warnings
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal, TypedDict
 
@@ -24,10 +25,10 @@ import torch
 from paicorelib import AddPotentialMode, DataSign, DataWidth, OutputType, SNNMode
 
 from ..exceptions import GraphCleanupWarning, GraphValidationError
-from ..ir.add_ops import GeneralAddOp, PotentialAddOp
+from ..ir.add_ops import AddOperandKind, AddOperandSpec, GeneralAddOp, PotentialAddOp
 from ..ir.core_neuron import CoreNeuronV25
 from ..ir.graph import Edge, PAIIRGraph
-from ..ir.ir_base import InputNode, OutputNode, PAIIRNode
+from ..ir.ir_base import InputNode, OutputNode, PAIIRNode, TensorLayout
 from ..ir.maxpool_export import refresh_maxpool_export_kind
 from ..ir.op_node import (
     AccumulateOp,
@@ -59,6 +60,7 @@ from .fusion_utils import _materialize_shared_sequential
 from .graph_utils import (
     collect_effective_predecessor_values,
     is_format_transparent_routing_node,
+    is_order_preserving_transform_node,
     is_standalone_maxpool,
 )
 
@@ -67,6 +69,7 @@ __all__ = [
     "assign_tick_params",
     "calibrate_avgpool_thresholds",
     "CalibrationResult",
+    "flatten_general_add_chains",
     "fuse_to_offline_cores",
     "propagate_signal_semantics",
     "propagate_data_format",
@@ -168,6 +171,233 @@ def _single_output_shape(node: OpNode) -> torch.Size:
     if node.num_outputs != 1:
         return torch.Size()
     return node.output_layouts[0].shape
+
+
+@dataclass(frozen=True, slots=True)
+class _FlatAddOperand:
+    source_name: str
+    source_port: int
+    coeff: int
+    layout: TensorLayout
+
+
+@dataclass(frozen=True, slots=True)
+class _FlatAddPlan:
+    operands: tuple[_FlatAddOperand, ...]
+    consumed_adds: frozenset[str]
+    consumed_transforms: frozenset[str]
+    changed: bool
+
+
+def flatten_general_add_chains(graph: PAIIRGraph) -> PAIIRGraph:
+    """Flatten single-use chains of :class:`GeneralAddOp` before specialization.
+
+    FX represents ``a + b + c`` as a chain of binary adds.  Keeping that shape
+    prevents later passes from seeing all signed paths at once.  Flattening
+    serves both no-activation chains that specialize directly to an n-ary
+    ``PotentialAddOp`` and activated chains that later fuse as
+    ``PotentialAddOp -> ActivationOp -> AccumulateOp``.  This pass rewrites
+    only the narrow subset that can still be specialized to deployable
+    potential add:
+
+    - tensor operands only
+    - no broadcasted operands
+    - per-path coefficients in ``{-1, +1}``
+    - nested add nodes are single-use
+
+    Order-preserving, shape-preserving ``TransformOp`` wrappers are treated as
+    transparent when they are single-use.  Shape-changing transforms remain in
+    the graph because ``AccumulateOp`` does not model per-path reshape stages.
+    """
+    flattened = graph.clone_shallow()
+    changed_any = False
+    changed = True
+
+    while changed:
+        changed = False
+        for name in flattened.topo_sort():
+            node = flattened.nodes.get(name)
+            if not isinstance(node, GeneralAddOp):
+                continue
+
+            if _try_flatten_general_add_node(flattened, name):
+                changed = True
+                changed_any = True
+                break
+
+    return flattened if changed_any else graph
+
+
+def _try_flatten_general_add_node(graph: PAIIRGraph, name: str) -> bool:
+    node = graph.nodes.get(name)
+    if not isinstance(node, GeneralAddOp):
+        return False
+
+    plan = _collect_flat_add_operands(graph, name, 1, frozenset())
+    if plan is None or not plan.changed or not plan.consumed_adds:
+        return False
+
+    if _has_duplicate_flat_add_sources(plan.operands):
+        return False
+
+    output_shape = _single_output_shape(node)
+    if output_shape and any(
+        operand.layout.shape and operand.layout.shape != output_shape
+        for operand in plan.operands
+    ):
+        return False
+
+    replacement = GeneralAddOp(
+        tuple(
+            AddOperandSpec(operand.coeff, AddOperandKind.TENSOR, idx)
+            for idx, operand in enumerate(plan.operands)
+        )
+    )
+    replacement.input_layouts = tuple(operand.layout for operand in plan.operands)
+    replacement.output_layouts = node.output_layouts
+
+    outgoing = graph.outgoing_edges(name)
+    graph.add_node(replacement)
+    for idx, operand in enumerate(plan.operands):
+        graph.add_edge(
+            operand.source_name,
+            replacement.name,
+            src_port=operand.source_port,
+            dst_port=idx,
+        )
+    for edge in outgoing:
+        graph.add_edge(
+            replacement.name, edge.dst, src_port=edge.src_port, dst_port=edge.dst_port
+        )
+
+    graph.remove_node(name)
+    for consumed_name in sorted(plan.consumed_adds):
+        if consumed_name in graph.nodes:
+            graph.remove_node(consumed_name)
+    for consumed_name in sorted(plan.consumed_transforms):
+        if consumed_name in graph.nodes:
+            graph.remove_node(consumed_name)
+
+    return True
+
+
+def _collect_flat_add_operands(
+    graph: PAIIRGraph, add_name: str, outer_coeff: int, seen_adds: frozenset[str]
+) -> _FlatAddPlan | None:
+    if add_name in seen_adds:
+        return None
+
+    node = graph.nodes.get(add_name)
+    if not isinstance(node, GeneralAddOp):
+        return None
+    if not _is_flattenable_general_add(node):
+        return None
+
+    incoming_by_port = _incoming_edges_by_port(graph, add_name)
+    operands: list[_FlatAddOperand] = []
+    consumed_adds: set[str] = set()
+    consumed_transforms: set[str] = set()
+    changed = False
+
+    for operand in node.operands:
+        if operand.kind is not AddOperandKind.TENSOR:
+            return None
+        assert operand.tensor_port is not None
+        source_edge = incoming_by_port.get(operand.tensor_port)
+        if source_edge is None:
+            return None
+
+        coeff = outer_coeff * operand.coeff
+        if coeff not in (-1, 1):
+            return None
+
+        transparent_edge = _transparent_add_operand_edge(graph, source_edge)
+        if transparent_edge is None:
+            return None
+
+        source_edge, consumed_transform = transparent_edge
+        if consumed_transform is not None:
+            consumed_transforms.add(consumed_transform)
+
+        source_node = graph.nodes[source_edge.src]
+        if isinstance(source_node, GeneralAddOp):
+            if len(graph.successors(source_edge.src)) != 1:
+                return None
+            nested = _collect_flat_add_operands(
+                graph, source_edge.src, coeff, seen_adds | {add_name}
+            )
+            if nested is None:
+                return None
+
+            operands.extend(nested.operands)
+            consumed_adds.add(source_edge.src)
+            consumed_adds.update(nested.consumed_adds)
+            consumed_transforms.update(nested.consumed_transforms)
+            changed = True
+            continue
+
+        layout = _edge_output_layout(graph, source_edge)
+        if layout is None:
+            return None
+        operands.append(
+            _FlatAddOperand(source_edge.src, source_edge.src_port, coeff, layout)
+        )
+
+    return _FlatAddPlan(
+        tuple(operands),
+        frozenset(consumed_adds),
+        frozenset(consumed_transforms),
+        changed,
+    )
+
+
+def _is_flattenable_general_add(node: GeneralAddOp) -> bool:
+    if node.has_const_operands or node.has_broadcasted_operands:
+        return False
+    if len(node.tensor_operands) < 2:
+        return False
+    return all(coeff in (-1, 1) for coeff in node.tensor_coeffs)
+
+
+def _incoming_edges_by_port(graph: PAIIRGraph, name: str) -> dict[int, Edge]:
+    return {edge.dst_port: edge for edge in graph.incoming_edges(name)}
+
+
+def _transparent_add_operand_edge(
+    graph: PAIIRGraph, edge: Edge
+) -> tuple[Edge, str | None] | None:
+    node = graph.nodes.get(edge.src)
+    if not isinstance(node, TransformOp):
+        return edge, None
+    if len(graph.successors(edge.src)) != 1:
+        return None
+    if len(graph.predecessors(edge.src)) != 1:
+        return None
+    if not is_order_preserving_transform_node(node):
+        return None
+    if node.input_layouts != node.output_layouts:
+        return None
+
+    return graph.incoming_edges(edge.src)[0], edge.src
+
+
+def _edge_output_layout(graph: PAIIRGraph, edge: Edge) -> TensorLayout | None:
+    node = graph.nodes.get(edge.src)
+    if isinstance(node, InputNode):
+        return node.layout
+    if isinstance(node, OpNode) and edge.src_port < len(node.output_layouts):
+        return node.output_layouts[edge.src_port]
+    return None
+
+
+def _has_duplicate_flat_add_sources(operands: Sequence[_FlatAddOperand]) -> bool:
+    seen: set[tuple[str, int]] = set()
+    for operand in operands:
+        key = (operand.source_name, operand.source_port)
+        if key in seen:
+            return True
+        seen.add(key)
+    return False
 
 
 def specialize_general_adds(graph: PAIIRGraph) -> PAIIRGraph:
