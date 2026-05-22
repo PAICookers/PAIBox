@@ -54,7 +54,7 @@ PAIIR 前端默认支持标准 PyTorch 模块、少量 canonical function-form �
 
 ### 自定义计算模块
 
-`register_module(...)` 用于把用户自定义 `nn.Module` 转换为 PAIIR 已支持的 canonical `nn.Module`，例如 `nn.Conv1d`、`nn.Conv2d`、`nn.Linear`、pooling 模块（含 `nn.AdaptiveMaxPool1d/2d` 与 `nn.AdaptiveAvgPool1d/2d`）、标准激活模块或 PAIIR 神经元/LUT 模块。
+`register_module(...)` 用于把用户自定义 `nn.Module` 转换为 PAIIR 已支持的 canonical `nn.Module`，例如 `nn.Conv1d`、`nn.Conv2d`、`nn.Linear`、pooling 模块（含 `nn.AdaptiveMaxPool1d/2d` 与 `nn.AdaptiveAvgPool1d/2d`）、zero-padding 模块、标准激活模块或 PAIIR 神经元/LUT 模块。
 
 ```python
 from torch import nn
@@ -111,6 +111,16 @@ channel 展开为每个 neuron 的标量 `threshold_pos`。当前导出契约限
 ### function-form conv 边界
 
 `F.conv1d` / `F.conv2d` 会在 lowering 分析阶段 materialize 为 canonical `nn.Conv1d` / `nn.Conv2d`，但只支持权重和 bias 能直接解析为静态 tensor 的形式，以及简单的 tensor `to` / `view` / `reshape` 辅助节点。形如 `weight_int8 * scale` 的用户量化表达式不在核心 functional conv lowering 中推断；应通过 `register_module(...)` 在用户 converter 中显式构造 canonical conv。
+
+### zero pad lowering 边界
+
+当前 PAIIR 支持静态 constant-zero padding：
+
+- `torch.nn.functional.pad(..., mode="constant", value=0/None)`
+- `nn.ZeroPad1d/2d`
+- `nn.ConstantPad1d/2d(value=0)`
+
+非零 constant pad，以及 reflection / replication / circular pad 会在 strict lowering 中报 unsupported。编译前半段会保守尝试把单消费者、对称、非负的 `PadOp -> Conv1d/Conv2d` 折叠进后继 Conv 的 `padding` 字段；其它 `PadOp` 会保留为 backend-ready routing 节点。
 
 ## 编译流程与 API
 
@@ -292,12 +302,13 @@ PAIIRNode (基类，自动分配唯一 name)
     │   ├── StandaloneCompOp  — 纯计算（融合前的中间状态）
     │   └── StandaloneActOp   — 纯激活（融合前的中间状态）
     ├── TransformOp     — 路由变换（layout / shape，非核操作，不占用核资源）
+    ├── PadOp           — constant-zero padding 路由节点（非核操作）
     ├── ConcatOp        — 路由拼接（非核操作，不占用核资源）
     ├── OnlineCoreOp    — 在线学习核（占位符）
     └── CPUOp           — CPU 回退（占位符，仅 v2.5）
 ```
 
-融合后的正常图中主要出现 `SequentialOp`、`AccumulateOp`、`PotentialAddOp`、`TransformOp`、`ConcatOp` 五种算子。`StandaloneCompOp` 和 `StandaloneActOp` 通常在融合后不再独立存在，但在以下场景中仍可能保留：
+融合后的正常图中主要出现 `SequentialOp`、`AccumulateOp`、`PotentialAddOp`、`TransformOp`、`PadOp`、`ConcatOp` 等算子。`StandaloneCompOp` 和 `StandaloneActOp` 通常在融合后不再独立存在，但在以下场景中仍可能保留：
 
 前端表达层还可能出现 `GeneralAddOp`，用于忠实表示 PyTorch 的通用 `add/sub` 语义；但它不属于 backend-ready 子集。只要图是通过 `compile_to_paiir()` 生成的，`validate_deployable_graph()` 会确保这类表达层节点已经被收紧或拒绝。
 
@@ -312,7 +323,7 @@ PAIIRNode (基类，自动分配唯一 name)
 - `validate_deployable_graph()` 之后的 backend-ready 图不允许残留 `SplitOp`
 - 因此后端如果只消费 `compile_to_paiir()` 的最终结果，默认不需要实现 `SplitOp` 的真实部署逻辑
 
-`TransformOp` 与 `SplitOp` 不同：它属于 backend-ready 图允许保留的 routing 节点。来自 `permute` / `transpose` / `flatten` / `reshape` / `view` / `squeeze` / `unsqueeze` 等变换在 compile 结束后仍可能以 `TransformOp` 形式存在，后端必须能消费它的 remap 语义，而不是假设这类节点都已在前端消失。
+`TransformOp` 与 `PadOp` 和 `SplitOp` 不同：`TransformOp` 与 `PadOp` 属于 backend-ready 图允许保留的 routing 节点；`SplitOp` 仍是 frontend-only IR。来自 `permute` / `transpose` / `flatten` / `reshape` / `view` / `squeeze` / `unsqueeze` 等变换在 compile 结束后仍可能以 `TransformOp` 形式存在，未能安全折叠进 Conv 的 constant-zero padding 则会以 `PadOp` 形式存在；后端必须能消费这些 routing 语义，而不是假设它们都已在前端消失。
 
 ## 计算图遍历与查询
 
@@ -608,6 +619,23 @@ input_names = graph.predecessors(cat.name)  # 已按 dst_port 排序
 
 `ConcatOp` 不映射到任何芯片核，后端利用输入端口顺序和各前驱的输出形状来确定轴突地址范围。
 
+#### PadOp
+
+```python
+from paibox.paiir.ir.op_node import PadOp
+
+pad: PadOp
+pad.padding: tuple[int, ...]  # PyTorch F.pad 顺序：从最后一维开始成对描述
+pad.input_layouts[0]
+pad.output_layouts[0]
+```
+
+`PadOp` 表示静态 constant-zero padding，不映射到 OfflineCore。它的 `padding`
+tuple 与 PyTorch `F.pad` 一致，例如 2D spatial pad 使用 `(left, right, top,
+bottom)`。当它不能被保守折叠进后继 Conv 时，backend-ready 图会保留该节点。
+后端需要按 `input_layouts` / `output_layouts` 生成插零后的路由映射；其
+data format 透传输入，VALUE-domain `known_code_range` 必须包含插入的 0。
+
 #### TransformOp
 
 ```python
@@ -705,7 +733,7 @@ def extract_cores(graph):
 
 ```python
 from paibox.paiir.ir.ir_base import InputNode, OutputNode
-from paibox.paiir.ir.op_node import ConcatOp, OfflineCoreOp, TransformOp
+from paibox.paiir.ir.op_node import ConcatOp, OfflineCoreOp, PadOp, TransformOp
 
 
 def extract_topology(graph):
@@ -714,7 +742,7 @@ def extract_topology(graph):
         "inputs": [],
         "outputs": [],
         "cores": [],
-        "routing": [],  # TransformOp / ConcatOp
+        "routing": [],  # TransformOp / PadOp / ConcatOp
         "edges": [],
     }
 
@@ -724,12 +752,13 @@ def extract_topology(graph):
             topology["inputs"].append({"name": name, "shape": node.shape})
         elif isinstance(node, OutputNode):
             topology["outputs"].append({"name": name, "shape": node.shape})
-        elif isinstance(node, (TransformOp, ConcatOp)):
+        elif isinstance(node, (TransformOp, PadOp, ConcatOp)):
             topology["routing"].append({
                 "name": name,
                 "type": type(node).__name__,
                 "input_order": graph.predecessors(name),
                 "stages": getattr(node, "stages", None),
+                "padding": getattr(node, "padding", None),
                 "dim": getattr(node, "dim", None),
             })
         elif isinstance(node, OfflineCoreOp):

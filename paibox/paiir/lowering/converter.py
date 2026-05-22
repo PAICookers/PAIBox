@@ -77,6 +77,7 @@ from ..ir.op_node import (
     ConcatOp,
     LayoutStage,
     OpNode,
+    PadOp,
     ShapeStage,
     StandaloneActOp,
     StandaloneCompOp,
@@ -139,7 +140,22 @@ LOWERING_BYPASS_MODULE_TYPES = (nn.BatchNorm1d, nn.BatchNorm2d)
 # - Flatten is preserved as a leaf for tracing, but lowering materializes it as
 #   a shape-only ``TransformOp`` so graph-level simulation keeps the shape
 #   transition.
-TRACE_LEAF_MODULE_TYPES = LOWERING_BYPASS_MODULE_TYPES + RESHAPE_LEAF_MODULE_TYPES
+PAD_LEAF_MODULE_TYPES = (
+    nn.ZeroPad1d,
+    nn.ZeroPad2d,
+    nn.ConstantPad1d,
+    nn.ConstantPad2d,
+    nn.ReflectionPad1d,
+    nn.ReflectionPad2d,
+    nn.ReplicationPad1d,
+    nn.ReplicationPad2d,
+    nn.CircularPad1d,
+    nn.CircularPad2d,
+)
+
+TRACE_LEAF_MODULE_TYPES = (
+    LOWERING_BYPASS_MODULE_TYPES + RESHAPE_LEAF_MODULE_TYPES + PAD_LEAF_MODULE_TYPES
+)
 
 # Modules removed by _EraseModuleTransformer: each call_module node is replaced
 # by its input, leaving no trace in the graph after dead-code elimination.
@@ -148,6 +164,7 @@ ERASE_MODULE_TYPES = (nn.Dropout, nn.Identity) + SJ_LAYER_ERASE_MODULE_TYPES
 ADD_OPS = (operator.add, torch.add)
 SUB_OPS = (operator.sub, torch.sub)
 CAT_OPS = (torch.cat,)
+PAD_FUNCS = (torch.nn.functional.pad,)
 
 # Known bypass targets (shape/dim ops that don't need IR nodes)
 KNOWN_BYPASS_FUNCS = (operator.getitem,)
@@ -187,6 +204,66 @@ def _describe_maxpool_lowering_issue(m: nn.Module) -> str | None:
     if m.return_indices:
         return f"nn.Module '{type(m).__name__}' with return_indices=True"
 
+
+def _normalize_static_padding(value: Any) -> tuple[int, ...] | None:
+    if isinstance(value, int):
+        return (value, value)
+    if not isinstance(value, (tuple, list)):
+        return None
+    if len(value) == 0 or len(value) % 2 != 0:
+        return None
+
+    padding: list[int] = []
+    for item in value:
+        if not isinstance(item, int):
+            return None
+        if item < 0:
+            return None
+        padding.append(item)
+    return tuple(padding)
+
+
+def _is_zero_pad_value(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, (int, float)):
+        return float(value) == 0.0
+    if torch.is_tensor(value):
+        return value.numel() == 1 and float(value.item()) == 0.0
+    return False
+
+
+def _build_pad_ir_node(padding: Any, value: Any = 0) -> PadOp | None:
+    normalized = _normalize_static_padding(padding)
+    if normalized is None or not _is_zero_pad_value(value):
+        return None
+    try:
+        return PadOp(normalized)
+    except ValueError:
+        return None
+
+
+def _extract_module_pad_ir_node(m: nn.Module) -> PadOp | None:
+    if isinstance(m, (nn.ZeroPad1d, nn.ZeroPad2d)):
+        return _build_pad_ir_node(m.padding, 0)
+
+    if isinstance(m, (nn.ConstantPad1d, nn.ConstantPad2d)):
+        return _build_pad_ir_node(m.padding, m.value)
+
+    return None
+
+
+def _describe_pad_lowering_issue(m: nn.Module) -> str | None:
+    if isinstance(m, (nn.ReflectionPad1d, nn.ReflectionPad2d)):
+        return f"nn.Module '{type(m).__name__}' with reflection padding"
+    if isinstance(m, (nn.ReplicationPad1d, nn.ReplicationPad2d)):
+        return f"nn.Module '{type(m).__name__}' with replication padding"
+    if isinstance(m, (nn.CircularPad1d, nn.CircularPad2d)):
+        return f"nn.Module '{type(m).__name__}' with circular padding"
+    if isinstance(m, (nn.ConstantPad1d, nn.ConstantPad2d)):
+        return f"nn.Module '{type(m).__name__}' with nonzero or invalid padding"
+    if isinstance(m, (nn.ZeroPad1d, nn.ZeroPad2d)):
+        return f"nn.Module '{type(m).__name__}' with invalid padding"
     return None
 
 
@@ -280,10 +357,22 @@ def _ensure_supported_canonical_module(
             f"got {type(canonical).__name__} for {module_type.__name__}"
         )
 
-    if (
-        _is_lowering_bypass_module(canonical)
-        or type(canonical) not in _DEFAULT_MODULE_MAP
-    ):
+    if _is_lowering_bypass_module(canonical):
+        raise TypeError(
+            "register_module converter must return a builtin canonical module "
+            "supported by PAIIR lowering, "
+            f"got unsupported {type(canonical).__name__}"
+        )
+
+    if isinstance(canonical, PAD_LEAF_MODULE_TYPES):
+        if _extract_module_pad_ir_node(canonical) is None:
+            raise TypeError(
+                "register_module converter returned an unsupported "
+                f"canonical module: {_describe_pad_lowering_issue(canonical)}"
+            )
+        return canonical
+
+    if type(canonical) not in _DEFAULT_MODULE_MAP:
         raise TypeError(
             "register_module converter must return a builtin canonical module "
             "supported by PAIIR lowering, "
@@ -300,6 +389,15 @@ def _ensure_supported_canonical_module(
 
 
 def _map_supported_canonical_module(canonical: nn.Module) -> OpNode:
+    if isinstance(canonical, PAD_LEAF_MODULE_TYPES):
+        ir_node = _extract_module_pad_ir_node(canonical)
+        if ir_node is None:
+            raise TypeError(
+                "register_module converter returned an unsupported "
+                f"canonical module: {_describe_pad_lowering_issue(canonical)}"
+            )
+        return ir_node
+
     mapper = _DEFAULT_MODULE_MAP[type(canonical)]
     ir_node = mapper(canonical)
     if not isinstance(ir_node, OpNode):
@@ -1206,6 +1304,16 @@ def _apply_module_lowering_rule(
         )
         return True
 
+    if (mod_type := type(torch_module)) in _USER_MODULE_MAP:
+        ir_node = module_map[mod_type](torch_module)
+        if isinstance(ir_node, OpNode):
+            _register_ir_node(
+                paiir_graph, ctx, node, ir_node, input_nodes_override=input_override
+            )
+        else:
+            ctx.bypass_nodes.add(node)
+        return True
+
     if is_sj_layer_module(torch_module) and not is_supported_sj_layer_module(
         torch_module
     ):
@@ -1218,6 +1326,23 @@ def _apply_module_lowering_rule(
 
     if (maxpool_issue := _describe_maxpool_lowering_issue(torch_module)) is not None:
         _mark_unsupported(ctx, node, maxpool_issue, strict)
+        return True
+
+    if isinstance(torch_module, PAD_LEAF_MODULE_TYPES):
+        ir_node = _extract_module_pad_ir_node(torch_module)
+        if ir_node is None:
+            _mark_unsupported(
+                ctx,
+                node,
+                _describe_pad_lowering_issue(torch_module)
+                or f"nn.Module '{type(torch_module).__name__}'",
+                strict,
+            )
+            return True
+
+        _register_ir_node(
+            paiir_graph, ctx, node, ir_node, input_nodes_override=input_override
+        )
         return True
 
     if (avgpool_issue := _describe_avgpool_lowering_issue(torch_module)) is not None:
@@ -1307,6 +1432,31 @@ def _apply_builtin_function_lowering_rule(
         raw_dim = node.kwargs.get("dim", 0)
         assert isinstance(raw_dim, int), f"cat dim must be int, got {type(raw_dim)}"
         _register_ir_node(paiir_graph, ctx, node, ConcatOp(dim=raw_dim))
+        return True
+
+    if node.target in PAD_FUNCS:
+        padding = get_call_arg(node, 1, "pad")
+        mode = get_call_arg(node, 2, "mode", "constant")
+        value = get_call_arg(node, 3, "value", None)
+        if mode != "constant":
+            _mark_unsupported(ctx, node, f"function 'pad' with mode='{mode}'", strict)
+            return True
+
+        ir_node = _build_pad_ir_node(padding, value)
+        if ir_node is None:
+            _mark_unsupported(
+                ctx, node, "function 'pad' with nonzero or unsupported padding", strict
+            )
+            return True
+
+        input_arg = get_call_arg(node, 0, "input")
+        if not isinstance(input_arg, fx.Node):
+            _mark_unsupported(ctx, node, "function 'pad' without tensor input", strict)
+            return True
+
+        _register_ir_node(
+            paiir_graph, ctx, node, ir_node, input_nodes_override=(input_arg,)
+        )
         return True
 
     built_layout = _build_layout_transform_ir_node(node)

@@ -4,8 +4,8 @@ This module provides a high-level entry point that wraps the current PAIIR
 conversion pipeline:
 
 1. :func:`torch_to_paiir` -- FX trace and 1:1 node mapping
-2. pre-fusion fixed-point rewrites -- canonicalize transform chains and
-   commute transparent pre-activation transforms
+2. pre-fusion fixed-point rewrites -- fold safe zero pads into following convs,
+   canonicalize transform chains, and commute transparent pre-activation transforms
 3. :func:`flatten_general_add_chains` -- collapse deployable binary add chains
    into n-ary add nodes
 4. :func:`specialize_general_adds` -- narrow expression-layer add nodes into
@@ -34,6 +34,7 @@ from .avgpool import rewrite_delayed_avgpool_division, rewrite_standalone_avgpoo
 from .data_format import DataFormat
 from .layout_chain_canonicalization import canonicalize_layout_chains
 from .layout_cross_node_elision import commute_pre_activation_transforms
+from .pad_folding import fold_zero_pad_into_convs
 from .passes import (
     TickOverride,
     analyze_graph,
@@ -153,6 +154,7 @@ def compile_to_paiir(
 def _pre_fusion_rewrite_passes() -> tuple[RewritePass, ...]:
     """Return ordered topology rewrites that may interact before fusion."""
     return (
+        RewritePass("fold_zero_pad_into_convs", fold_zero_pad_into_convs),
         RewritePass("canonicalize_transform_chains", canonicalize_layout_chains),
         RewritePass(
             "commute_pre_activation_transforms", commute_pre_activation_transforms

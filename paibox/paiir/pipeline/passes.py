@@ -35,6 +35,7 @@ from ..ir.op_node import (
     ConcatOp,
     OfflineCoreOp,
     OpNode,
+    PadOp,
     SequentialOp,
     SplitOp,
     StandaloneActOp,
@@ -84,6 +85,7 @@ _DEPLOYABLE_GRAPH_NODE_TYPES = (
     InputNode,
     OutputNode,
     TransformOp,
+    PadOp,
     ConcatOp,
     SequentialOp,
     AccumulateOp,
@@ -672,6 +674,8 @@ def validate_graph(graph: PAIIRGraph) -> None:
             _validate_potential_add_contract(errors, graph, name, node)
         if isinstance(node, SplitOp):
             _validate_split_contract(errors, graph, name, node)
+        if isinstance(node, PadOp):
+            _validate_pad_contract(errors, graph, name, node)
         if not isinstance(node, OfflineCoreOp):
             continue
         _validate_lut_mode_consistency(errors, name, node)
@@ -750,6 +754,9 @@ def validate_compiled_graph(graph: PAIIRGraph) -> None:
 
         if isinstance(node, TransformOp):
             _validate_reshape_contract(errors, graph, name, node)
+
+        if isinstance(node, PadOp):
+            _validate_pad_contract(errors, graph, name, node)
 
         if isinstance(node, PotentialAddOp):
             _validate_potential_add_contract(errors, graph, name, node)
@@ -1040,6 +1047,87 @@ def _validate_reshape_contract(
             )
 
 
+def _validate_pad_contract(
+    errors: list[str], graph: PAIIRGraph, name: str, node: PadOp
+) -> None:
+    incoming = graph.incoming_edges(name)
+    preds = [edge.src for edge in incoming]
+    if len(preds) != 1:
+        errors.append(
+            f"PadOp '{name}' must have exactly one predecessor, got {len(preds)}"
+        )
+        return
+
+    input_shapes = _layout_shapes(node)
+    input_dims = _layout_input_dims(node)
+    output_shape = _single_output_shape(node)
+    output_dims = tuple(layout.dims for layout in node.output_layouts)
+
+    if input_shapes and len(input_shapes) != 1:
+        errors.append(
+            f"PadOp '{name}' has {len(input_shapes)} input layouts (expected 1)"
+        )
+        return
+
+    if not input_shapes or not input_shapes[0]:
+        return
+
+    input_shape = input_shapes[0]
+    if len(node.padding) == 0 or len(node.padding) % 2 != 0:
+        errors.append(f"PadOp '{name}' has invalid padding tuple {node.padding}")
+        return
+    if any(not isinstance(p, int) or p < 0 for p in node.padding):
+        errors.append(f"PadOp '{name}' only supports non-negative integer padding")
+        return
+    if len(node.padding) // 2 > len(input_shape):
+        errors.append(
+            f"PadOp '{name}' padding {node.padding} is too long for input rank {len(input_shape)}"
+        )
+        return
+
+    pred_shape = _try_get_edge_output_shape(graph, incoming[0])
+    if pred_shape and pred_shape != input_shape:
+        errors.append(
+            f"PadOp '{name}' predecessor shape mismatch: "
+            f"pred_output_shape={pred_shape}, input_shape={input_shape}"
+        )
+        return
+
+    if output_shape:
+        try:
+            expected_output = node.output_shape_for(input_shape)
+        except ValueError as exc:
+            errors.append(f"PadOp '{name}' has invalid padding spec: {exc}")
+            return
+        if output_shape != expected_output:
+            errors.append(
+                f"PadOp '{name}' output_shape mismatch: "
+                f"expected {expected_output}, got {output_shape}"
+            )
+            return
+
+    if (
+        len(input_dims) == 1
+        and len(output_dims) == 1
+        and input_dims[0] != output_dims[0]
+    ):
+        errors.append(
+            f"PadOp '{name}' output layout dims must match input layout dims, got "
+            f"input_dims={input_dims[0]}, output_dims={output_dims[0]}"
+        )
+        return
+
+    code_range = node.signal_semantics.known_code_range
+    if (
+        node.signal_semantics.output_domain is SignalDomain.VALUE
+        and code_range is not None
+        and not (code_range[0] <= 0 <= code_range[1])
+    ):
+        errors.append(
+            f"PadOp '{name}' known_code_range={code_range} must include zero"
+        )
+
+
 def _validate_split_contract(
     errors: list[str], graph: PAIIRGraph, name: str, node: SplitOp
 ) -> None:
@@ -1171,6 +1259,12 @@ def propagate_signal_semantics(
                 _set_node_signal_semantics(node, *inferred)
             continue
 
+        if isinstance(node, PadOp):
+            inferred = _infer_pad_signal_semantics(pred_facts)
+            if inferred is not None:
+                _set_node_signal_semantics(node, *inferred)
+            continue
+
         if isinstance(node, ConcatOp):
             if pred_facts.known_domains and any(
                 domain != pred_facts.known_domains[0]
@@ -1276,6 +1370,23 @@ def _infer_passthrough_signal_semantics(
     if domain is None:
         return None
     return domain, pred_facts.single_code_range()
+
+
+def _infer_pad_signal_semantics(pred_facts: _PredSignalFacts) -> NodeSignal | None:
+    """Forward pad semantics while accounting for inserted zero values."""
+    if len(pred_facts.domains) != 1:
+        return None
+
+    domain = pred_facts.single_domain()
+    if domain is None:
+        return None
+
+    code_range = pred_facts.single_code_range()
+    if domain is SignalDomain.VALUE and code_range is not None:
+        lo, hi = code_range
+        code_range = min(lo, 0), max(hi, 0)
+
+    return domain, code_range
 
 
 def _infer_concat_signal_semantics(pred_facts: _PredSignalFacts) -> NodeSignal | None:
@@ -1563,7 +1674,8 @@ def propagate_data_format(
     1. Seed an effective format for every external input, then assign each
        deployable core's intrinsic output format and weight format.
     2. Propagate those resolved formats through routing-only nodes
-       (:class:`ConcatOp`, :class:`TransformOp`, :class:`SplitOp`, :class:`OutputNode`) and finally
+       (:class:`ConcatOp`, :class:`PadOp`, :class:`TransformOp`, :class:`SplitOp`,
+       :class:`OutputNode`) and finally
        back-fill each deployable core's input format from its predecessors.
 
     The ordering matters because a core's input format depends on the already
