@@ -1123,9 +1123,7 @@ def _validate_pad_contract(
         and code_range is not None
         and not (code_range[0] <= 0 <= code_range[1])
     ):
-        errors.append(
-            f"PadOp '{name}' known_code_range={code_range} must include zero"
-        )
+        errors.append(f"PadOp '{name}' known_code_range={code_range} must include zero")
 
 
 def _validate_split_contract(
