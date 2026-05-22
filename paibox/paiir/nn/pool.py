@@ -13,16 +13,18 @@ __all__ = ["SumPool1d", "SumPool2d"]
 class _SumPoolNd(Module):
     """Base class for sum pooling modules."""
 
-    __constants__ = ["kernel_size", "stride", "padding", "ceil_mode"]
+    __constants__ = ["kernel_size", "stride", "padding", "dilation", "ceil_mode"]
     kernel_size: tuple
     stride: tuple
     padding: tuple
+    dilation: tuple
     ceil_mode: bool
 
     def extra_repr(self) -> str:
         return (
             f"kernel_size={self.kernel_size}, stride={self.stride}, "
-            f"padding={self.padding}, ceil_mode={self.ceil_mode}"
+            f"padding={self.padding}, dilation={self.dilation}, "
+            f"ceil_mode={self.ceil_mode}"
         )
 
 
@@ -49,23 +51,31 @@ class SumPool1d(_SumPoolNd):
     kernel_size: tuple[int]
     stride: tuple[int]
     padding: tuple[int]
+    dilation: tuple[int]
 
     def __init__(
         self,
         kernel_size: _size_1_t,
         stride: _size_1_t | None = None,
         padding: _size_1_t = 0,
+        dilation: _size_1_t = 1,
         ceil_mode: bool = False,
     ) -> None:
         super().__init__()
         self.kernel_size = _single(kernel_size)
         self.stride = _single(stride if stride is not None else kernel_size)
         self.padding = _single(padding)
+        self.dilation = _single(dilation)
         self.ceil_mode = ceil_mode
 
     def forward(self, input: Tensor) -> Tensor:
         return F.sumpool1d(
-            input, self.kernel_size, self.stride, self.padding, self.ceil_mode
+            input,
+            self.kernel_size,
+            self.stride,
+            self.padding,
+            self.dilation,
+            self.ceil_mode,
         )
 
 
@@ -93,21 +103,29 @@ class SumPool2d(_SumPoolNd):
     kernel_size: tuple[int, int]
     stride: tuple[int, int]
     padding: tuple[int, int]
+    dilation: tuple[int, int]
 
     def __init__(
         self,
         kernel_size: _size_2_t,
         stride: _size_2_t | None = None,
         padding: _size_2_t = 0,
+        dilation: _size_2_t = 1,
         ceil_mode: bool = False,
     ) -> None:
         super().__init__()
         self.kernel_size = _pair(kernel_size)
         self.stride = _pair(stride if stride is not None else kernel_size)
         self.padding = _pair(padding)
+        self.dilation = _pair(dilation)
         self.ceil_mode = ceil_mode
 
     def forward(self, input: Tensor) -> Tensor:
         return F.sumpool2d(
-            input, self.kernel_size, self.stride, self.padding, self.ceil_mode
+            input,
+            self.kernel_size,
+            self.stride,
+            self.padding,
+            self.dilation,
+            self.ceil_mode,
         )

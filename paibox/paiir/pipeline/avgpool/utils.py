@@ -44,9 +44,21 @@ def is_value_avgpool(
 def build_sum_pool(comp: nn.AvgPool1d | nn.AvgPool2d) -> SumPool1d | SumPool2d:
     """Build the shape-equivalent SumPool carrier for one AvgPool module."""
     if isinstance(comp, nn.AvgPool1d):
-        return SumPool1d(comp.kernel_size, comp.stride, comp.padding, comp.ceil_mode)
+        return SumPool1d(
+            comp.kernel_size,
+            comp.stride,
+            comp.padding,
+            1,
+            comp.ceil_mode,
+        )
     if isinstance(comp, nn.AvgPool2d):
-        return SumPool2d(comp.kernel_size, comp.stride, comp.padding, comp.ceil_mode)
+        return SumPool2d(
+            comp.kernel_size,
+            comp.stride,
+            comp.padding,
+            1,
+            comp.ceil_mode,
+        )
 
     raise TypeError("SumPool conversion only supports AvgPool1d/2d")
 
