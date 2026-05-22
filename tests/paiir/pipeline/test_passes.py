@@ -12,7 +12,7 @@ in `PAIBox/paibox/paiir/pipeline/passes.py`:
 import pytest
 import torch
 from paicorelib import DataSign, DataWidth, OutputType, PoolingMode, SNNMode
-from spikingjelly.activation_based import neuron as sj
+from spikingjelly.activation_based import neuron
 from torch import nn
 
 from paibox.paiir.ir.add_ops import (
@@ -36,6 +36,7 @@ from paibox.paiir.ir.op_node import (
     StandaloneActOp,
     StandaloneCompOp,
     TensorLayout,
+    TransformOp,
 )
 from paibox.paiir.ir.signal_domain import SignalDomain
 from paibox.paiir.lowering.converter import torch_to_paiir
@@ -44,6 +45,7 @@ from paibox.paiir.pipeline.passes import (
     GraphCleanupWarning,
     GraphValidationError,
     assign_tick_params,
+    flatten_general_add_chains,
     fuse_to_offline_cores,
     propagate_data_format,
     propagate_signal_semantics,
@@ -168,7 +170,7 @@ class TestSNNConversion:
         assert len(seq_nodes) == 2
 
         conv_ops = [n for n in seq_nodes if isinstance(n.comp, nn.Conv2d)]
-        groups = sorted([n.comp.groups for n in conv_ops])
+        groups = sorted([n.comp.groups for n in conv_ops])  # type: ignore
         assert groups == [1, 16]
 
     def test_flatten_transition(self):
@@ -212,7 +214,7 @@ class TestANNConversion:
 
         for node in fused.nodes.values():
             if hasattr(node, "comp"):
-                assert not isinstance(node.comp, (nn.BatchNorm1d, nn.BatchNorm2d))
+                assert not isinstance(node.comp, (nn.BatchNorm1d, nn.BatchNorm2d))  # type: ignore
 
     def test_subtract_branch(self):
         """Two linear branches with subtraction -> tanh."""
@@ -223,6 +225,377 @@ class TestANNConversion:
         assert len(accum_nodes) == 1
         assert accum_nodes[0].signs == (1, -1)
         assert isinstance(accum_nodes[0].act.lut, LutTanh)
+
+
+class TestGeneralAddChainFlattening:
+    """Test add-chain canonicalization before add specialization."""
+
+    class LinearAddChain(nn.Module):
+        def __init__(self, num_terms: int):
+            super().__init__()
+            self.linears = nn.ModuleList(nn.Linear(8, 4) for _ in range(num_terms))
+            self.relu = nn.ReLU()
+
+        def forward(self, x):
+            terms = [linear(x) for linear in self.linears]
+            result = terms[0]
+            for term in terms[1:]:
+                result = result + term
+            return self.relu(result)
+
+    class SubtractLeftChain(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear_a = nn.Linear(8, 4)
+            self.linear_b = nn.Linear(8, 4)
+            self.linear_c = nn.Linear(8, 4)
+            self.relu = nn.ReLU()
+
+        def forward(self, x):
+            return self.relu(self.linear_a(x) - self.linear_b(x) + self.linear_c(x))
+
+    class SubtractRightChain(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear_a = nn.Linear(8, 4)
+            self.linear_b = nn.Linear(8, 4)
+            self.linear_c = nn.Linear(8, 4)
+            self.relu = nn.ReLU()
+
+        def forward(self, x):
+            return self.relu(self.linear_a(x) + (self.linear_b(x) - self.linear_c(x)))
+
+    class ThreeConvLIFAdd(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.conv_a = nn.Conv2d(3, 4, 3, padding=1)
+            self.conv_b = nn.Conv2d(3, 4, 3, padding=1)
+            self.conv_c = nn.Conv2d(3, 4, 3, padding=1)
+            self.lif = neuron.LIFNode(tau=2.0)
+
+        def forward(self, x):
+            return self.lif(self.conv_a(x) + self.conv_b(x) + self.conv_c(x))
+
+    class MultiInputThreeLinearAdd(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear_a = nn.Linear(8, 4)
+            self.linear_b = nn.Linear(8, 4)
+            self.linear_c = nn.Linear(8, 4)
+            self.relu = nn.ReLU()
+
+        def forward(self, x, y, z):
+            return self.relu(self.linear_a(x) + self.linear_b(y) + self.linear_c(z))
+
+    class OrderPreservingTransformChain(nn.Module):
+        def __init__(self, transform_kind: str):
+            super().__init__()
+            self.transform_kind = transform_kind
+            self.linear_a = nn.Linear(8, 4)
+            self.linear_b = nn.Linear(8, 4)
+            self.linear_c = nn.Linear(8, 4)
+            self.relu = nn.ReLU()
+
+        def forward(self, x):
+            a = self.linear_a(x)
+            if self.transform_kind == "view":
+                a = a.view_as(a)
+            elif self.transform_kind == "reshape":
+                a = a.reshape(a.shape)
+            elif self.transform_kind == "flatten":
+                a = a.flatten(1, 1)
+            else:
+                raise AssertionError(f"unknown transform_kind={self.transform_kind}")
+            return self.relu(a + self.linear_b(x) + self.linear_c(x))
+
+    class LayoutTransformOperandChain(nn.Module):
+        def __init__(self, transform_kind: str):
+            super().__init__()
+            self.transform_kind = transform_kind
+            self.conv_a = nn.Conv2d(3, 4, 1)
+            self.conv_b = nn.Conv2d(3, 4, 1)
+            self.conv_c = nn.Conv2d(3, 4, 1)
+            self.relu = nn.ReLU()
+
+        def forward(self, x):
+            b = self.conv_b(x)
+            if self.transform_kind == "transpose":
+                b = b.transpose(2, 3)
+            elif self.transform_kind == "permute":
+                b = b.permute(0, 1, 3, 2)
+            else:
+                raise AssertionError(f"unknown transform_kind={self.transform_kind}")
+            return self.relu(self.conv_a(x) + b + self.conv_c(x))
+
+    class ShapeChangingFlattenOperandChain(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.conv_a = nn.Conv2d(1, 1, 1)
+            self.linear_b = nn.Linear(4, 4)
+            self.linear_c = nn.Linear(4, 4)
+            self.relu = nn.ReLU()
+
+        def forward(self, x):
+            flattened_x = x.flatten(1)
+            return self.relu(
+                self.conv_a(x).flatten(1)
+                + self.linear_b(flattened_x)
+                + self.linear_c(flattened_x)
+            )
+
+    class MultiConsumerMiddleAdd(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear_a = nn.Linear(8, 4)
+            self.linear_b = nn.Linear(8, 4)
+            self.linear_c = nn.Linear(8, 4)
+            self.relu = nn.ReLU()
+
+        def forward(self, x):
+            mid = self.linear_a(x) + self.linear_b(x)
+            return self.relu(mid + self.linear_c(x)), mid
+
+    class MultiConsumerTransformOperand(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear_a = nn.Linear(8, 4)
+            self.linear_b = nn.Linear(8, 4)
+            self.linear_c = nn.Linear(8, 4)
+            self.relu = nn.ReLU()
+
+        def forward(self, x):
+            a = self.linear_a(x)
+            transformed = a.view_as(a)
+            return (
+                self.relu(transformed + self.linear_b(x) + self.linear_c(x)),
+                transformed,
+            )
+
+    class ConstOperandChain(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear_a = nn.Linear(8, 4)
+            self.linear_b = nn.Linear(8, 4)
+            self.relu = nn.ReLU()
+
+        def forward(self, x):
+            return self.relu(self.linear_a(x) + (self.linear_b(x) + 1))
+
+    class BroadcastOperandChain(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear_a = nn.Linear(8, 4)
+            self.linear_b = nn.Linear(8, 1)
+            self.linear_c = nn.Linear(8, 4)
+            self.relu = nn.ReLU()
+
+        def forward(self, x):
+            return self.relu(self.linear_a(x) + (self.linear_b(x) + self.linear_c(x)))
+
+    class RepeatedProducerChain(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear_a = nn.Linear(8, 4)
+            self.linear_b = nn.Linear(8, 4)
+            self.relu = nn.ReLU()
+
+        def forward(self, x):
+            a = self.linear_a(x)
+            return self.relu(a + self.linear_b(x) + a)
+
+    class NonUnitCoeffChain(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear_a = nn.Linear(8, 4)
+            self.linear_b = nn.Linear(8, 4)
+            self.linear_c = nn.Linear(8, 4)
+            self.relu = nn.ReLU()
+
+        def forward(self, x):
+            return self.relu(
+                self.linear_a(x)
+                + torch.add(self.linear_b(x), self.linear_c(x), alpha=2)
+            )
+
+    class NoActivationAddChain(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear_a = nn.Linear(8, 4)
+            self.linear_b = nn.Linear(8, 4)
+            self.linear_c = nn.Linear(8, 4)
+
+        def forward(self, x):
+            return self.linear_a(x) + self.linear_b(x) + self.linear_c(x)
+
+    class NoActivationSubtractChain(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.linear_a = nn.Linear(8, 4)
+            self.linear_b = nn.Linear(8, 4)
+            self.linear_c = nn.Linear(8, 4)
+
+        def forward(self, x):
+            return self.linear_a(x) - self.linear_b(x) + self.linear_c(x)
+
+    def _single_accumulate(self, compiled):
+        accum_nodes = find_nodes(compiled, AccumulateOp)
+        assert len(accum_nodes) == 1
+        assert find_nodes(compiled, PotentialAddOp) == []
+        return accum_nodes[0]
+
+    def _single_potential_add(self, compiled):
+        add_nodes = find_nodes(compiled, PotentialAddOp)
+        assert len(add_nodes) == 1
+        assert find_nodes(compiled, GeneralAddOp) == []
+        assert find_nodes(compiled, AccumulateOp) == []
+        return add_nodes[0]
+
+    def _assert_binary_add_chain_not_flattened(self, model, *sample_inputs):
+        flattened, add_nodes = self._flattened_add_nodes(model, *sample_inputs)
+
+        assert len(add_nodes) == 2
+        assert [node.coeffs for node in add_nodes] == [(1, 1), (1, 1)]
+        return flattened
+
+    def _flattened_add_nodes(self, model, *sample_inputs):
+        graph = torch_to_paiir(model, *sample_inputs)
+        flattened = flatten_general_add_chains(graph)
+        return flattened, find_nodes(flattened, GeneralAddOp)
+
+    def _assert_not_accumulated(self, model, *sample_inputs):
+        compiled = compile_to_paiir(model, *sample_inputs)
+        assert find_nodes(compiled, AccumulateOp) == []
+        assert len(find_nodes(compiled, PotentialAddOp)) == 2
+        return compiled
+
+    @pytest.mark.parametrize(
+        ("num_terms", "expected_signs"),
+        [(3, (1, 1, 1)), (4, (1, 1, 1, 1))],
+        ids=["three_terms", "four_terms"],
+    )
+    def test_linear_chain_compiles_to_single_accumulate(
+        self, num_terms, expected_signs
+    ):
+        compiled = compile_to_paiir(self.LinearAddChain(num_terms), make_vec_8d())
+
+        accum = self._single_accumulate(compiled)
+        assert len(accum.comps) == num_terms
+        assert accum.signs == expected_signs
+        assert isinstance(accum.act, ANNNodeV25)
+
+    def test_conv_lif_chain_compiles_to_single_accumulate(self):
+        compiled = compile_to_paiir(self.ThreeConvLIFAdd(), make_img_3ch_8x8())
+
+        accum = self._single_accumulate(compiled)
+        assert len(accum.comps) == 3
+        assert accum.signs == (1, 1, 1)
+        assert isinstance(accum.act, LIFNodeV25)
+        assert {type(comp) for comp in accum.comps} == {nn.Conv2d}
+
+    def test_multi_input_chain_compiles_to_single_accumulate(self):
+        compiled = compile_to_paiir(
+            self.MultiInputThreeLinearAdd(), make_vec_8d(), make_vec_8d(), make_vec_8d()
+        )
+
+        accum = self._single_accumulate(compiled)
+        assert len(accum.comps) == 3
+        assert accum.signs == (1, 1, 1)
+        assert len(compiled.input_nodes()) == 3
+
+    @pytest.mark.parametrize(
+        ("model_cls", "expected_signs"),
+        [(SubtractLeftChain, (1, -1, 1)), (SubtractRightChain, (1, 1, -1))],
+        ids=["a_minus_b_plus_c", "a_plus_b_minus_c"],
+    )
+    def test_chain_signs_are_preserved(self, model_cls, expected_signs):
+        compiled = compile_to_paiir(model_cls(), make_vec_8d())
+
+        accum = self._single_accumulate(compiled)
+        assert accum.signs == expected_signs
+
+    @pytest.mark.parametrize(
+        ("model_cls", "expected_signs"),
+        [
+            (NoActivationAddChain, (1, 1, 1)),
+            (NoActivationSubtractChain, (1, -1, 1)),
+        ],
+        ids=["add", "subtract"],
+    )
+    def test_no_activation_chain_compiles_to_nary_potential_add(
+        self, model_cls, expected_signs
+    ):
+        compiled = compile_to_paiir(model_cls(), make_vec_8d())
+
+        add = self._single_potential_add(compiled)
+        assert add.signs == expected_signs
+        assert len(find_nodes(compiled, StandaloneCompOp)) == 3
+
+    @pytest.mark.parametrize("transform_kind", ["view", "reshape", "flatten"])
+    def test_shape_preserving_order_preserving_operand_transform_flattens(
+        self, transform_kind
+    ):
+        flattened, add_nodes = self._flattened_add_nodes(
+            self.OrderPreservingTransformChain(transform_kind), make_vec_8d()
+        )
+
+        assert len(add_nodes) == 1
+        assert add_nodes[0].coeffs == (1, 1, 1)
+        assert find_nodes(flattened, TransformOp) == []
+
+    @pytest.mark.parametrize("transform_kind", ["transpose", "permute"])
+    def test_layout_transform_operand_does_not_flatten_or_accumulate(
+        self, transform_kind
+    ):
+        x = torch.randn(1, 3, 4, 4)
+        model = self.LayoutTransformOperandChain(transform_kind)
+
+        flattened = self._assert_binary_add_chain_not_flattened(model, x)
+        assert find_nodes(flattened, TransformOp)
+
+        self._assert_not_accumulated(model, x)
+
+    def test_shape_changing_order_preserving_transform_does_not_flatten(self):
+        x = torch.randn(1, 1, 2, 2)
+        model = self.ShapeChangingFlattenOperandChain()
+
+        flattened = self._assert_binary_add_chain_not_flattened(model, x)
+        transform_nodes = find_nodes(flattened, TransformOp)
+        assert transform_nodes
+        assert any(
+            node.input_layouts[0].shape != node.output_layouts[0].shape
+            for node in transform_nodes
+        )
+
+        self._assert_not_accumulated(model, x)
+
+    @pytest.mark.parametrize(
+        "model_cls",
+        [MultiConsumerMiddleAdd, MultiConsumerTransformOperand],
+        ids=["middle_add", "transform_operand"],
+    )
+    def test_multi_consumer_chain_member_does_not_flatten(self, model_cls):
+        flattened = self._assert_binary_add_chain_not_flattened(
+            model_cls(), make_vec_8d()
+        )
+        assert all(
+            node.coeffs == (1, 1) for node in find_nodes(flattened, GeneralAddOp)
+        )
+
+    @pytest.mark.parametrize(
+        "model_cls",
+        [
+            ConstOperandChain,
+            BroadcastOperandChain,
+            RepeatedProducerChain,
+            NonUnitCoeffChain,
+        ],
+        ids=["const", "broadcast", "repeated_producer", "non_unit_coeff"],
+    )
+    def test_unsupported_operand_form_does_not_flatten(self, model_cls):
+        _, add_nodes = self._flattened_add_nodes(model_cls(), make_vec_8d())
+
+        assert len(add_nodes) == 2
+        assert all(len(node.operands) == 2 for node in add_nodes)
 
 
 class TestComplexPatterns:
@@ -400,7 +773,7 @@ class TestAssignTickParams:
             assert node.core_params.tick_start is not None
             assert node.core_params.tick_start >= 1
 
-        tick_starts = sorted([n.core_params.tick_start for n in seq_nodes])
+        tick_starts = sorted([n.core_params.tick_start for n in seq_nodes])  # type: ignore
         assert tick_starts[0] < tick_starts[1]
 
     def test_tick_start_explicit_override(self, fused_snn):
@@ -552,7 +925,7 @@ class TestValidGraphs:
             def __init__(self):
                 super().__init__()
                 self.conv = nn.Conv2d(3, 16, 3, padding=1)
-                self.ifn = sj.IFNode()
+                self.ifn = neuron.IFNode()
 
             def forward(self, x):
                 return self.ifn(self.conv(x))
@@ -585,7 +958,7 @@ class TestValidGraphs:
                 super().__init__()
                 self.conv_a = nn.Conv2d(3, 16, 3, padding=1)
                 self.conv_b = nn.Conv2d(3, 16, 3, padding=1)
-                self.lif = sj.LIFNode(tau=2.0)
+                self.lif = neuron.LIFNode(tau=2.0)
 
             def forward(self, x):
                 return self.lif(self.conv_a(x) + self.conv_b(x))
@@ -1212,8 +1585,8 @@ class ValueBranchAdd(nn.Module):
         super().__init__()
         self.conv_a = nn.Conv2d(3, 4, 1)
         self.conv_b = nn.Conv2d(3, 4, 1)
-        self.if_a = sj.IFNode(v_threshold=1.0)
-        self.if_b = sj.IFNode(v_threshold=1.0)
+        self.if_a = neuron.IFNode(v_threshold=1.0)
+        self.if_b = neuron.IFNode(v_threshold=1.0)
 
     def forward(self, x):
         return self.if_a(self.conv_a(x)) + self.if_b(self.conv_b(x))
@@ -1333,10 +1706,7 @@ class TestSignalSemantics:
         propagate_signal_semantics(
             graph,
             input_formats={
-                graph.input_nodes()[0].name: (
-                    DataSign.UNSIGNED,
-                    DataWidth.WIDTH_1BIT,
-                )
+                graph.input_nodes()[0].name: (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT)
             },
         )
 
@@ -1398,9 +1768,7 @@ class TestSignalSemantics:
         inp_a = InputNode(shape=torch.Size((1, 4)))
         inp_b = InputNode(shape=torch.Size((1, 4)))
         acc = AccumulateOp(
-            comps=[nn.Linear(4, 4), nn.Linear(4, 4)],
-            act=IFNodeV25(),
-            op_signs=(1, 1),
+            comps=[nn.Linear(4, 4), nn.Linear(4, 4)], act=IFNodeV25(), op_signs=(1, 1)
         )
         out = OutputNode()
 
@@ -1409,11 +1777,7 @@ class TestSignalSemantics:
         acc.signal_semantics.output_domain = SignalDomain.VALUE
         out.signal_semantics.output_domain = SignalDomain.VALUE
         _set_multi_input_single_output_layouts(
-            acc,
-            [(1, 4), (1, 4)],
-            (1, 4),
-            [(0, 1), (0, 1)],
-            (0, 1),
+            acc, [(1, 4), (1, 4)], (1, 4), [(0, 1), (0, 1)], (0, 1)
         )
         acc.signs = (1, 0)
 
