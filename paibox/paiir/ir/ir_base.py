@@ -1,13 +1,15 @@
 """PAIIR base types: node base class, tensor layout, and graph boundaries."""
 
 from dataclasses import dataclass
+from enum import Enum, auto
+from typing import ClassVar
 
 import torch
 
 from ._namespace import IRNamespace
 from .signal_domain import SignalSemantics
 
-__all__ = ["TensorLayout", "PAIIRNode", "InputNode", "OutputNode"]
+__all__ = ["FormatFlow", "TensorLayout", "PAIIRNode", "InputNode", "OutputNode"]
 
 _ir_namespace = IRNamespace()
 
@@ -27,6 +29,14 @@ class TensorLayout:
 
     def __bool__(self) -> bool:
         return bool(self.shape)
+
+
+class FormatFlow(Enum):
+    """How a node propagates scalar data format through graph edges."""
+
+    NONE = auto()
+    PASS_THROUGH = auto()
+    MERGE = auto()
 
 
 class PAIIRNode:
@@ -49,6 +59,9 @@ class PAIIRNode:
     range for the node's output. ``None`` means the current compile-time
     analyses cannot determine one precisely.
     """
+
+    __format_flow__: ClassVar[FormatFlow] = FormatFlow.NONE
+    __tick_depth__: ClassVar[int] = 1
 
     def __init__(self) -> None:
         self.name: str = _ir_namespace.create_name(self)
@@ -87,6 +100,9 @@ class InputNode(PAIIRNode):
 
 class OutputNode(PAIIRNode):
     """Graph output node carrying explicit boundary layout."""
+
+    __format_flow__: ClassVar[FormatFlow] = FormatFlow.PASS_THROUGH
+    __tick_depth__: ClassVar[int] = 0
 
     def __init__(
         self, shape: torch.Size = torch.Size(), dims: tuple[int, ...] | None = None

@@ -4,6 +4,7 @@ from typing import Literal
 
 import pytest
 import torch
+import torch.nn.functional as F
 from spikingjelly.activation_based import functional as sF
 from spikingjelly.activation_based import layer
 from spikingjelly.activation_based import neuron as sj
@@ -15,6 +16,7 @@ from paibox.paiir.ir.op_node import (
     AccumulateOp,
     ConcatOp,
     OfflineCoreOp,
+    PadOp,
     SequentialOp,
     SplitOp,
     StandaloneCompOp,
@@ -1831,3 +1833,60 @@ class TestStandaloneOpSimulation:
         assert torch.is_tensor(paiir_out)
         assert paiir_out.dtype == dtype
         assert torch.equal(paiir_out, pytorch_out)
+
+
+class TestPadSimulation:
+    def test_unfolded_pad_op_matches_torch_pad(self) -> None:
+        class Model(nn.Module):
+            def forward(self, x):
+                return F.pad(x, (1, 2, 0, 1), mode="constant", value=0)
+
+        model = Model().eval()
+        x = torch.randn(1, 3, 4, 5)
+
+        with torch.no_grad():
+            pytorch_out = model(x)
+
+        graph = compile_to_paiir(model, x)
+        pad_nodes = find_nodes(graph, PadOp)
+        assert len(pad_nodes) == 1
+
+        graph.reset()
+        paiir_out = graph.step(x)
+
+        assert torch.is_tensor(paiir_out)
+        torch.testing.assert_close(paiir_out, pytorch_out)
+
+    def test_folded_pad_conv_path_matches_torch_reference(self) -> None:
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = nn.Conv2d(3, 2, 3, padding=0, bias=True)
+
+            def forward(self, x):
+                return self.conv(F.pad(x, (1, 1, 2, 2), mode="constant", value=0))
+
+        model = Model().eval()
+        with torch.no_grad():
+            model.conv.weight.copy_(
+                torch.arange(model.conv.weight.numel(), dtype=torch.float32).reshape_as(
+                    model.conv.weight
+                )
+                / 100
+            )
+            assert model.conv.bias is not None
+            model.conv.bias.copy_(torch.tensor([0.25, -0.5]))
+
+        x_compile = torch.randn(1, 3, 4, 5)
+        x = torch.randn(1, 3, 4, 5)
+        with torch.no_grad():
+            pytorch_out = model(x)
+
+        graph = compile_to_paiir(model, x_compile)
+        assert find_nodes(graph, PadOp) == []
+
+        graph.reset()
+        paiir_out = graph.step(x)
+
+        assert torch.is_tensor(paiir_out)
+        torch.testing.assert_close(paiir_out, pytorch_out)

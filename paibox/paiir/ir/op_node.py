@@ -23,10 +23,11 @@ from typing import TYPE_CHECKING, ClassVar
 import torch
 from paicorelib import OutputType, PoolingMode
 from torch import Tensor, nn
+from torch.nn import functional as F
 
 from .calc_params import LutData, NeuronParams, OfflineCoreParams, OnlineCoreParams
 from .core_neuron import CoreNeuronV25
-from .ir_base import PAIIRNode, TensorLayout
+from .ir_base import FormatFlow, PAIIRNode, TensorLayout
 from .maxpool_export import (
     MaxPoolExportKind,
     build_identity_lut_data,
@@ -43,12 +44,14 @@ if TYPE_CHECKING:
 
 __all__ = [
     "TensorLayout",
+    "FormatFlow",
     "OpNode",
     "RoutingOp",
     "OfflineCoreOp",
     "SequentialOp",
     "AccumulateOp",
     "ConcatOp",
+    "PadOp",
     "SplitOp",
     "TransformOp",
     "LayoutStage",
@@ -228,6 +231,8 @@ class RoutingOp(OpNode):
     """
 
     __deploy__: ClassVar[bool] = False
+    __format_flow__: ClassVar[FormatFlow] = FormatFlow.PASS_THROUGH
+    __tick_depth__: ClassVar[int] = 0
 
 
 class TransformOp(RoutingOp):
@@ -508,6 +513,8 @@ class ConcatOp(RoutingOp):
         dim: Concatenation dimension (typically 1 for channel-dim).
     """
 
+    __format_flow__: ClassVar[FormatFlow] = FormatFlow.MERGE
+
     def __init__(self, dim: int = 1) -> None:
         super().__init__()
         self.dim = dim
@@ -517,6 +524,49 @@ class ConcatOp(RoutingOp):
 
     def extra_repr(self) -> str:
         return f"{super().extra_repr()}, dim={self.dim}"
+
+
+class PadOp(RoutingOp):
+    """Static constant-zero padding routing op.
+
+    ``padding`` follows :func:`torch.nn.functional.pad`: values are specified
+    in pairs starting from the last dimension.
+    """
+
+    padding: tuple[int, ...]
+
+    def __init__(self, padding: Sequence[int]) -> None:
+        super().__init__()
+        normalized = tuple(int(p) for p in padding)
+        if len(normalized) == 0 or len(normalized) % 2 != 0:
+            raise ValueError(
+                f"{self.__class__.__name__} padding must contain pairs, got {normalized}"
+            )
+        if any(p < 0 for p in normalized):
+            raise ValueError(
+                f"{self.__class__.__name__} only supports non-negative padding, got {normalized}"
+            )
+        self.padding = normalized
+
+    def forward(self, x: Tensor) -> Tensor:
+        return F.pad(x, self.padding, mode="constant", value=0)
+
+    def output_shape_for(self, input_shape: torch.Size) -> torch.Size:
+        if len(self.padding) // 2 > len(input_shape):
+            raise ValueError(
+                f"{self.__class__.__name__} padding {self.padding} is too long for input rank {len(input_shape)}"
+            )
+
+        shape = list(input_shape)
+        for pair_idx in range(0, len(self.padding), 2):
+            left = self.padding[pair_idx]
+            right = self.padding[pair_idx + 1]
+            axis = len(shape) - 1 - pair_idx // 2
+            shape[axis] += left + right
+        return torch.Size(shape)
+
+    def extra_repr(self) -> str:
+        return f"{super().extra_repr()}, padding={self.padding}"
 
 
 class SplitOp(RoutingOp):

@@ -17,6 +17,7 @@ from paibox.paiir.ir.core_neuron import (
 )
 from paibox.paiir.ir.lut_activation import LutCustom, LutReLU
 from paibox.paiir.ir.op_node import (
+    PadOp,
     SequentialOp,
     SplitOp,
     StandaloneActOp,
@@ -116,6 +117,122 @@ class TestStrictMode:
             and isinstance(node.comp, nn.AvgPool2d)
         ]
         assert len(pool_nodes) == 1
+
+
+class TestPadLowering:
+    def test_functional_constant_zero_pad_lowers_to_pad_op(self):
+        class Model(nn.Module):
+            def forward(self, x):
+                return F.pad(x, (1, 2, 3, 4), mode="constant", value=0)
+
+        graph = torch_to_paiir(Model().eval(), make_img_3ch_8x8(), strict=True)
+
+        pad_nodes = find_nodes(graph, PadOp)
+        assert len(pad_nodes) == 1
+        assert pad_nodes[0].padding == (1, 2, 3, 4)
+        assert graph.predecessors(pad_nodes[0].name) == ["InputNode_0"]
+        assert pad_nodes[0].output_layouts[0].shape == torch.Size((1, 3, 15, 11))
+
+    def test_functional_constant_none_value_lowers_to_pad_op(self):
+        class Model(nn.Module):
+            def forward(self, x):
+                return F.pad(x, (2, 2), mode="constant", value=None)
+
+        graph = torch_to_paiir(Model().eval(), torch.randn(1, 3, 8), strict=True)
+
+        pad_nodes = find_nodes(graph, PadOp)
+        assert len(pad_nodes) == 1
+        assert pad_nodes[0].padding == (2, 2)
+
+    @pytest.mark.parametrize(
+        ("module", "sample", "expected_padding", "expected_shape"),
+        [
+            (
+                nn.ZeroPad1d((1, 2)),
+                torch.randn(1, 3, 8),
+                (1, 2),
+                torch.Size((1, 3, 11)),
+            ),
+            (
+                nn.ZeroPad2d((1, 2, 3, 4)),
+                make_img_3ch_8x8(),
+                (1, 2, 3, 4),
+                torch.Size((1, 3, 15, 11)),
+            ),
+            (
+                nn.ConstantPad1d((2, 1), 0),
+                torch.randn(1, 3, 8),
+                (2, 1),
+                torch.Size((1, 3, 11)),
+            ),
+            (
+                nn.ConstantPad2d((1, 1, 2, 2), 0.0),
+                make_img_3ch_8x8(),
+                (1, 1, 2, 2),
+                torch.Size((1, 3, 12, 10)),
+            ),
+        ],
+        ids=["zero1d", "zero2d", "constant1d-zero", "constant2d-zero"],
+    )
+    def test_zero_module_pads_lower_to_pad_op(
+        self,
+        module: nn.Module,
+        sample: Tensor,
+        expected_padding: tuple[int, ...],
+        expected_shape: torch.Size,
+    ):
+        graph = torch_to_paiir(nn.Sequential(module).eval(), sample, strict=True)
+
+        pad_nodes = find_nodes(graph, PadOp)
+        assert len(pad_nodes) == 1
+        assert pad_nodes[0].padding == expected_padding
+        assert pad_nodes[0].output_layouts[0].shape == expected_shape
+
+    def test_nonzero_constant_pad_is_unsupported(self):
+        with pytest.raises(UnsupportedOpError, match="nonzero"):
+            torch_to_paiir(
+                nn.Sequential(nn.ConstantPad2d(1, 3)).eval(),
+                make_img_3ch_8x8(),
+                strict=True,
+            )
+
+    @pytest.mark.parametrize(
+        "module",
+        [
+            nn.ReflectionPad1d(1),
+            nn.ReflectionPad2d(1),
+            nn.ReplicationPad1d(1),
+            nn.ReplicationPad2d(1),
+            nn.CircularPad1d(1),
+            nn.CircularPad2d(1),
+        ],
+        ids=lambda module: type(module).__name__,
+    )
+    def test_non_constant_pad_modules_are_unsupported(self, module: nn.Module):
+        sample = (
+            torch.randn(1, 3, 8)
+            if "1d" in type(module).__name__.lower()
+            else make_img_3ch_8x8()
+        )
+        with pytest.raises(UnsupportedOpError, match=type(module).__name__):
+            torch_to_paiir(nn.Sequential(module).eval(), sample, strict=True)
+
+    @pytest.mark.parametrize("mode", ["reflect", "replicate", "circular"])
+    def test_functional_non_constant_pad_modes_are_unsupported(self, mode: str):
+        class Model(nn.Module):
+            def forward(self, x):
+                return F.pad(x, (1, 1, 1, 1), mode=mode)
+
+        with pytest.raises(UnsupportedOpError, match=f"mode='{mode}'"):
+            torch_to_paiir(Model().eval(), make_img_3ch_8x8(), strict=True)
+
+    def test_functional_nonzero_constant_pad_is_unsupported(self):
+        class Model(nn.Module):
+            def forward(self, x):
+                return F.pad(x, (1, 1), mode="constant", value=1)
+
+        with pytest.raises(UnsupportedOpError, match="nonzero"):
+            torch_to_paiir(Model().eval(), torch.randn(1, 3, 8), strict=True)
 
 
 class TestRegisterNeuron:
@@ -358,6 +475,53 @@ class TestRegisterCanonicalModule:
         register_module(ExplicitQuantConv, _to_canonical_conv2d)
         with pytest.raises(ValueError, match="already registered"):
             register_module(ExplicitQuantConv, _to_canonical_conv2d)
+
+    def test_register_canonical_module_preempts_unsupported_sj_layer_guard(self):
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.voting = layer.VotingLayer(2)
+
+            def forward(self, x):
+                return self.voting(x)
+
+        register_module(
+            layer.VotingLayer,
+            lambda m: nn.AvgPool1d(int(m.voting_size), int(m.voting_size)),
+        )
+
+        graph = torch_to_paiir(Model().eval(), make_vec_8d(), strict=True)
+
+        pool_nodes = [
+            node
+            for node in graph.nodes.values()
+            if isinstance(node, StandaloneCompOp)
+            and isinstance(node.comp, nn.AvgPool1d)
+        ]
+        assert len(pool_nodes) == 1
+        assert pool_nodes[0].comp.kernel_size == (2,)
+        assert pool_nodes[0].comp.stride == (2,)
+
+    def test_register_canonical_module_can_return_zero_pad(self):
+        class CustomPad(nn.Module):
+            def forward(self, x):
+                return x
+
+        class Model(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.pad = CustomPad()
+
+            def forward(self, x):
+                return self.pad(x)
+
+        register_module(CustomPad, lambda _: nn.ZeroPad2d((1, 2, 3, 4)))
+
+        graph = torch_to_paiir(Model().eval(), make_img_3ch_8x8(), strict=True)
+
+        pad_nodes = find_nodes(graph, PadOp)
+        assert len(pad_nodes) == 1
+        assert pad_nodes[0].padding == (1, 2, 3, 4)
 
 
 class TestCoreNeuronV25Lowering:
