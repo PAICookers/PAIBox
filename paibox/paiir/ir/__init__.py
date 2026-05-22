@@ -18,7 +18,7 @@ from .core_neuron import (
     LIFNodeV25,
 )
 from .graph import Edge, PAIIRGraph
-from .ir_base import InputNode, OutputNode, PAIIRNode, TensorLayout
+from .ir_base import FormatFlow, InputNode, OutputNode, PAIIRNode, TensorLayout
 from .signal_domain import SignalDomain, SignalSemantics
 from .add_ops import (
     AddOperandKind,
@@ -62,6 +62,7 @@ __all__ = [
     "ConcatOp",
     "CoreNeuronV25",
     "Edge",
+    "FormatFlow",
     "IFNodeV25",
     "InputNode",
     "LIFNodeV25",

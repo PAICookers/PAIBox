@@ -7,8 +7,8 @@ import torch
 from torch import nn
 
 from ..ir.graph import PAIIRGraph
-from ..ir.ir_base import PAIIRNode
-from ..ir.op_node import ConcatOp, SplitOp, StandaloneCompOp, TransformOp
+from ..ir.ir_base import FormatFlow, PAIIRNode
+from ..ir.op_node import RoutingOp, StandaloneCompOp, TransformOp
 
 __all__ = [
     "collect_effective_predecessor_values",
@@ -64,11 +64,9 @@ def is_standalone_maxpool(node: PAIIRNode) -> TypeGuard[StandaloneCompOp]:
     )
 
 
-def is_format_transparent_routing_node(
-    node: PAIIRNode,
-) -> TypeGuard[ConcatOp | TransformOp | SplitOp]:
-    """Return whether *node* preserves scalar encoding across routing."""
-    return isinstance(node, (ConcatOp, TransformOp, SplitOp))
+def is_format_transparent_routing_node(node: PAIIRNode) -> TypeGuard[RoutingOp]:
+    """Return whether *node* carries scalar format flow across routing."""
+    return isinstance(node, RoutingOp) and node.__format_flow__ is not FormatFlow.NONE
 
 
 def match_pre_activation_transform(

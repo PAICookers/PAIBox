@@ -28,7 +28,7 @@ from ..exceptions import GraphCleanupWarning, GraphValidationError
 from ..ir.add_ops import AddOperandKind, AddOperandSpec, GeneralAddOp, PotentialAddOp
 from ..ir.core_neuron import CoreNeuronV25
 from ..ir.graph import Edge, PAIIRGraph
-from ..ir.ir_base import InputNode, OutputNode, PAIIRNode, TensorLayout
+from ..ir.ir_base import FormatFlow, InputNode, OutputNode, PAIIRNode, TensorLayout
 from ..ir.maxpool_export import refresh_maxpool_export_kind
 from ..ir.op_node import (
     AccumulateOp,
@@ -1648,18 +1648,13 @@ def _infer_routing_resolved_format(
     graph: PAIIRGraph, node_name: str, node: PAIIRNode, resolved: dict[str, DataFormat]
 ) -> DataFormat | None:
     """Propagate already-resolved formats through non-deploy routing nodes."""
-    match node:
-        case InputNode():
-            return None
-        case OutputNode() | TransformOp() | SplitOp():
-            # Graph boundaries and shape-only routing preserve scalar encoding.
+    match node.__format_flow__:
+        case FormatFlow.PASS_THROUGH:
             return _single_resolved_predecessor_format(graph, node_name, resolved)
-        case ConcatOp():
-            # Concat preserves element encoding and therefore resolves to the
-            # merged predecessor format.
+        case FormatFlow.MERGE:
             pred_formats = _resolved_predecessor_formats(graph, node_name, resolved)
             return merge_data_formats(pred_formats) if pred_formats else None
-        case _:
+        case FormatFlow.NONE:
             return None
 
 
@@ -1837,9 +1832,7 @@ def assign_tick_params(
 
         preds = graph.predecessors(name)
         pred_depth = max(depth.get(p, 0) for p in preds) if preds else 0
-        depth[name] = (
-            pred_depth if isinstance(node, (ConcatOp, SplitOp)) else pred_depth + 1
-        )
+        depth[name] = pred_depth + node.__tick_depth__
 
     for name in graph.topo_sort():
         node = graph.nodes[name]

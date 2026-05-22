@@ -26,7 +26,7 @@ from torch import Tensor, nn
 
 from .calc_params import LutData, NeuronParams, OfflineCoreParams, OnlineCoreParams
 from .core_neuron import CoreNeuronV25
-from .ir_base import PAIIRNode, TensorLayout
+from .ir_base import FormatFlow, PAIIRNode, TensorLayout
 from .maxpool_export import (
     MaxPoolExportKind,
     build_identity_lut_data,
@@ -43,6 +43,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "TensorLayout",
+    "FormatFlow",
     "OpNode",
     "RoutingOp",
     "OfflineCoreOp",
@@ -228,6 +229,8 @@ class RoutingOp(OpNode):
     """
 
     __deploy__: ClassVar[bool] = False
+    __format_flow__: ClassVar[FormatFlow] = FormatFlow.PASS_THROUGH
+    __tick_depth__: ClassVar[int] = 0
 
 
 class TransformOp(RoutingOp):
@@ -507,6 +510,8 @@ class ConcatOp(RoutingOp):
     Args:
         dim: Concatenation dimension (typically 1 for channel-dim).
     """
+
+    __format_flow__: ClassVar[FormatFlow] = FormatFlow.MERGE
 
     def __init__(self, dim: int = 1) -> None:
         super().__init__()
