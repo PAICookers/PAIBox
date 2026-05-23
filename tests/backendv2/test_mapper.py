@@ -94,6 +94,7 @@ def _export_graph_proto(export_root: Path, case_name: str, model, sample) -> Pat
 
     return export_dir / "proto" / "config.pb"
 
+
 @pytest.fixture(scope="module")
 def ensure_backendv2_debug_dir(request, tmp_path_factory):
     if is_ci_env():
@@ -196,6 +197,7 @@ def test_export_proto_marks_voltage_outputs_and_base_addresses(
     for entry in entries:
         lanes = {entry.axon_bit_idx + 8 * i for i in range(4)}
         assert len(lanes) == 4
+
 
 def test_export_artifacts_all_platforms_when_requested(ensure_backendv2_debug_dir):
     export_dir = _export_simple_cnn(

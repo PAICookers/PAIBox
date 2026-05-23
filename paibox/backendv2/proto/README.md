@@ -323,16 +323,16 @@ message OutputEntry {
 }
 ```
 
-| 字段                     | 含义                                                                           |
-| ------------------------ | ------------------------------------------------------------------------------ |
-| `output_mappings.target_lcn` | 输出工作帧地址解析使用的目标 LCN 编号，对应 `paicorelib.LCN_EX` 枚举值。       |
-| `name`                   | PAIIR 输出节点名。                                                             |
-| `shape.size`             | 逻辑输出张量 shape。                                                           |
-| `elem_idx`               | 输出张量按 C-order 展平后的元素下标。                                          |
-| `copy_id`                | tiling/folding 产生的逻辑 copy 编号。                                          |
-| `bit_width`              | 输出元素位宽。`DATA` 通常不超过 8 bit；`VOLTAGE` 为 32 bit 膜电平。            |
-| `axon_bit_idx`           | 平坦 output axon bit index。`DATA` 为数据地址；`VOLTAGE` 为膜电平基地址。      |
-| `kind`                   | 输出语义。`DATA` 表示普通激活值/脉冲数据，`VOLTAGE` 表示膜电平。               |
+| 字段                         | 含义                                                                      |
+| ---------------------------- | ------------------------------------------------------------------------- |
+| `output_mappings.target_lcn` | 输出工作帧地址解析使用的目标 LCN 编号，对应 `paicorelib.LCN_EX` 枚举值。  |
+| `name`                       | PAIIR 输出节点名。                                                        |
+| `shape.size`                 | 逻辑输出张量 shape。                                                      |
+| `elem_idx`                   | 输出张量按 C-order 展平后的元素下标。                                     |
+| `copy_id`                    | tiling/folding 产生的逻辑 copy 编号。                                     |
+| `bit_width`                  | 输出元素位宽。`DATA` 通常不超过 8 bit；`VOLTAGE` 为 32 bit 膜电平。       |
+| `axon_bit_idx`               | 平坦 output axon bit index。`DATA` 为数据地址；`VOLTAGE` 为膜电平基地址。 |
+| `kind`                       | 输出语义。`DATA` 表示普通激活值/脉冲数据，`VOLTAGE` 表示膜电平。          |
 
 CPU 接收端仍应先根据返回工作帧的帧头区分 I/II 型。`kind` 的作用是让应用侧在运行前从 `config.pb` 预生成静态解码表，并保留调试语义。不要用 `bit_width` 反推出输出语义；应以 `kind` 为准。
 

@@ -76,6 +76,7 @@ class InputEntry(_message.Message):
 
 class OutputEntry(_message.Message):
     __slots__ = ("elem_idx", "copy_id", "bit_width", "axon_bit_idx", "kind")
+
     class OutputKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
         __slots__ = ()
         DATA: _ClassVar[OutputEntry.OutputKind]
@@ -186,6 +187,7 @@ class IOMapping(_message.Message):
 
 class ConfigFrames(_message.Message):
     __slots__ = ("words", "word_order")
+
     class WordOrder(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
         __slots__ = ()
         HIGH_FIRST: _ClassVar[ConfigFrames.WordOrder]
