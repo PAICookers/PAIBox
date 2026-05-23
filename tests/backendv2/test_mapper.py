@@ -4,12 +4,19 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import torch
+from paicorelib import LCN_EX
+from torch import nn
 
 from paibox.backendv2.mapper import Mapper
 from paibox.backendv2.proto import PROTO_SCHEMA_VERSION
-from paibox.backendv2.proto.compile_artifacts_pb2 import CompileArtifacts, ConfigFrames
+from paibox.backendv2.proto.compile_artifacts_pb2 import (
+    CompileArtifacts,
+    ConfigFrames,
+    OutputEntry,
+)
 from paibox.paiir import compile_to_paiir
-from tests.paiir.conftest import SimpleCNN, make_img_3ch_8x8
+from tests.paiir.conftest import ANNClassifier, SimpleCNN, make_img_3ch_8x8
 from tests.utils import is_ci_env
 
 DEBUG_EXPORT_ROOT = Path(__file__).with_name("debug") / "mapper_proto_export"
@@ -26,8 +33,8 @@ def _export_simple_cnn_proto(export_root: Path, word_order: str) -> Path:
     mapper.compile(
         graph,
         export_dir,
-        target_platform="x86",  # type: ignore[arg-type]
-        word_order=word_order,
+        target_platform="x86",
+        word_order=word_order,  # type: ignore[arg-type]
         debug=True,
     )
 
@@ -58,6 +65,34 @@ def _export_simple_cnn(
     )
 
     return export_dir
+
+
+class ConvPotential(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.conv = nn.Conv2d(1, 1, 1, bias=False)
+
+    def forward(self, x):
+        return self.conv(x)
+
+
+def _load_compile_artifacts(pb_path: Path) -> CompileArtifacts:
+    artifacts = CompileArtifacts()
+    artifacts.ParseFromString(pb_path.read_bytes())
+    return artifacts
+
+
+def _export_graph_proto(export_root: Path, case_name: str, model, sample) -> Path:
+    export_dir = export_root / case_name
+    if export_dir.exists():
+        shutil.rmtree(export_dir)
+    export_dir.mkdir(parents=True, exist_ok=True)
+
+    graph = compile_to_paiir(model.eval(), sample, strict=True)
+    mapper = Mapper()
+    mapper.compile(graph, export_dir, target_platform="x86", debug=True)
+
+    return export_dir / "proto" / "config.pb"
 
 
 @pytest.fixture(scope="module")
@@ -94,8 +129,7 @@ def test_export_proto_real_workflow_keeps_pb_and_json(
     assert (proto_dir / "compile_artifacts_pb2.py").exists()
     assert (proto_dir / "compile_artifacts_pb2.pyi").exists()
 
-    artifacts = CompileArtifacts()
-    artifacts.ParseFromString(pb_path.read_bytes())
+    artifacts = _load_compile_artifacts(pb_path)
 
     assert artifacts.schema_version == PROTO_SCHEMA_VERSION
     assert len(artifacts.io_mapping.threads) == 1
@@ -107,6 +141,62 @@ def test_export_proto_real_workflow_keeps_pb_and_json(
     assert payload["configFrames"]["wordOrder"] == expected_json_value
     assert len(payload["configFrames"]["words"]) > 0
     assert len(payload["ioMapping"]["threads"]) == 1
+
+
+def test_export_proto_marks_data_outputs_and_target_lcn(
+    ensure_backendv2_debug_dir,
+):
+    pb_path = _export_graph_proto(
+        ensure_backendv2_debug_dir,
+        "data_output_kind",
+        ANNClassifier(),
+        make_img_3ch_8x8(),
+    )
+
+    artifacts = _load_compile_artifacts(pb_path)
+    output_mappings = artifacts.io_mapping.threads[0].output_mappings
+
+    assert output_mappings.target_lcn == LCN_EX.LCN_128X.value
+    assert output_mappings.HasField("target_lcn")
+    assert len(output_mappings.items) == 1
+
+    entries = list(output_mappings.items[0].entries)
+    assert entries
+    assert {entry.kind for entry in entries} == {OutputEntry.DATA}
+    assert all(entry.HasField("kind") for entry in entries)
+    assert all(entry.bit_width <= 8 for entry in entries)
+
+
+def test_export_proto_marks_voltage_outputs_and_base_addresses(
+    ensure_backendv2_debug_dir,
+):
+    model = ConvPotential()
+    with torch.no_grad():
+        model.conv.weight.fill_(1)
+
+    pb_path = _export_graph_proto(
+        ensure_backendv2_debug_dir,
+        "voltage_output_kind",
+        model,
+        torch.ones(1, 1, 3, 3),
+    )
+
+    artifacts = _load_compile_artifacts(pb_path)
+    output_mappings = artifacts.io_mapping.threads[0].output_mappings
+
+    assert output_mappings.target_lcn == LCN_EX.LCN_128X.value
+    assert len(output_mappings.items) == 1
+
+    entries = list(output_mappings.items[0].entries)
+    assert entries
+    assert {entry.kind for entry in entries} == {OutputEntry.VOLTAGE}
+    assert all(entry.bit_width == 32 for entry in entries)
+
+    bases = [entry.axon_bit_idx for entry in entries[:10]]
+    assert bases == [0, 1, 2, 3, 4, 5, 6, 7, 32]
+    for entry in entries:
+        lanes = {entry.axon_bit_idx + 8 * i for i in range(4)}
+        assert len(lanes) == 4
 
 
 def test_export_artifacts_all_platforms_when_requested(ensure_backendv2_debug_dir):

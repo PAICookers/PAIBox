@@ -75,21 +75,32 @@ class InputEntry(_message.Message):
     ) -> None: ...
 
 class OutputEntry(_message.Message):
-    __slots__ = ("elem_idx", "copy_id", "bit_width", "axon_bit_idx")
+    __slots__ = ("elem_idx", "copy_id", "bit_width", "axon_bit_idx", "kind")
+
+    class OutputKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+        __slots__ = ()
+        DATA: _ClassVar[OutputEntry.OutputKind]
+        VOLTAGE: _ClassVar[OutputEntry.OutputKind]
+
+    DATA: OutputEntry.OutputKind
+    VOLTAGE: OutputEntry.OutputKind
     ELEM_IDX_FIELD_NUMBER: _ClassVar[int]
     COPY_ID_FIELD_NUMBER: _ClassVar[int]
     BIT_WIDTH_FIELD_NUMBER: _ClassVar[int]
     AXON_BIT_IDX_FIELD_NUMBER: _ClassVar[int]
+    KIND_FIELD_NUMBER: _ClassVar[int]
     elem_idx: int
     copy_id: int
     bit_width: int
     axon_bit_idx: int
+    kind: OutputEntry.OutputKind
     def __init__(
         self,
         elem_idx: _Optional[int] = ...,
         copy_id: _Optional[int] = ...,
         bit_width: _Optional[int] = ...,
         axon_bit_idx: _Optional[int] = ...,
+        kind: _Optional[_Union[OutputEntry.OutputKind, str]] = ...,
     ) -> None: ...
 
 class Shape(_message.Message):
@@ -137,11 +148,15 @@ class InputTensorMappings(_message.Message):
     ) -> None: ...
 
 class OutputTensorMappings(_message.Message):
-    __slots__ = ("items",)
+    __slots__ = ("items", "target_lcn")
     ITEMS_FIELD_NUMBER: _ClassVar[int]
+    TARGET_LCN_FIELD_NUMBER: _ClassVar[int]
     items: _containers.RepeatedCompositeFieldContainer[OutputTensorMapping]
+    target_lcn: int
     def __init__(
-        self, items: _Optional[_Iterable[_Union[OutputTensorMapping, _Mapping]]] = ...
+        self,
+        items: _Optional[_Iterable[_Union[OutputTensorMapping, _Mapping]]] = ...,
+        target_lcn: _Optional[int] = ...,
     ) -> None: ...
 
 class ThreadIOMapping(_message.Message):

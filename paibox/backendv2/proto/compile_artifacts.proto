@@ -29,11 +29,17 @@ message InputEntry {
 }
 
 message OutputEntry {
+    enum OutputKind {
+        DATA = 0;
+        VOLTAGE = 1;
+    }
+
     optional uint32 elem_idx = 1;
     optional uint32 copy_id = 2;
     optional uint32 bit_width = 3;
-    /* Flat output axon bit index allocated by OutputAxonAllocator. */
+    /* DATA: output axon bit index. VOLTAGE: membrane voltage base index. */
     optional uint32 axon_bit_idx = 4;
+    optional OutputKind kind = 5;
 }
 
 message Shape {
@@ -58,6 +64,7 @@ message InputTensorMappings {
 
 message OutputTensorMappings {
     repeated OutputTensorMapping items = 1;
+    optional uint32 target_lcn = 2;
 }
 
 message ThreadIOMapping {

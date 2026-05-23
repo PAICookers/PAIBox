@@ -298,6 +298,11 @@ def encode_input_tensor(artifacts: CompileArtifacts, input_name: str, data) -> n
 ## 7. 输出映射与输出工作帧解码
 
 ```proto
+message OutputTensorMappings {
+    repeated OutputTensorMapping items = 1;
+    optional uint32 target_lcn = 2;
+}
+
 message OutputTensorMapping {
     string name = 1;
     Shape shape = 2;
@@ -305,32 +310,66 @@ message OutputTensorMapping {
 }
 
 message OutputEntry {
+    enum OutputKind {
+        DATA = 0;
+        VOLTAGE = 1;
+    }
+
     optional uint32 elem_idx = 1;
     optional uint32 copy_id = 2;
     optional uint32 bit_width = 3;
     optional uint32 axon_bit_idx = 4;
+    optional OutputKind kind = 5;
 }
 ```
 
-| 字段           | 含义                                               |
-| -------------- | -------------------------------------------------- |
-| `name`         | PAIIR 输出节点名。                                 |
-| `shape.size`   | 逻辑输出张量 shape。                               |
-| `elem_idx`     | 输出张量按 C-order 展平后的元素下标。              |
-| `copy_id`      | tiling/folding 产生的逻辑 copy 编号。              |
-| `bit_width`    | 输出元素位宽。                                     |
-| `axon_bit_idx` | 后端为该输出元素分配的平坦 output axon bit index。 |
+| 字段                         | 含义                                                                      |
+| ---------------------------- | ------------------------------------------------------------------------- |
+| `output_mappings.target_lcn` | 输出工作帧地址解析使用的目标 LCN 编号，对应 `paicorelib.LCN_EX` 枚举值。  |
+| `name`                       | PAIIR 输出节点名。                                                        |
+| `shape.size`                 | 逻辑输出张量 shape。                                                      |
+| `elem_idx`                   | 输出张量按 C-order 展平后的元素下标。                                     |
+| `copy_id`                    | tiling/folding 产生的逻辑 copy 编号。                                     |
+| `bit_width`                  | 输出元素位宽。`DATA` 通常不超过 8 bit；`VOLTAGE` 为 32 bit 膜电平。       |
+| `axon_bit_idx`               | 平坦 output axon bit index。`DATA` 为数据地址；`VOLTAGE` 为膜电平基地址。 |
+| `kind`                       | 输出语义。`DATA` 表示普通激活值/脉冲数据，`VOLTAGE` 表示膜电平。          |
 
-当前 `OutputEntry` 只能表示普通输出数据帧的地址标注与解码，即应用侧可通过 `axon_bit_idx` 把芯片返回的工作帧 payload 放回逻辑输出张量。它不能表示膜电平帧的地址信息，也不能描述膜电平帧的 4 帧基地址。因此，基于当前 schema，应用侧无法仅依赖 `config.pb` 完成膜电平帧定位或解码。
+CPU 接收端仍应先根据返回工作帧的帧头区分 I/II 型。`kind` 的作用是让应用侧在运行前从 `config.pb` 预生成静态解码表，并保留调试语义。不要用 `bit_width` 反推出输出语义；应以 `kind` 为准。
 
-这点已按当前代码核对：`compile_artifacts.proto` 的 `OutputEntry` 只有 `elem_idx/copy_id/bit_width/axon_bit_idx`；`Mapper.export_proto(...)` 只从 `OutputAxonAllocator.axon_infos` 写入普通输出数据帧地址，没有写入膜电平帧字段或 `oneof` 输出位置类型。
+`kind` 是 `OutputEntry` 级字段，不是 `OutputTensorMapping` 级字段。同一个 `OutputTensorMapping.entries` 内可以同时包含 `DATA` 和 `VOLTAGE` entry。
 
-普通输出数据帧的解码流程：
+普通 `DATA` 输出对应工作帧 I 型。解码流程：
 
-1. 从 `OutputTensorMapping.entries` 建立 `axon_bit_idx -> elem_idx` 表。
+1. 从 `kind == DATA` 的 `OutputTensorMapping.entries` 建立 `axon_bit_idx -> elem_idx` 表。
 2. 板端运行时先把芯片返回帧解析为 `(axon_bit_idx, payload_byte)`。
 3. 根据映射表把 payload 写回输出张量的展平位置 `elem_idx`。
 4. 根据模型 ABI 解释 signedness、语义域和多 byte 组合方式。
+
+膜电平 `VOLTAGE` 输出对应工作帧 II 型。后端只记录每个神经元膜电平输出的基地址 `axon_bit_idx`，芯片内部按 `base + 8 * i` 访问 4 个 byte lane。应用侧可预先把每个 `VOLTAGE` entry 展开为 `(base, base + 8, base + 16, base + 24)`，运行时收集 4 个 payload byte 后拼回一个 32-bit 膜电平。
+
+如果应用侧需要主动构造工作帧 II 型，可把每个膜电平元素拆成一个 `int32`，再调用 `OfflineFrameGenV2.gen_work_frame2(...)`。该接口会为每个膜电平值自动展开 4 个 byte lane，并生成 4 帧 64-bit work frame type 2。下面的示例未经过板端流程验证，仅供实现参考：
+
+```python
+import numpy as np
+from paicorelib import AERPacketZXYCopy, CoordZXYOffset, OfflineFrameGenV2
+
+
+def encode_voltage_frames(
+    coord_offset: CoordZXYOffset,
+    target_lcn: int,
+    timesteps: np.ndarray,
+    base_axons: np.ndarray,
+    voltage: np.ndarray,
+):
+    return OfflineFrameGenV2.gen_work_frame2(
+        coord_offset,
+        AERPacketZXYCopy(0, 0, 0),
+        timesteps,
+        base_axons,
+        target_lcn,
+        voltage.astype(np.int32, copy=False),
+    )
+```
 
 下面的 Python 代码未经过板端流程验证，仅供实现参考。实际应用应以板端返回帧格式和运行时 ABI 为准。
 
@@ -343,21 +382,27 @@ from compile_artifacts_pb2 import CompileArtifacts
 def build_output_tables(artifacts: CompileArtifacts):
     tables = {}
     for thread in artifacts.io_mapping.threads:
+        target_lcn = int(thread.output_mappings.target_lcn)
         for mapping in thread.output_mappings.items:
             shape = tuple(mapping.shape.size)
-            by_axon = {}
+            data_by_axon = {}
+            voltage_by_base = {}
             for entry in mapping.entries:
-                by_axon[int(entry.axon_bit_idx)] = (
+                item = (
                     int(entry.elem_idx),
                     int(entry.copy_id),
                     int(entry.bit_width),
                 )
-            tables[mapping.name] = (shape, by_axon)
+                if entry.kind == entry.DATA:
+                    data_by_axon[int(entry.axon_bit_idx)] = item
+                elif entry.kind == entry.VOLTAGE:
+                    voltage_by_base[int(entry.axon_bit_idx)] = item
+            tables[mapping.name] = (shape, target_lcn, data_by_axon, voltage_by_base)
     return tables
 
 
 def scatter_u8_output(output_tables, output_name: str, decoded_items):
-    shape, by_axon = output_tables[output_name]
+    shape, _, by_axon, _ = output_tables[output_name]
     output = np.zeros(int(np.prod(shape)), dtype=np.uint8)
 
     for axon_bit_idx, payload in decoded_items:
@@ -369,7 +414,7 @@ def scatter_u8_output(output_tables, output_name: str, decoded_items):
     return output.reshape(shape)
 ```
 
-如果板端返回的是 64-bit offline work frame type 1 原始帧，可先解析出 `(axon_bit_idx, payload)`，再执行 scatter。当前 backendv2 输出组使用 `LCN_128X` 的 output axon 空间；若未来 schema 增加输出 LCN 字段，应以 schema 字段为准。
+如果板端返回的是 64-bit offline work frame type 1 原始帧，可先解析出 `(axon_bit_idx, payload)`，再执行 scatter。输出 work frame 的 timestep / axon 宽度应使用 `thread.output_mappings.target_lcn` 解析。
 
 下面的解析代码未经过板端流程验证，仅供实现参考：
 
@@ -392,7 +437,7 @@ def decode_offline_work_frame1_u64(frame: int, target_lcn: int = LCN_EX.LCN_128X
     return axon_bit_idx, payload
 ```
 
-对于 `bit_width <= 8` 的输出，通常一个 `OutputEntry` 对应一个 payload byte。对于 `bit_width == 32` 的输出，当前后端会为同一个逻辑输出元素保留 `axon_bit_idx + 8 * i` 这四个 byte lane；应用侧需要收集四个 byte 后再按模型 ABI 组合为 32-bit 值。下面的 little-endian 组合逻辑未经过板端流程验证，仅供实现参考：
+对于 `kind == VOLTAGE` 的输出，一个 `OutputEntry` 的 `axon_bit_idx` 是膜电平基地址。应用侧需要收集 `base + 8 * i` 这四个 byte lane 后再按模型 ABI 组合为 32-bit 值。下面的 little-endian 组合逻辑未经过板端流程验证，仅供实现参考：
 
 ```python
 def collect_u32_le(decoded_by_axon: dict[int, int], base_axon_bit_idx: int) -> int:
@@ -401,6 +446,8 @@ def collect_u32_le(decoded_by_axon: dict[int, int], base_axon_bit_idx: int) -> i
         value |= (decoded_by_axon.get(base_axon_bit_idx + 8 * i, 0) & 0xFF) << (8 * i)
     return value
 ```
+
+例如，若 `OfflineFrameGenV2.gen_work_frame2(...)` 对某个膜电平 `0x11223344` 生成的 4 帧 payload 依次为 `0x44, 0x33, 0x22, 0x11`，则应用侧应按 little-endian 次序把它们还原回 `0x11223344`，并使用对应 entry 的 `axon_bit_idx` 作为第一个 byte lane 的基地址。
 
 ## 8. JSON 字段名
 
@@ -415,5 +462,6 @@ def collect_u32_le(decoded_by_axon: dict[int, int], base_axon_bit_idx: int) -> i
 | `elem_idx`         | `elemIdx`        |
 | `addr_axon`        | `addrAxon`       |
 | `axon_bit_idx`     | `axonBitIdx`     |
+| `target_lcn`       | `targetLcn`      |
 
 应用程序读取 `config.pb` 时使用 proto 字段名；人工查看 `config.json` 时使用 JSON 字段名。

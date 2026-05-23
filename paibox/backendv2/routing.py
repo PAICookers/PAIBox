@@ -762,10 +762,6 @@ class RoutingGroup(
 
         print(f"\nAllocating neurons for Routing Group {self.name}...")
         prefix = "    "
-        if self.nodes is not None and self.input_nodes is not None:
-            node = list(self.nodes)[0]
-            # print(f"kernel weight from node {node.name}:\n", node.weights[0])
-
         weights = get_raw_weights(self.raw_elems, self.input_list)
 
         # print(f"weight of routing group {self.name}:\n", weights)
@@ -809,9 +805,6 @@ class RoutingGroup(
             # print(f"Neu of this group: {[str(item[0]) for item in group_items]}")
             print(f"{prefix}allocating core_block[{i}] ({len(group_items)} neurons)...")
             frontend_core_conf, backend_core_conf = key
-            # Initialize the first core for the current group
-            current_core = OfflineCorePlacementV2(frontend_core_conf, backend_core_conf)
-
             self.last_full_attrs = None
             self.place_neurons_optimal(
                 frontend_core_conf,
@@ -852,7 +845,6 @@ class RoutingGroup(
                 # mostly each neu_placement contains only one raw_neu
                 # for folded neuron placement, it may contain multiple raw_neus
                 # but we only need to set dest_info for the first raw_neu
-                main_neu = neu_placement.raw_neus[0]
                 dest_info = self.get_detail_dest(
                     neu_placement.raw_neus, self_coord=core_placement.coord
                 )
@@ -963,6 +955,8 @@ class InputGroup(Group, SourceGroup[InputElem, InNode]):
 
 
 class OutputAxonAllocator:
+    MAX_AXON_BIT = FANIN_BASE * (1 << LCN_EX.LCN_128X.value) - 1
+
     def __init__(self):
         self.axon_infos: list[tuple[int, SourceElem]] = []
         self.used_bits: set[int] = set()
@@ -976,7 +970,8 @@ class OutputAxonAllocator:
 
     def free_to_store_32bit(self, start: int) -> bool:
         for i in range(4):
-            if start + i * 8 in self.used_bits:
+            axon_bit = start + i * 8
+            if axon_bit > self.MAX_AXON_BIT or axon_bit in self.used_bits:
                 return False
         return True
 
@@ -990,6 +985,11 @@ class OutputAxonAllocator:
         elif elem.output_bit_num == 32:
             candidate_bit = self.lowest_free_bit
             while True:
+                if candidate_bit > self.MAX_AXON_BIT:
+                    raise ValueError(
+                        f"Cannot allocate 32-bit output for element {elem}: "
+                        "output axon space is exhausted."
+                    )
                 if self.free_to_store_32bit(candidate_bit):
                     axon_bit = candidate_bit
                     for i in range(4):
@@ -1004,9 +1004,9 @@ class OutputAxonAllocator:
             raise ValueError(
                 f"Unsupported output bit num {elem.output_bit_num} for element {elem}."
             )
-        if axon_bit >= FANIN_BASE * (2**LCN_EX.LCN_128X.value):
+        if axon_bit > self.MAX_AXON_BIT:
             raise ValueError(
-                f"Axon bit {axon_bit} allocated for element {elem} exceeds the maximum supported axon bit {FANIN_BASE * (2**LCN_EX.LCN_128X.value)}."
+                f"Axon bit {axon_bit} allocated for element {elem} exceeds the maximum supported axon bit {self.MAX_AXON_BIT}."
             )
         return axon_bit
 
