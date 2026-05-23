@@ -19,6 +19,7 @@ from ..paiir.ir.op_node import (
     AccumulateOp,
     ConcatOp,
     OfflineCoreOp,
+    PadOp,
     SequentialOp,
     StandaloneActOp,
     StandaloneCompOp,
@@ -73,8 +74,16 @@ class PaddingOp:
         self,
         name: str,
         shape: tuple[int, ...],
-        padding: tuple[int, ...],
+        raw_padding: tuple[int, ...],
+        fpad: bool = False,
     ):
+        padding: list[tuple[int, int]] = []
+        if not fpad:
+            for pad in raw_padding:
+                padding.append((pad, pad))
+        else:
+            for i in reversed(range(0, len(raw_padding), 2)):
+                padding.append((raw_padding[i], raw_padding[i + 1]))
         self.name = name
         self.inshape = torch.Size(shape)
         self.outshape = torch.Size(self.compute_out_shape(self.inshape, padding))
@@ -97,13 +106,13 @@ class PaddingOp:
         self.set_remap_dict()
 
     def compute_out_shape(
-        self, inshape: tuple[int, ...], padding: tuple[int, ...]
+        self, inshape: tuple[int, ...], padding: list[tuple[int, int]]
     ) -> tuple[int, ...]:
         shape_list = list(inshape)
         k = len(padding)
         for i in range(k):
             dim = -k + i
-            shape_list[dim] += 2 * padding[i]
+            shape_list[dim] += padding[i][0] + padding[i][1]
         outshape = tuple(shape_list)
         return outshape
 
@@ -124,7 +133,7 @@ class PaddingOp:
             out_idx = in_idx.copy()
             for j in range(len(self.padding)):
                 pad = self.padding[j]
-                out_idx[j] += pad
+                out_idx[j] += pad[0]
             out_idx_flat = 0
 
             for k, idx in enumerate(out_idx):
@@ -607,7 +616,7 @@ def insert_padding_nodes(nodes: list[AllNode]):
                     padding_op = PaddingOp(
                         name=f"{node.predecessors[i].name}_Padded",
                         shape=node.predecessors[i].shape,
-                        padding=comp.padding,
+                        raw_padding=comp.padding,
                     )
 
                     padding_node = RemapNode(
@@ -688,19 +697,23 @@ def build_nodes(graph: PAIIRGraph) -> list[AllNode]:
             node = OutNode(raw_node.name, raw_node, raw_node.shape)
         elif isinstance(raw_node, RemapOp):
             node = RemapNode(raw_node.name, raw_node, raw_node.output_layouts[0].shape)
+        elif isinstance(raw_node, PadOp):
+            padding_op = PaddingOp(
+                name=raw_node.name,
+                shape=raw_node.input_layouts[0].shape,
+                raw_padding=raw_node.padding,
+                fpad=True,
+            )
+            node = RemapNode(raw_node.name, padding_op, padding_op.outshape)
         else:
             raise NotImplementedError(f"Unsupported node type: {type(raw_node)}")
         nodes_map[raw_node.name] = node
         nodes.append(node)
 
     for node_name, cur_node in nodes_map.items():
-        # if isinstance(cur_node, OutNode):
-        #     continue
         succ_node_names = graph.successors(node_name)
         for succ_name in succ_node_names:
             succ_node = nodes_map[succ_name]
-            # if isinstance(succ_node, OutNode):
-            #     continue
             assert isinstance(succ_node, DestNode)
             cur_node.successors.append(succ_node)
         if not isinstance(cur_node, InNode):
@@ -725,6 +738,7 @@ def build_nodes(graph: PAIIRGraph) -> list[AllNode]:
     insert_padding_nodes(nodes)
     set_io_bit_num(nodes)
 
+    print("\nAfter inserting padding nodes and setting IO bit num:")
     for node in nodes:
         print(f"Node {node.name}({node.shape}):")
         print(f"\tPredecessors: {[pred.name for pred in node.predecessors]}")
