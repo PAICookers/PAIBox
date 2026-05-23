@@ -9,6 +9,7 @@ from google.protobuf.json_format import MessageToJson
 from paicorelib import CoordZXYOffset, FrameArrayType
 
 from paibox.paiir import PAIIRGraph
+from paibox.paiir.ir.signal_domain import SignalDomain
 
 from .coreplacement import CorePlacement
 from .frame_cheader import write_c_array_close, write_c_array_decl
@@ -20,6 +21,7 @@ from .proto.compile_artifacts_pb2 import (
     CompileArtifacts,
     ConfigFrames,
     InputTensorMapping,
+    OutputEntry,
     OutputTensorMapping,
 )
 from .rg_build import build_groups
@@ -36,6 +38,29 @@ from .routing import (
 LiteralFormat = Literal["bin", "hex"]
 WordOrder = Literal["high_first", "low_first"]
 TargetPlatform = Literal["x86", "riscv", "all"]
+
+
+def _set_output_entry_kind(output_entry: OutputEntry, elem: SourceElem) -> None:
+    domain = elem.target.raw_node.signal_semantics.output_domain
+    if domain is SignalDomain.VALUE:
+        kind = OutputEntry.DATA
+    else:
+        kind = OutputEntry.VOLTAGE
+
+    if kind == OutputEntry.DATA:
+        if elem.output_bit_num > 8:
+            raise ValueError(
+                f"DATA output {elem} has unsupported bit width "
+                f"{elem.output_bit_num}; expected <= 8."
+            )
+    else:
+        if elem.output_bit_num != 32:
+            raise ValueError(
+                f"VOLTAGE output {elem} has bit width "
+                f"{elem.output_bit_num}; expected 32."
+            )
+
+    output_entry.kind = kind
 
 
 def export_single_framearray(
@@ -404,6 +429,7 @@ class Mapper:
             for out_grp in self.output_groups:
                 if out_grp.thread_id != thread_id:
                     continue
+                thread_mapping.output_mappings.target_lcn = out_grp.lcn
                 for axon_bit_idx, elem in sorted(
                     out_grp.axon_bit_allocator.axon_infos, key=lambda item: item[0]
                 ):
@@ -420,6 +446,7 @@ class Mapper:
                     output_entry.copy_id = elem.index.copy_id
                     output_entry.bit_width = elem.output_bit_num
                     output_entry.axon_bit_idx = axon_bit_idx
+                    _set_output_entry_kind(output_entry, elem)
 
         config_words: list[int] = []
         for _, frames in self._iter_frame_triplets():
