@@ -177,6 +177,21 @@ class TestAccumulateOp:
         out = op(x1, x2)
         assert out.shape == (1, 8)
 
+    def test_without_activation_emits_potential_sum(self):
+        linear_a = nn.Linear(2, 2, bias=False)
+        linear_b = nn.Linear(2, 2, bias=False)
+        with torch.no_grad():
+            linear_a.weight.copy_(torch.eye(2))
+            linear_b.weight.copy_(2 * torch.eye(2))
+
+        op = AccumulateOp(comps=[linear_a, linear_b], act=None, op_signs=(1, -1))
+        x1 = torch.tensor([[3.0, 4.0]])
+        x2 = torch.tensor([[1.0, 2.0]])
+
+        assert torch.equal(op(x1, x2), torch.tensor([[1.0, 0.0]]))
+        assert op.lut_data is None
+        assert op.neuron_params.output_type is OutputType.POTENTIAL
+
     def test_sign_length_mismatch(self):
         with pytest.raises(ValueError, match="op_signs"):
             AccumulateOp(comps=[nn.Linear(4, 8)], act=IFNodeV25(), op_signs=(1, -1))

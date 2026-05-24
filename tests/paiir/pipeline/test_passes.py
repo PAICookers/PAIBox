@@ -505,32 +505,34 @@ class TestGeneralAddChainFlattening:
         assert len(compiled.input_nodes()) == 3
 
     @pytest.mark.parametrize(
-        ("model_cls", "expected_signs"),
+        ("model", "expected_signs"),
         [(SubtractLeftChain, (1, -1, 1)), (SubtractRightChain, (1, 1, -1))],
         ids=["a_minus_b_plus_c", "a_plus_b_minus_c"],
     )
-    def test_chain_signs_are_preserved(self, model_cls, expected_signs):
-        compiled = compile_to_paiir(model_cls(), make_vec_8d())
+    def test_chain_signs_are_preserved(self, model, expected_signs):
+        compiled = compile_to_paiir(model(), make_vec_8d())
 
         accum = self._single_accumulate(compiled)
         assert accum.signs == expected_signs
 
     @pytest.mark.parametrize(
-        ("model_cls", "expected_signs"),
-        [
-            (NoActivationAddChain, (1, 1, 1)),
-            (NoActivationSubtractChain, (1, -1, 1)),
-        ],
+        ("model", "expected_signs"),
+        [(NoActivationAddChain, (1, 1, 1)), (NoActivationSubtractChain, (1, -1, 1))],
         ids=["add", "subtract"],
     )
-    def test_no_activation_chain_compiles_to_nary_potential_add(
-        self, model_cls, expected_signs
+    def test_no_activation_chain_compiles_to_potential_accumulate(
+        self, model, expected_signs
     ):
-        compiled = compile_to_paiir(model_cls(), make_vec_8d())
+        compiled = compile_to_paiir(model(), make_vec_8d())
 
-        add = self._single_potential_add(compiled)
-        assert add.signs == expected_signs
-        assert len(find_nodes(compiled, StandaloneCompOp)) == 3
+        accum = self._single_accumulate(compiled)
+        assert accum.act is None
+        assert accum.signs == expected_signs
+        assert len(accum.comps) == 3
+        assert find_nodes(compiled, StandaloneCompOp) == []
+        assert accum.signal_semantics.output_domain is SignalDomain.POTENTIAL
+        assert accum.core_params.output_sign is DataSign.SIGNED
+        assert accum.core_params.output_width is DataWidth.WIDTH_32BIT
 
     @pytest.mark.parametrize("transform_kind", ["view", "reshape", "flatten"])
     def test_shape_preserving_order_preserving_operand_transform_flattens(
@@ -571,20 +573,18 @@ class TestGeneralAddChainFlattening:
         self._assert_not_accumulated(model, x)
 
     @pytest.mark.parametrize(
-        "model_cls",
+        "model",
         [MultiConsumerMiddleAdd, MultiConsumerTransformOperand],
         ids=["middle_add", "transform_operand"],
     )
-    def test_multi_consumer_chain_member_does_not_flatten(self, model_cls):
-        flattened = self._assert_binary_add_chain_not_flattened(
-            model_cls(), make_vec_8d()
-        )
+    def test_multi_consumer_chain_member_does_not_flatten(self, model):
+        flattened = self._assert_binary_add_chain_not_flattened(model(), make_vec_8d())
         assert all(
             node.coeffs == (1, 1) for node in find_nodes(flattened, GeneralAddOp)
         )
 
     @pytest.mark.parametrize(
-        "model_cls",
+        "model",
         [
             ConstOperandChain,
             BroadcastOperandChain,
@@ -593,8 +593,8 @@ class TestGeneralAddChainFlattening:
         ],
         ids=["const", "broadcast", "repeated_producer", "non_unit_coeff"],
     )
-    def test_unsupported_operand_form_does_not_flatten(self, model_cls):
-        _, add_nodes = self._flattened_add_nodes(model_cls(), make_vec_8d())
+    def test_unsupported_operand_form_does_not_flatten(self, model):
+        _, add_nodes = self._flattened_add_nodes(model(), make_vec_8d())
 
         assert len(add_nodes) == 2
         assert all(len(node.operands) == 2 for node in add_nodes)
@@ -1813,7 +1813,7 @@ class TestSignalSemantics:
         assert out.signal_semantics.output_domain == SignalDomain.VALUE
         assert out.signal_semantics.known_code_range is None
 
-    def test_potential_add_from_residual_comp_propagates_potential_domain(self):
+    def test_accumulate_without_activation_propagates_potential_domain(self):
         class MembraneAdd(nn.Module):
             def __init__(self):
                 super().__init__()
@@ -1828,10 +1828,11 @@ class TestSignalSemantics:
 
         propagate_signal_semantics(fused)
 
-        add = find_first(fused, PotentialAddOp)
+        accum = find_first(fused, AccumulateOp)
         out = fused.output_nodes()[0]
-        assert add.signal_semantics.output_domain == SignalDomain.POTENTIAL
-        assert add.signal_semantics.known_code_range is None
+        assert accum.act is None
+        assert accum.signal_semantics.output_domain == SignalDomain.POTENTIAL
+        assert accum.signal_semantics.known_code_range is None
         assert out.signal_semantics.output_domain == SignalDomain.POTENTIAL
         assert out.signal_semantics.known_code_range is None
 
