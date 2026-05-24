@@ -1,13 +1,13 @@
 """Operator IR nodes for chip deployment.
 
 Each :class:`OfflineCoreOp` represents a computation unit that maps to a single
-chip offline core (v2.0 or v2.5): a compute operation plus a neuron / activation.
-The IR is version-agnostic; the backend handles target-specific lowering.
+chip offline core (v2.0 or v2.5): compute, activation, or both. The IR is
+version-agnostic; the backend handles target-specific lowering.
 
 Node types:
 
 - :class:`SequentialOp` -- compute -> neuron/lut
-- :class:`AccumulateOp` -- multi-path compute -> add/sub -> neuron/lut
+- :class:`AccumulateOp` -- multi-path compute -> add/sub -> optional neuron/lut
 - :class:`StandaloneCompOp` -- compute only (potential output)
 - :class:`StandaloneActOp` -- neuron/lut only
 - routing ops such as :class:`TransformOp`, :class:`ConcatOp`, and
@@ -403,27 +403,28 @@ class SequentialOp(OfflineCoreOp):
 
 
 class AccumulateOp(OfflineCoreOp):
-    """Multi-path accumulation: comps -> add/sub -> activation.
+    """Multi-path accumulation: comps -> add/sub -> optional activation.
 
     Accumulates outputs of multiple compute operations with per-path signs,
-    then feeds the result into a neuron / activation.
-    E.g. ``Conv_a(x1) + Conv_b(x2) -> LIFNodeV25``.
+    then optionally feeds the result into a neuron / activation.
+    E.g. ``Conv_a(x1) + Conv_b(x2) -> LIFNodeV25`` or
+    ``Linear_a(x1) + Linear_b(x2)`` as a potential-domain output.
 
     Args:
         comps: List of compute operations (one per input path).
-        act: Neuron or LUT activation.
+        act: Optional neuron or LUT activation.
         op_signs: Per-path sign. ``(1, 1)`` = add, ``(1, -1)`` = subtract.
 
     The public constructor derives semantic core parameters from ``comps`` and
-    ``act``. Advanced callers that need to preserve prepared compile-time
-    state should construct the node normally, then call
+    optional ``act``. Advanced callers that need to preserve prepared
+    compile-time state should construct the node normally, then call
     :meth:`OfflineCoreOp.override_compile_state`.
     """
 
     def __init__(
         self,
         comps: Sequence[nn.Module],
-        act: CoreNeuronV25,
+        act: CoreNeuronV25 | None,
         op_signs: tuple[int, ...] | None = None,
     ) -> None:
         if op_signs is None:
@@ -434,7 +435,8 @@ class AccumulateOp(OfflineCoreOp):
             )
 
         core_params = OfflineCoreParams()
-        core_params.snn_mode = act.snn_mode
+        if act is not None:
+            core_params.snn_mode = act.snn_mode
         core_params.pooling_mode = _get_pooling_mode(comps[0])
 
         super().__init__(core_params)
@@ -449,6 +451,8 @@ class AccumulateOp(OfflineCoreOp):
             acc = term if acc is None else acc + term
 
         assert acc is not None, "AccumulateOp requires at least one input"
+        if self.act is None:
+            return acc
         return self.act(_prepare_act_input(self.act, acc))
 
     @property
@@ -478,6 +482,8 @@ class AccumulateOp(OfflineCoreOp):
     @property
     def lut_data(self) -> LutData | None:
         """LUT table data for backend export."""
+        if self.act is None:
+            return None
         return self.act.export_lut()
 
     @property
@@ -490,13 +496,24 @@ class AccumulateOp(OfflineCoreOp):
                 term = sign * b
                 fused_bias = term if fused_bias is None else fused_bias + term
 
+        if self.act is None:
+            return self._with_domain_derived_output_type(
+                NeuronParams(
+                    leak_v=fused_bias if fused_bias is not None else 0.0,
+                    output_type=OutputType.POTENTIAL,
+                )
+            )
+
         return self._with_domain_derived_output_type(
             self.act.to_neuron_params(bias=fused_bias)
         )
 
     def extra_repr(self) -> str:
         ops = ", ".join(type(op).__name__ for op in self.comps)
-        return f"{super().extra_repr()}, comps=[{ops}], signs={self.signs}, act={type(self.act).__name__}"
+        act_repr = "None" if self.act is None else type(self.act).__name__
+        return (
+            f"{super().extra_repr()}, comps=[{ops}], signs={self.signs}, act={act_repr}"
+        )
 
 
 class ConcatOp(RoutingOp):

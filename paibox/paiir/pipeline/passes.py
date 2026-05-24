@@ -460,36 +460,38 @@ def fuse_to_offline_cores(
 
     for name in graph.topo_sort():
         node = graph.nodes[name]
-        if not isinstance(node, StandaloneActOp):
-            continue
         if name in consumed:
             continue
 
-        result = _try_handle_avgpool_activation(
-            graph,
-            name,
-            consumed,
-            node_remap,
-            enable_split_avgpool_lif=enable_split_avgpool_lif,
-            enable_avgpool_calibration=enable_avgpool_calibration,
-        )
-        if result is not None:
-            if isinstance(result, list):
-                for fused in result:
-                    fused_nodes[fused.name] = fused
-            else:
+        if isinstance(node, StandaloneActOp):
+            result = _try_handle_avgpool_activation(
+                graph,
+                name,
+                consumed,
+                node_remap,
+                enable_split_avgpool_lif=enable_split_avgpool_lif,
+                enable_avgpool_calibration=enable_avgpool_calibration,
+            )
+            if result is not None:
+                if isinstance(result, list):
+                    for fused in result:
+                        fused_nodes[fused.name] = fused
+                else:
+                    fused_nodes[result.name] = result
+                continue
+
+            result = _try_fuse_sequential(graph, name, consumed, node_remap)
+            if result is not None:
                 fused_nodes[result.name] = result
-            continue
+                continue
 
-        result = _try_fuse_sequential(graph, name, consumed, node_remap)
-        if result is not None:
-            fused_nodes[result.name] = result
-            continue
-
-        result = _try_fuse_accumulate(graph, name, consumed, node_remap, port_remap)
-        if result is not None:
-            fused_nodes[result.name] = result
-            continue
+        if isinstance(node, PotentialAddOp):
+            # Accumulate fusion is anchored at the add node because the
+            # activation stage is optional: comp paths may feed either
+            # ``PotentialAddOp -> StandaloneActOp`` or a bare ``PotentialAddOp``.
+            result = _try_fuse_accumulate(graph, name, consumed, node_remap, port_remap)
+            if result is not None:
+                fused_nodes[result.name] = result
 
     new_graph = PAIIRGraph(graph.name)
     for name in graph.topo_sort():
@@ -540,31 +542,78 @@ def _try_fuse_sequential(
 
 def _try_fuse_accumulate(
     graph: PAIIRGraph,
-    act_name: str,
+    add_name: str,
     consumed: set[str],
     node_remap: dict[str, str],
     port_remap: dict[str, int],
 ) -> AccumulateOp | None:
-    """Try to fuse ``CompOps -> PotentialAddOp -> ActivationOp``."""
-    act_node = graph.nodes[act_name]
-    assert isinstance(act_node, StandaloneActOp)
+    """Try to fuse ``CompOps -> PotentialAddOp -> optional ActivationOp``.
 
-    preds = graph.predecessors(act_name)
-    if len(preds) != 1:
-        return None
-
-    add_name = preds[0]
-    if add_name in consumed:
-        return None
-
+    The add node is the stable anchor for both activated and no-activation
+    forms.  When the add's sole successor is a standalone activation, that
+    activation becomes ``AccumulateOp.act``; otherwise the fused node emits
+    membrane potential directly.
+    """
     add_node = graph.nodes[add_name]
-    if not isinstance(add_node, PotentialAddOp):
+    assert isinstance(add_node, PotentialAddOp)
+
+    successors = graph.successors(add_name)
+    if len(successors) != 1:
         return None
 
-    if len(graph.successors(add_name)) != 1:
+    succ_name = successors[0]
+    succ_node = graph.nodes[succ_name]
+    act: CoreNeuronV25 | None = None
+    output_layouts = add_node.output_layouts
+    consumed_successor: str | None = None
+
+    if isinstance(succ_node, StandaloneActOp):
+        if succ_name in consumed:
+            return None
+        if graph.predecessors(succ_name) != [add_name]:
+            return None
+
+        act = succ_node.act
+        output_layouts = succ_node.output_layouts
+        consumed_successor = succ_name
+
+    materialized = _materialize_accumulate_from_potential_add(
+        graph, add_name, add_node, act, consumed, node_remap, port_remap
+    )
+    if materialized is None:
         return None
 
+    fused, _ = materialized
+    fused.output_layouts = output_layouts
+
+    if consumed_successor is not None:
+        consumed.add(consumed_successor)
+        node_remap[consumed_successor] = fused.name
+
+    return fused
+
+
+def _materialize_accumulate_from_potential_add(
+    graph: PAIIRGraph,
+    add_name: str,
+    add_node: PotentialAddOp,
+    act: CoreNeuronV25 | None,
+    consumed: set[str],
+    node_remap: dict[str, str],
+    port_remap: dict[str, int],
+) -> tuple[AccumulateOp, list[str]] | None:
+    """Create an ``AccumulateOp`` from a deployable potential-add pattern.
+
+    This helper validates the shared structural requirements for both
+    activation and no-activation accumulation: every add predecessor must be a
+    single-use ``StandaloneCompOp``, and the predecessor count must match the
+    signed add paths.  On success it also records consumed comp/add nodes and
+    port remaps for edge rebuilding.  The caller owns output-layout selection
+    and optional activation-consumer remapping.
+    """
     comp_preds = graph.predecessors(add_name)
+    if len(comp_preds) != len(add_node.signs):
+        return None
     if any(p in consumed for p in comp_preds):
         return None
     if not all(isinstance(graph.nodes[p], StandaloneCompOp) for p in comp_preds):
@@ -573,25 +622,20 @@ def _try_fuse_accumulate(
         return None
 
     comps = [graph.nodes[p].comp for p in comp_preds]  # type: ignore[union-attr]
-    op_signs = add_node.signs
-
-    fused = AccumulateOp(comps=comps, act=act_node.act, op_signs=op_signs)
+    fused = AccumulateOp(comps, act, add_node.signs)
     fused_input_layouts = []
     for p in comp_preds:
         fused_input_layouts.extend(graph.nodes[p].input_layouts)  # type: ignore[union-attr]
     fused.input_layouts = tuple(fused_input_layouts)
-    fused.output_layouts = act_node.output_layouts
 
-    consumed.add(act_name)
     consumed.add(add_name)
-    node_remap[act_name] = fused.name
     node_remap[add_name] = fused.name
     for i, p in enumerate(comp_preds):
         consumed.add(p)
         node_remap[p] = fused.name
         port_remap[p] = i
 
-    return fused
+    return fused, comp_preds
 
 
 def _rebuild_edges(
