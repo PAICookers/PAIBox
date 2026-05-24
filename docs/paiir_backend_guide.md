@@ -153,6 +153,12 @@ PyTorch 模型
 PAIIRGraph (backend-ready，可交付后端)
 ```
 
+`PotentialAddOp` 是可部署膜电位加/减的中间表示。若其输入全部来自单消费者 compute path，`fuse_to_offline_cores()` 会进一步把它吸收到 `AccumulateOp`：
+
+- `CompOps -> PotentialAddOp -> ActivationOp` 融合为 `AccumulateOp(act=...)`
+- `CompOps -> PotentialAddOp` 融合为 `AccumulateOp(act=None)`，输出仍是膜电位
+- 不能安全融合的膜电位加/减仍保留为 `PotentialAddOp`
+
 ### 一站式编译接口
 
 `compile_to_paiir()` 封装了上述全部流程：
@@ -297,8 +303,8 @@ PAIIRNode (基类，自动分配唯一 name)
 └── OpNode (算子基类，携带 TensorLayout 元信息)
     ├── OfflineCoreOp (离线核，映射到芯片核心)
     │   ├── SequentialOp      — comp -> act（最常见）
-    │   ├── AccumulateOp      — comps -> add/sub -> act（多路径融合）
-    │   ├── PotentialAddOp             — 纯加法/减法（输出膜电位，无激活）
+    │   ├── AccumulateOp      — comps -> add/sub -> optional act（多路径融合）
+    │   ├── PotentialAddOp    — 膜电位加法/减法（输出膜电位）
     │   ├── StandaloneCompOp  — 纯计算（融合前的中间状态）
     │   └── StandaloneActOp   — 纯激活（融合前的中间状态）
     ├── TransformOp     — 路由变换（layout / shape，非核操作，不占用核资源）
@@ -308,7 +314,7 @@ PAIIRNode (基类，自动分配唯一 name)
     └── CPUOp           — CPU 回退（占位符，仅 v2.5）
 ```
 
-融合后的正常图中主要出现 `SequentialOp`、`AccumulateOp`、`PotentialAddOp`、`TransformOp`、`PadOp`、`ConcatOp` 等算子。`StandaloneCompOp` 和 `StandaloneActOp` 通常在融合后不再独立存在，但在以下场景中仍可能保留：
+融合后的正常图中主要出现 `SequentialOp`、`AccumulateOp`、`PotentialAddOp`、`TransformOp`、`PadOp`、`ConcatOp` 等算子。`AccumulateOp.act` 可为 `None`；此时该核执行多路 compute 后直接输出膜电位。`PotentialAddOp` 仍表示显式膜电位加/减，但当它的输入都是可融合 compute path 且没有多消费者约束时，会被 `AccumulateOp` 吸收。`StandaloneCompOp` 和 `StandaloneActOp` 通常在融合后不再独立存在，但在以下场景中仍可能保留：
 
 前端表达层还可能出现 `GeneralAddOp`，用于忠实表示 PyTorch 的通用 `add/sub` 语义；但它不属于 backend-ready 子集。只要图是通过 `compile_to_paiir()` 生成的，`validate_deployable_graph()` 会确保这类表达层节点已经被收紧或拒绝。
 
@@ -436,6 +442,7 @@ class TensorLayout:
 
 - `output_domain` 是 frontend graph 语义的 source of truth
 - 对 `OfflineCoreOp`，backend-visible `neuron_params.output_type` 应与 `output_domain` 保持一致
+- `AccumulateOp(act=None)` 必须输出 `POTENTIAL`，且 `lut_data` 为 `None`
 - `validate_compiled_graph()` 会把这种一致性当作 compiled-graph 契约的一部分来检查
 - 因此后端若消费离线核节点，读取 `neuron_params.output_type` 时可以假设它已经与前端传播得到的 `output_domain` 对齐，而不需要自己再为 `StandaloneCompOp` / `StandaloneActOp` / `AccumulateOp` 等节点重复推断 VALUE/POTENTIAL 语义
 
@@ -480,7 +487,7 @@ raw_weights: list[Tensor] | None = op.weights
 ```
 
 - `SequentialOp`：若 `comp` 自带显式参数（如 Conv / Linear），返回 `[weight_tensor]`（int8）；池化返回 `None`
-- `AccumulateOp`：返回 `[w0, w1, ...]`（int8），与 `comps` 一一对应；若任一 comp 无显式参数则返回 `None`
+- `AccumulateOp`：返回 `[w0, w1, ...]`（int8），与 `comps` 一一对应；无论 `act` 是否存在，权重路径都按 `comps/signs` 解释；若任一 comp 无显式参数则返回 `None`
 - `PotentialAddOp`：返回 `None`
 - `StandaloneActOp`：返回 `None`
 
