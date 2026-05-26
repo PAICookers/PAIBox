@@ -23,7 +23,7 @@
 - 把 `PAIIRGraph` 下沉到 `backendv2`
 - 导出芯片配置帧 `cfg_frame*.txt/.npy/.h`
 - 导出 `proto/config.pb` 与便于人工查看的 `proto/config.json`
-- 在需要输入工作帧时，根据 `cfg_frame1.txt` 中的 `IO_LAYOUT_INFO` 生成 `work_frame1.h`
+- 为应用侧生成输入工作帧和解析输出工作帧提供 `proto/config.pb` 中的 I/O 映射
 
 它**不负责**：
 
@@ -253,7 +253,7 @@ import torch.nn as nn
 from paicorelib import DataSign, DataWidth
 
 from paibox.backendv2 import Mapper
-from paibox.paiir import CompileConfig, compile_to_paiir
+from paibox.paiir import compile_to_paiir
 
 
 class Model(nn.Module):
@@ -281,15 +281,9 @@ summary_path = build_dir / "paiir_summary.log"
 backend_log_path = build_dir / "backendv2.log"
 build_dir.mkdir(parents=True, exist_ok=True)
 
-cfg = CompileConfig(
-    tick_duration=0,
-    auto_reset=True,
-)
-
 graph = compile_to_paiir(
     model,
     sample_input,
-    compile_config=cfg,
     input_formats={
         "InputNode_0": (DataSign.SIGNED, DataWidth.WIDTH_8BIT),
     },
@@ -329,9 +323,8 @@ print("frame_dir:", output_dir)
 | 参数                              | 作用                                                    |
 | --------------------------------- | ------------------------------------------------------- |
 | `*sample_inputs`                  | 示例输入，参与 shape/dims 推断，`batch_size` 必须为 `1` |
-| `tick_duration`                   | 全局工作时长，`0` 表示常开                              |
-| `auto_reset`                      | 工作周期结束后是否自动复位                              |
-| `tick_overrides`                  | 按节点名覆盖局部时序                                    |
+| `tick_duration`                   | 显式全局工作时长，`0` 表示常开；不传则使用模式默认      |
+| `auto_reset`                      | 显式控制工作周期结束后是否自动复位；不传则使用模式默认  |
 | `input_formats`                   | 按 `InputNode` 名称指定输入数据格式                     |
 | `compile_config`                  | 统一承载默认配置                                        |
 | `concrete_args`                   | 固定 FX tracing 时的非 Tensor 参数                      |
@@ -345,6 +338,8 @@ print("frame_dir:", output_dir)
 ```text
 显式关键字参数 > CompileConfig > 内置默认值
 ```
+
+未显式传入时，ANN 模式计算核导出为单步工作并自动复位，即 `tick_duration=1`、`tick_initial=1`；SNN 模式计算核持续工作且不自动复位，即 `tick_duration=0`、`tick_initial=0`。一旦通过 `compile_to_paiir(...)` 关键字参数或 `CompileConfig` 显式传入 `tick_duration` / `auto_reset`，该显式策略优先于 ANN/SNN 模式默认；`tick_duration=0` 表示持续工作。
 
 ### 7.1 多输入模型
 
@@ -519,22 +514,22 @@ mapper.compile(
 
 后端当前会导出三类产物：
 
-- 人类可读调试文件（`debug=True` 时）
+- 人类可读 debug 文本帧文件（`debug=True` 时）
   - `cfg_frame1.txt`
   - `cfg_frame2.txt`
   - `cfg_frame3.txt`
-  - `cfg_frames.txt`（不同类型帧合并）
+  - `cfg_frames.txt`（按物理核顺序合并，每个核内依次写入 type1/type2/type3）
 - 平台相关帧文件
   - `target_platform="x86"`：
     - `cfg_frame1.npy`
     - `cfg_frame2.npy`
     - `cfg_frame3.npy`
-    - `cfg_frames.npy`（不同类型帧合并，取决于 `export_merged_frames`）
+    - `cfg_frames.npy`（按物理核顺序合并，取决于 `export_merged_frames`）
   - `target_platform="riscv"`：
     - `cfg_frame1.h`
     - `cfg_frame2.h`
     - `cfg_frame3.h`
-    - `cfg_frames.h`（不同类型帧合并，取决于 `export_merged_frames`）
+    - `cfg_frames.h`（按物理核顺序合并，取决于 `export_merged_frames`）
 - protobuf 产物（固定放在 `proto/` 子目录）
   - `proto/config.pb`
   - `proto/config.json`（`debug=True` 时）
@@ -555,9 +550,9 @@ mapper.compile(
 
 `cfg_frame*.txt`：
 
-- 每行一个 64 位帧
-- 按核坐标分段
-- 更适合检查、比对和调试
+- 仅在 `debug=True` 时导出
+- 面向人类阅读的 debug 文本
+- 按核坐标分段，保留类型分组信息
 
 `cfg_frame*.npy`：
 
@@ -575,84 +570,55 @@ mapper.compile(
 - 包含 I/O 映射与展平后的配置帧数据
 - `config.pb` 适合程序消费
 - `config.json` 适合开发人员人工查看
-- `config_frames.word_order` 明确描述了 64 位配置帧拆成 32 位 words 时的顺序
+- `config_frames.words` 与 `cfg_frames.npy/.h` 使用相同的物理核优先合并顺序
+- `config_frames.word_order` 明确描述了每个 64 位配置帧拆成 32 位 words 时的顺序
 
-## 10. `cfg_frame1.txt` 里的 `IO_LAYOUT_INFO`
+### 9.5 `config.pb` 里的 tick 元数据
 
-当前 `backendv2` 会在 `cfg_frame1.txt` 末尾自动追加一段注释化 JSON：
+`proto/config.pb` 会随 I/O 映射导出计算核时序信息，供推理应用侧决定何时送入输入、等待输出、或做复位控制。
 
-```text
-# === IO_LAYOUT_INFO_BEGIN ===
-# { ... }
-# === IO_LAYOUT_INFO_END ===
-```
+- `InputTensorMapping.tick` 是该输入 tensor 首个实际消费计算核的 `tick_start/tick_duration/tick_initial`。
+- `InputEntry.tick_relative` 是输入工作帧地址分段，不是计算核启动时间；生成输入工作帧仍使用 `tick_relative/addr_axon/target_lcn`。
+- `OutputTensorMapping.name` 使用最终输出源/生产者节点名，便于应用侧定位网络中哪层是输出层；它不是虚拟 `OutputNode` 名。
+- `OutputTensorMapping.tick` 是该输出 tensor 最终实际生产者计算核的时序。
+- `ThreadIOMapping.core_ticks` 按物理计算核列出 `core_offset/nodes/tick`，不包含全局信号空核。
 
-它的作用是描述：
+`TickParams.tick_duration=0` 表示持续工作，`tick_duration>0` 表示工作 N 个时间步；`tick_initial=0` 表示不自动复位。若同一个输入或输出 tensor 推导出多个不同 tick，导出阶段会报错，应用侧不应假定可以静默合并。
 
-- 输入组名
-- 对应的 `InputNode`
-- 输入元素下标和 copy 信息
-- 路由后的目标坐标偏移
-- `target_lcn_ex`
-- `tick_relative`
-- `addr_axon`
-- 完整的 `axon_bit_count`
+### 9.6 `config.pb` 里的 I/O 数据类型元数据
 
-当前 `tests/app/script/generate_work_frame1.py` 就是基于这段元数据生成输入工作帧。
+`InputEntry.dtype` 和 `OutputEntry.dtype` 描述普通 DATA payload 的 signedness 与 1/2/4/8-bit 逻辑位宽，取值为 `UINT1/INT1/.../UINT8/INT8`。`bit_width` 保留为兼容字段；新应用应优先使用 `dtype` 做输入编码和 DATA 输出解码，并把 `bit_width` 当作冗余校验。
 
-## 11. 如何生成 `work_frame1.h`
+`OutputEntry.kind == VOLTAGE` 时，`dtype` 不设置，读取默认值时可视为 `NOT_SET`。这类输出固定按 `int32` 膜电平解释，`bit_width=32`，且 `axon_bit_idx` 是 4 个 byte lane 的基地址。
 
-只有在你的板端流程真的需要“输入工作帧”时，才需要这一步。
+## 10. 输入工作帧
 
-### 11.1 对图像输入，直接使用通用脚本
+当前 `backendv2` 的 `cfg_frame*.txt` 是人类可读 debug 文本，不是专门的输入布局描述文件。
 
-```bash
-uv run python tests/app/script/generate_work_frame1.py \
-  --image tests/app/quant_img_mnist/0.bmp \
-  --frame-layout build/my_model/output/cfg_frame1.txt \
-  --target-h 28 \
-  --target-w 28 \
-  --output build/my_model/output/work_frame1.h
-```
+输入工作帧生成逻辑应读取 `proto/config.pb` 中的 `InputTensorMapping` 和 `InputEntry`，并结合实际输入张量填充 payload。
 
-### 11.2 对一般数组输入，直接调用库函数
+## 11. 如何准备输入工作帧
 
-如果你的输入不是图像，而是已经量化好的 `uint8` / `int8` 数组，更通用的方式是：
+只有在你的板端流程真的需要“输入工作帧”时，才需要这一步。当前文档只约定应用侧应消费的元数据；具体 `work_frame1.h` 生成工具可按板端工程格式自行实现。
 
-```python
-from pathlib import Path
+### 11.1 使用 `proto/config.pb` 作为输入布局来源
 
-import numpy as np
+输入工作帧的地址信息来自 `proto/config.pb` 中的 `InputTensorMapping.entries`：
 
-from tests.app.script.generate_work_frame1 import (
-    encode_input_array_to_work_frames,
-    work_frames_to_header,
-)
+- `elem_idx` 指向输入 tensor 按 C-order 展平后的元素。
+- `core_offset`、`copy_count`、`tick_relative`、`addr_axon`、`target_lcn` 用于构造目标地址。
+- `dtype` 描述输入元素码字类型；例如 `INT8` 通常以 two's complement 原始码字写入 payload。
+- `bit_width` 描述该输入元素位宽，并应与 `dtype` 一致。
+- `InputTensorMapping.tick` 描述消费该输入的计算核工作窗口，不参与单个输入工作帧地址计算。
 
+### 11.2 多输入模型
 
-frame_layout = Path("build/my_model/output/cfg_frame1.txt")
-output_header = Path("build/my_model/output/work_frame1.h")
+如果 `proto/config.pb` 里包含多个输入 tensor：
 
-# x_q 的顺序必须与 InputNode 的逻辑输入顺序一致
-x_q = np.asarray(..., dtype=np.int8)
+- 按 `InputTensorMapping.name` 选择对应输入。
+- 每个输入 tensor 都按自己的 `shape.size` 和 `entries` 编码。
 
-# 当前 work frame 携带的是 8-bit 原始码字；
-# 若输入是有符号 int8，建议以 two's complement 的 uint8 视图送入。
-frames = encode_input_array_to_work_frames(
-    x_q.view(np.uint8),
-    frame_layout,
-)
-work_frames_to_header(frames, output_header, array_name="work_frame1")
-```
-
-### 11.3 多输入模型
-
-如果 `cfg_frame1.txt` 里包含多个输入组：
-
-- CLI 方式用 `--input-group`
-- Python 调用传 `input_group=...`
-
-否则脚本会因为无法自动判定输入组而报错。
+应用侧不应假定只有一个输入，也不应把 `InputEntry.tick_relative` 当成计算核启动时间。
 
 ## 12. 推荐的一般化部署流程
 
@@ -666,7 +632,7 @@ work_frames_to_header(frames, output_header, array_name="work_frame1")
    同时保存 `graph.summary()`。
 4. 用 `Mapper.compile(...)` 导出平台相关帧文件与 `proto/` 目录
    同时保存 `backendv2.log` 与 `proto/config.pb`。
-5. 如果板端需要输入工作帧，再从 `cfg_frame1.txt` 生成 `work_frame1.h`
+5. 如果板端需要输入工作帧，读取 `proto/config.pb` 中的输入映射生成 `work_frame1.h`
 6. 向板端交付至少这几类文件
    - 平台相关帧文件（`cfg_frame*.h` 或 `cfg_frame*.npy`）
    - `proto/config.pb`
@@ -674,38 +640,22 @@ work_frames_to_header(frames, output_header, array_name="work_frame1")
    - `paiir_summary.log`
    - `backendv2.log`
 
-## 13. 已验证参考样例
+## 13. 参考脚本组织方式
 
-这份文档不以单个应用为中心，但当前仓库里已经有一个经过验证的参考路径：
+这份文档不以单个应用为中心。应用侧部署脚本通常可以拆成两步：
 
-- [tests/app/model_zhr2/deploy_runtime_1d.py](/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/tests/app/model_zhr2/deploy_runtime_1d.py)
-- [tests/app/model_zhr2/generate_work_frame1_1d.py](/home/kafcoppelia/WORK/PAIBox_Workgroup/PAIBox/tests/app/model_zhr2/generate_work_frame1_1d.py)
+- 编译脚本：负责整理部署态模型、调用 `compile_to_paiir(...)` 和 `Mapper.compile(...)`。
+- 工作帧脚本：负责读取 `proto/config.pb`，把应用输入编码为板端需要的输入工作帧。
 
-这条参考路径展示了一种当前可行的通用模式：
+这类脚本通常遵循一种通用模式：
 
 - 从量化 checkpoint 中提取 `int_repr()` 权重
 - 把 bias 转成芯片友好的 `int32`
 - 把 requant 保留为精确 LUT
 - 重建成 lowering 可识别的部署态 `nn.Module`
-- 再进入 `compile_to_paiir(...) -> Mapper.compile(...)`
-
-在当前 `dev` 分支上，下面这个参考命令已经跑通：
-
-```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run python tests/app/model_zhr2/deploy_runtime_1d.py --backend
-```
-
-其结果包括：
-
-- `backend_succeeded: True`
-- 成功导出平台相关帧文件和 `proto/` 目录
-- 输出 shape 为 `((1, 128, 32),)`
-
-对应的输入工作帧参考命令也已跑通：
-
-```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run python tests/app/model_zhr2/generate_work_frame1_1d.py
-```
+- 保存 `paiir_summary.log` 和 `backendv2.log`
+- 导出平台相关帧文件和 `proto/` 目录
+- 如板端需要，再根据 `proto/config.pb` 生成输入工作帧头文件
 
 ## 14. 常见排障建议
 
@@ -737,9 +687,9 @@ UV_CACHE_DIR=/tmp/uv-cache uv run python tests/app/model_zhr2/generate_work_fram
 
 优先检查：
 
-- `cfg_frame1.txt` 是否包含 `IO_LAYOUT_INFO_BEGIN/END`
+- `proto/config.pb` 是否包含预期的 `InputTensorMapping` 和 `InputEntry`
 - 输入数组长度和布局是否与 `InputNode` 契约一致
-- 多输入模型是否正确指定了 `input_group`
+- 多输入模型是否按 `InputTensorMapping.name` 选择了正确输入
 
 ### 14.4 不要混淆“硬件支持”和“当前 lowering 直接支持”
 
@@ -753,4 +703,4 @@ UV_CACHE_DIR=/tmp/uv-cache uv run python tests/app/model_zhr2/generate_work_fram
 
 - 先把量化结果整理成 lowering 能理解的部署态 PyTorch 模型
 - 再走 `compile_to_paiir(...) -> Mapper.compile(...) -> 平台相关帧文件 + proto/`
-- 如有需要，再利用 `cfg_frame1.txt` 的 `IO_LAYOUT_INFO` 生成 `work_frame1.h`
+- 如有需要，再根据 `proto/config.pb` 的输入映射生成 `work_frame1.h`
