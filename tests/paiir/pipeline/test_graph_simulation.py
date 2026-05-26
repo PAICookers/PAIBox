@@ -60,9 +60,7 @@ def _make_snn_input(
 
 def _make_ann_input(batch_size: int = 1, channels: int = 3, size: int = 8) -> Tensor:
     """Create ANN input: 8-bit quantized values in int8 format."""
-    return torch.randint(
-        -128, 128, (batch_size, channels, size, size), dtype=torch.int8
-    )
+    return torch.ones((batch_size, channels, size, size), dtype=torch.int8)
 
 
 class SingleLayerSNN(nn.Module):
@@ -180,18 +178,23 @@ class TestTickActivityWindow:
 class TestTickInitial:
     """Tests for tick_initial semantics (state reset behavior)."""
 
-    def test_ann_tick_initial_is_one(self) -> None:
-        """ANN cores have tick_initial=1 (stateless per step)."""
+    def test_ann_tick_initial_defaults_to_one(self) -> None:
+        """ANN cores default to tick_initial=1 (stateless per step)."""
         graph, _, _ = _compile_ann()
         for node in find_nodes(graph, OfflineCoreOp):
+            assert node.core_params.tick_duration == 1
             assert node.core_params.tick_initial == 1
 
-    def test_ann_stateless_consistency(self) -> None:
-        """ANN produces identical outputs for identical inputs across steps."""
+    def test_ann_runs_for_one_tick(self) -> None:
+        """ANN cores are active for one step, then leave the work window."""
         graph, x, _ = _compile_ann()
+
         out1 = graph.step(x)
         out2 = graph.step(x)
-        torch.testing.assert_close(out1, out2)
+
+        assert torch.is_tensor(out1)
+        assert torch.is_tensor(out2)
+        assert torch.all(out2 == 0)
 
     def test_snn_tick_initial_equals_duration_when_auto_reset(self) -> None:
         """SNN with auto_reset=True has tick_initial=tick_duration."""

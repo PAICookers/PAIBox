@@ -36,7 +36,6 @@ from .layout_chain_canonicalization import canonicalize_layout_chains
 from .layout_cross_node_elision import commute_pre_activation_transforms
 from .pad_folding import fold_zero_pad_into_convs
 from .passes import (
-    TickOverride,
     analyze_graph,
     assign_tick_params,
     calibrate_avgpool_thresholds,
@@ -53,10 +52,14 @@ __all__ = ["compile_to_paiir", "CompileConfig"]
 
 @dataclass
 class CompileConfig:
-    """Configuration for :func:`compile_to_paiir`."""
+    """Global configuration defaults for :func:`compile_to_paiir`.
 
-    tick_duration: int = 0
-    auto_reset: bool = True
+    Keyword arguments passed directly to :func:`compile_to_paiir` override the
+    matching values in this object when they are not ``None``.
+    """
+
+    tick_duration: int | None = None
+    auto_reset: bool | None = None
     input_formats: dict[str, DataFormat] | None = None
     enable_avgpool_calibration: bool = False
     enable_split_avgpool_lif: bool = False
@@ -68,7 +71,6 @@ def compile_to_paiir(
     *sample_inputs: Tensor,
     tick_duration: int | None = None,
     auto_reset: bool | None = None,
-    tick_overrides: dict[str, TickOverride] | None = None,
     input_formats: dict[str, DataFormat] | None = None,
     compile_config: CompileConfig | None = None,
     concrete_args: dict[str, Any] | None = None,
@@ -79,7 +81,51 @@ def compile_to_paiir(
 ) -> PAIIRGraph:
     """Compile a PyTorch model to a ready-to-deploy :class:`PAIIRGraph`.
 
-    This is a high-level wrapper that runs the full PAIIR compilation pipeline:
+    The function traces ``model`` with ``sample_inputs``, lowers the traced
+    graph to PAIIR nodes, runs deployability rewrites, fuses deployable
+    operations into offline cores, assigns core timing/data-format metadata,
+    validates the final graph, switches it to eval mode, and returns it.
+
+    Args:
+        model: PyTorch module to compile. It should already represent the
+            deployment-time model behavior.
+        *sample_inputs: Example tensors used for FX tracing, shape propagation,
+            and dimension propagation. The current deployment path expects
+            batch size 1.
+        tick_duration: Global work duration for compute cores. ``None`` means
+            use the execution-mode default. ``0`` means always active, and a
+            positive value means active for that many time steps.
+        auto_reset: Global automatic-reset policy. ``None`` means use the
+            execution-mode default. When true and ``tick_duration > 0``,
+            ``tick_initial`` is set to ``tick_duration``; when
+            ``tick_duration == 0``, ``tick_initial`` remains ``0`` because an
+            always-active core has no finite reset boundary.
+        input_formats: Optional data-format overrides keyed by ``InputNode``
+            name.
+        compile_config: Optional object containing global defaults. Explicit
+            keyword arguments on this function take priority over matching
+            values in ``compile_config``.
+        concrete_args: Optional concrete non-tensor arguments passed to FX
+            tracing.
+        strict: If true, unsupported operations raise immediately. If false,
+            unsupported operations are reported as warnings where the lowering
+            path can safely continue.
+        enable_avgpool_calibration: Optional override for shared-core
+            AvgPool+LIF threshold calibration.
+        enable_split_avgpool_lif: Optional override for conditional AvgPool+LIF
+            split-core deployment.
+        enable_delayed_avgpool_division: Optional override for the delayed
+            AvgPool division rewrite.
+
+    Timing defaults:
+        If neither keyword arguments nor ``compile_config`` specify timing,
+        ANN-mode cores default to one active step with automatic reset
+        (``tick_duration=1``, ``tick_initial=1``), while SNN-mode cores default
+        to continuous work without automatic reset (``tick_duration=0``,
+        ``tick_initial=0``). Explicit global timing parameters take priority
+        over these execution-mode defaults.
+
+    Pipeline:
 
     1. :func:`torch_to_paiir` -- FX trace and 1:1 node mapping
     2. pre-fusion fixed-point rewrite phase -- canonicalize transform chains and
@@ -139,7 +185,7 @@ def compile_to_paiir(
         _post_fusion_rewrite_passes(_enable_delayed_avgpool_division),
     )
 
-    assign_tick_params(graph, _tick_duration, _auto_reset, tick_overrides)
+    assign_tick_params(graph, _tick_duration, _auto_reset)
 
     if _enable_avgpool_calibration:
         calibrate_avgpool_thresholds(graph)
