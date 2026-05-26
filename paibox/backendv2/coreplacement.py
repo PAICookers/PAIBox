@@ -153,7 +153,6 @@ class OfflineCorePlacementV2(CorePlacement):
             )
         for i, neu in enumerate(self.neus):
             weight_idx = self.neu_weight_map[i]
-            selected_weight = self.weights[weight_idx]
             neu.neu_attrs_part1.weight_address_start = weight_start_address[weight_idx]
             neu.neu_attrs_part1.weight_address_end = (
                 weight_start_address[weight_idx + 1] - 1

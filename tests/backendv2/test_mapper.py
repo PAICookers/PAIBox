@@ -8,6 +8,7 @@ import torch
 from paicorelib import LCN_EX
 from torch import nn
 
+from paibox.backendv2.export.utils import export_framearray_to_int32
 from paibox.backendv2.mapper import Mapper
 from paibox.backendv2.proto import PROTO_SCHEMA_VERSION
 from paibox.backendv2.proto.compile_artifacts_pb2 import (
@@ -16,10 +17,20 @@ from paibox.backendv2.proto.compile_artifacts_pb2 import (
     OutputEntry,
 )
 from paibox.paiir import compile_to_paiir
-from tests.paiir.conftest import ANNClassifier, SimpleCNN, make_img_3ch_8x8
+from tests.paiir.conftest import (
+    ANNClassifier,
+    SimpleCNN,
+    make_img_3ch_8x8,
+)
 from tests.utils import is_ci_env
 
 DEBUG_EXPORT_ROOT = Path(__file__).with_name("debug") / "mapper_proto_export"
+
+
+def _assert_debug_frame_text(path: Path) -> None:
+    text = path.read_text()
+    assert "# Core at coord (X,Y)=" in text
+    assert "0x" in text
 
 
 def _export_simple_cnn_proto(export_root: Path, word_order: str) -> Path:
@@ -82,17 +93,51 @@ def _load_compile_artifacts(pb_path: Path) -> CompileArtifacts:
     return artifacts
 
 
-def _export_graph_proto(export_root: Path, case_name: str, model, sample) -> Path:
+def _export_graph_proto_with_context(
+    export_root: Path, case_name: str, model, sample, **compile_kwargs
+) -> tuple[Path, set[str], Mapper]:
     export_dir = export_root / case_name
     if export_dir.exists():
         shutil.rmtree(export_dir)
     export_dir.mkdir(parents=True, exist_ok=True)
 
-    graph = compile_to_paiir(model.eval(), sample, strict=True)
+    graph = compile_to_paiir(model.eval(), sample, strict=True, **compile_kwargs)
+    output_source_names = {
+        pred_name
+        for output_node in graph.output_nodes()
+        for pred_name in graph.predecessors(output_node.name)
+    }
     mapper = Mapper()
     mapper.compile(graph, export_dir, target_platform="x86", debug=True)
 
-    return export_dir / "proto" / "config.pb"
+    return export_dir / "proto" / "config.pb", output_source_names, mapper
+
+
+def _export_graph_proto(
+    export_root: Path, case_name: str, model, sample, **compile_kwargs
+) -> Path:
+    pb_path, _, _ = _export_graph_proto_with_context(
+        export_root, case_name, model, sample, **compile_kwargs
+    )
+    return pb_path
+
+
+def _expected_core_major_frames(mapper: Mapper) -> np.ndarray:
+    parts = []
+    for core_placement in mapper.coreplacements:
+        for frame_array in core_placement.to_frame():
+            if frame_array is not None:
+                parts.append(np.asarray(frame_array, dtype="<u8"))
+    return np.concatenate(parts) if parts else np.array([], dtype="<u8")
+
+
+def _expected_core_major_words(mapper: Mapper, word_order: str) -> list[int]:
+    words = []
+    for core_placement in mapper.coreplacements:
+        for frame_array in core_placement.to_frame():
+            if frame_array is not None:
+                words.extend(export_framearray_to_int32(frame_array, word_order))
+    return words
 
 
 @pytest.fixture(scope="module")
@@ -143,10 +188,35 @@ def test_export_proto_real_workflow_keeps_pb_and_json(
     assert len(payload["ioMapping"]["threads"]) == 1
 
 
+def test_export_merged_frames_use_core_major_order(ensure_backendv2_debug_dir):
+    export_dir = ensure_backendv2_debug_dir / "core_major_order"
+    if export_dir.exists():
+        shutil.rmtree(export_dir)
+    export_dir.mkdir(parents=True, exist_ok=True)
+
+    graph = compile_to_paiir(SimpleCNN().eval(), make_img_3ch_8x8(), strict=True)
+    mapper = Mapper()
+    mapper.compile(
+        graph,
+        export_dir,
+        target_platform="x86",
+        word_order="high_first",
+        debug=False,
+    )
+
+    merged_frames = np.load(export_dir / "cfg_frames.npy")
+    np.testing.assert_array_equal(merged_frames, _expected_core_major_frames(mapper))
+
+    artifacts = _load_compile_artifacts(export_dir / "proto" / "config.pb")
+    assert list(artifacts.config_frames.words) == _expected_core_major_words(
+        mapper, "high_first"
+    )
+
+
 def test_export_proto_marks_data_outputs_and_target_lcn(
     ensure_backendv2_debug_dir,
 ):
-    pb_path = _export_graph_proto(
+    pb_path, output_source_names, _ = _export_graph_proto_with_context(
         ensure_backendv2_debug_dir,
         "data_output_kind",
         ANNClassifier(),
@@ -159,6 +229,7 @@ def test_export_proto_marks_data_outputs_and_target_lcn(
     assert output_mappings.target_lcn == LCN_EX.LCN_128X.value
     assert output_mappings.HasField("target_lcn")
     assert len(output_mappings.items) == 1
+    assert {mapping.name for mapping in output_mappings.items} == output_source_names
 
     entries = list(output_mappings.items[0].entries)
     assert entries
@@ -218,10 +289,33 @@ def test_export_artifacts_all_platforms_when_requested(ensure_backendv2_debug_di
     assert (export_dir / "cfg_frames.h").exists()
 
     assert not (export_dir / "cfg_frame1.txt").exists()
+    assert not (export_dir / "cfg_frame2.txt").exists()
+    assert not (export_dir / "cfg_frame3.txt").exists()
+    assert not (export_dir / "cfg_frames.txt").exists()
     assert not (export_dir / "proto" / "config.json").exists()
 
     cfg_frame1 = np.load(export_dir / "cfg_frame1.npy")
     assert cfg_frame1.dtype == np.dtype("<u8")
+
+
+def test_export_artifacts_can_skip_merged_frames(ensure_backendv2_debug_dir):
+    export_dir = _export_simple_cnn(
+        ensure_backendv2_debug_dir,
+        "skip_merged_frames",
+        target_platform="all",
+        debug=True,
+        export_merged_frames=False,
+    )
+
+    assert not (export_dir / "cfg_frames.txt").exists()
+    assert not (export_dir / "cfg_frames.npy").exists()
+    assert not (export_dir / "cfg_frames.h").exists()
+
+    assert (export_dir / "cfg_frame1.txt").exists()
+    assert (export_dir / "cfg_frame1.npy").exists()
+    assert (export_dir / "cfg_frame1.h").exists()
+    assert (export_dir / "proto" / "config.pb").exists()
+    assert (export_dir / "proto" / "config.json").exists()
 
 
 def test_export_artifacts_debug_forces_all_platform_outputs(
@@ -253,3 +347,8 @@ def test_export_artifacts_debug_forces_all_platform_outputs(
     assert (export_dir / "proto" / "config.json").exists()
     assert (export_dir / "proto" / "compile_artifacts_pb2.py").exists()
     assert (export_dir / "proto" / "compile_artifacts_pb2.pyi").exists()
+
+    _assert_debug_frame_text(export_dir / "cfg_frame1.txt")
+    _assert_debug_frame_text(export_dir / "cfg_frame2.txt")
+    _assert_debug_frame_text(export_dir / "cfg_frame3.txt")
+    _assert_debug_frame_text(export_dir / "cfg_frames.txt")
