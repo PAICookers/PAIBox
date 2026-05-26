@@ -197,10 +197,7 @@ def get_frontend_core_conf(
     core_params: OfflineCoreParams, lut_data: LutData | None
 ) -> Frontend_Core_Config:
     assert core_params.tick_start is not None
-    if core_params.snn_mode == SNNMode.ANN:
-        assert core_params.tick_initial == 1, "ANN mode requires tick_initial=1"
-        # assert lut_data is not None, "lut_data must be provided for ANN mode"
-    elif core_params.snn_mode == SNNMode.SNN:
+    if core_params.snn_mode == SNNMode.SNN:
         assert lut_data is None, "lut_data should not be provided for SNN mode"
 
     return Frontend_Core_Config(
