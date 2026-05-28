@@ -61,7 +61,7 @@ def sumpool1d(
     else:
         L_out = (L_in - effective_k) // s + 1
 
-    unfolded = F.unfold(input.unsqueeze(2), (1, k), (1, d), (1, s))
+    unfolded = F.unfold(input.unsqueeze(2), (1, k), (1, d), (0, 0), (1, s))
     unfolded = unfolded.view(input.shape[0], channels, k, -1)
     summed = unfolded.sum(dim=2).view(input.shape[0], channels, L_out)
     return summed.squeeze(0) if squeeze_batch else summed
@@ -149,7 +149,7 @@ def sumpool2d(
 
     # Use fold/unfold for efficient computation
     # unfold: (N, C, H, W) -> (N, C*kH*kW, H_out*W_out)
-    unfolded = F.unfold(input, (kH, kW), (dH, dW), (sH, sW))
+    unfolded = F.unfold(input, (kH, kW), (dH, dW), (0, 0), (sH, sW))
 
     # Reshape to separate channel and window dimensions
     # (N, C*kH*kW, L) -> (N, C, kH*kW, L)
