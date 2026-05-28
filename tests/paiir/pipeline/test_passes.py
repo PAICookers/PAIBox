@@ -764,6 +764,11 @@ class TestAssignTickParams:
         """Fixture: fused SNNTwoLayer graph."""
         return convert_and_fuse(SNNTwoLayer(), make_img_3ch_8x8())
 
+    @pytest.fixture
+    def fused_ann(self):
+        """Fixture: fused ANNClassifier graph."""
+        return convert_and_fuse(ANNClassifier(), make_img_3ch_8x8())
+
     def test_tick_start_from_depth(self, fused_snn):
         """tick_start is assigned based on DAG depth."""
         assign_tick_params(fused_snn)
@@ -778,14 +783,6 @@ class TestAssignTickParams:
         tick_starts = sorted([n.core_params.tick_start for n in seq_nodes])  # type: ignore
         assert tick_starts[0] < tick_starts[1]
 
-    def test_tick_start_explicit_override(self, fused_snn):
-        """User-set tick_start is preserved by the pass."""
-        first_op = find_first(fused_snn, SequentialOp)
-        first_op.core_params.tick_start = 42
-
-        assign_tick_params(fused_snn)
-        assert first_op.core_params.tick_start == 42
-
     @pytest.mark.parametrize(
         "tick_duration, expected",
         [(0, 0), (100, 100)],
@@ -799,13 +796,37 @@ class TestAssignTickParams:
             if isinstance(node, SequentialOp):
                 assert node.core_params.tick_duration == expected
 
-    def test_tick_duration_per_node_override_via_core_params(self, fused_snn):
-        """Per-node tick_duration set on core_params takes priority."""
-        first_op = find_first(fused_snn, SequentialOp)
-        first_op.core_params.tick_duration = 50
+    def test_ann_tick_duration_and_initial_default_to_one(self, fused_ann):
+        """ANN-mode cores work for one tick and reset by default."""
+        ann_nodes = [
+            node
+            for node in fused_ann.nodes.values()
+            if isinstance(node, OfflineCoreOp)
+            and node.core_params.snn_mode == SNNMode.ANN
+        ]
+        assert ann_nodes
 
-        assign_tick_params(fused_snn, tick_duration=100)
-        assert first_op.core_params.tick_duration == 50
+        assign_tick_params(fused_ann)
+
+        for node in ann_nodes:
+            assert node.core_params.tick_duration == 1
+            assert node.core_params.tick_initial == 1
+
+    def test_ann_tick_params_respect_explicit_policy(self, fused_ann):
+        """Explicit global timing policy has priority for ANN cores."""
+        ann_nodes = [
+            node
+            for node in fused_ann.nodes.values()
+            if isinstance(node, OfflineCoreOp)
+            and node.core_params.snn_mode == SNNMode.ANN
+        ]
+        assert ann_nodes
+
+        assign_tick_params(fused_ann, tick_duration=100, auto_reset=False)
+
+        for node in ann_nodes:
+            assert node.core_params.tick_duration == 100
+            assert node.core_params.tick_initial == 0
 
     @pytest.mark.parametrize(
         "tick_duration, auto_reset, expected_initial",
@@ -821,41 +842,6 @@ class TestAssignTickParams:
         for node in fused_snn.nodes.values():
             if isinstance(node, SequentialOp):
                 assert node.core_params.tick_initial == expected_initial
-
-    def test_tick_override_tick_start(self, fused_snn):
-        """overrides dict can set tick_start for a specific node."""
-        seq_names = find_node_names(fused_snn, SequentialOp)
-        assert len(seq_names) == 2
-
-        assign_tick_params(fused_snn, overrides={seq_names[0]: {"tick_start": 10}})
-
-        seq_nodes = find_nodes(fused_snn, SequentialOp)
-        by_name = {n.name: n for n in seq_nodes}
-        assert by_name[seq_names[0]].core_params.tick_start == 10
-        assert by_name[seq_names[1]].core_params.tick_start is not None
-        assert by_name[seq_names[1]].core_params.tick_start != 10
-
-    def test_tick_override_duration_and_auto_reset(self, fused_snn):
-        """overrides dict can set tick_duration and auto_reset per-node."""
-        seq_names = find_node_names(fused_snn, SequentialOp)
-
-        assign_tick_params(
-            fused_snn,
-            tick_duration=100,
-            auto_reset=True,
-            overrides={seq_names[0]: {"tick_duration": 200, "auto_reset": False}},
-        )
-
-        seq_nodes = find_nodes(fused_snn, SequentialOp)
-        by_name = {n.name: n for n in seq_nodes}
-
-        cp0 = by_name[seq_names[0]].core_params
-        assert cp0.tick_duration == 200
-        assert cp0.tick_initial == 0
-
-        cp1 = by_name[seq_names[1]].core_params
-        assert cp1.tick_duration == 100
-        assert cp1.tick_initial == 100
 
     def test_residual_tick_start(self):
         """Residual (AccumulateOp) gets correct tick_start."""
@@ -957,34 +943,14 @@ class TestAssignTickParams:
         assert act.core_params.tick_start == 1
 
     @pytest.mark.parametrize(
-        "kwargs, error_match",
-        [
-            ({"tick_duration": -1}, "tick_duration.*must be non-negative"),
-            ({"tick_start": -5}, "tick_start.*non-negative"),
-        ],
-        ids=["negative_graph_duration", "negative_override_start"],
+        "tick_duration",
+        [-1],
+        ids=["negative_graph_duration"],
     )
-    def test_negative_param_raises(self, fused_snn, kwargs, error_match):
-        """Negative tick parameters raise ValueError immediately."""
-        if "tick_duration" in kwargs:
-            with pytest.raises(ValueError, match=error_match):
-                assign_tick_params(fused_snn, tick_duration=kwargs["tick_duration"])
-        else:
-            seq_name = find_node_names(fused_snn, SequentialOp)[0]
-            with pytest.raises(ValueError, match=error_match):
-                assign_tick_params(fused_snn, overrides={seq_name: kwargs})
-
-    def test_override_negative_tick_duration_raises(self, fused_snn):
-        """Negative tick_duration in overrides raises immediately."""
-        seq_name = find_node_names(fused_snn, SequentialOp)[0]
+    def test_negative_param_raises(self, fused_snn, tick_duration):
+        """Negative global tick parameters raise ValueError immediately."""
         with pytest.raises(ValueError, match="tick_duration.*non-negative"):
-            assign_tick_params(fused_snn, overrides={seq_name: {"tick_duration": -10}})
-
-    def test_override_unknown_node_raises(self):
-        """Override key for non-existent node raises KeyError."""
-        fused = convert_and_fuse(SNNTwoLayer(), make_img_3ch_8x8())
-        with pytest.raises(KeyError, match="does not match any node"):
-            assign_tick_params(fused, overrides={"nonexistent_node": {"tick_start": 1}})
+            assign_tick_params(fused_snn, tick_duration=tick_duration)
 
     def test_validate_tick_params_unassigned(self):
         """validate_tick_params raises if tick_start is still None."""

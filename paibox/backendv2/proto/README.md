@@ -136,6 +136,7 @@ message ThreadIOMapping {
     CoreOffset root_core_offset = 2;
     InputTensorMappings input_mappings = 3;
     OutputTensorMappings output_mappings = 4;
+    repeated CoreTick core_ticks = 5;
 }
 ```
 
@@ -145,6 +146,7 @@ message ThreadIOMapping {
 | `root_core_offset` | 该线程内全局信号 root core 的相对偏移。                                          |
 | `input_mappings`   | 输入逻辑张量到输入工作帧地址的映射。                                             |
 | `output_mappings`  | 输出工作帧地址到输出逻辑张量的映射。                                             |
+| `core_ticks`       | 该线程内真实计算核的 tick 明细；不包含全局信号空核。                             |
 
 `CoreOffset` 和 `CopyCount` 都包含 `xy/x/y` 三个分量：
 
@@ -160,9 +162,40 @@ message CopyCount {
     optional int32 x = 2;
     optional int32 y = 3;
 }
+
+message TickParams {
+    optional uint32 tick_start = 1;
+    optional uint32 tick_duration = 2;
+    optional uint32 tick_initial = 3;
+}
+
+/* DATA payload code type. VOLTAGE outputs leave dtype unset and are int32. */
+message DataType {
+    enum Code {
+        NOT_SET = 0;
+        UINT1 = 1;
+        INT1 = 2;
+        UINT2 = 3;
+        INT2 = 4;
+        UINT4 = 5;
+        INT4 = 6;
+        UINT8 = 7;
+        INT8 = 8;
+    }
+}
+
+message CoreTick {
+    CoreOffset core_offset = 1;
+    repeated string nodes = 2;
+    TickParams tick = 3;
+}
 ```
 
 `CoreOffset` 表示目标 core 的相对偏移；`CopyCount` 表示 AER 多播复制数量。二者都使用 2.5芯片帧格式中的 `XY/X/Y` 三轴概念，但语义不同：`core_offset` 表示目标位置，`copy_count` 表示复制范围。
+
+`TickParams` 对应 2.5 计算核的 `tick_start/tick_duration/tick_initial` 参数。`tick_duration=0` 表示持续工作；`tick_initial=0` 表示不自动复位。`CoreTick.nodes` 是部署到同一个物理计算核上的 PAIIR 节点名列表。
+
+`DataType.Code` 描述普通 DATA payload 的码字类型。`UINT*` / `INT*` 中的数字表示逻辑位宽；`INT*` 按 two's complement 解释。`NOT_SET` 只作为默认值，应用侧不应把它当成有效 DATA 类型。`VOLTAGE` 输出不设置 `dtype`，固定按 `int32` 膜电平解释。
 
 ## 6. 输入映射与输入工作帧编码
 
@@ -171,6 +204,7 @@ message InputTensorMapping {
     string name = 1;
     Shape shape = 2;
     repeated InputEntry entries = 3;
+    TickParams tick = 4;
 }
 
 message InputEntry {
@@ -182,23 +216,30 @@ message InputEntry {
     optional uint32 target_lcn = 6;
     optional uint32 copy_id = 7;
     optional uint32 bit_width = 8;
+    optional DataType.Code dtype = 9;
 }
 ```
 
-| 字段            | 含义                                                        |
-| --------------- | ----------------------------------------------------------- |
-| `name`          | PAIIR 输入节点名。                                          |
-| `shape.size`    | 逻辑输入张量 shape。                                        |
-| `elem_idx`      | 输入张量按 C-order 展平后的元素下标。                       |
-| `core_offset`   | 输入工作帧目标 core 的相对偏移。                            |
-| `copy_count`    | AER 多播复制数量。                                          |
-| `tick_relative` | 后端分配出的相对 tick 段。                                  |
-| `addr_axon`     | 后端分配出的 axon 地址低段。                                |
-| `target_lcn`    | 目标 core 的 LCN 编号，对应 `paicorelib.LCN_EX` 枚举值。    |
-| `copy_id`       | tiling/folding 产生的逻辑 copy 编号，不等同于 `CopyCount`。 |
-| `bit_width`     | 该逻辑输入元素的位宽。                                      |
+| 字段            | 含义                                                                 |
+| --------------- | -------------------------------------------------------------------- |
+| `name`          | PAIIR 输入节点名。                                                   |
+| `shape.size`    | 逻辑输入张量 shape。                                                 |
+| `tick`          | 该输入张量对应的首个实际消费计算核 tick 参数。                       |
+| `elem_idx`      | 输入张量按 C-order 展平后的元素下标。                                |
+| `core_offset`   | 输入工作帧目标 core 的相对偏移。                                     |
+| `copy_count`    | AER 多播复制数量。                                                   |
+| `tick_relative` | 后端分配出的相对 tick 段。                                           |
+| `addr_axon`     | 后端分配出的 axon 地址低段。                                         |
+| `target_lcn`    | 目标 core 的 LCN 编号，对应 `paicorelib.LCN_EX` 枚举值。             |
+| `copy_id`       | tiling/folding 产生的逻辑 copy 编号，不等同于 `CopyCount`。          |
+| `bit_width`     | 该逻辑输入元素的 payload 位宽。                                      |
+| `dtype`         | 首个实际消费计算核解释该输入元素时使用的数据类型，包含位宽和符号性。 |
 
 应用侧编码输入工作帧时，应按 `shape.size` 准备输入张量，并以 C-order 展平后使用 `elem_idx` 取值。
+
+注意：`InputTensorMapping.tick` 是计算核工作窗口；`InputEntry.tick_relative` 是输入工作帧地址的一部分。二者语义不同，生成工作帧时仍使用 `tick_relative/addr_axon/target_lcn` 计算 timestep 和 axon。
+
+`bit_width` 是兼容字段，便于只需要位宽的工具快速读取；新应用应优先用 `dtype` 决定输入值域和 signedness。导出阶段会保证 `dtype` 与 `bit_width` 一致。
 
 编码流程：
 
@@ -292,8 +333,8 @@ def encode_input_tensor(artifacts: CompileArtifacts, input_name: str, data) -> n
 注意事项：
 
 - `OfflineFrameGenV2.gen_work_frame1(...)` 会跳过 payload 为 `0` 的元素；全零输入会得到空帧数组。
-- 如果模型输入是 `int8`，通常应按 two's complement 视为 `uint8` 发送，例如 `x.astype(np.int8).view(np.uint8)`。
-- 当前 work frame type 1 payload 为 8 bit；`bit_width` 描述逻辑元素位宽，具体码字解释仍由模型输入 ABI 决定。
+- 根据 `dtype` 把输入值转换为对应码字；例如 `INT8` 通常按 two's complement 视为 `uint8` 发送，可用 `x.astype(np.int8).view(np.uint8)`。
+- 当前 work frame type 1 payload 为 8 bit；`bit_width` 描述逻辑元素位宽，`dtype` 描述该 payload 的 signedness 和有效位宽。
 
 ## 7. 输出映射与输出工作帧解码
 
@@ -307,6 +348,7 @@ message OutputTensorMapping {
     string name = 1;
     Shape shape = 2;
     repeated OutputEntry entries = 3;
+    TickParams tick = 4;
 }
 
 message OutputEntry {
@@ -320,30 +362,35 @@ message OutputEntry {
     optional uint32 bit_width = 3;
     optional uint32 axon_bit_idx = 4;
     optional OutputKind kind = 5;
+    optional DataType.Code dtype = 6;
 }
 ```
 
 | 字段                         | 含义                                                                      |
 | ---------------------------- | ------------------------------------------------------------------------- |
 | `output_mappings.target_lcn` | 输出工作帧地址解析使用的目标 LCN 编号，对应 `paicorelib.LCN_EX` 枚举值。  |
-| `name`                       | PAIIR 输出节点名。                                                        |
+| `name`                       | PAIIR 输出源/生产者节点名，不是虚拟 `OutputNode` 名。                     |
 | `shape.size`                 | 逻辑输出张量 shape。                                                      |
+| `tick`                       | 该输出张量的最终实际生产者计算核 tick 参数。                              |
 | `elem_idx`                   | 输出张量按 C-order 展平后的元素下标。                                     |
 | `copy_id`                    | tiling/folding 产生的逻辑 copy 编号。                                     |
-| `bit_width`                  | 输出元素位宽。`DATA` 通常不超过 8 bit；`VOLTAGE` 为 32 bit 膜电平。       |
+| `bit_width`                  | 输出元素 payload 位宽。`DATA` 通常不超过 8 bit；`VOLTAGE` 固定为 32 bit。 |
 | `axon_bit_idx`               | 平坦 output axon bit index。`DATA` 为数据地址；`VOLTAGE` 为膜电平基地址。 |
 | `kind`                       | 输出语义。`DATA` 表示普通激活值/脉冲数据，`VOLTAGE` 表示膜电平。          |
+| `dtype`                      | `DATA` 输出的数据类型，包含位宽和符号性；`VOLTAGE` 不设置该字段。         |
 
-CPU 接收端仍应先根据返回工作帧的帧头区分 I/II 型。`kind` 的作用是让应用侧在运行前从 `config.pb` 预生成静态解码表，并保留调试语义。不要用 `bit_width` 反推出输出语义；应以 `kind` 为准。
+CPU 接收端仍应先根据返回工作帧的帧头区分 I/II 型。`kind` 的作用是让应用侧在运行前从 `config.pb` 预生成静态解码表，并保留调试语义。不要用 `bit_width` 反推出输出语义；应以 `kind` 为准。`DATA` 输出用 `dtype` 解释 signedness；`VOLTAGE` 输出固定按 `int32` 膜电平解释。
+
+`OutputNode` 是图输出的虚拟边界节点，不是实际计算核。`OutputTensorMapping.name` 和 `shape` 使用最终输出源/生产者节点，`tick` 从该输出源追溯到实际生产计算核后导出。
 
 `kind` 是 `OutputEntry` 级字段，不是 `OutputTensorMapping` 级字段。同一个 `OutputTensorMapping.entries` 内可以同时包含 `DATA` 和 `VOLTAGE` entry。
 
 普通 `DATA` 输出对应工作帧 I 型。解码流程：
 
-1. 从 `kind == DATA` 的 `OutputTensorMapping.entries` 建立 `axon_bit_idx -> elem_idx` 表。
+1. 从 `kind == DATA` 的 `OutputTensorMapping.entries` 建立 `axon_bit_idx -> elem_idx/dtype` 表。
 2. 板端运行时先把芯片返回帧解析为 `(axon_bit_idx, payload_byte)`。
 3. 根据映射表把 payload 写回输出张量的展平位置 `elem_idx`。
-4. 根据模型 ABI 解释 signedness、语义域和多 byte 组合方式。
+4. 根据 `dtype` 把 payload 解释为 signed/unsigned 1/2/4/8-bit 码字。
 
 膜电平 `VOLTAGE` 输出对应工作帧 II 型。后端只记录每个神经元膜电平输出的基地址 `axon_bit_idx`，芯片内部按 `base + 8 * i` 访问 4 个 byte lane。应用侧可预先把每个 `VOLTAGE` entry 展开为 `(base, base + 8, base + 16, base + 24)`，运行时收集 4 个 payload byte 后拼回一个 32-bit 膜电平。
 
@@ -392,6 +439,7 @@ def build_output_tables(artifacts: CompileArtifacts):
                     int(entry.elem_idx),
                     int(entry.copy_id),
                     int(entry.bit_width),
+                    int(entry.dtype) if entry.HasField("dtype") else 0,
                 )
                 if entry.kind == entry.DATA:
                     data_by_axon[int(entry.axon_bit_idx)] = item
@@ -408,7 +456,7 @@ def scatter_u8_output(output_tables, output_name: str, decoded_items):
     for axon_bit_idx, payload in decoded_items:
         if axon_bit_idx not in by_axon:
             continue
-        elem_idx, copy_id, bit_width = by_axon[axon_bit_idx]
+        elem_idx, copy_id, bit_width, dtype = by_axon[axon_bit_idx]
         output[elem_idx] = payload & 0xFF
 
     return output.reshape(shape)

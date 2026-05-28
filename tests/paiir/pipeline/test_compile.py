@@ -761,13 +761,25 @@ class TestTickParams:
 
     @pytest.mark.parametrize(
         "tick_duration, auto_reset, expected_duration, expected_initial",
-        [(None, None, 0, 1), (100, True, 100, 1), (100, False, 100, 1)],
-        ids=["default", "reset_enabled", "reset_disabled"],
+        [
+            (None, None, 1, 1),
+            (100, None, 100, 100),
+            (None, False, 1, 0),
+            (100, False, 100, 0),
+            (0, True, 0, 0),
+        ],
+        ids=[
+            "default",
+            "duration_only",
+            "auto_reset_only",
+            "reset_disabled",
+            "always_on",
+        ],
     )
     def test_tick_duration_and_auto_reset(
         self, tick_duration, auto_reset, expected_duration, expected_initial
     ):
-        """ANN mode: cores with activation functions get tick_initial=1."""
+        """ANN defaults to one tick but explicit timing kwargs have priority."""
         kwargs = {}
         if tick_duration is not None:
             kwargs["tick_duration"] = tick_duration
@@ -779,15 +791,7 @@ class TestTickParams:
 
         for node in offline_nodes(graph):
             assert node.core_params.tick_duration == expected_duration
-            # Nodes with activation (membrane potential accumulates) need tick_initial=1
-            if isinstance(node, (SequentialOp, AccumulateOp, StandaloneActOp)):
-                assert node.core_params.tick_initial == expected_initial
-            # StandaloneCompOp has no activation, snn_mode=SNN, tick_initial depends on auto_reset
-            elif isinstance(node, StandaloneCompOp):
-                if auto_reset and expected_duration > 0:
-                    assert node.core_params.tick_initial == expected_duration
-                else:
-                    assert node.core_params.tick_initial == 0
+            assert node.core_params.tick_initial == expected_initial
 
 
 class TestCompileConfig:
@@ -800,10 +804,7 @@ class TestCompileConfig:
 
         for node in offline_nodes(graph):
             assert node.core_params.tick_duration == 50
-            if isinstance(node, (SequentialOp, AccumulateOp, StandaloneActOp)):
-                assert node.core_params.tick_initial == 1
-            elif isinstance(node, StandaloneCompOp):
-                assert node.core_params.tick_initial == 0
+            assert node.core_params.tick_initial == 0
 
     def test_explicit_kwarg_overrides_config(self):
 
@@ -819,9 +820,7 @@ class TestCompileConfig:
 
         for node in offline_nodes(graph):
             assert node.core_params.tick_duration == 100
-            # Only nodes with neurons get tick_initial=1
-            if not isinstance(node, StandaloneCompOp):
-                assert node.core_params.tick_initial == 1
+            assert node.core_params.tick_initial == 100
 
 
 class TestStrictMode:

@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 
 
@@ -48,9 +50,6 @@ def get_skew_info(offsets: list[int]):
         last_distance = distances[i]
     ranges = ranges
     return skews, ranges
-
-
-import math
 
 
 def closest_factor(n, partition_num) -> int:

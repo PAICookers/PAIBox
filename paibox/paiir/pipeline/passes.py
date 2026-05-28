@@ -19,7 +19,7 @@ import math
 import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal, TypedDict
+from typing import Literal
 
 import torch
 from paicorelib import AddPotentialMode, DataSign, DataWidth, OutputType, SNNMode
@@ -75,7 +75,6 @@ __all__ = [
     "propagate_signal_semantics",
     "propagate_data_format",
     "specialize_general_adds",
-    "TickOverride",
     "validate_compiled_graph",
     "validate_deployable_graph",
     "validate_graph",
@@ -1937,45 +1936,19 @@ def _get_node_act(node: OfflineCoreOp) -> CoreNeuronV25 | None:
     return act if isinstance(act, CoreNeuronV25) else None
 
 
-class TickOverride(TypedDict, total=False):
-    """Per-node timing override for :func:`assign_tick_params`."""
-
-    tick_start: int
-    tick_duration: int
-    auto_reset: bool
-
-
-def _validate_overrides(graph: PAIIRGraph, overrides: dict[str, TickOverride]) -> None:
-    for name, ovr in overrides.items():
-        if name not in graph.nodes:
-            raise KeyError(
-                f"overrides key '{name}' does not match any node in the graph"
-            )
-        if "tick_start" in ovr and ovr["tick_start"] < 0:
-            raise ValueError(
-                f"overrides['{name}']['tick_start'] must be non-negative, "
-                f"got {ovr['tick_start']}"
-            )
-        if "tick_duration" in ovr and ovr["tick_duration"] < 0:
-            raise ValueError(
-                f"overrides['{name}']['tick_duration'] must be non-negative, "
-                f"got {ovr['tick_duration']}"
-            )
-
-
 def assign_tick_params(
     graph: PAIIRGraph,
-    tick_duration: int = 0,
-    auto_reset: bool = True,
-    overrides: dict[str, TickOverride] | None = None,
+    tick_duration: int | None = None,
+    auto_reset: bool | None = None,
 ) -> None:
-    """Assign timing parameters on every :class:`OfflineCoreOp`."""
-    if tick_duration < 0:
-        raise ValueError(f"'tick_duration' must be non-negative, got {tick_duration}")
-    if overrides is None:
-        overrides = {}
+    """Assign timing parameters on every :class:`OfflineCoreOp`.
 
-    _validate_overrides(graph, overrides)
+    Without explicit timing policy, ANN-mode cores use one work step with
+    automatic reset while SNN-mode cores run continuously. Explicit global
+    timing parameters take priority over compute-mode defaults.
+    """
+    if tick_duration is not None and tick_duration < 0:
+        raise ValueError(f"'tick_duration' must be non-negative, got {tick_duration}")
 
     depth: dict[str, int] = {}
     for name in graph.topo_sort():
@@ -1994,24 +1967,21 @@ def assign_tick_params(
             continue
 
         cp = node.core_params
-        ovr = overrides.get(name, {})
 
-        if "tick_start" in ovr:
-            cp.tick_start = ovr["tick_start"]
-        elif cp.tick_start is None:
-            cp.tick_start = depth[name]
+        cp.tick_start = depth[name]
 
-        if "tick_duration" in ovr:
-            cp.tick_duration = ovr["tick_duration"]
-        elif cp.tick_duration == 0 and tick_duration != 0:
+        if tick_duration is not None:
             cp.tick_duration = tick_duration
-
-        if cp.snn_mode == SNNMode.ANN:
-            cp.tick_initial = 1
+        elif cp.snn_mode == SNNMode.ANN:
+            cp.tick_duration = 1
         else:
-            node_auto_reset = ovr.get("auto_reset", auto_reset)
-            cp.tick_initial = (
-                cp.tick_duration if node_auto_reset and cp.tick_duration > 0 else 0
-            )
+            cp.tick_duration = 0
+
+        node_auto_reset = auto_reset
+        if node_auto_reset is None:
+            node_auto_reset = cp.snn_mode == SNNMode.ANN
+        cp.tick_initial = (
+            cp.tick_duration if node_auto_reset and cp.tick_duration > 0 else 0
+        )
 
         cp.validate_tick_params()

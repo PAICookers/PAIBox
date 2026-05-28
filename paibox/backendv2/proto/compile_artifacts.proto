@@ -14,6 +14,29 @@ message CopyCount {
     optional int32 y = 3;
 }
 
+message TickParams {
+    optional uint32 tick_start = 1;
+    /* 0 means always active; N > 0 means active for N sync_all ticks. */
+    optional uint32 tick_duration = 2;
+    /* 0 means no automatic reset. */
+    optional uint32 tick_initial = 3;
+}
+
+/* DATA payload code type. VOLTAGE outputs leave dtype unset and are int32. */
+message DataType {
+    enum Code {
+        NOT_SET = 0;
+        UINT1 = 1;
+        INT1 = 2;
+        UINT2 = 3;
+        INT2 = 4;
+        UINT4 = 5;
+        INT4 = 6;
+        UINT8 = 7;
+        INT8 = 8;
+    }
+}
+
 message InputEntry {
     /* Logical element index within the exported input tensor. */
     optional uint32 elem_idx = 1;
@@ -24,8 +47,10 @@ message InputEntry {
     optional uint32 target_lcn = 6;
     /* Logical copy id introduced by tiling/folding; unrelated to Copy_XY / Copy_X / Copy_Y. */
     optional uint32 copy_id = 7;
-    /* Bit width of the exported logical element. */
+    /* Payload bit width of the exported logical element. */
     optional uint32 bit_width = 8;
+    /* Data type interpreted by the first real consumer compute core. */
+    optional DataType.Code dtype = 9;
 }
 
 message OutputEntry {
@@ -36,10 +61,13 @@ message OutputEntry {
 
     optional uint32 elem_idx = 1;
     optional uint32 copy_id = 2;
+    /* Payload bit width. VOLTAGE is fixed to 32-bit membrane voltage. */
     optional uint32 bit_width = 3;
     /* DATA: output axon bit index. VOLTAGE: membrane voltage base index. */
     optional uint32 axon_bit_idx = 4;
     optional OutputKind kind = 5;
+    /* DATA output type. VOLTAGE outputs are always int32 and leave this unset. */
+    optional DataType.Code dtype = 6;
 }
 
 message Shape {
@@ -50,12 +78,16 @@ message InputTensorMapping {
     string name = 1;
     Shape shape = 2;
     repeated InputEntry entries = 3;
+    /* Compute-core tick parameters for this graph input tensor. */
+    TickParams tick = 4;
 }
 
 message OutputTensorMapping {
     string name = 1;
     Shape shape = 2;
     repeated OutputEntry entries = 3;
+    /* Compute-core tick parameters for this graph output tensor. */
+    TickParams tick = 4;
 }
 
 message InputTensorMappings {
@@ -64,7 +96,14 @@ message InputTensorMappings {
 
 message OutputTensorMappings {
     repeated OutputTensorMapping items = 1;
-    optional uint32 target_lcn = 2;
+    optional uint32 target_lcn = 2; // Fixed 128X
+}
+
+message CoreTick {
+    CoreOffset core_offset = 1;
+    /* PAIIR nodes deployed on this physical compute core. */
+    repeated string nodes = 2;
+    TickParams tick = 3;
 }
 
 message ThreadIOMapping {
@@ -73,6 +112,7 @@ message ThreadIOMapping {
     CoreOffset root_core_offset = 2;
     InputTensorMappings input_mappings = 3;
     OutputTensorMappings output_mappings = 4;
+    repeated CoreTick core_ticks = 5;
 }
 
 message IOMapping {

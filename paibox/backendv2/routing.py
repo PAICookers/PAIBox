@@ -919,8 +919,8 @@ class InputGroup(Group, SourceGroup[InputElem, InNode]):
         Group.__init__(self)
         SourceGroup.__init__(self, raw_elems, nodes)
         self.name: str = f"InputG_{self.id}"
-        self.dest_infos: dict[SourceElem, OfflineNeuDestInfoV2] = {}
-        self.dest_lcn: dict[SourceElem, LCN_EX] = {}
+        self.dest_infos: dict[InputElem, OfflineNeuDestInfoV2] = {}
+        self.dest_lcn: dict[InputElem, LCN_EX] = {}
         self.thread_id: int = 0
 
     def add_elem(self, elem: SourceElem) -> SourceElem | None:

@@ -1,29 +1,25 @@
 import os
-import shutil
-from contextlib import ExitStack
 from pathlib import Path
-from typing import Literal, TextIO
 
-import numpy as np
-from google.protobuf.json_format import MessageToJson
-from paicorelib import CoordZXYOffset, FrameArrayType
+from paicorelib import CoordZXYOffset
 
 from paibox.paiir import PAIIRGraph
-from paibox.paiir.ir.signal_domain import SignalDomain
 
 from .coreplacement import CorePlacement
-from .frame_cheader import write_c_array_close, write_c_array_decl
+from .export.cheader import export_cheader_files, export_cheader_merged
+from .export.npy import export_frame_npy
+from .export.proto import export_compile_artifacts
+from .export.text import export_debug_txt_files, export_debug_txt_merged
+from .export.utils import (
+    LiteralFormat,
+    TargetPlatform,
+    WordOrder,
+    make_frame_records,
+    resolve_platform_exports,
+)
 from .global_signal import set_global_signal
 from .group_tile import tile_groups
 from .op_node import AllNode, InputElem, Neuron, RemapElem, build_nodes
-from .proto import PROTO_SCHEMA_VERSION
-from .proto.compile_artifacts_pb2 import (
-    CompileArtifacts,
-    ConfigFrames,
-    InputTensorMapping,
-    OutputEntry,
-    OutputTensorMapping,
-)
 from .rg_build import build_groups
 from .route_solver import route_solve
 from .routing import (
@@ -35,115 +31,6 @@ from .routing import (
     toposort_for_rg,
 )
 
-LiteralFormat = Literal["bin", "hex"]
-WordOrder = Literal["high_first", "low_first"]
-TargetPlatform = Literal["x86", "riscv", "all"]
-
-
-def _set_output_entry_kind(output_entry: OutputEntry, elem: SourceElem) -> None:
-    domain = elem.target.raw_node.signal_semantics.output_domain
-    if domain is SignalDomain.VALUE:
-        kind = OutputEntry.DATA
-    else:
-        kind = OutputEntry.VOLTAGE
-
-    if kind == OutputEntry.DATA:
-        if elem.output_bit_num > 8:
-            raise ValueError(
-                f"DATA output {elem} has unsupported bit width "
-                f"{elem.output_bit_num}; expected <= 8."
-            )
-    else:
-        if elem.output_bit_num != 32:
-            raise ValueError(
-                f"VOLTAGE output {elem} has bit width "
-                f"{elem.output_bit_num}; expected 32."
-            )
-
-    output_entry.kind = kind
-
-
-def export_single_framearray(
-    frame_array: FrameArrayType, file: TextIO, prefix: str = ""
-) -> None:
-    lines = []
-    for frame in frame_array:
-        h = f"{frame:016x}"
-        lines.append(f"{prefix}{'_'.join(h[i : i + 4] for i in range(0, 16, 4))}")
-    if lines:
-        file.write("\n".join(lines) + "\n")
-
-
-def export_framearray_to_bit(
-    frame_array: FrameArrayType,
-    file: TextIO,
-    prefix: str = "",
-    literal_format: LiteralFormat = "bin",
-) -> None:
-    if literal_format == "bin":
-        h_fmt = "0b{:032b}"
-        l_fmt = "0b{:032b}"
-    elif literal_format == "hex":
-        h_fmt = "0x{:08X}"
-        l_fmt = "0x{:08X}"
-    else:
-        raise ValueError("literal_format must be 'bin' or 'hex'")
-
-    lines = [
-        f"{prefix}{h_fmt.format((f >> 32) & 0xFFFFFFFF)},{l_fmt.format(f & 0xFFFFFFFF)},"
-        for f in frame_array
-    ]
-    if lines:
-        file.write("\n".join(lines) + "\n")
-
-
-def export_framearray_to_int32(
-    frame_array: FrameArrayType, word_order: WordOrder = "high_first"
-) -> list[int]:
-    n = len(frame_array)
-    result = [0] * (n * 2)
-    for i, f in enumerate(frame_array):
-        lo = f & 0xFFFFFFFF
-        hi = (f >> 32) & 0xFFFFFFFF
-        if word_order == "high_first":
-            result[i * 2] = hi
-            result[i * 2 + 1] = lo
-        else:
-            result[i * 2] = lo
-            result[i * 2 + 1] = hi
-    return result
-
-
-def _for_each_frame_type(
-    frames: tuple[FrameArrayType, FrameArrayType | None, FrameArrayType | None],
-    callback,
-) -> None:
-    for idx, frame_array in enumerate(frames, start=1):
-        if frame_array is not None:
-            callback(idx, frame_array)
-
-
-def _resolve_platform_exports(
-    target_platform: TargetPlatform, debug: bool
-) -> tuple[bool, bool]:
-    if target_platform == "x86":
-        export_x86 = True
-        export_riscv = False
-    elif target_platform == "riscv":
-        export_x86 = False
-        export_riscv = True
-    elif target_platform == "all":
-        export_x86 = True
-        export_riscv = True
-    else:
-        raise ValueError("target_platform must be 'x86', 'riscv', or 'all'")
-
-    if debug:
-        export_x86 = True
-        export_riscv = True
-
-    return export_x86, export_riscv
-
 
 class Mapper:
     def __init__(self) -> None:
@@ -154,10 +41,6 @@ class Mapper:
         self.input_groups: list[InputGroup] = []
         self.coreplacements: list[CorePlacement] = []
         self.global_starts: dict[int, CoordZXYOffset] = {}
-
-    def _iter_frame_triplets(self):
-        for cp in self.coreplacements:
-            yield cp, cp.to_frame()
 
     def generate_routing_groups(self, pai_graph: PAIIRGraph) -> None:
         self.nodes = build_nodes(pai_graph)
@@ -268,261 +151,6 @@ class Mapper:
         for rg in self.routing_groups:
             rg.set_auto_core_config()
 
-    def export_cheader_file(
-        self, output_path: str | Path, literal_format: LiteralFormat = "bin"
-    ) -> None:
-        """Export per-type config frames as C header arrays."""
-        out = Path(output_path)
-        out.mkdir(parents=True, exist_ok=True)
-        paths = [
-            (out / "cfg_frame1.h", "config_frame1"),
-            (out / "cfg_frame2.h", "config_frame2"),
-            (out / "cfg_frame3.h", "config_frame3"),
-        ]
-        with ExitStack() as stack:
-            files = [stack.enter_context(p.open("w")) for p, _ in paths]
-            for f, (_, name) in zip(files, paths):
-                write_c_array_decl(f, name)
-            for _, frames in self._iter_frame_triplets():
-                _for_each_frame_type(
-                    frames,
-                    lambda idx, frame_array: export_framearray_to_bit(
-                        frame_array, files[idx - 1], "\t", literal_format
-                    ),
-                )
-            for f in files:
-                write_c_array_close(f)
-
-    def export_cheader_merge(
-        self, output_path: str | Path, literal_format: LiteralFormat = "bin"
-    ) -> None:
-        """Export all config frame types into one merged C header array."""
-        out = Path(output_path)
-        out.mkdir(parents=True, exist_ok=True)
-        frame_path = out / "cfg_frames.h"
-        with frame_path.open("w") as frame_file:
-            write_c_array_decl(frame_file, "config_frame")
-            for _, frames in self._iter_frame_triplets():
-                _for_each_frame_type(
-                    frames,
-                    lambda _, frame_array: export_framearray_to_bit(
-                        frame_array, frame_file, "\t", literal_format
-                    ),
-                )
-            write_c_array_close(frame_file)
-
-    def export_merge(self, output_path: str | Path) -> None:
-        """Export all config frame types into one human-readable text file."""
-        out = Path(output_path)
-        out.mkdir(parents=True, exist_ok=True)
-        frame_path = out / "cfg_frames.txt"
-        with frame_path.open("w") as frame_file:
-            for cp, frames in self._iter_frame_triplets():
-                frame_file.write(
-                    f"# Core at coord (X,Y)=({cp.coord.x},{cp.coord.y}):\n"
-                )
-                _for_each_frame_type(
-                    frames,
-                    lambda idx, frame_array: (
-                        frame_file.write(f"\ttype{idx}:\n"),
-                        export_single_framearray(
-                            frame_array, frame_file, prefix="\t\t0x"
-                        ),
-                    ),
-                )
-
-    def export_txt(self, output_path: str | Path) -> None:
-        """Export per-type config frames as human-readable text files."""
-        out = Path(output_path)
-        out.mkdir(parents=True, exist_ok=True)
-        frame1_path = out / "cfg_frame1.txt"
-        frame2_path = out / "cfg_frame2.txt"
-        frame3_path = out / "cfg_frame3.txt"
-        with (
-            frame1_path.open("w") as frame1_file,
-            frame2_path.open("w") as frame2_file,
-            frame3_path.open("w") as frame3_file,
-        ):
-            files = [frame1_file, frame2_file, frame3_file]
-            for cp, frames in self._iter_frame_triplets():
-                coord_line = f"# Core at coord (X,Y)=({cp.coord.x},{cp.coord.y}):\n"
-                frame1_file.write(coord_line)
-                frame2_file.write(coord_line)
-                frame3_file.write(coord_line)
-                _for_each_frame_type(
-                    frames,
-                    lambda idx, frame_array: export_single_framearray(
-                        frame_array, files[idx - 1], prefix="\t0x"
-                    ),
-                )
-
-    def export_proto(
-        self,
-        output_path: str | Path,
-        target_platform: TargetPlatform = "riscv",
-        word_order: WordOrder = "high_first",
-        export_python: bool = True,
-        debug: bool = False,
-    ) -> Path:
-        """Export protobuf artifacts for config frames and I/O mappings."""
-        export_x86, _ = _resolve_platform_exports(target_platform, debug)
-
-        proto_dir = Path(__file__).parent / "proto"
-        proto_out_dir = Path(output_path) / "proto"
-        proto_out_dir.mkdir(parents=True, exist_ok=True)
-
-        pb_path = proto_out_dir / "config.pb"
-        pb_text_path = proto_out_dir / "config.json"
-
-        proto_files = ["compile_artifacts.proto"]
-        if export_python and export_x86:
-            proto_files.extend(
-                ["compile_artifacts_pb2.py", "compile_artifacts_pb2.pyi"]
-            )
-
-        for file_name in proto_files:
-            src_file = proto_dir / file_name
-            if not src_file.exists():
-                raise FileNotFoundError(src_file)
-            shutil.copy2(src_file, proto_out_dir / file_name)
-
-        artifacts = CompileArtifacts()
-        artifacts.schema_version = PROTO_SCHEMA_VERSION
-        io_mapping = artifacts.io_mapping
-
-        for thread_id, global_start in self.global_starts.items():
-            thread_mapping = io_mapping.threads.add()
-            thread_mapping.thread_id = thread_id
-            thread_mapping.root_core_offset.xy = global_start.z
-            thread_mapping.root_core_offset.x = global_start.x
-            thread_mapping.root_core_offset.y = global_start.y
-
-            input_mappings_by_name: dict[str, InputTensorMapping] = {}
-
-            for in_grp in self.input_groups:
-                if in_grp.thread_id != thread_id:
-                    continue
-                for elem, dest in in_grp.dest_infos.items():
-                    input_name = elem.target.raw_node.name
-                    if input_name not in input_mappings_by_name:
-                        input_mapping = thread_mapping.input_mappings.items.add()
-                        input_mapping.name = input_name
-                        input_mapping.shape.size.extend(list(elem.target.shape))
-                        input_mappings_by_name[input_name] = input_mapping
-
-                    input_mapping = input_mappings_by_name[input_name]
-                    input_entry = input_mapping.entries.add()
-                    input_entry.elem_idx = elem.index.idx
-                    input_entry.copy_id = elem.index.copy_id
-                    input_entry.bit_width = elem.output_bit_num
-                    input_entry.tick_relative = dest.tick_relative
-                    input_entry.addr_axon = dest.addr_axon
-                    input_entry.core_offset.xy = dest.addr_core_xy
-                    input_entry.core_offset.x = dest.addr_core_x
-                    input_entry.core_offset.y = dest.addr_core_y
-                    input_entry.copy_count.xy = dest.addr_copy_xy
-                    input_entry.copy_count.x = dest.addr_copy_x
-                    input_entry.copy_count.y = dest.addr_copy_y
-                    input_entry.target_lcn = in_grp.dest_lcn[elem]
-
-            output_mappings_by_name: dict[str, OutputTensorMapping] = {}
-            for out_grp in self.output_groups:
-                if out_grp.thread_id != thread_id:
-                    continue
-                thread_mapping.output_mappings.target_lcn = out_grp.lcn
-                for axon_bit_idx, elem in sorted(
-                    out_grp.axon_bit_allocator.axon_infos, key=lambda item: item[0]
-                ):
-                    output_name = elem.target.raw_node.name
-                    if output_name not in output_mappings_by_name:
-                        output_mapping = thread_mapping.output_mappings.items.add()
-                        output_mapping.name = output_name
-                        output_mapping.shape.size.extend(list(elem.target.shape))
-                        output_mappings_by_name[output_name] = output_mapping
-
-                    output_mapping = output_mappings_by_name[output_name]
-                    output_entry = output_mapping.entries.add()
-                    output_entry.elem_idx = elem.index.idx
-                    output_entry.copy_id = elem.index.copy_id
-                    output_entry.bit_width = elem.output_bit_num
-                    output_entry.axon_bit_idx = axon_bit_idx
-                    _set_output_entry_kind(output_entry, elem)
-
-        config_words: list[int] = []
-        for _, frames in self._iter_frame_triplets():
-            _for_each_frame_type(
-                frames,
-                lambda _, frame_array: config_words.extend(
-                    export_framearray_to_int32(frame_array, word_order)
-                ),
-            )
-        artifacts.config_frames.words.extend(config_words)
-
-        artifacts.config_frames.word_order = (
-            ConfigFrames.HIGH_FIRST
-            if word_order == "high_first"
-            else ConfigFrames.LOW_FIRST
-        )
-
-        pb_path.write_bytes(artifacts.SerializeToString())
-        if debug:
-            pb_text_path.write_text(
-                MessageToJson(artifacts, always_print_fields_with_no_presence=True)
-            )
-
-        return pb_path
-
-    def export_frame_npy(
-        self, output_path: str | Path, export_merged_frames: bool = True
-    ) -> None:
-        """Export frame arrays as explicit little-endian uint64 NumPy files."""
-        out = Path(output_path)
-        out.mkdir(parents=True, exist_ok=True)
-        typed_parts: list[list[FrameArrayType]] = [[], [], []]
-        typed_counts = [0, 0, 0]
-        merged_parts: list[FrameArrayType] | None = [] if export_merged_frames else None
-        merged_count = 0
-        for _, frames in self._iter_frame_triplets():
-            _for_each_frame_type(
-                frames,
-                lambda idx, frame_array: (
-                    typed_parts[idx - 1].append(frame_array),
-                    typed_counts.__setitem__(
-                        idx - 1, typed_counts[idx - 1] + len(frame_array)
-                    ),
-                    (
-                        merged_parts.append(frame_array)
-                        if merged_parts is not None
-                        else None
-                    ),
-                ),
-            )
-            if merged_parts is not None:
-                merged_count += sum(
-                    len(frame_array)
-                    for frame_array in frames
-                    if frame_array is not None
-                )
-
-        for idx, parts in enumerate(typed_parts, start=1):
-            if parts:
-                frame_array = np.zeros(typed_counts[idx - 1], dtype="<u8")
-                cursor = 0
-                for part in parts:
-                    n = len(part)
-                    frame_array[cursor : cursor + n] = part
-                    cursor += n
-                np.save(out / f"cfg_frame{idx}.npy", frame_array)
-
-        if merged_parts:
-            frame_array = np.zeros(merged_count, dtype="<u8")
-            cursor = 0
-            for part in merged_parts:
-                n = len(part)
-                frame_array[cursor : cursor + n] = part
-                cursor += n
-            np.save(out / "cfg_frames.npy", frame_array)
-
     def export_artifacts(
         self,
         output_path: str | Path,
@@ -536,22 +164,35 @@ class Mapper:
         """Export all requested backend artifacts to the output directory."""
         out = Path(output_path)
         out.mkdir(parents=True, exist_ok=True)
-        export_x86, export_riscv = _resolve_platform_exports(target_platform, debug)
+        export_x86, export_riscv = resolve_platform_exports(target_platform, debug)
+        frame_records = make_frame_records(self.coreplacements)
 
         if debug:
-            self.export_txt(out)
+            export_debug_txt_files(out, frame_records)
             if export_merged_frames:
-                self.export_merge(out)
+                export_debug_txt_merged(out, frame_records)
 
         if export_x86:
-            self.export_frame_npy(out, export_merged_frames)
+            export_frame_npy(out, frame_records, export_merged_frames)
 
         if export_riscv:
-            self.export_cheader_file(out, literal_format)
+            export_cheader_files(out, frame_records, literal_format)
             if export_merged_frames:
-                self.export_cheader_merge(out, literal_format)
+                export_cheader_merged(out, frame_records, literal_format)
 
-        self.export_proto(out, target_platform, word_order, export_proto_python, debug)
+        export_compile_artifacts(
+            out,
+            target_platform,
+            word_order,
+            export_proto_python,
+            debug,
+            self.groups,
+            self.input_groups,
+            self.output_groups,
+            self.coreplacements,
+            self.global_starts,
+            frame_records,
+        )
 
     def compile(
         self,
@@ -587,10 +228,10 @@ class Mapper:
             export_merged_frames: Whether to also emit merged frame artifacts
                 that concatenate frame types 1, 2, and 3 into one file per
                 platform or debug view.
-            debug: Whether to emit human-readable debug artifacts such as
-                ``cfg_frame*.txt``, merged text frames, and ``proto/config.json``.
-                When enabled, x86 and riscv platform artifacts are both
-                exported regardless of ``target_platform``.
+            debug: Whether to emit extra debug artifacts such as
+                human-readable ``cfg_frame*.txt`` / ``cfg_frames.txt`` and
+                ``proto/config.json``. When enabled, x86 and riscv platform
+                artifacts are both exported regardless of ``target_platform``.
             export_proto_python: Whether to copy ``compile_artifacts_pb2.py``
                 and ``compile_artifacts_pb2.pyi`` into the exported ``proto/``
                 directory when x86 artifacts are part of the export set.
