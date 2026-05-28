@@ -84,6 +84,8 @@ register_module(MyQuantConv, to_canonical_conv)
 
 SpikingJelly `activation_based.layer` wrapper 是另一类前端入口。当前支持的 wrapper 包括 `layer.Conv1d/2d`、`layer.Linear`、`layer.MaxPool1d/2d`、`layer.AvgPool1d/2d`、`layer.AdaptiveAvgPool1d/2d`、`layer.Flatten`；这些 wrapper 会按对应普通模块路径进入 PAIIR。注意这里讨论的是 SpikingJelly `activation_based.layer` 模块内实际存在的 wrapper；原生 `torch.nn` 模块支持属于另一类入口。
 
+普通 `AvgPool1d/2d` 与 `MaxPool1d/2d` 当前不支持 `ceil_mode=True`。该属性会导致后端部署语义不成立，因此 lowering 阶段统一抛出 `UnsupportedOpError`，不走 `strict=False` 的 warning/bypass 路径。通过 `register_module(...)` 返回的 canonical pooling 模块也遵循同一硬错误规则。
+
 ### 自定义神经元或 LUT 激活
 
 `register_neuron(...)` 是面向神经元/激活的兼容入口。converter 可以返回 `CoreNeuronV25`，也可以返回 `LutActivation`；后者会被包装为 `ANNNodeV25(lut)`。
@@ -141,13 +143,17 @@ PyTorch 模型
     │
     ▼  ⑥ propagate_data_format()    — 两阶段数据格式推理（输出/权重 → 输入传播）
     │
-    ▼  ⑦ assign_tick_params()       — 基于 DAG 深度分配时序参数
+    ▼  ⑦ rewrite_delayed_avgpool_division() — 可选 AvgPool 延迟除法改写
     │
-    ▼  ⑧ calibrate_avgpool_thresholds() — 可选 AvgPool 阈值细化
+    ▼  ⑧ rewrite_standalone_avgpools() — standalone AvgPool 后处理，含输出边界近似
     │
-    ▼  ⑨ validate_compiled_graph()  — 编译完成后的结构/元信息校验
+    ▼  ⑨ assign_tick_params()       — 基于 DAG 深度分配时序参数
     │
-    ▼  ⑩ validate_deployable_graph() — backend-ready 子集与契约校验
+    ▼  ⑩ calibrate_avgpool_thresholds() — 可选 AvgPool 阈值细化
+    │
+    ▼  ⑪ validate_compiled_graph()  — 编译完成后的结构/元信息校验
+    │
+    ▼  ⑫ validate_deployable_graph() — backend-ready 子集与契约校验
     │
     ▼
 PAIIRGraph (backend-ready，可交付后端)
@@ -198,8 +204,31 @@ graph = compile_to_paiir(model, x, compile_config=cfg, strict=False)
 | `strict`                     | `bool`                          | True = 遇到不支持的算子时报错；False = 警告并跳过   |
 | `enable_avgpool_calibration` | `bool \| None`                  | 是否启用共享核 AvgPool+LIF 阈值细化，默认关闭       |
 | `enable_split_avgpool_lif`   | `bool \| None`                  | 是否允许条件式 AvgPool+LIF 分核部署，默认关闭       |
+| `enable_delayed_avgpool_division` | `bool \| None`             | 是否启用 AvgPool 延迟除法改写，默认开启             |
+| `output_approx`              | `"default" \| "sum_approx_if_avgpool" \| None` | 输出边界近似策略，默认保持标准策略 |
 
 `tick_duration=None` / `auto_reset=None` 表示未显式指定时序策略。此时 ANN 模式计算核默认 `tick_duration=1`、`tick_initial=1`，SNN 模式计算核默认 `tick_duration=0`、`tick_initial=0`。通过关键字参数或 `CompileConfig` 显式传入的 `tick_duration` / `auto_reset` 优先于 ANN/SNN 模式默认；关键字参数优先级高于 `CompileConfig`。
+
+### 输出边界 AvgPool 近似
+
+`output_approx="sum_approx_if_avgpool"` 是显式 opt-in 的输出层策略。它只处理直接流向 `OutputNode` 的 `AvgPool1d/2d`，允许中间存在格式透明 routing 节点；SpikingJelly `VotingLayer` lowering 后得到的 `AvgPool1d` 也属于这一类。
+
+满足条件时，输出层 `AvgPool` 会被改写为：
+
+```text
+SequentialOp(SumPool1d/2d, ANNNodeV25(identity LUT))
+```
+
+后端看到的是普通 VALUE-domain 离线核输出，数据格式由 identity LUT 的输出范围推导。例如 `VotingLayer(10)` 的输出可成为范围 `[0, 10]` 的 `u4 DATA`。但这个输出不再是原始平均值，而是未归一化的 sum/count。
+
+当前 CPU 侧责任没有结构化写入 PAIIR 图或 proto。编译期会通过 `OutputApproxWarning` 明确提示：
+
+- 原输出层节点和原算子类型
+- 实际导出形式，例如 `SumPool1d + identity LUT`
+- 导出 code range 和 DATA bit width
+- 应用侧 CPU 需要除以 logical divisor 恢复平均值，或按任务语义累计 count 后再做 `argmax`
+
+后续如果引入可部署的 `CPUOp` 或导出侧 CPU task 描述，应把这段 divide/accumulate 职责从 warning 提升为结构化图/导出元数据。
 
 ### 分步编译
 
