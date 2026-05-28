@@ -31,6 +31,7 @@ from torch import Tensor, nn
 from ..ir.graph import PAIIRGraph
 from ..lowering.converter import torch_to_paiir
 from .avgpool import rewrite_delayed_avgpool_division, rewrite_standalone_avgpools
+from .avgpool.standalone_rewrite import OutputApprox
 from .data_format import DataFormat
 from .layout_chain_canonicalization import canonicalize_layout_chains
 from .layout_cross_node_elision import commute_pre_activation_transforms
@@ -56,6 +57,28 @@ class CompileConfig:
 
     Keyword arguments passed directly to :func:`compile_to_paiir` override the
     matching values in this object when they are not ``None``.
+
+    Attributes:
+        tick_duration: Global work duration for every compute core. ``None``
+            uses the execution-mode default; ``0`` keeps cores always active;
+            a positive value activates each core for that many sync steps.
+        auto_reset: Global automatic-reset policy. ``None`` uses the
+            execution-mode default; true resets state at finite work-window
+            boundaries; false leaves state externally controlled.
+        input_formats: Optional data-format overrides keyed by ``InputNode``
+            name. Each value is a ``(DataSign, DataWidth)`` pair.
+        enable_avgpool_calibration: Enable experimental threshold calibration
+            for shared-core AvgPool+LIF deployments.
+        enable_split_avgpool_lif: Enable experimental split-core deployment
+            for supported AvgPool+LIF chains.
+        enable_delayed_avgpool_division: Rewrite eligible AvgPool chains to
+            keep integer sums and materialize division at a later exact endpoint.
+        output_approx: Output-boundary approximation strategy. ``"default"``
+            keeps the standard policy; ``"sum_approx_if_avgpool"`` exports
+            eligible output-layer AvgPool nodes as unnormalized
+            ``SumPool + identity LUT`` counts and emits ``OutputApproxWarning``.
+            The application CPU must divide or accumulate those counts according
+            to task semantics.
     """
 
     tick_duration: int | None = None
@@ -64,6 +87,7 @@ class CompileConfig:
     enable_avgpool_calibration: bool = False
     enable_split_avgpool_lif: bool = False
     enable_delayed_avgpool_division: bool = True
+    output_approx: OutputApprox = "default"
 
 
 def compile_to_paiir(
@@ -78,6 +102,7 @@ def compile_to_paiir(
     enable_avgpool_calibration: bool | None = None,
     enable_split_avgpool_lif: bool | None = None,
     enable_delayed_avgpool_division: bool | None = None,
+    output_approx: OutputApprox | None = None,
 ) -> PAIIRGraph:
     """Compile a PyTorch model to a ready-to-deploy :class:`PAIIRGraph`.
 
@@ -116,6 +141,14 @@ def compile_to_paiir(
             split-core deployment.
         enable_delayed_avgpool_division: Optional override for the delayed
             AvgPool division rewrite.
+        output_approx: Optional output-boundary approximation strategy.
+            ``"default"`` preserves the standard rewrite policy.
+            ``"sum_approx_if_avgpool"`` rewrites eligible output-layer
+            ``AvgPool1d`` / ``AvgPool2d`` nodes to unnormalized
+            ``SumPool + identity LUT`` counts and emits an
+            :class:`~paibox.paiir.exceptions.OutputApproxWarning`. CPU-side
+            divide/accumulate postprocessing is currently an application
+            responsibility rather than a structured graph node.
 
     Timing defaults:
         If neither keyword arguments nor ``compile_config`` specify timing,
@@ -168,6 +201,7 @@ def compile_to_paiir(
         if enable_delayed_avgpool_division is not None
         else cfg.enable_delayed_avgpool_division
     )
+    _output_approx = output_approx if output_approx is not None else cfg.output_approx
 
     graph = torch_to_paiir(
         model, *sample_inputs, concrete_args=concrete_args, strict=strict
@@ -182,7 +216,7 @@ def compile_to_paiir(
     graph = _run_post_fusion_rewrite_phase(
         graph,
         _input_formats,
-        _post_fusion_rewrite_passes(_enable_delayed_avgpool_division),
+        _post_fusion_rewrite_passes(_enable_delayed_avgpool_division, _output_approx),
     )
 
     assign_tick_params(graph, _tick_duration, _auto_reset)
@@ -216,7 +250,7 @@ def _run_pre_fusion_rewrite_phase(graph: PAIIRGraph, max_rounds: int = 4) -> PAI
 
 
 def _post_fusion_rewrite_passes(
-    enable_delayed_avgpool_division: bool,
+    enable_delayed_avgpool_division: bool, output_approx: OutputApprox
 ) -> tuple[RewritePass, ...]:
     """Return the ordered post-fusion rewrite passes."""
     passes: list[RewritePass] = []
@@ -227,7 +261,10 @@ def _post_fusion_rewrite_passes(
             )
         )
     passes.append(
-        RewritePass("rewrite_standalone_avgpools", rewrite_standalone_avgpools)
+        RewritePass(
+            "rewrite_standalone_avgpools",
+            lambda graph: rewrite_standalone_avgpools(graph, output_approx),
+        )
     )
     return tuple(passes)
 

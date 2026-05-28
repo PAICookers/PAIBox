@@ -1,6 +1,7 @@
 """Tests for lowering-layer converter behavior."""
 
 import warnings
+from collections.abc import Callable
 
 import pytest
 import torch
@@ -79,6 +80,16 @@ class SupportedNoPaddingCountIncludePadAvgPool2d(nn.Module):
         return self.pool(x)
 
 
+class MaxPoolReturnIndicesValuesOnly(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.pool = nn.MaxPool2d(2, return_indices=True)
+
+    def forward(self, x):
+        values, _indices = self.pool(x)
+        return values
+
+
 class TestStrictMode:
     """Test strict mode for unsupported operators."""
 
@@ -117,6 +128,54 @@ class TestStrictMode:
             and isinstance(node.comp, nn.AvgPool2d)
         ]
         assert len(pool_nodes) == 1
+
+    @pytest.mark.parametrize(
+        ("pool_factory", "sample_factory"),
+        [
+            pytest.param(
+                lambda: nn.AvgPool1d(3, stride=2, ceil_mode=True),
+                lambda: torch.randn(1, 3, 8),
+                id="avgpool1d",
+            ),
+            pytest.param(
+                lambda: nn.AvgPool2d(3, stride=2, ceil_mode=True),
+                make_img_3ch_8x8,
+                id="avgpool2d",
+            ),
+            pytest.param(
+                lambda: nn.MaxPool1d(3, stride=2, ceil_mode=True),
+                lambda: torch.randn(1, 3, 8),
+                id="maxpool1d",
+            ),
+            pytest.param(
+                lambda: nn.MaxPool2d(3, stride=2, ceil_mode=True),
+                make_img_3ch_8x8,
+                id="maxpool2d",
+            ),
+        ],
+    )
+    @pytest.mark.parametrize("strict", [True, False], ids=["strict", "non_strict"])
+    def test_ceil_mode_pooling_is_hard_error(
+        self,
+        pool_factory: Callable[[], nn.Module],
+        sample_factory: Callable[[], Tensor],
+        strict: bool,
+    ):
+        model = nn.Sequential(pool_factory()).eval()
+
+        with pytest.raises(UnsupportedOpError, match="ceil_mode=True"):
+            torch_to_paiir(model, sample_factory(), strict=strict)
+
+    def test_strict_mode_rejects_maxpool_return_indices(self):
+        model = MaxPoolReturnIndicesValuesOnly()
+        with pytest.raises(UnsupportedOpError, match="return_indices=True"):
+            torch_to_paiir(model, make_img_3ch_8x8(), strict=True)
+
+    def test_non_strict_mode_warns_for_maxpool_return_indices(self):
+        model = MaxPoolReturnIndicesValuesOnly()
+        with pytest.warns(UnsupportedOpWarning, match="return_indices=True"):
+            graph = torch_to_paiir(model, make_img_3ch_8x8(), strict=False)
+        assert len(graph.nodes) > 0
 
 
 class TestPadLowering:
@@ -475,6 +534,16 @@ class TestRegisterCanonicalModule:
         register_module(ExplicitQuantConv, _to_canonical_conv2d)
         with pytest.raises(ValueError, match="already registered"):
             register_module(ExplicitQuantConv, _to_canonical_conv2d)
+
+    def test_register_canonical_module_rejects_ceil_mode_pool(self):
+        class CustomPool(nn.Module):
+            def forward(self, x):
+                return x
+
+        register_module(CustomPool, lambda _: nn.AvgPool2d(3, 2, ceil_mode=True))
+
+        with pytest.raises(UnsupportedOpError, match="ceil_mode=True"):
+            torch_to_paiir(CustomPool().eval(), make_img_3ch_8x8(), strict=False)
 
     def test_register_canonical_module_preempts_unsupported_sj_layer_guard(self):
         class Model(nn.Module):

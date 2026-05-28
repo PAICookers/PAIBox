@@ -43,9 +43,23 @@ class TestAvgPoolUtils:
         )
         assert torch.equal(actual, expected)
 
+    def test_sumpool2d_respects_stride(self):
+        pool = SumPool2d(kernel_size=3, stride=3)
+        x = torch.arange(1, 37, dtype=torch.float32).reshape(1, 1, 6, 6)
+        actual = pool(x)
+        expected = torch.tensor([[[[72.0, 99.0], [234.0, 261.0]]]])
+        assert torch.equal(actual, expected)
+
     def test_sumpool1d_supports_dilation(self):
         pool = SumPool1d(kernel_size=3, stride=1, dilation=2)
         x = torch.arange(1, 8, dtype=torch.float32).reshape(1, 1, 7)
         actual = pool(x)
         expected = torch.tensor([[[9.0, 12.0, 15.0]]])
+        assert torch.equal(actual, expected)
+
+    def test_sumpool1d_respects_stride(self):
+        pool = SumPool1d(kernel_size=10, stride=10)
+        x = torch.arange(1, 111, dtype=torch.float32).reshape(1, 1, 110)
+        actual = pool(x)
+        expected = torch.arange(55, 1101, 100, dtype=torch.float32).reshape(1, 1, 11)
         assert torch.equal(actual, expected)

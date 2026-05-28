@@ -110,6 +110,15 @@ class AvgPool2dWrapper(nn.Module):
         return self.pool(x)
 
 
+class Pool2dWrapper(nn.Module):
+    def __init__(self, pool: nn.Module) -> None:
+        super().__init__()
+        self.pool = pool
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.pool(x)
+
+
 class SpikingJellyLayerCompileSmoke(nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -856,6 +865,30 @@ class TestStrictMode:
             and isinstance(node.comp, nn.AvgPool2d)
         ]
         assert len(pool_nodes) == 1
+
+    @pytest.mark.parametrize(
+        "pool_factory",
+        [
+            pytest.param(
+                lambda: nn.AvgPool2d(3, stride=2, ceil_mode=True),
+                id="avgpool2d",
+            ),
+            pytest.param(
+                lambda: nn.MaxPool2d(3, stride=2, ceil_mode=True),
+                id="maxpool2d",
+            ),
+        ],
+    )
+    @pytest.mark.parametrize("strict", [True, False], ids=["strict", "non_strict"])
+    def test_ceil_mode_pooling_is_hard_error(
+        self, pool_factory: Callable[[], nn.Module], strict: bool
+    ):
+        with pytest.raises(UnsupportedOpError, match="ceil_mode=True"):
+            compile_to_paiir(
+                Pool2dWrapper(pool_factory()),
+                make_img_3ch_8x8(),
+                strict=strict,
+            )
 
 
 class FunctionalDirectConv(nn.Module):

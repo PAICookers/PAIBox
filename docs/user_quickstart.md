@@ -188,6 +188,7 @@ uv run python -c "import torch, spikingjelly, paicorelib, numba, paibox; print('
 - `nn.Dropout`、`nn.Identity` 会在 lowering 早期被擦除
 - `layer.Dropout`、`layer.Dropout2d` 也会在 lowering 早期被擦除
 - `nn.BatchNorm1d`、`nn.BatchNorm2d` 当前按 bypass 处理，不应把它们当成部署后仍需要的独立硬件语义
+- 普通 `AvgPool1d/2d` 与 `MaxPool1d/2d` 当前不支持 `ceil_mode=True`；这类设置会直接报 `UnsupportedOpError`，不会因为 `strict=False` 被旁路
 
 如果模型里出现 unsupported op：
 
@@ -332,6 +333,7 @@ print("frame_dir:", output_dir)
 | `enable_avgpool_calibration`      | 共享核 `AvgPool + LIF` 阈值细化开关                     |
 | `enable_split_avgpool_lif`        | 条件式 `AvgPool + LIF` 分核部署开关                     |
 | `enable_delayed_avgpool_division` | AvgPool 延迟除法改写开关，默认开启                      |
+| `output_approx`                   | 输出层近似策略，默认 `"default"`                        |
 
 优先级为：
 
@@ -393,6 +395,33 @@ graph = compile_to_paiir(model, sample_input, strict=False)
 - 看结构、看 warning、做前端兼容性排查
 
 不要把 `strict=False` 的返回图直接视为可部署图。
+
+### 7.5 输出层 AvgPool 近似策略
+
+默认 `output_approx="default"` 不改变标准输出策略。对于输出层 `AvgPool1d/2d`，如果默认路径需要把平均池化降级为多数脉冲输出，编译期会发出 `OutputApproxWarning`，提醒该输出已不再是原始浮点/整数平均值。
+
+如果应用侧希望保留“计数”语义，可以显式启用：
+
+```python
+graph = compile_to_paiir(
+    model,
+    sample_input,
+    output_approx="sum_approx_if_avgpool",
+)
+```
+
+该策略只作用于直接流向图输出边界的 `AvgPool1d/2d`，包括由 SpikingJelly `VotingLayer` lowering 得到的 `AvgPool1d`。满足条件时，前端会把输出层平均池化导出为：
+
+```text
+AvgPool -> SumPool + identity LUT
+```
+
+这意味着芯片侧输出的是未除以 divisor 的 sum/count，而不是原始平均值。应用侧 CPU 必须按任务语义继续处理：
+
+- 若需要恢复平均值，除以 warning 中给出的 logical divisor
+- 若分类任务只关心多 tick 累计后的 `argmax`，可直接累计 count 后再做 `argmax`
+
+该策略当前要求输出层池化窗口完整、无 padding、输入为 VALUE 域且可推导精确 code range，并且 sum/count 范围能放入 8-bit VALUE 数据路径。策略生效时会发出 `OutputApproxWarning`，其中包含原节点、导出形式、导出范围、数据格式和 CPU 侧责任。当前 CPU 后处理责任只通过 warning 和文档表达，还没有作为结构化 CPU task 写入导出产物。
 
 ## 8. 自定义激活 / 自定义 neuron / 自定义模块
 

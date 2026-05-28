@@ -22,13 +22,12 @@ from paicorelib import OfflineNeuRegLim
 
 from ...ir.core_neuron import ANNNodeV25, CoreNeuronV25
 from ...ir.graph import PAIIRGraph
-from ...ir.ir_base import InputNode, OutputNode, PAIIRNode
+from ...ir.ir_base import OutputNode, PAIIRNode
 from ...ir.lut_activation import LutActivation, LutCustom
-from ...ir.op_node import OfflineCoreOp, SequentialOp, StandaloneActOp, StandaloneCompOp
-from ...ir.signal_domain import SignalDomain
+from ...ir.op_node import SequentialOp, StandaloneActOp, StandaloneCompOp
 from ..data_format import fits_value_code_range
 from ..graph_utils import (
-    collect_effective_predecessor_values,
+    collect_effective_value_code_ranges,
     is_format_transparent_routing_node,
 )
 from .utils import build_sum_pool, get_avgpool_divisor, get_pool_window_size, is_avgpool
@@ -103,7 +102,9 @@ def _analyze_delayed_division_chain(
     Those are only equal for the common ``divisor == window_size`` case, so the
     pass keeps them separate to handle ``divisor_override`` correctly.
     """
-    code_ranges = _collect_effective_source_code_ranges(graph, start_name)
+    code_ranges = collect_effective_value_code_ranges(
+        graph, start_name, passthrough=_is_source_transparent_node
+    )
     if len(code_ranges) != 1:
         return None
 
@@ -200,46 +201,6 @@ def _build_identity_lut(signed: bool) -> LutCustom:
     thresholds = torch.arange(_UINT8_MAX + 1, dtype=torch.int32)
     values = torch.arange(_UINT8_MAX + 1, dtype=torch.uint8)
     return LutCustom(thresholds, values, output_sign=0, is_float=False)
-
-
-def _collect_effective_source_code_ranges(
-    graph: PAIIRGraph, node_name: str
-) -> list[tuple[int, int]]:
-    """Collect code ranges from effective VALUE-domain producers upstream."""
-    return collect_effective_predecessor_values(
-        graph,
-        node_name,
-        _resolve_effective_source_code_ranges,
-        _is_source_transparent_node,
-    )
-
-
-def _resolve_effective_source_code_ranges(
-    node: PAIIRNode, _node_name: str
-) -> list[tuple[int, int]] | None:
-    if _is_source_transparent_node(node):
-        return None
-
-    if isinstance(node, InputNode):
-        code_range = node.signal_semantics.known_code_range
-        return [] if code_range is None else [code_range]
-
-    code_range = _get_effective_output_code_range(node)
-    if code_range is not None:
-        return [code_range]
-
-    if isinstance(node, OfflineCoreOp):
-        return []
-
-    return None
-
-
-def _get_effective_output_code_range(node: PAIIRNode) -> tuple[int, int] | None:
-    if not isinstance(node, OfflineCoreOp):
-        return None
-    if node.signal_semantics.output_domain is not SignalDomain.VALUE:
-        return None
-    return node.signal_semantics.known_code_range
 
 
 def _is_source_transparent_node(node: PAIIRNode) -> bool:

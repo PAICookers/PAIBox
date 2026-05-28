@@ -177,6 +177,17 @@ def _has_nonzero_padding(padding: Any) -> bool:
     return int(padding) != 0
 
 
+def _describe_ceil_mode_pooling_issue(m: nn.Module) -> str | None:
+    """Describe pooling ceil windows that cannot enter deployable PAIIR."""
+    if not isinstance(m, (nn.AvgPool1d, nn.AvgPool2d, nn.MaxPool1d, nn.MaxPool2d)):
+        return None
+
+    if m.ceil_mode:
+        return f"nn.Module '{type(m).__name__}' with ceil_mode=True"
+
+    return None
+
+
 def _describe_avgpool_lowering_issue(m: nn.Module) -> str | None:
     if not isinstance(m, (nn.AvgPool1d, nn.AvgPool2d)):
         return None
@@ -203,6 +214,8 @@ def _describe_maxpool_lowering_issue(m: nn.Module) -> str | None:
 
     if m.return_indices:
         return f"nn.Module '{type(m).__name__}' with return_indices=True"
+
+    return None
 
 
 def _normalize_static_padding(value: Any) -> tuple[int, ...] | None:
@@ -377,6 +390,12 @@ def _ensure_supported_canonical_module(
             "register_module converter must return a builtin canonical module "
             "supported by PAIIR lowering, "
             f"got unsupported {type(canonical).__name__}"
+        )
+
+    # Canonical converters must not smuggle unsupported pool geometry into IR.
+    if (ceil_issue := _describe_ceil_mode_pooling_issue(canonical)) is not None:
+        raise UnsupportedOpError(
+            module_type.__name__, f"canonical module: {ceil_issue}"
         )
 
     if (avgpool_issue := _describe_avgpool_lowering_issue(canonical)) is not None:
@@ -1303,6 +1322,11 @@ def _apply_module_lowering_rule(
             paiir_graph, ctx, node, ir_node, input_nodes_override=reshape_override
         )
         return True
+
+    # This is a hard frontend boundary: letting strict=False bypass the pool
+    # would produce a graph that no longer represents the deployment model.
+    if (ceil_issue := _describe_ceil_mode_pooling_issue(torch_module)) is not None:
+        raise UnsupportedOpError(node.name, ceil_issue)
 
     if (mod_type := type(torch_module)) in _USER_MODULE_MAP:
         ir_node = module_map[mod_type](torch_module)
