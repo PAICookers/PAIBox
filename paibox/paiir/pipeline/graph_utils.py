@@ -7,12 +7,14 @@ import torch
 from torch import nn
 
 from ..ir.graph import PAIIRGraph
-from ..ir.ir_base import FormatFlow, PAIIRNode
-from ..ir.op_node import RoutingOp, StandaloneCompOp, TransformOp
+from ..ir.ir_base import FormatFlow, InputNode, PAIIRNode
+from ..ir.op_node import OfflineCoreOp, RoutingOp, StandaloneCompOp, TransformOp
+from ..ir.signal_domain import SignalDomain
 
 __all__ = [
     "collect_effective_predecessor_values",
     "collect_effective_node_values",
+    "collect_effective_value_code_ranges",
     "is_order_preserving_transform_node",
     "is_transform_node",
     "is_format_transparent_routing_node",
@@ -139,3 +141,37 @@ def collect_effective_node_values(
         return values
 
     return []
+
+
+def collect_effective_value_code_ranges(
+    graph: PAIIRGraph,
+    node_name: str,
+    passthrough: Callable[[PAIIRNode], bool] = is_format_transparent_routing_node,
+) -> list[tuple[int, int]]:
+    """Collect known code ranges from effective VALUE-domain sources.
+
+    Traversal starts at the predecessors of ``node_name``. Nodes accepted by
+    ``passthrough`` are treated as format-preserving routing and traversed
+    recursively; ``InputNode`` and VALUE-domain ``OfflineCoreOp`` nodes are the
+    only terminal sources that contribute ranges.
+    """
+
+    def resolve(node: PAIIRNode, _node_name: str) -> list[tuple[int, int]] | None:
+        if passthrough(node):
+            return None
+
+        if isinstance(node, InputNode):
+            code_range = node.signal_semantics.known_code_range
+            return [] if code_range is None else [code_range]
+
+        if isinstance(node, OfflineCoreOp):
+            if node.signal_semantics.output_domain is not SignalDomain.VALUE:
+                return []
+            code_range = node.signal_semantics.known_code_range
+            return [] if code_range is None else [code_range]
+
+        return None
+
+    return collect_effective_predecessor_values(
+        graph, node_name, resolve, passthrough
+    )
