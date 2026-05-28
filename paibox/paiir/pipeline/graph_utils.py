@@ -172,6 +172,4 @@ def collect_effective_value_code_ranges(
 
         return None
 
-    return collect_effective_predecessor_values(
-        graph, node_name, resolve, passthrough
-    )
+    return collect_effective_predecessor_values(graph, node_name, resolve, passthrough)

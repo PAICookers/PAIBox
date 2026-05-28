@@ -192,20 +192,20 @@ graph = compile_to_paiir(model, x, compile_config=cfg, strict=False)
 
 `compile_to_paiir` 完整参数：
 
-| 参数                         | 类型                            | 说明                                                |
-| ---------------------------- | ------------------------------- | --------------------------------------------------- |
-| `model`                      | `nn.Module`                     | PyTorch 模型                                        |
-| `*sample_inputs`             | `Tensor`                        | 示例输入（batch_size 必须为 1），用于推断形状和维度 |
-| `tick_duration`              | `int \| None`                   | 显式全局工作时长，`0` 表示常开；默认 None           |
-| `auto_reset`                 | `bool \| None`                  | 显式控制工作周期结束后是否自动复位；默认 None       |
-| `input_formats`              | `dict[str, DataFormat] \| None` | 按 InputNode 名指定输入数据格式                     |
-| `compile_config`             | `CompileConfig \| None`         | 配置对象（关键字参数优先级更高）                    |
-| `concrete_args`              | `dict[str, Any] \| None`        | 传递给 `fx.Tracer.trace` 的具体参数                 |
-| `strict`                     | `bool`                          | True = 遇到不支持的算子时报错；False = 警告并跳过   |
-| `enable_avgpool_calibration` | `bool \| None`                  | 是否启用共享核 AvgPool+LIF 阈值细化，默认关闭       |
-| `enable_split_avgpool_lif`   | `bool \| None`                  | 是否允许条件式 AvgPool+LIF 分核部署，默认关闭       |
-| `enable_delayed_avgpool_division` | `bool \| None`             | 是否启用 AvgPool 延迟除法改写，默认开启             |
-| `output_approx`              | `"default" \| "sum_approx_if_avgpool" \| None` | 输出边界近似策略，默认保持标准策略 |
+| 参数                              | 类型                                           | 说明                                                |
+| --------------------------------- | ---------------------------------------------- | --------------------------------------------------- |
+| `model`                           | `nn.Module`                                    | PyTorch 模型                                        |
+| `*sample_inputs`                  | `Tensor`                                       | 示例输入（batch_size 必须为 1），用于推断形状和维度 |
+| `tick_duration`                   | `int \| None`                                  | 显式全局工作时长，`0` 表示常开；默认 None           |
+| `auto_reset`                      | `bool \| None`                                 | 显式控制工作周期结束后是否自动复位；默认 None       |
+| `input_formats`                   | `dict[str, DataFormat] \| None`                | 按 InputNode 名指定输入数据格式                     |
+| `compile_config`                  | `CompileConfig \| None`                        | 配置对象（关键字参数优先级更高）                    |
+| `concrete_args`                   | `dict[str, Any] \| None`                       | 传递给 `fx.Tracer.trace` 的具体参数                 |
+| `strict`                          | `bool`                                         | True = 遇到不支持的算子时报错；False = 警告并跳过   |
+| `enable_avgpool_calibration`      | `bool \| None`                                 | 是否启用共享核 AvgPool+LIF 阈值细化，默认关闭       |
+| `enable_split_avgpool_lif`        | `bool \| None`                                 | 是否允许条件式 AvgPool+LIF 分核部署，默认关闭       |
+| `enable_delayed_avgpool_division` | `bool \| None`                                 | 是否启用 AvgPool 延迟除法改写，默认开启             |
+| `output_approx`                   | `"default" \| "sum_approx_if_avgpool" \| None` | 输出边界近似策略，默认保持标准策略                  |
 
 `tick_duration=None` / `auto_reset=None` 表示未显式指定时序策略。此时 ANN 模式计算核默认 `tick_duration=1`、`tick_initial=1`，SNN 模式计算核默认 `tick_duration=0`、`tick_initial=0`。通过关键字参数或 `CompileConfig` 显式传入的 `tick_duration` / `auto_reset` 优先于 ANN/SNN 模式默认；关键字参数优先级高于 `CompileConfig`。
 
