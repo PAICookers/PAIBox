@@ -198,16 +198,10 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
             axon_bit_count = axon_addr_logic * dest_routing_group.input_bit_num
         elif isinstance(dest_routing_group, OutputGroup):
             axon_bit_count = -1
-            for i, elem in enumerate(elems):
-                if i == 0:
-                    axon_bit_count = dest_routing_group.axon_bit_allocator.allocate(
-                        elem
-                    )
-                else:
-                    dest_routing_group.axon_bit_allocator.allocate(elem)
+            axon_bit_count = dest_routing_group.input_mapping[elems[0]]
             assert axon_bit_count < FANIN_BASE * (
-                2**LCN_EX.LCN_128X.value
-            ), "Total axon bit count for output group exceeds the maximum supported by LCN_128X"
+                2**dest_routing_group.lcn.value
+            ), f"Total axon bit count for output group exceeds the maximum supported by {dest_routing_group.lcn.value} LCN"
 
         dest_coord = dest_routing_group.base_coord
         coord_copy = dest_routing_group.multicast_config
@@ -954,7 +948,7 @@ class InputGroup(Group, SourceGroup[InputElem, InNode]):
 
 class OutputAxonAllocator:
     def __init__(self):
-        self.MAX_AXON_BIT: int = -1
+        self.MAX_AXON_BIT: int = FANIN_BASE * (1 << LCN_EX.LCN_128X.value) - 1
         self.axon_infos: list[tuple[int, SourceElem]] = []
         self.used_bits: set[int] = set()
         self.lowest_free_bit: int = 0
@@ -1023,6 +1017,7 @@ class OutputGroup(Group, DestGroup[SourceElem, SourceNode]):
         self.lcn = LCN_EX.LCN_128X
         self.input_bit_num: int = 1
         self.thread_id: int = 0
+        self.input_mapping: dict[SourceElem, int] = {}
 
     def info(self, prefix: str = "") -> str:
         info_str = Group.info(self, prefix=prefix)
@@ -1045,11 +1040,13 @@ class OutputGroup(Group, DestGroup[SourceElem, SourceNode]):
         pass
 
     def set_lcn(self, required_steps: int):
-        # for output group, 1 bit in axon address can represent 8 bits in output,
-        # because we only use it to distinguish which 8-bit segment the output belongs to,
-        # so we divide max_axon_addr by 8 to get the number of axon bits needed
-        max_axon_addr: int = sum([max(src.output_bit_num//8, 1) for src in self.input_list])
-        min_tick_relative_bit = ((max_axon_addr - 1) // FANIN_BASE).bit_length()
+        for elem in self.input_list:
+            self.input_mapping[elem] = self.axon_bit_allocator.allocate(elem)
+        max_axon_addr = max(self.axon_bit_allocator.used_bits)
+        # the allocator's used_bits are 0-indexed, 
+        # so if the max used bit is 512, it means we need 513 bits to represent it, 
+        # which requires lcn2x
+        min_tick_relative_bit = (max_axon_addr // FANIN_BASE).bit_length()
 
         # at least 1 bit for step
         min_step_bit = max(required_steps.bit_length(), 1)
@@ -1065,9 +1062,7 @@ class OutputGroup(Group, DestGroup[SourceElem, SourceNode]):
         elif min_step_bit + min_tick_relative_bit > time_step_bit_num:
             self.lcn = LCN_EX.LCN_128X
         else:
-            self.lcn = LCN_EX(time_step_bit_num - min_step_bit)
-
-        self.axon_bit_allocator.MAX_AXON_BIT = FANIN_BASE * (1 << self.lcn.value) - 1
+            self.lcn = LCN_EX(min_tick_relative_bit)
 
     @property
     def multicast_config(self) -> AERPacketZXYCopy:
