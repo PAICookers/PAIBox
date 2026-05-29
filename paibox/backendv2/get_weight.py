@@ -10,6 +10,7 @@ from paicorelib import AddPotentialMode, DataWidth, WeightCompressType
 from rich.progress import track
 from torch import Tensor, nn
 from torch.nn import functional as F
+from torch.nn.modules.utils import _pair, _single
 
 from ..paiir.ir import (
     AccumulateOp,
@@ -36,15 +37,6 @@ def feature_shape(shape: torch.Size | tuple[int, ...]) -> tuple[int, ...]:
         feature_shape = feature_shape[1:]
 
     return feature_shape
-
-
-def to_nd_tuple(value: int | tuple[int, ...], ndim: int) -> tuple[int, ...]:
-    if isinstance(value, tuple):
-        if len(value) != ndim:
-            raise ValueError(f"Expected a tuple of length {ndim}, but got {value}.")
-        return value
-
-    return (value,) * ndim
 
 
 def ensure_target_components(target: CoreOpNode) -> None:
@@ -494,14 +486,12 @@ def expanded_path_weight_matrix(
         assert not isinstance(
             comp.padding, str
         ), "Unsupported padding mode for weight extraction."
-        stride = to_nd_tuple(comp.stride, 1)
-        padding = to_nd_tuple(comp.padding, 1)
-        dilation = to_nd_tuple(comp.dilation, 1)
+        stride = _single(comp.stride)
+        padding = _single(comp.padding)
+        dilation = _single(comp.dilation)
         assert len(input_shape) == 2
         assert len(output_shape) == 2
-        assert len(stride) == 1
-        assert len(padding) == 1
-        assert len(dilation) == 1
+
         return conv1d_weight_matrix(
             weight,
             input_shape,
@@ -521,14 +511,12 @@ def expanded_path_weight_matrix(
         assert not isinstance(
             comp.padding, str
         ), "Unsupported padding mode for weight extraction."
-        stride = to_nd_tuple(comp.stride, 2)
-        padding = to_nd_tuple(comp.padding, 2)
-        dilation = to_nd_tuple(comp.dilation, 2)
+        stride = _pair(comp.stride)
+        padding = _pair(comp.padding)
+        dilation = _pair(comp.dilation)
         assert len(input_shape) == 3
         assert len(output_shape) == 3
-        assert len(stride) == 2
-        assert len(padding) == 2
-        assert len(dilation) == 2
+
         return conv2d_weight_matrix(
             weight,
             input_shape,
@@ -587,16 +575,12 @@ def expanded_path_weight_matrix(
         if comp.ceil_mode:
             raise NotImplementedError("MaxPool1d with ceil_mode=True is not supported.")
 
-        kernel_size = to_nd_tuple(comp.kernel_size, 1)
-        stride = to_nd_tuple(comp.stride or comp.kernel_size, 1)
-        padding = to_nd_tuple(comp.padding, 1)
-        dilation = to_nd_tuple(comp.dilation, 1)
+        kernel_size = _single(comp.kernel_size)
+        stride = _single(comp.stride or comp.kernel_size)
+        padding = _single(comp.padding)
+        dilation = _single(comp.dilation)
         assert len(input_shape) == 2
         assert len(output_shape) == 2
-        assert len(kernel_size) == 1
-        assert len(stride) == 1
-        assert len(padding) == 1
-        assert len(dilation) == 1
 
         return pool1d_weight_matrix(
             input_shape[0],
@@ -615,14 +599,16 @@ def expanded_path_weight_matrix(
         )
         if comp.ceil_mode:
             raise NotImplementedError("AvgPool1d with ceil_mode=True is not supported.")
-        kernel_size = to_nd_tuple(comp.kernel_size, 1)
-        stride = to_nd_tuple(comp.stride or comp.kernel_size, 1)
-        padding = to_nd_tuple(comp.padding, 1)
+        kernel_size = _single(comp.kernel_size)
+        stride = _single(comp.stride or comp.kernel_size)
+        padding = _single(comp.padding)
+        dilation = _single(comp.dilation)
+        if len(input_shape) == 1:
+            input_shape = (1, input_shape[0])
+        if len(output_shape) == 1:
+            output_shape = (1, output_shape[0])
         assert len(input_shape) == 2
         assert len(output_shape) == 2
-        assert len(kernel_size) == 1
-        assert len(stride) == 1
-        assert len(padding) == 1
 
         return pool1d_weight_matrix(
             input_shape[0],
@@ -631,7 +617,7 @@ def expanded_path_weight_matrix(
             kernel_size,
             stride,
             padding,
-            (1,),
+            dilation,
             sign,
         )
 
@@ -641,16 +627,12 @@ def expanded_path_weight_matrix(
         )
         if comp.ceil_mode:
             raise NotImplementedError("MaxPool2d with ceil_mode=True is not supported.")
-        kernel_size = to_nd_tuple(comp.kernel_size, 2)
-        stride = to_nd_tuple(comp.stride or comp.kernel_size, 2)
-        padding = to_nd_tuple(comp.padding, 2)
-        dilation = to_nd_tuple(comp.dilation, 2)
+        kernel_size = _pair(comp.kernel_size)
+        stride = _pair(comp.stride or comp.kernel_size)
+        padding = _pair(comp.padding)
+        dilation = _pair(comp.dilation)
         assert len(input_shape) == 3
         assert len(output_shape) == 3
-        assert len(kernel_size) == 2
-        assert len(stride) == 2
-        assert len(padding) == 2
-        assert len(dilation) == 2
 
         return pool2d_weight_matrix(
             input_shape[0],
@@ -669,14 +651,12 @@ def expanded_path_weight_matrix(
         )
         if comp.ceil_mode:
             raise NotImplementedError("AvgPool2d with ceil_mode=True is not supported.")
-        kernel_size = to_nd_tuple(comp.kernel_size, 2)
-        stride = to_nd_tuple(comp.stride or comp.kernel_size, 2)
-        padding = to_nd_tuple(comp.padding, 2)
+        kernel_size = _pair(comp.kernel_size)
+        stride = _pair(comp.stride or comp.kernel_size)
+        padding = _pair(comp.padding)
+        dilation = _pair(comp.dilation)
         assert len(input_shape) == 3
         assert len(output_shape) == 3
-        assert len(kernel_size) == 2
-        assert len(stride) == 2
-        assert len(padding) == 2
 
         return pool2d_weight_matrix(
             input_shape[0],
@@ -685,7 +665,7 @@ def expanded_path_weight_matrix(
             kernel_size,
             stride,
             padding,
-            (1, 1),
+            dilation,
             sign,
         )
 

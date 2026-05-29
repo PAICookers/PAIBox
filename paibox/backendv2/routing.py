@@ -912,10 +912,8 @@ class RoutingGroup(
 
 class InputGroup(Group, SourceGroup[InputElem, InNode]):
     def __init__(
-        self,
-        raw_elems: Sequence[SourceElem],
-        nodes: Set[SourceNode] | None = None,
-    ):
+        self, raw_elems: Sequence[SourceElem], nodes: Set[SourceNode] | None = None
+    ) -> None:
         Group.__init__(self)
         SourceGroup.__init__(self, raw_elems, nodes)
         self.name: str = f"InputG_{self.id}"

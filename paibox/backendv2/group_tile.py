@@ -4,6 +4,7 @@ from typing import Literal
 
 import torch
 from paicorelib import LCN_EX
+from torch.nn.modules.utils import _pair, _single
 
 from paibox.paiir.nn.pool import SumPool1d, SumPool2d
 
@@ -57,13 +58,8 @@ class AxisTilePlan:
     overlap_elems: int
 
 
-def to_nd_tuple(value: int | tuple[int, ...], ndim: int) -> tuple[int, ...]:
-    if isinstance(value, tuple):
-        if len(value) != ndim:
-            raise ValueError(f"Expected a tuple of length {ndim}, but got {value}.")
-        return value
-
-    return (value,) * ndim
+def effective_kernel_size(kernel_size: int, dilation: int) -> int:
+    return dilation * (kernel_size - 1) + 1
 
 
 def build_tile_group(
@@ -72,6 +68,7 @@ def build_tile_group(
     in_node: SourceNode,
     out_node: CoreOpNode,
     kernel_size: int,
+    dilation: int,
     padding: int,
     stride: int,
 ) -> tuple[list[SourceElem], list[RoutingGroup]]:
@@ -79,13 +76,16 @@ def build_tile_group(
     _, c_in, h_in, w_in = in_shape
     _, c_out, h_out, w_out = out_shape
 
-    n_overlap = kernel_size - stride
+    receptive_field = effective_kernel_size(kernel_size, dilation)
+    n_overlap = receptive_field - stride
     assert (
         n_overlap >= 0
     ), "Stride must be less than or equal to kernel size for tiling."
 
     print(
-        f"parameters: kernel_size={kernel_size}, stride={stride}, padding={padding}, input_bit_num={input_bit_num}"
+        f"parameters: kernel_size={kernel_size}, dilation={dilation}, "
+        f"effective_kernel={receptive_field}, stride={stride}, padding={padding}, "
+        f"input_bit_num={input_bit_num}"
     )
 
     max_fanin = FANIN_BASE * (2**MAX_LCN.value)
@@ -106,7 +106,7 @@ def build_tile_group(
         while cur_out_start < out_len:
             in_start = cur_out_start * stride - padding
             cur_in_start = max(in_start, 0)
-            cur_in_end = min(in_start + kernel_size, in_len)
+            cur_in_end = min(in_start + receptive_field, in_len)
 
             if cur_in_start >= cur_in_end:
                 raise ValueError(
@@ -122,7 +122,7 @@ def build_tile_group(
             while cur_out_end < out_len:
                 next_in_start = cur_out_end * stride - padding
                 next_in_valid_start = max(next_in_start, 0)
-                next_in_valid_end = min(next_in_start + kernel_size, in_len)
+                next_in_valid_end = min(next_in_start + receptive_field, in_len)
                 if next_in_valid_start >= next_in_valid_end:
                     raise ValueError(
                         f"Output index {cur_out_end} on {axis_name} axis does not consume any input. "
@@ -266,9 +266,10 @@ def try_tile_conv(
     ), "String padding is not supported for tiling."
 
     if isinstance(comp, COMP_2D_TYPES):
-        _kernel_size = to_nd_tuple(comp.kernel_size, 2)
-        _stride = to_nd_tuple(comp.stride, 2)
-        _padding = to_nd_tuple(comp.padding, 2)
+        _kernel_size = _pair(comp.kernel_size)
+        _stride = _pair(comp.stride)
+        _padding = _pair(comp.padding)
+        _dilation = _pair(comp.dilation)
         b, c_in, h_in, w_in = in_node.shape
         b, c_out, h_out, w_out = out_node.shape
         print(
@@ -282,6 +283,10 @@ def try_tile_conv(
             padding = _padding[0]
         else:
             raise ValueError("Asymmetric padding is not supported for tiling.")
+        if _dilation[0] == _dilation[1]:
+            dilation = _dilation[0]
+        else:
+            raise ValueError("Asymmetric dilation is not supported for tiling.")
 
         if _kernel_size[0] == _kernel_size[1]:
             kernel_size = _kernel_size[0]
@@ -291,12 +296,20 @@ def try_tile_conv(
         in_shape = (b, c_in, h_in, w_in)
         out_shape = (b, c_out, h_out, w_out)
         copied_input_elems, tiled_groups = build_tile_group(
-            in_shape, out_shape, in_node, out_node, kernel_size, padding, stride
+            in_shape,
+            out_shape,
+            in_node,
+            out_node,
+            kernel_size,
+            dilation,
+            padding,
+            stride,
         )
     elif isinstance(comp, COMP_1D_TYPES):
-        _kernel_size = to_nd_tuple(comp.kernel_size, 1)
-        _stride = to_nd_tuple(comp.stride, 1)
-        _padding = to_nd_tuple(comp.padding, 1)
+        _kernel_size = _single(comp.kernel_size)
+        _stride = _single(comp.stride)
+        _padding = _single(comp.padding)
+        _dilation = _single(comp.dilation)
         b, c_in, h_in = in_node.shape
         b, c_out, h_out = out_node.shape
         w_in = 1
@@ -307,10 +320,18 @@ def try_tile_conv(
         stride = _stride[0]
         padding = _padding[0]
         kernel_size = _kernel_size[0]
+        dilation = _dilation[0]
         in_shape = (b, c_in, h_in, w_in)
         out_shape = (b, c_out, h_out, w_out)
         copied_input_elems, tiled_groups = build_tile_group(
-            in_shape, out_shape, in_node, out_node, kernel_size, padding, stride
+            in_shape,
+            out_shape,
+            in_node,
+            out_node,
+            kernel_size,
+            dilation,
+            padding,
+            stride,
         )
     else:
         raise NotImplementedError(
