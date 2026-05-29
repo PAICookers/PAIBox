@@ -186,14 +186,14 @@ message DataType {
 
 message CoreTick {
     CoreOffset core_offset = 1;
-    repeated string nodes = 2;
-    TickParams tick = 3;
+    TickParams tick = 2;
+    repeated string nodes = 3;
 }
 ```
 
 `CoreOffset` 表示目标 core 的相对偏移；`CopyCount` 表示 AER 多播复制数量。二者都使用 2.5芯片帧格式中的 `XY/X/Y` 三轴概念，但语义不同：`core_offset` 表示目标位置，`copy_count` 表示复制范围。
 
-`TickParams` 对应 2.5 计算核的 `tick_start/tick_duration/tick_initial` 参数。`tick_duration=0` 表示持续工作；`tick_initial=0` 表示不自动复位。`CoreTick.nodes` 是部署到同一个物理计算核上的 PAIIR 节点名列表。
+`TickParams` 对应 2.5 计算核的 `tick_start/tick_duration/tick_initial` 参数。`tick_duration=0` 表示持续工作；`tick_initial=0` 表示不自动复位。`CoreTick.tick` 是该物理计算核的 tick 参数，`CoreTick.nodes` 是部署到同一个物理计算核上的 PAIIR 节点名列表。
 
 `DataType.Code` 描述普通 DATA payload 的码字类型。`UINT*` / `INT*` 中的数字表示逻辑位宽；`INT*` 按 two's complement 解释。`NOT_SET` 只作为默认值，应用侧不应把它当成有效 DATA 类型。`VOLTAGE` 输出不设置 `dtype`，固定按 `int32` 膜电平解释。
 
@@ -203,8 +203,8 @@ message CoreTick {
 message InputTensorMapping {
     string name = 1;
     Shape shape = 2;
-    repeated InputEntry entries = 3;
-    TickParams tick = 4;
+    TickParams tick = 3;
+    repeated InputEntry entries = 4;
 }
 
 message InputEntry {
@@ -340,29 +340,29 @@ def encode_input_tensor(artifacts: CompileArtifacts, input_name: str, data) -> n
 
 ```proto
 message OutputTensorMappings {
-    repeated OutputTensorMapping items = 1;
-    optional uint32 target_lcn = 2;
+    optional uint32 target_lcn = 1;
+    repeated OutputTensorMapping items = 2;
 }
 
 message OutputTensorMapping {
-    string name = 1;
-    Shape shape = 2;
-    repeated OutputEntry entries = 3;
-    TickParams tick = 4;
-}
-
-message OutputEntry {
     enum OutputKind {
         DATA = 0;
         VOLTAGE = 1;
     }
 
+    string name = 1;
+    Shape shape = 2;
+    optional OutputKind kind = 3;
+    TickParams tick = 4;
+    repeated OutputEntry entries = 5;
+}
+
+message OutputEntry {
     optional uint32 elem_idx = 1;
     optional uint32 copy_id = 2;
     optional uint32 bit_width = 3;
     optional uint32 axon_bit_idx = 4;
-    optional OutputKind kind = 5;
-    optional DataType.Code dtype = 6;
+    optional DataType.Code dtype = 5;
 }
 ```
 
@@ -371,23 +371,23 @@ message OutputEntry {
 | `output_mappings.target_lcn` | 输出工作帧地址解析使用的目标 LCN 编号，对应 `paicorelib.LCN_EX` 枚举值。  |
 | `name`                       | PAIIR 输出源/生产者节点名，不是虚拟 `OutputNode` 名。                     |
 | `shape.size`                 | 逻辑输出张量 shape。                                                      |
+| `kind`                       | 输出节点语义。`DATA` 表示普通激活值/脉冲数据，`VOLTAGE` 表示膜电平。      |
 | `tick`                       | 该输出张量的最终实际生产者计算核 tick 参数。                              |
 | `elem_idx`                   | 输出张量按 C-order 展平后的元素下标。                                     |
 | `copy_id`                    | tiling/folding 产生的逻辑 copy 编号。                                     |
 | `bit_width`                  | 输出元素 payload 位宽。`DATA` 通常不超过 8 bit；`VOLTAGE` 固定为 32 bit。 |
 | `axon_bit_idx`               | 平坦 output axon bit index。`DATA` 为数据地址；`VOLTAGE` 为膜电平基地址。 |
-| `kind`                       | 输出语义。`DATA` 表示普通激活值/脉冲数据，`VOLTAGE` 表示膜电平。          |
 | `dtype`                      | `DATA` 输出的数据类型，包含位宽和符号性；`VOLTAGE` 不设置该字段。         |
 
-CPU 接收端仍应先根据返回工作帧的帧头区分 I/II 型。`kind` 的作用是让应用侧在运行前从 `config.pb` 预生成静态解码表，并保留调试语义。不要用 `bit_width` 反推出输出语义；应以 `kind` 为准。`DATA` 输出用 `dtype` 解释 signedness；`VOLTAGE` 输出固定按 `int32` 膜电平解释。
+CPU 接收端仍应先根据返回工作帧的帧头区分 I/II 型。`kind` 的作用是让应用侧在运行前从 `config.pb` 预生成静态解码表，并保留调试语义。不要用 `bit_width` 反推出输出语义；应以 `OutputTensorMapping.kind` 为准。`DATA` 输出用 entry 级 `dtype` 解释 signedness；`VOLTAGE` 输出固定按 `int32` 膜电平解释。
 
 `OutputNode` 是图输出的虚拟边界节点，不是实际计算核。`OutputTensorMapping.name` 和 `shape` 使用最终输出源/生产者节点，`tick` 从该输出源追溯到实际生产计算核后导出。
 
-`kind` 是 `OutputEntry` 级字段，不是 `OutputTensorMapping` 级字段。同一个 `OutputTensorMapping.entries` 内可以同时包含 `DATA` 和 `VOLTAGE` entry。
+`kind` 是 `OutputTensorMapping` 级字段；当前后端要求同一个输出源/生产者节点内所有 `entries` 共享同一种输出语义。
 
 普通 `DATA` 输出对应工作帧 I 型。解码流程：
 
-1. 从 `kind == DATA` 的 `OutputTensorMapping.entries` 建立 `axon_bit_idx -> elem_idx/dtype` 表。
+1. 从 `mapping.kind == DATA` 的 `OutputTensorMapping.entries` 建立 `axon_bit_idx -> elem_idx/dtype` 表。
 2. 板端运行时先把芯片返回帧解析为 `(axon_bit_idx, payload_byte)`。
 3. 根据映射表把 payload 写回输出张量的展平位置 `elem_idx`。
 4. 根据 `dtype` 把 payload 解释为 signed/unsigned 1/2/4/8-bit 码字。
@@ -441,9 +441,9 @@ def build_output_tables(artifacts: CompileArtifacts):
                     int(entry.bit_width),
                     int(entry.dtype) if entry.HasField("dtype") else 0,
                 )
-                if entry.kind == entry.DATA:
+                if mapping.kind == mapping.DATA:
                     data_by_axon[int(entry.axon_bit_idx)] = item
-                elif entry.kind == entry.VOLTAGE:
+                elif mapping.kind == mapping.VOLTAGE:
                     voltage_by_base[int(entry.axon_bit_idx)] = item
             tables[mapping.name] = (shape, target_lcn, data_by_axon, voltage_by_base)
     return tables
@@ -485,7 +485,7 @@ def decode_offline_work_frame1_u64(frame: int, target_lcn: int = LCN_EX.LCN_128X
     return axon_bit_idx, payload
 ```
 
-对于 `kind == VOLTAGE` 的输出，一个 `OutputEntry` 的 `axon_bit_idx` 是膜电平基地址。应用侧需要收集 `base + 8 * i` 这四个 byte lane 后再按模型 ABI 组合为 32-bit 值。下面的 little-endian 组合逻辑未经过板端流程验证，仅供实现参考：
+对于 `mapping.kind == VOLTAGE` 的输出，一个 `OutputEntry` 的 `axon_bit_idx` 是膜电平基地址。应用侧需要收集 `base + 8 * i` 这四个 byte lane 后再按模型 ABI 组合为 32-bit 值。下面的 little-endian 组合逻辑未经过板端流程验证，仅供实现参考：
 
 ```python
 def collect_u32_le(decoded_by_axon: dict[int, int], base_axon_bit_idx: int) -> int:
@@ -512,4 +512,4 @@ def collect_u32_le(decoded_by_axon: dict[int, int], base_axon_bit_idx: int) -> i
 | `axon_bit_idx`     | `axonBitIdx`     |
 | `target_lcn`       | `targetLcn`      |
 
-应用程序读取 `config.pb` 时使用 proto 字段名；人工查看 `config.json` 时使用 JSON 字段名。
+应用程序读取 `config.pb` 时使用 proto 字段名；人工查看 `config.json` 时使用 JSON 字段名。部分 message 会把较短的标量元数据字段放在较长的 repeated 明细字段之前，便于人工查看 JSON；应用侧仍应按字段名读取，不应依赖文本顺序。

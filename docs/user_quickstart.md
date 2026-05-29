@@ -609,8 +609,9 @@ mapper.compile(
 - `InputTensorMapping.tick` 是该输入 tensor 首个实际消费计算核的 `tick_start/tick_duration/tick_initial`。
 - `InputEntry.tick_relative` 是输入工作帧地址分段，不是计算核启动时间；生成输入工作帧仍使用 `tick_relative/addr_axon/target_lcn`。
 - `OutputTensorMapping.name` 使用最终输出源/生产者节点名，便于应用侧定位网络中哪层是输出层；它不是虚拟 `OutputNode` 名。
+- `OutputTensorMapping.kind` 描述该输出节点的语义，`DATA` 表示普通激活值/脉冲数据，`VOLTAGE` 表示膜电平。
 - `OutputTensorMapping.tick` 是该输出 tensor 最终实际生产者计算核的时序。
-- `ThreadIOMapping.core_ticks` 按物理计算核列出 `core_offset/nodes/tick`，不包含全局信号空核。
+- `ThreadIOMapping.core_ticks` 按物理计算核列出 `core_offset/tick/nodes`，不包含全局信号空核。
 
 `TickParams.tick_duration=0` 表示持续工作，`tick_duration>0` 表示工作 N 个时间步；`tick_initial=0` 表示不自动复位。若同一个输入或输出 tensor 推导出多个不同 tick，导出阶段会报错，应用侧不应假定可以静默合并。
 
@@ -618,7 +619,7 @@ mapper.compile(
 
 `InputEntry.dtype` 和 `OutputEntry.dtype` 描述普通 DATA payload 的 signedness 与 1/2/4/8-bit 逻辑位宽，取值为 `UINT1/INT1/.../UINT8/INT8`。`bit_width` 保留为兼容字段；新应用应优先使用 `dtype` 做输入编码和 DATA 输出解码，并把 `bit_width` 当作冗余校验。
 
-`OutputEntry.kind == VOLTAGE` 时，`dtype` 不设置，读取默认值时可视为 `NOT_SET`。这类输出固定按 `int32` 膜电平解释，`bit_width=32`，且 `axon_bit_idx` 是 4 个 byte lane 的基地址。
+`OutputTensorMapping.kind == VOLTAGE` 时，对应 entries 的 `dtype` 不设置，读取默认值时可视为 `NOT_SET`。这类输出固定按 `int32` 膜电平解释，entry `bit_width=32`，且 `axon_bit_idx` 是 4 个 byte lane 的基地址。
 
 ## 10. 输入工作帧
 
