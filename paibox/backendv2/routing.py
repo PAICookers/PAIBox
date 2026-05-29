@@ -1043,8 +1043,8 @@ class OutputGroup(Group, DestGroup[SourceElem, SourceNode]):
         for elem in self.input_list:
             self.input_mapping[elem] = self.axon_bit_allocator.allocate(elem)
         max_axon_addr = max(self.axon_bit_allocator.used_bits)
-        # the allocator's used_bits are 0-indexed, 
-        # so if the max used bit is 512, it means we need 513 bits to represent it, 
+        # the allocator's used_bits are 0-indexed,
+        # so if the max used bit is 512, it means we need 513 bits to represent it,
         # which requires lcn2x
         min_tick_relative_bit = (max_axon_addr // FANIN_BASE).bit_length()
 
