@@ -953,9 +953,8 @@ class InputGroup(Group, SourceGroup[InputElem, InNode]):
 
 
 class OutputAxonAllocator:
-    MAX_AXON_BIT = FANIN_BASE * (1 << LCN_EX.LCN_128X.value) - 1
-
     def __init__(self):
+        self.MAX_AXON_BIT: int = -1
         self.axon_infos: list[tuple[int, SourceElem]] = []
         self.used_bits: set[int] = set()
         self.lowest_free_bit: int = 0
@@ -1044,6 +1043,33 @@ class OutputGroup(Group, DestGroup[SourceElem, SourceNode]):
 
     def set_detail_dest(self):
         pass
+
+    def set_lcn(self, required_steps: int):
+        max_axon_addr: int = sum([src.output_bit_num for src in self.input_list])
+
+        # for output group, 1 bit in axon address can represent 8 bits in output,
+        # because we only use it to distinguish which 8-bit segment the output belongs to,
+        # so we divide max_axon_addr by 8 to get the number of axon bits needed
+        max_axon_addr = max_axon_addr // 8
+        min_tick_relative_bit = ((max_axon_addr - 1) // FANIN_BASE).bit_length()
+
+        # at least 1 bit for step
+        min_step_bit = min(required_steps.bit_length(), 1)
+
+        # tick_relative and step share the time_step bits(8),
+        # so the sum of their bit length cannot exceed 8,
+        # otherwise set lcn = LCN_EX.LCN_128X
+        time_step_bit_num = LCN_EX.LCN_128X.value + 1
+        if min_tick_relative_bit > LCN_EX.LCN_128X.value:
+            raise ValueError(
+                f"Max axon address {max_axon_addr} requires at least {min_tick_relative_bit} bits, which exceeds the maximum supported by LCN_EX.LCN_128X."
+            )
+        elif min_step_bit + min_tick_relative_bit > time_step_bit_num:
+            self.lcn = LCN_EX.LCN_128X
+        else:
+            self.lcn = LCN_EX(time_step_bit_num - min_step_bit)
+
+        self.axon_bit_allocator.MAX_AXON_BIT = FANIN_BASE * (1 << self.lcn.value) - 1
 
     @property
     def multicast_config(self) -> AERPacketZXYCopy:
