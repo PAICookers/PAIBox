@@ -1045,16 +1045,14 @@ class OutputGroup(Group, DestGroup[SourceElem, SourceNode]):
         pass
 
     def set_lcn(self, required_steps: int):
-        max_axon_addr: int = sum([src.output_bit_num for src in self.input_list])
-
         # for output group, 1 bit in axon address can represent 8 bits in output,
         # because we only use it to distinguish which 8-bit segment the output belongs to,
         # so we divide max_axon_addr by 8 to get the number of axon bits needed
-        max_axon_addr = max_axon_addr // 8
+        max_axon_addr: int = sum([max(src.output_bit_num//8, 1) for src in self.input_list])
         min_tick_relative_bit = ((max_axon_addr - 1) // FANIN_BASE).bit_length()
 
         # at least 1 bit for step
-        min_step_bit = min(required_steps.bit_length(), 1)
+        min_step_bit = max(required_steps.bit_length(), 1)
 
         # tick_relative and step share the time_step bits(8),
         # so the sum of their bit length cannot exceed 8,
