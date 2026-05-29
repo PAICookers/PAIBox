@@ -122,26 +122,16 @@ class InputEntry(_message.Message):
     ) -> None: ...
 
 class OutputEntry(_message.Message):
-    __slots__ = ("elem_idx", "copy_id", "bit_width", "axon_bit_idx", "kind", "dtype")
-
-    class OutputKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
-        __slots__ = ()
-        DATA: _ClassVar[OutputEntry.OutputKind]
-        VOLTAGE: _ClassVar[OutputEntry.OutputKind]
-
-    DATA: OutputEntry.OutputKind
-    VOLTAGE: OutputEntry.OutputKind
+    __slots__ = ("elem_idx", "copy_id", "bit_width", "axon_bit_idx", "dtype")
     ELEM_IDX_FIELD_NUMBER: _ClassVar[int]
     COPY_ID_FIELD_NUMBER: _ClassVar[int]
     BIT_WIDTH_FIELD_NUMBER: _ClassVar[int]
     AXON_BIT_IDX_FIELD_NUMBER: _ClassVar[int]
-    KIND_FIELD_NUMBER: _ClassVar[int]
     DTYPE_FIELD_NUMBER: _ClassVar[int]
     elem_idx: int
     copy_id: int
     bit_width: int
     axon_bit_idx: int
-    kind: OutputEntry.OutputKind
     dtype: DataType.Code
     def __init__(
         self,
@@ -149,7 +139,6 @@ class OutputEntry(_message.Message):
         copy_id: _Optional[int] = ...,
         bit_width: _Optional[int] = ...,
         axon_bit_idx: _Optional[int] = ...,
-        kind: _Optional[_Union[OutputEntry.OutputKind, str]] = ...,
         dtype: _Optional[_Union[DataType.Code, str]] = ...,
     ) -> None: ...
 
@@ -160,39 +149,50 @@ class Shape(_message.Message):
     def __init__(self, size: _Optional[_Iterable[int]] = ...) -> None: ...
 
 class InputTensorMapping(_message.Message):
-    __slots__ = ("name", "shape", "entries", "tick")
+    __slots__ = ("name", "shape", "tick", "entries")
     NAME_FIELD_NUMBER: _ClassVar[int]
     SHAPE_FIELD_NUMBER: _ClassVar[int]
-    ENTRIES_FIELD_NUMBER: _ClassVar[int]
     TICK_FIELD_NUMBER: _ClassVar[int]
+    ENTRIES_FIELD_NUMBER: _ClassVar[int]
     name: str
     shape: Shape
-    entries: _containers.RepeatedCompositeFieldContainer[InputEntry]
     tick: TickParams
+    entries: _containers.RepeatedCompositeFieldContainer[InputEntry]
     def __init__(
         self,
         name: _Optional[str] = ...,
         shape: _Optional[_Union[Shape, _Mapping]] = ...,
-        entries: _Optional[_Iterable[_Union[InputEntry, _Mapping]]] = ...,
         tick: _Optional[_Union[TickParams, _Mapping]] = ...,
+        entries: _Optional[_Iterable[_Union[InputEntry, _Mapping]]] = ...,
     ) -> None: ...
 
 class OutputTensorMapping(_message.Message):
-    __slots__ = ("name", "shape", "entries", "tick")
+    __slots__ = ("name", "shape", "kind", "tick", "entries")
+
+    class OutputKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+        __slots__ = ()
+        DATA: _ClassVar[OutputTensorMapping.OutputKind]
+        VOLTAGE: _ClassVar[OutputTensorMapping.OutputKind]
+
+    DATA: OutputTensorMapping.OutputKind
+    VOLTAGE: OutputTensorMapping.OutputKind
     NAME_FIELD_NUMBER: _ClassVar[int]
     SHAPE_FIELD_NUMBER: _ClassVar[int]
-    ENTRIES_FIELD_NUMBER: _ClassVar[int]
+    KIND_FIELD_NUMBER: _ClassVar[int]
     TICK_FIELD_NUMBER: _ClassVar[int]
+    ENTRIES_FIELD_NUMBER: _ClassVar[int]
     name: str
     shape: Shape
-    entries: _containers.RepeatedCompositeFieldContainer[OutputEntry]
+    kind: OutputTensorMapping.OutputKind
     tick: TickParams
+    entries: _containers.RepeatedCompositeFieldContainer[OutputEntry]
     def __init__(
         self,
         name: _Optional[str] = ...,
         shape: _Optional[_Union[Shape, _Mapping]] = ...,
-        entries: _Optional[_Iterable[_Union[OutputEntry, _Mapping]]] = ...,
+        kind: _Optional[_Union[OutputTensorMapping.OutputKind, str]] = ...,
         tick: _Optional[_Union[TickParams, _Mapping]] = ...,
+        entries: _Optional[_Iterable[_Union[OutputEntry, _Mapping]]] = ...,
     ) -> None: ...
 
 class InputTensorMappings(_message.Message):
@@ -204,30 +204,30 @@ class InputTensorMappings(_message.Message):
     ) -> None: ...
 
 class OutputTensorMappings(_message.Message):
-    __slots__ = ("items", "target_lcn")
-    ITEMS_FIELD_NUMBER: _ClassVar[int]
+    __slots__ = ("target_lcn", "items")
     TARGET_LCN_FIELD_NUMBER: _ClassVar[int]
-    items: _containers.RepeatedCompositeFieldContainer[OutputTensorMapping]
+    ITEMS_FIELD_NUMBER: _ClassVar[int]
     target_lcn: int
+    items: _containers.RepeatedCompositeFieldContainer[OutputTensorMapping]
     def __init__(
         self,
-        items: _Optional[_Iterable[_Union[OutputTensorMapping, _Mapping]]] = ...,
         target_lcn: _Optional[int] = ...,
+        items: _Optional[_Iterable[_Union[OutputTensorMapping, _Mapping]]] = ...,
     ) -> None: ...
 
 class CoreTick(_message.Message):
-    __slots__ = ("core_offset", "nodes", "tick")
+    __slots__ = ("core_offset", "tick", "nodes")
     CORE_OFFSET_FIELD_NUMBER: _ClassVar[int]
-    NODES_FIELD_NUMBER: _ClassVar[int]
     TICK_FIELD_NUMBER: _ClassVar[int]
+    NODES_FIELD_NUMBER: _ClassVar[int]
     core_offset: CoreOffset
-    nodes: _containers.RepeatedScalarFieldContainer[str]
     tick: TickParams
+    nodes: _containers.RepeatedScalarFieldContainer[str]
     def __init__(
         self,
         core_offset: _Optional[_Union[CoreOffset, _Mapping]] = ...,
-        nodes: _Optional[_Iterable[str]] = ...,
         tick: _Optional[_Union[TickParams, _Mapping]] = ...,
+        nodes: _Optional[_Iterable[str]] = ...,
     ) -> None: ...
 
 class ThreadIOMapping(_message.Message):

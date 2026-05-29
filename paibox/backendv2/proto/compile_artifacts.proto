@@ -54,20 +54,14 @@ message InputEntry {
 }
 
 message OutputEntry {
-    enum OutputKind {
-        DATA = 0;
-        VOLTAGE = 1;
-    }
-
     optional uint32 elem_idx = 1;
     optional uint32 copy_id = 2;
     /* Payload bit width. VOLTAGE is fixed to 32-bit membrane voltage. */
     optional uint32 bit_width = 3;
     /* DATA: output axon bit index. VOLTAGE: membrane voltage base index. */
     optional uint32 axon_bit_idx = 4;
-    optional OutputKind kind = 5;
     /* DATA output type. VOLTAGE outputs are always int32 and leave this unset. */
-    optional DataType.Code dtype = 6;
+    optional DataType.Code dtype = 5;
 }
 
 message Shape {
@@ -77,17 +71,23 @@ message Shape {
 message InputTensorMapping {
     string name = 1;
     Shape shape = 2;
-    repeated InputEntry entries = 3;
     /* Compute-core tick parameters for this graph input tensor. */
-    TickParams tick = 4;
+    TickParams tick = 3;
+    repeated InputEntry entries = 4;
 }
 
 message OutputTensorMapping {
+    enum OutputKind {
+        DATA = 0;
+        VOLTAGE = 1;
+    }
+
     string name = 1;
     Shape shape = 2;
-    repeated OutputEntry entries = 3;
+    optional OutputKind kind = 3;
     /* Compute-core tick parameters for this graph output tensor. */
     TickParams tick = 4;
+    repeated OutputEntry entries = 5;
 }
 
 message InputTensorMappings {
@@ -95,15 +95,15 @@ message InputTensorMappings {
 }
 
 message OutputTensorMappings {
-    repeated OutputTensorMapping items = 1;
-    optional uint32 target_lcn = 2; // Fixed 128X
+    optional uint32 target_lcn = 1; // Fixed 128X
+    repeated OutputTensorMapping items = 2;
 }
 
 message CoreTick {
     CoreOffset core_offset = 1;
+    TickParams tick = 2;
     /* PAIIR nodes deployed on this physical compute core. */
-    repeated string nodes = 2;
-    TickParams tick = 3;
+    repeated string nodes = 3;
 }
 
 message ThreadIOMapping {

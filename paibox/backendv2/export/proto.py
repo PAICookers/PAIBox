@@ -15,7 +15,6 @@ from ..proto.compile_artifacts_pb2 import (
     ConfigFrames,
     DataType,
     InputTensorMapping,
-    OutputEntry,
     OutputTensorMapping,
     TickParams,
 )
@@ -70,14 +69,14 @@ def _set_entry_dtype(entry, fmt: DataFormat, bit_width: int, context: str) -> No
     entry.dtype = _dtype_from_format(fmt, context)
 
 
-def _set_output_entry_kind(output_entry: OutputEntry, elem: SourceElem) -> None:
+def _output_kind_from_elem(elem: SourceElem) -> OutputTensorMapping.OutputKind:
     domain = elem.target.raw_node.signal_semantics.output_domain
     if domain is SignalDomain.VALUE:
-        kind = OutputEntry.DATA
+        kind = OutputTensorMapping.DATA
     else:
-        kind = OutputEntry.VOLTAGE
+        kind = OutputTensorMapping.VOLTAGE
 
-    if kind == OutputEntry.DATA:
+    if kind == OutputTensorMapping.DATA:
         if elem.output_bit_num > 8:
             raise ValueError(
                 f"DATA output {elem} has unsupported bit width "
@@ -90,7 +89,24 @@ def _set_output_entry_kind(output_entry: OutputEntry, elem: SourceElem) -> None:
                 f"{elem.output_bit_num}; expected 32."
             )
 
-    output_entry.kind = kind
+    return kind
+
+
+def _set_output_mapping_kind(
+    output_mapping: OutputTensorMapping, output_name: str, elem: SourceElem
+) -> OutputTensorMapping.OutputKind:
+    kind = _output_kind_from_elem(elem)
+    if output_mapping.HasField("kind"):
+        if output_mapping.kind != kind:
+            raise ValueError(
+                f"output mapping '{output_name}' contains mixed output kinds: "
+                f"{OutputTensorMapping.OutputKind.Name(output_mapping.kind)} and "
+                f"{OutputTensorMapping.OutputKind.Name(kind)}."
+            )
+    else:
+        output_mapping.kind = kind
+
+    return kind
 
 
 def _tick_tuple_from_core_conf(core_conf: Frontend_Core_Config) -> TickTriple:
@@ -318,8 +334,10 @@ def export_compile_artifacts(
                 output_entry.copy_id = elem.index.copy_id
                 output_entry.bit_width = elem.output_bit_num
                 output_entry.axon_bit_idx = axon_bit_idx
-                _set_output_entry_kind(output_entry, elem)
-                if output_entry.kind == OutputEntry.DATA:
+                output_kind = _set_output_mapping_kind(
+                    output_mapping, output_name, elem
+                )
+                if output_kind == OutputTensorMapping.DATA:
                     _set_entry_dtype(
                         output_entry,
                         _output_format_from_source_elem(elem, groups),

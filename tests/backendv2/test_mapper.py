@@ -15,7 +15,7 @@ from paibox.backendv2.proto.compile_artifacts_pb2 import (
     CompileArtifacts,
     ConfigFrames,
     DataType,
-    OutputEntry,
+    OutputTensorMapping,
 )
 from paibox.paiir import compile_to_paiir
 from tests.paiir.conftest import (
@@ -308,10 +308,12 @@ def test_export_proto_marks_data_outputs_and_target_lcn(
     assert len(output_mappings.items) == 1
     assert {mapping.name for mapping in output_mappings.items} == output_source_names
 
-    entries = list(output_mappings.items[0].entries)
+    output_mapping = output_mappings.items[0]
+    assert output_mapping.kind == OutputTensorMapping.DATA
+    assert output_mapping.HasField("kind")
+
+    entries = list(output_mapping.entries)
     assert entries
-    assert {entry.kind for entry in entries} == {OutputEntry.DATA}
-    assert all(entry.HasField("kind") for entry in entries)
     assert all(entry.bit_width <= 8 for entry in entries)
     assert all(entry.HasField("dtype") for entry in entries)
     assert {entry.dtype for entry in entries}.issubset({DataType.UINT8, DataType.INT8})
@@ -337,9 +339,12 @@ def test_export_proto_marks_voltage_outputs_and_base_addresses(
     assert output_mappings.target_lcn == LCN_EX.LCN_128X.value
     assert len(output_mappings.items) == 1
 
-    entries = list(output_mappings.items[0].entries)
+    output_mapping = output_mappings.items[0]
+    assert output_mapping.kind == OutputTensorMapping.VOLTAGE
+    assert output_mapping.HasField("kind")
+
+    entries = list(output_mapping.entries)
     assert entries
-    assert {entry.kind for entry in entries} == {OutputEntry.VOLTAGE}
     assert all(entry.bit_width == 32 for entry in entries)
     assert all(not entry.HasField("dtype") for entry in entries)
 
