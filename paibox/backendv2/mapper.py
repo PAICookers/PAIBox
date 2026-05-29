@@ -200,6 +200,7 @@ class Mapper:
         output_path: str | Path | None = None,
         literal_format: LiteralFormat = "bin",
         *,
+        time_steps: int = 1,
         target_platform: TargetPlatform = "all",
         word_order: WordOrder = "high_first",
         export_merged_frames: bool = True,
@@ -275,6 +276,9 @@ class Mapper:
 
         for grp in all_groups:
             print(grp.info())
+
+        for out_grp in self.output_groups:
+            out_grp.set_lcn(required_steps=time_steps)
 
         self.routing_groups = [
             grp for grp in self.groups if isinstance(grp, RoutingGroup)
