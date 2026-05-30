@@ -1,3 +1,8 @@
-PROTO_SCHEMA_VERSION = 1
+_PROTO_SCHEMA_VERSION = 1
 
-__all__ = ["PROTO_SCHEMA_VERSION"]
+
+def get_schema_version() -> int:
+    return _PROTO_SCHEMA_VERSION
+
+
+__all__ = ["get_schema_version"]

@@ -4,6 +4,7 @@ from pathlib import Path
 from paicorelib import CoordZXYOffset
 
 from paibox.paiir import PAIIRGraph
+from paibox.paiir.ir import OfflineCoreOp
 
 from .coreplacement import CorePlacement
 from .export.cheader import export_cheader_files, export_cheader_merged
@@ -19,17 +20,10 @@ from .export.utils import (
 )
 from .global_signal import set_global_signal
 from .group_tile import tile_groups
-from .op_node import AllNode, InputElem, Neuron, RemapElem, build_nodes
+from .op_node import AllNode, InputElem, Neuron, RemapElem, SourceElem, build_nodes
 from .rg_build import build_groups
 from .route_solver import route_solve
-from .routing import (
-    InputGroup,
-    OutputGroup,
-    RemapGroup,
-    RoutingGroup,
-    SourceElem,
-    toposort_for_rg,
-)
+from .routing import InputGroup, OutputGroup, RemapGroup, RoutingGroup, toposort_for_rg
 
 
 class Mapper:
@@ -41,6 +35,57 @@ class Mapper:
         self.input_groups: list[InputGroup] = []
         self.coreplacements: list[CorePlacement] = []
         self.global_starts: dict[int, CoordZXYOffset] = {}
+        self.timesteps: int = 1
+
+    def _resolve_timesteps(self, pai_graph: PAIIRGraph, timesteps: int | None) -> int:
+        """Resolve the application runtime length used by output metadata."""
+        def _collect_output_durations() -> set[int]:
+            durations: set[int] = set()
+            visited: set[str] = set()
+            pending = [
+                pred_name
+                for output_node in pai_graph.output_nodes()
+                for pred_name in pai_graph.predecessors(output_node.name)
+            ]
+
+            while pending:
+                name = pending.pop()
+                if name in visited:
+                    continue
+                visited.add(name)
+
+                node = pai_graph.nodes[name]
+                if isinstance(node, OfflineCoreOp):
+                    tick_duration = node.core_params.tick_duration
+                    if tick_duration > 0:
+                        durations.add(tick_duration)
+                    continue
+
+                pending.extend(pai_graph.predecessors(name))
+
+            return durations
+
+        if timesteps is not None:
+            resolved = int(timesteps)
+        else:
+            output_durations = _collect_output_durations()
+            resolved = next(iter(output_durations)) if len(output_durations) == 1 else 1
+
+        if resolved <= 0:
+            raise ValueError(f"'timesteps' must be positive, got {resolved}.")
+
+        for name, node in pai_graph.nodes.items():
+            if not isinstance(node, OfflineCoreOp):
+                continue
+
+            tick_duration = node.core_params.tick_duration
+            if tick_duration != 0 and tick_duration < resolved:
+                raise ValueError(
+                    f"'timesteps' ({resolved}) exceeds finite tick_duration "
+                    f"({tick_duration}) of core node '{name}'."
+                )
+
+        return resolved
 
     def generate_routing_groups(self, pai_graph: PAIIRGraph) -> None:
         self.nodes = build_nodes(pai_graph)
@@ -186,6 +231,7 @@ class Mapper:
             word_order,
             export_proto_python,
             debug,
+            self.timesteps,
             self.groups,
             self.input_groups,
             self.output_groups,
@@ -200,7 +246,7 @@ class Mapper:
         output_path: str | Path | None = None,
         literal_format: LiteralFormat = "bin",
         *,
-        time_steps: int = 1,
+        timesteps: int | None = None,
         target_platform: TargetPlatform = "all",
         word_order: WordOrder = "high_first",
         export_merged_frames: bool = True,
@@ -218,6 +264,9 @@ class Mapper:
             literal_format: Numeric radix used by generated C headers. ``"bin"``
                 writes 32-bit words as binary literals, while ``"hex"``
                 writes hexadecimal literals.
+            timesteps: Application-side inference sequence length. When
+                ``None``, a finite and consistent output ``tick_duration`` is
+                used; otherwise defaults to ``1``.
             target_platform: Platform-specific artifact set to emit.
                 ``"x86"`` exports ``.npy`` frame arrays, ``"riscv"`` exports
                 C headers, and ``"all"`` exports both. When ``debug=True``,
@@ -237,6 +286,8 @@ class Mapper:
                 and ``compile_artifacts_pb2.pyi`` into the exported ``proto/``
                 directory when x86 artifacts are part of the export set.
         """
+        self.timesteps = self._resolve_timesteps(pai_graph, timesteps)
+
         # determine raw_neus in routing groups, other properties remain unset
         self.generate_routing_groups(pai_graph)
 
@@ -270,7 +321,6 @@ class Mapper:
                 self.groups.append(grp)
             else:
                 raise TypeError(f"Unsupported group type: {type(grp)}")
-        # raise NotImplementedError("Conv tiling is not implemented yet.")
 
         self.set_rough_dest()
 
@@ -278,7 +328,7 @@ class Mapper:
             print(grp.info())
 
         for out_grp in self.output_groups:
-            out_grp.set_lcn(required_steps=time_steps)
+            out_grp.set_lcn(self.timesteps)
 
         self.routing_groups = [
             grp for grp in self.groups if isinstance(grp, RoutingGroup)

@@ -3,19 +3,28 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from google.protobuf.json_format import MessageToJson
-from paicorelib import CoordZXYOffset, DataSign, DataWidth, find_coordxy_shortest_path
+from paicorelib import (
+    CoordZXYOffset,
+    DataSign,
+    DataWidth,
+    OfflineFrameGenV2,
+    find_coordxy_shortest_path,
+)
 
 from paibox.paiir.ir.signal_domain import SignalDomain
 
 from ..coreplacement import CorePlacement, Frontend_Core_Config
 from ..op_node import Neuron, RemapElem
-from ..proto import PROTO_SCHEMA_VERSION
+from ..proto import get_schema_version
 from ..proto.compile_artifacts_pb2 import (
     CompileArtifacts,
     ConfigFrames,
     DataType,
+    InputEntry,
     InputTensorMapping,
+    OutputEntry,
     OutputTensorMapping,
+    RuntimeParams,
     TickParams,
 )
 from ..routing import InputGroup, OutputGroup, RemapGroup, RoutingGroup, SourceElem
@@ -31,7 +40,7 @@ from .utils import (
 TickTriple = tuple[int, int, int]
 DataFormat = tuple[DataSign, DataWidth]
 
-_DATA_TYPE_BY_FORMAT: Mapping[DataFormat, int] = {
+_DATA_TYPE_BY_FORMAT: Mapping[DataFormat, DataType.Code] = {
     (DataSign.UNSIGNED, DataWidth.WIDTH_1BIT): DataType.UINT1,
     (DataSign.SIGNED, DataWidth.WIDTH_1BIT): DataType.INT1,
     (DataSign.UNSIGNED, DataWidth.WIDTH_2BIT): DataType.UINT2,
@@ -44,10 +53,10 @@ _DATA_TYPE_BY_FORMAT: Mapping[DataFormat, int] = {
 
 
 def _bit_width_from_data_width(width: DataWidth) -> int:
-    return int(2**width)
+    return int(1 << width)
 
 
-def _dtype_from_format(fmt: DataFormat, context: str) -> int:
+def _dtype_from_format(fmt: DataFormat, context: str) -> DataType.Code:
     dtype = _DATA_TYPE_BY_FORMAT.get(fmt)
     if dtype is None:
         sign, width = fmt
@@ -58,7 +67,9 @@ def _dtype_from_format(fmt: DataFormat, context: str) -> int:
     return dtype
 
 
-def _set_entry_dtype(entry, fmt: DataFormat, bit_width: int, context: str) -> None:
+def _set_entry_dtype(
+    entry: InputEntry | OutputEntry, fmt: DataFormat, bit_width: int, context: str
+) -> None:
     expected_bit_width = _bit_width_from_data_width(fmt[1])
     if bit_width != expected_bit_width:
         sign, width = fmt
@@ -209,12 +220,52 @@ def _routing_group_ticks(routing_group: RoutingGroup) -> set[TickTriple]:
     }
 
 
+def _thread_tick_depth(
+    output_groups: Sequence[OutputGroup], groups: Sequence[RoutingGroup | RemapGroup]
+) -> int | None:
+    """Return the latest producer start tick for one exported thread."""
+    if not output_groups:
+        return None
+
+    tick_starts = [
+        int(_producer_core_conf_from_source_elem(elem, groups).tick_start)
+        for out_grp in output_groups
+        for elem in out_grp.input_list
+    ]
+    if not tick_starts:
+        raise ValueError("Output groups contain no output elements.")
+
+    return max(tick_starts)
+
+
+def _thread_decode_mode(
+    output_groups: Sequence[OutputGroup], timesteps: int
+) -> RuntimeParams.DecodeMode:
+    """Derive STREAM/STEP from the final output LCN timestep capacity."""
+    if not output_groups:
+        return RuntimeParams.STREAM
+    if len(output_groups) != 1:
+        raise NotImplementedError(
+            "RuntimeParams export currently supports one OutputGroup per thread."
+        )
+
+    out_grp = output_groups[0]
+    ts_width, _ = OfflineFrameGenV2.LCN_TO_TS_AXON_WIDTHS[out_grp.lcn.value]
+    max_stream_timesteps = 1 << ts_width
+    return (
+        RuntimeParams.STREAM
+        if max_stream_timesteps >= timesteps
+        else RuntimeParams.STEP
+    )
+
+
 def export_compile_artifacts(
     output_path: str | Path,
     target_platform: TargetPlatform,
     word_order: WordOrder,
     export_python: bool,
     debug: bool,
+    timesteps: int,
     groups: Sequence[RoutingGroup | RemapGroup],
     input_groups: Sequence[InputGroup],
     output_groups: Sequence[OutputGroup],
@@ -243,7 +294,7 @@ def export_compile_artifacts(
         shutil.copy2(src_file, proto_out_dir / file_name)
 
     artifacts = CompileArtifacts()
-    artifacts.schema_version = PROTO_SCHEMA_VERSION
+    artifacts.schema_version = get_schema_version()
     io_mapping = artifacts.io_mapping
 
     for thread_id, global_start in global_starts.items():
@@ -252,6 +303,18 @@ def export_compile_artifacts(
         thread_mapping.root_core_offset.xy = global_start.z
         thread_mapping.root_core_offset.x = global_start.x
         thread_mapping.root_core_offset.y = global_start.y
+
+        thread_output_groups = [
+            out_grp for out_grp in output_groups if out_grp.thread_id == thread_id
+        ]
+        tick_depth = _thread_tick_depth(thread_output_groups, groups)
+        if tick_depth is not None:
+            thread_mapping.runtime.timesteps = timesteps
+            thread_mapping.runtime.tick_depth = tick_depth
+            thread_mapping.runtime.sync_steps = tick_depth + timesteps - 1
+            thread_mapping.runtime.decode_mode = _thread_decode_mode(
+                thread_output_groups, timesteps
+            )
 
         input_mappings_by_name: dict[str, InputTensorMapping] = {}
         input_ticks_by_name: dict[str, set[TickTriple]] = {}
@@ -310,13 +373,13 @@ def export_compile_artifacts(
 
         output_mappings_by_name: dict[str, OutputTensorMapping] = {}
         output_ticks_by_name: dict[str, set[TickTriple]] = {}
-        for out_grp in output_groups:
-            if out_grp.thread_id != thread_id:
-                continue
-            thread_mapping.output_mappings.target_lcn = out_grp.lcn
+        for out_grp in thread_output_groups:
+            thread_mapping.output_mappings.target_lcn = out_grp.lcn.value
             for axon_bit_idx, elem in sorted(
                 out_grp.axon_bit_allocator.axon_infos, key=lambda item: item[0]
             ):
+                if elem not in out_grp.input_set:
+                    continue
                 output_name = elem.target.raw_node.name
                 if output_name not in output_mappings_by_name:
                     output_mapping = thread_mapping.output_mappings.items.add()

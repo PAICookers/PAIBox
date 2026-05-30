@@ -95,8 +95,21 @@ message InputTensorMappings {
 }
 
 message OutputTensorMappings {
-    optional uint32 target_lcn = 1; // Fixed 128X
+    optional uint32 target_lcn = 1;
     repeated OutputTensorMapping items = 2;
+}
+
+
+message RuntimeParams {
+    enum DecodeMode {
+        STREAM = 0;
+        STEP = 1;
+    }
+
+    optional uint32 timesteps = 1;
+    optional uint32 tick_depth = 2;
+    optional uint32 sync_steps = 3;
+    optional DecodeMode decode_mode = 4;
 }
 
 message CoreTick {
@@ -110,9 +123,10 @@ message ThreadIOMapping {
     optional uint32 thread_id = 1;
     /* Relative offset of the group-thread global-signal root core. */
     CoreOffset root_core_offset = 2;
-    InputTensorMappings input_mappings = 3;
-    OutputTensorMappings output_mappings = 4;
-    repeated CoreTick core_ticks = 5;
+    RuntimeParams runtime = 3;
+    InputTensorMappings input_mappings = 4;
+    OutputTensorMappings output_mappings = 5;
+    repeated CoreTick core_ticks = 6;
 }
 
 message IOMapping {
