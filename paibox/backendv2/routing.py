@@ -349,12 +349,15 @@ class RoutingGroup(
         # self.core_blocks: list[CoreBlock] = []
         self.last_full_attrs: OfflineNeuFullAttrsV2Part2 | None = None
 
-        self.n_core_required: int = -1
         self.core_placements: list[CorePlacement] = []
 
         self.assigned_cores: dict[CoordXY, CorePlacement] = {}
         self._multicast_config: AERPacketZXYCopy | None = None
         self._base_coord: CoordXY | None = None
+
+    @property
+    def n_core_required(self) -> int:
+        return len(self.core_placements)
 
     def add_elem(self, elem: SourceElem) -> SourceElem | None:
         if not isinstance(elem, Neuron):
@@ -808,8 +811,6 @@ class RoutingGroup(
             print(
                 f"{prefix}Number of cores of core_block[{i}]: {len(self.core_placements)}"
             )
-
-        self.n_core_required = len(self.core_placements)
 
         for core_placement in self.core_placements:
             core_placement.set_weight_address()

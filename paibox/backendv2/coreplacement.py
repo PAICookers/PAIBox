@@ -91,6 +91,14 @@ class CorePlacement:
     def weight_sram_required(self) -> int:
         pass
 
+    def get_compute_pressure(self) -> int:
+        pressure = 0
+        for i, neu in enumerate(self.neus):
+            num_neus = len(neu.raw_neus)
+            weight = self.weights[self.neu_weight_map[i]]
+            pressure += num_neus * weight.n_sram_required
+        return pressure
+
 
 class OfflineCorePlacementV2(CorePlacement):
     def __init__(
