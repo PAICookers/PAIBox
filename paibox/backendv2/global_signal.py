@@ -1,4 +1,4 @@
-from collections import defaultdict
+from collections import defaultdict, deque
 
 from paicorelib import CoordXY, CoordZXYOffset, find_coordxy_shortest_path
 
@@ -81,6 +81,25 @@ def path_points(a: tuple[int, int], b: tuple[int, int]):
     return pts
 
 
+# ---------- 在邻接图上做 BFS,返回 (各点距离, 离心率) ----------
+def bfs_distances(
+    start: tuple[int, int],
+    adj: dict[tuple[int, int], list[tuple[tuple[int, int], tuple[int, int]]]],
+) -> tuple[dict[tuple[int, int], int], int]:
+    dist: dict[tuple[int, int], int] = {start: 0}
+    queue: deque[tuple[int, int]] = deque([start])
+    ecc = 0
+    while queue:
+        u = queue.popleft()
+        for v, _ in adj[u]:
+            if v not in dist:
+                dist[v] = dist[u] + 1
+                if dist[v] > ecc:
+                    ecc = dist[v]
+                queue.append(v)
+    return dist, ecc
+
+
 # ---------- 主流程 ----------
 def solve(
     raw_points: list[tuple[int, int]],
@@ -139,29 +158,33 @@ def solve(
             if q in points:
                 adj[p].append((q, (dx, dy)))
 
-    # 4) 从 x+y 最小的点出发 DFS,记录方向
-    start = min(points, key=lambda p: (p[0] + p[1], p[0], p[1]))
-    visited = set()
-    move_dirs = defaultdict(list)
-    order = []
+    # 4) 选离心率最小的点作起点,最小化广播深度
+    #    对每个点跑一次 BFS,取离心率最小者;并列时取 (x+y, x, y) 最小者保证确定性
+    best_ecc = None
+    start = None
+    for p in points:
+        _, ecc = bfs_distances(p, adj)
+        key = (ecc, p[0] + p[1], p[0], p[1])
+        if best_ecc is None or key < best_ecc:
+            best_ecc = key
+            start = p
+    assert start is not None and best_ecc is not None, "no points to broadcast"
+    print(f"BFS start: {start}, eccentricity (tree depth): {best_ecc[0]}")
 
-    # 用显式栈,避免点很多时递归爆栈
-    stack = [(start, iter(adj[start]))]
-    visited.add(start)
-    order.append(start)
-    while stack:
-        u, it = stack[-1]
-        advanced = False
-        for v, d in it:
+    # 5) 从中心点出发 BFS,按层扩展生成广播树
+    visited = {start}
+    move_dirs = defaultdict(list)
+    order = [start]
+
+    queue = deque([start])
+    while queue:
+        u = queue.popleft()
+        for v, d in adj[u]:
             if v not in visited:
                 visited.add(v)
                 order.append(v)
                 move_dirs[u].append(d)
-                stack.append((v, iter(adj[v])))
-                advanced = True
-                break
-        if not advanced:
-            stack.pop()
+                queue.append(v)
 
     return order, added, dict(move_dirs)
 
