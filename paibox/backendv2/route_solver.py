@@ -17,8 +17,8 @@ X_START, X_END = 0, 9
 Y_START, Y_END = 2, 9
 
 # G: 数据包合法可达的全局网格 (用于新约束)
-G_X_MIN, G_X_MAX = 0, 8   # x ∈ [0, 8]
-G_Y_MIN, G_Y_MAX = 0, 8   # y ∈ [0, 8]
+G_X_MIN, G_X_MAX = 0, 8  # x ∈ [0, 8]
+G_Y_MIN, G_Y_MAX = 0, 8  # y ∈ [0, 8]
 
 HIVE = set()
 for i in range(X_START, X_END):
@@ -209,10 +209,18 @@ def route_solve(
     symin = [model.NewIntVar(-8, 8, f"symin_{a}") for a in range(num_areas)]
     symax = [model.NewIntVar(-8, 8, f"symax_{a}") for a in range(num_areas)]
 
-    bx_min = [model.NewIntVar(X_START, X_END - 1, f"bxmin_{a}") for a in range(num_areas)]
-    bx_max = [model.NewIntVar(X_START, X_END - 1, f"bxmax_{a}") for a in range(num_areas)]
-    by_min = [model.NewIntVar(Y_START, Y_END - 1, f"bymin_{a}") for a in range(num_areas)]
-    by_max = [model.NewIntVar(Y_START, Y_END - 1, f"bymax_{a}") for a in range(num_areas)]
+    bx_min = [
+        model.NewIntVar(X_START, X_END - 1, f"bxmin_{a}") for a in range(num_areas)
+    ]
+    bx_max = [
+        model.NewIntVar(X_START, X_END - 1, f"bxmax_{a}") for a in range(num_areas)
+    ]
+    by_min = [
+        model.NewIntVar(Y_START, Y_END - 1, f"bymin_{a}") for a in range(num_areas)
+    ]
+    by_max = [
+        model.NewIntVar(Y_START, Y_END - 1, f"bymax_{a}") for a in range(num_areas)
+    ]
 
     # 绑定: 选中的 placement 决定 area 的 bbox 和中心
     for i, p in enumerate(placements):
