@@ -11,10 +11,14 @@ from paicorelib.routing_hexa import (
     aer_packet_walk,
 )
 
-X_START = 0
-X_END = 9
-Y_START = 2
-Y_END = 9
+# ---------------- 网格定义 ----------------
+# HIVE: area 实际可放置的格子范围
+X_START, X_END = 0, 9
+Y_START, Y_END = 2, 9
+
+# G: 数据包合法可达的全局网格 (用于新约束)
+G_X_MIN, G_X_MAX = 0, 8   # x ∈ [0, 8]
+G_Y_MIN, G_Y_MAX = 0, 8   # y ∈ [0, 8]
 
 HIVE = set()
 for i in range(X_START, X_END):
@@ -24,18 +28,16 @@ for i in range(X_START, X_END):
 HIVE_LIST = list(HIVE)
 HIVE_INDEX = {h: i for i, h in enumerate(HIVE_LIST)}
 
-# CANONICAL_SECTOR = set()
-# for i in range(0, 5):
-#     for j in range(2, 6):
-#         CANONICAL_SECTOR.add((i, j))
 
-
-def get_shapes_by_area() -> (
-    tuple[dict[int, list[list[CoordXY]]], dict[int, list[AERPacketZXYCopy]]]
-):
-    # Some area may not be covered
+# ---------------- Shape 枚举 ----------------
+def get_shapes_by_area():
+    """
+    枚举所有合法 AER 复制形状，并按面积分桶。
+    额外返回每个 shape 的相对偏移包围盒 (sxmin, sxmax, symin, symax)。
+    """
     shapes = defaultdict(list)
     copy_configs = defaultdict(list)
+    shape_bboxes = defaultdict(list)
 
     for coord in itertools.product(range(0, 5), range(0, 5), range(0, 5)):
         n = aer_packet_area(coord)
@@ -48,16 +50,18 @@ def get_shapes_by_area() -> (
         assert n == n_covered
         shapes[n].append(covered)
 
-    return shapes, copy_configs
+        xs = [s.x for s in covered]
+        ys = [s.y for s in covered]
+        shape_bboxes[n].append((min(xs), max(xs), min(ys), max(ys)))
+
+    return shapes, copy_configs, shape_bboxes
 
 
-def test_get_shapes_by_area():
-    shapes, copy_configs = get_shapes_by_area()
-
-    for k, v in shapes.items():
-        print(f"Area {k}: {len(v)} shapes")
+SHAPES_BY_AREA, COPY_CONFIGS, SHAPE_BBOXES = get_shapes_by_area()
+MAX_AREA = max(SHAPES_BY_AREA.keys())
 
 
+# ---------------- 结果打印 ----------------
 def print_route_result(
     solver: cp_model.CpSolver,
     N: int,
@@ -92,8 +96,7 @@ def print_route_result(
     print("\nPlacements used:")
     for i in used:
         p = placements[i]
-        abs_coords = p["absolute_coords"]
-        print(f"  Area {p['area_id']} Shape {p['shape_id']}: {abs_coords}")
+        print(f"  Area {p['area_id']} Shape {p['shape_id']}: {p['absolute_coords']}")
 
     print("\nVisualization (Numbers = Area ID, . = empty):")
     grid = [["." for _ in range(Y_END)] for _ in range(X_END)]
@@ -116,48 +119,58 @@ def print_route_result(
             )
 
 
-SHAPES_BY_AREA, COPY_CONFIGS = get_shapes_by_area()
-MAX_AREA = max(SHAPES_BY_AREA.keys())
-
-
+# ---------------- 主求解函数 ----------------
 def route_solve(
-    areas=[1], next_area_id={}, io_target=(0, 0), input_area_ids=[], output_area_ids=[]
+    areas=[1],
+    next_area_id={},
+    io_target=(0, 0),
+    input_area_ids=[],
+    output_area_ids=[],
 ):
     num_areas = len(areas)
+
+    # ---- 生成 placement ----
     placements = []
     placement_cells = []
-    placement_area = []
 
     for area_id, area in enumerate(areas):
+        # 找到 ≥ 需求面积的最小可用面积
         shapes = []
+        bboxes = []
+        chosen_area_size = None
         for selected_area in range(area, MAX_AREA + 1):
             if selected_area in SHAPES_BY_AREA:
                 shapes = SHAPES_BY_AREA[selected_area]
+                bboxes = SHAPE_BBOXES[selected_area]
+                chosen_area_size = selected_area
                 break
+        if chosen_area_size is None:
+            raise RuntimeError(f"No shape found for area_id={area_id} size>={area}")
 
         for shape_id, shape in enumerate(shapes):
+            sb = bboxes[shape_id]  # (sxmin, sxmax, symin, symax)
             for h in HIVE:
-                shifted = [
-                    (h[0] + s.x, h[1] + s.y) for s in shape
-                ]  # (h_row + s_row, h_col + s_col)
+                shifted = [(h[0] + s.x, h[1] + s.y) for s in shape]
                 if all(c in HIVE for c in shifted):
+                    xs = [c[0] for c in shifted]
+                    ys = [c[1] for c in shifted]
                     placement_dict = {
-                        "actual_area": selected_area,
+                        "actual_area": chosen_area_size,
                         "area_id": area_id,
                         "shape_id": shape_id,
                         "cells": [HIVE_INDEX[c] for c in shifted],
                         "area": len(shifted),
                         "absolute_coords": shifted,
-                        "center_r": round(
-                            sum(coord[0] for coord in shifted) / len(shifted)
-                        ),
-                        "center_c": round(
-                            sum(coord[1] for coord in shifted) / len(shifted)
-                        ),
+                        "center_r": round(sum(xs) / len(shifted)),
+                        "center_c": round(sum(ys) / len(shifted)),
+                        "bbox_x_min": min(xs),
+                        "bbox_x_max": max(xs),
+                        "bbox_y_min": min(ys),
+                        "bbox_y_max": max(ys),
+                        "shape_bbox": sb,
                     }
                     placements.append(placement_dict)
                     placement_cells.append(placement_dict["cells"])
-                    placement_area.append(placement_dict["area"])
 
     N = len(placements)
 
@@ -185,44 +198,80 @@ def route_solve(
             sum(x[i] for i, p in enumerate(placements) if p["area_id"] == area_id) == 1
         )
 
-    # break symmetry: the hive cell is a rectangle, so we can enforce an order on area placements
-    # model.Add(sum(y[HIVE_INDEX[h]] for h in CANONICAL_SECTOR) >= 1)
+    # ---- 中心坐标 ----
+    cx = [model.NewIntVar(X_START, X_END - 1, f"cx_{a}") for a in range(num_areas)]
+    cy = [model.NewIntVar(Y_START, Y_END - 1, f"cy_{a}") for a in range(num_areas)]
 
-    cx = [model.NewIntVar(X_START, X_END - 1, f"cx_{i}") for i in range(num_areas)]
-    cy = [model.NewIntVar(Y_START, Y_END - 1, f"cy_{i}") for i in range(num_areas)]
+    # ---- 新增: 每个 area 的 shape bbox 与占位 bbox ----
+    # shape bbox 取值范围: shape 偏移 ∈ [0, 8] 这里用 [-8, 8] 安全
+    sxmin = [model.NewIntVar(-8, 8, f"sxmin_{a}") for a in range(num_areas)]
+    sxmax = [model.NewIntVar(-8, 8, f"sxmax_{a}") for a in range(num_areas)]
+    symin = [model.NewIntVar(-8, 8, f"symin_{a}") for a in range(num_areas)]
+    symax = [model.NewIntVar(-8, 8, f"symax_{a}") for a in range(num_areas)]
 
-    # assign center coordinate for each area based on selected placement
+    bx_min = [model.NewIntVar(X_START, X_END - 1, f"bxmin_{a}") for a in range(num_areas)]
+    bx_max = [model.NewIntVar(X_START, X_END - 1, f"bxmax_{a}") for a in range(num_areas)]
+    by_min = [model.NewIntVar(Y_START, Y_END - 1, f"bymin_{a}") for a in range(num_areas)]
+    by_max = [model.NewIntVar(Y_START, Y_END - 1, f"bymax_{a}") for a in range(num_areas)]
+
+    # 绑定: 选中的 placement 决定 area 的 bbox 和中心
     for i, p in enumerate(placements):
-        p = placements[i]
-        model.Add(cx[p["area_id"]] == p["center_r"]).OnlyEnforceIf(x[i])
-        model.Add(cy[p["area_id"]] == p["center_c"]).OnlyEnforceIf(x[i])
+        a = p["area_id"]
+        sb = p["shape_bbox"]
+        model.Add(cx[a] == p["center_r"]).OnlyEnforceIf(x[i])
+        model.Add(cy[a] == p["center_c"]).OnlyEnforceIf(x[i])
+        model.Add(sxmin[a] == sb[0]).OnlyEnforceIf(x[i])
+        model.Add(sxmax[a] == sb[1]).OnlyEnforceIf(x[i])
+        model.Add(symin[a] == sb[2]).OnlyEnforceIf(x[i])
+        model.Add(symax[a] == sb[3]).OnlyEnforceIf(x[i])
+        model.Add(bx_min[a] == p["bbox_x_min"]).OnlyEnforceIf(x[i])
+        model.Add(bx_max[a] == p["bbox_x_max"]).OnlyEnforceIf(x[i])
+        model.Add(by_min[a] == p["bbox_y_min"]).OnlyEnforceIf(x[i])
+        model.Add(by_max[a] == p["bbox_y_max"]).OnlyEnforceIf(x[i])
 
-    # dictionary of noc distances between adjacent areas
-    dx = {}
-    dy = {}
+    # ---- 新增约束 A: 通信约束 i -> j ----
+    # area i 中每个点按 area j 的 shape 展开都必须落在 G 内
+    for i, succs in next_area_id.items():
+        for j in succs:
+            model.Add(bx_min[i] + sxmin[j] >= G_X_MIN)
+            model.Add(bx_max[i] + sxmax[j] <= G_X_MAX)
+            model.Add(by_min[i] + symin[j] >= G_Y_MIN)
+            model.Add(by_max[i] + symax[j] <= G_Y_MAX)
 
+    # ---- 新增约束 B: 源 area (无入边) 以 (0,0) 为基点展开必须在 G 内 ----
+    has_incoming = {j for succs in next_area_id.values() for j in succs}
+    sources = [a for a in range(num_areas) if a not in has_incoming]
+
+    for a in sources:
+        model.Add(0 + sxmin[a] >= G_X_MIN)
+        model.Add(0 + sxmax[a] <= G_X_MAX)
+        model.Add(0 + symin[a] >= G_Y_MIN)
+        model.Add(0 + symax[a] <= G_Y_MAX)
+
+    # ---- 距离建模 ----
+    dx, dy = {}, {}
     total_distance = 0
     for i, next_list in next_area_id.items():
         for j in next_list:
-            dx[i, j] = model.NewIntVar(X_START, X_END - 1, f"dx_{i}_{j}")
-            dy[i, j] = model.NewIntVar(Y_START, Y_END - 1, f"dy_{i}_{j}")
+            dx[i, j] = model.NewIntVar(0, X_END - 1, f"dx_{i}_{j}")
+            dy[i, j] = model.NewIntVar(0, Y_END - 1, f"dy_{i}_{j}")
             model.AddAbsEquality(dx[i, j], cx[j] - cx[i])
             model.AddAbsEquality(dy[i, j], cy[j] - cy[i])
             total_distance += dx[i, j] + dy[i, j]
 
     for input_area_id in input_area_ids:
-        dx_input = model.NewIntVar(X_START, X_END - 1, f"dx_input_{input_area_id}")
-        dy_input = model.NewIntVar(Y_START, Y_END - 1, f"dy_input_{input_area_id}")
-        model.AddAbsEquality(dx_input, cx[input_area_id] - io_target[0])
-        model.AddAbsEquality(dy_input, cy[input_area_id] - io_target[1])
-        total_distance += dx_input + dy_input
+        dxi = model.NewIntVar(0, X_END - 1, f"dx_in_{input_area_id}")
+        dyi = model.NewIntVar(0, Y_END - 1, f"dy_in_{input_area_id}")
+        model.AddAbsEquality(dxi, cx[input_area_id] - io_target[0])
+        model.AddAbsEquality(dyi, cy[input_area_id] - io_target[1])
+        total_distance += dxi + dyi
 
     for output_area_id in output_area_ids:
-        dx_output = model.NewIntVar(X_START, X_END - 1, f"dx_output_{output_area_id}")
-        dy_output = model.NewIntVar(Y_START, Y_END - 1, f"dy_output_{output_area_id}")
-        model.AddAbsEquality(dx_output, cx[output_area_id] - io_target[0])
-        model.AddAbsEquality(dy_output, cy[output_area_id] - io_target[1])
-        total_distance += dx_output + dy_output
+        dxo = model.NewIntVar(0, X_END - 1, f"dx_out_{output_area_id}")
+        dyo = model.NewIntVar(0, Y_END - 1, f"dy_out_{output_area_id}")
+        model.AddAbsEquality(dxo, cx[output_area_id] - io_target[0])
+        model.AddAbsEquality(dyo, cy[output_area_id] - io_target[1])
+        total_distance += dxo + dyo
 
     # Objective: maximize covered cells and minimize total distance
     max_possible_distance = (X_END + Y_END) * num_areas * num_areas
@@ -238,7 +287,7 @@ def route_solve(
     solver = cp_model.CpSolver()
 
     num_cpu_threads = os.cpu_count() or 2
-    solver.parameters.num_search_workers = num_cpu_threads // 2
+    solver.parameters.num_search_workers = max(1, num_cpu_threads // 2)
     solver.parameters.max_time_in_seconds = 120.0
     # solver.parameters.log_search_progress = True
     status = solver.Solve(model)
@@ -261,4 +310,5 @@ def route_solve(
     return copy_configs, coords
 
 
-route_solve()
+if __name__ == "__main__":
+    route_solve()
