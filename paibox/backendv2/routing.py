@@ -1097,7 +1097,7 @@ class OutputGroup(Group, DestGroup[SourceElem, SourceNode]):
             max_allocator = self._build_axon_allocator(MAX_LCN)
         except ValueError as exc:
             raise ValueError(
-                "Output axon space is exhausted even with " f"{MAX_LCN.name}."
+                f"Output axon space is exhausted even with {MAX_LCN.name}."
             ) from exc
 
         if max_allocator.used_bits:

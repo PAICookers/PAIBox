@@ -39,6 +39,7 @@ class Mapper:
 
     def _resolve_timesteps(self, pai_graph: PAIIRGraph, timesteps: int | None) -> int:
         """Resolve the application runtime length used by output metadata."""
+
         def _collect_output_durations() -> set[int]:
             durations: set[int] = set()
             visited: set[str] = set()
