@@ -1,29 +1,34 @@
 import json
 import shutil
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pytest
 import torch
-from paicorelib import LCN_EX, DataSign, DataWidth, find_coordxy_shortest_path
+from paicorelib import (
+    LCN_EX,
+    DataSign,
+    DataWidth,
+    OfflineFrameGenV2,
+    find_coordxy_shortest_path,
+)
 from torch import nn
 
 from paibox.backendv2.export.utils import export_framearray_to_int32
 from paibox.backendv2.mapper import Mapper
-from paibox.backendv2.proto import PROTO_SCHEMA_VERSION
+from paibox.backendv2.op_node import SourceElem
+from paibox.backendv2.proto import get_schema_version
 from paibox.backendv2.proto.compile_artifacts_pb2 import (
     CompileArtifacts,
     ConfigFrames,
     DataType,
     OutputTensorMapping,
+    RuntimeParams,
 )
+from paibox.backendv2.routing import FANIN_BASE, OutputGroup
 from paibox.paiir import compile_to_paiir
-from tests.paiir.conftest import (
-    ANNClassifier,
-    SimpleCNN,
-    SNNTwoLayer,
-    make_img_3ch_8x8,
-)
+from tests.paiir.conftest import ANNClassifier, SimpleCNN, SNNTwoLayer, make_img_3ch_8x8
 from tests.utils import is_ci_env
 
 DEBUG_EXPORT_ROOT = Path(__file__).with_name("debug") / "mapper_proto_export"
@@ -57,7 +62,6 @@ def _export_simple_cnn_proto(export_root: Path, word_order: str) -> Path:
 def _export_simple_cnn(
     export_root: Path,
     case_name: str,
-    *,
     target_platform: str,
     debug: bool,
     export_merged_frames: bool = True,
@@ -89,6 +93,22 @@ class ConvPotential(nn.Module):
         return self.conv(x)
 
 
+class _FakeOutputElem:
+    def __init__(self, bit_width: int, name: str) -> None:
+        self.output_bit_num = bit_width
+        self.name = name
+
+    def __repr__(self) -> str:
+        return self.name
+
+
+def _output_elems(bit_width: int, count: int, prefix: str) -> list[SourceElem]:
+    return [
+        cast(SourceElem, _FakeOutputElem(bit_width, f"{prefix}{i}"))
+        for i in range(count)
+    ]
+
+
 def _load_compile_artifacts(pb_path: Path) -> CompileArtifacts:
     artifacts = CompileArtifacts()
     artifacts.ParseFromString(pb_path.read_bytes())
@@ -96,7 +116,12 @@ def _load_compile_artifacts(pb_path: Path) -> CompileArtifacts:
 
 
 def _export_graph_proto_with_context(
-    export_root: Path, case_name: str, model, sample, **compile_kwargs
+    export_root: Path,
+    case_name: str,
+    model,
+    sample,
+    mapper_timesteps: int | None = None,
+    **compile_kwargs,
 ) -> tuple[Path, set[str], Mapper]:
     export_dir = export_root / case_name
     if export_dir.exists():
@@ -110,7 +135,9 @@ def _export_graph_proto_with_context(
         for pred_name in graph.predecessors(output_node.name)
     }
     mapper = Mapper()
-    mapper.compile(graph, export_dir, target_platform="x86", debug=True)
+    mapper.compile(
+        graph, export_dir, target_platform="x86", debug=True, timesteps=mapper_timesteps
+    )
 
     return export_dir / "proto" / "config.pb", output_source_names, mapper
 
@@ -149,8 +176,29 @@ def _expected_core_major_words(mapper: Mapper, word_order: str) -> list[int]:
     for core_placement in mapper.coreplacements:
         for frame_array in core_placement.to_frame():
             if frame_array is not None:
-                words.extend(export_framearray_to_int32(frame_array, word_order))
+                words.extend(export_framearray_to_int32(frame_array, word_order))  # type: ignore
     return words
+
+
+def _expected_data_lcn(num_outputs: int) -> LCN_EX:
+    for lcn_value, _ in enumerate(OfflineFrameGenV2.LCN_TO_TS_AXON_WIDTHS):
+        lcn = LCN_EX(lcn_value)
+        if num_outputs <= FANIN_BASE * (1 << lcn.value):
+            return lcn
+    raise AssertionError(f"{num_outputs} outputs exceed LCN_128X capacity")
+
+
+def _expected_lcn_from_max_axon(max_axon_addr: int) -> LCN_EX:
+    min_tick_relative_bit = (max_axon_addr // FANIN_BASE).bit_length()
+    return LCN_EX(min_tick_relative_bit)
+
+
+def _assert_output_group_allocator_matches_inputs(out_grp: OutputGroup) -> None:
+    assert out_grp.axon_bit_allocator.target_lcn == out_grp.lcn
+    assert [elem for _, elem in out_grp.axon_bit_allocator.axon_infos] == (
+        out_grp.input_list
+    )
+    assert out_grp.input_mapping == out_grp.axon_bit_allocator.axon_by_elem
 
 
 CoreTickKey = tuple[int, int, int, tuple[str, ...], tuple[int, int, int]]
@@ -253,13 +301,13 @@ def test_export_proto_real_workflow_keeps_pb_and_json(
 
     artifacts = _load_compile_artifacts(pb_path)
 
-    assert artifacts.schema_version == PROTO_SCHEMA_VERSION
+    assert artifacts.schema_version == get_schema_version()
     assert len(artifacts.io_mapping.threads) == 1
     assert len(artifacts.config_frames.words) > 0
     assert artifacts.config_frames.word_order == expected_enum
 
     payload = json.loads(json_path.read_text())
-    assert payload["schemaVersion"] == PROTO_SCHEMA_VERSION
+    assert payload["schemaVersion"] == get_schema_version()
     assert payload["configFrames"]["wordOrder"] == expected_json_value
     assert len(payload["configFrames"]["words"]) > 0
     assert len(payload["ioMapping"]["threads"]) == 1
@@ -301,9 +349,15 @@ def test_export_proto_marks_data_outputs_and_target_lcn(
     )
 
     artifacts = _load_compile_artifacts(pb_path)
-    output_mappings = artifacts.io_mapping.threads[0].output_mappings
+    thread = artifacts.io_mapping.threads[0]
+    output_mappings = thread.output_mappings
 
-    assert output_mappings.target_lcn == LCN_EX.LCN_128X.value
+    assert thread.runtime.timesteps == 1
+    assert thread.runtime.tick_depth >= 1
+    assert thread.runtime.sync_steps == thread.runtime.tick_depth
+    assert thread.runtime.decode_mode == RuntimeParams.STREAM
+    output_count = sum(len(mapping.entries) for mapping in output_mappings.items)
+    assert output_mappings.target_lcn == _expected_data_lcn(output_count).value
     assert output_mappings.HasField("target_lcn")
     assert len(output_mappings.items) == 1
     assert {mapping.name for mapping in output_mappings.items} == output_source_names
@@ -334,9 +388,12 @@ def test_export_proto_marks_voltage_outputs_and_base_addresses(
     )
 
     artifacts = _load_compile_artifacts(pb_path)
-    output_mappings = artifacts.io_mapping.threads[0].output_mappings
+    thread = artifacts.io_mapping.threads[0]
+    output_mappings = thread.output_mappings
 
-    assert output_mappings.target_lcn == LCN_EX.LCN_128X.value
+    assert thread.runtime.timesteps == 1
+    assert thread.runtime.sync_steps == 1
+    assert thread.runtime.decode_mode == RuntimeParams.STREAM
     assert len(output_mappings.items) == 1
 
     output_mapping = output_mappings.items[0]
@@ -350,6 +407,32 @@ def test_export_proto_marks_voltage_outputs_and_base_addresses(
 
     bases = [entry.axon_bit_idx for entry in entries[:10]]
     assert bases == [0, 1, 2, 3, 4, 5, 6, 7, 32]
+    assert output_mappings.target_lcn == _expected_lcn_from_max_axon(max(bases)).value
+
+
+def test_output_lcn_uses_timesteps_not_external_sync_steps(
+    ensure_backendv2_debug_dir,
+):
+    pb_path, _, mapper = _export_graph_proto_with_context(
+        ensure_backendv2_debug_dir,
+        "output_lcn_uses_timesteps",
+        ANNClassifier(),
+        make_img_3ch_8x8(),
+        tick_duration=1,
+        auto_reset=False,
+    )
+
+    artifacts = _load_compile_artifacts(pb_path)
+    thread = artifacts.io_mapping.threads[0]
+
+    assert thread.runtime.timesteps == 1
+    assert thread.runtime.tick_depth > 1
+    assert thread.runtime.sync_steps == thread.runtime.tick_depth
+    output_count = sum(len(mapping.entries) for mapping in thread.output_mappings.items)
+    expected_lcn = _expected_data_lcn(output_count)
+    assert thread.output_mappings.target_lcn == expected_lcn.value
+    assert mapper.output_groups[0].lcn == expected_lcn
+    assert not hasattr(mapper.output_groups[0], "runtime_timesteps")
 
 
 def test_export_proto_exports_ann_io_ticks_and_core_ticks(
@@ -368,6 +451,13 @@ def test_export_proto_exports_ann_io_ticks_and_core_ticks(
     assert {mapping.name for mapping in thread.output_mappings.items} == (
         output_source_names
     )
+    expected_tick_depth = max(
+        mapping.tick.tick_start for mapping in thread.output_mappings.items
+    )
+    assert thread.runtime.timesteps == 1
+    assert thread.runtime.tick_depth == expected_tick_depth
+    assert thread.runtime.sync_steps == expected_tick_depth
+    assert thread.runtime.decode_mode == RuntimeParams.STREAM
     _assert_core_ticks_match_mapper(thread, mapper)
     _assert_thread_tick_duration_initial(thread, (1, 1))
 
@@ -387,8 +477,91 @@ def test_export_proto_exports_explicit_ann_tick_policy(
     artifacts = _load_compile_artifacts(pb_path)
     thread = artifacts.io_mapping.threads[0]
 
+    expected_tick_depth = max(
+        mapping.tick.tick_start for mapping in thread.output_mappings.items
+    )
+    assert thread.runtime.timesteps == 6
+    assert thread.runtime.tick_depth == expected_tick_depth
+    assert thread.runtime.sync_steps == expected_tick_depth + 5
     _assert_core_ticks_match_mapper(thread, mapper)
     _assert_thread_tick_duration_initial(thread, (6, 0))
+
+
+def test_mapper_rejects_timesteps_exceeding_finite_tick_duration(
+    ensure_backendv2_debug_dir,
+):
+    export_dir = ensure_backendv2_debug_dir / "timesteps_exceed_tick_duration"
+    if export_dir.exists():
+        shutil.rmtree(export_dir)
+    export_dir.mkdir(parents=True, exist_ok=True)
+
+    graph = compile_to_paiir(ANNClassifier().eval(), make_img_3ch_8x8(), strict=True)
+    mapper = Mapper()
+
+    with pytest.raises(ValueError, match="exceeds finite tick_duration"):
+        mapper.compile(graph, export_dir, target_platform="x86", timesteps=2)
+
+
+@pytest.mark.parametrize(
+    ("required_steps", "expected_lcn"),
+    [(1, LCN_EX.LCN_1X), (2, LCN_EX.LCN_1X), (3, LCN_EX.LCN_1X), (4, LCN_EX.LCN_1X)],
+)
+def test_output_group_lcn_selection_uses_output_capacity(required_steps, expected_lcn):
+    out_grp = OutputGroup([])
+    out_grp.input_list = _output_elems(8, 1, "out")
+
+    out_grp.set_lcn(required_steps)
+
+    assert out_grp.lcn == expected_lcn
+    _assert_output_group_allocator_matches_inputs(out_grp)
+
+
+def test_output_group_warns_when_runtime_steps_exceed_address_capacity():
+    out_grp = OutputGroup([])
+    out_grp.input_list = _output_elems(8, 600, "out")
+
+    with pytest.warns(RuntimeWarning, match="STEP mode"):
+        out_grp.set_lcn(256)
+
+    assert out_grp.lcn == LCN_EX.LCN_128X
+    assert len(out_grp.axon_bit_allocator.axon_infos) == 600
+    _assert_output_group_allocator_matches_inputs(out_grp)
+
+
+def test_output_group_data_capacity_uses_entry_count_not_bit_width_sum():
+    out_grp = OutputGroup([])
+    out_grp.input_list = _output_elems(1, 1025, "out")
+
+    out_grp.set_lcn(1)
+
+    assert out_grp.lcn == LCN_EX.LCN_4X
+    assert len(out_grp.axon_bit_allocator.axon_infos) == 1025
+    _assert_output_group_allocator_matches_inputs(out_grp)
+
+
+def test_output_group_voltage_uses_upstream_address_formula():
+    out_grp = OutputGroup([])
+    out_grp.input_list = _output_elems(32, 10, "v")
+
+    out_grp.set_lcn(1)
+
+    bases = [axon for axon, _ in out_grp.axon_bit_allocator.axon_infos]
+    assert out_grp.lcn == _expected_lcn_from_max_axon(max(bases))
+    _assert_output_group_allocator_matches_inputs(out_grp)
+    assert bases == [0, 1, 2, 3, 4, 5, 6, 7, 32, 33]
+
+    with pytest.warns(RuntimeWarning, match="STEP mode"):
+        out_grp.set_lcn(257)
+    assert out_grp.lcn == LCN_EX.LCN_128X
+    _assert_output_group_allocator_matches_inputs(out_grp)
+
+
+def test_output_group_raises_when_max_lcn_capacity_is_too_small():
+    out_grp = OutputGroup([])
+    out_grp.input_list = _output_elems(8, 66000, "out")
+
+    with pytest.raises(ValueError, match="Output axon space is exhausted"):
+        out_grp.set_lcn(1)
 
 
 def test_export_proto_exports_input_dtype_from_consumer_format(
@@ -434,6 +607,13 @@ def test_export_proto_exports_snn_tick_policy(
     assert {mapping.name for mapping in thread.output_mappings.items} == (
         output_source_names
     )
+    expected_timesteps = tick_duration if tick_duration > 0 else 1
+    expected_tick_depth = max(
+        mapping.tick.tick_start for mapping in thread.output_mappings.items
+    )
+    assert thread.runtime.timesteps == expected_timesteps
+    assert thread.runtime.tick_depth == expected_tick_depth
+    assert thread.runtime.sync_steps == expected_tick_depth + expected_timesteps - 1
     _assert_core_ticks_match_mapper(thread, mapper)
     _assert_thread_tick_duration_initial(thread, expected)
 
