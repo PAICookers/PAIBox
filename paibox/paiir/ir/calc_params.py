@@ -89,7 +89,8 @@ class OfflineCoreParams:
     Describes the operating mode, data format, and timing configuration
     of a single offline core.
 
-    Timing parameters:
+    Timing parameters are internal hardware fields. Public compile APIs use
+    ``timesteps`` and ``auto_reset`` and map those values onto these fields.
 
     - ``tick_start``: Which sync_all to start working at. ``None`` means
       auto-assigned by :func:`~paibox.paiir.pipeline.passes.assign_tick_params`.

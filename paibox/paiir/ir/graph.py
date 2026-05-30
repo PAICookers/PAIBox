@@ -634,7 +634,7 @@ class PAIIRGraph:
         for correct simulation. Call before running simulation to catch
         configuration errors early.
 
-        Required parameters:
+        Required internal hardware tick parameters:
         - ``tick_start``: Must be set (not None)
         - ``tick_duration``: Must be non-negative
         - ``tick_initial``: Must be non-negative
@@ -768,9 +768,10 @@ class PAIIRGraph:
         """Execute one time step (one sync_all cycle) through the graph.
 
         Advances the internal simulation step counter by 1. Each
-        :class:`OfflineCoreOp` is active only within its
-        ``[tick_start, tick_start + tick_duration)`` window; inactive nodes
-        output zero without updating neuron state.
+        :class:`OfflineCoreOp` is active only within its internal hardware
+        tick window. ``tick_duration=0`` means no finite stop; otherwise the
+        active window is ``[tick_start, tick_start + tick_duration)``.
+        Inactive nodes output zero without updating neuron state.
 
         Execution order mirrors the chip's sync_all protocol:
 
