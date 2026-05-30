@@ -21,10 +21,14 @@ conversion pipeline:
 
 Use :func:`compile_to_paiir` for a one-step compilation, or call the
 individual passes directly for fine-grained control.
+
+Public timing configuration uses ``timesteps`` and ``auto_reset``. The
+lowering pipeline maps those values to internal ``tick_duration`` /
+``tick_initial`` core fields before backend export.
 """
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Final, TypeVar, cast
 
 from torch import Tensor, nn
 
@@ -51,20 +55,46 @@ from .rewrite_phase import RewritePass, run_fixed_point_rewrite_phase
 __all__ = ["compile_to_paiir", "CompileConfig"]
 
 
+_T = TypeVar("_T")
+
+
+class _UnsetArg:
+    """Sentinel type for keyword arguments whose omitted state matters."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "<UNSET>"
+
+
+# Distinguish omitted keywords from explicit invalid/default values so
+# CompileConfig defaults and explicit keyword overrides can coexist.
+_UNSET_ARG: Final = _UnsetArg()
+
+
+def _resolve_config_arg(value: _T | _UnsetArg, config_value: _T) -> _T:
+    """Use the config value only when the keyword argument was omitted."""
+    if value is _UNSET_ARG:
+        return config_value
+    return cast(_T, value)
+
+
 @dataclass
 class CompileConfig:
     """Global configuration defaults for :func:`compile_to_paiir`.
 
-    Keyword arguments passed directly to :func:`compile_to_paiir` override the
-    matching values in this object when they are not ``None``.
+    Keyword arguments passed directly to :func:`compile_to_paiir` override
+    matching values in this object when those keywords are explicitly provided.
 
     Attributes:
-        tick_duration: Global work duration for every compute core. ``None``
-            uses the execution-mode default; ``0`` keeps cores always active;
-            a positive value activates each core for that many sync steps.
-        auto_reset: Global automatic-reset policy. ``None`` uses the
-            execution-mode default; true resets state at finite work-window
-            boundaries; false leaves state externally controlled.
+        timesteps: Application-side inference sequence length. It must be a
+            positive integer. When automatic reset is enabled, the compiled
+            cores stay active and reset every ``timesteps`` active ticks. When
+            automatic reset is disabled, the compiled cores work for exactly
+            ``timesteps`` ticks and leave reset control to the caller.
+        auto_reset: Whether compiled cores automatically reinitialise neuron
+            state every ``timesteps`` active ticks. The same timing policy is
+            applied to all offline cores; it does not branch by ANN/SNN mode.
         input_formats: Optional data-format overrides keyed by ``InputNode``
             name. Each value is a ``(DataSign, DataWidth)`` pair.
         enable_avgpool_calibration: Enable experimental threshold calibration
@@ -81,8 +111,8 @@ class CompileConfig:
             to task semantics.
     """
 
-    tick_duration: int | None = None
-    auto_reset: bool | None = None
+    timesteps: int = 1
+    auto_reset: bool = True
     input_formats: dict[str, DataFormat] | None = None
     enable_avgpool_calibration: bool = False
     enable_split_avgpool_lif: bool = False
@@ -93,8 +123,8 @@ class CompileConfig:
 def compile_to_paiir(
     model: nn.Module,
     *sample_inputs: Tensor,
-    tick_duration: int | None = None,
-    auto_reset: bool | None = None,
+    timesteps: int | _UnsetArg = _UNSET_ARG,
+    auto_reset: bool | _UnsetArg = _UNSET_ARG,
     input_formats: dict[str, DataFormat] | None = None,
     compile_config: CompileConfig | None = None,
     concrete_args: dict[str, Any] | None = None,
@@ -117,14 +147,16 @@ def compile_to_paiir(
         *sample_inputs: Example tensors used for FX tracing, shape propagation,
             and dimension propagation. The current deployment path expects
             batch size 1.
-        tick_duration: Global work duration for compute cores. ``None`` means
-            use the execution-mode default. ``0`` means always active, and a
-            positive value means active for that many time steps.
-        auto_reset: Global automatic-reset policy. ``None`` means use the
-            execution-mode default. When true and ``tick_duration > 0``,
-            ``tick_initial`` is set to ``tick_duration``; when
-            ``tick_duration == 0``, ``tick_initial`` remains ``0`` because an
-            always-active core has no finite reset boundary.
+        timesteps: Application-side inference sequence length. It must be a
+            positive integer and defaults to ``1`` through ``CompileConfig``.
+            With ``auto_reset=True``, cores stay active
+            (``tick_duration=0``) and reinitialise every ``timesteps`` active
+            ticks (``tick_initial=timesteps``). With ``auto_reset=False``,
+            cores work for ``timesteps`` ticks (``tick_duration=timesteps``)
+            with reset control left to the caller (``tick_initial=0``).
+        auto_reset: Whether compiled cores automatically reinitialise state
+            every ``timesteps`` active ticks. Defaults to ``True`` through
+            ``CompileConfig`` and applies uniformly to ANN and SNN mode cores.
         input_formats: Optional data-format overrides keyed by ``InputNode``
             name.
         compile_config: Optional object containing global defaults. Explicit
@@ -152,11 +184,9 @@ def compile_to_paiir(
 
     Timing defaults:
         If neither keyword arguments nor ``compile_config`` specify timing,
-        ANN-mode cores default to one active step with automatic reset
-        (``tick_duration=1``, ``tick_initial=1``), while SNN-mode cores default
-        to continuous work without automatic reset (``tick_duration=0``,
-        ``tick_initial=0``). Explicit global timing parameters take priority
-        over these execution-mode defaults.
+        ``timesteps`` defaults to ``1`` and ``auto_reset`` defaults to
+        ``True``. This exports all offline cores with ``tick_duration=0`` and
+        ``tick_initial=1``. The same policy applies to ANN and SNN mode cores.
 
     Pipeline:
 
@@ -183,8 +213,8 @@ def compile_to_paiir(
     13. :func:`validate_deployable_graph` -- ensure no frontend-only IR remains
     """
     cfg = compile_config or CompileConfig()
-    _tick_duration = tick_duration if tick_duration is not None else cfg.tick_duration
-    _auto_reset = auto_reset if auto_reset is not None else cfg.auto_reset
+    _timesteps = _resolve_config_arg(timesteps, cfg.timesteps)
+    _auto_reset = _resolve_config_arg(auto_reset, cfg.auto_reset)
     _input_formats = input_formats if input_formats is not None else cfg.input_formats
     _enable_avgpool_calibration = (
         enable_avgpool_calibration
@@ -219,7 +249,7 @@ def compile_to_paiir(
         _post_fusion_rewrite_passes(_enable_delayed_avgpool_division, _output_approx),
     )
 
-    assign_tick_params(graph, _tick_duration, _auto_reset)
+    assign_tick_params(graph, _timesteps, _auto_reset)
 
     if _enable_avgpool_calibration:
         calibrate_avgpool_thresholds(graph)

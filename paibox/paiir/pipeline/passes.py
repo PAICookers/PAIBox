@@ -1937,18 +1937,27 @@ def _get_node_act(node: OfflineCoreOp) -> CoreNeuronV25 | None:
 
 
 def assign_tick_params(
-    graph: PAIIRGraph,
-    tick_duration: int | None = None,
-    auto_reset: bool | None = None,
+    graph: PAIIRGraph, timesteps: int = 1, auto_reset: bool = True
 ) -> None:
     """Assign timing parameters on every :class:`OfflineCoreOp`.
 
-    Without explicit timing policy, ANN-mode cores use one work step with
-    automatic reset while SNN-mode cores run continuously. Explicit global
-    timing parameters take priority over compute-mode defaults.
+    ``timesteps`` is the public, application-side inference length and must be
+    positive. It is mapped to the internal core timing fields uniformly for all
+    offline cores, independent of ANN/SNN mode:
+
+    - ``auto_reset=True`` keeps cores continuously active
+      (``tick_duration=0``) and reinitialises state every ``timesteps`` active
+      ticks (``tick_initial=timesteps``).
+    - ``auto_reset=False`` makes cores work for ``timesteps`` ticks
+      (``tick_duration=timesteps``) and leaves reset control to the caller
+      (``tick_initial=0``).
     """
-    if tick_duration is not None and tick_duration < 0:
-        raise ValueError(f"'tick_duration' must be non-negative, got {tick_duration}")
+    if not isinstance(timesteps, int) or isinstance(timesteps, bool):
+        raise TypeError(f"'timesteps' must be a positive integer, got {timesteps!r}")
+    if timesteps <= 0:
+        raise ValueError(f"'timesteps' must be positive, got {timesteps}")
+    if not isinstance(auto_reset, bool):
+        raise TypeError(f"'auto_reset' must be a bool, got {auto_reset!r}")
 
     depth: dict[str, int] = {}
     for name in graph.topo_sort():
@@ -1970,18 +1979,11 @@ def assign_tick_params(
 
         cp.tick_start = depth[name]
 
-        if tick_duration is not None:
-            cp.tick_duration = tick_duration
-        elif cp.snn_mode == SNNMode.ANN:
-            cp.tick_duration = 1
-        else:
+        if auto_reset:
             cp.tick_duration = 0
-
-        node_auto_reset = auto_reset
-        if node_auto_reset is None:
-            node_auto_reset = cp.snn_mode == SNNMode.ANN
-        cp.tick_initial = (
-            cp.tick_duration if node_auto_reset and cp.tick_duration > 0 else 0
-        )
+            cp.tick_initial = timesteps
+        else:
+            cp.tick_duration = timesteps
+            cp.tick_initial = 0
 
         cp.validate_tick_params()
