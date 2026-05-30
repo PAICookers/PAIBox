@@ -76,11 +76,11 @@ message CompileArtifacts {
 }
 ```
 
-| 字段             | 含义                                                    |
-| ---------------- | ------------------------------------------------------- |
-| `schema_version` | schema 版本。应用侧可用它判断当前程序是否支持该 `.pb`。 |
-| `io_mapping`     | 逻辑 I/O 张量与芯片工作帧地址之间的映射。               |
-| `config_frames`  | 编译生成的配置帧，按 32-bit word 展平保存。             |
+| 字段             | 含义                                                                                   |
+| ---------------- | -------------------------------------------------------------------------------------- |
+| `schema_version` | schema 版本。当前 backendv2 proto 仍为 `1`；应用侧可用它判断当前程序是否支持该 `.pb`。 |
+| `io_mapping`     | 逻辑 I/O 张量与芯片工作帧地址之间的映射。                                              |
+| `config_frames`  | 编译生成的配置帧，按 32-bit word 展平保存。                                            |
 
 ## 4. 配置帧
 
@@ -134,9 +134,10 @@ message IOMapping {
 message ThreadIOMapping {
     optional uint32 thread_id = 1;
     CoreOffset root_core_offset = 2;
-    InputTensorMappings input_mappings = 3;
-    OutputTensorMappings output_mappings = 4;
-    repeated CoreTick core_ticks = 5;
+    RuntimeParams runtime = 3;
+    InputTensorMappings input_mappings = 4;
+    OutputTensorMappings output_mappings = 5;
+    repeated CoreTick core_ticks = 6;
 }
 ```
 
@@ -147,6 +148,7 @@ message ThreadIOMapping {
 | `input_mappings`   | 输入逻辑张量到输入工作帧地址的映射。                                             |
 | `output_mappings`  | 输出工作帧地址到输出逻辑张量的映射。                                             |
 | `core_ticks`       | 该线程内真实计算核的 tick 明细；不包含全局信号空核。                             |
+| `runtime`          | 应用侧运行时序摘要，用于同步步数控制和编解码参数校验。                           |
 
 `CoreOffset` 和 `CopyCount` 都包含 `xy/x/y` 三个分量：
 
@@ -167,6 +169,18 @@ message TickParams {
     optional uint32 tick_start = 1;
     optional uint32 tick_duration = 2;
     optional uint32 tick_initial = 3;
+}
+
+message RuntimeParams {
+    enum DecodeMode {
+        STREAM = 0;
+        STEP = 1;
+    }
+
+    optional uint32 timesteps = 1;
+    optional uint32 tick_depth = 2;
+    optional uint32 sync_steps = 3;
+    optional DecodeMode decode_mode = 4;
 }
 
 /* DATA payload code type. VOLTAGE outputs leave dtype unset and are int32. */
@@ -194,6 +208,8 @@ message CoreTick {
 `CoreOffset` 表示目标 core 的相对偏移；`CopyCount` 表示 AER 多播复制数量。二者都使用 2.5芯片帧格式中的 `XY/X/Y` 三轴概念，但语义不同：`core_offset` 表示目标位置，`copy_count` 表示复制范围。
 
 `TickParams` 对应 2.5 计算核的 `tick_start/tick_duration/tick_initial` 参数。`tick_duration=0` 表示持续工作；`tick_initial=0` 表示不自动复位。`CoreTick.tick` 是该物理计算核的 tick 参数，`CoreTick.nodes` 是部署到同一个物理计算核上的 PAIIR 节点名列表。
+
+`RuntimeParams.timesteps` 是应用推理序列长度；`tick_depth` 是该 thread 输出 producer 的最大 `tick_start`；`sync_steps = tick_depth + timesteps - 1` 是推荐外部同步步数。`sync_steps` 只描述主机视角的同步控制长度，不参与输出层 `target_lcn` 选择；输出层 `target_lcn` 由实际输出 axon 地址容量反推，优先保留更多本地 timestep 位。输出帧中的 timestep 是输出层本地运行时步。`decode_mode=STREAM` 表示最终 `target_lcn` 的 timestep 位宽可区分运行时步；`STEP` 表示需要应用分步推理、分步解码，或只能进行 warning 级 best-effort 序列解码。
 
 `DataType.Code` 描述普通 DATA payload 的码字类型。`UINT*` / `INT*` 中的数字表示逻辑位宽；`INT*` 按 two's complement 解释。`NOT_SET` 只作为默认值，应用侧不应把它当成有效 DATA 类型。`VOLTAGE` 输出不设置 `dtype`，固定按 `int32` 膜电平解释。
 
@@ -381,6 +397,10 @@ message OutputEntry {
 
 CPU 接收端仍应先根据返回工作帧的帧头区分 I/II 型。`kind` 的作用是让应用侧在运行前从 `config.pb` 预生成静态解码表，并保留调试语义。不要用 `bit_width` 反推出输出语义；应以 `OutputTensorMapping.kind` 为准。`DATA` 输出用 entry 级 `dtype` 解释 signedness；`VOLTAGE` 输出固定按 `int32` 膜电平解释。
 
+`output_mappings.target_lcn` 选择策略与上游 backendv2 保持一致：后端先分配实际输出 axon 地址，再根据最大 axon bit 反推可容纳这些地址的最小 LCN。应用传入的 `timesteps` 不直接扩大 `target_lcn`；若所选 LCN 的 timestep 位宽不足以一次性区分全部运行时步，导出的 `RuntimeParams.decode_mode` 会变为 `STEP`。
+
+应用侧可直接使用 `paibox.backendv2.proto.runtime_codec.FrameCodec` 读取 `config.pb` 或 `config.json`。实时路径推荐读取 `.pb`，并在初始化时预生成输入编码表和输出 scatter 表。`FrameCodec.from_file(..., thread_id=0)` 默认选择硬件线程 0；多线程或非 0 线程产物需显式传入 `thread_id`。单输入模型可直接传入 array-like；多输入模型必须传入 `{input_name: array_like}`。编码输入可以是 NumPy array，也可以是 torch tensor；torch tensor 会通过 `detach().cpu().numpy()` 转为 NumPy。`codec.encode(inputs)` 默认要求输入形状为 `[T, *input_shape]`；`codec.encode(inputs, t=t)` 编码单个运行时步。`codec.decode(frames)` 的 `frames` 固定要求为 `np.ndarray` 且 `dtype=np.uint64`，在 `STREAM` 模式下返回 `[T, *output_shape]`，未输出位置置 0；多输出模型返回 `{output_name: ndarray}`。`STEP` 模式推荐 `codec.decode(frames, t=t)` 分步解码。
+
 `OutputNode` 是图输出的虚拟边界节点，不是实际计算核。`OutputTensorMapping.name` 和 `shape` 使用最终输出源/生产者节点，`tick` 从该输出源追溯到实际生产计算核后导出。
 
 `kind` 是 `OutputTensorMapping` 级字段；当前后端要求同一个输出源/生产者节点内所有 `entries` 共享同一种输出语义。
@@ -392,7 +412,7 @@ CPU 接收端仍应先根据返回工作帧的帧头区分 I/II 型。`kind` 的
 3. 根据映射表把 payload 写回输出张量的展平位置 `elem_idx`。
 4. 根据 `dtype` 把 payload 解释为 signed/unsigned 1/2/4/8-bit 码字。
 
-膜电平 `VOLTAGE` 输出对应工作帧 II 型。后端只记录每个神经元膜电平输出的基地址 `axon_bit_idx`，芯片内部按 `base + 8 * i` 访问 4 个 byte lane。应用侧可预先把每个 `VOLTAGE` entry 展开为 `(base, base + 8, base + 16, base + 24)`，运行时收集 4 个 payload byte 后拼回一个 32-bit 膜电平。
+膜电平 `VOLTAGE` 输出对应工作帧 II 型。后端分配时为每个神经元膜电平保留 `base + {0, 8, 16, 24}` 四个内部 byte lane，但 proto 只记录基地址 `axon_bit_idx`。运行时返回的 4 个 type-II 帧使用同一个基地址作为 axon，payload 按低字节到高字节顺序出现。`FrameCodec` 会按 `(output_name, runtime_t, elem_idx)` 收集同一基地址上的 4 个 payload byte，并用 little-endian signed `int32` 还原膜电平；若缺 byte，则 warning 后补 0。由于返回帧本身不携带 byte-lane 编号，应用侧也需要保持芯片/运行时输出顺序。
 
 如果应用侧需要主动构造工作帧 II 型，可把每个膜电平元素拆成一个 `int32`，再调用 `OfflineFrameGenV2.gen_work_frame2(...)`。该接口会为每个膜电平值自动展开 4 个 byte lane，并生成 4 帧 64-bit work frame type 2。下面的示例未经过板端流程验证，仅供实现参考：
 
@@ -485,17 +505,16 @@ def decode_offline_work_frame1_u64(frame: int, target_lcn: int = LCN_EX.LCN_128X
     return axon_bit_idx, payload
 ```
 
-对于 `mapping.kind == VOLTAGE` 的输出，一个 `OutputEntry` 的 `axon_bit_idx` 是膜电平基地址。应用侧需要收集 `base + 8 * i` 这四个 byte lane 后再按模型 ABI 组合为 32-bit 值。下面的 little-endian 组合逻辑未经过板端流程验证，仅供实现参考：
+对于 `mapping.kind == VOLTAGE` 的输出，一个 `OutputEntry` 的 `axon_bit_idx` 是膜电平基地址。应用侧需要按帧顺序收集同一基地址上的 4 个 payload byte，再按 little-endian signed `int32` 组合：
 
 ```python
-def collect_u32_le(decoded_by_axon: dict[int, int], base_axon_bit_idx: int) -> int:
-    value = 0
-    for i in range(4):
-        value |= (decoded_by_axon.get(base_axon_bit_idx + 8 * i, 0) & 0xFF) << (8 * i)
-    return value
+def collect_i32_le(payloads: list[int]) -> int:
+    if len(payloads) < 4:
+        payloads = [*payloads, *([0] * (4 - len(payloads)))]
+    return int.from_bytes(bytes(payloads[:4]), byteorder="little", signed=True)
 ```
 
-例如，若 `OfflineFrameGenV2.gen_work_frame2(...)` 对某个膜电平 `0x11223344` 生成的 4 帧 payload 依次为 `0x44, 0x33, 0x22, 0x11`，则应用侧应按 little-endian 次序把它们还原回 `0x11223344`，并使用对应 entry 的 `axon_bit_idx` 作为第一个 byte lane 的基地址。
+例如，若 `OfflineFrameGenV2.gen_work_frame2(...)` 对某个膜电平 `0x11223344` 生成的 4 帧 payload 依次为 `0x44, 0x33, 0x22, 0x11`，则应用侧应按 little-endian 次序把它们还原回 `0x11223344`。若 payload 依次为 `0xFE, 0xFF, 0xFF, 0xFF`，则还原为 `-2`。
 
 ## 8. JSON 字段名
 
@@ -507,6 +526,10 @@ def collect_u32_le(decoded_by_axon: dict[int, int], base_axon_bit_idx: int) -> i
 | `io_mapping`       | `ioMapping`      |
 | `config_frames`    | `configFrames`   |
 | `root_core_offset` | `rootCoreOffset` |
+| `runtime`          | `runtime`        |
+| `tick_depth`       | `tickDepth`      |
+| `sync_steps`       | `syncSteps`      |
+| `decode_mode`      | `decodeMode`     |
 | `elem_idx`         | `elemIdx`        |
 | `addr_axon`        | `addrAxon`       |
 | `axon_bit_idx`     | `axonBitIdx`     |

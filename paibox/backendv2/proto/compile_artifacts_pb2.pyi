@@ -215,6 +215,32 @@ class OutputTensorMappings(_message.Message):
         items: _Optional[_Iterable[_Union[OutputTensorMapping, _Mapping]]] = ...,
     ) -> None: ...
 
+class RuntimeParams(_message.Message):
+    __slots__ = ("timesteps", "tick_depth", "sync_steps", "decode_mode")
+
+    class DecodeMode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+        __slots__ = ()
+        STREAM: _ClassVar[RuntimeParams.DecodeMode]
+        STEP: _ClassVar[RuntimeParams.DecodeMode]
+
+    STREAM: RuntimeParams.DecodeMode
+    STEP: RuntimeParams.DecodeMode
+    TIMESTEPS_FIELD_NUMBER: _ClassVar[int]
+    TICK_DEPTH_FIELD_NUMBER: _ClassVar[int]
+    SYNC_STEPS_FIELD_NUMBER: _ClassVar[int]
+    DECODE_MODE_FIELD_NUMBER: _ClassVar[int]
+    timesteps: int
+    tick_depth: int
+    sync_steps: int
+    decode_mode: RuntimeParams.DecodeMode
+    def __init__(
+        self,
+        timesteps: _Optional[int] = ...,
+        tick_depth: _Optional[int] = ...,
+        sync_steps: _Optional[int] = ...,
+        decode_mode: _Optional[_Union[RuntimeParams.DecodeMode, str]] = ...,
+    ) -> None: ...
+
 class CoreTick(_message.Message):
     __slots__ = ("core_offset", "tick", "nodes")
     CORE_OFFSET_FIELD_NUMBER: _ClassVar[int]
@@ -234,17 +260,20 @@ class ThreadIOMapping(_message.Message):
     __slots__ = (
         "thread_id",
         "root_core_offset",
+        "runtime",
         "input_mappings",
         "output_mappings",
         "core_ticks",
     )
     THREAD_ID_FIELD_NUMBER: _ClassVar[int]
     ROOT_CORE_OFFSET_FIELD_NUMBER: _ClassVar[int]
+    RUNTIME_FIELD_NUMBER: _ClassVar[int]
     INPUT_MAPPINGS_FIELD_NUMBER: _ClassVar[int]
     OUTPUT_MAPPINGS_FIELD_NUMBER: _ClassVar[int]
     CORE_TICKS_FIELD_NUMBER: _ClassVar[int]
     thread_id: int
     root_core_offset: CoreOffset
+    runtime: RuntimeParams
     input_mappings: InputTensorMappings
     output_mappings: OutputTensorMappings
     core_ticks: _containers.RepeatedCompositeFieldContainer[CoreTick]
@@ -252,6 +281,7 @@ class ThreadIOMapping(_message.Message):
         self,
         thread_id: _Optional[int] = ...,
         root_core_offset: _Optional[_Union[CoreOffset, _Mapping]] = ...,
+        runtime: _Optional[_Union[RuntimeParams, _Mapping]] = ...,
         input_mappings: _Optional[_Union[InputTensorMappings, _Mapping]] = ...,
         output_mappings: _Optional[_Union[OutputTensorMappings, _Mapping]] = ...,
         core_ticks: _Optional[_Iterable[_Union[CoreTick, _Mapping]]] = ...,

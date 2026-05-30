@@ -1,3 +1,4 @@
+import warnings
 from abc import abstractmethod
 from collections import defaultdict, deque
 from collections.abc import Sequence, Set
@@ -53,14 +54,13 @@ FANIN_BASE = 512
 class Group:
     group_counter = 0
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.id: int = type(self).group_counter
         type(self).group_counter += 1
         self.name: str = f"Group_{self.id}"
 
     def info(self, prefix: str = "") -> str:
-        info_str = f"{prefix}{self.name}:"
-        return info_str
+        return f"{prefix}{self.name}:"
 
     def __str__(self) -> str:
         return self.info() + "\n"
@@ -81,7 +81,7 @@ class DestGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
         self,
         input_list: Sequence[SOURCE_ELEM],
         input_nodes: Set[SOURCE_NODE] | None = None,
-    ):
+    ) -> None:
         self.input_nodes: set[SOURCE_NODE] | None = (
             set(input_nodes) if input_nodes is not None else None
         )
@@ -90,7 +90,7 @@ class DestGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
         self.index_map: dict[SOURCE_ELEM, int] = {}
         self.set_index_map()
 
-    def set_index_map(self):
+    def set_index_map(self) -> None:
         self.index_map = {elem: i for i, elem in enumerate(self.input_list)}
 
     def info(self, prefix: str = "") -> str:
@@ -111,22 +111,20 @@ class DestGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
         return info_str
 
     def __str__(self) -> str:
-        return "DestGroup: \n" + self.info(prefix="  ") + "\n"
+        return f"{self.__class__.__name__}: \n" + self.info(prefix="  ") + "\n"
 
 
 class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
     def __init__(
-        self,
-        raw_neus: Sequence[SOURCE_ELEM],
-        nodes: Set[SOURCE_NODE] | None = None,
-    ):
+        self, raw_neus: Sequence[SOURCE_ELEM], nodes: Set[SOURCE_NODE] | None = None
+    ) -> None:
         self.nodes: Set[SOURCE_NODE] | None = set(nodes) if nodes is not None else None
         self.raw_elems: list[SOURCE_ELEM] = list(raw_neus)
         self.used_elems: list[SOURCE_ELEM] = []
         self.elem_set: set[SOURCE_ELEM] = set(raw_neus)
         self.dests: dict[SOURCE_ELEM, "RoutingGroup | OutputGroup| RemapGroup"] = {}
 
-    def update_raw_elems(self):
+    def update_raw_elems(self) -> None:
         self.raw_elems = self.used_elems
 
     @abstractmethod
@@ -181,8 +179,7 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
         return summary_str
 
     def __str__(self) -> str:
-        info_str = "SourceGroup: \n" + self.info(prefix="  ")
-        return info_str + "\n"
+        return f"{self.__class__.__name__}: \n" + self.info(prefix="  ") + "\n"
 
     def get_detail_dest(
         self, elems: list[SOURCE_ELEM], self_coord: CoordXY = CoordXY(0, 0)
@@ -198,16 +195,18 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
             axon_bit_count = axon_addr_logic * dest_routing_group.input_bit_num
         elif isinstance(dest_routing_group, OutputGroup):
             axon_bit_count = -1
-            axon_bit_count = dest_routing_group.input_mapping[elems[0]]
-            assert axon_bit_count < FANIN_BASE * (
-                2**dest_routing_group.lcn.value
-            ), f"Total axon bit count for output group exceeds the maximum supported by {dest_routing_group.lcn.value} LCN"
+            axon_bit_count = dest_routing_group.input_mapping[axon_elem]
+            assert (
+                axon_bit_count <= dest_routing_group.axon_bit_allocator.max_axon_bit
+            ), (
+                "Total axon bit count for output group exceeds the maximum "
+                f"supported by {dest_routing_group.lcn.name}"
+            )
 
         dest_coord = dest_routing_group.base_coord
         coord_copy = dest_routing_group.multicast_config
 
-        addr_axon = axon_bit_count % FANIN_BASE
-        tick_relative = axon_bit_count // FANIN_BASE
+        tick_relative, addr_axon = divmod(axon_bit_count, FANIN_BASE)
 
         coord_offset, _ = find_coordxy_shortest_path(
             target=dest_coord, start=self_coord
@@ -224,7 +223,7 @@ class SourceGroup(Generic[SOURCE_ELEM, SOURCE_NODE]):
             addr_copy_y=coord_copy.y,
         )
 
-    def set_detail_dest(self):
+    def set_detail_dest(self) -> None:
         pass
 
 
@@ -239,7 +238,7 @@ class RemapGroup(
         input_list: Sequence[SourceElem],
         nodes: Set[RemapNode] | None = None,
         input_nodes: Set[SourceNode] | None = None,
-    ):
+    ) -> None:
         Group.__init__(self)
         DestGroup.__init__(self, input_list, input_nodes)
         SourceGroup.__init__(self, raw_elems, nodes)
@@ -325,8 +324,7 @@ class RemapGroup(
         return summary_str
 
     def __str__(self) -> str:
-        info_str = self.info()
-        return info_str
+        return self.info()
 
 
 class RoutingGroup(
@@ -338,7 +336,7 @@ class RoutingGroup(
         input_list: Sequence[SourceElem],
         nodes: Set[CoreOpNode] | None = None,
         input_nodes: Set[SourceNode] | None = None,
-    ):
+    ) -> None:
         Group.__init__(self)
         DestGroup.__init__(self, input_list, input_nodes)
         SourceGroup.__init__(self, raw_neus, nodes)
@@ -366,7 +364,7 @@ class RoutingGroup(
         self.nodes = None
         return None
 
-    def set_lcn(self):
+    def set_lcn(self) -> None:
         intput_bit_nums: set[int] = set([neu.input_bit_num for neu in self.raw_elems])
         pred_output_bit_nums: set[int] = set(
             [src.output_bit_num for src in self.input_list]
@@ -696,7 +694,7 @@ class RoutingGroup(
         group_items: list[tuple[Neuron, np.ndarray]],
         block_id: int = 0,
         prefix: str = "",
-    ):
+    ) -> None:
         weights_of_group = [item[1] for item in group_items]
         weight_infos, base_weights = group_shift_weights_optimized(
             weights_of_group, prefix
@@ -748,7 +746,7 @@ class RoutingGroup(
         if len(current_core.neus) > 0:
             self.core_placements.append(current_core)
 
-    def allocate_neurons(self):
+    def allocate_neurons(self) -> None:
         """core placement generation"""
         # you can get neu_attrs_part2, inherited_core_config, target_lcn, lcn for each neuron in self.raw_elems, like:
         # all the attrs in neu_attrs_part2 are valid except weight compress, you should set weight compress according to your weight storage strategy
@@ -877,8 +875,7 @@ class RoutingGroup(
         return info_str
 
     def __str__(self) -> str:
-        info_str = self.info()
-        return info_str
+        return self.info()
 
     def routing_summary(self, prefix: str = "") -> str:
         summary_str = f"{prefix}{self.name} Routing Summary ({len(self.core_placements)} cores):\n"
@@ -906,7 +903,7 @@ class RoutingGroup(
 
 class InputGroup(Group, SourceGroup[InputElem, InNode]):
     def __init__(
-        self, raw_elems: Sequence[SourceElem], nodes: Set[SourceNode] | None = None
+        self, raw_elems: Sequence[InputElem], nodes: Set[InNode] | None = None
     ) -> None:
         Group.__init__(self)
         SourceGroup.__init__(self, raw_elems, nodes)
@@ -930,15 +927,14 @@ class InputGroup(Group, SourceGroup[InputElem, InNode]):
         return info_str
 
     def routing_summary(self, prefix: str = "") -> str:
-        summary_str = f"{prefix}Input Group {self.name}:\n"
+        summary_str = f"{prefix}{self.__class__.__name__} {self.name}:\n"
         summary_str += SourceGroup.routing_summary(self, prefix=prefix)
         return summary_str
 
     def __str__(self) -> str:
-        info_str = self.info()
-        return info_str
+        return self.info()
 
-    def set_detail_dest(self):
+    def set_detail_dest(self) -> None:
         for elem in self.raw_elems:
             dest_info = self.get_detail_dest([elem])
             self.dest_infos[elem] = dest_info
@@ -946,29 +942,69 @@ class InputGroup(Group, SourceGroup[InputElem, InNode]):
             self.dest_lcn[elem] = dest_rg.lcn
 
 
+def _max_axon_bit_for_lcn(target_lcn: LCN_EX) -> int:
+    """Return the largest flat output axon bit address supported by an LCN."""
+    return FANIN_BASE * (1 << target_lcn.value) - 1
+
+
+MAX_LCN = LCN_EX.LCN_128X
+OUTPUT_TIMESTEP_FIELD_BITS = MAX_LCN.value + 1
+
+
 class OutputAxonAllocator:
-    def __init__(self):
-        self.MAX_AXON_BIT: int = FANIN_BASE * (1 << LCN_EX.LCN_128X.value) - 1
+    """Assign stable flat output axon bit addresses for one OutputGroup."""
+
+    DEFAULT_TARGET_LCN = MAX_LCN
+
+    def __init__(self, target_lcn: LCN_EX = DEFAULT_TARGET_LCN) -> None:
+        self.target_lcn = target_lcn
+        self.max_axon_bit = _max_axon_bit_for_lcn(target_lcn)
+        # Ordered export view: proto output entries keep this allocation order.
         self.axon_infos: list[tuple[int, SourceElem]] = []
+        # Fast idempotency guard for repeated detail-destination generation.
+        self.axon_by_elem: dict[SourceElem, int] = {}
         self.used_bits: set[int] = set()
         self.lowest_free_bit: int = 0
 
+    def retarget(self, target_lcn: LCN_EX) -> None:
+        """Narrow or widen capacity after allocation without changing addresses."""
+        max_axon_bit = _max_axon_bit_for_lcn(target_lcn)
+        if self.used_bits and max(self.used_bits) > max_axon_bit:
+            raise ValueError(
+                f"Cannot retarget output allocator to {target_lcn.name}: "
+                f"allocated axon bit {max(self.used_bits)} exceeds "
+                f"the maximum supported axon bit {max_axon_bit}."
+            )
+        self.target_lcn = target_lcn
+        self.max_axon_bit = max_axon_bit
+
     def get_next_free_bit(self, start: int) -> int:
         while True:
+            if start > self.max_axon_bit:
+                return start
             if start not in self.used_bits:
                 return start
             start += 1
 
     def free_to_store_32bit(self, start: int) -> bool:
         for i in range(4):
+            # A 32-bit voltage value occupies 4 byte lanes, 8 bits apart.
             axon_bit = start + i * 8
-            if axon_bit > self.MAX_AXON_BIT or axon_bit in self.used_bits:
+            if axon_bit > self.max_axon_bit or axon_bit in self.used_bits:
                 return False
         return True
 
     def allocate(self, elem: SourceElem) -> int:
+        if elem in self.axon_by_elem:
+            return self.axon_by_elem[elem]
+
         if elem.output_bit_num <= 8:
             axon_bit = self.lowest_free_bit
+            if axon_bit > self.max_axon_bit:
+                raise ValueError(
+                    f"Cannot allocate {elem.output_bit_num}-bit output for "
+                    f"element {elem}: output axon space is exhausted."
+                )
             self.used_bits.add(axon_bit)
             self.axon_infos.append((axon_bit, elem))
             next_free_bit = self.get_next_free_bit(axon_bit + 1)
@@ -976,11 +1012,12 @@ class OutputAxonAllocator:
         elif elem.output_bit_num == 32:
             candidate_bit = self.lowest_free_bit
             while True:
-                if candidate_bit > self.MAX_AXON_BIT:
+                if candidate_bit > self.max_axon_bit:
                     raise ValueError(
                         f"Cannot allocate 32-bit output for element {elem}: "
                         "output axon space is exhausted."
                     )
+                # A 32-bit voltage value occupies 4 byte lanes, 8 bits apart.
                 if self.free_to_store_32bit(candidate_bit):
                     axon_bit = candidate_bit
                     for i in range(4):
@@ -995,10 +1032,13 @@ class OutputAxonAllocator:
             raise ValueError(
                 f"Unsupported output bit num {elem.output_bit_num} for element {elem}."
             )
-        if axon_bit > self.MAX_AXON_BIT:
+        if axon_bit > self.max_axon_bit:
             raise ValueError(
-                f"Axon bit {axon_bit} allocated for element {elem} exceeds the maximum supported axon bit {self.MAX_AXON_BIT}."
+                f"Axon bit {axon_bit} allocated for element {elem} exceeds "
+                f"the maximum supported axon bit {self.max_axon_bit}."
             )
+
+        self.axon_by_elem[elem] = axon_bit
         return axon_bit
 
 
@@ -1007,14 +1047,14 @@ class OutputGroup(Group, DestGroup[SourceElem, SourceNode]):
         self,
         input_list: Sequence[SourceElem],
         input_nodes: Set[SourceNode] | None = None,
-    ):
+    ) -> None:
         Group.__init__(self)
         DestGroup.__init__(self, input_list, input_nodes)
         self.name: str = f"OutputG_{self.id}"
         self._multicast_config: AERPacketZXYCopy = AERPacketZXYCopy(0, 0, 0)
         self._base_coord: CoordXY = CoordXY(0, 0)
-        self.axon_bit_allocator = OutputAxonAllocator()
-        self.lcn = LCN_EX.LCN_128X
+        self.lcn = OutputAxonAllocator.DEFAULT_TARGET_LCN
+        self.axon_bit_allocator = OutputAxonAllocator(self.lcn)
         self.input_bit_num: int = 1
         self.thread_id: int = 0
         self.input_mapping: dict[SourceElem, int] = {}
@@ -1026,43 +1066,72 @@ class OutputGroup(Group, DestGroup[SourceElem, SourceNode]):
         return info_str
 
     def routing_summary(self, prefix: str = "") -> str:
-        summary_str = f"{prefix}Output Group {self.name}:\n"
-        summary_str += (
-            f"{prefix}   Output Group is the final destination, no further routing.\n"
-        )
+        summary_str = f"{prefix}{self.__class__.__name__} {self.name}:\n"
+        summary_str += f"{prefix}   {self.__class__.__name__} is the final destination, no further routing.\n"
         return summary_str
 
     def __str__(self) -> str:
-        info_str = self.info()
-        return info_str
+        return self.info()
 
-    def set_detail_dest(self):
+    def set_detail_dest(self) -> None:
         pass
 
-    def set_lcn(self, required_steps: int):
+    def _build_axon_allocator(self, target_lcn: LCN_EX) -> OutputAxonAllocator:
+        # Build the allocator to completion so capacity checks and final state match.
+        allocator = OutputAxonAllocator(target_lcn)
         for elem in self.input_list:
-            self.input_mapping[elem] = self.axon_bit_allocator.allocate(elem)
-        max_axon_addr = max(self.axon_bit_allocator.used_bits)
-        # the allocator's used_bits are 0-indexed,
-        # so if the max used bit is 512, it means we need 513 bits to represent it,
-        # which requires lcn2x
-        min_tick_relative_bit = (max_axon_addr // FANIN_BASE).bit_length()
+            allocator.allocate(elem)
+        return allocator
 
-        # at least 1 bit for step
-        min_step_bit = max(required_steps.bit_length(), 1)
+    def set_lcn(self, required_ts: int) -> None:
+        """Select output target LCN from deployed axon addresses.
 
-        # tick_relative and step share the time_step bits(8),
-        # so the sum of their bit length cannot exceed 8,
-        # otherwise set lcn = LCN_EX.LCN_128X
-        time_step_bit_num = LCN_EX.LCN_128X.value + 1
-        if min_tick_relative_bit > LCN_EX.LCN_128X.value:
+        ``required_ts`` is the application runtime length. It does not drive the
+        selected LCN; it only warns when the chosen output address width leaves
+        too few local timestep bits for STREAM decoding.
+        """
+        if required_ts <= 0:
+            raise ValueError(f"required_ts must be positive, got {required_ts}.")
+
+        try:
+            max_allocator = self._build_axon_allocator(MAX_LCN)
+        except ValueError as exc:
             raise ValueError(
-                f"Max axon address {max_axon_addr} requires at least {min_tick_relative_bit} bits, which exceeds the maximum supported by LCN_EX.LCN_128X."
-            )
-        elif min_step_bit + min_tick_relative_bit > time_step_bit_num:
-            self.lcn = LCN_EX.LCN_128X
+                f"Output axon space is exhausted even with {MAX_LCN.name}."
+            ) from exc
+
+        if max_allocator.used_bits:
+            max_axon_addr = max(max_allocator.used_bits)
         else:
-            self.lcn = LCN_EX(min_tick_relative_bit)
+            max_axon_addr = 0
+
+        # LCN is derived from deployed output axon address width. Runtime step
+        # width is considered only to warn when STREAM decode cannot cover T.
+        min_tick_relative_bit = (max_axon_addr // FANIN_BASE).bit_length()
+        min_ts_bit = max((required_ts - 1).bit_length(), 1)
+
+        if min_tick_relative_bit > MAX_LCN.value:
+            raise ValueError(
+                f"Max axon address {max_axon_addr} requires at least "
+                f"{min_tick_relative_bit} bits, which exceeds the maximum "
+                f"supported by {MAX_LCN.name}."
+            )
+        if min_ts_bit + min_tick_relative_bit > OUTPUT_TIMESTEP_FIELD_BITS:
+            warnings.warn(
+                "Output timestep bits and axon address bits cannot both fit in "
+                f"{OUTPUT_TIMESTEP_FIELD_BITS} bits; runtime decode will require "
+                "STEP mode.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            target_lcn = MAX_LCN
+        else:
+            target_lcn = LCN_EX(min_tick_relative_bit)
+
+        max_allocator.retarget(target_lcn)
+        self.lcn = target_lcn
+        self.axon_bit_allocator = max_allocator
+        self.input_mapping = max_allocator.axon_by_elem.copy()
 
     @property
     def multicast_config(self) -> AERPacketZXYCopy:
