@@ -769,32 +769,24 @@ class TestTickParams:
             assert node.core_params.tick_start >= 1
 
     @pytest.mark.parametrize(
-        "tick_duration, auto_reset, expected_duration, expected_initial",
+        "kwargs, expected_duration, expected_initial",
         [
-            (None, None, 1, 1),
-            (100, None, 100, 100),
-            (None, False, 1, 0),
-            (100, False, 100, 0),
-            (0, True, 0, 0),
+            ({}, 0, 1),
+            ({"auto_reset": False}, 1, 0),
+            ({"timesteps": 7}, 0, 7),
+            ({"timesteps": 7, "auto_reset": False}, 7, 0),
         ],
         ids=[
-            "default",
-            "duration_only",
-            "auto_reset_only",
-            "reset_disabled",
-            "always_on",
+            "default_auto_reset",
+            "manual_reset_default_timesteps",
+            "multi_step_auto_reset",
+            "multi_step_manual_reset",
         ],
     )
-    def test_tick_duration_and_auto_reset(
-        self, tick_duration, auto_reset, expected_duration, expected_initial
+    def test_timesteps_and_auto_reset_mapping(
+        self, kwargs, expected_duration, expected_initial
     ):
-        """ANN defaults to one tick but explicit timing kwargs have priority."""
-        kwargs = {}
-        if tick_duration is not None:
-            kwargs["tick_duration"] = tick_duration
-        if auto_reset is not None:
-            kwargs["auto_reset"] = auto_reset
-
+        """Public timesteps/auto_reset map to internal core tick parameters."""
         sample_input = make_img_3ch_8x8()
         graph = compile_to_paiir(ANNClassifier(), sample_input, **kwargs)
 
@@ -802,12 +794,18 @@ class TestTickParams:
             assert node.core_params.tick_duration == expected_duration
             assert node.core_params.tick_initial == expected_initial
 
+    @pytest.mark.parametrize("timesteps", [0, -1], ids=["zero", "negative"])
+    def test_invalid_timesteps_raises(self, timesteps):
+        """compile_to_paiir rejects non-positive public timesteps."""
+        with pytest.raises(ValueError, match="timesteps.*positive"):
+            compile_to_paiir(ANNClassifier(), make_img_3ch_8x8(), timesteps=timesteps)
+
 
 class TestCompileConfig:
     """CompileConfig and parameter precedence."""
 
     def test_config_applies(self):
-        config = CompileConfig(tick_duration=50, auto_reset=False)
+        config = CompileConfig(timesteps=50, auto_reset=False)
         sample_input = make_img_3ch_8x8()
         graph = compile_to_paiir(ANNClassifier(), sample_input, compile_config=config)
 
@@ -817,19 +815,34 @@ class TestCompileConfig:
 
     def test_explicit_kwarg_overrides_config(self):
 
-        config = CompileConfig(tick_duration=50, auto_reset=False)
+        config = CompileConfig(timesteps=50, auto_reset=False)
         sample_input = make_img_3ch_8x8()
         graph = compile_to_paiir(
             ANNClassifier(),
             sample_input,
-            tick_duration=100,
+            timesteps=100,
             auto_reset=True,
             compile_config=config,
         )
 
         for node in offline_nodes(graph):
-            assert node.core_params.tick_duration == 100
+            assert node.core_params.tick_duration == 0
             assert node.core_params.tick_initial == 100
+
+    def test_explicit_default_timing_kwarg_overrides_config(self):
+        config = CompileConfig(timesteps=50, auto_reset=False)
+        sample_input = make_img_3ch_8x8()
+        graph = compile_to_paiir(
+            ANNClassifier(),
+            sample_input,
+            timesteps=1,
+            auto_reset=True,
+            compile_config=config,
+        )
+
+        for node in offline_nodes(graph):
+            assert node.core_params.tick_duration == 0
+            assert node.core_params.tick_initial == 1
 
 
 class TestStrictMode:

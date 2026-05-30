@@ -783,65 +783,53 @@ class TestAssignTickParams:
         tick_starts = sorted([n.core_params.tick_start for n in seq_nodes])  # type: ignore
         assert tick_starts[0] < tick_starts[1]
 
-    @pytest.mark.parametrize(
-        "tick_duration, expected",
-        [(0, 0), (100, 100)],
-        ids=["default_always_working", "global_override"],
-    )
-    def test_tick_duration(self, fused_snn, tick_duration, expected):
-        """tick_duration: default (0) or graph-level override applied to all nodes."""
-        assign_tick_params(fused_snn, tick_duration=tick_duration)
+    def test_default_timesteps_auto_reset_mapping(self, fused_snn):
+        """Default user timing maps to always-active cores with one-step reset."""
+        assign_tick_params(fused_snn)
 
         for node in fused_snn.nodes.values():
-            if isinstance(node, SequentialOp):
-                assert node.core_params.tick_duration == expected
-
-    def test_ann_tick_duration_and_initial_default_to_one(self, fused_ann):
-        """ANN-mode cores work for one tick and reset by default."""
-        ann_nodes = [
-            node
-            for node in fused_ann.nodes.values()
-            if isinstance(node, OfflineCoreOp)
-            and node.core_params.snn_mode == SNNMode.ANN
-        ]
-        assert ann_nodes
-
-        assign_tick_params(fused_ann)
-
-        for node in ann_nodes:
-            assert node.core_params.tick_duration == 1
-            assert node.core_params.tick_initial == 1
-
-    def test_ann_tick_params_respect_explicit_policy(self, fused_ann):
-        """Explicit global timing policy has priority for ANN cores."""
-        ann_nodes = [
-            node
-            for node in fused_ann.nodes.values()
-            if isinstance(node, OfflineCoreOp)
-            and node.core_params.snn_mode == SNNMode.ANN
-        ]
-        assert ann_nodes
-
-        assign_tick_params(fused_ann, tick_duration=100, auto_reset=False)
-
-        for node in ann_nodes:
-            assert node.core_params.tick_duration == 100
-            assert node.core_params.tick_initial == 0
+            if isinstance(node, OfflineCoreOp):
+                assert node.core_params.tick_duration == 0
+                assert node.core_params.tick_initial == 1
 
     @pytest.mark.parametrize(
-        "tick_duration, auto_reset, expected_initial",
-        [(100, True, 100), (0, True, 0), (100, False, 0)],
-        ids=["reset_with_duration", "reset_always_working", "no_reset"],
+        "graph_fixture", ["fused_snn", "fused_ann"], ids=["snn_mode", "ann_mode"]
     )
-    def test_auto_reset(self, fused_snn, tick_duration, auto_reset, expected_initial):
-        """auto_reset controls tick_initial derivation from tick_duration."""
-        assign_tick_params(
-            fused_snn, tick_duration=tick_duration, auto_reset=auto_reset
-        )
+    @pytest.mark.parametrize(
+        "timesteps, auto_reset, expected_duration, expected_initial",
+        [
+            (1, True, 0, 1),
+            (1, False, 1, 0),
+            (7, True, 0, 7),
+            (7, False, 7, 0),
+        ],
+        ids=[
+            "default_step_auto_reset",
+            "default_step_manual_reset",
+            "multi_step_auto_reset",
+            "multi_step_manual_reset",
+        ],
+    )
+    def test_timesteps_auto_reset_mapping_is_mode_independent(
+        self,
+        request,
+        graph_fixture,
+        timesteps,
+        auto_reset,
+        expected_duration,
+        expected_initial,
+    ):
+        """timesteps/auto_reset maps identically for ANN and SNN mode cores."""
+        graph = request.getfixturevalue(graph_fixture)
+        assign_tick_params(graph, timesteps=timesteps, auto_reset=auto_reset)
 
-        for node in fused_snn.nodes.values():
-            if isinstance(node, SequentialOp):
-                assert node.core_params.tick_initial == expected_initial
+        offline_ops = [
+            node for node in graph.nodes.values() if isinstance(node, OfflineCoreOp)
+        ]
+        assert offline_ops
+        for node in offline_ops:
+            assert node.core_params.tick_duration == expected_duration
+            assert node.core_params.tick_initial == expected_initial
 
     def test_residual_tick_start(self):
         """Residual (AccumulateOp) gets correct tick_start."""
@@ -943,14 +931,25 @@ class TestAssignTickParams:
         assert act.core_params.tick_start == 1
 
     @pytest.mark.parametrize(
-        "tick_duration",
-        [-1],
-        ids=["negative_graph_duration"],
+        "timesteps", [0, -1], ids=["zero_timesteps", "negative_timesteps"]
     )
-    def test_negative_param_raises(self, fused_snn, tick_duration):
-        """Negative global tick parameters raise ValueError immediately."""
-        with pytest.raises(ValueError, match="tick_duration.*non-negative"):
-            assign_tick_params(fused_snn, tick_duration=tick_duration)
+    def test_invalid_timesteps_value_raises(self, fused_snn, timesteps):
+        """Non-positive public timesteps raise before writing core timing."""
+        with pytest.raises(ValueError, match="timesteps.*positive"):
+            assign_tick_params(fused_snn, timesteps=timesteps)
+
+    @pytest.mark.parametrize(
+        "timesteps", [None, True, 1.5], ids=["none", "bool", "float"]
+    )
+    def test_invalid_timesteps_type_raises(self, fused_snn, timesteps):
+        """timesteps must be a real positive integer, not None/bool/float."""
+        with pytest.raises(TypeError, match="timesteps.*positive integer"):
+            assign_tick_params(fused_snn, timesteps=timesteps)
+
+    def test_invalid_auto_reset_type_raises(self, fused_snn):
+        """auto_reset is a required boolean policy when explicitly provided."""
+        with pytest.raises(TypeError, match="auto_reset.*bool"):
+            assign_tick_params(fused_snn, auto_reset=None)
 
     def test_validate_tick_params_unassigned(self):
         """validate_tick_params raises if tick_start is still None."""
