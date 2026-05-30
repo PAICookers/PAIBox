@@ -38,10 +38,15 @@ class Mapper:
         self.timesteps: int = 1
 
     def _resolve_timesteps(self, pai_graph: PAIIRGraph, timesteps: int | None) -> int:
-        """Resolve the application runtime length used by output metadata."""
+        """Resolve the application runtime length used by output metadata.
 
-        def _collect_output_durations() -> set[int]:
-            durations: set[int] = set()
+        Auto-reset graphs export ``tick_duration=0`` and carry the public
+        runtime length in ``tick_initial``, so inference must check
+        ``tick_initial`` before falling back to finite ``tick_duration``.
+        """
+
+        def _collect_output_timesteps() -> set[int]:
+            inferred: set[int] = set()
             visited: set[str] = set()
             pending = [
                 pred_name
@@ -57,20 +62,22 @@ class Mapper:
 
                 node = pai_graph.nodes[name]
                 if isinstance(node, OfflineCoreOp):
-                    tick_duration = node.core_params.tick_duration
-                    if tick_duration > 0:
-                        durations.add(tick_duration)
+                    cp = node.core_params
+                    if cp.tick_initial > 0:
+                        inferred.add(cp.tick_initial)
+                    elif cp.tick_duration > 0:
+                        inferred.add(cp.tick_duration)
                     continue
 
                 pending.extend(pai_graph.predecessors(name))
 
-            return durations
+            return inferred
 
         if timesteps is not None:
             resolved = int(timesteps)
         else:
-            output_durations = _collect_output_durations()
-            resolved = next(iter(output_durations)) if len(output_durations) == 1 else 1
+            output_timesteps = _collect_output_timesteps()
+            resolved = next(iter(output_timesteps)) if len(output_timesteps) == 1 else 1
 
         if resolved <= 0:
             raise ValueError(f"'timesteps' must be positive, got {resolved}.")
@@ -266,8 +273,10 @@ class Mapper:
                 writes 32-bit words as binary literals, while ``"hex"``
                 writes hexadecimal literals.
             timesteps: Application-side inference sequence length. When
-                ``None``, a finite and consistent output ``tick_duration`` is
-                used; otherwise defaults to ``1``.
+                ``None``, a finite and consistent output ``tick_initial`` from
+                automatic-reset graphs is used first; otherwise a finite and
+                consistent output ``tick_duration`` is used. If neither is
+                available, it defaults to ``1``.
             target_platform: Platform-specific artifact set to emit.
                 ``"x86"`` exports ``.npy`` frame arrays, ``"riscv"`` exports
                 C headers, and ``"all"`` exports both. When ``debug=True``,
