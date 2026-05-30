@@ -179,14 +179,14 @@ graph = compile_to_paiir(model, torch.randn(1, 3, 32, 32))
 graph = compile_to_paiir(
     model,
     torch.randn(1, 3, 32, 32),
-    tick_duration=100,       # 每核工作时长（0 = 常开）
-    auto_reset=True,         # 工作周期结束后自动复位神经元状态
+    timesteps=100,           # 一次样本/一次推理的时间步数
+    auto_reset=True,         # 每 100 个有效工作步自动复位神经元状态
 )
 
 # 使用 CompileConfig + 关键字覆盖
 from paibox.paiir import CompileConfig
 
-cfg = CompileConfig(tick_duration=100, auto_reset=True)
+cfg = CompileConfig(timesteps=100, auto_reset=True)
 graph = compile_to_paiir(model, x, compile_config=cfg, strict=False)
 ```
 
@@ -196,8 +196,8 @@ graph = compile_to_paiir(model, x, compile_config=cfg, strict=False)
 | --------------------------------- | ---------------------------------------------- | --------------------------------------------------- |
 | `model`                           | `nn.Module`                                    | PyTorch 模型                                        |
 | `*sample_inputs`                  | `Tensor`                                       | 示例输入（batch_size 必须为 1），用于推断形状和维度 |
-| `tick_duration`                   | `int \| None`                                  | 显式全局工作时长，`0` 表示常开；默认 None           |
-| `auto_reset`                      | `bool \| None`                                 | 显式控制工作周期结束后是否自动复位；默认 None       |
+| `timesteps`                       | `int`                                          | 一次样本/一次推理的时间步数，默认 1，必须为正整数   |
+| `auto_reset`                      | `bool`                                         | 是否按 `timesteps` 自动复位，默认 True              |
 | `input_formats`                   | `dict[str, DataFormat] \| None`                | 按 InputNode 名指定输入数据格式                     |
 | `compile_config`                  | `CompileConfig \| None`                        | 配置对象（关键字参数优先级更高）                    |
 | `concrete_args`                   | `dict[str, Any] \| None`                       | 传递给 `fx.Tracer.trace` 的具体参数                 |
@@ -207,7 +207,7 @@ graph = compile_to_paiir(model, x, compile_config=cfg, strict=False)
 | `enable_delayed_avgpool_division` | `bool \| None`                                 | 是否启用 AvgPool 延迟除法改写，默认开启             |
 | `output_approx`                   | `"default" \| "sum_approx_if_avgpool" \| None` | 输出边界近似策略，默认保持标准策略                  |
 
-`tick_duration=None` / `auto_reset=None` 表示未显式指定时序策略。此时 ANN 模式计算核默认 `tick_duration=1`、`tick_initial=1`，SNN 模式计算核默认 `tick_duration=0`、`tick_initial=0`。通过关键字参数或 `CompileConfig` 显式传入的 `tick_duration` / `auto_reset` 优先于 ANN/SNN 模式默认；关键字参数优先级高于 `CompileConfig`。
+默认 `timesteps=1`、`auto_reset=True`，且当前不按 ANN/SNN mode 区分时序配置。公开参数映射到底层硬件 tick 字段的规则为：`auto_reset=True` 时 `tick_duration=0`、`tick_initial=timesteps`；`auto_reset=False` 时 `tick_duration=timesteps`、`tick_initial=0`。通过关键字参数或 `CompileConfig` 显式传入的 `timesteps` / `auto_reset` 优先于内置默认值；关键字参数优先级高于 `CompileConfig`。
 
 ### 输出边界 AvgPool 近似
 
@@ -270,7 +270,7 @@ propagate_signal_domain(graph)
 propagate_data_format(graph)
 
 # ⑦ 时序参数分配（原地填充 tick_start / tick_duration / tick_initial）
-assign_tick_params(graph, tick_duration=100, auto_reset=True)
+assign_tick_params(graph, timesteps=100, auto_reset=True)
 
 # ⑧ 可选：共享核 AvgPool+LIF 阈值细化
 calibrate_avgpool_thresholds(graph)
@@ -501,7 +501,7 @@ cp.output_width: DataWidth        # 输出位宽
 cp.weight_sign: DataSign          # 权重符号
 cp.weight_width: DataWidth        # 权重位宽
 
-# 时序参数（由 assign_tick_params 填充）
+# 内部硬件时序参数（由 assign_tick_params 从公开 timesteps/auto_reset 映射后填充）
 cp.tick_start: int | None         # 启动时刻（第几个 sync_all）
 cp.tick_duration: int             # 工作时长（0 = 常开）
 cp.tick_initial: int              # 自动复位周期（0 = 不复位）

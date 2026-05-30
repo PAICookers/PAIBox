@@ -97,7 +97,7 @@ class VotingLayerSimulation(nn.Module):
 
 
 def _compile_snn(
-    tick_duration: int = 0,
+    timesteps: int = 1,
     auto_reset: bool = True,
     bias: bool = False,
     bipolar: bool = False,
@@ -105,8 +105,8 @@ def _compile_snn(
     """Compile a single-layer SNN with deterministic weights.
 
     Args:
-        tick_duration: Activity duration for the core. 0 for always active.
-        auto_reset: Whether to auto-reset neuron state.
+        timesteps: Public inference sequence length passed to compile_to_paiir.
+        auto_reset: Whether compiled cores should auto-reset every timesteps.
         bias: Whether to include bias in the conv layer.
         bipolar: If True, use bipolar input spikes {-1, 0, 1}.
     """
@@ -119,7 +119,7 @@ def _compile_snn(
 
     x_compile = torch.randn(1, 3, 8, 8)
     graph = compile_to_paiir(
-        model, x_compile, tick_duration=tick_duration, auto_reset=auto_reset
+        model, x_compile, timesteps=timesteps, auto_reset=auto_reset
     )
     return graph, _make_snn_input(bipolar=bipolar)
 
@@ -178,39 +178,44 @@ class TestTickActivityWindow:
 class TestTickInitial:
     """Tests for tick_initial semantics (state reset behavior)."""
 
-    def test_ann_tick_initial_defaults_to_one(self) -> None:
-        """ANN cores default to tick_initial=1 (stateless per step)."""
+    def test_ann_tick_initial_defaults_to_timesteps(self) -> None:
+        """Default public timing keeps ANN cores active and resets every step."""
         graph, _, _ = _compile_ann()
         for node in find_nodes(graph, OfflineCoreOp):
-            assert node.core_params.tick_duration == 1
+            assert node.core_params.tick_duration == 0
             assert node.core_params.tick_initial == 1
 
-    def test_ann_runs_for_one_tick(self) -> None:
-        """ANN cores are active for one step, then leave the work window."""
+    def test_ann_default_runs_continuously(self) -> None:
+        """Default ANN cores stay active because public auto_reset uses duration 0."""
         graph, x, _ = _compile_ann()
+        offline_ops = find_nodes(graph, OfflineCoreOp)
+        assert offline_ops
 
         out1 = graph.step(x)
         out2 = graph.step(x)
 
         assert torch.is_tensor(out1)
         assert torch.is_tensor(out2)
-        assert torch.all(out2 == 0)
+        for op in offline_ops:
+            assert graph._active_counts[op.name] == 2
 
-    def test_snn_tick_initial_equals_duration_when_auto_reset(self) -> None:
-        """SNN with auto_reset=True has tick_initial=tick_duration."""
-        graph, _ = _compile_snn(tick_duration=4, auto_reset=True)
+    def test_snn_tick_initial_equals_timesteps_when_auto_reset(self) -> None:
+        """auto_reset=True maps timesteps to tick_initial and duration to 0."""
+        graph, _ = _compile_snn(timesteps=4, auto_reset=True)
         seq_ops = find_nodes(graph, SequentialOp)
+        assert seq_ops[0].core_params.tick_duration == 0
         assert seq_ops[0].core_params.tick_initial == 4
 
-    def test_snn_tick_initial_zero_when_no_auto_reset(self) -> None:
-        """SNN with auto_reset=False has tick_initial=0."""
-        graph, _ = _compile_snn(tick_duration=0, auto_reset=False)
+    def test_snn_tick_duration_equals_timesteps_when_no_auto_reset(self) -> None:
+        """auto_reset=False maps timesteps to finite tick_duration."""
+        graph, _ = _compile_snn(timesteps=4, auto_reset=False)
         seq_ops = find_nodes(graph, SequentialOp)
+        assert seq_ops[0].core_params.tick_duration == 4
         assert seq_ops[0].core_params.tick_initial == 0
 
     def test_snn_auto_reset_behavior(self) -> None:
         """SNN neuron state resets after tick_initial active steps."""
-        graph, x = _compile_snn(tick_duration=4, auto_reset=True, bipolar=True)
+        graph, x = _compile_snn(timesteps=4, auto_reset=True, bipolar=True)
         seq_ops = find_nodes(graph, SequentialOp)
         op = seq_ops[0]
 
@@ -224,11 +229,11 @@ class TestTickInitial:
         assert v.abs().sum() > 0
 
         graph.step(x)
-        assert graph._active_counts[op.name] == 4
+        assert graph._active_counts[op.name] == 5
 
     def test_snn_state_accumulates_without_auto_reset(self) -> None:
         """SNN membrane potential accumulates when auto_reset=False."""
-        graph, x = _compile_snn(tick_duration=0, auto_reset=False, bipolar=True)
+        graph, x = _compile_snn(timesteps=8, auto_reset=False, bipolar=True)
         seq_ops = find_nodes(graph, SequentialOp)
         op = seq_ops[0]
 
@@ -245,7 +250,7 @@ class TestSNNSimulation:
 
     def test_voltage_accumulates(self) -> None:
         """Neuron membrane potential changes across steps."""
-        graph, x = _compile_snn(tick_duration=0, auto_reset=False, bipolar=True)
+        graph, x = _compile_snn(timesteps=8, auto_reset=False, bipolar=True)
         seq_ops = find_nodes(graph, SequentialOp)
         op = seq_ops[0]
 
@@ -261,7 +266,7 @@ class TestSNNSimulation:
 
     def test_reset_clears_all_state(self) -> None:
         """graph.reset() clears sim_step, active_counts, and neuron state."""
-        graph, x = _compile_snn(tick_duration=0, auto_reset=False)
+        graph, x = _compile_snn(timesteps=8, auto_reset=False)
         seq_ops = find_nodes(graph, SequentialOp)
         op = seq_ops[0]
         init_v = op.act.init_v

@@ -324,8 +324,8 @@ print("frame_dir:", output_dir)
 | 参数                              | 作用                                                    |
 | --------------------------------- | ------------------------------------------------------- |
 | `*sample_inputs`                  | 示例输入，参与 shape/dims 推断，`batch_size` 必须为 `1` |
-| `tick_duration`                   | 显式全局工作时长，`0` 表示常开；不传则使用模式默认      |
-| `auto_reset`                      | 显式控制工作周期结束后是否自动复位；不传则使用模式默认  |
+| `timesteps`                       | 一次样本/一次推理的时间步数，默认 `1`，必须为正整数     |
+| `auto_reset`                      | 是否按 `timesteps` 自动复位，默认 `True`                |
 | `input_formats`                   | 按 `InputNode` 名称指定输入数据格式                     |
 | `compile_config`                  | 统一承载默认配置                                        |
 | `concrete_args`                   | 固定 FX tracing 时的非 Tensor 参数                      |
@@ -341,7 +341,7 @@ print("frame_dir:", output_dir)
 显式关键字参数 > CompileConfig > 内置默认值
 ```
 
-未显式传入时，ANN 模式计算核导出为单步工作并自动复位，即 `tick_duration=1`、`tick_initial=1`；SNN 模式计算核持续工作且不自动复位，即 `tick_duration=0`、`tick_initial=0`。一旦通过 `compile_to_paiir(...)` 关键字参数或 `CompileConfig` 显式传入 `tick_duration` / `auto_reset`，该显式策略优先于 ANN/SNN 模式默认；`tick_duration=0` 表示持续工作。
+默认 `timesteps=1`、`auto_reset=True`，不区分 ANN/SNN 模式。公开参数会映射到底层计算核 tick 字段：`auto_reset=True` 时导出 `tick_duration=0`、`tick_initial=timesteps`；`auto_reset=False` 时导出 `tick_duration=timesteps`、`tick_initial=0`。公开 API 不使用 `tick_duration=0` 表示推理长度，`tick_duration` 仅作为底层硬件字段出现在导出元数据中。
 
 ### 7.1 多输入模型
 
@@ -613,7 +613,7 @@ mapper.compile(
 - `OutputTensorMapping.tick` 是该输出 tensor 最终实际生产者计算核的时序。
 - `ThreadIOMapping.core_ticks` 按物理计算核列出 `core_offset/tick/nodes`，不包含全局信号空核。
 
-`TickParams.tick_duration=0` 表示持续工作，`tick_duration>0` 表示工作 N 个时间步；`tick_initial=0` 表示不自动复位。若同一个输入或输出 tensor 推导出多个不同 tick，导出阶段会报错，应用侧不应假定可以静默合并。
+`TickParams` 是内部硬件字段语义，不是公开 `timesteps` 参数语义。`TickParams.tick_duration=0` 表示持续工作，`tick_duration>0` 表示工作 N 个时间步；`tick_initial=0` 表示不自动复位。若同一个输入或输出 tensor 推导出多个不同 tick，导出阶段会报错，应用侧不应假定可以静默合并。
 
 ### 9.6 `config.pb` 里的 I/O 数据类型元数据
 

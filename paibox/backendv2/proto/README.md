@@ -207,9 +207,9 @@ message CoreTick {
 
 `CoreOffset` 表示目标 core 的相对偏移；`CopyCount` 表示 AER 多播复制数量。二者都使用 2.5芯片帧格式中的 `XY/X/Y` 三轴概念，但语义不同：`core_offset` 表示目标位置，`copy_count` 表示复制范围。
 
-`TickParams` 对应 2.5 计算核的 `tick_start/tick_duration/tick_initial` 参数。`tick_duration=0` 表示持续工作；`tick_initial=0` 表示不自动复位。`CoreTick.tick` 是该物理计算核的 tick 参数，`CoreTick.nodes` 是部署到同一个物理计算核上的 PAIIR 节点名列表。
+`TickParams` 对应 2.5 计算核的 `tick_start/tick_duration/tick_initial` 内部硬件参数；它不同于前端公开编译参数 `timesteps`。`tick_duration=0` 表示持续工作；`tick_initial=0` 表示不自动复位。`CoreTick.tick` 是该物理计算核的 tick 参数，`CoreTick.nodes` 是部署到同一个物理计算核上的 PAIIR 节点名列表。
 
-`RuntimeParams.timesteps` 是应用推理序列长度；`tick_depth` 是该 thread 输出 producer 的最大 `tick_start`；`sync_steps = tick_depth + timesteps - 1` 是推荐外部同步步数。`sync_steps` 只描述主机视角的同步控制长度，不参与输出层 `target_lcn` 选择；输出层 `target_lcn` 由实际输出 axon 地址容量反推，优先保留更多本地 timestep 位。输出帧中的 timestep 是输出层本地运行时步。`decode_mode=STREAM` 表示最终 `target_lcn` 的 timestep 位宽可区分运行时步；`STEP` 表示需要应用分步推理、分步解码，或只能进行 warning 级 best-effort 序列解码。
+`RuntimeParams.timesteps` 是应用推理序列长度。后端未显式接收 `Mapper.compile(..., timesteps=...)` 时，会优先从自动复位图的 `tick_initial` 推导；不能在 `auto_reset=True` 场景依赖 `tick_duration>0` 推导运行长度。`tick_depth` 是该 thread 输出 producer 的最大 `tick_start`；`sync_steps = tick_depth + timesteps - 1` 是推荐外部同步步数。`sync_steps` 只描述主机视角的同步控制长度，不参与输出层 `target_lcn` 选择；输出层 `target_lcn` 由实际输出 axon 地址容量反推，优先保留更多本地 timestep 位。输出帧中的 timestep 是输出层本地运行时步。`decode_mode=STREAM` 表示最终 `target_lcn` 的 timestep 位宽可区分运行时步；`STEP` 表示需要应用分步推理、分步解码，或只能进行 warning 级 best-effort 序列解码。
 
 `DataType.Code` 描述普通 DATA payload 的码字类型。`UINT*` / `INT*` 中的数字表示逻辑位宽；`INT*` 按 two's complement 解释。`NOT_SET` 只作为默认值，应用侧不应把它当成有效 DATA 类型。`VOLTAGE` 输出不设置 `dtype`，固定按 `int32` 膜电平解释。
 

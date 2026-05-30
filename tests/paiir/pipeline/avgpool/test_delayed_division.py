@@ -161,22 +161,23 @@ def _reset_stateful_modules(model: nn.Module) -> None:
 def _compile_graph(
     model: nn.Module,
     sample_input: torch.Tensor,
-    tick_duration: int | None = None,
-    auto_reset: bool | None = None,
+    timesteps: int = 1,
+    auto_reset: bool = True,
     **kwargs,
 ):
     return compile_to_paiir(
         model.eval(),
         sample_input.to(torch.float32),
-        tick_duration=tick_duration,
+        timesteps=timesteps,
         auto_reset=auto_reset,
         **kwargs,
     )
 
 
 def _run_and_compare(model: nn.Module, sample_input: torch.Tensor, **kwargs) -> None:
-    # These tests compare operator values, so keep all ANN cores continuously active.
-    graph = _compile_graph(model, sample_input, tick_duration=0, auto_reset=False)
+    # These tests compare operator values, so use the default continuously active
+    # auto-reset policy for compiled cores.
+    graph = _compile_graph(model, sample_input)
     _reset_stateful_modules(model)
     graph.reset()
 

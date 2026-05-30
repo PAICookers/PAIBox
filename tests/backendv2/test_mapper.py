@@ -418,7 +418,7 @@ def test_output_lcn_uses_timesteps_not_external_sync_steps(
         "output_lcn_uses_timesteps",
         ANNClassifier(),
         make_img_3ch_8x8(),
-        tick_duration=1,
+        timesteps=1,
         auto_reset=False,
     )
 
@@ -459,7 +459,7 @@ def test_export_proto_exports_ann_io_ticks_and_core_ticks(
     assert thread.runtime.sync_steps == expected_tick_depth
     assert thread.runtime.decode_mode == RuntimeParams.STREAM
     _assert_core_ticks_match_mapper(thread, mapper)
-    _assert_thread_tick_duration_initial(thread, (1, 1))
+    _assert_thread_tick_duration_initial(thread, (0, 1))
 
 
 def test_export_proto_exports_explicit_ann_tick_policy(
@@ -470,7 +470,7 @@ def test_export_proto_exports_explicit_ann_tick_policy(
         "ann_explicit_tick_metadata",
         ANNClassifier(),
         make_img_3ch_8x8(),
-        tick_duration=6,
+        timesteps=6,
         auto_reset=False,
     )
 
@@ -495,7 +495,13 @@ def test_mapper_rejects_timesteps_exceeding_finite_tick_duration(
         shutil.rmtree(export_dir)
     export_dir.mkdir(parents=True, exist_ok=True)
 
-    graph = compile_to_paiir(ANNClassifier().eval(), make_img_3ch_8x8(), strict=True)
+    graph = compile_to_paiir(
+        ANNClassifier().eval(),
+        make_img_3ch_8x8(),
+        strict=True,
+        timesteps=1,
+        auto_reset=False,
+    )
     mapper = Mapper()
 
     with pytest.raises(ValueError, match="exceeds finite tick_duration"):
@@ -584,38 +590,36 @@ def test_export_proto_exports_input_dtype_from_consumer_format(
 
 
 @pytest.mark.parametrize(
-    ("tick_duration", "auto_reset", "expected_initial"),
-    [(7, True, 7), (7, False, 0), (0, True, 0)],
-    ids=["finite_reset", "finite_no_reset", "always_on"],
+    ("timesteps", "auto_reset", "expected_tick"),
+    [(7, True, (0, 7)), (7, False, (7, 0))],
+    ids=["auto_reset", "manual_reset"],
 )
 def test_export_proto_exports_snn_tick_policy(
-    ensure_backendv2_debug_dir, tick_duration, auto_reset, expected_initial
+    ensure_backendv2_debug_dir, timesteps, auto_reset, expected_tick
 ):
     pb_path, output_source_names, mapper = _export_graph_proto_with_context(
         ensure_backendv2_debug_dir,
-        f"snn_tick_metadata_{tick_duration}_{auto_reset}",
+        f"snn_tick_metadata_{timesteps}_{auto_reset}",
         SNNTwoLayer(),
         make_img_3ch_8x8(),
-        tick_duration=tick_duration,
+        timesteps=timesteps,
         auto_reset=auto_reset,
     )
 
     artifacts = _load_compile_artifacts(pb_path)
     thread = artifacts.io_mapping.threads[0]
-    expected = (tick_duration, expected_initial)
 
     assert {mapping.name for mapping in thread.output_mappings.items} == (
         output_source_names
     )
-    expected_timesteps = tick_duration if tick_duration > 0 else 1
     expected_tick_depth = max(
         mapping.tick.tick_start for mapping in thread.output_mappings.items
     )
-    assert thread.runtime.timesteps == expected_timesteps
+    assert thread.runtime.timesteps == timesteps
     assert thread.runtime.tick_depth == expected_tick_depth
-    assert thread.runtime.sync_steps == expected_tick_depth + expected_timesteps - 1
+    assert thread.runtime.sync_steps == expected_tick_depth + timesteps - 1
     _assert_core_ticks_match_mapper(thread, mapper)
-    _assert_thread_tick_duration_initial(thread, expected)
+    _assert_thread_tick_duration_initial(thread, expected_tick)
 
 
 def test_export_artifacts_all_platforms_when_requested(ensure_backendv2_debug_dir):
