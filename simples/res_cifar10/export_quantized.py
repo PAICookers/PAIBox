@@ -24,7 +24,7 @@ from torch.ao.quantization.quantize_fx import fuse_fx, prepare_fx
 from torch.utils.data import DataLoader
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-REPO_ROOT = os.path.abspath(os.path.join(BASE_DIR, "..", "..", ".."))
+REPO_ROOT = os.path.abspath(os.path.join(BASE_DIR, "..", ".."))
 for path in (REPO_ROOT, BASE_DIR):
     if path not in sys.path:
         sys.path.insert(0, path)
@@ -151,6 +151,46 @@ def load_fp32_model() -> ResNetCIFAR10:
     return model
 
 
+def weight_tensor_for_display(module: nn.Module) -> tuple[str, torch.Tensor] | None:
+    if hasattr(module, "weight_q"):
+        return "weight_q", module.weight_q
+
+    weight_owner = module
+    if isinstance(module, nn.Sequential) and len(module) > 0:
+        weight_owner = module[0]
+
+    if not hasattr(weight_owner, "weight"):
+        return None
+
+    weight = weight_owner.weight
+    if callable(weight):
+        weight = weight()
+    return "weight", weight
+
+
+def print_graph_weights(model: torch.fx.GraphModule, title: str) -> None:
+    print(title)
+    found = False
+    for node in model.graph.nodes:
+        if node.op != "call_module" or not isinstance(node.target, str):
+            continue
+
+        module = model.get_submodule(node.target)
+        result = weight_tensor_for_display(module)
+        if result is None:
+            continue
+
+        weight_name, weight = result
+        print(
+            f"  {node.target}: {type(module).__name__}.{weight_name} "
+            f"dtype={weight.dtype}, shape={tuple(weight.shape)}"
+        )
+        found = True
+
+    if not found:
+        print("  <none>")
+
+
 def main() -> None:
     device = torch.device("cpu")
     symmetric = True
@@ -183,6 +223,8 @@ def main() -> None:
                 break
             calibration_batches.append(images.cpu())
             prepared_model(images.to(device))
+
+    print_graph_weights(prepared_model, "prepared weights")
 
     print("[5] 转换为量化模型")
     quantized_model = convert_fx_to_manual(

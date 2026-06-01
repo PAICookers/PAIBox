@@ -14,9 +14,10 @@ from .graph_analysis import (
     find_prev_observer_params,
     get_weight_qparams,
 )
-from .graph_passes import AddReluResidualFusionPass
 from .ops import ManualQuantConvReLU2d, ManualQuantLinear, ManualQuantConv2d, ManualQuantLinearReLU
+from .ops import ManualIntAddResidual
 from .summary import collect_quantized_layer_records, export_quantized_model_summary
+
 
 class FxGraphConverter:
     """
@@ -28,7 +29,8 @@ class FxGraphConverter:
         self.original_model = prepared_model
         # Use deepcopy to avoid modifying the original prepared model during conversion
         self.model = copy.deepcopy(prepared_model)
-        self.modules = cast(Dict[str, nn.Module], dict(self.model.named_modules()))
+        self.modules = cast(Dict[str, nn.Module],
+                            dict(self.model.named_modules()))
 
         self.activation_symmetric = activation_symmetric
 
@@ -41,6 +43,7 @@ class FxGraphConverter:
 
     def _register_default_handlers(self):
         self.register_handler(nni.ConvReLU2d, self._handle_convrelu2d)
+        self.register_handler(nni.ConvAddReLU2d, self._handle_convaddrelu2d)
         self.register_handler(nni.LinearReLU, self._handle_linearrelu)
         self.register_handler(nn.Linear, self._handle_linear)
         self.register_handler(nn.Conv2d, self._handle_conv2d)
@@ -51,7 +54,8 @@ class FxGraphConverter:
 
     def _collect_calibration_stats(self):
         """Collect scale/zp from all observer nodes in the graph."""
-        self.obs_params = collect_observer_qparams(self.model, self.activation_symmetric)
+        self.obs_params = collect_observer_qparams(
+            self.model, self.activation_symmetric)
 
     def _find_next_observer_params(self, node) -> Tuple[float, int]:
         """Find the output scale/zp by looking ahead in the graph."""
@@ -117,6 +121,44 @@ class FxGraphConverter:
             target_mod=getattr(mod, '0', mod),
         )
 
+    def _handle_convaddrelu2d(self, node, mod):
+        """Handler for backend-fused ConvAddReLU2d residual nodes."""
+        conv = getattr(mod, "0", mod)
+        s_in, z_in = self._find_prev_observer_params(node)
+        s_out, z_out = self._find_next_observer_params(node)
+        s_w, z_w = self._get_weight_qparams(conv)
+
+        shortcut_node = node.args[1] if len(node.args) > 1 else None
+        x_scale, x_zp = (
+            find_prev_observer_params(shortcut_node, self.obs_params)
+            if isinstance(shortcut_node, torch.fx.Node)
+            else (1.0, 0)
+        )
+        conv_out_scale = s_in * s_w
+
+        print(f"[{node.name}] (ConvAddReLU2d)")
+        print(f"  Shortcut Input : scale={x_scale:.6f}, zp={x_zp}")
+        print(f"  Conv Input     : scale={s_in:.6f}, zp={z_in}")
+        print(f"  Conv Weight    : scale={s_w:.6f}, zp={z_w}")
+        print(f"  Output         : scale={s_out:.6f}, zp={z_out}")
+
+        new_mod = ManualIntAddResidual(
+            original_conv2=conv,
+            y_in_scale=s_in,
+            y_in_zp=z_in,
+            w_scale=s_w,
+            w_zp=z_w,
+            conv2_out_scale=conv_out_scale,
+            out_scale=s_out,
+            out_zp=z_out,
+            x_scale=x_scale,
+            x_zp=x_zp,
+            activation_symmetric=self.activation_symmetric,
+        )
+
+        new_target = f"mq_{node.name}"
+        self.model.add_module(new_target, new_mod)
+        node.target = new_target
 
     def _handle_conv2d(self, node, mod):
         """Handler for standalone Conv2d nodes."""
@@ -127,15 +169,6 @@ class FxGraphConverter:
             "Conv2d",
             show_module_type=True,
         )
-
-    def _replace_add_relu(self):
-        fusion_pass = AddReluResidualFusionPass(
-            self.model,
-            self.modules,
-            self.obs_params,
-            activation_symmetric=self.activation_symmetric,
-        )
-        fusion_pass.run()
 
     def _cleanup_graph(self):
         """Remove observers."""
@@ -158,8 +191,6 @@ class FxGraphConverter:
     def convert(self):
         """Execute the conversion process."""
         self._collect_calibration_stats()
-
-        self._replace_add_relu()
 
         # Iterate over a copy of nodes to allow modification
         for node in list(self.model.graph.nodes):

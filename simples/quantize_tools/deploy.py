@@ -312,8 +312,8 @@ class DeployResidualAdd(nn.Module):
         self.x_scale = manual_module.x_scale
         self.x_zp = manual_module.x_zp
 
-    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        return self.act(x + self.conv(y))
+    def forward(self, y: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+        return self.act(self.conv(y) + x)
 
 
 def _convert_manual_module(module: nn.Module) -> nn.Module:

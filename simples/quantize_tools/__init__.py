@@ -27,3 +27,8 @@ from .deploy import (
 )
 
 from .exporter import export_manual_model_params
+
+from .custom_backend import (
+    build_bked_backend_config,
+    build_bked_qconfig_mapping,
+)

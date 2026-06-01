@@ -297,7 +297,7 @@ class ManualIntAddResidual(nn.Module):
             self.lut = LutReLU(
                 min_val=-5, max_val=lut_scale*255, output_sign=0)
 
-    def forward(self, x, y):
+    def forward(self, y, x):
         from .utils import approximate_scale_ratio
 
         # shortcut 分支: 先转到本分支的量化整型域，再重标定到 accumulator 域
