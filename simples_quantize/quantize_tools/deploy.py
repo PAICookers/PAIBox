@@ -14,7 +14,7 @@ from paibox.paiir.ir.lut_activation import LutLinear, LutReLU, LutReLUSymmetric
 
 from .converter import convert_fx_to_manual
 from .ops import (
-    ManualIntAddResidual,
+    ManualConvAddReLU2d,
     ManualQuantConv2d,
     ManualQuantConvReLU2d,
     ManualQuantLinear,
@@ -293,10 +293,10 @@ def _make_linear_relu_block(
     )
 
 
-class DeployResidualAdd(nn.Module):
+class DeployConvAddReLU2d(nn.Module):
     """Standard residual block that keeps the add path traceable for PAIIR."""
 
-    def __init__(self, manual_module: ManualIntAddResidual) -> None:
+    def __init__(self, manual_module: ManualConvAddReLU2d) -> None:
         super().__init__()
         self.conv = _make_conv2d_like(manual_module.conv)
         self.act = _build_deploy_lut_relu(
@@ -317,8 +317,8 @@ class DeployResidualAdd(nn.Module):
 
 
 def _convert_manual_module(module: nn.Module) -> nn.Module:
-    if isinstance(module, ManualIntAddResidual):
-        return DeployResidualAdd(module)
+    if isinstance(module, ManualConvAddReLU2d):
+        return DeployConvAddReLU2d(module)
 
     if isinstance(module, ManualQuantConvReLU2d):
         return _make_conv_relu_block(module)

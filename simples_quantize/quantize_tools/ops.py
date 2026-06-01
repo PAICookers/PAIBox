@@ -146,13 +146,12 @@ class ManualQuantLinear(nn.Module):
 
         self.weight_q = quantize_to_int(
             original_module.weight, s_w, z_w, -128, 127, torch.int8)
-        
+
         s_accum = s_in * s_w
         lut_scale = s_out / s_accum if s_accum != 0 else 0
 
         self.lut = LutLinear(min_val=-lut_scale*128,
                              max_val=lut_scale*127, output_sign=1)
-        
 
     def forward(self, x):
         if x.dtype == torch.float32:
@@ -167,7 +166,6 @@ class ManualQuantLinear(nn.Module):
             x, self.weight_q, self.s_in, self.s_w, self.z_in, self.z_w, self.bias_val
         )
 
-        
         out_float = out_acc * out_scale
         return out_float
 
@@ -266,7 +264,7 @@ class ManualQuantConv2d(nn.Module):
         return out_q
 
 
-class ManualIntAddResidual(nn.Module):
+class ManualConvAddReLU2d(nn.Module):
     """
     通用的纯 INT 加法层(含卷积)，自动接管 conv2 的权重和各种量化尺度。
     """

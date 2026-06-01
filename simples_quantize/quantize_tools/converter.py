@@ -15,7 +15,7 @@ from .graph_analysis import (
     get_weight_qparams,
 )
 from .ops import ManualQuantConvReLU2d, ManualQuantLinear, ManualQuantConv2d, ManualQuantLinearReLU
-from .ops import ManualIntAddResidual
+from .ops import ManualConvAddReLU2d
 from .summary import collect_quantized_layer_records, export_quantized_model_summary
 
 
@@ -142,7 +142,7 @@ class FxGraphConverter:
         print(f"  Conv Weight    : scale={s_w:.6f}, zp={z_w}")
         print(f"  Output         : scale={s_out:.6f}, zp={z_out}")
 
-        new_mod = ManualIntAddResidual(
+        new_mod = ManualConvAddReLU2d(
             original_conv2=conv,
             y_in_scale=s_in,
             y_in_zp=z_in,

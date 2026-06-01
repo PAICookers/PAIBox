@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, cast
 import torch
 import torch.nn as nn
 
-from .ops import ManualIntAddResidual
+from .ops import ManualConvAddReLU2d
 
 
 def _to_python_scalar(value):
@@ -39,8 +39,9 @@ def _qparam_pair(scale, zero_point):
     }
 
 
-def _approximation_payload(module: ManualIntAddResidual):
-    approximation = cast(Optional[Dict[str, Any]], getattr(module, "approximation", None))
+def _approximation_payload(module: ManualConvAddReLU2d):
+    approximation = cast(Optional[Dict[str, Any]],
+                         getattr(module, "approximation", None))
     if approximation is None:
         return None
 
@@ -63,7 +64,7 @@ def _collect_node_quant_record(name: str, module: nn.Module) -> Optional[Dict[st
             "output": _qparam_pair(module.s_out, module.z_out),
         }
 
-    if isinstance(module, ManualIntAddResidual):
+    if isinstance(module, ManualConvAddReLU2d):
         record = {
             "name": name,
             "type": type(module).__name__,
